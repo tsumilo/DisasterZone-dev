@@ -11,6 +11,8 @@
 -- changed. A changed reason spreads like a void (the greater rts wins) and is part of the digest only once
 -- changed, so entries whose reason was never edited digest exactly like CDLoot 0.5's. Offspec / disenchant /
 -- guild bank awards don't count as loot received, and disenchant / bank awards don't mark the item awarded.
+-- Raid log (Addendum I §49): optional rid = the raid session the award was made in (every council client in the raid
+-- knows the same session). Not part of the digest; a peer's rid fills in a missing one.
 local addonName, ns = ...
 
 local Ledger = ns:NewModule("Ledger")
@@ -126,6 +128,12 @@ end
 local function DungeonContext()
     return (Util.IsDungeonModeActive and Util.IsDungeonModeActive() and Util.InPartyInstance
         and Util.InPartyInstance()) and true or false
+end
+
+-- rid of a new entry: the raid session running now (Addendum I), else nil.
+local function CurrentRaidID()
+    local RL = ns.RaidLog
+    return RL and RL.GetCurrentID and RL:GetCurrentID() or nil
 end
 
 -- dg field of a new entry: an explicit true / false from the caller, else the current context.
@@ -291,6 +299,7 @@ local function Clean(e)
     if e.vts ~= nil and not IsInt(e.vts, 0, MAX_TS) then return nil, "bad void ts" end
     if e.dg ~= nil and type(e.dg) ~= "boolean" then return nil, "bad dungeon flag" end
     if e.rts ~= nil and not IsInt(e.rts, 0, MAX_TS) then return nil, "bad reason ts" end
+    if e.rid ~= nil and not (IsStr(e.rid, MAX_ID_LEN) and not e.rid:find("[%c|]")) then return nil, "bad raid id" end
     if e.w:find("[%c|]") or e.by:find("[%c|]") then return nil, "bad names" end
     local w = Util.NormalizeName(e.w)
     local by = Util.NormalizeName(e.by)
@@ -310,6 +319,7 @@ local function Clean(e)
         dg = e.dg and true or nil,                      -- 5-man dungeon loot (Addendum B)
         r = CleanReason(e.r),                           -- award reason (Addendum G)
         rts = e.rts,
+        rid = e.rid,                                    -- raid session (Addendum I)
         g = IsStr(e.g, MAX_GUILD_LEN) and e.g or nil,   -- local guild tag (Merge replaces it)
     }
 end
@@ -488,6 +498,7 @@ function Ledger:RecordAuto(itemID, winnerKey, bossKey, dg)
     local entry = {
         id = id, i = itemID, w = winnerKey, ts = ts, by = me, s = "a",
         b = IsStr(bossKey, MAX_ID_LEN, true) and bossKey or "", g = gkey or nil, dg = DgFlag(dg),
+        rid = CurrentRaidID(),
     }
     db[id] = entry
     Invalidate()
@@ -534,6 +545,7 @@ function Ledger:Award(itemID, winnerKey, bossKey, note, dg, reason)
         g = gkey or nil,
         dg = DgFlag(dg),
         r = ns.AWARD_REASON[reason] and reason or nil,
+        rid = not demo and CurrentRaidID() or nil,
     }
     db[id] = entry
     Invalidate()
@@ -586,6 +598,7 @@ function Ledger:RecordRollAward(sessionID, itemID, winnerKey, bossKey, note, byK
     local entry = {
         id = id, i = itemID, w = winnerKey, ts = ts, by = byKey, s = "m", n = note,
         b = IsStr(bossKey, MAX_ID_LEN, true) and bossKey or "", g = gkey or nil, dg = DgFlag(dg), r = reason,
+        rid = CurrentRaidID(),
     }
     db[id] = entry
     Invalidate()
@@ -763,6 +776,10 @@ function Ledger:Merge(entry, fromKey)
     local changed = false
     if e.dg and not cur.dg then
         cur.dg = true
+        changed = true
+    end
+    if e.rid and not cur.rid then
+        cur.rid = e.rid
         changed = true
     end
     local cv, ev = cur.vts or 0, e.vts or 0
@@ -1126,7 +1143,7 @@ function Ledger:OnInit()
     ns:On("CONFIG_UPDATED", function() TryPurge(false) end)
 end
 
-local ENTRY_FIELDS = { "id", "i", "w", "b", "ts", "by", "s", "n", "vd", "vts", "dg", "r", "rts", "g" }
+local ENTRY_FIELDS = { "id", "i", "w", "b", "ts", "by", "s", "n", "vd", "vts", "dg", "r", "rts", "rid", "g" }
 
 -- A stored entry equals its Clean() copy (no extra fields, same values).
 local function SameEntry(a, b)

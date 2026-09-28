@@ -18,6 +18,7 @@ EXPECTED_SETTINGS = {
     "dungeon": {"enabled": False, "quality": 3},   # Addendum B §22.1
     # Addendum F §35: the item picker's Sources (default Raids + 5-man dungeons)
     "pickerSources": {"raids": True, "dungeons": True, "crafted": False, "rep": False, "badges": False, "pvp": False},
+    "raidlog": {"keepDays": 365},
     "debug": False,
     "windows": {},
 }
@@ -67,7 +68,7 @@ def fresh_boot_defaults_and_globals():
     db = c.eval_py("return CDLootDB")
     assert db["schema"] == 1, db.get("schema")
     assert db["settings"] == EXPECTED_SETTINGS, db["settings"]
-    for k in ("lists", "ledger", "peers", "dropHistory"):
+    for k in ("lists", "ledger", "peers", "dropHistory", "raids"):
         assert db[k] == {}, (k, db[k])
     assert "viewPhase" not in db["settings"]
     me = db["chars"]["Alice-Thunderstrike"]

@@ -18,6 +18,11 @@
 -- locked; raids only). While locked, BiS refuses edits and council clients watch incoming lists (Store). The
 -- lock ends on unlock, when the group disbands or when the authority changes (its rules are cleared).
 -- BIS_LOCK_CHANGED(locked) fires whenever GroupRules:IsLocked() changes.
+--
+-- Addendum I §48: the authority can run a raid session (GS rs = session id, rsAt = its start time; raids only).
+-- Starting one also locks the BiS lists, ending it unlocks them. Unlike a bare lock, a running session survives a
+-- change of authority: the new authority adopts the session (and its lock) it saw from the old one, so control
+-- follows the group. RaidLog (Core/RaidLog.lua) records the session.
 local addonName, ns = ...
 
 local GroupRules = {}
@@ -50,6 +55,7 @@ local EVAL_DELAY = 0.5         -- re-evaluation after roster / loot method / cou
 local MAX_RULES_REV = 2147483647
 local MAX_LOCK_AGE = 12 * 3600 -- a saved lock older than this is not restored after a /reload
 local LOCK_ANNOUNCE = "CDLoot: BiS lists are locked for this raid."
+local MAX_SESSION_ID = 64
 
 ---------------------------------------------------------------------------
 -- State (one "group session" = from joining a group until leaving it)
@@ -69,6 +75,8 @@ local memo                     -- { t = GetTime(), auth=, pos=, list= }
 local setupDone = false
 local myLock                   -- { at = serverTime } while I am the raid's authority and locked the lists
 local lastLocked = false       -- GroupRules:IsLocked() as last announced with BIS_LOCK_CHANGED
+local mySession                -- { id=, at= } while I am the raid's authority and run a raid session (Addendum I)
+local seenSession              -- { id=, at=, by=, lkAt= } the session last seen from any authority in this raid
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -234,9 +242,15 @@ local function MyValues()
     }
     if not IsInRaid() then
         v.dm = Setting("dungeon.enabled") == true   -- dungeon mode: parties only
-    elseif myLock then
-        v.lk = true                                 -- Addendum F §38: BiS lists locked (raids only)
-        v.lkAt = myLock.at
+    else
+        if myLock then
+            v.lk = true                             -- Addendum F §38: BiS lists locked (raids only)
+            v.lkAt = myLock.at
+        end
+        if mySession then
+            v.rs = mySession.id                     -- Addendum I §48: raid session
+            v.rsAt = mySession.at
+        end
     end
     return v
 end
@@ -259,7 +273,13 @@ local function ValidateRules(msg)
     if not (lk and type(lkAt) == "number" and lkAt == floor(lkAt) and lkAt > 0 and lkAt <= MAX_RULES_REV) then
         lkAt = nil
     end
-    return { rd = rd, q = q, dq = dq, dm = dm, ph = ph, lk = lk, lkAt = lkAt }, rev
+    -- Addendum I §48: the raid session is optional too; a malformed one is dropped.
+    local rs, rsAt = msg.rs, msg.rsAt
+    if not (type(rs) == "string" and rs ~= "" and #rs <= MAX_SESSION_ID and not rs:find("[%c|]")
+            and type(rsAt) == "number" and rsAt == floor(rsAt) and rsAt > 0 and rsAt <= MAX_RULES_REV) then
+        rs, rsAt = nil, nil
+    end
+    return { rd = rd, q = q, dq = dq, dm = dm, ph = ph, lk = lk, lkAt = lkAt, rs = rs, rsAt = rsAt }, rev
 end
 
 ---------------------------------------------------------------------------
@@ -308,6 +328,8 @@ local function StatusSignature()
     local auth = IsInGroup() and Resolve() or nil
     parts[#parts + 1] = tostring(auth)
     parts[#parts + 1] = tostring(GroupRules:IsLocked())
+    local sess = GroupRules:GetSession()
+    parts[#parts + 1] = sess and sess.id or "-"
     return tconcat(parts, "|")
 end
 
@@ -330,7 +352,25 @@ local function CheckLock()
     ns:Fire("BIS_LOCK_CHANGED", locked)
 end
 
+-- Remembers the session the authority runs (for adoption by a later authority); forgets it when the authority
+-- ends it.
+local function TrackSession()
+    if not IsInRaid() then
+        seenSession = nil
+        return
+    end
+    if GroupRules:GetStatus() == "own" then return end   -- no authority rules right now: nothing to learn
+    local s = GroupRules:GetSession()
+    if s then
+        local lock = GroupRules:GetLockInfo()
+        seenSession = { id = s.id, at = s.at, by = s.by, lkAt = lock and lock.at or nil }
+    else
+        seenSession = nil
+    end
+end
+
 local function Changed()
+    TrackSession()
     local sig = StatusSignature()
     if sig ~= lastSig then
         lastSig = sig
@@ -389,6 +429,7 @@ local function ResetSession()
     rulesRev = 0
     wasAuthority = false
     groupKind = nil
+    mySession, seenSession = nil, nil
     DropLock()   -- the group is gone: so is its lock
     Util.CancelDebounce("cdl-gr-announce")
     Util.CancelDebounce("cdl-gr-query")
@@ -417,8 +458,28 @@ local function Evaluate()
             local at = SavedLockAt()
             if at then myLock = { at = at } end
         end
-    elseif myLock then
-        DropLock()   -- lost the authority, or the raid became a party: the lock ends
+        -- Addendum I §48: a running raid session (and its lock) passes to me as the new authority: the one the
+        -- old authority announced, else the one my raid log still has open (after my own /reload).
+        if not mySession then
+            local adopt = seenSession
+            if not adopt then
+                local RL = ns.RaidLog
+                local open = RL and RL.GetResumable and RL:GetResumable()
+                if open then adopt = { id = open.id, at = open.start } end
+            end
+            if adopt then
+                mySession = { id = adopt.id, at = adopt.at }
+                if not myLock and adopt.lkAt then
+                    myLock = { at = adopt.lkAt }
+                    SaveLock()
+                end
+            end
+        end
+    else
+        if myLock then
+            DropLock()   -- lost the authority, or the raid became a party: the lock ends
+        end
+        mySession = nil  -- (a raid session carries on with the next authority)
     end
     if mine then
         active = nil
@@ -486,6 +547,7 @@ local function OnRules(sender, msg, dist)
     local first = not active or active.from ~= sender
     -- Addendum F §38: a lock only counts in a raid; without lkAt the time it was first seen stands in.
     if values.lk and dist ~= "RAID" then values.lk = nil end
+    if values.rs and dist ~= "RAID" then values.rs, values.rsAt = nil, nil end
     if not values.lk then
         values.lkAt = nil
     elseif not values.lkAt then
@@ -566,7 +628,8 @@ function GroupRules:GetActive()
     if not active or not IsInGroup() then return nil end
     local v = active.values
     return { from = active.from, rev = active.rev, at = active.at,
-        values = { rd = v.rd, q = v.q, dq = v.dq, dm = v.dm, ph = v.ph, lk = v.lk, lkAt = v.lkAt } }
+        values = { rd = v.rd, q = v.q, dq = v.dq, dm = v.dm, ph = v.ph, lk = v.lk, lkAt = v.lkAt, rs = v.rs,
+            rsAt = v.rsAt } }
 end
 
 ---------------------------------------------------------------------------
@@ -605,6 +668,59 @@ function GroupRules:SetLocked(locked)
     wasAuthority = true   -- this GS is the announcement
     Changed()
     if locked and Setting("roll.announce") ~= false then
+        local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+        if send then pcall(send, LOCK_ANNOUNCE, "RAID") end
+    end
+    return true
+end
+
+---------------------------------------------------------------------------
+-- Raid session (Addendum I §48)
+---------------------------------------------------------------------------
+
+-- { id, at, by } of the raid session the authority runs, or nil (none, not in a raid, or no authority rules yet).
+function GroupRules:GetSession()
+    if not IsInRaid() then return nil end
+    if AmAuthority() then
+        return mySession and { id = mySession.id, at = mySession.at, by = Util.PlayerKey() } or nil
+    end
+    if active and active.values.rs then
+        return { id = active.values.rs, at = active.values.rsAt, by = active.from }
+    end
+    return nil
+end
+
+-- Starts (on = true) or ends the raid session. Only the raid's loot authority can: returns ok, err. Starting
+-- also locks the BiS lists (with the usual raid chat line); ending unlocks them. startAt (optional): an earlier
+-- start time (a session started late, e.g. from the boss pull prompt).
+function GroupRules:SetSession(on, startAt)
+    on = on and true or false
+    if not IsInRaid() then return false, "a raid session can only run in a raid." end
+    Invalidate()
+    if not AmAuthority() then
+        return false, "only the raid leader (the raid's loot authority) can start or end the raid."
+    end
+    if on == (mySession ~= nil) then return true end
+    local announce = false
+    if on then
+        local now = GetServerTime()
+        local at = tonumber(startAt)
+        if not at or at > now or at < now - MAX_LOCK_AGE then at = now end
+        at = floor(at)
+        mySession = { id = ((Util.PlayerKey() or "?") .. "-" .. at):sub(1, MAX_SESSION_ID), at = at }
+        if not myLock then
+            myLock = { at = now }
+            announce = true
+        end
+    else
+        mySession = nil
+        myLock = nil
+    end
+    SaveLock()
+    DoSend(false)
+    wasAuthority = true   -- this GS is the announcement
+    Changed()
+    if announce and Setting("roll.announce") ~= false then
         local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
         if send then pcall(send, LOCK_ANNOUNCE, "RAID") end
     end

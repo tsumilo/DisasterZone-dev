@@ -1,0 +1,334 @@
+"""ADDENDUM I §48-§49: raid sessions (GS rs / rsAt) and the raid log recording, on the real addon.
+
+Covers: the raid leader starting / ending a session (same id everywhere, BiS lock on / off, one record per client,
+endedBy), non-authority raiders refused (slash and forged GS), attendance by group membership (a wipe with ghosts
+outside still gives boss credit), a long trash clear never ending the session, the session following the group when
+the leader leaves (the new authority adopts it and its lock), the disband safety net (autoEnded, stop = last
+activity), the missed-pull reminder and backdated start, mid-raid joiners and /reloads (raider and leader) resuming
+the same record, offline-at-kill marks, awards carrying rid (and a peer's rid filling a missing one), and pruning.
+
+Run: luaenv\\Scripts\\python.exe tests\\raidlog\\test_raidlog.py [-k name]
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TESTS = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
+sys.path.insert(0, os.path.join(TESTS, "loot-roll"))
+
+from _common import case, run_all, World, Client, printed_since, strip_codes, gm_pick  # noqa: E402
+import lr_common as lr  # noqa: E402
+
+REALM = "Thunderstrike"
+
+
+def K(name):
+    return "%s-%s" % (name, REALM)
+
+
+def world(names=(("Gina", 0, "PALADIN"), ("Lee", 3, "WARRIOR"), ("Bob", 1, "MAGE"), ("Rita", 3, "PRIEST"),
+                 ("Sam", 3, "ROGUE")), council=("Bob",)):
+    """Gina = GM, Bob = guild council, Lee = raid leader, Rita / Sam = raiders."""
+    w = World()
+    c = {}
+    for name, rank, cls in names:
+        c[name] = Client(w, name, guild_rank=rank, class_file=cls)
+    for x in c.values():
+        x.load_addon()
+    w.tick(3)
+    gm_pick(w, c["Gina"], list(council))
+    return w, c
+
+
+def raid(w, c, members=("Lee", "Bob", "Rita", "Sam", "Gina"), leader="Lee", tick=8):
+    w.make_raid([c[n] for n in members], leader=c[leader])
+    w.tick(tick)
+
+
+def session(cl):
+    return cl.eval_py("return ns.GroupRules:GetSession()")
+
+
+def current(cl):
+    return cl.eval("return ns.RaidLog:GetCurrentID()")
+
+
+def rec(cl, rid):
+    return cl.eval_py("return ns.RaidLog:GetRaid(...)", rid)
+
+
+def said(cl, n0, needle):
+    return [strip_codes(l) for l in printed_since(cl, n0) if needle in strip_codes(l)]
+
+
+def start(w, c, who="Lee", tick=2):
+    c[who].slash("/cdl raid start")
+    w.tick(tick)
+    s = session(c[who])
+    assert s, "no session after /cdl raid start"
+    return s["id"]
+
+
+# ------------------------------------------------------------------------------------------------------------------
+@case
+def leader_starts_and_ends_everyone_records_the_same_session():
+    w, c = world()
+    lee = c["Lee"]
+    raid(w, c)
+    mark = len(w.addon_log)
+    n0 = {n: len(x.chat_frame) for n, x in c.items()}
+    rid = start(w, c)
+    assert rid.startswith(K("Lee") + "-"), rid
+    gs = [m for m in lr.msgs_of_type(w, "GS", mark) if m["_sender"] == K("Lee")]
+    assert gs and gs[-1].get("rs") == rid and isinstance(gs[-1].get("rsAt"), int), gs
+    for n, x in c.items():
+        assert session(x)["id"] == rid, n
+        assert x.eval("return ns.GroupRules:IsLocked()") is True, n
+        assert current(x) == rid, n
+        r = rec(x, rid)
+        assert r["start"] == gs[-1]["rsAt"] and r["by"] == K("Lee"), (n, r)
+        assert set(r["att"]) == {K(m) for m in c}, (n, r["att"])
+        assert said(x, n0[n], "raid session started"), (n, printed_since(x, n0[n]))
+    # starting twice only says so
+    n1 = len(lee.chat_frame)
+    lee.slash("/cdl raid start")
+    assert said(lee, n1, "already running")
+    w.tick(30)
+    lee.slash("/cdl raid end")
+    w.tick(2)
+    for n, x in c.items():
+        assert session(x) is None and current(x) is None, n
+        assert x.eval("return ns.GroupRules:IsLocked()") is False, n
+        r = rec(x, rid)
+        assert r["stop"] and r["endedBy"] == K("Lee") and not r.get("autoEnded"), (n, r)
+        assert all(a["l"] == r["stop"] or a["l"] <= r["stop"] for a in r["att"].values()), r["att"]
+    w.assert_no_errors()
+
+
+@case
+def only_the_authority_can_start_and_forged_sessions_are_ignored():
+    w, c = world()
+    rita, sam = c["Rita"], c["Sam"]
+    raid(w, c)
+    n0 = len(rita.chat_frame)
+    rita.slash("/cdl raid start")
+    w.tick(2)
+    assert said(rita, n0, "only the raid leader"), printed_since(rita, n0)
+    assert all(session(x) is None for x in c.values())
+    # a modified client sends its own GS with a session: nobody accepts it
+    rita.eval("ns.Comm:Send({ t = 'GS', v = 99, rd = 30, q = 4, dq = 3, rs = 'x-1', rsAt = 1 }, 'RAID', nil, 'alert')")
+    w.tick(2)
+    assert session(sam) is None and current(sam) is None
+    # a malformed rs from the real authority is dropped, the rules still apply
+    c["Lee"].eval("ns.Comm:Send({ t = 'GS', v = 99, rd = 30, q = 4, dq = 3, rs = 'bad|id', rsAt = 5 }, 'RAID', nil, 'alert')")
+    w.tick(2)
+    assert session(sam) is None
+    w.assert_no_errors()
+
+
+@case
+def wipe_with_ghosts_outside_still_gets_boss_credit():
+    w, c = world()
+    raid(w, c)
+    w.enter_instance("Karazhan", 532)
+    w.tick(2)
+    rid = start(w, c)
+    # a wipe: Rita and Sam release and stay outside; the rest kill the boss
+    w.leave_instance(clients=[c["Rita"], c["Sam"]])
+    w.tick(120, step=1)
+    inside = [c["Lee"], c["Bob"], c["Gina"]]
+    w.encounter(652, "Attumen the Huntsman", clients=inside)
+    w.tick(2)
+    for x in inside:
+        r = rec(x, rid)
+        assert r["zone"] == "Karazhan" and r["instID"] == 532, r
+        assert len(r["bosses"]) == 1 and r["bosses"][0]["enc"] == 652, r["bosses"]
+        assert set(r["bosses"][0]["roster"]) == {K(m) for m in c}, r["bosses"][0]
+        assert all(a["k"] == 1 for a in r["att"].values()), r["att"]
+        assert all("l" not in a for a in r["att"].values()), r["att"]
+    # the same kill seen twice is recorded once
+    w.encounter(652, "Attumen the Huntsman", clients=inside)
+    w.tick(1)
+    assert len(rec(c["Lee"], rid)["bosses"]) == 1
+    assert current(c["Rita"]) == rid
+    w.assert_no_errors()
+
+
+@case
+def a_long_trash_clear_never_ends_the_session():
+    w, c = world()
+    raid(w, c)
+    w.enter_instance()
+    rid = start(w, c)
+    w.tick(2.5 * 3600, step=5)
+    for n, x in c.items():
+        assert current(x) == rid, n
+        assert rec(x, rid).get("stop") is None, n
+    w.assert_no_errors()
+
+
+@case
+def leader_leaves_the_new_authority_adopts_the_session_and_lock():
+    w, c = world()
+    lee, bob, rita = c["Lee"], c["Bob"], c["Rita"]
+    raid(w, c)
+    rid = start(w, c)
+    lee.eval("ns.RaidLog.__t = GetServerTime()")
+    raid(w, c, members=("Bob", "Rita", "Sam", "Gina"), leader="Bob", tick=12)
+    assert bob.eval("return ns.GroupRules:IsAuthority()") is True
+    for n in ("Bob", "Rita", "Sam", "Gina"):
+        x = c[n]
+        assert session(x)["id"] == rid, (n, session(x))
+        assert x.eval("return ns.GroupRules:IsLocked()") is True, n
+        assert current(x) == rid, n
+        assert rec(x, rid)["att"][K("Lee")].get("l"), (n, rec(x, rid)["att"][K("Lee")])
+    # Lee left the raid: his own copy ends by the safety net
+    r = rec(lee, rid)
+    assert r["stop"] and r.get("autoEnded") is True and current(lee) is None, r
+    bob.slash("/cdl raid end")
+    w.tick(2)
+    for n in ("Bob", "Rita", "Sam", "Gina"):
+        r = rec(c[n], rid)
+        assert r["endedBy"] == K("Bob"), (n, r)
+        assert c[n].eval("return ns.GroupRules:IsLocked()") is False, n
+    w.assert_no_errors()
+
+
+@case
+def disband_without_end_closes_at_the_last_activity():
+    w, c = world()
+    raid(w, c)
+    w.enter_instance()
+    rid = start(w, c)
+    w.tick(600, step=1)
+    w.encounter(652, "Attumen the Huntsman")
+    w.tick(1)
+    kill_ts = rec(c["Rita"], rid)["bosses"][0]["ts"]
+    w.leave_instance()
+    w.tick(3600, step=5)     # everyone hearthed; nobody disbanded yet
+    assert current(c["Rita"]) == rid
+    w.disband()
+    w.tick(2)
+    for n, x in c.items():
+        r = rec(x, rid)
+        assert r.get("autoEnded") is True and not r.get("endedBy"), (n, r)
+        # the last activity: the last scan with the raid inside (up to one scan interval after the kill)
+        assert kill_ts <= r["stop"] <= kill_ts + 61, (n, r["stop"], kill_ts)
+        assert current(x) is None and x.eval("return ns.GroupRules:IsLocked()") is False, n
+    w.assert_no_errors()
+
+
+@case
+def missed_pull_reminds_the_leader_and_backdates_the_start():
+    w, c = world()
+    lee, rita = c["Lee"], c["Rita"]
+    raid(w, c)
+    w.enter_instance()
+    entered = w.server_time
+    w.tick(300, step=1)
+    n0, r0 = len(lee.chat_frame), len(rita.chat_frame)
+    w.encounter(652, "Attumen the Huntsman", success=False)
+    w.tick(1)
+    assert said(lee, n0, "/cdl raid start"), printed_since(lee, n0)
+    assert not said(rita, r0, "/cdl raid start")
+    # a second pull soon after doesn't repeat it
+    n1 = len(lee.chat_frame)
+    w.encounter(652, "Attumen the Huntsman", success=False)
+    w.tick(1)
+    assert not said(lee, n1, "/cdl raid start")
+    rid = start(w, c)
+    s = session(rita)
+    assert abs(s["at"] - entered) <= 2, (s, entered)
+    assert rec(rita, rid)["start"] == s["at"]
+    w.assert_no_errors()
+
+
+@case
+def midraid_joiner_and_reloads_resume_the_same_record():
+    w, c = world()
+    lee, rita, sam = c["Lee"], c["Rita"], c["Sam"]
+    raid(w, c, members=("Lee", "Bob", "Rita", "Gina"))
+    w.enter_instance()
+    rid = start(w, c)
+    raid(w, c, members=("Lee", "Bob", "Rita", "Gina", "Sam"), tick=10)
+    assert current(sam) == rid and rec(sam, rid)["start"] == session(lee)["at"]
+    assert K("Sam") in rec(lee, rid)["att"]
+    w.encounter(652, "Attumen the Huntsman")
+    w.tick(1)
+    rita.relog()
+    w.tick(10)
+    assert current(rita) == rid
+    assert len(rec(rita, rid)["bosses"]) == 1 and rec(rita, rid).get("stop") is None
+    # the leader reloads: still the authority, the same session and lock go on
+    lee.relog()
+    w.tick(12)
+    assert session(lee)["id"] == rid and session(rita)["id"] == rid
+    assert rita.eval("return ns.GroupRules:IsLocked()") is True
+    assert rec(lee, rid).get("stop") is None
+    # ended while Rita was reloading: she closes her copy when she learns it
+    rita.relog(reload=True)
+    lee.slash("/cdl raid end")
+    w.tick(10)
+    assert current(rita) is None and rec(rita, rid)["stop"], rec(rita, rid)
+    w.assert_no_errors()
+
+
+@case
+def offline_members_at_a_kill_are_marked():
+    w, c = world()
+    raid(w, c)
+    w.enter_instance()
+    rid = start(w, c)
+    c["Sam"].logout()
+    w.tick(2)
+    w.encounter(652, "Attumen the Huntsman")
+    w.tick(1)
+    b = rec(c["Lee"], rid)["bosses"][0]
+    assert K("Sam") in b["roster"] and b["off"] == {K("Sam"): True}, b
+    w.assert_no_errors()
+
+
+@case
+def awards_carry_the_raid_id():
+    w, c = world()
+    bob, gina = c["Bob"], c["Gina"]
+    raid(w, c)
+    before = bob.eval_py("local e = ns.Ledger:Award(28000, ..., '', nil, false); return e.rid", K("Rita"))
+    assert before is None
+    rid = start(w, c)
+    e = bob.eval_py("local e = ns.Ledger:Award(28001, ..., '', nil, false); return { id = e.id, rid = e.rid }", K("Rita"))
+    assert e["rid"] == rid, e
+    w.tick(10)
+    assert gina.eval("return ns.Ledger:GetEntry(...).rid", e["id"]) == rid
+    # a peer's copy with rid fills in a missing one (a council member who was not in the raid)
+    gina.eval("local x = ns.Ledger:GetEntry(...); x.rid = nil", e["id"])
+    gina.eval("ns.Ledger:Merge({ id = ..., i = 28001, w = select(2, ...), b = '', ts = select(3, ...), by = select(4, ...), "
+              "s = 'm', rid = select(5, ...) }, 'x')", e["id"], K("Rita"), bob.eval("return ns.Ledger:GetEntry(...).ts", e["id"]),
+              K("Bob"), rid)
+    assert gina.eval("return ns.Ledger:GetEntry(...).rid", e["id"]) == rid
+    w.assert_no_errors()
+
+
+@case
+def prune_drops_old_rosters_and_old_raids():
+    w, c = world()
+    lee = c["Lee"]
+    now = w.server_time
+    lee.eval("""local now = ...
+        ns.db.raids.old = { id = 'old', start = now - 400 * 86400, stop = now - 400 * 86400 + 3600, bosses = {}, att = {} }
+        ns.db.raids.mid = { id = 'mid', start = now - 100 * 86400, stop = now - 100 * 86400 + 3600,
+            bosses = { { enc = 1, ts = now - 100 * 86400, roster = { 'A' }, off = { A = true } } }, att = { A = { k = 1 } } }
+        ns.db.raids.new = { id = 'new', start = now - 10 * 86400, stop = now - 10 * 86400 + 3600,
+            bosses = { { enc = 1, ts = now - 10 * 86400, roster = { 'A' } } }, att = { A = { k = 1 } } }
+        ns.db.raids.junk = 5
+        ns.RaidLog:Prune(now)""", now)
+    raids = lee.eval_py("return ns.db.raids")
+    assert set(raids) == {"mid", "new"}, raids
+    assert "roster" not in raids["mid"]["bosses"][0] and raids["mid"]["att"]["A"]["k"] == 1
+    assert raids["new"]["bosses"][0]["roster"] == ["A"]
+    w.assert_no_errors()
+
+
+if __name__ == "__main__":
+    run_all()

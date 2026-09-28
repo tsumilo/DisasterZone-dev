@@ -43,6 +43,7 @@ local DEFAULTS = {
         pickerSources = {        -- Addendum F §35: item picker "Sources" (ItemDB:GetCandidates filter.sources)
             raids = true, dungeons = true, crafted = false, rep = false, badges = false, pvp = false,
         },
+        raidlog = { keepDays = 365 },  -- Addendum I §49: whole raids older than this are dropped from the raid log
         debug = false,
         windows = {},            -- [frameName] = {point, relPoint, x, y}
     },
@@ -54,6 +55,8 @@ local DEFAULTS = {
                        --   guild = { rev, members = {[key]=true}, phase, by, recvAt, g = guild key }
                        --   myRaidList = { rev, members = {[key]=true} } (my own raid list, "until changed")
                        --   gm = { key, g } the last Guild Master seen (offline rows may be hidden)
+    raids = {},        -- [id] = raid session record (Addendum I §49, Core/RaidLog.lua)
+    -- raidCurrent (no default): id of the raid session being recorded (open record)
     dropHistory = {},  -- array of recent drops (§10.2), newest last, max 40, pruned > 24h
     -- groupLock (no default): { by = key, at = serverTime } while this character, as the raid's loot
     -- authority, holds the BiS list lock (Addendum F §38, Core/GroupRules.lua; restored after a /reload)
