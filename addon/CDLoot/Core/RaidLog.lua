@@ -283,6 +283,130 @@ function RaidLog:GetRaids()
     return out
 end
 
+-- Number of bosses of a raid instance (distinct encounter ids in the item database), or nil when unknown.
+local bossTotals = {}
+function RaidLog:GetBossTotal(instID)
+    instID = tonumber(instID)
+    if not instID then return nil end
+    if bossTotals[instID] == nil then
+        local n, seen = 0, {}
+        local raids = ns.ItemDB and ns.ItemDB.GetRaids and ns.ItemDB:GetRaids() or {}
+        for _, raid in ipairs(raids) do
+            if raid.instanceID == instID then
+                for _, b in ipairs(raid.bosses or {}) do
+                    local enc = tonumber(b.encounterID)
+                    if enc and not b.isTrash and not seen[enc] then   -- (Chess drops a chest but is an encounter)
+                        seen[enc] = true
+                        n = n + 1
+                    end
+                end
+            end
+        end
+        bossTotals[instID] = n > 0 and n or false
+    end
+    return bossTotals[instID] or nil
+end
+
+-- Loot Log entries of a raid (not voided, not dungeon loot), newest first: tagged with its id, or untagged ones
+-- made while it ran.
+function RaidLog:GetAwards(rec)
+    local out = {}
+    local Ledger = ns.Ledger
+    if type(rec) ~= "table" or not (Ledger and Ledger.GetEntries) then return out end
+    local from, to = rec.start or 0, rec.stop or GetServerTime()
+    for _, e in ipairs(Ledger:GetEntries({ excludeDungeon = true }) or {}) do
+        if e.rid == rec.id or (e.rid == nil and e.ts >= from and e.ts <= to) then out[#out + 1] = e end
+    end
+    return out
+end
+
+-- Council: mark a player as bench / standby for a raid (counts as attending), or clear it.
+function RaidLog:SetBench(id, key, on)
+    local rec = self:GetRaid(id)
+    key = Util.NormalizeName(key)
+    if not rec or not key then return false end
+    rec.att = type(rec.att) == "table" and rec.att or {}
+    local a = rec.att[key]
+    if on then
+        if not a then
+            a = { j = rec.start, l = rec.stop, k = 0 }
+            rec.att[key] = a
+        end
+        a.b = true
+    elseif a then
+        a.b = nil
+        if (tonumber(a.k) or 0) == 0 and a.j == rec.start and a.l == rec.stop then rec.att[key] = nil end
+    end
+    a = rec.att[key]
+    if a then a.bts = GetServerTime() end   -- edit time (merge rule: the newer edit wins, §50)
+    Changed(rec)
+    return true
+end
+
+-- Per-player totals over the `lastN` most recent raids (nil = all): { key, class, raids, total, pct, kills,
+-- killTotal, bench, items, lastItem = entry } sorted by attendance, then name. Items = awards that count as
+-- loot received, over the same raids.
+function RaidLog:GetPlayerStats(lastN)
+    local raids = self:GetRaids()
+    if lastN and #raids > lastN then
+        local cut = {}
+        for i = 1, lastN do cut[i] = raids[i] end
+        raids = cut
+    end
+    local stats, byKey = {}, {}
+    local killTotal = 0
+    local function S(key)
+        local s = byKey[key]
+        if not s then
+            s = { key = key, raids = 0, kills = 0, bench = 0, items = 0 }
+            byKey[key] = s
+            stats[#stats + 1] = s
+        end
+        return s
+    end
+    for _, rec in ipairs(raids) do
+        killTotal = killTotal + #(rec.bosses or {})
+        for key, a in pairs(rec.att or {}) do
+            local s = S(key)
+            s.raids = s.raids + 1
+            s.kills = s.kills + (tonumber(a.k) or 0)
+            if a.b then s.bench = s.bench + 1 end
+            if a.c then s.class = a.c end
+        end
+        for _, e in ipairs(self:GetAwards(rec)) do
+            if not e.vd then
+                local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
+                if not r or r.counts then
+                    local s = S(e.w)
+                    s.items = s.items + 1
+                    if not s.lastItem or e.ts > s.lastItem.ts then s.lastItem = e end
+                end
+            end
+        end
+    end
+    for _, s in ipairs(stats) do
+        s.total = #raids
+        s.killTotal = killTotal
+        s.pct = #raids > 0 and floor(s.raids * 100 / #raids + 0.5) or 0
+    end
+    tsort(stats, function(a, b)
+        if a.pct ~= b.pct then return a.pct > b.pct end
+        return a.key < b.key
+    end)
+    return stats, #raids
+end
+
+-- "Attendance 92% (last 8)" data for one player: pct, attended, of (nil when there are no raids).
+function RaidLog:GetAttendance(key, lastN)
+    key = Util.NormalizeName(key)
+    local stats, n = self:GetPlayerStats(lastN or 8)
+    if not key or n == 0 then return nil end
+    for _, s in ipairs(stats) do
+        if s.key == key then return s.pct, s.raids, n end
+    end
+    return 0, 0, n
+end
+
 -- startAt (optional): an earlier start time; default = now, or my instance entry after a missed boss pull.
 function RaidLog:Start(startAt)
     local GR = ns.GroupRules

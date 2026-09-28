@@ -330,5 +330,91 @@ def prune_drops_old_rosters_and_old_raids():
     w.assert_no_errors()
 
 
+# -- UI: session bar and Raids tab (§51) ---------------------------------------------------------------------------
+def bar(cl):
+    return cl.eval_py("""local f = ns.SessionBar:GetFrame()
+        if not f then return { shown = false } end
+        return { shown = f:IsShown(), text = f.text:GetText(), button = f.button:IsShown() and f.button:GetText() or nil,
+                 close = f.close:IsShown() }""")
+
+
+@case
+def session_bar_shows_for_everyone_and_the_leader_ends_from_it():
+    w, c = world()
+    lee, rita = c["Lee"], c["Rita"]
+    raid(w, c)
+    assert not bar(lee)["shown"], "no bar outside a raid instance without a session"
+    w.enter_instance("Karazhan", 532)
+    w.tick(2)
+    b = bar(lee)
+    assert b["shown"] and b["button"] == "Start raid" and b["close"], b
+    assert not bar(rita)["shown"], "only the authority sees the idle bar"
+    lee.click(lee.eval("return ns.SessionBar:GetFrame().button"))
+    w.tick(3)
+    rid = session(rita)["id"]
+    for n, x in c.items():
+        b = bar(x)
+        assert b["shown"] and "Karazhan" in b["text"] and "0/11 bosses" in b["text"] and "BiS locked" in b["text"], (n, b)
+        assert b.get("button") == ("End raid" if n == "Lee" else None) and not b["close"], (n, b)
+    w.encounter(652, "Attumen the Huntsman")
+    w.tick(2)
+    assert "1/11 bosses" in bar(rita)["text"], bar(rita)
+    lee.click(lee.eval("return ns.SessionBar:GetFrame().button"))
+    w.tick(0.2)
+    assert "CDLOOT_RAID_END" in lee.popups()
+    assert session(rita)["id"] == rid, "nothing ends before the confirmation"
+    lee.accept_popup("CDLOOT_RAID_END")
+    w.tick(3)
+    assert not bar(rita)["shown"] and rec(rita, rid)["endedBy"] == K("Lee")
+    # the leader, still inside, sees the idle bar again; dismissing it hides it until the next instance
+    assert bar(lee).get("button") == "Start raid"
+    lee.click(lee.eval("return ns.SessionBar:GetFrame().close"))
+    w.tick(0.2)
+    assert not bar(lee)["shown"]
+    w.assert_no_errors()
+
+
+@case
+def raids_tab_lists_raids_details_bench_and_players():
+    w, c = world()
+    lee, bob, rita = c["Lee"], c["Bob"], c["Rita"]
+    raid(w, c)
+    w.enter_instance("Karazhan", 532)
+    w.tick(2)
+    rid = start(w, c)
+    w.encounter(652, "Attumen the Huntsman")
+    w.tick(2)
+    bob.eval("ns.Ledger:Award(28000, ..., '', nil, false)", K("Rita"))
+    w.tick(2)
+    lee.slash("/cdl raid end")
+    w.tick(3)
+    assert rita.eval("return ns.RaidsUI:IsAvailable()") is False, "raiders don't get the tab"
+    bob.slash("/cdl raids")
+    w.tick(0.5)
+    assert bob.eval("return ns.MainFrame:GetSelectedTab()") == "raids"
+    texts = lambda needle: [strip_codes(t) for t in bob.eval_py(
+        "local out = {}; for _, r in ipairs(...) do out[#out + 1] = r:GetText() end; return out",
+        bob.find_text(needle, True, True)) or []]
+    assert any("Karazhan" in t for t in texts("Karazhan")), "raid row"
+    assert texts("1/11 bosses"), "summary with the boss total"
+    assert texts("Attumen the Huntsman"), "boss timeline"
+    assert texts("Attendance") and texts("Awards"), "sections"
+    assert bob.eval("return ns.RaidLog:GetAwards(ns.RaidLog:GetRaid(...))[1].i", rid) == 28000
+    # bench: a council member marks Sam (not in the log) as bench -> counts as attending
+    bob.eval("ns.RaidLog:SetBench(...)", rid, K("Nora"), True)
+    a = rec(bob, rid)["att"][K("Nora")]
+    assert a["b"] is True and a["k"] == 0, a
+    # players view
+    bob.eval("ns.RaidsUI:SetMode('players', 8)")
+    w.tick(0.5)
+    stats = bob.eval_py("return (ns.RaidLog:GetPlayerStats(8))")
+    by = {s["key"]: s for s in stats}
+    assert by[K("Rita")]["pct"] == 100 and by[K("Rita")]["items"] == 1 and by[K("Rita")]["kills"] == 1, by[K("Rita")]
+    assert by[K("Nora")]["bench"] == 1 and by[K("Nora")]["pct"] == 100
+    assert texts("100%"), "attendance column"
+    assert bob.eval_py("return { ns.RaidLog:GetAttendance(...) }", K("Rita")) == [100, 1, 1]
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

@@ -52,6 +52,8 @@ UI\MyBiS.lua
 UI\Picker.lua
 UI\Council.lua
 UI\LootLog.lua
+UI\RaidsTab.lua
+UI\SessionBar.lua
 UI\DropPanel.lua
 UI\RollFrame.lua
 UI\Tooltip.lua

@@ -75,6 +75,10 @@ db.raids[id] = {
   - Detail: boss timeline, the attendance grid (players × bosses; bench / offline / override marks, editable by council),
     and the awards of that raid (the Loot Log filtered by `rid`).
   - Players: attendance % over the last N raids or weeks, items received, items per raid attended, and last item received.
+- *Implemented (step 2):* `UI/SessionBar.lua` (session and idle states; the idle "No raid session · Start raid" bar
+  shows for the authority inside a raid instance and can be dismissed until the next instance; no shrink-to-pill
+  yet) and `UI/RaidsTab.lua` (Raids / Players views, bench via right-click, Start/End in the toolbar, `/cdl raids`).
+  Boss totals come from the item database: distinct encounter ids per instance (Chess counts; trash doesn't).
 - **Council integration:** the drop panel and Council member view show *"Attendance 92% (last 8)"* next to a wanter.
 - **Export:** a copy box with CSV of a raid or the player table.
 

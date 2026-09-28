@@ -453,7 +453,7 @@ def raid_leader_is_council_for_their_raid_and_loses_the_tab_after_leaving():
     w.make_raid([c["Lee"], c["Rita"], c["Sam"]], leader=c["Lee"])
     w.tick(5)
     assert council(c["Lee"]) is True and c["Lee"].eval("return ns.Guild:AmIRaidLeader()") is True
-    assert tabs(c["Lee"]) == ["mybis", "council", "loot", "settings"], tabs(c["Lee"])
+    assert tabs(c["Lee"]) == ["mybis", "council", "loot", "raids", "settings"], tabs(c["Lee"])
     assert tabs(c["Rita"]) == ["mybis", "settings"] or not c["Rita"].eval("return ns.MainFrame:IsShown()")
     c["Lee"].slash("/cdl council")
     w.tick(0.5)
@@ -469,7 +469,7 @@ def raid_leader_is_council_for_their_raid_and_loses_the_tab_after_leaving():
     w.tick(4)
     w.disband()
     w.tick(2)
-    assert tabs(c["Lee"]) == ["mybis", "council", "loot", "settings"], tabs(c["Lee"])
+    assert tabs(c["Lee"]) == ["mybis", "council", "loot", "raids", "settings"], tabs(c["Lee"])
     no_errors(w)
 
 

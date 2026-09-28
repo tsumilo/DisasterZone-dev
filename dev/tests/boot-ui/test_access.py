@@ -18,7 +18,7 @@ for _, t in ipairs(f.Tabs) do
 end
 return out"""
 
-ALL_TABS = ["mybis", "council", "loot", "settings"]
+ALL_TABS = ["mybis", "council", "loot", "raids", "settings"]
 PERSONAL_TABS = ["mybis", "settings"]
 
 
