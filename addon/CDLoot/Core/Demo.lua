@@ -376,6 +376,111 @@ local function RemoveKey(list, key)
     end
 end
 
+---------------------------------------------------------------------------
+-- Raid log (Addendum I): ~10 past raids for the Raids tab, built on first use with their own generator (the
+-- lists above are unchanged). Records are shaped like RaidLog's; awards ride along as demoAwards (ledger-entry
+-- shaped), since the demo ledger starts empty. Never saved, never synced.
+---------------------------------------------------------------------------
+
+-- raid key, weeks ago, weekday offset (0 = Wednesday), bosses killed (nil = all), auto-ended
+local DEMO_RAIDS = {
+    { "Karazhan", 0, 0 }, { "GruulsLair", 0, 1 }, { "MagtheridonsLair", 0, 1 },
+    { "Karazhan", 1, 0, nil }, { "GruulsLair", 1, 1, 1, true },
+    { "Karazhan", 2, 0, 8 }, { "MagtheridonsLair", 2, 1 },
+    { "Karazhan", 3, 0, 6 }, { "GruulsLair", 3, 1 },
+    { "Karazhan", 4, 0, 4 },
+}
+local DEMO_REASONS = { "bis", "bis", "bis", "alt", "up", "os", "de" }
+
+local function BuildRaidLog()
+    local rng = NewRng(SEED + 4242)
+    local out = {}
+    local raidsByKey = {}
+    for _, r in ipairs(ns.ItemDB and ns.ItemDB.GetRaids and ns.ItemDB:GetRaids() or {}) do raidsByKey[r.key] = r end
+    local me = ns.Util.PlayerKey()
+    local classOf = {}
+    for key, m in pairs(generated.roster) do classOf[key] = m.classFile end
+    if me then classOf[me] = select(2, UnitClass("player")) end
+    local keys = {}
+    for key in pairs(classOf) do keys[#keys + 1] = key end
+    tsort(keys)
+    -- a steady core, a few regulars who miss some weeks, and trials who come now and then
+    local showRate = {}
+    for i, key in ipairs(keys) do
+        showRate[key] = (key == me) and 1 or ({ 0.95, 0.9, 0.75, 0.55 })[1 + (i % 4)]
+    end
+    local base = Now() - (Now() % 86400) - 3 * 86400 + 19 * 3600 + 30 * 60   -- a recent evening, 19:30
+    for n, def in ipairs(DEMO_RAIDS) do
+        local raid = raidsByKey[def[1]]
+        if raid then
+            local start = base - def[2] * 7 * 86400 - def[3] * 86400 + (def[3] > 0 and 3600 or 0)
+            local bosses = {}
+            for _, b in ipairs(raid.bosses or {}) do
+                if b.encounterID and not b.isTrash then
+                    local dup = false
+                    for _, x in ipairs(bosses) do if x.encounterID == b.encounterID then dup = true end end
+                    if not dup then bosses[#bosses + 1] = b end
+                end
+            end
+            local kills = math.min(def[4] or #bosses, #bosses)
+            local att, present = {}, {}
+            local cap = raid.size or 25
+            for _, key in ipairs(keys) do
+                if #present < cap and rng.Next() < showRate[key] then
+                    present[#present + 1] = key
+                    att[key] = { c = classOf[key], j = start - rng.Int(10) * 60, k = kills }
+                end
+            end
+            local rec = { id = "demo-" .. n, start = start, by = present[1], zone = raid.name, instID = raid.instanceID,
+                bosses = {}, att = att, demo = true, demoAwards = {} }
+            local t = start + 15 * 60
+            for bi = 1, kills do
+                local b = bosses[bi]
+                t = t + (15 + rng.Int(20)) * 60
+                local roster = {}
+                for _, key in ipairs(present) do roster[#roster + 1] = key end
+                tsort(roster)
+                rec.bosses[bi] = { enc = b.encounterID, name = b.name, ts = t, roster = roster }
+                -- one or two awards per boss from its loot
+                local items = b.items or {}
+                for a = 1, (#items > 0) and (1 + rng.Int(2) - 1) or 0 do
+                    local winner = present[rng.Int(#present)]
+                    rec.demoAwards[#rec.demoAwards + 1] = { id = "demo-" .. n .. "-" .. bi .. "-" .. a,
+                        i = items[rng.Int(#items)], w = winner, ts = t + 60 * a, b = b.key or "",
+                        by = present[1], s = "m", r = DEMO_REASONS[rng.Int(#DEMO_REASONS)] }
+                end
+            end
+            -- a late joiner, an early leaver and a bench player
+            if #present > 4 then
+                att[present[#present]].j = start + 50 * 60
+                att[present[#present]].k = math.max(0, kills - 1)
+                local left = att[present[#present - 1]]
+                left.k = math.max(0, kills - 2)
+            end
+            for _, key in ipairs(keys) do
+                if not att[key] and rng.Next() < 0.15 then
+                    att[key] = { c = classOf[key], j = start, k = 0, b = true }
+                    break
+                end
+            end
+            rec.stop = t + 10 * 60
+            if def[5] then rec.autoEnded = true else rec.endedBy = rec.by end
+            for _, a in pairs(att) do a.l = a.l or rec.stop end
+            if #present > 4 then att[present[#present - 1]].l = rec.stop - 40 * 60 end
+            out[#out + 1] = rec
+        end
+    end
+    tsort(out, function(a, b) return a.start > b.start end)
+    return out
+end
+
+-- Demo raid log records, newest first (empty when disabled).
+function Demo:GetRaidLog()
+    if not enabled or not generated then return {} end
+    if not generated.raidLog then generated.raidLog = BuildRaidLog() end
+    return generated.raidLog
+end
+
 -- Schedules the fake raid members' outcomes for a demo roll session over 2-12 seconds, fed
 -- through the same paths as real rolls: Roll:OnSystemMessage(RANDOM_ROLL_RESULT line) and
 -- Roll:OnResponse(key, id, "pass"). Roles (when enough members are in the demo raid):

@@ -324,7 +324,7 @@ function RaidsUI:OnInit()
             function() return RaidsUI:IsAvailable() end)
     end
     local function refresh() RaidsUI:RequestRefresh() end
-    for _, msg in ipairs({ "RAIDLOG_CHANGED", "LEDGER_UPDATED", "GROUP_RULES_CHANGED", "ROSTER_UPDATED", "ITEMINFO_READY" }) do
+    for _, msg in ipairs({ "RAIDLOG_CHANGED", "LEDGER_UPDATED", "GROUP_RULES_CHANGED", "ROSTER_UPDATED", "ITEMINFO_READY", "DEMO_TOGGLED" }) do
         ns:On(msg, refresh)
     end
     ns:RegisterSlash("raids", function() ns.MainFrame:Open("raids") end, "open the raid log (council)")

@@ -526,5 +526,45 @@ def attendance_shows_in_the_council_views():
     w.assert_no_errors()
 
 
+@case
+def demo_mode_fills_the_raids_tab_without_touching_the_real_log():
+    from _common import solo
+    w, c = solo(council=None)
+    c.eval("ns.db.raids.real = { id = 'real', start = GetServerTime() - 3600, stop = GetServerTime(), bosses = {}, att = {} }")
+    saved = c.eval_py("return ns.db.raids")
+    c.slash("/cdl demo")
+    w.tick(1)
+    raids = c.eval_py("local out = {}; for i, r in ipairs(ns.RaidLog:GetRaids()) do out[i] = { id = r.id, zone = r.zone, "
+                      "n = #r.bosses, att = ns.Util.Count(r.att), aw = #ns.RaidLog:GetAwards(r), auto = r.autoEnded } end; return out")
+    assert len(raids) == 10 and all(r["id"].startswith("demo-") for r in raids), raids
+    assert {r["zone"] for r in raids} == {"Karazhan", "Gruul's Lair", "Magtheridon's Lair"}, raids
+    assert raids[0]["n"] > 0 and all(r["att"] >= 5 and r["aw"] >= r["n"] for r in raids), raids
+    assert any(r.get("auto") for r in raids)
+    # deterministic, varied attendance, player included
+    me = c.eval("return ns.Util.PlayerKey()")
+    assert c.eval_py("return { ns.RaidLog:GetAttendance(...) }", me)[0] == 100
+    stats = c.eval_py("return (ns.RaidLog:GetPlayerStats(8))")
+    pcts = {s["pct"] for s in stats}
+    assert len(pcts) >= 3 and any(s["bench"] > 0 for s in stats) and any(s["items"] > 0 for s in stats), stats
+    again = c.eval_py("local r = ns.RaidLog:GetRaids()[1]; return { r.start, r.bosses[1].enc, ns.RaidLog:GetAwards(r)[1].i }")
+    # the tab paints
+    c.slash("/cdl raids")
+    w.tick(0.5)
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "raids"
+    assert c.find_text("Karazhan", True, True)
+    c.eval("ns.RaidsUI:SetMode('players', 8)")
+    w.tick(0.3)
+    assert c.find_text("100%", True, True)
+    # toggling off brings the real log back; nothing demo was saved
+    c.slash("/cdl demo")
+    w.tick(1)
+    assert [r["id"] for r in c.eval_py("return ns.RaidLog:GetRaids()")] == ["real"]
+    assert c.eval_py("return ns.db.raids") == saved
+    c.slash("/cdl demo")
+    w.tick(1)
+    assert c.eval_py("local r = ns.RaidLog:GetRaids()[1]; return { r.start, r.bosses[1].enc, ns.RaidLog:GetAwards(r)[1].i }") == again
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

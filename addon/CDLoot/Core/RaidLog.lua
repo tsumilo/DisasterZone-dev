@@ -270,13 +270,32 @@ function RaidLog:GetResumable()
     return { id = rec.id, start = rec.start }
 end
 
+-- Demo mode (Addendum I): the Raids tab and attendance read the demo raids instead of the saved ones.
+local function DemoRaids()
+    local Demo = ns.Demo
+    if Demo and Demo.IsEnabled and Demo:IsEnabled() and Demo.GetRaidLog then return Demo:GetRaidLog() end
+    return nil
+end
+
 function RaidLog:GetRaid(id)
+    local demo = DemoRaids()
+    if demo then
+        for _, rec in ipairs(demo) do
+            if rec.id == id then return rec end
+        end
+    end
     local raids = RaidsDB()
     return raids and type(id) == "string" and raids[id] or nil
 end
 
 -- The raids of my current guild (and untagged ones), newest first. Stored tables: treat as read-only.
 function RaidLog:GetRaids()
+    local demo = DemoRaids()
+    if demo then
+        local out = {}
+        for i, rec in ipairs(demo) do out[i] = rec end
+        return out
+    end
     local raids = RaidsDB()
     local out = {}
     if not raids then return out end
@@ -316,6 +335,11 @@ end
 -- made while it ran.
 function RaidLog:GetAwards(rec)
     local out = {}
+    if type(rec) == "table" and rec.demoAwards then
+        for i, e in ipairs(rec.demoAwards) do out[i] = e end
+        tsort(out, function(a, b) return a.ts > b.ts end)
+        return out
+    end
     local Ledger = ns.Ledger
     if type(rec) ~= "table" or not (Ledger and Ledger.GetEntries) then return out end
     local from, to = rec.start or 0, rec.stop or GetServerTime()
@@ -408,8 +432,9 @@ function RaidLog:GetAttendance(key, lastN)
     lastN = lastN or 8
     if not key then return nil end
     local c = attCache[lastN]
-    if not c or c.g ~= GuildKey() then
-        c = { g = GuildKey(), n = 0, by = {} }
+    local demo = DemoRaids() ~= nil
+    if not c or c.g ~= GuildKey() or c.demo ~= demo then
+        c = { g = GuildKey(), demo = demo, n = 0, by = {} }
         for _, rec in ipairs(self:GetRaids()) do
             if rec.stop then
                 c.n = c.n + 1
