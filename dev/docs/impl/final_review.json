@@ -1,0 +1,394 @@
+{
+ "counts": {
+  "total": 55,
+  "fixedInput": 51,
+  "refuted": 4
+ },
+ "refuted": [
+  {
+   "id": "show-offline-unticked-hides-lists",
+   "title": "With \"Show Offline Members\" unticked, offline raiders' lists vanish from the council's views and are never pulled or relayed",
+   "lens": "runtime",
+   "why": "The whole finding rests on one claim: in the real 2.5.6 client, unticking \"Show Offline Members\" makes GetGuildRosterInfo(i) return nil for every i above the online count. The finding doesn't show this, and the evidence I found points the other way.\n\n1. The cited evidence doesn't prove filtering. Blizzard's classic_anniversary FriendsFrame.lua:2902-2908 sets `numGuildMembers = onlineMembers` when the box is unticked. That works just as well if the client returns every row with online members first. The same function also checks each row with `if (fullName and (showOffline or online))` (FriendsFrame.lua:3059 and :3131). That check only matters if offline rows can still come back while showOffline is false, which suggests the client does not filter and the UI hides them itself. GetGuildRosterShowOffline/SetGuildRosterShowOffline appear nowhere else in the classic_anniversary UI source. The wiki says GetNumGuildMembers is \"no longer affected by SetGuildRosterShowOffline\" and that SetGuildRosterShowOffline \"no longer seems to do anything\". The modern engine that classic runs on also keeps the guild as a C_Club, and C_Club.GetGuildClubId is present in classic_anniversary. The Communities member list does its own show-offline filtering in Lua through a CVar.\n\n2. Widely used 20506 addons would break if rows were filtered, and none of them force the setting:\n- GRM (Guild_Roster_Manager_TBC.toc is Interface 20506, pushed 2026-09-27) has no SetGuildRosterShowOffline call in any of its 50 Lua/XML files. G_Util.DatabasesAligned returns false on the first nil row in 1..GetNumGuildMembers(), which would stall every scan. Scan.CleanUpNameRepeatedServer runs `name:gsub` on the row name with no guard, which would throw. FinalizeRosterBuild requires the row count to equal GetNumGuildMembers().\n- PallyPower v1.5.22 (installed, 20506) runs `Ambiguate(GetGuildRosterInfo(i), \"short\")` for i = 1, GetNumGuildMembers() on GROUP_LEFT with no guard.\n- BastionLoot's verifyGuildMember calls Ambiguate(g_name) and compares `level >=` across 1..GetNumGuildMembers(true) with no guard.\n- EPGP-Classic deliberately commented out the retail-era `SetGuildRosterShowOffline(true)` hack in its 2019 classic port. Its loop does `rankIndex = rankIndex + 1` over the full total with no guard.\n\nIf rows were filtered, all of these would throw Lua errors or stall for anyone with the box unticked, and I found no such reports. DBM's comment only says online members come first when the box is unticked, which holds either way.\n\n3. The repro only shows what the mock assumes. tools/wowmock/game.lua `roster_view` hard-codes filtering. My repro (review/verify/show-offline-unticked-hides-lists/test_show_offline_models.py) runs the same scenario two ways:\n- With the mock's filtered model: 7 of 8 rows come back, Carol is dropped, and the wanters list is ['Erin-Thunderstrike'].\n- With GetGuildRosterInfo ignoring the flag: all 8 rows come back, Carol has IsInGuild=true and IsOnline=false and stays in GetAllKeys, and the wanters list is ['Carol-Thunderstrike', 'Erin-Thunderstrike'].\nBoth runs finish with no Lua errors. CDLoot's BuildRoster loops to the total from GetNumGuildMembers() and skips nil names, so it is correct under the unfiltered model. Note that impl/council_core.md and impl/net.md contradict each other on this point. Both are assumptions, not findings.\n\n4. The severity is overstated even if the premise were true. Nothing throws, because BuildRoster guards nil names. Offline members are by definition not in the raid, so loot decisions for raiders who are present don't change. Owners push their lists again when they log in. Messages from members who aren't on the roster yet are held (Comm.lua:288-291). The worst case would be low: out-of-raid views missing offline members, relays rejected by that one council member, and PruneFormerMembers dropping a cached copy only after 30 days with the box unticked the whole time.\n\nI can't run the real client. A one-line in-game check settles it: with the Guild tab box unticked, run `/dump GetNumGuildMembers(), GetGuildRosterInfo(select(2, GetNumGuildMembers()) + 1)`. If a name comes back, the premise is false."
+  },
+  {
+   "id": "nonfinite-into-savedvariables",
+   "title": "NaN/\u00b1inf from the wire are persisted into CDLootDB.lists (ts=inf, unknown data keys with NaN/inf values or an inf table key) by one L message from any guild member",
+   "lens": "protocol",
+   "why": "The first half of the finding is true. The second half, the one that causes the harm, is false in the real client.\n\nWhat is true: one L message from Bob can put ts=+inf, a NaN value and a +inf table key into CDLootDB.lists[Bob] on a council member. Store.lua:292 lets +inf through, and CheckShape (:159-176) accepts any number, including non-finite numbers as keys and values. My repro shows the same in-memory state the reviewer reported: ts='inf', junk='-nan(ind)', infkey=true.\n\nWhat is false: the finding says that at logout the client writes inf/NaN as 'inf', '-nan(ind)' or '1.#INF', so the SavedVariables file fails to load and CDLootDB is wiped. The installed client binary shows otherwise:\n\n1. WowClassic.exe (20506) contains the SavedVariables writer's string table right next to the path \"...\\Engine\\Source\\FrameScript\\FrameScriptSerialization.cpp\", \"SavedVariables\" and \"Error loading %s\". It has explicit cases for non-finite numbers:\n   - `nil --[[ nan ]]`\n   - `nil --[[ inf ]]`\n   - `--[[ skipped entry with nan key ]]\\r\\n`\n   - `--[[ skipped entry with inf key ]]\\r\\n`\n   - `--[[ skipped entry with %s key ]]`\n2. The writer's number format is \"%.16g\". That matches the real SV files in WTF (for example Details.lua.bak `= 455.9998779296875,`, which has 16 significant digits), and the CRLF strings in the table match the CRLF line endings of those files. So this string table belongs to the real SV writer.\n3. The binary has the UCRT strings nan(ind)/nan(snan) and no old-CRT '1.#INF'. The AceSerializer '1.#INF' comment is about tostring on old builds and does not apply to this writer.\n\nSo a non-finite value is saved as `nil`, and an entry with an inf or NaN key is dropped. The file is still valid Lua.\n\nRepro: review\\verify\\nonfinite-into-savedvariables\\v_real_writer.py\n- It repeats the reviewer's injection, adding a nested table with -inf and NaN.\n- It opens /cdl council while ts=+inf is in memory: no error. Util.FormatAgo(+inf) returns \"just now\" and shortAge gives \"1m\".\n- It logs Councila out, rewrites the mock SV text the way the real writer does, and logs back in. CDLootDB loads intact: same list count, rev 50 kept, ts/junk/nested values now nil, inf key gone, no Lua errors on either client.\n- For contrast, Part 3 confirms the reviewer's reasoning would hold if the writer were naive: '-nan(ind)' gives \"attempt to call global 'nan'\", '[inf]' gives \"table index is nil\", '1.#INF' gives a syntax error. The client does not write any of these.\n\nEverything left affects only the attacker's own list:\n- Before reload, ts=+inf makes Bob's list show \"just now\" and never stale. Nothing crashes: every reader uses tonumber(rec.ts) or 0, and the only date() calls on list data are guarded.\n- After reload, ts is nil (handled the same way), and the stored hash no longer matches the data with the dropped keys. That council member's relays of Bob's list are then rejected by receivers (hash mismatch, debug log only).\n\nThere is no data loss, no Lua error, and no effect on any other player's list or on loot decisions. What remains is optional hardening, so severity drops from high to low.\n\nAbout the proposed mock change: the mock (core.lua:533-535) keeps inf/NaN across a relog as `math.huge`/`(0/0)`, but the real client turns them into nil. The mock is too forgiving, which is the opposite of what the finding claims. Making the mock \"write them the way the real client does\" would produce `nil --[[ inf ]]`, not a file that fails to load."
+  },
+  {
+   "id": "tie-primary-button-awards-alphabetical",
+   "title": "On a tie, the primary \"Award to X\" button is enabled and awards the alphabetically first tied player; the confirm popup doesn't mention the tie",
+   "lens": "rules",
+   "why": "The mechanics the reviewer describes are accurate. They are also exactly what the spec asks for, and the tie is shown in several places, so this is not a rules defect.\n\n1. **The spec requires this behaviour** (Addendum A; no later addendum changes it).\n   - \u00a719.1 sets the sort order as \"tier ascending \u2192 roll descending \u2192 name\" and says \"`suggested` = the first valid row. If more than one row shares its tier and roll, set `tie=true` on all of them.\" So on a tie, the first name in sort order is suggested by design.\n   - \u00a719.5 says \"**Award to <suggested>**, the primary button, enabled once closed (or at any time)\" and \"With a tie, every tied row is marked 'tie'.\"\n   - The popup texts in Roll.lua (\"Give %s to %s?\" and \"Award %s to %s?\\n(hand it out via master loot or trade)\") match \u00a719.1 word for word.\n   - The spec's only winner rule is \"Within a tier, the highest roll wins\", and \"The ML or council confirms the winner.\" It has no tie-break rule. Bob and Dave have equally valid claims, so giving the item to either one is not a wrong loot decision under the addon's rules. The ML makes the call.\n\n2. **The tie is surfaced clearly.** I ran a repro on the same harness (review\\verify\\tie-primary-button-awards-alphabetical\\repro_tie.py) after Bob and Dave both rolled 77 as BiS main:\n   - Row tags: `Bob=tie`, `Dave=tie`. RollTag checks `tie` before `suggested`, so Bob's row says \"tie\", not \"Suggested\".\n   - Block header: \"Rolls closed \u00b7 2 rolled \u00b7 tie\", in the warn colour.\n   - Buttons: ['Award to Bob', 'Re-roll']. A Re-roll button sits right next to the primary button, and its tooltip says \"for example after a tie\".\n   - Award button tooltip: \"Tie between Bob, Dave: click a row to pick someone else, or re-roll.\"\n   - Popup: \"Give [Ruby Drape of the Mysticant] to Bob?\". This is true: the popup does not mention the tie.\n\n3. **The award is never automatic.** It takes a button click plus a popup confirm, and the ML has already been shown the tie in three places (header, row tags, tooltip).\n\n4. **The proposed fix is risky.**\n   - Disabling or relabelling the primary button would contradict \u00a719.5.\n   - \"Re-roll only the tied players\" does not exist today. Re-roll (DropPanel:StartRoll) restarts the roll for the whole raid. A tied-only roll would need protocol changes: RS would have to carry a participant list, older clients would ignore it, and non-addon /rolls would have to be filtered. That is new-feature risk right before real raid use, for roughly a 1% chance per pair of top-tier rollers.\n\nWhat is left is a small UX gap: the confirm popup does not repeat the tie warning. That makes this optional polish, low at most, and not a blocker."
+  },
+  {
+   "id": "plain-award-no-handout-no-announce",
+   "title": "Officer fast path: 'Award...' (no roll) only writes the ledger. It neither master-loots the item nor announces the decision.",
+   "lens": "ux",
+   "why": "The code description is accurate, but this is documented, intended behaviour, and most of the claimed impact does not happen.\n\n**What is true**\n- DropPanel:Award (UI/DropPanel.lua:1935-1947) only calls Ledger:Award, prints a local line and cancels a queued roll when there is no open, closed or loot-marked roll session. It never calls Loot:GiveItem and never announces.\n- The roll path (Roll:Award / ConfirmGive / Finish) does both.\n- The repro confirms it: Alice is ML with the loot window open and CanGiveItem is true. Plain Award of Ruby Drape to Dave returns true, GiveMasterLoot is called 0 times, no popup appears, no chat line is sent, and there is 1 manual ledger entry.\n\n**Why it is not a defect**\n1. **By design and documented.** README.md:291 says Award... \"records the award in the Loot Log. It doesn't trade the item or give it via master loot, so hand the item out yourself.\" README.md:388 says \"The plain Award... menu never hands the item out. It only records.\" Addendum A \u00a719 limits the master-loot give to the roll confirm flow. Addendum C \u00a723.2 only routes plain awards through a roll when a session exists. The tooltip (\"Record who received this item\") matches.\n2. **The double work is not needed.** Handing an item out with Blizzard's master-loot frame alone is auto-logged. Loot.lua:429-444 calls OnChatLoot, which calls Ledger:RecordAuto on every council client in a raid instance. In the repro, Carol got Thousand Marks through a Blizzard-only hand-out and it showed up as an 'a' entry on both Alice and Bob. So a no-roll council ML does not need 3x Award... on top of the Blizzard hand-out. The Blizzard hand-out alone, about 3 clicks per item, is the whole flow. Award... is for recording a decision or a note.\n3. **\"A separate ML doesn't learn the decision\" is mostly wrong.** Ledger:Award broadcasts to the online council (Comm:SendToCouncil). In the repro, Bob (council, not the one who clicked) got the entry within about 1s, and his drop panel showed \"Awarded to Dave\". A council ML therefore sees the decision on the item block. Raiders see Blizzard's own \"Dave receives loot: [item]\" line when it is handed out, and the auto entry is hidden behind the manual one (checked: 1 visible entry after the loot message). The only real gap is narrow: an ML who is not council and is not the raid leader (Addendum E makes the raid leader council) gets no ledger sync and no announce. They must be told by voice or whisper.\n4. **No crash or wrong-loot risk.** Nothing here can cause a Lua error or a wrong award. At worst it costs a few extra clicks in Blizzard's UI, which every ML already uses.\n\n**Problems with the proposed fix**\n- **Wrong order.** It records first and gives afterwards. The roll path gives first, then records, and on failure asks \"award anyway\" (Roll.lua:1305-1341). With the proposed order, a failed give (player out of range or not eligible, loot window closed, \"pending\" timeout) leaves a ledger entry for an item that was never handed out. The OnAccept also ignores GiveItem's false/nil results and reasons, so failures would be silent.\n- **Replaced popups.** StaticPopup_Show with the same `which` reuses the visible dialog unless `multiple` is set (real client and mock ui.lua:1315). In the finding's own scenario, three awards in a row, the first two give popups would be replaced silently while their ledger entries remain.\n- **Announce noise.** Announcing on every plain record would also announce after-the-fact corrections and \"Someone else...\" entries with drop=false.\n- **Timing.** It adds a new hand-out path to the most sensitive code right before first raid use, for a small click saving."
+  }
+ ],
+ "findings": [
+  {
+   "id": "disenchant-loot-broadcast-as-boss-drop",
+   "title": "Disenchant (and other item-sourced) loot windows are scanned and broadcast to the raid as boss drops",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "runtime"
+  },
+  {
+   "id": "ledger-view-cached-empty-before-guild-name",
+   "title": "After a fresh login the award log view can stay cached empty, hiding every award, until the next roster or ledger change",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "runtime"
+  },
+  {
+   "id": "escape-restore-popup-overwrites-newer-copy",
+   "title": "Pressing Escape on the CDLOOT_RESTORE popup runs \"Keep mine\" and overwrites the council's newer copy of the list",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "runtime"
+  },
+  {
+   "id": "awards-untagged-before-guild-name",
+   "title": "Awards recorded before the guild name is known are untagged, invisible and never broadcast; auto, roll and merged entries are dropped",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "runtime"
+  },
+  {
+   "id": "stale-ml-flag-rt-not-sent",
+   "title": "Util.group.isML is not refreshed on PARTY_LOOT_METHOD_CHANGED, so a newly set non-council master looter gets no BiS tiers (RT)",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "runtime"
+  },
+  {
+   "id": "mock-ismodifiedclick-noarg",
+   "title": "Mock gap: IsModifiedClick() with no argument always returns false, and HandleModifiedItemClick never inserts links, so every shift-click path gated on it is untested",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "runtime"
+  },
+  {
+   "id": "relay-poison-raidscope",
+   "title": "Unsolicited R relay from any council member (incl. a raid leader's raid-scope status) is stored with no rev plausibility: rev 2^31-1 permanently replaces any guild member's list on every guild-council client",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "protocol"
+  },
+  {
+   "id": "award-inject-any-council",
+   "title": "A (award) is accepted from any council member incl. raid-scope and cross-guild raid leaders, on any channel, with forged by/ts/vts: permanent unrestorable voids and fake awards spread guild-wide via LW/LG",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "protocol"
+  },
+  {
+   "id": "cg-tofu-takeover",
+   "title": "Guild council list TOFU: one forged CG makes a plain member council; list-less victims re-broadcast it to the whole guild (GM included), and the real GM's CGs lose to the +300 s future rev",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "protocol"
+  },
+  {
+   "id": "lock-detect-backdated-ts",
+   "title": "BiS-lock change detection trusts the owner-supplied list ts: a list changed during the lock and pushed with ts <= lock start + 3 s is never flagged",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "protocol"
+  },
+  {
+   "id": "rw-at-override",
+   "title": "RW 'at' is unbounded: any RW sender (a raid assistant, the ML, the starter or council) wins every crossed award with g=true, at=1, and ledger entries get ts=1 or year 2100",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "protocol"
+  },
+  {
+   "id": "drop-preclaim-any-raider",
+   "title": "D (drop) has no sender role gate: any raid member (pugs included) can pre-claim the boss corpse's source key, so every client, the ML's own included, shows forged items and ignores the real loot window",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "protocol"
+  },
+  {
+   "id": "decode-cost-storm",
+   "title": "No per-sender receive budget: any guild member (GUILD) or raid member (RAID, pugs included) can make every receiver fully decode ~100-200 KB payloads, several per second (2+ s freeze bursts, ~20-25% sustained CPU)",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "protocol"
+  },
+  {
+   "id": "rs-backdated-preempt",
+   "title": "RS ts accepted within \u00b1300 s: an assistant's backdated RS cancels the running roll on every client and discards the rolls already cast",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "protocol"
+  },
+  {
+   "id": "query-debounce-starvation",
+   "title": "CRQ / GQ replies use a trailing debounce restarted by every query from any raid member: a >1/s query stream keeps the leader from ever sending CR (incl. its own list changes) or GS replies",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "protocol"
+  },
+  {
+   "id": "crossguild-whisper-gate",
+   "title": "Whisper-based messages to or from raid members of another guild are always dropped by Comm's WHISPER gate (e.g. RT tiers to a pug or guildless ML, anything to cross-guild raid-scope picks)",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "protocol"
+  },
+  {
+   "id": "ledger-strings-unsanitized",
+   "title": "Ledger entries from peers keep UI escape codes in note/boss/names (up to 200 bytes) and show them in LootLog tooltips on every guild-council client",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "protocol"
+  },
+  {
+   "id": "copy2-frozen-tier-suggests-previous-winner",
+   "title": "With duplicate copies of an item, the winner of copy 1 is suggested again for copy 2 (tiers frozen before the award)",
+   "severity": "critical",
+   "status": "confirmed",
+   "lens": "rules"
+  },
+  {
+   "id": "ml-give-refused-recorded-as-given",
+   "title": "Master-loot give is recorded as handed out right after GiveMasterLoot returns; a server refusal (bags full, unique item) leaves a phantom award",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "rules"
+  },
+  {
+   "id": "split-raid-awards-bleed-into-drop",
+   "title": "Another raid group's award of the same item is shown as this drop's award; Roll all skips the item and our own award stays hidden",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "rules"
+  },
+  {
+   "id": "view-phase-override-changes-suggestion",
+   "title": "The roll tier depends on each client's personal view-phase override, and the non-council ML merges council tiers by minimum",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "rules"
+  },
+  {
+   "id": "earlier-phase-pick-ranks-as-bis",
+   "title": "An outdated earlier-phase pick (even a slot disabled for the current phase) still ranks as tier 1 BiS",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "rules"
+  },
+  {
+   "id": "loot-message-contradicting-award-not-reconciled",
+   "title": "A hand-out to someone other than the recorded roll winner is silently double-counted (two visible awards, no warning)",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "rules"
+  },
+  {
+   "id": "demo-purge-deletes-real-awards",
+   "title": "The 0.1 demo-award purge deletes, and merge rejects, real awards to pugs or former members whose name matches a demo name",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "rules"
+  },
+  {
+   "id": "auto-entry-boss-key-is-last-encounter",
+   "title": "Auto (loot-message) ledger entries take the boss key of the last encounter, not the drop that held the item",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "rules"
+  },
+  {
+   "id": "typed-accented-name-phantom-key",
+   "title": "\"Someone else...\" award by typed name resolves lowercase accented names to a non-existent key",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "rules"
+  },
+  {
+   "id": "council-items-award-bypasses-roll",
+   "title": "Council Items view 'Record award to' / 'Someone else...' write a plain ledger entry even while the item has an open roll: the roll stays open and a second award is recorded later",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "ux"
+  },
+  {
+   "id": "award-click-closes-roll-before-confirm",
+   "title": "'Award to X' during an open roll ends the roll for the whole raid before the confirmation; pressing Cancel does not reopen it",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "ux"
+  },
+  {
+   "id": "drop-panel-auto-attach-dead",
+   "title": "'Attach to loot window when open' (the default) never attaches for your own loot: the drop fires on LOOT_READY, before Blizzard shows LootFrame on LOOT_OPENED",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "ux"
+  },
+  {
+   "id": "floating-panel-jumps-per-roll",
+   "title": "The floating drop panel is anchored at CENTER and resized on every roll update, so its buttons move under the cursor while rolls come in",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "ux"
+  },
+  {
+   "id": "rollall-winner-not-told",
+   "title": "With 'Roll all', winners of every item except the last never get the popup's 'You won X!': awards of earlier rolls are ignored once the next roll's popup is up",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "ux"
+  },
+  {
+   "id": "trash-drop-hijacks-panel",
+   "title": "An epic from a trash corpse looted within 5 min of a boss kill is filed under that boss and replaces the boss drop on every council member's panel (with alert sound)",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "ux"
+  },
+  {
+   "id": "award-menu-absent-wanters",
+   "title": "Award... menu lists every guild wanter (offline or not in the raid) in the same block as the raid members, with no presence marker",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "ux"
+  },
+  {
+   "id": "search-dropdown-focus-trap",
+   "title": "Council picker (search dropdown) keeps keyboard focus after a mouse-only interaction; the next WASD press types into it and reopens the list",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "ux"
+  },
+  {
+   "id": "roll-more-rows-not-awardable",
+   "title": "Roll results beyond the first 10 rows are only a '+N more' tooltip and can't be awarded from the roll UI",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "ux"
+  },
+  {
+   "id": "esc-closes-drop-panel-no-reopen",
+   "title": "One Esc closes the drop panel together with the loot window and every CDLoot window, and there's no button to reopen it",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "ux"
+  },
+  {
+   "id": "popup-overlap-floating-panel",
+   "title": "Default roll popup (TOP -220) and personal toast (TOP -160) sit on top of the default centred drop panel's header and first roll rows",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "ux"
+  },
+  {
+   "id": "text-truncation",
+   "title": "Measured truncations: roll-mode name/tag columns, roster spec column, the roll popup's 'You won X!' line, and the toast line",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "ux"
+  },
+  {
+   "id": "tooltip-wear-clutter",
+   "title": "Council item tooltips add a 'Wearing: A, B' line under every listed name, doubling the CDLoot block and widening the tooltip on every bag, AH and chat-link hover",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "ux"
+  },
+  {
+   "id": "count-wording",
+   "title": "The same number is called 'claims', 'want' and 'BiS for N' in three places, and the tooltip's 'BiS for N' also counts alt picks",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "ux"
+  },
+  {
+   "id": "index-rebuild-churn",
+   "title": "Wanted-item index is fully rebuilt (13.5k tables, ~3.5 MB garbage) after events that cannot change it; the next council hover, DropPanel render or loot-button count pays for it",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "perf"
+  },
+  {
+   "id": "ledger-unbounded",
+   "title": "Award ledger is never pruned; every change triggers a full O(N) view rebuild, and all entries are re-cleaned at every login",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "perf"
+  },
+  {
+   "id": "auto-award-k2-fanout",
+   "title": "Every council member in the raid records the same loot line and whispers it to every online council peer: K x (peers) duplicate A messages per item, through the in-instance per-prefix throttle",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "perf"
+  },
+  {
+   "id": "ledger-catchup-per-peer",
+   "title": "A council member with a missing or old ledger downloads the full differing history once per online council peer; the transfer then blocks each sender's data-prefix FIFO for minutes",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "perf"
+  },
+  {
+   "id": "roster-rebuild-garbage",
+   "title": "Every GUILD_ROSTER_UPDATE rebuilds the full roster cache even when nothing changed, and CDLoot keeps re-requesting the roster every 15 s",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "perf"
+  },
+  {
+   "id": "class-restricted-raid-drops-usable-by-all",
+   "title": "Class-restricted raid drops (the 9 T5 class trinkets, Warglaives of Azzinoth) are treated as usable by every class",
+   "severity": "high",
+   "status": "confirmed",
+   "lens": "data"
+  },
+  {
+   "id": "sources-class-restricted-pvp-rep",
+   "title": "PvP set pieces, class-specific PvP Medallions and Ashtongue Talismans are offered as 'Usable by my class' to the wrong classes",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "data"
+  },
+  {
+   "id": "token-wanter-no-class-guard",
+   "title": "Tier-token drops list and suggest players whose BiS arena-exchange piece belongs to another class",
+   "severity": "medium",
+   "status": "confirmed",
+   "lens": "data"
+  },
+  {
+   "id": "arena-exchange-patch-gate-ignored",
+   "title": "TokenArenaExchanges ignores its own patch gate: T6 tokens match Season 3 pieces from the first T6 drop",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "data"
+  },
+  {
+   "id": "phase-disagreements",
+   "title": "Some Sources.lua phases contradict Wowhead's TBC phase tags",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "data"
+  },
+  {
+   "id": "mock-equiploc-fidelity",
+   "title": "The mock item DB's equipLoc is wrong for about 5% of CDLoot items, including armor and jewelry slots and a T4 token",
+   "severity": "low",
+   "status": "unverified-low",
+   "lens": "data"
+  }
+ ],
+ "fixReport": "**CDLoot 0.5.0: fixer report**\n\nAll 51 findings are dealt with: 44 fixed and 5 fixed in part, with the rest skipped for a stated reason (1 skipped outright; 2 of the partial fixes skip one piece). All 34 suites are green, including the new regression suite `tests\\regressions\\test_final_review.py` with 44 cases. Of those 44 cases, 42 fail on the untouched 0.4.0 code, so they really catch the bugs; the other 2 cover mock-only behaviour. The TOC is now 0.5.0 and the wire protocol is unchanged (still 1, no new message fields), so 0.2\u20130.4 clients still talk to it.\n\nPaths: addon `C:\\World of Warcraft\\_anniversary_\\Interface\\AddOns\\CDLoot` (0.4.0 backup and full diff in `scratchpad\\fixer\\orig_040` and `scratchpad\\fixer\\final.diff`). Scratchpad = `C:\\Users\\emilo\\AppData\\Local\\Temp\\claude\\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\\scratchpad`.\n\nNote for the docs agent: the new `Data\\ItemClasses.lua` is generated from AtlasLootClassic `Requirements.lua` (GPL v2), so NOTICE.md needs an entry. Two changes go against the spec text and should get an addendum:\n- **Guild council list:** a list from the GM now replaces an unconfirmed (trust-on-first-use) list even at a lower rev, unlike Addendum E \u00a731.\n- **Drop messages:** under master loot, a drop message from a plain raider is no longer trusted (SPEC.md:412).\n\n### 1. Findings\n\n| id | status | files |\n|---|---|---|\n| disenchant-loot-broadcast-as-boss-drop | fixed: loot from items (disenchant, prospecting, lockboxes, bags) and fishing loot is skipped; trade goods and gems that no boss drops are skipped; receivers ignore such drops from older clients. Mounts and Nether Vortex are still tracked. | Core/Loot.lua, Core/ItemDB.lua |\n| ledger-view-cached-empty-before-guild-name | fixed: the cached award-log view is rebuilt once the guild name arrives | Core/Ledger.lua, Core/Guild.lua, Core/Init.lua |\n| escape-restore-popup-overwrites-newer-copy | fixed: Escape only closes the popup; only a real \"Keep mine\" click replaces the council's copy. Mock now behaves like Blizzard's Escape and busy-popup handling. | Core/Sync.lua; wowmock/ui.lua, harness.py |\n| awards-untagged-before-guild-name | fixed: awards and log entries from before the guild name is known are kept, tagged later and sent (again after the login sync) | Core/Ledger.lua |\n| stale-ml-flag-rt-not-sent | fixed: master-looter changes are picked up without a roster change | Core/Util.lua, Core/Roll.lua |\n| mock-ismodifiedclick-noarg | fixed in the mock (the addon itself was already correct) | wowmock/game.lua |\n| relay-poison-raidscope | fixed: other players' lists are only taken from guild-wide council; a relayed rev far above the stored one is refused; the owner's own push repairs a forged copy; list restores only come from guild council the player asked | Core/Sync.lua, Core/Store.lua |\n| award-inject-any-council | fixed: award messages are whisper-only; a raid-scope sender may only add entries under its own name and only touch awards from the last 12 h; future times are refused; void times are clamped and poisoned ones repaired; forged roll-award ids are refused; award times in roll-win messages are bounded | Core/Ledger.lua, Core/Roll.lua |\n| cg-tofu-takeover | fixed: lists taken on trust stay unconfirmed and are never passed on; the GM's own list replaces them; the GM's client ignores relayed copies of its list; future-rev slack cut from 300 s to 60 s | Core/Guild.lua, Core/Sync.lua |\n| lock-detect-backdated-ts | fixed as a soft warning (what the verifier recommended; nobody loses a suggestion) | Core/Store.lua, UI/DropPanel.lua |\n| rw-at-override | fixed: \"handed out\" only counts from the master looter; a second award is only resolved when it arrives within 30 s; award times are bounded | Core/Roll.lua |\n| drop-preclaim-any-raider | fixed: under master loot, drop messages are trusted only from the ML, leader, assistants or council; the ML always broadcasts | Core/Loot.lua |\n| decode-cost-storm | fixed: payloads that decompress too far are refused and the sender is ignored for the session | Core/Comm.lua |\n| rs-backdated-preempt | fixed: roll start times are bounded to \u221260/+10 s; a roll open for more than 10 s is never pre-empted | Core/Roll.lua |\n| query-debounce-starvation | fixed: council and rules queries are answered at once (at most one answer per 5 s) and never delay the leader's own list | Core/Guild.lua, Core/GroupRules.lua |\n| crossguild-whisper-gate | fixed for roll tiers only (the rest is not needed) | Core/Comm.lua |\n| ledger-strings-unsanitized | fixed | Core/Ledger.lua |\n| copy2-frozen-tier-suggests-previous-winner | fixed: winners of the other copy are demoted, also for a non-council ML | Core/Roll.lua |\n| ml-give-refused-recorded-as-given | fixed: an award is recorded only once the server hands the item over; a refusal or no answer within 5 s offers \"Award anyway\". Mock hand-out now answers asynchronously, can be refused, and uses the real error strings. | Core/Loot.lua, Core/Roll.lua; wowmock/game.lua, harness.py |\n| split-raid-awards-bleed-into-drop | fixed: each drop remembers who was in the group; the panel and \"Roll all\" use the same matching | Core/Loot.lua, Core/Ledger.lua, Core/Roll.lua, UI/DropPanel.lua |\n| view-phase-override-changes-suggestion | fixed: roll tiers use the group's phase; a council starter also sends tiers to a non-council ML | Core/Store.lua, Core/Roll.lua |\n| earlier-phase-pick-ranks-as-bis | fixed for the disabled-slot case; ranking of outdated picks left as the agreed spec (loot-policy question) | Core/Store.lua, Core/BiS.lua |\n| loot-message-contradicting-award-not-reconciled | fixed: flagged in both orders when no spare copy exists; one-click \"passes it on\" / \"keeps it\"; voiding an auto entry voids its duplicates | Core/Roll.lua, Core/Ledger.lua, UI/DropPanel.lua |\n| demo-purge-deletes-real-awards | fixed: only entries older than 2026-09-29 00:00 UTC | Core/Ledger.lua |\n| auto-entry-boss-key-is-last-encounter | fixed: boss taken from the drop that held the item | Core/Loot.lua |\n| typed-accented-name-phantom-key | fixed: accent-aware name matching and capitalisation | Core/Util.lua, UI/DropPanel.lua |\n| council-items-award-bypasses-roll | fixed: goes through a live roll when there is one | UI/Council.lua |\n| award-click-closes-roll-before-confirm | fixed by labelling (\"End roll & award to X\") and a confirmation before a re-roll that discards rolls; deferring the close was rejected because it causes a wrong hand-out race | UI/DropPanel.lua |\n| drop-panel-auto-attach-dead | fixed, with side choice at the screen edge | UI/DropPanel.lua |\n| floating-panel-jumps-per-roll | fixed: rows are reserved while a roll is open | UI/DropPanel.lua |\n| rollall-winner-not-told | fixed | UI/RollFrame.lua |\n| trash-drop-hijacks-panel | fixed: trash loot goes to the trash entry or no boss; a panel with a roll in progress stays put and the pager shows \"new\" | Core/Loot.lua, Core/ItemDB.lua, UI/DropPanel.lua |\n| award-menu-absent-wanters | fixed: absent wanters go under \"Not in raid (n)\" | UI/DropPanel.lua |\n| search-dropdown-focus-trap | fixed | UI/Widgets.lua |\n| roll-more-rows-not-awardable | fixed | UI/DropPanel.lua |\n| esc-closes-drop-panel-no-reopen | fixed with a Drops button and Shift-click on the minimap icon; key binding skipped (needs a new Bindings.xml) | UI/Council.lua, UI/MainFrame.lua |\n| popup-overlap-floating-panel | skipped: no default position avoids the popup, toast, unit/raid frames and action bars at all resolutions; the ML case is covered by the loot-window attach and reserved rows; both windows are draggable and remembered | none |\n| text-truncation | fixed | UI/DropPanel.lua, UI/Council.lua, UI/RollFrame.lua, UI/LootLog.lua |\n| tooltip-wear-clutter | fixed: \"Wearing\" lines only while Shift is held | UI/Tooltip.lua |\n| count-wording | fixed: \"N want\" / \"wanted by N\" | UI/DropPanel.lua, UI/Tooltip.lua |\n| index-rebuild-churn | fixed: awards and bag changes no longer rebuild the wanted-item index; own obtained state is read live; online flips don't rebuild | Core/Store.lua, Core/Guild.lua |\n| ledger-unbounded | partly: login cleaning keeps entries in place and the view builds more cheaply; pruning and archiving skipped because it would lose \"already awarded\" history | Core/Ledger.lua |\n| auto-award-k2-fanout | fixed: random delay, cancelled when an earlier entry for the same loot line arrives | Core/Ledger.lua |\n| ledger-catchup-per-peer | fixed: each day is asked from one peer; newest days first | Core/Ledger.lua |\n| roster-rebuild-garbage | fixed: roster updated in place; the automatic re-request is kept | Core/Guild.lua |\n| class-restricted-raid-drops-usable-by-all | fixed: new generated data for 910 class-restricted items; such wanters show \"can't use\" and are never suggested | Data/ItemClasses.lua (new), CDLoot.toc, Core/ItemDB.lua, Core/Store.lua, Core/Roll.lua, Core/BiS.lua |\n| sources-class-restricted-pvp-rep | fixed: same data, plus class names on picker rows | UI/Picker.lua |\n| token-wanter-no-class-guard | fixed | Core/Store.lua, Core/Roll.lua, Core/BiS.lua |\n| arena-exchange-patch-gate-ignored | fixed: T6 \u2192 Season 3 exchange off until raised | Core/ItemDB.lua |\n| phase-disagreements | partly: 16 items corrected in the data and pinned in the generator; G'eras P3/P4 and the Friendly Band of Eternity skipped because the sources conflict (Questie documents the P2 ring quest) | Data/Sources.lua, gen_cdloot_sources.py |\n| mock-equiploc-fidelity | fixed: 99 inventory types plus quality fixes (legendaries, Medallions, alchemist stones, Void Crystal); slot self-check added to the regression suite | wowmock/items.lua, items_fallback.json, fixer/fix_mock_items.py |\n\n**Tests whose expectations changed on purpose:**\n- **Version string:** test_boot, test_settings, test_slash.\n- **Council list:** test_council_picker (the GM ignores relays of its own list).\n- **Trash rule:** test_dungeon.\n- **Drops:** test_drops (raider drop under master loot; toast line).\n- **Auto entries:** test_ledger_auto and test_ledger_sync (delayed broadcast).\n- **Popup and roll texts:**\n  - test_rollclose: conflict flag and \"You won it!\".\n  - test_award, test_roll_close_core, test_ui_dungeon: \"You won it!\".\n  - test_rolls: re-roll confirmation.\n- **Tooltip wording and Wearing lines:** test_tooltip, test_perf, test_ui_xmodule.\n- **Picker:** test_picker_sources (Medallions are now trinkets; class tags).\n\nTwo tool edits: `tf_e\\run_all.py` no longer crashes on output encoding, and `tools\\check.py` now accepts `IsFishingLoot` (Blizzard's own LootFrame.lua on this client uses it).\n\n### 2. Verification\n\n- **check.py:** `-- checked 32 file(s): 0 syntax error(s), 0 global write(s), 2 warning(s)`. Both warnings were already there in 0.4.0: `UPDATE_MASTER_LOOT_LIST` and `ChatFrameUtil.OpenChat`.\n- **find_multiret.py:** 38 sites, the same as 0.4.0; the two new call sites are parenthesised.\n- **test_harness_selftest.py:** `-- 13 test(s), 0 failed`.\n\nAll 34 suites passed (rc=0):\n```\nbislock 16/16 \u00b7 access 12/12 \u00b7 boot 12/12 \u00b7 broad 1/1 \u00b7 council_ui 14/14 \u00b7 demo 5/5 \u00b7 lootlog 7/7 \u00b7 mybis 16/16 \u00b7 perf 3/3\nsettings 9/9 \u00b7 slash 9/9 \u00b7 tooltip 6/6 \u00b7 conformance demo_isolation 7/7 \u00b7 ui_xmodule 11/11 \u00b7 council_picker 16/16\ndisabled_slots 8/8 \u00b7 dungeon 17/17 \u00b7 dungeon_core 16/16 \u00b7 grouprules 12/12 \u00b7 award 17/17 \u00b7 drops 17/17 \u00b7 ledger_auto 9/9\nroll_close_core 10/10 \u00b7 rolls 20/20 \u00b7 picker_sources 13/13 \u00b7 regressions/final_review 44/44 \u00b7 rollclose 15/15\ncouncil_membership 4/4 \u00b7 sync demo_isolation 5/5 \u00b7 ledger_sync 10/10 \u00b7 sync_flows 18/18 \u00b7 sync_hostile 13/13\nsync_traffic 2/2 \u00b7 ui_dungeon 10/10\n```\n\n### 3. In-game checklist (things only the real client can confirm)\n\n1. Disenchant an epic, prospect, and open a lockbox in a raid. No drop panel or raid-warning sound should appear. With the loot window open, `/dump GetLootSourceInfo(1)` should start with `Item-`.\n2. Master-loot to a player with full bags. The red \"inventory is full\" error shows, then CDLoot offers \"Award \u2026 ?\". There is no announce and no log entry.\n3. A normal give is recorded right after the slot empties. Two identical tokens given back to back are both recorded.\n4. Loot a boss with Blizzard's loot window. The drop panel sits beside it, also with Loot Under Mouse on near the right screen edge.\n5. With the restore popup up, press Escape. The popup closes and nothing is sent.\n6. Loot a trash epic right after Prince while a roll is running. The panel stays on Prince and the pager reads \"N/M new\".\n7. Move master loot to a non-council raider mid-raid. The next roll's suggestion there follows BiS priority.\n8. With a master looter from another guild, that player's roll results show BiS tiers.\n9. Full login (not /reload) as council. The Loot Log shows the awards within a few seconds.\n10. Picker as a druid, trinket slot, \"Usable by my class\" ticked. No other-class T5 trinkets; Medallion rows name their class.\n11. Council tooltip on a raid item reads \"wanted by N (M in raid)\". \"Wearing:\" lines appear only while Shift is held.\n12. Council > Loot Council: click the \u25be, click a name, click the world. WASD then moves the character.\n13. Roll all on two items, award the first while the second is open. The winner gets \"You won \u2026\" in chat.\n14. GM on a PC without the saved council list gets the \"not saved on this PC\" message, and re-saving works.\n15. Council Items view > Record award while a roll is open. The menu says \"(closes the open roll)\" and the roll closes for everyone.\n\n### 4. Changelog 0.5.0\n\n**Loot decisions**\n- Disenchanting, prospecting, lockboxes and fishing no longer show up as boss drops or take over the council panel.\n- A master-loot give only counts once the server has handed the item over. If it fails (bags full, unique item), you get \"Award anyway?\" instead of a false announcement.\n- A second copy of an item is no longer suggested to the player who just won the first copy.\n- Players whose class cannot use an item or token (T5 class trinkets, Warglaives, PvP set pieces, Ashtongue talismans, other classes' tokens) are marked \"can't use\" and never suggested.\n- Roll suggestions use the raid's phase, not a council member's personal view phase. The master looter gets the same ranking even when the roll starter is the only council member in the raid.\n- A slot marked \"not needed\" in the current phase no longer counts through an older phase's pick.\n- Another Karazhan group's award of the same item no longer marks your drop as awarded or skips it in \"Roll all\".\n- When the loot message names someone other than the recorded winner, CDLoot flags it and offers a one-click fix to the log.\n- Awarding from Council > Items while a roll is open now goes through the roll.\n\n**Protection against modified clients**\n- A raid leader (or a raider) can no longer overwrite lists, inject or void awards, take over the guild council list, cancel running rolls, override awards, claim boss drops, or freeze clients with oversized messages.\n\n**Reliability**\n- Pressing Escape on the \"newer copy\" popup no longer overwrites the council's copy.\n- The award log no longer stays empty after a fresh login.\n- Changing the master looter is picked up immediately, and a master looter from another guild receives BiS tiers.\n- Real awards to pugs whose names look like demo names are no longer deleted.\n- Less network traffic after a boss and when a council member catches up on the log; less memory churn.\n\n**Interface**\n- The drop panel attaches to the loot window again.\n- The panel doesn't grow or jump while rolls come in.\n- A drop that is still being decided stays on screen when a new drop arrives.\n- \"End roll & award to X\" says what the button does; Re-roll asks first when rolls would be discarded.\n- Rolls hidden under \"+N more\" can be awarded.\n- The Award menu keeps absent players apart.\n- New \"Drops\" button in the Council window, and Shift-click on the minimap icon, to reopen the drop panel.\n- The council search box releases keyboard focus.\n- Winners of earlier Roll-all items are told.\n- Accented names can be typed.\n- Clearer counts (\"N want\").\n- \"Wearing\" lines only while Shift is held.\n- Long names no longer cut off.\n- Picker rows name the classes of class-restricted items.\n\n**Data**\n- Corrected phases for the 2.1 engineering goggles, the 40000-honor Medallions and a few single items.\n- T6 tokens no longer count as a way to Season 3 arena gear (not open on Anniversary realms yet).",
+ "docs": "I wrote `README.md` and `NOTICE.md`; three findings contradict the brief and are recorded in `NOTICE.md`.\n\n1. **`README.md`** covers install/update, quick starts for raider, council, raid leader and GM, and how the roll suggestion works. It also has all 18 slash commands with who may use each, a settings reference, demo mode, FAQ/troubleshooting and the sync & privacy section. Every command, button label, menu entry and status string was checked against the Core/UI code.\n2. **Loon claim:** \"no LoonBestInSlot data is shipped\" is true for files and BiS/guide data, but 10 item IDs in `Data\\Items.lua` name LoonBestInSlot as a supplement source. They are one Magtheridon's Head variant and nine \"of the Forgotten\" tokens under Eredar Twins, which the data already marks unconfirmed. Another 17 IDs name LootReserve.\n3. **Other data sources:** the generators also took numbers from Deadly Boss Mods (creature and encounter IDs; its installed licence says \"All Rights Reserved\") and from Questie's databases (Questie has no licence file installed).\n4. **Library licences:** ChatThrottleLib is public domain, not Ace3 BSD. LibDataBroker-1.1 has no written licence anywhere I could find; its CurseForge page shows \"All Rights Reserved\". LibDBIcon (Ace3 Style BSD) and CallbackHandler (BSD) carry their licence only on CurseForge, not in the files.\n5. **GPL:** AtlasLootClassic is GPL v2, confirmed from its `LICENSE` file and the `X-License` line in every module. `NOTICE.md` warns that redistribution may bring GPL terms, and notes that CDLoot ships no copy of the GPL text.\n\nFiles are in C:\\World of Warcraft\\_anniversary_\\Interface\\AddOns\\CDLoot:\n- README.md\n- NOTICE.md"
+}

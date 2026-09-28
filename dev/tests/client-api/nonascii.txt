@@ -1,0 +1,59 @@
+U+00A7 § SECTION SIGN                        44
+U+00B7 · MIDDLE DOT                          43
+U+2192 → RIGHTWARDS ARROW                    3
+U+2014 — EM DASH                             3
+U+2026 … HORIZONTAL ELLIPSIS                 3
+U+00D7 × MULTIPLICATION SIGN                 2
+U+25BE ▾ BLACK DOWN-POINTING SMALL TRIANGLE  1
+
+Core\Constants.lua:122 [·] [1] = { short = "P1", name = "Phase 1", raids = "Karazhan · Gruul · Magtheridon" },
+Core\Constants.lua:123 [·] [2] = { short = "P2", name = "Phase 2", raids = "Serpentshrine · Tempest Keep" },
+Core\Constants.lua:124 [·] [3] = { short = "P3", name = "Phase 3", raids = "Hyjal · Black Temple" },
+Core\ItemDB.lua:185 [·] return bossName .. " · " .. raidName
+Core\ItemDB.lua:197 [·] text = prefix .. " · " .. text
+Core\Roll.lua:167 [→] local ok = ns.SafeCall(UI.AnnounceLine, UI, "CDLoot: " .. (body:gsub("→", "->")))
+Core\Roll.lua:521 [—] local body = strformat("Roll for %s now — /roll (%ds)", ItemText(ses), ses.duration)
+Core\Roll.lua:1077 [→] local body = strformat("%s → %s (%s, %s)", ItemText(ses), Util.ShortName(key), rollText,
+Core\Roll.lua:1376 [—] ns:Print("Usage: /cdl roll [item link] (shift-click the item) — starts a raid roll; /cdl roll end — ends the running roll.")
+Core\Sync.lua:210 […] if not (Guild and Guild:IsReady()) then return "Waiting for guild roster…" end
+Core\Sync.lua:212 […] if BiS and BiS.IsDirty and BiS:IsDirty() then return "Changes pending…" end
+Core\Sync.lua:218 [—] return "Not shared yet — no council member online"
+Core\Sync.lua:220 […] return "Sharing with council…"
+UI\Council.lua:202 [·] return ref.boss.name .. " · " .. ref.raid.name
+UI\Council.lua:602 [·] tt:AddLine(string.format("|cffff8000CDLoot|r · P%d: %d wanting", d.phase or currentPhase(), d.n or 0))
+UI\Council.lua:636 [·] tt:AddDoubleLine(left, table.concat(flags, " · "), 1, 1, 1, 0.8, 0.8, 0.8)
+UI\Council.lua:695 [·] tt:AddLine("|cffff8000CDLoot|r · " .. coloredName(d.key, d.classFile) .. " - " .. slotLabel)
+UI\Council.lua:773 [·] GameTooltip:AddLine(string.format("P%d: %d picks · %d obtained · %d needed", phase, d.filled, d.filled - d.need, d.need), 1, 1, 1)
+UI\Council.lua:1062 [·] text = "CDLoot: " .. label .. " - " .. table.concat(parts, " · ")
+UI\Council.lua:1176 [·] row.source:SetText(typeText ~= "" and (typeText .. "  ·  " .. count) or count)
+UI\Council.lua:1250 [·] title = title .. grey(string.format("  -  %d items · %d claims", #rows, claims))
+UI\Council.lua:1436 [·] return table.concat(parts, " · ")
+UI\Council.lua:1455 [·] c.summary:SetText(string.format("P%d: %d / %d obtained · %d needed", phase, filled - need, filled, need))
+UI\Council.lua:1469 [·] local suffix = (where and (where .. " · ") or "") .. formatAgo(e.ts)
+UI\Council.lua:1704 [·] local text = string.format("%d members with lists · %d in raid · ", stats.total, stats.inRaid)
+UI\DropPanel.lua:245 [·] return slot .. " · " .. subType
+UI\DropPanel.lua:551 [·] return Paint(head, "main") .. Paint(format("  ·  %d rolled, %d passed", stats.rolled or 0, stats.passed or 0), "muted")
+UI\DropPanel.lua:554 [·] if session.given then t = t .. Paint("  ·  handed out", "muted") end
+UI\DropPanel.lua:557 [·] local t = Paint("Rolls closed", "warn") .. Paint(format("  ·  %d rolled", stats.rolled or 0), "muted")
+UI\DropPanel.lua:558 [·] if stats.tie then t = t .. Paint("  ·  tie", "warn") end
+UI\DropPanel.lua:901 [·] sub = tconcat(parts, " · ")
+UI\DropPanel.lua:2014 [·] t.text:SetText(format("%s - %s · P%d (%s)", ItemText(shown), SlotLabel(m.sid), tonumber(m.phase) or 0, which))
+UI\DropPanel.lua:2123 [×] text = Paint("BiS ×" .. mains, "main")
+UI\DropPanel.lua:2125 [×] text = Paint("Alt ×" .. alts, "alt")
+UI\LootLog.lua:90 [·] return ref.boss.name .. " · " .. ref.raid.name
+UI\LootLog.lua:322 [·] local by = kind .. (e.by and (" · " .. shortName(e.by)) or "")
+UI\LootLog.lua:323 [·] if type(e.n) == "string" and e.n ~= "" then by = by .. " · note" end
+UI\MainFrame.lua:101 [·] text = "|cffff8000Demo mode|r" .. (text ~= "" and ("  ·  " .. text) or "")
+UI\MainFrame.lua:245 [·] tt:AddLine("Left-click: open  ·  Right-click: settings", 0.6, 0.6, 0.6)
+UI\MyBiS.lua:161 [·] root:CreateTitle(SlotLabel(sid) .. "  ·  P" .. phase)
+UI\MyBiS.lua:368 [·] GameTooltip:AddDoubleLine(text, (it.boss and (it.boss .. "  ·  ") or "") .. SlotLabel(it.sid), 1, 1, 1, 0.7, 0.7, 0.7)
+UI\MyBiS.lua:451 [·] card.progress:SetText(("%s  ·  %d / %d obtained"):format(short, info.obtained, info.total))
+UI\MyBiS.lua:455 [·] card.filled:SetText(("%d of %d slots chosen%s"):format(info.filled, info.total, spec ~= "" and ("  ·  " .. spec) or ""))
+UI\MyBiS.lua:526 [·] GameTooltip:AddLine(("%d main  ·  %d alt picks"):format(main, alt), 0.7, 0.7, 0.7)
+UI\MyBiS.lua:610 [·] local footer = ns.UI:CreateLabel(panel, "Click a slot to choose  ·  Right-click for options  ·  Drag items from your bags onto a slot  ·  Shift-click 
+UI\PaperDoll.lua:97 [·] tt:AddLine("Click to change  ·  Right-click for options", 0.5, 0.5, 0.5)
+UI\PaperDoll.lua:121 [·] tt:AddLine("Click to change  ·  Right-click for options", 0.5, 0.5, 0.5)
+UI\Picker.lua:69 [·] return kind .. "  ·  " .. slotText
+UI\Picker.lua:358 [·] win:SetWindowTitle(("Choose %s (%s)  ·  P%d"):format(SlotLabel(state.sid), whichText, state.phase))
+UI\Settings.lua:136 [·] if info and info.raids then return format("P%d · %s", p, info.raids) end
+UI\Settings.lua:485 [·] fs:SetText(format("Version %s · protocol %s\nPeers seen: %d · council online: %d\nSharing: %s\n%s",

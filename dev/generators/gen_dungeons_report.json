@@ -1,0 +1,6814 @@
+{
+ "skipped": [
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Watchkeeper Gargolmar",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Watchkeeper Gargolmar",
+   "list": "heroicItems",
+   "item": 30593,
+   "name": "Iridescent Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Watchkeeper Gargolmar",
+   "list": "heroicItems",
+   "item": 30594,
+   "name": "Effulgent Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Watchkeeper Gargolmar",
+   "list": "heroicItems",
+   "item": 30592,
+   "name": "Steady Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Omor the Unscarred",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Omor the Unscarred",
+   "list": "heroicItems",
+   "item": 30593,
+   "name": "Iridescent Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Omor the Unscarred",
+   "list": "heroicItems",
+   "item": 30594,
+   "name": "Effulgent Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Omor the Unscarred",
+   "list": "heroicItems",
+   "item": 30592,
+   "name": "Steady Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Nazan & Vazruden",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Nazan & Vazruden",
+   "list": "heroicItems",
+   "item": 30593,
+   "name": "Iridescent Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Nazan & Vazruden",
+   "list": "heroicItems",
+   "item": 30594,
+   "name": "Effulgent Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Nazan & Vazruden",
+   "list": "heroicItems",
+   "item": 30592,
+   "name": "Steady Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "The Maker",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "The Maker",
+   "list": "heroicItems",
+   "item": 30601,
+   "name": "Beaming Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "The Maker",
+   "list": "heroicItems",
+   "item": 30600,
+   "name": "Fluorescent Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "The Maker",
+   "list": "heroicItems",
+   "item": 30602,
+   "name": "Jagged Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Broggok",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Broggok",
+   "list": "heroicItems",
+   "item": 30601,
+   "name": "Beaming Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Broggok",
+   "list": "heroicItems",
+   "item": 30600,
+   "name": "Fluorescent Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Broggok",
+   "list": "heroicItems",
+   "item": 30602,
+   "name": "Jagged Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Keli'dan the Breaker",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Keli'dan the Breaker",
+   "list": "heroicItems",
+   "item": 30601,
+   "name": "Beaming Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Keli'dan the Breaker",
+   "list": "heroicItems",
+   "item": 30600,
+   "name": "Fluorescent Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Keli'dan the Breaker",
+   "list": "heroicItems",
+   "item": 30602,
+   "name": "Jagged Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Grand Warlock Nethekurse",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Grand Warlock Nethekurse",
+   "list": "heroicItems",
+   "item": 30548,
+   "name": "Polished Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Grand Warlock Nethekurse",
+   "list": "heroicItems",
+   "item": 30547,
+   "name": "Luminous Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Grand Warlock Nethekurse",
+   "list": "heroicItems",
+   "item": 30546,
+   "name": "Sovereign Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Blood Guard Porung",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Blood Guard Porung",
+   "list": "heroicItems",
+   "item": 30548,
+   "name": "Polished Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Blood Guard Porung",
+   "list": "heroicItems",
+   "item": 30547,
+   "name": "Luminous Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Blood Guard Porung",
+   "list": "heroicItems",
+   "item": 30546,
+   "name": "Sovereign Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Warbringer O'mrogg",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Warbringer O'mrogg",
+   "list": "heroicItems",
+   "item": 30548,
+   "name": "Polished Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Warbringer O'mrogg",
+   "list": "heroicItems",
+   "item": 30547,
+   "name": "Luminous Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Warbringer O'mrogg",
+   "list": "heroicItems",
+   "item": 30546,
+   "name": "Sovereign Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Warchief Kargath Bladefist",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Warchief Kargath Bladefist",
+   "list": "heroicItems",
+   "item": 30548,
+   "name": "Polished Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Warchief Kargath Bladefist",
+   "list": "heroicItems",
+   "item": 30547,
+   "name": "Luminous Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Warchief Kargath Bladefist",
+   "list": "heroicItems",
+   "item": 30546,
+   "name": "Sovereign Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Pandemonius",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Pandemonius",
+   "list": "heroicItems",
+   "item": 30584,
+   "name": "Enscribed Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Pandemonius",
+   "list": "heroicItems",
+   "item": 30585,
+   "name": "Glistening Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Pandemonius",
+   "list": "heroicItems",
+   "item": 30583,
+   "name": "Timeless Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Tavarok",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Tavarok",
+   "list": "heroicItems",
+   "item": 30584,
+   "name": "Enscribed Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Tavarok",
+   "list": "heroicItems",
+   "item": 30585,
+   "name": "Glistening Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Tavarok",
+   "list": "heroicItems",
+   "item": 30583,
+   "name": "Timeless Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Nexus-Prince Shaffar",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Nexus-Prince Shaffar",
+   "list": "heroicItems",
+   "item": 30584,
+   "name": "Enscribed Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Nexus-Prince Shaffar",
+   "list": "heroicItems",
+   "item": 30585,
+   "name": "Glistening Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Nexus-Prince Shaffar",
+   "list": "heroicItems",
+   "item": 30583,
+   "name": "Timeless Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Yor <Void Hound of Shaffar>",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Yor <Void Hound of Shaffar>",
+   "list": "heroicItems",
+   "item": 30584,
+   "name": "Enscribed Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Yor <Void Hound of Shaffar>",
+   "list": "heroicItems",
+   "item": 30585,
+   "name": "Glistening Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Yor <Void Hound of Shaffar>",
+   "list": "heroicItems",
+   "item": 30583,
+   "name": "Timeless Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ManaTombs",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Shirrak the Dead Watcher",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Shirrak the Dead Watcher",
+   "list": "heroicItems",
+   "item": 30587,
+   "name": "Champion's Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Shirrak the Dead Watcher",
+   "list": "heroicItems",
+   "item": 30588,
+   "name": "Potent Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Shirrak the Dead Watcher",
+   "list": "heroicItems",
+   "item": 30586,
+   "name": "Seer's Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Exarch Maladaar",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Exarch Maladaar",
+   "list": "heroicItems",
+   "item": 30587,
+   "name": "Champion's Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Exarch Maladaar",
+   "list": "heroicItems",
+   "item": 30588,
+   "name": "Potent Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Exarch Maladaar",
+   "list": "heroicItems",
+   "item": 30586,
+   "name": "Seer's Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Darkweaver Syth",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Darkweaver Syth",
+   "list": "heroicItems",
+   "item": 30553,
+   "name": "Pristine Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Darkweaver Syth",
+   "list": "heroicItems",
+   "item": 30554,
+   "name": "Stalwart Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Darkweaver Syth",
+   "list": "heroicItems",
+   "item": 30552,
+   "name": "Blessed Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Talon King Ikiss",
+   "list": "items",
+   "row": "INV_Box_01",
+   "text": "The Talon King's Coffer",
+   "reason": "icon/header row (Dummy type) - not an item; its text is appended as \"(from: ...)\" to the next item comment"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Talon King Ikiss",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Talon King Ikiss",
+   "list": "heroicItems",
+   "row": "INV_Box_01",
+   "text": "The Talon King's Coffer",
+   "reason": "icon/header row (Dummy type) - not an item; its text is appended as \"(from: ...)\" to the next item comment"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Talon King Ikiss",
+   "list": "heroicItems",
+   "item": 30553,
+   "name": "Pristine Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Talon King Ikiss",
+   "list": "heroicItems",
+   "item": 30554,
+   "name": "Stalwart Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Talon King Ikiss",
+   "list": "heroicItems",
+   "item": 30552,
+   "name": "Blessed Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Anzu",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Anzu",
+   "list": "heroicItems",
+   "item": 30553,
+   "name": "Pristine Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Anzu",
+   "list": "heroicItems",
+   "item": 30554,
+   "name": "Stalwart Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Anzu",
+   "list": "heroicItems",
+   "item": 30552,
+   "name": "Blessed Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Ambassador Hellmaw",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Ambassador Hellmaw",
+   "list": "heroicItems",
+   "item": 30563,
+   "name": "Regal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Ambassador Hellmaw",
+   "list": "heroicItems",
+   "item": 30559,
+   "name": "Etched Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Ambassador Hellmaw",
+   "list": "heroicItems",
+   "item": 30560,
+   "name": "Rune Covered Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Blackheart the Inciter",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Blackheart the Inciter",
+   "list": "heroicItems",
+   "item": 30563,
+   "name": "Regal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Blackheart the Inciter",
+   "list": "heroicItems",
+   "item": 30559,
+   "name": "Etched Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Blackheart the Inciter",
+   "list": "heroicItems",
+   "item": 30560,
+   "name": "Rune Covered Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Grandmaster Vorpil",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Grandmaster Vorpil",
+   "list": "heroicItems",
+   "item": 30563,
+   "name": "Regal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Grandmaster Vorpil",
+   "list": "heroicItems",
+   "item": 30559,
+   "name": "Etched Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Grandmaster Vorpil",
+   "list": "heroicItems",
+   "item": 30560,
+   "name": "Rune Covered Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Murmur",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Murmur",
+   "list": "heroicItems",
+   "item": 30563,
+   "name": "Regal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Murmur",
+   "list": "heroicItems",
+   "item": 30559,
+   "name": "Etched Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Murmur",
+   "list": "heroicItems",
+   "item": 30560,
+   "name": "Rune Covered Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Mennu the Betrayer",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Mennu the Betrayer",
+   "list": "heroicItems",
+   "item": 30604,
+   "name": "Resplendent Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Mennu the Betrayer",
+   "list": "heroicItems",
+   "item": 30605,
+   "name": "Vivid Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Mennu the Betrayer",
+   "list": "heroicItems",
+   "item": 30603,
+   "name": "Royal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Rokmar the Crackler",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Rokmar the Crackler",
+   "list": "heroicItems",
+   "item": 30604,
+   "name": "Resplendent Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Rokmar the Crackler",
+   "list": "heroicItems",
+   "item": 30605,
+   "name": "Vivid Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Rokmar the Crackler",
+   "list": "heroicItems",
+   "item": 30603,
+   "name": "Royal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Quagmirran",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Quagmirran",
+   "list": "heroicItems",
+   "item": 30604,
+   "name": "Resplendent Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Quagmirran",
+   "list": "heroicItems",
+   "item": 30605,
+   "name": "Vivid Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Quagmirran",
+   "list": "heroicItems",
+   "item": 30603,
+   "name": "Royal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "SlavePens",
+   "entry": "Ahune <The Frost Lord>",
+   "reason": "wrapped in AtlasLoot:GameVersion_GE(WRATH_VERSION_NUM, ...) - Wrath-only, nil on the TBC client"
+  },
+  {
+   "dungeon": "SlavePens",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Hungarfen",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Hungarfen",
+   "list": "heroicItems",
+   "item": 30606,
+   "name": "Lambent Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Hungarfen",
+   "list": "heroicItems",
+   "item": 30607,
+   "name": "Splendid Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Hungarfen",
+   "list": "heroicItems",
+   "item": 30608,
+   "name": "Radiant Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Ghaz'an",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Ghaz'an",
+   "list": "heroicItems",
+   "item": 30606,
+   "name": "Lambent Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Ghaz'an",
+   "list": "heroicItems",
+   "item": 30607,
+   "name": "Splendid Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Ghaz'an",
+   "list": "heroicItems",
+   "item": 30608,
+   "name": "Radiant Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Swamplord Musel'ek",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Swamplord Musel'ek",
+   "list": "heroicItems",
+   "item": 30606,
+   "name": "Lambent Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Swamplord Musel'ek",
+   "list": "heroicItems",
+   "item": 30607,
+   "name": "Splendid Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Swamplord Musel'ek",
+   "list": "heroicItems",
+   "item": 30608,
+   "name": "Radiant Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "The Black Stalker",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "The Black Stalker",
+   "list": "heroicItems",
+   "item": 30606,
+   "name": "Lambent Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "The Black Stalker",
+   "list": "heroicItems",
+   "item": 30607,
+   "name": "Splendid Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "The Black Stalker",
+   "list": "heroicItems",
+   "item": 30608,
+   "name": "Radiant Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Underbog",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Hydromancer Thespia",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Hydromancer Thespia",
+   "list": "heroicItems",
+   "item": 30550,
+   "name": "Sundered Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Hydromancer Thespia",
+   "list": "heroicItems",
+   "item": 30551,
+   "name": "Infused Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Hydromancer Thespia",
+   "list": "heroicItems",
+   "item": 30549,
+   "name": "Shifting Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Mekgineer Steamrigger",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Mekgineer Steamrigger",
+   "list": "heroicItems",
+   "item": 30550,
+   "name": "Sundered Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Mekgineer Steamrigger",
+   "list": "heroicItems",
+   "item": 30551,
+   "name": "Infused Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Mekgineer Steamrigger",
+   "list": "heroicItems",
+   "item": 30549,
+   "name": "Shifting Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Warlord Kalithresh",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Warlord Kalithresh",
+   "list": "heroicItems",
+   "item": 30550,
+   "name": "Sundered Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Warlord Kalithresh",
+   "list": "heroicItems",
+   "item": 30551,
+   "name": "Infused Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Warlord Kalithresh",
+   "list": "heroicItems",
+   "item": 30549,
+   "name": "Shifting Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Steamvault",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Lieutenant Drake",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Lieutenant Drake",
+   "list": "heroicItems",
+   "item": 30589,
+   "name": "Dazzling Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Lieutenant Drake",
+   "list": "heroicItems",
+   "item": 30591,
+   "name": "Empowered Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Lieutenant Drake",
+   "list": "heroicItems",
+   "item": 30590,
+   "name": "Enduring Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Captain Skarloc",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Captain Skarloc",
+   "list": "heroicItems",
+   "item": 30589,
+   "name": "Dazzling Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Captain Skarloc",
+   "list": "heroicItems",
+   "item": 30591,
+   "name": "Empowered Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Captain Skarloc",
+   "list": "heroicItems",
+   "item": 30590,
+   "name": "Enduring Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Epoch Hunter",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Epoch Hunter",
+   "list": "heroicItems",
+   "item": 30589,
+   "name": "Dazzling Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Epoch Hunter",
+   "list": "heroicItems",
+   "item": 30591,
+   "name": "Empowered Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Epoch Hunter",
+   "list": "heroicItems",
+   "item": 30590,
+   "name": "Enduring Chrysoprase",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "entry": "Aged Dalaran Wizard",
+   "items": [
+    22539
+   ],
+   "reason": "specialType = \"vendor\": sold by an NPC for gold, not a drop"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "entry": "Thomas Yance",
+   "items": [
+    25725
+   ],
+   "reason": "specialType = \"vendor\": sold by an NPC for gold, not a drop"
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Chrono Lord Deja",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Chrono Lord Deja",
+   "list": "heroicItems",
+   "item": 30558,
+   "name": "Glimmering Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Chrono Lord Deja",
+   "list": "heroicItems",
+   "item": 30556,
+   "name": "Glinting Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Chrono Lord Deja",
+   "list": "heroicItems",
+   "item": 30555,
+   "name": "Glowing Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Temporus",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Temporus",
+   "list": "heroicItems",
+   "item": 30558,
+   "name": "Glimmering Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Temporus",
+   "list": "heroicItems",
+   "item": 30556,
+   "name": "Glinting Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Temporus",
+   "list": "heroicItems",
+   "item": 30555,
+   "name": "Glowing Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Aeonus",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Aeonus",
+   "list": "heroicItems",
+   "item": 30558,
+   "name": "Glimmering Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Aeonus",
+   "list": "heroicItems",
+   "item": 30556,
+   "name": "Glinting Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Aeonus",
+   "list": "heroicItems",
+   "item": 30555,
+   "name": "Glowing Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "BlackMorass",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Zereketh the Unbound",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Zereketh the Unbound",
+   "list": "heroicItems",
+   "item": 30582,
+   "name": "Deadly Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Zereketh the Unbound",
+   "list": "heroicItems",
+   "item": 30575,
+   "name": "Nimble Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Zereketh the Unbound",
+   "list": "heroicItems",
+   "item": 30581,
+   "name": "Durable Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Dalliah the Doomsayer",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Dalliah the Doomsayer",
+   "list": "heroicItems",
+   "item": 30582,
+   "name": "Deadly Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Dalliah the Doomsayer",
+   "list": "heroicItems",
+   "item": 30575,
+   "name": "Nimble Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Dalliah the Doomsayer",
+   "list": "heroicItems",
+   "item": 30581,
+   "name": "Durable Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Wrath-Scryer Soccothrates",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Wrath-Scryer Soccothrates",
+   "list": "heroicItems",
+   "item": 30582,
+   "name": "Deadly Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Wrath-Scryer Soccothrates",
+   "list": "heroicItems",
+   "item": 30575,
+   "name": "Nimble Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Wrath-Scryer Soccothrates",
+   "list": "heroicItems",
+   "item": 30581,
+   "name": "Durable Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Harbinger Skyriss",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Harbinger Skyriss",
+   "list": "heroicItems",
+   "item": 30582,
+   "name": "Deadly Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Harbinger Skyriss",
+   "list": "heroicItems",
+   "item": 30575,
+   "name": "Nimble Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Harbinger Skyriss",
+   "list": "heroicItems",
+   "item": 30581,
+   "name": "Durable Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Arcatraz",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Commander Sarannis",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Commander Sarannis",
+   "list": "heroicItems",
+   "item": 30574,
+   "name": "Brutal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Commander Sarannis",
+   "list": "heroicItems",
+   "item": 30572,
+   "name": "Imperial Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Commander Sarannis",
+   "list": "heroicItems",
+   "item": 30573,
+   "name": "Mysterious Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "High Botanist Freywinn",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "High Botanist Freywinn",
+   "list": "heroicItems",
+   "item": 30574,
+   "name": "Brutal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "High Botanist Freywinn",
+   "list": "heroicItems",
+   "item": 30572,
+   "name": "Imperial Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "High Botanist Freywinn",
+   "list": "heroicItems",
+   "item": 30573,
+   "name": "Mysterious Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Thorngrin the Tender",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Thorngrin the Tender",
+   "list": "heroicItems",
+   "item": 30574,
+   "name": "Brutal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Thorngrin the Tender",
+   "list": "heroicItems",
+   "item": 30572,
+   "name": "Imperial Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Thorngrin the Tender",
+   "list": "heroicItems",
+   "item": 30573,
+   "name": "Mysterious Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Laj",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Laj",
+   "list": "heroicItems",
+   "item": 30574,
+   "name": "Brutal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Laj",
+   "list": "heroicItems",
+   "item": 30572,
+   "name": "Imperial Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Laj",
+   "list": "heroicItems",
+   "item": 30573,
+   "name": "Mysterious Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Warp Splinter",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Warp Splinter",
+   "list": "heroicItems",
+   "item": 30574,
+   "name": "Brutal Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Warp Splinter",
+   "list": "heroicItems",
+   "item": 30572,
+   "name": "Imperial Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Warp Splinter",
+   "list": "heroicItems",
+   "item": 30573,
+   "name": "Mysterious Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Botanica",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Mechano-Lord Capacitus",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Mechano-Lord Capacitus",
+   "list": "heroicItems",
+   "item": 30565,
+   "name": "Assassin's Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Mechano-Lord Capacitus",
+   "list": "heroicItems",
+   "item": 30566,
+   "name": "Defender's Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Mechano-Lord Capacitus",
+   "list": "heroicItems",
+   "item": 30564,
+   "name": "Shining Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Nethermancer Sepethrea",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Nethermancer Sepethrea",
+   "list": "heroicItems",
+   "item": 30565,
+   "name": "Assassin's Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Nethermancer Sepethrea",
+   "list": "heroicItems",
+   "item": 30566,
+   "name": "Defender's Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Nethermancer Sepethrea",
+   "list": "heroicItems",
+   "item": 30564,
+   "name": "Shining Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Pathaleon the Calculator",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Pathaleon the Calculator",
+   "list": "heroicItems",
+   "item": 30565,
+   "name": "Assassin's Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Pathaleon the Calculator",
+   "list": "heroicItems",
+   "item": 30566,
+   "name": "Defender's Tanzanite",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Pathaleon the Calculator",
+   "list": "heroicItems",
+   "item": 30564,
+   "name": "Shining Fire Opal",
+   "reason": "heroic gem drop (Questie item class 3 = Gem): not equippable gear"
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Cache of the Legion",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Selin Fireheart",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Vexallus",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Priestess Delrissa",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Kael'thas Sunstrider",
+   "list": "heroicItems",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "entry": "KEYS",
+   "reason": "shared extra table (KEYS: dungeon keys list, ExtraList/IgnoreAsSource) - not boss loot"
+  }
+ ],
+ "warnings": [],
+ "atlas_dungeon_content_keys": [
+  "HellfireRamparts",
+  "TheBloodFurnace",
+  "TheShatteredHalls",
+  "Mana-Tombs",
+  "AuchenaiCrypts",
+  "SethekkHalls",
+  "ShadowLabyrinth",
+  "TheSlavePens",
+  "TheUnderbog",
+  "TheSteamvault",
+  "OldHillsbradFoothills",
+  "TheBlackMorass",
+  "TheArcatraz",
+  "TheBotanica",
+  "TheMechanar",
+  "MagistersTerrace"
+ ],
+ "dbm_party_bc_installed": false,
+ "questie_objectIDs": [
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "NazanVazruden",
+   "object": 185169,
+   "name": "Reinforced Fel Iron Chest",
+   "zone": 3562,
+   "via": "same name + zone as AtlasLoot ObjectID 185168",
+   "badge_holder": true
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Ikiss",
+   "object": 187372,
+   "name": "The Talon King's Coffer",
+   "zone": 3791,
+   "via": "Questie objectDrops of item 27991 (items)",
+   "badge_holder": false
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "CacheOfTheLegion",
+   "object": 184849,
+   "name": "Cache of the Legion",
+   "zone": 0,
+   "via": "same name + zone as AtlasLoot ObjectID 184465",
+   "badge_holder": true
+  }
+ ],
+ "npc_questie_names": [
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Gargolmar",
+   "npcs": [
+    {
+     "npc": 17306,
+     "questie_name": "Watchkeeper Gargolmar",
+     "zone": 3562
+    },
+    {
+     "npc": 18436,
+     "questie_name": "Watchkeeper Gargolmar (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Omor",
+   "npcs": [
+    {
+     "npc": 17308,
+     "questie_name": "Omor the Unscarred",
+     "zone": 3562
+    },
+    {
+     "npc": 18433,
+     "questie_name": "Omor the Unscarred (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "NazanVazruden",
+   "npcs": [
+    {
+     "npc": 17537,
+     "questie_name": "Vazruden",
+     "zone": 0
+    },
+    {
+     "npc": 18434,
+     "questie_name": "Vazruden (1)",
+     "zone": 0
+    },
+    {
+     "npc": 17536,
+     "questie_name": "Nazan",
+     "zone": 0
+    },
+    {
+     "npc": 18432,
+     "questie_name": "Nazan (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Maker",
+   "npcs": [
+    {
+     "npc": 17381,
+     "questie_name": "The Maker",
+     "zone": 3713
+    },
+    {
+     "npc": 18621,
+     "questie_name": "The Maker (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Broggok",
+   "npcs": [
+    {
+     "npc": 17380,
+     "questie_name": "Broggok",
+     "zone": 3713
+    },
+    {
+     "npc": 18601,
+     "questie_name": "Broggok (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Kelidan",
+   "npcs": [
+    {
+     "npc": 17377,
+     "questie_name": "Keli'dan the Breaker",
+     "zone": 3713
+    },
+    {
+     "npc": 18607,
+     "questie_name": "Keli'dan the Breaker (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Nethekurse",
+   "npcs": [
+    {
+     "npc": 16807,
+     "questie_name": "Grand Warlock Nethekurse",
+     "zone": 3714
+    },
+    {
+     "npc": 20568,
+     "questie_name": "Grand Warlock Nethekurse (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Porung",
+   "npcs": [
+    {
+     "npc": 20923,
+     "questie_name": "Blood Guard Porung",
+     "zone": 3714
+    }
+   ]
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Omrogg",
+   "npcs": [
+    {
+     "npc": 16809,
+     "questie_name": "Warbringer O'mrogg",
+     "zone": 3714
+    },
+    {
+     "npc": 20596,
+     "questie_name": "Warbringer O'mrogg (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Kargath",
+   "npcs": [
+    {
+     "npc": 16808,
+     "questie_name": "Warchief Kargath Bladefist",
+     "zone": 3714
+    },
+    {
+     "npc": 20597,
+     "questie_name": "Warchief Kargath Bladefist (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Executioner",
+   "npcs": [
+    {
+     "npc": 17301,
+     "questie_name": "Shattered Hand Executioner",
+     "zone": 0
+    },
+    {
+     "npc": 20585,
+     "questie_name": "Shattered Hand Executioner (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Pandemonius",
+   "npcs": [
+    {
+     "npc": 18341,
+     "questie_name": "Pandemonius",
+     "zone": 3792
+    },
+    {
+     "npc": 20267,
+     "questie_name": "Pandemonius (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Tavarok",
+   "npcs": [
+    {
+     "npc": 18343,
+     "questie_name": "Tavarok",
+     "zone": 3792
+    },
+    {
+     "npc": 20268,
+     "questie_name": "Tavarok (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Shaffar",
+   "npcs": [
+    {
+     "npc": 18344,
+     "questie_name": "Nexus-Prince Shaffar",
+     "zone": 3792
+    },
+    {
+     "npc": 20266,
+     "questie_name": "Nexus-Prince Shaffar (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Yor",
+   "npcs": [
+    {
+     "npc": 22930,
+     "questie_name": "Yor",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Shirrak",
+   "npcs": [
+    {
+     "npc": 18371,
+     "questie_name": "Shirrak the Dead Watcher",
+     "zone": 3790
+    },
+    {
+     "npc": 20318,
+     "questie_name": "Shirrak the Dead Watcher (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Maladaar",
+   "npcs": [
+    {
+     "npc": 18373,
+     "questie_name": "Exarch Maladaar",
+     "zone": 3790
+    },
+    {
+     "npc": 20306,
+     "questie_name": "Exarch Maladaar (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "AvatarOfTheMartyred",
+   "npcs": [
+    {
+     "npc": 18478,
+     "questie_name": "Avatar of the Martyred",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Syth",
+   "npcs": [
+    {
+     "npc": 18472,
+     "questie_name": "Darkweaver Syth",
+     "zone": 3791
+    },
+    {
+     "npc": 20690,
+     "questie_name": "Darkweaver Syth (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Ikiss",
+   "npcs": [
+    {
+     "npc": 18473,
+     "questie_name": "Talon King Ikiss",
+     "zone": 3791
+    },
+    {
+     "npc": 20706,
+     "questie_name": "Talon King Ikiss (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Anzu",
+   "npcs": [
+    {
+     "npc": 23035,
+     "questie_name": "Anzu",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "SagaOfTerokk",
+   "npcs": []
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Hellmaw",
+   "npcs": [
+    {
+     "npc": 18731,
+     "questie_name": "Ambassador Hellmaw",
+     "zone": 3789
+    },
+    {
+     "npc": 20636,
+     "questie_name": "Ambassador Hellmaw (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Blackheart",
+   "npcs": [
+    {
+     "npc": 18667,
+     "questie_name": "Blackheart the Inciter",
+     "zone": 3789
+    },
+    {
+     "npc": 20637,
+     "questie_name": "Blackheart the Inciter (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Vorpil",
+   "npcs": [
+    {
+     "npc": 18732,
+     "questie_name": "Grandmaster Vorpil",
+     "zone": 3789
+    },
+    {
+     "npc": 20653,
+     "questie_name": "Grandmaster Vorpil (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Murmur",
+   "npcs": [
+    {
+     "npc": 18708,
+     "questie_name": "Murmur",
+     "zone": 3789
+    },
+    {
+     "npc": 20657,
+     "questie_name": "Murmur (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "FirstFragmentGuardian",
+   "npcs": [
+    {
+     "npc": 22890,
+     "questie_name": "First Fragment Guardian",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Mennu",
+   "npcs": [
+    {
+     "npc": 17941,
+     "questie_name": "Mennu the Betrayer",
+     "zone": 3717
+    },
+    {
+     "npc": 19893,
+     "questie_name": "Mennu the Betrayer (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Rokmar",
+   "npcs": [
+    {
+     "npc": 17991,
+     "questie_name": "Rokmar the Crackler",
+     "zone": 3717
+    },
+    {
+     "npc": 19895,
+     "questie_name": "Rokmar the Crackler (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Quagmirran",
+   "npcs": [
+    {
+     "npc": 17942,
+     "questie_name": "Quagmirran",
+     "zone": 3717
+    },
+    {
+     "npc": 19894,
+     "questie_name": "Quagmirran (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Hungarfen",
+   "npcs": [
+    {
+     "npc": 17770,
+     "questie_name": "Hungarfen",
+     "zone": 3716
+    },
+    {
+     "npc": 20169,
+     "questie_name": "Hungarfen (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Ghazan",
+   "npcs": [
+    {
+     "npc": 18105,
+     "questie_name": "Ghaz'an",
+     "zone": 3716
+    },
+    {
+     "npc": 20168,
+     "questie_name": "Ghaz'an (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Muselek",
+   "npcs": [
+    {
+     "npc": 17826,
+     "questie_name": "Swamplord Musel'ek",
+     "zone": 3716
+    },
+    {
+     "npc": 20183,
+     "questie_name": "Swamplord Musel'ek (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "BlackStalker",
+   "npcs": [
+    {
+     "npc": 17882,
+     "questie_name": "The Black Stalker",
+     "zone": 3716
+    },
+    {
+     "npc": 20184,
+     "questie_name": "The Black Stalker (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Thespia",
+   "npcs": [
+    {
+     "npc": 17797,
+     "questie_name": "Hydromancer Thespia",
+     "zone": 3715
+    },
+    {
+     "npc": 20629,
+     "questie_name": "Hydromancer Thespia (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Steamrigger",
+   "npcs": [
+    {
+     "npc": 17796,
+     "questie_name": "Mekgineer Steamrigger",
+     "zone": 3715
+    },
+    {
+     "npc": 20630,
+     "questie_name": "Mekgineer Steamrigger (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Kalithresh",
+   "npcs": [
+    {
+     "npc": 17798,
+     "questie_name": "Warlord Kalithresh",
+     "zone": 3715
+    },
+    {
+     "npc": 20633,
+     "questie_name": "Warlord Kalithresh (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Drake",
+   "npcs": [
+    {
+     "npc": 17848,
+     "questie_name": "Lieutenant Drake",
+     "zone": 0
+    },
+    {
+     "npc": 20535,
+     "questie_name": "Lieutenant Drake (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Skarloc",
+   "npcs": [
+    {
+     "npc": 17862,
+     "questie_name": "Captain Skarloc",
+     "zone": 0
+    },
+    {
+     "npc": 20521,
+     "questie_name": "Captain Skarloc (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "EpochHunter",
+   "npcs": [
+    {
+     "npc": 18096,
+     "questie_name": "Epoch Hunter",
+     "zone": 0
+    },
+    {
+     "npc": 20531,
+     "questie_name": "Epoch Hunter (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "DonCarlos",
+   "npcs": [
+    {
+     "npc": 28132,
+     "questie_name": "Don Carlos",
+     "zone": 2367
+    },
+    {
+     "npc": 28171,
+     "questie_name": "Don Carlos (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Deja",
+   "npcs": [
+    {
+     "npc": 17879,
+     "questie_name": "Chrono Lord Deja",
+     "zone": 0
+    },
+    {
+     "npc": 20738,
+     "questie_name": "Chrono Lord Deja (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Temporus",
+   "npcs": [
+    {
+     "npc": 17880,
+     "questie_name": "Temporus",
+     "zone": 0
+    },
+    {
+     "npc": 20745,
+     "questie_name": "Temporus (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Aeonus",
+   "npcs": [
+    {
+     "npc": 17881,
+     "questie_name": "Aeonus",
+     "zone": 0
+    },
+    {
+     "npc": 20737,
+     "questie_name": "Aeonus (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Zereketh",
+   "npcs": [
+    {
+     "npc": 20870,
+     "questie_name": "Zereketh the Unbound",
+     "zone": 0
+    },
+    {
+     "npc": 21626,
+     "questie_name": "Zereketh the Unbound (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Dalliah",
+   "npcs": [
+    {
+     "npc": 20885,
+     "questie_name": "Dalliah the Doomsayer",
+     "zone": 0
+    },
+    {
+     "npc": 21590,
+     "questie_name": "Dalliah the Doomsayer (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Soccothrates",
+   "npcs": [
+    {
+     "npc": 20886,
+     "questie_name": "Wrath-Scryer Soccothrates",
+     "zone": 0
+    },
+    {
+     "npc": 21624,
+     "questie_name": "Wrath-Scryer Soccothrates (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Skyriss",
+   "npcs": [
+    {
+     "npc": 20912,
+     "questie_name": "Harbinger Skyriss",
+     "zone": 0
+    },
+    {
+     "npc": 21599,
+     "questie_name": "Harbinger Skyriss (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "ThirdFragmentGuardian",
+   "npcs": [
+    {
+     "npc": 22892,
+     "questie_name": "Third Fragment Guardian",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Sarannis",
+   "npcs": [
+    {
+     "npc": 17976,
+     "questie_name": "Commander Sarannis",
+     "zone": 0
+    },
+    {
+     "npc": 21551,
+     "questie_name": "Commander Sarannis (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Freywinn",
+   "npcs": [
+    {
+     "npc": 17975,
+     "questie_name": "High Botanist Freywinn",
+     "zone": 0
+    },
+    {
+     "npc": 21558,
+     "questie_name": "High Botanist Freywinn (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Thorngrin",
+   "npcs": [
+    {
+     "npc": 17978,
+     "questie_name": "Thorngrin the Tender",
+     "zone": 0
+    },
+    {
+     "npc": 21581,
+     "questie_name": "Thorngrin the Tender (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Laj",
+   "npcs": [
+    {
+     "npc": 17980,
+     "questie_name": "Laj",
+     "zone": 0
+    },
+    {
+     "npc": 21559,
+     "questie_name": "Laj (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "WarpSplinter",
+   "npcs": [
+    {
+     "npc": 17977,
+     "questie_name": "Warp Splinter",
+     "zone": 0
+    },
+    {
+     "npc": 21582,
+     "questie_name": "Warp Splinter (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Capacitus",
+   "npcs": [
+    {
+     "npc": 19219,
+     "questie_name": "Mechano-Lord Capacitus",
+     "zone": 0
+    },
+    {
+     "npc": 21533,
+     "questie_name": "Mechano-Lord Capacitus (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Sepethrea",
+   "npcs": [
+    {
+     "npc": 19221,
+     "questie_name": "Nethermancer Sepethrea",
+     "zone": 0
+    },
+    {
+     "npc": 21536,
+     "questie_name": "Nethermancer Sepethrea (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Pathaleon",
+   "npcs": [
+    {
+     "npc": 19220,
+     "questie_name": "Pathaleon the Calculator",
+     "zone": 0
+    },
+    {
+     "npc": 21537,
+     "questie_name": "Pathaleon the Calculator (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "CacheOfTheLegion",
+   "npcs": []
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "GyroKill",
+   "npcs": [
+    {
+     "npc": 19218,
+     "questie_name": "Gatewatcher Gyro-Kill",
+     "zone": 0
+    },
+    {
+     "npc": 21525,
+     "questie_name": "Gatewatcher Gyro-Kill (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "IronHand",
+   "npcs": [
+    {
+     "npc": 19710,
+     "questie_name": "Gatewatcher Iron-Hand",
+     "zone": 0
+    },
+    {
+     "npc": 21526,
+     "questie_name": "Gatewatcher Iron-Hand (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "OverchargedManacell",
+   "npcs": []
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Trash",
+   "npcs": []
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Selin",
+   "npcs": [
+    {
+     "npc": 24723,
+     "questie_name": "Selin Fireheart",
+     "zone": 4131
+    },
+    {
+     "npc": 25562,
+     "questie_name": "Selin Fireheart (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Vexallus",
+   "npcs": [
+    {
+     "npc": 24744,
+     "questie_name": "Vexallus",
+     "zone": 4131
+    },
+    {
+     "npc": 25573,
+     "questie_name": "Vexallus (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Delrissa",
+   "npcs": [
+    {
+     "npc": 24560,
+     "questie_name": "Priestess Delrissa",
+     "zone": 4131
+    },
+    {
+     "npc": 25560,
+     "questie_name": "Priestess Delrissa (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Kaelthas",
+   "npcs": [
+    {
+     "npc": 24664,
+     "questie_name": "Kael'thas Sunstrider",
+     "zone": 4131
+    },
+    {
+     "npc": 24857,
+     "questie_name": "Kael'thas Sunstrider (1)",
+     "zone": 0
+    }
+   ]
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Trash",
+   "npcs": []
+  }
+ ],
+ "questie_npc_variants_not_in_atlas": [],
+ "loot_holders_questie": {
+  "HellfireRamparts/Gargolmar": {
+   "item_drop_npcs": [
+    17306,
+    18436
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    18436
+   ],
+   "badge_objects": []
+  },
+  "HellfireRamparts/Omor": {
+   "item_drop_npcs": [
+    17308,
+    18433
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    18433
+   ],
+   "badge_objects": []
+  },
+  "HellfireRamparts/NazanVazruden": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [],
+   "badge_objects": [
+    185169
+   ]
+  },
+  "BloodFurnace/Maker": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    18621
+   ],
+   "badge_objects": []
+  },
+  "BloodFurnace/Broggok": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    18601
+   ],
+   "badge_objects": []
+  },
+  "BloodFurnace/Kelidan": {
+   "item_drop_npcs": [
+    18607
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    18607
+   ],
+   "badge_objects": []
+  },
+  "ShatteredHalls/Nethekurse": {
+   "item_drop_npcs": [
+    16807,
+    20568
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20568
+   ],
+   "badge_objects": []
+  },
+  "ShatteredHalls/Porung": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20923
+   ],
+   "badge_objects": []
+  },
+  "ShatteredHalls/Omrogg": {
+   "item_drop_npcs": [
+    16809,
+    20596
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20596
+   ],
+   "badge_objects": []
+  },
+  "ShatteredHalls/Kargath": {
+   "item_drop_npcs": [
+    16808,
+    20597
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20597
+   ],
+   "badge_objects": []
+  },
+  "ShatteredHalls/Executioner": {
+   "item_drop_npcs": [
+    17301,
+    20585
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "ManaTombs/Pandemonius": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20267
+   ],
+   "badge_objects": []
+  },
+  "ManaTombs/Tavarok": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20268
+   ],
+   "badge_objects": []
+  },
+  "ManaTombs/Shaffar": {
+   "item_drop_npcs": [
+    18344,
+    20266
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20266
+   ],
+   "badge_objects": []
+  },
+  "ManaTombs/Yor": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    22930
+   ],
+   "badge_objects": []
+  },
+  "AuchenaiCrypts/Shirrak": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20318
+   ],
+   "badge_objects": []
+  },
+  "AuchenaiCrypts/Maladaar": {
+   "item_drop_npcs": [
+    18373,
+    20306
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20306
+   ],
+   "badge_objects": []
+  },
+  "AuchenaiCrypts/AvatarOfTheMartyred": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "SethekkHalls/Syth": {
+   "item_drop_npcs": [
+    18472,
+    20690
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20690
+   ],
+   "badge_objects": []
+  },
+  "SethekkHalls/Ikiss": {
+   "item_drop_npcs": [
+    18473,
+    20706
+   ],
+   "item_drop_objects": [
+    187372
+   ],
+   "badge_npcs": [
+    20706
+   ],
+   "badge_objects": []
+  },
+  "SethekkHalls/Anzu": {
+   "item_drop_npcs": [
+    23035
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    23035
+   ],
+   "badge_objects": []
+  },
+  "SethekkHalls/SagaOfTerokk": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [
+    183050
+   ],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "ShadowLabyrinth/Hellmaw": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20636
+   ],
+   "badge_objects": []
+  },
+  "ShadowLabyrinth/Blackheart": {
+   "item_drop_npcs": [
+    18667,
+    20637
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20637
+   ],
+   "badge_objects": []
+  },
+  "ShadowLabyrinth/Vorpil": {
+   "item_drop_npcs": [
+    18732,
+    20653
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20653
+   ],
+   "badge_objects": []
+  },
+  "ShadowLabyrinth/Murmur": {
+   "item_drop_npcs": [
+    18708,
+    20657
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20657
+   ],
+   "badge_objects": []
+  },
+  "ShadowLabyrinth/FirstFragmentGuardian": {
+   "item_drop_npcs": [
+    22890
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "SlavePens/Mennu": {
+   "item_drop_npcs": [
+    17941,
+    19893
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    19893
+   ],
+   "badge_objects": []
+  },
+  "SlavePens/Rokmar": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    19895
+   ],
+   "badge_objects": []
+  },
+  "SlavePens/Quagmirran": {
+   "item_drop_npcs": [
+    19894
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    19894
+   ],
+   "badge_objects": []
+  },
+  "Underbog/Hungarfen": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20169
+   ],
+   "badge_objects": []
+  },
+  "Underbog/Ghazan": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20168
+   ],
+   "badge_objects": []
+  },
+  "Underbog/Muselek": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20183
+   ],
+   "badge_objects": []
+  },
+  "Underbog/BlackStalker": {
+   "item_drop_npcs": [
+    17882,
+    20184
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20184
+   ],
+   "badge_objects": []
+  },
+  "Steamvault/Thespia": {
+   "item_drop_npcs": [
+    17797,
+    20629
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20629
+   ],
+   "badge_objects": []
+  },
+  "Steamvault/Steamrigger": {
+   "item_drop_npcs": [
+    17796,
+    20630
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20630
+   ],
+   "badge_objects": []
+  },
+  "Steamvault/Kalithresh": {
+   "item_drop_npcs": [
+    17798,
+    20633
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20633
+   ],
+   "badge_objects": []
+  },
+  "OldHillsbrad/Drake": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20535
+   ],
+   "badge_objects": []
+  },
+  "OldHillsbrad/Skarloc": {
+   "item_drop_npcs": [
+    17862,
+    20521
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20521
+   ],
+   "badge_objects": []
+  },
+  "OldHillsbrad/EpochHunter": {
+   "item_drop_npcs": [
+    18096,
+    20531
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20531
+   ],
+   "badge_objects": []
+  },
+  "OldHillsbrad/DonCarlos": {
+   "item_drop_npcs": [
+    28132,
+    28171
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "BlackMorass/Deja": {
+   "item_drop_npcs": [
+    17879,
+    20738
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20738
+   ],
+   "badge_objects": []
+  },
+  "BlackMorass/Temporus": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20745
+   ],
+   "badge_objects": []
+  },
+  "BlackMorass/Aeonus": {
+   "item_drop_npcs": [
+    20737
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    20737
+   ],
+   "badge_objects": []
+  },
+  "Arcatraz/Zereketh": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21626
+   ],
+   "badge_objects": []
+  },
+  "Arcatraz/Dalliah": {
+   "item_drop_npcs": [
+    20885,
+    21590
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21590
+   ],
+   "badge_objects": []
+  },
+  "Arcatraz/Soccothrates": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21624
+   ],
+   "badge_objects": []
+  },
+  "Arcatraz/Skyriss": {
+   "item_drop_npcs": [
+    21599
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21599
+   ],
+   "badge_objects": []
+  },
+  "Arcatraz/ThirdFragmentGuardian": {
+   "item_drop_npcs": [
+    22892
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "Botanica/Sarannis": {
+   "item_drop_npcs": [
+    17976,
+    21551
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21551
+   ],
+   "badge_objects": []
+  },
+  "Botanica/Freywinn": {
+   "item_drop_npcs": [
+    17975,
+    21558
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21558
+   ],
+   "badge_objects": []
+  },
+  "Botanica/Thorngrin": {
+   "item_drop_npcs": [
+    17978,
+    21581
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21581
+   ],
+   "badge_objects": []
+  },
+  "Botanica/Laj": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21559
+   ],
+   "badge_objects": []
+  },
+  "Botanica/WarpSplinter": {
+   "item_drop_npcs": [
+    17977,
+    21582
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21582
+   ],
+   "badge_objects": []
+  },
+  "Mechanar/Capacitus": {
+   "item_drop_npcs": [
+    19219,
+    21533
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21533
+   ],
+   "badge_objects": []
+  },
+  "Mechanar/Sepethrea": {
+   "item_drop_npcs": [
+    19221,
+    21536
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21536
+   ],
+   "badge_objects": []
+  },
+  "Mechanar/Pathaleon": {
+   "item_drop_npcs": [
+    19220,
+    21537
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    21537
+   ],
+   "badge_objects": []
+  },
+  "Mechanar/CacheOfTheLegion": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [
+    184465,
+    184849
+   ],
+   "badge_npcs": [],
+   "badge_objects": [
+    184849
+   ]
+  },
+  "Mechanar/GyroKill": {
+   "item_drop_npcs": [
+    19218,
+    21525
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "Mechanar/IronHand": {
+   "item_drop_npcs": [
+    19710,
+    21526
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "Mechanar/OverchargedManacell": {
+   "item_drop_npcs": [],
+   "item_drop_objects": [
+    185015
+   ],
+   "badge_npcs": [],
+   "badge_objects": []
+  },
+  "MagistersTerrace/Selin": {
+   "item_drop_npcs": [
+    25562
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    25562
+   ],
+   "badge_objects": []
+  },
+  "MagistersTerrace/Vexallus": {
+   "item_drop_npcs": [
+    25573
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    25573
+   ],
+   "badge_objects": []
+  },
+  "MagistersTerrace/Delrissa": {
+   "item_drop_npcs": [
+    24560,
+    25560
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    25560
+   ],
+   "badge_objects": []
+  },
+  "MagistersTerrace/Kaelthas": {
+   "item_drop_npcs": [
+    24664,
+    24857
+   ],
+   "item_drop_objects": [],
+   "badge_npcs": [
+    24857
+   ],
+   "badge_objects": []
+  }
+ },
+ "loot_holders_questie_none": [
+  "AuchenaiCrypts/AvatarOfTheMartyred"
+ ],
+ "item_name_vs_questie": {
+  "mismatch": []
+ },
+ "crosscheck_atlas_source_tbc": {
+  "match_boss": 718,
+  "match_boss_and_difficulty": 718,
+  "boss_mismatch": [],
+  "difficulty_mismatch": [],
+  "missing": [],
+  "atlas_source_entries_not_in_ours": [
+   [
+    "ShatteredHalls",
+    "Nethekurse",
+    30546,
+    [
+     "H"
+    ],
+    "Sovereign Tanzanite"
+   ],
+   [
+    "ShatteredHalls",
+    "Porung",
+    30546,
+    [
+     "H"
+    ],
+    "Sovereign Tanzanite"
+   ],
+   [
+    "ShatteredHalls",
+    "Omrogg",
+    30546,
+    [
+     "H"
+    ],
+    "Sovereign Tanzanite"
+   ],
+   [
+    "ShatteredHalls",
+    "Kargath",
+    30546,
+    [
+     "H"
+    ],
+    "Sovereign Tanzanite"
+   ],
+   [
+    "ShatteredHalls",
+    "Nethekurse",
+    30547,
+    [
+     "H"
+    ],
+    "Luminous Fire Opal"
+   ],
+   [
+    "ShatteredHalls",
+    "Porung",
+    30547,
+    [
+     "H"
+    ],
+    "Luminous Fire Opal"
+   ],
+   [
+    "ShatteredHalls",
+    "Omrogg",
+    30547,
+    [
+     "H"
+    ],
+    "Luminous Fire Opal"
+   ],
+   [
+    "ShatteredHalls",
+    "Kargath",
+    30547,
+    [
+     "H"
+    ],
+    "Luminous Fire Opal"
+   ],
+   [
+    "ShatteredHalls",
+    "Nethekurse",
+    30548,
+    [
+     "H"
+    ],
+    "Polished Chrysoprase"
+   ],
+   [
+    "ShatteredHalls",
+    "Porung",
+    30548,
+    [
+     "H"
+    ],
+    "Polished Chrysoprase"
+   ],
+   [
+    "ShatteredHalls",
+    "Omrogg",
+    30548,
+    [
+     "H"
+    ],
+    "Polished Chrysoprase"
+   ],
+   [
+    "ShatteredHalls",
+    "Kargath",
+    30548,
+    [
+     "H"
+    ],
+    "Polished Chrysoprase"
+   ],
+   [
+    "Steamvault",
+    "Thespia",
+    30549,
+    [
+     "H"
+    ],
+    "Shifting Tanzanite"
+   ],
+   [
+    "Steamvault",
+    "Steamrigger",
+    30549,
+    [
+     "H"
+    ],
+    "Shifting Tanzanite"
+   ],
+   [
+    "Steamvault",
+    "Kalithresh",
+    30549,
+    [
+     "H"
+    ],
+    "Shifting Tanzanite"
+   ],
+   [
+    "Steamvault",
+    "Thespia",
+    30550,
+    [
+     "H"
+    ],
+    "Sundered Chrysoprase"
+   ],
+   [
+    "Steamvault",
+    "Steamrigger",
+    30550,
+    [
+     "H"
+    ],
+    "Sundered Chrysoprase"
+   ],
+   [
+    "Steamvault",
+    "Kalithresh",
+    30550,
+    [
+     "H"
+    ],
+    "Sundered Chrysoprase"
+   ],
+   [
+    "Steamvault",
+    "Thespia",
+    30551,
+    [
+     "H"
+    ],
+    "Infused Fire Opal"
+   ],
+   [
+    "Steamvault",
+    "Steamrigger",
+    30551,
+    [
+     "H"
+    ],
+    "Infused Fire Opal"
+   ],
+   [
+    "Steamvault",
+    "Kalithresh",
+    30551,
+    [
+     "H"
+    ],
+    "Infused Fire Opal"
+   ],
+   [
+    "SethekkHalls",
+    "Syth",
+    30552,
+    [
+     "H"
+    ],
+    "Blessed Tanzanite"
+   ],
+   [
+    "SethekkHalls",
+    "Ikiss",
+    30552,
+    [
+     "H"
+    ],
+    "Blessed Tanzanite"
+   ],
+   [
+    "SethekkHalls",
+    "Anzu",
+    30552,
+    [
+     "H"
+    ],
+    "Blessed Tanzanite"
+   ],
+   [
+    "SethekkHalls",
+    "Syth",
+    30553,
+    [
+     "H"
+    ],
+    "Pristine Fire Opal"
+   ],
+   [
+    "SethekkHalls",
+    "Ikiss",
+    30553,
+    [
+     "H"
+    ],
+    "Pristine Fire Opal"
+   ],
+   [
+    "SethekkHalls",
+    "Anzu",
+    30553,
+    [
+     "H"
+    ],
+    "Pristine Fire Opal"
+   ],
+   [
+    "SethekkHalls",
+    "Syth",
+    30554,
+    [
+     "H"
+    ],
+    "Stalwart Fire Opal"
+   ],
+   [
+    "SethekkHalls",
+    "Ikiss",
+    30554,
+    [
+     "H"
+    ],
+    "Stalwart Fire Opal"
+   ],
+   [
+    "SethekkHalls",
+    "Anzu",
+    30554,
+    [
+     "H"
+    ],
+    "Stalwart Fire Opal"
+   ],
+   [
+    "BlackMorass",
+    "Deja",
+    30555,
+    [
+     "H"
+    ],
+    "Glowing Tanzanite"
+   ],
+   [
+    "BlackMorass",
+    "Temporus",
+    30555,
+    [
+     "H"
+    ],
+    "Glowing Tanzanite"
+   ],
+   [
+    "BlackMorass",
+    "Aeonus",
+    30555,
+    [
+     "H"
+    ],
+    "Glowing Tanzanite"
+   ],
+   [
+    "BlackMorass",
+    "Deja",
+    30556,
+    [
+     "H"
+    ],
+    "Glinting Fire Opal"
+   ],
+   [
+    "BlackMorass",
+    "Temporus",
+    30556,
+    [
+     "H"
+    ],
+    "Glinting Fire Opal"
+   ],
+   [
+    "BlackMorass",
+    "Aeonus",
+    30556,
+    [
+     "H"
+    ],
+    "Glinting Fire Opal"
+   ],
+   [
+    "BlackMorass",
+    "Deja",
+    30558,
+    [
+     "H"
+    ],
+    "Glimmering Fire Opal"
+   ],
+   [
+    "BlackMorass",
+    "Temporus",
+    30558,
+    [
+     "H"
+    ],
+    "Glimmering Fire Opal"
+   ],
+   [
+    "BlackMorass",
+    "Aeonus",
+    30558,
+    [
+     "H"
+    ],
+    "Glimmering Fire Opal"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Hellmaw",
+    30559,
+    [
+     "H"
+    ],
+    "Etched Fire Opal"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Blackheart",
+    30559,
+    [
+     "H"
+    ],
+    "Etched Fire Opal"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Vorpil",
+    30559,
+    [
+     "H"
+    ],
+    "Etched Fire Opal"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Murmur",
+    30559,
+    [
+     "H"
+    ],
+    "Etched Fire Opal"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Hellmaw",
+    30560,
+    [
+     "H"
+    ],
+    "Rune Covered Chrysoprase"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Blackheart",
+    30560,
+    [
+     "H"
+    ],
+    "Rune Covered Chrysoprase"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Vorpil",
+    30560,
+    [
+     "H"
+    ],
+    "Rune Covered Chrysoprase"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Murmur",
+    30560,
+    [
+     "H"
+    ],
+    "Rune Covered Chrysoprase"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Hellmaw",
+    30563,
+    [
+     "H"
+    ],
+    "Regal Tanzanite"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Blackheart",
+    30563,
+    [
+     "H"
+    ],
+    "Regal Tanzanite"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Vorpil",
+    30563,
+    [
+     "H"
+    ],
+    "Regal Tanzanite"
+   ],
+   [
+    "ShadowLabyrinth",
+    "Murmur",
+    30563,
+    [
+     "H"
+    ],
+    "Regal Tanzanite"
+   ],
+   [
+    "Mechanar",
+    "Capacitus",
+    30564,
+    [
+     "H"
+    ],
+    "Shining Fire Opal"
+   ],
+   [
+    "Mechanar",
+    "Sepethrea",
+    30564,
+    [
+     "H"
+    ],
+    "Shining Fire Opal"
+   ],
+   [
+    "Mechanar",
+    "Pathaleon",
+    30564,
+    [
+     "H"
+    ],
+    "Shining Fire Opal"
+   ],
+   [
+    "Mechanar",
+    "Capacitus",
+    30565,
+    [
+     "H"
+    ],
+    "Assassin's Fire Opal"
+   ],
+   [
+    "Mechanar",
+    "Sepethrea",
+    30565,
+    [
+     "H"
+    ],
+    "Assassin's Fire Opal"
+   ],
+   [
+    "Mechanar",
+    "Pathaleon",
+    30565,
+    [
+     "H"
+    ],
+    "Assassin's Fire Opal"
+   ],
+   [
+    "Mechanar",
+    "Capacitus",
+    30566,
+    [
+     "H"
+    ],
+    "Defender's Tanzanite"
+   ],
+   [
+    "Mechanar",
+    "Sepethrea",
+    30566,
+    [
+     "H"
+    ],
+    "Defender's Tanzanite"
+   ],
+   [
+    "Mechanar",
+    "Pathaleon",
+    30566,
+    [
+     "H"
+    ],
+    "Defender's Tanzanite"
+   ],
+   [
+    "Botanica",
+    "Sarannis",
+    30572,
+    [
+     "H"
+    ],
+    "Imperial Tanzanite"
+   ],
+   [
+    "Botanica",
+    "Freywinn",
+    30572,
+    [
+     "H"
+    ],
+    "Imperial Tanzanite"
+   ],
+   [
+    "Botanica",
+    "Thorngrin",
+    30572,
+    [
+     "H"
+    ],
+    "Imperial Tanzanite"
+   ],
+   [
+    "Botanica",
+    "Laj",
+    30572,
+    [
+     "H"
+    ],
+    "Imperial Tanzanite"
+   ],
+   [
+    "Botanica",
+    "WarpSplinter",
+    30572,
+    [
+     "H"
+    ],
+    "Imperial Tanzanite"
+   ],
+   [
+    "Botanica",
+    "Sarannis",
+    30573,
+    [
+     "H"
+    ],
+    "Mysterious Fire Opal"
+   ],
+   [
+    "Botanica",
+    "Freywinn",
+    30573,
+    [
+     "H"
+    ],
+    "Mysterious Fire Opal"
+   ],
+   [
+    "Botanica",
+    "Thorngrin",
+    30573,
+    [
+     "H"
+    ],
+    "Mysterious Fire Opal"
+   ],
+   [
+    "Botanica",
+    "Laj",
+    30573,
+    [
+     "H"
+    ],
+    "Mysterious Fire Opal"
+   ],
+   [
+    "Botanica",
+    "WarpSplinter",
+    30573,
+    [
+     "H"
+    ],
+    "Mysterious Fire Opal"
+   ],
+   [
+    "Botanica",
+    "Sarannis",
+    30574,
+    [
+     "H"
+    ],
+    "Brutal Tanzanite"
+   ],
+   [
+    "Botanica",
+    "Freywinn",
+    30574,
+    [
+     "H"
+    ],
+    "Brutal Tanzanite"
+   ],
+   [
+    "Botanica",
+    "Thorngrin",
+    30574,
+    [
+     "H"
+    ],
+    "Brutal Tanzanite"
+   ],
+   [
+    "Botanica",
+    "Laj",
+    30574,
+    [
+     "H"
+    ],
+    "Brutal Tanzanite"
+   ],
+   [
+    "Botanica",
+    "WarpSplinter",
+    30574,
+    [
+     "H"
+    ],
+    "Brutal Tanzanite"
+   ],
+   [
+    "Arcatraz",
+    "Zereketh",
+    30575,
+    [
+     "H"
+    ],
+    "Nimble Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Dalliah",
+    30575,
+    [
+     "H"
+    ],
+    "Nimble Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Soccothrates",
+    30575,
+    [
+     "H"
+    ],
+    "Nimble Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Skyriss",
+    30575,
+    [
+     "H"
+    ],
+    "Nimble Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Zereketh",
+    30581,
+    [
+     "H"
+    ],
+    "Durable Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Dalliah",
+    30581,
+    [
+     "H"
+    ],
+    "Durable Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Soccothrates",
+    30581,
+    [
+     "H"
+    ],
+    "Durable Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Skyriss",
+    30581,
+    [
+     "H"
+    ],
+    "Durable Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Zereketh",
+    30582,
+    [
+     "H"
+    ],
+    "Deadly Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Dalliah",
+    30582,
+    [
+     "H"
+    ],
+    "Deadly Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Soccothrates",
+    30582,
+    [
+     "H"
+    ],
+    "Deadly Fire Opal"
+   ],
+   [
+    "Arcatraz",
+    "Skyriss",
+    30582,
+    [
+     "H"
+    ],
+    "Deadly Fire Opal"
+   ],
+   [
+    "ManaTombs",
+    "Pandemonius",
+    30583,
+    [
+     "H"
+    ],
+    "Timeless Chrysoprase"
+   ],
+   [
+    "ManaTombs",
+    "Tavarok",
+    30583,
+    [
+     "H"
+    ],
+    "Timeless Chrysoprase"
+   ],
+   [
+    "ManaTombs",
+    "Shaffar",
+    30583,
+    [
+     "H"
+    ],
+    "Timeless Chrysoprase"
+   ],
+   [
+    "ManaTombs",
+    "Yor",
+    30583,
+    [
+     "H"
+    ],
+    "Timeless Chrysoprase"
+   ],
+   [
+    "ManaTombs",
+    "Pandemonius",
+    30584,
+    [
+     "H"
+    ],
+    "Enscribed Fire Opal"
+   ],
+   [
+    "ManaTombs",
+    "Tavarok",
+    30584,
+    [
+     "H"
+    ],
+    "Enscribed Fire Opal"
+   ],
+   [
+    "ManaTombs",
+    "Shaffar",
+    30584,
+    [
+     "H"
+    ],
+    "Enscribed Fire Opal"
+   ],
+   [
+    "ManaTombs",
+    "Yor",
+    30584,
+    [
+     "H"
+    ],
+    "Enscribed Fire Opal"
+   ],
+   [
+    "ManaTombs",
+    "Pandemonius",
+    30585,
+    [
+     "H"
+    ],
+    "Glistening Fire Opal"
+   ],
+   [
+    "ManaTombs",
+    "Tavarok",
+    30585,
+    [
+     "H"
+    ],
+    "Glistening Fire Opal"
+   ],
+   [
+    "ManaTombs",
+    "Shaffar",
+    30585,
+    [
+     "H"
+    ],
+    "Glistening Fire Opal"
+   ],
+   [
+    "ManaTombs",
+    "Yor",
+    30585,
+    [
+     "H"
+    ],
+    "Glistening Fire Opal"
+   ],
+   [
+    "AuchenaiCrypts",
+    "Shirrak",
+    30586,
+    [
+     "H"
+    ],
+    "Seer's Chrysoprase"
+   ],
+   [
+    "AuchenaiCrypts",
+    "Maladaar",
+    30586,
+    [
+     "H"
+    ],
+    "Seer's Chrysoprase"
+   ],
+   [
+    "AuchenaiCrypts",
+    "Shirrak",
+    30587,
+    [
+     "H"
+    ],
+    "Champion's Fire Opal"
+   ],
+   [
+    "AuchenaiCrypts",
+    "Maladaar",
+    30587,
+    [
+     "H"
+    ],
+    "Champion's Fire Opal"
+   ],
+   [
+    "AuchenaiCrypts",
+    "Shirrak",
+    30588,
+    [
+     "H"
+    ],
+    "Potent Fire Opal"
+   ],
+   [
+    "AuchenaiCrypts",
+    "Maladaar",
+    30588,
+    [
+     "H"
+    ],
+    "Potent Fire Opal"
+   ],
+   [
+    "OldHillsbrad",
+    "Drake",
+    30589,
+    [
+     "H"
+    ],
+    "Dazzling Chrysoprase"
+   ],
+   [
+    "OldHillsbrad",
+    "Skarloc",
+    30589,
+    [
+     "H"
+    ],
+    "Dazzling Chrysoprase"
+   ],
+   [
+    "OldHillsbrad",
+    "EpochHunter",
+    30589,
+    [
+     "H"
+    ],
+    "Dazzling Chrysoprase"
+   ],
+   [
+    "OldHillsbrad",
+    "Drake",
+    30590,
+    [
+     "H"
+    ],
+    "Enduring Chrysoprase"
+   ],
+   [
+    "OldHillsbrad",
+    "Skarloc",
+    30590,
+    [
+     "H"
+    ],
+    "Enduring Chrysoprase"
+   ],
+   [
+    "OldHillsbrad",
+    "EpochHunter",
+    30590,
+    [
+     "H"
+    ],
+    "Enduring Chrysoprase"
+   ],
+   [
+    "OldHillsbrad",
+    "Drake",
+    30591,
+    [
+     "H"
+    ],
+    "Empowered Fire Opal"
+   ],
+   [
+    "OldHillsbrad",
+    "Skarloc",
+    30591,
+    [
+     "H"
+    ],
+    "Empowered Fire Opal"
+   ],
+   [
+    "OldHillsbrad",
+    "EpochHunter",
+    30591,
+    [
+     "H"
+    ],
+    "Empowered Fire Opal"
+   ],
+   [
+    "HellfireRamparts",
+    "Gargolmar",
+    30592,
+    [
+     "H"
+    ],
+    "Steady Chrysoprase"
+   ],
+   [
+    "HellfireRamparts",
+    "Omor",
+    30592,
+    [
+     "H"
+    ],
+    "Steady Chrysoprase"
+   ],
+   [
+    "HellfireRamparts",
+    "NazanVazruden",
+    30592,
+    [
+     "H"
+    ],
+    "Steady Chrysoprase"
+   ],
+   [
+    "HellfireRamparts",
+    "Gargolmar",
+    30593,
+    [
+     "H"
+    ],
+    "Iridescent Fire Opal"
+   ],
+   [
+    "HellfireRamparts",
+    "Omor",
+    30593,
+    [
+     "H"
+    ],
+    "Iridescent Fire Opal"
+   ],
+   [
+    "HellfireRamparts",
+    "NazanVazruden",
+    30593,
+    [
+     "H"
+    ],
+    "Iridescent Fire Opal"
+   ],
+   [
+    "HellfireRamparts",
+    "Gargolmar",
+    30594,
+    [
+     "H"
+    ],
+    "Effulgent Chrysoprase"
+   ],
+   [
+    "HellfireRamparts",
+    "Omor",
+    30594,
+    [
+     "H"
+    ],
+    "Effulgent Chrysoprase"
+   ],
+   [
+    "HellfireRamparts",
+    "NazanVazruden",
+    30594,
+    [
+     "H"
+    ],
+    "Effulgent Chrysoprase"
+   ],
+   [
+    "BloodFurnace",
+    "Maker",
+    30600,
+    [
+     "H"
+    ],
+    "Fluorescent Tanzanite"
+   ],
+   [
+    "BloodFurnace",
+    "Broggok",
+    30600,
+    [
+     "H"
+    ],
+    "Fluorescent Tanzanite"
+   ],
+   [
+    "BloodFurnace",
+    "Kelidan",
+    30600,
+    [
+     "H"
+    ],
+    "Fluorescent Tanzanite"
+   ],
+   [
+    "BloodFurnace",
+    "Maker",
+    30601,
+    [
+     "H"
+    ],
+    "Beaming Fire Opal"
+   ],
+   [
+    "BloodFurnace",
+    "Broggok",
+    30601,
+    [
+     "H"
+    ],
+    "Beaming Fire Opal"
+   ],
+   [
+    "BloodFurnace",
+    "Kelidan",
+    30601,
+    [
+     "H"
+    ],
+    "Beaming Fire Opal"
+   ],
+   [
+    "BloodFurnace",
+    "Maker",
+    30602,
+    [
+     "H"
+    ],
+    "Jagged Chrysoprase"
+   ],
+   [
+    "BloodFurnace",
+    "Broggok",
+    30602,
+    [
+     "H"
+    ],
+    "Jagged Chrysoprase"
+   ],
+   [
+    "BloodFurnace",
+    "Kelidan",
+    30602,
+    [
+     "H"
+    ],
+    "Jagged Chrysoprase"
+   ],
+   [
+    "SlavePens",
+    "Mennu",
+    30603,
+    [
+     "H"
+    ],
+    "Royal Tanzanite"
+   ],
+   [
+    "SlavePens",
+    "Rokmar",
+    30603,
+    [
+     "H"
+    ],
+    "Royal Tanzanite"
+   ],
+   [
+    "SlavePens",
+    "Quagmirran",
+    30603,
+    [
+     "H"
+    ],
+    "Royal Tanzanite"
+   ],
+   [
+    "SlavePens",
+    "Mennu",
+    30604,
+    [
+     "H"
+    ],
+    "Resplendent Fire Opal"
+   ],
+   [
+    "SlavePens",
+    "Rokmar",
+    30604,
+    [
+     "H"
+    ],
+    "Resplendent Fire Opal"
+   ],
+   [
+    "SlavePens",
+    "Quagmirran",
+    30604,
+    [
+     "H"
+    ],
+    "Resplendent Fire Opal"
+   ],
+   [
+    "SlavePens",
+    "Mennu",
+    30605,
+    [
+     "H"
+    ],
+    "Vivid Chrysoprase"
+   ],
+   [
+    "SlavePens",
+    "Rokmar",
+    30605,
+    [
+     "H"
+    ],
+    "Vivid Chrysoprase"
+   ],
+   [
+    "SlavePens",
+    "Quagmirran",
+    30605,
+    [
+     "H"
+    ],
+    "Vivid Chrysoprase"
+   ],
+   [
+    "Underbog",
+    "Hungarfen",
+    30606,
+    [
+     "H"
+    ],
+    "Lambent Chrysoprase"
+   ],
+   [
+    "Underbog",
+    "Ghazan",
+    30606,
+    [
+     "H"
+    ],
+    "Lambent Chrysoprase"
+   ],
+   [
+    "Underbog",
+    "Muselek",
+    30606,
+    [
+     "H"
+    ],
+    "Lambent Chrysoprase"
+   ],
+   [
+    "Underbog",
+    "BlackStalker",
+    30606,
+    [
+     "H"
+    ],
+    "Lambent Chrysoprase"
+   ],
+   [
+    "Underbog",
+    "Hungarfen",
+    30607,
+    [
+     "H"
+    ],
+    "Splendid Fire Opal"
+   ],
+   [
+    "Underbog",
+    "Ghazan",
+    30607,
+    [
+     "H"
+    ],
+    "Splendid Fire Opal"
+   ],
+   [
+    "Underbog",
+    "Muselek",
+    30607,
+    [
+     "H"
+    ],
+    "Splendid Fire Opal"
+   ],
+   [
+    "Underbog",
+    "BlackStalker",
+    30607,
+    [
+     "H"
+    ],
+    "Splendid Fire Opal"
+   ],
+   [
+    "Underbog",
+    "Hungarfen",
+    30608,
+    [
+     "H"
+    ],
+    "Radiant Chrysoprase"
+   ],
+   [
+    "Underbog",
+    "Ghazan",
+    30608,
+    [
+     "H"
+    ],
+    "Radiant Chrysoprase"
+   ],
+   [
+    "Underbog",
+    "Muselek",
+    30608,
+    [
+     "H"
+    ],
+    "Radiant Chrysoprase"
+   ],
+   [
+    "Underbog",
+    "BlackStalker",
+    30608,
+    [
+     "H"
+    ],
+    "Radiant Chrysoprase"
+   ]
+  ],
+  "reverse_missing_by_reason": {
+   "heroic_gems_skipped": 153,
+   "badge_skipped": 0,
+   "other": []
+  }
+ },
+ "crosscheck_loon": {
+  "agree": 527,
+  "agree_boss_only": [
+   [
+    27743,
+    "Girdle of Living Flame",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27744,
+    "Idol of Ursoc",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27745,
+    "Hungarhide Gauntlets",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27746,
+    "Arcanium Signet Bands",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27747,
+    "Boggspine Knuckles",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27748,
+    "Cassock of the Loyal",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27755,
+    "Girdle of Gallantry",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27757,
+    "Greatstaff of the Leviathan",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27758,
+    "Hydra-fang Necklace",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27759,
+    "Headdress of the Tides",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27760,
+    "Dunewind Sash",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27761,
+    "Ring of the Shadow Deeps",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27768,
+    "Oracle Belt of Timeless Mystery",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27769,
+    "Endbringer",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27770,
+    "Argussian Compass",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27771,
+    "Doomplate Shoulderguards",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27772,
+    "Stormshield of Renewal",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27773,
+    "Barbaric Legstraps",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27779,
+    "Bone Chain Necklace",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27780,
+    "Ring of Fabled Hope",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27781,
+    "Demonfang Ritual Helm",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27896,
+    "Alembic of Infernal Power",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27907,
+    "Mana-Etched Pantaloons",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    27938,
+    "Savage Mask of the Lynx Lord",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    28248,
+    "Totem of the Void",
+    [
+     "H"
+    ],
+    "The Mechanar"
+   ],
+   [
+    28249,
+    "Capacitus' Cloak of Calibration",
+    [
+     "H"
+    ],
+    "The Mechanar"
+   ],
+   [
+    28250,
+    "Vestia's Pauldrons of Inner Grace",
+    [
+     "H"
+    ],
+    "The Mechanar"
+   ],
+   [
+    28251,
+    "Boots of the Glade-Keeper",
+    [
+     "H"
+    ],
+    "The Mechanar"
+   ],
+   [
+    28252,
+    "Bloodfyre Robes of Annihilation",
+    [
+     "H"
+    ],
+    "The Mechanar"
+   ],
+   [
+    28268,
+    "Natural Mender's Wraps",
+    [
+     "H"
+    ],
+    "Auchenai Crypts"
+   ],
+   [
+    29265,
+    "Barkchip Boots",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    29350,
+    "The Black Stalk",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    30541,
+    "Stormsong Kilt",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    32081,
+    "Eye of the Stalker",
+    [
+     "H"
+    ],
+    "The Underbog"
+   ],
+   [
+    34470,
+    "Timbal's Focusing Crystal",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ],
+   [
+    34472,
+    "Shard of Contempt",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ],
+   [
+    34473,
+    "Commendation of Kael'thas",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ],
+   [
+    34602,
+    "Eversong Cuffs",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ],
+   [
+    34604,
+    "Jaded Crystal Dagger",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ],
+   [
+    34607,
+    "Fel-tinged Mantle",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ],
+   [
+    34608,
+    "Rod of the Blazing Light",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ],
+   [
+    34610,
+    "Scarlet Sin'dorei Robes",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ],
+   [
+    34611,
+    "Cudgel of Consecration",
+    [
+     "H"
+    ],
+    "Magisters' Terrace"
+   ]
+  ],
+  "boss_differs": [],
+  "loon_dungeon_item_not_in_db": [
+   [
+    31145,
+    "Headdress of the Sleeper",
+    "Watchkeeper Gargolmar",
+    "Hellfire Ramparts",
+    4
+   ],
+   [
+    31280,
+    "Thundercaller's Gauntlets",
+    "Tavarok",
+    "Mana Tombs",
+    4
+   ],
+   [
+    31293,
+    "Girdle of Gale Force",
+    "Darkweaver Syth",
+    "Sethekk Halls",
+    4
+   ],
+   [
+    31306,
+    "Leggings of the Sacred Crest",
+    "Rokmar the Crackler",
+    "The Slave Pens (H)",
+    4
+   ]
+  ],
+  "loon_locations_unmapped": [
+   "The Slave Pens (Fire Event)"
+  ]
+ },
+ "raid_items_parsed": 838,
+ "raid_overlap": {},
+ "shared_across_bosses": {
+  "21524": {
+   "name": "Red Winter Hat",
+   "sources": [
+    "OldHillsbrad/Skarloc(N)",
+    "OldHillsbrad/Skarloc(H)",
+    "Botanica/Freywinn(N)",
+    "Botanica/Freywinn(H)",
+    "Mechanar/Sepethrea(N)",
+    "Mechanar/Sepethrea(H)"
+   ]
+  },
+  "21525": {
+   "name": "Green Winter Hat",
+   "sources": [
+    "ShatteredHalls/Nethekurse(N)",
+    "ShatteredHalls/Nethekurse(H)",
+    "AuchenaiCrypts/Maladaar(N)",
+    "AuchenaiCrypts/Maladaar(H)",
+    "ShadowLabyrinth/Vorpil(N)",
+    "ShadowLabyrinth/Vorpil(H)"
+   ]
+  },
+  "22920": {
+   "name": "Recipe: Major Fire Protection Potion",
+   "sources": [
+    "Mechanar/Sepethrea(N)",
+    "Mechanar/Sepethrea(H)",
+    "Mechanar/Trash(N)"
+   ]
+  },
+  "35275": {
+   "name": "Orb of the Sin'dorei",
+   "sources": [
+    "MagistersTerrace/Selin(H)",
+    "MagistersTerrace/Vexallus(H)",
+    "MagistersTerrace/Delrissa(H)"
+   ]
+  }
+ },
+ "item_class_histogram": {
+  "items": {
+   "Armor": 272,
+   "Weapon": 76,
+   "Quest": 25,
+   "Recipe": 42,
+   "Key": 1,
+   "Miscellaneous": 3,
+   "Container": 1
+  },
+  "heroicItems": {
+   "Armor": 392,
+   "Quest": 36,
+   "Weapon": 88,
+   "Recipe": 23,
+   "Key": 1,
+   "Miscellaneous": 3
+  }
+ },
+ "normal_list_gems_kept": [],
+ "counts": [
+  {
+   "dungeon": "HellfireRamparts",
+   "phase": 1,
+   "instanceID": 543,
+   "bosses": 3,
+   "items": 24,
+   "heroicItems": 34,
+   "unique": 55,
+   "per_boss": {
+    "Gargolmar": [
+     6,
+     6
+    ],
+    "Omor": [
+     7,
+     13
+    ],
+    "NazanVazruden": [
+     11,
+     15
+    ]
+   }
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "phase": 1,
+   "instanceID": 542,
+   "bosses": 3,
+   "items": 15,
+   "heroicItems": 27,
+   "unique": 42,
+   "per_boss": {
+    "Maker": [
+     5,
+     5
+    ],
+    "Broggok": [
+     5,
+     5
+    ],
+    "Kelidan": [
+     5,
+     17
+    ]
+   }
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "phase": 1,
+   "instanceID": 540,
+   "bosses": 6,
+   "items": 28,
+   "heroicItems": 39,
+   "unique": 40,
+   "per_boss": {
+    "Nethekurse": [
+     8,
+     9
+    ],
+    "Porung": [
+     0,
+     5
+    ],
+    "Omrogg": [
+     6,
+     6
+    ],
+    "Kargath": [
+     13,
+     18
+    ],
+    "Executioner": [
+     0,
+     1
+    ],
+    "Trash": [
+     1,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "ManaTombs",
+   "phase": 1,
+   "instanceID": 557,
+   "bosses": 5,
+   "items": 22,
+   "heroicItems": 41,
+   "unique": 61,
+   "per_boss": {
+    "Pandemonius": [
+     6,
+     6
+    ],
+    "Tavarok": [
+     6,
+     6
+    ],
+    "Shaffar": [
+     8,
+     19
+    ],
+    "Yor": [
+     0,
+     10
+    ],
+    "Trash": [
+     2,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "phase": 1,
+   "instanceID": 558,
+   "bosses": 4,
+   "items": 14,
+   "heroicItems": 23,
+   "unique": 36,
+   "per_boss": {
+    "Shirrak": [
+     5,
+     6
+    ],
+    "Maladaar": [
+     7,
+     11
+    ],
+    "AvatarOfTheMartyred": [
+     0,
+     6
+    ],
+    "Trash": [
+     2,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "phase": 1,
+   "instanceID": 556,
+   "bosses": 5,
+   "items": 24,
+   "heroicItems": 33,
+   "unique": 36,
+   "per_boss": {
+    "Syth": [
+     8,
+     9
+    ],
+    "Ikiss": [
+     13,
+     18
+    ],
+    "Anzu": [
+     0,
+     6
+    ],
+    "SagaOfTerokk": [
+     1,
+     0
+    ],
+    "Trash": [
+     2,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "phase": 1,
+   "instanceID": 555,
+   "bosses": 6,
+   "items": 36,
+   "heroicItems": 40,
+   "unique": 42,
+   "per_boss": {
+    "Hellmaw": [
+     6,
+     6
+    ],
+    "Blackheart": [
+     8,
+     8
+    ],
+    "Vorpil": [
+     7,
+     7
+    ],
+    "Murmur": [
+     13,
+     19
+    ],
+    "FirstFragmentGuardian": [
+     1,
+     0
+    ],
+    "Trash": [
+     1,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "SlavePens",
+   "phase": 1,
+   "instanceID": 547,
+   "bosses": 3,
+   "items": 16,
+   "heroicItems": 30,
+   "unique": 45,
+   "per_boss": {
+    "Mennu": [
+     6,
+     7
+    ],
+    "Rokmar": [
+     5,
+     6
+    ],
+    "Quagmirran": [
+     5,
+     17
+    ]
+   }
+  },
+  {
+   "dungeon": "Underbog",
+   "phase": 1,
+   "instanceID": 546,
+   "bosses": 4,
+   "items": 21,
+   "heroicItems": 36,
+   "unique": 56,
+   "per_boss": {
+    "Hungarfen": [
+     5,
+     6
+    ],
+    "Ghazan": [
+     5,
+     6
+    ],
+    "Muselek": [
+     5,
+     6
+    ],
+    "BlackStalker": [
+     6,
+     18
+    ]
+   }
+  },
+  {
+   "dungeon": "Steamvault",
+   "phase": 1,
+   "instanceID": 545,
+   "bosses": 4,
+   "items": 30,
+   "heroicItems": 32,
+   "unique": 36,
+   "per_boss": {
+    "Thespia": [
+     7,
+     7
+    ],
+    "Steamrigger": [
+     6,
+     6
+    ],
+    "Kalithresh": [
+     13,
+     19
+    ],
+    "Trash": [
+     4,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "phase": 1,
+   "instanceID": 560,
+   "bosses": 5,
+   "items": 21,
+   "heroicItems": 35,
+   "unique": 51,
+   "per_boss": {
+    "Drake": [
+     5,
+     6
+    ],
+    "Skarloc": [
+     7,
+     8
+    ],
+    "EpochHunter": [
+     6,
+     18
+    ],
+    "DonCarlos": [
+     2,
+     3
+    ],
+    "Trash": [
+     1,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "BlackMorass",
+   "phase": 1,
+   "instanceID": 269,
+   "bosses": 4,
+   "items": 26,
+   "heroicItems": 30,
+   "unique": 31,
+   "per_boss": {
+    "Deja": [
+     7,
+     7
+    ],
+    "Temporus": [
+     6,
+     6
+    ],
+    "Aeonus": [
+     12,
+     17
+    ],
+    "Trash": [
+     1,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "Arcatraz",
+   "phase": 1,
+   "instanceID": 552,
+   "bosses": 6,
+   "items": 33,
+   "heroicItems": 33,
+   "unique": 38,
+   "per_boss": {
+    "Zereketh": [
+     5,
+     5
+    ],
+    "Dalliah": [
+     6,
+     6
+    ],
+    "Soccothrates": [
+     5,
+     5
+    ],
+    "Skyriss": [
+     12,
+     17
+    ],
+    "ThirdFragmentGuardian": [
+     1,
+     0
+    ],
+    "Trash": [
+     4,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "Botanica",
+   "phase": 1,
+   "instanceID": 553,
+   "bosses": 6,
+   "items": 41,
+   "heroicItems": 44,
+   "unique": 46,
+   "per_boss": {
+    "Sarannis": [
+     6,
+     5
+    ],
+    "Freywinn": [
+     8,
+     8
+    ],
+    "Thorngrin": [
+     6,
+     6
+    ],
+    "Laj": [
+     5,
+     5
+    ],
+    "WarpSplinter": [
+     15,
+     20
+    ],
+    "Trash": [
+     1,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "Mechanar",
+   "phase": 1,
+   "instanceID": 554,
+   "bosses": 8,
+   "items": 32,
+   "heroicItems": 37,
+   "unique": 41,
+   "per_boss": {
+    "Capacitus": [
+     6,
+     6
+    ],
+    "Sepethrea": [
+     7,
+     7
+    ],
+    "Pathaleon": [
+     14,
+     19
+    ],
+    "CacheOfTheLegion": [
+     0,
+     5
+    ],
+    "GyroKill": [
+     1,
+     0
+    ],
+    "IronHand": [
+     1,
+     0
+    ],
+    "OverchargedManacell": [
+     1,
+     0
+    ],
+    "Trash": [
+     2,
+     0
+    ]
+   }
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "phase": 5,
+   "instanceID": 585,
+   "bosses": 5,
+   "items": 37,
+   "heroicItems": 29,
+   "unique": 59,
+   "per_boss": {
+    "Selin": [
+     6,
+     5
+    ],
+    "Vexallus": [
+     6,
+     5
+    ],
+    "Delrissa": [
+     7,
+     6
+    ],
+    "Kaelthas": [
+     17,
+     13
+    ],
+    "Trash": [
+     1,
+     0
+    ]
+   }
+  }
+ ],
+ "bosses_dump": [
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Gargolmar",
+   "atlasIndex": 1,
+   "npcIDs": [
+    17306,
+    18436
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "Omor",
+   "atlasIndex": 2,
+   "npcIDs": [
+    17308,
+    18433
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "HellfireRamparts",
+   "boss": "NazanVazruden",
+   "atlasIndex": 3,
+   "npcIDs": [
+    17537,
+    18434,
+    17536,
+    18432
+   ],
+   "objectIDs": [
+    185168,
+    185169
+   ],
+   "isChest": true,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Maker",
+   "atlasIndex": 1,
+   "npcIDs": [
+    17381,
+    18621
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Broggok",
+   "atlasIndex": 2,
+   "npcIDs": [
+    17380,
+    18601
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "BloodFurnace",
+   "boss": "Kelidan",
+   "atlasIndex": 3,
+   "npcIDs": [
+    17377,
+    18607
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Nethekurse",
+   "atlasIndex": 1,
+   "npcIDs": [
+    16807,
+    20568
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Porung",
+   "atlasIndex": 2,
+   "npcIDs": [
+    20923
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Omrogg",
+   "atlasIndex": 3,
+   "npcIDs": [
+    16809,
+    20596
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Kargath",
+   "atlasIndex": 4,
+   "npcIDs": [
+    16808,
+    20597
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Executioner",
+   "atlasIndex": 5,
+   "npcIDs": [
+    17301,
+    20585
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "ShatteredHalls",
+   "boss": "Trash",
+   "atlasIndex": 6,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Pandemonius",
+   "atlasIndex": 1,
+   "npcIDs": [
+    18341,
+    20267
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Tavarok",
+   "atlasIndex": 2,
+   "npcIDs": [
+    18343,
+    20268
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Shaffar",
+   "atlasIndex": 3,
+   "npcIDs": [
+    18344,
+    20266
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Yor",
+   "atlasIndex": 4,
+   "npcIDs": [
+    22930
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "ManaTombs",
+   "boss": "Trash",
+   "atlasIndex": 5,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Shirrak",
+   "atlasIndex": 1,
+   "npcIDs": [
+    18371,
+    20318
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Maladaar",
+   "atlasIndex": 2,
+   "npcIDs": [
+    18373,
+    20306
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "AvatarOfTheMartyred",
+   "atlasIndex": 3,
+   "npcIDs": [
+    18478
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "AuchenaiCrypts",
+   "boss": "Trash",
+   "atlasIndex": 4,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Syth",
+   "atlasIndex": 1,
+   "npcIDs": [
+    18472,
+    20690
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Ikiss",
+   "atlasIndex": 2,
+   "npcIDs": [
+    18473,
+    20706
+   ],
+   "objectIDs": [
+    187372
+   ],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Anzu",
+   "atlasIndex": 3,
+   "npcIDs": [
+    23035
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "SagaOfTerokk",
+   "atlasIndex": 4,
+   "npcIDs": [],
+   "objectIDs": [
+    183050
+   ],
+   "isChest": true,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "SethekkHalls",
+   "boss": "Trash",
+   "atlasIndex": 5,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Hellmaw",
+   "atlasIndex": 1,
+   "npcIDs": [
+    18731,
+    20636
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Blackheart",
+   "atlasIndex": 2,
+   "npcIDs": [
+    18667,
+    20637
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Vorpil",
+   "atlasIndex": 3,
+   "npcIDs": [
+    18732,
+    20653
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Murmur",
+   "atlasIndex": 4,
+   "npcIDs": [
+    18708,
+    20657
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "FirstFragmentGuardian",
+   "atlasIndex": 5,
+   "npcIDs": [
+    22890
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "ShadowLabyrinth",
+   "boss": "Trash",
+   "atlasIndex": 6,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Mennu",
+   "atlasIndex": 1,
+   "npcIDs": [
+    17941,
+    19893
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Rokmar",
+   "atlasIndex": 2,
+   "npcIDs": [
+    17991,
+    19895
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "SlavePens",
+   "boss": "Quagmirran",
+   "atlasIndex": 3,
+   "npcIDs": [
+    17942,
+    19894
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Hungarfen",
+   "atlasIndex": 1,
+   "npcIDs": [
+    17770,
+    20169
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Ghazan",
+   "atlasIndex": 2,
+   "npcIDs": [
+    18105,
+    20168
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "Muselek",
+   "atlasIndex": 3,
+   "npcIDs": [
+    17826,
+    20183
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Underbog",
+   "boss": "BlackStalker",
+   "atlasIndex": 4,
+   "npcIDs": [
+    17882,
+    20184
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Thespia",
+   "atlasIndex": 1,
+   "npcIDs": [
+    17797,
+    20629
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Steamrigger",
+   "atlasIndex": 2,
+   "npcIDs": [
+    17796,
+    20630
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Kalithresh",
+   "atlasIndex": 3,
+   "npcIDs": [
+    17798,
+    20633
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Steamvault",
+   "boss": "Trash",
+   "atlasIndex": 4,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Drake",
+   "atlasIndex": 1,
+   "npcIDs": [
+    17848,
+    20535
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Skarloc",
+   "atlasIndex": 2,
+   "npcIDs": [
+    17862,
+    20521
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "EpochHunter",
+   "atlasIndex": 3,
+   "npcIDs": [
+    18096,
+    20531
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "DonCarlos",
+   "atlasIndex": 4,
+   "npcIDs": [
+    28132,
+    28171
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "OldHillsbrad",
+   "boss": "Trash",
+   "atlasIndex": 7,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Deja",
+   "atlasIndex": 1,
+   "npcIDs": [
+    17879,
+    20738
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Temporus",
+   "atlasIndex": 2,
+   "npcIDs": [
+    17880,
+    20745
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Aeonus",
+   "atlasIndex": 3,
+   "npcIDs": [
+    17881,
+    20737
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "BlackMorass",
+   "boss": "Trash",
+   "atlasIndex": 4,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Zereketh",
+   "atlasIndex": 1,
+   "npcIDs": [
+    20870,
+    21626
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Dalliah",
+   "atlasIndex": 2,
+   "npcIDs": [
+    20885,
+    21590
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Soccothrates",
+   "atlasIndex": 3,
+   "npcIDs": [
+    20886,
+    21624
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Skyriss",
+   "atlasIndex": 4,
+   "npcIDs": [
+    20912,
+    21599
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "ThirdFragmentGuardian",
+   "atlasIndex": 5,
+   "npcIDs": [
+    22892
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "Arcatraz",
+   "boss": "Trash",
+   "atlasIndex": 6,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Sarannis",
+   "atlasIndex": 1,
+   "npcIDs": [
+    17976,
+    21551
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Freywinn",
+   "atlasIndex": 2,
+   "npcIDs": [
+    17975,
+    21558
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Thorngrin",
+   "atlasIndex": 3,
+   "npcIDs": [
+    17978,
+    21581
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Laj",
+   "atlasIndex": 4,
+   "npcIDs": [
+    17980,
+    21559
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "WarpSplinter",
+   "atlasIndex": 5,
+   "npcIDs": [
+    17977,
+    21582
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Botanica",
+   "boss": "Trash",
+   "atlasIndex": 6,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Capacitus",
+   "atlasIndex": 1,
+   "npcIDs": [
+    19219,
+    21533
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Sepethrea",
+   "atlasIndex": 2,
+   "npcIDs": [
+    19221,
+    21536
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Pathaleon",
+   "atlasIndex": 3,
+   "npcIDs": [
+    19220,
+    21537
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "CacheOfTheLegion",
+   "atlasIndex": 4,
+   "npcIDs": [],
+   "objectIDs": [
+    184465,
+    184849
+   ],
+   "isChest": true,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "GyroKill",
+   "atlasIndex": 5,
+   "npcIDs": [
+    19218,
+    21525
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "IronHand",
+   "atlasIndex": 6,
+   "npcIDs": [
+    19710,
+    21526
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "OverchargedManacell",
+   "atlasIndex": 7,
+   "npcIDs": [],
+   "objectIDs": [
+    185015
+   ],
+   "isChest": true,
+   "isTrash": false,
+   "extraList": true
+  },
+  {
+   "dungeon": "Mechanar",
+   "boss": "Trash",
+   "atlasIndex": 8,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Selin",
+   "atlasIndex": 1,
+   "npcIDs": [
+    24723,
+    25562
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Vexallus",
+   "atlasIndex": 2,
+   "npcIDs": [
+    24744,
+    25573
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Delrissa",
+   "atlasIndex": 3,
+   "npcIDs": [
+    24560,
+    25560
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Kaelthas",
+   "atlasIndex": 4,
+   "npcIDs": [
+    24664,
+    24857
+   ],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": false,
+   "extraList": false
+  },
+  {
+   "dungeon": "MagistersTerrace",
+   "boss": "Trash",
+   "atlasIndex": 5,
+   "npcIDs": [],
+   "objectIDs": [],
+   "isChest": false,
+   "isTrash": true,
+   "extraList": true
+  }
+ ]
+}

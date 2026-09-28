@@ -1,0 +1,690 @@
+# CDLoot 0.5.0
+
+BiS lists, a Loot Council overview, boss-drop alerts and rolls for **&lt;Casual Disaster&gt;**.
+For the WoW TBC Anniversary client (2.5.x, interface 20506).
+
+- Every player keeps a best-in-slot list for each phase (P1–P5), with a main pick and an alt pick per slot.
+- The Loot Council sees everyone's lists. When a boss is looted, the council sees who has each drop on their list.
+- Raiders get a Roll / Pass popup. CDLoot suggests a winner, the council confirms it, and the award goes into a shared loot log.
+
+CDLoot only suggests. The council makes the loot decision.
+
+---
+
+## Contents
+
+1. [Install and update](#install-and-update)
+2. [Opening CDLoot](#opening-cdloot)
+3. [Before the first raid](#before-the-first-raid)
+4. [Quick start: Raider](#quick-start-raider)
+5. [Quick start: Loot Council](#quick-start-loot-council)
+6. [Quick start: Raid leader](#quick-start-raid-leader)
+7. [Quick start: Guild Master](#quick-start-guild-master)
+8. [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner)
+9. [Slash commands](#slash-commands)
+10. [Settings reference](#settings-reference)
+11. [Demo mode (try it solo)](#demo-mode-try-it-solo)
+12. [FAQ and troubleshooting](#faq-and-troubleshooting)
+13. [How it syncs, and privacy](#how-it-syncs-and-privacy)
+
+---
+
+## Install and update
+
+**Requirements:** the TBC Anniversary client. CDLoot has no required dependencies because every library it uses is built in.
+**Optional:** LoonBestInSlot. If it is installed, My BiS shows a **Suggest** button that fills your list from its guides. Nothing else needs it.
+
+### Install
+1. Close the game.
+2. Copy the `CDLoot` folder into `World of Warcraft\_anniversary_\Interface\AddOns\`.
+   The result must be `...\Interface\AddOns\CDLoot\CDLoot.toc`.
+   The folder must be named exactly `CDLoot`. Names such as `CDLoot-main`, `CDLoot (2)` or a folder nested inside another `CDLoot` folder won't load.
+3. Start the game. On the character screen, open **AddOns** and make sure CDLoot is ticked.
+4. In game, type `/cdl` to check that it loaded.
+
+### Update
+1. Close the game.
+2. Delete the old `Interface\AddOns\CDLoot` folder, then copy the new one in. Replacing the whole folder makes sure no old files are left behind.
+3. Start the game and check the version with `/cdl version`. The first line shows your own version.
+
+Your data is safe when you update. Your lists, settings and the loot log are stored in
+`WTF\Account\<ACCOUNT>\SavedVariables\CDLoot.lua`, not in the addon folder. That file is shared by every character on the account. Each character still keeps its own BiS list.
+
+Everyone should run the same version. See [Mixed versions](#mixed-versions).
+
+---
+
+## Opening CDLoot
+
+| How | What it does |
+|---|---|
+| `/cdl` or `/cdloot` | Opens or closes the CDLoot window |
+| Minimap button | Left-click opens the window. Right-click opens Settings. Shift-click opens the boss drop panel. |
+| Game Options → AddOns → CDLoot | **Open CDLoot settings** |
+
+The window has four tabs:
+
+| Tab | Who sees it |
+|---|---|
+| **My BiS** | Everyone |
+| **Council** | Loot Council members (and anyone in demo mode) |
+| **Loot Log** | Loot Council members (and anyone in demo mode) |
+| **Settings** | Everyone |
+
+The top-right of the window shows your list's sharing status. See [Sync status](#what-does-the-sync-status-mean).
+
+---
+
+## Before the first raid
+
+- [ ] **Everyone** has the same CDLoot version. The raid leader checks with `/cdl version`.
+- [ ] **Everyone** has filled in their My BiS list for the current phase, and the status says "Shared with council".
+- [ ] **Guild Master** has picked the guild council and the guild phase (see [Guild Master](#quick-start-guild-master)).
+- [ ] **Raid leader** has set the group loot rules and, if wanted, extra raid council members (see [Raid leader](#quick-start-raid-leader)).
+- [ ] **Master looter** has set the loot method to Master Looter if CDLoot should hand items out.
+- [ ] **Everyone** has BugSack installed so any Lua error can be reported (see [Reporting a Lua error](#reporting-a-lua-error)).
+
+---
+
+## Quick start: Raider
+
+### 1. Build your list (My BiS tab)
+
+The top bar holds these controls:
+
+- **P1 … P5**: which phase you are editing. A small star marks the guild's current phase. If your group's loot leader set a raid phase, it marks that phase instead.
+- **Spec**: pick your spec, or choose **Auto-detect** to use the talent tree with the most points.
+- **Copy from ▾**: copy another phase into this one, using **Copy Pn (fill empty)** or **Copy Pn (overwrite)**.
+- **Suggest ▾** (only shown when LoonBestInSlot is installed): **Fill empty slots from LoonBestInSlot (spec Pn)**, or **Replace all (confirm)**. You must choose your spec first.
+- **Clear phase**: removes every pick in this phase. It asks first.
+
+Below the top bar is a paper doll with all 17 slots. Each slot has a **main** pick (the large icon) and an **alt** pick (the small icon next to it).
+
+- **Click a slot** to open the item picker for that slot.
+- **Click the small alt square** (it shows a "+" while empty) to choose an alt. An alt is a backup or upgrade-path item for that slot.
+- **Drag an item from your bags onto a slot** to use any item, including items the picker doesn't list.
+- **Shift-click** an icon to link the item in chat.
+
+### 2. The item picker
+
+The picker opens next to the window. Its title reads, for example, "Choose Head (Main) · P2".
+
+- **Search**: matches item names, bosses, professions, factions, vendors and seasons.
+- **Phase filter**: **Up to Pn** (the default), **Only Pn**, or **All phases**.
+- **Sources ▾**: a checklist of **Raids**, **5-man dungeons**, **Crafted**, **Reputation**, **Badge vendors** and **PvP**.
+  - The default is Raids + 5-man dungeons. Your choice is remembered.
+  - **Reset to raids + 5-man dungeons** restores the default.
+  - PvP items and faction-only reputation items are shown for your own faction only.
+- **Usable by my class** is on by default. It also hides items that only other classes can use, such as class trinkets, Medallions and PvP set pieces.
+- **My armor type only** is on by default and only appears on armor slots.
+- Each item row shows where it comes from, for example "Blacksmithing (375)", "The Sha'tar — Exalted" or "G'eras — 60 badges". Heroic-only dungeon items carry a **Heroic** tag. Class-restricted items also name their classes, for example "Rogue".
+  - "Main" or "Alt" on the right means the item is already on this phase's list.
+  - "owned" means you already have it.
+- **Tier pieces** are listed under the boss that drops the token and show "via *token name*". Pick the piece you want, not the token.
+- **Clear** (next to the current pick) empties the slot.
+- To use any other item, shift-click its link while the picker is open, or drag it from your bags onto the picker.
+
+The picker won't open while the raid leader has [locked the lists](#lock-and-unlock-bis-lists).
+
+### 3. Right-click a slot for more options
+
+| Menu entry | What it does |
+|---|---|
+| **Choose main...** / **Choose alt...** | Opens the picker |
+| **Swap main / alt** | Swaps the two picks |
+| **Mark obtained** / **Mark not obtained** | Sets the obtained state by hand, for the main pick |
+| **Clear slot** | Removes both picks |
+| **Link main in chat** | Links the main pick |
+| **Disable slot (Pn)** / **Enable slot (Pn)** | Disables the slot in this phase |
+| **Disable in all phases** / **Enable in all phases** | Disables the slot in every phase |
+
+### 4. Disabling a slot
+
+Disable a slot you don't need in a phase. For example, disable the off hand if you use a two-hander, or a slot you have already filled for good.
+
+- The slot turns grey and reads "Disabled — not needed".
+- It is left out of your progress ("x / 16"), the council's need counts and drop alerts.
+- Your picks for that slot in earlier phases stop counting too.
+- Your pick is kept. Click the slot to enable it again.
+
+### 5. Obtained detection
+
+CDLoot marks a pick as obtained on its own when the item is:
+
+| State shown | When |
+|---|---|
+| **Equipped** | You wear it |
+| **In bags** | It's in your bags |
+| **In bank** | It's in your bank. This is only updated while your bank window is open, so visit the bank once. |
+| **Have token** | You hold a tier token or quest item that turns into it |
+| **Marked obtained** | You set it with **Mark obtained** |
+
+The centre card shows "Pn · x / 17 obtained" and **Still needed from**, a list grouped by raid, 5-man dungeons, Crafted, Reputation, Badges and PvP.
+
+### 6. Sharing
+
+You don't need to do anything to share your list.
+
+- Changes are sent to online council members about 8 seconds after your last edit, or as soon as you close the window.
+- The **Sharing** line on the card and the text at the top-right of the window show the status. See [Sync status](#what-does-the-sync-status-mean).
+
+### 7. Alt characters
+
+Every character has its own list. Log in on the alt and fill in its My BiS tab. It is shared under that character's name.
+
+### 8. When loot drops
+
+You'll see these when one of your needed picks drops:
+
+- **Toast:** "On your BiS list!" with the item's icon, the slot, the phase and whether it's your main or alt pick. Click it to link the item. Right-click it to dismiss it.
+- **Chat line:** "[item] is on your BiS list: Head, P2 (main)".
+- **Loot window:** your item shows a **Yours** badge and a glow.
+
+### 9. The roll popup
+
+When the council starts a roll, a popup appears.
+
+- The top line shows the item and your status for it: "Your P2 BiS (main) - Head", "Your P3 alt - Ring 1" or "Not on your BiS list".
+- **Wearing:** shows what you have equipped in that slot. For rings, trinkets and weapons it shows both.
+- A countdown shows the time left.
+- **Roll** does a normal `/roll` (1-100). **Pass** passes.
+- Afterwards the popup shows "You rolled 87", "Passed", "Rolls closed", then "Won by Name" or "You won it!". It fades 5 seconds after the item is awarded.
+
+A few rules:
+
+- Typing `/roll` in chat counts too, so players without CDLoot can still roll.
+- Only a 1-100 roll counts, and only your **first** roll counts.
+- Only one item is rolled at a time. The others wait in a queue.
+- If you win an item after the popup has moved on to the next one (for example during **Roll all**), chat tells you "You won [item]!".
+
+### 10. Tooltips
+
+Item tooltips show your own status. For example:
+
+- "CDLoot ★ Your P2 BiS (main) - Head"
+- "Your P3 alt - Ring 1", with "obtained" when you already have it
+- "also P3, P4" when the item is on other phases too
+
+### 11. When lists are locked
+
+During a raid the raid leader can lock everyone's lists. While locked:
+
+- My BiS shows a banner, "BiS lists locked by *name*".
+- You can't change picks, spec or disabled slots.
+- Items you get, and **Mark obtained**, still update and still sync.
+
+---
+
+## Quick start: Loot Council
+
+You are on the council if any of these apply:
+
+- The Guild Master put you on the guild council.
+- You are the Guild Master.
+- You lead the raid you're in.
+- The raid leader put you on this raid's council. This only counts while you are in that raid.
+
+Settings → **Loot Council** tells you whether you are on the council, and why.
+
+### Council tab
+
+Toolbar controls:
+
+- **Phase**
+- View buttons: **Roster**, **Items**, **Member** and **Loot Council**
+- **Drops**: opens the [boss drop panel](#drop-panel-boss-drop) with tonight's drops
+- A name search box
+- **All classes** and **All roles** dropdowns
+- **In my raid only** and **Hide obtained** checkboxes (Hide obtained is on by default)
+
+#### Roster
+
+One row per member. Each row has:
+
+- A presence dot: green = in your raid, yellow = online, grey = offline.
+- The member's name, spec and **Need** count.
+- 17 slot cells, one per slot.
+- **Age**: how old their list is. It turns orange after 7 days.
+
+What the slot cells show:
+
+- A check mark means obtained. A star means awarded.
+- A dark "–" means the player disabled that slot.
+- A warning icon next to a name means the player changed their list while lists were locked.
+
+Clicking:
+
+- **Click a cell** to open the Items view at the boss that drops that item.
+- **Right-click a cell**, or click the name, to open the Member view.
+- **Click a column header** (Name, Need, Age) to sort.
+
+#### Items
+
+- The left side lists the phase's raids and bosses, with demand counts. 5-man, crafted and other non-raid items are under "Other / no raid source".
+- The right side lists each item with its wanters. Main picks come first and alts are marked "(alt)".
+- Click an item row for a menu: **Link item in chat**, **Announce to raid**, **Show member ▸** and **Record award to ▸**. The award submenu lists the wanters, plus **Someone else...**.
+- While the item has a roll running or waiting for its award, the entry reads **Record award to (closes the open roll)**. The award then goes through the roll and closes it for everyone.
+
+#### Member
+
+One player's list as a read-only paper doll, with what they are wearing and their recent awards. The arrow buttons step through the filtered roster.
+
+#### Footer
+
+The footer shows how many members have lists, how many are in your raid, and how many lists are older than 7 days. **Request sync** asks online members for newer lists and awards.
+
+### Drop panel (Boss drop)
+
+The drop panel opens on its own when someone in the raid who runs CDLoot loots a boss.
+
+- It lists epic items by default. Tier tokens always count, whatever their quality.
+- Loot from disenchanting, prospecting, lockboxes and other containers, and from fishing, is ignored. So are trade goods and gems that no boss drops (such as Void Crystals). Trash loot is never filed under the last boss killed.
+- When Blizzard's loot window is open, the panel sits beside it: on the right, or on the left when there is no room (for example with Loot Under Mouse near the screen edge). Otherwise it floats where you last dragged it. See Settings → **Drop panel position**.
+- Reopen it with the **Drops** button in the Council toolbar, by Shift-clicking the minimap button, or with `/cdl drops`. The arrows page through the last 24 hours of drops.
+- While the panel shows an item that is still being decided (a roll is running, or closed less than 5 minutes ago and waiting for its award), a new drop doesn't replace it. The pager then turns orange and reads, for example, "3/4 new". Page forward to see the new drop.
+
+Each item shows how many want it ("3 want") and its candidates. A candidate row contains:
+
+- A presence dot and the player's name and spec.
+- **[BiS]** or **[Alt]**, plus the phase when it isn't the one you're viewing.
+- "can't use" (in red) when their class can't use the item. This covers class-restricted items (T5 class trinkets, Warglaives, PvP set pieces, Ashtongue talismans) and other classes' tokens.
+- "won N" when they already won items tonight.
+- The items they wear in that slot.
+- "not in raid" when they aren't in your raid.
+- A warning icon when their list changed while lists were locked.
+
+Buttons for each item:
+
+- **Announce** posts one line to raid chat, for example `CDLoot: [item] - BiS: A, B; Alt: C`.
+- **Award...** opens a menu with:
+  - the candidates who are in the raid, marked "can't use" when it applies;
+  - **Other raid member ▸**;
+  - **Not in raid (n) ▸**: wanters who aren't in the raid, each marked "online" or "offline";
+  - **Someone else...**;
+  - **Void the award to X**, once the item is awarded.
+
+  It records the award in the Loot Log. It doesn't trade the item or give it via master loot, so hand the item out yourself.
+- **Roll** starts a roll for this item. See [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner).
+
+Footer buttons: **Announce all**, **Roll all**, **Lock lists** / **Unlock lists** (shown only to the raid's loot leader) and **Close**.
+
+Once an item has a roll, its block switches to roll mode:
+
+- The header shows "Rolling - 0:18 left", "Queued", "Rolls closed" or "Awarded to X".
+- Each row shows the player's roll. The suggested winner is highlighted. Other tags: "tie", "can't use", "won a copy", "won N" and "changed".
+- While the roll is open: **End roll**, and **End roll & award to** *suggested player*. The second one ends the roll for everyone at once, and cancelling the next popup doesn't reopen it.
+- After the roll has closed: **Award to** *suggested player*, **Award...** (for anyone else) and **Re-roll**. If anyone rolled, Re-roll asks first: "Start a new roll for [item]? (N rolls so far are discarded)".
+- **Cancel roll** removes a queued item from the queue.
+- Click or right-click a row for **Award to Name** (**End roll & award to Name** while the roll is open) or **Link item**.
+- A long list ends in a "+N more" row. Click it to award one of the hidden players.
+
+If you award an item that has a roll, the roll closes for everyone and the popups fade.
+
+**When the loot message disagrees.** Sometimes the loot message for a rolled item names someone other than the recorded winner, and no other copy of the item explains it. CDLoot then warns the council and the master looter in chat, and the item's line reads "Awarded to X · loot: Y". Council members can fix the log in one click from that item's **Award...** menu:
+
+- **Y passes it to X** keeps the award and voids Y's automatic log entry.
+- **Y keeps it (void the award to X)** voids the award to X and shows Y as the winner.
+
+### Loot Log tab
+
+- **Automatic entries:** when your client sees "X receives loot: [item]" inside a raid instance (or a 5-man dungeon in dungeon mode), CDLoot records it. This covers boss loot at or above the minimum quality, plus tier tokens.
+- **Manual entries:** awards from the drop panel, or **Add award...**. The dialog has an **Item** field (shift-click a link, drag an item, or type the item ID), a **Winner** field (type a name or use **Choose**), a **Note**, and **Save**.
+- **Duplicates:** when a manual award and the later loot message are for the same item and player, only the manual entry is shown.
+- **Filters:** a search box (player or item), **Show voided**, and **Show dungeon loot** (dungeon entries are tagged "(dungeon)").
+- **Right-click an entry** for **Void entry** / **Restore entry**, **Link item in chat** and **Show member**. Voiding or restoring an automatic entry also covers the copies of that loot line that other council members recorded.
+- The log is shared automatically between council members.
+
+### Tooltips (council)
+
+Item tooltips add "CDLoot: wanted by N (M in raid)" and a list of names. When some of the picks are alts, " · K BiS" follows with the number of main picks.
+
+- Each name is marked "(alt)" for an alt pick, or with the phase when it isn't the one you're viewing. The right side shows "in raid", "obtained", "awarded" or "can't use".
+- Hold **Shift** to see every name, plus "Wearing:" lines with what each player still needing the item has equipped in that slot. The "Wearing:" lines only appear while Shift is held.
+- Settings → **Names shown** sets how many names appear.
+
+---
+
+## Quick start: Raid leader
+
+While you lead a raid you are on the council for that raid, so you see the Council tab.
+
+### Group loot rules
+
+Set these in Settings → **Group loot rules**. They are sent to everyone in the group:
+
+| Setting | Values |
+|---|---|
+| **Roll duration** | 15 / 20 / 30 / 45 / 60 seconds (default 30) |
+| **Minimum quality** | Epic (default) / Rare: the lowest quality that counts as a drop in raids. Tier tokens always count. |
+| **Raid phase** | "Use guild phase (Pn)" or P1–P5. Council views, tooltips, alerts and roll suggestions in your raid follow it. |
+| **Enable dungeon mode (5-man parties)** / **Dungeon min. quality** | See [Dungeon mode](#dungeon-mode-5-man-parties) |
+
+- The status line reads "You set these for your group".
+- Everyone else sees "Set by *your name* for this group", and their controls are greyed out.
+- `/cdl rules` prints the rules in effect and who set them.
+
+**Who is the group's loot leader:**
+
+- In a raid, the raid leader. If the leader doesn't run CDLoot, the master looter.
+- In a party, the party leader if they are on the council or turned dungeon mode on. Otherwise, a council member in the party.
+
+Without a loot leader who runs CDLoot, everyone uses their own settings.
+
+### Raid council
+
+Pick extra council members for your raid:
+
+1. Open Council tab → **Loot Council** → **This raid's council**.
+2. Type in **Add raid or guild members...**. Raid members are listed first. Click a name, or press Enter, to add or remove them.
+3. Click **Save & share**. **Revert** discards unsaved changes, and **Clear list** empties the list after asking.
+
+How the raid council works:
+
+- These players count as council only inside your raid, and only for people in that raid.
+- The list is kept "until changed". It is sent again automatically whenever you lead a raid.
+- You stay council yourself as raid leader.
+
+### Lock and unlock BiS lists
+
+Lock the lists with `/cdl lock` and unlock them with `/cdl unlock`. The **Lock BiS lists** / **Unlock BiS lists** button in Settings or the Council toolbar does the same, as does **Lock lists** in the drop panel footer.
+
+- Only the raid's loot leader can lock, and only in a raid.
+- When you lock, raid chat gets "CDLoot: BiS lists are locked for this raid." once. This happens only if **Announce rolls and winners in raid chat** is on.
+- Nobody can change picks, spec or disabled slots. That includes you: unlock to edit.
+- Obtained items still update.
+- **Changed during lock:** if a player's list changes anyway, council members see a warning icon next to that player and one chat warning. That player is never the suggested roll winner, but the council can still award to them.
+- Sometimes a changed list claims it was saved before the lock, although CDLoot can tell it wasn't. That list isn't flagged. Council members get a chat note instead ("...claims an earlier save ...; not flagged, please check."), and the player can still be suggested.
+- The lock ends on unlock, when the raid disbands, when the lead changes, or when the raid turns into a party. It survives your own `/reload`.
+
+### Rolls and master-loot give
+
+Who can start rolls: council members, the master looter, and the raid leader or assistants. Start them with **Roll** or **Roll all** in the drop panel, or with `/cdl roll [item link]`.
+
+To have CDLoot hand items out:
+
+1. Set the loot method to Master Looter.
+2. As master looter, keep the boss loot window open.
+3. In the drop panel's roll mode, click **Award to** *name* (**End roll & award to** *name* while the roll is open), or click a roll row → **Award to Name**.
+4. A popup asks "Give [item] to Name?". Click **Give**. CDLoot gives the item via master loot.
+5. The award is recorded and announced only once the server has handed the item over.
+
+If the item can't be given, CDLoot prints "Could not hand [item] to Name: *reason*". This happens when the server refuses (full bags, a unique item, out of range), doesn't answer within 5 seconds, or the loot window is closed. Nothing is recorded or announced yet. CDLoot then offers to award it anyway: "Award [item] to Name? (hand it out via master loot or trade)". **Award** only records and announces the award.
+
+The plain **Award...** menu never hands the item out. It only records.
+
+### Dungeon mode (5-man parties)
+
+Dungeon mode shares boss drops and CDLoot rolls in a 5-man party the same way it works in a raid.
+
+- **Turn it on:** type `/cdl dungeon on`, or tick **Enable dungeon mode (5-man parties)**.
+  - As party leader, you turn it on for the whole party.
+  - If the party leader isn't on the council and hasn't turned it on, a council member in the party can turn it on for everyone.
+  - A regular party member turning it on only affects their own client, and only when the party has no loot leader.
+- **Minimum quality:** Rare by default. Change it with `/cdl dungeon epic` or `/cdl dungeon rare`.
+- **What it does:** drops inside 5-man dungeons are shared with the party, rolls run in party chat, and the party leader and council get the drop panel. Awards are tagged "(dungeon)" in the Loot Log and don't count towards "won N tonight".
+- **Turn it off** with `/cdl dungeon off`. `/cdl dungeon status` shows the current state.
+- Dungeon mode only works in a party. Raids always work as normal.
+
+---
+
+## Quick start: Guild Master
+
+The Guild Master is always on the council.
+
+### Pick the guild council
+
+1. Open Council tab → **Loot Council** → **Guild council**. You can also get there from Settings → **Loot Council** → **Edit council…**.
+2. Type in **Add guild members...**.
+   - The list shows online guild members. Tick **Show offline members** to see everyone.
+   - Click a name, or press Enter, to add or remove it. Arrow keys move the selection and Escape closes the list.
+3. Set **Guild phase** (P1 · Karazhan · Gruul · Magtheridon, … P5 · Sunwell Plateau).
+4. Click **Save & share**. The status reads "Shared 2m ago · N members · phase Pn".
+
+How it works:
+
+- A list holds up to 40 names.
+- **Revert** discards unsaved changes. **Clear list** removes everyone after asking. You stay council.
+- The list reaches online members at once. Members who log in later get it within about a minute, either from you or from a council member.
+- To remove someone, take them off the list and click **Save & share** again. They lose council status everywhere: the Council and Loot Log tabs close, and they stop receiving lists.
+- Your own client only trusts the list you saved yourself, and that list is stored on the PC you saved it on. If you play the GM on another PC, CDLoot may print "Your guild council list is not saved on this PC: open Council > Loot Council and save it again". Save it once on that PC.
+
+### Phases
+
+| Phase | Set by | Applies to |
+|---|---|---|
+| Guild phase | the GM, in the picker | everyone: the default My BiS phase, council views, tooltips and alerts |
+| Raid phase | the raid leader, in Group loot rules | that raid only |
+| View phase | each player, in Settings | only that player's own views |
+
+CDLoot no longer uses the Guild Information text. If an old `CDL{...}` line is still there, you can delete it.
+
+---
+
+## How rolls pick a suggested winner
+
+CDLoot sorts everyone who rolled into three groups:
+
+1. **BiS main**, not obtained yet
+2. **BiS alt**, not obtained yet
+3. **Everyone else**: not on their list, already obtained, the slot is disabled, their class can't use the item ("can't use"), or they already won another copy of it from this drop ("won a copy")
+
+The highest roll in the best group is **suggested**. Some rules apply:
+
+- The groups follow the raid's phase: the **Raid phase** from Group loot rules, otherwise the guild phase. A council member's own **View phase** doesn't change them, so every council member sees the same suggestion.
+- A master looter who isn't on the council, even one from another guild, gets the same ranking from the council members in the raid.
+- A roll outside 1-100 is shown but never suggested.
+- A second roll is ignored and shown as "×2".
+- A roll that arrives more than 2 seconds after the timer ends doesn't count.
+- These players are never suggested, even if they are the only ones who rolled (they stay listed, and the council can still award them by clicking the row):
+  - anyone flagged "changed during lock";
+  - anyone marked "can't use";
+  - anyone marked "won a copy";
+  - anyone who has left the group.
+
+  If only such players rolled, there is no suggestion.
+- When rolls tie, every tied row is marked "tie". Pick a winner by clicking their row, or click **Re-roll**.
+- "won N" (items won tonight) is shown for your information only. It doesn't change the suggestion.
+
+The council always confirms the award. Nothing is given away without a click and a confirmation popup.
+
+---
+
+## Slash commands
+
+`/cdl` and `/cdloot` work the same way.
+
+| Command | What it does | Who |
+|---|---|---|
+| `/cdl` | Opens or closes the window | everyone |
+| `/cdl help` (or `/cdl ?`) | Lists all commands | everyone |
+| `/cdl council` | Opens the Council tab (My BiS if you aren't council) | council |
+| `/cdl log` | Opens the Loot Log tab | council |
+| `/cdl settings` or `/cdl config` | Opens Settings | everyone |
+| `/cdl sync` | Asks the guild and council to sync lists now (at most once per 30 s) | everyone |
+| `/cdl version` | Your version and the versions seen in the guild | everyone |
+| `/cdl demo [on\|off]` | Turns demo mode on or off, or toggles it | everyone |
+| `/cdl test` | Simulates a boss drop on your own screen only. Nothing is sent. | everyone |
+| `/cdl drops` | Shows the drop panel with the last 24 h of drops | mainly council / ML |
+| `/cdl drop <item links>` | Announces a drop to the raid by hand (shift-click the items into the command) | council, raid leader / assistants |
+| `/cdl roll <item link>` | Starts a roll for an item. Several links are queued. An item ID also works. | council, master looter, raid leader / assistants |
+| `/cdl roll end` | Ends the running roll | the starter or council |
+| `/cdl rules` | Shows the group loot rules in effect and who set them | everyone |
+| `/cdl lock` / `/cdl unlock` | Locks or unlocks every BiS list in the raid | raid loot leader |
+| `/cdl dungeon [on\|off\|rare\|epic\|status]` | Dungeon mode for 5-man parties (no argument toggles it) | everyone (party leader / council for the whole party) |
+| `/cdl debug` | Turns debug messages in chat on or off | only when asked to |
+
+---
+
+## Settings reference
+
+All settings are in the **Settings** tab. The ones marked *group rule* come from your group's loot leader while you are in a group.
+
+| Section | Setting | Default |
+|---|---|---|
+| Alerts | Boss drop panel (Loot Council) | on |
+| | "On your BiS list!" toast | on |
+| | Play a sound with drop alerts | on |
+| | Glow loot buttons for your BiS items | on |
+| | Chat message when your BiS item drops | on |
+| | BiS badges on the loot window | on |
+| | Drop panel position: Attach to loot window when open / Always floating | Attach |
+| | Announce channel: Raid / Raid Warning (Raid Warning needs lead or assist; otherwise Raid is used) | Raid |
+| Group loot rules | Roll duration *(group rule)* | 30 seconds |
+| | Minimum quality *(group rule)* | Epic |
+| | Enable dungeon mode (5-man parties) *(group rule)* | off |
+| | Dungeon min. quality *(group rule)* | Rare |
+| | Raid phase *(group rule)* | Use guild phase |
+| | Lock BiS lists / Unlock BiS lists | — |
+| Rolls | Announce rolls and winners in raid chat | on |
+| | Show the Roll / Pass popup | on |
+| Tooltips | Show CDLoot lines on item tooltips | on |
+| | Council: list who wants the item | on |
+| | Names shown: 3 / 5 / 8 / 12 | 5 |
+| Minimap button | Show the minimap button | on |
+| View phase | Phase: Follow guild (Pn) / P1–P5 | Follow guild |
+| Demo mode | Demo data (fake guild members & raid), plus the **Simulate a boss drop**, **Recent drops** and **Demo a roll** buttons | off |
+| About | Version, peers seen, sharing status, **Request sync**, Debug messages in chat | — |
+| Loot Council | Read-only summary of the guild council and this raid's council, plus **Edit council…** for the GM or raid leader | — |
+
+---
+
+## Demo mode (try it solo)
+
+Turn demo mode on with `/cdl demo`, or tick **Demo data (fake guild members & raid)** in Settings.
+
+What it adds:
+
+- Fake guild members with BiS lists, some of them in a pretend raid.
+- The Council and Loot Log tabs, even if you aren't council.
+- Your own My BiS list stays real.
+
+Things to try:
+
+- **Simulate a boss drop** (or `/cdl test`) opens the drop panel, plus your own toast if a dropped item is on your list.
+- **Demo a roll** starts a roll on a simulated drop. You get the Roll / Pass popup, and fake raiders roll in the drop panel.
+- You can also click **Roll** on any item in the drop panel.
+
+Demo data is never saved or sent:
+
+- Announces print only in your own chat, as "[demo, not sent] ...".
+- Awards go into a temporary log that is thrown away when demo mode is turned off.
+
+`/cdl demo` again turns it off.
+
+`/cdl test` also works without demo mode. It uses real guild lists but still sends nothing. Rolls on a simulated drop need demo mode.
+
+---
+
+## FAQ and troubleshooting
+
+### What does the sync status mean?
+
+The status appears at the top-right of the window, on the My BiS card under **Sharing**, and in the minimap tooltip.
+
+| Status | Meaning | What to do |
+|---|---|---|
+| **Shared with council ✓ 5m ago** | A council member has your current list. | Nothing |
+| **Changes pending…** | You edited your list recently. It is sent about 8 s after the last edit, or when you close the window. | Wait, or close the window |
+| **Sharing with council…** | A council member is online but hasn't confirmed your current version yet. | Wait a minute |
+| **Not shared yet — no council member online** | Nobody who may receive lists is online. Your list is sent automatically when a council member logs in. | Nothing, or `/cdl sync` later |
+| **Waiting for guild roster…** | The guild roster hasn't loaded yet. | Wait a moment, or open the guild window |
+| **Not in a guild** | Sharing is off. My BiS, tooltips and your own alerts still work. | — |
+
+A list with no picks at all is never sent. Choose at least one item.
+
+### "Not shared yet" won't go away
+- Check that someone on the council is actually online. `/cdl version` lists players who have CDLoot and marks council members.
+- Type `/cdl sync`, wait 30 seconds, and look again.
+- If a council member is online and nothing changes, check that you both run the same version.
+
+### The Council tab is missing
+Only council members see it. Ask the Guild Master to add you, or check Settings → **Loot Council**. To look around anyway, use [demo mode](#demo-mode-try-it-solo).
+
+### As council, I don't see someone's list
+- Lists arrive when that player is online at the same time as a council member. Click **Request sync** in the Council footer.
+- Lists of players who left the guild are removed after 30 days.
+
+### The drop panel didn't open
+The drop panel needs all of these:
+
+- You are on the council, or you lead a party in dungeon mode.
+- **Boss drop panel (Loot Council)** is on.
+- Someone in the raid who runs CDLoot opened the boss loot window. Under master loot, that must be the master looter, the raid leader, an assistant or a council member; other raiders' loot windows are ignored.
+- An item met the minimum quality (Epic by default). Tokens always count.
+- It was a real drop. Disenchanting, prospecting, lockboxes and fishing never open it.
+- The panel wasn't already busy. If it shows an item that is still being decided, it stays on that item and the pager reads "new". Page forward.
+
+If it still didn't open:
+
+- Reopen the panel with the **Drops** button in the Council toolbar, Shift-click on the minimap button, or `/cdl drops`.
+- Announce a drop by hand with `/cdl drop [item] [item]`.
+
+### My roll wasn't counted
+- Only `/roll` 1-100 counts, and only your first roll counts.
+- The roll must land before the timer ends, or up to 2 seconds after.
+- Rolls typed while no CDLoot roll is open are ignored.
+
+### A council member has a newer copy of my list
+CDLoot shows the popup "A council member (X) has a newer copy of your BiS list… Restore it?".
+
+- **Restore** takes their copy. Use it after reinstalling, or after losing your SavedVariables.
+- **Keep mine** keeps your local list and sends it out as the newest version.
+- Escape only closes the popup. Nothing is restored or sent.
+
+A fresh install with an empty list is restored automatically.
+
+### "X doesn't fit the Head slot" / "is a token / quest item"
+- Pick an item that fits the slot you clicked.
+- For tier sets, pick the tier piece, not the token. The picker lists the pieces under the boss.
+
+### Mixed versions
+- Everyone, and above all council members, the raid leader and the master looter, should run the **same** version. `/cdl version` shows who runs what.
+- If a newer version shows up, CDLoot prints "A newer CDLoot version (x) is in use by Y. Please update."
+- **0.4 and older** still send disenchant and lockbox loot as drops (0.5 ignores them). A master looter on 0.4 also records a master-loot give before the server has handed the item over. Update the master looter first.
+- **0.3 and older** ignore disabled slots and the raid lock. A 0.3 council member still counts a disabled slot as wanted.
+- **0.2 and older** use the old Guild Information council and don't know the picked council. Their lists may not reach the new council.
+- If CDLoot prints "X uses an incompatible CDLoot version (protocol …)", messages between you and X are dropped until one of you updates.
+
+### Something looks stuck
+- `/reload` rebuilds the windows.
+- Rolls in progress are kept in memory only. Avoid `/reload` on the client that started a roll until the roll is awarded.
+- If CDLoot fails mid-raid, hand the item out the normal way (master loot or trade). Record it afterwards with Loot Log → **Add award...**.
+
+### Reporting a Lua error
+1. Install **BugSack** from CurseForge. It needs **!BugGrabber**; the CurseForge app installs both.
+   Without BugSack, type `/console scriptErrors 1` to get the game's own error window.
+2. When an error happens, open BugSack from its minimap icon or with `/bugsack`. Copy the **whole** error text, including the stack lines under it.
+3. Send it to whoever maintains CDLoot for the guild, together with:
+   - your version (the first line of `/cdl version`);
+   - what you were doing (for example "clicked Award to X in the drop panel");
+   - whether you were solo, in a party or in a raid, and your role there (raider, council, raid leader, master looter);
+   - whether demo mode was on.
+4. Only turn on `/cdl debug` if you are asked to. It prints extra messages to chat.
+
+---
+
+## How it syncs, and privacy
+
+- **Your BiS list goes only to the council, by whisper.**
+  - It includes your picks, disabled slots, class, spec, which listed items you own, and what you wear in each slot.
+  - It goes to online guild council members and the GM. The raid leader and raid council members get it only while you are in their raid.
+  - Guild council members pass lists on to each other by whisper. Raid-only council members never pass lists on.
+  - Regular raiders never receive other players' lists.
+- **The guild channel carries only small status messages:**
+  - your list's revision number and your addon version;
+  - from council members: which lists they hold (names, revision numbers and checksums) and a checksum of the award log per day;
+  - the guild council list (names and phase) from the GM.
+  So the guild can see who has a list and how often it changes, but not what is on it.
+- **The raid or party channel carries loot events:** drops (item IDs), roll starts, rolls and results, group loot rules, the raid council names, and the lock.
+- **The loot log is council only.** It is shared between council members by whisper. Full history is exchanged only between guild council members. Raid-only council members receive the awards made while they are in the raid. They can only add awards they record themselves, and only void or restore awards from the last 12 hours.
+- **Where it's stored:** everything stays inside the game. Council members keep copies of other players' lists in their own SavedVariables file.
+- **It is not cryptographic.**
+  - The checksums catch damaged or out-of-date data, not forgery.
+  - Who sent a message comes from the game's addon channel, and council status comes from the live guild and raid rosters.
+  - CDLoot refuses the known ways a modified client could interfere with others: overwriting lists, injecting or voiding awards, taking over the guild council list, cancelling running rolls, overriding awards, claiming boss drops, or freezing clients with oversized messages.
+  - A player with a modified client can still send whatever they like about their own list. The "changed during lock" warning is a detection aid, not a guarantee.
+  - Treat CDLoot as a helper for an honest guild, not as a security system.
+
+---
+
+Third-party libraries and data sources: see [NOTICE.md](NOTICE.md).

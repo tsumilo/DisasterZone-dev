@@ -1,0 +1,134 @@
+Ambiguate                                   4 known=12    Core\Comm.lua:102 Core\Comm.lua:102 Core\Comm.lua:77 Core\Comm.lua:77
+BANK_CONTAINER                              1 known=2     Core\BiS.lua:572
+CANCEL                                      2 known=11    Core\Roll.lua:1416 Core\Roll.lua:1426
+CLASS_ICON_TCOORDS                          2 known=3     UI\Widgets.lua:209 UI\Widgets.lua:209
+C_AddOns                                    3 known=16    Core\Init.lua:8 Core\Init.lua:8 Core\Init.lua:8
+C_ChatInfo                                  2 known=16    UI\Widgets.lua:1025 UI\Widgets.lua:1025
+C_Container                                 2 known=14    Core\BiS.lua:486 Core\BiS.lua:468
+C_EventUtils                                3 known=6     Core\Init.lua:135 Core\Init.lua:135 Core\Init.lua:136
+C_GuildInfo                                 3 known=3     Core\Guild.lua:344 Core\Guild.lua:344 Core\Guild.lua:345
+C_Item                                     36 known=14    Core\ItemDB.lua:571 Core\ItemDB.lua:571 Core\ItemDB.lua:561 Core\ItemDB.lua:561
+C_PartyInfo                                 3 known=4     Core\Util.lua:410 Core\Util.lua:410 Core\Util.lua:411
+C_Timer                                    27 known=16    Core\Comm.lua:338 Core\Comm.lua:338 Core\Comm.lua:339 Core\Guild.lua:326
+CanEditGuildInfo                            2 known=0     Core\Guild.lua:453 Core\Guild.lua:453
+ChatEdit_InsertLink                         7 known=7     UI\Council.lua:218 UI\Council.lua:219 UI\LootLog.lua:548 UI\LootLog.lua:119
+ChatFrameUtil                              18 known=8     Core\Comm.lua:332 Core\Comm.lua:332 UI\Council.lua:216 UI\Council.lua:216
+ChatFrame_AddMessageEventFilter             1 known=7     Core\Comm.lua:332
+ChatFrame_OpenChat                          1 known=1     UI\Widgets.lua:157
+ClearCursor                                 2 known=11    UI\LootLog.lua:393 UI\Widgets.lua:339
+CreateDataProvider                          1 known=3     UI\Widgets.lua:665
+CreateFrame                                30 known=19    Core\Init.lua:130 Core\Loot.lua:569 UI\Council.lua:1715 UI\Council.lua:1723
+CreateScrollBoxListLinearView               1 known=3     UI\Widgets.lua:641
+DEFAULT_CHAT_FRAME                          3 known=14    Core\Init.lua:68 Core\Init.lua:24 Core\Sync.lua:673
+DoesTemplateExist                           2 known=3     UI\Widgets.lua:769 UI\Widgets.lua:769
+ERR_CHAT_PLAYER_NOT_FOUND_S                 3 known=1     Core\Comm.lua:330 Core\Comm.lua:330 Core\Comm.lua:331
+Enum                                        3 known=14    Core\Util.lua:417 Core\Util.lua:417 Core\Util.lua:417
+GameTooltip                                49 known=20    UI\Council.lua:1679 UI\Council.lua:1680 UI\Council.lua:1681 UI\Council.lua:1682
+GetCursorInfo                               2 known=10    UI\LootLog.lua:391 UI\Widgets.lua:325
+GetGuildInfo                                3 known=7     Core\Guild.lua:148 Core\Guild.lua:149 UI\MainFrame.lua:88
+GetGuildInfoText                            4 known=0     Core\Guild.lua:470 Core\Guild.lua:470 Core\Guild.lua:213 Core\Guild.lua:213
+GetGuildRosterInfo                          1 known=9     Core\Guild.lua:169
+GetInventoryItemID                          2 known=10    Core\BiS.lua:560 Core\BiS.lua:536
+GetInventorySlotInfo                        2 known=4     UI\Widgets.lua:260 UI\Widgets.lua:261
+GetLootRollItemLink                         2 known=2     Core\Loot.lua:360 Core\Loot.lua:361
+GetLootSlotInfo                             3 known=5     Core\Loot.lua:586 Core\Loot.lua:530 Core\Loot.lua:302
+GetLootSlotLink                             2 known=7     Core\Loot.lua:505 Core\Loot.lua:300
+GetLootSlotType                             2 known=2     Core\Loot.lua:504 Core\Loot.lua:299
+GetLootSourceInfo                           2 known=2     Core\Loot.lua:272 Core\Loot.lua:273
+GetLootThreshold                            1 known=2     Core\Loot.lua:528
+GetMasterLootCandidate                      2 known=2     Core\Loot.lua:632 Core\Loot.lua:517
+GetNormalizedRealmName                      2 known=5     Core\Util.lua:22 Core\Util.lua:22
+GetNumGroupMembers                          2 known=12    Core\Roll.lua:100 Core\Util.lua:434
+GetNumGuildMembers                          2 known=9     Core\Guild.lua:163 Core\Guild.lua:163
+GetNumLootItems                             3 known=6     Core\Loot.lua:502 Core\Loot.lua:294 Core\Loot.lua:294
+GetNumTalentTabs                            2 known=6     Core\BiS.lua:414 Core\BiS.lua:414
+GetRaidRosterInfo                           2 known=12    Core\Roll.lua:102 Core\Util.lua:435
+GetRealmName                                2 known=17    Core\Util.lua:24 Core\Util.lua:24
+GetServerTime                              41 known=8     Core\BiS.lua:714 Core\BiS.lua:672 Core\BiS.lua:653 Core\BiS.lua:579
+GetTalentTabInfo                            2 known=8     Core\BiS.lua:413 Core\BiS.lua:417
+GetTime                                    60 known=17    Core\Comm.lua:340 Core\Comm.lua:306 Core\Comm.lua:242 Core\Comm.lua:229
+GiveMasterLoot                              3 known=1     Core\Loot.lua:632 Core\Loot.lua:642 Core\Loot.lua:618
+HandleModifiedItemClick                     6 known=3     UI\Council.lua:1100 UI\Council.lua:1100 UI\LootLog.lua:255 UI\LootLog.lua:255
+ITEM_QUALITY_COLORS                         2 known=6     UI\Widgets.lua:226 UI\Widgets.lua:226
+InCombatLockdown                            2 known=16    Core\Sync.lua:643 Core\Sync.lua:643
+IsInGroup                                   4 known=15    Core\Comm.lua:108 Core\Roll.lua:164 Core\Util.lua:449 UI\Widgets.lua:1019
+IsInGuild                                  22 known=12    Core\Comm.lua:276 Core\Comm.lua:104 Core\Guild.lua:453 Core\Guild.lua:340
+IsInInstance                                1 known=9     Core\Util.lua:519
+IsInRaid                                   13 known=15    Core\Comm.lua:106 Core\Loot.lua:477 Core\Loot.lua:226 Core\Loot.lua:217
+IsLoggedIn                                  2 known=10    Core\Init.lua:356 Core\Init.lua:356
+IsModifiedClick                             4 known=5     UI\Council.lua:1098 UI\LootLog.lua:253 UI\Widgets.lua:170 UI\Widgets.lua:172
+IsShiftKeyDown                              1 known=18    UI\Widgets.lua:169
+LOCALIZED_CLASS_NAMES_MALE                  2 known=4     UI\Council.lua:112 UI\Council.lua:112
+LibStub                                    15 known=18    Core\Comm.lua:12 Core\Comm.lua:12 Core\Comm.lua:13 Core\Comm.lua:13
+LootButton_OnClick                          2 known=1     Core\Loot.lua:585 Core\Loot.lua:592
+LootFrame                                   1 known=2     Core\Loot.lua:492
+MasterLooterFrame                           1 known=1     Core\Loot.lua:562
+MenuUtil                                    6 known=6     UI\Widgets.lua:860 UI\Widgets.lua:860 UI\Widgets.lua:864 UI\Widgets.lua:829
+NO                                          2 known=7     UI\MyBiS.lua:93 UI\MyBiS.lua:105
+NUM_BAG_SLOTS                               1 known=3     Core\BiS.lua:496
+NUM_BANKBAGSLOTS                            1 known=2     Core\BiS.lua:500
+PanelTemplates_SetNumTabs                   1 known=6     UI\Widgets.lua:921
+PanelTemplates_SetTab                       1 known=6     UI\Widgets.lua:947
+PanelTemplates_TabResize                    2 known=4     UI\Widgets.lua:912 UI\Widgets.lua:912
+PlaySound                                   3 known=15    UI\MainFrame.lua:156 UI\MainFrame.lua:150 UI\Widgets.lua:914
+RAID_CLASS_COLORS                           4 known=14    Core\Util.lua:389 Core\Util.lua:389 UI\Widgets.lua:187 UI\Widgets.lua:187
+RANDOM_ROLL_RESULT                          6 known=1     Core\Demo.lua:393 Core\Demo.lua:393 Core\Demo.lua:393 Core\Roll.lua:338
+RandomRoll                                  2 known=1     Core\Roll.lua:960 Core\Roll.lua:961
+SOUNDKIT                                    9 known=13    UI\MainFrame.lua:156 UI\MainFrame.lua:156 UI\MainFrame.lua:156 UI\MainFrame.lua:150
+ScrollUtil                                  1 known=4     UI\Widgets.lua:653
+SendChatMessage                             1 known=12    UI\Widgets.lua:1025
+SetGuildInfoText                            2 known=0     Core\Guild.lua:459 Core\Guild.lua:483
+SlashCmdList                                2 known=18    Core\Init.lua:309 Core\Init.lua:310
+StaticPopupDialogs                          7 known=11    Core\Roll.lua:1412 Core\Roll.lua:1413 Core\Roll.lua:1423 Core\Sync.lua:721
+StaticPopup_Show                            6 known=10    Core\Roll.lua:1016 Core\Roll.lua:1017 Core\Sync.lua:371 Core\Sync.lua:372
+UIParent                                    5 known=19    Core\Loot.lua:569 Core\Loot.lua:571 UI\Picker.lua:488 UI\Picker.lua:497
+UISpecialFrames                             2 known=16    UI\Widgets.lua:390 UI\Widgets.lua:391
+UNKNOWNOBJECT                               3 known=1     Core\Util.lua:436 Core\Util.lua:422 Core\Util.lua:74
+UnitClass                                   4 known=17    Core\BiS.lua:126 Core\Util.lua:457 UI\MyBiS.lua:47 UI\Picker.lua:32
+UnitExists                                  2 known=15    Core\Loot.lua:276 Core\Util.lua:454
+UnitGUID                                    1 known=16    Core\Loot.lua:277
+UnitInParty                                 2 known=6     Core\Comm.lua:79 Core\Comm.lua:79
+UnitInRaid                                  2 known=8     Core\Comm.lua:78 Core\Comm.lua:78
+UnitIsConnected                             1 known=8     Core\Util.lua:462
+UnitIsDead                                  1 known=6     Core\Loot.lua:276
+UnitIsGroupAssistant                        5 known=9     Core\Util.lua:515 Core\Util.lua:515 Core\Util.lua:460 Core\Util.lua:460
+UnitIsGroupLeader                           3 known=11    Core\Util.lua:515 Core\Util.lua:460 UI\Widgets.lua:1014
+UnitIsUnit                                  1 known=9     Core\Util.lua:509
+UnitName                                    3 known=15    Core\Util.lua:421 Core\Util.lua:73 Core\Util.lua:73
+UnitNameUnmodified                          2 known=3     Core\Util.lua:73 Core\Util.lua:73
+YES                                         2 known=7     UI\MyBiS.lua:92 UI\MyBiS.lua:104
+date                                        1 known=14    UI\LootLog.lua:105
+geterrorhandler                             6 known=14    Core\Comm.lua:210 Core\Init.lua:32 Core\Init.lua:32 UI\MainFrame.lua:119
+hooksecurefunc                              5 known=18    UI\DropPanel.lua:2148 UI\LootLog.lua:547 UI\LootLog.lua:549 UI\Picker.lua:141
+time                                        2 known=17    Core\Demo.lua:68 Core\Util.lua:360
+wipe                                        1 known=15    UI\Picker.lua:95
+=== FIELDS
+C_AddOns.GetAddOnMetadata                             2 Core\Init.lua:8 Core\Init.lua:8
+C_ChatInfo.SendChatMessage                            1 UI\Widgets.lua:1025
+C_EventUtils.IsEventValid                             2 Core\Init.lua:135 Core\Init.lua:136
+C_GuildInfo.GuildRoster                               2 Core\Guild.lua:344 Core\Guild.lua:345
+C_Item.GetItemIconByID                                4 Core\ItemDB.lua:561 Core\ItemDB.lua:561 UI\Widgets.lua:520
+C_Item.GetItemInfo                                    6 Core\ItemDB.lua:571 Core\ItemDB.lua:529 UI\Widgets.lua:237
+C_Item.GetItemInfoInstant                             5 Core\ItemDB.lua:284 UI\PaperDoll.lua:52 UI\PaperDoll.lua:53
+C_Item.GetItemQualityByID                             4 Core\ItemDB.lua:553 Core\ItemDB.lua:554 UI\Widgets.lua:464
+C_Item.GetItemQualityColor                            2 UI\Widgets.lua:222 UI\Widgets.lua:223
+C_Item.RequestLoadItemDataByID                        2 Core\ItemDB.lua:520 Core\ItemDB.lua:521
+C_PartyInfo.GetLootMethod                             2 Core\Util.lua:410 Core\Util.lua:411
+C_Timer.After                                        10 Core\Util.lua:121 Core\Util.lua:112 UI\Council.lua:1736
+C_Timer.NewTicker                                     8 Core\Comm.lua:338 Core\Comm.lua:339 Core\Guild.lua:326
+C_Timer.NewTimer                                      6 Core\Util.lua:106 Core\Util.lua:107 UI\DropPanel.lua:1962
+ChatFrameUtil.AddMessageEventFilter                   1 Core\Comm.lua:332
+ChatFrameUtil.InsertLink                              7 UI\Council.lua:216 UI\Council.lua:217 UI\LootLog.lua:546
+ChatFrameUtil.OpenChat                                1 UI\Widgets.lua:157
+Enum.LootMethod                                       2 Core\Util.lua:417 Core\Util.lua:417
+GameTooltip.AddDoubleLine                             1 UI\MyBiS.lua:368
+GameTooltip.AddLine                                  21 UI\Council.lua:1680 UI\Council.lua:1681 UI\Council.lua:1289
+GameTooltip.Hide                                      6 UI\Council.lua:224 UI\LootLog.lua:125 UI\MyBiS.lua:560
+GameTooltip.SetOwner                                  9 UI\Council.lua:1679 UI\Council.lua:1288 UI\Council.lua:1109
+GameTooltip.Show                                      9 UI\Council.lua:1682 UI\Council.lua:1290 UI\Council.lua:1112
+MenuUtil.CreateContextMenu                            3 UI\Widgets.lua:860 UI\Widgets.lua:864 UI\Widgets.lua:829
+SOUNDKIT.IG_CHARACTER_INFO_CLOSE                      2 UI\MainFrame.lua:156 UI\MainFrame.lua:156
+SOUNDKIT.IG_CHARACTER_INFO_OPEN                       2 UI\MainFrame.lua:150 UI\MainFrame.lua:150
+SOUNDKIT.IG_CHARACTER_INFO_TAB                        2 UI\Widgets.lua:914 UI\Widgets.lua:914
+ScrollUtil.InitScrollBoxListWithScrollBar             1 UI\Widgets.lua:653
+UIParent.GetRight                                     1 UI\Picker.lua:488

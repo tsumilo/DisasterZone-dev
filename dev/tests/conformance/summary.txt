@@ -1,0 +1,218 @@
+ARMOR_SUB.CLOTH  [UNDEF]  <- Constants.lua:213/None,213/None,213/None,219/None,220/None,221/None,222/None,223/None,224/None,225/None,226/None,227/None
+ARMOR_SUB.COSMETIC  [UNDEF]  <- Constants.lua:219/None,220/None,221/None,222/None,223/None,224/None,225/None,226/None,227/None
+ARMOR_SUB.IDOL  [UNDEF]  <- Constants.lua:224/None
+ARMOR_SUB.LEATHER  [UNDEF]  <- Constants.lua:212/None,212/None,219/None,220/None,221/None,222/None,223/None,224/None
+ARMOR_SUB.LIBRAM  [UNDEF]  <- Constants.lua:220/None
+ARMOR_SUB.MAIL  [UNDEF]  <- Constants.lua:211/None,211/None,219/None,220/None,221/None,222/None
+ARMOR_SUB.MISC  [UNDEF]  <- Constants.lua:219/None,220/None,221/None,222/None,223/None,224/None,225/None,226/None,227/None
+ARMOR_SUB.PLATE  [UNDEF]  <- Constants.lua:210/None,210/None,219/None,220/None
+ARMOR_SUB.SHIELD  [UNDEF]  <- Constants.lua:219/None,220/None,222/None
+ARMOR_SUB.TOTEM  [UNDEF]  <- Constants.lua:222/None
+BiS.AdoptRestored  [Core/BiS.lua:694 :(entry)]  <- Sync.lua:570/None,573/1
+BiS.ApplyTemplate  [Core/BiS.lua:346 :(phase,slots,overwrite)]  <- MyBiS.lua:147/3
+BiS.ClearPhase  [Core/BiS.lua:307 :(phase)]  <- MyBiS.lua:95/1
+BiS.ClearSlot  [Core/BiS.lua:287 :(phase,sid)]  <- MyBiS.lua:178/2
+BiS.Commit  [Core/BiS.lua:637 :()]  <- Sync.lua:122/None,123/0,354/None,354/0; MainFrame.lua:158/None,158/0
+BiS.CopyPhase  [Core/BiS.lua:318 :(fromPhase,toPhase,overwrite)]  <- MyBiS.lua:261/3,264/3
+BiS.DetectSpec  [Core/BiS.lua:410 :()]  <- MyBiS.lua:238/0
+BiS.ForceBump  [Core/BiS.lua:661 :()]  <- Sync.lua:355/None,356/0
+BiS.GetData  [Core/BiS.lua:240 :()]  <- MyBiS.lua:45/None,45/0,301/0; Picker.lua:30/None,30/0
+BiS.GetObtainedState  [Core/BiS.lua:593 :(itemID)]  <- MyBiS.lua:168/1,647/1
+BiS.GetPhaseItems  [Core/BiS.lua:435 :(phase)]  <- MyBiS.lua:57/None,58/1; Picker.lua:99/1
+BiS.GetRecord  [Core/BiS.lua:222 :()]  <- Store.lua:57/None,57/0; Sync.lua:69/None,69/0,360/0; MyBiS.lua:645/0
+BiS.GetSlot  [Core/BiS.lua:244 :(phase,sid)]  <- MyBiS.lua:159/2; Picker.lua:108/2
+BiS.GetSpec  [Core/BiS.lua:384 :()]  <- MyBiS.lua:231/None,231/0,136/0
+BiS.IsDirty  [Core/BiS.lua:679 :()]  <- Sync.lua:122/None,122/0,212/None,212/0
+BiS.IsObtained  [Core/BiS.lua:604 :(itemID)]  <- Store.lua:355/None,355/1; MyBiS.lua:311/1; Picker.lua:288/1
+BiS.MatchItem  [Core/BiS.lua:727 :(itemID)]  <- Loot.lua:384/1; DropPanel.lua:200/None,201/1; RollFrame.lua:156/None,157/1; Tooltip.lua:110/None,111/1
+BiS.NoteSeenRev  [Core/BiS.lua:686 :(rev)]  <- Sync.lua:381/None,381/1,581/None,581/1
+BiS.SetManualObtained  [Core/BiS.lua:608 :(itemID,obtained)]  <- MyBiS.lua:170/2,172/2
+BiS.SetSlot  [Core/BiS.lua:259 :(phase,sid,which,itemID)]  <- MyBiS.lua:196/4; Picker.lua:119/4,412/4
+BiS.SetSpec  [Core/BiS.lua:388 :(label)]  <- MyBiS.lua:240/1,246/1
+BiS.SwapMainAlt  [Core/BiS.lua:297 :(phase,sid)]  <- MyBiS.lua:165/2
+COLORS.obtained  [UNDEF]  <- MyBiS.lua:468/None; Picker.lua:289/None
+Comm.RateLimit  [Core/Comm.lua:166 :(key,seconds)]  <- Sync.lua:85/2
+Comm.Register  [Core/Comm.lua:155 :(msgType,handler)]  <- Sync.lua:706/2,707/2,708/2,709/2,710/2,711/2; Ledger.lua:611/None,612/2,613/2,614/2; Loot.lua:701/None,702/2; Roll.lua:1404/None,1405/2,1406/2,1407/2,1408/2
+Comm.Send  [Core/Comm.lua:114 :(msg,distribution,target,class)]  <- Sync.lua:80/4; Ledger.lua:146/None,147/4; Loot.lua:217/None,218/4; Roll.lua:118/None,119/4
+Comm.SendToCouncil  [Core/Comm.lua:131 :(msg,class)]  <- Ledger.lua:160/None,161/2
+CouncilUI.ShowMember  [UI/Council.lua:1845 :(key)]  <- LootLog.lua:229/None,230/1
+DB.GetSetting  [Core/DB.lua:147 :(path)]  <- Roll.lua:72/None,72/1; DropPanel.lua:74/None,75/1; RollFrame.lua:66/None,67/1; Tooltip.lua:52/None,53/1; Settings.lua:43/None,44/1
+DB.SetSetting  [Core/DB.lua:161 :(path,value)]  <- Init.lua:315/None,316/2; Settings.lua:51/None,51/2
+Data.TokenArenaExchanges  [UNDEF]  <- BiS.lua:91/None,91/None; Store.lua:336/None,336/None
+Data.TokenClasses  [UNDEF]  <- DropPanel.lua:229/None,229/None
+Data.Tokens  [UNDEF]  <- BiS.lua:89/None,89/None; Store.lua:335/None,335/None; DropPanel.lua:224/None,224/None
+Data.Upgrades  [UNDEF]  <- BiS.lua:90/None,90/None; Store.lua:338/None,338/None
+Data.bossKey  [UNDEF]  <- DropPanel.lua:1781/None
+Data.cl  [UNDEF]  <- BiS.lua:393/None,709/None,709/None
+Data.eq  [UNDEF]  <- BiS.lua:531/None,546/None,547/None; DropPanel.lua:375/None,375/None
+Data.itemID  [UNDEF]  <- DropPanel.lua:1775/None,1781/None
+Data.ob  [UNDEF]  <- BiS.lua:542/None,543/None
+Data.ph  [UNDEF]  <- BiS.lua:186/None,196/None,200/None,206/None,212/None,310/None,311/None,321/None,322/None,349/None,350/None,368/None,735/None
+Data.sp  [UNDEF]  <- BiS.lua:140/None,403/None,404/None,797/None,800/None
+Demo.GetFakeNames  [Core/Demo.lua:304 :()]  <- Ledger.lua:86/None,86/0
+Demo.GetRaidKeys  [Core/Demo.lua:292 :()]  <- Util.lua:499/None,500/0
+Demo.GetRecords  [Core/Demo.lua:261 :()]  <- Store.lua:41/None,42/0
+Demo.GetRoster  [Core/Demo.lua:272 :()]  <- Guild.lua:50/None,51/0
+Demo.IsEnabled  [Core/Demo.lua:235 :()]  <- Util.lua:406/None,406/0; Guild.lua:50/None,50/0,415/None,415/0; Store.lua:36/None,36/0; Ledger.lua:51/None,51/0; Loot.lua:65/None,65/0; Roll.lua:63/None,63/0; MainFrame.lua:100/None,100/0; Council.lua:1816/None,1816/0; LootLog.lua:137/None,137/0; DropPanel.lua:340/None,340/0; RollFrame.lua:74/None,74/0; Settings.lua:406/None,406/0,701/None,701/0,453/None,454/0,455/0
+Demo.IsInDemoRaid  [Core/Demo.lua:286 :(key)]  <- Util.lua:493/1
+Demo.SetEnabled  [Core/Demo.lua:240 :(on)]  <- Settings.lua:408/None,408/1,453/None,454/1
+Demo.SimulateRolls  [Core/Demo.lua:351 :(session)]  <- Roll.lua:532/None,533/None
+DropPanel.ShowHistory  [UI/DropPanel.lua:808 :()]  <- Settings.lua:416/None,416/0
+Guild.AmICouncil  [Core/Guild.lua:426 :(real)]  <- Store.lua:549/1,161/1,175/1; Sync.lua:60/1; Ledger.lua:71/None,71/1; Loot.lua:60/None,60/1; Roll.lua:88/None,88/1; MainFrame.lua:232/None,232/0; Council.lua:1815/None,1815/0; LootLog.lua:773/None,773/0; DropPanel.lua:82/None,82/0; Tooltip.lua:60/None,60/0; Settings.lua:67/None,67/0
+Guild.BuildTag  [Core/Guild.lua:115 :(c)]  <- Settings.lua:804/None,805/1
+Guild.CanEditConfig  [Core/Guild.lua:452 :()]  <- Settings.lua:785/None,785/0,875/None,876/0
+Guild.GetClass  [Core/Guild.lua:384 :(key)]  <- Store.lua:376/1; Roll.lua:137/None,137/1; Widgets.lua:201/None,202/1; Council.lua:270/None,270/1; LootLog.lua:53/None,53/1; DropPanel.lua:101/None,101/1; Settings.lua:77/None,77/1
+Guild.GetConfig  [Core/Guild.lua:407 :()]  <- Settings.lua:668/None,668/0,811/None,811/0,711/None,725/0
+Guild.GetCouncilMembers  [Core/Guild.lua:431 :()]  <- Settings.lua:748/None,748/0
+Guild.GetGuildName  [Core/Guild.lua:355 :()]  <- Store.lua:204/None,204/0,249/0; Sync.lua:623/0; MainFrame.lua:86/None,86/0
+Guild.GetGuildPhase  [Core/Guild.lua:439 :()]  <- MyBiS.lua:32/None,33/0; Council.lua:1550/None,1550/0; Settings.lua:147/None,147/0
+Guild.GetMembers  [Core/Guild.lua:394 :()]  <- LootLog.lua:433/None,434/0; DropPanel.lua:326/None,327/0; Settings.lua:834/None,836/0
+Guild.GetRankName  [Core/Guild.lua:389 :(key)]  <- Council.lua:770/None,770/1,1411/None,1411/1; Settings.lua:501/None,501/1
+Guild.GetViewPhase  [Core/Guild.lua:443 :()]  <- BiS.lua:754/None,754/0; Store.lua:408/0; Loot.lua:402/None,402/0; Council.lua:248/None,249/0; DropPanel.lua:86/None,86/0; Tooltip.lua:64/None,64/0
+Guild.IsCouncil  [Core/Guild.lua:411 :(key,real)]  <- Sync.lua:64/2,190/2,236/2; Ledger.lua:80/None,80/2; Roll.lua:93/None,93/2
+Guild.IsInGuild  [Core/Guild.lua:373 :(key,real)]  <- Store.lua:163/2,176/2,227/2,259/2; Comm.lua:246/2,275/2; Sync.lua:232/2,314/2,453/2; Ledger.lua:103/None,103/2
+Guild.IsOnline  [Core/Guild.lua:377 :(key,real)]  <- Store.lua:467/1; Comm.lua:99/2; Sync.lua:190/2,235/2; Council.lua:232/None,232/1; LootLog.lua:133/None,133/1; Settings.lua:503/None,503/1,752/None,752/1
+Guild.IsReady  [Core/Guild.lua:351 :()]  <- Store.lua:248/0; Comm.lua:241/0; Sync.lua:658/0,210/0,232/0,267/0,622/0; Ledger.lua:109/None,109/0; Settings.lua:739/None,739/0,844/None,844/0
+Guild.MarkOffline  [Core/Guild.lua:497 :(key)]  <- Comm.lua:308/None,308/1
+Guild.MarkOnline  [Core/Guild.lua:492 :(key)]  <- Comm.lua:205/None,205/1
+Guild.RequestRoster  [Core/Guild.lua:339 :(force)]  <- Comm.lua:231/None,231/0; Sync.lua:660/1
+Guild.WriteConfig  [Core/Guild.lua:457 :(newCfg)]  <- Settings.lua:875/None,891/None,892/1
+ItemDB.ExpandDrop  [Core/ItemDB.lua:230 :(itemID)]  <- BiS.lua:65/None,66/1; Store.lua:345/None,346/1; Ledger.lua:136/None,137/1; Council.lua:590/None,590/1
+ItemDB.FitsSlot  [Core/ItemDB.lua:337 :(itemID,sid)]  <- BiS.lua:58/None,59/2; Loon.lua:136/None,137/2
+ItemDB.GetBossByEncounter  [Core/ItemDB.lua:272 :(encounterID)]  <- Loot.lua:372/None,372/1
+ItemDB.GetBossBySourceGUID  [Core/ItemDB.lua:255 :(guid)]  <- Loot.lua:69/None,70/None
+ItemDB.GetBossRef  [Core/ItemDB.lua:124 :(rbKey)]  <- Loot.lua:256/1,408/1; Roll.lua:1178/None,1178/1; Council.lua:199/None,199/1,542/None,542/1; LootLog.lua:87/None,87/1; DropPanel.lua:885/None,886/1
+ItemDB.GetCandidates  [Core/ItemDB.lua:468 :(sid,filter)]  <- Demo.lua:183/None,105/2; Picker.lua:90/None,91/2
+ItemDB.GetEquipLoc  [Core/ItemDB.lua:309 :(itemID)]  <- Loot.lua:436/1; Demo.lua:96/1; PaperDoll.lua:51/None,51/1; MyBiS.lua:343/1; Council.lua:512/None,512/1,549/None,549/1
+ItemDB.GetIcon  [Core/ItemDB.lua:559 :(itemID)]  <- Widgets.lua:519/None,519/1; Council.lua:161/None,162/1; DropPanel.lua:129/None,129/1; RollFrame.lua:110/None,110/1
+ItemDB.GetInfo  [Core/ItemDB.lua:526 :(itemID)]  <- Widgets.lua:233/None,234/1
+ItemDB.GetLink  [Core/ItemDB.lua:545 :(itemID)]  <- BiS.lua:53/1; Loot.lua:77/1; Roll.lua:517/None,517/1,129/None,129/1,178/None,178/1; Widgets.lua:95/None,95/1; Council.lua:157/None,157/1; LootLog.lua:82/None,82/1; DropPanel.lua:124/None,124/1
+ItemDB.GetName  [Core/ItemDB.lua:540 :(itemID)]  <- BiS.lua:53/1; Loot.lua:77/1; Roll.lua:131/None,131/1; Picker.lua:273/1; Council.lua:153/None,153/1; LootLog.lua:78/None,78/1; DropPanel.lua:116/1,120/None,120/1; RollFrame.lua:106/None,106/1; Tooltip.lua:84/None,84/1,124/None,124/1
+ItemDB.GetQuality  [Core/ItemDB.lua:550 :(itemID)]  <- Loot.lua:342/1; Widgets.lua:462/None,463/1
+ItemDB.GetRaids  [Core/ItemDB.lua:115 :()]  <- Loot.lua:397/0; Council.lua:434/None,434/0
+ItemDB.GetSlotsForItem  [Core/ItemDB.lua:327 :(itemID)]  <- Roll.lua:590/None,591/1; DropPanel.lua:226/None,226/1,361/None,361/1; RollFrame.lua:186/None,186/1
+ItemDB.GetSourceText  [Core/ItemDB.lua:190 :(itemID,short)]  <- PaperDoll.lua:60/None,61/2; Picker.lua:158/1,369/2; Council.lua:1172/None,1172/2
+ItemDB.GetSources  [Core/ItemDB.lua:140 :(itemID)]  <- Loot.lua:345/1; MyBiS.lua:314/1; Council.lua:1856/None,1856/1,406/None,406/1; LootLog.lua:351/None,351/1
+ItemDB.IsToken  [Core/ItemDB.lua:215 :(itemID)]  <- BiS.lua:73/None,73/1; Loot.lua:55/None,55/1; Council.lua:548/None,548/1
+ItemDB.IsUsableBy  [Core/ItemDB.lua:353 :(itemID,classFile,sid)]  <- Picker.lua:297/None,298/3
+ItemDB.Prefetch  [Core/ItemDB.lua:569 :(ids)]  <- Picker.lua:346/None,352/1; Council.lua:568/None,576/1; LootLog.lua:197/None,198/1; DropPanel.lua:614/None,614/1
+ItemDB.Search  [Core/ItemDB.lua:608 :(text,candidates)]  <- Picker.lua:338/None,339/2
+Ledger.Award  [Core/Ledger.lua:322 :(itemID,winnerKey,bossKey,note)]  <- Roll.lua:1071/None,1072/4; Council.lua:321/None,322/4; LootLog.lua:518/None,525/4; DropPanel.lua:1765/None,1770/3
+Ledger.CountSince  [Core/Ledger.lua:440 :(key,ts)]  <- Store.lua:449/None,449/2; Roll.lua:600/None,601/2
+Ledger.GetDigest  [Core/Ledger.lua:455 :()]  <- Sync.lua:90/None,90/0
+Ledger.GetEntries  [Core/Ledger.lua:419 :(filter)]  <- Roll.lua:880/None,883/1; Council.lua:586/None,587/1,1461/None,1461/1; LootLog.lua:182/None,184/1; DropPanel.lua:256/None,258/1
+Ledger.HasAward  [Core/Ledger.lua:434 :(key,wantedItemID)]  <- Store.lua:465/None,465/2; Council.lua:242/None,243/2
+Ledger.RecordAuto  [Core/Ledger.lua:302 :(itemID,winnerKey,bossKey)]  <- Loot.lua:354/None,355/3
+Ledger.SyncFromDigest  [Core/Ledger.lua:483 :(X,digest)]  <- Sync.lua:96/None,97/2
+Ledger.Void  [Core/Ledger.lua:356 :(id,voided)]  <- LootLog.lua:223/None,224/2; DropPanel.lua:1863/None,1867/2
+Loon.GetTemplate  [Core/Loon.lua:294 :(classFile,specLabel,phase)]  <- MyBiS.lua:142/3
+Loon.IsAvailable  [Core/Loon.lua:49 :()]  <- MyBiS.lua:277/None,277/0,642/None,642/0,132/None,132/0; Settings.lua:482/None,482/0
+Loot.CanGiveItem  [Core/Loot.lua:535 :(itemID)]  <- Roll.lua:1148/None,1148/1
+Loot.GetHistory  [Core/Loot.lua:162 :()]  <- Roll.lua:1335/None,1335/0; DropPanel.lua:151/None,151/0; Settings.lua:462/None,464/0
+Loot.GetRecentBossKey  [Core/Loot.lua:330 :()]  <- Roll.lua:808/None,808/0; LootLog.lua:353/None,353/0
+Loot.GiveItem  [Core/Loot.lua:628 :(itemID,key,onDone)]  <- Roll.lua:1102/None,1106/3
+Loot.IsLootCandidate  [Core/Loot.lua:543 :(itemID,key)]  <- Roll.lua:1150/None,1150/2
+Loot.SimulateDrop  [Core/Loot.lua:395 :()]  <- Settings.lua:412/None,412/0,462/None,463/0
+LootLogUI.OpenAwardDialog  [UI/LootLog.lua:779 :(itemID,winnerKey,bossKey,note)]  <- Council.lua:315/None,316/3; DropPanel.lua:1823/None,1824/3
+MainFrame.GetFrame  [UI/MainFrame.lua:170 :()]  <- Picker.lua:485/0
+MainFrame.IsShown  [UI/MainFrame.lua:174 :()]  <- Picker.lua:485/0
+MainFrame.Open  [UI/MainFrame.lua:189 :(key)]  <- Council.lua:1835/None,1836/1; Settings.lua:223/None,223/1
+MainFrame.RegisterTab  [UI/MainFrame.lua:60 :(key,label,order,createFn,isAvailableFn)]  <- MyBiS.lua:666/None,667/4; Council.lua:1888/None,1889/5; LootLog.lua:806/None,807/5; Settings.lua:193/None,194/5
+MainFrame.Toggle  [UI/MainFrame.lua:203 :()]  <- Init.lua:287/None,288/0
+MyBiS.OnPickerClosed  [UI/MyBiS.lua:126 :()]  <- Picker.lua:478/None,478/0
+PaperDoll.Create  [UI/PaperDoll.lua:364 :(parent,opts)]  <- MyBiS.lua:603/2; Council.lua:1353/None,1354/2
+Picker.Close  [UI/Picker.lua:531 :()]  <- MainFrame.lua:159/None,159/0; MyBiS.lua:208/0,619/0
+Picker.IsOpen  [UI/Picker.lua:535 :()]  <- MyBiS.lua:208/None,208/0,619/None,619/0
+Picker.Open  [UI/Picker.lua:505 :(phase,sid,which,anchor)]  <- MyBiS.lua:121/None,122/4
+Roll.GetActive  [Core/Roll.lua:713 :()]  <- Demo.lua:398/None,398/0
+Roll.OnResponse  [Core/Roll.lua:978 :(key,id,r)]  <- Demo.lua:424/3
+Roll.OnSystemMessage  [Core/Roll.lua:993 :(text)]  <- Demo.lua:428/1,432/1
+Roll.RespondRoll  [Core/Roll.lua:953 :(id)]  <- RollFrame.lua:533/None
+Roll.Start  [Core/Roll.lua:872 :(itemID,drop,copyIndex)]  <- Settings.lua:457/None,467/None
+Store.CountWanters  [Core/Store.lua:501 :(itemID,opts)]  <- Loot.lua:383/None,383/2
+Store.Get  [Core/Store.lua:142 :(key)]  <- Roll.lua:142/None,142/1,150/None,150/1; Council.lua:1506/None,1506/1,337/None,340/1; LootLog.lua:54/None,55/1; DropPanel.lua:372/None,373/1,1027/None,1027/1
+Store.GetAllKeys  [Core/Store.lua:151 :()]  <- Council.lua:337/None,339/0; LootLog.lua:416/None,417/0,436/None,437/0
+Store.GetCached  [Core/Store.lua:239 :(key)]  <- Sync.lua:315/1,501/1,557/1,454/1,599/1
+Store.GetEquippedList  [Core/Store.lua:394 :(key,sid)]  <- Roll.lua:590/None,594/2
+Store.GetManifest  [Core/Store.lua:221 :()]  <- Sync.lua:272/0,280/0
+Store.GetWanters  [Core/Store.lua:400 :(itemID,opts)]  <- Roll.lua:627/None,627/2; Demo.lua:370/None,370/2; Council.lua:485/None,486/2; DropPanel.lua:185/None,186/2; Tooltip.lua:144/None,145/2
+Store.Put  [Core/Store.lua:171 :(key,entry,via)]  <- Sync.lua:556/3,598/3
+Store.ValidateData  [Core/Store.lua:94 :(data)]  <- BiS.lua:698/None,699/1; Sync.lua:571/1
+Sync.GetOnlineCouncilPeers  [Core/Sync.lua:184 :()]  <- Comm.lua:135/None,135/0; Settings.lua:480/None,480/0
+Sync.GetPeer  [Core/Sync.lua:198 :(key)]  <- Council.lua:1429/None,1429/1
+Sync.GetStatusText  [Core/Sync.lua:207 :()]  <- MainFrame.lua:99/None,99/0,240/None,240/0; MyBiS.lua:440/None,440/0; Settings.lua:481/None,481/0
+Sync.GetVersions  [Core/Sync.lua:223 :()]  <- Settings.lua:479/None,479/0
+Sync.NotePeerProtocol  [Core/Sync.lua:249 :(key,major)]  <- Comm.lua:185/None,185/2
+Sync.RegisterAddOnCategory  [UNDEF]  <- Settings.lua:228/None,249/1
+Sync.RegisterCanvasLayoutCategory  [UNDEF]  <- Settings.lua:228/None,248/2
+Sync.SendHello  [Core/Sync.lua:264 :()]  <- Council.lua:1668/None,1669/0; Settings.lua:438/None,439/0
+TEX.rowHilight  [UNDEF]  <- LootLog.lua:282/None
+UI.AnnounceLine  [UI/Widgets.lua:1010 :(text)]  <- Roll.lua:166/None,167/None; Council.lua:1042/None,1066/1; DropPanel.lua:1739/None,1740/1
+UI.AttachItemDrop  [UI/Widgets.lua:334 :(frame,fn)]  <- PaperDoll.lua:218/2; Picker.lua:224/2,473/2
+UI.ClassIcon  [UI/Widgets.lua:207 :(texture,classFile)]  <- Council.lua:845/None,845/2,1512/None,1512/2; DropPanel.lua:1281/None,1281/2,1308/None,1308/2
+UI.Color  [UI/Widgets.lua:86 :(key)]  <- PaperDoll.lua:72/1,85/1,117/1; MyBiS.lua:389/1,528/1; Picker.lua:160/1
+UI.ColoredName  [UI/Widgets.lua:200 :(key,classFile)]  <- Council.lua:104/None,105/2; LootLog.lua:63/None,64/2; DropPanel.lua:107/None,107/2; RollFrame.lua:97/None,97/1; Tooltip.lua:74/None,74/2; Settings.lua:82/None,82/2
+UI.Colorize  [UI/Widgets.lua:80 :(text,color)]  <- PaperDoll.lua:46/2; MyBiS.lua:468/2; Picker.lua:283/2,289/2
+UI.ContextMenu  [UI/Widgets.lua:859 :(owner,build)]  <- MyBiS.lua:160/2; Council.lua:1070/None,1072/2; LootLog.lua:235/None,236/2,486/None,489/2; DropPanel.lua:1691/None,1695/2,1836/None,1841/2
+UI.CreateButton  [UI/Widgets.lua:698 :(parent,text,width,height,onClick)]  <- MyBiS.lua:551/5,576/5; Picker.lua:411/5; Council.lua:1667/5,1612/5; LootLog.lua:605/5,625/5,627/5,687/5; DropPanel.lua:747/5,755/5,765/5,1372/5,1379/5,1390/5,1398/5,1402/5,1404/5,1408/5; RollFrame.lua:334/5,337/5; Settings.lua:245/None,245/5,411/5,415/5,420/5,437/5,528/5,599/5,605/5,609/5,610/5
+UI.CreateCheckbox  [UI/Widgets.lua:713 :(parent,label,getter,setter)]  <- Picker.lua:445/4,452/4; Council.lua:1649/4,1652/4; LootLog.lua:677/4; Settings.lua:283/4
+UI.CreateDropdown  [UI/Widgets.lua:782 :(parent,width,getOptions,getSelected,onSelect)]  <- MyBiS.lua:566/5; Picker.lua:438/5; Council.lua:1601/5,1637/5,1643/5; Settings.lua:300/5
+UI.CreateItemButton  [UI/Widgets.lua:561 :(parent,size)]  <- PaperDoll.lua:164/2,165/2,168/2; Picker.lua:190/2,409/2; Council.lua:821/2,1127/2; LootLog.lua:287/2,582/2; DropPanel.lua:1349/2; RollFrame.lua:306/2
+UI.CreateLabel  [UI/Widgets.lua:432 :(parent,text,fontObject)]  <- MyBiS.lua:610/3,378/3,381/3,396/3,400/3,421/3,427/3,432/3,564/3
+UI.CreateMenuButton  [UI/Widgets.lua:869 :(parent,text,width,build)]  <- MyBiS.lua:570/4,573/4
+UI.CreatePanel  [UI/Widgets.lua:424 :(parent)]  <- MyBiS.lua:375/1
+UI.CreateScrollList  [UI/Widgets.lua:624 :(parent,rowHeight,initRow,extentFn)]  <- Picker.lua:460/4; Council.lua:957/3,1186/3,1198/3; LootLog.lua:696/3
+UI.CreateSearchBox  [UI/Widgets.lua:747 :(parent,width,onChanged,placeholder)]  <- Picker.lua:429/4; Council.lua:1622/3; LootLog.lua:671/3
+UI.CreateTabs  [UI/Widgets.lua:896 :(frame,tabs,onSelect)]  <- MainFrame.lua:57/3
+UI.CreateWindow  [UI/Widgets.lua:374 :(name,title,width,height,opts)]  <- MainFrame.lua:138/4; Picker.lua:400/5; LootLog.lua:565/None,566/4; DropPanel.lua:702/4
+UI.EmptySlotTexture  [UI/Widgets.lua:254 :(sid)]  <- PaperDoll.lua:269/1; Picker.lua:366/1; Council.lua:923/None,923/1
+UI.Glow  [UI/Widgets.lua:305 :(frame,on)]  <- DropPanel.lua:2050/None,2050/2,2053/None,2053/2
+UI.HandleModifiedItemClick  [UI/Widgets.lua:167 :(itemID)]  <- PaperDoll.lua:211/1; Picker.lua:219/1; DropPanel.lua:1158/None,1158/1; RollFrame.lua:254/None,255/1
+UI.IsOwnLinkClick  [UI/Widgets.lua:137 :()]  <- Picker.lua:131/0
+UI.ItemText  [UI/Widgets.lua:245 :(itemID)]  <- PaperDoll.lua:256/1; MyBiS.lua:367/1; Picker.lua:270/1,368/1; Council.lua:146/None,147/1; LootLog.lua:71/None,72/1; DropPanel.lua:112/None,113/1; RollFrame.lua:102/None,103/1; Tooltip.lua:80/None,81/1
+UI.LinkInChat  [UI/Widgets.lua:150 :(itemID)]  <- MyBiS.lua:181/1; Council.lua:210/None,211/1; LootLog.lua:111/None,112/1; DropPanel.lua:982/None,983/1
+UI.OBTAINED_LABELS  [UI/Widgets.lua:35 field]  <- PaperDoll.lua:71/None,262/None; MyBiS.lua:174/None
+UI.RestorePosition  [UI/Widgets.lua:360 :(f)]  <- DropPanel.lua:781/None,782/1
+UI.SafeText  [UI/Widgets.lua:111 :(text)]  <- MainFrame.lua:103/1,242/1; MyBiS.lua:442/1
+UI.SetItemTooltip  [UI/Widgets.lua:273 :(owner,itemID,extraFn)]  <- PaperDoll.lua:215/3; Picker.lua:156/3
+UI.Tex  [UI/Widgets.lua:32 .(_,key)]  <- PaperDoll.lua:152/1,293/1; MyBiS.lua:555/1; Picker.lua:176/1,180/1,289/1
+Util.After  [Core/Util.lua:118 .(sec,fn)]  <- BiS.lua:795/2; Comm.lua:219/2; Sync.lua:486/2,614/2; Ledger.lua:638/2; Loot.lua:660/2; Roll.lua:183/2,417/2,518/2,529/2,1091/2,1221/2; Demo.lua:423/2,427/2,431/2
+Util.CancelDebounce  [Core/Util.lua:143 .(key)]  <- BiS.lua:640/1,664/1,788/1; Council.lua:1754/None,1754/1; LootLog.lua:732/None,732/1
+Util.ClassColorHex  [Core/Util.lua:388 .(classFile)]  <- Roll.lua:157/1; Widgets.lua:193/None,194/1; Council.lua:1564/None,1565/1
+Util.CompareVersions  [Core/Util.lua:342 .(a,b)]  <- Sync.lua:152/2
+Util.CopyTable  [Core/Util.lua:180 .(t)]  <- BiS.lua:349/1,707/1; Store.lua:202/1
+Util.Debounce  [Core/Util.lua:127 .(key,sec,fn)]  <- ItemDB.lua:595/3; Guild.lua:274/3,322/3; BiS.lua:590/3,627/3; Sync.lua:140/3,396/3,404/3; Ledger.lua:132/3,548/3; Widgets.lua:52/None,53/3; MyBiS.lua:75/None,76/3; Picker.lua:51/None,52/3; Council.lua:1803/None,1804/3; LootLog.lua:761/None,762/3; DropPanel.lua:836/None,837/3; Settings.lua:910/None,911/3
+Util.FormatAgo  [Core/Util.lua:363 .(ts)]  <- Sync.lua:215/1,680/1; Council.lua:118/None,119/1; LootLog.lua:96/None,97/1; DropPanel.lua:1138/None,1139/1
+Util.GetGroupKeys  [Core/Util.lua:498 .()]  <- Roll.lua:358/0; LootLog.lua:413/None,414/0; DropPanel.lua:146/None,146/0
+Util.GetPlayerRealm  [Core/Util.lua:20 .()]  <- Guild.lua:144/0; Demo.lua:224/0,178/0
+Util.Hash  [Core/Util.lua:316 .(v)]  <- BiS.lua:646/1,673/1,683/1,715/1; Store.lua:187/None; Sync.lua:128/1,572/1; Demo.lua:202/1
+Util.InRaidInstance  [Core/Util.lua:518 .()]  <- Loot.lua:350/0
+Util.IsDebouncePending  [Core/Util.lua:154 .(key)]  <- ItemDB.lua:594/1
+Util.IsInMyGroup  [Core/Util.lua:490 .(key)]  <- Store.lua:443/1; Loot.lua:241/1; Roll.lua:354/1,654/1,982/1,1216/1; Council.lua:228/None,228/1; LootLog.lua:129/None,129/1; DropPanel.lua:978/None,978/1
+Util.IsMe  [Core/Util.lua:86 .(key)]  <- Guild.lua:379/1,413/1; Store.lua:144/1,173/1,353/1; Comm.lua:97/1,263/1; Sync.lua:200/1,288/1; Roll.lua:661/1; Demo.lua:288/1; Council.lua:1425/None,1425/1; DropPanel.lua:97/None,97/1; RollFrame.lua:86/None,86/1
+Util.IsPlayerLeaderOrAssist  [Core/Util.lua:514 .()]  <- Loot.lua:456/0; Roll.lua:760/0,766/0
+Util.IsPlayerMasterLooter  [Core/Util.lua:505 .()]  <- Loot.lua:227/0,536/0,635/0; Roll.lua:760/0,766/0
+Util.ItemIDFromLink  [Core/Util.lua:324 .(link)]  <- Roll.lua:1363/1; LootLog.lua:334/None,334/1
+Util.ItemIDsFromText  [Core/Util.lua:331 .(text)]  <- Loot.lua:461/1; Roll.lua:1367/1
+Util.NormalizeName  [Core/Util.lua:38 .(name)]  <- Guild.lua:69/1,170/1; Comm.lua:96/1,262/1,304/1; Sync.lua:56/1; Ledger.lua:189/1,190/1,306/1,331/1,421/1; Loot.lua:151/1,520/1,544/1,630/1; Roll.lua:103/1,353/1,979/1,1132/1,1279/1; LootLog.lua:459/None,460/1; DropPanel.lua:335/None,335/1
+Util.PlayerKey  [Core/Util.lua:71 .()]  <- Guild.lua:239/0,427/0; BiS.lua:223/0; Store.lua:153/0,224/0; Sync.lua:174/0,188/0,226/0,307/0,343/0,438/0,509/0,532/0,588/0,742/0; Ledger.lua:305/0,329/0; Loot.lua:149/0,203/0,320/0,366/0,449/0,475/0; Roll.lua:211/0,955/0,969/0,1037/0; Demo.lua:244/0,295/0,358/0; RollFrame.lua:82/None,82/0
+Util.RandomDelay  [Core/Util.lua:158 .(minSec,maxSec,fn)]  <- Sync.lua:417/3,500/3,513/3,537/3,626/3,635/3; Loot.lua:232/3
+Util.ShortName  [Core/Util.lua:56 .(key)]  <- Guild.lua:109/1; Store.lua:482/1; Sync.lua:154/1,256/1,372/1,683/1; Ledger.lua:126/1; Loot.lua:615/1,646/1; Roll.lua:157/1,213/1,216/1,484/1,491/1,663/1,847/1,1027/1,1077/1,1090/1,1139/1,1152/1; Demo.lua:404/1,406/1; Widgets.lua:65/None,66/1; Council.lua:97/None,98/1; LootLog.lua:45/None,46/1; DropPanel.lua:92/None,92/1; RollFrame.lua:91/None,91/1; Tooltip.lua:75/None,75/1; Settings.lua:72/None,72/1
+Util.group  [Core/Util.lua:401 field]  <- Comm.lua:74/None; Roll.lua:139/None,139/None
+WEAPON_SUB.AXE1H  [UNDEF]  <- Constants.lua:234/None,236/None,238/None,243/None
+WEAPON_SUB.AXE2H  [UNDEF]  <- Constants.lua:234/None,236/None,238/None,243/None
+WEAPON_SUB.BOWS  [UNDEF]  <- Constants.lua:234/None,238/None,240/None
+WEAPON_SUB.CROSSBOW  [UNDEF]  <- Constants.lua:235/None,239/None,240/None
+WEAPON_SUB.DAGGER  [UNDEF]  <- Constants.lua:235/None,239/None,240/None,242/None,243/None,245/None,246/None,247/None
+WEAPON_SUB.FISHINGPOLE  [UNDEF]  <- Constants.lua:235/None,237/None,239/None,241/None,242/None,244/None,245/None,246/None,247/None,256/None
+WEAPON_SUB.GENERIC  [UNDEF]  <- Constants.lua:235/None,237/None,239/None,241/None,242/None,244/None,245/None,246/None,247/None,255/None
+WEAPON_SUB.GUNS  [UNDEF]  <- Constants.lua:234/None,238/None,240/None
+WEAPON_SUB.MACE1H  [UNDEF]  <- Constants.lua:234/None,236/None,240/None,242/None,243/None,247/None
+WEAPON_SUB.MACE2H  [UNDEF]  <- Constants.lua:234/None,236/None,243/None,247/None
+WEAPON_SUB.POLEARM  [UNDEF]  <- Constants.lua:234/None,236/None,238/None
+WEAPON_SUB.STAFF  [UNDEF]  <- Constants.lua:235/None,239/None,242/None,243/None,245/None,246/None,247/None
+WEAPON_SUB.SWORD1H  [UNDEF]  <- Constants.lua:235/None,236/None,238/None,240/None,245/None,246/None
+WEAPON_SUB.SWORD2H  [UNDEF]  <- Constants.lua:235/None,236/None,238/None
+WEAPON_SUB.THROWN  [UNDEF]  <- Constants.lua:235/None,239/None,240/None
+WEAPON_SUB.UNARMED  [UNDEF]  <- Constants.lua:234/None,238/None,240/None,243/None,247/None
+WEAPON_SUB.WAND  [UNDEF]  <- Constants.lua:242/None,245/None,246/None

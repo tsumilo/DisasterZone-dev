@@ -1,0 +1,870 @@
+-- CDLoot: Core/BiS.lua
+-- The player's own BiS list: record model, edits, commit/rev, spec detection,
+-- owned-item scanning (equipped / bags / bank / held tokens) and drop matching.
+local addonName, ns = ...
+
+local BiS = ns:NewModule("BiS")
+local Util = ns.Util
+
+local floor, max, min = math.floor, math.max, math.min
+local tsort = table.sort
+
+local NUM_SLOTS = 17
+local MAX_PHASE = 5
+local MAX_ITEM_ID = 200000
+local MAX_OB = 200
+local MAX_REV = ns.MAX_REV or 2147483647
+local MAX_STR = 24
+local LIST_VERSION = 1
+local BANK_CONTAINER_ID = -1
+
+-- Scan state (session only; the bank snapshot is persisted in record.bank)
+local equipped = {}     -- [itemID] = count currently equipped
+local bags = {}         -- [itemID] = count in bags
+local tokenCovers = {}  -- [pieceID] = tokenID for tokens / quest items the player holds
+local bankOpen = false
+local scanPending = false
+local commitPending = false
+local tempRecord        -- throwaway record used only before PLAYER_LOGIN
+local checkedRecord     -- the saved record already sanitized this session
+
+---------------------------------------------------------------------------
+-- Small helpers
+---------------------------------------------------------------------------
+
+local function IsValidItemID(id)
+    return type(id) == "number" and id == floor(id) and id >= 1 and id <= MAX_ITEM_ID
+end
+
+local function IsValidPhase(p)
+    return type(p) == "number" and p == floor(p) and p >= 1 and p <= (ns.MAX_PHASE or MAX_PHASE)
+end
+
+local function IsValidSid(sid)
+    return type(sid) == "number" and sid == floor(sid) and sid >= 1 and sid <= NUM_SLOTS
+end
+
+local function SlotLabel(sid)
+    local slot = ns.SLOTS and ns.SLOTS[sid]
+    return slot and slot.label or ("slot " .. tostring(sid))
+end
+
+local function ItemLabel(itemID)
+    local db = ns.ItemDB
+    local text = db and (db:GetLink(itemID) or db:GetName(itemID))
+    return text or ("item " .. tostring(itemID))
+end
+
+local function ItemFits(itemID, sid)
+    if ns.ItemDB and ns.ItemDB.FitsSlot then
+        return ns.ItemDB:FitsSlot(itemID, sid) and true or false
+    end
+    return true
+end
+
+local function ExpandDrop(itemID)
+    if ns.ItemDB and ns.ItemDB.ExpandDrop then
+        local list = ns.ItemDB:ExpandDrop(itemID)
+        if type(list) == "table" then return list end
+    end
+    return { itemID }
+end
+
+local function IsToken(itemID)
+    return ns.ItemDB and ns.ItemDB.IsToken and ns.ItemDB:IsToken(itemID) or false
+end
+
+local function Contains(list, value)
+    if type(list) ~= "table" then return false end
+    for _, v in ipairs(list) do
+        if v == value then return true end
+    end
+    return false
+end
+
+-- How a dropped item leads to a wanted item (nil when it is the item itself).
+local function ViaOf(dropID, wantedID)
+    if dropID == wantedID then return nil end
+    local data = ns.Data
+    if data then
+        if data.Tokens and Contains(data.Tokens[dropID], wantedID) then return "token" end
+        if data.Upgrades and data.Upgrades[dropID] == wantedID then return "upgrade" end
+        local ex = data.TokenArenaExchanges and data.TokenArenaExchanges[dropID]
+        if type(ex) == "table" and Contains(ex.items, wantedID) then return "arena" end
+    end
+    return "token"
+end
+
+local function SameKeys(a, b)
+    for k in pairs(a) do
+        if b[k] == nil then return false end
+    end
+    for k in pairs(b) do
+        if a[k] == nil then return false end
+    end
+    return true
+end
+
+local function SameArray(a, b)
+    if #a ~= #b then return false end
+    for i = 1, #a do
+        if a[i] ~= b[i] then return false end
+    end
+    return true
+end
+
+local function SameMap(a, b)
+    for k, v in pairs(a) do
+        if b[k] ~= v then return false end
+    end
+    for k, v in pairs(b) do
+        if a[k] ~= v then return false end
+    end
+    return true
+end
+
+local function PlayerClass()
+    local _, classFile = UnitClass("player")
+    return classFile
+end
+
+-- The tier pieces of my class a token (or quest item such as Magtheridon's Head) can be exchanged for.
+local function MyTokenPieces(tokenID)
+    local data = ns.Data
+    local pieces = data and data.Tokens and data.Tokens[tokenID]
+    local tierClass = data and data.TierPieceClass
+    local class = PlayerClass()
+    local out = {}
+    if type(pieces) == "table" and tierClass and class then
+        for _, p in ipairs(pieces) do
+            if tierClass[p] == class then out[#out + 1] = p end
+        end
+    end
+    return out
+end
+
+-- A token is never a pick itself (it is never "obtained" once exchanged): resolve it to the one
+-- piece of my class that fits the slot, or nil when there is none or more than one.
+local function ResolveToken(itemID, sid)
+    local found
+    for _, p in ipairs(MyTokenPieces(itemID)) do
+        if ItemFits(p, sid) then
+            if found then return nil end
+            found = p
+        end
+    end
+    return found
+end
+
+---------------------------------------------------------------------------
+-- Record model
+---------------------------------------------------------------------------
+
+local function NewData()
+    return { v = LIST_VERSION, cl = PlayerClass() or "", sp = "", ph = {}, ob = {}, eq = {} }
+end
+
+local function NewRecord()
+    local data = NewData()
+    data.sp = BiS:DetectSpec()
+    return { rev = 0, highestSeenRev = 0, ts = 0, hash = "", data = data, manual = {}, bank = {}, bankTs = 0 }
+end
+
+-- Repair anything malformed in a saved record (SavedVariables are user-editable).
+local function SanitizeData(d)
+    if type(d.v) ~= "number" then d.v = LIST_VERSION end
+    if type(d.cl) ~= "string" then d.cl = PlayerClass() or "" end
+    if type(d.sp) ~= "string" then d.sp = "" end
+    if #d.sp > MAX_STR then d.sp = d.sp:sub(1, MAX_STR) end
+    if type(d.ph) ~= "table" then d.ph = {} end
+    if type(d.ob) ~= "table" then d.ob = {} end
+    if type(d.eq) ~= "table" then d.eq = {} end
+    for phase, slots in pairs(d.ph) do
+        if not IsValidPhase(phase) or type(slots) ~= "table" then
+            d.ph[phase] = nil
+        else
+            for sid, s in pairs(slots) do
+                local main = type(s) == "table" and tonumber(s[1]) or 0
+                local alt = type(s) == "table" and tonumber(s[2]) or 0
+                if not IsValidItemID(main) then main = 0 end
+                if not IsValidItemID(alt) or alt == main then alt = 0 end
+                if not IsValidSid(sid) or (main == 0 and alt == 0) then
+                    slots[sid] = nil
+                elseif s[1] ~= main or s[2] ~= alt then
+                    slots[sid] = { main, alt }
+                end
+            end
+            if next(slots) == nil then d.ph[phase] = nil end
+        end
+    end
+end
+
+local function SanitizeRecord(rec)
+    if type(rec.rev) ~= "number" then rec.rev = 0 end
+    if type(rec.highestSeenRev) ~= "number" then rec.highestSeenRev = rec.rev end
+    if type(rec.ts) ~= "number" then rec.ts = 0 end
+    if type(rec.hash) ~= "string" then rec.hash = "" end
+    if type(rec.data) ~= "table" then rec.data = NewData() end
+    if type(rec.manual) ~= "table" then rec.manual = {} end
+    if type(rec.bank) ~= "table" then rec.bank = {} end
+    if type(rec.bankTs) ~= "number" then rec.bankTs = 0 end
+    SanitizeData(rec.data)
+end
+
+local function ReadSlot(data, phase, sid)
+    local p = data.ph[phase]
+    local s = p and p[sid]
+    if type(s) ~= "table" then return 0, 0 end
+    return tonumber(s[1]) or 0, tonumber(s[2]) or 0
+end
+
+-- Always stores {main, alt} (0 = empty) so the canonical hash is stable; drops empty slots/phases.
+local function WriteSlot(data, phase, sid, main, alt)
+    main, alt = main or 0, alt or 0
+    if main ~= 0 and main == alt then alt = 0 end
+    local p = data.ph[phase]
+    if main == 0 and alt == 0 then
+        if p then
+            p[sid] = nil
+            if next(p) == nil then data.ph[phase] = nil end
+        end
+        return
+    end
+    if not p then
+        p = {}
+        data.ph[phase] = p
+    end
+    p[sid] = { main, alt }
+end
+
+local function HasPicks(data)
+    for _, slots in pairs(data.ph) do
+        if type(slots) == "table" then
+            for _, s in pairs(slots) do
+                if type(s) == "table" and ((s[1] or 0) ~= 0 or (s[2] or 0) ~= 0) then return true end
+            end
+        end
+    end
+    return false
+end
+
+function BiS:GetRecord()
+    local key = ns.loggedIn and Util.PlayerKey()
+    if not (key and ns.db and type(ns.db.chars) == "table") then
+        if not tempRecord then tempRecord = NewRecord() end
+        return tempRecord
+    end
+    local rec = ns.db.chars[key]
+    if type(rec) ~= "table" then
+        rec = NewRecord()
+        ns.db.chars[key] = rec
+    end
+    if checkedRecord ~= rec then
+        SanitizeRecord(rec)
+        checkedRecord = rec
+    end
+    return rec
+end
+
+function BiS:GetData()
+    return self:GetRecord().data
+end
+
+function BiS:GetSlot(phase, sid)
+    local main, alt = ReadSlot(self:GetData(), phase, sid)
+    return (main ~= 0 and main or nil), (alt ~= 0 and alt or nil)
+end
+
+---------------------------------------------------------------------------
+-- Edits
+---------------------------------------------------------------------------
+
+local function AfterEdit(phase, sid)
+    BiS:RebuildDerived()
+    ns:Fire("MYLIST_CHANGED", phase, sid)
+    BiS:MarkDirty()
+end
+
+function BiS:SetSlot(phase, sid, which, itemID)
+    if not IsValidPhase(phase) or not IsValidSid(sid) then return false end
+    if which ~= "main" and which ~= "alt" then return false end
+    itemID = tonumber(itemID) or 0
+    if itemID ~= 0 then
+        if not IsValidItemID(itemID) then return false end
+        if IsToken(itemID) then
+            local piece = ResolveToken(itemID, sid)
+            if not piece then
+                ns:Print("%s is a token / quest item: pick the item you exchange it for instead (the picker lists those under the boss).",
+                    ItemLabel(itemID))
+                return false
+            end
+            itemID = piece
+        end
+        if not ItemFits(itemID, sid) then
+            ns:Print("%s doesn't fit the %s slot.", ItemLabel(itemID), SlotLabel(sid))
+            return false
+        end
+    end
+    local data = self:GetData()
+    local oldMain, oldAlt = ReadSlot(data, phase, sid)
+    local main, alt = oldMain, oldAlt
+    if which == "main" then
+        if itemID ~= 0 and itemID == alt then alt = main end   -- promoting the alt: swap
+        main = itemID
+    else
+        if itemID ~= 0 and itemID == main then main = alt end  -- demoting the main: swap
+        alt = itemID
+    end
+    if main ~= 0 and main == alt then alt = 0 end
+    if main == oldMain and alt == oldAlt then return true end
+    WriteSlot(data, phase, sid, main, alt)
+    AfterEdit(phase, sid)
+    return true
+end
+
+function BiS:ClearSlot(phase, sid)
+    if not IsValidPhase(phase) or not IsValidSid(sid) then return false end
+    local data = self:GetData()
+    local main, alt = ReadSlot(data, phase, sid)
+    if main == 0 and alt == 0 then return true end
+    WriteSlot(data, phase, sid, 0, 0)
+    AfterEdit(phase, sid)
+    return true
+end
+
+function BiS:SwapMainAlt(phase, sid)
+    if not IsValidPhase(phase) or not IsValidSid(sid) then return false end
+    local data = self:GetData()
+    local main, alt = ReadSlot(data, phase, sid)
+    if main == 0 and alt == 0 then return false end
+    WriteSlot(data, phase, sid, alt, main)
+    AfterEdit(phase, sid)
+    return true
+end
+
+function BiS:ClearPhase(phase)
+    if not IsValidPhase(phase) then return false end
+    local data = self:GetData()
+    if data.ph[phase] == nil then return true end
+    data.ph[phase] = nil
+    AfterEdit(phase, nil)
+    return true
+end
+
+-- overwrite=true: the target phase becomes an exact copy of the source phase.
+-- overwrite=false: only slots without a main pick in the target are filled.
+function BiS:CopyPhase(fromPhase, toPhase, overwrite)
+    if not IsValidPhase(fromPhase) or not IsValidPhase(toPhase) or fromPhase == toPhase then return false end
+    local data = self:GetData()
+    local src = data.ph[fromPhase]
+    if overwrite then data.ph[toPhase] = nil end
+    local changed = overwrite and true or false
+    if type(src) == "table" then
+        for sid = 1, NUM_SLOTS do
+            local sMain, sAlt = ReadSlot(data, fromPhase, sid)
+            if sMain ~= 0 or sAlt ~= 0 then
+                local tMain, tAlt = ReadSlot(data, toPhase, sid)
+                if overwrite then
+                    WriteSlot(data, toPhase, sid, sMain, sAlt)
+                elseif tMain == 0 and sMain ~= 0 then
+                    local alt = tAlt ~= 0 and tAlt or sAlt
+                    WriteSlot(data, toPhase, sid, sMain, alt)
+                    changed = true
+                end
+            end
+        end
+    end
+    if changed then AfterEdit(toPhase, nil) end
+    return changed
+end
+
+-- slots[sid] = {main, alt}. overwrite=true replaces the whole phase with the template;
+-- overwrite=false fills only slots without a main pick. Items that don't fit are skipped.
+-- Returns the number of slots changed.
+function BiS:ApplyTemplate(phase, slots, overwrite)
+    if not IsValidPhase(phase) or type(slots) ~= "table" then return 0 end
+    local data = self:GetData()
+    local before = Util.CopyTable(data.ph[phase] or {})
+    if overwrite then data.ph[phase] = nil end
+    for sid = 1, NUM_SLOTS do
+        local t = slots[sid]
+        if type(t) == "table" then
+            local m, a = tonumber(t[1]) or 0, tonumber(t[2]) or 0
+            if m ~= 0 and IsToken(m) then m = ResolveToken(m, sid) or 0 end
+            if a ~= 0 and IsToken(a) then a = ResolveToken(a, sid) or 0 end
+            if m ~= 0 and not (IsValidItemID(m) and ItemFits(m, sid)) then m = 0 end
+            if a ~= 0 and not (IsValidItemID(a) and ItemFits(a, sid)) then a = 0 end
+            if m == 0 and a ~= 0 then m, a = a, 0 end
+            if m ~= 0 then
+                local tMain, tAlt = ReadSlot(data, phase, sid)
+                if overwrite then
+                    WriteSlot(data, phase, sid, m, a)
+                elseif tMain == 0 then
+                    WriteSlot(data, phase, sid, m, tAlt ~= 0 and tAlt ~= m and tAlt or a)
+                end
+            end
+        end
+    end
+    local after = data.ph[phase] or {}
+    local changed = 0
+    for sid = 1, NUM_SLOTS do
+        local b, a = before[sid], after[sid]
+        local bm, ba = b and b[1] or 0, b and b[2] or 0
+        local am, aa = a and a[1] or 0, a and a[2] or 0
+        if bm ~= am or ba ~= aa then changed = changed + 1 end
+    end
+    if changed > 0 then AfterEdit(phase, nil) end
+    return changed
+end
+
+---------------------------------------------------------------------------
+-- Spec
+---------------------------------------------------------------------------
+
+function BiS:GetSpec()
+    return self:GetData().sp or ""
+end
+
+function BiS:SetSpec(label)
+    if label ~= nil and type(label) ~= "string" then return false end
+    label = label or ""
+    local data = self:GetData()
+    if label ~= "" then
+        local specs = ns.SPECS and ns.SPECS[data.cl]
+        if type(specs) == "table" then
+            local known = false
+            for _, spec in ipairs(specs) do
+                if spec.label == label then known = true break end
+            end
+            if not known then return false end
+        end
+        if #label > MAX_STR then label = label:sub(1, MAX_STR) end
+    end
+    if data.sp == label then return true end
+    data.sp = label
+    ns:Fire("MYLIST_CHANGED")
+    self:MarkDirty()
+    return true
+end
+
+-- Talent points spent in a tab. 2.5.6: C_SpecializationInfo.GetSpecializationInfo (pointsSpent is
+-- the 7th return); GetTalentTabInfo is only a deprecation fallback there, kept for older clients.
+local function TabPoints(tab)
+    local C = C_SpecializationInfo
+    if C and C.GetSpecializationInfo then
+        local ok, _, _, _, _, _, _, points = pcall(C.GetSpecializationInfo, tab, false, false, nil, nil, nil)
+        if ok then return tonumber(points) end
+    end
+    if GetTalentTabInfo then
+        local r1, _, r3, _, r5 = GetTalentTabInfo(tab)
+        -- alias order: id, name, desc, icon, pointsSpent; the old 2.4 order had points 3rd
+        return (type(r1) == "string") and tonumber(r3) or tonumber(r5)
+    end
+    return nil
+end
+
+function BiS:DetectSpec()
+    local classFile = PlayerClass()
+    local specs = ns.SPECS and classFile and ns.SPECS[classFile]
+    local C = C_SpecializationInfo
+    if type(specs) ~= "table" or not ((C and C.GetSpecializationInfo) or GetTalentTabInfo) then return "" end
+    local numTabs = (GetNumTalentTabs and GetNumTalentTabs()) or 3
+    local bestTab, bestPoints = nil, 0
+    for tab = 1, numTabs do
+        local points = TabPoints(tab)
+        if points and points > bestPoints then
+            bestTab, bestPoints = tab, points
+        end
+    end
+    if not bestTab then return "" end
+    for _, spec in ipairs(specs) do
+        if spec.tab == bestTab then return spec.label or "" end
+    end
+    return ""
+end
+
+---------------------------------------------------------------------------
+-- Queries
+---------------------------------------------------------------------------
+
+function BiS:GetPhaseItems(phase)
+    local out = {}
+    if not IsValidPhase(phase) then return out end
+    local data = self:GetData()
+    for sid = 1, NUM_SLOTS do
+        local main, alt = ReadSlot(data, phase, sid)
+        if main ~= 0 then out[#out + 1] = { sid = sid, which = "main", itemID = main } end
+        if alt ~= 0 then out[#out + 1] = { sid = sid, which = "alt", itemID = alt } end
+    end
+    return out
+end
+
+function BiS:AllListItems()
+    local set = {}
+    for _, slots in pairs(self:GetData().ph) do
+        if type(slots) == "table" then
+            for _, s in pairs(slots) do
+                if type(s) == "table" then
+                    if (s[1] or 0) ~= 0 then set[s[1]] = true end
+                    if (s[2] or 0) ~= 0 then set[s[2]] = true end
+                end
+            end
+        end
+    end
+    return set
+end
+
+---------------------------------------------------------------------------
+-- Obtained scanning
+---------------------------------------------------------------------------
+
+-- Returns itemID, count for a container slot (nil when empty).
+local function ReadContainerSlot(bag, slot)
+    local C = C_Container
+    if not C then return nil end
+    if C.GetContainerItemInfo then
+        local info = C.GetContainerItemInfo(bag, slot)
+        if type(info) == "table" and info.itemID then
+            return info.itemID, info.stackCount or 1
+        end
+        return nil
+    end
+    if C.GetContainerItemLink then
+        local link = C.GetContainerItemLink(bag, slot)
+        local id = link and tonumber(link:match("item:(%d+)"))
+        if id then return id, 1 end
+    end
+    return nil
+end
+
+local function ScanContainer(bag, into)
+    local C = C_Container
+    if not (C and C.GetContainerNumSlots) then return end
+    local n = C.GetContainerNumSlots(bag) or 0
+    for slot = 1, n do
+        local id, count = ReadContainerSlot(bag, slot)
+        if id then into[id] = (into[id] or 0) + (count or 1) end
+    end
+end
+
+local function NumBagSlots()
+    return tonumber(NUM_BAG_SLOTS) or 4
+end
+
+local function NumBankBagSlots()
+    return tonumber(NUM_BANKBAGSLOTS) or 7
+end
+
+local function RebuildTokenCovers(rec)
+    local covers = {}
+    local function add(set)
+        for id in pairs(set) do
+            if IsToken(id) then
+                for _, piece in ipairs(ExpandDrop(id)) do
+                    if piece ~= id then covers[piece] = id end
+                end
+            end
+        end
+    end
+    add(equipped)
+    add(bags)
+    add(rec.bank)
+    tokenCovers = covers
+end
+
+-- Rebuilds data.ob and data.eq from the current scan state. Returns true if either changed.
+function BiS:RebuildDerived()
+    local rec = self:GetRecord()
+    local data = rec.data
+    local ob = {}
+    for id in pairs(self:AllListItems()) do
+        if self:GetObtainedState(id) then ob[#ob + 1] = id end
+    end
+    tsort(ob)
+    for i = #ob, MAX_OB + 1, -1 do ob[i] = nil end
+
+    local eq = data.eq
+    if ns.loggedIn and ns.SLOTS then
+        eq = {}
+        for sid = 1, NUM_SLOTS do
+            local slot = ns.SLOTS[sid]
+            local id = slot and slot.invSlot and GetInventoryItemID("player", slot.invSlot)
+            if IsValidItemID(id) then eq[sid] = id end
+        end
+    end
+
+    local changed = false
+    if not SameArray(ob, data.ob) then
+        data.ob = ob
+        changed = true
+    end
+    if not SameMap(eq, data.eq) then
+        data.eq = eq
+        changed = true
+    end
+    return changed
+end
+
+function BiS:ScanOwned()
+    scanPending = false
+    if not ns.loggedIn then return end
+    local rec = self:GetRecord()
+
+    local newEquipped, newBags = {}, {}
+    for invSlot = 1, 19 do
+        local id = GetInventoryItemID("player", invSlot)
+        if id then newEquipped[id] = (newEquipped[id] or 0) + 1 end
+    end
+    for bag = 0, NumBagSlots() do
+        ScanContainer(bag, newBags)
+    end
+
+    local changed = not SameKeys(equipped, newEquipped) or not SameKeys(bags, newBags)
+    equipped, bags = newEquipped, newBags
+
+    if bankOpen then
+        local bank = {}
+        ScanContainer(BANK_CONTAINER or BANK_CONTAINER_ID, bank)
+        local first = NumBagSlots() + 1
+        for bag = first, first + NumBankBagSlots() - 1 do
+            ScanContainer(bag, bank)
+        end
+        if not SameKeys(rec.bank, bank) then changed = true end
+        rec.bank = bank
+        rec.bankTs = GetServerTime()
+    end
+
+    RebuildTokenCovers(rec)
+    local dataChanged = self:RebuildDerived()
+    if changed or dataChanged then ns:Fire("OWNED_UPDATED") end
+    if dataChanged then self:MarkDirty() end
+end
+
+function BiS:ScheduleScan()
+    scanPending = true
+    Util.Debounce("bis-scan", 1.5, function() BiS:ScanOwned() end)
+end
+
+function BiS:GetObtainedState(itemID)
+    if not itemID then return nil end
+    if equipped[itemID] then return "equipped" end
+    if bags[itemID] then return "bags" end
+    local rec = self:GetRecord()
+    if rec.bank[itemID] then return "bank" end
+    if tokenCovers[itemID] then return "token" end
+    if rec.manual[itemID] then return "manual" end
+    if IsToken(itemID) then
+        -- A token pick saved by an older version: obtained once I own one of my class's pieces.
+        for _, p in ipairs(MyTokenPieces(itemID)) do
+            if equipped[p] then return "equipped" end
+            if bags[p] then return "bags" end
+            if rec.bank[p] then return "bank" end
+        end
+    end
+    return nil
+end
+
+function BiS:IsObtained(itemID)
+    return self:GetObtainedState(itemID) ~= nil
+end
+
+function BiS:SetManualObtained(itemID, obtained)
+    itemID = tonumber(itemID)
+    if not IsValidItemID(itemID) then return false end
+    local rec = self:GetRecord()
+    local value = obtained and true or nil
+    if rec.manual[itemID] == value then return true end
+    rec.manual[itemID] = value
+    self:RebuildDerived()
+    ns:Fire("OWNED_UPDATED")
+    self:MarkDirty()
+    return true
+end
+
+---------------------------------------------------------------------------
+-- Commit / revisions
+---------------------------------------------------------------------------
+
+function BiS:MarkDirty()
+    commitPending = true
+    Util.Debounce("bis-commit", 8, function() BiS:Commit() end)
+    ns:Fire("SYNC_STATUS")
+end
+
+-- A never-committed list with no picks is not worth sharing; it also keeps rev at 0 so a
+-- fresh install can be restored automatically from the council (see Sync.OnCouncilHasNewer).
+local function NothingToShare(rec)
+    return rec.rev == 0 and not HasPicks(rec.data)
+end
+
+function BiS:Commit()
+    local wasPending = commitPending
+    commitPending = false
+    Util.CancelDebounce("bis-commit")
+    local rec = self:GetRecord()
+    if not ns.loggedIn or rec == tempRecord or NothingToShare(rec) then
+        if wasPending then ns:Fire("SYNC_STATUS") end
+        return false
+    end
+    local newHash = Util.Hash(rec.data)
+    if newHash == rec.hash then
+        if wasPending then ns:Fire("SYNC_STATUS") end
+        return false
+    end
+    rec.rev = min(max(rec.rev, rec.highestSeenRev) + 1, MAX_REV)
+    rec.highestSeenRev = rec.rev
+    rec.ts = GetServerTime()
+    rec.hash = newHash
+    ns:Fire("MYLIST_COMMITTED", rec)
+    ns:Fire("SYNC_STATUS")
+    return true
+end
+
+-- New rev even when the data is unchanged (used by Sync to supersede a council copy).
+function BiS:ForceBump()
+    local wasPending = commitPending
+    commitPending = false
+    Util.CancelDebounce("bis-commit")
+    local rec = self:GetRecord()
+    if not ns.loggedIn or rec == tempRecord then
+        if wasPending then ns:Fire("SYNC_STATUS") end
+        return false
+    end
+    rec.rev = min(max(rec.rev, rec.highestSeenRev) + 1, MAX_REV)
+    rec.highestSeenRev = rec.rev
+    rec.ts = GetServerTime()
+    rec.hash = Util.Hash(rec.data)
+    ns:Fire("MYLIST_COMMITTED", rec)
+    ns:Fire("SYNC_STATUS")
+    return true
+end
+
+function BiS:IsDirty()
+    if commitPending then return true end
+    local rec = self:GetRecord()
+    if NothingToShare(rec) then return false end
+    return Util.Hash(rec.data) ~= rec.hash
+end
+
+function BiS:NoteSeenRev(rev)
+    rev = tonumber(rev)
+    if not rev or rev ~= floor(rev) or rev < 0 or rev > MAX_REV then return end
+    local rec = self:GetRecord()
+    if rev > (rec.highestSeenRev or 0) then rec.highestSeenRev = rev end
+end
+
+-- entry = {r=rev, ts=, h=, d=data} from a council member's copy of my list.
+function BiS:AdoptRestored(entry)
+    if type(entry) ~= "table" or type(entry.d) ~= "table" then return false end
+    local rev = tonumber(entry.r)
+    if not rev or rev ~= floor(rev) or rev < 0 then return false end
+    if ns.Store and ns.Store.ValidateData then
+        local ok, err = ns.Store:ValidateData(entry.d)
+        if not ok then
+            ns:Debug("Restore rejected: %s", tostring(err))
+            return false
+        end
+    end
+    local rec = self:GetRecord()
+    if rec == tempRecord then return false end
+    local data = Util.CopyTable(entry.d)
+    SanitizeData(data)
+    data.cl = PlayerClass() or data.cl
+    rec.data = data
+    rec.rev = rev
+    rec.highestSeenRev = max(rec.highestSeenRev or 0, rev)
+    local ts = tonumber(entry.ts)
+    rec.ts = (ts and ts > 0) and ts or GetServerTime()
+    rec.hash = Util.Hash(rec.data)
+    -- Re-derive ob/eq from what this character actually holds (may queue a newer commit).
+    self:ScanOwned()
+    ns:Fire("MYLIST_CHANGED")
+    ns:Print("Restored your BiS list from the council (rev %d).", rev)
+    return true
+end
+
+---------------------------------------------------------------------------
+-- Drop matching
+---------------------------------------------------------------------------
+
+function BiS:MatchItem(itemID)
+    local out = {}
+    itemID = tonumber(itemID)
+    if not itemID then return out end
+    local data = self:GetData()
+    for _, wanted in ipairs(ExpandDrop(itemID)) do
+        local via = ViaOf(itemID, wanted)
+        local obtained
+        for phase, slots in pairs(data.ph) do
+            if type(slots) == "table" then
+                for sid, s in pairs(slots) do
+                    if type(s) == "table" then
+                        for idx = 1, 2 do
+                            if s[idx] == wanted then
+                                if obtained == nil then obtained = self:IsObtained(wanted) end
+                                out[#out + 1] = {
+                                    phase = phase, sid = sid, which = (idx == 1) and "main" or "alt",
+                                    wanted = wanted, via = via, obtained = obtained,
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if #out > 1 then
+        local view = ns.Guild and ns.Guild.GetViewPhase and ns.Guild:GetViewPhase()
+        tsort(out, function(a, b)
+            local av, bv = (a.phase == view), (b.phase == view)
+            if av ~= bv then return av end
+            if a.phase ~= b.phase then return a.phase < b.phase end
+            if a.which ~= b.which then return a.which == "main" end
+            if a.sid ~= b.sid then return a.sid < b.sid end
+            return a.wanted < b.wanted
+        end)
+    end
+    return out
+end
+
+---------------------------------------------------------------------------
+-- Lifecycle
+---------------------------------------------------------------------------
+
+function BiS:OnLogin()
+    local rec = self:GetRecord()
+    local classFile = PlayerClass()
+    if classFile and rec.data.cl ~= classFile then rec.data.cl = classFile end
+
+    ns:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function() BiS:ScheduleScan() end)
+    ns:RegisterEvent("BAG_UPDATE_DELAYED", function() BiS:ScheduleScan() end)
+    ns:RegisterEvent("BANKFRAME_OPENED", function()
+        bankOpen = true
+        BiS:ScanOwned()
+    end)
+    ns:RegisterEvent("PLAYERBANKSLOTS_CHANGED", function()
+        if bankOpen then BiS:ScheduleScan() end
+    end)
+    ns:RegisterEvent("BANKFRAME_CLOSED", function()
+        -- flush a queued scan while the bank contents are still readable
+        if bankOpen and scanPending then
+            Util.CancelDebounce("bis-scan")
+            BiS:ScanOwned()
+        end
+        bankOpen = false
+    end)
+    ns:RegisterEvent("PLAYER_LOGOUT", function() BiS:Commit() end)
+
+    Util.After(3, function()
+        local data = BiS:GetData()
+        if data.sp == "" then
+            local spec = BiS:DetectSpec()
+            if spec ~= "" then
+                data.sp = spec
+                ns:Fire("MYLIST_CHANGED")
+                BiS:MarkDirty()
+            end
+        end
+        BiS:ScanOwned()
+    end)
+end

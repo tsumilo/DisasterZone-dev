@@ -1,0 +1,17 @@
+# Python environment (recreate: see README "Setup")
+dev/luaenv/
+__pycache__/
+*.pyc
+
+# Test-run output written by dev/tf_e/run_all.py (the runner itself is tracked)
+dev/tf_e/*/
+
+# Scratch / backups
+*.bak
+*.bak_verify
+backup/
+
+# Cached download of Blizzard's UI source used by the API audit (re-fetch with dev/tests/client-api/fetch.sh)
+dev/tests/client-api/src/
+dev/tests/client-api/tree.json
+dev/tests/client-api/commit_*.json

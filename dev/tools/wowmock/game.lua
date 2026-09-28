@@ -1,0 +1,1597 @@
+-- wowmock/game.lua : game-state APIs (units, group, guild, instance, items, loot, inventory, talents,
+-- addon messaging, chat, constants, global strings). World state is pushed from Python into M.W.
+local M, cfg, PY = ...
+
+local _G = _G
+local type, tostring, tonumber, select, pairs, ipairs, next = type, tostring, tonumber, select, pairs, ipairs, next
+local setmetatable, rawget, rawset, error = setmetatable, rawget, rawset, error
+local unpack = unpack
+local sformat, sgsub, sfind, ssub, smatch, slower, supper = string.format, string.gsub, string.find, string.sub, string.match, string.lower, string.upper
+local tinsert, tremove, tconcat, tsort = table.insert, table.remove, table.concat, table.sort
+local safecall, OBJ = M.safecall, M.OBJ
+
+---------------------------------------------------------------------------------------------------
+-- Enums & constants
+---------------------------------------------------------------------------------------------------
+Enum = Enum or {}
+Enum.SendAddonMessageResult = { Success = 0, InvalidPrefix = 1, InvalidMessage = 2, AddonMessageThrottle = 3,
+  InvalidChatType = 4, NotInGroup = 5, TargetRequired = 6, InvalidChannel = 7, ChannelThrottle = 8, GeneralError = 9,
+  NotInGuild = 10, AddOnMessageLockdown = 11, TargetOffline = 12 }
+Enum.RegisterAddonMessagePrefixResult = { Success = 0, DuplicatePrefix = 1, InvalidPrefix = 2, MaxPrefixes = 3 }
+Enum.LootMethod = { Freeforall = 0, Roundrobin = 1, Masterlooter = 2, Group = 3, Needbeforegreed = 4, Personal = 5 }
+Enum.ItemQuality = { Poor = 0, Common = 1, Standard = 1, Uncommon = 2, Good = 3, Rare = 3, Epic = 4, Superior = 4,
+  Legendary = 5, Artifact = 6, Heirloom = 7, WoWToken = 8 }
+Enum.ItemClass = { Consumable = 0, Container = 1, Weapon = 2, Gem = 3, Armor = 4, Reagent = 5, Projectile = 6,
+  Tradegoods = 7, ItemEnhancement = 8, Recipe = 9, CurrencyTokenObsolete = 10, Quiver = 11, Questitem = 12, Key = 13,
+  PermanentObsolete = 14, Miscellaneous = 15, Glyph = 16, Battlepet = 17, WoWToken = 18, Profession = 19 }
+Enum.ItemArmorSubclass = { Generic = 0, Cloth = 1, Leather = 2, Mail = 3, Plate = 4, Cosmetic = 5, Shield = 6,
+  Libram = 7, Idol = 8, Totem = 9, Sigil = 10, Relic = 11 }
+Enum.ItemWeaponSubclass = { Axe1H = 0, Axe2H = 1, Bows = 2, Guns = 3, Mace1H = 4, Mace2H = 5, Polearm = 6, Sword1H = 7,
+  Sword2H = 8, Warglaive = 9, Staff = 10, Bearclaw = 11, Catclaw = 12, Unarmed = 13, Generic = 14, Dagger = 15,
+  Thrown = 16, Obsolete3 = 17, Crossbow = 18, Wand = 19, Fishingpole = 20 }
+Enum.ItemMiscellaneousSubclass = { Junk = 0, Reagent = 1, CompanionPet = 2, Holiday = 3, Other = 4, Mount = 5 }
+Enum.ItemRecipeSubclass = { Book = 0, Leatherworking = 1, Tailoring = 2, Engineering = 3, Blacksmithing = 4, Cooking = 5,
+  Alchemy = 6, FirstAid = 7, Enchanting = 8, Fishing = 9, Jewelcrafting = 10 }
+Enum.InventoryType = { IndexNonEquipType = 0, IndexHeadType = 1, IndexNeckType = 2, IndexShoulderType = 3,
+  IndexBodyType = 4, IndexChestType = 5, IndexWaistType = 6, IndexLegsType = 7, IndexFeetType = 8, IndexWristType = 9,
+  IndexHandType = 10, IndexFingerType = 11, IndexTrinketType = 12, IndexWeaponType = 13, IndexShieldType = 14,
+  IndexRangedType = 15, IndexCloakType = 16, Index2HweaponType = 17, IndexBagType = 18, IndexTabardType = 19,
+  IndexRobeType = 20, IndexWeaponmainhandType = 21, IndexWeaponoffhandType = 22, IndexHoldableType = 23,
+  IndexAmmoType = 24, IndexThrownType = 25, IndexRangedrightType = 26, IndexQuiverType = 27, IndexRelicType = 28 }
+Enum.LootSlotType = { None = 0, Item = 1, Money = 2, Currency = 3 }
+Enum.ItemBind = { None = 0, OnAcquire = 1, OnEquip = 2, OnUse = 3, Quest = 4 }
+Enum.BagIndex = { Keyring = -2, Bank = -1, Backpack = 0, Bag_1 = 1, Bag_2 = 2, Bag_3 = 3, Bag_4 = 4,
+  BankBag_1 = 5, BankBag_2 = 6, BankBag_3 = 7, BankBag_4 = 8, BankBag_5 = 9, BankBag_6 = 10, BankBag_7 = 11 }
+Enum.GameMode = { Standard = 0 }
+LE_PARTY_CATEGORY_HOME = 1
+LE_PARTY_CATEGORY_INSTANCE = 2
+LE_EXPANSION_CLASSIC = 0
+LE_EXPANSION_BURNING_CRUSADE = 1
+LE_EXPANSION_WRATH_OF_THE_LICH_KING = 2
+LE_EXPANSION_LEVEL_CURRENT = 1
+LE_ITEM_QUALITY_POOR, LE_ITEM_QUALITY_COMMON, LE_ITEM_QUALITY_UNCOMMON, LE_ITEM_QUALITY_RARE, LE_ITEM_QUALITY_EPIC, LE_ITEM_QUALITY_LEGENDARY = 0, 1, 2, 3, 4, 5
+WOW_PROJECT_MAINLINE = 1
+WOW_PROJECT_CLASSIC = 2
+WOW_PROJECT_BURNING_CRUSADE_CLASSIC = 5
+WOW_PROJECT_WRATH_CLASSIC = 11
+WOW_PROJECT_CATACLYSM_CLASSIC = 14
+WOW_PROJECT_MISTS_CLASSIC = 19
+WOW_PROJECT_ID = 5
+MAX_PLAYER_LEVEL = 70
+MAX_RAID_MEMBERS = 40
+MAX_PARTY_MEMBERS = 4
+NUM_RAID_GROUPS = 8
+MEMBERS_PER_RAID_GROUP = 5
+NUM_BAG_SLOTS = 4
+NUM_BANKBAGSLOTS = 7
+NUM_BANKGENERIC_SLOTS = 28
+BANK_CONTAINER = -1
+BACKPACK_CONTAINER = 0
+KEYRING_CONTAINER = -2
+MAX_CONTAINER_ITEMS = 36
+NUM_CONTAINER_FRAMES = 13
+INVSLOT_AMMO, INVSLOT_HEAD, INVSLOT_NECK, INVSLOT_SHOULDER, INVSLOT_BODY, INVSLOT_CHEST, INVSLOT_WAIST, INVSLOT_LEGS,
+INVSLOT_FEET, INVSLOT_WRIST, INVSLOT_HAND, INVSLOT_FINGER1, INVSLOT_FINGER2, INVSLOT_TRINKET1, INVSLOT_TRINKET2,
+INVSLOT_BACK, INVSLOT_MAINHAND, INVSLOT_OFFHAND, INVSLOT_RANGED, INVSLOT_TABARD =
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+INVSLOT_FIRST_EQUIPPED, INVSLOT_LAST_EQUIPPED = 1, 19
+CONTAINER_BAG_OFFSET = 19
+
+function GetBuildInfo() return "2.5.6", "69795", "Sep 1 2026", 20506 end
+function GetExpansionLevel() return 1 end
+function GetClassicExpansionLevel() return 1 end
+function GetServerExpansionLevel() return 1 end
+function GetMaxPlayerLevel() return 70 end
+function GetLocale() return "enUS" end
+function GetCurrentRegion() return 3 end
+function GetCurrentRegionName() return "EU" end
+function IsTestBuild() return false end
+function IsBetaBuild() return false end
+function IsPublicBuild() return true end
+function IsTrialAccount() return false end
+function IsVeteranTrialAccount() return false end
+function IsRestrictedAccount() return false end
+function IsOnTournamentRealm() return false end
+function IsLoggedIn() return M.logged_in == true end
+function InCombatLockdown() return M.combat == true end
+function GetScreenWidth() return 1920 end
+function GetScreenHeight() return 1080 end
+function GetPhysicalScreenSize() return 1920, 1080 end
+function GetScreenDPIScale() return 1 end
+function GetCursorPosition() return 960, 540 end
+function GetMouseFocus() return nil end
+function GetMouseFoci() return {} end
+function IsMouseButtonDown() return false end
+function GetAddOnCPUUsage() return 0 end
+function GetAddOnMemoryUsage() return 0 end
+function UpdateAddOnMemoryUsage() end
+function UpdateAddOnCPUUsage() end
+function RequestTimePlayed() end
+function Screenshot() end
+function ReloadUI() M.reload_requested = true end
+function Logout() M.logout_requested = true end
+function DoEmote() end
+function RandomRoll(a, b)
+  M.random_rolls = (M.random_rolls or 0) + 1
+  if PY and PY.random_roll then PY.random_roll(tonumber(a) or 1, tonumber(b) or 100) end
+end
+function GetNumSavedInstances() return 0 end
+function GetSavedInstanceInfo() return nil end
+function RequestRaidInfo() end
+function GetMoney() return M.money or 0 end
+function GetCoinTextureString(copper)
+  copper = tonumber(copper) or 0
+  local g, s, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
+  local out = {}
+  if g > 0 then out[#out + 1] = g .. "g" end
+  if s > 0 then out[#out + 1] = s .. "s" end
+  if c > 0 or #out == 0 then out[#out + 1] = c .. "c" end
+  return tconcat(out, " ")
+end
+GetMoneyString = GetCoinTextureString
+GetCoinText = GetCoinTextureString
+function FormatLargeNumber(n) return tostring(n) end
+function BreakUpLargeNumbers(n) return tostring(n) end
+function SecondsToTime(s)
+  s = math.floor(tonumber(s) or 0)
+  if s >= 3600 then return sformat("%d Hr %d Min", math.floor(s / 3600), math.floor(s % 3600 / 60)) end
+  if s >= 60 then return sformat("%d Min %d Sec", math.floor(s / 60), s % 60) end
+  return sformat("%d Sec", s)
+end
+function SecondsToClock(s) s = math.floor(tonumber(s) or 0); return sformat("%d:%02d", math.floor(s / 60), s % 60) end
+function CreateTextureMarkup(file, fw, fh, w, h) return "|T" .. tostring(file) .. ":" .. (h or 0) .. ":" .. (w or 0) .. "|t" end
+function CreateAtlasMarkup(atlas, w, h) return "|A:" .. tostring(atlas) .. ":" .. (h or 0) .. ":" .. (w or 0) .. "|a" end
+function CreateSimpleTextureMarkup(file, w, h) return "|T" .. tostring(file) .. ":" .. (h or 0) .. ":" .. (w or 0) .. "|t" end
+C_Texture = { GetAtlasInfo = function() return nil end, GetFilenameFromFileDataID = function() return nil end }
+function GetSpellInfo(id)
+  if id == nil then return nil end
+  return "Spell " .. tostring(id), nil, 136243, 0, 0, 0, tonumber(id) or 0
+end
+function GetSpellTexture() return 136243 end
+function GetSpellLink(id) return "|cff71d5ff|Hspell:" .. tostring(id) .. "|h[Spell " .. tostring(id) .. "]|h|r" end
+function IsSpellKnown() return false end
+function IsPlayerSpell() return false end
+C_Spell = {
+  GetSpellInfo = function(id) return { name = "Spell " .. tostring(id), iconID = 136243, spellID = id, castTime = 0, minRange = 0, maxRange = 0 } end,
+  GetSpellName = function(id) return "Spell " .. tostring(id) end,
+  GetSpellTexture = function() return 136243 end,
+  DoesSpellExist = function() return true end,
+}
+
+-- CVars
+M.cvars = { autoLootDefault = "0", lootUnderMouse = "0", Sound_EnableSFX = "1", Sound_EnableAllSound = "1",
+  scriptErrors = "1", taintLog = "0", chatStyle = "classic", portal = "EU", textLocale = "enUS", audioLocale = "enUS",
+  useUiScale = "0", uiScale = "1", showToastWindow = "1", autoSelfCast = "1", nameplateShowEnemies = "1",
+  UberTooltips = "1", alwaysCompareItems = "0", colorblindMode = "0", profanityFilter = "0" }
+function GetCVar(name)
+  local v = M.cvars[name]
+  if v == nil then M.warn("GetCVar('" .. tostring(name) .. "') unknown to the mock (returns nil)") end
+  return v
+end
+function GetCVarBool(name) local v = M.cvars[name]; return v == "1" or v == "true" end
+function GetCVarDefault(name) return M.cvars[name] end
+function SetCVar(name, v) M.cvars[name] = tostring(v); return true end
+function RegisterCVar(name, v) if M.cvars[name] == nil then M.cvars[name] = tostring(v or "") end end
+C_CVar = { GetCVar = GetCVar, GetCVarBool = GetCVarBool, SetCVar = SetCVar, GetCVarDefault = GetCVarDefault, RegisterCVar = RegisterCVar }
+
+---------------------------------------------------------------------------------------------------
+-- Modifiers / cursor / misc UI state
+---------------------------------------------------------------------------------------------------
+M.mods = { shift = false, ctrl = false, alt = false }
+function IsShiftKeyDown() return M.mods.shift end
+function IsControlKeyDown() return M.mods.ctrl end
+function IsAltKeyDown() return M.mods.alt end
+function IsLeftShiftKeyDown() return M.mods.shift end
+function IsRightShiftKeyDown() return false end
+function IsLeftControlKeyDown() return M.mods.ctrl end
+function IsRightControlKeyDown() return false end
+function IsLeftAltKeyDown() return M.mods.alt end
+function IsRightAltKeyDown() return false end
+function IsModifierKeyDown() return M.mods.shift or M.mods.ctrl or M.mods.alt end
+function IsMetaKeyDown() return false end
+local MODIFIED = { CHATLINK = "shift", DRESSUP = "ctrl", SPLITSTACK = "shift", COMPAREITEMS = "shift",
+  AUTOLOOTTOGGLE = "shift", PICKUPACTION = "shift", SOCKETITEM = "shift", EXPANDITEM = "alt", SELFCAST = "alt",
+  FOCUSCAST = "none" }
+function IsModifiedClick(action)
+  -- No action: "any modified click" (Blizzard's ItemRef.lua / AchievementUI use it that way): any modifier held.
+  if action == nil then return (M.mods.shift or M.mods.ctrl or M.mods.alt) and true or false end
+  local m = MODIFIED[action]
+  if m == nil then return false end
+  return M.mods[m] == true
+end
+function GetModifiedClick(action) return MODIFIED[action] and supper(MODIFIED[action]) or "NONE" end
+function GetCursorInfo()
+  local c = M.cursor
+  if not c then return nil end
+  return c.kind, c.id, c.link
+end
+function ClearCursor() M.cursor = nil end
+function CursorHasItem() return M.cursor ~= nil and M.cursor.kind == "item" end
+function PickupItem(item)
+  local id = M.item_id_of(item)
+  if id then M.cursor = { kind = "item", id = id, link = M.item_link(id) } end
+end
+M.itemrefs, M.dressups = {}, {}
+function SetItemRef(link, text, button, chatFrame) M.itemrefs[#M.itemrefs + 1] = link end
+function DressUpItemLink(link) M.dressups[#M.dressups + 1] = link; return true end
+function DressUpLink(link) return DressUpItemLink(link) end
+-- Port of classic_anniversary Blizzard_ItemButton/Classic/ItemButtonTemplate.lua HandleModifiedItemClick.
+function HandleModifiedItemClick(link)
+  M.modified_clicks = (M.modified_clicks or 0) + 1
+  if not link then return false end
+  if IsModifiedClick("CHATLINK") then
+    if ChatFrameUtil and ChatFrameUtil.InsertLink(link) then return true end
+  end
+  if IsModifiedClick("DRESSUP") then return DressUpItemLink(link) end
+  return false
+end
+
+---------------------------------------------------------------------------------------------------
+-- Classes / races / colors
+---------------------------------------------------------------------------------------------------
+M.CLASS_IDS = { WARRIOR = 1, PALADIN = 2, HUNTER = 3, ROGUE = 4, PRIEST = 5, DEATHKNIGHT = 6, SHAMAN = 7, MAGE = 8,
+  WARLOCK = 9, MONK = 10, DRUID = 11, DEMONHUNTER = 12, EVOKER = 13 }
+M.CLASS_BY_ID = {}
+for k, v in pairs(M.CLASS_IDS) do M.CLASS_BY_ID[v] = k end
+LOCALIZED_CLASS_NAMES_MALE = { WARRIOR = "Warrior", PALADIN = "Paladin", HUNTER = "Hunter", ROGUE = "Rogue",
+  PRIEST = "Priest", DEATHKNIGHT = "Death Knight", SHAMAN = "Shaman", MAGE = "Mage", WARLOCK = "Warlock",
+  MONK = "Monk", DRUID = "Druid", DEMONHUNTER = "Demon Hunter", EVOKER = "Evoker" }
+LOCALIZED_CLASS_NAMES_FEMALE = CopyTable(LOCALIZED_CLASS_NAMES_MALE)
+CLASS_SORT_ORDER = { "WARRIOR", "PALADIN", "PRIEST", "SHAMAN", "DRUID", "ROGUE", "MAGE", "WARLOCK", "HUNTER" }
+function FillLocalizedClassList(t, female)
+  for k, v in pairs(female and LOCALIZED_CLASS_NAMES_FEMALE or LOCALIZED_CLASS_NAMES_MALE) do t[k] = v end
+  return t
+end
+local CLASS_COLOR_VALUES = {
+  WARRIOR = { 0.78, 0.61, 0.43, "ffc79c6e" }, PALADIN = { 0.96, 0.55, 0.73, "fff58cba" },
+  HUNTER = { 0.67, 0.83, 0.45, "ffabd473" }, ROGUE = { 1.0, 0.96, 0.41, "fffff569" },
+  PRIEST = { 1.0, 1.0, 1.0, "ffffffff" }, DEATHKNIGHT = { 0.77, 0.12, 0.23, "ffc41f3b" },
+  SHAMAN = { 0.0, 0.44, 0.87, "ff0070de" }, MAGE = { 0.41, 0.8, 0.94, "ff69ccf0" },
+  WARLOCK = { 0.58, 0.51, 0.79, "ff9482c9" }, MONK = { 0.0, 1.0, 0.59, "ff00ff96" },
+  DRUID = { 1.0, 0.49, 0.04, "ffff7d0a" }, DEMONHUNTER = { 0.64, 0.19, 0.79, "ffa330c9" },
+  EVOKER = { 0.2, 0.58, 0.5, "ff33937f" },
+}
+RAID_CLASS_COLORS = {}
+for k, v in pairs(CLASS_COLOR_VALUES) do
+  local c = CreateColor(v[1], v[2], v[3], 1)
+  c.colorStr = v[4]
+  RAID_CLASS_COLORS[k] = c
+end
+CUSTOM_CLASS_COLORS = nil
+C_ClassColor = { GetClassColor = function(classFile) return RAID_CLASS_COLORS[classFile] end }
+function GetClassColor(classFile)
+  local c = RAID_CLASS_COLORS[classFile]
+  if c then return c.r, c.g, c.b, c.colorStr end
+  return 1, 1, 1, "ffffffff"
+end
+function GetClassColorObj(classFile) return RAID_CLASS_COLORS[classFile] end
+CLASS_ICON_TCOORDS = {
+  WARRIOR = { 0, 0.25, 0, 0.25 }, MAGE = { 0.25, 0.49609375, 0, 0.25 }, ROGUE = { 0.49609375, 0.7421875, 0, 0.25 },
+  DRUID = { 0.7421875, 0.98828125, 0, 0.25 }, HUNTER = { 0, 0.25, 0.25, 0.5 }, SHAMAN = { 0.25, 0.49609375, 0.25, 0.5 },
+  PRIEST = { 0.49609375, 0.7421875, 0.25, 0.5 }, WARLOCK = { 0.7421875, 0.98828125, 0.25, 0.5 },
+  PALADIN = { 0, 0.25, 0.5, 0.75 }, DEATHKNIGHT = { 0.25, 0.49609375, 0.5, 0.75 }, MONK = { 0.49609375, 0.7421875, 0.5, 0.75 },
+  DEMONHUNTER = { 0.7421875, 0.98828125, 0.5, 0.75 },
+}
+function GetClassInfo(id)
+  local f = M.CLASS_BY_ID[id]
+  if not f then return nil end
+  return LOCALIZED_CLASS_NAMES_MALE[f], f, id
+end
+function GetNumClasses() return 11 end
+C_CreatureInfo = {
+  GetClassInfo = function(id) local f = M.CLASS_BY_ID[id]; if f then return { className = LOCALIZED_CLASS_NAMES_MALE[f], classFile = f, classID = id } end end,
+  GetRaceInfo = function(id) return nil end,
+  GetFactionInfo = function(id) return nil end,
+}
+M.RACES = { Human = { "Human", 1 }, Orc = { "Orc", 2 }, Dwarf = { "Dwarf", 3 }, NightElf = { "Night Elf", 4 },
+  Scourge = { "Undead", 5 }, Tauren = { "Tauren", 6 }, Gnome = { "Gnome", 7 }, Troll = { "Troll", 8 },
+  BloodElf = { "Blood Elf", 10 }, Draenei = { "Draenei", 11 } }
+
+ITEM_QUALITY_COLORS = {}
+local QUALITY = { [0] = { 0.62, 0.62, 0.62, "ff9d9d9d" }, [1] = { 1, 1, 1, "ffffffff" }, [2] = { 0.12, 1, 0, "ff1eff00" },
+  [3] = { 0, 0.44, 0.87, "ff0070dd" }, [4] = { 0.64, 0.21, 0.93, "ffa335ee" }, [5] = { 1, 0.5, 0, "ffff8000" },
+  [6] = { 0.9, 0.8, 0.5, "ffe6cc80" }, [7] = { 0, 0.8, 1, "ff00ccff" }, [8] = { 0, 0.8, 1, "ff00ccff" } }
+for q, v in pairs(QUALITY) do
+  local c = CreateColor(v[1], v[2], v[3], 1)
+  ITEM_QUALITY_COLORS[q] = { r = v[1], g = v[2], b = v[3], hex = "|c" .. v[4], color = c }
+end
+function GetItemQualityColor(q)
+  local v = QUALITY[q] or QUALITY[1]
+  return v[1], v[2], v[3], v[4]
+end
+ITEM_QUALITY0_DESC, ITEM_QUALITY1_DESC, ITEM_QUALITY2_DESC, ITEM_QUALITY3_DESC, ITEM_QUALITY4_DESC, ITEM_QUALITY5_DESC,
+ITEM_QUALITY6_DESC, ITEM_QUALITY7_DESC = "Poor", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Artifact", "Heirloom"
+
+---------------------------------------------------------------------------------------------------
+-- World state (pushed from Python)
+---------------------------------------------------------------------------------------------------
+M.W = { self = { name = cfg.name, realm = cfg.realm, full = cfg.name .. "-" .. cfg.realm, class = cfg.class_file,
+  level = cfg.level, guid = cfg.guid, online = true }, realm = cfg.realm, realm_display = cfg.realm_display or cfg.realm }
+M.guild_loaded = false
+M.loaded_addons = {}
+M.toc_meta = {}
+function M.set_world(state)
+  M.W = state
+  for _, n in ipairs(state.loaded_addons or {}) do M.loaded_addons[n] = true end
+end
+
+local function norm_realm(r) return (sgsub(r or "", "[%s%-]", "")) end
+M.norm_realm = norm_realm
+local function me() return M.W.self end
+
+local function party_others()
+  local g = M.W.group
+  if not g then return {} end
+  local out, mine = {}, me()
+  local my_sub
+  for _, m in ipairs(g.members) do if m.full == mine.full then my_sub = m.subgroup end end
+  for _, m in ipairs(g.members) do
+    if m.full ~= mine.full and (g.kind ~= "raid" or m.subgroup == my_sub) then out[#out + 1] = m end
+  end
+  return out
+end
+M.party_others = party_others
+
+-- Name-based unit lookup (WoW: only the player and group members). anyone=true also searches every online
+-- player of the World (used for the "target" unit, since any nearby player can be targeted).
+function M.unit_by_name(name, anyone)
+  if type(name) ~= "string" or name == "" then return nil end
+  local n, r = smatch(name, "^([^%-]+)%-(.+)$")
+  if not n then n, r = name, nil end
+  local ln, lr = slower(n), r and slower(norm_realm(r))
+  local function match(m)
+    if not m then return false end
+    if slower(m.name) ~= ln then return false end
+    if lr then return slower(norm_realm(m.realm)) == lr end
+    return norm_realm(m.realm) == norm_realm(M.W.realm)
+  end
+  if match(me()) then return me() end
+  local g = M.W.group
+  if g then for _, m in ipairs(g.members) do if match(m) then return m end end end
+  if anyone and M.W.players then
+    for _, m in ipairs(M.W.players) do if match(m) then return m end end
+  end
+  return nil
+end
+
+function M.unit_rec(unit)
+  if type(unit) ~= "string" then return nil end
+  local u = slower(unit)
+  if u == "player" then return me() end
+  local n = smatch(u, "^raid(%d+)$")
+  if n then
+    local g = M.W.group
+    if g and g.kind == "raid" then return g.members[tonumber(n)] end
+    return nil
+  end
+  n = smatch(u, "^party(%d+)$")
+  if n then return party_others()[tonumber(n)] end
+  if u == "target" then return M.target and M.unit_by_name(M.target, true) end
+  if u == "none" or u == "mouseover" or u == "focus" or u == "npc" or u == "pet" or u == "vehicle"
+     or smatch(u, "^nameplate") or smatch(u, "^boss") or smatch(u, "^arena") then return nil end
+  return M.unit_by_name(unit)
+end
+local unit_rec = M.unit_rec
+
+local function same_realm(m) return norm_realm(m.realm) == norm_realm(M.W.realm) end
+local function display_name(m) if same_realm(m) then return m.name end return m.name .. "-" .. norm_realm(m.realm) end
+M.display_name = display_name
+
+function UnitName(unit)
+  local m = unit_rec(unit)
+  if not m then return nil end
+  if slower(unit) == "player" or same_realm(m) then return m.name, nil end
+  return m.name, norm_realm(m.realm)
+end
+UnitNameUnmodified = UnitName
+function UnitFullName(unit)
+  local m = unit_rec(unit)
+  if not m then return nil end
+  if slower(unit) == "player" then return m.name, norm_realm(m.realm) end
+  if same_realm(m) then return m.name, nil end
+  return m.name, norm_realm(m.realm)
+end
+function GetUnitName(unit, showServer)
+  local m = unit_rec(unit)
+  if not m then return nil end
+  if showServer and not same_realm(m) then return m.name .. "-" .. norm_realm(m.realm) end
+  return m.name
+end
+function UnitClass(unit)
+  local m = unit_rec(unit)
+  if not m then return nil end
+  return LOCALIZED_CLASS_NAMES_MALE[m.class] or m.class, m.class, M.CLASS_IDS[m.class]
+end
+function UnitClassBase(unit) local m = unit_rec(unit); if m then return m.class, M.CLASS_IDS[m.class] end end
+function UnitLevel(unit) local m = unit_rec(unit); if m then return m.level or 70 end return 0 end
+function UnitEffectiveLevel(unit) return UnitLevel(unit) end
+function UnitGUID(unit) local m = unit_rec(unit); return m and m.guid or nil end
+function UnitRace(unit)
+  local m = unit_rec(unit)
+  if not m then return nil end
+  local r = M.RACES[m.race or "Human"] or { m.race, 0 }
+  return r[1], m.race or "Human", r[2]
+end
+function UnitSex(unit) local m = unit_rec(unit); return m and (m.sex or 2) or nil end
+function UnitFactionGroup(unit)
+  local m = unit_rec(unit)
+  if not m then return nil end
+  local f = m.faction or "Alliance"
+  return f, f
+end
+function UnitExists(unit) return unit_rec(unit) ~= nil end
+function UnitIsPlayer(unit) return unit_rec(unit) ~= nil end
+function UnitPlayerControlled(unit) return unit_rec(unit) ~= nil end
+function UnitIsUnit(a, b)
+  local x, y = unit_rec(a), unit_rec(b)
+  return x ~= nil and y ~= nil and x.full == y.full
+end
+function UnitIsConnected(unit) local m = unit_rec(unit); return m ~= nil and m.online ~= false end
+function UnitIsDeadOrGhost(unit) local m = unit_rec(unit); return m ~= nil and m.dead == true end
+function UnitIsDead(unit) return UnitIsDeadOrGhost(unit) end
+function UnitIsGhost() return false end
+function UnitIsAFK() return false end
+function UnitIsDND() return false end
+function UnitIsVisible(unit) return unit_rec(unit) ~= nil end
+function UnitInRange(unit) return unit_rec(unit) ~= nil, true end
+function CheckInteractDistance(unit) return unit_rec(unit) ~= nil end
+function UnitIsEnemy() return false end
+function UnitIsFriend(a, b) return true end
+function UnitCanAttack() return false end
+function UnitCanCooperate(a, b) return unit_rec(b) ~= nil end
+function UnitReaction() return 5 end
+function UnitIsPVP() return false end
+function UnitIsTapDenied() return false end
+function UnitOnTaxi() return false end
+function UnitHealth(unit) return unit_rec(unit) and 100 or 0 end
+function UnitHealthMax(unit) return unit_rec(unit) and 100 or 0 end
+function UnitPower(unit) return unit_rec(unit) and 100 or 0 end
+function UnitPowerMax(unit) return unit_rec(unit) and 100 or 0 end
+function UnitPowerType() return 0, "MANA" end
+function UnitCreatureType() return nil end
+function UnitClassification() return "normal" end
+function UnitAura() return nil end
+function UnitBuff() return nil end
+function UnitDebuff() return nil end
+function UnitCastingInfo() return nil end
+function UnitChannelInfo() return nil end
+function UnitStat() return 0, 0, 0, 0 end
+function UnitArmor() return 0, 0, 0, 0, 0 end
+function UnitAffectingCombat(unit)
+  if slower(unit or "") == "player" then return M.combat == true end
+  return false
+end
+function UnitGroupRolesAssigned() return "NONE" end
+function UnitIsGroupLeader(unit) local m = unit_rec(unit); return m ~= nil and M.W.group ~= nil and m.group_rank == 2 end
+function UnitIsGroupAssistant(unit) local m = unit_rec(unit); return m ~= nil and M.W.group ~= nil and m.group_rank == 1 end
+function UnitInRaid(unit)
+  local g = M.W.group
+  if not g or g.kind ~= "raid" then return nil end
+  local m = unit_rec(unit)
+  if not m then return nil end
+  for i, x in ipairs(g.members) do if x.full == m.full then return i end end
+  return nil
+end
+function UnitInParty(unit)
+  local g = M.W.group
+  if not g then return false end
+  local m = unit_rec(unit)
+  if not m then return false end
+  if m.full == me().full then return true end
+  for _, x in ipairs(party_others()) do if x.full == m.full then return true end end
+  return false
+end
+function UnitInAnyGroup(unit) local g = M.W.group; if not g then return false end local m = unit_rec(unit); if not m then return false end
+  for _, x in ipairs(g.members) do if x.full == m.full then return true end end return false end
+function UnitPosition() return nil end
+function GetPlayerInfoByGUID(guid)
+  local function check(m)
+    if m and m.guid == guid then
+      local r = M.RACES[m.race or "Human"] or { m.race, 0 }
+      return LOCALIZED_CLASS_NAMES_MALE[m.class], m.class, r[1], m.race, m.sex or 2, m.name, same_realm(m) and "" or norm_realm(m.realm)
+    end
+  end
+  local a, b, c, d, e, f, g2 = check(me())
+  if a then return a, b, c, d, e, f, g2 end
+  local g = M.W.group
+  if g then for _, m in ipairs(g.members) do a, b, c, d, e, f, g2 = check(m); if a then return a, b, c, d, e, f, g2 end end end
+  local G = M.W.guild
+  if G then for _, m in ipairs(G.roster) do a, b, c, d, e, f, g2 = check(m); if a then return a, b, c, d, e, f, g2 end end end
+  return nil
+end
+function GetNormalizedRealmName() return norm_realm(M.W.realm) end
+function GetRealmName() return M.W.realm_display or M.W.realm end
+function GetRealmID() return 4467 end
+function Ambiguate(name, context)
+  if type(name) ~= "string" then return name end
+  local n, r = smatch(name, "^([^%-]+)%-(.+)$")
+  if not n then return name end
+  context = slower(context or "none")
+  if context == "all" or context == "short" then return n end
+  if norm_realm(r) == norm_realm(M.W.realm) then return n end
+  return name
+end
+function UnitIsSameServer(unit) local m = unit_rec(unit); return m ~= nil and same_realm(m) end
+
+---------------------------------------------------------------------------------------------------
+-- Group / raid / loot method / instance
+---------------------------------------------------------------------------------------------------
+function IsInRaid(cat)
+  if cat == LE_PARTY_CATEGORY_INSTANCE then return false end
+  local g = M.W.group
+  return g ~= nil and g.kind == "raid"
+end
+function IsInGroup(cat)
+  if cat == LE_PARTY_CATEGORY_INSTANCE then return false end
+  return M.W.group ~= nil
+end
+function IsPartyLFG() return false end
+function IsInLFGDungeon() return false end
+function HasLFGRestrictions() return false end
+function GetNumGroupMembers(cat)
+  if cat == LE_PARTY_CATEGORY_INSTANCE then return 0 end
+  local g = M.W.group
+  return g and #g.members or 0
+end
+function GetNumSubgroupMembers(cat)
+  if cat == LE_PARTY_CATEGORY_INSTANCE then return 0 end
+  return #party_others()
+end
+function GetRaidRosterInfo(i)
+  local g = M.W.group
+  if not g then return nil end
+  local m = g.members[tonumber(i) or 0]
+  if not m then return nil end
+  return display_name(m), m.group_rank or 0, m.subgroup or 1, m.level or 70, LOCALIZED_CLASS_NAMES_MALE[m.class] or m.class,
+    m.class, m.zone or GetRealZoneText(), m.online ~= false, m.dead == true, m.role, m.isML == true, "NONE"
+end
+function GetPartyAssignment() return false end
+function GetRaidTargetIndex() return nil end
+function SetRaidTarget() end
+function DoReadyCheck() end
+function GetReadyCheckStatus() return nil end
+function ConvertToRaid() end
+function ConvertToParty() end
+function InviteUnit() end
+function UninviteUnit() end
+function LeaveParty() end
+function PromoteToLeader() end
+function PromoteToAssistant() end
+function SetEveryoneIsAssistant() end
+local function loot_method_info()
+  local g = M.W.group
+  if not g then return 0, nil, nil end
+  local method = g.loot_method or 3
+  local ml = g.ml_index
+  if method ~= 2 or not ml then return method, nil, nil end
+  local mlm = g.members[ml]
+  local party_id
+  if mlm and mlm.full == me().full then party_id = 0
+  else
+    for k, x in ipairs(party_others()) do if mlm and x.full == mlm.full then party_id = k end end
+  end
+  return method, party_id, g.kind == "raid" and ml or nil
+end
+C_PartyInfo = {
+  GetLootMethod = function() return loot_method_info() end,
+  SetLootMethod = function() M.warn("C_PartyInfo.SetLootMethod is not simulated; use world.make_raid(master_looter=...)") end,
+  InviteUnit = function() end, LeaveParty = function() end, ConvertToRaid = function() end, ConvertToParty = function() end,
+  IsPartyFull = function() return GetNumGroupMembers() >= 5 end, DoCountdown = function() end,
+  CanInvite = function() return true end, GetMinLevel = function() return 1 end,
+  IsPartyInJailersTower = function() return false end,
+}
+local LOOT_METHOD_NAMES = { [0] = "freeforall", [1] = "roundrobin", [2] = "master", [3] = "group", [4] = "needbeforegreed", [5] = "personalloot" }
+M.legacy.GetLootMethod = function()
+  local m, p, r = loot_method_info()
+  return LOOT_METHOD_NAMES[m], p, r
+end
+function GetLootThreshold() local g = M.W.group; return g and g.threshold or 2 end
+function SetLootThreshold() end
+function GetOptOutOfLoot() return false end
+
+function IsInInstance()
+  local inst = M.W.instance
+  if inst then return true, inst.type or "raid" end
+  return false, "none"
+end
+function GetInstanceInfo()
+  local inst = M.W.instance
+  if not inst then return GetRealZoneText(), "none", 0, "", 0, 0, false, 0, 0, nil end
+  return inst.name, inst.type or "raid", inst.difficultyID or 3, inst.difficultyName or "10 Player", inst.maxPlayers or 10,
+    0, false, inst.instanceID or 0, GetNumGroupMembers(), nil
+end
+function GetDifficultyInfo(id)
+  local names = { [1] = "Normal", [2] = "Heroic", [3] = "10 Player", [4] = "25 Player", [9] = "40 Player", [148] = "20 Player" }
+  return names[id] or "Normal", (id == 1 or id == 2) and "party" or "raid", id == 2, false, false, false, nil
+end
+function GetRealZoneText() local inst = M.W.instance; return inst and inst.name or (M.W.zone or "Shattrath City") end
+function GetZoneText() return GetRealZoneText() end
+function GetSubZoneText() return "" end
+function GetMinimapZoneText() return GetRealZoneText() end
+function GetZonePVPInfo() return "sanctuary" end
+C_Map = {
+  GetBestMapForUnit = function(unit) if unit_rec(unit) then return M.W.instance and M.W.instance.uiMapID or 1955 end end,
+  GetMapInfo = function(id) return { mapID = id, name = GetRealZoneText(), mapType = 3, parentMapID = 0 } end,
+  GetPlayerMapPosition = function() return nil end,
+}
+
+---------------------------------------------------------------------------------------------------
+-- Guild
+---------------------------------------------------------------------------------------------------
+M.show_offline = true
+local function guild() return M.W.guild end
+local function officer_rank() local G = guild(); return G and G.officer_rank or 1 end
+local function roster_view()
+  local G = guild()
+  if not G or not M.guild_loaded then return {} end
+  if M.show_offline then return G.roster end
+  local out = {}
+  for _, m in ipairs(G.roster) do if m.online then out[#out + 1] = m end end
+  return out
+end
+function IsInGuild() return me().guild ~= nil end
+function GetGuildInfo(unit)
+  local m = unit_rec(unit)
+  if not m or not m.guild then return nil end
+  return m.guild, m.guild_rank_name, m.guild_rank, (not same_realm(m)) and norm_realm(m.realm) or nil
+end
+function GetNumGuildMembers()
+  local G = guild()
+  if not G or not M.guild_loaded then return 0, 0, 0 end
+  local online = 0
+  for _, m in ipairs(G.roster) do if m.online then online = online + 1 end end
+  return #G.roster, online, online
+end
+function CanViewOfficerNote() local r = me().guild_rank; return r ~= nil and r <= officer_rank() end
+function CanEditOfficerNote() local r = me().guild_rank; return r ~= nil and r <= officer_rank() end
+function CanEditPublicNote() return me().guild ~= nil end
+function CanEditGuildInfo() local r = me().guild_rank; return r ~= nil and r <= 1 end
+function CanEditMOTD() local r = me().guild_rank; return r ~= nil and r <= 1 end
+function CanGuildInvite() local r = me().guild_rank; return r ~= nil and r <= officer_rank() end
+function CanGuildRemove() return CanGuildInvite() end
+function CanGuildPromote() return CanGuildInvite() end
+function IsGuildLeader() return me().guild_rank == 0 end
+function GetGuildRosterInfo(i)
+  local list = roster_view()
+  local m = list[tonumber(i) or 0]
+  if not m then return nil end
+  local G = guild()
+  local officer = CanViewOfficerNote() and (m.officer_note or "") or ""
+  return m.full, G.ranks[(m.guild_rank or 0) + 1] or "", m.guild_rank or 0, m.level or 70,
+    LOCALIZED_CLASS_NAMES_MALE[m.class] or m.class, m.zone or "", m.public_note or "", officer, m.online == true, 0,
+    m.class, 0, 0, false, false, 4, m.guid
+end
+function GetGuildRosterLastOnline(i) return 0, 0, 1, 0 end
+function GetGuildRosterShowOffline() return M.show_offline end
+function SetGuildRosterShowOffline(v) M.show_offline = v and true or false; M.defer("GUILD_ROSTER_UPDATE", false) end
+function GetGuildRosterMOTD() local G = guild(); return G and G.motd or "" end
+function GetGuildInfoText()
+  local G = guild()
+  if not G or not M.guild_loaded then return "" end
+  return G.info_text or ""
+end
+function SetGuildInfoText(text)
+  if type(text) ~= "string" then error("Usage: SetGuildInfoText(text)", 2) end
+  if not CanEditGuildInfo() then
+    M.warn("SetGuildInfoText called without permission (rank " .. tostring(me().guild_rank) .. "): ignored like WoW")
+    return
+  end
+  PY.set_guild_info_text(M.hex(text))
+end
+function GuildControlGetNumRanks() local G = guild(); return G and #G.ranks or 0 end
+function GuildControlGetRankName(i) local G = guild(); return G and G.ranks[tonumber(i) or 0] or nil end
+function GuildControlGetRankFlags() return false end
+function GuildRosterSetPublicNote(i, note)
+  local m = roster_view()[tonumber(i) or 0]
+  if not m then return end
+  PY.set_note(m.full, "public", M.hex(tostring(note or "")))
+end
+function GuildRosterSetOfficerNote(i, note)
+  if not CanEditOfficerNote() then M.warn("GuildRosterSetOfficerNote without permission: ignored"); return end
+  local m = roster_view()[tonumber(i) or 0]
+  if not m then return end
+  PY.set_note(m.full, "officer", M.hex(tostring(note or "")))
+end
+function M.request_roster()
+  if M.roster_pending then return end
+  M.roster_pending = true
+  M.after(0, function()
+    M.roster_pending = false
+    M.guild_loaded = true
+    M.fire("GUILD_ROSTER_UPDATE", false)
+  end, "GuildRoster")
+end
+function M.roster_changed()
+  if M.guild_loaded then M.defer("GUILD_ROSTER_UPDATE", false) end
+end
+C_GuildInfo = {
+  GuildRoster = function() if IsInGuild() then M.request_roster() end end,
+  CanEditOfficerNote = CanEditOfficerNote,
+  CanViewOfficerNote = CanViewOfficerNote,
+  IsGuildOfficer = function() local r = me().guild_rank; return r ~= nil and r <= officer_rank() end,
+  CanSpeakInGuildChat = function() return IsInGuild() end,
+  GetGuildTabardInfo = function() return nil end,
+  IsGuildRankAssignmentAllowed = function() return false end,
+  -- 2.5.6 native API (GetGuildInfoText / SetGuildInfoText are deprecation-fallback aliases of these)
+  GetInfoText = function() return GetGuildInfoText() end,
+  SetInfoText = function(text) return SetGuildInfoText(text) end,
+}
+M.legacy.GuildRoster = C_GuildInfo.GuildRoster
+
+---------------------------------------------------------------------------------------------------
+-- Items
+---------------------------------------------------------------------------------------------------
+M.ITEMS = {}
+M.ITEMS_MISS = {}
+M.item_cached = {}
+M.item_loading = {}
+M.item_waiters = {}
+M.items_uncached = cfg.items_uncached and true or false
+function M.load_items(src)
+  local t = assert(loadstring(src, "@wowmock/items.lua"))()
+  for id, r in pairs(t) do
+    M.ITEMS[id] = { name = r[1], quality = r[2], loc = r[3], cls = r[4], sub = r[5], icon = r[6], ilvl = r[7],
+      minlvl = r[8], bind = r[9], stack = r[10] }
+  end
+end
+function M.define_item(id, name, quality, loc, cls, sub, icon, ilvl, minlvl, bind, stack)
+  M.ITEMS[id] = { name = name, quality = quality or 4, loc = loc or "INVTYPE_NON_EQUIP_IGNORE", cls = cls or 15, sub = sub or 0,
+    icon = icon or (130000 + id % 10000), ilvl = ilvl or 0, minlvl = minlvl or 0, bind = bind or 1, stack = stack or 1 }
+  M.ITEMS_MISS[id] = nil
+  M.item_by_name_idx = nil
+end
+function M.item_rec(id)
+  if type(id) ~= "number" then return nil end
+  local r = M.ITEMS[id]
+  if r then return r end
+  if M.ITEMS_MISS[id] then return nil end
+  if PY and PY.item_lookup then
+    local name, q, loc, cls, sub, icon, ilvl, minlvl = PY.item_lookup(id)
+    if name then
+      r = { name = name, quality = q, loc = loc, cls = cls, sub = sub, icon = icon, ilvl = ilvl, minlvl = minlvl, bind = 1, stack = 1 }
+      M.ITEMS[id] = r
+      return r
+    end
+  end
+  M.ITEMS_MISS[id] = true
+  return nil
+end
+local item_rec = M.item_rec
+function M.item_by_name(name)
+  if not M.item_by_name_idx then
+    M.item_by_name_idx = {}
+    for id, r in pairs(M.ITEMS) do M.item_by_name_idx[slower(r.name)] = id end
+  end
+  return M.item_by_name_idx[slower(name)]
+end
+function M.item_id_of(item)
+  local t = type(item)
+  if t == "number" then return item end
+  if t == "string" then
+    local id = tonumber(smatch(item, "item:(%-?%d+)"))
+    if id then return id end
+    id = tonumber(item)
+    if id then return id end
+    local byname = M.item_by_name(item)
+    if byname and M.is_cached(byname) then return byname end
+  end
+  return nil
+end
+local item_id_of = M.item_id_of
+function M.is_cached(id)
+  return (not M.items_uncached) or M.item_cached[id] == true
+end
+function M.request_item(id)
+  if M.is_cached(id) or M.item_loading[id] or not item_rec(id) then return end
+  M.item_loading[id] = true
+  M.after(0.1, function()
+    M.item_loading[id] = nil
+    M.item_cached[id] = true
+    M.fire("ITEM_DATA_LOAD_RESULT", id, true)
+    M.fire("GET_ITEM_INFO_RECEIVED", id, true)
+    local w = M.item_waiters[id]
+    M.item_waiters[id] = nil
+    if w then for _, fn in ipairs(w) do safecall("ContinueOnItemLoad(" .. id .. ")", fn) end end
+  end, "item load")
+end
+function M.item_link(id)
+  local r = item_rec(id)
+  if not r then return nil end
+  local q = ITEM_QUALITY_COLORS[r.quality] or ITEM_QUALITY_COLORS[1]
+  return q.hex .. "|Hitem:" .. id .. "::::::::" .. (me().level or 70) .. ":::::::::|h[" .. r.name .. "]|h|r"
+end
+local CLASS_NAMES = { [0] = "Consumable", [1] = "Container", [2] = "Weapon", [3] = "Gem", [4] = "Armor", [5] = "Reagent",
+  [6] = "Projectile", [7] = "Trade Goods", [8] = "Item Enhancement", [9] = "Recipe", [10] = "Money(OBSOLETE)", [11] = "Quiver",
+  [12] = "Quest", [13] = "Key", [14] = "Permanent(OBSOLETE)", [15] = "Miscellaneous", [16] = "Glyph" }
+local SUBCLASS_NAMES = {
+  [2] = { [0] = "One-Handed Axes", [1] = "Two-Handed Axes", [2] = "Bows", [3] = "Guns", [4] = "One-Handed Maces",
+    [5] = "Two-Handed Maces", [6] = "Polearms", [7] = "One-Handed Swords", [8] = "Two-Handed Swords", [9] = "Warglaives",
+    [10] = "Staves", [13] = "Fist Weapons", [14] = "Miscellaneous", [15] = "Daggers", [16] = "Thrown", [18] = "Crossbows",
+    [19] = "Wands", [20] = "Fishing Poles" },
+  [4] = { [0] = "Miscellaneous", [1] = "Cloth", [2] = "Leather", [3] = "Mail", [4] = "Plate", [6] = "Shields",
+    [7] = "Librams", [8] = "Idols", [9] = "Totems", [11] = "Relic" },
+  [9] = { [0] = "Book", [1] = "Leatherworking", [2] = "Tailoring", [3] = "Engineering", [4] = "Blacksmithing",
+    [5] = "Cooking", [6] = "Alchemy", [7] = "First Aid", [8] = "Enchanting", [9] = "Fishing", [10] = "Jewelcrafting" },
+  [15] = { [0] = "Junk", [1] = "Reagent", [2] = "Pet", [3] = "Holiday", [4] = "Other", [5] = "Mount" },
+  [3] = { [0] = "Red", [1] = "Blue", [2] = "Yellow", [3] = "Purple", [4] = "Green", [5] = "Orange", [6] = "Meta", [7] = "Simple", [8] = "Prismatic" },
+  [7] = { [0] = "Trade Goods", [1] = "Parts", [2] = "Explosives", [3] = "Devices", [4] = "Jewelcrafting", [5] = "Cloth",
+    [6] = "Leather", [7] = "Metal & Stone", [8] = "Meat", [9] = "Herb", [10] = "Elemental", [11] = "Other", [12] = "Enchanting" },
+}
+function M.item_type_name(cls) return CLASS_NAMES[cls] or "Miscellaneous" end
+function M.item_subtype_name(cls, sub) return (SUBCLASS_NAMES[cls] or {})[sub] or "Other" end
+local INVTYPE_IDS = { INVTYPE_NON_EQUIP_IGNORE = 0, INVTYPE_HEAD = 1, INVTYPE_NECK = 2, INVTYPE_SHOULDER = 3, INVTYPE_BODY = 4,
+  INVTYPE_CHEST = 5, INVTYPE_WAIST = 6, INVTYPE_LEGS = 7, INVTYPE_FEET = 8, INVTYPE_WRIST = 9, INVTYPE_HAND = 10,
+  INVTYPE_FINGER = 11, INVTYPE_TRINKET = 12, INVTYPE_WEAPON = 13, INVTYPE_SHIELD = 14, INVTYPE_RANGED = 15,
+  INVTYPE_CLOAK = 16, INVTYPE_2HWEAPON = 17, INVTYPE_BAG = 18, INVTYPE_TABARD = 19, INVTYPE_ROBE = 20,
+  INVTYPE_WEAPONMAINHAND = 21, INVTYPE_WEAPONOFFHAND = 22, INVTYPE_HOLDABLE = 23, INVTYPE_AMMO = 24,
+  INVTYPE_THROWN = 25, INVTYPE_RANGEDRIGHT = 26, INVTYPE_QUIVER = 27, INVTYPE_RELIC = 28 }
+M.INVTYPE_IDS = INVTYPE_IDS
+
+local function check_item_arg(item, fname)
+  if item == nil or (type(item) ~= "number" and type(item) ~= "string") then
+    error("Usage: " .. fname .. "(itemID|\"itemName\"|\"itemLink\") - got " .. type(item), 3)
+  end
+end
+local function get_item_info(item, fname)
+  check_item_arg(item, fname)
+  local id = item_id_of(item)
+  if not id then return nil end
+  local r = item_rec(id)
+  if not r then return nil end
+  if not M.is_cached(id) then M.request_item(id); return nil end
+  local link = M.item_link(id)
+  if type(item) == "string" and sfind(item, "|Hitem:", 1, true) then link = item end
+  return r.name, link, r.quality, r.ilvl or 0, r.minlvl or 0, M.item_type_name(r.cls), M.item_subtype_name(r.cls, r.sub),
+    r.stack or 1, r.loc or "", r.icon, (r.ilvl or 0) * 50, r.cls, r.sub, r.bind or 0, 1, nil, false
+end
+local function get_item_info_instant(item, fname)
+  check_item_arg(item, fname)
+  local id = item_id_of(item)
+  if not id then return nil end
+  local r = item_rec(id)
+  if not r then return nil end
+  return id, M.item_type_name(r.cls), M.item_subtype_name(r.cls, r.sub), r.loc or "", r.icon, r.cls, r.sub
+end
+local function equippable(item)
+  local id = item_id_of(item)
+  local r = id and item_rec(id)
+  return r ~= nil and r.loc ~= nil and r.loc ~= "" and r.loc ~= "INVTYPE_NON_EQUIP_IGNORE" and r.loc ~= "INVTYPE_BAG"
+end
+C_Item = {
+  GetItemInfo = function(item) return get_item_info(item, "C_Item.GetItemInfo") end,
+  GetItemInfoInstant = function(item) return get_item_info_instant(item, "C_Item.GetItemInfoInstant") end,
+  GetItemIconByID = function(id) local r = item_rec(item_id_of(id)); return r and r.icon or nil end,
+  GetItemIcon = function(item) local r = item_rec(item_id_of(item)); return r and r.icon or nil end,
+  GetItemQualityByID = function(id)
+    local i = item_id_of(id)
+    local r = item_rec(i)
+    if not r then return nil end
+    if not M.is_cached(i) then M.request_item(i); return nil end
+    return r.quality
+  end,
+  GetItemNameByID = function(id)
+    local i = item_id_of(id)
+    local r = item_rec(i)
+    if not r then return nil end
+    if not M.is_cached(i) then M.request_item(i); return nil end
+    return r.name
+  end,
+  GetItemLinkByGUID = function() return nil end,
+  RequestLoadItemDataByID = function(id) local i = item_id_of(id); if i then M.request_item(i) end end,
+  RequestLoadItemData = function() end,
+  IsItemDataCachedByID = function(id) local i = item_id_of(id); return i ~= nil and item_rec(i) ~= nil and M.is_cached(i) end,
+  IsItemDataCached = function() return true end,
+  DoesItemExistByID = function(id) local i = item_id_of(id); return i ~= nil and item_rec(i) ~= nil end,
+  DoesItemExist = function() return true end,
+  GetItemQualityColor = function(q) return GetItemQualityColor(q) end,
+  IsEquippableItem = function(item) return equippable(item) end,
+  IsEquippedItem = function(item)
+    local id = item_id_of(item)
+    for s = 0, 19 do if M.inv[s] == id then return true end end
+    return false
+  end,
+  GetItemCount = function(item, includeBank) return M.item_count(item_id_of(item), includeBank) end,
+  GetDetailedItemLevelInfo = function(item) local r = item_rec(item_id_of(item)); if r then return r.ilvl, false, r.ilvl end end,
+  GetItemClassInfo = function(cls) return CLASS_NAMES[cls] end,
+  GetItemSubClassInfo = function(cls, sub) return (SUBCLASS_NAMES[cls] or {})[sub], cls == 4 end,
+  GetItemInventoryTypeByID = function(id) local r = item_rec(item_id_of(id)); if r then return INVTYPE_IDS[r.loc] or 0 end end,
+  GetItemStats = function() return {} end,
+  GetItemSpell = function() return nil end,
+  GetItemFamily = function() return 0 end,
+  GetItemUniqueness = function() return nil end,
+  GetItemCooldown = function() return 0, 0, 0 end,
+  GetItemSetInfo = function() return nil end,
+  GetItemID = function() return nil end,
+}
+function GetItemIcon(item) return C_Item.GetItemIcon(item) end
+function IsEquippableItem(item) return equippable(item) end
+function IsEquippedItem(item) return C_Item.IsEquippedItem(item) end
+function GetItemCount(item, includeBank) return C_Item.GetItemCount(item, includeBank) end
+function GetDetailedItemLevelInfo(item) return C_Item.GetDetailedItemLevelInfo(item) end
+function GetItemClassInfo(cls) return C_Item.GetItemClassInfo(cls) end
+function GetItemSubClassInfo(cls, sub) return C_Item.GetItemSubClassInfo(cls, sub) end
+function GetItemStats() return {} end
+function GetItemSpell() return nil end
+function GetItemFamily() return 0 end
+M.legacy.GetItemInfo = function(item) return get_item_info(item, "GetItemInfo") end
+M.legacy.GetItemInfoInstant = function(item) return get_item_info_instant(item, "GetItemInfoInstant") end
+
+-- Item mixin
+ItemMixin = {}
+Item = {}
+local function new_item(id, link)
+  local o = CreateFromMixins(ItemMixin)
+  o.itemID, o.itemLink = id, link
+  return o
+end
+function Item:CreateFromItemID(id)
+  if type(id) ~= "number" then error("Item:CreateFromItemID: number expected, got " .. type(id), 2) end
+  return new_item(id)
+end
+function Item:CreateFromItemLink(link)
+  if type(link) ~= "string" then error("Item:CreateFromItemLink: string expected", 2) end
+  return new_item(tonumber(smatch(link, "item:(%d+)")), link)
+end
+function Item:CreateFromBagAndSlot(bag, slot) return new_item(C_Container.GetContainerItemID(bag, slot)) end
+function Item:CreateFromEquipmentSlot(slot) return new_item(M.inv[slot]) end
+function ItemMixin:GetItemID() return self.itemID end
+function ItemMixin:IsItemEmpty() return self.itemID == nil or item_rec(self.itemID) == nil end
+function ItemMixin:IsItemDataCached() return self.itemID ~= nil and M.is_cached(self.itemID) end
+function ItemMixin:GetItemName() if self:IsItemDataCached() then local r = item_rec(self.itemID); return r and r.name end end
+function ItemMixin:GetItemLink() if self:IsItemDataCached() then return self.itemLink or M.item_link(self.itemID) end end
+function ItemMixin:GetItemQuality() if self:IsItemDataCached() then local r = item_rec(self.itemID); return r and r.quality end end
+function ItemMixin:GetItemQualityColor() local q = self:GetItemQuality(); return q and ITEM_QUALITY_COLORS[q] end
+function ItemMixin:GetItemIcon() local r = self.itemID and item_rec(self.itemID); return r and r.icon end
+function ItemMixin:GetCurrentItemLevel() local r = self.itemID and item_rec(self.itemID); return r and r.ilvl end
+function ItemMixin:GetInventoryType() local r = self.itemID and item_rec(self.itemID); return r and INVTYPE_IDS[r.loc] end
+function ItemMixin:GetInventoryTypeName() local r = self.itemID and item_rec(self.itemID); return r and r.loc end
+function ItemMixin:GetItemGUID() return nil end
+function ItemMixin:IsItemLocked() return false end
+function ItemMixin:Clear() self.itemID, self.itemLink = nil, nil end
+function ItemMixin:ContinueOnItemLoad(cb)
+  if type(cb) ~= "function" then error("Usage: Item:ContinueOnItemLoad(callbackFunction)", 2) end
+  if self:IsItemEmpty() then error("Item:ContinueOnItemLoad: item is empty (itemID " .. tostring(self.itemID) .. ")", 2) end
+  if self:IsItemDataCached() then cb(); return end
+  local l = M.item_waiters[self.itemID] or {}
+  M.item_waiters[self.itemID] = l
+  l[#l + 1] = cb
+  M.request_item(self.itemID)
+end
+function ItemMixin:ContinueWithCancelOnItemLoad(cb)
+  local cancelled = false
+  self:ContinueOnItemLoad(function() if not cancelled then cb() end end)
+  return function() cancelled = true end
+end
+ItemEventListener = { AddCallback = function(self, id, cb) Item:CreateFromItemID(id):ContinueOnItemLoad(cb) end,
+  AddCancelableCallback = function(self, id, cb) return Item:CreateFromItemID(id):ContinueWithCancelOnItemLoad(cb) end }
+
+---------------------------------------------------------------------------------------------------
+-- Inventory / bags / bank
+---------------------------------------------------------------------------------------------------
+M.inv = {}
+M.bags = {}
+M.bank_open = false
+M.bank_requires_open = cfg.bank_requires_open ~= false
+local SLOT_IDS = { AmmoSlot = 0, HeadSlot = 1, NeckSlot = 2, ShoulderSlot = 3, ShirtSlot = 4, ChestSlot = 5,
+  WaistSlot = 6, LegsSlot = 7, FeetSlot = 8, WristSlot = 9, HandsSlot = 10, Finger0Slot = 11, Finger1Slot = 12,
+  Trinket0Slot = 13, Trinket1Slot = 14, BackSlot = 15, MainHandSlot = 16, SecondaryHandSlot = 17, RangedSlot = 18,
+  TabardSlot = 19, Bag0Slot = 20, Bag1Slot = 21, Bag2Slot = 22, Bag3Slot = 23 }
+local SLOT_TEX = { AmmoSlot = 136520, HeadSlot = 136516, NeckSlot = 136519, ShoulderSlot = 136526, ShirtSlot = 136525,
+  ChestSlot = 136512, WaistSlot = 136529, LegsSlot = 136517, FeetSlot = 136513, WristSlot = 136530, HandsSlot = 136515,
+  Finger0Slot = 136514, Finger1Slot = 136514, Trinket0Slot = 136528, Trinket1Slot = 136528, BackSlot = 136512,
+  MainHandSlot = 136518, SecondaryHandSlot = 136524, RangedSlot = 136520, TabardSlot = 136527 }
+M.SLOT_IDS = SLOT_IDS
+function GetInventorySlotInfo(name)
+  local id = SLOT_IDS[name]
+  if not id then error("GetInventorySlotInfo: Invalid inventory slot name '" .. tostring(name) .. "'", 2) end
+  return id, SLOT_TEX[name] or 136528, name == "RangedSlot"
+end
+local function player_unit(unit, fname)
+  if slower(unit or "") ~= "player" then
+    return false
+  end
+  return true
+end
+function GetInventoryItemID(unit, slot)
+  if not player_unit(unit) then return nil end
+  -- The real 2.5.x client returns TWO values (itemID, <number>); code doing
+  -- tonumber(GetInventoryItemID(...)) then errors with "base out of range" (seen in game).
+  local id = M.inv[tonumber(slot) or -1]
+  if id == nil then return nil end
+  return id, 0
+end
+function GetInventoryItemLink(unit, slot)
+  local id = GetInventoryItemID(unit, slot)
+  return id and M.item_link(id) or nil
+end
+function GetInventoryItemTexture(unit, slot) local id = GetInventoryItemID(unit, slot); local r = id and item_rec(id); return r and r.icon end
+function GetInventoryItemQuality(unit, slot) local id = GetInventoryItemID(unit, slot); local r = id and item_rec(id); return r and r.quality end
+function GetInventoryItemCount(unit, slot) return GetInventoryItemID(unit, slot) and 1 or 0 end
+function GetInventoryItemDurability() return 100, 100 end
+function GetInventoryItemBroken() return false end
+function GetInventoryItemCooldown() return 0, 0, 0 end
+function GetInventoryItemsForSlot() return {} end
+function PickupInventoryItem(slot) local id = M.inv[slot]; if id then M.cursor = { kind = "item", id = id, link = M.item_link(id) } end end
+function EquipItemByName() end
+function NotifyInspect() end
+function ClearInspectPlayer() end
+function CanInspect(unit) return unit_rec(unit) ~= nil end
+function ContainerIDToInventoryID(bag)
+  if bag >= 1 and bag <= 4 then return 19 + bag end
+  if bag >= 5 and bag <= 11 then return 63 + bag end
+  return nil
+end
+function BankButtonIDToInvSlotID(id, isBag) if isBag then return 67 + id end return 39 + id end
+
+local function is_bank_bag(bag) return bag == -1 or (bag >= 5 and bag <= 11) end
+local function bag_rec(bag)
+  bag = tonumber(bag)
+  if not bag then return nil end
+  if is_bank_bag(bag) and M.bank_requires_open and not M.bank_open then return nil end
+  return M.bags[bag]
+end
+local function bag_size(bag)
+  bag = tonumber(bag)
+  if not bag then return 0 end
+  local b = M.bags[bag]
+  if b and b.size then return b.size end
+  if bag == 0 then return 16 end
+  if bag == -1 then return 28 end
+  return 0
+end
+function M.item_count(id, includeBank)
+  if not id then return 0 end
+  local n = 0
+  for bag, b in pairs(M.bags) do
+    if (not is_bank_bag(bag)) or includeBank then
+      for _, s in pairs(b.slots) do if s.id == id then n = n + (s.count or 1) end end
+    end
+  end
+  return n
+end
+C_Container = {
+  GetContainerNumSlots = function(bag) return bag_size(bag) end,
+  GetContainerNumFreeSlots = function(bag)
+    local size, used = bag_size(bag), 0
+    local b = bag_rec(bag)
+    if b then for _ in pairs(b.slots) do used = used + 1 end end
+    return size - used, 0
+  end,
+  GetContainerItemID = function(bag, slot)
+    local b = bag_rec(bag)
+    local s = b and b.slots[tonumber(slot) or -1]
+    return s and s.id or nil
+  end,
+  GetContainerItemLink = function(bag, slot)
+    local id = C_Container.GetContainerItemID(bag, slot)
+    return id and M.item_link(id) or nil
+  end,
+  GetContainerItemInfo = function(bag, slot)
+    local b = bag_rec(bag)
+    local s = b and b.slots[tonumber(slot) or -1]
+    if not s then return nil end
+    local r = item_rec(s.id)
+    return { iconFileID = r and r.icon, stackCount = s.count or 1, isLocked = false, quality = r and r.quality,
+      isReadable = false, hasLoot = false, hyperlink = M.item_link(s.id), isFiltered = false, hasNoValue = false,
+      itemID = s.id, isBound = true }
+  end,
+  GetBagName = function(bag) if bag == 0 then return "Backpack" end if M.bags[bag] then return "Bag" end return nil end,
+  PickupContainerItem = function(bag, slot)
+    local id = C_Container.GetContainerItemID(bag, slot)
+    if id then M.cursor = { kind = "item", id = id, link = M.item_link(id) } end
+  end,
+  UseContainerItem = function() end,
+  SplitContainerItem = function() end,
+  SortBags = function() end,
+  SortBankBags = function() end,
+  GetContainerItemQuestInfo = function() return { isQuestItem = false, isActive = false } end,
+  GetContainerItemCooldown = function() return 0, 0, 0 end,
+  IsContainerFiltered = function() return false end,
+  SetItemSearch = function() end,
+  GetItemCooldown = function() return 0, 0, 0 end,
+}
+M.legacy.GetContainerNumSlots = C_Container.GetContainerNumSlots
+M.legacy.GetContainerItemID = C_Container.GetContainerItemID
+M.legacy.GetContainerItemLink = C_Container.GetContainerItemLink
+M.legacy.GetContainerNumFreeSlots = C_Container.GetContainerNumFreeSlots
+M.legacy.GetContainerItemInfo = function(bag, slot)
+  local t = C_Container.GetContainerItemInfo(bag, slot)
+  if not t then return nil end
+  return t.iconFileID, t.stackCount, t.isLocked, t.quality, t.isReadable, t.hasLoot, t.hyperlink, t.isFiltered, t.hasNoValue, t.itemID
+end
+
+-- called from Python helpers
+function M.equip(changes)
+  local changed = {}
+  for slot, id in pairs(changes) do
+    slot = tonumber(slot)
+    if id == 0 or id == false then id = nil end
+    if M.inv[slot] ~= id then M.inv[slot] = id; changed[#changed + 1] = slot end
+  end
+  tsort(changed)
+  for _, slot in ipairs(changed) do M.fire("PLAYER_EQUIPMENT_CHANGED", slot, M.inv[slot] == nil) end
+  if #changed > 0 then M.fire("UNIT_INVENTORY_CHANGED", "player") end
+end
+function M.set_bags(content, bank)
+  -- content: { {bag, slot, id, count}, ... }; replaces the given container family
+  local touched = {}
+  for bag, b in pairs(M.bags) do
+    if is_bank_bag(bag) == (bank and true or false) then touched[bag] = true; b.slots = {} end
+  end
+  for _, e in ipairs(content) do
+    local bag, slot, id, count = tonumber(e[1]), tonumber(e[2]), tonumber(e[3]), tonumber(e[4]) or 1
+    local b = M.bags[bag]
+    if not b then b = { slots = {} }; M.bags[bag] = b end
+    if id and id ~= 0 then b.slots[slot] = { id = id, count = count } end
+    local size = b.size or bag_size(bag)
+    if bag ~= 0 and bag ~= -1 and (b.size == nil or slot > b.size) then b.size = math.max(slot, b.size or 16) end
+    if (bag == 0 and slot > 16) or (bag == -1 and slot > 28) then b.size = math.max(slot, b.size or 0) end
+    touched[bag] = true
+  end
+  if bank then
+    if not M.bank_open then M.bank_open = true; M.fire("BANKFRAME_OPENED") end
+    local list = {}
+    for bag in pairs(touched) do list[#list + 1] = bag end
+    tsort(list)
+    for _, bag in ipairs(list) do
+      if bag == -1 then
+        for slot = 1, bag_size(-1) do M.fire("PLAYERBANKSLOTS_CHANGED", slot) end
+      else
+        M.fire("BAG_UPDATE", bag)
+      end
+    end
+    M.fire("BAG_UPDATE_DELAYED")
+  else
+    local list = {}
+    for bag in pairs(touched) do list[#list + 1] = bag end
+    tsort(list)
+    for _, bag in ipairs(list) do M.fire("BAG_UPDATE", bag) end
+    M.fire("BAG_UPDATE_DELAYED")
+  end
+end
+function M.give_item(id, count)
+  for bag = 0, 4 do
+    local b = M.bags[bag]
+    if not b then b = { slots = {} }; M.bags[bag] = b; if bag > 0 then b.size = 16 end end
+    for slot = 1, bag_size(bag) do
+      if not b.slots[slot] then
+        b.slots[slot] = { id = id, count = count or 1 }
+        M.fire("BAG_UPDATE", bag)
+        M.fire("BAG_UPDATE_DELAYED")
+        return bag, slot
+      end
+    end
+  end
+  M.warn("give_item: bags full, item " .. tostring(id) .. " not added")
+end
+function M.open_bank()
+  if not M.bank_open then M.bank_open = true; M.fire("BANKFRAME_OPENED") end
+end
+function M.close_bank()
+  if M.bank_open then M.bank_open = false; M.fire("BANKFRAME_CLOSED") end
+end
+
+---------------------------------------------------------------------------------------------------
+-- Talents (modern GetTalentTabInfo order)
+---------------------------------------------------------------------------------------------------
+local TALENT_TABS = {
+  WARRIOR = { { 161, "Arms" }, { 164, "Fury" }, { 163, "Protection" } },
+  PALADIN = { { 382, "Holy" }, { 383, "Protection" }, { 381, "Retribution" } },
+  HUNTER = { { 361, "Beast Mastery" }, { 363, "Marksmanship" }, { 362, "Survival" } },
+  ROGUE = { { 182, "Assassination" }, { 181, "Combat" }, { 183, "Subtlety" } },
+  PRIEST = { { 201, "Discipline" }, { 202, "Holy" }, { 203, "Shadow" } },
+  SHAMAN = { { 261, "Elemental" }, { 263, "Enhancement" }, { 262, "Restoration" } },
+  MAGE = { { 81, "Arcane" }, { 41, "Fire" }, { 61, "Frost" } },
+  WARLOCK = { { 302, "Affliction" }, { 303, "Demonology" }, { 301, "Destruction" } },
+  DRUID = { { 283, "Balance" }, { 281, "Feral Combat" }, { 282, "Restoration" } },
+}
+M.talents = cfg.talents or { 0, 0, 0 }
+function GetNumTalentTabs() return 3 end
+function GetTalentTabInfo(tab, isInspect, isPet, group)
+  local tabs = TALENT_TABS[me().class] or TALENT_TABS.WARRIOR
+  local t = tabs[tonumber(tab) or 0]
+  if not t then return nil end
+  local spent = tonumber(M.talents[tonumber(tab)]) or 0
+  return t[1], t[2], t[2] .. " talents", 136243 + tab, spent, me().class .. sgsub(t[2], " ", ""), 0, true
+end
+-- 2.5.6 native API (GetTalentTabInfo is a deprecation-fallback alias): pointsSpent is the 7th return.
+C_SpecializationInfo = {
+  GetSpecializationInfo = function(tab, isInspect, isPet, inspectTarget, sex, groupIndex)
+    local id, name, desc, icon, spent, bg, preview, unlocked = GetTalentTabInfo(tab)
+    return id or 0, name, desc, icon, nil, nil, spent or 0, bg, preview or 0, unlocked ~= false
+  end,
+}
+function GetNumTalents(tab) return 0 end
+function GetTalentInfo(tab, index) return nil end
+function GetActiveTalentGroup() return 1 end
+function GetNumTalentGroups() return 1 end
+function GetUnspentTalentPoints() return 0 end
+
+---------------------------------------------------------------------------------------------------
+-- Loot
+---------------------------------------------------------------------------------------------------
+M.loot = nil
+M.rolls = {}
+function M.open_loot(items, guid)
+  local slots = {}
+  for i, e in ipairs(items) do
+    local id, q, count = tonumber(e[1]), tonumber(e[2]), tonumber(e[3]) or 1
+    local r = item_rec(id)
+    if q == nil and r then q = r.quality end
+    slots[i] = { itemID = id, quality = q or 4, count = count, guid = guid }
+  end
+  M.loot = { slots = slots, open = true, guid = guid }
+  M.fire("LOOT_READY", false)
+  M.fire("LOOT_OPENED", false, false)
+end
+function M.close_loot()
+  if M.loot and M.loot.open then
+    M.loot.open = false
+    M.fire("LOOT_CLOSED")
+  end
+  M.loot = nil
+end
+local function loot_slot(slot)
+  local L = M.loot
+  if not L or not L.open then return nil end
+  return L.slots[tonumber(slot) or 0]
+end
+function GetNumLootItems() local L = M.loot; if not L or not L.open then return 0 end return #L.slots end
+function GetLootSlotLink(slot) local s = loot_slot(slot); if s and s.itemID then return M.item_link(s.itemID) end return nil end
+function GetLootSlotInfo(slot)
+  local s = loot_slot(slot)
+  if not s or not s.itemID then return nil end
+  local r = item_rec(s.itemID)
+  return r and r.icon or 134400, r and r.name or ("Item " .. s.itemID), s.count or 1, nil, s.quality or (r and r.quality) or 1,
+    false, false, nil, false
+end
+function GetLootSlotType(slot) local s = loot_slot(slot); if s and s.itemID then return 1 end return 0 end
+function GetLootSourceInfo(slot) local s = loot_slot(slot); if s and s.itemID then return s.guid, s.count or 1 end return nil end
+function LootSlotHasItem(slot) local s = loot_slot(slot); return s ~= nil and s.itemID ~= nil end
+function GetLootInfo()
+  local out = {}
+  local L = M.loot
+  if L and L.open then
+    for i, s in ipairs(L.slots) do
+      local r = s.itemID and item_rec(s.itemID)
+      out[i] = { texture = r and r.icon, item = r and r.name, quantity = s.count or 1, quality = s.quality, locked = false,
+        isQuestItem = false, questID = nil, isActive = false, roll = false }
+    end
+  end
+  return out
+end
+function LootSlot(slot)
+  local s = loot_slot(slot)
+  if not s or not s.itemID then return end
+  local id, count = s.itemID, s.count
+  s.itemID = nil
+  M.give_item(id, count)
+  M.fire("LOOT_SLOT_CLEARED", tonumber(slot))
+end
+function CloseLoot() M.close_loot() end
+function ConfirmLootSlot() end
+function ConfirmLootRoll() end
+function IsFishingLoot() return false end
+local function ml_candidates()
+  local g = M.W.group
+  local out = {}
+  if not g then return out end
+  for _, m in ipairs(g.members) do if m.online ~= false then out[#out + 1] = m end end
+  return out
+end
+function GetMasterLootCandidate(slot, index)
+  if not loot_slot(slot) then return nil end
+  local c = ml_candidates()[tonumber(index) or 0]
+  return c and display_name(c) or nil
+end
+function GiveMasterLoot(slot, index)
+  local s = loot_slot(slot)
+  if not s or not s.itemID then error("GiveMasterLoot: invalid loot slot " .. tostring(slot), 2) end
+  local method, partyID = loot_method_info()
+  if method ~= 2 or partyID ~= 0 then
+    M.warn("GiveMasterLoot called but the player is not the master looter: ignored like WoW")
+    return
+  end
+  local c = ml_candidates()[tonumber(index) or 0]
+  if not c then error("GiveMasterLoot: invalid candidate index " .. tostring(index), 2) end
+  -- Like WoW, GiveMasterLoot only sends a request: the server answers a round trip later. On success the slot
+  -- clears (LOOT_SLOT_CLEARED while the window is open) and everyone gets the loot message; on a refusal
+  -- (bags full, unique item, ...) the master looter gets UI_ERROR_MESSAGE and the item stays in the slot.
+  if s.pending then return end
+  s.pending = true
+  local L = M.loot
+  local refuse = M.ml_refuse[c.full]
+  M.after(0.1, function()
+    s.pending = nil
+    if refuse then
+      local msg = _G[M.ml_refuse_errors[refuse] or "ERR_LOOT_MASTER_OTHER"] or ERR_LOOT_MASTER_OTHER
+      M.fire("UI_ERROR_MESSAGE", 0, msg)
+      return
+    end
+    if not s.itemID then return end
+    local id, count = s.itemID, s.count
+    s.itemID = nil
+    PY.give_master_loot(c.full, id, count or 1)
+    if M.loot == L and L and L.open then M.fire("LOOT_SLOT_CLEARED", tonumber(slot)) end
+  end, "GiveMasterLoot")
+end
+-- Test knob: the server refuses master-loot hand-outs to `full` ("inv_full", "unique", "other", "not_found"; nil = ok).
+M.ml_refuse = {}
+M.ml_refuse_errors = { inv_full = "ERR_LOOT_MASTER_INV_FULL", unique = "ERR_LOOT_MASTER_UNIQUE_ITEM",
+  other = "ERR_LOOT_MASTER_OTHER", not_found = "ERR_LOOT_PLAYER_NOT_FOUND" }
+function M.set_ml_refusal(full, kind) M.ml_refuse[full] = kind end
+function M.start_roll(rollID, id, quality, count, rollTime)
+  local r = item_rec(id)
+  M.rolls[rollID] = { itemID = id, quality = quality or (r and r.quality) or 4, count = count or 1,
+    started = M.now, duration = (rollTime or 60000) / 1000 }
+  M.fire("START_LOOT_ROLL", rollID, rollTime or 60000)
+end
+function M.cancel_roll(rollID)
+  if M.rolls[rollID] then M.rolls[rollID] = nil; M.fire("CANCEL_LOOT_ROLL", rollID) end
+end
+function GetLootRollItemLink(rollID) local r = M.rolls[rollID]; return r and M.item_link(r.itemID) or nil end
+function GetLootRollItemInfo(rollID)
+  local x = M.rolls[rollID]
+  if not x then return nil end
+  local r = item_rec(x.itemID)
+  return r and r.icon, r and r.name, x.count, x.quality, (r and r.bind == 1) or false, true, true, false, 0, 0, 0, 0, false
+end
+function GetLootRollTimeLeft(rollID)
+  local x = M.rolls[rollID]
+  if not x then return 0 end
+  return math.max(0, (x.started + x.duration - M.now) * 1000)
+end
+function GetActiveLootRollIDs() local out = {} for id in pairs(M.rolls) do out[#out + 1] = id end tsort(out) return out end
+M.roll_choices = {}
+function RollOnLoot(rollID, rollType) M.roll_choices[#M.roll_choices + 1] = { rollID = rollID, rollType = rollType } end
+function M.loot_message(winner_display, winner_full, winner_guid, id, count, is_self)
+  local link = M.item_link(id) or ("[item:" .. tostring(id) .. "]")
+  local text
+  if is_self then
+    if count and count > 1 then text = sformat(LOOT_ITEM_SELF_MULTIPLE, link, count) else text = sformat(LOOT_ITEM_SELF, link) end
+  else
+    if count and count > 1 then text = sformat(LOOT_ITEM_MULTIPLE, winner_display, link, count) else text = sformat(LOOT_ITEM, winner_display, link) end
+  end
+  M.line_id = (M.line_id or 0) + 1
+  M.fire("CHAT_MSG_LOOT", text, winner_full, "", "", winner_display, "", 0, 0, "", 0, M.line_id, winner_guid or "", 0, false, false, false, false)
+  return text
+end
+
+---------------------------------------------------------------------------------------------------
+-- Addon messaging + chat
+---------------------------------------------------------------------------------------------------
+M.prefixes = {}
+M.throttle = {}
+M.addon_throttle = cfg.addon_throttle ~= false
+local R = Enum.SendAddonMessageResult
+local VALID_ADDON_CHAT = { PARTY = true, RAID = true, GUILD = true, OFFICER = true, WHISPER = true, CHANNEL = true,
+  SAY = true, YELL = true, INSTANCE_CHAT = true, BATTLEGROUND = true }
+local function send_addon(fname, logged, prefix, text, chatType, target)
+  if type(prefix) ~= "string" then error("Usage: C_ChatInfo." .. fname .. "(prefix, message, chatType [, target]) - prefix must be a string", 3) end
+  if type(text) == "number" then text = tostring(text) end
+  if type(text) ~= "string" then error("Usage: C_ChatInfo." .. fname .. "(prefix, message, chatType [, target]) - message must be a string", 3) end
+  if #prefix > 16 then error("C_ChatInfo." .. fname .. ": prefix '" .. prefix .. "' is " .. #prefix .. " characters (max 16)", 3) end
+  if #prefix == 0 then return R.InvalidPrefix end
+  if #text > 255 then error("C_ChatInfo." .. fname .. ": message is " .. #text .. " bytes (max 255)", 3) end
+  if type(chatType) ~= "string" then error("C_ChatInfo." .. fname .. ": chatType must be a string", 3) end
+  local ct = supper(chatType)
+  if not VALID_ADDON_CHAT[ct] then return R.InvalidChatType end
+  if ct == "WHISPER" and (type(target) ~= "string" or target == "") then return R.TargetRequired end
+  if (ct == "RAID" or ct == "PARTY" or ct == "INSTANCE_CHAT") and not M.W.group then return R.NotInGroup end
+  if (ct == "GUILD" or ct == "OFFICER") and not me().guild then return R.GeneralError end
+  local z = sfind(text, "\0", 1, true)
+  if z then
+    M.warn("C_ChatInfo." .. fname .. ": message contains \\000; WoW truncates it there")
+    text = ssub(text, 1, z - 1)
+  end
+  if M.addon_throttle then
+    local b = M.throttle[prefix]
+    if not b then b = { tokens = 10, t = M.now }; M.throttle[prefix] = b end
+    b.tokens = math.min(10, b.tokens + (M.now - b.t))
+    b.t = M.now
+    if b.tokens < 1 then
+      M.warn("addon message throttled by the server rate limit (prefix '" .. prefix .. "', >10 msgs burst, 1/s regen)")
+      M.throttled = (M.throttled or 0) + 1
+      return R.AddonMessageThrottle
+    end
+    b.tokens = b.tokens - 1
+  end
+  local res = PY.send_addon(prefix, M.hex(text), ct, target and tostring(target) or nil, logged and true or false)
+  return res or R.Success
+end
+C_ChatInfo = {
+  RegisterAddonMessagePrefix = function(prefix)
+    if type(prefix) ~= "string" then error("Usage: C_ChatInfo.RegisterAddonMessagePrefix(prefix)", 2) end
+    if #prefix == 0 or #prefix > 16 then
+      M.warn("C_ChatInfo.RegisterAddonMessagePrefix('" .. prefix .. "'): invalid prefix (1-16 characters)")
+      return Enum.RegisterAddonMessagePrefixResult.InvalidPrefix
+    end
+    if M.prefixes[prefix] then return Enum.RegisterAddonMessagePrefixResult.DuplicatePrefix end
+    M.prefixes[prefix] = true
+    return Enum.RegisterAddonMessagePrefixResult.Success
+  end,
+  IsAddonMessagePrefixRegistered = function(prefix) return M.prefixes[prefix] == true end,
+  GetRegisteredAddonMessagePrefixes = function() local t = {} for p in pairs(M.prefixes) do t[#t + 1] = p end tsort(t) return t end,
+  SendAddonMessage = function(prefix, text, chatType, target) return send_addon("SendAddonMessage", false, prefix, text, chatType, target) end,
+  SendAddonMessageLogged = function(prefix, text, chatType, target) return send_addon("SendAddonMessageLogged", true, prefix, text, chatType, target) end,
+  InChatMessagingLockdown = function() return false end,
+  IsValidChatType = function() return true end,
+  GetChannelRosterInfo = function() return nil end,
+}
+function BNSendGameData() end
+function BNGetInfo() return nil end
+function BNFeaturesEnabled() return false end
+function BNFeaturesEnabledAndConnected() return false end
+function BNConnected() return false end
+function BNGetNumFriends() return 0, 0 end
+C_BattleNet = { GetFriendAccountInfo = function() return nil end, GetAccountInfoByGUID = function() return nil end }
+C_FriendList = { IsFriend = function() return false end, GetNumFriends = function() return 0 end, GetNumOnlineFriends = function() return 0 end,
+  GetFriendInfoByIndex = function() return nil end, IsIgnored = function() return false end, ShowFriends = function() end }
+function IsIgnored() return false end
+
+local CHAT_TYPES = { SAY = true, YELL = true, EMOTE = true, PARTY = true, RAID = true, RAID_WARNING = true, GUILD = true,
+  OFFICER = true, WHISPER = true, CHANNEL = true, INSTANCE_CHAT = true, BATTLEGROUND = true, AFK = true, DND = true }
+function SendChatMessage(msg, chatType, language, target)
+  if type(msg) == "number" then msg = tostring(msg) end
+  if type(msg) ~= "string" then error("Usage: SendChatMessage(text [, chatType, languageID, target])", 2) end
+  local ct = supper(chatType or "SAY")
+  if not CHAT_TYPES[ct] then error("SendChatMessage: invalid chat type '" .. tostring(chatType) .. "'", 2) end
+  if #msg > 255 then error("SendChatMessage: message is " .. #msg .. " bytes (max 255)", 2) end
+  if sfind(msg, "\n", 1, true) then M.warn("SendChatMessage: message contains a newline (WoW rejects/truncates it)") end
+  if ct == "WHISPER" and (type(target) ~= "string" or target == "") then error("SendChatMessage: WHISPER requires a target", 2) end
+  if ct == "RAID_WARNING" then
+    local g = M.W.group
+    local mine = unit_rec("player")
+    if not g or (g.kind == "raid" and not (mine.group_rank and mine.group_rank >= 1)) then
+      M.warn("SendChatMessage RAID_WARNING without being raid leader/assistant: WoW sends nothing")
+      return
+    end
+  end
+  PY.send_chat(M.hex(msg), ct, language, target and tostring(target) or nil)
+end
+C_ChatInfo.SendChatMessage = SendChatMessage
+
+function M.deliver_addon(prefix, text, chatType, sender, target, logged)
+  if not M.prefixes[prefix] then return false end
+  M.fire(logged and "CHAT_MSG_ADDON_LOGGED" or "CHAT_MSG_ADDON", prefix, text, chatType, sender, target or "", 0, 0, "", 0)
+  return true
+end
+local CHAT_EVENTS = { SAY = "CHAT_MSG_SAY", YELL = "CHAT_MSG_YELL", EMOTE = "CHAT_MSG_EMOTE", PARTY = "CHAT_MSG_PARTY",
+  RAID = "CHAT_MSG_RAID", RAID_WARNING = "CHAT_MSG_RAID_WARNING", GUILD = "CHAT_MSG_GUILD", OFFICER = "CHAT_MSG_OFFICER",
+  WHISPER = "CHAT_MSG_WHISPER", INSTANCE_CHAT = "CHAT_MSG_INSTANCE_CHAT" }
+function M.deliver_chat(chatType, text, sender_full, sender_display, guid, is_leader, target_display)
+  local ev = CHAT_EVENTS[chatType]
+  if not ev then return end
+  if is_leader and (chatType == "RAID" or chatType == "PARTY") then ev = ev .. "_LEADER" end
+  M.line_id = (M.line_id or 0) + 1
+  if chatType == "WHISPER_INFORM" then ev = "CHAT_MSG_WHISPER_INFORM" end
+  M.fire(ev, text, sender_full, "", "", sender_display, "", 0, 0, "", 0, M.line_id, guid or "", 0, false, false, false, false)
+  if chatType == "RAID_WARNING" then RaidNotice_AddMessage(RaidWarningFrame, text) end
+end
+function M.deliver_whisper_inform(text, target_full, target_display, guid)
+  M.line_id = (M.line_id or 0) + 1
+  M.fire("CHAT_MSG_WHISPER_INFORM", text, target_full, "", "", target_display, "", 0, 0, "", 0, M.line_id, guid or "", 0, false, false, false, false)
+end
+function M.system_message(text)
+  M.line_id = (M.line_id or 0) + 1
+  DEFAULT_CHAT_FRAME:AddMessage(text)
+  M.fire("CHAT_MSG_SYSTEM", text, "", "", "", "", "", 0, 0, "", 0, M.line_id, "", 0, false, false, false, false)
+end
+
+---------------------------------------------------------------------------------------------------
+-- AddOns metadata
+---------------------------------------------------------------------------------------------------
+local function addon_meta(addon)
+  if type(addon) == "number" then addon = M.addon_order and M.addon_order[addon] end
+  return addon and M.toc_meta[addon]
+end
+C_AddOns = {
+  GetAddOnMetadata = function(addon, field)
+    if field == nil then error("Usage: C_AddOns.GetAddOnMetadata(addon, field)", 2) end
+    local meta = addon_meta(addon)
+    if not meta then return nil end
+    return meta[slower(field)]
+  end,
+  IsAddOnLoaded = function(addon)
+    if type(addon) == "number" then addon = M.addon_order and M.addon_order[addon] end
+    local l = M.loaded_addons[addon] == true
+    return l, l
+  end,
+  GetNumAddOns = function() return #(M.addon_order or {}) end,
+  GetAddOnInfo = function(addon)
+    local meta = addon_meta(addon)
+    if not meta then return nil, nil, nil, false, "MISSING", "INSECURE", false end
+    local name = type(addon) == "number" and M.addon_order[addon] or addon
+    return name, meta.title or name, meta.notes or "", true, nil, "INSECURE", false
+  end,
+  LoadAddOn = function(addon)
+    if M.loaded_addons[addon] then return true, nil end
+    return false, "MISSING"
+  end,
+  GetAddOnEnableState = function(addon) if addon_meta(addon) or M.loaded_addons[addon] then return 2 end return 0 end,
+  DoesAddOnExist = function(addon) return addon_meta(addon) ~= nil or M.loaded_addons[addon] == true end,
+  IsAddOnLoadOnDemand = function() return false end,
+  EnableAddOn = function() end,
+  DisableAddOn = function() end,
+  GetAddOnDependencies = function() return nil end,
+}
+function IsAddOnLoaded(addon) return C_AddOns.IsAddOnLoaded(addon) end
+M.legacy.GetAddOnMetadata = C_AddOns.GetAddOnMetadata
+function GetNumAddOns() return C_AddOns.GetNumAddOns() end
+function GetAddOnInfo(a) return C_AddOns.GetAddOnInfo(a) end
+function LoadAddOn(a) return C_AddOns.LoadAddOn(a) end
+
+---------------------------------------------------------------------------------------------------
+-- Combat log
+---------------------------------------------------------------------------------------------------
+M.cleu = {}
+function CombatLogGetCurrentEventInfo() return unpack(M.cleu, 1, M.cleu.n or #M.cleu) end
+C_Seasons = { HasActiveSeason = function() return false end, GetActiveSeason = function() return nil end }
+
+---------------------------------------------------------------------------------------------------
+-- Global strings
+---------------------------------------------------------------------------------------------------
+LOOT_ITEM = "%s receives loot: %s."
+LOOT_ITEM_MULTIPLE = "%s receives loot: %sx%d."
+LOOT_ITEM_SELF = "You receive loot: %s."
+LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %sx%d."
+LOOT_ITEM_PUSHED_SELF = "You receive item: %s."
+LOOT_ITEM_PUSHED_SELF_MULTIPLE = "You receive item: %sx%d."
+LOOT_ITEM_PUSHED = "%s receives item: %s."
+LOOT_ITEM_PUSHED_MULTIPLE = "%s receives item: %sx%d."
+LOOT_ITEM_CREATED_SELF = "You create: %s."
+LOOT_ROLL_WON = "%s won: %s"
+LOOT_ROLL_YOU_WON = "You won: %s"
+LOOT_ROLL_NEED = "%s has selected Need for: %s"
+LOOT_ROLL_GREED = "%s has selected Greed for: %s"
+LOOT_ROLL_PASSED = "%s passed on: %s"
+LOOT_ROLL_ROLLED_NEED = "Need Roll - %d for %s by %s"
+LOOT_ROLL_ROLLED_GREED = "Greed Roll - %d for %s by %s"
+RANDOM_ROLL_RESULT = "%s rolls %d (%d-%d)"
+ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+ERR_FRIEND_ONLINE_SS = "|Hplayer:%s|h[%s]|h has come online."
+ERR_FRIEND_OFFLINE_S = "%s has gone offline."
+ERR_NOT_IN_RAID = "You are not in a raid group"
+ERR_NOT_IN_GROUP = "You aren't in a party."
+ERR_GUILD_PLAYER_NOT_IN_GUILD = "You are not in a guild."
+ERR_NOT_LEADER = "You are not the party leader."
+ERR_RAID_MEMBER_ADDED_S = "%s has joined the raid group."
+ERR_RAID_MEMBER_REMOVED_S = "%s has left the raid group."
+-- GlobalStrings of the classic_anniversary client (enUS)
+ERR_LOOT_MASTER_INV_FULL = "That player's inventory is full"
+ERR_LOOT_MASTER_OTHER = "Can't assign item to that player"
+ERR_LOOT_MASTER_UNIQUE_ITEM = "Player has too many of that item already"
+ERR_LOOT_PLAYER_NOT_FOUND = "Player not found"
+LOOT = "Loot"; MASTER_LOOTER = "Master Looter"; GROUP_LOOT = "Group Loot"; NEED_BEFORE_GREED = "Need Before Greed"
+FREE_FOR_ALL = "Free for All"; ROUND_ROBIN = "Round Robin"; PERSONAL_LOOT = "Personal Loot"
+NEED = "Need"; GREED = "Greed"; PASS = "Pass"; ROLL_DISENCHANT = "Disenchant"; TRANSMOGRIFICATION = "Transmogrification"
+OKAY = "Okay"; OK = "OK"; CANCEL = "Cancel"; ACCEPT = "Accept"; DECLINE = "Decline"; YES = "Yes"; NO = "No"; CLOSE = "Close"
+NONE = "None"; ALL = "All"; UNKNOWN = "Unknown"; UNKNOWNOBJECT = "Unknown"; DEFAULT = "Default"; ENABLE = "Enable"; DISABLE = "Disable"
+SAVE = "Save"; DELETE = "Delete"; REMOVE = "Remove"; ADD = "Add"; EDIT = "Edit"; RESET = "Reset"; SETTINGS = "Settings"
+OPTIONS = "Options"; SEARCH = "Search"; FILTER = "Filter"; FILTERS = "Filters"; NAME = "Name"; CLASS = "Class"; LEVEL = "Level"
+RANK = "Rank"; NOTE = "Note"; ZONE = "Zone"; STATUS = "Status"; TOTAL = "Total"; ITEMS = "Items"; ITEM = "Item"; DATE = "Date"
+RAID = "Raid"; PARTY = "Party"; GUILD = "Guild"; OFFICER = "Officer"; WHISPER = "Whisper"; SAY = "Say"; YELL = "Yell"
+PLAYER = "Player"; PLAYERS = "Players"; BOSS = "Boss"; BOSSES = "Bosses"; INSTANCE = "Instance"; DUNGEONS = "Dungeons"
+RAIDS = "Raids"; SPECIALIZATION = "Specialization"; TALENTS = "Talents"; CHARACTER = "Character"; SLOT = "Slot"
+ITEM_LEVEL = "Item Level %d"; ITEM_LEVEL_ABBR = "iLvl"; ITEM_BIND_ON_PICKUP = "Binds when picked up"
+ITEM_BIND_ON_EQUIP = "Binds when equipped"; ITEM_SOULBOUND = "Soulbound"; ITEM_UNIQUE = "Unique"
+ITEM_CLASSES_ALLOWED = "Classes: %s"; ITEM_MIN_LEVEL = "Requires Level %d"
+HEADSLOT = "Head"; NECKSLOT = "Neck"; SHOULDERSLOT = "Shoulder"; BACKSLOT = "Back"; CHESTSLOT = "Chest"; SHIRTSLOT = "Shirt"
+TABARDSLOT = "Tabard"; WRISTSLOT = "Wrist"; HANDSSLOT = "Hands"; WAISTSLOT = "Waist"; LEGSSLOT = "Legs"; FEETSLOT = "Feet"
+FINGER0SLOT = "Finger"; FINGER1SLOT = "Finger"; TRINKET0SLOT = "Trinket"; TRINKET1SLOT = "Trinket"
+MAINHANDSLOT = "Main Hand"; SECONDARYHANDSLOT = "Off Hand"; RANGEDSLOT = "Ranged"; AMMOSLOT = "Ammo"
+FINGER0SLOT_UNIQUE = "Finger 1"; FINGER1SLOT_UNIQUE = "Finger 2"; TRINKET0SLOT_UNIQUE = "Trinket 1"; TRINKET1SLOT_UNIQUE = "Trinket 2"
+INVTYPE_HEAD = "Head"; INVTYPE_NECK = "Neck"; INVTYPE_SHOULDER = "Shoulder"; INVTYPE_BODY = "Shirt"; INVTYPE_CHEST = "Chest"
+INVTYPE_ROBE = "Chest"; INVTYPE_WAIST = "Waist"; INVTYPE_LEGS = "Legs"; INVTYPE_FEET = "Feet"; INVTYPE_WRIST = "Wrist"
+INVTYPE_HAND = "Hands"; INVTYPE_FINGER = "Finger"; INVTYPE_TRINKET = "Trinket"; INVTYPE_CLOAK = "Back"
+INVTYPE_WEAPON = "One-Hand"; INVTYPE_SHIELD = "Off Hand"; INVTYPE_2HWEAPON = "Two-Hand"; INVTYPE_WEAPONMAINHAND = "Main Hand"
+INVTYPE_WEAPONOFFHAND = "Off Hand"; INVTYPE_HOLDABLE = "Held In Off-hand"; INVTYPE_RANGED = "Ranged"; INVTYPE_THROWN = "Thrown"
+INVTYPE_RANGEDRIGHT = "Ranged"; INVTYPE_RELIC = "Relic"; INVTYPE_TABARD = "Tabard"; INVTYPE_BAG = "Bag"; INVTYPE_AMMO = "Ammo"
+INVTYPE_QUIVER = "Quiver"; INVTYPE_NON_EQUIP_IGNORE = ""
+FACTION_ALLIANCE = "Alliance"; FACTION_HORDE = "Horde"
+FRIENDS_LIST_ONLINE = "Online"; FRIENDS_LIST_OFFLINE = "Offline"; GUILD_ONLINE_LABEL = "Online"
+KEY_BINDINGS = "Key Bindings"; ADDONS = "AddOns"; GAMEOPTIONS_MENU = "Game Menu"
+TOOLTIP_DEFAULT_COLOR = { r = 1, g = 1, b = 1 }
+TOOLTIP_DEFAULT_BACKGROUND_COLOR = { r = 0.09, g = 0.09, b = 0.19 }
+SPELL_FAILED_NOT_READY = "Not yet recovered"
+ERR_NOT_IN_COMBAT = "You can't do that while in combat"

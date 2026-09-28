@@ -1,0 +1,1985 @@
+{
+ "skipped": [
+  {
+   "raid": "Karazhan",
+   "boss": "Attumen the Huntsman",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Moroes",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Maiden of Virtue",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "The Wizard of Oz",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "The Big Bad Wolf",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Romulo and Julianne",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "The Curator",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Terestian Illhoof",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Shade of Aran",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Netherspite",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Chess Event",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Prince Malchezaar",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "boss": "Nightbane",
+   "item": 29434,
+   "name": "Badge of Justice",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "Karazhan",
+   "entry": "Prince Tenris Mirkblood",
+   "reason": "wrapped in AtlasLoot:GameVersion_GE(WRATH_VERSION_NUM, ...) - Wrath-only, nil on TBC client"
+  },
+  {
+   "raid": "Karazhan",
+   "entry": "T4_SET",
+   "reason": "item-set table (SET_ITTYPE, ExtraList, IgnoreAsSource) - rows are set IDs, not items"
+  },
+  {
+   "raid": "GruulsLair",
+   "entry": "T4_SET",
+   "reason": "item-set table (SET_ITTYPE, ExtraList, IgnoreAsSource) - rows are set IDs, not items"
+  },
+  {
+   "raid": "MagtheridonsLair",
+   "entry": "T4_SET",
+   "reason": "item-set table (SET_ITTYPE, ExtraList, IgnoreAsSource) - rows are set IDs, not items"
+  },
+  {
+   "raid": "SerpentshrineCavern",
+   "entry": "T5_SET",
+   "reason": "item-set table (SET_ITTYPE, ExtraList, IgnoreAsSource) - rows are set IDs, not items"
+  },
+  {
+   "raid": "TempestKeep",
+   "entry": "Legendaries",
+   "reason": "Kael'thas fight weapons: temporary, vanish when leaving the instance; not real loot"
+  },
+  {
+   "raid": "TempestKeep",
+   "entry": "T5_SET",
+   "reason": "item-set table (SET_ITTYPE, ExtraList, IgnoreAsSource) - rows are set IDs, not items"
+  },
+  {
+   "raid": "HyjalSummit",
+   "entry": "T6_SET",
+   "reason": "item-set table (SET_ITTYPE, ExtraList, IgnoreAsSource) - rows are set IDs, not items"
+  },
+  {
+   "raid": "BlackTemple",
+   "entry": "T6_SET",
+   "reason": "item-set table (SET_ITTYPE, ExtraList, IgnoreAsSource) - rows are set IDs, not items"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Akil'zon",
+   "item": 29434,
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Nalorakk",
+   "item": 29434,
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Jan'alai",
+   "item": 29434,
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Halazzi",
+   "item": 29434,
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Hex Lord Malacrass",
+   "item": 29434,
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Zul'jin",
+   "item": 29434,
+   "reason": "Badge of Justice: currency, auto-distributed to every player; never loot-councilled"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Timed Chest",
+   "row": "INV_Box_01",
+   "text": "Timed Reward Chest 1",
+   "reason": "icon/header row (Dummy type) - not an item; kept as a Lua comment"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Timed Chest",
+   "row": "INV_Box_01",
+   "text": "Timed Reward Chest 3",
+   "reason": "icon/header row (Dummy type) - not an item; kept as a Lua comment"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Timed Chest",
+   "row": "INV_Box_01",
+   "text": "Timed Reward Chest 2",
+   "reason": "icon/header row (Dummy type) - not an item; kept as a Lua comment"
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Timed Chest",
+   "row": "INV_Box_01",
+   "text": "Timed Reward Chest 4",
+   "reason": "icon/header row (Dummy type) - not an item; kept as a Lua comment"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kalecgos",
+   "item": 34386,
+   "name": "Pantaloons of Growing Strife",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kalecgos",
+   "item": 34384,
+   "name": "Breeches of Natural Splendor",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kalecgos",
+   "item": 34382,
+   "name": "Judicator's Legguards",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Brutallus",
+   "item": 34381,
+   "name": "Felstrength Legplates",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Felmyst",
+   "item": 34385,
+   "name": "Leggings of the Immortal Beast",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Felmyst",
+   "item": 34383,
+   "name": "Kilt of Spiritual Reconstruction",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Eredar Twins",
+   "item": 34393,
+   "name": "Shoulderpads of Knowledge's Pursuit",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Eredar Twins",
+   "item": 34391,
+   "name": "Spaulders of Devastation",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Eredar Twins",
+   "item": 34392,
+   "name": "Demontooth Shoulderpads",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Eredar Twins",
+   "item": 34390,
+   "name": "Erupting Epaulets",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Eredar Twins",
+   "item": 34388,
+   "name": "Pauldrons of Berserking",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Eredar Twins",
+   "item": 34389,
+   "name": "Spaulders of the Thalassian Defender",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "M'uru",
+   "item": 34399,
+   "name": "Robes of Ghostly Hatred",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "M'uru",
+   "item": 34398,
+   "name": "Utopian Tunic of Elune",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "M'uru",
+   "item": 34397,
+   "name": "Bladed Chaos Tunic",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "M'uru",
+   "item": 34408,
+   "name": "Gloves of the Forest Drifter",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "M'uru",
+   "item": 34396,
+   "name": "Garments of Crashing Shores",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "M'uru",
+   "item": 34394,
+   "name": "Breastplate of Agony's Aversion",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "M'uru",
+   "item": 34395,
+   "name": "Noble Judicator's Chestguard",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kil'jaeden",
+   "item": 34405,
+   "name": "Helm of Arcane Purity",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kil'jaeden",
+   "item": 34406,
+   "name": "Gloves of Tyri's Power",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kil'jaeden",
+   "item": 34404,
+   "name": "Mask of the Fury Hunter",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kil'jaeden",
+   "item": 34403,
+   "name": "Cover of Ursoc the Mighty",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kil'jaeden",
+   "item": 34402,
+   "name": "Shroud of Chieftain Ner'zhul",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kil'jaeden",
+   "item": 34401,
+   "name": "Helm of Uther's Resolve",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Kil'jaeden",
+   "item": 34400,
+   "name": "Crown of Dath'Remar",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Trash",
+   "item": 34407,
+   "name": "Tranquil Moonlight Wraps",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "Trash",
+   "item": 34409,
+   "name": "Gauntlets of the Ancient Frostwolf",
+   "reason": "commented out in AtlasLoot (--{ idx, id })"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "entry": "T6_SET",
+   "reason": "item-set table (SET_ITTYPE, ExtraList, IgnoreAsSource) - rows are set IDs, not items"
+  }
+ ],
+ "warnings": [],
+ "supplements": [
+  {
+   "raid": "MagtheridonsLair",
+   "boss": "Magtheridon",
+   "item": 32386,
+   "comment": "Magtheridon's Head (other-faction variant of 32385) [supplement: LootReserve + LoonBestInSlot + Questie]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34848,
+   "comment": "Bracers of the Forgotten Conqueror [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34851,
+   "comment": "Bracers of the Forgotten Protector [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34852,
+   "comment": "Bracers of the Forgotten Vanquisher [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34853,
+   "comment": "Belt of the Forgotten Conqueror [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34854,
+   "comment": "Belt of the Forgotten Protector [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34855,
+   "comment": "Belt of the Forgotten Vanquisher [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34856,
+   "comment": "Boots of the Forgotten Conqueror [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34857,
+   "comment": "Boots of the Forgotten Protector [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "SunwellPlateau",
+   "boss": "EredarTwins",
+   "item": 34858,
+   "comment": "Boots of the Forgotten Vanquisher [supplement: LoonBestInSlot + Questie; disputed]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32738,
+   "comment": "Plans: Dawnsteel Bracers [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32739,
+   "comment": "Plans: Dawnsteel Shoulders [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32736,
+   "comment": "Plans: Swiftsteel Bracers [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32737,
+   "comment": "Plans: Swiftsteel Shoulders [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32748,
+   "comment": "Pattern: Bindings of Lightning Reflexes [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32744,
+   "comment": "Pattern: Bracers of Renewed Life [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32750,
+   "comment": "Pattern: Living Earth Bindings [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32751,
+   "comment": "Pattern: Living Earth Shoulders [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32749,
+   "comment": "Pattern: Shoulders of Lightning Reflexes [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32745,
+   "comment": "Pattern: Shoulderpads of Renewed Life [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32746,
+   "comment": "Pattern: Swiftstrike Bracers [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32747,
+   "comment": "Pattern: Swiftstrike Shoulders [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32754,
+   "comment": "Pattern: Bracers of Nimble Thought [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32755,
+   "comment": "Pattern: Mantle of Nimble Thought [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32753,
+   "comment": "Pattern: Swiftheal Mantle [copied from BlackTemple/Patterns per LootReserve]"
+  },
+  {
+   "raid": "HyjalSummit",
+   "boss": "Trash",
+   "item": 32752,
+   "comment": "Pattern: Swiftheal Wraps [copied from BlackTemple/Patterns per LootReserve]"
+  }
+ ],
+ "questie_objectIDs": [
+  {
+   "raid": "ZulAman",
+   "boss": "Timed Chest",
+   "object": 186648,
+   "name": "Tanzar's Trunk",
+   "via_item": 33809
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Timed Chest",
+   "object": 186667,
+   "name": "Kraz's Package",
+   "via_item": 33809
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Timed Chest",
+   "object": 186672,
+   "name": "Ashli's Bag",
+   "via_item": 33809
+  },
+  {
+   "raid": "ZulAman",
+   "boss": "Timed Chest",
+   "object": 187021,
+   "name": "Harkor's Satchel",
+   "via_item": 33809
+  }
+ ],
+ "loot_holders_questie": {
+  "Karazhan/Attumen": [
+   16152
+  ],
+  "Karazhan/Moroes": [
+   15687
+  ],
+  "Karazhan/Maiden": [
+   16457
+  ],
+  "Karazhan/OperaOz": [
+   18168
+  ],
+  "Karazhan/OperaWolf": [
+   17521
+  ],
+  "Karazhan/OperaRomulo": [
+   17533,
+   17534
+  ],
+  "Karazhan/Curator": [
+   15691
+  ],
+  "Karazhan/Illhoof": [
+   15688
+  ],
+  "Karazhan/Aran": [
+   16524
+  ],
+  "Karazhan/Netherspite": [
+   15689
+  ],
+  "Karazhan/Chess": [
+   185119
+  ],
+  "Karazhan/Prince": [
+   15690
+  ],
+  "Karazhan/Nightbane": [
+   17225
+  ],
+  "GruulsLair/Maulgar": [
+   18831
+  ],
+  "GruulsLair/Gruul": [
+   19044
+  ],
+  "MagtheridonsLair/Magtheridon": [
+   17257
+  ],
+  "SerpentshrineCavern/Hydross": [
+   21216
+  ],
+  "SerpentshrineCavern/Lurker": [
+   21217
+  ],
+  "SerpentshrineCavern/Leotheras": [
+   21215
+  ],
+  "SerpentshrineCavern/Karathress": [
+   21214
+  ],
+  "SerpentshrineCavern/Morogrim": [
+   21213
+  ],
+  "SerpentshrineCavern/Vashj": [
+   21212
+  ],
+  "TempestKeep/Alar": [
+   19514
+  ],
+  "TempestKeep/VoidReaver": [
+   19516
+  ],
+  "TempestKeep/Solarian": [
+   18805
+  ],
+  "TempestKeep/Kaelthas": [
+   19622
+  ],
+  "HyjalSummit/Winterchill": [
+   17767
+  ],
+  "HyjalSummit/Anetheron": [
+   17808
+  ],
+  "HyjalSummit/Kazrogal": [
+   17888
+  ],
+  "HyjalSummit/Azgalor": [
+   17842
+  ],
+  "HyjalSummit/Archimonde": [
+   17968
+  ],
+  "BlackTemple/Najentus": [
+   22887
+  ],
+  "BlackTemple/Supremus": [
+   22898
+  ],
+  "BlackTemple/ShadeOfAkama": [
+   22841
+  ],
+  "BlackTemple/Bloodboil": [
+   22948
+  ],
+  "BlackTemple/Reliquary": [
+   23420
+  ],
+  "BlackTemple/Teron": [
+   22871
+  ],
+  "BlackTemple/Shahraz": [
+   22947
+  ],
+  "BlackTemple/Council": [
+   22950
+  ],
+  "BlackTemple/Illidan": [
+   22917
+  ],
+  "ZulAman/Akilzon": [
+   23574
+  ],
+  "ZulAman/Nalorakk": [
+   23576
+  ],
+  "ZulAman/Janalai": [
+   23578
+  ],
+  "ZulAman/Halazzi": [
+   23577
+  ],
+  "ZulAman/Malacrass": [
+   24239
+  ],
+  "ZulAman/Zuljin": [
+   23863
+  ],
+  "SunwellPlateau/Kalecgos": [
+   24892
+  ],
+  "SunwellPlateau/Brutallus": [
+   24882
+  ],
+  "SunwellPlateau/Felmyst": [
+   25038
+  ],
+  "SunwellPlateau/EredarTwins": [
+   25166,
+   25165
+  ],
+  "SunwellPlateau/Muru": [
+   25840
+  ],
+  "SunwellPlateau/Kiljaeden": [
+   25315
+  ]
+ },
+ "crosscheck_atlas_source_tbc": {
+  "match": 887,
+  "mismatch": [
+   [
+    "SerpentshrineCavern",
+    "Vashj",
+    30183,
+    "[[22, 7, 1], [23, 6, 1]]"
+   ],
+   [
+    "TempestKeep",
+    "Kaelthas",
+    30183,
+    "[[22, 7, 1], [23, 6, 1]]"
+   ]
+  ],
+  "missing": [],
+  "skipped_supplements": 26
+ },
+ "crosscheck_loon": {
+  "agree": 734,
+  "boss_differs": [],
+  "loon_raid_item_not_in_db": [
+   [
+    29434,
+    "Badge of Justice",
+    "Various Bosses",
+    "Karazhan"
+   ],
+   [
+    31323,
+    "Don Santos' Famous Hunting Rifle",
+    "Opera Event (Wolf)",
+    "Karazhan"
+   ],
+   [
+    31333,
+    "The Night Watchman",
+    "Opera Event (Romeo) & Netherspite",
+    "Karazhan"
+   ],
+   [
+    32895,
+    "Scroll of the Maelstrom",
+    "Lady Vashj",
+    "Serpentshrine Cavern"
+   ],
+   [
+    32896,
+    "Scroll of the Sun",
+    "Kael'thas Sunstrider",
+    "Tempest Keep"
+   ]
+  ],
+  "covered_via_quest_token": [
+   [
+    28790,
+    "Naaru Lightwarden's Band",
+    "Magtheridon",
+    "Magtheridon's Lair"
+   ],
+   [
+    28791,
+    "Ring of the Recalcitrant",
+    "Magtheridon",
+    "Magtheridon's Lair"
+   ],
+   [
+    28792,
+    "A'dal's Signet of Defense",
+    "Magtheridon",
+    "Magtheridon's Lair"
+   ],
+   [
+    28793,
+    "Band of Crimson Fury",
+    "Magtheridon",
+    "Magtheridon's Lair"
+   ],
+   [
+    30007,
+    "The Darkener's Grasp",
+    "Kael'thas Sunstrider",
+    "Tempest Keep"
+   ],
+   [
+    30015,
+    "The Sun King's Talisman",
+    "Kael'thas Sunstrider",
+    "Tempest Keep"
+   ],
+   [
+    30017,
+    "Telonicus's Pendant of Mayhem",
+    "Kael'thas Sunstrider",
+    "Tempest Keep"
+   ],
+   [
+    30018,
+    "Lord Sanguinar's Claim",
+    "Kael'thas Sunstrider",
+    "Tempest Keep"
+   ]
+  ]
+ },
+ "crosscheck_lootreserve": {
+  "available": true,
+  "raids_found": [
+   "BlackTemple",
+   "GruulsLair",
+   "HyjalSummit",
+   "Karazhan",
+   "MagtheridonsLair",
+   "SerpentshrineCavern",
+   "SunwellPlateau",
+   "TempestKeep",
+   "WorldBosses",
+   "ZulAman"
+  ],
+  "per_raid": {
+   "Karazhan": {
+    "ours": 175,
+    "theirs": 168,
+    "common": 168,
+    "only_ours": [
+     23857,
+     23862,
+     23864,
+     23865,
+     23933,
+     24139,
+     31751
+    ],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "Attumen the Huntsman",
+     "Rokad the Ravager",
+     "Shadikith the Glider",
+     "Hyakiss the Lurker",
+     "Moroes",
+     "Maiden of Virtue",
+     "Opera Event",
+     "The Wizard of Oz",
+     "The Big Bad Wolf",
+     "Romulo and Julianne",
+     "Nightbane",
+     "The Curator",
+     "Terestian Illhoof",
+     "Shade of Aran",
+     "Netherspite",
+     "Chess Event",
+     "Prince Malchezaar",
+     "Trash",
+     "Tailoring",
+     "Engineering",
+     "Enchanting",
+     "Tier 4 Pieces",
+     "Season 1 Pieces"
+    ]
+   },
+   "GruulsLair": {
+    "ours": 26,
+    "theirs": 25,
+    "common": 25,
+    "only_ours": [
+     31750
+    ],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "High King Maulgar",
+     "Gruul the Dragonkiller",
+     "Tier 4 Pieces",
+     "Season 1 Pieces"
+    ]
+   },
+   "MagtheridonsLair": {
+    "ours": 19,
+    "theirs": 19,
+    "common": 19,
+    "only_ours": [],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "Magtheridon",
+     "Tier 4 Pieces",
+     "Season 1 Pieces",
+     "Quest Rewards"
+    ]
+   },
+   "WorldBosses": {
+    "ours": 20,
+    "theirs": 20,
+    "common": 20,
+    "only_ours": [],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "Doomwalker",
+     "Doom Lord Kazzak"
+    ]
+   },
+   "SerpentshrineCavern": {
+    "ours": 98,
+    "theirs": 97,
+    "common": 97,
+    "only_ours": [
+     29906
+    ],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "Hydross the Unstable",
+     "The Lurker Below",
+     "Leotheras the Blind",
+     "Fathom-Lord Karathress",
+     "Morogrim Tidewalker",
+     "Lady Vashj",
+     "Trash",
+     "Tailoring",
+     "Leatherworking",
+     "Blacksmithing",
+     "Tier 5 Pieces",
+     "Season 2 Pieces"
+    ]
+   },
+   "TempestKeep": {
+    "ours": 78,
+    "theirs": 77,
+    "common": 77,
+    "only_ours": [
+     29905
+    ],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "Al'ar",
+     "Void Reaver",
+     "High Astromancer Solarian",
+     "Kael'thas Sunstrider",
+     "Trash",
+     "Tailoring",
+     "Leatherworking",
+     "Blacksmithing",
+     "Tier 5 Pieces",
+     "Season 2 Pieces",
+     "Quest Rewards"
+    ]
+   },
+   "HyjalSummit": {
+    "ours": 96,
+    "theirs": 95,
+    "common": 95,
+    "only_ours": [
+     32459
+    ],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "Rage Winterchill",
+     "Anetheron",
+     "Kaz'rogal",
+     "Azgalor",
+     "Archimonde",
+     "Trash",
+     "Tailoring",
+     "Leatherworking",
+     "Blacksmithing",
+     "Jewelcrafting",
+     "Tier 6 Pieces",
+     "Season 3 Pieces"
+    ]
+   },
+   "BlackTemple": {
+    "ours": 153,
+    "theirs": 153,
+    "common": 153,
+    "only_ours": [],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "High Warlord Naj'entus",
+     "Supremus",
+     "Shade of Akama",
+     "Teron Gorefiend",
+     "Gurtogg Bloodboil",
+     "Reliquary of the Lost",
+     "Mother Shahraz",
+     "The Illidari Council",
+     "Illidan Stormrage",
+     "Trash",
+     "Tailoring",
+     "Leatherworking",
+     "Blacksmithing",
+     "Tier 6 Pieces",
+     "Season 3 Pieces"
+    ]
+   },
+   "ZulAman": {
+    "ours": 82,
+    "theirs": 78,
+    "common": 78,
+    "only_ours": [
+     33930,
+     33931,
+     33932,
+     33933
+    ],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "Akil'zon",
+     "Nalorakk",
+     "Jan'alai",
+     "Halazzi",
+     "Hex Lord Malacrass",
+     "Zul'jin",
+     "First Prisoner Saved",
+     "Second Prisoner Saved",
+     "Third Prisoner Saved",
+     "Fourth Prisoner Saved",
+     "Trash"
+    ]
+   },
+   "SunwellPlateau": {
+    "ours": 140,
+    "theirs": 140,
+    "common": 140,
+    "only_ours": [],
+    "only_lootreserve": [],
+    "lr_bosses": [
+     "Kalecgos",
+     "Brutallus",
+     "Felmyst",
+     "Eredar Twins",
+     "M'uru",
+     "Kil'jaeden",
+     "Trash",
+     "Tailoring",
+     "Leatherworking",
+     "Blacksmithing",
+     "Engineering",
+     "Jewelcrafting",
+     "Tier 6 Pieces",
+     "Sunmote Exchanges"
+    ]
+   }
+  }
+ },
+ "token_verification": {
+  "pieces": 306,
+  "verified_both": 292,
+  "verified_source_tbc": 14,
+  "verified_loon": 0,
+  "unverified": [],
+  "conflicts": [],
+  "pieces_in_source_tbc_missing_from_token_lists": [],
+  "tokens_not_dropped_by_any_boss": [],
+  "lootreserve": {
+   "tokens_checked": 54,
+   "exact_match": 54,
+   "differs": [],
+   "missing_in_lootreserve": [],
+   "sunmote_upgrades_matching": "28/28",
+   "mag_head_in_lootreserve": "32385/32386 -> {28791,28790,28793,28792} (faction-gated)",
+   "pvp_exchange_tokens": 45
+  }
+ },
+ "counts": [
+  {
+   "raid": "Karazhan",
+   "bosses": 17,
+   "real_bosses": 16,
+   "items": 187,
+   "unique_items": 175,
+   "per_boss": {
+    "Attumen": 14,
+    "Rokad": 4,
+    "Shadikith": 4,
+    "Hyakiss": 4,
+    "Moroes": 13,
+    "Maiden": 12,
+    "OperaOz": 10,
+    "OperaWolf": 10,
+    "OperaRomulo": 10,
+    "Curator": 9,
+    "Illhoof": 13,
+    "Aran": 14,
+    "Netherspite": 12,
+    "Chess": 12,
+    "Prince": 15,
+    "Nightbane": 14,
+    "Trash": 17
+   }
+  },
+  {
+   "raid": "GruulsLair",
+   "bosses": 2,
+   "real_bosses": 2,
+   "items": 26,
+   "unique_items": 26,
+   "per_boss": {
+    "Maulgar": 9,
+    "Gruul": 17
+   }
+  },
+  {
+   "raid": "MagtheridonsLair",
+   "bosses": 1,
+   "real_bosses": 1,
+   "items": 19,
+   "unique_items": 19,
+   "per_boss": {
+    "Magtheridon": 19
+   }
+  },
+  {
+   "raid": "WorldBosses",
+   "bosses": 2,
+   "real_bosses": 2,
+   "items": 20,
+   "unique_items": 20,
+   "per_boss": {
+    "Doomwalker": 10,
+    "Kazzak": 10
+   }
+  },
+  {
+   "raid": "SerpentshrineCavern",
+   "bosses": 7,
+   "real_bosses": 6,
+   "items": 99,
+   "unique_items": 98,
+   "per_boss": {
+    "Hydross": 14,
+    "Lurker": 13,
+    "Leotheras": 9,
+    "Karathress": 9,
+    "Morogrim": 13,
+    "Vashj": 17,
+    "Trash": 24
+   }
+  },
+  {
+   "raid": "TempestKeep",
+   "bosses": 5,
+   "real_bosses": 4,
+   "items": 79,
+   "unique_items": 78,
+   "per_boss": {
+    "Alar": 13,
+    "VoidReaver": 10,
+    "Solarian": 13,
+    "Kaelthas": 19,
+    "Trash": 24
+   }
+  },
+  {
+   "raid": "HyjalSummit",
+   "bosses": 6,
+   "real_bosses": 5,
+   "items": 96,
+   "unique_items": 96,
+   "per_boss": {
+    "Winterchill": 13,
+    "Anetheron": 12,
+    "Kazrogal": 12,
+    "Azgalor": 9,
+    "Archimonde": 15,
+    "Trash": 35
+   }
+  },
+  {
+   "raid": "BlackTemple",
+   "bosses": 11,
+   "real_bosses": 9,
+   "items": 153,
+   "unique_items": 153,
+   "per_boss": {
+    "Najentus": 14,
+    "Supremus": 13,
+    "ShadeOfAkama": 14,
+    "Bloodboil": 13,
+    "Reliquary": 13,
+    "Teron": 12,
+    "Shahraz": 9,
+    "Council": 9,
+    "Illidan": 17,
+    "Trash": 23,
+    "Patterns": 16
+   }
+  },
+  {
+   "raid": "ZulAman",
+   "bosses": 8,
+   "real_bosses": 6,
+   "items": 87,
+   "unique_items": 82,
+   "per_boss": {
+    "Akilzon": 8,
+    "Nalorakk": 8,
+    "Janalai": 8,
+    "Halazzi": 8,
+    "Malacrass": 15,
+    "Zuljin": 14,
+    "TimedChests": 20,
+    "Trash": 6
+   }
+  },
+  {
+   "raid": "SunwellPlateau",
+   "bosses": 8,
+   "real_bosses": 6,
+   "items": 149,
+   "unique_items": 140,
+   "per_boss": {
+    "Kalecgos": 10,
+    "Brutallus": 9,
+    "Felmyst": 9,
+    "EredarTwins": 30,
+    "Muru": 21,
+    "Kiljaeden": 21,
+    "Patterns": 29,
+    "Trash": 20
+   }
+  }
+ ],
+ "total_item_rows": 915,
+ "unique_items_total": 838,
+ "tokens": 54,
+ "quest_tokens": {
+  "32385": [
+   28791,
+   28790,
+   28793,
+   28792
+  ],
+  "32405": [
+   30018,
+   30017,
+   30007,
+   30015
+  ],
+  "32386": [
+   28791,
+   28790,
+   28793,
+   28792
+  ]
+ },
+ "upgrades": 28,
+ "shared_items": {
+  "28594": [
+   [
+    "Karazhan",
+    "OperaOz"
+   ],
+   [
+    "Karazhan",
+    "OperaWolf"
+   ],
+   [
+    "Karazhan",
+    "OperaRomulo"
+   ]
+  ],
+  "28591": [
+   [
+    "Karazhan",
+    "OperaOz"
+   ],
+   [
+    "Karazhan",
+    "OperaWolf"
+   ],
+   [
+    "Karazhan",
+    "OperaRomulo"
+   ]
+  ],
+  "28589": [
+   [
+    "Karazhan",
+    "OperaOz"
+   ],
+   [
+    "Karazhan",
+    "OperaWolf"
+   ],
+   [
+    "Karazhan",
+    "OperaRomulo"
+   ]
+  ],
+  "28593": [
+   [
+    "Karazhan",
+    "OperaOz"
+   ],
+   [
+    "Karazhan",
+    "OperaWolf"
+   ],
+   [
+    "Karazhan",
+    "OperaRomulo"
+   ]
+  ],
+  "28590": [
+   [
+    "Karazhan",
+    "OperaOz"
+   ],
+   [
+    "Karazhan",
+    "OperaWolf"
+   ],
+   [
+    "Karazhan",
+    "OperaRomulo"
+   ]
+  ],
+  "28592": [
+   [
+    "Karazhan",
+    "OperaOz"
+   ],
+   [
+    "Karazhan",
+    "OperaWolf"
+   ],
+   [
+    "Karazhan",
+    "OperaRomulo"
+   ]
+  ],
+  "30183": [
+   [
+    "SerpentshrineCavern",
+    "Vashj"
+   ],
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Kaelthas"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30324": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30322": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30323": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30321": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30280": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30282": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30283": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30281": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30308": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30304": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30305": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30307": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30306": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30301": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30303": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "30302": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ]
+  ],
+  "32897": [
+   [
+    "SerpentshrineCavern",
+    "Trash"
+   ],
+   [
+    "TempestKeep",
+    "Trash"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ],
+   [
+    "BlackTemple",
+    "Trash"
+   ]
+  ],
+  "32590": [
+   [
+    "HyjalSummit",
+    "Trash"
+   ],
+   [
+    "BlackTemple",
+    "Trash"
+   ]
+  ],
+  "32609": [
+   [
+    "HyjalSummit",
+    "Trash"
+   ],
+   [
+    "BlackTemple",
+    "Trash"
+   ]
+  ],
+  "32592": [
+   [
+    "HyjalSummit",
+    "Trash"
+   ],
+   [
+    "BlackTemple",
+    "Trash"
+   ]
+  ],
+  "32591": [
+   [
+    "HyjalSummit",
+    "Trash"
+   ],
+   [
+    "BlackTemple",
+    "Trash"
+   ]
+  ],
+  "32589": [
+   [
+    "HyjalSummit",
+    "Trash"
+   ],
+   [
+    "BlackTemple",
+    "Trash"
+   ]
+  ],
+  "34009": [
+   [
+    "HyjalSummit",
+    "Trash"
+   ],
+   [
+    "BlackTemple",
+    "Trash"
+   ]
+  ],
+  "32428": [
+   [
+    "HyjalSummit",
+    "Trash"
+   ],
+   [
+    "BlackTemple",
+    "Trash"
+   ]
+  ],
+  "32228": [
+   [
+    "BlackTemple",
+    "Trash"
+   ],
+   [
+    "SunwellPlateau",
+    "Trash"
+   ]
+  ],
+  "32231": [
+   [
+    "BlackTemple",
+    "Trash"
+   ],
+   [
+    "SunwellPlateau",
+    "Trash"
+   ]
+  ],
+  "32229": [
+   [
+    "BlackTemple",
+    "Trash"
+   ],
+   [
+    "SunwellPlateau",
+    "Trash"
+   ]
+  ],
+  "32249": [
+   [
+    "BlackTemple",
+    "Trash"
+   ],
+   [
+    "SunwellPlateau",
+    "Trash"
+   ]
+  ],
+  "32230": [
+   [
+    "BlackTemple",
+    "Trash"
+   ],
+   [
+    "SunwellPlateau",
+    "Trash"
+   ]
+  ],
+  "32227": [
+   [
+    "BlackTemple",
+    "Trash"
+   ],
+   [
+    "SunwellPlateau",
+    "Trash"
+   ]
+  ],
+  "32738": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32739": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32736": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32737": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32748": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32744": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32750": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32751": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32749": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32745": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32746": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32747": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32754": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32755": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32753": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "32752": [
+   [
+    "BlackTemple",
+    "Patterns"
+   ],
+   [
+    "HyjalSummit",
+    "Trash"
+   ]
+  ],
+  "33307": [
+   [
+    "ZulAman",
+    "Akilzon"
+   ],
+   [
+    "ZulAman",
+    "Nalorakk"
+   ],
+   [
+    "ZulAman",
+    "Janalai"
+   ],
+   [
+    "ZulAman",
+    "Halazzi"
+   ],
+   [
+    "ZulAman",
+    "Malacrass"
+   ],
+   [
+    "ZulAman",
+    "Zuljin"
+   ]
+  ],
+  "34848": [
+   [
+    "SunwellPlateau",
+    "Kalecgos"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ],
+  "34851": [
+   [
+    "SunwellPlateau",
+    "Kalecgos"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ],
+  "34852": [
+   [
+    "SunwellPlateau",
+    "Kalecgos"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ],
+  "34853": [
+   [
+    "SunwellPlateau",
+    "Brutallus"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ],
+  "34854": [
+   [
+    "SunwellPlateau",
+    "Brutallus"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ],
+  "34855": [
+   [
+    "SunwellPlateau",
+    "Brutallus"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ],
+  "34856": [
+   [
+    "SunwellPlateau",
+    "Felmyst"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ],
+  "34857": [
+   [
+    "SunwellPlateau",
+    "Felmyst"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ],
+  "34858": [
+   [
+    "SunwellPlateau",
+    "Felmyst"
+   ],
+   [
+    "SunwellPlateau",
+    "EredarTwins"
+   ]
+  ]
+ }
+}
