@@ -369,16 +369,17 @@ end
 
 -- An award from the Items view goes through the item's running roll when there is one (it closes the roll on
 -- every client and records exactly one log entry, Addendum C §23.2); otherwise it is a plain log entry.
-local function recordAward(itemID, key, bossKey)
+-- reason (optional, ADDENDUM G): an award reason key (main pick -> "bis", alt -> "alt").
+local function recordAward(itemID, key, bossKey, reason)
     if not (itemID and key) then return end
     local ses, drop = liveRollFor(itemID)
     if ses and ns.DropPanel and ns.DropPanel.Award then
-        local ok, why = ns.DropPanel:Award(itemID, key, drop.b, ses.c, drop)
+        local ok, why = ns.DropPanel:Award(itemID, key, drop.b, ses.c, drop, nil, reason)
         if not ok and why then ns:Print("%s", why) end
         return
     end
     if not (ns.Ledger and ns.Ledger.Award) then return end
-    local entry = ns.Ledger:Award(itemID, key, bossKey or "", nil)
+    local entry = ns.Ledger:Award(itemID, key, bossKey or "", nil, nil, reason)
     if entry then
         ns:Print("Recorded award: %s to %s.", itemLink(itemID) or itemName(itemID) or ("item " .. itemID), shortName(key))
     end
@@ -1215,7 +1216,8 @@ local function openItemMenu(row, d)
             local key = e.key
             local label = coloredName(key, e.classFile)
             if e.which == "alt" then label = label .. grey(" (alt)") end
-            award:CreateButton(label, function() recordAward(d.itemID, key, d.bossKey) end)
+            local reason = (e.which == "alt") and "alt" or "bis"
+            award:CreateButton(label, function() recordAward(d.itemID, key, d.bossKey, reason) end)
         end
         if #people > 0 then award:CreateDivider() end
         award:CreateButton("Someone else...", function() awardSomeoneElse(d.itemID, d.bossKey) end)
@@ -1624,7 +1626,8 @@ local function refreshMemberCenter(v, key, data, phase, rec)
             shown = shown + 1
             local text = "|T" .. tostring(itemIcon(e.i)) .. ":14:14|t " .. itemText(e.i)
             local where = bossName(e.b)
-            local suffix = (where and (where .. " · ") or "") .. formatAgo(e.ts)
+            local label = ns.ReasonLabel and ns.ReasonLabel(e.r)
+            local suffix = (label and (label .. " · ") or "") .. (where and (where .. " · ") or "") .. formatAgo(e.ts)
             c.lines[shown]:SetText(text .. grey("  " .. suffix))
             c.lines[shown]:Show()
         end
@@ -1853,25 +1856,33 @@ local function savedPhase(saved)
     return clampPhase(type(saved) == "table" and saved.phase) or 1
 end
 
-local function signature(kind, members, phase)
+-- t: a draft or a saved list ({ members, phase, de, bank }); de / bank = the loot targets (ADDENDUM G §41).
+local function signature(kind, t)
     local keys = {}
-    for k in pairs(members) do keys[#keys + 1] = k end
+    for k in pairs(t.members or {}) do keys[#keys + 1] = k end
     table.sort(keys)
     local s = table.concat(keys, ",")
-    if kind == "guild" then s = s .. "|p" .. tostring(phase or 1) end
-    return s
+    if kind == "guild" then s = s .. "|p" .. tostring(t.phase or 1) end
+    return s .. "|de" .. tostring(t.de or "") .. "|bk" .. tostring(t.bank or "")
+end
+
+local function savedTarget(saved, field)
+    local v = type(saved) == "table" and saved[field]
+    return type(v) == "string" and v ~= "" and v or nil
 end
 
 local function savedSignature(kind)
     local saved = savedList(kind)
-    return signature(kind, copySet(saved and saved.members), savedPhase(saved))
+    return signature(kind, { members = copySet(saved and saved.members), phase = savedPhase(saved),
+        de = savedTarget(saved, "de"), bank = savedTarget(saved, "bank") })
 end
 
 local function resetDraft(kind)
     local saved = savedList(kind)
-    local d = { members = copySet(saved and saved.members) }
+    local d = { members = copySet(saved and saved.members), de = savedTarget(saved, "de"),
+                bank = savedTarget(saved, "bank") }
     if kind == "guild" then d.phase = savedPhase(saved) end
-    d.base = signature(kind, d.members, d.phase)
+    d.base = signature(kind, d)
     drafts[kind] = d
     return d
 end
@@ -1881,15 +1892,14 @@ local function getDraft(kind)
 end
 
 local function draftDirty(kind)
-    local d = getDraft(kind)
-    return signature(kind, d.members, d.phase) ~= savedSignature(kind)
+    return signature(kind, getDraft(kind)) ~= savedSignature(kind)
 end
 
 -- CONFIG_UPDATED: follow the saved lists unless the editor has unsaved edits.
 local function syncCouncilDrafts()
     for _, kind in ipairs(COUNCIL_KINDS) do
         local d = drafts[kind]
-        if d and signature(kind, d.members, d.phase) == d.base then resetDraft(kind) end
+        if d and signature(kind, d) == d.base then resetDraft(kind) end
     end
 end
 
@@ -2129,6 +2139,28 @@ local function createCouncilSection(parent, kind)
         s.phaseDD:SetPoint("TOPLEFT", s, "TOPLEFT", 90, -96)
     end
 
+    -- ADDENDUM G §41: the disenchanter / guild bank character (part of the draft; Save & share sends them).
+    local function targetButton(field)
+        local b
+        b = ns.UI:CreateButton(s, "", 176, 22, function() CouncilUI:OpenTargetMenu(kind, field, b) end)
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(field == "de" and "Disenchanter" or "Guild bank character")
+            GameTooltip:AddLine((field == "de" and "The drop panel's DE button gives items to this character, recorded as Disenchant."
+                or "The drop panel's Bank button gives items to this character, recorded as Guild bank.")
+                .. " Such awards don't count as loot received.", 1, 1, 1, true)
+            GameTooltip:AddLine(isGuild and "Applies to every raid unless the raid leader picks one for their raid."
+                or "Replaces the guild's pick in the raids you lead.", 0.7, 0.7, 0.7, true)
+            GameTooltip:AddLine("Save & share to apply the change.", 0.7, 0.7, 0.7, true)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", hideTooltip)
+        return b
+    end
+    s.deBtn = targetButton("de")
+    s.bankBtn = targetButton("bank")
+    s.targets = sectionText(s, "GameFontHighlightSmall", -64)
+
     s.listLabel = s:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     s.listLabel:SetJustifyH("LEFT")
     s.list = ns.UI:CreateScrollList(s, COUNCIL_ROW_HEIGHT, initCouncilRow)
@@ -2164,8 +2196,18 @@ local function layoutSection(s, editable)
     s.revert:SetShown(editable)
     s.clear:SetShown(editable)
     s.foot:SetShown(not editable)
-    local top = -66
-    if editable then top = s.phaseDD and -132 or -98 end
+    s.deBtn:SetShown(editable)
+    s.bankBtn:SetShown(editable)
+    s.targets:SetShown(not editable)
+    local top = -84
+    if editable then
+        local ty = s.phaseDD and -128 or -94
+        s.deBtn:ClearAllPoints()
+        s.deBtn:SetPoint("TOPLEFT", s, "TOPLEFT", SECTION_PAD, ty)
+        s.bankBtn:ClearAllPoints()
+        s.bankBtn:SetPoint("LEFT", s.deBtn, "RIGHT", 6, 0)
+        top = ty - 32
+    end
     s.listLabel:ClearAllPoints()
     s.listLabel:SetPoint("TOPLEFT", s, "TOPLEFT", SECTION_PAD, top)
     s.list.frame:ClearAllPoints()
@@ -2213,6 +2255,22 @@ local function editorStatus(kind, n, saved)
     return "Saved " .. ago .. " · " .. membersText(n) .. grey(" · shared whenever you lead a raid")
 end
 
+-- ADDENDUM G §41: the loot targets of a section (buttons while editing, one line otherwise).
+local function targetName(key)
+    return key and councilName(key) or grey("none")
+end
+
+local function paintTargetButtons(s, d)
+    s.deBtn:SetText("Disenchanter: " .. targetName(d.de))
+    s.bankBtn:SetText("Guild bank: " .. targetName(d.bank))
+end
+
+local function targetsLine(t, emptyText)
+    local de, bank = savedTarget(t, "de"), savedTarget(t, "bank")
+    if not de and not bank then return grey(emptyText) end
+    return "Disenchanter: " .. targetName(de) .. "  ·  Guild bank: " .. targetName(bank)
+end
+
 local function refreshGuildSection(s)
     local inGuild = IsInGuild and IsInGuild()
     local editable = inGuild and canEditGuildCouncil() or false
@@ -2224,6 +2282,7 @@ local function refreshGuildSection(s)
     local rows
     if not inGuild then
         rows = {}
+        s.targets:SetText("")
         s.status:SetText(grey("You are not in a guild."))
         s.foot:SetText("")
         s.list:SetEmptyText("")
@@ -2237,8 +2296,10 @@ local function refreshGuildSection(s)
         s.revert:SetEnabled(dirty)
         s.clear:SetEnabled(countSet(copySet(saved and saved.members)) > 0 or n > 0)
         s.phaseDD:Refresh()
+        paintTargetButtons(s, d)
         s.list:SetEmptyText("")
     else
+        s.targets:SetText(targetsLine(saved, "No disenchanter / guild bank character set."))
         rows = sharedRows("guild", gm, "Guild Master", saved and saved.members)
         local n = #rows - (gm and 1 or 0)
         if saved then
@@ -2280,12 +2341,14 @@ local function refreshRaidSection(s)
         s.save:SetEnabled(dirty)
         s.revert:SetEnabled(dirty)
         s.clear:SetEnabled(countSet(copySet(saved and saved.members)) > 0 or n > 0)
+        paintTargetButtons(s, d)
         s.list:SetEmptyText(#rows <= (fixedKey and 1 or 0) and "Nobody picked yet: use the search box above." or "")
     else
         s.title:SetText("This raid's council")
         s.sub:SetText("Members of your current raid only · the raid leader is always council")
         if not inRaid() then
             rows = {}
+            s.targets:SetText("")
             s.status:SetText(grey("You are not in a raid."))
             s.foot:SetText("Lead a raid to pick extra council members for it.")
             s.list:SetEmptyText("")
@@ -2293,6 +2356,7 @@ local function refreshRaidSection(s)
             local leader = raidLeaderKey()
             local rc = guildCall("GetRaidCouncil")
             if type(rc) ~= "table" or (leader and rc.leader and rc.leader ~= leader) then rc = nil end
+            s.targets:SetText(targetsLine(rc, "Disenchanter / guild bank: the guild's picks."))
             rows = sharedRows("raid", leader, "Raid leader", rc and rc.members)
             local n = #rows - (leader and 1 or 0)
             if rc then
@@ -2798,7 +2862,7 @@ end
 function CouncilUI:GetCouncilDraft(kind)
     if kind ~= "guild" and kind ~= "raid" then return nil end
     local d = getDraft(kind)
-    return { members = copySet(d.members), phase = d.phase, dirty = draftDirty(kind) }
+    return { members = copySet(d.members), phase = d.phase, de = d.de, bank = d.bank, dirty = draftDirty(kind) }
 end
 
 function CouncilUI:IsCouncilDirty(kind)
@@ -2830,6 +2894,65 @@ function CouncilUI:SetCouncilDraftPhase(phase)
     return true
 end
 
+-- ADDENDUM G §41: sets the draft's disenchanter (field "de") or guild bank character ("bank"); key nil = none.
+function CouncilUI:SetCouncilDraftTarget(kind, field, key)
+    if (field ~= "de" and field ~= "bank") or not self:CanEditCouncil(kind) then return false end
+    if key ~= nil and (type(key) ~= "string" or key == "") then return false end
+    getDraft(kind)[field] = key
+    self:RefreshCouncilView()
+    return true
+end
+
+-- The picker menu of a target button: None, my raid, online guild members (guild list: also everyone).
+function CouncilUI:OpenTargetMenu(kind, field, owner)
+    if not self:CanEditCouncil(kind) or not (ns.UI and ns.UI.ContextMenu) then return end
+    local d = getDraft(kind)
+    local cur = d[field]
+    local function add(menu, key)
+        menu:CreateButton((cur == key and "* " or "") .. councilName(key), function()
+            CouncilUI:SetCouncilDraftTarget(kind, field, key)
+        end)
+    end
+    local raidKeys = {}
+    local g = ns.Util and ns.Util.group
+    if inRaid() and type(g) == "table" then
+        for key in pairs(g) do raidKeys[#raidKeys + 1] = key end
+        table.sort(raidKeys, nameLess)
+    end
+    local online = {}
+    for _, key in ipairs(guildCall("GetOnlineMembers") or {}) do
+        if realGuildMember(key) then online[#online + 1] = key end
+    end
+    table.sort(online, nameLess)
+    local all = {}
+    if kind == "guild" and ns.Guild and ns.Guild.GetMembers then
+        for _, key in ipairs(ns.Guild:GetMembers() or {}) do
+            if realGuildMember(key) then all[#all + 1] = key end
+        end
+        table.sort(all, nameLess)
+    end
+    local function fill(sub, keys)
+        if sub.SetScrollMode and #keys > 20 then sub:SetScrollMode(400) end
+        for _, key in ipairs(keys) do add(sub, key) end
+    end
+    ns.UI:ContextMenu(owner, function(root)
+        root:CreateTitle(field == "de" and "Disenchanter" or "Guild bank character")
+        root:CreateButton((cur == nil and "* " or "") .. "None", function()
+            CouncilUI:SetCouncilDraftTarget(kind, field, nil)
+        end)
+        if cur and not realGuildMember(cur) and not (g and g[cur]) then add(root, cur) end   -- keep showing the pick
+        if #raidKeys > 0 then
+            fill(root:CreateButton(string.format("In your raid (%d)", #raidKeys)), raidKeys)
+        end
+        if #online > 0 then
+            fill(root:CreateButton(string.format("Guild - online (%d)", #online)), online)
+        end
+        if #all > 0 then
+            fill(root:CreateButton(string.format("Guild - all (%d)", #all)), all)
+        end
+    end)
+end
+
 function CouncilUI:RevertCouncil(kind)
     if kind ~= "guild" and kind ~= "raid" then return end
     resetDraft(kind)
@@ -2847,11 +2970,12 @@ function CouncilUI:SaveCouncil(kind)
     end
     local d = getDraft(kind)
     local members = copySet(d.members)
+    local targets = { de = d.de or false, bank = d.bank or false }   -- (ADDENDUM G: false = none)
     local ok, err
     if kind == "guild" then
-        ok, err = guildCall("SetGuildCouncil", members, d.phase)
+        ok, err = guildCall("SetGuildCouncil", members, d.phase, targets)
     else
-        ok, err = guildCall("SetMyRaidList", members)
+        ok, err = guildCall("SetMyRaidList", members, targets)
     end
     if not ok then
         ns:Print("The council list was not saved: %s", tostring(err or "this CDLoot core can't share council lists"))

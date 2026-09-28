@@ -181,7 +181,9 @@ def void_restore_show_voided_and_row_menu():
       end""", item)
     c.click(row_for(28785), "RightButton")
     texts = [e[2] for e in menu_texts(c.last_menu())]
-    assert texts[1:] == ["Void entry", "Link item in chat", "Show member"], texts
+    # Addendum G: "Reason: ..." (with the reasons as a submenu) comes first
+    assert texts[1:] == ["Reason: none", "BiS", "Alt", "Upgrade", "Offspec", "Disenchant", "Guild bank",
+                         "Void entry", "Link item in chat", "Show member"], texts
     c.menu_select("Void entry")
     w.tick(0.5)
     assert [r[1] for r in log_rows(c)] == [28762, 28770], log_rows(c)

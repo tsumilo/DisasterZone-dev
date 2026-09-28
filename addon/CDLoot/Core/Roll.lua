@@ -6,6 +6,9 @@
 -- Addendum C §23: a loot message for a rolled item resolves its session on every client
 -- (Roll:OnItemLooted, via = "loot"), and awards made outside the roll UI go through
 -- Roll:MarkAwardedExternally.
+-- Addendum G: council members vote on every roll (RV on the group channel, one vote each, voter names visible);
+-- once anyone voted, the most-voted player still in the group is suggested (ties: BiS tier, then the roll).
+-- Awards carry a reason (ns.AWARD_REASONS: the awarder's choice, else the winner's BiS tier) in RW and the log.
 local addonName, ns = ...
 
 local Roll = ns:NewModule("Roll")
@@ -50,7 +53,7 @@ local MAX_RT_ENTRIES = 40        -- tiers per RT message
 local MAX_NOTE_LEN = 64
 local LOOT_MATCH_AGE = 15 * 60   -- a loot message resolves sessions created at most 15 min ago
 
-local TIER_WORDS = { "BiS", "BiS alt", "roll" }
+local MAX_VOTES = 40             -- voters per session (one vote per council member in the group)
 
 ---------------------------------------------------------------------------
 -- State
@@ -247,6 +250,7 @@ local function NewSession(f)
         starter = f.starter, startedAt = nil, duration = nil, endsAt = nil,
         state = f.state or "queued",
         rolls = {}, responses = {},
+        votes = {},              -- [council voter key] = candidate key (Addendum G)
         winner = nil, given = false,
         -- CDLoot extras
         seq = seqCounter, createdAt = GetTime(), isLocal = f.isLocal and true or false,
@@ -772,6 +776,22 @@ local function BuildResults(ses)
     for key in pairs(remote or {}) do
         if InGroupFor(ses, key) then Row(key) end
     end
+    -- Council votes (Addendum G): only voters who are (still) council count; demo votes always do.
+    local tally, voters = {}, {}
+    for voter, cand in pairs(ses.votes or {}) do
+        if type(cand) == "string" and (ses.demo or IsRealCouncil(voter)) then
+            tally[cand] = (tally[cand] or 0) + 1
+            local list = voters[cand]
+            if not list then
+                list = {}
+                voters[cand] = list
+            end
+            list[#list + 1] = voter
+        end
+    end
+    for cand in pairs(tally) do
+        if InGroupFor(ses, cand) then Row(cand) end
+    end
 
     local out = {}
     for _, key in ipairs(order) do
@@ -816,7 +836,13 @@ local function BuildResults(ses)
         r.equippedList = (w and type(w.equippedList) == "table") and w.equippedList or EquippedFor(key, ses.i)
         r.wonTonight = (w and tonumber(w.wonTonight)) or WonTonight(key)
         r.lockChanged = LockFlag(ses, key)   -- never suggested (Addendum F §38)
+        r.votes = tally[key] or 0
+        local vl = voters[key] or {}
+        tsort(vl)
+        r.voters = vl
+        r.myVote = ses.votes[Util.PlayerKey() or ""] == key
         r.suggested = false
+        r.suggestedBy = nil
         r.tie = false
         r.isMe = Util.IsMe(key)
         r.isWinner = (ses.winner == key)
@@ -824,7 +850,24 @@ local function BuildResults(ses)
         out[#out + 1] = r
     end
 
+    -- Votes that count for the suggestion: for a player still in the group who did not pass.
+    local function VoteRank(r)
+        if r.votes > 0 and r.inRaid and r.response ~= "pass" then return r.votes end
+        return 0
+    end
+    local function ValidRoll(r)
+        return (r.roll and not r.invalid) and r.roll or nil
+    end
     tsort(out, function(a, b)
+        -- Voted players first (most votes; then BiS tier, a valid roll, the higher roll).
+        local va, vb = VoteRank(a), VoteRank(b)
+        if va ~= vb then return va > vb end
+        if va > 0 then
+            if a.tier ~= b.tier then return a.tier < b.tier end
+            local ra, rb = ValidRoll(a), ValidRoll(b)
+            if (ra ~= nil) ~= (rb ~= nil) then return ra ~= nil end
+            if ra and ra ~= rb then return ra > rb end
+        end
         local ga, gb = RowGroup(a), RowGroup(b)
         if ga ~= gb then return ga < gb end
         if a.tier ~= b.tier then return a.tier < b.tier end
@@ -844,7 +887,24 @@ local function BuildResults(ses)
     local function Suggestible(r)
         return not r.lockChanged and not r.cantUse and not r.wonCopy
     end
-    local top
+    -- Addendum G: once a council member voted, the vote decides: the most-voted player still in the group who did
+    -- not pass (the council chose them knowingly, so the roll rules above don't apply); ties as sorted above.
+    local top = out[1]
+    if top and VoteRank(top) > 0 then
+        top.suggested = true
+        top.suggestedBy = "votes"
+        local tied = {}
+        for _, r in ipairs(out) do
+            if VoteRank(r) == top.votes and r.tier == top.tier and ValidRoll(r) == ValidRoll(top) then
+                tied[#tied + 1] = r
+            end
+        end
+        if #tied > 1 then
+            for _, r in ipairs(tied) do r.tie = true end
+        end
+        return out
+    end
+    top = nil
     for _, r in ipairs(out) do
         if RowGroup(r) ~= 1 then break end
         if Suggestible(r) then
@@ -854,6 +914,7 @@ local function BuildResults(ses)
     end
     if top then
         top.suggested = true
+        top.suggestedBy = "roll"
         local tied = {}
         for _, r in ipairs(out) do
             if RowGroup(r) == 1 and Suggestible(r) and r.tier == top.tier and r.roll == top.roll then
@@ -1194,9 +1255,12 @@ end
 -- Public API: award
 ---------------------------------------------------------------------------
 
-local function ShowPopup(which, ses, key)
+-- areason (optional): the award reason chosen with the award (Addendum G), carried to Finish.
+local function ShowPopup(which, ses, key, areason)
     if type(StaticPopup_Show) ~= "function" then return false end
-    StaticPopup_Show(which, ItemText(ses), NameText(key), { id = ses.id, key = key, itemID = ses.i })
+    local label = ns.ReasonLabel(areason)
+    StaticPopup_Show(which, ItemText(ses), NameText(key) .. (label and (" (" .. label .. ")") or ""),
+        { id = ses.id, key = key, itemID = ses.i, reason = areason })
     return true
 end
 
@@ -1315,7 +1379,8 @@ end
 
 -- extraNote (optional, cleaned): the awarder's own note; the ledger / RW note becomes "<note>; roll 80"
 -- (at most MAX_NOTE_LEN bytes, the roll part is kept).
-local function Finish(ses, key, given, extraNote)
+-- areason (optional): the award reason (Addendum G); nil = from the winner's BiS tier.
+local function Finish(ses, key, given, extraNote, areason)
     local fromLoot = LootMarked(ses)
     if (ses.state == "awarded" and not fromLoot) or ses.state == "cancelled" or ses.state == "queued" then return false end
     if ses.state == "open" then CloseSession(ses) end
@@ -1326,14 +1391,15 @@ local function Finish(ses, key, given, extraNote)
     local lootWinner = (fromLoot and ses.winner ~= key) and ses.winner or nil
     if not fromLoot then ReclaimLoot(ses, key) end
 
-    -- Tier of the winner before the award is recorded (the award would demote them).
-    local tier = 3
+    -- Tier and votes of the winner before the award is recorded (the award would demote them).
+    local tier, votes = 3, 0
     for _, r in ipairs(BuildResults(ses)) do
         if r.key == key then
-            tier = r.tier
+            tier, votes = r.tier, r.votes or 0
             break
         end
     end
+    local reason = ns.AWARD_REASON[areason] and areason or ns.ReasonForTier(tier)
     local rr = ses.rolls[key]
     local rollText, note
     if rr and rr.roll then
@@ -1347,6 +1413,11 @@ local function Finish(ses, key, given, extraNote)
     else
         rollText = "no roll"
         note = "roll: no roll"
+    end
+    if votes > 0 then
+        local vt = votes == 1 and "1 vote" or (votes .. " votes")
+        rollText = (rr and rr.roll) and (vt .. ", " .. rollText) or vt
+        note = note .. "; " .. vt
     end
     if extraNote then
         local room = MAX_NOTE_LEN - #note - 2
@@ -1363,6 +1434,7 @@ local function Finish(ses, key, given, extraNote)
     ses.awardedBy = me
     ses.awardedAt = GetTime()
     ses.awardTs = GetServerTime()
+    ses.reason = reason
     ses.final = nil
 
     -- The ledger is council-only. Demo sessions use the in-memory demo ledger; real sessions always
@@ -1370,15 +1442,17 @@ local function Finish(ses, key, given, extraNote)
     -- Party (dungeon mode) rolls are 5-man loot: dg on every council client alike.
     local Ledger = ns.Ledger
     if ses.demo then
-        if Ledger and Ledger.Award then Ledger:Award(ses.i, key, ses.b, note) end
+        if Ledger and Ledger.Award then Ledger:Award(ses.i, key, ses.b, note, nil, reason) end
     elseif Ledger and Ledger.RecordRollAward and AmRealCouncil() then
-        Ledger:RecordRollAward(ses.id, ses.i, key, ses.b, note, me, ses.awardTs, true, ses.party and true or false)
+        Ledger:RecordRollAward(ses.id, ses.i, key, ses.b, note, me, ses.awardTs, true, ses.party and true or false,
+            reason)
     end
     if not ses.demo then
-        Send({ t = "RW", id = ses.id, w = key, g = ses.given, at = ses.awardTs, n = note }, true)
+        -- r (Addendum G, ignored by older clients): the award reason, so every council client logs the same one.
+        Send({ t = "RW", id = ses.id, w = key, g = ses.given, at = ses.awardTs, n = note, r = reason }, true)
     end
     local body = strformat("%s -> %s (%s, %s)", ItemText(ses), Util.ShortName(key), rollText,
-        TIER_WORDS[tier] or "roll")
+        ns.ReasonLabel(reason) or "roll")
     if ses.demo then
         Announce(body, true, " |cff999999(demo: only shown to you)|r")
     else
@@ -1394,10 +1468,11 @@ local function Finish(ses, key, given, extraNote)
     return true
 end
 
-local function FallbackConfirm(ses, key, reason)
-    ns:Print("Could not hand %s to %s: %s.", ItemText(ses), Util.ShortName(key), tostring(reason or "unknown error"))
+-- why: the hand-out failure; areason: the award reason to keep for the "award anyway" popup.
+local function FallbackConfirm(ses, key, why, areason)
+    ns:Print("Could not hand %s to %s: %s.", ItemText(ses), Util.ShortName(key), tostring(why or "unknown error"))
     Util.After(0.1, function()
-        if ses.state == "closed" or LootMarked(ses) then ShowPopup("CDLOOT_CONFIRM_AWARD", ses, key) end
+        if ses.state == "closed" or LootMarked(ses) then ShowPopup("CDLOOT_CONFIRM_AWARD", ses, key, areason) end
     end)
 end
 
@@ -1406,14 +1481,15 @@ function Roll:ConfirmGive(data)
     local ses = CheckAwardable(data)
     if not ses then return end
     local key = data.key
+    local areason = data.reason
     if LootMarked(ses) then
         -- Handed out meanwhile (loot message): record the award, never give a second copy.
-        Finish(ses, key, false)
+        Finish(ses, key, false, nil, areason)
         return
     end
     local Loot = ns.Loot
     if not (Loot and Loot.GiveItem) then
-        FallbackConfirm(ses, key, "master loot is not available")
+        FallbackConfirm(ses, key, "master loot is not available", areason)
         return
     end
     -- The award is recorded, sent (RW) and announced only once the server handed the item over; a refused
@@ -1438,13 +1514,13 @@ function Roll:ConfirmGive(data)
             ses.state, ses.winner, ses.given, ses.via, ses.final = "closed", nil, false, nil, nil
         end
         if done then
-            Finish(ses, key, true)
+            Finish(ses, key, true, nil, areason)
         else
-            FallbackConfirm(ses, key, why)
+            FallbackConfirm(ses, key, why, areason)
         end
     end)
     if ok == false then
-        FallbackConfirm(ses, key, reason)
+        FallbackConfirm(ses, key, reason, areason)
     end
     -- ok == nil: GiveMasterLoot was sent; the callback finishes (or falls back) once the server answered.
 end
@@ -1452,12 +1528,13 @@ end
 -- CDLOOT_CONFIRM_AWARD accepted: record and announce (the item is handed out by hand).
 function Roll:ConfirmAward(data)
     local ses = CheckAwardable(data)
-    if ses then Finish(ses, data.key, false) end
+    if ses then Finish(ses, data.key, false, nil, data.reason) end
 end
 
 -- Awards a session's item to key (council / ML / leader). Closes an open session first, then asks
 -- for confirmation: CDLOOT_GIVE_ITEM when I can master-loot it right now, else CDLOOT_CONFIRM_AWARD.
-function Roll:Award(id, key)
+-- areason (optional, Addendum G): the award reason (an ns.AWARD_REASONS key); nil = from the winner's BiS tier.
+function Roll:Award(id, key, areason)
     local ses = self:Get(id)
     key = Util.NormalizeName(key)
     if not ses or not key then return false end
@@ -1477,15 +1554,16 @@ function Roll:Award(id, key)
     local Loot = ns.Loot
     -- A loot-marked session was already handed out: never master-loot another copy for it.
     local canGive = not ses.demo and not LootMarked(ses) and Loot and Loot.CanGiveItem and Loot:CanGiveItem(ses.i)
+    if not ns.AWARD_REASON[areason] then areason = nil end
     if canGive then
         local candidate = Loot.IsLootCandidate and Loot:IsLootCandidate(ses.i, key)
         if candidate == false then
             ns:Print("%s is not eligible for this loot (out of range or not in the raid).", Util.ShortName(key))
-            return ShowPopup("CDLOOT_CONFIRM_AWARD", ses, key)
+            return ShowPopup("CDLOOT_CONFIRM_AWARD", ses, key, areason)
         end
-        return ShowPopup("CDLOOT_GIVE_ITEM", ses, key)
+        return ShowPopup("CDLOOT_GIVE_ITEM", ses, key, areason)
     end
-    return ShowPopup("CDLOOT_CONFIRM_AWARD", ses, key)
+    return ShowPopup("CDLOOT_CONFIRM_AWARD", ses, key, areason)
 end
 
 -- Addendum C §23.2: an award made outside the roll UI (the drop panel's plain "Award..." menu /
@@ -1498,7 +1576,8 @@ end
 -- (the roll had not started; it is removed from the queue), "cancelled", "awarded" (already awarded to
 -- someone else).
 -- note (optional): the awarder's note, kept in front of the roll note ("offspec; roll 80").
-function Roll:MarkAwardedExternally(id, key, note)
+-- areason (optional, Addendum G): the award reason; nil = from the winner's BiS tier.
+function Roll:MarkAwardedExternally(id, key, note, areason)
     local ses = self:Get(id)
     key = Util.NormalizeName(key)
     if not ses or not key then return false, "unknown" end
@@ -1516,8 +1595,68 @@ function Roll:MarkAwardedExternally(id, key, note)
         CloseSession(ses)
         if not ses.demo then Send({ t = "RE", id = ses.id }) end
     end
-    if Finish(ses, key, false, CleanNote(note)) then return true end
+    if Finish(ses, key, false, CleanNote(note), areason) then return true end
     return false, "unknown"
+end
+
+---------------------------------------------------------------------------
+-- Council votes (Addendum G §42)
+---------------------------------------------------------------------------
+
+-- May I vote on this session: a real council member in its group (demo sessions: anyone), while the roll is open
+-- or closed and not awarded yet.
+function Roll:CanVote(id)
+    local ses = self:Get(id)
+    if not ses or (ses.state ~= "open" and ses.state ~= "closed") then return false end
+    if ses.demo then return DemoOn() end
+    return AmRealCouncil() and GroupChannel() ~= nil
+end
+
+-- The candidate I voted for (a key), or nil.
+function Roll:GetMyVote(id)
+    local ses = self:Get(id)
+    local me = Util.PlayerKey()
+    return ses and me and ses.votes[me] or nil
+end
+
+-- Records voter's vote for key (nil = the vote is withdrawn). Checks the session and the candidate, not the
+-- voter's council seat (the RV handler and the local API do). Returns true if it changed anything.
+local function RecordVote(ses, voter, key)
+    if ses.state ~= "open" and ses.state ~= "closed" then return false end
+    if key ~= nil and not InGroupFor(ses, key) then return false end
+    if ses.votes[voter] == key then return false end
+    if key ~= nil and ses.votes[voter] == nil then
+        local n = 0
+        for _ in pairs(ses.votes) do n = n + 1 end
+        if n >= MAX_VOTES then return false end
+    end
+    ses.votes[voter] = key
+    Updated(ses)
+    return true
+end
+
+-- Votes for key (council, a member of the group), or withdraws my vote (key nil, or voting for my current pick
+-- again). One vote per council member; it can be moved until the item is awarded. Sent to the group (RV).
+function Roll:Vote(id, key)
+    local ses = self:Get(id)
+    local me = Util.PlayerKey()
+    if not ses or not me then return false end
+    if not self:CanVote(id) then
+        if ses.state == "open" or ses.state == "closed" then ns:Print("Only loot council members can vote.") end
+        return false
+    end
+    key = key and Util.NormalizeName(key) or nil
+    if key and ses.votes[me] == key then key = nil end
+    if not RecordVote(ses, me, key) then return false end
+    if not ses.demo then Send({ t = "RV", id = ses.id, k = key or "" }) end
+    return true
+end
+
+-- A demo council member's vote (Demo:SimulateRolls): the same path as a real vote, never sent.
+function Roll:OnDemoVote(voter, id, key)
+    local ses = self:Get(id)
+    if not ses or not ses.demo or not DemoOn() then return false end
+    return RecordVote(ses, voter, key and Util.NormalizeName(key) or nil)
 end
 
 -- Loot-message resolution (Addendum C §23.1): state "awarded", winner, given, via = "loot", results
@@ -1958,14 +2097,33 @@ local function OnRollWin(sender, msg, dist)
     ses.awardedBy = sender
     ses.awardedAt = GetTime()
     ses.awardTs = at
+    -- r (Addendum G): the award reason; an older sender has none (the log then shows no reason).
+    local reason = (type(msg.r) == "string" and ns.AWARD_REASON[msg.r]) and msg.r or nil
+    ses.reason = reason
     ses.final = BuildResults(ses)
     if lootWas and lootWas ~= w then FlagLootConflict(ses, lootWas) end
     -- Every council client records it: a non-council master looter / leader cannot write the ledger.
     if council then
         local note = (type(msg.n) == "string" and #msg.n <= MAX_NOTE_LEN and not msg.n:find("[%c|]")) and msg.n or nil
-        Ledger:RecordRollAward(ses.id, ses.i, w, ses.b, note, sender, at, false, ses.party and true or false)
+        Ledger:RecordRollAward(ses.id, ses.i, w, ses.b, note, sender, at, false, ses.party and true or false, reason)
     end
     Updated(ses)
+end
+
+-- RV {id, k} (Addendum G): a council member's vote on the group channel; k = the candidate key, "" = withdrawn.
+-- The sender must be council (a raid council member counts: the group channel only reaches the raid); the
+-- candidate must be in my group. One vote per sender (the latest counts).
+local function OnRollVote(sender, msg, dist)
+    if DemoOn() or not GroupDist(dist) or type(msg) ~= "table" or not ValidId(msg.id) then return end
+    local ses = sessions[msg.id]
+    if not ses or ses.demo or not IsRealCouncil(sender) then return end
+    local k, key = msg.k, nil
+    if k ~= nil and k ~= "" then
+        if type(k) ~= "string" or #k > MAX_ID_LEN or k:find("[%c|]") then return end
+        key = Util.NormalizeName(k)
+        if not key then return end
+    end
+    RecordVote(ses, sender, key)
 end
 
 ---------------------------------------------------------------------------
@@ -2091,6 +2249,7 @@ function Roll:OnInit()
         Comm:Register("RE", OnRollEnd)
         Comm:Register("RW", OnRollWin)
         Comm:Register("RT", OnRollTiers)
+        Comm:Register("RV", OnRollVote)
     end
     ns:RegisterSlash("roll", SlashRoll, "<item link> - start a raid roll for an item (council / lead / ML); 'end' ends it")
 

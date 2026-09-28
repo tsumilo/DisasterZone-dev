@@ -212,7 +212,7 @@ def demo_simulate_and_demo_roll_buttons():
     w.tick(40)
     # about text
     about = strip_codes(c.eval("return ns.SettingsUI.aboutText:GetText()"))
-    assert about.startswith("Version 0.5.0 · protocol 1"), about   # TOC 0.5.0
+    assert about.startswith("Version 0.6.0 · protocol 1"), about   # TOC 0.6.0
     assert [e for e in w.addon_log if e["chat_type"] in ("RAID", "WHISPER")] == [], "demo actions sent addon messages"
     no_errors(w)
 

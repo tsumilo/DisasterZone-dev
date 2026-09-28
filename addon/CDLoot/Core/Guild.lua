@@ -201,6 +201,51 @@ local function SameSet(a, b)
     return true
 end
 
+-- Addendum G §41: the loot targets (disenchanter / guild bank character) riding on the council lists.
+-- Wire fields de / bk; stored as rec.de / rec.bank. A malformed name drops the whole message like a bad list.
+local TARGET_KINDS = { de = "de", bank = "bk" }   -- [stored field] = wire field
+
+-- Returns ok, { de = key|nil, bank = key|nil } from a CG / CR message.
+local function ParseWireTargets(msg)
+    local out = {}
+    for field, wire in pairs(TARGET_KINDS) do
+        local v = msg[wire]
+        if v ~= nil and v ~= "" then
+            local key = WireKey(v)
+            if not key then return false end
+            out[field] = key
+        end
+    end
+    return true, out
+end
+
+-- Adds the wire fields of rec's targets to msg.
+local function AddWireTargets(msg, rec)
+    if type(rec) ~= "table" then return msg end
+    for field, wire in pairs(TARGET_KINDS) do
+        if type(rec[field]) == "string" then msg[wire] = rec[field] end
+    end
+    return msg
+end
+
+-- targets from the UI: { de = key | false, bank = key | false } (nil = keep cur's). Returns { de=, bank= } or
+-- nil, error.
+local function MergeTargets(targets, cur)
+    local out = {}
+    for field in pairs(TARGET_KINDS) do
+        local v
+        if type(targets) == "table" then v = targets[field] end
+        if v == nil then
+            out[field] = type(cur) == "table" and type(cur[field]) == "string" and cur[field] or nil
+        elseif v ~= false and v ~= "" then
+            local key = WireKey(v)
+            if not key then return nil, "invalid name: " .. tostring(v) end
+            out[field] = CanonicalKey(key)
+        end
+    end
+    return out
+end
+
 ---------------------------------------------------------------------------
 -- Roster
 ---------------------------------------------------------------------------
@@ -397,7 +442,8 @@ end
 -- My own raid list as the council of the raid I lead.
 local function OwnRaidCouncil()
     local mine = MyRaidList()
-    return { leader = Util.PlayerKey(), rev = mine and mine.rev or 0, members = CopySet(mine and mine.members) }
+    return { leader = Util.PlayerKey(), rev = mine and mine.rev or 0, members = CopySet(mine and mine.members),
+             de = mine and mine.de or nil, bank = mine and mine.bank or nil }
 end
 
 ---------------------------------------------------------------------------
@@ -464,6 +510,7 @@ local function Recompute()
         .. "|" .. tostring(me ~= nil and RealSource(me) ~= nil)
         .. "|" .. tostring(Guild:GetGuildPhase())
         .. "|" .. tostring(gmKey)
+        .. "|" .. tostring((Guild:GetLootTarget("de"))) .. "|" .. tostring((Guild:GetLootTarget("bank")))
     if sig ~= configSignature then
         configSignature = sig
         ns:Fire("CONFIG_UPDATED", Snapshot())
@@ -484,6 +531,7 @@ local function IsTofu(rec) return type(rec) == "table" and rec.src == "tofu" end
 local function SendCG(rec, target)
     if type(rec) ~= "table" then return false end
     local msg = { t = "CG", rev = rec.rev, m = SetToArray(rec.members), ph = rec.phase or DEFAULT_PHASE, by = rec.by }
+    AddWireTargets(msg, rec)   -- (Addendum G; older clients ignore de / bk)
     if target then return Send(msg, "WHISPER", target, "ctrl") end
     local ok = Send(msg, "GUILD", nil, "ctrl")
     if ok then cgSeen[rec.rev] = GetTime() end
@@ -499,11 +547,12 @@ end
 local function StoreGuildList(v, by, src)
     local c = CouncilDB()
     if not c then return end
-    c.guild = { rev = v.rev, members = v.members, phase = v.phase, by = by, recvAt = Now(), g = GuildKey(), src = src }
+    c.guild = { rev = v.rev, members = v.members, phase = v.phase, by = by, recvAt = Now(), g = GuildKey(), src = src,
+                de = v.de, bank = v.bank }
     RefreshGuildList()
 end
 
--- { rev, members (set), phase, by } of a well-formed CG, else nil.
+-- { rev, members (set), phase, by, de, bank } of a well-formed CG, else nil.
 local function ValidateCG(msg)
     if type(msg) ~= "table" or not IsInt(msg.rev, 1, MAX_REV) then return nil end
     local set = ParseWireList(msg.m)
@@ -516,7 +565,9 @@ local function ValidateCG(msg)
         by = WireKey(msg.by)
         if not by then return nil end
     end
-    return { rev = msg.rev, members = set, phase = ph, by = by }
+    local ok, targets = ParseWireTargets(msg)
+    if not ok then return nil end
+    return { rev = msg.rev, members = set, phase = ph, by = by, de = targets.de, bank = targets.bank }
 end
 
 -- CG {rev, m, ph, by}. Taken directly from the Guild Master (per the live roster), or as a relayed copy
@@ -568,6 +619,7 @@ local function OnGuildCouncil(sender, msg, dist)
     end
     local storedRev = stored and stored.rev or 0
     local same = stored ~= nil and SameSet(stored.members, v.members) and stored.phase == v.phase
+        and stored.de == v.de and stored.bank == v.bank
     if gmDirect and IsTofu(stored) then
         -- The GM outranks an unconfirmed list whatever its rev: confirm it, or replace it.
         if dist == "GUILD" then cgSeen[v.rev] = GetTime() end
@@ -653,7 +705,8 @@ end
 local function SendCRNow()
     if not AmILeadingRaid() then return false end
     local mine = MyRaidList()
-    return Send({ t = "CR", rev = mine and mine.rev or 0, m = SetToArray(mine and mine.members) }, "RAID", nil, "alert")
+    local msg = AddWireTargets({ t = "CR", rev = mine and mine.rev or 0, m = SetToArray(mine and mine.members) }, mine)
+    return Send(msg, "RAID", nil, "alert")
 end
 
 local function ScheduleCR(delay)
@@ -681,9 +734,11 @@ local function OnRaidCouncil(sender, msg, dist)
     if not IsInt(rev, 0, MAX_REV) then return end
     local set = ParseWireList(msg.m == nil and {} or msg.m)
     if not set then return end
+    local ok, targets = ParseWireTargets(msg)
+    if not ok then return end
     raidLeader = sender
     inRaid = true
-    raidCouncil = { leader = sender, rev = rev, members = set }
+    raidCouncil = { leader = sender, rev = rev, members = set, de = targets.de, bank = targets.bank }
     Util.CancelDebounce("cdl-guild-crq")
     Recompute()
 end
@@ -996,7 +1051,8 @@ end
 function Guild:GetGuildCouncil()
     local rec = guildList
     if not rec then return nil end
-    return { rev = rec.rev, members = CopySet(rec.members), phase = rec.phase, by = rec.by, recvAt = rec.recvAt }
+    return { rev = rec.rev, members = CopySet(rec.members), phase = rec.phase, by = rec.by, recvAt = rec.recvAt,
+             de = rec.de, bank = rec.bank }
 end
 
 -- CDLoot extension: rev of my accepted guild list (0 = none). Sent in HELLO / STATE as `cg`.
@@ -1014,9 +1070,10 @@ function Guild:CanEditGuildCouncil()
     return (IsInGuild() and ready and Guild:IsGM(Util.PlayerKey())) and true or false
 end
 
--- GM only: saves the guild council list (a set {[key]=true} or an array of keys, at most 40) and the
--- guild phase (1..5; nil keeps the current one), then shares it on GUILD. Returns ok, err.
-function Guild:SetGuildCouncil(membersSet, phase)
+-- GM only: saves the guild council list (a set {[key]=true} or an array of keys, at most 40), the
+-- guild phase (1..5; nil keeps the current one) and the loot targets (Addendum G: { de = key | false,
+-- bank = key | false }, nil / a missing field keeps the current one), then shares it on GUILD. Returns ok, err.
+function Guild:SetGuildCouncil(membersSet, phase, targets)
     if not ns.loggedIn or not IsInGuild() then return false, "not in a guild" end
     if not ready then return false, "the guild roster has not loaded yet" end
     if not Guild:CanEditGuildCouncil() then return false, "only the Guild Master can change the guild council" end
@@ -1026,8 +1083,10 @@ function Guild:SetGuildCouncil(membersSet, phase)
     if phase == nil then phase = cur and cur.phase or DEFAULT_PHASE end
     phase = tonumber(phase)
     if not IsInt(phase, 1, MaxPhase()) then return false, "invalid phase" end
+    local tg, terr = MergeTargets(targets, cur)
+    if not tg then return false, terr end
     local rev = max(floor(Now()), (cur and cur.rev or 0) + 1)
-    StoreGuildList({ rev = rev, members = set, phase = phase }, Util.PlayerKey(), "self")
+    StoreGuildList({ rev = rev, members = set, phase = phase, de = tg.de, bank = tg.bank }, Util.PlayerKey(), "self")
     if not guildList then return false, "could not save the list" end
     SendCG(guildList)
     Recompute()
@@ -1047,25 +1106,28 @@ function Guild:GetRaidCouncil()
             return nil
         end
     end
-    return { leader = rc.leader, rev = rc.rev, members = CopySet(rc.members) }
+    return { leader = rc.leader, rev = rc.rev, members = CopySet(rc.members), de = rc.de, bank = rc.bank }
 end
 
--- My own saved raid list (a copy { rev, members }), or nil.
+-- My own saved raid list (a copy { rev, members, de, bank }), or nil.
 function Guild:GetMyRaidList()
     local rec = MyRaidList()
     if not rec then return nil end
-    return { rev = rec.rev, members = CopySet(rec.members) }
+    return { rev = rec.rev, members = CopySet(rec.members), de = rec.de, bank = rec.bank }
 end
 
--- Saves my raid list "until changed" (a set or an array of keys, at most 40; raid members of any guild).
--- While I lead a raid it becomes that raid's council at once and is shared (CR). Returns ok, err.
-function Guild:SetMyRaidList(membersSet)
+-- Saves my raid list "until changed" (a set or an array of keys, at most 40; raid members of any guild) and
+-- the raid's loot targets (Addendum G; like SetGuildCouncil's `targets`). While I lead a raid it becomes that
+-- raid's council at once and is shared (CR). Returns ok, err.
+function Guild:SetMyRaidList(membersSet, targets)
     local c = CouncilDB()
     if not c then return false, "settings are not loaded yet" end
     local set, err = ToSet(membersSet)
     if not set then return false, err end
     local cur = MyRaidList()
-    c.myRaidList = { rev = max(floor(Now()), (cur and cur.rev or 0) + 1), members = set }
+    local tg, terr = MergeTargets(targets, cur)
+    if not tg then return false, terr end
+    c.myRaidList = { rev = max(floor(Now()), (cur and cur.rev or 0) + 1), members = set, de = tg.de, bank = tg.bank }
     if AmILeadingRaid() then
         raidLeader = Util.PlayerKey()
         inRaid = true
@@ -1074,6 +1136,26 @@ function Guild:SetMyRaidList(membersSet)
     end
     Recompute()
     return true
+end
+
+-- Addendum G §41: the character that gets "de" (disenchant) or "bank" (guild bank) awards, and where that comes
+-- from: key, "raid" (the current raid leader's pick for this raid) | "guild" (the GM's pick). nil when unset.
+-- The raid's pick wins while I am in that raid; demo mode picks a fake raider so the buttons can be tried.
+function Guild:GetLootTarget(kind)
+    if not TARGET_KINDS[kind] then return nil end
+    if IsInRaid() then
+        local leader = CurrentRaidLeader()
+        local rc = raidCouncil
+        if leader and Util.IsMe(leader) then rc = OwnRaidCouncil() end
+        if rc and rc.leader == leader and type(rc[kind]) == "string" then return rc[kind], "raid" end
+    end
+    local rec = guildList
+    if rec and type(rec[kind]) == "string" then return rec[kind], "guild" end
+    if DemoOn() and ns.Demo and ns.Demo.GetLootTarget then
+        local key = ns.Demo:GetLootTarget(kind)
+        if key then return key, "demo" end
+    end
+    return nil
 end
 
 function Guild:IsRaidLeader(key)

@@ -1,11 +1,11 @@
-# CDLoot 0.5.0
+# CDLoot 0.6.0
 
 BiS lists, a Loot Council overview, boss-drop alerts and rolls for **&lt;Casual Disaster&gt;**.
 For the WoW TBC Anniversary client (2.5.x, interface 20506).
 
 - Every player keeps a best-in-slot list for each phase (P1–P5), with a main pick and an alt pick per slot.
 - The Loot Council sees everyone's lists. When a boss is looted, the council sees who has each drop on their list.
-- Raiders get a Roll / Pass popup. CDLoot suggests a winner, the council confirms it, and the award goes into a shared loot log.
+- Raiders get a Roll / Pass popup. Council members can vote for a player on any roll. CDLoot suggests a winner, the council confirms it, and the award goes into a shared loot log with a reason (BiS, Alt, Offspec, Disenchant, ...).
 
 CDLoot only suggests. The council makes the loot decision.
 
@@ -288,7 +288,7 @@ Each item shows how many want it ("3 want") and its candidates. A candidate row 
 - A presence dot and the player's name and spec.
 - **[BiS]** or **[Alt]**, plus the phase when it isn't the one you're viewing.
 - "can't use" (in red) when their class can't use the item. This covers class-restricted items (T5 class trinkets, Warglaives, PvP set pieces, Ashtongue talismans) and other classes' tokens.
-- "won N" when they already won items tonight.
+- "won N" when they already won items tonight. Offspec, disenchant and guild bank awards don't count.
 - The items they wear in that slot.
 - "not in raid" when they aren't in your raid.
 - A warning icon when their list changed while lists were locked.
@@ -297,14 +297,17 @@ Buttons for each item:
 
 - **Announce** posts one line to raid chat, for example `CDLoot: [item] - BiS: A, B; Alt: C`.
 - **Award...** opens a menu with:
-  - the candidates who are in the raid, marked "can't use" when it applies;
+  - **Disenchant: Name** and **Guild bank: Name**, when those characters are set (see [Disenchanter and guild bank](#disenchanter-and-guild-bank));
+  - the candidates who are in the raid, marked "can't use" when it applies. A main pick is recorded as **BiS**, an alt pick as **Alt**;
   - **Other raid member ▸**;
+  - **Award as offspec ▸**: the same players, recorded as **Offspec**;
   - **Not in raid (n) ▸**: wanters who aren't in the raid, each marked "online" or "offline";
-  - **Someone else...**;
-  - **Void the award to X**, once the item is awarded.
+  - **Someone else...** (the dialog has a **Reason** choice);
+  - once the item is awarded: **Reason: X ▸** to change the award's reason, and **Void the award to X**.
 
   It records the award in the Loot Log. It doesn't trade the item or give it via master loot, so hand the item out yourself.
 - **Roll** starts a roll for this item. See [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner).
+- **DE** and **Bank** give the item to the disenchanter or the guild bank character in one click. They are shown while nobody has been picked for the item, and only when that character is set. As master looter with the loot window open, CDLoot asks "Give [item] to Name (Disenchant)?" and hands it over. Otherwise the award is only recorded.
 
 Footer buttons: **Announce all**, **Roll all**, **Lock lists** / **Unlock lists** (shown only to the raid's loot leader) and **Close**.
 
@@ -312,10 +315,13 @@ Once an item has a roll, its block switches to roll mode:
 
 - The header shows "Rolling - 0:18 left", "Queued", "Rolls closed" or "Awarded to X".
 - Each row shows the player's roll. The suggested winner is highlighted. Other tags: "tie", "can't use", "won a copy", "won N" and "changed".
+- **Votes:** every council member in the raid has one vote per item. Click the vote column of a row (it reads "vote") to vote for that player. The column then shows a check mark and the number of votes, in gold when your vote is among them. Click again to take your vote back, or vote for someone else to move it. Hover a row to see who voted. Votes can change until the item is awarded. See [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner).
 - While the roll is open: **End roll**, and **End roll & award to** *suggested player*. The second one ends the roll for everyone at once, and cancelling the next popup doesn't reopen it.
 - After the roll has closed: **Award to** *suggested player*, **Award...** (for anyone else) and **Re-roll**. If anyone rolled, Re-roll asks first: "Start a new roll for [item]? (N rolls so far are discarded)".
+- When nobody is suggested (nobody rolled and nobody voted), **DE** and **Bank** are shown as well.
 - **Cancel roll** removes a queued item from the queue.
-- Click or right-click a row for **Award to Name** (**End roll & award to Name** while the roll is open) or **Link item**.
+- Click or right-click a row for **Vote for Name** / **Remove my vote**, **Award to Name** (**End roll & award to Name** while the roll is open), **Award to Name as ▸** a reason, or **Link item**.
+- An award from a roll is recorded with the winner's BiS status as its reason (**BiS**, **Alt**, or **Upgrade** when the item isn't on their list), unless you picked a reason with **Award to Name as ▸**.
 - A long list ends in a "+N more" row. Click it to award one of the hidden players.
 
 If you award an item that has a roll, the roll closes for everyone and the popups fade.
@@ -328,10 +334,22 @@ If you award an item that has a roll, the roll closes for everyone and the popup
 ### Loot Log tab
 
 - **Automatic entries:** when your client sees "X receives loot: [item]" inside a raid instance (or a 5-man dungeon in dungeon mode), CDLoot records it. This covers boss loot at or above the minimum quality, plus tier tokens.
-- **Manual entries:** awards from the drop panel, or **Add award...**. The dialog has an **Item** field (shift-click a link, drag an item, or type the item ID), a **Winner** field (type a name or use **Choose**), a **Note**, and **Save**.
+- **Manual entries:** awards from the drop panel, or **Add award...**. The dialog has an **Item** field (shift-click a link, drag an item, or type the item ID), a **Winner** field (type a name or use **Choose**), a **Note**, a **Reason**, and **Save**.
+- **Reason column:** why the item was given. Automatic entries have none until someone sets one.
+
+  | Reason | Counts as loot received ("won N") | Marks the item as awarded on the winner's list |
+  |---|---|---|
+  | **BiS** | yes | yes |
+  | **Alt** | yes | yes |
+  | **Upgrade** (not on their list) | yes | yes |
+  | **Offspec** | no | yes |
+  | **Disenchant** | no | no |
+  | **Guild bank** | no | no |
+
+  Reasons that don't count are shown in grey.
 - **Duplicates:** when a manual award and the later loot message are for the same item and player, only the manual entry is shown.
-- **Filters:** a search box (player or item), **Show voided**, and **Show dungeon loot** (dungeon entries are tagged "(dungeon)").
-- **Right-click an entry** for **Void entry** / **Restore entry**, **Link item in chat** and **Show member**. Voiding or restoring an automatic entry also covers the copies of that loot line that other council members recorded.
+- **Filters:** a search box (player, item or reason), **Show voided**, and **Show dungeon loot** (dungeon entries are tagged "(dungeon)").
+- **Right-click an entry** for **Reason: X ▸**, **Void entry** / **Restore entry**, **Link item in chat** and **Show member**. Changing the reason, voiding or restoring an automatic entry also covers the copies of that loot line that other council members recorded.
 - The log is shared automatically between council members.
 
 ### Tooltips (council)
@@ -383,6 +401,7 @@ How the raid council works:
 - These players count as council only inside your raid, and only for people in that raid.
 - The list is kept "until changed". It is sent again automatically whenever you lead a raid.
 - You stay council yourself as raid leader.
+- The same section has **Disenchanter** and **Guild bank** buttons. A pick there replaces the Guild Master's pick in the raids you lead, for example when the guild's disenchanter isn't in this raid. Leave them on "none" to use the guild's picks. See [Disenchanter and guild bank](#disenchanter-and-guild-bank).
 
 ### Lock and unlock BiS lists
 
@@ -438,7 +457,8 @@ The Guild Master is always on the council.
    - The list shows online guild members. Tick **Show offline members** to see everyone.
    - Click a name, or press Enter, to add or remove it. Arrow keys move the selection and Escape closes the list.
 3. Set **Guild phase** (P1 · Karazhan · Gruul · Magtheridon, … P5 · Sunwell Plateau).
-4. Click **Save & share**. The status reads "Shared 2m ago · N members · phase Pn".
+4. Optional: pick the **Disenchanter** and the **Guild bank** character (see below).
+5. Click **Save & share**. The status reads "Shared 2m ago · N members · phase Pn".
 
 How it works:
 
@@ -447,6 +467,16 @@ How it works:
 - The list reaches online members at once. Members who log in later get it within about a minute, either from you or from a council member.
 - To remove someone, take them off the list and click **Save & share** again. They lose council status everywhere: the Council and Loot Log tabs close, and they stop receiving lists.
 - Your own client only trusts the list you saved yourself, and that list is stored on the PC you saved it on. If you play the GM on another PC, CDLoot may print "Your guild council list is not saved on this PC: open Council > Loot Council and save it again". Save it once on that PC.
+
+### Disenchanter and guild bank
+
+The drop panel's **DE** and **Bank** buttons give an item to these characters in one click. Such awards are recorded as **Disenchant** or **Guild bank**, so they don't count as loot received and don't mark the item as awarded on that character's own BiS list.
+
+- Set them in Council tab → **Loot Council** → **Guild council**, with the **Disenchanter** and **Guild bank** buttons. Each button lists raid members, online guild members and all guild members, plus **None**.
+- **Save & share** sends them to the guild together with the council list.
+- A raid leader can pick different characters for their own raid (see [Raid council](#raid-council)). Their pick wins inside that raid.
+- Everyone else sees both names as a line in the Loot Council view.
+- If the character isn't in the raid, the button is greyed out.
 
 ### Phases
 
@@ -462,7 +492,14 @@ CDLoot no longer uses the Guild Information text. If an old `CDL{...}` line is s
 
 ## How rolls pick a suggested winner
 
-CDLoot sorts everyone who rolled into three groups:
+**Council votes come first.** As soon as any council member has voted on an item, the player with the most votes is suggested:
+
+- Only votes for players who are still in the raid and didn't pass count.
+- Equal votes are decided by the groups below (BiS main, then BiS alt, then everyone else), then by a valid roll (a player who rolled beats one who didn't), then by the higher roll. If that still doesn't separate them, the rows are marked "tie".
+- The council chose deliberately, so a voted player can be suggested even when they are marked "changed", "can't use" or "won a copy".
+- Only council members' votes count. A vote from someone who has since left the council is ignored.
+
+**Without votes**, CDLoot sorts everyone who rolled into three groups:
 
 1. **BiS main**, not obtained yet
 2. **BiS alt**, not obtained yet
@@ -640,6 +677,10 @@ A fresh install with an empty list is restored automatically.
 ### Mixed versions
 - Everyone, and above all council members, the raid leader and the master looter, should run the **same** version. `/cdl version` shows who runs what.
 - If a newer version shows up, CDLoot prints "A newer CDLoot version (x) is in use by Y. Please update."
+- **0.5 and older** don't know votes, award reasons or the disenchanter / guild bank:
+  - A 0.5 council member can't vote and doesn't see votes. Its awards have no reason.
+  - A master looter on 0.5 gets no suggestion from votes.
+  - A client that first gets the council list from a 0.5 member may miss the disenchanter / guild bank until the Guild Master saves the list again.
 - **0.4 and older** still send disenchant and lockbox loot as drops (0.5 ignores them). A master looter on 0.4 also records a master-loot give before the server has handed the item over. Update the master looter first.
 - **0.3 and older** ignore disabled slots and the raid lock. A 0.3 council member still counts a disabled slot as wanted.
 - **0.2 and older** use the old Guild Information council and don't know the picked council. Their lists may not reach the new council.
@@ -673,9 +714,9 @@ A fresh install with an empty list is restored automatically.
 - **The guild channel carries only small status messages:**
   - your list's revision number and your addon version;
   - from council members: which lists they hold (names, revision numbers and checksums) and a checksum of the award log per day;
-  - the guild council list (names and phase) from the GM.
+  - the guild council list (names, phase, disenchanter and guild bank character) from the GM.
   So the guild can see who has a list and how often it changes, but not what is on it.
-- **The raid or party channel carries loot events:** drops (item IDs), roll starts, rolls and results, group loot rules, the raid council names, and the lock.
+- **The raid or party channel carries loot events:** drops (item IDs), roll starts, rolls and results, council votes (who voted for whom), group loot rules, the raid council names with the raid's disenchanter / guild bank pick, and the lock. The raid UI only shows votes to council members and the master looter, but a modified client in the raid could read them.
 - **The loot log is council only.** It is shared between council members by whisper. Full history is exchanged only between guild council members. Raid-only council members receive the awards made while they are in the raid. They can only add awards they record themselves, and only void or restore awards from the last 12 hours.
 - **Where it's stored:** everything stays inside the game. Council members keep copies of other players' lists in their own SavedVariables file.
 - **It is not cryptographic.**

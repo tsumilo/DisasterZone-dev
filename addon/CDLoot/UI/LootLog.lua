@@ -15,10 +15,11 @@ local ROW_HILIGHT = "Interface\\QuestFrame\\UI-QuestTitleHighlight"
 local COL = {
     date = { x = 6, w = 74 },
     icon = { x = 84 },
-    item = { x = 110, w = 214 },
-    winner = { x = 330, w = 112 },
-    boss = { x = 446, w = 150 },
-    by = { x = 600, w = 150 },
+    item = { x = 110, w = 200 },
+    winner = { x = 314, w = 104 },
+    reason = { x = 422, w = 70 },    -- award reason (ADDENDUM G)
+    boss = { x = 496, w = 130 },
+    by = { x = 630, w = 120 },
 }
 
 local ITEM_HINT = "Shift-click, drag or type an item ID."
@@ -169,6 +170,17 @@ local function isDungeonEntry(e)
     return e.dg == true
 end
 
+-- Award reason label ("BiS", "Offspec", ...) of an entry, or nil (ADDENDUM G).
+local function reasonLabel(e)
+    return ns.ReasonLabel and ns.ReasonLabel(e.r) or nil
+end
+
+-- Offspec / disenchant / guild bank: not counted as loot received.
+local function reasonCounts(e)
+    local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
+    return not r or r.counts
+end
+
 local DUNGEON_TAG = grey("(dungeon)")
 
 ----------------------------------------------------------------------------
@@ -183,7 +195,7 @@ local function entryMatches(e)
     end
     return has(shortName(e.w)) or has(itemName(e.i)) or has(bossName(e.b))
         or has(e.by and shortName(e.by)) or has(e.n) or tostring(e.i) == s
-        or (isDungeonEntry(e) and has("dungeon"))
+        or (isDungeonEntry(e) and has("dungeon")) or has(reasonLabel(e))
 end
 
 local function buildRows()
@@ -215,6 +227,11 @@ local function addEntryLines(tt, e)
     tt:AddLine(" ")
     tt:AddLine("|cffff8000CDLoot|r award")
     tt:AddDoubleLine("Winner", coloredName(e.w), 0.8, 0.8, 0.8, 1, 1, 1)
+    local label = reasonLabel(e)
+    if label then
+        tt:AddDoubleLine("Reason", label .. (reasonCounts(e) and "" or grey(" (not counted as loot won)")),
+            0.8, 0.8, 0.8, 1, 1, 1)
+    end
     local where = bossName(e.b, true)
     if where then tt:AddDoubleLine("Boss", where, 0.8, 0.8, 0.8, 1, 1, 1) end
     if isDungeonEntry(e) then tt:AddLine("5-man dungeon loot (dungeon mode)", 0.6, 0.6, 0.6) end
@@ -227,7 +244,7 @@ local function addEntryLines(tt, e)
     if e.vd then
         tt:AddLine("Voided " .. formatAgo(e.vts), 1, 0.3, 0.3)
     end
-    tt:AddLine("Right-click: void / restore, link, show member", 0.5, 0.5, 0.5)
+    tt:AddLine("Right-click: reason, void / restore, link, show member", 0.5, 0.5, 0.5)
 end
 
 local function voidEntry(e, voided)
@@ -246,6 +263,17 @@ local function openRowMenu(row, e)
     if not (ns.UI and ns.UI.ContextMenu) then return end
     ns.UI:ContextMenu(row, function(root)
         root:CreateTitle(itemName(e.i) or ("Item " .. tostring(e.i)))
+        if not e.vd and ns.Ledger and ns.Ledger.SetReason then
+            local sub = root:CreateButton("Reason: " .. (reasonLabel(e) or "none"))
+            for _, r in ipairs(ns.AWARD_REASONS or {}) do
+                local rk = r.key
+                sub:CreateButton((e.r == rk and "* " or "") .. r.label, function() ns.Ledger:SetReason(e.id, rk) end)
+            end
+            if e.r then
+                sub:CreateDivider()
+                sub:CreateButton("No reason", function() ns.Ledger:SetReason(e.id, nil) end)
+            end
+        end
         if e.vd then
             root:CreateButton("Restore entry", function() voidEntry(e, false) end)
         else
@@ -305,6 +333,7 @@ local function setupRow(row)
     end
     row.item = newText(row, COL.item, "GameFontHighlight")
     row.winner = newText(row, COL.winner, "GameFontHighlight")
+    row.reason = newText(row, COL.reason, "GameFontHighlightSmall")
     row.boss = newText(row, COL.boss, "GameFontHighlightSmall")
     row.by = newText(row, COL.by, "GameFontDisableSmall")
 
@@ -327,6 +356,14 @@ local function initRow(row, d)
     else
         row.item:SetText(itemText(d.itemID))
         row.winner:SetText(coloredName(e.w, d.classFile))
+    end
+    local label = reasonLabel(e)
+    if not label then
+        row.reason:SetText(grey("-"))
+    elseif reasonCounts(e) and not e.vd then
+        row.reason:SetText(label)
+    else
+        row.reason:SetText(grey(label))   -- offspec / disenchant / bank: not counted as loot won
     end
     local boss = bossName(e.b) or grey("-")
     if isDungeonEntry(e) then boss = boss .. " " .. DUNGEON_TAG end
@@ -531,10 +568,11 @@ local function saveAward()
     local note = trim(f.noteBox:GetText())
     if note == "" then note = nil end
     if note and #note > MAX_NOTE then note = note:sub(1, MAX_NOTE) end
+    local awardReason = f.reasonKey   -- (ADDENDUM G) nil = no reason / the roll's default
     -- Opened by the drop panel: it records the award itself (through the item's roll when it has one).
     local onSave = f.onSave
     if type(onSave) == "function" then
-        local ok, done, reason = pcall(onSave, id, key, resolveBoss(), note)
+        local ok, done, reason = pcall(onSave, id, key, resolveBoss(), note, awardReason)
         if not ok then
             local handler = geterrorhandler and geterrorhandler()
             if handler then handler(done) end
@@ -550,7 +588,7 @@ local function saveAward()
         setStatus("The award log is not available.")
         return
     end
-    local entry = ns.Ledger:Award(id, key, resolveBoss(), note)
+    local entry = ns.Ledger:Award(id, key, resolveBoss(), note, nil, awardReason)
     if not entry then
         setStatus("Could not record the award (council members only).")
         return
@@ -591,7 +629,7 @@ end
 local function createDialog()
     local UI = ns.UI
     if not (UI and UI.CreateWindow) then return nil end
-    local f = UI:CreateWindow("CDLootAwardDialog", "Record award", 320, 200)
+    local f = UI:CreateWindow("CDLootAwardDialog", "Record award", 320, 228)
     f:SetFrameStrata("DIALOG")
     f:SetToplevel(true)
     f:Hide()
@@ -638,15 +676,26 @@ local function createDialog()
     f.noteBox = createEditBox(c, 234, MAX_NOTE)
     f.noteBox:SetPoint("TOPLEFT", 64, -84)
 
+    -- Reason (ADDENDUM G): offspec / disenchant / guild bank awards don't count as loot won.
+    label("Reason", -118)
+    f.reasonDD = UI:CreateDropdown(c, 160, function()
+        local opts = { { value = "", text = "None" } }
+        for _, r in ipairs(ns.AWARD_REASONS or {}) do opts[#opts + 1] = { value = r.key, text = r.label } end
+        return opts
+    end, function() return f.reasonKey or "" end, function(value)
+        f.reasonKey = (type(value) == "string" and value ~= "") and value or nil
+    end)
+    f.reasonDD:SetPoint("TOPLEFT", 64, -112)
+
     f.bossText = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.bossText:SetPoint("TOPLEFT", 10, -114)
+    f.bossText:SetPoint("TOPLEFT", 10, -142)
     f.bossText:SetWidth(290)
     f.bossText:SetJustifyH("LEFT")
     f.bossText:SetWordWrap(false)
 
     f.status = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.status:SetTextColor(1, 0.3, 0.3)
-    f.status:SetPoint("TOPLEFT", 10, -130)
+    f.status:SetPoint("TOPLEFT", 10, -158)
     f.status:SetWidth(290)
     f.status:SetJustifyH("LEFT")
 
@@ -675,7 +724,7 @@ local function createHeader(p)
     h:SetPoint("TOPRIGHT", 0, -34)
     h:SetHeight(18)
     local titles = {
-        { COL.date, "Date" }, { COL.item, "Item" }, { COL.winner, "Winner" },
+        { COL.date, "Date" }, { COL.item, "Item" }, { COL.winner, "Winner" }, { COL.reason, "Reason" },
         { COL.boss, "Boss" }, { COL.by, "Recorded" },
     }
     for _, t in ipairs(titles) do
@@ -817,14 +866,17 @@ end
 
 -- Opens the "Record award" dialog, optionally prefilled (all arguments optional).
 -- bossKey: bossRef key of the drop; when omitted the boss is derived from the item (and a recent kill).
--- opts.onSave(itemID, winnerKey, bossKey, note) -> ok[, reason]: records the award instead of the plain
+-- opts.onSave(itemID, winnerKey, bossKey, note, awardReason) -> ok[, reason]: records the award instead of the plain
 -- Ledger:Award (the drop panel uses it so an award of a rolled item closes the roll). The Loot Log's own
--- "Add award..." never passes it, so it does not touch rolls.
+-- "Add award..." never passes it, so it does not touch rolls. opts.reason: the preselected award reason key.
 function LootLogUI:OpenAwardDialog(itemID, winnerKey, bossKey, note, opts)
     local f = dialog or createDialog()
     if not f then return end
     installLinkHook()
     f.onSave = (type(opts) == "table" and type(opts.onSave) == "function") and opts.onSave or nil
+    local preset = type(opts) == "table" and opts.reason or nil
+    f.reasonKey = (ns.AWARD_REASON and ns.AWARD_REASON[preset]) and preset or nil
+    if f.reasonDD and f.reasonDD.Refresh then f.reasonDD:Refresh() end
     f.explicitBoss = (type(bossKey) == "string" and bossKey ~= "") and bossKey or nil
     setStatus("")
     itemID = tonumber(itemID)

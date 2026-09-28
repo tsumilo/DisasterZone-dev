@@ -147,7 +147,7 @@ def non_ml_council_award_uses_confirm_popup():
         assert [(e["w"], e["s"], e["n"]) for e in vis] == [(key("Dave"), "m", "roll 80")], (n, vis)
     lines = award_lines(w, chat0)
     assert len(lines) == 1 and lines[0]["sender"] == key("Bob"), lines
-    assert strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (rolled 80, BiS alt)", lines
+    assert strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (rolled 80, Alt)", lines
     # the ML later hands the item out by hand: the loot message adds a hidden auto entry, still one visible award
     A.eval("GiveMasterLoot(1, ...)", 4)        # candidate 4 = Dave
     w.tick(2)

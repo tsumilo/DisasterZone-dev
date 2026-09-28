@@ -89,7 +89,7 @@ def b_plain_award_goes_through_the_roll():
         vis = visible_for(r[n], RUBY_DRAPE)
         assert [(e["w"], e["s"], e["n"]) for e in vis] == [(key("Dave"), "m", "roll 80")], (n, vis)
     lines = [e for e in w.chat_log[chat0:] if "->" in e["text"]]
-    assert len(lines) == 1 and strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (rolled 80, BiS alt)", lines
+    assert len(lines) == 1 and strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (rolled 80, Alt)", lines
     # the same award again is a no-op (true, nothing new); another winner is refused (caller records itself)
     assert B.eval("return ns.Roll:MarkAwardedExternally(...)", sid, key("Dave")) is True
     ok, why = B.eval("return ns.Roll:MarkAwardedExternally(...)", sid, key("Carol"))

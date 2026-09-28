@@ -7,6 +7,10 @@
 -- and demo awards that older versions saved are purged at login.
 -- Dungeon mode (Addendum B §22.2): entries created in dungeon mode inside a 5-man instance carry
 -- dg = true (optional wire field; older clients drop it). CountSince ignores them unless asked.
+-- Award reasons (Addendum G §40): optional r = reason key (ns.AWARD_REASONS) and rts = the time it was last
+-- changed. A changed reason spreads like a void (the greater rts wins) and is part of the digest only once
+-- changed, so entries whose reason was never edited digest exactly like CDLoot 0.5's. Offspec / disenchant /
+-- guild bank awards don't count as loot received, and disenchant / bank awards don't mark the item awarded.
 local addonName, ns = ...
 
 local Ledger = ns:NewModule("Ledger")
@@ -27,6 +31,7 @@ local MAX_PENDING_DAYS = 130
 local MAX_ID_LEN = 64
 local MAX_GUILD_LEN = 128
 local MAX_NOTE_LEN = 200
+local MAX_REASON_LEN = 8
 local MAX_TS = 4102444800             -- year 2100; anything larger is junk
 local FUTURE_SLACK = 300              -- a ts / vts from the network more than 5 min ahead of server time is junk
 local RAID_SCOPE_AGE = 12 * 3600      -- a raid-scope council member may only touch awards of the last 12 h
@@ -242,11 +247,33 @@ local function FlushDeferred()
     end
 end
 
--- The next void timestamp of an entry: strictly increasing so a quick void + restore still wins on every peer,
--- never past MAX_TS, and a vts poisoned into the future (a forged A) is treated as "now".
-NextVoidTs = function(e)
+-- The next edit timestamp after `prev` (a vts / rts): strictly increasing so a quick void + restore still wins on
+-- every peer, never past MAX_TS, and a time poisoned into the future (a forged A) is treated as "now".
+local function NextTs(prev)
     local now = GetServerTime()
-    return min(MAX_TS, max(now, min(tonumber(e.vts) or 0, now) + 1))
+    return min(MAX_TS, max(now, min(tonumber(prev) or 0, now) + 1))
+end
+
+NextVoidTs = function(e)
+    return NextTs(e.vts)
+end
+
+-- A reason key from the network: known keys, and (so digests keep matching a newer version) any short lowercase
+-- word. nil for no reason.
+local function CleanReason(r)
+    if type(r) ~= "string" or r == "" or #r > MAX_REASON_LEN or not r:find("^%l+$") then return nil end
+    return r
+end
+
+-- The reason's rules (ns.AWARD_REASON); an unknown or missing reason counts and owns like a normal award.
+local function ReasonCounts(e)
+    local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
+    return not r or r.counts
+end
+
+local function ReasonOwns(e)
+    local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
+    return not r or r.owns
 end
 
 -- Validates an (untrusted) entry and returns a clean copy with known fields only.
@@ -263,6 +290,7 @@ local function Clean(e)
     if e.vd ~= nil and type(e.vd) ~= "boolean" then return nil, "bad void flag" end
     if e.vts ~= nil and not IsInt(e.vts, 0, MAX_TS) then return nil, "bad void ts" end
     if e.dg ~= nil and type(e.dg) ~= "boolean" then return nil, "bad dungeon flag" end
+    if e.rts ~= nil and not IsInt(e.rts, 0, MAX_TS) then return nil, "bad reason ts" end
     if e.w:find("[%c|]") or e.by:find("[%c|]") then return nil, "bad names" end
     local w = Util.NormalizeName(e.w)
     local by = Util.NormalizeName(e.by)
@@ -280,6 +308,8 @@ local function Clean(e)
         vd = e.vd and true or nil,
         vts = e.vts,
         dg = e.dg and true or nil,                      -- 5-man dungeon loot (Addendum B)
+        r = CleanReason(e.r),                           -- award reason (Addendum G)
+        rts = e.rts,
         g = IsStr(e.g, MAX_GUILD_LEN) and e.g or nil,   -- local guild tag (Merge replaces it)
     }
 end
@@ -374,10 +404,12 @@ local function BuildView()
                 awarded[e.w] = {}
             end
             list[#list + 1] = e
-            local set = awarded[e.w]
-            set[e.i] = true
-            for _, id in ipairs(ExpandDrop(e.i)) do
-                set[id] = true
+            if ReasonOwns(e) then
+                local set = awarded[e.w]
+                set[e.i] = true
+                for _, id in ipairs(ExpandDrop(e.i)) do
+                    set[id] = true
+                end
             end
         end
     end
@@ -469,7 +501,8 @@ end
 
 -- Manual award. In demo mode it goes to the in-memory demo ledger and is never sent.
 -- dg (optional): true / false = 5-man dungeon loot or not; nil = derived from the dungeon-mode context.
-function Ledger:Award(itemID, winnerKey, bossKey, note, dg)
+-- reason (optional): an ns.AWARD_REASONS key.
+function Ledger:Award(itemID, winnerKey, bossKey, note, dg, reason)
     if not CanRecord() then
         ns:Print("Only loot council members can record awards.")
         return nil
@@ -500,6 +533,7 @@ function Ledger:Award(itemID, winnerKey, bossKey, note, dg)
         b = IsStr(bossKey, MAX_ID_LEN, true) and bossKey or "",
         g = gkey or nil,
         dg = DgFlag(dg),
+        r = ns.AWARD_REASON[reason] and reason or nil,
     }
     db[id] = entry
     Invalidate()
@@ -521,7 +555,8 @@ end
 -- broadcast: true for the awarding client (receivers of RW record it themselves).
 -- dg: true / false = a party (dungeon mode) roll or not, so every council client writes the same
 -- entry; nil = derived from the dungeon-mode context.
-function Ledger:RecordRollAward(sessionID, itemID, winnerKey, bossKey, note, byKey, ts, broadcast, dg)
+-- reason (optional): the award reason the awarder chose (RW r), the same on every council client.
+function Ledger:RecordRollAward(sessionID, itemID, winnerKey, bossKey, note, byKey, ts, broadcast, dg, reason)
     if not AmRealCouncil() or not IsStr(sessionID, MAX_ID_LEN) then return nil end
     local db = LedgerDB()
     local gkey = EntryGuildKey()
@@ -529,10 +564,17 @@ function Ledger:RecordRollAward(sessionID, itemID, winnerKey, bossKey, note, byK
     byKey = Util.NormalizeName(byKey) or Util.PlayerKey()
     itemID = tonumber(itemID)
     if not db or gkey == nil or not winnerKey or not byKey or not IsInt(itemID, 1, 200000) then return nil end
+    reason = ns.AWARD_REASON[reason] and reason or nil
     local id = RollAwardID(sessionID, winnerKey)
     local cur = db[id]
     if type(cur) == "table" then
-        if cur.i == itemID and cur.w == winnerKey then return cur end
+        if cur.i == itemID and cur.w == winnerKey then
+            if reason and not cur.r then   -- (an older client's copy of this award, without its reason)
+                cur.r = reason
+                Invalidate()
+            end
+            return cur
+        end
         -- Someone pre-seeded this roll's id with other content: the RW decides what it records.
         ns:Debug("Ledger: roll award %s had other content (%s / %s); replaced", id, tostring(cur.w), tostring(cur.i))
     end
@@ -543,7 +585,7 @@ function Ledger:RecordRollAward(sessionID, itemID, winnerKey, bossKey, note, byK
     if type(note) == "string" and note ~= "" then note = note:sub(1, MAX_NOTE_LEN) else note = nil end
     local entry = {
         id = id, i = itemID, w = winnerKey, ts = ts, by = byKey, s = "m", n = note,
-        b = IsStr(bossKey, MAX_ID_LEN, true) and bossKey or "", g = gkey or nil, dg = DgFlag(dg),
+        b = IsStr(bossKey, MAX_ID_LEN, true) and bossKey or "", g = gkey or nil, dg = DgFlag(dg), r = reason,
     }
     db[id] = entry
     Invalidate()
@@ -612,6 +654,27 @@ function Ledger:Void(id, voided)
     return SetVoid(AutoCluster(db, e, CurrentGuildKey(), demo), value, demo)
 end
 
+-- Addendum G §40: changes the award reason of an entry (reason nil = none). Like a void, it covers the other
+-- council members' copies of an auto entry's loot line, and the newer change (rts) wins on every peer.
+function Ledger:SetReason(id, reason)
+    if not CanRecord() then return false end
+    if reason ~= nil and not ns.AWARD_REASON[reason] then return false end
+    local demo = DemoOn()
+    local db = ActiveDB()
+    local e = db and type(id) == "string" and db[id]
+    if type(e) ~= "table" or e.r == reason then return false end
+    local list = AutoCluster(db, e, CurrentGuildKey(), demo)
+    for _, x in ipairs(list) do
+        x.r = reason
+        x.rts = NextTs(x.rts)
+    end
+    Invalidate()
+    if not demo then
+        for _, x in ipairs(list) do Broadcast(x) end
+    end
+    return true
+end
+
 -- CDLoot 0.5: voids every visible auto entry of winnerKey + itemID recorded around ts (the loot line of a hand-out
 -- that the council says belongs to someone else). Returns true if anything changed.
 function Ledger:VoidAutoNear(winnerKey, itemID, ts)
@@ -652,6 +715,7 @@ local function PlausibleTimes(e, now)
     local ts = tonumber(e.ts)
     if ts and ts > now + FUTURE_SLACK then return false end
     if e.vts ~= nil and (type(e.vts) ~= "number" or e.vts > now + FUTURE_SLACK) then return false end
+    if e.rts ~= nil and (type(e.rts) ~= "number" or e.rts > now + FUTURE_SLACK) then return false end
     return true
 end
 
@@ -710,6 +774,16 @@ function Ledger:Merge(entry, fromKey)
         cur.vts = e.vts
         changed = true
     end
+    -- The reason (Addendum G): the newer change wins; on a tie a missing reason is filled in, and two different
+    -- ones settle on the smaller key, so every peer ends up with the same.
+    local cr, er = cur.rts or 0, e.rts or 0
+    if cr > now + FUTURE_SLACK then cr = -1 end
+    local takeR = (er > cr) or (er == cr and e.r ~= nil and e.r ~= cur.r and (cur.r == nil or e.r < cur.r))
+    if takeR and not (cur.r == e.r and cur.rts == e.rts) then
+        cur.r = e.r
+        cur.rts = e.rts
+        changed = true
+    end
     if changed then Invalidate() end
     return changed
 end
@@ -745,14 +819,14 @@ function Ledger:HasAward(key, wantedItemID)
 end
 
 -- Awards to key since ts ("won N tonight"). 5-man dungeon loot (dg) is not counted unless
--- includeDungeon is true.
+-- includeDungeon is true; offspec / disenchant / guild bank awards (Addendum G) never are.
 function Ledger:CountSince(key, ts, includeDungeon)
     local list = key and GetView().byWinner[key]
     if not list then return 0 end
     ts = tonumber(ts) or 0
     local n = 0
     for _, e in ipairs(list) do
-        if e.ts >= ts and (includeDungeon or not e.dg) then n = n + 1 end
+        if e.ts >= ts and (includeDungeon or not e.dg) and ReasonCounts(e) then n = n + 1 end
     end
     return n
 end
@@ -813,7 +887,10 @@ function Ledger:GetDigest()
                     list = {}
                     perDay[day] = list
                 end
-                list[#list + 1] = e.vd and (id .. "v" .. tostring(floor(e.vts or 0))) or id
+                local d = e.vd and (id .. "v" .. tostring(floor(e.vts or 0))) or id
+                -- A changed reason (rts) is part of the digest; a reason set when the award was made is not.
+                if e.rts then d = d .. "r" .. tostring(e.r or "") .. tostring(floor(e.rts)) end
+                list[#list + 1] = d
             end
         end
     end
@@ -1049,7 +1126,7 @@ function Ledger:OnInit()
     ns:On("CONFIG_UPDATED", function() TryPurge(false) end)
 end
 
-local ENTRY_FIELDS = { "id", "i", "w", "b", "ts", "by", "s", "n", "vd", "vts", "dg", "g" }
+local ENTRY_FIELDS = { "id", "i", "w", "b", "ts", "by", "s", "n", "vd", "vts", "dg", "r", "rts", "g" }
 
 -- A stored entry equals its Clean() copy (no extra fields, same values).
 local function SameEntry(a, b)
@@ -1075,6 +1152,7 @@ function Ledger:OnLogin()
         else
             -- A void time poisoned into the future (forged A, CDLoot 0.4): reset, so a void / restore works again.
             if clean.vts and clean.vts > now + FUTURE_SLACK then clean.vts = 0 end
+            if clean.rts and clean.rts > now + FUTURE_SLACK then clean.rts = 0 end
             if not SameEntry(e, clean) then db[id] = clean end   -- keep the stored table unless it changes
         end
     end

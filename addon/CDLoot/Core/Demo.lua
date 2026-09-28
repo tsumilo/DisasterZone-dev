@@ -299,6 +299,21 @@ function Demo:GetRaidKeys()
     return out
 end
 
+-- Addendum G §41: stand-in disenchanter ("de") / guild bank ("bank") characters from the demo raid, so the drop
+-- panel's DE / Bank buttons can be tried without a guild setting. nil when disabled.
+function Demo:GetLootTarget(kind)
+    if not enabled or not generated then return nil end
+    local keys = {}
+    for key in pairs(generated.raidSet) do
+        local r = generated.roster[key]
+        if not (r and (tonumber(r.rankIndex) or 99) <= 1) then keys[#keys + 1] = key end   -- not an officer
+    end
+    tsort(keys)
+    if kind == "de" then return keys[1] end
+    if kind == "bank" then return keys[2] end
+    return nil
+end
+
 -- Names (without realm) of all fake members, also while demo mode is off. Used by the Ledger to
 -- purge demo awards that CDLoot 0.1 saved (§20).
 function Demo:GetFakeNames()
@@ -434,6 +449,23 @@ function Demo:SimulateRolls(session)
             end
         end
         count = count + 1
+    end
+
+    -- Addendum G: the demo council votes too, a few seconds in: the first officer for the BiS wanter who never
+    -- rolls, the second for one of the rollers, so the vote-based suggestion can be tried.
+    local officers = {}
+    for key, r in pairs(generated.roster) do
+        if key ~= me and (tonumber(r.rankIndex) or 99) <= 1 then officers[#officers + 1] = key end
+    end
+    tsort(officers)
+    local picks = { silent, members[#members] }
+    for i = 1, math.min(2, #officers) do
+        local voter, cand = officers[i], picks[i]
+        if cand and Roll.OnDemoVote then
+            Util.After(6 + rng.Next() * 6, function()
+                if enabled then Roll:OnDemoVote(voter, id, cand) end
+            end)
+        end
     end
     return count
 end

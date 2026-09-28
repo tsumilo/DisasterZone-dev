@@ -4,7 +4,8 @@
 -- on the default loot frame buttons (SPEC §12.8). Awards of an item that has a roll go through the roll
 -- so every popup closes (ADDENDUM C §23.2). The raid leader can lock / unlock the group's BiS lists from
 -- the footer, and candidates / roll rows of players who changed their list while locked carry a warning
--- marker (ADDENDUM F §38).
+-- marker (ADDENDUM F §38). ADDENDUM G: council votes on roll rows (a vote column you click to vote), award
+-- reasons ("Award to X as ▸", "Reason ▸"), and one-click DE / Bank buttons for the guild's disenchanter / bank.
 local addonName, ns = ...
 
 local DropPanel = ns:NewModule("DropPanel")
@@ -21,7 +22,7 @@ local ipairs, pairs, type, tonumber, tostring, pcall = ipairs, pairs, type, tonu
 -- Constants
 ---------------------------------------------------------------------------
 local PANEL_NAME = "CDLootDropPanel"
-local PANEL_W, PANEL_MIN_H, PANEL_MAX_H = 400, 150, 520
+local PANEL_W, PANEL_MIN_H, PANEL_MAX_H = 430, 150, 520
 local HEADER_H, FOOTER_H, SCROLLBAR_W = 40, 30, 26
 local ITEM_HEAD_H, ROW_H, ACTION_H, BLOCK_GAP = 36, 18, 22, 8
 local ROLL_ROW_H = 20
@@ -50,12 +51,13 @@ local FALLBACK_COLORS = {
     council  = { 1.00, 0.50, 0.00 },
 }
 
--- Row column layouts {x, width} (rows are ~354px wide at PANEL_W 400; the equipped icons sit
+-- Row column layouts {x, width} (rows are ~384px wide at PANEL_W 430; the equipped icons sit
 -- right-aligned in the last 34px). Spec needs ~70px for "Beast Mastery" / "Assassination".
 local NORMAL_COLS = { name = { 30, 76 }, spec = { 108, 74 }, badge = { 184, 48 }, status = { 234, 84 } }
--- Roll rows: "Shadowmelder" needs 71 px, "Marksmanship" 69, "[BiS] P3" 36, "Suggested" 50 (the §38 warning icon
--- moved to the name column), roll text "100 x3" 41.
-local ROLL_COLS = { name = { 30, 76 }, spec = { 108, 70 }, badge = { 180, 38 }, tag = { 220, 56 } }
+-- Roll rows: "Shadowmelder" needs 71 px, "Marksmanship" 69, "[BiS] P3" 36, votes (check icon + "12") 28,
+-- "Suggested" 50 (the §38 warning icon moved to the name column), roll text "100 x3" 41.
+local ROLL_COLS = { name = { 30, 76 }, spec = { 108, 70 }, badge = { 180, 38 }, votes = { 220, 30 }, tag = { 252, 56 } }
+local VOTE_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t"
 
 local SLOT_GROUP_FALLBACK = {
     [11] = { 11, 12 }, [12] = { 11, 12 }, [13] = { 13, 14 }, [14] = { 13, 14 }, [15] = { 15, 16 }, [16] = { 15, 16 },
@@ -553,7 +555,7 @@ local function TierWord(row)
 end
 
 local function RollCounts(results)
-    local rolled, passed = 0, 0
+    local rolled, passed, votes = 0, 0, 0
     local tie = false
     for _, r in ipairs(results) do
         if type(r) == "table" then
@@ -563,9 +565,42 @@ local function RollCounts(results)
                 rolled = rolled + 1
             end
             if r.suggested and r.tie then tie = true end
+            votes = votes + (tonumber(r.votes) or 0)
         end
     end
-    return rolled, passed, tie
+    return rolled, passed, tie, votes
+end
+
+local function VotesText(n)
+    n = tonumber(n) or 0
+    return n == 1 and "1 vote" or (n .. " votes")
+end
+
+-- ADDENDUM G: label of an award reason key ("BiS"), or nil.
+local function ReasonLabel(key)
+    return ns.ReasonLabel and ns.ReasonLabel(key) or nil
+end
+
+-- The guild's / raid's disenchanter ("de") or guild bank ("bank") character, or nil.
+local function LootTarget(kind)
+    local G = ns.Guild
+    if not (G and G.GetLootTarget) then return nil end
+    local key = G:GetLootTarget(kind)
+    return key
+end
+
+-- I am master looter and itemID is in the open loot window (I can hand it out right now).
+local function CanMasterLoot(itemID)
+    local Loot = ns.Loot
+    if not (Loot and Loot.CanGiveItem) then return false end
+    local ok, can = pcall(Loot.CanGiveItem, Loot, itemID)
+    return (ok and can) and true or false
+end
+
+-- Default award reason for a BiS candidate (Store:GetWanters entry): main pick -> BiS, alt -> Alt.
+local function WanterReason(w)
+    if type(w) ~= "table" or w.cantUse then return nil end
+    return w.which == "alt" and "alt" or "bis"
 end
 
 local function RollStateText(session, stats, queuePos)
@@ -580,9 +615,13 @@ local function RollStateText(session, stats, queuePos)
     if st == "open" then
         local left = RollTimeLeft(session)
         local head = left > 0 and ("Rolling - " .. FormatLeft(left) .. " left") or "Rolling - closing..."
-        return Paint(head, "main") .. Paint(format("  ·  %d rolled, %d passed", stats.rolled or 0, stats.passed or 0), "muted")
+        local t = Paint(head, "main") .. Paint(format("  ·  %d rolled, %d passed", stats.rolled or 0, stats.passed or 0), "muted")
+        if (stats.votes or 0) > 0 then t = t .. Paint("  ·  " .. VotesText(stats.votes), "muted") end
+        return t
     elseif st == "awarded" then
         local t = Paint("Awarded to ", "obtained") .. ColoredName(session.winner)
+        local label = ReasonLabel(session.reason)
+        if label then t = t .. Paint("  ·  " .. label, "muted") end
         if session.via == "loot" then
             t = t .. Paint(" (looted)", "muted")      -- closed by the loot message (ADDENDUM C §23.1)
         elseif session.given then
@@ -591,6 +630,7 @@ local function RollStateText(session, stats, queuePos)
         return t
     end
     local t = Paint("Rolls closed", "warn") .. Paint(format("  ·  %d rolled", stats.rolled or 0), "muted")
+    if (stats.votes or 0) > 0 then t = t .. Paint("  ·  " .. VotesText(stats.votes), "muted") end
     if stats.tie then t = t .. Paint("  ·  tie", "warn") end
     return t
 end
@@ -1101,6 +1141,17 @@ local function RollCell(row, session)
     return Paint("no roll", "muted")
 end
 
+-- Vote column: a check + the count (gold when my vote is among them); a faint "vote" prompt on rows I may vote for.
+local function VoteCell(row, canVote)
+    local n = tonumber(row.votes) or 0
+    if n > 0 then
+        local t = VOTE_ICON .. tostring(n)
+        return row.myVote and Paint(t, "main") or ("|cffffffff" .. t .. "|r")
+    end
+    if canVote and row.response ~= "pass" then return Paint("vote", "muted") end
+    return ""
+end
+
 local function RollTag(row, session)
     if type(session) == "table" and session.state == "awarded" and session.winner == row.key then
         return Paint("Winner", "obtained")
@@ -1166,9 +1217,18 @@ local function RollRowTooltip(self, tt, vp)
     else
         tt:AddLine("Did not roll", 0.7, 0.7, 0.7)
     end
+    local votes = tonumber(row.votes) or 0
+    if votes > 0 then
+        local names = {}
+        for i, v in ipairs(type(row.voters) == "table" and row.voters or {}) do names[i] = ShortName(v) end
+        local m = Color("main")
+        tt:AddLine(format("%s: %s", VotesText(votes), tconcat(names, ", ")), m[1], m[2], m[3], true)
+        if row.myVote then tt:AddLine("Includes your vote", 0.7, 0.7, 0.7) end
+    end
     if row.suggested then
         local m = Color("main")
-        tt:AddLine(row.tie and "Suggested winner - tied: pick one or re-roll" or "Suggested winner", m[1], m[2], m[3])
+        local why = row.suggestedBy == "votes" and "Suggested winner (most council votes)" or "Suggested winner"
+        tt:AddLine(row.tie and (why .. " - tied: pick one or re-roll") or why, m[1], m[2], m[3])
     elseif row.tie then
         local w = Color("warn")
         tt:AddLine("Tied with the suggested winner", w[1], w[2], w[3])
@@ -1193,7 +1253,11 @@ local function RollRowTooltip(self, tt, vp)
     if changed then AddLockChangedLine(tt, changed, "Never suggested as the winner; you can still award it.") end
     local worn = WornOfRow(row, self.itemSid)
     if #worn > 0 then tt:AddLine(WearingText(worn), 0.7, 0.7, 0.7) end
-    tt:AddLine("Click: award or link the item", 0.5, 0.5, 0.5)
+    if self.canVote then
+        tt:AddLine("Click: vote, award or link the item", 0.5, 0.5, 0.5)
+    else
+        tt:AddLine("Click: award or link the item", 0.5, 0.5, 0.5)
+    end
     tt:Show()
 end
 
@@ -1325,6 +1389,15 @@ function DropPanel:NewRow(b)
     r.badge = NewFS(r, "GameFontHighlightSmall", NORMAL_COLS.badge[1], NORMAL_COLS.badge[2])
     r.status = NewFS(r, "GameFontDisableSmall", NORMAL_COLS.status[1], NORMAL_COLS.status[2])
     r.tag = NewFS(r, "GameFontNormalSmall", ROLL_COLS.tag[1], ROLL_COLS.tag[2])
+    -- ADDENDUM G: the vote column; clicking it votes for the row's player (or takes my vote back).
+    r.votes = NewFS(r, "GameFontHighlightSmall", ROLL_COLS.votes[1], ROLL_COLS.votes[2])
+    r.voteBtn = CreateFrame("Button", nil, r)
+    r.voteBtn:SetPoint("LEFT", r, "LEFT", ROLL_COLS.votes[1] - 2, 0)
+    r.voteBtn:SetSize(ROLL_COLS.votes[2] + 2, ROLL_ROW_H)
+    r.voteBtn:SetScript("OnClick", function(btn) DropPanel:ToggleVote(btn:GetParent()) end)
+    r.voteBtn:SetScript("OnEnter", function(btn) RowOnEnter(btn:GetParent()) end)
+    r.voteBtn:SetScript("OnLeave", HideTooltip)
+    r.voteBtn:Hide()
     r.roll = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     r.roll:SetPoint("RIGHT", r, "RIGHT", -(2 * EQ_SIZE + 8), 0)
     r.roll:SetWidth(42)
@@ -1370,6 +1443,11 @@ local function SetRowMode(r, mode)
     r.badge:SetShown(not more)
     r.status:SetShown(mode == "normal")
     r.tag:SetShown(roll)
+    r.votes:SetShown(roll)
+    if not roll then
+        r.voteBtn:Hide()
+        r.canVote = nil
+    end
     r.roll:SetShown(roll)
     r.moreText:SetShown(more)
     if not more and r.layout ~= mode then
@@ -1435,6 +1513,11 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     r.spec:SetText(type(row.spec) == "string" and row.spec or "")
     r.badge:SetText(TierBadge(row, vp))
     r.tag:SetText(RollTag(row, session))
+    local canVote = type(session) == "table" and HasRoll("CanVote") and CallRoll("CanVote", session.id) and inRaid
+        and row.response ~= "pass" and true or false
+    r.canVote = canVote
+    r.votes:SetText(VoteCell(row, canVote))
+    r.voteBtn:SetShown(canVote)
     r.roll:SetText(RollCell(row, session))
     SetEquipped(r, WornOfRow(row, itemSid))
 
@@ -1541,7 +1624,12 @@ function DropPanel:NewBlock(parent)
     AddButtonTooltip(b.unqueue, function()
         return "Take this item out of the roll queue."
     end)
-    b.actionButtons = { b.announce, b.award, b.rollBtn, b.endRoll, b.awardRoll, b.reroll, b.unqueue }
+    -- ADDENDUM G §41: one click to the guild's (or this raid's) disenchanter / guild bank character.
+    b.deBtn = UI:CreateButton(b, "DE", 40, 20, function() DropPanel:AwardToTarget(b, "de") end)
+    AddButtonTooltip(b.deBtn, function() return DropPanel:TargetTooltip("de") end)
+    b.bankBtn = UI:CreateButton(b, "Bank", 50, 20, function() DropPanel:AwardToTarget(b, "bank") end)
+    AddButtonTooltip(b.bankBtn, function() return DropPanel:TargetTooltip("bank") end)
+    b.actionButtons = { b.announce, b.award, b.rollBtn, b.endRoll, b.awardRoll, b.reroll, b.unqueue, b.deBtn, b.bankBtn }
 
     b.awarded = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     b.awarded:SetJustifyH("LEFT")
@@ -1636,8 +1724,8 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             end
         end
         b.results = results
-        local rolled, passed, tie = RollCounts(results)
-        b.rollStats = { rolled = rolled, passed = passed, tie = tie }
+        local rolled, passed, tie, votes = RollCounts(results)
+        b.rollStats = { rolled = rolled, passed = passed, tie = tie, votes = votes }
         for _, row in ipairs(results) do
             if row.suggested then
                 b.suggested = row
@@ -1745,6 +1833,19 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     -- by whoever may award rolls (master looter, leader), because the award then goes through the roll.
     local rollAwardable = rolling and not winnerKey and (session.state == "open" or session.state == "closed")
     local canAwardItem = IsCouncil() or (rollAwardable and RollAllows("CanAward", manage))
+    -- DE / Bank (ADDENDUM G §41): while nobody is picked (no roll, or a roll without a suggestion) and a target is
+    -- set; the Award... menu has them too.
+    if not winnerKey and not FakeDropLocked(drop) and (mode == "normal" or (rolling and not b.suggested))
+        and (canAwardItem or CanMasterLoot(itemID)) then
+        for _, kind in ipairs({ "de", "bank" }) do
+            local key = LootTarget(kind)
+            if key then
+                local btn = kind == "de" and b.deBtn or b.bankBtn
+                buttons[#buttons + 1] = btn
+                if IsInMyGroup(key) then btn:Enable() else btn:Disable() end
+            end
+        end
+    end
     if rolling and type(session.lootOther) == "string" and IsCouncil() and not buttons[1] then
         buttons[1] = b.award   -- the fix of a loot-message conflict lives in the Award... menu
     end
@@ -1752,6 +1853,8 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     LayoutActions(b, y, buttons, self.child and self.child:GetWidth())
     if winnerKey then
         local t = Paint("Awarded to ", "obtained") .. ColoredName(winnerKey)
+        local label = ReasonLabel(award and award.r or (rolling and session.reason) or nil)
+        if label then t = t .. Paint(" · " .. label, "muted") end
         if rolling and session.state == "awarded" and session.via == "loot" and session.winner == winnerKey then
             t = t .. Paint(" (looted)", "muted")
         end
@@ -1838,10 +1941,29 @@ function DropPanel:EndRoll(session)
     self:RequestRefresh(0.1)
 end
 
-function DropPanel:AwardRoll(sessionID, key)
+-- reason (optional, ADDENDUM G): an award reason key; nil = from the winner's BiS tier.
+function DropPanel:AwardRoll(sessionID, key, reason)
     if type(sessionID) ~= "string" or type(key) ~= "string" then return end
-    CallRoll("Award", sessionID, key)
+    CallRoll("Award", sessionID, key, reason)
     self:RequestRefresh(0.1)
+end
+
+-- The vote column of a roll row: vote for its player, or take my vote back (ADDENDUM G §42).
+function DropPanel:ToggleVote(r)
+    local row, session = r and r.data, r and r.session
+    if type(row) ~= "table" or type(session) ~= "table" or not HasRoll("Vote") then return end
+    CallRoll("Vote", session.id, row.key)
+    self:RequestRefresh(0.05)
+end
+
+-- Adds "<prefix> as ▸" with every award reason to a menu; fn(reasonKey) awards.
+local function AddReasonSubmenu(root, text, fn)
+    local sub = root:CreateButton(text)
+    for _, r in ipairs(ns.AWARD_REASONS or {}) do
+        local rk = r.key
+        sub:CreateButton(r.label, function() fn(rk) end)
+    end
+    return sub
 end
 
 function DropPanel:AwardSuggested(b)
@@ -1852,8 +1974,9 @@ end
 
 function DropPanel:AwardSuggestedTooltip(b)
     local row = b and b.suggested
-    if type(row) ~= "table" then return "Nobody has a valid roll yet." end
+    if type(row) ~= "table" then return "Nobody has a valid roll or a council vote yet." end
     local parts = {}
+    if row.suggestedBy == "votes" then parts[#parts + 1] = VotesText(row.votes) end
     local n = tonumber(row.roll)
     if n then parts[#parts + 1] = "rolled " .. n end
     parts[#parts + 1] = TierWord(row)
@@ -1883,11 +2006,19 @@ function DropPanel:OpenRollRowMenu(r)
     local canAward = (session.state == "open" or session.state == "closed")
         and RollAllows("CanAward", IsCouncil() or CanStartRolls(self.drop))
     local open = session.state == "open"
+    local canVote = r.canVote
     ns.UI:ContextMenu(r, function(root)
         root:CreateTitle(ShortName(key))
+        if canVote then
+            root:CreateButton(row.myVote and "Remove my vote" or ("Vote for " .. ShortName(key)), function()
+                CallRoll("Vote", id, key)
+                DropPanel:RequestRefresh(0.05)
+            end)
+        end
         if canAward then
-            root:CreateButton((open and "End roll & award to " or "Award to ") .. ShortName(key),
-                function() DropPanel:AwardRoll(id, key) end)
+            local verb = (open and "End roll & award to " or "Award to ") .. ShortName(key)
+            root:CreateButton(verb, function() DropPanel:AwardRoll(id, key) end)
+            AddReasonSubmenu(root, verb .. " as", function(rk) DropPanel:AwardRoll(id, key, rk) end)
         end
         root:CreateButton("Link item", function() LinkItem(itemID) end)
     end)
@@ -2026,7 +2157,8 @@ end
 -- roll: Roll:MarkAwardedExternally records the one log entry (council clients), sends RW and announces,
 -- and everyone's popup closes. Otherwise the council records it in the loot log (a queued roll of the
 -- copy is then cancelled). Exactly one log entry either way. Returns true, or false plus a reason.
-function DropPanel:Award(itemID, key, bossKey, copy, drop, note)
+-- awardReason (optional, ADDENDUM G): an ns.AWARD_REASONS key; nil = the roll's default (tier) or none.
+function DropPanel:Award(itemID, key, bossKey, copy, drop, note, awardReason)
     itemID = tonumber(itemID)
     if not itemID or type(key) ~= "string" or key == "" then return false, "No item or winner." end
     if drop == nil then drop = self.drop end
@@ -2038,7 +2170,7 @@ function DropPanel:Award(itemID, key, bossKey, copy, drop, note)
 
     if (IsResolvable(session) or IsLootMarked(session)) and HasRoll("MarkAwardedExternally") then
         local id = session.id
-        local done = CallRoll("MarkAwardedExternally", id, key, note)
+        local done = CallRoll("MarkAwardedExternally", id, key, note, awardReason)
         local now = CallRoll("Get", id)
         if type(now) ~= "table" then now = session end
         self:RequestRefresh(0.1)
@@ -2058,9 +2190,11 @@ function DropPanel:Award(itemID, key, bossKey, copy, drop, note)
         ns:Print("Only Loot Council members can record awards.")
         return false, "Could not record the award (council members only)."
     end
-    local entry = ns.Ledger:Award(itemID, key, (type(bossKey) == "string" and bossKey) or "", note)
+    local entry = ns.Ledger:Award(itemID, key, (type(bossKey) == "string" and bossKey) or "", note, nil, awardReason)
     if not entry then return false, "Could not record the award." end
-    ns:Print("Recorded award: %s to %s.", ItemLink(itemID) or ItemName(itemID), ShortName(key))
+    local label = ReasonLabel(awardReason)
+    ns:Print("Recorded award: %s to %s%s.", ItemLink(itemID) or ItemName(itemID), ShortName(key),
+        label and (" (" .. label .. ")") or "")
     if type(session) == "table" and session.state == "queued" then
         CallRoll("End", session.id)   -- handed out already: its queued roll must not start
     end
@@ -2122,11 +2256,11 @@ function DropPanel:AwardSomeoneElse(itemID, bossKey, copy, drop)
     if log and type(log.OpenAwardDialog) == "function" then
         local wantID = tonumber(itemID)
         log:OpenAwardDialog(itemID, nil, bossKey, nil, {
-            onSave = function(id, key, boss, note)
+            onSave = function(id, key, boss, note, reason)
                 if wantID and tonumber(id) == wantID then
-                    return DropPanel:Award(id, key, boss, copy, drop, note)
+                    return DropPanel:Award(id, key, boss, copy, drop, note, reason)
                 end
-                return DropPanel:Award(id, key, boss, nil, false, note)
+                return DropPanel:Award(id, key, boss, nil, false, note, reason)
             end,
         })
         return
@@ -2136,6 +2270,118 @@ function DropPanel:AwardSomeoneElse(itemID, bossKey, copy, drop)
         _G.StaticPopup_Show("CDLOOT_AWARD_OTHER", ItemLink(itemID) or ItemName(itemID), nil,
             { itemID = itemID, bossKey = bossKey, copy = copy, drop = drop })
     end
+end
+
+---------------------------------------------------------------------------
+-- Disenchanter / guild bank (ADDENDUM G §41)
+---------------------------------------------------------------------------
+local TARGET_LABELS = { de = "Disenchant", bank = "Guild bank" }
+local TARGET_WHO = { de = "disenchanter", bank = "guild bank character" }
+
+function DropPanel:TargetTooltip(kind)
+    local key, src = nil, nil
+    if ns.Guild and ns.Guild.GetLootTarget then key, src = ns.Guild:GetLootTarget(kind) end
+    if not key then return "No " .. TARGET_WHO[kind] .. " is set (Council > Loot Council)." end
+    local from = (src == "raid" and "set by the raid leader for this raid")
+        or (src == "demo" and "demo mode stand-in") or "set by the Guild Master"
+    local text = format("%s: give this item to %s (%s).\nRecorded as \"%s\": not counted as loot received.",
+        TARGET_LABELS[kind], ShortName(key), from, TARGET_LABELS[kind])
+    if not IsInMyGroup(key) then
+        text = text .. "\n\n" .. ShortName(key) .. " is not in your " .. GroupWord() .. "."
+    end
+    return text
+end
+
+-- One step of the non-roll hand-out: master looter -> give with master loot after a confirmation, then record;
+-- anyone else -> record (council).
+local function EnsureTargetPopups()
+    local dialogs = _G.StaticPopupDialogs
+    if not dialogs or dialogs.CDLOOT_GIVE_TARGET then return end
+    dialogs.CDLOOT_GIVE_TARGET = {
+        text = "Give %s to %s?",
+        button1 = "Give",
+        button2 = _G.CANCEL or "Cancel",
+        OnAccept = function(self, data) DropPanel:GiveToTarget(data or self.data) end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    dialogs.CDLOOT_RECORD_TARGET = {
+        text = "Award %s to %s anyway?\n(hand it out via master loot or trade)",
+        button1 = "Award",
+        button2 = _G.CANCEL or "Cancel",
+        OnAccept = function(self, data)
+            data = data or self.data
+            if type(data) == "table" then
+                local ok, why = DropPanel:Award(data.itemID, data.key, data.bossKey, data.copy, data.drop, nil, data.kind)
+                if not ok and why then ns:Print("%s", why) end
+            end
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+end
+
+function DropPanel:GiveToTarget(data)
+    if type(data) ~= "table" then return end
+    local Loot = ns.Loot
+    local function fallback(why)
+        ns:Print("Could not hand %s to %s: %s.", ItemLink(data.itemID) or ItemName(data.itemID), ShortName(data.key),
+            tostring(why or "unknown error"))
+        EnsureTargetPopups()
+        if _G.StaticPopup_Show then
+            _G.StaticPopup_Show("CDLOOT_RECORD_TARGET", ItemLink(data.itemID) or ItemName(data.itemID),
+                ColoredName(data.key), data)
+        end
+    end
+    if not (Loot and Loot.GiveItem) then return fallback("master loot is not available") end
+    local ok, why = Loot:GiveItem(data.itemID, data.key, function(done, reason)
+        if done then
+            local okAward, whyAward = DropPanel:Award(data.itemID, data.key, data.bossKey, data.copy, data.drop, nil, data.kind)
+            if not okAward and whyAward then ns:Print("%s", whyAward) end
+        else
+            fallback(reason)
+        end
+    end)
+    if ok == false then fallback(why) end
+end
+
+-- DE / Bank buttons (and the Award... menu entries): award the item of block b to the target character.
+function DropPanel:AwardToTarget(b, kind)
+    local itemID, drop = b and b.itemID, self.drop
+    local key = LootTarget(kind)
+    if not itemID or type(drop) ~= "table" then return end
+    if not key then
+        ns:Print("No %s is set: the Guild Master (or the raid leader, for a raid) picks one in Council > Loot Council.",
+            TARGET_WHO[kind] or kind)
+        return
+    end
+    if FakeDropLocked(drop) then
+        ns:Print("Simulated drop: turn on demo mode (/cdl demo) to try awards.")
+        return
+    end
+    local bossKey = type(drop.b) == "string" and drop.b or ""
+    -- An item with a roll: through the roll (master-loot give or confirm popup; closes everyone's popup).
+    local session = self:FindRollSession(itemID, drop, b.copy)
+    if (IsResolvable(session) or IsLootMarked(session)) and HasRoll("Award") then
+        self:AwardRoll(session.id, key, kind)
+        return
+    end
+    -- Master looter with the item in the loot window: hand it over, then record.
+    if not drop.test and CanMasterLoot(itemID) then
+        EnsureTargetPopups()
+        if _G.StaticPopup_Show then
+            _G.StaticPopup_Show("CDLOOT_GIVE_TARGET", ItemLink(itemID) or ItemName(itemID),
+                ColoredName(key) .. " (" .. TARGET_LABELS[kind] .. ")",
+                { itemID = itemID, key = key, kind = kind, bossKey = bossKey, copy = b.copy, drop = drop })
+        end
+        return
+    end
+    local ok, why = self:Award(itemID, key, bossKey, b.copy, drop, nil, kind)
+    if not ok and why then ns:Print("%s", why) end
 end
 
 function DropPanel:OpenAwardMenu(b, owner)
@@ -2148,10 +2394,37 @@ function DropPanel:OpenAwardMenu(b, owner)
     local wanters = UniqueWanters(itemID, { includeObtained = false })
     local awardEntry = b.awardEntry
     local conflict = b.rollSession and type(b.rollSession.lootOther) == "string" and b.rollSession or nil
-    local function award(key) DropPanel:Award(itemID, key, bossKey, copy, drop) end
+    local function award(key, reason) DropPanel:Award(itemID, key, bossKey, copy, drop, nil, reason) end
     local inGroup = _G.IsInGroup and _G.IsInGroup()
+    local awarded = type(awardEntry) == "table" and awardEntry.id and not awardEntry.vd
     ns.UI:ContextMenu(owner, function(root)
         root:CreateTitle("Award " .. ItemName(itemID))
+        -- ADDENDUM G: the reason of the recorded award can be changed (it decides whether it counts as loot won).
+        if awarded and IsCouncil() and ns.Ledger and ns.Ledger.SetReason then
+            local id = awardEntry.id
+            local cur = ReasonLabel(awardEntry.r) or "none"
+            local sub = root:CreateButton("Reason: " .. cur)
+            for _, r in ipairs(ns.AWARD_REASONS or {}) do
+                local rk = r.key
+                sub:CreateButton((awardEntry.r == rk and "* " or "") .. r.label, function() ns.Ledger:SetReason(id, rk) end)
+            end
+            root:CreateDivider()
+        end
+        -- The disenchanter / guild bank character (ADDENDUM G §41), when set.
+        if not awarded then
+            local any = false
+            for _, kind in ipairs({ "de", "bank" }) do
+                local key = LootTarget(kind)
+                if key then
+                    any = true
+                    local label = kind == "de" and "Disenchant" or "Guild bank"
+                    local text = label .. ": " .. ColoredName(key)
+                    if not IsInMyGroup(key) then text = text .. Paint(" (not in " .. GroupWord() .. ")", "muted") end
+                    root:CreateButton(text, function() DropPanel:AwardToTarget(b, kind) end)
+                end
+            end
+            if any then root:CreateDivider() end
+        end
         if conflict and IsCouncil() and HasRoll("ResolveLootConflict") then
             -- The loot message named someone else than the recorded winner (CDLoot 0.5).
             local id, other, winner = conflict.id, conflict.lootOther, conflict.winner
@@ -2163,13 +2436,15 @@ function DropPanel:OpenAwardMenu(b, owner)
         end
         -- Players who are here first; wanters who are not in the group (offline, elsewhere) are kept apart: an award
         -- to them can't be handed out, and a misclick would record a wrong winner.
-        local listed, away = {}, {}
+        local listed, away, here = {}, {}, {}
         for _, w in ipairs(wanters) do
             local key = w.key
             listed[key] = true
             if w.inRaid or not inGroup then
+                here[#here + 1] = key
+                local reason = WanterReason(w)
                 root:CreateButton(ColoredName(key, w.classFile) .. "  " .. BadgeText(w, vp)
-                    .. (w.cantUse and (" " .. Paint("can't use", "bad")) or ""), function() award(key) end)
+                    .. (w.cantUse and (" " .. Paint("can't use", "bad")) or ""), function() award(key, reason) end)
             else
                 away[#away + 1] = w
             end
@@ -2184,6 +2459,16 @@ function DropPanel:OpenAwardMenu(b, owner)
             local sub = root:CreateButton("Other " .. GroupWord() .. " member")
             for _, key in ipairs(others) do
                 sub:CreateButton(ColoredName(key), function() award(key) end)
+            end
+        end
+        -- Offspec awards (ADDENDUM G): not counted as loot won. BiS candidates first, then the rest of the group.
+        local osList = {}
+        for _, key in ipairs(here) do osList[#osList + 1] = key end
+        for _, key in ipairs(others) do osList[#osList + 1] = key end
+        if #osList > 0 then
+            local sub = root:CreateButton("Award as offspec")
+            for _, key in ipairs(osList) do
+                sub:CreateButton(ColoredName(key), function() award(key, "os") end)
             end
         end
         if #away > 0 then

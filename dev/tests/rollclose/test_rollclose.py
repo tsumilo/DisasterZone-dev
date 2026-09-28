@@ -373,11 +373,11 @@ def b_plain_award_menu_goes_through_the_roll():
         assert status(r[n]) == want, (n, status(r[n]))
     lines = [e for e in w.chat_log[chat0:] if "->" in e["text"]]
     assert len(lines) == 1 and lines[0]["sender"] == key("Bob"), lines
-    assert strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (no roll, BiS alt)", lines[0]
+    assert strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (no roll, Alt)", lines[0]
     w.tick(0.3)
     for n in ("Alice", "Bob"):
         info = block_info(r[n], RUBY_DRAPE)
-        assert strip_codes(info["sub"]) == "Awarded to Dave" and info["buttons"] == [], (n, info)
+        assert strip_codes(info["sub"]) == "Awarded to Dave  ·  Alt" and info["buttons"] == [], (n, info)
     # exactly one ledger entry on each council client, and no plain Ledger:Award next to it
     for n in ("Alice", "Bob"):
         vis = visible_for(r[n], RUBY_DRAPE)

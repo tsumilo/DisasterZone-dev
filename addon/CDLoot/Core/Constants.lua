@@ -264,6 +264,36 @@ ns.WEAPON_RESTRICTED[W.FISHINGPOLE] = nil
 ns.DUAL_WIELD = { WARRIOR = true, ROGUE = true, HUNTER = true, SHAMAN = true }
 
 ---------------------------------------------------------------------------
+-- Award reasons (Addendum G §40): the `r` field of a loot log entry
+---------------------------------------------------------------------------
+
+-- In menu order. counts = the award counts as loot received ("won N" and the award history);
+-- owns = the winner keeps the item (a disenchant / guild bank award does not mark it awarded on their list).
+ns.AWARD_REASONS = {
+    { key = "bis",  label = "BiS",        counts = true,  owns = true,  tip = "Best-in-slot (main pick) for the winner" },
+    { key = "alt",  label = "Alt",        counts = true,  owns = true,  tip = "The winner's alt (backup / upgrade-path) pick" },
+    { key = "up",   label = "Upgrade",    counts = true,  owns = true,  tip = "A main-spec upgrade that is not on their BiS list" },
+    { key = "os",   label = "Offspec",    counts = false, owns = true,  tip = "Off-spec: not counted as loot received" },
+    { key = "de",   label = "Disenchant", counts = false, owns = false, tip = "Given to the disenchanter: not counted as loot received" },
+    { key = "bank", label = "Guild bank", counts = false, owns = false, tip = "Given to the guild bank character: not counted as loot received" },
+}
+ns.AWARD_REASON = {}
+for _, r in ipairs(ns.AWARD_REASONS) do ns.AWARD_REASON[r.key] = r end
+
+-- Label of a reason key ("BiS"), or nil for no / an unknown reason.
+function ns.ReasonLabel(key)
+    local r = type(key) == "string" and ns.AWARD_REASON[key]
+    return r and r.label or nil
+end
+
+-- The default reason of a roll winner's BiS tier (1 main, 2 alt, else not listed).
+function ns.ReasonForTier(tier)
+    if tier == 1 then return "bis" end
+    if tier == 2 then return "alt" end
+    return "up"
+end
+
+---------------------------------------------------------------------------
 -- Colors & textures (§4.5)
 ---------------------------------------------------------------------------
 
