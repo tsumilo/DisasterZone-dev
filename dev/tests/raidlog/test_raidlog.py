@@ -67,6 +67,9 @@ def start(w, c, who="Lee", tick=2):
     w.tick(tick)
     s = session(c[who])
     assert s, "no session after /cdl raid start"
+    # every raider's client has learned the session (a real pull is never seconds after Start)
+    members = [m for m in w.group_members() if isinstance(m, Client) and m.runtime is not None]
+    w.run_until(lambda: all(current(x) == s["id"] for x in members), timeout=20)
     return s["id"]
 
 
@@ -413,6 +416,113 @@ def raids_tab_lists_raids_details_bench_and_players():
     assert by[K("Nora")]["bench"] == 1 and by[K("Nora")]["pct"] == 100
     assert texts("100%"), "attendance column"
     assert bob.eval_py("return { ns.RaidLog:GetAttendance(...) }", K("Rita")) == [100, 1, 1]
+    w.assert_no_errors()
+
+
+# -- Council sync (§50) and attendance in the council views ----------------------------------------------------------
+@case
+def council_recorders_fill_each_others_gaps_when_the_raid_ends():
+    w, c = world(council=("Bob", "Gina"))
+    bob, gina, lee = c["Bob"], c["Gina"], c["Lee"]
+    raid(w, c)
+    w.enter_instance()
+    rid = start(w, c)
+    # Gina is outside for the first kill (her client never sees it), Bob for the second
+    w.encounter(652, "Attumen the Huntsman", clients=[lee, bob, c["Rita"], c["Sam"]])
+    w.tick(60, step=1)
+    w.encounter(653, "Moroes", clients=[lee, gina, c["Rita"], c["Sam"]])
+    w.tick(2)
+    assert len(rec(bob, rid)["bosses"]) == 1 and len(rec(gina, rid)["bosses"]) == 1
+    mark = len(w.addon_log)
+    lee.slash("/cdl raid end")
+    w.tick(40)
+    for x in (bob, gina):
+        r = rec(x, rid)
+        assert [b["enc"] for b in r["bosses"]] == [652, 653], r["bosses"]
+        assert r["endedBy"] == K("Lee"), r
+    assert bob.eval_py("return ns.RaidLog:GetDigest()") == gina.eval_py("return ns.RaidLog:GetDigest()")
+    assert lr.msgs_of_type(w, "RLD", mark) and lr.msgs_of_type(w, "RLG", mark)
+    # raiders never get records: only council members send or receive them
+    targets = [e.get("target") for e in w.addon_log[mark:] if e["prefix"] == "CDLd"]
+    assert targets and set(targets) <= {"Bob", "Gina"}, targets
+    w.assert_no_errors()
+
+
+@case
+def a_council_member_who_missed_the_raid_gets_it_at_login():
+    w, c = world(names=(("Gina", 0, "PALADIN"), ("Lee", 3, "WARRIOR"), ("Bob", 1, "MAGE"), ("Rita", 3, "PRIEST"),
+                        ("Sam", 3, "ROGUE"), ("Nora", 1, "DRUID")), council=("Bob", "Nora"))
+    nora = c["Nora"]
+    nora.logout()
+    w.tick(2)
+    raid(w, c)
+    w.enter_instance()
+    rid = start(w, c)
+    w.encounter(652, "Attumen the Huntsman")
+    w.tick(2)
+    c["Lee"].slash("/cdl raid end")
+    w.tick(30)
+    nora.login()
+    w.tick(60)
+    r = rec(nora, rid)
+    assert r and r["stop"] and len(r["bosses"]) == 1 and K("Rita") in r["att"], r
+    assert nora.eval("return ns.RaidLog:GetRaid(...).g", rid) == c["Bob"].eval("return ns.RaidLog:GetRaid(...).g", rid)
+    # a later bench edit spreads with the next sync
+    c["Bob"].eval("ns.RaidLog:SetBench(...)", rid, K("Rita"), True)
+    w.tick(2)
+    c["Bob"].eval("ns.Sync:SendHello(true)")
+    w.tick(30)
+    assert rec(nora, rid)["att"][K("Rita")].get("b") is True
+    w.assert_no_errors()
+
+
+@case
+def forged_or_malformed_records_are_ignored():
+    w, c = world()
+    bob, rita = c["Bob"], c["Rita"]
+    now = w.server_time
+    good = {"id": "Lee-Thunderstrike-1", "start": now - 7200, "stop": now - 3600, "bosses": [],
+            "att": {K("Rita"): {"j": now - 7200, "l": now - 3600, "k": 0}}}
+    # from a raider: dropped
+    rita.eval("ns.Comm:Send({ t = 'RLG', r = ... }, 'WHISPER', select(2, ...), 'data')", good, K("Bob"))
+    w.tick(3)
+    assert bob.eval("return ns.RaidLog:GetRaid('Lee-Thunderstrike-1')") is None
+    # malformed shapes from council are rejected by MergeRecord
+    for bad in ({"id": "x|y", "start": 1, "stop": 2, "att": {}, "bosses": []},
+                {"id": "a", "start": now + 9999, "stop": now + 99999, "att": {}, "bosses": []},
+                {"id": "b", "start": 10, "stop": 5, "att": {}, "bosses": []},
+                {"id": "c", "start": 1, "stop": 2, "att": 5, "bosses": []}):
+        assert bob.eval("return ns.RaidLog:MergeRecord(...)", bad, "x") is False, bad
+    assert bob.eval("return ns.RaidLog:MergeRecord(...)", good, "x") is True
+    # merging the same record twice changes nothing; a copy with an explicit End wins over the safety net
+    assert bob.eval("return ns.RaidLog:MergeRecord(...)", good, "x") is False
+    ended = dict(good, stop=now - 3000, endedBy=K("Lee"))
+    auto = dict(good, stop=now - 2000, autoEnded=True)
+    assert bob.eval("return ns.RaidLog:MergeRecord(...)", auto, "x") is True
+    assert bob.eval("return ns.RaidLog:MergeRecord(...)", ended, "x") is True
+    r = rec(bob, "Lee-Thunderstrike-1")
+    assert r["endedBy"] == K("Lee") and r["stop"] == now - 3000 and not r.get("autoEnded"), r
+    w.assert_no_errors()
+
+
+@case
+def attendance_shows_in_the_council_views():
+    w, c = world()
+    bob, lee = c["Bob"], c["Lee"]
+    raid(w, c)
+    rid = start(w, c)
+    lee.slash("/cdl raid end")
+    w.tick(2)
+    raid(w, c, members=("Lee", "Bob", "Gina", "Sam"))
+    start(w, c)
+    lee.slash("/cdl raid end")
+    w.tick(2)
+    assert bob.eval_py("return { ns.RaidLog:GetAttendance(...) }", K("Rita")) == [50, 1, 2]
+    assert bob.eval("return ns.RaidLog:GetAttendanceText(...)", K("Sam")) == "100% (2/2)"
+    assert bob.eval_py("return { ns.RaidLog:GetAttendance(...) }", K("Nobody")) == [0, 0, 2]
+    bob.eval("ns.CouncilUI:ShowMember(...)", K("Rita"))
+    w.tick(0.5)
+    assert bob.find_text("attendance 50% (1/2)", True, True), "member header"
     w.assert_no_errors()
 
 

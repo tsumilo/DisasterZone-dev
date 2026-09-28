@@ -63,6 +63,11 @@ db.raids[id] = {
 - **Merge rules** (the same ID on two clients): attendance is the union, `j` = the minimum, `l` = the maximum,
   `k` = the maximum; bosses are the union by `enc`, with rosters combined; bench and override edits carry an edit
   timestamp and the newer one wins; `stop` = the explicit End if either client has one, otherwise the maximum.
+- *Implemented (step 3):* message types are **`RLD` / `RLW` / `RLG`** (not RW / RG / RD: `RW` is the roll award's
+  type, and `Comm:Register` silently replaces a handler; `tests/conformance/test_comm_types.py` now guards this).
+  Only closed raids of the last **80 days** are synced (inside the 90-day roster pruning, so pruned rosters never
+  come back). The digest also rides on `H` / `M` as `rd`; after a raid ends every guild-council recorder offers
+  its digest (`RLD`, jittered). `RLW` asks by week, `RLG` carries one record.
 - Records are validated like ledger entries (types, lengths, timestamps not in the future, caps on members and bosses).
 
 ## 51. UI
@@ -79,6 +84,8 @@ db.raids[id] = {
   shows for the authority inside a raid instance and can be dismissed until the next instance; no shrink-to-pill
   yet) and `UI/RaidsTab.lua` (Raids / Players views, bench via right-click, Start/End in the toolbar, `/cdl raids`).
   Boss totals come from the item database: distinct encounter ids per instance (Chess counts; trash doesn't).
+- *Implemented (step 3):* attendance (closed raids, last 8) in the drop panel's wanter and roll tooltips, the Council
+  Items view flags (`att 88%`) and the member view header (`attendance 88% (7/8)`); cached, rebuilt on change.
 - **Council integration:** the drop panel and Council member view show *"Attendance 92% (last 8)"* next to a wanter.
 - **Export:** a copy box with CSV of a raid or the player table.
 

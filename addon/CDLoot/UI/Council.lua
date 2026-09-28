@@ -716,6 +716,8 @@ local function addWantersTooltip(tt, d)
         if won and won > 0 then
             flags[#flags + 1] = "won " .. won
         end
+        local att = ns.RaidLog and ns.RaidLog.GetAttendance and ns.RaidLog:GetAttendance(e.key)
+        if att then flags[#flags + 1] = "att " .. att .. "%" end   -- Addendum I: last 8 raids
         if e.inRaid then
             flags[#flags + 1] = "in raid"
         else
@@ -1575,6 +1577,8 @@ local function memberHeaderInfo(key, rec, data, classFile)
     local rank = ns.Guild and ns.Guild.GetRankName and ns.Guild:GetRankName(key)
     if rank then parts[#parts + 1] = rank end
     parts[#parts + 1] = PRESENCE_TEXT[presenceOf(key)] or ""
+    local att = ns.RaidLog and ns.RaidLog.GetAttendanceText and ns.RaidLog:GetAttendanceText(key)
+    if att then parts[#parts + 1] = "attendance " .. att end   -- Addendum I: last 8 raids
     if rec then
         local ts = tonumber(rec.ts) or 0
         local text = "updated " .. formatAgo(ts)
@@ -3108,7 +3112,7 @@ function CouncilUI:OnInit()
     -- A new saved council list replaces the editor's draft unless it has unsaved edits.
     ns:On("CONFIG_UPDATED", syncCouncilDrafts)
     for _, msg in ipairs({
-        "LIST_UPDATED", "LISTS_RESET", "LEDGER_UPDATED", "GROUP_UPDATED", "ROSTER_UPDATED",
+        "LIST_UPDATED", "LISTS_RESET", "LEDGER_UPDATED", "RAIDLOG_CHANGED", "GROUP_UPDATED", "ROSTER_UPDATED",
         "ITEMINFO_READY", "CONFIG_UPDATED", "DEMO_TOGGLED", "PEERS_UPDATED",
         "MYLIST_CHANGED", "MYLIST_COMMITTED", "OWNED_UPDATED", "GROUP_RULES_CHANGED",
         "BIS_LOCK_CHANGED",

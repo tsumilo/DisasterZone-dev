@@ -154,6 +154,18 @@ local function LedgerDigest()
     return nil
 end
 
+-- Addendum I §50: the raid log's digest rides along with the ledger's.
+local function RaidDigest()
+    local RL = ns.RaidLog
+    if RL and RL.GetDigest then return RL:GetDigest() end
+    return nil
+end
+
+local function RaidSync(sender, digest)
+    local RL = ns.RaidLog
+    if type(digest) == "table" and RL and RL.SyncFromDigest then RL:SyncFromDigest(sender, digest) end
+end
+
 local function LedgerSync(sender, digest)
     local Ledger = ns.Ledger
     if type(digest) == "table" and Ledger and Ledger.SyncFromDigest then
@@ -359,6 +371,7 @@ function Sync:SendHello(force)
         -- login HELLO; STATE carries the hash for the owner's own login).
         msg.mh = ns.Store and ns.Store.GetManifestHashes and ns.Store:GetManifestHashes(msg.m) or nil
         msg.ld = LedgerDigest()
+        msg.rd = RaidDigest()
     end
     return Send(msg, "GUILD", nil, "ctrl")
 end
@@ -384,7 +397,7 @@ end
 
 local function SendManifest(target, query)
     if not AmCouncil() or not ns.Store then return false end
-    local msg = { t = "M", m = ns.Store:GetManifest(), ld = LedgerDigest() }
+    local msg = { t = "M", m = ns.Store:GetManifest(), ld = LedgerDigest(), rd = RaidDigest() }
     if query then msg.q = true end   -- CDLoot extension: "please answer with your manifest"
     return Send(msg, "WHISPER", target, "ctrl")
 end
@@ -652,11 +665,12 @@ local function OnHello(sender, msg, dist)
         local me = Util.PlayerKey()
         CheckOwnAgainst(sender, manifest and me and manifest[me] or 0, true, OwnHashIn(msg.mh))
         if amCouncil and FullPair(sender) and RateLimit("Hm:" .. session, REPLY_RATE) then
-            local digest = msg.ld
+            local digest, rdigest = msg.ld, msg.rd
             Util.RandomDelay(1, 5, function()
                 SendManifest(sender, false)
                 Sync:PullFrom(sender, manifest)
                 LedgerSync(sender, digest)
+                RaidSync(sender, rdigest)
             end)
         end
     end
@@ -688,6 +702,7 @@ local function OnManifest(sender, msg, dist)
     if not FullPair(sender) then return end   -- raid-scope council: own lists only
     Sync:PullFrom(sender, manifest)
     LedgerSync(sender, msg.ld)
+    RaidSync(sender, msg.rd)
     if msg.q and RateLimit("Mq:" .. sender, 60) then
         Util.RandomDelay(1, 4, function() SendManifest(sender, false) end)
     end

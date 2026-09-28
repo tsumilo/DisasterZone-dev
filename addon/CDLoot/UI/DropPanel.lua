@@ -1180,6 +1180,13 @@ local function VoteCell(row, canVote)
     return ""
 end
 
+-- Addendum I §51: "Attendance 92% (7/8 raids)" from the raid log, when any raid is logged.
+local function AddAttendanceLine(tt, key)
+    local RL = ns.RaidLog
+    local pct, a, n = RL and RL.GetAttendance and RL:GetAttendance(key)
+    if pct then tt:AddLine(format("Attendance %d%% (%d of the last %d raids)", pct, a, n), 0.7, 0.7, 0.7) end
+end
+
 local function RollTag(row, session)
     if type(session) == "table" and session.state == "awarded" and session.winner == row.key then
         return Paint("Winner", "obtained")
@@ -1263,6 +1270,7 @@ local function RollRowTooltip(self, tt, vp)
     end
     local won = tonumber(row.wonTonight) or 0
     if won > 0 then tt:AddLine(format("Won %d item(s) tonight", won), 0.7, 0.7, 0.7) end
+    AddAttendanceLine(tt, row.key)
     if row.wonCopy then
         tt:AddLine("Won another copy of this item from this drop: not suggested", Color("warn")[1], Color("warn")[2], Color("warn")[3])
     end
@@ -1340,6 +1348,7 @@ local function RowOnEnter(self)
     if (tonumber(w.wonTonight) or 0) > 0 then
         tt:AddLine(format("Won %d item(s) tonight", w.wonTonight), 0.7, 0.7, 0.7)
     end
+    AddAttendanceLine(tt, w.key)
     if w.awarded then tt:AddLine("Already awarded this item", Color("warn")[1], Color("warn")[2], Color("warn")[3]) end
     if w.cantUse then tt:AddLine("Their class cannot use this item", Color("bad")[1], Color("bad")[2], Color("bad")[3]) end
     local changed = LockChanged(w)
