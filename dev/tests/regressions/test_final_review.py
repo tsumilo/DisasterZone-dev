@@ -711,7 +711,7 @@ def copy2_winner_of_copy1_is_not_suggested_for_copy2():
         res = results(r[n], s2)
         top = [x for x in res if x["suggested"]]
         assert top and top[0]["key"] == key("Gina"), (n, res)
-        assert [x for x in res if x["key"] == key("Erin")][0]["tier"] == 3
+        assert [x for x in res if x["key"] == key("Erin")][0]["tier"] == 4
     w.assert_no_errors()
 
 
@@ -1262,7 +1262,7 @@ def class_restricted_items_and_tokens_are_not_for_other_classes():
     res = results(A, sid)
     top = [x for x in res if x["suggested"]]
     assert top and top[0]["key"] == key("Erin"), res
-    assert [x for x in res if x["key"] == key("Gina")][0]["tier"] == 3
+    assert [x for x in res if x["key"] == key("Gina")][0]["tier"] == 4
     w.assert_no_errors()
 
 

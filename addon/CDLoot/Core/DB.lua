@@ -22,6 +22,7 @@ local DEFAULTS = {
             glow = true,           -- glow loot button for own BiS
             chat = true,           -- chat line for own BiS drops
             lootBadges = true,     -- badges on default loot frame buttons
+            offspec = true,        -- Addendum H: toast / chat line for items on my off-spec list too
         },
         dropPanelMode = "auto",  -- "auto" (anchor to LootFrame when it is open, else floating) | "floating"
         tooltip = { enabled = true, council = true, maxNames = 5 },

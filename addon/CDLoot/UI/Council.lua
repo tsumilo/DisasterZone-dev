@@ -65,6 +65,7 @@ local state = {
     focus = nil,           -- set of itemIDs to highlight in the Items view
     scrollToFocus = false,
     memberKey = nil,       -- Member view
+    offspec = false,       -- Addendum H: Roster / Items / Member show the off-spec lists
 }
 
 local panel                 -- created lazily by MainFrame
@@ -408,6 +409,15 @@ local function buildMembers(phase)
     for _, key in ipairs(store:GetAllKeys() or {}) do
         local rec = store:Get(key)
         local data = type(rec) == "table" and rec.data
+        -- Addendum H: the off-spec view shows the players who have an off-spec list, as that list.
+        if state.offspec then
+            if type(data) == "table" and ns.HasOffSpec(data) then
+                rec = ns.ListRecordView(rec, "os")
+                data = rec.data
+            else
+                data = nil
+            end
+        end
         if type(data) == "table" then
             local cl = memberClass(key, data)
             local spec = type(data.sp) == "string" and data.sp or ""
@@ -560,7 +570,8 @@ local function wantersFor(itemID, phase)
     local out = {}
     local store = ns.Store
     if not (store and store.GetWanters) then return out end
-    local list = store:GetWanters(itemID, { includeObtained = not state.hideObtained, phase = phase })
+    local list = store:GetWanters(itemID, { includeObtained = not state.hideObtained, phase = phase,
+        list = state.offspec and "os" or nil })
     if type(list) ~= "table" then return out end
     for _, e in ipairs(list) do
         if type(e) == "table" and e.key and phaseListed(e, phase)
@@ -1216,7 +1227,7 @@ local function openItemMenu(row, d)
             local key = e.key
             local label = coloredName(key, e.classFile)
             if e.which == "alt" then label = label .. grey(" (alt)") end
-            local reason = (e.which == "alt") and "alt" or "bis"
+            local reason = e.os and "os" or ((e.which == "alt") and "alt" or "bis")
             award:CreateButton(label, function() recordAward(d.itemID, key, d.bossKey, reason) end)
         end
         if #people > 0 then award:CreateDivider() end
@@ -1666,6 +1677,7 @@ local function refreshMember(phase)
     v.dollHolder:Show()
 
     local rec = ns.Store and ns.Store.Get and ns.Store:Get(key)
+    if state.offspec and type(rec) == "table" then rec = ns.ListRecordView(rec, "os") end   -- (Addendum H)
     local data = type(rec) == "table" and type(rec.data) == "table" and rec.data or nil
     if not data then rec = nil end
     local classFile = memberClass(key, data)
@@ -2540,6 +2552,10 @@ local function createToolbar(p)
     p.obtainedCB = UI:CreateCheckbox(row2, "Hide obtained", function() return state.hideObtained end, toggleSetter("hideObtained"))
     p.obtainedCB:SetPoint("LEFT", row2, "LEFT", 420, 0)
 
+    -- Addendum H: switch the Roster / Items / Member views to the players' off-spec lists.
+    p.offspecCB = UI:CreateCheckbox(row2, "Off-spec lists", function() return state.offspec end, toggleSetter("offspec"))
+    p.offspecCB:SetPoint("LEFT", row2, "LEFT", 540, 0)
+
     -- §38: "Lock BiS lists" / "Unlock BiS lists" for the raid leader (the group's loot authority), and the
     -- lock state for every council member.
     if UI.CreateBiSLockButton then
@@ -2623,6 +2639,7 @@ local function updateToolbar()
     if p.roleDD and p.roleDD.Refresh then p.roleDD:Refresh() end
     if p.raidCB and p.raidCB.Refresh then p.raidCB:Refresh() end
     if p.obtainedCB and p.obtainedCB.Refresh then p.obtainedCB:Refresh() end
+    if p.offspecCB and p.offspecCB.Refresh then p.offspecCB:Refresh() end
     updateLockControls()
     for key, b in pairs(p.viewButtons or {}) do
         if key == state.view then

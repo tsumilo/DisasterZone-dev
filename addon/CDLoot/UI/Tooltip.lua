@@ -113,7 +113,16 @@ local function BuildOwn(itemID)
     local m = matches[1]
     local phase = tonumber(m.phase) or 0
     local text
-    if m.which == "alt" then
+    local anyOS = false
+    for _, x in ipairs(matches) do
+        if type(x) == "table" and x.os then anyOS = true end
+    end
+    if m.os then
+        -- Only on my off-spec list (Addendum H; MatchItem lists main-spec matches first).
+        local sp = ns.BiS.GetSpec and ns.BiS:GetSpec("os") or ""
+        text = MARK .. " " .. Paint(format("Your P%d off-spec %s%s - %s", phase, m.which == "alt" and "alt" or "BiS",
+            sp ~= "" and (" (" .. sp .. ")") or "", SlotLabel(m.sid)), "offspec")
+    elseif m.which == "alt" then
         text = MARK .. " " .. Paint(format("Your P%d alt - %s", phase, SlotLabel(m.sid)), "alt")
     else
         text = MARK .. " " .. STAR .. " " .. Paint(format("Your P%d BiS (main) - %s", phase, SlotLabel(m.sid)), "main")
@@ -130,30 +139,39 @@ local function BuildOwn(itemID)
     -- Other phases this item is also listed in.
     local extra, seen = {}, { [phase] = true }
     for i = 2, #matches do
-        local p = type(matches[i]) == "table" and tonumber(matches[i].phase)
+        local x = matches[i]
+        local p = type(x) == "table" and (x.os and true or false) == (m.os and true or false) and tonumber(x.phase)
         if p and not seen[p] then
             seen[p] = true
             extra[#extra + 1] = "P" .. p
         end
     end
     if #extra > 0 then text = text .. Paint("  also " .. tconcat(extra, ", "), "muted") end
+    if anyOS and not m.os then text = text .. Paint("  + off spec", "offspec") end
     return text
 end
 
 local function BuildCouncil(itemID)
     if not (ns.Store and ns.Store.GetWanters) then return nil end
-    local list = ns.Store:GetWanters(itemID, { includeObtained = true })
+    local list = ns.Store:GetWanters(itemID, { includeObtained = true, list = "both" })
     if type(list) ~= "table" or #list == 0 then return nil end
     local vp = ViewPhase()
-    -- One entry per player (GetWanters is sorted best first); players who need it before those who have it.
-    local needers, have, seen = {}, {}, {}
+    -- One entry per player (GetWanters is sorted best first); players who need it before those who have it, and
+    -- off-spec wanters (Addendum H) after both.
+    local needers, have, offs, seen = {}, {}, {}, {}
     for _, w in ipairs(list) do
         if type(w) == "table" and type(w.key) == "string" and not seen[w.key] then
             seen[w.key] = true
-            if w.obtained then have[#have + 1] = w else needers[#needers + 1] = w end
+            if w.os then
+                if not w.obtained then offs[#offs + 1] = w end
+            elseif w.obtained then
+                have[#have + 1] = w
+            else
+                needers[#needers + 1] = w
+            end
         end
     end
-    if #needers == 0 and #have == 0 then return nil end
+    if #needers == 0 and #have == 0 and #offs == 0 then return nil end
     local inRaid, mains = 0, 0
     for _, w in ipairs(needers) do
         if w.inRaid then inRaid = inRaid + 1 end
@@ -163,11 +181,16 @@ local function BuildCouncil(itemID)
     local header = format("%s: wanted by %d (%d in raid)", MARK, #needers, inRaid)
     if mains < #needers then header = header .. format(" · %d BiS", mains) end
     if #have > 0 then header = header .. Paint(format(", %d obtained", #have), "muted") end
+    if #offs > 0 then header = header .. Paint(format(" +%d off spec", #offs), "offspec") end
 
     local entries = {}
     local function add(w)
         local left = "  " .. ColoredName(w.key, w.classFile)
-        if w.which == "alt" then left = left .. Paint(" (alt)", "alt") end
+        if w.os then
+            left = left .. Paint(w.which == "alt" and " (OS alt)" or " (OS)", "offspec")
+        elseif w.which == "alt" then
+            left = left .. Paint(" (alt)", "alt")
+        end
         local p = tonumber(w.phase)
         if p and p ~= vp then left = left .. Paint(" P" .. p, "muted") end
         local right = ""
@@ -186,6 +209,7 @@ local function BuildCouncil(itemID)
     end
     for _, w in ipairs(needers) do add(w) end
     for _, w in ipairs(have) do add(w) end
+    for _, w in ipairs(offs) do add(w) end
     return { header = header, entries = entries }
 end
 

@@ -35,6 +35,9 @@ local MEMBERS = {
 
 local RANK_NAMES = { [0] = "Guild Master", [1] = "Officer", [2] = "Class Lead", [3] = "Raider", [4] = "Trial" }
 
+-- Demo members with an off-spec list (Addendum H): { name, spec index of the off spec }.
+local OFFSPEC_MEMBERS = { { "Brakka", 3 }, { "Caelith", 2 }, { "Kaelyn", 1 }, { "Quillon", 3 } }
+
 -- Chance a slot is filled, and a pick is already obtained, per phase.
 local FILL_CHANCE = { 1, 1, 1, 0.6, 0.35 }
 local OBTAINED_CHANCE = { 0.55, 0.35, 0.2, 0.1, 0.05 }
@@ -215,6 +218,22 @@ local function Generate()
         }
         if inRaid then raidSet[key] = true end
         memberKeys[#memberKeys + 1] = key
+    end
+    -- Addendum H: a few hybrids keep an off-spec list (generated after everyone else, so the main lists and the
+    -- rest of the demo stay the same as before).
+    if canBuildLists then
+        for _, pick in ipairs(OFFSPEC_MEMBERS) do
+            local key = (realm ~= "" and (pick[1] .. "-" .. realm)) or pick[1]
+            local rec = records[key]
+            local specs = rec and ns.SPECS[rec.data.cl]
+            local label = specs and specs[pick[2]] and specs[pick[2]].label
+            if label then
+                local offList = GenerateList(rec.data.cl, label, candidateCache)
+                rec.data.os = label
+                rec.data.op = offList.ph
+                rec.hash = Util.Hash(rec.data)
+            end
+        end
     end
     tsort(memberKeys)
     return { records = records, roster = roster, raidSet = raidSet, memberKeys = memberKeys, realm = realm }

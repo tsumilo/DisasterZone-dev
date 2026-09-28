@@ -258,7 +258,7 @@ local function RefreshMarks()
     currentPick = nil
     local BiS = ns.BiS
     if not BiS then return end
-    for _, e in ipairs(BiS:GetPhaseItems(state.phase) or {}) do
+    for _, e in ipairs(BiS:GetPhaseItems(state.phase, state.list) or {}) do
         local id = tonumber(e.itemID)
         if id then
             local prev = listMarks[id]
@@ -267,7 +267,7 @@ local function RefreshMarks()
             end
         end
     end
-    local main, alt = BiS:GetSlot(state.phase, state.sid)
+    local main, alt = BiS:GetSlot(state.phase, state.sid, state.list)
     if state.which == "alt" then currentPick = alt else currentPick = main end
 end
 
@@ -394,7 +394,7 @@ end
 local function Pick(itemID)
     itemID = tonumber(itemID)
     if not itemID or not ns.BiS then return end
-    if ns.BiS:SetSlot(state.phase, state.sid, state.which, itemID) then
+    if ns.BiS:SetSlot(state.phase, state.sid, state.which, itemID, state.list) then
         Picker:Close()
     end
 end
@@ -679,7 +679,9 @@ end
 local function UpdateHeader()
     if not win then return end
     local whichText = state.which == "alt" and "Alt" or "Main"
-    win:SetWindowTitle(("Choose %s (%s)  ·  P%d"):format(SlotLabel(state.sid), whichText, state.phase))
+    -- Addendum H: the off-spec list says so in the title.
+    win:SetWindowTitle(("Choose %s (%s)  ·  P%d%s"):format(SlotLabel(state.sid), whichText, state.phase,
+        state.list == "os" and "  ·  Off spec" or ""))
 end
 
 local function UpdateCurrent()
@@ -732,7 +734,7 @@ local function EnsureWindow()
     current.btn = UI:CreateItemButton(current, 32)
     current.btn:SetPoint("LEFT", current, "LEFT", 0, 0)
     current.clear = UI:CreateButton(current, "Clear", 60, 22, function()
-        if ns.BiS then ns.BiS:SetSlot(state.phase, state.sid, state.which, nil) end
+        if ns.BiS then ns.BiS:SetSlot(state.phase, state.sid, state.which, nil, state.list) end
         UpdateCurrent()
         if list then list:Refresh() end
     end)
@@ -832,7 +834,8 @@ end
 ---------------------------------------------------------------------------
 
 -- Returns true when the picker opened (false while the group's BiS lists are locked, §38).
-function Picker:Open(phase, sid, which, anchor)
+-- list (Addendum H): "ms" (default) or "os" = pick for the off-spec list.
+function Picker:Open(phase, sid, which, anchor, list)
     sid = tonumber(sid)
     if not sid or not SlotInfo(sid) then return false end
     local locked, info = ListLocked()
@@ -844,6 +847,7 @@ function Picker:Open(phase, sid, which, anchor)
     state.phase = tonumber(phase) or state.phase or 1
     state.sid = sid
     state.which = which == "alt" and "alt" or "main"
+    state.list = (list == "os") and "os" or nil
     state.search = ""
     Sources()
 
@@ -876,7 +880,7 @@ function Picker:IsOpen()
 end
 
 function Picker:GetState()
-    return state.phase, state.sid, state.which
+    return state.phase, state.sid, state.which, state.list
 end
 
 -- CDLoot extension (§35): the ticked sources (a copy) and the phase filter ("upto" | "only" | "all").

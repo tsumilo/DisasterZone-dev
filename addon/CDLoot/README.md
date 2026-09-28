@@ -3,7 +3,7 @@
 BiS lists, a Loot Council overview, boss-drop alerts and rolls for **&lt;Casual Disaster&gt;**.
 For the WoW TBC Anniversary client (2.5.x, interface 20506).
 
-- Every player keeps a best-in-slot list for each phase (P1–P5), with a main pick and an alt pick per slot.
+- Every player keeps a best-in-slot list for each phase (P1–P5), with a main pick and an alt pick per slot, plus an optional off-spec list.
 - The Loot Council sees everyone's lists. When a boss is looted, the council sees who has each drop on their list.
 - Raiders get a Roll / Pass popup. Council members can vote for a player on any roll. CDLoot suggests a winner, the council confirms it, and the award goes into a shared loot log with a reason (BiS, Alt, Offspec, Disenchant, ...).
 
@@ -93,8 +93,9 @@ The top-right of the window shows your list's sharing status. See [Sync status](
 The top bar holds these controls:
 
 - **P1 … P5**: which phase you are editing. A small star marks the guild's current phase. If your group's loot leader set a raid phase, it marks that phase instead.
+- **Main spec** / **Off spec**: which of your two lists the tab shows. See [Off-spec list](#7-off-spec-list).
 - **Spec**: pick your spec, or choose **Auto-detect** to use the talent tree with the most points.
-- **Copy from ▾**: copy another phase into this one, using **Copy Pn (fill empty)** or **Copy Pn (overwrite)**.
+- **Copy from ▾**: copy another phase into this one, using **Copy Pn (fill empty)** or **Copy Pn (overwrite)**. It also offers the same phase of your other list, e.g. **Copy main spec Pn**.
 - **Suggest ▾** (only shown when LoonBestInSlot is installed): **Fill empty slots from LoonBestInSlot (spec Pn)**, or **Replace all (confirm)**. You must choose your spec first.
 - **Clear phase**: removes every pick in this phase. It asks first.
 
@@ -168,11 +169,27 @@ You don't need to do anything to share your list.
 - Changes are sent to online council members about 8 seconds after your last edit, or as soon as you close the window.
 - The **Sharing** line on the card and the text at the top-right of the window show the status. See [Sync status](#what-does-the-sync-status-mean).
 
-### 7. Alt characters
+### 7. Off-spec list
+
+Next to your main-spec list you can keep one **off-spec** list, for example tank gear as a Fury warrior or healing gear as a Retribution paladin.
+
+- Click **+ Off spec** in the top bar. The button reads **Off spec** once you have one. **Main spec** switches back.
+- Choose the off spec in the **Spec** dropdown, then pick items as usual. Everything on the tab (the slots, the picker, **Copy from**, **Suggest**, **Clear phase**, disabling slots and the progress card) works on the list that is shown.
+- **Copy from ▾ → Copy main spec Pn** fills the off-spec list with your main-spec picks for shared slots such as rings, trinkets and cloaks.
+- To delete it, choose **Remove off-spec list...** in the off spec's **Spec** dropdown. It asks first.
+
+How the council uses it:
+
+- Off-spec wanters are listed **after** everyone who has the item on their main-spec list, with an **[OS]** badge.
+- In a roll, an off-spec pick ranks after main-spec BiS and main-spec alt picks, but before players who don't list the item.
+- Winning an item through your off-spec list is recorded as **Offspec**, so it doesn't count as loot received.
+- When an off-spec item drops you get a lighter toast, "On your off-spec list (Protection)". Turn it off in Settings → **Alerts for off-spec list items**.
+
+### 8. Alt characters
 
 Every character has its own list. Log in on the alt and fill in its My BiS tab. It is shared under that character's name.
 
-### 8. When loot drops
+### 9. When loot drops
 
 You'll see these when one of your needed picks drops:
 
@@ -180,11 +197,11 @@ You'll see these when one of your needed picks drops:
 - **Chat line:** "[item] is on your BiS list: Head, P2 (main)".
 - **Loot window:** your item shows a **Yours** badge and a glow.
 
-### 9. The roll popup
+### 10. The roll popup
 
 When the council starts a roll, a popup appears.
 
-- The top line shows the item and your status for it: "Your P2 BiS (main) - Head", "Your P3 alt - Ring 1" or "Not on your BiS list".
+- The top line shows the item and your status for it: "Your P2 BiS (main) - Head", "Your P3 alt - Ring 1", "Your P2 off-spec BiS (Protection) - Main Hand" or "Not on your BiS list".
 - **Wearing:** shows what you have equipped in that slot. For rings, trinkets and weapons it shows both.
 - A countdown shows the time left.
 - **Roll** does a normal `/roll` (1-100). **Pass** passes.
@@ -197,7 +214,7 @@ A few rules:
 - Only one item is rolled at a time. The others wait in a queue.
 - If you win an item after the popup has moved on to the next one (for example during **Roll all**), chat tells you "You won [item]!".
 
-### 10. Tooltips
+### 11. Tooltips
 
 Item tooltips show your own status. For example:
 
@@ -205,7 +222,7 @@ Item tooltips show your own status. For example:
 - "Your P3 alt - Ring 1", with "obtained" when you already have it
 - "also P3, P4" when the item is on other phases too
 
-### 11. When lists are locked
+### 12. When lists are locked
 
 During a raid the raid leader can lock everyone's lists. While locked:
 
@@ -236,6 +253,7 @@ Toolbar controls:
 - A name search box
 - **All classes** and **All roles** dropdowns
 - **In my raid only** and **Hide obtained** checkboxes (Hide obtained is on by default)
+- **Off-spec lists**: the Roster, Items and Member views show the players' off-spec lists instead. Only players who have one are listed, with their off spec.
 
 #### Roster
 
@@ -495,15 +513,16 @@ CDLoot no longer uses the Guild Information text. If an old `CDL{...}` line is s
 **Council votes come first.** As soon as any council member has voted on an item, the player with the most votes is suggested:
 
 - Only votes for players who are still in the raid and didn't pass count.
-- Equal votes are decided by the groups below (BiS main, then BiS alt, then everyone else), then by a valid roll (a player who rolled beats one who didn't), then by the higher roll. If that still doesn't separate them, the rows are marked "tie".
+- Equal votes are decided by the groups below (BiS main, then BiS alt, then off-spec list, then everyone else), then by a valid roll (a player who rolled beats one who didn't), then by the higher roll. If that still doesn't separate them, the rows are marked "tie".
 - The council chose deliberately, so a voted player can be suggested even when they are marked "changed", "can't use" or "won a copy".
 - Only council members' votes count. A vote from someone who has since left the council is ignored.
 
-**Without votes**, CDLoot sorts everyone who rolled into three groups:
+**Without votes**, CDLoot sorts everyone who rolled into four groups:
 
 1. **BiS main**, not obtained yet
 2. **BiS alt**, not obtained yet
-3. **Everyone else**: not on their list, already obtained, the slot is disabled, their class can't use the item ("can't use"), or they already won another copy of it from this drop ("won a copy")
+3. **Off-spec list** (main or alt pick), not obtained yet
+4. **Everyone else**: not on their list, already obtained, the slot is disabled, their class can't use the item ("can't use"), or they already won another copy of it from this drop ("won a copy")
 
 The highest roll in the best group is **suggested**. Some rules apply:
 
@@ -564,6 +583,7 @@ All settings are in the **Settings** tab. The ones marked *group rule* come from
 | | Glow loot buttons for your BiS items | on |
 | | Chat message when your BiS item drops | on |
 | | BiS badges on the loot window | on |
+| | Alerts for off-spec list items (toast and chat line) | on |
 | | Drop panel position: Attach to loot window when open / Always floating | Attach |
 | | Announce channel: Raid / Raid Warning (Raid Warning needs lead or assist; otherwise Raid is used) | Raid |
 | Group loot rules | Roll duration *(group rule)* | 30 seconds |
@@ -677,6 +697,7 @@ A fresh install with an empty list is restored automatically.
 ### Mixed versions
 - Everyone, and above all council members, the raid leader and the master looter, should run the **same** version. `/cdl version` shows who runs what.
 - If a newer version shows up, CDLoot prints "A newer CDLoot version (x) is in use by Y. Please update."
+- **Off-spec lists** need 0.6 on the council's side: 0.5 council members keep receiving your list but ignore the off-spec part.
 - **0.5 and older** don't know votes, award reasons or the disenchanter / guild bank:
   - A 0.5 council member can't vote and doesn't see votes. Its awards have no reason.
   - A master looter on 0.5 gets no suggestion from votes.

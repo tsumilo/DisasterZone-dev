@@ -416,6 +416,7 @@ function SettingsUI:BuildLeft(parent)
     self:CheckSetting(col, "Glow loot buttons for your BiS items", "alerts.glow", true)
     self:CheckSetting(col, "Chat message when your BiS item drops", "alerts.chat", true)
     self:CheckSetting(col, "BiS badges on the loot window", "alerts.lootBadges", true)
+    self:CheckSetting(col, "Alerts for off-spec list items", "alerts.offspec", true)
     self:DropdownSetting(col, "Drop panel position", "dropPanelMode", "auto", {
         { value = "auto", text = "Attach to loot window when open" },
         { value = "floating", text = "Always floating" },

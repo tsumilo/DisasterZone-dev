@@ -1,7 +1,7 @@
 # CDLoot dev kit
 
 Development repository for **CDLoot**, the loot-council addon for <Casual Disaster> on WoW TBC Anniversary (Interface 20506).
-It tracks the addon source together with everything needed to change it safely: the specs, an offline WoW-client mock, 35 test suites and the data generators.
+It tracks the addon source together with everything needed to change it safely: the specs, an offline WoW-client mock, 36 test suites and the data generators.
 
 The guild-facing documentation is in `addon/CDLoot/README.md`.
 
@@ -11,10 +11,10 @@ The guild-facing documentation is in `addon/CDLoot/README.md`.
 CDLoot-dev/
   addon/CDLoot/   -> JUNCTION to C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot  (the live addon)
   dev/
-    docs/         SPEC.md + SPEC_ADDENDUM_A..G.md (design), research/ (api.md = verified 2.5.6 API notes),
+    docs/         SPEC.md + SPEC_ADDENDUM_A..H.md (design), research/ (api.md = verified 2.5.6 API notes),
                   impl/ (per-phase implementation, fix and review reports)
     tools/        check.py (static checker), harness.py + wowmock/ (Lua 5.1 mock WoW client), README.md
-    tests/        35 scenario suites: tests/<area>/test_*.py
+    tests/        36 scenario suites: tests/<area>/test_*.py
     tf_e/         run_all.py (runs every suite in parallel; output goes to tf_e/<name>/, git-ignored)
     generators/   gen_cdloot_data.py (raids), gen_cdloot_dungeons.py, gen_cdloot_sources.py
                   (crafted/rep/badges/PvP), gen_itemclasses.py (class-restricted items), reports, validators

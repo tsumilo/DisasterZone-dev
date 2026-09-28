@@ -49,6 +49,7 @@ local FALLBACK_COLORS = {
     warn     = { 1.00, 0.55, 0.20 },
     bad      = { 1.00, 0.30, 0.30 },
     council  = { 1.00, 0.50, 0.00 },
+    offspec  = { 0.72, 0.60, 0.92 },
 }
 
 -- Row column layouts {x, width} (rows are ~384px wide at PANEL_W 430; the equipped icons sit
@@ -225,18 +226,29 @@ local function UniqueWanters(itemID, opts)
 end
 
 -- First not-yet-obtained BiS match of the player for a dropped item (MatchItem is sorted best first).
-local function OwnNeededMatch(itemID)
+-- includeOS (Addendum H): an off-spec match counts too (MatchItem lists main-spec matches first).
+local function OwnNeededMatch(itemID, includeOS)
     if not (ns.BiS and ns.BiS.MatchItem) then return nil end
     local matches = ns.BiS:MatchItem(itemID)
     if type(matches) ~= "table" then return nil end
     for _, m in ipairs(matches) do
-        if type(m) == "table" and not m.obtained then return m end
+        if type(m) == "table" and not m.obtained and (includeOS or not m.os) then return m end
     end
     return nil
 end
 
+local function OffSpecLabel()
+    local sp = ns.BiS and ns.BiS.GetSpec and ns.BiS:GetSpec("os") or ""
+    return sp ~= "" and sp or nil
+end
+
 local function BadgeText(w, viewPhase)
-    local t = (w.which == "alt") and Paint("[Alt]", "alt") or Paint("[BiS]", "main")
+    local t
+    if w.os then
+        t = Paint(w.which == "alt" and "[OS alt]" or "[OS]", "offspec")   -- off-spec list (Addendum H)
+    else
+        t = (w.which == "alt") and Paint("[Alt]", "alt") or Paint("[BiS]", "main")
+    end
     local p = tonumber(w.phase)
     if p and p ~= viewPhase then t = t .. Paint(" P" .. p, "muted") end
     return t
@@ -535,7 +547,13 @@ local function RollAllows(method, fallback, ...)
 end
 
 local function TierBadge(row, vp)
-    local tier = tonumber(row.tier) or 3
+    local tier = tonumber(row.tier) or 4
+    if tier == 3 then
+        local t = Paint("[OS]", "offspec")   -- off-spec list (Addendum H)
+        local p = tonumber(row.phase)
+        if p and p ~= vp then t = t .. Paint(" P" .. p, "muted") end
+        return t
+    end
     if tier == 1 or tier == 2 then
         local t = (tier == 2 or row.which == "alt") and Paint("[Alt]", "alt") or Paint("[BiS]", "main")
         local p = tonumber(row.phase)
@@ -547,9 +565,10 @@ local function TierBadge(row, vp)
 end
 
 local function TierWord(row)
-    local tier = tonumber(row.tier) or 3
+    local tier = tonumber(row.tier) or 4
     if tier == 1 then return "BiS (main)" end
     if tier == 2 then return "BiS alt" end
+    if tier == 3 then return "off-spec list" .. ((type(row.spec) == "string" and row.spec ~= "") and (" (" .. row.spec .. ")") or "") end
     if row.which and row.obtained then return "listed, already obtained" end
     return "not on their BiS list"
 end
@@ -597,9 +616,11 @@ local function CanMasterLoot(itemID)
     return (ok and can) and true or false
 end
 
--- Default award reason for a BiS candidate (Store:GetWanters entry): main pick -> BiS, alt -> Alt.
+-- Default award reason for a BiS candidate (Store:GetWanters entry): main pick -> BiS, alt -> Alt, off-spec
+-- list -> Offspec (Addendum H).
 local function WanterReason(w)
     if type(w) ~= "table" or w.cantUse then return nil end
+    if w.os then return "os" end
     return w.which == "alt" and "alt" or "bis"
 end
 
@@ -738,13 +759,14 @@ end
 function DropPanel:HandlePersonal(drop, items, soundPlayed)
     local wantToast = Setting("alerts.personalToast", true)
     local wantChat = Setting("alerts.chat", true)
+    local wantOS = Setting("alerts.offspec", true)
     local now = GetTime()
     local any = false
     local seen = {}
     for _, id in ipairs(items) do
         if not seen[id] then
             seen[id] = true
-            local m = OwnNeededMatch(id)
+            local m = OwnNeededMatch(id, wantOS)
             local last = self.recentAlerts[id]
             if m and (drop.test or not last or now - last > ALERT_DEDUPE) then
                 self.recentAlerts[id] = now
@@ -770,6 +792,12 @@ function DropPanel:PrintOwnDrop(itemID, m, test, tries)
     end
     local which = (m.which == "alt") and "alt" or "main"
     if m.via then which = which .. ", " .. ((ns.VIA_TEXT and ns.VIA_TEXT[m.via]) or "via token") end
+    if m.os then
+        local sp = OffSpecLabel()
+        ns:Print("%s is on your off-spec list%s: %s, P%d (%s)%s", link or ItemName(itemID),
+            sp and (" (" .. sp .. ")") or "", SlotLabel(m.sid), tonumber(m.phase) or 0, which, test and " [test]" or "")
+        return
+    end
     ns:Print("%s %s is on your BiS list: %s, P%d (%s)%s", STAR, link or ItemName(itemID),
         SlotLabel(m.sid), tonumber(m.phase) or 0, which, test and " [test]" or "")
 end
@@ -1190,10 +1218,10 @@ local function RollRowTooltip(self, tt, vp)
     tt:AddLine(ColoredName(row.key, row.classFile))
     local specLine = ((type(row.spec) == "string" and row.spec ~= "") and (row.spec .. " ") or "") .. ClassName(row.classFile)
     tt:AddLine(specLine, 0.8, 0.8, 0.8)
-    local tier = tonumber(row.tier) or 3
-    local c = (tier == 1 and Color("main")) or (tier == 2 and Color("alt")) or Color("muted")
+    local tier = tonumber(row.tier) or 4
+    local c = (tier == 1 and Color("main")) or (tier == 2 and Color("alt")) or (tier == 3 and Color("offspec")) or Color("muted")
     local p = tonumber(row.phase)
-    tt:AddLine(TierWord(row) .. ((tier <= 2 and p) and format(" in P%d", p) or ""), c[1], c[2], c[3])
+    tt:AddLine(TierWord(row) .. ((tier <= 3 and p) and format(" in P%d", p) or ""), c[1], c[2], c[3])
 
     local n = tonumber(row.roll)
     local r = type(session) == "table" and type(session.rolls) == "table" and session.rolls[row.key]
@@ -1290,7 +1318,12 @@ local function RowOnEnter(self)
     local specLine = ((type(w.spec) == "string" and w.spec ~= "") and (w.spec .. " ") or "") .. ClassName(w.classFile)
     tt:AddLine(specLine, 0.8, 0.8, 0.8)
     local p = tonumber(w.phase) or 0
-    if w.which == "alt" then
+    if w.os then
+        local o = Color("offspec")
+        tt:AddLine(format("Off-spec %s in P%d%s", w.which == "alt" and "alt pick" or "BiS", p,
+            (type(w.spec) == "string" and w.spec ~= "") and (" (" .. w.spec .. ")") or ""), o[1], o[2], o[3])
+        tt:AddLine("Ranked after main-spec wanters; an award counts as Offspec", 0.6, 0.6, 0.6, true)
+    elseif w.which == "alt" then
         tt:AddLine(format("Alt pick in P%d", p), Color("alt")[1], Color("alt")[2], Color("alt")[3])
     else
         tt:AddLine(format("BiS (main) in P%d", p), Color("main")[1], Color("main")[2], Color("main")[3])
@@ -1710,7 +1743,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     local itemSid = FirstSlotOfItem(itemID)
 
     -- Roll mode lists roll results; the Award... menu then fetches the wanters itself.
-    local wanters = (not rolling) and UniqueWanters(itemID, { includeObtained = false }) or nil
+    local wanters = (not rolling) and UniqueWanters(itemID, { includeObtained = false, list = "both" }) or nil
     b.wanters = wanters
 
     local y, rowIdx, n = ITEM_HEAD_H, 0, 0
@@ -1766,7 +1799,15 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     else
         b.reservedY = nil
         n = #wanters
-        b.count:SetText(n > 0 and (n .. " want") or "")
+        local nOS = 0
+        for _, w in ipairs(wanters) do
+            if w.os then nOS = nOS + 1 end
+        end
+        local nMS = n - nOS
+        -- Addendum H: "3 want", plus the off-spec wanters listed after them ("3 want +2 OS").
+        local countText = nMS > 0 and (nMS .. " want") or ""
+        if nOS > 0 then countText = countText .. (countText ~= "" and " " or "") .. Paint("+" .. nOS .. " OS", "offspec") end
+        b.count:SetText(countText)
         if mode == "queued" then
             b.sub:SetText(RollStateText(nil, nil, queuePos or 1))
         else
@@ -2048,12 +2089,14 @@ end
 ---------------------------------------------------------------------------
 function DropPanel:BuildAnnounceLine(itemID)
     local link = ItemLink(itemID) or ItemName(itemID)
-    local wanters = UniqueWanters(itemID, { includeObtained = false })
+    local wanters = UniqueWanters(itemID, { includeObtained = false, list = "both" })
     local inGroup = _G.IsInGroup and _G.IsInGroup()
-    local mains, alts = {}, {}
+    local mains, alts, offs = {}, {}, {}
     for _, w in ipairs(wanters) do
         if w.inRaid or not inGroup then
-            if w.which == "alt" then
+            if w.os then
+                offs[#offs + 1] = ShortName(w.key)
+            elseif w.which == "alt" then
                 alts[#alts + 1] = ShortName(w.key)
             else
                 mains[#mains + 1] = ShortName(w.key)
@@ -2063,6 +2106,7 @@ function DropPanel:BuildAnnounceLine(itemID)
     local parts = {}
     if #mains > 0 then parts[#parts + 1] = "BiS: " .. tconcat(mains, ", ") end
     if #alts > 0 then parts[#parts + 1] = "Alt: " .. tconcat(alts, ", ") end
+    if #offs > 0 then parts[#parts + 1] = "OS: " .. tconcat(offs, ", ") end
     if #parts == 0 then return format("CDLoot: %s - not on anyone's BiS list", link) end
     return format("CDLoot: %s - %s", link, tconcat(parts, "; "))
 end
@@ -2391,7 +2435,7 @@ function DropPanel:OpenAwardMenu(b, owner)
     local copy = b.copy
     local vp = ViewPhase()
     -- Fetched when the menu opens (the group may have changed since the panel was painted).
-    local wanters = UniqueWanters(itemID, { includeObtained = false })
+    local wanters = UniqueWanters(itemID, { includeObtained = false, list = "both" })
     local awardEntry = b.awardEntry
     local conflict = b.rollSession and type(b.rollSession.lootOther) == "string" and b.rollSession or nil
     local function award(key, reason) DropPanel:Award(itemID, key, bossKey, copy, drop, nil, reason) end
@@ -2626,6 +2670,10 @@ function DropPanel:RefreshToastText()
     local m = e.match or {}
     t.icon:SetTexture(ItemIcon(e.itemID))
     local title = STAR .. " On your BiS list!"
+    if m.os then
+        local sp = OffSpecLabel()
+        title = Paint("On your off-spec list" .. (sp and (" (" .. sp .. ")") or ""), "offspec")
+    end
     if e.test then title = title .. Paint(" (test)", "muted") end
     t.title:SetText(title)
     local shown = (m.via and m.wanted) or e.itemID

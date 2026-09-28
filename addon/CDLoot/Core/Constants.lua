@@ -286,11 +286,41 @@ function ns.ReasonLabel(key)
     return r and r.label or nil
 end
 
--- The default reason of a roll winner's BiS tier (1 main, 2 alt, else not listed).
+-- The default reason of a roll winner's BiS tier (1 main, 2 alt, 3 off-spec list, else not listed).
 function ns.ReasonForTier(tier)
     if tier == 1 then return "bis" end
     if tier == 2 then return "alt" end
+    if tier == 3 then return "os" end
     return "up"
+end
+
+---------------------------------------------------------------------------
+-- Off-spec lists (Addendum H): data.os = label, data.op = phases, data.ox = disabled slots
+---------------------------------------------------------------------------
+
+-- The list data has an off spec.
+function ns.HasOffSpec(data)
+    return type(data) == "table" and (data.os ~= nil or data.op ~= nil or data.ox ~= nil) or false
+end
+
+-- A read-only view of one list of a ListData table, shaped like ListData ({ v, cl, sp, ph, dx, ob, eq }): list "os"
+-- = the off-spec picks with the shared obtained / equipped state; anything else = data itself.
+function ns.ListView(data, list)
+    if type(data) ~= "table" or list ~= "os" then return data end
+    return {
+        v = data.v, cl = data.cl, sp = type(data.os) == "string" and data.os or "",
+        ph = type(data.op) == "table" and data.op or {}, dx = type(data.ox) == "table" and data.ox or nil,
+        ob = data.ob, eq = data.eq, offSpec = true,
+    }
+end
+
+-- A record ({ data = }) whose data is the view of `list` (other fields copied), for views that take records.
+function ns.ListRecordView(rec, list)
+    if type(rec) ~= "table" or list ~= "os" then return rec end
+    local out = {}
+    for k, v in pairs(rec) do out[k] = v end
+    out.data = ns.ListView(rec.data, "os")
+    return out
 end
 
 ---------------------------------------------------------------------------
@@ -306,6 +336,7 @@ ns.COLORS = {
     warn     = { 1.00, 0.55, 0.20 },
     bad      = { 1.00, 0.30, 0.30 },
     council  = { 1.00, 0.50, 0.00 },   -- addon accent (#ff8000)
+    offspec  = { 0.72, 0.60, 0.92 },   -- off-spec list (Addendum H)
 }
 
 ns.TEX = {

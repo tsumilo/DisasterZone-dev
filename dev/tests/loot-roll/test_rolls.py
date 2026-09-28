@@ -129,7 +129,7 @@ def roll_basic_flow_raid_wide():
     res = assert_same_results(r, sid)
     by = {x["key"]: x for x in res}
     assert res[0]["key"] == key("Bob") and res[0]["suggested"] and res[0]["tier"] == 1, res[0]
-    assert by[key("Dave")]["tier"] == 2 and by[key("Zed")]["tier"] == 3 and by[key("Zed")]["roll"] == 95
+    assert by[key("Dave")]["tier"] == 2 and by[key("Zed")]["tier"] == 4 and by[key("Zed")]["roll"] == 95
     assert by[key("Frank")]["roll"] == 12 and by[key("Frank")]["count"] == 2 and not by[key("Frank")]["invalid"]
     assert by[key("Gina")]["invalid"] and not by[key("Gina")]["suggested"]
     assert by[key("Carol")]["response"] == "pass" and res[-1]["key"] == key("Carol"), res
@@ -189,7 +189,7 @@ def suggestion_tier_before_roll():
     click_roll(r, "Bob", 2)                    # tier 1 (main, not obtained)
     w.tick(1)
     res = assert_same_results(r, sid)
-    assert [(x["key"], x["tier"]) for x in res[:3]] == [(key("Bob"), 1), (key("Dave"), 2), (key("Frank"), 3)], res
+    assert [(x["key"], x["tier"]) for x in res[:3]] == [(key("Bob"), 1), (key("Dave"), 2), (key("Frank"), 4)], res
     assert res[0]["suggested"] and not res[0]["tie"]
     r["Alice"].eval("ns.Roll:End(...)", sid)
     w.tick(1)
@@ -215,7 +215,7 @@ def obtained_main_drops_to_last_tier():
     w.tick(1)
     res = results(r["Alice"], sid)
     assert res[0]["key"] == key("Dave") and res[0]["tier"] == 2 and res[0]["suggested"], res
-    assert [x for x in res if x["key"] == key("Bob")][0]["tier"] == 3, res
+    assert [x for x in res if x["key"] == key("Bob")][0]["tier"] == 4, res
     w.assert_no_errors()
 
 

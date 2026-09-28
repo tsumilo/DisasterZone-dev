@@ -4,6 +4,10 @@
 -- Addendum F §36: disabled slots (data.dx = { [phase] = { [sid] = true } }, omitted when empty; the picks
 -- of a disabled slot are kept). §38: while the raid's loot authority has locked the BiS lists
 -- (GroupRules:IsLocked()), every editing API refuses; obtained / equipped scanning still works.
+-- Addendum H: an optional off-spec list next to the main-spec one. It is stored flat so older clients' validators
+-- (max nesting depth) accept it: data.os = off-spec label ("" = off spec added, spec not chosen yet), data.op =
+-- its phases (same shape as ph), data.ox = its disabled slots (same shape as dx). All three are omitted while the
+-- player has no off spec. Every edit / query API takes an optional trailing `list` ("ms" default, or "os").
 local addonName, ns = ...
 
 local BiS = ns:NewModule("BiS")
@@ -148,6 +152,20 @@ local function MyTokenPieces(tokenID)
     return out
 end
 
+-- Addendum H: the table an edit of `list` works on. The main spec edits data itself (ph / dx); the off spec a
+-- stand-in { ph = data.op, dx = data.ox } that StoreList writes back (empty tables are dropped again).
+local function ListTable(data, list)
+    if list ~= "os" then return data end
+    return { ph = type(data.op) == "table" and data.op or {}, dx = type(data.ox) == "table" and data.ox or nil }
+end
+
+local function StoreList(data, list, L)
+    if list ~= "os" then return end
+    data.op = (type(L.ph) == "table" and next(L.ph) ~= nil) and L.ph or nil
+    data.ox = (type(L.dx) == "table" and next(L.dx) ~= nil) and L.dx or nil
+    if data.os == nil and (data.op or data.ox) then data.os = "" end   -- picks imply the off spec exists
+end
+
 -- Disabled slot (Addendum F §36): data.dx[phase][sid] == true.
 local function IsDisabled(data, phase, sid)
     local dx = data.dx
@@ -207,18 +225,11 @@ local function NewRecord()
     return { rev = 0, highestSeenRev = 0, ts = 0, hash = "", data = data, manual = {}, bank = {}, bankTs = 0 }
 end
 
--- Repair anything malformed in a saved record (SavedVariables are user-editable).
-local function SanitizeData(d)
-    if type(d.v) ~= "number" then d.v = LIST_VERSION end
-    if type(d.cl) ~= "string" then d.cl = PlayerClass() or "" end
-    if type(d.sp) ~= "string" then d.sp = "" end
-    if #d.sp > MAX_STR then d.sp = d.sp:sub(1, MAX_STR) end
-    if type(d.ph) ~= "table" then d.ph = {} end
-    if type(d.ob) ~= "table" then d.ob = {} end
-    if type(d.eq) ~= "table" then d.eq = {} end
-    for phase, slots in pairs(d.ph) do
+-- Phases table { [phase] = { [sid] = { main, alt } } }: repaired in place.
+local function SanitizePhases(ph)
+    for phase, slots in pairs(ph) do
         if not IsValidPhase(phase) or type(slots) ~= "table" then
-            d.ph[phase] = nil
+            ph[phase] = nil
         else
             for sid, s in pairs(slots) do
                 local main = type(s) == "table" and tonumber(s[1]) or 0
@@ -231,27 +242,53 @@ local function SanitizeData(d)
                     slots[sid] = { main, alt }
                 end
             end
-            if next(slots) == nil then d.ph[phase] = nil end
+            if next(slots) == nil then ph[phase] = nil end
         end
     end
-    -- Disabled slots: phases 1..5, sids 1..17, true values only; omitted when empty.
-    if d.dx ~= nil then
-        if type(d.dx) ~= "table" then
-            d.dx = nil
+end
+
+-- Disabled slots { [phase] = { [sid] = true } }: phases 1..5, sids 1..17, true values only. Returns the table, or
+-- nil when it is empty / not a table (omitted).
+local function SanitizeDisabled(dx)
+    if type(dx) ~= "table" then return nil end
+    for phase, slots in pairs(dx) do
+        if not IsValidPhase(phase) or type(slots) ~= "table" then
+            dx[phase] = nil
         else
-            for phase, slots in pairs(d.dx) do
-                if not IsValidPhase(phase) or type(slots) ~= "table" then
-                    d.dx[phase] = nil
-                else
-                    for sid, v in pairs(slots) do
-                        if not IsValidSid(sid) or v ~= true then slots[sid] = nil end
-                    end
-                    if next(slots) == nil then d.dx[phase] = nil end
-                end
+            for sid, v in pairs(slots) do
+                if not IsValidSid(sid) or v ~= true then slots[sid] = nil end
             end
-            if next(d.dx) == nil then d.dx = nil end
+            if next(slots) == nil then dx[phase] = nil end
         end
     end
+    if next(dx) == nil then return nil end
+    return dx
+end
+
+-- Repair anything malformed in a saved record (SavedVariables are user-editable).
+local function SanitizeData(d)
+    if type(d.v) ~= "number" then d.v = LIST_VERSION end
+    if type(d.cl) ~= "string" then d.cl = PlayerClass() or "" end
+    if type(d.sp) ~= "string" then d.sp = "" end
+    if #d.sp > MAX_STR then d.sp = d.sp:sub(1, MAX_STR) end
+    if type(d.ph) ~= "table" then d.ph = {} end
+    if type(d.ob) ~= "table" then d.ob = {} end
+    if type(d.eq) ~= "table" then d.eq = {} end
+    SanitizePhases(d.ph)
+    if d.dx ~= nil then d.dx = SanitizeDisabled(d.dx) end
+    -- Off spec (Addendum H): os label, op phases, ox disabled slots; all omitted without an off spec.
+    if d.os ~= nil and type(d.os) ~= "string" then d.os = "" end
+    if type(d.os) == "string" and #d.os > MAX_STR then d.os = d.os:sub(1, MAX_STR) end
+    if d.op ~= nil then
+        if type(d.op) ~= "table" then
+            d.op = nil
+        else
+            SanitizePhases(d.op)
+            if next(d.op) == nil then d.op = nil end
+        end
+    end
+    if d.ox ~= nil then d.ox = SanitizeDisabled(d.ox) end
+    if d.os == nil and (d.op ~= nil or d.ox ~= nil) then d.os = "" end
 end
 
 local function SanitizeRecord(rec)
@@ -293,10 +330,14 @@ local function WriteSlot(data, phase, sid, main, alt)
 end
 
 local function HasPicks(data)
-    for _, slots in pairs(data.ph) do
-        if type(slots) == "table" then
-            for _, s in pairs(slots) do
-                if type(s) == "table" and ((s[1] or 0) ~= 0 or (s[2] or 0) ~= 0) then return true end
+    for _, ph in ipairs({ data.ph, data.op }) do
+        if type(ph) == "table" then
+            for _, slots in pairs(ph) do
+                if type(slots) == "table" then
+                    for _, s in pairs(slots) do
+                        if type(s) == "table" and ((s[1] or 0) ~= 0 or (s[2] or 0) ~= 0) then return true end
+                    end
+                end
             end
         end
     end
@@ -325,8 +366,9 @@ function BiS:GetData()
     return self:GetRecord().data
 end
 
-function BiS:GetSlot(phase, sid)
-    local main, alt = ReadSlot(self:GetData(), phase, sid)
+-- list (Addendum H): "ms" (default) or "os".
+function BiS:GetSlot(phase, sid, list)
+    local main, alt = ReadSlot(ListTable(self:GetData(), list), phase, sid)
     return (main ~= 0 and main or nil), (alt ~= 0 and alt or nil)
 end
 
@@ -334,9 +376,10 @@ end
 -- Edits
 ---------------------------------------------------------------------------
 
-local function AfterEdit(phase, sid)
+-- list (Addendum H): which list changed ("os"; nil = the main spec or both); third MYLIST_CHANGED argument.
+local function AfterEdit(phase, sid, list)
     BiS:RebuildDerived()
-    ns:Fire("MYLIST_CHANGED", phase, sid)
+    ns:Fire("MYLIST_CHANGED", phase, sid, list)
     BiS:MarkDirty()
 end
 
@@ -346,7 +389,47 @@ function BiS:IsLocked()
     return LockState()
 end
 
-function BiS:SetSlot(phase, sid, which, itemID)
+---------------------------------------------------------------------------
+-- Off spec (Addendum H)
+---------------------------------------------------------------------------
+
+function BiS:HasOffSpec()
+    local data = self:GetData()
+    return (data.os ~= nil or data.op ~= nil or data.ox ~= nil) and true or false
+end
+
+-- A read-only view of one list shaped like ListData ({ cl, sp, ph, dx, ob, eq }): for "os" the off-spec picks
+-- with the shared obtained / equipped state. Callers (PaperDoll, summaries) must not write into it.
+function BiS:GetListView(list)
+    return ns.ListView(self:GetData(), list)
+end
+
+-- Adds an empty off-spec list (spec label optional). false while locked.
+function BiS:AddOffSpec(label)
+    if RefuseLocked() then return false end
+    local data = self:GetData()
+    if data.os ~= nil then return true end
+    data.os = ""
+    if type(label) == "string" and label ~= "" then self:SetSpec(label, "os") end
+    AfterEdit(nil, nil, "os")
+    return true
+end
+
+-- Removes the off-spec list and all its picks. false while locked.
+function BiS:RemoveOffSpec()
+    if RefuseLocked() then return false end
+    local data = self:GetData()
+    if data.os == nil and data.op == nil and data.ox == nil then return true end
+    data.os, data.op, data.ox = nil, nil, nil
+    AfterEdit(nil, nil, "os")
+    return true
+end
+
+---------------------------------------------------------------------------
+-- Pick edits (list: "ms" default, "os" = the off-spec list)
+---------------------------------------------------------------------------
+
+function BiS:SetSlot(phase, sid, which, itemID, list)
     if not IsValidPhase(phase) or not IsValidSid(sid) then return false end
     if which ~= "main" and which ~= "alt" then return false end
     if RefuseLocked() then return false end
@@ -368,7 +451,8 @@ function BiS:SetSlot(phase, sid, which, itemID)
         end
     end
     local data = self:GetData()
-    local oldMain, oldAlt = ReadSlot(data, phase, sid)
+    local L = ListTable(data, list)
+    local oldMain, oldAlt = ReadSlot(L, phase, sid)
     local main, alt = oldMain, oldAlt
     if which == "main" then
         if itemID ~= 0 and itemID == alt then alt = main end   -- promoting the alt: swap
@@ -379,40 +463,47 @@ function BiS:SetSlot(phase, sid, which, itemID)
     end
     if main ~= 0 and main == alt then alt = 0 end
     if main == oldMain and alt == oldAlt then return true end
-    WriteSlot(data, phase, sid, main, alt)
-    AfterEdit(phase, sid)
+    WriteSlot(L, phase, sid, main, alt)
+    StoreList(data, list, L)
+    AfterEdit(phase, sid, list)
     return true
 end
 
-function BiS:ClearSlot(phase, sid)
+function BiS:ClearSlot(phase, sid, list)
     if not IsValidPhase(phase) or not IsValidSid(sid) then return false end
     if RefuseLocked() then return false end
     local data = self:GetData()
-    local main, alt = ReadSlot(data, phase, sid)
+    local L = ListTable(data, list)
+    local main, alt = ReadSlot(L, phase, sid)
     if main == 0 and alt == 0 then return true end
-    WriteSlot(data, phase, sid, 0, 0)
-    AfterEdit(phase, sid)
+    WriteSlot(L, phase, sid, 0, 0)
+    StoreList(data, list, L)
+    AfterEdit(phase, sid, list)
     return true
 end
 
-function BiS:SwapMainAlt(phase, sid)
+function BiS:SwapMainAlt(phase, sid, list)
     if not IsValidPhase(phase) or not IsValidSid(sid) then return false end
     if RefuseLocked() then return false end
     local data = self:GetData()
-    local main, alt = ReadSlot(data, phase, sid)
+    local L = ListTable(data, list)
+    local main, alt = ReadSlot(L, phase, sid)
     if main == 0 and alt == 0 then return false end
-    WriteSlot(data, phase, sid, alt, main)
-    AfterEdit(phase, sid)
+    WriteSlot(L, phase, sid, alt, main)
+    StoreList(data, list, L)
+    AfterEdit(phase, sid, list)
     return true
 end
 
-function BiS:ClearPhase(phase)
+function BiS:ClearPhase(phase, list)
     if not IsValidPhase(phase) then return false end
     if RefuseLocked() then return false end
     local data = self:GetData()
-    if data.ph[phase] == nil then return true end
-    data.ph[phase] = nil
-    AfterEdit(phase, nil)
+    local L = ListTable(data, list)
+    if L.ph[phase] == nil then return true end
+    L.ph[phase] = nil
+    StoreList(data, list, L)
+    AfterEdit(phase, nil, list)
     return true
 end
 
@@ -435,39 +526,46 @@ end
 -- overwrite=true: the target phase becomes an exact copy of the source phase.
 -- overwrite=false: only slots without a main pick in the target are filled.
 -- Disabled slots of the target phase are left untouched either way.
-function BiS:CopyPhase(fromPhase, toPhase, overwrite)
-    if not IsValidPhase(fromPhase) or not IsValidPhase(toPhase) or fromPhase == toPhase then return false end
+-- list: the target list; fromList (default: list) the source list, so "copy my main spec's P2 into my off spec"
+-- is CopyPhase(2, 2, false, "os", "ms").
+function BiS:CopyPhase(fromPhase, toPhase, overwrite, list, fromList)
+    fromList = fromList or list
+    local sameList = (fromList == "os") == (list == "os")
+    if not IsValidPhase(fromPhase) or not IsValidPhase(toPhase) or (sameList and fromPhase == toPhase) then return false end
     if RefuseLocked() then return false end
     local data = self:GetData()
-    local src = data.ph[fromPhase]
-    if overwrite then ResetPhaseKeepingDisabled(data, toPhase) end
+    local L = ListTable(data, list)
+    local S = sameList and L or ListTable(data, fromList)
+    local src = Util.CopyTable(S.ph[fromPhase] or {})
+    local S2 = { ph = { [1] = src } }
+    if overwrite then ResetPhaseKeepingDisabled(L, toPhase) end
     local changed = overwrite and true or false
-    if type(src) == "table" then
-        for sid = 1, NUM_SLOTS do
-            local sMain, sAlt = ReadSlot(data, fromPhase, sid)
-            if (sMain ~= 0 or sAlt ~= 0) and not IsDisabled(data, toPhase, sid) then
-                local tMain, tAlt = ReadSlot(data, toPhase, sid)
-                if overwrite then
-                    WriteSlot(data, toPhase, sid, sMain, sAlt)
-                elseif tMain == 0 and sMain ~= 0 then
-                    local alt = tAlt ~= 0 and tAlt or sAlt
-                    WriteSlot(data, toPhase, sid, sMain, alt)
-                    changed = true
-                end
+    for sid = 1, NUM_SLOTS do
+        local sMain, sAlt = ReadSlot(S2, 1, sid)
+        if (sMain ~= 0 or sAlt ~= 0) and not IsDisabled(L, toPhase, sid) then
+            local tMain, tAlt = ReadSlot(L, toPhase, sid)
+            if overwrite then
+                WriteSlot(L, toPhase, sid, sMain, sAlt)
+            elseif tMain == 0 and sMain ~= 0 then
+                local alt = tAlt ~= 0 and tAlt or sAlt
+                WriteSlot(L, toPhase, sid, sMain, alt)
+                changed = true
             end
         end
     end
-    if changed then AfterEdit(toPhase, nil) end
+    StoreList(data, list, L)
+    if changed then AfterEdit(toPhase, nil, list) end
     return changed
 end
 
 -- slots[sid] = {main, alt}. overwrite=true replaces the whole phase with the template;
 -- overwrite=false fills only slots without a main pick. Items that don't fit are skipped, and disabled
 -- slots are never filled (nor cleared). Returns the number of slots changed (false while locked).
-function BiS:ApplyTemplate(phase, slots, overwrite)
+function BiS:ApplyTemplate(phase, slots, overwrite, list)
     if not IsValidPhase(phase) or type(slots) ~= "table" then return 0 end
     if RefuseLocked() then return false end
-    local data = self:GetData()
+    local rdata = self:GetData()
+    local data = ListTable(rdata, list)
     local before = Util.CopyTable(data.ph[phase] or {})
     if overwrite then ResetPhaseKeepingDisabled(data, phase) end
     for sid = 1, NUM_SLOTS do
@@ -497,7 +595,8 @@ function BiS:ApplyTemplate(phase, slots, overwrite)
         local am, aa = a and a[1] or 0, a and a[2] or 0
         if bm ~= am or ba ~= aa then changed = changed + 1 end
     end
-    if changed > 0 then AfterEdit(phase, nil) end
+    StoreList(rdata, list, data)
+    if changed > 0 then AfterEdit(phase, nil, list) end
     return changed
 end
 
@@ -505,16 +604,16 @@ end
 -- Disabled slots (Addendum F §36)
 ---------------------------------------------------------------------------
 
-function BiS:IsSlotDisabled(phase, sid)
+function BiS:IsSlotDisabled(phase, sid, list)
     if not IsValidPhase(phase) or not IsValidSid(sid) then return false end
-    return IsDisabled(self:GetData(), phase, sid)
+    return IsDisabled(ListTable(self:GetData(), list), phase, sid)
 end
 
 -- { [sid] = true } of the disabled slots of a phase (a new table).
-function BiS:GetDisabledSlots(phase)
+function BiS:GetDisabledSlots(phase, list)
     local out = {}
     if not IsValidPhase(phase) then return out end
-    local dx = self:GetData().dx
+    local dx = ListTable(self:GetData(), list).dx
     local p = type(dx) == "table" and dx[phase]
     if type(p) == "table" then
         for sid, v in pairs(p) do
@@ -545,25 +644,30 @@ local function WriteDisabled(data, phase, sid, disabled)
 end
 
 -- Disables (true) / enables (false) a slot in one phase; the picks are kept. false when refused.
-function BiS:SetSlotDisabled(phase, sid, disabled)
+function BiS:SetSlotDisabled(phase, sid, disabled, list)
     if not IsValidPhase(phase) or not IsValidSid(sid) then return false end
     if RefuseLocked() then return false end
-    if WriteDisabled(self:GetData(), phase, sid, disabled and true or false) then
-        AfterEdit(phase, sid)
+    local data = self:GetData()
+    local L = ListTable(data, list)
+    if WriteDisabled(L, phase, sid, disabled and true or false) then
+        StoreList(data, list, L)
+        AfterEdit(phase, sid, list)
     end
     return true
 end
 
 -- Disables / enables a slot in every phase. false when refused.
-function BiS:SetSlotDisabledAllPhases(sid, disabled)
+function BiS:SetSlotDisabledAllPhases(sid, disabled, list)
     if not IsValidSid(sid) then return false end
     if RefuseLocked() then return false end
     local data = self:GetData()
+    local L = ListTable(data, list)
     local changed = false
     for phase = 1, (ns.MAX_PHASE or MAX_PHASE) do
-        if WriteDisabled(data, phase, sid, disabled and true or false) then changed = true end
+        if WriteDisabled(L, phase, sid, disabled and true or false) then changed = true end
     end
-    if changed then AfterEdit(nil, sid) end
+    StoreList(data, list, L)
+    if changed then AfterEdit(nil, sid, list) end
     return true
 end
 
@@ -571,15 +675,34 @@ end
 -- Spec
 ---------------------------------------------------------------------------
 
-function BiS:GetSpec()
-    return self:GetData().sp or ""
+-- list "os": the off-spec label ("" while not chosen or without an off spec).
+function BiS:GetSpec(list)
+    local data = self:GetData()
+    if list == "os" then return data.os or "" end
+    return data.sp or ""
 end
 
-function BiS:SetSpec(label)
+function BiS:SetSpec(label, list)
     if label ~= nil and type(label) ~= "string" then return false end
     label = label or ""
     if RefuseLocked() then return false end
     local data = self:GetData()
+    if list == "os" then
+        if label ~= "" then
+            local specs = ns.SPECS and ns.SPECS[data.cl]
+            local known = type(specs) ~= "table"
+            for _, spec in ipairs(type(specs) == "table" and specs or {}) do
+                if spec.label == label then known = true break end
+            end
+            if not known then return false end
+            if #label > MAX_STR then label = label:sub(1, MAX_STR) end
+        end
+        if data.os == label then return true end
+        data.os = label   -- (setting a label also adds the off spec)
+        ns:Fire("MYLIST_CHANGED", nil, nil, "os")
+        self:MarkDirty()
+        return true
+    end
     if label ~= "" then
         local specs = ns.SPECS and ns.SPECS[data.cl]
         if type(specs) == "table" then
@@ -639,10 +762,10 @@ end
 ---------------------------------------------------------------------------
 
 -- { sid=, which=, itemID=, disabled=true|nil } per pick (disabled: the slot is disabled, the pick is kept).
-function BiS:GetPhaseItems(phase)
+function BiS:GetPhaseItems(phase, list)
     local out = {}
     if not IsValidPhase(phase) then return out end
-    local data = self:GetData()
+    local data = ListTable(self:GetData(), list)
     for sid = 1, NUM_SLOTS do
         local main, alt = ReadSlot(data, phase, sid)
         local disabled = IsDisabled(data, phase, sid) or nil
@@ -652,14 +775,18 @@ function BiS:GetPhaseItems(phase)
     return out
 end
 
+-- Every item on my lists (both specs: the obtained list data.ob covers the off spec too).
 function BiS:AllListItems()
     local set = {}
-    for _, slots in pairs(self:GetData().ph) do
-        if type(slots) == "table" then
-            for _, s in pairs(slots) do
-                if type(s) == "table" then
-                    if (s[1] or 0) ~= 0 then set[s[1]] = true end
-                    if (s[2] or 0) ~= 0 then set[s[2]] = true end
+    local data = self:GetData()
+    for _, ph in ipairs({ data.ph, data.op }) do
+        for _, slots in pairs(type(ph) == "table" and ph or {}) do
+            if type(slots) == "table" then
+                for _, s in pairs(slots) do
+                    if type(s) == "table" then
+                        if (s[1] or 0) ~= 0 then set[s[1]] = true end
+                        if (s[2] or 0) ~= 0 then set[s[2]] = true end
+                    end
                 end
             end
         end
@@ -940,12 +1067,15 @@ end
 -- Drop matching
 ---------------------------------------------------------------------------
 
--- Picks matching a dropped item (disabled slots are skipped, Addendum F §36).
+-- Picks matching a dropped item (disabled slots are skipped, Addendum F §36). Off-spec picks (Addendum H) carry
+-- os = true and come after every main-spec match.
 function BiS:MatchItem(itemID)
     local out = {}
     itemID = tonumber(itemID)
     if not itemID then return out end
-    local data = self:GetData()
+    local rdata = self:GetData()
+    local lists = { { L = rdata } }
+    if rdata.op then lists[2] = { L = ListTable(rdata, "os"), os = true } end
     -- An earlier phase's pick of a slot disabled in the current phase is superseded ("not needed", §36); a pick
     -- my class cannot use (class-restricted item, another class's token) never alerts (CDLoot 0.5).
     local view = ns.Guild and ns.Guild.GetViewPhase and ns.Guild:GetViewPhase() or 1
@@ -957,18 +1087,21 @@ function BiS:MatchItem(itemID)
         local obtained
         local usable = (wanted == itemID or dropUsable)
             and not (ItemDB and ItemDB.CanClassUse and ItemDB:CanClassUse(wanted, myClass) == false)
-        for phase, slots in pairs(usable and data.ph or {}) do
-            if type(slots) == "table" then
-                for sid, s in pairs(slots) do
-                    if type(s) == "table" and not IsDisabled(data, phase, sid)
-                        and not (phase < view and IsDisabled(data, view, sid)) then
-                        for idx = 1, 2 do
-                            if s[idx] == wanted then
-                                if obtained == nil then obtained = self:IsObtained(wanted) end
-                                out[#out + 1] = {
-                                    phase = phase, sid = sid, which = (idx == 1) and "main" or "alt",
-                                    wanted = wanted, via = via, obtained = obtained,
-                                }
+        for _, lst in ipairs(lists) do
+            local data = lst.L
+            for phase, slots in pairs(usable and data.ph or {}) do
+                if type(slots) == "table" then
+                    for sid, s in pairs(slots) do
+                        if type(s) == "table" and not IsDisabled(data, phase, sid)
+                            and not (phase < view and IsDisabled(data, view, sid)) then
+                            for idx = 1, 2 do
+                                if s[idx] == wanted then
+                                    if obtained == nil then obtained = self:IsObtained(wanted) end
+                                    out[#out + 1] = {
+                                        phase = phase, sid = sid, which = (idx == 1) and "main" or "alt",
+                                        wanted = wanted, via = via, obtained = obtained, os = lst.os,
+                                    }
+                                end
                             end
                         end
                     end
@@ -979,6 +1112,7 @@ function BiS:MatchItem(itemID)
     if #out > 1 then
         local view = ns.Guild and ns.Guild.GetViewPhase and ns.Guild:GetViewPhase()
         tsort(out, function(a, b)
+            if (a.os and true or false) ~= (b.os and true or false) then return not a.os end
             local av, bv = (a.phase == view), (b.phase == view)
             if av ~= bv then return av end
             if a.phase ~= b.phase then return a.phase < b.phase end

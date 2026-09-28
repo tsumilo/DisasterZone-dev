@@ -639,15 +639,19 @@ end
 -- Results / suggestion
 ---------------------------------------------------------------------------
 
+-- Tiers: 1 main-spec BiS, 2 main-spec alt, 3 off-spec list (Addendum H), 4 everyone else.
+local TIER_OTHER = 4
+
 local function TierOf(w, ses)
-    if type(w) ~= "table" then return 3 end
-    if w.cantUse then return 3 end   -- (0.5) the player's class cannot use it (a class-restricted item / token)
+    if type(w) ~= "table" then return TIER_OTHER end
+    if w.cantUse then return TIER_OTHER end   -- (0.5) the player's class cannot use it (a class-restricted item / token)
     -- An award of this very session does not demote its winner.
     local got = w.obtained or (w.awarded and w.key ~= ses.winner)
-    if got then return 3 end
+    if got then return TIER_OTHER end
+    if w.os then return 3 end
     if w.which == "main" then return 1 end
     if w.which == "alt" then return 2 end
-    return 3
+    return TIER_OTHER
 end
 
 local function EquippedFor(key, itemID)
@@ -703,7 +707,7 @@ local function LiveWanters(ses)
     -- clients would rank the same rollers differently (and hand that to a non-council master looter via RT).
     local Guild = ns.Guild
     local phase = Guild and Guild.GetGuildPhase and Guild:GetGuildPhase() or nil
-    local wanters = Store and Store.GetWanters and Store:GetWanters(ses.i, { includeObtained = true, viewPhase = phase }) or {}
+    local wanters = Store and Store.GetWanters and Store:GetWanters(ses.i, { includeObtained = true, viewPhase = phase, list = "both" }) or {}
     for _, w in ipairs(type(wanters) == "table" and wanters or {}) do
         if type(w) == "table" and type(w.key) == "string" then
             local t = TierOf(w, ses)
@@ -721,7 +725,7 @@ SnapshotTiers = function(ses)
     local snap = {}
     for key, b in pairs(LiveWanters(ses)) do
         local w = b.entry
-        snap[key] = { tier = b.tier, which = w.which, phase = w.phase,
+        snap[key] = { tier = b.tier, which = w.which, phase = w.phase, os = w.os and true or nil,
                       obtained = w.obtained and true or false, awarded = w.awarded and true or false }
     end
     ses.snap = snap
@@ -771,7 +775,7 @@ local function BuildResults(ses)
         if b.entry.inRaid then Row(key) end
     end
     for key, s in pairs(snap or {}) do
-        if s.tier < 3 and InGroupFor(ses, key) then Row(key) end
+        if s.tier < TIER_OTHER and InGroupFor(ses, key) then Row(key) end
     end
     for key in pairs(remote or {}) do
         if InGroupFor(ses, key) then Row(key) end
@@ -808,8 +812,10 @@ local function BuildResults(ses)
         r.response = ses.responses[key]
         if s then
             r.tier, r.which, r.phase, r.obtained, r.awarded = s.tier, s.which, s.phase, s.obtained, s.awarded
+            r.os = s.os
         else
-            r.tier = b and b.tier or 3
+            r.tier = b and b.tier or TIER_OTHER
+            r.os = (w and w.os) and true or nil
             r.which = w and w.which or nil
             r.phase = w and w.phase or nil
             r.obtained = (w and w.obtained) and true or false
@@ -819,9 +825,10 @@ local function BuildResults(ses)
         if rt and rt < r.tier then
             r.tier = rt
             r.which = r.which or ((rt == 1) and "main" or "alt")
+            r.os = (rt == 3) or nil
         end
         if sibWon and sibWon[key] and key ~= ses.winner then
-            r.tier = 3
+            r.tier = TIER_OTHER
             r.awarded = true
             r.wonCopy = true
         end
@@ -829,7 +836,7 @@ local function BuildResults(ses)
         r.classFile = (w and w.classFile) or ClassOf(key)
         -- (0.5) A class that cannot use the item is never a BiS wanter (also against an older council's RT).
         if r.classFile and CantUse(ses.i, r.classFile) then
-            r.tier = 3
+            r.tier = TIER_OTHER
             r.cantUse = true
         end
         r.spec = (w and w.spec) or SpecOf(key)
@@ -1392,7 +1399,7 @@ local function Finish(ses, key, given, extraNote, areason)
     if not fromLoot then ReclaimLoot(ses, key) end
 
     -- Tier and votes of the winner before the award is recorded (the award would demote them).
-    local tier, votes = 3, 0
+    local tier, votes = TIER_OTHER, 0
     for _, r in ipairs(BuildResults(ses)) do
         if r.key == key then
             tier, votes = r.tier, r.votes or 0
@@ -1825,7 +1832,7 @@ local function MasterLooterKey()
 end
 
 -- RT {id, k = {[key] = tier}} (CDLoot 0.2): a council client tells a non-council starter / master
--- looter the BiS tiers (1 main, 2 alt) of this item's wanters in the raid, so its suggestion follows
+-- looter the BiS tiers (1 main, 2 alt, 3 off spec) of this item's wanters in the raid, so its suggestion follows
 -- the same priority. Only they are told; the lists themselves stay with the council.
 SendTiers = function(ses)
     if ses.demo or DemoOn() or not AmRealCouncil() or type(ses.snap) ~= "table" then return end
@@ -1837,7 +1844,7 @@ SendTiers = function(ses)
     local k, n = {}, 0
     local sibWon = SiblingWinners(ses) or {}
     for key, s in pairs(ses.snap) do
-        if s.tier < 3 and n < MAX_RT_ENTRIES and InGroupFor(ses, key) and not sibWon[key] then
+        if s.tier < TIER_OTHER and n < MAX_RT_ENTRIES and InGroupFor(ses, key) and not sibWon[key] then
             k[key] = s.tier
             n = n + 1
         end
@@ -1878,7 +1885,8 @@ local function OnRollTiers(sender, msg, dist)
         n = n + 1
         if n > MAX_RT_ENTRIES then break end
         local key = Key(k)
-        if key and (t == 1 or t == 2) and (not tiers[key] or t < tiers[key]) then
+        -- (t == 3 = off-spec list, Addendum H; older senders only send 1 / 2, older receivers skip 3)
+        if key and (t == 1 or t == 2 or t == 3) and (not tiers[key] or t < tiers[key]) then
             tiers[key] = t
             changed = true
         end

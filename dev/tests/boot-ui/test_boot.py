@@ -9,7 +9,7 @@ from _common import case, run_all, solo, no_errors, World, Client, printed_since
 EXPECTED_SETTINGS = {
     "minimap": {"hide": False},
     "alerts": {"councilPanel": True, "personalToast": True, "sound": True, "glow": True, "chat": True,
-               "lootBadges": True},
+               "lootBadges": True, "offspec": True},
     "dropPanelMode": "auto",
     "tooltip": {"enabled": True, "council": True, "maxNames": 5},
     "announceChannel": "RAID",

@@ -84,10 +84,10 @@ end
 -- Lock change detection (Addendum F §38)
 ---------------------------------------------------------------------------
 
--- Hash of what the lock freezes: the picks, the disabled slots and the spec.
+-- Hash of what the lock freezes: the picks, the disabled slots and the spec, of both specs (Addendum H).
 local function PicksHash(data)
     if type(data) ~= "table" then return nil end
-    local ok, h = pcall(Util.Hash, { ph = data.ph, dx = data.dx, sp = data.sp })
+    local ok, h = pcall(Util.Hash, { ph = data.ph, dx = data.dx, sp = data.sp, os = data.os, op = data.op, ox = data.ox })
     return ok and h or nil
 end
 
@@ -202,6 +202,37 @@ local function ValidString(s)
     return s == nil or (type(s) == "string" and #s <= MAX_STRING and not s:find("[%c|]"))
 end
 
+-- A phases table (ph, or the off spec's op): { [phase] = { [sid] = { main, alt } } }. Returns ok, err.
+local function ValidPhases(ph)
+    if ph == nil then return true end
+    if type(ph) ~= "table" then return false, "bad phases" end
+    for phase, slots in pairs(ph) do
+        if not IsInt(phase, 1, MaxPhase()) or type(slots) ~= "table" then return false, "bad phase" end
+        for sid, pair in pairs(slots) do
+            if not IsInt(sid, 1, NumSlots()) or type(pair) ~= "table" then return false, "bad slot" end
+            for k, id in pairs(pair) do
+                if (k ~= 1 and k ~= 2) or not IsInt(id, 0, MAX_ITEM_ID) then
+                    return false, "bad slot item"
+                end
+            end
+        end
+    end
+    return true
+end
+
+-- Disabled slots (dx, or the off spec's ox): { [phase] = { [sid] = true } }. Returns ok, err.
+local function ValidDisabled(dx)
+    if dx == nil then return true end
+    if type(dx) ~= "table" then return false, "bad disabled slots" end
+    for phase, slots in pairs(dx) do
+        if not IsInt(phase, 1, MaxPhase()) or type(slots) ~= "table" then return false, "bad disabled phase" end
+        for sid, v in pairs(slots) do
+            if not IsInt(sid, 1, NumSlots()) or v ~= true then return false, "bad disabled slot" end
+        end
+    end
+    return true
+end
+
 function Store:ValidateData(data)
     if type(data) ~= "table" then return false, "data is not a table" end
     if not CheckShape(data, 1, { n = 0 }) then return false, "data too large or malformed" end
@@ -209,21 +240,15 @@ function Store:ValidateData(data)
     if not ValidString(data.cl) then return false, "bad class" end
     if not ValidString(data.sp) then return false, "bad spec" end
 
-    local ph = data.ph
-    if ph ~= nil then
-        if type(ph) ~= "table" then return false, "bad phases" end
-        for phase, slots in pairs(ph) do
-            if not IsInt(phase, 1, MaxPhase()) or type(slots) ~= "table" then return false, "bad phase" end
-            for sid, pair in pairs(slots) do
-                if not IsInt(sid, 1, NumSlots()) or type(pair) ~= "table" then return false, "bad slot" end
-                for k, id in pairs(pair) do
-                    if (k ~= 1 and k ~= 2) or not IsInt(id, 0, MAX_ITEM_ID) then
-                        return false, "bad slot item"
-                    end
-                end
-            end
-        end
-    end
+    local ok, err = ValidPhases(data.ph)
+    if not ok then return false, err end
+
+    -- Addendum H: the off-spec list, flat (os label, op phases, ox disabled) so older validators accept it.
+    if not ValidString(data.os) then return false, "bad off spec" end
+    ok, err = ValidPhases(data.op)
+    if not ok then return false, "off spec: " .. err end
+    ok, err = ValidDisabled(data.ox)
+    if not ok then return false, "off spec: " .. err end
 
     local ob = data.ob
     if ob ~= nil then
@@ -246,26 +271,18 @@ function Store:ValidateData(data)
 
     -- Addendum F §36: disabled slots { [phase] = { [sid] = true } }. Older clients ignore this key (their
     -- validator only checks the keys above) and still verify the hash, which covers it.
-    local dx = data.dx
-    if dx ~= nil then
-        if type(dx) ~= "table" then return false, "bad disabled slots" end
-        for phase, slots in pairs(dx) do
-            if not IsInt(phase, 1, MaxPhase()) or type(slots) ~= "table" then return false, "bad disabled phase" end
-            for sid, v in pairs(slots) do
-                if not IsInt(sid, 1, NumSlots()) or v ~= true then return false, "bad disabled slot" end
-            end
-        end
-    end
+    ok, err = ValidDisabled(data.dx)
+    if not ok then return false, err end
     return true
 end
 
 -- Addendum F §36: the slot is disabled in that record's list. record = a record ({data=}), a list's data
--- table, or a player key.
-function Store:IsSlotDisabled(record, phase, sid)
+-- table, or a player key. list (Addendum H): "os" = the off-spec list.
+function Store:IsSlotDisabled(record, phase, sid, list)
     if type(record) == "string" then record = Store:Get(record) end
     if type(record) ~= "table" then return false end
     local data = type(record.data) == "table" and record.data or record
-    local dx = data.dx
+    local dx = (list == "os") and data.ox or data.dx
     local p = type(dx) == "table" and dx[tonumber(phase) or 0]
     return (type(p) == "table" and p[tonumber(sid) or 0] == true) and true or false
 end
@@ -457,13 +474,33 @@ end
 -- Wanted-item index
 ---------------------------------------------------------------------------
 
-local function AddIndex(itemID, key, phase, sid, which)
+-- os (Addendum H): the row comes from the off-spec list.
+local function AddIndex(itemID, key, phase, sid, which, os)
     local list = index[itemID]
     if not list then
         list = {}
         index[itemID] = list
     end
-    list[#list + 1] = { key = key, phase = phase, sid = sid, which = which }
+    list[#list + 1] = { key = key, phase = phase, sid = sid, which = which, os = os }
+end
+
+local function IndexPhases(key, ph, dx, os)
+    if type(ph) ~= "table" then return end
+    dx = type(dx) == "table" and dx or nil
+    for phase, slots in pairs(ph) do
+        if type(phase) == "number" and type(slots) == "table" then
+            local off = dx and dx[phase]
+            if type(off) ~= "table" then off = nil end
+            for sid, pair in pairs(slots) do
+                -- Addendum F §36: a disabled slot wants nothing (no alerts / wanter rows).
+                if type(sid) == "number" and type(pair) == "table" and not (off and off[sid] == true) then
+                    local main, alt = tonumber(pair[1]), tonumber(pair[2])
+                    if main and main > 0 then AddIndex(main, key, phase, sid, "main", os) end
+                    if alt and alt > 0 then AddIndex(alt, key, phase, sid, "alt", os) end
+                end
+            end
+        end
+    end
 end
 
 local function RebuildIndex()
@@ -477,23 +514,8 @@ local function RebuildIndex()
                 for _, id in ipairs(data.ob) do ob[id] = true end
             end
             obSets[key] = ob
-            if type(data.ph) == "table" then
-                local dx = type(data.dx) == "table" and data.dx or nil
-                for phase, slots in pairs(data.ph) do
-                    if type(phase) == "number" and type(slots) == "table" then
-                        local off = dx and dx[phase]
-                        if type(off) ~= "table" then off = nil end
-                        for sid, pair in pairs(slots) do
-                            -- Addendum F §36: a disabled slot wants nothing (no alerts / wanter rows).
-                            if type(sid) == "number" and type(pair) == "table" and not (off and off[sid] == true) then
-                                local main, alt = tonumber(pair[1]), tonumber(pair[2])
-                                if main and main > 0 then AddIndex(main, key, phase, sid, "main") end
-                                if alt and alt > 0 then AddIndex(alt, key, phase, sid, "alt") end
-                            end
-                        end
-                    end
-                end
-            end
+            IndexPhases(key, data.ph, data.dx, nil)
+            IndexPhases(key, data.op, data.ox, true)   -- the off-spec list (Addendum H)
         end
     end
     indexDirty = false
@@ -584,9 +606,12 @@ function Store:GetEquippedList(key, sid)
 end
 
 -- opts: includeObtained, raidOnly, mainOnly, phase (rows of exactly that phase), viewPhase (CDLoot 0.5: the phase
--- whose picks count, instead of my personal view phase; roll tiers pass the group's phase).
+-- whose picks count, instead of my personal view phase; roll tiers pass the group's phase), list (Addendum H:
+-- "ms" = main-spec lists only (default), "os" = off-spec lists only, "both" = main spec first, then the off-spec
+-- wanters who don't list the item for their main spec).
 -- Entries carry cantUse = true when the player's class cannot use the item (class-restricted items, a token or
--- arena exchange of other classes): shown, but never a BiS wanter for rolls.
+-- arena exchange of other classes): shown, but never a BiS wanter for rolls. Off-spec entries carry os = true and
+-- spec = the off-spec label.
 function Store:GetWanters(itemID, opts)
     itemID = tonumber(itemID)
     local out = {}
@@ -601,19 +626,27 @@ function Store:GetWanters(itemID, opts)
     end
     local now = GetServerTime()
     local wonCache = {}
+    local listMode = opts.list
+    if listMode ~= "os" and listMode ~= "both" then listMode = "ms" end
 
     for _, wanted in ipairs(ExpandDrop(itemID)) do
         local rows = index[wanted]
         if rows then
-            -- Group index rows per player: which phases list it and the best pick per phase.
-            local perKey, order = {}, {}
+            -- Group index rows per player and list: which phases list it and the best pick per phase.
+            local perKey, order, hasMain = {}, {}, {}
             for _, row in ipairs(rows) do
-                if not opts.phase or row.phase == opts.phase then
-                    local g = perKey[row.key]
+                if not row.os then hasMain[row.key] = true end
+            end
+            for _, row in ipairs(rows) do
+                local take = (row.os and listMode ~= "ms" and not (listMode == "both" and hasMain[row.key]))
+                    or (not row.os and listMode ~= "os")
+                if take and (not opts.phase or row.phase == opts.phase) then
+                    local gk = row.os and (row.key .. "\001os") or row.key
+                    local g = perKey[gk]
                     if not g then
-                        g = { phases = {}, best = {} }
-                        perKey[row.key] = g
-                        order[#order + 1] = row.key
+                        g = { phases = {}, best = {}, key = row.key, os = row.os }
+                        perKey[gk] = g
+                        order[#order + 1] = gk
                     end
                     local cur = g.best[row.phase]
                     if not cur then
@@ -625,8 +658,9 @@ function Store:GetWanters(itemID, opts)
                 end
             end
 
-            for _, key in ipairs(order) do
-                local g = perKey[key]
+            for _, gk in ipairs(order) do
+                local g = perKey[gk]
+                local key = g.key
                 tsort(g.phases, PhaseSortLess)
                 local phase = ChoosePhase(g.phases, viewPhase)
                 local row = g.best[phase]
@@ -636,7 +670,8 @@ function Store:GetWanters(itemID, opts)
                 local inRaid = Util.IsInMyGroup(key)
                 -- An earlier phase's pick of a slot the player disabled for the current phase is superseded:
                 -- "not needed" in the current phase (Addendum F §36; later-phase picks still count).
-                local superseded = phase < viewPhase and data ~= nil and Store:IsSlotDisabled(data, viewPhase, row.sid)
+                local superseded = phase < viewPhase and data ~= nil
+                    and Store:IsSlotDisabled(data, viewPhase, row.sid, g.os and "os" or nil)
                 if not superseded and (opts.includeObtained or not obtained)
                     and (not opts.raidOnly or inRaid)
                     and (not opts.mainOnly or row.which == "main") then
@@ -654,10 +689,15 @@ function Store:GetWanters(itemID, opts)
                             or (wanted ~= itemID and ItemDB:CanClassUse(itemID, classFile) == false)) then
                         cantUse = true
                     end
+                    local spec = data and data.sp or nil
+                    if g.os then
+                        spec = (data and type(data.os) == "string" and data.os ~= "") and data.os or nil
+                    end
                     out[#out + 1] = {
                         key = key,
+                        os = g.os and true or nil,                       -- Addendum H: off-spec list
                         classFile = classFile,
-                        spec = data and data.sp or nil,
+                        spec = spec,
                         wanted = wanted,
                         via = ViaFor(itemID, wanted),
                         phase = phase,
@@ -691,6 +731,8 @@ function Store:GetWanters(itemID, opts)
         return s
     end
     tsort(out, function(a, b)
+        local ao, bo = a.os and true or false, b.os and true or false
+        if ao ~= bo then return not ao end   -- main-spec wanters first (Addendum H)
         if a.inRaid ~= b.inRaid then return a.inRaid end
         local av, bv = a.phase == viewPhase, b.phase == viewPhase
         if av ~= bv then return av end
@@ -709,12 +751,13 @@ function Store:CountWanters(itemID, opts)
 end
 
 -- Counts main picks of one phase: filled, obtained, still needed. Disabled slots (Addendum F §36) are left
--- out of every count: total = slots - disabled, disabled = n.
-function Store:GetPlayerSummary(key, phase)
+-- out of every count: total = slots - disabled, disabled = n. list (Addendum H): "os" = the off-spec list.
+function Store:GetPlayerSummary(key, phase, list)
     local summary = { filled = 0, obtained = 0, needed = 0, total = NumSlots(), disabled = 0 }
     local rec = Store:Get(key)
     local data = type(rec) == "table" and rec.data
     if type(data) ~= "table" then return summary end
+    data = ns.ListView(data, list)
     local off = type(data.dx) == "table" and data.dx[phase]
     if type(off) ~= "table" then off = nil end
     if off then

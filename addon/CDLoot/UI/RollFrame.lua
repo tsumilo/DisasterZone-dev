@@ -184,7 +184,12 @@ local function OwnStatusText(itemID, m)
     if not m then return Paint("Not on your BiS list", "muted") end
     local phase = tonumber(m.phase) or 0
     local text
-    if m.which == "alt" then
+    if m.os then
+        -- Addendum H: only on my off-spec list.
+        local sp = ns.BiS.GetSpec and ns.BiS:GetSpec("os") or ""
+        text = Paint(format("Your P%d off-spec %s%s - %s", phase, m.which == "alt" and "alt" or "BiS",
+            sp ~= "" and (" (" .. sp .. ")") or "", SlotLabel(m.sid)), "offspec")
+    elseif m.which == "alt" then
         text = Paint(format("Your P%d alt - %s", phase, SlotLabel(m.sid)), "alt")
     else
         text = STAR .. " " .. Paint(format("Your P%d BiS (main) - %s", phase, SlotLabel(m.sid)), "main")

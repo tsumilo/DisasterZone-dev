@@ -4,6 +4,7 @@
 -- ADDENDUM F: slots can be disabled per phase from the tile menu (§36; left out of the progress card),
 -- crafted / reputation / badge / PvP items get their own "Still needed from" lines (§37), and while the
 -- group's raid leader locks the BiS lists a banner shows and the editing controls are disabled (§38).
+-- ADDENDUM H: [Main spec] / [Off spec] buttons switch the whole tab (doll, spec, tools, card) between the two lists.
 local addonName, ns = ...
 
 local MyBiS = {}
@@ -11,6 +12,7 @@ ns.MyBiS = MyBiS
 
 local NUM_SLOTS = 17
 local AUTO_SPEC = "__auto"
+local REMOVE_OS = "__removeos"
 local MAX_NEED_LINES = 6
 local LOCK_BANNER_H = 40
 local FOOTER_TEXT = "Click a slot to choose  ·  Right-click for options  ·  Drag items from your bags onto a slot  ·  Shift-click to link"
@@ -26,8 +28,9 @@ local KIND_LINES = {
 
 local panel, doll, card, footer
 local phaseButtons = {}
-local specDD, copyBtn, suggestBtn, clearBtn
+local specDD, copyBtn, suggestBtn, clearBtn, msBtn, osBtn
 local selectedPhase, userPickedPhase
+local selectedList = "ms"   -- Addendum H: "ms" | "os" (session only)
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -55,6 +58,19 @@ local function CurrentPhase()
     return selectedPhase
 end
 
+-- The list argument for BiS calls: "os" while the off-spec list is shown, else nil (the main spec).
+local function ListArg()
+    return selectedList == "os" and "os" or nil
+end
+
+local function IsOffSpecView()
+    return selectedList == "os"
+end
+
+local function HasOffSpec()
+    return ns.BiS and ns.BiS.HasOffSpec and ns.BiS:HasOffSpec() or false
+end
+
 local function MyClass()
     local data = ns.BiS and ns.BiS.GetData and ns.BiS:GetData()
     if data and type(data.cl) == "string" and data.cl ~= "" then return data.cl end
@@ -69,7 +85,7 @@ end
 
 local function PhaseItems(p)
     if not (ns.BiS and ns.BiS.GetPhaseItems) then return {} end
-    return ns.BiS:GetPhaseItems(p) or {}
+    return ns.BiS:GetPhaseItems(p, ListArg()) or {}
 end
 
 -- "Prince Malchezaar" -> "Malchezaar", "The Curator" -> "Curator", "High King Maulgar" -> "Maulgar".
@@ -113,7 +129,7 @@ end
 local function SlotDisabled(phase, sid)
     local BiS = ns.BiS
     if not BiS then return false end
-    if type(BiS.IsSlotDisabled) == "function" then return BiS:IsSlotDisabled(phase, sid) and true or false end
+    if type(BiS.IsSlotDisabled) == "function" then return BiS:IsSlotDisabled(phase, sid, ListArg()) and true or false end
     local PD = ns.PaperDoll
     if PD and PD.IsSlotDisabled and BiS.GetRecord then return PD:IsSlotDisabled(BiS:GetRecord(), phase, sid) end
     return false
@@ -136,7 +152,7 @@ local function SetSlotDisabled(phase, sid, disabled)
         ns:Print("This CDLoot version can't disable slots.")
         return false
     end
-    return ns.BiS:SetSlotDisabled(phase, sid, disabled and true or false)
+    return ns.BiS:SetSlotDisabled(phase, sid, disabled and true or false, ListArg())
 end
 
 local function SetSlotDisabledAll(sid, disabled)
@@ -144,7 +160,7 @@ local function SetSlotDisabledAll(sid, disabled)
         ns:Print("This CDLoot version can't disable slots.")
         return false
     end
-    return ns.BiS:SetSlotDisabledAllPhases(sid, disabled and true or false)
+    return ns.BiS:SetSlotDisabledAllPhases(sid, disabled and true or false, ListArg())
 end
 
 -- Primary source kind of an item: "raid" | "dungeon" | "craft" | "rep" | "badge" | "pvp" | nil (§37).
@@ -191,7 +207,7 @@ local function EnsurePopups()
         button1 = YES or "Yes",
         button2 = NO or "No",
         OnAccept = function(_, data)
-            if data and data.phase and ns.BiS then ns.BiS:ClearPhase(data.phase) end
+            if data and data.phase and ns.BiS then ns.BiS:ClearPhase(data.phase, data.list) end
         end,
         timeout = 0,
         whileDead = true,
@@ -203,7 +219,22 @@ local function EnsurePopups()
         button1 = YES or "Yes",
         button2 = NO or "No",
         OnAccept = function(_, data)
-            if data then MyBiS:ApplySuggestion(data.phase, true) end
+            if data then MyBiS:ApplySuggestion(data.phase, true, data.list) end
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    StaticPopupDialogs["CDLOOT_REMOVE_OFFSPEC"] = {
+        text = "Remove your off-spec list and all its picks?",
+        button1 = YES or "Yes",
+        button2 = NO or "No",
+        OnAccept = function()
+            if ns.BiS and ns.BiS:RemoveOffSpec() then
+                selectedList = "ms"
+                MyBiS:Refresh()
+            end
         end,
         timeout = 0,
         whileDead = true,
@@ -219,7 +250,7 @@ end
 local function OpenPicker(sid, which, tile)
     if not (ns.Picker and ns.Picker.Open) then return end
     -- The picker refuses (and says why) while the lists are locked (§38).
-    if ns.Picker:Open(CurrentPhase(), sid, which, tile) == false then return end
+    if ns.Picker:Open(CurrentPhase(), sid, which, tile, ListArg()) == false then return end
     if doll then doll:SetHighlight(sid) end
 end
 
@@ -227,13 +258,15 @@ function MyBiS:OnPickerClosed()
     if doll then doll:SetHighlight(nil) end
 end
 
-function MyBiS:ApplySuggestion(phase, overwrite)
+-- list: "os" = fill the off-spec list from its spec (default: the list shown).
+function MyBiS:ApplySuggestion(phase, overwrite, list)
     local BiS, Loon = ns.BiS, ns.Loon
     if not (BiS and Loon and Loon.IsAvailable and Loon:IsAvailable()) then
         ns:Print("LoonBestInSlot is not loaded.")
         return
     end
-    local spec = BiS:GetSpec() or ""
+    if list == nil then list = ListArg() end
+    local spec = BiS:GetSpec(list) or ""
     if spec == "" then
         ns:Print("Choose your spec first (Spec dropdown).")
         return
@@ -245,7 +278,7 @@ function MyBiS:ApplySuggestion(phase, overwrite)
         return
     end
     -- false: refused (the lists were locked meanwhile, e.g. while the "Replace all" popup was open; §38)
-    if BiS:ApplyTemplate(phase, template, overwrite and true or false) == false then return end
+    if BiS:ApplyTemplate(phase, template, overwrite and true or false, list) == false then return end
     if overwrite then
         ns:Print("Replaced P%d with LoonBestInSlot's %s suggestions.", phase, spec)
     else
@@ -279,28 +312,30 @@ local function ShowSlotMenu(sid, tile)
     local BiS = ns.BiS
     if not BiS then return end
     local phase = CurrentPhase()
-    local main, alt = BiS:GetSlot(phase, sid)
+    local list = ListArg()
+    local main, alt = BiS:GetSlot(phase, sid, list)
     local locked = ListLocked()
     local disabled = SlotDisabled(phase, sid)
+    local suffix = list and "  ·  Off spec" or ""
     ns.UI:ContextMenu(tile, function(root)
         if disabled then
             -- A disabled slot only offers to enable it (its picks are kept).
-            root:CreateTitle(SlotLabel(sid) .. "  ·  P" .. phase .. "  ·  disabled")
+            root:CreateTitle(SlotLabel(sid) .. "  ·  P" .. phase .. suffix .. "  ·  disabled")
             AddDisableEntries(root, phase, sid, locked)
             if main or alt then
                 if root.CreateDivider then root:CreateDivider() end
-                EditButton(root, "Clear slot", function() BiS:ClearSlot(phase, sid) end, locked)
+                EditButton(root, "Clear slot", function() BiS:ClearSlot(phase, sid, list) end, locked)
             end
             if main then
                 root:CreateButton("Link main in chat", function() ns.UI:LinkInChat(main) end)
             end
             return
         end
-        root:CreateTitle(SlotLabel(sid) .. "  ·  P" .. phase)
+        root:CreateTitle(SlotLabel(sid) .. "  ·  P" .. phase .. suffix)
         EditButton(root, "Choose main...", function() OpenPicker(sid, "main", tile) end, locked)
         EditButton(root, "Choose alt...", function() OpenPicker(sid, "alt", tile) end, locked)
         if main or alt then
-            EditButton(root, "Swap main / alt", function() BiS:SwapMainAlt(phase, sid) end, locked)
+            EditButton(root, "Swap main / alt", function() BiS:SwapMainAlt(phase, sid, list) end, locked)
         end
         if main then
             -- Manual "obtained" marks still work while the lists are locked (§38).
@@ -314,7 +349,7 @@ local function ShowSlotMenu(sid, tile)
             end
         end
         if main or alt then
-            EditButton(root, "Clear slot", function() BiS:ClearSlot(phase, sid) end, locked)
+            EditButton(root, "Clear slot", function() BiS:ClearSlot(phase, sid, list) end, locked)
         end
         if main then
             root:CreateButton("Link main in chat", function() ns.UI:LinkInChat(main) end)
@@ -342,7 +377,7 @@ local function OnSlotReceiveItem(sid, itemID, which)
         ns:Print("%s is disabled in P%d: enable the slot first (click it).", SlotLabel(sid), phase)
         return
     end
-    ns.BiS:SetSlot(phase, sid, which == "alt" and "alt" or "main", itemID)
+    ns.BiS:SetSlot(phase, sid, which == "alt" and "alt" or "main", itemID, ListArg())
 end
 
 function MyBiS:SetPhase(p, byUser)
@@ -361,6 +396,27 @@ function MyBiS:GetPhase()
     return CurrentPhase()
 end
 
+-- Addendum H: show the main-spec ("ms") or the off-spec ("os") list.
+function MyBiS:SetList(list)
+    list = (list == "os") and "os" or "ms"
+    if list == selectedList then return end
+    selectedList = list
+    if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
+    self:Refresh()
+end
+
+function MyBiS:GetList()
+    return selectedList
+end
+
+-- "Remove off-spec list..." (the off-spec spec dropdown): asks, then deletes the list and shows the main spec.
+function MyBiS:ConfirmRemoveOffSpec()
+    if not HasOffSpec() then return false end
+    EnsurePopups()
+    StaticPopup_Show("CDLOOT_REMOVE_OFFSPEC")
+    return true
+end
+
 ---------------------------------------------------------------------------
 -- Menus & dropdown content
 ---------------------------------------------------------------------------
@@ -371,18 +427,30 @@ local function SpecOptions()
     for _, s in ipairs(specs) do
         if s.label then opts[#opts + 1] = { value = s.label, text = s.label } end
     end
+    if IsOffSpecView() then
+        -- The off spec is always chosen by hand; it can be removed from here.
+        if HasOffSpec() then
+            opts[#opts + 1] = { value = REMOVE_OS, text = "Remove off-spec list...",
+                tooltip = "Deletes the off-spec list and its picks (asks first)." }
+        end
+        return opts
+    end
     opts[#opts + 1] = { value = AUTO_SPEC, text = "Auto-detect", tooltip = "Use the talent tree with the most points." }
     return opts
 end
 
 local function SelectedSpec()
-    return ns.BiS and ns.BiS.GetSpec and ns.BiS:GetSpec() or nil
+    return ns.BiS and ns.BiS.GetSpec and ns.BiS:GetSpec(ListArg()) or nil
 end
 
 local function OnSpecSelected(value)
     local BiS = ns.BiS
     if not BiS then return end
-    if value == AUTO_SPEC then
+    if value == REMOVE_OS then
+        MyBiS:ConfirmRemoveOffSpec()
+    elseif IsOffSpecView() then
+        BiS:SetSpec(value, "os")
+    elseif value == AUTO_SPEC then
         local spec = BiS:DetectSpec()
         if spec and spec ~= "" then
             -- (SetSpec refuses and says why while the lists are locked, §38)
@@ -400,18 +468,32 @@ end
 local function BuildCopyMenu(root)
     local BiS = ns.BiS
     local phase = CurrentPhase()
-    root:CreateTitle("Copy into P" .. phase)
+    local list = ListArg()
+    root:CreateTitle("Copy into P" .. phase .. (list and " (off spec)" or ""))
     local any = false
     for p = 1, MaxPhase() do
         if p ~= phase and #PhaseItems(p) > 0 then
             any = true
             root:CreateButton(("Copy P%d (fill empty)"):format(p), function()
-                if BiS then BiS:CopyPhase(p, phase, false) end
+                if BiS then BiS:CopyPhase(p, phase, false, list) end
             end)
             root:CreateButton(("Copy P%d (overwrite)"):format(p), function()
-                if BiS then BiS:CopyPhase(p, phase, true) end
+                if BiS then BiS:CopyPhase(p, phase, true, list) end
             end)
         end
+    end
+    -- Addendum H: the other list of the same phase (shared items such as rings, trinkets and cloaks).
+    local other = (not list) and "os" or nil
+    local otherName = list and "main spec" or "off spec"
+    if BiS and (list or HasOffSpec()) and #(BiS:GetPhaseItems(phase, other) or {}) > 0 then
+        any = true
+        if root.CreateDivider then root:CreateDivider() end
+        root:CreateButton(("Copy %s P%d (fill empty)"):format(otherName, phase), function()
+            BiS:CopyPhase(phase, phase, false, list, other)
+        end)
+        root:CreateButton(("Copy %s P%d (overwrite)"):format(otherName, phase), function()
+            BiS:CopyPhase(phase, phase, true, list, other)
+        end)
     end
     if not any then
         root:CreateTitle("No other phase has items yet")
@@ -435,7 +517,8 @@ local function BuildSuggestMenu(root)
     end)
     root:CreateButton("Replace all (confirm)", function()
         EnsurePopups()
-        StaticPopup_Show("CDLOOT_REPLACE_TEMPLATE", "P" .. phase, spec, { phase = phase })
+        StaticPopup_Show("CDLOOT_REPLACE_TEMPLATE", "P" .. phase .. (ListArg() and " (off spec)" or ""), spec,
+            { phase = phase, list = ListArg() })
     end)
 end
 
@@ -465,7 +548,7 @@ local function ComputeProgress(phase)
     local BiS, ItemDB = ns.BiS, ns.ItemDB
     local result = { filled = 0, obtained = 0, total = NUM_SLOTS, disabled = 0, raids = {}, other = 0,
                      otherItems = {}, kinds = {} }
-    local data = BiS and BiS:GetData()
+    local data = BiS and (BiS.GetListView and BiS:GetListView(ListArg()) or BiS:GetData())
     for sid = 1, NUM_SLOTS do
         if SlotDisabled(phase, sid) then result.disabled = result.disabled + 1 end
     end
@@ -672,6 +755,8 @@ local function UpdateSharing()
 end
 
 local EMPTY_HINT = "Click a slot to choose your best-in-slot item. Drag items from your bags onto a slot to use any other item."
+local EMPTY_HINT_OS = "Your off-spec list: pick what you'd want for your second spec (for example tank or healing gear), "
+    .. "then choose its spec above. The council sees these after everyone's main-spec wants, and an award counts as Offspec."
 
 -- §38: lock banner (the card's content moves below it) and the footer text.
 local function UpdateLockBanner()
@@ -720,6 +805,8 @@ local function UpdateCard(phase)
     UpdateLockBanner()
     local info = ComputeProgress(phase)
     local short = (ns.PHASE_INFO and ns.PHASE_INFO[phase] and ns.PHASE_INFO[phase].short) or ("P" .. phase)
+    card.title:SetText(IsOffSpecView() and ns.UI:Colorize("Off-spec progress", ns.COLORS and ns.COLORS.offspec)
+        or "Phase progress")
     card.progress:SetText(("%s  ·  %d / %d obtained"):format(short, info.obtained, info.total))
     card.bar:SetMinMaxValues(0, math.max(1, info.total))
     card.bar:SetValue(math.min(info.obtained, info.total))
@@ -736,7 +823,7 @@ local function UpdateCard(phase)
     local extras = ExtraLines(info)
     if info.filled == 0 then
         card.needTitle:SetText("Get started")
-        card.hint:SetText(EMPTY_HINT)
+        card.hint:SetText(IsOffSpecView() and EMPTY_HINT_OS or EMPTY_HINT)
         card.hint:Show()
     elseif #info.raids == 0 and #extras == 0 then
         card.needTitle:SetText("Still needed from")
@@ -840,8 +927,8 @@ end
 local function CreateTopBar(p)
     local UI = ns.UI
     for i = 1, MaxPhase() do
-        local b = UI:CreateButton(p, "P" .. i, 44, 22, function() MyBiS:SetPhase(i, true) end)
-        b:SetPoint("TOPLEFT", p, "TOPLEFT", 8 + (i - 1) * 48, -8)
+        local b = UI:CreateButton(p, "P" .. i, 38, 22, function() MyBiS:SetPhase(i, true) end)
+        b:SetPoint("TOPLEFT", p, "TOPLEFT", 8 + (i - 1) * 41, -8)
         b.phase = i
         b.marker = b:CreateTexture(nil, "OVERLAY")
         b.marker:SetTexture(UI:Tex("star"))
@@ -853,26 +940,47 @@ local function CreateTopBar(p)
         phaseButtons[i] = b
     end
 
-    local specLabel = UI:CreateLabel(p, "Spec", "GameFontNormalSmall")
-    specLabel:SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 14, 0)
-    specDD = UI:CreateDropdown(p, 150, SpecOptions, SelectedSpec, OnSpecSelected)
+    -- Addendum H: which list the tab shows. The spec dropdown next to them belongs to that list.
+    msBtn = UI:CreateButton(p, "Main spec", 76, 22, function() MyBiS:SetList("ms") end)
+    msBtn:SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 10, 0)
+    osBtn = UI:CreateButton(p, "Off spec", 72, 22, function() MyBiS:SetList("os") end)
+    osBtn:SetPoint("LEFT", msBtn, "RIGHT", 2, 0)
+    for _, b in ipairs({ msBtn, osBtn }) do
+        b:HookScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+            if self == msBtn then
+                GameTooltip:AddLine("Main-spec list", 1, 0.82, 0)
+                GameTooltip:AddLine("Your best-in-slot list. The council ranks these picks first.", 1, 1, 1, true)
+            else
+                GameTooltip:AddLine("Off-spec list", ns.UI:Color("offspec"))
+                GameTooltip:AddLine("A second list for your other spec. The council sees these picks after "
+                    .. "everyone's main-spec wants, and such an award counts as Offspec (not as loot won).", 1, 1, 1, true)
+                if not HasOffSpec() then GameTooltip:AddLine("Click to start one.", 0.7, 0.7, 0.7) end
+            end
+            GameTooltip:Show()
+        end)
+        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    specDD = UI:CreateDropdown(p, 128, SpecOptions, SelectedSpec, OnSpecSelected)
     if specDD.SetDefaultText then specDD:SetDefaultText("Choose spec") end
-    specDD:SetPoint("LEFT", specLabel, "RIGHT", 6, 0)
+    specDD:SetPoint("LEFT", osBtn, "RIGHT", 6, 0)
 
-    copyBtn = UI:CreateMenuButton(p, "Copy from", 108, BuildCopyMenu)
-    copyBtn:SetPoint("LEFT", specDD, "RIGHT", 8, 0)
+    copyBtn = UI:CreateMenuButton(p, "Copy from", 96, BuildCopyMenu)
+    copyBtn:SetPoint("LEFT", specDD, "RIGHT", 6, 0)
 
-    suggestBtn = UI:CreateMenuButton(p, "Suggest", 96, BuildSuggestMenu)
-    suggestBtn:SetPoint("LEFT", copyBtn, "RIGHT", 6, 0)
+    suggestBtn = UI:CreateMenuButton(p, "Suggest", 80, BuildSuggestMenu)
+    suggestBtn:SetPoint("LEFT", copyBtn, "RIGHT", 4, 0)
 
-    clearBtn = UI:CreateButton(p, "Clear phase", 96, 22, function()
+    clearBtn = UI:CreateButton(p, "Clear phase", 84, 22, function()
         local phase = CurrentPhase()
         if #PhaseItems(phase) == 0 then
             ns:Print("P%d has no picks to clear.", phase)
             return
         end
         EnsurePopups()
-        StaticPopup_Show("CDLOOT_CLEAR_PHASE", "P" .. phase, nil, { phase = phase })
+        StaticPopup_Show("CDLOOT_CLEAR_PHASE", "P" .. phase .. (ListArg() and " (off spec)" or ""), nil,
+            { phase = phase, list = ListArg() })
     end)
     clearBtn:SetPoint("TOPRIGHT", p, "TOPRIGHT", -8, -8)
 end
@@ -930,6 +1038,18 @@ function MyBiS:Refresh()
 
     local phase = CurrentPhase()
     UpdatePhaseButtons()
+    -- Addendum H: the list buttons (the shown one highlighted; "+ Off spec" until there is one).
+    if msBtn and osBtn then
+        local os = IsOffSpecView()
+        if os then msBtn:UnlockHighlight() else msBtn:LockHighlight() end
+        if os then osBtn:LockHighlight() else osBtn:UnlockHighlight() end
+        msBtn:SetNormalFontObject(os and "GameFontNormal" or "GameFontHighlight")
+        osBtn:SetNormalFontObject(os and "GameFontHighlight" or "GameFontNormal")
+        osBtn:SetText(HasOffSpec() and "Off spec" or "+ Off spec")
+    end
+    if specDD and specDD.SetDefaultText then
+        specDD:SetDefaultText(IsOffSpecView() and "Off-spec spec" or "Choose spec")
+    end
     if specDD and specDD.Refresh then specDD:Refresh() end
     local loon = ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable()
     suggestBtn:SetShown(loon and true or false)
@@ -941,7 +1061,7 @@ function MyBiS:Refresh()
     end
     if locked and ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
 
-    local record = BiS:GetRecord()
+    local record = ns.ListRecordView(BiS:GetRecord(), ListArg())
     if doll.SetLocked then doll:SetLocked(locked) end
     doll:Update(record, phase, {
         obtainedState = function(itemID) return BiS:GetObtainedState(itemID) end,
