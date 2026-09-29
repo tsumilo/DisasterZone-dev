@@ -2719,7 +2719,11 @@ local function UpdateBattle(dt)
     end
     if uiMessage then UpdateText(dt) return end
     local e = b:Pop()
-    if e then PlayEvent(e) return end
+    if e then
+        PlayEvent(e)
+        if b.need == "watch" then BT.needShown = nil end      -- show "waiting" again once this turn has played
+        return
+    end
     UpdateText(dt)
     -- a player battle goes action -> wait -> action by itself (the opponent's move arrives): re-prompt
     if b.need ~= BT.lastNeed then
@@ -2730,6 +2734,11 @@ local function UpdateBattle(dt)
     if b.need == "wait" then
         BT.needShown = true
         SetText(string.format("Waiting for %s...", b.pvp and b.pvp.name or "the other player"), { lines = 3 })
+        text.shown = 999
+    elseif b.need == "watch" then
+        BT.needShown = true
+        RefreshBattleBoxes()
+        SetText(string.format("Waiting for %s and %s...", b.pvp.watch.ally, b.pvp.watch.foe), { lines = 3 })
         text.shown = 999
     elseif b.need == "action" then
         BT.needShown = true
@@ -2838,6 +2847,7 @@ local function Sprite(i)
 end
 
 local peerSprites = {}
+local PEER_BUSY = { pvp = "battling", battle = "battling", trade = "trading", watch = "watching" }
 local function PeerSprite(i)
     local s = peerSprites[i]
     if not s then
@@ -2847,6 +2857,14 @@ local function PeerSprite(i)
         s.label = world:CreateFontString(nil, "OVERLAY")
         if not s.label:SetFont(FONT_BOLD, 14, "OUTLINE") then s.label:SetFont(FONT_FALLBACK, 10, "OUTLINE") end
         s.label:SetPoint("BOTTOM", s, "TOP", 0, -2)
+        -- "battling..." over a guildmate who is busy (Net: the peer's status)
+        s.bubble = Box(world, 100, 26, world:GetFrameLevel() + 15)
+        s.bubble:EnableMouse(false)
+        s.bubble:SetPoint("BOTTOM", s.label, "TOP", 0, 1)
+        s.bubble.fs = Font(s.bubble, 11)
+        s.bubble.fs:SetPoint("LEFT", 9, 0)
+        s.bubble.fs:SetJustifyV("MIDDLE")
+        s.bubble:Hide()
         peerSprites[i] = s
     end
     return s
@@ -2985,8 +3003,20 @@ local function DrawWorld()
         sp.label:SetText(p.name)
         sp:Show()
         sp.label:Show()
+        local word = PEER_BUSY[p.status]
+        if word then
+            -- the dots fill up one by one; the width is set for the longest so the box doesn't jump
+            if sp.bubble.word ~= word then
+                sp.bubble.word = word
+                sp.bubble:SetWidth(floor(TextWidth(word .. "...", 11) + 22))
+            end
+            sp.bubble.fs:SetText(word .. string.rep(".", floor(now * 2.5) % 4))
+            sp.bubble:Show()
+        else
+            sp.bubble:Hide()
+        end
     end
-    for i = pn + 1, #peerSprites do peerSprites[i]:Hide() peerSprites[i].label:Hide() end
+    for i = pn + 1, #peerSprites do peerSprites[i]:Hide() peerSprites[i].label:Hide() peerSprites[i].bubble:Hide() end
     -- banner / fade
     if G.banner then
         R.banner:Show()
@@ -3152,6 +3182,7 @@ KH.KEY_HINTS = {
     menu = { { "A", "Select", "select" }, { "B", "Back", "back" } },
     text = { { "A", "Next", "next" } },
     netwait = { { "B", "Cancel", "cancel" } },
+    watch = { { "A", "Next", "next" }, { "B", "Stop watching", "stopwatch" } },
     evolve = { { "B", "Stop it evolving", "stopevo" } },
 }
 KH.keyState = { ctx = false, since = 0, input = 0 }
@@ -3163,7 +3194,7 @@ function KH.KeyContext()
     if uiMessage then return "text" end
     local top = stack[#stack]
     if top then return (not top.isSummary) and "menu" or nil end
-    if BT.battle then return "text" end
+    if BT.battle then return (BT.battle.pvp and BT.battle.pvp.watch) and "watch" or "text" end
     local p = G.pending
     if p then
         if p.kind == "text" then return "text" end
@@ -3652,6 +3683,18 @@ local function HandleKey(key)
         return
     end
     if BT.battle then
+        local b = BT.battle
+        if key == "B" and b.pvp and b.pvp.watch and b.need ~= "done" then
+            PushMenu({
+                { text = "Stop watching", onSelect = function()
+                    CloseAllMenus()
+                    ns.AzeroWatch:Stop()
+                end },
+                { text = "Keep watching", onSelect = function(_, m) PopMenu(m) end },
+            }, { w = 240, x = SW - 246, y = -(SH - BOX_H - 110), title = "Stop watching?",
+                 onCancel = function(m) PopMenu(m) end })
+            return
+        end
         if key == "A" or key == "B" then TextA() end
         return
     end
@@ -3722,6 +3765,7 @@ local function OnUpdate(self, elapsed)
     ns.AzeroNet:SetActive(true)
     ns.AzeroNet:Update(elapsed)
     ns.AzeroPvP:Update()
+    ns.AzeroWatch:Update()
     ns.AzeroTrade:Update()
     KH.CheckTips()
     ns.AzeroGuild:Update()
@@ -4454,6 +4498,14 @@ UI._Wheel = function(delta)
     if fn then fn(m.frame, delta) end
 end
 UI._Summary = function() return R.summary ~= nil and R.summary:IsShown() and true or false end
+-- Tests: the bubbles shown over guildmates, { [name] = text }.
+UI._PeerBubbles = function()
+    local out = {}
+    for _, s in ipairs(peerSprites) do
+        if s:IsShown() and s.bubble:IsShown() then out[s.label:GetText()] = s.bubble.fs:GetText() end
+    end
+    return out
+end
 -- Tests drive the engine themselves: stop the panel from playing battles / prompts.
 UI._Detach = function()
     if root then root:SetScript("OnUpdate", nil) end

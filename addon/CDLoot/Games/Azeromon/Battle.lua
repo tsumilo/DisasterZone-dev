@@ -58,8 +58,15 @@ function B.New(opts)
     b.ally = NewSide(b.party[lead])
 
     local foeName = M.Name(b.foe.mon)
-    b.pvp = opts.pvp          -- { host = bool, name = opponent, onAction = fn(action) } for player battles
-    if b.pvp then
+    b.pvp = opts.pvp          -- { host = bool, name = opponent, onAction = fn(action), onResolve = fn(a1, a2),
+                              --   watch = { ally = p1's name, foe = p2's name } when only watching } for player battles
+    if b.pvp and b.pvp.watch then
+        -- a spectator's copy: p1 on the ally side, p2 on the foe side; the intro comes from WatchIntro
+        b.trainer = { name = b.pvp.name }
+        b.used = {}
+        b.need = "watch"
+        return b
+    elseif b.pvp then
         b.trainer = { name = b.pvp.name }
         b:Say("%s wants to battle!", b.pvp.name)
         b:Emit({ t = "send", side = "foe", mon = b.foe.mon })
@@ -122,6 +129,7 @@ end
 function B:SideName(side)
     local mon = self[side].mon
     if side == "foe" and self.pvp then return self.pvp.name .. "'s " .. M.Name(mon) end
+    if self.pvp and self.pvp.watch then return self.pvp.watch.ally .. "'s " .. M.Name(mon) end
     if side == "foe" then return (self.wild and "Wild " or "Foe ") .. M.Name(mon) end
     return M.Name(mon)
 end
@@ -534,7 +542,11 @@ function B:SendAlly(idx)
     self.allyIdx = idx
     self.ally = NewSide(self.party[idx])
     if self.foe.participants then self.foe.participants[idx] = true end
-    self:Say("Go! %s!", M.Name(self.ally.mon))
+    if self.pvp and self.pvp.watch then
+        self:Say("%s sent out %s!", self.pvp.watch.ally, M.Name(self.ally.mon))
+    else
+        self:Say("Go! %s!", M.Name(self.ally.mon))
+    end
     self:Emit({ t = "send", side = "ally", mon = self.ally.mon })
 end
 
@@ -719,7 +731,11 @@ end
 
 function B:PvPSwitch(side, idx)
     if side == "ally" then
-        self:Say("%s, come back!", M.Name(self.ally.mon))
+        if self.pvp.watch then
+            self:Say("%s withdrew %s!", self.pvp.watch.ally, M.Name(self.ally.mon))
+        else
+            self:Say("%s, come back!", M.Name(self.ally.mon))
+        end
         self:Emit({ t = "recall", side = "ally" })
         self:SendAlly(idx)
     else
@@ -744,9 +760,15 @@ function B:PvPFaints()
         end
     end
     if #down == 0 then return false end
+    local watch = self.pvp.watch
     if out.ally and out.foe then
         self:Say("Both sides are out of beasts. It's a draw!")
         self:Finish("draw")
+    elseif watch and (out.ally or out.foe) then
+        local loser, winner = watch.ally, watch.foe
+        if out.foe then loser, winner = winner, loser end
+        self:Say("%s has no beasts left! %s wins the match.", loser, winner)
+        self:Finish(out.foe and "win" or "lose")
     elseif out.ally then
         self:Say("You have no beasts left! %s wins the match.", self.pvp.name)
         self:Finish("lose")
@@ -774,11 +796,16 @@ function B:ResolvePvP()
     self.mine, self.theirs = nil, nil
     self.turn = self.turn + 1
     local p1, p2 = self:PvPSides()
+    if self.pvp.onResolve then self.pvp.onResolve(acts[p1], acts[p2]) end       -- for spectators
 
     if acts.ally.kind == "forfeit" or acts.foe.kind == "forfeit" then
         if acts.ally.kind == "forfeit" and acts.foe.kind == "forfeit" then
             self:Say("Both players gave up. It's a draw!")
             return self:Finish("draw")
+        elseif self.pvp.watch then
+            local quitter = acts.ally.kind == "forfeit" and self.pvp.watch.ally or self.pvp.watch.foe
+            self:Say("%s forfeited the match!", quitter)
+            return self:Finish(acts.ally.kind == "forfeit" and "lose" or "win")
         elseif acts.ally.kind == "forfeit" then
             self:Say("You forfeited the match.")
             return self:Finish("lose")
@@ -824,5 +851,37 @@ function B:ResolvePvP()
         end
     end
     self:PvPFaints()
-    if self.need ~= "done" then self.need = "action" end
+    if self.need ~= "done" then self.need = self.pvp.watch and "watch" or "action" end
+end
+
+---------------------------------------------------------------------------
+-- Watching a player battle (Watch.lua). The spectator runs the same battle from the same seed and teams, seen
+-- from p1's side, and is fed both actions of every turn once the players have resolved it.
+---------------------------------------------------------------------------
+
+-- Both actions of one turn (p1's, p2's). false when the battle is not waiting for one.
+function B:WatchTurn(a1, a2)
+    if not (self.pvp and self.pvp.watch) or self.need ~= "watch" then return false end
+    self.mine, self.theirs = self:ValidPvP("ally", a1), self:ValidPvP("foe", a2)
+    self:ResolvePvP()
+    return true
+end
+
+-- Replaces whatever the catch-up produced with a short "you're watching" intro showing the current state.
+function B:WatchIntro()
+    local w = self.pvp.watch
+    self.events = {}
+    self:Say("You're watching %s and %s battle!", w.ally, w.foe)
+    if self.need == "done" then return end
+    if self.turn > 0 then self:Say("It's turn %d.", self.turn + 1) end
+    self:Emit({ t = "send", side = "foe", mon = self.foe.mon })
+    self:Emit({ t = "send", side = "ally", mon = self.ally.mon })
+end
+
+-- Stops watching: drops what hasn't been shown yet, says why, and ends ("left" or "lost").
+function B:EndWatch(result, text)
+    if self.need == "done" then return end
+    self.events = {}
+    if text then self:Say("%s", text) end
+    self:Finish(result)
 end

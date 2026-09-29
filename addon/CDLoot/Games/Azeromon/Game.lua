@@ -912,6 +912,19 @@ function G:PressA()
     local k = m.key(x, y)
     local peer = ns.AzeroNet and ns.AzeroNet:PeerAt(m.id, x, y)
     if peer and not self:NpcAt(x, y) then            -- another player (guildmate)
+        if peer.status == "pvp" and ns.AzeroWatch then
+            self:Run(function(g)
+                local vs = peer.vs and ((Ambiguate and Ambiguate(peer.vs, "short")) or peer.vs:match("^[^-]+")) or "someone"
+                if g:YesNo(string.format("%s is battling %s. Watch the battle?", peer.name, vs)) then
+                    ns.AzeroWatch:Watch(g, peer)
+                end
+            end)
+            return
+        elseif peer.status then
+            local what = { battle = "is in a battle", trade = "is trading", watch = "is watching a battle" }
+            self:Run(function(g) g:Say(string.format("%s %s right now.", peer.name, what[peer.status] or "is busy")) end)
+            return
+        end
         self:Run(function(g)
             local pick = g:Choose(string.format("Challenge %s to a battle, or trade beasts?", peer.name),
                 { "Battle", "Trade" })
@@ -993,6 +1006,8 @@ function G:InteractHint()
     end
     local obj = m.object[k]
     if obj and obj.hint then return obj.hint, x, y end
+    local peer = ns.AzeroNet and ns.AzeroNet:PeerAt(m.id, x, y)
+    if peer and peer.status == "pvp" and not self:NpcAt(x, y) then return "Watch the battle", x, y end
     local here = m.node and m.node[m.key(s.x, s.y)]
     if here and here.kind == "herb" then
         local up, res = ns.AzeroCraft:NodeState(m.id, here)

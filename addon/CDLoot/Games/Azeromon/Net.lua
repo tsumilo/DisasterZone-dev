@@ -1,7 +1,8 @@
 -- CDLoot Games/Azeromon/Net.lua
 -- ns.AzeroNet: seeing guildmates who play Azeromon in the same world.
 -- While the game is open (and out of combat), each client tells the guild where it is, at most once a second:
---   { t = "AZP", v, m = map, x, y, f = facing, p = "UDLR..." (steps taken since the last update), c = class }
+--   { t = "AZP", v, m = map, x, y, f = facing, p = "UDLR..." (steps taken since the last update), c = class,
+--     s = what I'm busy with (nil | "pvp" | "battle" | "trade" | "watch"), o = my opponent's key when s = "pvp" }
 -- plus a heartbeat every HEARTBEAT seconds when standing still, and { t = "AZL" } when leaving.
 -- Receivers replay the steps, so other players walk the same path about a second behind. Peers never block
 -- movement (like players passing each other in the games) and are forgotten after TIMEOUT seconds of silence.
@@ -19,6 +20,7 @@ Net.TIMEOUT = 25
 Net.MAX_STEPS = 16
 
 local STEP_CODE = { up = "U", down = "D", left = "L", right = "R" }
+local STATUS = { pvp = true, battle = true, trade = true, watch = true }
 local CODE_DIR = { U = "up", D = "down", L = "left", R = "right" }
 
 local peers = {}          -- [senderKey] = peer
@@ -45,6 +47,21 @@ local function CanSend()
     return active and G.started and G.save and IsInGuild and IsInGuild() and not InCombat() and ns.Comm ~= nil
 end
 
+-- What I'm busy with, for the bubble over my head on other screens (and who I'm battling, so they can watch).
+function Net.Status()
+    local P = ns.AzeroPvP
+    if P and P:InMatch() then return "pvp", P:Match().opp end
+    if ns.AzeroWatch and ns.AzeroWatch:Watching() then return "watch" end
+    if G.battle then return "battle" end
+    if ns.AzeroTrade and ns.AzeroTrade.session then return "trade" end
+    return nil
+end
+
+local function StateKey(s)
+    local st, opp = Net.Status()
+    return s.map .. ":" .. s.x .. ":" .. s.y .. ":" .. s.face .. ":" .. (st or "") .. ":" .. (opp or "")
+end
+
 local function SendPresence()
     local s = G.save
     local class
@@ -52,12 +69,13 @@ local function SendPresence()
         local _, c = UnitClass("player")
         class = c
     end
+    local st, opp = Net.Status()
     local ok = ns.Comm:Send({ t = "AZP", v = Net.VERSION, m = s.map, x = s.x, y = s.y, f = s.face,
-                              p = steps, c = class }, "GUILD", nil, "game")
+                              p = steps, c = class, s = st, o = opp }, "GUILD", nil, "game")
     if ok then
         steps = ""
         sentAt = Now()
-        lastSent = s.map .. ":" .. s.x .. ":" .. s.y .. ":" .. s.face
+        lastSent = StateKey(s)
         lastMap = s.map
     end
 end
@@ -105,6 +123,8 @@ local function OnPresence(senderKey, msg)
     end
     p.seen = Now()
     p.class = type(msg.c) == "string" and msg.c or p.class
+    p.status = STATUS[msg.s] and msg.s or nil
+    p.vs = p.status == "pvp" and type(msg.o) == "string" and msg.o or nil
     -- where the reported path started
     local sx, sy = msg.x, msg.y
     for i = #msg.p, 1, -1 do
@@ -162,7 +182,7 @@ function Net:Update(dt)
     -- send
     if not CanSend() then return end
     local s = G.save
-    local state = s.map .. ":" .. s.x .. ":" .. s.y .. ":" .. s.face
+    local state = StateKey(s)
     local elapsed = now - sentAt
     if s.map ~= lastMap and elapsed >= 0.25 then
         steps = ""                 -- a map change is a jump, not a walk
@@ -181,6 +201,8 @@ function Net:PeersOn(mapId)
     table.sort(out, function(a, b) return a.key < b.key end)
     return out
 end
+
+function Net:Peer(key) return peers[key] end
 
 function Net:PeerAt(mapId, x, y)
     for _, p in pairs(peers) do

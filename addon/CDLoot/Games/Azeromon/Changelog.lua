@@ -6,6 +6,13 @@
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.11", date = "29 September 2026", title = "Watching battles",
+      lines = {
+          "Busy guildmates show a bubble: battling, trading, watching.",
+          "Press Space on two guildmates battling to watch the match.",
+          "Join mid-match and catch up at once; B stops watching.",
+          "Fixed: gear could make a player battle go out of sync.",
+      } },
     { version = "0.10", date = "29 September 2026", title = "The world map",
       lines = {
           "A world map in the START menu: every place you've been.",
