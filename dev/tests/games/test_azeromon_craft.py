@@ -329,7 +329,7 @@ def elixirs_and_rejuvenation_in_battle():
 def the_professions_page_and_a_forge_through_the_ui():
     w, c = game(ui=True)
     c.eval("ns.Azero.save.prof = { mining = 12, herbalism = 3 } ns.Azero.save.bag.copperore = 2")
-    key(w, c, "START", "down", "down", "down", "down", "down", "down", "A")
+    key(w, c, "START", "down", "down", "down", "down", "down", "down", "down", "A")
     assert title(c) == "PROFESSIONS", title(c)
     L = c.eval_py("return ns.AzeroUI._MenuLayout()")
     assert L["n"] == 4 and -L["y"] + L["h"] <= L["SH"] - L["desc"], L

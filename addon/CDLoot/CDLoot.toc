@@ -94,4 +94,5 @@ Games\Azeromon\Crafting.lua
 Games\Azeromon\Changelog.lua
 Games\Azeromon\Sound.lua
 Games\Azeromon\Arena.lua
+Games\Azeromon\WorldMap.lua
 Games\Azeromon\UI.lua

@@ -181,7 +181,7 @@ def the_board_survives_a_relog_and_opens_from_the_start_menu():
     b.eval("T_AZ.settle()")
     b.eval("ns.AzeroUI._HandleKey('START')")
     w.tick(0.1)
-    for k in ("down", "down", "down", "down", "A", "A"):         # ... GUILD, then "Most beasts tamed"
+    for k in ("down", "down", "down", "down", "down", "A", "A"):  # ... GUILD, then "Most beasts tamed"
         b.eval("ns.AzeroUI._HandleKey('%s')" % k)
         w.tick(0.05)
     titles = [l["title"] for l in b.eval_py("return ns.AzeroUI._Levels()")]

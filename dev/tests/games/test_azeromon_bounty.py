@@ -238,7 +238,7 @@ def the_boards_in_every_town_and_the_start_menu_show_the_bounties():
     c.eval("ns.AzeroUI._HandleKey('B')")
     w.tick(0.2)
     # BOUNTIES in the start menu
-    for k in ("START", "down", "down", "down", "down", "down", "A"):
+    for k in ("START", "down", "down", "down", "down", "down", "down", "A"):
         c.eval("ns.AzeroUI._HandleKey('%s')" % k)
         w.tick(0.05)
     assert c.eval_py("return ns.AzeroUI._Levels()")[-1]["title"] == "BOUNTY BOARD"

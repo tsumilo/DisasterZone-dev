@@ -302,6 +302,7 @@ function G:EnterMap(id, x, y, face, silent)
     self.map = m
     local s = self.save
     s.map, s.x, s.y, s.face = id, x, y, face or s.face or "down"
+    if type(s.visited) == "table" then s.visited[id] = true end        -- the world map (made on load: WorldMap.lua)
     self.moving = nil
     self.npcs = {}
     for _, def in ipairs(m.def.npcs or {}) do

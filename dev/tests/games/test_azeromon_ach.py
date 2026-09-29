@@ -136,7 +136,7 @@ def the_achievements_page_opens_from_the_start_menu():
     c.eval("T_AZ.settle()")
     c.eval("ns.AzeroUI._HandleKey('START')")
     w.tick(0.1)
-    for k in ("down", "down", "down", "A"):                 # BESTIARY, PARTY, BAG, ACHIEVEMENTS
+    for k in ("down", "down", "down", "down", "A"):         # BESTIARY, PARTY, BAG, MAP, ACHIEVEMENTS
         c.eval("ns.AzeroUI._HandleKey('%s')" % k)
         w.tick(0.05)
     titles = [l["title"] for l in c.eval_py("return ns.AzeroUI._Levels()")]

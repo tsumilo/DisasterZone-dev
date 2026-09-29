@@ -90,7 +90,7 @@ def bestiary_scrolls_and_leaves_room_for_its_panel():
 @case
 def achievements_scroll_above_the_description_box():
     w, c = game()
-    key(w, c, "START", "down", "down", "down", "A")          # ACHIEVEMENTS
+    key(w, c, "START", "down", "down", "down", "down", "A")  # ACHIEVEMENTS
     assert layout(c)["desc"] > 0
     scroll_through(w, c, "achievements")
     no_errors(w)
@@ -99,7 +99,7 @@ def achievements_scroll_above_the_description_box():
 @case
 def guild_bestiary_scrolls_above_the_description_box():
     w, c = game()
-    key(w, c, "START", "down", "down", "down", "down", "A")  # GUILD
+    key(w, c, "START", "down", "down", "down", "down", "down", "A")  # GUILD
     n = c.eval("return ns.AzeroUI._MenuLayout().n")
     opened = False
     for _ in range(n):                                        # try each Guild entry until the Guild Bestiary opens

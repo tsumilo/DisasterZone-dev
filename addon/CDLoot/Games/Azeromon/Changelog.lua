@@ -6,6 +6,13 @@
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.10", date = "29 September 2026", title = "The world map",
+      lines = {
+          "A world map in the START menu: every place you've been.",
+          "Each place lists its inn, shops, trainers and wild levels.",
+          "Beasts seen and tamed per place, and its badge.",
+          "Dots show where guildmates are playing right now.",
+      } },
     { version = "0.9", date = "29 September 2026", title = "Duskwood",
       lines = {
           "Duskwood opens east of Sentinel Hill once VanCleef falls.",

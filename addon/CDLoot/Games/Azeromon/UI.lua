@@ -1375,6 +1375,7 @@ local START_HELP = {
     "Beasts you have seen and tamed.",
     "Check and reorder your beasts.",
     "Use the items you are carrying.",
+    "Where you have been, and what's there.",
     "Your Azeromon achievements.",
     "Guild leaderboards and the Guild Bestiary.",
     "Today's bounties and the guild's weekly goal.",
@@ -1699,6 +1700,7 @@ local function OpenStartMenu()
                 end)
             end)
         end },
+        { text = "MAP", onSelect = function() ns.AzeroWorld:Open() end },
         { text = "ACHIEVEMENTS", onSelect = function() Scr.OpenAchievements() end },
         { text = "GUILD", onSelect = function() Scr.OpenGuild() end },
         { text = "BOUNTIES", onSelect = function() Scr.OpenBounties() end },
@@ -1707,7 +1709,7 @@ local function OpenStartMenu()
         { text = "CONTROLS", onSelect = function() KH.OpenControls() end },
         { text = "EXIT", onSelect = function(_, menu) PopMenu(menu) end },
     }
-    PushMenu(items, { w = 210, rowH = 30, level = 60, desc = true, onMove = StartMenuHelp, onCancel = function(menu) PopMenu(menu) end })
+    PushMenu(items, { w = 210, rowH = 27, level = 60, desc = true, onMove = StartMenuHelp, onCancel = function(menu) PopMenu(menu) end })
     R.money:Show()
 end
 

@@ -126,7 +126,7 @@ def one_time_tips_at_the_right_moments():
 @case
 def the_controls_page_from_the_menu_and_the_title():
     w, c = game()
-    key(w, c, "START", "down", "down", "down", "down", "down", "down", "down", "down", "A")
+    key(w, c, "START", "down", "down", "down", "down", "down", "down", "down", "down", "down", "A")
     assert title(c) == "CONTROLS", title(c)
     items = c.eval_py("return ns.AzeroUI._MenuItems()")
     assert "Back, cancel" in items and items[-1] == "Show the key hints again", items
@@ -179,7 +179,7 @@ def the_class_perk_in_the_menu_and_a_tip_per_class():
 @case
 def the_type_chart_from_the_menu():
     w, c = game()
-    key(w, c, "START", "down", "down", "down", "down", "down", "down", "down", "A")
+    key(w, c, "START", "down", "down", "down", "down", "down", "down", "down", "down", "A")
     assert c.eval("return ns.AzeroUI._TypeChart()") is True
     key(w, c, "B")
     assert c.eval("return ns.AzeroUI._TypeChart()") is False
