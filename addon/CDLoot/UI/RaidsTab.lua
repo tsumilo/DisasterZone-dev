@@ -41,6 +41,23 @@ local function RL() return ns.RaidLog end
 
 local function rangeLabel(n) return n == 0 and "All raids" or ("Last " .. n .. " raids") end
 
+local function demoOn()
+    return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false
+end
+
+-- The Raid log view (Addendum J §62): the GM, the guild council and the raid leaders list (not whoever happens to
+-- lead a group: that is loot council for one raid only).
+local function isCouncil()
+    local G = ns.Guild
+    return (demoOn() or (G and G.AmIRaidPlanner and G:AmIRaidPlanner())) and true or false
+end
+
+-- Awarded items in the raid log: loot council data (GM / guild council), not for raid leaders.
+local function seesItems()
+    local G = ns.Guild
+    return (demoOn() or (G and G.IsGuildCouncil and G:IsGuildCouncil(ns.Util.PlayerKey()))) and true or false
+end
+
 local function raidSummary(rec)
     local kills = #(rec.bosses or {})
     local total = RL():GetBossTotal(rec.instID)
@@ -48,8 +65,8 @@ local function raidSummary(rec)
         duration((rec.stop or GetServerTime()) - (rec.start or 0)),
         total and ("%d/%d bosses"):format(kills, total) or (kills .. " bosses"),
         ns.Util.Count(rec.att or {}) .. " raiders",
-        #RL():GetAwards(rec) .. " items",
     }
+    if seesItems() then parts[#parts + 1] = #RL():GetAwards(rec) .. " items" end
     return table.concat(parts, " · ")
 end
 
@@ -232,6 +249,7 @@ local function detailRows(rec)
             { menu = function(row) benchMenu(row, rec, key, a) end })
     end
 
+    if not seesItems() then return rows end
     add({ "Awards" }, { header = true })
     local awards = RL():GetAwards(rec)
     if #awards == 0 then add({ grey("No awards during this raid.") }) end
@@ -251,6 +269,7 @@ local function playerRows()
         -- Addendum J §61: accepted raids they didn't come to (raids linked to a planned raid)
         local rel = RL().GetReliability and RL():GetReliability(s.key, n or 1000)
         local noShow = rel and (rel.accepted - rel.came) or 0
+        if not seesItems() then last = "" end
         rows[#rows + 1] = { cols = { colored(s.key, s.class), ("%d/%d"):format(s.raids, total) ..
             (s.bench > 0 and grey(" (" .. s.bench .. " bench)") or ""),
             s.pct .. "%" .. (noShow > 0 and (" |cffff8080" .. noShow .. " no-show|r") or ""),
@@ -262,12 +281,6 @@ end
 ----------------------------------------------------------------------------
 -- Panel
 ----------------------------------------------------------------------------
-
-local function isCouncil()
-    local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
-    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
-    return (council or demo) and true or false
-end
 
 local function canOrganize()
     local RP = ns.RaidPlan
@@ -298,6 +311,15 @@ local function updateToolbar(p)
     for _, b in ipairs({ p.newRaidBtn, p.newTeamBtn }) do
         b:ClearAllPoints()
         if auth then b:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", -8, -6) end
+    end
+    p.leadersBtn:SetShown(state.view == "teams")
+    p.leadersBtn:ClearAllPoints()
+    if organizer then
+        p.leadersBtn:SetPoint("RIGHT", p.newTeamBtn, "LEFT", -6, 0)
+    elseif auth then
+        p.leadersBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)
+    else
+        p.leadersBtn:SetPoint("TOPRIGHT", -8, -6)
     end
 end
 
@@ -340,6 +362,8 @@ function RaidsUI:CreatePanel(parent)
     p.count:SetPoint("RIGHT", p.sessionBtn, "LEFT", -12, 0)
     p.newRaidBtn = UI:CreateButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end)
     p.newTeamBtn = UI:CreateButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end)
+    -- Addendum J §62: who the raid leaders are (everyone can look; the GM edits)
+    p.leadersBtn = UI:CreateButton(p, "Raid leaders", 96, 22, function() ns.RaidLeadersUI:Open() end)
 
     local PlanUI = ns.RaidPlanUI
     p.upcoming = PlanUI:CreateUpcoming(p)

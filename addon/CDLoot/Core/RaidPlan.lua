@@ -124,9 +124,10 @@ local function GuildKey()
     return G and G.GetGuildKey and G:GetGuildKey() or nil
 end
 
+-- Organizers (§55, §62): the GM, the guild council and the GM's raid leaders list.
 local function IsOrganizer(key)
     local G = Guild()
-    return type(key) == "string" and G ~= nil and G.IsGuildCouncil ~= nil and G:IsGuildCouncil(key) and true or false
+    return type(key) == "string" and G ~= nil and G.IsRaidPlanner ~= nil and G:IsRaidPlanner(key) and true or false
 end
 
 local function Send(msg, dist, target, class)
@@ -1067,7 +1068,9 @@ end
 ---------------------------------------------------------------------------
 
 local function RequireOrganizer()
-    if not IsOrganizer(Util.PlayerKey()) then return nil, "Only the Guild Master and the guild council can plan raids." end
+    if not IsOrganizer(Util.PlayerKey()) then
+        return nil, "Only the Guild Master, the guild council and the raid leaders can plan raids."
+    end
     local root = Root(true)
     if not root then return nil, "Your guild is not known yet; try again in a moment." end
     return root

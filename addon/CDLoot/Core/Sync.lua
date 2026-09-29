@@ -372,6 +372,8 @@ function Sync:SendHello(force)
         msg.mh = ns.Store and ns.Store.GetManifestHashes and ns.Store:GetManifestHashes(msg.m) or nil
         msg.ld = LedgerDigest()
         msg.rd = RaidDigest()
+    elseif Guild.AmIRaidPlanner and Guild:AmIRaidPlanner() then
+        msg.rd = RaidDigest()   -- Addendum J §62: raid leaders exchange the raid log (never lists or the award log)
     end
     -- Addendum J §56: everyone carries the hash of their raid plan data (0.6 clients ignore it).
     local RaidPlan = ns.RaidPlan
@@ -677,7 +679,13 @@ local function OnHello(sender, msg, dist)
                 LedgerSync(sender, digest)
                 RaidSync(sender, rdigest)
             end)
+            return
         end
+    end
+    -- Addendum J §62: a raid planner pair where one side isn't guild council: the raid log only.
+    local RL = ns.RaidLog
+    if type(msg.rd) == "table" and not (msg.c and FullPair(sender)) and RL and RL.OnPlannerHello then
+        RL:OnPlannerHello(sender, msg.rd)
     end
 end
 

@@ -263,7 +263,7 @@ local function cellTooltip(cell)
         for _, line in ipairs(signupLines(s, d.order, d.total)) do GameTooltip:AddLine(line, 0.7, 0.7, 0.7) end
     end
     local RL = ns.RaidLog
-    if ns.Guild and ns.Guild:AmICouncil() and RL and RL.GetAttendanceText then
+    if ns.Guild and ns.Guild.AmIRaidPlanner and ns.Guild:AmIRaidPlanner() and RL and RL.GetAttendanceText then
         local att = RL:GetAttendanceText(d.key)
         if att then GameTooltip:AddLine("Attendance " .. att, 0.7, 0.7, 0.7) end
         local rel = RL.GetReliabilityText and RL:GetReliabilityText(d.key)

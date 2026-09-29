@@ -59,6 +59,7 @@ UI\Council.lua
 UI\LootLog.lua
 UI\RaidGroups.lua
 UI\RaidPlanUI.lua
+UI\RaidLeadersUI.lua
 UI\RaidsTab.lua
 UI\SessionBar.lua
 UI\DropPanel.lua

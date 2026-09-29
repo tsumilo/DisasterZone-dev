@@ -33,6 +33,13 @@ local missedPull = false                -- a boss was pulled here while no sessi
 -- Storage
 ---------------------------------------------------------------------------
 
+-- Addendum J §62: raid log records (no items in them) are exchanged between raid planners: the GM, the guild
+-- council and the raid leaders list.
+local function IsPlanner(key)
+    local Guild = ns.Guild
+    return Guild and Guild.IsRaidPlanner and type(key) == "string" and Guild:IsRaidPlanner(key) and true or false
+end
+
 local function RaidsDB()
     local db = ns.db
     if not db then return nil end
@@ -381,6 +388,7 @@ end
 
 -- Council: mark a player as bench / standby for a raid (counts as attending), or clear it.
 function RaidLog:SetBench(id, key, on)
+    if not DemoRaids() and not IsPlanner(Util.PlayerKey()) then return false end
     local rec = self:GetRaid(id)
     key = Util.NormalizeName(key)
     if not rec or not key then return false end
@@ -405,7 +413,7 @@ end
 -- Addendum J §61, council: link a logged raid to a planned raid (occurrence id; nil = not linked).
 function RaidLog:SetPlanned(id, occId)
     local rec = self:GetRaid(id)
-    if not rec or DemoRaids() then return false end
+    if not rec or DemoRaids() or not IsPlanner(Util.PlayerKey()) then return false end
     if occId ~= nil and not (type(occId) == "string" and #occId <= 40 and occId:find("^[%w#]+$")) then return false end
     rec.pl, rec.plAt = occId, GetServerTime()
     if occId == nil then rec.su = nil end
@@ -646,7 +654,7 @@ end
 
 local function IsGuildCouncilPair(sender)
     local me = Util.PlayerKey()
-    return me ~= nil and IsGuildCouncil(me) and IsGuildCouncil(sender)
+    return me ~= nil and IsPlanner(me) and IsPlanner(sender)
 end
 
 local function SendTo(msg, target, class)
@@ -937,10 +945,36 @@ end
 
 -- After a raid ends here: offer my digest to the online guild council (jittered: every recorder does this).
 function RaidLog:OfferDigest()
-    if DemoOn() or not IsGuildCouncil(Util.PlayerKey()) then return end
+    if DemoOn() or not IsPlanner(Util.PlayerKey()) then return end
     Util.RandomDelay(RD_DELAY_MIN, RD_DELAY_MAX, function()
-        local Comm = ns.Comm
-        if Comm and Comm.SendToCouncil then Comm:SendToCouncil({ t = "RLD", rd = RaidLog:GetDigest(), q = true }, "ctrl") end
+        -- the online council peers and the online raid leaders (raid planners only)
+        local targets, seen = {}, {}
+        local Sync, Guild = ns.Sync, ns.Guild
+        for _, key in ipairs(Sync and Sync.GetOnlineCouncilPeers and Sync:GetOnlineCouncilPeers() or {}) do
+            if not seen[key] then seen[key] = true; targets[#targets + 1] = key end
+        end
+        for _, key in ipairs(Guild and Guild.GetRaidLeaders and Guild:GetRaidLeaders() or {}) do
+            if not seen[key] and not Util.IsMe(key) and Guild:IsOnline(key) then
+                seen[key] = true
+                targets[#targets + 1] = key
+            end
+        end
+        local msg = { t = "RLD", rd = RaidLog:GetDigest(), q = true }
+        for _, key in ipairs(targets) do
+            if IsPlanner(key) then SendTo(msg, key, "ctrl") end
+        end
+    end)
+end
+
+-- Sync: a raid planner's HELLO digest (a raid leader who isn't council, or talking to one): pull what differs and
+-- offer mine back.
+function RaidLog:OnPlannerHello(sender, digest)
+    if DemoOn() or type(digest) ~= "table" or not IsGuildCouncilPair(sender) then return end
+    local Comm = ns.Comm
+    if Comm and Comm.RateLimit and not Comm:RateLimit("RLH:" .. sender, 20) then return end
+    Util.RandomDelay(1, 5, function()
+        RaidLog:SyncFromDigest(sender, digest)
+        SendTo({ t = "RLD", rd = RaidLog:GetDigest() }, sender, "ctrl")
     end)
 end
 

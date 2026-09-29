@@ -210,3 +210,30 @@ User request: raid log sessions should connect to the planned raid automatically
   accepted, came (in the attendance, bench included), tentative, absent, no-shows. Shown in the Raid log detail
   ("Sign-ups: 9 accepted, 8 came · no-show: Lock"), the Players view (red "N no-show" next to the attendance %) and the
   Upcoming roster tooltip ("Sign-ups: came to 7 of 8 accepted raids").
+
+## 62. Raid leaders list (built 2026-09-29)
+
+User request: a separate "Raid leaders" role that runs raids but has no loot council access. Decisions: the GM alone
+picks it; raid leaders see the raid log without the awarded items.
+
+- **Data:** the list rides on the guild council list's CG as `rl` (array of names, at most 40; a malformed `rl` drops
+  the CG like a bad council list) and is stored with it (`db.council.guild.rl`). Same trust rules as the council list
+  (from the GM, or relayed by a council member of a confirmed list). `Guild:SetRaidLeaders(list)` (GM only) re-shares
+  the council list unchanged with the new `rl`; `SetGuildCouncil(members, phase, targets, raidLeaders)` keeps the
+  current `rl` when `raidLeaders` is nil. 0.6 clients ignore `rl` (a 0.6 council member relaying a newer CG drops it
+  until the GM's own CG arrives). CONFIG_UPDATED fires when it changes.
+- **API:** `Guild:IsListedRaidLeader(key)`, `Guild:IsRaidPlanner(key)` (GM, guild council or listed; in the guild),
+  `Guild:AmIRaidPlanner()`, `Guild:GetRaidLeaders()`.
+- **Raid planners** (GM + guild council + raid leaders) = raid organizers (§55): raids, teams, group layouts; the Raid
+  log view (Raids tab); bench and planned-raid link edits (`RaidLog:SetBench` / `SetPlanned` check it in core too);
+  attendance and sign-up reliability in the Upcoming tooltips. The raid log (RLD / RLW / RLG, and `rd` in the HELLO of
+  a planner who isn't council) is exchanged between planner pairs; its records hold no items. Raid planners may send
+  large messages (Comm size cap), which only matters for raid log records.
+- **Items stay loot council data:** raid leaders don't see the Awards section, the "N items" in the raid summary or the
+  Players view's items column; award entries (ledger LW / LG), BiS lists (M / W / L / R) and the Council / Loot Log
+  tabs stay guild-council-only (or raid-scope council for the raid they lead, unchanged).
+- **Someone who merely leads a group** is loot council for that raid (Addendum E, unchanged) but no raid planner: no
+  Raid log view, no reliability numbers, no bench edits (§61's loose end).
+- **UI:** Raids tab > Teams > "Raid leaders" opens a window: everyone sees the list; the GM adds members with the
+  search picker and clicks Save & share (Revert discards). `UI/RaidLeadersUI.lua`.
+
