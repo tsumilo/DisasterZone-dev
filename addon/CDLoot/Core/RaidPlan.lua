@@ -354,6 +354,10 @@ local function CleanEvent(r, now)
     elseif r.sid ~= nil or r.k ~= nil then
         return nil
     end
+    if r.del == true then          -- deleted: a tombstone that spreads the deletion (§54)
+        out.del = true
+        return out
+    end
     if r.x == true then out.x = true end
     if not CleanRaidFields(out, r, now, sid ~= nil) then return nil end
     local grp = CleanGroups(r.grp)
@@ -410,10 +414,13 @@ local function MergeRecord(root, kind, rec)
         return false
     end
     store[rec.id] = rec
+    if kind == "E" and rec.del then root.U[rec.id] = nil end   -- a deleted raid takes its sign-ups with it
     return true
 end
 
 local function MergeSignup(root, occId, key, s)
+    local e = root.E[occId]
+    if e and e.del then return false end
     local occ = root.U[occId]
     if not occ then
         if CountTable(root.U) >= MAX_SIGNUP_OCCS then return false end
@@ -464,6 +471,7 @@ local function ViewOccurrence(root, s, k)
     local occId = OccId(s.id, k)
     local o = root.E[occId]
     if o and not IsOrganizer(o.by) then o = nil end
+    if o and o.del then return nil end
     local v = {
         id = occId, sid = s.id, k = k, by = s.by, rev = s.rev, weekly = true, cancelled = false, lastWeek = s.u,
     }
@@ -490,7 +498,7 @@ local function ResolveOcc(root, occId)
         return ViewOccurrence(root, s, k)
     end
     local e = root.E[occId]
-    if not e or e.sid or not IsOrganizer(e.by) then return nil end
+    if not e or e.sid or e.del or not IsOrganizer(e.by) then return nil end
     return ViewEvent(e)
 end
 
@@ -831,7 +839,7 @@ function RaidPlan:GetRaids(from, to)
     from = tonumber(from) or (now - KEEP_PAST)
     to = tonumber(to) or (now + MAX_AHEAD)
     for _, e in pairs(root.E) do
-        if not e.sid and IsOrganizer(e.by) and e.t >= from and e.t <= to then
+        if not e.sid and not e.del and IsOrganizer(e.by) and e.t >= from and e.t <= to then
             out[#out + 1] = ViewEvent(e)
         end
     end
@@ -1078,6 +1086,7 @@ local function Commit(root, kind, rec)
         return false, "too many " .. (kind == "T" and "teams" or "raids") .. " planned"
     end
     root[kind][clean.id] = clean
+    if kind == "E" and clean.del then root.U[clean.id] = nil end
     Broadcast(kind, clean)
     Changed()
     return true
@@ -1230,6 +1239,20 @@ function RaidPlan:CancelRaid(occId, scope)
     local o = cur and Util.CopyTable(cur) or { id = occId, sid = v.sid, k = v.k }
     o.rev, o.by, o.x = NextRev(cur), me, true
     return Commit(root, "E", o)
+end
+
+-- Deletes a raid for everyone (it disappears, with its sign-ups and group layout). scope "series" on a weekly raid
+-- deletes the whole weekly series; otherwise only this raid (for a weekly raid: this week's). Returns ok, err.
+function RaidPlan:DeleteRaid(occId, scope)
+    local root, err = RequireOrganizer()
+    if not root then return false, err end
+    local v = ResolveOcc(root, occId)
+    if not v then return false, "unknown raid" end
+    if v.sid and scope == "series" then return self:CancelRaid(occId, "series") end
+    local ok, e = Commit(root, "E", { id = occId, sid = v.sid, k = v.k, rev = NextRev(root.E[occId]),
+                                      by = Util.PlayerKey(), del = true })
+    if ok and ns.RaidInvite and ns.RaidInvite.IsActive and ns.RaidInvite:IsActive(occId) then ns.RaidInvite:Stop() end
+    return ok, e
 end
 
 -- A weekly series ends after this occurrence ("Stop repeating").

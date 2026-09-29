@@ -505,12 +505,34 @@ local function cancelMenu(root)
     end
     if v.weekly then
         root:CreateButton("Stop repeating after this raid", function() run(RP().StopRepeating, v.id) end)
-        root:CreateButton("Delete the whole weekly raid", function()
-            PlanUI:Confirm(("Delete the weekly raid %s and every raid in it?"):format(raidTitle(v)), function()
-                run(RP().CancelRaid, v.id, "series")
-            end)
-        end)
     end
+end
+
+-- The trash button: confirm, then delete (a weekly raid asks first: this week, or the whole weekly raid).
+function PlanUI:ConfirmDelete(scope)
+    local v = state.selected and RP():GetRaid(state.selected)
+    if not v then return end
+    local what
+    if scope == "series" then
+        what = ("the weekly raid %s and every week of it"):format(raidTitle(v))
+    else
+        what = ("%s on %s"):format(raidTitle(v), date("%a %d %b %H:%M", v.t))
+    end
+    StaticPopup_Show("CDLOOT_PLAN_DELETE", what, nil, { fn = function()
+        local ok, err = RP():DeleteRaid(v.id, scope)
+        if not ok then Print(err or "Could not delete the raid.") end
+    end })
+end
+
+local function deleteClick(btn)
+    local v = state.selected and RP():GetRaid(state.selected)
+    if not v then return end
+    if not v.weekly then return PlanUI:ConfirmDelete(nil) end
+    UI():ContextMenu(btn, function(root)
+        root:CreateTitle("Delete")
+        root:CreateButton("This week's raid only", function() PlanUI:ConfirmDelete(nil) end)
+        root:CreateButton("The whole weekly raid", function() PlanUI:ConfirmDelete("series") end)
+    end)
 end
 
 function PlanUI:Confirm(text, fn)
@@ -883,6 +905,21 @@ function PlanUI:CreateUpcoming(parent)
         if state.selected then PlanUI:OpenEditor(state.selected) end
     end)
     d.editBtn:SetPoint("RIGHT", d.cancelBtn, "LEFT", -4, 0)
+    d.deleteBtn = CreateFrame("Button", nil, d)
+    d.deleteBtn:SetSize(22, 22)
+    d.deleteBtn:SetPoint("RIGHT", d.editBtn, "LEFT", -6, 0)
+    d.deleteBtn:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+    d.deleteBtn:SetPushedTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Down")
+    d.deleteBtn:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Highlight", "ADD")
+    d.deleteBtn:SetScript("OnClick", deleteClick)
+    d.deleteBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Delete raid", 1, 0.3, 0.3)
+        GameTooltip:AddLine("Removes the raid for everyone, with its sign-ups and groups. To keep it listed as called "
+            .. "off, use Cancel... instead.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    d.deleteBtn:SetScript("OnLeave", hideTooltip)
 
     -- Sign-up strip
     local strip = CreateFrame("Frame", nil, d, "BackdropTemplate")
@@ -960,6 +997,7 @@ local function refreshDetail(v)
     local organizer = RP():CanOrganize()
     d.editBtn:SetShown(has and organizer)
     d.cancelBtn:SetShown(has and organizer)
+    d.deleteBtn:SetShown(has and organizer)
     if not has then return end
 
     d.title:SetText(raidTitle(v) .. (v.cancelled and "  |cffff5555CANCELLED|r" or ""))
@@ -1683,6 +1721,19 @@ function PlanUI:OnInit()
         ns:On(msg, function() PlanUI:RequestRefresh() end)
     end
     if StaticPopupDialogs then
+        StaticPopupDialogs["CDLOOT_PLAN_DELETE"] = {
+            text = "Delete %s?\n\nIt disappears for everyone, with its sign-ups and groups. This can't be undone.",
+            button1 = DELETE or "Delete",
+            button2 = CANCEL or "Cancel",
+            OnAccept = function(_, data)
+                if type(data) == "table" and data.fn then data.fn() end
+            end,
+            showAlert = true,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
         StaticPopupDialogs["CDLOOT_PLAN_CONFIRM"] = {
             text = "%s",
             button1 = YES or "Yes",

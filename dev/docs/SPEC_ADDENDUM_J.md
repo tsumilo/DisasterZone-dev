@@ -37,6 +37,11 @@ db.raidplanSpec[charKey] = spec index last used by that character (a personal pr
 - **Event** (`E`): a one-off raid, or an **override** of one series occurrence (`sid` + `k`, id = the occurrence id).
   An override only holds the fields that differ; a missing field follows the series, so a later series edit still
   reaches an occurrence that only has, say, a group layout.
+- **Deleting a raid** (`RaidPlan:DeleteRaid(occId, scope)`, organizers): an E tombstone `{ id, rev, by, del = true }`
+  (for a weekly raid's week: the occurrence override) makes the raid disappear everywhere; its sign-ups are dropped and
+  new ones refused. scope "series" deletes the whole weekly series (S `x`). Tombstones spread like any record and are
+  pruned with the occurrence (15 days) or after 30 days. UI: a delete button next to Edit (a weekly raid first asks
+  "This week's raid only" / "The whole weekly raid"), then a confirm dialog. Cancel keeps a raid listed as called off.
 - **Editing a weekly raid:** "this raid only" writes an override; "all raids in the series" edits the series in place
   (sign-ups are keyed by occurrence id, so they are kept).
 - **Sign-up** (`U`): per occurrence, per character. Status Accept / Tentative / Bench / Absent, spec index into

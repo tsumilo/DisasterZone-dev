@@ -256,8 +256,10 @@ your teams in the next 7 days that you haven't answered.
   title (e.g. "Gruul + Mag") and note. Tick **Repeat weekly** for a raid that happens every week: the next two weeks are
   always planned automatically.
 - **Edit** changes a raid. For a weekly raid you choose **This week only** or **Save every week**. Sign-ups are kept.
-- **Cancel...** cancels this raid (it stays listed as cancelled and can be restored), stops a weekly raid after this
-  week, or deletes the whole weekly raid.
+- **Cancel...** cancels this raid (it stays listed as cancelled and can be restored) or stops a weekly raid after this
+  week.
+- The red **delete** button next to Edit removes the raid for everyone, with its sign-ups and groups, after you confirm.
+  For a weekly raid you pick this week's raid only or the whole weekly raid.
 - Everyone sees every raid and anyone can sign up. The teams decide who gets the reminder and who is listed under
   "No response".
 

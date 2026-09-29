@@ -168,7 +168,7 @@ def cancel_menu_cancels_restores_and_deletes_weekly():
     w.tick(0.3)
     btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.cancelBtn")
     entries = [e["text"] for e in bob.dropdown_menu(btn)["children"]]
-    assert entries == ["Cancel this week's raid", "Stop repeating after this raid", "Delete the whole weekly raid"], entries
+    assert entries == ["Cancel this week's raid", "Stop repeating after this raid"], entries
     bob.menu_select("Cancel this week's raid")
     w.tick(2)
     assert raid(sam, occ)["cancelled"] is True
@@ -178,9 +178,9 @@ def cancel_menu_cancels_restores_and_deletes_weekly():
     bob.menu_select("Restore this raid")
     w.tick(2)
     assert raid(sam, occ)["cancelled"] is False
-    bob.dropdown_menu(btn)
-    bob.menu_select("Delete the whole weekly raid")
-    bob.accept_popup("CDLOOT_PLAN_CONFIRM")
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.deleteBtn"))
+    bob.menu_select("The whole weekly raid")
+    bob.accept_popup("CDLOOT_PLAN_DELETE")
     w.tick(2)
     assert raids(sam) == []
     w.assert_no_errors()
@@ -354,6 +354,58 @@ def the_editor_date_picker_is_a_month_calendar():
     for _ in range(8):
         bob.eval("%s:ShowMonth(%s.shownY, %s.shownM + 1)" % (dp, dp, dp))
     assert bob.eval("return %s.popup.next:IsEnabled()" % dp) is False
+    w.assert_no_errors()
+
+
+@case
+def delete_removes_a_raid_for_everyone_after_confirming():
+    w, c = world()
+    bob, sam, rita = c["Bob"], c["Sam"], c["Rita"]
+    one = create(bob, i="kara", t=now(bob) + DAY)
+    wk = create(bob, i="gruul", t=now(bob) + 2 * DAY, weekly=True)
+    sid = wk[:-2]
+    w.tick(2)
+    signup(sam, one, "A")
+    w.tick(2)
+    open_tab(w, bob)
+    bob.eval("ns.RaidPlanUI:SelectRaid(...)", one)
+    w.tick(0.3)
+    btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.deleteBtn")
+    # declining the dialog keeps it
+    bob.click(btn)
+    assert any(p.get("which") == "CDLOOT_PLAN_DELETE" if isinstance(p, dict) else "CDLOOT_PLAN_DELETE" in str(p)
+               for p in (bob.popups() or [])), bob.popups()
+    bob.cancel_popup("CDLOOT_PLAN_DELETE")
+    w.tick(1)
+    assert raid(sam, one) is not None
+    bob.click(btn)
+    bob.accept_popup("CDLOOT_PLAN_DELETE")
+    w.tick(2)
+    for n, x in c.items():
+        assert raid(x, one) is None, n
+        assert signups(x, one) == {}, n
+    assert signup(sam, one, "A")["ok"] is False
+    # a weekly raid: this week only, then the next week stays
+    bob.eval("ns.RaidPlanUI:SelectRaid(...)", wk)
+    w.tick(0.3)
+    bob.click(btn)
+    items = [e["text"] for e in bob.last_menu()["children"] if e.get("text")]
+    assert items == ["Delete", "This week's raid only", "The whole weekly raid"], items
+    bob.menu_select("This week's raid only")
+    bob.accept_popup("CDLOOT_PLAN_DELETE")
+    w.tick(2)
+    assert [r["id"] for r in raids(rita)] == [sid + "#1"], raids(rita)
+    # members don't get the button; a member who was offline doesn't bring the raids back
+    open_tab(w, rita)
+    assert not rita.eval("return ns.RaidsUI:GetPanel().upcoming.detail.deleteBtn:IsShown()")
+    c["Lee"].logout()
+    w.tick(1)
+    bob.eval("ns.RaidPlan:DeleteRaid(..., 'series')", sid + "#1")
+    w.tick(2)
+    c["Lee"].login()
+    w.tick(40)
+    for n, x in c.items():
+        assert raids(x) == [], (n, raids(x))
     w.assert_no_errors()
 
 
