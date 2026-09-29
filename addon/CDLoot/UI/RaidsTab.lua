@@ -1,8 +1,11 @@
--- CDLoot: "Raids" tab (Addendum I §51): the raid log. Two views:
---   Raids   - the raid sessions (newest first) and, for the selected one, its boss timeline, attendance (with
---             bench marks, right-click to change) and the awards made during it.
---   Players - attendance % / boss kills / items received per player over the last N raids.
--- Council only (like the Loot Log). Start / End raid for the raid's authority sits in the toolbar.
+-- CDLoot: "Raids" tab. Three views (Addendum J §58):
+--   Upcoming - planned raids and sign-ups (everyone; UI/RaidPlanUI.lua)
+--   Teams    - the raid teams (everyone can look; organizers edit; UI/RaidPlanUI.lua)
+--   Raid log - council only (Addendum I §51), with two modes:
+--     Raids   - the raid sessions (newest first) and, for the selected one, its boss timeline, attendance (with
+--               bench marks, right-click to change) and the awards made during it.
+--     Players - attendance % / boss kills / items received per player over the last N raids.
+-- Start / End raid for the raid's authority sits in the toolbar.
 local addonName, ns = ...
 
 local RaidsUI = ns:NewModule("RaidsUI")
@@ -12,7 +15,7 @@ local RAID_ROW_H = 34
 local ROW_H = 20
 local RANGES = { 4, 8, 12, 0 }   -- 0 = all raids
 
-local state = { mode = "raids", selected = nil, range = 8 }
+local state = { view = "upcoming", mode = "raids", selected = nil, range = 8 }
 local panel
 
 ----------------------------------------------------------------------------
@@ -203,15 +206,42 @@ end
 -- Panel
 ----------------------------------------------------------------------------
 
+local function isCouncil()
+    local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
+    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
+    return (council or demo) and true or false
+end
+
+local function canOrganize()
+    local RP = ns.RaidPlan
+    return RP and RP.CanOrganize and RP:CanOrganize() or false
+end
+
 local function updateToolbar(p)
+    if state.view == "log" and not isCouncil() then state.view = "upcoming" end
+    local log = state.view == "log"
+    p.upcomingBtn:SetEnabled(state.view ~= "upcoming")
+    p.teamsBtn:SetEnabled(state.view ~= "teams")
+    p.logBtn:SetShown(isCouncil())
+    p.logBtn:SetEnabled(not log)
+    p.raidsBtn:SetShown(log)
+    p.playersBtn:SetShown(log)
     p.raidsBtn:SetEnabled(state.mode ~= "raids")
     p.playersBtn:SetEnabled(state.mode ~= "players")
-    p.rangeBtn:SetShown(state.mode == "players")
+    p.rangeBtn:SetShown(log and state.mode == "players")
     p.rangeBtn:SetText(rangeLabel(state.range))
+    p.count:SetShown(log)
     local GR = ns.GroupRules
     local auth = IsInRaid() and GR and GR:IsAuthority()
     p.sessionBtn:SetShown(auth and true or false)
     p.sessionBtn:SetText(GR and GR:GetSession() and "End raid" or "Start raid")
+    local organizer = canOrganize()
+    p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
+    p.newTeamBtn:SetShown(organizer and state.view == "teams")
+    for _, b in ipairs({ p.newRaidBtn, p.newTeamBtn }) do
+        b:ClearAllPoints()
+        if auth then b:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", -8, -6) end
+    end
 end
 
 function RaidsUI:CreatePanel(parent)
@@ -221,9 +251,16 @@ function RaidsUI:CreatePanel(parent)
     p:SetAllPoints(parent)
     panel = p
 
-    p.raidsBtn = UI:CreateButton(p, "Raids", 80, 22, function() state.mode = "raids"; RaidsUI:Refresh() end)
-    p.raidsBtn:SetPoint("TOPLEFT", 8, -6)
-    p.playersBtn = UI:CreateButton(p, "Players", 80, 22, function() state.mode = "players"; RaidsUI:Refresh() end)
+    p.upcomingBtn = UI:CreateButton(p, "Upcoming", 86, 22, function() RaidsUI:SetView("upcoming") end)
+    p.upcomingBtn:SetPoint("TOPLEFT", 8, -6)
+    p.teamsBtn = UI:CreateButton(p, "Teams", 70, 22, function() RaidsUI:SetView("teams") end)
+    p.teamsBtn:SetPoint("LEFT", p.upcomingBtn, "RIGHT", 4, 0)
+    p.logBtn = UI:CreateButton(p, "Raid log", 80, 22, function() RaidsUI:SetView("log") end)
+    p.logBtn:SetPoint("LEFT", p.teamsBtn, "RIGHT", 4, 0)
+
+    p.raidsBtn = UI:CreateButton(p, "Raids", 70, 22, function() state.mode = "raids"; RaidsUI:Refresh() end)
+    p.raidsBtn:SetPoint("LEFT", p.logBtn, "RIGHT", 24, 0)
+    p.playersBtn = UI:CreateButton(p, "Players", 70, 22, function() state.mode = "players"; RaidsUI:Refresh() end)
     p.playersBtn:SetPoint("LEFT", p.raidsBtn, "RIGHT", 4, 0)
     p.rangeBtn = UI:CreateMenuButton(p, rangeLabel(state.range), 120, function(root)
         for _, n in ipairs(RANGES) do
@@ -233,7 +270,7 @@ function RaidsUI:CreatePanel(parent)
             end)
         end
     end)
-    p.rangeBtn:SetPoint("LEFT", p.playersBtn, "RIGHT", 12, 0)
+    p.rangeBtn:SetPoint("LEFT", p.playersBtn, "RIGHT", 8, 0)
     p.sessionBtn = UI:CreateButton(p, "Start raid", 100, 22, function()
         if ns.GroupRules:GetSession() then
             ns.SessionBar:ConfirmEnd()
@@ -244,6 +281,16 @@ function RaidsUI:CreatePanel(parent)
     p.sessionBtn:SetPoint("TOPRIGHT", -8, -6)
     p.count = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     p.count:SetPoint("RIGHT", p.sessionBtn, "LEFT", -12, 0)
+    p.newRaidBtn = UI:CreateButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end)
+    p.newTeamBtn = UI:CreateButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end)
+
+    local PlanUI = ns.RaidPlanUI
+    p.upcoming = PlanUI:CreateUpcoming(p)
+    p.upcoming:SetPoint("TOPLEFT", 0, -36)
+    p.upcoming:SetPoint("BOTTOMRIGHT", 0, 4)
+    p.teams = PlanUI:CreateTeams(p)
+    p.teams:SetPoint("TOPLEFT", 0, -36)
+    p.teams:SetPoint("BOTTOMRIGHT", 0, 4)
 
     p.raidList = UI:CreateScrollList(p, RAID_ROW_H, initRaidRow)
     p.raidList.frame:SetPoint("TOPLEFT", 0, -36)
@@ -269,11 +316,16 @@ end
 function RaidsUI:Refresh()
     if not panel or not panel:IsVisible() then return end
     updateToolbar(panel)
+    local log = state.view == "log"
+    panel.upcoming:SetShown(state.view == "upcoming")
+    panel.teams:SetShown(state.view == "teams")
     local raidsMode = state.mode == "raids"
-    panel.raidList.frame:SetShown(raidsMode)
-    panel.detail.frame:SetShown(raidsMode)
-    panel.players.frame:SetShown(not raidsMode)
-    if raidsMode then
+    panel.raidList.frame:SetShown(log and raidsMode)
+    panel.detail.frame:SetShown(log and raidsMode)
+    panel.players.frame:SetShown(log and not raidsMode)
+    if not log then
+        ns.RaidPlanUI:Refresh()
+    elseif raidsMode then
         local raids = RL():GetRaids()
         local found = false
         for _, rec in ipairs(raids) do
@@ -289,7 +341,7 @@ function RaidsUI:Refresh()
     else
         local rows, total = playerRows()
         panel.players:SetData(#rows > 1 and rows or {})
-        panel.count:SetText(rangeLabel(state.range) .. ": " .. total .. " logged")
+        panel.count:SetText(total .. " logged")
     end
 end
 
@@ -297,24 +349,33 @@ function RaidsUI:RequestRefresh()
     if panel and panel:IsVisible() then ns.Util.Debounce("raids-ui", 0.2, function() RaidsUI:Refresh() end) end
 end
 
--- For tests / other modules: selects a raid (and the Raids view).
+-- For tests / other modules: selects a logged raid (and the Raid log's Raids mode).
 function RaidsUI:Select(id)
-    state.mode, state.selected = "raids", id
+    state.view, state.mode, state.selected = "log", "raids", id
     self:Refresh()
 end
 
 function RaidsUI:SetMode(mode, range)
+    state.view = "log"
     state.mode = mode == "players" and "players" or "raids"
     if range then state.range = range end
     self:Refresh()
 end
 
+-- "upcoming" | "teams" | "log" (the log is council only).
+function RaidsUI:SetView(view)
+    if view ~= "teams" and view ~= "log" then view = "upcoming" end
+    state.view = view
+    self:Refresh()
+end
+
+function RaidsUI:GetView() return state.view end
+
 function RaidsUI:GetPanel() return panel end
 
+-- Everyone in a guild plans raids here; the raid log inside stays council only.
 function RaidsUI:IsAvailable()
-    local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
-    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
-    return (council or demo) and true or false
+    return (IsInGuild() or isCouncil()) and true or false
 end
 
 function RaidsUI:OnInit()
@@ -324,8 +385,13 @@ function RaidsUI:OnInit()
             function() return RaidsUI:IsAvailable() end)
     end
     local function refresh() RaidsUI:RequestRefresh() end
-    for _, msg in ipairs({ "RAIDLOG_CHANGED", "LEDGER_UPDATED", "GROUP_RULES_CHANGED", "ROSTER_UPDATED", "ITEMINFO_READY", "DEMO_TOGGLED" }) do
+    for _, msg in ipairs({ "RAIDLOG_CHANGED", "LEDGER_UPDATED", "GROUP_RULES_CHANGED", "ROSTER_UPDATED", "ITEMINFO_READY",
+                           "DEMO_TOGGLED", "CONFIG_UPDATED" }) do
         ns:On(msg, refresh)
     end
-    ns:RegisterSlash("raids", function() ns.MainFrame:Open("raids") end, "open the raid log (council)")
+    ns:RegisterSlash("raids", function()
+        state.view = "upcoming"
+        ns.MainFrame:Open("raids")
+        RaidsUI:Refresh()
+    end, "open the Raids tab: upcoming raids and sign-ups")
 end

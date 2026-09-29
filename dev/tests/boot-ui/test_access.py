@@ -19,7 +19,9 @@ end
 return out"""
 
 ALL_TABS = ["mybis", "council", "loot", "raids", "games", "settings"]
-PERSONAL_TABS = ["mybis", "games", "settings"]
+# Addendum J: every guild member has the Raids tab (Upcoming / Teams); its Raid log view stays council only.
+PERSONAL_TABS = ["mybis", "raids", "games", "settings"]
+GUILDLESS_TABS = ["mybis", "games", "settings"]
 
 
 def shown_tabs(c):
@@ -39,7 +41,7 @@ def open_window(c):
 def not_in_guild_only_personal_tabs():
     w, c = solo("Solo", guild=None, tick=3)
     open_window(c)
-    assert shown_tabs(c) == PERSONAL_TABS, shown_tabs(c)
+    assert shown_tabs(c) == GUILDLESS_TABS, shown_tabs(c)
     n0 = len(c.chat_frame)
     c.slash("/cdl council")
     w.tick(0.3)
@@ -272,7 +274,7 @@ def leaving_the_guild_mid_session_drops_council_views():
     leave_guild(w, c)
     assert c.eval("return ns.Guild:AmICouncil()") is False
     assert c.eval("return ns.Guild:GetGuildPhase()") == 1
-    assert shown_tabs(c) == PERSONAL_TABS, shown_tabs(c)
+    assert shown_tabs(c) == GUILDLESS_TABS, shown_tabs(c)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     assert not panel_shown(c, "council")
     assert c.eval("return CDLootMainFrame.titleText:GetText()") == "CDLoot", c.eval("return CDLootMainFrame.titleText:GetText()")

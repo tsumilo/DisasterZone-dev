@@ -391,10 +391,18 @@ def raids_tab_lists_raids_details_bench_and_players():
     w.tick(2)
     lee.slash("/cdl raid end")
     w.tick(3)
-    assert rita.eval("return ns.RaidsUI:IsAvailable()") is False, "raiders don't get the tab"
+    # (Addendum J: raiders have the Raids tab for sign-ups, but not its Raid log view)
+    rita.slash("/cdl raids")
+    w.tick(0.5)
+    rita.eval("ns.RaidsUI:SetView('log')")
+    assert rita.eval("return ns.RaidsUI:GetView()") == "upcoming", "raiders don't get the raid log"
+    assert not rita.eval("return ns.RaidsUI:GetPanel().logBtn:IsShown()")
     bob.slash("/cdl raids")
     w.tick(0.5)
     assert bob.eval("return ns.MainFrame:GetSelectedTab()") == "raids"
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().logBtn"))
+    w.tick(0.3)
+    assert bob.eval("return ns.RaidsUI:GetView()") == "log"
     texts = lambda needle: [strip_codes(t) for t in bob.eval_py(
         "local out = {}; for _, r in ipairs(...) do out[#out + 1] = r:GetText() end; return out",
         bob.find_text(needle, True, True)) or []]
@@ -551,6 +559,8 @@ def demo_mode_fills_the_raids_tab_without_touching_the_real_log():
     c.slash("/cdl raids")
     w.tick(0.5)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "raids"
+    c.eval("ns.RaidsUI:SetView('log')")
+    w.tick(0.3)
     assert c.find_text("Karazhan", True, True)
     c.eval("ns.RaidsUI:SetMode('players', 8)")
     w.tick(0.3)

@@ -88,4 +88,23 @@ db.raidplanSpec[charKey] = spec index last used by that character (a personal pr
 `GetInvited(occId)`, `GetUnanswered(days)`, `SetGroups(occId, grp)`, `GetDigest()`, `GetDigestHash()`.
 Messages fired: `RAIDPLAN_CHANGED`.
 
-## 58-61. (Steps 2-5: Raids tab, composition, group builder, raid log tie-ins; written when built.)
+## 58. Raids tab (step 2, built)
+
+- The tab is available to every guild member. Views: **Upcoming** (default), **Teams**, **Raid log** (council only;
+  the Addendum I Raids / Players modes). `/cdl raids` opens Upcoming; `/cdl plan` prints the list in chat.
+- **Upcoming:** the list is grouped This week / Next week / Later / Recent (started more than 6 h ago, newest first).
+  A row shows date, time, raid (size), teams, accepted count and my answer; an orange bar = invited and not answered.
+  The raid I still have to answer is selected first.
+- **Detail:** title, date, teams, organizer, note; the sign-up strip (Accept / Tentative / Bench / Absent, spec dropdown
+  preselected from my last sign-up or my BiS list's spec, a note saved with Enter); counts; the roster in four
+  columns (Tanks / Healers / Melee / Ranged: accepted then tentative) and lines for spec not set, Bench, Absent and No
+  response (invited members without an answer). Organizers get **Edit** and **Cancel...** (cancel / restore, stop
+  repeating, delete the weekly raid).
+- **New / Edit raid window:** raid, size, title, day (next 60 days), time (15-minute steps, local clock), teams, note,
+  Repeat weekly. Editing a weekly raid offers "This week only" (an override holding only the changed fields) and
+  "Save every week".
+- **Teams:** list + detail; organizers edit a draft (name, members through the guild search picker) and Save / Undo /
+  Delete; members see the teams read-only. The detail shows which upcoming raids invite the team.
+- **Login reminder:** 45 s after login, one chat line lists my teams' raids in the next 7 days without my answer.
+
+## 59-61. (Steps 3-5: composition, group builder, raid log tie-ins; written when built.)

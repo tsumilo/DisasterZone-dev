@@ -17,15 +17,16 @@ CDLoot only suggests. The council makes the loot decision.
 2. [Opening CDLoot](#opening-cdloot)
 3. [Before the first raid](#before-the-first-raid)
 4. [Quick start: Raider](#quick-start-raider)
-5. [Quick start: Loot Council](#quick-start-loot-council)
-6. [Quick start: Raid leader](#quick-start-raid-leader)
-7. [Quick start: Guild Master](#quick-start-guild-master)
-8. [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner)
-9. [Slash commands](#slash-commands)
-10. [Settings reference](#settings-reference)
-11. [Demo mode (try it solo)](#demo-mode-try-it-solo)
-12. [FAQ and troubleshooting](#faq-and-troubleshooting)
-13. [How it syncs, and privacy](#how-it-syncs-and-privacy)
+5. [Raid sign-ups and teams](#raid-sign-ups-and-teams)
+6. [Quick start: Loot Council](#quick-start-loot-council)
+7. [Quick start: Raid leader](#quick-start-raid-leader)
+8. [Quick start: Guild Master](#quick-start-guild-master)
+9. [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner)
+10. [Slash commands](#slash-commands)
+11. [Settings reference](#settings-reference)
+12. [Demo mode (try it solo)](#demo-mode-try-it-solo)
+13. [FAQ and troubleshooting](#faq-and-troubleshooting)
+14. [How it syncs, and privacy](#how-it-syncs-and-privacy)
 
 ---
 
@@ -229,6 +230,36 @@ During a raid the raid leader can lock everyone's lists. While locked:
 - My BiS shows a banner, "BiS lists locked by *name*".
 - You can't change picks, spec or disabled slots.
 - Items you get, and **Mark obtained**, still update and still sync.
+
+---
+
+## Raid sign-ups and teams
+
+Raids are planned in the **Raids** tab. Everyone in the guild has it.
+
+### Signing up (everyone)
+1. Open the **Raids** tab (or type `/cdl raids`). **Upcoming** lists the raids of this week, next week and later.
+   Raids you still have to answer have an orange bar and "you: not answered".
+2. Pick a raid. Under **Your answer**, click **Accept**, **Tentative**, **Bench** or **Absent**.
+3. Pick your **spec** in the dropdown next to the buttons. It is remembered for your next sign-up. You can add a short
+   **Note** (for example "late 20 min", press Enter to save).
+4. You can change your answer at any time until 6 hours after the raid started.
+
+The raid shows who is coming, sorted into **Tanks / Healers / Melee / Ranged**, followed by Bench, Absent and the
+invited members who haven't answered ("No response"). When you log in, CDLoot reminds you in chat of the raids of
+your teams in the next 7 days that you haven't answered.
+
+### Planning raids (Guild Master and guild council)
+- **Teams**: in the **Teams** view, click **New team**, type a name, add guild members with the search box and click
+  **Save**. A player can be on several teams.
+- **New raid** (Upcoming view): pick the raid, size, day and time, the teams it is for (none = everyone), an optional
+  title (e.g. "Gruul + Mag") and note. Tick **Repeat weekly** for a raid that happens every week: the next two weeks are
+  always planned automatically.
+- **Edit** changes a raid. For a weekly raid you choose **This week only** or **Save every week**. Sign-ups are kept.
+- **Cancel...** cancels this raid (it stays listed as cancelled and can be restored), stops a weekly raid after this
+  week, or deletes the whole weekly raid.
+- Everyone sees every raid and anyone can sign up. The teams decide who gets the reminder and who is listed under
+  "No response".
 
 ---
 
@@ -555,6 +586,8 @@ The council always confirms the award. Nothing is given away without a click and
 | `/cdl help` (or `/cdl ?`) | Lists all commands | everyone |
 | `/cdl council` | Opens the Council tab (My BiS if you aren't council) | council |
 | `/cdl log` | Opens the Loot Log tab | council |
+| `/cdl raids` | Opens the Raids tab: upcoming raids and sign-ups | everyone |
+| `/cdl plan` | Lists the planned raids and your answers in chat | everyone |
 | `/cdl settings` or `/cdl config` | Opens Settings | everyone |
 | `/cdl sync` | Asks the guild and council to sync lists now (at most once per 30 s) | everyone |
 | `/cdl version` | Your version and the versions seen in the guild | everyone |
