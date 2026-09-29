@@ -144,6 +144,12 @@ M.server_time = tonumber(cfg.server_time) or 1790000000
 function GetTime() return M.now end
 function GetTimePreciseSec() return M.now end
 function GetServerTime() return math.floor(M.server_time) end
+-- seconds until the daily quest reset (03:00 UTC, like EU realms)
+function GetQuestResetTime()
+  local left = (3 * 3600 - math.floor(M.server_time) % 86400) % 86400
+  if left == 0 then left = 86400 end
+  return left
+end
 function debugprofilestop() return (M.now - M.boot) * 1000 end
 function debugprofilestart() end
 function GetFramerate() return 60 end

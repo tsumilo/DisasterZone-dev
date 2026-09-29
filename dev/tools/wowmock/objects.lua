@@ -1129,9 +1129,10 @@ define("DressUpModel", "PlayerModel", {
 --    model: IsLoaded() stays true and the boxes are the old creature's (unless ClearModel() was called);
 --  * with the "ModelSceneActorTemplate" template, SetOnModelLoadedCallback's callback fires when a load completes
 --    (set __MOCK_NO_ACTOR_TEMPLATE = true to get bare actors without it);
---  * boxes are invented from the display ID, lopsided sideways (y from -0.3w to +0.7w); displays divisible by 3
---    "hover": their current-pose box bobs 0.3 up and down over time, and the all-animations box adds a rearing
---    animation 0.8 higher;
+--  * boxes are invented from the display ID and lopsided both ways (a snout: x from -0.6w to +0.4w; y from -0.3w
+--    to +0.7w); displays divisible by 3 "hover" 0.2-0.8 above their ground (origin) with a bobbing current-pose
+--    box, and their all-animations box adds a death pose on the ground and a rearing animation 0.8 higher;
+--  * __MOCK_SLOW_DISPLAY = <display id> makes that model take 12 s to load;
 --  * Project3DPointTo2D uses conventions the addon does NOT assume: a HORIZONTAL field of view and screen-right
 --    = -y. An addon that trusts its own camera maths gets sizes ~5% off and lopsided models off-centre; one that
 --    checks with the projection gets them right.
@@ -1146,7 +1147,9 @@ function ActorMethods:Tick()
   end
 end
 function ActorMethods:SetModelByCreatureDisplayID(id)
-  self.pending, self.loadAt = id, Now() + MOCK_ACTOR_LOAD_TIME
+  local slow = rawget(_G, "__MOCK_SLOW_DISPLAY")
+  self.pending, self.loadAt = id, Now() + ((slow == id) and 12 or MOCK_ACTOR_LOAD_TIME)
+  self.modelRequests = (self.modelRequests or 0) + 1
   return true
 end
 function ActorMethods:ClearModel() self.display, self.pending = nil, nil end
@@ -1163,15 +1166,15 @@ function ActorMethods:GetActiveBoundingBox()
   self:Tick()
   if not self.display then return nil end
   local h, w = MockSize(self.display)
-  local bob = (self.display % 3 == 0) and 0.3 * math.sin(Now() * 4) or 0
-  return -w / 2, -0.3 * w, bob, w / 2, 0.7 * w, h + bob
+  local bob = (self.display % 3 == 0) and (0.5 + 0.3 * math.sin(Now() * 4)) or 0
+  return -0.6 * w, -0.3 * w, bob, 0.4 * w, 0.7 * w, h + bob
 end
 function ActorMethods:GetMaxBoundingBox()
   self:Tick()
   if not self.display then return nil end
   local h, w = MockSize(self.display)
-  local bob = (self.display % 3 == 0) and 0.3 or 0
-  return -w / 2, -0.3 * w, -bob, w / 2, 0.7 * w, h + bob + 0.8
+  local hover = (self.display % 3 == 0) and 0.8 or 0
+  return -0.6 * w, -0.3 * w, 0, 0.4 * w, 0.7 * w, h + hover + 0.8
 end
 function ActorMethods:SetScale(v) self.scale = v end
 function ActorMethods:GetScale() return self.scale or 1 end
@@ -1189,6 +1192,8 @@ define("ModelScene", "Frame", {
     local a = setmetatable({}, ActorMethods)
     if template == "ModelSceneActorTemplate" and not rawget(_G, "__MOCK_NO_ACTOR_TEMPLATE") then a.template = template end
     st.actors[#st.actors + 1] = a
+    M.mock_actors = M.mock_actors or {}
+    M.mock_actors[#M.mock_actors + 1] = a        -- the "engine" finishes loads every frame (run_onupdates)
     return a
   end,
   SetCameraPosition = function(self, x, y, z) S(self).camPos = { x, y, z } end,
@@ -1371,6 +1376,7 @@ function M.step_animations(dt)
 end
 
 function M.run_onupdates(dt)
+  for _, a in ipairs(M.mock_actors or {}) do a:Tick() end   -- ModelScene actors load on their own, like the client
   local list = M.onupdate_frames
   local n = #list
   for i = 1, n do
