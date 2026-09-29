@@ -1124,28 +1124,54 @@ define("DressUpModel", "PlayerModel", {
   Dress = function(self) end,
 })
 -- ModelScene + actors (Azeromon's auto-fitted creatures). Actors are plain objects, like the real
--- ModelSceneActor. The bounding box is invented from the display ID (different sizes per creature) and
--- only appears from the second query on, like a model that loads asynchronously.
+-- ModelSceneActor. The mock reproduces what the real client showed:
+--  * loading is asynchronous (MOCK_ACTOR_LOAD_TIME s); while a new model loads, the actor keeps the PREVIOUS
+--    model: IsLoaded() stays true and the boxes are the old creature's (unless ClearModel() was called);
+--  * with the "ModelSceneActorTemplate" template, SetOnModelLoadedCallback's callback fires when a load completes
+--    (set __MOCK_NO_ACTOR_TEMPLATE = true to get bare actors without it);
+--  * boxes are invented from the display ID, lopsided sideways (y from -0.3w to +0.7w); displays divisible by 3
+--    "hover": their current-pose box bobs 0.3 up and down over time, and the all-animations box adds a rearing
+--    animation 0.8 higher;
+--  * Project3DPointTo2D uses conventions the addon does NOT assume: a HORIZONTAL field of view and screen-right
+--    = -y. An addon that trusts its own camera maths gets sizes ~5% off and lopsided models off-centre; one that
+--    checks with the projection gets them right.
+local MOCK_ACTOR_LOAD_TIME = 0.15
+local function Now() return (GetTime and GetTime()) or 0 end
 local ActorMethods = {}
 ActorMethods.__index = ActorMethods
-function ActorMethods:SetModelByCreatureDisplayID(id) self.display = id; self.queries = 0; return true end
-function ActorMethods:ClearModel() self.display = nil end
-function ActorMethods:IsLoaded() return self.display ~= nil end
--- Displays divisible by 3 "hover": their current-pose box bobs 0.3 up and down (like a whelp's idle);
--- the all-animations box covers the whole bob plus a rearing animation 0.8 higher.
+function ActorMethods:Tick()
+  if self.pending and Now() >= self.loadAt then
+    self.display, self.pending = self.pending, nil
+    if self.onLoaded then self.onLoaded(self) end
+  end
+end
+function ActorMethods:SetModelByCreatureDisplayID(id)
+  self.pending, self.loadAt = id, Now() + MOCK_ACTOR_LOAD_TIME
+  return true
+end
+function ActorMethods:ClearModel() self.display, self.pending = nil, nil end
+function ActorMethods:IsLoaded() self:Tick() return self.display ~= nil end
+function ActorMethods:GetModelFileID() self:Tick() return self.display and (100000 + self.display) or nil end
+function ActorMethods:SetOnModelLoadedCallback(fn)
+  if not self.template then error("attempt to call method 'SetOnModelLoadedCallback' (a nil value)") end
+  self.onLoaded = fn
+end
+function ActorMethods:SetUseCenterForOrigin(x, y, z) self.centerOrigin = { x, y, z } end
+function ActorMethods:SetPreferModelCollisionBounds(v) self.collision = v end
 local function MockSize(d) return 0.5 + (d % 9) * 0.6, 0.4 + (d % 5) * 0.5 end
 function ActorMethods:GetActiveBoundingBox()
-  self.queries = (self.queries or 0) + 1
-  if not self.display or self.queries < 2 then return nil end
+  self:Tick()
+  if not self.display then return nil end
   local h, w = MockSize(self.display)
-  local bob = (self.display % 3 == 0) and 0.3 * math.sin(self.queries * 0.7) or 0
-  return -w / 2, -w / 2, bob, w / 2, w / 2, h + bob
+  local bob = (self.display % 3 == 0) and 0.3 * math.sin(Now() * 4) or 0
+  return -w / 2, -0.3 * w, bob, w / 2, 0.7 * w, h + bob
 end
 function ActorMethods:GetMaxBoundingBox()
-  if not self.display or (self.queries or 0) < 2 then return nil end
+  self:Tick()
+  if not self.display then return nil end
   local h, w = MockSize(self.display)
   local bob = (self.display % 3 == 0) and 0.3 or 0
-  return -w / 2, -w / 2, -bob, w / 2, w / 2, h + bob + 0.8
+  return -w / 2, -0.3 * w, -bob, w / 2, 0.7 * w, h + bob + 0.8
 end
 function ActorMethods:SetScale(v) self.scale = v end
 function ActorMethods:GetScale() return self.scale or 1 end
@@ -1157,22 +1183,36 @@ function ActorMethods:GetAlpha() return self.alpha or 1 end
 function ActorMethods:SetAnimation(id) self.anim = id end
 function ActorMethods:SetShown(v) self.shown = v and true or false end
 define("ModelScene", "Frame", {
-  CreateActor = function(self)
+  CreateActor = function(self, name, template)
     local st = S(self)
     st.actors = st.actors or {}
     local a = setmetatable({}, ActorMethods)
+    if template == "ModelSceneActorTemplate" and not rawget(_G, "__MOCK_NO_ACTOR_TEMPLATE") then a.template = template end
     st.actors[#st.actors + 1] = a
     return a
   end,
   SetCameraPosition = function(self, x, y, z) S(self).camPos = { x, y, z } end,
+  GetCameraPosition = function(self) local p = S(self).camPos or { 0, 0, 0 }; return p[1], p[2], p[3] end,
   SetCameraOrientationByYawPitchRoll = function(self, y, p, r) S(self).camYPR = { y, p, r } end,
   SetCameraFieldOfView = function(self, v) S(self).fov = v end,
+  GetCameraFieldOfView = function(self) return S(self).fov or 0.9 end,
   SetCameraNearClip = function(self, v) S(self).near = v end,
   SetCameraFarClip = function(self, v) S(self).far = v end,
   SetLightVisible = function(self, v) S(self).light = v end,
   SetLightDirection = function(self, x, y, z) end,
   SetLightAmbientColor = function(self, r, g, b) end,
   SetLightDiffuseColor = function(self, r, g, b) end,
+  -- camera on +x looking along -x; horizontal FOV; screen-right = -y; returns pixels * effective scale
+  Project3DPointTo2D = function(self, x, y, z)
+    local st = S(self)
+    local c = st.camPos or { 0, 0, 0 }
+    local d = c[1] - x
+    if d <= 0 then return nil end
+    local W, H = self:GetWidth(), self:GetHeight()
+    local f = (W / 2) / math.tan((st.fov or 0.9) / 2)
+    local es = self:GetEffectiveScale() or 1
+    return (W / 2 - (y - c[2]) / d * f) * es, (H / 2 + (z - c[3]) / d * f) * es, d
+  end,
 })
 define("ColorSelect", "Frame", {})
 define("SimpleHTML", "Frame", {

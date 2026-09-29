@@ -386,8 +386,11 @@ def raid_scope_council_shares_awards_of_the_raid_but_never_gets_the_guild_award_
     send_as(c["Rita"], {"t": "LW", "d": [day]}, "WHISPER", K("Gina"))
     send_as(c["Lee"], {"t": "LW", "d": [day]}, "WHISPER", K("Gina"))
     w.tick(4)
-    lg = [m for m in msgs(w, "LG", mark)]
-    assert not lg, "the guild's award log was sent to raid-scope council: %s" % [(m["_sender"], m["_chat_type"]) for m in lg]
+    # (a guild council member such as Sam may get an LG from an unrelated ledger sync in this window: only LGs to the
+    # raid-scope members count)
+    lg = [e for e in w.addon_log[mark:] if e["prefix"].startswith("CDL") and e["target"] in ("Rita", "Lee", K("Rita"), K("Lee"))
+          and (lr.decode_msg(c["Gina"], e["text"]) or {}).get("t") == "LG"]
+    assert not lg, "the guild's award log was sent to raid-scope council: %s" % [(e["sender"], e["target"]) for e in lg]
     assert c["Rita"].eval("return ns.Ledger:GetEntry(...) == nil", old["id"]) is True
     # control: a guild council member gets it
     send_as(c["Sam"], {"t": "LW", "d": [day]}, "WHISPER", K("Gina"))

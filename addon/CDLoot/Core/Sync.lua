@@ -373,6 +373,9 @@ function Sync:SendHello(force)
         msg.ld = LedgerDigest()
         msg.rd = RaidDigest()
     end
+    -- Addendum J §56: everyone carries the hash of their raid plan data (0.6 clients ignore it).
+    local RaidPlan = ns.RaidPlan
+    if RaidPlan and RaidPlan.GetDigestHash then msg.pd = RaidPlan:GetDigestHash() end
     return Send(msg, "GUILD", nil, "ctrl")
 end
 
@@ -641,6 +644,8 @@ end
 local function OnHello(sender, msg, dist)
     if dist ~= "GUILD" then return end
     MarkSeen(sender, msg.v, msg.c and true or false)
+    local RaidPlan = ns.RaidPlan
+    if RaidPlan and RaidPlan.OnHelloDigest then RaidPlan:OnHelloDigest(sender, msg.pd) end
     if msg.c then
         councilHelloAt[sender] = GetTime()
         NoteCouncilRev(sender, msg.cg)

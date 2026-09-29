@@ -456,39 +456,59 @@ def party_summary_in_battle_closes_cleanly():
     no_errors(w)
 
 
-@case
-def every_creature_is_fitted_to_the_same_size_on_its_platform():
-    """Battle models are measured and scaled: whatever the model's real size, it fills the same share of its
-    frame (height, or width for wide ones) and stands on the frame's bottom edge."""
+def _fit_all(no_template=False):
     w, c = game()
+    if no_template:
+        c.eval("__MOCK_NO_ACTOR_TEMPLATE = true")
     c.slash("/cdl play azeromon")
     w.tick(0.3)
     ids = c.eval_py("return ns.AzeroData.dexOrder")
-    fills = []
-    for sp in ids:
+    out = []
+    for sp in ids:                                   # all in the same frame, one after another, like battles
         c.eval("ns.AzeroUI._ShowFoe(%r)" % sp)
-        w.tick(2.0)                              # load, then 1.6 s of idle pose sampling
+        w.tick(2.2)                                  # load, then 1.6 s of idle pose sampling, then the fit
         info = c.eval_py("return ns.AzeroUI._FitInfo()")
-        assert info, sp
-        big = max(info["h"] / 0.78, info["w"] / 0.86)
-        assert abs(big - 1) < 0.01, (sp, info)          # limited by height or width, never bigger
-        assert info["h"] <= 0.781 and info["w"] <= 0.861, (sp, info)
-        assert abs(info["feet"] - 0.03) < 0.001, (sp, info)
-        fills.append(big)
         disp = c.eval("return ns.AzeroData.species[%r].display" % sp)
+        out.append((sp, disp, info))
+    return w, c, out
+
+
+def _check_fits(results):
+    for sp, disp, info in results:
+        assert info and info["projected"], (sp, info)
+        big = max(info["h"] / 0.78, info["w"] / 0.86)
+        assert abs(big - 1) < 0.02, (sp, info)          # fills the target share (height or width limits)
+        assert info["h"] <= 0.79 and info["w"] <= 0.87, (sp, info)
+        assert abs(info["feet"] - 0.03) < 0.005, (sp, info)   # lowest point on the platform line
+        assert abs(info["center"] - 0.5) < 0.01, (sp, info)   # centred, even for lopsided boxes
+        # measured THIS creature, not the previous one still loaded in the same frame (mock: w = 0.4 + d%5 * 0.5)
+        width = 0.4 + (disp % 5) * 0.5
+        assert abs(info["x0"] + width / 2) < 1e-6 and abs(info["x1"] - width / 2) < 1e-6, (sp, disp, info)
         if disp % 3 == 0:
-            # a hovering idle (mock bob of +-0.3): the fit covers the whole bob, not one moment of it,
-            # and ignores the taller rearing animation that only the all-animations box contains
-            assert info["z0"] <= -0.29 and info["z1"] < 0.5 + (disp % 9) * 0.6 + 0.31, (sp, info)
-    assert len(fills) == len(ids)
-    # the camera is far away (near-orthographic): a creature reaching 2 scene units toward the camera is drawn at
-    # most ~4% lower than one at the centre, instead of ~40% with the old close camera (the sunk spider)
+            # hovering idle (mock bob +-0.3): the whole bob is covered, the taller rearing animation is not
+            assert info["z0"] <= -0.28 and info["z1"] < 0.5 + (disp % 9) * 0.6 + 0.31, (sp, info)
+
+
+@case
+def every_creature_is_fitted_to_the_same_size_on_its_platform():
+    """Battle models are measured after they have really loaded (not the previous creature's lingering box),
+    over a full idle bob, and the fit is checked with the engine's own projection - in the mock that projection
+    uses a horizontal field of view and a flipped sideways axis, which plain camera maths would get wrong."""
+    w, c, results = _fit_all()
+    assert len(results) == c.eval("return #ns.AzeroData.dexOrder")
+    _check_fits(results)
     cam = c.eval_py("return ns.AzeroUI._Camera()")
     assert cam["dist"] >= 50 and cam["fov"] < 0.1, cam
     no_errors(w)
 
 
-# -- UI -----------------------------------------------------------------------------------------------------------------
+@case
+def fitting_also_works_without_the_actor_load_event():
+    """Without Blizzard's actor template (no load callback) the model file change is the load signal."""
+    w, c, results = _fit_all(no_template=True)
+    _check_fits(results)
+    no_errors(w)
+
 
 @case
 def ui_title_intro_walk_and_battle_by_keys():

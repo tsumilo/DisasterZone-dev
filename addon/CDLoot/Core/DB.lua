@@ -57,6 +57,9 @@ local DEFAULTS = {
                        --   gm = { key, g } the last Guild Master seen (offline rows may be hidden)
     raids = {},        -- [id] = raid session record (Addendum I §49, Core/RaidLog.lua)
     -- raidCurrent (no default): id of the raid session being recorded (open record)
+    raidplan = {},     -- [guildKey] = { T = teams, S = weekly series, E = events, U = sign-ups } (Addendum J §54,
+                       -- Core/RaidPlan.lua)
+    raidplanSpec = {}, -- [charKey] = spec index last used for a raid sign-up (personal, never synced)
     games = {},        -- [gameId] = per-game saved data (Games/Hub.lua): best, plays, ...
     dropHistory = {},  -- array of recent drops (§10.2), newest last, max 40, pruned > 24h
     -- groupLock (no default): { by = key, at = serverTime } while this character, as the raid's loot

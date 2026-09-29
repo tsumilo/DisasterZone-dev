@@ -218,10 +218,19 @@ local function NewScene(parent, w, h)
     local ok, sc = pcall(CreateFrame, "ModelScene", nil, parent)
     if not ok or not sc or not sc.CreateActor then return nil end
     sc:SetSize(w, h)
-    local actorOk, actor = pcall(sc.CreateActor, sc)
+    -- Blizzard's actor template gives a reliable "model loaded" callback; a bare actor is the fallback.
+    local actorOk, actor = pcall(sc.CreateActor, sc, nil, "ModelSceneActorTemplate")
+    if not actorOk or not actor then actorOk, actor = pcall(sc.CreateActor, sc) end
     if not actorOk or not actor or not actor.SetModelByCreatureDisplayID or not actor.GetActiveBoundingBox then
         sc:Hide()
         return nil
+    end
+    -- the model's own origin (its feet), never the box centre; the rendered bounds, not collision bounds
+    pcall(actor.SetUseCenterForOrigin, actor, false, false, false)
+    pcall(actor.SetPreferModelCollisionBounds, actor, false)
+    sc.loads = 0
+    if actor.SetOnModelLoadedCallback then
+        sc.hasLoadEvent = pcall(actor.SetOnModelLoadedCallback, actor, function() sc.loads = sc.loads + 1 end)
     end
     -- camera on the +x axis looking back at the origin; the actor faces +x (toward us) at yaw 0
     pcall(sc.SetCameraPosition, sc, CAM_DIST, 0, 0)
@@ -235,6 +244,7 @@ local function NewScene(parent, w, h)
     pcall(sc.SetLightDiffuseColor, sc, 0.85, 0.85, 0.82)
     sc.actor = actor
     sc.isScene = true
+    sc.camY, sc.camZ = 0, 0
     sc.SetAnimation = function(self, id) pcall(self.actor.SetAnimation, self.actor, id) end
     scenes[#scenes + 1] = sc
     return sc
@@ -244,14 +254,21 @@ local function ReadBox(a, method)
     local fn = a[method]
     if not fn then return nil end
     local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
-    if not ok or not z1 or not z0 or not x1 or not y1 or (z1 - z0) <= 0 then return nil end
+    if ok and type(x0) == "table" and type(y0) == "table" and x0.GetXYZ then   -- documented form: two vectors
+        local bx, by, bz = x0:GetXYZ()
+        local tx, ty, tz = y0:GetXYZ()
+        x0, y0, z0, x1, y1, z1 = bx, by, bz, tx, ty, tz
+    end
+    if not ok or type(z1) ~= "number" or type(z0) ~= "number" or type(x1) ~= "number" or type(y1) ~= "number"
+        or (z1 - z0) <= 0 then
+        return nil
+    end
     return { x0, y0, z0, x1, y1, z1 }
 end
 
--- The box used for fitting: the envelope of the CURRENT pose (the idle animation we actually show) sampled over
--- SAMPLE_TIME, kept inside the all-animations box. The all-animations box alone is too big for creatures with
--- big rearing / flying animations (a whelp's is 4.2 tall while its idle hover is ~1.9), which made them small
--- and floating.
+local function BoxSig(b) return string.format("%.3f %.3f %.3f %.3f %.3f %.3f", b[1], b[2], b[3], b[4], b[5], b[6]) end
+
+-- The box of the pose on screen right now (GetActiveBoundingBox); the all-animations box as a fallback.
 local function MeasureBox(a)
     return ReadBox(a, "GetActiveBoundingBox") or ReadBox(a, "GetMaxBoundingBox")
 end
@@ -270,59 +287,164 @@ local function Clamp(b, lim)
     return c
 end
 
--- Fits a loaded actor (called every frame while a fit is pending). The actor stays at the origin at scale 1
--- while its pose is sampled; then it is scaled once and the CAMERA is aimed so the lowest point sits on the
--- frame's bottom edge (moving the camera, not the actor, avoids any question of positions being scaled).
--- The width is taken after the creature's turn (yaw), so a creature seen at an angle still fits.
+-- The 8 box corners in scene space at scale s, turned by the actor's yaw. The engine's turn direction is not
+-- documented, so both directions are included: the fit then holds whichever way the model is really turned.
+local function Corners(box, s, yaw)
+    local out = {}
+    for _, sign in ipairs({ 1, -1 }) do
+        local sn, cs = math.sin(sign * yaw), math.cos(sign * yaw)
+        for _, x in ipairs({ box[1], box[4] }) do
+            for _, y in ipairs({ box[2], box[5] }) do
+                for _, z in ipairs({ box[3], box[6] }) do
+                    out[#out + 1] = { (x * cs - y * sn) * s, (x * sn + y * cs) * s, z * s }
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- Where the engine draws a scene-space point, in UI units from the frame's bottom-left (nil if unavailable).
+local function Project(sc, x, y, z)
+    if not sc.Project3DPointTo2D then return nil end
+    local ok, px, py = pcall(sc.Project3DPointTo2D, sc, x, y, z)
+    if not ok or type(px) ~= "number" or type(py) ~= "number" then return nil end
+    local es = 1
+    if sc.GetEffectiveScale then
+        local ok2, v = pcall(sc.GetEffectiveScale, sc)
+        if ok2 and type(v) == "number" and v > 0 then es = v end
+    end
+    return px / es, py / es
+end
+
+-- Screen rectangle covered by the fitted box (UI units), or nil when the client cannot project.
+local function ProjectedRect(sc, box, s, yaw)
+    local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge
+    for _, p in ipairs(Corners(box, s, yaw)) do
+        local px, py = Project(sc, p[1], p[2], p[3])
+        if not px then return nil end
+        if px < x0 then x0 = px end
+        if px > x1 then x1 = px end
+        if py < y0 then y0 = py end
+        if py > y1 then y1 = py end
+    end
+    return x0, y0, x1, y1
+end
+
+-- Checks the fit with the engine's own projection and corrects size and camera: the creature fills exactly
+-- FILL_H of the height or FILL_W of the width (whichever limits), its lowest point sits 3% above the bottom
+-- edge, and it is centred sideways. This makes the result independent of the field-of-view convention,
+-- perspective and the turn direction. Returns the final rectangle, or nil when projection is unavailable.
+local function RefineWithProjection(sc, box, s, tweak)
+    local a = sc.actor
+    local W, H = sc:GetWidth(), sc:GetHeight()
+    local yaw = sc.facing or 0
+    for _ = 1, 4 do
+        local rx0, ry0, rx1, ry1 = ProjectedRect(sc, box, s, yaw)
+        if not rx0 or ry1 - ry0 <= 0 or rx1 - rx0 <= 0 then return nil end
+        -- size
+        local k = math.min(FILL_H * H / (ry1 - ry0), FILL_W * W / (rx1 - rx0)) / tweak
+        if math.abs(k - 1) > 0.005 then
+            s = s * k
+            pcall(a.SetScale, a, s)
+            rx0, ry0, rx1, ry1 = ProjectedRect(sc, box, s, yaw)
+            if not rx0 then return nil end
+        end
+        -- placement: how many UI units one scene unit moves on screen, measured at the creature's plane
+        local cx, cy = Project(sc, 0, sc.camY, sc.camZ)
+        local ux = Project(sc, 0, sc.camY + 1, sc.camZ)
+        local _, uz = Project(sc, 0, sc.camY, sc.camZ + 1)
+        if not cx or not ux or not uz or math.abs(ux - cx) < 1e-6 or math.abs(uz - cy) < 1e-6 then return nil end
+        local ppuY, ppuZ = ux - cx, uz - cy
+        local dy = 0.03 * H - ry0                  -- raise the lowest point to 3% above the bottom edge
+        local dx = W / 2 - (rx0 + rx1) / 2         -- centre sideways
+        if math.abs(dy) < 0.25 and math.abs(dx) < 0.25 and math.abs(k - 1) <= 0.005 then break end
+        sc.camZ = sc.camZ - dy / ppuZ
+        sc.camY = sc.camY - dx / ppuY
+        pcall(sc.SetCameraPosition, sc, CAM_DIST, sc.camY, sc.camZ)
+    end
+    sc.fitted = s
+    local rx0, ry0, rx1, ry1 = ProjectedRect(sc, box, s, yaw)
+    return rx0, ry0, rx1, ry1
+end
+
+-- Fits a creature (called every frame while a fit is pending):
+--  1. wait until the NEW model has loaded: the template's load event, or else a model file different from the
+--     one before (the engine keeps reporting the previous creature's box while the next one loads);
+--  2. sample the idle pose for SAMPLE_TIME (hovering fliers bob), kept inside the all-animations box;
+--  3. first fit from the numbers (telephoto camera: nearly flat), with the camera moved, never the actor
+--     (actor positions are multiplied by the actor's scale);
+--  4. check and correct it with the engine's own projection.
 local function FitScene(sc)
     local fit = sc.fit
     if not fit then return end
     local a = sc.actor
-    local loaded = true
-    if a.IsLoaded then
-        local ok, v = pcall(a.IsLoaded, a)
-        loaded = not ok or v
-    end
-    local cur = loaded and MeasureBox(a)
-    if not cur then
-        if GetTime() - fit.since > 4 then          -- never measured: show it as it is rather than not at all
-            sc.fit = nil
-            pcall(a.SetAlpha, a, 1)
+    local now = GetTime()
+    if not fit.ready then
+        local loaded, file = true, nil
+        if a.IsLoaded then
+            local ok, v = pcall(a.IsLoaded, a)
+            loaded = not ok or v
         end
-        return
+        if a.GetModelFileID then
+            local ok, v = pcall(a.GetModelFileID, a)
+            if ok then file = v end
+        end
+        -- fresh: the template's load event fired for this model, or (no event, or none within a second) the
+        -- model file changed from the previous creature's (the same file after 0.6 s: two species, one model)
+        local fresh = sc.hasLoadEvent and sc.loads ~= fit.loads
+        if not fresh and (not sc.hasLoadEvent or now - fit.since > 1.0) then
+            fresh = file ~= nil and file ~= 0 and (file ~= fit.prevFile or now - fit.since > 0.6)
+        end
+        local box = loaded and fresh and MeasureBox(a)
+        -- still the previous creature's box (same numbers as last time, for a different species): keep waiting
+        if box and fit.prevSig and BoxSig(box) == fit.prevSig and now - fit.since < 1.5 then box = nil end
+        if not box then
+            if now - fit.since > 4 then            -- never measured: show it as it is rather than not at all
+                sc.fit = nil
+                pcall(a.SetAlpha, a, 1)
+            end
+            return
+        end
+        fit.ready = true
+        fit.sig = BoxSig(box)
     end
-    fit.box = Union(fit.box, cur)
-    fit.sampleStart = fit.sampleStart or GetTime()
-    if GetTime() - fit.sampleStart < SAMPLE_TIME then return end
+    local cur = MeasureBox(a)
+    if cur then fit.box = Union(fit.box, cur) end
+    fit.sampleStart = fit.sampleStart or now
+    if now - fit.sampleStart < SAMPLE_TIME or not fit.box then return end
     local b = Clamp(fit.box, ReadBox(a, "GetMaxBoundingBox"))
-    local x0, y0, z0, x1, y1, z1 = b[1], b[2], b[3], b[4], b[5], b[6]
 
-    -- horizontal extent on screen after the turn: rotate the footprint corners about the vertical axis
-    local yaw = sc.facing or 0
-    local sn, cs = math.sin(yaw), math.cos(yaw)
+    -- first fit from the numbers
     local lo, hi = math.huge, -math.huge
-    for _, x in ipairs({ x0, x1 }) do
-        for _, y in ipairs({ y0, y1 }) do
-            local v = x * sn + y * cs
-            if v < lo then lo = v end
-            if v > hi then hi = v end
-        end
+    for _, p in ipairs(Corners(b, 1, sc.facing or 0)) do
+        if p[2] < lo then lo = p[2] end
+        if p[2] > hi then hi = p[2] end
     end
-    local height, width = z1 - z0, math.max(hi - lo, 0.01)
-    local visH = VIS_H
-    local visW = visH * (sc:GetWidth() / math.max(1, sc:GetHeight()))
-    local s = math.min(FILL_H * visH / height, FILL_W * visW / width) / fit.tweak
+    local height, width = b[6] - b[3], math.max(hi - lo, 0.01)
+    local W, H = sc:GetWidth(), math.max(1, sc:GetHeight())
+    local visW = VIS_H * W / H
+    local s = math.min(FILL_H * VIS_H / height, FILL_W * visW / width) / fit.tweak
     pcall(a.SetScale, a, s)
-    local camZ = z0 * s + visH / 2 - visH * 0.03   -- lowest point 3% above the bottom edge
-    local camY = (lo + hi) / 2 * s                  -- centred sideways
-    pcall(sc.SetCameraPosition, sc, CAM_DIST, camY, camZ)
+    sc.camZ = b[3] * s + VIS_H / 2 - VIS_H * 0.03
+    sc.camY = (lo + hi) / 2 * s
+    pcall(sc.SetCameraPosition, sc, CAM_DIST, sc.camY, sc.camZ)
+    sc.fitted = s
+
+    -- then the engine's word on where it actually lands
+    local rx0, ry0, rx1, ry1 = RefineWithProjection(sc, b, s, fit.tweak)
+    if rx0 then
+        sc.fitInfo = { h = (ry1 - ry0) / H, w = (rx1 - rx0) / W, feet = ry0 / H, center = (rx0 + rx1) / 2 / W,
+                       x0 = b[1], x1 = b[4], z0 = b[3], z1 = b[6], projected = true }
+    else
+        local sf = sc.fitted
+        sc.fitInfo = { h = height * sf / VIS_H, w = width * sf / visW,
+                       feet = (b[3] * sf - (sc.camZ - VIS_H / 2)) / VIS_H, center = 0.5, z0 = b[3], z1 = b[6] }
+    end
     pcall(a.SetAlpha, a, 1)
     sc.fit = nil
-    sc.fitted = s
-    sc.camZ = camZ
     sc.fitBox = b
-    sc.fitInfo = { h = height * s / visH, w = width * s / visW, feet = (z0 * s - (camZ - visH / 2)) / visH,
-                   z0 = z0, z1 = z1 }
+    sc.lastSig = fit.sig
 end
 
 local function FitScenes()
@@ -369,12 +491,19 @@ local function ShowCreature(m, sp, facing)
         pcall(a.SetYaw, a, m.facing)
         if m.sp ~= sp or m.tweak ~= tweak then
             m.sp, m.tweak = sp, tweak
-            pcall(a.SetAlpha, a, 0)                -- hidden until measured, so it never pops in huge
+            local prevFile
+            if a.GetModelFileID then
+                local ok, v = pcall(a.GetModelFileID, a)
+                if ok then prevFile = v end
+            end
+            pcall(a.SetAlpha, a, 0)                -- hidden until measured, so it never pops in at the wrong size
+            pcall(a.ClearModel, a)                 -- drop the previous creature first (its box lingers otherwise)
             pcall(a.SetScale, a, 1)
             pcall(a.SetPosition, a, 0, 0, 0)
+            m.camY, m.camZ = 0, 0
             pcall(m.SetCameraPosition, m, CAM_DIST, 0, 0)
+            m.fit = { tweak = tweak, since = GetTime(), loads = m.loads, prevFile = prevFile, prevSig = m.lastSig }
             pcall(a.SetModelByCreatureDisplayID, a, s.display)
-            m.fit = { tweak = tweak, since = GetTime() }
             FitScene(m)
         end
         return
@@ -2043,8 +2172,10 @@ function UI:OnInit()
                     local function fmt(b) return b and string.format("%.2f %.2f %.2f / %.2f %.2f %.2f", unpack(b)) or "none" end
                     local fi = m.fitInfo
                     ns:Print("Azeromon %s: %s scale=%.3f yaw=%.2f cam=%.2f", label, m.sp, m.fitted or 0, m.facing or 0, m.camZ or 0)
-                    ns:Print("   pose=%s  max=%s  fills h=%.2f w=%.2f feet=%.2f", fmt(m.fitBox),
-                        fmt(ReadBox(m.actor, "GetMaxBoundingBox")), fi and fi.h or 0, fi and fi.w or 0, fi and fi.feet or 0)
+                    ns:Print("   pose=%s  max=%s", fmt(m.fitBox), fmt(ReadBox(m.actor, "GetMaxBoundingBox")))
+                    ns:Print("   fills h=%.2f w=%.2f feet=%.2f centre=%.2f  checked by engine: %s  load event: %s",
+                        fi and fi.h or 0, fi and fi.w or 0, fi and fi.feet or 0, fi and fi.center or 0,
+                        (fi and fi.projected) and "yes" or "no", m.hasLoadEvent and "yes" or "no")
                 elseif m and m.sp then
                     ns:Print("Azeromon %s: %s (old model frame, no ModelScene)", label, m.sp)
                 end
