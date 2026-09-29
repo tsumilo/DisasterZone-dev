@@ -24,6 +24,7 @@ local DEFAULTS = {
             lootBadges = true,     -- badges on default loot frame buttons
             offspec = true,        -- Addendum H: toast / chat line for items on my off-spec list too
         },
+        openOn = "home",         -- the tab the main window opens on: "home" (the dashboard) | "last" (the tab used last)
         dropPanelMode = "auto",  -- "auto" (anchor to LootFrame when it is open, else floating) | "floating"
         tooltip = { enabled = true, council = true, maxNames = 5 },
         announceChannel = "RAID",-- "RAID" | "RAID_WARNING"

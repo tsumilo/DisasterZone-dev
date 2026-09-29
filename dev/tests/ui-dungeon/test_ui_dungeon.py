@@ -437,7 +437,7 @@ return out"""
 def picker_dungeon_scopes_headers_and_heroic_tag():
     w, c = bu.solo("Alice", class_file="PALADIN", guild_rank=3, tick=3)
     bu.install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     if not c.eval("return ns.Data.Dungeons ~= nil and ns.ItemDB.GetBossRefs ~= nil"):
         print("     (dungeon data not loaded by the core yet: skipped)")

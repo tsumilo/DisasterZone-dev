@@ -210,7 +210,7 @@ def demo_works_without_a_guild_and_sends_nothing():
     c.slash("/cdl")
     w.tick(0.3)
     tabs = c.eval_py("local o = {} for _, t in ipairs(CDLootMainFrame.Tabs) do if t:IsShown() then o[#o + 1] = t.cdlKey end end return o")
-    assert tabs == ["mybis", "council", "loot", "raids", "games", "settings"], tabs
+    assert tabs == ["home", "mybis", "council", "loot", "raids", "games", "settings"], tabs
     exercise_demo_ui(c, w)
     assert c.eval("return #T_data(CDLootCouncilPanel.rosterView.list.box)") == 19
     c.slash("/cdl test")

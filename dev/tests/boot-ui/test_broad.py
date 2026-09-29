@@ -25,7 +25,7 @@ def broad_session_all_windows_then_report():
         install_helpers(c)
     # raiders build lists through the UI (picker) and they sync to the council
     for c in (r1, r2):
-        c.slash("/cdl")
+        c.slash("/cdl bis")
         w.tick(0.2)
         for sid in (1, 2, 3, 5, 11, 13, 15):
             c.click(c.eval("local s = ...; return T_tile(s).main", sid))

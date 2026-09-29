@@ -443,6 +443,12 @@ function SettingsUI:BuildLeft(parent)
     self:DropdownSetting(col, "Names shown", "tooltip.maxNames", 5, nameOptions)
     self:Note(col, "Hold Shift over an item to show every name.")
 
+    self:Header(col, "Main window")
+    self:DropdownSetting(col, "Open on", "openOn", "home", {
+        { value = "home", text = "Home (dashboard)" },
+        { value = "last", text = "The tab used last" },
+    })
+
     self:Header(col, "Minimap button")
     self:Check(col, "Show the minimap button",
         function() return not Get("minimap.hide", false) end,

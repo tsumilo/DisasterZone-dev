@@ -98,7 +98,7 @@ return out"""
 def setup(name="Alice", class_file="PALADIN", talents=(41, 20, 0), **kw):
     w, c = solo(name, class_file=class_file, guild_rank=3, tick=4, council=[], phase=1, talents=talents, **kw)
     install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     return w, c
@@ -349,7 +349,7 @@ def pvp_and_side_reputation_rows_only_for_my_faction():
     assert GENERAL_SILK_CUFFS in [r[0] for r in hf] and not [r for r in hf if r[6] == "Alliance"]
     # the Horde player's picker (PvP ticked) shows no Alliance item, and tags its faction items
     install_helpers(horde)
-    horde.slash("/cdl")
+    horde.slash("/cdl bis")
     w.tick(0.3)
     open_picker(horde, 13)   # (the Medallions are trinkets: the mock's equipLoc now matches the client)
     set_sources(horde, pvp=True)
@@ -442,7 +442,7 @@ def source_toggles_persist_for_the_session_and_across_relog():
     w.tick(3)
     install_helpers(c)
     assert c.eval_py("return ns.db.settings.pickerSources") == want
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     open_picker(c, 3)
     assert c.eval_py("return ns.Picker:GetSources()") == want
@@ -458,7 +458,7 @@ def source_toggles_persist_for_the_session_and_across_relog():
     c.relog()
     w.tick(3)
     install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     open_picker(c, 3)
     got = c.eval_py("return ns.Picker:GetSources()")
@@ -477,7 +477,7 @@ def saved_variables_from_03_get_the_default_sources():
     assert c.eval_py("return ns.db.settings.pickerSources") == DEFAULT
     assert c.eval("return ns.db.settings.roll.duration") == 45
     install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     open_picker(c, 1)
     assert c.eval_py("return ns.Picker:GetSources()") == DEFAULT
@@ -745,7 +745,7 @@ def all_sources_on_one_slot_is_fast():
     assert filtered_ms < 30, filtered_ms
     # the picker with every source ticked opens and searches in reasonable time
     install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     c.eval("ns.Picker:SetSourceEnabled('crafted', true); ns.Picker:SetSourceEnabled('rep', true); "
            "ns.Picker:SetSourceEnabled('badges', true); ns.Picker:SetSourceEnabled('pvp', true)")

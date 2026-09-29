@@ -66,7 +66,7 @@ def menu_labels(c):
 def ui_setup(name="Alice", class_file="PALADIN", **kw):
     w, c = solo(name, class_file=class_file, guild_rank=3, tick=4, council=[], phase=1, **kw)
     install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     return w, c

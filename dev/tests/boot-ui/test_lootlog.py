@@ -277,7 +277,7 @@ def non_council_cannot_record_or_see_the_log():
     w, c = council_world(rank=3)
     c.slash("/cdl log")
     w.tick(0.3)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     c.eval("ns.LootLogUI:OpenAwardDialog(28770, 'Bob-Thunderstrike')")
     p0 = len(c.chat_frame)
     c.click(dialog(c, "saveBtn"))

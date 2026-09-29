@@ -31,7 +31,7 @@ def setup(name="Alice", class_file="PALADIN", phase=1, talents=(41, 20, 0), **kw
     w, c = solo(name, class_file=class_file, guild_rank=3, tick=4, council=[], phase=phase, talents=talents, **kw)
     w.define_item(CRAFTED_HELM, "Crafted Test Helm", 4, "INVTYPE_HEAD", 4, 4, ilvl=115)
     install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     return w, c
@@ -140,7 +140,7 @@ def picker_every_slot_main_and_alt_every_class():
     problems = []
     for c in clients:
         install_helpers(c)
-        c.slash("/cdl")
+        c.slash("/cdl bis")
         w.tick(0.1)
         klass = c.class_file
         for sid in range(1, 18):
@@ -660,7 +660,7 @@ def picker_closes_with_window_phase_change_and_escape():
     assert c.eval("return ns.Picker:IsOpen()") is False, "picker stayed open after switching tabs"
     c.slash("/cdl")
     w.tick(0.1)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.1)
     c.click(tile_btn(c, 3))
     c.slash("/cdl")   # close the main window
@@ -677,7 +677,7 @@ def uncached_item_names_fill_in_after_load():
     # First login of the week: the client has no item data cached; names arrive via GET_ITEM_INFO_RECEIVED.
     w, c = solo("Alice", guild_rank=3, tick=3, items_uncached=True)
     install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     head = c.eval("return ns.ItemDB:GetCandidates(1, {maxPhase=1, class='PALADIN', usableOnly=true})[1].itemID")
     c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", head)
@@ -772,7 +772,7 @@ def suggest_menu_with_loonbestinslot():
       o[6] = { r[1].itemID, 'Head', 'BIS' }     -- a ring listed as head: must be skipped (does not fit)
       return o""")
     c.eval("__LOON_ITEMS = ...", items)
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     sug = c.eval("return T_dropdown(T_mybis(), 'Suggest')")
     assert c.eval("local d = ...; return d:IsShown()", sug) is True, "Suggest hidden although LBIS is loaded"

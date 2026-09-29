@@ -389,7 +389,7 @@ def raid_leaders_phase_is_a_group_rule_on_top_of_the_guild_phase():
     assert c["Rita"].eval("return ns.SettingsUI.phaseRuleDD:IsEnabled()") is False
     c["Rita"].eval("ns.SettingsUI.phaseRuleDD:GenerateMenu()")
     assert c["Rita"].eval("return ns.SettingsUI.phaseRuleDD:GetText()").startswith("P4 · ")
-    c["Rita"].slash("/cdl")
+    c["Rita"].slash("/cdl bis")
     w.tick(0.3)
     if c["Rita"].eval("return ns.MainFrame:GetSelectedTab()") != "mybis":
         c["Rita"].eval("ns.MainFrame:Open('mybis')")

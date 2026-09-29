@@ -910,7 +910,7 @@ def picker_dungeon_scopes_headers_and_heroic_tag():
     for cls, sids in (("MAGE", (SID_LEGS, SID_HEAD, 13)), ("WARRIOR", (SID_LEGS, SID_MH, SID_BACK))):
         w, c = bu.solo("Alice", class_file=cls, guild_rank=3, tick=3)
         bu.install_helpers(c)
-        c.slash("/cdl")
+        c.slash("/cdl bis")
         w.tick(0.3)
         for sid in sids:
             c.click(c.eval("local s = ...; return T_tile(s).main", sid))

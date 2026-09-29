@@ -195,7 +195,7 @@ def my_bis_banner_disabled_controls_and_picker_refusal():
     lr.seed_bis(rita, [(1, 1, "main", cand(rita, 1))])
     raid(w, c)
     install_helpers(rita)
-    rita.slash("/cdl")
+    rita.slash("/cdl bis")
     w.tick(0.3)
     rita.click(tile_btn(rita, 3))
     assert rita.eval("return ns.Picker:IsOpen()") is True
@@ -639,7 +639,7 @@ def popups_accepted_after_the_lock_started_change_nothing():
     w.make_raid([lee, gina, pal], leader=lee)
     w.tick(8)
     install_helpers(pal)
-    pal.slash("/cdl")
+    pal.slash("/cdl bis")
     w.tick(0.3)
     assert pal.eval("return ns.BiS:GetSpec()") == "Holy"
     sug = pal.eval("return T_dropdown(T_mybis(), 'Suggest')")

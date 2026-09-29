@@ -8,6 +8,7 @@ from _common import case, run_all, solo, no_errors, World, Client, printed_since
 
 EXPECTED_SETTINGS = {
     "minimap": {"hide": False},
+    "openOn": "home",
     "alerts": {"councilPanel": True, "personalToast": True, "sound": True, "glow": True, "chat": True,
                "lootBadges": True, "offspec": True},
     "dropPanelMode": "auto",
@@ -261,6 +262,9 @@ def corrupt_own_record_is_sanitized_and_ui_opens():
     assert c.eval_py("local s = ns.BiS:GetData().ph[1][3]; return {s[1], s[2]}") == [29076, 0]
     c.slash("/cdl")
     w.tick(1)
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
+    c.slash("/cdl bis")
+    w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     no_errors(w)
 

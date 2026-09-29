@@ -36,6 +36,7 @@ local function IsAvailable(def)
 end
 
 local function FirstAvailableKey()
+    if tabDefs.home and IsAvailable(tabDefs.home) then return "home" end
     if tabDefs.mybis and IsAvailable(tabDefs.mybis) then return "mybis" end
     for _, def in ipairs(tabList) do
         if IsAvailable(def) then return def.key end
@@ -154,6 +155,9 @@ local function EnsureFrame()
     end)
     frame:HookScript("OnHide", function()
         if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_CLOSE then PlaySound(SOUNDKIT.IG_CHARACTER_INFO_CLOSE) end
+        -- "Open on: the tab used last" keeps it across sessions (only then: nothing is saved by default)
+        local settings = ns.db and ns.db.settings
+        if settings and settings.openOn == "last" and currentKey then settings.lastTab = currentKey end
         -- flush pending list edits so they sync right away
         if ns.BiS and ns.BiS.Commit then ns.BiS:Commit() end
         if ns.Picker and ns.Picker.Close then ns.Picker:Close() end
@@ -186,10 +190,20 @@ function MainFrame:RefreshTabs()
     end
 end
 
+-- The tab a plain open lands on (settings.openOn): "home" (default) = the Home dashboard every time, "last" = the
+-- tab used last (kept across sessions).
+local function DefaultKey()
+    local settings = ns.db and ns.db.settings
+    if settings and settings.openOn == "last" then
+        return currentKey or (type(settings.lastTab) == "string" and settings.lastTab) or "home"
+    end
+    return "home"
+end
+
 function MainFrame:Open(key)
     EnsureFrame()
     self:RefreshTabs()
-    key = key or currentKey or "mybis"
+    key = key or DefaultKey()
     if not tabDefs[key] or not IsAvailable(tabDefs[key]) then
         key = FirstAvailableKey()
     end
@@ -296,6 +310,7 @@ ns:On("DEMO_TOGGLED", function()
     MainFrame:RefreshTabs()
 end)
 
+ns:RegisterSlash("bis", function() MainFrame:Open("mybis") end, "open My BiS")
 ns:RegisterSlash("council", function() MainFrame:Open("council") end, "open the Loot Council view")
 ns:RegisterSlash("log", function() MainFrame:Open("loot") end, "open the Loot Log")
 ns:RegisterSlash("settings", function() MainFrame:Open("settings") end, "open the settings")

@@ -195,7 +195,7 @@ def no_duplicate_lines_on_repeated_set_item():
     assert own == ["CDLoot  Your P1 BiS (main) - Head"], ref
     assert sum(1 for l, _ in ref if "wanted by" in l) == 1, ref
     # a CDLoot item button tooltip (SetItemByID + extra lines) does not duplicate the own line either
-    c.slash("/cdl")
+    c.slash("/cdl bis")
     w.tick(0.3)
     c.hover(c.eval("return T_tile(1).main"))
     tl = [strip_codes(l) for l, _ in tt_lines(c)]

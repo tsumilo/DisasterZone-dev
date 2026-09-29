@@ -18,10 +18,10 @@ for _, t in ipairs(f.Tabs) do
 end
 return out"""
 
-ALL_TABS = ["mybis", "council", "loot", "raids", "games", "settings"]
+ALL_TABS = ["home", "mybis", "council", "loot", "raids", "games", "settings"]
 # Addendum J: every guild member has the Raids tab (Upcoming / Teams); its Raid log view stays council only.
-PERSONAL_TABS = ["mybis", "raids", "games", "settings"]
-GUILDLESS_TABS = ["mybis", "games", "settings"]
+PERSONAL_TABS = ["home", "mybis", "raids", "games", "settings"]
+GUILDLESS_TABS = ["home", "mybis", "games", "settings"]
 
 
 def shown_tabs(c):
@@ -45,10 +45,10 @@ def not_in_guild_only_personal_tabs():
     n0 = len(c.chat_frame)
     c.slash("/cdl council")
     w.tick(0.3)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     c.slash("/cdl log")
     w.tick(0.3)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     assert c.eval("return ns.MainFrame:GetPanel('council')") is None, "council panel built for a non-member"
     c.slash("/cdl sync")
     assert any("not in a guild" in l for l in printed_since(c, n0)), printed_since(c, n0)
@@ -71,7 +71,7 @@ def plain_raider_is_not_council():
     assert c.eval("return CDLootMainFrame.titleText:GetText()") == "CDLoot - <Casual Disaster>"
     c.slash("/cdl council")
     w.tick(0.3)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     # a raider only ever sees his own list in the Store
     assert c.eval_py("return ns.Store:GetAllKeys()") == ["Rai-Thunderstrike"]
     no_errors(w)
@@ -154,7 +154,7 @@ def tabs_follow_config_updates_while_window_open():
     gm_pick(w, gm, [])
     assert rai.eval("return ns.Guild:AmICouncil()") is False
     assert shown_tabs(rai) == PERSONAL_TABS, shown_tabs(rai)
-    assert rai.eval("return ns.MainFrame:GetSelectedTab()") == "mybis", "window kept showing the council tab"
+    assert rai.eval("return ns.MainFrame:GetSelectedTab()") == "home", "window kept showing the council tab"
     assert not panel_shown(rai, "council"), "council panel still visible after losing council status"
     assert rai.eval("return ns.Guild:GetGuildPhase()") == 2, "an empty list keeps the GM's phase"
     no_errors(w)
@@ -175,7 +175,7 @@ def tabs_follow_demo_toggle():
         c.slash("/cdl demo off")
         w.tick(0.3)
         assert shown_tabs(c) == PERSONAL_TABS, shown_tabs(c)
-        assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
+        assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
         assert not panel_shown(c, "council")
     # demo toggled while the window is closed: reopening lands on an available tab
     c.slash("/cdl demo on")
@@ -186,9 +186,9 @@ def tabs_follow_demo_toggle():
     w.tick(0.1)
     assert c.eval("return ns.MainFrame:IsShown()") is False
     c.slash("/cdl demo off")
-    c.slash("/cdl")          # reopen: last tab "loot" is gone -> My BiS
+    c.slash("/cdl")          # reopen: lands on Home
     w.tick(0.3)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     assert shown_tabs(c) == PERSONAL_TABS
     no_errors(w)
 
@@ -275,7 +275,7 @@ def leaving_the_guild_mid_session_drops_council_views():
     assert c.eval("return ns.Guild:AmICouncil()") is False
     assert c.eval("return ns.Guild:GetGuildPhase()") == 1
     assert shown_tabs(c) == GUILDLESS_TABS, shown_tabs(c)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     assert not panel_shown(c, "council")
     assert c.eval("return CDLootMainFrame.titleText:GetText()") == "CDLoot", c.eval("return CDLootMainFrame.titleText:GetText()")
     assert c.eval_py("return ns.Store:GetAllKeys()") == ["Cou-Thunderstrike"]
@@ -388,7 +388,7 @@ def guild_rank_changes_do_not_change_council_only_the_list_and_the_gm_do():
     assert rai.eval("return ns.Guild:AmICouncil()") is False
     assert shown_tabs(rai) == PERSONAL_TABS, shown_tabs(rai)
     assert not panel_shown(rai, "loot")
-    assert rai.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
+    assert rai.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     # the guild is handed over: the new GM is council, the old one only if picked
     rai.guild_rank, gm.guild_rank = 0, 1
     w._sync(roster_changed=True)
