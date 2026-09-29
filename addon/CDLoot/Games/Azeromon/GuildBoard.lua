@@ -96,7 +96,8 @@ function GB:MySummary()
     end
     return { v = GB.VERSION, n = n, c = nums, b = s and G:BadgeCount() or 0, w = w, l = l, d = dr,
              ap = ns.AzeroAch and ns.AzeroAch:Points() or 0, done = G:Data().bestiaryDone,
-             sh = ns.AzeroAch and ns.AzeroAch.Stat("shinies") or 0, wk = wk, wn = wn }
+             sh = ns.AzeroAch and ns.AzeroAch.Stat("shinies") or 0, wk = wk, wn = wn,
+             ar = ns.AzeroArena and ns.AzeroArena.Best() or 0 }
 end
 
 local function HasPlayed() return type(G:Data().save) == "table" end
@@ -146,7 +147,7 @@ local function OnSummary(sender, msg)
         name = ShortName(sender), n = n, caught = caught,
         b = Int(msg.b, 0, 99) or 0, w = Int(msg.w, 0, 1e6) or 0, l = Int(msg.l, 0, 1e6) or 0, d = Int(msg.d, 0, 1e6) or 0,
         ap = Int(msg.ap, 0, 1e6) or 0, done = Int(msg.done, 1, 4102444800), sh = Int(msg.sh, 0, 1e6) or 0,
-        wk = Int(msg.wk, 0, 1e7), wn = Int(msg.wn, 0, 1e7) or 0,
+        wk = Int(msg.wk, 0, 1e7), wn = Int(msg.wn, 0, 1e7) or 0, ar = Int(msg.ar, 0, 1e4) or 0,
         seen = Clock(),
     }
     ns:Fire("AZERO_GUILD_UPDATED", sender)
@@ -187,7 +188,8 @@ function GB:Entries()
         local caught = {}
         for id in pairs(G.save and G.save.caught or {}) do if D.species[id] then caught[id] = true end end
         out[#out + 1] = { key = mine, name = ShortName(mine), me = true, n = m.n, caught = caught, b = m.b,
-                          w = m.w, l = m.l, d = m.d, ap = m.ap, done = m.done, sh = m.sh, wk = m.wk, wn = m.wn }
+                          w = m.w, l = m.l, d = m.d, ap = m.ap, done = m.done, sh = m.sh, wk = m.wk, wn = m.wn,
+                          ar = m.ar }
     end
     return out
 end
@@ -204,6 +206,8 @@ GB.CATEGORIES = {
           end
           return total > 0 and math.floor(done * 100 / total) or 0
       end, text = nil },
+    { id = "arena", name = "Arena streak", value = function(e) return e.ar or 0 end,
+      text = function(e) return (e.ar or 0) .. " in a row" end },
     { id = "shinies", name = "Shinies tamed", value = function(e) return e.sh or 0 end,
       text = function(e) return (e.sh or 0) .. (e.sh == 1 and " shiny" or " shinies") end },
     { id = "badges", name = "Badges", value = function(e) return e.b or 0 end,
@@ -316,7 +320,7 @@ function GB:OnInit()
         ns.Comm:Register("AZQ", OnQuery)
         ns.Comm:Register("AZN", OnNews)
     end
-    for _, ev in ipairs({ "tame", "evolve", "badge", "pvp", "achievement", "load" }) do
+    for _, ev in ipairs({ "tame", "evolve", "badge", "pvp", "achievement", "load", "arena" }) do
         G:On(ev, function() dirty = true end)
     end
     G:On("tame", function() GB:CheckCompletion() end)

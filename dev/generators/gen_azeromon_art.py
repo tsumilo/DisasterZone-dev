@@ -562,6 +562,28 @@ def alchemy_table(d, img):
         d.point((x, 5), fill=(255, 255, 255, 200))
 
 
+def sand(seed):
+    def fn(d, img):
+        rnd = _random.Random(seed)
+        d.rectangle((0, 0, 15, 15), fill=(214, 184, 128, 255))
+        for _ in range(22):
+            x, y = rnd.randrange(16), rnd.randrange(16)
+            d.point((x, y), fill=rnd.choice([(196, 164, 110, 255), (228, 202, 150, 255), (184, 150, 98, 255)]))
+    return fn
+
+
+def arena_wall(d, img):
+    stone, dark, light = (138, 124, 104, 255), (86, 76, 64, 255), (176, 162, 138, 255)
+    d.rectangle((0, 0, 15, 15), fill=dark)
+    for y, off in ((1, 0), (6, 4), (11, 0)):                 # three courses of blocks
+        for x in range(-8 + off, 16, 8):
+            if x + 7 < 0:
+                continue
+            d.rectangle((max(0, x + 1), y, min(15, x + 7), y + 3), fill=stone)
+            d.line((max(0, x + 1), y, min(15, x + 7), y), fill=light)
+    d.rectangle((0, 15, 15, 15), fill=(60, 52, 44, 255))
+
+
 def town_art():
     return [("wantedboard", draw(1, 1, wanted_board), 1, 1),
             ("node_peacebloom", draw(1, 1, herb_peacebloom), 1, 1),
@@ -573,7 +595,10 @@ def town_art():
             ("node_tin", draw(1, 1, vein_tin), 1, 1),
             ("forge", draw(1, 1, forge), 1, 1),
             ("anvil", draw(1, 1, anvil), 1, 1),
-            ("alchemy", draw(1, 1, alchemy_table), 1, 1)]
+            ("alchemy", draw(1, 1, alchemy_table), 1, 1),
+            ("sand1", draw(1, 1, sand(5)), 1, 1),
+            ("sand2", draw(1, 1, sand(9)), 1, 1),
+            ("arenawall", draw(1, 1, arena_wall), 1, 1)]
 
 
 def build_chars():

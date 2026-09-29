@@ -8,6 +8,7 @@
 -- chests   { id, x, y, item, n } (opened once)   objects { x, y, tile, script } (solid, interactable)
 -- warps    { x, y, map, tx, ty, face }           edges { north|south = { map, dx } }
 -- triggers { x, y, script = fn(G), cond = fn(G) } run when the player steps on the tile
+-- music    a Sound.lua track ("forest", "plains", "tavern", "mine", "cove", ...)
 -- Scripts run as coroutines: G:Say / G:YesNo / G:Battle ... pause until the player answers.
 local addonName, ns = ...
 
@@ -23,6 +24,7 @@ Maps.RESPAWN = { map = "post", x = 4, y = 5, face = "up" }
 
 Maps.town = {
     name = "Goldshire",
+    music = "forest",
     outdoor = true,
     rows = {
         "TTTTTTTTTT==TTTTTTTTTT",
@@ -107,6 +109,7 @@ Maps.town = {
 
 Maps.home = {
     name = "Your House",
+    music = "tavern",
     rows = {
         "WWWWWWWWWW",
         "WWWWWWWWWW",
@@ -169,6 +172,7 @@ end
 
 Maps.lab = {
     name = "Huntmaster Aldric's Lodge",
+    music = "tavern",
     rows = {
         "WWWWWWWWWW",
         "WWWWWWWWWW",
@@ -212,6 +216,7 @@ Maps.lab = {
 
 Maps.post = {
     name = "Lion's Pride Inn",
+    music = "tavern",
     rows = {
         "WWWWWWWWWW",
         "WWWWWWWWWW",
@@ -238,8 +243,8 @@ Maps.post = {
           end },
         { id = "clerk", x = 7, y = 2, sprite = "bald", tint = { 0.7, 1, 0.7 }, face = "down",
           script = function(G)
-              G:Say("Brog Hamfist: Welcome! Potions, rods, the finest goods in Goldshire.")
-              G:Shop()
+              G:Say("Brog Hamfist: Welcome! Potions, rods, the finest goods in Goldshire. And I buy, too.")
+              G:Shop("Brog Hamfist")
               G:Say("Brog Hamfist: Come again!")
           end },
         { id = "erma", x = 8, y = 5, sprite = "girl", tint = { 0.85, 0.95, 0.75 }, face = "left",      -- stable master
@@ -277,11 +282,61 @@ Maps.post = {
 }
 
 ---------------------------------------------------------------------------
+-- The Gurubashi Arena (Stranglethorn Vale): Short John Mithril's gauntlet (Arena.lua)
+---------------------------------------------------------------------------
+
+Maps.arena = {
+    name = "Gurubashi Arena",
+    music = "arena",
+    outdoor = true,
+    theme = "arena",
+    rows = {
+        "TTTTTTTTTTTTTTTT",
+        "TiTTTTTTTTTTTTiT",
+        "T..............T",
+        "T..............T",
+        "T..............T",
+        "T..............T",
+        "T..............T",
+        "T..............T",
+        "T..............T",
+        "T..............T",
+        "TiTTTTT..TTTTTiT",
+        "T..............T",
+        "TTTTTTTTTTTTTTTT",
+    },
+    signs = {
+        { x = 9, y = 10, text = "THE GURUBASHI ARENA\nBeast fights daily. See Short John Mithril in the ring." },
+    },
+    npcs = {
+        { id = "mithril", x = 7, y = 3, sprite = "bald", tint = { 1, 0.85, 0.5 }, face = "down",
+          script = function(G) ns.AzeroArena:Run(G) end },
+        { id = "skindle", x = 3, y = 11, sprite = "girl", tint = { 0.8, 1, 0.7 }, face = "right",
+          script = function(G)
+              G:Say("Innkeeper Skindle: Up from Booty Bay for the fights. I patch up the losers, and the winners.")
+              if G:YesNo("Innkeeper Skindle: Rest your beasts?") then
+                  G:HealParty()
+                  G:SetRespawn("arena", 7, 11, "up", "the Gurubashi Arena")
+                  G:Say("Innkeeper Skindle: Good as new. Go get 'em.")
+              end
+          end },
+        { id = "gyll", x = 12, y = 11, sprite = "bald", tint = { 0.8, 0.9, 1 }, face = "left",
+          script = function(G)
+              if G:YesNo("Gyll: Gryphon back to Sentinel Hill? It's on the house.") then
+                  G:EnterMap("sentinel", 17, 4, "right")
+                  G:Say("You fly back north to Westfall.")
+              end
+          end },
+    },
+}
+
+---------------------------------------------------------------------------
 -- Elwynn Forest
 ---------------------------------------------------------------------------
 
 Maps.route1 = {
     name = "Elwynn Forest",
+    music = "forest",
     herbs = { "peacebloom", "silverleaf", "earthroot" }, ores = { "copper" },
     nodes = { herb = { { 1, 9 }, { 20, 9 }, { 20, 16 }, { 1, 15 }, { 4, 26 }, { 20, 30 }, { 1, 30 } },
               ore = { { 16, 11 }, { 5, 22 }, { 9, 23 } } },
@@ -361,6 +416,7 @@ Maps.route1 = {
 
 Maps.forestedge = {
     name = "Forest's Edge",
+    music = "forest",
     herbs = { "silverleaf", "earthroot", "peacebloom" }, ores = { "copper" },
     nodes = { herb = { { 18, 4 }, { 18, 12 }, { 1, 8 } }, ore = { { 18, 2 }, { 3, 12 } } },
     outdoor = true,
@@ -413,6 +469,7 @@ Maps.forestedge = {
 
 Maps.westfall = {
     name = "Westfall",
+    music = "plains",
     herbs = { "mageroyal", "briarthorn", "earthroot", "silverleaf" }, ores = { "copper", "tin" },
     nodes = { herb = { { 8, 2 }, { 22, 8 }, { 22, 13 }, { 5, 29 }, { 13, 29 } },
               ore = { { 9, 5 }, { 5, 31 }, { 22, 19 } } },
@@ -509,6 +566,7 @@ Maps.westfall = {
 
 Maps.saldean = {
     name = "Saldean's Farm",
+    music = "plains",
     rows = {
         "WWWWWWWWWW",
         "WWWWWWWWWW",
@@ -541,6 +599,7 @@ Maps.saldean = {
 
 Maps.sentinel = {
     name = "Sentinel Hill",
+    music = "plains",
     outdoor = true,
     theme = "westfall",
     rows = {
@@ -595,6 +654,21 @@ Maps.sentinel = {
               end
               G:Say("Gryan Stoutmantle: Edwin VanCleef and his Brotherhood hide in the Deadmines under Moonbrook. One day we'll root them out.")
           end },
+        { id = "thor", x = 18, y = 4, sprite = "bald", tint = { 0.95, 0.85, 0.6 }, face = "left",      -- gryphon master
+          script = function(G)
+              G:Say("Thor: Gryphons to Stranglethorn. Short John Mithril runs beast fights at the Gurubashi Arena these days.")
+              if not G:YesNo("Thor: Fly to the Gurubashi Arena? " .. ns.AzeroData.Money(50) .. ".") then
+                  G:Say("Thor: Safe travels on foot, then.")
+                  return
+              end
+              if G.save.money < 50 then
+                  G:Say("Thor: That's " .. ns.AzeroData.Money(50) .. ", friend.")
+                  return
+              end
+              G.save.money = G.save.money - 50
+              G:EnterMap("arena", 7, 11, "up")
+              G:Say("You fly south over the Westfall coast, all the way to Stranglethorn Vale...")
+          end },
         { id = "danuvin", x = 4, y = 12, sprite = "bald", tint = { 0.65, 0.7, 1 }, face = "right",
           script = function(G)
               G:Say("Captain Danuvin: The Defias grow bolder every day. Keep your beasts close on the road.")
@@ -604,6 +678,7 @@ Maps.sentinel = {
 
 Maps.sentinelinn = {
     name = "Sentinel Hill Inn",
+    music = "tavern",
     rows = {
         "WWWWWWWWWW",
         "WWWWWWWWWW",
@@ -628,7 +703,7 @@ Maps.sentinelinn = {
         { id = "lewis", x = 7, y = 2, sprite = "bald", tint = { 0.8, 0.85, 1 }, face = "down",
           script = function(G)
               G:Say("Quartermaster Lewis: The Militia's stores are open to friends of Sentinel Hill.")
-              G:Shop()
+              G:Shop("Quartermaster Lewis")
               G:Say("Quartermaster Lewis: Stay safe out there.")
           end },
         { id = "kirk", x = 8, y = 5, sprite = "bald", tint = { 0.95, 0.85, 0.7 }, face = "left",       -- stable master
@@ -646,6 +721,7 @@ Maps.sentinelinn = {
 
 Maps.moonbrook = {
     name = "Moonbrook",
+    music = "plains",
     herbs = { "briarthorn", "mageroyal" }, ores = { "tin", "copper" },
     nodes = { herb = { { 22, 14 }, { 4, 12 } }, ore = { { 4, 3 }, { 22, 2 } } },
     outdoor = true,
@@ -700,6 +776,7 @@ local function Vanished(id) return function(G) return G:Flag("beat_" .. id) end 
 
 Maps.dm1 = {
     name = "The Deadmines",
+    music = "mine",
     ores = { "copper", "tin" },
     nodes = { ore = { { 5, 5 }, { 19, 12 }, { 24, 12 } } },
     theme = "mine",
@@ -742,6 +819,7 @@ Maps.dm1 = {
 
 Maps.dm2 = {
     name = "The Deadmines: Goblin Foundry",
+    music = "mine",
     ores = { "tin", "copper" },
     nodes = { ore = { { 22, 2 }, { 1, 9 }, { 22, 12 } } },
     theme = "mine",
@@ -785,6 +863,7 @@ Maps.dm2 = {
 
 Maps.dm3 = {
     name = "The Deadmines: Ironclad Cove",
+    music = "cove",
     theme = "mine",
     cave = { rate = 5 },
     rows = {

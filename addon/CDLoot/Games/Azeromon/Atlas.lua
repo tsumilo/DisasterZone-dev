@@ -271,4 +271,7 @@ ns.AzeroAtlas = {
     forge = 265,
     anvil = 266,
     alchemy = 267,
+    sand1 = 268,
+    sand2 = 269,
+    arenawall = 270,
 }

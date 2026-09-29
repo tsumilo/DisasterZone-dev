@@ -38,7 +38,7 @@ G.input = { dir = nil, run = false, held = 0 }
 --   battle { result, wild, trainer, used = { species... }, party, lastStanding = mon|nil }
 --   level { mon, lvl }   evolve { mon, from, into }   badge { id }   pvp { result, opp }
 --   blackout {}          chest { id }      beaten { trainer }  (after the "beat_" flag is set)
---   relearn { mon, move }  (the pet trainer reminded a beast of a move)
+--   relearn { mon, move }  (the pet trainer reminded a beast of a move)      rematch { trainer }
 --   shiny { mon }        a shiny wild beast appeared
 --   step {}              the player walked a tile        bounty { id }   guildtier { tier }
 ---------------------------------------------------------------------------
@@ -90,6 +90,8 @@ local THEMES = {
     -- the Deadmines: 'T' is rock, '=' is mine rails over the floor, dark water
     mine = { grass1 = "mfloor1", grass2 = "mfloor2", tall = "tall_", path = "rail", tree = nil, wall = "mwall",
              rails = true, water = { "dwater1", "dwater2" } },
+    -- the Gurubashi Arena: sand, and 'T' is the stone wall
+    arena = { grass1 = "sand1", grass2 = "sand2", tall = "tall_", path = "path_", tree = nil, wall = "arenawall" },
 }
 G.THEMES = THEMES
 
@@ -400,9 +402,11 @@ end
 
 function G:Sleep(secs) return self:Wait({ kind = "wait", t = secs }) end
 
-function G:ShowSpecies(sp, shiny) self.showSpecies, self.showShiny = sp, shiny end
+-- The beast shown over the world (starter choice, evolution); `nxt` = the form it is about to become (the UI
+-- loads it early, so the evolution animation can swap between the two).
+function G:ShowSpecies(sp, shiny, nxt) self.showSpecies, self.showShiny, self.showNext = sp, shiny, nxt end
 
-function G:Shop() return self:Wait({ kind = "shop" }) end
+function G:Shop(keeper) return self:Wait({ kind = "shop", keeper = keeper }) end
 
 -- The pet trainer's lessons (the UI picks the beast and the move, then calls G:Relearn). Returns true when a
 -- beast was taught something.
@@ -540,7 +544,8 @@ function G:Evolutions()
     for _, mon in ipairs(self.save.party) do
         if mon.hp > 0 then
             local into = M.EvolutionTarget(mon)
-            if into then self:EvolveNow(mon, into) end
+            -- (one stopped with X waits until it has gained a level)
+            if into and (tonumber(mon.evoStop) or 0) < mon.lvl then self:EvolveNow(mon, into) end
         end
     end
 end
@@ -559,11 +564,23 @@ function G:RollShiny()
     return (self.shinyRng or math.random)(1, odds) == 1
 end
 
--- The evolution scene (after a battle, or a trade).
+-- The evolution scene (after a battle, or a trade). During the "evolve" wait the UI plays the animation; it ends
+-- by itself after EVOLVE_TIME, and X stops it (G:Advance("cancel")): the beast then waits for its next level.
+-- Returns true when it evolved.
+G.EVOLVE_TIME = 4.2
+
 function G:EvolveNow(mon, into)
     local old = M.Name(mon)
-    self:ShowSpecies(mon.sp, mon.shiny)
+    self:ShowSpecies(mon.sp, mon.shiny, into)
     self:Say(string.format("What? %s is evolving!", old))
+    if self:Wait({ kind = "evolve", t = G.EVOLVE_TIME, mon = mon, from = mon.sp, into = into }) == "cancel" then
+        mon.evoStop = mon.lvl
+        self:ShowSpecies(mon.sp, mon.shiny)
+        self:Say(string.format("Huh? %s stopped evolving!", old))
+        self:ShowSpecies(nil)
+        return false
+    end
+    mon.evoStop = nil
     local from = mon.sp
     M.Evolve(mon, into)
     self.save.seen[into], self.save.caught[into] = true, true
@@ -575,6 +592,7 @@ function G:EvolveNow(mon, into)
     self:ShowSpecies(into, mon.shiny)
     self:Say(string.format("Congratulations! Your %s evolved into %s!", old, D.species[into].name))
     self:ShowSpecies(nil)
+    return true
 end
 
 function G:WildBattle(sp, lvl, rare)
@@ -655,6 +673,57 @@ function G:TrainerEncounter(npc, spotted)
             self:Say(string.format("{PLAYER} received %s!", badge.name))
             if badge.text then self:Say(badge.text) end
         end
+    end
+end
+
+-- Rematches: a beaten trainer (not a boss who left, not the rival's first battle) fights again once a day (WoW's
+-- daily reset), their beasts grown to about the player's strongest and evolved where the level allows.
+function G:RematchReady(id)
+    local def = D.trainers[id]
+    if not def or def.vanish or def.team == "rival" or def.noRematch then return false end
+    local day = ns.AzeroBounty and ns.AzeroBounty.DayKey() or 0
+    return not (type(self.save.rematch) == "table" and self.save.rematch[id] == day)
+end
+
+function G:RematchTeam(id)
+    local def = D.trainers[id]
+    local best = 1
+    for _, m in ipairs(self.save.party) do best = math.max(best, m.lvl) end
+    local team, n = {}, #def.team
+    for i, e in ipairs(def.team) do
+        local lvl = math.min(D.MAX_LEVEL, math.max(e[2], best - 1 - (n - i)))     -- their ace just under yours
+        local sp = e[1]
+        for _ = 1, 3 do
+            local evo = D.species[sp].evolve
+            if evo and evo.level and lvl >= evo.level then sp = evo.into else break end
+        end
+        team[i] = M.New(sp, lvl, self.rng)
+    end
+    return team
+end
+
+-- Talking to a beaten trainer.
+function G:TrainerAgain(npc)
+    local id = npc.def.trainer
+    local def = D.trainers[id]
+    local name = self:TrainerDef(id).name
+    if not self:RematchReady(id) then
+        if def.vanish or def.team == "rival" or def.noRematch then
+            self:Say(name .. ": " .. self:Fmt(def.lose))
+        else
+            self:Say(name .. ": That's enough for today. Tomorrow, though... I'll be ready.")
+        end
+        return
+    end
+    if not self:YesNo(name .. ": " .. self:Fmt(def.rematch or "I've been training since last time. A rematch?")) then
+        self:Say(name .. ": Another time, then.")
+        return
+    end
+    local result = self:RunBattle(self:RematchTeam(id), id)
+    if result == "win" then
+        if type(self.save.rematch) ~= "table" then self.save.rematch = {} end
+        self.save.rematch[id] = ns.AzeroBounty and ns.AzeroBounty.DayKey() or 0
+        self:Emit("rematch", { trainer = id })
     end
 end
 
@@ -848,8 +917,7 @@ function G:PressA()
         if id and not self:Flag("beat_" .. id) then
             self:Run(function(g) g:TrainerEncounter(npc, false) end)
         elseif id then
-            local def = D.trainers[id]
-            self:Run(function(g) g:Say(g:TrainerDef(id).name .. ": " .. g:Fmt(def.lose)) end)
+            self:Run(function(g) g:TrainerAgain(npc) end)
         elseif npc.def.script then
             self:Run(npc.def.script, npc)
         end
@@ -974,7 +1042,7 @@ function G:Update(dt)
     self:UpdateNpcs(dt)
 
     local p = self.pending
-    if p and p.kind == "wait" then
+    if p and (p.kind == "wait" or p.kind == "evolve") then
         p.t = p.t - dt
         if p.t <= 0 then self:Advance() end
     end
@@ -1145,6 +1213,28 @@ function G:Withdraw(idx)
     table.remove(self.save.box, idx)
     table.insert(self.save.party, mon)
     return true, string.format("%s rejoined your party.", M.Name(mon))
+end
+
+-- What a shop pays for one: an item's own sell value, else half its price (0: they won't buy it).
+function G:SellPrice(item)
+    local def = D.items[item]
+    if not def then return 0 end
+    return def.sell or math.floor((def.price or 0) / 2)
+end
+
+-- Returns ok, message.
+function G:Sell(item, qty)
+    local def = D.items[item]
+    local each = self:SellPrice(item)
+    qty = math.max(1, math.floor(qty or 1))
+    local have = self.save.bag[item] or 0
+    if not def or each <= 0 then return false, "They won't buy that." end
+    if have < qty then return false, "You don't have that many." end
+    self.save.bag[item] = have - qty
+    if self.save.bag[item] <= 0 then self.save.bag[item] = nil end
+    self.save.money = self.save.money + each * qty
+    self:Emit("sell", { item = item, n = qty, money = each * qty })
+    return true, string.format("Sold %s%s for %s.", def.name, qty > 1 and (" x" .. qty) or "", D.Money(each * qty))
 end
 
 function G:CleanBag()

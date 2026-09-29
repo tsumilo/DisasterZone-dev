@@ -1554,8 +1554,8 @@ function ClearItemButtonOverlay() end
 function PlaySound(id, channel) M.sounds[#M.sounds + 1] = id; return true, 1 end
 function PlaySoundFile(f) M.sounds[#M.sounds + 1] = f; return true, 1 end
 function StopSound() end
-function PlayMusic() end
-function StopMusic() end
+function PlayMusic(f) M.music = f; return true end
+function StopMusic() M.music = nil end
 function FlashClientIcon() end
 SOUNDKIT = setmetatable({ IG_MAINMENU_OPEN = 850, IG_MAINMENU_CLOSE = 851, IG_CHARACTER_INFO_TAB = 841,
   U_CHAT_SCROLL_BUTTON = 1115, IG_CHARACTER_INFO_OPEN = 839, IG_CHARACTER_INFO_CLOSE = 840, RAID_WARNING = 8959,

@@ -851,7 +851,12 @@ local function DrawRows(menu)
             row:SetPoint("TOPLEFT", f, "TOPLEFT", 12 + c * colW, -top - r * rowH)
             row.fs:SetText(it.text or "")
             row.fs:ClearAllPoints()
-            row.fs:SetPoint("LEFT", it.icon and (26 + rowH) or 24, it.bar and 5 or 0)
+            local left = it.icon and (26 + rowH) or 24
+            row.fs:SetPoint("LEFT", left, it.bar and 5 or 0)
+            -- long names stop short of the right-hand column (cut with "...") instead of running under it
+            local rightW = (it.right and it.right ~= "") and (TextWidth(it.right, 13) + 12) or 0
+            row.fs:SetWidth(max(24, colW - left - 6 - rightW))
+            row.fs:SetWordWrap(false)
             if it.disabled then row.fs:SetTextColor(0.66, 0.66, 0.68) else row.fs:SetTextColor(INK[1], INK[2], INK[3]) end
             local rc = it.rightColor or { 0.36, 0.42, 0.55 }
             row.right:SetTextColor(rc[1], rc[2], rc[3])
@@ -987,6 +992,7 @@ end
 
 function UI:MenuSelect(menu)
     local it = menu.items[menu.cursor]
+    if it and not it.disabled then ns.AzeroSound:Play("select") end
     if it and not it.disabled and it.onSelect then it.onSelect(menu.cursor, menu) end
 end
 
@@ -1324,7 +1330,7 @@ local function OpenParty(ctx, onDone)
         PushMenu(opts, { w = 150, x = SW - 156, y = -120, level = 80, onCancel = function(sub) PopMenu(sub) end })
     end), { x = 8, y = -8, w = 380, rowH = 40, level = 70,
         title = ctx == "item" and "USE ON WHICH?" or ctx == "teach" and "TEACH WHICH BEAST?"
-            or ctx == "trade" and "OFFER WHICH BEAST?" or ctx == "stable" and "LEAVE WHICH BEAST?"
+            or ctx == "trade" and "OFFER WHICH BEAST? (again: take it back)" or ctx == "stable" and "LEAVE WHICH BEAST?"
             or ctx == "equip" and "EQUIP WHICH BEAST?" or "PARTY",
         onCancel = function(menu)
             if ctx == "forced" then return end
@@ -1706,7 +1712,52 @@ end
 -- Shop
 ---------------------------------------------------------------------------
 
-local function OpenShop()
+-- Selling: the bag's goods a shop will buy, a quantity (left / right), then the coins.
+function Scr.OpenSell()
+    local items = {}
+    local bag = G.save.bag
+    for _, id in ipairs(D.itemOrder) do
+        local def, have, each = D.items[id], bag[id] or 0, G:SellPrice(id)
+        if have > 0 and each > 0 then
+            items[#items + 1] = { text = def.name, right = string.format("x%d  %s", have, D.Money(each)), icon = def.icon,
+                item = id, onSelect = function(_, sellMenu)
+                    local qty = have
+                    local function qtyItems()
+                        return { { text = string.format("x%d   %s", qty, D.Money(qty * each)), onSelect = function(_, qm)
+                            PopMenu(qm)
+                            local _, msg = G:Sell(id, qty)
+                            Message(msg, function()
+                                PopMenu(sellMenu)
+                                Scr.OpenSell()
+                            end)
+                        end } }
+                    end
+                    local qm = PushMenu(qtyItems(), { w = 170, x = SW - 176, y = -250, level = 80, title = "HOW MANY?",
+                        onCancel = function(m) PopMenu(m) end })
+                    qm.onLeftRight = function(dir)
+                        if dir == "up" or dir == "right" then qty = min(have, qty + 1) else qty = max(1, qty - 1) end
+                        qm.items = qtyItems()
+                        UI:RefreshMenu(qm)
+                    end
+                end }
+        end
+    end
+    if #items == 0 then
+        Message("You have nothing to sell.")
+        return
+    end
+    PushMenu(items, { x = 8, y = -8, w = 400, rowH = 36, title = "SELL", level = 70, desc = true,
+        onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() end,
+        onMove = function(i, menu)
+            local it = menu.items[i].item
+            R.bagDesc:SetShown(it ~= nil)
+            if it then
+                R.bagDesc.fs:SetText(string.format("%s\nSells for %s each.", D.items[it].desc or "", D.Money(G:SellPrice(it))))
+            end
+        end })
+end
+
+local function OpenShop(keeper)
     local items = {}
     for _, id in ipairs(D.shopStock) do
         local def = D.items[id]
@@ -1730,18 +1781,20 @@ local function OpenShop()
                 end
             end }
     end
+    items[#items + 1] = { text = "Sell", onSelect = function() Scr.OpenSell() end }
     items[#items + 1] = { text = "Done", onSelect = function(_, menu)
         PopMenu(menu)
         R.bagDesc:Hide()
         G:Advance()
     end }
     R.money:Show()
-    PushMenu(items, { x = 8, y = -8, w = 330, rowH = 36, title = "BROG HAMFIST", level = 70, desc = true,
+    PushMenu(items, { x = 8, y = -8, w = 330, rowH = 36, title = (keeper or "Shop"):upper(), level = 70, desc = true,
         onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() G:Advance() end,
         onMove = function(i, menu)
             local it = menu.items[i].item
-            R.bagDesc:SetShown(it ~= nil)
-            if it then R.bagDesc.fs:SetText(D.items[it].desc) end
+            R.bagDesc:SetShown(it ~= nil or menu.items[i].text == "Sell")
+            if it then R.bagDesc.fs:SetText(D.items[it].desc)
+            elseif menu.items[i].text == "Sell" then R.bagDesc.fs:SetText("Sell what you carry: crafted goods, herbs, ore...") end
         end })
 end
 
@@ -1832,15 +1885,22 @@ end
 ---------------------------------------------------------------------------
 
 
-function Scr.TradeCard(c, label, mon)
+function Scr.TradeCard(c, label, mon, items)
     c.label:SetText(label)
+    local itemsText = ns.AzeroTrade.ItemsText(items)
+    c.items:SetText("")
     if not mon then
         ShowCreature(c.model, nil)
-        c.name:SetText("Nothing offered yet.")
         c.star:Hide()
         c.pill:Hide()
         c.info:SetText("")
-        c.moves:SetText("")
+        if itemsText ~= "" then
+            c.name:SetText("Items")
+            c.moves:SetText(itemsText)
+        else
+            c.name:SetText("Nothing offered yet.")
+            c.moves:SetText("")
+        end
         return
     end
     ShowCreature(c.model, mon.sp, 0.5, mon.shiny)
@@ -1852,6 +1912,7 @@ function Scr.TradeCard(c, label, mon)
     local names = {}
     for i, mv in ipairs(mon.moves) do names[i] = D.moves[mv.id].name end
     c.moves:SetText(table.concat(names, ", "))
+    if itemsText ~= "" then c.items:SetText("+ " .. itemsText) end
 end
 
 function Scr.RefreshTrade(s)
@@ -1863,22 +1924,64 @@ function Scr.RefreshTrade(s)
         f:Hide()
         return
     end
-    Scr.TradeCard(f.cards[1], "YOU OFFER", s.mine)
-    Scr.TradeCard(f.cards[2], s.name:upper() .. " OFFERS", s.theirs)
+    Scr.TradeCard(f.cards[1], "YOU OFFER", s.mine, s.myItems)
+    Scr.TradeCard(f.cards[2], s.name:upper() .. " OFFERS", s.theirs, s.theirItems)
+    local mineAny = s.mine or next(s.myItems or {})
+    local theirAny = s.theirs or next(s.theirItems or {})
     local status
-    if not s.mine then status = "Choose a beast to offer."
-    elseif not s.theirs then status = "Waiting for " .. s.name .. " to offer a beast..."
+    if not mineAny and not theirAny then status = "Offer a beast or items. (Offering nothing is fine: a gift.)"
     elseif s.myOk then status = "Waiting for " .. s.name .. " to accept..."
     elseif s.theirOk then status = s.name .. " accepted this trade!"
-    else status = "Both beasts are on the table. Trade?" end
+    elseif not theirAny then status = "Nothing from " .. s.name .. " yet. Trade as a gift, or wait."
+    elseif not mineAny then status = s.name .. " offers something. Accept it as a gift, or add your side."
+    else status = "Both offers are on the table. Trade?" end
     f.status:SetText(status)
-    if Scr.tradeMenu then
-        local it = Scr.tradeMenu.items
+    local menu = Scr.tradeMenu
+    if menu then
+        local it = menu.items
         it[1].disabled = s.myOk ~= nil
-        it[2].disabled = not (s.mine and s.theirs) or s.myOk ~= nil
-        it[2].text = s.myOk and "Accepted" or "Trade"
-        UI:RefreshMenu(Scr.tradeMenu)
+        it[2].disabled = s.myOk ~= nil
+        it[3].disabled = not (mineAny or theirAny) or s.myOk ~= nil
+        it[3].text = s.myOk and "Accepted" or "Trade"
+        UI:RefreshMenu(menu)
     end
+end
+
+-- Offer items: Space puts one more on the table; "Take back all items" clears them.
+function Scr.OpenTradeItems()
+    local T, s = ns.AzeroTrade, ns.AzeroTrade.session
+    if not s then return end
+    local bag = G.save.bag
+    local items = { { text = "Take back all items", onSelect = function(_, menu)
+        T:TakeBackItems()
+        for _, it in ipairs(menu.items) do
+            if it.item then it.right = string.format("0 / %d", bag[it.item] or 0) end
+        end
+        UI:RefreshMenu(menu)
+    end } }
+    for _, id in ipairs(D.itemOrder) do
+        local have = bag[id] or 0
+        if have > 0 then
+            items[#items + 1] = { text = D.items[id].name, icon = D.items[id].icon, item = id,
+                right = string.format("%d / %d", s.myItems[id] or 0, have),
+                onSelect = function(idx, menu)
+                    local n = T:OfferItem(id, 1)
+                    menu.items[idx].right = string.format("%d / %d", n or 0, bag[id] or 0)
+                    UI:RefreshMenu(menu)
+                end }
+        end
+    end
+    if #items == 1 then
+        Message("Your bag is empty.")
+        return
+    end
+    PushMenu(items, { x = 8, y = -8, w = 330, rowH = 32, title = "OFFER ITEMS", desc = true,
+        onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() end,
+        onMove = function(i, menu)
+            R.bagDesc:Show()
+            R.bagDesc.fs:SetText(menu.items[i].item and "Space: one more on the table (offered / in your bag). X: done."
+                or "Put everything back in your bag.")
+        end })
 end
 
 function Scr.OpenTrade(s)
@@ -1894,10 +1997,14 @@ function Scr.OpenTrade(s)
                 if idx then ns.AzeroTrade:Offer(idx) end
             end)
         end },
-        { text = "Trade", disabled = true, onSelect = function() ns.AzeroTrade:Confirm() end },
+        { text = "Offer items", onSelect = function() Scr.OpenTradeItems() end },
+        { text = "Trade", disabled = true, onSelect = function()
+            local ok, why = ns.AzeroTrade:Confirm()
+            if not ok and why == "last" then Message("You can't give away your last beast without getting one back.") end
+        end },
         { text = "Cancel", onSelect = function() ns.AzeroTrade:Cancel() end },
     }
-    Scr.tradeMenu = PushMenu(items, { anchor = { "BOTTOMRIGHT", screen, "BOTTOMRIGHT", -8, 8 }, w = 190, rowH = 32,
+    Scr.tradeMenu = PushMenu(items, { anchor = { "BOTTOMRIGHT", screen, "BOTTOMRIGHT", -8, 8 }, w = 190, rowH = 28,
         level = 100, onCancel = function() ns.AzeroTrade:Cancel() end })
     Scr.RefreshTrade(s)
 end
@@ -2394,6 +2501,9 @@ local function OpenLearnMenu()
 end
 
 local BATTLE_THEMES = {
+    arena = { sky = { 0.93, 0.86, 0.70 }, bands = { { 0.96, 0.90, 0.76 }, { 0.94, 0.88, 0.72 } },
+              field = { 0.86, 0.76, 0.55 }, stripe = { 0.78, 0.67, 0.46 }, lines = { 0.82, 0.72, 0.50 },
+              platform = PLATFORM .. "_w" },
     elwynn = { sky = { 0.86, 0.94, 0.90 }, bands = { { 0.95, 0.98, 0.93 }, { 0.91, 0.96, 0.92 } },
                field = { 0.80, 0.91, 0.66 }, stripe = { 0.70, 0.85, 0.60 }, lines = { 0.74, 0.87, 0.60 },
                platform = PLATFORM },
@@ -2485,6 +2595,7 @@ local function PlayEvent(e)
     elseif e.t == "attack" then
         local m = BattleModelFor(e.side)
         local other = BattleModelFor(e.side == "ally" and "foe" or "ally")
+        local hitSound = e.move and (e.move.power or 0) > 0 and e.move.type
         Anim(m, 16)
         local x0 = m.baseX
         local dx = e.side == "ally" and 30 or -30
@@ -2492,7 +2603,10 @@ local function PlayEvent(e)
             local lunge = f < 0.3 and (f / 0.3) or max(0, 1 - (f - 0.3) / 0.3)
             m:ClearAllPoints()
             m:SetPoint("BOTTOMLEFT", R.battle, "TOPLEFT", x0 + dx * lunge, m.baseY + (e.side == "ally" and 10 or -6) * lunge)
-            if f > 0.35 then other:SetAlpha(floor(f * 16) % 2 == 0 and 0.25 or 1) end
+            if f > 0.35 then
+                other:SetAlpha(floor(f * 16) % 2 == 0 and 0.25 or 1)
+                if hitSound then ns.AzeroSound:Play("hit", hitSound) hitSound = nil end
+            end
         end, done = function()
             m:ClearAllPoints()
             m:SetPoint("BOTTOMLEFT", R.battle, "TOPLEFT", x0, m.baseY)
@@ -2512,8 +2626,11 @@ local function PlayEvent(e)
         BT.anim = { t = 0, dur = 0.7, fn = function(f) m:SetAlpha(1 - f) end,
                     done = function() Anim(m, 0) m:Hide() m.sp = nil m:SetAlpha(1) if e.side == "foe" then R.foeBox:Hide() end end }
     elseif e.t == "status" or e.t == "level" then
+        if e.t == "level" then ns.AzeroSound:Play("levelup") end
         R.allyBox.animExp = nil
         RefreshBattleBoxes()
+    elseif e.t == "sfx" then
+        ns.AzeroSound:Play(e.sound)
     elseif e.t == "exp" then
         if e.mon == b.ally.mon then
             local from = (prev and prev.ally and prev.ally.exp) or 0
@@ -2924,7 +3041,7 @@ local function SyncPending()
         StartBattleView(p.battle)
     elseif p.kind == "shop" then
         ClearText()
-        OpenShop()
+        OpenShop(p.keeper)
     elseif p.kind == "relearn" then
         ClearText()
         Scr.OpenRelearn()
@@ -3026,6 +3143,7 @@ KH.KEY_HINTS = {
     menu = { { "A", "Select", "select" }, { "B", "Back", "back" } },
     text = { { "A", "Next", "next" } },
     netwait = { { "B", "Cancel", "cancel" } },
+    evolve = { { "B", "Stop it evolving", "stopevo" } },
 }
 KH.keyState = { ctx = false, since = 0, input = 0 }
 
@@ -3041,6 +3159,7 @@ function KH.KeyContext()
     if p then
         if p.kind == "text" then return "text" end
         if p.kind == "netwait" then return "netwait" end
+        if p.kind == "evolve" then return "evolve" end
         return nil
     end
     return "world"
@@ -3325,6 +3444,102 @@ function KH.OpenChangelog()
         opts = { onCancel = function(m) PopMenu(m) f:Hide() end } }
 end
 
+---------------------------------------------------------------------------
+-- The beast over the world (starter choice, evolution) and the evolution animation: both forms are loaded (the
+-- next one while "What? X is evolving!" is read), turned into silhouettes, swapped faster and faster, then a white
+-- flash and the new form. A scene that already holds a form keeps it: swapping it into the other scene would
+-- reload and re-measure it.
+---------------------------------------------------------------------------
+
+-- The track for what's on screen: the title, a battle, or the map's own.
+function Scr.UpdateMusic()
+    local key
+    if R.title:IsShown() then key = "title"
+    elseif BT.battle then key = "battle"
+    elseif G.started and G.map then key = G.map.def.music end
+    ns.AzeroSound:Music(key)
+end
+
+function Scr.Dark(sc, a)                -- 0 = normal light, 1 = a black silhouette
+    sc.glow = nil                       -- (SceneLight sets the light again afterwards)
+    pcall(sc.SetLightAmbientColor, sc, 0.72 * (1 - a), 0.72 * (1 - a), 0.72 * (1 - a))
+    pcall(sc.SetLightDiffuseColor, sc, 0.85 * (1 - a), 0.85 * (1 - a), 0.82 * (1 - a))
+end
+
+function Scr.UpdateSpecies(dt)
+    local sp, nxt = G.showSpecies, G.showNext
+    local m1, m2 = R.speciesModel, R.speciesModel2
+    local p = G.pending
+    local evo = p and p.kind == "evolve" and p or nil
+    local ev = Scr.evo
+    -- the white flash fades out after the animation, over the "Congratulations!" text
+    if R.evoFlash.out then
+        R.evoFlash.out = R.evoFlash.out - (dt or 0)
+        R.evoFlash:SetAlpha(max(0, R.evoFlash.out / 0.6))
+        if R.evoFlash.out <= 0 then R.evoFlash.out = nil R.evoFlash:Hide() end
+    end
+    if not sp then
+        m1:Hide() m2:Hide() R.evoGlow:Hide()
+        Scr.evo = nil
+        return
+    end
+    local main, other = m1, m2
+    if m2.sp == sp and m1.sp ~= sp then main, other = m2, m1 end
+    main:Show()
+    ShowCreature(main, sp, 0.3, G.showShiny)
+    if nxt and nxt ~= sp then
+        other:Show()
+        ShowCreature(other, nxt, 0.3, G.showShiny)
+    else
+        other:Hide()
+    end
+    if not evo then
+        if ev then                                      -- over: lights back, the flash fades
+            Scr.evo = nil
+            ShowCreature(main, sp, 0.3, G.showShiny)
+            R.evoGlow:Hide()
+            if ev.flashed then R.evoFlash.out = 0.6 end
+        end
+        main:SetAlpha(1)
+        other:SetAlpha(0)                               -- the next form loads unseen
+        return
+    end
+    -- the animation
+    if not ev or ev.p ~= evo then
+        ev = { p = evo, acc = 0, which = 1, flashed = false }
+        Scr.evo = ev
+    end
+    local t = G.EVOLVE_TIME - max(0, evo.t or 0)
+    local swapFrom, swapTo = 0.5, G.EVOLVE_TIME - 0.8
+    R.evoGlow:Show()
+    R.evoGlow:SetAlpha(0.18 + 0.12 * math.sin(t * 6))
+    local dark = min(1, t / 0.45)
+    Scr.Dark(main, dark)
+    if nxt then Scr.Dark(other, dark) end
+    local showNew = false
+    if t >= swapFrom and t < swapTo and nxt then
+        local f = (t - swapFrom) / (swapTo - swapFrom)
+        local period = 0.5 - 0.43 * f                 -- each form shows for less and less time
+        ev.acc = ev.acc + (dt or 0)
+        if ev.acc >= period then ev.acc, ev.which = 0, 3 - ev.which end
+        showNew = ev.which == 2
+    elseif t >= swapTo then
+        showNew = true
+        local f = min(1, (t - swapTo) / 0.45)
+        R.evoFlash:Show()
+        R.evoFlash:SetAlpha(f)
+        if not ev.flashed then
+            ev.flashed = true
+            if PlaySound then
+                local ok, played = pcall(PlaySound, 12891, "Master")
+                if not ok or played == false then pcall(PlaySound, 31578, "Master") end
+            end
+        end
+    end
+    main:SetAlpha(showNew and 0 or 1)
+    if nxt then other:SetAlpha(showNew and 1 or 0) end
+end
+
 function KH.OpenControls()
     local rows = {
         { "Walk", "Arrow keys or WASD" },
@@ -3338,6 +3553,18 @@ function KH.OpenControls()
     }
     local items = {}
     for i, r in ipairs(rows) do items[i] = { text = r[1], right = r[2] } end
+    local function onOff(key) return G:Data()[key] ~= false and "On" or "Off" end
+    items[#items + 1] = { text = "Music", right = onOff("music"), onSelect = function(idx, menu)
+        G:Data().music = G:Data().music == false
+        menu.items[idx].right = onOff("music")
+        UI:RefreshMenu(menu)
+        Scr.UpdateMusic()
+    end }
+    items[#items + 1] = { text = "Sounds", right = onOff("sfx"), onSelect = function(idx, menu)
+        G:Data().sfx = G:Data().sfx == false
+        menu.items[idx].right = onOff("sfx")
+        UI:RefreshMenu(menu)
+    end }
     items[#items + 1] = { text = "Show the key hints again", onSelect = function(idx, menu)
         G:Data().keys = {}
         R.keyStrip.sig = nil
@@ -3425,6 +3652,8 @@ local function HandleKey(key)
             if not TextA() and text.done then G:Advance() end
         elseif p.kind == "netwait" and key == "B" then
             G:Advance("cancel")
+        elseif p.kind == "evolve" and key == "B" then
+            G:Advance("cancel")
         end
         return
     end
@@ -3475,6 +3704,7 @@ local function OnUpdate(self, elapsed)
     now = now + elapsed
     FitScenes(elapsed)
     KH.UpdateKeyStrip()
+    Scr.UpdateMusic()
     if R.title:IsShown() or not G.started then
         ns.AzeroNet:SetActive(false)
         return
@@ -3497,8 +3727,7 @@ local function OnUpdate(self, elapsed)
         DrawWorld()
         UpdateText(elapsed)
     end
-    R.speciesModel:SetShown(G.showSpecies ~= nil)
-    if G.showSpecies then ShowCreature(R.speciesModel, G.showSpecies, 0.3, G.showShiny) end
+    Scr.UpdateSpecies(elapsed)
     if R.money:IsShown() then
         local hr = G:Hour() % 24
         local p, cls = G:PerkInfo(), G:ClassFile()
@@ -3685,6 +3914,26 @@ function UI:CreatePanel(parent)
     R.speciesModel:SetPoint("BOTTOM", screen, "BOTTOM", 0, BOX_H + 10)
     R.speciesModel:SetFrameLevel(screen:GetFrameLevel() + 45)
     R.speciesModel:Hide()
+    R.speciesModel2 = NewModel(screen, 220, 220)                   -- the next form (evolution)
+    R.speciesModel2:SetPoint("BOTTOM", screen, "BOTTOM", 0, BOX_H + 10)
+    R.speciesModel2:SetFrameLevel(screen:GetFrameLevel() + 45)
+    R.speciesModel2:Hide()
+    local glow = CreateFrame("Frame", nil, screen)                  -- the evolution light behind the beast
+    glow:SetAllPoints()
+    glow:SetFrameLevel(screen:GetFrameLevel() + 44)
+    glow.t = Tex(glow, "BACKGROUND")
+    glow.t:SetAllPoints()
+    glow.t:SetColorTexture(1, 1, 1, 1)
+    glow:Hide()
+    R.evoGlow = glow
+    local flash = CreateFrame("Frame", nil, screen)                 -- and the white flash in front of it
+    flash:SetAllPoints()
+    flash:SetFrameLevel(screen:GetFrameLevel() + 47)
+    flash.t = Tex(flash, "OVERLAY")
+    flash.t:SetAllPoints()
+    flash.t:SetColorTexture(1, 1, 1, 1)
+    flash:Hide()
+    R.evoFlash = flash
 
     -- money / descriptions / summary / log
     R.money = Box(screen, 230, 108, screen:GetFrameLevel() + 58)
@@ -3846,7 +4095,7 @@ function UI:CreatePanel(parent)
     tr.cards = {}
     local cw = (SW - 36) / 2
     for i = 1, 2 do
-        local card = Box(tr, cw, 236, tr:GetFrameLevel() + 2)
+        local card = Box(tr, cw, 244, tr:GetFrameLevel() + 2)
         card:SetPoint("TOPLEFT", tr, "TOPLEFT", 12 + (i - 1) * (cw + 12), -44)
         local c = { frame = card }
         c.label = Font(card, 13)
@@ -3870,10 +4119,15 @@ function UI:CreatePanel(parent)
         c.moves:SetPoint("TOPLEFT", 14, -182)
         c.moves:SetWidth(cw - 28)
         c.moves:SetTextColor(0.36, 0.42, 0.55)
+        c.items = Font(card, 12)                                   -- items offered with the beast
+        c.items:SetPoint("TOPLEFT", 14, -222)
+        c.items:SetWidth(cw - 28)
+        c.items:SetWordWrap(false)
+        c.items:SetTextColor(0.55, 0.40, 0.10)
         tr.cards[i] = c
     end
     tr.status = Font(tr, 13)
-    tr.status:SetPoint("TOPLEFT", 22, -292)
+    tr.status:SetPoint("TOPLEFT", 22, -298)
     tr.status:SetWidth(SW - 44 - 200)
     local hint = Font(tr, 12)
     hint:SetPoint("BOTTOMLEFT", 22, 18)
@@ -3973,13 +4227,13 @@ function UI:CreatePanel(parent)
     end
     root:SetScript("OnSizeChanged", function(self, w, h) FitScreen(w, h) end)
     UI._Fit = function(w, h) FitScreen(w, h) return screen:GetScale() end
-    root:SetScript("OnHide", function() SetFocus(false) ns.AzeroNet:SetActive(false) end)
+    root:SetScript("OnHide", function() SetFocus(false) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop() end)
 
     root.OnGameShown = function()
         FitScreen()
         if not G.started then ShowTitle() end
     end
-    root.OnGameHidden = function() SetFocus(false) ns.AzeroNet:SetActive(false) end
+    root.OnGameHidden = function() SetFocus(false) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop() end
     SetFocus(false)
     ShowTitle()
     return root
@@ -4076,8 +4330,11 @@ UI._MenuLayout = function()
     for _, row in ipairs(f.rows) do
         if row:IsShown() then
             local _, _, _, rx, ry = row:GetPoint(1)
+            local _, _, _, fx = row.fs:GetPoint(1)
             rows[#rows + 1] = { idx = row.idx, x = rx, y = ry, w = row:GetWidth(), h = row:GetHeight(),
-                                cursor = row.cursor:IsShown(), icon = row.icon:IsShown() and row.icon:GetHeight() or 0 }
+                                cursor = row.cursor:IsShown(), icon = row.icon:IsShown() and row.icon:GetHeight() or 0,
+                                textEnd = (fx or 0) + row.fs:GetWidth(),
+                                rightStart = row:GetWidth() - 6 - TextWidth(row.right:GetText() or "", 13) }
         end
     end
     return { x = x, y = y, w = f:GetWidth(), h = f:GetHeight(), rows = rows, n = #m.items, cursor = m.cursor,
@@ -4112,7 +4369,8 @@ UI._Trade = function()
     if not f:IsShown() then return nil end
     local out = { status = f.status:GetText(), cards = {} }
     for i, c in ipairs(f.cards) do
-        out.cards[i] = { label = c.label:GetText(), name = c.name:GetText(), info = c.info:GetText() or "" }
+        out.cards[i] = { label = c.label:GetText(), name = c.name:GetText(), info = c.info:GetText() or "",
+                         moves = c.moves:GetText() or "", items = c.items:GetText() or "" }
     end
     return out
 end
@@ -4173,6 +4431,13 @@ UI._Changelog = function()
     if not (f and f:IsShown()) then return nil end
     return { page = f.page:GetText(), head = f.head:GetText(), body = f.body:GetText() }
 end
+UI._Evolve = function()
+    local m1, m2 = R.speciesModel, R.speciesModel2
+    return { m1 = m1:IsShown() and m1.sp or false, m2 = m2:IsShown() and m2.sp or false,
+             a1 = m1:GetAlpha(), a2 = m2:GetAlpha(), flash = R.evoFlash:IsShown() and R.evoFlash:GetAlpha() or 0,
+             glow = R.evoGlow:IsShown() }
+end
+UI._Root = function() return root end
 UI._Hint = function() return R.hint:IsShown() and R.hint.text or nil end
 UI._Wheel = function(delta)
     local m = stack[#stack]

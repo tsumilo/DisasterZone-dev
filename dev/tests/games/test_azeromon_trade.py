@@ -5,6 +5,9 @@ offer clears acceptances), both acceptances swap the two beasts in place on both
 Bestiary updated, achievements, "tame" as traded); a cancel changes nothing; a Tunneler evolves when traded; a
 traded beast earns boosted exp (and a beast back with its original trainer doesn't); bad offers are refused; the
 host's commit is honoured by a player who left right after accepting; the trade screen driven through the UI.
+Items: offered alongside a beast or alone (a gift), both ways; bounded by the bag and the stack cap; a changed item
+offer clears acceptances; items gone from the bag stop the trade; your last beast can't go for nothing; bad item
+lists are cleaned; the item picker and the cards through the UI.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_trade.py [-k name]
 """
@@ -28,7 +31,7 @@ function T_TR.tick()
   if not p then return end
   if p.kind == "text" then T_AZ.log[#T_AZ.log + 1] = p.text G:Advance()
   elseif p.kind == "choice" then G:Advance(T_TR.answer)
-  elseif p.kind == "wait" then G:Update(0.1) end
+  elseif p.kind == "wait" or p.kind == "evolve" then G:Update(0.5) end
 end
 function T_TR.party()
   local out = {}
@@ -162,7 +165,7 @@ def a_tunneler_evolves_when_traded():
     run(w, (a, b), seconds=0.6, bots=())
     a.eval("ns.AzeroTrade:Confirm()")
     b.eval("ns.AzeroTrade:Confirm()")
-    run(w, (a, b), seconds=4)
+    run(w, (a, b), seconds=10)                  # (the evolution animation plays)
     assert b.eval("return ns.Azero.save.party[1].sp") == "geomancer"
     assert b.eval("return ns.Azero.save.caught.geomancer") is True
     assert "What? Kobold Tunneler is evolving!" in log(b) and "evolved into Kobold Geomancer" in log(b)
@@ -257,19 +260,20 @@ def the_trade_screen_through_the_ui():
     run(w, (a, b), seconds=1.5, bots=(b,))
     w.tick(0.3)
     t = a.eval_py("return ns.AzeroUI._Trade()")
-    assert t and t["status"] == "Choose a beast to offer." and t["cards"][1]["label"] == "BOB OFFERS", t
+    assert t and t["status"].startswith("Offer a beast or items.") and t["cards"][1]["label"] == "BOB OFFERS", t
     a.eval("ns.AzeroUI._HandleKey('A')")                  # Offer a beast
     w.tick(0.1)
-    assert a.eval_py("return ns.AzeroUI._Levels()")[-1]["title"] == "OFFER WHICH BEAST?"
+    assert a.eval_py("return ns.AzeroUI._Levels()")[-1]["title"].startswith("OFFER WHICH BEAST?")
     a.eval("ns.AzeroUI._HandleKey('A')")
     w.tick(0.1)
     t = a.eval_py("return ns.AzeroUI._Trade()")
     assert t["cards"][0]["name"] == "Murkling" and t["cards"][0]["info"].startswith("Lv12"), t
-    assert "Waiting for Bob to offer" in t["status"], t
+    assert "Nothing from Bob yet." in t["status"], t
     b.eval("ns.AzeroTrade:Offer(1)")
     run(w, (a, b), seconds=0.6, bots=())
     t = a.eval_py("return ns.AzeroUI._Trade()")
-    assert t["cards"][1]["name"] == "Emberwhelp" and t["status"] == "Both beasts are on the table. Trade?", t
+    assert t["cards"][1]["name"] == "Emberwhelp" and t["status"] == "Both offers are on the table. Trade?", t
+    a.eval("ns.AzeroUI._HandleKey('down')")
     a.eval("ns.AzeroUI._HandleKey('down')")
     a.eval("ns.AzeroUI._HandleKey('A')")                  # Trade
     w.tick(0.1)
@@ -282,6 +286,153 @@ def the_trade_screen_through_the_ui():
         a.eval("ns.AzeroUI._HandleKey('A')")
     assert a.eval("return ns.AzeroUI._Trade()") is None
     assert a.eval("return ns.Azero.save.party[1].sp") == "emberwhelp"
+    no_errors(w)
+
+
+def bags(c):
+    return c.eval_py("local o = {} for k, v in pairs(ns.Azero.save.bag) do o[k] = v end return o")
+
+
+@case
+def items_travel_with_a_beast_both_ways():
+    w, a, b = setup(team_a=(("murkling", 12), ("owlet", 5)), team_b=(("emberwhelp", 14),))
+    a.eval("ns.Azero.save.bag = { copperbar = 5, peacebloom = 2 }")
+    b.eval("ns.Azero.save.bag = { lionsstrength = 1 }")
+    open_trade(w, a, b)
+    a.eval("ns.AzeroTrade:Offer(1)")
+    assert a.eval("return ns.AzeroTrade:OfferItem('copperbar', 3)") == 3
+    assert a.eval("return ns.AzeroTrade:OfferItem('copperbar', 9)") == 5            # only what's in the bag
+    assert a.eval("return ns.AzeroTrade:OfferItem('copperbar', -1)") == 4
+    b.eval("ns.AzeroTrade:Offer(1) ns.AzeroTrade:OfferItem('lionsstrength', 1)")
+    run(w, (a, b), seconds=0.6, bots=())
+    assert b.eval_py("return ns.AzeroTrade.session.theirItems") == {"copperbar": 4}
+    a.eval("ns.AzeroTrade:Confirm()")
+    b.eval("ns.AzeroTrade:Confirm()")
+    run(w, (a, b), seconds=3)
+    assert bags(a) == {"copperbar": 1, "peacebloom": 2, "lionsstrength": 1}, bags(a)
+    assert bags(b) == {"copperbar": 4}, bags(b)
+    assert a.eval("return ns.Azero.save.party[1].sp") == "emberwhelp"
+    assert "You gave Bob: Copper Bar x4." in log(a) and "Bob gave you Elixir of Lion's Strength." in log(a), log(a)
+    assert "Alice gave you Copper Bar x4." in log(b), log(b)
+    no_errors(w)
+
+
+@case
+def items_alone_are_a_gift():
+    w, a, b = setup(team_a=(("murkling", 12),), team_b=(("emberwhelp", 14),))
+    a.eval("ns.Azero.save.bag = { tinbar = 2 }")
+    b.eval("ns.Azero.save.bag = {}")
+    open_trade(w, a, b)
+    assert a.eval_py("return { ns.AzeroTrade:Confirm() }") == [False, "empty"]
+    a.eval("ns.AzeroTrade:OfferItem('tinbar', 2)")
+    run(w, (a, b), seconds=0.6, bots=())
+    a.eval("ns.AzeroTrade:Confirm()")
+    b.eval("ns.AzeroTrade:Confirm()")
+    run(w, (a, b), seconds=3)
+    assert bags(a) == {} and bags(b) == {"tinbar": 2}, (bags(a), bags(b))
+    for c in (a, b):                                                                   # the beasts stay
+        assert len(c.eval_py("return T_TR.party()")) == 1
+    no_errors(w)
+
+
+@case
+def a_beast_for_items_goes_to_the_party_or_the_stable():
+    w, a, b = setup(team_a=(("murkling", 12), ("owlet", 5)),
+                    team_b=tuple(("coyote", 5) for _ in range(6)))
+    b.eval("ns.Azero.save.bag = { copperbar = 10 }")
+    open_trade(w, a, b)
+    a.eval("ns.AzeroTrade:Offer(2)")
+    b.eval("ns.AzeroTrade:OfferItem('copperbar', 10)")
+    run(w, (a, b), seconds=0.6, bots=())
+    a.eval("ns.AzeroTrade:Confirm()")
+    b.eval("ns.AzeroTrade:Confirm()")
+    run(w, (a, b), seconds=3)
+    assert [m["sp"] for m in a.eval_py("return T_TR.party()")] == ["murkling"]
+    assert bags(a).get("copperbar") == 10, bags(a)
+    assert len(b.eval_py("return T_TR.party()")) == 6
+    assert b.eval("return ns.Azero.save.box[#ns.Azero.save.box].sp") == "owlet"
+    no_errors(w)
+
+
+@case
+def item_offers_are_checked():
+    w, a, b = setup(team_b=(("emberwhelp", 12), ("coyote", 8)))
+    a.eval("ns.Azero.save.bag = { copperbar = 5, tinbar = 1, peacebloom = 1, silverleaf = 1, earthroot = 1, "
+           "mageroyal = 1, briarthorn = 1 }")
+    open_trade(w, a, b)
+    # the last beast can't go for nothing
+    a.eval("ns.AzeroTrade:Offer(1)")
+    assert a.eval_py("return { ns.AzeroTrade:Confirm() }") == [False, "last"]
+    a.eval("ns.AzeroTrade:Offer(1)")                                                   # again: taken back
+    assert a.eval("return ns.AzeroTrade.session.mine == nil")
+    # at most MAX_STACKS kinds
+    for it in ("copperbar", "tinbar", "peacebloom", "silverleaf", "earthroot", "mageroyal"):
+        a.eval("ns.AzeroTrade:OfferItem(%r, 1)" % it)
+    assert a.eval("return ns.AzeroTrade:OfferItem('briarthorn', 1)") == 0
+    # a changed item offer clears acceptances
+    b.eval("ns.AzeroTrade:Offer(1)")
+    run(w, (a, b), seconds=0.6, bots=())
+    b.eval("ns.AzeroTrade:Confirm()")
+    run(w, (a, b), seconds=0.6, bots=())
+    assert a.eval("return ns.AzeroTrade.session.theirOk ~= nil")
+    a.eval("ns.AzeroTrade:OfferItem('copperbar', 1)")
+    run(w, (a, b), seconds=0.6, bots=())
+    assert b.eval("return ns.AzeroTrade.session.myOk == nil")
+    # items gone from the bag by the time it commits: nothing changes
+    a.eval("ns.Azero.save.bag.copperbar = 1")
+    a.eval("ns.AzeroTrade:Confirm()")
+    b.eval("ns.AzeroTrade:Confirm()")
+    run(w, (a, b), seconds=3)
+    assert a.eval("return ns.Azero.save.party[1].sp") == "murkling"
+    assert b.eval("return ns.Azero.save.bag.copperbar") is None
+    # bad lists from the wire are cleaned
+    clean = a.eval_py("""return ns.AzeroTrade.CleanItems({ copperbar = 500, nope = 3, tinbar = -2, peacebloom = 1.7,
+      [5] = 1, silverleaf = 'x' })""")
+    assert clean == {"copperbar": 99, "peacebloom": 1}, clean
+    no_errors(w)
+
+
+@case
+def offering_items_through_the_ui():
+    w, a, b = setup(ui_a=True)
+    a.eval("ns.Azero.save.bag = { copperbar = 3 }")
+    a.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.3)
+    a.eval("ns.AzeroUI._HandleKey('down')")
+    a.eval("ns.AzeroUI._HandleKey('A')")
+    run(w, (a, b), seconds=1.5, bots=(b,))
+    w.tick(0.3)
+    a.eval("ns.AzeroUI._HandleKey('down')")               # Offer items
+    a.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.1)
+    lv = a.eval_py("return ns.AzeroUI._Levels()")[-1]
+    assert lv["title"] == "OFFER ITEMS", lv
+    assert a.eval_py("return ns.AzeroUI._MenuItems()") == ["Take back all items", "Copper Bar"]
+    a.eval("ns.AzeroUI._HandleKey('down')")
+    for _ in range(2):
+        a.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.1)
+    t = a.eval_py("return ns.AzeroUI._Trade()")
+    assert t["cards"][0]["name"] == "Items" and t["cards"][0]["moves"] == "Copper Bar x2", t
+    a.eval("ns.AzeroUI._HandleKey('B')")                  # back to the trade menu, then add a beast
+    a.eval("ns.AzeroUI._HandleKey('up')")
+    a.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.1)
+    a.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.1)
+    t = a.eval_py("return ns.AzeroUI._Trade()")
+    assert t["cards"][0]["name"] == "Murkling" and t["cards"][0]["items"] == "+ Copper Bar x2", t
+    b.eval("ns.AzeroTrade:Offer(1)")
+    run(w, (a, b), seconds=0.6, bots=())
+    for k in ("down", "down", "A"):
+        a.eval("ns.AzeroUI._HandleKey(%r)" % k)
+    b.eval("ns.AzeroTrade:Confirm()")
+    for _ in range(30):
+        run(w, (a, b), seconds=0.3, bots=(b,))
+        if a.eval("return ns.Azero.pending == nil"):
+            break
+        a.eval("ns.AzeroUI._HandleKey('A')")
+    assert bags(a) == {"copperbar": 1} and bags(b).get("copperbar") == 2, (bags(a), bags(b))
     no_errors(w)
 
 

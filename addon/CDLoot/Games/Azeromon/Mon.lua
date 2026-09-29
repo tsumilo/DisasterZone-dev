@@ -164,6 +164,7 @@ function M.Sanitize(mon)
     mon.hp = max(0, min(M.MaxHP(mon), floor(tonumber(mon.hp) or 0)))
     if mon.status and not D.status[mon.status] then mon.status = nil end
     mon.shiny = (mon.shiny == true) or nil
+    mon.evoStop = tonumber(mon.evoStop) and floor(tonumber(mon.evoStop)) or nil
     -- gear: { slot = item } (a single item id from before the slots goes into its slot)
     if type(mon.gear) == "string" then
         local def = D.items[mon.gear]

@@ -7,6 +7,7 @@
 --   "learn"   a creature wants a 5th move         -> b:ResolveLearn(slot or nil)
 --   "done"    b.result = "win" | "lose" | "run" | "caught"
 -- Events: { t = "text", text } { t = "send", side, mon } { t = "recall", side } { t = "attack", side, move }
+--         { t = "sfx", sound } (a Sound.lua effect at that point of the playback)
 --         { t = "hp", side, from, to, max } { t = "faint", side } { t = "status", side } { t = "exp", mon }
 --         { t = "level", mon } { t = "throw", shakes, caught } { t = "end", result }
 -- Sides: "ally" (the player) and "foe".
@@ -582,6 +583,7 @@ function B:UseItem(item, target)
             else
                 mon.hp = min(M.MaxHP(mon), mon.hp + def.heal)
             end
+            self:Emit({ t = "sfx", sound = "heal" })
             self:Say("%s's HP was restored by %d points.", M.Name(mon), mon.hp - before)
         else
             if mon.status ~= def.cures then return false end
@@ -639,6 +641,7 @@ function B:Catch(ballMult)
         self:Say(lines[shakes])
         return true
     end
+    self:Emit({ t = "sfx", sound = "catch" })
     self:Say("Gotcha! %s was tamed!", M.Name(mon))
     local where = self.onCaught and self.onCaught(mon)
     if where == "box" then self:Say("%s was sent to the Stable Master.", M.Name(mon)) end

@@ -1,9 +1,11 @@
 -- CDLoot Games/Azeromon/Trade.lua
--- ns.AzeroTrade: trading beasts with a guildmate you meet in the world (A on them, then "Trade").
+-- ns.AzeroTrade: trading beasts and items with a guildmate you meet in the world (A on them, then "Trade").
+-- Each side offers a beast, items (up to MAX_STACKS kinds), both, or nothing (a gift); both accept the whole table.
 -- Whispers on the game prefix (CDLg), one message type with an op:
 --   AZT { op = "ask",     id, v }        would you like to trade?
 --   AZT { op = "answer",  id, ok, why }  yes / no (why = "busy" | "no" | "version")
---   AZT { op = "offer",   id, mon }      the beast I offer (T.Pack); a new offer clears both acceptances
+--   AZT { op = "offer",   id, mon, items }  what I offer: a beast (T.Pack) or none, items { id = count };
+--                                           a new offer clears both acceptances
 --   AZT { op = "confirm", id, h }        I accept this pair (h = checksum of both offers in player-key order)
 --   AZT { op = "commit",  id, h }        the host (smaller player key) had both acceptances and swapped: swap too
 --   AZT { op = "cancel",  id }           I left the trade
@@ -22,6 +24,7 @@ T.VERSION = 1
 T.ANSWER_TIMEOUT = 30
 T.IDLE_TIMEOUT = 180          -- no word from the other side for this long closes the trade
 T.LATE_COMMIT = 60            -- how long a cancelled trade still honours the host's commit
+T.MAX_STACKS = 6              -- kinds of item one side can put on the table
 
 local ask = nil               -- my open request { id, to, at }
 T.session = nil               -- { id, peer, name, host, mine, mineWire, theirs, theirsWire, myOk, theirOk, heard, state }
@@ -105,11 +108,43 @@ local function Checksum(str)
     return h
 end
 
--- The same number on both sides: the two offers in player-key order.
+local function ItemsKey(items)
+    local ids = {}
+    for id in pairs(items or {}) do ids[#ids + 1] = id end
+    table.sort(ids)
+    for i, id in ipairs(ids) do ids[i] = id .. "x" .. Str(items[id]) end
+    return table.concat(ids, ",")
+end
+
+-- The same number on both sides: the two offers (beast and items) in player-key order.
 function T.PairHash(s)
-    local a, b = WireKey(s.mineWire), WireKey(s.theirsWire)
+    local a = WireKey(s.mineWire) .. "+" .. ItemsKey(s.myItems)
+    local b = WireKey(s.theirsWire) .. "+" .. ItemsKey(s.theirItems)
     if not s.host then a, b = b, a end
     return Checksum(a .. "|" .. b)
+end
+
+-- Items received on the wire: known items, 1 - 99 each, at most MAX_STACKS kinds.
+function T.CleanItems(list)
+    local out, n = {}, 0
+    if type(list) ~= "table" then return out end
+    for id, cnt in pairs(list) do
+        cnt = math.floor(tonumber(cnt) or 0)
+        if type(id) == "string" and D.items[id] and cnt >= 1 and n < T.MAX_STACKS then
+            out[id] = math.min(99, cnt)
+            n = n + 1
+        end
+    end
+    return out
+end
+
+-- "Copper Bar x5, Peacebloom x3"
+function T.ItemsText(items)
+    local ids = {}
+    for id in pairs(items or {}) do ids[#ids + 1] = id end
+    table.sort(ids, function(a, b) return D.items[a].name < D.items[b].name end)
+    for i, id in ipairs(ids) do ids[i] = D.items[id].name .. (items[id] > 1 and (" x" .. items[id]) or "") end
+    return table.concat(ids, ", ")
 end
 
 ---------------------------------------------------------------------------
@@ -189,15 +224,20 @@ end
 ---------------------------------------------------------------------------
 
 function T:Open(g, id, peer)
-    local s = { id = id, peer = peer, name = ShortName(peer), host = MyKey() < peer, heard = Now(), state = "open" }
+    local s = { id = id, peer = peer, name = ShortName(peer), host = MyKey() < peer, heard = Now(), state = "open",
+                myItems = {}, theirItems = {} }
     T.session = s
     local result = g:Wait({ kind = "trade", session = s })
     if T.session == s then T.session = nil end
-    if result == "done" and s.received then
-        g:Say(string.format("You sent %s to %s.", M.Name(s.sent), s.name))
-        g:Say(string.format("%s sent over %s! Take good care of it.", s.name, M.Name(s.received)))
-        local into = M.TradeEvolution(s.received)
-        if into then g:EvolveNow(s.received, into) end
+    if result == "done" then
+        if s.sent then g:Say(string.format("You sent %s to %s.", M.Name(s.sent), s.name)) end
+        if next(s.gaveItems or {}) then g:Say(string.format("You gave %s: %s.", s.name, T.ItemsText(s.gaveItems))) end
+        if next(s.gotItems or {}) then g:Say(string.format("%s gave you %s.", s.name, T.ItemsText(s.gotItems))) end
+        if s.received then
+            g:Say(string.format("%s sent over %s! Take good care of it.", s.name, M.Name(s.received)))
+            local into = M.TradeEvolution(s.received)
+            if into then g:EvolveNow(s.received, into) end
+        end
     elseif s.why == "them" then
         g:Say(s.name .. " left the trade.")
     elseif s.why == "timeout" then
@@ -216,39 +256,86 @@ local function Close(s, result, why)
     if G.pending and G.pending.kind == "trade" and G.pending.session == s then G:Advance(result) end
 end
 
--- Offer party beast `idx`.
+local function SendOffer(s)
+    s.myOk, s.theirOk = nil, nil
+    Whisper(s.peer, { op = "offer", id = s.id, mon = s.mineWire, items = s.myItems })
+    T:Changed()
+end
+
+-- Offer party beast `idx` (the one already offered again: take it back).
 function T:Offer(idx)
     local s = T.session
     local mon = G.save and G.save.party[idx]
     if not s or s.state ~= "open" or not mon or s.myOk then return false end
-    s.mine, s.mineWire = mon, T.Pack(mon)
-    s.myOk, s.theirOk = nil, nil
-    Whisper(s.peer, { op = "offer", id = s.id, mon = s.mineWire })
-    T:Changed()
+    if s.mine == mon then
+        s.mine, s.mineWire = nil, nil
+    else
+        s.mine, s.mineWire = mon, T.Pack(mon)
+    end
+    SendOffer(s)
     return true
 end
 
--- Swap the two beasts in my save: theirs takes my offered beast's place in the party.
+-- Put `delta` more of an item on the table (negative takes some back); returns the count now offered.
+function T:OfferItem(id, delta)
+    local s = T.session
+    if not s or s.state ~= "open" or s.myOk or not D.items[id] then return nil end
+    local have = G.save.bag[id] or 0
+    local n = math.max(0, math.min(have, math.min(99, (s.myItems[id] or 0) + delta)))
+    local kinds = 0
+    for k in pairs(s.myItems) do if k ~= id then kinds = kinds + 1 end end
+    if n > 0 and kinds >= T.MAX_STACKS then return s.myItems[id] or 0 end
+    s.myItems[id] = n > 0 and n or nil
+    SendOffer(s)
+    return n
+end
+
+function T:TakeBackItems()
+    local s = T.session
+    if not s or s.state ~= "open" or s.myOk then return false end
+    s.myItems = {}
+    SendOffer(s)
+    return true
+end
+
+-- Carry out the trade in my save: my offered beast and items go, theirs arrive (their beast takes my beast's
+-- party slot, else the next free one, else the stable). Nothing changes unless my side is all still here.
 local function Swap(s)
-    local party = G.save.party
-    local slot
-    for i, m in ipairs(party) do if m == s.mine then slot = i end end
-    local got = T.Unpack(s.theirsWire)
-    if not slot or not got then return false end
-    got.traded = (got.ot ~= G:PlayerName()) or nil
-    party[slot] = got
-    s.sent, s.received = s.mine, got
     local save = G.save
-    save.seen[got.sp], save.caught[got.sp] = true, true
-    if got.shiny then
-        if type(save.shinyCaught) ~= "table" then save.shinyCaught = {} end
-        save.shinyCaught[got.sp] = true
+    local party, bag = save.party, save.bag
+    local slot
+    if s.mine then
+        for i, m in ipairs(party) do if m == s.mine then slot = i end end
+        if not slot then return false end
+    end
+    for id, n in pairs(s.myItems or {}) do if (bag[id] or 0) < n then return false end end
+    local got = s.theirsWire and T.Unpack(s.theirsWire)
+    if s.theirsWire and not got then return false end
+    for id, n in pairs(s.myItems or {}) do
+        bag[id] = bag[id] - n
+        if bag[id] <= 0 then bag[id] = nil end
+    end
+    for id, n in pairs(s.theirItems or {}) do bag[id] = (bag[id] or 0) + n end
+    s.gaveItems, s.gotItems = s.myItems, s.theirItems
+    if s.mine then
+        if got then party[slot] = got else table.remove(party, slot) end
+    elseif got then
+        if #party < D.MAX_PARTY then party[#party + 1] = got else table.insert(save.box, got) end
+    end
+    s.sent, s.received = s.mine, got
+    if got then
+        got.traded = (got.ot ~= G:PlayerName()) or nil
+        save.seen[got.sp], save.caught[got.sp] = true, true
+        if got.shiny then
+            if type(save.shinyCaught) ~= "table" then save.shinyCaught = {} end
+            save.shinyCaught[got.sp] = true
+        end
+        G:Emit("tame", { mon = got, how = "traded" })
     end
     local d = G:Data()
     if type(d.trades) ~= "table" then d.trades = {} end
     d.trades[s.peer] = (d.trades[s.peer] or 0) + 1
-    G:Emit("tame", { mon = got, how = "traded" })
-    G:Emit("trade", { mon = got, sent = s.mine, peer = s.peer })
+    G:Emit("trade", { mon = got, sent = s.mine, peer = s.peer, gave = s.myItems, got = s.theirItems })
     return true
 end
 
@@ -264,10 +351,15 @@ local function TryCommit(s)
     return true
 end
 
--- Accept the pair on the table.
+-- Accept what's on the table. Returns false and why: "empty" (nothing either side), "last" (my last beast would go
+-- with nothing coming back).
 function T:Confirm()
     local s = T.session
-    if not s or s.state ~= "open" or not s.mineWire or not s.theirsWire or s.myOk then return false end
+    if not s or s.state ~= "open" or s.myOk then return false end
+    local mine = s.mineWire or next(s.myItems)
+    local theirs = s.theirsWire or next(s.theirItems)
+    if not mine and not theirs then return false, "empty" end
+    if s.mine and not s.theirsWire and #G.save.party <= 1 then return false, "last" end
     s.myOk = T.PairHash(s)
     Whisper(s.peer, { op = "confirm", id = s.id, h = s.myOk })
     TryCommit(s)
@@ -296,6 +388,7 @@ local function OnOffer(sender, msg)
     if not s then return end
     local mon = T.Unpack(msg.mon)
     s.theirs, s.theirsWire = mon, mon and msg.mon or nil
+    s.theirItems = T.CleanItems(msg.items)
     s.myOk, s.theirOk = nil, nil
     T:Changed()
 end
@@ -325,8 +418,9 @@ local function OnCommit(sender, msg)
         if Swap(ls) then
             ls.state = "done"
             if ns.Print then
+                local what = ls.received and M.Name(ls.received) or T.ItemsText(ls.gotItems)
                 ns:Print("|cffffd200Azeromon:|r the trade with %s went through after all: you received %s.", ls.name,
-                    M.Name(ls.received))
+                    what ~= "" and what or "nothing")
             end
         end
     end

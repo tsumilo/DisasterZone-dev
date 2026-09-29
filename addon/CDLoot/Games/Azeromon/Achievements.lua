@@ -117,6 +117,20 @@ local ACHIEVEMENTS = {
       on = { "skillup", "load" }, test = function(g) return A.BestSkill(g) >= 100 end,
       progress = function(g) return math.min(100, A.BestSkill(g)), 100 end },
 
+    -- the Gurubashi Arena
+    { id = "arena5", name = "Gladiator", points = 10, icon = "Ability_Warrior_Rampage",
+      desc = "Win 5 fights in a row in the Gurubashi Arena.",
+      on = { "arena", "load" }, test = function(g) return (tonumber(g:Data().arenaBest) or 0) >= 5 end },
+    { id = "arena10", name = "Arena Champion", points = 25, icon = "Spell_Holy_SealOfMight",
+      desc = "Win 10 fights in a row in the Gurubashi Arena.",
+      on = { "arena", "load" }, test = function(g) return (tonumber(g:Data().arenaBest) or 0) >= 10 end,
+      progress = function(g) return math.min(10, tonumber(g:Data().arenaBest) or 0), 10 end },
+
+    -- rematches
+    { id = "rematch1", name = "Old Rivals", points = 10, icon = "Ability_Warrior_Challange",
+      desc = "Win a rematch against a trainer.",
+      on = "rematch", test = function() return true end },
+
     -- trading
     { id = "trade1", name = "Trading Partners", points = 10, icon = "INV_Misc_Coin_02",
       desc = "Trade a beast with a guildmate.",

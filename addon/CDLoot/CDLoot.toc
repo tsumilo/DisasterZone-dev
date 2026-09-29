@@ -90,4 +90,6 @@ Games\Azeromon\Bounties.lua
 Games\Azeromon\Trade.lua
 Games\Azeromon\Crafting.lua
 Games\Azeromon\Changelog.lua
+Games\Azeromon\Sound.lua
+Games\Azeromon\Arena.lua
 Games\Azeromon\UI.lua

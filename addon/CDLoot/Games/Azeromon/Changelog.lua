@@ -6,6 +6,17 @@
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.8", date = "29 September 2026", title = "Arena, music and trading",
+      lines = {
+          "The Gurubashi Arena: Thor flies you there from Sentinel Hill.",
+          "Win streaks in the arena pay out, with a prize every 5 wins.",
+          "Evolutions play out on screen. Press X to stop one.",
+          "Music and sounds. Turn them off on the CONTROLS page.",
+          "Beat a trainer again once a day for a rematch.",
+          "Shops buy your goods: materials, potions, gear.",
+          "Trade items with guildmates, with or without a beast.",
+          "Fixed: long item names ran into their prices.",
+      } },
     { version = "0.7", date = "29 September 2026", title = "Professions and polish",
       lines = {
           "Professions: Herbalism, Mining, Alchemy and Blacksmithing.",

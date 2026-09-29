@@ -131,6 +131,36 @@ local ORDER = { "rejuv", "lionsstrength", "minordefense", "lesseragility", "flas
                 "roughbronzeshoulders", "patternedbronzebracers",
                 "peacebloom", "silverleaf", "earthroot", "mageroyal", "briarthorn",
                 "copperore", "tinore", "roughstone", "coarsestone", "copperbar", "tinbar", "bronzebar" }
+-- what a shop pays (copper each); bought goods sell for half their price
+local SELL = {
+    peacebloom = 12,
+    silverleaf = 10,
+    earthroot = 15,
+    mageroyal = 30,
+    briarthorn = 35,
+    copperore = 15,
+    tinore = 30,
+    roughstone = 8,
+    coarsestone = 15,
+    copperbar = 30,
+    tinbar = 50,
+    bronzebar = 60,
+    lionsstrength = 60,
+    minordefense = 50,
+    lesseragility = 90,
+    rejuv = 120,
+    flasktitans = 400,
+    flasksupreme = 450,
+    flaskassault = 500,
+    roughsharpening = 50,
+    copperchainbelt = 150,
+    runedcopperbracers = 180,
+    copperchainvest = 250,
+    coarsesharpening = 120,
+    roughbronzeshoulders = 400,
+    patternedbronzebracers = 450,
+}
+for id, v in pairs(SELL) do items[id].sell = v end
 for id, def in pairs(items) do D.items[id] = def end
 for _, id in ipairs(ORDER) do D.itemOrder[#D.itemOrder + 1] = id end
 

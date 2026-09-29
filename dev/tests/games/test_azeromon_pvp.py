@@ -43,7 +43,7 @@ function T_PVP.tick()
       T_PVP.results[#T_PVP.results + 1] = b.result
       G:Advance(b.result)
     end
-  elseif p.kind == "wait" then G:Update(0.1) end
+  elseif p.kind == "wait" or p.kind == "evolve" then G:Update(0.5) end
 end
 """
 

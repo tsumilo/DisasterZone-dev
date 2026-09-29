@@ -451,6 +451,9 @@ D.bounties = {
     { id = "steps", on = "step", n = { 400, 700 }, pay = 0.7,
       text = function(n) return string.format("Walk %d steps", n) end,
       test = function() return true end },
+    { id = "trainer", on = "battle", n = { 1, 2 }, pay = 260,
+      text = function(n) return n == 1 and "Win a trainer battle" or string.format("Win %d trainer battles", n) end,
+      test = function(e) return e.trainer ~= nil and e.result == "win" end },
     { id = "level", on = "level", n = { 3, 5 }, pay = 110,
       text = function(n) return string.format("Level up your beasts %d times", n) end,
       test = function() return true end },
@@ -491,7 +494,7 @@ D.items = {
     greatnet = { name = "Net-o-Matic", price = 600, ball = 1.5, use = "ball",
                icon = "Interface\\Icons\\Spell_Nature_StrangleVines", desc = "Gnomish engineering! Better odds than a Taming Rod. Usually." },
 }
-D.items.illusiondust = { name = "Illusion Dust", price = 0, use = "charm", minutes = 30,
+D.items.illusiondust = { name = "Illusion Dust", price = 0, sell = 250, use = "charm", minutes = 30,
     icon = "Interface\\Icons\\INV_Enchant_DustIllusion",
     desc = "Scatter it and the air glimmers: for 30 minutes, shiny beasts are twice as likely.",
     used = "You scatter the Illusion Dust. The air glimmers...\nFor 30 minutes, shiny beasts are twice as likely." }
