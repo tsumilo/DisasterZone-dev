@@ -56,10 +56,7 @@ def tile_btn(c, sid, which="main"):
 
 def card_texts(c):
     return c.eval_py("""
-      local k = T_card()
-      local lines = {}
-      for _, l in ipairs(k.lines) do if l:IsShown() then lines[#lines + 1] = l.text:GetText() end end
-      return { k.progress:GetText(), k.filled:GetText(), lines }""")
+      return { T_card().title:GetText() }""")
 
 
 def menu_labels(c):
@@ -165,7 +162,6 @@ def my_bis_menu_greyed_tile_progress_and_enable():
     # progress: x / 16, "· 1 disabled"; the chest is no longer "still needed"
     after = card_texts(c)
     assert after[0].startswith("P1  ·  0 / 16 obtained"), after[0]
-    assert after[1].startswith("2 of 16") and "1 disabled" in after[1], after[1]
     prog = c.eval_py("local p = ns.MyBiS:GetProgress(1); return { p.filled, p.total, p.disabled, p.obtained }")
     assert prog == [2, 16, 1, 0], prog
     # the tile tooltip explains it

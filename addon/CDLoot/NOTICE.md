@@ -131,3 +131,20 @@ The same caution applies to the IDs taken from DBM ("All Rights Reserved") and f
 ## 3. Blizzard content
 
 World of Warcraft names, item IDs, NPC and object IDs, and the in-game textures CDLoot shows (loaded from the game client by path) belong to Blizzard Entertainment. CDLoot ships no Blizzard art.
+
+---
+
+## 4. Azeromon pixel art (`Media\Azeromon\`)
+
+The overworld art of the Azeromon minigame is third-party pixel art, repacked into `atlas.tga` and `chars.tga` by `dev/generators/gen_azeromon_art.py` (`platform.tga` is drawn by that script). Battle creatures are Blizzard models loaded from the game client by display ID; no Blizzard art is shipped.
+
+| Art | Author | License | Source |
+|---|---|---|---|
+| "Tiny 16: Basic" (terrain, interiors, characters, chests, torches) | Lanea Zimmerman (Sharm) | CC-BY 3.0 / CC-BY 4.0 / OGA-BY 3.0 | https://opengameart.org/content/tiny-16-basic |
+| "Pokemon-inspired 16x16 tiles" (grass, dirt path, tall grass, house, big tree, mailbox) | Red_Voxel (https://red-voxel.itch.io/) | CC-BY-SA 3.0 | https://opengameart.org/content/pokemon-inspired-16x16-tiles |
+
+The Westfall tiles are recoloured versions of these two sets (same licenses). The fences, haybales, pumpkins, scarecrow, windmill and gnoll tents are drawn by the generator script itself.
+
+Both licenses require this credit (it is also shown on the Azeromon title screen). CC-BY-SA is share-alike: if CDLoot is shared publicly, the tiles taken from Red_Voxel's set, as modified here, must stay under CC-BY-SA 3.0.
+
+The Azeromon text font is **Pixel Operator** by Jayvee Enaguas (HarvettFox96), released under CC0 1.0 (public domain; no credit required, credited anyway): `Media\Azeromon\fonts\PixelOperator.ttf` and `PixelOperator-Bold.ttf`, from https://www.dafont.com/pixel-operator.font (source: https://notabug.org/HarvettFox96/ttf-pixeloperator).

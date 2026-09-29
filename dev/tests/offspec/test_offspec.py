@@ -231,7 +231,7 @@ def my_bis_switch_picker_and_remove():
     C.eval("ns.MyBiS:SetList('os')")
     r.w.tick(0.2)
     assert C.eval("return ns.MyBiS:GetList()") == "os"
-    assert C.find_text("Off-spec progress"), "card title"
+    assert C.find_text("Off spec  ·  P"), "card title"
     # the picker opened from the off-spec view writes the off-spec list
     C.eval("ns.Picker:Open(1, 15, 'main', nil, 'os')")
     assert "Off spec" in (C.eval("return CDLootPicker.TitleText and CDLootPicker.TitleText:GetText() or ''") or "")

@@ -403,6 +403,9 @@ def demo_member_view_arrows_readonly_doll():
     w.tick(0.5)
     line = strip_codes(c.eval("return %s.centerParts.lines[1]:GetText()" % mv))
     assert "No awards" not in line and "ago" in line or "just now" in line, line
+    # the model: a demo member isn't nearby -> a note instead of a model
+    note = c.eval("return %s.centerParts.noModel:GetText()" % mv)
+    assert "shows while they're nearby" in note, note
     no_errors(w)
 
 

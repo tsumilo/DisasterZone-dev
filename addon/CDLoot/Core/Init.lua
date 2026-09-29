@@ -215,6 +215,9 @@ local KNOWN_MESSAGES = {
     -- CDLoot 0.5: (guildKey) the guild name became known after login (GetGuildInfo can lag behind the roster);
     -- fired once per resolved guild, deferred (never from inside a Guild call).
     GUILD_KEY_READY = true,
+    -- Minigames (Games/Hub.lua): the game list / a highscore changed; (inCombat) combat started / ended
+    GAMES_UPDATED = true, GAMES_COMBAT = true,
+    BINGO_UPDATED = true,   -- Council Bingo (Games/Bingo): game started / square marked / game ended
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)

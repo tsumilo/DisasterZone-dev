@@ -79,11 +79,21 @@ def candidate(c, sid, pred_lua="return true", phase=5, klass=None):
 
 def card_texts(c):
     return c.eval_py("""
-      local k = T_card()
-      local lines = {}
-      for _, l in ipairs(k.lines) do if l:IsShown() then lines[#lines + 1] = l.text:GetText() end end
-      return { k.progress:GetText(), k.filled:GetText(), k.needTitle:GetText(),
-               k.hint:IsShown() and k.hint:GetText() or "", lines, k.sharingStatus:GetText() }""")
+      return { T_card().title:GetText() }""")
+
+
+def progress(c, phase=None):
+    return c.eval_py("local p = ns.MyBiS:GetProgress(...); return { p.filled, p.total, p.disabled, p.obtained }", phase)
+
+
+def tried_on(c):
+    """item IDs the card's model was dressed in on its last Dress (the mock records TryOn)."""
+    return c.eval_py("""
+      local m = T_card().model
+      local out = {}
+      for _, v in ipairs(m.T_tried or {}) do out[#out + 1] = tonumber(v:match("item:(%d+)")) end
+      table.sort(out)
+      return out""")
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -220,7 +230,6 @@ def picker_select_item_updates_tile_and_commits():
     assert c.eval_py("return {ns.BiS:GetSlot(1, 1)}") == [alt, first]
     # the list is committed 8 s after the last edit (rev 1), and the status line follows
     assert c.eval("return ns.BiS:IsDirty()") is True
-    assert "Changes pending" in card_texts(c)[5]
     w.tick(9)
     assert c.eval("return ns.BiS:GetRecord().rev") == 1
     assert c.eval("return ns.BiS:IsDirty()") is False
@@ -423,7 +432,7 @@ def copy_phase_and_clear_phase():
     w.tick(0.2)
     assert c.eval("return #ns.BiS:GetPhaseItems(2)") == 0
     assert c.eval("return #ns.BiS:GetPhaseItems(1)") == 3, "clearing P2 touched P1"
-    assert "Get started" == card_texts(c)[2]
+    assert progress(c, 2)[0] == 0
     # clearing an empty phase only explains
     c.click(c.eval("return T_button(T_mybis(), 'Clear phase')"))
     assert "CDLOOT_CLEAR_PHASE" not in c.popups()
@@ -530,7 +539,7 @@ def two_hander_locks_off_hand():
     assert oh_alpha < 1, oh_alpha
     assert "Two-hander equipped in main hand" in strip_codes(tile_text(c, 16)[1])
     prog = card_texts(c)
-    assert "0 / 16 obtained" in prog[0] and "1 of 16 slots chosen" in prog[1], prog
+    assert "0 / 16 obtained" in prog[0] and progress(c)[:2] == [1, 16], prog
     # still clickable: the off hand picker opens (a 2H + shield list is allowed but stays flagged)
     c.click(tile_btn(c, 16))
     assert c.eval_py("return {ns.Picker:GetState()}") == [1, 16, "main"]
@@ -551,48 +560,46 @@ def two_hander_locks_off_hand():
 
 
 @case
-def progress_card_still_needed_and_other_sources():
+def progress_card_model_wears_bis_picks():
     w, c = setup()
-    card = card_texts(c)
-    assert card[2] == "Get started" and card[3].startswith("Click a slot"), card
-    assert card[0] == "P1  ·  0 / 17 obtained", card[0]
-    # pick three Karazhan items from two bosses + a crafted helm + one obtained (equipped) item
+    assert card_texts(c)[0] == "P1  ·  0 / 17 obtained", card_texts(c)
+    # record what the model is dressed in (the mock's DressUpModel has no state for it)
+    c.eval("""
+      local m = T_card().model
+      local tryOn = m.TryOn
+      m.TryOn = function(self, link, ...) self.T_tried[#self.T_tried + 1] = link; if tryOn then return tryOn(self, link, ...) end end
+      local setUnit = m.SetUnit
+      m.SetUnit = function(self, ...) self.T_tried = {}; if setUnit then return setUnit(self, ...) end end
+      m.T_tried = {}""")
+
+    def tried():
+        return sorted(c.eval_py("""local o = {}
+          for _, v in ipairs(T_card().model.T_tried) do o[#o + 1] = tonumber(v:match("item:(%d+)")) end
+          return o""") or [])
+
     kara = c.eval_py("""
       local out = {}
       for sid = 2, 4 do
         for _, r in ipairs(ns.ItemDB:GetCandidates(sid, {maxPhase=1, class='PALADIN', usableOnly=true})) do
-          if r.ref.raid.key == 'Karazhan' and not r.ref.boss.isTrash then out[#out + 1] = { sid, r.itemID, r.ref.boss.name } break end
+          if r.ref.raid.key == 'Karazhan' and not r.ref.boss.isTrash then out[#out + 1] = { sid, r.itemID } break end
         end
       end
       return out""")
     assert len(kara) == 3, kara
-    for sid, iid, _ in kara:
+    for sid, iid in kara:
         c.eval("local s, i = ...; ns.BiS:SetSlot(1, s, 'main', i)", sid, iid)
     c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", CRAFTED_HELM)
     w.tick(0.2)
-    card = card_texts(c)
-    assert card[0] == "P1  ·  0 / 17 obtained" and card[1].startswith("4 of 17 slots chosen"), card
-    lines = [strip_codes(l) for l in card[4]]
-    assert lines[0].startswith("Karazhan - 3 ("), lines
-    assert lines[-1] == "Other sources - 1", lines
-    # hover the Karazhan line: every needed item listed
-    line_frame = c.eval("return T_card().lines[1]")
-    c.hover(line_frame)
-    tt = c.eval_py("return T_ttlines()")
-    assert len(tt) == 4 and strip_codes(tt[0][0]) == "Karazhan - 3", tt
-    # equip one of them -> obtained, removed from "still needed"
+    assert card_texts(c)[0] == "P1  ·  0 / 17 obtained" and progress(c, 1)[0] == 4
+    assert tried() == sorted([CRAFTED_HELM] + [k[1] for k in kara]), tried()
+    # a disabled slot keeps the equipped item (its pick isn't tried on)
+    c.eval("ns.BiS:SetSlotDisabled(1, 1, true)")
+    w.tick(0.2)
+    assert CRAFTED_HELM not in tried(), tried()
+    # obtained items count in the title
     c.equip({2: kara[0][1]})
     w.tick(2)
-    card = card_texts(c)
-    assert card[0] == "P1  ·  1 / 17 obtained", card[0]
-    assert strip_codes(card[4][0]).startswith("Karazhan - 2"), card[4]
-    # all chosen items obtained -> "Nothing left"
-    c.set_bags({(0, 1): kara[1][1], (0, 2): kara[2][1], (0, 3): CRAFTED_HELM})
-    w.tick(2)
-    card = card_texts(c)
-    assert card[0] == "P1  ·  4 / 17 obtained", card
-    assert "Nothing left" in card[3], card
-    assert "In bags" in strip_codes(tile_text(c, 1)[1])
+    assert card_texts(c)[0] == "P1  ·  1 / 16 obtained", card_texts(c)
     no_errors(w)
 
 
@@ -609,7 +616,6 @@ def spec_dropdown_and_auto_detect():
     w.tick(0.1)
     assert c.eval("return ns.BiS:GetSpec()") == "Retribution"
     assert c.eval("local d = ...; return d:GetText()", dd) == "Retribution"
-    assert "Retribution" in card_texts(c)[1]
     # auto-detect follows the talent tree with the most points
     c.set_talents((0, 45, 16))
     c.dropdown_menu(dd)
@@ -719,12 +725,6 @@ def many_raids_collapse_into_more_line_and_wearing_icon():
     c.eval("ns.BiS:SetSlot(5, 1, 'main', ...)", CRAFTED_HELM)
     c.click(c.eval("return T_button(T_mybis(), 'P5')"))
     w.tick(0.2)
-    lines = [strip_codes(l) for l in card_texts(c)[4]]
-    n_raids = len({r[2] for r in raids})
-    assert n_raids >= 7, raids
-    assert len(lines) == 7, lines
-    assert lines[5] == "+%d more raids - %d items" % (n_raids - 5, n_raids - 5), lines
-    assert lines[6] == "Other sources - 1", lines
     # wearing something else in a slot shows the small "wearing" icon with its own tooltip
     main2 = c.eval("return ns.BiS:GetSlot(5, 2)")
     other = c.eval("local m = ...; for _, r in ipairs(ns.ItemDB:GetCandidates(2, {maxPhase = 1})) do if r.itemID ~= m then return r.itemID end end", main2)

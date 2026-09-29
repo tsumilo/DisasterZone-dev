@@ -1102,10 +1102,78 @@ local function message_methods()
 end
 define("MessageFrame", "Frame", message_methods())
 define("ScrollingMessageFrame", "Frame", message_methods())
-define("Model", "Frame", {})
-define("PlayerModel", "Model", {})
-define("DressUpModel", "PlayerModel", {})
-define("ModelScene", "Frame", {})
+define("Model", "Frame", {
+  SetFacing = function(self, v) S(self).facing = v end,
+  GetFacing = function(self) return S(self).facing or 0 end,
+  SetPosition = function(self, x, y, z) S(self).pos = { x, y, z } end,
+  GetPosition = function(self) local p = S(self).pos or {}; return p[1] or 0, p[2] or 0, p[3] or 0 end,
+  SetPortraitZoom = function(self, v) S(self).portraitZoom = v end,
+  GetPortraitZoom = function(self) return S(self).portraitZoom or 0 end,
+  SetCamDistanceScale = function(self, v) S(self).camScale = v end,
+  GetCamDistanceScale = function(self) return S(self).camScale or 1 end,
+  ClearModel = function(self) S(self).unit = nil end,
+})
+define("PlayerModel", "Model", {
+  SetUnit = function(self, unit) S(self).unit = unit end,
+  SetDisplayInfo = function(self, id) S(self).displayInfo = id end,
+})
+define("DressUpModel", "PlayerModel", {
+  -- (item, slotName?) - the second argument is optional on Classic clients
+  TryOn = function(self, item, slot) end,
+  Undress = function(self) end,
+  Dress = function(self) end,
+})
+-- ModelScene + actors (Azeromon's auto-fitted creatures). Actors are plain objects, like the real
+-- ModelSceneActor. The bounding box is invented from the display ID (different sizes per creature) and
+-- only appears from the second query on, like a model that loads asynchronously.
+local ActorMethods = {}
+ActorMethods.__index = ActorMethods
+function ActorMethods:SetModelByCreatureDisplayID(id) self.display = id; self.queries = 0; return true end
+function ActorMethods:ClearModel() self.display = nil end
+function ActorMethods:IsLoaded() return self.display ~= nil end
+-- Displays divisible by 3 "hover": their current-pose box bobs 0.3 up and down (like a whelp's idle);
+-- the all-animations box covers the whole bob plus a rearing animation 0.8 higher.
+local function MockSize(d) return 0.5 + (d % 9) * 0.6, 0.4 + (d % 5) * 0.5 end
+function ActorMethods:GetActiveBoundingBox()
+  self.queries = (self.queries or 0) + 1
+  if not self.display or self.queries < 2 then return nil end
+  local h, w = MockSize(self.display)
+  local bob = (self.display % 3 == 0) and 0.3 * math.sin(self.queries * 0.7) or 0
+  return -w / 2, -w / 2, bob, w / 2, w / 2, h + bob
+end
+function ActorMethods:GetMaxBoundingBox()
+  if not self.display or (self.queries or 0) < 2 then return nil end
+  local h, w = MockSize(self.display)
+  local bob = (self.display % 3 == 0) and 0.3 or 0
+  return -w / 2, -w / 2, -bob, w / 2, w / 2, h + bob + 0.8
+end
+function ActorMethods:SetScale(v) self.scale = v end
+function ActorMethods:GetScale() return self.scale or 1 end
+function ActorMethods:SetPosition(x, y, z) self.pos = { x, y, z } end
+function ActorMethods:GetPosition() local p = self.pos or {}; return p[1] or 0, p[2] or 0, p[3] or 0 end
+function ActorMethods:SetYaw(v) self.yaw = v end
+function ActorMethods:SetAlpha(v) self.alpha = v end
+function ActorMethods:GetAlpha() return self.alpha or 1 end
+function ActorMethods:SetAnimation(id) self.anim = id end
+function ActorMethods:SetShown(v) self.shown = v and true or false end
+define("ModelScene", "Frame", {
+  CreateActor = function(self)
+    local st = S(self)
+    st.actors = st.actors or {}
+    local a = setmetatable({}, ActorMethods)
+    st.actors[#st.actors + 1] = a
+    return a
+  end,
+  SetCameraPosition = function(self, x, y, z) S(self).camPos = { x, y, z } end,
+  SetCameraOrientationByYawPitchRoll = function(self, y, p, r) S(self).camYPR = { y, p, r } end,
+  SetCameraFieldOfView = function(self, v) S(self).fov = v end,
+  SetCameraNearClip = function(self, v) S(self).near = v end,
+  SetCameraFarClip = function(self, v) S(self).far = v end,
+  SetLightVisible = function(self, v) S(self).light = v end,
+  SetLightDirection = function(self, x, y, z) end,
+  SetLightAmbientColor = function(self, r, g, b) end,
+  SetLightDiffuseColor = function(self, r, g, b) end,
+})
 define("ColorSelect", "Frame", {})
 define("SimpleHTML", "Frame", {
   SetText = function(self, v) S(self).text = to_text(v, "SetText") end,

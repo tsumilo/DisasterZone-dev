@@ -617,26 +617,6 @@ def enabler_who_passed_the_lead_no_longer_decides():
 
 
 @R.case
-def my_bis_progress_card_groups_dungeon_items():
-    w, c = bu.solo("Alice", class_file="MAGE", guild_rank=3, tick=3)
-    bu.install_helpers(c)
-    c.slash("/cdl")
-    w.tick(0.3)
-    for sid, item in ((SID_HEAD, MANA_CROWN), (SID_LEGS, BREECHES), (SID_BACK, BURNOOSE), (SID_RING1, JADE_RING)):
-        assert c.eval("return ns.BiS:SetSlot(1, ...)", sid, "main", item), item
-    w.tick(0.3)
-    lines = c.eval_py("""local k = T_card(); local o = {}
-      for _, l in ipairs(k.lines) do if l:IsShown() then o[#o + 1] = l.text:GetText() end end
-      return o""") or []
-    lines = [strip_codes(l) for l in lines]
-    assert lines[0].startswith("Karazhan - 1"), lines
-    assert "5-man dungeons - 3 (Black Morass 3)" in lines, lines
-    assert lines.index("5-man dungeons - 3 (Black Morass 3)") > 0, "dungeons come after the raids"
-    assert not any(l.startswith("Other sources") for l in lines), lines
-    w.assert_no_errors()
-
-
-@R.case
 def plain_member_cannot_enable_it_for_the_party():
     p = Party()
     w = p.w

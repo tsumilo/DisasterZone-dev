@@ -58,3 +58,21 @@ UI\DropPanel.lua
 UI\RollFrame.lua
 UI\Tooltip.lua
 UI\Settings.lua
+
+# Games (just for fun; never touch loot state)
+Games\Hub.lua
+Games\HubUI.lua
+Games\Bingo\Squares.lua
+Games\Bingo\Card.lua
+Games\Bingo\Bingo.lua
+Games\Bingo\Detect.lua
+Games\Bingo\UI.lua
+Games\Azeromon\Data.lua
+Games\Azeromon\Atlas.lua
+Games\Azeromon\Mon.lua
+Games\Azeromon\Battle.lua
+Games\Azeromon\Maps.lua
+Games\Azeromon\Game.lua
+Games\Azeromon\Net.lua
+Games\Azeromon\PvP.lua
+Games\Azeromon\UI.lua

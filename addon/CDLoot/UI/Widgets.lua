@@ -1641,3 +1641,59 @@ function UI:CreateBiSLockButton(parent, width, height, opts)
     b:Refresh()
     return b
 end
+
+---------------------------------------------------------------------------
+-- BiS model: a unit's character model wearing BiS picks (My BiS centre, Council member view)
+---------------------------------------------------------------------------
+
+-- Full-body camera that fits the frame (a model keeps a stale, zoomed-in camera after SetUnit / TryOn
+-- otherwise and draws outside its box).
+local function FitModelCamera(m)
+    pcall(m.SetPortraitZoom, m, 0)
+    pcall(m.SetCamDistanceScale, m, 1)
+    pcall(m.SetPosition, m, 0, 0, 0)
+    pcall(m.SetFacing, m, m.facing or 0)
+end
+
+local function IsWearable(itemID)
+    if C_Item and C_Item.IsEquippableItem then return C_Item.IsEquippableItem(itemID) and true or false end
+    return IsEquippableItem and IsEquippableItem(itemID) and true or false
+end
+
+-- m:DressBiS(unit, pickFn): shows `unit` in its current gear, then tries on pickFn(sid) (an itemID or nil)
+-- for every slot. Slots without a wearable pick (empty, disabled, tier tokens) keep the equipped item.
+-- Drag to rotate. Returns false when the unit can't be shown (not visible to the client).
+function UI:CreateBiSModel(parent)
+    local ok, m = pcall(CreateFrame, "DressUpModel", nil, parent)
+    if not ok or not m then m = CreateFrame("PlayerModel", nil, parent) end
+    m.facing = 0
+    pcall(m.SetScript, m, "OnModelLoaded", FitModelCamera)
+    m:EnableMouse(true)
+    m:SetScript("OnMouseDown", function(self) self.dragX = GetCursorPosition() end)
+    m:SetScript("OnMouseUp", function(self) self.dragX = nil end)
+    m:SetScript("OnUpdate", function(self)
+        if not self.dragX then return end
+        local x = GetCursorPosition()
+        self.facing = (self.facing or 0) + (x - self.dragX) * 0.02
+        self.dragX = x
+        pcall(self.SetFacing, self, self.facing)
+    end)
+    function m:DressBiS(unit, pickFn)
+        if not (unit and UnitExists(unit) and (unit == "player" or UnitIsVisible(unit))) then
+            pcall(self.ClearModel, self)
+            return false
+        end
+        pcall(self.SetUnit, self, unit)
+        FitModelCamera(self)
+        if not self.TryOn then return true end
+        for sid = 1, #(ns.SLOTS or {}) do
+            local slot = ns.SLOTS[sid]
+            local itemID = pickFn(sid)
+            if itemID and slot and IsWearable(itemID) then
+                pcall(self.TryOn, self, "item:" .. itemID, slot.slotName)
+            end
+        end
+        return true
+    end
+    return m
+end

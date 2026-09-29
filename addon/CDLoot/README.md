@@ -160,7 +160,7 @@ CDLoot marks a pick as obtained on its own when the item is:
 | **Have token** | You hold a tier token or quest item that turns into it |
 | **Marked obtained** | You set it with **Mark obtained** |
 
-The centre card shows "Pn · x / 17 obtained" and **Still needed from**, a list grouped by raid, 5-man dungeons, Crafted, Reputation, Badges and PvP.
+The centre card shows "Pn · x / 17 obtained" above your character model dressed in the phase's BiS picks (drag to rotate). Empty or disabled slots, and picks that can't be worn such as tier tokens, show what you have equipped.
 
 ### 6. Sharing
 

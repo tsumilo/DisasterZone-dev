@@ -210,7 +210,7 @@ function T_script(f, name, ...) __MOCK.call_script(f, name, ...) end
 function T_mybis() return ns.MainFrame:GetPanel("mybis") end
 function T_doll(root) return T_first(root or T_mybis(), function(f) return rawget(f, "tiles") ~= nil end) end
 function T_tile(sid, root) return rawget(T_doll(root), "tiles")[sid] end
-function T_card() return T_first(T_mybis(), function(f) return rawget(f, "progress") ~= nil and rawget(f, "lines") ~= nil end) end
+function T_card() return T_first(T_mybis(), function(f) return rawget(f, "model") ~= nil and rawget(f, "lockBanner") ~= nil end) end
 function T_links() return __MOCK.inserted_links end
 function T_clear_links() for i = #__MOCK.inserted_links, 1, -1 do __MOCK.inserted_links[i] = nil end end
 function T_ttlines(tt)

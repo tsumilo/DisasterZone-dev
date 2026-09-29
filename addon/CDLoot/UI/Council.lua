@@ -20,7 +20,7 @@ local ITEM_ROW_HEIGHT = 40
 local STALE_SECONDS = 7 * 86400
 local MAX_TOOLTIP_WANTERS = 20
 local MAX_WEAR_LINES = 10           -- "Wearing: A, B" sub-lines in the Items view tooltip
-local MAX_AWARD_LINES = 8
+local MAX_AWARD_LINES = 4
 local ANNOUNCE_COOLDOWN = 2
 local OTHER_NODE = "OTHER"
 
@@ -1538,22 +1538,36 @@ local function createMemberView(parent)
     end
     c.summary:SetJustifyH("LEFT")
 
-    c.title = host:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    c.title:SetPoint("TOPLEFT", c.summary, "BOTTOMLEFT", 0, -12)
-    c.title:SetPoint("TOPRIGHT", c.summary, "BOTTOMRIGHT", 0, -12)
-    c.title:SetJustifyH("LEFT")
-    c.title:SetText("Recent awards")
-
+    -- recent awards along the bottom, the member's model (wearing their BiS picks) between
     c.lines = {}
-    local prev = c.title
-    for i = 1, MAX_AWARD_LINES do
+    for i = MAX_AWARD_LINES, 1, -1 do
         local fs = host:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fs:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -4)
-        fs:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -4)
+        if i == MAX_AWARD_LINES then
+            fs:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 6, 6)
+            fs:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -6, 6)
+        else
+            fs:SetPoint("BOTTOMLEFT", c.lines[i + 1], "TOPLEFT", 0, 2)
+            fs:SetPoint("BOTTOMRIGHT", c.lines[i + 1], "TOPRIGHT", 0, 2)
+        end
         fs:SetJustifyH("LEFT")
         fs:SetWordWrap(false)
         c.lines[i] = fs
-        prev = fs
+    end
+    c.title = host:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    c.title:SetPoint("BOTTOMLEFT", c.lines[1], "TOPLEFT", 0, 4)
+    c.title:SetPoint("BOTTOMRIGHT", c.lines[1], "TOPRIGHT", 0, 4)
+    c.title:SetJustifyH("LEFT")
+    c.title:SetText("Recent awards")
+
+    if ns.UI and ns.UI.CreateBiSModel then
+        c.model = ns.UI:CreateBiSModel(host)
+        c.model:SetPoint("TOPLEFT", c.summary, "BOTTOMLEFT", 0, -4)
+        c.model:SetPoint("BOTTOMRIGHT", c.title, "TOPRIGHT", 0, 4)
+        c.model:SetScript("OnShow", function() if v.redress then v.redress() end end)
+        c.noModel = host:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        c.noModel:SetPoint("CENTER", c.model, "CENTER", 0, 0)
+        c.noModel:SetPoint("LEFT", c.model, "LEFT", 10, 0)
+        c.noModel:SetPoint("RIGHT", c.model, "RIGHT", -10, 0)
     end
     v.centerParts = c
 
@@ -1658,6 +1672,32 @@ local function refreshMemberCenter(v, key, data, phase, rec)
     end
 end
 
+-- Unit token of a member the client can see ("player", "partyN", "raidN"), or nil.
+local function memberUnit(key)
+    local U = ns.Util
+    if U and U.IsMe and U.IsMe(key) then return "player" end
+    local unit = U and U.GetPartyUnit and U.GetPartyUnit(key)
+    if unit then return unit end
+    if IsInRaid() and U and U.UnitKey then
+        for i = 1, 40 do
+            if U.UnitKey("raid" .. i) == key then return "raid" .. i end
+        end
+    end
+    return nil
+end
+
+-- The member's model wearing their BiS picks for the phase (only while they're nearby: the client
+-- can't render someone it doesn't see).
+local function dressMember(v, key, data, phase, rec)
+    local c = v.centerParts
+    if not (c and c.model) or not c.model:IsVisible() then return end
+    local shown = c.model:DressBiS(memberUnit(key), function(sid)
+        if slotDisabled(rec or { data = data }, phase, sid) then return nil end
+        return (getPicks(data, phase, sid))
+    end)
+    c.noModel:SetText(shown and "" or (shortName(key) .. "'s model shows while they're nearby."))
+end
+
 local function refreshMember(phase)
     local v = panel.memberView
     local key = state.memberKey
@@ -1720,6 +1760,8 @@ local function refreshMember(phase)
         v.doll:Update(shownRecord, phase, ctx)
     end
     refreshMemberCenter(v, key, data, phase, rec)
+    v.redress = function() dressMember(v, key, data, phase, rec) end
+    v.redress()
 end
 
 ----------------------------------------------------------------------------

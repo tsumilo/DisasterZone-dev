@@ -1,0 +1,549 @@
+"""Azeromon (Games hub): the Pokemon-style monster-taming game.
+
+Covers: data integrity (moves, species, trainers, maps, atlas tiles, warps), Gen III mechanics (type chart, STAB,
+stat stages, catching, exp and level-up, learning a 5th move, evolution, forced switch, blackout), the save
+(sanitised on load), a bot playing the whole preview from a new game to the Ranger Captain, and the UI driven by
+keys from the title screen through the intro and a full battle without Lua errors.
+
+Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon.py [-k name]
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TESTS = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
+sys.path.insert(0, HERE)
+
+from _common import case, run_all, solo, no_errors  # noqa: E402
+
+from _azero_bot import BOT  # noqa: E402
+
+
+def game(seed=7):
+    w, c = solo("Alice", tick=2)
+    c.eval(BOT)
+    c.eval("T_AZ.seed(%d)" % seed)
+    return w, c
+
+
+def logtext(c):
+    return "\n".join(c.eval_py("return T_AZ.log") or [])
+
+
+# -- data --------------------------------------------------------------------------------------------------------------
+
+@case
+def data_is_consistent():
+    w, c = game()
+    problems = c.eval_py(r"""
+      local D, A, Maps, G = ns.AzeroData, ns.AzeroAtlas, ns.AzeroMaps, ns.Azero
+      local out = {}
+      local function bad(s) out[#out + 1] = s end
+      for id, mv in pairs(D.moves) do if not D.types[mv.type] then bad("move type " .. id) end end
+      for id, s in pairs(D.species) do
+        if not D.types[s.type] then bad("species type " .. id) end
+        if #s.base ~= 6 then bad("base " .. id) end
+        if type(s.display) ~= "number" then bad("display " .. id) end
+        for _, e in ipairs(s.learn) do if not D.moves[e[2]] then bad("learn " .. id .. " " .. e[2]) end end
+        if s.evolve and not D.species[s.evolve.into] then bad("evolve " .. id) end
+      end
+      for id, t in pairs(D.trainers) do
+        if t.team ~= "rival" then for _, e in ipairs(t.team) do if not D.species[e[1]] then bad("trainer " .. id) end end end
+      end
+      for _, sp in ipairs(D.starters) do if not D.rivalStarter[sp] then bad("rival " .. sp) end end
+      for id, def in pairs(Maps) do
+        if type(def) == "table" and def.rows then
+          local w = #def.rows[1]
+          for i, r in ipairs(def.rows) do if #r ~= w then bad(id .. " row " .. i .. " width " .. #r) end end
+          local m = G.Compile(id)
+          for k, name in pairs(m.base) do if not A[name] then bad(id .. " base tile " .. name) end end
+          for k, name in pairs(m.over) do if not A[name] then bad(id .. " over tile " .. name) end end
+          for _, wp in ipairs(def.warps or {}) do
+            local t = G.Compile(wp.map)
+            if not t then bad(id .. " warp to " .. wp.map)
+            elseif t.solid[t.key(wp.tx, wp.ty)] then bad(id .. " warp lands on a solid tile") end
+            if m.solid[m.key(wp.x, wp.y)] then bad(id .. " warp tile solid " .. wp.x .. "," .. wp.y) end
+          end
+          for _, n in ipairs(def.npcs or {}) do
+            if m.solid[m.key(n.x, n.y)] then bad(id .. " npc on solid " .. n.id) end
+            if n.trainer and not D.trainers[n.trainer] then bad(id .. " trainer " .. n.trainer) end
+          end
+          for dir, e in pairs(def.edges or {}) do if not Maps[e.map] then bad(id .. " edge " .. dir) end end
+        end
+      end
+      local s = Maps.START
+      if G.Compile(s.map).solid[G.Compile(s.map).key(s.x, s.y)] then bad("start solid") end
+      return out
+    """)
+    assert problems == [], problems
+    no_errors(w)
+
+
+# -- mechanics --------------------------------------------------------------------------------------------------------
+
+@case
+def type_chart_and_stab_scale_damage():
+    w, c = game()
+    r = c.eval_py(r"""
+      local B, M = ns.AzeroBattle, ns.AzeroMon
+      local function dmg(atkSp, defSp, move)
+        local a, d = M.New(atkSp, 20, function() return 15 end), M.New(defSp, 20, function() return 15 end)
+        local b = B.New({ party = { a }, foes = { d }, wild = true, rng = function(x, y) return y or x end })
+        return (b:Damage("ally", "foe", ns.AzeroData.moves[move], false))
+      end
+      return { fireVsNature = dmg("emberwhelp", "lashling", "ember"), fireVsWater = dmg("emberwhelp", "murkling", "ember"),
+               neutral = dmg("emberwhelp", "wolfpup", "ember"), nonStab = dmg("murkling", "wolfpup", "tackle"),
+               earthVsAir = dmg("kobling", "owlet", "rockthrow") }
+    """)
+    assert r["fireVsNature"] > r["neutral"] > r["fireVsWater"] > 0, r
+    assert r["earthVsAir"] == 0, r
+    no_errors(w)
+
+
+@case
+def weakened_creatures_are_easier_to_catch_and_join_the_party():
+    w, c = game(seed=11)
+    r = c.eval_py(r"""
+      local G, M, B = ns.Azero, ns.AzeroMon, ns.AzeroBattle
+      G:NewGame()
+      local s = G.save
+      s.party[1] = M.New("murkling", 30, G.rng)
+      s.bag.net = 40
+      local wild = M.New("owlet", 3, G.rng)
+      wild.hp = 1
+      local b = B.New({ party = s.party, foes = { wild }, wild = true, bag = s.bag, rng = G.rng,
+                        onCaught = function(mon) return G:AddMon(mon) end })
+      local throws = 0
+      while b.need ~= "done" and throws < 40 do
+        throws = throws + 1
+        b:Act({ kind = "item", item = "net" })
+      end
+      return { result = b.result, party = #s.party, throws = throws, caught = s.caught.owlet == true, nets = s.bag.net }
+    """)
+    assert r["result"] == "caught" and r["party"] == 2 and r["caught"], r
+    assert r["nets"] == 40 - r["throws"], r
+    no_errors(w)
+
+
+@case
+def a_trainer_blocks_nets():
+    w, c = game()
+    r = c.eval_py(r"""
+      local G, M, B = ns.Azero, ns.AzeroMon, ns.AzeroBattle
+      G:NewGame()
+      G.save.party[1] = M.New("murkling", 30, G.rng)
+      G.save.bag.net = 1
+      local b = B.New({ party = G.save.party, foes = G:TrainerTeam("hunter1"), wild = false,
+                        trainer = G:TrainerDef("hunter1"), bag = G.save.bag, rng = G.rng })
+      b:Act({ kind = "item", item = "net" })
+      local texts = {}
+      for _, e in ipairs(b.events) do if e.t == "text" then texts[#texts + 1] = e.text end end
+      return { need = b.need, texts = texts }
+    """)
+    assert r["need"] == "action"
+    assert any("swatted the rod away" in t for t in r["texts"]), r
+    no_errors(w)
+
+
+@case
+def level_up_offers_a_fifth_move_and_replaces_the_chosen_one():
+    w, c = game(seed=3)
+    r = c.eval_py(r"""
+      local G, M, B, D = ns.Azero, ns.AzeroMon, ns.AzeroBattle, ns.AzeroData
+      G:NewGame()
+      local mon = M.New("emberwhelp", 15, G.rng)
+      mon.exp = M.ExpForLevel(16) - 1
+      G.save.party[1] = mon
+      local before = {}
+      for i, m in ipairs(mon.moves) do before[i] = m.id end
+      local wild = M.New("wolfpup", 5, G.rng)
+      wild.hp = 1
+      local b = B.New({ party = G.save.party, foes = { wild }, wild = true, rng = G.rng })
+      T_AZ.learnSlot = 2
+      local res = T_AZ.fight(b)
+      local after = {}
+      for i, m in ipairs(mon.moves) do after[i] = m.id end
+      return { res = res, lvl = mon.lvl, before = before, after = after }
+    """)
+    assert r["res"] == "win" and r["lvl"] == 16, r
+    assert r["before"] == ["scratch", "growl", "ember", "leer"], r
+    assert r["after"] == ["scratch", "flamebreath", "ember", "leer"], r
+    no_errors(w)
+
+
+@case
+def lashling_evolves_after_the_battle():
+    w, c = game(seed=5)
+    r = c.eval_py(r"""
+      local G, M = ns.Azero, ns.AzeroMon
+      G:NewGame()
+      local mon = M.New("lashling", 13, G.rng)
+      mon.exp = M.ExpForLevel(14) - 1
+      G.save.party[1] = mon
+      G:Run(function(g)
+        local foe = M.New("wolfpup", 5, g.rng)
+        foe.hp = 1
+        g:RunBattle({ foe }, nil)
+      end)
+      T_AZ.settle()
+      return { sp = mon.sp, lvl = mon.lvl, caught = G.save.caught.flaytrap == true }
+    """)
+    assert r == {"sp": "flaytrap", "lvl": 14, "caught": True}, r
+    assert "evolved into Flaytrap" in logtext(c)
+    no_errors(w)
+
+
+@case
+def fainted_lead_forces_a_switch_and_a_wipe_blacks_out():
+    w, c = game(seed=9)
+    r = c.eval_py(r"""
+      local G, M = ns.Azero, ns.AzeroMon
+      G:NewGame()
+      G.save.party = { M.New("owlet", 2, G.rng), M.New("webling", 2, G.rng) }
+      G.save.money = 1000
+      G:EnterMap("route1", 11, 20, "up", true)
+      local switches = 0
+      G:Run(function(g) g:RunBattle({ M.New("kobling", 40, g.rng) }, "hunter1") end)
+      for _ = 1, 3000 do
+        local p = G.pending
+        if not p then break end
+        if p.kind == "battle" then
+          local b = p.battle
+          while b:Pop() do end
+          if b.need == "switch" then switches = switches + 1 b:Act({ kind = "switch", idx = 2 })
+          elseif b.need == "action" then b:Act({ kind = "move", idx = 1 })
+          elseif b.need == "done" then G:Advance(b.result) end
+        elseif p.kind == "text" then T_AZ.log[#T_AZ.log + 1] = p.text G:Advance()
+        else G:Update(0.05) end
+      end
+      local s = G.save
+      return { switches = switches, map = s.map, money = s.money, hp1 = s.party[1].hp == M.MaxHP(s.party[1]),
+               hp2 = s.party[2].hp == M.MaxHP(s.party[2]) }
+    """)
+    assert r["switches"] == 1, r
+    assert r["map"] == "post" and r["money"] == 500 and r["hp1"] and r["hp2"], r
+    assert "dropped 5s" in logtext(c)
+    no_errors(w)
+
+
+@case
+def a_broken_save_is_repaired_on_load():
+    w, c = game()
+    r = c.eval_py(r"""
+      local G = ns.Azero
+      G:Data().save = { v = 1, map = "nowhere", x = 1, y = 1, money = "lots",
+        party = { { sp = "emberwhelp", lvl = 900, hp = -5, moves = { { id = "nope" }, { id = "ember", pp = 99 } } },
+                  { sp = "missingno", lvl = 5 } },
+        bag = { net = 3, fake = 2, potion = -1 } }
+      G:Load()
+      local s = G.save
+      return { map = s.map, party = #s.party, lvl = s.party[1].lvl, hp = s.party[1].hp, moves = #s.party[1].moves,
+               pp = s.party[1].moves[1].pp, net = s.bag.net, fake = s.bag.fake, potion = s.bag.potion, money = s.money }
+    """)
+    assert r["map"] == "home" and r["party"] == 1 and r["lvl"] == 50 and r["hp"] == 0, r
+    assert r["moves"] == 1 and r["pp"] == 25 and r["net"] == 3, r
+    assert r.get("fake") is None and r.get("potion") is None and r["money"] == 0, r
+    no_errors(w)
+
+
+# -- story -------------------------------------------------------------------------------------------------------------
+
+@case
+def guard_turns_you_back_without_a_starter():
+    w, c = game()
+    r = c.eval_py(r"""
+      local G = ns.Azero
+      G:NewGame()
+      G:EnterMap("town", 10, 3, "up", true)
+      T_AZ.walkTo(10, 1)
+      T_AZ.settle()
+      return { x = G.save.x, y = G.save.y, map = G.save.map }
+    """)
+    assert r == {"x": 10, "y": 2, "map": "town"}, r
+    assert "Hold it!" in logtext(c)
+    no_errors(w)
+
+
+@case
+def bot_plays_the_whole_preview():
+    w, c = game(seed=21)
+    r = c.eval_py(r"""
+      local G, M = ns.Azero, ns.AzeroMon
+      local trace = {}
+      local function go(x, y, label)
+        local ok, why = T_AZ.walkTo(x, y)
+        trace[#trace + 1] = label .. "=" .. tostring(ok) .. (why and (":" .. why) or "") .. "@" .. G.save.map .. " " .. G.save.x .. "," .. G.save.y
+        return ok
+      end
+      G:NewGame()
+      go(4, 7, "leave home")                 -- the exit mat warps to town (5, 7)
+      go(17, 6, "lab door")
+      go(4, 5, "starter basket")
+      T_AZ.face("up")
+      T_AZ.choice = 1
+      G:PressA()                             -- Murkling basket
+      T_AZ.settle()
+      local s = G.save
+      local starter = s.party[1] and s.party[1].sp
+      -- make the run deterministic: a strong starter
+      local mon = s.party[1]
+      mon.lvl = 30 mon.exp = M.ExpForLevel(30) mon.moves = M.DefaultMoves(mon.sp, 30) M.Heal(mon)
+      go(4, 7, "leave lab")
+      go(10, 0, "town exit")
+      T_AZ.step("up")                        -- north edge -> Brightbrook Trail
+      local routeY = G.save.y
+      go(19, 12, "potion chest")             -- stands below the chest at (19, 11)
+      T_AZ.face("up") G:PressA() T_AZ.settle()
+      go(11, 3, "captain")                   -- Deputy Rainer spots you from (13, 2)
+      T_AZ.settle()
+      go(10, 2, "road north")
+      T_AZ.step("up")                        -- the gate: no badge yet -> pushed back
+      T_AZ.settle()
+      local gated = { G.save.map, G.save.y }
+      go(0, 2, "west exit")
+      T_AZ.step("left")                      -- -> Forest's Edge
+      local fe = G.save.map
+      go(5, 7, "hogger")                     -- the gnolls on the trail spot you on the way
+      T_AZ.face("left") G:PressA() T_AZ.settle()
+      local badge = s.flags.badge_hogger == true
+      M.Heal(mon)                            -- (a player would rest at the inn here)
+      go(19, 6, "camp exit")
+      T_AZ.step("right")                     -- back to Elwynn
+      go(10, 1, "gate again")
+      go(10, 0, "road top")
+      T_AZ.step("up")                        -- -> Westfall
+      local wfY = G.save.y
+      M.Heal(mon)                            -- (Salma Saldean's stew)
+      go(11, 0, "westfall north")
+      T_AZ.step("up")                        -- -> Sentinel Hill
+      go(11, 7, "gryan")
+      T_AZ.face("up") G:PressA() T_AZ.settle()
+      local beaten = {}
+      for k, v in pairs(s.flags) do if k:find("^beat_") then beaten[#beaten + 1] = k end end
+      table.sort(beaten)
+      return { starter = starter, map = s.map, routeY = routeY, nets = s.bag.net, potions = s.bag.potion,
+               beaten = beaten, battles = T_AZ.battles, trace = trace, flags = s.flags.rivalDone == true,
+               gated = gated, fe = fe, badge = badge, wfY = wfY,
+               seen = (function() local n = 0 for _ in pairs(s.seen) do n = n + 1 end return n end)() }
+    """)
+    assert r["starter"] == "murkling", r
+    assert r["flags"] and r["potions"] >= 2, r
+    assert r["routeY"] == 32, r
+    assert r["gated"] == ["route1", 2], r
+    assert r["fe"] == "forestedge" and r["badge"], r
+    for t in ("beat_captain", "beat_hogger", "beat_militia1"):
+        assert t in r["beaten"], r
+    assert r["wfY"] == 33 and r["map"] == "sentinel", r
+    assert r["seen"] >= 5, r
+    text = logtext(c)
+    for needle in ("Rival Vera", "Hogger's Claw", "Deputy Rainer: Hold on!", "Gryan Stoutmantle"):
+        assert needle in text, (needle, text[-1500:])
+    no_errors(w)
+
+
+@case
+def event_snapshots_follow_the_playback_order():
+    """The UI shows each event's snapshot: HP may only change on that side's own hp event."""
+    w, c = game(seed=13)
+    bad = c.eval_py(r"""
+      local G, M, B = ns.Azero, ns.AzeroMon, ns.AzeroBattle
+      G:NewGame()
+      local party = { M.New("murkling", 12, G.rng), M.New("owlet", 10, G.rng) }
+      local b = B.New({ party = party, foes = G:TrainerTeam("captain"), wild = false,
+                        trainer = G:TrainerDef("captain"), rng = G.rng })
+      local out, last = {}, nil
+      for _ = 1, 400 do
+        local e = b:Pop()
+        while e do
+          if last then
+            for _, side in ipairs({ "ally", "foe" }) do
+              local a, z = last[side], e.snap[side]
+              if a and z and a.name == z.name and a.hp ~= z.hp then
+                if not (e.t == "hp" and e.side == side and e.from == a.hp and e.to == z.hp) then
+                  out[#out + 1] = e.t .. " changed " .. side .. " hp " .. a.hp .. "->" .. z.hp
+                end
+              end
+            end
+          end
+          last = e.snap
+          e = b:Pop()
+        end
+        if b.need == "done" then break end
+        if b.need == "action" then b:Act({ kind = "move", idx = 1 })
+        elseif b.need == "switch" then for i, m in ipairs(party) do if m.hp > 0 then b:Act({ kind = "switch", idx = i }) break end end
+        elseif b.need == "learn" then b:ResolveLearn(nil) end
+      end
+      return out
+    """)
+    assert bad == [], bad
+    no_errors(w)
+
+
+@case
+def stacked_menus_draw_above_the_menu_below():
+    """Battle > BAG > Healing Salve > party picker: each menu (and its rows) sits above the one under it."""
+    w, c = game(seed=4)
+    c.slash("/cdl play azeromon")
+    w.tick(0.3)
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    for _ in range(40):
+        w.tick(0.3)
+        c.eval("ns.AzeroUI._HandleKey('A')")
+        if not c.eval("return ns.Azero.pending ~= nil"):
+            break
+    c.eval("local G = ns.Azero; G.save.bag.potion = 1; G.save.party[1] = ns.AzeroMon.New('lashling', 5, G.rng); "
+           "G.save.party[1].hp = 3; G:Run(function(g) g:WildBattle('owlet', 3) end)")
+    for _ in range(60):
+        w.tick(0.3)
+        if c.eval("return ns.AzeroUI._State().stack") >= 1:
+            break
+        c.eval("ns.AzeroUI._HandleKey('A')")
+    for k in ("right", "A", "A"):          # BAG, Healing Salve -> "use on which?"
+        c.eval("ns.AzeroUI._HandleKey('%s')" % k)
+        w.tick(0.1)
+    levels = c.eval_py("return ns.AzeroUI._Levels()")
+    assert len(levels) == 3, levels
+    for below, above in zip(levels, levels[1:]):
+        assert above["level"] > below["row"] and above["row"] > above["level"], levels
+    no_errors(w)
+
+
+def _ui_battle(c, w, lead="emberwhelp"):
+    """UI started, intro done, a wild battle open at the FIGHT / BAG / PARTY / RUN menu."""
+    c.slash("/cdl play azeromon")
+    w.tick(0.3)
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    for _ in range(40):
+        w.tick(0.3)
+        c.eval("ns.AzeroUI._HandleKey('A')")
+        if not c.eval("return ns.Azero.pending ~= nil"):
+            break
+    c.eval("local G = ns.Azero; G.save.party[1] = ns.AzeroMon.New('%s', 5, G.rng); "
+           "G:Run(function(g) g:WildBattle('kobling', 3) end)" % lead)
+    for _ in range(60):
+        w.tick(0.3)
+        if c.eval("return ns.AzeroUI._State().stack") >= 1:
+            return
+        c.eval("ns.AzeroUI._HandleKey('A')")
+    raise AssertionError("no action menu")
+
+
+@case
+def party_summary_in_battle_closes_cleanly():
+    """PARTY > creature > Summary > close > close: back at the action menu, and FIGHT still works."""
+    w, c = game(seed=4)
+    _ui_battle(c, w)
+    for k in ("down", "A", "A", "down", "A"):     # PARTY, the lead, sub-menu, Summary
+        c.eval("ns.AzeroUI._HandleKey('%s')" % k)
+        w.tick(0.1)
+    assert c.eval("return ns.AzeroUI._Summary()") is True
+    c.eval("ns.AzeroUI._HandleKey('B')")          # close the summary
+    w.tick(0.1)
+    assert c.eval("return ns.AzeroUI._Summary()") is False
+    # the summary frame must never come back as a menu
+    c.eval("ns.AzeroUI._HandleKey('A')")          # sub-menu again
+    w.tick(0.1)
+    assert c.eval("return ns.AzeroUI._Summary()") is False
+    c.eval("ns.AzeroUI._HandleKey('B')")          # close sub-menu
+    c.eval("ns.AzeroUI._HandleKey('B')")          # close party
+    w.tick(0.1)
+    assert c.eval("return ns.AzeroUI._State().stack") == 1
+    c.eval("ns.AzeroUI._HandleKey('up')")         # FIGHT
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.1)
+    assert c.eval("return ns.AzeroUI._State().stack") == 2
+    no_errors(w)
+
+
+@case
+def every_creature_is_fitted_to_the_same_size_on_its_platform():
+    """Battle models are measured and scaled: whatever the model's real size, it fills the same share of its
+    frame (height, or width for wide ones) and stands on the frame's bottom edge."""
+    w, c = game()
+    c.slash("/cdl play azeromon")
+    w.tick(0.3)
+    ids = c.eval_py("return ns.AzeroData.dexOrder")
+    fills = []
+    for sp in ids:
+        c.eval("ns.AzeroUI._ShowFoe(%r)" % sp)
+        w.tick(2.0)                              # load, then 1.6 s of idle pose sampling
+        info = c.eval_py("return ns.AzeroUI._FitInfo()")
+        assert info, sp
+        big = max(info["h"] / 0.78, info["w"] / 0.86)
+        assert abs(big - 1) < 0.01, (sp, info)          # limited by height or width, never bigger
+        assert info["h"] <= 0.781 and info["w"] <= 0.861, (sp, info)
+        assert abs(info["feet"] - 0.03) < 0.001, (sp, info)
+        fills.append(big)
+        disp = c.eval("return ns.AzeroData.species[%r].display" % sp)
+        if disp % 3 == 0:
+            # a hovering idle (mock bob of +-0.3): the fit covers the whole bob, not one moment of it,
+            # and ignores the taller rearing animation that only the all-animations box contains
+            assert info["z0"] <= -0.29 and info["z1"] < 0.5 + (disp % 9) * 0.6 + 0.31, (sp, info)
+    assert len(fills) == len(ids)
+    # the camera is far away (near-orthographic): a creature reaching 2 scene units toward the camera is drawn at
+    # most ~4% lower than one at the centre, instead of ~40% with the old close camera (the sunk spider)
+    cam = c.eval_py("return ns.AzeroUI._Camera()")
+    assert cam["dist"] >= 50 and cam["fov"] < 0.1, cam
+    no_errors(w)
+
+
+# -- UI -----------------------------------------------------------------------------------------------------------------
+
+@case
+def ui_title_intro_walk_and_battle_by_keys():
+    w, c = game(seed=4)
+    c.slash("/cdl play azeromon")
+    w.tick(0.3)
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "games"
+    assert c.eval("return ns.AzeroUI._State() ~= nil")
+    # title: NEW GAME is the only option without a save
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    w.tick(0.2)
+    assert c.eval("return ns.Azero.started == true")
+    # intro text: press A until it is done
+    for _ in range(40):
+        w.tick(0.3)
+        c.eval("ns.AzeroUI._HandleKey('A')")
+        if not c.eval("return ns.Azero.pending ~= nil"):
+            break
+    assert c.eval("return ns.Azero.pending == nil")
+    # no atlas texture is shown without tile coordinates (it would draw the whole atlas squashed into one tile)
+    stray = c.eval_py(r'''
+      local n = 0
+      for obj, st in pairs(__MOCK.OBJ) do
+        if st.kind == "Texture" and type(st.texture) == "string" and st.texture:find("Azeromon", 1, true) and st.texture:find("atlas", 1, true)
+           and not st.texcoord and obj:IsShown() then n = n + 1 end
+      end
+      return n''')
+    assert stray == 0, stray
+    # walk right one tile
+    c.eval("ns.Azero:SetDir('right')")
+    w.tick(0.5)
+    c.eval("ns.Azero:SetDir(nil)")
+    w.tick(0.3)
+    # start menu opens and closes
+    c.eval("ns.AzeroUI._HandleKey('START')")
+    w.tick(0.1)
+    assert c.eval("return ns.AzeroUI._State().stack") == 1
+    c.eval("ns.AzeroUI._HandleKey('B')")
+    w.tick(0.1)
+    assert c.eval("return ns.AzeroUI._State().stack") == 0
+    # a wild battle, played only with the A key (FIGHT, first move, text)
+    c.eval("local M = ns.AzeroMon; local mon = M.New('murkling', 25, ns.Azero.rng); mon.moves = { { id = 'waterjet', pp = 25 } }; "
+           "ns.Azero.save.party[1] = mon; "
+           "ns.Azero:Run(function(g) g:WildBattle('wolfpup', 3) end)")
+    finished = False
+    for _ in range(400):
+        w.tick(0.25)
+        c.eval("ns.AzeroUI._HandleKey('A')")
+        if not c.eval("return ns.Azero.pending ~= nil or ns.AzeroUI._State().battle"):
+            finished = True
+            break
+    assert finished, c.eval_py("return ns.AzeroUI._State()")
+    assert c.eval("return ns.Azero.save.seen.wolfpup == true")
+    no_errors(w)
+
+
+if __name__ == "__main__":
+    run_all()

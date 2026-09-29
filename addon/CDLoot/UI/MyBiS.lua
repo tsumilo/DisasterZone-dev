@@ -13,7 +13,6 @@ ns.MyBiS = MyBiS
 local NUM_SLOTS = 17
 local AUTO_SPEC = "__auto"
 local REMOVE_OS = "__removeos"
-local MAX_NEED_LINES = 6
 local LOCK_BANNER_H = 40
 local FOOTER_TEXT = "Click a slot to choose  ·  Right-click for options  ·  Drag items from your bags onto a slot  ·  Shift-click to link"
 local FOOTER_LOCKED = "BiS lists are locked during the raid  ·  Obtained items still update  ·  Right-click a slot to mark it obtained"
@@ -621,18 +620,6 @@ local function ComputeProgress(phase)
     return result
 end
 
-local function NeedLineTooltip(line)
-    local info = line.info
-    if not info then return end
-    GameTooltip:SetOwner(line, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(info.title, 1, 0.82, 0)
-    for _, it in ipairs(info.items) do
-        local text = ns.UI:ItemText(it.itemID)
-        GameTooltip:AddDoubleLine(text, (it.boss and (it.boss .. "  ·  ") or "") .. SlotLabel(it.sid), 1, 1, 1, 0.7, 0.7, 0.7)
-    end
-    GameTooltip:Show()
-end
-
 -- §38: "BiS lists are locked" banner at the top of the card (shown while my list is locked).
 local function CreateLockBanner(c)
     local UI = ns.UI
@@ -680,6 +667,8 @@ local function CreateLockBanner(c)
     return b
 end
 
+-- The centre card: the player model wearing the phase's BiS picks. A slot that is empty, disabled or
+-- holds something that can't be worn (a tier token) keeps the currently equipped item.
 local function CreateCard(parent)
     local UI = ns.UI
     local c = UI:CreatePanel(parent)
@@ -687,76 +676,33 @@ local function CreateCard(parent)
 
     c.lockBanner = CreateLockBanner(c)
 
-    c.title = UI:CreateLabel(c, "Phase progress", "GameFontNormal")
+    c.title = UI:CreateLabel(c, "", "GameFontNormal")
     c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 12, -12)
 
-    c.progress = UI:CreateLabel(c, "", "GameFontHighlight")
-    c.progress:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -6)
+    local m = UI:CreateBiSModel(c)
+    m:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", -8, -4)
+    m:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -4, 4)
+    m:SetScript("OnShow", function() if c.phase then c:Dress(c.phase) end end)
+    c.model = m
 
-    c.bar = CreateFrame("StatusBar", nil, c)
-    c.bar:SetPoint("TOPLEFT", c.progress, "BOTTOMLEFT", 0, -6)
-    c.bar:SetPoint("RIGHT", c, "RIGHT", -12, 0)
-    c.bar:SetHeight(8)
-    c.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-    c.bar:SetStatusBarColor(ns.UI:Color("obtained"))
-    c.bar:SetMinMaxValues(0, NUM_SLOTS)
-    c.bar:SetValue(0)
-    c.bar.bg = c.bar:CreateTexture(nil, "BACKGROUND")
-    c.bar.bg:SetAllPoints()
-    c.bar.bg:SetColorTexture(0.15, 0.15, 0.15, 0.9)
+    c.hint = UI:CreateLabel(c, "Drag to rotate", "GameFontDisableSmall")
+    c.hint:SetPoint("BOTTOM", c, "BOTTOM", 0, 8)
 
-    c.filled = UI:CreateLabel(c, "", "GameFontDisableSmall")
-    c.filled:SetPoint("TOPLEFT", c.bar, "BOTTOMLEFT", 0, -5)
-    c.filled:SetPoint("RIGHT", c, "RIGHT", -12, 0)
-
-    c.needTitle = UI:CreateLabel(c, "Still needed from", "GameFontNormal")
-    c.needTitle:SetPoint("TOPLEFT", c.filled, "BOTTOMLEFT", 0, -14)
-
-    c.lines = {}
-    local prev = c.needTitle
-    for i = 1, MAX_NEED_LINES + 1 do
-        local line = CreateFrame("Button", nil, c)
-        line:SetHeight(15)
-        line:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, i == 1 and -4 or -1)
-        line:SetPoint("RIGHT", c, "RIGHT", -12, 0)
-        line.text = line:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        line.text:SetAllPoints()
-        line.text:SetJustifyH("LEFT")
-        line.text:SetWordWrap(false)
-        line:SetScript("OnEnter", NeedLineTooltip)
-        line:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        line:Hide()
-        c.lines[i] = line
-        prev = line
+    function c:Dress(phase)
+        self.phase = phase
+        if not self.model:IsVisible() then return end
+        local BiS = ns.BiS
+        local data = BiS and (BiS.GetListView and BiS:GetListView(ListArg()) or BiS:GetData())
+        local ph = data and type(data.ph) == "table" and data.ph[phase]
+        self.model:DressBiS("player", function(sid)
+            local e = type(ph) == "table" and ph[sid]
+            local itemID = type(e) == "table" and tonumber(e[1]) or nil
+            if itemID and itemID > 0 and not SlotDisabled(phase, sid) then return itemID end
+        end)
     end
-
-    c.hint = UI:CreateLabel(c, "", "GameFontHighlightSmall")
-    c.hint:SetPoint("TOPLEFT", c.needTitle, "BOTTOMLEFT", 0, -6)
-    c.hint:SetPoint("RIGHT", c, "RIGHT", -12, 0)
-    c.hint:SetJustifyV("TOP")
-    c.hint:SetSpacing(2)
-
-    c.sharingStatus = UI:CreateLabel(c, "", "GameFontHighlightSmall")
-    c.sharingStatus:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 12, 12)
-    c.sharingStatus:SetPoint("RIGHT", c, "RIGHT", -12, 0)
-    c.sharingStatus:SetJustifyV("BOTTOM")
-
-    c.sharingTitle = UI:CreateLabel(c, "Sharing", "GameFontNormal")
-    c.sharingTitle:SetPoint("BOTTOMLEFT", c.sharingStatus, "TOPLEFT", 0, 4)
 
     return c
 end
-
-local function UpdateSharing()
-    if not card then return end
-    local text = ns.Sync and ns.Sync.GetStatusText and ns.Sync:GetStatusText() or ""
-    if text == "" then text = "Not available" end
-    card.sharingStatus:SetText(ns.UI:SafeText(text))
-end
-
-local EMPTY_HINT = "Click a slot to choose your best-in-slot item. Drag items from your bags onto a slot to use any other item."
-local EMPTY_HINT_OS = "Your off-spec list: pick what you'd want for your second spec (for example tank or healing gear), "
-    .. "then choose its spec above. The council sees these after everyone's main-spec wants, and an award counts as Offspec."
 
 -- §38: lock banner (the card's content moves below it) and the footer text.
 local function UpdateLockBanner()
@@ -771,106 +717,15 @@ local function UpdateLockBanner()
     if footer then footer:SetText(locked and FOOTER_LOCKED or FOOTER_TEXT) end
 end
 
--- The extra "Still needed from" lines after the raids: crafted / rep / badge / PvP (§37), other sources.
-local function ExtraLines(info)
-    local extras = {}
-    for _, def in ipairs(KIND_LINES) do
-        local entry = info.kinds[def.kind]
-        if entry and entry.count > 0 then
-            local parts = {}
-            for i, gname in ipairs(entry.groupOrder) do
-                if i > 2 then
-                    parts[#parts + 1] = "..."
-                    break
-                end
-                parts[#parts + 1] = gname .. " " .. entry.groups[gname]
-            end
-            extras[#extras + 1] = {
-                text = ("%s (%d)  |cff999999%s|r"):format(def.label, entry.count, table.concat(parts, ", ")),
-                info = { title = ("%s (%d)"):format(def.label, entry.count), items = entry.items },
-            }
-        end
-    end
-    if info.other > 0 then
-        extras[#extras + 1] = {
-            text = ("Other sources - %d"):format(info.other),
-            info = { title = "Other sources (quests, world drops...)", items = info.otherItems },
-        }
-    end
-    return extras
-end
-
 local function UpdateCard(phase)
     if not card then return end
     UpdateLockBanner()
     local info = ComputeProgress(phase)
     local short = (ns.PHASE_INFO and ns.PHASE_INFO[phase] and ns.PHASE_INFO[phase].short) or ("P" .. phase)
-    card.title:SetText(IsOffSpecView() and ns.UI:Colorize("Off-spec progress", ns.COLORS and ns.COLORS.offspec)
-        or "Phase progress")
-    card.progress:SetText(("%s  ·  %d / %d obtained"):format(short, info.obtained, info.total))
-    card.bar:SetMinMaxValues(0, math.max(1, info.total))
-    card.bar:SetValue(math.min(info.obtained, info.total))
-    local spec = SelectedSpec() or ""
-    local disabledText = info.disabled > 0 and ("  ·  " .. info.disabled .. " disabled") or ""
-    card.filled:SetText(("%d of %d slots chosen%s%s"):format(info.filled, info.total, disabledText,
-        spec ~= "" and ("  ·  " .. spec) or ""))
-
-    for _, line in ipairs(card.lines) do
-        line:Hide()
-        line.info = nil
-    end
-
-    local extras = ExtraLines(info)
-    if info.filled == 0 then
-        card.needTitle:SetText("Get started")
-        card.hint:SetText(IsOffSpecView() and EMPTY_HINT_OS or EMPTY_HINT)
-        card.hint:Show()
-    elseif #info.raids == 0 and #extras == 0 then
-        card.needTitle:SetText("Still needed from")
-        card.hint:SetText(ns.UI:Colorize("Nothing left - every chosen item is obtained!", ns.COLORS and ns.COLORS.obtained))
-        card.hint:Show()
-    else
-        card.needTitle:SetText("Still needed from")
-        card.hint:Hide()
-        local n = 0
-        -- the extra lines always show; the raids get the rest (+ a "+N more raids" line)
-        local maxRaidLines = math.max(1, MAX_NEED_LINES - #extras)
-        local hiddenRaids, hiddenCount = 0, 0
-        for _, entry in ipairs(info.raids) do
-            if n < maxRaidLines then
-                n = n + 1
-                local parts = {}
-                for i, bname in ipairs(entry.bossOrder) do
-                    if i > 3 then
-                        parts[#parts + 1] = "..."
-                        break
-                    end
-                    parts[#parts + 1] = (entry.dungeon and bname or ShortBossName(bname)) .. " " .. entry.bosses[bname]
-                end
-                local line = card.lines[n]
-                line.text:SetText(("%s - %d |cff999999(%s)|r"):format(entry.raid.name or "?", entry.count, table.concat(parts, ", ")))
-                line.info = { title = (entry.raid.name or "?") .. " - " .. entry.count, items = entry.items }
-                line:Show()
-            else
-                hiddenRaids = hiddenRaids + 1
-                hiddenCount = hiddenCount + entry.count
-            end
-        end
-        if hiddenRaids > 0 and n < #card.lines then
-            n = n + 1
-            card.lines[n].text:SetText(("|cff999999+%d more raids - %d items|r"):format(hiddenRaids, hiddenCount))
-            card.lines[n]:Show()
-        end
-        for _, extra in ipairs(extras) do
-            if n >= #card.lines then break end
-            n = n + 1
-            local line = card.lines[n]
-            line.text:SetText(extra.text)
-            line.info = extra.info
-            line:Show()
-        end
-    end
-    UpdateSharing()
+    local label = ("%s  ·  %d / %d obtained"):format(short, info.obtained, info.total)
+    card.title:SetText(IsOffSpecView() and ns.UI:Colorize("Off spec  ·  " .. label, ns.COLORS and ns.COLORS.offspec)
+        or label)
+    card:Dress(phase)
 end
 
 ---------------------------------------------------------------------------
@@ -1106,8 +961,6 @@ ns:On("CONFIG_UPDATED", function()
     end
     RequestRefresh()
 end)
-ns:On("SYNC_STATUS", UpdateSharing)
-ns:On("MYLIST_COMMITTED", UpdateSharing)
 -- §38: the raid lock started / ended (GS lk from the group's loot authority).
 ns:On("BIS_LOCK_CHANGED", RequestRefresh)
 ns:On("GROUP_RULES_CHANGED", RequestRefresh)

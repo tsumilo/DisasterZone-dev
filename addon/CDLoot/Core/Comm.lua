@@ -1,5 +1,5 @@
 -- CDLoot: addon-message transport. AceComm-3.0 (+ChatThrottleLib) for chunking/throttling,
--- LibSerialize + LibDeflate for the payload. Three prefixes, one priority each; every received
+-- LibSerialize + LibDeflate for the payload. Four prefixes (ctrl, data, alert, game), one priority each; every received
 -- message is gated on the server-provided sender before it is decoded and dispatched.
 local addonName, ns = ...
 
@@ -17,9 +17,10 @@ if AceComm then
     AceComm:Embed(Comm)
 end
 
-local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa" }
-local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT" }
-local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert" }
+-- "game" (CDLg) carries only minigame traffic, so its per-prefix server budget never delays council sync.
+local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg" }
+local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK" }
+local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game" }
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays)
 local MAX_WIRE_LEN_MEMBER = 4000 -- from anyone else: a full own list is ~1.1 KB, HELLO / rolls / drops far less

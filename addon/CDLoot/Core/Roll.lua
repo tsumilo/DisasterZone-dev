@@ -1238,6 +1238,21 @@ function Roll:OnResponse(key, id, r)
     return true
 end
 
+-- Parses a /roll CHAT_MSG_SYSTEM line without recording it (used by the minigames).
+-- Returns key, value, lo, hi or nil (not a roll line, or the roller is not in my group).
+function Roll:ParseRollLine(text)
+    if type(text) ~= "string" or text == "" or #text > 255 then return nil end
+    local pat = GetRollPattern()
+    if not pat then return nil end
+    local name, v, lo, hi = text:match(pat)
+    v, lo, hi = tonumber(v), tonumber(lo), tonumber(hi)
+    if not name or not v or not lo or not hi then return nil end
+    local key = ResolveRoller(name)
+    if not key and Util.NormalizeName(name) == Util.PlayerKey() then key = Util.PlayerKey() end   -- solo
+    if not key then return nil end
+    return key, v, lo, hi
+end
+
 -- Parses a CHAT_MSG_SYSTEM line; a /roll counts for the open session (or the one that closed
 -- less than 2s ago). Returns true if the roll was recorded.
 function Roll:OnSystemMessage(text)
