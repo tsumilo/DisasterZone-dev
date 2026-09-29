@@ -62,9 +62,14 @@ function UI:CreateDatePicker(parent, opts)
         p:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
             edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 14,
             insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-        p:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
+        p:SetBackdropColor(0.05, 0.05, 0.05, 1)
         p:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
     end
+    -- a solid layer under the backdrop: the tooltip texture alone lets the window behind show through
+    p.bg = p:CreateTexture(nil, "BACKGROUND", nil, -8)
+    p.bg:SetPoint("TOPLEFT", 4, -4)
+    p.bg:SetPoint("BOTTOMRIGHT", -4, 4)
+    p.bg:SetColorTexture(0.06, 0.06, 0.07, 1)
     p:Hide()
 
     p.title = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
