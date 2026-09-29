@@ -59,18 +59,25 @@ Everyone should run the same version. See [Mixed versions](#mixed-versions).
 
 | How | What it does |
 |---|---|
-| `/cdl` or `/cdloot` | Opens or closes the CDLoot window |
+| `/cdl` or `/cdloot` | Opens or closes the CDLoot window (it opens on Home) |
 | Minimap button | Left-click opens the window. Right-click opens Settings. Shift-click opens the boss drop panel. |
 | Game Options → AddOns → CDLoot | **Open CDLoot settings** |
 
-The window has four tabs:
+The window has these tabs:
 
 | Tab | Who sees it |
 |---|---|
+| **Home** | Everyone: what needs you now, the next raid (sign up in one click), your BiS picks that can drop there, recent loot, and a readiness check for the council and raid leaders |
 | **My BiS** | Everyone |
 | **Council** | Loot Council members (and anyone in demo mode) |
 | **Loot Log** | Loot Council members (and anyone in demo mode) |
+| **Raids** | Everyone in a guild (the Raid log view: council, Guild Master and raid leaders) |
+| **Games** | Everyone |
 | **Settings** | Everyone |
+| **Changelog** | Everyone: what changed in each version |
+
+The window opens on Home. To open it on the tab you used last instead, pick **Settings → Main window → Open on**.
+When a new version is installed, Home shows a **What's new** chip until you read its notes.
 
 The top-right of the window shows your list's sharing status. See [Sync status](#what-does-the-sync-status-mean).
 
@@ -635,6 +642,9 @@ The council always confirms the award. Nothing is given away without a click and
 |---|---|---|
 | `/cdl` | Opens or closes the window | everyone |
 | `/cdl help` (or `/cdl ?`) | Lists all commands | everyone |
+| `/cdl home` | Opens the Home tab | everyone |
+| `/cdl bis` | Opens the My BiS tab | everyone |
+| `/cdl changelog` | Opens the Changelog tab | everyone |
 | `/cdl council` | Opens the Council tab (My BiS if you aren't council) | council |
 | `/cdl log` | Opens the Loot Log tab | council |
 | `/cdl raids` | Opens the Raids tab: upcoming raids and sign-ups | everyone |

@@ -442,6 +442,12 @@ local function collectActions(ctx)
         out[#out + 1] = { text = "Update CDLoot (" .. newer .. ")", kind = "bad",
                           tip = { "A guild member runs CDLoot " .. newer, "You run " .. tostring(ns.version) } }
     end
+    local unread = ns.ChangelogUI and ns.ChangelogUI.GetUnread and ns.ChangelogUI:GetUnread()
+    if unread then
+        out[#out + 1] = { text = "What's new in " .. unread.version, kind = "info",
+                          tip = { "CDLoot " .. unread.version .. ": " .. (unread.title or ""), "Open the Changelog" },
+                          onClick = function() ns.ChangelogUI:Open(unread.version) end }
+    end
     local BiS = ns.BiS
     local locked, info = false, nil
     if BiS and BiS.IsLocked then locked, info = BiS:IsLocked() end
@@ -1163,7 +1169,7 @@ function Dashboard:OnInit()
     for _, msg in ipairs({
         "RAIDPLAN_CHANGED", "MYLIST_CHANGED", "MYLIST_COMMITTED", "OWNED_UPDATED", "LEDGER_UPDATED", "LIST_UPDATED",
         "LISTS_RESET", "CONFIG_UPDATED", "PEERS_UPDATED", "SYNC_STATUS", "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED",
-        "GROUP_UPDATED", "ITEMINFO_READY", "DEMO_TOGGLED", "ROSTER_UPDATED", "RAIDLOG_CHANGED",
+        "GROUP_UPDATED", "ITEMINFO_READY", "DEMO_TOGGLED", "ROSTER_UPDATED", "RAIDLOG_CHANGED", "CHANGELOG_READ",
     }) do
         ns:On(msg, function() Dashboard:RequestRefresh() end)
     end

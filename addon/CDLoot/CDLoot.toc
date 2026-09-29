@@ -30,6 +30,7 @@ Data\Items.lua
 Data\Dungeons.lua
 Data\Sources.lua
 Data\ItemClasses.lua
+Data\Changelog.lua
 Core\ItemDB.lua
 Core\DB.lua
 Core\Guild.lua
@@ -67,6 +68,7 @@ UI\DropPanel.lua
 UI\RollFrame.lua
 UI\Tooltip.lua
 UI\Settings.lua
+UI\Changelog.lua
 
 # Games (just for fun; never touch loot state)
 Games\Hub.lua
