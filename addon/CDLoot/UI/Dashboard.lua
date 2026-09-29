@@ -29,7 +29,17 @@ local STATUS_ORDER = { "A", "T", "B", "X" }
 local ROLE_SHORT = { tank = "T", healer = "H", melee = "M", ranged = "R" }
 local ROLE_ORDER = { "tank", "healer", "melee", "ranged" }
 
+local SHORT_NAME = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
+                     za = "ZA", swp = "SWP" }
+local MAX_PILLS = 4
+local PILL_ICON = {
+    A = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12|t",
+    T = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:12|t",
+    X = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:12|t",
+}
+
 local panel
+local pickedOcc     -- the raid picked among several on the same day (nil = the soonest)
 
 local function UI() return ns.UI end
 local function RP() return ns.RaidPlan end
@@ -533,12 +543,102 @@ local function answer(v, st)
     if not ok then ns:Print(err or "Could not save your answer.") end
 end
 
+-- "Kara", "SSC", a custom title (cut to 12 characters).
+local function shortRaidName(v)
+    if v.ti then return #v.ti > 12 and (v.ti:sub(1, 11) .. "...") or v.ti end
+    return SHORT_NAME[v.i] or RP():GetRaidName(v)
+end
+
+-- My answer as a pill / row marker: a ready-check icon, "!" when I'm invited and haven't answered.
+local function myMarker(v)
+    local rp = RP()
+    local mine = rp:GetMySignup(v.id)
+    if mine then return PILL_ICON[mine.st] or colorize(STATUS.B.color, "B") end
+    local inv = rp:GetInvited(v)
+    if inv and inv[Me() or ""] then return colorize("ff9933", "!") end
+    return nil
+end
+
+local function newPill(card)
+    local b = CreateFrame("Button", nil, card, "BackdropTemplate")
+    b:SetHeight(18)
+    b:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 8,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    b.text:SetPoint("CENTER", b, "CENTER", 0, 0)
+    b.text:SetWordWrap(false)
+    b:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip) end end)
+    b:SetScript("OnLeave", Row_OnLeave)
+    b:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+    return b
+end
+
+-- The pill row of a day with several raids (hidden otherwise). Returns where the card's rows start.
+local function refreshPills(card, ctx)
+    local list = ctx.session and {} or ctx.dayRaids
+    local show = #list > 1
+    local x, y = 10, -48
+    local n = 0
+    for i, v in ipairs(show and list or {}) do
+        local b = card.pills[i]
+        if not b then
+            b = newPill(card)
+            card.pills[i] = b
+        end
+        if i > MAX_PILLS then
+            b:Hide()
+        else
+            n = i
+            local marker = myMarker(v)
+            b.text:SetText(UI():SafeText((marker and (marker .. " ") or "") .. date("%H:%M", v.t) .. " " .. shortRaidName(v)))
+            b:SetWidth(floor((b.text:GetStringWidth() or 60) + 16))
+            local picked = v.id == ctx.raid.id
+            if picked then
+                b:SetBackdropColor(1, 0.5, 0, 0.35)
+                b:SetBackdropBorderColor(1, 0.5, 0, 1)
+            else
+                b:SetBackdropColor(0, 0, 0, 0.5)
+                b:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
+            end
+            b.tip = { RP():GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. whenText(v.t),
+                      picked and "Shown below" or "Click to show this raid" }
+            b.onClick = function()
+                pickedOcc = v.id
+                Dashboard:Refresh()
+            end
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", card, "TOPLEFT", x, y)
+            b:Show()
+            x = x + b:GetWidth() + 4
+        end
+    end
+    for i = (show and #list or 0) + 1, #card.pills do card.pills[i]:Hide() end
+    if show and #list > MAX_PILLS then
+        local more = card.pills[MAX_PILLS + 1]
+        more.text:SetText("+" .. (#list - MAX_PILLS))
+        more:SetWidth(30)
+        more:SetBackdropColor(0, 0, 0, 0.5)
+        more:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
+        more.tip = { "More raids that day", "Open the Raids tab to see them all" }
+        more.onClick = function() openRaid(nil) end
+        more:ClearAllPoints()
+        more:SetPoint("TOPLEFT", card, "TOPLEFT", x, y)
+        more:Show()
+    end
+    return (show and n > 0) and -70 or -50
+end
+
 local function refreshRaidCard(card, ctx)
     local v = ctx.raid
     local session = ctx.session
     local rows = {}
     for _, b in ipairs(card.buttons) do b:Hide() end
     card.buttonsShown = false
+    local rowsY = refreshPills(card, ctx)
     if session then
         local rp = RP()
         local planned = session.rp and rp and rp.GetRaid and rp:GetRaid(session.rp) or nil
@@ -560,6 +660,15 @@ local function refreshRaidCard(card, ctx)
         end
         local Lock = UI().GetBiSLock and UI():GetBiSLock()
         if Lock then rows[#rows + 1] = UI():LockIcon(12) .. " BiS lists locked" end
+        local today = date("%Y%m%d", Now())
+        for _, o in ipairs(ctx.raids) do
+            if o.t > Now() and date("%Y%m%d", o.t) == today and not (planned and planned.id == o.id) then
+                local marker = myMarker(o)
+                rows[#rows + 1] = { text = "Later today: " .. date("%H:%M", o.t) .. " " .. rp:GetRaidName(o)
+                                        .. (marker and ("  " .. marker) or ""),
+                                    onClick = function() openRaid(o.id) end }
+            end
+        end
         card:SetRows(rows, -50)
         return
     end
@@ -574,7 +683,12 @@ local function refreshRaidCard(card, ctx)
     end
     card.onOpen = function() openRaid(v.id) end
     local rp = RP()
-    card:SetTitle("Next raid", rp:GetRaidName(v) .. " · " .. date("%a %H:%M", v.t))
+    local title = "Next raid"
+    if #ctx.dayRaids > 1 then
+        local today = date("%Y%m%d", Now()) == date("%Y%m%d", v.t)
+        title = (today and "Today" or date("%A", v.t)) .. " · " .. #ctx.dayRaids .. " raids"
+    end
+    card:SetTitle(title, rp:GetRaidName(v) .. " · " .. date("%a %H:%M", v.t))
     local sub = { whenText(v.t), date("%a %d %b", v.t), (v.sz or 25) .. "-player" }
     local teams = {}
     for _, id in ipairs(v.tm or {}) do
@@ -619,7 +733,7 @@ local function refreshRaidCard(card, ctx)
         b.occ = v
         if mine and mine.st == st then b:LockHighlight() else b:UnlockHighlight() end
     end
-    card:SetRows(rows, -50)
+    card:SetRows(rows, rowsY)
 end
 
 local function refreshBiSCard(card, ctx)
@@ -784,8 +898,11 @@ local function refreshLaterCard(card, ctx)
     card:SetTitle("Later raids")
     local rows = {}
     local rp = RP()
-    for i, v in ipairs(ctx.raids) do
-        if i > 1 then
+    local onCard = {}
+    for _, v in ipairs(ctx.dayRaids) do onCard[v.id] = true end
+    if ctx.raid then onCard[ctx.raid.id] = true end
+    for _, v in ipairs(ctx.raids) do
+        if not onCard[v.id] then
             local mine = rp:GetMySignup(v.id)
             local right
             if mine and STATUS[mine.st] then
@@ -830,7 +947,19 @@ local function buildContext()
         raids = raids,
         raid = raids[1],
         session = GR and GR.GetSession and GR:GetSession() or nil,
+        dayRaids = {},
     }
+    -- Several raids on the day of the next one: the card shows pills to switch between them.
+    if raids[1] then
+        local day = date("%Y%m%d", raids[1].t)
+        for _, v in ipairs(raids) do
+            if date("%Y%m%d", v.t) == day then ctx.dayRaids[#ctx.dayRaids + 1] = v end
+        end
+        for _, v in ipairs(ctx.dayRaids) do
+            if v.id == pickedOcc then ctx.raid = v end
+        end
+        if ctx.raid.id ~= pickedOcc then pickedOcc = nil end
+    end
     ctx.bis = bisSummary(ctx.phase)
     local here = currentItemRaid()
     if here then
@@ -904,6 +1033,7 @@ function Dashboard:CreatePanel(parent)
     p.raidCard:SetPoint("TOPLEFT", p, "TOPLEFT", 4, top)
     p.raidCard:SetPoint("RIGHT", p, "CENTER", -3, 0)
     p.raidCard.buttons = {}
+    p.raidCard.pills = {}
     local prev
     for i, st in ipairs(STATUS_ORDER) do
         local b = UI():CreateButton(p.raidCard, STATUS[st].button, 82, 22, function(self)

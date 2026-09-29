@@ -195,6 +195,71 @@ def council_gets_readiness_and_everyones_loot_raider_only_their_own():
     w.assert_no_errors()
 
 
+AT_HOUR = """local days, hour = ...
+local d = date("*t", GetServerTime() + days * 86400)
+d.hour, d.min, d.sec = hour, 0, 0
+return time(d)"""
+
+
+def pills(c):
+    """Visible day pills of the Next raid card: [text] (codes stripped)."""
+    out = c.eval_py("""
+      local out = {}
+      for _, b in ipairs(ns.Dashboard:GetPanel().raidCard.pills) do
+        if b:IsShown() then out[#out + 1] = b.text:GetText() end
+      end
+      return out""") or []
+    return [strip_codes(t) for t in out]
+
+
+def pill(c, text):
+    return c.eval("""
+      local s = ...
+      for _, b in ipairs(ns.Dashboard:GetPanel().raidCard.pills) do
+        if b:IsShown() and (b.text:GetText() or ""):find(s, 1, true) then return b end
+      end""", text)
+
+
+@case
+def several_raids_on_one_day_get_pills():
+    w, c = rp.world()
+    bob, lee = c["Bob"], c["Lee"]
+    tid = rp.team(bob, "Main", ["Lee", "Rita"])
+    kara = rp.create(bob, i="kara", t=bob.eval(AT_HOUR, 1, 19), tm=[tid], sz=10)
+    gruul = rp.create(bob, i="gruul", t=bob.eval(AT_HOUR, 1, 22), tm=[tid], sz=25)
+    rp.create(bob, i="mag", t=bob.eval(AT_HOUR, 3, 20), tm=[tid], sz=25)
+    w.tick(2)
+    install_helpers(lee)
+    open_home(lee)
+    texts = panel_texts(lee)
+    assert any(t.endswith("· 2 raids") for t in texts), texts
+    assert any(t.startswith("Karazhan · ") for t in texts), "the soonest raid is shown first"
+    ps = pills(lee)
+    assert len(ps) == 2 and "19:00 Kara" in ps[0] and "22:00 Gruul" in ps[1], ps
+    assert all(p.startswith("! ") for p in ps), "unanswered raids are marked"
+    # the raid on another day is not a pill: it is in the later-raids card
+    assert any("Magtheridon's Lair" in t for t in texts), texts
+    # switch to Gruul and sign up for it only
+    lee.click(pill(lee, "Gruul"))
+    w.tick(0.3)
+    assert any(t.startswith("Gruul's Lair · ") for t in panel_texts(lee)), panel_texts(lee)
+    lee.click(lee.eval("return ns.Dashboard:GetPanel().raidCard.buttons[1]"))
+    w.tick(1)
+    assert lee.eval_py("return ns.RaidPlan:GetMySignup(...)", gruul)["st"] == "A"
+    assert lee.eval_py("return ns.RaidPlan:GetMySignup(...)", kara) is None
+    ps = pills(lee)
+    assert ps[0].startswith("! ") and not ps[1].startswith("! "), ps
+    assert any(t.startswith("Gruul's Lair · ") for t in panel_texts(lee)), "the picked raid stays shown"
+    assert chip(lee, "Sign up: ") is not None, "Karazhan still needs an answer"
+    # the picked raid is cancelled: back to the soonest, and no pills for a single raid
+    rp.call(bob, "CancelRaid", gruul)
+    w.tick(2)
+    lee.eval("ns.Dashboard:Refresh()")
+    assert any(t.startswith("Karazhan · ") for t in panel_texts(lee)), panel_texts(lee)
+    assert pills(lee) == [], pills(lee)
+    w.assert_no_errors()
+
+
 @case
 def ticker_and_demo_mode_run_clean():
     w, c = solo("Rai", guild_rank=3, tick=3)
