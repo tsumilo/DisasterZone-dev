@@ -64,7 +64,7 @@ def fresh_boot_defaults_and_globals():
     no_errors(w)
     assert c.eval("return CDLoot == ns") is True, "global CDLoot must be the namespace"
     assert c.eval("return ns.initialized") is True and c.eval("return ns.loggedIn") is True
-    assert c.eval("return ns.version") == "0.6.0", c.eval("return ns.version")   # TOC 0.6.0 (final review fixes)
+    assert c.eval("return ns.version") == "0.7.0", c.eval("return ns.version")   # TOC 0.7.0 (raid planning, Home, Changelog)
     assert c.eval("return ns.PROTO") == 1
     db = c.eval_py("return CDLootDB")
     assert db["schema"] == 1, db.get("schema")
