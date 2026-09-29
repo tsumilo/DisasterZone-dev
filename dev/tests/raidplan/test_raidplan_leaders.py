@@ -354,5 +354,52 @@ def raid_leaders_manage_raids_and_their_groups_the_council_teams_and_groups():
     w.assert_no_errors()
 
 
+@case
+def tsumil_can_pretend_roles_on_their_own_screen_only():
+    w, c = world()
+    t = Client(w, "Tsumil", guild_rank=3, class_file="DRUID")
+    t.load_addon()
+    w.tick(5)
+    state = lambda: t.eval_py("""
+      local G, me = ns.Guild, ns.Util.PlayerKey()
+      return { gm = G:IsGM(me), officer = G:CanEditRaidLeaders(), council = G:AmICouncil(), guild = G:IsGuildCouncil(me),
+               raids = ns.RaidPlan:CanOrganize(), teams = ns.RaidPlan:CanManageTeams(), groups = ns.RaidPlan:CanEditGroups(),
+               log = G:AmIRaidLogMember(), gmEdit = G:CanEditGuildCouncil() }""")
+    base = state()
+    assert not any(base.values()), base
+    expect = {
+        "gm":         dict(gm=True, officer=True, council=True, guild=True, raids=True, teams=True, groups=True, log=True, gmEdit=True),
+        "officer":    dict(gm=False, officer=True, council=False, guild=False, raids=False, teams=False, groups=False, log=False, gmEdit=False),
+        "council":    dict(gm=False, officer=False, council=True, guild=True, raids=False, teams=True, groups=True, log=True, gmEdit=False),
+        "raidleader": dict(gm=False, officer=False, council=False, guild=False, raids=True, teams=False, groups=True, log=True, gmEdit=False),
+        "raider":     dict(gm=False, officer=False, council=False, guild=False, raids=False, teams=False, groups=False, log=False, gmEdit=False),
+    }
+    for role, want in expect.items():
+        t.slash("/cdl role " + role)
+        w.tick(0.5)
+        got = state()
+        assert got == want, (role, got)
+    t.slash("/cdl role council")
+    assert "council" in tabs(t)
+    # other clients still see Tsumil's real role
+    for n, x in c.items():
+        assert x.eval("return ns.Guild:IsCouncil(...)", K("Tsumil")) is False, n
+    # it survives a /reload; off restores the real role
+    t.relog()
+    w.tick(10)
+    assert state()["guild"] is True
+    n0 = len(t.chat_frame)
+    t.slash("/cdl role off")
+    assert state() == base
+    t.slash("/cdl role")
+    assert any("off (your real role)" in strip_codes(l) for l in printed_since(t, n0))
+    # nobody else has the command
+    n0 = len(c["Sam"].chat_frame)
+    c["Sam"].slash("/cdl role council")
+    assert c["Sam"].eval("return ns.Guild:AmICouncil()") is False
+    assert c["Sam"].eval("return ns.db.debugRole") is None
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

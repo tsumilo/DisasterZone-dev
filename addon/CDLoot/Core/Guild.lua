@@ -452,11 +452,40 @@ end
 ---------------------------------------------------------------------------
 
 -- "gm" | "guild" | "raidleader" | "raid" | nil, from real data only (no demo).
+---------------------------------------------------------------------------
+-- Debug roles (for the addon's developer only): the character named DEBUG_CHAR can pretend to have another role with
+-- /cdl role, to look at the addon as a GM, officer, council member, raid leader or plain raider. It only changes what
+-- MY client thinks my role is (UI and my own checks); every other client still checks my real rank and lists, so
+-- nothing I'm not really entitled to is sent to me. Saved in db.debugRole.
+---------------------------------------------------------------------------
+
+local DEBUG_CHAR = "Tsumil"
+local DEBUG_ROLES = { gm = true, officer = true, council = true, raidleader = true, raider = true }
+
+local function DebugAllowed()
+    local name = UnitName and UnitName("player")
+    return name == DEBUG_CHAR
+end
+
+-- My pretend role, or nil.
+local function DebugRole(key)
+    if key ~= nil and not Util.IsMe(key) then return nil end
+    local db = ns.db
+    local r = db and db.debugRole
+    if r and DEBUG_ROLES[r] and DebugAllowed() then return r end
+    return nil
+end
+
 local function RealSource(key)
     if type(key) ~= "string" then return nil end
-    if gmKey and key == gmKey then return "gm" end
-    local list = guildList
-    if list and list.members[key] and roster[key] then return "guild" end
+    local role = DebugRole(key)
+    if role == "gm" then return "gm" end
+    if role == "council" then return "guild" end
+    if not role then
+        if gmKey and key == gmKey then return "gm" end
+        local list = guildList
+        if list and list.members[key] and roster[key] then return "guild" end
+    end
     if IsInRaid() then
         local leader = CurrentRaidLeader()
         if leader then
@@ -882,6 +911,8 @@ local function LeadersRec(create)
 end
 
 function Guild:IsOfficer(key)
+    local role = type(key) == "string" and DebugRole(key)
+    if role then return role == "gm" or role == "officer" end
     local e = type(key) == "string" and roster[key]
     return e ~= nil and e ~= false and (tonumber(e.rankIndex) or 99) <= OFFICER_RANK
 end
@@ -892,6 +923,8 @@ end
 
 -- On the raid leaders list (and in the guild).
 function Guild:IsListedRaidLeader(key)
+    local role = type(key) == "string" and DebugRole(key)
+    if role then return role == "raidleader" end
     local rec = LeadersRec(false)
     return type(key) == "string" and rec ~= nil and rec.m[key] and roster[key] and true or false
 end
@@ -1006,7 +1039,39 @@ local function ShareRaidLeadersAfterLogin()
     end)
 end
 
+local ROLE_HELP = "gm | officer | council | raidleader | raider | off"
+local ROLE_TEXT = {
+    gm = "Guild Master", officer = "officer (picks raid leaders)", council = "guild / loot council",
+    raidleader = "raid leader (on the list)", raider = "plain raider",
+}
+
+local function SlashRole(rest)
+    local want = Util.Trim(rest or ""):lower()
+    local db = ns.db
+    if not db then return end
+    if want == "" then
+        local r = DebugRole()
+        ns:Print("Debug role: %s. Usage: /cdl role %s", r and ROLE_TEXT[r] or "off (your real role)", ROLE_HELP)
+        return
+    end
+    if want == "off" then
+        db.debugRole = nil
+    elseif DEBUG_ROLES[want] then
+        db.debugRole = want
+    else
+        ns:Print("Unknown role '%s'. Usage: /cdl role %s", want, ROLE_HELP)
+        return
+    end
+    ns:Print("Debug role: %s. This only changes your own screen: other players' addons still use your real rank "
+        .. "and lists, so data your real role doesn't get won't arrive.", db.debugRole and ROLE_TEXT[db.debugRole] or "off")
+    Recompute()
+    ns:Fire("CONFIG_UPDATED", Snapshot())   -- repaint even when the effective council set didn't change
+end
+
+function Guild:GetDebugRole() return DebugRole() end
+
 function Guild:OnInit()
+    if DebugAllowed() then ns:RegisterSlash("role", SlashRole, "(debug) pretend to be: " .. ROLE_HELP) end
     CouncilDB()
     ns:RegisterEvent("GUILD_ROSTER_UPDATE", OnRosterUpdate)
     ns:RegisterEvent("PLAYER_GUILD_UPDATE", OnGuildChanged)
@@ -1032,6 +1097,12 @@ function Guild:OnInit()
 end
 
 function Guild:OnLogin()
+    if DebugRole() then
+        Util.After(8, function()
+            local r = DebugRole()
+            if r then ns:Print("Debug role active: %s (/cdl role off to stop).", ROLE_TEXT[r]) end
+        end)
+    end
     RefreshGuildName()
     RefreshGuildList()
     local DB = ns.DB
@@ -1167,6 +1238,8 @@ function Guild:GetGM()
 end
 
 function Guild:IsGM(key)
+    local role = DebugRole(key)
+    if role then return role == "gm" end
     return type(key) == "string" and gmKey ~= nil and key == gmKey
 end
 
