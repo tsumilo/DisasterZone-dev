@@ -549,6 +549,13 @@ class World:
                 c._fire("PLAYER_ENTERING_WORLD", False, False)
                 c._fire("ZONE_CHANGED_NEW_AREA")
 
+    def set_dead(self, who, dead=True, ghost=False):
+        """Mark a member dead (corpse) or a ghost (released) for UnitIsDeadOrGhost / UnitIsGhost; alive with
+        dead=False."""
+        m = self._member(who)
+        m.dead, m.ghost = bool(dead) and not ghost, bool(ghost)
+        self._sync()
+
     def encounter(self, encounter_id, name, success=True, difficulty_id=None, group_size=None, clients=None):
         """Fire ENCOUNTER_START, then ENCOUNTER_END (+ BOSS_KILL on success) on the given/grouped clients."""
         targets = clients if clients is not None else (
@@ -721,6 +728,7 @@ class World:
             "guild_rank_name": ranks[rank] if guild and rank is not None and rank < len(ranks) else None,
             "public_note": notes.get("public", ""), "officer_note": notes.get("officer", ""),
             "zone": self.instance["name"] if in_inst else self.zone,
+            "dead": bool(getattr(m, "dead", False)), "ghost": bool(getattr(m, "ghost", False)),
         }
 
     def _state_for(self, c):

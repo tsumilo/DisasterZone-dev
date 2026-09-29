@@ -427,9 +427,9 @@ function UnitIsUnit(a, b)
   return x ~= nil and y ~= nil and x.full == y.full
 end
 function UnitIsConnected(unit) local m = unit_rec(unit); return m ~= nil and m.online ~= false end
-function UnitIsDeadOrGhost(unit) local m = unit_rec(unit); return m ~= nil and m.dead == true end
-function UnitIsDead(unit) return UnitIsDeadOrGhost(unit) end
-function UnitIsGhost() return false end
+function UnitIsDeadOrGhost(unit) local m = unit_rec(unit); return m ~= nil and (m.dead == true or m.ghost == true) end
+function UnitIsDead(unit) local m = unit_rec(unit); return m ~= nil and m.dead == true and m.ghost ~= true end
+function UnitIsGhost(unit) local m = unit_rec(unit); return m ~= nil and m.ghost == true end
 function UnitIsAFK() return false end
 function UnitIsDND() return false end
 function UnitIsVisible(unit) return unit_rec(unit) ~= nil end

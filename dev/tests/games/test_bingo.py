@@ -2,9 +2,9 @@
 
 Covers: pure card logic (deterministic per seed + player, free centre, 12 lines), the hub registry and tab,
 only the leader / an assistant can start, the host's detector marking squares from raid events (deaths, wipes,
-kills, rolls, combat log) and syncing them to every raider, non-hosts never detecting on their own, a forged BG
-from a plain raider ignored, the first bingo announced once, /reload resuming the game via BGQ, and that
-Bingo never reacts to loot / council traffic.
+kills, rolls, combat log, ready checks, raid chat, releases, idle time) and syncing them to every raider, non-hosts
+never detecting on their own, a forged BG from a plain raider ignored, the first bingo announced once, /reload
+resuming the game via BGQ, and that Bingo never reacts to loot / council traffic.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_bingo.py [-k name]
 """
@@ -26,7 +26,7 @@ def K(name):
     return "%s-%s" % (name, REALM)
 
 
-def raid(names=("Lee", "Rita", "Sam", "Bob"), leader="Lee", assistants=()):
+def raid(names=("Lee", "Rita", "Sam", "Bob"), leader="Lee", assistants=(), extra=()):
     w = World()
     c = {}
     for n in names:
@@ -34,7 +34,7 @@ def raid(names=("Lee", "Rita", "Sam", "Bob"), leader="Lee", assistants=()):
     for x in c.values():
         x.load_addon()
     w.tick(3)
-    w.make_raid(list(c.values()), leader=c[leader], assistants=[c[a] for a in assistants])
+    w.make_raid(list(c.values()), leader=c[leader], assistants=[c[a] for a in assistants], extra_members=list(extra))
     w.tick(5)
     return w, c
 
@@ -47,6 +47,18 @@ def hits(cl):
 def cleu(cl, sub, src=GROUP_PLAYER, dst=GROUP_PLAYER, *params):
     args = [0, sub, False, "src", "Src", src, 0, "dst", "Dst", dst, 0] + list(params)
     cl._call("combat_log", *args)
+
+
+def cleu_g(cl, sub, src_guid, src, dst_guid, dst, *params):
+    """cleu() with explicit source / destination GUIDs."""
+    args = [0, sub, False, src_guid, "Src", src, 0, dst_guid, "Dst", dst, 0] + list(params)
+    cl._call("combat_log", *args)
+
+
+def start(w, c, host="Lee"):
+    c[host].slash("/cdl bingo start")
+    w.tick(2)
+    return c[host]
 
 
 def said(c, n0):
@@ -65,6 +77,7 @@ def card_is_deterministic_per_seed_and_player():
     assert a1 == a2 and a1 != b and a1 != a3
     assert len(a1) == 25 and a1[12] == "FREE"
     assert len(set(a1)) == 25, "no square twice on one card"
+    assert set(a1) != set(b), "the pool is big enough that cards differ in content, not just order"
     no_errors(w)
 
 
@@ -250,6 +263,193 @@ def bingo_ignores_loot_and_council_messages():
         c["Lee"].eval("ns:Fire(...)", msg)
     w.tick(2)
     assert hits(c["Lee"]) == []
+    no_errors(w)
+
+
+# -- the second batch of squares -------------------------------------------------------------------------------------
+
+@case
+def boss_timing_squares():
+    w, c = raid()
+    lee = start(w, c)
+    w.encounter(652, "Attumen", success=False)          # START and END at once
+    w.tick(1)
+    assert "instant_wipe" in hits(c["Sam"])
+    # the kill after that wipe, with a death 5s before the end
+    lee.fire("ENCOUNTER_START", 652, "Attumen", 3, 4)
+    w.tick(40)
+    cleu(lee, "UNIT_DIED")
+    w.tick(5)
+    lee.fire("ENCOUNTER_END", 652, "Attumen", 3, 4, 1)
+    w.tick(1)
+    h = set(hits(c["Sam"]))
+    assert {"boss_kill", "redemption", "late_death"} <= h and "flawless" not in h, h
+    no_errors(w)
+
+
+@case
+def clutch_kill_needs_ten_raiders_and_five_alive():
+    w, c = raid(extra=("Ann", "Cid", "Dee", "Eve", "Fay", "Gus"))
+    lee = start(w, c)
+    for n in ("Sam", "Bob", "Ann", "Cid"):
+        w.set_dead(n)
+    w.encounter(652, "Attumen", success=True)           # 6 of 10 alive
+    w.tick(1)
+    assert "boss_kill" in hits(lee) and "clutch" not in hits(lee)
+    w.set_dead("Dee", ghost=True)
+    w.encounter(653, "Moroes", success=True)            # 5 of 10 alive
+    w.tick(1)
+    assert "clutch" in hits(c["Rita"])
+    no_errors(w)
+
+
+@case
+def combat_log_squares():
+    w, c = raid()
+    lee = start(w, c)
+    sam = c["Sam"].guid
+    # near misses: an immune taunt, a small overkill, a fall that doesn't kill
+    cleu(lee, "SPELL_MISSED", GROUP_PLAYER, 0, 355, "Taunt", 1, "IMMUNE")
+    cleu(lee, "SWING_DAMAGE", 0, GROUP_PLAYER, 3000, 800, 1, 0, 0, 0, False, False, False)
+    cleu_g(lee, "ENVIRONMENTAL_DAMAGE", "", 0, sam, GROUP_PLAYER, "Falling", 900, -1)
+    w.tick(5)
+    h = set(hits(lee))
+    assert "fall" in h and not ({"taunt_resist", "overkill", "crushing", "fall_death"} & h), h
+    # swing suffix: amount, overkill, school, resisted, blocked, absorbed, critical, glancing, crushing
+    cleu(lee, "SWING_DAMAGE", 0, GROUP_PLAYER, 6000, -1, 1, 0, 0, 0, False, False, True)
+    cleu(lee, "SPELL_DAMAGE", 0, GROUP_PLAYER, 30502, "Shadow Nova", 32, 11000, 6000, 32, 0, 0, 0, False, False, False)
+    cleu(lee, "SPELL_MISSED", GROUP_PLAYER, 0, 25266, "Mocking Blow", 1, "RESIST")
+    cleu_g(lee, "ENVIRONMENTAL_DAMAGE", "", 0, sam, GROUP_PLAYER, "Falling", 4000, -1)
+    cleu_g(lee, "UNIT_DIED", "", 0, sam, GROUP_PLAYER)
+    w.tick(2)
+    assert {"crushing", "overkill", "taunt_resist", "fall_death"} <= set(hits(c["Rita"])), hits(c["Rita"])
+    no_errors(w)
+
+
+@case
+def class_moment_squares():
+    w, c = raid()
+    lee = start(w, c)
+    pala, sam = c["Rita"].guid, c["Sam"].guid
+
+    def cast(guid, sid, name):
+        cleu_g(lee, "SPELL_CAST_SUCCESS", guid, GROUP_PLAYER, "", 0, sid, name, 1)
+
+    cast(pala, 8690, "Hearthstone")                     # a hearth with no bubble before it
+    cast(pala, 642, "Divine Shield")
+    cast(sam, 8690, "Hearthstone")                      # someone else hearths
+    cast(sam, 27230, "Create Master Healthstone")       # making stones isn't eating one
+    lee.fire("ENCOUNTER_START", 652, "Attumen", 3, 4)
+    cleu(lee, "SPELL_RESURRECT", GROUP_PLAYER, GROUP_PLAYER, 21169, "Reincarnation", 8)
+    w.tick(1)
+    h = set(hits(lee))
+    assert "ankh" in h and not ({"bubble_hearth", "healthstone", "bres"} & h), h
+    w.tick(10)
+    cast(pala, 8690, "Hearthstone")                     # 11s after the bubble
+    cast(sam, 351355, "Greater Drums of Battle")        # an id we don't list: matched by name
+    cast(sam, 27154, "Lay on Hands")
+    cast(sam, 27237, "Master Healthstone")
+    # Feign Death 30s before the wipe is too early; 5s before counts
+    cast(sam, 5384, "Feign Death")
+    w.tick(30)
+    lee.fire("ENCOUNTER_END", 652, "Attumen", 3, 4, 0)
+    w.tick(1)
+    assert "feign_wipe" not in hits(lee)
+    lee.fire("ENCOUNTER_START", 652, "Attumen", 3, 4)
+    w.tick(40)
+    cast(sam, 5384, "Feign Death")
+    w.tick(5)
+    lee.fire("ENCOUNTER_END", 652, "Attumen", 3, 4, 0)
+    w.tick(1)
+    h = set(hits(c["Bob"]))
+    assert {"bubble_hearth", "drums", "loh", "healthstone", "feign_wipe"} <= h and "instant_wipe" not in h, h
+    no_errors(w)
+
+
+@case
+def roll_squares():
+    w, c = raid()
+    start(w, c)
+    w.player_roll("Sam", value=37)
+    w.tick(1)
+    w.player_roll("Sam", value=37)                      # the same raider twice isn't twins
+    w.tick(1)
+    assert hits(c["Bob"]) == []
+    w.player_roll("Bob", value=37)
+    w.tick(1)
+    w.player_roll("Rita", value=44)
+    w.tick(1)
+    w.player_roll("Rita", value=42)
+    w.tick(1)
+    w.player_roll("Sam", value=500, lo=1, hi=1000)
+    w.tick(1)
+    assert set(hits(c["Bob"])) == {"roll_twins", "roll_doubles", "roll_42", "odd_roll"}, hits(c["Bob"])
+    no_errors(w)
+
+
+@case
+def ready_check_squares():
+    w, c = raid()
+    lee = start(w, c)
+    # raid1 Lee (started it: auto-ready), raid2 Rita, raid3 Sam, raid4 Bob; Bob never answers
+    lee.fire("READY_CHECK", "Lee", 35)
+    lee.fire("READY_CHECK_CONFIRM", "raid2", True)
+    lee.fire("READY_CHECK_CONFIRM", "raid3", True)
+    w.tick(1)
+    lee.fire("READY_CHECK_FINISHED", False)
+    w.tick(1)
+    assert hits(c["Sam"]) == ["rc_asleep"], hits(c["Sam"])
+    lee.fire("READY_CHECK", "Lee", 35)
+    for u in ("raid2", "raid3", "raid4"):
+        lee.fire("READY_CHECK_CONFIRM", u, True)
+    lee.fire("READY_CHECK_FINISHED", False)
+    w.tick(1)
+    assert "rc_all_ready" in hits(c["Sam"]) and "rc_pull" not in hits(c["Sam"])
+    lee.fire("READY_CHECK", "Lee", 35)
+    w.tick(3)
+    w.encounter(652, "Attumen", success=False)
+    w.tick(1)
+    assert "rc_pull" in hits(c["Sam"])
+    no_errors(w)
+
+
+@case
+def premature_release_and_idle_time():
+    w, c = raid()
+    lee = start(w, c)
+    w.set_dead("Bob", ghost=True)                       # still running back from an earlier death
+    lee.fire("ENCOUNTER_START", 652, "Attumen", 3, 4)
+    w.tick(5)
+    cleu_g(lee, "UNIT_DIED", "", 0, c["Sam"].guid, GROUP_PLAYER)
+    w.set_dead("Sam")                                   # lying dead is fine
+    w.tick(5)
+    assert "early_release" not in hits(lee)
+    w.set_dead("Sam", ghost=True)
+    w.tick(3)
+    assert "early_release" in hits(c["Rita"])
+    lee.fire("ENCOUNTER_END", 652, "Attumen", 3, 4, 1)
+    w.tick(600, step=1)
+    cleu(lee, "SWING_DAMAGE", GROUP_PLAYER, 0, 800, -1, 1, 0, 0, 0, False, False, False)
+    w.tick(600, step=1)
+    assert "idle" not in hits(lee), "fighting resets the idle clock"
+    w.tick(320, step=1)
+    assert "idle" in hits(c["Rita"])
+    no_errors(w)
+
+
+@case
+def raid_chat_squares():
+    w, c = raid()
+    lee = start(w, c)
+    lee.eval("SendChatMessage('OK', 'RAID_WARNING')")
+    lee.eval("SendChatMessage('Stack on {skull}', 'RAID_WARNING')")
+    c["Sam"].eval("SendChatMessage('sorting my bags, what sorrow', 'RAID')")
+    w.tick(1)
+    assert hits(lee) == [], hits(lee)
+    lee.eval("SendChatMessage('STACK ON {skull} NOW!!', 'RAID_WARNING')")
+    c["Sam"].eval("SendChatMessage('oops, sorryyy', 'RAID')")
+    w.tick(1)
+    assert set(hits(c["Bob"])) == {"caps_warning", "sorry"}, hits(c["Bob"])
     no_errors(w)
 
 

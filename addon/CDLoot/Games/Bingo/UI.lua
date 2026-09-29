@@ -97,7 +97,9 @@ function BingoUI:Refresh()
             c.text:SetText(sq.text)
             c.text:SetTextColor(hit and 1 or col[1], hit and 1 or col[2], hit and 1 or col[3])
             c.check:SetShown(hit)
-            c.tip = { sq.text, hit and ("Marked at " .. date("%H:%M", g.hits[id])) or "Not yet..." }
+            c.tip = { sq.text }
+            if sq.hint then c.tip[#c.tip + 1] = sq.hint end
+            c.tip[#c.tip + 1] = hit and ("Marked at " .. date("%H:%M", g.hits[id])) or "Not yet..."
             if onLine[i] then
                 c:SetBackdropColor(0.1, 0.45, 0.1, 0.9)
             elseif hit then
