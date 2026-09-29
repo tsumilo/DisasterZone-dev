@@ -122,6 +122,8 @@ local function setChip(chip, m)
         chip.spec:Show()
     end
     chip.fs:SetText(UI():ColoredName(m.key, m.c))
+    chip.fs:SetAlpha(m.dim and 0.55 or 1)
+    chip.cls:SetAlpha(m.dim and 0.55 or 1)
     chip.picked:SetShown(chip.grid.picked == m.key)
 end
 

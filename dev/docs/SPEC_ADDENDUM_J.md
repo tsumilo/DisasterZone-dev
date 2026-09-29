@@ -131,4 +131,37 @@ Messages fired: `RAIDPLAN_CHANGED`.
   members who bring a party buff; then the rest by role into the least full group of their role, then any group with
   room. Members who don't fit stay in the pool.
 
-## 60-61. (Steps 4-5: raid group builder with Invite & sort, raid log tie-ins; written when built.)
+## 60. The raid's groups, Invite & sort (built 2026-09-29)
+
+Agreed with the user: the Upcoming view gets the group view; a raid made for a team adheres to the team's layout; the
+leader invites from there in group order; a button re-sorts groups for late joiners. Defaults confirmed: late joiners
+are sorted automatically while the run lasts (until the raid session ends), Re-sort is the manual fallback; Tentative
+players go to the pool.
+
+- **Layout members** (`RaidPlan:GetLayoutMembers`): Accept, Tentative and Bench sign-ups (Absent left out) plus anyone
+  in the saved layout; the UI also lists people in my raid who didn't sign up ("In your raid, no sign-up"), so a late
+  joiner can be placed. Non-accepted chips are dimmed.
+- **Starting layout** (`RaidPlan:BuildLayout`, used while the raid has no saved layout, so it follows new sign-ups):
+  accepted team members keep their team seat (first team first); seats of team members who didn't accept are open to
+  accepted players of the same role (role from the team's spec / sign-up); other accepted players join a group whose
+  players mostly share their role and has room; the rest stays in the pool. No team layout = Auto-fill of accepted.
+  `RaidPlan:GetLayout` = the saved layout (E `grp`, via `SetGroups`) or the starting one.
+- **Groups tab** (Upcoming detail, next to Sign-ups): organizers: Auto-fill, From team (back to the starting layout),
+  Undo, Save; everyone: the grid read-only. Status line: starting / changed / saved layout, placed count, or the run's
+  progress ("18/22 in the raid · 15 sorted · 3 offline (...)", "waiting for combat to end") with Stop.
+- **Invite & sort** (`Core/RaidInvite.lua`; organizers, or whoever leads / assists my group): saves an organizer's
+  unsaved layout first, then invites every placed player who is online and not in my group (a party or no group:
+  at most 4 pending at a time; as soon as someone joined the party becomes a raid via `ConvertToRaid`), then sorts.
+  Pressing it again re-invites the missing players.
+- **Sorting:** planned players go to their group; unplanned players stay put when their group has room next to the
+  planned ones heading there, else move to the free spots of the highest groups (8, 7, 6 ...). Moves use
+  `SetRaidSubgroup` into a group with room, else `SwapRaidSubgroup` with someone who doesn't belong there; at most 8
+  moves per pass, the next pass follows the roster update (and a 2 s fallback). Needs the raid leader or an assistant;
+  nothing moves in combat (it resumes on `PLAYER_REGEN_ENABLED`).
+- **The run** lasts until Stop, leaving the group, the raid session ending (Addendum I End raid), or 8 hours; late
+  joiners are sorted as they join. Saving the layout during a run updates its plan. A /reload resumes it (sorting only).
+  **Re-sort** runs one sort now (and keeps sorting late joiners).
+- Mock (dev kit): `World.invite / convert_to_raid / set_raid_subgroup / swap_raid_subgroup`, explicit per-member
+  subgroups, `World.auto_accept_invites`, `World.invite_log`, `World.subgroup_of(name)`.
+
+## 61. (Step 5: raid log tie-ins; written when built.)

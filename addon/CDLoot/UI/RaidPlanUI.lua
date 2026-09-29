@@ -35,7 +35,7 @@ local ICON = {
     X = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:12|t",
 }
 
-local state = { selected = nil, team = nil, draft = nil, pendingSpec = nil, pendingNote = nil }
+local state = { selected = nil, team = nil, draft = nil, pendingSpec = nil, pendingNote = nil, detailTab = "signups" }
 local upcoming, teamsView, editor
 
 local function RP() return ns.RaidPlan end
@@ -492,6 +492,296 @@ function PlanUI:Confirm(text, fn)
     StaticPopup_Show("CDLOOT_PLAN_CONFIRM", text, nil, { fn = fn })
 end
 
+---------------------------------------------------------------------------
+-- Upcoming: Groups tab (§60): the raid's group layout in the group grid, Invite & sort and Re-sort
+---------------------------------------------------------------------------
+
+local STATUS_EXTRA = { T = "Signed up as Tentative", B = "Signed up as Bench" }
+
+local function leadsGroup()
+    if not IsInGroup() then return false end
+    return (UnitIsGroupLeader("player") or (IsInRaid() and UnitIsGroupAssistant("player"))) and true or false
+end
+
+-- Moves key to group g (nil = out of the groups) in a layout; dropped onto `target` in group g = swap. isMember(k)
+-- tells which layout entries still count. Returns ok (false: the group is full).
+local function moveInLayout(grp, isMember, key, g, target)
+    local old = grp[key]
+    if g == nil then
+        grp[key] = nil
+        return true
+    end
+    if target and target ~= key and grp[target] == g then
+        grp[key], grp[target] = g, old
+        return true
+    end
+    if old == g then return true end
+    local n = 0
+    for k, x in pairs(grp) do
+        if x == g and k ~= key and isMember(k) then n = n + 1 end
+    end
+    if n >= ns.RaidComp.GROUP_SIZE then
+        Print("Group %d is full. Drop onto a player there to swap places.", g)
+        return false
+    end
+    grp[key] = g
+    return true
+end
+
+local function selectedRaid()
+    return state.selected and RP():GetRaid(state.selected) or nil
+end
+
+-- The layout being shown: the saved one (or the starting one) until an organizer changes it.
+local function raidDraft(v)
+    local dr = state.raidDraft
+    if dr and dr.occ == v.id and dr.dirty then return dr end
+    local grp, saved = RP():GetLayout(v)
+    state.raidDraft = { occ = v.id, grp = grp, saved = saved, dirty = false }
+    return state.raidDraft
+end
+
+local function raidMembers()
+    local v = selectedRaid()
+    local out = {}
+    if not v then return out end
+    local seen = {}
+    for _, m in ipairs(RP():GetLayoutMembers(v)) do
+        out[#out + 1] = { key = m.key, c = m.c, sp = m.sp, dim = m.st ~= "A",
+                          extra = m.st and STATUS_EXTRA[m.st] or (m.st == nil and "No sign-up" or nil) }
+        seen[m.key] = true
+    end
+    -- people in my raid who didn't sign up (late joiners, fill-ins) can be placed too
+    local signups = RP():GetSignups(v.id)
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() or 0 do
+            local name, _, _, _, _, classFile = GetRaidRosterInfo(i)
+            local key = type(name) == "string" and ns.Util.NormalizeName(name) or nil
+            if key and not seen[key] and not (signups[key] and signups[key].st == "X") then
+                local sp, c = RP():GetMemberSpec(key)
+                out[#out + 1] = { key = key, c = c or classFile, sp = sp, dim = true, extra = "In your raid, no sign-up" }
+                seen[key] = true
+            end
+        end
+    end
+    return out
+end
+
+function PlanUI:GetRaidDraft()
+    local v = selectedRaid()
+    return v and raidDraft(v) or nil
+end
+
+function PlanUI:MoveRaidMember(key, g, target)
+    local v = selectedRaid()
+    if not v or not RP():CanOrganize() then return false end
+    local dr = raidDraft(v)
+    local valid = {}
+    for _, m in ipairs(raidMembers()) do valid[m.key] = true end
+    if not valid[key] then return false end
+    local ok = moveInLayout(dr.grp, function(k) return valid[k] end, key, g, target)
+    if ok then dr.dirty = true end
+    return ok
+end
+
+function PlanUI:AutoFillRaid()
+    local v = selectedRaid()
+    if not v or not RP():CanOrganize() then return end
+    local accepted = {}
+    for _, m in ipairs(RP():GetLayoutMembers(v)) do
+        if m.st == "A" then accepted[#accepted + 1] = m end
+    end
+    local dr = raidDraft(v)
+    dr.grp, dr.dirty = ns.RaidComp:AutoFill(accepted, v.sz), true
+    self:RefreshUpcoming()
+end
+
+-- Back to the starting layout (the teams' layouts adjusted to who accepted).
+function PlanUI:ResetRaidLayout()
+    local v = selectedRaid()
+    if not v or not RP():CanOrganize() then return end
+    local dr = raidDraft(v)
+    dr.grp, dr.dirty = RP():BuildLayout(v), true
+    self:RefreshUpcoming()
+end
+
+function PlanUI:UndoRaidLayout()
+    state.raidDraft = nil
+    self:RefreshUpcoming()
+end
+
+function PlanUI:SaveRaidLayout()
+    local v = selectedRaid()
+    if not v then return false end
+    local dr = raidDraft(v)
+    local ok, err = RP():SetGroups(v.id, dr.grp)
+    if not ok then
+        Print(err or "Could not save the groups.")
+        return false
+    end
+    dr.dirty, dr.saved = false, true
+    ns.RaidInvite:UpdatePlan(v.id, dr.grp)
+    self:RefreshUpcoming()
+    return true
+end
+
+-- Invite & sort: an organizer's unsaved layout is saved first (so the other officers see what was used).
+function PlanUI:InviteRaid()
+    local v = selectedRaid()
+    if not v then return false end
+    local dr = raidDraft(v)
+    if not next(dr.grp) then
+        Print("Nobody is in a group yet. Place players in groups first (or use Auto-fill).")
+        return false
+    end
+    if RP():CanOrganize() and (dr.dirty or not dr.saved) and not self:SaveRaidLayout() then return false end
+    local ok, err = ns.RaidInvite:Start(v.id, dr.grp, raidTitle(v))
+    if not ok then Print(err or "Could not invite.") end
+    self:RefreshUpcoming()
+    return ok
+end
+
+function PlanUI:ResortRaid()
+    local v = selectedRaid()
+    if not v then return false end
+    local dr = raidDraft(v)
+    local ok, err = ns.RaidInvite:Resort(v.id, dr.grp, raidTitle(v))
+    if not ok then Print(err or "Could not sort the groups.") end
+    self:RefreshUpcoming()
+    return ok
+end
+
+function PlanUI:GetRaidGrid() return upcoming and upcoming.detail.groups.grid end
+
+local function tipButton(b, title, text)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(title)
+        GameTooltip:AddLine(text, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", hideTooltip)
+end
+
+local function createRaidGroups(d)
+    local g = CreateFrame("Frame", nil, d)
+    g:SetPoint("TOPLEFT", 0, -58)
+    g:SetPoint("BOTTOMRIGHT", 0, 0)
+    d.groups = g
+
+    g.autoBtn = UI():CreateButton(g, "Auto-fill", 70, 22, function() PlanUI:AutoFillRaid() end)
+    g.autoBtn:SetPoint("TOPLEFT", 0, 0)
+    tipButton(g.autoBtn, "Auto-fill", "A fresh layout of everyone who accepted: tanks, melee groups with a shaman each, "
+        .. "casters, healers.")
+    g.teamBtn = UI():CreateButton(g, "From team", 80, 22, function() PlanUI:ResetRaidLayout() end)
+    g.teamBtn:SetPoint("LEFT", g.autoBtn, "RIGHT", 3, 0)
+    tipButton(g.teamBtn, "From team", "Start again from the team's group layout: players keep their team seat, others "
+        .. "who accepted fill the seats of team members who didn't.")
+    g.undoBtn = UI():CreateButton(g, "Undo", 50, 22, function() PlanUI:UndoRaidLayout() end)
+    g.undoBtn:SetPoint("LEFT", g.teamBtn, "RIGHT", 3, 0)
+    g.saveBtn = UI():CreateButton(g, "Save", 56, 22, function() PlanUI:SaveRaidLayout() end)
+    g.saveBtn:SetPoint("LEFT", g.undoBtn, "RIGHT", 3, 0)
+
+    g.resortBtn = UI():CreateButton(g, "Re-sort", 68, 22, function() PlanUI:ResortRaid() end)
+    g.resortBtn:SetPoint("TOPRIGHT", -2, 0)
+    tipButton(g.resortBtn, "Re-sort groups", "Moves everyone in your raid to their planned group now, e.g. after late "
+        .. "joiners or a change of plan. Players who aren't planned go to groups 6-8.")
+    g.inviteBtn = UI():CreateButton(g, "Invite & sort", 100, 22, function() PlanUI:InviteRaid() end)
+    g.inviteBtn:SetPoint("RIGHT", g.resortBtn, "LEFT", -4, 0)
+    tipButton(g.inviteBtn, "Invite & sort", "Invites everyone placed in a group who is online, makes the group a raid "
+        .. "and moves each player into their group as they join. Players who join later are sorted too, until the "
+        .. "raid ends. Needs the raid leader or an assistant.")
+
+    g.status = g:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    g.status:SetPoint("TOPLEFT", 2, -28)
+    g.status:SetPoint("RIGHT", -64, 0)
+    g.status:SetJustifyH("LEFT")
+    g.status:SetWordWrap(false)
+    g.stopBtn = UI():CreateButton(g, "Stop", 56, 20, function()
+        ns.RaidInvite:Stop()
+        PlanUI:RefreshUpcoming()
+    end)
+    g.stopBtn:SetPoint("TOPRIGHT", -2, -24)
+
+    g.grid = ns.RaidGroupsUI:CreateGrid(g, {
+        getSize = function()
+            local v = selectedRaid()
+            return v and v.sz or 25
+        end,
+        getMembers = raidMembers,
+        getGroups = function()
+            local v = selectedRaid()
+            return v and raidDraft(v).grp or {}
+        end,
+        isEditable = function() return RP():CanOrganize() end,
+        onDrop = function(key, grp, target)
+            PlanUI:MoveRaidMember(key, grp, target)
+            PlanUI:RequestRefresh()
+        end,
+        onMenu = function(root, key)
+            local v = selectedRaid()
+            if not v then return end
+            root:CreateTitle(shortName(key))
+            for grpN = 1, ns.RaidComp:GroupCount(v.sz) do
+                root:CreateButton("Move to group " .. grpN, function()
+                    PlanUI:MoveRaidMember(key, grpN)
+                    PlanUI:RefreshUpcoming()
+                end)
+            end
+            root:CreateButton("Take out of the groups", function()
+                PlanUI:MoveRaidMember(key, nil)
+                PlanUI:RefreshUpcoming()
+            end)
+        end,
+        poolLabel = "Not in a group",
+    })
+    g.grid.frame:SetPoint("TOPLEFT", 0, -46)
+    g.grid.frame:SetPoint("BOTTOMRIGHT", 0, 0)
+end
+
+local function refreshGroups(v)
+    local g = upcoming.detail.groups
+    local organizer = RP():CanOrganize()
+    local dr = raidDraft(v)
+    local lead = leadsGroup()
+    for _, b in ipairs({ g.autoBtn, g.teamBtn, g.undoBtn, g.saveBtn }) do b:SetShown(organizer) end
+    g.undoBtn:SetEnabled(dr.dirty)
+    g.saveBtn:SetEnabled(dr.dirty or not dr.saved)
+    g.teamBtn:SetEnabled(v.tm ~= nil and #v.tm > 0)
+    local canInvite = (organizer or lead) and not v.cancelled
+    g.inviteBtn:SetShown(canInvite)
+    g.resortBtn:SetShown(canInvite)
+    g.resortBtn:SetEnabled(IsInRaid() and lead)
+    local st = ns.RaidInvite:IsActive(v.id) and ns.RaidInvite:GetStatus() or nil
+    g.stopBtn:SetShown(st ~= nil)
+    local placed, total = 0, 0
+    for _, m in ipairs(raidMembers()) do
+        total = total + 1
+        if dr.grp[m.key] then placed = placed + 1 end
+    end
+    local text
+    if st then
+        text = colorize("33ff33", "Invite & sort: ") .. ("%d/%d in the raid · %d sorted"):format(st.inRaid, st.planned, st.sorted)
+        if #st.offline > 0 then
+            local names = {}
+            for i, key in ipairs(st.offline) do
+                if i > 3 then names[#names + 1] = "..." break end
+                names[#names + 1] = shortName(key)
+            end
+            text = text .. colorize("ff9933", (" · %d offline (%s)"):format(#st.offline, tconcat(names, ", ")))
+        end
+        if st.waitCombat then text = text .. colorize("ff5555", " · waiting for combat to end") end
+    elseif dr.dirty then
+        text = colorize("ff9933", "Changed, not saved.") .. grey(("  %d of %d placed"):format(placed, total))
+    elseif dr.saved then
+        text = grey(("Saved layout · %d of %d placed"):format(placed, total))
+    else
+        text = grey(("Starting layout (follows the sign-ups until saved) · %d of %d placed"):format(placed, total))
+    end
+    g.status:SetText(text)
+    g.grid:Refresh()
+end
+
 function PlanUI:CreateUpcoming(parent)
     local u = CreateFrame("Frame", nil, parent)
     upcoming = u
@@ -523,7 +813,21 @@ function PlanUI:CreateUpcoming(parent)
     d.sub:SetWordWrap(false)
     d.note = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     d.note:SetPoint("TOPLEFT", 2, -40)
-    d.note:SetPoint("RIGHT", -4, 0)
+    d.note:SetPoint("RIGHT", -176, 0)
+
+    -- Sign-ups / Groups tabs
+    local function tab(label, key)
+        local b = UI():CreateButton(d, label, 80, 20, function()
+            state.detailTab = key
+            PlanUI:RefreshUpcoming()
+        end)
+        b.key = key
+        return b
+    end
+    d.tabGroups = tab("Groups", "groups")
+    d.tabGroups:SetPoint("TOPRIGHT", -2, -34)
+    d.tabSignups = tab("Sign-ups", "signups")
+    d.tabSignups:SetPoint("RIGHT", d.tabGroups, "LEFT", -4, 0)
     d.note:SetJustifyH("LEFT")
     d.note:SetWordWrap(false)
 
@@ -594,13 +898,19 @@ function PlanUI:CreateUpcoming(parent)
     d.roster.frame:SetPoint("BOTTOMRIGHT", 0, 0)
     d.roster:SetEmptyText("")
 
+    createRaidGroups(d)
     return u
 end
 
 local function refreshDetail(v)
     local d = upcoming.detail
     local has = v ~= nil
-    for _, region in ipairs({ d.title, d.sub, d.note, d.strip, d.counts, d.roster.frame }) do region:SetShown(has) end
+    local groupsTab = state.detailTab == "groups"
+    for _, region in ipairs({ d.title, d.sub, d.note, d.tabSignups, d.tabGroups }) do region:SetShown(has) end
+    for _, region in ipairs({ d.strip, d.counts, d.roster.frame }) do region:SetShown(has and not groupsTab) end
+    d.groups:SetShown(has and groupsTab)
+    d.tabSignups:SetEnabled(groupsTab)
+    d.tabGroups:SetEnabled(not groupsTab)
     d.empty:SetShown(not has)
     local organizer = RP():CanOrganize()
     d.editBtn:SetShown(has and organizer)
@@ -613,6 +923,10 @@ local function refreshDetail(v)
     if v.by then sub = sub .. grey("  ·  by " .. shortName(v.by)) end
     d.sub:SetText(sub)
     d.note:SetText(v.no or "")
+    if groupsTab then
+        refreshGroups(v)
+        return
+    end
 
     local mine = RP():GetMySignup(v.id)
     local open = not v.cancelled and v.t >= Now() - 6 * 3600
@@ -791,23 +1105,7 @@ end
 function PlanUI:MoveDraftMember(key, g, target)
     local dr = state.draft
     if not dr or not dr.members[key] or not RP():CanOrganize() then return false end
-    local old = dr.grp[key]
-    if g == nil then
-        dr.grp[key] = nil
-    elseif target and target ~= key and dr.grp[target] == g then
-        dr.grp[key], dr.grp[target] = g, old
-    elseif old ~= g then
-        local n = 0
-        for k, x in pairs(dr.grp) do
-            if x == g and k ~= key and dr.members[k] then n = n + 1 end
-        end
-        if n >= ns.RaidComp.GROUP_SIZE then
-            Print("Group %d is full. Drop onto a member there to swap places.", g)
-            return false
-        end
-        dr.grp[key] = g
-    end
-    return true
+    return moveInLayout(dr.grp, function(k) return dr.members[k] end, key, g, target)
 end
 
 function PlanUI:AutoFillDraft()
@@ -1309,7 +1607,7 @@ local function Remind()
 end
 
 function PlanUI:OnInit()
-    for _, msg in ipairs({ "RAIDPLAN_CHANGED", "ROSTER_UPDATED", "CONFIG_UPDATED" }) do
+    for _, msg in ipairs({ "RAIDPLAN_CHANGED", "ROSTER_UPDATED", "CONFIG_UPDATED", "RAIDINVITE_CHANGED" }) do
         ns:On(msg, function() PlanUI:RequestRefresh() end)
     end
     if StaticPopupDialogs then

@@ -107,6 +107,7 @@ EXTRA_KNOWN = {
     "GuildRosterSetPublicNote", "GuildRosterSetOfficerNote",
     "BNSendGameData",                                                    # used by ChatThrottleLib via hooksecurefunc
     "IsFishingLoot",                                                     # classic_anniversary Blizzard LootFrame.lua:319
+    "ConvertToRaid",                                                     # party -> raid (since 1.x; Attune.lua:5400 calls it)
 }
 EXTRA_KNOWN_FIELDS = {
     "C_ChatInfo": {"SendAddonMessageLogged", "SendAddonMessage", "RegisterAddonMessagePrefix",

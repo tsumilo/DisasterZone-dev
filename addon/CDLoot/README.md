@@ -261,6 +261,28 @@ your teams in the next 7 days that you haven't answered.
 - Everyone sees every raid and anyone can sign up. The teams decide who gets the reminder and who is listed under
   "No response".
 
+### Team groups (Guild Master and guild council)
+- In **Teams**, pick the team's size (10 / 25) and place members in groups: drag a name into a group, or click it and
+  then click a group. Drop onto someone to swap places. **Auto-fill** makes a starting layout (tanks, melee groups
+  with a shaman each, casters, healers).
+- Each member shows their class and spec icon. The spec comes from their last sign-up or BiS list (dimmed) unless you
+  pick one with right-click.
+- The icons under each group are the buffs that group gets (Bloodlust / Heroism, Windfury, Battle Shout, Trueshot
+  Aura, Leader of the Pack, Moonkin Aura, Vampiric Touch ...). The strip on top shows raid-wide buffs and boss debuffs;
+  greyed icons mean nobody on the team brings it. Hover an icon to see who does.
+- Click **Save** when you're done. Everyone else sees the team's groups read-only.
+
+### A raid's groups and Invite & sort
+- A raid's **Groups** tab (next to Sign-ups) starts from its team's groups: players who accepted keep their team seat,
+  and other players who accepted fill the empty seats with the same role. Tentative and Bench wait under "Not in a
+  group". Until you save, it follows new sign-ups.
+- Adjust it like a team (drag, Auto-fill, **From team** to start over) and **Save**.
+- As raid leader (or assistant), click **Invite & sort**: CDLoot invites everyone placed in a group who is online,
+  turns the party into a raid and moves each player into their group as they join. The status line shows who is in
+  and who is offline. Players who join later are sorted automatically until you end the raid.
+- **Re-sort** moves everyone in the raid back to their planned group, e.g. after swaps. Players who aren't in the plan
+  go to groups 6-8. Nothing moves during combat; it continues when combat ends.
+
 ---
 
 ## Quick start: Loot Council

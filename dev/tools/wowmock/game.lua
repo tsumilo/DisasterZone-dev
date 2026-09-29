@@ -550,9 +550,11 @@ function GetRaidTargetIndex() return nil end
 function SetRaidTarget() end
 function DoReadyCheck() end
 function GetReadyCheckStatus() return nil end
-function ConvertToRaid() end
+function ConvertToRaid() if PY and PY.convert_to_raid then PY.convert_to_raid() end end
 function ConvertToParty() end
-function InviteUnit() end
+function InviteUnit(name) if PY and PY.invite and type(name) == "string" then PY.invite(name) end end
+function SetRaidSubgroup(index, sub) if PY and PY.set_raid_subgroup then PY.set_raid_subgroup(index, sub) end end
+function SwapRaidSubgroup(a, b) if PY and PY.swap_raid_subgroup then PY.swap_raid_subgroup(a, b) end end
 function UninviteUnit() end
 function LeaveParty() end
 function PromoteToLeader() end
@@ -575,7 +577,8 @@ end
 C_PartyInfo = {
   GetLootMethod = function() return loot_method_info() end,
   SetLootMethod = function() M.warn("C_PartyInfo.SetLootMethod is not simulated; use world.make_raid(master_looter=...)") end,
-  InviteUnit = function() end, LeaveParty = function() end, ConvertToRaid = function() end, ConvertToParty = function() end,
+  InviteUnit = function(name) InviteUnit(name) end, LeaveParty = function() end,
+  ConvertToRaid = function() ConvertToRaid() end, ConvertToParty = function() end,
   IsPartyFull = function() return GetNumGroupMembers() >= 5 end, DoCountdown = function() end,
   CanInvite = function() return true end, GetMinLevel = function() return 1 end,
   IsPartyInJailersTower = function() return false end,

@@ -237,6 +237,8 @@ class World:
         self.offline_members = []
         self.notes = {}
         self.guild_texts = {}
+        self.auto_accept_invites = True   # invited online clients accept after `latency` (InviteUnit)
+        self.invite_log = []              # {time, by, target, result}
         self.group = None
         self.instance = None
         self.instance_members = set()
@@ -373,6 +375,7 @@ class World:
             "assistants": [self._member(a) for a in assistants], "ml": ml,
             "loot_method": 2 if ml is not None else (loot_method if loot_method is not None else 3),
             "threshold": loot_threshold,
+            "subgroups": {id(m): (i // 5 + 1 if kind == "raid" else 1) for i, m in enumerate(members)},
         }
         self._sync()
         for c in self._group_clients(old + members):
@@ -410,6 +413,113 @@ class World:
 
     def group_members(self):
         return list(self.group["members"]) if self.group else []
+
+    def subgroup_of(self, who):
+        """Raid subgroup (1..8) of a group member, or None."""
+        m = self._member(who)
+        if not self.group:
+            return None
+        for x in self.group["members"]:
+            if x is m:
+                return self.group["subgroups"].get(id(x), 1) if self.group["kind"] == "raid" else 1
+        return None
+
+    def _roster_changed_group(self, extra=()):
+        self._sync()
+        for c in self._group_clients((self.group["members"] if self.group else []) + list(extra)):
+            c._fire("GROUP_ROSTER_UPDATE")
+
+    def _can_lead(self, c, assist_ok=True):
+        g = self.group
+        if not g or not any(m is c for m in g["members"]):
+            return False
+        return g["leader"] is c or (assist_ok and g["kind"] == "raid" and any(a is c for a in g["assistants"]))
+
+    # InviteUnit from client `by` (like WoW: the leader, or a raid assistant, or someone not in a group). The target
+    # accepts after `latency` when auto_accept_invites is on; a full party or an offline / grouped target refuses.
+    def invite(self, by, name):
+        target = self.find_client(str(name).split("-")[0])
+        entry = {"time": round(self.now, 3), "by": by.full_name, "target": str(name), "result": None}
+        self.invite_log.append(entry)
+        g = self.group
+        if g and any(m is by for m in g["members"]) and not self._can_lead(by):
+            entry["result"] = "not leader"
+            return
+        if target is None or not self._is_online(target):
+            entry["result"] = "offline"
+            self._enqueue(0.0, by, "system", "Cannot find player '%s'." % str(name))
+            return
+        if g and any(m is target for m in g["members"]):
+            entry["result"] = "already in group"
+            return
+        if not self.auto_accept_invites:
+            entry["result"] = "pending"
+            return
+
+        def accept():
+            gg = self.group
+            if gg and any(m is target for m in gg["members"]):
+                entry["result"] = "already in group"
+                return
+            if gg is None:
+                self.group = {"kind": "party", "members": [by, target], "leader": by, "assistants": [], "ml": None,
+                              "loot_method": 3, "threshold": 2, "subgroups": {id(by): 1, id(target): 1}}
+            elif not any(m is by for m in gg["members"]):
+                entry["result"] = "inviter left"
+                return
+            else:
+                if gg["kind"] == "party" and len(gg["members"]) >= 5:
+                    entry["result"] = "party full"
+                    self._enqueue(0.0, by, "system", "Your party is full.")
+                    return
+                if len(gg["members"]) >= 40:
+                    entry["result"] = "raid full"
+                    return
+                sub = 1
+                if gg["kind"] == "raid":
+                    counts = {}
+                    for m in gg["members"]:
+                        s = gg["subgroups"].get(id(m), 1)
+                        counts[s] = counts.get(s, 0) + 1
+                    sub = next(s for s in range(1, 9) if counts.get(s, 0) < 5)
+                gg["members"].append(target)
+                gg["subgroups"][id(target)] = sub
+            entry["result"] = "joined"
+            self._roster_changed_group()
+        self._enqueue(self.latency, None, "call", accept)
+
+    def convert_to_raid(self, by):
+        g = self.group
+        if not g or g["kind"] != "party" or g["leader"] is not by:
+            return
+        g["kind"] = "raid"
+        for i, m in enumerate(g["members"]):
+            g["subgroups"][id(m)] = 1
+        self._enqueue(self.latency, None, "call", self._roster_changed_group)
+
+    def set_raid_subgroup(self, by, index, sub):
+        g = self.group
+        if not g or g["kind"] != "raid" or not self._can_lead(by):
+            return
+        index, sub = int(index), int(sub)
+        if not (1 <= index <= len(g["members"])) or not (1 <= sub <= 8):
+            return
+        m = g["members"][index - 1]
+        if sum(1 for x in g["members"] if g["subgroups"].get(id(x)) == sub and x is not m) >= 5:
+            return   # WoW refuses a move into a full group
+        g["subgroups"][id(m)] = sub
+        self._enqueue(self.latency, None, "call", self._roster_changed_group)
+
+    def swap_raid_subgroup(self, by, i1, i2):
+        g = self.group
+        if not g or g["kind"] != "raid" or not self._can_lead(by):
+            return
+        i1, i2 = int(i1), int(i2)
+        if not (1 <= i1 <= len(g["members"])) or not (1 <= i2 <= len(g["members"])):
+            return
+        a, b = g["members"][i1 - 1], g["members"][i2 - 1]
+        g["subgroups"][id(a)], g["subgroups"][id(b)] = g["subgroups"].get(id(b), 1), g["subgroups"].get(id(a), 1)
+        self._enqueue(self.latency, None, "call", self._roster_changed_group)
 
     # -- instance / encounters -----------------------------------------------------------------------------------
     def enter_instance(self, name="Karazhan", instance_id=532, instance_type="raid", max_players=10,
@@ -623,7 +733,7 @@ class World:
             for i, m in enumerate(g["members"]):
                 r = self._base_record(m)
                 r["group_rank"] = 2 if m is g["leader"] else (1 if any(a is m for a in g["assistants"]) else 0)
-                r["subgroup"] = i // 5 + 1 if g["kind"] == "raid" else 1
+                r["subgroup"] = (g.get("subgroups") or {}).get(id(m), i // 5 + 1) if g["kind"] == "raid" else 1
                 r["isML"] = m is g["ml"]
                 r["raid_index"] = i + 1
                 if m is g["ml"]:
@@ -851,6 +961,10 @@ class Client:
             "set_guild_info_text": self._py_set_guild_info_text, "set_note": self._py_set_note,
             "give_master_loot": self._py_give_master_loot, "item_lookup": self._py_item_lookup,
             "random_roll": self._py_random_roll,
+            "invite": lambda name: self.world.invite(self, name),
+            "convert_to_raid": lambda: self.world.convert_to_raid(self),
+            "set_raid_subgroup": lambda i, g: self.world.set_raid_subgroup(self, i, g),
+            "swap_raid_subgroup": lambda a, b: self.world.swap_raid_subgroup(self, a, b),
         })
         sources = rt.table_from(_mock_sources())
         res = rt.globals().loadstring(_read(os.path.join(MOCK_DIR, "mock.lua")), "@wowmock/mock.lua")

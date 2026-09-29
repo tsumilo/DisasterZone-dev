@@ -887,6 +887,132 @@ function RaidPlan:GetInvited(occId)
     return set
 end
 
+-- §60: the raid's group layout members: everyone who answered Accept, Tentative or Bench (Absent is left out), plus
+-- anyone placed in the saved layout without such an answer. { key, c, sp, st = "A"|"T"|"B"|nil }, sorted by key.
+function RaidPlan:GetLayoutMembers(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    local out = {}
+    if not v then return out end
+    local signups = self:GetSignups(v.id)
+    local seen = {}
+    for key, s in pairs(signups) do
+        if s.st ~= "X" then
+            local sp, c = s.sp, s.c
+            if not sp then sp, c = self:GetMemberSpec(key) end
+            out[#out + 1] = { key = key, c = c or s.c, sp = sp, st = s.st }
+            seen[key] = true
+        end
+    end
+    for key in pairs(v.grp or {}) do
+        if not seen[key] and not (signups[key] and signups[key].st == "X") then
+            local sp, c = self:GetMemberSpec(key)
+            out[#out + 1] = { key = key, c = c, sp = sp }
+        end
+    end
+    tsort(out, function(a, b) return a.key < b.key end)
+    return out
+end
+
+-- §60: the starting layout of a raid that has no saved one: its teams' layouts, adjusted to who accepted.
+--  1. accepted team members keep their seat (first team first);
+--  2. a seat whose team member didn't accept is open for an accepted player of the same role;
+--  3. other accepted players join a group of their role with room; Tentative / Bench and whoever doesn't fit stay out.
+-- Without any team layout the whole raid is Auto-filled (accepted players only). Returns { [key] = group }.
+function RaidPlan:BuildLayout(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    if not v then return {} end
+    local Comp = ns.RaidComp
+    local nGroups = Comp:GroupCount(v.sz)
+    local size = Comp.GROUP_SIZE
+    local accepted = {}
+    for _, m in ipairs(self:GetLayoutMembers(v)) do
+        if m.st == "A" then accepted[#accepted + 1] = m end
+    end
+    local teams = {}
+    for _, id in ipairs(v.tm or {}) do
+        local t = self:GetTeam(id)
+        if t and next(t.groups) then teams[#teams + 1] = t end
+    end
+    if #teams == 0 then return Comp:AutoFill(accepted, v.sz) end
+
+    local grp, count, byKey = {}, {}, {}
+    for g = 1, nGroups do count[g] = 0 end
+    for _, m in ipairs(accepted) do byKey[m.key] = m end
+    local open = {}     -- { g, role } seats of team members who didn't accept
+    for _, t in ipairs(teams) do
+        local keys = {}
+        for key in pairs(t.groups) do keys[#keys + 1] = key end
+        tsort(keys)
+        for _, key in ipairs(keys) do
+            local g = t.groups[key]
+            if g <= nGroups and grp[key] == nil then
+                if byKey[key] then
+                    if count[g] < size then
+                        grp[key] = g
+                        count[g] = count[g] + 1
+                    end
+                else
+                    local sp, c = self:GetMemberSpec(key, t)
+                    open[#open + 1] = { g = g, role = Comp:RoleOf(c, sp) }
+                end
+            end
+        end
+    end
+    -- groups' roles, for players who find no open seat of their role
+    local function groupRole(g)
+        local n = {}
+        local bestRole, bestN = nil, 0
+        for key, x in pairs(grp) do
+            if x == g then
+                local m = byKey[key]
+                local r = m and Comp:RoleOf(m.c, m.sp)
+                if r then
+                    n[r] = (n[r] or 0) + 1
+                    if n[r] > bestN then bestRole, bestN = r, n[r] end
+                end
+            end
+        end
+        return bestRole
+    end
+    local rest = {}
+    for _, m in ipairs(accepted) do
+        if grp[m.key] == nil then rest[#rest + 1] = m end
+    end
+    for _, m in ipairs(rest) do
+        local role = Comp:RoleOf(m.c, m.sp)
+        local placed = false
+        for i, seat in ipairs(open) do
+            if seat.role == role and count[seat.g] < size then
+                grp[m.key] = seat.g
+                count[seat.g] = count[seat.g] + 1
+                table.remove(open, i)
+                placed = true
+                break
+            end
+        end
+        if not placed and role then
+            local pick
+            for g = 1, nGroups do
+                if count[g] < size and groupRole(g) == role and (not pick or count[g] < count[pick]) then pick = g end
+            end
+            if pick then
+                grp[m.key] = pick
+                count[pick] = count[pick] + 1
+            end
+        end
+    end
+    return grp
+end
+
+-- The layout to use for a raid: the saved one (the organizers' edits), else the starting layout. Second return:
+-- true when saved.
+function RaidPlan:GetLayout(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    if not v then return {}, false end
+    if v.grp and next(v.grp) then return CopyMap(v.grp), true end
+    return self:BuildLayout(v), false
+end
+
 -- Raids in the next `days` days (default 7) I am invited to (by a team) and haven't answered, soonest first.
 function RaidPlan:GetUnanswered(days)
     local me = Util.PlayerKey()
