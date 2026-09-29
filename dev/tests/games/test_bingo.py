@@ -450,6 +450,112 @@ def raid_chat_squares():
     c["Sam"].eval("SendChatMessage('oops, sorryyy', 'RAID')")
     w.tick(1)
     assert set(hits(c["Bob"])) == {"caps_warning", "sorry"}, hits(c["Bob"])
+    assert c["Bob"].eval("return ns.Bingo:GetWho('sorry')") == "Sam"
+    assert c["Bob"].eval("return ns.Bingo:GetWho('caps_warning')") == "Lee"
+    no_errors(w)
+
+
+# -- who set it off, and the card UI ----------------------------------------------------------------------------------
+
+@case
+def who_set_it_off_is_synced_to_everyone():
+    w, c = raid()
+    lee = start(w, c)
+    cleu_g(lee, "SPELL_CAST_SUCCESS", c["Rita"].guid, GROUP_PLAYER, "", 0, 2825, "Bloodlust", 1)
+    w.player_roll("Sam", value=1)
+    lee.fire("ENCOUNTER_START", 652, "Attumen", 3, 4)
+    lee.fire("ENCOUNTER_END", 652, "Attumen", 3, 4, 0)
+    lee.eval("ns.Bingo:Hit('drown')")                   # no name: fine
+    w.tick(2)
+    for n in ("Lee", "Bob"):
+        assert c[n].eval("return ns.Bingo:GetWho('lust')") == "Src", n      # cleu_g names the source "Src"
+        assert c[n].eval("return ns.Bingo:GetWho('roll_1')") == "Sam", n
+        assert c[n].eval("return ns.Bingo:GetWho('wipe')") == "Attumen", n
+        assert c[n].eval("return ns.Bingo:GetWho('drown')") is None, n
+    feed = c["Bob"].eval_py("local t = {}; for _, e in ipairs(ns.Bingo:GetFeed()) do t[#t+1] = e.id end; return t")
+    assert set(feed) >= {"lust", "roll_1", "wipe", "drown"}, feed
+    # a /reload gets the names back from the host
+    c["Bob"].relog()
+    w.tick(8)
+    assert c["Bob"].eval("return ns.Bingo:GetWho('roll_1')") == "Sam"
+    no_errors(w)
+
+
+@case
+def a_raider_cannot_forge_who_names():
+    w, c = raid()
+    start(w, c)
+    c["Lee"].eval("ns.Bingo:Hit('wipe', 'Lee')")
+    w.tick(2)
+    c["Sam"].eval("ns.Comm:Send({ t = 'BG', g = ns.Bingo:GetGame().id, h = { 'wipe' }, w = { wipe = 'Sam' } }, 'RAID')")
+    w.tick(2)
+    assert c["Bob"].eval("return ns.Bingo:GetWho('wipe')") == "Lee"
+    no_errors(w)
+
+
+WS = "local W = ns.BingoUI:GetWidgets(); "
+
+
+def open_card(w, cl):
+    cl.slash("/cdl play bingo")
+    w.tick(0.3)
+    assert cl.eval(WS + "return W.panel:IsVisible()")
+
+
+@case
+def card_ui_stamps_lines_and_slam():
+    w, c = raid()
+    lee = start(w, c)
+    rita = c["Rita"]
+    open_card(w, rita)
+    # Rita's middle row (the centre is free), one square at a time
+    lee.eval("local card = ns.Bingo:GetCard(...); ns.Bingo:Hit(card[11], 'Sam'); ns.Bingo:Hit(card[12])", K("Rita"))
+    w.tick(2)
+    assert rita.eval(WS + "return W.cells[11].stamp:IsShown()")
+    assert "Sam" in strip_codes(rita.eval(WS + "return W.cells[11].who:GetText()"))
+    assert not rita.eval(WS + "return W.cells[14].stamp:IsShown()")
+    lee.eval("local card = ns.Bingo:GetCard(...); ns.Bingo:Hit(card[14])", K("Rita"))
+    w.tick(2)
+    assert rita.eval(WS + "return W.cells[15].pulse:IsShown()"), "one away pulses"
+    assert "one away" in strip_codes(rita.eval(WS + "return W.status:GetText()"))
+    assert not rita.eval(WS + "return W.slam:IsShown()")
+    lee.eval("local card = ns.Bingo:GetCard(...); ns.Bingo:Hit(card[15])", K("Rita"))
+    w.tick(0.5)
+    assert rita.eval(WS + "return W.slam:IsShown()"), "BINGO! slam"
+    assert "BINGO" in rita.eval(WS + "return W.slam.text:GetText()")
+    assert not rita.eval(WS + "return W.cells[15].pulse:IsShown()")
+    shown = rita.eval_py(WS + "local t = {}; for i, l in ipairs(W.lines) do if l:IsShown() then t[#t+1] = i end end; return t")
+    assert len(shown) == 1, shown
+    w.tick(4)
+    assert not rita.eval(WS + "return W.slam:IsShown()"), "the slam fades out"
+    # the race lists Rita first with her bingo; the feed has the four hits
+    assert "Rita" in strip_codes(rita.eval(WS + "return W.race[1].left:GetText()"))
+    assert "BINGO" in rita.eval(WS + "return W.race[1].right:GetText()")
+    assert rita.eval(WS + "local n = 0; for _, r in ipairs(W.feed) do if r:IsShown() then n = n + 1 end end; return n") == 4
+    # re-opening doesn't slam again
+    rita.eval("ns.MainFrame:Close()")
+    w.tick(0.2)
+    open_card(w, rita)
+    assert not rita.eval(WS + "return W.slam:IsShown()")
+    no_errors(w)
+
+
+@case
+def dauber_choice_changes_the_stamp_and_the_card_fits():
+    w, c = solo("Alice", tick=2)
+    c.slash("/cdl bingo start")
+    w.tick(0.5)
+    open_card(w, c)
+    c.eval("local card = ns.Bingo:GetMyCard(); ns.Bingo:Hit(card[1])")
+    w.tick(0.5)
+    assert str(c.eval(WS + "return W.cells[1].stamp:GetTexture()")).endswith("_1")
+    c.eval(WS + "W.dauber[8]:Click()")
+    w.tick(0.2)
+    assert str(c.eval(WS + "return W.cells[1].stamp:GetTexture()")).endswith("_8")
+    assert c.eval("return ns.Games:GetData('bingo').dauber") == 8
+    # the card fits the ~596 x 540 games stage (the mock does no layout, so check the declared sizes)
+    wid, hei = c.eval(WS + "return W.card:GetWidth(), W.card:GetHeight()")
+    assert 4 + wid + 10 + 150 <= 596 and 48 + hei + 26 <= 540, (wid, hei)
     no_errors(w)
 
 

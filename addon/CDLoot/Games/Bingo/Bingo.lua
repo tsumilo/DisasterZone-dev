@@ -2,7 +2,8 @@
 -- ns.Bingo: Council Bingo game state + raid sync. The host (raid leader / assistant who started the game)
 -- is the only client that detects events (Detect.lua) and broadcasts the shared hit set; every client
 -- rebuilds each raider's card from the seed, so bingos are computed locally and can't be faked.
--- Wire: BG = { g = gameId, s = startedAt, h = { squareId, ... }, e = ended } (RAID/PARTY, host only)
+-- Wire: BG = { g = gameId, s = startedAt, h = { squareId, ... }, w = { [squareId] = who }, e = ended }
+--       (RAID/PARTY, host only; w = the raider / boss that set each square off, optional)
 --       BGQ = {} "send me the current game" (after a /reload or joining mid-raid)
 local addonName, ns = ...
 
@@ -67,6 +68,47 @@ function Bingo:GetScore(key)
 end
 
 function Bingo:GetSeason() return Data().season end
+
+-- Who set a square off in the current game (short name or boss name), or nil.
+function Bingo:GetWho(id)
+    local g = self:GetGame()
+    return g and type(g.who) == "table" and g.who[id] or nil
+end
+
+-- The current game's marked squares, newest first: { { id =, t =, who = }, ... }
+function Bingo:GetFeed()
+    local g = self:GetGame()
+    local out = {}
+    if not g then return out end
+    for id, t in pairs(g.hits) do
+        out[#out + 1] = { id = id, t = tonumber(t) or 0, who = self:GetWho(id) }
+    end
+    table.sort(out, function(a, b)
+        if a.t ~= b.t then return a.t > b.t end
+        return a.id < b.id
+    end)
+    return out
+end
+
+-- Every raider's standing in the current game, best first: { { key =, lines =, marked = }, ... }
+function Bingo:GetRace()
+    local out = {}
+    if not self:GetGame() then return out end
+    local keys, seen = Util.GetGroupKeys(), {}
+    local me = Util.PlayerKey()
+    for _, k in ipairs(keys) do seen[k] = true end
+    if me and not seen[me] then keys[#keys + 1] = me end
+    for _, key in ipairs(keys) do
+        local lines, marked = self:GetScore(key)
+        out[#out + 1] = { key = key, lines = lines, marked = marked }
+    end
+    table.sort(out, function(a, b)
+        if a.lines ~= b.lines then return a.lines > b.lines end
+        if a.marked ~= b.marked then return a.marked > b.marked end
+        return a.key < b.key
+    end)
+    return out
+end
 
 local function GroupChannel()
     if IsInRaid() then return "RAID" end
@@ -140,6 +182,14 @@ end
 -- Sync
 ---------------------------------------------------------------------------
 
+-- Records who set a square off (first one wins). Names are display text only: short and plain.
+local function SetWho(g, id, who)
+    if type(id) ~= "string" or type(who) ~= "string" or who == "" then return end
+    if type(g.who) ~= "table" then g.who = {} end
+    if g.who[id] then return end
+    g.who[id] = who:gsub("|", ""):sub(1, 24)
+end
+
 local function HitList(g)
     local out = {}
     for id in pairs(g.hits) do out[#out + 1] = id end
@@ -151,7 +201,8 @@ local function Broadcast()
     local g = Bingo:GetGame()
     local ch = GroupChannel()
     if not g or not ch or not ns.Comm then return end
-    ns.Comm:Send({ t = "BG", g = g.id, s = g.started, h = HitList(g), e = g.ended or nil }, ch)
+    local who = type(g.who) == "table" and next(g.who) and g.who or nil
+    ns.Comm:Send({ t = "BG", g = g.id, s = g.started, h = HitList(g), w = who, e = g.ended or nil }, ch)
 end
 
 local function Changed()
@@ -167,7 +218,8 @@ local function NoteNewHits(before)
         if g.hits[id] and not before[id] then
             local sq = ns.BingoSquares:Get(id)
             local _, marked = Bingo:GetScore(Util.PlayerKey())
-            ns:Print("Bingo: |cffffd100%s|r (%d/25)", sq and sq.text or id, marked)
+            local who = Bingo:GetWho(id)
+            ns:Print("Bingo: |cffffd100%s|r%s (%d/25)", sq and sq.text or id, who and (" - " .. who) or "", marked)
         end
     end
 end
@@ -191,6 +243,11 @@ local function OnBG(sender, msg)
     for _, id in ipairs(msg.h) do
         if type(id) == "string" and ns.BingoSquares:Get(id) and not g.hits[id] then
             g.hits[id] = time()
+        end
+    end
+    if type(msg.w) == "table" then
+        for id, who in pairs(msg.w) do
+            if g.hits[id] then SetWho(g, id, who) end
         end
     end
     NoteNewHits(before)
@@ -232,13 +289,14 @@ function Bingo:Start()
     return true
 end
 
--- Host: mark a square for everyone (called by Detect).
-function Bingo:Hit(id)
+-- Host: mark a square for everyone (called by Detect). who: optional name of whoever set it off.
+function Bingo:Hit(id, who)
     local g = self:GetGame()
     if not g or g.ended or not self:IsHost() or g.hits[id] or not ns.BingoSquares:Get(id) then return end
     local before = {}
     for sid in pairs(g.hits) do before[sid] = true end
     g.hits[id] = time()
+    SetWho(g, id, who)
     NoteNewHits(before)
     Broadcast()
     Evaluate()

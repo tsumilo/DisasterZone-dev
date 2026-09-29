@@ -6,6 +6,19 @@
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "0.7.1", date = "29 September 2026", title = "Council Bingo makeover",
+      sections = {
+          { heading = "Council Bingo", lines = {
+              "A real B-I-N-G-O card, with an icon on every square.",
+              "Marked squares get stamped with your raid marker. Pick yours under the card.",
+              "Every stamp shows who set it off: the raider, pet or boss.",
+              "Squares one away from a line pulse, and the header counts them.",
+              "A gold line through every finished line, and a big BINGO! when you get one.",
+              "Legendary squares shimmer until they're marked.",
+              "New Race column: everyone's progress in the current game, live.",
+              "New Latest column: the last squares marked, who did it and when.",
+          } },
+      } },
     { version = "0.7.0", date = "29 September 2026", title = "Raid planning, Home and Games",
       sections = {
           { heading = "Home", lines = {
