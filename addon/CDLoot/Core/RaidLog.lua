@@ -146,9 +146,33 @@ local function Open(session)
         rec.stop, rec.endedBy, rec.autoEnded = nil, nil, nil
     end
     ns.db.raidCurrent = rec.id
+    if session.rp and (tonumber(rec.plAt) or 0) < (tonumber(session.rpAt) or 0) then
+        rec.pl, rec.plAt = session.rp, session.rpAt
+    end
     Scan(rec)
     Changed(rec)
     return rec
+end
+
+-- Addendum J §61: at the end of a linked raid, the sign-ups are kept on the record (su: key -> status; the raid plan
+-- drops them after 15 days, the reliability stats need them longer), and Bench sign-ups who never joined are marked
+-- bench (counts as attending; edit time = the link time, so every recorder marks the same; a council edit wins).
+local function SnapshotPlan(rec)
+    local RP = ns.RaidPlan
+    if not rec.pl or not (RP and RP.GetSignups) then return end
+    local signups = RP:GetSignups(rec.pl)
+    if not next(signups) then return end
+    rec.su = rec.su or {}
+    for key, s in pairs(signups) do
+        if not rec.su[key] then rec.su[key] = s.st end
+        if s.st == "B" then
+            rec.att = type(rec.att) == "table" and rec.att or {}
+            local a = rec.att[key]
+            if not a then
+                rec.att[key] = { j = rec.start, l = rec.stop, k = 0, b = true, bts = rec.plAt, c = s.c }
+            end
+        end
+    end
 end
 
 -- endedBy = the authority that ended it; nil = the safety net (stop = the last activity).
@@ -166,6 +190,7 @@ local function Close(rec, endedBy)
     for _, a in pairs(rec.att or {}) do
         if not a.l then a.l = rec.stop end
     end
+    SnapshotPlan(rec)
     if ns.db and ns.db.raidCurrent == rec.id then ns.db.raidCurrent = nil end
     ns:Print("raid session ended%s.", endedBy and not Util.IsMe(endedBy) and (" by " .. Util.ShortName(endedBy)) or "")
     Changed(rec)
@@ -187,7 +212,12 @@ local function Reconcile()
     local s = GR:GetSession()
     if s then
         if rec and rec.id ~= s.id then Close(rec, nil) end
-        if not rec or rec.id ~= s.id then Open(s) end
+        if not rec or rec.id ~= s.id then
+            Open(s)
+        elseif s.rpAt and (tonumber(rec.plAt) or 0) < s.rpAt then
+            rec.pl, rec.plAt = s.rp, s.rpAt
+            Changed(rec)
+        end
     elseif rec then
         Close(rec, from or Util.PlayerKey())
     end
@@ -370,6 +400,53 @@ function RaidLog:SetBench(id, key, on)
     if a then a.bts = GetServerTime() end   -- edit time (merge rule: the newer edit wins, §50)
     Changed(rec)
     return true
+end
+
+-- Addendum J §61, council: link a logged raid to a planned raid (occurrence id; nil = not linked).
+function RaidLog:SetPlanned(id, occId)
+    local rec = self:GetRaid(id)
+    if not rec or DemoRaids() then return false end
+    if occId ~= nil and not (type(occId) == "string" and #occId <= 40 and occId:find("^[%w#]+$")) then return false end
+    rec.pl, rec.plAt = occId, GetServerTime()
+    if occId == nil then rec.su = nil end
+    if rec.stop and occId then SnapshotPlan(rec) end
+    Changed(rec)
+    return true
+end
+
+-- Addendum J §61: sign-up reliability over the last `lastN` closed raids with sign-ups on record: accepted = raids
+-- they answered Accept, came = of those, raids they attended (or were marked bench for); also tentative / absent
+-- counts. nil when no such raid.
+function RaidLog:GetReliability(key, lastN)
+    key = Util.NormalizeName(key)
+    if not key then return nil end
+    lastN = lastN or 8
+    local out = { raids = 0, accepted = 0, came = 0, tentative = 0, absent = 0, noShows = {} }
+    for _, rec in ipairs(self:GetRaids()) do
+        if rec.stop and rec.su then
+            out.raids = out.raids + 1
+            local st = rec.su[key]
+            local present = rec.att and rec.att[key] ~= nil
+            if st == "A" then
+                out.accepted = out.accepted + 1
+                if present then out.came = out.came + 1 else out.noShows[#out.noShows + 1] = rec end
+            elseif st == "T" then
+                out.tentative = out.tentative + 1
+            elseif st == "X" then
+                out.absent = out.absent + 1
+            end
+            if out.raids >= lastN then break end
+        end
+    end
+    if out.raids == 0 then return nil end
+    return out
+end
+
+-- "came to 7 of 8 accepted raids" or nil.
+function RaidLog:GetReliabilityText(key, lastN)
+    local r = self:GetReliability(key, lastN)
+    if not r or r.accepted == 0 then return nil end
+    return ("came to %d of %d accepted raids"):format(r.came, r.accepted)
 end
 
 -- Per-player totals over the `lastN` most recent raids (nil = all): { key, class, raids, total, pct, kills,
@@ -588,7 +665,11 @@ local function RecordHash(rec)
     for i, b in ipairs(rec.bosses or {}) do
         bosses[i] = { b.enc or 0, b.ts or 0, b.roster and table.concat(b.roster, ",") or "" }
     end
-    return Util.Hash({ rec.start or 0, rec.stop or 0, rec.endedBy or "", rec.zone or "", att, bosses })
+    local su = {}
+    for key, st in pairs(rec.su or {}) do su[#su + 1] = key .. "=" .. st end
+    tsort(su)
+    return Util.Hash({ rec.start or 0, rec.stop or 0, rec.endedBy or "", rec.zone or "", att, bosses, rec.pl or "",
+                       rec.plAt or 0, table.concat(su, ",") })
 end
 
 local function Syncable(rec, g, minTs)
@@ -628,6 +709,23 @@ local function CleanRecord(r, now)
     if r.autoEnded == true and not out.endedBy then out.autoEnded = true end
     if type(r.zone) == "string" and #r.zone <= MAX_NAME_LEN and not r.zone:find("[%c|]") then out.zone = r.zone end
     if IsInt(r.instID, 1, 100000) then out.instID = r.instID end
+    if type(r.pl) == "string" and #r.pl <= 40 and r.pl:find("^[%w#]+$") and IsInt(r.plAt, 1, now + FUTURE_SLACK) then
+        out.pl, out.plAt = r.pl, r.plAt
+    elseif r.pl == nil and IsInt(r.plAt, 1, now + FUTURE_SLACK) then
+        out.plAt = r.plAt                                   -- unlinked by the council
+    end
+    if type(r.su) == "table" then
+        local n = 0
+        for key, st in pairs(r.su) do
+            n = n + 1
+            if n > MAX_ATT then break end
+            local k = IsKey(key) and Util.NormalizeName(key)
+            if k and (st == "A" or st == "T" or st == "B" or st == "X") then
+                out.su = out.su or {}
+                out.su[k] = st
+            end
+        end
+    end
     if type(r.att) ~= "table" then return nil end
     local n = 0
     for key, a in pairs(r.att) do
@@ -698,6 +796,15 @@ local function MergeRecord(cur, e)
         end
     end
     if not cur.zone and e.zone then cur.zone, cur.instID = e.zone, e.instID end
+    -- the planned-raid link: the newer decision wins (the same time: the larger id, so both sides agree)
+    local cp, ep = tonumber(cur.plAt) or 0, tonumber(e.plAt) or 0
+    if ep > cp or (ep == cp and ep > 0 and (e.pl or "") > (cur.pl or "")) then cur.pl, cur.plAt = e.pl, e.plAt end
+    if e.su then
+        cur.su = cur.su or {}
+        for key, st in pairs(e.su) do
+            if not cur.su[key] or st > cur.su[key] then cur.su[key] = st end
+        end
+    end
     if not cur.by and e.by then cur.by = e.by end
     cur.att = type(cur.att) == "table" and cur.att or {}
     for key, a in pairs(e.att) do

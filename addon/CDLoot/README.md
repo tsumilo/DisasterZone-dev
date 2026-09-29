@@ -283,6 +283,14 @@ your teams in the next 7 days that you haven't answered.
 - **Re-sort** moves everyone in the raid back to their planned group, e.g. after swaps. Players who aren't in the plan
   go to groups 6-8. Nothing moves during combat; it continues when combat ends.
 
+### Raid log and planned raids
+- When the raid leader clicks **Start raid**, CDLoot links the raid log to the planned raid automatically: the one you
+  ran Invite & sort for, or the one most of the raid signed up for (it waits until that is clear, e.g. when two teams
+  raid at the same time). The leader gets a chat line saying which raid it linked.
+- At **End raid**, the sign-ups are saved with the raid log: players who signed up as Bench count as bench, and the
+  council sees who accepted but didn't come ("no-show") in the Raid log, the Players view and the sign-up tooltips.
+- Wrong link? Council: in the Raid log, right-click the "Planned raid" line and pick the right raid (or "Not linked").
+
 ---
 
 ## Quick start: Loot Council

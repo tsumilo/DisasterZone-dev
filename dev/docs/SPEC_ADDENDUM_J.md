@@ -176,4 +176,29 @@ players go to the pool.
 - Mock (dev kit): `World.invite / convert_to_raid / set_raid_subgroup / swap_raid_subgroup`, explicit per-member
   subgroups, `World.auto_accept_invites`, `World.invite_log`, `World.subgroup_of(name)`.
 
-## 61. (Step 5: raid log tie-ins; written when built.)
+## 61. Raid log sessions linked to planned raids (built 2026-09-29)
+
+User request: raid log sessions should connect to the planned raid automatically and reliably.
+
+- **Who decides:** the session's authority (the raid leader's client, `Core/RaidLink.lua`). The link rides on the
+  session's GS as `rp` (occurrence id) + `rpAt` (decision time); raiders' clients copy it onto their open record
+  (`rec.pl`, `rec.plAt`), so every recording carries the same link. A new authority adopts it with the session.
+  0.6 clients ignore the fields. The rules signature includes the link, so `GROUP_RULES_CHANGED` fires on a change.
+- **Matching** (`RaidLink:Match`): planned raids starting between 4 h before and 3 h after the session start, not
+  cancelled, not for another instance when I am inside one. Invite & sort ran for it = linked. Otherwise the players in
+  the raid who signed up (not Absent) or are in its layout: at least 3, and 2 more than any other candidate (two teams
+  raiding at the same time are told apart; a mixed roster waits). Ties go to the instance I'm in, then the closest time.
+  Retried on roster changes and zoning for 2 h after the start. Linking prints one chat line for the leader.
+- **Manual:** the leader can link / unlink the running session (`RaidLink:SetLink`; an unlink sets `rpAt` and stops the
+  automatic linking). The council can change the link of any logged raid in the Raid log detail (right-click the
+  "Planned raid" line: planned raids within 2 days, or "Not linked"); for the running session of a raid I lead that
+  goes through GS, otherwise `RaidLog:SetPlanned` (edit time = now).
+- **Record fields** (synced with the raid log, §50): `pl`, `plAt` (newer wins; the same time: the larger id), `su` =
+  `{ [key] = "A"|"T"|"B"|"X" }` snapshot of the sign-ups taken at End raid (the plan drops sign-ups after 15 days).
+  All are part of the record hash.
+- **At End raid** (every recorder): the snapshot, and Bench sign-ups who never joined get a bench mark (counts as
+  attending) with `bts = plAt`, so all recorders agree; a council bench edit later wins.
+- **Reliability** (council): `RaidLog:GetReliability(key, lastN)` over the last closed raids with a snapshot:
+  accepted, came (in the attendance, bench included), tentative, absent, no-shows. Shown in the Raid log detail
+  ("Sign-ups: 9 accepted, 8 came · no-show: Lock"), the Players view (red "N no-show" next to the attendance %) and the
+  Upcoming roster tooltip ("Sign-ups: came to 7 of 8 accepted raids").

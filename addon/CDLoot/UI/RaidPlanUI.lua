@@ -273,6 +273,8 @@ local function cellTooltip(cell)
     if ns.Guild and ns.Guild:AmICouncil() and RL and RL.GetAttendanceText then
         local att = RL:GetAttendanceText(d.key)
         if att then GameTooltip:AddLine("Attendance " .. att, 0.7, 0.7, 0.7) end
+        local rel = RL.GetReliabilityText and RL:GetReliabilityText(d.key)
+        if rel then GameTooltip:AddLine("Sign-ups: " .. rel, 0.7, 0.7, 0.7) end
     end
     GameTooltip:Show()
 end

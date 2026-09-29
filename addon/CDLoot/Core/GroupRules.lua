@@ -250,6 +250,10 @@ local function MyValues()
         if mySession then
             v.rs = mySession.id                     -- Addendum I §48: raid session
             v.rsAt = mySession.at
+            if mySession.rp then
+                v.rp = mySession.rp                 -- Addendum J §61: the planned raid it is linked to
+                v.rpAt = mySession.rpAt
+            end
         end
     end
     return v
@@ -279,7 +283,14 @@ local function ValidateRules(msg)
             and type(rsAt) == "number" and rsAt == floor(rsAt) and rsAt > 0 and rsAt <= MAX_RULES_REV) then
         rs, rsAt = nil, nil
     end
-    return { rd = rd, q = q, dq = dq, dm = dm, ph = ph, lk = lk, lkAt = lkAt, rs = rs, rsAt = rsAt }, rev
+    -- Addendum J §61: the planned raid the session is linked to (optional; needs a session).
+    local rp, rpAt = msg.rp, msg.rpAt
+    if not (rs and type(rp) == "string" and #rp <= 40 and rp:find("^[%w#]+$")
+            and type(rpAt) == "number" and rpAt == floor(rpAt) and rpAt > 0 and rpAt <= MAX_RULES_REV) then
+        rp, rpAt = nil, nil
+    end
+    return { rd = rd, q = q, dq = dq, dm = dm, ph = ph, lk = lk, lkAt = lkAt, rs = rs, rsAt = rsAt, rp = rp,
+             rpAt = rpAt }, rev
 end
 
 ---------------------------------------------------------------------------
@@ -330,6 +341,7 @@ local function StatusSignature()
     parts[#parts + 1] = tostring(GroupRules:IsLocked())
     local sess = GroupRules:GetSession()
     parts[#parts + 1] = sess and sess.id or "-"
+    parts[#parts + 1] = sess and (tostring(sess.rp) .. "@" .. tostring(sess.rpAt)) or "-"   -- Addendum J §61 link
     return tconcat(parts, "|")
 end
 
@@ -363,7 +375,7 @@ local function TrackSession()
     local s = GroupRules:GetSession()
     if s then
         local lock = GroupRules:GetLockInfo()
-        seenSession = { id = s.id, at = s.at, by = s.by, lkAt = lock and lock.at or nil }
+        seenSession = { id = s.id, at = s.at, by = s.by, lkAt = lock and lock.at or nil, rp = s.rp, rpAt = s.rpAt }
     else
         seenSession = nil
     end
@@ -465,10 +477,10 @@ local function Evaluate()
             if not adopt then
                 local RL = ns.RaidLog
                 local open = RL and RL.GetResumable and RL:GetResumable()
-                if open then adopt = { id = open.id, at = open.start } end
+                if open then adopt = { id = open.id, at = open.start, rp = open.pl, rpAt = open.plAt } end
             end
             if adopt then
-                mySession = { id = adopt.id, at = adopt.at }
+                mySession = { id = adopt.id, at = adopt.at, rp = adopt.rp, rpAt = adopt.rpAt }
                 if not myLock and adopt.lkAt then
                     myLock = { at = adopt.lkAt }
                     SaveLock()
@@ -548,6 +560,7 @@ local function OnRules(sender, msg, dist)
     -- Addendum F §38: a lock only counts in a raid; without lkAt the time it was first seen stands in.
     if values.lk and dist ~= "RAID" then values.lk = nil end
     if values.rs and dist ~= "RAID" then values.rs, values.rsAt = nil, nil end
+    if not values.rs then values.rp, values.rpAt = nil, nil end
     if not values.lk then
         values.lkAt = nil
     elseif not values.lkAt then
@@ -629,7 +642,7 @@ function GroupRules:GetActive()
     local v = active.values
     return { from = active.from, rev = active.rev, at = active.at,
         values = { rd = v.rd, q = v.q, dq = v.dq, dm = v.dm, ph = v.ph, lk = v.lk, lkAt = v.lkAt, rs = v.rs,
-            rsAt = v.rsAt } }
+            rsAt = v.rsAt, rp = v.rp, rpAt = v.rpAt } }
 end
 
 ---------------------------------------------------------------------------
@@ -682,12 +695,30 @@ end
 function GroupRules:GetSession()
     if not IsInRaid() then return nil end
     if AmAuthority() then
-        return mySession and { id = mySession.id, at = mySession.at, by = Util.PlayerKey() } or nil
+        return mySession and { id = mySession.id, at = mySession.at, by = Util.PlayerKey(), rp = mySession.rp,
+                               rpAt = mySession.rpAt } or nil
     end
     if active and active.values.rs then
-        return { id = active.values.rs, at = active.values.rsAt, by = active.from }
+        return { id = active.values.rs, at = active.values.rsAt, by = active.from, rp = active.values.rp,
+                 rpAt = active.values.rpAt }
     end
     return nil
+end
+
+-- Addendum J §61: links the running raid session to a planned raid (occurrence id; nil unlinks). The authority only;
+-- the link rides on GS (rp / rpAt), so every raider records the same one. Returns ok, err.
+function GroupRules:SetSessionPlan(occId)
+    if not IsInRaid() then return false, "not in a raid." end
+    Invalidate()
+    if not AmAuthority() or not mySession then return false, "only the raid leader of a running raid session can." end
+    if occId ~= nil and not (type(occId) == "string" and #occId <= 40 and occId:find("^[%w#]+$")) then
+        return false, "invalid raid"
+    end
+    if mySession.rp == occId then return true end
+    mySession.rp, mySession.rpAt = occId, GetServerTime()
+    DoSend(false)
+    Changed()
+    return true
 end
 
 -- Starts (on = true) or ends the raid session. Only the raid's loot authority can: returns ok, err. Starting

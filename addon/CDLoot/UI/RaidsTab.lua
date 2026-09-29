@@ -113,6 +113,56 @@ local function benchMenu(row, rec, key, a)
     end)
 end
 
+-- Addendum J §61: link a logged raid to a planned raid (council). The running session of the raid I lead is
+-- relinked for everyone (GS); any other record is changed here and reaches the council through the raid log sync.
+local function planMenu(row, rec)
+    local RP = ns.RaidPlan
+    if not RP then return end
+    local function set(occ)
+        local GR = ns.GroupRules
+        local s = GR and GR:GetSession()
+        if s and s.id == rec.id and GR:IsAuthority() then
+            ns.RaidLink:SetLink(occ)
+        else
+            RL():SetPlanned(rec.id, occ)
+        end
+    end
+    ns.UI:ContextMenu(row, function(root)
+        root:CreateTitle("Planned raid")
+        for _, v in ipairs(RP:GetRaids((rec.start or 0) - 2 * 86400, (rec.start or 0) + 2 * 86400)) do
+            local label = ("%s  %s"):format(date("%a %d %b %H:%M", v.t), RP:GetRaidName(v))
+            root:CreateRadio(label, function() return rec.pl == v.id end, function() set(v.id) end)
+        end
+        root:CreateRadio("Not linked", function() return rec.pl == nil end, function() set(nil) end)
+    end)
+end
+
+local function planLines(rec)
+    local RP = ns.RaidPlan
+    local out = {}
+    local v = rec.pl and RP and RP:GetRaid(rec.pl)
+    if v then
+        out[1] = ("Planned raid: %s · %s"):format(RP:GetRaidName(v), date("%a %d %b %H:%M", v.t))
+    elseif rec.pl then
+        out[1] = "Planned raid: " .. grey("(no longer in the plan)")
+    else
+        out[1] = grey("Not linked to a planned raid (right-click to link)")
+    end
+    if rec.su then
+        local acc, came, noShow = 0, 0, {}
+        for key, st in pairs(rec.su) do
+            if st == "A" then
+                acc = acc + 1
+                if rec.att and rec.att[key] then came = came + 1 else noShow[#noShow + 1] = shortName(key) end
+            end
+        end
+        table.sort(noShow)
+        out[2] = ("Sign-ups: %d accepted, %d came"):format(acc, came)
+            .. (#noShow > 0 and ("  ·  |cffff8080no-show: " .. table.concat(noShow, ", ") .. "|r") or "")
+    end
+    return out
+end
+
 local function initDetailRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
@@ -137,7 +187,7 @@ local function initDetailRow(row, d)
     for i, fs in ipairs(row.cols) do
         fs:SetFontObject(d.header and "GameFontNormal" or (d.colHeader and "GameFontNormalSmall" or "GameFontHighlightSmall"))
         fs:SetText(d.cols[i] or "")
-        if d.header and i == 1 then fs:SetWidth(460) elseif i == 1 then fs:SetWidth(COLS[2] - COLS[1] - 4) end
+        if (d.header or d.wide) and i == 1 then fs:SetWidth(460) elseif i == 1 then fs:SetWidth(COLS[2] - COLS[1] - 4) end
     end
     row.cdlMenu = d.menu
     row.cdlItem = d.itemID
@@ -156,6 +206,9 @@ local function detailRows(rec)
         (rec.autoEnded and " (group disbanded)" or ""))) or "running"
     add({ "Started " .. fmtTime(rec.start) .. " by " .. by .. "  ·  ended " .. ended })
     add({ raidSummary(rec) })
+    for _, line in ipairs(planLines(rec)) do
+        add({ line }, { menu = function(row) planMenu(row, rec) end, wide = true })
+    end
 
     add({ "Bosses" }, { header = true })
     local nBoss = #(rec.bosses or {})
@@ -195,8 +248,12 @@ local function playerRows()
     local rows = { { cols = { "Player", "Raids", "Attendance", "Boss kills", "Items (last)" }, colHeader = true } }
     for _, s in ipairs(stats) do
         local last = s.lastItem and (s.items .. "  " .. ns.UI:ItemText(s.lastItem.i)) or tostring(s.items)
+        -- Addendum J §61: accepted raids they didn't come to (raids linked to a planned raid)
+        local rel = RL().GetReliability and RL():GetReliability(s.key, n or 1000)
+        local noShow = rel and (rel.accepted - rel.came) or 0
         rows[#rows + 1] = { cols = { colored(s.key, s.class), ("%d/%d"):format(s.raids, total) ..
-            (s.bench > 0 and grey(" (" .. s.bench .. " bench)") or ""), s.pct .. "%",
+            (s.bench > 0 and grey(" (" .. s.bench .. " bench)") or ""),
+            s.pct .. "%" .. (noShow > 0 and (" |cffff8080" .. noShow .. " no-show|r") or ""),
             ("%d/%d"):format(s.kills, s.killTotal), last }, itemID = s.lastItem and s.lastItem.i }
     end
     return rows, total
