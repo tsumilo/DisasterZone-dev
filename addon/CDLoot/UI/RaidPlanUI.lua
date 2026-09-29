@@ -90,13 +90,6 @@ local function teamNames(v)
     return #names > 0 and tconcat(names, ", ") or "Everyone"
 end
 
--- Local midnight of the day of `t`.
-local function dayStart(t)
-    local d = date("*t", t)
-    d.hour, d.min, d.sec, d.isdst = 0, 0, 0, nil
-    return time(d)
-end
-
 -- Monday 00:00 of the week of `t`.
 local function weekStart(t)
     local d = date("*t", t)
@@ -1402,16 +1395,27 @@ end
 -- New / Edit raid window
 ---------------------------------------------------------------------------
 
-local function dayOptions()
-    local out = {}
-    local base = Now()
-    local first = editor and editor.minOffset or 0
-    for i = min(0, first), EDITOR_DAYS do
-        local t = base + i * DAY
-        local label = i == 0 and "Today" or (i == 1 and "Tomorrow") or date("%A", t)
-        out[#out + 1] = { value = i, text = date("%d %b", t) .. "  " .. label }
+-- The date picker's limits: today (or the edited raid's own day, if earlier) .. EDITOR_DAYS ahead.
+local function pickerMin()
+    local lo = editor and editor.minT or Now()
+    local d = date("*t", math.min(lo, Now()))
+    return d.year, d.month, d.day
+end
+
+local function pickerMax()
+    local d = date("*t", Now() + EDITOR_DAYS * DAY)
+    return d.year, d.month, d.day
+end
+
+-- A dot on days that already have a raid planned: "20:00 Karazhan" lines.
+local function pickerMark(y, m, d)
+    local from = time({ year = y, month = m, day = d, hour = 0, min = 0, sec = 0 })
+    local to = time({ year = y, month = m, day = d + 1, hour = 0, min = 0, sec = 0 }) - 1
+    local lines = {}
+    for _, v in ipairs(RP():GetRaids(from, to)) do
+        if not v.cancelled then lines[#lines + 1] = fmtTime(v.t) .. "  " .. raidTitle(v) end
     end
-    return out
+    return #lines > 0 and tconcat(lines, "\n") or nil
 end
 
 local function hourOptions()
@@ -1432,11 +1436,10 @@ local function instanceOptions()
     return out
 end
 
--- Server time of the editor's day offset + hour + minute (local wall clock).
+-- Server time of the editor's day + hour + minute (local wall clock).
 local function editorTime()
-    local d = date("*t", Now())
-    d.day, d.hour, d.min, d.sec, d.isdst = d.day + editor.f.day, editor.f.hour, editor.f.min, 0, nil
-    return time(d)
+    local f = editor.f
+    return time({ year = f.y, month = f.m, day = f.d, hour = f.hour, min = f.min, sec = 0 })
 end
 
 local function teamSummary()
@@ -1549,8 +1552,15 @@ local function createEditor()
     hint:SetText("optional")
 
     row(c, "Day", -78)
-    w.dayDD = UI():CreateDropdown(c, 190, dayOptions, function() return w.f.day end, function(v) w.f.day = v end)
-    w.dayDD:SetPoint("TOPLEFT", 80, -72)
+    w.datePicker = UI():CreateDatePicker(c, {
+        get = function() return w.f.y, w.f.m, w.f.d end,
+        set = function(y, m, d) w.f.y, w.f.m, w.f.d = y, m, d end,
+        minDate = pickerMin,
+        maxDate = pickerMax,
+        mark = pickerMark,
+        width = 230,
+    })
+    w.datePicker:SetPoint("TOPLEFT", 84, -72)
     row(c, "Time", -110)
     w.hourDD = UI():CreateDropdown(c, 70, hourOptions, function() return w.f.hour end, function(v) w.f.hour = v end)
     w.hourDD:SetPoint("TOPLEFT", 80, -104)
@@ -1618,16 +1628,18 @@ function PlanUI:OpenEditor(occId)
     if v then
         local d = date("*t", v.t)
         f.i, f.sz, f.hour, f.min = v.i, v.sz, d.hour, d.min - d.min % 15
-        f.day = floor((dayStart(v.t) + 12 * 3600 - (dayStart(Now()) + 12 * 3600)) / DAY + 0.5)
+        f.y, f.m, f.d = d.year, d.month, d.day
         for _, id in ipairs(v.tm or {}) do f.tm[id] = true end
         editor.titleBox:SetText(v.ti or "")
         editor.noteBox:SetText(v.no or "")
     else
-        f.i, f.sz, f.day, f.hour, f.min = "kara", 10, 1, 20, 0
+        local d = date("*t", Now() + DAY)
+        f.i, f.sz, f.hour, f.min = "kara", 10, 20, 0
+        f.y, f.m, f.d = d.year, d.month, d.day
         editor.titleBox:SetText("")
         editor.noteBox:SetText("")
     end
-    editor.minOffset = f.day
+    editor.minT = v and v.t or nil
     editor.f = f
     editor:SetWindowTitle(v and ("Edit raid: " .. raidTitle(v)) or "New raid")
     editor.weeklyCB:SetShown(v == nil)
@@ -1635,7 +1647,7 @@ function PlanUI:OpenEditor(occId)
     editor.weeklyInfo:SetShown(v ~= nil and v.weekly)
     editor.saveBtn:SetText(v and (v.weekly and "This week only" or "Save") or "Create raid")
     editor.saveAllBtn:SetShown(v ~= nil and v.weekly)
-    for _, dd in ipairs({ editor.instDD, editor.sizeDD, editor.dayDD, editor.hourDD, editor.minDD, editor.teamDD }) do
+    for _, dd in ipairs({ editor.instDD, editor.sizeDD, editor.datePicker, editor.hourDD, editor.minDD, editor.teamDD }) do
         if dd.Refresh then dd:Refresh() end
     end
     editor:Show()

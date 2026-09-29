@@ -100,8 +100,11 @@ Messages fired: `RAIDPLAN_CHANGED`.
   columns (Tanks / Healers / Melee / Ranged: accepted then tentative) and lines for spec not set, Bench, Absent and No
   response (invited members without an answer). Organizers get **Edit** and **Cancel...** (cancel / restore, stop
   repeating, delete the weekly raid).
-- **New / Edit raid window:** raid, size, title, day (next 60 days), time (15-minute steps, local clock), teams, note,
-  Repeat weekly. Editing a weekly raid offers "This week only" (an override holding only the changed fields) and
+- **New / Edit raid window:** raid, size, title, day, time (15-minute steps, local clock), teams, note, Repeat weekly.
+  The day is a calendar date picker (`UI/DatePicker.lua`, `UI:CreateDatePicker`): a button with the date opens a month
+  view (Monday first, previous / next month), today outlined, the picked day highlighted, days before today (or the
+  edited raid's own day) and more than 60 days ahead greyed out, and a dot on days with a raid planned (tooltip: the
+  raids). A click outside closes it. Editing a weekly raid offers "This week only" (an override holding only the changed fields) and
   "Save every week".
 - **Teams:** list + detail; organizers edit a draft (name, members through the guild search picker) and Save / Undo /
   Delete; members see the teams read-only. The detail shows which upcoming raids invite the team.

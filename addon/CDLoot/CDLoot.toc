@@ -50,6 +50,7 @@ Core\Demo.lua
 
 # UI
 UI\Widgets.lua
+UI\DatePicker.lua
 UI\MainFrame.lua
 UI\PaperDoll.lua
 UI\MyBiS.lua

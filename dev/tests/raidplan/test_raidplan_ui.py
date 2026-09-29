@@ -120,7 +120,8 @@ def organizer_creates_and_edits_raids_in_the_window():
     w.tick(0.2)
     assert shown(bob, "CDLootRaidEditor")
     ed = "ns.RaidPlanUI:GetEditor()"
-    bob.eval("local e = %s; e.f.i = 'ssc'; e.f.sz = 25; e.f.day = 2; e.f.hour = 19; e.f.min = 30; e.f.tm[...] = true;"
+    bob.eval("local e = %s; e.f.i = 'ssc'; e.f.sz = 25; local d = date('*t', GetServerTime() + 2 * 86400);"
+             " e.f.y, e.f.m, e.f.d = d.year, d.month, d.day; e.f.hour = 19; e.f.min = 30; e.f.tm[...] = true;"
              " e.noteBox:SetText('Vashj progress'); e.weeklyCB:SetChecked(true)" % ed, tid)
     bob.click(bob.eval("return %s.saveBtn" % ed))
     w.tick(2)
@@ -144,7 +145,8 @@ def organizer_creates_and_edits_raids_in_the_window():
     w.tick(2)
     assert [rita.eval("return date('%H:%M', ...)", r["t"]) for r in raids(rita)] == ["20:00", "20:00"]
     # errors stay in the window: a date in the past
-    bob.eval("ns.RaidPlanUI:OpenEditor(); local e = %s; e.f.day = -3" % ed)
+    bob.eval("ns.RaidPlanUI:OpenEditor(); local e = %s; local d = date('*t', GetServerTime() - 3 * 86400);"
+             " e.f.y, e.f.m, e.f.d = d.year, d.month, d.day" % ed)
     bob.click(bob.eval("return %s.saveBtn" % ed))
     w.tick(0.2)
     assert shown(bob, "CDLootRaidEditor") and "past" in bob.eval("return %s.err:GetText()" % ed)
@@ -301,6 +303,57 @@ def signup_order_is_kept_and_shown_on_hover():
     assert any(l.startswith("Sign-up #2 of 3") for l in lines), lines
     lines = hover_tip(bob, GROUP_CHIP, K("Lee"))
     assert any(l.startswith("Sign-up #3 of 3") for l in lines) and "Signed up as Bench" in lines, lines
+    w.assert_no_errors()
+
+
+@case
+def the_editor_date_picker_is_a_month_calendar():
+    w, c = world()
+    bob = c["Bob"]
+    create(bob, i="gruul", t=now(bob) + 3 * DAY)
+    w.tick(1)
+    bob.eval("ns.RaidPlanUI:OpenEditor()")
+    dp = "ns.RaidPlanUI:GetEditor().datePicker"
+    tomorrow = bob.eval_py("local d = date('*t', GetServerTime() + 86400); return { d.year, d.month, d.day }")
+    label = bob.eval("return %s:GetText()" % dp)
+    assert label == bob.eval("local y, m, d = ...; return date('%A %d %B %Y', time({ year = y, month = m, day = d, hour = 12 }))",
+                             *tomorrow), label
+    bob.click(bob.eval("return %s" % dp))
+    assert bob.eval("return %s.popup:IsShown()" % dp) is True
+    info = bob.eval_py("""
+      local b = %s; local p = b.popup; local now = date('*t', GetServerTime()); local out = { cells = {} }
+      out.title = p.title:GetText(); out.prev = p.prev:IsEnabled(); out.next = p.next:IsEnabled()
+      for _, cell in ipairs(p.cells) do
+        if cell:IsShown() then
+          local d = tonumber(cell.fs:GetText())
+          out.cells[tostring(d)] = { pick = cell.day ~= nil, today = cell.today:IsShown(), sel = cell.sel:IsShown(), dot = cell.dot:IsShown() }
+        end
+      end
+      out.today = now.day
+      return out""" % dp)
+    assert info["prev"] is False and info["next"] is True, info
+    cells, today = info["cells"], info["today"]
+    assert cells[str(today)]["today"] and cells[str(today)]["pick"], cells[str(today)]
+    if today > 1:
+        assert cells[str(today - 1)]["pick"] is False                 # the past can't be picked
+    raid_day = bob.eval_py("local d = date('*t', GetServerTime() + 3 * 86400); return { d.month, d.day }")
+    if raid_day[0] == tomorrow[1]:
+        assert cells[str(raid_day[1])]["dot"] is True                  # a day with a raid planned
+    # next month, pick the 15th
+    bob.click(bob.eval("return %s.popup.next" % dp))
+    shown = bob.eval_py("local b = %s; return { b.shownY, b.shownM }" % dp)
+    bob.eval("%s:PickDay(15)" % dp)
+    assert bob.eval("return %s.popup:IsShown()" % dp) is False
+    f = bob.eval_py("local f = ns.RaidPlanUI:GetEditor().f; return { f.y, f.m, f.d }")
+    assert f == [shown[0], shown[1], 15], (f, shown)
+    bob.click(bob.eval("return ns.RaidPlanUI:GetEditor().saveBtn"))
+    w.tick(2)
+    days = [c["Rita"].eval("return date('%Y-%m-%d %H:%M', ...)", r["t"]) for r in raids(c["Rita"]) if r["i"] == "kara"]
+    assert days == ["%04d-%02d-15 20:00" % (shown[0], shown[1])], days
+    # 180 days out: the arrow stops
+    for _ in range(8):
+        bob.eval("%s:ShowMonth(%s.shownY, %s.shownM + 1)" % (dp, dp, dp))
+    assert bob.eval("return %s.popup.next:IsEnabled()" % dp) is False
     w.assert_no_errors()
 
 
