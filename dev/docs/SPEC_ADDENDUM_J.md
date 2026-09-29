@@ -211,29 +211,31 @@ User request: raid log sessions should connect to the planned raid automatically
   ("Sign-ups: 9 accepted, 8 came · no-show: Lock"), the Players view (red "N no-show" next to the attendance %) and the
   Upcoming roster tooltip ("Sign-ups: came to 7 of 8 accepted raids").
 
-## 62. Raid leaders list (built 2026-09-29)
+## 62. Raid leaders and who plans raids (built 2026-09-29, rules revised the same day)
 
-User request: a separate "Raid leaders" role that runs raids but has no loot council access. Decisions: the GM alone
-picks it; raid leaders see the raid log without the awarded items.
+User rules: officers (guild rank 0-1: the GM and the rank below) pick the raid leaders; the GM and the raid leaders
+plan raids (the guild council no longer does); with nobody on the list only the GM plans. Raid leaders get no loot
+council access; the raid log is for the GM, the guild council and the raid leaders, the awarded items only for the
+loot council.
 
-- **Data:** the list rides on the guild council list's CG as `rl` (array of names, at most 40; a malformed `rl` drops
-  the CG like a bad council list) and is stored with it (`db.council.guild.rl`). Same trust rules as the council list
-  (from the GM, or relayed by a council member of a confirmed list). `Guild:SetRaidLeaders(list)` (GM only) re-shares
-  the council list unchanged with the new `rl`; `SetGuildCouncil(members, phase, targets, raidLeaders)` keeps the
-  current `rl` when `raidLeaders` is nil. 0.6 clients ignore `rl` (a 0.6 council member relaying a newer CG drops it
-  until the GM's own CG arrives). CONFIG_UPDATED fires when it changes.
-- **API:** `Guild:IsListedRaidLeader(key)`, `Guild:IsRaidPlanner(key)` (GM, guild council or listed; in the guild),
-  `Guild:AmIRaidPlanner()`, `Guild:GetRaidLeaders()`.
-- **Raid planners** (GM + guild council + raid leaders) = raid organizers (§55): raids, teams, group layouts; the Raid
-  log view (Raids tab); bench and planned-raid link edits (`RaidLog:SetBench` / `SetPlanned` check it in core too);
-  attendance and sign-up reliability in the Upcoming tooltips. The raid log (RLD / RLW / RLG, and `rd` in the HELLO of
-  a planner who isn't council) is exchanged between planner pairs; its records hold no items. Raid planners may send
-  large messages (Comm size cap), which only matters for raid log records.
-- **Items stay loot council data:** raid leaders don't see the Awards section, the "N items" in the raid summary or the
-  Players view's items column; award entries (ledger LW / LG), BiS lists (M / W / L / R) and the Council / Loot Log
-  tabs stay guild-council-only (or raid-scope council for the raid they lead, unchanged).
-- **Someone who merely leads a group** is loot council for that raid (Addendum E, unchanged) but no raid planner: no
-  Raid log view, no reliability numbers, no bench edits (§61's loose end).
-- **UI:** Raids tab > Teams > "Raid leaders" opens a window: everyone sees the list; the GM adds members with the
-  search picker and clicks Save & share (Revert discards). `UI/RaidLeadersUI.lua`.
-
+- **The list:** `db.raidLeaders[guildKey] = { rev, m = { [key] = true }, by }`, its own message `RLL { rev, m, by }`
+  (GUILD; WHISPER as an answer). Accepted only from an officer per the live roster (the author or an officer passing
+  it on); a newer rev wins, the same rev settles on the larger name list. The HELLO carries `rlr` (my rev): an officer
+  answers an older rev with the list, a client asks (`RLQ`) an officer who has a newer one; an officer also shares it
+  once 20-40 s after logging in (for members who logged in while no officer was online). `Guild:SetRaidLeaders(list)`
+  (officers only). 0.6 clients ignore RLL / rlr.
+- **API:** `Guild:IsOfficer(key)`, `CanEditRaidLeaders()`, `IsListedRaidLeader(key)`, `IsRaidPlanner(key)` (GM or
+  listed), `AmIRaidPlanner()`, `IsRaidLogMember(key)` (planners + guild council), `AmIRaidLogMember()`,
+  `GetRaidLeaders()`, `GetRaidLeadersRev()`, `GetRaidLeadersInfo()`.
+- **Raid planners** = the organizers of §55: raids, teams, group layouts (checked in core: `RequireOrganizer`).
+  A record shows when its last editor was a planner when that version arrived, or is one now (`root.OK`, local, per
+  record version): a raid leader taken off the list keeps their raids visible; a newer version by a non-planner isn't
+  shown.
+- **Raid log members** (planners + guild council): the Raid log view, bench and planned-raid link edits (checked in
+  core), attendance and reliability in tooltips, and the raid log exchange (RLD / RLW / RLG; `rd` in the HELLO of a
+  member who isn't council; records hold no items). Raid log members may send large messages (Comm size cap).
+- **Items stay loot council data:** raid leaders don't see the Awards section, "N items" or the Players view's items
+  (text or item tooltip); ledger (LW / LG), BiS lists (M / W / L / R) and the Council / Loot Log tabs stay guild
+  council only (or raid-scope council for the raid they lead).
+- **Someone who merely leads a group** is loot council for that raid (Addendum E) but no raid log member.
+- **UI:** Raids tab > Teams > "Raid leaders": everyone sees the list; officers edit it (search picker, Save & share).

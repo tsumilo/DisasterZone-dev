@@ -37,7 +37,7 @@ local missedPull = false                -- a boss was pulled here while no sessi
 -- council and the raid leaders list.
 local function IsPlanner(key)
     local Guild = ns.Guild
-    return Guild and Guild.IsRaidPlanner and type(key) == "string" and Guild:IsRaidPlanner(key) and true or false
+    return Guild and Guild.IsRaidLogMember and type(key) == "string" and Guild:IsRaidLogMember(key) and true or false
 end
 
 local function RaidsDB()

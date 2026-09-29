@@ -49,7 +49,7 @@ end
 -- lead a group: that is loot council for one raid only).
 local function isCouncil()
     local G = ns.Guild
-    return (demoOn() or (G and G.AmIRaidPlanner and G:AmIRaidPlanner())) and true or false
+    return (demoOn() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember())) and true or false
 end
 
 -- Awarded items in the raid log: loot council data (GM / guild council), not for raid leaders.

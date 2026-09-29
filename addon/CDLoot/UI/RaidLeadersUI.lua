@@ -17,7 +17,7 @@ local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
 local function canEdit()
     local g = G()
-    return g and g.CanEditGuildCouncil and g:CanEditGuildCouncil() or false
+    return g and g.CanEditRaidLeaders and g:CanEditRaidLeaders() or false
 end
 
 local function shared()
@@ -66,6 +66,7 @@ local function initRow(row, d)
     row.fs:SetText(ns.UI:ColoredName(d.key))
     local note = g and g.GetRankName and g:GetRankName(d.key) or ""
     if g and g.IsGuildCouncil and g:IsGuildCouncil(d.key) then note = note .. "  |cffffd100(also loot council)|r" end
+    if g and g.IsGM and g:IsGM(d.key) then note = note .. "  |cffffd100(Guild Master)|r" end
     row.note:SetText(note)
     row.remove:SetShown(canEdit())
 end
@@ -81,7 +82,7 @@ local function create()
     w.info:SetJustifyH("LEFT")
     w.info:SetText("Raid leaders plan raids, build teams and groups, use Invite & sort and see the raid log "
         .. "(attendance, bench, no-shows; not the items). They get no loot council access: no BiS lists, drop panel, "
-        .. "votes or Loot Log. The Guild Master and the guild council can do all of this anyway.")
+        .. "votes or Loot Log. With nobody on the list, only the Guild Master plans raids.")
     w.picker = UI:CreateSearchDropdown(c, 240, {
         placeholder = "Add guild members...",
         emptyText = "No matching guild members.",
@@ -106,7 +107,7 @@ local function create()
     w.revert:SetPoint("LEFT", w.save, "RIGHT", 6, 0)
     w.foot = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     w.foot:SetPoint("BOTTOMLEFT", 10, 12)
-    w.foot:SetText("Only the Guild Master can change this list.")
+    w.foot:SetText("Only officers and the Guild Master can change this list.")
     w:Hide()
     return w
 end
@@ -131,7 +132,7 @@ end
 
 function LeadersUI:Save()
     if not canEdit() then
-        ns:Print("Only the Guild Master can change the raid leaders.")
+        ns:Print("Only officers and the Guild Master can change the raid leaders.")
         return false
     end
     local ok, err = G():SetRaidLeaders(current())

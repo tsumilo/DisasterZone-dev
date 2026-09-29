@@ -74,7 +74,7 @@ def non_organizers_are_refused_and_forged_records_hidden():
     w, c = world()
     rita, sam = c["Rita"], c["Sam"]
     res = rita.eval_py("local ok, e = ns.RaidPlan:CreateRaid({ i = 'kara', t = GetServerTime() + 86400 }); return { ok = ok, e = e }")
-    assert res["ok"] is False and "guild council" in res["e"], res
+    assert res["ok"] is False and "raid leaders" in res["e"], res
     assert call(rita, "SaveTeam", None, "X", [])["ok"] is False
     t = now(rita) + DAY
     # a forged live edit naming an organizer as the editor: dropped (the editor must be the sender)

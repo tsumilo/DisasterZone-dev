@@ -511,7 +511,7 @@ local function Recompute()
         .. "|" .. tostring(Guild:GetGuildPhase())
         .. "|" .. tostring(gmKey)
         .. "|" .. tostring((Guild:GetLootTarget("de"))) .. "|" .. tostring((Guild:GetLootTarget("bank")))
-        .. "|rl:" .. tconcat(SetToArray(guildList and guildList.rl or {}), ",")
+        .. "|rl:" .. tconcat(Guild:GetRaidLeaders(), ",")
     if sig ~= configSignature then
         configSignature = sig
         ns:Fire("CONFIG_UPDATED", Snapshot())
@@ -533,7 +533,6 @@ local function SendCG(rec, target)
     if type(rec) ~= "table" then return false end
     local msg = { t = "CG", rev = rec.rev, m = SetToArray(rec.members), ph = rec.phase or DEFAULT_PHASE, by = rec.by }
     AddWireTargets(msg, rec)   -- (Addendum G; older clients ignore de / bk)
-    if type(rec.rl) == "table" and next(rec.rl) then msg.rl = SetToArray(rec.rl) end   -- (Addendum J §62)
     if target then return Send(msg, "WHISPER", target, "ctrl") end
     local ok = Send(msg, "GUILD", nil, "ctrl")
     if ok then cgSeen[rec.rev] = GetTime() end
@@ -550,7 +549,7 @@ local function StoreGuildList(v, by, src)
     local c = CouncilDB()
     if not c then return end
     c.guild = { rev = v.rev, members = v.members, phase = v.phase, by = by, recvAt = Now(), g = GuildKey(), src = src,
-                de = v.de, bank = v.bank, rl = v.rl }
+                de = v.de, bank = v.bank }
     RefreshGuildList()
 end
 
@@ -569,14 +568,7 @@ local function ValidateCG(msg)
     end
     local ok, targets = ParseWireTargets(msg)
     if not ok then return nil end
-    -- Addendum J §62: the raid leaders list (optional; malformed = the whole CG is dropped, like a bad council list)
-    local rl
-    if msg.rl ~= nil then
-        rl = ParseWireList(msg.rl)
-        if not rl then return nil end
-        if not next(rl) then rl = nil end
-    end
-    return { rev = msg.rev, members = set, phase = ph, by = by, de = targets.de, bank = targets.bank, rl = rl }
+    return { rev = msg.rev, members = set, phase = ph, by = by, de = targets.de, bank = targets.bank }
 end
 
 -- CG {rev, m, ph, by}. Taken directly from the Guild Master (per the live roster), or as a relayed copy
@@ -628,7 +620,7 @@ local function OnGuildCouncil(sender, msg, dist)
     end
     local storedRev = stored and stored.rev or 0
     local same = stored ~= nil and SameSet(stored.members, v.members) and stored.phase == v.phase
-        and stored.de == v.de and stored.bank == v.bank and SameSet(stored.rl or {}, v.rl or {})
+        and stored.de == v.de and stored.bank == v.bank
     if gmDirect and IsTofu(stored) then
         -- The GM outranks an unconfirmed list whatever its rev: confirm it, or replace it.
         if dist == "GUILD" then cgSeen[v.rev] = GetTime() end
@@ -855,6 +847,163 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 
+---------------------------------------------------------------------------
+-- Raid leaders (Addendum J §62): a list officers (rank 0-1: the GM and the rank below) keep. Raid leaders and the GM
+-- plan raids; the raid log is also open to the guild council. No loot council access comes with the list.
+--
+-- Its own message RLL { rev, m, by } (GUILD, or WHISPER as an answer): accepted only from an officer per the live
+-- roster (the author, or an officer passing it on), newer rev wins (the same rev: the larger name list). HELLO carries
+-- my rev (rlr); an officer answers an older one with the list, and asks (RLQ) an officer who has a newer one. An
+-- officer also shares it once after logging in, for members who logged in while no officer was online.
+---------------------------------------------------------------------------
+
+local OFFICER_RANK = 1          -- rank index 0 (GM) and 1 are officers
+local RLL_REPLY_LIMIT = 30
+local RLL_LOGIN_MIN, RLL_LOGIN_MAX = 20, 40
+
+-- db.raidLeaders[guildKey] = { rev, m = { [key] = true }, by }
+local function LeadersRec(create)
+    local db = ns.db
+    local g = GuildKey()
+    if not db or not g then return nil end
+    if type(db.raidLeaders) ~= "table" then
+        if not create then return nil end
+        db.raidLeaders = {}
+    end
+    local rec = db.raidLeaders[g]
+    if type(rec) ~= "table" or type(rec.m) ~= "table" or not IsInt(rec.rev, 0, MAX_REV) then
+        if not create then return nil end
+        rec = { rev = 0, m = {} }
+        db.raidLeaders[g] = rec
+    end
+    return rec
+end
+
+function Guild:IsOfficer(key)
+    local e = type(key) == "string" and roster[key]
+    return e ~= nil and e ~= false and (tonumber(e.rankIndex) or 99) <= OFFICER_RANK
+end
+
+function Guild:CanEditRaidLeaders()
+    return (IsInGuild() and ready and Guild:IsOfficer(Util.PlayerKey())) and true or false
+end
+
+-- On the raid leaders list (and in the guild).
+function Guild:IsListedRaidLeader(key)
+    local rec = LeadersRec(false)
+    return type(key) == "string" and rec ~= nil and rec.m[key] and roster[key] and true or false
+end
+
+-- Plans raids (raids, teams, groups): the GM and the raid leaders list.
+function Guild:IsRaidPlanner(key)
+    return type(key) == "string" and (Guild:IsGM(key) or Guild:IsListedRaidLeader(key)) and true or false
+end
+
+function Guild:AmIRaidPlanner()
+    return Guild:IsRaidPlanner(Util.PlayerKey())
+end
+
+-- Sees and shares the raid log (attendance, bench, no-shows): raid planners and the guild council.
+function Guild:IsRaidLogMember(key)
+    return type(key) == "string" and (Guild:IsRaidPlanner(key) or Guild:IsGuildCouncil(key)) and true or false
+end
+
+function Guild:AmIRaidLogMember()
+    return Guild:IsRaidLogMember(Util.PlayerKey())
+end
+
+-- Sorted array of the listed raid leaders (in the guild).
+function Guild:GetRaidLeaders()
+    local out = {}
+    local rec = LeadersRec(false)
+    for key in pairs(rec and rec.m or {}) do
+        if roster[key] then out[#out + 1] = key end
+    end
+    tsort(out)
+    return out
+end
+
+function Guild:GetRaidLeadersRev()
+    local rec = LeadersRec(false)
+    return rec and rec.rev or 0
+end
+
+-- { rev, by, members = { key, ... } } or nil.
+function Guild:GetRaidLeadersInfo()
+    local rec = LeadersRec(false)
+    if not rec or rec.rev == 0 then return nil end
+    return { rev = rec.rev, by = rec.by, members = SetToArray(rec.m) }
+end
+
+local function SendRLL(target)
+    local rec = LeadersRec(false)
+    if not rec or rec.rev == 0 then return false end
+    local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by }
+    if target then return Send(msg, "WHISPER", target, "ctrl") end
+    return Send(msg, "GUILD", nil, "ctrl")
+end
+
+-- Officers only: saves the raid leaders list (a set or an array, at most 40) and shares it. Returns ok, err.
+function Guild:SetRaidLeaders(list)
+    if not ns.loggedIn or not IsInGuild() then return false, "not in a guild" end
+    if not ready then return false, "the guild roster has not loaded yet" end
+    if not Guild:CanEditRaidLeaders() then return false, "only officers and the Guild Master can change the raid leaders" end
+    local set, err = ToSet(list)
+    if not set then return false, err end
+    local rec = LeadersRec(true)
+    if not rec then return false, "your guild is not known yet" end
+    rec.rev = max(floor(Now()), rec.rev + 1)
+    rec.m, rec.by = set, Util.PlayerKey()
+    SendRLL()
+    Recompute()
+    return true
+end
+
+local function OnRaidLeaders(sender, msg, dist)
+    if (dist ~= "GUILD" and dist ~= "WHISPER") or not ready or not Guild:IsOfficer(sender) then return end
+    if not IsInt(msg.rev, 1, Now() + FUTURE_SLACK) then return end
+    local set = ParseWireList(msg.m)
+    if not set then return end
+    local by = msg.by ~= nil and WireKey(msg.by) or sender
+    if not by then return end
+    local rec = LeadersRec(true)
+    if not rec then return end
+    if msg.rev < rec.rev then return end
+    if msg.rev == rec.rev then
+        local a, b = tconcat(SetToArray(set), ","), tconcat(SetToArray(rec.m), ",")
+        if a <= b then return end                      -- the same (or the smaller) list: keep mine
+    end
+    rec.rev, rec.m, rec.by = msg.rev, set, by
+    Recompute()
+end
+
+local function OnRaidLeadersQuery(sender, msg, dist)
+    if dist ~= "WHISPER" or not Guild:IsOfficer(Util.PlayerKey()) then return end
+    if not RateLimit("rlq:" .. sender, RLL_REPLY_LIMIT) then return end
+    SendRLL(sender)
+end
+
+-- Sync calls this for every HELLO (rlr = the sender's list rev; nil from clients before 0.7).
+function Guild:OnRaidLeadersRevSeen(sender, rlr)
+    if type(rlr) ~= "number" or type(sender) ~= "string" then return end
+    local mine = Guild:GetRaidLeadersRev()
+    if rlr < mine and Guild:IsOfficer(Util.PlayerKey()) then
+        if RateLimit("rll-reply:" .. sender, RLL_REPLY_LIMIT) then
+            Util.RandomDelay(0.5, 3, function() SendRLL(sender) end)
+        end
+    elseif rlr > mine and Guild:IsOfficer(sender) then
+        if RateLimit("rlq-ask:" .. sender, RLL_REPLY_LIMIT) then
+            Send({ t = "RLQ" }, "WHISPER", sender, "ctrl")
+        end
+    end
+end
+
+local function ShareRaidLeadersAfterLogin()
+    Util.RandomDelay(RLL_LOGIN_MIN, RLL_LOGIN_MAX, function()
+        if Guild:IsOfficer(Util.PlayerKey()) and Guild:GetRaidLeadersRev() > 0 then SendRLL() end
+    end)
+end
+
 function Guild:OnInit()
     CouncilDB()
     ns:RegisterEvent("GUILD_ROSTER_UPDATE", OnRosterUpdate)
@@ -873,6 +1022,10 @@ function Guild:OnInit()
         Comm:Register("CQ", OnGuildCouncilQuery)
         Comm:Register("CR", OnRaidCouncil)
         Comm:Register("CRQ", OnRaidCouncilQuery)
+    end
+    if ns.Comm and ns.Comm.Register then
+        ns.Comm:Register("RLL", OnRaidLeaders)          -- Addendum J §62
+        ns.Comm:Register("RLQ", OnRaidLeadersQuery)
     end
 end
 
@@ -898,6 +1051,7 @@ function Guild:OnLogin()
         end)
     end
     RefreshRaidState()
+    ShareRaidLeadersAfterLogin()
 end
 
 ---------------------------------------------------------------------------
@@ -1061,49 +1215,9 @@ function Guild:GetGuildCouncil()
     local rec = guildList
     if not rec then return nil end
     return { rev = rec.rev, members = CopySet(rec.members), phase = rec.phase, by = rec.by, recvAt = rec.recvAt,
-             de = rec.de, bank = rec.bank, rl = CopySet(rec.rl) }
+             de = rec.de, bank = rec.bank }
 end
 
----------------------------------------------------------------------------
--- Raid leaders (Addendum J §62): a second list the GM keeps next to the guild council (it rides on CG as rl).
--- They plan raids and see the raid log (without items); they get no loot council access.
----------------------------------------------------------------------------
-
--- On the GM's raid leaders list (and in the guild).
-function Guild:IsListedRaidLeader(key)
-    local list = guildList
-    return type(key) == "string" and list ~= nil and type(list.rl) == "table" and list.rl[key] and roster[key]
-        and true or false
-end
-
--- Plans raids and sees the raid log: the GM, the guild council, or on the raid leaders list.
-function Guild:IsRaidPlanner(key)
-    return type(key) == "string" and (Guild:IsGuildCouncil(key) or Guild:IsListedRaidLeader(key)) and true or false
-end
-
-function Guild:AmIRaidPlanner()
-    return Guild:IsRaidPlanner(Util.PlayerKey())
-end
-
--- Sorted array of the listed raid leaders (in the guild).
-function Guild:GetRaidLeaders()
-    local out = {}
-    local list = guildList
-    for key in pairs(list and list.rl or {}) do
-        if roster[key] then out[#out + 1] = key end
-    end
-    tsort(out)
-    return out
-end
-
--- GM only: saves the raid leaders list (a set or an array, at most 40) with the guild council list unchanged, and
--- shares it (CG). Returns ok, err.
-function Guild:SetRaidLeaders(list)
-    local set, err = ToSet(list)
-    if not set then return false, err end
-    local cur = guildList
-    return Guild:SetGuildCouncil(cur and CopySet(cur.members) or {}, nil, nil, set)
-end
 
 -- CDLoot extension: rev of my accepted guild list (0 = none). Sent in HELLO / STATE as `cg`.
 function Guild:GetGuildCouncilRev()
@@ -1123,7 +1237,7 @@ end
 -- GM only: saves the guild council list (a set {[key]=true} or an array of keys, at most 40), the
 -- guild phase (1..5; nil keeps the current one) and the loot targets (Addendum G: { de = key | false,
 -- bank = key | false }, nil / a missing field keeps the current one), then shares it on GUILD. Returns ok, err.
-function Guild:SetGuildCouncil(membersSet, phase, targets, raidLeaders)
+function Guild:SetGuildCouncil(membersSet, phase, targets)
     if not ns.loggedIn or not IsInGuild() then return false, "not in a guild" end
     if not ready then return false, "the guild roster has not loaded yet" end
     if not Guild:CanEditGuildCouncil() then return false, "only the Guild Master can change the guild council" end
@@ -1135,19 +1249,8 @@ function Guild:SetGuildCouncil(membersSet, phase, targets, raidLeaders)
     if not IsInt(phase, 1, MaxPhase()) then return false, "invalid phase" end
     local tg, terr = MergeTargets(targets, cur)
     if not tg then return false, terr end
-    -- Addendum J §62: the raid leaders list (nil keeps the current one)
-    local rl
-    if raidLeaders == nil then
-        rl = cur and cur.rl and CopySet(cur.rl) or nil
-    else
-        local rerr
-        rl, rerr = ToSet(raidLeaders)
-        if not rl then return false, rerr end
-    end
-    if rl and not next(rl) then rl = nil end
     local rev = max(floor(Now()), (cur and cur.rev or 0) + 1)
-    StoreGuildList({ rev = rev, members = set, phase = phase, de = tg.de, bank = tg.bank, rl = rl }, Util.PlayerKey(),
-        "self")
+    StoreGuildList({ rev = rev, members = set, phase = phase, de = tg.de, bank = tg.bank }, Util.PlayerKey(), "self")
     if not guildList then return false, "could not save the list" end
     SendCG(guildList)
     Recompute()

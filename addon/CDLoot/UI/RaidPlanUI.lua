@@ -263,7 +263,7 @@ local function cellTooltip(cell)
         for _, line in ipairs(signupLines(s, d.order, d.total)) do GameTooltip:AddLine(line, 0.7, 0.7, 0.7) end
     end
     local RL = ns.RaidLog
-    if ns.Guild and ns.Guild.AmIRaidPlanner and ns.Guild:AmIRaidPlanner() and RL and RL.GetAttendanceText then
+    if ns.Guild and ns.Guild.AmIRaidLogMember and ns.Guild:AmIRaidLogMember() and RL and RL.GetAttendanceText then
         local att = RL:GetAttendanceText(d.key)
         if att then GameTooltip:AddLine("Attendance " .. att, 0.7, 0.7, 0.7) end
         local rel = RL.GetReliabilityText and RL:GetReliabilityText(d.key)
@@ -1055,7 +1055,7 @@ function PlanUI:RefreshUpcoming()
         state.pendingSpec, state.pendingNote, state.noteEdited = nil, nil, nil
     end
     upcoming.list:SetEmptyText(RP():CanOrganize() and "No raids planned yet.\nClick New raid to plan one."
-        or "No raids planned yet.\nYour officers plan raids here.")
+        or "No raids planned yet.\nThe Guild Master and the raid leaders plan raids here.")
     upcoming.list:SetData(rows)
     refreshDetail(state.selected and RP():GetRaid(state.selected) or nil)
 end
@@ -1414,7 +1414,7 @@ function PlanUI:RefreshTeams()
     teamsView.grid.frame:SetShown(has)
     d.empty:SetShown(not has)
     d.empty:SetText(organizer and "Make a team with New team, then pick it when you plan a raid."
-        or "Teams are made by the Guild Master and the guild council.")
+        or "Teams are made by the Guild Master and the raid leaders.")
     self:RefreshTeamButtons()
     if not has then return end
     d.title:SetText(dr.name .. grey(("  %d-man"):format(dr.sz or 25)))

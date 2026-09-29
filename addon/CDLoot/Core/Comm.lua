@@ -211,7 +211,7 @@ local function Dispatch(prefix, text, distribution, senderKey, allow, holdDenied
     -- whose payload already blew the inflate cap is not decoded again this session.
     local Guild = ns.Guild
     local council = (Guild and (Guild:IsCouncil(senderKey, true)
-        or (Guild.IsRaidPlanner and Guild:IsRaidPlanner(senderKey)))) and true or false
+        or (Guild.IsRaidLogMember and Guild:IsRaidLogMember(senderKey)))) and true or false
     local limit = council and MAX_WIRE_LEN or MAX_WIRE_LEN_MEMBER
     if oversized[senderKey] or #text > limit then
         Comm.stats.dropped = Comm.stats.dropped + 1

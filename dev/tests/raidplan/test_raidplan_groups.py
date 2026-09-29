@@ -14,7 +14,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from rp_common import World, Client, gm_pick, K, DAY, now, team, create, signup  # noqa: E402
+from rp_common import World, Client, gm_pick, K, DAY, now, team, create, signup, set_raid_leaders  # noqa: E402
 from _common import case, run_all, printed_since, strip_codes  # noqa: E402
 
 # name, class, rank
@@ -38,6 +38,7 @@ def guild():
         x.load_addon()
     w.tick(3)
     gm_pick(w, c["Gina"], ["Bob"])
+    set_raid_leaders(w, c["Gina"], ["Bob"])
     w.tick(2)
     return w, c
 

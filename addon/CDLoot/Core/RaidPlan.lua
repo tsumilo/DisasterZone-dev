@@ -124,10 +124,23 @@ local function GuildKey()
     return G and G.GetGuildKey and G:GetGuildKey() or nil
 end
 
--- Organizers (§55, §62): the GM, the guild council and the GM's raid leaders list.
+-- Organizers (§55, §62): the GM and the raid leaders list (the officers' pick).
 local function IsOrganizer(key)
     local G = Guild()
     return type(key) == "string" and G ~= nil and G.IsRaidPlanner ~= nil and G:IsRaidPlanner(key) and true or false
+end
+
+-- A raid / team shows when its last editor was a raid planner when this version of it arrived, or is one now: a raid
+-- leader taken off the list later doesn't make their raids vanish. Kept per record version, locally (root.OK).
+local function Trusted(root, kind, rec)
+    if not rec then return false end
+    local k = kind .. ":" .. tostring(rec.id) .. ":" .. tostring(rec.rev)
+    if root.OK and root.OK[k] then return true end
+    if IsOrganizer(rec.by) then
+        if root.OK then root.OK[k] = true end
+        return true
+    end
+    return false
 end
 
 local function Send(msg, dist, target, class)
@@ -166,7 +179,7 @@ local function Root(create)
         r = {}
         db.raidplan[g] = r
     end
-    for _, k in ipairs({ "T", "S", "E", "U" }) do
+    for _, k in ipairs({ "T", "S", "E", "U", "OK" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
     end
     return r
@@ -415,6 +428,7 @@ local function MergeRecord(root, kind, rec)
         return false
     end
     store[rec.id] = rec
+    Trusted(root, kind, rec)
     if kind == "E" and rec.del then root.U[rec.id] = nil end   -- a deleted raid takes its sign-ups with it
     return true
 end
@@ -471,7 +485,7 @@ local function ViewOccurrence(root, s, k)
     if s.x or k < 0 or (s.u and k > s.u) then return nil end
     local occId = OccId(s.id, k)
     local o = root.E[occId]
-    if o and not IsOrganizer(o.by) then o = nil end
+    if o and not Trusted(root, "E", o) then o = nil end
     if o and o.del then return nil end
     local v = {
         id = occId, sid = s.id, k = k, by = s.by, rev = s.rev, weekly = true, cancelled = false, lastWeek = s.u,
@@ -495,11 +509,11 @@ local function ResolveOcc(root, occId)
     local sid, k = SplitOcc(occId)
     if sid then
         local s = root.S[sid]
-        if not s or not IsOrganizer(s.by) then return nil end
+        if not s or not Trusted(root, "S", s) then return nil end
         return ViewOccurrence(root, s, k)
     end
     local e = root.E[occId]
-    if not e or e.sid or e.del or not IsOrganizer(e.by) then return nil end
+    if not e or e.sid or e.del or not Trusted(root, "E", e) then return nil end
     return ViewEvent(e)
 end
 
@@ -777,7 +791,7 @@ function RaidPlan:GetTeams()
     local root = Root(false)
     if not root then return out end
     for id, t in pairs(root.T) do
-        if not t.del and IsOrganizer(t.by) then out[#out + 1] = RaidPlan:GetTeam(id) end
+        if not t.del and Trusted(root, "T", t) then out[#out + 1] = RaidPlan:GetTeam(id) end
     end
     tsort(out, function(a, b)
         local la, lb = a.name:lower(), b.name:lower()
@@ -790,7 +804,7 @@ end
 function RaidPlan:GetTeam(id)
     local root = Root(false)
     local t = root and type(id) == "string" and root.T[id]
-    if not t or t.del or not IsOrganizer(t.by) then return nil end
+    if not t or t.del or not Trusted(root, "T", t) then return nil end
     return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, size = t.sz or 25,
              specs = CopyMap(t.s) or {}, groups = CopyMap(t.grp) or {} }
 end
@@ -840,12 +854,12 @@ function RaidPlan:GetRaids(from, to)
     from = tonumber(from) or (now - KEEP_PAST)
     to = tonumber(to) or (now + MAX_AHEAD)
     for _, e in pairs(root.E) do
-        if not e.sid and not e.del and IsOrganizer(e.by) and e.t >= from and e.t <= to then
+        if not e.sid and not e.del and Trusted(root, "E", e) and e.t >= from and e.t <= to then
             out[#out + 1] = ViewEvent(e)
         end
     end
     for _, s in pairs(root.S) do
-        if not s.x and IsOrganizer(s.by) then
+        if not s.x and Trusted(root, "S", s) then
             local last = max(0, SeriesWeekAt(s, min(to, now + AHEAD)))
             if s.u then last = min(last, s.u) end
             for k = max(0, SeriesWeekAt(s, from) - 1), last + 1 do
@@ -1069,7 +1083,7 @@ end
 
 local function RequireOrganizer()
     if not IsOrganizer(Util.PlayerKey()) then
-        return nil, "Only the Guild Master, the guild council and the raid leaders can plan raids."
+        return nil, "Only the Guild Master and the raid leaders can plan raids."
     end
     local root = Root(true)
     if not root then return nil, "Your guild is not known yet; try again in a moment." end
@@ -1089,6 +1103,7 @@ local function Commit(root, kind, rec)
         return false, "too many " .. (kind == "T" and "teams" or "raids") .. " planned"
     end
     root[kind][clean.id] = clean
+    Trusted(root, kind, clean)
     if kind == "E" and clean.del then root.U[clean.id] = nil end
     Broadcast(kind, clean)
     Changed()
@@ -1379,6 +1394,12 @@ function RaidPlan:Prune(now)
             root.U[id] = nil
             changed = true
         end
+    end
+    -- trust marks of record versions that are gone
+    for k in pairs(root.OK) do
+        local kind, id, rev = k:match("^(%u):(.+):(%d+)$")
+        local rec = kind and root[kind] and root[kind][id]
+        if not rec or tostring(rec.rev) ~= rev then root.OK[k] = nil end
     end
     if changed then Changed() end
 end

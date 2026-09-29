@@ -18,8 +18,8 @@ def K(name):
 
 
 def world(names=(("Gina", 0, "PALADIN"), ("Bob", 1, "MAGE"), ("Lee", 3, "WARRIOR"), ("Rita", 3, "PRIEST"),
-                 ("Sam", 3, "ROGUE")), council=("Bob",)):
-    """Gina = GM, Bob = guild council (organizers); Lee / Rita / Sam = members."""
+                 ("Sam", 3, "ROGUE")), council=("Bob",), planners=("Bob",)):
+    """Gina = GM, Bob = guild council + raid leader (the organizers); Lee / Rita / Sam = members."""
     w = World()
     c = {}
     for name, rank, cls in names:
@@ -28,6 +28,7 @@ def world(names=(("Gina", 0, "PALADIN"), ("Bob", 1, "MAGE"), ("Lee", 3, "WARRIOR
         x.load_addon()
     w.tick(3)
     gm_pick(w, c["Gina"], list(council))
+    set_raid_leaders(w, c["Gina"], planners)
     w.tick(2)
     return w, c
 
@@ -70,3 +71,12 @@ def signups(cl, occ):
 def call(cl, fn, *args):
     return cl.eval_py("local fn = ...; local ok, e = ns.RaidPlan[fn](ns.RaidPlan, select(2, ...)); return { ok = ok, e = e }",
                       fn, *args)
+
+
+def set_raid_leaders(w, officer, names, tick=2):
+    """An officer (rank 0-1) saves the raid leaders list (Addendum J §62): the raid planners besides the GM."""
+    res = officer.eval_py("local ok, err = ns.Guild:SetRaidLeaders(...); return { ok = ok, err = err }",
+                          [K(n) for n in names])
+    assert res.get("ok") is True, res
+    if tick:
+        w.tick(tick)
