@@ -612,15 +612,20 @@ Maps.sentinel = {
         "T..................T",
         "T..................T",
         "T..................T",
-        "==================.T",
-        "==================.T",
+        "====================",
+        "====================",
         "T........==........T",
         "T.h......==......h.T",
         "T.......h==h.......T",
         "T........==........T",
         "TTTTTTTTT==TTTTTTTTT",
     },
-    edges = { south = { map = "westfall", dx = 2 }, west = { map = "moonbrook", dy = -2 } },
+    edges = { south = { map = "westfall", dx = 2 }, west = { map = "moonbrook", dy = -2 },
+              east = { map = "ravenhill", dy = 0 } },
+    triggers = {
+        { x = 19, y = 9, cond = function(G) return not G:Flag("badge_vancleef") end, script = function(G) G:DuskwoodGate() end },
+        { x = 19, y = 10, cond = function(G) return not G:Flag("badge_vancleef") end, script = function(G) G:DuskwoodGate() end },
+    },
     stamps = {
         { kind = "stonehouse", x = 2, y = 3 },              -- the inn, door (5, 8)
         { kind = "stonehouse", x = 12, y = 3 },             -- militia barracks, door (15, 8)
@@ -637,6 +642,7 @@ Maps.sentinel = {
     signs = {
         { x = 8, y = 11, text = "SENTINEL HILL\nHeadquarters of the People's Militia." },
         { x = 1, y = 8, text = "MOONBROOK and THE DEADMINES: west.\nDefias territory. The road is watched." },
+        { x = 18, y = 11, text = "DUSKWOOD: east.\nRaven Hill, then Darkshire." },
     },
     npcs = {
         { id = "gryan", x = 11, y = 6, sprite = "hero", tint = { 0.75, 0.75, 1 }, face = "down",
@@ -644,7 +650,9 @@ Maps.sentinel = {
               if G:Flag("badge_vancleef") then
                   G:Say("Gryan Stoutmantle: VanCleef's bandana... then it's true. The Brotherhood is broken!")
                   G:Say("Gryan Stoutmantle: Westfall owes you more than it can pay, {PLAYER}. The People's Militia salutes you.")
-                  G:Say("(You have finished the Azeromon preview. Thank you for playing! More of Azeroth is coming.)")
+                  if not G:Flag("badge_nightwatch") then
+                      G:Say("Gryan Stoutmantle: Now Darkshire needs help. The dead walk in Duskwood. Scout Galiaan will let you through on the east road.")
+                  end
                   return
               end
               if G:Flag("beat_militia1") then
@@ -657,7 +665,24 @@ Maps.sentinel = {
         { id = "thor", x = 18, y = 4, sprite = "bald", tint = { 0.95, 0.85, 0.6 }, face = "left",      -- gryphon master
           script = function(G)
               G:Say("Thor: Gryphons to Stranglethorn. Short John Mithril runs beast fights at the Gurubashi Arena these days.")
-              if not G:YesNo("Thor: Fly to the Gurubashi Arena? " .. ns.AzeroData.Money(50) .. ".") then
+              if G:Flag("fp_darkshire") then                  -- Felicia Maline sent word: Darkshire too
+                  local D = ns.AzeroData
+                  local i = G:Choose("Thor: Where to?", { "Gurubashi Arena (" .. D.Money(50) .. ")",
+                                                         "Darkshire (" .. D.Money(30) .. ")", "Stay" })
+                  if i == 2 then
+                      if G.save.money < 30 then
+                          G:Say("Thor: That's " .. D.Money(30) .. ", friend.")
+                          return
+                      end
+                      G.save.money = G.save.money - 30
+                      G:EnterMap("darkshire", 17, 14, "down")
+                      G:Say("You fly east over Duskwood's black treetops. Darkshire's lamps glow below.")
+                      return
+                  elseif i ~= 1 then
+                      G:Say("Thor: Safe travels on foot, then.")
+                      return
+                  end
+              elseif not G:YesNo("Thor: Fly to the Gurubashi Arena? " .. ns.AzeroData.Money(50) .. ".") then
                   G:Say("Thor: Safe travels on foot, then.")
                   return
               end
@@ -668,6 +693,14 @@ Maps.sentinel = {
               G.save.money = G.save.money - 50
               G:EnterMap("arena", 7, 11, "up")
               G:Say("You fly south over the Westfall coast, all the way to Stranglethorn Vale...")
+          end },
+        { id = "galiaan", x = 18, y = 8, sprite = "girl", tint = { 0.75, 0.65, 0.95 }, face = "down",
+          script = function(G)
+              if G:Flag("badge_vancleef") then
+                  G:Say("Scout Galiaan: The road east is open. Duskwood is dark even at noon, so keep your beasts close.")
+              else
+                  G:DuskwoodGate()
+              end
           end },
         { id = "danuvin", x = 4, y = 12, sprite = "bald", tint = { 0.65, 0.7, 1 }, face = "right",
           script = function(G)
@@ -907,5 +940,355 @@ Maps.dm3 = {
           trainer = "cookie", sight = 0, hidden = Vanished("cookie") },
         { id = "vancleef", x = 23, y = 9, sprite = "hero", tint = { 0.85, 0.25, 0.25 }, face = "left",
           trainer = "vancleef", sight = 0, hidden = Vanished("vancleef") },
+    },
+}
+
+---------------------------------------------------------------------------
+-- Duskwood: Raven Hill, the Duskwood road, Manor Mistmantle and Darkshire. The road opens once VanCleef is
+-- beaten (Scout Galiaan at Sentinel Hill). Three haunts - Mor'Ladim, Morbent Fel (Sven Yorgen's Bane first) and
+-- Stalvan Mistmantle - bring Stitches to Darkshire's gate; beating him earns the Night Watch Seal.
+-- gloom = how dark Duskwood's endless dusk is, even at noon (the sky tint never gets lighter than this).
+---------------------------------------------------------------------------
+
+local function HauntsDone(G)
+    return G:Flag("beat_morladim") and G:Flag("beat_morbentfel") and G:Flag("beat_stalvan") and true or false
+end
+Maps.HauntsDone = HauntsDone
+
+Maps.ravenhill = {
+    name = "Raven Hill",
+    music = "duskwood",
+    outdoor = true,
+    theme = "duskwood",
+    gloom = 0.32,
+    herbs = { "briarthorn", "mageroyal" }, ores = { "tin" },
+    nodes = { herb = { { 22, 12 }, { 1, 4 }, { 9, 20 } }, ore = { { 22, 20 } } },
+    rows = {
+        "TTTTTTTTTTTTTTTTTTTTTTTT",
+        "T......................T",
+        "T.....................YT",
+        "T......................T",
+        "T......................T",
+        "T......................T",
+        "T...................Y..T",
+        "T....\"\"\"\"......\"\"\"\"....T",
+        "T....\"\"\"\"......\"\"\"\"....T",
+        "========================",
+        "========================",
+        "T.....\"\"\"\"....\"\"\"\"..Y..T",
+        "T..Y..\"\"\"\"....\"\"\"\".....T",
+        "T..#######..#######....T",
+        "T..#G.G.G.....G.G.#.\"\".T",
+        "T..#.............G#.\"\".T",
+        "T..#G.G.......G.G.#.\"\".T",
+        "T..#..............#.\"\".T",
+        "T..#G.G.G....G.G.G#....T",
+        "T..################.Y..T",
+        "TY.....................T",
+        "TTTTTTTTTTTTTTTTTTTTTTTT",
+    },
+    edges = { west = { map = "sentinel", dy = 0 }, east = { map = "duskwood", dy = 0 } },
+    stamps = {
+        { kind = "darkhouse", x = 2, y = 1 }, { kind = "darkhouse", x = 9, y = 1 },     -- Raven Hill's empty houses
+        { kind = "tent", x = 17, y = 2 },                                                 -- Sven's camp
+    },
+    signs = {
+        { x = 2, y = 8, text = "RAVEN HILL\nMost folk left when the dead began to walk." },
+        { x = 12, y = 12, text = "RAVEN HILL CEMETERY\nBy order of the Night Watch: do not disturb the dead." },
+    },
+    encounters = {
+        { sp = "skeleton", min = 22, max = 24, day = 20, night = 40 },
+        { sp = "flesheater", min = 22, max = 24, weight = 25 },
+        { sp = "pygmyweb", min = 21, max = 23, weight = 30 },
+        { sp = "ravager", min = 22, max = 24, day = 20, night = 10 },
+        { sp = "worm", min = 22, max = 23, weight = 10 },
+    },
+    npcs = {
+        { id = "sven", x = 19, y = 4, sprite = "bald", tint = { 0.85, 0.75, 0.6 }, face = "left",
+          script = function(G)
+              if G:Flag("beat_morbentfel") then
+                  G:Say("Sven Yorgen: Morbent Fel is gone? Then the farm is mine again. I'll go home... once my hands stop shaking.")
+                  return
+              end
+              if G:Flag("morbentbane") then
+                  G:Say("Sven Yorgen: Hold Morbent's Bane high when you face him. His shadows can't hide him from it.")
+                  return
+              end
+              G:Say("Sven Yorgen: The necromancer Morbent Fel drove me off my own farm. It's east of here, south of the road.")
+              if not G:Flag("beat_morladim") then
+                  G:Say("Sven Yorgen: Blades pass right through him. I know how to fix that... but not while Mor'Ladim walks the cemetery below. His dead would follow me.")
+                  return
+              end
+              G:Say("Sven Yorgen: Mor'Ladim is at rest? Then take this. I had it made in Darkshire, for the day I found the nerve.")
+              G:SetFlag("morbentbane")
+              G:Say("{PLAYER} received Morbent's Bane!")
+          end },
+        { id = "nightrunner", x = 13, y = 8, sprite = "hero", tint = { 0.55, 0.3, 0.35 }, face = "down",
+          trainer = "nightrunner", sight = 2 },
+        { id = "ladimore", x = 5, y = 15, sprite = "hero", tint = { 0.65, 0.85, 1 }, face = "right",
+          trainer = "ladimore", sight = 5 },
+        { id = "morladim", x = 11, y = 16, sprite = "bald", tint = { 0.55, 0.6, 0.7 }, face = "up",
+          trainer = "morladim", sight = 0, hidden = Vanished("morladim") },
+        { id = "jitters", x = 16, y = 5, sprite = "bald", tint = { 0.9, 0.85, 0.75 }, face = "down",
+          script = function(G)
+              G:Say("Jitters: The ravens... they're watching. They're always watching. Don't go into the cemetery. Don't!")
+          end },
+    },
+}
+
+Maps.duskwood = {
+    name = "Duskwood",
+    music = "duskwood",
+    outdoor = true,
+    theme = "duskwood",
+    gloom = 0.34,
+    herbs = { "briarthorn", "mageroyal" }, ores = { "tin", "copper" },
+    nodes = { herb = { { 1, 3 }, { 16, 16 }, { 24, 22 } }, ore = { { 20, 13 }, { 2, 13 } } },
+    rows = {
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "T...............TT.........T",
+        "T........Y......TT.........T",
+        "T.........\"\"\"\"\".........TTTT",
+        "T.........\"\"\"\"\".........TTTT",
+        "T.........\"\"\"\"\".........TTTT",
+        "T...........\"\"\"\"...........T",
+        "T......TT.............=....T",
+        "T.....................=....T",
+        "============================",
+        "============================",
+        "T..........................T",
+        "TY...........\"\"\"\"\"\"TT.....YT",
+        "T.........TT.\"\"\"\"\"\"........T",
+        "T.........TT.\"\"\"\"\"\"........T",
+        "TTT........................T",
+        "TTT.......Y..Y.............T",
+        "TTT...............Y........T",
+        "TTT...........TTTT..\"\"\"\"\"\".T",
+        "T...........Y.TTTT..\"\"\"\"\"\".T",
+        "T\"\"\"..........TTTT..\"\"\"\"\"\".T",
+        "T\"\"\".Y...Y....TTTT..\"\"\"\"\"\".T",
+        "T\"\"\"..................Y....T",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    },
+    edges = { west = { map = "ravenhill", dy = 0 }, east = { map = "darkshire", dy = 0 } },
+    stamps = {
+        { kind = "darkhouse", x = 2, y = 1 },       -- Addle's Stead
+        { kind = "darkhouse", x = 19, y = 1 },      -- Manor Mistmantle, door (22, 6)
+        { kind = "darkhouse", x = 4, y = 14 },      -- the Yorgen farmhouse
+        { kind = "dbigtree", x = 23, y = 14 },
+    },
+    warps = { { x = 22, y = 6, map = "mistmantle", tx = 4, ty = 6, face = "up" } },
+    signs = {
+        { x = 1, y = 8, text = "DUSKWOOD\nWest: Raven Hill and Westfall. East: Darkshire." },
+        { x = 26, y = 11, text = "DARKSHIRE: east.\nThe Night Watch keeps the lamps lit." },
+    },
+    encounters = {
+        { sp = "darkrunner", min = 24, max = 26, day = 10, night = 35 },
+        { sp = "ravager", min = 24, max = 26, weight = 25 },
+        { sp = "pygmyweb", min = 23, max = 25, weight = 20 },
+        { sp = "venomweb", min = 25, max = 26, weight = 12 },
+        { sp = "worm", min = 24, max = 25, weight = 15 },
+        { sp = "splinterfist", min = 25, max = 26, day = 10, night = 5 },
+        { sp = "lupos", min = 27, max = 27, day = 0, night = 2, rare = true },
+    },
+    npcs = {
+        { id = "abercrombie", x = 8, y = 5, sprite = "bald", tint = { 0.75, 0.8, 0.7 }, face = "down",
+          script = function(G)
+              if G:Flag("beat_stitches") then
+                  G:Say("Abercrombie: You broke my friend! All those stitches... do you know how long that took?")
+              elseif HauntsDone(G) then
+                  G:Say("Abercrombie: My friend is finished at last! He's gone for a walk. Toward Darkshire. Isn't that nice?")
+              else
+                  G:Say("Abercrombie: Hello, hello! Just gathering a few... supplies. For a friend. A very big friend.")
+              end
+          end },
+        { id = "nightblade", x = 9, y = 11, sprite = "hero", tint = { 0.45, 0.3, 0.4 }, face = "up",
+          trainer = "nightblade", sight = 2 },
+        { id = "dodds", x = 15, y = 8, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "down",
+          trainer = "dodds", sight = 3 },
+        { id = "ogre1", x = 22, y = 17, sprite = "bald", tint = { 0.75, 0.6, 0.45 }, face = "left",
+          trainer = "ogre1", sight = 3 },
+        { id = "morbentfel", x = 11, y = 18, sprite = "hero", tint = { 0.45, 0.35, 0.6 }, face = "left",
+          trainer = "morbentfel", sight = 0, hidden = Vanished("morbentfel") },
+        { id = "watchguard", x = 25, y = 8, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "down",
+          script = function(G)
+              G:Say("Night Watch Guard: Darkshire's just east. Stay on the road and stay near the lamps.")
+          end },
+    },
+}
+
+Maps.mistmantle = {
+    name = "Manor Mistmantle",
+    music = "haunted",
+    rows = {
+        "WWWWWWWWWW",
+        "WWWWWWWWWW",
+        "fdffffffdf",
+        "ffffffffff",
+        "ftffffffbf",
+        "ffffffffff",
+        "pffffffffp",
+        "WWWWrWWWWW",
+    },
+    warps = { { x = 4, y = 7, map = "duskwood", tx = 22, ty = 7, face = "down" } },
+    chests = { { id = "mmpotion", x = 7, y = 3, item = "superpotion", n = 2 } },
+    npcs = {
+        { id = "stalvan", x = 4, y = 3, sprite = "hero", tint = { 0.6, 0.7, 0.9 }, face = "down",
+          trainer = "stalvan", sight = 2, hidden = Vanished("stalvan") },
+    },
+}
+
+Maps.darkshire = {
+    name = "Darkshire",
+    music = "duskwood",
+    outdoor = true,
+    theme = "duskwood",
+    gloom = 0.26,
+    rows = {
+        "TTTTTTTTTTTTTTTTTTTTTTTT",
+        "T.....................YT",
+        "T......................T",
+        "T......................T",
+        "T......................T",
+        "T......................T",
+        "T......................T",
+        "T.....=..........=.....T",
+        "T.l...=..l....l..=...l.T",
+        "=======================T",
+        "=======================T",
+        "T...l......==...l...l..T",
+        "T..........==..........T",
+        "T..........==..........T",
+        "T..........==..........T",
+        "T..........==..........T",
+        "T..........==..........T",
+        "TY......Y..==.........YT",
+        "T......................T",
+        "TTTTTTTTTTTTTTTTTTTTTTTT",
+    },
+    edges = { west = { map = "duskwood", dy = 0 } },
+    stamps = {
+        { kind = "darkhouse", x = 3, y = 1 },       -- the Scarlet Raven Tavern, door (6, 6)
+        { kind = "darkhouse", x = 14, y = 1 },      -- the town hall
+        { kind = "tent", x = 4, y = 14 },           -- Madame Eva's wagon
+    },
+    warps = { { x = 6, y = 6, map = "darkshireinn", tx = 4, ty = 6, face = "up" } },
+    objects = {
+        { x = 10, y = 8, tile = "wantedboard", hint = "Read the bounty board", script = function(G) G:BountyBoard() end },
+    },
+    signs = {
+        { x = 1, y = 8, text = "DARKSHIRE\nSeat of the Night Watch. The lamps burn all night, every night." },
+        { x = 13, y = 11, text = "SOUTH: Madame Eva, fortunes told.\nGryphons to Sentinel Hill." },
+    },
+    npcs = {
+        { id = "stitches", x = 3, y = 9, sprite = "bald", tint = { 0.6, 0.72, 0.55 }, face = "left",
+          trainer = "stitches", sight = 3,
+          hidden = function(G) return not HauntsDone(G) or G:Flag("beat_stitches") end },
+        { id = "ello", x = 15, y = 8, sprite = "hero", tint = { 0.95, 0.85, 0.6 }, face = "down",
+          script = function(G)
+              G:Say("Lord Ello Ebonlocke: Welcome to Darkshire. We hold on because the Night Watch holds on.")
+              G:Say("Lord Ello Ebonlocke: Commander Ebonlocke runs the Watch. If you mean to help, talk to her.")
+          end },
+        { id = "althea", x = 18, y = 8, sprite = "girl", tint = { 0.75, 0.8, 1 }, face = "down",
+          script = function(G)
+              if G:Flag("badge_nightwatch") then
+                  G:Say("Commander Althea Ebonlocke: Watcher {PLAYER}. It has a ring to it. Darkshire won't forget what you did.")
+                  G:Say("(You have finished the Azeromon preview. Thank you for playing! More of Azeroth is coming.)")
+                  return
+              end
+              if HauntsDone(G) then
+                  G:Say("Commander Althea Ebonlocke: Hear the bells? Stitches is at the west gate! {PLAYER}, the Watch needs your beasts!")
+                  return
+              end
+              G:Say("Commander Althea Ebonlocke: So Stoutmantle sent help. Good. Duskwood's dead won't stay buried.")
+              local left = {}
+              if not G:Flag("beat_morladim") then left[#left + 1] = "Mor'Ladim in the Raven Hill cemetery" end
+              if not G:Flag("beat_morbentfel") then left[#left + 1] = "Morbent Fel on the Yorgen farm" end
+              if not G:Flag("beat_stalvan") then left[#left + 1] = "whatever haunts Manor Mistmantle" end
+              G:Say("Commander Althea Ebonlocke: Three haunts feed this darkness. Still out there: " .. table.concat(left, "; ") .. ".")
+          end },
+        { id = "eva", x = 6, y = 16, sprite = "girl", tint = { 0.85, 0.6, 0.9 }, face = "up",
+          script = function(G)
+              G:Say("Madame Eva: Sit, child. Let the cards speak...")
+              if G:Flag("badge_nightwatch") then
+                  G:Say("Madame Eva: The cards are quiet tonight. For once.")
+              elseif HauntsDone(G) then
+                  G:Say("Madame Eva: I see a thing sewn from many... it walks toward our gate. Toward YOU.")
+              elseif not G:Flag("beat_morladim") then
+                  G:Say("Madame Eva: A grave on Raven Hill that will not stay closed. Start there.")
+              elseif not G:Flag("beat_morbentfel") and not G:Flag("morbentbane") then
+                  G:Say("Madame Eva: A frightened farmer camps at Raven Hill. He holds a blade that cuts shadow. Ask Sven.")
+              elseif not G:Flag("beat_morbentfel") then
+                  G:Say("Madame Eva: The Yorgen farm, south of the road. A man of shadows waits for his Bane.")
+              else
+                  G:Say("Madame Eva: A manor north of the road. Its master never left... and never will, unless you make him.")
+              end
+          end },
+        { id = "felicia", x = 17, y = 15, sprite = "girl", tint = { 1, 0.9, 0.75 }, face = "left",      -- gryphon master
+          script = function(G)
+              local D = ns.AzeroData
+              if not G:Flag("fp_darkshire") then
+                  G:SetFlag("fp_darkshire")
+                  G:Say("Felicia Maline: New in Darkshire? I'll send word to Thor at Sentinel Hill. His gryphons can bring you here now.")
+              end
+              if G:Choose("Felicia Maline: Where to?", { "Sentinel Hill (" .. D.Money(30) .. ")", "Stay" }) ~= 1 then
+                  G:Say("Felicia Maline: Mind the dark, then.")
+                  return
+              end
+              if G.save.money < 30 then
+                  G:Say("Felicia Maline: That's " .. D.Money(30) .. ", dear.")
+                  return
+              end
+              G.save.money = G.save.money - 30
+              G:EnterMap("sentinel", 17, 4, "right")
+              G:Say("You fly west over the dark treetops, all the way to Sentinel Hill.")
+          end },
+        { id = "backus", x = 13, y = 12, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "left",
+          trainer = "backus", sight = 2 },
+        { id = "paige", x = 9, y = 13, sprite = "girl", tint = { 0.7, 0.75, 0.95 }, face = "right",
+          trainer = "paige", sight = 2 },
+        { id = "dsguard", x = 21, y = 12, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "left",
+          script = function(G)
+              G:Say("Night Watch Guard: East is Deadwind Pass. Nobody goes there. Nobody comes back from there, either.")
+          end },
+    },
+}
+
+Maps.darkshireinn = {
+    name = "Scarlet Raven Tavern",
+    music = "tavern",
+    rows = {
+        "WWWWWWWWWW",
+        "WWWWWWWWWW",
+        "ffffffffff",
+        "fcccffcccf",
+        "ffffffffff",
+        "ffffffffff",
+        "pffffffffp",
+        "WWWWrWWWWW",
+    },
+    warps = { { x = 4, y = 7, map = "darkshire", tx = 6, ty = 7, face = "down" } },
+    npcs = {
+        { id = "trelayne", x = 2, y = 2, sprite = "girl", tint = { 0.95, 0.8, 0.75 }, face = "down",
+          script = function(G)
+              G:Say("Innkeeper Trelayne: Welcome to the Scarlet Raven. Warm beds, and the doors lock at night.")
+              if G:YesNo("Innkeeper Trelayne: Let your beasts rest here?") then
+                  G:HealParty()
+                  G:SetRespawn("darkshireinn", 4, 5, "up", "Darkshire")
+                  G:Say("Innkeeper Trelayne: There. Rested, and safe behind the Watch's walls.")
+              end
+          end },
+        { id = "hann", x = 7, y = 2, sprite = "bald", tint = { 0.9, 0.8, 0.7 }, face = "down",
+          script = function(G)
+              G:Say("Barkeep Hann: Supplies for the road? You'll want them out there.")
+              G:Shop("Barkeep Hann")
+              G:Say("Barkeep Hann: Come back in one piece.")
+          end },
+        { id = "dsstable", x = 8, y = 5, sprite = "bald", tint = { 0.8, 0.8, 0.9 }, face = "left",     -- stable master
+          script = function(G)
+              G:Say("Stable Master: Same stable ledger as Goldshire's and Sentinel Hill's. Your beasts are safe with me.")
+              G:Stable()
+              G:Say("Stable Master: Come back anytime.")
+          end },
     },
 }

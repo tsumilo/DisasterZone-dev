@@ -68,15 +68,18 @@ end
 ---------------------------------------------------------------------------
 
 local SOLID_CHARS = { T = true, w = true, W = true, X = true, b = true, d = true, p = true, t = true, C = true, c = true,
-                      ["#"] = true, h = true, o = true, i = true, R = true, S = true, k = true, g = true, n = true }
+                      ["#"] = true, h = true, o = true, i = true, R = true, S = true, k = true, g = true, n = true,
+                      G = true, l = true, Y = true }
 local OVER_CHARS = { T = "tree", b = "bed", d = "dresser", p = "pot", t = "table", C = "chest", c = "counter",
                      ["#"] = "fence", h = "hay", o = "pumpkin", i = "torch1", k = "crate", g = "barrel", n = "cannon",
-                     L = "stairs" }
+                     L = "stairs", G = "gravestone", l = "lamppost", Y = "deadtree" }
+-- G gravestone, l lamp post, Y dead tree (Duskwood); '#' is the theme's fence (Duskwood: wrought iron)
 -- R rock, S timber support (both solid walls), D ship deck, L ladder (a warp), k crate, g powder barrel, n cannon
 local STAMP_SIZE = { house = { 5, 6 }, farmhouse = { 5, 6 }, stonehouse = { 5, 6 }, bigtree = { 3, 3 },
                      wbigtree = { 3, 3 }, mailbox = { 1, 2 }, scarecrow = { 1, 2 }, windmill = { 2, 3 }, tent = { 2, 2 },
-                     ruinhouse = { 5, 6 }, mineentrance = { 3, 2 }, mast = { 1, 3 } }
-local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true }
+                     ruinhouse = { 5, 6 }, mineentrance = { 3, 2 }, mast = { 1, 3 }, darkhouse = { 5, 6 },
+                     dbigtree = { 3, 3 } }
+local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true, darkhouse = true }
 -- the walkable doorway tile of a stamp (dx, dy), if it has one
 local function IsDoor(kind, dx, dy)
     if HOUSES[kind] then return dx == 3 and dy == 5 end
@@ -92,6 +95,9 @@ local THEMES = {
              rails = true, water = { "dwater1", "dwater2" } },
     -- the Gurubashi Arena: sand, and 'T' is the stone wall
     arena = { grass1 = "sand1", grass2 = "sand2", tall = "tall_", path = "path_", tree = nil, wall = "arenawall" },
+    -- Duskwood: dark grass, black pines, iron fences
+    duskwood = { grass1 = "dgrass1", grass2 = "dgrass2", tall = "dtall_", path = "dpath_", tree = "dtree",
+                 fence = "ironfence" },
 }
 G.THEMES = THEMES
 
@@ -177,6 +183,7 @@ function G.Compile(id)
             end
             m.base[k] = base
             if ch == "T" then m.over[k] = th.tree else m.over[k] = OVER_CHARS[ch] end   -- (no tree in a mine)
+            if ch == "#" and th.fence then m.over[k] = th.fence end
             if m.railOver and m.railOver[k] then m.over[k] = m.railOver[k] end
             if SOLID_CHARS[ch] then m.solid[k] = true end
         end
@@ -634,6 +641,24 @@ function G:HoggerGate()
     self:PushPlayer("down")
 end
 
+-- Scout Galiaan keeps the road east to Duskwood closed until VanCleef is beaten.
+function G:DuskwoodGate()
+    self:Say("Scout Galiaan: The road east runs to Duskwood. Darkshire has asked Sentinel Hill for help, but we can't spare anyone.")
+    self:Say("Scout Galiaan: Not while VanCleef's Brotherhood sits in the Deadmines at our backs. Break them first.")
+    self:PushPlayer("left")
+end
+
+-- Why a trainer won't fight yet (their `requires` not all beaten, or the player lacks their `needFlag`), or nil.
+function G:TrainerLocked(id)
+    local def = D.trainers[id]
+    if not def or self:Flag("beat_" .. id) then return nil end
+    local locked = def.needFlag and not self:Flag(def.needFlag)
+    for _, other in ipairs(def.requires or {}) do
+        if not self:Flag("beat_" .. other) then locked = true end
+    end
+    if locked then return def.notYet or "Not yet." end
+end
+
 -- Trainer NPC spots the player (or is talked to): walk over, talk, battle.
 function G:TrainerEncounter(npc, spotted)
     local id = npc.def.trainer
@@ -664,7 +689,7 @@ function G:TrainerEncounter(npc, spotted)
         self:Emit("beaten", { trainer = id })
         if def.vanish then                          -- a boss leaves the passage (and stays gone)
             npc.hidden = true
-            self:Say(self:TrainerDef(id).name .. " retreats deeper into the mine...")
+            self:Say(def.vanishText and self:Fmt(def.vanishText) or (self:TrainerDef(id).name .. " retreats deeper into the mine..."))
         end
         local badge = def.badge and D.badges[def.badge]
         if badge and not self:Flag("badge_" .. def.badge) then
@@ -853,7 +878,7 @@ function G:CheckTrainers()
     local s = self.save
     for _, n in ipairs(self.npcs) do
         local id = n.def.trainer
-        if id and not n.hidden and not self:Flag("beat_" .. id) then
+        if id and not n.hidden and not self:Flag("beat_" .. id) and not self:TrainerLocked(id) then
             local d = DIRS[n.face]
             local x, y = n.x, n.y
             for _ = 1, n.def.sight or 3 do
@@ -904,15 +929,10 @@ function G:PressA()
     if npc then
         npc.face = OPPOSITE[s.face]
         local id = npc.def.trainer
-        local need = id and D.trainers[id].requires
-        if need and not self:Flag("beat_" .. id) then
-            for _, other in ipairs(need) do
-                if not self:Flag("beat_" .. other) then
-                    local line = D.trainers[id].notYet or "Not yet."
-                    self:Run(function(g) g:Say(g:TrainerDef(id).name .. ": " .. g:Fmt(line)) end)
-                    return
-                end
-            end
+        local line = id and self:TrainerLocked(id)
+        if line then
+            self:Run(function(g) g:Say(g:TrainerDef(id).name .. ": " .. g:Fmt(line)) end)
+            return
         end
         if id and not self:Flag("beat_" .. id) then
             self:Run(function(g) g:TrainerEncounter(npc, false) end)

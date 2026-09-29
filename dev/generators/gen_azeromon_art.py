@@ -87,7 +87,7 @@ def build_atlas():
             for x in range(w):
                 add("%s_%d_%d" % (name, x, y), sheet, c0 + x, r0 + y)
     # Westfall + Forest's Edge (appended so earlier slots never move)
-    for name, img, w, h in westfall_art() + mine_art() + town_art():
+    for name, img, w, h in westfall_art() + mine_art() + town_art() + duskwood_art():
         if w == 1 and h == 1:
             add(name, img, 0, 0)
         else:
@@ -601,6 +601,115 @@ def town_art():
             ("arenawall", draw(1, 1, arena_wall), 1, 1)]
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Duskwood: the Elwynn tiles in the zone's endless dusk (dark blue-green grass, black pines, a cold tint over
+# everything), plus gravestones, iron fences, Darkshire's lamps, bare dead trees and dark-roofed houses.
+# ---------------------------------------------------------------------------------------------------------------
+DUSK = (0.36, 0.50, 0.66)          # dark grass
+DUSK_TALL = (0.40, 0.60, 0.74)     # tall grass, a shade darker than the ground
+DUSK_LEAF = (0.45, 0.45, 0.42)     # black-green pine needles
+ROOF_DUSK = (0.75, 0.30, 0.55)     # Darkshire's dark purple slate
+
+
+def shade(img, r=0.70, g=0.74, b=0.92):
+    """Everything a little darker and colder (Duskwood's gloom)."""
+    out = img.copy()
+    px = out.load()
+    for yy in range(out.size[1]):
+        for xx in range(out.size[0]):
+            rr, gg, bb, aa = px[xx, yy]
+            if aa:
+                px[xx, yy] = (int(rr * r), int(gg * g), int(bb * b), aa)
+    return out
+
+
+def dusk_path(im):
+    """A path tile: its grass edge exactly like the ground tiles (no halo), its dirt darkened to wet earth."""
+    grass = shade(recolor(im, DUSK, DUSK_LEAF))
+    px, src = grass.load(), im.load()
+    for yy in range(im.size[1]):
+        for xx in range(im.size[0]):
+            r, g, b, a = src[xx, yy]
+            if not a:
+                continue
+            h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+            if not (0.17 <= h <= 0.45 and s > 0.18):          # not grass: the dirt
+                px[xx, yy] = (int(r * 0.50), int(g * 0.48), int(b * 0.56), a)
+    return grass
+
+
+def gravestone(d, img):
+    stone, dark, light = (128, 130, 138, 255), (70, 72, 82, 255), (170, 172, 180, 255)
+    d.rectangle((4, 4, 11, 14), fill=stone)
+    d.rectangle((5, 2, 10, 3), fill=stone)
+    d.point((4, 3), fill=stone)
+    d.point((11, 3), fill=stone)
+    d.line((4, 4, 4, 14), fill=light)
+    d.line((11, 3, 11, 14), fill=dark)
+    d.line((4, 14, 11, 14), fill=dark)
+    d.line((7, 6, 8, 6), fill=dark)                      # a cross cut in the stone
+    d.line((7, 5, 7, 10), fill=dark)
+    d.line((6, 7, 9, 7), fill=dark)
+    d.point((5, 12), fill=(78, 104, 70, 255))            # moss
+    d.point((9, 13), fill=(78, 104, 70, 255))
+    d.line((3, 15, 12, 15), fill=(30, 36, 34, 160))      # its shadow
+
+
+def iron_fence(d, img):
+    iron, hi = (34, 34, 42, 255), (84, 84, 98, 255)
+    d.rectangle((0, 6, 15, 6), fill=iron)
+    d.rectangle((0, 12, 15, 12), fill=iron)
+    for x in (1, 5, 9, 13):
+        d.line((x, 3, x, 15), fill=iron)
+        d.point((x, 2), fill=hi)                         # spear tips
+        d.point((x + 1, 4), fill=hi)
+
+
+def lamppost(d, img):
+    post, hi = (38, 36, 44, 255), (90, 88, 100, 255)
+    d.rectangle((7, 6, 8, 15), fill=post)
+    d.line((7, 6, 7, 15), fill=hi)
+    d.rectangle((5, 14, 10, 15), fill=post)
+    d.rectangle((5, 1, 10, 5), fill=post)                # the lantern
+    d.rectangle((6, 2, 9, 4), fill=(255, 214, 120, 255))
+    d.point((7, 3), fill=(255, 246, 200, 255))
+    d.line((4, 1, 11, 1), fill=hi)
+
+
+def dead_tree(d, img):
+    bark, dark = (92, 80, 72, 255), (54, 46, 42, 255)
+    d.rectangle((7, 7, 8, 15), fill=bark)
+    d.line((8, 7, 8, 15), fill=dark)
+    d.line((5, 15, 10, 15), fill=dark)
+    for (x0, y0, x1, y1) in ((7, 8, 3, 4), (8, 7, 12, 3), (7, 10, 2, 8), (8, 9, 13, 7), (7, 6, 6, 1),
+                             (3, 4, 2, 2), (12, 3, 14, 2), (6, 1, 8, 0)):
+        d.line((x0, y0, x1, y1), fill=bark)
+    d.point((3, 5), fill=dark)
+    d.point((12, 4), fill=dark)
+
+
+def duskwood_art():
+    out = []
+    dusk = lambda im: shade(recolor(im, DUSK, DUSK_LEAF))                        # noqa: E731
+    out.append(("dgrass1", dusk(crop(R, 8, 0)), 1, 1))
+    out.append(("dgrass2", dusk(crop(R, 9, 0)), 1, 1))
+    for n, c, r in (("tl", 8, 1), ("t", 9, 1), ("tr", 10, 1), ("l", 8, 2), ("c", 9, 2), ("r", 10, 2),
+                    ("bl", 8, 3), ("b", 9, 3), ("br", 10, 3), ("inw", 11, 0), ("ine", 12, 0), ("isw", 11, 1),
+                    ("ise", 12, 1)):
+        out.append(("dpath_" + n, dusk_path(crop(R, c, r)), 1, 1))
+    for n, c, r in (("tl", 0, 6), ("t", 1, 6), ("tr", 2, 6), ("l", 0, 7), ("c", 1, 7), ("r", 2, 7),
+                    ("bl", 0, 8), ("b", 1, 8), ("br", 2, 8)):
+        out.append(("dtall_" + n, shade(recolor(crop(R, c, r), DUSK_TALL, DUSK_LEAF, light_min_v=0.0)), 1, 1))
+    out.append(("dtree", shade(recolor(crop(T, 6, 3), DUSK_LEAF, DUSK_LEAF)), 1, 1))       # the pine
+    out.append(("dbigtree", shade(recolor(crop(R, 5, 3, 3, 3), DUSK, DUSK_LEAF, light_min_v=0.80)), 3, 3))
+    out.append(("darkhouse", shade(recolor(crop(R, 0, 0, 5, 6), DUSK, ROOF_DUSK, dark_rows=78), 0.56, 0.56, 0.68), 5, 6))
+    out.append(("gravestone", draw(1, 1, gravestone), 1, 1))
+    out.append(("ironfence", draw(1, 1, iron_fence), 1, 1))
+    out.append(("lamppost", draw(1, 1, lamppost), 1, 1))
+    out.append(("deadtree", draw(1, 1, dead_tree), 1, 1))
+    return out
+
+
 def build_chars():
     img = Image.new("RGBA", (256, 128), (0, 0, 0, 0))
     img.paste(CH, (0, 0))
@@ -629,6 +738,13 @@ def build_platform():
     d.ellipse((6 * k, 3 * k, 122 * k, 26 * k), fill=(96, 88, 84, 255))
     d.ellipse((14 * k, 6 * k, 114 * k, 20 * k), fill=(110, 102, 96, 255))
     tga(img.resize((128, 32), Image.NEAREST), "platform_m")
+    # Duskwood: dark mossy ground
+    img = Image.new("RGBA", (128 * k, 32 * k), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((0, 0, 128 * k - 1, 32 * k - 1), fill=(34, 48, 44, 255))
+    d.ellipse((6 * k, 3 * k, 122 * k, 26 * k), fill=(58, 80, 70, 255))
+    d.ellipse((14 * k, 6 * k, 114 * k, 20 * k), fill=(66, 90, 78, 255))
+    tga(img.resize((128, 32), Image.NEAREST), "platform_d")
 
 
 def write_lua(index):

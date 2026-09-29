@@ -18,6 +18,8 @@ S.TRACKS = {
     cove = { 53762, 53763, 53764, 53765 },                               -- Ironclad Cove: a pirate's tune
     battle = { 53684, 53685, 53686, 53687, 53688 },                      -- the classic battleground music
     arena = { day = { 53541, 53542, 53543 }, night = { 53544, 53545, 53546 } },       -- the jungle (Gurubashi)
+    duskwood = { day = { 53486, 53487, 53488 }, night = { 53489, 53490, 53491 } },    -- Duskwood (evilforest)
+    haunted = { 53234, 53235 },                                          -- a haunted house (Manor Mistmantle)
 }
 
 S.SFX = {

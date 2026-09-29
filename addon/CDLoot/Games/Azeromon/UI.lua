@@ -249,9 +249,12 @@ local function SkyTint(hour)
     return 1, 1, 1, 0
 end
 
-local function ApplySky(tex, outdoor, strength)
+-- gloom: a map that is never brighter than this (Duskwood's endless dusk), in a cold violet
+local GLOOM = { 0.10, 0.08, 0.22 }
+local function ApplySky(tex, outdoor, strength, gloom)
     if not outdoor then tex:Hide() return 0 end
     local r, g, b, a = SkyTint(G:Hour() % 24)
+    if gloom and a < gloom then r, g, b, a = GLOOM[1], GLOOM[2], GLOOM[3], gloom end
     a = a * (strength or 1)
     tex:SetColorTexture(r, g, b, a)
     tex:SetShown(a > 0.005)
@@ -2515,6 +2518,10 @@ local BATTLE_THEMES = {
     mine = { sky = { 0.22, 0.19, 0.18 }, bands = { { 0.17, 0.15, 0.14 }, { 0.20, 0.17, 0.16 } },
              field = { 0.36, 0.29, 0.23 }, stripe = { 0.26, 0.21, 0.17 }, lines = { 0.31, 0.25, 0.20 },
              platform = PLATFORM .. "_m" },
+    -- Duskwood: a violet dusk over dark moss
+    duskwood = { sky = { 0.36, 0.34, 0.48 }, bands = { { 0.30, 0.28, 0.42 }, { 0.33, 0.31, 0.45 } },
+                 field = { 0.26, 0.34, 0.30 }, stripe = { 0.20, 0.27, 0.24 }, lines = { 0.23, 0.30, 0.27 },
+                 platform = PLATFORM .. "_d" },
 }
 
 local function ApplyBattleTheme(name)
@@ -2530,7 +2537,7 @@ end
 
 local function StartBattleView(b)
     ApplyBattleTheme(G.map and G.map.def.theme)
-    R.battleSkyAlpha = ApplySky(R.battleSky, G.map and G.map.def.outdoor, 0.75)
+    R.battleSkyAlpha = ApplySky(R.battleSky, G.map and G.map.def.outdoor, 0.75, G.map and G.map.def.gloom)
     local foeSp = b.foe and b.foe.mon and D.species[b.foe.mon.sp]
     if b.wild and foeSp and foeSp.rare and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
     BT.battle = b
@@ -2996,7 +3003,7 @@ local function DrawWorld()
     else
         R.fade:Hide()
     end
-    R.skyAlpha = ApplySky(R.sky, m.def.outdoor)
+    R.skyAlpha = ApplySky(R.sky, m.def.outdoor, nil, m.def.gloom)
 end
 
 ---------------------------------------------------------------------------

@@ -60,6 +60,7 @@ end
 
 local ELWYNN = { "wolfpup", "webling", "kobling", "owlet", "tuskling" }
 A.DM_BOSSES = { "rhahkzor", "sneed", "gilnid", "smite", "greenskin", "cookie", "vancleef" }
+A.HAUNTS = { "morladim", "morbentfel", "stalvan" }
 local WESTFALL = { "coyote", "fleshripper", "rustgolem", "dustdevil", "crawler", "coastrunner" }
 A.ELWYNN, A.WESTFALL = ELWYNN, WESTFALL
 
@@ -250,6 +251,27 @@ local ACHIEVEMENTS = {
     { id = "shredder", name = "Some Assembly Required", points = 10, icon = "INV_Misc_Gear_03",
       desc = "Tame a Goblin Shredder.",
       on = "tame", test = function(g, e) return e.how == "caught" and e.mon.sp == "shredder" end },
+
+    -- Duskwood
+    { id = "haunts", name = "Rest in Peace", points = 25, icon = "Spell_Shadow_RaiseDead",
+      desc = "Lay Duskwood's three haunts to rest: Mor'Ladim, Morbent Fel and Stalvan Mistmantle.",
+      on = { "beaten", "load" }, test = function(g)
+          for _, id in ipairs(A.HAUNTS) do if not g:Flag("beat_" .. id) then return false end end
+          return true
+      end,
+      progress = function(g)
+          local n = 0
+          for _, id in ipairs(A.HAUNTS) do if g:Flag("beat_" .. id) then n = n + 1 end end
+          return n, #A.HAUNTS
+      end },
+    { id = "nightwatch", name = "Duskwood", points = 25, icon = "Spell_Holy_SealOfRighteousness",
+      desc = "Stop Stitches at Darkshire's gate and earn the Night Watch Seal.",
+      on = { "badge", "load" }, test = function(g) return g:Flag("badge_nightwatch") and true or false end },
+    { id = "worgen", name = "Leader of the Pack", points = 10, icon = "Ability_Mount_BlackDireWolf",
+      desc = "Tame a Nightbane worgen.",
+      on = "tame", test = function(g, e)
+          return e.how == "caught" and (e.mon.sp == "darkrunner" or e.mon.sp == "vilefang")
+      end },
 
     -- the Bestiary and the guild
     { id = "bestiary", name = "Collector", points = 50, icon = "INV_Misc_Book_09",

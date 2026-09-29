@@ -6,6 +6,18 @@
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.9", date = "29 September 2026", title = "Duskwood",
+      lines = {
+          "Duskwood opens east of Sentinel Hill once VanCleef falls.",
+          "Raven Hill, the Duskwood road, Manor Mistmantle, Darkshire.",
+          "13 new beasts: worgen, ghouls, skeletons, spiders and more.",
+          "Lay three haunts to rest, then stop Stitches at the gate.",
+          "The Night Watch Seal: your third badge.",
+          "Ask Sven Yorgen about Morbent Fel. Madame Eva reads cards.",
+          "Gryphons fly between Darkshire and Sentinel Hill.",
+          "Lupos stalks the Duskwood road at night.",
+          "Duskwood's own music, and a dusk that never lifts.",
+      } },
     { version = "0.8", date = "29 September 2026", title = "Arena, music and trading",
       lines = {
           "The Gurubashi Arena: Thor flies you there from Sentinel Hill.",
