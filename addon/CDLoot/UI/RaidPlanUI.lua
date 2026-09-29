@@ -558,6 +558,13 @@ local function moveInLayout(grp, isMember, key, g, target)
     return true
 end
 
+-- Every player of group a goes to group b and the other way round.
+local function swapGroups(grp, a, b)
+    for key, g in pairs(grp) do
+        if g == a then grp[key] = b elseif g == b then grp[key] = a end
+    end
+end
+
 local function selectedRaid()
     return state.selected and RP():GetRaid(state.selected) or nil
 end
@@ -614,6 +621,15 @@ function PlanUI:MoveRaidMember(key, g, target)
     local ok = moveInLayout(dr.grp, function(k) return valid[k] end, key, g, target)
     if ok then dr.dirty = true end
     return ok
+end
+
+function PlanUI:SwapRaidGroups(a, b)
+    local v = selectedRaid()
+    if not v or not RP():CanOrganize() then return end
+    local dr = raidDraft(v)
+    swapGroups(dr.grp, a, b)
+    dr.dirty = true
+    self:RequestRefresh()
 end
 
 function PlanUI:AutoFillRaid()
@@ -750,6 +766,7 @@ local function createRaidGroups(d)
             PlanUI:MoveRaidMember(key, grp, target)
             PlanUI:RequestRefresh()
         end,
+        onSwapGroups = function(a, b) PlanUI:SwapRaidGroups(a, b) end,
         onMenu = function(root, key)
             local v = selectedRaid()
             if not v then return end
@@ -803,6 +820,7 @@ local function refreshGroups(v)
             text = text .. colorize("ff9933", (" · %d offline (%s)"):format(#st.offline, tconcat(names, ", ")))
         end
         if st.waitCombat then text = text .. colorize("ff5555", " · waiting for combat to end") end
+        if dr.dirty then text = colorize("ff9933", "Changed, not saved. Save to move players. ") .. text end
     elseif dr.dirty then
         text = colorize("ff9933", "Changed, not saved.") .. grey(("  %d of %d placed"):format(placed, total))
     elseif dr.saved then
@@ -1140,6 +1158,13 @@ function PlanUI:MoveDraftMember(key, g, target)
     return moveInLayout(dr.grp, function(k) return dr.members[k] end, key, g, target)
 end
 
+function PlanUI:SwapDraftGroups(a, b)
+    local dr = state.draft
+    if not dr or not RP():CanOrganize() then return end
+    swapGroups(dr.grp, a, b)
+    self:RequestRefresh()
+end
+
 function PlanUI:AutoFillDraft()
     local dr = state.draft
     if not dr or not RP():CanOrganize() then return end
@@ -1307,6 +1332,7 @@ function PlanUI:CreateTeams(parent)
             PlanUI:MoveDraftMember(key, g, target)
             PlanUI:RequestRefresh()
         end,
+        onSwapGroups = function(a, b) PlanUI:SwapDraftGroups(a, b) end,
         onMenu = memberMenu,
         poolLabel = "Not in a group",
     })

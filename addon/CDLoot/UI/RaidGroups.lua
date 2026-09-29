@@ -177,7 +177,10 @@ end
 local Grid = {}
 Grid.__index = Grid
 
+-- Whole groups trade places with the "swap" link on a group's header: click it, then click the other group (its
+-- swap link or anywhere on it); opts.onSwapGroups(a, b) does the change.
 -- opts = { getSize() -> 10|25, getMembers() -> { { key, c, sp, auto, source, extra } }, getGroups() -> { [key] = g },
+--          onSwapGroups(a, b),
 --          isEditable() -> bool, onDrop(key, group|nil, targetKey|nil), onMenu(root, key) (optional),
 --          poolLabel = "Not in a group" }
 function GroupsUI:CreateGrid(parent, opts)
@@ -216,6 +219,29 @@ function GroupsUI:CreateGrid(parent, opts)
         box.title:SetText("Group " .. g)
         box.countFs = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         box.countFs:SetPoint("TOPRIGHT", -6, -4)
+        local swap = CreateFrame("Button", nil, box)
+        swap:SetSize(40, 14)
+        swap:SetPoint("RIGHT", box.countFs, "LEFT", -6, 0)
+        swap.fs = swap:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        swap.fs:SetPoint("CENTER")
+        local shl = swap:CreateTexture(nil, "HIGHLIGHT")
+        shl:SetAllPoints()
+        shl:SetColorTexture(1, 1, 1, 0.15)
+        swap:SetScript("OnClick", function() grid:OnSwapClick(g) end)
+        swap:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            if grid.swapFrom == g then
+                GameTooltip:AddLine("Click another group to swap it with group " .. g .. ", or here to cancel.", 1, 1, 1, true)
+            elseif grid.swapFrom then
+                GameTooltip:AddLine("Swap group " .. grid.swapFrom .. " with group " .. g, 1, 1, 1, true)
+            else
+                GameTooltip:AddLine("Swap groups")
+                GameTooltip:AddLine("Click here, then click another group: all their players trade places.", 1, 1, 1, true)
+            end
+            GameTooltip:Show()
+        end)
+        swap:SetScript("OnLeave", hideTooltip)
+        box.swap = swap
         box.chips = {}
         for s = 1, SLOTS do
             local chip = createChip(box, grid)
@@ -322,6 +348,15 @@ function Grid:Refresh()
             tsort(list, memberLess)
             for s, chip in ipairs(box.chips) do setChip(chip, list[s]) end
             box.countFs:SetText(#list .. "/" .. SLOTS)
+            local canSwap = self.opts.isEditable() and self.opts.onSwapGroups ~= nil
+            box.swap:SetShown(canSwap)
+            if self.swapFrom == g then
+                box.swap.fs:SetText("|cff33ff33cancel|r")
+            elseif self.swapFrom then
+                box.swap.fs:SetText("|cffffd100here|r")
+            else
+                box.swap.fs:SetText("swap")
+            end
             local present = {}
             for _, e in ipairs(Comp():Coverage(list, "party")) do
                 if #e.providers > 0 then present[#present + 1] = e end
@@ -330,7 +365,9 @@ function Grid:Refresh()
                 if present[i] then setBuffIcon(b, present[i], true) else b:Hide() end
             end
             if box.SetBackdropBorderColor then
-                if self.picked then box:SetBackdropBorderColor(1, 0.82, 0, 1) else box:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9) end
+                if self.swapFrom == g then box:SetBackdropBorderColor(0.2, 1, 0.2, 1)
+                elseif self.picked or self.swapFrom then box:SetBackdropBorderColor(1, 0.82, 0, 1)
+                else box:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9) end
             end
         end
     end
@@ -392,7 +429,29 @@ function Grid:OnChipClick(chip, button)
 end
 
 function Grid:OnGroupClick(g)
+    if self.swapFrom then return self:OnSwapClick(g) end
     if self.picked then self:Drop(self.picked, g) end
+end
+
+-- Swaps every player of group a with every player of group b.
+function Grid:SwapGroups(a, b)
+    self.swapFrom = nil
+    if a and b and a ~= b and self.opts.isEditable() and self.opts.onSwapGroups then self.opts.onSwapGroups(a, b) end
+    self:Refresh()
+end
+
+function Grid:OnSwapClick(g)
+    if not self.opts.isEditable() then return end
+    self.picked = nil
+    if self.swapFrom == g then
+        self.swapFrom = nil
+        self:Refresh()
+    elseif self.swapFrom then
+        self:SwapGroups(self.swapFrom, g)
+    else
+        self.swapFrom = g
+        self:Refresh()
+    end
 end
 
 function Grid:OnPoolClick()

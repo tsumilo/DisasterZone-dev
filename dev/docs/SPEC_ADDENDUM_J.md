@@ -133,6 +133,9 @@ Messages fired: `RAIDPLAN_CHANGED`.
   group" pool. Chips show class icon, spec icon and name. Organizers drag chips, or click a chip and then a group /
   another chip (swap) / the pool; a full group refuses a drop that isn't a swap. Right-click: spec (automatic or a
   pick), move to a group, take out, remove from the team. Members see the grid read-only.
+- **Swapping whole groups:** each group header has a "swap" link (organizers): click it, then the other group (its
+  link or anywhere on it); every player of the two groups trades places (Teams draft or the raid's layout). Where a
+  player sits inside a group can't be set by addons (the game orders players within a group).
 - **Teams view:** name, Undo / Save / Delete, the member search, size (10 / 25; shrinking drops groups 3-5) and
   **Auto-fill**, then the grid. All edits are a draft until Save.
 - **Auto-fill (§60):** 25-man = tanks / melee / melee / ranged / healers, 10-man = tanks + melee / ranged + healers.

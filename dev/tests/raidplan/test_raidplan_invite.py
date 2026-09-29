@@ -270,5 +270,46 @@ def the_run_stops_when_the_raid_session_ends():
     w.assert_no_errors()
 
 
+@case
+def whole_groups_swap_in_the_raid_and_the_team_and_resort_follows():
+    w, c, occ = setup(skip=("Sam", "Eli"))
+    bob, pip = c["Bob"], c["Pip"]
+    w.make_raid([bob] + [c[n] for n, _, _ in TEAM], leader=bob)
+    w.tick(2)
+    open_groups(w, bob, occ)
+    bob.eval("ns.RaidPlanUI:ResortRaid()")
+    w.tick(10)
+    assert planned_ok(w, occ, bob) == {}
+    before = grid_groups(bob)
+    grid = "ns.RaidPlanUI:GetRaidGrid()"
+    # click "swap" on group 1, cancel, then swap group 1 with group 2 (click on group 2's box)
+    bob.click(bob.eval("return %s.boxes[1].swap" % grid))
+    assert bob.eval("return %s.boxes[1].swap.fs:GetText()" % grid).endswith("cancel|r")
+    bob.click(bob.eval("return %s.boxes[1].swap" % grid))
+    assert bob.eval("return %s.swapFrom" % grid) is None
+    bob.click(bob.eval("return %s.boxes[1].swap" % grid))
+    bob.click(bob.eval("return %s.boxes[2]" % grid))
+    w.tick(0.3)
+    after = grid_groups(bob)
+    assert after[0] == before[1] and after[1] == before[0], (before, after)
+    assert bob.find_text("Changed, not saved.", True, True)
+    # saving during the run moves the raid
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.groups.saveBtn"))
+    w.tick(15)
+    assert w.subgroup_of("Tank") == 2 and w.subgroup_of("Moon") == 1, (w.subgroup_of("Tank"), w.subgroup_of("Moon"))
+    assert planned_ok(w, occ, bob) == {}
+    # members don't get the swap link
+    open_groups(w, pip, occ)
+    assert not pip.eval("return %s.boxes[1].swap:IsShown()" % grid)
+    # the Teams view swaps the same way
+    bob.eval("ns.RaidsUI:SetView('teams'); ns.RaidPlanUI:SelectTeam(ns.RaidPlan:GetTeams()[1].id)")
+    w.tick(0.3)
+    bob.eval("ns.RaidPlanUI:GetTeamGrid():SwapGroups(1, 2)")
+    w.tick(0.3)
+    dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
+    assert dr["grp"][K("Tank")] == 2 and dr["grp"][K("Moon")] == 1, dr["grp"]
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()
