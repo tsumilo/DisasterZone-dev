@@ -2,7 +2,8 @@
 
 Covers: every long list (Bestiary, Achievements, Guild Bestiary, Bag) stays inside the screen and above the
 description box, scrolls to keep the cursor in view (keys and mouse wheel) with the up/down markers, reaches the last
-item, keeps icon sizes when a pooled frame is reused, and the Bestiary list does not overlap its info panel.
+item, keeps icon sizes when a pooled frame is reused, the Bestiary list does not overlap its info panel, and
+CONTROLS (from the START menu) stays above the start menu's description box.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_menus.py [-k name]
 """
@@ -154,6 +155,20 @@ def the_game_fills_the_space_it_is_given():
     assert abs(r["wide"] - 1356 / 528) < 1e-6, r          # limited by the width: never stretched
     assert abs(r["tall"] - 600 / 528) < 1e-6, r
     assert abs(r["small"] - 0.5) < 1e-6 and abs(r["huge"] - 4) < 1e-6, r
+    no_errors(w)
+
+
+
+@case
+def controls_scrolls_above_the_description_box():
+    w, c = game()
+    key(w, c, "START")
+    n = layout(c)["n"]
+    key(w, c, *(["down"] * (n - 2)))           # CONTROLS, the one before EXIT
+    key(w, c, "A")
+    L = layout(c)
+    assert L["n"] >= 11 and L["desc"] > 0, L
+    scroll_through(w, c, "controls")
     no_errors(w)
 
 

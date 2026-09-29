@@ -2772,7 +2772,6 @@ end
 
 local grid = {}            -- [i][j] = { base, over }
 local sprites = {}         -- pool for NPCs
-local waterFrame = "water1"
 local torchFrame = "torch1"
 
 local function BuildWorld()
@@ -2903,7 +2902,6 @@ local function DrawWorld()
         px, py = Lerp(G.moving.fromX, s.x, f), Lerp(G.moving.fromY, s.y, f)
         walking = f < 1
     end
-    waterFrame = (floor(now * 1.6) % 2 == 0) and "water1" or "water2"
     torchFrame = "torch" .. (floor(now * 6) % 3 + 1)
     local fx, fy = floor(px), floor(py)
     local ox, oy = (px - fx) * TILE, (py - fy) * TILE
@@ -2919,9 +2917,8 @@ local function DrawWorld()
                 local k = m.key(wx, wy)
                 base, over = m.base[k], m.over[k]
                 if over == "torch1" then over = torchFrame end
-                if m.water[k] then
-                    local wf = m.theme.water
-                    base = wf and wf[(waterFrame == "water1") and 1 or 2] or waterFrame
+                if m.water[k] then                     -- the calm frame only (swapping frames flickered)
+                    base = m.theme.water and m.theme.water[2] or "water2"
                 end
                 if m.chest[k] then over = G:Flag("chest_" .. m.chest[k].id) and "chest_open" or "chest" end
                 local node = m.node and m.node[k]
@@ -3612,7 +3609,7 @@ function KH.OpenControls()
         menu.items[idx].text = "Key hints will show again"
         UI:RefreshMenu(menu)
     end }
-    PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 30, level = 70, title = "CONTROLS",
+    PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 30, level = 70, title = "CONTROLS", desc = true,
         onCancel = function(menu) PopMenu(menu) end })
 end
 

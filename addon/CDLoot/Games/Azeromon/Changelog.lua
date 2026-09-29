@@ -12,6 +12,8 @@ ns.AzeroChangelog = {
           "Press Space on two guildmates battling to watch the match.",
           "Join mid-match and catch up at once; B stops watching.",
           "Fixed: gear could make a player battle go out of sync.",
+          "Water is calm now instead of flickering.",
+          "CONTROLS scrolls instead of running under the text box.",
       } },
     { version = "0.10", date = "29 September 2026", title = "The world map",
       lines = {
