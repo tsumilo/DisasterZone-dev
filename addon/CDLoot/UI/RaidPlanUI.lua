@@ -297,7 +297,9 @@ local function initRosterRow(row, d)
             cell:Show()
         elseif type(c) == "table" then
             local icon = ICON[c.s.st] or ""
-            local text = icon .. " " .. colored(c.key, classOf(c.key, c.s))
+            local spec = ns.RaidComp:SpecIcon(c.s.c, c.s.sp)
+            local text = icon .. (spec and (" |T" .. spec .. ":12:12:0:0:64:64:5:59:5:59|t") or "") .. " "
+                .. colored(c.key, classOf(c.key, c.s))
             if c.s.n then text = text .. grey(" *") end
             cell.fs:SetText(text)
             cell.fs:SetAlpha(c.s.st == "T" and 0.7 or 1)
@@ -670,7 +672,8 @@ end
 function PlanUI:GetSelectedRaid() return state.selected end
 
 ---------------------------------------------------------------------------
--- Teams view
+-- Teams view (§58-§59): the team list, and for the selected team a draft (name, members, size, each member's spec,
+-- group layout) shown in the group grid. Organizers edit the draft and Save; everyone else sees it read-only.
 ---------------------------------------------------------------------------
 
 local function initTeamRow(row, d)
@@ -696,30 +699,7 @@ local function initTeamRow(row, d)
     end
     row.sel:SetShown(d.id == state.team)
     row.l1:SetText(d.name)
-    row.l2:SetText(#d.members .. " members")
-end
-
-local function initMemberRow(row, d)
-    if not row.cdlInit then
-        row.cdlInit = true
-        row.fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.fs:SetPoint("LEFT", 6, 0)
-        row.fs:SetJustifyH("LEFT")
-        row.rank = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.rank:SetPoint("LEFT", 170, 0)
-        row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-        row.remove:SetSize(20, 20)
-        row.remove:SetPoint("RIGHT", -4, 0)
-        row.remove:SetScript("OnClick", function(self)
-            local data = self:GetParent().__cdlData
-            if data then PlanUI:ToggleDraftMember(data.key) end
-        end)
-    end
-    local G = ns.Guild
-    local online = G and G.IsOnline and G:IsOnline(d.key)
-    row.fs:SetText(colored(d.key) .. (online and "" or grey("  offline")))
-    row.rank:SetText(G and G.GetRankName and G:GetRankName(d.key) or "")
-    row.remove:SetShown(RP():CanOrganize())
+    row.l2:SetText(("%d-man · %d members"):format(d.size or 25, #d.members))
 end
 
 local function pickerItems()
@@ -735,6 +715,13 @@ local function pickerItems()
     return out
 end
 
+local function sameMap(a, b)
+    a, b = a or {}, b or {}
+    for k, v in pairs(a) do if b[k] ~= v then return false end end
+    for k, v in pairs(b) do if a[k] ~= v then return false end end
+    return true
+end
+
 local function draftDirty()
     local dr = state.draft
     if not dr then return false end
@@ -742,26 +729,116 @@ local function draftDirty()
     local t = RP():GetTeam(dr.id)
     if not t then return true end
     if t.name ~= ns.Util.Trim(teamsView.nameBox:GetText() or "") then return true end
-    local n = 0
-    for _ in pairs(dr.members) do n = n + 1 end
-    if n ~= #t.members then return true end
-    for _, key in ipairs(t.members) do if not dr.members[key] then return true end end
-    return false
+    local set = {}
+    for _, key in ipairs(t.members) do set[key] = true end
+    return not (sameMap(dr.members, set) and dr.sz == t.size and sameMap(dr.s, t.specs) and sameMap(dr.grp, t.groups))
 end
 
 local function loadDraft(id)
     local t = id and RP():GetTeam(id)
     local members = {}
     if t then for _, key in ipairs(t.members) do members[key] = true end end
-    state.draft = { id = t and t.id or nil, name = t and t.name or "New team", members = members }
+    state.draft = {
+        id = t and t.id or nil, name = t and t.name or "New team", members = members, sz = t and t.size or 25,
+        s = t and t.specs or {}, grp = t and t.groups or {},
+    }
     if teamsView then teamsView.nameBox:SetText(state.draft.name) end
+end
+
+-- The draft's members for the grid: { key, c, sp, auto, source }.
+local function draftMembers()
+    local dr = state.draft
+    local out = {}
+    if not dr then return out end
+    for key in pairs(dr.members) do
+        local sp, c, source = RP():GetMemberSpec(key, { specs = dr.s })
+        out[#out + 1] = { key = key, c = c, sp = sp, auto = source ~= "team", source = source }
+    end
+    return out
 end
 
 function PlanUI:ToggleDraftMember(key)
     local dr = state.draft
     if not dr or not RP():CanOrganize() then return end
-    dr.members[key] = not dr.members[key] or nil
+    if dr.members[key] then
+        dr.members[key], dr.s[key], dr.grp[key] = nil, nil, nil
+    else
+        dr.members[key] = true
+    end
     self:RefreshTeams()
+end
+
+-- sp = spec index, or nil for automatic (latest sign-up / BiS list).
+function PlanUI:SetDraftSpec(key, sp)
+    local dr = state.draft
+    if not dr or not dr.members[key] or not RP():CanOrganize() then return end
+    dr.s[key] = sp
+    self:RefreshTeams()
+end
+
+function PlanUI:SetDraftSize(size)
+    local dr = state.draft
+    if not dr or not RP():CanOrganize() then return end
+    dr.sz = size == 10 and 10 or 25
+    local n = ns.RaidComp:GroupCount(dr.sz)
+    for key, g in pairs(dr.grp) do
+        if g > n then dr.grp[key] = nil end
+    end
+    self:RefreshTeams()
+end
+
+-- The grid's drop: move `key` to group g (nil = out of the groups); dropped onto `target` in a group = swap.
+function PlanUI:MoveDraftMember(key, g, target)
+    local dr = state.draft
+    if not dr or not dr.members[key] or not RP():CanOrganize() then return false end
+    local old = dr.grp[key]
+    if g == nil then
+        dr.grp[key] = nil
+    elseif target and target ~= key and dr.grp[target] == g then
+        dr.grp[key], dr.grp[target] = g, old
+    elseif old ~= g then
+        local n = 0
+        for k, x in pairs(dr.grp) do
+            if x == g and k ~= key and dr.members[k] then n = n + 1 end
+        end
+        if n >= ns.RaidComp.GROUP_SIZE then
+            Print("Group %d is full. Drop onto a member there to swap places.", g)
+            return false
+        end
+        dr.grp[key] = g
+    end
+    return true
+end
+
+function PlanUI:AutoFillDraft()
+    local dr = state.draft
+    if not dr or not RP():CanOrganize() then return end
+    dr.grp = ns.RaidComp:AutoFill(draftMembers(), dr.sz)
+    self:RefreshTeams()
+end
+
+local function memberMenu(root, key)
+    local dr = state.draft
+    if not dr then return end
+    local sp, c = RP():GetMemberSpec(key, { specs = dr.s })
+    root:CreateTitle(shortName(key))
+    root:CreateRadio("Spec: automatic", function() return dr.s[key] == nil end, function() PlanUI:SetDraftSpec(key, nil) end)
+    for i, spec in ipairs(c and ns.SPECS[c] or {}) do
+        root:CreateRadio("Spec: " .. spec.label, function() return dr.s[key] == i end, function() PlanUI:SetDraftSpec(key, i) end)
+    end
+    if root.CreateDivider then root:CreateDivider() end
+    for g = 1, ns.RaidComp:GroupCount(dr.sz) do
+        root:CreateButton("Move to group " .. g, function()
+            PlanUI:MoveDraftMember(key, g)
+            PlanUI:RefreshTeams()
+        end)
+    end
+    root:CreateButton("Take out of the groups", function()
+        PlanUI:MoveDraftMember(key, nil)
+        PlanUI:RefreshTeams()
+    end)
+    if root.CreateDivider then root:CreateDivider() end
+    root:CreateButton("Remove from the team", function() PlanUI:ToggleDraftMember(key) end)
 end
 
 function PlanUI:NewTeam()
@@ -777,7 +854,8 @@ end
 function PlanUI:SaveTeam()
     local dr = state.draft
     if not dr then return false end
-    local ok, res = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members)
+    local ok, res = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members,
+        { size = dr.sz, specs = dr.s, groups = dr.grp })
     if not ok then
         Print(res or "Could not save the team.")
         return false
@@ -793,6 +871,10 @@ function PlanUI:SelectTeam(id)
     loadDraft(id)
     self:RefreshTeams()
 end
+
+function PlanUI:GetTeamGrid() return teamsView and teamsView.grid end
+
+function PlanUI:GetDraft() return state.draft end
 
 -- Upcoming raids that invite a team: "Tue Karazhan, Thu Gruul's Lair".
 local function teamRaids(id)
@@ -825,34 +907,22 @@ function PlanUI:CreateTeams(parent)
     d.empty:SetPoint("TOP", 0, -60)
     d.empty:SetWidth(360)
 
+    -- Row 1: name, Undo / Save / Delete
     d.nameLabel = d:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     d.nameLabel:SetPoint("TOPLEFT", 2, -6)
-    d.nameLabel:SetText("Team name")
+    d.nameLabel:SetText("Name")
     t.nameBox = CreateFrame("EditBox", nil, d, "InputBoxTemplate")
-    t.nameBox:SetSize(200, 20)
+    t.nameBox:SetSize(150, 20)
     t.nameBox:SetAutoFocus(false)
     t.nameBox:SetMaxLetters(32)
-    t.nameBox:SetPoint("TOPLEFT", 78, -2)
+    t.nameBox:SetPoint("TOPLEFT", 44, -2)
     t.nameBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     t.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     t.nameBox:SetScript("OnTextChanged", function() PlanUI:RefreshTeamButtons() end)
     d.title = d:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     d.title:SetPoint("TOPLEFT", 2, -2)
 
-    t.picker = UI():CreateSearchDropdown(d, 230, {
-        placeholder = "Add guild members...",
-        emptyText = "No matching guild members.",
-        getItems = pickerItems,
-        isChecked = function(key) return state.draft and state.draft.members[key] and true or false end,
-        onToggle = function(key) PlanUI:ToggleDraftMember(key) end,
-    })
-    t.picker.frame:SetPoint("TOPLEFT", 0, -30)
-
-    d.saveBtn = UI():CreateButton(d, "Save", 70, 22, function() PlanUI:SaveTeam() end)
-    d.saveBtn:SetPoint("TOPRIGHT", -2, -30)
-    d.revertBtn = UI():CreateButton(d, "Undo", 60, 22, function() PlanUI:SelectTeam(state.team) end)
-    d.revertBtn:SetPoint("RIGHT", d.saveBtn, "LEFT", -4, 0)
-    d.deleteBtn = UI():CreateButton(d, "Delete team", 96, 22, function()
+    d.deleteBtn = UI():CreateButton(d, "Delete", 64, 22, function()
         local team = state.team and RP():GetTeam(state.team)
         if not team then return end
         PlanUI:Confirm(("Delete the team %s?"):format(team.name), function()
@@ -863,16 +933,55 @@ function PlanUI:CreateTeams(parent)
         end)
     end)
     d.deleteBtn:SetPoint("TOPRIGHT", -2, 0)
+    d.saveBtn = UI():CreateButton(d, "Save", 64, 22, function() PlanUI:SaveTeam() end)
+    d.saveBtn:SetPoint("RIGHT", d.deleteBtn, "LEFT", -4, 0)
+    d.revertBtn = UI():CreateButton(d, "Undo", 56, 22, function() PlanUI:SelectTeam(state.team) end)
+    d.revertBtn:SetPoint("RIGHT", d.saveBtn, "LEFT", -4, 0)
+
+    -- Row 2: add members, size, Auto-fill
+    t.picker = UI():CreateSearchDropdown(d, 210, {
+        placeholder = "Add guild members...",
+        emptyText = "No matching guild members.",
+        getItems = pickerItems,
+        isChecked = function(key) return state.draft and state.draft.members[key] and true or false end,
+        onToggle = function(key) PlanUI:ToggleDraftMember(key) end,
+    })
+    t.picker.frame:SetPoint("TOPLEFT", 0, -28)
+    t.sizeDD = UI():CreateDropdown(d, 86, function()
+        return { { value = 10, text = "10-man" }, { value = 25, text = "25-man" } }
+    end, function() return state.draft and state.draft.sz or 25 end, function(v) PlanUI:SetDraftSize(v) end)
+    t.sizeDD:SetPoint("TOPLEFT", 218, -28)
+    d.autoBtn = UI():CreateButton(d, "Auto-fill", 76, 22, function() PlanUI:AutoFillDraft() end)
+    d.autoBtn:SetPoint("TOPLEFT", 310, -28)
+    d.autoBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Auto-fill groups")
+        GameTooltip:AddLine("A starting layout: tanks, melee groups with a shaman each, casters, healers. "
+            .. "Adjust it by dragging, then Save.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    d.autoBtn:SetScript("OnLeave", hideTooltip)
 
     d.info = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    d.info:SetPoint("TOPLEFT", 2, -60)
+    d.info:SetPoint("TOPLEFT", 2, -54)
     d.info:SetPoint("RIGHT", -4, 0)
     d.info:SetJustifyH("LEFT")
+    d.info:SetWordWrap(false)
 
-    d.members = UI():CreateScrollList(d, 22, initMemberRow)
-    d.members.frame:SetPoint("TOPLEFT", 0, -78)
-    d.members.frame:SetPoint("BOTTOMRIGHT", 0, 0)
-    d.members:SetEmptyText("No members yet.\nAdd guild members with the search box above.")
+    t.grid = ns.RaidGroupsUI:CreateGrid(d, {
+        getSize = function() return state.draft and state.draft.sz or 25 end,
+        getMembers = draftMembers,
+        getGroups = function() return state.draft and state.draft.grp or {} end,
+        isEditable = function() return RP():CanOrganize() end,
+        onDrop = function(key, g, target)
+            PlanUI:MoveDraftMember(key, g, target)
+            PlanUI:RequestRefresh()
+        end,
+        onMenu = memberMenu,
+        poolLabel = "Not in a group",
+    })
+    t.grid.frame:SetPoint("TOPLEFT", 0, -68)
+    t.grid.frame:SetPoint("BOTTOMRIGHT", 0, 0)
     return t
 end
 
@@ -880,10 +989,11 @@ function PlanUI:RefreshTeamButtons()
     if not teamsView then return end
     local d = teamsView.detail
     local organizer = RP():CanOrganize()
+    local has = state.draft ~= nil and (state.team ~= nil or state.newTeam)
     local dirty = organizer and draftDirty()
-    d.saveBtn:SetShown(organizer and state.draft ~= nil)
+    d.saveBtn:SetShown(organizer and has)
     d.saveBtn:SetEnabled(dirty and true or false)
-    d.revertBtn:SetShown(organizer and state.draft ~= nil and state.draft.id ~= nil)
+    d.revertBtn:SetShown(organizer and has and state.draft.id ~= nil)
     d.revertBtn:SetEnabled(dirty and true or false)
 end
 
@@ -908,25 +1018,25 @@ function PlanUI:RefreshTeams()
     d.nameLabel:SetShown(has and organizer)
     d.title:SetShown(has and not organizer)
     teamsView.picker.frame:SetShown(has and organizer)
+    teamsView.sizeDD:SetShown(has and organizer)
+    d.autoBtn:SetShown(has and organizer)
     d.deleteBtn:SetShown(has and organizer and dr.id ~= nil)
     d.info:SetShown(has)
-    d.members.frame:SetShown(has)
+    teamsView.grid.frame:SetShown(has)
     d.empty:SetShown(not has)
     d.empty:SetText(organizer and "Make a team with New team, then pick it when you plan a raid."
         or "Teams are made by the Guild Master and the guild council.")
     self:RefreshTeamButtons()
     if not has then return end
-    d.title:SetText(dr.name)
-    local keys = {}
-    for key in pairs(dr.members) do keys[#keys + 1] = key end
-    tsort(keys, nameLess)
+    d.title:SetText(dr.name .. grey(("  %d-man"):format(dr.sz or 25)))
+    if teamsView.sizeDD.Refresh then teamsView.sizeDD:Refresh() end
+    local n = 0
+    for _ in pairs(dr.members) do n = n + 1 end
     local raids = dr.id and teamRaids(dr.id) or {}
-    d.info:SetText(("%d members"):format(#keys)
+    d.info:SetText(("%d members"):format(n)
         .. (#raids > 0 and ("  ·  invited to: " .. tconcat(raids, ", ")) or "")
         .. (organizer and draftDirty() and colorize("ff9933", "   (not saved)") or ""))
-    local rows = {}
-    for _, key in ipairs(keys) do rows[#rows + 1] = { key = key } end
-    d.members:SetData(rows)
+    teamsView.grid:Refresh()
     if teamsView.picker.IsOpen and teamsView.picker:IsOpen() then teamsView.picker:RefreshRows() end
 end
 

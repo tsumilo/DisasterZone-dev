@@ -272,6 +272,32 @@ local function CleanTeam(r, now)
     out.m = {}
     for k in pairs(set) do out.m[#out.m + 1] = k end
     tsort(out.m)
+    -- §59: the team's size, the spec each member plays in it and its group layout (members only)
+    if r.sz ~= nil then
+        if not SIZES[r.sz] then return nil end
+        out.sz = r.sz
+    end
+    if r.s ~= nil then
+        if type(r.s) ~= "table" then return nil end
+        for key, sp in pairs(r.s) do
+            local k = WireKey(key)
+            if not k or not IsInt(sp, 1, 4) then return nil end
+            if set[k] then
+                out.s = out.s or {}
+                out.s[k] = sp
+            end
+        end
+    end
+    local grp = CleanGroups(r.grp)
+    if grp == false then return nil end
+    if grp then
+        for k, g in pairs(grp) do
+            if set[k] then
+                out.grp = out.grp or {}
+                out.grp[k] = g
+            end
+        end
+    end
     return out
 end
 
@@ -737,9 +763,7 @@ function RaidPlan:GetTeams()
     local root = Root(false)
     if not root then return out end
     for id, t in pairs(root.T) do
-        if not t.del and IsOrganizer(t.by) then
-            out[#out + 1] = { id = id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev }
-        end
+        if not t.del and IsOrganizer(t.by) then out[#out + 1] = RaidPlan:GetTeam(id) end
     end
     tsort(out, function(a, b)
         local la, lb = a.name:lower(), b.name:lower()
@@ -753,7 +777,43 @@ function RaidPlan:GetTeam(id)
     local root = Root(false)
     local t = root and type(id) == "string" and root.T[id]
     if not t or t.del or not IsOrganizer(t.by) then return nil end
-    return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev }
+    return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, size = t.sz or 25,
+             specs = CopyMap(t.s) or {}, groups = CopyMap(t.grp) or {} }
+end
+
+-- The spec a member plays (§59): the team's pick, else their latest sign-up's, else their BiS list's (mine, or a
+-- list the council has cached). Returns spec index, classFile, source ("team" | "signup" | "bis") or nil.
+function RaidPlan:GetMemberSpec(key, team)
+    local G = Guild()
+    local classFile = G and G.GetClass and G:GetClass(key) or nil
+    if Util.IsMe(key) then classFile = MyClass() end
+    if type(team) == "table" and team.specs and team.specs[key] then
+        return team.specs[key], classFile, "team"
+    end
+    local root = Root(false)
+    local best
+    if root then
+        for _, u in pairs(root.U) do
+            local s = u[key]
+            if s and s.sp and s.c and (not best or s.rev > best.rev) then best = s end
+        end
+    end
+    if best then return best.sp, best.c, "signup" end
+    local label
+    if Util.IsMe(key) then
+        local BiS = ns.BiS
+        label = BiS and BiS.GetSpec and BiS:GetSpec() or nil
+    else
+        local Store = ns.Store
+        local rec = Store and Store.GetCached and Store:GetCached(key)
+        local data = type(rec) == "table" and type(rec.data) == "table" and rec.data or nil
+        label = data and data.sp or nil
+        if data and type(data.cl) == "string" then classFile = classFile or data.cl end
+    end
+    for i, spec in ipairs(classFile and ns.SPECS[classFile] or {}) do
+        if spec.label == label then return i, classFile, "bis" end
+    end
+    return nil, classFile, nil
 end
 
 -- Visible raids (occurrences) starting in [from, to] (default: 14 days back .. 180 days ahead; weekly raids only up
@@ -878,8 +938,9 @@ local function Commit(root, kind, rec)
     return true
 end
 
--- members: a set { [key] = true } or an array of keys. id = nil creates a team. Returns ok, idOrErr.
-function RaidPlan:SaveTeam(id, name, members)
+-- members: a set { [key] = true } or an array of keys. id = nil creates a team. opts (optional): { size = 10|25,
+-- specs = { [key] = spec index }, groups = { [key] = 1..8 } } (nil keeps the team's current ones). Returns ok, idOrErr.
+function RaidPlan:SaveTeam(id, name, members, opts)
     local root, err = RequireOrganizer()
     if not root then return false, err end
     name = CleanText(name, MAX_NAME_LEN)
@@ -896,7 +957,15 @@ function RaidPlan:SaveTeam(id, name, members)
     local cur = id and root.T[id]
     if id and not cur then return false, "unknown team" end
     id = id or NewId()
-    local ok, e = Commit(root, "T", { id = id, rev = NextRev(cur), by = Util.PlayerKey(), n = name, m = list })
+    opts = type(opts) == "table" and opts or {}
+    local rec = { id = id, rev = NextRev(cur), by = Util.PlayerKey(), n = name, m = list }
+    rec.sz = opts.size or (cur and cur.sz) or nil
+    rec.s = opts.specs or (cur and cur.s) or nil
+    rec.grp = opts.groups or (cur and cur.grp) or nil
+    if rec.sz ~= nil and not SIZES[rec.sz] then return false, "Team size must be 10 or 25." end
+    if rec.s and not next(rec.s) then rec.s = nil end
+    if rec.grp and not next(rec.grp) then rec.grp = nil end
+    local ok, e = Commit(root, "T", rec)
     if not ok then return false, e end
     return true, id
 end

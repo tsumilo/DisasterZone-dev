@@ -107,4 +107,28 @@ Messages fired: `RAIDPLAN_CHANGED`.
   Delete; members see the teams read-only. The detail shows which upcoming raids invite the team.
 - **Login reminder:** 45 s after login, one chat line lists my teams' raids in the next 7 days without my answer.
 
-## 59-61. (Steps 3-5: composition, group builder, raid log tie-ins; written when built.)
+## 59. Team specs, buffs and the group grid (built 2026-09-29, requested with step 3)
+
+- **Team record** (T) gains `sz` (10 | 25, default 25), `s = { [key] = spec index }` (the spec a member plays in this
+  team) and `grp = { [key] = 1..8 }` (the team's group layout). Entries for non-members are dropped when validated.
+- **A member's spec** (`RaidPlan:GetMemberSpec`): the team's pick, else their latest sign-up's spec, else their BiS
+  list's spec (mine, or a list the council has cached), else unknown. Automatic specs show dimmed.
+- **Composition data** (`Core/RaidComp.lua`): spec icons; TBC buffs with scope (party: Bloodlust/Heroism, Windfury,
+  Wrath of Air, Totem of Wrath, Unleashed Rage, Mana Tide, Battle Shout, Trueshot, Ferocious Inspiration, Leader of
+  the Pack, Moonkin Aura, Vampiric Touch, Sanctity Aura, paladin aura; raid: blessings (counted per paladin),
+  Fortitude, Divine Spirit, Mark of the Wild, Arcane Intellect; debuffs: Sunder, Blood Frenzy, Faerie Fire, Hunter's
+  Mark, Expose Weakness, Curse of the Elements, Misery, Improved Scorch, Judgement of Wisdom). A member without a known
+  spec only counts for buffs every spec of the class has.
+- **Group grid** (`UI/RaidGroups.lua`, reused by the raid group builder): raid-wide strip (lit / greyed icons with
+  providers in the tooltip), 2 or 5 group boxes of 5 slots with the party buffs present in each group, and a "Not in a
+  group" pool. Chips show class icon, spec icon and name. Organizers drag chips, or click a chip and then a group /
+  another chip (swap) / the pool; a full group refuses a drop that isn't a swap. Right-click: spec (automatic or a
+  pick), move to a group, take out, remove from the team. Members see the grid read-only.
+- **Teams view:** name, Undo / Save / Delete, the member search, size (10 / 25; shrinking drops groups 3-5) and
+  **Auto-fill**, then the grid. All edits are a draft until Save.
+- **Auto-fill (§60):** 25-man = tanks / melee / melee / ranged / healers, 10-man = tanks + melee / ranged + healers.
+  Shamans first, one per group that wants their totems (Enhancement / Restoration to melee, Elemental to ranged); then
+  members who bring a party buff; then the rest by role into the least full group of their role, then any group with
+  room. Members who don't fit stay in the pool.
+
+## 60-61. (Steps 4-5: raid group builder with Invite & sort, raid log tie-ins; written when built.)

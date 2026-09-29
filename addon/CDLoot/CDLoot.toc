@@ -40,6 +40,7 @@ Core\Sync.lua
 Core\Ledger.lua
 Core\RaidLog.lua
 Core\RaidPlan.lua
+Core\RaidComp.lua
 Core\Loot.lua
 Core\Roll.lua
 Core\Loon.lua
@@ -53,6 +54,7 @@ UI\MyBiS.lua
 UI\Picker.lua
 UI\Council.lua
 UI\LootLog.lua
+UI\RaidGroups.lua
 UI\RaidPlanUI.lua
 UI\RaidsTab.lua
 UI\SessionBar.lua
