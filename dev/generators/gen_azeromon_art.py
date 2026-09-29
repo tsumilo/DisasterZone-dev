@@ -66,13 +66,16 @@ def tga(img, name):
     print("wrote", name + ".tga", img.size)
 
 
+ATLAS_H = 512          # 16 columns x 32 rows of 16px tiles (power of two)
+
+
 def build_atlas():
-    atlas = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+    atlas = Image.new("RGBA", (256, ATLAS_H), (0, 0, 0, 0))
     index = {}
 
     def add(name, sheet, c, r):
         i = len(index)
-        if i >= 256:
+        if i >= 16 * (ATLAS_H // 16):
             raise SystemExit("atlas full")
         atlas.paste(sheet.crop((c * 16, r * 16, c * 16 + 16, r * 16 + 16)), ((i % 16) * 16, (i // 16) * 16))
         index[name] = i
@@ -84,7 +87,7 @@ def build_atlas():
             for x in range(w):
                 add("%s_%d_%d" % (name, x, y), sheet, c0 + x, r0 + y)
     # Westfall + Forest's Edge (appended so earlier slots never move)
-    for name, img, w, h in westfall_art():
+    for name, img, w, h in westfall_art() + mine_art() + town_art():
         if w == 1 and h == 1:
             add(name, img, 0, 0)
         else:
@@ -246,6 +249,333 @@ def westfall_art():
     return out
 
 
+
+# ---------------------------------------------------------------------------------------------------------------
+# The Deadmines: cave floor and rock, timber supports, mine rails, crates, powder barrels, cannons, ship planks,
+# dark cove water, the mine entrance, a mast and Moonbrook's burned houses. Drawn here (deterministic noise) or
+# recoloured from the sets above. Appended after the Westfall art so earlier atlas slots never move.
+# ---------------------------------------------------------------------------------------------------------------
+import random as _random  # noqa: E402
+
+
+def _speckle(d, rnd, base, lo, hi, n):
+    for _ in range(n):
+        x, y = rnd.randrange(16), rnd.randrange(16)
+        d.point((x, y), fill=rnd.choice((lo, hi)))
+
+
+def mfloor(seed):
+    def fn(d, img):
+        rnd = _random.Random(seed)
+        d.rectangle((0, 0, 15, 15), fill=(74, 58, 44, 255))
+        _speckle(d, rnd, None, (60, 46, 34, 255), (92, 74, 56, 255), 40)
+        if seed % 2:
+            d.ellipse((9, 9, 12, 11), fill=(98, 92, 88, 255))
+            d.point((10, 9), fill=(130, 124, 118, 255))
+    return fn
+
+
+def mwall(d, img):
+    rnd = _random.Random(7)
+    d.rectangle((0, 0, 15, 15), fill=(50, 44, 44, 255))
+    for (x0, y0, x1, y1) in ((0, 0, 7, 6), (8, 0, 15, 5), (0, 7, 5, 15), (6, 7, 15, 15)):
+        d.rectangle((x0, y0, x1, y1), fill=(62, 56, 54, 255))
+        d.line((x0, y0, x1, y0), fill=(84, 78, 74, 255))
+        d.line((x0, y1, x1, y1), fill=(36, 32, 32, 255))
+    _speckle(d, rnd, None, (44, 40, 40, 255), (74, 68, 66, 255), 18)
+
+
+def msupport(d, img):
+    mwall(d, img)
+    wood, dark = (122, 82, 44, 255), (78, 50, 26, 255)
+    for x in (1, 12):
+        d.rectangle((x, 3, x + 2, 15), fill=wood)
+        d.line((x + 2, 3, x + 2, 15), fill=dark)
+    d.rectangle((0, 1, 15, 4), fill=wood)
+    d.line((0, 4, 15, 4), fill=dark)
+    d.point((2, 2), fill=(170, 170, 170, 255))
+    d.point((13, 2), fill=(170, 170, 170, 255))
+
+
+def rail(horizontal, vertical):
+    def fn(d, img):
+        wood, steel = (98, 66, 38, 255), (160, 160, 168, 255)
+        if horizontal:
+            for x in range(1, 16, 4):
+                d.rectangle((x, 3, x + 1, 12), fill=wood)
+            d.line((0, 5, 15, 5), fill=steel)
+            d.line((0, 10, 15, 10), fill=steel)
+        if vertical:
+            for y in range(1, 16, 4):
+                d.rectangle((3, y, 12, y + 1), fill=wood)
+            d.line((5, 0, 5, 15), fill=steel)
+            d.line((10, 0, 10, 15), fill=steel)
+    return fn
+
+
+def crate(d, img):
+    d.rectangle((1, 2, 14, 15), fill=(96, 62, 32, 255))
+    d.rectangle((2, 3, 13, 14), fill=(150, 104, 58, 255))
+    for y in (6, 10):
+        d.line((2, y, 13, y), fill=(110, 72, 38, 255))
+    d.line((2, 3, 13, 14), fill=(110, 72, 38, 255))
+    d.line((2, 14, 13, 3), fill=(110, 72, 38, 255))
+
+
+def barrel(d, img):
+    d.ellipse((2, 2, 13, 15), fill=(92, 58, 30, 255))
+    d.ellipse((3, 2, 12, 14), fill=(140, 92, 48, 255))
+    for y in (5, 11):
+        d.line((3, y, 12, y), fill=(70, 70, 76, 255))
+    d.ellipse((5, 1, 10, 4), fill=(60, 40, 22, 255))
+    d.rectangle((6, 7, 9, 9), fill=(210, 60, 40, 255))    # red powder mark
+
+
+def cannon(d, img):
+    d.rectangle((2, 10, 13, 14), fill=(110, 72, 38, 255))
+    d.ellipse((2, 12, 6, 15), fill=(60, 40, 24, 255))
+    d.ellipse((9, 12, 13, 15), fill=(60, 40, 24, 255))
+    d.rectangle((1, 5, 14, 9), fill=(58, 58, 64, 255))
+    d.line((1, 5, 14, 5), fill=(96, 96, 104, 255))
+    d.rectangle((0, 4, 2, 10), fill=(40, 40, 44, 255))
+
+
+def deck(d, img):
+    d.rectangle((0, 0, 15, 15), fill=(112, 74, 42, 255))
+    for y in (3, 7, 11, 15):
+        d.line((0, y, 15, y), fill=(76, 48, 26, 255))
+    for x, y in ((3, 1), (11, 5), (6, 9), (13, 13)):
+        d.point((x, y), fill=(150, 150, 150, 255))
+
+
+def mine_entrance(d, img):
+    # 3 x 2 tiles: rock face with a timbered opening in the middle bottom
+    for tx in range(3):
+        for ty in range(2):
+            sub = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+            mwall(ImageDraw.Draw(sub), sub)
+            img.paste(sub, (tx * 16, ty * 16))
+    wood, dark = (122, 82, 44, 255), (78, 50, 26, 255)
+    d.rectangle((14, 8, 33, 31), fill=(10, 8, 8, 255))           # the dark opening
+    d.rectangle((12, 6, 15, 31), fill=wood)
+    d.rectangle((32, 6, 35, 31), fill=wood)
+    d.rectangle((10, 4, 37, 8), fill=wood)
+    d.line((10, 8, 37, 8), fill=dark)
+    d.line((15, 6, 15, 31), fill=dark)
+    d.line((35, 6, 35, 31), fill=dark)
+    d.rectangle((20, 0, 27, 3), fill=(90, 60, 34, 255))           # sign board
+    d.line((20, 1, 27, 1), fill=(200, 60, 40, 255))
+
+
+def mast(d, img):
+    wood, dark = (118, 78, 42, 255), (74, 48, 24, 255)
+    d.rectangle((6, 0, 9, 47), fill=wood)
+    d.line((9, 0, 9, 47), fill=dark)
+    d.rectangle((0, 8, 15, 10), fill=wood)
+    d.line((0, 10, 15, 10), fill=dark)
+    for x in (1, 14):
+        d.line((x, 10, 7, 40), fill=(170, 150, 110, 255))          # rigging
+    d.rectangle((5, 0, 10, 2), fill=(200, 40, 40, 255))           # a red pennant
+
+
+def mine_art():
+    out = []
+    out.append(("mfloor1", draw(1, 1, mfloor(2)), 1, 1))
+    out.append(("mfloor2", draw(1, 1, mfloor(3)), 1, 1))
+    out.append(("mwall", draw(1, 1, mwall), 1, 1))
+    out.append(("msupport", draw(1, 1, msupport), 1, 1))
+    out.append(("rail_h", draw(1, 1, rail(True, False)), 1, 1))
+    out.append(("rail_v", draw(1, 1, rail(False, True)), 1, 1))
+    out.append(("rail_x", draw(1, 1, rail(True, True)), 1, 1))
+    out.append(("crate", draw(1, 1, crate), 1, 1))
+    out.append(("barrel", draw(1, 1, barrel), 1, 1))
+    out.append(("cannon", draw(1, 1, cannon), 1, 1))
+    out.append(("deck", draw(1, 1, deck), 1, 1))
+    dark = lambda im: recolor(im, (0.50, 0.55, 0.55), (0.50, 0.55, 0.55))        # noqa: E731
+    for name, c, r in (("dwater1", 5, 1), ("dwater2", 5, 2)):
+        im = crop(T, c, r).copy()
+        px = im.load()
+        for yy in range(16):
+            for xx in range(16):
+                rr, gg, bb, aa = px[xx, yy]
+                px[xx, yy] = (int(rr * 0.45), int(gg * 0.62), int(bb * 0.62), aa)
+        out.append((name, im, 1, 1))
+    out.append(("mineentrance", draw(3, 2, mine_entrance), 3, 2))
+    out.append(("mast", draw(1, 3, mast), 1, 3))
+    ruin = recolor(crop(R, 0, 0, 5, 6), GOLD, (0.07, 0.25, 0.35), dark_rows=78)
+    px = ruin.load()
+    for yy in range(ruin.size[1]):
+        for xx in range(ruin.size[0]):
+            rr, gg, bb, aa = px[xx, yy]
+            if aa and yy >= 70:                                            # soot on the walls
+                px[xx, yy] = (int(rr * 0.62), int(gg * 0.58), int(bb * 0.55), aa)
+    out.append(("ruinhouse", ruin, 5, 6))
+    return out
+
+
+# Goldshire's bounty board: a little roofed notice board with WANTED posters pinned to it.
+def wanted_board(d, img):
+    post, wood, dark = (98, 64, 34, 255), (150, 102, 56, 255), (72, 46, 24, 255)
+    paper, ink, red = (236, 222, 180, 255), (128, 96, 62, 255), (178, 40, 32, 255)
+    d.rectangle((2, 9, 3, 15), fill=post)               # legs
+    d.rectangle((12, 9, 13, 15), fill=post)
+    d.line((4, 9, 4, 15), fill=dark)
+    d.line((14, 9, 14, 15), fill=dark)
+    d.rectangle((0, 1, 15, 2), fill=dark)               # the little roof
+    d.line((1, 0, 14, 0), fill=post)
+    d.rectangle((1, 3, 14, 11), fill=dark)              # the board
+    d.rectangle((2, 4, 13, 10), fill=wood)
+    for x0, y0, x1, y1 in ((3, 5, 6, 9), (8, 4, 12, 8)):   # two posters
+        d.rectangle((x0, y0, x1, y1), fill=paper)
+        d.line((x0 + 1, y0 + 2, x1 - 1, y0 + 2), fill=ink)
+        d.line((x0 + 1, y0 + 3, x1 - 1, y0 + 3), fill=ink)
+    d.line((9, 5, 11, 5), fill=red)                     # "WANTED"
+    d.point((4, 5), fill=red)
+    d.point((10, 9), fill=paper)                        # a torn corner below
+
+
+# Professions: herbs and ore veins to gather, a forge, an anvil and an alchemy table. Each node has a little
+# white glint so it reads as "something to pick up".
+LEAF, LEAF_D = (70, 150, 60, 255), (40, 100, 40, 255)
+
+
+def _glint(d, x, y):
+    d.point((x, y), fill=(255, 255, 255, 255))
+    d.point((x - 1, y), fill=(255, 255, 230, 160))
+    d.point((x + 1, y), fill=(255, 255, 230, 160))
+    d.point((x, y - 1), fill=(255, 255, 230, 160))
+    d.point((x, y + 1), fill=(255, 255, 230, 160))
+
+
+def _tuft(d, leaf, dark):
+    for x0, lean in ((4, -1), (7, 0), (10, 1)):          # three leaves fanning out of the ground
+        d.line((x0 + 2, 15, x0 + 2 + lean * 2, 9), fill=dark)
+        d.line((x0 + 1, 15, x0 + 1 + lean * 2, 10), fill=leaf)
+    d.line((4, 15, 12, 15), fill=dark)
+
+
+def herb_peacebloom(d, img):
+    _tuft(d, LEAF, LEAF_D)
+    for cx, cy in ((6, 7), (10, 6)):
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            d.point((cx + dx, cy + dy), fill=(250, 250, 245, 255))
+        d.point((cx, cy), fill=(240, 200, 40, 255))
+    _glint(d, 13, 3)
+
+
+def herb_silverleaf(d, img):
+    silver, silver_l, dark = (175, 195, 188, 255), (220, 232, 228, 255), (95, 118, 112, 255)
+    for box in ((1, 7, 8, 12), (7, 6, 14, 11), (4, 2, 11, 9)):     # three broad leaves in a rosette
+        d.ellipse(box, fill=dark)
+        d.ellipse((box[0] + 1, box[1], box[2] - 1, box[3] - 1), fill=silver)
+    d.line((4, 10, 7, 9), fill=silver_l)
+    d.line((8, 8, 11, 8), fill=silver_l)
+    d.line((7, 4, 8, 7), fill=silver_l)
+    d.line((7, 11, 8, 15), fill=dark)
+    _glint(d, 13, 3)
+
+
+def herb_earthroot(d, img):
+    soil, root, root_d = (110, 80, 50, 255), (170, 120, 70, 255), (120, 80, 45, 255)
+    d.ellipse((2, 11, 13, 15), fill=soil)
+    d.line((5, 12, 9, 7), fill=root_d, width=2)
+    d.line((6, 12, 10, 8), fill=root)
+    d.point((10, 7), fill=root)
+    d.line((9, 7, 12, 4), fill=LEAF)
+    d.line((8, 7, 7, 4), fill=LEAF_D)
+    _glint(d, 13, 9)
+
+
+def herb_mageroyal(d, img):
+    _tuft(d, (60, 120, 70, 255), (35, 80, 45, 255))
+    for cx, cy in ((5, 7), (8, 5), (11, 7)):
+        d.rectangle((cx - 1, cy - 1, cx, cy), fill=(150, 80, 200, 255))
+        d.point((cx, cy - 1), fill=(200, 150, 240, 255))
+    _glint(d, 13, 3)
+
+
+def herb_briarthorn(d, img):
+    vine, vine_d = (110, 120, 50, 255), (60, 68, 28, 255)
+    d.arc((1, 5, 11, 16), 180, 360, fill=vine_d, width=2)
+    d.arc((5, 2, 15, 15), 190, 360, fill=vine, width=2)
+    d.arc((3, 8, 14, 17), 180, 340, fill=vine, width=2)
+    for x, y in ((2, 9), (7, 3), (13, 5), (9, 9), (4, 12)):
+        d.point((x, y), fill=(235, 230, 190, 255))        # thorns
+    for x, y in ((5, 7), (11, 9), (8, 12), (13, 12)):
+        d.rectangle((x, y, x + 1, y + 1), fill=(200, 35, 40, 255))   # berries
+    _glint(d, 13, 2)
+
+
+def _vein(d, speck, speck_d):
+    rock, rock_d, rock_l = (120, 118, 112, 255), (78, 76, 72, 255), (160, 158, 150, 255)
+    d.ellipse((1, 5, 14, 15), fill=rock_d)
+    d.ellipse((2, 5, 13, 13), fill=rock)
+    d.line((4, 6, 9, 6), fill=rock_l)
+    for x, y in ((4, 9), (8, 8), (11, 10), (6, 12), (10, 12)):
+        d.rectangle((x, y, x + 1, y), fill=speck)
+        d.point((x, y + 1), fill=speck_d)
+
+
+def vein_copper(d, img):
+    _vein(d, (215, 120, 50, 255), (150, 75, 30, 255))
+    _glint(d, 12, 4)
+
+
+def vein_tin(d, img):
+    _vein(d, (205, 215, 225, 255), (140, 150, 165, 255))
+    _glint(d, 12, 4)
+
+
+def forge(d, img):
+    brick, brick_d, mortar = (140, 70, 50, 255), (95, 45, 35, 255), (70, 60, 55, 255)
+    d.rectangle((1, 3, 14, 15), fill=mortar)
+    for y in range(4, 15, 3):
+        off = 0 if (y // 3) % 2 else 2
+        for x in range(1 + off, 14, 4):
+            d.rectangle((x, y, min(14, x + 2), y + 1), fill=brick)
+    d.rectangle((5, 0, 10, 3), fill=brick_d)             # chimney
+    d.rectangle((4, 8, 11, 14), fill=(40, 25, 20, 255))  # the mouth
+    d.rectangle((5, 10, 10, 14), fill=(240, 120, 30, 255))
+    d.rectangle((6, 11, 9, 14), fill=(255, 210, 80, 255))
+
+
+def anvil(d, img):
+    iron, iron_d, iron_l = (70, 72, 80, 255), (40, 40, 46, 255), (120, 122, 130, 255)
+    d.rectangle((5, 12, 10, 15), fill=(110, 75, 40, 255))  # the stump
+    d.rectangle((4, 15, 11, 15), fill=(80, 55, 30, 255))
+    d.rectangle((6, 9, 9, 11), fill=iron_d)                # waist
+    d.rectangle((2, 5, 13, 8), fill=iron)                  # face
+    d.polygon([(0, 5), (2, 5), (2, 7)], fill=iron)         # horn
+    d.line((2, 5, 13, 5), fill=iron_l)
+    d.line((3, 8, 13, 8), fill=iron_d)
+
+
+def alchemy_table(d, img):
+    wood, wood_d = (150, 100, 55, 255), (95, 60, 30, 255)
+    d.rectangle((1, 9, 14, 11), fill=wood)
+    d.line((1, 11, 14, 11), fill=wood_d)
+    d.rectangle((2, 12, 3, 15), fill=wood_d)
+    d.rectangle((12, 12, 13, 15), fill=wood_d)
+    for x, col in ((3, (80, 200, 90, 255)), (7, (220, 60, 60, 255)), (11, (90, 120, 230, 255))):
+        d.rectangle((x, 5, x + 2, 8), fill=col)            # three flasks
+        d.rectangle((x + 1, 3, x + 1, 4), fill=(200, 200, 210, 255))
+        d.point((x, 5), fill=(255, 255, 255, 200))
+
+
+def town_art():
+    return [("wantedboard", draw(1, 1, wanted_board), 1, 1),
+            ("node_peacebloom", draw(1, 1, herb_peacebloom), 1, 1),
+            ("node_silverleaf", draw(1, 1, herb_silverleaf), 1, 1),
+            ("node_earthroot", draw(1, 1, herb_earthroot), 1, 1),
+            ("node_mageroyal", draw(1, 1, herb_mageroyal), 1, 1),
+            ("node_briarthorn", draw(1, 1, herb_briarthorn), 1, 1),
+            ("node_copper", draw(1, 1, vein_copper), 1, 1),
+            ("node_tin", draw(1, 1, vein_tin), 1, 1),
+            ("forge", draw(1, 1, forge), 1, 1),
+            ("anvil", draw(1, 1, anvil), 1, 1),
+            ("alchemy", draw(1, 1, alchemy_table), 1, 1)]
+
+
 def build_chars():
     img = Image.new("RGBA", (256, 128), (0, 0, 0, 0))
     img.paste(CH, (0, 0))
@@ -267,13 +597,21 @@ def build_platform():
     d.ellipse((6 * k, 3 * k, 122 * k, 26 * k), fill=(214, 182, 104, 255))
     d.ellipse((14 * k, 6 * k, 114 * k, 20 * k), fill=(228, 198, 122, 255))
     tga(img.resize((128, 32), Image.NEAREST), "platform_w")
+    # the Deadmines: worn stone
+    img = Image.new("RGBA", (128 * k, 32 * k), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((0, 0, 128 * k - 1, 32 * k - 1), fill=(58, 52, 50, 255))
+    d.ellipse((6 * k, 3 * k, 122 * k, 26 * k), fill=(96, 88, 84, 255))
+    d.ellipse((14 * k, 6 * k, 114 * k, 20 * k), fill=(110, 102, 96, 255))
+    tga(img.resize((128, 32), Image.NEAREST), "platform_m")
 
 
 def write_lua(index):
     lines = [
         "-- CDLoot Games/Azeromon/Atlas.lua  (GENERATED by dev/generators/gen_azeromon_art.py - do not edit)",
-        "-- Tile name -> slot in Media/Azeromon/atlas.tga (256x256, 16 columns of 16px tiles).",
+        "-- Tile name -> slot in Media/Azeromon/atlas.tga (256 x %d, 16 columns of 16px tiles)." % ATLAS_H,
         "local addonName, ns = ...",
+        "ns.AzeroAtlasHeight = %d" % ATLAS_H,
         "ns.AzeroAtlas = {",
     ]
     for name, i in sorted(index.items(), key=lambda kv: kv[1]):

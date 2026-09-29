@@ -67,7 +67,9 @@ local function RefreshList()
         row.icon:SetTexture(def.icon)
         row.name:SetText(def.name)
         local data = ns.Games:GetData(def.id)
-        row.best:SetText(data.best and ("Best: " .. data.best) or "|cff888888Not played yet|r")
+        local ok, status = true, nil
+        if def.status then ok, status = pcall(def.status) end
+        row.best:SetText((ok and status) or (data.best and ("Best: " .. data.best)) or "|cff888888Not played yet|r")
         row:SetScript("OnEnter", function(self)
             ns.UI:SetTextTooltip(self, { def.name, def.desc })
         end)
@@ -97,6 +99,15 @@ function GamesUI:CreatePanel(parent)
         RefreshList()
         if selected then ShowGame(selected) end
     end
+    -- status lines ("2 playing now") change on their own: refresh them every few seconds while the list is shown
+    local since = 0
+    root:SetScript("OnUpdate", function(_, elapsed)
+        since = since + elapsed
+        if since >= 3 then
+            since = 0
+            RefreshList()
+        end
+    end)
     RefreshList()
     return root
 end

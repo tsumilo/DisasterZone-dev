@@ -42,6 +42,8 @@ function B.New(opts)
     b.bag = opts.bag or {}
     b.rng = opts.rng or math.random
     b.onSeen, b.onCaught = opts.onSeen, opts.onCaught
+    b.catchMult, b.expMult = opts.catchMult or 1, opts.expMult or 1     -- class perks (never in player battles)
+    b.prizeMult, b.perk = opts.prizeMult or 1, opts.perk
     b.events = {}
     b.learnQueue = {}
     b.runs = 0
@@ -62,27 +64,44 @@ function B.New(opts)
         b:Emit({ t = "send", side = "foe", mon = b.foe.mon })
         b:Say("%s sent out %s!", b.pvp.name, foeName)
     elseif b.wild then
-        b:Say("A wild %s appeared!", foeName)
+        b:Say(opts.rare and "A rare %s appeared!" or "A wild %s appeared!", foeName)
         b:Emit({ t = "send", side = "foe", mon = b.foe.mon })
     else
         b:Say("%s would like to battle!", b.trainer.name)
         b:Emit({ t = "send", side = "foe", mon = b.foe.mon })
-        b:Say("%s sent out %s!", b.trainer.name, foeName)
+        b:Say(foeName == b.trainer.name and "%s joins the fight!" or "%s sent out %s!", b.trainer.name, foeName)
     end
     if b.onSeen then b.onSeen(b.foe.mon.sp) end
     b:Say("Go! %s!", M.Name(b.ally.mon))
     b:Emit({ t = "send", side = "ally", mon = b.ally.mon })
+    if opts.startAtk and not b.wild and not b.pvp then                 -- warrior: Battle Shout
+        b.ally.stages.atk = math.min(6, b.ally.stages.atk + opts.startAtk)
+        b:Say("Battle Shout! %s's Attack rose!", M.Name(b.ally.mon))
+    end
     b.foe.participants[lead] = true
+    b.used = { [lead] = true }         -- party slots that fought (achievements: "without a Fire type")
     b.need = "action"
     return b
 end
 
 -- Every event carries a snapshot of both sides as they are right after it, so the UI shows the state
 -- of the moment being played back, not the end of the turn the engine already resolved.
+local STAGE_STATS = { "atk", "def", "spa", "spd", "spe" }
+
 local function Snap(s)
     if not s or not s.mon then return nil end
     local m = s.mon
-    return { sp = m.sp, name = M.Name(m), lvl = m.lvl, hp = m.hp, max = M.MaxHP(m), status = m.status, exp = M.ExpProgress(m) }
+    local stages
+    for _, st in ipairs(STAGE_STATS) do
+        local v = s.stages and s.stages[st]
+        if v and v ~= 0 then
+            stages = stages or {}
+            stages[st] = v
+        end
+    end
+    return { sp = m.sp, name = M.Name(m), lvl = m.lvl, hp = m.hp, max = M.MaxHP(m), status = m.status, exp = M.ExpProgress(m),
+             shiny = m.shiny, stages = stages, sleep = (m.status == "slp") and m.sleep or nil,
+             flask = m.flask and { id = m.flask.id, n = m.flask.n } or nil }
 end
 
 function B:Emit(e)
@@ -407,18 +426,21 @@ function B:CheckFaints()
                 self.foe = NewSide(self.foes[nextIdx])
                 self.foe.participants = {}
                 if self.ally.mon.hp > 0 then self.foe.participants[self.allyIdx] = true end
-                self:Say("%s sent out %s!", self.trainer.name, M.Name(self.foe.mon))
+                local nm = M.Name(self.foe.mon)
+                if nm == self.trainer.name then self:Say("%s joins the fight!", nm)
+                else self:Say("%s sent out %s!", self.trainer.name, nm) end
                 self:Emit({ t = "send", side = "foe", mon = self.foe.mon })
                 if self.onSeen then self.onSeen(self.foe.mon.sp) end
             else
                 if self.wild then
                     self:Finish("win")
                 else
-                    local prize = (self.trainer.prize or 20) * self.foes[#self.foes].lvl
+                    local prize = math.floor((self.trainer.prize or 20) * self.foes[#self.foes].lvl * (self.prizeMult or 1))
                     self.prize = prize
                     self:Say("You defeated %s!", self.trainer.name)
                     if self.trainer.lose then self:Say("%s", self.trainer.lose) end
-                    self:Say("You got %s for winning!", D.Money(prize))
+                    local perk = (self.prizeMult or 1) > 1 and self.perk and (" (" .. self.perk.name .. ")") or ""
+                    self:Say("You got %s for winning!%s", D.Money(prize), perk)
                     self:Finish("win")
                 end
                 return true
@@ -444,7 +466,7 @@ end
 function B:AwardExp()
     local foe = self.foe.mon
     local s = D.species[foe.sp]
-    local total = floor(s.exp * foe.lvl / 7 * (self.wild and 1 or 1.5))
+    local total = floor(s.exp * foe.lvl / 7 * (self.wild and 1 or 1.5) * (self.expMult or 1))
     local winners = {}
     for idx in pairs(self.foe.participants or {}) do
         local mon = self.party[idx]
@@ -456,8 +478,11 @@ function B:AwardExp()
     for _, idx in ipairs(winners) do
         local mon = self.party[idx]
         if mon.lvl < D.MAX_LEVEL then
-            self:Say("%s gained %d Exp. Points!", M.Name(mon), each)
-            local levels = M.AddExp(mon, each)
+            local gain = mon.traded and math.floor(each * 1.5) or each      -- a traded beast: boosted, like the games
+            local perk = (self.expMult or 1) > 1 and self.perk and (" (" .. self.perk.name .. ")") or ""
+            self:Say((mon.traded and "%s gained a boosted %d Exp. Points!" or "%s gained %d Exp. Points!") .. "%s",
+                M.Name(mon), gain, perk)
+            local levels = M.AddExp(mon, gain)
             self:Emit({ t = "exp", mon = mon })
             for _, lvl in ipairs(levels) do
                 self.leveled[mon] = true
@@ -504,6 +529,7 @@ function B:ResolveLearn(slot)
 end
 
 function B:SendAlly(idx)
+    if self.used then self.used[idx] = true end
     self.allyIdx = idx
     self.ally = NewSide(self.party[idx])
     if self.foe.participants then self.foe.participants[idx] = true end
@@ -543,7 +569,7 @@ function B:UseItem(item, target)
         end
         self.bag[item] = self.bag[item] - 1
         self:Say("You threw a %s!", def.name)
-        return self:Catch(def.ball)
+        return self:Catch(def.ball * (self.catchMult or 1))
     elseif def.use == "heal" or def.use == "cure" then
         local mon = self.party[target or self.allyIdx]
         if not mon or mon.hp <= 0 then return false end
@@ -564,6 +590,28 @@ function B:UseItem(item, target)
             if mon == self.ally.mon then self:Emit({ t = "status", side = "ally" }) end
             self:Say("%s was cured!", M.Name(mon))
         end
+        return true
+    elseif def.use == "boost" then                      -- an elixir: one stage up for the beast fighting
+        local s = self.ally
+        local cur = s.stages[def.stat] or 0
+        if cur >= 6 then return false end
+        self.bag[item] = self.bag[item] - 1
+        s.stages[def.stat] = min(6, cur + 1)
+        self:Say("%s drank the %s.", M.Name(s.mon), def.name)
+        self:Say("%s's %s rose!", M.Name(s.mon), D.statNames[def.stat])
+        return true
+    elseif def.use == "rejuv" then
+        local mon = self.party[target or self.allyIdx]
+        if not mon or mon.hp <= 0 or (mon.hp >= M.MaxHP(mon) and not mon.status) then return false end
+        self.bag[item] = self.bag[item] - 1
+        if mon == self.ally.mon then
+            self:SetHP("ally", mon.hp + def.heal)
+        else
+            mon.hp = min(M.MaxHP(mon), mon.hp + def.heal)
+        end
+        mon.status, mon.sleep = nil, nil
+        if mon == self.ally.mon then self:Emit({ t = "status", side = "ally" }) end
+        self:Say("%s was rejuvenated!", M.Name(mon))
         return true
     end
     return false

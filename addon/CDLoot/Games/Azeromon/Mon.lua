@@ -17,14 +17,28 @@ function M.Species(mon) return D.species[mon.sp] end
 
 function M.Name(mon) return mon.nick or D.species[mon.sp].name end
 
+-- What a beast's gear and flask add to `stat` (a multiplier; see Crafting.lua).
+function M.Bonus(mon, stat)
+    local m = 1
+    if type(mon.gear) == "table" then
+        for _, slot in ipairs(D.gearSlots or {}) do        -- a fixed order: every client rounds the same way
+            local g = mon.gear[slot.id] and D.items[mon.gear[slot.id]]
+            if g and g.bonus and g.bonus[stat] then m = m * g.bonus[stat] end
+        end
+    end
+    local f = mon.flask and D.items[mon.flask.id]
+    if f and f.bonus and f.bonus[stat] then m = m * f.bonus[stat] end
+    return m
+end
+
 function M.Stat(mon, stat)
     local s = D.species[mon.sp]
     local i
     for k, n in ipairs(M.STATS) do if n == stat then i = k end end
     local b, iv = s.base[i], (mon.ivs and mon.ivs[i]) or 0
     local core = floor((2 * b + iv) * mon.lvl / 100)
-    if stat == "hp" then return core + mon.lvl + 10 end
-    return core + 5
+    if stat == "hp" then return floor((core + mon.lvl + 10) * M.Bonus(mon, "hp")) end
+    return floor((core + 5) * M.Bonus(mon, stat))
 end
 
 function M.MaxHP(mon) return M.Stat(mon, "hp") end
@@ -104,7 +118,13 @@ end
 -- Species this creature should evolve into now (or nil).
 function M.EvolutionTarget(mon)
     local evo = D.species[mon.sp].evolve
-    if evo and mon.lvl >= evo.level then return evo.into end
+    if evo and evo.level and mon.lvl >= evo.level then return evo.into end
+end
+
+-- Species a creature evolves into when it is traded (or nil).
+function M.TradeEvolution(mon)
+    local evo = D.species[mon.sp].evolve
+    if evo and evo.trade then return evo.into end
 end
 
 function M.Evolve(mon, into)
@@ -143,5 +163,29 @@ function M.Sanitize(mon)
     mon.moves = moves
     mon.hp = max(0, min(M.MaxHP(mon), floor(tonumber(mon.hp) or 0)))
     if mon.status and not D.status[mon.status] then mon.status = nil end
+    mon.shiny = (mon.shiny == true) or nil
+    -- gear: { slot = item } (a single item id from before the slots goes into its slot)
+    if type(mon.gear) == "string" then
+        local def = D.items[mon.gear]
+        mon.gear = def and def.slot and { [def.slot] = mon.gear } or nil
+    end
+    if type(mon.gear) == "table" then
+        local gear = {}
+        for slot, id in pairs(mon.gear) do
+            local def = type(id) == "string" and D.items[id]
+            if def and def.use == "gear" and def.slot == slot then gear[slot] = id end
+        end
+        mon.gear = next(gear) and gear or nil
+    else
+        mon.gear = nil
+    end
+    local f = mon.flask
+    local fdef = type(f) == "table" and D.items[f.id]
+    if fdef and fdef.use == "flask" and (tonumber(f.n) or 0) >= 1 then
+        mon.flask = { id = f.id, n = min(99, floor(tonumber(f.n))) }
+    else
+        mon.flask = nil
+    end
+    mon.hp = max(0, min(M.MaxHP(mon), mon.hp))
     return mon
 end

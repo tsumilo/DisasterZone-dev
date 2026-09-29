@@ -58,6 +58,12 @@ Maps.town = {
         { x = 13, y = 6, text = "HUNTMASTER ALDRIC'S LODGE\nBeast training for aspiring hunters of the Alliance." },
         { x = 7, y = 15, text = "THE LION'S PRIDE INN\nRest your beasts. Brog Hamfist sells general goods inside." },
     },
+    objects = {
+        { x = 9, y = 15, tile = "wantedboard", hint = "Read the bounty board", script = function(G) G:BountyBoard() end },   -- the bounty board (every town has one)
+        { x = 9, y = 3, tile = "alchemy", hint = "Brew at the alchemy table", script = function(G) G:CraftAt("alchemy") end },   -- Mallory's table
+        { x = 17, y = 17, tile = "anvil", station = "anvil", hint = "Smith at the anvil", script = function(G) G:CraftAt("blacksmithing") end },
+        { x = 19, y = 17, tile = "forge", station = "forge", hint = "Smelt at the forge", script = function(G) G:CraftAt("mining") end },
+    },
     warps = {
         { x = 5, y = 6, map = "home", tx = 4, ty = 6, face = "up" },
         { x = 17, y = 6, map = "lab", tx = 4, ty = 6, face = "up" },
@@ -70,6 +76,7 @@ Maps.town = {
               if G:Flag("starter") then
                   G:Say("Marshal Dughan: The road north runs through Elwynn Forest toward Westfall. Mind the tall grass, and keep an eye out for Hogger.")
               else
+                  G:ClassSay("dughan")
                   G:Say("Marshal Dughan: Wolves, kobolds and worse lurk in the forest.\nNobody leaves Goldshire without a beast of their own.")
               end
           end },
@@ -77,6 +84,10 @@ Maps.town = {
           script = function(G)
               G:Say("Maybell Maclure: Huntmaster Aldric can tame anything, they say. His lodge is in the northeast.\nIf you see Tommy Joe Stonefield... never mind.")
           end },
+        { id = "mallory", x = 8, y = 3, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "down",       -- Herbalism, Alchemy
+          script = function(G) ns.AzeroCraft:TrainerTalk(G, "mallory") end },
+        { id = "argus", x = 18, y = 17, sprite = "bald", tint = { 0.85, 0.72, 0.6 }, face = "down",      -- Mining, Blacksmithing
+          script = function(G) ns.AzeroCraft:TrainerTalk(G, "argus") end },
         { id = "kid", x = 14, y = 9, sprite = "hero", tint = { 1, 0.75, 0.75 }, face = "left", wander = true,
           script = function(G)
               G:Say("Billy Maclure: When I grow up I'm gonna tame a dragon whelp! Or a murloc! Mrgllglgl!")
@@ -179,6 +190,7 @@ Maps.lab = {
           script = function(G)
               if not G:Flag("starter") then
                   G:Say("Huntmaster Aldric: Ah, {PLAYER}! I've been expecting you.")
+                  G:ClassSay("aldric")
                   G:Say("Huntmaster Aldric: Every hunter of the Alliance begins with a single beast. Today, so do you.")
                   G:Say("Huntmaster Aldric: A red whelp, a murloc from Crystal Lake and a bloodpetal from Un'Goro. Pick one of these crates!")
               else
@@ -215,6 +227,7 @@ Maps.post = {
         { id = "healer", x = 2, y = 2, sprite = "girl", tint = { 1, 0.8, 0.85 }, face = "down",
           script = function(G)
               G:Say("Innkeeper Farley: Welcome to the Lion's Pride Inn!")
+              G:ClassSay("farley")
               if G:YesNo("Innkeeper Farley: Shall I give your beasts a warm meal and a place by the fire?") then
                   G:HealParty()
                   G:SetRespawn("post", 4, 5, "up", "the Lion's Pride Inn")
@@ -229,6 +242,37 @@ Maps.post = {
               G:Shop()
               G:Say("Brog Hamfist: Come again!")
           end },
+        { id = "erma", x = 8, y = 5, sprite = "girl", tint = { 0.85, 0.95, 0.75 }, face = "left",      -- stable master
+          script = function(G)
+              G:Say("Erma: Stable Master Erma, at your service. I'll mind any beasts you can't take along.")
+              G:Stable()
+              G:Say("Erma: They'll be well looked after. Come back anytime.")
+          end },
+        { id = "pettrainer", x = 1, y = 5, sprite = "bald", tint = { 0.86, 0.66, 0.46 }, face = "right",
+          script = function(G)
+              local who = "Gorvin Wildhammer: "
+              G:Say(who .. "Pet trainer, down from Aerie Peak. Wildhammers raise gryphons; beasts I understand.")
+              G:ClassSay("gorvin")
+              if #G.save.party == 0 then
+                  G:Say(who .. "Come back when ye've a beast of yer own.")
+                  return
+              end
+              G:Say(who .. "A beast never forgets what it's learned. Sometimes it just needs remindin'.")
+              local price = ns.AzeroData.Money(G.RELEARN_PRICE)
+              if not G:YesNo(who .. price .. " a lesson. Shall I remind one of yer beasts of a move?") then
+                  G:Say(who .. "Suit yerself.")
+                  return
+              end
+              if G.save.money < G.RELEARN_PRICE then
+                  G:Say(who .. "Ye're short on coin, friend. " .. price .. ", no less.")
+                  return
+              end
+              if G:PetTrainer() then
+                  G:Say(who .. "Good as new. Off ye go!")
+              else
+                  G:Say(who .. "Come back anytime.")
+              end
+          end },
     },
 }
 
@@ -238,6 +282,9 @@ Maps.post = {
 
 Maps.route1 = {
     name = "Elwynn Forest",
+    herbs = { "peacebloom", "silverleaf", "earthroot" }, ores = { "copper" },
+    nodes = { herb = { { 1, 9 }, { 20, 9 }, { 20, 16 }, { 1, 15 }, { 4, 26 }, { 20, 30 }, { 1, 30 } },
+              ore = { { 16, 11 }, { 5, 22 }, { 9, 23 } } },
     outdoor = true,
     rows = {
         "TTTTTTTTTT==TTTTTTTTTT",
@@ -279,12 +326,14 @@ Maps.route1 = {
         { x = 10, y = 1, cond = function(G) return not G:Flag("badge_hogger") end, script = function(G) G:HoggerGate() end },
         { x = 11, y = 1, cond = function(G) return not G:Flag("badge_hogger") end, script = function(G) G:HoggerGate() end },
     },
+    -- weight: always; day / night: the weight in that part of the (realm) day instead; rare: rare-spawn alert
     encounters = {
         { sp = "wolfpup", min = 2, max = 4, weight = 30 },
-        { sp = "owlet", min = 2, max = 4, weight = 25 },
+        { sp = "owlet", min = 2, max = 4, day = 5, night = 40 },
         { sp = "kobling", min = 3, max = 5, weight = 20 },
-        { sp = "webling", min = 3, max = 5, weight = 15 },
-        { sp = "tuskling", min = 4, max = 5, weight = 10 },
+        { sp = "webling", min = 3, max = 5, day = 8, night = 25 },
+        { sp = "tuskling", min = 4, max = 5, day = 12, night = 5 },
+        { sp = "motherfang", min = 9, max = 10, day = 0, night = 2, rare = true },
     },
     signs = {
         { x = 8, y = 2, text = "ROAD TO WESTFALL: north.\nFOREST'S EDGE: west.\n\nBy order of Marshal Dughan, the road is closed while Hogger's gnolls roam free." },
@@ -312,6 +361,8 @@ Maps.route1 = {
 
 Maps.forestedge = {
     name = "Forest's Edge",
+    herbs = { "silverleaf", "earthroot", "peacebloom" }, ores = { "copper" },
+    nodes = { herb = { { 18, 4 }, { 18, 12 }, { 1, 8 } }, ore = { { 18, 2 }, { 3, 12 } } },
     outdoor = true,
     rows = {
         "TTTTTTTTTTTTTTTTTTTT",
@@ -362,6 +413,9 @@ Maps.forestedge = {
 
 Maps.westfall = {
     name = "Westfall",
+    herbs = { "mageroyal", "briarthorn", "earthroot", "silverleaf" }, ores = { "copper", "tin" },
+    nodes = { herb = { { 8, 2 }, { 22, 8 }, { 22, 13 }, { 5, 29 }, { 13, 29 } },
+              ore = { { 9, 5 }, { 5, 31 }, { 22, 19 } } },
     outdoor = true,
     theme = "westfall",
     rows = {
@@ -417,8 +471,9 @@ Maps.westfall = {
         { x = 13, y = 3, text = "FURLBROW'S PUMPKIN FARM\nDefias keep out!" },
     },
     encounters = {
-        { sp = "coyote", min = 9, max = 12, weight = 30 },
-        { sp = "fleshripper", min = 9, max = 12, weight = 20 },
+        { sp = "coyote", min = 9, max = 12, day = 20, night = 35 },
+        { sp = "fleshripper", min = 9, max = 12, day = 25, night = 8 },
+        { sp = "ghostpaw", min = 13, max = 14, day = 0, night = 2, rare = true },
         { sp = "rustgolem", min = 10, max = 13, weight = 20 },
         { sp = "dustdevil", min = 11, max = 13, weight = 10 },
         { sp = "scout", min = 10, max = 12, weight = 10 },
@@ -498,15 +553,15 @@ Maps.sentinel = {
         "T..................T",
         "T..................T",
         "T..................T",
-        "T=================.T",
-        "T=================.T",
+        "==================.T",
+        "==================.T",
         "T........==........T",
         "T.h......==......h.T",
         "T.......h==h.......T",
         "T........==........T",
         "TTTTTTTTT==TTTTTTTTT",
     },
-    edges = { south = { map = "westfall", dx = 2 } },
+    edges = { south = { map = "westfall", dx = 2 }, west = { map = "moonbrook", dy = -2 } },
     stamps = {
         { kind = "stonehouse", x = 2, y = 3 },              -- the inn, door (5, 8)
         { kind = "stonehouse", x = 12, y = 3 },             -- militia barracks, door (15, 8)
@@ -515,13 +570,24 @@ Maps.sentinel = {
     warps = {
         { x = 5, y = 8, map = "sentinelinn", tx = 4, ty = 6, face = "up" },
     },
+    objects = {
+        { x = 7, y = 8, tile = "wantedboard", hint = "Read the bounty board", script = function(G) G:BountyBoard() end },    -- the same bounty board
+        { x = 17, y = 7, tile = "anvil", station = "anvil", hint = "Smith at the anvil", script = function(G) G:CraftAt("blacksmithing") end },
+        { x = 18, y = 7, tile = "forge", station = "forge", hint = "Smelt at the forge", script = function(G) G:CraftAt("mining") end },
+    },
     signs = {
         { x = 8, y = 11, text = "SENTINEL HILL\nHeadquarters of the People's Militia." },
-        { x = 1, y = 8, text = "MOONBROOK and THE DEADMINES: west.\nDefias territory. The road is watched.\n\n(Coming soon to Azeromon!)" },
+        { x = 1, y = 8, text = "MOONBROOK and THE DEADMINES: west.\nDefias territory. The road is watched." },
     },
     npcs = {
         { id = "gryan", x = 11, y = 6, sprite = "hero", tint = { 0.75, 0.75, 1 }, face = "down",
           script = function(G)
+              if G:Flag("badge_vancleef") then
+                  G:Say("Gryan Stoutmantle: VanCleef's bandana... then it's true. The Brotherhood is broken!")
+                  G:Say("Gryan Stoutmantle: Westfall owes you more than it can pay, {PLAYER}. The People's Militia salutes you.")
+                  G:Say("(You have finished the Azeromon preview. Thank you for playing! More of Azeroth is coming.)")
+                  return
+              end
               if G:Flag("beat_militia1") then
                   G:Say("Gryan Stoutmantle: So you're the tamer who beat Sergeant Dane. The Light knows we could use you.")
               else
@@ -565,5 +631,202 @@ Maps.sentinelinn = {
               G:Shop()
               G:Say("Quartermaster Lewis: Stay safe out there.")
           end },
+        { id = "kirk", x = 8, y = 5, sprite = "bald", tint = { 0.95, 0.85, 0.7 }, face = "left",       -- stable master
+          script = function(G)
+              G:Say("Kirk Maxwell: Kirk Maxwell, stable master. Same stable as Goldshire's, we share the ledger.")
+              G:Stable()
+              G:Say("Kirk Maxwell: They'll be well looked after. Come back anytime.")
+          end },
+    },
+}
+
+---------------------------------------------------------------------------
+-- Moonbrook: the Defias town over the Deadmines
+---------------------------------------------------------------------------
+
+Maps.moonbrook = {
+    name = "Moonbrook",
+    herbs = { "briarthorn", "mageroyal" }, ores = { "tin", "copper" },
+    nodes = { herb = { { 22, 14 }, { 4, 12 } }, ore = { { 4, 3 }, { 22, 2 } } },
+    outdoor = true,
+    theme = "westfall",
+    rows = {
+        "RRRRTTTTTTTTTTTTTTTTTTTT",
+        "RRRR...................T",
+        "RRRR...................T",
+        "RRRR...................T",
+        "RRRR...................T",
+        "RRRR...................T",
+        "RRRR...................T",
+        "R=======================",
+        "R=======================",
+        "RRRR...................T",
+        "RRRR................\"\"\"T",
+        "RRRR................\"\"\"T",
+        "RRRR................\"\"\"T",
+        "RRRR................\"\"\"T",
+        "RRRR...................T",
+        "RRRRTTTTTTTTTTTTTTTTTTTT",
+    },
+    edges = { east = { map = "sentinel", dy = 2 } },
+    stamps = {
+        { kind = "mineentrance", x = 1, y = 5 },       -- the door is (2, 6), right on the road
+        { kind = "ruinhouse", x = 6, y = 1 }, { kind = "ruinhouse", x = 13, y = 1 },
+        { kind = "ruinhouse", x = 6, y = 9 }, { kind = "ruinhouse", x = 13, y = 9 },
+    },
+    warps = { { x = 2, y = 6, map = "dm1", tx = 23, ty = 13, face = "up" } },
+    signs = {
+        { x = 21, y = 6, text = "MOONBROOK\nOnce a proud town. Now the Defias Brotherhood's." },
+        { x = 4, y = 9, text = "THE DEADMINES\nKeep out. By order of the Brotherhood." },
+    },
+    encounters = {
+        { sp = "coyote", min = 14, max = 16, weight = 40 },
+        { sp = "fleshripper", min = 14, max = 16, day = 30, night = 10 },
+        { sp = "dustdevil", min = 15, max = 16, weight = 20 },
+    },
+    npcs = {
+        { id = "defias4", x = 19, y = 6, sprite = "hero", tint = { 0.85, 0.3, 0.3 }, face = "down",
+          trainer = "defias4", sight = 2 },
+        { id = "defias5", x = 11, y = 9, sprite = "bald", tint = { 0.8, 0.35, 0.3 }, face = "up",
+          trainer = "defias5", sight = 2 },
+    },
+}
+
+---------------------------------------------------------------------------
+-- The Deadmines (caves: wild beasts on any floor tile)
+---------------------------------------------------------------------------
+
+local function Vanished(id) return function(G) return G:Flag("beat_" .. id) end end
+
+Maps.dm1 = {
+    name = "The Deadmines",
+    ores = { "copper", "tin" },
+    nodes = { ore = { { 5, 5 }, { 19, 12 }, { 24, 12 } } },
+    theme = "mine",
+    cave = { rate = 6 },
+    rows = {
+        "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "TTTTTTSTTTSTTTSTTTSTTTTTTT",
+        "TTTT....................TT",
+        "TTTT.==================.TT",
+        "TTTT..................=.TT",
+        "TTg....gTTTTTTTTTTTTT.=.TT",
+        "TT......TTTTTTTTTTTTS.=.TT",
+        "TT......TTTTTTTTTTTTT.=.TT",
+        "TT......TTTTTTTTTTTTT.=.TT",
+        "TT......TTTTTTTTTTTTS.=.ST",
+        "TT......TTTTTTTTTTTk..=.kT",
+        "TT......TTTTTTTTTTT...=..T",
+        "TTT.TTTTTTTTTTTTTTT...=..T",
+        "TTTLTTTTTTTTTTTTTTTg....LT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+    },
+    warps = {
+        { x = 24, y = 14, map = "moonbrook", tx = 2, ty = 7, face = "down" },
+        { x = 3, y = 14, map = "dm2", tx = 2, ty = 2, face = "down" },
+    },
+    encounters = {
+        { sp = "tunneler", min = 15, max = 17, weight = 30 },
+        { sp = "minespider", min = 15, max = 17, weight = 35 },
+        { sp = "kobling", min = 14, max = 16, weight = 20 },
+        { sp = "webling", min = 14, max = 16, weight = 15 },
+    },
+    npcs = {
+        { id = "miner2", x = 12, y = 3, sprite = "bald", tint = { 0.8, 0.6, 0.4 }, face = "down", trainer = "miner2", sight = 2 },
+        { id = "miner3", x = 21, y = 7, sprite = "hero", tint = { 0.8, 0.35, 0.3 }, face = "right", trainer = "miner3", sight = 2 },
+        { id = "rhahkzor", x = 3, y = 13, sprite = "bald", tint = { 0.55, 0.75, 0.45 }, face = "up",
+          trainer = "rhahkzor", sight = 0, hidden = Vanished("rhahkzor") },
+    },
+}
+
+Maps.dm2 = {
+    name = "The Deadmines: Goblin Foundry",
+    ores = { "tin", "copper" },
+    nodes = { ore = { { 22, 2 }, { 1, 9 }, { 22, 12 } } },
+    theme = "mine",
+    cave = { rate = 6 },
+    rows = {
+        "TTTTTTTTTTTTTTTTTTTTTTTT",
+        "T.L..S...S.....S...S...T",
+        "T......................T",
+        "T.===================..T",
+        "T......................T",
+        "T............gk........T",
+        "T...kkg.............kg.T",
+        "T...k..................T",
+        "TTTTTTTTTTTT.TTTTTTTTTTT",
+        "T.................T....T",
+        "T.................T....T",
+        "T.......kkg.......T....T",
+        "T......................T",
+        "T.gk..........gk..T....T",
+        "T.................T..L.T",
+        "TTTTTTTTTTTTTTTTTTTTTTTT",
+    },
+    warps = {
+        { x = 2, y = 1, map = "dm1", tx = 3, ty = 13, face = "up" },
+        { x = 21, y = 14, map = "dm3", tx = 2, ty = 10, face = "right" },
+    },
+    encounters = {
+        { sp = "minespider", min = 17, max = 19, weight = 35 },
+        { sp = "tunneler", min = 17, max = 19, weight = 30 },
+        { sp = "rustgolem", min = 17, max = 19, weight = 25 },
+        { sp = "shredder", min = 18, max = 19, weight = 10 },
+    },
+    npcs = {
+        { id = "goblin1", x = 6, y = 4, sprite = "bald", tint = { 0.55, 0.85, 0.45 }, face = "right", trainer = "goblin1", sight = 3 },
+        { id = "sneed", x = 12, y = 8, sprite = "bald", tint = { 0.55, 0.85, 0.45 }, face = "up",
+          trainer = "sneed", sight = 0, hidden = Vanished("sneed") },
+        { id = "gilnid", x = 18, y = 12, sprite = "bald", tint = { 0.6, 0.8, 0.4 }, face = "left",
+          trainer = "gilnid", sight = 0, hidden = Vanished("gilnid") },
+    },
+}
+
+Maps.dm3 = {
+    name = "The Deadmines: Ironclad Cove",
+    theme = "mine",
+    cave = { rate = 5 },
+    rows = {
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "TTTTwwwwwwwwwwwwwwwwwwwwwwwT",
+        "TTTTwwwwwwwwwwwwwwwwwwwwwwwT",
+        "TTTTwwwwwwwwwwwwwwwwwwwwwwwT",
+        "TTTTwwwwwwwDDDDDDnDDDDDDDwwT",
+        "TTTTwwwwwwwDDDDDDDDDDDgDDwwT",
+        "TTTTwwwwwwwnDDDDDDDDDDDDnwwT",
+        "TTTTwwwwwwwDDDDDDDDDDDDDDwwT",
+        "TTTTwwwwwwwDDDDDDDDDDDDDDwwT",
+        "T........wwDDDDDDDDDDDDDDwwT",
+        "TL.......DDDDDDDDDDDDDDDDwwT",
+        "T........wwDDDDDDDDDDDDDDwwT",
+        "TTTTwwwwwwwDDDDDDDDDDDDDDwwT",
+        "TTTTwwwwwwwnDDDDDDDDDDDDnwwT",
+        "TTTTwwwwwwwDDDDDDDDDDDDDDwwT",
+        "TTTTwwwwwwwDgkgDDDDDDDDDDwwT",
+        "TTTTwwwwwwwDDDDDDnDDDDDDDwwT",
+        "TTTTwwwwwwwwwwwwwwwwwwwwwwwT",
+        "TTTTwwwwwwwwwwwwwwwwwwwwwwwT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    },
+    stamps = { { kind = "mast", x = 16, y = 5 }, { kind = "mast", x = 20, y = 11 } },
+    warps = { { x = 1, y = 10, map = "dm2", tx = 21, ty = 13, face = "up" } },
+    encounters = {
+        { sp = "parrot", min = 19, max = 21, weight = 40 },
+        { sp = "coastrunner", min = 19, max = 21, weight = 30 },
+        { sp = "crawler", min = 19, max = 20, weight = 20 },
+        { sp = "tidehunter", min = 20, max = 21, weight = 10 },
+    },
+    npcs = {
+        { id = "smite", x = 10, y = 10, sprite = "bald", tint = { 0.75, 0.6, 0.45 }, face = "left",
+          trainer = "smite", sight = 0, hidden = Vanished("smite") },
+        { id = "pirate1", x = 13, y = 5, sprite = "hero", tint = { 0.85, 0.3, 0.3 }, face = "down", trainer = "pirate1", sight = 3 },
+        { id = "pirate2", x = 22, y = 12, sprite = "hero", tint = { 0.4, 0.5, 0.9 }, face = "left", trainer = "pirate2", sight = 3 },
+        { id = "greenskin", x = 18, y = 7, sprite = "bald", tint = { 0.5, 0.85, 0.45 }, face = "down",
+          trainer = "greenskin", sight = 0, hidden = Vanished("greenskin") },
+        { id = "cookie", x = 13, y = 14, sprite = "bald", tint = { 0.45, 0.65, 0.95 }, face = "down",
+          trainer = "cookie", sight = 0, hidden = Vanished("cookie") },
+        { id = "vancleef", x = 23, y = 9, sprite = "hero", tint = { 0.85, 0.25, 0.25 }, face = "left",
+          trainer = "vancleef", sight = 0, hidden = Vanished("vancleef") },
     },
 }

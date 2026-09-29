@@ -47,7 +47,11 @@ end
 
 local function SendPresence()
     local s = G.save
-    local _, class = UnitClass and UnitClass("player")
+    local class
+    if UnitClass then
+        local _, c = UnitClass("player")
+        class = c
+    end
     local ok = ns.Comm:Send({ t = "AZP", v = Net.VERSION, m = s.map, x = s.x, y = s.y, f = s.face,
                               p = steps, c = class }, "GUILD", nil, "game")
     if ok then
@@ -182,6 +186,16 @@ function Net:PeerAt(mapId, x, y)
     for _, p in pairs(peers) do
         if p.map == mapId and p.x == x and p.y == y then return p end
     end
+end
+
+-- Guildmates heard from lately (whether or not my own game is open), plus me while I play: the hub's
+-- "N playing now".
+function Net:PlayingNow()
+    local n, now = active and 1 or 0, Now()
+    for _, p in pairs(peers) do
+        if now - (p.seen or 0) <= Net.TIMEOUT then n = n + 1 end
+    end
+    return n
 end
 
 function Net:Count()

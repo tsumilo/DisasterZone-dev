@@ -18,7 +18,9 @@ local function SortList()
 end
 
 -- def = { name = "Council Bingo", desc = "...", icon = "Interface\\Icons\\...", order = 10,
---         create = function(parent) return frame end }   (frame may implement :OnGameShown / :OnGameHidden)
+--         create = function(parent) return frame end,   (frame may implement :OnGameShown / :OnGameHidden)
+--         status = function() return text end }          (optional: the line under the name, e.g. "2 playing now";
+--                                                           nil falls back to the best score)
 function Games:Register(id, def)
     if type(id) ~= "string" or type(def) ~= "table" or type(def.create) ~= "function" then
         error("CDLoot Games:Register(id, def): bad arguments", 2)
@@ -34,6 +36,7 @@ function Games:Register(id, def)
     d.icon = def.icon or "Interface\\Icons\\INV_Misc_Dice_01"
     d.order = tonumber(def.order) or (#list * 10)
     d.create = def.create
+    d.status = def.status
     SortList()
     ns:Fire("GAMES_UPDATED")
 end

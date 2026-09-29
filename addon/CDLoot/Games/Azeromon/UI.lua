@@ -6,6 +6,7 @@
 local addonName, ns = ...
 
 local UI = ns:NewModule("AzeroUI")
+UI.screens = {}            -- [pending kind] = fn(pending): screens other UI files add (UI:RegisterScreen)
 local G = ns.Azero
 local D = ns.AzeroData
 local M = ns.AzeroMon
@@ -35,6 +36,8 @@ local R = {}               -- widgets
 local stack = {}           -- open menus (top = last)
 local focused = false
 local now = 0
+local KH = {}              -- help and reference: key hints, tips, the controls page, the type chart
+local Scr = {}             -- the screens' helpers (summary pages, trade, stable, professions, ...)
 
 ---------------------------------------------------------------------------
 -- Texture helpers
@@ -59,7 +62,8 @@ local function SetTile(t, name)
     local i = name and A[name]
     if not i then t:Hide() return end
     local c, r = i % 16, floor(i / 16)
-    t:SetTexCoord(c * 16 / 256 + E, (c + 1) * 16 / 256 - E, r * 16 / 256 + E, (r + 1) * 16 / 256 - E)
+    local AH = ns.AzeroAtlasHeight or 256
+    t:SetTexCoord(c * 16 / 256 + E, (c + 1) * 16 / 256 - E, r * 16 / AH + E, (r + 1) * 16 / AH - E)
     t:Show()
 end
 
@@ -77,6 +81,7 @@ local function Rot(t, r)
 end
 
 -- size is the old design size; the pixel font runs small, so it is scaled up ~1.4x.
+local measureFs                  -- a hidden font string, to measure text (TextWidth)
 local function Font(parent, size, layer, bold)
     local fs = parent:CreateFontString(nil, layer or "OVERLAY")
     local px = floor((size or 16) * 1.4 + 0.5)
@@ -87,6 +92,22 @@ local function Font(parent, size, layer, bold)
     fs:SetShadowColor(INK_SHADOW[1], INK_SHADOW[2], INK_SHADOW[3], 1)
     fs:SetShadowOffset(2, -2)
     return fs
+end
+
+-- How wide `str` is in the game font at `size` (Font sizes).
+local function TextWidth(str, size)
+    if not measureFs and UIParent then
+        measureFs = UIParent:CreateFontString(nil, "OVERLAY")
+        measureFs:Hide()
+    end
+    if measureFs then
+        local px = floor((size or 16) * 1.4 + 0.5)
+        if not measureFs:SetFont(FONT, px, "") then measureFs:SetFont(FONT_FALLBACK, size or 16, "") end
+        measureFs:SetText(str)
+        local ok, w = pcall(measureFs.GetStringWidth, measureFs)
+        if ok and w and w > 0 then return w end
+    end
+    return #str * (size or 16) * 0.75
 end
 
 -- A "rounded" rectangle: two overlapping rects with the corners cut off.
@@ -112,6 +133,9 @@ local function Box(parent, w, h, level)
     Rounded(f, 5, 2, 0.35, 0.50, 0.62, 2)
     Rounded(f, 6, 2, 0.99, 0.99, 0.97, 3)
     f:EnableMouse(true)
+    f:SetScript("OnMouseDown", function(_, button)          -- a right-click anywhere on a window: back
+        if button == "RightButton" and UI.Press then UI.Press("B") end
+    end)
     return f
 end
 
@@ -197,6 +221,44 @@ local function Bar(parent, w, h)
 end
 
 ---------------------------------------------------------------------------
+-- Time of day: the sky tint over outdoor maps (and battles there). Keyframes by realm hour; colour + alpha
+-- are interpolated between them: warm dawn, clear day, amber dusk, deep blue night.
+---------------------------------------------------------------------------
+
+local SKY = {
+    { h = 0,  c = { 0.05, 0.07, 0.24 }, a = 0.46 },
+    { h = 4.5, c = { 0.05, 0.07, 0.24 }, a = 0.46 },
+    { h = 6,  c = { 0.95, 0.55, 0.45 }, a = 0.18 },
+    { h = 7.5, c = { 1, 1, 1 }, a = 0 },
+    { h = 17.5, c = { 1, 1, 1 }, a = 0 },
+    { h = 19.5, c = { 0.95, 0.45, 0.18 }, a = 0.22 },
+    { h = 21, c = { 0.05, 0.07, 0.24 }, a = 0.46 },
+    { h = 24, c = { 0.05, 0.07, 0.24 }, a = 0.46 },
+}
+
+local function SkyTint(hour)
+    for i = 1, #SKY - 1 do
+        local k0, k1 = SKY[i], SKY[i + 1]
+        if hour >= k0.h and hour <= k1.h then
+            local f = (hour - k0.h) / math.max(0.001, k1.h - k0.h)
+            local c = {}
+            for j = 1, 3 do c[j] = k0.c[j] + (k1.c[j] - k0.c[j]) * f end
+            return c[1], c[2], c[3], k0.a + (k1.a - k0.a) * f
+        end
+    end
+    return 1, 1, 1, 0
+end
+
+local function ApplySky(tex, outdoor, strength)
+    if not outdoor then tex:Hide() return 0 end
+    local r, g, b, a = SkyTint(G:Hour() % 24)
+    a = a * (strength or 1)
+    tex:SetColorTexture(r, g, b, a)
+    tex:SetShown(a > 0.005)
+    return a
+end
+
+---------------------------------------------------------------------------
 -- Models
 ---------------------------------------------------------------------------
 
@@ -214,6 +276,20 @@ local FILL_H, FILL_W = 0.78, 0.86     -- share of the frame's height / width a c
 local SAMPLE_TIME = 1.6               -- seconds of idle animation measured before fitting (a full hover bob)
 local scenes = {}                     -- every scene with a fit pending or done
 
+-- The scenes' light: plain, or the warm glow of a shiny with no skin of its own.
+local function SceneLight(sc, glow)
+    if sc.glow == glow then return end
+    sc.glow = glow
+    if glow then
+        local c = D.SHINY_GLOW
+        pcall(sc.SetLightAmbientColor, sc, c[1] * 0.85, c[2] * 0.85, c[3] * 0.85)
+        pcall(sc.SetLightDiffuseColor, sc, c[1], c[2], c[3])
+    else
+        pcall(sc.SetLightAmbientColor, sc, 0.72, 0.72, 0.72)
+        pcall(sc.SetLightDiffuseColor, sc, 0.85, 0.85, 0.82)
+    end
+end
+
 local function NewScene(parent, w, h)
     local ok, sc = pcall(CreateFrame, "ModelScene", nil, parent)
     if not ok or not sc or not sc.CreateActor then return nil end
@@ -230,7 +306,15 @@ local function NewScene(parent, w, h)
     pcall(actor.SetPreferModelCollisionBounds, actor, false)
     sc.loads = 0
     if actor.SetOnModelLoadedCallback then
-        sc.hasLoadEvent = pcall(actor.SetOnModelLoadedCallback, actor, function() sc.loads = sc.loads + 1 end)
+        sc.hasLoadEvent = pcall(actor.SetOnModelLoadedCallback, actor, function()
+            sc.loads = sc.loads + 1
+            pcall(actor.SetAnimation, actor, 0)
+            if not sc.fit and sc.fitInfo and sc.fitInfo.gaveUp then     -- it loaded after all: fit it now
+                pcall(actor.SetAlpha, actor, 0)
+                sc.fit = { tweak = sc.tweak or 1, since = GetTime(), age = 0, loads = sc.loads - 1,
+                           display = sc.lastDisplay }
+            end
+        end)
     end
     -- camera on the +x axis looking back at the origin; the actor faces +x (toward us) at yaw 0
     pcall(sc.SetCameraPosition, sc, CAM_DIST, 0, 0)
@@ -240,8 +324,7 @@ local function NewScene(parent, w, h)
     pcall(sc.SetCameraFarClip, sc, 400)
     pcall(sc.SetLightVisible, sc, true)
     pcall(sc.SetLightDirection, sc, -0.6, 0.4, -0.7)
-    pcall(sc.SetLightAmbientColor, sc, 0.72, 0.72, 0.72)
-    pcall(sc.SetLightDiffuseColor, sc, 0.85, 0.85, 0.82)
+    SceneLight(sc, false)
     sc.actor = actor
     sc.isScene = true
     sc.camY, sc.camZ = 0, 0
@@ -266,8 +349,6 @@ local function ReadBox(a, method)
     return { x0, y0, z0, x1, y1, z1 }
 end
 
-local function BoxSig(b) return string.format("%.3f %.3f %.3f %.3f %.3f %.3f", b[1], b[2], b[3], b[4], b[5], b[6]) end
-
 -- The box of the pose on screen right now (GetActiveBoundingBox); the all-animations box as a fallback.
 local function MeasureBox(a)
     return ReadBox(a, "GetActiveBoundingBox") or ReadBox(a, "GetMaxBoundingBox")
@@ -287,17 +368,14 @@ local function Clamp(b, lim)
     return c
 end
 
--- The 8 box corners in scene space at scale s, turned by the actor's yaw. The engine's turn direction is not
--- documented, so both directions are included: the fit then holds whichever way the model is really turned.
+-- The 8 box corners in scene space at scale s, turned by yaw (counter-clockwise seen from above, +x toward +y).
 local function Corners(box, s, yaw)
     local out = {}
-    for _, sign in ipairs({ 1, -1 }) do
-        local sn, cs = math.sin(sign * yaw), math.cos(sign * yaw)
-        for _, x in ipairs({ box[1], box[4] }) do
-            for _, y in ipairs({ box[2], box[5] }) do
-                for _, z in ipairs({ box[3], box[6] }) do
-                    out[#out + 1] = { (x * cs - y * sn) * s, (x * sn + y * cs) * s, z * s }
-                end
+    local sn, cs = math.sin(yaw), math.cos(yaw)
+    for _, x in ipairs({ box[1], box[4] }) do
+        for _, y in ipairs({ box[2], box[5] }) do
+            for _, z in ipairs({ box[3], box[6] }) do
+                out[#out + 1] = { (x * cs - y * sn) * s, (x * sn + y * cs) * s, z * s }
             end
         end
     end
@@ -317,6 +395,19 @@ local function Project(sc, x, y, z)
     return px / es, py / es
 end
 
+-- The turn the box must be given so it matches what is drawn. Creatures are turned so they face each other on
+-- screen (the player's toward screen-right at +0.8; /cdl azeromon flip fixes it if the engine turns the other
+-- way), so the ON-SCREEN turn is the requested one. Which scene axis runs toward screen-right is read from the
+-- engine's projection once per scene.
+local function ScreenYaw(sc)
+    if not sc.rightSign then
+        local cx = Project(sc, 0, sc.camY or 0, sc.camZ or 0)
+        local ux = Project(sc, 0, (sc.camY or 0) + 1, sc.camZ or 0)
+        if cx and ux and ux ~= cx then sc.rightSign = (ux > cx) and 1 or -1 end
+    end
+    return (sc.viewYaw or 0) * (sc.rightSign or 1)
+end
+
 -- Screen rectangle covered by the fitted box (UI units), or nil when the client cannot project.
 local function ProjectedRect(sc, box, s, yaw)
     local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge
@@ -332,13 +423,12 @@ local function ProjectedRect(sc, box, s, yaw)
 end
 
 -- Checks the fit with the engine's own projection and corrects size and camera: the creature fills exactly
--- FILL_H of the height or FILL_W of the width (whichever limits), its lowest point sits 3% above the bottom
--- edge, and it is centred sideways. This makes the result independent of the field-of-view convention,
--- perspective and the turn direction. Returns the final rectangle, or nil when projection is unavailable.
-local function RefineWithProjection(sc, box, s, tweak)
+-- FILL_H of the height or FILL_W of the width (whichever limits), its ground sits 3% above the bottom edge,
+-- and it is centred sideways. This makes the result independent of the field-of-view convention and
+-- perspective. Returns the final rectangle, or nil when projection is unavailable.
+local function RefineWithProjection(sc, box, s, tweak, yaw)
     local a = sc.actor
     local W, H = sc:GetWidth(), sc:GetHeight()
-    local yaw = sc.facing or 0
     for _ = 1, 4 do
         local rx0, ry0, rx1, ry1 = ProjectedRect(sc, box, s, yaw)
         if not rx0 or ry1 - ry0 <= 0 or rx1 - rx0 <= 0 then return nil end
@@ -356,7 +446,7 @@ local function RefineWithProjection(sc, box, s, tweak)
         local _, uz = Project(sc, 0, sc.camY, sc.camZ + 1)
         if not cx or not ux or not uz or math.abs(ux - cx) < 1e-6 or math.abs(uz - cy) < 1e-6 then return nil end
         local ppuY, ppuZ = ux - cx, uz - cy
-        local dy = 0.03 * H - ry0                  -- raise the lowest point to 3% above the bottom edge
+        local dy = 0.03 * H - ry0                  -- ground 3% above the bottom edge
         local dx = W / 2 - (rx0 + rx1) / 2         -- centre sideways
         if math.abs(dy) < 0.25 and math.abs(dx) < 0.25 and math.abs(k - 1) <= 0.005 then break end
         sc.camZ = sc.camZ - dy / ppuZ
@@ -364,14 +454,29 @@ local function RefineWithProjection(sc, box, s, tweak)
         pcall(sc.SetCameraPosition, sc, CAM_DIST, sc.camY, sc.camZ)
     end
     sc.fitted = s
-    local rx0, ry0, rx1, ry1 = ProjectedRect(sc, box, s, yaw)
-    return rx0, ry0, rx1, ry1
+    return ProjectedRect(sc, box, s, yaw)
 end
 
--- Fits a creature (called every frame while a fit is pending):
+-- Shown without a fit (nothing measurable): unscaled, its origin (ground) on the platform line.
+local function GiveUp(sc)
+    local a = sc.actor
+    pcall(a.SetScale, a, 1)
+    sc.camY, sc.camZ = 0, VIS_H / 2 - VIS_H * 0.03
+    pcall(sc.SetCameraPosition, sc, CAM_DIST, sc.camY, sc.camZ)
+    pcall(a.SetAlpha, a, 1)
+    sc.fit, sc.fitted, sc.fitBox = nil, nil, nil
+    sc.fitInfo = { gaveUp = true }
+end
+
+-- Fits a creature (called every frame while a fit is pending and its frame is visible; fit.age counts only
+-- that visible time):
 --  1. wait until the NEW model has loaded: the template's load event, or else a model file different from the
---     one before (the engine keeps reporting the previous creature's box while the next one loads);
---  2. sample the idle pose for SAMPLE_TIME (hovering fliers bob), kept inside the all-animations box;
+--     one before (the engine keeps reporting the previous creature's box while the next one loads); after 4 s
+--     whatever is loaded is trusted; after 10 s with nothing to measure it is shown unfitted (and refitted if
+--     its load event still comes);
+--  2. sample the idle pose for SAMPLE_TIME (hovering fliers bob), kept inside the all-animations box, with the
+--     model's own ground (origin) always included: every creature stands (or hovers above) the platform line,
+--     and a flier's death animation lands on it instead of falling through the bottom edge;
 --  3. first fit from the numbers (telephoto camera: nearly flat), with the camera moved, never the actor
 --     (actor positions are multiplied by the actor's scale);
 --  4. check and correct it with the engine's own projection.
@@ -379,7 +484,7 @@ local function FitScene(sc)
     local fit = sc.fit
     if not fit then return end
     local a = sc.actor
-    local now = GetTime()
+    local age = fit.age or 0
     if not fit.ready then
         local loaded, file = true, nil
         if a.IsLoaded then
@@ -393,31 +498,31 @@ local function FitScene(sc)
         -- fresh: the template's load event fired for this model, or (no event, or none within a second) the
         -- model file changed from the previous creature's (the same file after 0.6 s: two species, one model)
         local fresh = sc.hasLoadEvent and sc.loads ~= fit.loads
-        if not fresh and (not sc.hasLoadEvent or now - fit.since > 1.0) then
-            fresh = file ~= nil and file ~= 0 and (file ~= fit.prevFile or now - fit.since > 0.6)
+        if not fresh and (not sc.hasLoadEvent or age > 1.0) then
+            fresh = file ~= nil and file ~= 0 and (file ~= fit.prevFile or age > 0.6)
         end
-        local box = loaded and fresh and MeasureBox(a)
-        -- still the previous creature's box (same numbers as last time, for a different species): keep waiting
-        if box and fit.prevSig and BoxSig(box) == fit.prevSig and now - fit.since < 1.5 then box = nil end
-        if not box then
-            if now - fit.since > 4 then            -- never measured: show it as it is rather than not at all
-                sc.fit = nil
-                pcall(a.SetAlpha, a, 1)
-            end
+        local box = loaded and MeasureBox(a)
+        -- a fresh load (event or a new model file) means the box is this creature's; two species sharing one
+        -- model file legitimately share a box. With no signal at all, whatever is loaded is trusted after 4 s.
+        local usable = box and (fresh or age > 4)
+        if not usable then
+            fit.timedOut = age > 4
+            if age > 10 then GiveUp(sc) end
             return
         end
         fit.ready = true
-        fit.sig = BoxSig(box)
     end
     local cur = MeasureBox(a)
     if cur then fit.box = Union(fit.box, cur) end
-    fit.sampleStart = fit.sampleStart or now
-    if now - fit.sampleStart < SAMPLE_TIME or not fit.box then return end
-    local b = Clamp(fit.box, ReadBox(a, "GetMaxBoundingBox"))
+    fit.sampleStart = fit.sampleStart or age
+    if age - fit.sampleStart < SAMPLE_TIME or not fit.box then return end
+    local pose = Clamp(fit.box, ReadBox(a, "GetMaxBoundingBox"))
+    local b = { pose[1], pose[2], math.min(pose[3], 0), pose[4], pose[5], pose[6] }
 
     -- first fit from the numbers
+    local yaw = ScreenYaw(sc)
     local lo, hi = math.huge, -math.huge
-    for _, p in ipairs(Corners(b, 1, sc.facing or 0)) do
+    for _, p in ipairs(Corners(b, 1, yaw)) do
         if p[2] < lo then lo = p[2] end
         if p[2] > hi then hi = p[2] end
     end
@@ -432,24 +537,29 @@ local function FitScene(sc)
     sc.fitted = s
 
     -- then the engine's word on where it actually lands
-    local rx0, ry0, rx1, ry1 = RefineWithProjection(sc, b, s, fit.tweak)
+    local rx0, ry0, rx1, ry1 = RefineWithProjection(sc, b, s, fit.tweak, yaw)
     if rx0 then
         sc.fitInfo = { h = (ry1 - ry0) / H, w = (rx1 - rx0) / W, feet = ry0 / H, center = (rx0 + rx1) / 2 / W,
-                       x0 = b[1], x1 = b[4], z0 = b[3], z1 = b[6], projected = true }
+                       x0 = b[1], x1 = b[4], z0 = pose[3], z1 = pose[6], ground = b[3], projected = true }
     else
         local sf = sc.fitted
-        sc.fitInfo = { h = height * sf / VIS_H, w = width * sf / visW,
-                       feet = (b[3] * sf - (sc.camZ - VIS_H / 2)) / VIS_H, center = 0.5, z0 = b[3], z1 = b[6] }
+        sc.fitInfo = { h = height * sf / VIS_H, w = width * sf / visW, x0 = b[1], x1 = b[4],
+                       feet = (b[3] * sf - (sc.camZ - VIS_H / 2)) / VIS_H, center = 0.5,
+                       z0 = pose[3], z1 = pose[6], ground = b[3] }
     end
     pcall(a.SetAlpha, a, 1)
     sc.fit = nil
     sc.fitBox = b
-    sc.lastSig = fit.sig
+    sc.lastDisplay = fit.display
 end
 
-local function FitScenes()
+local function FitScenes(elapsed)
     for _, sc in ipairs(scenes) do
-        if sc.fit and sc:IsVisible() then FitScene(sc) end
+        local fit = sc.fit
+        if fit and sc:IsVisible() then
+            fit.age = (fit.age or 0) + (elapsed or 0)
+            FitScene(sc)
+        end
     end
 end
 
@@ -479,18 +589,23 @@ local function CamFor(m, s)
     return (m.camScale or 1.2) * (s.cam or 1) * tweak
 end
 
-local function ShowCreature(m, sp, facing)
+-- shiny: the species' other skin (D.shinyDisplay), or its own skin in a golden light when it has none.
+local function ShowCreature(m, sp, facing, shiny)
     local s = sp and D.species[sp]
     if not s then m:Hide() m.sp = nil return end
     m:Show()
     m.facing = facing and facing * FacingSign() or 0
+    m.viewYaw = facing or 0                        -- the turn as seen on screen (see ScreenYaw)
+    shiny = shiny and true or false
+    local display = (shiny and D.shinyDisplay[sp]) or s.display
     if m.isScene then
         local over = G:Data().zoom
         local tweak = type(over) == "table" and tonumber(over[s.id]) or 1
         local a = m.actor
         pcall(a.SetYaw, a, m.facing)
-        if m.sp ~= sp or m.tweak ~= tweak then
-            m.sp, m.tweak = sp, tweak
+        SceneLight(m, shiny and not D.shinyDisplay[sp])
+        if m.sp ~= sp or m.tweak ~= tweak or m.display ~= display then
+            m.sp, m.tweak, m.display = sp, tweak, display
             local prevFile
             if a.GetModelFileID then
                 local ok, v = pcall(a.GetModelFileID, a)
@@ -502,8 +617,11 @@ local function ShowCreature(m, sp, facing)
             pcall(a.SetPosition, a, 0, 0, 0)
             m.camY, m.camZ = 0, 0
             pcall(m.SetCameraPosition, m, CAM_DIST, 0, 0)
-            m.fit = { tweak = tweak, since = GetTime(), loads = m.loads, prevFile = prevFile, prevSig = m.lastSig }
-            pcall(a.SetModelByCreatureDisplayID, a, s.display)
+            m.fitted, m.fitInfo, m.fitBox = nil, nil, nil
+            m.fit = { tweak = tweak, since = GetTime(), age = 0, loads = m.loads, prevFile = prevFile,
+                      display = display }
+            pcall(a.SetModelByCreatureDisplayID, a, display)
+            pcall(a.SetAnimation, a, 0)            -- idle: never inherit the last creature's death / attack pose
             FitScene(m)
         end
         return
@@ -659,15 +777,141 @@ end
 -- opts = { x, y, w, rowH, cols, onCancel, anchor, title, level, noBox, onMove }
 ---------------------------------------------------------------------------
 
-local menuPool = {}
+local MenuMoveBy          -- (defined with the menu keys below)
 
+local menuPool = {}
+local DESC_H = 86          -- the description box at the bottom (R.bagDesc, 80 high) plus a small gap
+
+-- A small solid triangle pointing up (the scroll markers; Triangle only does right / down).
+local function UpTriangle(parent, size, r, g, b)
+    local f = CreateFrame("Frame", nil, parent)
+    local steps, s = 4, size
+    local strip = s / (steps * 2)
+    f:SetSize(s, steps * strip * 2)
+    for i = 0, steps - 1 do
+        local t = Tex(f, "OVERLAY", 2)
+        t:SetColorTexture(r, g, b, 1)
+        t:SetSize(s - i * (s / steps), strip * 2)
+        t:SetPoint("BOTTOM", 0, i * strip * 2)
+    end
+    return f
+end
+
+local function NewRow(f)
+    local row = CreateFrame("Button", nil, f)
+    row.cursor = Triangle(row, "right", 14, INK[1], INK[2], INK[3])
+    row.cursor:SetPoint("LEFT", 4, 0)
+    row.fs = Font(row, 16)
+    row.fs:SetPoint("LEFT", 22, 0)
+    row.fs:SetJustifyV("MIDDLE")
+    row.right = Font(row, 13)
+    row.right:SetPoint("RIGHT", -6, 0)
+    row.right:SetJustifyH("RIGHT")
+    row.right:SetJustifyV("MIDDLE")
+    row.bar = Bar(row, 110, 8)
+    row.bar.bg:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -6, 3)
+    row.icon = Tex(row, "ARTWORK")
+    row.icon:SetPoint("LEFT", 22, 0)
+    row:SetScript("OnEnter", function(self)
+        local menu = self:GetParent().menu
+        if menu and stack[#stack] == menu and self.idx then menu.cursor = self.idx UI:RefreshMenu(menu) end
+    end)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then
+            if UI.Press then UI.Press("B") end
+            return
+        end
+        local menu = self:GetParent().menu
+        if menu and stack[#stack] == menu and self.idx then menu.cursor = self.idx UI:MenuSelect(menu) end
+    end)
+    return row
+end
+
+-- Fills the visible rows from menu.first (a scrolling window over the items).
+local function DrawRows(menu)
+    local f, items, cols, rowH = menu.frame, menu.items, menu.cols, menu.rowH
+    local scrolls = menu.perPage < #items
+    local gutter = scrolls and 14 or 0                  -- room on the right for the scroll markers
+    local colW = (f:GetWidth() - 24 - gutter) / cols
+    local top = menu.opts.title and 42 or 12
+    for slot = 1, menu.perPage do
+        local idx = menu.first + slot - 1
+        local it = items[idx]
+        local row = f.rows[slot]
+        if not row then
+            row = NewRow(f)
+            f.rows[slot] = row
+        end
+        if it then
+            row.idx = idx
+            row:SetSize(colW, rowH)
+            row:ClearAllPoints()
+            local c, r = (slot - 1) % cols, floor((slot - 1) / cols)
+            row:SetPoint("TOPLEFT", f, "TOPLEFT", 12 + c * colW, -top - r * rowH)
+            row.fs:SetText(it.text or "")
+            row.fs:ClearAllPoints()
+            row.fs:SetPoint("LEFT", it.icon and (26 + rowH) or 24, it.bar and 5 or 0)
+            if it.disabled then row.fs:SetTextColor(0.66, 0.66, 0.68) else row.fs:SetTextColor(INK[1], INK[2], INK[3]) end
+            local rc = it.rightColor or { 0.36, 0.42, 0.55 }
+            row.right:SetTextColor(rc[1], rc[2], rc[3])
+            row.right:SetText(it.right or "")
+            row.right:ClearAllPoints()
+            row.right:SetPoint("RIGHT", -6, it.bar and 5 or 0)
+            row.icon:SetSize(rowH - 6, rowH - 6)       -- (pooled rows keep an old size otherwise)
+            if it.icon then row.icon:SetTexture(it.icon) row.icon:Show() else row.icon:Hide() end
+            row.bar:SetShown(it.bar ~= nil)
+            if it.bar then row.bar:SetHP(it.bar) end
+            row.cursor:SetShown(idx == menu.cursor)
+            row:Show()
+        else
+            row.idx = nil
+            row:Hide()
+        end
+    end
+    for slot = menu.perPage + 1, #f.rows do
+        f.rows[slot].idx = nil
+        f.rows[slot]:Hide()
+    end
+    -- the markers sit in the gutter beside the first and last visible line
+    local lines = menu.perPage / cols
+    f.upMark:ClearAllPoints()
+    f.upMark:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -top - (rowH - 10) / 2)
+    f.downMark:ClearAllPoints()
+    f.downMark:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -top - (lines - 1) * rowH - (rowH - 10) / 2)
+    f.upMark:SetShown(scrolls and menu.first > 1)
+    f.downMark:SetShown(scrolls and menu.first + menu.perPage - 1 < #items)
+end
+
+-- Keeps the cursor inside the visible window (whole lines of `cols` items).
+local function ScrollToCursor(menu)
+    local cols = menu.cols
+    local line = floor((menu.cursor - 1) / cols)
+    local firstLine = floor((menu.first - 1) / cols)
+    local lines = menu.perPage / cols
+    if line < firstLine then firstLine = line end
+    if line >= firstLine + lines then firstLine = line - lines + 1 end
+    menu.first = firstLine * cols + 1
+end
+
+-- opts = { x, y, w, rowH, cols, h, onCancel, anchor, title, level, onMove, cursor,
+--          desc = true when the description box (R.bagDesc) shows under this menu, or the height of what does }
+-- Menus longer than the space down to the screen bottom (or the description box) scroll with the cursor.
 local function PushMenu(items, opts)
     opts = opts or {}
     local cols = opts.cols or 1
     local rowH = opts.rowH or 32
     local w = opts.w or 160
+    local titleH = opts.title and 30 or 0
     local rows = math.ceil(#items / cols)
-    local h = opts.h or (rows * rowH + 24 + (opts.title and 30 or 0))
+    local perLines = rows
+    if not opts.anchor and not opts.h then
+        local topY = -(opts.y or -6)                           -- distance from the screen top
+        local descH = opts.desc == true and DESC_H or tonumber(opts.desc) or 0
+        local room = SH - topY - 8 - descH
+        perLines = max(1, min(rows, floor((room - 24 - titleH) / rowH)))
+    end
+    local h = opts.h or (perLines * rowH + 24 + titleH)
     local f = table.remove(menuPool) or Box(screen, w, h)
     f:SetParent(screen)
     f:SetSize(w, h)
@@ -688,63 +932,27 @@ local function PushMenu(items, opts)
     f.titleFs:SetTextColor(0.20, 0.36, 0.62)
     f.titleFs:SetText(opts.title or "")
     f.titleFs:SetShown(opts.title ~= nil)
-    local top = opts.title and 42 or 12
-    local colW = (w - 24) / cols
-    for i, it in ipairs(items) do
-        local row = f.rows[i]
-        if not row then
-            row = CreateFrame("Button", nil, f)
-            row.cursor = Triangle(row, "right", 14, INK[1], INK[2], INK[3])
-            row.cursor:SetPoint("LEFT", 4, 0)
-            row.fs = Font(row, 16)
-            row.fs:SetPoint("LEFT", 22, 0)
-            row.fs:SetJustifyV("MIDDLE")
-            row.right = Font(row, 13)
-            row.right:SetPoint("RIGHT", -6, 0)
-            row.right:SetJustifyH("RIGHT")
-            row.right:SetJustifyV("MIDDLE")
-            row.bar = Bar(row, 110, 8)
-            row.bar.bg:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -6, 3)
-            row.icon = Tex(row, "ARTWORK")
-            row.icon:SetSize(rowH - 6, rowH - 6)
-            row.icon:SetPoint("LEFT", 22, 0)
-            row:SetScript("OnEnter", function(self)
-                local menu = self:GetParent().menu
-                if menu and stack[#stack] == menu then menu.cursor = self.idx UI:RefreshMenu(menu) end
-            end)
-            row:SetScript("OnClick", function(self)
-                local menu = self:GetParent().menu
-                if menu and stack[#stack] == menu then menu.cursor = self.idx UI:MenuSelect(menu) end
-            end)
-            f.rows[i] = row
-        end
-        row.idx = i
-        row:SetSize(colW, rowH)
-        row:ClearAllPoints()
-        local c, r = (i - 1) % cols, floor((i - 1) / cols)
-        row:SetPoint("TOPLEFT", f, "TOPLEFT", 12 + c * colW, -top - r * rowH)
-        row.fs:SetText(it.text or "")
-        row.fs:ClearAllPoints()
-        row.fs:SetPoint("LEFT", it.icon and (26 + rowH) or 24, it.bar and 5 or 0)
-        if it.disabled then row.fs:SetTextColor(0.66, 0.66, 0.68) else row.fs:SetTextColor(INK[1], INK[2], INK[3]) end
-        local rc = it.rightColor or { 0.36, 0.42, 0.55 }
-        row.right:SetTextColor(rc[1], rc[2], rc[3])
-        row.right:SetText(it.right or "")
-        row.right:ClearAllPoints()
-        row.right:SetPoint("RIGHT", -6, it.bar and 5 or 0)
-        if it.icon then row.icon:SetTexture(it.icon) row.icon:Show() else row.icon:Hide() end
-        row.bar:SetShown(it.bar ~= nil)
-        if it.bar then row.bar:SetHP(it.bar) end
-        row:Show()
+    if not f.upMark then
+        f.upMark = UpTriangle(f, 10, 0.36, 0.42, 0.55)
+        f.downMark = Triangle(f, "down", 10, 0.36, 0.42, 0.55)
+        f:EnableMouseWheel(true)
+        f:SetScript("OnMouseWheel", function(self, delta)
+            local menu = self.menu
+            if menu and stack[#stack] == menu then MenuMoveBy(menu, delta > 0 and "up" or "down") end
+        end)
     end
-    for i = #items + 1, #f.rows do f.rows[i]:Hide() end
-    -- pooled frames keep their children's old levels: lift the rows (and cursors) with the frame
+    local menu = { frame = f, items = items, cursor = opts.cursor or 1, cols = cols, opts = opts,
+                   rowH = rowH, perPage = perLines * cols, first = 1 }
+    f.menu = menu
+    ScrollToCursor(menu)
+    DrawRows(menu)
+    -- pooled frames keep their children's old levels: lift the rows (and cursors, markers) with the frame
     for _, row in ipairs(f.rows) do
         row:SetFrameLevel(level + 1)
         row.cursor:SetFrameLevel(level + 2)
     end
-    local menu = { frame = f, items = items, cursor = opts.cursor or 1, cols = cols, opts = opts }
-    f.menu = menu
+    f.upMark:SetFrameLevel(level + 2)
+    f.downMark:SetFrameLevel(level + 2)
     f:Show()
     stack[#stack + 1] = menu
     UI:RefreshMenu(menu)
@@ -752,8 +960,9 @@ local function PushMenu(items, opts)
 end
 
 function UI:RefreshMenu(menu)
-    for i, row in ipairs(menu.frame.rows) do
-        if row:IsShown() then row.cursor:SetShown(i == menu.cursor) end
+    if menu.perPage then
+        ScrollToCursor(menu)
+        DrawRows(menu)
     end
     if menu.opts.onMove then menu.opts.onMove(menu.cursor, menu) end
 end
@@ -790,6 +999,8 @@ local function MenuMove(menu, dir)
     UI:RefreshMenu(menu)
 end
 
+MenuMoveBy = function(menu, dir) MenuMove(menu, dir) end
+
 local function MenuKey(menu, key)
     if key == "A" then UI:MenuSelect(menu)
     elseif key == "B" then
@@ -802,11 +1013,25 @@ end
 ---------------------------------------------------------------------------
 
 local uiMessage = nil
+-- A message in the text box, answered with Space / X. When a menu covers the text box (the move list sits in its
+-- place, a bag or a summary on top), the box comes up over it for the message and goes back down afterwards.
 local function Message(str, after)
+    local tb = R.textbox
+    local base = tb:GetFrameLevel()
+    local top = stack[#stack]
+    local over = top and top.frame and top.frame:IsShown() and top.frame:GetFrameLevel() + 10
+    if over and over > base then
+        tb:SetFrameLevel(over)
+        R.textArrow:SetFrameLevel(over + 2)
+        R.nameTab:SetFrameLevel(over - 1)
+    end
     uiMessage = { after = after }
     SetText(str, { onDone = function()
         uiMessage = nil
         ClearText()
+        tb:SetFrameLevel(base)
+        R.textArrow:SetFrameLevel(base + 2)
+        R.nameTab:SetFrameLevel(base - 1)
         if after then after() end
     end })
 end
@@ -815,16 +1040,47 @@ end
 -- Screens: summary, log
 ---------------------------------------------------------------------------
 
-local function ShowSummary(mon, onClose)
-    local f = R.summary
-    -- above every open menu (menus stack upward), with its model above the box
-    local top = stack[#stack]
-    local level = max(100, top and top.frame and top.frame:GetFrameLevel() + 10 or 0)
-    f:SetFrameLevel(level)
-    f.model:SetFrameLevel(level + 2)
-    f:Show()
+-- The summary: an INFO page (stats, moves) and a GEAR page (the five gear slots and the flask around the beast).
+-- Left / right switch pages; on the gear page up / down pick a slot and Space changes what's in it.
+Scr.GEAR_ORDER = { "claws", "shoulders", "chest", "wrists", "waist", "flask" }
+Scr.STAT_SHORT = { hp = "HP", atk = "Atk", def = "Def", spa = "SpA", spd = "SpD", spe = "Spe" }
+
+function Scr.SlotName(slot)
+    if slot == "flask" then return "Flask" end
+    for _, g in ipairs(D.gearSlots or {}) do if g.id == slot then return g.name end end
+    return slot
+end
+
+function Scr.EmptySlotTexture(slot)
+    local inv, fallback = "Trinket0Slot", "Trinket"
+    for _, g in ipairs(D.gearSlots or {}) do if g.id == slot then inv, fallback = g.inv, g.fallback end end
+    if GetInventorySlotInfo then
+        local ok, _, tex = pcall(GetInventorySlotInfo, inv)
+        if ok and tex then return tex end
+    end
+    return "Interface\\PaperDoll\\UI-PaperDoll-Slot-" .. fallback
+end
+
+function Scr.BonusText(get)
+    local parts = {}
+    for _, st in ipairs(M.STATS) do
+        local m = get(st)
+        if m and m ~= 1 then parts[#parts + 1] = string.format("+%d%% %s", floor((m - 1) * 100 + 0.5), Scr.STAT_SHORT[st]) end
+    end
+    return table.concat(parts, ", ")
+end
+
+function Scr.PartyIndex(mon)
+    for i, m in ipairs(G.save.party) do if m == mon then return i end end
+end
+
+function Scr.SlotItem(mon, slot)
+    if slot == "flask" then return mon.flask and mon.flask.id end
+    return type(mon.gear) == "table" and mon.gear[slot] or nil
+end
+
+function Scr.SummaryInfoText(mon)
     local s = D.species[mon.sp]
-    f.title:SetText(string.format("%s   Lv%d", M.Name(mon), mon.lvl))
     local lines = {
         string.format("No. %03d  %s", s.num, D.types[s.type].name:upper()),
         string.format("HP  %d/%d%s", mon.hp, M.MaxHP(mon), mon.status and ("  " .. D.status[mon.status].short) or ""),
@@ -837,11 +1093,131 @@ local function ShowSummary(mon, onClose)
         local md = D.moves[mv.id]
         lines[#lines + 1] = string.format("%s  %d/%d", md.name, mv.pp, md.pp)
     end
-    f.body:SetText(table.concat(lines, "\n"))
-    ShowCreature(f.model, mon.sp, 0.5)
-    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, opts = {
+    return table.concat(lines, "\n")
+end
+
+function Scr.SlotDetail(mon, slot)
+    local id = Scr.SlotItem(mon, slot)
+    local def = id and D.items[id]
+    if slot == "flask" then
+        if not def then return "Flask: none. Space: give it a flask (Alchemy)." end
+        return string.format("Flask: %s (%s), %d %s left.", def.name, Scr.BonusText(function(st) return def.bonus[st] end),
+            mon.flask.n, mon.flask.n == 1 and "battle" or "battles")
+    end
+    if not def then return Scr.SlotName(slot) .. ": empty. Space: put gear on (Blacksmithing)." end
+    return string.format("%s: %s (%s).", Scr.SlotName(slot), def.name, Scr.BonusText(function(st) return def.bonus[st] end))
+end
+
+Scr.RenderSummary = function(sm)
+    local f, mon = R.summary, sm.mon
+    f.title:SetText(string.format("%s   Lv%d", M.Name(mon), mon.lvl))
+    local gear = sm.page == "gear"
+    f.tabs:SetText(gear and "|cffa8a8b0INFO|r   |cff335c9eGEAR|r" or "|cff335c9eINFO|r   |cffa8a8b0GEAR|r")
+    f.body:SetShown(not gear)
+    f.gear:SetShown(gear)
+    f.model:ClearAllPoints()
+    if gear then
+        f.model:SetPoint("TOP", f, "TOP", 0, -52)
+        f.hint:SetText("Left/Right: info   Space: change   X: close")
+        for i, cell in ipairs(f.cells) do
+            local id = Scr.SlotItem(mon, Scr.GEAR_ORDER[i])
+            local def = id and D.items[id]
+            cell.icon:SetShown(def ~= nil)
+            if def then cell.icon:SetTexture(def.icon) end
+            cell.empty:SetShown(def == nil)
+            cell:Select(i == sm.cursor)
+        end
+        f.detail:SetText(sm.note or Scr.SlotDetail(mon, Scr.GEAR_ORDER[sm.cursor]))
+        sm.note = nil
+        local total = Scr.BonusText(function(st) return M.Bonus(mon, st) end)
+        f.totals:SetText(total ~= "" and ("All together: " .. total) or "No gear or flask yet.")
+    else
+        f.model:SetPoint("TOPRIGHT", -14, -40)
+        f.hint:SetText("Left/Right: gear   Space / X: close")
+        f.body:SetText(Scr.SummaryInfoText(mon))
+    end
+end
+
+-- Space on a gear slot: what the bag has for it, and "Take off".
+function Scr.GearSlotAct(sm)
+    local slot, mon = Scr.GEAR_ORDER[sm.cursor], sm.mon
+    local idx = Scr.PartyIndex(mon)
+    if G.battle then sm.note = "You can't change gear during a battle." Scr.RenderSummary(sm) return end
+    if not idx then sm.note = "Only beasts in your party can change gear." Scr.RenderSummary(sm) return end
+    local bag = G.save.bag
+    local items = {}
+    local function done(msg)
+        sm.note = msg
+        Scr.RenderSummary(sm)
+    end
+    for _, id in ipairs(D.itemOrder) do
+        local def = D.items[id]
+        local fits = (slot == "flask" and def.use == "flask") or (def.use == "gear" and def.slot == slot)
+        if fits and (bag[id] or 0) > 0 then
+            items[#items + 1] = { text = def.name, icon = def.icon,
+                right = Scr.BonusText(function(st) return def.bonus and def.bonus[st] end),
+                onSelect = function(_, m)
+                    PopMenu(m)
+                    local _, msg
+                    if slot == "flask" then _, msg = G:UseFlask(idx, id) else _, msg = G:Equip(idx, id) end
+                    done(msg)
+                end }
+        end
+    end
+    if slot ~= "flask" and Scr.SlotItem(mon, slot) then
+        items[#items + 1] = { text = "Take off", onSelect = function(_, m)
+            PopMenu(m)
+            local _, msg = G:Unequip(idx, slot)
+            done(msg)
+        end }
+    end
+    if #items == 0 then
+        done(slot == "flask" and "You have no flasks. Alchemists brew them."
+            or ("You have nothing for the " .. Scr.SlotName(slot) .. " slot. Blacksmiths make gear."))
+        return
+    end
+    items[#items + 1] = { text = "Cancel", onSelect = function(_, m) PopMenu(m) end }
+    PushMenu(items, { w = 330, x = floor(SW / 2 - 165), y = -110, rowH = 32, title = Scr.SlotName(slot):upper(),
+        onCancel = function(m) PopMenu(m) end })
+end
+
+function Scr.SummaryKey(top, key)
+    local sm = top.summary
+    if key == "left" or key == "right" then
+        sm.page = (sm.page == "gear") and "info" or "gear"
+        Scr.RenderSummary(sm)
+        return
+    end
+    if key == "B" or (key == "A" and sm.page ~= "gear") then
+        top.opts.onCancel(top)
+        R.summary:Hide()
+        return
+    end
+    if sm.page == "gear" then
+        if key == "down" then sm.cursor = sm.cursor % #Scr.GEAR_ORDER + 1 Scr.RenderSummary(sm)
+        elseif key == "up" then sm.cursor = (sm.cursor - 2) % #Scr.GEAR_ORDER + 1 Scr.RenderSummary(sm)
+        elseif key == "A" then Scr.GearSlotAct(sm) end
+    end
+end
+
+local function ShowSummary(mon, onClose, page)
+    local f = R.summary
+    -- above every open menu (menus stack upward), with its model above the box
+    local top = stack[#stack]
+    local level = max(100, top and top.frame and top.frame:GetFrameLevel() + 10 or 0)
+    f:SetFrameLevel(level)
+    f.model:SetFrameLevel(level + 2)
+    f.gear:SetFrameLevel(level + 1)
+    for _, cell in ipairs(f.cells) do cell:SetFrameLevel(level + 3) end
+    f:Show()
+    ShowCreature(f.model, mon.sp, 0.5, mon.shiny)
+    f.star:SetShown(mon.shiny == true)
+    local sm = { mon = mon, page = page or "info", cursor = 1 }
+    local entry = { frame = f, items = {}, cursor = 1, cols = 1, summary = sm, isSummary = true, opts = {
         onCancel = function(menu) PopMenu(menu) if onClose then onClose() end end } }
-    stack[#stack].isSummary = true
+    sm.entry = entry
+    stack[#stack + 1] = entry
+    Scr.RenderSummary(sm)
 end
 
 local function OpenLog()
@@ -852,7 +1228,8 @@ local function OpenLog()
         local sp = D.species[id]
         local seen, caught = s.seen[id], s.caught[id]
         items[i] = { text = string.format("%03d  %s", sp.num, seen and sp.name or "-----"),
-                     right = caught and "tamed" or (seen and "seen" or ""),
+                     right = (s.shinyCaught and s.shinyCaught[id]) and "shiny" or caught and "tamed" or (seen and "seen" or ""),
+                     rightColor = (s.shinyCaught and s.shinyCaught[id]) and { 0.79, 0.54, 0.04 } or nil,
                      onSelect = function() end }
     end
     local f = R.log
@@ -886,7 +1263,8 @@ local function PartyItems(onPick)
     local items = {}
     for i, mon in ipairs(ActiveParty()) do
         local st = mon.status and (" " .. D.status[mon.status].short) or ""
-        items[i] = { text = string.format("%s  Lv%d%s", M.Name(mon), mon.lvl, st),
+        local name = mon.shiny and ("|cffc98a0a" .. M.Name(mon) .. "|r") or M.Name(mon)
+        items[i] = { text = string.format("%s  Lv%d%s", name, mon.lvl, st),
                      right = string.format("%d/%d", mon.hp, M.MaxHP(mon)), bar = mon.hp / M.MaxHP(mon),
                      onSelect = function(idx, menu) onPick(idx, menu) end }
     end
@@ -894,13 +1272,16 @@ local function PartyItems(onPick)
 end
 
 -- ctx: nil (start menu) | "battle" | "forced" (a fainted creature must be replaced) | "item" (pick a target)
+--      | "teach" (pick a beast for the pet trainer) | "trade" (pick the beast to offer)
+--      | "stable" (pick a beast to leave with the Stable Master)
 local function OpenParty(ctx, onDone)
     local b = G.battle
     R.bagDesc:Hide()
+    local picking = ctx == "item" or ctx == "teach" or ctx == "trade" or ctx == "stable" or ctx == "equip"
     local partyMenu
     partyMenu = PushMenu(PartyItems(function(idx, menu)
         local mon = ActiveParty()[idx]
-        if ctx == "item" then
+        if picking then
             onDone(idx, menu)
             return
         end
@@ -917,6 +1298,10 @@ local function OpenParty(ctx, onDone)
         opts[#opts + 1] = { text = "Summary", onSelect = function(_, sub)
             PopMenu(sub)
             ShowSummary(mon)
+        end }
+        opts[#opts + 1] = { text = "Gear", onSelect = function(_, sub)
+            PopMenu(sub)
+            ShowSummary(mon, nil, "gear")
         end }
         if not ctx then
             opts[#opts + 1] = { text = "Switch", onSelect = function(_, sub)
@@ -937,12 +1322,15 @@ local function OpenParty(ctx, onDone)
         end
         opts[#opts + 1] = { text = "Cancel", onSelect = function(_, sub) PopMenu(sub) end }
         PushMenu(opts, { w = 150, x = SW - 156, y = -120, level = 80, onCancel = function(sub) PopMenu(sub) end })
-    end), { x = 8, y = -8, w = 380, rowH = 40, title = ctx == "item" and "USE ON WHICH?" or "PARTY", level = 70,
+    end), { x = 8, y = -8, w = 380, rowH = 40, level = 70,
+        title = ctx == "item" and "USE ON WHICH?" or ctx == "teach" and "TEACH WHICH BEAST?"
+            or ctx == "trade" and "OFFER WHICH BEAST?" or ctx == "stable" and "LEAVE WHICH BEAST?"
+            or ctx == "equip" and "EQUIP WHICH BEAST?" or "PARTY",
         onCancel = function(menu)
             if ctx == "forced" then return end
             PopMenu(menu)
-            if onDone and ctx ~= "item" then onDone(nil) end
-            if ctx == "item" then onDone(nil, nil) end
+            if onDone and not picking then onDone(nil) end
+            if picking then onDone(nil, nil) end
         end })
     return partyMenu
 end
@@ -962,7 +1350,7 @@ local function OpenBag(ctx, onUse)
         return
     end
     local desc = R.bagDesc
-    PushMenu(items, { x = 8, y = -8, w = 320, rowH = 36, title = "BAG", level = 70,
+    PushMenu(items, { x = 8, y = -8, w = 320, rowH = 36, title = "BAG", level = 70, desc = true,
         onCancel = function(menu) PopMenu(menu) desc:Hide() end,
         onMove = function(i, menu)
             desc:Show()
@@ -978,8 +1366,284 @@ local START_HELP = {
     "Beasts you have seen and tamed.",
     "Check and reorder your beasts.",
     "Use the items you are carrying.",
+    "Your Azeromon achievements.",
+    "Guild leaderboards and the Guild Bestiary.",
+    "Today's bounties and the guild's weekly goal.",
+    "Your professions: gather, smelt, brew and forge.",
+    "Which types hit which, and how hard.",
+    "Every key and button.",
     "Close this menu.",
 }
+
+-- Guild pages: pick a leaderboard (or the Guild Bestiary). Opening them asks guildmates for fresh summaries.
+function Scr.FirstCompleteLine()
+    local first = ns.AzeroGuild:FirstComplete()
+    if not first then return "Nobody in the guild has completed the Bestiary yet." end
+    local when = (date and first.done) and date("%d %b %Y", first.done) or ""
+    return string.format("First to complete the Bestiary: %s%s (%s).", first.name, first.me and " (you)" or "", when)
+end
+
+function Scr.OpenRanking(cat)
+    local rows = ns.AzeroGuild:Ranking(cat.id)
+    local items = {}
+    for _, r in ipairs(rows) do
+        items[#items + 1] = { text = string.format("%d.  %s%s", r.rank, r.entry.name, r.entry.me and "  (you)" or ""),
+                              right = r.text, onSelect = function() end }
+    end
+    if #items == 0 then items[1] = { text = "No guildmates known yet.", disabled = true } end
+    PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 30, level = 70, desc = true, title = cat.name:upper(),
+        onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() end,
+        onMove = function()
+            R.bagDesc:Show()
+            R.bagDesc.fs:SetText(Scr.FirstCompleteLine())
+        end })
+end
+
+function Scr.OpenGuildBestiary()
+    local items = {}
+    for _, row in ipairs(ns.AzeroGuild:GuildBestiary()) do
+        local sp = D.species[row.id]
+        local known = row.count > 0 or (G.save and G.save.seen[row.id])
+        items[#items + 1] = { text = string.format("%03d  %s", sp.num, known and sp.name or "-----"),
+                              right = row.count > 0 and ("tamed by " .. row.count) or "", names = row.names,
+                              disabled = row.count == 0, onSelect = function() end }
+    end
+    PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 28, level = 70, desc = true, title = "GUILD BESTIARY",
+        onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() end,
+        onMove = function(i, menu)
+            local names = menu.items[i].names
+            R.bagDesc:Show()
+            R.bagDesc.fs:SetText(#names > 0 and ("Tamed by: " .. table.concat(names, ", ")) or "Nobody in the guild has tamed this one yet.")
+        end })
+end
+
+function Scr.OpenGuild()
+    ns.AzeroGuild:Query()
+    local items = {}
+    for _, cat in ipairs(ns.AzeroGuild.CATEGORIES) do
+        items[#items + 1] = { text = cat.name, onSelect = function() Scr.OpenRanking(cat) end }
+    end
+    items[#items + 1] = { text = "Guild Bestiary", onSelect = function() Scr.OpenGuildBestiary() end }
+    R.bagDesc:Hide()
+    PushMenu(items, { x = 8, y = -8, w = 330, rowH = 32, level = 70, desc = true, title = "GUILD",
+        onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() end,
+        onMove = function()
+            R.bagDesc:Show()
+            R.bagDesc.fs:SetText(Scr.FirstCompleteLine())
+        end })
+end
+
+-- The Achievements page: every achievement with its points (earned) or progress (not yet), and the
+-- description (plus the date earned) in the box below.
+function Scr.OpenAchievements()
+    local Ach = ns.AzeroAch
+    local earned = Ach.Earned()
+    local items = {}
+    for _, a in ipairs(Ach.list) do
+        local done = earned[a.id]
+        local right
+        if done then
+            right = a.points .. " pts"
+        elseif a.progress then
+            local ok, cur, max = pcall(a.progress, G, Ach)
+            right = (ok and cur and max) and string.format("%d/%d", cur, max) or ""
+        else
+            right = ""
+        end
+        items[#items + 1] = { text = a.name, right = right, icon = a.icon, disabled = not done, ach = a,
+                              onSelect = function() end }
+    end
+    R.bagDesc:Hide()
+    PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 30, level = 70, desc = true,
+        title = string.format("ACHIEVEMENTS   %d / %d   %d points", Ach:Count(), #Ach.list, Ach:Points()),
+        onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() end,
+        onMove = function(i, menu)
+            local a = menu.items[i].ach
+            local when = earned[a.id]
+            R.bagDesc:Show()
+            R.bagDesc.fs:SetText(a.desc .. ((type(when) == "number" and when > 0 and date)
+                and ("   (earned " .. date("%d %b %Y", when) .. ")") or ""))
+        end })
+end
+
+-- From the toast: open the page if the game is up and nothing else is on screen.
+function UI:OpenAchievements()
+    if root and root:IsVisible() and G.started and not G.pending and #stack == 0 and not G.battle then
+        Scr.OpenAchievements()
+    end
+end
+---------------------------------------------------------------------------
+-- Professions: skills, and each crafting profession's recipes
+---------------------------------------------------------------------------
+
+-- the real game's difficulty colours, darkened to read on the white window
+Scr.DIFF_COLOR = { orange = { 0.85, 0.42, 0.08 }, yellow = { 0.72, 0.58, 0.0 }, green = { 0.18, 0.58, 0.2 },
+                     grey = { 0.55, 0.55, 0.58 } }
+
+function Scr.MatsText(r)
+    local bag, parts = G.save.bag, {}
+    local names = {}
+    for item in pairs(r.mats) do names[#names + 1] = item end
+    table.sort(names)
+    for _, item in ipairs(names) do
+        parts[#parts + 1] = string.format("%s %d/%d", D.items[item].name, bag[item] or 0, r.mats[item])
+    end
+    return table.concat(parts, ", ")
+end
+
+function Scr.RecipeItems(prof)
+    local C = ns.AzeroCraft
+    local skill = C.Skill(prof) or 0
+    local items = {}
+    for _, r in ipairs(C.byProf[prof] or {}) do
+        local def = D.items[r.makes]
+        local n = C.CanMake(r)
+        local text = def.name .. ((r.n or 1) > 1 and (" x" .. r.n) or "")
+        if skill < r.skill then
+            items[#items + 1] = { text = text, right = "Req. " .. r.skill, disabled = true, recipe = r, icon = def.icon }
+        else
+            items[#items + 1] = { text = text, right = n > 0 and ("can make " .. n) or "no materials",
+                                  rightColor = Scr.DIFF_COLOR[C.Difficulty(r.skill, skill)], recipe = r, icon = def.icon,
+                                  disabled = n == 0 }
+        end
+    end
+    return items
+end
+
+function Scr.OpenRecipes(prof, onClose)
+    local C = ns.AzeroCraft
+    local p = D.professions[prof]
+    local note = nil                          -- the last craft's result, shown until the cursor moves
+    local menu
+    local function desc(i, m)
+        local it = m.items[i]
+        R.bagDesc:Show()
+        if note then
+            R.bagDesc.fs:SetText(note)
+            note = nil
+            return
+        end
+        local r = it and it.recipe
+        if not r then R.bagDesc.fs:SetText("") return end
+        local where = r.station and not C:NearStation(r.station) and ("  Needs " .. D.recipeStations[r.station] .. ".") or ""
+        R.bagDesc.fs:SetText(Scr.MatsText(r) .. where .. "\n" .. (D.items[r.makes].desc or ""))
+    end
+    local items = Scr.RecipeItems(prof)
+    for _, it in ipairs(items) do
+        it.onSelect = function(idx)
+            local ok, msg = C:Craft(it.recipe)
+            if ok and PlaySound then pcall(PlaySound, (SOUNDKIT and SOUNDKIT.LOOT_WINDOW_COIN_SOUND) or 120, "Master") end
+            local fresh = Scr.RecipeItems(prof)
+            for k, f in ipairs(fresh) do
+                menu.items[k].right, menu.items[k].rightColor, menu.items[k].disabled = f.right, f.rightColor, f.disabled
+            end
+            note = msg
+            UI:RefreshMenu(menu)
+        end
+    end
+    menu = PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 32, level = 70, desc = true,
+        title = string.format("%s  %d / %d", p.name:upper(), C.Skill(prof) or 0, D.SKILL_MAX),
+        onCancel = function(m)
+            PopMenu(m)
+            R.bagDesc:Hide()
+            if onClose then onClose() end
+        end,
+        onMove = function(i, m) desc(i, m) end })
+    return menu
+end
+
+function Scr.OpenProfessions()
+    local C = ns.AzeroCraft
+    R.bagDesc:Hide()
+    local items = {}
+    for _, id in ipairs(D.professionOrder) do
+        local p = D.professions[id]
+        local skill = C.Skill(id)
+        items[#items + 1] = { text = p.name, icon = p.icon, prof = id,
+            right = skill and string.format("%d / %d", skill, D.SKILL_MAX) or "not learned",
+            bar = skill and skill / D.SKILL_MAX or nil, disabled = not skill,
+            onSelect = function()
+                if p.gather and id ~= "mining" then
+                    Message(p.howto)
+                else
+                    Scr.OpenRecipes(id)
+                end
+            end }
+    end
+    PushMenu(items, { x = 8, y = -8, w = 330, rowH = 40, level = 70, desc = true, title = "PROFESSIONS",
+        onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() end,
+        onMove = function(i, menu)
+            local it = menu.items[i]
+            local p = D.professions[it.prof]
+            R.bagDesc:Show()
+            R.bagDesc.fs:SetText(C.Skill(it.prof) and p.howto or (p.trainer .. " in Goldshire teaches " .. p.name .. "."))
+        end })
+end
+
+---------------------------------------------------------------------------
+-- The bounty board: today's three bounties and the guild's weekly goal
+---------------------------------------------------------------------------
+
+function Scr.Duration(secs)
+    secs = math.max(0, math.floor(secs or 0))
+    local d, h, m = floor(secs / 86400), floor(secs / 3600) % 24, floor(secs / 60) % 60
+    if d > 0 then return string.format("%dd %dh", d, h) end
+    if h > 0 then return string.format("%dh %dm", h, m) end
+    return string.format("%dm", max(1, m))
+end
+
+function Scr.OpenBounties(onClose)
+    local BY = ns.AzeroBounty
+    local st = BY and BY:State()
+    if not st then return end
+    R.bagDesc:Hide()
+    local function close(menu)
+        PopMenu(menu)
+        R.bagDesc:Hide()
+        if onClose then onClose() end
+    end
+    local items = {}
+    for _, b in ipairs(st.list) do
+        items[#items + 1] = { text = BY.Text(b), right = b.done and "Done" or (b.got .. " / " .. b.n),
+                              bar = b.done and 1 or b.got / b.n, disabled = b.done, bounty = b,
+                              onSelect = function() end }
+    end
+    local goal = BY.Goal(st.week)
+    local mine, total = BY:Weekly()
+    local reached, nextNeed = BY:Tier()
+    items[#items + 1] = { text = "Guild: " .. goal.name,
+                          right = nextNeed and (total .. " / " .. nextNeed) or (total .. "  Gold!"),
+                          bar = min(1, total / goal.tiers[#goal.tiers]), guild = true, onSelect = function() end }
+    items[#items + 1] = { text = "Close", onSelect = function(_, menu) close(menu) end }
+    PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 36, level = 70, desc = true, title = "BOUNTY BOARD",
+        onCancel = close,
+        onMove = function(i, menu)
+            local it = menu.items[i]
+            R.bagDesc:Show()
+            if it.bounty then
+                local b = it.bounty
+                R.bagDesc.fs:SetText(string.format("%s: %s.\nNew bounties in %s.", b.done and "Paid" or "Reward",
+                    BY.RewardText(b.money, b.item, b.count), Scr.Duration(BY.ResetIn())))
+            elseif it.guild then
+                local tiers = {}
+                for t, need in ipairs(goal.tiers) do
+                    tiers[t] = string.format("%s %d%s", D.guildTierNames[t], need, t <= reached and " (done)" or "")
+                end
+                local _, weekLeft = BY.WeekKey()
+                R.bagDesc.fs:SetText(string.format("%s. You: %d of %d.\nEach tier pays everyone who helped. %s left.",
+                    table.concat(tiers, ", "), mine, total, Scr.Duration(weekLeft)))
+            else
+                R.bagDesc.fs:SetText("New bounties every day at the daily reset, the same for the whole guild.")
+            end
+        end })
+end
+
+function UI:OpenBountiesPage()
+    if root and root:IsVisible() and G.started and not G.pending and #stack == 0 and not G.battle then
+        Scr.OpenBounties()
+    end
+end
+
 local function StartMenuHelp(i)
     R.bagDesc:Show()
     R.bagDesc.fs:SetText(START_HELP[i] or "")
@@ -993,6 +1657,28 @@ local function OpenStartMenu()
             OpenBag(nil, function(id, bagMenu)
                 local def = D.items[id]
                 if def.use == "ball" then Message("You can't throw that here.") return end
+                if def.use == "charm" then
+                    Message(G:UseCharm(id), function()
+                        PopMenu(bagMenu)
+                        R.bagDesc:Hide()
+                    end)
+                    return
+                end
+                if def.use == "material" then Message("It's a crafting material. See PROFESSIONS.") return end
+                if def.use == "boost" then Message("Drink it in battle: it raises the stat of the beast fighting.") return end
+                if def.use == "gear" or def.use == "flask" then
+                    OpenParty(def.use == "gear" and "equip" or "item", function(idx, partyMenu)
+                        if partyMenu then PopMenu(partyMenu) end
+                        if not idx then return end
+                        local _, msg
+                        if def.use == "gear" then _, msg = G:Equip(idx, id) else _, msg = G:UseFlask(idx, id) end
+                        Message(msg, function()
+                            PopMenu(bagMenu)
+                            R.bagDesc:Hide()
+                        end)
+                    end)
+                    return
+                end
                 OpenParty("item", function(idx, partyMenu)
                     if partyMenu then PopMenu(partyMenu) end
                     if not idx then return end
@@ -1004,9 +1690,15 @@ local function OpenStartMenu()
                 end)
             end)
         end },
+        { text = "ACHIEVEMENTS", onSelect = function() Scr.OpenAchievements() end },
+        { text = "GUILD", onSelect = function() Scr.OpenGuild() end },
+        { text = "BOUNTIES", onSelect = function() Scr.OpenBounties() end },
+        { text = "PROFESSIONS", onSelect = function() Scr.OpenProfessions() end },
+        { text = "TYPE CHART", onSelect = function() KH.OpenTypeChart() end },
+        { text = "CONTROLS", onSelect = function() KH.OpenControls() end },
         { text = "EXIT", onSelect = function(_, menu) PopMenu(menu) end },
     }
-    PushMenu(items, { w = 170, rowH = 36, level = 60, onMove = StartMenuHelp, onCancel = function(menu) PopMenu(menu) end })
+    PushMenu(items, { w = 210, rowH = 30, level = 60, desc = true, onMove = StartMenuHelp, onCancel = function(menu) PopMenu(menu) end })
     R.money:Show()
 end
 
@@ -1033,7 +1725,8 @@ local function OpenShop()
                     onCancel = function(m) PopMenu(m) end })
                 qm.onLeftRight = function(dir)
                     if dir == "up" or dir == "right" then qty = min(99, qty + 1) else qty = max(1, qty - 1) end
-                    qm.frame.rows[1].fs:SetText(string.format("x%d   %dg", qty, qty * def.price))
+                    qm.items = qtyItems()               -- (rows redraw from the items)
+                    UI:RefreshMenu(qm)
                 end
             end }
     end
@@ -1043,7 +1736,7 @@ local function OpenShop()
         G:Advance()
     end }
     R.money:Show()
-    PushMenu(items, { x = 8, y = -8, w = 330, rowH = 36, title = "BROG HAMFIST", level = 70,
+    PushMenu(items, { x = 8, y = -8, w = 330, rowH = 36, title = "BROG HAMFIST", level = 70, desc = true,
         onCancel = function(menu) PopMenu(menu) R.bagDesc:Hide() G:Advance() end,
         onMove = function(i, menu)
             local it = menu.items[i].item
@@ -1053,10 +1746,471 @@ local function OpenShop()
 end
 
 ---------------------------------------------------------------------------
+-- The stable (a Stable Master at any inn): take beasts out, leave beasts there
+---------------------------------------------------------------------------
+
+
+function Scr.BeastLine(mon)
+    local s = D.species[mon.sp]
+    local moves = {}
+    for i, mv in ipairs(mon.moves) do moves[i] = D.moves[mv.id].name end
+    return string.format("%s  Lv%d  %s  HP %d/%d\n%s", M.Name(mon), mon.lvl, D.types[s.type].name, mon.hp, M.MaxHP(mon),
+        table.concat(moves, ", "))
+end
+
+function Scr.OpenStableBox(onClose)
+    local box = G.save.box
+    local items = {}
+    for i, mon in ipairs(box) do
+        local name = mon.shiny and ("|cffc98a0a" .. M.Name(mon) .. "|r") or M.Name(mon)
+        items[i] = { text = string.format("%s  Lv%d", name, mon.lvl), right = D.types[D.species[mon.sp].type].name,
+            mon = mon, onSelect = function(idx, menu)
+                PushMenu({
+                    { text = "Take out", onSelect = function(_, sub)
+                        PopMenu(sub)
+                        local ok, msg = G:Withdraw(idx)
+                        Message(msg, function()
+                            if ok then PopMenu(menu) onClose() end
+                        end)
+                    end },
+                    { text = "Summary", onSelect = function(_, sub)
+                        PopMenu(sub)
+                        ShowSummary(box[idx], function() end)
+                    end },
+                    { text = "Cancel", onSelect = function(_, sub) PopMenu(sub) end },
+                }, { w = 150, x = SW - 156, y = -120, level = 80, onCancel = function(sub) PopMenu(sub) end })
+            end }
+    end
+    PushMenu(items, { x = 8, y = -8, w = 330, rowH = 32, level = 70, desc = true,
+        title = string.format("IN THE STABLE (%d)", #box),
+        onCancel = function(menu) PopMenu(menu) onClose() end,
+        onMove = function(i, menu)
+            local it = menu.items[i]
+            R.bagDesc:Show()
+            R.bagDesc.fs:SetText(it and it.mon and Scr.BeastLine(it.mon) or "")
+        end })
+end
+
+Scr.OpenStable = function(onDone)
+    R.bagDesc:Hide()
+    local function reopen() Scr.OpenStable(onDone) end
+    local items = {
+        { text = "Take a beast out", disabled = #G.save.box == 0, onSelect = function(_, menu)
+            PopMenu(menu)
+            Scr.OpenStableBox(reopen)
+        end },
+        { text = "Leave a beast here", disabled = #G.save.party <= 1, onSelect = function(_, menu)
+            PopMenu(menu)
+            OpenParty("stable", function(idx, partyMenu)
+                if partyMenu then PopMenu(partyMenu) end
+                if not idx then reopen() return end
+                local _, msg = G:Deposit(idx)
+                Message(msg, reopen)
+            end)
+        end },
+        { text = "Done", onSelect = function(_, menu)
+            PopMenu(menu)
+            R.bagDesc:Hide()
+            if onDone then onDone() end
+        end },
+    }
+    PushMenu(items, { w = 230, rowH = 36, level = 60, desc = true, title = "STABLE",
+        onCancel = function(menu)
+            PopMenu(menu)
+            R.bagDesc:Hide()
+            if onDone then onDone() end
+        end,
+        onMove = function()
+            R.bagDesc:Show()
+            R.bagDesc.fs:SetText(string.format("In the stable: %d %s. In your party: %d of %d.", #G.save.box,
+                #G.save.box == 1 and "beast" or "beasts", #G.save.party, D.MAX_PARTY))
+        end })
+end
+
+---------------------------------------------------------------------------
+-- Trading (Trade.lua runs it): both offers side by side, a status line, Offer / Trade / Cancel
+---------------------------------------------------------------------------
+
+
+function Scr.TradeCard(c, label, mon)
+    c.label:SetText(label)
+    if not mon then
+        ShowCreature(c.model, nil)
+        c.name:SetText("Nothing offered yet.")
+        c.star:Hide()
+        c.pill:Hide()
+        c.info:SetText("")
+        c.moves:SetText("")
+        return
+    end
+    ShowCreature(c.model, mon.sp, 0.5, mon.shiny)
+    c.name:SetText(M.Name(mon))
+    c.star:SetShown(mon.shiny == true)
+    local t = D.types[D.species[mon.sp].type]
+    c.pill:Set(t.name:upper(), t.color)
+    c.info:SetText(string.format("Lv%d   OT %s", mon.lvl, mon.ot or G:PlayerName()))
+    local names = {}
+    for i, mv in ipairs(mon.moves) do names[i] = D.moves[mv.id].name end
+    c.moves:SetText(table.concat(names, ", "))
+end
+
+function Scr.RefreshTrade(s)
+    local f = R.trade
+    if not f or not f:IsShown() or not s then return end
+    if s.state ~= "open" then
+        Scr.tradeMenu = nil
+        CloseAllMenus()
+        f:Hide()
+        return
+    end
+    Scr.TradeCard(f.cards[1], "YOU OFFER", s.mine)
+    Scr.TradeCard(f.cards[2], s.name:upper() .. " OFFERS", s.theirs)
+    local status
+    if not s.mine then status = "Choose a beast to offer."
+    elseif not s.theirs then status = "Waiting for " .. s.name .. " to offer a beast..."
+    elseif s.myOk then status = "Waiting for " .. s.name .. " to accept..."
+    elseif s.theirOk then status = s.name .. " accepted this trade!"
+    else status = "Both beasts are on the table. Trade?" end
+    f.status:SetText(status)
+    if Scr.tradeMenu then
+        local it = Scr.tradeMenu.items
+        it[1].disabled = s.myOk ~= nil
+        it[2].disabled = not (s.mine and s.theirs) or s.myOk ~= nil
+        it[2].text = s.myOk and "Accepted" or "Trade"
+        UI:RefreshMenu(Scr.tradeMenu)
+    end
+end
+
+function Scr.OpenTrade(s)
+    local f = R.trade
+    CloseAllMenus()
+    R.bagDesc:Hide()
+    f.title:SetText("TRADE WITH " .. s.name:upper())
+    f:Show()
+    local items = {
+        { text = "Offer a beast", onSelect = function()
+            OpenParty("trade", function(idx, partyMenu)
+                if partyMenu then PopMenu(partyMenu) end
+                if idx then ns.AzeroTrade:Offer(idx) end
+            end)
+        end },
+        { text = "Trade", disabled = true, onSelect = function() ns.AzeroTrade:Confirm() end },
+        { text = "Cancel", onSelect = function() ns.AzeroTrade:Cancel() end },
+    }
+    Scr.tradeMenu = PushMenu(items, { anchor = { "BOTTOMRIGHT", screen, "BOTTOMRIGHT", -8, 8 }, w = 190, rowH = 32,
+        level = 100, onCancel = function() ns.AzeroTrade:Cancel() end })
+    Scr.RefreshTrade(s)
+end
+
+---------------------------------------------------------------------------
+-- Moves side by side (learning a 5th move, the pet trainer): R.moveCompare holds two cards under the menu
+---------------------------------------------------------------------------
+
+Scr.MOVE_DESC_H = BOX_H + 6
+Scr.STATUS_TXT = {
+    brn = { "Burns the foe", "May burn the foe" },
+    psn = { "Poisons the foe", "May poison the foe" },
+    par = { "Paralyzes the foe", "May paralyze the foe" },
+    slp = { "Puts the foe to sleep", "May put the foe to sleep" },
+}
+Scr.STAT_TXT = { atk = "Attack", def = "Defense", spa = "Sp. Atk", spd = "Sp. Def", spe = "Speed" }
+
+-- What a move does besides damage, in a few words ("" for a plain attack).
+function Scr.MoveEffectText(md)
+    local e, out = md.effect, {}
+    if md.prio and md.prio > 0 then out[#out + 1] = "Always strikes first" end
+    if e and e.kind == "status" and Scr.STATUS_TXT[e.status] then
+        local t = Scr.STATUS_TXT[e.status]
+        out[#out + 1] = (e.chance and e.chance < 100) and string.format("%s (%d%%)", t[2], e.chance) or t[1]
+    elseif e and e.kind == "stat" then
+        local st = e.stages or 0
+        local verb = st >= 2 and { "Sharply raises", "May sharply raise" } or st > 0 and { "Raises", "May raise" }
+            or st <= -2 and { "Sharply lowers", "May sharply lower" } or { "Lowers", "May lower" }
+        local what = (e.who == "self" and "its " or "the foe's ") .. (Scr.STAT_TXT[e.stat] or e.stat)
+        out[#out + 1] = (e.chance and e.chance < 100) and string.format("%s %s (%d%%)", verb[2], what, e.chance)
+            or (verb[1] .. " " .. what)
+    elseif e and e.kind == "drain" then
+        out[#out + 1] = e.pct == 50 and "Heals half the damage dealt" or string.format("Heals %d%% of the damage dealt", e.pct)
+    end
+    return table.concat(out, "; ")
+end
+
+function Scr.MoveStatsText(md, pp)
+    return table.concat({ md.power > 0 and ("Power " .. md.power) or "Status",
+        (md.acc or 0) > 0 and ("Acc " .. md.acc .. "%") or "Never misses",
+        "PP " .. (pp and (pp .. "/" .. md.pp) or md.pp) }, "   ")
+end
+
+-- Card i (1 = left, 2 = right): a label, then the move's name, type, numbers and effect.
+function Scr.MoveCard(i, label, id, pp)
+    local c = R.moveCompare.cards[i]
+    c.label:SetText(label or "")
+    local md = id and D.moves[id]
+    if not md then
+        c.name:SetText("")
+        c.pill:Hide()
+        c.stats:SetText("")
+        c.effect:SetText("")
+        return c
+    end
+    local t = D.types[md.type]
+    c.name:SetText(md.name)
+    c.pill:Set(t.name:upper(), t.color)
+    c.stats:SetText(Scr.MoveStatsText(md, pp))
+    c.effect:SetText(Scr.MoveEffectText(md))
+    return c
+end
+
+-- Card i with plain text instead of a move.
+function Scr.TextCard(i, label, title, line)
+    local c = Scr.MoveCard(i, label, nil)
+    c.name:SetText(title or "")
+    c.stats:SetText(line or "")
+end
+
+-- A menu row for a move: its name, with its type and power on the right in the type's colour.
+function Scr.MoveRow(id, onSelect)
+    local md = D.moves[id]
+    local t = D.types[md.type]
+    return { text = md.name, right = t.name .. (md.power > 0 and ("  " .. md.power) or ""), move = id,
+             rightColor = { t.color[1] * 0.7, t.color[2] * 0.7, t.color[3] * 0.7 }, onSelect = onSelect }
+end
+
+-- "Forget which move?": the beast's moves and "Don't learn", the new move beside the highlighted one.
+-- onPick(slot) - slot nil = keep the old moves.
+function Scr.PushForgetMenu(mon, newId, onPick, onCancel)
+    local function pick(slot, menu)
+        PopMenu(menu)
+        R.moveCompare:Hide()
+        onPick(slot)
+    end
+    local items = {}
+    for i, mv in ipairs(mon.moves) do
+        items[i] = Scr.MoveRow(mv.id, function(idx, menu) pick(idx, menu) end)
+    end
+    items[#items + 1] = { text = "Don't learn " .. D.moves[newId].name, onSelect = function(_, menu) pick(nil, menu) end }
+    R.moveCompare:Show()
+    Scr.MoveCard(1, "NEW MOVE", newId)
+    return PushMenu(items, { w = 300, x = SW - 306, y = -60, rowH = 30, level = 70, title = "FORGET WHICH MOVE?",
+        desc = Scr.MOVE_DESC_H, onCancel = onCancel or function() end,
+        onMove = function(i)
+            local mv = mon.moves[i]
+            if mv then Scr.MoveCard(2, "FORGET", mv.id, mv.pp) else Scr.TextCard(2, "KEEP", "All its moves", "Learn nothing new.") end
+        end })
+end
+
+---------------------------------------------------------------------------
+-- The pet trainer: pick a beast, then a move it could know by now (G:Relearn takes the fee)
+---------------------------------------------------------------------------
+
+
+function Scr.RelearnDone(taught, msg)
+    CloseAllMenus()
+    R.moveCompare:Hide()
+    if msg then Message(msg, function() G:Advance(taught) end) else G:Advance(taught) end
+end
+
+function Scr.OpenRelearnMoves(idx)
+    local mon = G.save.party[idx]
+    local list = G:RelearnableMoves(mon)
+    if #list == 0 then
+        Message(M.Name(mon) .. " has nothing to be reminded of yet.", function() Scr.OpenRelearn() end)
+        return
+    end
+    local items = {}
+    for i, id in ipairs(list) do
+        items[i] = Scr.MoveRow(id, function(_, menu)
+            local function teach(slot)
+                local ok, msg = G:Relearn(idx, id, slot)
+                Scr.RelearnDone(ok, msg)
+            end
+            if #mon.moves < 4 then
+                teach(nil)
+            else
+                Scr.PushForgetMenu(mon, id, function(slot)
+                    if slot then teach(slot) else UI:RefreshMenu(menu) end      -- back to the list
+                end, function(fm)
+                    PopMenu(fm)
+                    UI:RefreshMenu(menu)
+                end)
+            end
+        end)
+    end
+    PushMenu(items, { x = 8, y = -8, w = 300, rowH = 30, level = 70, title = "REMEMBER WHICH MOVE?", desc = Scr.MOVE_DESC_H,
+        onCancel = function(menu)
+            PopMenu(menu)
+            R.moveCompare:Hide()
+            Scr.OpenRelearn()
+        end,
+        onMove = function(i)
+            R.moveCompare:Show()
+            Scr.MoveCard(1, "REMEMBER", list[i])
+            Scr.TextCard(2, "LESSON", D.Money(G.RELEARN_PRICE), "You have " .. D.Money(G.save.money))
+        end })
+end
+
+Scr.OpenRelearn = function()
+    OpenParty("teach", function(idx, partyMenu)
+        if partyMenu then PopMenu(partyMenu) end
+        if not idx then Scr.RelearnDone(false) return end
+        Scr.OpenRelearnMoves(idx)
+    end)
+end
+
+---------------------------------------------------------------------------
 -- Battle
 ---------------------------------------------------------------------------
 
 local BT = { busy = nil }     -- playback state
+BT.lastMove = setmetatable({}, { __mode = "k" })   -- [beast] = the move slot it used last (the move list opens there)
+
+-- A shiny's entrance: stars burst out around the model, with the dig-site chime.
+Scr.SPARKLE_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"
+function Scr.Sparkle(m)
+    if not Scr.sparkle then
+        Scr.sparkle = CreateFrame("Frame", nil, R.battle)
+        Scr.sparkle.stars = {}
+        for i = 1, 7 do
+            local t = Scr.sparkle:CreateTexture(nil, "OVERLAY")
+            t:SetTexture(Scr.SPARKLE_TEX)
+            t:SetBlendMode("ADD")
+            t:Hide()
+            Scr.sparkle.stars[i] = t
+        end
+    end
+    Scr.sparkle:SetFrameLevel(m:GetFrameLevel() + 5)
+    Scr.sparkle:ClearAllPoints()
+    Scr.sparkle:SetAllPoints(m)
+    Scr.sparkle.t = 0
+    Scr.sparkle:Show()
+    Scr.sparkle:SetScript("OnUpdate", function(self, dt)
+        self.t = self.t + dt
+        local w, h = self:GetWidth(), self:GetHeight()
+        for i, st in ipairs(self.stars) do
+            local f = (self.t - (i - 1) * 0.09) / 0.7
+            if f < 0 or f > 1 then
+                st:Hide()
+            else
+                local ang = i * 2.4 + 0.5
+                local r = 0.14 + 0.24 * f
+                local size = 4 + 24 * math.sin(f * math.pi)
+                st:ClearAllPoints()
+                st:SetPoint("CENTER", self, "CENTER", math.cos(ang) * r * w, math.sin(ang) * r * h * 0.8)
+                st:SetSize(size, size)
+                st:SetAlpha(1 - 0.6 * f)
+                st:Show()
+            end
+        end
+        if self.t > 1.4 then
+            self:SetScript("OnUpdate", nil)
+            self:Hide()
+        end
+    end)
+    if PlaySound then
+        local kit = (SOUNDKIT and SOUNDKIT.UI_DIG_SITE_COMPLETION_TOAST) or 38326
+        pcall(PlaySound, kit, "Master")
+    end
+end
+
+-- The chips under a battler's name: its type, its status (with the turns left), every stat change and a flask,
+-- each with a tooltip. Stat changes last until the beast is switched out, like the games.
+local Chips = {
+    STATUS_TIP = {
+        brn = "Loses 1/8 of its max HP each turn, and its Attack is halved.",
+        psn = "Loses 1/8 of its max HP each turn.",
+        par = "Its Speed is quartered, and 1 turn in 4 it can't move.",
+        slp = "It can't move until it wakes up.",
+    },
+    ORDER = { "atk", "def", "spa", "spd", "spe" },
+}
+
+function Chips.List(s)
+    local out = {}
+    local sp = s.sp and D.species[s.sp]
+    if sp then
+        local t = D.types[sp.type]
+        out[#out + 1] = { text = t.name:upper(), color = t.color, title = t.name .. " type", lines = KH.Matchups(sp.type) }
+    end
+    if s.status and D.status[s.status] then
+        local st = D.status[s.status]
+        local text, lines = st.short, { Chips.STATUS_TIP[s.status] }
+        if s.status == "slp" and s.sleep then
+            text = text .. " " .. s.sleep
+            lines[#lines + 1] = string.format("Wakes up within %d %s.", s.sleep, s.sleep == 1 and "turn" or "turns")
+        end
+        out[#out + 1] = { text = text, color = st.color, title = st.name:gsub("^%l", string.upper), lines = lines }
+    end
+    for _, stat in ipairs(Chips.ORDER) do
+        local v = s.stages and s.stages[stat]
+        if v and v ~= 0 then
+            local mult = (v >= 0) and (2 + v) / 2 or 2 / (2 - v)
+            out[#out + 1] = { text = string.format("%s %s%d", Scr.STAT_SHORT[stat], v > 0 and "+" or "", v),
+                color = v > 0 and { 0.25, 0.62, 0.32 } or { 0.80, 0.30, 0.26 },
+                title = string.format("%s %s %d %s", D.statNames[stat], v > 0 and "raised" or "lowered", math.abs(v),
+                    math.abs(v) == 1 and "stage" or "stages"),
+                lines = { string.format("x%.2f until it is switched out.", mult) } }
+        end
+    end
+    if s.flask and D.items[s.flask.id] then
+        local def = D.items[s.flask.id]
+        out[#out + 1] = { text = "FLASK " .. s.flask.n, color = { 0.55, 0.38, 0.78 }, title = def.name,
+            lines = { def.desc, string.format("%d %s left, this one included.", s.flask.n, s.flask.n == 1 and "battle" or "battles") } }
+    end
+    return out
+end
+
+function Chips.Tooltip(self)
+    local c = self.chip
+    if not (c and GameTooltip) then return end
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText(c.title or c.text, 1, 0.82, 0)
+    for _, line in ipairs(c.lines or {}) do GameTooltip:AddLine(line, 1, 1, 1, true) end
+    GameTooltip:Show()
+end
+
+-- Lays the chips out left to right in the box's chip row; what doesn't fit becomes "+n" (its tooltip lists them).
+function Chips.Width(text) return floor(TextWidth(text, 13 / 1.4) + 14) end
+
+function Chips.Layout(f, list)
+    f.chips = f.chips or {}
+    local room, total = f.chipRoom, 0
+    for i, c in ipairs(list) do total = total + Chips.Width(c.text) + (i > 1 and 4 or 0) end
+    if total > room then
+        local x, keep = 0, 0
+        for i, c in ipairs(list) do
+            local more = Chips.Width("+" .. (#list - i)) + 4
+            if x + Chips.Width(c.text) + more > room then break end
+            x, keep = x + Chips.Width(c.text) + 4, i
+        end
+        local more = { text = "+" .. (#list - keep), color = { 0.45, 0.47, 0.52 }, title = "More effects", lines = {} }
+        for k = keep + 1, #list do more.lines[#more.lines + 1] = list[k].title or list[k].text end
+        local cut = {}
+        for k = 1, keep do cut[k] = list[k] end
+        cut[#cut + 1] = more
+        list = cut
+    end
+    local x = 0
+    for i, c in ipairs(list) do
+        local p = f.chips[i]
+        if not p then
+            p = Pill(f, 40, 16, 13)
+            p:EnableMouse(true)
+            p:SetScript("OnEnter", Chips.Tooltip)
+            p:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+            f.chips[i] = p
+        end
+        local w = Chips.Width(c.text)
+        p:SetWidth(w)
+        p:ClearAllPoints()
+        p:SetPoint("TOPLEFT", f, "TOPLEFT", 16 + x, f.chipY)
+        p.chip = c
+        p:Set(c.text, c.color)
+        x = x + w + 4
+    end
+    for i = #list + 1, #f.chips do f.chips[i]:Hide() end
+    f.chipTexts = {}
+    for i, c in ipairs(list) do f.chipTexts[i] = c.text end
+end
 
 local function InfoBox(f, side)
     -- the snapshot of the last played event (never the live creature: the engine is ahead of the playback)
@@ -1064,10 +2218,12 @@ local function InfoBox(f, side)
     if not s then f:Hide() return end
     f:Show()
     f.name:SetText(s.name)
+    local rare = s.sp and D.species[s.sp] and D.species[s.sp].rare
+    if rare then f.name:SetTextColor(0.9, 0.62, 0.05) else f.name:SetTextColor(INK[1], INK[2], INK[3]) end
     f.lvl:SetText("Lv" .. s.lvl)
-    local sp = s.sp and D.species[s.sp]
-    if sp then f.type:Set(D.types[sp.type].name:upper(), D.types[sp.type].color) else f.type:Hide() end
-    if s.status then f.status:Set(D.status[s.status].short, D.status[s.status].color) else f.status:Hide() end
+    f.star:SetShown(s.shiny == true)
+    f.name:SetWidth(f:GetWidth() - 32 - 58 - (s.shiny and 18 or 0))    -- never into the level (or the star)
+    Chips.Layout(f, Chips.List(s))
     local shownHP = f.animHP or s.hp
     f.hp:SetHP(shownHP / s.max)
     if f.hpText then f.hpText:SetText(string.format("%d / %d", floor(shownHP + 0.5), s.max)) end
@@ -1096,6 +2252,7 @@ local function OpenFightMenu()
                 end
                 PopMenu(menu)
                 R.moveInfo:Hide()
+                BT.lastMove[mon] = idx
                 UI:BattleAct({ kind = "move", idx = idx })
             end }
         else
@@ -1107,8 +2264,9 @@ local function OpenFightMenu()
     local actionMenu = stack[#stack]
     if actionMenu then actionMenu.frame:Hide() end
     R.textbox:Hide()
+    local last = BT.lastMove[mon]
     PushMenu(items, { anchor = { "BOTTOMLEFT", screen, "BOTTOMLEFT", 0, 0 }, w = SW - 170, h = BOX_H, rowH = 38, cols = 2,
-        level = 70, onCancel = function(menu)
+        level = 70, cursor = (last and mon.moves[last]) and last or 1, onCancel = function(menu)
             PopMenu(menu)
             info:Hide()
             if actionMenu then actionMenu.frame:Show() end
@@ -1126,6 +2284,10 @@ local function OpenFightMenu()
                 else info.pp:SetTextColor(INK[1], INK[2], INK[3]) end
                 info.type:Set(D.types[md.type].name:upper(), D.types[md.type].color)
                 info.power:SetText(md.power > 0 and ("Power " .. md.power) or "Status move")
+                local foe = G.battle and G.battle.foe.mon
+                local txt, col = KH.EffectText(md, foe and D.species[foe.sp].type)
+                info.eff:SetText(txt)
+                info.eff:SetTextColor(col[1], col[2], col[3])
             else
                 info.pp:SetText("") info.type:Hide() info.power:SetText("")
             end
@@ -1137,7 +2299,14 @@ local function OpenActionMenu()
     SetText(string.format("What will\n%s do?", M.Name(b.ally.mon)), { lines = 3 })
     text.shown = 999
     local items = {
-        { text = "FIGHT", onSelect = function() OpenFightMenu() end },
+        { text = "FIGHT", onSelect = function()
+            local mon = G.battle.ally.mon
+            if not G.battle:HasPP(mon) then                 -- nothing left: it struggles, like the games
+                Message(M.Name(mon) .. " has no moves left!", function() UI:BattleAct({ kind = "move", idx = 1 }) end)
+                return
+            end
+            OpenFightMenu()
+        end },
         { text = "BAG", onSelect = function()
             if b.pvp then Message("Items can't be used in a battle between players.") return end
             OpenBag("battle", function(id, bagMenu)
@@ -1147,7 +2316,12 @@ local function OpenActionMenu()
                     R.bagDesc:Hide()
                     UI:BattleAct({ kind = "item", item = id, target = target })
                 end
-                if def.use == "ball" then
+                if def.use == "charm" or def.use == "gear" or def.use == "flask" or def.use == "material" then
+                    Message("Now is not the time to use that!")
+                elseif def.use == "boost" then
+                    local st = b.ally.stages[def.stat] or 0
+                    if st >= 6 then Message("It won't have any effect.") else act(nil) end
+                elseif def.use == "ball" then
                     act(nil)
                 else
                     OpenParty("item", function(idx, partyMenu)
@@ -1156,6 +2330,7 @@ local function OpenActionMenu()
                         local mon = G.save.party[idx]
                         local useless = mon.hp <= 0 or (def.use == "heal" and mon.hp >= M.MaxHP(mon))
                             or (def.use == "cure" and mon.status ~= def.cures)
+                            or (def.use == "rejuv" and mon.hp >= M.MaxHP(mon) and not mon.status)
                         if useless then Message("It won't have any effect.") return end
                         act(idx)
                     end)
@@ -1186,8 +2361,16 @@ local function OpenActionMenu()
             UI:BattleAct({ kind = "run" })
         end },
     }
+    -- the cursor comes back to the last choice of this battle (FIGHT, BAG, ...)
+    for i, it in ipairs(items) do
+        local pick = it.onSelect
+        it.onSelect = function(idx, menu)
+            BT.lastAction = i
+            return pick(idx, menu)
+        end
+    end
     PushMenu(items, { anchor = { "BOTTOMRIGHT", screen, "BOTTOMRIGHT", 0, 0 }, w = 230, h = BOX_H, rowH = 38, cols = 2,
-        level = 70, onCancel = function() end })
+        level = 70, cursor = BT.lastAction or 1, onCancel = function() end })
 end
 
 function UI:BattleAct(action)
@@ -1204,21 +2387,10 @@ end
 local function OpenLearnMenu()
     local b = G.battle
     local q = b.learning
-    local items = {}
-    for i, mv in ipairs(q.mon.moves) do
-        items[i] = { text = D.moves[mv.id].name, onSelect = function(idx, menu)
-            PopMenu(menu)
-            b:ResolveLearn(idx)
-            BT.needShown = nil
-        end }
-    end
-    items[#items + 1] = { text = "Don't learn " .. D.moves[q.move].name, onSelect = function(_, menu)
-        PopMenu(menu)
-        b:ResolveLearn(nil)
+    Scr.PushForgetMenu(q.mon, q.move, function(slot)
+        b:ResolveLearn(slot)
         BT.needShown = nil
-    end }
-    PushMenu(items, { w = 280, x = SW - 286, y = -60, rowH = 30, level = 70, title = "FORGET WHICH MOVE?",
-        onCancel = function() end })
+    end)
 end
 
 local BATTLE_THEMES = {
@@ -1229,6 +2401,10 @@ local BATTLE_THEMES = {
     westfall = { sky = { 0.97, 0.92, 0.80 }, bands = { { 0.99, 0.97, 0.90 }, { 0.98, 0.94, 0.85 } },
                  field = { 0.91, 0.82, 0.56 }, stripe = { 0.80, 0.68, 0.40 }, lines = { 0.86, 0.75, 0.48 },
                  platform = PLATFORM .. "_w" },
+    -- the Deadmines: rock walls above a dusty mine floor
+    mine = { sky = { 0.22, 0.19, 0.18 }, bands = { { 0.17, 0.15, 0.14 }, { 0.20, 0.17, 0.16 } },
+             field = { 0.36, 0.29, 0.23 }, stripe = { 0.26, 0.21, 0.17 }, lines = { 0.31, 0.25, 0.20 },
+             platform = PLATFORM .. "_m" },
 }
 
 local function ApplyBattleTheme(name)
@@ -1244,8 +2420,12 @@ end
 
 local function StartBattleView(b)
     ApplyBattleTheme(G.map and G.map.def.theme)
+    R.battleSkyAlpha = ApplySky(R.battleSky, G.map and G.map.def.outdoor, 0.75)
+    local foeSp = b.foe and b.foe.mon and D.species[b.foe.mon.sp]
+    if b.wild and foeSp and foeSp.rare and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
     BT.battle = b
     BT.anim, BT.needShown, BT.ended, BT.snap, BT.lastNeed = nil, nil, nil, nil, nil
+    BT.lastAction = nil
     BT.intro = 0.95
     R.battle:Show()
     world:Hide()
@@ -1254,8 +2434,8 @@ local function StartBattleView(b)
     R.net:Hide()
     -- Load and measure both leads right away, invisibly: the fit samples the idle animation for SAMPLE_TIME,
     -- which then happens during the intro text instead of delaying the send-out.
-    ShowCreature(R.foeModel, b.foe.mon.sp, -0.7)
-    ShowCreature(R.allyModel, b.ally.mon.sp, 0.8)
+    ShowCreature(R.foeModel, b.foe.mon.sp, -0.7, b.foe.mon.shiny)
+    ShowCreature(R.allyModel, b.ally.mon.sp, 0.8, b.ally.mon.shiny)
     R.foeModel:SetAlpha(0) R.allyModel:SetAlpha(0)
 end
 
@@ -1273,18 +2453,22 @@ local function PlayEvent(e)
     BT.snap = e.snap or BT.snap
     local b = BT.battle
     if e.t == "text" then
+        -- stat changes, sleep turns and flasks change with plain text events too: keep the boxes on screen current
+        if R.foeBox:IsShown() then InfoBox(R.foeBox, "foe") end
+        if R.allyBox:IsShown() then InfoBox(R.allyBox, "ally") end
         SetText(e.text, { auto = 1.0, onDone = function() BT.anim = nil ClearText() end })
         BT.anim = { waitText = true }
     elseif e.t == "send" then
         local m = BattleModelFor(e.side)
-        ShowCreature(m, e.mon.sp, e.side == "foe" and -0.7 or 0.8)
+        ShowCreature(m, e.mon.sp, e.side == "foe" and -0.7 or 0.8, e.mon.shiny)
+        local shiny = e.mon.shiny
         m:SetAlpha(0)
         local box = e.side == "foe" and R.foeBox or R.allyBox
         box.animHP, box.animExp = nil, nil
         box.mon = e.mon
         local from = e.side == "foe" and 260 or -260
         -- hold the slide-in until the model has been measured (a creature switched in mid-battle), at most 3 s
-        BT.anim = { t = 0, dur = 0.5, hold = function() return m.fit ~= nil end, fn = function(f)
+        BT.anim = { t = 0, dur = 0.5, hold = function() return m.fit ~= nil and not m.fit.timedOut end, fn = function(f)
             local ease = 1 - (1 - f) * (1 - f)
             m:SetAlpha(min(1, f * 2))
             m:ClearAllPoints()
@@ -1293,6 +2477,7 @@ local function PlayEvent(e)
         end, done = function()
             m:ClearAllPoints()
             m:SetPoint("BOTTOMLEFT", R.battle, "TOPLEFT", m.baseX, m.baseY)
+            if shiny then Scr.Sparkle(m) end
         end }
     elseif e.t == "recall" then
         local m = BattleModelFor(e.side)
@@ -1325,7 +2510,7 @@ local function PlayEvent(e)
         local m = BattleModelFor(e.side)
         Anim(m, 1)
         BT.anim = { t = 0, dur = 0.7, fn = function(f) m:SetAlpha(1 - f) end,
-                    done = function() m:Hide() m.sp = nil m:SetAlpha(1) if e.side == "foe" then R.foeBox:Hide() end end }
+                    done = function() Anim(m, 0) m:Hide() m.sp = nil m:SetAlpha(1) if e.side == "foe" then R.foeBox:Hide() end end }
     elseif e.t == "status" or e.t == "level" then
         R.allyBox.animExp = nil
         RefreshBattleBoxes()
@@ -1393,7 +2578,7 @@ local function UpdateBattle(dt)
     local a = BT.anim
     if a then
         if a.waitText then UpdateText(dt) return end
-        if a.hold and a.hold() and (a.held or 0) < 3 then
+        if a.hold and a.hold() and (a.held or 0) < 4 + SAMPLE_TIME + 0.4 then
             a.held = (a.held or 0) + dt
             return
         end
@@ -1480,7 +2665,19 @@ local function BuildWorld()
     R.grassOver:SetPoint("BOTTOMLEFT", R.player, "BOTTOMLEFT", 0, 0)
     local i = A.tall_c
     local c, r = i % 16, floor(i / 16)
-    R.grassOver:SetTexCoord(c * 16 / 256, (c + 1) * 16 / 256, (r * 16 + 16 * 0.55) / 256, (r + 1) * 16 / 256)
+    local AH = ns.AzeroAtlasHeight or 256
+    R.grassOver:SetTexCoord(c * 16 / 256, (c + 1) * 16 / 256, (r * 16 + 16 * 0.55) / AH, (r + 1) * 16 / AH)
+
+    -- the interact hint (DrawHint)
+    R.hint = Box(world, 160, 32, world:GetFrameLevel() + 20)
+    R.hint.key = Pill(R.hint, 50, 18, 13)
+    R.hint.key:SetPoint("LEFT", 10, 0)
+    R.hint.key:Set("Space", { 0.30, 0.42, 0.62 })
+    R.hint.fs = Font(R.hint, 13)
+    R.hint.fs:SetPoint("LEFT", R.hint.key, "RIGHT", 7, 0)
+    R.hint.fs:SetJustifyV("MIDDLE")
+    R.hint:EnableMouse(false)
+    R.hint:Hide()
 
     R.banner = Box(world, 220, 44, 30)
     R.banner:SetPoint("TOPLEFT", 8, -8)
@@ -1493,6 +2690,11 @@ local function BuildWorld()
     R.fade:SetAllPoints()
     R.fade:SetColorTexture(0, 0, 0, 1)
     R.fade:Hide()
+
+    -- the sky tint covers the map and the sprites (not the banner or text boxes, which are separate frames)
+    R.sky = Tex(world, "OVERLAY", 6)
+    R.sky:SetAllPoints()
+    R.sky:Hide()
 end
 
 local function Sprite(i)
@@ -1526,6 +2728,26 @@ end
 
 local function Lerp(a, b, f) return a + (b - a) * f end
 
+-- The "Space: Pick Peacebloom" hint above whatever pressing A would use.
+local function DrawHint()
+    local h = R.hint
+    local text, x, y
+    if #stack == 0 and not uiMessage then text, x, y = G:InteractHint() end
+    if not text then h:Hide() return end
+    if h.text ~= text then
+        h.text = text
+        h.fs:SetText(text)
+        h:SetWidth(floor(TextWidth(text, 13) + h.key:GetWidth() + 34))
+    end
+    local s = G.save
+    local tx, ty = HX + (x - s.x), HY + (y - s.y)
+    local left = tx * TILE + TILE / 2 - h:GetWidth() / 2
+    left = max(4, min(SW - h:GetWidth() - 4, left))
+    h:ClearAllPoints()
+    h:SetPoint("BOTTOMLEFT", world, "TOPLEFT", left, -ty * TILE + 2)
+    h:Show()
+end
+
 local function DrawWorld()
     local s = G.save
     local m = G.map
@@ -1553,8 +2775,16 @@ local function DrawWorld()
                 local k = m.key(wx, wy)
                 base, over = m.base[k], m.over[k]
                 if over == "torch1" then over = torchFrame end
-                if m.water[k] then base = waterFrame end
+                if m.water[k] then
+                    local wf = m.theme.water
+                    base = wf and wf[(waterFrame == "water1") and 1 or 2] or waterFrame
+                end
                 if m.chest[k] then over = G:Flag("chest_" .. m.chest[k].id) and "chest_open" or "chest" end
+                local node = m.node and m.node[k]
+                if node then
+                    local up, res = ns.AzeroCraft:NodeState(m.id, node)
+                    over = up and D.resources[res] and D.resources[res].tile or over
+                end
             end
             SetTile(cell.base, base)
             SetTile(cell.over, over)
@@ -1575,6 +2805,7 @@ local function DrawWorld()
         if f > 0.2 and f < 0.8 then frame = G.stepParity and 0 or 2 end
     end
     SetChar(R.player, "hero", s.face, frame)
+    DrawHint()
     local onTall = m.tall[m.key(s.x, s.y)] and not walking
     R.grassOver:SetShown(onTall and true or false)
     -- npcs
@@ -1635,7 +2866,8 @@ local function DrawWorld()
         R.banner:Show()
         R.banner.fs:SetText(G.banner.text)
         R.banner:SetWidth(max(200, (R.banner.fs:GetStringWidth() or 0) + 48))
-        local shown = max(0, min(1, (2.2 - G.banner.t) / 0.25, G.banner.t / 0.3))   -- slide down, then up
+        local total = G.banner.total or 2.2
+        local shown = max(0, min(1, (total - G.banner.t) / 0.25, G.banner.t / 0.3))   -- slide down, then up
         R.banner:ClearAllPoints()
         R.banner:SetPoint("TOPLEFT", world, "TOPLEFT", 8, -8 + (1 - shown) * 60)
     else
@@ -1647,6 +2879,7 @@ local function DrawWorld()
     else
         R.fade:Hide()
     end
+    R.skyAlpha = ApplySky(R.sky, m.def.outdoor)
 end
 
 ---------------------------------------------------------------------------
@@ -1676,7 +2909,11 @@ local function SyncPending()
                 G:Advance(idx)
             end }
         end
-        PushMenu(items, { w = 130, x = SW - 136, y = -(SH - BOX_H - 4 - (#items * 32 + 24)), level = 60,
+        -- as wide as the longest option needs (the row text starts 36 px in, 24 px of padding after)
+        local w = 130
+        for _, o in ipairs(p.options) do w = max(w, floor(TextWidth(o, 16) + 60)) end
+        w = min(w, SW - 12)
+        PushMenu(items, { w = w, x = SW - w - 6, y = -(SH - BOX_H - 4 - (#items * 32 + 24)), level = 60,
             onCancel = function(menu)
                 PopMenu(menu)
                 ClearText()
@@ -1688,9 +2925,33 @@ local function SyncPending()
     elseif p.kind == "shop" then
         ClearText()
         OpenShop()
+    elseif p.kind == "relearn" then
+        ClearText()
+        Scr.OpenRelearn()
+    elseif p.kind == "bounties" then
+        ClearText()
+        Scr.OpenBounties(function() G:Advance() end)
+    elseif p.kind == "trade" then
+        ClearText()
+        Scr.OpenTrade(p.session)
+    elseif p.kind == "stable" then
+        ClearText()
+        Scr.OpenStable(function() G:Advance() end)
+    elseif p.kind == "craft" then
+        ClearText()
+        if ns.AzeroCraft.Skill(p.prof) then
+            Scr.OpenRecipes(p.prof, function() G:Advance() end)
+        else
+            local prof = D.professions[p.prof]
+            Message(string.format("You don't know %s. %s in Goldshire teaches it.", prof.name, prof.trainer),
+                function() G:Advance() end)
+        end
     elseif p.kind == "netwait" then
         SetText(p.text, { lines = 3 })
         text.shown = 999
+    elseif UI.screens[p.kind] then          -- a screen from another UI file (UI:RegisterScreen)
+        ClearText()
+        UI.screens[p.kind](p)
     end
 end
 
@@ -1705,7 +2966,6 @@ local function ShowTitle()
     ClearText()
     for i, sp in ipairs(D.starters) do
         R.titleModels[i]:Show()
-        R.titleModels[i].sp = nil
         ShowCreature(R.titleModels[i], sp, 0)
     end
     local items = {}
@@ -1727,6 +2987,8 @@ local function ShowTitle()
                 g:Say("Welcome to Azeroth, the world of AZEROMON!")
                 g:Say("From the forests of Elwynn to the jungles of Un'Goro, beasts of every kind roam these lands. Hunters tame them as companions and fight side by side.")
                 g:Say("Your journey begins in Goldshire, in the heart of Elwynn Forest. Good luck, {PLAYER}!")
+                local perk = g:PerkInfo()
+                if perk then g:Say(perk.name .. ": " .. perk.text) end
             end)
         end
         if G:HasSave() then
@@ -1739,8 +3001,352 @@ local function ShowTitle()
             start()
         end
     end }
-    PushMenu(items, { w = 170, anchor = { "TOP", screen, "CENTER", 0, -40 }, rowH = 32, level = 60,
+    items[#items + 1] = { text = "WHAT'S NEW", right = KH.ChangelogUnseen() and "new" or nil,
+        rightColor = { 0.85, 0.55, 0.05 }, onSelect = function(idx, menu)
+            KH.OpenChangelog()
+            menu.items[idx].right = nil
+            UI:RefreshMenu(menu)
+        end }
+    items[#items + 1] = { text = "CONTROLS", onSelect = function() KH.OpenControls() end }
+    PushMenu(items, { w = 210, anchor = { "TOP", screen, "CENTER", 0, -32 }, rowH = 32, level = 60,
         onCancel = function() end })
+end
+
+---------------------------------------------------------------------------
+-- Key hints: a strip with the keys that matter right now (under the game when there's room, else over its top
+-- edge). It shows when the situation changes, fades after a few seconds, comes back when the player idles, and
+-- drops a key for good once it has been used KH.KEY_LEARNED times (G:Data().keys; CONTROLS brings them back).
+-- One-time tips (G:Data().tips) teach the rest at the moment they matter.
+---------------------------------------------------------------------------
+
+KH.KEY_NAME = { A = "Space", B = "X", START = "Enter", move = "Arrows" }
+KH.KEY_LEARNED = 5
+KH.KEY_HINTS = {
+    world = { { "move", "Walk", "walk" }, { "A", "Talk", "talk" }, { "START", "Menu", "menu" }, { "B", "Run (hold)", "run" } },
+    menu = { { "A", "Select", "select" }, { "B", "Back", "back" } },
+    text = { { "A", "Next", "next" } },
+    netwait = { { "B", "Cancel", "cancel" } },
+}
+KH.keyState = { ctx = false, since = 0, input = 0 }
+
+-- What the player is doing, as far as keys go (nil: no strip - e.g. the summary has its own key line).
+function KH.KeyContext()
+    if R.title:IsShown() then return #stack > 0 and "menu" or nil end
+    if not G.started then return nil end
+    if uiMessage then return "text" end
+    local top = stack[#stack]
+    if top then return (not top.isSummary) and "menu" or nil end
+    if BT.battle then return "text" end
+    local p = G.pending
+    if p then
+        if p.kind == "text" then return "text" end
+        if p.kind == "netwait" then return "netwait" end
+        return nil
+    end
+    return "world"
+end
+
+function KH.KeysUsed()
+    local d = G:Data()
+    if type(d.keys) ~= "table" then d.keys = {} end
+    return d.keys
+end
+
+-- A key pressed: it counts toward learning its hint in the current situation.
+function KH.NoteKey(key)
+    KH.keyState.input = now
+    local ctx = KH.KeyContext()
+    for _, h in ipairs(ctx and KH.KEY_HINTS[ctx] or {}) do
+        if h[1] == key then
+            local used = KH.KeysUsed()
+            used[h[3]] = (used[h[3]] or 0) + 1
+        end
+    end
+end
+
+function KH.LayoutKeyStrip(list)
+    local ks = R.keyStrip
+    local x = 0
+    for i, part in ipairs(ks.parts) do
+        local h = list[i]
+        part.pill:SetShown(h ~= nil)
+        part.fs:SetShown(h ~= nil)
+        if h then
+            local key = KH.KEY_NAME[h[1]]
+            local pw = floor(TextWidth(key, 12 / 1.4) + 14)
+            part.pill:SetWidth(pw)
+            part.pill:Set(key, { 0.30, 0.42, 0.62 })
+            part.fs:SetText(h[2])
+            part.x = x
+            x = x + pw + 5 + TextWidth(h[2], 11) + 16
+        end
+    end
+    local left = (ks:GetWidth() - (x - 16)) / 2
+    for i, part in ipairs(ks.parts) do
+        if list[i] then
+            part.pill:ClearAllPoints()
+            part.pill:SetPoint("LEFT", ks, "LEFT", left + part.x, 0)
+            part.fs:ClearAllPoints()
+            part.fs:SetPoint("LEFT", part.pill, "RIGHT", 5, 0)
+        end
+    end
+end
+
+-- Under the game when the space around it allows, else over its top edge.
+function KH.PlaceKeyStrip(h)
+    local ks = R.keyStrip
+    if not ks then return end
+    local sc = screen:GetScale() or 1
+    local room = ((h or root:GetHeight() or 0) - SH * sc) / 2
+    ks:ClearAllPoints()
+    ks:SetWidth(SW * sc)
+    if room >= 26 then
+        ks:SetPoint("TOP", screen, "BOTTOM", 0, -3)
+        ks.bg:SetAlpha(0)
+        ks.outside = true
+    else
+        ks:SetPoint("TOP", screen, "TOP", 0, -2)
+        ks.bg:SetAlpha(1)
+        ks.outside = false
+    end
+    ks:SetFrameLevel(screen:GetFrameLevel() + 300)
+end
+
+function KH.UpdateKeyStrip()
+    local ks = R.keyStrip
+    if not ks then return end
+    local ctx = focused and KH.KeyContext() or nil
+    if ctx ~= KH.keyState.ctx then KH.keyState.ctx, KH.keyState.since = ctx, now end
+    local list, sig = {}, ctx or ""
+    local used = KH.KeysUsed()
+    for _, h in ipairs(ctx and KH.KEY_HINTS[ctx] or {}) do
+        if (used[h[3]] or 0) < KH.KEY_LEARNED then
+            list[#list + 1] = h
+            sig = sig .. h[3]
+        end
+    end
+    -- shown for 6 s after the situation changes (then a 1 s fade), and again after 12 s without a key
+    local t, idle = now - KH.keyState.since, now - KH.keyState.input
+    local a = (t < 6) and 1 or max(0, 7 - t)
+    if idle > 12 then a = max(a, min(1, idle - 12)) end
+    if #list == 0 or a <= 0 then ks:Hide() return end
+    if sig ~= ks.sig then
+        ks.sig = sig
+        KH.LayoutKeyStrip(list)
+    end
+    ks:SetAlpha(a)
+    ks:Show()
+end
+
+KH.TIPS = {
+    walk = "Tip: walk with the arrow keys or WASD. Space talks to people and picks things up.",
+    menu = "Tip: press Enter to open your menu: your beasts, your bag, your professions and more.",
+    run = "Tip: hold X while you walk to run.",
+    back = "Tip: X (or Q, or a right-click) goes back out of any menu.",
+}
+
+function KH.TipSeen(id)
+    local d = G:Data()
+    if type(d.tips) ~= "table" then d.tips = {} end
+    return d.tips[id]
+end
+
+function KH.ShowTip(id, after, text)
+    G:Data().tips[id] = true
+    Message(text or KH.TIPS[id], after)
+end
+
+-- Checked every frame in the world; a tip never interrupts a script, a menu or a battle.
+function KH.CheckTips()
+    if UI.tipsOff or not G:IsFree() or #stack > 0 or uiMessage or BT.battle then return end
+    if not KH.TipSeen("walk") then KH.ShowTip("walk") return end
+    -- the class perk, once per class (an alt of another class learns its own)
+    local cls, perk = G:ClassFile(), G:PerkInfo()
+    if cls and perk and not KH.TipSeen("perk_" .. cls) then
+        local name = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cls]) or (cls:sub(1, 1) .. cls:sub(2):lower())
+        KH.ShowTip("perk_" .. cls, nil, string.format("Tip: your class counts here too. %s, %s: %s The menu shows it any time.",
+            name, perk.name, perk.text))
+        return
+    end
+    if G:Flag("starter") and not KH.TipSeen("menu") then KH.ShowTip("menu") return end
+    if not KH.TipSeen("run") and (tonumber(G.save.steps) or 0) >= 60 then KH.ShowTip("run") return end
+end
+
+-- How a move does against a defending type: text and colour for the move panel.
+function KH.EffectText(md, defType)
+    if not defType or md.power <= 0 then return "", { 0.4, 0.4, 0.45 } end
+    local m = D.Effectiveness(md.type, defType)
+    if m == 0 then return "No effect", { 0.55, 0.2, 0.2 } end
+    if m > 1 then return "Super effective", { 0.2, 0.55, 0.22 } end
+    if m < 1 then return "Not very effective", { 0.82, 0.42, 0.1 } end
+    return "Normal damage", { 0.4, 0.4, 0.45 }
+end
+
+-- Tooltip lines for a type: what hits it hard, what it shrugs off.
+function KH.Matchups(defType)
+    local weak, resist, immune = {}, {}, {}
+    for _, a in ipairs(D.typeOrder) do
+        local m = D.Effectiveness(a, defType)
+        local name = D.types[a].name
+        if m == 0 then immune[#immune + 1] = name
+        elseif m > 1 then weak[#weak + 1] = name
+        elseif m < 1 then resist[#resist + 1] = name end
+    end
+    local lines = {}
+    if #weak > 0 then lines[#lines + 1] = "Weak to: " .. table.concat(weak, ", ") end
+    if #resist > 0 then lines[#lines + 1] = "Resists: " .. table.concat(resist, ", ") end
+    if #immune > 0 then lines[#lines + 1] = "Immune to: " .. table.concat(immune, ", ") end
+    return lines
+end
+
+KH.CELL = { [2] = { "x2", { 0.30, 0.62, 0.32 } }, [0.5] = { "x.5", { 0.84, 0.45, 0.28 } }, [0] = { "x0", { 0.22, 0.22, 0.26 } } }
+
+-- The whole chart: the move's type down the left, the defender's type along the top.
+function KH.OpenTypeChart()
+    local f = R.typeChart
+    if not f then
+        f = Box(screen, SW - 20, SH - 20, 100)
+        f:SetPoint("CENTER")
+        f.noPool = true
+        local t = Font(f, 18, nil, true)
+        t:SetPoint("TOPLEFT", 22, -18)
+        t:SetTextColor(0.20, 0.36, 0.62)
+        t:SetText("TYPE CHART")
+        local sub = Font(f, 12)
+        sub:SetPoint("TOPLEFT", 22, -44)
+        sub:SetText("Down the left: the move's type.  Along the top: the defender's type.")
+        sub:SetTextColor(0.36, 0.42, 0.55)
+        local x0, y0, lw, cw, rh = 22, -70, 78, 48, 30
+        for j, def in ipairs(D.typeOrder) do                -- column heads
+            local p = Pill(f, cw - 4, 16, 11)
+            p:SetPoint("TOPLEFT", x0 + lw + (j - 1) * cw, y0 + 2)
+            p:Set(D.types[def].name:sub(1, 3):upper(), D.types[def].color)
+        end
+        for i, atk in ipairs(D.typeOrder) do
+            local y = y0 - i * rh
+            local p = Pill(f, lw - 8, 18, 12)
+            p:SetPoint("TOPLEFT", x0, y + 1)
+            p:Set(D.types[atk].name:upper(), D.types[atk].color)
+            for j, def in ipairs(D.typeOrder) do
+                local m = D.Effectiveness(atk, def)
+                local cell = Tex(f, "ARTWORK")
+                cell:SetSize(cw - 4, rh - 6)
+                cell:SetPoint("TOPLEFT", x0 + lw + (j - 1) * cw, y)
+                local look = KH.CELL[m]
+                if look then
+                    cell:SetColorTexture(look[2][1], look[2][2], look[2][3], 1)
+                    local fs = Font(f, 12, "OVERLAY", true)
+                    fs:SetPoint("CENTER", cell, "CENTER", 0, 0)
+                    fs:SetJustifyH("CENTER")
+                    fs:SetText(look[1])
+                    fs:SetTextColor(1, 1, 1)
+                    fs:SetShadowColor(0, 0, 0, 0.6)
+                else
+                    cell:SetColorTexture(0.90, 0.91, 0.93, 1)
+                end
+            end
+        end
+        local legend = Font(f, 12)
+        legend:SetPoint("TOPLEFT", 22, y0 - 9 * rh - 8)
+        legend:SetWidth(SW - 64)
+        legend:SetText("x2 double damage     x.5 half damage     x0 no effect     blank: normal")
+        legend:SetTextColor(0.36, 0.42, 0.55)
+        local hint = Font(f, 12)
+        hint:SetPoint("BOTTOMRIGHT", -18, 14)
+        hint:SetJustifyH("RIGHT")
+        hint:SetText("Space / X: close")
+        R.typeChart = f
+    end
+    local top = stack[#stack]
+    f:SetFrameLevel(max(100, top and top.frame and top.frame:GetFrameLevel() + 10 or 0))
+    f:Show()
+    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true,
+        opts = { onCancel = function(m) PopMenu(m) f:Hide() end } }
+end
+
+-- WHAT'S NEW: one release per page (ns.AzeroChangelog, newest first), left / right for older / newer.
+function KH.ChangelogUnseen()
+    local log = ns.AzeroChangelog
+    return log and log[1] and G:Data().changelogSeen ~= log[1].version
+end
+
+function KH.OpenChangelog()
+    local log = ns.AzeroChangelog or {}
+    if #log == 0 then return end
+    local f = R.changelog
+    if not f then
+        f = Box(screen, SW - 20, SH - 20, 100)
+        f:SetPoint("CENTER")
+        f.noPool = true
+        local t = Font(f, 18, nil, true)
+        t:SetPoint("TOPLEFT", 22, -18)
+        t:SetTextColor(0.20, 0.36, 0.62)
+        t:SetText("WHAT'S NEW")
+        f.page = Font(f, 13)
+        f.page:SetPoint("TOPRIGHT", -22, -24)
+        f.page:SetJustifyH("RIGHT")
+        f.page:SetTextColor(0.36, 0.42, 0.55)
+        f.head = Font(f, 16, nil, true)
+        f.head:SetPoint("TOPLEFT", 22, -54)
+        f.date = Font(f, 12)
+        f.date:SetPoint("TOPLEFT", 22, -80)
+        f.date:SetTextColor(0.36, 0.42, 0.55)
+        f.body = Font(f, 13)
+        f.body:SetPoint("TOPLEFT", 22, -106)
+        f.body:SetWidth(SW - 64)
+        f.body:SetSpacing(5)
+        local hint = Font(f, 12)
+        hint:SetPoint("BOTTOMRIGHT", -18, 14)
+        hint:SetJustifyH("RIGHT")
+        hint:SetText("Left/Right: older / newer   X: close")
+        R.changelog = f
+    end
+    local i = 1
+    local function show()
+        local r = log[i]
+        f.page:SetText(string.format("%d / %d", i, #log))
+        f.head:SetText(string.format("v%s  %s", r.version, r.title or ""))
+        f.date:SetText(r.date or "")
+        local lines = {}
+        for k, line in ipairs(r.lines or {}) do lines[k] = "-  " .. line end
+        f.body:SetText(table.concat(lines, "\n"))
+    end
+    show()
+    G:Data().changelogSeen = log[1].version
+    local top = stack[#stack]
+    f:SetFrameLevel(max(100, top and top.frame and top.frame:GetFrameLevel() + 10 or 0))
+    f:Show()
+    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true,
+        onKey = function(key)
+            if key == "right" and i < #log then i = i + 1 show() return true end
+            if key == "left" and i > 1 then i = i - 1 show() return true end
+            return key == "left" or key == "right" or key == "up" or key == "down"
+        end,
+        opts = { onCancel = function(m) PopMenu(m) f:Hide() end } }
+end
+
+function KH.OpenControls()
+    local rows = {
+        { "Walk", "Arrow keys or WASD" },
+        { "Run", "Hold X while walking" },
+        { "Talk, pick up, select", "Space, Z or E" },
+        { "Back, cancel", "X, Q, Backspace, right-click" },
+        { "Open the menu", "Enter, Tab or M" },
+        { "Summary pages", "Left and Right" },
+        { "Scroll a long list", "Mouse wheel" },
+        { "Give the keyboard back", "Esc" },
+    }
+    local items = {}
+    for i, r in ipairs(rows) do items[i] = { text = r[1], right = r[2] } end
+    items[#items + 1] = { text = "Show the key hints again", onSelect = function(idx, menu)
+        G:Data().keys = {}
+        R.keyStrip.sig = nil
+        KH.keyState.since = now
+        menu.items[idx].text = "Key hints will show again"
+        UI:RefreshMenu(menu)
+    end }
+    PushMenu(items, { x = 8, y = -8, w = SW - 16, rowH = 30, level = 70, title = "CONTROLS",
+        onCancel = function(menu) PopMenu(menu) end })
 end
 
 ---------------------------------------------------------------------------
@@ -1774,9 +3380,17 @@ local function SetFocus(on)
     G.input.run = false
 end
 
+-- A reference panel on top (type chart, what's new): its own keys first, then Space / X close it.
+function KH.PanelKey(top, key)
+    if top.onKey and top.onKey(key) then return end
+    if key == "A" or key == "B" then top.opts.onCancel(top) end
+end
+
 local function HandleKey(key)
+    KH.NoteKey((key == "up" or key == "down" or key == "left" or key == "right") and "move" or key)
     if R.title:IsShown() then
-        if stack[#stack] then MenuKey(stack[#stack], key) end
+        local top = stack[#stack]
+        if top and top.isPanel then KH.PanelKey(top, key) elseif top then MenuKey(top, key) end
         return
     end
     -- UI messages and menus first
@@ -1791,7 +3405,11 @@ local function HandleKey(key)
             return
         end
         if top.isSummary then
-            if key == "A" or key == "B" then top.opts.onCancel(top) R.summary:Hide() end
+            Scr.SummaryKey(top, key)
+            return
+        end
+        if top.isPanel then
+            KH.PanelKey(top, key)
             return
         end
         MenuKey(top, key)
@@ -1813,9 +3431,10 @@ local function HandleKey(key)
     if key == "A" then
         G:PressA()
     elseif key == "START" and G:IsFree() then
-        OpenStartMenu()
+        if not UI.tipsOff and not KH.TipSeen("back") then KH.ShowTip("back", OpenStartMenu) else OpenStartMenu() end
     end
 end
+UI.Press = function(k) HandleKey(k) end
 
 local function OnKeyDown(self, key)
     if key == "ESCAPE" then
@@ -1831,7 +3450,7 @@ local function OnKeyDown(self, key)
     if k == "up" or k == "down" or k == "left" or k == "right" then
         heldDirs[k] = GetTime()
         local busy = #stack > 0 or uiMessage or G.pending or BT.battle or R.title:IsShown()
-        if busy then HandleKey(k) else G:SetDir(CurrentDir()) end
+        if busy then HandleKey(k) else KH.NoteKey("move") G:SetDir(CurrentDir()) end
         return
     end
     if k == "B" then G.input.run = true end
@@ -1854,7 +3473,8 @@ end
 
 local function OnUpdate(self, elapsed)
     now = now + elapsed
-    FitScenes()
+    FitScenes(elapsed)
+    KH.UpdateKeyStrip()
     if R.title:IsShown() or not G.started then
         ns.AzeroNet:SetActive(false)
         return
@@ -1863,6 +3483,9 @@ local function OnUpdate(self, elapsed)
     ns.AzeroNet:SetActive(true)
     ns.AzeroNet:Update(elapsed)
     ns.AzeroPvP:Update()
+    ns.AzeroTrade:Update()
+    KH.CheckTips()
+    ns.AzeroGuild:Update()
     -- directions pressed while a menu was open do not walk once it closes
     local busy = #stack > 0 or uiMessage
     if busy then G:SetDir(nil) elseif focused then G:SetDir(CurrentDir()) end
@@ -1875,12 +3498,21 @@ local function OnUpdate(self, elapsed)
         UpdateText(elapsed)
     end
     R.speciesModel:SetShown(G.showSpecies ~= nil)
-    if G.showSpecies then ShowCreature(R.speciesModel, G.showSpecies, 0.3) end
+    if G.showSpecies then ShowCreature(R.speciesModel, G.showSpecies, 0.3, G.showShiny) end
     if R.money:IsShown() then
-        R.money.fs:SetText("Money: " .. D.Money(G.save.money) .. "\nBadges: " .. G:BadgeCount())
+        local hr = G:Hour() % 24
+        local p, cls = G:PerkInfo(), G:ClassFile()
+        local cc = cls and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cls]
+        local className = cls and ((LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cls])
+            or (cls:sub(1, 1) .. cls:sub(2):lower()))
+        R.money.perk:SetText(p and string.format("%s: %s", className, p.name) or "")
+        if cc then R.money.perk:SetTextColor(cc.r * 0.8, cc.g * 0.8, cc.b * 0.8) end
+        R.money.fs:SetText(string.format("Money: %s\nBadges: %d\nRealm time %02d:%02d (%s)", D.Money(G.save.money),
+            G:BadgeCount(), math.floor(hr), math.floor((hr % 1) * 60), G:Period()))
         if #stack == 0 then R.money:Hide() end
     end
     if R.bagDesc:IsShown() and #stack == 0 then R.bagDesc:Hide() end
+    if R.moveCompare:IsShown() and #stack == 0 then R.moveCompare:Hide() end
     if R.log:IsShown() and #stack == 0 then R.log:Hide() end
 end
 
@@ -1926,6 +3558,10 @@ local function BuildBattle()
     ap:SetSize(280, 70)
     ap:SetPoint("CENTER", b, "TOPLEFT", 136, -SH + BOX_H + 22)
     bg.platforms = { fp, ap }
+    -- sky tint for outdoor battles (above the backdrop, below the creatures, which are child frames)
+    R.battleSky = Tex(b, "BORDER", 7)
+    R.battleSky:SetAllPoints()
+    R.battleSky:Hide()
 
     R.foeModel = NewModel(b, 200, 190)
     R.foeModel.baseX, R.foeModel.baseY = 392 - 100, -200
@@ -1941,27 +3577,33 @@ local function BuildBattle()
 
     -- HP boxes, laid out like the GBA games: name + type, level, status; an "HP" tag and bar;
     -- the player's box adds HP numbers and the EXP bar.
+    -- row 1: name (cut off with "..." before it can reach the level) and level; row 2: the effect chips
+    -- (Chips.Layout); row 3: HP (and the numbers on the player's side); the player's EXP along the bottom
     local function info(w, h, withNumbers)
         local f = Box(b, w, h, b:GetFrameLevel() + 5)
-        f.name = Font(f, 15, nil, true) f.name:SetPoint("TOPLEFT", 16, -13)
-        f.type = Pill(f, 58, 16, 14)
-        f.type:SetPoint("LEFT", f.name, "RIGHT", 6, 0)
-        f.lvl = Font(f, 14, nil, true) f.lvl:SetPoint("TOPRIGHT", -16, -13) f.lvl:SetJustifyH("RIGHT")
-        f.status = Pill(f, 40, 16, 14)
-        f.status:SetPoint("RIGHT", f.lvl, "LEFT", -6, 0)
+        f.lvl = Font(f, 14, nil, true) f.lvl:SetPoint("TOPRIGHT", -16, -12) f.lvl:SetJustifyH("RIGHT")
+        f.name = Font(f, 15, nil, true) f.name:SetPoint("TOPLEFT", 16, -12)
+        f.name:SetWidth(w - 32 - 58)
+        f.name:SetWordWrap(false)
+        f.star = Tex(f, "OVERLAY", 3)             -- a shiny
+        f.star:SetTexture(Scr.SPARKLE_TEX)
+        f.star:SetSize(14, 14)
+        f.star:SetPoint("RIGHT", f.lvl, "LEFT", -4, 0)
+        f.star:Hide()
+        f.chipY, f.chipRoom = -35, w - 32
         local tag = CreateFrame("Frame", nil, f)
         tag:SetSize(30, 14)
-        tag:SetPoint("TOPLEFT", 16, -38)
+        tag:SetPoint("TOPLEFT", 16, -57)
         Rounded(tag, 0, 2, 0.30, 0.30, 0.34, 0, "ARTWORK")
         local hpl = tag:CreateFontString(nil, "OVERLAY")
         if not hpl:SetFont(FONT_BOLD, 14, "") then hpl:SetFont(FONT_FALLBACK, 9, "") end
         hpl:SetPoint("CENTER", 0, 1)
         hpl:SetText("HP")
         hpl:SetTextColor(0.98, 0.72, 0.18)
-        f.hp = Bar(f, w - 64, 10)
+        f.hp = Bar(f, withNumbers and (w - 64 - 78) or (w - 64), 10)
         f.hp.bg:SetPoint("LEFT", tag, "RIGHT", 2, 0)
         if withNumbers then
-            f.hpText = Font(f, 14) f.hpText:SetPoint("TOPRIGHT", -16, -55) f.hpText:SetJustifyH("RIGHT")
+            f.hpText = Font(f, 13) f.hpText:SetPoint("RIGHT", f, "TOPRIGHT", -16, -64) f.hpText:SetJustifyH("RIGHT")
             local el = Font(f, 10, nil, true) el:SetPoint("BOTTOMLEFT", 16, 10) el:SetText("EXP")
             el:SetTextColor(0.25, 0.45, 0.75)
             f.exp = Bar(f, w - 70, 6)
@@ -1970,9 +3612,9 @@ local function BuildBattle()
         f:Hide()
         return f
     end
-    R.foeBox = info(250, 62)
-    R.foeBox:SetPoint("TOPLEFT", b, "TOPLEFT", 14, -18)
-    R.allyBox = info(256, 96, true)
+    R.foeBox = info(280, 82)
+    R.foeBox:SetPoint("TOPLEFT", b, "TOPLEFT", 14, -14)
+    R.allyBox = info(280, 102, true)
     R.allyBox:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -10, BOX_H + 8)
 
     R.net = Tex(b, "OVERLAY", 3)
@@ -1983,11 +3625,13 @@ local function BuildBattle()
     R.moveInfo = Box(b, 170, BOX_H, 75)
     R.moveInfo:SetPoint("BOTTOMRIGHT", screen, "BOTTOMRIGHT", 0, 0)
     R.moveInfo.pp = Font(R.moveInfo, 15, nil, true)
-    R.moveInfo.pp:SetPoint("TOPLEFT", 18, -20)
+    R.moveInfo.pp:SetPoint("TOPLEFT", 18, -14)
     R.moveInfo.type = Pill(R.moveInfo, 80, 20, 16)
-    R.moveInfo.type:SetPoint("TOPLEFT", 18, -48)
+    R.moveInfo.type:SetPoint("TOPLEFT", 18, -38)
     R.moveInfo.power = Font(R.moveInfo, 13)
-    R.moveInfo.power:SetPoint("TOPLEFT", 18, -76)
+    R.moveInfo.power:SetPoint("TOPLEFT", 18, -62)
+    R.moveInfo.eff = Font(R.moveInfo, 12, nil, true)            -- against this foe (KH.EffectText)
+    R.moveInfo.eff:SetPoint("TOPLEFT", 18, -84)
     R.moveInfo:Hide()
 
     R.flash = Tex(b, "OVERLAY", 7)
@@ -2030,7 +3674,8 @@ function UI:CreatePanel(parent)
     R.nameTab.fs:SetJustifyV("MIDDLE")
     R.nameTab.fs:SetTextColor(0.20, 0.36, 0.62)
     R.nameTab:Hide()
-    R.textbox:SetScript("OnMouseDown", function()
+    R.textbox:SetScript("OnMouseDown", function(_, button)
+        if button == "RightButton" then HandleKey("B") return end
         if uiMessage or (G.pending and G.pending.kind == "text") or (BT.battle and text.full) then HandleKey("A") end
     end)
     R.textbox:Hide()
@@ -2042,11 +3687,23 @@ function UI:CreatePanel(parent)
     R.speciesModel:Hide()
 
     -- money / descriptions / summary / log
-    R.money = Box(screen, 170, 64, screen:GetFrameLevel() + 58)
+    R.money = Box(screen, 230, 108, screen:GetFrameLevel() + 58)
     R.money:SetPoint("TOPLEFT", 8, -8)
     R.money.fs = Font(R.money, 15)
-    R.money.fs:SetPoint("LEFT", 16, 0)
-    R.money.fs:SetJustifyV("MIDDLE")
+    R.money.fs:SetPoint("TOPLEFT", 16, -14)
+    -- the class perk: one line in the class colour, the whole story on hover
+    R.money.perk = Font(R.money, 15)
+    R.money.perk:SetPoint("TOPLEFT", R.money.fs, "BOTTOMLEFT", 0, -2)
+    R.money:SetScript("OnEnter", function(self)
+        local p = G:PerkInfo()
+        if not (p and GameTooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+        GameTooltip:SetText(p.name, 1, 0.82, 0)
+        GameTooltip:AddLine(p.text, 1, 1, 1, true)
+        GameTooltip:AddLine("Your WoW class's perk. It never counts in battles between players.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    R.money:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
     R.money:Hide()
 
     R.bagDesc = Box(screen, SW, 80, screen:GetFrameLevel() + 75)
@@ -2056,12 +3713,46 @@ function UI:CreatePanel(parent)
     R.bagDesc.fs:SetPoint("BOTTOMRIGHT", -18, 12)
     R.bagDesc:Hide()
 
+    -- two move cards side by side (see MoveCard), as tall as the text box
+    local mc = Box(screen, SW, BOX_H, screen:GetFrameLevel() + 75)
+    mc:SetPoint("BOTTOMLEFT")
+    mc.cards = {}
+    for i = 1, 2 do
+        local x0, cw = (i == 1) and 18 or (SW / 2 + 10), SW / 2 - 28
+        local c = {}
+        c.label = Font(mc, 13)
+        c.label:SetPoint("TOPLEFT", x0, -12)
+        c.label:SetTextColor(0.20, 0.36, 0.62)
+        c.pill = Pill(mc, 64, 18, 14)
+        c.pill:SetPoint("TOPRIGHT", mc, "TOPLEFT", x0 + cw, -12)
+        c.name = Font(mc, 15, nil, true)
+        c.name:SetPoint("TOPLEFT", x0, -32)
+        c.stats = Font(mc, 13)
+        c.stats:SetPoint("TOPLEFT", x0, -58)
+        c.effect = Font(mc, 13)
+        c.effect:SetPoint("TOPLEFT", x0, -80)
+        c.effect:SetWidth(cw)
+        c.effect:SetTextColor(0.36, 0.42, 0.55)
+        mc.cards[i] = c
+    end
+    local divider = Tex(mc, "ARTWORK")
+    divider:SetColorTexture(0.56, 0.74, 0.86, 1)
+    divider:SetSize(2, BOX_H - 24)
+    divider:SetPoint("TOP", mc, "TOP", 0, -12)
+    mc:Hide()
+    R.moveCompare = mc
+
     R.summary = Box(screen, SW - 20, SH - 20, screen:GetFrameLevel() + 90)
     R.summary:SetPoint("CENTER")
     R.summary.noPool = true
     R.summary.title = Font(R.summary, 18, nil, true)
     R.summary.title:SetPoint("TOPLEFT", 22, -20)
     R.summary.title:SetTextColor(0.20, 0.36, 0.62)
+    R.summary.star = Tex(R.summary, "OVERLAY", 3)
+    R.summary.star:SetTexture(Scr.SPARKLE_TEX)
+    R.summary.star:SetSize(20, 20)
+    R.summary.star:SetPoint("LEFT", R.summary.title, "RIGHT", 6, 0)
+    R.summary.star:Hide()
     R.summary.body = Font(R.summary, 13)
     R.summary.body:SetPoint("TOPLEFT", 22, -58)
     R.summary.body:SetWidth(290)
@@ -2070,10 +3761,130 @@ function UI:CreatePanel(parent)
     R.summary.model:SetPoint("TOPRIGHT", -14, -40)
     local hint = Font(R.summary, 12)
     hint:SetPoint("BOTTOMRIGHT", -18, 14)
+    hint:SetJustifyH("RIGHT")
     hint:SetText("Space / X: close")
+    R.summary.hint = hint
+    R.summary.tabs = Font(R.summary, 13, nil, true)
+    R.summary.tabs:SetPoint("TOPRIGHT", -22, -26)
+    R.summary.tabs:SetJustifyH("RIGHT")
+
+    -- the gear page: slot cells down both sides (WoW's empty-slot icons), the chosen slot and the totals below
+    local sw = SW - 20
+    local gp = CreateFrame("Frame", nil, R.summary)
+    gp:SetAllPoints()
+    R.summary.gear = gp
+    R.summary.cells = {}
+    for i, slot in ipairs(Scr.GEAR_ORDER) do
+        local col, row = (i <= 3) and 0 or 1, (i - 1) % 3
+        local cell = CreateFrame("Button", nil, gp)
+        cell:SetSize(76, 64)
+        cell:SetPoint("TOPLEFT", R.summary, "TOPLEFT", col == 0 and 18 or (sw - 18 - 76), -64 - row * 80)
+        local back = Tex(cell, "BACKGROUND")
+        back:SetSize(46, 46)
+        back:SetPoint("TOP", 0, 0)
+        back:SetColorTexture(0.56, 0.74, 0.86, 1)
+        cell.back = back
+        local inner = Tex(cell, "BORDER")
+        inner:SetSize(42, 42)
+        inner:SetPoint("CENTER", back, "CENTER")
+        inner:SetColorTexture(0.12, 0.13, 0.16, 1)
+        cell.empty = Tex(cell, "ARTWORK")
+        cell.empty:SetSize(40, 40)
+        cell.empty:SetPoint("CENTER", back, "CENTER")
+        cell.empty:SetTexture(Scr.EmptySlotTexture(slot))
+        cell.icon = Tex(cell, "OVERLAY")
+        cell.icon:SetSize(40, 40)
+        cell.icon:SetPoint("CENTER", back, "CENTER")
+        cell.label = Font(cell, 11)
+        cell.label:SetPoint("TOP", back, "BOTTOM", 0, -3)
+        cell.label:SetJustifyH("CENTER")
+        cell.label:SetText(Scr.SlotName(slot))
+        function cell:Select(on)
+            if on then
+                self.back:SetColorTexture(0.92, 0.66, 0.08, 1)
+                self.label:SetTextColor(0.20, 0.36, 0.62)
+            else
+                self.back:SetColorTexture(0.56, 0.74, 0.86, 1)
+                self.label:SetTextColor(INK[1], INK[2], INK[3])
+            end
+        end
+        cell:SetScript("OnEnter", function()
+            local top = stack[#stack]
+            if top and top.isSummary and top.summary.page == "gear" then
+                top.summary.cursor = i
+                Scr.RenderSummary(top.summary)
+            end
+        end)
+        cell:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        cell:SetScript("OnClick", function(_, button)
+            if button == "RightButton" then UI.Press("B") return end
+            local top = stack[#stack]
+            if top and top.isSummary and top.summary.page == "gear" then
+                top.summary.cursor = i
+                Scr.GearSlotAct(top.summary)
+            end
+        end)
+        R.summary.cells[i] = cell
+    end
+    R.summary.detail = Font(gp, 13)
+    R.summary.detail:SetPoint("TOPLEFT", R.summary, "TOPLEFT", 22, -300)
+    R.summary.detail:SetWidth(sw - 44)
+    R.summary.totals = Font(gp, 13)
+    R.summary.totals:SetPoint("TOPLEFT", R.summary, "TOPLEFT", 22, -328)      -- up to two lines, above the hint
+    R.summary.totals:SetWidth(sw - 44)
+    R.summary.totals:SetTextColor(0.36, 0.42, 0.55)
+    gp:Hide()
     R.summary:Hide()
 
-    R.log = Box(screen, SW - 270, SH - 16, screen:GetFrameLevel() + 65)
+    -- the trade screen: two cards (model, name, type, level and original trainer, moves), a status line, a hint
+    local tr = Box(screen, SW, SH, screen:GetFrameLevel() + 85)
+    tr:SetPoint("CENTER")
+    tr.noPool = true
+    tr.title = Font(tr, 18, nil, true)
+    tr.title:SetPoint("TOPLEFT", 22, -16)
+    tr.title:SetTextColor(0.20, 0.36, 0.62)
+    tr.cards = {}
+    local cw = (SW - 36) / 2
+    for i = 1, 2 do
+        local card = Box(tr, cw, 236, tr:GetFrameLevel() + 2)
+        card:SetPoint("TOPLEFT", tr, "TOPLEFT", 12 + (i - 1) * (cw + 12), -44)
+        local c = { frame = card }
+        c.label = Font(card, 13)
+        c.label:SetPoint("TOPLEFT", 14, -12)
+        c.label:SetTextColor(0.20, 0.36, 0.62)
+        c.model = NewModel(card, cw - 28, 100)
+        c.model:SetPoint("TOP", card, "TOP", 0, -30)
+        c.model:SetFrameLevel(card:GetFrameLevel() + 2)
+        c.name = Font(card, 15, nil, true)
+        c.name:SetPoint("TOPLEFT", 14, -136)
+        c.star = Tex(card, "OVERLAY", 3)
+        c.star:SetTexture(Scr.SPARKLE_TEX)
+        c.star:SetSize(16, 16)
+        c.star:SetPoint("LEFT", c.name, "RIGHT", 4, 0)
+        c.star:Hide()
+        c.pill = Pill(card, 64, 18, 14)
+        c.pill:SetPoint("TOPRIGHT", -14, -136)
+        c.info = Font(card, 13)
+        c.info:SetPoint("TOPLEFT", 14, -160)
+        c.moves = Font(card, 13)
+        c.moves:SetPoint("TOPLEFT", 14, -182)
+        c.moves:SetWidth(cw - 28)
+        c.moves:SetTextColor(0.36, 0.42, 0.55)
+        tr.cards[i] = c
+    end
+    tr.status = Font(tr, 13)
+    tr.status:SetPoint("TOPLEFT", 22, -292)
+    tr.status:SetWidth(SW - 44 - 200)
+    local hint = Font(tr, 12)
+    hint:SetPoint("BOTTOMLEFT", 22, 18)
+    hint:SetWidth(SW - 44 - 200)
+    hint:SetText("Beasts keep their original trainer (OT). A traded beast earns boosted experience.")
+    hint:SetTextColor(0.36, 0.42, 0.55)
+    tr:Hide()
+    R.trade = tr
+    ns.AzeroTrade.onChange = Scr.RefreshTrade
+
+    R.log = Box(screen, SW - 292, SH - 16, screen:GetFrameLevel() + 65)   -- right of the 270-wide list
     R.log:SetPoint("TOPRIGHT", -8, -8)
     R.log.model = NewModel(R.log, 220, 200)
     R.log.model:SetPoint("TOP", 0, -14)
@@ -2110,11 +3921,7 @@ function UI:CreatePanel(parent)
     credit:SetTextColor(0.7, 0.75, 0.85)
     credit:SetPoint("BOTTOM", 0, 8)
     credit:SetText("Pixel art: Tiny 16 by Lanea Zimmerman (Sharm), CC-BY  |  Tiles: Red_Voxel, CC-BY-SA  |  Font: Pixel Operator (CC0)")
-    local keys = R.title:CreateFontString(nil, "OVERLAY")
-    keys:SetFont(FONT, 12, "")
-    keys:SetTextColor(0.85, 0.9, 1)
-    keys:SetPoint("BOTTOM", credit, "TOP", 0, 8)
-    keys:SetText("Arrows/WASD move   Space = A   X = B (hold to run)   Enter = menu   Esc = release keyboard")
+    -- (the keys: the key strip and CONTROLS explain them)
 
     -- focus overlay
     focusOverlay = CreateFrame("Button", nil, root)
@@ -2140,12 +3947,36 @@ function UI:CreatePanel(parent)
     root:SetScript("OnKeyDown", OnKeyDown)
     root:SetScript("OnKeyUp", OnKeyUp)
     root:SetScript("OnUpdate", OnUpdate)
-    root:SetScript("OnSizeChanged", function(self, w, h)
-        if w and h and w > 0 and h > 0 then screen:SetScale(min(1, w / (SW + 8), h / (SH + 8))) end
-    end)
+    -- the game keeps its 11 x 9 tiles and scales evenly (never stretched) to the largest size its space allows
+    local ks = CreateFrame("Frame", nil, root)
+    ks:SetSize(SW, 22)
+    ks.bg = Tex(ks, "BACKGROUND")
+    ks.bg:SetAllPoints()
+    ks.bg:SetColorTexture(0.05, 0.05, 0.07, 0.75)
+    ks.parts = {}
+    for i = 1, 4 do
+        local fs = Font(ks, 11)
+        fs:SetTextColor(0.88, 0.88, 0.92)
+        fs:SetShadowColor(0, 0, 0, 1)
+        fs:SetShadowOffset(1, -1)
+        fs:SetJustifyV("MIDDLE")
+        ks.parts[i] = { pill = Pill(ks, 52, 16, 12), fs = fs }
+    end
+    ks:EnableMouse(false)
+    ks:Hide()
+    R.keyStrip = ks
+
+    local function FitScreen(w, h)
+        w, h = w or root:GetWidth(), h or root:GetHeight()
+        if w and h and w > 0 and h > 0 then screen:SetScale(max(0.3, min(w / SW, h / SH))) end
+        KH.PlaceKeyStrip(h)
+    end
+    root:SetScript("OnSizeChanged", function(self, w, h) FitScreen(w, h) end)
+    UI._Fit = function(w, h) FitScreen(w, h) return screen:GetScale() end
     root:SetScript("OnHide", function() SetFocus(false) ns.AzeroNet:SetActive(false) end)
 
     root.OnGameShown = function()
+        FitScreen()
         if not G.started then ShowTitle() end
     end
     root.OnGameHidden = function() SetFocus(false) ns.AzeroNet:SetActive(false) end
@@ -2168,7 +3999,12 @@ function UI:OnInit()
         elseif cmd == "models" then
             -- what the auto-fit measured for the models on screen (paste this if a creature looks wrong)
             for label, m in pairs({ enemy = R.foeModel, yours = R.allyModel }) do
-                if m and m.isScene and m.sp then
+                if m and m.isScene and m.sp and m.fit then
+                    ns:Print("Azeromon %s: %s still being measured (loaded: %s, %.1f s)", label, m.sp,
+                        m.fit.ready and "yes" or "not yet", m.fit.age or 0)
+                elseif m and m.isScene and m.sp and m.fitInfo and m.fitInfo.gaveUp then
+                    ns:Print("Azeromon %s: %s shown unfitted (the client gave no size for this model)", label, m.sp)
+                elseif m and m.isScene and m.sp then
                     local function fmt(b) return b and string.format("%.2f %.2f %.2f / %.2f %.2f %.2f", unpack(b)) or "none" end
                     local fi = m.fitInfo
                     ns:Print("Azeromon %s: %s scale=%.3f yaw=%.2f cam=%.2f", label, m.sp, m.fitted or 0, m.facing or 0, m.camZ or 0)
@@ -2200,6 +4036,23 @@ function UI:OnInit()
     end, "azeromon [flip | zoom <creature> <factor> | models] - open Azeromon; flip turns battle models, zoom resizes one")
 end
 
+---------------------------------------------------------------------------
+-- For the other Azeromon UI files (UI_*.lua, loaded after this one): the building blocks, and screens for their
+-- own G.pending kinds. Keeping new screens in their own files keeps this one under Lua's 200-locals limit.
+---------------------------------------------------------------------------
+
+UI.Kit = {
+    Box = Box, Font = Font, Pill = Pill, Tex = Tex, Bar = Bar, Triangle = Triangle, TextWidth = TextWidth,
+    PushMenu = PushMenu, PopMenu = PopMenu, CloseAllMenus = CloseAllMenus, Message = Message,
+    SetText = SetText, ClearText = ClearText, ShowCreature = ShowCreature, NewModel = NewModel,
+    R = R, stack = stack, SW = SW, SH = SH, BOX_H = BOX_H, TILE = TILE, INK = INK,
+    Screen = function() return screen end,
+    Now = function() return now end,
+}
+
+-- UI:RegisterScreen(kind, fn): shows G.pending of `kind` (fn(pending)); the screen calls G:Advance() when done.
+function UI:RegisterScreen(kind, fn) UI.screens[kind] = fn end
+
 -- For tests
 UI._HandleKey = function(k) HandleKey(k) end
 UI._State = function() return { stack = #stack, battle = BT.battle ~= nil, msg = uiMessage ~= nil, text = text.full } end
@@ -2211,6 +4064,120 @@ UI._Levels = function()
                    title = m.frame.titleFs and m.frame.titleFs:GetText() or "" }
     end
     return out
+end
+-- Tests: where the top menu sits (anchor offsets, size), which items its visible rows show, the scroll markers,
+-- and the description box / Bestiary panel beside it.
+UI._MenuLayout = function()
+    local m = stack[#stack]
+    if not m or not m.perPage then return nil end
+    local f = m.frame
+    local _, _, _, x, y = f:GetPoint(1)
+    local rows = {}
+    for _, row in ipairs(f.rows) do
+        if row:IsShown() then
+            local _, _, _, rx, ry = row:GetPoint(1)
+            rows[#rows + 1] = { idx = row.idx, x = rx, y = ry, w = row:GetWidth(), h = row:GetHeight(),
+                                cursor = row.cursor:IsShown(), icon = row.icon:IsShown() and row.icon:GetHeight() or 0 }
+        end
+    end
+    return { x = x, y = y, w = f:GetWidth(), h = f:GetHeight(), rows = rows, n = #m.items, cursor = m.cursor,
+             first = m.first, per = m.perPage, up = f.upMark:IsShown(), down = f.downMark:IsShown(),
+             SW = SW, SH = SH, desc = max(R.bagDesc:IsShown() and R.bagDesc:GetHeight() or 0,
+                                          R.moveCompare:IsShown() and R.moveCompare:GetHeight() or 0),
+             log = R.log:IsShown() and R.log:GetWidth() or 0 }
+end
+UI._MoveCards = function()
+    if not R.moveCompare:IsShown() then return nil end
+    local out = {}
+    for i, c in ipairs(R.moveCompare.cards) do
+        out[i] = { label = c.label:GetText() or "", name = c.name:GetText() or "", stats = c.stats:GetText() or "",
+                   effect = c.effect:GetText() or "" }
+    end
+    return out
+end
+UI._Shiny = function()
+    local f = R.foeModel
+    return { display = f.display, glow = f.glow or false, star = R.foeBox.star:IsShown(),
+             sparkle = Scr.sparkle ~= nil and Scr.sparkle:IsShown() }
+end
+UI._MenuItems = function()
+    local m = stack[#stack]
+    local out = {}
+    for i, it in ipairs(m and m.items or {}) do out[i] = it.text end
+    return out
+end
+UI._DescText = function() return R.bagDesc:IsShown() and R.bagDesc.fs:GetText() or nil end
+UI._Trade = function()
+    local f = R.trade
+    if not f:IsShown() then return nil end
+    local out = { status = f.status:GetText(), cards = {} }
+    for i, c in ipairs(f.cards) do
+        out.cards[i] = { label = c.label:GetText(), name = c.name:GetText(), info = c.info:GetText() or "" }
+    end
+    return out
+end
+UI._SummaryState = function()
+    local top = stack[#stack]
+    local sm
+    for i = #stack, 1, -1 do if stack[i].isSummary then sm = stack[i].summary break end end
+    if not sm then return nil end
+    local slots = {}
+    for i, slot in ipairs(Scr.GEAR_ORDER) do slots[i] = Scr.SlotItem(sm.mon, slot) or false end
+    local f = R.summary
+    return { page = sm.page, cursor = sm.cursor, tabs = f.tabs:GetText(), detail = f.detail:GetText(),
+             totals = f.totals:GetText(), slots = slots, gearShown = f.gear:IsShown(), top = top and top.isSummary or false,
+             labels = (function() local o = {} for i, c in ipairs(f.cells) do o[i] = c.label:GetText() end return o end)() }
+end
+UI._KeyStrip = function()
+    local ks = R.keyStrip
+    if not ks:IsShown() then return nil end
+    local out = {}
+    for _, part in ipairs(ks.parts) do
+        if part.fs:IsShown() then out[#out + 1] = part.pill.fs:GetText() .. " " .. part.fs:GetText() end
+    end
+    return { keys = out, alpha = ks:GetAlpha(), outside = ks.outside }
+end
+UI._Focus = function(on) SetFocus(on) end
+UI._Outside = function() return R.keyStrip.outside end
+UI._RightClick = function(what)
+    local m = stack[#stack]
+    if not m then return end
+    if what == "row" then
+        local row = m.frame.rows and m.frame.rows[1]
+        row:GetScript("OnClick")(row, "RightButton")
+    else
+        m.frame:GetScript("OnMouseDown")(m.frame, "RightButton")
+    end
+end
+UI._Boxes = function()
+    local out = {}
+    for _, side in ipairs({ "foe", "ally" }) do
+        local f = side == "foe" and R.foeBox or R.allyBox
+        out[side] = f:IsShown() and { chips = f.chipTexts or {}, name = f.name:GetText(), lvl = f.lvl:GetText(),
+                                      nameW = f.name:GetWidth(), w = f:GetWidth() } or false
+    end
+    return out
+end
+UI._TextOnTop = function()
+    local top = stack[#stack]
+    return { shown = R.textbox:IsShown(), level = R.textbox:GetFrameLevel(),
+             menu = top and top.frame:GetFrameLevel() or 0, text = text.full }
+end
+UI._MoveEff = function() return R.moveInfo:IsShown() and R.moveInfo.eff:GetText() or nil end
+UI._Matchups = function(t) return KH.Matchups(t) end
+UI._TypeChart = function() return R.typeChart ~= nil and R.typeChart:IsShown() end
+UI._PerkLine = function() return R.money.perk:GetText() end
+UI._ChangelogUnseen = function() return KH.ChangelogUnseen() and true or false end
+UI._Changelog = function()
+    local f = R.changelog
+    if not (f and f:IsShown()) then return nil end
+    return { page = f.page:GetText(), head = f.head:GetText(), body = f.body:GetText() }
+end
+UI._Hint = function() return R.hint:IsShown() and R.hint.text or nil end
+UI._Wheel = function(delta)
+    local m = stack[#stack]
+    local fn = m and m.frame:GetScript("OnMouseWheel")
+    if fn then fn(m.frame, delta) end
 end
 UI._Summary = function() return R.summary ~= nil and R.summary:IsShown() and true or false end
 -- Tests drive the engine themselves: stop the panel from playing battles / prompts.
@@ -2225,4 +4192,8 @@ UI._FitInfo = function()
     return sc.fitInfo
 end
 UI._ShowFoe = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7) end
+UI._ShowFoeShiny = function(sp) R.title:Hide() R.battle:Show() ShowCreature(R.foeModel, sp, -0.7, true) end
 UI._Camera = function() return { dist = CAM_DIST, fov = CAM_FOV } end
+UI._Scene = function(which) return (which == "ally") and R.allyModel or R.foeModel end
+UI._TitleScenes = function() return R.titleModels end
+UI._SkyAlpha = function() return (R.sky and R.sky:IsShown()) and (R.skyAlpha or 0) or 0 end

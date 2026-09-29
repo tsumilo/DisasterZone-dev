@@ -83,4 +83,10 @@ Games\Azeromon\Maps.lua
 Games\Azeromon\Game.lua
 Games\Azeromon\Net.lua
 Games\Azeromon\PvP.lua
+Games\Azeromon\Achievements.lua
+Games\Azeromon\GuildBoard.lua
+Games\Azeromon\Bounties.lua
+Games\Azeromon\Trade.lua
+Games\Azeromon\Crafting.lua
+Games\Azeromon\Changelog.lua
 Games\Azeromon\UI.lua

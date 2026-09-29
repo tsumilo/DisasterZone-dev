@@ -1,6 +1,7 @@
 """Lua-side bot shared by the Azeromon suites (installed with c.eval(BOT))."""
 BOT = r"""
 local G, D, M = ns.Azero, ns.AzeroData, ns.AzeroMon
+if ns.AzeroUI then ns.AzeroUI.tipsOff = true end      -- one-time tips would interrupt the scripted tests
 T_AZ = { log = {}, choice = 1 }
 function T_AZ.seed(n)
   local s = n
@@ -88,7 +89,7 @@ function T_AZ.walkTo(tx, ty, maxRetries)
         local nx, ny = x + d[1], y + d[2]
         local k = m.key(nx, ny)
         local ok = nx >= 0 and ny >= 0 and nx < m.w and ny < m.h and not m.solid[k] and not seen[k]
-        if ok and G:NpcAt(nx, ny) then ok = false end
+        if ok and (G:NpcAt(nx, ny) or G:SolidNode(nx, ny)) then ok = false end   -- people and ore veins block
         if ok and m.warp[k] and not (nx == tx and ny == ty) then ok = false end
         if ok then seen[k] = true prev[k] = { x, y, dir } q[#q + 1] = { nx, ny } end
       end

@@ -6,7 +6,8 @@
 --   AZA { id, ok, why, team }        answer (with the defender's team when accepted)
 --   AZM { id, turn, a }              my action for turn n
 --   AZF { id }                       challenge withdrawn
--- Rules: both teams fully healed for the match and untouched afterwards (the battle uses copies), no items,
+-- Rules: both teams fully healed for the match and untouched afterwards (the battle uses copies), no items or
+-- flasks (gear counts: it's part of the beast),
 -- no exp or money, real levels. A player who does not act within TURN_TIMEOUT seconds forfeits.
 local addonName, ns = ...
 
@@ -40,7 +41,12 @@ function P.PackTeam(party)
         if i > D.MAX_PARTY then break end
         local moves = {}
         for j, mv in ipairs(mon.moves) do moves[j] = mv.id end
-        out[i] = { sp = mon.sp, lvl = mon.lvl, ivs = mon.ivs, moves = moves }
+        local gear
+        if type(mon.gear) == "table" then
+            gear = {}
+            for slot, id in pairs(mon.gear) do gear[slot] = id end
+        end
+        out[i] = { sp = mon.sp, lvl = mon.lvl, ivs = mon.ivs, moves = moves, shiny = mon.shiny or nil, gear = gear }
     end
     return out
 end
@@ -58,7 +64,8 @@ function P.UnpackTeam(list)
             end
             local ivs = {}
             for k = 1, 6 do ivs[k] = math.max(0, math.min(31, math.floor(tonumber(type(t.ivs) == "table" and t.ivs[k]) or 0))) end
-            local mon = M.Sanitize({ sp = t.sp, lvl = t.lvl, ivs = ivs, moves = moves, hp = 1 })
+            local mon = M.Sanitize({ sp = t.sp, lvl = t.lvl, ivs = ivs, moves = moves, hp = 1, shiny = t.shiny,
+                                     gear = type(t.gear) == "table" and t.gear or nil })
             if mon then
                 M.Heal(mon)
                 team[#team + 1] = mon
@@ -84,8 +91,8 @@ end
 -- Challenging (called from the overworld script when pressing A on a player)
 ---------------------------------------------------------------------------
 
-function P:Challenge(g, peer)
-    if not g:YesNo(string.format("Challenge %s to a battle?", peer.name)) then return end
+function P:Challenge(g, peer, asked)
+    if not asked and not g:YesNo(string.format("Challenge %s to a battle?", peer.name)) then return end
     if not M.FirstUsable(g.save.party) then
         g:Say("You need a beast that can fight first.")
         return
@@ -186,7 +193,7 @@ function P:Play(g, id, opp, host, seed, theirTeamWire)
     -- the seed is the challenger's; both sides use it, so every roll matches
     local b = ns.AzeroBattle.New({
         party = CopyParty(g.save.party), foes = foes, rng = P.NewRng(seed),
-        onSeen = function(sp) g.save.seen[sp] = true end,
+        onSeen = function(sp) g.save.seen[sp] = true g:Emit("seen", { sp = sp }) end,
         pvp = { host = host, name = name, onAction = function(a)
             Whisper(opp, { t = "AZM", id = id, turn = match and match.battle.turn + 1 or 1, a = a })
             if match then match.since = Now() end
@@ -202,6 +209,7 @@ function P:Play(g, id, opp, host, seed, theirTeamWire)
     local r = rec.pvp[opp] or { w = 0, l = 0, d = 0 }
     if result == "win" then r.w = r.w + 1 elseif result == "lose" then r.l = r.l + 1 else r.d = r.d + 1 end
     rec.pvp[opp] = r
+    g:Emit("pvp", { result = result, opp = opp })
     g:Say(string.format("Your record against %s: %d won, %d lost, %d drawn.", name, r.w, r.l, r.d))
 end
 

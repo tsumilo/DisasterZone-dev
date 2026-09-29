@@ -32,20 +32,64 @@ G.rng = math.random
 G.input = { dir = nil, run = false, held = 0 }
 
 ---------------------------------------------------------------------------
+-- Event feed: the game announces what happens; features (achievements, the guild leaderboard, ...) listen
+-- instead of being wired into the battle / map code. A failing listener never breaks the game.
+--   tame { mon, how = "caught"|"gift" }   seen { sp }            map { id }        load {}
+--   battle { result, wild, trainer, used = { species... }, party, lastStanding = mon|nil }
+--   level { mon, lvl }   evolve { mon, from, into }   badge { id }   pvp { result, opp }
+--   blackout {}          chest { id }      beaten { trainer }  (after the "beat_" flag is set)
+--   relearn { mon, move }  (the pet trainer reminded a beast of a move)
+--   shiny { mon }        a shiny wild beast appeared
+--   step {}              the player walked a tile        bounty { id }   guildtier { tier }
+---------------------------------------------------------------------------
+
+local listeners = {}
+
+function G:On(event, fn)
+    listeners[event] = listeners[event] or {}
+    table.insert(listeners[event], fn)
+end
+
+function G:Emit(event, e)
+    e = e or {}
+    e.event = event
+    for _, fn in ipairs(listeners[event] or {}) do
+        local ok, err = pcall(fn, self, e)
+        if not ok then
+            local handler = geterrorhandler and geterrorhandler()
+            if handler then handler(err) end
+        end
+    end
+    for _, fn in ipairs(listeners["*"] or {}) do pcall(fn, self, e) end
+end
+
+---------------------------------------------------------------------------
 -- Map compilation (tile layers + collision), cached per map
 ---------------------------------------------------------------------------
 
 local SOLID_CHARS = { T = true, w = true, W = true, X = true, b = true, d = true, p = true, t = true, C = true, c = true,
-                      ["#"] = true, h = true, o = true, i = true }
+                      ["#"] = true, h = true, o = true, i = true, R = true, S = true, k = true, g = true, n = true }
 local OVER_CHARS = { T = "tree", b = "bed", d = "dresser", p = "pot", t = "table", C = "chest", c = "counter",
-                     ["#"] = "fence", h = "hay", o = "pumpkin", i = "torch1" }
+                     ["#"] = "fence", h = "hay", o = "pumpkin", i = "torch1", k = "crate", g = "barrel", n = "cannon",
+                     L = "stairs" }
+-- R rock, S timber support (both solid walls), D ship deck, L ladder (a warp), k crate, g powder barrel, n cannon
 local STAMP_SIZE = { house = { 5, 6 }, farmhouse = { 5, 6 }, stonehouse = { 5, 6 }, bigtree = { 3, 3 },
-                     wbigtree = { 3, 3 }, mailbox = { 1, 2 }, scarecrow = { 1, 2 }, windmill = { 2, 3 }, tent = { 2, 2 } }
-local HOUSES = { house = true, farmhouse = true, stonehouse = true }
+                     wbigtree = { 3, 3 }, mailbox = { 1, 2 }, scarecrow = { 1, 2 }, windmill = { 2, 3 }, tent = { 2, 2 },
+                     ruinhouse = { 5, 6 }, mineentrance = { 3, 2 }, mast = { 1, 3 } }
+local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true }
+-- the walkable doorway tile of a stamp (dx, dy), if it has one
+local function IsDoor(kind, dx, dy)
+    if HOUSES[kind] then return dx == 3 and dy == 5 end
+    if kind == "mineentrance" then return dx == 1 and dy == 1 end
+    return false
+end
 -- Map themes swap the outdoor tile set. Westfall: dry golden grass, wheat for tall grass, olive trees.
 local THEMES = {
     elwynn = { grass1 = "grass1", grass2 = "grass2", tall = "tall_", path = "path_", tree = "tree" },
     westfall = { grass1 = "wgrass1", grass2 = "wgrass2", tall = "wtall_", path = "wpath_", tree = "wtree" },
+    -- the Deadmines: 'T' is rock, '=' is mine rails over the floor, dark water
+    mine = { grass1 = "mfloor1", grass2 = "mfloor2", tall = "tall_", path = "rail", tree = nil, wall = "mwall",
+             rails = true, water = { "dwater1", "dwater2" } },
 }
 G.THEMES = THEMES
 
@@ -100,8 +144,22 @@ function G.Compile(id)
                 -- shore grass is green scrub (the Elwynn bush), so it reads apart from the wheat
                 base = Autotile(rows, w, h, x, y, ch, (ch == ";") and "tall_" or th.tall, false)
                 m.tall[k] = (ch == ";") and "coast" or "main"
+            elseif ch == "=" and th.rails then
+                -- rails: straight along the neighbouring rails, a crossing where they meet
+                local function rail(xx, yy) return rows[yy + 1] and rows[yy + 1]:sub(xx + 1, xx + 1) == "=" end
+                local horiz = rail(x - 1, y) or rail(x + 1, y)
+                local vert = rail(x, y - 1) or rail(x, y + 1)
+                base = th.grass1
+                m.railOver = m.railOver or {}
+                m.railOver[k] = (horiz and vert) and "rail_x" or (vert and "rail_v" or "rail_h")
             elseif ch == "=" then
                 base = Autotile(rows, w, h, x, y, ch, th.path, true)
+            elseif ch == "R" or (ch == "T" and th.wall) then
+                base = "mwall"
+            elseif ch == "S" then
+                base = "msupport"
+            elseif ch == "D" then
+                base = "deck"
             elseif ch == "s" then
                 base = "sand"
             elseif ch == "w" then
@@ -110,13 +168,14 @@ function G.Compile(id)
             elseif ch == "W" then base = "wall"
             elseif ch == "r" then base = "rug"
             elseif ch == "X" then base = "void"
-            elseif def.outdoor then
+            elseif def.outdoor or def.theme then       -- outdoor ground, or a themed cave floor
                 base = ((x * 7 + y * 13) % 5 == 0) and th.grass2 or th.grass1
             else
                 base = "floor"
             end
             m.base[k] = base
-            m.over[k] = (ch == "T") and th.tree or OVER_CHARS[ch]
+            if ch == "T" then m.over[k] = th.tree else m.over[k] = OVER_CHARS[ch] end   -- (no tree in a mine)
+            if m.railOver and m.railOver[k] then m.over[k] = m.railOver[k] end
             if SOLID_CHARS[ch] then m.solid[k] = true end
         end
     end
@@ -126,8 +185,7 @@ function G.Compile(id)
             for dx = 0, size[1] - 1 do
                 local k = key(st.x + dx, st.y + dy)
                 m.over[k] = string.format("%s_%d_%d", st.kind, dx, dy)
-                local door = HOUSES[st.kind] and dx == 3 and dy == 5
-                if not door then m.solid[k] = true end
+                if IsDoor(st.kind, dx, dy) then m.solid[k] = nil else m.solid[k] = true end
             end
         end
     end
@@ -147,6 +205,15 @@ function G.Compile(id)
         m.object[k] = o
         m.over[k] = o.tile
         m.solid[k] = true
+    end
+    -- herb and ore nodes (Crafting.lua): def.nodes = { herb = { {x, y}, ... }, ore = { ... } } with the map's
+    -- def.herbs / def.ores as what grows there
+    m.node = {}
+    for kind, spots in pairs(def.nodes or {}) do
+        local list = (kind == "herb") and def.herbs or def.ores
+        if list then
+            for _, p in ipairs(spots) do m.node[key(p[1], p[2])] = { x = p[1], y = p[2], kind = kind, list = list } end
+        end
     end
     for _, wp in ipairs(def.warps or {}) do m.warp[key(wp.x, wp.y)] = wp end
     for _, tr in ipairs(def.triggers or {}) do m.trigger[key(tr.x, tr.y)] = tr end
@@ -211,6 +278,7 @@ function G:Load()
     self.input.dir, self.input.held = nil, 0
     self:EnterMap(s.map, s.x, s.y, s.face, true)
     self.started = true
+    self:Emit("load")
 end
 
 function G:Flag(name) return self.save and self.save.flags[name] end
@@ -234,9 +302,14 @@ function G:EnterMap(id, x, y, face, silent)
     end
     if not silent then
         self.fade = 0.3
-        if m.def.outdoor then self.banner = { text = m.def.name, t = 2.2 } end
+        if m.def.outdoor then
+            local rare = #self:ActiveRaidRares(id) > 0
+            local t = rare and 3.5 or 2.2
+            self.banner = { text = m.def.name .. (rare and "  -  a rare roams here!" or ""), t = t, total = t }
+        end
     end
     ns:Fire("AZERO_MAP", id)
+    self:Emit("map", { id = id })
 end
 
 function G:NpcAt(x, y)
@@ -249,9 +322,17 @@ function G:Blocked(x, y)
     local m = self.map
     if x < 0 or y < 0 or x >= m.w or y >= m.h then return true end
     if m.solid[m.key(x, y)] then return true end
+    if self:SolidNode(x, y) then return true end
     if self:NpcAt(x, y) then return true end
     if self.save.x == x and self.save.y == y then return true end
     return false
+end
+
+-- An ore vein that is there blocks the way (herbs are walkable). Used by walking and by G:Blocked.
+function G:SolidNode(x, y)
+    local m = self.map
+    local node = m and m.node and m.node[m.key(x, y)]
+    return node ~= nil and node.kind == "ore" and ns.AzeroCraft ~= nil and ns.AzeroCraft:NodeState(m.id, node) == true
 end
 
 function G:IsFree()
@@ -319,9 +400,13 @@ end
 
 function G:Sleep(secs) return self:Wait({ kind = "wait", t = secs }) end
 
-function G:ShowSpecies(sp) self.showSpecies = sp end
+function G:ShowSpecies(sp, shiny) self.showSpecies, self.showShiny = sp, shiny end
 
 function G:Shop() return self:Wait({ kind = "shop" }) end
+
+-- The pet trainer's lessons (the UI picks the beast and the move, then calls G:Relearn). Returns true when a
+-- beast was taught something.
+function G:PetTrainer() return self:Wait({ kind = "relearn" }) end
 
 function G:HealParty()
     for _, mon in ipairs(self.save.party) do M.Heal(mon) end
@@ -335,20 +420,27 @@ function G:Give(item, n)
     self:Say(n > 1 and string.format("{PLAYER} received %d %ss!", n, name) or string.format("{PLAYER} received a %s!", name))
 end
 
-function G:AddMon(mon)
+function G:AddMon(mon, how)
     self.save.seen[mon.sp] = true
     self.save.caught[mon.sp] = true
+    if mon.shiny then
+        if type(self.save.shinyCaught) ~= "table" then self.save.shinyCaught = {} end
+        self.save.shinyCaught[mon.sp] = true
+    end
+    local where = "box"
     if #self.save.party < D.MAX_PARTY then
         table.insert(self.save.party, mon)
-        return "party"
+        where = "party"
+    else
+        table.insert(self.save.box, mon)
     end
-    table.insert(self.save.box, mon)
-    return "box"
+    self:Emit("tame", { mon = mon, how = how or "caught" })
+    return where
 end
 
 function G:GiveMon(sp, lvl, silent)
     local mon = M.New(sp, lvl, self.rng)
-    self:AddMon(mon)
+    self:AddMon(mon, "gift")
     self:Say(string.format("{PLAYER} received %s!", D.species[sp].name))
     return mon
 end
@@ -409,8 +501,11 @@ function G:RunBattle(foes, trainerId, opts)
     local b = ns.AzeroBattle.New({
         party = s.party, foes = foes, wild = trainerId == nil,
         trainer = trainerId and self:TrainerDef(trainerId), bag = s.bag, rng = self.rng,
-        onSeen = function(sp) s.seen[sp] = true end,
-        onCaught = function(mon) return self:AddMon(mon) end,
+        catchMult = self:Perk("catch"), expMult = self:Perk("exp"), startAtk = self:Perk("startAtk"),
+        prizeMult = self:Perk("prize"), perk = self:PerkInfo(),
+        rare = opts and opts.rare,
+        onSeen = function(sp) s.seen[sp] = true self:Emit("seen", { sp = sp }) end,
+        onCaught = function(mon) return self:AddMon(mon, "caught") end,
     })
     self.battle = b
     local result = self:Wait({ kind = "battle", battle = b }) or b.result
@@ -418,29 +513,34 @@ function G:RunBattle(foes, trainerId, opts)
     for _, mon in ipairs(s.party) do          -- volatile state ends with the battle
         if mon.status == "slp" and mon.hp <= 0 then mon.status, mon.sleep = nil, nil end
     end
-    if result == "win" and b.prize then s.money = s.money + b.prize end
+    if result == "win" and b.prize then s.money = s.money + b.prize end      -- (a Rogue's Pick Pocket is in it)
+    self:AfterBattlePerks(result)
+    local used, standing, foeSp = {}, {}, {}
+    for _, f in ipairs(foes) do foeSp[#foeSp + 1] = f.sp end
+    for idx in pairs(b.used or {}) do
+        if s.party[idx] then used[#used + 1] = s.party[idx].sp end
+    end
+    for _, mon in ipairs(s.party) do if mon.hp > 0 then standing[#standing + 1] = mon end end
+    self:Emit("battle", { result = result, wild = trainerId == nil, trainer = trainerId, used = used, foes = foeSp,
+                          party = s.party, lastStanding = (#standing == 1) and standing[1] or nil })
+    for mon in pairs(b.leveled or {}) do self:Emit("level", { mon = mon, lvl = mon.lvl }) end
+    if ns.AzeroCraft then ns.AzeroCraft:AfterBattle(self) end
     if result == "lose" and not (opts and opts.noBlackout) then
+        self:Emit("blackout")
         self:Blackout()
         return result
     end
-    self:Evolutions(b)
+    self:Evolutions()
     return result
 end
 
-function G:Evolutions(b)
+-- Every beast still standing that has reached its evolution level evolves - not only the ones that levelled in this
+-- battle, so one that fainted on the way (or levelled before its evolution existed) catches up after its next fight.
+function G:Evolutions()
     for _, mon in ipairs(self.save.party) do
-        if b.leveled[mon] and mon.hp > 0 then
+        if mon.hp > 0 then
             local into = M.EvolutionTarget(mon)
-            if into then
-                local old = M.Name(mon)
-                self:ShowSpecies(mon.sp)
-                self:Say(string.format("What? %s is evolving!", old))
-                M.Evolve(mon, into)
-                self.save.seen[into], self.save.caught[into] = true, true
-                self:ShowSpecies(into)
-                self:Say(string.format("Congratulations! Your %s evolved into %s!", old, D.species[into].name))
-                self:ShowSpecies(nil)
-            end
+            if into then self:EvolveNow(mon, into) end
         end
     end
 end
@@ -450,20 +550,57 @@ function G:Battle(trainerId)
     return self:RunBattle(self:TrainerTeam(trainerId), trainerId, opts)
 end
 
-function G:WildBattle(sp, lvl)
-    return self:RunBattle({ M.New(sp, lvl, self.rng) }, nil)
+-- 1 in D.SHINY_ODDS (G.shinyOdds overrides it; Illusion Dust halves it). Its own random numbers, so a shiny
+-- roll never shifts the encounters and battles that follow.
+function G:RollShiny()
+    local odds = self.shinyOdds or D.SHINY_ODDS
+    if self.ShinyBoosted and self:ShinyBoosted() then odds = odds / 2 end
+    odds = math.max(1, math.floor(odds))
+    return (self.shinyRng or math.random)(1, odds) == 1
+end
+
+-- The evolution scene (after a battle, or a trade).
+function G:EvolveNow(mon, into)
+    local old = M.Name(mon)
+    self:ShowSpecies(mon.sp, mon.shiny)
+    self:Say(string.format("What? %s is evolving!", old))
+    local from = mon.sp
+    M.Evolve(mon, into)
+    self.save.seen[into], self.save.caught[into] = true, true
+    if mon.shiny then
+        if type(self.save.shinyCaught) ~= "table" then self.save.shinyCaught = {} end
+        self.save.shinyCaught[into] = true
+    end
+    self:Emit("evolve", { mon = mon, from = from, into = into })
+    self:ShowSpecies(into, mon.shiny)
+    self:Say(string.format("Congratulations! Your %s evolved into %s!", old, D.species[into].name))
+    self:ShowSpecies(nil)
+end
+
+function G:WildBattle(sp, lvl, rare)
+    local mon = M.New(sp, lvl, self.rng)
+    if self:RollShiny() then
+        mon.shiny = true
+        self:Emit("shiny", { mon = mon })
+    end
+    return self:RunBattle({ mon }, nil, { rare = rare or (D.species[sp] and D.species[sp].rare) })
 end
 
 function G:Blackout()
     local s = self.save
-    local lost = math.floor(s.money / 2)
+    local lost = self:Perk("keepMoney") and 0 or math.floor(s.money / 2)
     s.money = s.money - lost
     self:HealParty()
     local r = s.respawn
     if type(r) ~= "table" or not Maps[r.map] then r = Maps.RESPAWN end
     self:EnterMap(r.map, r.x, r.y, r.face)
-    self:Say(string.format("{PLAYER} dropped %s in the scramble and fled back to %s...", D.Money(lost),
-        r.name or "the Lion's Pride Inn"))
+    if self:Perk("keepMoney") then
+        self:Say(string.format("%s: {PLAYER} kept every coin and fled back to %s...", self:PerkInfo().name,
+            r.name or "the Lion's Pride Inn"))
+    else
+        self:Say(string.format("{PLAYER} dropped %s in the scramble and fled back to %s...", D.Money(lost),
+            r.name or "the Lion's Pride Inn"))
+    end
     self:Say("Your beasts have been rested. Be more careful out there!")
 end
 
@@ -506,9 +643,15 @@ function G:TrainerEncounter(npc, spotted)
     local result = self:Battle(id)
     if result == "win" then
         self:SetFlag("beat_" .. id)
+        self:Emit("beaten", { trainer = id })
+        if def.vanish then                          -- a boss leaves the passage (and stays gone)
+            npc.hidden = true
+            self:Say(self:TrainerDef(id).name .. " retreats deeper into the mine...")
+        end
         local badge = def.badge and D.badges[def.badge]
         if badge and not self:Flag("badge_" .. def.badge) then
             self:SetFlag("badge_" .. def.badge)
+            self:Emit("badge", { id = def.badge })
             self:Say(string.format("{PLAYER} received %s!", badge.name))
             if badge.text then self:Say(badge.text) end
         end
@@ -528,7 +671,8 @@ end
 function G:StartStep(dir, run, forced)
     local s = self.save
     local d = DIRS[dir]
-    self.moving = { fromX = s.x, fromY = s.y, t = 0, dur = run and G.RUN_TIME or G.STEP_TIME, forced = forced }
+    local dur = (run and G.RUN_TIME or G.STEP_TIME) * (self:Perk("walk") or 1)
+    self.moving = { fromX = s.x, fromY = s.y, t = 0, dur = dur, forced = forced }
     s.x, s.y = s.x + d[1], s.y + d[2]
     s.face = dir
     self.stepParity = not self.stepParity
@@ -562,7 +706,7 @@ function G:TryStep(dir, run)
         self.bump = 0.2
         return "blocked"
     end
-    if m.solid[m.key(nx, ny)] or self:NpcAt(nx, ny) then
+    if m.solid[m.key(nx, ny)] or self:NpcAt(nx, ny) or self:SolidNode(nx, ny) then
         self.bump = 0.2
         return "blocked"
     end
@@ -587,23 +731,51 @@ function G:OnArrive(forced)
         return
     end
     if self:CheckTrainers() then return end
-    local list = (m.tall[k] == "coast") and m.def.coastEncounters or m.def.encounters
-    if m.tall[k] and list and M.FirstUsable(s.party) and self.rng(1, 100) <= G.ENCOUNTER_PCT then
-        local sp, lvl = self:RollEncounter(list)
-        self:Run(function(g) g:WildBattle(sp, lvl) end)
+    local coast = m.tall[k] == "coast"
+    local list = self:EncounterList(m, coast)
+    local wildTile = m.tall[k] or (m.def.cave and not m.solid[k])
+    local rate = m.tall[k] and G.ENCOUNTER_PCT or (m.def.cave and m.def.cave.rate) or G.ENCOUNTER_PCT
+    if wildTile and #list > 0 and M.FirstUsable(s.party) and self.rng(1, 100) <= rate then
+        local sp, lvl, e = self:RollEncounter(list)
+        self:Run(function(g) g:WildBattle(sp, lvl, e and e.rare) end)
     end
 end
 
+-- The weight of an encounter entry right now: its day / night weight at that time of (realm) day, doubled
+-- for the warlock's type; 0 = cannot appear now.
+function G:EncounterWeight(e)
+    local w = e.weight or 0
+    if self:IsNight() then
+        if e.night then w = e.night end
+    elseif e.day then
+        w = e.day
+    end
+    local more = self:Perk("moreType")
+    if more and not e.rare and D.species[e.sp] and D.species[e.sp].type == more then w = w * 2 end
+    return w
+end
+
+-- The encounter table for this spot: the map's (tall or shore grass) plus any raid rare roaming here.
+function G:EncounterList(m, coast)
+    local base = (coast and m.def.coastEncounters or m.def.encounters) or {}
+    local list = {}
+    for _, e in ipairs(base) do list[#list + 1] = e end
+    for _, r in ipairs(self:ActiveRaidRares(m.id, coast)) do
+        list[#list + 1] = { sp = r.sp, min = r.level, max = r.level, weight = D.RAID_RARE_WEIGHT, rare = true }
+    end
+    return list
+end
+
+-- Returns sp, level, entry.
 function G:RollEncounter(list)
     local total = 0
-    for _, e in ipairs(list) do total = total + e.weight end
+    for _, e in ipairs(list) do total = total + self:EncounterWeight(e) end
+    if total <= 0 then return nil end
     local r = self.rng(1, total)
     for _, e in ipairs(list) do
-        r = r - e.weight
-        if r <= 0 then return e.sp, self.rng(e.min, e.max) end
+        r = r - self:EncounterWeight(e)
+        if r <= 0 then return e.sp, self.rng(e.min, e.max), e end
     end
-    local e = list[#list]
-    return e.sp, e.min
 end
 
 -- A trainer who can see the player starts a battle. Returns true when one did.
@@ -645,7 +817,15 @@ function G:PressA()
     local k = m.key(x, y)
     local peer = ns.AzeroNet and ns.AzeroNet:PeerAt(m.id, x, y)
     if peer and not self:NpcAt(x, y) then            -- another player (guildmate)
-        self:Run(function(g) ns.AzeroPvP:Challenge(g, peer) end)
+        self:Run(function(g)
+            local pick = g:Choose(string.format("Challenge %s to a battle, or trade beasts?", peer.name),
+                { "Battle", "Trade" })
+            if pick == 1 then
+                ns.AzeroPvP:Challenge(g, peer, true)
+            elseif pick == 2 and ns.AzeroTrade then
+                ns.AzeroTrade:Ask(g, peer)
+            end
+        end)
         return
     end
     local npc = self:NpcAt(x, y)
@@ -655,6 +835,16 @@ function G:PressA()
     if npc then
         npc.face = OPPOSITE[s.face]
         local id = npc.def.trainer
+        local need = id and D.trainers[id].requires
+        if need and not self:Flag("beat_" .. id) then
+            for _, other in ipairs(need) do
+                if not self:Flag("beat_" .. other) then
+                    local line = D.trainers[id].notYet or "Not yet."
+                    self:Run(function(g) g:Say(g:TrainerDef(id).name .. ": " .. g:Fmt(line)) end)
+                    return
+                end
+            end
+        end
         if id and not self:Flag("beat_" .. id) then
             self:Run(function(g) g:TrainerEncounter(npc, false) end)
         elseif id then
@@ -670,6 +860,11 @@ function G:PressA()
         self:Run(function(g) g:Say(text) end)
         return
     end
+    local node = m.node and m.node[k]
+    if node and ns.AzeroCraft and ns.AzeroCraft:NodeState(m.id, node) then
+        self:Run(function(g) ns.AzeroCraft:Gather(g, node) end)
+        return
+    end
     local chest = m.chest[k]
     if chest then
         if self:Flag("chest_" .. chest.id) then
@@ -677,6 +872,7 @@ function G:PressA()
         else
             self:Run(function(g)
                 g:SetFlag("chest_" .. chest.id)
+                g:Emit("chest", { id = chest.id })
                 g:Give(chest.item, chest.n)
             end)
         end
@@ -685,7 +881,35 @@ function G:PressA()
     local obj = m.object[k]
     if obj and obj.script then
         self:Run(obj.script)
+        return
     end
+    -- a herb underfoot
+    local here = m.node and m.node[m.key(s.x, s.y)]
+    if here and here.kind == "herb" and ns.AzeroCraft and ns.AzeroCraft:NodeState(m.id, here) then
+        self:Run(function(g) ns.AzeroCraft:Gather(g, here) end)
+    end
+end
+
+-- What pressing A would do right now, for the on-screen hint: text, tile x, tile y (nil when nothing).
+function G:InteractHint()
+    if not self:IsFree() or not self.map or not ns.AzeroCraft then return nil end
+    local s, m = self.save, self.map
+    local d = DIRS[s.face]
+    local x, y = s.x + d[1], s.y + d[2]
+    local k = m.key(x, y)
+    local node = m.node and m.node[k]
+    if node then
+        local up, res = ns.AzeroCraft:NodeState(m.id, node)
+        if up then return ns.AzeroCraft:GatherHint(res), x, y end
+    end
+    local obj = m.object[k]
+    if obj and obj.hint then return obj.hint, x, y end
+    local here = m.node and m.node[m.key(s.x, s.y)]
+    if here and here.kind == "herb" then
+        local up, res = ns.AzeroCraft:NodeState(m.id, here)
+        if up then return ns.AzeroCraft:GatherHint(res), s.x, s.y end
+    end
+    return nil
 end
 
 ---------------------------------------------------------------------------
@@ -761,6 +985,7 @@ function G:Update(dt)
         if mv.t >= mv.dur then
             self.moving = nil
             self:OnArrive(mv.forced)
+            if not mv.forced then self:Emit("step") end
             if self.pending and self.pending.kind == "walk" and not self.pending.npc then self:Advance() end
         end
     end
@@ -807,6 +1032,13 @@ function G:UseItemOutside(item, idx)
         bag[item] = bag[item] - 1
         if bag[item] <= 0 then bag[item] = nil end
         return string.format("%s's HP was restored by %d points.", M.Name(mon), mon.hp - before)
+    elseif def.use == "rejuv" then
+        if mon.hp <= 0 or (mon.hp >= M.MaxHP(mon) and not mon.status) then return "It won't have any effect." end
+        mon.hp = math.min(M.MaxHP(mon), mon.hp + def.heal)
+        mon.status, mon.sleep = nil, nil
+        bag[item] = bag[item] - 1
+        if bag[item] <= 0 then bag[item] = nil end
+        return string.format("%s was rejuvenated!", M.Name(mon))
     elseif def.use == "cure" then
         if mon.status ~= def.cures then return "It won't have any effect." end
         mon.status = nil
@@ -835,6 +1067,86 @@ function G:Buy(item, qty)
     return true, string.format("Here you go! %d %s%s.", qty, def.name, qty > 1 and "s" or "")
 end
 
+-- The pet trainer: a beast can be reminded of any move it could know by its level, from its own list or its
+-- earlier form's, for a fee.
+G.RELEARN_PRICE = 500
+
+function G:RelearnableMoves(mon)
+    local lists = { D.species[mon.sp].learn }
+    for _, sp in pairs(D.species) do
+        if sp.evolve and sp.evolve.into == mon.sp then lists[#lists + 1] = sp.learn end
+    end
+    local found, order = {}, {}
+    for _, learn in ipairs(lists) do
+        for _, e in ipairs(learn) do
+            local lvl, id = e[1], e[2]
+            if lvl <= mon.lvl and D.moves[id] and not M.Knows(mon, id) then
+                if not found[id] then order[#order + 1] = id end
+                found[id] = math.min(found[id] or lvl, lvl)
+            end
+        end
+    end
+    local pos = {}
+    for i, id in ipairs(order) do pos[id] = i end
+    table.sort(order, function(a, b)
+        if found[a] ~= found[b] then return found[a] < found[b] end
+        return pos[a] < pos[b]
+    end)
+    return order
+end
+
+-- Teaches party beast `idx` the move `id`; once it knows four moves, `forgetSlot` says which one goes.
+-- Returns ok, message.
+function G:Relearn(idx, id, forgetSlot)
+    local mon = self.save.party[idx]
+    if not mon or not D.moves[id] then return false, "?" end
+    local can = false
+    for _, m in ipairs(self:RelearnableMoves(mon)) do if m == id then can = true end end
+    if not can then return false, string.format("%s can't learn %s.", M.Name(mon), D.moves[id].name) end
+    if self.save.money < self.RELEARN_PRICE then return false, "You don't have enough money." end
+    local msg
+    if #mon.moves < 4 then
+        M.TryLearn(mon, id)
+        msg = string.format("%s learned %s!", M.Name(mon), D.moves[id].name)
+    elseif forgetSlot and mon.moves[forgetSlot] then
+        local old = D.moves[mon.moves[forgetSlot].id].name
+        M.Replace(mon, forgetSlot, id)
+        msg = string.format("1, 2 and... Poof! %s forgot %s. And... %s learned %s!", M.Name(mon), old, M.Name(mon),
+            D.moves[id].name)
+    else
+        return false, "?"
+    end
+    self.save.money = self.save.money - self.RELEARN_PRICE
+    self:Emit("relearn", { mon = mon, move = id })
+    return true, msg
+end
+
+-- The stable (Pokemon's PC): beasts beyond the party wait here; the Stable Master at any inn swaps them.
+function G:Stable() return self:Wait({ kind = "stable" }) end
+
+-- Leave party beast `idx` in the stable. Returns ok, message.
+function G:Deposit(idx)
+    local party = self.save.party
+    local mon = party[idx]
+    if not mon then return false, "?" end
+    local fighter = false
+    for i, m in ipairs(party) do if i ~= idx and m.hp > 0 then fighter = true end end
+    if not fighter then return false, "Keep at least one beast that can fight with you." end
+    table.remove(party, idx)
+    table.insert(self.save.box, mon)
+    return true, string.format("%s is resting in the stable.", M.Name(mon))
+end
+
+-- Take stabled beast `idx` into the party. Returns ok, message.
+function G:Withdraw(idx)
+    local mon = self.save.box[idx]
+    if not mon then return false, "?" end
+    if #self.save.party >= D.MAX_PARTY then return false, "Your party is full. Leave a beast in the stable first." end
+    table.remove(self.save.box, idx)
+    table.insert(self.save.party, mon)
+    return true, string.format("%s rejoined your party.", M.Name(mon))
+end
+
 function G:CleanBag()
     for item, n in pairs(self.save.bag) do if n <= 0 then self.save.bag[item] = nil end end
 end
@@ -844,11 +1156,152 @@ end
 ---------------------------------------------------------------------------
 
 function G:OnInit()
+    ns:RegisterEvent("ENCOUNTER_END", function(_, encounterID, encounterName, _, _, success)
+        G:OnEncounterEnd(encounterID, encounterName, success)
+    end)
     ns.Games:Register(G.GAME_ID, {
         name = "Azeromon",
         desc = "Tame, train and battle the beasts of Elwynn Forest, Pokemon style. Arrow keys / WASD to move, Space to interact.",
         icon = "Interface\\Icons\\Ability_Hunter_BeastTaming",
         order = 20,
         create = function(parent) return ns.AzeroUI:CreatePanel(parent) end,
+        status = function()
+            local n = ns.AzeroNet and ns.AzeroNet:PlayingNow() or 0
+            if n > 0 then return string.format("|cff5fd35f%d playing now|r", n) end
+            return "|cff888888No one playing right now|r"
+        end,
     })
+end
+
+---------------------------------------------------------------------------
+-- Time of day (realm time, GetGameTime). G.clockHour overrides it (tests).
+--   dawn 5-7, day 7-18, dusk 18-21, night 21-5; "night" encounters: dusk and night
+---------------------------------------------------------------------------
+
+function G:Hour()
+    if self.clockHour then return self.clockHour end
+    local h, m = 12, 0
+    if GetGameTime then h, m = GetGameTime() end
+    return (tonumber(h) or 12) + (tonumber(m) or 0) / 60
+end
+
+function G:Period()
+    local h = self:Hour()
+    if h >= 21 or h < 5 then return "night" end
+    if h < 7 then return "dawn" end
+    if h < 18 then return "day" end
+    return "dusk"
+end
+
+function G:IsNight()
+    local p = self:Period()
+    return p == "night" or p == "dusk"
+end
+
+---------------------------------------------------------------------------
+-- Class perks (D.classPerks) and class lines (D.classLines)
+---------------------------------------------------------------------------
+
+function G:ClassFile()
+    if self.classOverride then return self.classOverride end
+    if not UnitClass then return nil end
+    local _, class = UnitClass("player")         -- (not "UnitClass and UnitClass(...)": that keeps one value)
+    return class
+end
+
+-- The perk value for `key` for the player's class (nil when the class has no such perk).
+function G:Perk(key)
+    local p = D.classPerks[self:ClassFile() or ""]
+    return p and p[key]
+end
+
+function G:PerkInfo() return D.classPerks[self:ClassFile() or ""] end
+
+-- Says the NPC's line for the player's class, if it has one.
+function G:ClassSay(npc)
+    local lines = D.classLines[npc]
+    local line = lines and lines[self:ClassFile() or ""]
+    if line then self:Say(line) end
+end
+
+-- Druid and Paladin perks after a battle; each says so (one line) when it actually did something.
+function G:AfterBattlePerks(result)
+    local heal, cure = self:Perk("healAfter"), self:Perk("cureAfter")
+    local healed, cured = false, {}
+    for _, mon in ipairs(self.save.party) do
+        if mon.hp > 0 then
+            if heal and result == "win" and mon.hp < M.MaxHP(mon) then
+                mon.hp = math.min(M.MaxHP(mon), mon.hp + math.max(1, math.floor(M.MaxHP(mon) * heal / 100)))
+                healed = true
+            end
+            if cure and (mon.status == "psn" or mon.status == "brn" or mon.status == "par") then
+                mon.status = nil
+                cured[#cured + 1] = M.Name(mon)
+            end
+        end
+    end
+    local p = self:PerkInfo()
+    if healed and p then self:Say(p.name .. ": your beasts recovered a little.") end
+    if #cured > 0 and p then self:Say(string.format("%s: %s %s cured.", p.name, table.concat(cured, " and "), #cured == 1 and "is" or "are")) end
+end
+
+---------------------------------------------------------------------------
+-- Raid rares (D.raidRares): a boss kill in a raid lets its creature roam an area for a while.
+-- Stored account-wide (CDLootDB.games.azeromon.raidRares[sp] = expiry time()), so it works whether or not the
+-- game is open during the raid. Only boss kills are read: no loot or council data.
+---------------------------------------------------------------------------
+
+local encounterOf        -- boss key -> encounter ID, from CDLoot's raid data
+
+local function EncounterIDFor(bossKey)
+    if not encounterOf then
+        encounterOf = {}
+        for _, raid in ipairs(ns.Data and ns.Data.Raids or {}) do
+            for _, boss in ipairs(raid.bosses or {}) do
+                if boss.key and boss.encounterID then encounterOf[boss.key] = boss.encounterID end
+            end
+        end
+    end
+    return encounterOf[bossKey]
+end
+G.EncounterIDFor = EncounterIDFor
+
+local function Now() return (time and time()) or 0 end
+
+function G:RaidRareStore()
+    local d = self:Data()
+    if type(d.raidRares) ~= "table" then d.raidRares = {} end
+    return d.raidRares
+end
+
+-- Raid rares roaming `mapId` now (coast: the shore-grass ones; nil: any).
+function G:ActiveRaidRares(mapId, coast)
+    local out, store, now = {}, self:RaidRareStore(), Now()
+    for _, r in ipairs(D.raidRares) do
+        local untilT = store[r.sp]
+        if untilT and untilT > now and r.map == mapId and (coast == nil or (r.coast and true or false) == coast) then
+            out[#out + 1] = r
+        end
+    end
+    return out
+end
+
+function G:OnEncounterEnd(encounterID, encounterName, success)
+    if success ~= 1 and success ~= true then return end
+    local inRaid = IsInRaid and IsInRaid()
+    local itype
+    if IsInInstance then
+        local _, t = IsInInstance()
+        itype = t
+    end
+    if not inRaid or itype ~= "raid" then return end
+    for _, r in ipairs(D.raidRares) do
+        if EncounterIDFor(r.boss) == encounterID then
+            self:RaidRareStore()[r.sp] = Now() + (r.hours or 24) * 3600
+            local where = Maps[r.map] and Maps[r.map].name or r.map
+            ns:Print("Azeromon: %s has fallen! A rare %s roams %s for the next %d hours.",
+                tostring(encounterName or r.boss), D.species[r.sp].name, where, r.hours or 24)
+            self:Emit("raidkill", { boss = r.boss, sp = r.sp })
+        end
+    end
 end

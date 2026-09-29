@@ -195,6 +195,62 @@ def lashling_evolves_after_the_battle():
 
 
 @case
+def emberwhelp_evolves_into_the_flamescale_drake():
+    w, c = game(seed=5)
+    r = c.eval_py(r"""
+      local G, M, D = ns.Azero, ns.AzeroMon, ns.AzeroData
+      G:NewGame()
+      local mon = M.New("emberwhelp", 15, G.rng)
+      mon.exp = M.ExpForLevel(16) - 1
+      G.save.party[1] = mon
+      G:Run(function(g)
+        local foe = M.New("wolfpup", 5, g.rng)
+        foe.hp = 1
+        g:RunBattle({ foe }, nil)
+      end)
+      T_AZ.settle()
+      local nums = {}
+      for id, sp in pairs(D.species) do nums[sp.num] = (nums[sp.num] or 0) + 1 end
+      local dup = false
+      for _, n in pairs(nums) do if n > 1 then dup = true end end
+      return { sp = mon.sp, lvl = mon.lvl, caught = G.save.caught.flamescale == true,
+               last = D.species.flamescale.num == 45 and "flamescale" or "?", dup = dup,
+               completable = (function() for _, id in ipairs(ns.AzeroGuild.CompletableIds()) do
+                   if id == "flamescale" then return true end end return false end)() }
+    """)
+    assert r == {"sp": "flamescale", "lvl": 16, "caught": True, "last": "flamescale", "dup": False,
+                 "completable": True}, r
+    assert "evolved into Flamescale Drake" in logtext(c)
+    no_errors(w)
+
+
+@case
+def an_overdue_beast_evolves_after_its_next_battle_unless_it_fainted():
+    """Levelled past its evolution without evolving (fainted then, or before the evolution existed): the next battle
+    it is standing at the end of evolves it, no level needed."""
+    w, c = game(seed=5)
+    r = c.eval_py(r"""
+      local G, M = ns.Azero, ns.AzeroMon
+      G:NewGame()
+      local whelp = M.New("emberwhelp", 16, G.rng)
+      local owlet = M.New("owlet", 16, G.rng)
+      local fainted = M.New("murkling", 17, G.rng)
+      fainted.hp = 0
+      G.save.party = { whelp, fainted, owlet }
+      G:Run(function(g)
+        local foe = M.New("wolfpup", 2, g.rng)
+        foe.hp = 1
+        g:RunBattle({ foe }, nil)
+      end)
+      T_AZ.settle()
+      return { whelp = whelp.sp, lvl = whelp.lvl, fainted = fainted.sp }
+    """)
+    assert r == {"whelp": "flamescale", "lvl": 16, "fainted": "murkling"}, r
+    assert "evolved into Flamescale Drake" in logtext(c)
+    no_errors(w)
+
+
+@case
 def fainted_lead_forces_a_switch_and_a_wipe_blacks_out():
     w, c = game(seed=9)
     r = c.eval_py(r"""
@@ -339,6 +395,10 @@ def bot_plays_the_whole_preview():
     text = logtext(c)
     for needle in ("Rival Vera", "Hogger's Claw", "Deputy Rainer: Hold on!", "Gryan Stoutmantle"):
         assert needle in text, (needle, text[-1500:])
+    # the real Hogger encounter awards the badge, and the badge the achievement (event feed end to end)
+    got = c.eval_py("local t = {} for id in pairs(ns.AzeroAch.Earned()) do t[#t + 1] = id end return t")
+    for ach in ("hogger", "militia"):         # (the bot loses its first battle to Vera: she picks the counter)
+        assert ach in got, got
     no_errors(w)
 
 
@@ -456,10 +516,36 @@ def party_summary_in_battle_closes_cleanly():
     no_errors(w)
 
 
+# Where the mock "engine" really draws the creature: the mock's true box for the display (the idle envelope from
+# the model's ground up), turned by the yaw actually given to the actor, at the actor's scale, projected with the
+# mock's own camera conventions. Computed independently of the addon's fitting code.
+TRUE_RECT = r"""
+local sc = ns.AzeroUI._Scene(...)
+local a = sc.actor
+local d = a.display
+if not d or not a.scale then return nil end
+local h, w = 0.5 + (d % 9) * 0.6, 0.4 + (d % 5) * 0.5
+local zTop = (d % 3 == 0) and (h + 0.8) or h
+local sn, cs = math.sin(a.yaw or 0), math.cos(a.yaw or 0)
+local es = sc:GetEffectiveScale() or 1
+local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge
+for _, x in ipairs({ -0.6 * w, 0.4 * w }) do for _, y in ipairs({ -0.3 * w, 0.7 * w }) do for _, z in ipairs({ 0, zTop }) do
+  local px, py = sc:Project3DPointTo2D((x * cs - y * sn) * a.scale, (x * sn + y * cs) * a.scale, z * a.scale)
+  px, py = px / es, py / es
+  x0, x1, y0, y1 = math.min(x0, px), math.max(x1, px), math.min(y0, py), math.max(y1, py)
+end end end
+local W, H = sc:GetWidth(), sc:GetHeight()
+return { h = (y1 - y0) / H, w = (x1 - x0) / W, feet = y0 / H, center = (x0 + x1) / 2 / W, anim = a.anim or 0 }
+"""
+
+
 def _fit_all(no_template=False):
     w, c = game()
     if no_template:
         c.eval("__MOCK_NO_ACTOR_TEMPLATE = true")
+    # in the mock, scene +y is screen-LEFT, so creatures only face each other with the facing flipped - the
+    # in-game fix (/cdl azeromon flip) a player would apply
+    c.eval("ns.Azero:Data().flipFacing = true")
     c.slash("/cdl play azeromon")
     w.tick(0.3)
     ids = c.eval_py("return ns.AzeroData.dexOrder")
@@ -468,32 +554,38 @@ def _fit_all(no_template=False):
         c.eval("ns.AzeroUI._ShowFoe(%r)" % sp)
         w.tick(2.2)                                  # load, then 1.6 s of idle pose sampling, then the fit
         info = c.eval_py("return ns.AzeroUI._FitInfo()")
+        truth = c.eval_py(TRUE_RECT, "foe")
         disp = c.eval("return ns.AzeroData.species[%r].display" % sp)
-        out.append((sp, disp, info))
+        out.append((sp, disp, info, truth))
     return w, c, out
 
 
 def _check_fits(results):
-    for sp, disp, info in results:
+    for sp, disp, info, truth in results:
         assert info and info["projected"], (sp, info)
-        big = max(info["h"] / 0.78, info["w"] / 0.86)
-        assert abs(big - 1) < 0.02, (sp, info)          # fills the target share (height or width limits)
-        assert info["h"] <= 0.79 and info["w"] <= 0.87, (sp, info)
-        assert abs(info["feet"] - 0.03) < 0.005, (sp, info)   # lowest point on the platform line
-        assert abs(info["center"] - 0.5) < 0.01, (sp, info)   # centred, even for lopsided boxes
+        # what is REALLY drawn (independent of the addon's maths): same share of the frame for every creature,
+        # ground on the platform line, centred - including snouts/tails and hovering fliers
+        big = max(truth["h"] / 0.78, truth["w"] / 0.86)
+        assert abs(big - 1) < 0.02, (sp, truth)
+        assert truth["h"] <= 0.79 and truth["w"] <= 0.87, (sp, truth)
+        assert abs(truth["feet"] - 0.03) < 0.005, (sp, truth)
+        assert abs(truth["center"] - 0.5) < 0.01, (sp, truth)
         # measured THIS creature, not the previous one still loaded in the same frame (mock: w = 0.4 + d%5 * 0.5)
         width = 0.4 + (disp % 5) * 0.5
-        assert abs(info["x0"] + width / 2) < 1e-6 and abs(info["x1"] - width / 2) < 1e-6, (sp, disp, info)
+        assert abs(info["x0"] + 0.6 * width) < 1e-6 and abs(info["x1"] - 0.4 * width) < 1e-6, (sp, disp, info)
         if disp % 3 == 0:
-            # hovering idle (mock bob +-0.3): the whole bob is covered, the taller rearing animation is not
-            assert info["z0"] <= -0.28 and info["z1"] < 0.5 + (disp % 9) * 0.6 + 0.31, (sp, info)
+            # hovering idle (mock: 0.2 .. 0.8 above its ground): the whole bob is measured, the rearing animation
+            # of the all-animations box is not, and the ground stays in (it lands there when it faints)
+            h = 0.5 + (disp % 9) * 0.6
+            assert info["z0"] <= 0.21 and info["z1"] < h + 0.81 and info["ground"] == 0, (sp, info)
 
 
 @case
 def every_creature_is_fitted_to_the_same_size_on_its_platform():
     """Battle models are measured after they have really loaded (not the previous creature's lingering box),
-    over a full idle bob, and the fit is checked with the engine's own projection - in the mock that projection
-    uses a horizontal field of view and a flipped sideways axis, which plain camera maths would get wrong."""
+    over a full idle bob, turned the way they are drawn, and checked with the engine's own projection - in the
+    mock that projection uses a horizontal field of view and a flipped sideways axis, which plain camera maths
+    would get wrong. The result is verified against where the mock really draws each creature."""
     w, c, results = _fit_all()
     assert len(results) == c.eval("return #ns.AzeroData.dexOrder")
     _check_fits(results)
@@ -507,6 +599,72 @@ def fitting_also_works_without_the_actor_load_event():
     """Without Blizzard's actor template (no load callback) the model file change is the load signal."""
     w, c, results = _fit_all(no_template=True)
     _check_fits(results)
+    no_errors(w)
+
+
+@case
+def a_model_that_loads_late_is_still_fitted():
+    """Nothing to measure for 10 s: shown unfitted (ground on the platform line) - and fitted properly as soon as
+    its load event arrives, instead of staying wrong."""
+    w, c = game()
+    c.eval("ns.Azero:Data().flipFacing = true")
+    c.slash("/cdl play azeromon")
+    w.tick(0.3)
+    c.eval("__MOCK_SLOW_DISPLAY = ns.AzeroData.species.kobling.display")
+    c.eval("ns.AzeroUI._ShowFoe('kobling')")
+    w.tick(10.5)
+    assert c.eval_py("return ns.AzeroUI._Scene('foe').fitInfo") == {"gaveUp": True}
+    w.tick(4)                                        # loads at 12 s, then 1.6 s of sampling
+    truth = c.eval_py(TRUE_RECT, "foe")
+    assert truth and abs(max(truth["h"] / 0.78, truth["w"] / 0.86) - 1) < 0.02, truth
+    assert abs(truth["feet"] - 0.03) < 0.005, truth
+    no_errors(w)
+
+
+@case
+def the_next_creature_never_inherits_a_death_pose():
+    """A foe faints (death animation), the next battle reuses the same frame: the new creature must be idle
+    (and is measured idle), not lying dead."""
+    w, c = game(seed=4)
+    c.slash("/cdl play azeromon")
+    w.tick(0.3)
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    for _ in range(40):
+        w.tick(0.3)
+        c.eval("ns.AzeroUI._HandleKey('A')")
+        if not c.eval("return ns.Azero.pending ~= nil"):
+            break
+    c.eval("local M = ns.AzeroMon; local mon = M.New('murkling', 30, ns.Azero.rng); "
+           "mon.moves = { { id = 'waterjet', pp = 25 } }; ns.Azero.save.party[1] = mon")
+    fainted = False
+    for species in ("wolfpup", "kobling"):
+        c.eval("ns.Azero:Run(function(g) g:WildBattle(%r, 2) end)" % species)
+        for _ in range(300):
+            w.tick(0.25)
+            c.eval("ns.AzeroUI._HandleKey('A')")
+            if c.eval("return ns.AzeroUI._Scene('foe').actor.anim") == 1:
+                fainted = True                       # the death animation really played
+            if not c.eval("return ns.Azero.pending ~= nil or ns.AzeroUI._State().battle"):
+                break
+    assert fainted
+    assert c.eval("return ns.AzeroUI._Scene('foe').actor.anim") == 0
+    no_errors(w)
+
+
+@case
+def the_title_screen_does_not_reload_its_creatures():
+    w, c = game()
+    c.slash("/cdl play azeromon")
+    w.tick(3)
+    counts = lambda: c.eval_py("local t = {} for i, sc in ipairs(ns.AzeroUI._TitleScenes()) do "
+                               "t[i] = sc.actor and sc.actor.modelRequests or 0 end return t")
+    before = counts()
+    assert before and all(n == 1 for n in before), before
+    c.slash("/cdl")          # close and reopen the window: the title is shown again
+    w.tick(0.2)
+    c.slash("/cdl play azeromon")
+    w.tick(1)
+    assert counts() == before, (before, counts())
     no_errors(w)
 
 

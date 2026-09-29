@@ -60,6 +60,8 @@ def game_msgs(w, since=0, sender=None):
 def guildmates_see_each_other_and_replay_steps():
     w, a, b = two_players()
     assert peer(b, "Alice") == {"x": 8, "y": 9, "face": "down", "q": 0}, peer(b, "Alice")
+    # the sender's class travels with it (class-coloured names); regression: "UnitClass and UnitClass()" lost it
+    assert b.eval("for _, p in ipairs(ns.AzeroNet:PeersOn('town')) do if p.name == 'Alice' then return p.class end end")         == "PALADIN"
     assert peer(a, "Bob")["x"] == 12
     # Alice walks right three tiles and down one
     for d in ("right", "right", "right", "down"):
@@ -150,6 +152,27 @@ def peers_on_other_maps_are_not_drawn_and_talking_to_one_works():
     a.eval("ns.Azero:EnterMap('home', 4, 6, 'up')")
     w.tick(2)
     assert peer(b, "Alice") is None and peer(b, "Alice", "home") is not None
+    no_errors(w)
+
+
+@case
+def the_hub_shows_how_many_are_playing_now():
+    w, a, b = two_players()
+    status = lambda c: c.eval("return ns.Games:Get('azeromon').status()")
+    assert "2 playing now" in status(a) and "2 playing now" in status(b), (status(a), status(b))
+    # Bob closes the game (the panel's loop stops, he says goodbye): Alice counts herself only
+    b.eval("ns.AzeroUI._Detach() ns.AzeroNet:SetActive(false)")
+    w.tick(2)
+    assert "1 playing now" in status(a), status(a)
+    # Bob is back; Alice closes hers: she still sees Bob, heard just now
+    b.eval("ns.AzeroNet:SetActive(true) ns.AzeroNet:Update(0.1)")
+    w.tick(2)
+    a.eval("ns.AzeroUI._Detach() ns.AzeroNet:SetActive(false)")
+    w.tick(1)
+    assert "1 playing now" in status(a), status(a)
+    # Bob goes quiet without a goodbye (a disconnect): he drops out after the timeout, Alice's game closed or not
+    w.tick(30)
+    assert "No one playing right now" in status(a), status(a)
     no_errors(w)
 
 
