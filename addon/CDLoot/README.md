@@ -249,16 +249,26 @@ The raid shows who is coming, sorted into **Tanks / Healers / Melee / Ranged**, 
 invited members who haven't answered ("No response"). When you log in, CDLoot reminds you in chat of the raids of
 your teams in the next 7 days that you haven't answered.
 
-### Raid leaders (Guild Master)
-The Guild Master can name **raid leaders**: players who run raids but aren't loot council. Open **Raids > Teams >
+### Who can do what
+| | Plan raids | Build teams | A raid's groups, Invite & sort | Pick raid leaders |
+|---|---|---|---|---|
+| Guild Master | yes | yes | yes | yes |
+| Officers (the rank below the GM) | - | - | - | yes |
+| Guild council | - | yes | yes | - |
+| Raid leaders | yes | - | yes | - |
+
+With nobody on the raid leaders list, only the Guild Master plans raids.
+
+### Raid leaders (officers)
+Officers can name **raid leaders**: players who run raids but aren't loot council. Open **Raids > Teams >
 Raid leaders**, add them with the search box and click **Save & share**. Everyone can open the window to see who they
 are.
-- Raid leaders can do everything in the next section (plan raids, teams, groups, Invite & sort) and see the **Raid
-  log** (attendance, bench, no-shows), but not which items were awarded.
+- Raid leaders plan raids, arrange a raid's groups and use Invite & sort. They see the **Raid log** (attendance,
+  bench, no-shows), but not which items were awarded.
 - They get no loot council access: no Council tab, no other players' BiS lists, no drop panel or votes, no Loot Log.
   (Like anyone, they are loot council for the raid they are leading at that moment.)
 
-### Planning raids (Guild Master, guild council and raid leaders)
+### Planning raids (Guild Master and raid leaders; teams: Guild Master and guild council)
 - **Teams**: in the **Teams** view, click **New team**, type a name, add guild members with the search box and click
   **Save**. A player can be on several teams.
 - **New raid** (Upcoming view): pick the raid, size, day and time, the teams it is for (none = everyone), an optional

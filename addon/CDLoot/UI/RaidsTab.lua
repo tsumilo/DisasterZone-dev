@@ -288,6 +288,11 @@ local function canOrganize()
     return RP and RP.CanOrganize and RP:CanOrganize() or false
 end
 
+local function canTeams()
+    local RP = ns.RaidPlan
+    return RP and RP.CanManageTeams and RP:CanManageTeams() or false
+end
+
 local function updateToolbar(p)
     if state.view == "log" and not isCouncil() then state.view = "upcoming" end
     local log = state.view == "log"
@@ -308,14 +313,14 @@ local function updateToolbar(p)
     p.sessionBtn:SetText(GR and GR:GetSession() and "End raid" or "Start raid")
     local organizer = canOrganize()
     p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
-    p.newTeamBtn:SetShown(organizer and state.view == "teams")
+    p.newTeamBtn:SetShown(canTeams() and state.view == "teams")
     for _, b in ipairs({ p.newRaidBtn, p.newTeamBtn }) do
         b:ClearAllPoints()
         if auth then b:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", -8, -6) end
     end
     p.leadersBtn:SetShown(state.view == "teams")
     p.leadersBtn:ClearAllPoints()
-    if organizer then
+    if canTeams() then
         p.leadersBtn:SetPoint("RIGHT", p.newTeamBtn, "LEFT", -6, 0)
     elseif auth then
         p.leadersBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)

@@ -630,7 +630,7 @@ end
 
 function PlanUI:MoveRaidMember(key, g, target)
     local v = selectedRaid()
-    if not v or not RP():CanOrganize() then return false end
+    if not v or not RP():CanEditGroups() then return false end
     local dr = raidDraft(v)
     local valid = {}
     for _, m in ipairs(raidMembers()) do valid[m.key] = true end
@@ -642,7 +642,7 @@ end
 
 function PlanUI:SwapRaidGroups(a, b)
     local v = selectedRaid()
-    if not v or not RP():CanOrganize() then return end
+    if not v or not RP():CanEditGroups() then return end
     local dr = raidDraft(v)
     swapGroups(dr.grp, a, b)
     dr.dirty = true
@@ -651,7 +651,7 @@ end
 
 function PlanUI:AutoFillRaid()
     local v = selectedRaid()
-    if not v or not RP():CanOrganize() then return end
+    if not v or not RP():CanEditGroups() then return end
     local accepted = {}
     for _, m in ipairs(RP():GetLayoutMembers(v)) do
         if m.st == "A" then accepted[#accepted + 1] = m end
@@ -664,7 +664,7 @@ end
 -- Back to the starting layout (the teams' layouts adjusted to who accepted).
 function PlanUI:ResetRaidLayout()
     local v = selectedRaid()
-    if not v or not RP():CanOrganize() then return end
+    if not v or not RP():CanEditGroups() then return end
     local dr = raidDraft(v)
     dr.grp, dr.dirty = RP():BuildLayout(v), true
     self:RefreshUpcoming()
@@ -699,7 +699,7 @@ function PlanUI:InviteRaid()
         Print("Nobody is in a group yet. Place players in groups first (or use Auto-fill).")
         return false
     end
-    if RP():CanOrganize() and (dr.dirty or not dr.saved) and not self:SaveRaidLayout() then return false end
+    if RP():CanEditGroups() and (dr.dirty or not dr.saved) and not self:SaveRaidLayout() then return false end
     local ok, err = ns.RaidInvite:Start(v.id, dr.grp, raidTitle(v))
     if not ok then Print(err or "Could not invite.") end
     self:RefreshUpcoming()
@@ -778,7 +778,7 @@ local function createRaidGroups(d)
             local v = selectedRaid()
             return v and raidDraft(v).grp or {}
         end,
-        isEditable = function() return RP():CanOrganize() end,
+        isEditable = function() return RP():CanEditGroups() end,
         onDrop = function(key, grp, target)
             PlanUI:MoveRaidMember(key, grp, target)
             PlanUI:RequestRefresh()
@@ -807,7 +807,7 @@ end
 
 local function refreshGroups(v)
     local g = upcoming.detail.groups
-    local organizer = RP():CanOrganize()
+    local organizer = RP():CanEditGroups()
     local dr = raidDraft(v)
     local lead = leadsGroup()
     for _, b in ipairs({ g.autoBtn, g.teamBtn, g.undoBtn, g.saveBtn }) do b:SetShown(organizer) end
@@ -1156,7 +1156,7 @@ end
 
 function PlanUI:ToggleDraftMember(key)
     local dr = state.draft
-    if not dr or not RP():CanOrganize() then return end
+    if not dr or not RP():CanManageTeams() then return end
     if dr.members[key] then
         dr.members[key], dr.s[key], dr.grp[key] = nil, nil, nil
     else
@@ -1168,14 +1168,14 @@ end
 -- sp = spec index, or nil for automatic (latest sign-up / BiS list).
 function PlanUI:SetDraftSpec(key, sp)
     local dr = state.draft
-    if not dr or not dr.members[key] or not RP():CanOrganize() then return end
+    if not dr or not dr.members[key] or not RP():CanManageTeams() then return end
     dr.s[key] = sp
     self:RefreshTeams()
 end
 
 function PlanUI:SetDraftSize(size)
     local dr = state.draft
-    if not dr or not RP():CanOrganize() then return end
+    if not dr or not RP():CanManageTeams() then return end
     dr.sz = size == 10 and 10 or 25
     local n = ns.RaidComp:GroupCount(dr.sz)
     for key, g in pairs(dr.grp) do
@@ -1187,20 +1187,20 @@ end
 -- The grid's drop: move `key` to group g (nil = out of the groups); dropped onto `target` in a group = swap.
 function PlanUI:MoveDraftMember(key, g, target)
     local dr = state.draft
-    if not dr or not dr.members[key] or not RP():CanOrganize() then return false end
+    if not dr or not dr.members[key] or not RP():CanManageTeams() then return false end
     return moveInLayout(dr.grp, function(k) return dr.members[k] end, key, g, target)
 end
 
 function PlanUI:SwapDraftGroups(a, b)
     local dr = state.draft
-    if not dr or not RP():CanOrganize() then return end
+    if not dr or not RP():CanManageTeams() then return end
     swapGroups(dr.grp, a, b)
     self:RequestRefresh()
 end
 
 function PlanUI:AutoFillDraft()
     local dr = state.draft
-    if not dr or not RP():CanOrganize() then return end
+    if not dr or not RP():CanManageTeams() then return end
     dr.grp = ns.RaidComp:AutoFill(draftMembers(), dr.sz)
     self:RefreshTeams()
 end
@@ -1360,7 +1360,7 @@ function PlanUI:CreateTeams(parent)
         getSize = function() return state.draft and state.draft.sz or 25 end,
         getMembers = draftMembers,
         getGroups = function() return state.draft and state.draft.grp or {} end,
-        isEditable = function() return RP():CanOrganize() end,
+        isEditable = function() return RP():CanManageTeams() end,
         onDrop = function(key, g, target)
             PlanUI:MoveDraftMember(key, g, target)
             PlanUI:RequestRefresh()
@@ -1377,7 +1377,7 @@ end
 function PlanUI:RefreshTeamButtons()
     if not teamsView then return end
     local d = teamsView.detail
-    local organizer = RP():CanOrganize()
+    local organizer = RP():CanManageTeams()
     local has = state.draft ~= nil and (state.team ~= nil or state.newTeam)
     local dirty = organizer and draftDirty()
     d.saveBtn:SetShown(organizer and has)
@@ -1389,7 +1389,7 @@ end
 function PlanUI:RefreshTeams()
     if not teamsView or not teamsView:IsVisible() then return end
     local teams = RP():GetTeams()
-    local organizer = RP():CanOrganize()
+    local organizer = RP():CanManageTeams()
     if not (state.newTeam and organizer) then
         state.newTeam = nil
         local found = false
@@ -1414,7 +1414,7 @@ function PlanUI:RefreshTeams()
     teamsView.grid.frame:SetShown(has)
     d.empty:SetShown(not has)
     d.empty:SetText(organizer and "Make a team with New team, then pick it when you plan a raid."
-        or "Teams are made by the Guild Master and the raid leaders.")
+        or "Teams are made by the Guild Master and the guild council.")
     self:RefreshTeamButtons()
     if not has then return end
     d.title:SetText(dr.name .. grey(("  %d-man"):format(dr.sz or 25)))
@@ -1655,7 +1655,7 @@ end
 -- occId = nil: a new raid.
 function PlanUI:OpenEditor(occId)
     if not RP():CanOrganize() then
-        Print("Only the Guild Master and the guild council can plan raids.")
+        Print("Only the Guild Master and the raid leaders can plan raids.")
         return
     end
     if not editor then createEditor() end

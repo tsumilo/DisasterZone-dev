@@ -124,11 +124,31 @@ local function GuildKey()
     return G and G.GetGuildKey and G:GetGuildKey() or nil
 end
 
--- Organizers (§55, §62): the GM and the raid leaders list (the officers' pick).
+-- Who may do what (§55, §62, user rules 2026-09-29):
+--   raids  (create / edit / cancel / delete): the GM and the raid leaders list
+--   teams  (members, specs, team groups):     the GM and the guild council
+--   groups (a raid's group layout):          the GM, the guild council and the raid leaders
 local function IsOrganizer(key)
     local G = Guild()
     return type(key) == "string" and G ~= nil and G.IsRaidPlanner ~= nil and G:IsRaidPlanner(key) and true or false
 end
+
+local function CanTeams(key)
+    local G = Guild()
+    return type(key) == "string" and G ~= nil and G.IsGuildCouncil ~= nil and G:IsGuildCouncil(key) and true or false
+end
+
+local function CanGroups(key)
+    local G = Guild()
+    return type(key) == "string" and G ~= nil and G.IsRaidLogMember ~= nil and G:IsRaidLogMember(key) and true or false
+end
+
+local ALLOWED = { raids = IsOrganizer, teams = CanTeams, groups = CanGroups }
+local REFUSED = {
+    raids = "Only the Guild Master and the raid leaders can plan raids.",
+    teams = "Only the Guild Master and the guild council can change teams.",
+    groups = "Only the Guild Master, the guild council and the raid leaders can change a raid's groups.",
+}
 
 -- A raid / team shows when its last editor was a raid planner when this version of it arrived, or is one now: a raid
 -- leader taken off the list later doesn't make their raids vanish. Kept per record version, locally (root.OK).
@@ -136,7 +156,9 @@ local function Trusted(root, kind, rec)
     if not rec then return false end
     local k = kind .. ":" .. tostring(rec.id) .. ":" .. tostring(rec.rev)
     if root.OK and root.OK[k] then return true end
-    if IsOrganizer(rec.by) then
+    local ok
+    if kind == "T" then ok = CanTeams(rec.by) else ok = IsOrganizer(rec.by) or CanGroups(rec.by) end
+    if ok then
         if root.OK then root.OK[k] = true end
         return true
     end
@@ -781,8 +803,19 @@ function RaidPlan:IsOrganizer(key)
     return IsOrganizer(key)
 end
 
+-- May I plan raids (create / edit / cancel / delete)?
 function RaidPlan:CanOrganize()
     return IsOrganizer(Util.PlayerKey())
+end
+
+-- May I build teams?
+function RaidPlan:CanManageTeams()
+    return CanTeams(Util.PlayerKey())
+end
+
+-- May I change a raid's group layout?
+function RaidPlan:CanEditGroups()
+    return CanGroups(Util.PlayerKey())
 end
 
 -- Visible teams, sorted by name: { id, name, members = { key, ... }, by, rev }.
@@ -1081,9 +1114,10 @@ end
 -- Public API: writing (organizers)
 ---------------------------------------------------------------------------
 
-local function RequireOrganizer()
-    if not IsOrganizer(Util.PlayerKey()) then
-        return nil, "Only the Guild Master and the raid leaders can plan raids."
+local function RequireOrganizer(what)
+    what = what or "raids"
+    if not ALLOWED[what](Util.PlayerKey()) then
+        return nil, REFUSED[what]
     end
     local root = Root(true)
     if not root then return nil, "Your guild is not known yet; try again in a moment." end
@@ -1113,7 +1147,7 @@ end
 -- members: a set { [key] = true } or an array of keys. id = nil creates a team. opts (optional): { size = 10|25,
 -- specs = { [key] = spec index }, groups = { [key] = 1..8 } } (nil keeps the team's current ones). Returns ok, idOrErr.
 function RaidPlan:SaveTeam(id, name, members, opts)
-    local root, err = RequireOrganizer()
+    local root, err = RequireOrganizer("teams")
     if not root then return false, err end
     name = CleanText(name, MAX_NAME_LEN)
     if not name then return false, "Team names are 1-32 characters." end
@@ -1143,7 +1177,7 @@ function RaidPlan:SaveTeam(id, name, members, opts)
 end
 
 function RaidPlan:DeleteTeam(id)
-    local root, err = RequireOrganizer()
+    local root, err = RequireOrganizer("teams")
     if not root then return false, err end
     local cur = type(id) == "string" and root.T[id]
     if not cur or cur.del then return false, "unknown team" end
@@ -1286,7 +1320,7 @@ end
 
 -- grp: { [key] = group 1..8 } (nil / empty clears the layout).
 function RaidPlan:SetGroups(occId, grp)
-    local root, err = RequireOrganizer()
+    local root, err = RequireOrganizer("groups")
     if not root then return false, err end
     local v = ResolveOcc(root, occId)
     if not v then return false, "unknown raid" end

@@ -227,9 +227,18 @@ loot council.
 - **API:** `Guild:IsOfficer(key)`, `CanEditRaidLeaders()`, `IsListedRaidLeader(key)`, `IsRaidPlanner(key)` (GM or
   listed), `AmIRaidPlanner()`, `IsRaidLogMember(key)` (planners + guild council), `AmIRaidLogMember()`,
   `GetRaidLeaders()`, `GetRaidLeadersRev()`, `GetRaidLeadersInfo()`.
-- **Raid planners** = the organizers of §55: raids, teams, group layouts (checked in core: `RequireOrganizer`).
-  A record shows when its last editor was a planner when that version arrived, or is one now (`root.OK`, local, per
-  record version): a raid leader taken off the list keeps their raids visible; a newer version by a non-planner isn't
+- **Who may do what** (user rules, checked in core by `RequireOrganizer(what)` and followed by the UI):
+
+  | | raids (create / edit / cancel / delete) | teams (members, specs, team groups) | a raid's group layout |
+  |---|---|---|---|
+  | GM | yes | yes | yes |
+  | guild council | no | yes | yes |
+  | raid leaders | yes | no | yes |
+
+  Invite & sort / Re-sort: whoever may edit the raid's groups, or leads the group. `RaidPlan:CanOrganize()`,
+  `CanManageTeams()`, `CanEditGroups()`.
+  A record shows when its last editor was allowed to write it when that version arrived, or is now (teams: team
+  editors; raids and overrides: raid planners or group editors; `root.OK`, local, per record version): a raid leader taken off the list keeps their raids visible; a newer version by a non-planner isn't
   shown.
 - **Raid log members** (planners + guild council): the Raid log view, bench and planned-raid link edits (checked in
   core), attendance and reliability in tooltips, and the raid log exchange (RLD / RLW / RLG; `rd` in the HELLO of a

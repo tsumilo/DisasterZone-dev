@@ -309,5 +309,50 @@ def council_for_one_raid_sees_only_that_raids_lists_and_awards():
     w.assert_no_errors()
 
 
+@case
+def raid_leaders_manage_raids_and_their_groups_the_council_teams_and_groups():
+    w, c = world()
+    rhea, cora, sam = c["Rhea"], c["Cora"], c["Sam"]
+    call = lambda cl, code, *a: cl.eval_py("local ok, r = " + code + "; return { ok = ok, r = r }", *a)
+    # teams: the GM and the council, not raid leaders
+    res = call(rhea, "ns.RaidPlan:SaveTeam(nil, 'X', {})")
+    assert res["ok"] is False and "guild council" in res["r"], res
+    res = call(cora, "ns.RaidPlan:SaveTeam(nil, 'Kara A', { ... })", K("Sam"))
+    assert res["ok"] is True, res
+    tid = res["r"]
+    # raids: the GM and raid leaders, not the council
+    assert call(cora, "ns.RaidPlan:CreateRaid({ i = 'kara', t = GetServerTime() + 86400 })")["ok"] is False
+    res = call(rhea, "ns.RaidPlan:CreateRaid({ i = 'kara', t = GetServerTime() + 86400, tm = { ... } })", tid)
+    assert res["ok"] is True, res
+    occ = res["r"]
+    w.tick(2)
+    # a raid's groups: raid leaders and the council (and the GM); members not
+    assert call(rhea, "ns.RaidPlan:SetGroups(..., { ['Sam-Thunderstrike'] = 1 })", occ)["ok"] is True
+    w.tick(2)
+    assert call(cora, "ns.RaidPlan:SetGroups(..., { ['Sam-Thunderstrike'] = 2 })", occ)["ok"] is True
+    w.tick(2)
+    assert call(sam, "ns.RaidPlan:SetGroups(..., { ['Sam-Thunderstrike'] = 3 })", occ)["ok"] is False
+    for n, x in c.items():
+        v = x.eval_py("return ns.RaidPlan:GetRaid(...)", occ)
+        assert v and v["grp"] == {K("Sam"): 2}, (n, v)                  # the council's layout edit is shown
+        assert x.eval_py("return ns.RaidPlan:GetTeam(...)", tid)["name"] == "Kara A", n
+    # the UI follows: Rhea gets New raid but no New team; Cora the other way round
+    for cl, raid_btn, team_btn in ((rhea, True, False), (cora, False, True)):
+        cl.slash("/cdl raids")
+        w.tick(0.3)
+        assert cl.eval("return ns.RaidsUI:GetPanel().newRaidBtn:IsShown()") is raid_btn
+        cl.eval("ns.RaidsUI:SetView('teams')")
+        w.tick(0.3)
+        assert cl.eval("return ns.RaidsUI:GetPanel().newTeamBtn:IsShown()") is team_btn
+        assert cl.eval("return ns.RaidsUI:GetPanel().teams.picker.frame:IsShown()") is team_btn
+        cl.eval("ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...)", occ)
+        cl.click(cl.eval("return ns.RaidsUI:GetPanel().upcoming.detail.tabGroups"))
+        w.tick(0.3)
+        assert cl.eval("return ns.RaidsUI:GetPanel().upcoming.detail.groups.saveBtn:IsShown()") is True
+        cl.click(cl.eval("return ns.RaidsUI:GetPanel().upcoming.detail.tabSignups"))
+        assert cl.eval("return ns.RaidsUI:GetPanel().upcoming.detail.editBtn:IsShown()") is raid_btn
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

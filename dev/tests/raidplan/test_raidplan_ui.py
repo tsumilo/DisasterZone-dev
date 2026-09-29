@@ -153,7 +153,7 @@ def organizer_creates_and_edits_raids_in_the_window():
     # members can't open it
     n0 = len(rita.chat_frame)
     rita.eval("ns.RaidPlanUI:OpenEditor()")
-    assert any("guild council" in strip_codes(l) for l in printed_since(rita, n0))
+    assert any("raid leaders can plan raids" in strip_codes(l) for l in printed_since(rita, n0))
     w.assert_no_errors()
 
 
