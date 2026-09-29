@@ -56,6 +56,7 @@ local function chipTooltip(chip)
         for _, line in ipairs(brings) do GameTooltip:AddLine(line, 0.85, 0.85, 0.85) end
     end
     if m.extra then GameTooltip:AddLine(m.extra, 1, 0.82, 0, true) end
+    for _, line in ipairs(m.info or {}) do GameTooltip:AddLine(line, 0.75, 0.75, 0.75, true) end
     local grid = chip.grid
     if grid and grid.opts.isEditable() then
         GameTooltip:AddLine(" ")

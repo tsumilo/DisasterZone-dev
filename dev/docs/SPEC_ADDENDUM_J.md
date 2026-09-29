@@ -107,6 +107,15 @@ Messages fired: `RAIDPLAN_CHANGED`.
   Delete; members see the teams read-only. The detail shows which upcoming raids invite the team.
 - **Login reminder:** 45 s after login, one chat line lists my teams' raids in the next 7 days without my answer.
 
+## 58a. Sign-up order (added 2026-09-29)
+
+- A sign-up carries `at` = when the character first answered that raid (validated `1 <= at <= rev`); changing the
+  answer keeps it, so the place in line is kept. Sign-ups made before this have no `at` and count from their `rev`.
+- `RaidPlan:GetSignupOrder(occId)` = `{ [key] = position }, total`, by `at`, then name.
+- Hover in the Sign-ups tab (every roster cell; Bench, Absent and spec-not-set players are now cells under their header
+  line too) and on the Groups tab chips: "Sign-up #7 of 23 · Tue 30 Sep 20:14", plus "Changed to Accepted <time>"
+  when the answer changed at least a minute later. Each role column lists Accepted before Tentative, first come first.
+
 ## 59. Team specs, buffs and the group grid (built 2026-09-29, requested with step 3)
 
 - **Team record** (T) gains `sz` (10 | 25, default 25), `s = { [key] = spec index }` (the spec a member plays in this

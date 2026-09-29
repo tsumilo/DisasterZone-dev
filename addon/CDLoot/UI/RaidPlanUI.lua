@@ -241,6 +241,20 @@ end
 -- Upcoming: roster (right, below the sign-up strip)
 ---------------------------------------------------------------------------
 
+-- "Sign-up #7 of 23 · Tue 30 Sep 20:14" (+ "Changed to Accepted Wed 01 Oct 18:02" when the answer changed later).
+local function signupLines(s, order, total)
+    local out = {}
+    if not s then return out end
+    local at = s.at or s.rev
+    if order then
+        out[#out + 1] = ("Sign-up #%d of %d · %s"):format(order, total or order, date("%a %d %b %H:%M", at))
+    end
+    if s.rev and at and s.rev - at >= 60 then
+        out[#out + 1] = ("Changed to %s %s"):format(STATUS[s.st].label, date("%a %d %b %H:%M", s.rev))
+    end
+    return out
+end
+
 local function cellTooltip(cell)
     local d = cell.cdlCell
     if not d then return end
@@ -253,6 +267,7 @@ local function cellTooltip(cell)
     if s then
         GameTooltip:AddLine(STATUS[s.st].label, 0.8, 0.8, 0.8)
         if s.n then GameTooltip:AddLine('"' .. s.n .. '"', 1, 0.82, 0, true) end
+        for _, line in ipairs(signupLines(s, d.order, d.total)) do GameTooltip:AddLine(line, 0.7, 0.7, 0.7) end
     end
     local RL = ns.RaidLog
     if ns.Guild and ns.Guild:AmICouncil() and RL and RL.GetAttendanceText then
@@ -334,6 +349,8 @@ end
 -- full-width lines for Bench, Absent, spec not set and No response.
 local function rosterRows(v)
     local signups = RP():GetSignups(v.id)
+    local order, total = RP():GetSignupOrder(v.id)
+    local function cell(key) return { key = key, s = signups[key], order = order[key], total = total } end
     local byRole = { tank = {}, healer = {}, melee = {}, ranged = {} }
     local other = { B = {}, X = {}, nospec = {} }
     for key, s in pairs(signups) do
@@ -352,7 +369,7 @@ local function rosterRows(v)
         tsort(list, function(a, b)
             local sa, sb = signups[a].st, signups[b].st
             if sa ~= sb then return sa == "A" end
-            return nameLess(a, b)
+            return (order[a] or 0) < (order[b] or 0)
         end)
         local accepted = 0
         for _, key in ipairs(list) do if signups[key].st == "A" then accepted = accepted + 1 end end
@@ -365,7 +382,7 @@ local function rosterRows(v)
         local d = { cols = {} }
         for i, col in ipairs(ROLE_COLS) do
             local key = byRole[col.key][r]
-            if key then d.cols[i] = { key = key, s = signups[key] } end
+            if key then d.cols[i] = cell(key) end
         end
         rows[#rows + 1] = d
     end
@@ -375,9 +392,22 @@ local function rosterRows(v)
         local text, plain = nameList(keys, signups)
         rows[#rows + 1] = { line = label .. " (" .. #keys .. "): " .. text, plain = label .. plain }
     end
-    line(colorize(STATUS.T.color, "Spec not set"), other.nospec)
-    line(colorize(STATUS.B.color, "Bench"), other.B)
-    line(colorize(STATUS.X.color, "Absent"), other.X)
+    -- answered players outside the role columns: a header line, then their names as cells (hover shows the order)
+    local function cells(label, keys)
+        if #keys == 0 then return end
+        tsort(keys, function(a, b) return (order[a] or 0) < (order[b] or 0) end)
+        rows[#rows + 1] = { line = label .. " (" .. #keys .. ")", plain = label }
+        for i = 1, #keys, #ROLE_COLS do
+            local d = { cols = {} }
+            for j = 1, #ROLE_COLS do
+                if keys[i + j - 1] then d.cols[j] = cell(keys[i + j - 1]) end
+            end
+            rows[#rows + 1] = d
+        end
+    end
+    cells(colorize(STATUS.T.color, "Spec not set"), other.nospec)
+    cells(colorize(STATUS.B.color, "Bench"), other.B)
+    cells(colorize(STATUS.X.color, "Absent"), other.X)
     local inv = RP():GetInvited(v)
     if inv then
         local missing = {}
@@ -546,13 +576,15 @@ local function raidMembers()
     local out = {}
     if not v then return out end
     local seen = {}
+    local signups = RP():GetSignups(v.id)
+    local order, total = RP():GetSignupOrder(v.id)
     for _, m in ipairs(RP():GetLayoutMembers(v)) do
         out[#out + 1] = { key = m.key, c = m.c, sp = m.sp, dim = m.st ~= "A",
-                          extra = m.st and STATUS_EXTRA[m.st] or (m.st == nil and "No sign-up" or nil) }
+                          extra = m.st and STATUS_EXTRA[m.st] or (m.st == nil and "No sign-up" or nil),
+                          info = signupLines(signups[m.key], order[m.key], total) }
         seen[m.key] = true
     end
     -- people in my raid who didn't sign up (late joiners, fill-ins) can be placed too
-    local signups = RP():GetSignups(v.id)
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() or 0 do
             local name, _, _, _, _, classFile = GetRaidRosterInfo(i)

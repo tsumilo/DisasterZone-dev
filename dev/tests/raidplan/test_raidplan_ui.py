@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from rp_common import world, K, DAY, now, team, create, raids, raid, signup, signups, call  # noqa: E402
-from _common import case, run_all, printed_since, strip_codes  # noqa: E402
+from _common import case, run_all, printed_since, strip_codes, install_helpers, tt_lines  # noqa: E402
 
 
 def open_tab(w, cl, view="upcoming"):
@@ -230,6 +230,77 @@ def login_reminder_lists_raids_to_answer():
     n0 = len(rita.chat_frame)
     w.tick(50)
     assert not [l for l in printed_since(rita, n0) if "to answer" in strip_codes(l)]
+    w.assert_no_errors()
+
+
+def hover_tip(cl, finder, key):
+    """Hovers the frame `finder` returns for `key` (Lua, ... = key) and returns the tooltip's left lines (plain)."""
+    install_helpers(cl)
+    frame = cl.eval(finder, key)
+    assert frame is not None, "no frame for %s" % key
+    cl.hover(frame)
+    lines = [strip_codes(l) for l, _ in tt_lines(cl)]
+    cl.leave(frame)
+    return lines
+
+
+ROSTER_CELL = """
+  local key = ...
+  local found
+  ns.RaidsUI:GetPanel().upcoming.detail.roster.box:ForEachFrame(function(row)
+    for _, cell in ipairs(row.cells or {}) do
+      if cell:IsShown() and cell.cdlCell and cell.cdlCell.key == key then found = cell end
+    end
+  end)
+  return found"""
+
+GROUP_CHIP = """
+  local key = ...
+  local grid = ns.RaidPlanUI:GetRaidGrid()
+  for _, box in ipairs(grid.boxes) do
+    for _, chip in ipairs(box.chips) do if chip.key == key then return chip end end
+  end
+  local found
+  grid.pool.list.box:ForEachFrame(function(row)
+    for _, chip in ipairs(row.chips or {}) do if chip:IsShown() and chip.key == key then found = chip end end
+  end)
+  return found"""
+
+
+@case
+def signup_order_is_kept_and_shown_on_hover():
+    w, c = world()
+    bob = c["Bob"]
+    occ = create(bob, i="kara", t=now(bob) + DAY)
+    w.tick(2)
+    signup(c["Sam"], occ, "T", 2)
+    w.tick(120)
+    signup(c["Rita"], occ, "A", 3)
+    w.tick(120)
+    signup(c["Lee"], occ, "B", 3)
+    w.tick(300)
+    signup(c["Sam"], occ, "A")                   # changing the answer keeps Sam first
+    w.tick(2)
+    for n, x in c.items():
+        order = x.eval_py("return (ns.RaidPlan:GetSignupOrder(...))", occ)
+        assert order == {K("Sam"): 1, K("Rita"): 2, K("Lee"): 3}, (n, order)
+    open_tab(w, bob)
+    bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
+    w.tick(0.3)
+    lines = hover_tip(bob, ROSTER_CELL, K("Sam"))
+    assert any(l.startswith("Sign-up #1 of 3") for l in lines), lines
+    assert any(l.startswith("Changed to Accepted") for l in lines), lines
+    lines = hover_tip(bob, ROSTER_CELL, K("Lee"))              # Bench: its own cells, hoverable too
+    assert any(l.startswith("Sign-up #3 of 3") for l in lines), lines
+    assert not any(l.startswith("Changed") for l in lines), lines
+    assert has_line(bob, "Bench", "(1)")
+    # the Groups tab chips
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.tabGroups"))
+    w.tick(0.3)
+    lines = hover_tip(bob, GROUP_CHIP, K("Rita"))
+    assert any(l.startswith("Sign-up #2 of 3") for l in lines), lines
+    lines = hover_tip(bob, GROUP_CHIP, K("Lee"))
+    assert any(l.startswith("Sign-up #3 of 3") for l in lines) and "Signed up as Bench" in lines, lines
     w.assert_no_errors()
 
 

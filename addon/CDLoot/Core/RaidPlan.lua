@@ -378,6 +378,11 @@ local function CleanSignup(s, now)
         out.n = CleanText(s.n, MAX_SIGNUP_NOTE)
         if not out.n then return nil end
     end
+    -- when the character first answered this raid (kept when the answer changes; the sign-up order)
+    if s.at ~= nil then
+        if not IsInt(s.at, 1, s.rev) then return nil end
+        out.at = s.at
+    end
     return out
 end
 
@@ -872,6 +877,20 @@ function RaidPlan:GetMySignup(occId)
     return s and CopyMap(s) or nil
 end
 
+-- The sign-up order of a raid: { [key] = position (1 = first) }, total. Ordered by the first answer (any status), so
+-- changing an answer keeps the place; the same second settles by name.
+function RaidPlan:GetSignupOrder(occId)
+    local list = {}
+    for key, s in pairs(self:GetSignups(occId)) do list[#list + 1] = { key = key, at = s.at or s.rev or 0 } end
+    tsort(list, function(a, b)
+        if a.at ~= b.at then return a.at < b.at end
+        return a.key < b.key
+    end)
+    local out = {}
+    for i, e in ipairs(list) do out[e.key] = i end
+    return out, #list
+end
+
 -- The set of invited members { [key] = true } (the union of the raid's visible teams), or nil when the raid names
 -- no team (open to everyone).
 function RaidPlan:GetInvited(occId)
@@ -1257,6 +1276,7 @@ function RaidPlan:SignUp(occId, status, spec, note)
     local class = MyClass()
     local cur = root.U[occId] and root.U[occId][me]
     local s = { st = status, rev = NextRev(cur), c = class }
+    s.at = cur and (cur.at or cur.rev) or s.rev
     if spec == nil then spec = (cur and cur.sp) or self:GetLastSpec() end
     if spec ~= nil then
         if not IsInt(spec, 1, SpecCount(class)) then return false, "invalid spec" end
