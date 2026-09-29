@@ -40,6 +40,7 @@ local PILL_ICON = {
 
 local panel
 local pickedOcc     -- the raid picked among several on the same day (nil = the soonest)
+local viewPhase     -- { phase, key }: a phase picked with the BiS card's arrows, for the raid `key` only
 
 local function UI() return ns.UI end
 local function RP() return ns.RaidPlan end
@@ -736,11 +737,27 @@ local function refreshRaidCard(card, ctx)
     card:SetRows(rows, rowsY)
 end
 
+local function stepPhase(ctx, delta)
+    local p = ctx.bisPhase + delta
+    if p < 1 or p > (ns.MAX_PHASE or 5) then return end
+    viewPhase = { phase = p, key = ctx.phaseKey }
+    Dashboard:Refresh()
+end
+
 local function refreshBiSCard(card, ctx)
-    local s, phase = ctx.bis, ctx.phase
+    local s, phase = ctx.bisView, ctx.bisPhase
     card.onOpen = function() openMyBiS(phase) end
-    card:SetTitle("Your BiS · Phase " .. phase,
-        s.filled == 0 and "No picks yet" or (s.obtained .. " / " .. s.total .. " obtained"))
+    local why = ""
+    if phase ~= ctx.phase then
+        why = grey(" (viewing)")
+    elseif ctx.targetRaid and tonumber(ctx.targetRaid.phase) == phase and phase > guildPhase() then
+        why = grey(" · " .. ctx.targetRaid.name)
+    end
+    card:SetTitle("Your BiS · Phase " .. phase .. why,
+        s.filled == 0 and ("No Phase " .. phase .. " picks yet") or (s.obtained .. " / " .. s.total .. " obtained"))
+    card.prevPhase.ctx, card.nextPhase.ctx = ctx, ctx
+    card.prevPhase:SetEnabled(phase > 1)
+    card.nextPhase:SetEnabled(phase < (ns.MAX_PHASE or 5))
     local pct = s.total > 0 and (s.obtained / s.total) or 0
     card.bar:SetShown(s.filled > 0)
     card.barFill:SetShown(s.filled > 0 and pct > 0)
@@ -960,7 +977,6 @@ local function buildContext()
         end
         if ctx.raid.id ~= pickedOcc then pickedOcc = nil end
     end
-    ctx.bis = bisSummary(ctx.phase)
     local here = currentItemRaid()
     if here then
         ctx.targetRaid, ctx.targetLabel = here, "here"
@@ -972,6 +988,20 @@ local function buildContext()
             ctx.targetLabel = diff < DAY and diff > -CURRENT_FOR and ("in " .. raid.name .. " tonight")
                 or ("in " .. raid.name .. " " .. date("%A", ctx.raid.t))
         end
+    end
+    -- The phase that matters is the raid's: a Phase 2 raid needs the Phase 2 list even while the guild phase is
+    -- still 1, and an older raid keeps the guild's current phase.
+    local raidPhase = ctx.targetRaid and tonumber(ctx.targetRaid.phase) or nil
+    if raidPhase and raidPhase > ctx.phase then ctx.phase = min(raidPhase, ns.MAX_PHASE or 5) end
+    ctx.bis = bisSummary(ctx.phase)
+    -- The BiS card's arrows may show another phase (until another raid is shown).
+    ctx.phaseKey = ctx.targetRaid and ctx.targetRaid.key or "-"
+    if viewPhase and viewPhase.key == ctx.phaseKey and viewPhase.phase ~= ctx.phase then
+        ctx.bisPhase = viewPhase.phase
+        ctx.bisView = bisSummary(ctx.bisPhase)
+    else
+        viewPhase = nil
+        ctx.bisPhase, ctx.bisView = ctx.phase, ctx.bis
     end
     return ctx
 end
@@ -1052,6 +1082,26 @@ function Dashboard:CreatePanel(parent)
     p.bisCard = createCard(p, "My BiS")
     p.bisCard:SetPoint("TOPLEFT", p, "TOP", 3, top)
     p.bisCard:SetPoint("RIGHT", p, "RIGHT", -4, 0)
+    local function arrow(dir, delta)
+        local b = CreateFrame("Button", nil, p.bisCard)
+        b:SetSize(20, 20)
+        b:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Up")
+        b:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Down")
+        b:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Disabled")
+        b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+        b:SetScript("OnClick", function(self) if self.ctx then stepPhase(self.ctx, delta) end end)
+        b:SetScript("OnEnter", function(self)
+            UI():SetTextTooltip(self, { delta < 0 and "Previous phase" or "Next phase",
+                                        "Shows the raid's phase again when another raid is shown." })
+        end)
+        b:SetScript("OnLeave", Row_OnLeave)
+        return b
+    end
+    p.bisCard.nextPhase = arrow("Next", 1)
+    p.bisCard.nextPhase:SetPoint("RIGHT", p.bisCard.link, "LEFT", -2, 0)
+    p.bisCard.prevPhase = arrow("Prev", -1)
+    p.bisCard.prevPhase:SetPoint("RIGHT", p.bisCard.nextPhase, "LEFT", 2, 0)
+    p.bisCard.title:SetPoint("RIGHT", p.bisCard.prevPhase, "LEFT", -4, 0)
     local bar = CreateFrame("Frame", nil, p.bisCard)
     bar:SetHeight(6)
     bar:SetPoint("TOPLEFT", p.bisCard, "TOPLEFT", 10, -46)

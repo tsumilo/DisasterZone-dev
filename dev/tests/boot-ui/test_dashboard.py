@@ -81,7 +81,7 @@ def home_is_the_default_tab_with_empty_states():
     assert c.eval("return CDLootMainFrame.Tabs[1].cdlKey") == "home"
     texts = panel_texts(c)
     assert any("Your BiS · Phase 1" in t for t in texts), texts
-    assert any("No picks yet" in t for t in texts), texts
+    assert any("No Phase 1 picks yet" in t for t in texts), texts
     assert any("Nothing planned" in t for t in texts), texts
     assert any("No loot awarded to you yet." in t for t in texts), texts
     assert any("Later raids" in t for t in texts), "a raider gets the later-raids card"
@@ -257,6 +257,39 @@ def several_raids_on_one_day_get_pills():
     lee.eval("ns.Dashboard:Refresh()")
     assert any(t.startswith("Karazhan · ") for t in panel_texts(lee)), panel_texts(lee)
     assert pills(lee) == [], pills(lee)
+    w.assert_no_errors()
+
+
+@case
+def bis_card_follows_the_raids_phase_and_arrows_peek_at_others():
+    w, c = rp.world()
+    bob, lee = c["Bob"], c["Lee"]
+    assert lee.eval("return ns.Guild:GetGuildPhase()") == 1
+    tid = rp.team(bob, "Main", ["Lee"])
+    rp.create(bob, i="ssc", t=rp.now(bob) + DAY, tm=[tid], sz=25)
+    w.tick(2)
+    install_helpers(lee)
+    ssc_item = lee.eval(PICK_FROM_RAID, 7, "SerpentshrineCavern", "WARRIOR")
+    kara_item = lee.eval(PICK_FROM_RAID, 7, "Karazhan", "WARRIOR")
+    assert ssc_item and kara_item, (ssc_item, kara_item)
+    lee.eval("ns.BiS:SetSlot(2, 7, 'main', ...)", ssc_item)
+    lee.eval("ns.BiS:SetSlot(1, 7, 'main', ...)", kara_item)
+    w.tick(1)
+    open_home(lee)
+    texts = panel_texts(lee)
+    assert any(t.startswith("Your BiS · Phase 2") and "Serpentshrine Cavern" in t for t in texts), texts
+    ssc_name = lee.eval("return ns.ItemDB:GetName(...)", ssc_item)
+    assert any(ssc_name in t for t in texts), (ssc_name, texts)
+    assert chip(lee, "Pick your Phase") is None, "the Phase 2 list has a pick"
+    # the arrows peek at Phase 1 (nothing of it drops in SSC)
+    lee.click(lee.eval("return ns.Dashboard:GetPanel().bisCard.prevPhase"))
+    w.tick(0.3)
+    texts = panel_texts(lee)
+    assert any(t.startswith("Your BiS · Phase 1 (viewing)") for t in texts), texts
+    assert any("None of your missing picks drop in Serpentshrine Cavern." in t for t in texts), texts
+    lee.click(lee.eval("return ns.Dashboard:GetPanel().bisCard.nextPhase"))
+    w.tick(0.3)
+    assert any(t.startswith("Your BiS · Phase 2") for t in panel_texts(lee)), panel_texts(lee)
     w.assert_no_errors()
 
 
