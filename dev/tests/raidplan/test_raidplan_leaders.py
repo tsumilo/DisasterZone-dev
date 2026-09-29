@@ -274,5 +274,40 @@ def a_raid_leader_who_missed_the_raid_gets_the_log_at_login():
     w.assert_no_errors()
 
 
+@case
+def council_for_one_raid_sees_only_that_raids_lists_and_awards():
+    w, c = world(leaders=())
+    lee, rita, sam, cora = c["Lee"], c["Rita"], c["Sam"], c["Cora"]
+    # Lee's client has cached lists of Rita and Sam from earlier raids, and an old award
+    for n in ("Rita", "Sam"):
+        lee.eval("local k = ...; ns.db.lists[k] = { rev = 3, ts = GetServerTime() - 86400, data = { cl = 'PRIEST', ph = {} } }",
+                 K(n))
+    cora.eval("ns.Ledger:Award(28477, ..., 'Karazhan:Attumen', 'old')", K("Sam"))
+    w.tick(2)
+    old = cora.eval("return ns.Ledger:GetEntries({})[1].id")
+    lee.eval("local e = ...; local c = {}; for k, v in pairs(e) do c[k] = v end; c.ts = GetServerTime() - 7 * 86400;"
+             " ns.Ledger:Merge(c, 'Cora-Thunderstrike')", cora.eval_py("return ns.Ledger:GetEntry(...)", old))
+    assert lee.eval("return ns.Ledger:GetEntry(...) ~= nil", old) is True
+    # Lee leads a raid with Sam only: raid-scope council for that raid
+    w.make_raid([lee, sam], leader=lee)
+    w.tick(5)
+    assert lee.eval("return ns.Guild:AmICouncil()") is True
+    keys = lee.eval_py("return ns.Store:GetAllKeys()") or []
+    assert K("Sam") in keys and K("Rita") not in keys, keys
+    vis = lee.eval_py("local out = {}; for _, e in ipairs(ns.Ledger:GetVisibleEntries({})) do out[#out + 1] = e.id end; return out") or []
+    assert old not in vis, vis
+    # an award during this raid is visible
+    lee.eval("ns.Ledger:Award(28477, ..., 'Karazhan:Attumen', 'now')", K("Sam"))
+    vis = lee.eval_py("local out = {}; for _, e in ipairs(ns.Ledger:GetVisibleEntries({})) do out[#out + 1] = e.id end; return out") or []
+    assert len(vis) == 1 and vis[0] != old, (old, vis)
+    # out of the raid: nothing
+    w.disband()
+    w.tick(3)
+    assert lee.eval("return #ns.Ledger:GetVisibleEntries({})") == 0
+    # the guild council sees everything
+    assert cora.eval("return #ns.Ledger:GetVisibleEntries({}) == #ns.Ledger:GetEntries({})") is True
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

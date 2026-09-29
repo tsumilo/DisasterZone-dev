@@ -671,8 +671,8 @@ end
 ----------------------------------------------------------------------------
 
 local function findAward(key, itemID)
-    if not (ns.Ledger and ns.Ledger.GetEntries and key and itemID) then return nil end
-    for _, e in ipairs(ns.Ledger:GetEntries({ player = key }) or {}) do
+    if not (ns.Ledger and ns.Ledger.GetVisibleEntries and key and itemID) then return nil end
+    for _, e in ipairs(ns.Ledger:GetVisibleEntries({ player = key }) or {}) do
         if not e.vd then
             if e.i == itemID then return e end
             local expanded = ns.ItemDB and ns.ItemDB.ExpandDrop and ns.ItemDB:ExpandDrop(e.i)
@@ -1647,7 +1647,7 @@ local function refreshMemberCenter(v, key, data, phase, rec)
         c.summary:SetText("No BiS list received yet.")
     end
 
-    local entries = ns.Ledger and ns.Ledger.GetEntries and ns.Ledger:GetEntries({ player = key }) or {}
+    local entries = ns.Ledger and ns.Ledger.GetVisibleEntries and ns.Ledger:GetVisibleEntries({ player = key }) or {}
     local shown = 0
     for _, e in ipairs(entries) do
         if shown >= MAX_AWARD_LINES then break end

@@ -201,9 +201,9 @@ end
 local function buildRows()
     local rows, total = {}, 0
     local ledger = ns.Ledger
-    if not (ledger and ledger.GetEntries) then return rows, total end
+    if not (ledger and ledger.GetVisibleEntries) then return rows, total end
     local pre = {}
-    for _, e in ipairs(ledger:GetEntries({ includeVoid = state.showVoid }) or {}) do
+    for _, e in ipairs(ledger:GetVisibleEntries({ includeVoid = state.showVoid }) or {}) do
         if validEntry(e) then
             total = total + 1
             local id = tonumber(e.i)

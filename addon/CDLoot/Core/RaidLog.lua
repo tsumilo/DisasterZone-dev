@@ -390,6 +390,7 @@ end
 function RaidLog:SetBench(id, key, on)
     if not DemoRaids() and not IsPlanner(Util.PlayerKey()) then return false end
     local rec = self:GetRaid(id)
+    if DemoRaids() and rec and not tostring(rec.id):find("^demo") then return false end   -- demo: demo raids only
     key = Util.NormalizeName(key)
     if not rec or not key then return false end
     rec.att = type(rec.att) == "table" and rec.att or {}

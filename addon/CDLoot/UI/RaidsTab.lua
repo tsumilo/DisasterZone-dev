@@ -5,7 +5,8 @@
 --     Raids   - the raid sessions (newest first) and, for the selected one, its boss timeline, attendance (with
 --               bench marks, right-click to change) and the awards made during it.
 --     Players - attendance % / boss kills / items received per player over the last N raids.
--- Start / End raid for the raid's authority sits in the toolbar.
+-- Start / End raid for the raid's authority sits in the toolbar. The Raid log is for raid log members (GM, guild
+-- council, raid leaders; Addendum J §62), its awarded items for the loot council only.
 local addonName, ns = ...
 
 local RaidsUI = ns:NewModule("RaidsUI")
@@ -273,7 +274,7 @@ local function playerRows()
         rows[#rows + 1] = { cols = { colored(s.key, s.class), ("%d/%d"):format(s.raids, total) ..
             (s.bench > 0 and grey(" (" .. s.bench .. " bench)") or ""),
             s.pct .. "%" .. (noShow > 0 and (" |cffff8080" .. noShow .. " no-show|r") or ""),
-            ("%d/%d"):format(s.kills, s.killTotal), last }, itemID = s.lastItem and s.lastItem.i }
+            ("%d/%d"):format(s.kills, s.killTotal), last }, itemID = seesItems() and s.lastItem and s.lastItem.i or nil }
     end
     return rows, total
 end

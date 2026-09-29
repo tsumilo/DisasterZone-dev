@@ -60,6 +60,7 @@ local rosterGen = 0             -- BuildRoster generation (entries are updated i
 local keyReadyFired             -- guild key GUILD_KEY_READY was fired for
 local gmRelayNoted = false      -- the "your list is not on this PC" hint was printed (GM only)
 local crReplyPending = false
+local raidSince                 -- server time I joined my current raid (raid-scope council sees its awards only)
 local lastCrReply = -1000
 
 local function MaxPhase()
@@ -765,6 +766,7 @@ local function RefreshRaidState()
     local joined = nowInRaid and not inRaid
     local changed = leader ~= raidLeader
     inRaid, raidLeader = nowInRaid, leader
+    if joined then raidSince = Now() elseif not nowInRaid then raidSince = nil end
     if not nowInRaid then
         raidCouncil = nil
         Util.CancelDebounce("cdl-guild-cr")
@@ -1259,6 +1261,11 @@ end
 
 -- The raid council accepted for my CURRENT raid (a copy { leader, rev, members }), or nil. While I lead
 -- the raid it is my own raid list.
+-- Server time I joined my current raid, or nil.
+function Guild:GetRaidSince()
+    return raidSince
+end
+
 function Guild:GetRaidCouncil()
     if not IsInRaid() then return nil end
     local leader = CurrentRaidLeader()

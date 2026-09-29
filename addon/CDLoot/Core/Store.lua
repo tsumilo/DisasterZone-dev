@@ -311,8 +311,11 @@ function Store:GetAllKeys()
             if type(key) == "string" and key ~= me then keys[#keys + 1] = key end
         end
     elseif Guild and Guild:AmICouncil(true) then
+        -- Addendum E: council for one raid (its leader or picks) sees only the lists of that raid's players, not
+        -- every list cached from earlier raids
+        local full = me ~= nil and Guild.IsGuildCouncil and Guild:IsGuildCouncil(me)
         for key in pairs(Lists()) do
-            if key ~= me and Guild:IsInGuild(key, true) then keys[#keys + 1] = key end
+            if key ~= me and Guild:IsInGuild(key, true) and (full or Util.IsInMyGroup(key)) then keys[#keys + 1] = key end
         end
     end
     tsort(keys)
@@ -815,5 +818,8 @@ function Store:OnInit()
     end)
     -- Addendum F §38: lock snapshots (start / end) and members joining during the lock.
     ns:On("BIS_LOCK_CHANGED", OnLockChanged)
-    ns:On("GROUP_UPDATED", SnapshotMissing)
+    ns:On("GROUP_UPDATED", function()
+        MarkDirty()   -- raid-scope council: the raid's players decide which lists are visible
+        SnapshotMissing()
+    end)
 end

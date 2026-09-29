@@ -1182,6 +1182,7 @@ end
 
 -- Addendum I §51: "Attendance 92% (7/8 raids)" from the raid log, when any raid is logged.
 local function AddAttendanceLine(tt, key)
+    if not IsCouncil() then return end   -- other raiders' attendance is council data
     local RL = ns.RaidLog
     local pct, a, n = RL and RL.GetAttendance and RL:GetAttendance(key)
     if pct then tt:AddLine(format("Attendance %d%% (%d of the last %d raids)", pct, a, n), 0.7, 0.7, 0.7) end
@@ -1253,7 +1254,7 @@ local function RollRowTooltip(self, tt, vp)
         tt:AddLine("Did not roll", 0.7, 0.7, 0.7)
     end
     local votes = tonumber(row.votes) or 0
-    if votes > 0 then
+    if votes > 0 and IsCouncil() then   -- Addendum G §42: votes and voter names are for the council
         local names = {}
         for i, v in ipairs(type(row.voters) == "table" and row.voters or {}) do names[i] = ShortName(v) end
         local m = Color("main")
@@ -1485,7 +1486,7 @@ local function SetRowMode(r, mode)
     r.badge:SetShown(not more)
     r.status:SetShown(mode == "normal")
     r.tag:SetShown(roll)
-    r.votes:SetShown(roll)
+    r.votes:SetShown(roll and IsCouncil())
     if not roll then
         r.voteBtn:Hide()
         r.canVote = nil

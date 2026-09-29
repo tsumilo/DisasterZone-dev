@@ -812,6 +812,25 @@ end
 -- filter = { player = key, includeVoid = bool, since = ts, excludeDungeon = bool, dungeonOnly = bool }.
 -- Newest first. Returned tables are the stored entries: treat them as read-only. Voided ones have
 -- vd = true; 5-man dungeon loot has dg = true.
+-- The award log as the viewer may see it: all of it for the guild council (and demo mode); for council of one raid
+-- only (its leader or picks, Addendum E), the awards of that raid (its raid session, else since I joined the raid).
+function Ledger:GetVisibleEntries(filter)
+    local all = self:GetEntries(filter)
+    local Guild = ns.Guild
+    local me = Util.PlayerKey()
+    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
+    if demo or not Guild or (me and Guild.IsGuildCouncil and Guild:IsGuildCouncil(me)) then return all end
+    local GR = ns.GroupRules
+    local s = GR and GR.GetSession and GR:GetSession()
+    local since = s and s.at or (Guild.GetRaidSince and Guild:GetRaidSince())
+    if not since then return {} end
+    local out = {}
+    for _, e in ipairs(all) do
+        if (s and e.rid == s.id) or (tonumber(e.ts) or 0) >= since then out[#out + 1] = e end
+    end
+    return out
+end
+
 function Ledger:GetEntries(filter)
     filter = type(filter) == "table" and filter or {}
     local player = filter.player and Util.NormalizeName(filter.player)

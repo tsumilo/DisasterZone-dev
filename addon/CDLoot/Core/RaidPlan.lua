@@ -1,7 +1,7 @@
 -- CDLoot: Core/RaidPlan.lua
 -- Raid planning (Addendum J §54-§57): teams, raid events (one-off or weekly), sign-ups and group layouts.
 --
--- Organizers (the GM and the guild council) write teams (T), weekly series (S) and events (E: a one-off raid, or an
+-- Organizers (the GM and the raid leaders, §62) write teams (T), weekly series (S) and events (E: a one-off raid, or an
 -- override of one occurrence of a series). Every character writes only its own sign-ups (U). Everything is cached by
 -- every guild member and kept per guild in db.raidplan[guildKey].
 --
