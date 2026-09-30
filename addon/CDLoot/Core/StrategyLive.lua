@@ -7,7 +7,9 @@
 --   * auto-marking (the raid leader's client only, setting + per strategy): the raid marks drawn as badges on the
 --     board's portraits go on the matching mobs as their nameplates appear; the plan wins over other marks, per mob;
 --   * tracked tables (block.tr), followed from each client's own combat log:
---       rot    interrupt rotation: whose turn, who used theirs (hit or miss), the target casting
+--       rot    interrupt rotation: the designated kickers in order, backups (block.bk rows) when a designated
+--              kicker's interrupt won't be ready for the boss' next cast (its rhythm is learnt from its casts);
+--              who used theirs (hit or miss), the target casting
 --       md/bl  once per pull: Misdirection, Bloodlust / Heroism (done or not; Bloodlust's "When" countdown)
 --       pi/iv  a cooldown on a target: Power Infusion, Innervate (ready / on cooldown)
 --       curse  keep a curse up: the curse named in each row's target cell, on that row's boss
@@ -197,7 +199,9 @@ local function RowInfo(k, row, a)
 end
 
 local function BuildTracker(bossRef, k, a)
-    local tr = { id = k.id, name = k.n, kind = k.tr, icon = k.i, rows = {}, order = {}, cur = 1 }
+    local tr = { id = k.id, name = k.n, kind = k.tr, icon = k.i, rows = {}, order = {}, backups = {}, cur = 1 }
+    local bk = {}
+    for _, row in ipairs(k.bk or {}) do bk[row] = true end
     for row = 1, k.r do
         local r = RowInfo(k, row, a)
         r.npc = r.target and NpcOfIcon(bossRef, r.target.i) or nil
@@ -209,7 +213,10 @@ local function BuildTracker(bossRef, k, a)
             end
         end
         tr.rows[#tr.rows + 1] = r
-        if r.player then tr.order[#tr.order + 1] = r end
+        r.backup = (k.tr == "rot" and bk[row]) or nil
+        if r.player then
+            if r.backup then tr.backups[#tr.backups + 1] = r else tr.order[#tr.order + 1] = r end
+        end
     end
     -- the rotation's target: the first row's boss
     for _, r in ipairs(tr.rows) do
@@ -282,9 +289,52 @@ function Live:MySlots()
     return S():GetPlayerSlots(cur.s, cur.a, Me())
 end
 
--- Whose turn is it in a rotation: the row, or nil.
+-- Seconds until a kicker's interrupt is ready again (0 = ready).
+local function CdLeft(r, now)
+    if not r.last or not r.cd then return 0 end
+    return max(0, r.last + r.cd - (now or GetTime()))
+end
+Live.CdLeft = CdLeft
+
+-- The rotation target's next cast, in seconds from now: 0 while it casts, nil while its rhythm isn't known (fewer
+-- than two casts seen). The rhythm is the average of its last gaps between casts.
+function Live:NextCastIn(tr)
+    if tr.castStart then return 0 end
+    local t = tr.casts
+    if not t or #t < 2 then return nil end
+    local n = min(#t - 1, 4)
+    local sum = 0
+    for i = #t - n + 1, #t do sum = sum + (t[i] - t[i - 1]) end
+    return max(0, t[#t] + sum / n - GetTime())
+end
+
+-- Who takes the target's next cast: the designated kicker whose turn it is, else the next designated kicker whose
+-- interrupt is ready by then, else the first backup ready by then, else whoever is ready soonest.
+-- Returns the row and "main" | "backup" | "late" (nobody will be ready in time).
+function Live:Pick(tr)
+    local now = GetTime()
+    local within = self:NextCastIn(tr) or 0
+    local n = #tr.order
+    for step = 0, n - 1 do
+        local r = tr.order[((tr.cur - 1 + step) % n) + 1]
+        if not r.dead and CdLeft(r, now) <= within then return r, "main" end
+    end
+    for _, r in ipairs(tr.backups) do
+        if not r.dead and CdLeft(r, now) <= within then return r, "backup" end
+    end
+    local best
+    for _, list in ipairs({ tr.order, tr.backups }) do
+        for _, r in ipairs(list) do
+            if not r.dead and (not best or CdLeft(r, now) < CdLeft(best, now)) then best = r end
+        end
+    end
+    return best, "late"
+end
+
+-- Whose kick is next in a rotation (during a cast: the one it was given to). Returns the row and how (see Pick).
 function Live:Turn(tr)
-    return tr.order[tr.cur]
+    if tr.castStart and tr.pick then return tr.pick, tr.pickHow end
+    return self:Pick(tr)
 end
 
 -- Seconds left of a row's cooldown (0 = ready), for pi / iv / md / bl.
@@ -488,20 +538,22 @@ local function IndexIn(order, key)
     return nil
 end
 
--- The rotation moves past `i` (the player who just used theirs, or whose turn timed out).
+-- The rotation moves past designated kicker `i` (who just used theirs, or whose turn timed out).
 local function Advance(tr, i)
-    tr.cur = (i % #tr.order) + 1
-    tr.castStart, tr.flash = nil, nil
+    if #tr.order > 0 then tr.cur = (i % #tr.order) + 1 end
+    tr.castStart, tr.flash, tr.pick, tr.pickHow = nil, nil, nil, nil
 end
 
+-- The kicker a cast was given to didn't kick in time: a designated kicker loses the turn.
 local function TurnTimeout(tr, gen, castId)
     Util.After(TURN_TIMEOUT, function()
         if generation ~= gen or tr.castId ~= castId or not tr.castStart then return end
-        local r = tr.order[tr.cur]
+        local r = tr.pick
         if r then
             r.skipped = GetTime()
             Debug("rotation %s: %s missed the turn", tr.name, tostring(r.player))
-            Advance(tr, tr.cur)
+            local i = IndexIn(tr.order, r.player)
+            if i then Advance(tr, i) else tr.castStart, tr.flash, tr.pick, tr.pickHow = nil, nil, nil, nil end
             Changed()
         end
     end)
@@ -535,13 +587,24 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
         if who and SpellIn("rot", spellName) then
             for _, tr in ipairs(Tracked("rot")) do
                 local i = IndexIn(tr.order, who)
-                if i and (not tr.npc or not dstNpc or dstNpc == tr.npc or cur.practice) then
-                    local r = tr.order[i]
+                local r = i and tr.order[i]
+                if not r then
+                    for _, b in ipairs(tr.backups) do
+                        if b.player == who then r = b end
+                    end
+                end
+                if r and (not tr.npc or not dstNpc or dstNpc == tr.npc or cur.practice) then
                     if not (r.used and now - r.used < MISS_DEDUPE) then
                         r.used, r.cd, r.last = now, SpellIn("rot", spellName), now
                         r.missed = sub == "SPELL_MISSED" or nil
-                        Debug("rotation %s: %s used %s%s", tr.name, who, spellName, r.missed and " (missed)" or "")
-                        Advance(tr, i)
+                        Debug("rotation %s: %s used %s%s%s", tr.name, who, spellName, r.missed and " (missed)" or "",
+                            r.backup and " (backup)" or "")
+                        if i then
+                            Advance(tr, i)
+                        else
+                            -- a backup's kick: the designated kicker keeps the turn for when they're ready
+                            tr.castStart, tr.flash, tr.pick, tr.pickHow = nil, nil, nil, nil
+                        end
                         SkipDead(tr)
                         changed = true
                     end
@@ -569,13 +632,18 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
         local npc = NpcOf(srcGUID)
         if npc then
             for _, tr in ipairs(Tracked("rot")) do
-                if tr.npc == npc and #tr.order > 0 then
+                if tr.npc == npc and #tr.order + #tr.backups > 0 then
                     SkipDead(tr)
+                    tr.casts = tr.casts or {}
+                    tr.casts[#tr.casts + 1] = now
+                    if #tr.casts > 6 then table.remove(tr.casts, 1) end
                     tr.castStart, tr.castName = now, spellName
                     tr.castId = (tr.castId or 0) + 1
-                    local r = tr.order[tr.cur]
+                    local r, how = Live:Pick(tr)
+                    tr.pick, tr.pickHow = r, how
                     tr.flash = r and r.player == Me() or nil
-                    Debug("rotation %s: target casts %s, turn: %s", tr.name, tostring(spellName), tostring(r and r.player))
+                    Debug("rotation %s: target casts %s, kick: %s (%s)", tr.name, tostring(spellName),
+                        tostring(r and r.player), tostring(how))
                     TurnTimeout(tr, generation, tr.castId)
                     changed = true
                 end
@@ -585,7 +653,7 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
         local npc = NpcOf(sub == "SPELL_INTERRUPT" and dstGUID or srcGUID)
         for _, tr in ipairs(Tracked("rot")) do
             if npc and tr.npc == npc and tr.castStart then
-                tr.castStart, tr.flash = nil, nil
+                tr.castStart, tr.flash, tr.pick, tr.pickHow = nil, nil, nil, nil
                 changed = true
             end
         end
@@ -609,8 +677,10 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
         local key = KeyOf(dstGUID, dstName)
         if key then
             for _, tr in ipairs(Tracked("rot")) do
-                for _, r in ipairs(tr.order) do
-                    if r.player == key then r.dead = true; changed = true end
+                for _, list in ipairs({ tr.order, tr.backups }) do
+                    for _, r in ipairs(list) do
+                        if r.player == key then r.dead = true; changed = true end
+                    end
                 end
                 SkipDead(tr)
             end

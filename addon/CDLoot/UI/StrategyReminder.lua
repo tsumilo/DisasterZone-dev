@@ -96,15 +96,29 @@ local function RowText(tr, r)
     return r.label or tr.name
 end
 
--- The rotation's chips: { text, current, me, dead }.
-local function Chips(tr)
+-- The rotation's chips: the designated kickers, then the backups. { text, current, me, dead, backup, cd }.
+local function Chips(tr, pick)
     local out = {}
-    for i, r in ipairs(tr.order) do
-        local text = r.player == Me() and green("You") or ClassName(r.player)
-        if r.dead then text = grey(ns.Util.ShortName(r.player)) end
-        out[#out + 1] = { text = text, current = i == tr.cur, me = r.player == Me(), dead = r.dead }
+    local now = GetTime()
+    for _, list in ipairs({ tr.order, tr.backups or {} }) do
+        for _, r in ipairs(list) do
+            local text = r.player == Me() and green("You") or ClassName(r.player)
+            if r.dead then text = grey(ns.Util.ShortName(r.player)) end
+            out[#out + 1] = { text = text, current = r == pick, me = r.player == Me(), dead = r.dead,
+                              backup = r.backup, cd = Live().CdLeft(r, now) }
+        end
     end
     return out
+end
+
+-- Am I in this rotation (designated or backup)?
+local function InRotation(tr, me)
+    for _, list in ipairs({ tr.order, tr.backups or {} }) do
+        for _, r in ipairs(list) do
+            if r.player == me then return r end
+        end
+    end
+    return nil
 end
 
 -- Short job text from a slot: the row's job (and the table as the grey part).
@@ -149,24 +163,25 @@ function Reminder:Items()
     -- my tracked rows
     for _, tr in ipairs(c.trackers) do
         if tr.kind == "rot" then
-            for i, r in ipairs(tr.order) do
-                if r.player == me then
-                    mineIn[tr.id] = true
-                    local myTurn = i == tr.cur
-                    local status, alert
-                    if myTurn and tr.flash and tr.castStart then
-                        status, alert = red("KICK NOW"), true
-                        flash = "KICK NOW" .. (tr.castName and (": " .. tr.castName) or "")
-                    elseif myTurn then
-                        status = green("your turn")
-                    else
-                        local turn = tr.order[tr.cur]
-                        status = grey((turn and ns.Util.ShortName(turn.player) or "?") .. "'s turn")
-                    end
-                    items[#items + 1] = { kind = "rot", icon = tr.icon or "i:Ability_Kick", text = tr.name,
-                                          status = status, alert = alert, chips = Chips(tr), tr = tr, myTurn = myTurn }
-                    break
+            local mineRow = InRotation(tr, me)
+            if mineRow then
+                mineIn[tr.id] = true
+                local pick, how = Live():Turn(tr)
+                local myTurn = pick == mineRow
+                local status, alert
+                if myTurn and tr.flash and tr.castStart then
+                    status, alert = red("KICK NOW"), true
+                    flash = "KICK NOW" .. (tr.castName and (": " .. tr.castName) or "")
+                elseif myTurn then
+                    status = how == "backup" and gold("backup: you're next") or green("your turn")
+                elseif Live().CdLeft(mineRow) > 0 then
+                    status = grey("ready in " .. Clock(Live().CdLeft(mineRow)))
+                elseif pick then
+                    status = grey(ns.Util.ShortName(pick.player) .. "'s turn" .. (how == "backup" and " (backup)" or ""))
                 end
+                items[#items + 1] = { kind = "rot", icon = tr.icon or "i:Ability_Kick", text = tr.name,
+                                      status = status, alert = alert, chips = Chips(tr, pick), tr = tr, myTurn = myTurn,
+                                      backupTurn = myTurn and how == "backup" }
             end
         else
             for _, r in ipairs(tr.rows) do
@@ -195,10 +210,12 @@ function Reminder:Items()
                     first = false
                 end
                 if tr.kind == "rot" then
-                    local turn = tr.order[tr.cur]
+                    local pick, how = Live():Turn(tr)
+                    local status = pick and (ns.Util.ShortName(pick.player) .. "'s turn") or ""
+                    if how == "backup" then status = gold(status .. " (backup)") elseif how == "late" then
+                        status = red(status .. " (not ready)") else status = grey(status) end
                     items[#items + 1] = { kind = "rot", icon = tr.icon or "i:Ability_Kick", text = tr.name,
-                                          status = grey(turn and (ns.Util.ShortName(turn.player) .. "'s turn") or ""),
-                                          chips = Chips(tr), tr = tr, overview = true }
+                                          status = status, chips = Chips(tr, pick), tr = tr, overview = true }
                 else
                     local parts, alert = {}, false
                     for _, r in ipairs(tr.rows) do
@@ -236,14 +253,18 @@ function Reminder:Lines()
         elseif it.kind == "header" then
             lines[#lines + 1] = it.text
         elseif it.kind == "rot" then
-            local chips = {}
+            local mains, backs = {}, {}
             for _, ch in ipairs(it.chips) do
                 local t = ch.me and "YOU" or ch.text
                 if ch.dead then t = t .. " (dead)" end
-                chips[#chips + 1] = ch.current and ("[" .. t .. "]") or t
+                t = ch.current and ("[" .. t .. "]") or t
+                if ch.backup then backs[#backs + 1] = t else mains[#mains + 1] = t end
             end
-            lines[#lines + 1] = (it.overview and "  " or "") .. it.text .. ": " .. tconcat(chips, " > ")
-            if it.myTurn and not it.alert then lines[#lines + 1] = "  Your kick is next" end
+            lines[#lines + 1] = (it.overview and "  " or "") .. it.text .. ": " .. tconcat(mains, " > ")
+                .. (#backs > 0 and (" | backup: " .. tconcat(backs, ", ")) or "")
+            if it.myTurn and not it.alert then
+                lines[#lines + 1] = it.backupTurn and "  Backup: your kick is next" or "  Your kick is next"
+            end
         else
             lines[#lines + 1] = (it.overview and ("  " .. it.text .. ": " .. (it.detail or "") .. it.status))
                 or (it.text .. ": " .. it.status)
@@ -483,7 +504,10 @@ local function Layout(f, d)
                 local x = 22
                 for i, c in ipairs(it.chips) do
                     local ch = Chip(r, i)
-                    ch.fs:SetText(c.text)
+                    local label = c.text
+                    if c.cd and c.cd > 0 and not c.dead then label = label .. grey(" " .. floor(c.cd + 0.5)) end
+                    if c.backup and i > 1 and not it.chips[i - 1].backup then x = x + 6 end
+                    ch.fs:SetText(label)
                     local w = (ch.fs:GetStringWidth() or 30) + 12
                     if x + w > inner then break end
                     ch:SetWidth(w)
@@ -491,6 +515,8 @@ local function Layout(f, d)
                     ch:SetPoint("TOPLEFT", r, "TOPLEFT", x, -(ROW_H + 1))
                     if c.current then
                         ch.bg:SetColorTexture(1, 0.82, 0, it.alert and 0.55 or 0.3)
+                    elseif c.backup then
+                        ch.bg:SetColorTexture(0.6, 0.45, 1, 0.14)
                     else
                         ch.bg:SetColorTexture(1, 1, 1, 0.06)
                     end

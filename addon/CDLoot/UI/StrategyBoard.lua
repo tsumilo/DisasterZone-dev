@@ -389,7 +389,12 @@ local function createWindow()
         end,
         onCellDrop = function(ref)
             if ghost then ghost:Hide() end
-            if win.canvas.frame:IsMouseOver() then win.canvas:DropRefAtCursor(ref) end
+            local _, target = win.blocks:RefUnderCursor()
+            if target then
+                Board:TargetShowsSlot(target, ref)
+            elseif win.canvas.frame:IsMouseOver() then
+                win.canvas:DropRefAtCursor(ref)
+            end
         end,
     })
     f.blocks.width = WIN_W - MAP_W - 30
@@ -1030,6 +1035,21 @@ function Board:LinkTooltip(ref, tt)
 end
 
 function Board:SlotTooltip(ref, tt) return self:LinkTooltip(ref, tt) end
+
+-- A player cell dropped on a Target cell: the target also shows that slot's player (e.g. a misdirect row's
+-- "Attumen -> <tank 1>"); its icon and label stay.
+function Board:TargetShowsSlot(t, ref)
+    if st.mode ~= "edit" then return end
+    local k, row, ci = t.k, t.row, t.col
+    local cur = k.d and k.d[row] and k.d[row][ci]
+    local cell = {}
+    for key, v in pairs(type(cur) == "table" and cur or {}) do cell[key] = v end
+    cell.s = ref
+    k.d = k.d or {}
+    k.d[row] = k.d[row] or {}
+    k.d[row][ci] = cell
+    self:MarkDirty(true)
+end
 
 -- A drawing dropped on a Target cell: the cell shows its icon and name, and the drawing (with its group) links to
 -- that row's player, so the map shows who handles it (e.g. Attumen -> the tank of that row).

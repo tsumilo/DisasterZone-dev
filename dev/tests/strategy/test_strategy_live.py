@@ -49,7 +49,7 @@ ASSIGN = {
 }
 
 
-def raid(link=True, start_session=True):
+def raid(link=True, start_session=True, backups=True):
     w = World()
     c = {}
     for n, cls, rank, _ in ROSTER:
@@ -63,6 +63,9 @@ def raid(link=True, start_session=True):
     bob = c["Bob"]
     # the Council starter, saved
     bob.eval("ns.StrategyBoard:NewFromStarter(...)", BOSS)
+    if not backups:
+        # every kicker designated (the Council starter makes Kick 3 a backup)
+        bob.eval("ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi').bk = nil")
     bob.eval("ns.StrategyBoard:Save()")
     w.tick(2)
     sid = strategies(bob, BOSS)[0]["id"]
@@ -198,7 +201,7 @@ def reminder_near_the_boss_shows_my_jobs():
     see(w, c["Rog"], "Malande", npcs=npcs)
     d = lines(c["Rog"])
     assert d["title"].startswith("The Illidari Council") and "next" in d["title"], d
-    assert "Malande interrupts: [YOU] > Sham > Tom" in d["lines"], d["lines"]
+    assert "Malande interrupts: [YOU] > Sham | backup: Tom" in d["lines"], d["lines"]
     assert "  Your kick is next" in d["lines"], d["lines"]
     assert c["Rog"].eval("local f = ns.StrategyReminder:GetFrame(); return f ~= nil and f:IsShown()") is True
     # a tank sees their tank job (a plain table)
@@ -223,7 +226,7 @@ def reminder_near_the_boss_shows_my_jobs():
 
 @case
 def interrupt_rotation_follows_the_combat_log():
-    w, c, occ, sid, npcs = raid()
+    w, c, occ, sid, npcs = raid(backups=False)
     for n in ("Rog", "Sham", "Tom", "Bob"):
         see(w, c[n], "Malande", npcs=npcs)
     engage(w, c)
@@ -263,6 +266,146 @@ def interrupt_rotation_follows_the_combat_log():
     cleu(w, "UNIT_DIED", None, tom)
     assert turn(rog) == K("Rog")
     assert any("Tom (dead)" in x for x in lines(rog)["lines"]), lines(rog)
+    w.assert_no_errors()
+
+
+def items(cl):
+    d = cl.eval_py("return ns.StrategyReminder:Items()")
+    its = list(d["items"].values()) if isinstance(d["items"], dict) else d["items"]
+    for it in its:
+        for k in ("text", "status"):
+            if it.get(k):
+                it[k] = strip_codes(it[k])
+    return its
+
+
+def rot_item(cl, overview=False):
+    for it in items(cl):
+        if it["kind"] == "rot" and bool(it.get("overview")) == overview:
+            return it
+    return None
+
+
+def rot_state(cl):
+    return cl.eval_py("local c = ns.StrategyLive:GetCurrent(); for _, t in ipairs(c.trackers) do if t.kind == 'rot' then "
+                      "local r, how = ns.StrategyLive:Turn(t); return { cur = t.order[t.cur] and t.order[t.cur].player, "
+                      "pick = r and r.player, how = how, nextIn = ns.StrategyLive:NextCastIn(t) } end end")
+
+
+@case
+def backup_kicker_when_the_designated_ones_wont_be_ready():
+    """Rog (Kick, 10 s) and Sham (Earth Shock, 6 s) are the designated kickers, Tom (Pummel, 10 s) the backup.
+    Malande casts every 3 seconds: faster than the two can keep up, so the backup is told before the cast."""
+    w, c, occ, sid, npcs = raid()
+    for n in ("Rog", "Sham", "Tom", "Bob"):
+        see(w, c[n], "Malande", npcs=npcs)
+    engage(w, c)
+    mal = npcs["Malande"]
+    rog, sham, tom, bob = c["Rog"], c["Sham"], c["Tom"], c["Bob"]
+
+    # before anything: Rog's turn; Tom sits out as the backup
+    assert rot_state(tom)["pick"] == K("Rog") and rot_state(tom)["how"] == "main"
+    assert rot_item(rog)["status"] == "your turn"
+    assert "Malande interrupts: [Rog] > Sham | backup: YOU" in lines(tom)["lines"], lines(tom)["lines"]
+    assert rot_item(tom)["status"] == "Rog's turn"
+
+    # cast 1: Rog's; cast 2 (3 s later): Sham's
+    cleu(w, "SPELL_CAST_START", mal, None, 25807, "Circle of Healing")
+    assert lines(rog)["flash"] == "KICK NOW: Circle of Healing" and lines(tom).get("flash") is None
+    cleu(w, "SPELL_CAST_SUCCESS", rog, mal, 1769, "Kick")
+    w.tick(2.9, step=0.1)
+    cleu(w, "SPELL_CAST_START", mal, None, 41472, "Divine Wrath")
+    assert lines(sham)["flash"] == "KICK NOW: Divine Wrath" and lines(rog).get("flash") is None
+    cleu(w, "SPELL_CAST_SUCCESS", sham, mal, 10414, "Earth Shock")
+    assert rot_state(bob)["cur"] == K("Rog")
+
+    # half a second later: Malande's rhythm is known (every ~3 s); Rog's Kick is ready in ~6.5 s and Sham's Earth
+    # Shock in ~5.5 s, neither in time for the next cast -> the backup is told now, before the cast
+    w.tick(0.5, step=0.1)
+    s = rot_state(tom)
+    assert 2 <= s["nextIn"] <= 3 and s["pick"] == K("Tom") and s["how"] == "backup", s
+    assert rot_item(tom)["status"] == "backup: you're next", rot_item(tom)
+    assert "  Backup: your kick is next" in lines(tom)["lines"], lines(tom)["lines"]
+    assert rot_item(rog)["status"].startswith("ready in "), rot_item(rog)
+    chips = {strip_codes(ch["text"]): ch for ch in (rot_item(rog)["chips"].values() if isinstance(rot_item(rog)["chips"], dict) else rot_item(rog)["chips"])}
+    assert chips["You"]["cd"] > 5 and chips["Sham"]["cd"] > 4 and chips["Tom"]["current"] is True, chips
+    # the raid leader's overview says the same
+    assert rot_item(bob, overview=True)["status"] == "Tom's turn (backup)", rot_item(bob, overview=True)
+
+    # cast 3: the backup's panel flashes, not Rog's; Tom kicks -> Rog keeps his turn for when he's ready
+    w.tick(2.4, step=0.1)
+    cleu(w, "SPELL_CAST_START", mal, None, 25807, "Circle of Healing")
+    assert lines(tom)["flash"] == "KICK NOW: Circle of Healing", lines(tom)
+    assert lines(rog).get("flash") is None and lines(sham).get("flash") is None
+    cleu(w, "SPELL_CAST_SUCCESS", tom, mal, 6554, "Pummel")
+    assert rot_state(bob)["cur"] == K("Rog")
+
+    # cast 4 (3 s on): Rog's Kick still ~0.8 s away, Sham's Earth Shock is back -> Sham (designated before backup)
+    w.tick(3.0, step=0.1)
+    cleu(w, "SPELL_CAST_START", mal, None, 41472, "Divine Wrath")
+    assert lines(sham)["flash"] == "KICK NOW: Divine Wrath" and lines(rog).get("flash") is None, (lines(sham), lines(rog))
+    cleu(w, "SPELL_CAST_SUCCESS", sham, mal, 10414, "Earth Shock")
+    # right after: Rog's Kick is still ~0.5 s from ready, but the next cast is ~2.5 s away -> it's Rog's turn (the
+    # look-ahead to the next cast; "ready right now" alone would call nobody ready)
+    w.tick(0.3, step=0.1)
+    s = rot_state(rog)
+    assert s["pick"] == K("Rog") and s["how"] == "main", s
+    assert rot_item(rog)["status"] == "your turn", rot_item(rog)
+
+    # cast 5: Rog's Kick is back -> Rog again
+    w.tick(3.0, step=0.1)
+    cleu(w, "SPELL_CAST_START", mal, None, 25807, "Circle of Healing")
+    assert lines(rog)["flash"] == "KICK NOW: Circle of Healing", lines(rog)
+    cleu(w, "SPELL_CAST_SUCCESS", rog, mal, 1769, "Kick")
+
+    # Sham dies and Tom's Pummel is still cooling down: nobody will be ready for the next cast -> the leader sees who
+    # is back soonest, flagged as not ready
+    cleu(w, "UNIT_DIED", None, sham)
+    w.tick(0.3, step=0.1)
+    s = rot_state(bob)
+    assert s["pick"] == K("Tom") and s["how"] == "late", s
+    assert rot_item(bob, overview=True)["status"] == "Tom's turn (not ready)", rot_item(bob, overview=True)
+    w.assert_no_errors()
+
+
+@case
+def backup_rows_and_misdirect_targets_in_the_editor():
+    w, c, occ, sid, npcs = raid()
+    bob = c["Bob"]
+    bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
+    B = "_G.CDLootStrategyBoard.blocks"
+
+    def mi():
+        return bob.eval_py("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); return { bk = k.bk, r = k.r }")
+    assert mi()["bk"] in ([3], {"1": 3}, {1: 3}), mi()
+    # the # column shows B on the backup row
+    assert bob.eval("for _, b in ipairs(%s.blocks) do if b.blockId == 'mi' then for _, cl in ipairs(b.cells) do "
+                    "if cl:IsShown() and cl.fs:GetText() and cl.fs:GetText():find('B') then return true end end end end" % B) is True
+    # right-click row 2: Backup kicker on
+    bob.eval("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); %s:RowMenu(UIParent, k, 2)" % B)
+    bob.eval("__MOCK.menu_select('Backup kicker')")
+    bk = mi()["bk"]
+    assert sorted(bk.values() if isinstance(bk, dict) else bk) == [2, 3], bk
+    # inserting a row above moves the backup flags with their rows
+    bob.eval("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); %s:InsertRow(k, 1)" % B)
+    bk = mi()["bk"]
+    assert sorted(bk.values() if isinstance(bk, dict) else bk) == [3, 4] and mi()["r"] == 4, mi()
+    # it survives validation / saving
+    assert bob.eval("local s = ns.Strategy:Validate(ns.StrategyBoard:GetState().strat); "
+                    "for _, p in ipairs(s.p) do for _, k in ipairs(p.k) do if k.id == 'mi' then return #k.bk end end end") == 2
+    # a bad bk (a row the table doesn't have) is refused
+    assert bob.eval("local s = ns.Util.CopyTable(ns.StrategyBoard:GetState().strat); "
+                    "for _, p in ipairs(s.p) do for _, k in ipairs(p.k) do if k.id == 'mi' then k.bk = { 9 } end end end; "
+                    "return (ns.Strategy:Validate(s)) == nil") is True
+    bob.eval("ns.StrategyBoard:CancelChanges()")
+
+    # misdirects: drag a tank's player cell onto a Target cell -> "Attumen -> tank"
+    bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
+    bob.eval("for _, b in ipairs(%s.blocks) do for _, cl in ipairs(b.cells) do if cl.targetInfo and cl.targetInfo.k.id == 'md' "
+             "and cl.targetInfo.row == 2 then cl.IsMouseOver = function() return true end end end end" % B)
+    bob.eval("%s.opts.onCellDrop('tk.2.1')" % B)
+    cell = bob.eval_py("return ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'md').d[2][3]")
+    assert cell["s"] == "tk.2.1" and cell["i"].startswith("boss:") and cell["l"] == "Zerevor ->", cell
     w.assert_no_errors()
 
 
@@ -330,7 +473,7 @@ def the_end_of_the_encounter_fades_the_panel():
     end_encounter(w, c, False)
     assert "wipe" in lines(rog)["title"]
     engage(w, c)
-    assert "Malande interrupts: [YOU] > Sham > Tom" in lines(rog)["lines"]
+    assert "Malande interrupts: [YOU] > Sham | backup: Tom" in lines(rog)["lines"], lines(rog)["lines"]
     w.assert_no_errors()
 
 
@@ -427,7 +570,7 @@ def practice_solo_at_a_target_dummy():
     # the next cast is a demo player's turn, and they kick it themselves: the turn moves on
     assert turn() == 2
     w.tick(7.5, step=0.25)
-    assert turn() == 3, turn()
+    assert turn() == 1, turn()        # two designated kickers (me and a demo player) and a demo backup
     # marking what I target: the plan's marks in board order (Skull, Cross, ...)
     bob.target_npc(dummy)
     w.tick(0.2)

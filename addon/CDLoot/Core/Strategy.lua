@@ -350,6 +350,22 @@ local function CleanBlock(k)
         if not TRACK_KINDS[k.tr] then return nil end
         out.tr = k.tr
     end
+    -- the backup kickers' rows of an interrupt rotation
+    if k.bk ~= nil then
+        if type(k.bk) ~= "table" then return nil end
+        local seen, list = {}, {}
+        for i = 1, MAX_ROWS + 1 do
+            local row = k.bk[i]
+            if row == nil then break end
+            if i > MAX_ROWS or not IsInt(row, 1, out.r) then return nil end
+            if not seen[row] then
+                seen[row] = true
+                list[#list + 1] = row
+            end
+        end
+        table.sort(list)
+        if #list > 0 then out.bk = list end
+    end
     out.c = {}
     for i = 1, MAX_COLS + 1 do
         local col = k.c[i]

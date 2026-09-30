@@ -216,6 +216,26 @@ function Panel:Remap(k, fn)
     end)
 end
 
+-- The backup rows of an interrupt rotation (block.bk) follow their rows: fn(row) -> new row or nil.
+local function RemapBackups(k, fn)
+    if not k.bk then return end
+    local out = {}
+    for _, row in ipairs(k.bk) do
+        local n = fn(row)
+        if n then out[#out + 1] = n end
+    end
+    table.sort(out)
+    k.bk = #out > 0 and out or nil
+end
+
+local function IsBackup(k, row)
+    for _, r in ipairs(k.bk or {}) do
+        if r == row then return true end
+    end
+    return false
+end
+BlocksUI.IsBackup = IsBackup
+
 -- Row operations (edit mode): insert before / after, move, delete.
 function Panel:InsertRow(k, at)
     if k.r >= S().MAX_ROWS then
@@ -227,6 +247,7 @@ function Panel:InsertRow(k, at)
     k.d = next(d) and d or nil
     k.r = k.r + 1
     self:Remap(k, function(r, c) return r >= at and r + 1 or r, c end)
+    RemapBackups(k, function(r) return r >= at and r + 1 or r end)
     self:Changed()
 end
 
@@ -242,6 +263,10 @@ function Panel:DeleteRow(k, row)
         if r == row then return nil end
         return r > row and r - 1 or r, c
     end)
+    RemapBackups(k, function(r)
+        if r == row then return nil end
+        return r > row and r - 1 or r
+    end)
     self:Changed()
 end
 
@@ -252,12 +277,29 @@ function Panel:SwapRows(k, a, b)
         if r == a then return b, c elseif r == b then return a, c end
         return r, c
     end)
+    RemapBackups(k, function(r)
+        if r == a then return b elseif r == b then return a end
+        return r
+    end)
     self:Changed()
 end
 
 function Panel:RowMenu(owner, k, row)
     UI():ContextMenu(owner, function(root)
         root:CreateTitle(k.n .. " · row " .. row)
+        if k.tr == "rot" then
+            -- a backup kicker only kicks when no designated kicker will be ready for the boss' next cast
+            root:CreateCheckbox("Backup kicker", function() return IsBackup(k, row) end, function()
+                if IsBackup(k, row) then
+                    RemapBackups(k, function(r) return r ~= row and r or nil end)
+                else
+                    k.bk = k.bk or {}
+                    k.bk[#k.bk + 1] = row
+                    table.sort(k.bk)
+                end
+                self:Changed()
+            end)
+        end
         root:CreateButton("Insert a row above", function() self:InsertRow(k, row) end)
         root:CreateButton("Insert a row below", function() self:InsertRow(k, row + 1) end)
         if row > 1 then root:CreateButton("Move up", function() self:SwapRows(k, row, row - 1) end) end
@@ -716,7 +758,13 @@ function Panel:Render()
                 local v = k.d and k.d[row] and k.d[row][ci]
                 if mode == "edit" then c.rowMenu = function(btn) self:RowMenu(btn, k, row) end end
                 if col.t == "o" then
-                    c.fs:SetText(grey(row))
+                    if k.tr == "rot" and IsBackup(k, row) then
+                        c.fs:SetText("|cffb08cffB|r")
+                        c.tip = { "Backup kicker", "Kicks only when no designated kicker's interrupt will be ready for the "
+                            .. "boss' next cast." .. (mode == "edit" and " Right-click the row to change." or "") }
+                    else
+                        c.fs:SetText(grey(row))
+                    end
                 elseif col.t == "x" then
                     c.fs:SetText(v or (mode == "edit" and grey("click to type") or ""))
                     if mode == "edit" then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end

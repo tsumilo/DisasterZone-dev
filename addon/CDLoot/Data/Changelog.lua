@@ -31,6 +31,8 @@ ns.CHANGELOG = {
           { heading = "In the fight", lines = {
               "Near a planned boss, a small panel shows your jobs from the raid's strategy.",
               "Interrupt rotations: whose kick it is, KICK NOW when the boss casts on your turn.",
+              "Backup kickers (right-click a row): called when a kicker won't be ready in time.",
+              "Drag a tank's cell onto a misdirect Target cell to set who it goes to.",
               "Misdirects, Bloodlust, Power Infusion, Innervates and curses tracked live.",
               "The raid leader's CDLoot puts the plan's raid marks on the mobs (nameplates).",
               "Practice (board button or /cdl strat practice): try it all alone at a dummy.",
