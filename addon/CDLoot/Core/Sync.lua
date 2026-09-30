@@ -379,6 +379,9 @@ function Sync:SendHello(force)
     -- Addendum J §56: everyone carries the hash of their raid plan data (0.6 clients ignore it).
     local RaidPlan = ns.RaidPlan
     if RaidPlan and RaidPlan.GetDigestHash then msg.pd = RaidPlan:GetDigestHash() end
+    -- Addendum K: the hash of my strategy boards and raid assignments (older clients ignore it).
+    local Strategy = ns.Strategy
+    if Strategy and Strategy.GetDigestHash then msg.sd = Strategy:GetDigestHash() end
     return Send(msg, "GUILD", nil, "ctrl")
 end
 
@@ -649,6 +652,8 @@ local function OnHello(sender, msg, dist)
     MarkSeen(sender, msg.v, msg.c and true or false)
     local RaidPlan = ns.RaidPlan
     if RaidPlan and RaidPlan.OnHelloDigest then RaidPlan:OnHelloDigest(sender, msg.pd) end
+    local Strategy = ns.Strategy
+    if Strategy and Strategy.OnHelloDigest then Strategy:OnHelloDigest(sender, msg.sd) end
     local G = ns.Guild
     if G and G.OnRaidLeadersRevSeen then G:OnRaidLeadersRevSeen(sender, msg.rlr) end
     if msg.c then
