@@ -120,7 +120,7 @@ def author_builds_a_strategy_in_the_board():
     # a zone, then linked to the block's player column from its menu
     bob.eval("local cv = %s.canvas; local e = cv:Add({ t = 'z', s = 'c', x = 300, y = 300, w = 100, h = 100, c = 2 });"
              " cv:Changed(); cv:Select(e); cv:ElementMenu(e)" % W)
-    bob.eval("T_menu_prefix('Assignments · Player')")
+    bob.eval("T_menu_prefix('Column: Player')")
     w.tick(0.2)
     assert bob.eval("return ns.StrategyBoard:GetState().strat.p[1].e[1].ln") == "k1.1"
     # hovering the column lights the zone

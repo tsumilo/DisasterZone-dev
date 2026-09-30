@@ -2,9 +2,11 @@
 -- The map canvas of a strategy page (Addendum K): the background (a built-in instance map, panned and zoomed by the
 -- author, or a blank grid) and the drawn elements (zones, arrows / lines, icons, text, slot tokens). Everything is in
 -- board units (1000 x 666) so a board looks the same at any size.
--- Editing: one tool at a time (select / move, pan the map, circle, rectangle, arrow, line, icon, text, slot token);
--- right-click an element for its menu, the mouse wheel zooms the map. All input goes through the canvas itself, which
--- hit-tests the elements (small ones before zones).
+-- Editing: one tool at a time (select / move, pan the map, circle, rectangle, arrow, line, icon, text). Selection
+-- takes several drawings (Shift-click, a box on empty map) and groups (Ctrl+G) move and link as one. Shift-drag a
+-- drawing onto a table to link it to a job; linked drawings show the assigned players' names. Keyboard (from the
+-- board): Del, Ctrl+C / X / V / D / A / G, arrows. All mouse input goes through the canvas itself, which hit-tests
+-- the drawings (small ones before zones).
 -- Also the shared look of the board: colours, icons (raid marks, roles, classes, spells, items) and the map list.
 local addonName, ns = ...
 
@@ -472,40 +474,49 @@ local Canvas = {}
 Canvas.__index = Canvas
 
 local TOOLS = {
-    { key = "select", label = "Select", tip = "Click an element to select it, drag to move it. Drag the yellow handles to resize (zones, icons, arrow ends). Right-click an element for its options." },
+    { key = "select", label = "Select", tip = "Click to select (Shift adds, drag on empty map for a box). Drag to move, Alt snaps. Shift-drag onto a table cell to link. Right-click for options." },
     { key = "pan", label = "Pan map", tip = "Drag to move the map; the mouse wheel zooms. Set the map first, then draw: drawings stay where they are when the map moves." },
     { key = "circle", label = "Circle", tip = "Drag from the centre outwards to draw a circular zone." },
     { key = "rect", label = "Rectangle", tip = "Drag from one corner to the other to draw a zone." },
     { key = "arrow", label = "Arrow", tip = "Drag from start to end." },
     { key = "line", label = "Line", tip = "Drag from start to end." },
-    { key = "icon", label = "Icon", tip = "Click where the icon goes, then pick it." },
+    { key = "icon", label = "Icon", tip = "Click where the icon goes, then pick it (the boss and its adds are under This boss)." },
     { key = "text", label = "Text", tip = "Click where the text goes, then type it." },
-    { key = "slot", label = "Slot", tip = "Click where it goes, then pick a player slot: the assigned player's name shows there." },
 }
 MapUI.TOOLS = TOOLS
+
+local RM_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 
 local function fontPath()
     local f = GameFontNormal and GameFontNormal.GetFont and GameFontNormal:GetFont()
     return f or "Fonts\\FRIZQT__.TTF"
 end
 
+-- The clipboard (copies of drawings), shared by every board.
+MapUI.clipboard = nil
+
 -- Creates a canvas of `width` pixels (height follows the board's 3:2). opts:
---   editable()         -> bool
---   onChange()         the page was changed (by the canvas)
---   onSelect(el)       selection changed (nil = none)
---   slotText(ref)      -> text shown on a slot token (a player's name, or the slot's label)
---   slotTip(ref, tt)   adds tooltip lines for a token
---   onHover(linkRef)   the mouse is over an element linked to a block ("blk", "blk.col", "blk.row.col"), or nil
---   slots()            -> { { ref, label } } for placing tokens
---   links()            -> { { ref, label } } for linking zones
+--   editable()          -> bool
+--   onChange()          the page was changed (by the canvas)
+--   onSelect(el)        selection changed (the primary element, nil = none)
+--   slotText(ref)       -> text shown on a slot token (a player's name, or the slot's label)
+--   slotTip(ref, tt)    adds tooltip lines for a token / linked drawing
+--   linkText(ref)       -> the text shown under a linked drawing (players' names, or the link in edit mode), or nil
+--   linkLabel(ref)      -> the link in words (menus, tooltips)
+--   onHover(linkRef)    the mouse is over something linked to a block ("blk", "blk.col", "blk.row.col"), or nil
+--   slots()             -> { { ref, label, blockName } } of the strategy
+--   links()             -> { { ref, label } } blocks and columns
+--   validRef(ref)       -> does the link / slot exist in this strategy (paste from another one)
+--   dropRef()           -> the block reference under the cursor (link drags onto the tables), or nil
 --   prompt(title, default, cb)
---   bossRef()          -> the strategy's boss (map list)
+--   bossRef()           -> the strategy's boss (map list, portraits)
 function MapUI:CreateCanvas(parent, width, opts)
     local self = setmetatable({}, Canvas)
     self.opts = opts or {}
     self.tool = "select"
     self.color = 1
-    self.pools = { zone = {}, arrow = {}, icon = {}, text = {}, slot = {} }
+    self.sel = {}
+    self.pools = { zone = {}, arrow = {}, icon = {}, text = {}, slot = {}, link = {}, box = {} }
     self.used = {}
     local f = CreateFrame("Frame", nil, parent)
     self.frame = f
@@ -522,14 +533,6 @@ function MapUI:CreateCanvas(parent, width, opts)
     self.layer = CreateFrame("Frame", nil, f)
     self.layer:SetAllPoints()
     self.layer:SetFrameLevel(self.art:GetFrameLevel() + 2)
-    -- selection box + handles
-    self.sel = {}
-    for i = 1, 4 do
-        local t = self.layer:CreateTexture(nil, "OVERLAY", nil, 6)
-        t:SetColorTexture(1, 0.85, 0.1, 0.95)
-        t:Hide()
-        self.sel[i] = t
-    end
     self.handles = {}
     for i = 1, 2 do
         local h = self.layer:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -538,8 +541,13 @@ function MapUI:CreateCanvas(parent, width, opts)
         h:Hide()
         self.handles[i] = h
     end
+    -- the selection box being dragged
+    self.marq = self.layer:CreateTexture(nil, "OVERLAY", nil, 5)
+    self.marq:SetColorTexture(1, 0.85, 0.1, 0.15)
+    self.marq:Hide()
     self.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     self.hint:SetPoint("BOTTOMLEFT", 6, 4)
+    self.hint:SetPoint("RIGHT", -6, 0)
     self.hint:SetJustifyH("LEFT")
     self:SetWidth(width)
 
@@ -575,6 +583,7 @@ end
 
 function Canvas:SetPage(page)
     if page ~= self.page then
+        self.sel = {}
         self.selected = nil
         self.drag = nil
     end
@@ -584,7 +593,7 @@ end
 
 function Canvas:SetTool(tool)
     self.tool = tool or "select"
-    if self.tool ~= "select" then self:Select(nil) end
+    if self.tool ~= "select" then self:ClearSelection() end
     self:UpdateHint()
 end
 
@@ -609,13 +618,14 @@ function Canvas:UpdateHint()
     end
 end
 
--- Cursor position in board units.
-function Canvas:Cursor()
+-- Cursor position in board units (clamped to the board unless raw).
+function Canvas:Cursor(raw)
     local x, y = GetCursorPosition()
     local es = self.frame:GetEffectiveScale() or 1
     x, y = x / es, y / es
     local l, t = self.frame:GetLeft() or 0, self.frame:GetTop() or 0
     local bx, by = (x - l) / self.s, (t - y) / self.s
+    if raw then return bx, by end
     return max(0, min(BW, floor(bx + 0.5))), max(0, min(BH, floor(by + 0.5)))
 end
 
@@ -710,13 +720,26 @@ local function acquire(self, kind, create)
     return o
 end
 
-local function newFS(layer, sub)
-    local fs = layer:CreateFontString(nil, "OVERLAY", "GameFontHighlight", sub)
-    return fs
+local function newFS(layer)
+    return layer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 end
 
 function Canvas:FontSize(base)
     return max(8, floor(base * self.s / 0.7 + 0.5))
+end
+
+-- A raid mark badge at a point (the top right corner of an icon or zone).
+function Canvas:Badge(o, e, x, y, size)
+    if not o.badge then o.badge = self.layer:CreateTexture(nil, "OVERLAY", nil, 2) end
+    if not e.rm then
+        o.badge:Hide()
+        return
+    end
+    o.badge:ClearAllPoints()
+    o.badge:SetTexture(RM_TEX .. e.rm)
+    o.badge:SetSize(size, size)
+    o.badge:SetPoint("CENTER", self.layer, "TOPLEFT", x * self.s, -y * self.s)
+    o.badge:Show()
 end
 
 function Canvas:RenderZone(e)
@@ -727,7 +750,7 @@ function Canvas:RenderZone(e)
         z.ring = L:CreateTexture(nil, "BORDER", nil, 1)
         z.edges = {}
         for i = 1, 4 do z.edges[i] = L:CreateTexture(nil, "BORDER", nil, 1) end
-        z.fs = newFS(L, 1)
+        z.fs = newFS(L)
         return z
     end)
     local r, g, b = MapUI:Color(e.c or 1)
@@ -751,9 +774,8 @@ function Canvas:RenderZone(e)
         o.fill:SetColorTexture(r, g, b, 0.26 + 0.2 * lit)
         o.fill:SetVertexColor(1, 1, 1, 1)
         o.ring:Hide()
-        local E = o.edges
         local th = max(1, floor(2 * self.s / 0.7))
-        for i, t in ipairs(E) do
+        for i, t in ipairs(o.edges) do
             t:ClearAllPoints()
             t:SetColorTexture(r, g, b, 0.9)
             t:Show()
@@ -771,11 +793,14 @@ function Canvas:RenderZone(e)
     o.fs:SetText(e.l or "")
     o.fs:SetTextColor(1, 1, 1)
     o.fs:Show()
+    local corner = e.s == "c" and 0.35 or 0.5
+    self:Badge(o, e, e.x + e.w * corner, e.y - e.h * corner, 18 * self.s / 0.7)
     o.hide = function()
         o.fill:Hide()
         o.ring:Hide()
         for _, t in ipairs(o.edges) do t:Hide() end
         o.fs:Hide()
+        if o.badge then o.badge:Hide() end
     end
 end
 
@@ -789,6 +814,7 @@ function Canvas:RenderArrow(e)
         return a
     end)
     local r, g, b = MapUI:Color(e.c or 9)
+    if self.lit and self.lit[e] then r, g, b = 1, 0.85, 0.1 end
     local x1, y1 = self:P(e.x, e.y)
     local x2, y2 = self:P(e.x2, e.y2)
     local th = max(2, floor(3 * self.s / 0.7 + 0.5))
@@ -819,8 +845,10 @@ function Canvas:RenderIcon(e)
     local L = self.layer
     local o = acquire(self, "icon", function()
         local i = {}
+        i.glow = L:CreateTexture(nil, "ARTWORK", nil, 2)
+        i.glow:SetColorTexture(1, 0.85, 0.1, 0.6)
         i.tex = L:CreateTexture(nil, "ARTWORK", nil, 3)
-        i.fs = newFS(L, 2)
+        i.fs = newFS(L)
         return i
     end)
     local size = (e.z or 32) * self.s
@@ -829,6 +857,10 @@ function Canvas:RenderIcon(e)
     o.tex:SetPoint("CENTER", self.layer, "TOPLEFT", e.x * self.s, -e.y * self.s)
     MapUI:SetIcon(o.tex, e.i)
     o.tex:Show()
+    o.glow:ClearAllPoints()
+    o.glow:SetPoint("TOPLEFT", o.tex, "TOPLEFT", -3, 3)
+    o.glow:SetPoint("BOTTOMRIGHT", o.tex, "BOTTOMRIGHT", 3, -3)
+    o.glow:SetShown(self.lit and self.lit[e] and true or false)
     if e.l then
         local r, g, b = MapUI:Color(e.c or 9)
         o.fs:SetFont(fontPath(), self:FontSize(11), "OUTLINE")
@@ -841,9 +873,13 @@ function Canvas:RenderIcon(e)
     else
         o.fs:Hide()
     end
+    local half = (e.z or 32) / 2
+    self:Badge(o, e, e.x + half * 0.8, e.y - half * 0.8, max(10, size * 0.45))
     o.hide = function()
         o.tex:Hide()
+        o.glow:Hide()
         o.fs:Hide()
+        if o.badge then o.badge:Hide() end
     end
 end
 
@@ -851,9 +887,10 @@ local TEXT_SIZES = { 10, 13, 17 }
 
 function Canvas:RenderText(e)
     local o = acquire(self, "text", function()
-        return { fs = newFS(self.layer, 3) }
+        return { fs = newFS(self.layer) }
     end)
     local r, g, b = MapUI:Color(e.c or 9)
+    if self.lit and self.lit[e] then r, g, b = 1, 0.85, 0.1 end
     o.fs:SetFont(fontPath(), self:FontSize(TEXT_SIZES[e.z or 2] or 13), "OUTLINE")
     o.fs:ClearAllPoints()
     o.fs:SetPoint("CENTER", self.layer, "TOPLEFT", e.x * self.s, -e.y * self.s)
@@ -872,7 +909,7 @@ function Canvas:RenderSlot(e)
         local t = {}
         t.bg = L:CreateTexture(nil, "OVERLAY", nil, 1)
         t.edge = L:CreateTexture(nil, "OVERLAY", nil, 0)
-        t.fs = newFS(L, 4)
+        t.fs = newFS(L)
         return t
     end)
     local text = self.opts.slotText and self.opts.slotText(e.r) or e.r
@@ -904,32 +941,9 @@ function Canvas:RenderSlot(e)
 end
 
 local RENDER = { z = "RenderZone", a = "RenderArrow", i = "RenderIcon", x = "RenderText", s = "RenderSlot" }
-local POOL_OF = { z = "zone", a = "arrow", i = "icon", x = "text", s = "slot" }
-
-function Canvas:Render()
-    self:RenderBackground()
-    for kind, pool in pairs(self.pools) do
-        for i = 1, #pool do
-            if pool[i].hide then pool[i].hide() end
-        end
-    end
-    self.used = {}
-    local page = self.page
-    if page then
-        -- zones first (under everything), then the rest in page order
-        for _, e in ipairs(page.e or {}) do
-            if e.t == "z" then self:RenderZone(e) end
-        end
-        for _, e in ipairs(page.e or {}) do
-            if e.t ~= "z" and RENDER[e.t] then self[RENDER[e.t]](self, e) end
-        end
-    end
-    self:RenderSelection()
-    self:UpdateHint()
-end
 
 ---------------------------------------------------------------------------
--- Hit testing and selection
+-- Geometry, groups
 ---------------------------------------------------------------------------
 
 local function segDist(px, py, x1, y1, x2, y2)
@@ -952,6 +966,16 @@ local function bounds(e)
     return e.x - w, e.y - h, e.x + w, e.y + h
 end
 
+local function unionBounds(list)
+    local l, t, r, b
+    for _, e in ipairs(list) do
+        local a, bb, c, d = bounds(e)
+        l, t = l and min(l, a) or a, t and min(t, bb) or bb
+        r, b = r and max(r, c) or c, b and max(b, d) or d
+    end
+    return l, t, r, b
+end
+
 local function hits(e, x, y, tol)
     if e.t == "a" then return segDist(x, y, e.x, e.y, e.x2, e.y2) <= tol end
     if e.t == "z" and e.s == "c" then
@@ -961,6 +985,83 @@ local function hits(e, x, y, tol)
     local l, t, r, b = bounds(e)
     return x >= l - tol / 2 and x <= r + tol / 2 and y >= t - tol / 2 and y <= b + tol / 2
 end
+
+-- An element and the rest of its group (page order).
+function Canvas:GroupOf(e)
+    if not e or not e.g then return { e } end
+    local out = {}
+    for _, x in ipairs(self.page and self.page.e or {}) do
+        if x.g == e.g then out[#out + 1] = x end
+    end
+    return out
+end
+
+-- The link of an element's group (the first member with one).
+function Canvas:LinkOf(e)
+    for _, x in ipairs(self:GroupOf(e)) do
+        if x.ln then return x.ln end
+        if x.t == "s" then return x.r end
+    end
+    return nil
+end
+
+---------------------------------------------------------------------------
+-- Render
+---------------------------------------------------------------------------
+
+-- The names (or, editing, the link) under linked drawings: once per group.
+function Canvas:RenderLinks()
+    if not self.opts.linkText then return end
+    local done = {}
+    for _, e in ipairs(self.page.e or {}) do
+        if e.ln and e.t ~= "s" and not (e.g and done[e.g]) then
+            local members = self:GroupOf(e)
+            if e.g then done[e.g] = true end
+            local text = self.opts.linkText(e.ln)
+            if text and text ~= "" then
+                local l, _, r, b = unionBounds(members)
+                if e.t == "z" and not e.g then b = e.y + (e.l and 14 or 0) end
+                local o = acquire(self, "link", function()
+                    return { fs = newFS(self.layer) }
+                end)
+                o.fs:SetFont(fontPath(), self:FontSize(11), "OUTLINE")
+                o.fs:ClearAllPoints()
+                o.fs:SetPoint("TOP", self.layer, "TOPLEFT", (l + r) / 2 * self.s, -(b + 2) * self.s)
+                o.fs:SetWidth(0)
+                o.fs:SetText(text)
+                o.fs:Show()
+                o.hide = function() o.fs:Hide() end
+            end
+        end
+    end
+end
+
+function Canvas:Render()
+    self:RenderBackground()
+    for _, pool in pairs(self.pools) do
+        for i = 1, #pool do
+            if pool[i].hide then pool[i].hide() end
+        end
+    end
+    self.used = {}
+    local page = self.page
+    if page then
+        -- zones first (under everything), then the rest in page order
+        for _, e in ipairs(page.e or {}) do
+            if e.t == "z" then self:RenderZone(e) end
+        end
+        for _, e in ipairs(page.e or {}) do
+            if e.t ~= "z" and RENDER[e.t] then self[RENDER[e.t]](self, e) end
+        end
+        self:RenderLinks()
+    end
+    self:RenderSelection()
+    self:UpdateHint()
+end
+
+---------------------------------------------------------------------------
+-- Selection
+---------------------------------------------------------------------------
 
 -- The topmost element at a board point (small elements before zones).
 function Canvas:HitTest(x, y)
@@ -977,17 +1078,70 @@ function Canvas:HitTest(x, y)
     return nil
 end
 
--- A handle of the selected element under the point: "end1" | "end2" | "size" | nil.
+-- The selected elements, in page order.
+function Canvas:Selection()
+    local out = {}
+    for _, e in ipairs(self.page and self.page.e or {}) do
+        if self.sel[e] then out[#out + 1] = e end
+    end
+    return out
+end
+
+function Canvas:SelectionCount()
+    local n = 0
+    for _ in pairs(self.sel) do n = n + 1 end
+    return n
+end
+
+function Canvas:NotifySelect()
+    self:RenderSelection()
+    if self.opts.onSelect then self.opts.onSelect(self.selected) end
+end
+
+function Canvas:ClearSelection()
+    self.sel, self.selected = {}, nil
+    self:NotifySelect()
+end
+
+-- Selects an element with its group (add = keep the current selection).
+function Canvas:Select(e, add)
+    if not add then self.sel = {} end
+    if e then
+        for _, x in ipairs(self:GroupOf(e)) do self.sel[x] = true end
+    end
+    self.selected = e or (add and self.selected) or nil
+    self:NotifySelect()
+end
+
+function Canvas:ToggleSelect(e)
+    if self.sel[e] then
+        for _, x in ipairs(self:GroupOf(e)) do self.sel[x] = nil end
+        if self.selected and not self.sel[self.selected] then self.selected = self:Selection()[1] end
+        self:NotifySelect()
+    else
+        self:Select(e, true)
+    end
+end
+
+function Canvas:SelectAll()
+    self.sel = {}
+    for _, e in ipairs(self.page and self.page.e or {}) do self.sel[e] = true end
+    self.selected = self.page and self.page.e[1] or nil
+    self:NotifySelect()
+end
+
+function Canvas:GetSelected() return self.selected end
+
+-- A handle of the only selected element under the point: "end1" | "end2" | "size" | "isize" | nil.
 function Canvas:HandleAt(x, y)
     local e = self.selected
-    if not e then return nil end
+    if not e or self:SelectionCount() ~= 1 then return nil end
     local tol = 8 / self.s
     if e.t == "a" then
         if abs(x - e.x2) <= tol and abs(y - e.y2) <= tol then return "end2" end
         if abs(x - e.x) <= tol and abs(y - e.y) <= tol then return "end1" end
     elseif e.t == "z" then
-        local rx, by = e.x + e.w / 2, e.y + e.h / 2
-        if abs(x - rx) <= tol and abs(y - by) <= tol then return "size" end
+        if abs(x - (e.x + e.w / 2)) <= tol and abs(y - (e.y + e.h / 2)) <= tol then return "size" end
     elseif e.t == "i" then
         local r = (e.z or 32) / 2
         if abs(x - (e.x + r)) <= tol and abs(y - (e.y + r)) <= tol then return "isize" end
@@ -995,37 +1149,52 @@ function Canvas:HandleAt(x, y)
     return nil
 end
 
-function Canvas:Select(e)
-    self.selected = e
-    self:RenderSelection()
-    if self.opts.onSelect then self.opts.onSelect(e) end
-end
-
-function Canvas:GetSelected() return self.selected end
-
-function Canvas:RenderSelection()
-    for _, t in ipairs(self.sel) do t:Hide() end
-    for _, h in ipairs(self.handles) do h:Hide() end
-    local e = self.selected
-    if not e or not self:Editable() then return end
-    local found = false
-    for _, x in ipairs(self.page and self.page.e or {}) do
-        if x == e then found = true end
-    end
-    if not found then
-        self.selected = nil
-        return
-    end
-    local l, t, r, b = bounds(e)
+function Canvas:SelBox(l, t, r, b, grouped)
+    local o = acquire(self, "box", function()
+        local edges = {}
+        for i = 1, 4 do edges[i] = self.layer:CreateTexture(nil, "OVERLAY", nil, 6) end
+        return { edges = edges }
+    end)
     local px, py = self:P(l, t)
     local w, h = (r - l) * self.s, (b - t) * self.s
-    local S1 = self.sel
-    for i = 1, 4 do S1[i]:ClearAllPoints() end
-    S1[1]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py + 2); S1[1]:SetSize(w + 4, 1)
-    S1[2]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py - h - 2); S1[2]:SetSize(w + 4, 1)
-    S1[3]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py + 2); S1[3]:SetSize(1, h + 4)
-    S1[4]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px + w + 2, py + 2); S1[4]:SetSize(1, h + 4)
-    for i = 1, 4 do S1[i]:Show() end
+    local E = o.edges
+    local a = grouped and 0.55 or 0.95
+    for i = 1, 4 do
+        E[i]:ClearAllPoints()
+        E[i]:SetColorTexture(1, 0.85, 0.1, a)
+        E[i]:Show()
+    end
+    E[1]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py + 2); E[1]:SetSize(w + 4, 1)
+    E[2]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py - h - 2); E[2]:SetSize(w + 4, 1)
+    E[3]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py + 2); E[3]:SetSize(1, h + 4)
+    E[4]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px + w + 2, py + 2); E[4]:SetSize(1, h + 4)
+    o.hide = function() for i = 1, 4 do E[i]:Hide() end end
+end
+
+function Canvas:RenderSelection()
+    local pool = self.pools.box
+    for i = 1, #pool do pool[i].hide() end
+    self.used.box = 0
+    for _, h in ipairs(self.handles) do h:Hide() end
+    if not self:Editable() or not self.page then return end
+    -- drop selected elements that are gone (undo, delete)
+    local present = {}
+    for _, e in ipairs(self.page.e) do present[e] = true end
+    for e in pairs(self.sel) do if not present[e] then self.sel[e] = nil end end
+    if self.selected and not self.sel[self.selected] then self.selected = self:Selection()[1] end
+    local groups = {}
+    for _, e in ipairs(self:Selection()) do
+        local l, t, r, b = bounds(e)
+        self:SelBox(l, t, r, b, e.g ~= nil)
+        if e.g then groups[e.g] = true end
+    end
+    -- a group gets one box around all its members
+    for g in pairs(groups) do
+        local l, t, r, b = unionBounds(self:GroupOf({ g = g }))
+        if l then self:SelBox(l - 4, t - 4, r + 4, b + 4) end
+    end
+    local e = self.selected
+    if not e or self:SelectionCount() ~= 1 then return end
     local function handle(i, x, y)
         local hd = self.handles[i]
         hd:ClearAllPoints()
@@ -1042,7 +1211,6 @@ function Canvas:RenderSelection()
     end
 end
 
--- Highlights the elements linked to a block reference (from the blocks panel), nil clears.
 -- "blk" | "blk.col" | "blk.row.col" -> block, row|nil, col|nil
 local function parseRef(ref)
     if type(ref) ~= "string" then return nil end
@@ -1064,11 +1232,12 @@ function MapUI:RefsOverlap(a, b)
     return true
 end
 
+-- Highlights the drawings linked to a block reference (from the blocks panel), nil clears.
 function Canvas:Highlight(ref)
     local lit
     if ref then
         for _, e in ipairs(self.page and self.page.e or {}) do
-            local other = (e.t == "z" and e.ln) or (e.t == "s" and e.r) or nil
+            local other = self:LinkOf(e)
             if other and MapUI:RefsOverlap(ref, other) then
                 lit = lit or {}
                 lit[e] = true
@@ -1083,17 +1252,22 @@ function Canvas:SetHover(e)
     if e == self.hoverEl then return end
     self.hoverEl = e
     GameTooltip:Hide()
-    local link
+    local link = e and self:LinkOf(e) or nil
     if e then
-        if e.t == "z" and e.ln then link = e.ln
-        elseif e.t == "s" then link = e.r end
-        if e.t == "s" and self.opts.slotTip then
+        local tip = self.opts.slotTip
+        if link and tip then
             GameTooltip:SetOwner(self.frame, "ANCHOR_CURSOR")
-            self.opts.slotTip(e.r, GameTooltip)
+            if e.t == "i" or e.l then GameTooltip:AddLine(e.l or MapUI:IconName(e.i)) end
+            tip(link, GameTooltip)
             GameTooltip:Show()
         elseif e.t == "i" and not self:Editable() then
             GameTooltip:SetOwner(self.frame, "ANCHOR_CURSOR")
             GameTooltip:AddLine(e.l or MapUI:IconName(e.i))
+            GameTooltip:Show()
+        elseif self:Editable() and self.tool == "select" then
+            GameTooltip:SetOwner(self.frame, "ANCHOR_CURSOR")
+            GameTooltip:AddLine("Not linked", 0.7, 0.7, 0.7)
+            GameTooltip:AddLine("Shift-drag it onto a table cell or column to link it.", 0.6, 0.6, 0.6, true)
             GameTooltip:Show()
         end
     end
@@ -1110,8 +1284,8 @@ end
 -- Editing
 ---------------------------------------------------------------------------
 
-local function room(self)
-    if #self.page.e >= S().MAX_ELEMENTS then
+local function room(self, n)
+    if #self.page.e + (n or 1) > S().MAX_ELEMENTS then
         ns:Print("A page holds at most %d drawings.", S().MAX_ELEMENTS)
         return false
     end
@@ -1124,39 +1298,264 @@ function Canvas:Add(e)
     return e
 end
 
-function Canvas:Remove(e)
-    for i, x in ipairs(self.page.e) do
-        if x == e then
-            tremove(self.page.e, i)
-            break
-        end
+-- Adds an element and selects it (tools and menus).
+function Canvas:Place(e)
+    e = self:Add(e)
+    if not e then return nil end
+    self:SetTool("select")
+    self:Changed()
+    self:Select(e)
+    return e
+end
+
+function Canvas:RemoveList(list)
+    local gone = {}
+    for _, e in ipairs(list) do gone[e] = true end
+    local keep = {}
+    for _, e in ipairs(self.page.e) do
+        if not gone[e] then keep[#keep + 1] = e end
     end
-    if self.selected == e then self:Select(nil) end
+    -- in place: the page table is shared with the board's draft
+    for i = #self.page.e, 1, -1 do self.page.e[i] = nil end
+    for i, e in ipairs(keep) do self.page.e[i] = e end
+    self.sel, self.selected = {}, nil
+    self:NotifySelect()
     self:Changed()
 end
 
-function Canvas:Duplicate(e)
-    if not room(self) then return end
+function Canvas:Remove(e) self:RemoveList(self:GroupOf(e)) end
+
+function Canvas:DeleteSelection()
+    local list = self:Selection()
+    if #list == 0 then return false end
+    self:RemoveList(list)
+    return true
+end
+
+local function copyElement(e)
     local c = {}
     for k, v in pairs(e) do
         if type(k) == "string" and k:sub(1, 1) ~= "_" then c[k] = v end
     end
-    c.x, c.y = min(BW, c.x + 20), min(BH, c.y + 20)
-    if c.x2 then c.x2, c.y2 = min(BW, c.x2 + 20), min(BH, c.y2 + 20) end
-    tinsert(self.page.e, c)
-    self:Changed()
-    self:Select(c)
+    return c
 end
 
-function Canvas:Reorder(e, toFront)
-    for i, x in ipairs(self.page.e) do
-        if x == e then
-            tremove(self.page.e, i)
-            break
+function Canvas:Copy()
+    local list = self:Selection()
+    if #list == 0 then return false end
+    local clip = {}
+    for _, e in ipairs(list) do clip[#clip + 1] = copyElement(e) end
+    MapUI.clipboard = clip
+    self.pasteCount = 0
+    return true
+end
+
+-- A group id not used on the page.
+function Canvas:NewGroupId()
+    local used = {}
+    for _, e in ipairs(self.page.e) do if e.g then used[e.g] = true end end
+    for i = 1, 999 do
+        if not used["g" .. i] then return "g" .. i end
+    end
+end
+
+-- Pastes the clipboard (offset a little each time; groups stay groups, links to blocks this strategy lacks go).
+function Canvas:Paste(atX, atY)
+    local clip = MapUI.clipboard
+    if not clip or #clip == 0 or not self.page then return false end
+    if not room(self, #clip) then return false end
+    self.pasteCount = (self.pasteCount or 0) + 1
+    local dx, dy = 20 * self.pasteCount, 20 * self.pasteCount
+    if atX then
+        local l, t, r, b = unionBounds(clip)
+        dx, dy = atX - (l + r) / 2, atY - (t + b) / 2
+    end
+    local groups = {}
+    self.sel = {}
+    local valid = self.opts.validRef
+    for _, src in ipairs(clip) do
+        local e = copyElement(src)
+        e.x, e.y = floor(max(0, min(BW, e.x + dx))), floor(max(0, min(BH, e.y + dy)))
+        if e.x2 then e.x2, e.y2 = floor(max(0, min(BW, e.x2 + dx))), floor(max(0, min(BH, e.y2 + dy))) end
+        if e.g then
+            groups[e.g] = groups[e.g] or self:NewGroupId()
+            e.g = groups[e.g]
+            -- reserve it before the next NewGroupId call
+            tinsert(self.page.e, e)
+        else
+            tinsert(self.page.e, e)
+        end
+        if e.ln and valid and not valid(e.ln) then e.ln = nil end
+        if e.t == "s" and valid and not valid(e.r) then
+            tremove(self.page.e)
+        else
+            self.sel[e] = true
+            self.selected = e
         end
     end
-    if toFront then tinsert(self.page.e, e) else tinsert(self.page.e, 1, e) end
     self:Changed()
+    self:NotifySelect()
+    return true
+end
+
+function Canvas:Duplicate()
+    if not self:Copy() then return false end
+    return self:Paste()
+end
+
+function Canvas:GroupSelection()
+    local list = self:Selection()
+    if #list < 2 then return false end
+    local g = self:NewGroupId()
+    for _, e in ipairs(list) do e.g = g end
+    -- one link for the whole group: the first member's
+    local ln
+    for _, e in ipairs(list) do ln = ln or e.ln end
+    for _, e in ipairs(list) do if e.t ~= "s" then e.ln = ln end end
+    self:Changed()
+    self:NotifySelect()
+    return true
+end
+
+function Canvas:UngroupSelection()
+    local any = false
+    for _, e in ipairs(self:Selection()) do
+        if e.g then
+            e.g = nil
+            any = true
+        end
+    end
+    if any then self:Changed() end
+    return any
+end
+
+-- Links the selection (or an element's group) to a block reference (nil = unlink).
+function Canvas:LinkList(list, ref)
+    for _, e in ipairs(list) do
+        if e.t == "s" then
+            if ref and ref:find("^%w+%.%d+%.%d+$") then e.r = ref end
+        else
+            e.ln = ref
+        end
+    end
+    self:Changed()
+end
+
+function Canvas:Nudge(dx, dy)
+    local list = self:Selection()
+    if #list == 0 then return false end
+    for _, e in ipairs(list) do
+        e.x, e.y = max(0, min(BW, e.x + dx)), max(0, min(BH, e.y + dy))
+        if e.x2 then e.x2, e.y2 = max(0, min(BW, e.x2 + dx)), max(0, min(BH, e.y2 + dy)) end
+    end
+    self:Changed()
+    return true
+end
+
+function Canvas:Reorder(list, toFront)
+    local set = {}
+    for _, e in ipairs(list) do set[e] = true end
+    local rest, moved = {}, {}
+    for _, e in ipairs(self.page.e) do
+        if set[e] then moved[#moved + 1] = e else rest[#rest + 1] = e end
+    end
+    local out = {}
+    if toFront then
+        for _, e in ipairs(rest) do out[#out + 1] = e end
+        for _, e in ipairs(moved) do out[#out + 1] = e end
+    else
+        for _, e in ipairs(moved) do out[#out + 1] = e end
+        for _, e in ipairs(rest) do out[#out + 1] = e end
+    end
+    for i = #self.page.e, 1, -1 do self.page.e[i] = nil end
+    for i, e in ipairs(out) do self.page.e[i] = e end
+    self:Changed()
+end
+
+-- A block reference dropped on the map (a player cell dragged from a table): links the drawing under the cursor,
+-- or places a name marker there.
+function Canvas:DropRefAtCursor(ref)
+    if not self.page or not self:Editable() then return false end
+    local x, y = self:Cursor()
+    local e = self:HitTest(x, y)
+    if e then
+        self:LinkList(self:GroupOf(e), ref)
+        self:Select(e)
+        return true
+    end
+    if not ref:find("^%w+%.%d+%.%d+$") then return false end
+    return self:Place({ t = "s", x = x, y = y, r = ref }) ~= nil
+end
+
+-- Keyboard (the board calls this while editing). Returns true when the key was used.
+function Canvas:OnKey(key)
+    if not self:Editable() or not self.page then return false end
+    local ctrl, shift = IsControlKeyDown(), IsShiftKeyDown()
+    if key == "DELETE" or key == "BACKSPACE" then return self:DeleteSelection() end
+    if key == "ESCAPE" then
+        if self:SelectionCount() > 0 or self.tool ~= "select" then
+            self:SetTool("select")
+            self:ClearSelection()
+            return true
+        end
+        return false
+    end
+    local step = shift and 10 or 2
+    if key == "LEFT" then return self:Nudge(-step, 0) end
+    if key == "RIGHT" then return self:Nudge(step, 0) end
+    if key == "UP" then return self:Nudge(0, -step) end
+    if key == "DOWN" then return self:Nudge(0, step) end
+    if not ctrl then return false end
+    if key == "A" then self:SelectAll(); return true end
+    if key == "C" then return self:Copy() end
+    if key == "X" then return self:Copy() and self:DeleteSelection() end
+    if key == "V" then return self:Paste() end
+    if key == "D" then return self:Duplicate() end
+    if key == "G" then
+        if shift then return self:UngroupSelection() end
+        return self:GroupSelection()
+    end
+    return false
+end
+
+local function snap(v)
+    return floor(v / 10 + 0.5) * 10
+end
+
+local ghost
+local function linkGhost()
+    if ghost then return ghost end
+    ghost = CreateFrame("Frame", nil, UIParent)
+    ghost:SetSize(10, 18)
+    ghost:SetFrameStrata("TOOLTIP")
+    ghost.bg = ghost:CreateTexture(nil, "BACKGROUND")
+    ghost.bg:SetAllPoints()
+    ghost.bg:SetColorTexture(0, 0, 0, 0.8)
+    ghost.fs = ghost:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    ghost.fs:SetPoint("LEFT", 4, 0)
+    ghost:SetScript("OnUpdate", function(self)
+        local x, y = GetCursorPosition()
+        local s = UIParent:GetEffectiveScale()
+        self:ClearAllPoints()
+        self:SetPoint("LEFT", UIParent, "BOTTOMLEFT", x / s + 12, y / s)
+        self:SetWidth((self.fs:GetStringWidth() or 60) + 8)
+    end)
+    ghost:Hide()
+    return ghost
+end
+
+local function editLabel(self, e)
+    if not (e.t == "z" or e.t == "i" or e.t == "x") then return end
+    self.opts.prompt(e.t == "x" and "Text" or "Label", e.l or "", function(text)
+        text = ns.Util.Trim(text or ""):gsub("|", ""):sub(1, S().MAX_LABEL)
+        if text == "" then
+            if e.t == "x" then return end
+            e.l = nil
+        else
+            e.l = text
+        end
+        self:Changed()
+    end)
 end
 
 function Canvas:OnMouseDown(button)
@@ -1166,10 +1565,11 @@ function Canvas:OnMouseDown(button)
     if button == "RightButton" then
         local e = self:HitTest(x, y)
         if e then
-            self:Select(e)
+            if not self.sel[e] then self:Select(e) end
+            self.selected = e
             self:ElementMenu(e)
         else
-            self:BackgroundMenu()
+            self:BackgroundMenu(x, y)
         end
         return
     end
@@ -1182,8 +1582,32 @@ function Canvas:OnMouseDown(button)
             return
         end
         local e = self:HitTest(x, y)
-        self:Select(e)
-        if e then self.drag = { mode = "move", el = e, sx = x, sy = y, ox = e.x, oy = e.y, ox2 = e.x2, oy2 = e.y2 } end
+        if not e then
+            if not (IsShiftKeyDown() or IsControlKeyDown()) then self:ClearSelection() end
+            self.drag = { mode = "marquee", sx = x, sy = y }
+            return
+        end
+        -- double click: edit the label / text
+        local now = GetTime()
+        if self.lastClick and self.lastClick.e == e and now - self.lastClick.at < 0.35 then
+            self.lastClick = nil
+            editLabel(self, e)
+            return
+        end
+        self.lastClick = { e = e, at = now }
+        if IsShiftKeyDown() then
+            -- Shift: a drag links it (to a table), a click adds / removes it from the selection
+            self.drag = { mode = "pending", el = e, sx = x, sy = y }
+            return
+        end
+        if IsControlKeyDown() then
+            self:ToggleSelect(e)
+            return
+        end
+        if not self.sel[e] then self:Select(e) else self.selected = e end
+        local orig = {}
+        for _, m in ipairs(self:Selection()) do orig[m] = { m.x, m.y, m.x2, m.y2 } end
+        self.drag = { mode = "move", el = e, sx = x, sy = y, orig = orig }
     elseif tool == "pan" then
         local L = ArtLayer(self.page.m)
         if not L then
@@ -1198,37 +1622,31 @@ function Canvas:OnMouseDown(button)
         local e = self:Add({ t = "a", x = x, y = y, x2 = x, y2 = y, c = self.color, h = tool == "arrow" or nil })
         if e then self.drag = { mode = "create", el = e, sx = x, sy = y } end
     elseif tool == "icon" then
-        if not room(self) then return end
-        ns.UI:ContextMenu(self.frame, function(root)
-            root:CreateTitle("Icon")
-            MapUI:BuildIconMenu(root, nil, function(key)
-                local portrait = key:match("^boss:(%d+)$")
-                local e = self:Add({ t = "i", x = x, y = y, i = key, z = portrait and 48 or 32,
-                                     l = portrait and MapUI:PortraitName(portrait) or nil })
-                self:SetTool("select")
-                self:Changed()
-                self:Select(e)
-            end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef())
-        end)
+        self:IconAt(x, y)
     elseif tool == "text" then
-        if not room(self) then return end
-        self.opts.prompt("Text", "", function(text)
-            text = ns.Util.Trim(text or ""):gsub("|", "")
-            if text == "" then return end
-            local e = self:Add({ t = "x", x = x, y = y, l = text:sub(1, S().MAX_LABEL), c = self.color == 1 and 9 or self.color, z = 2 })
-            self:SetTool("select")
-            self:Changed()
-            self:Select(e)
-        end)
-    elseif tool == "slot" then
-        if not room(self) then return end
-        self:SlotMenu(nil, function(ref)
-            local e = self:Add({ t = "s", x = x, y = y, r = ref })
-            self:SetTool("select")
-            self:Changed()
-            self:Select(e)
-        end)
+        self:TextAt(x, y)
     end
+end
+
+function Canvas:IconAt(x, y)
+    if not room(self) then return end
+    ns.UI:ContextMenu(self.frame, function(root)
+        root:CreateTitle("Icon")
+        MapUI:BuildIconMenu(root, nil, function(key)
+            local portrait = key:match("^boss:(%d+)$")
+            self:Place({ t = "i", x = x, y = y, i = key, z = portrait and 48 or 32,
+                         l = portrait and MapUI:PortraitName(portrait) or nil })
+        end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef())
+    end)
+end
+
+function Canvas:TextAt(x, y)
+    if not room(self) then return end
+    self.opts.prompt("Text", "", function(text)
+        text = ns.Util.Trim(text or ""):gsub("|", "")
+        if text == "" then return end
+        self:Place({ t = "x", x = x, y = y, l = text:sub(1, S().MAX_LABEL), c = self.color == 1 and 9 or self.color, z = 2 })
+    end)
 end
 
 function Canvas:OnDragUpdate()
@@ -1240,10 +1658,34 @@ function Canvas:OnDragUpdate()
     end
     local x, y = self:Cursor()
     local e = d.el
-    if d.mode == "move" then
+    if d.mode == "pending" then
+        if abs(x - d.sx) + abs(y - d.sy) > 6 then
+            d.mode = "link"
+            local g = linkGhost()
+            g.fs:SetText("Link " .. (e.l or MapUI:IconName(e.i) or "drawing") .. ": drop on a table cell or column")
+            g:Show()
+        end
+        return
+    elseif d.mode == "link" then
+        return
+    elseif d.mode == "move" then
         local dx, dy = x - d.sx, y - d.sy
-        e.x, e.y = d.ox + dx, d.oy + dy
-        if e.t == "a" then e.x2, e.y2 = d.ox2 + dx, d.oy2 + dy end
+        if IsAltKeyDown() then
+            local o = d.orig[e]
+            dx, dy = snap(o[1] + dx) - o[1], snap(o[2] + dy) - o[2]
+        end
+        for m, o in pairs(d.orig) do
+            m.x, m.y = o[1] + dx, o[2] + dy
+            if m.t == "a" then m.x2, m.y2 = o[3] + dx, o[4] + dy end
+        end
+    elseif d.mode == "marquee" then
+        local l, t = min(x, d.sx), min(y, d.sy)
+        self.marq:ClearAllPoints()
+        self.marq:SetPoint("TOPLEFT", self.layer, "TOPLEFT", l * self.s, -t * self.s)
+        self.marq:SetSize(max(1, abs(x - d.sx) * self.s), max(1, abs(y - d.sy) * self.s))
+        self.marq:Show()
+        d.ex, d.ey = x, y
+        return
     elseif d.mode == "end1" then
         e.x, e.y = x, y
     elseif d.mode == "end2" then
@@ -1286,6 +1728,32 @@ function Canvas:OnMouseUp(button)
     if not d then return end
     self.drag = nil
     local e = d.el
+    if d.mode == "pending" then
+        self:ToggleSelect(e)
+        return
+    elseif d.mode == "link" then
+        if ghost then ghost:Hide() end
+        local ref = self.opts.dropRef and self.opts.dropRef()
+        if ref then
+            local list = self.sel[e] and self:Selection() or self:GroupOf(e)
+            self:LinkList(list, ref)
+            self:Select(e)
+        end
+        return
+    elseif d.mode == "marquee" then
+        self.marq:Hide()
+        if not d.ex then return end
+        local l, t, r, b = min(d.sx, d.ex), min(d.sy, d.ey), max(d.sx, d.ex), max(d.sy, d.ey)
+        for _, x in ipairs(self.page.e) do
+            local a, bb, c, dd = bounds(x)
+            if c >= l and a <= r and dd >= t and bb <= b then
+                for _, m in ipairs(self:GroupOf(x)) do self.sel[m] = true end
+                self.selected = self.selected or x
+            end
+        end
+        self:NotifySelect()
+        return
+    end
     if d.mode == "create" and e then
         -- a click without a drag makes a default-size shape
         if e.t == "a" and abs(e.x2 - e.x) + abs(e.y2 - e.y) < 10 then
@@ -1296,9 +1764,14 @@ function Canvas:OnMouseUp(button)
         self:SetTool("select")
         self:Select(e)
     end
-    if e then
-        e.x, e.y = floor(max(0, min(BW, e.x))), floor(max(0, min(BH, e.y)))
-        if e.x2 then e.x2, e.y2 = floor(max(0, min(BW, e.x2))), floor(max(0, min(BH, e.y2))) end
+    local moved = d.orig or (e and { [e] = true }) or {}
+    for m in pairs(moved) do
+        m.x, m.y = floor(max(0, min(BW, m.x)) + 0.5), floor(max(0, min(BH, m.y)) + 0.5)
+        if m.x2 then m.x2, m.y2 = floor(max(0, min(BW, m.x2)) + 0.5), floor(max(0, min(BH, m.y2)) + 0.5) end
+    end
+    if d.mode == "move" and d.orig[e] and d.orig[e][1] == e.x and d.orig[e][2] == e.y then
+        self:Render()     -- a click, not a move: nothing changed
+        return
     end
     self:Changed()
 end
@@ -1312,99 +1785,142 @@ function Canvas:OnWheel(delta)
     self:Changed()
 end
 
-function Canvas:SlotMenu(current, onPick)
+-- Link targets as menu entries: every block, its player columns and its player slots.
+function Canvas:BuildLinkMenu(root, current, onPick)
+    root:CreateRadio("Not linked", function() return current == nil end, function() onPick(nil) end)
     local slots = self.opts.slots and self.opts.slots() or {}
-    ns.UI:ContextMenu(self.frame, function(root)
-        root:CreateTitle("Show the player of")
-        if #slots == 0 then root:CreateTitle("|cff808080No player slots yet: add a block first.|r") end
-        local byBlock, order = {}, {}
-        for _, s in ipairs(slots) do
-            if not byBlock[s.blockName] then
-                byBlock[s.blockName] = {}
-                order[#order + 1] = s.blockName
-            end
-            tinsert(byBlock[s.blockName], s)
+    local byBlock, order = {}, {}
+    for _, s in ipairs(slots) do
+        if not byBlock[s.block] then
+            byBlock[s.block] = { name = s.blockName, list = {} }
+            order[#order + 1] = s.block
         end
-        for _, name in ipairs(order) do
-            local sub = root:CreateButton(name)
-            for _, s in ipairs(byBlock[name]) do
-                sub:CreateRadio(s.label, function() return current == s.ref end, function() onPick(s.ref) end)
+        tinsert(byBlock[s.block].list, s)
+    end
+    for _, l in ipairs(self.opts.links and self.opts.links() or {}) do
+        if not l.ref:find("%.") and not byBlock[l.ref] then
+            byBlock[l.ref] = { name = l.label, list = {} }
+            order[#order + 1] = l.ref
+        end
+    end
+    for _, b in ipairs(order) do
+        local info = byBlock[b]
+        local sub = root:CreateButton(info.name)
+        sub:CreateRadio("The whole block", function() return current == b end, function() onPick(b) end)
+        for _, l in ipairs(self.opts.links and self.opts.links() or {}) do
+            if l.ref:match("^" .. b .. "%.%d+$") then
+                sub:CreateRadio("Column: " .. (l.col or l.label), function() return current == l.ref end, function() onPick(l.ref) end)
             end
         end
-    end)
+        for _, s in ipairs(info.list) do
+            sub:CreateRadio(s.label, function() return current == s.ref end, function() onPick(s.ref) end)
+        end
+    end
 end
 
 function Canvas:ElementMenu(e)
-    local names = { z = "Zone", a = e.h and "Arrow" or "Line", i = "Icon", x = "Text", s = "Slot" }
+    local list = self:Selection()
+    if #list == 0 then list = { e } end
+    local names = { z = "Zone", a = e.h and "Arrow" or "Line", i = "Icon", x = "Text", s = "Name marker" }
+    local many = #list > 1
     ns.UI:ContextMenu(self.frame, function(root)
-        root:CreateTitle(names[e.t] or "Element")
-        if e.t == "z" or e.t == "i" or e.t == "x" then
-            root:CreateButton(e.t == "x" and "Edit text..." or "Label...", function()
-                self.opts.prompt(e.t == "x" and "Text" or "Label", e.l or "", function(text)
-                    text = ns.Util.Trim(text or ""):gsub("|", ""):sub(1, S().MAX_LABEL)
-                    if text == "" then
-                        if e.t == "x" then return end
-                        e.l = nil
-                    else
-                        e.l = text
-                    end
+        root:CreateTitle(many and (#list .. " selected" .. (e.g and " (group)" or "")) or (names[e.t] or "Element"))
+        if not many and (e.t == "z" or e.t == "i" or e.t == "x") then
+            root:CreateButton(e.t == "x" and "Edit text..." or "Label...", function() editLabel(self, e) end)
+        end
+        local col = root:CreateButton("Colour")
+        for i, c in ipairs(COLORS) do
+            col:CreateRadio(MapUI:Swatch(i) .. " " .. c[4], function() return (e.c or (e.t == "z" and 1 or 9)) == i end,
+                function()
+                    for _, m in ipairs(list) do if m.t ~= "s" then m.c = i end end
+                    self.color = i
                     self:Changed()
                 end)
-            end)
         end
-        if e.t ~= "s" then
-            local col = root:CreateButton("Colour")
-            for i, c in ipairs(COLORS) do
-                col:CreateRadio(MapUI:Swatch(i) .. " " .. c[4], function() return (e.c or (e.t == "z" and 1 or 9)) == i end,
-                    function() e.c = i; self.color = i; self:Changed() end)
-            end
-        end
-        if e.t == "z" then
-            local shape = root:CreateButton("Shape")
-            shape:CreateRadio("Circle", function() return e.s == "c" end, function() e.s = "c"; self:Changed() end)
-            shape:CreateRadio("Rectangle", function() return e.s == "r" end, function() e.s = "r"; self:Changed() end)
-            local link = root:CreateButton("Link to assignments")
-            link:CreateRadio("Not linked", function() return e.ln == nil end, function() e.ln = nil; self:Changed() end)
-            for _, l in ipairs(self.opts.links and self.opts.links() or {}) do
-                link:CreateRadio(l.label, function() return e.ln == l.ref end, function() e.ln = l.ref; self:Changed() end)
-            end
-        elseif e.t == "a" then
-            root:CreateCheckbox("Arrowhead", function() return e.h == true end, function()
-                e.h = not e.h or nil
+        -- raid mark badge (icons and zones)
+        local markable = {}
+        for _, m in ipairs(list) do if m.t == "i" or m.t == "z" then markable[#markable + 1] = m end end
+        if #markable > 0 then
+            local rm = root:CreateButton("Raid mark")
+            rm:CreateRadio("None", function() return e.rm == nil end, function()
+                for _, m in ipairs(markable) do m.rm = nil end
                 self:Changed()
             end)
-        elseif e.t == "i" then
-            local ic = root:CreateButton("Icon")
-            MapUI:BuildIconMenu(ic, e.i, function(key) e.i = key; self:Changed() end, self.opts.prompt,
-                self.opts.bossRef and self.opts.bossRef())
-            local size = root:CreateButton("Size")
-            for _, z in ipairs({ { 20, "Small" }, { 32, "Medium" }, { 48, "Large" }, { 72, "Huge" }, { 96, "Largest" } }) do
-                size:CreateRadio(z[2], function() return (e.z or 32) == z[1] end, function() e.z = z[1]; self:Changed() end)
+            for i = 1, 8 do
+                rm:CreateRadio(MapUI:IconString("rt" .. i, 14) .. " " .. RT_NAMES[i], function() return e.rm == i end,
+                    function()
+                        for _, m in ipairs(markable) do m.rm = i end
+                        self:Changed()
+                    end)
             end
-        elseif e.t == "x" then
-            local size = root:CreateButton("Size")
-            for i, label in ipairs({ "Small", "Normal", "Large" }) do
-                size:CreateRadio(label, function() return (e.z or 2) == i end, function() e.z = i; self:Changed() end)
+        end
+        local link = root:CreateButton(e.t == "s" and "Shows the player of" or "Link to assignment")
+        self:BuildLinkMenu(link, self:LinkOf(e), function(ref) self:LinkList(list, ref) end)
+        if not many then
+            if e.t == "z" then
+                local shape = root:CreateButton("Shape")
+                shape:CreateRadio("Circle", function() return e.s == "c" end, function() e.s = "c"; self:Changed() end)
+                shape:CreateRadio("Rectangle", function() return e.s == "r" end, function() e.s = "r"; self:Changed() end)
+            elseif e.t == "a" then
+                root:CreateCheckbox("Arrowhead", function() return e.h == true end, function()
+                    e.h = not e.h or nil
+                    self:Changed()
+                end)
+            elseif e.t == "i" then
+                local ic = root:CreateButton("Icon")
+                MapUI:BuildIconMenu(ic, e.i, function(key) e.i = key; self:Changed() end, self.opts.prompt,
+                    self.opts.bossRef and self.opts.bossRef())
+                local size = root:CreateButton("Size")
+                for _, z in ipairs({ { 20, "Small" }, { 32, "Medium" }, { 48, "Large" }, { 72, "Huge" }, { 96, "Largest" } }) do
+                    size:CreateRadio(z[2], function() return (e.z or 32) == z[1] end, function() e.z = z[1]; self:Changed() end)
+                end
+            elseif e.t == "x" then
+                local size = root:CreateButton("Size")
+                for i, label in ipairs({ "Small", "Normal", "Large" }) do
+                    size:CreateRadio(label, function() return (e.z or 2) == i end, function() e.z = i; self:Changed() end)
+                end
             end
-        elseif e.t == "s" then
-            root:CreateButton("Change slot...", function()
-                self:SlotMenu(e.r, function(ref) e.r = ref; self:Changed() end)
-            end)
         end
         root:CreateDivider()
-        root:CreateButton("Duplicate", function() self:Duplicate(e) end)
-        root:CreateButton("Bring to front", function() self:Reorder(e, true) end)
-        root:CreateButton("Send to back", function() self:Reorder(e, false) end)
-        root:CreateButton("|cffff6060Delete|r", function() self:Remove(e) end)
+        if many then
+            root:CreateButton("Group  |cff808080Ctrl+G|r", function() self:GroupSelection() end)
+        end
+        local grouped = false
+        for _, m in ipairs(list) do if m.g then grouped = true end end
+        if grouped then root:CreateButton("Ungroup  |cff808080Ctrl+Shift+G|r", function() self:UngroupSelection() end) end
+        root:CreateButton("Copy  |cff808080Ctrl+C|r", function() self:Copy() end)
+        root:CreateButton("Duplicate  |cff808080Ctrl+D|r", function() self:Duplicate() end)
+        root:CreateButton("Bring to front", function() self:Reorder(list, true) end)
+        root:CreateButton("Send to back", function() self:Reorder(list, false) end)
+        root:CreateButton("|cffff6060Delete|r  |cff808080Del|r", function() self:RemoveList(list) end)
     end)
 end
 
-function Canvas:BackgroundMenu()
+function Canvas:BackgroundMenu(x, y)
     local page = self.page
     ns.UI:ContextMenu(self.frame, function(root)
-        root:CreateTitle("Map")
+        root:CreateTitle("Add here")
+        local ic = root:CreateButton("Icon")
+        MapUI:BuildIconMenu(ic, nil, function(key)
+            local portrait = key:match("^boss:(%d+)$")
+            self:Place({ t = "i", x = x, y = y, i = key, z = portrait and 48 or 32,
+                         l = portrait and MapUI:PortraitName(portrait) or nil })
+        end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef())
+        root:CreateButton("Text...", function() self:TextAt(x, y) end)
+        root:CreateButton("Circle zone", function()
+            self:Place({ t = "z", s = "c", x = x, y = y, w = 100, h = 100, c = self.color })
+        end)
+        root:CreateButton("Rectangle zone", function()
+            self:Place({ t = "z", s = "r", x = x, y = y, w = 140, h = 100, c = self.color })
+        end)
+        if MapUI.clipboard and #MapUI.clipboard > 0 then
+            root:CreateButton("Paste here  |cff808080Ctrl+V|r", function() self:Paste(x, y) end)
+        end
+        root:CreateButton("Select all  |cff808080Ctrl+A|r", function() self:SelectAll() end)
+        root:CreateDivider()
+        local map = root:CreateButton("Map: " .. MapUI:MapName(page.m))
         local bossRef = self.opts.bossRef and self.opts.bossRef()
-        MapUI:BuildMapMenu(root, bossRef, page.m, function(id)
+        MapUI:BuildMapMenu(map, bossRef, page.m, function(id)
             page.m = id
             page.vx, page.vy, page.vz = 500, 500, 100
             self:Changed()

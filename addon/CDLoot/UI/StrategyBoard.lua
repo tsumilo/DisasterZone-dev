@@ -7,6 +7,9 @@
 --   fill  - authors, from a raid: pick the strategy for the boss and put players into the slots (carry over last
 --           raid's names, drag from the raid's players, Suggest fill), then Save.
 -- Unsaved work stays in the window while it is closed; opening something else asks before dropping it.
+-- Editing and assigning keep an undo history (Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z); while editing the keyboard also drives
+-- the map (Del, Ctrl+C / X / V / D / A / G, arrows; see UI/StrategyMap.lua). Keys the board doesn't use go on to the
+-- game as usual.
 local addonName, ns = ...
 
 local Board = ns:NewModule("StrategyBoard")
@@ -320,7 +323,10 @@ local function createWindow()
         onChange = function() Board:MarkDirty(true) end,
         onSelect = function() Board:RefreshTools() end,
         slotText = function(ref) return Board:SlotTokenText(ref) end,
-        slotTip = function(ref, tt) Board:SlotTooltip(ref, tt) end,
+        slotTip = function(ref, tt) Board:LinkTooltip(ref, tt) end,
+        linkText = function(ref) return Board:LinkText(ref) end,
+        dropRef = function() return win.blocks:RefUnderCursor() end,
+        validRef = function(ref) return Board:ValidRef(ref) end,
         onHover = function(ref) win.blocks:Highlight(ref) end,
         slots = function() return S():GetSlots(st.strat) end,
         links = function() return Board:LinkTargets() end,
@@ -357,6 +363,16 @@ local function createWindow()
         prompt = promptFn,
         slotName = function(ref) return st.assign[ref] and coloredName(st.assign[ref]) or nil end,
         slotLabel = function(ref) return slotLabels[ref] or ref end,
+        onCellDragStart = function(ref)
+            local g = ensureGhost()
+            g.fs:SetText("Show " .. (slotLabels[ref] or ref) .. " on the map")
+            g:SetWidth((g.fs:GetStringWidth() or 100) + 8)
+            g:Show()
+        end,
+        onCellDrop = function(ref)
+            if ghost then ghost:Hide() end
+            if win.canvas.frame:IsMouseOver() then win.canvas:DropRefAtCursor(ref) end
+        end,
     })
     f.blocks.width = WIN_W - MAP_W - 30
     f.blocks.scroll:SetPoint("TOPLEFT", c, "TOPLEFT", MAP_W + 10, -TOP_H)
@@ -422,7 +438,15 @@ local function createWindow()
     tools.mapBtn:SetPoint("TOPRIGHT", 0, -30)
     tools.info = tools:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     tools.info:SetPoint("TOPLEFT", 0, -62)
-    tools.info:SetPoint("RIGHT", 0, 0)
+    tools.info:SetPoint("RIGHT", tools, "RIGHT", -280, 0)
+    tools.info:SetWordWrap(false)
+    tools.keys = tools:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    tools.keys:SetPoint("TOPLEFT", 0, -90)
+    tools.keys:SetPoint("RIGHT", 0, 0)
+    tools.keys:SetJustifyH("LEFT")
+    tools.keys:SetText("Del delete 9483 Ctrl+C / V copy, paste 9483 Ctrl+D duplicate 9483 Ctrl+G group "
+        .. "(Ctrl+Shift+G ungroup) 9483 Ctrl+Z / Y undo, redo 9483 arrows nudge 9483 Alt snaps 9483 "
+        .. "double-click edits text 9483 Shift-drag onto a table to link")
     tools.info:SetJustifyH("LEFT")
     tools.info:SetJustifyV("TOP")
     tools.delBtn = UI():CreateButton(tools, "Delete", 70, 22, function()
@@ -435,6 +459,10 @@ local function createWindow()
         if e then win.canvas:ElementMenu(e) end
     end)
     tools.optBtn:SetPoint("RIGHT", tools.delBtn, "LEFT", -4, 0)
+    tools.redoBtn = UI():CreateButton(tools, "Redo", 50, 22, function() Board:Redo() end)
+    tools.redoBtn:SetPoint("RIGHT", tools.optBtn, "LEFT", -10, 0)
+    tools.undoBtn = UI():CreateButton(tools, "Undo", 50, 22, function() Board:Undo() end)
+    tools.undoBtn:SetPoint("RIGHT", tools.redoBtn, "LEFT", -2, 0)
 
     local pool = CreateFrame("Frame", nil, below)
     pool:SetAllPoints()
@@ -463,6 +491,14 @@ local function createWindow()
     view.mine:SetJustifyH("LEFT")
     view.mine:SetJustifyV("TOP")
 
+    -- keyboard: only while editing / assigning; unused keys go on to the game
+    f:EnableKeyboard(false)
+    f:SetScript("OnKeyDown", function(self, key)
+        local handled = false
+        local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+        if not focus then handled = Board:OnKey(key) end
+        if not InCombatLockdown() then self:SetPropagateKeyboardInput(not handled) end
+    end)
     f:SetScript("OnHide", function()
         if prompt then prompt:Hide() end
         if ghost then ghost:Hide() end
@@ -507,6 +543,7 @@ function Board:OpenStrategy(id, mode)
         st.strat, st.occ, st.boss, st.page = s, nil, s.b, 1
         st.assign, st.dirty, st.picked = {}, false, nil
         st.mode = (mode == "edit" and canEdit()) and "edit" or "view"
+        Board:ResetHistory()
         show()
     end)
 end
@@ -522,6 +559,7 @@ function Board:NewStrategy(bossRef, name)
         st.occ, st.boss, st.page, st.assign, st.picked = nil, bossRef, 1, {}, nil
         st.mode = "edit"
         st.dirty = true
+        Board:ResetHistory()
         show()
     end)
 end
@@ -536,6 +574,7 @@ function Board:OpenRaid(occId, bossRef, mode)
         st.assign = (s and fill and fill.s == s.id) and S():ValidAssignments(s, fill.a) or {}
         st.dirty = false
         st.mode = (mode == "fill" and canEdit() and s) and "fill" or "view"
+        Board:ResetHistory()
         show()
     end)
 end
@@ -554,7 +593,81 @@ function Board:GetState() return st end
 
 function Board:MarkDirty(repaint)
     st.dirty = true
+    self:Record()
     if repaint ~= false then self:Refresh() end
+end
+
+---------------------------------------------------------------------------
+-- Undo / redo: snapshots of the draft (editing) or of the names (assigning)
+---------------------------------------------------------------------------
+
+local HISTORY_MAX = 60
+
+local function snapshot()
+    if st.mode == "edit" then return st.strat and ns.Util.CopyTable(st.strat) end
+    if st.mode == "fill" then return ns.Util.CopyTable(st.assign) end
+    return nil
+end
+
+function Board:ResetHistory()
+    st.hist, st.histI = {}, 0
+    local snap = snapshot()
+    if snap then st.hist[1], st.histI = snap, 1 end
+end
+
+function Board:Record()
+    local snap = snapshot()
+    if not snap then return end
+    st.hist = st.hist or {}
+    for i = #st.hist, (st.histI or 0) + 1, -1 do st.hist[i] = nil end
+    st.hist[#st.hist + 1] = snap
+    if #st.hist > HISTORY_MAX then tremove(st.hist, 1) end
+    st.histI = #st.hist
+end
+
+local function restore(i)
+    local snap = st.hist and st.hist[i]
+    if not snap then return false end
+    st.histI = i
+    if st.mode == "edit" then
+        st.strat = ns.Util.CopyTable(snap)
+        if not st.strat.p[st.page] then st.page = 1 end
+    elseif st.mode == "fill" then
+        st.assign = ns.Util.CopyTable(snap)
+    end
+    st.dirty = true
+    Board:Refresh()
+    return true
+end
+
+function Board:Undo()
+    if (st.histI or 0) <= 1 then return false end
+    return restore(st.histI - 1)
+end
+
+function Board:Redo()
+    if not st.hist or (st.histI or 0) >= #st.hist then return false end
+    return restore(st.histI + 1)
+end
+
+function Board:CanUndo() return (st.histI or 0) > 1 end
+function Board:CanRedo() return st.hist ~= nil and (st.histI or 0) < #st.hist end
+
+-- A key while the board has the keyboard. Returns true when used.
+function Board:OnKey(key)
+    if st.mode ~= "edit" and st.mode ~= "fill" then return false end
+    if IsControlKeyDown() then
+        if key == "Z" then
+            if IsShiftKeyDown() then return self:Redo() end
+            return self:Undo()
+        end
+        if key == "Y" then return self:Redo() end
+    end
+    if st.mode == "edit" and win then
+        -- the arrows move the character unless something is selected; Del only with a selection
+        return win.canvas:OnKey(key)
+    end
+    return false
 end
 
 function Board:SetMode(mode)
@@ -570,6 +683,7 @@ function Board:SetMode(mode)
         if not (st.occ and st.strat) then return end
         st.mode = "fill"
     end
+    self:ResetHistory()
     self:Refresh()
 end
 
@@ -608,6 +722,7 @@ function Board:Save()
         st.picked = nil
         ns:Print("Assignments saved for %s.", S():GetBossName(st.boss))
     end
+    self:ResetHistory()
     self:Refresh()
     return true
 end
@@ -743,7 +858,10 @@ function Board:LinkTargets()
         for _, k in ipairs(p.k or {}) do
             out[#out + 1] = { ref = k.id, label = k.n }
             for ci, c in ipairs(k.c) do
-                if c.t == "p" then out[#out + 1] = { ref = k.id .. "." .. ci, label = k.n .. " · " .. (c.n or ("column " .. ci)) } end
+                if c.t == "p" then
+                    local col = c.n or ("column " .. ci)
+                    out[#out + 1] = { ref = k.id .. "." .. ci, label = k.n .. " · " .. col, col = col }
+                end
             end
         end
     end
@@ -762,17 +880,74 @@ function Board:SlotTokenText(ref)
     return "|cffd0d0d0" .. label .. "|r"
 end
 
-function Board:SlotTooltip(ref, tt)
-    tt:AddLine(slotLabels[ref] or ref)
-    local key = st.assign[ref]
-    if key then
-        tt:AddLine(coloredName(key))
-        for _, s in ipairs(S():GetPlayerSlots(st.strat, st.assign, key)) do
-            if s.ref ~= ref then tt:AddLine(s.label, 0.8, 0.8, 0.8) end
-        end
-    elseif st.mode ~= "edit" then
-        tt:AddLine("Not assigned", 0.6, 0.6, 0.6)
+-- A block reference in words: "Tanks · Gathios · Player", "Zones · Zone 1", "Tanks".
+function Board:LinkLabel(ref)
+    if slotLabels[ref] then return slotLabels[ref] end
+    local b, c = tostring(ref):match("^(%w+)%.(%d+)$")
+    local k = S():FindBlock(st.strat, b or ref)
+    if not k then return tostring(ref) end
+    if c then
+        local col = k.c[tonumber(c)]
+        return k.n .. " · " .. ((col and col.n) or ("column " .. c))
     end
+    return k.n
+end
+
+-- The player slots a reference covers (one slot, a column's slots, or a block's).
+local function slotsOf(ref)
+    local out = {}
+    for _, sl in ipairs(S():GetSlots(st.strat)) do
+        if MapUI():RefsOverlap(ref, sl.ref) then out[#out + 1] = sl end
+    end
+    return out
+end
+
+-- The text under a linked drawing: editing, the link itself; otherwise the names assigned to it.
+function Board:LinkText(ref)
+    if not st.strat then return nil end
+    if st.mode == "edit" then return "|cffb0b0b0-> " .. self:LinkLabel(ref) .. "|r" end
+    local names = {}
+    for _, sl in ipairs(slotsOf(ref)) do
+        local key = st.assign[sl.ref]
+        if key then
+            local name = coloredName(key)
+            if st.occ and not memberSet[key] then name = "|cffff5050" .. shortName(key) .. "|r" end
+            names[#names + 1] = name
+        end
+    end
+    if #names == 0 then return nil end
+    if #names > 6 then
+        local n = #names
+        for i = n, 6, -1 do names[i] = nil end
+        names[#names + 1] = grey("+" .. (n - 5))
+    end
+    return tconcat(names, ", ")
+end
+
+function Board:LinkTooltip(ref, tt)
+    tt:AddLine(self:LinkLabel(ref), 1, 0.82, 0)
+    local any = false
+    for _, sl in ipairs(slotsOf(ref)) do
+        local key = st.assign[sl.ref]
+        if key then
+            any = true
+            tt:AddLine(coloredName(key) .. (sl.ref ~= ref and grey("  " .. sl.label) or ""))
+        end
+    end
+    if not any and st.mode ~= "edit" then tt:AddLine("Not assigned", 0.6, 0.6, 0.6) end
+    if st.mode == "edit" then tt:AddLine("Right-click > Link to assignment to change it.", 0.6, 0.6, 0.6, true) end
+end
+
+function Board:SlotTooltip(ref, tt) return self:LinkTooltip(ref, tt) end
+
+-- Does a block reference exist in the shown strategy (pasting from another one)?
+function Board:ValidRef(ref)
+    local b, r, c = MapUI().ParseRef(ref)
+    local k = b and S():FindBlock(st.strat, b)
+    if not k then return false end
+    if r and r > k.r then return false end
+    if c and not k.c[c] then return false end
+    return true
 end
 
 ---------------------------------------------------------------------------
@@ -790,17 +965,24 @@ function Board:RefreshTools()
     if tools.mapBtn.SetDefaultText then tools.mapBtn:SetDefaultText("Map: " .. MapUI():MapName(p and p.m)) end
     if tools.mapBtn.SetText and not tools.mapBtn.SetDefaultText then tools.mapBtn:SetText("Map: " .. MapUI():MapName(p and p.m)) end
     local e = win.canvas:GetSelected()
+    local count = win.canvas:SelectionCount()
     tools.delBtn:SetEnabled(e ~= nil)
     tools.optBtn:SetEnabled(e ~= nil)
+    tools.undoBtn:SetEnabled(self:CanUndo())
+    tools.redoBtn:SetEnabled(self:CanRedo())
     local n = p and #p.e or 0
     local info
-    if e then
-        local names = { z = "Zone", a = e.h and "Arrow" or "Line", i = "Icon", x = "Text", s = "Slot" }
+    if e and count > 1 then
+        info = ("Selected: %d drawings%s"):format(count, e.g and " (a group)" or "") ..
+            grey("   Ctrl+G groups them; Shift-drag one onto a table to link them all.")
+    elseif e then
+        local names = { z = "Zone", a = e.h and "Arrow" or "Line", i = "Icon", x = "Text", s = "Name marker" }
+        local link = win.canvas:LinkOf(e)
         info = "Selected: " .. (names[e.t] or "?") .. (e.l and (" \"" .. e.l .. "\"") or "") ..
-            (e.t == "s" and (" -> " .. (slotLabels[e.r] or e.r)) or "") ..
-            (e.t == "z" and e.ln and grey("  linked to " .. e.ln) or "") .. grey("   Options... or right-click it for more.")
+            (link and ("  |cff33ff99-> " .. self:LinkLabel(link) .. "|r") or grey("  not linked")) ..
+            grey("   Right-click for options.")
     else
-        info = grey(("%d / %d drawings on this page. Right-click the map to pick it; the mouse wheel zooms."):format(n,
+        info = grey(("%d / %d drawings. Right-click the map to add or pick the map; the wheel zooms."):format(n,
             S().MAX_ELEMENTS))
     end
     tools.info:SetText(info)
@@ -934,6 +1116,7 @@ function Board:Refresh()
     win.blocks:Render()
 
     win.tools:SetShown(mode == "edit")
+    win:EnableKeyboard((mode == "edit" or mode == "fill") and not InCombatLockdown())
     win.pool:SetShown(mode == "fill")
     win.view:SetShown(mode == "view")
     if mode == "edit" then

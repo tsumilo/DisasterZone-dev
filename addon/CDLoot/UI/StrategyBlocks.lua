@@ -179,6 +179,10 @@ function Panel:ColumnMenu(root, page, k, ci)
         root:CreateButton("Move left", function()
             k.c[ci], k.c[ci - 1] = k.c[ci - 1], k.c[ci]
             for _, cells in pairs(k.d or {}) do cells[ci], cells[ci - 1] = cells[ci - 1], cells[ci] end
+            self:Remap(k, function(r, c)
+                if c == ci then return r, ci - 1 elseif c == ci - 1 then return r, ci end
+                return r, c
+            end)
             self:Changed()
         end)
     end
@@ -192,9 +196,83 @@ function Panel:ColumnMenu(root, page, k, ci)
                 end
                 k.d[row] = n
             end
+            self:Remap(k, function(r, c)
+                if c == ci then return nil end
+                return r, c > ci and c - 1 or c
+            end)
             self:Changed()
         end)
     end
+end
+
+-- Keeps drawings, name markers and target cells pointing at the same cells after rows / columns moved.
+function Panel:Remap(k, fn)
+    S():RemapBlockRefs(self.opts.strat(), k.id, function(r, c)
+        if r == nil then
+            local _, nc = fn(1, c)
+            return nil, nc
+        end
+        return fn(r, c)
+    end)
+end
+
+-- Row operations (edit mode): insert before / after, move, delete.
+function Panel:InsertRow(k, at)
+    if k.r >= S().MAX_ROWS then
+        ns:Print("A block holds at most %d rows.", S().MAX_ROWS)
+        return
+    end
+    local d = {}
+    for row, cells in pairs(k.d or {}) do d[row >= at and row + 1 or row] = cells end
+    k.d = next(d) and d or nil
+    k.r = k.r + 1
+    self:Remap(k, function(r, c) return r >= at and r + 1 or r, c end)
+    self:Changed()
+end
+
+function Panel:DeleteRow(k, row)
+    if k.r <= 1 then return end
+    local d = {}
+    for r, cells in pairs(k.d or {}) do
+        if r < row then d[r] = cells elseif r > row then d[r - 1] = cells end
+    end
+    k.d = next(d) and d or nil
+    k.r = k.r - 1
+    self:Remap(k, function(r, c)
+        if r == row then return nil end
+        return r > row and r - 1 or r, c
+    end)
+    self:Changed()
+end
+
+function Panel:SwapRows(k, a, b)
+    if a < 1 or b < 1 or a > k.r or b > k.r then return end
+    if k.d then k.d[a], k.d[b] = k.d[b], k.d[a] end
+    self:Remap(k, function(r, c)
+        if r == a then return b, c elseif r == b then return a, c end
+        return r, c
+    end)
+    self:Changed()
+end
+
+function Panel:RowMenu(owner, k, row)
+    UI():ContextMenu(owner, function(root)
+        root:CreateTitle(k.n .. " · row " .. row)
+        root:CreateButton("Insert a row above", function() self:InsertRow(k, row) end)
+        root:CreateButton("Insert a row below", function() self:InsertRow(k, row + 1) end)
+        if row > 1 then root:CreateButton("Move up", function() self:SwapRows(k, row, row - 1) end) end
+        if row < k.r then root:CreateButton("Move down", function() self:SwapRows(k, row, row + 1) end) end
+        if k.r > 1 then root:CreateButton("|cffff6060Delete row|r", function() self:DeleteRow(k, row) end) end
+    end)
+end
+
+function Panel:AddColumn(k, t)
+    if #k.c >= S().MAX_COLS then
+        ns:Print("A block holds at most %d columns.", S().MAX_COLS)
+        return
+    end
+    tinsert(k.c, { t = t, n = t == "p" and "Player" or (t == "g" and "Target" or nil) })
+    self:Changed()
 end
 
 function Panel:BlockMenu(owner, page, k, index)
@@ -217,23 +295,12 @@ function Panel:BlockMenu(owner, page, k, index)
                 function() k.cl = i; self:Changed() end)
         end
         local rows = root:CreateButton("Rows (" .. k.r .. ")")
-        rows:CreateButton("Add a row", function()
-            if k.r < S().MAX_ROWS then k.r = k.r + 1; self:Changed() end
-        end)
-        rows:CreateButton("Remove the last row", function()
-            if k.r > 1 then
-                if k.d then k.d[k.r] = nil end
-                k.r = k.r - 1
-                self:Changed()
-            end
-        end)
+        rows:CreateButton("Add a row", function() self:InsertRow(k, k.r + 1) end)
+        if k.r > 1 then rows:CreateButton("Remove the last row", function() self:DeleteRow(k, k.r) end) end
         if #k.c < S().MAX_COLS then
             local add = root:CreateButton("Add column")
             for _, t in ipairs({ "p", "g", "o", "x" }) do
-                add:CreateButton(COL_TYPE_NAME[t], function()
-                    tinsert(k.c, { t = t, n = t == "p" and "Player" or (t == "g" and "Target" or nil) })
-                    self:Changed()
-                end)
+                add:CreateButton(COL_TYPE_NAME[t], function() self:AddColumn(k, t) end)
             end
         end
         for ci, c in ipairs(k.c) do
@@ -345,6 +412,23 @@ function Panel:SlotMenu(owner, ref, filter)
     end)
 end
 
+-- What a drawing dragged onto the tables links to: a player slot, a column (its header) or a block (its title bar).
+function Panel:RefUnderCursor()
+    for _, b in ipairs(self.blocks) do
+        if b:IsShown() then
+            for _, cell in ipairs(b.cells) do
+                if cell:IsShown() and cell:IsMouseOver() then
+                    if cell.slotRef then return cell.slotRef end
+                    if cell.headRef then return cell.headRef end
+                    if cell.blockId then return cell.blockId end
+                end
+            end
+            if b.title:IsMouseOver() and b.blockId then return b.blockId end
+        end
+    end
+    return nil
+end
+
 -- The slot button under the cursor (drag and drop), or nil.
 function Panel:SlotUnderCursor()
     for _, b in ipairs(self.blocks) do
@@ -402,7 +486,24 @@ local function newCell(parent, panel)
     c:SetScript("OnEnter", cellTooltip)
     c:SetScript("OnLeave", cellLeave)
     c:SetScript("OnClick", function(self, button)
+        -- editing: right-click a row for insert / move / delete
+        if button == "RightButton" and self.rowMenu then return self.rowMenu(self) end
         if self.onClick then self.onClick(self, button) end
+    end)
+    -- editing: drag a player cell onto the map to show that player there
+    c:RegisterForDrag("LeftButton")
+    c:SetScript("OnDragStart", function(self)
+        local p = self.panel
+        if not (p and p:Mode() == "edit" and self.slotRef) then return end
+        p.dragRef = self.slotRef
+        if p.opts.onCellDragStart then p.opts.onCellDragStart(self.slotRef) end
+    end)
+    c:SetScript("OnDragStop", function(self)
+        local p = self.panel
+        local ref = p and p.dragRef
+        if not ref then return end
+        p.dragRef = nil
+        if p.opts.onCellDrop then p.opts.onCellDrop(ref) end
     end)
     return c
 end
@@ -512,6 +613,7 @@ function Panel:Render()
             if self.opts.onHover then self.opts.onHover(nil) end
         end)
         local by = TITLE_H
+        b.blockId = k.id
         -- column headers
         local widths = colWidths(k, width)
         local hasHead = mode == "edit"
@@ -534,7 +636,7 @@ function Panel:Render()
             c.fs:SetPoint("LEFT", 4, 0)
             c.fs:SetPoint("RIGHT", -2, 0)
             c.lit:Hide()
-            c.slotRef, c.hoverRef, c.tip, c.onClick = nil, nil, nil, nil
+            c.slotRef, c.hoverRef, c.tip, c.onClick, c.rowMenu, c.headRef, c.blockId = nil, nil, nil, nil, nil, nil, nil
             c:Show()
             return c
         end
@@ -546,8 +648,9 @@ function Panel:Render()
                 c.bg:SetColorTexture(0.18, 0.18, 0.18, 0.95)
                 c.fs:SetText("|cffffd100" .. (col.n or (mode == "edit" and grey(COL_TYPE_NAME[col.t]) or "")) .. "|r")
                 c.hoverRef = k.id .. "." .. ci
+                c.headRef = c.hoverRef
                 if mode == "edit" then
-                    c.tip = { COL_TYPE_NAME[col.t], "Click to change this column." }
+                    c.tip = { COL_TYPE_NAME[col.t], "Click to change this column. Drop a drawing here to link it to the column." }
                     c.onClick = function(btn)
                         UI():ContextMenu(btn, function(root)
                             root:CreateTitle(col.n or COL_TYPE_NAME[col.t])
@@ -566,6 +669,7 @@ function Panel:Render()
             for ci, col in ipairs(k.c) do
                 local c = cell(x, by, widths[ci])
                 local v = k.d and k.d[row] and k.d[row][ci]
+                if mode == "edit" then c.rowMenu = function(btn) self:RowMenu(btn, k, row) end end
                 if col.t == "o" then
                     c.fs:SetText(grey(row))
                 elseif col.t == "x" then
@@ -615,7 +719,7 @@ function Panel:Render()
                             else self:SlotMenu(btn, ref, col.f) end
                         end
                     elseif mode == "edit" then
-                        tip[#tip + 1] = "The raid leader fills this slot per raid. Click the column header to change who fits."
+                        tip[#tip + 1] = "The raid leader fills this slot per raid. Drag it onto the map to show the player there; right-click for row options."
                     end
                     c.tip = tip
                     self.cellByRef[ref] = self.cellByRef[ref] or {}
@@ -626,6 +730,29 @@ function Panel:Render()
             by = by + ROW_H
         end
         for i = used + 1, #b.cells do b.cells[i]:Hide() end
+        -- editing: + row / + column under the table
+        if mode == "edit" then
+            if not b.addRow then
+                b.addRow = UI():CreateButton(b, "+ row", 56, 16, function() self:InsertRow(b.cdlK, b.cdlK.r + 1) end)
+                b.addCol = UI():CreateMenuButton(b, "+ column", 84, function(root)
+                    for _, t in ipairs({ "p", "g", "o", "x" }) do
+                        root:CreateButton(COL_TYPE_NAME[t], function() self:AddColumn(b.cdlK, t) end)
+                    end
+                end)
+            end
+            b.cdlK = k
+            b.addRow:ClearAllPoints()
+            b.addRow:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -(by + 2))
+            b.addCol:ClearAllPoints()
+            b.addCol:SetPoint("LEFT", b.addRow, "RIGHT", 4, 0)
+            b.addCol:SetHeight(16)
+            b.addRow:Show()
+            b.addCol:Show()
+            by = by + 20
+        elseif b.addRow then
+            b.addRow:Hide()
+            b.addCol:Hide()
+        end
         b:SetHeight(by)
         b:Show()
         y = y + by + GAP

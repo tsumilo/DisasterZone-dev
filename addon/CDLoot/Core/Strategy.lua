@@ -237,14 +237,23 @@ local function CleanElement(e)
         out.l = CleanText(e.l, MAX_LABEL)
         if not out.l then return nil end
     end
+    -- any drawing can be linked to a block / column / slot, belong to a group, and (icons, zones) wear a raid mark
+    if e.ln ~= nil then
+        if not IsLinkRef(e.ln) then return nil end
+        out.ln = e.ln
+    end
+    if e.g ~= nil then
+        if not IsId(e.g, 6) then return nil end
+        out.g = e.g
+    end
+    if e.rm ~= nil then
+        if not IsInt(e.rm, 1, 8) then return nil end
+        out.rm = e.rm
+    end
     if t == "z" then
         if e.s ~= "c" and e.s ~= "r" then return nil end
         if not (IsInt(e.w, 4, BOARD_W) and IsInt(e.h, 4, BOARD_W)) then return nil end
         out.s, out.w, out.h = e.s, e.w, e.h
-        if e.ln ~= nil then
-            if not IsLinkRef(e.ln) then return nil end
-            out.ln = e.ln
-        end
     elseif t == "a" then
         if not (Coord(e.x2, BOARD_W) and Coord(e.y2, BOARD_H)) then return nil end
         out.x2, out.y2 = e.x2, e.y2
@@ -859,6 +868,52 @@ function Strategy:NewPartId(strat, prefix)
         if not used[id] then return id end
     end
     return nil
+end
+
+-- Rewrites the references into one block after its rows / columns changed. fn(row, col) -> newRow, newCol, or nil
+-- when that cell is gone. Covers drawings (links, slot tokens) and target cells showing a slot. A link to a whole
+-- column follows the column (fn(nil, col)).
+function Strategy:RemapBlockRefs(strat, blockId, fn)
+    local function map(ref)
+        if type(ref) ~= "string" then return ref end
+        local b, r, c = ref:match("^(%w+)%.(%d+)%.(%d+)$")
+        if b == blockId then
+            local nr, nc = fn(tonumber(r), tonumber(c))
+            return nr and SlotRef(b, nr, nc) or false
+        end
+        b, c = ref:match("^(%w+)%.(%d+)$")
+        if b == blockId then
+            local _, nc = fn(nil, tonumber(c))
+            return nc and (b .. "." .. nc) or false
+        end
+        return ref
+    end
+    for _, p in ipairs(type(strat) == "table" and strat.p or {}) do
+        local keep = {}
+        for _, e in ipairs(p.e or {}) do
+            local drop = false
+            if e.ln then
+                local n = map(e.ln)
+                e.ln = n or nil
+            end
+            if e.t == "s" then
+                local n = map(e.r)
+                if n then e.r = n else drop = true end
+            end
+            if not drop then keep[#keep + 1] = e end
+        end
+        p.e = keep
+        for _, k in ipairs(p.k or {}) do
+            for _, cells in pairs(k.d or {}) do
+                for _, v in pairs(cells) do
+                    if type(v) == "table" and v.s then
+                        local n = map(v.s)
+                        v.s = n or nil
+                    end
+                end
+            end
+        end
+    end
 end
 
 -- An unsaved strategy for a boss (one page P1, map picked by the UI).
