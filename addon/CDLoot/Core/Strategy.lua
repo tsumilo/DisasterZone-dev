@@ -844,7 +844,7 @@ end
 local function Commit(root, kind, rec)
     local now = Now()
     local clean = kind == "B" and CleanStrategy(rec, now) or CleanFill(rec, now)
-    if not clean then return false, "invalid strategy data" end
+    if not clean then return false, kind == "B" and Strategy:Explain(rec) or "invalid assignment data" end
     if not root[kind][clean.id] and CountTable(root[kind]) >= CAP[kind] then
         return false, kind == "B" and "too many strategies (delete some old ones)" or "too many assignments stored"
     end
@@ -928,8 +928,36 @@ function Strategy:Validate(draft)
     r.id = r.id or "draft"
     r.rev, r.by = Now(), Util.PlayerKey() or "x-y"
     local clean = CleanStrategy(r, Now())
-    if not clean then return nil, "Something in this strategy is not valid (check names and labels: no | characters)." end
+    if not clean then return nil, self:Explain(r) end
     return clean
+end
+
+-- What makes a draft invalid, in words (the first problem found).
+function Strategy:Explain(r)
+    if not IsBossRef(r.b) then return "no boss" end
+    if not CleanText(r.n, MAX_NAME_LEN) then return "the name must be 1-32 characters without |" end
+    if type(r.p) ~= "table" or #r.p == 0 then return "no pages" end
+    if #r.p > MAX_PAGES then return "at most " .. MAX_PAGES .. " pages" end
+    local blockIds = {}
+    for pi, p in ipairs(r.p) do
+        local where = "page " .. tostring(p.n or pi)
+        if not CleanText(p.n, MAX_PAGE_NAME) then return where .. ": the page name must be 1-24 characters" end
+        if type(p.no) == "string" and (#p.no > 400 or p.no:find("|")) then
+            return where .. ": the notes are " .. #p.no .. " characters (at most 400, no |)"
+        end
+        if #(p.e or {}) > MAX_ELEMENTS then return where .. ": more than " .. MAX_ELEMENTS .. " drawings" end
+        for ei, e in ipairs(p.e or {}) do
+            if not CleanElement(e) then
+                return where .. ": drawing " .. ei .. (e.l and (" (" .. tostring(e.l) .. ")") or "") .. " is not valid"
+            end
+        end
+        for _, k in ipairs(p.k or {}) do
+            if not CleanBlock(k) then return where .. ": the block \"" .. tostring(k.n) .. "\" is not valid" end
+            if blockIds[k.id] then return where .. ": two blocks share the id " .. tostring(k.id) end
+            blockIds[k.id] = true
+        end
+    end
+    return "something in this strategy is not valid"
 end
 
 -- Saves a draft (new when draft.id is nil). Returns ok, idOrErr.

@@ -33,6 +33,7 @@ Data\ItemClasses.lua
 Data\Changelog.lua
 Data\BossPortraits.lua
 Data\RaidMaps.lua
+Data\StarterStrategies.lua
 Core\ItemDB.lua
 Core\DB.lua
 Core\Guild.lua

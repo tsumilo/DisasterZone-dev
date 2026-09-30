@@ -552,6 +552,72 @@ function Board:OpenStrategy(id, mode)
     end)
 end
 
+-- The starter strategy of a boss (Data/StarterStrategies.lua) as a draft: map file names -> map ids, "@Creature"
+-- icon keys -> that creature's portrait. nil when the boss has none.
+function Board:StarterDraft(bossRef)
+    local src = ns.Data and ns.Data.StarterStrategies and ns.Data.StarterStrategies[bossRef]
+    if not src then return nil end
+    local d = ns.Util.CopyTable(src)
+    d.b = bossRef
+    local portraits = {}
+    local raidKey = bossRef:match("^(%w+):")
+    for ref, list in pairs(ns.Data.BossPortraits or {}) do
+        if ref:match("^(%w+):") == raidKey then
+            for _, c in ipairs(list) do portraits[c.n] = portraits[c.n] or c.d end
+        end
+    end
+    local function icon(key)
+        local name = type(key) == "string" and key:match("^@(.+)$")
+        if not name then return key end
+        return portraits[name] and ("boss:" .. portraits[name]) or "rt8"
+    end
+    for _, p in ipairs(d.p or {}) do
+        if p.map then
+            p.m = 0
+            for _, m in ipairs(ns.Data.RaidMaps or {}) do
+                if m.file == p.map then p.m = m.id end
+            end
+            p.map = nil
+        end
+        p.m = p.m or 0
+        for _, e in ipairs(p.e or {}) do
+            if e.i then e.i = icon(e.i) end
+        end
+        for _, k in ipairs(p.k or {}) do
+            if k.i then k.i = icon(k.i) end
+            for _, cells in pairs(k.d or {}) do
+                for _, v in pairs(cells) do
+                    if type(v) == "table" and v.i then v.i = icon(v.i) end
+                end
+            end
+        end
+    end
+    return d
+end
+
+function Board:HasStarter(bossRef)
+    return ns.Data ~= nil and ns.Data.StarterStrategies ~= nil and ns.Data.StarterStrategies[bossRef] ~= nil
+end
+
+-- Opens a boss' starter strategy as an unsaved draft (authors): adjust it, then Save to share it.
+function Board:NewFromStarter(bossRef)
+    if not canEdit() then
+        ns:Print("Only the Guild Master, the guild council and the raid leaders can build strategies.")
+        return
+    end
+    local d = self:StarterDraft(bossRef)
+    if not d then return end
+    whenClean(function()
+        st.strat = d
+        st.occ, st.boss, st.page, st.assign, st.picked = nil, bossRef, 1, {}, nil
+        st.mode = "edit"
+        st.dirty = true
+        Board:ResetHistory()
+        show()
+        ns:Print("Starter strategy loaded for %s: change what you like, then Save to share it.", S():GetBossName(bossRef))
+    end)
+end
+
 -- A new strategy for a boss (authors).
 function Board:NewStrategy(bossRef, name)
     if not canEdit() then
