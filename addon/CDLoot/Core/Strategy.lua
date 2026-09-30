@@ -105,10 +105,12 @@ local function IsOccId(s)
     return type(s) == "string" and #s <= MAX_ID_LEN + 6 and (s:find("^%w+$") or s:find("^%w+#%d+$")) ~= nil
 end
 
--- Icon keys: rt1..rt8 (raid marks), cls:<CLASS>, role:<role>, i:<file name under Interface\Icons>.
+-- Icon keys: rt1..rt8 (raid marks), cls:<CLASS>, role:<role>, i:<file name under Interface\Icons>, sp:<spell id>,
+-- it:<item id>, boss:<creature display id> (a boss portrait).
 local function IsIconKey(s)
     if type(s) ~= "string" or #s > MAX_ICON then return false end
-    if s:find("^rt[1-8]$") then return true end
+    if s:find("^rt[1-8]$") or s:find("^sp:%d%d?%d?%d?%d?%d?$") or s:find("^it:%d%d?%d?%d?%d?%d?$")
+        or s:find("^boss:%d%d?%d?%d?%d?%d?%d?$") then return true end
     local cls = s:match("^cls:(%u+)$")
     if cls then return ns.SPECS ~= nil and ns.SPECS[cls] ~= nil end
     local role = s:match("^role:(%l+)$")
@@ -129,6 +131,7 @@ local function SlotRef(b, r, c)
 end
 Strategy.SlotRef = SlotRef
 Strategy.SplitSlot = SplitSlot
+Strategy.IsIconKey = IsIconKey
 
 -- A link from a zone: "<block>", "<block>.<col>" or "<block>.<row>.<col>".
 local function IsLinkRef(s)

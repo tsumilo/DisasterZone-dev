@@ -113,6 +113,8 @@ EXTRA_KNOWN_FIELDS = {
     "C_ChatInfo": {"SendAddonMessageLogged", "SendAddonMessage", "RegisterAddonMessagePrefix",
                    "IsAddonMessagePrefixRegistered", "GetRegisteredAddonMessagePrefixes"},
     "C_Timer": {"After", "NewTimer", "NewTicker"},
+    # map art tiles (Blizzard_MapCanvas' detail layer; Leatrix_Maps calls GetMapArtLayers on this client)
+    "C_Map": {"GetMapArtLayers", "GetMapArtLayerTextures"},
 }
 # Globals owned by addons in the TOC's OptionalDeps: reported as INFO (must be nil-guarded), not as unknown.
 OPTIONAL_DEP_PREFIXES = {"LoonBestInSlot": ("LBIS", "LoonBestInSlot")}

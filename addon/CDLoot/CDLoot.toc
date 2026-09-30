@@ -31,6 +31,7 @@ Data\Dungeons.lua
 Data\Sources.lua
 Data\ItemClasses.lua
 Data\Changelog.lua
+Data\BossPortraits.lua
 Core\ItemDB.lua
 Core\DB.lua
 Core\Guild.lua
@@ -63,6 +64,10 @@ UI\LootLog.lua
 UI\RaidGroups.lua
 UI\RaidPlanUI.lua
 UI\RaidLeadersUI.lua
+UI\StrategyMap.lua
+UI\StrategyBlocks.lua
+UI\StrategyBoard.lua
+UI\StrategiesView.lua
 UI\RaidsTab.lua
 UI\SessionBar.lua
 UI\DropPanel.lua

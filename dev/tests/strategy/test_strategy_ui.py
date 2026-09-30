@@ -1,0 +1,292 @@
+"""ADDENDUM K: strategy board UI (Raids > Strategies, the board window, a raid's Assignments tab), on the real addon.
+
+Covers: the Strategies view (authors vs members), building a strategy in the board (new through the prompt, the
+instance map as background, a block from a template, a zone linked to a column, pages, Save reaching everyone), the
+raid's Assignments tab, filling (Suggest fill, a slot's player menu, click-to-place from the pool, Save), raiders seeing
+their jobs and slot tokens with names, carry over to next week's raid, and the unsaved-changes guard.
+
+Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy_ui.py [-k name]
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+from st_common import world, K, DAY, now, create, signup, save_council, strategies, get_fill  # noqa: E402
+from _common import case, run_all, strip_codes, menu_texts  # noqa: E402
+
+BOSS = "BlackTemple:Council"
+P = "ns.RaidsUI:GetPanel()"
+W = "_G.CDLootStrategyBoard"
+
+HELPERS = r"""
+function T_menu_prefix(prefix)
+  local found
+  local function strip(s) return (s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "") end
+  local function walk(d)
+    for _, c in ipairs(d.children) do
+      if found then return end
+      local t = strip(c.text)
+      if t:sub(1, #prefix) == prefix and (c.callback or c.setSelected) then found = c; return end
+      walk(c)
+    end
+  end
+  walk(__MOCK.last_menu)
+  if not found then error("no menu entry starting with " .. prefix) end
+  return __MOCK.menu_select(found.text, found.parent)
+end
+function T_cell(ref)
+  for _, b in ipairs(_G.CDLootStrategyBoard.blocks.blocks) do
+    for _, c in ipairs(b.cells) do
+      if c:IsShown() and c.slotRef == ref then return c end
+    end
+  end
+end
+"""
+
+
+def names():
+    return (("Gina", 0, "PALADIN"), ("Bob", 1, "MAGE"), ("Lee", 3, "WARRIOR"), ("Rita", 3, "PRIEST"),
+            ("Sam", 3, "ROGUE"), ("Hana", 3, "HUNTER"), ("Hugo", 3, "HUNTER"))
+
+
+def setup():
+    w, c = world(names())
+    for x in c.values():
+        x.eval(HELPERS)
+    return w, c
+
+
+def shown(cl, expr):
+    return cl.eval("local f = %s; return f ~= nil and f:IsShown() and f:IsVisible()" % expr) is True
+
+
+def board(cl):
+    return cl.eval_py("local s = ns.StrategyBoard:GetState(); return { mode = s.mode, occ = s.occ, boss = s.boss, "
+                      "page = s.page, dirty = s.dirty, assign = s.assign, name = s.strat and s.strat.n, "
+                      "id = s.strat and s.strat.id }")
+
+
+def open_strategies(w, cl):
+    cl.slash("/cdl raids")
+    w.tick(0.5)
+    cl.eval("ns.RaidsUI:SetView('strategies')")
+    w.tick(0.5)
+    assert shown(cl, P + ".strategies")
+
+
+def prompt_answer(w, cl, text):
+    assert shown(cl, "_G.CDLootStrategyPrompt")
+    cl.type_text(cl.eval("return _G.CDLootStrategyPrompt.edit"), text, enter=True)
+    w.tick(0.3)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+@case
+def author_builds_a_strategy_in_the_board():
+    w, c = setup()
+    bob, rita = c["Bob"], c["Rita"]
+    open_strategies(w, rita)
+    rita.eval("ns.StrategiesUI:SelectBoss(...)", BOSS)
+    assert not shown(rita, P + ".strategies.detail.newBtn")
+    assert rita.find_text("No strategy for this boss yet", True, True)
+    open_strategies(w, bob)
+    bob.eval("ns.StrategiesUI:SelectBoss(...)", BOSS)
+    assert shown(bob, P + ".strategies.detail.newBtn")
+    bob.click(bob.eval("return %s.strategies.detail.newBtn" % P))
+    w.tick(0.2)
+    prompt_answer(w, bob, "25 farm")
+    st = board(bob)
+    assert st["mode"] == "edit" and st["name"] == "25 farm" and st["boss"] == BOSS and st["dirty"], st
+    assert shown(bob, W)
+    # the first Black Temple floor is the background, drawn from its 12 tiles
+    assert bob.eval("return ns.StrategyBoard:GetState().strat.p[1].m") == 339
+    assert bob.eval("local n = 0; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then n = n + 1 end end; return n" % W) == 12
+    assert bob.find_text("Black Temple - Illidari Training Grounds", True, True)
+    # a block from a template
+    bob.click(bob.eval("return %s.blocks.addBtn" % W))
+    bob.eval("T_menu_prefix('Players with targets')")
+    w.tick(0.2)
+    k = bob.eval_py("return ns.StrategyBoard:GetState().strat.p[1].k[1]")
+    assert k["n"] == "Assignments" and k["r"] == 4 and [x["t"] for x in k["c"]] == ["p", "g"], k
+    assert bob.eval("return T_cell('k1.1.1') ~= nil") is True
+    # a zone, then linked to the block's player column from its menu
+    bob.eval("local cv = %s.canvas; local e = cv:Add({ t = 'z', s = 'c', x = 300, y = 300, w = 100, h = 100, c = 2 });"
+             " cv:Changed(); cv:Select(e); cv:ElementMenu(e)" % W)
+    bob.eval("T_menu_prefix('Assignments · Player')")
+    w.tick(0.2)
+    assert bob.eval("return ns.StrategyBoard:GetState().strat.p[1].e[1].ln") == "k1.1"
+    # hovering the column lights the zone
+    bob.eval("%s.blocks.opts.onHover('k1.1')" % W)
+    assert bob.eval("local cv = %s.canvas; return cv.lit ~= nil and cv.lit[cv.page.e[1]] == true" % W) is True
+    # a second page
+    bob.click(bob.eval("return %s.addPage" % W))
+    w.tick(0.2)
+    assert board(bob)["page"] == 2
+    assert bob.eval("return #ns.StrategyBoard:GetState().strat.p") == 2
+    # Save: view mode, and everyone has it
+    bob.click(bob.eval("return %s.saveBtn" % W))
+    w.tick(2)
+    st = board(bob)
+    assert st["mode"] == "view" and not st["dirty"] and st["id"], st
+    for n in ("Rita", "Sam", "Gina"):
+        ss = strategies(c[n], BOSS)
+        assert len(ss) == 1 and ss[0]["n"] == "25 farm" and ss[0]["p"][0]["e"][0]["ln"] == "k1.1", (n, ss)
+    rita.eval("ns.StrategiesUI:RefreshLibrary()")
+    assert rita.find_text("25 farm", True, True)
+    w.assert_no_errors()
+
+
+@case
+def raid_leader_fills_and_raiders_see_their_jobs():
+    w, c = setup()
+    bob, rita, hana = c["Bob"], c["Rita"], c["Hana"]
+    sid = save_council(bob)
+    occ = create(bob, i="bt", t=now(bob) + DAY)
+    w.tick(2)
+    signup(c["Hana"], occ, "A")
+    signup(c["Hugo"], occ, "A")
+    signup(c["Lee"], occ, "A", 3)      # Protection
+    signup(c["Gina"], occ, "A", 2)     # Protection
+    w.tick(2)
+    # a member sees the raid's Assignments tab (no Assign button)
+    rita.slash("/cdl raids")
+    w.tick(0.5)
+    rita.eval("ns.RaidPlanUI:SelectRaid(...); ns.RaidPlanUI:SetDetailTab('assign')", occ)
+    w.tick(0.3)
+    assert rita.find_text("0 / 10 slots filled", True, True)
+    assert rita.find_text("The Illidari Council", True, True)
+    # the raid leader assigns
+    bob.eval("ns.StrategyBoard:OpenRaid(...)", occ, BOSS, "fill")
+    w.tick(0.3)
+    st = board(bob)
+    assert st["mode"] == "fill" and st["id"] == sid, st
+    assert bob.eval("local n = 0; for _, ch in ipairs(%s.pool.chips) do if ch:IsShown() then n = n + 1 end end; return n" % W) == 4
+    bob.click(bob.eval("return %s.pool.suggestBtn" % W))
+    a = board(bob)["assign"]
+    assert {a["tk.1.1"], a["tk.2.1"]} == {K("Lee"), K("Gina")}, a
+    assert {a["md.1.2"], a["md.2.2"]} == {K("Hana"), K("Hugo")}, a
+    # an open zone slot: its menu lists the raid's players
+    bob.click(bob.eval("return T_cell('zn.1.1')"))
+    texts = [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]
+    assert "Sam" not in texts and "Hana  (1)" in texts, texts
+    bob.eval("T_menu_prefix('Hana')")
+    # click-to-place: pick Lee in the pool, then click a slot
+    bob.eval("for _, ch in ipairs(%s.pool.chips) do if ch.key == ... then ch:Click() end end" % W, K("Lee"))
+    bob.click(bob.eval("return T_cell('zn.1.2')"))
+    a = board(bob)["assign"]
+    assert a["zn.1.1"] == K("Hana") and a["zn.1.2"] == K("Lee"), a
+    # right-click clears
+    bob.click(bob.eval("return T_cell('zn.1.2')"), "RightButton")
+    assert "zn.1.2" not in board(bob)["assign"]
+    bob.click(bob.eval("return %s.saveBtn" % W))
+    w.tick(2)
+    assert board(bob)["mode"] == "view"
+    f = get_fill(rita, occ, BOSS)
+    assert f["s"] == sid and f["a"]["zn.1.1"] == K("Hana") and len(f["a"]) == 5, f
+    # the member's tab counts it
+    rita.eval("ns.RaidPlanUI:RefreshUpcoming()")
+    assert rita.find_text("5 / 10 slots filled", True, True)
+    # Hana opens the board: her jobs, and the slot token shows the tank's name
+    hana.eval("ns.StrategyBoard:OpenRaid(...)", occ, BOSS)
+    w.tick(0.3)
+    mine = strip_codes(hana.eval("return %s.view.mine:GetText()" % W))
+    assert "Misdirects" in mine and "Zones · #1 · Zone 1" in mine, mine
+    tank = strip_codes(hana.eval("return ns.StrategyBoard:SlotTokenText('tk.1.1')"))
+    assert tank in ("Lee", "Gina"), tank
+    assert not shown(hana, W + ".fillBtn") and not shown(hana, W + ".editBtn")
+    # next week: carry over
+    occ2 = create(bob, i="bt", t=now(bob) + 8 * DAY)
+    w.tick(2)
+    bob.eval("ns.StrategyBoard:OpenRaid(...)", occ2, BOSS, "fill")
+    w.tick(0.3)
+    assert board(bob)["assign"] == {}
+    bob.click(bob.eval("return %s.pool.carryBtn" % W))
+    a = board(bob)["assign"]
+    assert a == f["a"], a
+    # nobody signed up for that raid: the carried names show as missing (red)
+    assert "ff5050" in bob.eval("return T_cell('zn.1.1').fs:GetText()")
+    w.assert_no_errors()
+
+
+@case
+def unsaved_changes_are_guarded():
+    w, c = setup()
+    bob = c["Bob"]
+    sid = save_council(bob)
+    w.tick(1)
+    bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
+    w.tick(0.2)
+    bob.eval("local s = ns.StrategyBoard:GetState(); s.strat.n = 'Changed'; ns.StrategyBoard:MarkDirty()")
+    bob.eval("ns.StrategyBoard:NewStrategy('BlackTemple:Illidan', 'Other')")
+    w.tick(0.2)
+    assert "CDLOOT_PLAN_CONFIRM" in bob.popups()
+    assert board(bob)["name"] == "Changed"          # nothing dropped yet
+    # closing keeps the draft; reopening the same strategy resumes it
+    bob.eval("ns.StrategyBoard:Close()")
+    bob.eval("ns.StrategyBoard:OpenStrategy(...)", sid)
+    st = board(bob)
+    assert st["name"] == "Changed" and st["dirty"] and st["mode"] == "edit", st
+    # Cancel drops it
+    bob.click(bob.eval("return %s.cancelBtn" % W))
+    st = board(bob)
+    assert st["name"] == "25 farm" and not st["dirty"] and st["mode"] == "view", st
+    w.assert_no_errors()
+
+
+@case
+def members_view_only():
+    w, c = setup()
+    bob, sam = c["Bob"], c["Sam"]
+    sid = save_council(bob)
+    w.tick(2)
+    sam.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
+    w.tick(0.2)
+    assert board(sam)["mode"] == "view"
+    assert not shown(sam, W + ".editBtn") and not shown(sam, W + ".saveBtn")
+    assert not shown(sam, W + ".tools")
+    # page 2 shows its notes; the tabs switch pages
+    sam.eval("ns.StrategyBoard:GetState().page = 2; ns.StrategyBoard:Refresh()")
+    assert sam.find_text("Dampen magic pre-pull", True, True)
+    sam.eval("ns.StrategyBoard:NewStrategy(...)", BOSS)
+    assert board(sam)["id"] == sid                   # refused: not an author
+    w.assert_no_errors()
+
+
+@case
+def boss_portraits_icon_resize_and_map_fallback():
+    w, c = setup()
+    bob = c["Bob"]
+    # a floor the client names differently still counts through the raid's known map ids
+    bob.eval("__MOCK.dungeon_maps[342] = { name = 'Den of Mortal Delights', floor = 'x', group = 2 }")
+    ids = bob.eval_py("local out = {}; for _, m in ipairs(ns.StrategyMapUI:MapsFor('BlackTemple:Council')) do "
+                      "out[#out + 1] = m.id end; return out")
+    assert ids == [339, 340, 341, 342], ids
+    assert bob.eval_py("return ns.StrategyMapUI:MapsFor('Karazhan:Attumen')") == []
+    bob.eval("ns.StrategyBoard:NewStrategy(...)", BOSS, "Portraits")
+    w.tick(0.2)
+    # the icon menu offers this encounter's portraits only
+    bob.eval("local cv = %s.canvas; cv:SetTool('icon'); cv:OnMouseDown('LeftButton')" % W)
+    texts = [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]
+    assert "This boss: The Illidari Council" in texts, texts
+    assert [t for t in texts if t.startswith("The Illidari Council ")] == ["The Illidari Council %d" % i for i in range(1, 5)]
+    assert not any("Illidan" in t for t in texts)
+    bob.eval("T_menu_prefix('The Illidari Council 2')")
+    e = bob.eval_py("return ns.StrategyBoard:GetState().strat.p[1].e[1]")
+    assert e["t"] == "i" and e["i"] == "boss:21417" and e["z"] == 48, e
+    assert bob.eval("for _, o in ipairs(%s.canvas.pools.icon) do if o.tex:IsShown() then return o.tex:GetTexture() end end" % W) \
+        == "portrait:21417"
+    # the selected icon has a resize handle at its corner
+    assert bob.eval("local cv = %s.canvas; local e = cv.page.e[1]; return cv:HandleAt(e.x + 24, e.y + 24)" % W) == "isize"
+    # a boss without portrait data has no such section
+    assert bob.eval_py("return ns.StrategyMapUI:BossPortraits('Karazhan:Chess')") == []
+    # the portrait survives validation and saving
+    bob.click(bob.eval("return %s.saveBtn" % W))
+    w.tick(2)
+    assert strategies(c["Sam"], BOSS)[0]["p"][0]["e"][0]["i"] == "boss:21417"
+    w.assert_no_errors()
+
+
+if __name__ == "__main__":
+    run_all()

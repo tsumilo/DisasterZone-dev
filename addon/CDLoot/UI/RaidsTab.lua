@@ -1,6 +1,8 @@
 -- CDLoot: "Raids" tab. Three views (Addendum J §58):
 --   Upcoming - planned raids and sign-ups (everyone; UI/RaidPlanUI.lua)
 --   Teams    - the raid teams (everyone can look; organizers edit; UI/RaidPlanUI.lua)
+--   Strategies - the strategy boards per boss (everyone can look; GM, council and raid leaders build; Addendum K,
+--               UI/StrategiesView.lua)
 --   Raid log - council only (Addendum I §51), with two modes:
 --     Raids   - the raid sessions (newest first) and, for the selected one, its boss timeline, attendance (with
 --               bench marks, right-click to change) and the awards made during it.
@@ -298,6 +300,7 @@ local function updateToolbar(p)
     local log = state.view == "log"
     p.upcomingBtn:SetEnabled(state.view ~= "upcoming")
     p.teamsBtn:SetEnabled(state.view ~= "teams")
+    p.stratBtn:SetEnabled(state.view ~= "strategies")
     p.logBtn:SetShown(isCouncil())
     p.logBtn:SetEnabled(not log)
     p.raidsBtn:SetShown(log)
@@ -340,8 +343,10 @@ function RaidsUI:CreatePanel(parent)
     p.upcomingBtn:SetPoint("TOPLEFT", 8, -6)
     p.teamsBtn = UI:CreateButton(p, "Teams", 70, 22, function() RaidsUI:SetView("teams") end)
     p.teamsBtn:SetPoint("LEFT", p.upcomingBtn, "RIGHT", 4, 0)
+    p.stratBtn = UI:CreateButton(p, "Strategies", 86, 22, function() RaidsUI:SetView("strategies") end)
+    p.stratBtn:SetPoint("LEFT", p.teamsBtn, "RIGHT", 4, 0)
     p.logBtn = UI:CreateButton(p, "Raid log", 80, 22, function() RaidsUI:SetView("log") end)
-    p.logBtn:SetPoint("LEFT", p.teamsBtn, "RIGHT", 4, 0)
+    p.logBtn:SetPoint("LEFT", p.stratBtn, "RIGHT", 4, 0)
 
     p.raidsBtn = UI:CreateButton(p, "Raids", 70, 22, function() state.mode = "raids"; RaidsUI:Refresh() end)
     p.raidsBtn:SetPoint("LEFT", p.logBtn, "RIGHT", 24, 0)
@@ -378,6 +383,9 @@ function RaidsUI:CreatePanel(parent)
     p.teams = PlanUI:CreateTeams(p)
     p.teams:SetPoint("TOPLEFT", 0, -36)
     p.teams:SetPoint("BOTTOMRIGHT", 0, 4)
+    p.strategies = ns.StrategiesUI:CreateLibrary(p)
+    p.strategies:SetPoint("TOPLEFT", 0, -36)
+    p.strategies:SetPoint("BOTTOMRIGHT", 0, 4)
 
     p.raidList = UI:CreateScrollList(p, RAID_ROW_H, initRaidRow)
     p.raidList.frame:SetPoint("TOPLEFT", 0, -36)
@@ -406,11 +414,14 @@ function RaidsUI:Refresh()
     local log = state.view == "log"
     panel.upcoming:SetShown(state.view == "upcoming")
     panel.teams:SetShown(state.view == "teams")
+    panel.strategies:SetShown(state.view == "strategies")
     local raidsMode = state.mode == "raids"
     panel.raidList.frame:SetShown(log and raidsMode)
     panel.detail.frame:SetShown(log and raidsMode)
     panel.players.frame:SetShown(log and not raidsMode)
-    if not log then
+    if state.view == "strategies" then
+        ns.StrategiesUI:RefreshLibrary()
+    elseif not log then
         ns.RaidPlanUI:Refresh()
     elseif raidsMode then
         local raids = RL():GetRaids()
@@ -449,9 +460,9 @@ function RaidsUI:SetMode(mode, range)
     self:Refresh()
 end
 
--- "upcoming" | "teams" | "log" (the log is council only).
+-- "upcoming" | "teams" | "strategies" | "log" (the log is council only).
 function RaidsUI:SetView(view)
-    if view ~= "teams" and view ~= "log" then view = "upcoming" end
+    if view ~= "teams" and view ~= "log" and view ~= "strategies" then view = "upcoming" end
     state.view = view
     self:Refresh()
 end

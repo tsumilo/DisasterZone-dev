@@ -148,6 +148,8 @@ function GetSpellInfo(id)
   return "Spell " .. tostring(id), nil, 136243, 0, 0, 0, tonumber(id) or 0
 end
 function GetSpellTexture() return 136243 end
+-- unit-frame style round portrait of a creature display id (recorded as the texture for tests)
+function SetPortraitTextureFromCreatureDisplayID(tex, displayID) tex:SetTexture("portrait:" .. tostring(displayID)) end
 function GetSpellLink(id) return "|cff71d5ff|Hspell:" .. tostring(id) .. "|h[Spell " .. tostring(id) .. "]|h|r" end
 function IsSpellKnown() return false end
 function IsPlayerSpell() return false end
@@ -612,10 +614,41 @@ function GetZoneText() return GetRealZoneText() end
 function GetSubZoneText() return "" end
 function GetMinimapZoneText() return GetRealZoneText() end
 function GetZonePVPInfo() return "sanctuary" end
+-- A few instance floors with map art (Enum.UIMapType.Dungeon = 4), as the strategy boards read them: 3 floors of
+-- Black Temple in one map group, 1002 x 668 layers of 256px tiles (4 x 3 = 12 file ids each).
+M.dungeon_maps = {
+  [339] = { name = "Black Temple", floor = "Illidari Training Grounds", group = 1 },
+  [340] = { name = "Black Temple", floor = "Karabor Sewers", group = 1 },
+  [341] = { name = "Black Temple", floor = "Chamber of Command", group = 1 },
+}
 C_Map = {
   GetBestMapForUnit = function(unit) if unit_rec(unit) then return M.W.instance and M.W.instance.uiMapID or 1955 end end,
-  GetMapInfo = function(id) return { mapID = id, name = GetRealZoneText(), mapType = 3, parentMapID = 0 } end,
+  GetMapInfo = function(id)
+    local d = M.dungeon_maps[id]
+    if d then return { mapID = id, name = d.name, mapType = 4, parentMapID = 1946, flags = 0 } end
+    return { mapID = id, name = GetRealZoneText(), mapType = 3, parentMapID = 0 }
+  end,
   GetPlayerMapPosition = function() return nil end,
+  GetMapGroupID = function(id) local d = M.dungeon_maps[id]; return d and d.group or nil end,
+  GetMapGroupMembersInfo = function(gid)
+    local out = {}
+    for id, d in pairs(M.dungeon_maps) do
+      if d.group == gid then out[#out + 1] = { mapID = id, relativeHeightIndex = id - 338, name = d.floor } end
+    end
+    table.sort(out, function(a, b) return a.mapID < b.mapID end)
+    return out
+  end,
+  GetMapArtLayers = function(id)
+    if not M.dungeon_maps[id] then return {} end
+    return { { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256, minScale = 1, maxScale = 1,
+               additionalZoomSteps = 0 } }
+  end,
+  GetMapArtLayerTextures = function(id, layer)
+    if not M.dungeon_maps[id] or layer ~= 1 then return {} end
+    local out = {}
+    for i = 1, 12 do out[i] = 200000 + id * 100 + i end
+    return out
+  end,
 }
 
 ---------------------------------------------------------------------------------------------------

@@ -6,6 +6,23 @@
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "0.8.0", date = "30 September 2026", title = "Strategy boards",
+      sections = {
+          { heading = "Strategy boards (Raids > Strategies)", lines = {
+              "Build a strategy per boss: the instance map with zones, arrows, lines, icons and text.",
+              "Boss portraits of the encounter you're planning, raid marks, class, role and spell icons.",
+              "Blocks of jobs: players with targets, rotations, zones, pairs, single jobs and notes.",
+              "Slots can be limited to classes or roles; zones can link to a block's column.",
+              "Several pages per boss for the phases of a fight.",
+              "The Guild Master, the guild council and the raid leaders build them; everyone can look.",
+          } },
+          { heading = "Assignments per raid", lines = {
+              "A planned raid has an Assignments tab: every boss, its strategy and how many slots are filled.",
+              "Raid leaders drag players into slots, carry over last week's names or use Suggest fill.",
+              "Players missing from the raid show in red; double jobs in a block in orange.",
+              "Open a boss to see the board with everyone's names and your own jobs.",
+          } },
+      } },
     { version = "0.7.1", date = "29 September 2026", title = "Council Bingo makeover",
       sections = {
           { heading = "Council Bingo", lines = {

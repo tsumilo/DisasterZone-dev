@@ -880,7 +880,7 @@ function PlanUI:CreateUpcoming(parent)
     d.sub:SetWordWrap(false)
     d.note = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     d.note:SetPoint("TOPLEFT", 2, -40)
-    d.note:SetPoint("RIGHT", -176, 0)
+    d.note:SetPoint("RIGHT", -276, 0)
 
     -- Sign-ups / Groups tabs
     local function tab(label, key)
@@ -891,8 +891,12 @@ function PlanUI:CreateUpcoming(parent)
         b.key = key
         return b
     end
+    -- Addendum K: the raid's strategy boards (who does what on each boss)
+    d.tabAssign = tab("Assignments", "assign")
+    d.tabAssign:SetWidth(96)
+    d.tabAssign:SetPoint("TOPRIGHT", -2, -34)
     d.tabGroups = tab("Groups", "groups")
-    d.tabGroups:SetPoint("TOPRIGHT", -2, -34)
+    d.tabGroups:SetPoint("RIGHT", d.tabAssign, "LEFT", -4, 0)
     d.tabSignups = tab("Sign-ups", "signups")
     d.tabSignups:SetPoint("RIGHT", d.tabGroups, "LEFT", -4, 0)
     d.note:SetJustifyH("LEFT")
@@ -981,6 +985,9 @@ function PlanUI:CreateUpcoming(parent)
     d.roster:SetEmptyText("")
 
     createRaidGroups(d)
+    d.assign = ns.StrategiesUI:CreateRaidAssignments(d)
+    d.assign:SetPoint("TOPLEFT", 0, -58)
+    d.assign:SetPoint("BOTTOMRIGHT", 0, 0)
     return u
 end
 
@@ -988,11 +995,14 @@ local function refreshDetail(v)
     local d = upcoming.detail
     local has = v ~= nil
     local groupsTab = state.detailTab == "groups"
-    for _, region in ipairs({ d.title, d.sub, d.note, d.tabSignups, d.tabGroups }) do region:SetShown(has) end
-    for _, region in ipairs({ d.strip, d.counts, d.roster.frame }) do region:SetShown(has and not groupsTab) end
+    local assignTab = state.detailTab == "assign"
+    for _, region in ipairs({ d.title, d.sub, d.note, d.tabSignups, d.tabGroups, d.tabAssign }) do region:SetShown(has) end
+    for _, region in ipairs({ d.strip, d.counts, d.roster.frame }) do region:SetShown(has and not groupsTab and not assignTab) end
     d.groups:SetShown(has and groupsTab)
-    d.tabSignups:SetEnabled(groupsTab)
+    d.assign:SetShown(has and assignTab)
+    d.tabSignups:SetEnabled(groupsTab or assignTab)
     d.tabGroups:SetEnabled(not groupsTab)
+    d.tabAssign:SetEnabled(not assignTab)
     d.empty:SetShown(not has)
     local organizer = RP():CanOrganize()
     d.editBtn:SetShown(has and organizer)
@@ -1008,6 +1018,10 @@ local function refreshDetail(v)
     d.note:SetText(v.no or "")
     if groupsTab then
         refreshGroups(v)
+        return
+    end
+    if assignTab then
+        ns.StrategiesUI:RefreshRaid(v)
         return
     end
 
@@ -1067,6 +1081,14 @@ function PlanUI:SelectRaid(occId)
 end
 
 function PlanUI:GetSelectedRaid() return state.selected end
+
+-- "signups" | "groups" | "assign" (Addendum K: the raid's strategy boards).
+function PlanUI:SetDetailTab(key)
+    state.detailTab = (key == "groups" or key == "assign") and key or "signups"
+    self:RefreshUpcoming()
+end
+
+function PlanUI:GetDetailTab() return state.detailTab end
 
 ---------------------------------------------------------------------------
 -- Teams view (§58-§59): the team list, and for the selected team a draft (name, members, size, each member's spec,
