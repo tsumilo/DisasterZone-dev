@@ -148,3 +148,13 @@ The Westfall tiles are recoloured versions of these two sets (same licenses). Th
 Both licenses require this credit (it is also shown on the Azeromon title screen). CC-BY-SA is share-alike: if CDLoot is shared publicly, the tiles taken from Red_Voxel's set, as modified here, must stay under CC-BY-SA 3.0.
 
 The Azeromon text font is **Pixel Operator** by Jayvee Enaguas (HarvettFox96), released under CC0 1.0 (public domain; no credit required, credited anyway): `Media\Azeromon\fonts\PixelOperator.ttf` and `PixelOperator-Bold.ttf`, from https://www.dafont.com/pixel-operator.font (source: https://notabug.org/HarvettFox96/ttf-pixeloperator).
+
+---
+
+## 5. Strategy board raid maps and boss portraits
+
+**Raid maps (`Media\Maps\*.blp`).** The twelve TBC raid maps are copied unchanged from **Atlas Burning Crusade** v1.53.00 (the "Atlas" addon's TBC module by the Atlas Team, maintained by arithmandar; maps drawn by dubca7, as the map corner says). Atlas Burning Crusade is licensed under the **GNU General Public License v3.0**. Source: https://www.curseforge.com/wow/addons/atlas-burningcrusade (mirror with the license text: https://github.com/curseforge-mirror/atlas-burningcrusade). If CDLoot is shared outside the guild, these files stay under GPL-3.0 and their source (that project) must be named, as it is here. `dev/art/atlas/` in the dev kit keeps the original download.
+
+**Boss portraits (`Data\BossPortraits.lua`).** Only numbers and names: creature IDs from Questie's database (GPL-3.0) and creature display IDs as listed on wowhead.com. The portraits themselves are drawn by the game client from its own models; no Blizzard art is shipped.
+
+The shapes of the strategy board (`Media\Strategy\disc.tga`, `ring.tga`, `arrow.tga`) are drawn by `dev/generators/gen_strategy_media.py`.

@@ -188,7 +188,8 @@ function MapUI:IconName(key)
     if type(key) ~= "string" then return "" end
     local rt = key:match("^rt([1-8])$")
     if rt then return RT_NAMES[tonumber(rt)] end
-    if key:find("^boss:") then return "Boss portrait" end
+    local disp = key:match("^boss:(%d+)$")
+    if disp then return self:PortraitName(disp) or "Boss portrait" end
     local cls = key:match("^cls:(%u+)$")
     if cls then return ns.CLASS_NAMES and ns.CLASS_NAMES[cls] or cls end
     local role = key:match("^role:(%l+)$")
@@ -204,10 +205,23 @@ function MapUI:IconName(key)
     return file or key
 end
 
--- The creature display ids of a boss' portraits (Data/BossPortraits.lua), { } when none.
+-- The creatures of an encounter (Data/BossPortraits.lua: the boss first, then its adds): { { d = display id,
+-- n = name, id = npc id } }, { } when none.
 function MapUI:BossPortraits(bossRef)
     local data = ns.Data and ns.Data.BossPortraits
     return (type(bossRef) == "string" and data and data[bossRef]) or {}
+end
+
+-- The creature name of a portrait display id (any encounter), or nil.
+local portraitNames
+function MapUI:PortraitName(displayID)
+    if not portraitNames then
+        portraitNames = {}
+        for _, list in pairs(ns.Data and ns.Data.BossPortraits or {}) do
+            for _, c in ipairs(list) do portraitNames[c.d] = portraitNames[c.d] or c.n end
+        end
+    end
+    return portraitNames[tonumber(displayID)]
 end
 
 -- Adds an icon picker to a menu description: onPick(key). prompt(title, default, cb) asks for a spell / item id.
@@ -217,14 +231,11 @@ function MapUI:BuildIconMenu(root, current, onPick, prompt, bossRef)
         parent:CreateRadio((icon ~= "" and (icon .. " ") or "") .. label, function() return current == key end,
             function() onPick(key) end)
     end
-    -- the portraits of the encounter this strategy is for (only that boss' creatures)
+    -- the creatures of the encounter this strategy is for (the boss and its adds; no other encounter's)
     local portraits = self:BossPortraits(bossRef)
     if #portraits > 0 then
-        local bossName = S():GetBossName(bossRef)
-        local sub = root:CreateButton("This boss: " .. bossName)
-        for i, id in ipairs(portraits) do
-            radio(sub, "boss:" .. id, #portraits > 1 and (bossName .. " " .. i) or bossName)
-        end
+        local sub = root:CreateButton("This boss: " .. S():GetBossName(bossRef))
+        for _, c in ipairs(portraits) do radio(sub, "boss:" .. c.d, c.n) end
     end
     local marks = root:CreateButton("Raid marks")
     for i = 1, 8 do radio(marks, "rt" .. i, RT_NAMES[i]) end
@@ -282,7 +293,36 @@ local MAP_IDS = {
     SunwellPlateau = { 335, 336 },
 }
 
+-- CDLoot's own raid maps (Media/Maps: the Atlas Burning Crusade maps, GPL-3.0, see NOTICE.md). The client has no
+-- raid map art of its own. Ids 900001+ so they never meet a uiMapID; a page stores the id.
+local SHIPPED = {
+    { id = 900001, file = "KarazhanStart", raid = "Karazhan", name = "Karazhan - lower floors" },
+    { id = 900002, file = "KarazhanEnd", raid = "Karazhan", name = "Karazhan - upper floors" },
+    { id = 900003, file = "GruulsLair", raid = "GruulsLair", name = "Gruul's Lair" },
+    { id = 900004, file = "HCMagtheridonsLair", raid = "MagtheridonsLair", name = "Magtheridon's Lair" },
+    { id = 900005, file = "CFRSerpentshrineCavern", raid = "SerpentshrineCavern", name = "Serpentshrine Cavern" },
+    { id = 900006, file = "TempestKeepTheEye", raid = "TempestKeep", name = "Tempest Keep - The Eye" },
+    { id = 900007, file = "CoTHyjal", raid = "HyjalSummit", name = "Hyjal Summit" },
+    { id = 900008, file = "BlackTempleStart", raid = "BlackTemple", name = "Black Temple - courtyard" },
+    { id = 900009, file = "BlackTempleBasement", raid = "BlackTemple", name = "Black Temple - basement" },
+    { id = 900010, file = "BlackTempleTop", raid = "BlackTemple", name = "Black Temple - top" },
+    { id = 900011, file = "ZulAman", raid = "ZulAman", name = "Zul'Aman" },
+    { id = 900012, file = "SunwellPlateau", raid = "SunwellPlateau", name = "Sunwell Plateau" },
+}
+local SHIPPED_BY_ID = {}
+for _, m in ipairs(SHIPPED) do SHIPPED_BY_ID[m.id] = m end
+local SHIPPED_LAYER = { layerWidth = 512, layerHeight = 512, tileWidth = 512, tileHeight = 512 }
+
+-- The map a new strategy of a boss starts with (the wing the boss is in); other bosses take their raid's first map.
+local BOSS_MAP = {
+    ["Karazhan:Illhoof"] = 900002, ["Karazhan:Aran"] = 900002, ["Karazhan:Netherspite"] = 900002,
+    ["Karazhan:Chess"] = 900002, ["Karazhan:Prince"] = 900002, ["Karazhan:Nightbane"] = 900002,
+    ["BlackTemple:Bloodboil"] = 900009, ["BlackTemple:Reliquary"] = 900009, ["BlackTemple:Teron"] = 900009,
+    ["BlackTemple:Shahraz"] = 900010, ["BlackTemple:Council"] = 900010, ["BlackTemple:Illidan"] = 900010,
+}
+
 local function ArtLayer(mapID)
+    if SHIPPED_BY_ID[mapID] then return SHIPPED_LAYER end
     if not (C_Map and C_Map.GetMapArtLayers) or type(mapID) ~= "number" or mapID <= 0 then return nil end
     local ok, layers = pcall(C_Map.GetMapArtLayers, mapID)
     local L = ok and type(layers) == "table" and layers[1] or nil
@@ -305,6 +345,7 @@ end
 function MapUI:GetMaps()
     if mapCache then return mapCache end
     mapCache = {}
+    for _, m in ipairs(SHIPPED) do mapCache[#mapCache + 1] = { id = m.id, name = m.name, raid = m.raid, shipped = true } end
     if not (C_Map and C_Map.GetMapInfo) then return mapCache end
     local seen = {}
     local function add(id, raid)
@@ -332,7 +373,10 @@ function MapUI:GetMaps()
     for raid, ids in pairs(MAP_IDS) do
         for _, id in ipairs(ids) do add(id, raid) end
     end
-    tsort(mapCache, function(a, b) return a.id < b.id end)
+    tsort(mapCache, function(a, b)
+        if (a.shipped or false) ~= (b.shipped or false) then return a.shipped == true end
+        return a.id < b.id
+    end)
     return mapCache
 end
 
@@ -369,10 +413,11 @@ function MapUI:PrintMaps(text)
         end
     end
     mapCache = nil
-    ns:Print("%d map(s) matched; %d raid map(s) with art usable.", n, #self:GetMaps())
+    ns:Print("%d map(s) matched; %d raid map(s) usable (%d shipped with CDLoot).", n, #self:GetMaps(), #SHIPPED)
 end
 
 function MapUI:DefaultMap(bossRef)
+    if BOSS_MAP[bossRef] then return BOSS_MAP[bossRef] end
     local list = self:MapsFor(bossRef)
     return list[1] and list[1].id or 0
 end
@@ -588,7 +633,13 @@ function Canvas:RenderBackground()
     for _, t in ipairs(self.grid) do t:Hide() end
     local page = self.page
     local L = page and ArtLayer(page.m)
-    local textures = L and C_Map.GetMapArtLayerTextures and C_Map.GetMapArtLayerTextures(page.m, 1)
+    local shipped = page and SHIPPED_BY_ID[page.m]
+    local textures
+    if shipped then
+        textures = { "Interface\\AddOns\\CDLoot\\Media\\Maps\\" .. shipped.file }
+    else
+        textures = L and C_Map.GetMapArtLayerTextures and C_Map.GetMapArtLayerTextures(page.m, 1)
+    end
     if not (L and type(textures) == "table" and #textures > 0) then
         -- a blank grid every 100 units
         local n = 0
@@ -1151,7 +1202,9 @@ function Canvas:OnMouseDown(button)
         ns.UI:ContextMenu(self.frame, function(root)
             root:CreateTitle("Icon")
             MapUI:BuildIconMenu(root, nil, function(key)
-                local e = self:Add({ t = "i", x = x, y = y, i = key, z = key:find("^boss:") and 48 or 32 })
+                local portrait = key:match("^boss:(%d+)$")
+                local e = self:Add({ t = "i", x = x, y = y, i = key, z = portrait and 48 or 32,
+                                     l = portrait and MapUI:PortraitName(portrait) or nil })
                 self:SetTool("select")
                 self:Changed()
                 self:Select(e)

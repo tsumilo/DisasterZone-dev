@@ -9,8 +9,9 @@ ns.CHANGELOG = {
     { version = "0.8.0", date = "30 September 2026", title = "Strategy boards",
       sections = {
           { heading = "Strategy boards (Raids > Strategies)", lines = {
-              "Build a strategy per boss: the instance map with zones, arrows, lines, icons and text.",
-              "Boss portraits of the encounter you're planning, raid marks, class, role and spell icons.",
+              "Build a strategy per boss on a map of the raid (the Atlas maps), with zones, arrows, lines, icons and text.",
+              "Portraits of the boss and its adds (Attumen and Midnight, Moroes' guests...), raid marks, class, role and spell icons.",
+              "Drag the corner of an icon to resize it.",
               "Blocks of jobs: players with targets, rotations, zones, pairs, single jobs and notes.",
               "Slots can be limited to classes or roles; zones can link to a block's column.",
               "Several pages per boss for the phases of a fight.",

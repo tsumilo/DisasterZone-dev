@@ -100,10 +100,16 @@ def author_builds_a_strategy_in_the_board():
     st = board(bob)
     assert st["mode"] == "edit" and st["name"] == "25 farm" and st["boss"] == BOSS and st["dirty"], st
     assert shown(bob, W)
-    # the first Black Temple floor is the background, drawn from its 12 tiles
-    assert bob.eval("return ns.StrategyBoard:GetState().strat.p[1].m") == 339
+    # the Council's wing of Black Temple (a map shipped with CDLoot) is the background, one 512px image
+    assert bob.eval("return ns.StrategyBoard:GetState().strat.p[1].m") == 900010
+    tiles = bob.eval_py("local out = {}; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then "
+                        "out[#out + 1] = t:GetTexture() end end; return out" % W)
+    assert tiles == [r"Interface\AddOns\CDLoot\Media\Maps\BlackTempleTop"], tiles
+    assert bob.find_text("Black Temple - top", True, True)
+    # a client floor with map art still draws from its 12 tiles
+    bob.eval("local p = ns.StrategyBoard:GetState().strat.p[1]; p.m = 339; ns.StrategyBoard:Refresh()")
     assert bob.eval("local n = 0; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then n = n + 1 end end; return n" % W) == 12
-    assert bob.find_text("Black Temple - Illidari Training Grounds", True, True)
+    bob.eval("local p = ns.StrategyBoard:GetState().strat.p[1]; p.m = 900010; ns.StrategyBoard:Refresh()")
     # a block from a template
     bob.click(bob.eval("return %s.blocks.addBtn" % W))
     bob.eval("T_menu_prefix('Players with targets')")
@@ -262,25 +268,34 @@ def boss_portraits_icon_resize_and_map_fallback():
     bob.eval("__MOCK.dungeon_maps[342] = { name = 'Den of Mortal Delights', floor = 'x', group = 2 }")
     ids = bob.eval_py("local out = {}; for _, m in ipairs(ns.StrategyMapUI:MapsFor('BlackTemple:Council')) do "
                       "out[#out + 1] = m.id end; return out")
-    assert ids == [339, 340, 341, 342], ids
-    assert bob.eval_py("return ns.StrategyMapUI:MapsFor('Karazhan:Attumen')") == []
+    assert ids == [900008, 900009, 900010, 339, 340, 341, 342], ids
+    kara = bob.eval_py("local out = {}; for _, m in ipairs(ns.StrategyMapUI:MapsFor('Karazhan:Attumen')) do "
+                       "out[#out + 1] = m.id end; return out")
+    assert kara == [900001, 900002], kara
+    assert bob.eval("return ns.StrategyMapUI:DefaultMap('Karazhan:Attumen')") == 900001
+    assert bob.eval("return ns.StrategyMapUI:DefaultMap('Karazhan:Prince')") == 900002
     bob.eval("ns.StrategyBoard:NewStrategy(...)", BOSS, "Portraits")
     w.tick(0.2)
     # the icon menu offers this encounter's portraits only
     bob.eval("local cv = %s.canvas; cv:SetTool('icon'); cv:OnMouseDown('LeftButton')" % W)
     texts = [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]
     assert "This boss: The Illidari Council" in texts, texts
-    assert [t for t in texts if t.startswith("The Illidari Council ")] == ["The Illidari Council %d" % i for i in range(1, 5)]
-    assert not any("Illidan" in t for t in texts)
-    bob.eval("T_menu_prefix('The Illidari Council 2')")
+    i = texts.index("This boss: The Illidari Council")
+    assert texts[i + 1:i + 5] == ["Gathios the Shatterer", "High Nethermancer Zerevor", "Lady Malande",
+                                  "Veras Darkshadow"], texts
+    assert not any("Illidan" in t or "Akama" in t for t in texts)
+    bob.eval("T_menu_prefix('High Nethermancer Zerevor')")
     e = bob.eval_py("return ns.StrategyBoard:GetState().strat.p[1].e[1]")
-    assert e["t"] == "i" and e["i"] == "boss:21417" and e["z"] == 48, e
+    assert e["t"] == "i" and e["i"] == "boss:21417" and e["z"] == 48 and e["l"] == "High Nethermancer Zerevor", e
     assert bob.eval("for _, o in ipairs(%s.canvas.pools.icon) do if o.tex:IsShown() then return o.tex:GetTexture() end end" % W) \
         == "portrait:21417"
     # the selected icon has a resize handle at its corner
     assert bob.eval("local cv = %s.canvas; local e = cv.page.e[1]; return cv:HandleAt(e.x + 24, e.y + 24)" % W) == "isize"
-    # a boss without portrait data has no such section
-    assert bob.eval_py("return ns.StrategyMapUI:BossPortraits('Karazhan:Chess')") == []
+    # multi-creature encounters list the adds too (Attumen rides Midnight)
+    att = bob.eval_py("local out = {}; for _, c in ipairs(ns.StrategyMapUI:BossPortraits('Karazhan:Attumen')) do "
+                      "out[#out + 1] = c.n end; return out")
+    assert att == ["Attumen the Huntsman", "Midnight"], att
+    assert bob.eval_py("return ns.StrategyMapUI:BossPortraits('Karazhan:Trash')") == []
     # the portrait survives validation and saving
     bob.click(bob.eval("return %s.saveBtn" % W))
     w.tick(2)
