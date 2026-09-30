@@ -429,6 +429,76 @@ class World:
         for c in self._group_clients((self.group["members"] if self.group else []) + list(extra)):
             c._fire("GROUP_ROSTER_UPDATE")
 
+    # -- enemy NPCs and raid marks (strategy board encounter helpers) ------------------------------------------------
+    def spawn_npc(self, npc_id, name):
+        """An enemy NPC every client knows (a unit once it has a nameplate / is targeted). Returns its GUID
+        ("Creature-0-4000-564-100-<npcID>-<spawn>", npc id in field 6 like WoW)."""
+        if not hasattr(self, "npcs"):
+            self.npcs, self.marks, self.mark_log = {}, {}, []
+        self._npc_seq = getattr(self, "_npc_seq", 0) + 1
+        guid = "Creature-0-4000-564-100-%d-%010X" % (int(npc_id), 0x1000 + self._npc_seq)
+        self.npcs[guid] = {"name": name, "npc_id": int(npc_id), "dead": False}
+        self._push_npcs()
+        return guid
+
+    def kill_npc(self, guid):
+        self.npcs[guid]["dead"] = True
+        self._push_npcs()
+
+    def _push_npcs(self):
+        for c in self.clients:
+            if c.runtime is not None:
+                c._call("set_npcs", c._to_lua(self.npcs))
+
+    def set_raid_target(self, c, guid, idx):
+        """SetRaidTarget from client c: leader / assist in a raid (anyone in a party); a mark is on one unit at a
+        time; 0 clears. Every group client gets the marks (+ RAID_TARGET_UPDATE)."""
+        if not hasattr(self, "marks"):
+            self.npcs, self.marks, self.mark_log = {}, {}, []
+        g = self.group
+        if not g or not any(m is c for m in g["members"]):
+            # solo: a player may mark their own target; only they see it
+            idx = int(idx)
+            mine = getattr(c, "solo_marks", {})
+            for other, i in list(mine.items()):
+                if i == idx or other == guid:
+                    del mine[other]
+            if 1 <= idx <= 8:
+                mine[guid] = idx
+            c.solo_marks = mine
+            self.mark_log.append({"by": c.full_name, "guid": guid, "idx": idx, "solo": True, "time": round(self.now, 3)})
+            c._call("set_marks", c._to_lua(mine))
+            return
+        if g["kind"] == "raid" and not self._can_lead(c):
+            self.mark_log.append({"by": c.full_name, "guid": guid, "idx": idx, "refused": "not leader / assist"})
+            return
+        idx = int(idx)
+        for other, i in list(self.marks.items()):
+            if i == idx or other == guid:
+                del self.marks[other]
+        if 1 <= idx <= 8:
+            self.marks[guid] = idx
+        self.mark_log.append({"by": c.full_name, "guid": guid, "idx": idx, "time": round(self.now, 3)})
+        for x in self._group_clients(g["members"]):
+            x._call("set_marks", x._to_lua(self.marks))
+
+    def set_mark_by_other(self, guid, idx):
+        """Another addon / player (e.g. DBM on the leader's client) changes a mark: no permission checks."""
+        if not hasattr(self, "marks"):
+            self.npcs, self.marks, self.mark_log = {}, {}, []
+        for other, i in list(self.marks.items()):
+            if i == idx or other == guid:
+                del self.marks[other]
+        if idx:
+            self.marks[guid] = idx
+        for x in self._group_clients(self.group["members"] if self.group else []):
+            x._call("set_marks", x._to_lua(self.marks))
+
+    def cleu_group(self, *args):
+        """One combat log event to every group client (everyone in range sees the raid's casts)."""
+        for x in self._group_clients(self.group["members"] if self.group else []):
+            x.combat_log(*args)
+
     def _can_lead(self, c, assist_ok=True):
         g = self.group
         if not g or not any(m is c for m in g["members"]):
@@ -969,6 +1039,7 @@ class Client:
             "set_guild_info_text": self._py_set_guild_info_text, "set_note": self._py_set_note,
             "give_master_loot": self._py_give_master_loot, "item_lookup": self._py_item_lookup,
             "random_roll": self._py_random_roll,
+            "set_raid_target": lambda guid, idx: self.world.set_raid_target(self, guid, idx),
             "invite": lambda name: self.world.invite(self, name),
             "convert_to_raid": lambda: self.world.convert_to_raid(self),
             "set_raid_subgroup": lambda i, g: self.world.set_raid_subgroup(self, i, g),
@@ -1515,6 +1586,19 @@ class Client:
 
     def set_target(self, name):
         self._call("set_target", name)
+
+    def show_nameplate(self, guid):
+        """The NPC's nameplate appears on this client (NAME_PLATE_UNIT_ADDED). Returns the unit token."""
+        return self._call("add_nameplate", guid)
+
+    def hide_nameplate(self, guid):
+        self._call("remove_nameplate", guid)
+
+    def target_npc(self, guid):
+        self._call("set_npc_target", guid)
+
+    def mouseover_npc(self, guid):
+        self._call("set_mouseover_npc", guid)
 
     def set_cursor_item(self, item_id):
         self._call("set_cursor_item", item_id)

@@ -337,7 +337,9 @@ def prune_drops_old_rosters_and_old_raids():
 def bar(cl):
     return cl.eval_py("""local f = ns.SessionBar:GetFrame()
         if not f then return { shown = false } end
-        return { shown = f:IsShown(), text = f.text:GetText(), button = f.button:IsShown() and f.button:GetText() or nil,
+        -- the zone is the bar's title, the details its grey text, the lock a pill
+        local text = (f.title:GetText() or "") .. " " .. (f.text:GetText() or "") .. (f.pill:IsShown() and " BiS locked" or "")
+        return { shown = f:IsShown(), text = text, button = f.button:IsShown() and f.button:GetText() or nil,
                  close = f.close:IsShown() }""")
 
 

@@ -435,6 +435,12 @@ function SettingsUI:BuildLeft(parent)
         .. "then everyone else; the highest roll wins within each group. The council confirms. "
         .. "Start rolls from the boss drop panel (Roll / Roll all) or with /cdl roll [item].")
 
+    self:Header(col, "Strategy boards")
+    self:CheckSetting(col, "Auto-mark the planned mobs when I lead the raid", "strategy.autoMark", true)
+    self:CheckSetting(col, "Show my jobs when I'm near a planned boss", "strategy.reminder", true)
+    self:Note(col, "The marks are the raid mark badges on the board's boss portraits; enemy nameplates must be on "
+        .. "for the leader. /cdl strat debug prints what the helpers see.")
+
     self:Header(col, "Tooltips")
     self:CheckSetting(col, "Show CDLoot lines on item tooltips", "tooltip.enabled", true)
     self:CheckSetting(col, "Council: list who wants the item", "tooltip.council", true)

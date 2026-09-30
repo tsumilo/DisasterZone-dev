@@ -28,6 +28,14 @@ ns.CHANGELOG = {
               "+ row and + column under each table; right-click a row to move or delete it.",
               "Drag an icon's corner to resize it; double-click text to edit it.",
           } },
+          { heading = "In the fight", lines = {
+              "Near a planned boss, a small panel shows your jobs from the raid's strategy.",
+              "Interrupt rotations: whose kick it is, KICK NOW when the boss casts on your turn.",
+              "Misdirects, Bloodlust, Power Infusion, Innervates and curses tracked live.",
+              "The raid leader's CDLoot puts the plan's raid marks on the mobs (nameplates).",
+              "Practice (board button or /cdl strat practice): try it all alone at a dummy.",
+              "/cdl strat check tests the setup; the raid session bar has a new slim look.",
+          } },
           { heading = "Assignments per raid", lines = {
               "A planned raid has an Assignments tab: every boss and how full it is.",
               "Drag players into slots, carry over last week's names or use Suggest fill.",

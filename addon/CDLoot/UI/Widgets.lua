@@ -421,6 +421,61 @@ local PANEL_BACKDROP = {
     insets = { left = 3, right = 3, top = 3, bottom = 3 },
 }
 
+---------------------------------------------------------------------------
+-- The slim in-raid style (session bar, encounter reminder): a dark translucent tooltip frame, flat tinted buttons,
+-- small status pills.
+---------------------------------------------------------------------------
+
+UI.HUD_BG = { 0.04, 0.04, 0.05, 0.82 }
+UI.HUD_BORDER = { 0.4, 0.4, 0.4, 0.9 }
+
+function UI:StyleHud(f)
+    if not f.SetBackdrop then return end
+    f:SetBackdrop(PANEL_BACKDROP)
+    f:SetBackdropColor(unpack(UI.HUD_BG))
+    f:SetBackdropBorderColor(unpack(UI.HUD_BORDER))
+end
+
+-- A flat button: tinted background, brighter on hover. tint = { r, g, b } (default grey).
+function UI:CreateFlatButton(parent, text, width, height, onClick, tint)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(width or 70, height or 18)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(1, 1, 1, 0.12)
+    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fs:SetPoint("CENTER")
+    b:SetFontString(fs)
+    b:SetText(text or "")
+    function b:SetTint(t)
+        t = t or { 0.6, 0.6, 0.6 }
+        self.bg:SetColorTexture(t[1], t[2], t[3], 0.35)
+    end
+    b:SetTint(tint)
+    b:RegisterForClicks("LeftButtonUp")
+    if onClick then b:SetScript("OnClick", onClick) end
+    return b
+end
+
+-- A small status pill ("ENGAGED", "BIS LOCKED"): pill:Set(text, { r, g, b }).
+function UI:CreatePill(parent)
+    local p = CreateFrame("Frame", nil, parent)
+    p:SetHeight(14)
+    p.bg = p:CreateTexture(nil, "BACKGROUND")
+    p.bg:SetAllPoints()
+    p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.fs:SetPoint("CENTER")
+    function p:Set(text, color)
+        color = color or { 0.55, 0.55, 0.55 }
+        self.fs:SetText(text or "")
+        self:SetWidth((self.fs:GetStringWidth() or 40) + 10)
+        self.bg:SetColorTexture(color[1], color[2], color[3], 0.35)
+    end
+    return p
+end
+
 function UI:CreatePanel(parent)
     local p = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     p:SetBackdrop(PANEL_BACKDROP)

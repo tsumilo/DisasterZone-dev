@@ -306,7 +306,24 @@ local function createWindow()
         end)
     end)
     f.renameBtn:SetPoint("RIGHT", f.cancelBtn, "LEFT", -12, 0)
+    -- the raid leader's client marks the mobs from the portraits' raid mark badges (Core/StrategyLive.lua)
+    f.autoMark = UI():CreateCheckbox(c, "Auto-mark", function() return st.strat and st.strat.am ~= false end,
+        function()
+            if not st.strat then return end
+            if st.strat.am == false then st.strat.am = nil else st.strat.am = false end
+            Board:MarkDirty(true)
+        end)
+    f.autoMark:SetPoint("RIGHT", f.renameBtn, "LEFT", -80, 0)
+    tipButton(f.autoMark, "Auto-mark", "In the raid, the raid leader's CDLoot puts the raid marks shown on the boss "
+        .. "portraits (right-click a portrait > Raid mark) on the mobs as their nameplates appear.")
     f.stratDD = UI():CreateMenuButton(c, "Strategy", 190, function(root) Board:StrategyMenu(root) end)
+    -- try the encounter helpers of this strategy alone (Core/StrategyPractice.lua)
+    f.practiceBtn = UI():CreateButton(c, "Practice", 80, 20, function()
+        if st.strat and ns.StrategyPractice then ns.StrategyPractice:Start(st.strat) end
+    end)
+    f.practiceBtn:SetPoint("TOPRIGHT", c, "TOPRIGHT", -2, -32)
+    tipButton(f.practiceBtn, "Practice", "Try this strategy's in-fight helpers alone: your jobs panel, whose kick it "
+        .. "is, marks on what you target. Demo players fill the other slots; use your real spells on a target dummy.")
     f.stratDD:SetPoint("RIGHT", f.cancelBtn, "LEFT", -12, 0)
 
     -- page tabs
@@ -1201,6 +1218,9 @@ function Board:Refresh()
     win.saveBtn:SetShown(mode == "edit" or mode == "fill")
     win.cancelBtn:SetShown(mode == "edit" or mode == "fill")
     win.renameBtn:SetShown(mode == "edit")
+    win.practiceBtn:SetShown(s ~= nil)
+    win.autoMark:SetShown(mode == "edit")
+    if win.autoMark.Refresh then win.autoMark:Refresh() end
     win.editBtn:SetShown(mode == "view" and editor and s ~= nil)
     win.fillBtn:SetShown(mode == "view" and editor and s ~= nil and st.occ ~= nil)
     local showDD = st.occ ~= nil and mode ~= "edit"

@@ -54,6 +54,9 @@ local MAX_ICON = 64
 local MAX_COLOR = 12
 
 local ROLES = { tank = true, healer = true, melee = true, ranged = true }
+-- Tracked tables: rot = interrupt rotation, md / bl = once per pull (Misdirection, Bloodlust / Heroism),
+-- pi / iv = cooldown on a target (Power Infusion, Innervate), curse = keep a curse up.
+local TRACK_KINDS = { rot = true, md = true, bl = true, pi = true, iv = true, curse = true }
 local COL_TYPES = { p = true, g = true, o = true, x = true }
 
 Strategy.BOARD_W, Strategy.BOARD_H = BOARD_W, BOARD_H
@@ -342,6 +345,11 @@ local function CleanBlock(k)
         if not IsInt(k.cl, 1, MAX_COLOR) then return nil end
         out.cl = k.cl
     end
+    -- what the encounter helpers track for this table (Core/StrategyLive.lua)
+    if k.tr ~= nil then
+        if not TRACK_KINDS[k.tr] then return nil end
+        out.tr = k.tr
+    end
     out.c = {}
     for i = 1, MAX_COLS + 1 do
         local col = k.c[i]
@@ -440,6 +448,7 @@ local function CleanStrategy(r, now)
     end
     if not IsBossRef(r.b) then return nil end
     out.b = r.b
+    if r.am == false then out.am = false end      -- auto-marking off for this strategy
     out.n = CleanText(r.n, MAX_NAME_LEN)
     if not out.n or type(r.p) ~= "table" then return nil end
     out.p = {}

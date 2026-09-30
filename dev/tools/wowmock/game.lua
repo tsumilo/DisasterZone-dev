@@ -143,9 +143,17 @@ function CreateTextureMarkup(file, fw, fh, w, h) return "|T" .. tostring(file) .
 function CreateAtlasMarkup(atlas, w, h) return "|A:" .. tostring(atlas) .. ":" .. (h or 0) .. ":" .. (w or 0) .. "|a" end
 function CreateSimpleTextureMarkup(file, w, h) return "|T" .. tostring(file) .. ":" .. (h or 0) .. ":" .. (w or 0) .. "|t" end
 C_Texture = { GetAtlasInfo = function() return nil end, GetFilenameFromFileDataID = function() return nil end }
+M.SPELL_NAMES = {
+  [1766] = "Kick", [6552] = "Pummel", [72] = "Shield Bash", [8042] = "Earth Shock", [2139] = "Counterspell",
+  [19244] = "Spell Lock", [16979] = "Feral Charge", [28730] = "Arcane Torrent", [34477] = "Misdirection",
+  [2825] = "Bloodlust", [32182] = "Heroism", [10060] = "Power Infusion", [29166] = "Innervate",
+  [1714] = "Curse of Tongues", [702] = "Curse of Weakness", [1490] = "Curse of the Elements",
+  [704] = "Curse of Recklessness", [32375] = "Mass Dispel",
+}
 function GetSpellInfo(id)
   if id == nil then return nil end
-  return "Spell " .. tostring(id), nil, 136243, 0, 0, 0, tonumber(id) or 0
+  local name = M.SPELL_NAMES[tonumber(id)] or ("Spell " .. tostring(id))
+  return name, nil, 136243, 0, 0, 0, tonumber(id) or 0
 end
 function GetSpellTexture() return 136243 end
 -- unit-frame style round portrait of a creature display id (recorded as the texture for tests)
@@ -161,7 +169,7 @@ C_Spell = {
 }
 
 -- CVars
-M.cvars = { autoLootDefault = "0", lootUnderMouse = "0", Sound_EnableSFX = "1", Sound_EnableAllSound = "1",
+M.cvars = { nameplateShowEnemies = "1", autoLootDefault = "0", lootUnderMouse = "0", Sound_EnableSFX = "1", Sound_EnableAllSound = "1",
   scriptErrors = "1", taintLog = "0", chatStyle = "classic", portal = "EU", textLocale = "enUS", audioLocale = "enUS",
   useUiScale = "0", uiScale = "1", showToastWindow = "1", autoSelfCast = "1", nameplateShowEnemies = "1",
   UberTooltips = "1", alwaysCompareItems = "0", colorblindMode = "0", profanityFilter = "0" }
@@ -368,6 +376,13 @@ function M.unit_rec(unit)
   end
   n = smatch(u, "^party(%d+)$")
   if n then return party_others()[tonumber(n)] end
+  -- enemy NPCs (world.spawn_npc): nameplate tokens, an NPC target, the mouseover
+  if u == "target" and M.target_npc then return M.npcs[M.target_npc] end
+  if u == "mouseover" and M.mouseover_npc then return M.npcs[M.mouseover_npc] end
+  if smatch(u, "^nameplate%d+$") then
+    local guid = M.nameplates[u]
+    return guid and M.npcs[guid] or nil
+  end
   if u == "target" then return M.target and M.unit_by_name(M.target, true) end
   if u == "none" or u == "mouseover" or u == "focus" or u == "npc" or u == "pet" or u == "vehicle"
      or smatch(u, "^nameplate") or smatch(u, "^boss") or smatch(u, "^arena") then return nil end
@@ -422,7 +437,7 @@ function UnitFactionGroup(unit)
   return f, f
 end
 function UnitExists(unit) return unit_rec(unit) ~= nil end
-function UnitIsPlayer(unit) return unit_rec(unit) ~= nil end
+function UnitIsPlayer(unit) local m = unit_rec(unit); return m ~= nil and not m.npc end
 function UnitPlayerControlled(unit) return unit_rec(unit) ~= nil end
 function UnitIsUnit(a, b)
   local x, y = unit_rec(a), unit_rec(b)
@@ -439,7 +454,7 @@ function UnitInRange(unit) return unit_rec(unit) ~= nil, true end
 function CheckInteractDistance(unit) return unit_rec(unit) ~= nil end
 function UnitIsEnemy() return false end
 function UnitIsFriend(a, b) return true end
-function UnitCanAttack() return false end
+function UnitCanAttack(a, b) local m = unit_rec(b); return m ~= nil and m.npc == true end
 function UnitCanCooperate(a, b) return unit_rec(b) ~= nil end
 function UnitReaction() return 5 end
 function UnitIsPVP() return false end
@@ -548,8 +563,69 @@ function GetRaidRosterInfo(i)
     m.class, m.zone or GetRealZoneText(), m.online ~= false, m.dead == true, m.role, m.isML == true, "NONE"
 end
 function GetPartyAssignment() return false end
-function GetRaidTargetIndex() return nil end
-function SetRaidTarget() end
+-- Raid marks live in the world (Python): SetRaidTarget goes through it (leader / assist in a raid, anyone in a party),
+-- and every group client gets RAID_TARGET_UPDATE with the new marks.
+M.npcs, M.nameplates, M.marks = {}, {}, {}
+function GetRaidTargetIndex(unit)
+  local m = unit_rec(unit)
+  local guid = m and m.guid
+  return guid and M.marks[guid] or nil
+end
+function SetRaidTarget(unit, index)
+  local m = unit_rec(unit)
+  if not m or not m.guid then return end
+  PY.set_raid_target(m.guid, tonumber(index) or 0)
+end
+function M.set_marks(t)
+  M.marks = {}
+  for guid, idx in pairs(t or {}) do M.marks[guid] = idx end
+  M.fire("RAID_TARGET_UPDATE")
+end
+function M.set_npcs(t)
+  M.npcs = {}
+  for guid, r in pairs(t or {}) do
+    M.npcs[guid] = { guid = guid, name = r.name, npc = true, dead = r.dead, full = guid, realm = M.W.realm }
+  end
+end
+local plateSeq = 0
+function M.add_nameplate(guid)
+  for token, g in pairs(M.nameplates) do if g == guid then return token end end
+  plateSeq = plateSeq + 1
+  local token = "nameplate" .. plateSeq
+  M.nameplates[token] = guid
+  M.fire("NAME_PLATE_UNIT_ADDED", token)
+  return token
+end
+function M.remove_nameplate(guid)
+  for token, g in pairs(M.nameplates) do
+    if g == guid then
+      M.nameplates[token] = nil
+      M.fire("NAME_PLATE_UNIT_REMOVED", token)
+    end
+  end
+end
+function M.set_npc_target(guid)
+  M.target_npc = guid
+  M.fire("PLAYER_TARGET_CHANGED")
+end
+function M.set_mouseover_npc(guid)
+  M.mouseover_npc = guid
+  if guid then M.fire("UPDATE_MOUSEOVER_UNIT") end
+end
+C_NamePlate = {
+  GetNamePlates = function()
+    local out = {}
+    for token in pairs(M.nameplates) do out[#out + 1] = { namePlateUnitToken = token, UnitFrame = { unit = token } } end
+    return out
+  end,
+  GetNamePlateForUnit = function(unit)
+    local guid = UnitGUID(unit)
+    for token, g in pairs(M.nameplates) do
+      if g == guid then return { namePlateUnitToken = token, UnitFrame = { unit = token } } end
+    end
+    return nil
+  end,
+}
 function DoReadyCheck() end
 function GetReadyCheckStatus() return nil end
 function ConvertToRaid() if PY and PY.convert_to_raid then PY.convert_to_raid() end end

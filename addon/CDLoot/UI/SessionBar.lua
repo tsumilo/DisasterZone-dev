@@ -1,7 +1,7 @@
 -- CDLoot: UI/SessionBar.lua
 -- The raid session bar (Addendum I §51): a small movable bar every raider with CDLoot sees while the raid's
--- authority runs a session ("(green dot) Karazhan · 1:42:13 · 4/11 bosses · BiS locked"); the authority gets an End raid
--- button on it (with a confirmation). It can't be closed while the session runs: only ending the raid hides it.
+-- authority runs a session ("(live dot) Karazhan  1:42:13 · 4/11 bosses  [BIS LOCKED]"); the authority gets an End raid
+-- button on it (with a confirmation). Same slim style as the encounter reminder (UI:StyleHud). It can't be closed while the session runs: only ending the raid hides it.
 -- Idle state: the authority inside a raid instance with no session sees "No raid session" with a Start raid
 -- button (the visible prompt; it can be dismissed until the next instance).
 local addonName, ns = ...
@@ -9,7 +9,7 @@ local addonName, ns = ...
 local SessionBar = ns:NewModule("SessionBar")
 
 local FRAME_NAME = "CDLootSessionBar"
-local HEIGHT = 26
+local HEIGHT = 28
 local floor = math.floor
 
 local bar
@@ -73,6 +73,22 @@ local function SavePosition(f)
     ns.db.settings.windows[FRAME_NAME] = { point, relPoint or point, floor((x or 0) + 0.5), floor((y or 0) + 0.5) }
 end
 
+local GREEN, GREY = { 0.25, 0.85, 0.35 }, { 0.55, 0.55, 0.55 }
+local END_TINT, START_TINT = { 0.85, 0.22, 0.15 }, { 0.25, 0.75, 0.3 }
+
+-- The zone and the details of the running session, apart (the bar shows the zone as its title).
+function SessionBar:GetParts()
+    local s = Session()
+    if not s then return nil end
+    local RL = ns.RaidLog
+    local rec = RL and RL:GetRaid(s.id)
+    local kills = rec and #(rec.bosses or {}) or 0
+    local total = rec and RL:GetBossTotal(rec.instID)
+    return (rec and rec.zone) or "Raid", FormatDuration(GetServerTime() - (s.at or GetServerTime())),
+        total and ("%d/%d bosses"):format(kills, total) or (kills == 1 and "1 boss" or (kills .. " bosses")),
+        ns.GroupRules:IsLocked()
+end
+
 local function Create()
     if bar then return bar end
     local UI = ns.UI
@@ -89,41 +105,48 @@ local function Create()
         self:StopMovingOrSizing()
         SavePosition(self)
     end)
-    f:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    f:SetBackdropColor(0, 0, 0, 0.85)
+    UI:StyleHud(f)
 
+    -- a live dot, the zone, the details; a pill (BiS locked) and one flat button on the right
     f.dot = f:CreateTexture(nil, "OVERLAY")
-    f.dot:SetSize(14, 14)
-    f.dot:SetPoint("LEFT", 8, 0)
+    f.dot:SetSize(12, 12)
+    f.dot:SetPoint("LEFT", 9, 0)
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("LEFT", f.dot, "RIGHT", 6, 0)
+    f.title:SetWordWrap(false)
     f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.text:SetPoint("LEFT", f.dot, "RIGHT", 6, 0)
+    f.text:SetPoint("LEFT", f.title, "RIGHT", 8, 0)
     f.text:SetJustifyH("LEFT")
     f.text:SetWordWrap(false)
+    f.text:SetTextColor(0.62, 0.62, 0.62)
 
-    f.button = UI:CreateButton(f, "End raid", 80, 20, function()
+    f.button = UI:CreateFlatButton(f, "End raid", 64, 18, function()
         if Session() then
             ConfirmEnd()
         else
             ns.RaidLog:Start()
         end
-    end)
-    f.button:SetPoint("RIGHT", -4, 0)
+    end, END_TINT)
+    f.button:SetPoint("RIGHT", -7, 0)
 
-    f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    f.close:SetSize(20, 20)
-    f.close:SetPoint("RIGHT", f.button, "LEFT", 0, 0)
+    f.close = CreateFrame("Button", nil, f)
+    f.close:SetSize(16, 16)
+    f.close:SetPoint("RIGHT", f.button, "LEFT", -4, 0)
+    f.close.fs = f.close:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    f.close.fs:SetPoint("CENTER")
+    f.close.fs:SetText("x")
+    f.close:SetScript("OnEnter", function(self) self.fs:SetFontObject("GameFontHighlight") end)
+    f.close:SetScript("OnLeave", function(self) self.fs:SetFontObject("GameFontDisable") end)
     f.close:SetScript("OnClick", function()
         idleDismissed = true
         SessionBar:Update()
     end)
 
-    f:SetScript("OnUpdate", function(_, dt)
+    f.pill = UI:CreatePill(f)
+
+    f:SetScript("OnUpdate", function(self, dt)
         elapsed = elapsed + dt
+        if self.live then self.dot:SetAlpha(0.55 + 0.45 * math.abs(math.sin(GetTime() * 2))) end
         if elapsed >= 1 then
             elapsed = 0
             SessionBar:Update()
@@ -171,23 +194,47 @@ function SessionBar:Update()
         return
     end
     local f = Create()
+    local locked = false
     if state == "session" then
-        f.dot:SetTexture("Interface\\COMMON\\Indicator-Green")
-        f.text:SetText(self:GetText())
+        local zone, dur, bosses
+        zone, dur, bosses, locked = self:GetParts()
+        f.live = true
+        f.dot:SetTexture("Interface\COMMON\Indicator-Green")
+        f.title:SetText(zone)
+        f.text:SetText(dur .. "  \194\183  " .. bosses)
         f.button:SetText("End raid")
+        f.button:SetTint(END_TINT)
         f.button:SetShown(IsAuthority())
         f.close:Hide()
     else
-        f.dot:SetTexture("Interface\\COMMON\\Indicator-Gray")
-        f.text:SetText("No raid session: this raid is not being logged")
+        f.live = false
+        f.dot:SetAlpha(1)
+        f.dot:SetTexture("Interface\COMMON\Indicator-Gray")
+        f.title:SetText("No raid session")
+        f.text:SetText("this raid is not being logged")
         f.button:SetText("Start raid")
+        f.button:SetTint(START_TINT)
         f.button:Show()
         f.close:Show()
     end
-    local right = 8
+    -- the right side: [pill] [x] [button]
+    local anchor, gap = nil, 0
+    if f.button:IsShown() then anchor = f.button end
+    if f.close:IsShown() then anchor = f.close end
+    f.pill:ClearAllPoints()
+    if locked then
+        f.pill:Set("BIS LOCKED", { 1, 0.6, 0.15 })
+        if anchor then f.pill:SetPoint("RIGHT", anchor, "LEFT", -6, 0) else f.pill:SetPoint("RIGHT", -8, 0) end
+        f.pill:Show()
+    else
+        f.pill:Hide()
+    end
+    local right = 10
     if f.button:IsShown() then right = right + f.button:GetWidth() + 4 end
     if f.close:IsShown() then right = right + 20 end
-    f:SetWidth(math.max(220, floor(f.text:GetStringWidth() + 30 + right)))
+    if f.pill:IsShown() then right = right + f.pill:GetWidth() + 8 end
+    local left = 9 + 12 + 6 + (f.title:GetStringWidth() or 60) + 8 + (f.text:GetStringWidth() or 100)
+    f:SetWidth(math.max(220, floor(left + right + 8)))
     f:Show()
 end
 

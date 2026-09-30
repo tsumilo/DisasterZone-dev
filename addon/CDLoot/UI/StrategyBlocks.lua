@@ -294,6 +294,16 @@ function Panel:BlockMenu(owner, page, k, index)
             col:CreateRadio(MapUI():Swatch(i) .. " " .. c[4], function() return k.cl == i end,
                 function() k.cl = i; self:Changed() end)
         end
+        -- what the encounter helpers follow for this table (Core/StrategyLive.lua)
+        local Live = ns.StrategyLive
+        if Live then
+            local trm = root:CreateButton("Track in fight" .. (k.tr and (": " .. Live.KIND_NAME[k.tr]) or ""))
+            trm:CreateRadio("Not tracked", function() return k.tr == nil end, function() k.tr = nil; self:Changed() end)
+            for _, kind in ipairs(Live.KIND_ORDER) do
+                trm:CreateRadio(Live.KIND_NAME[kind], function() return k.tr == kind end,
+                    function() k.tr = kind; self:Changed() end)
+            end
+        end
         local rows = root:CreateButton("Rows (" .. k.r .. ")")
         rows:CreateButton("Add a row", function() self:InsertRow(k, k.r + 1) end)
         if k.r > 1 then rows:CreateButton("Remove the last row", function() self:DeleteRow(k, k.r) end) end
@@ -633,7 +643,8 @@ function Panel:Render()
             b.title.fs:SetPoint("LEFT", 6, 0)
         end
         b.title.fs:SetPoint("RIGHT", -22, 0)
-        b.title.fs:SetText(k.n)
+        local trackName = k.tr and ns.StrategyLive and ns.StrategyLive.KIND_NAME[k.tr]
+        b.title.fs:SetText(k.n .. (trackName and ("  |cffb0ffb0(tracked: " .. trackName .. ")|r") or ""))
         b.gear:SetShown(mode == "edit")
         b.gear:SetScript("OnClick", function(btn) self:BlockMenu(btn, page, k, index) end)
         b.title:SetScript("OnClick", function(btn, button)
