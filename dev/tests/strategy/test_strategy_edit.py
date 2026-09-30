@@ -260,5 +260,53 @@ def undo_while_assigning():
     w.assert_no_errors()
 
 
+@case
+def stacking_follows_bring_to_front_and_send_to_back():
+    w, c, bob, sid = setup()
+    # two overlapping icons; each drawing's frame level is its place in the stack
+    bob.eval("local cv = %s; cv:Place({ t = 'i', x = 400, y = 400, i = 'rt1', z = 48 });"
+             " cv:Place({ t = 'i', x = 410, y = 405, i = 'rt2', z = 48 })" % CV)
+
+    def levels():
+        return bob.eval_py("local r = {}; for _, o in ipairs(%s.pools.icon) do if o.holder:IsShown() then "
+                           "r[o.tex:GetTexture():sub(-1)] = o.holder:GetFrameLevel() end end; return r" % CV)
+    lv = levels()
+    assert lv["2"] > lv["1"] > lv["8"], lv            # page order: skull (rt8) first, star, then circle
+    # Send the circle (rt2) to the back: under the other icons
+    bob.eval("local cv = %s; local e = T_elems(); cv:Select(e[#e]); cv:Reorder({ e[#e] }, false)" % CV)
+    lv = levels()
+    assert lv["2"] < lv["1"] and lv["2"] < lv["8"], lv
+    # Bring the skull to the front
+    bob.eval("local cv = %s; for _, e in ipairs(T_elems()) do if e.i == 'rt8' then cv:Reorder({ e }, true) end end" % CV)
+    lv = levels()
+    assert lv["8"] > lv["1"] > lv["2"], lv
+    # zones stay under icons whatever their order; selection boxes sit above everything
+    zone = bob.eval("for _, o in ipairs(%s.pools.zone) do if o.holder:IsShown() then return o.holder:GetFrameLevel() end end" % CV)
+    assert zone < min(lv.values())
+    assert bob.eval("return %s.top:GetFrameLevel()" % CV) > max(lv.values())
+    w.assert_no_errors()
+
+
+@case
+def dropping_a_portrait_on_a_target_cell():
+    w, c, bob, sid = setup()
+    # Veras' portrait on the map, Shift-dragged onto the Tanks block's Target cell of row 2
+    bob.eval("local cv = %s; cv:Place({ t = 'i', x = 300, y = 500, i = 'boss:21418', z = 48, l = 'Veras Darkshadow' })" % CV)
+    n = len(elems(bob))
+    bob.eval("for _, b in ipairs(%s.blocks.blocks) do for _, c in ipairs(b.cells) do "
+             "if c.targetInfo and c.targetInfo.k.id == 'tk' and c.targetInfo.row == 2 then "
+             "c.IsMouseOver = function() return true end end end end" % W)
+    bob.eval("local cv = %s; local e = T_elems()[%d]; cv.drag = { mode = 'link', el = e }; cv:OnMouseUp('LeftButton')" % (CV, n))
+    cell = bob.eval_py("return ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'tk').d[2][2]")
+    assert cell == {"i": "boss:21418", "l": "Veras Darkshadow"}, cell
+    # the portrait now shows the tank of that row
+    assert elems(bob)[n - 1]["ln"] == "tk.2.1"
+    # one undo takes back both the cell and the link
+    key(bob, "Z", ctrl=True)
+    assert bob.eval("return ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'tk').d[2][2].l") == "Veras"
+    assert "ln" not in elems(bob)[n - 1]
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

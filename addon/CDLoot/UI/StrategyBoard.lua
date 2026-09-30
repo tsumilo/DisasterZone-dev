@@ -326,6 +326,7 @@ local function createWindow()
         slotTip = function(ref, tt) Board:LinkTooltip(ref, tt) end,
         linkText = function(ref) return Board:LinkText(ref) end,
         dropRef = function() return win.blocks:RefUnderCursor() end,
+        onDropTarget = function(list, e, t) Board:DropOnTarget(list, e, t) end,
         validRef = function(ref) return Board:ValidRef(ref) end,
         onHover = function(ref) win.blocks:Highlight(ref) end,
         slots = function() return S():GetSlots(st.strat) end,
@@ -939,6 +940,39 @@ function Board:LinkTooltip(ref, tt)
 end
 
 function Board:SlotTooltip(ref, tt) return self:LinkTooltip(ref, tt) end
+
+-- A drawing dropped on a Target cell: the cell shows its icon and name, and the drawing (with its group) links to
+-- that row's player, so the map shows who handles it (e.g. Attumen -> the tank of that row).
+function Board:DropOnTarget(list, e, t)
+    if st.mode ~= "edit" then return end
+    local k, row, ci = t.k, t.row, t.col
+    local cur = k.d and k.d[row] and k.d[row][ci]
+    local cell = {}
+    for key, v in pairs(type(cur) == "table" and cur or {}) do cell[key] = v end
+    local icon
+    for _, m in ipairs(list) do
+        if not icon and m.t == "i" then icon = m end
+    end
+    local src = (e.t == "i" and e) or icon
+    if src then cell.i = src.i end
+    local label = e.l or (src and src.l) or (src and MapUI():IconName(src.i))
+    if label and label ~= "" then cell.l = label:sub(1, S().MAX_CELL) end
+    k.d = k.d or {}
+    k.d[row] = k.d[row] or {}
+    k.d[row][ci] = next(cell) and cell or nil
+    local ref
+    for c2, col in ipairs(k.c) do
+        if col.t == "p" then
+            ref = S().SlotRef(k.id, row, c2)
+            break
+        end
+    end
+    if ref then
+        win.canvas:LinkList(list, ref)      -- repaints and records the change
+    else
+        self:MarkDirty(true)
+    end
+end
 
 -- Does a block reference exist in the shown strategy (pasting from another one)?
 function Board:ValidRef(ref)

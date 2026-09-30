@@ -413,11 +413,13 @@ function Panel:SlotMenu(owner, ref, filter)
 end
 
 -- What a drawing dragged onto the tables links to: a player slot, a column (its header) or a block (its title bar).
+-- Over a Target cell: nil, { k = block, row, col } (the board fills the cell from the drawing).
 function Panel:RefUnderCursor()
     for _, b in ipairs(self.blocks) do
         if b:IsShown() then
             for _, cell in ipairs(b.cells) do
                 if cell:IsShown() and cell:IsMouseOver() then
+                    if cell.targetInfo then return nil, cell.targetInfo end
                     if cell.slotRef then return cell.slotRef end
                     if cell.headRef then return cell.headRef end
                     if cell.blockId then return cell.blockId end
@@ -637,6 +639,7 @@ function Panel:Render()
             c.fs:SetPoint("RIGHT", -2, 0)
             c.lit:Hide()
             c.slotRef, c.hoverRef, c.tip, c.onClick, c.rowMenu, c.headRef, c.blockId = nil, nil, nil, nil, nil, nil, nil
+            c.targetInfo = nil
             c:Show()
             return c
         end
@@ -695,8 +698,9 @@ function Panel:Render()
                         c.fs:SetPoint("LEFT", c.icon, "RIGHT", 3, 0)
                         c.fs:SetPoint("RIGHT", -2, 0)
                     end
-                    if text == "" and mode == "edit" then text = grey("click to set") end
+                    if text == "" and mode == "edit" then text = grey("click to set, or drop an icon here") end
                     c.fs:SetText(text)
+                    c.targetInfo = { k = k, row = row, col = ci }
                     if mode == "edit" then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
                 elseif col.t == "p" then
                     local ref = S().SlotRef(k.id, row, ci)

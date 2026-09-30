@@ -532,16 +532,21 @@ function MapUI:CreateCanvas(parent, width, opts)
     self.layer = CreateFrame("Frame", nil, f)
     self.layer:SetAllPoints()
     self.layer:SetFrameLevel(self.art:GetFrameLevel() + 2)
+    -- every drawing gets its own frame on the layer (the frame level is its place in the stacking order); the
+    -- selection, handles and names of linked drawings sit on a frame above them all
+    self.top = CreateFrame("Frame", nil, f)
+    self.top:SetAllPoints()
+    self.top:SetFrameLevel(self.layer:GetFrameLevel() + 400)
     self.handles = {}
     for i = 1, 2 do
-        local h = self.layer:CreateTexture(nil, "OVERLAY", nil, 7)
+        local h = self.top:CreateTexture(nil, "OVERLAY", nil, 7)
         h:SetColorTexture(1, 0.85, 0.1, 1)
         h:SetSize(8, 8)
         h:Hide()
         self.handles[i] = h
     end
     -- the selection box being dragged
-    self.marq = self.layer:CreateTexture(nil, "OVERLAY", nil, 5)
+    self.marq = self.top:CreateTexture(nil, "OVERLAY", nil, 5)
     self.marq:SetColorTexture(1, 0.85, 0.1, 0.15)
     self.marq:Hide()
     self.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -715,14 +720,20 @@ end
 -- Elements
 ---------------------------------------------------------------------------
 
-local function acquire(self, kind, create)
+-- A pooled drawing object with its own frame (on the top frame when `top`). create(frame) makes its regions.
+local function acquire(self, kind, create, top)
     self.used[kind] = (self.used[kind] or 0) + 1
     local pool = self.pools[kind]
     local o = pool[self.used[kind]]
     if not o then
-        o = create()
+        local holder = CreateFrame("Frame", nil, top and self.top or self.layer)
+        holder:SetAllPoints(self.layer)
+        o = create(holder)
+        o.holder = holder
         pool[self.used[kind]] = o
     end
+    o.holder:Show()
+    self.lastObj = o
     return o
 end
 
@@ -736,7 +747,7 @@ end
 
 -- A raid mark badge at a point (the top right corner of an icon or zone).
 function Canvas:Badge(o, e, x, y, size)
-    if not o.badge then o.badge = self.layer:CreateTexture(nil, "OVERLAY", nil, 2) end
+    if not o.badge then o.badge = o.holder:CreateTexture(nil, "OVERLAY", nil, 2) end
     if not e.rm then
         o.badge:Hide()
         return
@@ -750,7 +761,7 @@ end
 
 function Canvas:RenderZone(e)
     local L = self.layer
-    local o = acquire(self, "zone", function()
+    local o = acquire(self, "zone", function(L)
         local z = {}
         z.fill = L:CreateTexture(nil, "BACKGROUND", nil, 1)
         z.ring = L:CreateTexture(nil, "BORDER", nil, 1)
@@ -812,7 +823,7 @@ end
 
 function Canvas:RenderArrow(e)
     local L = self.layer
-    local o = acquire(self, "arrow", function()
+    local o = acquire(self, "arrow", function(L)
         local a = {}
         a.line = L:CreateLine(nil, "ARTWORK", nil, 1)
         a.head = L:CreateTexture(nil, "ARTWORK", nil, 2)
@@ -849,7 +860,7 @@ end
 
 function Canvas:RenderIcon(e)
     local L = self.layer
-    local o = acquire(self, "icon", function()
+    local o = acquire(self, "icon", function(L)
         local i = {}
         i.glow = L:CreateTexture(nil, "ARTWORK", nil, 2)
         i.glow:SetColorTexture(1, 0.85, 0.1, 0.6)
@@ -892,8 +903,8 @@ end
 local TEXT_SIZES = { 10, 13, 17 }
 
 function Canvas:RenderText(e)
-    local o = acquire(self, "text", function()
-        return { fs = newFS(self.layer) }
+    local o = acquire(self, "text", function(L)
+        return { fs = newFS(L) }
     end)
     local r, g, b = MapUI:Color(e.c or 9)
     if self.lit and self.lit[e] then r, g, b = 1, 0.85, 0.1 end
@@ -911,7 +922,7 @@ end
 
 function Canvas:RenderSlot(e)
     local L = self.layer
-    local o = acquire(self, "slot", function()
+    local o = acquire(self, "slot", function(L)
         local t = {}
         t.bg = L:CreateTexture(nil, "OVERLAY", nil, 1)
         t.edge = L:CreateTexture(nil, "OVERLAY", nil, 0)
@@ -1027,9 +1038,9 @@ function Canvas:RenderLinks()
             if text and text ~= "" then
                 local l, _, r, b = unionBounds(members)
                 if e.t == "z" and not e.g then b = e.y + (e.l and 14 or 0) end
-                local o = acquire(self, "link", function()
-                    return { fs = newFS(self.layer) }
-                end)
+                local o = acquire(self, "link", function(L)
+                    return { fs = newFS(L) }
+                end, true)
                 o.fs:SetFont(fontPath(), self:FontSize(11), "OUTLINE")
                 o.fs:ClearAllPoints()
                 o.fs:SetPoint("TOP", self.layer, "TOPLEFT", (l + r) / 2 * self.s, -(b + 2) * self.s)
@@ -1047,17 +1058,29 @@ function Canvas:Render()
     for _, pool in pairs(self.pools) do
         for i = 1, #pool do
             if pool[i].hide then pool[i].hide() end
+            if pool[i].holder then pool[i].holder:Hide() end
         end
     end
     self.used = {}
     local page = self.page
     if page then
-        -- zones first (under everything), then the rest in page order
+        -- stacking: zones under everything else, each band in page order (Bring to front / Send to back move a
+        -- drawing to the end / start of the page's list)
+        local base = self.layer:GetFrameLevel()
+        local zi, oi = 0, 0
         for _, e in ipairs(page.e or {}) do
-            if e.t == "z" then self:RenderZone(e) end
+            if e.t == "z" then
+                zi = zi + 1
+                self:RenderZone(e)
+                self.lastObj.holder:SetFrameLevel(base + zi)
+            end
         end
         for _, e in ipairs(page.e or {}) do
-            if e.t ~= "z" and RENDER[e.t] then self[RENDER[e.t]](self, e) end
+            if e.t ~= "z" and RENDER[e.t] then
+                oi = oi + 1
+                self[RENDER[e.t]](self, e)
+                self.lastObj.holder:SetFrameLevel(base + 100 + oi)
+            end
         end
         self:RenderLinks()
     end
@@ -1156,11 +1179,11 @@ function Canvas:HandleAt(x, y)
 end
 
 function Canvas:SelBox(l, t, r, b, grouped)
-    local o = acquire(self, "box", function()
+    local o = acquire(self, "box", function(L)
         local edges = {}
-        for i = 1, 4 do edges[i] = self.layer:CreateTexture(nil, "OVERLAY", nil, 6) end
+        for i = 1, 4 do edges[i] = L:CreateTexture(nil, "OVERLAY", nil, 6) end
         return { edges = edges }
-    end)
+    end, true)
     local px, py = self:P(l, t)
     local w, h = (r - l) * self.s, (b - t) * self.s
     local E = o.edges
@@ -1179,7 +1202,10 @@ end
 
 function Canvas:RenderSelection()
     local pool = self.pools.box
-    for i = 1, #pool do pool[i].hide() end
+    for i = 1, #pool do
+        pool[i].hide()
+        pool[i].holder:Hide()
+    end
     self.used.box = 0
     for _, h in ipairs(self.handles) do h:Hide() end
     if not self:Editable() or not self.page then return end
@@ -1668,7 +1694,7 @@ function Canvas:OnDragUpdate()
         if abs(x - d.sx) + abs(y - d.sy) > 6 then
             d.mode = "link"
             local g = linkGhost()
-            g.fs:SetText("Link " .. (e.l or MapUI:IconName(e.i) or "drawing") .. ": drop on a table cell or column")
+            g.fs:SetText("Link " .. (e.l or MapUI:IconName(e.i) or "drawing") .. ": drop on a player, a target or a column")
             g:Show()
         end
         return
@@ -1739,9 +1765,13 @@ function Canvas:OnMouseUp(button)
         return
     elseif d.mode == "link" then
         if ghost then ghost:Hide() end
-        local ref = self.opts.dropRef and self.opts.dropRef()
-        if ref then
-            local list = self.sel[e] and self:Selection() or self:GroupOf(e)
+        local ref, target
+        if self.opts.dropRef then ref, target = self.opts.dropRef() end
+        local list = self.sel[e] and self:Selection() or self:GroupOf(e)
+        if target and self.opts.onDropTarget then
+            self.opts.onDropTarget(list, e, target)
+            self:Select(e)
+        elseif ref then
             self:LinkList(list, ref)
             self:Select(e)
         end

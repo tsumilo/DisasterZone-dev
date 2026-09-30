@@ -19,6 +19,8 @@ ns.CHANGELOG = {
           { heading = "Editing", lines = {
               "Shift-drag a drawing onto a table cell to link it: it shows that player's name.",
               "Drag a player cell onto the map to show that player there.",
+              "Drop a boss icon on a Target cell: the cell shows it, the icon its tank.",
+              "Bring to front and Send to back now change what is drawn on top.",
               "Select several drawings (Shift-click or a box) and Ctrl+G to group them.",
               "Right-click an icon for a raid mark in its corner.",
               "Ctrl+Z / Ctrl+Y undo and redo; Del, Ctrl+C, Ctrl+V and Ctrl+D work too.",
