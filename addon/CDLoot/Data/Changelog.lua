@@ -23,6 +23,8 @@ ns.CHANGELOG = {
               "Click the title to rename; the map picker sits above the map.",
               "An empty page suggests a table per creature on the map: one click adds it, linked.",
               "Tables show a target's linked player as a short pill (-> #2), never cut off.",
+              "Tables have a colour strip, striped rows and flat + row / + column controls.",
+              "A single slot can have its own class or role rule (click it), apart from its column.",
               "Shift-drag a drawing onto a table cell to link it: it shows that player's name.",
               "Drag a player cell onto the map to show that player there.",
               "Drop a boss icon on a Target cell: the cell shows it, the icon its tank.",

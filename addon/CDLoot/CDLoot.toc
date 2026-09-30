@@ -2,7 +2,7 @@
 ## Title: |cffff8000CD|rLoot
 ## Notes: BiS lists, Loot Council overview and boss-drop alerts for <Casual Disaster>.
 ## Author: Casual Disaster
-## Version: 0.7.0
+## Version: 0.8.0
 ## X-CDL-Protocol: 1
 ## SavedVariables: CDLootDB
 ## OptionalDeps: LoonBestInSlot
