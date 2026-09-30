@@ -54,12 +54,23 @@ function Practice:Assign(s)
             end
         end
     end
+    -- the slots other rows point at (a misdirect's tank, a healer's tank): my plain job is one nobody points at
+    local pointed = {}
+    for _, p in ipairs(s.p or {}) do
+        for _, k in ipairs(p.k or {}) do
+            for _, cells in pairs(k.d or {}) do
+                for _, v in pairs(cells) do
+                    if type(v) == "table" and v.s then pointed[v.s] = true end
+                end
+            end
+        end
+    end
     local gavePlain = false
     for _, slot in ipairs(S():GetSlots(s)) do
         local mine = false
         if tracked[slot.block] then
             mine = slot.row == 1 and slot.col == firstCol[slot.block]
-        elseif not gavePlain then
+        elseif not gavePlain and not pointed[slot.ref] then
             mine, gavePlain = true, true
         end
         if mine then
@@ -67,6 +78,26 @@ function Practice:Assign(s)
         else
             n = n + 1
             a[slot.ref] = Util.NormalizeName(DEMO[(n - 1) % #DEMO + 1])
+        end
+    end
+    -- a row of mine that points at another slot (misdirect onto a tank, Innervate on a healer): that slot goes to a
+    -- demo player, so I never misdirect onto myself
+    for _, p in ipairs(s.p or {}) do
+        for _, k in ipairs(p.k or {}) do
+            for row, cells in pairs(k.d or {}) do
+                local mineRow = false
+                for ci, col in ipairs(k.c) do
+                    if col.t == "p" and a[S().SlotRef(k.id, row, ci)] == me then mineRow = true end
+                end
+                if mineRow then
+                    for _, v in pairs(cells) do
+                        if type(v) == "table" and v.s and a[v.s] == me then
+                            n = n + 1
+                            a[v.s] = Util.NormalizeName(DEMO[(n - 1) % #DEMO + 1])
+                        end
+                    end
+                end
+            end
         end
     end
     return a

@@ -33,6 +33,7 @@ local REMARK_GAP = 1.5             -- seconds between two re-marks of the same m
 local REMARK_MAX = 6               -- re-marks per mob per boss (then the other addon wins)
 local TURN_TIMEOUT = 3             -- the rotation's current player has this long to kick a cast before it moves on
 local MISS_DEDUPE = 1              -- a cast + a miss of the same kick within this many seconds count once
+Live.PULL_WINDOW = 10              -- a pull-time job (Misdirection) not cast this long after the pull: "not cast"
 
 local function S() return ns.Strategy end
 
@@ -619,7 +620,10 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
                         for _, r in ipairs(tr.rows) do
                             if r.player == who then
                                 r.done, r.last, r.cd = true, now, cd
-                                Debug("%s: %s cast %s", tr.name, who, spellName)
+                                -- who it went to (a misdirect onto the planned tank or not)
+                                r.dest = KeyOf(dstGUID, dstName)
+                                Debug("%s: %s cast %s%s", tr.name, who, spellName,
+                                    r.dest and (" on " .. r.dest) or "")
                                 changed = true
                             end
                         end

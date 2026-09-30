@@ -414,14 +414,20 @@ def once_cooldown_and_keep_up_tables():
     w, c, occ, sid, npcs = raid()
     for n in ("Hana", "Hugo", "Sham", "Pri", "Dru", "Wal", "Bob"):
         see(w, c[n], "Gathios", npcs=npcs)
-    engage(w, c)
-    hana, sham, pri, dru, wal = c["Hana"], c["Sham"], c["Pri"], c["Dru"], c["Wal"]
+    hana, hugo, sham, pri, dru, wal = c["Hana"], c["Hugo"], c["Sham"], c["Pri"], c["Dru"], c["Wal"]
 
     def my(cl, prefix):
         return [x for x in lines(cl)["lines"] if x.startswith(prefix)]
-    # Misdirection: pending until cast
-    assert my(hana, "Misdirect Gathios >") and "Lee" in my(hana, "Misdirect Gathios >")[0], lines(hana)
-    cleu(w, "SPELL_CAST_SUCCESS", hana, npcs["Gathios"], 34477, "Misdirection")
+    # Misdirection: a pull-time job with the mob's short name and the planned tank, "on pull" before the pull
+    assert my(hana, "Misdirect Gathios onto Lee: on pull"), lines(hana)
+    assert my(hugo, "Misdirect Zerevor onto Bob: on pull"), lines(hugo)
+    md_item = [it for it in items(hana) if it["text"].startswith("Misdirect")][0]
+    assert md_item["icon"] == "i:Ability_Hunter_Misdirection" and not md_item.get("alert"), md_item
+    engage(w, c)
+    assert my(hana, "Misdirect Gathios onto Lee: now"), lines(hana)
+    # Hana misdirects onto the planned tank: done (no alarm at any point)
+    cleu(w, "SPELL_CAST_SUCCESS", hana, c["Lee"], 34477, "Misdirection")
+    assert my(hana, "Misdirect Gathios onto Lee: done"), lines(hana)
     assert c["Hana"].eval("local c = ns.StrategyLive:GetCurrent(); for _, t in ipairs(c.trackers) do if t.kind == 'md' "
                           "then return t.rows[1].done end end") is True
     # Bloodlust: the "When" countdown, then done
@@ -430,14 +436,22 @@ def once_cooldown_and_keep_up_tables():
     assert "NOW" in my(sham, "Bloodlust")[0]
     cleu(w, "SPELL_CAST_SUCCESS", sham, sham, 2825, "Bloodlust")
     assert "NOW" not in my(sham, "Bloodlust")[0]
+    # Hugo never misdirected: 10 s after the pull it's "not cast" (quietly: the moment has passed) ...
+    assert my(hugo, "Misdirect Zerevor onto Bob: not cast"), lines(hugo)
+    assert not [it for it in items(hugo) if it.get("alert")]
+    # ... and when he misdirects onto the wrong player, it says so
+    cleu(w, "SPELL_CAST_SUCCESS", hugo, c["Gina"], 34477, "Misdirection")
+    assert my(hugo, "Misdirect Zerevor onto Bob: onto Gina, not Bob"), lines(hugo)
+    L = lines(c["Bob"])["lines"]
+    assert any(x.strip().startswith("Misdirects:") and "Hana done" in x and "onto Gina, not Bob" in x for x in L), L
     # Power Infusion -> Bob, Innervate -> Pri: ready, then on cooldown, ready again
-    assert my(pri, "Power Infusion > ")[0].endswith("ready"), lines(pri)
+    assert my(pri, "Power Infusion on Bob")[0].endswith("ready"), lines(pri)
     cleu(w, "SPELL_CAST_SUCCESS", pri, c["Bob"], 10060, "Power Infusion")
-    assert my(pri, "Power Infusion > ")[0].endswith("3:00") or my(pri, "Power Infusion > ")[0].endswith("2:59")
+    assert my(pri, "Power Infusion on ")[0].endswith("3:00") or my(pri, "Power Infusion on ")[0].endswith("2:59")
     cleu(w, "SPELL_CAST_SUCCESS", dru, pri, 29166, "Innervate")
-    assert "Innervate > " in my(dru, "Innervate")[0] and my(dru, "Innervate")[0].endswith(("6:00", "5:59"))
+    assert "Innervate on Pri" in my(dru, "Innervate")[0] and my(dru, "Innervate")[0].endswith(("6:00", "5:59"))
     w.tick(181, step=1)
-    assert my(pri, "Power Infusion > ")[0].endswith("ready")
+    assert my(pri, "Power Infusion on ")[0].endswith("ready")
     # Curse of Tongues on Malande: up, then it falls off -> the warlock's panel flashes
     cleu(w, "SPELL_AURA_APPLIED", wal, npcs["Malande"], 11719, "Curse of Tongues", "DEBUFF")
     assert my(wal, "Curse of Tongues")[0].rstrip().endswith(":"), my(wal, "Curse of Tongues")    # the ready icon
@@ -547,9 +561,12 @@ def practice_solo_at_a_target_dummy():
     assert "PRACTICE" in strip_codes(bob.eval("return ns.StrategyReminder:Lines().sub")), d
     L = d["lines"]
     # me: the first row of every tracked table and one plain job; demo players everywhere else
-    assert "- Tanks: Gathios (MT)" in L, L
+    assert "- Tanks: Zerevor backup" in L, L        # a plain job no other row points at
     assert any(x.startswith("Malande interrupts: [YOU] > ") for x in L), L
-    assert any(x.startswith("Misdirect Gathios >") for x in L) and any(x.startswith("Curse of Tongues:") for x in L), L
+    # my misdirect goes onto a demo tank, never onto myself
+    md = [x for x in L if x.startswith("Misdirect Gathios onto ")]
+    assert md and "onto you" not in md[0] and md[0].endswith(": on pull"), L
+    assert any(x.startswith("Curse of Tongues:") for x in L), L
     assert "Raid" not in L                               # I'm in every tracked table: no overview repeating them
     assert "next" in d["title"]
     w.tick(4.5, step=0.25)

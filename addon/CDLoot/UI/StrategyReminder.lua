@@ -29,6 +29,13 @@ local function grey(t) return "|cff8c8c8c" .. tostring(t) .. "|r" end
 local function green(t) return "|cff40ff70" .. tostring(t) .. "|r" end
 local function red(t) return "|cffff4a40" .. tostring(t) .. "|r" end
 local function gold(t) return "|cffffd100" .. tostring(t) .. "|r" end
+local function orange(t) return "|cffff9933" .. tostring(t) .. "|r" end
+
+-- The icon of a tracked table without one of its own: its spell.
+local KIND_ICON = {
+    rot = "i:Ability_Kick", md = "i:Ability_Hunter_Misdirection", bl = "i:Spell_Nature_BloodLust",
+    pi = "i:Spell_Holy_PowerInfusion", iv = "i:Spell_Nature_Lightning", curse = "i:Spell_Shadow_CurseOfTounges",
+}
 
 local function Me() return ns.Util.PlayerKey() end
 
@@ -41,6 +48,21 @@ local function Name(key)
     if not key then return grey("nobody") end
     if key == Me() then return green("You") end
     return ClassName(key)
+end
+
+-- The same, lower case "you" inside a sentence ("onto you").
+local function NameIn(key)
+    if key == Me() then return green("you") end
+    return Name(key)
+end
+
+-- A short name for a row's mob: the Target cell's label when short ("Gathios ->" -> "Gathios"), else the first word
+-- of it ("Attumen the Huntsman" -> "Attumen").
+local function Short(label)
+    if not label or label == "" then return nil end
+    label = label:gsub("%s*%-*>%s*$", "")
+    if #label <= 16 then return label end
+    return label:match("^(%S+)") or label
 end
 
 local function Clock(sec)
@@ -57,15 +79,22 @@ end
 local function RowStatus(c, tr, r)
     local L = Live()
     if tr.kind == "md" then
-        if r.done then return OK end
-        return c.engaged and NO or WAIT, c.engaged
+        if r.done then
+            if r.onto and r.dest and r.dest ~= r.onto then
+                return orange("onto " .. ns.Util.ShortName(r.dest) .. ", not " .. ns.Util.ShortName(r.onto))
+            end
+            return green("done ") .. OK
+        end
+        if not c.engaged then return gold("on pull") end
+        if GetTime() - (c.pullAt or 0) < L.PULL_WINDOW then return gold("now") end
+        return grey("not cast")
     elseif tr.kind == "bl" then
-        if r.done then return OK end
+        if r.done then return green("done ") .. OK end
         local at = L:PlannedAt(r)
         if c.engaged and at then
             local left = at - (GetTime() - c.pullAt)
             if left > 0 then return grey("in " .. Clock(left)) end
-            return red("NOW"), true
+            return gold("NOW")
         end
         return WAIT
     elseif tr.kind == "pi" or tr.kind == "iv" then
@@ -75,7 +104,7 @@ local function RowStatus(c, tr, r)
     elseif tr.kind == "curse" then
         if r.up then return OK end
         if r.fellAt then return red("fell off"), true end
-        return c.engaged and red("missing") or WAIT, c.engaged
+        return c.engaged and orange("not up") or gold("on pull")
     end
     return ""
 end
@@ -83,11 +112,12 @@ end
 -- What a tracked row of mine says.
 local function RowText(tr, r)
     if tr.kind == "md" then
-        return "Misdirect " .. (r.label and r.label:gsub("%s*%->%s*$", "") or "") .. (r.onto and (" > " .. Name(r.onto)) or "")
+        local mob = Short(r.label) or (r.target and r.target.i and Short(MapUI():IconName(r.target.i)))
+        return "Misdirect" .. (mob and (" " .. mob) or "") .. (r.onto and (" onto " .. NameIn(r.onto)) or "")
     elseif tr.kind == "pi" then
-        return "Power Infusion > " .. Name(r.onto)
+        return "Power Infusion on " .. NameIn(r.onto)
     elseif tr.kind == "iv" then
-        return "Innervate > " .. Name(r.onto)
+        return "Innervate on " .. NameIn(r.onto)
     elseif tr.kind == "bl" then
         return "Bloodlust"
     elseif tr.kind == "curse" then
@@ -179,7 +209,7 @@ function Reminder:Items()
                 elseif pick then
                     status = grey(ns.Util.ShortName(pick.player) .. "'s turn" .. (how == "backup" and " (backup)" or ""))
                 end
-                items[#items + 1] = { kind = "rot", icon = tr.icon or "i:Ability_Kick", text = tr.name,
+                items[#items + 1] = { kind = "rot", icon = tr.icon or KIND_ICON.rot, text = tr.name,
                                       status = status, alert = alert, chips = Chips(tr, pick), tr = tr, myTurn = myTurn,
                                       backupTurn = myTurn and how == "backup" }
             end
@@ -188,7 +218,7 @@ function Reminder:Items()
                 if r.player == me then
                     mineIn[tr.id] = true
                     local status, alert = RowStatus(c, tr, r)
-                    local icon = tr.icon
+                    local icon = tr.icon or KIND_ICON[tr.kind]
                     if tr.kind == "curse" and r.target and r.target.i then icon = r.target.i end
                     items[#items + 1] = { kind = "row", icon = icon, text = RowText(tr, r), status = status,
                                           alert = alert, tr = tr, r = r }
@@ -214,7 +244,7 @@ function Reminder:Items()
                     local status = pick and (ns.Util.ShortName(pick.player) .. "'s turn") or ""
                     if how == "backup" then status = gold(status .. " (backup)") elseif how == "late" then
                         status = red(status .. " (not ready)") else status = grey(status) end
-                    items[#items + 1] = { kind = "rot", icon = tr.icon or "i:Ability_Kick", text = tr.name,
+                    items[#items + 1] = { kind = "rot", icon = tr.icon or KIND_ICON.rot, text = tr.name,
                                           status = status, chips = Chips(tr, pick), tr = tr, overview = true }
                 else
                     local parts, alert = {}, false
@@ -225,7 +255,7 @@ function Reminder:Items()
                             parts[#parts + 1] = ns.Util.ShortName(r.player) .. " " .. st
                         end
                     end
-                    items[#items + 1] = { kind = "row", icon = tr.icon, text = tr.name,
+                    items[#items + 1] = { kind = "row", icon = tr.icon or KIND_ICON[tr.kind], text = tr.name,
                                           status = #parts == 0 and grey("nobody") or "", detail = tconcat(parts, "  "),
                                           tr = tr, overview = true, alert = alert }
                 end
