@@ -1,5 +1,6 @@
 """Renders a strategy page over its floor map into a PNG, the way the board lays it out (for checking positions
 offline). Usage: luaenv\\Scripts\\python.exe tools\\preview_strategy.py <BossRef> [out.png]
+                  luaenv\\Scripts\\python.exe tools\\preview_strategy.py all [out dir]
 Loads the boss' starter strategy (Data/StarterStrategies.lua) through the addon's own loader.
 """
 import os
@@ -15,24 +16,39 @@ sys.path.insert(0, os.path.join(DEV, "tests", "loot-roll"))
 from PIL import Image, ImageDraw  # noqa: E402
 from st_common import world  # noqa: E402
 
+sys.path.insert(0, os.path.join(DEV, "generators"))
+from gen_raid_maps import MAPS  # noqa: E402
+
+SOURCES = {m[1]: m[0] for m in MAPS}  # map file -> dev/art/blizzard_maps/<source>.jpg
+
 COLORS = [(230, 56, 56), (64, 153, 255), (255, 153, 26), (77, 217, 77), (179, 102, 255), (255, 230, 51),
           (51, 230, 230), (255, 115, 191), (255, 255, 255), (153, 153, 153), (153, 102, 56), (13, 13, 13)]
 MARKS = {1: "Star", 2: "Circle", 3: "Diamond", 4: "Triangle", 5: "Moon", 6: "Square", 7: "Cross", 8: "Skull"}
 
 
 def main():
-    ref = sys.argv[1]
-    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(DEV, "art", "preview_%s.png" % ref.replace(":", "_"))
     w, c = world()
+    if sys.argv[1] == "all":
+        folder = sys.argv[2] if len(sys.argv) > 2 else os.path.join(DEV, "art")
+        refs = c["Bob"].eval_py("local out = {}; for ref in pairs(ns.Data.StarterStrategies) do out[#out + 1] = ref end; "
+                                "table.sort(out); return out")
+        for ref in refs:
+            render(c, ref, os.path.join(folder, "preview_%s.png" % ref.replace(":", "_")))
+        return
+    ref = sys.argv[1]
+    render(c, ref, sys.argv[2] if len(sys.argv) > 2 else
+           os.path.join(DEV, "art", "preview_%s.png" % ref.replace(":", "_")))
+
+
+def render(c, ref, out):
     d = c["Bob"].eval_py("local d = ns.StrategyBoard:StarterDraft(...); local maps = {}; "
                          "for _, m in ipairs(ns.Data.RaidMaps) do maps[m.id] = m.file end; "
                          "d.files = {}; for i, p in ipairs(d.p) do d.files[i] = maps[p.m] end; "
                          "d.slots = {}; for _, s in ipairs(ns.Strategy:GetSlots(d)) do d.slots[s.ref] = s.label end; "
                          "return d", ref)
-    src_names = {"Gruul": "3923-1"}
     for pi, p in enumerate(d["p"]):
         file = d["files"][pi + 1] if isinstance(d["files"], dict) else d["files"][pi]
-        src = {"Gruul": "3923-1", "Magtheridon": "3836-1"}.get(file) or ("3959-" + file[2:].lstrip("0") if file.startswith("BT") and file != "BT00" else ("3959" if file == "BT00" else file))
+        src = SOURCES[file]
         mp = Image.open(os.path.join(DEV, "art", "blizzard_maps", src + ".jpg")).convert("RGB").resize((1024, 683))
         BW, BH = 1000, 666
         z = p.get("vz", 100) / 100

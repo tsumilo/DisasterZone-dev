@@ -467,9 +467,9 @@ local function createWindow()
     tools.keys:SetPoint("TOPLEFT", 0, -90)
     tools.keys:SetPoint("RIGHT", 0, 0)
     tools.keys:SetJustifyH("LEFT")
-    tools.keys:SetText("Del delete 9483 Ctrl+C / V copy, paste 9483 Ctrl+D duplicate 9483 Ctrl+G group "
-        .. "(Ctrl+Shift+G ungroup) 9483 Ctrl+Z / Y undo, redo 9483 arrows nudge 9483 Alt snaps 9483 "
-        .. "double-click edits text 9483 Shift-drag onto a table to link")
+    tools.keys:SetText("Del delete \194\183 Ctrl+C / V copy, paste \194\183 Ctrl+D duplicate \194\183 Ctrl+G group "
+        .. "(Ctrl+Shift+G ungroup) \194\183 Ctrl+Z / Y undo, redo \194\183 arrows nudge \194\183 Alt snaps \194\183 "
+        .. "double-click edits text \194\183 Shift-drag onto a table to link")
     tools.info:SetJustifyH("LEFT")
     tools.info:SetJustifyV("TOP")
     tools.delBtn = UI():CreateButton(tools, "Delete", 70, 22, function()
@@ -617,37 +617,21 @@ function Board:StarterDraft(bossRef)
     return d
 end
 
-function Board:HasStarter(bossRef)
-    return ns.Data ~= nil and ns.Data.StarterStrategies ~= nil and ns.Data.StarterStrategies[bossRef] ~= nil
-end
-
--- Opens a boss' starter strategy as an unsaved draft (authors): adjust it, then Save to share it.
-function Board:NewFromStarter(bossRef)
-    if not canEdit() then
-        ns:Print("Only the Guild Master, the guild council and the raid leaders can build strategies.")
-        return
-    end
-    local d = self:StarterDraft(bossRef)
-    if not d then return end
-    whenClean(function()
-        st.strat = d
-        st.occ, st.boss, st.page, st.assign, st.picked = nil, bossRef, 1, {}, nil
-        st.mode = "edit"
-        st.dirty = true
-        Board:ResetHistory()
-        show()
-        ns:Print("Starter strategy loaded for %s: change what you like, then Save to share it.", S():GetBossName(bossRef))
-    end)
-end
-
--- A new strategy for a boss (authors).
+-- A new strategy for a boss (authors): its starter (the floor map framed on the room, the creatures where they
+-- stand) when it has one, else a blank page on the boss' floor.
 function Board:NewStrategy(bossRef, name)
     if not canEdit() then
         ns:Print("Only the Guild Master, the guild council and the raid leaders can build strategies.")
         return
     end
     whenClean(function()
-        st.strat = S():NewDraft(bossRef, name or "Strategy", MapUI():DefaultMap(bossRef))
+        local d = self:StarterDraft(bossRef)
+        if d then
+            d.n = name or "Strategy"
+        else
+            d = S():NewDraft(bossRef, name or "Strategy", MapUI():DefaultMap(bossRef))
+        end
+        st.strat = d
         st.occ, st.boss, st.page, st.assign, st.picked = nil, bossRef, 1, {}, nil
         st.mode = "edit"
         st.dirty = true

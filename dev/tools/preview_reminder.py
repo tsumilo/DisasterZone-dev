@@ -13,6 +13,7 @@ for sub in ("strategy", "raidplan", "boot-ui", "loot-roll"):
 
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 from _common import World, Client  # noqa: E402
+from st_common import open_full_starter  # noqa: E402
 
 FONT = "C:/Windows/Fonts/segoeui.ttf"
 BOLD = "C:/Windows/Fonts/segoeuib.ttf"
@@ -56,7 +57,8 @@ def main():
     bob = Client(w, "Bob", guild_rank=0, class_file="ROGUE")
     bob.load_addon()
     w.tick(3)
-    bob.eval("ns.StrategyBoard:NewFromStarter(...); ns.StrategyBoard:Save(); ns.StrategyBoard:Close()", boss)
+    open_full_starter(bob, boss)
+    bob.eval("ns.StrategyBoard:Save(); ns.StrategyBoard:Close()")
     w.tick(1)
     bob.eval("local s = ns.Strategy:GetStrategies(...)[1]; ns.StrategyPractice:Start(s)", boss)
     w.tick(at, step=0.1)

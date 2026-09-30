@@ -107,6 +107,12 @@ def author_builds_a_strategy_in_the_board():
                         "out[#out + 1] = t:GetTexture() end end; return out" % W)
     assert tiles == [r"Interface\AddOns\CDLoot\Media\Maps\BT06_a", r"Interface\AddOns\CDLoot\Media\Maps\BT06_b"], tiles
     assert bob.find_text("Black Temple - Chamber of Command", True, True)
+    # it starts from the Council's starter: the room framed, the four council members where they stand
+    st = bob.eval_py("local p = ns.StrategyBoard:GetState().strat.p[1]; local out = { vz = p.vz, i = {} }; "
+                     "for _, e in ipairs(p.e) do out.i[#out.i + 1] = e.i end; return out")
+    assert st["vz"] == 360 and len(st["i"]) == 4 and all(i.startswith("boss:") for i in st["i"]), st
+    # (the drawing checks below start from an empty map)
+    bob.eval("wipe(ns.StrategyBoard:GetState().strat.p[1].e); ns.StrategyBoard:Refresh()")
     # a client floor with map art still draws from its 12 tiles
     bob.eval("local p = ns.StrategyBoard:GetState().strat.p[1]; p.m = 339; ns.StrategyBoard:Refresh()")
     assert bob.eval("local n = 0; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then n = n + 1 end end; return n" % W) == 12
@@ -281,11 +287,13 @@ def boss_portraits_icon_resize_and_map_fallback():
     assert default("Karazhan:Attumen") == "Karazhan - Servants' Quarters"
     assert default("Karazhan:Prince") == "Karazhan - Netherspace"
     assert default("BlackTemple:Illidan") == "Black Temple - Temple Summit"
-    assert default("SunwellPlateau:Muru") == "Sunwell Plateau"
+    assert default("SunwellPlateau:Muru") == "Sunwell Plateau - Shrine of the Eclipse"
+    assert default("SunwellPlateau:Kalecgos") == "Sunwell Plateau"
     # a page saved with an Atlas map of the first test builds shows the floor that replaced it
     assert bob.eval("return ns.StrategyMapUI:MapName(900010)") == "Black Temple - Chamber of Command"
     bob.eval("ns.StrategyBoard:NewStrategy(...)", BOSS, "Portraits")
     w.tick(0.2)
+    bob.eval("wipe(ns.StrategyBoard:GetState().strat.p[1].e); ns.StrategyBoard:Refresh()")   # past the starter
     # the icon menu offers this encounter's portraits only
     bob.eval("local cv = %s.canvas; cv:SetTool('icon'); cv:OnMouseDown('LeftButton')" % W)
     texts = [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]

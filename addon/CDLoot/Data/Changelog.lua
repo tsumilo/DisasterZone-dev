@@ -15,7 +15,8 @@ ns.CHANGELOG = {
               "Tables of jobs: players with targets, rotations, zones, pairs, notes.",
               "Slots can be limited to classes or roles.",
               "The Guild Master, the guild council and the raid leaders build them.",
-              "Starter strategies for Maulgar, Gruul and the Illidari Council: load, adjust, Save.",
+              "New strategy starts on the boss' room, with the boss and its adds where they stand.",
+              "Map of the Sunwell Plateau outside (Kalecgos, Brutallus, Felmyst, the Twins).",
           } },
           { heading = "Editing", lines = {
               "Shift-drag a drawing onto a table cell to link it: it shows that player's name.",
@@ -27,6 +28,7 @@ ns.CHANGELOG = {
               "Ctrl+Z / Ctrl+Y undo and redo; Del, Ctrl+C, Ctrl+V and Ctrl+D work too.",
               "+ row and + column under each table; right-click a row to move or delete it.",
               "Drag an icon's corner to resize it; double-click text to edit it.",
+              "Duplicate a table, or copy it to another page (block menu).",
           } },
           { heading = "In the fight", lines = {
               "Near a planned boss, a small panel shows your jobs from the raid's strategy.",

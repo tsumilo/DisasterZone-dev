@@ -34,8 +34,8 @@ MAPS = [
     ("3457-7", "Kara07", "Karazhan", "Karazhan - Lower Broken Stair", []),
     ("3457-8", "Kara08", "Karazhan", "Karazhan - Upper Broken Stair", []),
     ("3457-9", "Kara09", "Karazhan", "Karazhan - The Menagerie", ["Curator"]),
-    ("3457-10", "Kara10", "Karazhan", "Karazhan - Guardian's Library", ["Illhoof"]),
-    ("3457-11", "Kara11", "Karazhan", "Karazhan - Library Floor", ["Aran"]),
+    ("3457-10", "Kara10", "Karazhan", "Karazhan - Guardian's Library", ["Aran"]),
+    ("3457-11", "Kara11", "Karazhan", "Karazhan - Library Floor", ["Illhoof"]),
     ("3457-12", "Kara12", "Karazhan", "Karazhan - Upper Library", []),
     ("3457-13", "Kara13", "Karazhan", "Karazhan - The Repository", ["Netherspite"]),
     ("3457-14", "Kara14", "Karazhan", "Karazhan - Gamesman's Hall", ["Chess"]),
@@ -52,14 +52,15 @@ MAPS = [
     ("3959", "BT00", "BlackTemple", "Black Temple - Illidari Training Grounds", ["Supremus"]),
     ("3959-1", "BT01", "BlackTemple", "Black Temple - Karabor Sewers", ["Najentus"]),
     ("3959-2", "BT02", "BlackTemple", "Black Temple - Sanctuary of Shadows", ["ShadeOfAkama"]),
-    ("3959-3", "BT03", "BlackTemple", "Black Temple - Halls of Anguish", ["Reliquary"]),
-    ("3959-4", "BT04", "BlackTemple", "Black Temple - Gorefiend's Vigil", ["Teron", "Bloodboil"]),
+    ("3959-3", "BT03", "BlackTemple", "Black Temple - Halls of Anguish", ["Bloodboil", "Reliquary"]),
+    ("3959-4", "BT04", "BlackTemple", "Black Temple - Gorefiend's Vigil", ["Teron"]),
     ("3959-5", "BT05", "BlackTemple", "Black Temple - Den of Mortal Delights", ["Shahraz"]),
     ("3959-6", "BT06", "BlackTemple", "Black Temple - Chamber of Command", ["Council"]),
     ("3959-7", "BT07", "BlackTemple", "Black Temple - Temple Summit", ["Illidan"]),
     ("3805", "ZulAman", "ZulAman", "Zul'Aman", ["Akilzon", "Nalorakk", "Janalai", "Halazzi", "Malacrass", "Zuljin"]),
-    ("4075-1", "Sunwell", "SunwellPlateau", "Sunwell Plateau",
-     ["Kalecgos", "Brutallus", "Felmyst", "EredarTwins", "Muru", "Kiljaeden"]),
+    ("4075-1", "Sunwell", "SunwellPlateau", "Sunwell Plateau - Shrine of the Eclipse", ["Muru", "Kiljaeden"]),
+    # added after the others so the saved map ids above keep their numbers
+    ("4075", "Sunwell0", "SunwellPlateau", "Sunwell Plateau", ["Kalecgos", "Brutallus", "Felmyst", "EredarTwins"]),
 ]
 
 
@@ -184,7 +185,9 @@ def main():
     # self-check: Pillow reads DXT1 BLP2
     chk = Image.open(os.path.join(OUT, "BT06_a.blp"))
     chk.load()
-    chk.convert("RGB").save(os.path.join(HERE, "..", "art", "maps_probe", "check_BT06_a.png"))
+    probe = os.path.join(HERE, "..", "art", "maps_probe")
+    os.makedirs(probe, exist_ok=True)
+    chk.convert("RGB").save(os.path.join(probe, "check_BT06_a.png"))
     print("check:", chk.size, chk.mode)
 
 

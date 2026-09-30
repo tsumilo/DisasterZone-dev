@@ -926,6 +926,24 @@ function Strategy:NewPartId(strat, prefix)
     return nil
 end
 
+-- A copy of a block under a new id of the strategy (not yet on any page): cells that showed one of the block's own
+-- slots show the copy's slot instead; references into other blocks stay. nil when the strategy has no free id.
+function Strategy:CopyBlock(strat, k)
+    local id = self:NewPartId(strat, "k")
+    if not id or type(k) ~= "table" then return nil end
+    local c = Copy(k)
+    c.id = id
+    local prefix = k.id .. "."
+    for _, cells in pairs(c.d or {}) do
+        for _, v in pairs(cells) do
+            if type(v) == "table" and type(v.s) == "string" and v.s:sub(1, #prefix) == prefix then
+                v.s = id .. "." .. v.s:sub(#prefix + 1)
+            end
+        end
+    end
+    return c
+end
+
 -- Rewrites the references into one block after its rows / columns changed. fn(row, col) -> newRow, newCol, or nil
 -- when that cell is gone. Covers drawings (links, slot tokens) and target cells showing a slot. A link to a whole
 -- column follows the column (fn(nil, col)).

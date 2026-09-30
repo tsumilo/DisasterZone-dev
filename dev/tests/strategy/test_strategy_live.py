@@ -20,7 +20,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from st_common import K, DAY, now, create, signup, strategies  # noqa: E402
+from st_common import K, DAY, now, create, signup, strategies, open_full_starter  # noqa: E402
 from rp_common import set_raid_leaders  # noqa: E402
 from _common import World, Client, gm_pick, case, run_all, strip_codes, printed_since  # noqa: E402
 
@@ -62,7 +62,7 @@ def raid(link=True, start_session=True, backups=True):
     w.tick(2)
     bob = c["Bob"]
     # the Council starter, saved
-    bob.eval("ns.StrategyBoard:NewFromStarter(...)", BOSS)
+    open_full_starter(bob, BOSS)
     if not backups:
         # every kicker designated (the Council starter makes Kick 3 a backup)
         bob.eval("ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi').bk = nil")
@@ -552,7 +552,7 @@ def practice_solo_at_a_target_dummy():
     bob = Client(w, "Bob", guild_rank=0, class_file="ROGUE")
     bob.load_addon()
     w.tick(3)
-    bob.eval("ns.StrategyBoard:NewFromStarter(...)", BOSS)
+    open_full_starter(bob, BOSS)
     bob.eval("ns.StrategyBoard:Save()")
     w.tick(1)
     bob.click(bob.eval("return _G.CDLootStrategyBoard.practiceBtn"))

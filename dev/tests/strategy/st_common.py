@@ -61,3 +61,16 @@ def fill(cl, occ, boss, sid, a):
 
 def get_fill(cl, occ, boss):
     return cl.eval_py("return ns.Strategy:GetFill(...)", occ, boss)
+
+
+# The hand-built full plans of the first starter strategies (Maulgar, Gruul, Illidari Council with every job placed),
+# kept as fixtures for the suites that need a complete plan now that the shipped starters are map + creatures only.
+FULL_STARTERS = open(os.path.join(HERE, "full_starters.lua"), encoding="utf-8").read()
+
+
+def open_full_starter(cl, ref, name="25 standard"):
+    """Opens a boss' full plan (full_starters.lua) as an unsaved draft on the board, the way New strategy opens the
+    boss' starter."""
+    cl.eval("local src, ref, name = ...; local fake = { Data = {} }; assert(loadstring(src))('CDLoot', fake); "
+            "ns.Data.StarterStrategies[ref] = fake.Data.StarterStrategies[ref]; ns.StrategyBoard:NewStrategy(ref, name)",
+            FULL_STARTERS, ref, name)

@@ -15,6 +15,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+from st_common import open_full_starter  # noqa: E402
 from test_strategy_live import (raid, see, engage, cleu, lines, rot_state, rot_item, BOSS, K)  # noqa: E402
 from _common import World, Client, case, run_all, strip_codes, menu_texts  # noqa: E402
 import _common  # noqa: E402
@@ -226,7 +227,8 @@ def tables_made_before_tracking():
     bob = Client(w, "Bob", guild_rank=0, class_file="ROGUE")
     bob.load_addon()
     w.tick(3)
-    bob.eval("ns.StrategyBoard:NewFromStarter(...); local s = ns.StrategyBoard:GetState().strat; "
+    open_full_starter(bob, BOSS)
+    bob.eval("local s = ns.StrategyBoard:GetState().strat; "
              "for _, p in ipairs(s.p) do for _, k in ipairs(p.k) do k.tr = nil; k.bk = nil end end; "
              "ns.StrategyBoard:Save(); ns.StrategyBoard:Close()", BOSS)
     w.tick(1)
@@ -312,7 +314,8 @@ def practice_shows_an_immunity():
     bob = Client(w, "Bob", guild_rank=0, class_file="ROGUE")
     bob.load_addon()
     w.tick(3)
-    bob.eval("ns.StrategyBoard:NewFromStarter(...); ns.StrategyBoard:Save(); ns.StrategyBoard:Close()", BOSS)
+    open_full_starter(bob, BOSS)
+    bob.eval("ns.StrategyBoard:Save(); ns.StrategyBoard:Close()")
     w.tick(1)
     bob.slash("/cdl strat practice council")
     w.tick(4 + 23, step=0.25)           # the pull, then the target gains Blessing of Protection 22 s in

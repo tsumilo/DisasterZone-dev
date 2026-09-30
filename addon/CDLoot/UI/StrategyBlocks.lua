@@ -317,6 +317,24 @@ function Panel:AddColumn(k, t)
     self:Changed()
 end
 
+-- Puts a copy of block k on page p (at position at, else last): same title, columns, rows and cells, a new id, so
+-- its slots are filled on their own. A duplicate on the same page gets "(copy)" in its title.
+function Panel:CopyBlock(k, p, at, quiet)
+    if #p.k >= S().MAX_BLOCKS then
+        ns:Print("Page %s already holds %d blocks.", p.n or "?", S().MAX_BLOCKS)
+        return
+    end
+    local c = S():CopyBlock(self.opts.strat(), k)
+    if not c then return end
+    if at then
+        c.n = (k.n .. " (copy)"):sub(1, S().MAX_NAME_LEN)
+        tinsert(p.k, at, c)
+    else
+        tinsert(p.k, c)
+    end
+    if not quiet then self:Changed() end
+end
+
 function Panel:BlockMenu(owner, page, k, index)
     UI():ContextMenu(owner, function(root)
         root:CreateTitle(k.n)
@@ -371,6 +389,22 @@ function Panel:BlockMenu(owner, page, k, index)
         if index < #page.k then
             root:CreateButton("Move down", function()
                 page.k[index], page.k[index + 1] = page.k[index + 1], page.k[index]
+                self:Changed()
+            end)
+        end
+        root:CreateButton("Duplicate", function() self:CopyBlock(k, page, index + 1) end)
+        local strat = self.opts.strat()
+        if strat and #strat.p > 1 then
+            local to = root:CreateButton("Copy to page")
+            for pi, p in ipairs(strat.p) do
+                if p ~= page then
+                    to:CreateButton(("%d. %s"):format(pi, p.n or ""), function() self:CopyBlock(k, p) end)
+                end
+            end
+            to:CreateButton("All other pages", function()
+                for _, p in ipairs(strat.p) do
+                    if p ~= page then self:CopyBlock(k, p, nil, true) end
+                end
                 self:Changed()
             end)
         end

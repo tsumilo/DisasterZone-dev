@@ -3,7 +3,7 @@
 Covers: keyboard (Del, Ctrl+Z / Ctrl+Y, Ctrl+C / Ctrl+V, Ctrl+D, Ctrl+A, Ctrl+G, Esc, arrows; unused keys go on to the
 game), groups (select / move / link as one), linking a drawing by Shift-dragging it onto a table cell, the names
 under linked drawings, raid mark badges, table rows (insert / move / delete keep links on the same cells), dragging a
-player cell onto the map, and undo while assigning.
+player cell onto the map, undo while assigning, and duplicating a block / copying it to other pages.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy_edit.py [-k name]
 """
@@ -320,6 +320,39 @@ def portrait_names_come_from_the_encounter():
                       "for _, c in ipairs(list) do if seen[c.d] then out[#out + 1] = ref .. ':' .. c.n end; "
                       "seen[c.d] = true end end; return out")
     assert dup == [], dup
+    w.assert_no_errors()
+
+
+@case
+def duplicate_a_block_and_copy_it_to_another_page():
+    w, c, bob, sid = setup()
+    blocks = W + ".blocks"
+    st = "ns.StrategyBoard:GetState().strat"
+    # a tank cell showing another tank row of the same block: the copies show their own row
+    bob.eval("ns.Strategy:FindBlock(%s, 'tk').d[1][2].s = 'tk.2.1'" % st)
+    # Duplicate (block menu): right after the original, "(copy)", a new id, same cells
+    bob.eval("local p = %s.p[1]; %s:BlockMenu(nil, p, p.k[2], 2)" % (st, blocks))
+    bob.eval("T_menu_prefix('Duplicate')")
+    k = bob.eval_py("local p = %s.p[1]; local out = {}; for _, k in ipairs(p.k) do out[#out + 1] = k.id .. '=' .. k.n "
+                    "end; return out" % st)
+    assert k[:3] == ["tk=Tanks", "md=Misdirects", "k1=Misdirects (copy)"], k
+    assert bob.eval("return ns.Strategy:FindBlock(%s, 'k1').d[2][3].s" % st) == "tk.2.1"
+    # Copy to page: the tanks onto P2, same title, its own slots
+    bob.eval("local p = %s.p[1]; %s:BlockMenu(nil, p, p.k[1], 1)" % (st, blocks))
+    assert "All other pages" in [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]
+    bob.eval("T_menu_prefix('2. P2')")
+    k2 = bob.eval_py("local k = %s.p[2].k[1]; return { id = k.id, n = k.n, r = k.r, s = k.d[1][2].s, "
+                     "l = k.d[2][2].l }" % st)
+    assert k2 == {"id": "k2", "n": "Tanks", "r": 2, "s": "k2.2.1", "l": "Veras"}, k2
+    # undo takes the copy back; redo puts it again; the strategy saves
+    key(bob, "Z", ctrl=True)
+    assert bob.eval("return #%s.p[2].k" % st) == 0
+    key(bob, "Y", ctrl=True)
+    assert bob.eval("return #%s.p[2].k" % st) == 1
+    bob.click(bob.eval("return %s.saveBtn" % W))
+    w.tick(2)
+    ss = strategies(c["Rita"], BOSS)
+    assert len(ss) == 1 and len(ss[0]["p"][0]["k"]) == 5 and ss[0]["p"][1]["k"][0]["id"] == "k2", ss
     w.assert_no_errors()
 
 
