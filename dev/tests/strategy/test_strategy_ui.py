@@ -100,16 +100,17 @@ def author_builds_a_strategy_in_the_board():
     st = board(bob)
     assert st["mode"] == "edit" and st["name"] == "25 farm" and st["boss"] == BOSS and st["dirty"], st
     assert shown(bob, W)
-    # the Council's wing of Black Temple (a map shipped with CDLoot) is the background, one 512px image
-    assert bob.eval("return ns.StrategyBoard:GetState().strat.p[1].m") == 900010
+    # the Council's floor of Black Temple (a map shipped with CDLoot) is the background: its two textures
+    m = bob.eval("return ns.StrategyBoard:GetState().strat.p[1].m")
+    assert bob.eval("for _, x in ipairs(ns.Data.RaidMaps) do if x.id == ... then return x.file end end", m) == "BT06"
     tiles = bob.eval_py("local out = {}; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then "
                         "out[#out + 1] = t:GetTexture() end end; return out" % W)
-    assert tiles == [r"Interface\AddOns\CDLoot\Media\Maps\BlackTempleTop"], tiles
-    assert bob.find_text("Black Temple - top", True, True)
+    assert tiles == [r"Interface\AddOns\CDLoot\Media\Maps\BT06_a", r"Interface\AddOns\CDLoot\Media\Maps\BT06_b"], tiles
+    assert bob.find_text("Black Temple - Chamber of Command", True, True)
     # a client floor with map art still draws from its 12 tiles
     bob.eval("local p = ns.StrategyBoard:GetState().strat.p[1]; p.m = 339; ns.StrategyBoard:Refresh()")
     assert bob.eval("local n = 0; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then n = n + 1 end end; return n" % W) == 12
-    bob.eval("local p = ns.StrategyBoard:GetState().strat.p[1]; p.m = 900010; ns.StrategyBoard:Refresh()")
+    bob.eval("local p = ns.StrategyBoard:GetState().strat.p[1]; p.m = ...; ns.StrategyBoard:Refresh()", m)
     # a block from a template
     bob.click(bob.eval("return %s.blocks.addBtn" % W))
     bob.eval("T_menu_prefix('Players with targets')")
@@ -266,14 +267,23 @@ def boss_portraits_icon_resize_and_map_fallback():
     bob = c["Bob"]
     # a floor the client names differently still counts through the raid's known map ids
     bob.eval("__MOCK.dungeon_maps[342] = { name = 'Den of Mortal Delights', floor = 'x', group = 2 }")
-    ids = bob.eval_py("local out = {}; for _, m in ipairs(ns.StrategyMapUI:MapsFor('BlackTemple:Council')) do "
-                      "out[#out + 1] = m.id end; return out")
-    assert ids == [900008, 900009, 900010, 339, 340, 341, 342], ids
-    kara = bob.eval_py("local out = {}; for _, m in ipairs(ns.StrategyMapUI:MapsFor('Karazhan:Attumen')) do "
-                       "out[#out + 1] = m.id end; return out")
-    assert kara == [900001, 900002], kara
-    assert bob.eval("return ns.StrategyMapUI:DefaultMap('Karazhan:Attumen')") == 900001
-    assert bob.eval("return ns.StrategyMapUI:DefaultMap('Karazhan:Prince')") == 900002
+    names = bob.eval_py("local out = {}; for _, m in ipairs(ns.StrategyMapUI:MapsFor('BlackTemple:Council')) do "
+                        "out[#out + 1] = m.shipped and m.name or m.id end; return out")
+    assert names[:8] == ["Black Temple - Illidari Training Grounds", "Black Temple - Karabor Sewers",
+                         "Black Temple - Sanctuary of Shadows", "Black Temple - Halls of Anguish",
+                         "Black Temple - Gorefiend's Vigil", "Black Temple - Den of Mortal Delights",
+                         "Black Temple - Chamber of Command", "Black Temple - Temple Summit"], names
+    assert names[8:] == [339, 340, 341, 342], names
+    assert len(bob.eval_py("return ns.StrategyMapUI:MapsFor('Karazhan:Attumen')")) == 17
+
+    def default(boss):
+        return bob.eval("return ns.StrategyMapUI:MapName(ns.StrategyMapUI:DefaultMap(...))", boss)
+    assert default("Karazhan:Attumen") == "Karazhan - Servants' Quarters"
+    assert default("Karazhan:Prince") == "Karazhan - Netherspace"
+    assert default("BlackTemple:Illidan") == "Black Temple - Temple Summit"
+    assert default("SunwellPlateau:Muru") == "Sunwell Plateau"
+    # a page saved with an Atlas map of the first test builds shows the floor that replaced it
+    assert bob.eval("return ns.StrategyMapUI:MapName(900010)") == "Black Temple - Chamber of Command"
     bob.eval("ns.StrategyBoard:NewStrategy(...)", BOSS, "Portraits")
     w.tick(0.2)
     # the icon menu offers this encounter's portraits only

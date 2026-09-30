@@ -295,33 +295,31 @@ local MAP_IDS = {
     SunwellPlateau = { 335, 336 },
 }
 
--- CDLoot's own raid maps (Media/Maps: the Atlas Burning Crusade maps, GPL-3.0, see NOTICE.md). The client has no
--- raid map art of its own. Ids 900001+ so they never meet a uiMapID; a page stores the id.
-local SHIPPED = {
-    { id = 900001, file = "KarazhanStart", raid = "Karazhan", name = "Karazhan - lower floors" },
-    { id = 900002, file = "KarazhanEnd", raid = "Karazhan", name = "Karazhan - upper floors" },
-    { id = 900003, file = "GruulsLair", raid = "GruulsLair", name = "Gruul's Lair" },
-    { id = 900004, file = "HCMagtheridonsLair", raid = "MagtheridonsLair", name = "Magtheridon's Lair" },
-    { id = 900005, file = "CFRSerpentshrineCavern", raid = "SerpentshrineCavern", name = "Serpentshrine Cavern" },
-    { id = 900006, file = "TempestKeepTheEye", raid = "TempestKeep", name = "Tempest Keep - The Eye" },
-    { id = 900007, file = "CoTHyjal", raid = "HyjalSummit", name = "Hyjal Summit" },
-    { id = 900008, file = "BlackTempleStart", raid = "BlackTemple", name = "Black Temple - courtyard" },
-    { id = 900009, file = "BlackTempleBasement", raid = "BlackTemple", name = "Black Temple - basement" },
-    { id = 900010, file = "BlackTempleTop", raid = "BlackTemple", name = "Black Temple - top" },
-    { id = 900011, file = "ZulAman", raid = "ZulAman", name = "Zul'Aman" },
-    { id = 900012, file = "SunwellPlateau", raid = "SunwellPlateau", name = "Sunwell Plateau" },
-}
+-- CDLoot's own raid maps (Data/RaidMaps.lua: Blizzard's floor maps, see NOTICE.md; the client has no raid map art).
+-- Each is two textures, Media/Maps/<file>_a (1024 x 512) and _b (1024 x 256, 171 rows used), of a 1024 x 683 map.
+-- Ids 900101+ so they never meet a uiMapID; a page stores the id.
+local SHIPPED = (ns.Data and ns.Data.RaidMaps) or {}
 local SHIPPED_BY_ID = {}
 for _, m in ipairs(SHIPPED) do SHIPPED_BY_ID[m.id] = m end
-local SHIPPED_LAYER = { layerWidth = 512, layerHeight = 512, tileWidth = 512, tileHeight = 512 }
+local SHIPPED_LAYER = { layerWidth = 1024, layerHeight = 683, tileWidth = 1024, tileHeight = 512, shipped = true }
 
--- The map a new strategy of a boss starts with (the wing the boss is in); other bosses take their raid's first map.
-local BOSS_MAP = {
-    ["Karazhan:Illhoof"] = 900002, ["Karazhan:Aran"] = 900002, ["Karazhan:Netherspite"] = 900002,
-    ["Karazhan:Chess"] = 900002, ["Karazhan:Prince"] = 900002, ["Karazhan:Nightbane"] = 900002,
-    ["BlackTemple:Bloodboil"] = 900009, ["BlackTemple:Reliquary"] = 900009, ["BlackTemple:Teron"] = 900009,
-    ["BlackTemple:Shahraz"] = 900010, ["BlackTemple:Council"] = 900010, ["BlackTemple:Illidan"] = 900010,
+-- The Atlas maps of the first test builds (900001-900012) -> the floor that replaced them.
+local OLD_IDS = {
+    [900001] = "Kara01", [900002] = "Kara11", [900003] = "Gruul", [900004] = "Magtheridon",
+    [900005] = "Serpentshrine", [900006] = "TheEye", [900007] = "Hyjal", [900008] = "BT00", [900009] = "BT03",
+    [900010] = "BT06", [900011] = "ZulAman", [900012] = "Sunwell",
 }
+for old, file in pairs(OLD_IDS) do
+    for _, m in ipairs(SHIPPED) do
+        if m.file == file then SHIPPED_BY_ID[old] = m end
+    end
+end
+
+-- The map a new strategy of a boss starts with: the floor the boss is on.
+local BOSS_MAP = {}
+for _, m in ipairs(SHIPPED) do
+    for _, boss in ipairs(m.bosses or {}) do BOSS_MAP[m.raid .. ":" .. boss] = BOSS_MAP[m.raid .. ":" .. boss] or m.id end
+end
 
 local function ArtLayer(mapID)
     if SHIPPED_BY_ID[mapID] then return SHIPPED_LAYER end
@@ -426,6 +424,7 @@ end
 
 function MapUI:MapName(mapID)
     if not mapID or mapID == 0 then return "Blank" end
+    if SHIPPED_BY_ID[mapID] then return SHIPPED_BY_ID[mapID].name end
     for _, m in ipairs(self:GetMaps()) do
         if m.id == mapID then return self:MapLabel(m) end
     end
@@ -646,7 +645,8 @@ function Canvas:RenderBackground()
     local shipped = page and SHIPPED_BY_ID[page.m]
     local textures
     if shipped then
-        textures = { "Interface\\AddOns\\CDLoot\\Media\\Maps\\" .. shipped.file }
+        local base = "Interface\\AddOns\\CDLoot\\Media\\Maps\\" .. shipped.file
+        textures = { base .. "_a", base .. "_b" }
     else
         textures = L and C_Map.GetMapArtLayerTextures and C_Map.GetMapArtLayerTextures(page.m, 1)
     end
@@ -696,8 +696,14 @@ function Canvas:RenderBackground()
                 end
                 t:ClearAllPoints()
                 t:SetTexture(file)
-                t:SetTexCoord(0, 1, 0, 1)
-                t:SetSize(tw, th)
+                if L.shipped and r == 2 then
+                    local rows = L.layerHeight - L.tileHeight
+                    t:SetTexCoord(0, 1, 0, rows / 256)
+                    t:SetSize(tw, rows * sc)
+                else
+                    t:SetTexCoord(0, 1, 0, 1)
+                    t:SetSize(tw, th)
+                end
                 t:SetPoint("TOPLEFT", self.art, "TOPLEFT", ox + (c - 1) * tw, -(oy + (r - 1) * th))
                 t:Show()
             end

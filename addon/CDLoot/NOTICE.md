@@ -153,7 +153,7 @@ The Azeromon text font is **Pixel Operator** by Jayvee Enaguas (HarvettFox96), r
 
 ## 5. Strategy board raid maps and boss portraits
 
-**Raid maps (`Media\Maps\*.blp`).** The twelve TBC raid maps are copied unchanged from **Atlas Burning Crusade** v1.53.00 (the "Atlas" addon's TBC module by the Atlas Team, maintained by arithmandar; maps drawn by dubca7, as the map corner says). Atlas Burning Crusade is licensed under the **GNU General Public License v3.0**. Source: https://www.curseforge.com/wow/addons/atlas-burningcrusade (mirror with the license text: https://github.com/curseforge-mirror/atlas-burningcrusade). If CDLoot is shared outside the guild, these files stay under GPL-3.0 and their source (that project) must be named, as it is here. `dev/art/atlas/` in the dev kit keeps the original download.
+**Raid maps (`Media\Maps\*.blp`, listed in `Data\RaidMaps.lua`).** These are Blizzard Entertainment's own floor maps of the TBC raids (the in-game world map art of later clients). The Anniversary client has none. They were downloaded from wowhead's image server (wow.zamimg.com, `maps/enus/original/<zone>-<floor>.jpg`) and converted to DXT1 BLP textures by `dev/generators/gen_raid_maps.py`. They are © Blizzard Entertainment. They are not openly licensed: they ship here the same way addons commonly reuse game art, for use inside World of Warcraft only. Don't redistribute them outside that context. `dev/art/blizzard_maps/` in the dev kit keeps the downloaded originals.
 
 **Boss portraits (`Data\BossPortraits.lua`).** Only numbers and names: creature IDs from Questie's database (GPL-3.0) and creature display IDs as listed on wowhead.com. The portraits themselves are drawn by the game client from its own models; no Blizzard art is shipped.
 
