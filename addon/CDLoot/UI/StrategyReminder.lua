@@ -61,7 +61,7 @@ end
 local function Short(label)
     if not label or label == "" then return nil end
     label = label:gsub("%s*%-*>%s*$", "")
-    if #label <= 16 then return label end
+    if #label <= 24 then return label end
     return label:match("^(%S+)") or label
 end
 
@@ -112,7 +112,7 @@ end
 -- What a tracked row of mine says.
 local function RowText(tr, r)
     if tr.kind == "md" then
-        local mob = Short(r.label) or (r.target and r.target.i and Short(MapUI():IconName(r.target.i)))
+        local mob = Short(r.label) or (r.target and r.target.i and Short(MapUI():IconName(r.target.i, Live():GetCurrent() and Live():GetCurrent().boss)))
         return "Misdirect" .. (mob and (" " .. mob) or "") .. (r.onto and (" onto " .. NameIn(r.onto)) or "")
     elseif tr.kind == "pi" then
         return "Power Infusion on " .. NameIn(r.onto)
@@ -121,6 +121,9 @@ local function RowText(tr, r)
     elseif tr.kind == "bl" then
         return "Bloodlust"
     elseif tr.kind == "curse" then
+        -- "Curse of Tongues on Malande" when the curse was picked; the label else
+        local mob = r.target and r.target.i and Short(MapUI():IconName(r.target.i, Live():GetCurrent() and Live():GetCurrent().boss))
+        if r.curseId then return GetSpellInfo(r.curseId) .. (mob and (" on " .. mob) or "") end
         return r.label or "Curse"
     end
     return r.label or tr.name
@@ -202,8 +205,14 @@ function Reminder:Items()
                 if myTurn and tr.flash and tr.castStart then
                     status, alert = red("KICK NOW"), true
                     flash = "KICK NOW" .. (tr.castName and (": " .. tr.castName) or "")
+                elseif myTurn and how == "cond" then
+                    status = gold(Live():CondShort(mineRow.cond) .. ": your turn")
                 elseif myTurn then
                     status = how == "backup" and gold("backup: you're next") or green("your turn")
+                elseif Live().School(mineRow) and Live():Immunities(tr.npc)[Live().School(mineRow)] then
+                    status = grey("immune to yours")
+                elseif mineRow.cond and not Live():CondHolds(mineRow, tr) then
+                    status = grey("only when " .. Live():CondShort(mineRow.cond))
                 elseif Live().CdLeft(mineRow) > 0 then
                     status = grey("ready in " .. Clock(Live().CdLeft(mineRow)))
                 elseif pick then
@@ -219,11 +228,12 @@ function Reminder:Items()
                     mineIn[tr.id] = true
                     local status, alert = RowStatus(c, tr, r)
                     local icon = tr.icon or KIND_ICON[tr.kind]
-                    if tr.kind == "curse" and r.target and r.target.i then icon = r.target.i end
+                    if tr.kind == "curse" and r.curseId then icon = "sp:" .. r.curseId
+                    elseif tr.kind == "curse" and r.target and r.target.i then icon = r.target.i end
                     items[#items + 1] = { kind = "row", icon = icon, text = RowText(tr, r), status = status,
                                           alert = alert, tr = tr, r = r }
                     if tr.kind == "curse" and r.fellAt and c.engaged and not r.up then
-                        flash = flash or ("Your " .. (r.label or "curse") .. " fell off")
+                        flash = flash or ("Your " .. (r.curseId and GetSpellInfo(r.curseId) or r.label or "curse") .. " fell off")
                     end
                 end
             end
@@ -242,7 +252,8 @@ function Reminder:Items()
                 if tr.kind == "rot" then
                     local pick, how = Live():Turn(tr)
                     local status = pick and (ns.Util.ShortName(pick.player) .. "'s turn") or ""
-                    if how == "backup" then status = gold(status .. " (backup)") elseif how == "late" then
+                    if how == "cond" then status = gold(status .. " (" .. Live():CondShort(pick.cond) .. ")")
+                    elseif how == "backup" then status = gold(status .. " (backup)") elseif how == "late" then
                         status = red(status .. " (not ready)") else status = grey(status) end
                     items[#items + 1] = { kind = "rot", icon = tr.icon or KIND_ICON.rot, text = tr.name,
                                           status = status, chips = Chips(tr, pick), tr = tr, overview = true }
@@ -500,8 +511,11 @@ local function Layout(f, d)
             end
             r.text:SetFontObject(it.overview and "GameFontHighlightSmall" or "GameFontHighlight")
             r.text:SetPoint("RIGHT", r.status, "LEFT", -6, 0)
+            r.text:SetWordWrap(false)
             r.text:SetText(it.text)
             r.status:SetText(it.status or "")
+            local room = inner - (it.icon and 22 or 0) - (r.status:GetStringWidth() or 0) - 8
+            local wraps = (r.text:GetStringWidth() or 0) > room
             if it.alert then
                 r.hl:SetColorTexture(0.9, 0.15, 0.1, 0.25)
                 r.hl:Show()
@@ -554,6 +568,9 @@ local function Layout(f, d)
                     x = x + w + 4
                 end
                 h = ROW_H + CHIP_H + 4
+            elseif wraps then
+                r.text:SetWordWrap(true)
+                h = ROW_H + 13
             end
             r:SetHeight(h)
             y = y - h - 2

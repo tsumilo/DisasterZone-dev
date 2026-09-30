@@ -186,12 +186,12 @@ function MapUI:IconString(key, size)
 end
 
 -- A short name of an icon key (tooltips, menus).
-function MapUI:IconName(key)
+function MapUI:IconName(key, bossRef)
     if type(key) ~= "string" then return "" end
     local rt = key:match("^rt([1-8])$")
     if rt then return RT_NAMES[tonumber(rt)] end
     local disp = key:match("^boss:(%d+)$")
-    if disp then return self:PortraitName(disp) or "Boss portrait" end
+    if disp then return self:PortraitName(disp, bossRef) or "Boss portrait" end
     local cls = key:match("^cls:(%u+)$")
     if cls then return ns.CLASS_NAMES and ns.CLASS_NAMES[cls] or cls end
     local role = key:match("^role:(%l+)$")

@@ -445,6 +445,11 @@ class World:
         self.npcs[guid]["dead"] = True
         self._push_npcs()
 
+    def set_npc_hp(self, guid, pct):
+        """An NPC's health in percent (UnitHealth / UnitHealthMax of its units on every client)."""
+        self.npcs[guid]["hp"] = int(pct)
+        self._push_npcs()
+
     def _push_npcs(self):
         for c in self.clients:
             if c.runtime is not None:

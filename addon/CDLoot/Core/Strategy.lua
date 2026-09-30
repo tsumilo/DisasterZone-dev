@@ -57,6 +57,7 @@ local ROLES = { tank = true, healer = true, melee = true, ranged = true }
 -- Tracked tables: rot = interrupt rotation, md / bl = once per pull (Misdirection, Bloodlust / Heroism),
 -- pi / iv = cooldown on a target (Power Infusion, Innervate), curse = keep a curse up.
 local TRACK_KINDS = { rot = true, md = true, bl = true, pi = true, iv = true, curse = true }
+local CURSE_IDS = { [1714] = true, [702] = true, [1490] = true, [704] = true, [603] = true, [980] = true, [17862] = true }
 local COL_TYPES = { p = true, g = true, o = true, x = true }
 
 Strategy.BOARD_W, Strategy.BOARD_H = BOARD_W, BOARD_H
@@ -324,6 +325,28 @@ local function CleanCell(colType, v)
         if v.s ~= nil then
             if not SplitSlot(v.s) then return nil end
             out.s = v.s
+        end
+        -- the boss abilities this row is about (spell ids; Data/BossAbilities.lua or any id)
+        if v.a ~= nil then
+            if type(v.a) ~= "table" then return nil end
+            local seen, list = {}, {}
+            for i = 1, 9 do
+                local id = v.a[i]
+                if id == nil then break end
+                if i > 8 or not IsInt(id, 1, 9999999) then return nil end
+                if not seen[id] then
+                    seen[id] = true
+                    list[#list + 1] = id
+                end
+            end
+            if #list > 0 then out.a = list end
+        end
+        -- only when: "a:<spell id>" (the boss has that buff / immunity) or "hp:<1-99>" (the boss is below that health)
+        if v.w ~= nil then
+            if type(v.w) ~= "string" or not (v.w:find("^a:%d%d?%d?%d?%d?%d?%d?$") or v.w:find("^hp:%d%d?$")) then
+                return nil
+            end
+            out.w = v.w
         end
         if not next(out) then return nil end
         return out
@@ -963,6 +986,26 @@ function Strategy:Validate(draft)
     local clean = CleanStrategy(r, Now())
     if not clean then return nil, self:Explain(r) end
     return clean
+end
+
+-- What the encounter helpers follow for a table: its "Track in fight" setting, else what its cells say (boss
+-- abilities picked -> an interrupt rotation; only curses picked -> curses), for tables made before tracking existed.
+function Strategy.TrackKind(k)
+    if type(k) ~= "table" then return nil end
+    if k.tr then return k.tr end
+    local any, curses = false, true
+    for _, cells in pairs(k.d or {}) do
+        for _, v in pairs(cells) do
+            if type(v) == "table" and type(v.a) == "table" then
+                for _, id in ipairs(v.a) do
+                    any = true
+                    if not CURSE_IDS[id] then curses = false end
+                end
+            end
+        end
+    end
+    if not any then return nil end
+    return curses and "curse" or "rot"
 end
 
 -- What makes a draft invalid, in words (the first problem found).

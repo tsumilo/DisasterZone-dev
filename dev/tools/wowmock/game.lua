@@ -148,7 +148,11 @@ M.SPELL_NAMES = {
   [19244] = "Spell Lock", [16979] = "Feral Charge", [28730] = "Arcane Torrent", [34477] = "Misdirection",
   [2825] = "Bloodlust", [32182] = "Heroism", [10060] = "Power Infusion", [29166] = "Innervate",
   [1714] = "Curse of Tongues", [702] = "Curse of Weakness", [1490] = "Curse of the Elements",
-  [704] = "Curse of Recklessness", [32375] = "Mass Dispel",
+  [704] = "Curse of Recklessness", [603] = "Curse of Doom", [980] = "Curse of Agony",
+  [17862] = "Curse of Shadow", [11719] = "Curse of Tongues", [32375] = "Mass Dispel",
+  [41455] = "Circle of Healing", [41472] = "Divine Wrath", [41471] = "Empowered Smite",
+  [41450] = "Blessing of Protection", [41451] = "Blessing of Spell Warding", [33152] = "Prayer of Healing",
+  [33144] = "Heal",
 }
 function GetSpellInfo(id)
   if id == nil then return nil end
@@ -460,7 +464,7 @@ function UnitReaction() return 5 end
 function UnitIsPVP() return false end
 function UnitIsTapDenied() return false end
 function UnitOnTaxi() return false end
-function UnitHealth(unit) return unit_rec(unit) and 100 or 0 end
+function UnitHealth(unit) local m = unit_rec(unit); if not m then return 0 end; return m.npc and (m.hp or 100) or 100 end
 function UnitHealthMax(unit) return unit_rec(unit) and 100 or 0 end
 function UnitPower(unit) return unit_rec(unit) and 100 or 0 end
 function UnitPowerMax(unit) return unit_rec(unit) and 100 or 0 end
@@ -584,7 +588,7 @@ end
 function M.set_npcs(t)
   M.npcs = {}
   for guid, r in pairs(t or {}) do
-    M.npcs[guid] = { guid = guid, name = r.name, npc = true, dead = r.dead, full = guid, realm = M.W.realm }
+    M.npcs[guid] = { guid = guid, name = r.name, npc = true, dead = r.dead, hp = r.hp, full = guid, realm = M.W.realm }
   end
 end
 local plateSeq = 0

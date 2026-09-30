@@ -287,7 +287,7 @@ end
 function Panel:RowMenu(owner, k, row)
     UI():ContextMenu(owner, function(root)
         root:CreateTitle(k.n .. " · row " .. row)
-        if k.tr == "rot" then
+        if S().TrackKind(k) == "rot" then
             -- a backup kicker only kicks when no designated kicker will be ready for the boss' next cast
             root:CreateCheckbox("Backup kicker", function() return IsBackup(k, row) end, function()
                 if IsBackup(k, row) then
@@ -339,10 +339,12 @@ function Panel:BlockMenu(owner, page, k, index)
         -- what the encounter helpers follow for this table (Core/StrategyLive.lua)
         local Live = ns.StrategyLive
         if Live then
-            local trm = root:CreateButton("Track in fight" .. (k.tr and (": " .. Live.KIND_NAME[k.tr]) or ""))
-            trm:CreateRadio("Not tracked", function() return k.tr == nil end, function() k.tr = nil; self:Changed() end)
+            local eff = S().TrackKind(k)
+            local trm = root:CreateButton("Track in fight" .. (eff and (": " .. Live.KIND_NAME[eff]) or ""))
+            trm:CreateRadio("Not tracked", function() return S().TrackKind(k) == nil end,
+                function() k.tr = nil; self:Changed() end)
             for _, kind in ipairs(Live.KIND_ORDER) do
-                trm:CreateRadio(Live.KIND_NAME[kind], function() return k.tr == kind end,
+                trm:CreateRadio(Live.KIND_NAME[kind], function() return S().TrackKind(k) == kind end,
                     function() k.tr = kind; self:Changed() end)
             end
         end
@@ -451,10 +453,135 @@ function Panel:CellMenu(owner, k, row, ci)
         ic:CreateRadio("None", function() return cur.i == nil end, function() put({ i = false }) end)
         MapUI():BuildIconMenu(ic, cur.i, function(key) put({ i = key }) end, self.opts.prompt,
             self.opts.strat() and self.opts.strat().b)
-        local sl = root:CreateButton("Show a slot's player")
+        -- the boss' abilities this row is about (interrupt tables: which casts to kick) and when the row applies
+        local strat = self.opts.strat()
+        local known = strat and ns.Data and ns.Data.BossAbilities and ns.Data.BossAbilities[strat.b]
+        local chosen = {}
+        for _, id in ipairs(cur.a or {}) do chosen[id] = true end
+        local function setAbilities(set)
+            local list = {}
+            for id in pairs(set) do list[#list + 1] = id end
+            table.sort(list)
+            if #list > 0 and not k.tr then k.tr = "rot" end
+            put({ a = #list > 0 and list or false })
+        end
+        -- a curse table: which curse this row keeps up (by spell id, so the combat log can check it)
+        -- a table tracked as curses, or named / columned for warlocks, offers the curse picker; picking tracks it
+        local isCurse = S().TrackKind(k) == "curse"
+        if not k.tr and not isCurse then
+            isCurse = (k.n or ""):lower():find("curse", 1, true) ~= nil
+            for _, c in ipairs(k.c) do
+                if c.t == "p" and c.f == "WARLOCK" then isCurse = true end
+            end
+        end
+        if isCurse then
+            local function putCurse(id)
+                if not k.tr then k.tr = "curse" end
+                put({ a = { id } })
+            end
+            local curses = {}
+            for id in pairs(ns.StrategyLive and ns.StrategyLive.SPELLS.curse or {}) do curses[#curses + 1] = id end
+            table.sort(curses, function(x, y) return (GetSpellInfo(x) or "") < (GetSpellInfo(y) or "") end)
+            local pickedId = cur.a and cur.a[1]
+            local cm = root:CreateButton("Curse" .. (pickedId and (": " .. (GetSpellInfo(pickedId) or pickedId)) or ""))
+            for _, id in ipairs(curses) do
+                cm:CreateRadio(MapUI():IconString("sp:" .. id, 14) .. " " .. (GetSpellInfo(id) or ("Spell " .. id)),
+                    function() return pickedId == id end, function() putCurse(id) end)
+            end
+            cm:CreateButton("By spell ID...", function()
+                self.opts.prompt("Spell ID of the curse", "", function(text)
+                    local id = tonumber(text)
+                    if id and id > 0 and id < 10000000 then putCurse(floor(id)) end
+                end)
+            end)
+            cm:CreateButton("None", function() put({ a = false }) end)
+        end
+        if not isCurse then
+            local ab = root:CreateButton("Abilities" .. (cur.a and (" (" .. #cur.a .. ")") or ""))
+            local listed = {}
+            for _, c in ipairs(known and known.c or {}) do
+                listed[c.id] = true
+                local name = GetSpellInfo(c.id) or ("Spell " .. c.id)
+                local extra = (c.int and " |cff33ff99(interrupt)|r" or "") .. (c.cd and grey("  ~" .. c.cd .. " s") or "")
+                ab:CreateCheckbox(MapUI():IconString("sp:" .. c.id, 14) .. " " .. name .. extra,
+                    function() return chosen[c.id] == true end,
+                    function()
+                        chosen[c.id] = not chosen[c.id] or nil
+                        setAbilities(chosen)
+                    end)
+            end
+            -- abilities added by id (not in the boss' list)
+            for id in pairs(chosen) do
+                if not listed[id] then
+                    ab:CreateCheckbox(MapUI():IconString("sp:" .. id, 14) .. " " .. (GetSpellInfo(id) or ("Spell " .. id)),
+                        function() return chosen[id] == true end,
+                        function()
+                            chosen[id] = nil
+                            setAbilities(chosen)
+                        end)
+                end
+            end
+            if not known then ab:CreateTitle(grey("No ability list for this boss")) end
+            ab:CreateButton("By spell ID...", function()
+                self.opts.prompt("Spell ID of the ability (e.g. 41472 for Divine Wrath)", "", function(text)
+                    local id = tonumber(text)
+                    if id and id > 0 and id < 10000000 then
+                        chosen[floor(id)] = true
+                        setAbilities(chosen)
+                    end
+                end)
+            end)
+            local Live = ns.StrategyLive
+            local cond = Live and Live.ParseCond(cur.w)
+            local wm = root:CreateButton("Only when" .. (cond and (": " .. Live:CondShort(cond)) or ""))
+            wm:CreateRadio("Any time", function() return cur.w == nil end, function() put({ w = false }) end)
+            local auras = wm:CreateButton("The boss has...")
+            local any = false
+            for _, id in ipairs(known and known.a or {}) do
+                any = true
+                auras:CreateRadio(MapUI():IconString("sp:" .. id, 14) .. " " .. (GetSpellInfo(id) or ("Spell " .. id)),
+                    function() return cur.w == ("a:" .. id) end, function() put({ w = "a:" .. id }) end)
+            end
+            if not any then auras:CreateTitle(grey("No buffs listed for this boss")) end
+            auras:CreateButton("By spell ID...", function()
+                self.opts.prompt("Spell ID of the buff on the boss (e.g. 41450 Blessing of Protection)", "", function(text)
+                    local id = tonumber(text)
+                    if id and id > 0 and id < 10000000 then put({ w = "a:" .. floor(id) }) end
+                end)
+            end)
+            wm:CreateButton("Below health...", function()
+                self.opts.prompt("Health % of the boss (1-99), e.g. 30", "", function(text)
+                    local v = tonumber(text)
+                    if v and v >= 1 and v <= 99 then put({ w = "hp:" .. floor(v) }) end
+                end)
+            end)
+        end
+        local shown = cur.s and self.opts.slotLabel and self.opts.slotLabel(cur.s)
+        local sl = root:CreateButton("Show a slot's player" .. (shown and (": " .. grey(shown)) or ""))
         sl:CreateRadio("None", function() return cur.s == nil end, function() put({ s = false }) end)
+        local tables, byBlock = {}, {}
         for _, s in ipairs(S():GetSlots(self.opts.strat())) do
-            sl:CreateRadio(s.label, function() return cur.s == s.ref end, function() put({ s = s.ref }) end)
+            if not byBlock[s.block] then
+                byBlock[s.block] = {}
+                tables[#tables + 1] = s
+            end
+            local list = byBlock[s.block]
+            list[#list + 1] = s
+        end
+        for _, first in ipairs(tables) do
+            local list = byBlock[first.block]
+            local has = false
+            for _, s in ipairs(list) do
+                if s.ref == cur.s then has = true end
+            end
+            local sub = sl:CreateButton((has and "|cffffd100" or "") .. (first.blockName or first.block)
+                .. (has and "|r" or ""))
+            local prefix = (first.blockName or "") .. " · "
+            for _, s in ipairs(list) do
+                local label = s.label
+                if label:sub(1, #prefix) == prefix then label = label:sub(#prefix + 1) end
+                sub:CreateRadio(label, function() return cur.s == s.ref end, function() put({ s = s.ref }) end)
+            end
         end
         root:CreateButton("|cffff6060Clear|r", function()
             setCell(k, row, ci, nil)
@@ -685,7 +812,7 @@ function Panel:Render()
             b.title.fs:SetPoint("LEFT", 6, 0)
         end
         b.title.fs:SetPoint("RIGHT", -22, 0)
-        local trackName = k.tr and ns.StrategyLive and ns.StrategyLive.KIND_NAME[k.tr]
+        local trackName = S().TrackKind(k) and ns.StrategyLive and ns.StrategyLive.KIND_NAME[S().TrackKind(k)]
         b.title.fs:SetText(k.n .. (trackName and ("  |cffb0ffb0(tracked: " .. trackName .. ")|r") or ""))
         b.gear:SetShown(mode == "edit")
         b.gear:SetScript("OnClick", function(btn) self:BlockMenu(btn, page, k, index) end)
@@ -758,7 +885,7 @@ function Panel:Render()
                 local v = k.d and k.d[row] and k.d[row][ci]
                 if mode == "edit" then c.rowMenu = function(btn) self:RowMenu(btn, k, row) end end
                 if col.t == "o" then
-                    if k.tr == "rot" and IsBackup(k, row) then
+                    if S().TrackKind(k) == "rot" and IsBackup(k, row) then
                         c.fs:SetText("|cffb08cffB|r")
                         c.tip = { "Backup kicker", "Kicks only when no designated kicker's interrupt will be ready for the "
                             .. "boss' next cast." .. (mode == "edit" and " Right-click the row to change." or "") }
@@ -787,6 +914,24 @@ function Panel:Render()
                         c.fs:ClearAllPoints()
                         c.fs:SetPoint("LEFT", c.icon, "RIGHT", 3, 0)
                         c.fs:SetPoint("RIGHT", -2, 0)
+                    end
+                    if v and v.a and S().TrackKind(k) == "curse" then
+                        -- a curse row: the curse's icon, and its name when there's no label
+                        local id = v.a[1]
+                        text = MapUI():IconString("sp:" .. id, 13) .. " " .. (text ~= "" and text or (GetSpellInfo(id) or id))
+                    elseif v and v.a then
+                        local icons = ""
+                        for _, id in ipairs(v.a) do icons = icons .. MapUI():IconString("sp:" .. id, 13) end
+                        text = (text ~= "" and (text .. " ") or "") .. icons
+                    end
+                    local cond = v and v.w and ns.StrategyLive and ns.StrategyLive.ParseCond(v.w)
+                    if cond then text = text .. " |cffffd100when " .. ns.StrategyLive:CondShort(cond) .. "|r" end
+                    if v and (v.a or v.w) then
+                        local tip = { "On" }
+                        for _, id in ipairs(v.a or {}) do tip[#tip + 1] = MapUI():IconString("sp:" .. id, 13) .. " " .. (GetSpellInfo(id) or id) end
+                        if cond then tip[#tip + 1] = "Only when " .. (cond.kind == "hp" and ("the boss is below " .. cond.v .. "%")
+                            or ("the boss has " .. (GetSpellInfo(cond.id) or cond.id))) end
+                        c.tip = tip
                     end
                     if text == "" and mode == "edit" then text = grey("click to set, or drop an icon here") end
                     c.fs:SetText(text)

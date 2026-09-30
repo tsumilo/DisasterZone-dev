@@ -48,7 +48,7 @@ function Practice:Assign(s)
     local tracked, firstCol = {}, {}
     for _, p in ipairs(s.p or {}) do
         for _, k in ipairs(p.k or {}) do
-            if k.tr then tracked[k.id] = true end
+            if S().TrackKind(k) then tracked[k.id] = true end
             for ci, col in ipairs(k.c) do
                 if col.t == "p" and not firstCol[k.id] then firstCol[k.id] = ci end
             end
@@ -114,8 +114,8 @@ local function At(token, sec, fn)
 end
 
 -- A demo player's cast, through the combat log path.
-local function DemoCast(key, sub, spell, targetNpc, targetName)
-    Live():Handle(sub, DemoGUID(key), ShortName(key), targetNpc and NpcGUID(targetNpc) or nil, targetName, spell)
+local function DemoCast(key, sub, spell, targetNpc, targetName, spellId)
+    Live():Handle(sub, DemoGUID(key), ShortName(key), targetNpc and NpcGUID(targetNpc) or nil, targetName, spell, spellId)
 end
 
 local function Script(token)
@@ -126,12 +126,20 @@ local function Script(token)
     local casts = 0
     for t = t0 + 2, t0 + LENGTH - 5, CAST_EVERY do
         casts = casts + 1
-        local castName = CAST_NAMES[(casts - 1) % #CAST_NAMES + 1]
+        local castN = casts
         At(token, t, function()
             for _, tr in ipairs(Live():GetCurrent().trackers) do
                 if tr.kind == "rot" and #tr.order > 0 then
                     local npc = tr.npc or 0
-                    Live():Handle("SPELL_CAST_START", NpcGUID(npc), "Practice target", nil, nil, castName)
+                    -- the table's own abilities when it picked some, else a few healer casts
+                    local castId, castName
+                    if tr.abilityIds and #tr.abilityIds > 0 then
+                        castId = tr.abilityIds[(castN - 1) % #tr.abilityIds + 1]
+                        castName = Spell(castId)
+                    else
+                        castName = CAST_NAMES[(castN - 1) % #CAST_NAMES + 1]
+                    end
+                    Live():Handle("SPELL_CAST_START", NpcGUID(npc), "Practice target", nil, nil, castName, castId)
                     local r = tr.order[tr.cur]
                     if r and r.player ~= Util.PlayerKey() then
                         At(token, DEMO_REACTION, function()
@@ -141,6 +149,28 @@ local function Script(token)
                 end
             end
         end)
+    end
+    -- halfway: the rotation's target gains an immunity from its boss' list (e.g. Blessing of Protection) for 12 s,
+    -- so the kickers it stops step aside
+    local known = ns.Data and ns.Data.BossAbilities and ns.Data.BossAbilities[c.boss]
+    local immuneId
+    for _, id in ipairs(known and known.a or {}) do
+        if Live().IMMUNE[id] and not immuneId then immuneId = id end
+    end
+    if immuneId then
+        for _, tr in ipairs(c.trackers) do
+            if tr.kind == "rot" then
+                local npc = tr.npc or 0
+                At(token, t0 + 22, function()
+                    Live():Handle("SPELL_AURA_APPLIED", NpcGUID(npc), "Practice target", NpcGUID(npc), "Practice target",
+                        Spell(immuneId), immuneId)
+                end)
+                At(token, t0 + 34, function()
+                    Live():Handle("SPELL_AURA_REMOVED", NpcGUID(npc), "Practice target", NpcGUID(npc), "Practice target",
+                        Spell(immuneId), immuneId)
+                end)
+            end
+        end
     end
     -- the other tables: demo players do their part
     for _, tr in ipairs(c.trackers) do
@@ -157,7 +187,7 @@ local function Script(token)
                 elseif tr.kind == "iv" then
                     At(token, when + 10, function() DemoCast(r.player, "SPELL_CAST_SUCCESS", Spell(29166)) end)
                 elseif tr.kind == "curse" and r.curse then
-                    local name = r.label and r.label:match("(Curse of [%a ]+)") or r.curse
+                    local name = r.curseId and Spell(r.curseId) or (r.label and r.label:match("(Curse of [%a ]+)")) or r.curse
                     At(token, when, function() DemoCast(r.player, "SPELL_AURA_APPLIED", name, r.npc) end)
                     At(token, when + 14, function() DemoCast(r.player, "SPELL_AURA_REMOVED", name, r.npc) end)
                     At(token, when + 19, function() DemoCast(r.player, "SPELL_AURA_APPLIED", name, r.npc) end)
@@ -184,6 +214,17 @@ function Practice:Start(s)
         return false
     end
     Live():Reset()
+    local anyTracked = false
+    for _, p in ipairs(s.p or {}) do
+        for _, k in ipairs(p.k or {}) do
+            if S().TrackKind(k) then anyTracked = true end
+        end
+    end
+    if not anyTracked then
+        ns:Print("This strategy has no tables the encounter helpers follow, so practice only shows your job. In the "
+            .. "editor, open a table's gear menu > Track in fight (e.g. Interrupt rotation), or pick the boss "
+            .. "abilities in its target cells.")
+    end
     local a = self:Assign(s)
     c = Live():StartPractice(s, a)
     if not c then return false end

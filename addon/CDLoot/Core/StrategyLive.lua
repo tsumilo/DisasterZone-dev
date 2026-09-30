@@ -52,6 +52,21 @@ local SPELLS = {
 }
 Live.SPELLS = SPELLS
 
+-- Buffs that make a creature immune to one kind of interrupt: phys (Kick, Pummel, Shield Bash, Feral Charge
+-- can't land), spell (Earth Shock, Counterspell, Spell Lock can't), all.
+local IMMUNE = {
+    [41450] = "phys", [1022] = "phys", [5599] = "phys", [10278] = "phys",       -- Blessing of Protection
+    [41451] = "spell",                                                          -- Blessing of Spell Warding
+    [642] = "all", [1020] = "all", [498] = "all", [5573] = "all",               -- Divine Shield / Protection
+}
+Live.IMMUNE = IMMUNE
+
+-- The school of each interrupt (by base id): physical ones fail on a physically immune target, and the other way.
+local INTERRUPT_SCHOOL = { [1766] = "phys", [6552] = "phys", [72] = "phys", [16979] = "phys",
+                           [8042] = "spell", [2139] = "spell", [19244] = "spell", [28730] = "spell" }
+local CLASS_SCHOOL = { ROGUE = "phys", WARRIOR = "phys", DRUID = "phys", SHAMAN = "spell", MAGE = "spell",
+                       WARLOCK = "spell", PRIEST = "spell", PALADIN = "spell", HUNTER = "phys" }
+
 local KIND_NAME = { rot = "Interrupt rotation", md = "Misdirection", bl = "Bloodlust / Heroism",
                     pi = "Power Infusion", iv = "Innervate", curse = "Curses (keep up)" }
 Live.KIND_NAME = KIND_NAME
@@ -75,6 +90,45 @@ end
 local function SpellIn(kind, name)
     if type(name) ~= "string" then return nil end
     return Names()[kind][name:lower()]
+end
+
+local schoolByName
+-- The school of an interrupt by its name ("phys" | "spell" | nil).
+local function InterruptSchool(name)
+    if not schoolByName then
+        schoolByName = {}
+        for id, school in pairs(INTERRUPT_SCHOOL) do
+            local n = GetSpellInfo and GetSpellInfo(id)
+            if type(n) == "string" then schoolByName[n:lower()] = school end
+        end
+    end
+    return type(name) == "string" and schoolByName[name:lower()] or nil
+end
+
+-- A condition string ("a:<id>" | "hp:<pct>") -> { kind = "aura", id } | { kind = "hp", v } | nil.
+local function ParseCond(w)
+    if type(w) ~= "string" then return nil end
+    local id = w:match("^a:(%d+)$")
+    if id then return { kind = "aura", id = tonumber(id) } end
+    local v = w:match("^hp:(%d+)$")
+    if v then return { kind = "hp", v = tonumber(v) } end
+    return nil
+end
+Live.ParseCond = ParseCond
+
+-- A short name for a condition: "BoP" for Blessing of Protection, "< 30%" for health.
+function Live:CondShort(c)
+    if not c then return nil end
+    if c.kind == "hp" then return "< " .. c.v .. "%" end
+    local name = GetSpellInfo and GetSpellInfo(c.id) or ("spell " .. c.id)
+    local words = {}
+    for w in tostring(name):gmatch("%S+") do words[#words + 1] = w end
+    if #words >= 3 then
+        local out = ""
+        for _, w in ipairs(words) do out = out .. (w:lower() == "of" and "o" or w:sub(1, 1):upper()) end
+        return out
+    end
+    return name
 end
 
 ---------------------------------------------------------------------------
@@ -200,21 +254,43 @@ local function RowInfo(k, row, a)
 end
 
 local function BuildTracker(bossRef, k, a)
-    local tr = { id = k.id, name = k.n, kind = k.tr, icon = k.i, rows = {}, order = {}, backups = {}, cur = 1 }
+    local kind = S().TrackKind(k)
+    local tr = { id = k.id, name = k.n, kind = kind, icon = k.i, rows = {}, order = {}, backups = {}, cur = 1 }
     local bk = {}
     for _, row in ipairs(k.bk or {}) do bk[row] = true end
     for row = 1, k.r do
         local r = RowInfo(k, row, a)
         r.npc = r.target and NpcOfIcon(bossRef, r.target.i) or nil
-        if k.tr == "curse" then
-            -- the curse named in the row's target label / text
-            local lower = ((r.label or "") .. " " .. (r.text or "")):lower()
-            for name in pairs(Names().curse) do
-                if lower:find(name, 1, true) then r.curse = name end
+        if kind == "curse" then
+            -- the curse picked in the row's target cell (a spell id), else the one named in its label / text
+            for _, id in ipairs(r.target and r.target.a or {}) do
+                local name = not r.curse and GetSpellInfo and GetSpellInfo(id)
+                if type(name) == "string" then r.curse, r.curseId = name:lower(), id end
+            end
+            if not r.curse then
+                local lower = ((r.label or "") .. " " .. (r.text or "")):lower()
+                for name in pairs(Names().curse) do
+                    if lower:find(name, 1, true) then r.curse = name end
+                end
             end
         end
         tr.rows[#tr.rows + 1] = r
-        r.backup = (k.tr == "rot" and bk[row]) or nil
+        r.backup = (kind == "rot" and bk[row]) or nil
+        -- the boss abilities this row is for (ids + names, as the combat log may give either)
+        if r.target and r.target.a and kind ~= "curse" then
+            r.spells = {}
+            for _, id in ipairs(r.target.a) do
+                r.spells[id] = true
+                local name = GetSpellInfo and GetSpellInfo(id)
+                if type(name) == "string" then r.spells[name:lower()] = true end
+                tr.spells = tr.spells or {}
+                tr.spells[id] = true
+                if type(name) == "string" then tr.spells[name:lower()] = true end
+                tr.abilityIds = tr.abilityIds or {}
+                tr.abilityIds[#tr.abilityIds + 1] = id
+            end
+        end
+        r.cond = r.target and ParseCond(r.target.w) or nil
         if r.player then
             if r.backup then tr.backups[#tr.backups + 1] = r else tr.order[#tr.order + 1] = r end
         end
@@ -222,6 +298,13 @@ local function BuildTracker(bossRef, k, a)
     -- the rotation's target: the first row's boss
     for _, r in ipairs(tr.rows) do
         if r.npc then tr.npc = tr.npc or r.npc end
+    end
+    -- a first rhythm before two casts were seen: DBM's cooldown of those abilities (Data/BossAbilities.lua)
+    local known = ns.Data and ns.Data.BossAbilities and ns.Data.BossAbilities[bossRef]
+    for _, c in ipairs(known and known.c or {}) do
+        if c.cd and (not tr.spells or tr.spells[c.id]) and (c.int or tr.spells) then
+            tr.seedCd = tr.seedCd and min(tr.seedCd, c.cd) or c.cd
+        end
     end
     return tr
 end
@@ -262,11 +345,12 @@ local function Build(bossRef, fixed)
     local c = {
         boss = bossRef, name = Str:GetBossName(bossRef), occ = occ, s = s, a = a, trackers = {},
         marks = MarkPlan(s), assigned = {}, owner = {}, remarks = {}, seenAt = GetTime(), engaged = false,
+        auras = {}, hp = {},       -- [npcID] = { [spellID] = true } buffs on the boss creatures; [npcID] = health %
         fixed = fixed, practice = fixed and fixed.practice or nil,
     }
     for _, p in ipairs(s.p or {}) do
         for _, k in ipairs(p.k or {}) do
-            if k.tr then c.trackers[#c.trackers + 1] = BuildTracker(bossRef, k, a) end
+            if S().TrackKind(k) then c.trackers[#c.trackers + 1] = BuildTracker(bossRef, k, a) end
         end
     end
     return c
@@ -302,6 +386,7 @@ Live.CdLeft = CdLeft
 function Live:NextCastIn(tr)
     if tr.castStart then return 0 end
     local t = tr.casts
+    if t and #t == 1 and tr.seedCd then return max(0, t[1] + tr.seedCd - GetTime()) end
     if not t or #t < 2 then return nil end
     local n = min(#t - 1, 4)
     local sum = 0
@@ -309,24 +394,91 @@ function Live:NextCastIn(tr)
     return max(0, t[#t] + sum / n - GetTime())
 end
 
--- Who takes the target's next cast: the designated kicker whose turn it is, else the next designated kicker whose
--- interrupt is ready by then, else the first backup ready by then, else whoever is ready soonest.
--- Returns the row and "main" | "backup" | "late" (nobody will be ready in time).
-function Live:Pick(tr)
+-- The immunities on a creature now: { phys = true, spell = true } (all = both).
+function Live:Immunities(npc)
+    local out = {}
+    for id in pairs(cur and npc and cur.auras[npc] or {}) do
+        local kind = IMMUNE[id]
+        if kind == "all" then out.phys, out.spell = true, true elseif kind then out[kind] = true end
+    end
+    return out
+end
+
+-- A curse row of a player for this aura (by name: the combat log's ids differ per rank).
+local function CurseRow(who, spellName)
+    if not cur or type(spellName) ~= "string" then return nil end
+    local lower = spellName:lower()
+    for _, tr in ipairs(cur.trackers) do
+        if tr.kind == "curse" then
+            for _, r in ipairs(tr.rows) do
+                if r.player == who and r.curse == lower then return r end
+            end
+        end
+    end
+end
+
+-- Does a row's condition hold now?
+function Live:CondHolds(r, tr)
+    local c = r.cond
+    if not c or not cur then return c == nil end
+    local npc = r.npc or tr.npc
+    if c.kind == "aura" then
+        if npc then return cur.auras[npc] ~= nil and cur.auras[npc][c.id] == true end
+        for _, set in pairs(cur.auras) do
+            if set[c.id] then return true end
+        end
+        return false
+    end
+    local hp = npc and cur.hp[npc]
+    return hp ~= nil and hp <= c.v
+end
+
+-- The school of a kicker's interrupt: the one they used, else their class'.
+local function School(r)
+    if r.school then return r.school end
+    local class = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(r.player)
+    if not class and r.player == Me() then class = select(2, UnitClass("player")) end
+    return class and CLASS_SCHOOL[class] or nil
+end
+Live.School = School
+
+-- Who takes the target's next cast (castSpell: the cast's lower-case name or id when it's casting):
+--   1. a row whose condition holds (it exists for that moment, e.g. "when she has Blessing of Protection");
+--   2. the designated kicker whose turn it is, else the next designated one;
+--   3. a backup;
+-- each only when their interrupt is ready by the next cast, they're alive, the cast is one of their abilities, and
+-- the target isn't immune to their kind of interrupt. Else whoever is ready soonest ("late").
+-- Returns the row and "cond" | "main" | "backup" | "late".
+function Live:Pick(tr, castSpell)
     local now = GetTime()
     local within = self:NextCastIn(tr) or 0
+    local immune = self:Immunities(tr.npc)
+    local function can(r)
+        if r.dead or CdLeft(r, now) > within then return false end
+        if castSpell and r.spells and not r.spells[castSpell] then return false end
+        local school = School(r)
+        if school and immune[school] then return false end
+        return true
+    end
+    for _, list in ipairs({ tr.order, tr.backups }) do
+        for _, r in ipairs(list) do
+            if r.cond and self:CondHolds(r, tr) and can(r) then return r, "cond" end
+        end
+    end
     local n = #tr.order
     for step = 0, n - 1 do
         local r = tr.order[((tr.cur - 1 + step) % n) + 1]
-        if not r.dead and CdLeft(r, now) <= within then return r, "main" end
+        if not r.cond and can(r) then return r, "main" end
     end
     for _, r in ipairs(tr.backups) do
-        if not r.dead and CdLeft(r, now) <= within then return r, "backup" end
+        if not r.cond and can(r) then return r, "backup" end
     end
     local best
     for _, list in ipairs({ tr.order, tr.backups }) do
         for _, r in ipairs(list) do
-            if not r.dead and (not best or CdLeft(r, now) < CdLeft(best, now)) then best = r end
+            if not r.dead and (not r.cond or self:CondHolds(r, tr)) and (not best or CdLeft(r, now) < CdLeft(best, now)) then
+                best = r
+            end
         end
     end
     return best, "late"
@@ -412,6 +564,7 @@ function Live:Engage()
     if fresh then
         cur.trackers, cur.a = fresh.trackers, fresh.a
     end
+    cur.auras = {}
     Debug("engaged %s", cur.name)
     Changed()
 end
@@ -504,6 +657,25 @@ local function EachUnit(fn)
     try("mouseover")
 end
 
+-- The health of the boss creatures this client can see now (nameplates, target, mouseover).
+function Live:UpdateHealth()
+    if not cur then return false end
+    local changed = false
+    EachUnit(function(unit, guid)
+        local npc = NpcOf(guid)
+        local max = npc and UnitHealthMax(unit) or 0
+        if npc and max > 0 then
+            local pct = floor(UnitHealth(unit) / max * 100 + 0.5)
+            if cur.hp[npc] ~= pct then
+                cur.hp[npc] = pct
+                changed = true
+            end
+        end
+    end)
+    if changed then Changed() end
+    return changed
+end
+
 -- A unit became visible: near its boss? then mark it.
 function Live:OnUnit(unit)
     local guid = UnitGUID(unit)
@@ -571,12 +743,18 @@ end
 
 function Live:OnCombatLog()
     if not cur then return end
-    local _, sub, _, srcGUID, srcName, _, _, dstGUID, dstName, _, _, _, spellName = CombatLogGetCurrentEventInfo()
-    self:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
+    local _, sub, _, srcGUID, srcName, _, _, dstGUID, dstName, _, _, spellId, spellName = CombatLogGetCurrentEventInfo()
+    self:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName, spellId)
+end
+
+-- Does a cast belong to a rotation's abilities (all casts when the table picks none)?
+local function IsAbility(tr, spellName, spellId)
+    if not tr.spells then return true end
+    return (spellId and tr.spells[spellId]) or (type(spellName) == "string" and tr.spells[spellName:lower()]) or false
 end
 
 -- One combat log event (from the client, or scripted by Practice).
-function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
+function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName, spellId)
     if not cur then return end
     local now = GetTime()
     local who = KeyOf(srcGUID, srcName)
@@ -597,6 +775,7 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
                 if r and (not tr.npc or not dstNpc or dstNpc == tr.npc or cur.practice) then
                     if not (r.used and now - r.used < MISS_DEDUPE) then
                         r.used, r.cd, r.last = now, SpellIn("rot", spellName), now
+                        r.school = InterruptSchool(spellName) or r.school
                         r.missed = sub == "SPELL_MISSED" or nil
                         Debug("rotation %s: %s used %s%s%s", tr.name, who, spellName, r.missed and " (missed)" or "",
                             r.backup and " (backup)" or "")
@@ -636,14 +815,17 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
         local npc = NpcOf(srcGUID)
         if npc then
             for _, tr in ipairs(Tracked("rot")) do
-                if tr.npc == npc and #tr.order + #tr.backups > 0 then
+                if (tr.npc == npc or (cur.practice and npc == 0)) and #tr.order + #tr.backups > 0
+                    and IsAbility(tr, spellName, spellId) then
                     SkipDead(tr)
                     tr.casts = tr.casts or {}
                     tr.casts[#tr.casts + 1] = now
                     if #tr.casts > 6 then table.remove(tr.casts, 1) end
                     tr.castStart, tr.castName = now, spellName
                     tr.castId = (tr.castId or 0) + 1
-                    local r, how = Live:Pick(tr)
+                    local castKey = (spellId and tr.spells and tr.spells[spellId] and spellId)
+                        or (type(spellName) == "string" and spellName:lower()) or nil
+                    local r, how = Live:Pick(tr, castKey)
                     tr.pick, tr.pickHow = r, how
                     tr.flash = r and r.player == Me() or nil
                     Debug("rotation %s: target casts %s, kick: %s (%s)", tr.name, tostring(spellName),
@@ -662,7 +844,26 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName)
             end
         end
     elseif sub == "SPELL_AURA_APPLIED" or sub == "SPELL_AURA_REFRESH" or sub == "SPELL_AURA_REMOVED" then
-        if who and SpellIn("curse", spellName) then
+        -- the buffs on the boss' creatures (conditions, immunities)
+        if dstNpc and (cur.practice or self:BossOfNpc(dstNpc) == cur.boss) then
+            local id = spellId
+            if not id and type(spellName) == "string" then
+                for aid in pairs(IMMUNE) do
+                    if GetSpellInfo(aid) == spellName then id = aid end
+                end
+            end
+            if id then
+                cur.auras[dstNpc] = cur.auras[dstNpc] or {}
+                local has = sub ~= "SPELL_AURA_REMOVED" or nil
+                if cur.auras[dstNpc][id] ~= has then
+                    cur.auras[dstNpc][id] = has
+                    Debug("%s %s %s", tostring(dstName), has and "gains" or "loses", tostring(spellName))
+                    changed = true
+                end
+            end
+        end
+        -- a known curse, or one a row picked by spell id
+        if who and (SpellIn("curse", spellName) or CurseRow(who, spellName)) then
             for _, tr in ipairs(Tracked("curse")) do
                 for _, r in ipairs(tr.rows) do
                     if r.player == who and r.curse == spellName:lower() and (not r.npc or r.npc == dstNpc or cur.practice) then
@@ -829,10 +1030,13 @@ function Live:OnInit()
             Live:Reset()
         end
     end)
-    -- a boss seen long ago and never pulled is forgotten
+    -- a boss seen long ago and never pulled is forgotten; during a fight the bosses' health is read twice a second
     if C_Timer and C_Timer.NewTicker then
         C_Timer.NewTicker(30, function()
             if cur and not cur.engaged and not cur.ended and GetTime() - cur.seenAt > FORGET_AFTER then Live:Reset() end
+        end)
+        C_Timer.NewTicker(0.5, function()
+            if cur and cur.engaged then Live:UpdateHealth() end
         end)
     end
     ns:On("STRATEGY_CHANGED", function()

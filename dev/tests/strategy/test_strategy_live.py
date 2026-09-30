@@ -209,7 +209,7 @@ def reminder_near_the_boss_shows_my_jobs():
     assert "- Tanks: Gathios (MT)" in lines(c["Lee"])["lines"], lines(c["Lee"])
     # the warlock: their curse row
     see(w, c["Wal"], "Veras", npcs=npcs)
-    assert any(x.startswith("Curse of Tongues:") for x in lines(c["Wal"])["lines"]), lines(c["Wal"])
+    assert any(x.startswith("Curse of Tongues on Lady Malande:") for x in lines(c["Wal"])["lines"]), lines(c["Wal"])
     # somebody without a job on this boss sees nothing
     see(w, c["Zed"], "Malande", npcs=npcs)
     assert lines(c["Zed"]) is None
@@ -238,12 +238,12 @@ def interrupt_rotation_follows_the_combat_log():
                        "local r = t.order[t.cur]; return r and r.player end end")
     assert turn(rog) == K("Rog")
     # Malande starts Circle of Healing: Rog's panel flashes, Sham's doesn't
-    cleu(w, "SPELL_CAST_START", mal, None, 25807, "Circle of Healing")
+    cleu(w, "SPELL_CAST_START", mal, None, 41455, "Circle of Healing")
     assert lines(rog)["flash"] == "KICK NOW: Circle of Healing", lines(rog)
     assert lines(sham).get("flash") is None
     # Rog kicks it: Sham's turn, the flash goes
     cleu(w, "SPELL_CAST_SUCCESS", rog, mal, 1769, "Kick")
-    cleu(w, "SPELL_INTERRUPT", rog, mal, 1769, "Kick", 25807, "Circle of Healing", 2)
+    cleu(w, "SPELL_INTERRUPT", rog, mal, 1769, "Kick", 41455, "Circle of Healing", 2)
     assert turn(rog) == turn(sham) == turn(c["Bob"]) == K("Sham")
     assert lines(rog).get("flash") is None
     assert "Malande interrupts: Rog > [YOU] > Tom" in lines(sham)["lines"]
@@ -310,7 +310,7 @@ def backup_kicker_when_the_designated_ones_wont_be_ready():
     assert rot_item(tom)["status"] == "Rog's turn"
 
     # cast 1: Rog's; cast 2 (3 s later): Sham's
-    cleu(w, "SPELL_CAST_START", mal, None, 25807, "Circle of Healing")
+    cleu(w, "SPELL_CAST_START", mal, None, 41455, "Circle of Healing")
     assert lines(rog)["flash"] == "KICK NOW: Circle of Healing" and lines(tom).get("flash") is None
     cleu(w, "SPELL_CAST_SUCCESS", rog, mal, 1769, "Kick")
     w.tick(2.9, step=0.1)
@@ -334,7 +334,7 @@ def backup_kicker_when_the_designated_ones_wont_be_ready():
 
     # cast 3: the backup's panel flashes, not Rog's; Tom kicks -> Rog keeps his turn for when he's ready
     w.tick(2.4, step=0.1)
-    cleu(w, "SPELL_CAST_START", mal, None, 25807, "Circle of Healing")
+    cleu(w, "SPELL_CAST_START", mal, None, 41455, "Circle of Healing")
     assert lines(tom)["flash"] == "KICK NOW: Circle of Healing", lines(tom)
     assert lines(rog).get("flash") is None and lines(sham).get("flash") is None
     cleu(w, "SPELL_CAST_SUCCESS", tom, mal, 6554, "Pummel")
@@ -354,7 +354,7 @@ def backup_kicker_when_the_designated_ones_wont_be_ready():
 
     # cast 5: Rog's Kick is back -> Rog again
     w.tick(3.0, step=0.1)
-    cleu(w, "SPELL_CAST_START", mal, None, 25807, "Circle of Healing")
+    cleu(w, "SPELL_CAST_START", mal, None, 41455, "Circle of Healing")
     assert lines(rog)["flash"] == "KICK NOW: Circle of Healing", lines(rog)
     cleu(w, "SPELL_CAST_SUCCESS", rog, mal, 1769, "Kick")
 
@@ -452,7 +452,7 @@ def once_cooldown_and_keep_up_tables():
     assert "Innervate on Pri" in my(dru, "Innervate")[0] and my(dru, "Innervate")[0].endswith(("6:00", "5:59"))
     w.tick(181, step=1)
     assert my(pri, "Power Infusion on ")[0].endswith("ready")
-    # Curse of Tongues on Malande: up, then it falls off -> the warlock's panel flashes
+    # Curse of Tongues on Lady Malande: up, then it falls off -> the warlock's panel flashes
     cleu(w, "SPELL_AURA_APPLIED", wal, npcs["Malande"], 11719, "Curse of Tongues", "DEBUFF")
     assert my(wal, "Curse of Tongues")[0].rstrip().endswith(":"), my(wal, "Curse of Tongues")    # the ready icon
     assert wal.eval("local c = ns.StrategyLive:GetCurrent(); for _, t in ipairs(c.trackers) do if t.kind == 'curse' "
@@ -566,7 +566,7 @@ def practice_solo_at_a_target_dummy():
     # my misdirect goes onto a demo tank, never onto myself
     md = [x for x in L if x.startswith("Misdirect Gathios onto ")]
     assert md and "onto you" not in md[0] and md[0].endswith(": on pull"), L
-    assert any(x.startswith("Curse of Tongues:") for x in L), L
+    assert any(x.startswith("Curse of Tongues on Lady Malande:") for x in L), L
     assert "Raid" not in L                               # I'm in every tracked table: no overview repeating them
     assert "next" in d["title"]
     w.tick(4.5, step=0.25)
