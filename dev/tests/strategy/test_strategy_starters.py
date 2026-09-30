@@ -25,7 +25,7 @@ def every_starter_is_valid_and_resolved():
     bob = c["Bob"]
     refs = bob.eval_py("local out = {}; for ref in pairs(ns.Data.StarterStrategies) do out[#out + 1] = ref end; "
                        "table.sort(out); return out")
-    assert refs == ["GruulsLair:Gruul", "GruulsLair:Maulgar"], refs
+    assert refs == ["BlackTemple:Council", "GruulsLair:Gruul", "GruulsLair:Maulgar"], refs
     for ref in refs:
         res = bob.eval_py("""
             local ref = ...

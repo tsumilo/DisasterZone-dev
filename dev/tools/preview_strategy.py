@@ -30,7 +30,7 @@ def main():
     src_names = {"Gruul": "3923-1"}
     for pi, p in enumerate(d["p"]):
         file = d["files"][pi + 1] if isinstance(d["files"], dict) else d["files"][pi]
-        src = {"Gruul": "3923-1", "Magtheridon": "3836-1"}.get(file, file)
+        src = {"Gruul": "3923-1", "Magtheridon": "3836-1"}.get(file) or ("3959-" + file[2:].lstrip("0") if file.startswith("BT") and file != "BT00" else ("3959" if file == "BT00" else file))
         mp = Image.open(os.path.join(DEV, "art", "blizzard_maps", src + ".jpg")).convert("RGB").resize((1024, 683))
         BW, BH = 1000, 666
         z = p.get("vz", 100) / 100
