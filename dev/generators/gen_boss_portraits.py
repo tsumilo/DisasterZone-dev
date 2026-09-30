@@ -129,9 +129,12 @@ def model_of(npc, cache):
     # curl, not urllib: wowhead refuses Python's TLS client
     html = subprocess.run(["curl", "-sL", "-A", "Mozilla/5.0", "https://www.wowhead.com/tbc/npc=%d" % npc],
                           capture_output=True, timeout=60).stdout.decode("utf-8", "replace")
-    m = re.search(r'"model":(\d+)', html)
+    # the page's own model viewer ("displayId = N"); the first "model" on a page can be a related creature's
+    m = re.search(r'displayId = (\d+)', html) or re.search(r'"model":(\d+)', html)
+    if not m and "<title>" not in html:
+        raise SystemExit("wowhead refused npc %d (rate limit?); re-run later, the cache keeps what was fetched" % npc)
     cache[key] = int(m.group(1)) if m else None
-    time.sleep(2.5)
+    time.sleep(1.5)
     return cache[key]
 
 
@@ -168,6 +171,13 @@ def main():
     lines.append("}")
     open(OUT, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
     print("encounters: %d" % len(ROSTER))
+    # the same display id in two encounters is suspicious (a wrong model), unless it's the same creature name
+    seen = {}
+    for line in lines:
+        for d, n in re.findall(r'd = (\d+), n = "([^"]+)"', line):
+            if d in seen and seen[d] != n:
+                print("SAME DISPLAY ID", d, seen[d], "/", n)
+            seen.setdefault(d, n)
     for m in missing:
         print("MISSING", m)
 

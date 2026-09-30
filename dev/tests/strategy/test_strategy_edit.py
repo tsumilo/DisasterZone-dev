@@ -308,5 +308,20 @@ def dropping_a_portrait_on_a_target_cell():
     w.assert_no_errors()
 
 
+@case
+def portrait_names_come_from_the_encounter():
+    w, c, bob, sid = setup()
+    # two encounters listing the same model: the name is the one of the encounter being built
+    bob.eval("ns.Data.BossPortraits['T:A'] = { { d = 99, n = 'First' } }; ns.Data.BossPortraits['T:B'] = { { d = 99, n = 'Second' } }")
+    assert bob.eval("return ns.StrategyMapUI:PortraitName(99, 'T:B')") == "Second"
+    assert bob.eval("return ns.StrategyMapUI:PortraitName(99, 'T:A')") == "First"
+    # every creature of an encounter has its own model
+    dup = bob.eval_py("local out = {}; for ref, list in pairs(ns.Data.BossPortraits) do local seen = {}; "
+                      "for _, c in ipairs(list) do if seen[c.d] then out[#out + 1] = ref .. ':' .. c.n end; "
+                      "seen[c.d] = true end end; return out")
+    assert dup == [], dup
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

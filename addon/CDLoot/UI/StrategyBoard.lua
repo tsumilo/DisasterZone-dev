@@ -527,6 +527,9 @@ end
 
 local function show()
     ensureWindow()
+    -- the board is big: shrink it to fit smaller screens / larger UI scales (the tool rows sit at its bottom)
+    local sw, sh = UIParent:GetWidth() or WIN_W, UIParent:GetHeight() or WIN_H
+    win:SetScale(math.min(1, (sw - 20) / WIN_W, (sh - 20) / WIN_H))
     win:Show()
     win:Raise()
     Board:Refresh()

@@ -214,9 +214,14 @@ function MapUI:BossPortraits(bossRef)
     return (type(bossRef) == "string" and data and data[bossRef]) or {}
 end
 
--- The creature name of a portrait display id (any encounter), or nil.
+-- The creature name of a portrait display id: from the given encounter first (two creatures can share a model),
+-- else from any encounter; nil when unknown.
 local portraitNames
-function MapUI:PortraitName(displayID)
+function MapUI:PortraitName(displayID, bossRef)
+    local d = tonumber(displayID)
+    for _, c in ipairs(self:BossPortraits(bossRef)) do
+        if c.d == d then return c.n end
+    end
     if not portraitNames then
         portraitNames = {}
         for _, list in pairs(ns.Data and ns.Data.BossPortraits or {}) do
@@ -1667,7 +1672,7 @@ function Canvas:IconAt(x, y)
         MapUI:BuildIconMenu(root, nil, function(key)
             local portrait = key:match("^boss:(%d+)$")
             self:Place({ t = "i", x = x, y = y, i = key, z = portrait and 48 or 32,
-                         l = portrait and MapUI:PortraitName(portrait) or nil })
+                         l = portrait and MapUI:PortraitName(portrait, self.opts.bossRef and self.opts.bossRef()) or nil })
         end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef())
     end)
 end
@@ -1940,7 +1945,7 @@ function Canvas:BackgroundMenu(x, y)
         MapUI:BuildIconMenu(ic, nil, function(key)
             local portrait = key:match("^boss:(%d+)$")
             self:Place({ t = "i", x = x, y = y, i = key, z = portrait and 48 or 32,
-                         l = portrait and MapUI:PortraitName(portrait) or nil })
+                         l = portrait and MapUI:PortraitName(portrait, self.opts.bossRef and self.opts.bossRef()) or nil })
         end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef())
         root:CreateButton("Text...", function() self:TextAt(x, y) end)
         root:CreateButton("Circle zone", function()
