@@ -947,6 +947,10 @@ function Board:SlotTokenText(ref)
     end
     local label = slotLabels[ref]
     if not label then return "|cffff5050?|r" end
+    -- no name yet: the job without the table's name, kept short (the tooltip has the rest)
+    local sep = label:find(" \194\183 ", 1, true)
+    if sep then label = label:sub(sep + 4) end
+    if #label > 26 then label = label:sub(1, 24) .. "..." end
     return "|cffd0d0d0" .. label .. "|r"
 end
 

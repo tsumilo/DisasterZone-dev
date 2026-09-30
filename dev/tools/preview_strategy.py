@@ -26,7 +26,9 @@ def main():
     w, c = world()
     d = c["Bob"].eval_py("local d = ns.StrategyBoard:StarterDraft(...); local maps = {}; "
                          "for _, m in ipairs(ns.Data.RaidMaps) do maps[m.id] = m.file end; "
-                         "d.files = {}; for i, p in ipairs(d.p) do d.files[i] = maps[p.m] end; return d", ref)
+                         "d.files = {}; for i, p in ipairs(d.p) do d.files[i] = maps[p.m] end; "
+                         "d.slots = {}; for _, s in ipairs(ns.Strategy:GetSlots(d)) do d.slots[s.ref] = s.label end; "
+                         "return d", ref)
     src_names = {"Gruul": "3923-1"}
     for pi, p in enumerate(d["p"]):
         file = d["files"][pi + 1] if isinstance(d["files"], dict) else d["files"][pi]
@@ -61,6 +63,14 @@ def main():
                 dr.text((e["x"] - r, e["y"] - 5), tag[:10], fill="yellow")
                 if e.get("l"):
                     dr.text((e["x"] - 50, e["y"] + r + 2), e["l"], fill="white")
+            elif e["t"] == "s":
+                label = d["slots"].get(e["r"], e["r"])
+                label = label.split(" · ", 1)[-1] if " · " in label else label
+                label = label if len(label) <= 26 else label[:24] + "..."
+                tw = 6 * len(label) + 8
+                dr.rectangle([e["x"] - tw / 2, e["y"] - 9, e["x"] + tw / 2, e["y"] + 9], fill=(0, 0, 0, 190),
+                             outline=(217, 179, 77))
+                dr.text((e["x"] - tw / 2 + 4, e["y"] - 6), label, fill=(210, 210, 210))
             elif e["t"] == "x":
                 dr.text((e["x"] - 120, e["y"] - 6), e["l"], fill=col)
         path = out if len(d["p"]) == 1 else out.replace(".png", "_%d.png" % (pi + 1))

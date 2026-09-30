@@ -334,6 +334,37 @@ local function setCell(k, row, ci, v)
     if not next(k.d[row]) then k.d[row] = nil end
 end
 
+-- Editing: who fits one player slot (overrides the column's rule).
+function Panel:SlotFilterMenu(owner, k, row, ci)
+    local col = k.c[ci]
+    local cur = k.d and k.d[row] and k.d[row][ci]
+    local own = type(cur) == "table" and cur.f or nil
+    local function set(f)
+        setCell(k, row, ci, f and { f = f } or nil)
+        self:Changed()
+    end
+    UI():ContextMenu(owner, function(root)
+        root:CreateTitle("Who fits this slot")
+        root:CreateRadio("Same as the column (" .. S():FilterText(col.f) .. ")", function() return own == nil end,
+            function() set(nil) end)
+        local function toggle(tok)
+            local set0 = filterSet(own or col.f)
+            set0[tok] = not set0[tok] or nil
+            set(filterString(set0))
+        end
+        root:CreateTitle("Roles")
+        for _, r in ipairs(S().ROLES) do
+            root:CreateCheckbox(MapUI():IconString("role:" .. r, 12) .. " " .. MapUI().ROLE_NAME[r],
+                function() return own ~= nil and filterSet(own)[r] == true end, function() toggle(r) end)
+        end
+        root:CreateTitle("Classes")
+        for _, c in ipairs(ns.CLASSES) do
+            root:CreateCheckbox(MapUI():IconString("cls:" .. c, 12) .. " " .. (ns.CLASS_NAMES[c] or c),
+                function() return own ~= nil and filterSet(own)[c] == true end, function() toggle(c) end)
+        end
+    end)
+end
+
 function Panel:CellMenu(owner, k, row, ci)
     local col = k.c[ci]
     local cell = k.d and k.d[row] and k.d[row][ci]
@@ -704,11 +735,14 @@ function Panel:Render()
                     if mode == "edit" then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
                 elseif col.t == "p" then
                     local ref = S().SlotRef(k.id, row, ci)
-                    local text, info = self:SlotText(ref, col)
+                    -- the slot's own rule, else the column's
+                    local slotCol = { f = (type(v) == "table" and v.f) or col.f }
+                    local text, info = self:SlotText(ref, slotCol)
                     c.fs:SetText(text)
                     c.slotRef, c.hoverRef = ref, ref
                     c.bg:SetColorTexture(0.10, 0.10, 0.14, 0.95)
-                    local tip = { self.opts.slotLabel and self.opts.slotLabel(ref) or ref, "Fits: " .. S():FilterText(col.f) }
+                    local tip = { self.opts.slotLabel and self.opts.slotLabel(ref) or ref, "Fits: " .. S():FilterText(slotCol.f) ..
+                        (type(v) == "table" and v.f and "  (this slot only)" or "") }
                     if info and info.missing then tip[#tip + 1] = "|cffff5050Not signed up for this raid / not in the raid.|r" end
                     if self.opts.isDup and self.opts.isDup(ref) then
                         c.bg:SetColorTexture(0.35, 0.18, 0.02, 0.95)
@@ -720,10 +754,11 @@ function Panel:Render()
                             local picked = self.opts.picked and self.opts.picked()
                             if button == "RightButton" then self.opts.onAssign(ref, nil)
                             elseif picked then self.opts.onAssign(ref, picked)
-                            else self:SlotMenu(btn, ref, col.f) end
+                            else self:SlotMenu(btn, ref, slotCol.f) end
                         end
                     elseif mode == "edit" then
-                        tip[#tip + 1] = "The raid leader fills this slot per raid. Drag it onto the map to show the player there; right-click for row options."
+                        tip[#tip + 1] = "The raid leader fills this slot per raid. Click to set who fits this slot; drag it onto the map to show the player there; right-click for row options."
+                        c.onClick = function(btn) self:SlotFilterMenu(btn, k, row, ci) end
                     end
                     c.tip = tip
                     self.cellByRef[ref] = self.cellByRef[ref] or {}

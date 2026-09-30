@@ -299,7 +299,13 @@ local function CleanFilter(f)
 end
 
 local function CleanCell(colType, v)
-    if colType == "x" then
+    if colType == "p" then
+        -- a player slot's own "who fits" (overrides its column's)
+        if type(v) ~= "table" or v.f == nil then return nil end
+        local f, ok = CleanFilter(v.f)
+        if not ok or not f then return nil end
+        return { f = f }
+    elseif colType == "x" then
         return CleanText(v, MAX_CELL)
     elseif colType == "g" then
         if type(v) ~= "table" then return nil end
@@ -785,11 +791,13 @@ function Strategy:GetSlots(strat)
                 end
                 for ci, col in ipairs(k.c) do
                     if col.t == "p" then
+                        local own = k.d and k.d[row] and k.d[row][ci]
                         local parts = { k.n }
                         if rowLabel then parts[#parts + 1] = rowLabel elseif k.r > 1 then parts[#parts + 1] = "#" .. row end
                         if col.n and #k.c > 1 then parts[#parts + 1] = col.n end
                         out[#out + 1] = { ref = SlotRef(k.id, row, ci), page = pi, pageName = p.n, block = k.id,
-                                          blockName = k.n, row = row, col = ci, f = col.f,
+                                          blockName = k.n, row = row, col = ci,
+                                          f = (type(own) == "table" and own.f) or col.f,
                                           label = tconcat(parts, " · ") }
                     end
                 end
