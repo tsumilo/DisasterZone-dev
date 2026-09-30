@@ -6,6 +6,14 @@
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.12", date = "30 September 2026", title = "Sound effects",
+      lines = {
+          "Fixed: sound effects were silent with the SFX channel low.",
+          "Sounds for menus, text, walls, doors, chests and items.",
+          "Battles: send-outs, misses, crits, status, faints, nets.",
+          "Shops, gathering, crafting, trades, badges and victories.",
+          "A chat note if the game's sound is switched off.",
+      } },
     { version = "0.11", date = "29 September 2026", title = "Watching battles",
       lines = {
           "Busy guildmates show a bubble: battling, trading, watching.",

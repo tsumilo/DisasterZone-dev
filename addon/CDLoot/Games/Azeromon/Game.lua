@@ -236,6 +236,9 @@ end
 
 function G:Data() return ns.Games:GetData(G.GAME_ID) end
 
+-- A sound effect (Sound.lua's S.SFX name).
+function G:Sfx(name, arg) if ns.AzeroSound then ns.AzeroSound:Play(name, arg) end end
+
 function G:HasSave()
     local s = self:Data().save
     return type(s) == "table" and s.v == D.SAVE_VERSION and Maps[s.map] ~= nil
@@ -422,12 +425,14 @@ function G:PetTrainer() return self:Wait({ kind = "relearn" }) end
 
 function G:HealParty()
     for _, mon in ipairs(self.save.party) do M.Heal(mon) end
+    self:Sfx("heal")
 end
 
 function G:Give(item, n)
     n = n or 1
     local bag = self.save.bag
     bag[item] = (bag[item] or 0) + n
+    self:Sfx("item")
     local name = D.items[item].name
     self:Say(n > 1 and string.format("{PLAYER} received %d %ss!", n, name) or string.format("{PLAYER} received a %s!", name))
 end
@@ -580,6 +585,7 @@ G.EVOLVE_TIME = 4.2
 function G:EvolveNow(mon, into)
     local old = M.Name(mon)
     self:ShowSpecies(mon.sp, mon.shiny, into)
+    self:Sfx("evolve")
     self:Say(string.format("What? %s is evolving!", old))
     if self:Wait({ kind = "evolve", t = G.EVOLVE_TIME, mon = mon, from = mon.sp, into = into }) == "cancel" then
         mon.evoStop = mon.lvl
@@ -665,6 +671,7 @@ function G:TrainerEncounter(npc, spotted)
     local id = npc.def.trainer
     if spotted then
         npc.exclaim = 0.8
+        self:Sfx("spotted")
         self:Sleep(0.8)
         local d = DIRS[npc.face]
         local path = {}
@@ -798,10 +805,12 @@ function G:TryStep(dir, run)
             self:EnterMap(edge.map, tx, ty, dir)
             return "edge"
         end
+        if not self.bump then self:Sfx("bump") end
         self.bump = 0.2
         return "blocked"
     end
     if m.solid[m.key(nx, ny)] or self:NpcAt(nx, ny) or self:SolidNode(nx, ny) then
+        if not self.bump then self:Sfx("bump") end
         self.bump = 0.2
         return "blocked"
     end
@@ -817,6 +826,7 @@ function G:OnArrive(forced)
     if forced then return end
     local wp = m.warp[k]
     if wp then
+        self:Sfx("door")
         self:EnterMap(wp.map, wp.tx, wp.ty, wp.face)
         return
     end
@@ -1128,23 +1138,26 @@ function G:UseItemOutside(item, idx)
     local def = D.items[item]
     local mon = self.save.party[idx]
     local bag = self.save.bag
-    if not def or not mon or (bag[item] or 0) <= 0 then return "It won't have any effect." end
+    if not def or not mon or (bag[item] or 0) <= 0 then self:Sfx("error") return "It won't have any effect." end
     if def.use == "heal" then
-        if mon.hp <= 0 or mon.hp >= M.MaxHP(mon) then return "It won't have any effect." end
+        if mon.hp <= 0 or mon.hp >= M.MaxHP(mon) then self:Sfx("error") return "It won't have any effect." end
+        self:Sfx("heal")
         local before = mon.hp
         mon.hp = math.min(M.MaxHP(mon), mon.hp + def.heal)
         bag[item] = bag[item] - 1
         if bag[item] <= 0 then bag[item] = nil end
         return string.format("%s's HP was restored by %d points.", M.Name(mon), mon.hp - before)
     elseif def.use == "rejuv" then
-        if mon.hp <= 0 or (mon.hp >= M.MaxHP(mon) and not mon.status) then return "It won't have any effect." end
+        if mon.hp <= 0 or (mon.hp >= M.MaxHP(mon) and not mon.status) then self:Sfx("error") return "It won't have any effect." end
+        self:Sfx("heal")
         mon.hp = math.min(M.MaxHP(mon), mon.hp + def.heal)
         mon.status, mon.sleep = nil, nil
         bag[item] = bag[item] - 1
         if bag[item] <= 0 then bag[item] = nil end
         return string.format("%s was rejuvenated!", M.Name(mon))
     elseif def.use == "cure" then
-        if mon.status ~= def.cures then return "It won't have any effect." end
+        if mon.status ~= def.cures then self:Sfx("error") return "It won't have any effect." end
+        self:Sfx("cure")
         mon.status = nil
         bag[item] = bag[item] - 1
         if bag[item] <= 0 then bag[item] = nil end
@@ -1165,8 +1178,9 @@ function G:Buy(item, qty)
     qty = math.max(1, math.floor(qty or 1))
     if not def then return false, "?" end
     local cost = def.price * qty
-    if self.save.money < cost then return false, "You don't have enough money." end
+    if self.save.money < cost then self:Sfx("error") return false, "You don't have enough money." end
     self.save.money = self.save.money - cost
+    self:Sfx("buy")
     self.save.bag[item] = (self.save.bag[item] or 0) + qty
     return true, string.format("Here you go! %d %s%s.", qty, def.name, qty > 1 and "s" or "")
 end

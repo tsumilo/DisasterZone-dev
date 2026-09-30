@@ -550,19 +550,42 @@ local function leadsGroup()
     return (UnitIsGroupLeader("player") or (IsInRaid() and UnitIsGroupAssistant("player"))) and true or false
 end
 
--- Moves key to group g (nil = out of the groups) in a layout; dropped onto `target` in group g = swap. isMember(k)
--- tells which layout entries still count. Returns ok (false: the group is full).
-local function moveInLayout(grp, isMember, key, g, target)
-    local old = grp[key]
+-- The first seat of group g nobody (but `key`) holds, or nil.
+local function freeSeat(grp, gs, isMember, g, key)
+    local used = {}
+    for k, x in pairs(grp) do
+        if x == g and k ~= key and isMember(k) and gs[k] then used[gs[k]] = true end
+    end
+    for s = 1, ns.RaidComp.GROUP_SIZE do
+        if not used[s] then return s end
+    end
+end
+
+-- Moves key to group g (nil = out of the groups) in a layout; dropped onto `target` in group g = the two trade
+-- places (seats too); `seat` = dropped onto that empty seat of group g. gs = the seats { [key] = 1..5 }; `shown`
+-- (from the grid) = the seats as drawn, pinned first so nobody else shifts. isMember(k) tells which layout entries
+-- still count. Returns ok (false: the group is full).
+local function moveInLayout(grp, gs, isMember, key, g, target, seat, shown)
+    if shown then
+        for k in pairs(gs) do gs[k] = nil end
+        for k, s in pairs(shown) do
+            if grp[k] then gs[k] = s end
+        end
+    end
+    local old, oldSeat = grp[key], gs[key]
     if g == nil then
-        grp[key] = nil
+        grp[key], gs[key] = nil, nil
         return true
     end
     if target and target ~= key and grp[target] == g then
         grp[key], grp[target] = g, old
+        gs[key], gs[target] = gs[target], old and oldSeat or nil
         return true
     end
-    if old == g then return true end
+    if old == g then
+        if seat then gs[key] = seat end
+        return true
+    end
     local n = 0
     for k, x in pairs(grp) do
         if x == g and k ~= key and isMember(k) then n = n + 1 end
@@ -572,6 +595,7 @@ local function moveInLayout(grp, isMember, key, g, target)
         return false
     end
     grp[key] = g
+    gs[key] = seat or freeSeat(grp, gs, isMember, g, key)
     return true
 end
 
@@ -590,8 +614,8 @@ end
 local function raidDraft(v)
     local dr = state.raidDraft
     if dr and dr.occ == v.id and dr.dirty then return dr end
-    local grp, saved = RP():GetLayout(v)
-    state.raidDraft = { occ = v.id, grp = grp, saved = saved, dirty = false }
+    local grp, saved, seats = RP():GetLayout(v)
+    state.raidDraft = { occ = v.id, grp = grp, gs = seats or {}, saved = saved, dirty = false }
     return state.raidDraft
 end
 
@@ -628,14 +652,14 @@ function PlanUI:GetRaidDraft()
     return v and raidDraft(v) or nil
 end
 
-function PlanUI:MoveRaidMember(key, g, target)
+function PlanUI:MoveRaidMember(key, g, target, seat, shown)
     local v = selectedRaid()
     if not v or not RP():CanEditGroups() then return false end
     local dr = raidDraft(v)
     local valid = {}
     for _, m in ipairs(raidMembers()) do valid[m.key] = true end
     if not valid[key] then return false end
-    local ok = moveInLayout(dr.grp, function(k) return valid[k] end, key, g, target)
+    local ok = moveInLayout(dr.grp, dr.gs, function(k) return valid[k] end, key, g, target, seat, shown)
     if ok then dr.dirty = true end
     return ok
 end
@@ -657,7 +681,7 @@ function PlanUI:AutoFillRaid()
         if m.st == "A" then accepted[#accepted + 1] = m end
     end
     local dr = raidDraft(v)
-    dr.grp, dr.dirty = ns.RaidComp:AutoFill(accepted, v.sz), true
+    dr.grp, dr.gs, dr.dirty = ns.RaidComp:AutoFill(accepted, v.sz), {}, true
     self:RefreshUpcoming()
 end
 
@@ -666,7 +690,8 @@ function PlanUI:ResetRaidLayout()
     local v = selectedRaid()
     if not v or not RP():CanEditGroups() then return end
     local dr = raidDraft(v)
-    dr.grp, dr.dirty = RP():BuildLayout(v), true
+    local grp, seats = RP():BuildLayout(v)
+    dr.grp, dr.gs, dr.dirty = grp, seats or {}, true
     self:RefreshUpcoming()
 end
 
@@ -679,7 +704,7 @@ function PlanUI:SaveRaidLayout()
     local v = selectedRaid()
     if not v then return false end
     local dr = raidDraft(v)
-    local ok, err = RP():SetGroups(v.id, dr.grp)
+    local ok, err = RP():SetGroups(v.id, dr.grp, dr.gs)
     if not ok then
         Print(err or "Could not save the groups.")
         return false
@@ -778,9 +803,13 @@ local function createRaidGroups(d)
             local v = selectedRaid()
             return v and raidDraft(v).grp or {}
         end,
+        getSeats = function()
+            local v = selectedRaid()
+            return v and raidDraft(v).gs or {}
+        end,
         isEditable = function() return RP():CanEditGroups() end,
-        onDrop = function(key, grp, target)
-            PlanUI:MoveRaidMember(key, grp, target)
+        onDrop = function(key, grp, target, seat, shown)
+            PlanUI:MoveRaidMember(key, grp, target, seat, shown)
             PlanUI:RequestRefresh()
         end,
         onSwapGroups = function(a, b) PlanUI:SwapRaidGroups(a, b) end,
@@ -1150,7 +1179,8 @@ local function draftDirty()
     if t.name ~= ns.Util.Trim(teamsView.nameBox:GetText() or "") then return true end
     local set = {}
     for _, key in ipairs(t.members) do set[key] = true end
-    return not (sameMap(dr.members, set) and dr.sz == t.size and sameMap(dr.s, t.specs) and sameMap(dr.grp, t.groups))
+    return not (sameMap(dr.members, set) and dr.sz == t.size and sameMap(dr.s, t.specs) and sameMap(dr.grp, t.groups)
+        and sameMap(dr.gs, t.seats))
 end
 
 local function loadDraft(id)
@@ -1159,7 +1189,7 @@ local function loadDraft(id)
     if t then for _, key in ipairs(t.members) do members[key] = true end end
     state.draft = {
         id = t and t.id or nil, name = t and t.name or "New team", members = members, sz = t and t.size or 25,
-        s = t and t.specs or {}, grp = t and t.groups or {},
+        s = t and t.specs or {}, grp = t and t.groups or {}, gs = t and t.seats or {},
     }
     if teamsView then teamsView.nameBox:SetText(state.draft.name) end
 end
@@ -1180,7 +1210,7 @@ function PlanUI:ToggleDraftMember(key)
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
     if dr.members[key] then
-        dr.members[key], dr.s[key], dr.grp[key] = nil, nil, nil
+        dr.members[key], dr.s[key], dr.grp[key], dr.gs[key] = nil, nil, nil, nil
     else
         dr.members[key] = true
     end
@@ -1201,16 +1231,17 @@ function PlanUI:SetDraftSize(size)
     dr.sz = size == 10 and 10 or 25
     local n = ns.RaidComp:GroupCount(dr.sz)
     for key, g in pairs(dr.grp) do
-        if g > n then dr.grp[key] = nil end
+        if g > n then dr.grp[key], dr.gs[key] = nil, nil end
     end
     self:RefreshTeams()
 end
 
--- The grid's drop: move `key` to group g (nil = out of the groups); dropped onto `target` in a group = swap.
-function PlanUI:MoveDraftMember(key, g, target)
+-- The grid's drop: move `key` to group g (nil = out of the groups); dropped onto `target` in a group = swap, onto
+-- an empty `seat` = that seat.
+function PlanUI:MoveDraftMember(key, g, target, seat, shown)
     local dr = state.draft
     if not dr or not dr.members[key] or not RP():CanManageTeams() then return false end
-    return moveInLayout(dr.grp, function(k) return dr.members[k] end, key, g, target)
+    return moveInLayout(dr.grp, dr.gs, function(k) return dr.members[k] end, key, g, target, seat, shown)
 end
 
 function PlanUI:SwapDraftGroups(a, b)
@@ -1223,7 +1254,7 @@ end
 function PlanUI:AutoFillDraft()
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
-    dr.grp = ns.RaidComp:AutoFill(draftMembers(), dr.sz)
+    dr.grp, dr.gs = ns.RaidComp:AutoFill(draftMembers(), dr.sz), {}
     self:RefreshTeams()
 end
 
@@ -1265,7 +1296,7 @@ function PlanUI:SaveTeam()
     local dr = state.draft
     if not dr then return false end
     local ok, res = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members,
-        { size = dr.sz, specs = dr.s, groups = dr.grp })
+        { size = dr.sz, specs = dr.s, groups = dr.grp, seats = dr.gs })
     if not ok then
         Print(res or "Could not save the team.")
         return false
@@ -1382,9 +1413,10 @@ function PlanUI:CreateTeams(parent)
         getSize = function() return state.draft and state.draft.sz or 25 end,
         getMembers = draftMembers,
         getGroups = function() return state.draft and state.draft.grp or {} end,
+        getSeats = function() return state.draft and state.draft.gs or {} end,
         isEditable = function() return RP():CanManageTeams() end,
-        onDrop = function(key, g, target)
-            PlanUI:MoveDraftMember(key, g, target)
+        onDrop = function(key, g, target, seat, shown)
+            PlanUI:MoveDraftMember(key, g, target, seat, shown)
             PlanUI:RequestRefresh()
         end,
         onSwapGroups = function(a, b) PlanUI:SwapDraftGroups(a, b) end,

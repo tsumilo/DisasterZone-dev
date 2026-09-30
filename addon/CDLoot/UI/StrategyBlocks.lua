@@ -1002,8 +1002,13 @@ local function colWidths(k, width)
         if c.t == "o" then fixed = fixed + ORDER_W else weight = weight + (COL_WEIGHT[c.t] or 2) end
     end
     local per = weight > 0 and (width - fixed) / weight or 0
-    local out = {}
-    for i, c in ipairs(k.c) do out[i] = c.t == "o" and ORDER_W or floor(per * (COL_WEIGHT[c.t] or 2)) end
+    local out, sum = {}, 0
+    for i, c in ipairs(k.c) do
+        out[i] = c.t == "o" and ORDER_W or floor(per * (COL_WEIGHT[c.t] or 2))
+        sum = sum + out[i]
+    end
+    -- the rounding remainder goes to the last column so the table reaches its right edge
+    if #out > 0 then out[#out] = out[#out] + (width - sum) end
     return out
 end
 
@@ -1092,7 +1097,7 @@ function Panel:Render()
         for _, c in ipairs(k.c) do if c.n then hasHead = true end end
         for _, h in ipairs(b.heads) do h:Hide() end
         local used = 0
-        local function cell(x, cy, w)
+        local function cell(x, cy, w, last)
             used = used + 1
             local c = b.cells[used]
             if not c then
@@ -1101,7 +1106,8 @@ function Panel:Render()
             end
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", b, "TOPLEFT", x, -cy)
-            c:SetSize(max(1, w - 1), ROW_H)
+            -- a 1px gap between columns, none after the last
+            c:SetSize(max(1, last and w or w - 1), ROW_H)
             c.bg:SetColorTexture(0.10, 0.10, 0.11, 0.9)
             c.icon:Hide()
             c.fs:ClearAllPoints()
@@ -1117,7 +1123,7 @@ function Panel:Render()
         if hasHead then
             local x = 0
             for ci, col in ipairs(k.c) do
-                local c = cell(x, by, widths[ci])
+                local c = cell(x, by, widths[ci], ci == #k.c)
                 c:SetHeight(HEAD_H)
                 c.bg:SetColorTexture(0.08, 0.08, 0.09, 0.95)
                 c.fs:SetText("|cffffd100" .. (col.n or (mode == "edit" and grey(COL_TYPE_NAME[col.t]) or "")) .. "|r")
@@ -1141,7 +1147,7 @@ function Panel:Render()
         for row = 1, k.r do
             local x = 0
             for ci, col in ipairs(k.c) do
-                local c = cell(x, by, widths[ci])
+                local c = cell(x, by, widths[ci], ci == #k.c)
                 local v = k.d and k.d[row] and k.d[row][ci]
                 -- striped rows
                 if row % 2 == 0 then c.bg:SetColorTexture(0.13, 0.13, 0.14, 0.9) end

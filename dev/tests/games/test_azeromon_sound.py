@@ -129,5 +129,45 @@ def battle_sounds_hits_level_ups_and_catches():
     no_errors(w)
 
 
+@case
+def every_sound_effect_is_a_file_id_and_game_events_make_sounds():
+    w, c = game()
+    enter(w, c)
+    bad = c.eval_py("""local o = {}
+      for name, id in pairs(ns.AzeroSound.SFX) do
+        if type(id) == 'table' then for _, v in pairs(id) do if type(v) ~= 'number' then o[#o + 1] = name end end
+        elseif type(id) ~= 'number' then o[#o + 1] = name end
+      end
+      for ev, r in pairs(ns.AzeroSound.ON_EVENT) do
+        if type(r) == 'string' and not ns.AzeroSound.SFX[r] then o[#o + 1] = ev end
+      end
+      return o""") or []
+    assert bad == [], bad
+    SFX = c.eval_py("local o = {} for k, v in pairs(ns.AzeroSound.SFX) do if type(v) == 'number' then o[k] = v end end return o")
+    def played(fn):
+        c.eval("ns.AzeroSound._Reset()")
+        s0 = len(c.eval_py("return __MOCK.sounds") or [])
+        c.eval(fn)
+        return (c.eval_py("return __MOCK.sounds") or [])[s0:]
+    assert SFX["fanfare"] in played("ns.Azero:Emit('badge', { id = 'x' })")
+    assert SFX["gift"] in played("ns.Azero:Emit('tame', { how = 'gift', mon = ns.Azero.save.party[1] })")
+    assert played("ns.Azero:Emit('tame', { how = 'caught', mon = ns.Azero.save.party[1] })") == []        # the battle's catch sound covers it
+    assert SFX["herb"] in played("ns.Azero:Emit('gather', { prof = 'herbalism' })")
+    assert SFX["heal"] in played("ns.Azero:HealParty()")
+    assert SFX["error"] in played("ns.Azero.save.money = 0 ns.Azero:Buy('potion', 1)")
+    # the same sound twice at once plays once; the wall thud waits longer
+    assert len(played("ns.AzeroSound:Play('cursor') ns.AzeroSound:Play('cursor')")) == 1
+    # battle events: a miss and a status
+    got = c.eval_py("""local G, M = ns.Azero, ns.AzeroMon
+      local f = M.New('owlet', 2, G.rng)
+      local b = ns.AzeroBattle.New({ party = G.save.party, foes = { f }, wild = true, rng = function(a, b) return a end })
+      b:ApplyStatus('foe', 'psn')
+      local o, e = {}, b:Pop()
+      while e do if e.t == 'sfx' then o[#o + 1] = e.sound end e = b:Pop() end
+      return o""")
+    assert "psn" in got, got
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

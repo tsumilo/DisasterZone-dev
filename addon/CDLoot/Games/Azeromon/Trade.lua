@@ -198,6 +198,7 @@ local function OnAsk(sender, msg)
     local name, id = ShortName(sender), msg.id
     T.incoming = { id = id, from = sender }
     G:Run(function(g)
+        g:Sfx("request")
         local yes = g:YesNo(string.format("%s would like to trade beasts. Accept?", name))
         local still = T.incoming and T.incoming.id == id
         T.incoming = nil

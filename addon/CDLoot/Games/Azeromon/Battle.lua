@@ -190,6 +190,7 @@ function B:ApplyStatus(side, status)
     mon.status = status
     if status == "slp" then mon.sleep = self.rng(1, 3) end
     self:Emit({ t = "status", side = side })
+    self:Emit({ t = "sfx", sound = status })
     self:Say("%s is %s!", self:SideName(side), D.status[status].name)
     return true
 end
@@ -213,6 +214,7 @@ function B:ApplyEffect(side, mv, damaged)
             return
         end
         s.stages[e.stat] = nxt
+        self:Emit({ t = "sfx", sound = e.stages > 0 and "statup" or "statdown" })
         self:Say("%s's %s %s!", self:SideName(target), D.statNames[e.stat], e.stages > 0 and "rose" or "fell")
     elseif e.kind == "status" then
         if not self:ApplyStatus(target, e.status) and not damaged then
@@ -233,12 +235,15 @@ function B:UseMove(side, mv)
         if user.sleep <= 0 then
             user.status, user.sleep = nil, nil
             self:Emit({ t = "status", side = side })
+            self:Emit({ t = "sfx", sound = "wake" })
             self:Say("%s woke up!", name)
         else
+            self:Emit({ t = "sfx", sound = "slp" })
             self:Say("%s is fast asleep.", name)
             return
         end
     elseif user.status == "par" and self.rng(1, 4) == 1 then
+        self:Emit({ t = "sfx", sound = "par" })
         self:Say("%s is paralyzed! It can't move!", name)
         return
     end
@@ -247,6 +252,7 @@ function B:UseMove(side, mv)
     self:Emit({ t = "attack", side = side, move = mv })
 
     if mv.acc > 0 and self.rng(1, 100) > mv.acc then
+        self:Emit({ t = "sfx", sound = "miss" })
         self:Say("%s's attack missed!", name)
         return
     end
@@ -254,18 +260,26 @@ function B:UseMove(side, mv)
     if mv.power > 0 then
         local dmg, eff, crit = self:Damage(side, target, mv)
         if eff == 0 then
+            self:Emit({ t = "sfx", sound = "immune" })
             self:Say("It doesn't affect %s...", self:SideName(target))
             return
         end
         local before = self[target].mon.hp
         self:SetHP(target, before - dmg)
         local dealt = before - self[target].mon.hp
-        if crit then self:Say("A critical hit!") end
-        if eff > 1 then self:Say("It's super effective!") elseif eff < 1 then self:Say("It's not very effective...") end
+        if crit then self:Emit({ t = "sfx", sound = "crit" }) self:Say("A critical hit!") end
+        if eff > 1 then
+            self:Emit({ t = "sfx", sound = "super" })
+            self:Say("It's super effective!")
+        elseif eff < 1 then
+            self:Emit({ t = "sfx", sound = "weak" })
+            self:Say("It's not very effective...")
+        end
         if mv.effect and mv.effect.kind == "drain" and dealt > 0 then
             local heal = max(1, floor(dealt * mv.effect.pct / 100))
             if user.hp < M.MaxHP(user) then
                 self:SetHP(side, user.hp + heal)
+                self:Emit({ t = "sfx", sound = "drain" })
                 self:Say("%s had its energy drained!", self:SideName(target))
             end
         elseif mv.effect then
@@ -273,6 +287,7 @@ function B:UseMove(side, mv)
         end
         if mv.recoil and dealt > 0 then
             self:SetHP(side, user.hp - max(1, floor(dealt / mv.recoil)))
+            self:Emit({ t = "sfx", sound = "recoil" })
             self:Say("%s is hit with recoil!", name)
         end
     else
@@ -334,6 +349,7 @@ function B:Act(a)
         local mine, theirs = self:EffStat("ally", "spe"), self:EffStat("foe", "spe")
         local odds = floor(mine * 128 / theirs + 30 * self.runs) % 256
         if mine >= theirs or self.rng(0, 255) < odds then
+            self:Emit({ t = "sfx", sound = "run" })
             self:Say("Got away safely!")
             return self:Finish("run")
         end
@@ -409,6 +425,7 @@ function B:EndTurn()
             local mon = self[side].mon
             if mon.hp > 0 and (mon.status == "brn" or mon.status == "psn") then
                 self:SetHP(side, mon.hp - max(1, floor(M.MaxHP(mon) / 8)))
+                self:Emit({ t = "sfx", sound = mon.status })
                 self:Say("%s is hurt by its %s!", self:SideName(side), mon.status == "brn" and "burn" or "poison")
                 if self:CheckFaints() then break end
             end
@@ -602,6 +619,7 @@ function B:UseItem(item, target)
             self.bag[item] = self.bag[item] - 1
             mon.status = nil
             if mon == self.ally.mon then self:Emit({ t = "status", side = "ally" }) end
+            self:Emit({ t = "sfx", sound = "cure" })
             self:Say("%s was cured!", M.Name(mon))
         end
         return true
@@ -611,7 +629,9 @@ function B:UseItem(item, target)
         if cur >= 6 then return false end
         self.bag[item] = self.bag[item] - 1
         s.stages[def.stat] = min(6, cur + 1)
+        self:Emit({ t = "sfx", sound = "drink" })
         self:Say("%s drank the %s.", M.Name(s.mon), def.name)
+        self:Emit({ t = "sfx", sound = "statup" })
         self:Say("%s's %s rose!", M.Name(s.mon), D.statNames[def.stat])
         return true
     elseif def.use == "rejuv" then
@@ -625,6 +645,7 @@ function B:UseItem(item, target)
         end
         mon.status, mon.sleep = nil, nil
         if mon == self.ally.mon then self:Emit({ t = "status", side = "ally" }) end
+        self:Emit({ t = "sfx", sound = "heal" })
         self:Say("%s was rejuvenated!", M.Name(mon))
         return true
     end
@@ -847,6 +868,7 @@ function B:ResolvePvP()
         local mon = self[side].mon
         if mon.hp > 0 and (mon.status == "brn" or mon.status == "psn") then
             self:SetHP(side, mon.hp - math.max(1, math.floor(M.MaxHP(mon) / 8)))
+            self:Emit({ t = "sfx", sound = mon.status })
             self:Say("%s is hurt by its %s!", self:SideName(side), mon.status == "brn" and "burn" or "poison")
         end
     end

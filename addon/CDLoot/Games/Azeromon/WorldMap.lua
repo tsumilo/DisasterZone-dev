@@ -406,6 +406,7 @@ function W:Key(key)
 end
 
 function W:Open()
+    ns.AzeroSound:Play("map")
     local K = ns.AzeroUI.Kit
     local f = W.frame or W:Build(K)
     local here = W.PlaceOf(G.save.map)

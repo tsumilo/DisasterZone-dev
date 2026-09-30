@@ -278,6 +278,20 @@ local function CleanGroups(grp)
     return out
 end
 
+-- gs: each placed player's seat in their group { [key] = 1..5 } (display order only). Lenient: bad entries and
+-- players outside grp are dropped, so an odd seat never costs the layout. Returns the map or nil.
+local function CleanSeats(gs, grp)
+    if type(gs) ~= "table" or type(grp) ~= "table" then return nil end
+    local out, n = {}, 0
+    for key, s in pairs(gs) do
+        n = n + 1
+        if n > MAX_GROUP_ENTRIES then return nil end
+        local k = WireKey(key)
+        if k and grp[k] and IsInt(s, 1, 5) then out[k] = s end
+    end
+    return next(out) and out or nil
+end
+
 local function CleanCommon(r, now)
     if type(r) ~= "table" or not IsInt(r.rev, 1, now + FUTURE_SLACK) then return nil end
     local by = WireKey(r.by)
@@ -334,6 +348,7 @@ local function CleanTeam(r, now)
             end
         end
     end
+    out.gs = CleanSeats(r.gs, out.grp)
     return out
 end
 
@@ -399,6 +414,7 @@ local function CleanEvent(r, now)
     local grp = CleanGroups(r.grp)
     if grp == false then return nil end
     out.grp = grp
+    out.gs = CleanSeats(r.gs, grp)
     return out
 end
 
@@ -498,7 +514,8 @@ end
 local function ViewEvent(e)
     return {
         id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, ti = e.ti, no = e.no,
-        cancelled = e.x and true or false, grp = CopyMap(e.grp), by = e.by, rev = e.rev, weekly = false,
+        cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
+        weekly = false,
     }
 end
 
@@ -521,6 +538,7 @@ local function ViewOccurrence(root, s, k)
     if o then
         v.cancelled = o.x and true or false
         v.grp = CopyMap(o.grp)
+        v.gs = CopyMap(o.gs)
         v.override = true
     end
     return v
@@ -839,7 +857,7 @@ function RaidPlan:GetTeam(id)
     local t = root and type(id) == "string" and root.T[id]
     if not t or t.del or not Trusted(root, "T", t) then return nil end
     return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, size = t.sz or 25,
-             specs = CopyMap(t.s) or {}, groups = CopyMap(t.grp) or {} }
+             specs = CopyMap(t.s) or {}, groups = CopyMap(t.grp) or {}, seats = CopyMap(t.gs) or {} }
 end
 
 -- The spec a member plays (§59): the team's pick, else their latest sign-up's, else their BiS list's (mine, or a
@@ -992,7 +1010,8 @@ end
 --  1. accepted team members keep their seat (first team first);
 --  2. a seat whose team member didn't accept is open for an accepted player of the same role;
 --  3. other accepted players join a group of their role with room; Tentative / Bench and whoever doesn't fit stay out.
--- Without any team layout the whole raid is Auto-filled (accepted players only). Returns { [key] = group }.
+-- Without any team layout the whole raid is Auto-filled (accepted players only). Returns { [key] = group } and the
+-- seats { [key] = 1..5 } carried over from the teams (nil when Auto-filled).
 function RaidPlan:BuildLayout(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return {} end
@@ -1010,7 +1029,7 @@ function RaidPlan:BuildLayout(occId)
     end
     if #teams == 0 then return Comp:AutoFill(accepted, v.sz) end
 
-    local grp, count, byKey = {}, {}, {}
+    local grp, seats, count, byKey = {}, {}, {}, {}
     for g = 1, nGroups do count[g] = 0 end
     for _, m in ipairs(accepted) do byKey[m.key] = m end
     local open = {}     -- { g, role } seats of team members who didn't accept
@@ -1023,12 +1042,12 @@ function RaidPlan:BuildLayout(occId)
             if g <= nGroups and grp[key] == nil then
                 if byKey[key] then
                     if count[g] < size then
-                        grp[key] = g
+                        grp[key], seats[key] = g, t.seats[key]
                         count[g] = count[g] + 1
                     end
                 else
                     local sp, c = self:GetMemberSpec(key, t)
-                    open[#open + 1] = { g = g, role = Comp:RoleOf(c, sp) }
+                    open[#open + 1] = { g = g, s = t.seats[key], role = Comp:RoleOf(c, sp) }
                 end
             end
         end
@@ -1058,7 +1077,7 @@ function RaidPlan:BuildLayout(occId)
         local placed = false
         for i, seat in ipairs(open) do
             if seat.role == role and count[seat.g] < size then
-                grp[m.key] = seat.g
+                grp[m.key], seats[m.key] = seat.g, seat.s
                 count[seat.g] = count[seat.g] + 1
                 table.remove(open, i)
                 placed = true
@@ -1076,16 +1095,17 @@ function RaidPlan:BuildLayout(occId)
             end
         end
     end
-    return grp
+    return grp, seats
 end
 
 -- The layout to use for a raid: the saved one (the organizers' edits), else the starting layout. Second return:
--- true when saved.
+-- true when saved; third: the seats { [key] = 1..5 } (may be empty).
 function RaidPlan:GetLayout(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return {}, false end
-    if v.grp and next(v.grp) then return CopyMap(v.grp), true end
-    return self:BuildLayout(v), false
+    if v.grp and next(v.grp) then return CopyMap(v.grp), true, CopyMap(v.gs) or {} end
+    local grp, seats = self:BuildLayout(v)
+    return grp, false, seats or {}
 end
 
 -- Raids in the next `days` days (default 7) I am invited to (by a team) and haven't answered, soonest first.
@@ -1145,7 +1165,7 @@ local function Commit(root, kind, rec)
 end
 
 -- members: a set { [key] = true } or an array of keys. id = nil creates a team. opts (optional): { size = 10|25,
--- specs = { [key] = spec index }, groups = { [key] = 1..8 } } (nil keeps the team's current ones). Returns ok, idOrErr.
+-- specs = { [key] = spec index }, groups = { [key] = 1..8 }, seats = { [key] = 1..5 } } (nil keeps the team's current ones). Returns ok, idOrErr.
 function RaidPlan:SaveTeam(id, name, members, opts)
     local root, err = RequireOrganizer("teams")
     if not root then return false, err end
@@ -1168,6 +1188,7 @@ function RaidPlan:SaveTeam(id, name, members, opts)
     rec.sz = opts.size or (cur and cur.sz) or nil
     rec.s = opts.specs or (cur and cur.s) or nil
     rec.grp = opts.groups or (cur and cur.grp) or nil
+    rec.gs = opts.seats or (not opts.groups and cur and cur.gs) or nil
     if rec.sz ~= nil and not SIZES[rec.sz] then return false, "Team size must be 10 or 25." end
     if rec.s and not next(rec.s) then rec.s = nil end
     if rec.grp and not next(rec.grp) then rec.grp = nil end
@@ -1318,8 +1339,8 @@ function RaidPlan:StopRepeating(occId)
     return Commit(root, "S", s)
 end
 
--- grp: { [key] = group 1..8 } (nil / empty clears the layout).
-function RaidPlan:SetGroups(occId, grp)
+-- grp: { [key] = group 1..8 } (nil / empty clears the layout); gs (optional): { [key] = seat 1..5 in the group }.
+function RaidPlan:SetGroups(occId, grp, gs)
     local root, err = RequireOrganizer("groups")
     if not root then return false, err end
     local v = ResolveOcc(root, occId)
@@ -1330,6 +1351,7 @@ function RaidPlan:SetGroups(occId, grp)
     local o = cur and Util.CopyTable(cur) or { id = occId, sid = v.sid, k = v.k }
     o.rev, o.by = NextRev(cur), Util.PlayerKey()
     o.grp = next(clean) and clean or nil
+    o.gs = o.grp and CleanSeats(gs, o.grp) or nil
     return Commit(root, "E", o)
 end
 

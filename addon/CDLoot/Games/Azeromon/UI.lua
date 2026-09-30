@@ -760,12 +760,13 @@ local function TextA()
         return true
     end
     if text.pages and text.page < #text.pages then
+        ns.AzeroSound:Play("text")
         ShowPage(text.page + 1)
         return true
     end
     local cb = text.onDone
     text.onDone = nil
-    if cb then cb() return true end
+    if cb then ns.AzeroSound:Play("text") cb() return true end
     return false
 end
 
@@ -1004,7 +1005,10 @@ local function MenuMove(menu, dir)
     local c = menu.cursor
     if dir == "up" then c = c - cols elseif dir == "down" then c = c + cols
     elseif dir == "left" and cols > 1 then c = c - 1 elseif dir == "right" and cols > 1 then c = c + 1 end
-    if c >= 1 and c <= n then menu.cursor = c end
+    if c >= 1 and c <= n and c ~= menu.cursor then
+        menu.cursor = c
+        ns.AzeroSound:Play("cursor")
+    end
     UI:RefreshMenu(menu)
 end
 
@@ -1013,7 +1017,10 @@ MenuMoveBy = function(menu, dir) MenuMove(menu, dir) end
 local function MenuKey(menu, key)
     if key == "A" then UI:MenuSelect(menu)
     elseif key == "B" then
-        if menu.opts.onCancel then menu.opts.onCancel(menu) end
+        if menu.opts.onCancel then
+            ns.AzeroSound:Play("back")
+            menu.opts.onCancel(menu)
+        end
     elseif key == "up" or key == "down" or key == "left" or key == "right" then MenuMove(menu, key) end
 end
 
@@ -1194,6 +1201,7 @@ function Scr.SummaryKey(top, key)
     local sm = top.summary
     if key == "left" or key == "right" then
         sm.page = (sm.page == "gear") and "info" or "gear"
+        ns.AzeroSound:Play("tab")
         Scr.RenderSummary(sm)
         return
     end
@@ -1210,6 +1218,7 @@ function Scr.SummaryKey(top, key)
 end
 
 local function ShowSummary(mon, onClose, page)
+    ns.AzeroSound:Play("sheet")
     local f = R.summary
     -- above every open menu (menus stack upward), with its model above the box
     local top = stack[#stack]
@@ -1230,6 +1239,7 @@ local function ShowSummary(mon, onClose, page)
 end
 
 local function OpenLog()
+    ns.AzeroSound:Play("book")
     local s = G.save
     R.bagDesc:Hide()
     local items = {}
@@ -1284,6 +1294,7 @@ end
 --      | "teach" (pick a beast for the pet trainer) | "trade" (pick the beast to offer)
 --      | "stable" (pick a beast to leave with the Stable Master)
 local function OpenParty(ctx, onDone)
+    ns.AzeroSound:Play("sheet")
     local b = G.battle
     R.bagDesc:Hide()
     local picking = ctx == "item" or ctx == "teach" or ctx == "trade" or ctx == "stable" or ctx == "equip"
@@ -1345,6 +1356,7 @@ local function OpenParty(ctx, onDone)
 end
 
 local function OpenBag(ctx, onUse)
+    ns.AzeroSound:Play("bag")
     local items = {}
     local bag = G.save.bag
     for _, id in ipairs(D.itemOrder) do
@@ -1428,6 +1440,7 @@ function Scr.OpenGuildBestiary()
 end
 
 function Scr.OpenGuild()
+    ns.AzeroSound:Play("book")
     ns.AzeroGuild:Query()
     local items = {}
     for _, cat in ipairs(ns.AzeroGuild.CATEGORIES) do
@@ -1446,6 +1459,7 @@ end
 -- The Achievements page: every achievement with its points (earned) or progress (not yet), and the
 -- description (plus the date earned) in the box below.
 function Scr.OpenAchievements()
+    ns.AzeroSound:Play("book")
     local Ach = ns.AzeroAch
     local earned = Ach.Earned()
     local items = {}
@@ -1563,6 +1577,7 @@ function Scr.OpenRecipes(prof, onClose)
 end
 
 function Scr.OpenProfessions()
+    ns.AzeroSound:Play("book")
     local C = ns.AzeroCraft
     R.bagDesc:Hide()
     local items = {}
@@ -1603,6 +1618,7 @@ function Scr.Duration(secs)
 end
 
 function Scr.OpenBounties(onClose)
+    ns.AzeroSound:Play("quests")
     local BY = ns.AzeroBounty
     local st = BY and BY:State()
     if not st then return end
@@ -1660,6 +1676,7 @@ local function StartMenuHelp(i)
 end
 
 local function OpenStartMenu()
+    ns.AzeroSound:Play("open")
     local items = {
         { text = "BESTIARY", onSelect = function() OpenLog() end },
         { text = "PARTY", disabled = #G.save.party == 0, onSelect = function() OpenParty(nil) end },
@@ -1719,6 +1736,7 @@ end
 
 -- Selling: the bag's goods a shop will buy, a quantity (left / right), then the coins.
 function Scr.OpenSell()
+    ns.AzeroSound:Play("shop")
     local items = {}
     local bag = G.save.bag
     for _, id in ipairs(D.itemOrder) do
@@ -1763,6 +1781,7 @@ function Scr.OpenSell()
 end
 
 local function OpenShop(keeper)
+    ns.AzeroSound:Play("shop")
     local items = {}
     for _, id in ipairs(D.shopStock) do
         local def = D.items[id]
@@ -1817,6 +1836,7 @@ function Scr.BeastLine(mon)
 end
 
 function Scr.OpenStableBox(onClose)
+    ns.AzeroSound:Play("stable")
     local box = G.save.box
     local items = {}
     for i, mon in ipairs(box) do
@@ -2542,6 +2562,7 @@ local function StartBattleView(b)
     R.battleSkyAlpha = ApplySky(R.battleSky, G.map and G.map.def.outdoor, 0.75, G.map and G.map.def.gloom)
     local foeSp = b.foe and b.foe.mon and D.species[b.foe.mon.sp]
     if b.wild and foeSp and foeSp.rare and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
+    ns.AzeroSound:Play("encounter")
     BT.battle = b
     BT.anim, BT.needShown, BT.ended, BT.snap, BT.lastNeed = nil, nil, nil, nil, nil
     BT.lastAction = nil
@@ -2579,6 +2600,7 @@ local function PlayEvent(e)
         BT.anim = { waitText = true }
     elseif e.t == "send" then
         local m = BattleModelFor(e.side)
+        ns.AzeroSound:Play("sendout")
         ShowCreature(m, e.mon.sp, e.side == "foe" and -0.7 or 0.8, e.mon.shiny)
         local shiny = e.mon.shiny
         m:SetAlpha(0)
@@ -2600,6 +2622,7 @@ local function PlayEvent(e)
         end }
     elseif e.t == "recall" then
         local m = BattleModelFor(e.side)
+        ns.AzeroSound:Play("recall")
         BT.anim = { t = 0, dur = 0.35, fn = function(f) m:SetAlpha(1 - f) end, done = function() m:Hide() m.sp = nil end }
     elseif e.t == "attack" then
         local m = BattleModelFor(e.side)
@@ -2631,6 +2654,7 @@ local function PlayEvent(e)
         end, done = function() box.animHP = nil RefreshBattleBoxes() end }
     elseif e.t == "faint" then
         local m = BattleModelFor(e.side)
+        ns.AzeroSound:Play("faint")
         Anim(m, 1)
         BT.anim = { t = 0, dur = 0.7, fn = function(f) m:SetAlpha(1 - f) end,
                     done = function() Anim(m, 0) m:Hide() m.sp = nil m:SetAlpha(1) if e.side == "foe" then R.foeBox:Hide() end end }
@@ -2656,8 +2680,12 @@ local function PlayEvent(e)
         local shakes = e.shakes
         local caught = e.caught
         local total = 0.6 + shakes * 0.6 + 0.5
+        local shook = 0
+        ns.AzeroSound:Play("throw")
         BT.anim = { t = 0, dur = total, fn = function(f)
             local t = f * total
+            local n = t >= 0.6 and min(shakes, floor((t - 0.6) / 0.6) + 1) or 0
+            if n > shook then shook = n ns.AzeroSound:Play("shake") end
             if t < 0.6 then
                 local p = t / 0.6
                 net:ClearAllPoints()
@@ -2675,6 +2703,7 @@ local function PlayEvent(e)
             if caught then
                 net:SetVertexColor(0.6, 0.6, 0.6)
             else
+                ns.AzeroSound:Play("breakfree")
                 net:Hide()
                 fm:SetAlpha(1)
             end
@@ -3127,6 +3156,7 @@ local function ShowTitle()
             PopMenu(menu)
             R.title:Hide()
             world:Show()
+            ns.AzeroSound:Play("start")
             G:Load()
         end }
     end
@@ -3135,6 +3165,7 @@ local function ShowTitle()
             PopMenu(menu)
             R.title:Hide()
             world:Show()
+            ns.AzeroSound:Play("start")
             G:NewGame()
             G:Run(function(g)
                 g:Say("Welcome to Azeroth, the world of AZEROMON!")
@@ -3359,6 +3390,7 @@ KH.CELL = { [2] = { "x2", { 0.30, 0.62, 0.32 } }, [0.5] = { "x.5", { 0.84, 0.45,
 
 -- The whole chart: the move's type down the left, the defender's type along the top.
 function KH.OpenTypeChart()
+    ns.AzeroSound:Play("book")
     local f = R.typeChart
     if not f then
         f = Box(screen, SW - 20, SH - 20, 100)
@@ -3427,6 +3459,7 @@ function KH.ChangelogUnseen()
 end
 
 function KH.OpenChangelog()
+    ns.AzeroSound:Play("book")
     local log = ns.AzeroChangelog or {}
     if #log == 0 then return end
     local f = R.changelog

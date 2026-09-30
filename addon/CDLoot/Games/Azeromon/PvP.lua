@@ -169,6 +169,7 @@ local function OnChallenge(sender, msg)
     local id, seed = msg.id, msg.seed
     P.incoming = { id = id, from = sender }
     G:Run(function(g)
+        g:Sfx("request")
         local yes = g:YesNo(string.format("%s challenges you to a battle! Accept?", name))
         local still = P.incoming and P.incoming.id == id
         P.incoming = nil

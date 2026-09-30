@@ -1,8 +1,8 @@
 -- CDLoot: UI/RaidGroups.lua
 -- The group grid (Addendum J §59-§60): a raid-wide buff strip, group boxes (2 for 10-man, 5 for 25-man) with the party
 -- buffs each group has, and a "Not in a group" pool. Members are chips (class icon, spec icon, name). Organizers move
--- them by dragging, or by clicking a chip and then a group (or another chip, to swap); right-click opens the caller's
--- menu. Used by the Teams view (a team's layout) and, in step 4, by the raid group builder.
+-- them by dragging, or by clicking a chip and then a group (or another chip, to swap; or an empty slot, to take it);
+-- right-click opens the caller's menu. Each player keeps a seat (1-5) in their group, so the order is the organizer's. Used by the Teams view (a team's layout) and, in step 4, by the raid group builder.
 local addonName, ns = ...
 
 local GroupsUI = ns:NewModule("RaidGroupsUI")
@@ -60,8 +60,18 @@ local function chipTooltip(chip)
     local grid = chip.grid
     if grid and grid.opts.isEditable() then
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("Drag to a group, or click it and then a group. Right-click for more.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Drag to a group, onto a player to swap places or onto an empty slot to take it (or click it, "
+            .. "then the spot). Right-click for more.", 0.6, 0.6, 0.6, true)
     end
+    GameTooltip:Show()
+end
+
+-- An empty seat in a group: a place to drop (or click, with a player picked).
+local function emptyTooltip(chip)
+    local grid, g = chip.grid, chip:GetParent().group
+    if not (grid.picked and g) then return end
+    GameTooltip:SetOwner(chip, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Click to move " .. ns.Util.ShortName(grid.picked) .. " to group " .. g .. ", slot " .. chip.slot)
     GameTooltip:Show()
 end
 
@@ -89,7 +99,9 @@ local function createChip(parent, grid)
     chip.picked:Hide()
     chip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     chip:RegisterForDrag("LeftButton")
-    chip:SetScript("OnEnter", chipTooltip)
+    chip:SetScript("OnEnter", function(self)
+        if self.key then chipTooltip(self) else emptyTooltip(self) end
+    end)
     chip:SetScript("OnLeave", hideTooltip)
     chip:SetScript("OnClick", function(self, button) self.grid:OnChipClick(self, button) end)
     chip:SetScript("OnDragStart", function(self) self.grid:BeginDrag(self) end)
@@ -105,7 +117,7 @@ local function setChip(chip, m)
         chip.spec:Hide()
         chip.fs:SetText("|cff505050empty|r")
         chip.picked:Hide()
-        chip:EnableMouse(false)
+        chip:EnableMouse(chip.slot ~= nil and chip.grid.opts.isEditable())
         return
     end
     chip:EnableMouse(true)
@@ -180,8 +192,10 @@ Grid.__index = Grid
 -- Whole groups trade places with the "swap" link on a group's header: click it, then click the other group (its
 -- swap link or anywhere on it); opts.onSwapGroups(a, b) does the change.
 -- opts = { getSize() -> 10|25, getMembers() -> { { key, c, sp, auto, source, extra } }, getGroups() -> { [key] = g },
+--          getSeats() -> { [key] = 1..5 } (optional; players without a valid seat fill the free ones in role order),
 --          onSwapGroups(a, b),
---          isEditable() -> bool, onDrop(key, group|nil, targetKey|nil), onMenu(root, key) (optional),
+--          isEditable() -> bool, onDrop(key, group|nil, targetKey|nil, seat|nil, shown), onMenu(root, key) (optional),
+--          (shown = every placed player's seat as drawn { [key] = 1..5 })
 --          poolLabel = "Not in a group" }
 function GroupsUI:CreateGrid(parent, opts)
     local grid = setmetatable({ opts = opts, boxes = {}, picked = nil }, Grid)
@@ -245,6 +259,7 @@ function GroupsUI:CreateGrid(parent, opts)
         box.chips = {}
         for s = 1, SLOTS do
             local chip = createChip(box, grid)
+            chip.slot = s
             chip:SetPoint("TOPLEFT", 4, -HEADER_H - (s - 1) * CHIP_H)
             box.chips[s] = chip
         end
@@ -315,6 +330,8 @@ end
 function Grid:Refresh()
     local members = self.opts.getMembers() or {}
     local groups = self.opts.getGroups() or {}
+    local seats = self.opts.getSeats and self.opts.getSeats() or {}
+    self.shown = {}
     local n = self:GroupCount()
     local byGroup, pool = {}, {}
     for g = 1, 8 do byGroup[g] = {} end
@@ -345,8 +362,20 @@ function Grid:Refresh()
         box:SetShown(shown)
         if shown then
             local list = byGroup[g]
-            tsort(list, memberLess)
-            for s, chip in ipairs(box.chips) do setChip(chip, list[s]) end
+            -- players sit in their seat; those without one (or whose seat is taken) fill the free seats by role
+            local bySeat, rest = {}, {}
+            for _, m in ipairs(list) do
+                local s = seats[m.key]
+                if type(s) == "number" and s >= 1 and s <= SLOTS and not bySeat[s] then bySeat[s] = m
+                else rest[#rest + 1] = m end
+            end
+            tsort(rest, memberLess)
+            local r = 1
+            for s = 1, SLOTS do
+                if not bySeat[s] and rest[r] then bySeat[s], r = rest[r], r + 1 end
+                if bySeat[s] then self.shown[bySeat[s].key] = s end
+            end
+            for s, chip in ipairs(box.chips) do setChip(chip, bySeat[s]) end
             box.countFs:SetText(#list .. "/" .. SLOTS)
             local canSwap = self.opts.isEditable() and self.opts.onSwapGroups ~= nil
             box.swap:SetShown(canSwap)
@@ -390,10 +419,10 @@ end
 -- Moving members
 ---------------------------------------------------------------------------
 
--- group nil = out of the groups; targetKey = the member dropped onto (swap).
-function Grid:Drop(key, group, targetKey)
+-- group nil = out of the groups; targetKey = the member dropped onto (swap); seat = the empty seat dropped onto.
+function Grid:Drop(key, group, targetKey, seat)
     self.picked = nil
-    if key and self.opts.isEditable() then self.opts.onDrop(key, group, targetKey) end
+    if key and self.opts.isEditable() then self.opts.onDrop(key, group, targetKey, seat, self.shown or {}) end
     self:Refresh()
 end
 
@@ -410,7 +439,14 @@ local function groupOfChip(chip)
 end
 
 function Grid:OnChipClick(chip, button)
-    if not chip.key then return end
+    if not chip.key then
+        -- an empty seat: take it with the picked player (or act as the group box)
+        local g = groupOfChip(chip)
+        if button ~= "LeftButton" or not g or not self.opts.isEditable() then return end
+        if self.swapFrom then return self:OnSwapClick(g) end
+        if self.picked then self:Drop(self.picked, g, nil, chip.slot) end
+        return
+    end
     if button == "RightButton" then
         if self.opts.onMenu and self.opts.isEditable() then
             local key = chip.key
@@ -486,7 +522,7 @@ function Grid:BeginDrag(chip)
     g:Show()
 end
 
--- Finds what the cursor is over: a chip in a group (swap), a group box, or the pool.
+-- Finds what the cursor is over: a chip in a group (swap), an empty seat, a group box, or the pool.
 function Grid:EndDrag()
     local key = self.dragging
     self.dragging = nil
@@ -494,11 +530,14 @@ function Grid:EndDrag()
     if not key then return end
     for g, box in ipairs(self.boxes) do
         if box:IsShown() and box:IsMouseOver() then
-            local target
+            local target, seat
             for _, chip in ipairs(box.chips) do
-                if chip.key and chip.key ~= key and chip:IsMouseOver() then target = chip.key end
+                if chip:IsMouseOver() then
+                    if chip.key and chip.key ~= key then target = chip.key
+                    elseif not chip.key then seat = chip.slot end
+                end
             end
-            self:Drop(key, g, target)
+            self:Drop(key, g, target, seat)
             return
         end
     end

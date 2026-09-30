@@ -3,7 +3,8 @@
 Covers: RaidComp data (spec icons for every spec, buff providers by spec, coverage), Auto-fill for 25 and 10 players,
 a team's size / specs / layout saved and synced (validated: entries of non-members dropped), specs picked
 automatically from sign-ups, the Teams grid (click to pick + click a group, swap by dropping onto a member, a full
-group refused, take out, right-click menu spec and moves, Auto-fill button, size change), party buff icons per group
+group refused, take out, right-click menu spec and moves, Auto-fill button, size change), seats kept within a group
+(swap, empty seat, first free seat, group swap, saved and synced, raid layouts), party buff icons per group
 and the raid-wide strip, and the read-only grid for members.
 
 Run: luaenv\\Scripts\\python.exe tests\\raidplan\\test_raidplan_groups.py [-k name]
@@ -251,6 +252,76 @@ def autofill_button_and_size_change():
     assert set(dr["grp"].values()) <= {1, 2}, dr["grp"]
     st = grid_state(bob)
     assert set(st["groups"]) == {1, 2}
+    w.assert_no_errors()
+
+
+def seat_order(cl, grid="ns.RaidPlanUI:GetTeamGrid()", g=1):
+    """Group g's seats top to bottom: short name or None for an empty seat."""
+    keys = cl.eval_py("local grid, g = %s, ...; local out = {}; for s, ch in ipairs(grid.boxes[g].chips) do"
+                      " out[s] = ch.key or false end; return out" % grid, g)
+    keys = list(keys.values()) if isinstance(keys, dict) else list(keys)
+    return [k.split("-")[0] if k else None for k in keys]
+
+
+@case
+def members_keep_the_seat_they_are_dropped_on():
+    w, c = guild()
+    bob, rita = c["Bob"], c["Rita"]
+    rita.slash("/cdl raids")
+    bob.slash("/cdl raids")
+    w.tick(0.5)
+    bob.eval("ns.RaidsUI:SetView('teams')")
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().newTeamBtn"))
+    w.tick(0.2)
+    bob.eval("ns.RaidsUI:GetPanel().teams.nameBox:SetText('Seats')")
+    for n in ("Lee", "Rita", "Sam", "Holly"):
+        bob.eval("ns.RaidPlanUI:ToggleDraftMember(...)", K(n))
+    grid = "ns.RaidPlanUI:GetTeamGrid()"
+    for n in ("Lee", "Holly", "Sam", "Rita"):
+        bob.eval("%s:Drop(..., 1)" % grid, K(n))
+    w.tick(0.3)
+    assert seat_order(bob) == ["Lee", "Holly", "Sam", "Rita", None], seat_order(bob)
+    # onto another member: the two trade seats
+    bob.eval("%s:Drop(..., 1, select(2, ...))" % grid, K("Lee"), K("Rita"))
+    w.tick(0.3)
+    assert seat_order(bob) == ["Rita", "Holly", "Sam", "Lee", None], seat_order(bob)
+    # onto an empty seat: that seat; the old one stays empty and nobody else moves
+    bob.eval("%s:Drop(..., 1, nil, 5)" % grid, K("Holly"))
+    w.tick(0.3)
+    assert seat_order(bob) == ["Rita", None, "Sam", "Lee", "Holly"], seat_order(bob)
+    # pick + click an empty seat
+    bob.eval("%s:Pick(...)" % grid, K("Rita"))
+    bob.click(bob.eval("return %s.boxes[1].chips[2]" % grid))
+    w.tick(0.3)
+    assert seat_order(bob) == [None, "Rita", "Sam", "Lee", "Holly"], seat_order(bob)
+    # a newcomer takes the first free seat; out of the groups frees the seat
+    bob.eval("ns.RaidPlanUI:ToggleDraftMember(...)", K("Ena"))
+    bob.eval("%s:Drop(..., 1)" % grid, K("Ena"))
+    bob.eval("%s:Drop(..., nil)" % grid, K("Sam"))
+    w.tick(0.3)
+    assert seat_order(bob) == ["Ena", "Rita", None, "Lee", "Holly"], seat_order(bob)
+    # whole groups swap with their seats
+    bob.eval("%s:SwapGroups(1, 2)" % grid)
+    w.tick(0.3)
+    assert seat_order(bob, g=2) == ["Ena", "Rita", None, "Lee", "Holly"], seat_order(bob, g=2)
+    bob.eval("%s:SwapGroups(1, 2)" % grid)
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().teams.detail.saveBtn"))
+    w.tick(2)
+    t = rita.eval_py("return ns.RaidPlan:GetTeams()[1]")
+    assert t["seats"] == {K("Ena"): 1, K("Rita"): 2, K("Lee"): 4, K("Holly"): 5}, t["seats"]
+    rita.eval("ns.RaidsUI:SetView('teams')")
+    w.tick(0.3)
+    assert seat_order(rita) == ["Ena", "Rita", None, "Lee", "Holly"], seat_order(rita)
+    # a raid layout keeps its seats too (bad seats are dropped, not the layout)
+    occ = create(bob, i="kara", t=now(bob) + DAY)
+    w.tick(1)
+    res = bob.eval_py("local o, a, b = ...; local ok, e = ns.RaidPlan:SetGroups(o, { [a] = 1, [b] = 2 },"
+                      " { [a] = 3, [b] = 9 }); return { ok = ok, e = e }", occ, K("Lee"), K("Sam"))
+    assert res["ok"] is True, res
+    w.tick(2)
+    lay = rita.eval_py("local grp, saved, gs = ns.RaidPlan:GetLayout(...); return { grp = grp, saved = saved, gs = gs }",
+                       occ)
+    assert lay["saved"] is True and lay["gs"] == {K("Lee"): 3}, lay
     w.assert_no_errors()
 
 
