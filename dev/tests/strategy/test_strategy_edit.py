@@ -356,5 +356,39 @@ def duplicate_a_block_and_copy_it_to_another_page():
     w.assert_no_errors()
 
 
+@case
+def empty_page_cards_and_link_pills():
+    """A new strategy for Magtheridon: the empty jobs panel suggests a block per creature on the map (the five
+    channelers as one block of 5 rows, numbered clockwise, each row linked to its icon), and template cards; a
+    target cell that shows a slot's player has the link as a pill, in short."""
+    w, c, bob, sid = setup()
+    bob.click(bob.eval("return %s.cancelBtn" % W))
+    bob.eval("ns.StrategyBoard:NewStrategy('MagtheridonsLair:Magtheridon', 'Cubes')")
+    w.tick(0.2)
+    blocks = W + ".blocks"
+    cards = bob.eval_py("local out = {}; for _, cd in ipairs(%s.cards) do if cd:IsShown() then "
+                        "out[#out + 1] = cd.title:GetText() end end; return out" % blocks)
+    assert cards[0] == "Tanks on Magtheridon" and cards[1] == "Hellfire Channeler  x5", cards
+    assert len(cards) == 2 + 6, cards        # + the templates
+    assert bob.eval("return %s.addBtn:IsShown()" % blocks) is False
+    bob.click(bob.eval("return %s.cards[2]" % blocks))
+    st = "ns.StrategyBoard:GetState().strat"
+    k = bob.eval_py("local k = %s.p[1].k[1]; return { n = k.n, r = k.r, l1 = k.d[1][2].l, l5 = k.d[5][2].l, "
+                    "i = k.d[3][2].i }" % st)
+    assert k["n"] == "Hellfire Channeler" and k["r"] == 5 and k["l1"] == "Hellfire Channeler 1"         and k["l5"] == "Hellfire Channeler 5" and k["i"].startswith("boss:"), k
+    links = sorted(e["ln"] for e in elems(bob) if e.get("ln"))
+    assert len(links) == 5 and links[0].endswith(".1.1") and all(l.startswith(k and "k") for l in links), links
+    # the cards give way to the block; + Add block is back
+    assert bob.eval("return %s.cards[1]:IsShown()" % blocks) is False
+    assert bob.eval("return %s.addBtn:IsShown()" % blocks) is True
+    # a target cell showing another row's player: the link is a short pill ("-> #2"), the label stays
+    bob.eval("local k = %s.p[1].k[1]; k.d[1][2].s = k.id .. '.2.1'; ns.StrategyBoard:MarkDirty(true)" % st)
+    cell = bob.eval("for _, b in ipairs(%s.blocks) do for _, x in ipairs(b.cells) do "
+                    "if x:IsShown() and x.targetInfo and x.targetInfo.row == 1 then return x end end end" % blocks)
+    assert strip_codes(bob.eval("local c = ...; return c.pill.fs:GetText()", cell)) == "-> #2"
+    assert bob.eval("local c = ...; return c.pill:IsShown()", cell) is True
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

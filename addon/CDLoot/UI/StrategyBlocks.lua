@@ -14,6 +14,7 @@ local tinsert, tremove = table.insert, table.remove
 local TITLE_H, HEAD_H, ROW_H, GAP = 20, 16, 18, 8
 local COL_WEIGHT = { p = 2, g = 2, x = 3 }
 local ORDER_W = 20
+local CARD_H = 36
 
 local function S() return ns.Strategy end
 local function MapUI() return ns.StrategyMapUI end
@@ -63,11 +64,187 @@ function BlocksUI:Create(parent, opts)
     self.notes = child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     self.notes:SetJustifyH("LEFT")
     self.notes:SetJustifyV("TOP")
-    self.notesBtn = UI():CreateButton(child, "Page notes...", 100, 20, function() self:EditNotes() end)
-    self.addBtn = UI():CreateButton(child, "+ Add block", 110, 22, function(btn) self:AddMenu(btn) end)
+    self.notesBtn = UI():CreateSleekButton(child, "Page notes...", 100, 22, function() self:EditNotes() end)
+    self.addBtn = UI():CreateSleekButton(child, "+ Add block", 110, 22, function(btn) self:AddMenu(btn) end, "primary")
     self.empty = child:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     self.empty:SetJustifyH("LEFT")
+    -- editing an empty page: a heading, a line of help, and cards that add a block in one click
+    self.emptyTitle = child:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    self.emptyTitle:SetJustifyH("LEFT")
+    self.emptyTitle:SetText("Jobs on this page")
+    self.emptyText = child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    self.emptyText:SetJustifyH("LEFT")
+    self.emptyText:SetTextColor(0.7, 0.7, 0.7)
+    self.emptyText:SetText("Blocks are small tables of jobs: who tanks what, who kicks, who stands where. "
+        .. "They hold the job slots; the names go in when a raid is assigned.")
+    self.suggestHead = child:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    self.suggestHead:SetJustifyH("LEFT")
+    self.suggestHead:SetText("SUGGESTED FROM THE MAP")
+    self.templateHead = child:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    self.templateHead:SetJustifyH("LEFT")
+    self.cards = {}
     return self
+end
+
+-- A clickable card: icon (optional), title, grey line under it.
+local function newCard(parent)
+    local c = CreateFrame("Button", nil, parent)
+    c:SetHeight(CARD_H)
+    c.bg = c:CreateTexture(nil, "BACKGROUND")
+    c.bg:SetAllPoints()
+    UI():AddEdges(c)
+    c.icon = c:CreateTexture(nil, "ARTWORK")
+    c.icon:SetSize(24, 24)
+    c.icon:SetPoint("LEFT", 6, 0)
+    c.title = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    c.title:SetJustifyH("LEFT")
+    c.title:SetWordWrap(false)
+    c.sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    c.sub:SetJustifyH("LEFT")
+    c.sub:SetWordWrap(false)
+    local function paint(self)
+        local v = self.hovered and 0.19 or 0.1
+        self.bg:SetColorTexture(v, v, v + 0.02, 0.92)
+        if self.hovered then UI():SetEdgeColor(self, 1, 0.82, 0, 0.8) else UI():SetEdgeColor(self, 0.3, 0.3, 0.34, 0.9) end
+    end
+    c:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
+    c:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    c:RegisterForClicks("LeftButtonUp")
+    c:SetScript("OnClick", function(self) if self.onPick then self.onPick() end end)
+    function c:Set(title, sub, iconKey)
+        self.title:SetText(title)
+        self.sub:SetText(sub or "")
+        self.icon:SetShown(iconKey ~= nil)
+        if iconKey then MapUI():SetIcon(self.icon, iconKey) end
+        local left = iconKey and 36 or 10
+        self.title:ClearAllPoints()
+        self.title:SetPoint("TOPLEFT", left, -5)
+        self.title:SetPoint("RIGHT", -8, 0)
+        self.sub:ClearAllPoints()
+        self.sub:SetPoint("TOPLEFT", self.title, "BOTTOMLEFT", 0, -2)
+        self.sub:SetPoint("RIGHT", -8, 0)
+        paint(self)
+    end
+    return c
+end
+
+-- Blocks a page's map suggests: one per creature on it that isn't linked to a job yet (all the same-named ones in
+-- one block, a row each, numbered clockwise from the top), each linked to its row so the names show on the map.
+function Panel:Suggestions(page)
+    local strat = self.opts.strat()
+    local groups, order = {}, {}
+    for _, e in ipairs(page.e or {}) do
+        if e.t == "i" and e.l and e.l ~= "" and not e.ln then
+            local g = groups[e.l]
+            if not g then
+                g = { label = e.l, icon = e.i, list = {} }
+                groups[e.l] = g
+                order[#order + 1] = g
+            end
+            g.list[#g.list + 1] = e
+        end
+    end
+    local bossName = strat and strat.b and S():GetBossName(strat.b)
+    local out = {}
+    for _, g in ipairs(order) do
+        local list = g.list
+        while #list > S().MAX_ROWS do tremove(list) end
+        local n = #list
+        if n > 1 then
+            local cx, cy = 0, 0
+            for _, e in ipairs(list) do cx, cy = cx + e.x, cy + e.y end
+            cx, cy = cx / n, cy / n
+            local function ang(e)
+                local a = math.atan2(e.x - cx, cy - e.y)
+                return a < 0 and a + 2 * math.pi or a
+            end
+            table.sort(list, function(a, b) return ang(a) < ang(b) end)
+        end
+        local isBoss = g.label == bossName
+        out[#out + 1] = {
+            title = isBoss and ("Tanks on " .. g.label) or (g.label .. (n > 1 and ("  x" .. n) or "")),
+            sub = n > 1 and ("%d rows, one per %s, linked on the map"):format(n, g.label)
+                or "1 row, linked to it on the map",
+            icon = g.icon,
+            apply = function()
+                local k = { n = (isBoss and "Tanks" or g.label):sub(1, S().MAX_NAME_LEN), r = n,
+                            c = { { t = "p", n = isBoss and "Tank" or "Player" }, { t = "g", n = "Target" } }, d = {} }
+                k.id = S():NewPartId(strat, "k")
+                for i, e in ipairs(list) do
+                    local label = n > 1 and (g.label .. " " .. i) or g.label
+                    k.d[i] = { [2] = { i = g.icon, l = label:sub(1, S().MAX_CELL) } }
+                    e.ln = S().SlotRef(k.id, i, 1)
+                end
+                tinsert(page.k, k)
+                self:Changed()
+            end,
+        }
+    end
+    return out
+end
+
+-- The empty page while editing. Returns the height used.
+function Panel:RenderEmpty(page, width, y)
+    local child = self.child
+    local used = 0
+    local function card()
+        used = used + 1
+        local c = self.cards[used]
+        if not c then
+            c = newCard(child)
+            self.cards[used] = c
+        end
+        c:ClearAllPoints()
+        c:Show()
+        return c
+    end
+    self.emptyTitle:ClearAllPoints()
+    self.emptyTitle:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -(y + 4))
+    self.emptyTitle:Show()
+    y = y + 28
+    self.emptyText:ClearAllPoints()
+    self.emptyText:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
+    self.emptyText:SetWidth(width - 4)
+    self.emptyText:Show()
+    y = y + (self.emptyText:GetStringHeight() or 24) + 16
+    local sugg = self:Suggestions(page)
+    self.suggestHead:SetShown(#sugg > 0)
+    if #sugg > 0 then
+        self.suggestHead:ClearAllPoints()
+        self.suggestHead:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
+        y = y + 16
+        for _, sg in ipairs(sugg) do
+            local c = card()
+            c:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
+            c:SetWidth(width)
+            c:Set(sg.title, sg.sub, sg.icon)
+            c.onPick = sg.apply
+            y = y + CARD_H + 4
+        end
+        y = y + 12
+    end
+    self.templateHead:SetText(#sugg > 0 and "OR START FROM A TEMPLATE" or "START FROM A TEMPLATE")
+    self.templateHead:ClearAllPoints()
+    self.templateHead:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
+    self.templateHead:Show()
+    y = y + 16
+    local colW = floor((width - 6) / 2)
+    for i, t in ipairs(BlocksUI.TEMPLATES) do
+        local c = card()
+        local col, row = (i - 1) % 2, floor((i - 1) / 2)
+        c:SetPoint("TOPLEFT", child, "TOPLEFT", col * (colW + 6), -(y + row * (CARD_H + 4)))
+        c:SetWidth(colW)
+        c:Set(t.label, t.sub)
+        c.onPick = function()
+            local k = t.make()
+            k.id = S():NewPartId(self.opts.strat(), "k")
+            tinsert(page.k, k)
+            self:Changed()
+        end
+    end
+    y = y + math.ceil(#BlocksUI.TEMPLATES / 2) * (CARD_H + 4) + 10
+    for i = used + 1, #self.cards do self.cards[i]:Hide() end
+    return y
 end
 
 function Panel:Width()
@@ -728,6 +905,27 @@ local function newCell(parent, panel)
     c.fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     c.fs:SetJustifyH("LEFT")
     c.fs:SetWordWrap(false)
+    -- a target cell's link to a slot: a pill at the right edge, never cut off (the label gives way instead)
+    c.pill = CreateFrame("Frame", nil, c)
+    c.pill:SetHeight(ROW_H - 4)
+    c.pill:SetPoint("RIGHT", -2, 0)
+    c.pill.bg = c.pill:CreateTexture(nil, "BACKGROUND")
+    c.pill.bg:SetAllPoints()
+    c.pill.bg:SetColorTexture(0.2, 0.2, 0.24, 0.95)
+    c.pill.fs = c.pill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    c.pill.fs:SetPoint("CENTER")
+    c.pill:Hide()
+    function c:SetPill(text)
+        if not text then
+            self.pill:Hide()
+            self.fs:SetPoint("RIGHT", -2, 0)
+            return
+        end
+        self.pill.fs:SetText(text)
+        self.pill:SetWidth((self.pill.fs:GetStringWidth() or 20) + 10)
+        self.pill:Show()
+        self.fs:SetPoint("RIGHT", self.pill, "LEFT", -4, 0)
+    end
     c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     c:SetScript("OnEnter", cellTooltip)
     c:SetScript("OnLeave", cellLeave)
@@ -760,26 +958,40 @@ local function newBlock(parent, panel)
     b.title:SetHeight(TITLE_H)
     b.title:SetPoint("TOPLEFT")
     b.title:SetPoint("TOPRIGHT")
+    -- a dark title bar with the block's colour as a strip on the left
     b.title.bg = b.title:CreateTexture(nil, "BACKGROUND")
     b.title.bg:SetAllPoints()
+    b.title.bg:SetColorTexture(0.14, 0.14, 0.16, 0.97)
+    b.title.accent = b.title:CreateTexture(nil, "BORDER")
+    b.title.accent:SetPoint("TOPLEFT")
+    b.title.accent:SetPoint("BOTTOMLEFT")
+    b.title.accent:SetWidth(3)
+    local hl = b.title:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 1, 0.04)
     b.title.icon = b.title:CreateTexture(nil, "ARTWORK")
     b.title.icon:SetSize(16, 16)
-    b.title.icon:SetPoint("LEFT", 3, 0)
+    b.title.icon:SetPoint("LEFT", 8, 0)
     b.title.fs = b.title:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     b.title.fs:SetJustifyH("LEFT")
     b.title.fs:SetTextColor(1, 1, 1)
     b.title:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b.gear = CreateFrame("Button", nil, b.title)
-    b.gear:SetSize(16, 16)
-    b.gear:SetPoint("RIGHT", -3, 0)
-    b.gear:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
-    b.gear:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    b.gear:SetSize(14, 14)
+    b.gear:SetPoint("RIGHT", -5, 0)
+    b.gear.tex = b.gear:CreateTexture(nil, "ARTWORK")
+    b.gear.tex:SetAllPoints()
+    b.gear.tex:SetTexture(UI().ICON_ATLAS)
+    b.gear.tex:SetTexCoord(unpack(UI():IconCoords(13)))
+    b.gear.tex:SetVertexColor(0.6, 0.6, 0.6)
+    b.gear:SetScript("OnEnter", function(self) self.tex:SetVertexColor(1, 0.82, 0) end)
+    b.gear:SetScript("OnLeave", function(self) self.tex:SetVertexColor(0.6, 0.6, 0.6) end)
     b.cells = {}
     b.heads = {}
     b.body = b:CreateTexture(nil, "BACKGROUND")
     b.body:SetPoint("TOPLEFT", 0, -TITLE_H)
     b.body:SetPoint("BOTTOMRIGHT")
-    b.body:SetColorTexture(0.07, 0.07, 0.07, 0.9)
+    b.body:SetColorTexture(0.05, 0.05, 0.06, 0.9)
     return b
 end
 
@@ -793,6 +1005,22 @@ local function colWidths(k, width)
     local out = {}
     for i, c in ipairs(k.c) do out[i] = c.t == "o" and ORDER_W or floor(per * (COL_WEIGHT[c.t] or 2)) end
     return out
+end
+
+-- A slot reference in short, seen from block k: "#2" in the same block, "Tanks #2" from another; the column's name
+-- follows when that block has several player columns.
+function Panel:ShortSlot(ref, k, page)
+    local b, row, col = S().SplitSlot(ref)
+    if not b then return tostring(ref) end
+    local kb = (k and k.id == b) and k or S():FindBlock(self.opts.strat(), b)
+    local text = "#" .. row
+    if kb then
+        local pcols = 0
+        for _, c in ipairs(kb.c) do if c.t == "p" then pcols = pcols + 1 end end
+        if pcols > 1 and kb.c[col] then text = text .. " " .. (kb.c[col].n or ("col " .. col)) end
+        if kb ~= k then text = kb.n .. " " .. text end
+    end
+    return text
 end
 
 -- The text of a player slot.
@@ -830,20 +1058,17 @@ function Panel:Render()
         b:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
         b:SetWidth(width)
         -- title bar
-        local r, g, bl = 0.45, 0.05, 0.05
-        if k.cl then
-            r, g, bl = MapUI():Color(k.cl)
-            r, g, bl = r * 0.55, g * 0.55, bl * 0.55
-        end
-        b.title.bg:SetColorTexture(r, g, bl, 0.95)
+        local r, g, bl = 1, 0.82, 0
+        if k.cl then r, g, bl = MapUI():Color(k.cl) end
+        b.title.accent:SetColorTexture(r, g, bl, 1)
         b.title.fs:ClearAllPoints()
         if k.i then
             MapUI():SetIcon(b.title.icon, k.i)
             b.title.icon:Show()
-            b.title.fs:SetPoint("LEFT", b.title.icon, "RIGHT", 4, 0)
+            b.title.fs:SetPoint("LEFT", b.title.icon, "RIGHT", 5, 0)
         else
             b.title.icon:Hide()
-            b.title.fs:SetPoint("LEFT", 6, 0)
+            b.title.fs:SetPoint("LEFT", 10, 0)
         end
         b.title.fs:SetPoint("RIGHT", -22, 0)
         local trackName = S().TrackKind(k) and ns.StrategyLive and ns.StrategyLive.KIND_NAME[S().TrackKind(k)]
@@ -877,12 +1102,13 @@ function Panel:Render()
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", b, "TOPLEFT", x, -cy)
             c:SetSize(max(1, w - 1), ROW_H)
-            c.bg:SetColorTexture(0.12, 0.12, 0.12, 0.9)
+            c.bg:SetColorTexture(0.10, 0.10, 0.11, 0.9)
             c.icon:Hide()
             c.fs:ClearAllPoints()
             c.fs:SetPoint("LEFT", 4, 0)
             c.fs:SetPoint("RIGHT", -2, 0)
             c.lit:Hide()
+            c:SetPill(nil)
             c.slotRef, c.hoverRef, c.tip, c.onClick, c.rowMenu, c.headRef, c.blockId = nil, nil, nil, nil, nil, nil, nil
             c.targetInfo = nil
             c:Show()
@@ -893,7 +1119,7 @@ function Panel:Render()
             for ci, col in ipairs(k.c) do
                 local c = cell(x, by, widths[ci])
                 c:SetHeight(HEAD_H)
-                c.bg:SetColorTexture(0.18, 0.18, 0.18, 0.95)
+                c.bg:SetColorTexture(0.08, 0.08, 0.09, 0.95)
                 c.fs:SetText("|cffffd100" .. (col.n or (mode == "edit" and grey(COL_TYPE_NAME[col.t]) or "")) .. "|r")
                 c.hoverRef = k.id .. "." .. ci
                 c.headRef = c.hoverRef
@@ -917,6 +1143,8 @@ function Panel:Render()
             for ci, col in ipairs(k.c) do
                 local c = cell(x, by, widths[ci])
                 local v = k.d and k.d[row] and k.d[row][ci]
+                -- striped rows
+                if row % 2 == 0 then c.bg:SetColorTexture(0.13, 0.13, 0.14, 0.9) end
                 if mode == "edit" then c.rowMenu = function(btn) self:RowMenu(btn, k, row) end end
                 if col.t == "o" then
                     if S().TrackKind(k) == "rot" and IsBackup(k, row) then
@@ -932,13 +1160,18 @@ function Panel:Render()
                     if v and #v > 18 then c.tip = { v } end
                 elseif col.t == "g" then
                     local text = v and v.l or ""
+                    local linkTip
                     if v and v.s then
                         local name = self.opts.slotName and self.opts.slotName(v.s)
                         local slotLabel = self.opts.slotLabel and self.opts.slotLabel(v.s) or v.s
                         if mode == "edit" or not name then
-                            text = (text ~= "" and (text .. " ") or "") .. grey("-> " .. slotLabel)
+                            -- the slot in short: "-> #2" in this block, "-> Tanks #2" from another one
+                            c:SetPill(grey("-> ") .. self:ShortSlot(v.s, k, page))
+                            linkTip = "Shows the player of " .. slotLabel ..
+                                (mode == "edit" and " here. Right-click > Clear removes it." or ".")
                         else
-                            text = (text ~= "" and (text .. " ") or "") .. name
+                            c:SetPill(name)
+                            linkTip = slotLabel
                         end
                         c.hoverRef = v.s
                     end
@@ -967,7 +1200,13 @@ function Panel:Render()
                             or ("the boss has " .. (GetSpellInfo(cond.id) or cond.id))) end
                         c.tip = tip
                     end
-                    if text == "" and mode == "edit" then text = grey("click to set, or drop an icon here") end
+                    if text == "" and mode == "edit" then
+                        text = grey(v and v.s and "drop an icon here" or "click to set, or drop an icon here")
+                    end
+                    if linkTip then
+                        c.tip = c.tip or { text ~= "" and v and v.l or "Target" }
+                        c.tip[#c.tip + 1] = linkTip
+                    end
                     c.fs:SetText(text)
                     c.targetInfo = { k = k, row = row, col = ci }
                     if mode == "edit" then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
@@ -978,7 +1217,9 @@ function Panel:Render()
                     local text, info = self:SlotText(ref, slotCol)
                     c.fs:SetText(text)
                     c.slotRef, c.hoverRef = ref, ref
-                    c.bg:SetColorTexture(0.10, 0.10, 0.14, 0.95)
+                    -- player slots: a faint blue cast on the stripe
+                    if row % 2 == 0 then c.bg:SetColorTexture(0.13, 0.13, 0.17, 0.95)
+                    else c.bg:SetColorTexture(0.10, 0.10, 0.14, 0.95) end
                     local tip = { self.opts.slotLabel and self.opts.slotLabel(ref) or ref, "Fits: " .. S():FilterText(slotCol.f) ..
                         (type(v) == "table" and v.f and "  (this slot only)" or "") }
                     if info and info.missing then tip[#tip + 1] = "|cffff5050Not signed up for this raid / not in the raid.|r" end
@@ -1010,22 +1251,22 @@ function Panel:Render()
         -- editing: + row / + column under the table
         if mode == "edit" then
             if not b.addRow then
-                b.addRow = UI():CreateButton(b, "+ row", 56, 16, function() self:InsertRow(b.cdlK, b.cdlK.r + 1) end)
-                b.addCol = UI():CreateMenuButton(b, "+ column", 84, function(root)
+                b.addRow = UI():CreateSleekButton(b, "+ row", 56, 18, function() self:InsertRow(b.cdlK, b.cdlK.r + 1) end)
+                b.addRow:GetFontString():SetFontObject("GameFontHighlightSmall")
+                b.addCol = UI():CreateSleekMenuButton(b, "+ column", 84, function(root)
                     for _, t in ipairs({ "p", "g", "o", "x" }) do
                         root:CreateButton(COL_TYPE_NAME[t], function() self:AddColumn(b.cdlK, t) end)
                     end
-                end)
+                end, 18)
             end
             b.cdlK = k
             b.addRow:ClearAllPoints()
-            b.addRow:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -(by + 2))
+            b.addRow:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -(by + 3))
             b.addCol:ClearAllPoints()
-            b.addCol:SetPoint("LEFT", b.addRow, "RIGHT", 4, 0)
-            b.addCol:SetHeight(16)
+            b.addCol:SetPoint("LEFT", b.addRow, "RIGHT", 3, 0)
             b.addRow:Show()
             b.addCol:Show()
-            by = by + 20
+            by = by + 22
         elseif b.addRow then
             b.addRow:Hide()
             b.addCol:Hide()
@@ -1046,20 +1287,34 @@ function Panel:Render()
         self.notes:Hide()
     end
     local editing = mode == "edit"
-    self.addBtn:SetShown(editing)
+    local noBlocks = #(page.k or {}) == 0
+    local cardsShown = editing and noBlocks
+    self.addBtn:SetShown(editing and not noBlocks)
     self.notesBtn:SetShown(editing)
-    self.empty:SetShown(#(page.k or {}) == 0 and not page.no)
+    self.empty:SetShown(not editing and noBlocks and not page.no)
     self.empty:ClearAllPoints()
     self.empty:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
     self.empty:SetWidth(width - 4)
-    self.empty:SetText(editing and "No blocks on this page yet. Add one: each block is a small table of jobs." or
-        "No assignments on this page.")
-    if #(page.k or {}) == 0 and not page.no then y = y + 30 end
+    self.empty:SetText("No assignments on this page.")
+    if not editing and noBlocks and not page.no then y = y + 30 end
+    if cardsShown then
+        y = self:RenderEmpty(page, width, y)
+    else
+        self.emptyTitle:Hide()
+        self.emptyText:Hide()
+        self.suggestHead:Hide()
+        self.templateHead:Hide()
+        for _, c in ipairs(self.cards) do c:Hide() end
+    end
     if editing then
-        self.addBtn:ClearAllPoints()
-        self.addBtn:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
         self.notesBtn:ClearAllPoints()
-        self.notesBtn:SetPoint("LEFT", self.addBtn, "RIGHT", 6, 0)
+        if cardsShown then
+            self.notesBtn:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
+        else
+            self.addBtn:ClearAllPoints()
+            self.addBtn:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
+            self.notesBtn:SetPoint("LEFT", self.addBtn, "RIGHT", 6, 0)
+        end
         y = y + 26
     end
     child:SetHeight(max(10, y))

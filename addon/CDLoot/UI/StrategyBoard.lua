@@ -28,6 +28,27 @@ local function MapUI() return ns.StrategyMapUI end
 local function grey(t) return "|cff808080" .. tostring(t) .. "|r" end
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
+-- The toolbar icons (the atlas and its order: UI/Widgets.lua, UI.ICON_ATLAS).
+local TOOL_ATLAS = "Interface\\AddOns\\CDLoot\\Media\\Strategy\\tools"
+local TOOL_SIZE = 26
+local TOOL_ICON = { select = 1, pan = 2, circle = 3, rect = 4, arrow = 5, line = 6, icon = 7, text = 8 }
+local function atlasCoords(i) return UI():IconCoords(i) end
+
+-- The editing keys, shown on the toolbar's "?" button.
+local SHORTCUTS = {
+    { "Del", "delete the selection" },
+    { "Ctrl+C / Ctrl+V", "copy, paste" },
+    { "Ctrl+D", "duplicate" },
+    { "Ctrl+G / Ctrl+Shift+G", "group, ungroup" },
+    { "Ctrl+Z / Ctrl+Y", "undo, redo" },
+    { "Arrows", "nudge the selection" },
+    { "Alt (while dragging)", "snap" },
+    { "Double-click text", "edit it" },
+    { "Shift-drag onto a table", "link to a job" },
+    { "Right-click the map", "add, pick the map" },
+    { "Mouse wheel", "zoom" },
+}
+
 local win
 local st = {
     mode = "view",      -- view | edit | fill
@@ -276,36 +297,37 @@ local function createWindow()
 
     f.title = c:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     f.title:SetPoint("TOPLEFT", 4, -4)
-    f.title:SetPoint("RIGHT", c, "RIGHT", -420, 0)
     f.title:SetJustifyH("LEFT")
     f.title:SetWordWrap(false)
+    -- editing: the title is the rename control (click it)
+    f.titleBtn = CreateFrame("Button", nil, c)
+    f.titleBtn:SetPoint("TOPLEFT", f.title, "TOPLEFT", -2, 2)
+    f.titleBtn:SetPoint("BOTTOMRIGHT", f.title, "BOTTOMRIGHT", 2, -2)
+    f.titleBtn.hl = f.titleBtn:CreateTexture(nil, "BACKGROUND")
+    f.titleBtn.hl:SetAllPoints()
+    f.titleBtn.hl:SetColorTexture(1, 1, 1, 0.08)
+    f.titleBtn.hl:Hide()
+    f.titleBtn:SetScript("OnClick", function() Board:RenameStrategy() end)
+    f.titleBtn:SetScript("OnEnter", function(self)
+        self.hl:Show()
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine("Click to rename the strategy")
+        GameTooltip:Show()
+    end)
+    f.titleBtn:SetScript("OnLeave", function(self) self.hl:Hide(); GameTooltip:Hide() end)
     f.sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.sub:SetPoint("TOPLEFT", 4, -24)
     f.sub:SetPoint("RIGHT", c, "RIGHT", -420, 0)
     f.sub:SetJustifyH("LEFT")
     f.sub:SetWordWrap(false)
 
-    -- right side actions
-    f.saveBtn = UI():CreateButton(c, "Save", 70, 22, function() Board:Save() end)
-    f.saveBtn:SetPoint("TOPRIGHT", -2, -2)
-    f.cancelBtn = UI():CreateButton(c, "Cancel", 70, 22, function() Board:CancelChanges() end)
-    f.cancelBtn:SetPoint("RIGHT", f.saveBtn, "LEFT", -4, 0)
-    f.editBtn = UI():CreateButton(c, "Edit strategy", 104, 22, function() Board:SetMode("edit") end)
-    f.editBtn:SetPoint("TOPRIGHT", -2, -2)
+    -- right side actions (laid out right to left in Refresh: layoutHeader)
+    f.saveBtn = UI():CreateSleekButton(c, "Save", 80, 24, function() Board:Save() end, "primary")
+    f.cancelBtn = UI():CreateSleekButton(c, "Cancel", 70, 24, function() Board:CancelChanges() end)
+    f.editBtn = UI():CreateSleekButton(c, "Edit strategy", 110, 24, function() Board:SetMode("edit") end)
     tipButton(f.editBtn, "Edit strategy", "Draw on the map, change the blocks and pages. Changes reach everyone when you Save.")
-    f.fillBtn = UI():CreateButton(c, "Assign players", 110, 22, function() Board:SetMode("fill") end)
-    f.fillBtn:SetPoint("RIGHT", f.editBtn, "LEFT", -4, 0)
+    f.fillBtn = UI():CreateSleekButton(c, "Assign players", 116, 24, function() Board:SetMode("fill") end, "primary")
     tipButton(f.fillBtn, "Assign players", "Put this raid's players into the slots.")
-    f.renameBtn = UI():CreateButton(c, "Rename", 70, 22, function()
-        Board:Prompt("Strategy name", st.strat.n, function(text)
-            text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_NAME_LEN)
-            if text ~= "" then
-                st.strat.n = text
-                Board:MarkDirty()
-            end
-        end)
-    end)
-    f.renameBtn:SetPoint("RIGHT", f.cancelBtn, "LEFT", -12, 0)
     -- the raid leader's client marks the mobs from the portraits' raid mark badges (Core/StrategyLive.lua)
     f.autoMark = UI():CreateCheckbox(c, "Auto-mark", function() return st.strat and st.strat.am ~= false end,
         function()
@@ -313,26 +335,33 @@ local function createWindow()
             if st.strat.am == false then st.strat.am = nil else st.strat.am = false end
             Board:MarkDirty(true)
         end)
-    f.autoMark:SetPoint("RIGHT", f.renameBtn, "LEFT", -80, 0)
     tipButton(f.autoMark, "Auto-mark", "In the raid, the raid leader's CDLoot puts the raid marks shown on the boss "
         .. "portraits (right-click a portrait > Raid mark) on the mobs as their nameplates appear.")
-    f.stratDD = UI():CreateMenuButton(c, "Strategy", 190, function(root) Board:StrategyMenu(root) end)
+    f.stratDD = UI():CreateSleekMenuButton(c, "Strategy", 200, function(root) Board:StrategyMenu(root) end, 24)
     -- try the encounter helpers of this strategy alone (Core/StrategyPractice.lua)
-    f.practiceBtn = UI():CreateButton(c, "Practice", 80, 20, function()
+    f.practiceBtn = UI():CreateSleekButton(c, "Practice", 80, 24, function()
         if st.strat and ns.StrategyPractice then ns.StrategyPractice:Start(st.strat) end
     end)
-    f.practiceBtn:SetPoint("TOPRIGHT", c, "TOPRIGHT", -2, -32)
     tipButton(f.practiceBtn, "Practice", "Try this strategy's in-fight helpers alone: your jobs panel, whose kick it "
         .. "is, marks on what you target. Demo players fill the other slots; use your real spells on a target dummy.")
-    f.stratDD:SetPoint("RIGHT", f.cancelBtn, "LEFT", -12, 0)
 
-    -- page tabs
+    -- page tabs; right above the map: the map picker (editing) or its name
     f.tabs = {}
-    f.addPage = UI():CreateButton(c, "+", 24, 20, function() Board:AddPage() end)
+    f.addPage = UI():CreateSleekButton(c, "+", 24, 20, function() Board:AddPage() end)
     tipButton(f.addPage, "Add a page", "For another phase of the fight. It starts with the same map.")
     f.mapLabel = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    f.mapLabel:SetPoint("TOPRIGHT", c, "TOPLEFT", MAP_W, -36)
+    f.mapLabel:SetPoint("TOPRIGHT", c, "TOPLEFT", MAP_W, -40)
     f.mapLabel:SetJustifyH("RIGHT")
+    f.mapBtn = UI():CreateSleekMenuButton(c, "Map", 240, function(root)
+        local p = page()
+        if not p then return end
+        MapUI():BuildMapMenu(root, st.strat.b, p.m, function(id)
+            p.m = id
+            p.vx, p.vy, p.vz = 500, 500, 100
+            Board:MarkDirty(true)
+        end, promptFn)
+    end)
+    f.mapBtn:SetPoint("TOPRIGHT", c, "TOPLEFT", MAP_W, -33)
 
     -- the map
     f.canvas = MapUI():CreateCanvas(c, MAP_W, {
@@ -410,34 +439,47 @@ local function createWindow()
     local tools = CreateFrame("Frame", nil, below)
     tools:SetAllPoints()
     f.tools = tools
+    -- row 1: the tools as icons (select / pan | shapes), undo / redo, the colours, and the keyboard help
     tools.btns = {}
     local prev
-    for _, t in ipairs(MapUI().TOOLS) do
-        local b = UI():CreateButton(tools, t.label, 76, 22, function()
+    for i, t in ipairs(MapUI().TOOLS) do
+        local b = UI():CreateIconButton(tools, TOOL_SIZE, TOOL_ATLAS, atlasCoords(TOOL_ICON[t.key] or 11), function()
             win.canvas:SetTool(t.key)
             Board:RefreshTools()
         end)
-        if prev then b:SetPoint("LEFT", prev, "RIGHT", 2, 0) else b:SetPoint("TOPLEFT", 0, 0) end
+        if prev then
+            b:SetPoint("LEFT", prev, "RIGHT", i == 3 and 10 or 2, 0)
+        else
+            b:SetPoint("TOPLEFT", 0, 0)
+        end
         b.key = t.key
         tipButton(b, t.label, t.tip)
         tools.btns[#tools.btns + 1] = b
         prev = b
     end
-    tools.colorLabel = tools:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    tools.colorLabel:SetPoint("TOPLEFT", 0, -32)
-    tools.colorLabel:SetText("Colour")
+    tools.undoBtn = UI():CreateIconButton(tools, TOOL_SIZE, TOOL_ATLAS, atlasCoords(9), function() Board:Undo() end)
+    tools.undoBtn:SetPoint("LEFT", prev, "RIGHT", 16, 0)
+    tipButton(tools.undoBtn, "Undo", "Ctrl+Z")
+    tools.redoBtn = UI():CreateIconButton(tools, TOOL_SIZE, TOOL_ATLAS, atlasCoords(10), function() Board:Redo() end)
+    tools.redoBtn:SetPoint("LEFT", tools.undoBtn, "RIGHT", 2, 0)
+    tipButton(tools.redoBtn, "Redo", "Ctrl+Y or Ctrl+Shift+Z")
     tools.swatches = {}
     for i = 1, #MapUI().COLORS do
         local sw = CreateFrame("Button", nil, tools)
         sw:SetSize(20, 20)
-        sw:SetPoint("LEFT", tools.colorLabel, "RIGHT", 8 + (i - 1) * 24, 0)
+        if i == 1 then
+            sw:SetPoint("LEFT", tools.redoBtn, "RIGHT", 16, 0)
+        else
+            sw:SetPoint("LEFT", tools.swatches[i - 1], "RIGHT", 1, 0)
+        end
         sw.tex = sw:CreateTexture(nil, "ARTWORK")
-        sw.tex:SetPoint("TOPLEFT", 2, -2)
-        sw.tex:SetPoint("BOTTOMRIGHT", -2, 2)
+        sw.tex:SetPoint("TOPLEFT", 3, -3)
+        sw.tex:SetPoint("BOTTOMRIGHT", -3, 3)
         sw.tex:SetColorTexture(MapUI():Color(i))
         sw.sel = sw:CreateTexture(nil, "BACKGROUND")
         sw.sel:SetAllPoints()
-        sw.sel:SetColorTexture(1, 1, 1, 1)
+        sw.sel:SetColorTexture(1, 0.82, 0, 1)
+        tipButton(sw, "Colour", "For new drawings, and the selected one.")
         sw:SetScript("OnClick", function()
             win.canvas:SetColor(i)
             local e = win.canvas:GetSelected()
@@ -449,56 +491,53 @@ local function createWindow()
         end)
         tools.swatches[i] = sw
     end
-    tools.mapBtn = UI():CreateMenuButton(tools, "Map", 220, function(root)
-        local p = page()
-        if not p then return end
-        MapUI():BuildMapMenu(root, st.strat.b, p.m, function(id)
-            p.m = id
-            p.vx, p.vy, p.vz = 500, 500, 100
-            Board:MarkDirty(true)
-        end, promptFn)
+    tools.helpBtn = UI():CreateIconButton(tools, TOOL_SIZE, TOOL_ATLAS, atlasCoords(11), nil)
+    tools.helpBtn:SetPoint("TOPRIGHT", 0, 0)
+    tools.helpBtn:SetScript("OnEnter", function(self)
+        self.hovered = true
+        self:SetActive(false)
+        GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
+        GameTooltip:AddLine("Keyboard and mouse")
+        for _, row in ipairs(SHORTCUTS) do GameTooltip:AddDoubleLine(row[1], row[2], 1, 0.82, 0, 1, 1, 1) end
+        GameTooltip:Show()
     end)
-    tools.mapBtn:SetPoint("TOPRIGHT", 0, -30)
+    tools.helpBtn:SetScript("OnLeave", function(self)
+        self.hovered = false
+        self:SetActive(false)
+        GameTooltip:Hide()
+    end)
+
+    -- row 2: what is selected (or the drawing count), and the selection's actions
     tools.info = tools:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    tools.info:SetPoint("TOPLEFT", 0, -62)
-    tools.info:SetPoint("RIGHT", tools, "RIGHT", -280, 0)
+    tools.info:SetPoint("TOPLEFT", 0, -TOOL_SIZE - 12)
+    tools.info:SetPoint("RIGHT", tools, "RIGHT", -70, 0)
     tools.info:SetWordWrap(false)
-    tools.keys = tools:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    tools.keys:SetPoint("TOPLEFT", 0, -90)
-    tools.keys:SetPoint("RIGHT", 0, 0)
-    tools.keys:SetJustifyH("LEFT")
-    tools.keys:SetText("Del delete \194\183 Ctrl+C / V copy, paste \194\183 Ctrl+D duplicate \194\183 Ctrl+G group "
-        .. "(Ctrl+Shift+G ungroup) \194\183 Ctrl+Z / Y undo, redo \194\183 arrows nudge \194\183 Alt snaps \194\183 "
-        .. "double-click edits text \194\183 Shift-drag onto a table to link")
     tools.info:SetJustifyH("LEFT")
-    tools.info:SetJustifyV("TOP")
-    tools.delBtn = UI():CreateButton(tools, "Delete", 70, 22, function()
+    tools.delBtn = UI():CreateIconButton(tools, TOOL_SIZE, TOOL_ATLAS, atlasCoords(12), function()
         local e = win.canvas:GetSelected()
         if e then win.canvas:Remove(e) end
     end)
-    tools.delBtn:SetPoint("TOPRIGHT", 0, -58)
-    tools.optBtn = UI():CreateButton(tools, "Options...", 80, 22, function()
+    tools.delBtn:SetPoint("TOPRIGHT", 0, -TOOL_SIZE - 6)
+    tipButton(tools.delBtn, "Delete", "Removes the selected drawings (Del).")
+    tools.optBtn = UI():CreateIconButton(tools, TOOL_SIZE, TOOL_ATLAS, atlasCoords(13), function()
         local e = win.canvas:GetSelected()
         if e then win.canvas:ElementMenu(e) end
     end)
-    tools.optBtn:SetPoint("RIGHT", tools.delBtn, "LEFT", -4, 0)
-    tools.redoBtn = UI():CreateButton(tools, "Redo", 50, 22, function() Board:Redo() end)
-    tools.redoBtn:SetPoint("RIGHT", tools.optBtn, "LEFT", -10, 0)
-    tools.undoBtn = UI():CreateButton(tools, "Undo", 50, 22, function() Board:Undo() end)
-    tools.undoBtn:SetPoint("RIGHT", tools.redoBtn, "LEFT", -2, 0)
+    tools.optBtn:SetPoint("RIGHT", tools.delBtn, "LEFT", -2, 0)
+    tipButton(tools.optBtn, "Options", "Label, size, link to a job... (also on right-click).")
 
     local pool = CreateFrame("Frame", nil, below)
     pool:SetAllPoints()
     f.pool = pool
     pool.label = pool:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     pool.label:SetPoint("TOPLEFT", 0, -4)
-    pool.carryBtn = UI():CreateButton(pool, "Carry over", 86, 22, function() Board:CarryOver() end)
+    pool.carryBtn = UI():CreateSleekButton(pool, "Carry over", 86, 22, function() Board:CarryOver() end)
     pool.carryBtn:SetPoint("TOPRIGHT", 0, 0)
     tipButton(pool.carryBtn, "Carry over", "Start from the names of the last raid that used this strategy. Players who aren't in this raid are shown in red.")
-    pool.suggestBtn = UI():CreateButton(pool, "Suggest fill", 90, 22, function() Board:Suggest() end)
+    pool.suggestBtn = UI():CreateSleekButton(pool, "Suggest fill", 90, 22, function() Board:Suggest() end)
     pool.suggestBtn:SetPoint("RIGHT", pool.carryBtn, "LEFT", -4, 0)
     tipButton(pool.suggestBtn, "Suggest fill", "Fills the empty slots that are limited to a class or role with players who fit, spreading the jobs. Slots open to anyone stay for you.")
-    pool.clearBtn = UI():CreateButton(pool, "Clear all", 76, 22, function() Board:ClearAll() end)
+    pool.clearBtn = UI():CreateSleekButton(pool, "Clear all", 76, 22, function() Board:ClearAll() end)
     pool.clearBtn:SetPoint("RIGHT", pool.suggestBtn, "LEFT", -4, 0)
     pool.chips = {}
     pool.empty = pool:CreateFontString(nil, "OVERLAY", "GameFontDisable")
@@ -761,6 +800,17 @@ function Board:SetMode(mode)
     end
     self:ResetHistory()
     self:Refresh()
+end
+
+function Board:RenameStrategy()
+    if st.mode ~= "edit" or not st.strat then return end
+    self:Prompt("Strategy name", st.strat.n, function(text)
+        text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_NAME_LEN)
+        if text ~= "" then
+            st.strat.n = text
+            Board:MarkDirty()
+        end
+    end)
 end
 
 function Board:CancelChanges()
@@ -1085,33 +1135,31 @@ end
 function Board:RefreshTools()
     if not win then return end
     local tools = win.tools
-    for _, b in ipairs(tools.btns) do
-        if b.key == win.canvas.tool then b:LockHighlight() else b:UnlockHighlight() end
-    end
+    for _, b in ipairs(tools.btns) do b:SetActive(b.key == win.canvas.tool) end
     for i, sw in ipairs(tools.swatches) do sw.sel:SetShown(i == win.canvas.color) end
     local p = page()
-    if tools.mapBtn.SetDefaultText then tools.mapBtn:SetDefaultText("Map: " .. MapUI():MapName(p and p.m)) end
-    if tools.mapBtn.SetText and not tools.mapBtn.SetDefaultText then tools.mapBtn:SetText("Map: " .. MapUI():MapName(p and p.m)) end
+    local mapText = "Map: " .. MapUI():MapName(p and p.m)
+    if win.mapBtn.SetDefaultText then win.mapBtn:SetDefaultText(mapText) end
+    if win.mapBtn.SetText and not win.mapBtn.SetDefaultText then win.mapBtn:SetText(mapText) end
     local e = win.canvas:GetSelected()
     local count = win.canvas:SelectionCount()
-    tools.delBtn:SetEnabled(e ~= nil)
-    tools.optBtn:SetEnabled(e ~= nil)
+    -- the selection's actions only while something is selected
+    tools.delBtn:SetShown(e ~= nil)
+    tools.optBtn:SetShown(e ~= nil)
     tools.undoBtn:SetEnabled(self:CanUndo())
     tools.redoBtn:SetEnabled(self:CanRedo())
     local n = p and #p.e or 0
     local info
     if e and count > 1 then
         info = ("Selected: %d drawings%s"):format(count, e.g and " (a group)" or "") ..
-            grey("   Ctrl+G groups them; Shift-drag one onto a table to link them all.")
+            grey("  \194\183  Ctrl+G groups them")
     elseif e then
         local names = { z = "Zone", a = e.h and "Arrow" or "Line", i = "Icon", x = "Text", s = "Name marker" }
         local link = win.canvas:LinkOf(e)
         info = "Selected: " .. (names[e.t] or "?") .. (e.l and (" \"" .. e.l .. "\"") or "") ..
-            (link and ("  |cff33ff99-> " .. self:LinkLabel(link) .. "|r") or grey("  not linked")) ..
-            grey("   Right-click for options.")
+            (link and ("  |cff33ff99-> " .. self:LinkLabel(link) .. "|r") or grey("  not linked"))
     else
-        info = grey(("%d / %d drawings. Right-click the map to add or pick the map; the wheel zooms."):format(n,
-            S().MAX_ELEMENTS))
+        info = grey(("%d / %d drawings  \194\183  right-click the map to add"):format(n, S().MAX_ELEMENTS))
     end
     tools.info:SetText(info)
 end
@@ -1166,7 +1214,8 @@ function Board:RefreshTabs()
     for i, p in ipairs(pages) do
         local b = win.tabs[i]
         if not b then
-            b = UI():CreateButton(c, "", 60, 20, nil)
+            b = UI():CreateSleekButton(c, "", 60, 20, nil)
+            b:GetFontString():SetFontObject("GameFontHighlightSmall")
             b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             win.tabs[i] = b
         end
@@ -1183,8 +1232,9 @@ function Board:RefreshTabs()
         b:SetWidth(w)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", c, "TOPLEFT", x, -34)
-        b:SetEnabled(i ~= st.page)
-        b:Show()
+        -- the page shown is the gold tab; a single page needs no tab strip unless it can grow
+        b:SetKind(i == st.page and "primary" or "secondary")
+        b:SetShown(#pages > 1 or st.mode == "edit")
         x = x + w + 3
     end
     for i = #pages + 1, #win.tabs do win.tabs[i]:Hide() end
@@ -1206,34 +1256,57 @@ function Board:Refresh()
     -- title
     local bossName = S():GetBossName(st.boss or (s and s.b))
     if s then
-        win.title:SetText(bossName .. "  |cffffffff" .. s.n .. "|r" ..
-            (mode == "edit" and "  |cff33ff99(editing)|r" or (mode == "fill" and "  |cff33ff99(assigning)|r" or "")))
+        win.title:SetText(bossName .. grey("  \194\183  ") .. "|cffffffff" .. s.n .. "|r" ..
+            (mode == "edit" and "  |cff33ff99editing|r" or (mode == "fill" and "  |cff33ff99assigning|r" or "")))
     else
         win.title:SetText(bossName .. "  " .. grey("no strategy yet"))
     end
+    win.title:SetWidth(0)
+    if (win.title:GetStringWidth() or 0) > 560 then win.title:SetWidth(560) end
+    win.titleBtn:SetShown(mode == "edit" and s ~= nil)
     local sub = {}
     if v then sub[#sub + 1] = ns.RaidPlan:GetRaidName(v) .. " · " .. date("%a %d %b %H:%M", v.t) end
     if s and s.by then sub[#sub + 1] = "strategy by " .. shortName(s.by) .. (s.rev and (", " .. date("%d %b", s.rev)) or "") end
     if st.dirty then sub[#sub + 1] = "|cffff9933unsaved changes|r" end
     win.sub:SetText(grey(tconcat(sub, "  ·  ")))
-    win:SetWindowTitle("Strategy board - " .. bossName)
+    win:SetWindowTitle("Strategy board")
 
-    -- buttons
-    win.saveBtn:SetShown(mode == "edit" or mode == "fill")
-    win.cancelBtn:SetShown(mode == "edit" or mode == "fill")
-    win.renameBtn:SetShown(mode == "edit")
-    win.practiceBtn:SetShown(s ~= nil)
-    win.autoMark:SetShown(mode == "edit")
+    -- header actions, right to left: the main action (gold) at the far right
+    local header
+    if mode == "edit" then
+        header = { win.saveBtn, win.cancelBtn, s and win.practiceBtn, win.autoMark }
+    elseif mode == "fill" then
+        header = { win.saveBtn, win.cancelBtn, win.stratDD, s and win.practiceBtn }
+    else
+        local canFill = editor and s ~= nil and st.occ ~= nil
+        header = { canFill and win.fillBtn, editor and s and win.editBtn, st.occ and win.stratDD, s and win.practiceBtn }
+        -- the edit button is the main action when there is nothing to assign
+        win.editBtn:SetKind(canFill and "secondary" or "primary")
+    end
+    for _, w in ipairs({ win.saveBtn, win.cancelBtn, win.practiceBtn, win.autoMark, win.editBtn, win.fillBtn,
+                         win.stratDD }) do
+        w:Hide()
+    end
+    local prev
+    for i = 1, 4 do
+        local w = header[i]
+        if w then
+            w:ClearAllPoints()
+            local gap = (w == win.practiceBtn or w == win.stratDD) and 14 or 6
+            if w == win.autoMark then
+                -- a checkbox: its label reaches to the right of the box
+                w:SetPoint("RIGHT", prev, "LEFT", -((w.label:GetStringWidth() or 60) + 18), 0)
+            elseif prev then
+                w:SetPoint("RIGHT", prev, "LEFT", -gap, 0)
+            else
+                w:SetPoint("TOPRIGHT", -2, -2)
+            end
+            w:Show()
+            prev = w
+        end
+    end
     if win.autoMark.Refresh then win.autoMark:Refresh() end
-    win.editBtn:SetShown(mode == "view" and editor and s ~= nil)
-    win.fillBtn:SetShown(mode == "view" and editor and s ~= nil and st.occ ~= nil)
-    local showDD = st.occ ~= nil and mode ~= "edit"
-    win.stratDD:SetShown(showDD)
-    if showDD then
-        win.stratDD:ClearAllPoints()
-        if mode == "fill" then win.stratDD:SetPoint("RIGHT", win.cancelBtn, "LEFT", -12, 0)
-        elseif win.fillBtn:IsShown() then win.stratDD:SetPoint("RIGHT", win.fillBtn, "LEFT", -8, 0)
-        else win.stratDD:SetPoint("TOPRIGHT", -2, -2) end
+    if win.stratDD:IsShown() then
         local label = s and ("Strategy: " .. s.n) or "Pick a strategy"
         if win.stratDD.SetDefaultText then win.stratDD:SetDefaultText(label) end
         if win.stratDD.Refresh then win.stratDD:Refresh() end
@@ -1242,6 +1315,8 @@ function Board:Refresh()
     self:RefreshTabs()
     local p = page()
     win.mapLabel:SetText(p and grey(MapUI():MapName(p.m)) or "")
+    win.mapLabel:SetShown(mode ~= "edit")
+    win.mapBtn:SetShown(mode == "edit")
     win.canvas:SetPage(p)
     win.canvas:UpdateHint()
     win.blocks:Render()

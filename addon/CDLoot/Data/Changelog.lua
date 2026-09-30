@@ -19,6 +19,10 @@ ns.CHANGELOG = {
               "Map of the Sunwell Plateau outside (Kalecgos, Brutallus, Felmyst, the Twins).",
           } },
           { heading = "Editing", lines = {
+              "A cleaner board: icon toolbar, one gold main action, a ? button for the keys.",
+              "Click the title to rename; the map picker sits above the map.",
+              "An empty page suggests a table per creature on the map: one click adds it, linked.",
+              "Tables show a target's linked player as a short pill (-> #2), never cut off.",
               "Shift-drag a drawing onto a table cell to link it: it shows that player's name.",
               "Drag a player cell onto the map to show that player there.",
               "Drop a boss icon on a Target cell: the cell shows it, the icon its tank.",
@@ -51,6 +55,11 @@ ns.CHANGELOG = {
               "Drag players into slots, carry over last week's names or use Suggest fill.",
               "Players missing from the raid show in red, double jobs in orange.",
               "Open a boss to see the board with everyone's names and your own jobs.",
+          } },
+          { heading = "Raid groups", lines = {
+              "Put players in any slot of a group (team layouts and a raid's Groups tab).",
+              "Drop a player onto another to trade places, or onto an empty slot to take it.",
+              "The order is saved and shared with the layout; group swaps keep it.",
           } },
       } },
     { version = "0.7.1", date = "29 September 2026", title = "Council Bingo makeover",

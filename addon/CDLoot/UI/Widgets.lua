@@ -459,6 +459,153 @@ function UI:CreateFlatButton(parent, text, width, height, onClick, tint)
     return b
 end
 
+---------------------------------------------------------------------------
+-- The flat editor style (strategy board): dark buttons with a 1px border; one gold "primary" action per view.
+---------------------------------------------------------------------------
+
+local SLEEK = {
+    primary   = { bg = { 0.42, 0.30, 0.04, 0.95 }, hover = { 0.55, 0.40, 0.06, 1 }, edge = { 1, 0.82, 0, 0.9 },
+                  text = { 1, 0.95, 0.8 } },
+    secondary = { bg = { 0.10, 0.10, 0.12, 0.92 }, hover = { 0.18, 0.18, 0.21, 0.95 }, edge = { 0.34, 0.34, 0.38, 0.9 },
+                  text = { 0.88, 0.88, 0.88 } },
+    danger    = { bg = { 0.30, 0.06, 0.06, 0.92 }, hover = { 0.45, 0.09, 0.09, 0.95 }, edge = { 0.75, 0.25, 0.25, 0.9 },
+                  text = { 1, 0.85, 0.85 } },
+}
+UI.SLEEK = SLEEK
+
+-- A 1px border of four textures around frame f: f.edges, recoloured by UI:SetEdgeColor(f, r, g, b, a).
+function UI:AddEdges(f, layer)
+    f.edges = {}
+    local function edge(p1, p2, horiz)
+        local t = f:CreateTexture(nil, layer or "BORDER")
+        t:SetPoint(p1)
+        t:SetPoint(p2)
+        if horiz then t:SetHeight(1) else t:SetWidth(1) end
+        f.edges[#f.edges + 1] = t
+    end
+    edge("TOPLEFT", "TOPRIGHT", true)
+    edge("BOTTOMLEFT", "BOTTOMRIGHT", true)
+    edge("TOPLEFT", "BOTTOMLEFT", false)
+    edge("TOPRIGHT", "BOTTOMRIGHT", false)
+end
+
+function UI:SetEdgeColor(f, r, g, b, a)
+    for _, t in ipairs(f.edges or {}) do t:SetColorTexture(r, g, b, a or 1) end
+end
+
+-- A flat editor button. kind = "primary" | "secondary" (default) | "danger"; b:SetKind(kind) restyles it.
+function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
+    local b = CreateFrame("Button", nil, parent)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    UI:AddEdges(b)
+    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    fs:SetPoint("CENTER", 0, 0)
+    b:SetFontString(fs)
+    b:SetText(text or "")
+    b:SetSize(width or ((fs:GetStringWidth() or 40) + 24), height or 22)
+    local function paint(self)
+        local s = SLEEK[self.kind] or SLEEK.secondary
+        local enabled = self:IsEnabled()
+        local c = (enabled and self.hovered) and s.hover or s.bg
+        self.bg:SetColorTexture(c[1], c[2], c[3], c[4])
+        local e = s.edge
+        UI:SetEdgeColor(self, e[1], e[2], e[3], enabled and e[4] or e[4] * 0.4)
+        local t = s.text
+        if enabled then fs:SetTextColor(t[1], t[2], t[3]) else fs:SetTextColor(0.45, 0.45, 0.45) end
+    end
+    function b:SetKind(k)
+        self.kind = k or "secondary"
+        paint(self)
+    end
+    b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
+    b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    b:SetScript("OnEnable", paint)
+    b:SetScript("OnDisable", paint)
+    b:SetScript("OnMouseDown", function(self) if self:IsEnabled() then fs:SetPoint("CENTER", 1, -1) end end)
+    b:SetScript("OnMouseUp", function() fs:SetPoint("CENTER", 0, 0) end)
+    b:RegisterForClicks("LeftButtonUp")
+    if onClick then b:SetScript("OnClick", function(self, mouseButton) onClick(self, mouseButton) end) end
+    b:SetKind(kind)
+    return b
+end
+
+-- A square icon button for toolbars: texture + texcoords (l, r, t, b). b:SetActive(on) marks the current tool.
+function UI:CreateIconButton(parent, size, texture, coords, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(size, size)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    UI:AddEdges(b)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetPoint("TOPLEFT", 5, -5)
+    b.icon:SetPoint("BOTTOMRIGHT", -5, 5)
+    b.icon:SetTexture(texture)
+    if coords then b.icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4]) end
+    local function paint(self)
+        local enabled = self:IsEnabled()
+        if self.active then
+            self.bg:SetColorTexture(0.42, 0.30, 0.04, 0.9)
+            UI:SetEdgeColor(self, 1, 0.82, 0, 0.9)
+            self.icon:SetVertexColor(1, 0.9, 0.5)
+        else
+            local v = (enabled and self.hovered) and 0.2 or 0.1
+            self.bg:SetColorTexture(v, v, v + 0.02, 0.92)
+            UI:SetEdgeColor(self, 0.34, 0.34, 0.38, enabled and 0.9 or 0.35)
+            local ic = enabled and (self.hovered and 1 or 0.82) or 0.35
+            self.icon:SetVertexColor(ic, ic, ic)
+        end
+    end
+    function b:SetActive(on)
+        self.active = on and true or false
+        paint(self)
+    end
+    b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
+    b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    b:SetScript("OnEnable", paint)
+    b:SetScript("OnDisable", paint)
+    b:RegisterForClicks("LeftButtonUp")
+    if onClick then b:SetScript("OnClick", function(self, mouseButton) onClick(self, mouseButton) end) end
+    paint(b)
+    return b
+end
+
+-- The editor icons: a 4x4 atlas of 64px cells drawn by dev/generators/gen_strategy_media.py, in this order:
+-- 1 select, 2 pan, 3 circle, 4 rectangle, 5 arrow, 6 line, 7 pin, 8 text, 9 undo, 10 redo, 11 help, 12 delete,
+-- 13 gear, 14 chevron down.
+UI.ICON_ATLAS = "Interface\\AddOns\\CDLoot\\Media\\Strategy\\tools"
+function UI:IconCoords(i)
+    local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
+    return { col / 4, (col + 1) / 4, row / 4, (row + 1) / 4 }
+end
+
+-- A flat dropdown: a sleek button with a chevron that opens build(root) as a context menu. Same surface as
+-- CreateMenuButton (SetDefaultText, Refresh).
+function UI:CreateSleekMenuButton(parent, text, width, build, height)
+    local b = UI:CreateSleekButton(parent, "", width or 120, height or 22, function(self)
+        UI:ContextMenu(self, build)
+    end)
+    local fs = b:GetFontString()
+    fs:SetFontObject("GameFontHighlightSmall")
+    fs:ClearAllPoints()
+    fs:SetPoint("LEFT", 8, 0)
+    fs:SetPoint("RIGHT", -20, 0)
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    b:SetScript("OnMouseDown", nil)
+    b:SetScript("OnMouseUp", nil)
+    b.chevron = b:CreateTexture(nil, "ARTWORK")
+    b.chevron:SetSize(12, 12)
+    b.chevron:SetPoint("RIGHT", -6, 0)
+    b.chevron:SetTexture(UI.ICON_ATLAS)
+    b.chevron:SetTexCoord(unpack(UI:IconCoords(14)))
+    b.chevron:SetVertexColor(1, 0.82, 0)
+    b:SetText(text or "")
+    function b:SetDefaultText(t) self:SetText(t or "") end
+    function b:Refresh() end
+    return b
+end
+
 -- A small status pill ("ENGAGED", "BIS LOCKED"): pill:Set(text, { r, g, b }).
 function UI:CreatePill(parent)
     local p = CreateFrame("Frame", nil, parent)
