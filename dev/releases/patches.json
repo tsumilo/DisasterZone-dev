@@ -744,5 +744,25 @@
   "commit": "deb9015c7188931d477d98a185eb069e35757f26",
   "revoke": false,
   "selftest": true
+ },
+ {
+  "seq": 3,
+  "version": "0.10.1",
+  "base": "0.10.0",
+  "build": "e40b7f7176d9638c",
+  "pack": 1,
+  "files": [
+   [
+    "F",
+    "Data/Changelog.lua"
+   ],
+   [
+    "F",
+    "UI/Dashboard.lua"
+   ]
+  ],
+  "time": "2026-10-01 18:37:38",
+  "commit": "4ff13f42defd575e2f5822626495ec862dfe4aee",
+  "revoke": false
  }
 ]

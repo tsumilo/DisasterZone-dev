@@ -1064,7 +1064,12 @@ function Dashboard:CreatePanel(parent)
     p.moreChips:SetScript("OnLeave", Row_OnLeave)
     p.moreChips:Hide()
 
-    local top = -(CHIP_H + 12)
+    -- 0.10.1: the first change delivered as an in-game update (a line to show that it arrived)
+    p.hello = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    p.hello:SetPoint("TOP", p, "TOP", 0, -(CHIP_H + 13))
+    p.hello:SetText("Hello Victhar! It's working!")
+
+    local top = -(CHIP_H + 12) - 26
     p.raidCard = createCard(p, "Raids")
     p.raidCard:SetPoint("TOPLEFT", p, "TOPLEFT", 4, top)
     p.raidCard:SetPoint("RIGHT", p, "CENTER", -3, 0)
