@@ -95,7 +95,7 @@ def without_cdloot_nothing_changes():
     w, c = both(loaded=False)
     start(w, c)
     assert not c.eval("return DisasterZoneBoot.dormant")
-    assert c.eval("return DisasterZoneBoot.state") == "none"
+    assert c.eval("return DisasterZoneBoot.state") in ("none", "applied")     # applied: tools/patched_run.py
     assert dialog(c)[0] is False
     assert c.eval("return DisasterZoneDB.migratedFrom") is None
     assert c.slash("/dz") is True and c.slash("/cdl") is True, "the old slash command is an alias"
@@ -126,6 +126,7 @@ def with_cdloot_loaded_nothing_of_disasterzone_runs():
 def import_copies_everything_switches_cdloot_off_and_reloads():
     src = old_data()
     w, c = both(src)
+    c.other_saved["CDLootPatchDB"] = '{ active = { seq = 99, version = "0.11.9" } }'
     start(w, c)
     before = c.eval_py("return CDLootDB")
     press(c, "accept")
@@ -138,7 +139,8 @@ def import_copies_everything_switches_cdloot_off_and_reloads():
     assert c.eval("return DisasterZoneDB ~= CDLootDB and DisasterZoneDB.marker ~= CDLootDB.marker"), "not a deep copy"
     assert c.eval_py("return CDLootDB") == before, "CDLootDB was changed"
     assert c.eval("return CDLootDB.migratedFrom") is None
-    assert c.eval("return DisasterZonePatchDB.active") is None, "the old stored update must not come along"
+    assert c.eval("return CDLootPatchDB.active.seq") == 99
+    assert c.eval("return (DisasterZonePatchDB.active or {}).seq") != 99, "the old stored update must not come along"
 
     after_reload(c)
     assert not c.eval("return DisasterZoneBoot.dormant")
