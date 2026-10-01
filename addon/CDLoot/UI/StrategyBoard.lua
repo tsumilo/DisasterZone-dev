@@ -6,7 +6,8 @@
 --   edit  - authors (GM, guild council, raid leaders): draw on the map, shape the blocks, add pages, then Save.
 --   fill  - authors, from a raid: pick the strategy for the boss and put players into the slots (carry over last
 --           raid's names, drag from the raid's players, Suggest fill), then Save.
--- Unsaved work stays in the window while it is closed; opening something else asks before dropping it.
+-- Unsaved work is a draft: it stays in the window while it is closed, stays behind (Raids > Strategies lists the
+-- drafts) when something else is opened, and survives a /reload, a logout and a disconnect with its undo history.
 -- Editing and assigning keep an undo history (Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z); while editing the keyboard also drives
 -- the map (Del, Ctrl+C / X / V / D / A / G, arrows; see UI/StrategyMap.lua). Keys the board doesn't use go on to the
 -- game as usual.
@@ -43,7 +44,8 @@ local SHORTCUTS = {
     { "Ctrl+Z / Ctrl+Y", "undo, redo" },
     { "Arrows", "nudge the selection" },
     { "Alt (while dragging)", "snap" },
-    { "Double-click text", "edit it" },
+    { "Double-click text", "edit it (Enter: new line)" },
+    { "Drag a corner", "resize (a text: Shift = the box width)" },
     { "Shift-drag onto a table", "link to a job" },
     { "Right-click the map", "add, pick the map" },
     { "Mouse wheel", "zoom" },
@@ -66,15 +68,21 @@ local st = {
 ---------------------------------------------------------------------------
 
 local prompt
+local PROMPT_LEN = 64       -- letters a prompt takes unless the caller asks for more
 
 local function ensurePrompt()
     if prompt then return prompt end
     local f = CreateFrame("Frame", "CDLootStrategyPrompt", UIParent, "BackdropTemplate")
     f:SetSize(360, 130)
-    f:SetFrameStrata("DIALOG")
+    -- above the board and everything drawn on its map
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
     f:SetToplevel(true)
     f:SetPoint("CENTER", 0, 120)
     f:EnableMouse(true)
+    f.solid = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+    f.solid:SetPoint("TOPLEFT", 6, -6)
+    f.solid:SetPoint("BOTTOMRIGHT", -6, 6)
+    f.solid:SetColorTexture(0.06, 0.06, 0.07, 1)
     if f.SetBackdrop then
         f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
             edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 24,
@@ -89,7 +97,7 @@ local function ensurePrompt()
     f.edit:SetHeight(22)
     f.edit:SetPoint("TOPLEFT", 22, -40)
     f.edit:SetPoint("RIGHT", -20, 0)
-    f.edit:SetMaxLetters(64)
+    f.edit:SetMaxLetters(PROMPT_LEN)
     f.scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
     f.scroll:SetPoint("TOPLEFT", 18, -40)
     f.scroll:SetPoint("BOTTOMRIGHT", -36, 44)
@@ -98,12 +106,28 @@ local function ensurePrompt()
     f.multi:SetAutoFocus(false)
     f.multi:SetFontObject("ChatFontNormal")
     f.multi:SetWidth(300)
-    f.multi:SetMaxLetters(400)
+    f.multi:SetMaxLetters(S().MAX_NOTES)
     f.scroll:SetScrollChild(f.multi)
+    -- the scroll bar only when the text is longer than the box
+    f.scroll.scrollBarHideable = true
+    if f.scroll.ScrollBar then f.scroll.ScrollBar:Hide() end
+    -- the edit box is only as tall as its text: a click anywhere in the box types there
+    f.scroll:EnableMouse(true)
+    f.scroll:SetScript("OnMouseDown", function() f.multi:SetFocus() end)
+    -- the view follows the cursor
+    f.multi:SetScript("OnCursorChanged", function(_, _, y, _, h)
+        local top, view = f.scroll:GetVerticalScroll() or 0, f.scroll:GetHeight() or 0
+        y, h = -(y or 0), h or 0
+        if y < top then
+            f.scroll:SetVerticalScroll(y)
+        elseif y + h > top + view then
+            f.scroll:SetVerticalScroll(y + h - view)
+        end
+    end)
     f.multiBg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
     f.multiBg:SetPoint("TOPLEFT", f.scroll, "TOPLEFT", -4, 4)
     f.multiBg:SetPoint("BOTTOMRIGHT", f.scroll, "BOTTOMRIGHT", 4, -4)
-    f.multiBg:SetColorTexture(0, 0, 0, 0.5)
+    f.multiBg:SetColorTexture(0, 0, 0, 0.6)
     local function accept()
         local text = f.isMulti and f.multi:GetText() or f.edit:GetText()
         local cb = f.cb
@@ -118,34 +142,51 @@ local function ensurePrompt()
     f.edit:SetScript("OnEnterPressed", accept)
     f.edit:SetScript("OnEscapePressed", function() f.cb = nil; f:Hide() end)
     f.multi:SetScript("OnEscapePressed", function() f.cb = nil; f:Hide() end)
+    -- several lines: Enter is a new line, Ctrl+Enter is OK
+    f.multi:SetScript("OnEnterPressed", function(self)
+        if IsControlKeyDown() then accept() else self:Insert("\n") end
+    end)
+    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.hint:SetPoint("BOTTOMLEFT", 18, 20)
+    f.hint:SetText("Ctrl+Enter: OK")
     f:Hide()
     prompt = f
     return f
 end
 
--- Asks for a text: cb(text) on OK.
-function Board:Prompt(title, default, cb, multiline)
+-- Asks for a text: cb(text) on OK. multiline: a box of several lines (texts, notes); maxLen: the letters it takes.
+function Board:Prompt(title, default, cb, multiline, maxLen)
     local f = ensurePrompt()
     f.title:SetText(title or "")
     f.cb = cb
     f.isMulti = multiline and true or false
-    f:SetSize(360, multiline and 220 or 120)
+    -- a short text gets a smaller box than the page notes
+    f:SetSize(multiline and 520 or 360, multiline and ((maxLen or S().MAX_NOTES) > S().MAX_TEXT and 260 or 180) or 120)
+    f.edit:SetMaxLetters(multiline and PROMPT_LEN or maxLen or PROMPT_LEN)
+    f.multi:SetMaxLetters(maxLen or S().MAX_NOTES)
+    f.multi:SetWidth(460)
+    f.hint:SetShown(multiline and true or false)
     f.edit:SetShown(not multiline)
     f.scroll:SetShown(multiline and true or false)
     f.multiBg:SetShown(multiline and true or false)
+    f:Show()
+    f:Raise()
+    -- the keyboard goes to the box right away (an edit box takes the focus only once it is shown)
     if multiline then
         f.multi:SetText(default or "")
+        f.scroll:SetVerticalScroll(0)
         f.multi:SetFocus()
+        f.multi:SetCursorPosition(#(default or ""))
     else
         f.edit:SetText(default or "")
         f.edit:SetFocus()
         f.edit:HighlightText()
     end
-    f:Show()
-    f:Raise()
 end
 
-local function promptFn(title, default, cb, multiline) Board:Prompt(title, default, cb, multiline) end
+local function promptFn(title, default, cb, multiline, maxLen)
+    Board:Prompt(title, default, cb, multiline, maxLen)
+end
 
 ---------------------------------------------------------------------------
 -- State helpers
@@ -525,6 +566,24 @@ local function createWindow()
     end)
     tools.optBtn:SetPoint("RIGHT", tools.delBtn, "LEFT", -2, 0)
     tipButton(tools.optBtn, "Options", "Label, size, link to a job... (also on right-click).")
+    -- a selected text: its lines to the left, the middle or the right of its box
+    tools.alignBtns = {}
+    local anchor = tools.optBtn
+    for _, a in ipairs({ { "r", "Align right", "RIGHT" }, { "c", "Centre", "CENTER" }, { "l", "Align left", "LEFT" } }) do
+        local b = UI():CreateIconButton(tools, TOOL_SIZE, nil, nil, function() win.canvas:SetTextAlign(a[1]) end)
+        b.align = a[1]
+        -- the icon: three lines of text, aligned that way
+        for i, w in ipairs({ 14, 8, 11 }) do
+            local line = b:CreateTexture(nil, "OVERLAY")
+            line:SetColorTexture(0.85, 0.85, 0.85, 1)
+            line:SetSize(w, 2)
+            line:SetPoint(a[3], b, a[3], a[3] == "LEFT" and 6 or (a[3] == "RIGHT" and -6 or 0), 9 - i * 5 + 1)
+        end
+        b:SetPoint("RIGHT", anchor, "LEFT", anchor == tools.optBtn and -10 or -2, 0)
+        tipButton(b, a[2], "The lines of the selected text (several lines, or a box narrower than the text).")
+        tools.alignBtns[#tools.alignBtns + 1] = b
+        anchor = b
+    end
 
     local pool = CreateFrame("Frame", nil, below)
     pool:SetAllPoints()
@@ -577,14 +636,133 @@ end
 -- Opening
 ---------------------------------------------------------------------------
 
--- Runs fn now, or after the user agrees to drop unsaved changes.
-local function whenClean(fn)
-    if not st.dirty then return fn() end
-    ns.RaidPlanUI:Confirm("Drop the unsaved changes on the strategy board?", function()
-        st.dirty = false
-        fn()
-    end)
+-- Unsaved work is kept in the saved variables (per character) as drafts, so a /reload, a logout or a disconnect
+-- doesn't lose it, and several can wait at once: [draft id] = { did, mode, strat, occ, boss, page, assign, hist,
+-- histI, at }. The draft on the board is the board's state itself (stored by reference); the others are parked
+-- records. Save and Cancel take a draft out. Raids > Strategies lists them under their boss (UI/StrategiesView.lua).
+local MAX_DRAFTS = 12
+local HIST_DRAFTS = 3       -- the parked drafts that keep their undo history (the latest; it is the bulk of a draft)
+
+local function validDraft(d)
+    if type(d) ~= "table" then return false end
+    local s = d.strat
+    if not ((d.mode == "edit" or d.mode == "fill") and type(s) == "table" and type(s.n) == "string"
+        and type(s.b) == "string" and type(s.p) == "table" and type(s.p[1]) == "table"
+        and type(d.assign) == "table") then return false end
+    if d.mode == "fill" and not (type(d.occ) == "string" and type(d.boss) == "string" and s.id) then return false end
+    return true
 end
+
+local draftsChecked = false
+local function draftStore()
+    local root, me = ns.db and ns.db.strategyDraft, ns.Util.PlayerKey()
+    if type(root) ~= "table" or not me then return nil end
+    local store = root[me]
+    if type(store) ~= "table" then
+        store = {}
+        root[me] = store
+    end
+    if not draftsChecked then
+        -- once per session: what the last one left behind, damaged entries dropped
+        draftsChecked = true
+        if store.mode then
+            store = { d0 = store }      -- the first version kept a single draft here
+            root[me] = store
+        end
+        for did, d in pairs(store) do
+            if d ~= st then
+                if type(did) == "string" and validDraft(d) then
+                    d.did, d.dirty, d.picked, d.dragging = did, nil, nil, nil
+                    d.at = tonumber(d.at) or 0
+                else
+                    store[did] = nil
+                end
+            end
+        end
+    end
+    return store
+end
+
+local function draftsChanged() ns:Fire("STRATEGY_DRAFTS_CHANGED") end
+
+-- The board's unsaved work is a draft; once nothing is unsaved (Save, Cancel) the draft is gone.
+local function keepDraft()
+    local store = draftStore()
+    if not store then return end
+    if st.dirty and st.strat and (st.mode == "edit" or st.mode == "fill") then
+        if not st.did then
+            local n = 0
+            repeat
+                n = n + 1
+                st.did = ("d%x%d"):format(time(), n)
+            until not store[st.did]
+        end
+        st.at = time()
+        store[st.did] = st
+        draftsChanged()
+    elseif st.did then
+        store[st.did] = nil
+        st.did = nil
+        draftsChanged()
+    end
+end
+
+-- The board moves on to something else: its unsaved work stays behind as a draft of its own.
+local function park()
+    local store = draftStore()
+    if not (store and st.did and st.dirty) then return end
+    store[st.did] = { did = st.did, mode = st.mode, strat = st.strat, occ = st.occ, boss = st.boss, page = st.page,
+        assign = st.assign, hist = st.hist, histI = st.histI, at = st.at or time() }
+    st.did, st.dirty, st.hist, st.histI = nil, false, nil, nil
+    st.strat, st.assign = ns.Util.CopyTable(st.strat), ns.Util.CopyTable(st.assign)
+    local list = {}
+    for _, d in pairs(store) do
+        if d ~= st and d.hist then list[#list + 1] = d end
+    end
+    tsort(list, function(a, b) return (a.at or 0) > (b.at or 0) end)
+    for i = HIST_DRAFTS + 1, #list do list[i].hist, list[i].histI = nil, nil end
+    draftsChanged()
+end
+
+local function findDraft(pred)
+    local store = draftStore()
+    local best
+    for _, d in pairs(store or {}) do
+        if pred(d) and (not best or (d.at or 0) > (best.at or 0)) then best = d end
+    end
+    return best
+end
+
+local function editDraftOf(id)
+    return id and findDraft(function(d) return d.mode == "edit" and d.strat.id == id end) or nil
+end
+
+-- The drafts of strategies (of one boss, or all), latest first: { did, n, b, id (of the saved strategy it changes),
+-- at, pages, blocks, open (it is the one on the board) }.
+function Board:GetDrafts(bossRef)
+    local out = {}
+    for _, d in pairs(draftStore() or {}) do
+        if d.mode == "edit" and (bossRef == nil or d.strat.b == bossRef) then
+            local blocks = 0
+            for _, p in ipairs(d.strat.p) do blocks = blocks + #(p.k or {}) end
+            out[#out + 1] = { did = d.did, n = d.strat.n, b = d.strat.b, id = d.strat.id, at = d.at or 0,
+                pages = #d.strat.p, blocks = blocks, open = d == st }
+        end
+    end
+    tsort(out, function(a, b)
+        if a.at ~= b.at then return a.at > b.at end
+        return a.did > b.did
+    end)
+    return out
+end
+
+-- Unsaved names for a raid's boss: the draft's id, or nil.
+function Board:FillDraft(occId, bossRef)
+    local d = findDraft(function(d) return d.mode == "fill" and d.occ == occId and d.boss == bossRef end)
+    return d and d.did or nil
+end
+
+function Board:HasDraft() return next(draftStore() or {}) ~= nil end
 
 local function show()
     ensureWindow()
@@ -596,21 +774,79 @@ local function show()
     Board:Refresh()
 end
 
+-- Goes on with a draft (did nil: the latest one). What the board held unsaved stays behind as its own draft.
+function Board:OpenDraft(did)
+    local store = draftStore()
+    local d
+    if did == nil then
+        d = findDraft(function() return true end)
+    else
+        d = store and store[did]
+    end
+    if not d then
+        ns:Print(did and "That draft is gone." or "No unsaved work on the strategy board.")
+        return false
+    end
+    if d ~= st then
+        park()
+        local s = d.strat
+        st.did, st.dirty, st.at = d.did, true, d.at
+        st.mode, st.strat, st.assign = d.mode, s, d.assign
+        st.occ = d.mode == "fill" and d.occ or nil
+        st.boss = type(d.boss) == "string" and d.boss or s.b
+        st.page = s.p[d.page] and d.page or 1
+        st.picked, st.dragging = nil, nil
+        -- the undo history, when it is there and whole
+        local hist, ok = d.hist, type(d.hist) == "table" and #d.hist > 0
+        if ok then
+            for _, snap in ipairs(hist) do
+                if type(snap) ~= "table" or (d.mode == "edit" and type(snap.p) ~= "table") then ok = false end
+            end
+        end
+        store[st.did] = st
+        if ok and type(d.histI) == "number" and hist[d.histI] then
+            st.hist, st.histI = hist, d.histI
+        else
+            self:ResetHistory()
+        end
+        draftsChanged()
+    end
+    show()
+    return true
+end
+
+-- Throws a draft away.
+function Board:DiscardDraft(did)
+    local store = draftStore()
+    local d = store and store[did]
+    if not d then return end
+    if d == st then
+        if self:IsShown() then return self:CancelChanges() end
+        st.dirty, st.mode = false, "view"
+        keepDraft()
+    else
+        store[did] = nil
+        draftsChanged()
+    end
+end
+
 -- A strategy on its own (view; authors can Edit).
 function Board:OpenStrategy(id, mode)
     if st.dirty and st.strat and st.strat.id == id and not st.occ then return show() end
-    whenClean(function()
-        local s = S():GetStrategy(id)
-        if not s then
-            ns:Print("That strategy no longer exists.")
-            return
-        end
-        st.strat, st.occ, st.boss, st.page = s, nil, s.b, 1
-        st.assign, st.dirty, st.picked = {}, false, nil
-        st.mode = (mode == "edit" and canEdit()) and "edit" or "view"
-        Board:ResetHistory()
-        show()
-    end)
+    park()
+    -- editing goes on where its draft stopped
+    local d = mode == "edit" and canEdit() and editDraftOf(id)
+    if d then return self:OpenDraft(d.did) end
+    local s = S():GetStrategy(id)
+    if not s then
+        ns:Print("That strategy no longer exists.")
+        return
+    end
+    st.strat, st.occ, st.boss, st.page = s, nil, s.b, 1
+    st.assign, st.dirty, st.picked = {}, false, nil
+    st.mode = (mode == "edit" and canEdit()) and "edit" or "view"
+    Board:ResetHistory()
+    show()
 end
 
 -- The starter strategy of a boss (Data/StarterStrategies.lua) as a draft: map file names -> map ids, "@Creature"
@@ -663,35 +899,42 @@ function Board:NewStrategy(bossRef, name)
         ns:Print("Only the Guild Master, the guild council and the raid leaders can build strategies.")
         return
     end
-    whenClean(function()
-        local d = self:StarterDraft(bossRef)
-        if d then
-            d.n = name or "Strategy"
-        else
-            d = S():NewDraft(bossRef, name or "Strategy", MapUI():DefaultMap(bossRef))
-        end
-        st.strat = d
-        st.occ, st.boss, st.page, st.assign, st.picked = nil, bossRef, 1, {}, nil
-        st.mode = "edit"
-        st.dirty = true
-        Board:ResetHistory()
-        show()
-    end)
+    park()
+    local count = 0
+    for _ in pairs(draftStore() or {}) do count = count + 1 end
+    if count >= MAX_DRAFTS then
+        ns:Print("You have %d unsaved drafts. Save or discard one first (Raids > Strategies).", count)
+        return
+    end
+    local d = self:StarterDraft(bossRef)
+    if d then
+        d.n = name or "Strategy"
+    else
+        d = S():NewDraft(bossRef, name or "Strategy", MapUI():DefaultMap(bossRef))
+    end
+    st.strat = d
+    st.occ, st.boss, st.page, st.assign, st.picked = nil, bossRef, 1, {}, nil
+    st.mode = "edit"
+    st.dirty = true
+    Board:ResetHistory()
+    show()
 end
 
 -- A raid's board for a boss: the chosen (or only) strategy with that raid's names.
 function Board:OpenRaid(occId, bossRef, mode)
     if st.dirty and st.occ == occId and st.boss == bossRef then return show() end
-    whenClean(function()
-        local s, fill = S():GetRaidStrategy(occId, bossRef)
-        st.occ, st.boss, st.page, st.picked = occId, bossRef, 1, nil
-        st.strat = s
-        st.assign = (s and fill and fill.s == s.id) and S():ValidAssignments(s, fill.a) or {}
-        st.dirty = false
-        st.mode = (mode == "fill" and canEdit() and s) and "fill" or "view"
-        Board:ResetHistory()
-        show()
-    end)
+    park()
+    -- unsaved names for this raid's boss: go on with them
+    local did = canEdit() and self:FillDraft(occId, bossRef)
+    if did then return self:OpenDraft(did) end
+    local s, fill = S():GetRaidStrategy(occId, bossRef)
+    st.occ, st.boss, st.page, st.picked = occId, bossRef, 1, nil
+    st.strat = s
+    st.assign = (s and fill and fill.s == s.id) and S():ValidAssignments(s, fill.a) or {}
+    st.dirty = false
+    st.mode = (mode == "fill" and canEdit() and s) and "fill" or "view"
+    Board:ResetHistory()
+    show()
 end
 
 function Board:Close()
@@ -709,6 +952,7 @@ function Board:GetState() return st end
 function Board:MarkDirty(repaint)
     st.dirty = true
     self:Record()
+    keepDraft()
     if repaint ~= false then self:Refresh() end
 end
 
@@ -728,6 +972,7 @@ function Board:ResetHistory()
     st.hist, st.histI = {}, 0
     local snap = snapshot()
     if snap then st.hist[1], st.histI = snap, 1 end
+    keepDraft()
 end
 
 function Board:Record()
@@ -751,6 +996,7 @@ local function restore(i)
         st.assign = ns.Util.CopyTable(snap)
     end
     st.dirty = true
+    keepDraft()
     Board:Refresh()
     return true
 end
@@ -788,6 +1034,11 @@ end
 function Board:SetMode(mode)
     if not canEdit() then return end
     if mode == "edit" then
+        if st.mode ~= "edit" then
+            park()
+            local d = editDraftOf(st.strat and st.strat.id)
+            if d then return self:OpenDraft(d.did) end
+        end
         if st.occ then
             -- edit the strategy itself (the raid's names stay)
             st.occ = nil
@@ -816,6 +1067,7 @@ end
 function Board:CancelChanges()
     local occ, boss, id = st.occ, st.boss, st.strat and st.strat.id
     st.dirty = false
+    keepDraft()
     if occ then
         self:OpenRaid(occ, boss)
     elseif id then
@@ -1146,6 +1398,12 @@ function Board:RefreshTools()
     -- the selection's actions only while something is selected
     tools.delBtn:SetShown(e ~= nil)
     tools.optBtn:SetShown(e ~= nil)
+    local align, anyText = win.canvas:TextAlign()
+    for _, b in ipairs(tools.alignBtns) do
+        b:SetShown(anyText)
+        b:SetActive(b.align == align)
+    end
+    tools.info:SetPoint("RIGHT", tools, "RIGHT", anyText and -160 or -70, 0)
     tools.undoBtn:SetEnabled(self:CanUndo())
     tools.redoBtn:SetEnabled(self:CanRedo())
     local n = p and #p.e or 0
@@ -1244,6 +1502,7 @@ function Board:RefreshTabs()
 end
 
 function Board:Refresh()
+    keepDraft()
     if not win or not win:IsShown() then return end
     if st.strat and not st.strat.p[st.page] then st.page = 1 end
     rebuildSlots()
@@ -1354,6 +1613,21 @@ end
 ---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
+
+function Board:OnLogin()
+    -- unsaved work of the last session
+    local n = 0
+    for _ in pairs(draftStore() or {}) do n = n + 1 end
+    if n > 0 then
+        C_Timer.After(6, function()
+            if Board:HasDraft() and not Board:IsShown() then
+                ns:Print("You have %d unsaved strategy draft%s: Raids > Strategies lists %s under %s boss "
+                    .. "(/cdl strat draft opens the latest).", n, n == 1 and "" or "s", n == 1 and "it" or "them",
+                    n == 1 and "its" or "their")
+            end
+        end)
+    end
+end
 
 function Board:OnInit()
     local function refresh()

@@ -603,6 +603,10 @@ local Frame = define("Frame", "Region", {
   end,
   CreateTexture = function(self, name, layer, template, sub)
     S(self)
+    -- the client only accepts sublevels -8..7 (an 8 errors in game, silently nothing in a lax mock)
+    if sub ~= nil and (type(sub) ~= "number" or sub < -8 or sub > 7) then
+      error("CreateTexture: sublevel out of range (-8..7): " .. tostring(sub), 2)
+    end
     local t, ts = M.CreateObject("Texture", name, self)
     ts.layer, ts.sublayer, ts.template = layer, sub, template
     return t
@@ -954,6 +958,8 @@ local EditBoxExtra = {
   SetFocus = function(self)
     local st = S(self)
     if st.focus then return end
+    -- as in WoW: an edit box that is not visible (itself or a parent hidden) does not take the focus
+    if not is_visible(self) then return end
     if M.focused and M.focused ~= self and OBJ[M.focused] then Methods.EditBox.ClearFocus(M.focused) end
     st.focus = true
     M.focused = self

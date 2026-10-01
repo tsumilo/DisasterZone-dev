@@ -48,7 +48,12 @@ local MAX_NAME_LEN = 32
 local MAX_PAGE_NAME = 24
 local MAX_HEADER = 20
 local MAX_LABEL = 48
-local MAX_CELL = 64
+local MAX_CELL = 64                  -- a target's label
+local MAX_TEXT = 160                 -- a text cell, a text on the map
+local MAX_TEXT_LINES = 8             -- lines of such a text
+local MAX_NOTES = 1000               -- a page's notes
+local TEXT_MIN, TEXT_MAX = 8, 48     -- a map text's font size
+local TEXT_BOX_MIN = 40              -- a map text's narrowest box (board units)
 local MAX_FILTER = 80
 local MAX_ICON = 64
 local MAX_COLOR = 12
@@ -65,6 +70,8 @@ Strategy.MAX_PAGES, Strategy.MAX_ELEMENTS, Strategy.MAX_BLOCKS = MAX_PAGES, MAX_
 Strategy.MAX_COLS, Strategy.MAX_ROWS = MAX_COLS, MAX_ROWS
 Strategy.MAX_NAME_LEN, Strategy.MAX_LABEL, Strategy.MAX_CELL = MAX_NAME_LEN, MAX_LABEL, MAX_CELL
 Strategy.MAX_HEADER, Strategy.MAX_PAGE_NAME = MAX_HEADER, MAX_PAGE_NAME
+Strategy.MAX_TEXT, Strategy.MAX_NOTES = MAX_TEXT, MAX_NOTES
+Strategy.TEXT_MIN, Strategy.TEXT_MAX, Strategy.TEXT_BOX_MIN = TEXT_MIN, TEXT_MAX, TEXT_BOX_MIN
 Strategy.ROLES = { "tank", "healer", "melee", "ranged" }
 
 local roundSeen = {}
@@ -88,6 +95,27 @@ local function CleanText(s, maxLen)
     s = Util.Trim(s)
     if s == "" or #s > maxLen or s:find("[%c|]") then return nil end
     return s
+end
+
+-- A text of several lines (a text cell, a text on the map): line breaks are fine, other control characters aren't.
+local function CleanLines(s, maxLen)
+    if type(s) ~= "string" then return nil end
+    s = Util.Trim(s)
+    if s == "" or #s > maxLen or s:find("|") then return nil end
+    local flat, breaks = s:gsub("\n", "")
+    if breaks >= MAX_TEXT_LINES or flat:find("%c") then return nil end
+    return s
+end
+
+-- Typed text made fit for a text cell / a text on the map: no |, at most MAX_TEXT_LINES lines, maxLen characters.
+function Strategy.TidyText(text, maxLen)
+    text = tostring(text or ""):gsub("|", ""):gsub("\r", ""):gsub("[^%C\n]", " ")
+    local n = 0
+    text = Util.Trim(text):gsub("\n", function()
+        n = n + 1
+        if n >= MAX_TEXT_LINES then return " " end
+    end)
+    return Util.Trim(text:sub(1, maxLen))
 end
 
 local function WireKey(s)
@@ -238,7 +266,7 @@ local function CleanElement(e)
         out.c = e.c
     end
     if e.l ~= nil then
-        out.l = CleanText(e.l, MAX_LABEL)
+        if t == "x" then out.l = CleanLines(e.l, MAX_TEXT) else out.l = CleanText(e.l, MAX_LABEL) end
         if not out.l then return nil end
     end
     -- any drawing can be linked to a block / column / slot, belong to a group, and (icons, zones) wear a raid mark
@@ -271,9 +299,20 @@ local function CleanElement(e)
         end
     elseif t == "x" then
         if not out.l then return nil end
+        -- the size: 1-3 (small / normal / large) or the font size itself (dragged at the corner)
         if e.z ~= nil then
-            if not IsInt(e.z, 1, 3) then return nil end
+            if not (IsInt(e.z, 1, 3) or IsInt(e.z, TEXT_MIN, TEXT_MAX)) then return nil end
             out.z = e.z
+        end
+        -- its lines start at the left / end at the right of its box; nil = centred
+        if e.j ~= nil then
+            if e.j ~= "l" and e.j ~= "r" then return nil end
+            out.j = e.j
+        end
+        -- the width of its box (the text wraps inside); nil = as wide as its size allows
+        if e.w ~= nil then
+            if not IsInt(e.w, TEXT_BOX_MIN, BOARD_W) then return nil end
+            out.w = e.w
         end
     elseif t == "s" then
         if not SplitSlot(e.r) then return nil end
@@ -310,7 +349,7 @@ local function CleanCell(colType, v)
         if not ok or not f then return nil end
         return { f = f }
     elseif colType == "x" then
-        return CleanText(v, MAX_CELL)
+        return CleanLines(v, MAX_TEXT)
     elseif colType == "g" then
         if type(v) ~= "table" then return nil end
         local out = {}
@@ -438,7 +477,7 @@ local function CleanPage(p, blockIds)
     end
     if p.no ~= nil then
         -- page notes: free text (several lines allowed)
-        if type(p.no) ~= "string" or #p.no > 400 or p.no:find("|") then return nil end
+        if type(p.no) ~= "string" or #p.no > MAX_NOTES or p.no:find("|") then return nil end
         local s = Util.Trim(p.no)
         if s ~= "" then out.no = s end
     end
@@ -833,7 +872,7 @@ function Strategy:GetSlots(strat)
                 for ci, col in ipairs(k.c) do
                     local cell = k.d and k.d[row] and k.d[row][ci]
                     if not rowLabel and cell ~= nil then
-                        if col.t == "x" then rowLabel = cell
+                        if col.t == "x" then rowLabel = (cell:gsub("\n", " "))
                         elseif col.t == "g" and cell.l then rowLabel = cell.l end
                     end
                 end
@@ -1036,8 +1075,8 @@ function Strategy:Explain(r)
     for pi, p in ipairs(r.p) do
         local where = "page " .. tostring(p.n or pi)
         if not CleanText(p.n, MAX_PAGE_NAME) then return where .. ": the page name must be 1-24 characters" end
-        if type(p.no) == "string" and (#p.no > 400 or p.no:find("|")) then
-            return where .. ": the notes are " .. #p.no .. " characters (at most 400, no |)"
+        if type(p.no) == "string" and (#p.no > MAX_NOTES or p.no:find("|")) then
+            return where .. ": the notes are " .. #p.no .. " characters (at most " .. MAX_NOTES .. ", no |)"
         end
         if #(p.e or {}) > MAX_ELEMENTS then return where .. ": more than " .. MAX_ELEMENTS .. " drawings" end
         for ei, e in ipairs(p.e or {}) do

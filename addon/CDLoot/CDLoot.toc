@@ -2,7 +2,7 @@
 ## Title: |cffff8000CD|rLoot
 ## Notes: BiS lists, Loot Council overview and boss-drop alerts for <Casual Disaster>.
 ## Author: Casual Disaster
-## Version: 0.8.0
+## Version: 0.9.1
 ## X-CDL-Protocol: 1
 ## SavedVariables: CDLootDB
 ## OptionalDeps: LoonBestInSlot
@@ -95,6 +95,7 @@ Games\Azeromon\Atlas.lua
 Games\Azeromon\Mon.lua
 Games\Azeromon\Battle.lua
 Games\Azeromon\Maps.lua
+Games\Azeromon\MapsStranglethorn.lua
 Games\Azeromon\Game.lua
 Games\Azeromon\Net.lua
 Games\Azeromon\PvP.lua
@@ -104,6 +105,7 @@ Games\Azeromon\GuildBoard.lua
 Games\Azeromon\Bounties.lua
 Games\Azeromon\Trade.lua
 Games\Azeromon\Crafting.lua
+Games\Azeromon\Hideout.lua
 Games\Azeromon\Changelog.lua
 Games\Azeromon\Sound.lua
 Games\Azeromon\Arena.lua

@@ -6,6 +6,32 @@
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "0.9.1", date = "1 October 2026", title = "Strategy drafts and texts",
+      sections = {
+          { heading = "Strategy boards", lines = {
+              "Unsaved work survives a disconnect, a logout and a /reload, undo history included.",
+              "Unsaved work is a draft: Raids > Strategies lists your drafts under their boss.",
+              "Several drafts can wait at once; Continue goes on with one, saving it makes it a strategy.",
+              "Longer texts: 160 characters in text cells and map texts (they wrap), 1000 in page notes.",
+              "Drag the corner of a text on the map to resize it; Shift-drag sets the width of its box.",
+              "Texts are typed in a box of several lines: Enter starts a new line, Ctrl+Enter is OK.",
+              "A selected text can be aligned left, centre or right (buttons under the map).",
+              "Fixed: text prompts take the keyboard right away and no longer sit behind map icons.",
+              "Everyone needs this version to receive strategies that use the longer or resized texts.",
+          } },
+      } },
+    { version = "0.9.0", date = "30 September 2026", title = "Azeromon: Stranglethorn Vale",
+      sections = {
+          { heading = "Raid log", lines = {
+              "Boss kills now record how long the fight took (shown on the Guild Hall trophies).",
+          } },
+          { heading = "Azeromon (Games)", lines = {
+              "Stranglethorn Vale: the road south of Darkshire down to Booty Bay, with two new badges.",
+              "Beasts grow to level 100 with up to four forms; 60 new beasts and grown forms.",
+              "A prettier world map. Esc pauses the game first; a second Esc closes CDLoot.",
+              "The Guild Hall: a trophy plinth for every raid boss, filled from the guild's raid log.",
+          } },
+      } },
     { version = "0.8.0", date = "30 September 2026", title = "Strategy boards",
       sections = {
           { heading = "Strategy boards (Raids > Strategies)", lines = {

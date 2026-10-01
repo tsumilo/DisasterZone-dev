@@ -8,7 +8,7 @@ local addonName, ns = ...
 
 local BlocksUI = ns:NewModule("StrategyBlocksUI")
 
-local floor, max, min = math.floor, math.max, math.min
+local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tinsert, tremove = table.insert, table.remove
 
 local TITLE_H, HEAD_H, ROW_H, GAP = 20, 16, 18, 8
@@ -50,7 +50,7 @@ Panel.__index = Panel
 
 -- opts: mode() -> "edit"|"fill"|"view"; page(); strat(); assigned(ref) -> key; memberInfo(key) -> { c, missing };
 -- isDup(ref); onAssign(ref, key|nil); members() -> { {key, c, sp} }; onChange(); onHover(ref|nil); prompt(title, def, cb,
--- multiline); slotName(ref) -> coloured player name or nil.
+-- multiline, maxLen); slotName(ref) -> coloured player name or nil.
 function BlocksUI:Create(parent, opts)
     local self = setmetatable({}, Panel)
     self.opts = opts
@@ -264,9 +264,9 @@ function Panel:EditNotes()
     if not page then return end
     self.opts.prompt("Page notes (shown under the blocks)", page.no or "", function(text)
         text = ns.Util.Trim((text or ""):gsub("|", ""))
-        page.no = text ~= "" and text:sub(1, 400) or nil
+        page.no = text ~= "" and text:sub(1, S().MAX_NOTES) or nil
         self:Changed()
-    end, true)
+    end, true, S().MAX_NOTES)
 end
 
 function Panel:AddMenu(owner)
@@ -635,10 +635,10 @@ function Panel:CellMenu(owner, k, row, ci)
     local cell = k.d and k.d[row] and k.d[row][ci]
     if col.t == "x" then
         self.opts.prompt("Text", cell or "", function(text)
-            text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_CELL)
+            text = S().TidyText(text, S().MAX_TEXT)
             setCell(k, row, ci, text ~= "" and text or nil)
             self:Changed()
-        end)
+        end, true, S().MAX_TEXT)
         return
     end
     if col.t ~= "g" then return end
@@ -1113,6 +1113,7 @@ function Panel:Render()
             c.fs:ClearAllPoints()
             c.fs:SetPoint("LEFT", 4, 0)
             c.fs:SetPoint("RIGHT", -2, 0)
+            c.fs:SetWordWrap(false)
             c.lit:Hide()
             c:SetPill(nil)
             c.slotRef, c.hoverRef, c.tip, c.onClick, c.rowMenu, c.headRef, c.blockId = nil, nil, nil, nil, nil, nil, nil
@@ -1146,6 +1147,7 @@ function Panel:Render()
         end
         for row = 1, k.r do
             local x = 0
+            local rowH, rowFirst = ROW_H, used + 1
             for ci, col in ipairs(k.c) do
                 local c = cell(x, by, widths[ci], ci == #k.c)
                 local v = k.d and k.d[row] and k.d[row][ci]
@@ -1161,9 +1163,14 @@ function Panel:Render()
                         c.fs:SetText(grey(row))
                     end
                 elseif col.t == "x" then
+                    -- a long text wraps: the row grows with it
+                    c.fs:ClearAllPoints()
+                    c.fs:SetPoint("LEFT", 4, 0)
+                    c.fs:SetWidth(max(10, widths[ci] - 8))
+                    c.fs:SetWordWrap(true)
                     c.fs:SetText(v or (mode == "edit" and grey("click to type") or ""))
+                    rowH = max(rowH, ceil(c.fs:GetStringHeight() or 0) + 8)
                     if mode == "edit" then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
-                    if v and #v > 18 then c.tip = { v } end
                 elseif col.t == "g" then
                     local text = v and v.l or ""
                     local linkTip
@@ -1251,7 +1258,10 @@ function Panel:Render()
                 end
                 x = x + widths[ci]
             end
-            by = by + ROW_H
+            if rowH > ROW_H then
+                for i = rowFirst, used do b.cells[i]:SetHeight(rowH) end
+            end
+            by = by + rowH
         end
         for i = used + 1, #b.cells do b.cells[i]:Hide() end
         -- editing: + row / + column under the table

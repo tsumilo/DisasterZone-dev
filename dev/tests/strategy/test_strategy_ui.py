@@ -234,9 +234,16 @@ def unsaved_changes_are_guarded():
     bob.eval("local s = ns.StrategyBoard:GetState(); s.strat.n = 'Changed'; ns.StrategyBoard:MarkDirty()")
     bob.eval("ns.StrategyBoard:NewStrategy('BlackTemple:Illidan', 'Other')")
     w.tick(0.2)
-    assert "CDLOOT_PLAN_CONFIRM" in bob.popups()
-    assert board(bob)["name"] == "Changed"          # nothing dropped yet
-    # closing keeps the draft; reopening the same strategy resumes it
+    # nothing is asked and nothing dropped: the unsaved changes stay behind as a draft
+    assert "CDLOOT_PLAN_CONFIRM" not in bob.popups()
+    assert board(bob)["name"] == "Other"
+    names = sorted(d["n"] for d in bob.eval_py("return ns.StrategyBoard:GetDrafts()"))
+    assert names == ["Changed", "Other"], names
+    # editing the strategy again goes on with its draft
+    bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
+    st = board(bob)
+    assert st["name"] == "Changed" and st["dirty"] and st["mode"] == "edit", st
+    # closing keeps it on the board; opening the same strategy shows it again
     bob.eval("ns.StrategyBoard:Close()")
     bob.eval("ns.StrategyBoard:OpenStrategy(...)", sid)
     st = board(bob)

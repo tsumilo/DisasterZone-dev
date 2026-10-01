@@ -390,5 +390,112 @@ def empty_page_cards_and_link_pills():
     w.assert_no_errors()
 
 
+@case
+def text_resizes_at_its_corner():
+    w, c, bob, sid = setup()
+    # the text of the Council fixture: 'Major Nature Protection Potion' at 800, 500, normal size
+    select(bob, 5)
+    e = elems(bob)[4]
+    assert e["t"] == "x" and e["z"] == 2, e
+    box = bob.eval_py("local e = T_elems()[5]; return { w = e._w, h = e._h }")
+    hx, hy = e["x"] + box["w"] / 2, e["y"] + box["h"] / 2
+    assert bob.eval("return %s:HandleAt(...)" % CV, hx, hy) == "xsize"
+    assert bob.eval("return %s:HandleAt(...)" % CV, e["x"], e["y"]) is None
+
+    def drag(x, y, shift=False):
+        bob.eval("local cv, x, y = %s, ...; cv.Cursor = function() return x, y end; "
+                 "_G.IsMouseButtonDown = function() return true end" % CV, hx, hy)
+        bob.eval("%s:OnMouseDown('LeftButton')" % CV)
+        bob.set_modifiers(shift, False, False)
+        bob.eval("local cv, x, y = %s, ...; cv.Cursor = function() return x, y end; cv:OnDragUpdate()" % CV, x, y)
+        bob.eval("_G.IsMouseButtonDown = function() return false end; %s:OnMouseUp('LeftButton'); %s.Cursor = nil"
+                 % (CV, CV))
+        bob.set_modifiers(False, False, False)
+
+    # twice as far from the centre: twice the size (13 -> 26); no box width of its own
+    drag(e["x"] + box["w"], e["y"] + box["h"])
+    e2 = elems(bob)[4]
+    assert e2["z"] == 26 and "w" not in e2, e2
+    # far away: capped; back with one undo
+    box = bob.eval_py("local e = T_elems()[5]; return { w = e._w, h = e._h }")
+    hx, hy = e["x"] + box["w"] / 2, e["y"] + box["h"] / 2
+    drag(e["x"] + 5000, e["y"])
+    assert elems(bob)[4]["z"] == 48
+    key(bob, "Z", ctrl=True)
+    assert elems(bob)[4]["z"] == 26
+    # Shift: the width of the box, the size stays
+    select(bob, 5)
+    box = bob.eval_py("local e = T_elems()[5]; return { w = e._w, h = e._h }")
+    hx, hy = e["x"] + box["w"] / 2, e["y"] + box["h"] / 2
+    drag(e["x"] + 60, hy, shift=True)
+    e3 = elems(bob)[4]
+    assert e3["z"] == 26 and e3["w"] == 120, e3
+    bw = bob.eval("return T_elems()[5]._w")
+    assert abs(bw - 120) < 0.01, bw
+    # saved and synced with its size and box
+    bob.click(bob.eval("return %s.saveBtn" % W))
+    w.tick(3)
+    for name in ("Bob", "Lee"):
+        se = strategies(c[name], BOSS)[0]["p"][0]["e"][4]
+        assert se["z"] == 26 and se["w"] == 120, (name, se)
+    # out of range: not valid
+    for bad in ("e.z = 5", "e.z = 49", "e.w = 39", "e.w = 1001"):
+        res = bob.eval_py("local s = ns.Strategy:GetStrategy(...); local e = s.p[1].e[5]; %s; "
+                          "local ok, err = ns.Strategy:SaveStrategy(s); return { ok = ok }" % bad, sid)
+        assert res["ok"] is False, bad
+    w.assert_no_errors()
+
+
+@case
+def text_alignment_buttons():
+    w, c, bob, sid = setup()
+    btns = W + ".tools.alignBtns"
+
+    def state():
+        return bob.eval_py("local out = {}; for _, b in ipairs(%s) do out[b.align] = { b:IsShown(), b.active or false } end; "
+                           "return out" % btns)
+
+    def press(j):
+        bob.click(bob.eval("for _, b in ipairs(%s) do if b.align == ... then return b end end" % btns, j))
+
+    def justify():
+        return bob.eval("for _, o in ipairs(%s.pools.text) do if o.fs:IsShown() then return o.fs:GetJustifyH() end end" % CV)
+
+    # only with a text selected
+    select(bob, 4)                              # the skull icon
+    assert all(not v[0] for v in state().values()), state()
+    select(bob, 5)                              # the text: centred until told otherwise
+    st = state()
+    assert all(v[0] for v in st.values()) and st["c"][1] and not st["l"][1], st
+    assert justify() == "CENTER"
+    press("l")
+    assert elems(bob)[4]["j"] == "l" and justify() == "LEFT"
+    assert state()["l"][1] and not state()["c"][1]
+    press("r")
+    assert elems(bob)[4]["j"] == "r" and justify() == "RIGHT"
+    key(bob, "Z", ctrl=True)
+    assert elems(bob)[4]["j"] == "l"
+    # centre is the default: nothing stored
+    select(bob, 5)
+    press("c")
+    assert "j" not in elems(bob)[4] and justify() == "CENTER"
+    # several texts at once (the icon in the selection is left alone)
+    bob.eval("%s:Place({ t = 'x', x = 300, y = 500, l = 'One\\nTwo lines', z = 2 })" % CV)
+    n = len(elems(bob))
+    select(bob, 4, 5, n)
+    press("r")
+    es = elems(bob)
+    assert es[4]["j"] == "r" and es[-1]["j"] == "r" and "j" not in es[3], es
+    # saved and synced; anything else is not valid
+    bob.click(bob.eval("return %s.saveBtn" % W))
+    w.tick(3)
+    for name in ("Bob", "Lee"):
+        assert strategies(c[name], BOSS)[0]["p"][0]["e"][4]["j"] == "r", name
+    res = bob.eval_py("local s = ns.Strategy:GetStrategy(...); s.p[1].e[5].j = 'x'; "
+                      "local ok = ns.Strategy:SaveStrategy(s); return { ok = ok }", sid)
+    assert res["ok"] is False
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

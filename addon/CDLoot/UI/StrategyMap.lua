@@ -512,7 +512,7 @@ MapUI.clipboard = nil
 --   links()             -> { { ref, label } } blocks and columns
 --   validRef(ref)       -> does the link / slot exist in this strategy (paste from another one)
 --   dropRef()           -> the block reference under the cursor (link drags onto the tables), or nil
---   prompt(title, default, cb)
+--   prompt(title, default, cb, multiline, maxLen)
 --   bossRef()           -> the strategy's boss (map list, portraits)
 function MapUI:CreateCanvas(parent, width, opts)
     local self = setmetatable({}, Canvas)
@@ -906,6 +906,20 @@ function Canvas:RenderIcon(e)
 end
 
 local TEXT_SIZES = { 10, 13, 17 }
+local TEXT_WRAP_W = 320     -- board units: a text on the map wider than this wraps (at the normal size)
+
+local JUSTIFY = { l = "LEFT", r = "RIGHT" }
+
+-- The font size of a text: e.z is 1-3 (small / normal / large) or the size itself (dragged at the corner).
+local function textSize(e)
+    local z = e.z or 2
+    return TEXT_SIZES[z] or z
+end
+
+-- The width of a text's box in board units: its own (Shift-drag the corner), else one that grows with its size.
+local function textBox(e)
+    return e.w or TEXT_WRAP_W * textSize(e) / TEXT_SIZES[2]
+end
 
 function Canvas:RenderText(e)
     local o = acquire(self, "text", function(L)
@@ -913,15 +927,24 @@ function Canvas:RenderText(e)
     end)
     local r, g, b = MapUI:Color(e.c or 9)
     if self.lit and self.lit[e] then r, g, b = 1, 0.85, 0.1 end
-    o.fs:SetFont(fontPath(), self:FontSize(TEXT_SIZES[e.z or 2] or 13), "OUTLINE")
+    o.fs:SetFont(fontPath(), self:FontSize(textSize(e)), "OUTLINE")
     o.fs:ClearAllPoints()
     o.fs:SetPoint("CENTER", self.layer, "TOPLEFT", e.x * self.s, -e.y * self.s)
     o.fs:SetWidth(0)
+    o.fs:SetJustifyH(JUSTIFY[e.j] or "CENTER")
     o.fs:SetText(e.l or "")
     o.fs:SetTextColor(r, g, b)
     o.fs:Show()
-    e._w = (o.fs:GetStringWidth() or 40) / self.s
-    e._h = TEXT_SIZES[e.z or 2] * 1.4 / 0.7
+    -- a long text wraps onto several lines
+    local w = o.fs:GetStringWidth() or 40
+    local wrapW = textBox(e) * self.s
+    if w > wrapW then
+        o.fs:SetWidth(wrapW)
+        w = wrapW
+    end
+    local lines = max(1, floor((o.fs:GetStringHeight() or 0) / max(1, o.fs:GetLineHeight() or 12) + 0.5))
+    e._w = w / self.s
+    e._h = textSize(e) * 1.4 / 0.7 * lines
     o.hide = function() o.fs:Hide() end
 end
 
@@ -1166,7 +1189,32 @@ end
 
 function Canvas:GetSelected() return self.selected end
 
--- A handle of the only selected element under the point: "end1" | "end2" | "size" | "isize" | nil.
+-- How the selected texts are aligned: "l" | "c" | "r" (nil: no text selected, or they differ).
+function Canvas:TextAlign()
+    local j, any
+    for _, e in ipairs(self:Selection()) do
+        if e.t == "x" then
+            local ej = e.j or "c"
+            if any and ej ~= j then return nil, true end
+            j, any = ej, true
+        end
+    end
+    return j, any or false
+end
+
+-- Aligns the lines of the selected texts inside their boxes: "l" | "c" | "r".
+function Canvas:SetTextAlign(j)
+    local changed = false
+    for _, e in ipairs(self:Selection()) do
+        if e.t == "x" and (e.j or "c") ~= j then
+            e.j = (j == "l" or j == "r") and j or nil
+            changed = true
+        end
+    end
+    if changed then self:Changed() end
+end
+
+-- A handle of the only selected element under the point: "end1" | "end2" | "size" | "isize" | "xsize" | nil.
 function Canvas:HandleAt(x, y)
     local e = self.selected
     if not e or self:SelectionCount() ~= 1 then return nil end
@@ -1179,6 +1227,9 @@ function Canvas:HandleAt(x, y)
     elseif e.t == "i" then
         local r = (e.z or 32) / 2
         if abs(x - (e.x + r)) <= tol and abs(y - (e.y + r)) <= tol then return "isize" end
+    elseif e.t == "x" then
+        local w, h = (e._w or 60) / 2, (e._h or 20) / 2
+        if abs(x - (e.x + w)) <= tol and abs(y - (e.y + h)) <= tol then return "xsize" end
     end
     return nil
 end
@@ -1245,6 +1296,8 @@ function Canvas:RenderSelection()
         handle(1, e.x + e.w / 2, e.y + e.h / 2)
     elseif e.t == "i" then
         handle(1, e.x + (e.z or 32) / 2, e.y + (e.z or 32) / 2)
+    elseif e.t == "x" then
+        handle(1, e.x + (e._w or 60) / 2, e.y + (e._h or 20) / 2)
     end
 end
 
@@ -1584,7 +1637,11 @@ end
 local function editLabel(self, e)
     if not (e.t == "z" or e.t == "i" or e.t == "x") then return end
     self.opts.prompt(e.t == "x" and "Text" or "Label", e.l or "", function(text)
-        text = ns.Util.Trim(text or ""):gsub("|", ""):sub(1, S().MAX_LABEL)
+        if e.t == "x" then
+            text = S().TidyText(text, S().MAX_TEXT)
+        else
+            text = ns.Util.Trim(text or ""):gsub("|", ""):sub(1, S().MAX_LABEL)
+        end
         if text == "" then
             if e.t == "x" then return end
             e.l = nil
@@ -1592,7 +1649,7 @@ local function editLabel(self, e)
             e.l = text
         end
         self:Changed()
-    end)
+    end, e.t == "x", e.t == "x" and S().MAX_TEXT or nil)
 end
 
 function Canvas:OnMouseDown(button)
@@ -1615,7 +1672,13 @@ function Canvas:OnMouseDown(button)
     if tool == "select" then
         local h = self:HandleAt(x, y)
         if h then
-            self.drag = { mode = h, el = self.selected }
+            local e = self.selected
+            self.drag = { mode = h, el = e }
+            if h == "xsize" then
+                -- a text grows from its centre: the corner's distance at the start is its size now
+                self.drag.z0, self.drag.w0 = textSize(e), e.w
+                self.drag.r0 = max(4, sqrt(((e._w or 60) / 2) ^ 2 + ((e._h or 20) / 2) ^ 2))
+            end
             return
         end
         local e = self:HitTest(x, y)
@@ -1680,10 +1743,10 @@ end
 function Canvas:TextAt(x, y)
     if not room(self) then return end
     self.opts.prompt("Text", "", function(text)
-        text = ns.Util.Trim(text or ""):gsub("|", "")
+        text = S().TidyText(text, S().MAX_TEXT)
         if text == "" then return end
-        self:Place({ t = "x", x = x, y = y, l = text:sub(1, S().MAX_LABEL), c = self.color == 1 and 9 or self.color, z = 2 })
-    end)
+        self:Place({ t = "x", x = x, y = y, l = text, c = self.color == 1 and 9 or self.color, z = 2 })
+    end, true, S().MAX_TEXT)
 end
 
 function Canvas:OnDragUpdate()
@@ -1699,7 +1762,8 @@ function Canvas:OnDragUpdate()
         if abs(x - d.sx) + abs(y - d.sy) > 6 then
             d.mode = "link"
             local g = linkGhost()
-            g.fs:SetText("Link " .. (e.l or MapUI:IconName(e.i) or "drawing") .. ": drop on a player, a target or a column")
+            g.fs:SetText("Link " .. ((e.l and e.l:gsub("\n", " ")) or MapUI:IconName(e.i) or "drawing")
+                .. ": drop on a player, a target or a column")
             g:Show()
         end
         return
@@ -1736,6 +1800,16 @@ function Canvas:OnDragUpdate()
     elseif d.mode == "isize" then
         -- icons stay square around their centre
         e.z = max(12, min(96, floor(2 * max(abs(x - e.x), abs(y - e.y)) + 0.5)))
+    elseif d.mode == "xsize" then
+        if IsShiftKeyDown() then
+            -- Shift: the width of the box (the text wraps inside), the size stays
+            e.w = max(S().TEXT_BOX_MIN, min(S().BOARD_W, floor(2 * abs(x - e.x) + 0.5)))
+        else
+            -- the text grows and shrinks with the corner; a box set by hand scales along
+            local z = floor(d.z0 * sqrt((x - e.x) ^ 2 + (y - e.y) ^ 2) / d.r0 + 0.5)
+            e.z = max(S().TEXT_MIN, min(S().TEXT_MAX, z))
+            if d.w0 then e.w = max(S().TEXT_BOX_MIN, min(S().BOARD_W, floor(d.w0 * e.z / d.z0 + 0.5))) end
+        end
     elseif d.mode == "create" then
         if e.t == "a" then
             e.x2, e.y2 = x, y
@@ -1918,7 +1992,17 @@ function Canvas:ElementMenu(e)
             elseif e.t == "x" then
                 local size = root:CreateButton("Size")
                 for i, label in ipairs({ "Small", "Normal", "Large" }) do
-                    size:CreateRadio(label, function() return (e.z or 2) == i end, function() e.z = i; self:Changed() end)
+                    size:CreateRadio(label, function() return textSize(e) == TEXT_SIZES[i] end, function()
+                        e.z = i
+                        self:Changed()
+                    end)
+                end
+                local align = root:CreateButton("Align")
+                for _, a in ipairs({ { "l", "Left" }, { "c", "Centre" }, { "r", "Right" } }) do
+                    align:CreateRadio(a[2], function() return (e.j or "c") == a[1] end, function() self:SetTextAlign(a[1]) end)
+                end
+                if e.w then
+                    root:CreateButton("Fit the box to the text", function() e.w = nil; self:Changed() end)
                 end
             end
         end

@@ -241,7 +241,7 @@ local function RowInfo(k, row, a)
         elseif col.t == "g" and info.target == nil and type(d[ci]) == "table" then
             info.target = d[ci]
         elseif col.t == "x" and info.text == nil and type(d[ci]) == "string" then
-            info.text = d[ci]
+            info.text = (d[ci]:gsub("\n", " "))
         end
     end
     local t = info.target
@@ -978,7 +978,9 @@ local function Slash(rest)
         P.Slash(rest == "stop" and "stop" or Util.Trim(raw:sub(9)))
         return
     end
-    if rest == "check" then
+    if rest == "draft" then
+        if ns.StrategyBoard then ns.StrategyBoard:OpenDraft() end
+    elseif rest == "check" then
         Live:Check()
     elseif rest == "debug" then
         debugOn = not debugOn
@@ -996,7 +998,7 @@ local function Slash(rest)
         end
         ns:Print("/cdl strat practice [boss] - try it solo (a target dummy is ideal); /cdl strat stop; "
             .. "/cdl strat check - test the setup; /cdl strat debug - print what the helpers see; "
-            .. "/cdl strat reset - forget the current boss.")
+            .. "/cdl strat reset - forget the current boss; /cdl strat draft - back to your unsaved strategy.")
     end
 end
 

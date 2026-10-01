@@ -1,7 +1,8 @@
 -- CDLoot: UI/StrategiesView.lua
 -- Where the strategy boards live in the Raids tab (Addendum K):
 --   Strategies view   - the library: raids and their bosses on the left, the selected boss' strategies on the right
---                       (open / edit / copy / delete; New strategy for the GM, guild council and raid leaders).
+--                       (open / edit / copy / delete; New strategy for the GM, guild council and raid leaders), with
+--                       my unsaved drafts on top (continue / discard; saving one makes it a strategy).
 --   Assignments tab   - of a planned raid (Upcoming): its bosses, the strategy each uses and how many slots are
 --                       filled, with Open (everyone) and Assign (authors).
 local addonName, ns = ...
@@ -68,9 +69,11 @@ local function initBossRow(row, d)
         row:EnableMouse(false)
     else
         row:EnableMouse(true)
-        row.fs:SetFontObject(d.count > 0 and "GameFontHighlight" or "GameFontDisable")
+        local drafts = d.drafts or 0
+        row.fs:SetFontObject((d.count > 0 or drafts > 0) and "GameFontHighlight" or "GameFontDisable")
         row.fs:SetText("   " .. d.name)
-        row.n:SetText(d.count > 0 and tostring(d.count) or "")
+        row.n:SetText((drafts > 0 and ("|cffff9933" .. drafts .. (drafts == 1 and " draft" or " drafts") .. "|r"
+            .. (d.count > 0 and "  " or "")) or "") .. (d.count > 0 and tostring(d.count) or ""))
         row.sel:SetShown(d.ref == state.boss)
     end
 end
@@ -89,8 +92,21 @@ local function initStratRow(row, d)
         row.l2:SetPoint("RIGHT", -250, 0)
         row.l2:SetJustifyH("LEFT")
         row.l2:SetWordWrap(false)
+        -- a draft: an orange strip on the left
+        row.strip = row:CreateTexture(nil, "ARTWORK")
+        row.strip:SetPoint("TOPLEFT", 0, -3)
+        row.strip:SetPoint("BOTTOMLEFT", 0, 3)
+        row.strip:SetWidth(3)
+        row.strip:SetColorTexture(1, 0.6, 0.2, 1)
         row.del = UI():CreateButton(row, "Delete", 60, 20, function(self)
             local s = self:GetParent().__cdlData
+            local draft = s and s.draft
+            if draft then
+                ns.RaidPlanUI:Confirm(("Discard the draft \"%s\"? Its unsaved work is lost."):format(draft.n), function()
+                    Board():DiscardDraft(draft.did)
+                end)
+                return
+            end
             s = s and s.s
             if not s then return end
             ns.RaidPlanUI:Confirm(("Delete the strategy \"%s\" for everyone?"):format(s.n), function()
@@ -113,7 +129,8 @@ local function initStratRow(row, d)
         row.copy:SetPoint("RIGHT", row.del, "LEFT", -4, 0)
         row.edit = UI():CreateButton(row, "Edit", 56, 20, function(self)
             local s = self:GetParent().__cdlData
-            if s and s.s then Board():OpenStrategy(s.s.id, "edit") end
+            if s and s.draft then Board():OpenDraft(s.draft.did)
+            elseif s and s.s then Board():OpenStrategy(s.s.id, "edit") end
         end)
         row.edit:SetPoint("RIGHT", row.copy, "LEFT", -4, 0)
         row.open = UI():CreateButton(row, "Open", 56, 20, function(self)
@@ -123,9 +140,32 @@ local function initStratRow(row, d)
         row.open:SetPoint("RIGHT", row.edit, "LEFT", -4, 0)
         row:SetScript("OnClick", function(self)
             local s = self.__cdlData
-            if s and s.s then Board():OpenStrategy(s.s.id) end
+            if s and s.draft then Board():OpenDraft(s.draft.did)
+            elseif s and s.s then Board():OpenStrategy(s.s.id) end
         end)
     end
+    local draft = d.draft
+    row.strip:SetShown(draft ~= nil)
+    row.edit:SetText(draft and "Continue" or "Edit")
+    row.edit:SetWidth(draft and 76 or 56)
+    row.del:SetText(draft and "Discard" or "Delete")
+    if draft then
+        -- my unsaved work: only I see it, saving it makes it a strategy (or updates the one it changes)
+        row.l1:SetText(draft.n .. "  |cffff9933Draft|r")
+        row.l2:SetText(("%s · %d page%s · %d block%s · last edited %s"):format(
+            draft.id and "unsaved changes" or "not saved yet", draft.pages, draft.pages == 1 and "" or "s",
+            draft.blocks, draft.blocks == 1 and "" or "s", date("%d %b %H:%M", draft.at)))
+        row.edit:Show()
+        row.del:Show()
+        row.copy:Hide()
+        row.open:Hide()
+        row.edit:ClearAllPoints()
+        row.edit:SetPoint("RIGHT", row.del, "LEFT", -4, 0)
+        return
+    end
+    row.edit:ClearAllPoints()
+    row.edit:SetPoint("RIGHT", row.copy, "LEFT", -4, 0)
+    row.open:Show()
     local s = d.s
     row.l1:SetText(s.n)
     row.l2:SetText(("%d page%s · %d block%s · by %s, %s"):format(#s.p, #s.p == 1 and "" or "s", countBlocks(s),
@@ -174,12 +214,14 @@ end
 function View:RefreshLibrary()
     if not lib or not lib:IsVisible() then return end
     local counts = S():CountByBoss()
+    local drafts = {}
+    for _, dr in ipairs(Board():GetDrafts()) do drafts[dr.b] = (drafts[dr.b] or 0) + 1 end
     local rows = {}
     local first, firstWith
     for _, raid in ipairs(S():GetRaidTree()) do
         rows[#rows + 1] = { header = true, name = raid.name }
         for _, b in ipairs(raid.bosses) do
-            rows[#rows + 1] = { ref = b.ref, name = b.name, count = counts[b.ref] or 0 }
+            rows[#rows + 1] = { ref = b.ref, name = b.name, count = counts[b.ref] or 0, drafts = drafts[b.ref] }
             first = first or b.ref
             if not firstWith and (counts[b.ref] or 0) > 0 then firstWith = b.ref end
         end
@@ -199,6 +241,7 @@ function View:RefreshLibrary()
     d.sub:SetText(S():GetRaidName(state.boss) .. grey("  ·  a strategy is a map with zones, arrows and icons plus "
         .. "blocks of jobs; the raid leader fills in the names per raid"))
     local list = {}
+    for _, dr in ipairs(Board():GetDrafts(state.boss)) do list[#list + 1] = { draft = dr } end
     for _, s in ipairs(S():GetStrategies(state.boss)) do list[#list + 1] = { s = s } end
     d.list:SetEmptyText(editor and "No strategy for this boss yet.\nClick New strategy to build one."
         or "No strategy for this boss yet.\nThe Guild Master, the guild council and the raid leaders build them here.")
@@ -261,6 +304,7 @@ local function initRaidBossRow(row, d)
         line = ("%d / %d slots filled"):format(n, #slots)
         if mine > 0 then line = line .. "  ·  |cff33ff99you have " .. mine .. (mine == 1 and " job" or " jobs") .. "|r" end
         if fill and fill.by then line = line .. grey("  ·  by " .. shortName(fill.by)) end
+        if Board():FillDraft(d.occ, d.ref) then line = line .. "  ·  |cffff9933unsaved draft|r" end
     end
     row.l2:SetText(line)
     local editor = S():CanEdit()
@@ -302,6 +346,14 @@ function View:RefreshRaid(v)
 end
 
 function View:OnInit()
+    ns:On("STRATEGY_DRAFTS_CHANGED", function()
+        ns.Util.Debounce("strategies-ui-drafts", 0.3, function()
+            View:RefreshLibrary()
+            if assign and assign:IsVisible() and ns.RaidPlanUI and ns.RaidPlanUI.RefreshUpcoming then
+                ns.RaidPlanUI:RefreshUpcoming()
+            end
+        end)
+    end)
     ns:On("STRATEGY_CHANGED", function()
         ns.Util.Debounce("strategies-ui", 0.2, function()
             View:RefreshLibrary()
