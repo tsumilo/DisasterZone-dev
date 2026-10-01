@@ -1265,8 +1265,13 @@ function Patch:Publish()
         Stage(m, box.z0, box.z, srcs)
         publishedHere = true
         SendAnnounce()
-        ns:Print("published update %s (#%d): %d file(s), %d KB to send. Guild members who are online get it now; "
-            .. "everybody else when they log in.", m.version, m.seq, #m.items, ceil((m.ztotal + #box.z0) / 1024))
+        if m.base == "selftest" then     -- dev/tools/release.py selftest: addressed to no installed build
+            ns:Print("published update %s (#%d): %d file(s). It is a self-test: no member installs it. "
+                .. "Now /cdlpatch try, then /reload.", m.version, m.seq, #m.items)
+        else
+            ns:Print("published update %s (#%d): %d file(s), %d KB to send. Guild members who are online get it now; "
+                .. "everybody else when they log in.", m.version, m.seq, #m.items, ceil((m.ztotal + #box.z0) / 1024))
+        end
     end)
 end
 
