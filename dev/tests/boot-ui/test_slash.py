@@ -86,15 +86,15 @@ def version_lists_peers():
     n0 = len(a.chat_frame)
     a.slash("/cdl version")
     lines = said(a, n0)
-    # (the TOC version: 0.9.1)
-    assert lines[0] == "CDLoot: CDLoot 0.9.1 (protocol 1). Addon users seen: 1", lines
-    assert any(l.strip().startswith("Alice  0.9.1  (online, council)") for l in lines), lines
-    assert any(l.strip().startswith("Bob  0.9.1  (online") for l in lines), lines
+    # (the TOC version: 0.10.0)
+    assert lines[0] == "CDLoot: CDLoot 0.10.0 (protocol 1). Addon users seen: 1", lines
+    assert any(l.strip().startswith("Alice  0.10.0  (online, council)") for l in lines), lines
+    assert any(l.strip().startswith("Bob  0.10.0  (online") for l in lines), lines
     # guildless: only me
     w2, s = solo("Solo", guild=None, tick=2)
     n0 = len(s.chat_frame)
     s.slash("/cdl version")
-    assert said(s, n0)[0] == "CDLoot: CDLoot 0.9.1 (protocol 1). Addon users seen: 0"
+    assert said(s, n0)[0] == "CDLoot: CDLoot 0.10.0 (protocol 1). Addon users seen: 0"
     no_errors(w)
     no_errors(w2)
 

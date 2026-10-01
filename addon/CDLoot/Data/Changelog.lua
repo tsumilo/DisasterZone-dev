@@ -6,7 +6,7 @@ if CDLootBoot and CDLootBoot.Run("Data/Changelog.lua", ...) then return end -- C
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "0.10.0", date = "October 2026", title = "Updates that arrive in game",
+    { version = "0.10.0", date = "1 October 2026", title = "Updates that arrive in game",
       sections = {
           { heading = "In-game updates", lines = {
               "From this version on, most updates reach you in game: no download, no unzipping.",

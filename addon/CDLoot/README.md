@@ -1,4 +1,4 @@
-# CDLoot 0.9.1
+# CDLoot 0.10.0
 
 BiS lists, a Loot Council overview, boss-drop alerts and rolls for **&lt;Casual Disaster&gt;**.
 For the WoW TBC Anniversary client (2.5.x, interface 20506).
