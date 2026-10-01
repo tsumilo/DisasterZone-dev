@@ -1,4 +1,4 @@
--- CDLoot: UI/StrategyBoard.lua
+if CDLootBoot and CDLootBoot.Run("UI/StrategyBoard.lua", ...) then return end -- CDLoot: UI/StrategyBoard.lua
 -- The strategy board window (Addendum K): a strategy's pages, each a map (UI/StrategyMap.lua) with the assignment
 -- blocks beside it (UI/StrategyBlocks.lua).
 -- Modes:

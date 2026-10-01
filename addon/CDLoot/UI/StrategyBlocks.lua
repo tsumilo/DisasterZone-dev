@@ -1,4 +1,4 @@
--- CDLoot: UI/StrategyBlocks.lua
+if CDLootBoot and CDLootBoot.Run("UI/StrategyBlocks.lua", ...) then return end -- CDLoot: UI/StrategyBlocks.lua
 -- The assignment blocks of a strategy page (Addendum K): small tables with a coloured title bar, optional column
 -- headers and rows of cells. Column types: player slot (p), target (g: icon + label, or another slot's player),
 -- order number (o) and text (x).

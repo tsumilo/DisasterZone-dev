@@ -1,4 +1,4 @@
--- CDLoot Games/Bingo/Card.lua
+if CDLootBoot and CDLootBoot.Run("Games/Bingo/Card.lua", ...) then return end -- CDLoot Games/Bingo/Card.lua
 -- ns.BingoCard: pure card logic (no frames, no events). A card is an array of 25 square ids (index 13 is
 -- the free centre) built from the game seed + the player's name key, so every client can rebuild anyone's
 -- card and count their lines from the shared hit set alone.

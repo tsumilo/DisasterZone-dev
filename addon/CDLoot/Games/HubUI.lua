@@ -1,4 +1,4 @@
--- CDLoot Games/HubUI.lua
+if CDLootBoot and CDLootBoot.Run("Games/HubUI.lua", ...) then return end -- CDLoot Games/HubUI.lua
 -- ns.GamesUI: the "Games" tab. A game list on the left, the selected game's panel on the right
 -- (panels are created lazily, once, and kept).
 local addonName, ns = ...

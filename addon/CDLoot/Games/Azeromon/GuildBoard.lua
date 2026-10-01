@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/GuildBoard.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/GuildBoard.lua", ...) then return end -- CDLoot Games/Azeromon/GuildBoard.lua
 -- ns.AzeroGuild: the guild Bestiary and leaderboard.
 -- Each player's addon shares a small summary with the guild on the game prefix (CDLg):
 --   AZS { v, n = tamed species, c = { dex numbers tamed }, b = badges, w/l/d = player-battle record,

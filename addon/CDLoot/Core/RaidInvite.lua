@@ -1,4 +1,4 @@
--- CDLoot: Core/RaidInvite.lua
+if CDLootBoot and CDLootBoot.Run("Core/RaidInvite.lua", ...) then return end -- CDLoot: Core/RaidInvite.lua
 -- Invite & sort (Addendum J §60): invites the players of a raid's group layout and moves everyone into their planned
 -- group. While it runs, players who join later are sorted automatically (until the raid session ends, I leave the
 -- group, or it is stopped); "Re-sort" runs the sorting on demand. Needs the raid leader or an assistant (the game only

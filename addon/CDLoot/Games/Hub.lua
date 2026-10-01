@@ -1,4 +1,4 @@
--- CDLoot Games/Hub.lua
+if CDLootBoot and CDLootBoot.Run("Games/Hub.lua", ...) then return end -- CDLoot Games/Hub.lua
 -- ns.Games: registry for the "waste your time" minigames. Each game registers itself with an id and a
 -- panel factory; the hub owns the per-game SavedVariables namespace (CDLootDB.games[id]), highscores and
 -- the combat guard (GAMES_COMBAT fires on entering / leaving combat so games can pause or shrink).

@@ -350,29 +350,48 @@ function ApproximatelyEqual(a, b, eps) return abs(a - b) <= (eps or 0.00001) end
 do
   local MOD = 4294967296
   local function norm(x) x = (tonumber(x) or 0) % MOD; if x < 0 then x = x + MOD end return m.floor(x) end
-  local function bitop(a, b, fn)
+  -- one hex digit at a time through a 16x16 table (the addon's SHA-256 calls these millions of times)
+  local function table4(fn)
+    local t = {}
+    for a = 0, 15 do
+      for b = 0, 15 do
+        local r, p, x, y = 0, 1, a, b
+        for _ = 1, 4 do
+          local xa, yb = x % 2, y % 2
+          if fn(xa, yb) then r = r + p end
+          x, y, p = (x - xa) / 2, (y - yb) / 2, p * 2
+        end
+        t[a * 16 + b] = r
+      end
+    end
+    return t
+  end
+  local AND = table4(function(x, y) return x == 1 and y == 1 end)
+  local OR = table4(function(x, y) return x == 1 or y == 1 end)
+  local XOR = table4(function(x, y) return x ~= y end)
+  local function bitop(a, b, T)
     a, b = norm(a), norm(b)
     local r, p = 0, 1
-    for _ = 1, 32 do
-      local x, y = a % 2, b % 2
-      if fn(x, y) then r = r + p end
-      a, b, p = (a - x) / 2, (b - y) / 2, p * 2
+    for _ = 1, 8 do
+      local x, y = a % 16, b % 16
+      r = r + T[x * 16 + y] * p
+      a, b, p = (a - x) / 16, (b - y) / 16, p * 16
     end
     return r
   end
   bit = {}
   function bit.band(a, b, ...)
-    local r = bitop(a, b, function(x, y) return x == 1 and y == 1 end)
+    local r = bitop(a, b, AND)
     if ... then return bit.band(r, ...) end
     return r
   end
   function bit.bor(a, b, ...)
-    local r = bitop(a, b or 0, function(x, y) return x == 1 or y == 1 end)
+    local r = bitop(a, b or 0, OR)
     if ... then return bit.bor(r, ...) end
     return r
   end
   function bit.bxor(a, b, ...)
-    local r = bitop(a, b or 0, function(x, y) return x ~= y end)
+    local r = bitop(a, b or 0, XOR)
     if ... then return bit.bxor(r, ...) end
     return r
   end

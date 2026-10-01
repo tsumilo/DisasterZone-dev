@@ -1,4 +1,4 @@
--- CDLoot: UI/StrategiesView.lua
+if CDLootBoot and CDLootBoot.Run("UI/StrategiesView.lua", ...) then return end -- CDLoot: UI/StrategiesView.lua
 -- Where the strategy boards live in the Raids tab (Addendum K):
 --   Strategies view   - the library: raids and their bosses on the left, the selected boss' strategies on the right
 --                       (open / edit / copy / delete; New strategy for the GM, guild council and raid leaders), with

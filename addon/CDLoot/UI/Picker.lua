@@ -1,4 +1,4 @@
--- CDLoot UI/Picker.lua
+if CDLootBoot and CDLootBoot.Run("UI/Picker.lua", ...) then return end -- CDLoot UI/Picker.lua
 -- ns.Picker: item picker flyout docked next to the main window. Lists the items that fit one slot from the
 -- ticked sources (ADDENDUM F §35: raids, 5-man dungeons, crafted, reputation, badge vendors, PvP), grouped
 -- into sections (raid -> boss, "Crafted — Blacksmithing" -> specialisation, ...), with a phase filter,

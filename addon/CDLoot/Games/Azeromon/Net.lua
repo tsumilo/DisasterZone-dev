@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Net.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Net.lua", ...) then return end -- CDLoot Games/Azeromon/Net.lua
 -- ns.AzeroNet: seeing guildmates who play Azeromon in the same world.
 -- While the game is open (and out of combat), each client tells the guild where it is, at most once a second:
 --   { t = "AZP", v, m = map, x, y, f = facing, p = "UDLR..." (steps taken since the last update), c = class,

@@ -1,4 +1,4 @@
--- CDLoot: Core/BiS.lua
+if CDLootBoot and CDLootBoot.Run("Core/BiS.lua", ...) then return end -- CDLoot: Core/BiS.lua
 -- The player's own BiS list: record model, edits, commit/rev, spec detection,
 -- owned-item scanning (equipped / bags / bank / held tokens) and drop matching.
 -- Addendum F §36: disabled slots (data.dx = { [phase] = { [sid] = true } }, omitted when empty; the picks

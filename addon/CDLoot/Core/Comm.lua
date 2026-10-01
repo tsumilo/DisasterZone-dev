@@ -1,4 +1,4 @@
--- CDLoot: addon-message transport. AceComm-3.0 (+ChatThrottleLib) for chunking/throttling,
+if CDLootBoot and CDLootBoot.Run("Core/Comm.lua", ...) then return end -- CDLoot: addon-message transport. AceComm-3.0 (+ChatThrottleLib) for chunking/throttling,
 -- LibSerialize + LibDeflate for the payload. Four prefixes (ctrl, data, alert, game), one priority each; every received
 -- message is gated on the server-provided sender before it is decoded and dispatched.
 local addonName, ns = ...

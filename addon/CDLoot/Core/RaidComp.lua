@@ -1,4 +1,4 @@
--- CDLoot: Core/RaidComp.lua
+if CDLootBoot and CDLootBoot.Run("Core/RaidComp.lua", ...) then return end -- CDLoot: Core/RaidComp.lua
 -- Raid composition data (Addendum J §59): spec icons, the TBC buffs / debuffs a class and spec brings (party-wide
 -- ones matter for the group layout, raid-wide ones for the whole team or raid), roles, and the Auto-fill layout.
 -- Pure data + functions; no UI and no network.

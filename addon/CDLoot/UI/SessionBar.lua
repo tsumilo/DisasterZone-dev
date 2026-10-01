@@ -1,4 +1,4 @@
--- CDLoot: UI/SessionBar.lua
+if CDLootBoot and CDLootBoot.Run("UI/SessionBar.lua", ...) then return end -- CDLoot: UI/SessionBar.lua
 -- The raid session bar (Addendum I §51): a small movable bar every raider with CDLoot sees while the raid's
 -- authority runs a session ("(live dot) Karazhan  1:42:13 · 4/11 bosses  [BIS LOCKED]"); the authority gets an End raid
 -- button on it (with a confirmation). Same slim style as the encounter reminder (UI:StyleHud). It can't be closed while the session runs: only ending the raid hides it.

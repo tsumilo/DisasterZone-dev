@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/PvP.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/PvP.lua", ...) then return end -- CDLoot Games/Azeromon/PvP.lua
 -- ns.AzeroPvP: battles between guildmates. Lockstep: both clients run the same Battle from the same seed and
 -- only exchange their chosen action each turn (see Battle.lua, "Player battles").
 -- Whispers on the game prefix (CDLg):

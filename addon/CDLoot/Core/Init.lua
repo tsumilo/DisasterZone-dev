@@ -1,20 +1,31 @@
--- CDLoot: namespace bootstrap.
+if CDLootBoot and CDLootBoot.Run("Core/Init.lua", ...) then return end -- CDLoot: namespace bootstrap.
 -- Module registry + lifecycle (OnInit / OnLogin), event dispatcher, internal message bus,
 -- slash commands and Print / Debug output. Every other file builds on this one.
 local addonName, ns = ...
 
 CDLoot = ns                       -- the ONE debugging global
 ns.name = addonName               -- "CDLoot"
-ns.version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(addonName, "Version")) or "0.0.0"
+-- The boot loader (Core/Boot.lua); nil when the TOC does not list it. While an in-game update is running,
+-- ns.version is that update's version and ns.diskVersion the installed release it runs on top of.
+local Boot = CDLootBoot
+ns.diskVersion = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(addonName, "Version")) or "0.0.0"
+ns.version = (Boot and Boot.applied and Boot.applied.version) or ns.diskVersion
+ns.assetPack = (Boot and Boot.assetPack) or 0   -- number of the art set installed on disk (Core/BuildInfo.lua)
 ns.PROTO = 1                      -- wire protocol major (matches TOC X-CDL-Protocol)
 ns.initialized = false            -- true once OnInit has been dispatched
 ns.loggedIn = false               -- true right before OnLogin is dispatched
 
-local type, pairs, ipairs, select, tostring = type, pairs, ipairs, select, tostring
+local type, pairs, ipairs, select, tostring, tonumber = type, pairs, ipairs, select, tostring, tonumber
 local tinsert, tsort, tconcat = table.insert, table.sort, table.concat
 local strformat, strlower = string.format, string.lower
 
 local CHAT_PREFIX = "|cffff8000CDLoot|r: "
+
+-- True when the art set on disk is at least number n. Code that needs art added in set n must check this:
+-- an in-game update delivers code, never art, so a member may run this code with an older art set.
+function ns:HasAssets(n)
+    return ns.assetPack >= (tonumber(n) or 0)
+end
 
 ---------------------------------------------------------------------------
 -- Protected calls
@@ -118,7 +129,8 @@ local function DispatchLifecycle(method)
         local M = modules[i]
         local fn = M[method]
         if type(fn) == "function" then
-            SafeCall(fn, M)
+            local ok = SafeCall(fn, M)
+            if not ok and Boot and Boot.applied then Boot.NoteStartupError() end
         end
     end
 end
@@ -184,6 +196,7 @@ function ns:UnregisterEvent(event, fn)
 end
 
 eventFrame:SetScript("OnEvent", function(_, event, ...)
+    if Boot and Boot.safeMode then return end   -- an in-game update failed to load: the addon stays inert
     local list = eventHandlers[event]
     if not list then return end
     for i = 1, #list do
@@ -217,6 +230,7 @@ local KNOWN_MESSAGES = {
     GUILD_KEY_READY = true,
     -- Minigames (Games/Hub.lua): the game list / a highscore changed; (inCombat) combat started / ended
     GAMES_UPDATED = true, GAMES_COMBAT = true,
+    PATCH_UPDATED = true,   -- in-game updates (Core/Patch.lua): download progress / an update is ready / status
     BINGO_UPDATED = true,   -- Council Bingo (Games/Bingo): game started / square marked / game ended
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
@@ -298,6 +312,10 @@ local function HandleSlash(input)
     sub = strlower(sub or "")
     rest = rest or ""
 
+    if Boot and Boot.safeMode then
+        ns:Print("an in-game update failed to load; reload the interface (/reload) to go back to the installed version.")
+        return
+    end
     if sub == "" then
         if ns.MainFrame and ns.MainFrame.Toggle then
             ns.MainFrame:Toggle()
@@ -343,7 +361,7 @@ end, "toggle debug output")
 ---------------------------------------------------------------------------
 
 local function RunInit()
-    if ns.initialized then return end
+    if ns.initialized or (Boot and Boot.safeMode) then return end
     ns.initialized = true
     -- Modules run in TOC order, so ns.DB (after Init/Util/Constants/ItemDB) sets ns.db
     -- before any later module's OnInit.
@@ -357,10 +375,11 @@ local function RunInit()
 end
 
 local function RunLogin()
-    if ns.loggedIn then return end
+    if ns.loggedIn or (Boot and Boot.safeMode) then return end
     RunInit()
     ns.loggedIn = true
     DispatchLifecycle("OnLogin")
+    if Boot and Boot.LifecycleDone then Boot.LifecycleDone() end
 end
 
 local function OnAddonLoaded(_, loadedName)

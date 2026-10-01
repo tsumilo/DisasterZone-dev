@@ -128,7 +128,7 @@ event/timer/OnUpdate/script/message dispatch runs in `xpcall` + `debug.traceback
 `Client(world, name, realm="Thunderstrike", class_file="PALADIN", guild="Casual Disaster", guild_rank=3,
 online=True, level=70, race="Human", faction="Alliance", sex=2, talents=(41, 20, 0), legacy_globals=False,
 permissive_fields=False, items_uncached=False, preload_lua=None, addon_dir=None, other_addons=(),
-bank_requires_open=True, sv_before_files=False)`
+bank_requires_open=True, sv_before_files=None)`
 
 * `legacy_globals=True`: define the deprecation-gated globals (`GetItemInfo`, `GetItemInfoInstant`, `GetContainer*`,
   `GetAddOnMetadata`, `GuildRoster`, `GetLootMethod`). Absent by default.
@@ -231,8 +231,15 @@ Faithful where addon logic depends on it; permissive for visuals.
   errors in addon files are recorded and loading continues with the next file (like WoW).
 * **SavedVariables**: serialized to Lua source (nested tables, escaped strings incl. binary, integers up to
   2^53, floats `%.17g`, inf/nan, booleans; functions/userdata dropped; **recursive tables are an error**).
-  WoW assigns SavedVariables **after** the addon's files ran, just before `ADDON_LOADED` — so file-scope code sees
-  `CDLootDB == nil`; the mock does the same (`sv_before_files=True` for the other order).
+  WoW assigns SavedVariables **after** the addon's files ran, just before `ADDON_LOADED`, unless the TOC says
+  `## LoadSavedVariablesFirst: 1` (CDLoot's does, for in-game updates): then they are assigned before the first
+  file. The mock follows the TOC; `sv_before_files=True` / `False` forces one order (`False` = a client that ignores
+  the directive).
+* **Other copies of the addon**: `World(addon_dir=...)` / `Client(..., addon_dir=...)` load another folder (the
+  `tests/patch` suites build releases in a temp folder). The environment variables `CDLOOT_ADDON_DIR` and
+  `CDLOOT_PATCH_SV` (a file with a `CDLootPatchDB` table) redirect every suite; `tools/patched_run.py` sets them.
+* **Fault injection**: `world.addon_fault = fn(entry, recipient)` is called per recipient of every addon message;
+  return `False` to lose it (listed in the entry's `lost`), bytes to replace its text, `None` to deliver.
 
 ### Assumptions (checked against installed addons where possible)
 

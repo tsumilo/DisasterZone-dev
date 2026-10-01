@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/UI.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/UI.lua", ...) then return end -- CDLoot Games/Azeromon/UI.lua
 -- ns.AzeroUI: draws ns.Azero's state and forwards keyboard / mouse input.
 -- Screen: 11 x 9 tiles of 48px (16px art at 3x, nearest filtering), camera centred on the player.
 -- Keys (while the game has focus): arrows / WASD move, Space / Z / E = A, X / Q / Backspace = B (hold to run),

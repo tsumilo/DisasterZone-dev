@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Achievements.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Achievements.lua", ...) then return end -- CDLoot Games/Azeromon/Achievements.lua
 -- ns.AzeroAch: Azeromon achievements, fed by the game's event feed (G:On / G:Emit, see Game.lua).
 --
 -- Adding an achievement = one entry in ACHIEVEMENTS below:

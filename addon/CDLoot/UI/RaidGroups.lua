@@ -1,4 +1,4 @@
--- CDLoot: UI/RaidGroups.lua
+if CDLootBoot and CDLootBoot.Run("UI/RaidGroups.lua", ...) then return end -- CDLoot: UI/RaidGroups.lua
 -- The group grid (Addendum J §59-§60): a raid-wide buff strip, group boxes (2 for 10-man, 5 for 25-man) with the party
 -- buffs each group has, and a "Not in a group" pool. Members are chips (class icon, spec icon, name). Organizers move
 -- them by dragging, or by clicking a chip and then a group (or another chip, to swap; or an empty slot, to take it);

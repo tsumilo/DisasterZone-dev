@@ -15,3 +15,8 @@ backup/
 dev/tests/client-api/src/
 dev/tests/client-api/tree.json
 dev/tests/client-api/commit_*.json
+
+# In-game update signing key (private) and packaged releases
+dev/keys/
+dist/
+dev/tf_e/*.log

@@ -1,4 +1,4 @@
--- CDLoot UI/Tooltip.lua
+if CDLootBoot and CDLootBoot.Run("UI/Tooltip.lua", ...) then return end -- CDLoot UI/Tooltip.lua
 -- Adds CDLoot lines to item tooltips: your own BiS status for everyone and, for the Loot Council,
 -- who wants the item (SPEC §12.9). Uses HookScript("OnTooltipSetItem"); TooltipDataProcessor is retail-only.
 local addonName, ns = ...

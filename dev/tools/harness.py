@@ -28,7 +28,10 @@ if os.path.isdir(_SITE) and _SITE not in sys.path:
     sys.path.insert(0, _SITE)
 from lupa import lua51  # noqa: E402
 
-ADDON_DIR = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
+# CDLOOT_ADDON_DIR points the whole harness at another copy of the addon (tools/patched_run.py: a base release
+# tree whose saved CDLootPatchDB, named by CDLOOT_PATCH_SV, carries the current source as an in-game update).
+ADDON_DIR = os.environ.get("CDLOOT_ADDON_DIR") or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
+PATCH_SV_FILE = os.environ.get("CDLOOT_PATCH_SV") or None
 ADDON_NAME = "CDLoot"
 MOCK_DIR = os.path.join(HERE, "wowmock")
 MODULES = ("core.lua", "objects.lua", "ui.lua", "game.lua")
@@ -704,9 +707,19 @@ class World:
         self.addon_log.append(entry)
         recips = self._recipients(sender, chat_type, target, entry)
         entry["recipients"] = [c.full_name for c in recips]
+        fault = getattr(self, "addon_fault", None)
         for c in recips:
             tgt = c.full_name if chat_type == "WHISPER" else ""
-            self._enqueue(self.latency, c, "addon", (prefix, text, chat_type, sender.full_name, tgt, logged, entry))
+            payload_text = text
+            if fault is not None:
+                # fault injection (tests): addon_fault(entry, recipient) -> None deliver / False lose / bytes replace
+                res = fault(entry, c)
+                if res is False:
+                    entry.setdefault("lost", []).append(c.full_name)
+                    continue
+                if isinstance(res, (bytes, str)):
+                    payload_text = res
+            self._enqueue(self.latency, c, "addon", (prefix, payload_text, chat_type, sender.full_name, tgt, logged, entry))
         return 0
 
     def _recipients(self, sender, chat_type, target, entry):
@@ -968,14 +981,15 @@ class Client:
     def __init__(self, world, name, realm=None, class_file="PALADIN", guild="Casual Disaster", guild_rank=3,
                  online=True, level=70, race="Human", faction="Alliance", sex=2, talents=(41, 20, 0),
                  legacy_globals=False, permissive_fields=False, items_uncached=False, preload_lua=None,
-                 addon_dir=None, other_addons=(), bank_requires_open=True, sv_before_files=False):
+                 addon_dir=None, other_addons=(), bank_requires_open=True, sv_before_files=None):
         """One simulated player = one Lua runtime. Created online (runtime ready, addon not yet loaded) unless
         online=False (call .login() later). legacy_globals=True defines deprecation-gated globals (GetItemInfo,
         GetContainer*, GetAddOnMetadata, GuildRoster, GetLootMethod). permissive_fields=True makes unknown frame
         fields return auto-created mock frames instead of nil. items_uncached=True makes item data load
         asynchronously (first query returns nil + GET_ITEM_INFO_RECEIVED/ITEM_DATA_LOAD_RESULT next tick).
-        sv_before_files=True assigns SavedVariables BEFORE the addon files run (WoW assigns them after the files
-        ran, right before ADDON_LOADED, which is the default here)."""
+        sv_before_files: when SavedVariables are assigned. None (default) follows the TOC: before the addon files
+        run with "## LoadSavedVariablesFirst: 1", else after them, right before ADDON_LOADED (WoW's classic order).
+        True / False force one order (False = a client that ignores the directive)."""
         self.world = world
         self.name = name
         self.realm = realm or world.realm
@@ -1149,7 +1163,13 @@ class Client:
         headers, files = self.toc()
         self._set_time()
         self.M.set_toc_meta(ADDON_NAME, to_lua(self.runtime, headers))
-        if self.sv_before_files:
+        sv_first = self.sv_before_files
+        if sv_first is None:
+            sv_first = (headers.get("loadsavedvariablesfirst") or "").lower() in ("1", "true")
+        if PATCH_SV_FILE and "CDLootPatchDB" not in self.world.saved.get(self.full_name, {}):
+            with open(PATCH_SV_FILE, encoding="utf-8") as fh:
+                self.world.saved.setdefault(self.full_name, {})["CDLootPatchDB"] = fh.read()
+        if sv_first:
             self._apply_saved(headers)
         missing = []
         for rel in files:
@@ -1169,7 +1189,7 @@ class Client:
                 print("wowmock: %s.toc lists %d missing file(s), skipped: %s" % (ADDON_NAME, len(missing), ", ".join(missing)),
                       file=sys.stderr)
         # WoW order: SavedVariables are assigned after the files ran and right before ADDON_LOADED
-        if not self.sv_before_files:
+        if not sv_first:
             self._apply_saved(headers)
         self.M.addon_loaded(ADDON_NAME)
         self.M.login_events(not reload, bool(reload), self.world.roster_delay or 0)
@@ -1205,6 +1225,10 @@ class Client:
         """Load specific files (relative to the addon folder, or absolute) with (addon_name, ns). With
         fire_login=True also fire ADDON_LOADED + login events afterwards."""
         missing = []
+        if PATCH_SV_FILE and addon_name == ADDON_NAME and not self.eval("return CDLootPatchDB ~= nil"):
+            # patched run: the stored update must be there before the first file, as load_addon() arranges
+            with open(PATCH_SV_FILE, encoding="utf-8") as fh:
+                self.M.apply_saved("CDLootPatchDB", fh.read())
         for f in files:
             if os.path.isabs(f):
                 if not os.path.exists(f):

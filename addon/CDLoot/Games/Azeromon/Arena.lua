@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Arena.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Arena.lua", ...) then return end -- CDLoot Games/Azeromon/Arena.lua
 -- ns.AzeroArena: the Gurubashi Arena (Thor at Sentinel Hill flies you there). Short John Mithril runs a gauntlet:
 -- challengers one after another, stronger each time; no healing between fights (items are fine). After each win,
 -- fight on or leave with the prize so far; every REWARD_EVERY wins adds an item. The best streak is kept

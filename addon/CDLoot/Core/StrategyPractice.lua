@@ -1,4 +1,4 @@
--- CDLoot: Core/StrategyPractice.lua
+if CDLootBoot and CDLootBoot.Run("Core/StrategyPractice.lua", ...) then return end -- CDLoot: Core/StrategyPractice.lua
 -- Practice (Addendum K): try a strategy's encounter helpers alone, anywhere (a target dummy is ideal).
 -- The player takes the first row of every tracked table (and a plain job); demo players fill the other slots.
 -- A scripted minute: the boss is near, the pull, the rotation's target casting every few seconds (demo players kick

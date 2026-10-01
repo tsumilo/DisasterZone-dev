@@ -1,4 +1,4 @@
--- CDLoot: "Council" tab (SPEC §12.6): roster x slot matrix, "who wants it" per boss, read-only member view,
+if CDLootBoot and CDLootBoot.Run("UI/Council.lua", ...) then return end -- CDLoot: "Council" tab (SPEC §12.6): roster x slot matrix, "who wants it" per boss, read-only member view,
 -- and the Loot Council view (ADDENDUM E §30: guild council picked by the GM, raid council by the raid leader).
 -- Only offered to Loot Council members (or in demo mode). Built from ns.UI widgets and ns.PaperDoll.
 -- ADDENDUM F: slots a player disabled show a dark "–" and are left out of the counts (§36); the raid leader

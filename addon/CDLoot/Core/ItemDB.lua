@@ -1,4 +1,4 @@
--- CDLoot: item database access (ns.ItemDB).
+if CDLootBoot and CDLootBoot.Run("Core/ItemDB.lua", ...) then return end -- CDLoot: item database access (ns.ItemDB).
 -- Indexes over ns.Data (bosses, sources, tokens, upgrades), slot / class filtering,
 -- picker candidates, drop expansion and an async item-info cache.
 -- 5-man dungeons (ns.Data.Dungeons, Addendum B §21.2) are indexed alongside the raids: their bosses

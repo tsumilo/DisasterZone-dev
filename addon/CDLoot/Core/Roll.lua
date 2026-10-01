@@ -1,4 +1,4 @@
--- CDLoot: Core/Roll.lua
+if CDLootBoot and CDLootBoot.Run("Core/Roll.lua", ...) then return end -- CDLoot: Core/Roll.lua
 -- Roll sessions (Addendum A §19): one open roll at a time (others wait in a queue), RS/RR/RE/RW
 -- raid messages, /roll parsing from CHAT_MSG_SYSTEM, a BiS-aware winner suggestion and the award
 -- flow (master-loot hand-out or confirm, then record + announce). Sessions live in memory only.

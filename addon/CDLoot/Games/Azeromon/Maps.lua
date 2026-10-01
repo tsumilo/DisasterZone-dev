@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Maps.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Maps.lua", ...) then return end -- CDLoot Games/Azeromon/Maps.lua
 -- ns.AzeroMaps: the overworld. Each map is a grid of characters plus objects:
 --   .  grass            "  tall grass (encounters)     =  dirt path       T  tree        w  water
 --   W  wall   f  floor   r  exit mat   b  bed   d  shelf   p  pot   t  table   C  chest   c  counter   X  void

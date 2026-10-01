@@ -1,4 +1,4 @@
--- CDLoot Games/Bingo/Detect.lua
+if CDLootBoot and CDLootBoot.Run("Games/Bingo/Detect.lua", ...) then return end -- CDLoot Games/Bingo/Detect.lua
 -- ns.BingoDetect: turns raid events into Council Bingo squares. Runs only on the host of an active game
 -- (one detector = one truth, no range differences between clients); everyone else gets the hits via sync.
 -- Raid events only: combat log, encounters, /roll lines, ready checks, raid chat, disconnects. Never loot / council.

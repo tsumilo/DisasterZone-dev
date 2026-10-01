@@ -48,6 +48,16 @@ CDLoot only suggests. The council makes the loot decision.
 2. Delete the old `Interface\AddOns\CDLoot` folder, then copy the new one in. Replacing the whole folder makes sure no old files are left behind.
 3. Start the game and check the version with `/cdl version`. The first line shows your own version.
 
+### Updates that arrive in game
+From version 0.10.0 most updates arrive by themselves. The person who publishes an update sends it over the guild's addon channel; your client downloads it in the background, checks its signature and stores it.
+
+- When an update is ready, a popup asks to reload the interface. **Reload** applies it. **Later** is fine: the next `/reload` or login applies it.
+- The popup never appears in combat or during a boss fight, and nothing changes before you reload.
+- Only updates signed by the publisher are accepted, whoever relays them.
+- An update with new art (maps, Azeromon zones) still needs the download above. You get the rest of that update in game, and a chat line tells you there is new art to download.
+- `/cdl update` shows your version and the download progress. `/cdlpatch off` turns in-game updates off, `/cdlpatch on` back on, and `/cdlpatch rollback` goes back to the version you installed.
+- If an in-game update fails to load, CDLoot switches it off, stays inactive until you click **Reload**, and then runs the version you installed.
+
 Your data is safe when you update. Your lists, settings and the loot log are stored in
 `WTF\Account\<ACCOUNT>\SavedVariables\CDLoot.lua`, not in the addon folder. That file is shared by every character on the account. Each character still keeps its own BiS list.
 

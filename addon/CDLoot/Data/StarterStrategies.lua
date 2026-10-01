@@ -1,4 +1,4 @@
--- CDLoot: starter strategies for the strategy boards (Addendum K): a new strategy for a boss starts from its
+if CDLootBoot and CDLootBoot.Run("Data/StarterStrategies.lua", ...) then return end -- CDLoot: starter strategies for the strategy boards (Addendum K): a new strategy for a boss starts from its
 -- starter: the boss' floor map framed on the room and the encounter's creatures where they stand at the pull.
 -- Same shape as a strategy page (Core/Strategy.lua) with two conveniences resolved when loaded:
 --   page.map = a Data/RaidMaps.lua file name (instead of the map id m)

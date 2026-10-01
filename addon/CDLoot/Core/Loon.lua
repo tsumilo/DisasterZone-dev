@@ -1,4 +1,4 @@
--- CDLoot: Core/Loon.lua
+if CDLootBoot and CDLootBoot.Run("Core/Loon.lua", ...) then return end -- CDLoot: Core/Loon.lua
 -- Optional "Suggest BiS" templates captured at runtime from LoonBestInSlot's guides.
 -- CDLoot never requires LoonBestInSlot: without it every function here returns nothing.
 local addonName, ns = ...

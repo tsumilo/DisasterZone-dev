@@ -1,4 +1,4 @@
--- CDLoot UI/Widgets.lua
+if CDLootBoot and CDLootBoot.Run("UI/Widgets.lua", ...) then return end -- CDLoot UI/Widgets.lua
 -- ns.UI: shared widget factory (windows, item buttons, scroll lists, dropdowns, menus, tabs) and
 -- small colour / tooltip / chat helpers. Native WoW look; every frame is created on demand.
 local addonName, ns = ...

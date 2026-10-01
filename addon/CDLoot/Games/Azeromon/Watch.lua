@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Watch.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Watch.lua", ...) then return end -- CDLoot Games/Azeromon/Watch.lua
 -- ns.AzeroWatch: watching a battle between two guildmates (A on either player while they battle).
 -- Player battles are lockstep (PvP.lua), so a spectator needs no pictures of the fight: the player it asked sends
 -- the seed, both teams and every turn so far (AZV start), then each turn as it resolves (AZV turn). The spectator

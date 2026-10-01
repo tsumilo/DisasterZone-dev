@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Battle.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Battle.lua", ...) then return end -- CDLoot Games/Azeromon/Battle.lua
 -- ns.AzeroBattle: a pure single battle (no frames). The UI plays back `b.events` one by one and asks
 -- for input whenever `b.need` is set:
 --   "action"  pick Fight / Bag / Party / Run      -> b:Act{ kind = "move", idx } | { kind = "item", item, target }

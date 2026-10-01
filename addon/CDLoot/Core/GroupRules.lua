@@ -1,4 +1,4 @@
--- CDLoot: Core/GroupRules.lua
+if CDLootBoot and CDLootBoot.Run("Core/GroupRules.lua", ...) then return end -- CDLoot: Core/GroupRules.lua
 -- Leader-controlled group loot rules (Addendum D §24-§26 as amended by Addendum E §32/§33). The group's
 -- loot authority shares its roll duration, drop quality threshold, dungeon mode switch + 5-man quality and
 -- the phase for the group (GS on RAID / PARTY); everyone else reads those values through

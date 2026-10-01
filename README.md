@@ -13,7 +13,8 @@ CDLoot-dev/
   dev/
     docs/         SPEC.md + SPEC_ADDENDUM_A..H.md (design), research/ (api.md = verified 2.5.6 API notes),
                   impl/ (per-phase implementation, fix and review reports)
-    tools/        check.py (static checker), harness.py + wowmock/ (Lua 5.1 mock WoW client), README.md
+    tools/        check.py (static checker), harness.py + wowmock/ (Lua 5.1 mock WoW client), README.md,
+                  release.py + patchlib.py (full releases, signed in-game updates), patched_run.py
     tests/        36 scenario suites: tests/<area>/test_*.py
     tf_e/         run_all.py (runs every suite in parallel; output goes to tf_e/<name>/, git-ignored)
     generators/   gen_cdloot_data.py (raids), gen_cdloot_dungeons.py, gen_cdloot_sources.py
@@ -62,12 +63,29 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
 1. Edit the addon under `addon\CDLoot\`. This is the same folder as the game's AddOns folder.
 2. Run `tools\check.py` and `tf_e\run_all.py`, and add a test for any bug you fix.
 3. Test it in game with `/reload`. Paste any BugSack error into the next Claude session.
-4. Bump `## Version` in `CDLoot.toc` when you ship to the guild.
+4. Bump `## Version` in `CDLoot.toc` when you ship to the guild (see Releasing). A new Lua file needs the line-1 guard: `tools\release.py guards add`.
 5. Commit here: `git add -A && git commit -m "..."`.
 
 **Mock fidelity lesson.** The only bug that reached the game so far was a mock/real API mismatch: `GetInventoryItemID` returns 2 values in the real client, and the mock returned 1. Whenever the real client disagrees with the mock, fix the mock first, then the addon.
 
-## Sharing the addon
-Zip `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot` and send that zip. It holds only the addon.
+## Releasing
+
+There are two ways a change reaches the guild. `dev/docs/HOTPATCH.md` has the details, the edge cases and how to turn
+the feature off.
+
+| What | Command (from `dev`) | Members do |
+|---|---|---|
+| Full release (zip) | bump `## Version`, `luaenv\Scripts\python.exe tools\release.py full` | download `dist\CDLoot-<version>.zip`, extract into AddOns |
+| In-game update | bump `## Version`, `luaenv\Scripts\python.exe tools\release.py patch`, in game `/reload` + `/cdl publish` | click Reload when the popup appears |
+
+- Share the zip that `release.py full` writes, never a zip of the live folder: only the packaged copy has the build
+  id that in-game updates are matched against.
+- An in-game update carries Lua files only. `release.py patch` refuses anything else (TOC header, libraries, the boot
+  files) and tells you to make a full release. Art travels only as a full release; raise `assetPack` in
+  `Core\BuildInfo.lua` and gate the code with `ns:HasAssets(n)` so the code can still go out in game.
+- Every patchable file keeps its guard on line 1 (`release.py guards check`; `guards add` after creating a file).
+- The signing key is `dev\keys\patch_key.json`. It is git-ignored: back it up somewhere safe.
+- Before publishing a large update: `luaenv\Scripts\python.exe tools\patched_run.py` runs every suite with the
+  whole addon delivered through the update path.
 
 Read `addon\CDLoot\NOTICE.md` before sharing outside the guild. The data files are generated from GPL v2 AtlasLoot data.

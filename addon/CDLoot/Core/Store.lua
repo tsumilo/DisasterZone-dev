@@ -1,4 +1,4 @@
--- CDLoot: cached BiS lists of other players (council only), unified record access for the UI
+if CDLootBoot and CDLootBoot.Run("Core/Store.lua", ...) then return end -- CDLoot: cached BiS lists of other players (council only), unified record access for the UI
 -- (own record from ns.BiS, demo records when Demo is on) and the "who wants item X" index.
 -- Addendum F: disabled slots (data.dx) are validated and left out of the index / summaries (§36); while the
 -- raid's BiS lists are locked, council clients flag players whose picks change (§38, GetLockFlag).

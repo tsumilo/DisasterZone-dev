@@ -1,4 +1,4 @@
--- CDLoot Games/Bingo/Bingo.lua
+if CDLootBoot and CDLootBoot.Run("Games/Bingo/Bingo.lua", ...) then return end -- CDLoot Games/Bingo/Bingo.lua
 -- ns.Bingo: Council Bingo game state + raid sync. The host (raid leader / assistant who started the game)
 -- is the only client that detects events (Detect.lua) and broadcasts the shared hit set; every client
 -- rebuilds each raider's card from the seed, so bingos are computed locally and can't be faked.

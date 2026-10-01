@@ -1,4 +1,4 @@
--- CDLoot: sync protocol between guild members and the loot council.
+if CDLootBoot and CDLootBoot.Run("Core/Sync.lua", ...) then return end -- CDLoot: sync protocol between guild members and the loot council.
 -- HELLO / STATE / MANIFEST / WANT / LIST / RELAY flows, peer tracking, restore of a lost list.
 -- Owners are the only writers of their list (rev numbers); council clients cache and relay.
 -- Addendum E: council members carry the rev of their guild council list in HELLO / STATE ("cg") so an
@@ -226,7 +226,15 @@ local function NotePeer(key, v, c)
         p.v = v
         if not newerVersionNoted and Util.CompareVersions(v, ns.version) > 0 then
             newerVersionNoted = true
-            ns:Print("A newer CDLoot version (%s) is in use by %s. Please update.", v, Util.ShortName(key))
+            local Boot = ns.Boot
+            if Boot and not Boot.isDev and Boot.svFirst ~= false then
+                -- (Core/Patch.lua fetches it when it is an in-game update; the popup follows)
+                ns:Print("A newer CDLoot version (%s) is in use by %s. If it is an in-game update you get it by itself "
+                    .. "in a moment (/cdl update shows the progress); if nothing arrives, please download it.",
+                    v, Util.ShortName(key))
+            else
+                ns:Print("A newer CDLoot version (%s) is in use by %s. Please update.", v, Util.ShortName(key))
+            end
         end
     end
     if c ~= nil then p.c = c and true or false end

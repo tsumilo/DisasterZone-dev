@@ -1,4 +1,4 @@
--- CDLoot: Core/RaidLog.lua
+if CDLootBoot and CDLootBoot.Run("Core/RaidLog.lua", ...) then return end -- CDLoot: Core/RaidLog.lua
 -- Raid log (Addendum I §48-§49): records the raid session the raid's authority runs (GroupRules:GetSession, GS
 -- rs / rsAt) into db.raids: zone, boss kills with the roster at each kill, and attendance by raid group
 -- membership (not location, so ghost runs, AFKs and long trash clears are fine).

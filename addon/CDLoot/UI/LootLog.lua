@@ -1,4 +1,4 @@
--- CDLoot: "Loot Log" tab (SPEC §12.7): the council's award ledger with search, void/restore and manual awards.
+if CDLootBoot and CDLootBoot.Run("UI/LootLog.lua", ...) then return end -- CDLoot: "Loot Log" tab (SPEC §12.7): the council's award ledger with search, void/restore and manual awards.
 -- Dungeon-mode awards (entries with dg = true, ADDENDUM B §22.2) carry a grey "(dungeon)" tag and can be hidden.
 -- Also owns the "Record award" dialog that the Council view and the drop panel reuse (LootLogUI:OpenAwardDialog).
 local addonName, ns = ...

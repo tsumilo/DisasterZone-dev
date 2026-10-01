@@ -1,4 +1,4 @@
--- CDLoot: shared helpers (ns.Util).
+if CDLootBoot and CDLootBoot.Run("Core/Util.lua", ...) then return end -- CDLoot: shared helpers (ns.Util).
 -- Name keys, timers / debounce, table helpers, canonical encoding + hash, formatting,
 -- group (raid / party) tracking which fires GROUP_UPDATED, and the effective dungeon-mode checks
 -- (Util.IsDungeonModeActive / Util.GetGroupChannel, Addendum B §22.1, group rules: Addendum D §26).

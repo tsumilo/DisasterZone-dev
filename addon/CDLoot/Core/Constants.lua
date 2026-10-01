@@ -1,4 +1,4 @@
--- CDLoot: static constants.
+if CDLootBoot and CDLootBoot.Run("Core/Constants.lua", ...) then return end -- CDLoot: static constants.
 -- Slots (CDLoot's own sid 1..17), phases, classes / specs / roles, TBC armor and weapon
 -- proficiencies, colors and textures.
 local addonName, ns = ...

@@ -1,4 +1,4 @@
--- CDLoot: Core/Dungeon.lua
+if CDLootBoot and CDLootBoot.Run("Core/Dungeon.lua", ...) then return end -- CDLoot: Core/Dungeon.lua
 -- Dungeon mode (Addendum B §22.1): 5-man loot sharing (drops) and rolls in a party. The switch is my own
 -- setting (settings.dungeon.enabled) or a DM message from the party leader / a council member, which
 -- is remembered for this session only (Dungeon.groupEnabledBy). The effective checks are

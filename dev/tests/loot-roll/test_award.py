@@ -494,7 +494,8 @@ def demo_mode_solo_roll_and_award_stay_local():
     assert ledger_visible(s) == [], "demo awards discarded when demo mode ends"
     s.relog()
     w.tick(3)
-    assert "Aldrin" not in str(w.saved_variables(s)), "no demo data in SavedVariables"
+    # (CDLootDB only: CDLootPatchDB may hold source code, an in-game update, which names the demo raiders)
+    assert "Aldrin" not in str(w.saved_variables(s).get("CDLootDB")), "no demo data in SavedVariables"
     w.assert_no_errors()
 
 

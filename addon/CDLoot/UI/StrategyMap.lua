@@ -1,4 +1,4 @@
--- CDLoot: UI/StrategyMap.lua
+if CDLootBoot and CDLootBoot.Run("UI/StrategyMap.lua", ...) then return end -- CDLoot: UI/StrategyMap.lua
 -- The map canvas of a strategy page (Addendum K): the background (a built-in instance map, panned and zoomed by the
 -- author, or a blank grid) and the drawn elements (zones, arrows / lines, icons, text, slot tokens). Everything is in
 -- board units (1000 x 666) so a board looks the same at any size.

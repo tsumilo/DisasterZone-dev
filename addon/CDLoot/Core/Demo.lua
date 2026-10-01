@@ -1,4 +1,4 @@
--- CDLoot: demo mode (ns.Demo).
+if CDLootBoot and CDLootBoot.Run("Core/Demo.lua", ...) then return end -- CDLoot: demo mode (ns.Demo).
 -- In-memory fake guild members, BiS lists and a demo raid so the council views can be tried
 -- solo. Generated with a fixed-seed PRNG so the data is identical every time; never saved.
 local addonName, ns = ...

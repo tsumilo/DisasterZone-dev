@@ -1,4 +1,4 @@
--- CDLoot: "Raids" tab. Three views (Addendum J §58):
+if CDLootBoot and CDLootBoot.Run("UI/RaidsTab.lua", ...) then return end -- CDLoot: "Raids" tab. Three views (Addendum J §58):
 --   Upcoming - planned raids and sign-ups (everyone; UI/RaidPlanUI.lua)
 --   Teams    - the raid teams (everyone can look; organizers edit; UI/RaidPlanUI.lua)
 --   Strategies - the strategy boards per boss (everyone can look; GM, council and raid leaders build; Addendum K,

@@ -1,4 +1,4 @@
--- CDLoot: Core/Ledger.lua
+if CDLootBoot and CDLootBoot.Run("Core/Ledger.lua", ...) then return end -- CDLoot: Core/Ledger.lua
 -- Award log (council only): auto/manual entries, void/restore, merge rules, a de-duplicated
 -- view that is identical on every client, and digest-based sync (A / LW / LG messages).
 -- Addendum E §29: single awards (A) go between council members of any kind (a raid leader's picks share

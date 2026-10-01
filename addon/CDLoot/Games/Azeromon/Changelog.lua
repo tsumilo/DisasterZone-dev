@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Changelog.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Changelog.lua", ...) then return end -- CDLoot Games/Azeromon/Changelog.lua
 -- What's new, newest release first. The title screen's WHAT'S NEW shows one release per page and marks the entry
 -- "new" until the player has read the newest one (CDLootDB.games.azeromon.changelogSeen).
 -- To add a release: put a new table at the top. One short line per change (about 60 characters at most),

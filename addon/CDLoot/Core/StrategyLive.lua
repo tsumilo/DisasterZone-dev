@@ -1,4 +1,4 @@
--- CDLoot: Core/StrategyLive.lua
+if CDLootBoot and CDLootBoot.Run("Core/StrategyLive.lua", ...) then return end -- CDLoot: Core/StrategyLive.lua
 -- The strategy boards in the actual encounter (Addendum K, encounter helpers):
 --   * which plan applies: the raid session's linked planned raid -> its strategy + names for the boss (else the
 --     guild's only strategy of that boss, without names);

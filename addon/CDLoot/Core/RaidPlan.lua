@@ -1,4 +1,4 @@
--- CDLoot: Core/RaidPlan.lua
+if CDLootBoot and CDLootBoot.Run("Core/RaidPlan.lua", ...) then return end -- CDLoot: Core/RaidPlan.lua
 -- Raid planning (Addendum J §54-§57): teams, raid events (one-off or weekly), sign-ups and group layouts.
 --
 -- Organizers (the GM and the raid leaders, §62) write teams (T), weekly series (S) and events (E: a one-off raid, or an

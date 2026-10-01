@@ -34,7 +34,8 @@ def snapshot(c):
 
 
 def sv_text(c):
-    return "\n".join(c.saved_variables().values())
+    # the addon's data; CDLootPatchDB may hold source code (an in-game update), which names the demo raiders
+    return "\n".join(v for k, v in c.saved_variables().items() if k != "CDLootPatchDB")
 
 
 def exercise_demo_ui(c, w):

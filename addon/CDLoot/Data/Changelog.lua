@@ -1,4 +1,4 @@
--- CDLoot: Data/Changelog.lua
+if CDLootBoot and CDLootBoot.Run("Data/Changelog.lua", ...) then return end -- CDLoot: Data/Changelog.lua
 -- The release notes shown in the Changelog tab, newest release first.
 -- To add a release: put a new table at the top with the version it ships as. A version newer than the installed
 -- one is shown as "In testing" until the TOC version catches up. Sections group the changes; one short line per
@@ -6,6 +6,18 @@
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "0.10.0", date = "October 2026", title = "Updates that arrive in game",
+      sections = {
+          { heading = "In-game updates", lines = {
+              "From this version on, most updates reach you in game: no download, no unzipping.",
+              "When one is ready, a popup asks to reload the interface. Later is fine: a relog works too.",
+              "The popup never shows in combat or a boss fight, and nothing changes until you reload.",
+              "Updates with new art (maps, game zones) still need a download; the rest arrives anyway.",
+              "/cdl update shows your version and the download progress.",
+              "/cdlpatch off turns them off; /cdlpatch rollback returns to the installed version.",
+              "Install this version from the zip once. For most updates that is the last time.",
+          } },
+      } },
     { version = "0.9.1", date = "1 October 2026", title = "Strategy drafts and texts",
       sections = {
           { heading = "Strategy boards", lines = {

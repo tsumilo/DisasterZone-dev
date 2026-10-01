@@ -1,4 +1,4 @@
--- CDLoot UI/MyBiS.lua
+if CDLootBoot and CDLootBoot.Run("UI/MyBiS.lua", ...) then return end -- CDLoot UI/MyBiS.lua
 -- ns.MyBiS: the "My BiS" tab - phase buttons, spec, copy / suggest / clear tools, the editable
 -- paper doll and the progress card (what's obtained, which raids still have loot for you).
 -- ADDENDUM F: slots can be disabled per phase from the tile menu (§36; left out of the progress card),

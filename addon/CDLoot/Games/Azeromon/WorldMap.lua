@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/WorldMap.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/WorldMap.lua", ...) then return end -- CDLoot Games/Azeromon/WorldMap.lua
 -- ns.AzeroWorld: the world map (START > MAP). A schematic of every place, laid out the way the maps connect
 -- (Elwynn's north road leads to Westfall, Sentinel Hill's east road to Duskwood), not WoW's real geography.
 -- A place groups maps (a town and its houses). Roads come from the maps' edges and warps, gryphon routes from

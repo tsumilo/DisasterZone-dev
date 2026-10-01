@@ -1,4 +1,4 @@
--- CDLoot: UI/DatePicker.lua
+if CDLootBoot and CDLootBoot.Run("UI/DatePicker.lua", ...) then return end -- CDLoot: UI/DatePicker.lua
 -- A calendar date picker (CDLoot extension, Addendum J §58): a button showing the date; clicking it opens a month
 -- calendar (Monday first) with previous / next month arrows. Days outside [minDate, maxDate] are greyed out, today is
 -- outlined, the picked day highlighted, and days the caller marks (e.g. a raid is planned) get a dot with a tooltip.

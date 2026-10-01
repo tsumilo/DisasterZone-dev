@@ -1,4 +1,4 @@
--- CDLoot: Core/Strategy.lua
+if CDLootBoot and CDLootBoot.Run("Core/Strategy.lua", ...) then return end -- CDLoot: Core/Strategy.lua
 -- Strategy boards (Addendum K): per-boss strategies built from generic tools, and per-raid fills.
 --
 -- A strategy (kind B) belongs to one boss ("BlackTemple:Council") and holds pages (P1, P2, ...). Each page has a map

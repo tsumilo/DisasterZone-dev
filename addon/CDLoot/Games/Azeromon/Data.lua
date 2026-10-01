@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Data.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Data.lua", ...) then return end -- CDLoot Games/Azeromon/Data.lua
 -- ns.AzeroData: static game data for Azeromon (a monster-taming game in the Pokemon style, WoW themed).
 -- Types, the type chart, moves, species (3D creature displays for battle), items, trainers and text.
 -- Mechanics follow Generation III: physical / special split by type, stat stages, 1/16 crits, STAB.

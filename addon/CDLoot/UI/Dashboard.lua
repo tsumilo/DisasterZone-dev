@@ -1,4 +1,4 @@
--- CDLoot: UI/Dashboard.lua
+if CDLootBoot and CDLootBoot.Run("UI/Dashboard.lua", ...) then return end -- CDLoot: UI/Dashboard.lua
 -- The "Home" tab: the page the main window opens on. Only what needs attention now: a strip of action chips
 -- (unanswered raids, an empty BiS phase, a newer CDLoot, the raid lock), the next raid with one-click sign-up
 -- (a "raid in progress" view while a raid session runs), BiS progress with the picks that can drop in that raid,

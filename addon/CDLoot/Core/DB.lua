@@ -1,4 +1,4 @@
--- CDLoot: SavedVariables (ns.DB).
+if CDLootBoot and CDLootBoot.Run("Core/DB.lua", ...) then return end -- CDLoot: SavedVariables (ns.DB).
 -- Creates CDLootDB, deep-fills defaults without overwriting saved values, runs schema
 -- migrations and exposes ns.db plus dotted-path setting accessors. DB:GetEffective(path) is the read
 -- every consumer uses for the group-rule settings (Addendum D §26: the loot authority's values while

@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Sound.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Sound.lua", ...) then return end -- CDLoot Games/Azeromon/Sound.lua
 -- ns.AzeroSound: music and sound effects, all WoW's own (FileDataIDs from the community listfile: the classic
 -- files every client has; a file a client lacks simply stays silent).
 -- Music plays only while the game is on screen - StopMusic() hands the zone music back - and each map picks its

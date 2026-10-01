@@ -1,4 +1,4 @@
--- CDLoot: UI/RaidPlanUI.lua
+if CDLootBoot and CDLootBoot.Run("UI/RaidPlanUI.lua", ...) then return end -- CDLoot: UI/RaidPlanUI.lua
 -- Raid planning views of the Raids tab (Addendum J §58): "Upcoming" (the raid list, a raid's sign-up strip and
 -- roster) and "Teams" (team lists), plus the New / Edit raid window. RaidsTab owns the tab and its toolbar and
 -- creates these views inside its panel.

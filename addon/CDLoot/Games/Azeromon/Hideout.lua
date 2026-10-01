@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Hideout.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Hideout.lua", ...) then return end -- CDLoot Games/Azeromon/Hideout.lua
 -- ns.AzeroHideout: the Guild Hall under the Lion's Pride Inn. A plinth for every raid boss: a trophy stands on it
 -- once the guild has killed that boss, read from CDLoot's raid log (Core/RaidLog.lua: every kill with the roster
 -- at the kill and, from 0.9.0 on, how long the fight took). A kill is the guild's when more than half of the

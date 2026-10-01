@@ -1,4 +1,4 @@
--- CDLoot: Core/RaidLink.lua
+if CDLootBoot and CDLootBoot.Run("Core/RaidLink.lua", ...) then return end -- CDLoot: Core/RaidLink.lua
 -- Addendum J §61: links a running raid session (Addendum I) to the planned raid it is, automatically. The raid leader's
 -- client decides (it is the session's authority) and the link rides on the session's GS (rp / rpAt), so every raider
 -- records the same one; the council can change it later in the Raid log.

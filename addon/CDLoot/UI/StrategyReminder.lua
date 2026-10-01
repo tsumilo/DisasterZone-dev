@@ -1,4 +1,4 @@
--- CDLoot: UI/StrategyReminder.lua
+if CDLootBoot and CDLootBoot.Run("UI/StrategyReminder.lua", ...) then return end -- CDLoot: UI/StrategyReminder.lua
 -- The encounter reminder (Addendum K): a slim panel near a planned boss with my jobs from the raid's strategy and the
 -- live state of the tracked tables I'm in (whose kick it is, my misdirect done, Innervate ready, my curse up). The
 -- raid leader also sees the tracked tables they are not in. It stays through the fight and fades after it; the body is

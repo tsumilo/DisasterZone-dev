@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Game.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Game.lua", ...) then return end -- CDLoot Games/Azeromon/Game.lua
 -- ns.Azero: the game controller, frame-free so the tests can drive it. The UI renders its state and
 -- forwards input:
 --   G:Update(dt)                 advance movement / waits (call every frame)

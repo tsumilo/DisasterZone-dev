@@ -8,8 +8,8 @@ from _common import (case, run_all, solo, no_errors, World, Client, install_help
 
 # Addendum E removed "/cdl guildinfo"; Addendum D added "/cdl rules".
 # Addendum F §38 added "lock" / "unlock" (raid BiS list lock).
-SUBCOMMANDS = ["azeromon", "bingo", "bis", "changelog", "config", "council", "debug", "demo", "drop", "drops", "dungeon", "home", "lock", "log", "maps", "plan", "play", "raid", "raids", "roll", "rules",
-               "settings", "strat", "sync", "test", "unlock", "version"]
+SUBCOMMANDS = ["azeromon", "bingo", "bis", "changelog", "config", "council", "debug", "demo", "drop", "drops", "dungeon", "home", "lock", "log", "maps", "plan", "play", "publish", "raid", "raids", "roll", "rules",
+               "settings", "strat", "sync", "test", "unlock", "update", "version"]
 
 
 def said(c, n0):

@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Trade.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Trade.lua", ...) then return end -- CDLoot Games/Azeromon/Trade.lua
 -- ns.AzeroTrade: trading beasts and items with a guildmate you meet in the world (A on them, then "Trade").
 -- Each side offers a beast, items (up to MAX_STACKS kinds), both, or nothing (a gift); both accept the whole table.
 -- Whispers on the game prefix (CDLg), one message type with an op:

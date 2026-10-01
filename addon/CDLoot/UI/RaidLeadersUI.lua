@@ -1,4 +1,4 @@
--- CDLoot: UI/RaidLeadersUI.lua
+if CDLootBoot and CDLootBoot.Run("UI/RaidLeadersUI.lua", ...) then return end -- CDLoot: UI/RaidLeadersUI.lua
 -- The raid leaders window (Addendum J §62), opened from the Raids tab's Teams view. Everyone sees who is on the list;
 -- the Guild Master edits it (search picker, Save & share). Raid leaders plan raids, build teams and groups, invite
 -- and see the raid log without items; they get no loot council access.

@@ -1,4 +1,4 @@
--- CDLoot: Core/Loot.lua
+if CDLootBoot and CDLootBoot.Run("Core/Loot.lua", ...) then return end -- CDLoot: Core/Loot.lua
 -- Drop detection: loot-window scan, DROP broadcast/receive (deduped by source key),
 -- CHAT_MSG_LOOT award parsing, group-roll hints, encounter context, /cdl test and /cdl drop,
 -- and master-loot hand-out helpers for roll awards (Addendum A §19.4).

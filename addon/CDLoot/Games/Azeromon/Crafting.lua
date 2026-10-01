@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Crafting.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Crafting.lua", ...) then return end -- CDLoot Games/Azeromon/Crafting.lua
 -- ns.AzeroCraft: professions, like the real ones.
 --   Gathering: Herbalism and Mining. Herb and ore nodes stand on the maps (def.nodes); A on one gathers it, and it
 --              grows back RESPAWN seconds later (per player, on realm time) - sometimes as another herb of the map.

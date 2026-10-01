@@ -1,4 +1,4 @@
--- CDLoot UI/Settings.lua
+if CDLootBoot and CDLootBoot.Run("UI/Settings.lua", ...) then return end -- CDLoot UI/Settings.lua
 -- "Settings" tab (alerts, group loot rules, rolls, tooltips, minimap, view phase, demo, about), the read-only
 -- Loot Council summary with an "Edit council…" shortcut to the picker (ADDENDUM E §30), the group-rules
 -- status line (ADDENDUM D §27), the raid leader's "Lock BiS lists" control (ADDENDUM F §38) and a Blizzard
@@ -283,7 +283,9 @@ function SettingsUI:RegisterBlizzardCategory()
     title:SetText("|cffff8000CD|rLoot")
     local ver = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     ver:SetPoint("BOTTOMLEFT", title, "BOTTOMRIGHT", 8, 1)
-    ver:SetText("v" .. tostring(ns.version or "?"))
+    ver:SetText("v" .. tostring(ns.version or "?")
+        .. ((ns.Boot and ns.Boot.applied and (ns.Boot.applied.files or 0) > 0)
+            and (" (in-game update on " .. tostring(ns.diskVersion) .. ")") or ""))
 
     local desc = canvas:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)

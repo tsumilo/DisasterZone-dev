@@ -1,4 +1,4 @@
--- CDLoot UI/DropPanel.lua
+if CDLootBoot and CDLootBoot.Run("UI/DropPanel.lua", ...) then return end -- CDLoot UI/DropPanel.lua
 -- Boss-drop alerts: the Loot Council drop panel (with CDLoot rolls, ADDENDUM A §19.5; also for the party
 -- leader in dungeon mode, ADDENDUM B §22.2), the personal "On your BiS list!" toast, and BiS badges / glow
 -- on the default loot frame buttons (SPEC §12.8). Awards of an item that has a roll go through the roll

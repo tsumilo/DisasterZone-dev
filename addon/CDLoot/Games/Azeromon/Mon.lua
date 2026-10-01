@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Mon.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Mon.lua", ...) then return end -- CDLoot Games/Azeromon/Mon.lua
 -- ns.AzeroMon: creature instances (plain tables, saved as-is) and the rules around them: Gen III stat
 -- formulas, the medium-fast exp curve (level^3), learning moves on level-up and evolution.
 -- mon = { sp, lvl, exp, hp, status, sleep, ivs = { 6 }, moves = { { id, pp }, ... } }

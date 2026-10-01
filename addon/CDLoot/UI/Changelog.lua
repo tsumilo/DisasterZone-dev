@@ -1,4 +1,4 @@
--- CDLoot: UI/Changelog.lua
+if CDLootBoot and CDLootBoot.Run("UI/Changelog.lua", ...) then return end -- CDLoot: UI/Changelog.lua
 -- The Changelog tab (everyone): the releases of Data/Changelog.lua in a list on the left (newest first, with
 -- "Your version", "In testing" and "New" badges) and the notes of the selected release on the right, grouped by
 -- section. Opening the tab marks the installed release as read (settings.changelogSeen), which clears the

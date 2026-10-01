@@ -1,4 +1,4 @@
--- CDLoot Games/Bingo/UI.lua
+if CDLootBoot and CDLootBoot.Run("Games/Bingo/UI.lua", ...) then return end -- CDLoot Games/Bingo/UI.lua
 -- ns.BingoUI: the Council Bingo panel and a small movable counter ("Bingo 12/25") shown while a game runs and
 -- the main window is closed. The panel: a B-I-N-G-O card with square icons, your raid-marker "dauber" stamped on
 -- every marked square with who set it off, a pulse on squares one away from a line, a gold line through every

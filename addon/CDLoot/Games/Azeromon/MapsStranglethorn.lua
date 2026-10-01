@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/MapsStranglethorn.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/MapsStranglethorn.lua", ...) then return end -- CDLoot Games/Azeromon/MapsStranglethorn.lua
 -- Stranglethorn Vale (the maps join ns.AzeroMaps; the format is described in Maps.lua). The road south from
 -- Darkshire opens with the Night Watch Seal. North: the Rebel Camp and Kurzen's Compound, Nesingwary's
 -- Expedition and Lake Nazferiti, the Bal'lal and Zul'Mamwe troll ruins, the Mosh'Ogg ogre mound, then the

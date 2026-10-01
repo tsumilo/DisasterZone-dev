@@ -1,4 +1,4 @@
--- CDLoot Games/Azeromon/Bounties.lua
+if CDLootBoot and CDLootBoot.Run("Games/Azeromon/Bounties.lua", ...) then return end -- CDLoot Games/Azeromon/Bounties.lua
 -- ns.AzeroBounty: the bounty board by the Lion's Pride Inn in Goldshire (and BOUNTIES in the start menu).
 --   Daily:  D.BOUNTIES_PER_DAY bounties drawn from D.bounties with the day's number, so the whole guild gets the
 --           same ones. Progress comes from the event feed; a finished bounty pays out at once (toast + the quest

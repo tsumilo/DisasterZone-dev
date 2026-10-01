@@ -1,4 +1,4 @@
--- CDLoot UI/PaperDoll.lua
+if CDLootBoot and CDLootBoot.Run("UI/PaperDoll.lua", ...) then return end -- CDLoot UI/PaperDoll.lua
 -- ns.PaperDoll: reusable 17-slot paper-doll layout (left / right columns + weapon row) showing a
 -- BiS list for one phase. Editable (My BiS) or read-only (Council member view). Slots the player disabled
 -- (ADDENDUM F §36, ListData dx) are greyed; while the group's BiS lists are locked (§38) an editable doll

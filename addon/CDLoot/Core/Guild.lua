@@ -1,4 +1,4 @@
--- CDLoot: guild roster cache and the loot council (Addendum E §29-§33). The council is the Guild Master,
+if CDLootBoot and CDLootBoot.Run("Core/Guild.lua", ...) then return end -- CDLoot: guild roster cache and the loot council (Addendum E §29-§33). The council is the Guild Master,
 -- the guild council list the GM picks (CG / CQ on GUILD, relayed by council members), the current raid
 -- leader and the raid council that leader picks (CR / CRQ on RAID, kept in memory for that raid only).
 -- Every other module asks ns.Guild who is council and who is online. CDLoot no longer reads or writes

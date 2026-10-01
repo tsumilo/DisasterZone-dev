@@ -1,4 +1,4 @@
--- CDLoot Games/Bingo/Squares.lua
+if CDLootBoot and CDLootBoot.Run("Games/Bingo/Squares.lua", ...) then return end -- CDLoot Games/Bingo/Squares.lua
 -- ns.BingoSquares: the Council Bingo square pool. Every square is detected automatically from raid events
 -- (Games/Bingo/Detect.lua). Deliberately nothing about loot or council decisions.
 -- rarity: "c" common, "r" rare, "l" legendary (colour + glow). hint: optional tooltip line.

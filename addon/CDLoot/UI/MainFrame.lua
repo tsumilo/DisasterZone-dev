@@ -1,4 +1,4 @@
--- CDLoot UI/MainFrame.lua
+if CDLootBoot and CDLootBoot.Run("UI/MainFrame.lua", ...) then return end -- CDLoot UI/MainFrame.lua
 -- ns.MainFrame: the 800x580 main window, its bottom-tab registry (panels created lazily),
 -- the sync status in the title bar, and the minimap / LibDataBroker launcher.
 local addonName, ns = ...

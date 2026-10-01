@@ -1,4 +1,4 @@
--- CDLoot UI/RollFrame.lua
+if CDLootBoot and CDLootBoot.Run("UI/RollFrame.lua", ...) then return end -- CDLoot UI/RollFrame.lua
 -- The raider roll popup (ADDENDUM A §19.3): when a CDLoot roll starts, everyone in the raid (or in a
 -- 5-man party with dungeon mode, ADDENDUM B §22.2) gets a small group-loot style frame with the item,
 -- their own BiS status and gear, a countdown and Roll / Pass. Once the item is awarded or looted it
