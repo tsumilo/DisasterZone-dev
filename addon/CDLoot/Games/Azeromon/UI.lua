@@ -2,7 +2,7 @@
 -- ns.AzeroUI: draws ns.Azero's state and forwards keyboard / mouse input.
 -- Screen: 11 x 9 tiles of 48px (16px art at 3x, nearest filtering), camera centred on the player.
 -- Keys (while the game has focus): arrows / WASD move, Space / Z / E = A, X / Q / Backspace = B (hold to run),
--- Enter / Tab / M = menu, Escape releases the keyboard.
+-- Enter / Tab / M = menu, Escape pauses (releases the keyboard; a second Escape closes the window).
 local addonName, ns = ...
 
 local UI = ns:NewModule("AzeroUI")
@@ -594,7 +594,7 @@ end
 
 -- shiny: the species' other skin (D.shinyDisplay), or its own skin in a golden light when it has none.
 local function ShowCreature(m, sp, facing, shiny)
-    local s = sp and D.species[sp]
+    local s = sp and ((type(sp) == "table") and sp or D.species[sp])      -- (a table: any creature by display id)
     if not s then m:Hide() m.sp = nil return end
     m:Show()
     m.facing = facing and facing * FacingSign() or 0
@@ -2544,6 +2544,10 @@ local BATTLE_THEMES = {
     duskwood = { sky = { 0.36, 0.34, 0.48 }, bands = { { 0.30, 0.28, 0.42 }, { 0.33, 0.31, 0.45 } },
                  field = { 0.26, 0.34, 0.30 }, stripe = { 0.20, 0.27, 0.24 }, lines = { 0.23, 0.30, 0.27 },
                  platform = PLATFORM .. "_d" },
+    -- Stranglethorn: a hazy tropical sky over the jungle floor
+    jungle = { sky = { 0.78, 0.90, 0.92 }, bands = { { 0.88, 0.95, 0.94 }, { 0.83, 0.93, 0.93 } },
+               field = { 0.36, 0.60, 0.32 }, stripe = { 0.28, 0.48, 0.26 }, lines = { 0.32, 0.54, 0.29 },
+               platform = PLATFORM .. "_j" },
 }
 
 local function ApplyBattleTheme(name)
@@ -2869,6 +2873,14 @@ local function Sprite(i)
         s.bang = Font(world, 26)
         s.bang:SetText("!")
         s.bang:SetTextColor(0.9, 0.2, 0.2)
+        -- the name plate: the name over a WoW-style <title>, both over the head
+        s.title = world:CreateFontString(nil, "OVERLAY")
+        if not s.title:SetFont(FONT_BOLD, 11, "OUTLINE") then s.title:SetFont(FONT_FALLBACK, 8, "OUTLINE") end
+        s.title:SetTextColor(0.88, 0.86, 0.66)
+        s.title:SetPoint("BOTTOM", s, "TOP", 0, 1)
+        s.name = world:CreateFontString(nil, "OVERLAY")
+        if not s.name:SetFont(FONT_BOLD, 13, "OUTLINE") then s.name:SetFont(FONT_FALLBACK, 9, "OUTLINE") end
+        s.name:SetTextColor(1, 0.98, 0.9)
         sprites[i] = s
     end
     return s
@@ -2998,12 +3010,19 @@ local function DrawWorld()
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
             sp:Show()
+            local title = G.NpcTitle(npc.def)
+            sp.title:SetText(title and ("<" .. title .. ">") or "")
+            sp.name:SetText(G.NpcName(npc.def) or "")
+            sp.name:ClearAllPoints()
+            sp.name:SetPoint("BOTTOM", sp.title, "TOP", 0, -1)
+            sp.title:Show()
+            sp.name:Show()
             sp.bang:ClearAllPoints()
-            sp.bang:SetPoint("BOTTOM", sp, "TOP", 0, -4)
+            sp.bang:SetPoint("BOTTOM", sp.name, "TOP", 0, -2)
             sp.bang:SetShown(npc.exclaim ~= nil)
         end
     end
-    for i = n + 1, #sprites do sprites[i]:Hide() sprites[i].bang:Hide() end
+    for i = n + 1, #sprites do sprites[i]:Hide() sprites[i].bang:Hide() sprites[i].name:Hide() sprites[i].title:Hide() end
     -- other players (guildmates), drawn with the hero sprite in their class colour and a name tag
     local pn = 0
     for _, p in ipairs(ns.AzeroNet:PeersOn(m.id)) do
@@ -3113,6 +3132,9 @@ local function SyncPending()
     elseif p.kind == "bounties" then
         ClearText()
         Scr.OpenBounties(function() G:Advance() end)
+    elseif p.kind == "trophy" then
+        ClearText()
+        Scr.OpenTrophy(p.enc)
     elseif p.kind == "trade" then
         ClearText()
         Scr.OpenTrade(p.session)
@@ -3387,6 +3409,59 @@ function KH.Matchups(defType)
 end
 
 KH.CELL = { [2] = { "x2", { 0.30, 0.62, 0.32 } }, [0.5] = { "x.5", { 0.84, 0.45, 0.28 } }, [0] = { "x0", { 0.22, 0.22, 0.26 } } }
+
+-- A raid boss's plinth in the Guild Hall (Hideout.lua): the boss on its pedestal and the plaque.
+function Scr.OpenTrophy(enc)
+    local H = ns.AzeroHideout
+    local boss = H and H.Boss(enc)
+    ns.AzeroSound:Play("book")
+    local f = R.trophy
+    if not f then
+        f = Box(screen, SW - 20, SH - 20, 100)
+        f:SetPoint("CENTER")
+        f.noPool = true
+        f.title = Font(f, 18, nil, true)
+        f.title:SetPoint("TOPLEFT", 22, -18)
+        f.title:SetTextColor(0.20, 0.36, 0.62)
+        f.sub = Font(f, 12)
+        f.sub:SetPoint("TOPLEFT", 22, -44)
+        f.sub:SetTextColor(0.36, 0.42, 0.55)
+        f.model = NewModel(f, 230, 230)
+        f.model:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -36)
+        f.lines = {}
+        for i = 1, 5 do
+            local fs = Font(f, 12)
+            fs:SetPoint("TOPLEFT", 22, -80 - (i - 1) * 24)
+            fs:SetWidth(SW - 20 - 44 - 240)
+            fs:SetWordWrap(i == 5)
+            fs:SetTextColor(i == 1 and 0.16 or 0.30, i == 1 and 0.18 or 0.36, i == 1 and 0.24 or 0.50)
+            f.lines[i] = fs
+        end
+        local hint = Font(f, 12)
+        hint:SetPoint("BOTTOMRIGHT", -18, 14)
+        hint:SetJustifyH("RIGHT")
+        hint:SetTextColor(0.36, 0.42, 0.55)
+        hint:SetText("Space / X: close")
+        f.fake = {}
+        R.trophy = f
+    end
+    f.title:SetText(boss and boss.name:upper() or "TROPHY")
+    f.sub:SetText(boss and (boss.raidName .. "  -  the guild's trophy") or "")
+    local lines = H and H.Lines(enc) or {}
+    for i, fs in ipairs(f.lines) do fs:SetText(lines[i] or "") end
+    local fake = f.fake[enc]
+    if not fake and boss then
+        fake = { id = "trophy" .. enc, name = boss.name, display = H.Display(boss), cam = 1 }
+        f.fake[enc] = fake
+    end
+    if fake and fake.display then ShowCreature(f.model, fake, 0.35) else ShowCreature(f.model, nil) end
+    local top = stack[#stack]
+    f:SetFrameLevel(max(100, top and top.frame and top.frame:GetFrameLevel() + 10 or 0))
+    f:Show()
+    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true,
+        opts = { onCancel = function(m) PopMenu(m) ShowCreature(f.model, nil) f:Hide() G:Advance() end } }
+end
+UI._Trophy = function() return R.trophy and R.trophy:IsShown() and { title = R.trophy.title:GetText(), lines = { R.trophy.lines[1]:GetText(), R.trophy.lines[2]:GetText(), R.trophy.lines[3]:GetText() } } or nil end
 
 -- The whole chart: the move's type down the left, the defender's type along the top.
 function KH.OpenTypeChart()
@@ -3749,8 +3824,10 @@ UI.Press = function(k) HandleKey(k) end
 
 local function OnKeyDown(self, key)
     if key == "ESCAPE" then
+        -- the first Escape pauses: the game lets the keyboard go and the overlay shows. With the keyboard released,
+        -- a second Escape reaches the client and closes CDLoot's window as usual.
         SetFocus(false)
-        pcall(self.SetPropagateKeyboardInput, self, true)
+        pcall(self.SetPropagateKeyboardInput, self, false)
         return
     end
     local k = KEYMAP[key]
@@ -4269,12 +4346,12 @@ function UI:CreatePanel(parent)
     dim:SetColorTexture(0, 0, 0, 0.55)
     local fl = focusOverlay:CreateFontString(nil, "OVERLAY")
     fl:SetFont(FONT, 20, "OUTLINE")
-    fl:SetText("Click to play")
+    fl:SetText("PAUSED")
     fl:SetTextColor(1, 0.9, 0.5)
     fl:SetPoint("CENTER")
     local fl2 = focusOverlay:CreateFontString(nil, "OVERLAY")
     fl2:SetFont(FONT, 12, "OUTLINE")
-    fl2:SetText("The game takes the keyboard while it is active. Esc gives it back.")
+    fl2:SetText("Click to play. The game takes the keyboard while it is active; Esc pauses it, Esc again closes CDLoot.")
     fl2:SetPoint("TOP", fl, "BOTTOM", 0, -8)
     focusOverlay:SetScript("OnClick", function()
         if InCombatLockdown() then ns:Print("Azeromon waits until you leave combat.") return end
@@ -4385,6 +4462,7 @@ UI.Kit = {
     R = R, stack = stack, SW = SW, SH = SH, BOX_H = BOX_H, TILE = TILE, INK = INK,
     Screen = function() return screen end,
     Now = function() return now end,
+    Tile = function(t, name) SetPixelTexture(t, ATLAS) SetTile(t, name) end,     -- an overworld tile on a texture
 }
 
 -- UI:RegisterScreen(kind, fn): shows G.pending of `kind` (fn(pending)); the screen calls G:Advance() when done.

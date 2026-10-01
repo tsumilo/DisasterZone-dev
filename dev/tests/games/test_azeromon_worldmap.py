@@ -89,9 +89,11 @@ def roads_follow_the_maps_and_flights_need_both_ends():
         out[#out + 1] = a .. '-' .. b
       end
       table.sort(out) return out""")
-    assert roads == ["darkshire-duskwood", "deadmines-moonbrook", "duskwood-ravenhill", "elwynn-forestedge",
-                     "elwynn-goldshire", "elwynn-westfall", "moonbrook-sentinel", "ravenhill-sentinel",
-                     "sentinel-westfall"], roads
+    assert roads == ["arena-stvsouth", "arena-zulmamwe", "bootybay-wildshore", "crystalvein-stvsouth",
+                     "darkshire-duskwood", "darkshire-rebelcamp", "deadmines-moonbrook", "duskwood-ravenhill",
+                     "elwynn-forestedge", "elwynn-goldshire", "elwynn-westfall", "kurzen-rebelcamp",
+                     "moonbrook-sentinel", "moshogg-zulmamwe", "ravenhill-sentinel", "rebelcamp-stvnorth",
+                     "sentinel-westfall", "stvnorth-zulmamwe", "stvsouth-wildshore"], roads
     shown = "local W = ns.AzeroWorld return { W.FlightShown(W.FLIGHTS[1]), W.FlightShown(W.FLIGHTS[2]) }"
     assert c.eval_py(shown) == [False, False]
     c.eval("ns.Azero:EnterMap('sentinel', 5, 9, 'down', true) ns.Azero:EnterMap('arena', 7, 11, 'up', true)")
@@ -103,7 +105,7 @@ def roads_follow_the_maps_and_flights_need_both_ends():
     moves = c.eval_py("""local N = ns.AzeroWorld.Neighbour
       return { N('goldshire', 'up'), N('elwynn', 'left'), N('sentinel', 'right'), N('darkshire', 'down'),
                N('arena', 'up'), N('goldshire', 'down'), N('deadmines', 'left') }""")
-    assert moves == ["elwynn", "forestedge", "ravenhill", "arena", "darkshire", "goldshire", "deadmines"], moves
+    assert moves == ["elwynn", "forestedge", "ravenhill", "rebelcamp", "zulmamwe", "arena", "deadmines"], moves
     no_errors(w)
 
 

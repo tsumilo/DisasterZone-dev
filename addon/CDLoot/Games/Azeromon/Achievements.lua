@@ -62,7 +62,9 @@ local ELWYNN = { "wolfpup", "webling", "kobling", "owlet", "tuskling" }
 A.DM_BOSSES = { "rhahkzor", "sneed", "gilnid", "smite", "greenskin", "cookie", "vancleef" }
 A.HAUNTS = { "morladim", "morbentfel", "stalvan" }
 local WESTFALL = { "coyote", "fleshripper", "rustgolem", "dustdevil", "crawler", "coastrunner" }
-A.ELWYNN, A.WESTFALL = ELWYNN, WESTFALL
+local STV = { "tigercub", "pantherkit", "raptorling", "gorilla", "crystalspine", "rivercroc", "trollscout", "snapjaw",
+              "zombie" }
+A.ELWYNN, A.WESTFALL, A.STV = ELWYNN, WESTFALL, STV
 
 local function MaxLevel(g)
     local best = 0
@@ -98,6 +100,10 @@ local ACHIEVEMENTS = {
       desc = "Tame every wild beast of Westfall.",
       on = { "tame", "load" }, test = function(g) return A.TamedOf(g, WESTFALL) == #WESTFALL end,
       progress = function(g) return A.TamedOf(g, WESTFALL), #WESTFALL end },
+    { id = "stv", name = "Stranglethorn Naturalist", points = 25, icon = "Ability_Hunter_Pet_Raptor",
+      desc = "Tame every wild beast of Stranglethorn Vale.",
+      on = { "tame", "load" }, test = function(g) return A.TamedOf(g, STV) == #STV end,
+      progress = function(g) return A.TamedOf(g, STV), #STV end },
 
     -- professions
     { id = "gather1", name = "Gatherer", points = 10, icon = "INV_Misc_Flower_02",
@@ -173,6 +179,27 @@ local ACHIEVEMENTS = {
       desc = "Raise a beast to level 30.",
       on = { "level", "load" }, test = function(g) return MaxLevel(g) >= 30 end,
       progress = function(g) return math.min(30, MaxLevel(g)), 30 end },
+    { id = "lvl50", name = "Elite", points = 25, icon = "Spell_Holy_BlessingOfProtection",
+      desc = "Raise a beast to level 50.",
+      on = { "level", "load" }, test = function(g) return MaxLevel(g) >= 50 end,
+      progress = function(g) return math.min(50, MaxLevel(g)), 50 end },
+    { id = "lvl75", name = "Champion", points = 25, icon = "Spell_Holy_GreaterBlessingofKings",
+      desc = "Raise a beast to level 75.",
+      on = { "level", "load" }, test = function(g) return MaxLevel(g) >= 75 end,
+      progress = function(g) return math.min(75, MaxLevel(g)), 75 end },
+    { id = "lvl100", name = "Legend", points = 50, icon = "Spell_Holy_GreaterBlessingofSalvation",
+      desc = "Raise a beast to level 100.",
+      on = { "level", "load" }, test = function(g) return MaxLevel(g) >= 100 end,
+      progress = function(g) return math.min(100, MaxLevel(g)), 100 end },
+    { id = "bangalash", name = "Big Game Hunter", points = 25, icon = "Ability_Hunter_Pet_Cat",
+      desc = "Bring down King Bangalash.",
+      on = "battle", test = function(g, e) return e.trainer == "bangalash" and e.result == "win" end },
+    { id = "nesingwary", name = "The Great Hunt", points = 10, icon = "INV_Misc_MonsterClaw_03",
+      desc = "Earn Nesingwary's Trophy.",
+      on = { "badge", "load" }, test = function(g) return g:Flag("badge_nesingwary") and true or false end },
+    { id = "blackwater", name = "Blackwater Raider", points = 25, icon = "INV_Misc_Bandana_01",
+      desc = "Earn the Blackwater Seal.",
+      on = { "badge", "load" }, test = function(g) return g:Flag("badge_blackwater") and true or false end },
 
     -- story and trainers
     { id = "rival", name = "Sibling Rivalry", points = 10, icon = "Ability_DualWield",

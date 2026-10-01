@@ -43,7 +43,7 @@ def a_rematch_team_grows_and_evolves():
     team = c.eval_py("""local o = {}
       for i, m in ipairs(ns.Azero:RematchTeam('druid1')) do o[i] = { sp = m.sp, lvl = m.lvl } end
       return o""")
-    assert team == [{"sp": "owlet", "lvl": 28}, {"sp": "goretusk", "lvl": 29}], team      # the Tuskling grew up
+    assert team == [{"sp": "screecher", "lvl": 28}, {"sp": "goretusk", "lvl": 29}], team   # both grew up
     # a weak party: never below their first team
     c.eval("ns.Azero.save.party[1].lvl = 2")
     low = c.eval_py("local t = ns.Azero:RematchTeam('druid1') return { t[1].lvl, t[2].lvl, t[2].sp }")
@@ -54,6 +54,10 @@ def a_rematch_team_grows_and_evolves():
 @case
 def once_a_day_and_a_win_counts_for_bounties():
     w, c = game()
+    c.eval("""local M = ns.AzeroMon                    -- (a Tidehunter: the grown-up team hits harder now)
+      local m = M.New('tidehunter', 32, ns.Azero.rng) m.moves = M.DefaultMoves('tidehunter', 32)
+      local m2 = M.New('tidehunter', 32, ns.Azero.rng) m2.moves = M.DefaultMoves('tidehunter', 32)
+      ns.Azero.save.party = { m, m2 }""")
     c.eval("local st = ns.AzeroBounty:State() st.list = { { id = 'trainer', n = 1, got = 0, money = 260, item = 'potion', count = 2 } }")
     c.eval("T_AZ.log = {} ns.Azero:EnterMap('route1', 15, 19, 'right', true) ns.Azero:PressA()")
     c.eval("T_AZ.settle()")                                   # Yes (T_AZ.choice = 1), then the bot fights

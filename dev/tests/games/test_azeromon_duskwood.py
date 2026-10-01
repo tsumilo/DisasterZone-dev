@@ -227,10 +227,13 @@ def every_new_beast_lives_in_the_zone():
       for id in pairs(met) do local evo = D.species[id].evolve if evo then met[evo.into] = true end end
       local out = { missing = {}, late = {}, bosses = {} }
       for id, s in pairs(D.species) do
-        if s.num >= 47 then
+        if s.num >= 47 and s.num <= 63 then           -- (64 on: the level 100 chains and Stranglethorn)
           if s.boss then out.bosses[#out.bosses + 1] = id
           elseif not met[id] then out.missing[#out.missing + 1] = id end
-          if s.evolve and s.evolve.level and s.evolve.level > 32 then out.late[#out.late + 1] = id end
+          -- a Duskwood beast's first evolution comes in the zone; the later forms (num > 63) come after
+          if s.evolve and s.evolve.level and s.evolve.level > 32 and D.species[s.evolve.into].num <= 63 then
+            out.late[#out.late + 1] = id
+          end
         end
       end
       table.sort(out.bosses)

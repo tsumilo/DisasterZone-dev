@@ -72,18 +72,21 @@ local SOLID_CHARS = { T = true, w = true, W = true, X = true, b = true, d = true
                       G = true, l = true, Y = true }
 local OVER_CHARS = { T = "tree", b = "bed", d = "dresser", p = "pot", t = "table", C = "chest", c = "counter",
                      ["#"] = "fence", h = "hay", o = "pumpkin", i = "torch1", k = "crate", g = "barrel", n = "cannon",
-                     L = "stairs", G = "gravestone", l = "lamppost", Y = "deadtree" }
+                     L = "stairs", G = "gravestone", l = "lamppost", Y = "deadtree", ["*"] = "chandelier" }
 -- G gravestone, l lamp post, Y dead tree (Duskwood); '#' is the theme's fence (Duskwood: wrought iron)
 -- R rock, S timber support (both solid walls), D ship deck, L ladder (a warp), k crate, g powder barrel, n cannon
 local STAMP_SIZE = { house = { 5, 6 }, farmhouse = { 5, 6 }, stonehouse = { 5, 6 }, bigtree = { 3, 3 },
                      wbigtree = { 3, 3 }, mailbox = { 1, 2 }, scarecrow = { 1, 2 }, windmill = { 2, 3 }, tent = { 2, 2 },
                      ruinhouse = { 5, 6 }, mineentrance = { 3, 2 }, mast = { 1, 3 }, darkhouse = { 5, 6 },
-                     dbigtree = { 3, 3 } }
-local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true, darkhouse = true }
+                     dbigtree = { 3, 3 }, jbigtree = { 3, 3 }, bbhouse = { 5, 6 }, hut = { 3, 3 }, totem = { 1, 2 },
+                     banner = { 1, 2 }, bannerblue = { 1, 2 }, window = { 1, 2 }, crest = { 2, 2 }, pillar = { 1, 2 },
+                     fireplace = { 2, 2 }, throne = { 2, 1 } }
+local HOUSES = { house = true, farmhouse = true, stonehouse = true, ruinhouse = true, darkhouse = true, bbhouse = true }
 -- the walkable doorway tile of a stamp (dx, dy), if it has one
 local function IsDoor(kind, dx, dy)
     if HOUSES[kind] then return dx == 3 and dy == 5 end
     if kind == "mineentrance" then return dx == 1 and dy == 1 end
+    if kind == "hut" then return dx == 1 and dy == 2 end
     return false
 end
 -- Map themes swap the outdoor tile set. Westfall: dry golden grass, wheat for tall grass, olive trees.
@@ -98,6 +101,11 @@ local THEMES = {
     -- Duskwood: dark grass, black pines, iron fences
     duskwood = { grass1 = "dgrass1", grass2 = "dgrass2", tall = "dtall_", path = "dpath_", tree = "dtree",
                  fence = "ironfence" },
+    -- Stranglethorn Vale: deep green, palms, red earth; 'R' is a troll ruin's stone
+    jungle = { grass1 = "jgrass1", grass2 = "jgrass2", tall = "jtall_", path = "jpath_", tree = "jtree",
+               rock = "ruinwall" },
+    -- the Guild Hall: flagstones, a red carpet for '=', brick walls for 'T'
+    hall = { grass1 = "hallfloor1", grass2 = "hallfloor2", tall = "tall_", path = "carpet_", tree = nil, wall = "hallwall" },
 }
 G.THEMES = THEMES
 
@@ -130,8 +138,8 @@ local function Autotile(rows, w, h, x, y, ch, prefix, inner)
 end
 
 function G.Compile(id)
-    if compiled[id] then return compiled[id] end
     local def = Maps[id]
+    if compiled[id] and not (type(def) == "table" and def.dynamic) then return compiled[id] end
     if type(def) ~= "table" or not def.rows then return nil end
     local rows = def.rows
     local h, w = #rows, #rows[1]
@@ -162,8 +170,10 @@ function G.Compile(id)
                 m.railOver[k] = (horiz and vert) and "rail_x" or (vert and "rail_v" or "rail_h")
             elseif ch == "=" then
                 base = Autotile(rows, w, h, x, y, ch, th.path, true)
-            elseif ch == "R" or (ch == "T" and th.wall) then
-                base = "mwall"
+            elseif ch == "R" then
+                base = th.rock or "mwall"
+            elseif ch == "T" and th.wall then
+                base = th.wall
             elseif ch == "S" then
                 base = "msupport"
             elseif ch == "D" then
@@ -212,7 +222,7 @@ function G.Compile(id)
     for _, o in ipairs(def.objects or {}) do
         local k = key(o.x, o.y)
         m.object[k] = o
-        m.over[k] = o.tile
+        m.over[k] = (type(o.tile) == "function") and o.tile(G) or o.tile     -- (a plinth: trophy or empty)
         m.solid[k] = true
     end
     -- herb and ore nodes (Crafting.lua): def.nodes = { herb = { {x, y}, ... }, ore = { ... } } with the map's
@@ -291,6 +301,45 @@ function G:Load()
     self:EnterMap(s.map, s.x, s.y, s.face, true)
     self.started = true
     self:Emit("load")
+end
+
+-- NPC name plates (drawn over the sprites): the name from the map's NPC (or its trainer), a WoW-style
+-- <title> from the NPC's role, its trainer's kind, or the tables here.
+local ROLE_TITLES = { inn = "Innkeeper", shop = "Trade Goods", stable = "Stable Master", gryphon = "Gryphon Master",
+                      rest = "Rest", profession = "Profession Trainer", pettrainer = "Pet Trainer", arena = "Arena Master" }
+local CLASS_TITLES = { rival = "Rival", hunter = "Hunter", druid = "Druid", miner = "Miner", captain = "Stormwind Guard",
+                       gnoll = "Riverpaw Gnoll", defias = "Defias Brotherhood", farmer = "Farmer", goblin = "Goblin",
+                       watch = "Night Watch", ogre = "Ogre", militia = "People's Militia", kurzen = "Kurzen's Expedition",
+                       troll = "Troll", pirate = "Bloodsail Buccaneers" }
+local TRAINER_TITLES = { marine = "Blackwater Raiders", bruiser = "Blackwater Raiders", castaway = "Castaway",
+                         venture1 = "Venture Company", venture2 = "Venture Company", venture3 = "Venture Company",
+                         venture4 = "Venture Company", venture5 = "Venture Company", venture6 = "Venture Company",
+                         ogre1 = "Splinter Fist", ogrewd = "Mosh'Ogg", ogreshaman = "Mosh'Ogg",
+                         skull1 = "Skullsplitter", skull2 = "Skullsplitter", trollhunter = "Skullsplitter",
+                         bloodscalp1 = "Bloodscalp", bloodscalp2 = "Bloodscalp", zanzilwd = "Zanzil's Outcasts",
+                         bighunter = "Big Game Hunter" }
+local NPC_TITLES = { guard = "Stormwind Guard", farmer = "Farmer", furlbrow = "Farmer", saldean = "Farmer", sven = "Farmer",
+                     aldric = "Huntmaster", gryan = "People's Militia", danuvin = "People's Militia", galiaan = "Scout",
+                     abercrombie = "Hermit", watchguard = "Night Watch", dsguard = "Night Watch", ello = "Lord of Darkshire",
+                     althea = "Night Watch Commander", eva = "Fortune Teller", doren = "Rebel Leader", fisher = "Fisherman",
+                     wrangler = "Beast Wrangler", boatman = "Ferry to Jaguero Isle", zinkle = "Ferry to Booty Bay",
+                     dockhand = "Dockhand", revilgaz = "Baron of Booty Bay", fleetmaster = "Blackwater Raiders" }
+function G.NpcName(def)
+    if type(def.name) == "function" then return def.name(G) end
+    if def.name then return def.name end
+    local t = def.trainer and D.trainers[def.trainer]
+    return t and t.name or nil
+end
+function G.NpcTitle(def)
+    if type(def.title) == "function" then return def.title(G) end
+    if def.title then return def.title end
+    if NPC_TITLES[def.id] then return NPC_TITLES[def.id] end
+    if def.role and ROLE_TITLES[def.role] then return ROLE_TITLES[def.role] end
+    if def.trainer then
+        local t = D.trainers[def.trainer]
+        return TRAINER_TITLES[def.trainer] or (t and CLASS_TITLES[t.class]) or nil
+    end
+    return nil
 end
 
 function G:Flag(name) return self.save and self.save.flags[name] end
@@ -556,9 +605,13 @@ end
 function G:Evolutions()
     for _, mon in ipairs(self.save.party) do
         if mon.hp > 0 then
-            local into = M.EvolutionTarget(mon)
-            -- (one stopped with X waits until it has gained a level)
-            if into and (tonumber(mon.evoStop) or 0) < mon.lvl then self:EvolveNow(mon, into) end
+            -- (one stopped with X waits until it has gained a level); a beast past several thresholds at once
+            -- climbs its whole chain, one form at a time
+            for _ = 1, 4 do
+                local into = M.EvolutionTarget(mon)
+                if not (into and (tonumber(mon.evoStop) or 0) < mon.lvl) then break end
+                if not self:EvolveNow(mon, into) then break end
+            end
         end
     end
 end
@@ -653,6 +706,13 @@ function G:DuskwoodGate()
     self:Say("Scout Galiaan: The road east runs to Duskwood. Darkshire has asked Sentinel Hill for help, but we can't spare anyone.")
     self:Say("Scout Galiaan: Not while VanCleef's Brotherhood sits in the Deadmines at our backs. Break them first.")
     self:PushPlayer("left")
+end
+
+-- The Night Watch keeps the road south to Stranglethorn closed until Stitches is beaten.
+function G:StranglethornGate()
+    self:Say("Night Watch Guard: The road south runs into Stranglethorn Vale. Commander Ebonlocke has it closed while Stitches walks.")
+    self:Say("Night Watch Guard: Put the haunts to rest and bring her the Night Watch Seal. Then the jungle's all yours.")
+    self:PushPlayer("up")
 end
 
 -- Why a trainer won't fight yet (their `requires` not all beaten, or the player lacks their `needFlag`), or nil.
@@ -1191,8 +1251,15 @@ G.RELEARN_PRICE = 500
 
 function G:RelearnableMoves(mon)
     local lists = { D.species[mon.sp].learn }
-    for _, sp in pairs(D.species) do
-        if sp.evolve and sp.evolve.into == mon.sp then lists[#lists + 1] = sp.learn end
+    -- every earlier form in the chain (a Tidecaller remembers the Murkling's moves too)
+    local cur, guard = mon.sp, 0
+    while cur and guard < 8 do
+        local prev
+        for id, sp in pairs(D.species) do
+            if sp.evolve and sp.evolve.into == cur then prev = id break end
+        end
+        if prev then lists[#lists + 1] = D.species[prev].learn end
+        cur, guard = prev, guard + 1
     end
     local found, order = {}, {}
     for _, learn in ipairs(lists) do

@@ -92,7 +92,7 @@ def relearnable_moves_come_from_its_list_and_its_earlier_form_up_to_its_level():
       local bad = {}
       for id, sp in pairs(D.species) do
         if sp.evolve then
-          local mon = M.New(sp.evolve.into, 50, G.rng)
+          local mon = M.New(sp.evolve.into, D.MAX_LEVEL, G.rng)
           mon.moves = {}
           local offered = {}
           for _, m in ipairs(G:RelearnableMoves(mon)) do offered[m] = true end

@@ -33,9 +33,31 @@ W.PLACES = {
     { id = "elwynn", name = "Elwynn Forest", zone = "elwynn", kind = "route", x = 2, y = 3, maps = { "route1" },
       text = "Wolves, kobolds and owls between Goldshire and Westfall." },
     { id = "goldshire", name = "Goldshire", zone = "elwynn", kind = "town", x = 2, y = 4,
-      maps = { "town", "home", "lab", "post" }, text = "Home: Huntmaster Aldric's lodge and the Lion's Pride Inn." },
-    { id = "arena", name = "Gurubashi Arena", zone = "stv", kind = "arena", x = 5, y = 3.6, maps = { "arena" },
-      text = "Short John Mithril's beast fights, deep in Stranglethorn Vale." },
+      maps = { "town", "home", "lab", "post", "hideout" },
+      text = "Home: Huntmaster Aldric's lodge, the Lion's Pride Inn and the Guild Hall beneath it." },
+    -- Stranglethorn Vale: the road south from Darkshire, down to Booty Bay
+    { id = "rebelcamp", name = "The Rebel Camp", zone = "stv", kind = "route", x = 5, y = 2, maps = { "rebelcamp" },
+      text = "Kurzen's deserters camp just over the Duskwood border." },
+    { id = "kurzen", name = "Kurzen's Compound", zone = "stv", kind = "dungeon", x = 6, y = 2, maps = { "kurzen" },
+      text = "Colonel Kurzen's cave. Troll medicine and bad orders." },
+    { id = "stvnorth", name = "Northern Stranglethorn", zone = "stv", kind = "route", x = 5, y = 2.7,
+      maps = { "stvnorth" }, text = "Nesingwary's Expedition, Lake Nazferiti and the Bal'lal Ruins." },
+    { id = "zulmamwe", name = "Zul'Mamwe", zone = "stv", kind = "route", x = 5, y = 3.4, maps = { "zulmamwe" },
+      text = "Skullsplitter ruins and the Venture Company's dig." },
+    { id = "moshogg", name = "Mosh'Ogg Mound", zone = "stv", kind = "dungeon", x = 6, y = 3.4, maps = { "moshogg" },
+      text = "The ogres' cave. Mai'Zoth has two heads and one club." },
+    { id = "arena", name = "Gurubashi Arena", zone = "stv", kind = "arena", x = 5, y = 4.1, maps = { "arena" },
+      text = "Short John Mithril's beast fights, on the road through the vale." },
+    { id = "stvsouth", name = "Southern Stranglethorn", zone = "stv", kind = "route", x = 5, y = 4.8,
+      maps = { "stvsouth" }, text = "Mistvale Valley's gorillas and the road to the coast." },
+    { id = "crystalvein", name = "Crystalvein Mine", zone = "stv", kind = "dungeon", x = 6, y = 4.8,
+      maps = { "crystalvein" }, text = "The Venture Company's basilisk-crystal mine." },
+    { id = "wildshore", name = "The Wild Shore", zone = "stv", kind = "route", x = 5, y = 5.5, maps = { "wildshore" },
+      text = "The Ruins of Aboraz, the Bloodsail landing and Firallon's ship." },
+    { id = "bootybay", name = "Booty Bay", zone = "stv", kind = "town", x = 5, y = 6.2,
+      maps = { "bootybay", "bootybayinn", "bbhall" }, text = "Baron Revilgaz's port: the Salty Sailor Tavern and the docks." },
+    { id = "jaguero", name = "Jaguero Isle", zone = "stv", kind = "route", x = 6, y = 6.4, maps = { "jaguero" },
+      text = "King Mukla's island, a short boat ride from the bay." },
 }
 
 -- The coloured regions behind the places (grid units, like the places).
@@ -44,7 +66,7 @@ W.ZONES = {
     { id = "elwynn", name = "ELWYNN FOREST", color = { 0.64, 0.83, 0.55 }, x0 = 0.55, y0 = 2.5, x1 = 2.45, y1 = 4.45 },
     { id = "duskwood", name = "DUSKWOOD", color = { 0.50, 0.48, 0.64 }, x0 = 2.55, y0 = 0.42, x1 = 5.45, y1 = 1.6,
       dark = true },
-    { id = "stv", name = "STRANGLETHORN", color = { 0.52, 0.74, 0.50 }, x0 = 3.95, y0 = 2.85, x1 = 5.45, y1 = 4.3,
+    { id = "stv", name = "STRANGLETHORN", color = { 0.52, 0.74, 0.50 }, x0 = 3.95, y0 = 1.65, x1 = 6.45, y1 = 6.75,
       labelBottom = true },
 }
 
@@ -52,6 +74,7 @@ W.ZONES = {
 W.FLIGHTS = {
     { from = "sentinel", to = "arena", via = { { 3.0, 2.5 } } },
     { from = "sentinel", to = "darkshire", flag = "fp_darkshire", via = { { 2, 0.62 }, { 5, 0.62 } } },
+    { from = "bootybay", to = "darkshire", flag = "fp_bootybay", via = { { 6.6, 6.2 }, { 6.6, 1 } } },
 }
 
 W.TAG_NAMES = { inn = "Inn", rest = "Rest", shop = "Shop", stable = "Stable", profession = "Profession trainers",
@@ -230,12 +253,33 @@ end
 ---------------------------------------------------------------------------
 
 local MAP_X, MAP_Y, MAP_W, MAP_H = 22, -48, 464, 242       -- the drawing area inside the panel
-local GX0, GY0, GW, GH = -0.5, 0.4, 6, 4.2                 -- the grid window it shows
-local NODE = { town = 18, route = 12, dungeon = 14, arena = 16 }
-local FILL = { town = { 0.86, 0.30, 0.26 }, route = { 0.99, 0.96, 0.86 }, dungeon = { 0.30, 0.27, 0.30 },
-               arena = { 0.95, 0.62, 0.22 } }
-local UNKNOWN = { 0.68, 0.68, 0.72 }
-local ROAD, ROAD_DIM = { 0.82, 0.70, 0.46 }, { 0.62, 0.62, 0.66 }
+local GX0, GY0, GW, GH = -0.5, 0.4, 7.3, 6.7               -- the grid window it shows
+local NODE = { town = 14, route = 9, dungeon = 12, arena = 14 }
+local SEA, SEA_EDGE = { 0.55, 0.72, 0.84 }, { 0.42, 0.58, 0.72 }
+local INK = { 0.18, 0.17, 0.22 }
+local FILL = { town = { 0.99, 0.94, 0.82 }, route = { 0.99, 0.96, 0.86 }, dungeon = { 0.40, 0.36, 0.42 },
+               arena = { 0.97, 0.66, 0.24 } }
+local ROOF = { 0.80, 0.26, 0.22 }
+local UNKNOWN = { 0.70, 0.72, 0.76 }
+local ROAD, ROAD_DIM, ROAD_EDGE = { 0.90, 0.78, 0.52 }, { 0.72, 0.72, 0.74 }, { 0.46, 0.36, 0.22 }
+-- Props scattered over each zone (grid units), drawn with the zone's own overworld tiles: trees, flowers, hay,
+-- gravestones and palms, placed clear of the places and roads.
+local PROPS = {
+    elwynn = { { "tree", 0.8, 2.75 }, { "tree", 1.45, 2.72 }, { "tree", 1.2, 3.5 }, { "tree", 0.85, 4.1 },
+               { "tree", 1.5, 4.22 }, { "tree", 2.3, 3.6 }, { "flowers", 1.7, 3.85 }, { "flowers", 0.78, 3.35 } },
+    westfall = { { "wtree", 0.15, 0.62 }, { "wtree", 1.0, 0.58 }, { "wtree", 1.5, 1.6 }, { "wtree", 0.4, 1.7 },
+                 { "wtree", 1.2, 2.25 }, { "wtree", -0.05, 2.2 }, { "hay", 0.7, 1.5 }, { "pumpkin", 1.75, 2.2 },
+                 { "hay", 2.25, 0.6 } },
+    duskwood = { { "dtree", 2.8, 1.38 }, { "dtree", 3.5, 0.62 }, { "dtree", 4.5, 1.4 }, { "dtree", 5.2, 0.65 },
+                 { "dtree", 3.6, 1.4 }, { "dtree", 4.3, 0.62 }, { "gravestone", 4.85, 1.4 }, { "deadtree", 3.05, 0.75 } },
+    stv = { { "jtree", 4.3, 1.95 }, { "jtree", 4.55, 2.6 }, { "jtree", 4.2, 3.3 }, { "jtree", 4.6, 4.0 },
+            { "jtree", 4.3, 4.7 }, { "jtree", 4.6, 5.4 }, { "jtree", 4.2, 6.0 }, { "jtree", 5.6, 2.6 },
+            { "jtree", 6.2, 2.8 }, { "jtree", 5.6, 4.15 }, { "jtree", 6.2, 4.2 }, { "jtree", 5.6, 5.5 },
+            { "jtree", 6.25, 5.6 }, { "totem_0_0", 4.5, 3.65 }, { "jtree", 6.3, 1.9 } },
+}
+-- a few waves on the open sea
+local WAVES = { { 3.0, 2.2 }, { 3.45, 3.0 }, { 3.0, 3.9 }, { 3.5, 4.6 }, { 2.9, 5.5 }, { 1.5, 5.2 }, { 0.5, 5.0 },
+                { 2.2, 6.0 }, { 0.15, 3.3 }, { 6.1, 1.0 }, { 6.65, 3.0 }, { 6.65, 5.2 }, { 3.6, 5.9 }, { -0.2, 4.2 } }
 
 local function PX(x) return MAP_X + (x - GX0) / GW * MAP_W end
 local function PY(y) return MAP_Y - (y - GY0) / GH * MAP_H end
@@ -248,12 +292,54 @@ local function Rect(K, f, layer, sub, x0, y0, x1, y1, c, a)
     return t
 end
 
--- A road between two places: straight, or an L (along x first) when they aren't in line.
+-- A hollow frame (four thin rects) around a box.
+local function Ring(K, f, layer, sub, x0, y0, x1, y1, w, c)
+    local r = {}
+    r[1] = Rect(K, f, layer, sub, x0, y0, x1, y0 - w, c)
+    r[2] = Rect(K, f, layer, sub, x0, y1 + w, x1, y1, c)
+    r[3] = Rect(K, f, layer, sub, x0, y0, x0 + w, y1, c)
+    r[4] = Rect(K, f, layer, sub, x1 - w, y0, x1, y1, c)
+    return r
+end
+
+-- A triangle of stacked strips pointing `dir` (up / down / left / right), its base `size` wide, tip at (tx, ty).
+local function Tri(K, f, layer, sub, dir, size, tx, ty, c)
+    local steps = math.max(2, math.floor(size / 2))
+    local out = {}
+    for i = 0, steps - 1 do
+        local len = size * (i + 1) / steps
+        local d = i * (size / 2 / steps)
+        if dir == "up" then out[#out + 1] = Rect(K, f, layer, sub, tx - len / 2, ty - d, tx + len / 2, ty - d - size / 2 / steps, c)
+        elseif dir == "down" then out[#out + 1] = Rect(K, f, layer, sub, tx - len / 2, ty + d, tx + len / 2, ty + d + size / 2 / steps, c)
+        elseif dir == "left" then out[#out + 1] = Rect(K, f, layer, sub, tx + d, ty + len / 2, tx + d + size / 2 / steps, ty - len / 2, c)
+        else out[#out + 1] = Rect(K, f, layer, sub, tx - d, ty + len / 2, tx - d - size / 2 / steps, ty - len / 2, c) end
+    end
+    return out
+end
+
+-- An overworld tile from the atlas, `size` pixels square, centred on (cx, cy).
+local function Prop(K, f, layer, sub, name, cx, cy, size, alpha)
+    local t = K.Tex(f, layer, sub)
+    K.Tile(t, name)
+    t:SetSize(size, size)
+    t:SetPoint("CENTER", f, "TOPLEFT", cx, cy)
+    if alpha then t:SetAlpha(alpha) end
+    return t
+end
+
+-- A road between two places: straight, or an L (along x first) when they aren't in line. A dark edge under a
+-- lighter centre.
 local function RoadPieces(K, f, a, b)
-    local pieces, w = {}, 3
+    local pieces, w = {}, 2
     local ax, ay, bx, by = PX(a.x), PY(a.y), PX(b.x), PY(b.y)
-    if ay ~= by then pieces[#pieces + 1] = Rect(K, f, "BORDER", 2, bx - w, ay, bx + w, by, ROAD) end
-    if ax ~= bx then pieces[#pieces + 1] = Rect(K, f, "BORDER", 2, ax, ay - w, bx, ay + w, ROAD) end
+    if ay ~= by then
+        Rect(K, f, "BORDER", 1, bx - w - 1, ay + 1, bx + w + 1, by - 1, ROAD_EDGE)
+        pieces[#pieces + 1] = Rect(K, f, "BORDER", 2, bx - w, ay, bx + w, by, ROAD)
+    end
+    if ax ~= bx then
+        Rect(K, f, "BORDER", 1, ax - 1, ay - w - 1, bx + 1, ay + w + 1, ROAD_EDGE)
+        pieces[#pieces + 1] = Rect(K, f, "BORDER", 2, ax, ay - w, bx, ay + w, ROAD)
+    end
     return pieces
 end
 
@@ -266,10 +352,37 @@ local function DottedLine(K, f, pts)
         for s = 0, len, 8 do
             local t = len > 0 and s / len or 0
             local x, y = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
-            dots[#dots + 1] = Rect(K, f, "BORDER", 3, x - 1.5, y + 1.5, x + 1.5, y - 1.5, { 0.24, 0.36, 0.62 })
+            dots[#dots + 1] = Rect(K, f, "BORDER", 3, x - 1.5, y + 1.5, x + 1.5, y - 1.5, { 0.30, 0.42, 0.66 })
         end
     end
     return dots
+end
+
+-- The marker of a place: a house for a town, a cave mouth for a dungeon, a ring for the arena, a small stone
+-- for a route. `art` is hidden while the place is unknown (a grey stone shows instead).
+local function NodeArt(K, f, p, cx, cy)
+    local s = NODE[p.kind]
+    local art = {}
+    if p.kind == "town" then
+        art[#art + 1] = Rect(K, f, "ARTWORK", 2, cx - 6, cy + 1, cx + 6, cy - 7, INK)             -- the walls
+        art[#art + 1] = Rect(K, f, "ARTWORK", 3, cx - 5, cy, cx + 5, cy - 6, FILL.town)
+        art[#art + 1] = Rect(K, f, "ARTWORK", 4, cx - 1, cy - 2, cx + 1, cy - 6, INK)             -- the door
+        for _, t in ipairs(Tri(K, f, "ARTWORK", 3, "up", 18, cx, cy + 9, INK)) do art[#art + 1] = t end   -- the roof
+        for _, t in ipairs(Tri(K, f, "ARTWORK", 4, "up", 14, cx, cy + 7, ROOF)) do art[#art + 1] = t end
+    elseif p.kind == "dungeon" then
+        art[#art + 1] = Rect(K, f, "ARTWORK", 2, cx - s / 2, cy + s / 2, cx + s / 2, cy - s / 2, INK)
+        art[#art + 1] = Rect(K, f, "ARTWORK", 3, cx - s / 2 + 1, cy + s / 2 - 1, cx + s / 2 - 1, cy - s / 2 + 1, FILL.dungeon)
+        art[#art + 1] = Rect(K, f, "ARTWORK", 4, cx - 3, cy + 1, cx + 3, cy - s / 2 + 1, { 0.06, 0.05, 0.08 })  -- the mouth
+    elseif p.kind == "arena" then
+        art[#art + 1] = Rect(K, f, "ARTWORK", 2, cx - s / 2, cy + s / 2, cx + s / 2, cy - s / 2, INK)
+        art[#art + 1] = Rect(K, f, "ARTWORK", 3, cx - s / 2 + 1, cy + s / 2 - 1, cx + s / 2 - 1, cy - s / 2 + 1, FILL.arena)
+        art[#art + 1] = Rect(K, f, "ARTWORK", 4, cx - 3, cy + 3, cx + 3, cy - 3, { 0.99, 0.94, 0.82 })          -- the ring
+        art[#art + 1] = Rect(K, f, "ARTWORK", 5, cx - 2, cy + 2, cx + 2, cy - 2, FILL.arena)
+    else
+        art[#art + 1] = Rect(K, f, "ARTWORK", 2, cx - s / 2, cy + s / 2, cx + s / 2, cy - s / 2, INK)
+        art[#art + 1] = Rect(K, f, "ARTWORK", 3, cx - s / 2 + 1, cy + s / 2 - 1, cx + s / 2 - 1, cy - s / 2 + 1, FILL.route)
+    end
+    return art
 end
 
 function W:Build(K)
@@ -281,20 +394,57 @@ function W:Build(K)
     t:SetPoint("TOPLEFT", 22, -18)
     t:SetTextColor(0.20, 0.36, 0.62)
     t:SetText("WORLD MAP")
-    Rect(K, f, "BACKGROUND", 1, MAP_X, MAP_Y, MAP_X + MAP_W, MAP_Y - MAP_H, { 0.74, 0.84, 0.91 })     -- the sea
+    -- the sea, framed
+    Rect(K, f, "BACKGROUND", 0, MAP_X - 2, MAP_Y + 2, MAP_X + MAP_W + 2, MAP_Y - MAP_H - 2, INK)
+    Rect(K, f, "BACKGROUND", 1, MAP_X, MAP_Y, MAP_X + MAP_W, MAP_Y - MAP_H, SEA)
+    Ring(K, f, "BACKGROUND", 2, MAP_X, MAP_Y, MAP_X + MAP_W, MAP_Y - MAP_H, 1, SEA_EDGE)
+    for _, wv in ipairs(WAVES) do Prop(K, f, "BACKGROUND", 3, "water1", PX(wv[1]), PY(wv[2]), 10, 0.55) end
+    -- the zones: an ink edge, a lighter shore, the land, corners nipped so they read as coast
     for _, z in ipairs(W.ZONES) do
         local x0, y0, x1, y1 = PX(z.x0), PY(z.y0), PX(z.x1), PY(z.y1)
         local c = z.color
-        Rect(K, f, "BACKGROUND", 2, x0, y0, x1, y1, { c[1] * 0.78, c[2] * 0.78, c[3] * 0.78 })
-        Rect(K, f, "BACKGROUND", 3, x0 + 2, y0 - 2, x1 - 2, y1 + 2, c)
-        local label = K.Font(f, 10, "ARTWORK", true)
+        local shore = { c[1] * 0.5 + SEA[1] * 0.5, c[2] * 0.5 + SEA[2] * 0.5, c[3] * 0.5 + SEA[3] * 0.5 }
+        Rect(K, f, "BACKGROUND", 4, x0 - 2, y0 + 2, x1 + 2, y1 - 2, shore)
+        Rect(K, f, "BACKGROUND", 5, x0, y0, x1, y1, { c[1] * 0.72, c[2] * 0.72, c[3] * 0.72 })
+        Rect(K, f, "BACKGROUND", 6, x0 + 2, y0 - 2, x1 - 2, y1 + 2, c)
+        for _, corner in ipairs({ { x0 - 2, y0 + 2, x0 + 2, y0 - 2 }, { x1 - 2, y0 + 2, x1 + 2, y0 - 2 },
+                                  { x0 - 2, y1 + 2, x0 + 2, y1 - 2 }, { x1 - 2, y1 + 2, x1 + 2, y1 - 2 } }) do
+            Rect(K, f, "BACKGROUND", 7, corner[1], corner[2], corner[3], corner[4], SEA)
+        end
+        local label = K.Font(f, 9, "ARTWORK", true)
         if z.labelBottom then
-            label:SetPoint("BOTTOMLEFT", f, "TOPLEFT", x0 + 6, y1 + 4)
+            label:SetPoint("BOTTOMLEFT", f, "TOPLEFT", x0 + 7, y1 + 5)
         else
-            label:SetPoint("TOPLEFT", f, "TOPLEFT", x0 + 6, y0 - 4)
+            label:SetPoint("TOPLEFT", f, "TOPLEFT", x0 + 7, y0 - 5)
         end
         label:SetText(z.name)
-        if z.dark then label:SetTextColor(0.90, 0.88, 1) else label:SetTextColor(c[1] * 0.45, c[2] * 0.45, c[3] * 0.45) end
+        if z.dark then label:SetTextColor(0.90, 0.88, 1) else label:SetTextColor(c[1] * 0.42, c[2] * 0.42, c[3] * 0.42) end
+        for _, pr in ipairs(PROPS[z.id] or {}) do
+            Prop(K, f, "BORDER", 0, pr[1], PX(pr[2]), PY(pr[3]), 14, z.dark and 0.9 or 1)
+        end
+    end
+    -- a compass rose in the open sea, bottom left: four points, north in red, the letters round it
+    do
+        local cx, cy = MAP_X + 34, MAP_Y - MAP_H + 44
+        local cream, red = { 0.99, 0.96, 0.86 }, { 0.80, 0.26, 0.22 }
+        Rect(K, f, "BORDER", 3, cx - 13, cy + 1, cx + 13, cy - 1, INK)                               -- the cross
+        Rect(K, f, "BORDER", 3, cx - 1, cy + 13, cx + 1, cy - 13, INK)
+        Tri(K, f, "BORDER", 4, "up", 10, cx, cy + 16, INK)
+        Tri(K, f, "BORDER", 5, "up", 6, cx, cy + 14, red)
+        Tri(K, f, "BORDER", 4, "down", 10, cx, cy - 16, INK)
+        Tri(K, f, "BORDER", 5, "down", 6, cx, cy - 14, cream)
+        Tri(K, f, "BORDER", 4, "left", 10, cx - 16, cy, INK)
+        Tri(K, f, "BORDER", 5, "left", 6, cx - 14, cy, cream)
+        Tri(K, f, "BORDER", 4, "right", 10, cx + 16, cy, INK)
+        Tri(K, f, "BORDER", 5, "right", 6, cx + 14, cy, cream)
+        Rect(K, f, "BORDER", 6, cx - 3, cy + 3, cx + 3, cy - 3, INK)                                 -- the hub
+        Rect(K, f, "BORDER", 7, cx - 2, cy + 2, cx + 2, cy - 2, cream)
+        for _, l in ipairs({ { "N", 0, 24, red }, { "S", 0, -24, INK }, { "W", -24, 0, INK }, { "E", 24, 0, INK } }) do
+            local fs = K.Font(f, 9, "ARTWORK", true)
+            fs:SetPoint("CENTER", f, "TOPLEFT", cx + l[2], cy + l[3])
+            fs:SetTextColor(l[4][1], l[4][2], l[4][3])
+            fs:SetText(l[1])
+        end
     end
     f.roads = {}
     for _, r in ipairs(W.Roads()) do f.roads[#f.roads + 1] = { a = r[1], b = r[2], pieces = RoadPieces(K, f, r[1], r[2]) } end
@@ -308,23 +458,22 @@ function W:Build(K)
     end
     f.nodes = {}
     for _, p in ipairs(W.PLACES) do
-        local n, s = {}, NODE[p.kind]
+        local node, s = {}, NODE[p.kind]
         local cx, cy = PX(p.x), PY(p.y)
-        n.you = Rect(K, f, "ARTWORK", 1, cx - s / 2 - 4, cy + s / 2 + 4, cx + s / 2 + 4, cy - s / 2 - 4, { 0.20, 0.48, 0.96 })
-        n.edge = Rect(K, f, "ARTWORK", 2, cx - s / 2, cy + s / 2, cx + s / 2, cy - s / 2, { 0.16, 0.16, 0.20 })
-        n.fill = Rect(K, f, "ARTWORK", 3, cx - s / 2 + 2, cy + s / 2 - 2, cx + s / 2 - 2, cy - s / 2 + 2, FILL[p.kind])
-        n.q = K.Font(f, 10, "OVERLAY", true)
-        n.q:SetPoint("CENTER", f, "TOPLEFT", cx + 0.5, cy)
-        n.q:SetText("?")
-        n.dots = {}
+        node.you = Ring(K, f, "ARTWORK", 1, cx - s / 2 - 4, cy + s / 2 + 4, cx + s / 2 + 4, cy - s / 2 - 4, 2, { 0.20, 0.48, 0.96 })
+        node.art = NodeArt(K, f, p, cx, cy)
+        node.ghost = Rect(K, f, "ARTWORK", 2, cx - 4, cy + 4, cx + 4, cy - 4, INK)        -- an unknown place
+        node.ghostFill = Rect(K, f, "ARTWORK", 3, cx - 3, cy + 3, cx + 3, cy - 3, UNKNOWN)
+        node.dots = {}
         for i = 1, 3 do                                             -- guildmates there now
-            n.dots[i] = Rect(K, f, "OVERLAY", 1, cx + s / 2 + 3, cy + s / 2 - (i - 1) * 7, cx + s / 2 + 8, cy + s / 2 - (i - 1) * 7 - 5,
-                { 1, 1, 1 })
+            node.dots[i] = Rect(K, f, "OVERLAY", 1, cx + s / 2 + 3, cy + s / 2 - (i - 1) * 7, cx + s / 2 + 8,
+                cy + s / 2 - (i - 1) * 7 - 5, { 1, 1, 1 })
         end
-        n.cx, n.cy, n.size = cx, cy, s
-        f.nodes[p.id] = n
+        node.cx, node.cy, node.size = cx, cy, s
+        f.nodes[p.id] = node
     end
     f.cursor = K.Triangle(f, "down", 12, 0.20, 0.36, 0.62)
+    f.cursor:SetFrameLevel(f:GetFrameLevel() + 4)
     -- the info box
     Rect(K, f, "ARTWORK", 0, 22, -296, 486, -297, { 0.80, 0.82, 0.86 })
     f.name = K.Font(f, 16, nil, true)
@@ -350,13 +499,16 @@ function W:Build(K)
     f.clock = 0
     f:SetScript("OnUpdate", function(_, elapsed)
         f.clock = f.clock + (elapsed or 0)
-        local n = W.sel and f.nodes[W.sel]
-        if n then
+        local node = W.sel and f.nodes[W.sel]
+        if node then
             f.cursor:ClearAllPoints()
-            f.cursor:SetPoint("BOTTOM", f, "TOPLEFT", n.cx, n.cy + n.size / 2 + 4 + math.floor(math.abs(math.sin(f.clock * 4)) * 3))
+            f.cursor:SetPoint("BOTTOM", f, "TOPLEFT", node.cx, node.cy + node.size / 2 + 5 + math.floor(math.abs(math.sin(f.clock * 4)) * 3))
         end
         local here = W.PlaceOf(G.save and G.save.map)
-        if here then f.nodes[here.id].you:SetAlpha(0.45 + 0.55 * math.abs(math.sin(f.clock * 2.5))) end
+        if here then
+            local a = 0.45 + 0.55 * math.abs(math.sin(f.clock * 2.5))
+            for _, r in ipairs(f.nodes[here.id].you) do r:SetAlpha(a) end
+        end
     end)
     W.frame = f
     return f
@@ -365,14 +517,15 @@ end
 function W:Refresh()
     local f = W.frame
     if not f then return end
+    local herePlace = W.PlaceOf(G.save.map)
     for _, p in ipairs(W.PLACES) do
-        local n, known = f.nodes[p.id], W.Visited(p)
-        local c = known and FILL[p.kind] or UNKNOWN
-        n.fill:SetColorTexture(c[1], c[2], c[3], 1)
-        n.q:SetShown(not known)
-        n.you:SetShown(W.PlaceOf(G.save.map) == p)
+        local node, known = f.nodes[p.id], W.Visited(p)
+        for _, a in ipairs(node.art) do a:SetShown(known) end
+        node.ghost:SetShown(not known)
+        node.ghostFill:SetShown(not known)
+        for _, r in ipairs(node.you) do r:SetShown(herePlace == p) end
         local here = W.Info(p).here
-        for i, dot in ipairs(n.dots) do
+        for i, dot in ipairs(node.dots) do
             local peer = here[i]
             local cc = peer and peer.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[peer.class]
             if cc then dot:SetColorTexture(cc.r, cc.g, cc.b, 1) else dot:SetColorTexture(1, 1, 1, 1) end

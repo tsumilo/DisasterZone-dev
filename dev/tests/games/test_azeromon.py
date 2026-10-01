@@ -297,7 +297,7 @@ def a_broken_save_is_repaired_on_load():
       return { map = s.map, party = #s.party, lvl = s.party[1].lvl, hp = s.party[1].hp, moves = #s.party[1].moves,
                pp = s.party[1].moves[1].pp, net = s.bag.net, fake = s.bag.fake, potion = s.bag.potion, money = s.money }
     """)
-    assert r["map"] == "home" and r["party"] == 1 and r["lvl"] == 50 and r["hp"] == 0, r
+    assert r["map"] == "home" and r["party"] == 1 and r["lvl"] == 100 and r["hp"] == 0, r
     assert r["moves"] == 1 and r["pp"] == 25 and r["net"] == 3, r
     assert r.get("fake") is None and r.get("potion") is None and r["money"] == 0, r
     no_errors(w)

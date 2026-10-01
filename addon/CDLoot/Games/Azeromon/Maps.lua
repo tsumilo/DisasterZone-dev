@@ -75,7 +75,7 @@ Maps.town = {
     },
     edges = { north = { map = "route1", dx = 0 } },
     npcs = {
-        { id = "guard", x = 12, y = 1, sprite = "bald", tint = { 0.55, 0.65, 1 }, face = "left",   -- Marshal Dughan
+        { id = "guard", name = "Marshal Dughan", x = 12, y = 1, sprite = "bald", tint = { 0.55, 0.65, 1 }, face = "left",   -- Marshal Dughan
           script = function(G)
               if G:Flag("starter") then
                   G:Say("Marshal Dughan: The road north runs through Elwynn Forest toward Westfall. Mind the tall grass, and keep an eye out for Hogger.")
@@ -84,15 +84,15 @@ Maps.town = {
                   G:Say("Marshal Dughan: Wolves, kobolds and worse lurk in the forest.\nNobody leaves Goldshire without a beast of their own.")
               end
           end },
-        { id = "farmer", x = 8, y = 12, sprite = "bald", tint = { 1, 0.85, 0.6 }, face = "down", wander = true,
+        { id = "farmer", name = "Maybell Maclure", x = 8, y = 12, sprite = "bald", tint = { 1, 0.85, 0.6 }, face = "down", wander = true,
           script = function(G)
               G:Say("Maybell Maclure: Huntmaster Aldric can tame anything, they say. His lodge is in the northeast.\nIf you see Tommy Joe Stonefield... never mind.")
           end },
-        { id = "mallory", role = "profession", x = 8, y = 3, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "down",       -- Herbalism, Alchemy
+        { id = "mallory", name = "Alchemist Mallory", role = "profession", x = 8, y = 3, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "down",       -- Herbalism, Alchemy
           script = function(G) ns.AzeroCraft:TrainerTalk(G, "mallory") end },
-        { id = "argus", role = "profession", x = 18, y = 17, sprite = "bald", tint = { 0.85, 0.72, 0.6 }, face = "down",      -- Mining, Blacksmithing
+        { id = "argus", name = "Smith Argus", role = "profession", x = 18, y = 17, sprite = "bald", tint = { 0.85, 0.72, 0.6 }, face = "down",      -- Mining, Blacksmithing
           script = function(G) ns.AzeroCraft:TrainerTalk(G, "argus") end },
-        { id = "kid", x = 14, y = 9, sprite = "hero", tint = { 1, 0.75, 0.75 }, face = "left", wander = true,
+        { id = "kid", name = "Billy Maclure", x = 14, y = 9, sprite = "hero", tint = { 1, 0.75, 0.75 }, face = "left", wander = true,
           script = function(G)
               G:Say("Billy Maclure: When I grow up I'm gonna tame a dragon whelp! Or a murloc! Mrgllglgl!")
           end },
@@ -124,7 +124,7 @@ Maps.home = {
     },
     warps = { { x = 4, y = 7, map = "town", tx = 5, ty = 7, face = "down" } },
     npcs = {
-        { id = "mom", x = 6, y = 4, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "left",
+        { id = "mom", name = "Mom", x = 6, y = 4, sprite = "girl", tint = { 0.85, 0.75, 1 }, face = "left",
           script = function(G)
               if not G:Flag("starter") then
                   G:Say("Mom: Morning, {PLAYER}! Huntmaster Aldric came by looking for you.\nHis lodge is across the road.")
@@ -192,7 +192,7 @@ Maps.lab = {
         { x = 5, y = 4, tile = "chest", script = function(G) PickStarter(G, "lashling") end },
     },
     npcs = {
-        { id = "aldric", x = 4, y = 3, sprite = "bald", tint = { 0.95, 0.95, 0.8 }, face = "down",
+        { id = "aldric", name = "Huntmaster Aldric", x = 4, y = 3, sprite = "bald", tint = { 0.95, 0.95, 0.8 }, face = "down",
           script = function(G)
               if not G:Flag("starter") then
                   G:Say("Huntmaster Aldric: Ah, {PLAYER}! I've been expecting you.")
@@ -204,7 +204,7 @@ Maps.lab = {
                   G:ShowDexSummary()
               end
           end },
-        { id = "rival", x = 7, y = 5, sprite = "girl", face = "left",
+        { id = "rival", name = "Vera", x = 7, y = 5, sprite = "girl", face = "left",
           hidden = function(G) return G:Flag("rivalDone") end,
           script = function(G)
               if G:Flag("starter") then
@@ -222,16 +222,18 @@ Maps.post = {
     rows = {
         "WWWWWWWWWW",
         "WWWWWWWWWW",
-        "ffffffffff",
+        "fffffLffff",
         "fcccffcccf",
         "ffffffffff",
         "ffffffffff",
         "pffffffffp",
         "WWWWrWWWWW",
     },
-    warps = { { x = 4, y = 7, map = "town", tx = 5, ty = 17, face = "down" } },
+    warps = { { x = 4, y = 7, map = "town", tx = 5, ty = 17, face = "down" },
+              { x = 5, y = 2, map = "hideout", tx = 14, ty = 22, face = "up" } },           -- the Guild Hall below
+    signs = { { x = 6, y = 2, text = "THE GUILD HALL\nDown the stairs: the guild's raid trophies and its champions." } },
     npcs = {
-        { id = "healer", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.8, 0.85 }, face = "down",
+        { id = "healer", name = "Innkeeper Farley", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.8, 0.85 }, face = "down",
           script = function(G)
               G:Say("Innkeeper Farley: Welcome to the Lion's Pride Inn!")
               G:ClassSay("farley")
@@ -243,19 +245,19 @@ Maps.post = {
                   G:Say("Innkeeper Farley: Come back anytime.")
               end
           end },
-        { id = "clerk", role = "shop", x = 7, y = 2, sprite = "bald", tint = { 0.7, 1, 0.7 }, face = "down",
+        { id = "clerk", name = "Brog Hamfist", role = "shop", x = 7, y = 2, sprite = "bald", tint = { 0.7, 1, 0.7 }, face = "down",
           script = function(G)
               G:Say("Brog Hamfist: Welcome! Potions, rods, the finest goods in Goldshire. And I buy, too.")
               G:Shop("Brog Hamfist")
               G:Say("Brog Hamfist: Come again!")
           end },
-        { id = "erma", role = "stable", x = 8, y = 5, sprite = "girl", tint = { 0.85, 0.95, 0.75 }, face = "left",      -- stable master
+        { id = "erma", name = "Erma", role = "stable", x = 8, y = 5, sprite = "girl", tint = { 0.85, 0.95, 0.75 }, face = "left",      -- stable master
           script = function(G)
               G:Say("Erma: Stable Master Erma, at your service. I'll mind any beasts you can't take along.")
               G:Stable()
               G:Say("Erma: They'll be well looked after. Come back anytime.")
           end },
-        { id = "pettrainer", role = "pettrainer", x = 1, y = 5, sprite = "bald", tint = { 0.86, 0.66, 0.46 }, face = "right",
+        { id = "pettrainer", name = "Gorvin Wildhammer", role = "pettrainer", x = 1, y = 5, sprite = "bald", tint = { 0.86, 0.66, 0.46 }, face = "right",
           script = function(G)
               local who = "Gorvin Wildhammer: "
               G:Say(who .. "Pet trainer, down from Aerie Peak. Wildhammers raise gryphons; beasts I understand.")
@@ -293,7 +295,7 @@ Maps.arena = {
     outdoor = true,
     theme = "arena",
     rows = {
-        "TTTTTTTTTTTTTTTT",
+        "TTTTTTT..TTTTTTT",
         "TiTTTTTTTTTTTTiT",
         "T..............T",
         "T..............T",
@@ -305,15 +307,17 @@ Maps.arena = {
         "T..............T",
         "TiTTTTT..TTTTTiT",
         "T..............T",
-        "TTTTTTTTTTTTTTTT",
+        "TTTTTTT..TTTTTTT",
     },
+    -- the road through the arena: Zul'Mamwe to the north, Southern Stranglethorn to the south
+    edges = { north = { map = "zulmamwe", dx = 4 }, south = { map = "stvsouth", dx = 4 } },
     signs = {
         { x = 9, y = 10, text = "THE GURUBASHI ARENA\nBeast fights daily. See Short John Mithril in the ring." },
     },
     npcs = {
-        { id = "mithril", role = "arena", x = 7, y = 3, sprite = "bald", tint = { 1, 0.85, 0.5 }, face = "down",
+        { id = "mithril", name = "Short John Mithril", role = "arena", x = 7, y = 3, sprite = "bald", tint = { 1, 0.85, 0.5 }, face = "down",
           script = function(G) ns.AzeroArena:Run(G) end },
-        { id = "skindle", role = "inn", x = 3, y = 11, sprite = "girl", tint = { 0.8, 1, 0.7 }, face = "right",
+        { id = "skindle", name = "Innkeeper Skindle", role = "inn", x = 3, y = 11, sprite = "girl", tint = { 0.8, 1, 0.7 }, face = "right",
           script = function(G)
               G:Say("Innkeeper Skindle: Up from Booty Bay for the fights. I patch up the losers, and the winners.")
               if G:YesNo("Innkeeper Skindle: Rest your beasts?") then
@@ -322,7 +326,7 @@ Maps.arena = {
                   G:Say("Innkeeper Skindle: Good as new. Go get 'em.")
               end
           end },
-        { id = "gyll", role = "gryphon", x = 12, y = 11, sprite = "bald", tint = { 0.8, 0.9, 1 }, face = "left",
+        { id = "gyll", name = "Gyll", role = "gryphon", x = 12, y = 11, sprite = "bald", tint = { 0.8, 0.9, 1 }, face = "left",
           script = function(G)
               if G:YesNo("Gyll: Gryphon back to Sentinel Hill? It's on the house.") then
                   G:EnterMap("sentinel", 17, 4, "right")
@@ -548,7 +552,7 @@ Maps.westfall = {
         { id = "wfbeach", x = 3, y = 30, item = "superpotion", n = 1 },
     },
     npcs = {
-        { id = "furlbrow", x = 14, y = 5, sprite = "bald", tint = { 1, 0.85, 0.65 }, face = "right",
+        { id = "furlbrow", name = "Farmer Furlbrow", x = 14, y = 5, sprite = "bald", tint = { 1, 0.85, 0.65 }, face = "right",
           script = function(G)
               G:Say("Farmer Furlbrow: The Defias ran my wife and me off our own farm, and they took Old Blanchy too!")
               G:Say("Farmer Furlbrow: At least they left the pumpkins. Nobody wants the pumpkins.")
@@ -581,13 +585,13 @@ Maps.saldean = {
     },
     warps = { { x = 4, y = 7, map = "westfall", tx = 19, ty = 23, face = "down" } },
     npcs = {
-        { id = "salma", role = "rest", x = 6, y = 4, sprite = "girl", tint = { 1, 0.85, 0.75 }, face = "left",
+        { id = "salma", name = "Salma Saldean", role = "rest", x = 6, y = 4, sprite = "girl", tint = { 1, 0.85, 0.75 }, face = "left",
           script = function(G)
               G:Say("Salma Saldean: You look half starved, and so do your beasts. Sit down, I've a stew on.")
               G:HealParty()
               G:Say("Your beasts are fully rested! Salma's stew is famous all over Westfall.")
           end },
-        { id = "saldean", x = 2, y = 3, sprite = "bald", tint = { 1, 0.9, 0.75 }, face = "down",
+        { id = "saldean", name = "Farmer Saldean", x = 2, y = 3, sprite = "bald", tint = { 1, 0.9, 0.75 }, face = "down",
           script = function(G)
               G:Say("Farmer Saldean: The Defias have taken half the farms in Westfall. The People's Militia is all that stands against them.")
               G:Say("Farmer Saldean: Gryan Stoutmantle leads them from Sentinel Hill, up the road north.")
@@ -647,7 +651,7 @@ Maps.sentinel = {
         { x = 18, y = 11, text = "DUSKWOOD: east.\nRaven Hill, then Darkshire." },
     },
     npcs = {
-        { id = "gryan", x = 11, y = 6, sprite = "hero", tint = { 0.75, 0.75, 1 }, face = "down",
+        { id = "gryan", name = "Gryan Stoutmantle", x = 11, y = 6, sprite = "hero", tint = { 0.75, 0.75, 1 }, face = "down",
           script = function(G)
               if G:Flag("badge_vancleef") then
                   G:Say("Gryan Stoutmantle: VanCleef's bandana... then it's true. The Brotherhood is broken!")
@@ -664,7 +668,7 @@ Maps.sentinel = {
               end
               G:Say("Gryan Stoutmantle: Edwin VanCleef and his Brotherhood hide in the Deadmines under Moonbrook. One day we'll root them out.")
           end },
-        { id = "thor", role = "gryphon", x = 18, y = 4, sprite = "bald", tint = { 0.95, 0.85, 0.6 }, face = "left",      -- gryphon master
+        { id = "thor", name = "Thor", role = "gryphon", x = 18, y = 4, sprite = "bald", tint = { 0.95, 0.85, 0.6 }, face = "left",      -- gryphon master
           script = function(G)
               G:Say("Thor: Gryphons to Stranglethorn. Short John Mithril runs beast fights at the Gurubashi Arena these days.")
               if G:Flag("fp_darkshire") then                  -- Felicia Maline sent word: Darkshire too
@@ -696,7 +700,7 @@ Maps.sentinel = {
               G:EnterMap("arena", 7, 11, "up")
               G:Say("You fly south over the Westfall coast, all the way to Stranglethorn Vale...")
           end },
-        { id = "galiaan", x = 18, y = 8, sprite = "girl", tint = { 0.75, 0.65, 0.95 }, face = "down",
+        { id = "galiaan", name = "Scout Galiaan", x = 18, y = 8, sprite = "girl", tint = { 0.75, 0.65, 0.95 }, face = "down",
           script = function(G)
               if G:Flag("badge_vancleef") then
                   G:Say("Scout Galiaan: The road east is open. Duskwood is dark even at noon, so keep your beasts close.")
@@ -704,7 +708,7 @@ Maps.sentinel = {
                   G:DuskwoodGate()
               end
           end },
-        { id = "danuvin", x = 4, y = 12, sprite = "bald", tint = { 0.65, 0.7, 1 }, face = "right",
+        { id = "danuvin", name = "Captain Danuvin", x = 4, y = 12, sprite = "bald", tint = { 0.65, 0.7, 1 }, face = "right",
           script = function(G)
               G:Say("Captain Danuvin: The Defias grow bolder every day. Keep your beasts close on the road.")
           end },
@@ -726,7 +730,7 @@ Maps.sentinelinn = {
     },
     warps = { { x = 4, y = 7, map = "sentinel", tx = 5, ty = 9, face = "down" } },
     npcs = {
-        { id = "heather", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.85, 0.7 }, face = "down",
+        { id = "heather", name = "Innkeeper Heather", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 1, 0.85, 0.7 }, face = "down",
           script = function(G)
               G:Say("Innkeeper Heather: Welcome to Sentinel Hill! It's not Stormwind, but the beds are warm.")
               if G:YesNo("Innkeeper Heather: Let your beasts rest here?") then
@@ -735,13 +739,13 @@ Maps.sentinelinn = {
                   G:Say("Innkeeper Heather: All rested! I'll keep a bed for you, should you come back in a hurry.")
               end
           end },
-        { id = "lewis", role = "shop", x = 7, y = 2, sprite = "bald", tint = { 0.8, 0.85, 1 }, face = "down",
+        { id = "lewis", name = "Quartermaster Lewis", role = "shop", x = 7, y = 2, sprite = "bald", tint = { 0.8, 0.85, 1 }, face = "down",
           script = function(G)
               G:Say("Quartermaster Lewis: The Militia's stores are open to friends of Sentinel Hill.")
               G:Shop("Quartermaster Lewis")
               G:Say("Quartermaster Lewis: Stay safe out there.")
           end },
-        { id = "kirk", role = "stable", x = 8, y = 5, sprite = "bald", tint = { 0.95, 0.85, 0.7 }, face = "left",       -- stable master
+        { id = "kirk", name = "Kirk Maxwell", role = "stable", x = 8, y = 5, sprite = "bald", tint = { 0.95, 0.85, 0.7 }, face = "left",       -- stable master
           script = function(G)
               G:Say("Kirk Maxwell: Kirk Maxwell, stable master. Same stable as Goldshire's, we share the ledger.")
               G:Stable()
@@ -1006,7 +1010,7 @@ Maps.ravenhill = {
         { sp = "worm", min = 22, max = 23, weight = 10 },
     },
     npcs = {
-        { id = "sven", x = 19, y = 4, sprite = "bald", tint = { 0.85, 0.75, 0.6 }, face = "left",
+        { id = "sven", name = "Sven Yorgen", x = 19, y = 4, sprite = "bald", tint = { 0.85, 0.75, 0.6 }, face = "left",
           script = function(G)
               if G:Flag("beat_morbentfel") then
                   G:Say("Sven Yorgen: Morbent Fel is gone? Then the farm is mine again. I'll go home... once my hands stop shaking.")
@@ -1031,7 +1035,7 @@ Maps.ravenhill = {
           trainer = "ladimore", sight = 5 },
         { id = "morladim", x = 11, y = 16, sprite = "bald", tint = { 0.55, 0.6, 0.7 }, face = "up",
           trainer = "morladim", sight = 0, hidden = Vanished("morladim") },
-        { id = "jitters", x = 16, y = 5, sprite = "bald", tint = { 0.9, 0.85, 0.75 }, face = "down",
+        { id = "jitters", name = "Jitters", x = 16, y = 5, sprite = "bald", tint = { 0.9, 0.85, 0.75 }, face = "down",
           script = function(G)
               G:Say("Jitters: The ravens... they're watching. They're always watching. Don't go into the cemetery. Don't!")
           end },
@@ -1094,7 +1098,7 @@ Maps.duskwood = {
         { sp = "lupos", min = 27, max = 27, day = 0, night = 2, rare = true },
     },
     npcs = {
-        { id = "abercrombie", x = 8, y = 5, sprite = "bald", tint = { 0.75, 0.8, 0.7 }, face = "down",
+        { id = "abercrombie", name = "Abercrombie", x = 8, y = 5, sprite = "bald", tint = { 0.75, 0.8, 0.7 }, face = "down",
           script = function(G)
               if G:Flag("beat_stitches") then
                   G:Say("Abercrombie: You broke my friend! All those stitches... do you know how long that took?")
@@ -1112,7 +1116,7 @@ Maps.duskwood = {
           trainer = "ogre1", sight = 3 },
         { id = "morbentfel", x = 11, y = 18, sprite = "hero", tint = { 0.45, 0.35, 0.6 }, face = "left",
           trainer = "morbentfel", sight = 0, hidden = Vanished("morbentfel") },
-        { id = "watchguard", x = 25, y = 8, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "down",
+        { id = "watchguard", name = "Night Watch Guard", x = 25, y = 8, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "down",
           script = function(G)
               G:Say("Night Watch Guard: Darkshire's just east. Stay on the road and stay near the lamps.")
           end },
@@ -1165,10 +1169,14 @@ Maps.darkshire = {
         "T..........==..........T",
         "T..........==..........T",
         "TY......Y..==.........YT",
-        "T......................T",
-        "TTTTTTTTTTTTTTTTTTTTTTTT",
+        "T..........==..........T",
+        "TTTTTTTTTTT==TTTTTTTTTTT",
     },
-    edges = { west = { map = "duskwood", dy = 0 } },
+    edges = { west = { map = "duskwood", dy = 0 }, south = { map = "rebelcamp", dx = 0 } },
+    triggers = {
+        { x = 11, y = 18, cond = function(G) return not G:Flag("badge_nightwatch") end, script = function(G) G:StranglethornGate() end },
+        { x = 12, y = 18, cond = function(G) return not G:Flag("badge_nightwatch") end, script = function(G) G:StranglethornGate() end },
+    },
     stamps = {
         { kind = "darkhouse", x = 3, y = 1 },       -- the Scarlet Raven Tavern, door (6, 6)
         { kind = "darkhouse", x = 14, y = 1 },      -- the town hall
@@ -1186,16 +1194,16 @@ Maps.darkshire = {
         { id = "stitches", x = 3, y = 9, sprite = "bald", tint = { 0.6, 0.72, 0.55 }, face = "left",
           trainer = "stitches", sight = 3,
           hidden = function(G) return not HauntsDone(G) or G:Flag("beat_stitches") end },
-        { id = "ello", x = 15, y = 8, sprite = "hero", tint = { 0.95, 0.85, 0.6 }, face = "down",
+        { id = "ello", name = "Lord Ello Ebonlocke", x = 15, y = 8, sprite = "hero", tint = { 0.95, 0.85, 0.6 }, face = "down",
           script = function(G)
               G:Say("Lord Ello Ebonlocke: Welcome to Darkshire. We hold on because the Night Watch holds on.")
               G:Say("Lord Ello Ebonlocke: Commander Ebonlocke runs the Watch. If you mean to help, talk to her.")
           end },
-        { id = "althea", x = 18, y = 8, sprite = "girl", tint = { 0.75, 0.8, 1 }, face = "down",
+        { id = "althea", name = "Commander Althea Ebonlocke", x = 18, y = 8, sprite = "girl", tint = { 0.75, 0.8, 1 }, face = "down",
           script = function(G)
               if G:Flag("badge_nightwatch") then
                   G:Say("Commander Althea Ebonlocke: Watcher {PLAYER}. It has a ring to it. Darkshire won't forget what you did.")
-                  G:Say("(You have finished the Azeromon preview. Thank you for playing! More of Azeroth is coming.)")
+                  G:Say("Commander Althea Ebonlocke: The road south is open to you now. Stranglethorn Vale... mind the tigers, Watcher.")
                   return
               end
               if HauntsDone(G) then
@@ -1209,7 +1217,7 @@ Maps.darkshire = {
               if not G:Flag("beat_stalvan") then left[#left + 1] = "whatever haunts Manor Mistmantle" end
               G:Say("Commander Althea Ebonlocke: Three haunts feed this darkness. Still out there: " .. table.concat(left, "; ") .. ".")
           end },
-        { id = "eva", x = 6, y = 16, sprite = "girl", tint = { 0.85, 0.6, 0.9 }, face = "up",
+        { id = "eva", name = "Madame Eva", x = 6, y = 16, sprite = "girl", tint = { 0.85, 0.6, 0.9 }, face = "up",
           script = function(G)
               G:Say("Madame Eva: Sit, child. Let the cards speak...")
               if G:Flag("badge_nightwatch") then
@@ -1226,32 +1234,45 @@ Maps.darkshire = {
                   G:Say("Madame Eva: A manor north of the road. Its master never left... and never will, unless you make him.")
               end
           end },
-        { id = "felicia", role = "gryphon", x = 17, y = 15, sprite = "girl", tint = { 1, 0.9, 0.75 }, face = "left",      -- gryphon master
+        { id = "felicia", name = "Felicia Maline", role = "gryphon", x = 17, y = 15, sprite = "girl", tint = { 1, 0.9, 0.75 }, face = "left",      -- gryphon master
           script = function(G)
               local D = ns.AzeroData
               if not G:Flag("fp_darkshire") then
                   G:SetFlag("fp_darkshire")
                   G:Say("Felicia Maline: New in Darkshire? I'll send word to Thor at Sentinel Hill. His gryphons can bring you here now.")
               end
-              if G:Choose("Felicia Maline: Where to?", { "Sentinel Hill (" .. D.Money(30) .. ")", "Stay" }) ~= 1 then
+              local options, dest = { "Sentinel Hill (" .. D.Money(30) .. ")" }, { "sentinel" }
+              if G:Flag("fp_bootybay") then
+                  options[#options + 1] = "Booty Bay (" .. D.Money(40) .. ")"
+                  dest[#dest + 1] = "bootybay"
+              end
+              options[#options + 1] = "Stay"
+              local to = dest[G:Choose("Felicia Maline: Where to?", options)]
+              if not to then
                   G:Say("Felicia Maline: Mind the dark, then.")
                   return
               end
-              if G.save.money < 30 then
-                  G:Say("Felicia Maline: That's " .. D.Money(30) .. ", dear.")
+              local cost = (to == "bootybay") and 40 or 30
+              if G.save.money < cost then
+                  G:Say("Felicia Maline: That's " .. D.Money(cost) .. ", dear.")
                   return
               end
-              G.save.money = G.save.money - 30
-              G:EnterMap("sentinel", 17, 4, "right")
-              G:Say("You fly west over the dark treetops, all the way to Sentinel Hill.")
+              G.save.money = G.save.money - cost
+              if to == "bootybay" then
+                  G:EnterMap("bootybay", 3, 9, "down")
+                  G:Say("You fly south over the whole of Stranglethorn, down to Booty Bay's docks.")
+              else
+                  G:EnterMap("sentinel", 17, 4, "right")
+                  G:Say("You fly west over the dark treetops, all the way to Sentinel Hill.")
+              end
           end },
         { id = "backus", x = 13, y = 12, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "left",
           trainer = "backus", sight = 2 },
         { id = "paige", x = 9, y = 13, sprite = "girl", tint = { 0.7, 0.75, 0.95 }, face = "right",
           trainer = "paige", sight = 2 },
-        { id = "dsguard", x = 21, y = 12, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "left",
+        { id = "dsguard", name = "Night Watch Guard", x = 21, y = 12, sprite = "hero", tint = { 0.7, 0.75, 0.95 }, face = "left",
           script = function(G)
-              G:Say("Night Watch Guard: East is Deadwind Pass. Nobody goes there. Nobody comes back from there, either.")
+              G:Say("Night Watch Guard: East is Deadwind Pass. Nobody goes there. South is Stranglethorn Vale, once the Commander says so.")
           end },
     },
 }
@@ -1271,7 +1292,7 @@ Maps.darkshireinn = {
     },
     warps = { { x = 4, y = 7, map = "darkshire", tx = 6, ty = 7, face = "down" } },
     npcs = {
-        { id = "trelayne", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 0.95, 0.8, 0.75 }, face = "down",
+        { id = "trelayne", name = "Innkeeper Trelayne", role = "inn", x = 2, y = 2, sprite = "girl", tint = { 0.95, 0.8, 0.75 }, face = "down",
           script = function(G)
               G:Say("Innkeeper Trelayne: Welcome to the Scarlet Raven. Warm beds, and the doors lock at night.")
               if G:YesNo("Innkeeper Trelayne: Let your beasts rest here?") then
@@ -1280,13 +1301,13 @@ Maps.darkshireinn = {
                   G:Say("Innkeeper Trelayne: There. Rested, and safe behind the Watch's walls.")
               end
           end },
-        { id = "hann", role = "shop", x = 7, y = 2, sprite = "bald", tint = { 0.9, 0.8, 0.7 }, face = "down",
+        { id = "hann", name = "Barkeep Hann", role = "shop", x = 7, y = 2, sprite = "bald", tint = { 0.9, 0.8, 0.7 }, face = "down",
           script = function(G)
               G:Say("Barkeep Hann: Supplies for the road? You'll want them out there.")
               G:Shop("Barkeep Hann")
               G:Say("Barkeep Hann: Come back in one piece.")
           end },
-        { id = "dsstable", role = "stable", x = 8, y = 5, sprite = "bald", tint = { 0.8, 0.8, 0.9 }, face = "left",     -- stable master
+        { id = "dsstable", name = "Stable Master", role = "stable", x = 8, y = 5, sprite = "bald", tint = { 0.8, 0.8, 0.9 }, face = "left",     -- stable master
           script = function(G)
               G:Say("Stable Master: Same stable ledger as Goldshire's and Sentinel Hill's. Your beasts are safe with me.")
               G:Stable()

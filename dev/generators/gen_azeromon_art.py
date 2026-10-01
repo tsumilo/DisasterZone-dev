@@ -87,7 +87,7 @@ def build_atlas():
             for x in range(w):
                 add("%s_%d_%d" % (name, x, y), sheet, c0 + x, r0 + y)
     # Westfall + Forest's Edge (appended so earlier slots never move)
-    for name, img, w, h in westfall_art() + mine_art() + town_art() + duskwood_art():
+    for name, img, w, h in westfall_art() + mine_art() + town_art() + duskwood_art() + jungle_art() + hideout_art() + hall_art():
         if w == 1 and h == 1:
             add(name, img, 0, 0)
         else:
@@ -710,6 +710,368 @@ def duskwood_art():
     return out
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Stranglethorn Vale: the Elwynn tiles in deep tropical green (wet red earth for the paths), palms, a jungle
+# canopy tree, troll huts and ruin stones for the Bloodscalp and Skullsplitter camps, Booty Bay's wooden
+# houses on stilts, and a troll totem.
+# ---------------------------------------------------------------------------------------------------------------
+JUNGLE = (0.30, 1.15, 0.92)        # deep jungle green
+JUNGLE_TALL = (0.28, 1.25, 0.98)   # tall grass, lusher still
+JUNGLE_LEAF = (0.33, 1.10, 0.62)   # canopy leaves
+ROOF_BB = (0.07, 0.90, 0.72)       # Booty Bay: weathered brown planks
+
+
+def jungle_path(im):
+    """A path tile with the jungle's grass edge and wet red earth for the dirt."""
+    grass = recolor(im, JUNGLE, JUNGLE_LEAF)
+    px, src = grass.load(), im.load()
+    for yy in range(im.size[1]):
+        for xx in range(im.size[0]):
+            r, g, b, a = src[xx, yy]
+            if not a:
+                continue
+            h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+            if not (0.17 <= h <= 0.45 and s > 0.18):          # not grass: the dirt, reddened
+                px[xx, yy] = (min(255, int(r * 0.92)), int(g * 0.66), int(b * 0.52), a)
+    return grass
+
+
+def palm(d, img):
+    trunk, dark = (128, 92, 52, 255), (84, 58, 30, 255)
+    leaf, leaf2 = (58, 140, 62, 255), (36, 104, 44, 255)
+    d.line((8, 6, 7, 15), fill=trunk)
+    d.line((9, 6, 8, 15), fill=dark)
+    for y in (8, 11, 14):
+        d.point((7, y), fill=dark)
+    # fronds fanning out from the crown
+    for (x1, y1, x2, y2) in ((8, 5, 2, 2), (8, 5, 1, 7), (8, 5, 14, 2), (8, 5, 15, 7), (8, 5, 5, 9), (8, 5, 11, 9),
+                             (8, 5, 8, 0)):
+        d.line((x1, y1, x2, y2), fill=leaf)
+    for (x1, y1, x2, y2) in ((7, 4, 3, 3), (9, 4, 13, 3), (6, 6, 2, 8), (10, 6, 14, 8)):
+        d.line((x1, y1, x2, y2), fill=leaf2)
+    d.point((8, 5), fill=leaf2)
+    d.point((7, 6), fill=(190, 140, 60, 255))       # coconuts
+    d.point((9, 6), fill=(190, 140, 60, 255))
+    d.line((5, 15, 11, 15), fill=(30, 50, 34, 140))  # shadow
+
+
+def hut(d, img):
+    """A troll hut, 3 x 3 tiles (48 x 48): thatched roof, wattle walls, a dark doorway at the bottom middle."""
+    thatch, thatch_d, thatch_l = (176, 138, 66, 255), (128, 96, 40, 255), (206, 170, 92, 255)
+    wall, wall_d, door = (120, 84, 52, 255), (80, 54, 30, 255), (34, 22, 16, 255)
+    d.polygon([(24, 2), (46, 24), (2, 24)], fill=thatch)
+    d.polygon([(24, 2), (46, 24), (24, 24)], fill=thatch_d)
+    for y in range(8, 24, 4):
+        d.line((24 - (y - 2), y, 24 + (y - 2), y), fill=thatch_l)
+    d.rectangle((6, 24, 41, 45), fill=wall)
+    d.rectangle((24, 24, 41, 45), fill=wall_d)
+    for x in range(8, 40, 6):
+        d.line((x, 25, x, 45), fill=(96, 66, 40, 255))
+    d.rectangle((19, 32, 28, 45), fill=door)
+    d.rectangle((6, 45, 41, 46), fill=(60, 40, 24, 255))
+    d.line((2, 47, 45, 47), fill=(30, 50, 34, 140))
+    # a skull over the door
+    d.ellipse((21, 27, 26, 31), fill=(226, 220, 200, 255))
+    d.point((22, 29), fill=door)
+    d.point((25, 29), fill=door)
+
+
+def ruin_wall(d, img):
+    stone, dark, light, moss = (118, 126, 112, 255), (70, 78, 66, 255), (156, 164, 148, 255), (72, 118, 60, 255)
+    d.rectangle((0, 0, 15, 15), fill=stone)
+    for y in (3, 8, 13):
+        d.line((0, y, 15, y), fill=dark)
+    for (x, y0, y1) in ((5, 0, 3), (11, 0, 3), (2, 4, 8), (9, 4, 8), (6, 9, 13), (13, 9, 13)):
+        d.line((x, y0, x, y1), fill=dark)
+    d.line((0, 0, 15, 0), fill=light)
+    d.line((0, 0, 0, 15), fill=light)
+    d.rectangle((7, 5, 8, 7), fill=(150, 60, 50, 255))     # a troll glyph in old red paint
+    d.point((7, 4), fill=(150, 60, 50, 255))
+    d.point((8, 4), fill=(150, 60, 50, 255))
+    d.point((1, 14), fill=moss)
+    d.point((2, 14), fill=moss)
+    d.point((14, 11), fill=moss)
+    d.point((12, 2), fill=moss)
+
+
+def totem(d, img):
+    """A troll totem, 1 x 2 tiles."""
+    wood, dark, paint, teeth = (140, 96, 48, 255), (88, 58, 28, 255), (196, 60, 48, 255), (236, 230, 210, 255)
+    d.rectangle((5, 2, 10, 31), fill=wood)
+    d.line((10, 2, 10, 31), fill=dark)
+    d.rectangle((4, 4, 11, 12), fill=wood)              # the top face
+    d.rectangle((5, 6, 6, 7), fill=paint)
+    d.rectangle((9, 6, 10, 7), fill=paint)
+    d.rectangle((5, 10, 10, 10), fill=dark)
+    for x in (5, 7, 9):
+        d.point((x, 11), fill=teeth)
+    d.rectangle((4, 16, 11, 24), fill=wood)             # the lower face
+    d.rectangle((5, 18, 6, 19), fill=(60, 120, 200, 255))
+    d.rectangle((9, 18, 10, 19), fill=(60, 120, 200, 255))
+    d.line((5, 22, 10, 22), fill=paint)
+    d.line((2, 3, 13, 3), fill=paint)                   # feathers / a crossbar
+    d.line((3, 31, 12, 31), fill=(30, 50, 34, 140))
+
+
+def jungle_art():
+    out = []
+    jungle = lambda im: recolor(im, JUNGLE, JUNGLE_LEAF)                               # noqa: E731
+    out.append(("jgrass1", jungle(crop(R, 8, 0)), 1, 1))
+    out.append(("jgrass2", jungle(crop(R, 9, 0)), 1, 1))
+    for n, c, r in (("tl", 8, 1), ("t", 9, 1), ("tr", 10, 1), ("l", 8, 2), ("c", 9, 2), ("r", 10, 2),
+                    ("bl", 8, 3), ("b", 9, 3), ("br", 10, 3), ("inw", 11, 0), ("ine", 12, 0), ("isw", 11, 1),
+                    ("ise", 12, 1)):
+        out.append(("jpath_" + n, jungle_path(crop(R, c, r)), 1, 1))
+    for n, c, r in (("tl", 0, 6), ("t", 1, 6), ("tr", 2, 6), ("l", 0, 7), ("c", 1, 7), ("r", 2, 7),
+                    ("bl", 0, 8), ("b", 1, 8), ("br", 2, 8)):
+        out.append(("jtall_" + n, recolor(crop(R, c, r), JUNGLE_TALL, JUNGLE_LEAF, light_min_v=0.0), 1, 1))
+    out.append(("jtree", draw(1, 1, palm), 1, 1))
+    out.append(("jbigtree", recolor(crop(R, 5, 3, 3, 3), JUNGLE, JUNGLE_LEAF, light_min_v=0.80), 3, 3))
+    out.append(("bbhouse", recolor(crop(R, 0, 0, 5, 6), JUNGLE, ROOF_BB, dark_rows=78), 5, 6))
+    out.append(("hut", draw(3, 3, hut), 3, 3))
+    out.append(("ruinwall", draw(1, 1, ruin_wall), 1, 1))
+    out.append(("totem", draw(1, 2, totem), 1, 2))
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The Guild Hall: a stone plinth with a golden trophy, an empty draped one, and the guild Bestiary board.
+# ---------------------------------------------------------------------------------------------------------------
+def _plinth_base(d):
+    stone, dark, light = (150, 150, 158, 255), (92, 92, 104, 255), (198, 198, 206, 255)
+    d.rectangle((3, 9, 12, 15), fill=stone)
+    d.rectangle((2, 8, 13, 9), fill=light)
+    d.line((3, 15, 12, 15), fill=dark)
+    d.line((12, 10, 12, 15), fill=dark)
+    d.line((2, 15, 13, 15), fill=dark)
+
+
+def plinth_trophy(d, img):
+    _plinth_base(d)
+    gold, bright, shade = (228, 186, 66, 255), (250, 222, 120, 255), (176, 132, 40, 255)
+    d.rectangle((6, 2, 9, 6), fill=gold)          # the cup
+    d.rectangle((5, 1, 10, 2), fill=bright)
+    d.point((6, 3), fill=bright)
+    d.line((9, 3, 9, 6), fill=shade)
+    d.point((4, 2), fill=gold)                    # handles
+    d.point((11, 2), fill=gold)
+    d.point((4, 3), fill=shade)
+    d.point((11, 3), fill=shade)
+    d.rectangle((7, 6, 8, 7), fill=shade)         # the stem
+    d.rectangle((5, 7, 10, 8), fill=gold)         # the foot
+
+
+def plinth_empty(d, img):
+    _plinth_base(d)
+    cloth, fold = (108, 40, 52, 255), (140, 60, 74, 255)
+    d.polygon([(4, 3), (11, 3), (12, 9), (3, 9)], fill=cloth)
+    d.line((4, 3, 11, 3), fill=fold)
+    d.line((7, 4, 7, 8), fill=fold)
+
+
+def trophy_board(d, img):
+    wood, dark, paper = (140, 96, 48, 255), (88, 58, 28, 255), (236, 226, 196, 255)
+    d.rectangle((1, 1, 14, 13), fill=wood)
+    d.rectangle((1, 13, 14, 14), fill=dark)
+    d.rectangle((3, 3, 12, 11), fill=paper)
+    for (x, y) in ((4, 4), (7, 4), (10, 4), (4, 7), (7, 7), (10, 7)):
+        d.rectangle((x, y, x + 1, y + 1), fill=(60, 50, 40, 255))    # beast silhouettes
+    d.line((4, 10, 11, 10), fill=(120, 100, 80, 255))
+
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The Guild Hall: flagstone floors, a red carpet with gold trim (autotiled like a path), brick walls, banners,
+# stained-glass windows, the guild crest, pillars, chandeliers, hearths, a throne and the plinths.
+# ---------------------------------------------------------------------------------------------------------------
+STONE, STONE_D, STONE_L = (128, 124, 134, 255), (98, 94, 106, 255), (152, 148, 160, 255)
+CARPET, CARPET_D, TRIM = (150, 34, 40, 255), (118, 24, 30, 255), (222, 178, 70, 255)
+
+
+def hall_floor(seed):
+    def fn(d, img):
+        import random
+        rnd = random.Random(seed)
+        d.rectangle((0, 0, 15, 15), fill=STONE)
+        for (x0, y0, x1, y1) in ((0, 0, 7, 7), (8, 0, 15, 7), (0, 8, 7, 15), (8, 8, 15, 15)):
+            d.line((x0, y1, x1, y1), fill=STONE_D)
+            d.line((x1, y0, x1, y1), fill=STONE_D)
+            d.line((x0, y0, x1, y0), fill=STONE_L)
+            d.line((x0, y0, x0, y1), fill=STONE_L)
+        for _ in range(4):
+            d.point((rnd.randint(1, 14), rnd.randint(1, 14)), fill=STONE_D)
+    return fn
+
+
+def carpet(piece):
+    """A carpet tile: red, a gold trim along the edges the piece has, the inner corners trimmed on the diagonal."""
+    def fn(d, img):
+        d.rectangle((0, 0, 15, 15), fill=CARPET)
+        for y in range(0, 16, 4):
+            for x in range(0, 16, 4):
+                if (x + y) % 8 == 0:
+                    d.point((x + 2, y + 2), fill=CARPET_D)
+        edges = {
+            "tl": "tl", "t": "t", "tr": "tr", "l": "l", "c": "", "r": "r", "bl": "bl", "b": "b", "br": "br",
+            "inw": "", "ine": "", "isw": "", "ise": "",
+        }[piece]
+        if "t" in edges:
+            d.rectangle((0, 0, 15, 1), fill=TRIM)
+        if "b" in edges:
+            d.rectangle((0, 14, 15, 15), fill=TRIM)
+        if "l" in edges:
+            d.rectangle((0, 0, 1, 15), fill=TRIM)
+        if "r" in edges:
+            d.rectangle((14, 0, 15, 15), fill=TRIM)
+        if piece == "inw":
+            d.rectangle((0, 0, 1, 1), fill=TRIM)
+        if piece == "ine":
+            d.rectangle((14, 0, 15, 1), fill=TRIM)
+        if piece == "isw":
+            d.rectangle((0, 14, 1, 15), fill=TRIM)
+        if piece == "ise":
+            d.rectangle((14, 14, 15, 15), fill=TRIM)
+    return fn
+
+
+def hall_wall(d, img):
+    brick, mortar, light = (96, 78, 72, 255), (60, 46, 44, 255), (122, 102, 94, 255)
+    d.rectangle((0, 0, 15, 15), fill=brick)
+    for y in (3, 7, 11, 15):
+        d.line((0, y, 15, y), fill=mortar)
+    for y0, off in ((0, 5), (4, 1), (8, 5), (12, 1)):
+        for x in range(off, 16, 8):
+            d.line((x, y0, x, y0 + 2), fill=mortar)
+    for y in (0, 4, 8, 12):
+        d.line((0, y, 15, y), fill=light)
+
+
+def banner(color, dark, emblem):
+    """A hanging banner, 1 x 2 tiles: a pole, the cloth with a gold trim and emblem, a pointed hem."""
+    def fn(d, img):
+        pole = (120, 92, 50, 255)
+        d.rectangle((2, 1, 13, 2), fill=pole)
+        d.point((1, 1), fill=TRIM)
+        d.point((14, 1), fill=TRIM)
+        d.polygon([(3, 3), (12, 3), (12, 24), (8, 29), (3, 24)], fill=color)
+        d.line((3, 3, 3, 24), fill=dark)
+        d.line((3, 24, 8, 29), fill=dark)
+        d.line((12, 3, 12, 24), fill=dark)
+        d.line((12, 24, 8, 29), fill=dark)
+        d.line((4, 5, 11, 5), fill=TRIM)
+        d.line((4, 21, 11, 21), fill=TRIM)
+        if emblem == "lion":
+            d.ellipse((5, 9, 10, 15), fill=TRIM)          # a golden head
+            d.point((6, 11), fill=dark)
+            d.point((9, 11), fill=dark)
+            d.line((6, 14, 9, 14), fill=dark)
+            d.polygon([(4, 8), (6, 9), (5, 11)], fill=TRIM)
+            d.polygon([(11, 8), (9, 9), (10, 11)], fill=TRIM)
+        else:
+            d.polygon([(8, 8), (11, 12), (8, 16), (5, 12)], fill=TRIM)      # a golden diamond
+            d.point((8, 12), fill=color)
+    return fn
+
+
+def window(d, img):
+    frame, glass, glass2, glass3 = (50, 40, 40, 255), (70, 90, 170, 255), (120, 60, 150, 255), (200, 170, 80, 255)
+    d.rectangle((2, 1, 13, 30), fill=frame)
+    d.pieslice((2, 1, 13, 12), 180, 360, fill=frame)
+    d.rectangle((4, 7, 11, 28), fill=glass)
+    d.pieslice((4, 3, 11, 11), 180, 360, fill=glass)
+    for (x0, y0, x1, y1) in ((4, 12, 7, 17), (8, 18, 11, 23), (4, 24, 7, 28)):
+        d.rectangle((x0, y0, x1, y1), fill=glass2)
+    d.rectangle((6, 8, 9, 11), fill=glass3)
+    d.line((8, 3, 8, 28), fill=frame)
+    for y in (12, 18, 24):
+        d.line((4, y, 11, y), fill=frame)
+    d.point((5, 5), fill=(230, 235, 255, 255))               # a gleam
+
+
+def crest(d, img):
+    """The guild crest on the wall, 2 x 2 tiles: a gold shield with a red lion on a dark hanging."""
+    d.rectangle((2, 0, 29, 31), fill=(60, 26, 30, 255))
+    d.rectangle((0, 0, 31, 2), fill=(120, 92, 50, 255))
+    d.polygon([(6, 5), (25, 5), (25, 18), (16, 28), (7, 18)], fill=TRIM)
+    d.polygon([(8, 7), (23, 7), (23, 17), (16, 25), (9, 17)], fill=(198, 150, 50, 255))
+    d.ellipse((11, 9, 20, 18), fill=CARPET)                  # the lion
+    d.point((13, 12), fill=TRIM)
+    d.point((18, 12), fill=TRIM)
+    d.line((13, 16, 18, 16), fill=CARPET_D)
+    d.polygon([(10, 8), (13, 9), (11, 12)], fill=CARPET)
+    d.polygon([(21, 8), (18, 9), (20, 12)], fill=CARPET)
+    d.line((12, 19, 19, 22), fill=CARPET)                    # a sword under it
+    d.line((19, 19, 12, 22), fill=CARPET)
+
+
+def pillar(d, img):
+    col, dark, light = (170, 166, 176, 255), (110, 106, 118, 255), (210, 206, 216, 255)
+    d.rectangle((3, 0, 12, 2), fill=col)                     # the capital
+    d.rectangle((5, 3, 10, 28), fill=col)
+    d.line((5, 3, 5, 28), fill=light)
+    d.line((10, 3, 10, 28), fill=dark)
+    d.line((8, 4, 8, 27), fill=dark)
+    d.rectangle((3, 29, 12, 31), fill=col)                   # the base
+    d.line((3, 31, 12, 31), fill=dark)
+
+
+def chandelier(d, img):
+    iron, flame, glow = (60, 56, 60, 255), (255, 200, 80, 255), (255, 240, 170, 255)
+    d.line((8, 0, 8, 5), fill=iron)
+    d.ellipse((2, 6, 13, 10), outline=iron)
+    for x in (3, 8, 12):
+        d.rectangle((x, 3, x, 6), fill=(230, 226, 200, 255))
+        d.point((x, 2), fill=flame)
+        d.point((x, 1), fill=glow)
+
+
+def fireplace(d, img):
+    """A hearth, 2 x 2 tiles: a stone surround, the fire, a mantel with a candle."""
+    d.rectangle((0, 4, 31, 31), fill=STONE)
+    d.rectangle((0, 4, 31, 6), fill=STONE_L)                 # the mantel
+    d.rectangle((6, 9, 25, 30), fill=(24, 18, 20, 255))      # the opening
+    d.line((6, 9, 25, 9), fill=STONE_D)
+    for x in (7, 23):
+        d.line((x, 9, x, 30), fill=STONE_D)
+    d.polygon([(10, 29), (14, 17), (16, 24), (19, 15), (22, 29)], fill=(220, 90, 30, 255))
+    d.polygon([(13, 29), (15, 22), (17, 26), (19, 21), (20, 29)], fill=(250, 180, 60, 255))
+    d.rectangle((9, 28, 23, 30), fill=(90, 60, 40, 255))     # logs
+    d.rectangle((14, 0, 15, 3), fill=(230, 226, 200, 255))   # a candle on the mantel
+    d.point((14, 0), fill=(255, 200, 80, 255))
+
+
+def throne(d, img):
+    """A throne, 2 x 1 tiles (32 x 16): red cushions, gold frame."""
+    d.rectangle((6, 0, 25, 15), fill=TRIM)
+    d.rectangle((8, 1, 23, 9), fill=CARPET)
+    d.rectangle((8, 10, 23, 12), fill=CARPET_D)
+    d.rectangle((3, 4, 5, 14), fill=TRIM)
+    d.rectangle((26, 4, 28, 14), fill=TRIM)
+    d.point((7, 0), fill=(255, 240, 170, 255))
+    d.point((24, 0), fill=(255, 240, 170, 255))
+
+
+def hall_art():
+    out = [("hallfloor1", draw(1, 1, hall_floor(3)), 1, 1), ("hallfloor2", draw(1, 1, hall_floor(11)), 1, 1)]
+    for piece in ("tl", "t", "tr", "l", "c", "r", "bl", "b", "br", "inw", "ine", "isw", "ise"):
+        out.append(("carpet_" + piece, draw(1, 1, carpet(piece)), 1, 1))
+    out.append(("hallwall", draw(1, 1, hall_wall), 1, 1))
+    out.append(("banner", draw(1, 2, banner(CARPET, CARPET_D, "lion")), 1, 2))
+    out.append(("bannerblue", draw(1, 2, banner((40, 60, 140, 255), (26, 40, 100, 255), "diamond")), 1, 2))
+    out.append(("window", draw(1, 2, window), 1, 2))
+    out.append(("crest", draw(2, 2, crest), 2, 2))
+    out.append(("pillar", draw(1, 2, pillar), 1, 2))
+    out.append(("chandelier", draw(1, 1, chandelier), 1, 1))
+    out.append(("fireplace", draw(2, 2, fireplace), 2, 2))
+    out.append(("throne", draw(2, 1, throne), 2, 1))
+    return out
+
+
+def hideout_art():
+    return [("plinth", draw(1, 1, plinth_trophy), 1, 1),
+            ("plinthempty", draw(1, 1, plinth_empty), 1, 1),
+            ("trophyboard", draw(1, 1, trophy_board), 1, 1)]
+
 def build_chars():
     img = Image.new("RGBA", (256, 128), (0, 0, 0, 0))
     img.paste(CH, (0, 0))
@@ -745,6 +1107,13 @@ def build_platform():
     d.ellipse((6 * k, 3 * k, 122 * k, 26 * k), fill=(58, 80, 70, 255))
     d.ellipse((14 * k, 6 * k, 114 * k, 20 * k), fill=(66, 90, 78, 255))
     tga(img.resize((128, 32), Image.NEAREST), "platform_d")
+    # Stranglethorn: lush jungle floor
+    img = Image.new("RGBA", (128 * k, 32 * k), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((0, 0, 128 * k - 1, 32 * k - 1), fill=(46, 96, 44, 255))
+    d.ellipse((6 * k, 3 * k, 122 * k, 26 * k), fill=(84, 150, 60, 255))
+    d.ellipse((14 * k, 6 * k, 114 * k, 20 * k), fill=(104, 172, 70, 255))
+    tga(img.resize((128, 32), Image.NEAREST), "platform_j")
 
 
 def write_lua(index):

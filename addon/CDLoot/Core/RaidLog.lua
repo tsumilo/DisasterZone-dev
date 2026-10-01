@@ -28,6 +28,7 @@ local scanPending = false
 local zoneEnteredAt                     -- server time I entered the current raid instance (backdating)
 local promptedAt = -PROMPT_SNOOZE
 local missedPull = false                -- a boss was pulled here while no session ran
+local pulls = {}                        -- [encounterID] = server time of the pull (the kill's `dur`)
 
 ---------------------------------------------------------------------------
 -- Storage
@@ -231,10 +232,12 @@ local function Reconcile()
 end
 
 local function OnEncounterEnd(_, encounterID, encounterName, _, _, success)
+    local enc = tonumber(encounterID)
+    local pulled = enc and pulls[enc]
+    if enc then pulls[enc] = nil end
     if success ~= 1 and success ~= true then return end
     local rec = OpenRecord()
     if not rec then return end
-    local enc = tonumber(encounterID)
     rec.bosses = type(rec.bosses) == "table" and rec.bosses or {}
     for _, b in ipairs(rec.bosses) do
         if b.enc == enc then return end   -- already recorded (the same kill seen twice)
@@ -254,7 +257,8 @@ local function OnEncounterEnd(_, encounterID, encounterName, _, _, success)
     end
     tsort(keys)
     rec.bosses[#rec.bosses + 1] = { enc = enc, name = type(encounterName) == "string" and encounterName or nil,
-        ts = now, roster = keys, off = off }
+        ts = now, roster = keys, off = off, dur = pulled and math.max(0, now - pulled) or nil }
+    if ns.AzeroHideout and ns.AzeroHideout.Invalidate then ns.AzeroHideout.Invalidate() end
     rec.last = now
     Changed(rec)
 end
@@ -266,7 +270,9 @@ end
 -- A boss pull in a raid instance without a session: the authority gets a chat reminder (a popup would get in the
 -- way of the pull and the loot windows). A session started after a missed pull is backdated to when I entered
 -- the instance.
-local function OnEncounterStart()
+local function OnEncounterStart(_, encounterID)
+    local enc = tonumber(encounterID)
+    if enc then pulls[enc] = GetServerTime() end           -- (every client times the fight: the kill's `dur`)
     if not (IsInRaid() and Util.InRaidInstance()) then return end
     local GR = ns.GroupRules
     if not (GR and GR:IsAuthority()) or GR:GetSession() then return end
@@ -672,7 +678,7 @@ local function RecordHash(rec)
     end
     local bosses = {}
     for i, b in ipairs(rec.bosses or {}) do
-        bosses[i] = { b.enc or 0, b.ts or 0, b.roster and table.concat(b.roster, ",") or "" }
+        bosses[i] = { b.enc or 0, b.ts or 0, b.roster and table.concat(b.roster, ",") or "", b.dur or 0 }
     end
     local su = {}
     for key, st in pairs(rec.su or {}) do su[#su + 1] = key .. "=" .. st end
@@ -756,6 +762,7 @@ local function CleanRecord(r, now)
     for _, b in ipairs(r.bosses) do
         if type(b) == "table" and IsInt(b.enc, 1, 100000) and IsInt(b.ts, 0, now + FUTURE_SLACK) then
             local c = { enc = b.enc, ts = b.ts }
+            if IsInt(b.dur, 0, 86400) then c.dur = b.dur end
             if type(b.name) == "string" and #b.name <= MAX_NAME_LEN and not b.name:find("[%c|]") then c.name = b.name end
             if type(b.roster) == "table" and #b.roster <= MAX_ROSTER then
                 c.roster = {}
@@ -839,6 +846,7 @@ local function MergeRecord(cur, e)
             byEnc[b.enc] = b
         else
             c.ts = MinN(c.ts, b.ts)
+            c.dur = MinN(c.dur, b.dur)
             if not c.name then c.name = b.name end
             if c.roster or b.roster then c.roster = UnionSorted(c.roster, b.roster) end
             if b.off then

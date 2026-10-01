@@ -6,6 +6,27 @@
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "0.14", date = "30 September 2026", title = "The Guild Hall",
+      lines = {
+          "The Guild Hall under the inn: a trophy for every raid boss.",
+          "Trophies read the raid log: kills, dates and fight times.",
+          "Statues of the guild's champions and the guild Bestiary.",
+          "A great hall: banners, windows, hearths, a throne, a crest.",
+          "Name plates over NPCs: the name and what they do.",
+          "A prettier world map: trees, waves, houses and caves.",
+          "Esc pauses the game; press it again to close CDLoot.",
+      } },
+    { version = "0.13", date = "30 September 2026", title = "Stranglethorn Vale",
+      lines = {
+          "The road south of Darkshire leads into Stranglethorn Vale.",
+          "The Rebel Camp, Nesingwary's camp, troll ruins, ogre mound.",
+          "The arena joins the road; south of it Booty Bay and an isle.",
+          "26 new beasts: tigers, panthers, raptors, gorillas, trolls.",
+          "Beasts now grow to level 100, with up to four forms.",
+          "34 new grown forms for the beasts you already know.",
+          "Two new badges: Nesingwary's Trophy and the Blackwater Seal.",
+          "Gryphons fly Booty Bay to Darkshire. A boat to Jaguero Isle.",
+      } },
     { version = "0.12", date = "30 September 2026", title = "Sound effects",
       lines = {
           "Fixed: sound effects were silent with the SFX channel low.",
