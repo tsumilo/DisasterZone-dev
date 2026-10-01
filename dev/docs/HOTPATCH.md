@@ -15,9 +15,23 @@ Run from `C:\Users\emilo\CDLoot-dev\dev`:
 | Once: create the signing key | `luaenv\Scripts\python.exe tools\release.py keygen` |
 | A full release (zip + new base for updates) | bump `## Version` in the TOC, then `luaenv\Scripts\python.exe tools\release.py full` |
 | An in-game update | bump `## Version`, then `luaenv\Scripts\python.exe tools\release.py patch`; in game `/reload`, `/cdl publish` |
-| Take an update back | `luaenv\Scripts\python.exe tools\release.py patch --revoke`; in game `/reload`, `/cdl publish` |
-| What changed since the base, key usage | `luaenv\Scripts\python.exe tools\release.py status` |
+| Take an update back (members and this copy) | `luaenv\Scripts\python.exe tools\release.py patch --revoke`; in game `/reload`, `/cdl publish` |
+| Is this copy what members run? Key usage | `luaenv\Scripts\python.exe tools\release.py status` |
 | Prove the addon behaves the same from the update path | `luaenv\Scripts\python.exe tools\patched_run.py` |
+
+**This copy and the members stay in step.** The live folder runs from disk, members run the release plus the newest
+update, so the two can drift apart. Three things keep them together:
+- `patch` builds the update from this copy, so after publishing both are the same by construction.
+- `patch --revoke` takes members back to the release **and puts this copy back too**: the TOC, the changed, new and
+  deleted Lua files and the docs are restored from `dist\CDLoot-<base>.zip`. What was there is saved first in
+  `dev\releases\undone\<time>_<version>\`. `--keep-source` skips that (to fix the change and send it again); the
+  tool then warns that this copy still has changes members do not.
+- Undoing a change by hand and running `patch` works as well: when this copy equals the release but members still
+  run an update with files, `patch` builds the take-back by itself.
+- `status` ends with "this copy matches what members run: ..." or "NOT IN SYNC" and the files that differ.
+
+The suites read the expected version from the TOC (`_common.toc_version()`), so neither an update nor a revoke needs
+a test edited.
 
 - `full` writes `dist\CDLoot-<version>.zip`. That zip, not the live folder, is what members install: its
   `Core\BuildInfo.lua` carries the build id updates are matched against. The live folder stays build `dev`.
@@ -142,6 +156,7 @@ Suites: `tests\patch\test_patch_boot.py` (B), `test_patch_net.py` (N), `test_rel
 | Server enters combat / an encounter | stops; another holder takes over | N serving_stops_in_combat_... |
 | Popup timing | not in combat, not during an encounter, once per session | N encounter_pauses_serving_and_delays_the_popup |
 | Other build, other key, kill switch, no guild | no download / no traffic | N other_build_other_key_..., no_guild_no_traffic |
+| Revoke leaves the publisher's copy with the change | revoke restores the copy from the release zip (backup kept); `status` reports drift | T revoke_puts_the_publishers_copy_back_too |
 | Signing counter lost or restored from backup | key counter and release log both push the number up | T a_lost_counter_cannot_reuse_a_signature |
 | Key used up | tool refuses | T command_line_end_to_end |
 

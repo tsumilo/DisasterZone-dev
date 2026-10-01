@@ -30,6 +30,15 @@ except Exception:
 _CASES = []
 
 
+def toc_version():
+    """'## Version' of the addon under test (the release tool bumps and restores it; tests must not pin it)."""
+    import harness
+    for line in open(os.path.join(harness.ADDON_DIR, "CDLoot.toc"), encoding="utf-8-sig"):
+        if line.startswith("## Version:"):
+            return line.split(":", 1)[1].strip()
+    raise AssertionError("CDLoot.toc has no ## Version")
+
+
 def case(fn):
     """Register a test case (a function without arguments)."""
     _CASES.append(fn)

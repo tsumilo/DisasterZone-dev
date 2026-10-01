@@ -294,8 +294,9 @@ def command_line_end_to_end():
         assert boot_state(m)["version"] == "1.0.2" and m.eval("return ns.SECOND") is True
         assert m.eval("return ns.Util.PATCH_MARK") == "cli"
 
-        # a revoke uses a sequence number too; then the key is used up
-        sb.run("patch", "--revoke")
+        # a revoke uses a sequence number too; then the key is used up (this copy keeps its changes here)
+        sb.run("patch", "--revoke", "--keep-source")
+        assert "ns.SECOND = true" in read(sb.addon, "Core/Dungeon.lua")
         log = json.load(open(os.path.join(release.RELEASES, "patches.json"), encoding="utf-8"))
         assert [p["seq"] for p in log] == [1, 2, 3] and log[-1]["revoke"] and log[-1]["version"] == "1.0.0"
         p.relog()
@@ -320,6 +321,106 @@ def command_line_end_to_end():
         assert s["state"] == "base" and s["version"] == "1.0.3" and m.eval("return ns.SECOND") is True, s
         assert m.eval("return CDLootPatchDB.active") is None and m.eval("return CDLootPatchDB.seq") == 3
         w.assert_no_errors()
+    finally:
+        sb.close()
+
+
+@case
+def revoke_puts_the_publishers_copy_back_too():
+    """Taking an update back must not leave the publisher's own copy behind with the change still in it."""
+    sb = Sandbox()
+    try:
+        sb.run("keygen", "--height", "4")
+        set_version(sb.addon, "1.0.0")
+        write(sb.addon, "README.md", "# CDLoot 1.0.0\n")
+        sb.run("full")
+        base = json.load(open(os.path.join(release.RELEASES, "1.0.0.json"), encoding="utf-8"))
+        log_path = os.path.join(release.RELEASES, "patches.json")
+        pristine = {rel: read(sb.addon, rel) for rel in ("Core/Util.lua", "Core/Dungeon.lua", "CDLoot.toc", "README.md")}
+        assert release.sync_report(base, [], sb.addon)[0] is True
+
+        # an update with a changed, a new and a deleted file, a version bump and a docs change
+        append(sb.addon, "Core/Util.lua", '\nUtil.PATCH_MARK = "x"\n')
+        write(sb.addon, "Core/TestNew.lua", guard("Core/TestNew.lua") + "-- test\nCDLootTestNew = true\n")
+        toc_add(sb.addon, "Core/TestNew.lua", "Core/Constants.lua")
+        toc_remove(sb.addon, "Games/Azeromon/Sound.lua")
+        gone = read(sb.addon, "Games/Azeromon/Sound.lua")
+        os.remove(os.path.join(sb.addon, "Games", "Azeromon", "Sound.lua"))
+        set_version(sb.addon, "1.0.1")
+        write(sb.addon, "README.md", "# CDLoot 1.0.1\n")
+        # art changed without a new art pack: an update would be refused, and the sync check says why
+        write(sb.addon, "Art/map.blp", "BLP2 art, edited")
+        ok, lines = release.sync_report(base, [], sb.addon)
+        assert ok is False and "art changed" in lines[0], lines
+        write(sb.addon, "Art/map.blp", "BLP2 art")
+        ok, lines = release.sync_report(base, [], sb.addon)
+        assert ok is False and any(l.strip() == "Core/Util.lua" for l in lines) and \
+            any(l.strip() == "Games/Azeromon/Sound.lua" for l in lines), lines
+        sb.run("patch")
+        log = json.load(open(log_path, encoding="utf-8"))
+        assert set(log[-1]["sha"]) == {"Core/Util.lua", "Core/TestNew.lua"}
+        assert release.sync_report(base, log, sb.addon)[0] is True          # what I have is what members get
+
+        w = World(addon_dir=sb.install("1.0.0"))
+        m = member(w, "Member", w.addon_dir)
+        m.load_addon()
+        p = Client(w, "Pub", addon_dir=sb.addon)
+        p.load_addon()
+        w.tick(2)
+        p.slash("/cdl publish")
+        w.run_until(lambda: (patch_status(m).get("ready") or {}).get("seq") == 1, timeout=300)
+        m.relog()
+        w.tick(3)
+        assert boot_state(m)["version"] == "1.0.1" and m.eval("return CDLootTestNew") is True
+        assert p.eval("return ns.Util.PATCH_MARK") == "x"                    # the publisher sees it too (from disk)
+
+        # work in progress after the update: the copy is ahead of the members
+        append(sb.addon, "Core/Dungeon.lua", "\nns.WIP = true\n")
+        ok, lines = release.sync_report(base, log, sb.addon)
+        assert ok is False and any(l.strip() == "Core/Dungeon.lua" for l in lines) and \
+            not any(l.strip() == "Core/Util.lua" for l in lines), lines
+
+        sb.run("patch", "--revoke")
+        log = json.load(open(log_path, encoding="utf-8"))
+        assert log[-1]["revoke"] is True and log[-1]["files"] == [] and log[-1]["version"] == "1.0.0"
+        # every file is back to the release, the new file is gone, the deleted one is back
+        for rel, text in pristine.items():
+            assert read(sb.addon, rel) == text, rel
+        assert not os.path.exists(os.path.join(sb.addon, "Core", "TestNew.lua"))
+        assert read(sb.addon, "Games/Azeromon/Sound.lua") == gone
+        assert release.source_differences(base, sb.addon) == []
+        assert release.sync_report(base, log, sb.addon)[0] is True
+        # what was there is kept
+        undone = os.path.join(release.RELEASES, "undone")
+        saved = os.path.join(undone, os.listdir(undone)[0])
+        assert 'PATCH_MARK = "x"' in read(saved, "Core/Util.lua") and "ns.WIP = true" in read(saved, "Core/Dungeon.lua")
+        assert "CDLootTestNew" in read(saved, "Core/TestNew.lua") and "1.0.1" in read(saved, "CDLoot.toc")
+        assert not os.path.exists(os.path.join(saved, "Games", "Azeromon", "Sound.lua"))
+
+        p.relog()
+        w.tick(2)
+        assert p.eval("return ns.Util.PATCH_MARK") is None and p.eval("return ns.version") == "1.0.0"
+        p.slash("/cdl publish")
+        w.run_until(lambda: (patch_status(m).get("ready") or {}).get("seq") == 2, timeout=300)
+        m.relog()
+        w.tick(3)
+        assert boot_state(m)["version"] == "1.0.0" and m.eval("return CDLootTestNew") is None
+        assert m.eval("return ns.Util.PATCH_MARK") is None
+        w.assert_no_errors()
+
+        # nothing to take back twice, and nothing to send
+        sb.run("patch", fails=True)
+        # undoing by hand works as well: the copy equals the release while members run an update with files
+        append(sb.addon, "Core/Util.lua", '\nUtil.PATCH_MARK = "y"\n')
+        set_version(sb.addon, "1.0.2")
+        sb.run("patch")
+        write(sb.addon, "Core/Util.lua", pristine["Core/Util.lua"])
+        write(sb.addon, "CDLoot.toc", pristine["CDLoot.toc"])
+        sb.run("patch")                                                       # builds the take-back by itself
+        log = json.load(open(log_path, encoding="utf-8"))
+        assert [(e["seq"], e["revoke"], e["version"]) for e in log] == \
+            [(1, False, "1.0.1"), (2, True, "1.0.0"), (3, False, "1.0.2"), (4, True, "1.0.0")]
+        sb.run("status")
     finally:
         sb.close()
 

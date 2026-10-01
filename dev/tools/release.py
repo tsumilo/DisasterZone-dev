@@ -11,7 +11,10 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
   tools\\release.py patch              build + sign an in-game update with everything that changed since the
                                       base release and write it to Core\\Outbox.lua; then in game: /reload,
                                       /cdl publish
-  tools\\release.py patch --revoke     an update with no files: everybody goes back to the base release
+  tools\\release.py patch --revoke     take the update back: everybody goes back to the base release, and so does
+                                      this copy (the changed files are put back from the release zip; the versions
+                                      you had are kept in dev\\releases\\undone\\). --keep-source leaves this
+                                      copy alone, for when you want to fix the change and send it again.
   tools\\release.py status             base release, last update, what changed since the base
   tools\\release.py selftest           an update that carries EVERY patchable file, addressed to no real build, to
                                       try the whole mechanism in the real client on the development copy. In game:
@@ -423,6 +426,98 @@ def patch_log():
     return []
 
 
+def source_differences(base, addon_dir):
+    """Where the source tree differs from the base release, among what an update or a version bump touches: the
+    TOC, the patchable Lua files of either TOC, the docs. Returns [(path, 'changed' | 'new' | 'deleted')]."""
+    base_files = set(toc_from_text(base["toc"])[1])
+    now_files = set(parse_toc(addon_dir)[1])
+    candidates = {f for f in base_files | now_files if is_patchable(f)}
+    candidates.add(ADDON_NAME + ".toc")
+    candidates |= {f for f in base["files"] if f.endswith(DOC_EXT)}
+    out = []
+    for rel in sorted(candidates):
+        path = os.path.join(addon_dir, rel)
+        have = hashlib.sha256(read(path)).hexdigest() if os.path.exists(path) else None
+        want = base["files"].get(rel)
+        if have != want:
+            out.append((rel, "new" if want is None else ("deleted" if have is None else "changed")))
+    return out
+
+
+def restore_to_base(base, addon_dir, zip_path, backup_dir):
+    """Put every file listed by source_differences() back to its content in the base release (from the release
+    zip). The current versions are copied to backup_dir first. Returns the list of differences that were undone."""
+    diffs = source_differences(base, addon_dir)
+    if not diffs:
+        return []
+    if not os.path.exists(zip_path):
+        raise ReleaseError("%s is missing, so this copy cannot be put back to release %s automatically. "
+                           "Use --keep-source and undo the change by hand." % (zip_path, base["version"]))
+    with zipfile.ZipFile(zip_path) as zf:
+        for rel, state in diffs:
+            path = os.path.join(addon_dir, rel)
+            if os.path.exists(path):
+                saved = os.path.join(backup_dir, rel)
+                os.makedirs(os.path.dirname(saved), exist_ok=True)
+                shutil.copyfile(path, saved)
+            if state == "new":
+                os.remove(path)
+            else:
+                data = zf.read(ADDON_NAME + "/" + rel)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "wb") as fh:
+                    fh.write(data)
+    left = source_differences(base, addon_dir)
+    if left:
+        raise ReleaseError("could not put these back to release %s: %s (your versions are in %s)" % (
+            base["version"], ", ".join(rel for rel, _ in left), backup_dir))
+    return diffs
+
+
+def last_update_for(log, base):
+    """The newest update made for this base release (self-tests are addressed elsewhere), or None."""
+    for entry in reversed(log):
+        if entry.get("build") == base["build"]:
+            return entry
+    return None
+
+
+def published_hashes(base, last):
+    """{path: sha256 of the travelling text | None when deleted} of what members run for the files the last update
+    touched; files it did not touch run from the base release."""
+    return dict(last.get("sha") or {}) if last else {}
+
+
+def sync_report(base, log, addon_dir):
+    """How this copy compares with what members run (base release + the newest update for it).
+    Returns (in_sync, [lines])."""
+    last = last_update_for(log, base)
+    try:
+        entries, version, pack, notes = diff_against_base(base, addon_dir)
+    except ReleaseError as e:
+        return False, [str(e)]
+    mine = {}
+    for e in entries:
+        mine[e["path"]] = None if e["kind"] == "D" else hashlib.sha256(patchlib.normalize_source(e["src"])).hexdigest()
+    theirs = {}
+    if last:
+        for kind, path in last.get("files", []):
+            theirs[path] = None if kind == "D" else (last.get("sha") or {}).get(path, "?")
+    differing = sorted(path for path in set(mine) | set(theirs) if mine.get(path, "base") != theirs.get(path, "base"))
+    running = "release %s" % base["version"]
+    if last and last.get("files"):
+        running = "%s (update #%d)" % (last["version"], last["seq"])
+    elif last:
+        running = "release %s (update #%d took the earlier ones back)" % (base["version"], last["seq"])
+    if not differing:
+        return True, ["this copy matches what members run: %s" % running]
+    lines = ["this copy differs from what members run (%s) in %d file(s):" % (running, len(differing))]
+    lines += ["  " + path for path in differing]
+    lines.append("'release.py patch' sends your version to everybody; 'release.py patch --revoke' takes everybody, "
+                 "and this copy, back to release %s." % base["version"])
+    return False, lines
+
+
 def make_patch(base, addon_dir, key, seq, revoke=False):
     """Build the signed bundle for `addon_dir` against release record `base`. Returns (bundle, notes)."""
     if revoke:
@@ -449,8 +544,31 @@ def cmd_patch(args):
     seq = max([key.get("next", 1)] + [p["seq"] + 1 for p in log])
     if seq >= (1 << key["height"]):
         raise ReleaseError("the signing key is used up (%d updates): make a new key and a full release" % seq)
-    bundle, notes = make_patch(base, ADDON_DIR, key, seq, revoke=args.revoke)
-    if not args.revoke and patchlib_version_le(bundle["version"], base["version"]):
+
+    revoke = bool(args.revoke)
+    keep = bool(getattr(args, "keep_source", False))
+    undone, kept, backup = [], [], None
+    if revoke:
+        # Taking an update back must not leave this copy behind with the change still in it (it would show here,
+        # and travel again with the next update): put the files back as well, unless asked not to.
+        diffs = source_differences(base, ADDON_DIR)
+        if diffs and keep:
+            kept = diffs
+        elif diffs:
+            backup = os.path.join(RELEASES, "undone", "%s_%s" % (
+                time.strftime("%Y%m%d-%H%M%S"), parse_toc(ADDON_DIR)[0].get("version", "0")))
+            zip_path = os.path.join(DIST, "%s-%s.zip" % (ADDON_NAME, base["version"]))
+            undone = restore_to_base(base, ADDON_DIR, zip_path, backup)
+    elif not diff_against_base(base, ADDON_DIR)[0]:
+        # nothing differs from the release: if members still run an update with files, send them back to it
+        last = last_update_for(log, base)
+        if last and last.get("files"):
+            revoke = True
+            print("this copy equals release %s, but members run update #%d (%s): building the update that takes "
+                  "them back." % (base["version"], last["seq"], last["version"]))
+
+    bundle, notes = make_patch(base, ADDON_DIR, key, seq, revoke=revoke)
+    if not revoke and patchlib_version_le(bundle["version"], base["version"]):
         raise ReleaseError("'## Version' in the TOC is %s, not above the base release %s: bump it first"
                            % (bundle["version"], base["version"]))
     # the sequence number is spent before the signature leaves this function: a leaf signs one manifest only
@@ -458,7 +576,8 @@ def cmd_patch(args):
     patchlib.save_key(KEY_PATH, key)
     log.append({"seq": seq, "version": bundle["version"], "base": base["version"], "build": base["build"],
                 "pack": bundle["pack"], "files": [(it["kind"], it["path"]) for it in bundle["items"]],
-                "time": time.strftime("%Y-%m-%d %H:%M:%S"), "commit": git_commit(), "revoke": bool(args.revoke)})
+                "sha": {it["path"]: hashlib.sha256(it["src"]).hexdigest() for it in bundle["items"] if it["kind"] != "D"},
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"), "commit": git_commit(), "revoke": revoke})
     os.makedirs(RELEASES, exist_ok=True)
     with open(os.path.join(RELEASES, "patches.json"), "w", encoding="utf-8") as fh:
         json.dump(log, fh, indent=1)
@@ -468,10 +587,22 @@ def cmd_patch(args):
     print("update #%d: %s on top of %s (build %s)" % (seq, bundle["version"], base["version"], base["build"]))
     for it in bundle["items"]:
         print("  %s %s" % ({"F": "changed", "N": "new    ", "D": "deleted"}[it["kind"]], it["path"]))
+    if revoke:
+        print("  no files: everybody goes back to release %s" % base["version"])
     print("  %d KB of source, %d KB to send (about %s for everybody who is online)" % (
         bundle["total"] // 1024, wire // 1024 + 1, human_time(wire / 600.0)))
     for n in notes:
         print("  note: " + n)
+    if undone:
+        print("  this copy was put back to release %s too (%d file(s)):" % (base["version"], len(undone)))
+        for rel, state in undone:
+            print("    %s %s" % ({"changed": "restored", "new": "removed ", "deleted": "restored"}[state], rel))
+        print("  the versions you had are in %s" % backup)
+    elif kept:
+        print("  WARNING: this copy keeps changes that members will no longer have (--keep-source):")
+        for rel, state in kept:
+            print("    %s %s" % (state, rel))
+        print("  you still see them in game, and the next 'release.py patch' sends them out again.")
     print("  written to Core\\Outbox.lua. In game: /reload, then /cdl publish")
 
 
@@ -561,6 +692,10 @@ def cmd_status(args):
             print("  note: " + n)
     except ReleaseError as e:
         print(str(e))
+        return
+    in_sync, lines = sync_report(base, log, ADDON_DIR)
+    for line in lines:
+        print(("" if in_sync else "NOT IN SYNC: ") + line if line is lines[0] else line)
 
 
 def cmd_keygen(args):
@@ -595,7 +730,8 @@ def main(argv=None):
     p.set_defaults(fn=cmd_keygen)
     p = sub.add_parser("guards"); p.add_argument("action", choices=["add", "remove", "check"]); p.set_defaults(fn=cmd_guards)
     p = sub.add_parser("full"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_full)
-    p = sub.add_parser("patch"); p.add_argument("--revoke", action="store_true"); p.set_defaults(fn=cmd_patch)
+    p = sub.add_parser("patch"); p.add_argument("--revoke", action="store_true")
+    p.add_argument("--keep-source", action="store_true"); p.set_defaults(fn=cmd_patch)
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("selftest"); p.set_defaults(fn=cmd_selftest)
     args = ap.parse_args(argv)

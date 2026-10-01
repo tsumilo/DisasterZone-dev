@@ -3,7 +3,7 @@ log, settings, config; the /cdloot alias; odd spacing and casing.
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_slash.py
 """
-from _common import (case, run_all, solo, no_errors, World, Client, install_helpers, printed_since, strip_codes,
+from _common import (case, run_all, toc_version, solo, no_errors, World, Client, install_helpers, printed_since, strip_codes,
                      seed_guild_council)
 
 # Addendum E removed "/cdl guildinfo"; Addendum D added "/cdl rules".
@@ -86,15 +86,15 @@ def version_lists_peers():
     n0 = len(a.chat_frame)
     a.slash("/cdl version")
     lines = said(a, n0)
-    # (the TOC version: 0.10.0)
-    assert lines[0] == "CDLoot: CDLoot 0.10.0 (protocol 1). Addon users seen: 1", lines
-    assert any(l.strip().startswith("Alice  0.10.0  (online, council)") for l in lines), lines
-    assert any(l.strip().startswith("Bob  0.10.0  (online") for l in lines), lines
+    v = toc_version()
+    assert lines[0] == "CDLoot: CDLoot %s (protocol 1). Addon users seen: 1" % v, lines
+    assert any(l.strip().startswith("Alice  %s  (online, council)" % v) for l in lines), lines
+    assert any(l.strip().startswith("Bob  %s  (online" % v) for l in lines), lines
     # guildless: only me
     w2, s = solo("Solo", guild=None, tick=2)
     n0 = len(s.chat_frame)
     s.slash("/cdl version")
-    assert said(s, n0)[0] == "CDLoot: CDLoot 0.10.0 (protocol 1). Addon users seen: 0"
+    assert said(s, n0)[0] == "CDLoot: CDLoot %s (protocol 1). Addon users seen: 0" % toc_version()
     no_errors(w)
     no_errors(w2)
 

@@ -5,7 +5,7 @@ the Blizzard Settings entry.
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_settings.py
 """
-from _common import (case, run_all, solo, no_errors, World, Client, install_helpers, menu_texts, printed_since,
+from _common import (case, run_all, toc_version, solo, no_errors, World, Client, install_helpers, menu_texts, printed_since,
                      strip_codes, tt_lines, gm_pick, GUILD_INFO_SPY, guild_info_calls)
 
 CHECKS = [
@@ -212,7 +212,7 @@ def demo_simulate_and_demo_roll_buttons():
     w.tick(40)
     # about text
     about = strip_codes(c.eval("return ns.SettingsUI.aboutText:GetText()"))
-    assert about.startswith("Version 0.10.0 · protocol 1"), about   # TOC 0.10.0
+    assert about.startswith("Version %s · protocol 1" % toc_version()), about
     assert [e for e in w.addon_log if e["chat_type"] in ("RAID", "WHISPER")] == [], "demo actions sent addon messages"
     no_errors(w)
 
