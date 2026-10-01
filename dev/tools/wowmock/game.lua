@@ -144,6 +144,9 @@ function CreateAtlasMarkup(atlas, w, h) return "|A:" .. tostring(atlas) .. ":" .
 function CreateSimpleTextureMarkup(file, w, h) return "|T" .. tostring(file) .. ":" .. (h or 0) .. ":" .. (w or 0) .. "|t" end
 C_Texture = { GetAtlasInfo = function() return nil end, GetFilenameFromFileDataID = function() return nil end }
 M.SPELL_NAMES = {
+  [2259] = "Alchemy", [2018] = "Blacksmithing", [7411] = "Enchanting", [4036] = "Engineering", [25229] = "Jewelcrafting",
+  [2108] = "Leatherworking", [3908] = "Tailoring", [2575] = "Mining", [2656] = "Smelting", [8613] = "Skinning", [2550] = "Cooking",
+  [3273] = "First Aid", [7620] = "Fishing", [28675] = "Potion Master", [9788] = "Armorsmith",
   [1766] = "Kick", [6552] = "Pummel", [72] = "Shield Bash", [8042] = "Earth Shock", [2139] = "Counterspell",
   [19244] = "Spell Lock", [16979] = "Feral Charge", [28730] = "Arcane Torrent", [34477] = "Misdirection",
   [2825] = "Bloodlust", [32182] = "Heroism", [10060] = "Power Infusion", [29166] = "Innervate",
@@ -154,8 +157,12 @@ M.SPELL_NAMES = {
   [41450] = "Blessing of Protection", [41451] = "Blessing of Spell Warding", [33152] = "Prayer of Healing",
   [33144] = "Heal",
 }
+-- M.spells_uncached = true: a spell's name is nil until C_Spell.RequestLoadSpellData asked for it (0.1 s later,
+-- with SPELL_DATA_LOAD_RESULT), like the real client on the first look at a spell.
+M.spell_loaded = {}
 function GetSpellInfo(id)
   if id == nil then return nil end
+  if M.spells_uncached and not M.spell_loaded[tonumber(id)] then return nil end
   local name = M.SPELL_NAMES[tonumber(id)] or ("Spell " .. tostring(id))
   return name, nil, 136243, 0, 0, 0, tonumber(id) or 0
 end
@@ -163,11 +170,110 @@ function GetSpellTexture() return 136243 end
 -- unit-frame style round portrait of a creature display id (recorded as the texture for tests)
 function SetPortraitTextureFromCreatureDisplayID(tex, displayID) tex:SetTexture("portrait:" .. tostring(displayID)) end
 function GetSpellLink(id) return "|cff71d5ff|Hspell:" .. tostring(id) .. "|h[Spell " .. tostring(id) .. "]|h|r" end
-function IsSpellKnown() return false end
-function IsPlayerSpell() return false end
+M.known_spells = {}   -- [spellID] = true (tests: __MOCK.known_spells[28675] = true)
+function IsSpellKnown(id) return M.known_spells[tonumber(id)] and true or false end
+function IsPlayerSpell(id) return M.known_spells[tonumber(id)] and true or false end
+
+-- Professions: the skill list and the two profession windows (trade skill; craft = Enchanting on 2.5.x).
+-- M.skills = { { name = "Professions", header = true [, collapsed = true] }, { name = "Alchemy", rank = 375, max = 375 }, ... }
+-- M.tradeskill / M.craft = { name = "Alchemy", rank = 375, max = 375 [, linked = "Name"],
+--                            rows = { { name = "Potions", header = true }, { name = "Flask", spell = 28587, item = 22851 }, ... } }
+-- (item = nil: the recipe makes no item; its item link is the enchant link, as in the client)
+M.skills = {}
+local function visible_skills()
+  local out, hidden = {}, false
+  for _, s in ipairs(M.skills) do
+    if s.header then
+      hidden = s.collapsed and true or false
+      out[#out + 1] = s
+    elseif not hidden then
+      out[#out + 1] = s
+    end
+  end
+  return out
+end
+function GetNumSkillLines() return #visible_skills() end
+function GetSkillLineInfo(i)
+  local s = visible_skills()[tonumber(i)]
+  if not s then return nil end
+  if s.header then return s.name, true, not s.collapsed, 0, 0, 0, 0, false, 0, 0, 0, 0, "" end
+  return s.name, false, false, s.rank or 1, 0, 0, s.max or 75, s.abandon and true or false, 0, 0, 0, 0, ""
+end
+function ExpandSkillHeader(i)
+  local vis = visible_skills()
+  for n, s in ipairs(vis) do
+    if s.header and (tonumber(i) == 0 or n == tonumber(i)) then s.collapsed = nil end
+  end
+end
+function CollapseSkillHeader(i)
+  local vis = visible_skills()
+  for n, s in ipairs(vis) do
+    if s.header and (tonumber(i) == 0 or n == tonumber(i)) then s.collapsed = true end
+  end
+end
+local function recipe_link(row)
+  return "|cffffd000|Henchant:" .. tostring(row.spell) .. "|h[" .. tostring(row.name) .. "]|h|r"
+end
+local function row_of(win, i)
+  local row = win and win.rows and win.rows[tonumber(i)]
+  if row and not row.header then return row end
+  return nil
+end
+function GetTradeSkillLine()
+  local t = M.tradeskill
+  if not t then return "UNKNOWN", 0, 0 end
+  return t.name, t.rank or 1, t.max or 75
+end
+function IsTradeSkillLinked()
+  local t = M.tradeskill
+  if t and t.linked then return true, t.linked end
+  return false
+end
+function GetNumTradeSkills() return M.tradeskill and #M.tradeskill.rows or 0 end
+function GetTradeSkillInfo(i)
+  local row = M.tradeskill and M.tradeskill.rows[tonumber(i)]
+  if not row then return nil end
+  if row.header then return row.name, "header", 0, true, nil, 0, 0, false, 0, 0, 0 end
+  return row.name, row.difficulty or "optimal", 0, false, nil, 1, 0, false, 0, 0, 0
+end
+function GetTradeSkillRecipeLink(i)
+  local row = row_of(M.tradeskill, i)
+  return row and recipe_link(row) or nil
+end
+function GetTradeSkillItemLink(i)
+  local row = row_of(M.tradeskill, i)
+  if not row then return nil end
+  if row.item then return "|cffffffff|Hitem:" .. row.item .. "::::::::70:::::::::|h[" .. tostring(row.name) .. "]|h|r" end
+  return recipe_link(row)
+end
+function GetCraftDisplaySkillLine()
+  local t = M.craft
+  if not t or t.noline then return nil end
+  return t.name, t.rank or 1, t.max or 75
+end
+function GetCraftSkillLine() return M.craft and M.craft.name or nil end
+function GetNumCrafts() return M.craft and #M.craft.rows or 0 end
+function GetCraftInfo(i)
+  local row = M.craft and M.craft.rows[tonumber(i)]
+  if not row then return nil end
+  if row.header then return row.name, nil, "header", 0, true, 0, 0 end
+  return row.name, nil, row.difficulty or "optimal", 0, false, 0, 0
+end
+function GetCraftItemLink(i)
+  local row = row_of(M.craft, i)
+  return row and recipe_link(row) or nil
+end
+GetCraftRecipeLink = GetCraftItemLink
 C_Spell = {
   GetSpellInfo = function(id) return { name = "Spell " .. tostring(id), iconID = 136243, spellID = id, castTime = 0, minRange = 0, maxRange = 0 } end,
-  GetSpellName = function(id) return "Spell " .. tostring(id) end,
+  GetSpellName = function(id) return (GetSpellInfo(id)) end,
+  RequestLoadSpellData = function(id)
+    id = tonumber(id)
+    M.after(0.1, function()
+      M.spell_loaded[id] = true
+      M.fire("SPELL_DATA_LOAD_RESULT", id, true)
+    end, "RequestLoadSpellData")
+  end,
   GetSpellTexture = function() return 136243 end,
   DoesSpellExist = function() return true end,
 }
@@ -774,7 +880,8 @@ function GetGuildRosterInfo(i)
   local G = guild()
   local officer = CanViewOfficerNote() and (m.officer_note or "") or ""
   return m.full, G.ranks[(m.guild_rank or 0) + 1] or "", m.guild_rank or 0, m.level or 70,
-    LOCALIZED_CLASS_NAMES_MALE[m.class] or m.class, m.zone or "", m.public_note or "", officer, m.online == true, 0,
+    LOCALIZED_CLASS_NAMES_MALE[m.class] or m.class, m.zone or "", m.public_note or "", officer, m.online == true,
+    (M.roster_status and M.roster_status[m.full]) or 0,   -- M.roster_status = { ["Name-Realm"] = 1 (AFK) | 2 (DND) }
     m.class, 0, 0, false, false, 4, m.guid
 end
 function GetGuildRosterLastOnline(i) return 0, 0, 1, 0 end
@@ -1307,20 +1414,21 @@ function GetTalentTabInfo(tab, isInspect, isPet, group)
   local tabs = TALENT_TABS[me().class] or TALENT_TABS.WARRIOR
   local t = tabs[tonumber(tab) or 0]
   if not t then return nil end
-  local spent = tonumber(M.talents[tonumber(tab)]) or 0
+  local src = (tonumber(group) == 2 and M.talents2) or M.talents   -- M.talents2: the secondary talents (dual spec)
+  local spent = tonumber(src[tonumber(tab)]) or 0
   return t[1], t[2], t[2] .. " talents", 136243 + tab, spent, me().class .. sgsub(t[2], " ", ""), 0, true
 end
 -- 2.5.6 native API (GetTalentTabInfo is a deprecation-fallback alias): pointsSpent is the 7th return.
 C_SpecializationInfo = {
   GetSpecializationInfo = function(tab, isInspect, isPet, inspectTarget, sex, groupIndex)
-    local id, name, desc, icon, spent, bg, preview, unlocked = GetTalentTabInfo(tab)
+    local id, name, desc, icon, spent, bg, preview, unlocked = GetTalentTabInfo(tab, isInspect, isPet, groupIndex)
     return id or 0, name, desc, icon, nil, nil, spent or 0, bg, preview or 0, unlocked ~= false
   end,
 }
 function GetNumTalents(tab) return 0 end
 function GetTalentInfo(tab, index) return nil end
 function GetActiveTalentGroup() return 1 end
-function GetNumTalentGroups() return 1 end
+function GetNumTalentGroups() return M.talents2 and 2 or 1 end
 function GetUnspentTalentPoints() return 0 end
 
 ---------------------------------------------------------------------------------------------------

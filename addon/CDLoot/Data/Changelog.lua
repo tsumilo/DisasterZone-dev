@@ -6,8 +6,27 @@ if CDLootBoot and CDLootBoot.Run("Data/Changelog.lua", ...) then return end -- C
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "0.10.1", date = "1 October 2026", title = "Dispel tables",
+    { version = "0.11.0", date = "1 October 2026", title = "Members tab and dispel tables",
       sections = {
+          { heading = "Members tab", lines = {
+              "New tab: Members. Who in the guild has which profession, at what skill.",
+              "Your professions are shared with the guild by themselves; nothing to fill in.",
+              "Open each of your profession windows once: that is how your recipes get shared.",
+              "Recipes view: search any recipe or enchant and see who can make it, online first.",
+              "Whisper opens a message to the crafter with the item or recipe linked.",
+              "The profession icons on top filter the lists and show how many members have each.",
+              "A recipe only one member knows is marked: that is who the guild depends on.",
+              "Item tooltips say who in the guild can make the item.",
+              "Members show up once they log in with this version; the rest are listed in grey.",
+              "The roster shows online (green), away (yellow) and offline (red), and each level.",
+              "Main and off spec per character: from My BiS when picked there, else from the talents.",
+              "Alts: log in on each character once, then pick your main on your own entry.",
+              "Alts sit under their main; a crafter who is on another character can be whispered there.",
+              "Officer notes: a longer note per member, only for officers and the Guild Master.",
+              "Officer notes travel only as whispers between officers, never over a channel.",
+              "/cdl members opens the tab; /cdl professions says how much the guild shares.",
+              "Install this version from the zip: it is a full release.",
+          } },
           { heading = "Strategy boards", lines = {
               "New table: Dispel / decurse, for who removes a curse, magic, poison, disease or enrage.",
               "Table menu > Effects to remove lists what the boss casts that can be removed.",
@@ -18,6 +37,7 @@ ns.CHANGELOG = {
               "A table left empty: everyone whose class can remove it gets the alert.",
               "The practice run shows it: the effect lands on a demo player twice.",
               "Everyone needs this version to receive strategies that use a dispel table.",
+              "Fixed: a member who can't build strategies no longer sees or opens drafts.",
           } },
       } },
     { version = "0.10.0", date = "1 October 2026", title = "Updates that arrive in game",

@@ -67,6 +67,7 @@ local DEFAULTS = {
     raidplanSpec = {}, -- [charKey] = spec index last used for a raid sign-up (personal, never synced)
     strategyDraft = {},-- [charKey] = { [draftId] = unsaved work on the strategy board } (UI/StrategyBoard.lua),
                        -- never synced
+    prof = {},         -- [guildKey] = { [charKey] = professions and recipes } (Core/Professions.lua)
     games = {},        -- [gameId] = per-game saved data (Games/Hub.lua): best, plays, ...
     dropHistory = {},  -- array of recent drops (§10.2), newest last, max 40, pruned > 24h
     -- groupLock (no default): { by = key, at = serverTime } while this character, as the raid's loot

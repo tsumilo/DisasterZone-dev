@@ -75,7 +75,7 @@ def demo_toggle_repeatedly_changes_nothing_saved_and_sends_nothing():
         w.tick(5)
         after = snapshot(c)
         assert after == before, (rank, before, after)
-        sent = [e for e in w.addon_log[m0:] if e["sender"] == c.full_name]
+        sent = [e for e in w.addon_log[m0:] if e["sender"] == c.full_name and e["prefix"] != "CDLm"]
         assert sent == [], "rank %d: demo toggling sent %d addon message(s)" % (rank, len(sent))
         text = sv_text(c)
         leaked = [n for n in FAKE if n in text]
@@ -135,7 +135,7 @@ def demo_awards_rolls_drops_stay_out_of_saved_data():
     assert not [p for p in peers if p.split("-")[0] in FAKE], peers
     for d in c.eval_py("local o = {} for i, d in ipairs(CDLootDB.dropHistory) do o[i] = { d.s, d.from or '', d.test and 1 or 0 } end return o") or []:
         assert d[1].split("-")[0] not in FAKE, d
-    sent = [e for e in w.addon_log[m0:] if e["sender"] == c.full_name]
+    sent = [e for e in w.addon_log[m0:] if e["sender"] == c.full_name and e["prefix"] != "CDLm"]
     assert sent == [], [(e["prefix"], e["chat_type"]) for e in sent]
     raid_chat = [x for x in w.chat_log if x.get("sender") == c.full_name]
     assert raid_chat == [], raid_chat
@@ -211,14 +211,14 @@ def demo_works_without_a_guild_and_sends_nothing():
     c.slash("/cdl")
     w.tick(0.3)
     tabs = c.eval_py("local o = {} for _, t in ipairs(CDLootMainFrame.Tabs) do if t:IsShown() then o[#o + 1] = t.cdlKey end end return o")
-    assert tabs == ["home", "mybis", "council", "loot", "raids", "games", "settings", "changelog"], tabs
+    assert tabs == ["home", "mybis", "council", "loot", "raids", "members", "games", "settings", "changelog"], tabs
     exercise_demo_ui(c, w)
     assert c.eval("return #T_data(CDLootCouncilPanel.rosterView.list.box)") == 19
     c.slash("/cdl test")
     w.tick(1)
     c.slash("/cdl demo off")
     w.tick(1)
-    assert [e for e in w.addon_log[m0:] if e["sender"] == c.full_name] == []
+    assert [e for e in w.addon_log[m0:] if e["sender"] == c.full_name and e["prefix"] != "CDLm"] == []
     after = snapshot(c)
     after.pop("dropHistory", None)
     before.pop("dropHistory", None)

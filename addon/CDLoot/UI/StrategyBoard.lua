@@ -741,6 +741,7 @@ end
 -- at, pages, blocks, open (it is the one on the board) }.
 function Board:GetDrafts(bossRef)
     local out = {}
+    if not canEdit() then return out end   -- drafts belong to building: not for a member who can't (any more)
     for _, d in pairs(draftStore() or {}) do
         if d.mode == "edit" and (bossRef == nil or d.strat.b == bossRef) then
             local blocks = 0
@@ -758,11 +759,12 @@ end
 
 -- Unsaved names for a raid's boss: the draft's id, or nil.
 function Board:FillDraft(occId, bossRef)
+    if not canEdit() then return nil end
     local d = findDraft(function(d) return d.mode == "fill" and d.occ == occId and d.boss == bossRef end)
     return d and d.did or nil
 end
 
-function Board:HasDraft() return next(draftStore() or {}) ~= nil end
+function Board:HasDraft() return canEdit() and next(draftStore() or {}) ~= nil end
 
 local function show()
     ensureWindow()
@@ -776,6 +778,10 @@ end
 
 -- Goes on with a draft (did nil: the latest one). What the board held unsaved stays behind as its own draft.
 function Board:OpenDraft(did)
+    if not canEdit() then
+        ns:Print("Only the Guild Master, the guild council and the raid leaders work on strategies.")
+        return false
+    end
     local store = draftStore()
     local d
     if did == nil then
@@ -817,6 +823,7 @@ end
 
 -- Throws a draft away.
 function Board:DiscardDraft(did)
+    if not canEdit() then return end
     local store = draftStore()
     local d = store and store[did]
     if not d then return end

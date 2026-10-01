@@ -18,9 +18,10 @@ if AceComm then
 end
 
 -- "game" (CDLg) carries only minigame traffic, so its per-prefix server budget never delays council sync.
-local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg" }
-local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK" }
-local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game" }
+-- "member" (CDLm) carries the guild's professions and recipes (Core/Professions.lua), for the same reason.
+local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm" }
+local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK" }
+local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member" }
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays)
 local MAX_WIRE_LEN_MEMBER = 4000 -- from anyone else: a full own list is ~1.1 KB, HELLO / rolls / drops far less
@@ -124,7 +125,7 @@ local function CheckRoute(distribution, target)
     return false
 end
 
--- msg = table with string field t. class = "ctrl" | "data" | "alert" (default "ctrl").
+-- msg = table with string field t. class = "ctrl" | "data" | "alert" | "game" | "member" (default "ctrl").
 function Comm:Send(msg, distribution, target, class)
     if not Available() or not ns.loggedIn then return false end
     if type(msg) ~= "table" or type(msg.t) ~= "string" then return false end

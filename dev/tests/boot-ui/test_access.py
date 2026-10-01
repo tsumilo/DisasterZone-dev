@@ -18,10 +18,10 @@ for _, t in ipairs(f.Tabs) do
 end
 return out"""
 
-ALL_TABS = ["home", "mybis", "council", "loot", "raids", "games", "settings", "changelog"]
+ALL_TABS = ["home", "mybis", "council", "loot", "raids", "members", "games", "settings", "changelog"]
 # Addendum J: every guild member has the Raids tab (Upcoming / Teams); its Raid log view stays council only.
-PERSONAL_TABS = ["home", "mybis", "raids", "games", "settings", "changelog"]
-GUILDLESS_TABS = ["home", "mybis", "games", "settings", "changelog"]
+PERSONAL_TABS = ["home", "mybis", "raids", "members", "games", "settings", "changelog"]
+GUILDLESS_TABS = ["home", "mybis", "members", "games", "settings", "changelog"]
 
 
 def shown_tabs(c):

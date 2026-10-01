@@ -2,7 +2,7 @@
 ## Title: |cffff8000CD|rLoot
 ## Notes: BiS lists, Loot Council overview and boss-drop alerts for <Casual Disaster>.
 ## Author: Casual Disaster
-## Version: 0.10.0
+## Version: 0.11.0
 ## X-CDL-Protocol: 1
 ## SavedVariables: CDLootDB, CDLootPatchDB
 ## LoadSavedVariablesFirst: 1
@@ -48,6 +48,8 @@ Core\BiS.lua
 Core\Store.lua
 Core\Comm.lua
 Core\Sync.lua
+Core\Professions.lua
+Core\OfficerNotes.lua
 Core\PatchKey.lua
 Core\Patch.lua
 Core\Ledger.lua
@@ -83,6 +85,7 @@ UI\StrategyBoard.lua
 UI\StrategiesView.lua
 UI\StrategyReminder.lua
 UI\RaidsTab.lua
+UI\Members.lua
 UI\SessionBar.lua
 UI\DropPanel.lua
 UI\RollFrame.lua

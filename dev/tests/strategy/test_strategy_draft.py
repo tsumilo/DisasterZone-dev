@@ -12,6 +12,7 @@ sys.path.insert(0, HERE)
 
 from st_common import world, K, DAY, now, create, save_council, strategies  # noqa: E402
 from _common import case, run_all, strip_codes  # noqa: E402
+from rp_common import gm_pick, set_raid_leaders  # noqa: E402
 
 BOSS = "BlackTemple:Council"
 W = "_G.CDLootStrategyBoard"
@@ -371,6 +372,38 @@ def long_texts_fit_and_reach_the_guild():
     res = bob.eval_py("local s = ns.Strategy:GetStrategy(...); s.p[1].e[1].l = ('x'):rep(49); "
                       "local ok, e = ns.Strategy:SaveStrategy(s); return { ok = ok, e = e }", sid)
     assert res["ok"] is False, res
+    w.assert_no_errors()
+
+
+@case
+def drafts_are_only_for_members_who_can_build_strategies():
+    """A raider must not see, continue or discard drafts (they sit in the saved variables of a member who used to
+    build strategies, or of another character of the account)."""
+    w, c, bob, sid = setup()
+    place(bob, 600)
+    w.tick(1)
+    assert len(drafts(bob)) == 1 and bob.eval("return %s:HasDraft()" % B) is True
+    did = drafts(bob)[0]["did"]
+    bob.eval("%s:Close()" % B)
+    # Bob loses the guild council seat and the raid leader spot
+    gm_pick(w, c["Gina"], [])
+    set_raid_leaders(w, c["Gina"], [])
+    w.tick(3)
+    assert bob.eval("return ns.Strategy:CanEdit()") is False
+    assert drafts(bob) == [] and drafts(bob, BOSS) == []
+    assert bob.eval("return %s:HasDraft()" % B) is False
+    n0 = len(bob.chat_frame)
+    assert bob.eval("return %s:OpenDraft(...)" % B, did) is False
+    assert any("Only the Guild Master" in str(x) for x in bob.chat_frame[n0:]), bob.chat_frame[n0:]
+    bob.eval("%s:DiscardDraft(...)" % B, did)
+    assert ndrafts(bob) == 1                              # still there for when the rights come back
+    bob.slash("/cdl raids")
+    bob.eval("ns.RaidsUI:SetView('strategies')")
+    w.tick(1)
+    assert not bob.find_text("Continue") and not bob.find_text("Discard")
+    gm_pick(w, c["Gina"], ["Bob"])
+    w.tick(3)
+    assert len(drafts(bob)) == 1
     w.assert_no_errors()
 
 

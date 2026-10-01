@@ -1,4 +1,4 @@
-# CDLoot 0.10.0
+# CDLoot 0.11.0
 
 BiS lists, a Loot Council overview, boss-drop alerts and rolls for **&lt;Casual Disaster&gt;**.
 For the WoW TBC Anniversary client (2.5.x, interface 20506).
@@ -18,15 +18,16 @@ CDLoot only suggests. The council makes the loot decision.
 3. [Before the first raid](#before-the-first-raid)
 4. [Quick start: Raider](#quick-start-raider)
 5. [Raid sign-ups and teams](#raid-sign-ups-and-teams)
-6. [Quick start: Loot Council](#quick-start-loot-council)
-7. [Quick start: Raid leader](#quick-start-raid-leader)
-8. [Quick start: Guild Master](#quick-start-guild-master)
-9. [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner)
-10. [Slash commands](#slash-commands)
-11. [Settings reference](#settings-reference)
-12. [Demo mode (try it solo)](#demo-mode-try-it-solo)
-13. [FAQ and troubleshooting](#faq-and-troubleshooting)
-14. [How it syncs, and privacy](#how-it-syncs-and-privacy)
+6. [Members tab](#members-tab)
+7. [Quick start: Loot Council](#quick-start-loot-council)
+8. [Quick start: Raid leader](#quick-start-raid-leader)
+9. [Quick start: Guild Master](#quick-start-guild-master)
+10. [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner)
+11. [Slash commands](#slash-commands)
+12. [Settings reference](#settings-reference)
+13. [Demo mode (try it solo)](#demo-mode-try-it-solo)
+14. [FAQ and troubleshooting](#faq-and-troubleshooting)
+15. [How it syncs, and privacy](#how-it-syncs-and-privacy)
 
 ---
 
@@ -328,6 +329,44 @@ are.
 - At **End raid**, the sign-ups are saved with the raid log: players who signed up as Bench count as bench, and the
   council sees who accepted but didn't come ("no-show") in the Raid log, the Players view and the sign-up tooltips.
 - Wrong link? Council: in the Raid log, right-click the "Planned raid" line and pick the right raid (or "Not linked").
+
+---
+
+## Members tab
+
+Everyone has it. It shows what each member's CDLoot shares with the guild; nothing needs to be filled in.
+
+### Roster
+- Every guild member with a dot for online (green), away (yellow) or offline (red), their level, main and off spec, and
+  their professions with skill. Members who have not logged in with this version yet are listed in grey at the bottom.
+- Click a member for the detail: their characters, each profession with its specialisation, and their recipes (click a
+  profession to unfold them).
+- The profession icons on top filter the list and show how many members have each profession.
+- **Main and off spec** come from My BiS (the spec of your list and of your off-spec list). Without a pick there, your
+  primary talents count as main spec and your secondary talents as off spec.
+
+### Your recipes
+- Your professions and skill are read by themselves.
+- Recipes can only be read while the profession window is open: **open each of your profession windows once** (and again
+  after learning new recipes). The tab reminds you which ones are missing. A filter in the window (for example "have
+  materials") hides recipes from the scan; open it once without a filter.
+
+### Recipes: who can craft what
+- Switch to **Recipes** and type a name ("mongoose", "flask"). Each recipe lists its crafters, online first.
+- **Whisper** opens a message to the crafter with the item or recipe linked. A crafter who is offline but playing
+  another of their characters is shown as "on X now"; the whisper goes there.
+- A recipe only one member knows is marked gold.
+- Item tooltips everywhere say who in the guild can make the item.
+
+### Alts
+- Log in once on each of your characters in the guild. Then open your own entry in the roster and use **Change** to
+  pick your main. Your alts then sit under your main for everyone.
+
+### Officer notes (Guild Master and the rank below)
+- A note of up to 600 letters per member, shown under the member's detail and in the roster tooltip. It is separate
+  from the officer note of the game's guild window.
+- Notes are sent only as whispers between officers, and an addon takes a note only from an officer. Members never
+  receive them. They are stored in plain text on each officer's computer.
 
 ---
 
@@ -650,6 +689,8 @@ The council always confirms the award. Nothing is given away without a click and
 
 | Command | What it does | Who |
 |---|---|---|
+| `/cdl members` | Open the Members tab: professions, recipes, specs, alts | Everyone |
+| `/cdl professions` | How many characters and recipes the guild shares, and which of your windows to open | Everyone |
 | `/cdl` | Opens or closes the window | everyone |
 | `/cdl help` (or `/cdl ?`) | Lists all commands | everyone |
 | `/cdl home` | Opens the Home tab | everyone |

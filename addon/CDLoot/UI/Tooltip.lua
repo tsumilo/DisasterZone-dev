@@ -213,6 +213,39 @@ local function BuildCouncil(itemID)
     return { header = header, entries = entries }
 end
 
+-- "CDLoot: made by A, B +3" for an item a guild member can craft (Core/Professions.lua), online crafters first.
+local MAX_CRAFTERS = 4
+local function CraftedBy(itemID)
+    local Prof = ns.Professions
+    local recipes = Prof and Prof.GetRecipesForItem and Prof:GetRecipesForItem(itemID)
+    if not recipes then return nil end
+    local Guild = ns.Guild
+    local seen, online, offline = {}, {}, {}
+    for _, r in ipairs(recipes) do
+        for _, key in ipairs(r.crafters) do
+            if not seen[key] then
+                seen[key] = true
+                if Guild and Guild:IsOnline(key) then
+                    online[#online + 1] = ColoredName(key)
+                else
+                    offline[#offline + 1] = Paint(ns.Util.ShortName(key) or key, "muted")
+                end
+            end
+        end
+    end
+    local total = #online + #offline
+    if total == 0 then return nil end
+    local names = {}
+    for _, list in ipairs({ online, offline }) do
+        for _, name in ipairs(list) do
+            if #names < MAX_CRAFTERS then names[#names + 1] = name end
+        end
+    end
+    local text = MARK .. ": made by " .. tconcat(names, ", ")
+    if total > #names then text = text .. Paint(format(" +%d", total - #names), "muted") end
+    return text
+end
+
 local function GetData(itemID)
     local now = GetTime()
     local c = cache[itemID]
@@ -287,6 +320,12 @@ function Tooltip:AddLines(tt, itemID)
             tt:AddLine(format("  +%d more (hold Shift)", n - limit), GREY, GREY, GREY)
             truncated[tt] = { entries = entries, start = limit + 1, line = tt:NumLines() }
         end
+        added = true
+    end
+    -- (the Members tab lists the crafters itself)
+    local crafted = not Tooltip.skipCrafters and CraftedBy(itemID)
+    if crafted then
+        tt:AddLine(crafted, 1, 1, 1, true)
         added = true
     end
     if added then tt:Show() end

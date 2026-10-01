@@ -8,7 +8,7 @@ from _common import (case, run_all, toc_version, solo, no_errors, World, Client,
 
 # Addendum E removed "/cdl guildinfo"; Addendum D added "/cdl rules".
 # Addendum F §38 added "lock" / "unlock" (raid BiS list lock).
-SUBCOMMANDS = ["azeromon", "bingo", "bis", "changelog", "config", "council", "debug", "demo", "drop", "drops", "dungeon", "home", "lock", "log", "maps", "plan", "play", "publish", "raid", "raids", "roll", "rules",
+SUBCOMMANDS = ["azeromon", "bingo", "bis", "changelog", "config", "council", "debug", "demo", "drop", "drops", "dungeon", "home", "lock", "log", "maps", "members", "plan", "play", "professions", "publish", "raid", "raids", "roll", "rules",
                "settings", "strat", "sync", "test", "unlock", "update", "version"]
 
 

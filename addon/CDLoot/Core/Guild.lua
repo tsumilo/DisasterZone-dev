@@ -40,7 +40,7 @@ local LEGACY_TAG_NOTICE = "CDLoot no longer uses the Guild Information text. You
 -- State
 ---------------------------------------------------------------------------
 
-local roster = {}               -- [key] = { rankIndex, rankName, classFile, online, level }
+local roster = {}               -- [key] = { rankIndex, rankName, classFile, online, level, status (1 AFK, 2 DND) }
 local ready = false
 local guildName                 -- cached guild name
 local gmKey                     -- the Guild Master per the live roster (rankIndex 0)
@@ -318,23 +318,26 @@ local function BuildRoster()
     local count, gm = 0, nil
     local changed, membersChanged = not ready, not ready
     for i = 1, total do
-        local name, rankName, rankIndex, level, _, _, _, _, isOnline, _, classFile = GetGuildRosterInfo(i)
+        local name, rankName, rankIndex, level, _, _, _, _, isOnline, status, classFile = GetGuildRosterInfo(i)
         local key = type(name) == "string" and Util.NormalizeName(name) or nil
         if key then
             count = count + 1
             local ri = tonumber(rankIndex) or 99
             local online = isOnline and true or false
             level = tonumber(level)
+            status = online and tonumber(status) or 0   -- (0 / nil: available)
+            if status ~= 1 and status ~= 2 then status = nil end
             local e = roster[key]
             if not e then
                 e = {}
                 roster[key] = e
                 membersChanged, changed = true, true
             elseif e.rankIndex ~= ri or e.rankName ~= rankName or e.classFile ~= classFile or e.online ~= online
-                or e.level ~= level then
+                or e.level ~= level or e.status ~= status then
                 changed = true
             end
             e.rankIndex, e.rankName, e.classFile, e.online, e.level, e.gen = ri, rankName, classFile, online, level, gen
+            e.status = status
             if ri == 0 and (not gm or key < gm) then gm = key end
         end
     end
@@ -910,8 +913,9 @@ local function LeadersRec(create)
     return rec
 end
 
-function Guild:IsOfficer(key)
-    local role = type(key) == "string" and DebugRole(key)
+-- `real` (optional): ignore my debug role (network code: what the other clients see is my real rank).
+function Guild:IsOfficer(key, real)
+    local role = not real and type(key) == "string" and DebugRole(key)
     if role then return role == "gm" or role == "officer" end
     local e = type(key) == "string" and roster[key]
     return e ~= nil and e ~= false and (tonumber(e.rankIndex) or 99) <= OFFICER_RANK

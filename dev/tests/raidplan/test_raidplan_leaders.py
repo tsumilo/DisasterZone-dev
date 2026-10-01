@@ -186,7 +186,7 @@ def the_raid_leaders_window_is_for_officers_to_edit():
 def a_raid_leader_gets_no_loot_council_data():
     w, c = world()
     rhea, cora = c["Rhea"], c["Cora"]
-    assert tabs(rhea) == ["home", "mybis", "raids", "games", "settings", "changelog"], tabs(rhea)
+    assert tabs(rhea) == ["home", "mybis", "raids", "members", "games", "settings", "changelog"], tabs(rhea)
     ct = tabs(cora)
     assert "council" in ct and "loot" in ct, ct
     cora.eval("ns.Ledger:Award(28477, ..., 'Karazhan:Attumen', 'test')", K("Rita"))
