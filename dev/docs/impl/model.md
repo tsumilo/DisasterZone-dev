@@ -1,9 +1,9 @@
-No, nobody you share CDLoot with needs any other addon. The four files I wrote are Core/BiS.lua, Core/Ledger.lua, Core/Loot.lua and Core/Loon.lua. They only use CDLoot's own modules and the libraries bundled in `CDLoot/Libs`. LoonBestInSlot is optional: it is listed only as `## OptionalDeps` in the TOC and read through a guarded `_G.LBIS`. Without it, `Loon:IsAvailable()` returns false, `GetTemplate` returns nil and `GetSpecFunctions` returns `{}`, so only the "Suggest BiS" menu disappears. A test with Loon absent passed.
+No, nobody you share DisasterZone with needs any other addon. The four files I wrote are Core/BiS.lua, Core/Ledger.lua, Core/Loot.lua and Core/Loon.lua. They only use DisasterZone's own modules and the libraries bundled in `DisasterZone/Libs`. LoonBestInSlot is optional: it is listed only as `## OptionalDeps` in the TOC and read through a guarded `_G.LBIS`. Without it, `Loon:IsAvailable()` returns false, `GetTemplate` returns nil and `GetSpecFunctions` returns `{}`, so only the "Suggest BiS" menu disappears. A test with Loon absent passed.
 
 All four files compile under Lua 5.1 with no global writes, and 81 of 81 functional tests pass against mocks. Templates also build for every Loon spec in all five phases. Nothing has been run in the game client or the multi-client harness yet.
 
 **1. Files written**
-All in `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\Core\`:
+All in `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\Core\`:
 - BiS.lua: 807 lines
 - Ledger.lua: 495 lines
 - Loot.lua: 484 lines

@@ -1,4 +1,4 @@
-"""Shared helpers for the CDLoot sync / ledger scenario tests (tests/sync/test_*.py).
+"""Shared helpers for the DisasterZone sync / ledger scenario tests (tests/sync/test_*.py).
 
 Nothing here modifies the addon or the harness: everything the harness lacks is shimmed from the test side.
 """
@@ -218,7 +218,7 @@ def printed(c):
 
 
 # ----------------------------------------------------------------------------------------------------------------
-# Wire decoding (addon_log -> logical CDLoot messages)
+# Wire decoding (addon_log -> logical DisasterZone messages)
 # ----------------------------------------------------------------------------------------------------------------
 _decoder = None
 
@@ -261,7 +261,7 @@ CDL_PREFIXES = ("CDLc", "CDLd", "CDLa")
 
 
 def logical_messages(w, start=0):
-    """Reassemble AceComm multipart messages from w.addon_log[start:] (CDLoot prefixes only) and decode them.
+    """Reassemble AceComm multipart messages from w.addon_log[start:] (DisasterZone prefixes only) and decode them.
     Returns a list of dicts: time, sender, prefix, chat_type, target, parts, bytes, t, msg, err, delivered."""
     out = []
     pending = {}
@@ -309,7 +309,7 @@ def logical_messages(w, start=0):
 
 
 def traffic(w, start=0):
-    """Summary of CDLoot traffic in w.addon_log[start:]: wire messages/bytes and logical message counts."""
+    """Summary of DisasterZone traffic in w.addon_log[start:]: wire messages/bytes and logical message counts."""
     wire = [e for e in w.addon_log[start:] if e["prefix"] in CDL_PREFIXES]
     msgs = logical_messages(w, start)
     by_type = Counter(m["t"] for m in msgs)

@@ -52,15 +52,15 @@ def create_raid(cl, days=1):
 
 
 def tabs(cl):
-    cl.slash("/cdl")
+    cl.slash("/dz")
     cl.world.tick(0.3)
     out = cl.eval_py("""
       local out = {}
-      local f = CDLootMainFrame
+      local f = DisasterZoneMainFrame
       if not f or not f.Tabs then return out end
       for _, t in ipairs(f.Tabs) do if t:IsShown() then out[#out + 1] = t.cdlKey end end
       return out""") or []
-    cl.slash("/cdl")
+    cl.slash("/dz")
     return out
 
 
@@ -159,20 +159,20 @@ def a_raid_leader_taken_off_the_list_keeps_their_raids_visible():
 def the_raid_leaders_window_is_for_officers_to_edit():
     w, c = world()
     otto, rita = c["Otto"], c["Rita"]
-    otto.slash("/cdl raids")
+    otto.slash("/dz raids")
     w.tick(0.3)
     otto.eval("ns.RaidsUI:SetView('teams')")
     w.tick(0.3)
     otto.click(otto.eval("return ns.RaidsUI:GetPanel().leadersBtn"))
     w.tick(0.2)
-    assert otto.eval("return CDLootRaidLeaders:IsShown()") is True
+    assert otto.eval("return DisasterZoneRaidLeaders:IsShown()") is True
     otto.eval("ns.RaidLeadersUI:Toggle(...)", K("Lee"))
     w.tick(0.2)
     assert otto.find_text("Unsaved changes", True, True)
     otto.click(otto.eval("return ns.RaidLeadersUI:GetWindow().save"))
     w.tick(2)
     assert rita.eval_py("return ns.Guild:GetRaidLeaders()") == [K("Lee"), K("Rhea")]
-    rita.slash("/cdl raids")
+    rita.slash("/dz raids")
     w.tick(0.3)
     rita.eval("ns.RaidsUI:SetView('teams'); ns.RaidLeadersUI:Open()")
     w.tick(0.2)
@@ -203,7 +203,7 @@ def a_raid_leader_gets_no_loot_council_data():
 def run_raid(w, c, leader, members):
     w.make_raid([c[leader]] + [c[n] for n in members], leader=c[leader])
     w.tick(4)
-    c[leader].slash("/cdl raid start")
+    c[leader].slash("/dz raid start")
     w.tick(4)
     w.encounter(652, "Attumen the Huntsman")
     w.tick(2)
@@ -217,10 +217,10 @@ def the_raid_log_for_council_and_raid_leaders_items_for_council_only():
     sid = run_raid(w, c, "Gina", ["Rhea", "Cora", "Rita", "Sam"])
     c["Gina"].eval("ns.Ledger:Award(28477, ..., 'Karazhan:Attumen', 'x')", K("Rita"))
     w.tick(2)
-    c["Gina"].slash("/cdl raid end")
+    c["Gina"].slash("/dz raid end")
     w.tick(3)
     # Rhea: the Raid log without items
-    rhea.slash("/cdl raids")
+    rhea.slash("/dz raids")
     w.tick(0.3)
     assert rhea.eval("return ns.RaidsUI:GetPanel().logBtn:IsShown()") is True
     rhea.eval("ns.RaidsUI:Select(...)", sid)
@@ -235,7 +235,7 @@ def the_raid_log_for_council_and_raid_leaders_items_for_council_only():
       return out""")
     assert all(x in ("", "Items (last)") for x in last_col), last_col
     # Cora (council, no planner): the Raid log with items
-    cora.slash("/cdl raids")
+    cora.slash("/dz raids")
     w.tick(0.3)
     assert cora.eval("return ns.RaidsUI:GetPanel().logBtn:IsShown()") is True
     cora.eval("ns.RaidsUI:Select(...)", sid)
@@ -247,7 +247,7 @@ def the_raid_log_for_council_and_raid_leaders_items_for_council_only():
     w.make_raid([lee, c["Sam"]], leader=lee)
     w.tick(4)
     assert lee.eval("return ns.Guild:AmICouncil()") is True
-    lee.slash("/cdl raids")
+    lee.slash("/dz raids")
     w.tick(0.3)
     assert lee.eval("return ns.RaidsUI:GetPanel().logBtn:IsShown()") is False
     lee.eval("ns.RaidsUI:SetView('log')")
@@ -263,7 +263,7 @@ def a_raid_leader_who_missed_the_raid_gets_the_log_at_login():
     rhea.logout()
     w.tick(1)
     sid = run_raid(w, c, "Gina", ["Rita", "Sam", "Cora"])
-    c["Gina"].slash("/cdl raid end")
+    c["Gina"].slash("/dz raid end")
     w.tick(5)
     w.disband()
     w.tick(2)
@@ -338,7 +338,7 @@ def raid_leaders_manage_raids_and_their_groups_the_council_teams_and_groups():
         assert x.eval_py("return ns.RaidPlan:GetTeam(...)", tid)["name"] == "Kara A", n
     # the UI follows: Rhea gets New raid but no New team; Cora the other way round
     for cl, raid_btn, team_btn in ((rhea, True, False), (cora, False, True)):
-        cl.slash("/cdl raids")
+        cl.slash("/dz raids")
         w.tick(0.3)
         assert cl.eval("return ns.RaidsUI:GetPanel().newRaidBtn:IsShown()") is raid_btn
         cl.eval("ns.RaidsUI:SetView('teams')")
@@ -375,11 +375,11 @@ def tsumil_can_pretend_roles_on_their_own_screen_only():
         "raider":     dict(gm=False, officer=False, council=False, guild=False, raids=False, teams=False, groups=False, log=False, gmEdit=False),
     }
     for role, want in expect.items():
-        t.slash("/cdl role " + role)
+        t.slash("/dz role " + role)
         w.tick(0.5)
         got = state()
         assert got == want, (role, got)
-    t.slash("/cdl role council")
+    t.slash("/dz role council")
     assert "council" in tabs(t)
     # other clients still see Tsumil's real role
     for n, x in c.items():
@@ -389,13 +389,13 @@ def tsumil_can_pretend_roles_on_their_own_screen_only():
     w.tick(10)
     assert state()["guild"] is True
     n0 = len(t.chat_frame)
-    t.slash("/cdl role off")
+    t.slash("/dz role off")
     assert state() == base
-    t.slash("/cdl role")
+    t.slash("/dz role")
     assert any("off (your real role)" in strip_codes(l) for l in printed_since(t, n0))
     # nobody else has the command
     n0 = len(c["Sam"].chat_frame)
-    c["Sam"].slash("/cdl role council")
+    c["Sam"].slash("/dz role council")
     assert c["Sam"].eval("return ns.Guild:AmICouncil()") is False
     assert c["Sam"].eval("return ns.db.debugRole") is None
     w.assert_no_errors()

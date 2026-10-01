@@ -63,10 +63,10 @@ def said(cl, n0, needle):
 
 
 def start(w, c, who="Lee", tick=2):
-    c[who].slash("/cdl raid start")
+    c[who].slash("/dz raid start")
     w.tick(tick)
     s = session(c[who])
-    assert s, "no session after /cdl raid start"
+    assert s, "no session after /dz raid start"
     # every raider's client has learned the session (a real pull is never seconds after Start)
     members = [m for m in w.group_members() if isinstance(m, Client) and m.runtime is not None]
     w.run_until(lambda: all(current(x) == s["id"] for x in members), timeout=20)
@@ -95,10 +95,10 @@ def leader_starts_and_ends_everyone_records_the_same_session():
         assert said(x, n0[n], "raid session started"), (n, printed_since(x, n0[n]))
     # starting twice only says so
     n1 = len(lee.chat_frame)
-    lee.slash("/cdl raid start")
+    lee.slash("/dz raid start")
     assert said(lee, n1, "already running")
     w.tick(30)
-    lee.slash("/cdl raid end")
+    lee.slash("/dz raid end")
     w.tick(2)
     for n, x in c.items():
         assert session(x) is None and current(x) is None, n
@@ -115,7 +115,7 @@ def only_the_authority_can_start_and_forged_sessions_are_ignored():
     rita, sam = c["Rita"], c["Sam"]
     raid(w, c)
     n0 = len(rita.chat_frame)
-    rita.slash("/cdl raid start")
+    rita.slash("/dz raid start")
     w.tick(2)
     assert said(rita, n0, "only the raid leader"), printed_since(rita, n0)
     assert all(session(x) is None for x in c.values())
@@ -189,7 +189,7 @@ def leader_leaves_the_new_authority_adopts_the_session_and_lock():
     # Lee left the raid: his own copy ends by the safety net
     r = rec(lee, rid)
     assert r["stop"] and r.get("autoEnded") is True and current(lee) is None, r
-    bob.slash("/cdl raid end")
+    bob.slash("/dz raid end")
     w.tick(2)
     for n in ("Bob", "Rita", "Sam", "Gina"):
         r = rec(c[n], rid)
@@ -233,13 +233,13 @@ def missed_pull_reminds_the_leader_and_backdates_the_start():
     n0, r0 = len(lee.chat_frame), len(rita.chat_frame)
     w.encounter(652, "Attumen the Huntsman", success=False)
     w.tick(1)
-    assert said(lee, n0, "/cdl raid start"), printed_since(lee, n0)
-    assert not said(rita, r0, "/cdl raid start")
+    assert said(lee, n0, "/dz raid start"), printed_since(lee, n0)
+    assert not said(rita, r0, "/dz raid start")
     # a second pull soon after doesn't repeat it
     n1 = len(lee.chat_frame)
     w.encounter(652, "Attumen the Huntsman", success=False)
     w.tick(1)
-    assert not said(lee, n1, "/cdl raid start")
+    assert not said(lee, n1, "/dz raid start")
     rid = start(w, c)
     s = session(rita)
     assert abs(s["at"] - entered) <= 2, (s, entered)
@@ -271,7 +271,7 @@ def midraid_joiner_and_reloads_resume_the_same_record():
     assert rec(lee, rid).get("stop") is None
     # ended while Rita was reloading: she closes her copy when she learns it
     rita.relog(reload=True)
-    lee.slash("/cdl raid end")
+    lee.slash("/dz raid end")
     w.tick(10)
     assert current(rita) is None and rec(rita, rid)["stop"], rec(rita, rid)
     w.assert_no_errors()
@@ -366,9 +366,9 @@ def session_bar_shows_for_everyone_and_the_leader_ends_from_it():
     assert "1/11 bosses" in bar(rita)["text"], bar(rita)
     lee.click(lee.eval("return ns.SessionBar:GetFrame().button"))
     w.tick(0.2)
-    assert "CDLOOT_RAID_END" in lee.popups()
+    assert "DISASTERZONE_RAID_END" in lee.popups()
     assert session(rita)["id"] == rid, "nothing ends before the confirmation"
-    lee.accept_popup("CDLOOT_RAID_END")
+    lee.accept_popup("DISASTERZONE_RAID_END")
     w.tick(3)
     assert not bar(rita)["shown"] and rec(rita, rid)["endedBy"] == K("Lee")
     # the leader, still inside, sees the idle bar again; dismissing it hides it until the next instance
@@ -391,15 +391,15 @@ def raids_tab_lists_raids_details_bench_and_players():
     w.tick(2)
     bob.eval("ns.Ledger:Award(28000, ..., '', nil, false)", K("Rita"))
     w.tick(2)
-    lee.slash("/cdl raid end")
+    lee.slash("/dz raid end")
     w.tick(3)
     # (Addendum J: raiders have the Raids tab for sign-ups, but not its Raid log view)
-    rita.slash("/cdl raids")
+    rita.slash("/dz raids")
     w.tick(0.5)
     rita.eval("ns.RaidsUI:SetView('log')")
     assert rita.eval("return ns.RaidsUI:GetView()") == "upcoming", "raiders don't get the raid log"
     assert not rita.eval("return ns.RaidsUI:GetPanel().logBtn:IsShown()")
-    bob.slash("/cdl raids")
+    bob.slash("/dz raids")
     w.tick(0.5)
     assert bob.eval("return ns.MainFrame:GetSelectedTab()") == "raids"
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().logBtn"))
@@ -444,7 +444,7 @@ def council_recorders_fill_each_others_gaps_when_the_raid_ends():
     w.tick(2)
     assert len(rec(bob, rid)["bosses"]) == 1 and len(rec(gina, rid)["bosses"]) == 1
     mark = len(w.addon_log)
-    lee.slash("/cdl raid end")
+    lee.slash("/dz raid end")
     w.tick(40)
     for x in (bob, gina):
         r = rec(x, rid)
@@ -470,7 +470,7 @@ def a_council_member_who_missed_the_raid_gets_it_at_login():
     rid = start(w, c)
     w.encounter(652, "Attumen the Huntsman")
     w.tick(2)
-    c["Lee"].slash("/cdl raid end")
+    c["Lee"].slash("/dz raid end")
     w.tick(30)
     nora.login()
     w.tick(60)
@@ -521,11 +521,11 @@ def attendance_shows_in_the_council_views():
     bob, lee = c["Bob"], c["Lee"]
     raid(w, c)
     rid = start(w, c)
-    lee.slash("/cdl raid end")
+    lee.slash("/dz raid end")
     w.tick(2)
     raid(w, c, members=("Lee", "Bob", "Gina", "Sam"))
     start(w, c)
-    lee.slash("/cdl raid end")
+    lee.slash("/dz raid end")
     w.tick(2)
     assert bob.eval_py("return { ns.RaidLog:GetAttendance(...) }", K("Rita")) == [50, 1, 2]
     assert bob.eval("return ns.RaidLog:GetAttendanceText(...)", K("Sam")) == "100% (2/2)"
@@ -542,7 +542,7 @@ def demo_mode_fills_the_raids_tab_without_touching_the_real_log():
     w, c = solo(council=None)
     c.eval("ns.db.raids.real = { id = 'real', start = GetServerTime() - 3600, stop = GetServerTime(), bosses = {}, att = {} }")
     saved = c.eval_py("return ns.db.raids")
-    c.slash("/cdl demo")
+    c.slash("/dz demo")
     w.tick(1)
     raids = c.eval_py("local out = {}; for i, r in ipairs(ns.RaidLog:GetRaids()) do out[i] = { id = r.id, zone = r.zone, "
                       "n = #r.bosses, att = ns.Util.Count(r.att), aw = #ns.RaidLog:GetAwards(r), auto = r.autoEnded } end; return out")
@@ -558,7 +558,7 @@ def demo_mode_fills_the_raids_tab_without_touching_the_real_log():
     assert len(pcts) >= 3 and any(s["bench"] > 0 for s in stats) and any(s["items"] > 0 for s in stats), stats
     again = c.eval_py("local r = ns.RaidLog:GetRaids()[1]; return { r.start, r.bosses[1].enc, ns.RaidLog:GetAwards(r)[1].i }")
     # the tab paints
-    c.slash("/cdl raids")
+    c.slash("/dz raids")
     w.tick(0.5)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "raids"
     c.eval("ns.RaidsUI:SetView('log')")
@@ -568,11 +568,11 @@ def demo_mode_fills_the_raids_tab_without_touching_the_real_log():
     w.tick(0.3)
     assert c.find_text("100%", True, True)
     # toggling off brings the real log back; nothing demo was saved
-    c.slash("/cdl demo")
+    c.slash("/dz demo")
     w.tick(1)
     assert [r["id"] for r in c.eval_py("return ns.RaidLog:GetRaids()")] == ["real"]
     assert c.eval_py("return ns.db.raids") == saved
-    c.slash("/cdl demo")
+    c.slash("/dz demo")
     w.tick(1)
     assert c.eval_py("local r = ns.RaidLog:GetRaids()[1]; return { r.start, r.bosses[1].enc, ns.RaidLog:GetAwards(r)[1].i }") == again
     w.assert_no_errors()

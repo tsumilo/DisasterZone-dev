@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""CDLoot guild sync flows on the REAL addon (SPEC §10.3): scenarios (a), (b), (c), (c2), (d) and (j).
+"""DisasterZone guild sync flows on the REAL addon (SPEC §10.3): scenarios (a), (b), (c), (c2), (d) and (j).
 
 Run:  luaenv\\Scripts\\python.exe tests\\sync\\test_sync_flows.py   [-k substring]
 """
@@ -216,8 +216,8 @@ def c2_setup():
 def c2_older_local_copy_popup_restore():
     w, R, C1, C2, old, new = c2_setup()
     pops = R.popups()
-    assert pops == ["CDLOOT_RESTORE"], "expected the restore popup once, got %s" % pops
-    R.accept_popup("CDLOOT_RESTORE")
+    assert pops == ["DISASTERZONE_RESTORE"], "expected the restore popup once, got %s" % pops
+    R.accept_popup("DISASTERZONE_RESTORE")
     settle(w, 10)
     o = own(R)
     assert o["rev"] == 3 and o["hash"] == new["hash"], "restore failed: %s (wanted %s)" % (o, new)
@@ -232,8 +232,8 @@ def c2_older_local_copy_popup_restore():
 @r.case
 def c2_older_local_copy_popup_keep_mine():
     w, R, C1, C2, old, new = c2_setup()
-    assert R.popups() == ["CDLOOT_RESTORE"], R.popups()
-    R.cancel_popup("CDLOOT_RESTORE")
+    assert R.popups() == ["DISASTERZONE_RESTORE"], R.popups()
+    R.cancel_popup("DISASTERZONE_RESTORE")
     settle(w, 10)
     o = own(R)
     assert o["rev"] == 4, "keep mine must supersede the council's rev 3 with rev 4: %s" % o
@@ -609,7 +609,7 @@ def j_guildless_then_guild_change_while_online():
         up(c)
     settle(w, 30)
     edit(solo, 0, commit=True)
-    solo.slash("/cdl sync")
+    solo.slash("/dz sync")
     edit(R, 0, commit=True)
     settle(w, 10)
     assert not [e for e in w.addon_log if e["sender"] == solo.full_name], "a guildless client sent addon messages"

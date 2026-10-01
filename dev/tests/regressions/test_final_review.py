@@ -1,4 +1,4 @@
-"""Regression cases for the CDLoot 0.5.0 final-review fixes (one or more cases per finding id).
+"""Regression cases for the DisasterZone 0.5.0 final-review fixes (one or more cases per finding id).
 
 Runs the real addon in the mocked multi-client world. Case names start with the finding id they cover.
 Usage: python tests/regressions/test_final_review.py [-k substring]
@@ -48,7 +48,7 @@ def send_as(c, msg, dist, target=None, cls="ctrl"):
 
 
 def confirm_award(c, sid, winner, item):
-    """CDLOOT_CONFIRM_AWARD accepted for sid -> winner (record + announce, no hand-out)."""
+    """DISASTERZONE_CONFIRM_AWARD accepted for sid -> winner (record + announce, no hand-out)."""
     c.eval("local a, b, i = ... ns.Roll:ConfirmAward({ id = a, key = b, itemID = i })", sid, winner, item)
 
 
@@ -99,7 +99,7 @@ def disenchant_item_source_is_never_a_drop():
     w.tick(3)
     E.close_loot()
     assert D_msgs(w, log0) == [], D_msgs(w, log0)
-    # a CDLoot 0.4 client still broadcasts its disenchant window: receivers ignore it
+    # a DisasterZone 0.4 client still broadcasts its disenchant window: receivers ignore it
     send_as(E, {"t": "D", "s": ITEM_GUID + "2", "b": "Karazhan:Prince", "i": [VOID_CRYSTAL], "ts": now(E)}, "RAID",
             None, "alert")
     w.tick(1)
@@ -188,7 +188,7 @@ def _restore_setup():
            "rec.highestSeenRev = rec.rev; rec.hash = ns.Util.Hash(rec.data)")
     C.relog()
     w.tick(40)
-    assert "CDLOOT_RESTORE" in C.popups(), C.popups()
+    assert "DISASTERZONE_RESTORE" in C.popups(), C.popups()
     return r, w, B, C, newer
 
 
@@ -205,12 +205,12 @@ def escape_restore_popup_escape_keeps_the_council_copy():
 @R.case
 def escape_restore_popup_keep_mine_click_still_supersedes():
     r, w, B, C, newer = _restore_setup()
-    C.cancel_popup("CDLOOT_RESTORE")
+    C.cancel_popup("DISASTERZONE_RESTORE")
     w.tick(20)
     after = B.eval_py(COPY, key("Carol"))
     assert after["neck"] is False and after["rev"] > newer["rev"], after
     # a popup that is never shown (all dialogs busy -> OnCancel(nil, data)) does nothing
-    C.eval("StaticPopupDialogs.CDLOOT_RESTORE.OnCancel(nil, { from = 'x', rev = 1 }, nil)")
+    C.eval("StaticPopupDialogs.DISASTERZONE_RESTORE.OnCancel(nil, { from = 'x', rev = 1 }, nil)")
     w.tick(10)
     assert B.eval_py(COPY, key("Carol")) == after
     w.assert_no_errors()
@@ -250,16 +250,16 @@ def modified_click_links_items_from_council_views():
     A.set_modifiers(shift=True)
     assert A.eval("return IsModifiedClick()") is True
     A.set_modifiers()
-    A.slash("/cdl council")
+    A.slash("/dz council")
     w.tick(0.5)
     A.eval("ns.CouncilUI:SetView('items')")
     w.tick(0.5)
-    row = A.eval("""for _, f in ipairs({ CDLootMainFrame:GetChildren() }) do end
+    row = A.eval("""for _, f in ipairs({ DisasterZoneMainFrame:GetChildren() }) do end
         local function find(fr)
           if fr.cdlData and fr.cdlData.itemID and fr.GetScript and fr:GetScript('OnClick') and fr:IsShown() then return fr end
           for _, ch in ipairs({ fr:GetChildren() }) do local x = find(ch) if x then return x end end
         end
-        return find(CDLootMainFrame)""")
+        return find(DisasterZoneMainFrame)""")
     assert row is not None, "no item row in the Items view"
     n0 = len(A.inserted_links)
     A.set_modifiers(shift=True)
@@ -324,7 +324,7 @@ def relay_poison_raid_scope_cannot_hijack_a_restore():
     for x in ("Councila", "Councilb", "Gina"):
         c[x].logout()
     w.tick(1)
-    bob.eval("CDLootDB = {}")          # a fresh install (the relog saves this empty table)
+    bob.eval("DisasterZoneDB = {}")          # a fresh install (the relog saves this empty table)
     bob.relog()
     w.tick(2)
     assert bob.eval("return ns.BiS:GetRecord().rev") == 0
@@ -736,19 +736,19 @@ def ml_give_refused_is_not_recorded_and_offers_the_award():
     log0 = len(w.addon_log)
     A.eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    A.accept_popup("CDLOOT_GIVE_ITEM")
+    A.accept_popup("DISASTERZONE_GIVE_ITEM")
     w.tick(1)
     assert session_info(A, sid)["state"] == "closed", session_info(A, sid)
     assert msgs_of_type(w, "RW", log0) == []
     assert not [e for e in ledger_visible(A) if e["w"] == key("Bob")]
-    assert "CDLOOT_CONFIRM_AWARD" in A.popups(), A.popups()
+    assert "DISASTERZONE_CONFIRM_AWARD" in A.popups(), A.popups()
     assert A.eval("return ns.Loot:FindLootSlot(...)", RUBY_DRAPE) == 1, "the item left the loot window"
-    A.cancel_popup("CDLOOT_CONFIRM_AWARD")
+    A.cancel_popup("DISASTERZONE_CONFIRM_AWARD")
     # Bob freed a bag slot: the give now goes through and is recorded once the slot cleared
     A.set_ml_refusal(r["Bob"], None)
     A.eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    A.accept_popup("CDLOOT_GIVE_ITEM")
+    A.accept_popup("DISASTERZONE_GIVE_ITEM")
     assert session_info(A, sid)["state"] == "closed", "recorded before the server answered"
     w.tick(1)
     s = session_info(A, sid)
@@ -948,7 +948,7 @@ def council_items_award_goes_through_the_open_roll():
     start_roll(A, RUBY_DRAPE)
     w.tick(1)
     sid = active_session(A)["id"]
-    B.slash("/cdl council")
+    B.slash("/dz council")
     w.tick(0.5)
     B.eval("ns.CouncilUI:SetView('items')")
     w.tick(0.5)
@@ -960,7 +960,7 @@ def council_items_award_goes_through_the_open_roll():
           if fr.cdlData and fr.cdlData.itemID == want and fr:IsShown() then return fr end
           for _, ch in ipairs({ fr:GetChildren() }) do local x = find(ch) if x then return x end end
         end
-        return find(CDLootMainFrame)""", RUBY_DRAPE)
+        return find(DisasterZoneMainFrame)""", RUBY_DRAPE)
     assert menu_owner is not None
     B.click(menu_owner, "RightButton")
     menu = B.last_menu()
@@ -1063,7 +1063,7 @@ def roll_all_winner_of_an_earlier_item_is_told():
     n0 = len(printed_lines(D))
     confirm_award(A, s1, key("Dave"), RUBY_DRAPE)
     w.tick(1)
-    assert any(strip_codes(l).startswith("CDLoot: You won") for l in printed_lines(D)[n0:]), printed_lines(D)[n0:]
+    assert any(strip_codes(l).startswith("DisasterZone: You won") for l in printed_lines(D)[n0:]), printed_lines(D)[n0:]
     assert rollframe_state(D)["id"] != s1, "the running roll's popup was replaced"
     w.assert_no_errors()
 
@@ -1103,7 +1103,7 @@ def search_dropdown_drops_focus_when_it_closes():
     g = Client(w, "Gina", guild_rank=0)
     g.load_addon()
     w.tick(3)
-    g.slash("/cdl council")
+    g.slash("/dz council")
     w.tick(0.5)
     g.eval("ns.CouncilUI:SetView('council')")
     w.tick(0.5)
@@ -1128,7 +1128,7 @@ def drops_button_and_shift_click_reopen_the_drop_panel():
     w.tick(2)
     A.close_loot()
     A.eval("ns.DropPanel:Hide()")
-    A.slash("/cdl council")
+    A.slash("/dz council")
     w.tick(0.5)
     btn = A.eval(FIND_FIELD, "dropsBtn")
     assert btn is not None

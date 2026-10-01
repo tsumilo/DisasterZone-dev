@@ -29,7 +29,7 @@ def game(seed=7, ui=False, c_w=None):
       local m = M.New('murkling', 30, ns.Azero.rng); m.moves = M.DefaultMoves('murkling', 30)
       ns.Azero.save.party = { m }""")
     if ui:
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")
         w.tick(0.3)

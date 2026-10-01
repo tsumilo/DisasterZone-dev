@@ -11,20 +11,20 @@ Core\Constants.lua:123 [·] [2] = { short = "P2", name = "Phase 2", raids = "Ser
 Core\Constants.lua:124 [·] [3] = { short = "P3", name = "Phase 3", raids = "Hyjal · Black Temple" },
 Core\ItemDB.lua:185 [·] return bossName .. " · " .. raidName
 Core\ItemDB.lua:197 [·] text = prefix .. " · " .. text
-Core\Roll.lua:167 [→] local ok = ns.SafeCall(UI.AnnounceLine, UI, "CDLoot: " .. (body:gsub("→", "->")))
+Core\Roll.lua:167 [→] local ok = ns.SafeCall(UI.AnnounceLine, UI, "DisasterZone: " .. (body:gsub("→", "->")))
 Core\Roll.lua:521 [—] local body = strformat("Roll for %s now — /roll (%ds)", ItemText(ses), ses.duration)
 Core\Roll.lua:1077 [→] local body = strformat("%s → %s (%s, %s)", ItemText(ses), Util.ShortName(key), rollText,
-Core\Roll.lua:1376 [—] ns:Print("Usage: /cdl roll [item link] (shift-click the item) — starts a raid roll; /cdl roll end — ends the running roll.")
+Core\Roll.lua:1376 [—] ns:Print("Usage: /dz roll [item link] (shift-click the item) — starts a raid roll; /dz roll end — ends the running roll.")
 Core\Sync.lua:210 […] if not (Guild and Guild:IsReady()) then return "Waiting for guild roster…" end
 Core\Sync.lua:212 […] if BiS and BiS.IsDirty and BiS:IsDirty() then return "Changes pending…" end
 Core\Sync.lua:218 [—] return "Not shared yet — no council member online"
 Core\Sync.lua:220 […] return "Sharing with council…"
 UI\Council.lua:202 [·] return ref.boss.name .. " · " .. ref.raid.name
-UI\Council.lua:602 [·] tt:AddLine(string.format("|cffff8000CDLoot|r · P%d: %d wanting", d.phase or currentPhase(), d.n or 0))
+UI\Council.lua:602 [·] tt:AddLine(string.format("|cffff8000DisasterZone|r · P%d: %d wanting", d.phase or currentPhase(), d.n or 0))
 UI\Council.lua:636 [·] tt:AddDoubleLine(left, table.concat(flags, " · "), 1, 1, 1, 0.8, 0.8, 0.8)
-UI\Council.lua:695 [·] tt:AddLine("|cffff8000CDLoot|r · " .. coloredName(d.key, d.classFile) .. " - " .. slotLabel)
+UI\Council.lua:695 [·] tt:AddLine("|cffff8000DisasterZone|r · " .. coloredName(d.key, d.classFile) .. " - " .. slotLabel)
 UI\Council.lua:773 [·] GameTooltip:AddLine(string.format("P%d: %d picks · %d obtained · %d needed", phase, d.filled, d.filled - d.need, d.need), 1, 1, 1)
-UI\Council.lua:1062 [·] text = "CDLoot: " .. label .. " - " .. table.concat(parts, " · ")
+UI\Council.lua:1062 [·] text = "DisasterZone: " .. label .. " - " .. table.concat(parts, " · ")
 UI\Council.lua:1176 [·] row.source:SetText(typeText ~= "" and (typeText .. "  ·  " .. count) or count)
 UI\Council.lua:1250 [·] title = title .. grey(string.format("  -  %d items · %d claims", #rows, claims))
 UI\Council.lua:1436 [·] return table.concat(parts, " · ")

@@ -1,8 +1,8 @@
-# CDLoot — Architecture & Implementation Spec (v1)
+# DisasterZone — Architecture & Implementation Spec (v1)
 
 Guild loot-assistance addon for **<Casual Disaster>** on the **WoW TBC Anniversary** client (game 2.5.6, TOC `Interface: 20506`, Lua 5.1).
-Addon folder: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot` (below: `CDLoot/`).
-Scratch/research folder: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad` (below: `SCRATCH/`).
+Addon folder: `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone` (below: `DisasterZone/`).
+Scratch/research folder: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad` (below: `SCRATCH/`).
 
 **Mandatory reading for every implementer:** this spec, plus `SCRATCH/research/api.md` (verified 2.5.x API cheat sheet — which APIs exist, return orders, gotchas). Also useful: `SCRATCH/research/ux.md` (UX study + wireframes), `SCRATCH/research/sync.md` (sync study), `SCRATCH/research/data.md` (loot DB notes). Reference addons are installed in `C:\World of Warcraft\_anniversary_\Interface\AddOns\` — read them for proven 20506 code patterns (e.g. Auctionator for ScrollBox, Leatrix_Plus for MenuUtil dropdowns, LootReserve for loot/comm, GudaBags for C_Container). Never modify other addons.
 
@@ -15,10 +15,10 @@ Scratch/research folder: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-W
 - **Tooltips**: own status on every item; council sees who wants it.
 - **Award log / history** (council only): auto-recorded from loot chat messages in raids + manual awards, synced between council members, with void/undo.
 - v2 (NOT now, but keep the data model ready): RCLootCouncil-style voting sessions.
-- **No external addon dependencies.** All libs are embedded in `CDLoot/Libs`. LoonBestInSlot is an *optional* extra for "Suggest BiS" templates only.
+- **No external addon dependencies.** All libs are embedded in `DisasterZone/Libs`. LoonBestInSlot is an *optional* extra for "Suggest BiS" templates only.
 - English only (enUS). No localization layer needed, but keep user-facing strings in obvious places.
 
-## 1. Files & load order (already in `CDLoot/CDLoot.toc` — do not reorder)
+## 1. Files & load order (already in `DisasterZone/DisasterZone.toc` — do not reorder)
 
 ```
 Libs/...                       (already present: LibStub, CallbackHandler-1.0, AceComm-3.0 (+ChatThrottleLib v32),
@@ -28,7 +28,7 @@ Core/Util.lua        ns.Util: names, timers/debounce, tables, canonical encoding
 Core/Constants.lua   slots, phases, classes/specs/roles, proficiency tables, colors, textures
 Data/Items.lua       GENERATED raid loot DB (already present; do not edit)
 Core/ItemDB.lua      ns.ItemDB: indexes over Data, item info async cache, slot/class filtering, sources, drop expansion
-Core/DB.lua          ns.DB: SavedVariables (CDLootDB) defaults/migration; sets ns.db
+Core/DB.lua          ns.DB: SavedVariables (DisasterZoneDB) defaults/migration; sets ns.db
 Core/Guild.lua       ns.Guild: roster cache, guild-info config tag (council, phase), IsCouncil
 Core/BiS.lua         ns.BiS: the player's own list model, edits, commit/rev, spec, owned scanning, obtained
 Core/Store.lua       ns.Store: cached lists of other players (council), unified record access, wanted-item index
@@ -54,10 +54,10 @@ UI/Settings.lua      ns.SettingsUI: "Settings" tab + guild config editor + Blizz
 
 - Every file starts with a 1–3 line header comment, then `local addonName, ns = ...`.
 - Lua **5.1** only: no `goto`, no `//`, no `table.unpack` (use `unpack`), no integer-only assumptions, `#` only on sequences.
-- **Globals:** the only globals CDLoot may write are `CDLoot` (= ns, set in Init.lua), `CDLootDB` (SavedVariables), `SLASH_CDLOOT1`, `SLASH_CDLOOT2`, `SlashCmdList["CDLOOT"]` (field write), `StaticPopupDialogs["CDLOOT_*"]` (field writes), `UISpecialFrames` insertions, and named frames whose names start with `CDLoot`. Everything else is `local`. Cache frequently used globals as locals at file top where it helps readability (not required).
+- **Globals:** the only globals DisasterZone may write are `DisasterZone` (= ns, set in Init.lua), `DisasterZoneDB` (SavedVariables), `SLASH_DISASTERZONE1`, `SLASH_DISASTERZONE2`, `SlashCmdList["DISASTERZONE"]` (field write), `StaticPopupDialogs["DISASTERZONE_*"]` (field writes), `UISpecialFrames` insertions, and named frames whose names start with `DisasterZone`. Everything else is `local`. Cache frequently used globals as locals at file top where it helps readability (not required).
 - **API rules for 20506** (see `research/api.md` §11): use `C_Item.GetItemInfo`, `C_Item.GetItemInfoInstant`, `C_Item.GetItemIconByID`, `C_Item.GetItemQualityByID`, `C_Container.*`, `C_ChatInfo.SendAddonMessage` (via AceComm), `C_ChatInfo.SendChatMessage` (fallback `SendChatMessage` if C_ChatInfo.SendChatMessage is nil), `C_GuildInfo.GuildRoster()`, `C_PartyInfo.GetLootMethod()`, `ChatFrameUtil.InsertLink` (fallback `ChatEdit_InsertLink`), `Settings.RegisterCanvasLayoutCategory`. **Never** call the bare globals `GetItemInfo`, `GetItemInfoInstant`, `GetLootMethod`, `GuildRoster`, `GetContainerItemInfo`, `SendAddonMessage`. Use `BackdropTemplate` for any frame that calls `SetBackdrop`. Use `SetResizeBounds` not `SetMinResize` (we don't resize in v1 anyway). `GetLootSlotInfo` returns icon first; **quality is the 5th return**. Loot buttons: use `button.slot`, never `button:GetID()`. `GetTalentTabInfo` returns `id, name, description, icon, pointsSpent, ...` (points = 5th).
 - **Names:** every player identifier stored or compared is a **name key** `"Name-Realm"` (realm normalized, no spaces), produced by `ns.Util.NormalizeName`. Display with `ns.Util.ShortName` (strips realm if it's the player's own realm).
-- **Slot IDs:** CDLoot uses its own slot index **`sid` 1..17** (see §4), NOT inventory slot IDs. Convert with `ns.SLOTS[sid].invSlot`.
+- **Slot IDs:** DisasterZone uses its own slot index **`sid` 1..17** (see §4), NOT inventory slot IDs. Convert with `ns.SLOTS[sid].invSlot`.
 - **Error handling:** event/message/comm handlers are dispatched through `xpcall(fn, geterrorhandler())` by Init/Comm; don't wrap your own code in silent `pcall` unless handling untrusted input (comm payloads) — in that case log via `ns:Debug`.
 - **No OnUpdate polling** except short-lived animations (toast fade). Use `C_Timer.After`/`NewTimer`/`NewTicker` and `ns.Util.Debounce`.
 - **UI refresh:** panels subscribe to internal messages (§3.3) and refresh only if shown (`if not panel:IsVisible() then panel.dirty = true return end`, refresh on `OnShow` when dirty). Use `ns.Util.Debounce` to coalesce bursts.
@@ -69,8 +69,8 @@ UI/Settings.lua      ns.SettingsUI: "Settings" tab + guild config editor + Blizz
 
 ```lua
 local addonName, ns = ...
-CDLoot = ns                       -- the ONE debugging global
-ns.name = addonName               -- "CDLoot"
+DisasterZone = ns                       -- the ONE debugging global
+ns.name = addonName               -- "DisasterZone"
 ns.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "0.0.0"
 ns.PROTO = 1                      -- wire protocol major (matches TOC X-CDL-Protocol)
 ```
@@ -78,7 +78,7 @@ ns.PROTO = 1                      -- wire protocol major (matches TOC X-CDL-Prot
 ### 3.1 Module registry & lifecycle
 - `ns:NewModule(name) -> M` — creates table `M` (with `M.name = name`), stores `ns[name] = M` and appends to an ordered list. Error if name exists.
 - Lifecycle, dispatched in module registration order (= TOC order), each call in `xpcall`:
-  - `M:OnInit()` — on `ADDON_LOADED` for CDLoot, **after** `ns.DB` has initialized `ns.db` (DB's OnInit runs first among modules that come after it; modules before DB in the TOC — Util, Constants, ItemDB — must not touch `ns.db` in OnInit). Must NOT depend on player name/realm/guild (not reliable yet).
+  - `M:OnInit()` — on `ADDON_LOADED` for DisasterZone, **after** `ns.DB` has initialized `ns.db` (DB's OnInit runs first among modules that come after it; modules before DB in the TOC — Util, Constants, ItemDB — must not touch `ns.db` in OnInit). Must NOT depend on player name/realm/guild (not reliable yet).
   - `M:OnLogin()` — on `PLAYER_LOGIN`. Player identity is available. Register player-dependent stuff here.
 - `ns.loggedIn` becomes true right before OnLogin dispatch.
 
@@ -109,11 +109,11 @@ ns.PROTO = 1                      -- wire protocol major (matches TOC X-CDL-Prot
 | `DEMO_TOGGLED` | enabled | Demo | demo mode switched |
 
 ### 3.4 Output
-- `ns:Print(fmt, ...)` → `DEFAULT_CHAT_FRAME:AddMessage("|cffff8000CDLoot|r: " .. msg)` (uses `string.format` only when extra args are given).
+- `ns:Print(fmt, ...)` → `DEFAULT_CHAT_FRAME:AddMessage("|cffff8000DisasterZone|r: " .. msg)` (uses `string.format` only when extra args are given).
 - `ns:Debug(fmt, ...)` → same, prefixed `[debug]`, only when `ns.db and ns.db.settings.debug`.
 
 ### 3.5 Slash commands
-- `SLASH_CDLOOT1 = "/cdl"`, `SLASH_CDLOOT2 = "/cdloot"`.
+- `SLASH_DISASTERZONE1 = "/dz"`, `SLASH_DISASTERZONE2 = "/disasterzone"`.
 - `ns:RegisterSlash(sub, fn, help)` — modules register subcommands; `fn(rest)` receives the remaining text.
 - Init handles: empty → `ns.MainFrame:Toggle()`; `help` → list registered subcommands; unknown → help.
 - Subcommands registered by their owner modules: `council` (MainFrame → open "council"), `log` (MainFrame → "loot"), `settings`/`config` (MainFrame → "settings"), `sync` (Sync), `demo` (Demo), `test` (Loot: simulate drop), `drop` (Loot: manual drop from shift-clicked links, council/lead only), `version` (Sync: print peer versions), `debug` (Init: toggle `ns.db.settings.debug`).
@@ -234,7 +234,7 @@ Group:
 
 ## 6. Core/ItemDB.lua — `ns.ItemDB` (module)
 
-Data source `ns.Data` (see `CDLoot/Data/Items.lua` header): `Raids` (array of raids → `bosses` → `items`), `Tokens[tokenID] = {pieceIDs}` (tier tokens and gear-quest items like Magtheridon's Head / Verdant Sphere), `TokenClasses[tokenID] = {classFiles}`, `Upgrades[baseID] = upgradedID` (Sunmote), `TokenArenaExchanges[tokenID] = {patch=, items={...}}`, `TierPieceClass[pieceID] = classFile`.
+Data source `ns.Data` (see `DisasterZone/Data/Items.lua` header): `Raids` (array of raids → `bosses` → `items`), `Tokens[tokenID] = {pieceIDs}` (tier tokens and gear-quest items like Magtheridon's Head / Verdant Sphere), `TokenClasses[tokenID] = {classFiles}`, `Upgrades[baseID] = upgradedID` (Sunmote), `TokenArenaExchanges[tokenID] = {patch=, items={...}}`, `TierPieceClass[pieceID] = classFile`.
 
 OnInit builds (once):
 - `raidByKey[raidKey]`, `bossRef` objects: for every boss `{ raid=raidTbl, boss=bossTbl, key = raid.key .. ":" .. boss.key }`; `bossByKey[rbKey]`.
@@ -268,7 +268,7 @@ API:
 
 ## 7. Core/DB.lua — `ns.DB` (module) — SavedVariables
 
-`OnInit`: `CDLootDB = CDLootDB or {}`; apply defaults (deep-fill missing keys, never overwrite existing); run migrations by `schema`; set `ns.db = CDLootDB`.
+`OnInit`: `DisasterZoneDB = DisasterZoneDB or {}`; apply defaults (deep-fill missing keys, never overwrite existing); run migrations by `schema`; set `ns.db = DisasterZoneDB`.
 
 ```lua
 DEFAULTS = {
@@ -421,7 +421,7 @@ API:
 - `Sync:GetOnlineCouncilPeers()` → array of keys: `sessionSeen` ∩ `ns.Guild:IsCouncil(key)` ∩ `ns.Guild:IsOnline(key)`, excluding me.
 - `Sync:GetPeer(key)` → `{v=, c=, lastSeen=}`.
 - `Sync:GetStatusText()` → short status for UI, one of: `"Not in a guild"`, `"Waiting for guild roster…"`, `"Not shared yet — no council member online"`, `"Changes pending…"` (BiS dirty), `"Shared with council ✓ <ago>"` (when at least one council peer has acknowledged our current rev via S/M or we pushed L to one this session; track `lastSharedTs`).
-- `Sync:SendHello()` — rate-limited (30s) — builds H. Called automatically once per session: after `ns.Guild:IsReady()` (fires CONFIG_UPDATED / ROSTER_UPDATED) plus `Util.RandomDelay(8, 20)`. `/cdl sync` calls it manually (and prints "Sync requested").
+- `Sync:SendHello()` — rate-limited (30s) — builds H. Called automatically once per session: after `ns.Guild:IsReady()` (fires CONFIG_UPDATED / ROSTER_UPDATED) plus `Util.RandomDelay(8, 20)`. `/dz sync` calls it manually (and prints "Sync requested").
 - Handlers (see §10.2 gates):
   - **H** from X: update peer (`v`, `c`, lastSeen), `sessionSeen[X]=true`, fire PEERS_UPDATED.
     - If I am council: `Util.RandomDelay(0.5, 4)` → send `S{r = cachedRev(X) or 0}` to X.
@@ -436,9 +436,9 @@ API:
 - `Sync:PushListTo(X)` → if `pushedRev[X] == record.rev` skip; send `L{r,ts,h,d}` (data) to X; set `pushedRev[X]`, `lastSharedTs = GetServerTime()`; fire SYNC_STATUS.
 - On `MYLIST_COMMITTED`: push to every `GetOnlineCouncilPeers()` (stagger 0.3s apart).
 - `Sync:PullFrom(X, manifest)` → names where `manifest[k] > (Store rev or 0)`, `k ~= me`, `ns.Guild:IsInGuild(k)`, and not already `requested[k] >= manifest[k]` → send `W` batches (≤40 names) to X, set `requested[k]=manifest[k]`; clear stale `requested` after 60s.
-- `Sync:OnCouncilHasNewer(X, rev)`: `BiS:NoteSeenRev(rev)`. If own `record.rev == 0` (fresh install / lost data) → `restorePending = true`, send `W{n={me}}` to X automatically. Else (once per session) show StaticPopup `CDLOOT_RESTORE`: "A council member (%s) has a newer copy of your BiS list (rev %d, yours %d). Restore it?" Accept → restorePending, send W to X. Cancel → force a new commit that supersedes it: `BiS:Commit()` (rev becomes highestSeenRev+1; if data hash unchanged, bump anyway via `BiS:ForceBump()` which increments rev/ts and fires MYLIST_COMMITTED).
-- `Sync:NotePeerProtocol(key, major)` — remember incompatible peers; print once "X uses an incompatible CDLoot version".
-- `Sync:GetVersions()` → array `{key, v, lastSeen, online}` (for `/cdl version` and the council UI).
+- `Sync:OnCouncilHasNewer(X, rev)`: `BiS:NoteSeenRev(rev)`. If own `record.rev == 0` (fresh install / lost data) → `restorePending = true`, send `W{n={me}}` to X automatically. Else (once per session) show StaticPopup `DISASTERZONE_RESTORE`: "A council member (%s) has a newer copy of your BiS list (rev %d, yours %d). Restore it?" Accept → restorePending, send W to X. Cancel → force a new commit that supersedes it: `BiS:Commit()` (rev becomes highestSeenRev+1; if data hash unchanged, bump anyway via `BiS:ForceBump()` which increments rev/ts and fires MYLIST_COMMITTED).
+- `Sync:NotePeerProtocol(key, major)` — remember incompatible peers; print once "X uses an incompatible DisasterZone version".
+- `Sync:GetVersions()` → array `{key, v, lastSeen, online}` (for `/dz version` and the council UI).
 - Non-guild: if `not IsInGuild()` the addon still works locally (My BiS, personal alerts, drop detection); Sync stays idle.
 
 ### 10.4 Core/Loot.lua — `ns.Loot` (module)
@@ -460,8 +460,8 @@ drop = { s = sourceKey, b = bossRefKey or "", i = {itemID, ...}, ts = GetServerT
   - if I am council and `Util.InRaidInstance()` and the item qualifies (quality via `ItemDB:GetQuality` or link color ≥ threshold, and (`#ItemDB:GetSources(id) > 0` or `ItemDB:IsToken(id)`)) → `ns.Ledger:RecordAuto(id, winnerKey, Loot:GetRecentBossKey())`.
 - `START_LOOT_ROLL(rollID)` → `link = GetLootRollItemLink(rollID)` → `ns:Fire("DROP", {s="ROLL-"..rollID, b=Loot:GetRecentBossKey() or "", i={id}, ts=..., roll=true})` locally (not broadcast, not stored in history) so the personal toast shows.
 - `ENCOUNTER_END(encounterID, name, difficultyID, groupSize, success)` → if success == 1 remember `{ref=ItemDB:GetBossByEncounter(encounterID), time=GetTime()}`. `Loot:GetRecentBossKey()` → key if within 10 minutes.
-- `Loot:SimulateDrop()` (`/cdl test`): pick a boss from the current view phase that has items wanted by someone in `Store` (fallback: random boss of that phase); choose up to 4 items (wanted ones first); `Loot:HandleDrop({s="TEST-"..GetTime(), b=ref.key, i=ids, ts=GetServerTime(), test=true}, me)`; print what was simulated.
-- `/cdl drop <links>`: requires council or leader/assist; builds a drop from `Util.ItemIDsFromText(rest)` with `s="MANUAL-"..GetServerTime()`, `b = GetRecentBossKey() or ""`; handles locally and broadcasts `D` to RAID if in raid.
+- `Loot:SimulateDrop()` (`/dz test`): pick a boss from the current view phase that has items wanted by someone in `Store` (fallback: random boss of that phase); choose up to 4 items (wanted ones first); `Loot:HandleDrop({s="TEST-"..GetTime(), b=ref.key, i=ids, ts=GetServerTime(), test=true}, me)`; print what was simulated.
+- `/dz drop <links>`: requires council or leader/assist; builds a drop from `Util.ItemIDsFromText(rest)` with `s="MANUAL-"..GetServerTime()`, `b = GetRecentBossKey() or ""`; handles locally and broadcasts `D` to RAID if in raid.
 
 ## 11. Core/Ledger.lua — `ns.Ledger` (module): award log (council only)
 
@@ -487,7 +487,7 @@ Entry (stored in `ns.db.ledger[id]`, sent as-is on the wire):
 Visual style: native WoW (research/ux.md §4.5): `BasicFrameTemplateWithInset` windows, GameFontNormal (gold) headings, GameFontHighlight/HighlightSmall body, GameFontDisableSmall secondary; saturated colour only for data (quality, class, BiS gold, alt blue, obtained green); every colour signal also has a word or glyph.
 
 API (all return frames; caller positions them):
-- `UI:CreateWindow(name, title, width, height)` → frame `name` (global name, starts with "CDLoot"), `BasicFrameTemplateWithInset`, `SetMovable(true)`, `EnableMouse(true)`, `RegisterForDrag("LeftButton")` + StartMoving/StopMovingOrSizing, `SetClampedToScreen(true)`, `SetFrameStrata("HIGH")`, `tinsert(UISpecialFrames, name)`, title via `frame.TitleText` (fallback: create fontstring), position saved to/restored from `ns.db.settings.windows[name]` (default CENTER). Returns frame with `frame.content` = a frame filling the inset (use `frame.Inset` if present, else inset by 6/26/6/6).
+- `UI:CreateWindow(name, title, width, height)` → frame `name` (global name, starts with "DisasterZone"), `BasicFrameTemplateWithInset`, `SetMovable(true)`, `EnableMouse(true)`, `RegisterForDrag("LeftButton")` + StartMoving/StopMovingOrSizing, `SetClampedToScreen(true)`, `SetFrameStrata("HIGH")`, `tinsert(UISpecialFrames, name)`, title via `frame.TitleText` (fallback: create fontstring), position saved to/restored from `ns.db.settings.windows[name]` (default CENTER). Returns frame with `frame.content` = a frame filling the inset (use `frame.Inset` if present, else inset by 6/26/6/6).
 - `UI:CreateItemButton(parent, size)` → Button with fields/methods:
   - `.icon` (texture), `.border` (quality border texture, `ns.TEX.border`, tinted), `.overlay` (obtained check, 40% size, bottom-right), `.badge` (FontString top-right, GameFontNormalSmall), `.itemID`.
   - `btn:SetItem(itemID, emptyTexture)` → nil itemID shows `emptyTexture` (or slotBg) desaturated at 0.6 alpha, hides border; else icon = `ItemDB:GetIcon`, border colour from quality (when known; re-apply on ITEMINFO_READY — the button should refresh itself if its itemID is still pending: keep a weak registry of buttons and update on ITEMINFO_READY).
@@ -513,12 +513,12 @@ API (all return frames; caller positions them):
 - `UI:AnnounceLine(text)` → sends to `ns.db.settings.announceChannel` via `C_ChatInfo.SendChatMessage or SendChatMessage`; falls back to RAID if RAID_WARNING not permitted (not leader/assist) and to PARTY / local print when not in raid. Chunk to ≤255 bytes.
 
 ### 12.2 UI/MainFrame.lua — `ns.MainFrame` (module)
-- Window `CDLootMainFrame`, 800 × 580, title `"CDLoot"` + guild name when known. Right side of the title bar: a small status FontString showing `ns.Sync:GetStatusText()` (refresh on SYNC_STATUS/PEERS_UPDATED).
+- Window `DisasterZoneMainFrame`, 800 × 580, title `"DisasterZone"` + guild name when known. Right side of the title bar: a small status FontString showing `ns.Sync:GetStatusText()` (refresh on SYNC_STATUS/PEERS_UPDATED).
 - Tab registry: `MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn)` — `createFn(parent)` returns a panel frame (created lazily on first selection; parent = `frame.content`; panel fills parent). Panels may implement `panel:OnPanelShown()`.
 - Tabs (registered by their modules in OnInit or at file load — MainFrame must accept registrations before its own frame exists): `"mybis"` "My BiS" (order 1, always), `"council"` "Council" (2, `ns.Guild:AmICouncil()`), `"loot"` "Loot Log" (3, council), `"settings"` "Settings" (4, always).
 - `MainFrame:Open(key)` (shows window, selects tab; if tab unavailable → "mybis"), `MainFrame:Toggle()`, `MainFrame:IsShown()`, `MainFrame:GetFrame()`, `MainFrame:RefreshTabs()` (on CONFIG_UPDATED / DEMO_TOGGLED).
 - On hide: `ns.BiS:Commit()` (flush pending edits) and hide the Picker.
-- Launcher: LibDataBroker `NewDataObject("CDLoot", {type="launcher", icon="Interface\\Icons\\INV_Misc_Bag_10_Blue", OnClick=..., OnTooltipShow=...})`; `LibStub("LibDBIcon-1.0"):Register("CDLoot", obj, ns.db.settings.minimap)`. Left click toggle; right click → Open("settings"); tooltip: "CDLoot", council status, sync status, "Left-click: open · Right-click: settings".
+- Launcher: LibDataBroker `NewDataObject("DisasterZone", {type="launcher", icon="Interface\\Icons\\INV_Misc_Bag_10_Blue", OnClick=..., OnTooltipShow=...})`; `LibStub("LibDBIcon-1.0"):Register("DisasterZone", obj, ns.db.settings.minimap)`. Left click toggle; right click → Open("settings"); tooltip: "DisasterZone", council status, sync status, "Left-click: open · Right-click: settings".
 - Slash: `council`, `log`, `settings`/`config`.
 
 ### 12.3 UI/PaperDoll.lua — `ns.PaperDoll`
@@ -532,7 +532,7 @@ API (all return frames; caller positions them):
 
 ### 12.4 UI/MyBiS.lua — `ns.MyBiS`
 Panel for tab "mybis".
-- Top bar (y = -8): phase buttons **P1…P5** (small tabs/buttons 44×22; selected highlighted; the guild's current phase gets a small gold "•" marker and tooltip "Guild's current phase"); **Spec** dropdown (ns.SPECS for my class; "Auto-detect" option calls DetectSpec); **Copy from ▾** (menu: "Copy P<n> (fill empty)", "Copy P<n> (overwrite)" for other phases with items); **Suggest ▾** only when `ns.Loon:IsAvailable()` ("Fill empty slots from LoonBestInSlot (<spec> P<phase>)", "Replace all (confirm)"); **Clear phase** (confirm StaticPopup `CDLOOT_CLEAR_PHASE`).
+- Top bar (y = -8): phase buttons **P1…P5** (small tabs/buttons 44×22; selected highlighted; the guild's current phase gets a small gold "•" marker and tooltip "Guild's current phase"); **Spec** dropdown (ns.SPECS for my class; "Auto-detect" option calls DetectSpec); **Copy from ▾** (menu: "Copy P<n> (fill empty)", "Copy P<n> (overwrite)" for other phases with items); **Suggest ▾** only when `ns.Loon:IsAvailable()` ("Fill empty slots from LoonBestInSlot (<spec> P<phase>)", "Replace all (confirm)"); **Clear phase** (confirm StaticPopup `DISASTERZONE_CLEAR_PHASE`).
 - Default selected phase: the guild's current phase (`ns.Guild:GetGuildPhase()`), remembered for the session.
 - Body: `ns.PaperDoll:Create(panel, {readOnly=false, ...})` filling the rest.
 - Center card (in `doll.center`): **Phase progress** "P2 · 9 / 17 obtained" + a thin progress bar; **Still needed from** — up to 6 lines "Karazhan — 3 (Prince 2, Curator 1)" grouped by raid (only main picks not obtained, via `ItemDB:GetSources` first source), then "Other sources — N" for items without a raid source; **Sharing** line: `ns.Sync:GetStatusText()`; a hint when the list is empty: "Click a slot to choose your best-in-slot item. Drag items from your bags onto a slot to use crafted / badge / dungeon items."
@@ -540,7 +540,7 @@ Panel for tab "mybis".
 - Refresh on MYLIST_CHANGED, OWNED_UPDATED, ITEMINFO_READY, CONFIG_UPDATED, SYNC_STATUS (status line only).
 
 ### 12.5 UI/Picker.lua — `ns.Picker`
-Flyout window `CDLootPicker` (use `UI:CreateWindow`, 360 × 560) anchored to the right of the main window (`TOPLEFT` to main frame `TOPRIGHT` +2,0); not saved-position.
+Flyout window `DisasterZonePicker` (use `UI:CreateWindow`, 360 × 560) anchored to the right of the main window (`TOPLEFT` to main frame `TOPRIGHT` +2,0); not saved-position.
 - `Picker:Open(phase, sid, which, anchor)`, `Picker:Close()`, `Picker:IsOpen()`.
 - Header: "Choose <Slot label> (<Main|Alt>) · P<phase>"; current selection shown as an item button with a **Clear** button.
 - Controls: search box (`UI:CreateSearchBox`); raid scope dropdown: "Raids up to P<phase>" (default) / "Only P<phase> raids" / "All raids"; checkboxes "Usable by my class" (default on) and "My armor type only" (default on; only shown for armor slots 1,3,5,6,7,8,9,10).
@@ -564,35 +564,35 @@ Panel for tab "loot" (council only).
 - Toolbar: search box (player or item name), checkbox "Show voided", **Add award…** button.
 - List rows 26px: date/time (`date("%m/%d %H:%M", ts)`) · 20px item button · item name · winner (class-coloured; class from roster or record) · boss name (`ItemDB:GetBossRef(b)`) · "auto"/"manual" + recorder short name (grey). Voided rows grey with strike-like "(void)" suffix.
 - Right-click row → menu: "Void entry" / "Restore entry", "Link item in chat", "Show member" (opens Council member view).
-- **Add award…** → small dialog frame (`UI:CreateWindow("CDLootAwardDialog", "Record award", 320, 200)`): item field (EditBox accepting shift-click via the same `ChatFrameUtil.InsertLink` hook pattern or item ID), winner dropdown (raid members first, then guild online, then all guild), note field, **Save** → `ns.Ledger:Award(...)`.
+- **Add award…** → small dialog frame (`UI:CreateWindow("DisasterZoneAwardDialog", "Record award", 320, 200)`): item field (EditBox accepting shift-click via the same `ChatFrameUtil.InsertLink` hook pattern or item ID), winner dropdown (raid members first, then guild online, then all guild), note field, **Save** → `ns.Ledger:Award(...)`.
 - Refresh on LEDGER_UPDATED, ITEMINFO_READY.
 
 ### 12.8 UI/DropPanel.lua — `ns.DropPanel`
 Listens to `DROP`.
-- **Council panel** (if `ns.Guild:AmICouncil()` and `alerts.councilPanel`, and the drop isn't a `roll` drop): window `CDLootDropPanel` (340 wide, height fits content, max 520, scrolls). Header: boss name + raid (`ItemDB:GetBossRef(drop.b)`; "Unknown source" otherwise) + time; ◀ ▶ pager through `ns.Loot:GetHistory()`.
+- **Council panel** (if `ns.Guild:AmICouncil()` and `alerts.councilPanel`, and the drop isn't a `roll` drop): window `DisasterZoneDropPanel` (340 wide, height fits content, max 520, scrolls). Header: boss name + raid (`ItemDB:GetBossRef(drop.b)`; "Unknown source" otherwise) + time; ◀ ▶ pager through `ns.Loot:GetHistory()`.
   - Per item block: 32px item button; name; subtitle (for tokens "Token → <slot> (<classes>)" via `ns.Data.TokenClasses`); candidate rows (18px) from `ns.Store:GetWanters(itemID, {includeObtained=false})`: presence dot, 12px class icon, class-coloured name, spec, badge `[BiS]` (gold) or `[Alt]` (blue) + `" P3"` if `phase ~= viewPhase`, `"won N"` if wonTonight > 0, 14px equipped-item icon (tooltip "Currently wearing"), "not in raid" grey for `not inRaid`. Max 8 rows then "+N more" (tooltip lists the rest). Items nobody wants: single dim line "Nobody has this on their BiS list".
-  - Per item buttons: **Announce** (one line to raid via `UI:AnnounceLine`: `"CDLoot: [item] — BiS: A, B · Alt: C"`, rate-limited 2s per item), **Award ▾** (context menu of the candidates + "Someone else…" → the LootLog award dialog prefilled) → `ns.Ledger:Award(itemID, key, drop.b)`; awarded items show "Awarded to X" in green.
+  - Per item buttons: **Announce** (one line to raid via `UI:AnnounceLine`: `"DisasterZone: [item] — BiS: A, B · Alt: C"`, rate-limited 2s per item), **Award ▾** (context menu of the candidates + "Someone else…" → the LootLog award dialog prefilled) → `ns.Ledger:Award(itemID, key, drop.b)`; awarded items show "Awarded to X" in green.
   - Footer: **Announce all**, **Close**.
   - Placement: `dropPanelMode == "auto"` and `LootFrame:IsShown()` → anchor TOPLEFT to `LootFrame` TOPRIGHT (+4,0); else floating (saved position). Sound: `PlaySound(SOUNDKIT.RAID_WARNING)` if `alerts.sound` (guard SOUNDKIT key).
-- **Personal toast** (everyone, if `alerts.personalToast`): if `ns.BiS:MatchItem(id)` returns matches for any dropped item, show `CDLootToast` (300×56, top-centre y=-160, BackdropTemplate dark with gold 1px border): icon, "★ On your BiS list!" (gold), item name + "— <Slot> · P<phase> (main|alt)"; fades out after 8s unless hovered; click → link item into chat. Multiple matches → queue/stack (show next after dismiss). Plus chat line if `alerts.chat`. Sound if `alerts.sound` and not already played for the council panel.
+- **Personal toast** (everyone, if `alerts.personalToast`): if `ns.BiS:MatchItem(id)` returns matches for any dropped item, show `DisasterZoneToast` (300×56, top-centre y=-160, BackdropTemplate dark with gold 1px border): icon, "★ On your BiS list!" (gold), item name + "— <Slot> · P<phase> (main|alt)"; fades out after 8s unless hovered; click → link item into chat. Multiple matches → queue/stack (show next after dismiss). Plus chat line if `alerts.chat`. Sound if `alerts.sound` and not already played for the council panel.
 - **Loot frame decoration** (if `alerts.lootBadges`): `hooksecurefunc("LootFrame_UpdateButton", function(index) ... end)` when the global exists; for `_G["LootButton"..index]` with `.slot`: get itemID from `GetLootSlotLink(button.slot)`; council → badge FontString (created once per button, right-aligned over the button) `"BiS ×n"` (gold) where n = in-raid, not-obtained main wanters (`Store:CountWanters(id, {raidOnly=true})`); non-council → `"★ Yours"` if `BiS:MatchItem` has an unobtained match; glow the button via `UI:Glow` when it's the player's own BiS and `alerts.glow`. Clear badges/glows on `LOOT_CLOSED` and when a button hides.
-- Also expose `DropPanel:ShowDrop(drop)` and `DropPanel:ShowHistory()` (slash `/cdl test` path uses DROP → this).
+- Also expose `DropPanel:ShowDrop(drop)` and `DropPanel:ShowHistory()` (slash `/dz test` path uses DROP → this).
 
 ### 12.9 UI/Tooltip.lua — `ns.Tooltip`
 - Hook `OnTooltipSetItem` via `HookScript` on `GameTooltip`, `ItemRefTooltip`, `ShoppingTooltip1`, `ShoppingTooltip2`, `ItemRefShoppingTooltip1`, `ItemRefShoppingTooltip2` (guard each exists). `local _, link = tooltip:GetItem()`.
-- Dedupe: skip if the tooltip already contains a line starting with the CDLoot marker for this item (scan `_G[tt:GetName().."TextLeft"..i]`), or track `tt.__cdlItem`/reset on `OnTooltipCleared` (HookScript).
+- Dedupe: skip if the tooltip already contains a line starting with the DisasterZone marker for this item (scan `_G[tt:GetName().."TextLeft"..i]`), or track `tt.__cdlItem`/reset on `OnTooltipCleared` (HookScript).
 - Lines (if `tooltip.enabled`):
-  - Own: from `ns.BiS:MatchItem(id)` → first match: `"|cffff8000CDLoot|r ★ Your P2 BiS (main) — Head"` gold, or `"Your P3 alt — Head"` blue; `" ✓ obtained"` green suffix when obtained; tokens: `"via token"`.
-  - Council (if `AmICouncil()` and `tooltip.council`): `"CDLoot: BiS for N (M in raid)"` then up to `maxNames` lines via `AddDoubleLine`: left = class-coloured name + `" (alt)"`/`" P3"`, right = `"in raid"`/`"obtained"`/`""` grey. `"+K more"` if truncated. Hold Shift → show all.
+  - Own: from `ns.BiS:MatchItem(id)` → first match: `"|cffff8000DisasterZone|r ★ Your P2 BiS (main) — Head"` gold, or `"Your P3 alt — Head"` blue; `" ✓ obtained"` green suffix when obtained; tokens: `"via token"`.
+  - Council (if `AmICouncil()` and `tooltip.council`): `"DisasterZone: BiS for N (M in raid)"` then up to `maxNames` lines via `AddDoubleLine`: left = class-coloured name + `" (alt)"`/`" P3"`, right = `"in raid"`/`"obtained"`/`""` grey. `"+K more"` if truncated. Hold Shift → show all.
 - Cache per itemID for 2s to keep hovering cheap (invalidate on LIST_UPDATED/MYLIST_CHANGED/OWNED_UPDATED/LEDGER_UPDATED).
 
 ### 12.10 UI/Settings.lua — `ns.SettingsUI`
-Panel for tab "settings" + a Blizzard options entry: `Settings.RegisterCanvasLayoutCategory(canvas, "CDLoot")` + `Settings.RegisterAddOnCategory(cat)` (guard `Settings`), where the canvas has a short description and a button "Open CDLoot settings" → `ns.MainFrame:Open("settings")`.
+Panel for tab "settings" + a Blizzard options entry: `Settings.RegisterCanvasLayoutCategory(canvas, "DisasterZone")` + `Settings.RegisterAddOnCategory(cat)` (guard `Settings`), where the canvas has a short description and a button "Open DisasterZone settings" → `ns.MainFrame:Open("settings")`.
 - Sections:
   1. **Alerts**: checkboxes for each `alerts.*` key; "Drop panel position: Attach to loot window when open / Always floating" dropdown (`dropPanelMode`); "Minimum quality: Epic / Rare" (`qualityThreshold`); announce channel dropdown (Raid / Raid Warning).
   2. **Tooltips**: enabled, council lines, max names (dropdown 3/5/8/12).
-  3. **Minimap button**: show/hide (`LibDBIcon:Show/Hide("CDLoot")`, stores `minimap.hide`).
-  4. **Loot Council (guild settings)**: read-only summary: "Council: ranks ≤ <rank name> + <names> − <names> · Current phase P2" + resolved council member list (short names, class coloured; online dot). If `ns.Guild:CanEditConfig()`: editor — rank dropdown (ranks from `GuildControlGetNumRanks`/`GuildControlGetRankName(i+1)` for index i), "Add name" edit box + button, list of added names with remove buttons, "Exclude name" similar, current-phase dropdown, **Save to Guild Info** → confirm popup `CDLOOT_SAVE_CONFIG` showing the tag → `ns.Guild:WriteConfig(cfg)`. Otherwise: explanatory text "Your Guild Master or an officer can set this up from their CDLoot settings (it is stored as a small CDL{...} tag in the Guild Information text)."
+  3. **Minimap button**: show/hide (`LibDBIcon:Show/Hide("DisasterZone")`, stores `minimap.hide`).
+  4. **Loot Council (guild settings)**: read-only summary: "Council: ranks ≤ <rank name> + <names> − <names> · Current phase P2" + resolved council member list (short names, class coloured; online dot). If `ns.Guild:CanEditConfig()`: editor — rank dropdown (ranks from `GuildControlGetNumRanks`/`GuildControlGetRankName(i+1)` for index i), "Add name" edit box + button, list of added names with remove buttons, "Exclude name" similar, current-phase dropdown, **Save to Guild Info** → confirm popup `DISASTERZONE_SAVE_CONFIG` showing the tag → `ns.Guild:WriteConfig(cfg)`. Otherwise: explanatory text "Your Guild Master or an officer can set this up from their DisasterZone settings (it is stored as a small CDL{...} tag in the Guild Information text)."
   5. **View phase override**: dropdown "Follow guild (P2)" / P1..P5 → `settings.viewPhase`.
   6. **Demo mode**: checkbox "Demo data (fake guild members & raid) — try the council views solo" → `ns.Demo:SetEnabled`. Button "Simulate a boss drop" → `ns.Loot:SimulateDrop()`.
   7. **About**: version, protocol, "Peers seen: N · council online: M".
@@ -619,7 +619,7 @@ Panel for tab "settings" + a Blizzard options entry: `Settings.RegisterCanvasLay
   - `Guild:WriteConfig(cfg)` → text = `GetGuildInfoText() or ""`; replace existing `CDL{...}` or append on a new line; refuse (print) if resulting length > 500; `SetGuildInfoText(text)`; request roster refresh; return true/false.
 
 ## 14. Core/Demo.lua — `ns.Demo` (module)
-- `Demo:IsEnabled()`, `Demo:SetEnabled(bool)` (in-memory only, never saved; fires `DEMO_TOGGLED(enabled)` then `LISTS_RESET`), `/cdl demo` toggles and prints.
+- `Demo:IsEnabled()`, `Demo:SetEnabled(bool)` (in-memory only, never saved; fires `DEMO_TOGGLED(enabled)` then `LISTS_RESET`), `/dz demo` toggles and prints.
 - On enable: generate ~16 fake members (2 per class-ish; names like "Aldrin", "Brakka", ... with realm = own realm; classes/specs varied), each with lists for phases 1..3 (and 4..5 partially): for each sid pick a random candidate from `ns.ItemDB:GetCandidates(sid, {maxPhase=p, class=cl, usableOnly=true, primaryArmorOnly=true})` (main) and sometimes an alt; ~30% of picks in `ob`; `eq` = random earlier-phase items; `ts` random within last 10 days. Use a fixed-seed local PRNG (simple LCG) so the demo is stable across toggles.
 - `Demo:GetRecords()` → `{[key]=record}`; `Demo:GetRoster()` → fake roster entries (Guild uses these for IsInGuild/GetClass/IsOnline/GetRankName when demo enabled); `Demo:IsInDemoRaid(key)` → ~10 of the fake members + me are "in raid".
 - Store/Guild/Util consult Demo when enabled (see their sections). Ledger is NOT faked (real ledger stays), but the award dialog works with demo names.
@@ -632,7 +632,7 @@ Panel for tab "settings" + a Blizzard options entry: `Settings.RegisterCanvasLay
 
 ## 16. Test hooks for the harness
 The harness (SCRATCH/tools) runs the addon in a mocked client. To make that easy:
-- Init.lua sets the global `CDLoot = ns` (harness may also expose `__NS`).
+- Init.lua sets the global `DisasterZone = ns` (harness may also expose `__NS`).
 - Keep side effects out of file scope except table/function definitions, `ns:NewModule`, `ns:RegisterEvent`, `ns:On`, `ns:RegisterSlash`, `MainFrame:RegisterTab`. Create frames lazily (first show), except the event frame, AceComm registration and tooltip hooks (OnLogin).
 
 ## 17. Checking your work (no WoW client available)

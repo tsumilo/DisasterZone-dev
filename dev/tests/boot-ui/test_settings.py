@@ -17,7 +17,7 @@ CHECKS = [
     ("BiS badges on the loot window", "alerts.lootBadges", False),
     ("Announce rolls and winners in raid chat", "roll.announce", False),
     ("Show the Roll / Pass popup", "roll.popup", False),
-    ("Show CDLoot lines on item tooltips", "tooltip.enabled", False),
+    ("Show DisasterZone lines on item tooltips", "tooltip.enabled", False),
     ("Council: list who wants the item", "tooltip.council", False),
     ("Debug messages in chat", "debug", False),
 ]
@@ -56,7 +56,7 @@ end
 
 
 def open_settings(c):
-    c.slash("/cdl settings")
+    c.slash("/dz settings")
     c.world.tick(0.5)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "settings"
 
@@ -100,17 +100,17 @@ def every_checkbox_writes_its_setting_and_follows_changes():
         assert setting(c, path) == before, (label, path)
     # external change (slash command) is reflected by the checkbox after the debounced refresh
     cb = checkbox(c, "Debug messages in chat")
-    c.slash("/cdl debug")
+    c.slash("/dz debug")
     w.tick(0.3)
     assert setting(c, "debug") is True and checked(c, cb) is True
-    c.slash("/cdl debug")
+    c.slash("/dz debug")
     w.tick(0.3)
     assert checked(c, cb) is False
     # persisted across relog
     c.click(checkbox(c, "Play a sound with drop alerts"))
     c.relog()
     w.tick(2)
-    assert c.eval("return CDLootDB.settings.alerts.sound") is False
+    assert c.eval("return DisasterZoneDB.settings.alerts.sound") is False
     no_errors(w)
 
 
@@ -150,18 +150,18 @@ def every_dropdown_writes_its_setting():
 @case
 def minimap_toggle_hides_and_shows_the_button():
     w, c = settings_client(guild_rank=3)
-    btn = "LibDBIcon10_CDLoot"
+    btn = "LibDBIcon10_DisasterZone"
     assert c.frame(btn) is not None, "LibDBIcon button not created"
-    assert c.eval("return LibDBIcon10_CDLoot:IsShown()") is True
+    assert c.eval("return LibDBIcon10_DisasterZone:IsShown()") is True
     cb = checkbox(c, "Show the minimap button")
     assert checked(c, cb) is True
     c.click(cb)
     w.tick(0.2)
-    assert c.eval("return CDLootDB.settings.minimap.hide") is True
-    assert c.eval("return LibDBIcon10_CDLoot:IsShown()") is False
+    assert c.eval("return DisasterZoneDB.settings.minimap.hide") is True
+    assert c.eval("return LibDBIcon10_DisasterZone:IsShown()") is False
     c.relog()
     w.tick(2)
-    assert c.eval("return LibDBIcon10_CDLoot:IsShown()") is False, "hidden minimap button came back after relog"
+    assert c.eval("return LibDBIcon10_DisasterZone:IsShown()") is False, "hidden minimap button came back after relog"
     install_helpers(c)
     c.eval(DD_LIST)
     open_settings(c)
@@ -169,11 +169,11 @@ def minimap_toggle_hides_and_shows_the_button():
     assert checked(c, cb) is False
     c.click(cb)
     w.tick(0.2)
-    assert c.eval("return CDLootDB.settings.minimap.hide") is False
-    assert c.eval("return LibDBIcon10_CDLoot:IsShown()") is True
+    assert c.eval("return DisasterZoneDB.settings.minimap.hide") is False
+    assert c.eval("return LibDBIcon10_DisasterZone:IsShown()") is True
     # launcher: left click toggles, right click opens settings, tooltip lines
-    obj = "LibStub('LibDataBroker-1.1'):GetDataObjectByName('CDLoot')"
-    c.slash("/cdl")
+    obj = "LibStub('LibDataBroker-1.1'):GetDataObjectByName('DisasterZone')"
+    c.slash("/dz")
     w.tick(0.1)
     assert c.eval("return ns.MainFrame:IsShown()") is False
     c.eval("%s.OnClick(nil, 'RightButton')" % obj)
@@ -182,7 +182,7 @@ def minimap_toggle_hides_and_shows_the_button():
     assert c.eval("return ns.MainFrame:IsShown()") is False
     c.eval("GameTooltip:SetOwner(UIParent, 'ANCHOR_NONE'); %s.OnTooltipShow(GameTooltip)" % obj)
     lines = [strip_codes(l[0]) for l in tt_lines(c)]
-    assert lines[0] == "CDLoot" and lines[1] == "Raider" and "Right-click: settings" in lines[-2], lines
+    assert lines[0] == "DisasterZone" and lines[1] == "Raider" and "Right-click: settings" in lines[-2], lines
     assert lines[-1] == "Shift-click: boss drops", lines
     no_errors(w)
 
@@ -194,13 +194,13 @@ def demo_simulate_and_demo_roll_buttons():
     c.click(cb)
     w.tick(0.3)
     assert c.eval("return ns.Demo:IsEnabled()") is True
-    status = strip_codes(c.eval("return CDLootMainFrame and T_textregion(CDLootMainFrame, 'Demo mode') and T_textregion(CDLootMainFrame, 'Demo mode'):GetText()") or "")
+    status = strip_codes(c.eval("return DisasterZoneMainFrame and T_textregion(DisasterZoneMainFrame, 'Demo mode') and T_textregion(DisasterZoneMainFrame, 'Demo mode'):GetText()") or "")
     assert status.startswith("Demo mode"), status
     council = strip_codes(c.eval("return T_textregion(T_settings(), 'Loot Council.'):GetText()"))
     assert council == "You are on the Loot Council. (demo mode)", council
     c.click(c.eval("return T_button(T_settings(), 'Simulate a boss drop')"))
     w.tick(0.5)
-    assert c.eval("return CDLootDropPanel and CDLootDropPanel:IsShown()") is True
+    assert c.eval("return DisasterZoneDropPanel and DisasterZoneDropPanel:IsShown()") is True
     c.click(cb)
     w.tick(0.3)
     assert c.eval("return ns.Demo:IsEnabled()") is False
@@ -208,7 +208,7 @@ def demo_simulate_and_demo_roll_buttons():
     w.tick(0.5)
     assert c.eval("return ns.Demo:IsEnabled()") is True
     assert c.eval("return ns.Roll:GetActive() ~= nil") is True
-    assert c.eval("return CDLootRollFrame and CDLootRollFrame:IsShown()") is True
+    assert c.eval("return DisasterZoneRollFrame and DisasterZoneRollFrame:IsShown()") is True
     w.tick(40)
     # about text
     about = strip_codes(c.eval("return ns.SettingsUI.aboutText:GetText()"))
@@ -219,7 +219,7 @@ def demo_simulate_and_demo_roll_buttons():
 
 def gm_world(text="Welcome to Casual Disaster!"):
     """A GM, a raider and an officer (Ann, not picked) online; Bob / Carl / Dora offline. The guild info text is set
-    to prove that CDLoot never reads or writes it (every client spies on the Guild Information API)."""
+    to prove that DisasterZone never reads or writes it (every client spies on the Guild Information API)."""
     w = World()
     w.set_guild_info_text(text)
     w.add_offline_member("Bob", "MAGE", 3)
@@ -250,7 +250,7 @@ def council_state(c):
 
 
 def picker_section(c, kind="guild"):
-    return "CDLootCouncilPanel.councilView.%s" % kind
+    return "DisasterZoneCouncilPanel.councilView.%s" % kind
 
 
 @case
@@ -334,12 +334,12 @@ def non_gm_sees_read_only_council_section():
         assert strip_codes(st[1]) == "Guild council (set by Gm just now · phase P2):", st[1]
         assert st[2] == ["Gm-Thunderstrike", "Rai-Thunderstrike"], st[2]
         assert st[3] == 0, "only the Guild Master / a raid leader gets Edit council..."
-        assert st[4].startswith("The Guild Master picks the guild council in CDLoot."), st[4]
+        assert st[4].startswith("The Guild Master picks the guild council in DisasterZone."), st[4]
     assert strip_codes(council_state(rai)[0]) == "You are on the Loot Council. · guild council list"
     # the old editor, its popup and the tag writer are gone
     assert rai.eval("return ns.SettingsUI.cs.editor") is None
     assert rai.eval("return ns.SettingsUI.ConfirmSave") is None
-    assert rai.eval("return StaticPopupDialogs.CDLOOT_SAVE_CONFIG") is None
+    assert rai.eval("return StaticPopupDialogs.DISASTERZONE_SAVE_CONFIG") is None
     assert rai.eval("return ns.Guild.WriteConfig") is None
     # a non-GM (an officer too) cannot save the guild list
     for c in (rai, ann):
@@ -357,9 +357,9 @@ def blizzard_settings_entry_opens_the_tab():
     w, c = solo("Alice", guild_rank=3, tick=3)
     install_helpers(c)
     assert c.eval("return ns.SettingsUI.category ~= nil") is True
-    canvas = c.frame("CDLootBlizzardOptions")
+    canvas = c.frame("DisasterZoneBlizzardOptions")
     assert canvas is not None
-    btn = c.eval("return T_button(CDLootBlizzardOptions, 'Open CDLoot settings')")
+    btn = c.eval("return T_button(DisasterZoneBlizzardOptions, 'Open DisasterZone settings')")
     c.click(btn)
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "settings"
@@ -369,7 +369,7 @@ def blizzard_settings_entry_opens_the_tab():
 @case
 def settings_request_sync_when_not_in_guild_does_not_claim_success():
     # Settings > About > "Request sync" is shown to guildless players too; SendHello() refuses (not in a guild)
-    # but the button still prints "Sync requested." (/cdl sync says "You are not in a guild").
+    # but the button still prints "Sync requested." (/dz sync says "You are not in a guild").
     w, c = settings_client(name="Solo", guild=None)
     p0 = len(c.chat_frame)
     c.click(c.eval("return T_button(T_settings(), 'Request sync')"))

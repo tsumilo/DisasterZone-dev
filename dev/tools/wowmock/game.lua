@@ -1736,7 +1736,11 @@ C_AddOns = {
   DoesAddOnExist = function(addon) return addon_meta(addon) ~= nil or M.loaded_addons[addon] == true end,
   IsAddOnLoadOnDemand = function() return false end,
   EnableAddOn = function() end,
-  DisableAddOn = function() end,
+  DisableAddOn = function(addon, character)
+    if addon == nil then error("Usage: C_AddOns.DisableAddOn(name [, character])", 2) end
+    M.disabled_addons = M.disabled_addons or {}
+    M.disabled_addons[addon] = true
+  end,
   GetAddOnDependencies = function() return nil end,
 }
 function IsAddOnLoaded(addon) return C_AddOns.IsAddOnLoaded(addon) end

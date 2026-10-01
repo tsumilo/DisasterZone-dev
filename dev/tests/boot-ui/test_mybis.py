@@ -15,7 +15,7 @@ SLOT_LABELS = {1: "Head", 2: "Neck", 3: "Shoulder", 4: "Back", 5: "Chest", 6: "W
 CRAFTED_HELM = 190001   # custom non-raid item defined in the world
 
 PICKER_ROWS = """
-local box = T_box(CDLootPicker)
+local box = T_box(DisasterZonePicker)
 local out = {}
 for i, d in ipairs(T_data(box)) do
   local loc = d.itemID and select(4, C_Item.GetItemInfoInstant(d.itemID)) or ""
@@ -31,7 +31,7 @@ def setup(name="Alice", class_file="PALADIN", phase=1, talents=(41, 20, 0), **kw
     w, c = solo(name, class_file=class_file, guild_rank=3, tick=4, council=[], phase=phase, talents=talents, **kw)
     w.define_item(CRAFTED_HELM, "Crafted Test Helm", 4, "INVTYPE_HEAD", 4, 4, ilvl=115)
     install_helpers(c)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     return w, c
@@ -56,12 +56,12 @@ def item_rows(c):
 def click_row(c, item_id):
     idx = c.eval("""
       local id = ...
-      for i, r in ipairs(T_rows(T_box(CDLootPicker))) do
+      for i, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
         local d = rawget(r, "__cdlData")
         if d and d.type == "item" and d.itemID == id then return i end
       end""", item_id)
     assert idx, "item %s not in the picker list" % item_id
-    row = c.eval("local i = ...; return T_rows(T_box(CDLootPicker))[i]", idx)
+    row = c.eval("local i = ...; return T_rows(T_box(DisasterZonePicker))[i]", idx)
     c.click(row)
     c.world.tick(0.1)
 
@@ -140,7 +140,7 @@ def picker_every_slot_main_and_alt_every_class():
     problems = []
     for c in clients:
         install_helpers(c)
-        c.slash("/cdl bis")
+        c.slash("/dz bis")
         w.tick(0.1)
         klass = c.class_file
         for sid in range(1, 18):
@@ -150,11 +150,11 @@ def picker_every_slot_main_and_alt_every_class():
                 if st != [True, 1, sid, which]:
                     problems.append("%s sid %d %s: picker state %r" % (klass, sid, which, st))
                     continue
-                title = c.eval("return CDLootPicker.titleText:GetText()")
+                title = c.eval("return DisasterZonePicker.titleText:GetText()")
                 want = "Choose %s (%s)  ·  P1" % (SLOT_LABELS[sid], "Alt" if which == "alt" else "Main")
                 if title != want:
                     problems.append("%s sid %d: title %r" % (klass, sid, title))
-                armor_cb = c.eval("return T_checkbox(CDLootPicker, 'My armor type only'):IsShown()")
+                armor_cb = c.eval("return T_checkbox(DisasterZonePicker, 'My armor type only'):IsShown()")
                 if bool(armor_cb) != (sid in ARMOR_SIDS):
                     problems.append("%s sid %d: armor checkbox shown=%r" % (klass, sid, armor_cb))
                 items = item_rows(c)
@@ -184,7 +184,7 @@ def picker_every_slot_main_and_alt_every_class():
         # own tier pieces must appear for the tier slots somewhere up to P5 ("All phases"; Addendum F §35 replaced
         # the old scope dropdown's "All raids" with the phase dropdown's "All phases")
         c.click(tile_btn(c, 1))
-        c.dropdown_menu(c.eval("return T_dropdown(CDLootPicker, '-')"))
+        c.dropdown_menu(c.eval("return T_dropdown(DisasterZonePicker, '-')"))
         c.menu_select("All phases")
         tier_rows = [r for r in item_rows(c) if r[5]]
         if not tier_rows or any(r[5] != klass for r in tier_rows):
@@ -214,7 +214,7 @@ def picker_select_item_updates_tile_and_commits():
     rows = item_rows(c)
     marks = c.eval_py("""
       local o = {}
-      for _, r in ipairs(T_rows(T_box(CDLootPicker))) do
+      for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
         local d = rawget(r, "__cdlData")
         if d.type == "item" and r.mark1:IsShown() then o[#o + 1] = { d.itemID, r.mark1:GetText() } end
       end
@@ -236,7 +236,7 @@ def picker_select_item_updates_tile_and_commits():
     # closing the window commits immediately
     c.click(tile_btn(c, 2))
     click_row(c, item_rows(c)[0][1])
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(0.1)
     assert c.eval("return ns.BiS:GetRecord().rev") == 2
     no_errors(w)
@@ -248,7 +248,7 @@ def picker_search_scope_filters_and_clear():
     c.click(tile_btn(c, 15))
     base = item_rows(c)
     assert base
-    sb = c.eval("return T_template(CDLootPicker, 'SearchBoxTemplate')[1]")
+    sb = c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]")
     # search by item name (case-insensitive) and by numeric item ID
     target = base[3][1]
     tname = c.eval("return ns.ItemDB:GetName(...)", target)
@@ -264,7 +264,7 @@ def picker_search_scope_filters_and_clear():
     w.tick(0.3)
     assert item_rows(c) == []
     # Addendum F §35: the empty text names every source now ("No items match. Try 'All phases', ...")
-    assert c.eval("return T_textregion(CDLootPicker, 'No items match'):IsVisible()") is True
+    assert c.eval("return T_textregion(DisasterZonePicker, 'No items match'):IsVisible()") is True
     # boss search
     c.type_text(sb, "prince")
     w.tick(0.3)
@@ -274,15 +274,15 @@ def picker_search_scope_filters_and_clear():
     assert len(item_rows(c)) == len(base)
     # Addendum F §35: the old scope dropdown (Addendum B §21.3) became a phase dropdown + a Sources checkbox
     # dropdown (default Raids + 5-man dungeons)
-    dd = c.eval("return T_dropdown(CDLootPicker, '-')")
+    dd = c.eval("return T_dropdown(DisasterZonePicker, '-')")
     menu = c.dropdown_menu(dd)
     assert [e[2] for e in menu_texts(menu)] == ["Up to P1", "Only P1", "All phases"], menu_texts(menu)
-    sdd = c.eval("return T_dropdown(CDLootPicker, 'Raids + 5-man')")
+    sdd = c.eval("return T_dropdown(DisasterZonePicker, 'Raids + 5-man')")
     assert sdd, "no Sources dropdown"
     assert [(e[1], e[2]) for e in menu_texts(c.dropdown_menu(sdd))] == [
         ("title", "Show items from"), ("checkbox", "Raids"), ("checkbox", "5-man dungeons"), ("checkbox", "Crafted"),
         ("checkbox", "Reputation"), ("checkbox", "Badge vendors"), ("checkbox", "PvP")]
-    kinds = set(c.eval_py("local o = {} for _, d in ipairs(T_data(T_box(CDLootPicker))) do "
+    kinds = set(c.eval_py("local o = {} for _, d in ipairs(T_data(T_box(DisasterZonePicker))) do "
                           "if d.type == 'item' then o[#o + 1] = d.kind end end return o"))
     assert kinds == {"raid", "dungeon"}, kinds
     c.dropdown_menu(dd)
@@ -293,33 +293,33 @@ def picker_search_scope_filters_and_clear():
     c.menu_select("Only P1")
     phases = c.eval_py("""
       local o = {}
-      for _, d in ipairs(T_data(T_box(CDLootPicker))) do if d.type == 'item' then o[#o + 1] = d.ref.phase end end
+      for _, d in ipairs(T_data(T_box(DisasterZonePicker))) do if d.type == 'item' then o[#o + 1] = d.ref.phase end end
       return o""")
     assert phases and set(phases) == {1}, set(phases)
     # unticking "5-man dungeons" leaves the raid items only (the old "Raids up to P1" list)
     c.dropdown_menu(sdd)
     c.menu_select("5-man dungeons")
-    kinds = set(c.eval_py("local o = {} for _, d in ipairs(T_data(T_box(CDLootPicker))) do "
+    kinds = set(c.eval_py("local o = {} for _, d in ipairs(T_data(T_box(DisasterZonePicker))) do "
                           "if d.type == 'item' then o[#o + 1] = d.kind end end return o"))
     assert kinds == {"raid"}, kinds
     c.eval("ns.Picker:SetSourceEnabled('dungeons', true)")
     # "Usable by my class": off shows more, and unusable ones dimmed
     c.dropdown_menu(dd)
     c.menu_select("Up to P1")
-    c.click(c.eval("return T_checkbox(CDLootPicker, 'Usable by my class')"))
+    c.click(c.eval("return T_checkbox(DisasterZonePicker, 'Usable by my class')"))
     w.tick(0.1)
     assert c.eval("return ns.ItemDB:GetCandidates(15, {maxPhase = 1})") is not None
     unfiltered = item_rows(c)
     assert len(unfiltered) >= len(base)
-    dims = c.eval("local n = 0 for _, r in ipairs(T_rows(T_box(CDLootPicker))) do if r:GetAlpha() < 1 then n = n + 1 end end return n")
+    dims = c.eval("local n = 0 for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do if r:GetAlpha() < 1 then n = n + 1 end end return n")
     assert dims == len(unfiltered) - len(base), (dims, len(unfiltered), len(base))
-    c.click(c.eval("return T_checkbox(CDLootPicker, 'Usable by my class')"))
+    c.click(c.eval("return T_checkbox(DisasterZonePicker, 'Usable by my class')"))
     # the filter state is kept for the next opening (session), the search is reset
     c.eval("ns.Picker:Close()")
     c.click(tile_btn(c, 16))
-    assert c.eval("return T_template(CDLootPicker, 'SearchBoxTemplate')[1]:GetText()") == ""
+    assert c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]:GetText()") == ""
     # Clear button: disabled without a pick, clears the pick with one
-    clear = c.eval("return T_button(CDLootPicker, 'Clear')")
+    clear = c.eval("return T_button(DisasterZonePicker, 'Clear')")
     assert c.eval("local b = ...; return b:IsEnabled()", clear) in (False, 0)
     click_row(c, item_rows(c)[0][1])
     c.click(tile_btn(c, 16))
@@ -424,18 +424,18 @@ def copy_phase_and_clear_phase():
     c.click(c.eval("return T_button(T_mybis(), 'P2')"))
     n0 = len(c.chat_frame)
     c.click(c.eval("return T_button(T_mybis(), 'Clear phase')"))
-    assert "CDLOOT_CLEAR_PHASE" in c.popups()
-    c.cancel_popup("CDLOOT_CLEAR_PHASE")
+    assert "DISASTERZONE_CLEAR_PHASE" in c.popups()
+    c.cancel_popup("DISASTERZONE_CLEAR_PHASE")
     assert c.eval("return #ns.BiS:GetPhaseItems(2)") == 3
     c.click(c.eval("return T_button(T_mybis(), 'Clear phase')"))
-    c.accept_popup("CDLOOT_CLEAR_PHASE")
+    c.accept_popup("DISASTERZONE_CLEAR_PHASE")
     w.tick(0.2)
     assert c.eval("return #ns.BiS:GetPhaseItems(2)") == 0
     assert c.eval("return #ns.BiS:GetPhaseItems(1)") == 3, "clearing P2 touched P1"
     assert progress(c, 2)[0] == 0
     # clearing an empty phase only explains
     c.click(c.eval("return T_button(T_mybis(), 'Clear phase')"))
-    assert "CDLOOT_CLEAR_PHASE" not in c.popups()
+    assert "DISASTERZONE_CLEAR_PHASE" not in c.popups()
     assert any("P2 has no picks to clear" in l for l in printed_since(c, n0))
     # Suggest is hidden without LoonBestInSlot
     assert c.eval("return T_dropdown(T_mybis(), 'Suggest'):IsShown()") is False
@@ -477,7 +477,7 @@ def drag_item_onto_tile():
     # 5) dropping while the picker is open (on the picker window) sets the picker's slot
     c.click(tile_btn(c, 11))
     c.set_cursor_item(ring)
-    c.eval("T_script(CDLootPicker, 'OnReceiveDrag')")
+    c.eval("T_script(DisasterZonePicker, 'OnReceiveDrag')")
     w.tick(0.1)
     assert c.eval("return ns.BiS:GetSlot(1, 11)") == ring
     assert c.eval("return ns.Picker:IsOpen()") is False
@@ -506,7 +506,7 @@ def shift_click_link_into_picker():
     # our own link clicks (shift-click inside the picker list) must not pick
     first = item_rows(c)[0][1]
     c.set_modifiers(shift=True)
-    row = c.eval("return T_rows(T_box(CDLootPicker))[3]")
+    row = c.eval("return T_rows(T_box(DisasterZonePicker))[3]")
     c.click(row)
     c.set_modifiers()
     assert c.eval_py("return {ns.BiS:GetSlot(1, 1)}") == [], "shift-clicking a picker row picked it"
@@ -654,21 +654,21 @@ def picker_closes_with_window_phase_change_and_escape():
     assert c.eval("return ns.Picker:IsOpen()") is False, "picker stayed open for the old phase"
     c.click(tile_btn(c, 3))
     assert c.eval_py("return {ns.Picker:GetState()}") == [2, 3, "main"]
-    assert "P2" in c.eval("return CDLootPicker.titleText:GetText()")
-    c.slash("/cdl settings")
+    assert "P2" in c.eval("return DisasterZonePicker.titleText:GetText()")
+    c.slash("/dz settings")
     w.tick(0.1)
     assert c.eval("return ns.Picker:IsOpen()") is False, "picker stayed open after switching tabs"
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(0.1)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.1)
     c.click(tile_btn(c, 3))
-    c.slash("/cdl")   # close the main window
+    c.slash("/dz")   # close the main window
     w.tick(0.1)
     assert c.eval("return ns.Picker:IsOpen()") is False
     # both windows are closable with Escape (UISpecialFrames)
     specials = c.eval_py("return UISpecialFrames")
-    assert "CDLootMainFrame" in specials and "CDLootPicker" in specials, specials
+    assert "DisasterZoneMainFrame" in specials and "DisasterZonePicker" in specials, specials
     no_errors(w)
 
 
@@ -677,7 +677,7 @@ def uncached_item_names_fill_in_after_load():
     # First login of the week: the client has no item data cached; names arrive via GET_ITEM_INFO_RECEIVED.
     w, c = solo("Alice", guild_rank=3, tick=3, items_uncached=True)
     install_helpers(c)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     head = c.eval("return ns.ItemDB:GetCandidates(1, {maxPhase=1, class='PALADIN', usableOnly=true})[1].itemID")
     c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", head)
@@ -690,7 +690,7 @@ def uncached_item_names_fill_in_after_load():
     c.click(tile_btn(c, 2))
     w.tick(0.05)
     names = lambda: c.eval_py("""local o = {}
-      for _, r in ipairs(T_rows(T_box(CDLootPicker))) do
+      for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
         local d = rawget(r, '__cdlData')
         if d.type == 'item' then o[#o + 1] = r.name:GetText() end
       end
@@ -772,7 +772,7 @@ def suggest_menu_with_loonbestinslot():
       o[6] = { r[1].itemID, 'Head', 'BIS' }     -- a ring listed as head: must be skipped (does not fit)
       return o""")
     c.eval("__LOON_ITEMS = ...", items)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     sug = c.eval("return T_dropdown(T_mybis(), 'Suggest')")
     assert c.eval("local d = ...; return d:IsShown()", sug) is True, "Suggest hidden although LBIS is loaded"
@@ -792,8 +792,8 @@ def suggest_menu_with_loonbestinslot():
     c.eval("ns.BiS:SetSlot(1, 3, 'main', ns.ItemDB:GetCandidates(3, {maxPhase=1, class='PALADIN', usableOnly=true})[1].itemID)")
     c.dropdown_menu(sug)
     c.menu_select("Replace all (confirm)")
-    assert "CDLOOT_REPLACE_TEMPLATE" in c.popups()
-    c.accept_popup("CDLOOT_REPLACE_TEMPLATE")
+    assert "DISASTERZONE_REPLACE_TEMPLATE" in c.popups()
+    c.accept_popup("DISASTERZONE_REPLACE_TEMPLATE")
     w.tick(0.2)
     assert c.eval_py("return {ns.BiS:GetSlot(1, 3)}") == [], "replace-all kept a slot the template does not have"
     # no spec chosen: the menu explains instead of offering actions

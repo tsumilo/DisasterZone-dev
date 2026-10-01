@@ -325,7 +325,7 @@ def g_quick_double_reload_council_awards_still_reach_peer():
 
 @r.case
 def g_alt_in_other_guild_does_not_leak_ledger():
-    """CDLootDB is account-wide. An officer of guild A logs an alt that is council (GM) in guild B: guild A's
+    """DisasterZoneDB is account-wide. An officer of guild A logs an alt that is council (GM) in guild B: guild A's
     award ledger must not be offered to guild B's council through HELLO/MANIFEST digests (and vice versa)."""
     w = new_world()
     MAIN = Client(w, "Mainofficer", class_file="PRIEST", guild_rank=1)
@@ -366,11 +366,11 @@ def g_both_council_record_same_loot_line():
     w.tick(1.0)
     w.broadcast_loot_received(R, ITEM_B, clients=[C2])
     settle(w, 5)
-    # CDLoot 0.5: the auto entries are broadcast after a random delay and a later one never cancels an earlier one,
+    # DisasterZone 0.5: the auto entries are broadcast after a random delay and a later one never cancels an earlier one,
     # so both clients show the same (earliest) entry right away; the raw sets match after the next digest sync.
     v1, v2 = ledger_view(C1, False), ledger_view(C2, False)
     assert v1 == v2, (v1, v2)
-    C2.slash("/cdl sync")
+    C2.slash("/dz sync")
     settle(w, 30)
     assert ledger_ids(C1) == ledger_ids(C2), (ledger_ids(C1), ledger_ids(C2))
     assert len(v1) == 2, "expected one visible award per item, got %s (raw %s)" % (v1, ledger_ids(C1))

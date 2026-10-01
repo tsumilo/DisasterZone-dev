@@ -5,7 +5,7 @@ All 28 findings are handled: 27 fixed and 1 deferred (the JSON has 29 entries be
 | # | Finding (severity) | Status | What changed |
 |---|---|---|---|
 | 1 | Tier token saved as a BiS pick and never counts as obtained (med) | fixed | `SetSlot` and `ApplyTemplate` swap a token for your class's piece when only one fits the slot, otherwise refuse with a message. Token picks already saved by 0.1 count as obtained once you own your class's piece. Core/BiS.lua |
-| 2 | "Request sync" buttons say "Sync requested." when nothing was sent (low) | fixed | New `Sync:RequestSync()` gives the same messages as `/cdl sync`. The council button only disables itself when a HELLO really went out. Core/Sync.lua, UI/Council.lua, UI/Settings.lua |
+| 2 | "Request sync" buttons say "Sync requested." when nothing was sent (low) | fixed | New `Sync:RequestSync()` gives the same messages as `/dz sync`. The council button only disables itself when a HELLO really went out. Core/Sync.lua, UI/Council.lua, UI/Settings.lua |
 | 3 | Items view stays on the old phase's boss (low) | fixed | Changing the phase clears the selected boss. UI/Council.lua |
 | 4 | Fake demo member stays in the Member view after demo off (low) | fixed | Turning demo mode on or off clears the selected member, boss and focus. UI/Council.lua |
 | 5 | Quick double /reload leaves the client with no council peers (med) | fixed | HELLO now carries a per-session number; reply rate limits count per session, plus a 5 s cap per sender. Core/Sync.lua |
@@ -34,7 +34,7 @@ All 28 findings are handled: 27 fixed and 1 deferred (the JSON has 29 entries be
 | 29 | "→" has no glyph in the default font (low) | fixed | The award line uses "->". The font scan showed · × — … are all present; "▾" was only in a comment and is removed. Core/Roll.lua |
 
 - **Also changed:**
-  - CDLoot.toc is now `## Version: 0.2.0`. The protocol major stays 1.
+  - DisasterZone.toc is now `## Version: 0.2.0`. The protocol major stays 1.
   - The additions (HELLO nonce and hashes, hash in STATE, award time and note in the award message, the new tier whisper) are optional fields that 0.1 clients ignore.
 - **Test edits:** tests/boot-ui/test_boot.py, test_settings.py and test_slash.py only had "0.1.0" replaced with "0.2.0", because of the version bump.
 - **Harness gap fixed:** tools/wowmock/game.lua lacked the native 2.5.6 APIs, so the new code paths were never exercised. I added `C_GuildInfo.GetInfoText`/`SetInfoText` and `C_SpecializationInfo.GetSpecializationInfo`.
@@ -119,4 +119,4 @@ The hashes cost some traffic. In the in-sync 40-login wave, bytes went from 4,88
   - Oversized messages from non-council members are dropped before decompression.
   - Implausible revision numbers are ignored.
 
-Addon folder: C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot. Test logs for the final run are in C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\out_fix\final2\.
+Addon folder: C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone. Test logs for the final run are in C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\out_fix\final2\.

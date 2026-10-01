@@ -24,7 +24,7 @@ def game(seed=7, ui=False):
     c.eval("ns.Azero:NewGame()")
     if ui:
         c.eval("ns.Azero:AddMon(ns.AzeroMon.New('owlet', 3, ns.Azero.rng), 'caught')")
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")
         w.tick(0.3)

@@ -18,7 +18,7 @@ from _common import case, run_all, printed_since, strip_codes, install_helpers, 
 
 
 def open_tab(w, cl, view="upcoming"):
-    cl.slash("/cdl raids")
+    cl.slash("/dz raids")
     w.tick(0.5)
     if view != "upcoming":
         cl.eval("ns.RaidsUI:SetView(...)", view)
@@ -118,14 +118,14 @@ def organizer_creates_and_edits_raids_in_the_window():
     open_tab(w, bob)
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().newRaidBtn"))
     w.tick(0.2)
-    assert shown(bob, "CDLootRaidEditor")
+    assert shown(bob, "DisasterZoneRaidEditor")
     ed = "ns.RaidPlanUI:GetEditor()"
     bob.eval("local e = %s; e.f.i = 'ssc'; e.f.sz = 25; local d = date('*t', GetServerTime() + 2 * 86400);"
              " e.f.y, e.f.m, e.f.d = d.year, d.month, d.day; e.f.hour = 19; e.f.min = 30; e.f.tm[...] = true;"
              " e.noteBox:SetText('Vashj progress'); e.weeklyCB:SetChecked(true)" % ed, tid)
     bob.click(bob.eval("return %s.saveBtn" % ed))
     w.tick(2)
-    assert not shown(bob, "CDLootRaidEditor")
+    assert not shown(bob, "DisasterZoneRaidEditor")
     rs = raids(rita)
     assert len(rs) == 2 and all(r["weekly"] and r["i"] == "ssc" and r["sz"] == 25 for r in rs), rs
     assert rs[0]["tm"] == [tid] and rs[0]["no"] == "Vashj progress", rs[0]
@@ -149,7 +149,7 @@ def organizer_creates_and_edits_raids_in_the_window():
              " e.f.y, e.f.m, e.f.d = d.year, d.month, d.day" % ed)
     bob.click(bob.eval("return %s.saveBtn" % ed))
     w.tick(0.2)
-    assert shown(bob, "CDLootRaidEditor") and "past" in bob.eval("return %s.err:GetText()" % ed)
+    assert shown(bob, "DisasterZoneRaidEditor") and "past" in bob.eval("return %s.err:GetText()" % ed)
     # members can't open it
     n0 = len(rita.chat_frame)
     rita.eval("ns.RaidPlanUI:OpenEditor()")
@@ -180,7 +180,7 @@ def cancel_menu_cancels_restores_and_deletes_weekly():
     assert raid(sam, occ)["cancelled"] is False
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.deleteBtn"))
     bob.menu_select("The whole weekly raid")
-    bob.accept_popup("CDLOOT_PLAN_DELETE")
+    bob.accept_popup("DISASTERZONE_PLAN_DELETE")
     w.tick(2)
     assert raids(sam) == []
     w.assert_no_errors()
@@ -373,13 +373,13 @@ def delete_removes_a_raid_for_everyone_after_confirming():
     btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.deleteBtn")
     # declining the dialog keeps it
     bob.click(btn)
-    assert any(p.get("which") == "CDLOOT_PLAN_DELETE" if isinstance(p, dict) else "CDLOOT_PLAN_DELETE" in str(p)
+    assert any(p.get("which") == "DISASTERZONE_PLAN_DELETE" if isinstance(p, dict) else "DISASTERZONE_PLAN_DELETE" in str(p)
                for p in (bob.popups() or [])), bob.popups()
-    bob.cancel_popup("CDLOOT_PLAN_DELETE")
+    bob.cancel_popup("DISASTERZONE_PLAN_DELETE")
     w.tick(1)
     assert raid(sam, one) is not None
     bob.click(btn)
-    bob.accept_popup("CDLOOT_PLAN_DELETE")
+    bob.accept_popup("DISASTERZONE_PLAN_DELETE")
     w.tick(2)
     for n, x in c.items():
         assert raid(x, one) is None, n
@@ -392,7 +392,7 @@ def delete_removes_a_raid_for_everyone_after_confirming():
     items = [e["text"] for e in bob.last_menu()["children"] if e.get("text")]
     assert items == ["Delete", "This week's raid only", "The whole weekly raid"], items
     bob.menu_select("This week's raid only")
-    bob.accept_popup("CDLOOT_PLAN_DELETE")
+    bob.accept_popup("DISASTERZONE_PLAN_DELETE")
     w.tick(2)
     assert [r["id"] for r in raids(rita)] == [sid + "#1"], raids(rita)
     # members don't get the button; a member who was offline doesn't bring the raids back

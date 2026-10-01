@@ -75,7 +75,7 @@ return out"""
 
 PICKER_ROWS = r"""
 local out = {}
-for i, d in ipairs(T_data(T_box(CDLootPicker))) do
+for i, d in ipairs(T_data(T_box(DisasterZonePicker))) do
   out[i] = { d.type, d.name or '', d.itemID or 0, d.kind or '', d.groupName or '', d.subgroup or '',
              (d.src and d.src.faction) or '', (d.src and d.src.phase) or 0 }
 end
@@ -83,7 +83,7 @@ return out"""
 
 PICKER_SUBS = r"""
 local out = {}
-for _, r in ipairs(T_rows(T_box(CDLootPicker))) do
+for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
   local d = rawget(r, "__cdlData")
   if d and d.type == 'item' then
     out[#out + 1] = { d.itemID, d.kind or '', r.sub:GetText() or '', ns.ItemDB:FormatSource(d.src, false) or '' }
@@ -98,7 +98,7 @@ return out"""
 def setup(name="Alice", class_file="PALADIN", talents=(41, 20, 0), **kw):
     w, c = solo(name, class_file=class_file, guild_rank=3, tick=4, council=[], phase=1, talents=talents, **kw)
     install_helpers(c)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     return w, c
@@ -130,12 +130,12 @@ def items(c):
 
 
 def sources_dd(c):
-    return c.eval("return T_first(CDLootPicker, function(f, st) return st.default_text ~= nil "
+    return c.eval("return T_first(DisasterZonePicker, function(f, st) return st.default_text ~= nil "
                   "and st.default_text ~= '-' and st.template == 'WowStyle1DropdownTemplate' end)")
 
 
 def phase_dd(c):
-    return c.eval("return T_dropdown(CDLootPicker, '-')")
+    return c.eval("return T_dropdown(DisasterZonePicker, '-')")
 
 
 def set_sources(c, **on):
@@ -150,7 +150,7 @@ def summary(c):
 
 
 def search_box(c):
-    return c.eval("return T_template(CDLootPicker, 'SearchBoxTemplate')[1]")
+    return c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]")
 
 
 def cands(c, sid, **f):
@@ -195,7 +195,7 @@ def data_file_loaded_in_toc_order_without_globals():
     pvp = c.eval_py("local o = {} for i, g in ipairs(ns.Data.PvP) do o[i] = g.key end return o")
     assert pvp[:5] == ["S1", "S2", "S3", "S4", "Honor"], pvp
     # the file is in the TOC right after Data\Dungeons.lua, and defines no globals
-    toc_path = os.path.join(w.addon_dir, "CDLoot.toc")
+    toc_path = os.path.join(w.addon_dir, "DisasterZone.toc")
     lines = [l.strip() for l in open(toc_path, encoding="utf-8").read().splitlines()]
     files = [l for l in lines if l and not l.startswith("#")]
     i_d, i_s, i_db = files.index("Data\\Dungeons.lua"), files.index("Data\\Sources.lua"), files.index("Core\\ItemDB.lua")
@@ -349,7 +349,7 @@ def pvp_and_side_reputation_rows_only_for_my_faction():
     assert GENERAL_SILK_CUFFS in [r[0] for r in hf] and not [r for r in hf if r[6] == "Alliance"]
     # the Horde player's picker (PvP ticked) shows no Alliance item, and tags its faction items
     install_helpers(horde)
-    horde.slash("/cdl bis")
+    horde.slash("/dz bis")
     w.tick(0.3)
     open_picker(horde, 13)   # (the Medallions are trinkets: the mock's equipLoc now matches the client)
     set_sources(horde, pvp=True)
@@ -385,7 +385,7 @@ def ticking_sources_adds_sections_in_order():
     assert sub_at > 0 and all(r[0] == "item" and r[5] == "" for r in sec[:sub_at]), sec[:sub_at + 1]
     assert all(r[0] == "item" and r[5] == "Armorsmith" for r in sec[sub_at + 1:]), sec[sub_at + 1:]
     # the section header counts its items
-    cnt = c.eval("for _, r in ipairs(T_rows(T_box(CDLootPicker))) do local d = rawget(r, '__cdlData') "
+    cnt = c.eval("for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do local d = rawget(r, '__cdlData') "
                  "if d and d.type == 'raid' and d.kind == 'craft' then return r.count:GetText() end end")
     assert cnt == "%d items" % len([r for r in sec if r[0] == "item"]), cnt
     for label, flag in (("Reputation", "rep"), ("Badge vendors", "badges"), ("PvP", "pvp")):
@@ -412,7 +412,7 @@ def ticking_sources_adds_sections_in_order():
     # nothing ticked: explanatory empty text
     set_sources(c)
     assert items(c) == []
-    assert c.eval("return T_textregion(CDLootPicker, 'No sources ticked'):IsVisible()") is True
+    assert c.eval("return T_textregion(DisasterZonePicker, 'No sources ticked'):IsVisible()") is True
     no_errors(w)
 
 
@@ -442,7 +442,7 @@ def source_toggles_persist_for_the_session_and_across_relog():
     w.tick(3)
     install_helpers(c)
     assert c.eval_py("return ns.db.settings.pickerSources") == want
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     open_picker(c, 3)
     assert c.eval_py("return ns.Picker:GetSources()") == want
@@ -458,7 +458,7 @@ def source_toggles_persist_for_the_session_and_across_relog():
     c.relog()
     w.tick(3)
     install_helpers(c)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     open_picker(c, 3)
     got = c.eval_py("return ns.Picker:GetSources()")
@@ -470,14 +470,14 @@ def source_toggles_persist_for_the_session_and_across_relog():
 def saved_variables_from_03_get_the_default_sources():
     w = World()
     c = Client(w, "Alice", guild_rank=3)
-    c.set_saved_variable("CDLootDB", "{ schema = 1, settings = { roll = { duration = 45 }, dungeon = { enabled = true } },"
+    c.set_saved_variable("DisasterZoneDB", "{ schema = 1, settings = { roll = { duration = 45 }, dungeon = { enabled = true } },"
                                      " chars = {}, lists = {} }")
     c.load_addon()
     w.tick(2)
     assert c.eval_py("return ns.db.settings.pickerSources") == DEFAULT
     assert c.eval("return ns.db.settings.roll.duration") == 45
     install_helpers(c)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     open_picker(c, 1)
     assert c.eval_py("return ns.Picker:GetSources()") == DEFAULT
@@ -521,14 +521,14 @@ def search_by_profession_faction_vendor_and_season():
     assert got and ANGELISTA in [r[2] for r in got] and all(r[4] == "Anwehu" for r in got), got
     got = search("zzz no such thing")
     assert got == []
-    assert c.eval("return T_textregion(CDLootPicker, 'No items match'):IsVisible()") is True
+    assert c.eval("return T_textregion(DisasterZonePicker, 'No items match'):IsVisible()") is True
     # the item name still works for new-kind rows, and the search resets when the picker reopens
     name = c.eval("return ns.ItemDB:GetName(...)", ANGELISTA)
     got = search(name[:10])
     assert ANGELISTA in [r[2] for r in got], (name, got)
     c.eval("ns.Picker:Close()")
     open_picker(c, 11)
-    assert c.eval("return T_template(CDLootPicker, 'SearchBoxTemplate')[1]:GetText()") == ""
+    assert c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]:GetText()") == ""
     # ItemDB:Search itself matches group, specialisation, standing and faction
     n = c.eval("""
       local rows = ns.ItemDB:GetCandidates(5, { sources = { crafted = true, rep = true, badges = true, pvp = true },
@@ -585,7 +585,7 @@ def subtitles_and_source_texts_for_every_kind():
     subs = c.eval_py(PICKER_SUBS)
     assert subs, "no rows"
     for iid, kind, sub, fmt in subs:
-        # CDLoot 0.5: class-restricted items (PvP set pieces, ...) also name their classes after the source
+        # DisasterZone 0.5: class-restricted items (PvP set pieces, ...) also name their classes after the source
         assert sub and (sub == fmt or sub.startswith(fmt + "  ·  ")), (iid, kind, sub, fmt)
     by = {s[0]: s[2] for s in subs}
     assert by[BULWARK_ANCIENT] == "Blacksmithing (375) \u00b7 Armorsmith", by[BULWARK_ANCIENT]
@@ -594,7 +594,7 @@ def subtitles_and_source_texts_for_every_kind():
     # the tooltip adds the reagents note
     c.eval("""
       local id = ...
-      for _, r in ipairs(T_rows(T_box(CDLootPicker))) do
+      for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
         local d = rawget(r, '__cdlData')
         if d and d.itemID == id then r:GetScript('OnEnter')(r) end
       end""", BULWARK_ANCIENT)
@@ -745,7 +745,7 @@ def all_sources_on_one_slot_is_fast():
     assert filtered_ms < 30, filtered_ms
     # the picker with every source ticked opens and searches in reasonable time
     install_helpers(c)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     c.eval("ns.Picker:SetSourceEnabled('crafted', true); ns.Picker:SetSourceEnabled('rep', true); "
            "ns.Picker:SetSourceEnabled('badges', true); ns.Picker:SetSourceEnabled('pvp', true)")

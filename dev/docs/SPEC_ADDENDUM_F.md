@@ -1,4 +1,4 @@
-# CDLoot SPEC — ADDENDUM F: picker defaults, disabled slots, crafted/rep/badge items, raid lock
+# DisasterZone SPEC — ADDENDUM F: picker defaults, disabled slots, crafted/rep/badge items, raid lock
 
 User requests (2026-09-28):
 1. "Raids + dungeons should be defaulted when choosing an item."
@@ -75,15 +75,15 @@ ns.Data.PvP = { { key="S1", name="Arena Season 1 (Gladiator)", phase=, items = {
   - The lock ends when the group disbands, when the authority leaves (rules cleared), or on unlock.
 - Controls:
   - The raid leader gets **"Lock BiS lists" / "Unlock BiS lists"** in: the drop panel footer (small button), the Council tab toolbar, and the Settings group-rules section.
-  - Slash: `/cdl lock` / `/cdl unlock`.
-  - On lock, announce to raid chat once, if `roll.announce` is on: "CDLoot: BiS lists are locked for this raid."
+  - Slash: `/dz lock` / `/dz unlock`.
+  - On lock, announce to raid chat once, if `roll.announce` is on: "DisasterZone: BiS lists are locked for this raid."
 - **Raider enforcement (client side)**, while locked and I'm in that group:
   - `BiS:SetSlot`, `ClearSlot`, `SwapMainAlt`, `CopyPhase`, `ApplyTemplate`, `ClearPhase`, `SetSpec`, `SetSlotDisabled*` refuse, printing "BiS lists are locked by <RL> during the raid."
   - My BiS shows a lock banner and disables editing controls; the Picker won't open.
   - Obtained/equipped scanning and manual "Mark obtained" still work: `ob`/`eq` still sync.
 - **Council detection:**
   - When a lock starts, every council client snapshots a **picks hash** for every raid member: `Util.Hash({ph=data.ph, dx=data.dx, sp=data.sp})` from its cached list.
-  - When a new list for a raid member arrives during the lock and its picks hash differs from the snapshot → mark `changedDuringLock = GetServerTime()` on the cached record (memory), still accept the list (ob/eq updates matter), and print a council-only chat warning once per player: "CDLoot: ⚠ <Name> changed their BiS list while lists were locked."
+  - When a new list for a raid member arrives during the lock and its picks hash differs from the snapshot → mark `changedDuringLock = GetServerTime()` on the cached record (memory), still accept the list (ob/eq updates matter), and print a council-only chat warning once per player: "DisasterZone: ⚠ <Name> changed their BiS list while lists were locked."
   - Show "⚠ changed during lock" in:
     - the roster row (warning icon + tooltip),
     - Member view header,

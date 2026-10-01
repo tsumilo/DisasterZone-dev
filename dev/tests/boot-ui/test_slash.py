@@ -1,12 +1,12 @@
-"""Every /cdl subcommand: (empty), help, ?, unknown, debug, version, demo, test, drop, drops, roll, sync, council,
-log, settings, config; the /cdloot alias; odd spacing and casing.
+"""Every /dz subcommand: (empty), help, ?, unknown, debug, version, demo, test, drop, drops, roll, sync, council,
+log, settings, config; the /disasterzone alias; odd spacing and casing.
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_slash.py
 """
 from _common import (case, run_all, toc_version, solo, no_errors, World, Client, install_helpers, printed_since, strip_codes,
                      seed_guild_council)
 
-# Addendum E removed "/cdl guildinfo"; Addendum D added "/cdl rules".
+# Addendum E removed "/dz guildinfo"; Addendum D added "/dz rules".
 # Addendum F §38 added "lock" / "unlock" (raid BiS list lock).
 SUBCOMMANDS = ["azeromon", "bingo", "bis", "changelog", "config", "council", "debug", "demo", "drop", "drops", "dungeon", "home", "lock", "log", "maps", "members", "plan", "play", "professions", "publish", "raid", "raids", "roll", "rules",
                "settings", "strat", "sync", "test", "unlock", "update", "version"]
@@ -19,18 +19,18 @@ def said(c, n0):
 @case
 def empty_toggles_window_and_alias_works():
     w, c = solo("Alice", guild_rank=3, tick=3)
-    assert c.slash("/cdl") is True
+    assert c.slash("/dz") is True
     assert c.eval("return ns.MainFrame:IsShown()") is True
-    c.slash("/cdl")
+    c.slash("/dz")
     assert c.eval("return ns.MainFrame:IsShown()") is False
-    assert c.slash("/cdloot") is True
+    assert c.slash("/disasterzone") is True
     assert c.eval("return ns.MainFrame:IsShown()") is True
-    c.slash("/CDLOOT")
+    c.slash("/DISASTERZONE")
     assert c.eval("return ns.MainFrame:IsShown()") is False
-    c.slash("/cdl    settings   ")
+    c.slash("/dz    settings   ")
     w.tick(0.2)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "settings"
-    c.slash("/cdl CONFIG")
+    c.slash("/dz CONFIG")
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "settings"
     no_errors(w)
 
@@ -38,20 +38,20 @@ def empty_toggles_window_and_alias_works():
 @case
 def help_lists_every_subcommand_and_unknown_prints_help():
     w, c = solo("Alice", guild_rank=3, tick=3)
-    for cmd in ("/cdl help", "/cdl ?", "/cdl HELP"):
+    for cmd in ("/dz help", "/dz ?", "/dz HELP"):
         n0 = len(c.chat_frame)
         c.slash(cmd)
         lines = said(c, n0)
-        assert lines[0] == "CDLoot: commands (/cdl or /cdloot):", lines
-        assert lines[1].startswith("  /cdl - open or close"), lines
+        assert lines[0] == "DisasterZone: commands (/dz or /disasterzone):", lines
+        assert lines[1].startswith("  /dz - open or close"), lines
         listed = [l.split()[1] for l in lines[2:]]
         assert listed == SUBCOMMANDS, listed
         assert all(" - " in l for l in lines[2:]), "a subcommand has no help text: %r" % lines
     n0 = len(c.chat_frame)
-    c.slash("/cdl frobnicate now")
+    c.slash("/dz frobnicate now")
     lines = said(c, n0)
-    assert lines[0] == "CDLoot: unknown command 'frobnicate'.", lines
-    assert "CDLoot: commands (/cdl or /cdloot):" in lines
+    assert lines[0] == "DisasterZone: unknown command 'frobnicate'.", lines
+    assert "DisasterZone: commands (/dz or /disasterzone):" in lines
     assert c.eval("return ns.MainFrame:IsShown()") is False
     no_errors(w)
 
@@ -60,13 +60,13 @@ def help_lists_every_subcommand_and_unknown_prints_help():
 def debug_toggle_and_debug_output():
     w, c = solo("Alice", guild_rank=3, tick=3)
     n0 = len(c.chat_frame)
-    c.slash("/cdl debug")
+    c.slash("/dz debug")
     assert c.eval("return ns.db.settings.debug") is True
-    assert "CDLoot: debug output enabled." in said(c, n0)
+    assert "DisasterZone: debug output enabled." in said(c, n0)
     n1 = len(c.chat_frame)
     c.eval("ns:Debug('probe %d', 42)")
-    assert "CDLoot: [debug] probe 42" in said(c, n1)
-    c.slash("/cdl debug")
+    assert "DisasterZone: [debug] probe 42" in said(c, n1)
+    c.slash("/dz debug")
     assert c.eval("return ns.db.settings.debug") is False
     n2 = len(c.chat_frame)
     c.eval("ns:Debug('hidden')")
@@ -84,17 +84,17 @@ def version_lists_peers():
         x.load_addon()
     w.tick(40)                       # both HELLOs exchanged
     n0 = len(a.chat_frame)
-    a.slash("/cdl version")
+    a.slash("/dz version")
     lines = said(a, n0)
     v = toc_version()
-    assert lines[0] == "CDLoot: CDLoot %s (protocol 1). Addon users seen: 1" % v, lines
+    assert lines[0] == "DisasterZone: DisasterZone %s (protocol 1). Addon users seen: 1" % v, lines
     assert any(l.strip().startswith("Alice  %s  (online, council)" % v) for l in lines), lines
     assert any(l.strip().startswith("Bob  %s  (online" % v) for l in lines), lines
     # guildless: only me
     w2, s = solo("Solo", guild=None, tick=2)
     n0 = len(s.chat_frame)
-    s.slash("/cdl version")
-    assert said(s, n0)[0] == "CDLoot: CDLoot %s (protocol 1). Addon users seen: 0" % toc_version()
+    s.slash("/dz version")
+    assert said(s, n0)[0] == "DisasterZone: DisasterZone %s (protocol 1). Addon users seen: 0" % toc_version()
     no_errors(w)
     no_errors(w2)
 
@@ -105,13 +105,13 @@ def demo_on_off_toggle_forms():
     for arg, want in (("on", True), ("off", False), ("1", True), ("0", False), ("", True), ("", False),
                       ("ON", True), ("Off", False)):
         n0 = len(c.chat_frame)
-        c.slash(("/cdl demo " + arg).strip())
+        c.slash(("/dz demo " + arg).strip())
         assert c.eval("return ns.Demo:IsEnabled()") is want, (arg, want)
         lines = said(c, n0)
         if want:
-            assert lines and lines[0].startswith("CDLoot: demo mode on: 18 fake guild members"), lines
+            assert lines and lines[0].startswith("DisasterZone: demo mode on: 18 fake guild members"), lines
         else:
-            assert lines == ["CDLoot: demo mode off."], lines
+            assert lines == ["DisasterZone: demo mode off."], lines
     no_errors(w)
 
 
@@ -120,22 +120,22 @@ def test_and_drops_and_drop():
     w, c = solo("Alice", guild_rank=3, tick=3)
     install_helpers(c)
     n0 = len(c.chat_frame)
-    c.slash("/cdl drops")
-    assert said(c, n0) == ["CDLoot: No boss drops recorded in the last 24 hours."], said(c, n0)
-    c.slash("/cdl test")
+    c.slash("/dz drops")
+    assert said(c, n0) == ["DisasterZone: No boss drops recorded in the last 24 hours."], said(c, n0)
+    c.slash("/dz test")
     w.tick(0.5)
     lines = said(c, n0)
-    assert any(l.startswith("CDLoot: Simulated a drop from ") for l in lines), lines
+    assert any(l.startswith("DisasterZone: Simulated a drop from ") for l in lines), lines
     assert c.eval("return #ns.Loot:GetHistory()") == 1
     # a raider gets no council drop panel
-    assert c.eval("return CDLootDropPanel ~= nil and CDLootDropPanel:IsShown()") in (False, None)
+    assert c.eval("return DisasterZoneDropPanel ~= nil and DisasterZoneDropPanel:IsShown()") in (False, None)
     n1 = len(c.chat_frame)
-    c.slash("/cdl drops")
+    c.slash("/dz drops")
     assert not any("No boss drops" in l for l in said(c, n1))
-    # /cdl drop: a raider not leading the raid is refused; council gets usage / a drop
+    # /dz drop: a raider not leading the raid is refused; council gets usage / a drop
     n2 = len(c.chat_frame)
-    c.slash("/cdl drop |cffa335ee|Hitem:28770::::::::70:::::::::|h[Nathrezim Mindblade]|h|r")
-    assert said(c, n2) == ["CDLoot: Only loot council members or the raid leader / assistants can announce drops."]
+    c.slash("/dz drop |cffa335ee|Hitem:28770::::::::70:::::::::|h[Nathrezim Mindblade]|h|r")
+    assert said(c, n2) == ["DisasterZone: Only loot council members or the raid leader / assistants can announce drops."]
     w2 = World()
     seed_guild_council(w2, ["Cou"])
     cou = Client(w2, "Cou", guild_rank=1)
@@ -146,10 +146,10 @@ def test_and_drops_and_drop():
     w2.make_raid([cou, rai])
     w2.tick(1)
     n3 = len(cou.chat_frame)
-    cou.slash("/cdl drop")
-    assert said(cou, n3) == ["CDLoot: Usage: /cdl drop [item link] [item link] ... (shift-click items into the command)"], said(cou, n3)
+    cou.slash("/dz drop")
+    assert said(cou, n3) == ["DisasterZone: Usage: /dz drop [item link] [item link] ... (shift-click items into the command)"], said(cou, n3)
     m0 = len(w2.addon_log)
-    cou.slash("/cdl drop |cffa335ee|Hitem:28770::::::::70:::::::::|h[Nathrezim Mindblade]|h|r")
+    cou.slash("/dz drop |cffa335ee|Hitem:28770::::::::70:::::::::|h[Nathrezim Mindblade]|h|r")
     w2.tick(1)
     assert cou.eval("return #ns.Loot:GetHistory()") == 1
     sent = [e for e in w2.addon_log[m0:] if e["sender"] == cou.full_name]
@@ -164,23 +164,23 @@ def roll_usage_permission_demo_and_end():
     w, c = solo("Alice", guild_rank=3, tick=3)
     link = "|cffa335ee|Hitem:28770::::::::70:::::::::|h[Nathrezim Mindblade]|h|r"
     n0 = len(c.chat_frame)
-    c.slash("/cdl roll")
-    assert said(c, n0)[0].startswith("CDLoot: Usage: /cdl roll [item link]"), said(c, n0)
+    c.slash("/dz roll")
+    assert said(c, n0)[0].startswith("DisasterZone: Usage: /dz roll [item link]"), said(c, n0)
     n1 = len(c.chat_frame)
-    c.slash("/cdl roll " + link)
-    assert said(c, n1) == ["CDLoot: Only loot council members, the master looter or the raid leader / assistants can start rolls, in a raid."]
+    c.slash("/dz roll " + link)
+    assert said(c, n1) == ["DisasterZone: Only loot council members, the master looter or the raid leader / assistants can start rolls, in a raid."]
     n2 = len(c.chat_frame)
-    c.slash("/cdl roll end")
-    assert said(c, n2) == ["CDLoot: No roll is running."]
+    c.slash("/dz roll end")
+    assert said(c, n2) == ["DisasterZone: No roll is running."]
     # demo: allowed, local only
-    c.slash("/cdl demo on")
+    c.slash("/dz demo on")
     m0 = len(w.addon_log)
-    c.slash("/cdl roll " + link)
+    c.slash("/dz roll " + link)
     w.tick(0.5)
     active = c.eval_py("local s = ns.Roll:GetActive(); return s and { s.i, s.state }")
     assert active == [28770, "open"], active
-    c.slash("/cdl roll 28770")        # a bare item id also works; queued behind the open one
-    c.slash("/cdl roll stop")
+    c.slash("/dz roll 28770")        # a bare item id also works; queued behind the open one
+    c.slash("/dz roll stop")
     w.tick(3)
     assert c.eval("local s = ns.Roll:GetActive(); return s and s.state") in (None, "open")
     assert [e for e in w.addon_log[m0:] if e["sender"] == c.full_name] == [], "demo roll sent addon messages"
@@ -197,21 +197,21 @@ def sync_before_roster_ok_and_rate_limited():
     c.eval("__MOCK.guild_loaded = false")
     c.eval("ns.Guild.RequestRoster = function() return false end")
     n0 = len(c.chat_frame)
-    c.slash("/cdl sync")
+    c.slash("/dz sync")
     lines = said(c, n0)
     assert c.eval("return ns.Guild:IsReady()") is False
-    assert lines == ["CDLoot: Waiting for the guild roster; try again in a moment."], lines
+    assert lines == ["DisasterZone: Waiting for the guild roster; try again in a moment."], lines
     w.tick(30)
     assert c.eval("return ns.Guild:IsReady()") is True
     w.tick(30)                        # automatic HELLO + rate window over
     m0, n1 = len(w.addon_log), len(c.chat_frame)
-    c.slash("/cdl sync")
+    c.slash("/dz sync")
     w.tick(0.5)
-    assert said(c, n1) == ["CDLoot: Sync requested."], said(c, n1)
+    assert said(c, n1) == ["DisasterZone: Sync requested."], said(c, n1)
     assert len([e for e in w.addon_log[m0:] if e["sender"] == c.full_name]) == 1
     n2 = len(c.chat_frame)
-    c.slash("/cdl sync")
-    assert said(c, n2) == ["CDLoot: A sync was requested less than 30 seconds ago; please wait."], said(c, n2)
+    c.slash("/dz sync")
+    assert said(c, n2) == ["DisasterZone: A sync was requested less than 30 seconds ago; please wait."], said(c, n2)
     no_errors(w)
 
 
@@ -219,7 +219,7 @@ def sync_before_roster_ok_and_rate_limited():
 def council_log_settings_open_their_tabs():
     w, c = solo("Cou", guild_rank=1, tick=3, council=["Cou"])
     for cmd, tab in (("council", "council"), ("log", "loot"), ("settings", "settings"), ("config", "settings")):
-        c.slash("/cdl " + cmd)
+        c.slash("/dz " + cmd)
         w.tick(0.3)
         assert c.eval("return ns.MainFrame:GetSelectedTab()") == tab, (cmd, tab)
         assert c.eval("return ns.MainFrame:GetPanel(...):IsVisible()", tab) is True

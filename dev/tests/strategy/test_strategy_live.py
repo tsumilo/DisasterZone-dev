@@ -10,7 +10,7 @@ another addon per mob, the strategy / Settings switches, mobs outside the plan u
 hits and misses counted once, the target's cast flashing the current player, a missed turn moving on, a kick on
 another mob ignored, a kick out of turn, a dead player skipped), once-per-pull / cooldown / keep-up tables
 (Misdirection, Bloodlust countdown, Power Infusion and Innervate cooldowns, a curse falling off), the end of the
-encounter fading the panel, the plan without a linked raid, the authoring switches and /cdl strat.
+encounter fading the panel, the plan without a linked raid, the authoring switches and /dz strat.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy_live.py [-k name]
 """
@@ -83,7 +83,7 @@ def raid(link=True, start_session=True, backups=True):
     w.make_raid([bob] + [c[n] for n, _, _, _ in ROSTER if n != "Bob"], leader=bob, assistants=[c["Gina"]])
     w.tick(4)
     if start_session:
-        bob.slash("/cdl raid start")
+        bob.slash("/dz raid start")
         w.tick(6)
         s = bob.eval_py("return ns.GroupRules:GetSession()")
         if link:
@@ -182,7 +182,7 @@ def marking_switches():
     bob.eval("ns.DB:SetSetting('strategy.autoMark', true)")
     # the strategy's own switch (the board's Auto-mark checkbox while editing)
     bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
-    bob.click(bob.eval("return _G.CDLootStrategyBoard.autoMark"))
+    bob.click(bob.eval("return _G.DisasterZoneStrategyBoard.autoMark"))
     bob.eval("ns.StrategyBoard:Save()")
     w.tick(2)
     assert strategies(bob, BOSS)[0].get("am") is False
@@ -373,7 +373,7 @@ def backup_rows_and_misdirect_targets_in_the_editor():
     w, c, occ, sid, npcs = raid()
     bob = c["Bob"]
     bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
-    B = "_G.CDLootStrategyBoard.blocks"
+    B = "_G.DisasterZoneStrategyBoard.blocks"
 
     def mi():
         return bob.eval_py("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); return { bk = k.bk, r = k.r }")
@@ -510,7 +510,7 @@ def authoring_and_slash():
     bob = c["Bob"]
     # the Track in fight menu of a table
     bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
-    bob.eval("local B = _G.CDLootStrategyBoard.blocks; for _, b in ipairs(B.blocks) do if b.blockId == 'hl' then "
+    bob.eval("local B = _G.DisasterZoneStrategyBoard.blocks; for _, b in ipairs(B.blocks) do if b.blockId == 'hl' then "
              "b.gear:Click() end end")
     bob.eval("""
         local function find(d, t) for _, ch in ipairs(d.children) do if ch.text == t then return ch end
@@ -519,21 +519,21 @@ def authoring_and_slash():
     assert bob.eval("return ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'hl').tr") == "pi"
     assert bob.eval("return (ns.Strategy:Validate(ns.StrategyBoard:GetState().strat)) ~= nil") is True
     bob.eval("ns.StrategyBoard:CancelChanges()")
-    # /cdl strat
+    # /dz strat
     n0 = len(bob.chat_frame)
-    bob.slash("/cdl strat")
+    bob.slash("/dz strat")
     assert any("No boss nearby" in strip_codes(x) for x in printed_since(bob, n0))
     see(w, bob, "Veras", npcs=npcs)
-    bob.slash("/cdl strat debug")
+    bob.slash("/dz strat debug")
     n0 = len(bob.chat_frame)
     cleu(w, "SPELL_CAST_SUCCESS", c["Hugo"], npcs["Zerevor"], 34477, "Misdirection")
     assert any("[strat]" in strip_codes(x) and "Misdirection" in strip_codes(x) for x in printed_since(bob, n0))
     n0 = len(bob.chat_frame)
-    bob.slash("/cdl strat")
+    bob.slash("/dz strat")
     assert any("Near The Illidari Council" in strip_codes(x) for x in printed_since(bob, n0))
     # the setup check (works solo): settings, leader, nameplates, spells, the linked raid's bosses
     n0 = len(bob.chat_frame)
-    bob.slash("/cdl strat check")
+    bob.slash("/dz strat check")
     out = [strip_codes(x) for x in printed_since(bob, n0)]
     assert any("You lead the group" in x and x.endswith("yes") for x in out), out
     assert any("Enemy nameplates on" in x and x.endswith("yes") for x in out), out
@@ -555,7 +555,7 @@ def practice_solo_at_a_target_dummy():
     open_full_starter(bob, BOSS)
     bob.eval("ns.StrategyBoard:Save()")
     w.tick(1)
-    bob.click(bob.eval("return _G.CDLootStrategyBoard.practiceBtn"))
+    bob.click(bob.eval("return _G.DisasterZoneStrategyBoard.practiceBtn"))
     w.tick(0.3)
     d = lines(bob)
     assert "PRACTICE" in strip_codes(bob.eval("return ns.StrategyReminder:Lines().sub")), d
@@ -605,12 +605,12 @@ def practice_solo_at_a_target_dummy():
     assert "killed" in lines(bob)["title"], lines(bob)
     w.tick(12, step=0.5)
     assert lines(bob) is None
-    # /cdl strat practice <boss> and stop
+    # /dz strat practice <boss> and stop
     bob.eval("ns.StrategyBoard:Close()")
-    bob.slash("/cdl strat practice council")
+    bob.slash("/dz strat practice council")
     w.tick(0.3)
     assert lines(bob) is not None
-    bob.slash("/cdl strat stop")
+    bob.slash("/dz strat stop")
     w.tick(0.3)
     assert lines(bob) is None
     w.assert_no_errors()

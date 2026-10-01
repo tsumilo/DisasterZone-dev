@@ -15,7 +15,7 @@ from _common import case, run_all, strip_codes  # noqa: E402
 from rp_common import gm_pick, set_raid_leaders  # noqa: E402
 
 BOSS = "BlackTemple:Council"
-W = "_G.CDLootStrategyBoard"
+W = "_G.DisasterZoneStrategyBoard"
 B = "ns.StrategyBoard"
 ST = B + ":GetState()"
 LONG = "When Attumen spawns threat is reset. The tank needs to reestablish aggro"
@@ -73,7 +73,7 @@ def edit_draft_survives_a_reload_with_its_undo_history():
     assert bob.eval("return %s:HasDraft()" % B) is True
     assert bob.eval("return %s:IsShown()" % B) is False
     w.tick(8)
-    assert any("1 unsaved strategy draft:" in p and "/cdl strat draft" in p for p in bob.chat_frame), bob.chat_frame[-5:]
+    assert any("1 unsaved strategy draft:" in p and "/dz strat draft" in p for p in bob.chat_frame), bob.chat_frame[-5:]
     assert bob.eval("return %s:OpenDraft()" % B) is True
     w.tick(0.2)
     st = bob.eval_py("local s = %s; return { mode = s.mode, dirty = s.dirty, id = s.strat.id }" % ST)
@@ -108,7 +108,7 @@ def a_new_unsaved_strategy_survives_a_logout():
     bob.relog(reload=False)
     w.tick(1)
     assert bob.eval("return %s:HasDraft()" % B) is True
-    bob.slash("/cdl strat draft")
+    bob.slash("/dz strat draft")
     w.tick(0.2)
     assert bob.eval("return %s:IsShown()" % B) is True
     st = bob.eval_py("local s = %s; return { mode = s.mode, n = s.strat.n, id = s.strat.id }" % ST)
@@ -207,7 +207,7 @@ def several_drafts_wait_in_the_list_of_their_boss():
     w.tick(8)
     assert any("3 unsaved strategy drafts" in p for p in bob.chat_frame), bob.chat_frame[-5:]
     assert len(drafts(bob, BOSS)) == 3
-    bob.slash("/cdl raids")
+    bob.slash("/dz raids")
     w.tick(0.5)
     bob.eval("ns.RaidsUI:SetView('strategies')")
     w.tick(0.5)
@@ -306,7 +306,7 @@ def long_texts_fit_and_reach_the_guild():
     w, c, bob, sid = setup()
     assert len(LONG) > 64
     # a text cell (the Notes block): a box of several lines takes it, the cell wraps
-    P = "_G.CDLootStrategyPrompt"
+    P = "_G.DisasterZoneStrategyPrompt"
     bob.eval("local p = %s.blocks; local page = p.opts.page(); p:CellMenu(nil, page.k[4], 1, 1)" % W)
     multi = bob.eval("return %s.multi" % P)
     assert bob.eval("return %s.multi:IsVisible() and not %s.edit:IsShown()" % (P, P)) is True
@@ -347,7 +347,7 @@ def long_texts_fit_and_reach_the_guild():
     bob.eval(B + ":RenameStrategy()")
     assert bob.eval("return %s.edit:IsVisible() and not %s.scroll:IsShown() and %s.edit:GetMaxLetters()" % (P, P, P)) == 64
     assert bob.eval("return %s.edit:HasFocus()" % P) is True
-    bob.eval("_G.CDLootStrategyPrompt:Hide()")
+    bob.eval("_G.DisasterZoneStrategyPrompt:Hide()")
     # page notes: 1000 characters
     notes = ("Line of notes. " * 60).strip()
     assert 400 < len(notes) <= 1000
@@ -397,7 +397,7 @@ def drafts_are_only_for_members_who_can_build_strategies():
     assert any("Only the Guild Master" in str(x) for x in bob.chat_frame[n0:]), bob.chat_frame[n0:]
     bob.eval("%s:DiscardDraft(...)" % B, did)
     assert ndrafts(bob) == 1                              # still there for when the rights come back
-    bob.slash("/cdl raids")
+    bob.slash("/dz raids")
     bob.eval("ns.RaidsUI:SetView('strategies')")
     w.tick(1)
     assert not bob.find_text("Continue") and not bob.find_text("Discard")

@@ -3,7 +3,7 @@
 Covers: what may and may not travel as an update (TOC header, libraries, the boot files, TOC order, art with and
 without a raised art pack, unguarded files, docs); the build id; source normalisation; the outbox file; the
 sequence counter and the signing key running out; and the real command line end to end in a sandbox: keygen ->
-full release zip -> a member installs the zip -> patch -> /cdl publish -> the member runs the new version.
+full release zip -> a member installs the zip -> patch -> /dz publish -> the member runs the new version.
 
 Run: luaenv\\Scripts\\python.exe tests\\patch\\test_release_tool.py [-k name]
 """
@@ -47,8 +47,8 @@ def with_art(root):
 def what_cannot_travel_is_refused():
     base_dir, record, new_dir = simple_pair()
     cases = [
-        (lambda r: replace(r, "CDLoot.toc", "## Interface: 20506", "## Interface: 20507"), ("full release", "interface")),
-        (lambda r: replace(r, "CDLoot.toc", "## SavedVariables: CDLootDB, CDLootPatchDB", "## SavedVariables: CDLootDB, CDLootPatchDB, CDLootNew"), ("savedvariables",)),
+        (lambda r: replace(r, "DisasterZone.toc", "## Interface: 20506", "## Interface: 20507"), ("full release", "interface")),
+        (lambda r: replace(r, "DisasterZone.toc", "## SavedVariables: DisasterZoneDB, DisasterZonePatchDB", "## SavedVariables: DisasterZoneDB, DisasterZonePatchDB, DisasterZoneNew"), ("savedvariables",)),
         (lambda r: append(r, "Libs/LibStub/LibStub.lua", "\n-- changed\n"), ("Libs/LibStub/LibStub.lua changed",)),
         (lambda r: append(r, "Core/Boot.lua", "\n-- changed\n"), ("Core/Boot.lua changed",)),
         (lambda r: append(r, "Core/BootEnd.lua", "\n-- changed\n"), ("Core/BootEnd.lua changed",)),
@@ -68,7 +68,7 @@ def what_cannot_travel_is_refused():
     # a version bump alone is not a change either (the TOC is not part of an update)
     refused(record, source_copy("same", version="9.9.9"), "nothing changed")
     # tool-managed files never count: a different outbox / build info in the source tree
-    tree = source_copy("managed", lambda r: (write(r, "Core/Outbox.lua", "CDLootOutbox = {}\n"),
+    tree = source_copy("managed", lambda r: (write(r, "Core/Outbox.lua", "DisasterZoneOutbox = {}\n"),
                                               append(r, "Core/Util.lua", "\n-- x\n")), version="9.9.9")
     assert [i["path"] for i in make(record, tree)["items"]] == ["Core/Util.lua"]
 
@@ -112,9 +112,9 @@ def build_id_identifies_the_release():
     assert 'id = "%s"' % a["build"] in read(a_dir, "Core/BuildInfo.lua")
     assert read(a_dir, "Core/Outbox.lua") == patchlib.OUTBOX_STUB
     # the publisher's outbox and build info do not change the id; any other file does
-    write(src, "Core/Outbox.lua", "CDLootOutbox = { seq = 1 }\n")
+    write(src, "Core/Outbox.lua", "DisasterZoneOutbox = { seq = 1 }\n")
     assert release_of(src)[1]["build"] == a["build"]
-    for rel in ("Core/Util.lua", "Libs/LibStub/LibStub.lua", "CDLoot.toc", "Core/Boot.lua"):
+    for rel in ("Core/Util.lua", "Libs/LibStub/LibStub.lua", "DisasterZone.toc", "Core/Boot.lua"):
         other = source_copy("idsrc2", lambda r: append(r, rel, "\n"))
         assert release_of(other)[1]["build"] != a["build"], rel
     renamed = source_copy("idsrc3", lambda r: write(r, "Extra.lua", "-- extra\n"))
@@ -157,7 +157,7 @@ def outbox_file_round_trips():
     w = World(addon_dir=base_dir)
     c = member(w, "Alice", base_dir)
     c.load_addon()
-    got = c.eval_py("local f = assert(loadstring(...)) f() return { seq = CDLootOutbox.seq, z0 = CDLootOutbox.z0, z = CDLootOutbox.z }", lua)
+    got = c.eval_py("local f = assert(loadstring(...)) f() return { seq = DisasterZoneOutbox.seq, z0 = DisasterZoneOutbox.z0, z = DisasterZoneOutbox.z }", lua)
     assert got["seq"] == 1 and got["z0"] == bundle["z0"]
     assert got["z"] == [i["z"] for i in bundle["items"] if i["kind"] != "D"]
     for s in ("plain", "]]", "a]=]b]]c", "ends with ]", "x]==", ""):
@@ -167,7 +167,7 @@ def outbox_file_round_trips():
 
 @case
 def staged_fixture_equals_a_real_download():
-    """The tests seed CDLootPatchDB with patchlib.staged_sv(); it must be what the addon itself stores."""
+    """The tests seed DisasterZonePatchDB with patchlib.staged_sv(); it must be what the addon itself stores."""
     def new_mods(r):
         write(r, "Core/TestNew.lua", guard("Core/TestNew.lua") + "-- test\n")
         toc_add(r, "Core/TestNew.lua", "Core/Constants.lua")
@@ -183,14 +183,14 @@ def staged_fixture_equals_a_real_download():
     p = Client(w, "Pub", addon_dir=new_dir)
     p.load_addon()
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.run_until(lambda: (patch_status(a).get("ready") or {}).get("seq") == 1, timeout=300)
-    real = a.eval_py("return CDLootPatchDB.active")
-    fixture = b.eval_py("return CDLootPatchDB.active")
-    published = p.eval_py("return CDLootPatchDB.active")
+    real = a.eval_py("return DisasterZonePatchDB.active")
+    fixture = b.eval_py("return DisasterZonePatchDB.active")
+    published = p.eval_py("return DisasterZonePatchDB.active")
     assert real == fixture, [k for k in real if real[k] != fixture.get(k)]
     assert real == published
-    assert a.eval("return CDLootPatchDB.seq") == 1
+    assert a.eval("return DisasterZonePatchDB.seq") == 1
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -225,11 +225,11 @@ class Sandbox:
     def install(self, version):
         """What a member does: unzip the release into the AddOns folder."""
         dst = _unique("installed")
-        with zipfile.ZipFile(os.path.join(release.DIST, "CDLoot-%s.zip" % version)) as zf:
+        with zipfile.ZipFile(os.path.join(release.DIST, "DisasterZone-%s.zip" % version)) as zf:
             names = zf.namelist()
-            assert all(n.startswith("CDLoot/") for n in names), names[:3]
+            assert all(n.startswith("DisasterZone/") for n in names), names[:3]
             zf.extractall(dst)
-        return os.path.join(dst, "CDLoot")
+        return os.path.join(dst, "DisasterZone")
 
 
 @case
@@ -264,7 +264,7 @@ def command_line_end_to_end():
         sb.run("patch", fails=True)                               # version not bumped
         set_version(sb.addon, "1.0.1")
         sb.run("patch")
-        assert "CDLootOutbox" in read(sb.addon, "Core/Outbox.lua")
+        assert "DisasterZoneOutbox" in read(sb.addon, "Core/Outbox.lua")
         log = json.load(open(os.path.join(release.RELEASES, "patches.json"), encoding="utf-8"))
         assert [(p["seq"], p["version"], p["base"]) for p in log] == [(1, "1.0.1", "1.0.0")]
         assert patchlib.load_key(release.KEY_PATH)["next"] == 2
@@ -273,7 +273,7 @@ def command_line_end_to_end():
         p = Client(w, "Pub", addon_dir=sb.addon)
         p.load_addon()
         w.tick(2)
-        p.slash("/cdl publish")
+        p.slash("/dz publish")
         w.run_until(lambda: (patch_status(m).get("ready") or {}).get("seq") == 1, timeout=300)
         m.relog()
         w.tick(3)
@@ -287,7 +287,7 @@ def command_line_end_to_end():
         sb.run("patch")
         p.relog()
         w.tick(2)
-        p.slash("/cdl publish")
+        p.slash("/dz publish")
         w.run_until(lambda: (patch_status(m).get("ready") or {}).get("seq") == 2, timeout=300)
         m.relog()
         w.tick(3)
@@ -301,7 +301,7 @@ def command_line_end_to_end():
         assert [p["seq"] for p in log] == [1, 2, 3] and log[-1]["revoke"] and log[-1]["version"] == "1.0.0"
         p.relog()
         w.tick(2)
-        p.slash("/cdl publish")
+        p.slash("/dz publish")
         w.run_until(lambda: (patch_status(m).get("ready") or {}).get("seq") == 3, timeout=300)
         m.relog()
         w.tick(3)
@@ -319,7 +319,7 @@ def command_line_end_to_end():
         w.tick(3)
         s = boot_state(m)
         assert s["state"] == "base" and s["version"] == "1.0.3" and m.eval("return ns.SECOND") is True, s
-        assert m.eval("return CDLootPatchDB.active") is None and m.eval("return CDLootPatchDB.seq") == 3
+        assert m.eval("return DisasterZonePatchDB.active") is None and m.eval("return DisasterZonePatchDB.seq") == 3
         w.assert_no_errors()
     finally:
         sb.close()
@@ -332,22 +332,22 @@ def revoke_puts_the_publishers_copy_back_too():
     try:
         sb.run("keygen", "--height", "4")
         set_version(sb.addon, "1.0.0")
-        write(sb.addon, "README.md", "# CDLoot 1.0.0\n")
+        write(sb.addon, "README.md", "# DisasterZone 1.0.0\n")
         sb.run("full")
         base = json.load(open(os.path.join(release.RELEASES, "1.0.0.json"), encoding="utf-8"))
         log_path = os.path.join(release.RELEASES, "patches.json")
-        pristine = {rel: read(sb.addon, rel) for rel in ("Core/Util.lua", "Core/Dungeon.lua", "CDLoot.toc", "README.md")}
+        pristine = {rel: read(sb.addon, rel) for rel in ("Core/Util.lua", "Core/Dungeon.lua", "DisasterZone.toc", "README.md")}
         assert release.sync_report(base, [], sb.addon)[0] is True
 
         # an update with a changed, a new and a deleted file, a version bump and a docs change
         append(sb.addon, "Core/Util.lua", '\nUtil.PATCH_MARK = "x"\n')
-        write(sb.addon, "Core/TestNew.lua", guard("Core/TestNew.lua") + "-- test\nCDLootTestNew = true\n")
+        write(sb.addon, "Core/TestNew.lua", guard("Core/TestNew.lua") + "-- test\nDisasterZoneTestNew = true\n")
         toc_add(sb.addon, "Core/TestNew.lua", "Core/Constants.lua")
         toc_remove(sb.addon, "Games/Azeromon/Sound.lua")
         gone = read(sb.addon, "Games/Azeromon/Sound.lua")
         os.remove(os.path.join(sb.addon, "Games", "Azeromon", "Sound.lua"))
         set_version(sb.addon, "1.0.1")
-        write(sb.addon, "README.md", "# CDLoot 1.0.1\n")
+        write(sb.addon, "README.md", "# DisasterZone 1.0.1\n")
         # art changed without a new art pack: an update would be refused, and the sync check says why
         write(sb.addon, "Art/map.blp", "BLP2 art, edited")
         ok, lines = release.sync_report(base, [], sb.addon)
@@ -367,11 +367,11 @@ def revoke_puts_the_publishers_copy_back_too():
         p = Client(w, "Pub", addon_dir=sb.addon)
         p.load_addon()
         w.tick(2)
-        p.slash("/cdl publish")
+        p.slash("/dz publish")
         w.run_until(lambda: (patch_status(m).get("ready") or {}).get("seq") == 1, timeout=300)
         m.relog()
         w.tick(3)
-        assert boot_state(m)["version"] == "1.0.1" and m.eval("return CDLootTestNew") is True
+        assert boot_state(m)["version"] == "1.0.1" and m.eval("return DisasterZoneTestNew") is True
         assert p.eval("return ns.Util.PATCH_MARK") == "x"                    # the publisher sees it too (from disk)
 
         # work in progress after the update: the copy is ahead of the members
@@ -394,17 +394,17 @@ def revoke_puts_the_publishers_copy_back_too():
         undone = os.path.join(release.RELEASES, "undone")
         saved = os.path.join(undone, os.listdir(undone)[0])
         assert 'PATCH_MARK = "x"' in read(saved, "Core/Util.lua") and "ns.WIP = true" in read(saved, "Core/Dungeon.lua")
-        assert "CDLootTestNew" in read(saved, "Core/TestNew.lua") and "1.0.1" in read(saved, "CDLoot.toc")
+        assert "DisasterZoneTestNew" in read(saved, "Core/TestNew.lua") and "1.0.1" in read(saved, "DisasterZone.toc")
         assert not os.path.exists(os.path.join(saved, "Games", "Azeromon", "Sound.lua"))
 
         p.relog()
         w.tick(2)
         assert p.eval("return ns.Util.PATCH_MARK") is None and p.eval("return ns.version") == "1.0.0"
-        p.slash("/cdl publish")
+        p.slash("/dz publish")
         w.run_until(lambda: (patch_status(m).get("ready") or {}).get("seq") == 2, timeout=300)
         m.relog()
         w.tick(3)
-        assert boot_state(m)["version"] == "1.0.0" and m.eval("return CDLootTestNew") is None
+        assert boot_state(m)["version"] == "1.0.0" and m.eval("return DisasterZoneTestNew") is None
         assert m.eval("return ns.Util.PATCH_MARK") is None
         w.assert_no_errors()
 
@@ -415,7 +415,7 @@ def revoke_puts_the_publishers_copy_back_too():
         set_version(sb.addon, "1.0.2")
         sb.run("patch")
         write(sb.addon, "Core/Util.lua", pristine["Core/Util.lua"])
-        write(sb.addon, "CDLoot.toc", pristine["CDLoot.toc"])
+        write(sb.addon, "DisasterZone.toc", pristine["DisasterZone.toc"])
         sb.run("patch")                                                       # builds the take-back by itself
         log = json.load(open(log_path, encoding="utf-8"))
         assert [(e["seq"], e["revoke"], e["version"]) for e in log] == \
@@ -441,16 +441,16 @@ def selftest_runs_the_whole_addon_from_the_store_on_the_development_copy():
         dev = Client(w, "Dev", addon_dir=sb.addon, guild_rank=0)
         dev.load_addon()
         w.tick(2)
-        dev.slash("/cdl publish")
+        dev.slash("/dz publish")
         w.run_until(lambda: any("published update 1.0.0-selftest" in l for l in dev.chat_frame), timeout=300)
         assert boot_state(dev)["applied"] is None
-        dev.slash("/cdlpatch try")
+        dev.slash("/dzpatch try")
         dev.relog()
         w.tick(3)
         s = boot_state(dev)
         assert s["state"] == "applied" and s["applied"]["files"] == n_files and s["version"] == "1.0.0-selftest", s
         assert s["init"] and s["loggedIn"] and s["errors"] == 0
-        lines = dev.eval_py("return CDLootBoot.StatusLines()")
+        lines = dev.eval_py("return DisasterZoneBoot.StatusLines()")
         assert any("running an in-game update: 1.0.0-selftest" in l for l in lines), lines
         dev.relog()
         w.tick(3)

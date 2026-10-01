@@ -111,7 +111,7 @@ def roll_basic_flow_raid_wide():
 
     ann = [e for e in w.chat_log[chat0:] if "Roll for" in e["text"]]
     assert len(ann) == 1 and ann[0]["sender"] == key("Alice") and ann[0]["chat_type"] == "RAID", ann
-    assert strip_codes(ann[0]["text"]).startswith("CDLoot: Roll for [Ruby Drape of the Mysticant] now") and "(30s)" in ann[0]["text"]
+    assert strip_codes(ann[0]["text"]).startswith("DisasterZone: Roll for [Ruby Drape of the Mysticant] now") and "(30s)" in ann[0]["text"]
     assert len(ann[0]["text"].encode("utf-8")) <= 255
 
     click_roll(r, "Bob", 54)
@@ -250,9 +250,9 @@ def tie_handling():
         if b:IsShown() and b.itemID == %d then return b.reroll end end""" % HELM_CHAMPION)
     r["Alice"].click(reroll)
     w.tick(0.2)
-    # CDLoot 0.5: a re-roll that discards rolls asks first
-    assert r["Alice"].popups() == ["CDLOOT_REROLL"], r["Alice"].popups()
-    r["Alice"].accept_popup("CDLOOT_REROLL")
+    # DisasterZone 0.5: a re-roll that discards rolls asks first
+    assert r["Alice"].popups() == ["DISASTERZONE_REROLL"], r["Alice"].popups()
+    r["Alice"].accept_popup("DISASTERZONE_REROLL")
     w.tick(1)
     act = active_session(r["Alice"])
     assert act and act["i"] == HELM_CHAMPION and act["id"] != sid, act
@@ -380,7 +380,7 @@ def same_item_twice_two_separate_rolls():
     r["Alice"].close_loot()
     r["Alice"].eval("ns.Roll:Award(...)", s1["id"], key("Erin"))
     w.tick(0.2)
-    r["Alice"].accept_popup("CDLOOT_CONFIRM_AWARD")
+    r["Alice"].accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(3)
     s2 = active_session(r["Alice"])
     assert s2 and s2["c"] == 2 and s2["i"] == HELM_CHAMPION and s2["id"] != s1["id"], s2
@@ -490,7 +490,7 @@ def starter_leaves_raid_others_close_by_fallback():
     # the ML (council) can still award it
     r["Alice"].eval("ns.Roll:Award(...)", sid, key("Dave"))
     w.tick(0.2)
-    assert "CDLOOT_GIVE_ITEM" in r["Alice"].popups(), r["Alice"].popups()
+    assert "DISASTERZONE_GIVE_ITEM" in r["Alice"].popups(), r["Alice"].popups()
     w.assert_no_errors()
 
 
@@ -520,7 +520,7 @@ def reload_mid_roll_raider_and_starter():
     # Bob (council) awards through the confirm popup
     r["Bob"].eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    r["Bob"].accept_popup("CDLOOT_CONFIRM_AWARD")
+    r["Bob"].accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(2)
     assert session_info(r["Carol"], sid)["state"] == "awarded"
     assert r["Alice"].eval("return ns.Roll:Get(...) == nil", sid)
@@ -543,7 +543,7 @@ def starter_reload_then_restarts_same_roll():
     A.relog()
     install_probes([A])
     w.tick(2)
-    A.slash("/cdl drops")
+    A.slash("/dz drops")
     w.tick(0.5)
     panel_start(A, RUBY_DRAPE)
     w.tick(1)
@@ -561,7 +561,7 @@ def starter_reload_then_restarts_same_roll():
     assert res[0]["key"] == key("Bob") and res[0]["suggested"], res
     A.eval("ns.Roll:Award(...)", new, key("Bob"))
     w.tick(0.2)
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")      # the reload closed the loot window
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")      # the reload closed the loot window
     w.tick(2)
     assert set(states(r, new).values()) == {"awarded"}, states(r, new)
     assert strip_codes(rollframe_state(r["Bob"])["status"]).startswith("You won"), rollframe_state(r["Bob"])
@@ -574,7 +574,7 @@ def slash_roll_with_item_link_uses_recent_drop():
     w = r.w
     A = r["Alice"]
     link = A.eval("return ns.ItemDB:GetLink(%d)" % THOUSAND_MARKS)
-    A.slash("/cdl roll " + link)
+    A.slash("/dz roll " + link)
     w.tick(1)
     act = active_session(A)
     assert act and act["i"] == THOUSAND_MARKS and act["s"] == PRINCE_GUID and act["c"] == 1, act
@@ -582,10 +582,10 @@ def slash_roll_with_item_link_uses_recent_drop():
         assert (active_session(r[n]) or {}).get("id") == act["id"], n
     blk = [b for b in panel_blocks(r["Bob"]) if b["item"] == THOUSAND_MARKS][0]
     assert "Rolling" in strip_codes(blk["sub"]), blk
-    A.slash("/cdl roll end")
+    A.slash("/dz roll end")
     w.tick(1)
     assert set(states(r, act["id"]).values()) == {"closed"}
-    r["Carol"].slash("/cdl roll " + link)       # not allowed for a raider
+    r["Carol"].slash("/dz roll " + link)       # not allowed for a raider
     w.tick(1)
     assert all(active_session(r[n]) is None for n in ADDON_USERS)
     w.assert_no_errors()

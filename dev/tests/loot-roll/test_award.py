@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Loot-roll area, part 4: awarding a roll (Addendum A §19.1 "Award", §19.4 master-loot give, §20 demo isolation).
 
-ML with the loot window open -> CDLOOT_GIVE_ITEM -> GiveMasterLoot to the right candidate -> loot message ->
-ledger; non-ML award -> CDLOOT_CONFIRM_AWARD; RW propagation and the winner's "You won"; raid announce lines
+ML with the loot window open -> DISASTERZONE_GIVE_ITEM -> GiveMasterLoot to the right candidate -> loot message ->
+ledger; non-ML award -> DISASTERZONE_CONFIRM_AWARD; RW propagation and the winner's "You won"; raid announce lines
 (text + 255-byte limit); the master-loot candidate list arriving late (OPEN_MASTER_LOOT_LIST); races; demo mode.
 
 Run: luaenv\\Scripts\\python.exe tests\\loot-roll\\test_award.py   [-k substring]
@@ -55,10 +55,10 @@ def ml_give_via_master_loot_full_flow():
     log0, chat0 = len(w.addon_log), len(w.chat_log)
     A.eval("ns.DropPanel:AwardRoll(...)", sid, key("Bob"))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_GIVE_ITEM"], A.popups()
+    assert A.popups() == ["DISASTERZONE_GIVE_ITEM"], A.popups()
     txt = strip_codes(popups_log(A)[-1]["text"])
     assert txt == "Give [Ruby Drape of the Mysticant] to Bob?", txt
-    A.accept_popup("CDLOOT_GIVE_ITEM")
+    A.accept_popup("DISASTERZONE_GIVE_ITEM")
     w.tick(2)
 
     gives = A.eval_py("return __LR.gives")
@@ -84,7 +84,7 @@ def ml_give_via_master_loot_full_flow():
 
     lines = award_lines(w, chat0)
     assert len(lines) == 1 and lines[0]["sender"] == key("Alice") and lines[0]["chat_type"] == "RAID", lines
-    assert strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Bob (rolled 54, BiS)", lines[0]
+    assert strip_codes(lines[0]["text"]) == "DisasterZone: [Ruby Drape of the Mysticant] -> Bob (rolled 54, BiS)", lines[0]
     assert all(len(e["text"].encode("utf-8")) <= 255 for e in w.chat_log), [len(e["text"].encode()) for e in w.chat_log]
 
     blk = [b for b in panel_blocks(A) if b["item"] == RUBY_DRAPE][0]
@@ -112,7 +112,7 @@ def ml_give_to_player_without_addon():
     assert res[0]["key"] == key("Yuri") and res[0]["suggested"], res
     A.eval("ns.DropPanel:AwardSuggested(...)", A.eval("for _, b in ipairs(ns.DropPanel.blocks) do if b.itemID == %d then return b end end" % MINDBLADE))
     w.tick(0.2)
-    A.accept_popup("CDLOOT_GIVE_ITEM")
+    A.accept_popup("DISASTERZONE_GIVE_ITEM")
     w.tick(2)
     gives = A.eval_py("return __LR.gives")
     assert len(gives) == 1 and gives[0]["name"] == "Yuri", gives
@@ -130,10 +130,10 @@ def non_ml_council_award_uses_confirm_popup():
     log0, chat0 = len(w.addon_log), len(w.chat_log)
     B.eval("ns.DropPanel:AwardRoll(...)", sid, key("Dave"))
     w.tick(0.2)
-    assert B.popups() == ["CDLOOT_CONFIRM_AWARD"], B.popups()
+    assert B.popups() == ["DISASTERZONE_CONFIRM_AWARD"], B.popups()
     txt = strip_codes(popups_log(B)[-1]["text"])
     assert txt.startswith("Award [Ruby Drape of the Mysticant] to Dave?") and "master loot or trade" in txt, txt
-    B.accept_popup("CDLOOT_CONFIRM_AWARD")
+    B.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(2)
     assert A.eval_py("return __LR.gives") == [], "nothing is handed out by a non-ML"
     RW = msgs_of_type(w, "RW", log0)
@@ -147,7 +147,7 @@ def non_ml_council_award_uses_confirm_popup():
         assert [(e["w"], e["s"], e["n"]) for e in vis] == [(key("Dave"), "m", "roll 80")], (n, vis)
     lines = award_lines(w, chat0)
     assert len(lines) == 1 and lines[0]["sender"] == key("Bob"), lines
-    assert strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (rolled 80, Alt)", lines
+    assert strip_codes(lines[0]["text"]) == "DisasterZone: [Ruby Drape of the Mysticant] -> Dave (rolled 80, Alt)", lines
     # the ML later hands the item out by hand: the loot message adds a hidden auto entry, still one visible award
     A.eval("GiveMasterLoot(1, ...)", 4)        # candidate 4 = Dave
     w.tick(2)
@@ -167,8 +167,8 @@ def award_while_open_closes_first_and_cancel_keeps_it_closed():
     w.tick(0.5)
     assert [m["id"] for m in msgs_of_type(w, "RE", log0)] == [sid]
     assert set(states(r, sid).values()) == {"closed"}, states(r, sid)
-    assert A.popups() == ["CDLOOT_GIVE_ITEM"]
-    A.cancel_popup("CDLOOT_GIVE_ITEM")
+    assert A.popups() == ["DISASTERZONE_GIVE_ITEM"]
+    A.cancel_popup("DISASTERZONE_GIVE_ITEM")
     w.tick(1)
     assert set(states(r, sid).values()) == {"closed"} and msgs_of_type(w, "RW", log0) == []
     assert ledger_raw(A) == []
@@ -198,7 +198,7 @@ def ml_award_to_player_not_eligible_falls_back_to_confirm():
     w.tick(1)
     A.eval("ns.Roll:Award(...)", sid, key("Frank"))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_CONFIRM_AWARD"], A.popups()
+    assert A.popups() == ["DISASTERZONE_CONFIRM_AWARD"], A.popups()
     assert any("not eligible" in l for l in printed_lines(A)), printed_lines(A)[-3:]
     assert A.eval_py("return __LR.gives") == []
     w.assert_no_errors()
@@ -233,8 +233,8 @@ def ml_give_waits_for_master_loot_list():
     sid = rolled_session(r)
     A.eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_GIVE_ITEM"], A.popups()
-    A.accept_popup("CDLOOT_GIVE_ITEM")
+    assert A.popups() == ["DISASTERZONE_GIVE_ITEM"], A.popups()
+    A.accept_popup("DISASTERZONE_GIVE_ITEM")
     w.tick(2)
     assert A.eval("return __LR.clicks") == 1
     gives = A.eval_py("return __LR.gives")
@@ -255,12 +255,12 @@ def ml_give_list_never_opens_times_out_to_confirm():
     sid = rolled_session(r)
     A.eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    A.accept_popup("CDLOOT_GIVE_ITEM")
+    A.accept_popup("DISASTERZONE_GIVE_ITEM")
     w.tick(6)
     assert A.eval_py("return __LR.gives") == []
-    assert "CDLOOT_CONFIRM_AWARD" in A.popups(), A.popups()
+    assert "DISASTERZONE_CONFIRM_AWARD" in A.popups(), A.popups()
     assert any("timed out" in l for l in printed_lines(A)), printed_lines(A)[-3:]
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(1)
     assert session_info(r["Bob"], sid)["state"] == "awarded" and session_info(A, sid)["given"] is False
     w.assert_no_errors()
@@ -276,7 +276,7 @@ def ml_closed_loot_window_uses_confirm_popup():
     w.tick(0.5)
     A.eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_CONFIRM_AWARD"], A.popups()
+    assert A.popups() == ["DISASTERZONE_CONFIRM_AWARD"], A.popups()
     w.assert_no_errors()
 
 
@@ -288,7 +288,7 @@ def second_award_of_same_roll_refused():
     sid = rolled_session(r)
     B.eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    B.accept_popup("CDLOOT_CONFIRM_AWARD")
+    B.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(1)
     assert not r["Alice"].eval("return ns.Roll:Award(...)", sid, key("Dave"))
     assert r["Alice"].popups() == []
@@ -309,8 +309,8 @@ def simultaneous_awards_by_two_council_members_agree():
     A.eval("ns.Roll:Award(...)", sid, key("Bob"))
     B.eval("ns.Roll:Award(...)", sid, key("Dave"))
     w.tick(0.05)
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")
-    B.accept_popup("CDLOOT_CONFIRM_AWARD")
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")
+    B.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(2)
     winners = {n: session_info(r[n], sid)["winner"] for n in ADDON_USERS}
     assert len(set(winners.values())) == 1, "clients disagree on the winner: %r" % winners
@@ -338,7 +338,7 @@ def handed_out_before_confirming_keeps_bis_winner():
         "after the item was handed to Bob the suggestion moved to %r: %r" % (res[0]["key"], res)
     A.eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(1)
     lines = award_lines(w, chat0)
     assert lines and strip_codes(lines[-1]["text"]).endswith("(rolled 54, BiS)"), [strip_codes(e["text"]) for e in lines]
@@ -355,7 +355,7 @@ def non_council_master_looter_suggestion_follows_bis_tiers():
     F.open_loot([(RUBY_DRAPE, 4)])
     w.tick(2)
     assert F.eval("return ns.Roll:CanStart() and ns.Roll:CanAward()")
-    F.slash("/cdl drops")
+    F.slash("/dz drops")
     w.tick(0.5)
     F.eval("ns.DropPanel:StartRoll(...)", RUBY_DRAPE, 1)
     w.tick(1)
@@ -381,7 +381,7 @@ def non_council_master_looter_award_reaches_the_award_log():
     F = r["Frank"]
     F.open_loot([(RUBY_DRAPE, 4)])
     w.tick(2)
-    F.slash("/cdl drops")                       # not council: the panel does not open by itself
+    F.slash("/dz drops")                       # not council: the panel does not open by itself
     w.tick(0.5)
     F.eval("ns.DropPanel:StartRoll(...)", RUBY_DRAPE, 1)
     w.tick(1)
@@ -393,7 +393,7 @@ def non_council_master_looter_award_reaches_the_award_log():
     w.tick(1)
     F.eval("ns.Roll:Award(...)", sid, key("Bob"))
     w.tick(0.2)
-    F.accept_popup("CDLOOT_CONFIRM_AWARD")
+    F.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(3)
     assert session_info(r["Alice"], sid)["state"] == "awarded" and session_info(r["Alice"], sid)["winner"] == key("Bob")
     for n in ("Alice", "Bob"):
@@ -413,14 +413,14 @@ def announce_lines_stay_within_255_bytes():
     lines = [e for e in w.chat_log[chat0:] if e["sender"] == key("Alice")]
     assert len(lines) == 4, [strip_codes(e["text"]) for e in lines]
     txt = [strip_codes(e["text"]) for e in lines]
-    assert txt[0] == "CDLoot: [Ruby Drape of the Mysticant] - BiS: Bob; Alt: Dave", txt
-    assert txt[2] == "CDLoot: [Helm of the Fallen Champion] - BiS: Alice, Erin, Gina", txt
+    assert txt[0] == "DisasterZone: [Ruby Drape of the Mysticant] - BiS: Bob; Alt: Dave", txt
+    assert txt[2] == "DisasterZone: [Helm of the Fallen Champion] - BiS: Alice, Erin, Gina", txt
     assert "not on anyone's BiS list" in txt[3], txt
     # a very long line with several links is split into <=255-byte chunks without cutting a link
     links = A.eval("local t = {} for _, id in ipairs({...}) do t[#t+1] = ns.ItemDB:GetLink(id) end return table.concat(t, ' and ')",
                    RUBY_DRAPE, THOUSAND_MARKS, HELM_CHAMPION, MINDBLADE, JADE_RING, FARSTRIDER)
     chat1 = len(w.chat_log)
-    A.eval("ns.UI:AnnounceLine(...)", "CDLoot: " + links + " - " + " ".join("Name%d" % i for i in range(30)))
+    A.eval("ns.UI:AnnounceLine(...)", "DisasterZone: " + links + " - " + " ".join("Name%d" % i for i in range(30)))
     w.tick(1)
     chunks = w.chat_log[chat1:]
     assert len(chunks) >= 2, chunks
@@ -444,10 +444,10 @@ def demo_mode_solo_roll_and_award_stay_local():
     install_probes([s])
     w.tick(3)
     log0, chat0 = len(w.addon_log), len(w.chat_log)
-    s.slash("/cdl demo")
+    s.slash("/dz demo")
     w.tick(1)
     assert s.eval("return ns.Demo:IsEnabled()")
-    s.slash("/cdl test")
+    s.slash("/dz test")
     w.tick(1)
     drop = s.eval_py("return ns.DropPanel.drop")
     assert drop and drop["test"], drop
@@ -476,8 +476,8 @@ def demo_mode_solo_roll_and_award_stay_local():
     assert len(sug) == 1 and not sug[0]["invalid"], res
     s.eval("ns.Roll:Award(...)", sid, sug[0]["key"])
     w.tick(0.2)
-    assert s.popups() == ["CDLOOT_CONFIRM_AWARD"], s.popups()
-    s.accept_popup("CDLOOT_CONFIRM_AWARD")
+    assert s.popups() == ["DISASTERZONE_CONFIRM_AWARD"], s.popups()
+    s.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(1)
     assert session_info(s, sid)["state"] == "awarded"
     vis = ledger_visible(s)
@@ -488,14 +488,14 @@ def demo_mode_solo_roll_and_award_stay_local():
     assert bad == [], "demo roll / award traffic was sent: %r" % bad     # the normal guild HELLO is fine
     assert w.chat_log[chat0:] == [], [e["text"] for e in w.chat_log[chat0:]]
     assert any("demo: only shown to you" in l for l in printed_lines(s))
-    s.slash("/cdl demo")
+    s.slash("/dz demo")
     w.tick(1)
     assert not s.eval("return ns.Demo:IsEnabled()")
     assert ledger_visible(s) == [], "demo awards discarded when demo mode ends"
     s.relog()
     w.tick(3)
-    # (CDLootDB only: CDLootPatchDB may hold source code, an in-game update, which names the demo raiders)
-    assert "Aldrin" not in str(w.saved_variables(s).get("CDLootDB")), "no demo data in SavedVariables"
+    # (DisasterZoneDB only: DisasterZonePatchDB may hold source code, an in-game update, which names the demo raiders)
+    assert "Aldrin" not in str(w.saved_variables(s).get("DisasterZoneDB")), "no demo data in SavedVariables"
     w.assert_no_errors()
 
 
@@ -505,10 +505,10 @@ def demo_mode_inside_a_real_raid_sends_nothing():
     w = r.w
     A = r["Alice"]
     ledger_before = ledger_raw(A)
-    A.slash("/cdl demo")
+    A.slash("/dz demo")
     w.tick(1)
     log0, chat0 = len(w.addon_log), len(w.chat_log)
-    A.slash("/cdl test")
+    A.slash("/dz test")
     w.tick(1)
     drop = A.eval_py("return ns.DropPanel.drop")
     item = drop["i"][0]
@@ -520,7 +520,7 @@ def demo_mode_inside_a_real_raid_sends_nothing():
     sug = [x for x in results(A, sid) if x["suggested"]]
     A.eval("ns.Roll:Award(...)", sid, sug[0]["key"])
     w.tick(0.2)
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(2)
     sent = [e for e in w.addon_log[log0:] if e["sender"] == key("Alice") and e["prefix"].startswith("CDL")]
     kinds = [decode_msg(A, e["text"]) for e in sent]

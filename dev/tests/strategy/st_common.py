@@ -71,6 +71,6 @@ FULL_STARTERS = open(os.path.join(HERE, "full_starters.lua"), encoding="utf-8").
 def open_full_starter(cl, ref, name="25 standard"):
     """Opens a boss' full plan (full_starters.lua) as an unsaved draft on the board, the way New strategy opens the
     boss' starter."""
-    cl.eval("local src, ref, name = ...; local fake = { Data = {} }; assert(loadstring(src))('CDLoot', fake); "
+    cl.eval("local src, ref, name = ...; local fake = { Data = {} }; assert(loadstring(src))('DisasterZone', fake); "
             "ns.Data.StarterStrategies[ref] = fake.Data.StarterStrategies[ref]; ns.StrategyBoard:NewStrategy(ref, name)",
             FULL_STARTERS, ref, name)

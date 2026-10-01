@@ -32,7 +32,7 @@ def game():
     c.eval("ns.Azero:NewGame() ns.Azero.clockHour = 12")
     c.eval("ns.Azero.save.party = { ns.AzeroMon.New('murkling', 30, ns.Azero.rng) }")
     c.eval("ns.AzeroSound._Reset() ns.Azero:Data().music = nil ns.Azero:Data().sfx = nil")
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     return w, c
 

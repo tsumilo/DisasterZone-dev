@@ -56,7 +56,7 @@ def cleu_g(cl, sub, src_guid, src, dst_guid, dst, *params):
 
 
 def start(w, c, host="Lee"):
-    c[host].slash("/cdl bingo start")
+    c[host].slash("/dz bingo start")
     w.tick(2)
     return c[host]
 
@@ -105,7 +105,7 @@ def score_counts_lines_and_the_free_centre():
 def hub_lists_bingo_and_play_opens_the_tab():
     w, c = solo("Alice", tick=2)
     assert c.eval("return ns.Games:Get('bingo') ~= nil")
-    c.slash("/cdl play bingo")
+    c.slash("/dz play bingo")
     w.tick(0.2)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "games"
     assert c.eval("return ns.Games:SubmitScore('bingo', 7)") is True
@@ -117,7 +117,7 @@ def hub_lists_bingo_and_play_opens_the_tab():
 @case
 def solo_practice_game_marks_own_squares():
     w, c = solo("Alice", tick=2)
-    c.slash("/cdl bingo start")
+    c.slash("/dz bingo start")
     w.tick(0.5)
     assert c.eval("return ns.Bingo:IsActive() and ns.Bingo:IsHost()")
     w.player_roll("Alice", value=100)
@@ -132,11 +132,11 @@ def solo_practice_game_marks_own_squares():
 def only_leader_or_assistant_can_start():
     w, c = raid(assistants=("Rita",))
     n0 = len(c["Sam"].printed)
-    c["Sam"].slash("/cdl bingo start")
+    c["Sam"].slash("/dz bingo start")
     w.tick(2)
     assert not c["Sam"].eval("return ns.Bingo:IsActive()")
     assert any("only the raid leader" in l for l in said(c["Sam"], n0))
-    c["Rita"].slash("/cdl bingo start")
+    c["Rita"].slash("/dz bingo start")
     w.tick(2)
     for n in ("Lee", "Rita", "Sam", "Bob"):
         assert c[n].eval("return ns.Bingo:IsActive()"), n
@@ -147,7 +147,7 @@ def only_leader_or_assistant_can_start():
 @case
 def host_detects_and_everyone_sees_the_hits():
     w, c = raid()
-    c["Lee"].slash("/cdl bingo start")
+    c["Lee"].slash("/dz bingo start")
     w.tick(2)
     # trash death (host only sees it: detection runs on the host alone)
     cleu(c["Lee"], "UNIT_DIED")
@@ -166,7 +166,7 @@ def host_detects_and_everyone_sees_the_hits():
 @case
 def encounters_wipes_and_kills():
     w, c = raid()
-    c["Lee"].slash("/cdl bingo start")
+    c["Lee"].slash("/dz bingo start")
     w.tick(2)
     w.encounter(652, "Attumen", success=False)
     w.tick(1)
@@ -184,7 +184,7 @@ def encounters_wipes_and_kills():
 @case
 def non_host_never_detects_on_its_own():
     w, c = raid()
-    c["Lee"].slash("/cdl bingo start")
+    c["Lee"].slash("/dz bingo start")
     w.tick(2)
     cleu(c["Sam"], "UNIT_DIED")
     c["Sam"].fire("CHAT_MSG_SYSTEM", "Sam rolls 1 (1-100)")
@@ -196,7 +196,7 @@ def non_host_never_detects_on_its_own():
 @case
 def forged_state_from_a_plain_raider_is_ignored():
     w, c = raid()
-    c["Lee"].slash("/cdl bingo start")
+    c["Lee"].slash("/dz bingo start")
     w.tick(2)
     c["Sam"].eval("ns.Comm:Send({ t = 'BG', g = ns.Bingo:GetGame().id, h = { 'drown' } }, 'RAID')")
     c["Sam"].eval("ns.Comm:Send({ t = 'BG', g = 'fake', h = { 'drown' } }, 'RAID')")
@@ -209,7 +209,7 @@ def forged_state_from_a_plain_raider_is_ignored():
 @case
 def first_bingo_is_announced_once_and_counted():
     w, c = raid()
-    c["Lee"].slash("/cdl bingo start")
+    c["Lee"].slash("/dz bingo start")
     w.tick(2)
     # the host marks Rita's whole middle row
     c["Lee"].eval("local card = ns.Bingo:GetCard(...); for i = 11, 15 do if card[i] ~= 'FREE' then ns.Bingo:Hit(card[i]) end end",
@@ -227,12 +227,12 @@ def first_bingo_is_announced_once_and_counted():
 @case
 def stop_ends_the_game_everywhere():
     w, c = raid()
-    c["Lee"].slash("/cdl bingo start")
+    c["Lee"].slash("/dz bingo start")
     w.tick(2)
-    c["Sam"].slash("/cdl bingo stop")
+    c["Sam"].slash("/dz bingo stop")
     w.tick(1)
     assert c["Lee"].eval("return ns.Bingo:IsActive()"), "only the host can stop"
-    c["Lee"].slash("/cdl bingo stop")
+    c["Lee"].slash("/dz bingo stop")
     w.tick(2)
     for n in ("Lee", "Sam"):
         assert not c[n].eval("return ns.Bingo:IsActive()"), n
@@ -242,7 +242,7 @@ def stop_ends_the_game_everywhere():
 @case
 def reload_resumes_the_game():
     w, c = raid()
-    c["Lee"].slash("/cdl bingo start")
+    c["Lee"].slash("/dz bingo start")
     w.tick(2)
     c["Lee"].eval("ns.Bingo:Hit('wipe')")
     w.tick(1)
@@ -257,7 +257,7 @@ def reload_resumes_the_game():
 @case
 def bingo_ignores_loot_and_council_messages():
     w, c = raid()
-    c["Lee"].slash("/cdl bingo start")
+    c["Lee"].slash("/dz bingo start")
     w.tick(2)
     for msg in ("DROP", "LEDGER_UPDATED", "ROLL_UPDATED", "ROLL_STARTED"):
         c["Lee"].eval("ns:Fire(...)", msg)
@@ -497,7 +497,7 @@ WS = "local W = ns.BingoUI:GetWidgets(); "
 
 
 def open_card(w, cl):
-    cl.slash("/cdl play bingo")
+    cl.slash("/dz play bingo")
     w.tick(0.3)
     assert cl.eval(WS + "return W.panel:IsVisible()")
 
@@ -543,7 +543,7 @@ def card_ui_stamps_lines_and_slam():
 @case
 def dauber_choice_changes_the_stamp_and_the_card_fits():
     w, c = solo("Alice", tick=2)
-    c.slash("/cdl bingo start")
+    c.slash("/dz bingo start")
     w.tick(0.5)
     open_card(w, c)
     c.eval("local card = ns.Bingo:GetMyCard(); ns.Bingo:Hit(card[1])")

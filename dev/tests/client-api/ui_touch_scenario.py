@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Scratch: load CDLoot in the mock, open every tab / menu / popup path, and print the mock's report of
+"""Scratch: load DisasterZone in the mock, open every tab / menu / popup path, and print the mock's report of
 unknown template fields, unknown widget methods and missing globals (hints for the client-API audit)."""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -16,13 +16,13 @@ w.make_raid([alice, bob], master_looter=alice)
 w.enter_instance("Karazhan", 532)
 w.encounter(652, "Attumen the Huntsman")
 for key in ("mybis", "council", "loot", "settings"):
-    alice.slash("/cdl " + {"mybis": "", "council": "council", "loot": "log", "settings": "settings"}[key])
+    alice.slash("/dz " + {"mybis": "", "council": "council", "loot": "log", "settings": "settings"}[key])
     w.tick(0.5)
 alice.open_loot([(28477, 4), (28453, 4)])
 w.tick(1)
-alice.slash("/cdl test")
+alice.slash("/dz test")
 w.tick(1)
-alice.slash("/cdl drops")
+alice.slash("/dz drops")
 w.tick(1)
 alice.show_tooltip_item(28477)
 w.tick(0.5)

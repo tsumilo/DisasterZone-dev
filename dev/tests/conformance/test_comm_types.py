@@ -9,7 +9,7 @@ import sys
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ADDON = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "addon", "CDLoot")
+ADDON = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "addon", "DisasterZone")
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "boot-ui"))
 
 from _common import case, run_all  # noqa: E402

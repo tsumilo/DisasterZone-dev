@@ -1,1 +1,1 @@
-Research data sources, client API, UX patterns and sync design for the CDLoot TBC loot-council addon
+Research data sources, client API, UX patterns and sync design for the DisasterZone TBC loot-council addon

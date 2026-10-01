@@ -1,4 +1,4 @@
-"""Shared setup for the loot-roll scenario tests (CDLoot, real addon code, mocked multi-client WoW).
+"""Shared setup for the loot-roll scenario tests (DisasterZone, real addon code, mocked multi-client WoW).
 
 Not a test file itself. Every test_*.py in this folder imports it:
     from lr_common import *
@@ -43,7 +43,7 @@ FALTERED_ROBES = 34233      # M'uru drop (cloth robe), Sunmote upgrade base
 GHOSTLY_ROBES = 34399       # upgraded (Robes of Faltered Light + Sunmote)
 HARBINGER_BANDS = 28477     # Attumen
 
-# CDLoot slot ids
+# DisasterZone slot ids
 SID_HEAD, SID_NECK, SID_BACK, SID_CHEST = 1, 2, 4, 5
 SID_RING1, SID_RING2, SID_MH = 11, 12, 15
 
@@ -187,7 +187,7 @@ class Raid:
             cl.eval("ns.BiS:Commit()")
         self.w.tick(1)
         for cl in self.c.values():
-            cl.slash("/cdl sync")
+            cl.slash("/dz sync")
             self.w.tick(0.3)
         self.w.tick(seconds)
 
@@ -375,7 +375,7 @@ def popups_log(client):
 
 
 def msgs_of_type(w, t, start=0):
-    """Decode CDLoot comm messages (prefix CDL*) of type t sent since addon_log index `start`, using a client's
+    """Decode DisasterZone comm messages (prefix CDL*) of type t sent since addon_log index `start`, using a client's
     own LibDeflate/LibSerialize (any loaded client works)."""
     out = []
     dec = None

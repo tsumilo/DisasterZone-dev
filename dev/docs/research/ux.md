@@ -1,6 +1,6 @@
-# CDLoot: reference addon study and proposed UX
+# DisasterZone: reference addon study and proposed UX
 
-**Can we build this? Yes.** Every piece CDLoot needs is already shown working in an addon installed on this client:
+**Can we build this? Yes.** Every piece DisasterZone needs is already shown working in an addon installed on this client:
 
 - **Picking items:** a picker that browses raid, then boss, then item (LootReserve, AtlasLoot).
 - **Paper-doll gear view:** TehBoxLootCouncil's player profile.
@@ -268,7 +268,7 @@ sliccNote:RECslot(bis, "30728", "1")   -- itemID, rank within its slot
 
 ### 1.8 Client API confirmations from other installed addons
 
-These are features other addons on this client already use, so CDLoot can rely on them:
+These are features other addons on this client already use, so DisasterZone can rely on them:
 
 | Feature | Confirmed by |
 |---|---|
@@ -284,7 +284,7 @@ These are features other addons on this client already use, so CDLoot can rely o
 
 ---
 
-## 2. LoonBestInSlot guide format and how CDLoot can use it for templates
+## 2. LoonBestInSlot guide format and how DisasterZone can use it for templates
 
 ### Load path
 1. `Guides/Guides.xml` includes one file per spec, for 25 specs.
@@ -351,10 +351,10 @@ The spec ID is `Spec..Class` (for example `"HolyPaladin"`), with no phase.
 
 ### Recommended integration: runtime capture with Loon as an optional dependency
 
-Loon ships no license file, so reading its data at runtime is cleaner than copying it into CDLoot:
+Loon ships no license file, so reading its data at runtime is cleaner than copying it into DisasterZone:
 
 ```lua
--- CDLoot.toc: ## OptionalDeps: LoonBestInSlot
+-- DisasterZone.toc: ## OptionalDeps: LoonBestInSlot
 local function CaptureLoonGuide(fnName)           -- e.g. "LoadPaladinHoly"
   local L = LBIS; if not (L and L[fnName]) then return end
   local saved = { L.RegisterSpec, L.AddItem, L.AddGem, L.AddEnchant }
@@ -371,7 +371,7 @@ local function CaptureLoonGuide(fnName)           -- e.g. "LoadPaladinHoly"
 end
 ```
 
-**Turning a captured phase into a CDLoot template**
+**Turning a captured phase into a DisasterZone template**
 
 For each slot key, walk the entries in file order:
 - **Normal slots:** the primary is the first entry whose rank starts with `BIS`. The next 2-3 entries become alternates.
@@ -411,11 +411,11 @@ Fallback sources:
 
 ---
 
-## 4. Proposed UX for CDLoot
+## 4. Proposed UX for DisasterZone
 
 ### 4.0 Window and navigation
-- **Opening it:** `/cdl`, plus a minimap/LDB button via LibDBIcon (Loon and TehBox bundle it).
-- **Main window:** `ButtonFrameTemplate`, base size **660×520**, resizable up to 1000×760 (the Council view gains larger cells). Portrait is the class icon (or CDLoot icon); ESC-closable via `UISpecialFrames`; position saved.
+- **Opening it:** `/dz`, plus a minimap/LDB button via LibDBIcon (Loon and TehBox bundle it).
+- **Main window:** `ButtonFrameTemplate`, base size **660×520**, resizable up to 1000×760 (the Council view gains larger cells). Portrait is the class icon (or DisasterZone icon); ESC-closable via `UISpecialFrames`; position saved.
 - **Bottom tabs** (`CharacterFrameTabButtonTemplate`): **My BiS** | **Council**¹ | **Loot Table**¹ | **Settings**.
   - ¹ Shown only to loot council members. Whether regular raiders get a read-only version is an open question (section 5).
 
@@ -531,7 +531,7 @@ It uses `BasicFrameTemplateWithInset` and keeps the paper doll visible.
 - **Search:**
   - 0.25s debounce, 3+ characters or an item ID.
   - Matches item names and boss/raid names (LootReserve).
-  - Covers the CDLoot raid DB, not the whole game item list.
+  - Covers the DisasterZone raid DB, not the whole game item list.
   - Non-raid items enter via Shift-click (the `InsertLink` hook, active only while the box has focus) or by dragging from bags, and are tagged with source "Other".
 - **Row actions:**
   - Click: set as primary.
@@ -578,7 +578,7 @@ It uses `BasicFrameTemplateWithInset` and keeps the paper doll visible.
   - Picked item the member can't use: red corner.
 - **Raid or boss filter:** cells whose item drops there get a 1px gold border, and all other cells dim to 0.35 (AtlasLoot's dimming). This instantly answers "who needs something from Prince?"
 - **Interactions:**
-  - Hover a cell: item tooltip plus a CDLoot footer showing primary or alt rank, obtained source, the member's note, and when that slot was last changed.
+  - Hover a cell: item tooltip plus a DisasterZone footer showing primary or alt rank, obtained source, the member's note, and when that slot was last changed.
   - Click a cell: jump to the Items view focused on that item.
   - Click a name: open Member detail.
   - Click a column header: sort by "needs this slot".
@@ -623,13 +623,13 @@ It uses `BasicFrameTemplateWithInset` and keeps the paper doll visible.
 
 **Pipeline**
 1. `ENCOUNTER_END` marks the current boss, using TehBox's alias map.
-2. When a CDLoot user (ideally the master looter or raid leader) opens the corpse (`LOOT_READY`), read the slots:
+2. When a DisasterZone user (ideally the master looter or raid leader) opens the corpse (`LOOT_READY`), read the slots:
    - Use quality from the 5th return of `GetLootSlotInfo` (Raidify).
    - Use `GetLootSourceInfo(slot)` → npcID → boss.
    - Guard against empty links (LootReserve).
 3. Broadcast `DROP{boss, itemIDs}` to RAID. Deduplicate by corpse GUID.
-4. Fallback when no looter runs CDLoot: `CHAT_MSG_LOOT`, which creates a "received by X" entry.
-5. Manual paths: Alt-click a loot button (TehBox), or `/cdl drop <shift-click>`.
+4. Fallback when no looter runs DisasterZone: `CHAT_MSG_LOOT`, which creates a "received by X" entry.
+5. Manual paths: Alt-click a loot button (TehBox), or `/dz drop <shift-click>`.
 
 **Council popup (320px wide, height fits content up to a 460px maximum, then scrolls)**
 
@@ -656,7 +656,7 @@ It uses `BasicFrameTemplateWithInset` and keeps the paper doll visible.
 - **Obtained** claims are hidden by default. A ⚙ toggle shows them grey with ✓.
 - **Each row shows:** presence dot, 12px class icon, class-colored name, spec as a word, a [BiS]/[alt] badge, and "won N tonight" (from `CHAT_MSG_LOOT`). Optional: attendance %.
 - **Announce** sends one line per item to RAID, or RAID_WARNING for leader/assist (configurable):
-  - Example: `CDLoot: [Helm of the Fallen Champion] BiS: Tehlo, Arwen · alt: Sneaky`
+  - Example: `DisasterZone: [Helm of the Fallen Champion] BiS: Tehlo, Arwen · alt: Sneaky`
   - Rate-limited. **Link** puts the item link in chat.
 - **Placement**, set in Settings:
   - **Attach to loot window** is the default for whoever is looting: TOPLEFT anchored to `LootFrame` TOPRIGHT +4, following it.
@@ -682,15 +682,15 @@ It uses `BasicFrameTemplateWithInset` and keeps the paper doll visible.
 Hooked like LootReserve and Loon: `OnTooltipSetItem` on GameTooltip, ItemRefTooltip and the shopping tooltips, with Loon's guard against adding lines twice. Results are cached per itemID and cleared on sync.
 
 **Everyone (one or two lines)**
-- Gold "CDLoot: ★ Your BiS — Head (P1)".
-- Or grey "CDLoot: Alternate #2 — Head (P1)".
+- Gold "DisasterZone: ★ Your BiS — Head (P1)".
+- Or grey "DisasterZone: Alternate #2 — Head (P1)".
 - Green "✓ Obtained (equipped)" once you have it.
 - On a token: "Your BiS: Justicar Diadem (via this token)".
 
 **Council members (compact by default, capped at 4 lines; Shift expands)**
 
 ```
-CDLoot · P1 BiS for 3 (2 in raid)
+DisasterZone · P1 BiS for 3 (2 in raid)
   ⚔ Tehlo   Holy Paladin      BiS · needs      ● in raid
   ⛨ Arwen   Prot Paladin      BiS · needs      ● in raid
   ✦ Sneaky  Rogue             alt · needs      ○
@@ -756,6 +756,6 @@ CDLoot · P1 BiS for 3 (2 in raid)
 3. **Alternates:** how many per slot (I'd suggest 2), and do they count as real claims for the council?
 4. **List changes:** should lists lock before raid, or only show "recently changed" markers?
 5. **Loot rules:** is master loot available in TBC Anniversary for your guild, or does one person loot everything and trade it? This decides how drops are detected.
-6. **Scope:** should CDLoot record awards and mark items obtained automatically, or stay purely BiS plus alerts? Voting and awarding are out of scope unless you want them.
+6. **Scope:** should DisasterZone record awards and mark items obtained automatically, or stay purely BiS plus alerts? Voting and awarding are out of scope unless you want them.
 7. **Loon dependency:** OK to rely on LoonBestInSlot being installed for templates, or should we bundle template data (needs the author's permission)?
 8. **Tank lists:** default to Mitigation, Threat or Stamina rankings?

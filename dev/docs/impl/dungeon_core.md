@@ -1,8 +1,8 @@
 The core of Addendum B (dungeon mode, 5-man data) and Addendum C (§23.1/§23.2) is in place. Every existing suite passes, the new tests pass, and check.py shows 0 syntax errors and 0 global writes. Two existing tests needed small updates because of the new setting and slash command.
 
 ## Files changed
-Folder: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
-- **CDLoot.toc**: `Core\Dungeon.lua` added right after `Core\Util.lua`, `Data\Dungeons.lua` right after `Data\Items.lua`.
+Folder: `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone`
+- **DisasterZone.toc**: `Core\Dungeon.lua` added right after `Core\Util.lua`, `Data\Dungeons.lua` right after `Data\Items.lua`.
 - **Core/Dungeon.lua (new, `ns.Dungeon`)**: the dungeon-mode switch.
   - It is a plain table like Util, not a lifecycle module. As a module it would register before DB, and `test_boot` requires ItemDB and DB to be the first two modules.
   - DM send/receive with the gate (sender in my party, and party leader or real council).
@@ -10,7 +10,7 @@ Folder: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
   - Re-sends DM{on=true} 3 s after the party changes.
   - Clears `groupEnabledBy` when I leave the group, the group becomes a raid, or the enabler leaves.
   - Fires `DUNGEON_MODE_CHANGED(active)` and prints the spec line on receipt, at most one line per 5 s per sender.
-  - `/cdl dungeon [on|off|rare|epic|status]`.
+  - `/dz dungeon [on|off|rare|epic|status]`.
 - **Core/Util.lua**: `IsDungeonModeActive`, `GetGroupChannel`, `InPartyInstance`, `UnitKey`, `GetPartyUnit`, `GetGroupRole`.
 - **Core/DB.lua**: default `settings.dungeon = { enabled = false, quality = 3 }`.
 - **Core/Init.lua**: `DUNGEON_MODE_CHANGED` added to the message catalogue.
@@ -25,7 +25,7 @@ Folder: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
   - The 5-man quality threshold applies inside party instances while the mode is active.
   - Every parsed loot line goes to `Roll:OnItemLooted` (guarded) before the council check.
   - Council auto entries are recorded in 5-man instances too, with dg.
-  - `/cdl test` in a 5-man with the mode on simulates a heroic drop of 2–3 items. It uses the current dungeon when the instance ID matches, otherwise a random one.
+  - `/dz test` in a 5-man with the mode on simulates a heroic drop of 2–3 items. It uses the current dungeon when the instance ID matches, otherwise a random one.
   - A real dungeon boss drop becomes the "recent kill", because dungeon bosses have no encounter IDs.
 - **Core/Roll.lua**:
   - All roll messages go on `GetGroupChannel()`. PARTY is accepted only in dungeon mode.
@@ -66,7 +66,7 @@ Folder: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
    - A DM `{q = true}` (after a /reload in a party) asks the enablers to re-send; older clients ignore it.
    - The group switch also clears when the enabler leaves the party.
    - DM{on=false} clears the switch only when it comes from the enabler or the party leader.
-5. **`/cdl test` dungeon choice**: it prefers the current dungeon when the instance ID matches, instead of always picking a random one.
+5. **`/dz test` dungeon choice**: it prefers the current dungeon when the instance ID matches, instead of always picking a random one.
 6. **Wire compatibility**: 0.2 clients already accept D on PARTY, so in a dungeon-mode party they will show the drops. Their Ledger drops the `dg` field.
 7. **Test edits**: `tests/boot-ui/test_boot.py` expects the new `dungeon` default, and `tests/boot-ui/test_slash.py` lists `dungeon` in the subcommands.
 
@@ -89,6 +89,6 @@ Folder: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
 - **loot-roll**: award 17/17, drops 17/17, ledger_auto 9/9, rolls 20/20.
 - **sync**: council_membership 4, demo_isolation 5, ledger_sync 10, sync_flows 18, hostile 13, traffic 2.
 - **New**:
-  - `tests/dungeon/test_dungeon_core.py` 16/16: ItemDB scope/heroic/GUID; DM propagation, gate, re-send, reload query, disband and raid conversion; party D and threshold; party roll → dg ledger entry; `/cdl test`; Merge of dg.
+  - `tests/dungeon/test_dungeon_core.py` 16/16: ItemDB scope/heroic/GUID; DM propagation, gate, re-send, reload query, disband and raid conversion; party D and threshold; party roll → dg ledger entry; `/dz test`; Merge of dg.
   - `tests/loot-roll/test_roll_close_core.py` 10/10: Addendum C cases (a)–(d) plus loot-then-award, wrong-copy reclaim, no second give, open session with the queue, the 15-minute window.
-- Logs: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\out_dungeon\`
+- Logs: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\out_dungeon\`

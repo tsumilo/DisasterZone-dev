@@ -391,9 +391,9 @@ def demo_officers_vote():
     c = Client(w, "Solo", class_file="MAGE", guild_rank=0)
     c.load_addon()
     w.tick(2)
-    c.slash("/cdl demo on")
+    c.slash("/dz demo on")
     w.tick(1)
-    c.slash("/cdl test")
+    c.slash("/dz test")
     w.tick(1)
     item = c.eval("local h = ns.Loot:GetHistory() return h[#h].i[1]")
     c.eval("ns.DropPanel:StartRoll(...)", item, 1)
@@ -519,8 +519,8 @@ def de_button_ml_gives_with_master_loot():
     w.tick(0.5)
     click_block_button(A, MINDBLADE, "bankBtn")
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_GIVE_TARGET"], A.popups()
-    A.accept_popup("CDLOOT_GIVE_TARGET")
+    assert A.popups() == ["DISASTERZONE_GIVE_TARGET"], A.popups()
+    A.accept_popup("DISASTERZONE_GIVE_TARGET")
     w.tick(3)
     assert MINDBLADE in (r["Erin"].eval_py("local out = {} for b = 0, 4 do for s = 1, 16 do local id = C_Container.GetContainerItemID(b, s) if id then out[#out+1] = id end end end return out") or [])
     vis = ledger_full(r["Bob"])
@@ -541,8 +541,8 @@ def de_button_goes_through_open_roll():
     assert block_button(A, MINDBLADE, "deBtn") == "on"            # nobody rolled: no suggestion
     click_block_button(A, MINDBLADE, "deBtn")
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_GIVE_ITEM"], A.popups()
-    A.accept_popup("CDLOOT_GIVE_ITEM")
+    assert A.popups() == ["DISASTERZONE_GIVE_ITEM"], A.popups()
+    A.accept_popup("DISASTERZONE_GIVE_ITEM")
     w.tick(3)
     s = session_info(r["Carol"], sid)
     assert s["state"] == "awarded" and s["winner"] == key("Erin"), s
@@ -591,7 +591,7 @@ def loot_log_reason_column_and_menu():
     # award dialog with a reason
     A.eval("ns.LootLogUI:OpenAwardDialog(...)", JADE_RING, key("Dave"), "Karazhan:Prince", None, {"reason": "alt"})
     w.tick(0.2)
-    A.eval("CDLootAwardDialog.saveBtn:Click()")
+    A.eval("DisasterZoneAwardDialog.saveBtn:Click()")
     w.tick(1)
     e = [x for x in ledger_full(A) if x["i"] == JADE_RING][0]
     assert e["r"] == "alt", e

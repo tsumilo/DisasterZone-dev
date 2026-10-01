@@ -129,7 +129,7 @@ def a_failing_listener_does_not_break_the_game():
 def the_achievements_page_opens_from_the_start_menu():
     w, c = game()
     c.eval("ns.Azero:AddMon(ns.AzeroMon.New('owlet', 3, ns.Azero.rng), 'caught')")
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")                    # title: CONTINUE
     w.tick(0.3)

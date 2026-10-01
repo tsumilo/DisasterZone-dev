@@ -1,6 +1,6 @@
 # In-game updates ("hot patch")
 
-Members install CDLoot once from a zip. After that, code changes reach them in game: the publisher signs an update,
+Members install DisasterZone once from a zip. After that, code changes reach them in game: the publisher signs an update,
 it travels over the guild addon channel, and each member's client stores it and runs it from the next `/reload` or login.
 Art, the TOC header, the libraries and the boot loader cannot travel; they need a new zip.
 
@@ -14,8 +14,8 @@ Run from `C:\Users\emilo\CDLoot-dev\dev`:
 |---|---|
 | Once: create the signing key | `luaenv\Scripts\python.exe tools\release.py keygen` |
 | A full release (zip + new base for updates) | bump `## Version` in the TOC, then `luaenv\Scripts\python.exe tools\release.py full` |
-| An in-game update | bump `## Version`, then `luaenv\Scripts\python.exe tools\release.py patch`; in game `/reload`, `/cdl publish` |
-| Take an update back (members and this copy) | `luaenv\Scripts\python.exe tools\release.py patch --revoke`; in game `/reload`, `/cdl publish` |
+| An in-game update | bump `## Version`, then `luaenv\Scripts\python.exe tools\release.py patch`; in game `/reload`, `/dz publish` |
+| Take an update back (members and this copy) | `luaenv\Scripts\python.exe tools\release.py patch --revoke`; in game `/reload`, `/dz publish` |
 | Is this copy what members run? Key usage | `luaenv\Scripts\python.exe tools\release.py status` |
 | Prove the addon behaves the same from the update path | `luaenv\Scripts\python.exe tools\patched_run.py` |
 
@@ -23,7 +23,7 @@ Run from `C:\Users\emilo\CDLoot-dev\dev`:
 update, so the two can drift apart. Three things keep them together:
 - `patch` builds the update from this copy, so after publishing both are the same by construction.
 - `patch --revoke` takes members back to the release **and puts this copy back too**: the TOC, the changed, new and
-  deleted Lua files and the docs are restored from `dist\CDLoot-<base>.zip`. What was there is saved first in
+  deleted Lua files and the docs are restored from `dist\DisasterZone-<base>.zip`. What was there is saved first in
   `dev\releases\undone\<time>_<version>\`. `--keep-source` skips that (to fix the change and send it again); the
   tool then warns that this copy still has changes members do not.
 - Undoing a change by hand and running `patch` works as well: when this copy equals the release but members still
@@ -33,7 +33,7 @@ update, so the two can drift apart. Three things keep them together:
 The suites read the expected version from the TOC (`_common.toc_version()`), so neither an update nor a revoke needs
 a test edited.
 
-- `full` writes `dist\CDLoot-<version>.zip`. That zip, not the live folder, is what members install: its
+- `full` writes `dist\DisasterZone-<version>.zip`. That zip, not the live folder, is what members install: its
   `Core\BuildInfo.lua` carries the build id updates are matched against. The live folder stays build `dev`.
 - `patch` refuses a change that cannot travel and says why. Updates are cumulative: each one carries every file that
   differs from the base release, so members only ever need the newest.
@@ -50,23 +50,23 @@ refuses changed art while `assetPack` is unchanged, and reminds you when no chan
 
 | Command | Effect |
 |---|---|
-| `/cdl update` | version, what is stored, download progress |
-| `/cdlpatch` | loader status (works even when the rest of the addon did not load) |
-| `/cdlpatch off` / `on` | kill switch: no downloads, nothing applied, no serving |
-| `/cdlpatch rollback` | mark the running update bad; after a reload the installed version runs |
-| `/cdlpatch retry` | forget the bad marks |
-| `/cdlpatch try` | development copy only: run the stored update once on the next reload |
+| `/dz update` | version, what is stored, download progress |
+| `/dzpatch` | loader status (works even when the rest of the addon did not load) |
+| `/dzpatch off` / `on` | kill switch: no downloads, nothing applied, no serving |
+| `/dzpatch rollback` | mark the running update bad; after a reload the installed version runs |
+| `/dzpatch retry` | forget the bad marks |
+| `/dzpatch try` | development copy only: run the stored update once on the next reload |
 
 ## How it works
 
 **Loader (`Core\Boot.lua`, first file in the TOC).** `## LoadSavedVariablesFirst: 1` makes the saved variable
-`CDLootPatchDB` readable before the files run. Every patchable file starts with
-`if CDLootBoot and CDLootBoot.Run("<path>", ...) then return end`. When a stored update applies, `Run` executes the
+`DisasterZonePatchDB` readable before the files run. Every patchable file starts with
+`if DisasterZoneBoot and DisasterZoneBoot.Run("<path>", ...) then return end`. When a stored update applies, `Run` executes the
 stored text of that file (via `loadstring`, same chunk name, so BugSack lines match the new source) and the disk copy
 returns at once. New files run in the slot the manifest names; `Core\BootEnd.lua` (last file) runs the ones that go
-after everything. An update applies only when its base build id equals `CDLootBuild.id`.
+after everything. An update applies only when its base build id equals `DisasterZoneBuild.id`.
 
-**Stored record.** `CDLootPatchDB.active = { seq, version, base, pack, files = {path = text}, sums = {path = adler32},
+**Stored record.** `DisasterZonePatchDB.active = { seq, version, base, pack, files = {path = text}, sums = {path = adler32},
 list = {{k = F|N|D, p = path, b = slot}}, z0 = signature+manifest (encoded), z = {encoded file texts} }`.
 `files`/`sums`/`list` are what the loader reads; `z0`/`z` are what the client serves to others. `seq` (top level) is
 the highest sequence number ever verified; `bad[seq]` marks updates that must not run; `partial` holds an unfinished
@@ -125,9 +125,9 @@ Suites: `tests\patch\test_patch_boot.py` (B), `test_patch_net.py` (N), `test_rel
 | Syntax error in a patched file | every file is compiled first; whole update rejected | B syntax_error_rejects_the_whole_patch |
 | Error while a patched (or new) file loads | safe mode: nothing else loads, saved data untouched, update marked bad, Reload dialog | B load_error_enters_safe_mode, load_error_in_a_new_file_... |
 | Errors in OnInit / OnLogin under an update | counted, rollback dialog | B startup_errors_offer_a_rollback |
-| Update breaks something later | `/cdlpatch rollback`, `/cdlpatch off`, or a published revoke | B slash_rollback_and_retry, kill_switch; N revoke_... |
+| Update breaks something later | `/dzpatch rollback`, `/dzpatch off`, or a published revoke | B slash_rollback_and_retry, kill_switch; N revoke_... |
 | Member installs another release | build id differs: update ignored, then dropped | B patch_for_another_build_..., T command_line_end_to_end |
-| Development copy | never applies (build `dev`), still serves; `/cdlpatch try` | B development_copy_never_applies_unless_asked |
+| Development copy | never applies (build `dev`), still serves; `/dzpatch try` | B development_copy_never_applies_unless_asked |
 | New and deleted files, load order | manifest slots, end marker | B new_and_deleted_files |
 | Update replaces Init.lua or the update code itself | works (they are guarded files) | B patching_init_and_the_patch_code_itself |
 | Whole addon from stored text | identical behaviour | B every_file_from_the_patch, `tools\patched_run.py` |
@@ -144,7 +144,7 @@ Suites: `tests\patch\test_patch_boot.py` (B), `test_patch_net.py` (N), `test_rel
 | Server must answer newcomers while streaming | control prefix carries no chunks | N the_servers_own_announcements_get_through_during_a_stream |
 | Guild-sized transfer, latecomers, publisher leaves | one stream, bounded traffic | S guild_sized_transfer |
 | Everybody up to date | one line each at login, one per half hour | S everybody_already_up_to_date_is_quiet |
-| Whole mechanism in the real client, alone | `release.py selftest` + `/cdlpatch try` | T selftest_runs_the_whole_addon_from_the_store_on_the_development_copy |
+| Whole mechanism in the real client, alone | `release.py selftest` + `/dzpatch try` | T selftest_runs_the_whole_addon_from_the_store_on_the_development_copy |
 | Replay of an older signed update | sequence floor | N replay_of_an_older_signed_update_is_ignored |
 | Fake / malformed announcements | bounded parsing; a number nobody serves is given up, the real one continues | N fake_announcements_do_not_block_real_updates |
 | Request floods, malformed requests | 6 requests / 10 s per sender, bounded parsing | N request_flood_is_rate_limited |
@@ -171,11 +171,11 @@ addressed to no real build, so no member picks it up):
 | Step | Expect |
 |---|---|
 | `luaenv\Scripts\python.exe tools\release.py selftest` | "self-test update #n: 89 files ..." |
-| `/reload`, then `/reload` once more, then `/cdlpatch` | "saved variables before files: **yes**" (the first reload after installing says "not known yet") |
-| `/cdl publish` | after a few seconds "published update 0.x.y-selftest". Note how long it takes and whether the game stutters: this hashes and inflates the whole addon. |
-| `/cdlpatch try`, `/reload` | chat: "running 0.x.y-selftest (in-game update ...)"; `/cdlpatch` says "running an in-game update: ... (89 file(s))" |
+| `/reload`, then `/reload` once more, then `/dzpatch` | "saved variables before files: **yes**" (the first reload after installing says "not known yet") |
+| `/dz publish` | after a few seconds "published update 0.x.y-selftest". Note how long it takes and whether the game stutters: this hashes and inflates the whole addon. |
+| `/dzpatch try`, `/reload` | chat: "running 0.x.y-selftest (in-game update ...)"; `/dzpatch` says "running an in-game update: ... (89 file(s))" |
 | use the addon normally for a while | everything works as before; BugSack stays empty |
-| `/reload` | back on the files on disk (`/cdlpatch` says the stored update "is for another build and is ignored") |
+| `/reload` | back on the files on disk (`/dzpatch` says the stored update "is for another build and is ignored") |
 
 What each failure means: "saved variables before files: no" = the client ignores `LoadSavedVariablesFirst` (the
 fallback is a second, tiny addon folder that only holds the saved update). "checksum mismatch in <file>" after the
@@ -183,17 +183,17 @@ fallback is a second, tiny addon folder that only holds the saved update). "chec
 a file fails when run through `loadstring`; the BugSack error names it.
 
 **Check 2, with one guild member** who installed the zip from `release.py full`: make a small visible change, bump
-the version, `release.py patch`, `/reload`, `/cdl publish`. The member should see the popup within a minute or two,
-and `/cdl update` shows progress meanwhile. Things to watch: real transfer speed; council traffic (rolls, drop
+the version, `release.py patch`, `/reload`, `/dz publish`. The member should see the popup within a minute or two,
+and `/dz update` shows progress meanwhile. Things to watch: real transfer speed; council traffic (rolls, drop
 alerts) staying instant while an update travels; "action blocked" messages (taint); a stutter when a large file is
 unpacked.
 
 ## Turning it off / reverting
 
-- **A member:** `/cdlpatch off`.
+- **A member:** `/dzpatch off`.
 - **Everyone, without a release:** publish a revoke.
 - **In the code, keeping the files:** remove `Core\BuildInfo.lua`, `Core\Boot.lua`, `Core\Outbox.lua`,
-  `Core\BootEnd.lua` and the `LoadSavedVariablesFirst` line from the TOC. Every guard is `if CDLootBoot and ...`, so
+  `Core\BootEnd.lua` and the `LoadSavedVariablesFirst` line from the TOC. Every guard is `if DisasterZoneBoot and ...`, so
   without the loader the addon runs exactly as before. `Core\Patch.lua` and `UI\PatchUI.lua` then do nothing
   (remove them from the TOC too).
 - **Remove the guards:** `luaenv\Scripts\python.exe tools\release.py guards remove` (exact inverse of `guards add`).

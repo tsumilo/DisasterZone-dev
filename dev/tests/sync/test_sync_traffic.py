@@ -47,7 +47,7 @@ def login_wave(w, clients, spread=1.0, order_seed=1):
 
 
 def run_until_quiet(w, quiet=30.0, timeout=900.0, step=0.25):
-    """Tick until no CDLoot addon message was sent for `quiet` seconds. Returns the time of the last message."""
+    """Tick until no DisasterZone addon message was sent for `quiet` seconds. Returns the time of the last message."""
     start = w.now
     while w.now - start < timeout:
         w.tick(step, step)

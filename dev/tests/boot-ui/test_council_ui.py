@@ -8,7 +8,7 @@ from _common import (case, run_all, solo, no_errors, World, Client, ExtraMember,
 
 ROSTER = """
 local o = {}
-for i, d in ipairs(T_data(CDLootCouncilPanel.rosterView.list.box)) do
+for i, d in ipairs(T_data(DisasterZoneCouncilPanel.rosterView.list.box)) do
   o[i] = { d.key, d.classFile or '', d.spec or '', d.presence, d.need, d.filled, d.ts }
 end
 return o"""
@@ -72,8 +72,8 @@ def names(rows):
 def demo_council(name="Alice", rank=3):
     w, c = solo(name, guild_rank=rank, tick=3)
     install_helpers(c)
-    c.slash("/cdl demo on")
-    c.slash("/cdl council")
+    c.slash("/dz demo on")
+    c.slash("/dz council")
     w.tick(0.5)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "council"
     return w, c
@@ -92,7 +92,7 @@ def select_option(c, dd_expr, text_contains):
 def cell_of(c, row_index, want_main=True):
     return c.eval("""
       local i, want = ...
-      local r = T_rows(CDLootCouncilPanel.rosterView.list.box)[i]
+      local r = T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[i]
       for s = 1, 17 do
         local cell = r.cells[s]
         if (cell.itemID ~= nil) == want then return cell, s end
@@ -109,14 +109,14 @@ def demo_roster_view_rows_footer_and_rows():
     pres = [r[3] for r in rows]
     assert pres == sorted(pres, key=lambda p: {"raid": 0, "online": 1, "offline": 2}[p]), pres
     assert pres.count("raid") == 11
-    footer = strip_codes(c.eval("return CDLootCouncilPanel.footer.text:GetText()"))
+    footer = strip_codes(c.eval("return DisasterZoneCouncilPanel.footer.text:GetText()"))
     assert footer.startswith("19 members with lists · 11 in raid · "), footer
     stale = sum(1 for r in rows if r[6] and (c.eval("return GetServerTime()") - r[6]) > 7 * 86400)
     assert ("%d lists older than 7 days" % stale) in footer, (stale, footer)
     # row widgets show what the data says
     ui = c.eval_py("""
       local o = {}
-      for i, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do
+      for i, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do
         local cells = 0
         for s = 1, 17 do if r.cells[s].itemID then cells = cells + 1 end end
         o[i] = { r.name:GetText(), r.spec:GetText(), r.need:GetText(), cells, r.age:GetText() }
@@ -135,50 +135,50 @@ def demo_roster_view_rows_footer_and_rows():
 @case
 def demo_filters_class_role_raid_hide_obtained_search():
     w, c = demo_council()
-    select_option(c, "CDLootCouncilPanel.classDD", "Warrior")
+    select_option(c, "DisasterZoneCouncilPanel.classDD", "Warrior")
     assert sorted(names(roster(c))) == ["Aldrin", "Brakka"], names(roster(c))
-    assert strip_codes(c.eval("return CDLootCouncilPanel.classDD:GetText()")) == "Warrior"
-    select_option(c, "CDLootCouncilPanel.roleDD", "Tank")
+    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.classDD:GetText()")) == "Warrior"
+    select_option(c, "DisasterZoneCouncilPanel.roleDD", "Tank")
     assert names(roster(c)) == ["Aldrin"], names(roster(c))
-    select_option(c, "CDLootCouncilPanel.classDD", "All classes")
+    select_option(c, "DisasterZoneCouncilPanel.classDD", "All classes")
     assert sorted(names(roster(c))) == ["Aldrin", "Rhosyn"], names(roster(c))
-    select_option(c, "CDLootCouncilPanel.roleDD", "Healer")
+    select_option(c, "DisasterZoneCouncilPanel.roleDD", "Healer")
     healers = names(roster(c))
     assert set(healers) == {"Alice", "Caelith", "Isolde", "Kaelyn", "Quillon"}, healers
-    select_option(c, "CDLootCouncilPanel.roleDD", "All roles")
+    select_option(c, "DisasterZoneCouncilPanel.roleDD", "All roles")
     # footer counts are totals, independent of the filters
-    assert strip_codes(c.eval("return CDLootCouncilPanel.footer.text:GetText()")).startswith("19 members")
+    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.footer.text:GetText()")).startswith("19 members")
     # raid only
-    c.click(c.eval("return CDLootCouncilPanel.raidCB"))
+    c.click(c.eval("return DisasterZoneCouncilPanel.raidCB"))
     w.tick(0.3)
     rows = roster(c)
     assert len(rows) == 11 and all(r[3] == "raid" for r in rows), rows
-    c.click(c.eval("return CDLootCouncilPanel.raidCB"))
+    c.click(c.eval("return DisasterZoneCouncilPanel.raidCB"))
     w.tick(0.3)
     assert len(roster(c)) == 19
     # hide obtained: obtained cells dimmed while ticked, full alpha when unticked
     def dimmed():
         return c.eval("""
           local n = 0
-          for _, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do
+          for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do
             for s = 1, 17 do if r.cells[s].state == 'obtained' and r.cells[s]:GetAlpha() < 1 then n = n + 1 end end
           end
           return n""")
     assert dimmed() > 0
-    c.click(c.eval("return CDLootCouncilPanel.obtainedCB"))
+    c.click(c.eval("return DisasterZoneCouncilPanel.obtainedCB"))
     w.tick(0.3)
-    assert c.eval("return CDLootCouncilPanel.obtainedCB:GetChecked()") in (False, 0, None)
+    assert c.eval("return DisasterZoneCouncilPanel.obtainedCB:GetChecked()") in (False, 0, None)
     assert dimmed() == 0
     # search (debounced) by name, case-insensitive; empty result explains itself
-    sb = c.eval("return CDLootCouncilPanel.search")
+    sb = c.eval("return DisasterZoneCouncilPanel.search")
     c.type_text(sb, "ALD")
     w.tick(0.5)
     assert names(roster(c)) == ["Aldrin"], names(roster(c))
     c.type_text(sb, "nobody-like-this")
     w.tick(0.5)
     assert roster(c) == []
-    assert c.eval("return CDLootCouncilPanel.rosterView.empty:IsShown()") is True
-    assert "No members match" in c.eval("return CDLootCouncilPanel.rosterView.empty:GetText()")
+    assert c.eval("return DisasterZoneCouncilPanel.rosterView.empty:IsShown()") is True
+    assert "No members match" in c.eval("return DisasterZoneCouncilPanel.rosterView.empty:GetText()")
     c.type_text(sb, "")
     w.tick(0.5)
     assert len(roster(c)) == 19
@@ -190,10 +190,10 @@ def demo_sort_headers_cycle():
     w, c = demo_council()
     headers = c.eval_py("""
       local o = {}
-      for i, b in ipairs(CDLootCouncilPanel.rosterView.header.sortButtons) do o[i] = b.label:GetText() end
+      for i, b in ipairs(DisasterZoneCouncilPanel.rosterView.header.sortButtons) do o[i] = b.label:GetText() end
       return o""")
     assert headers == ["Name", "Need", "Age"], headers
-    btn = lambda i: c.eval("local i = ...; return CDLootCouncilPanel.rosterView.header.sortButtons[i]", i)
+    btn = lambda i: c.eval("local i = ...; return DisasterZoneCouncilPanel.rosterView.header.sortButtons[i]", i)
     c.click(btn(1))                  # presence -> name
     w.tick(0.2)
     n = names(roster(c))
@@ -231,11 +231,11 @@ def demo_cell_tooltip_click_and_rightclick():
             idx = i
             break
     assert idx is not None, "no demo member wears two rings"
-    cell = c.eval("local i = ...; return T_rows(CDLootCouncilPanel.rosterView.list.box)[i].cells[11]", idx + 1)
+    cell = c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[i].cells[11]", idx + 1)
     c.hover(cell)
     lines = [strip_codes(l[0]) for l in tt_lines(c)]
     key = rows[idx][0]
-    assert any(("CDLoot · %s - Ring 1" % key.split("-")[0]) in l for l in lines), lines
+    assert any(("DisasterZone · %s - Ring 1" % key.split("-")[0]) in l for l in lines), lines
     assert "Main (P1)" in lines, lines
     wear = [l for l in lines if l.startswith("Wearing: ") or l == "Wearing it"]
     assert wear, lines
@@ -255,25 +255,25 @@ def demo_cell_tooltip_click_and_rightclick():
     src = c.eval("local id = ...; return ns.ItemDB:GetSources(id)[1].ref.key", main)
     focus = c.eval_py("""
       local o = {}
-      for _, d in ipairs(T_data(CDLootCouncilPanel.itemsView.list.box)) do if d.focus then o[#o + 1] = d.itemID end end
+      for _, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.list.box)) do if d.focus then o[#o + 1] = d.itemID end end
       return o""")
     assert focus, "no focused row in the Items view"
-    title = strip_codes(c.eval("return CDLootCouncilPanel.itemsView.title:GetText()"))
+    title = strip_codes(c.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
     boss = c.eval("local k = ...; return ns.ItemDB:GetBossRef(k).boss.name", src)
     assert title.startswith(boss), (title, boss)
     # right click on a cell -> member view of that row
     c.eval("ns.CouncilUI:SetView('roster')")
     w.tick(0.3)
-    cell = c.eval("local i = ...; return T_rows(CDLootCouncilPanel.rosterView.list.box)[i].cells[11]", idx + 1)
+    cell = c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[i].cells[11]", idx + 1)
     c.click(cell, "RightButton")
     w.tick(0.3)
     assert c.eval("return ns.CouncilUI:GetView()") == "member"
-    assert strip_codes(c.eval("return CDLootCouncilPanel.memberView.name:GetText()")) == key.split("-")[0]
+    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.memberView.name:GetText()")) == key.split("-")[0]
     # empty cell: tooltip says so, click opens the member view
     c.eval("ns.CouncilUI:SetView('roster')")
     w.tick(0.3)
     me_row = next(i for i, r in enumerate(roster(c)) if r[0] == "Alice-Thunderstrike")
-    ecell = c.eval("local i = ...; return T_rows(CDLootCouncilPanel.rosterView.list.box)[i].cells[1]", me_row + 1)
+    ecell = c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[i].cells[1]", me_row + 1)
     c.hover(ecell)
     lines = [strip_codes(l[0]) for l in tt_lines(c)]
     assert lines[0] == "Head" and "Alice has no P1 pick here." in lines, lines
@@ -287,11 +287,11 @@ def demo_cell_tooltip_click_and_rightclick():
 def demo_items_view_tree_rows_tooltip_and_menu():
     w, c = demo_council()
     c.eval(LIST_LUA)
-    c.click(c.eval("return T_button(CDLootCouncilPanel, 'Items')"))
+    c.click(c.eval("return T_button(DisasterZoneCouncilPanel, 'Items')"))
     w.tick(0.3)
     tree = c.eval_py("""
       local o = {}
-      for i, d in ipairs(T_data(CDLootCouncilPanel.itemsView.tree.box)) do o[i] = { d.type, d.key or '', d.count, d.name } end
+      for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.tree.box)) do o[i] = { d.type, d.key or '', d.count, d.name } end
       return o""")
     assert tree[0][0] == "raid" and tree[0][3] == "Karazhan", tree[:3]
     bosses = [t for t in tree if t[0] == "boss"]
@@ -299,13 +299,13 @@ def demo_items_view_tree_rows_tooltip_and_menu():
     # select another boss by clicking its tree row
     target = next(b for b in bosses if b[2] > 0 and b[3] == "Prince Malchezaar")
     ti = [i for i, t in enumerate(tree) if t[1] == target[1]][0]
-    c.click(c.eval("local i = ...; return T_rows(CDLootCouncilPanel.itemsView.tree.box)[i]", ti + 1))
+    c.click(c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.itemsView.tree.box)[i]", ti + 1))
     w.tick(0.3)
-    title = strip_codes(c.eval("return CDLootCouncilPanel.itemsView.title:GetText()"))
+    title = strip_codes(c.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
     assert title.startswith("Prince Malchezaar · Karazhan"), title
     items = c.eval_py("""
       local o = {}
-      for i, d in ipairs(T_data(CDLootCouncilPanel.itemsView.list.box)) do o[i] = { d.itemID, d.n, #d.wanters } end
+      for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.list.box)) do o[i] = { d.itemID, d.n, #d.wanters } end
       return o""")
     claims = sum(i[1] for i in items)
     assert ("%d items · %d claims" % (len(items), claims)) in title, (title, items)
@@ -314,10 +314,10 @@ def demo_items_view_tree_rows_tooltip_and_menu():
     assert target[2] >= max(i[1] for i in items)
     # hover a wanted item row
     wanted = next(i for i, it in enumerate(items) if it[1] > 0)
-    row = c.eval("local i = ...; return T_rows(CDLootCouncilPanel.itemsView.list.box)[i]", wanted + 1)
+    row = c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.itemsView.list.box)[i]", wanted + 1)
     c.hover(row)
     lines = [strip_codes(l[0]) for l in tt_lines(c)]
-    assert any(l.startswith("CDLoot · P1: %d wanting" % items[wanted][1]) for l in lines), lines
+    assert any(l.startswith("DisasterZone · P1: %d wanting" % items[wanted][1]) for l in lines), lines
     who = strip_codes(c.eval("local r = ...; return r.who:GetText()", row))
     assert who and "Nobody" not in who, who
     # click -> menu
@@ -335,7 +335,7 @@ def demo_items_view_tree_rows_tooltip_and_menu():
     c.click(row)
     c.menu_select("Announce to raid")
     assert len(w.chat_log) == chat0
-    assert any("CDLoot:" in l and "BiS:" in l or "Alt:" in l for l in printed_since(c, n0)), printed_since(c, n0)
+    assert any("DisasterZone:" in l and "BiS:" in l or "Alt:" in l for l in printed_since(c, n0)), printed_since(c, n0)
     # record award to a wanter (demo -> in-memory ledger only)
     c.click(row)
     award_menu = menu_find(c.last_menu(), "Record award to")
@@ -343,20 +343,20 @@ def demo_items_view_tree_rows_tooltip_and_menu():
     c.eval("T_menu_sub_select('Record award to', ...)", first_wanter)
     w.tick(0.5)
     assert c.eval("return #ns.Ledger:GetEntries({})") == 1
-    assert c.eval("return next(CDLootDB.ledger)") is None, "demo award written to the saved ledger"
+    assert c.eval("return next(DisasterZoneDB.ledger)") is None, "demo award written to the saved ledger"
     # someone else -> award dialog prefilled with the item and the boss
     c.click(row)
     c.menu_select("Someone else...")
-    assert c.eval("return CDLootAwardDialog:IsShown()") is True
-    item_text = c.eval("return CDLootAwardDialog.itemBox:GetText()")
+    assert c.eval("return DisasterZoneAwardDialog:IsShown()") is True
+    item_text = c.eval("return DisasterZoneAwardDialog.itemBox:GetText()")
     assert ("item:%d:" % items[wanted][0]) in item_text, item_text
-    assert "Prince Malchezaar" in strip_codes(c.eval("return CDLootAwardDialog.bossText:GetText()"))
-    c.click(c.eval("return CDLootAwardDialog.cancelBtn"))
+    assert "Prince Malchezaar" in strip_codes(c.eval("return DisasterZoneAwardDialog.bossText:GetText()"))
+    c.click(c.eval("return DisasterZoneAwardDialog.cancelBtn"))
     # search inside the items view by member name
-    c.type_text(c.eval("return CDLootCouncilPanel.search"), "zzz")
+    c.type_text(c.eval("return DisasterZoneCouncilPanel.search"), "zzz")
     w.tick(0.5)
-    assert c.eval("return #T_data(CDLootCouncilPanel.itemsView.list.box)") == 0
-    assert c.eval("return CDLootCouncilPanel.itemsView.empty:GetText()") == "No items match the search."
+    assert c.eval("return #T_data(DisasterZoneCouncilPanel.itemsView.list.box)") == 0
+    assert c.eval("return DisasterZoneCouncilPanel.itemsView.empty:GetText()") == "No items match the search."
     no_errors(w)
 
 
@@ -364,17 +364,17 @@ def demo_items_view_tree_rows_tooltip_and_menu():
 def demo_member_view_arrows_readonly_doll():
     w, c = demo_council()
     rows = roster(c)
-    c.click(c.eval("return T_rows(CDLootCouncilPanel.rosterView.list.box)[1]"))
+    c.click(c.eval("return T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[1]"))
     w.tick(0.3)
     assert c.eval("return ns.CouncilUI:GetView()") == "member"
-    mv = "CDLootCouncilPanel.memberView"
+    mv = "DisasterZoneCouncilPanel.memberView"
     assert strip_codes(c.eval("return %s.name:GetText()" % mv)) == rows[0][0].split("-")[0]
     assert c.eval("return %s.pos:GetText()" % mv) == "1 / 19"
     info = strip_codes(c.eval("return %s.info:GetText()" % mv))
     assert "In your raid" in info and "updated" in info, info
     # the toolbar row 2 and the footer are hidden in the member view
-    assert c.eval("return CDLootCouncilPanel.row2:IsShown()") is False
-    assert c.eval("return CDLootCouncilPanel.footer:IsShown()") is False
+    assert c.eval("return DisasterZoneCouncilPanel.row2:IsShown()") is False
+    assert c.eval("return DisasterZoneCouncilPanel.footer:IsShown()") is False
     seen = []
     for _ in range(19):
         seen.append(strip_codes(c.eval("return %s.name:GetText()" % mv)))
@@ -385,7 +385,7 @@ def demo_member_view_arrows_readonly_doll():
     c.click(c.eval("return %s.prevBtn" % mv))
     assert c.eval("return %s.pos:GetText()" % mv) == "19 / 19"
     # read-only doll: clicking a tile never opens the picker; it shows the member's picks
-    doll = c.eval("return T_doll(CDLootCouncilPanel.memberView)")
+    doll = c.eval("return T_doll(DisasterZoneCouncilPanel.memberView)")
     key = c.eval("return ns.CouncilUI and nil")  # placeholder to keep the eval env warm
     k = [r[0] for r in rows][-1]
     main = c.eval("local k = ...; local d = ns.Store:Get(k).data; return d.ph[1][2] and d.ph[1][2][1]", k)
@@ -413,13 +413,13 @@ def demo_member_view_arrows_readonly_doll():
 def phase_dropdown_switches_all_views():
     w, c = demo_council()
     p1 = [r[5] for r in roster(c)]
-    select_option(c, "CDLootCouncilPanel.phaseDD", "P3")
-    assert c.eval("return CDLootCouncilPanel.phaseDD:GetText()") == "P3"
+    select_option(c, "DisasterZoneCouncilPanel.phaseDD", "P3")
+    assert c.eval("return DisasterZoneCouncilPanel.phaseDD:GetText()") == "P3"
     p3 = [r[5] for r in roster(c)]
     assert p1 != p3
     cells = c.eval_py("""
       local o = {}
-      local r = T_rows(CDLootCouncilPanel.rosterView.list.box)[1]
+      local r = T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[1]
       local d = rawget(r, 'cdlData')
       for s = 1, 17 do
         local want = d.data.ph[3] and d.data.ph[3][s] and d.data.ph[3][s][1] or 0
@@ -427,15 +427,15 @@ def phase_dropdown_switches_all_views():
       end
       return o""")
     assert all(a == b for a, b in cells), cells
-    c.click(c.eval("return T_button(CDLootCouncilPanel, 'Items')"))
+    c.click(c.eval("return T_button(DisasterZoneCouncilPanel, 'Items')"))
     w.tick(0.3)
-    tree = c.eval_py("local o = {} for i, d in ipairs(T_data(CDLootCouncilPanel.itemsView.tree.box)) do o[i] = { d.type, d.name, d.phase or 0 } end return o")
+    tree = c.eval_py("local o = {} for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.tree.box)) do o[i] = { d.type, d.name, d.phase or 0 } end return o")
     assert tree[0][0] == "raid" and tree[0][2] == 3, tree[:2]
     # the view phase setting (Settings) drives the default when the dropdown was never used
     w2, d = demo_council(name="Bea")
     d.eval("ns.DB:SetSetting('viewPhase', 2)")
     w2.tick(0.5)
-    assert d.eval("return CDLootCouncilPanel.phaseDD:GetText()") == "P2"
+    assert d.eval("return DisasterZoneCouncilPanel.phaseDD:GetText()") == "P2"
     no_errors(w)
     no_errors(w2)
 
@@ -445,20 +445,20 @@ def items_view_follows_the_phase_dropdown():
     # Items view on a P1 boss, then the council switches the Phase dropdown to P3: the selection should move to
     # the new phase (its first boss with demand), not stay on the P1 boss with "0 claims".
     w, c = demo_council()
-    c.click(c.eval("return T_button(CDLootCouncilPanel, 'Items')"))
+    c.click(c.eval("return T_button(DisasterZoneCouncilPanel, 'Items')"))
     w.tick(0.3)
-    before = strip_codes(c.eval("return CDLootCouncilPanel.itemsView.title:GetText()"))
+    before = strip_codes(c.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
     assert before.startswith("Attumen the Huntsman · Karazhan"), before
-    select_option(c, "CDLootCouncilPanel.phaseDD", "P3")
+    select_option(c, "DisasterZoneCouncilPanel.phaseDD", "P3")
     sel = c.eval_py("""
-      for _, r in ipairs(T_rows(CDLootCouncilPanel.itemsView.tree.box)) do
+      for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.itemsView.tree.box)) do
         local d = rawget(r, 'cdlData')
         if d and r.sel:IsShown() then
           local ref = ns.ItemDB:GetBossRef(d.key)
           return { d.key, ref and ref.raid.phase or 0, d.count }
         end
       end""")
-    title = strip_codes(c.eval("return CDLootCouncilPanel.itemsView.title:GetText()"))
+    title = strip_codes(c.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
     assert sel and sel[1] == 3, "after switching to P3 the Items view still shows %r (%r)" % (title, sel)
     no_errors(w)
 
@@ -466,26 +466,26 @@ def items_view_follows_the_phase_dropdown():
 @case
 def search_boxes_accept_lua_pattern_characters():
     w, c = demo_council(rank=1)
-    boxes = [("council", "CDLootCouncilPanel.search")]
+    boxes = [("council", "DisasterZoneCouncilPanel.search")]
     for text in ("[", "%", "(a", "a-", "^$", ".*", "%d+"):
-        c.type_text(c.eval("return CDLootCouncilPanel.search"), text)
+        c.type_text(c.eval("return DisasterZoneCouncilPanel.search"), text)
         w.tick(0.5)
         for view in ("items", "roster"):
             c.eval("ns.CouncilUI:SetView(...)", view)
             w.tick(0.3)
-    c.slash("/cdl log")
+    c.slash("/dz log")
     w.tick(0.3)
     for text in ("[", "%", "(a"):
-        c.type_text(c.eval("return CDLootLootLogPanel.search"), text)
+        c.type_text(c.eval("return DisasterZoneLootLogPanel.search"), text)
         w.tick(0.5)
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(0.1)
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(0.1)
     c.eval("ns.MainFrame:Open('mybis')")
     w.tick(0.2)
     c.click(c.eval("return T_tile(1).main"))
-    sb = c.eval("return T_template(CDLootPicker, 'SearchBoxTemplate')[1]")
+    sb = c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]")
     for text in ("[", "%", "(a", "%d+"):
         c.type_text(sb, text)
         w.tick(0.5)
@@ -519,7 +519,7 @@ def real_council_world(n_members=6, stale=(), extra_raid=(), with_leaver=False):
 @case
 def real_cached_lists_roster_items_member():
     w, c, members = real_council_world(n_members=6, stale=(4, 5), extra_raid=(0, 1))
-    c.slash("/cdl council")
+    c.slash("/dz council")
     w.tick(0.5)
     rows = roster(c)
     assert len(rows) == 7, rows            # 6 cached + me
@@ -527,9 +527,9 @@ def real_cached_lists_roster_items_member():
     assert by_key["Mem00-Thunderstrike"][3] == "raid" and by_key["Mem01-Thunderstrike"][3] == "raid"
     assert by_key["Mem02-Thunderstrike"][3] == "offline"
     assert by_key["Cou-Thunderstrike"][3] == "raid"
-    footer = strip_codes(c.eval("return CDLootCouncilPanel.footer.text:GetText()"))
+    footer = strip_codes(c.eval("return DisasterZoneCouncilPanel.footer.text:GetText()"))
     assert footer == "7 members with lists · 3 in raid · 2 lists older than 7 days", footer
-    ages = c.eval_py("local o = {} for i, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do o[i] = { rawget(r,'cdlData').key, r.age:GetText() } end return o")
+    ages = c.eval_py("local o = {} for i, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do o[i] = { rawget(r,'cdlData').key, r.age:GetText() } end return o")
     assert dict(ages)["Mem04-Thunderstrike"] == "10d", ages
     # a list for someone outside the guild is refused; a newer rev replaces; LIST_UPDATED refreshes the view
     assert c.eval("return T_put('Stranger-Thunderstrike', T_make_list('MAGE', 1, 1), 1)") is False
@@ -544,14 +544,14 @@ def real_cached_lists_roster_items_member():
       local d = T_make_list('MAGE', 3, 1)
       return ns.Store:Put('Mem03-Thunderstrike', { r = 9, ts = GetServerTime(), h = 'deadbeef', d = d }, 'direct')""") is False
     # items view: wanters come from the cached lists
-    c.click(c.eval("return T_button(CDLootCouncilPanel, 'Items')"))
+    c.click(c.eval("return T_button(DisasterZoneCouncilPanel, 'Items')"))
     w.tick(0.3)
-    total_claims = c.eval("local n = 0 for _, d in ipairs(T_data(CDLootCouncilPanel.itemsView.tree.box)) do if d.type == 'boss' then n = n + d.count end end return n")
+    total_claims = c.eval("local n = 0 for _, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.tree.box)) do if d.type == 'boss' then n = n + d.count end end return n")
     assert total_claims > 0
     # member view of a cached member: version unknown (never seen), stale warning coloured
     c.eval("ns.CouncilUI:ShowMember('Mem04-Thunderstrike')")
     w.tick(0.3)
-    info = c.eval("return CDLootCouncilPanel.memberView.info:GetText()")
+    info = c.eval("return DisasterZoneCouncilPanel.memberView.info:GetText()")
     assert "Member" in strip_codes(info) and "10d ago" in strip_codes(info) and "|cff" in info, info
     # a member leaving the guild disappears from the council views
     w.offline_members = [m for m in w.offline_members if m.name != "Mem03"]
@@ -560,7 +560,7 @@ def real_cached_lists_roster_items_member():
     c.eval("ns.CouncilUI:SetView('roster')")
     w.tick(0.5)
     assert "Mem03-Thunderstrike" not in [r[0] for r in roster(c)]
-    assert c.eval("return CDLootDB.lists['Mem03-Thunderstrike'] ~= nil") is True, "pruned before 30 days"
+    assert c.eval("return DisasterZoneDB.lists['Mem03-Thunderstrike'] ~= nil") is True, "pruned before 30 days"
     no_errors(w)
 
 
@@ -573,26 +573,26 @@ def items_view_other_sources_node():
       d.ph[1][8] = { 190003, 0 }
       return T_put('Mem00-Thunderstrike', d, 5)""")
     assert ok is True
-    c.slash("/cdl council")
+    c.slash("/dz council")
     c.eval("ns.CouncilUI:SetView('items')")
     w.tick(0.5)
-    tree = c.eval_py("local o = {} for i, d in ipairs(T_data(CDLootCouncilPanel.itemsView.tree.box)) do o[i] = { d.type, d.name, d.count } end return o")
+    tree = c.eval_py("local o = {} for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.tree.box)) do o[i] = { d.type, d.name, d.count } end return o")
     other = [t for t in tree if t[0] == "other"]
     assert other == [["other", "Other / no raid source", 1]], tree[-3:]
     idx = [i for i, t in enumerate(tree) if t[0] == "other"][0]
-    c.click(c.eval("local i = ...; return T_rows(CDLootCouncilPanel.itemsView.tree.box)[i]", idx + 1))
+    c.click(c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.itemsView.tree.box)[i]", idx + 1))
     w.tick(0.3)
-    title = strip_codes(c.eval("return CDLootCouncilPanel.itemsView.title:GetText()"))
+    title = strip_codes(c.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
     assert title == "Other / no raid source  -  1 items · 1 claims", title
-    row = c.eval_py("local d = T_data(CDLootCouncilPanel.itemsView.list.box)[1]; return { d.itemID, d.n }")
+    row = c.eval_py("local d = T_data(DisasterZoneCouncilPanel.itemsView.list.box)[1]; return { d.itemID, d.n }")
     assert row == [190003, 1], row
-    src = strip_codes(c.eval("return T_rows(CDLootCouncilPanel.itemsView.list.box)[1].source:GetText()"))
+    src = strip_codes(c.eval("return T_rows(DisasterZoneCouncilPanel.itemsView.list.box)[1].source:GetText()"))
     assert src.startswith("No raid source"), src
     # a roster cell with that item jumps to the Other node (it has no boss)
     c.eval("ns.CouncilUI:SetView('roster')")
     w.tick(0.3)
     cell = c.eval("""
-      for _, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do
+      for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do
         if rawget(r, 'cdlData') and r.cdlData.key == 'Mem00-Thunderstrike' then return r.cells[8] end
       end""")
     c.click(cell)
@@ -608,10 +608,10 @@ def request_sync_button_real_council():
     auto = [e for e in w.addon_log if e["sender"] == c.full_name and e["chat_type"] == "GUILD"
             and not e["prefix"].startswith("CDLp")]            # (CDLp*: the in-game update channel)
     assert len(auto) == 1, "expected exactly one automatic HELLO, got %d" % len(auto)
-    c.slash("/cdl council")
+    c.slash("/dz council")
     w.tick(0.5)
     n0 = len(w.addon_log)
-    btn = c.eval("return T_button(CDLootCouncilPanel.footer, 'Request sync')")
+    btn = c.eval("return T_button(DisasterZoneCouncilPanel.footer, 'Request sync')")
     p0 = len(c.chat_frame)
     c.click(btn)
     w.tick(0.5)
@@ -630,13 +630,13 @@ def request_sync_button_real_council():
 def request_sync_buttons_do_not_claim_success_when_rate_limited():
     # The automatic HELLO goes out 8-20 s after login and rate-limits the next one for 30 s. Clicking
     # "Request sync" (Council footer or Settings > About) in that window sends nothing; the player must not be
-    # told "Sync requested." (/cdl sync correctly says "please wait").
+    # told "Sync requested." (/dz sync correctly says "please wait").
     w, c, members = real_council_world(n_members=2)
     w.run_until(lambda: any(e["sender"] == c.full_name and e["chat_type"] == "GUILD" for e in w.addon_log), 40)
     problems = []
-    for where, expr in (("council footer", "T_button(CDLootCouncilPanel.footer, 'Request sync')"),
+    for where, expr in (("council footer", "T_button(DisasterZoneCouncilPanel.footer, 'Request sync')"),
                         ("settings", "T_button(ns.MainFrame:GetPanel('settings'), 'Request sync')")):
-        c.slash("/cdl council" if where == "council footer" else "/cdl settings")
+        c.slash("/dz council" if where == "council footer" else "/dz settings")
         w.tick(0.3)
         n0, p0 = len(w.addon_log), len(c.chat_frame)
         c.click(c.eval("return " + expr))
@@ -645,9 +645,9 @@ def request_sync_buttons_do_not_claim_success_when_rate_limited():
         said = printed_since(c, p0)
         if not sent and any("Sync requested" in l for l in said):
             problems.append("%s: nothing was sent (rate limited) but chat says %r" % (where, said))
-    # /cdl sync is the reference behaviour
+    # /dz sync is the reference behaviour
     p0 = len(c.chat_frame)
-    c.slash("/cdl sync")
+    c.slash("/dz sync")
     assert any("please wait" in l for l in printed_since(c, p0)), printed_since(c, p0)
     assert not problems, " | ".join(problems)
     no_errors(w)
@@ -660,7 +660,7 @@ def corrupt_cached_lists_do_not_break_the_council_tab():
     for n in ("Bad1", "Bad2", "Bad3", "Bad4"):
         w.add_offline_member(n, "MAGE", 3)
     c = Client(w, "Cou", guild_rank=1)
-    c.set_saved_variable("CDLootDB", """{ schema = 1, lists = {
+    c.set_saved_variable("DisasterZoneDB", """{ schema = 1, lists = {
         ["Bad1-Thunderstrike"] = { rev = 1, ts = "x", data = { ph = { [1] = { [1] = "junk", [2] = { "a", -3 } } }, ob = 7, eq = { [1] = "x" } } },
         ["Bad2-Thunderstrike"] = { rev = 2, data = "nope" },
         ["Bad3-Thunderstrike"] = "garbage",
@@ -670,17 +670,17 @@ def corrupt_cached_lists_do_not_break_the_council_tab():
     w.tick(3)
     install_helpers(c)
     for view in ("roster", "items", "member"):
-        c.slash("/cdl council")
+        c.slash("/dz council")
         c.eval("ns.CouncilUI:SetView(...)", view)
         w.tick(0.5)
         if view == "roster":
-            for i in range(1, 1 + c.eval("return #T_rows(CDLootCouncilPanel.rosterView.list.box)")):
-                cell = c.eval("local i = ...; return T_rows(CDLootCouncilPanel.rosterView.list.box)[i].cells[1]", i)
+            for i in range(1, 1 + c.eval("return #T_rows(DisasterZoneCouncilPanel.rosterView.list.box)")):
+                cell = c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[i].cells[1]", i)
                 c.hover(cell)
-                c.hover(c.eval("local i = ...; return T_rows(CDLootCouncilPanel.rosterView.list.box)[i]", i))
+                c.hover(c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[i]", i))
     c.eval("ns.CouncilUI:ShowMember('Bad1-Thunderstrike')")
     w.tick(0.3)
-    c.slash("/cdl log")
+    c.slash("/dz log")
     w.tick(0.5)
     c.show_tooltip_item(28770)
     no_errors(w)

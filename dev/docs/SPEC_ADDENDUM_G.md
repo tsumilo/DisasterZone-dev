@@ -1,4 +1,4 @@
-# CDLoot SPEC — ADDENDUM G: award reasons, council votes, disenchanter / guild bank
+# DisasterZone SPEC — ADDENDUM G: award reasons, council votes, disenchanter / guild bank
 
 User request (2026-09-28): award reasons (BiS / Alt / Offspec / Disenchant / Guild bank; offspec and disenchant must
 not count as loot received), the v2 council voting, and a one-click award to a disenchanter / guild bank character
@@ -11,7 +11,7 @@ Decisions (asked with the user):
 - **Voter names are visible** to the council (per candidate: count, and who voted on hover).
 - **DE / bank:** set by the GM in the guild config; the raid leader can override them for their raid.
 
-The v1 rule stands: CDLoot only suggests. Every award still needs a click and a confirmation.
+The v1 rule stands: DisasterZone only suggests. Every award still needs a click and a confirmation.
 
 ## 40. Award reasons
 
@@ -68,7 +68,7 @@ The v1 rule stands: CDLoot only suggests. Every award still needs a click and a 
 - Drop panel: **DE** and **Bank** buttons on an item that has no winner yet (normal mode, and roll mode when nobody
   is suggested). One click →
   - item with a roll session → `Roll:Award(id, target, "de"|"bank")` (the master-loot give / confirm popups);
-  - else, as master looter with the item in the loot window → `CDLOOT_GIVE_TARGET` "Give [item] to Name
+  - else, as master looter with the item in the loot window → `DISASTERZONE_GIVE_TARGET` "Give [item] to Name
     (Disenchant)?" → `Loot:GiveItem` → on success `Ledger:Award(..., reason)`; on failure offer "award anyway";
   - else → `DropPanel:Award(..., reason)` (recorded, council).
   Disabled with a tooltip when no target is set or the target is not in the group.

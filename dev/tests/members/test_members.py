@@ -92,7 +92,7 @@ def the_roster_shows_online_state_and_level():
     w.tick(SYNC)
     b.eval("__MOCK.roster_status = { ['Gina-Thunderstrike'] = 1 }; C_GuildInfo.GuildRoster()")
     w.tick(2)
-    b.slash("/cdl members")
+    b.slash("/dz members")
     w.tick(1)
     rows = {r["name"]: r for r in roster_rows(b)}
     assert (rows["Alfa"]["status"], rows["Alfa"]["level"]) == ("online", 64), rows["Alfa"]
@@ -130,7 +130,7 @@ def specs_come_from_my_bis_and_else_from_the_talents():
     assert specs(a, "Bert") == [(None, 2, [0, 42, 19]), (None, 1, [41, 20, 0])], specs(a, "Bert")
     # one talent set and no off spec: a main spec only
     assert len(specs(b, "Alfa")) == 1, specs(b, "Alfa")
-    a.slash("/cdl members")
+    a.slash("/dz members")
     w.tick(1)
     a.eval("%s:SelectMember(...)" % UI, K("Gina"))
     assert a.find_text("Retribution") and a.find_text("Protection") and a.find_text("Off spec")
@@ -154,7 +154,7 @@ def alt_world():
     w.tick(SYNC)
     o.logout()                                  # (one account: only one of its characters is online)
     w.tick(3)
-    a.eval("CDLootDB.prof[ns.Guild:GetGuildKey()][...].own = true", K("Alto"))
+    a.eval("DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].own = true", K("Alto"))
     return w, g, a, o, b
 
 
@@ -169,7 +169,7 @@ def alts_sit_under_their_main():
         assert cl.eval("return %s:GetMain(...)" % P, K("Alto")) == K("Alfa"), cl.name
         assert cl.eval("return %s:GetMain(...)" % P, K("Alfa")) == K("Alfa"), cl.name
         assert cl.eval_py("return %s:GetOtherCharacters(...)" % P, K("Alfa")) == [K("Alto")], cl.name
-    b.slash("/cdl members")
+    b.slash("/dz members")
     w.tick(1)
     rows = roster_rows(b)
     names = [(r["name"], r["alt"]) for r in rows]
@@ -192,7 +192,7 @@ def alts_sit_under_their_main():
       end)""")
     assert b.eval("return __MOCK.opened_chat").startswith("/w Alfa "), b.eval("return __MOCK.opened_chat")
     # my own view: the main line with Change; unlinking again
-    a.slash("/cdl members")
+    a.slash("/dz members")
     w.tick(1)
     d = detail(a)
     assert any(x["kind"] == "main" and "your main" in x["text"] for x in d), d
@@ -211,12 +211,12 @@ def a_chain_of_alts_or_a_stranger_as_main_is_ignored():
     w.tick(SYNC)
     # Bert says his main is somebody outside the guild; Alfa -> Gina while Gina -> Bert (a chain)
     for who, main in (("Bert", "Stranger"), ("Alfa", "Gina"), ("Gina", "Bert")):
-        g.eval("local b = CDLootDB.prof[ns.Guild:GetGuildKey()]; b[...].a = select(2, ...)", K(who), K(main))
+        g.eval("local b = DisasterZoneDB.prof[ns.Guild:GetGuildKey()]; b[...].a = select(2, ...)", K(who), K(main))
     g.eval("ns:Fire('PROFESSIONS_UPDATED')")
     assert g.eval("return %s:GetMain(...)" % P, K("Bert")) == K("Bert")
     assert g.eval("return %s:GetMain(...)" % P, K("Alfa")) == K("Alfa")        # Gina is an alt herself
     assert g.eval("return %s:GetMain(...)" % P, K("Gina")) == K("Gina")        # (Bert names a main himself)
-    g.slash("/cdl members")
+    g.slash("/dz members")
     w.tick(1)
     assert len(roster_rows(g)) == 3
     w.assert_no_errors()
@@ -262,7 +262,7 @@ def officer_notes_stay_between_officers():
     assert sent and all(e["chat_type"] == "WHISPER" and e["target"].split("-")[0] == "Otto" for e in sent), sent
     for x in (cora, sam):
         assert note(x, "Sam") is None
-        assert x.eval("return CDLootDB.officerNotes == nil or next(CDLootDB.officerNotes) == nil") is True, x.name
+        assert x.eval("return DisasterZoneDB.officerNotes == nil or next(DisasterZoneDB.officerNotes) == nil") is True, x.name
     # members can't write one, and a note sent by a member is not taken
     res = set_note(sam, "Gina", "hello")
     assert res["ok"] is False and "officers" in res["err"], res
@@ -319,7 +319,7 @@ def the_members_tab_shows_the_note_to_officers_only():
     gina, sam = c["Gina"], c["Sam"]
     assert set_note(gina, "Sam", "Bring flasks.")["ok"] is True
     for cl in (gina, sam):
-        cl.slash("/cdl members")
+        cl.slash("/dz members")
         w.tick(1)
         cl.eval("%s:SelectMember(...)" % UI, K("Sam"))
     assert gina.eval("return %s:GetPanel().right.note:IsShown()" % UI) is True
@@ -360,7 +360,7 @@ def a_debug_role_sees_the_notes_ui_without_touching_the_real_notes():
     w.tick(5)
     assert tsu.eval("return %s:CanUse()" % N) is False
     for role in ("gm", "officer"):
-        tsu.slash("/cdl role " + role)
+        tsu.slash("/dz role " + role)
         w.tick(1)
         assert tsu.eval("return %s:CanUse()" % N) is True and tsu.eval("return %s:IsLocalOnly()" % N) is True, role
     assert note(tsu, "Sam") is None                              # the real note never reached this client
@@ -377,19 +377,19 @@ def a_debug_role_sees_the_notes_ui_without_touching_the_real_notes():
     assert note(tsu, "Sam") == "A test note."
     assert not [e for e in w.addon_log[start:] if e["chat_type"] == "WHISPER" and e["prefix"] == "CDLd"
                 and str(e["target"]).split("-")[0] == "Tsumil"]
-    tsu.slash("/cdl members")
+    tsu.slash("/dz members")
     w.tick(1)
     tsu.eval("%s:SelectMember(...)" % UI, K("Sam"))
     assert tsu.eval("return %s:GetPanel().right.note:IsShown()" % UI) is True
     assert tsu.find_text("A test note.") and tsu.find_text("kept on this PC only")
     # the role off: no notes UI; the test notes sit apart from where real notes would go
-    tsu.slash("/cdl role off")
+    tsu.slash("/dz role off")
     w.tick(1)
     assert tsu.eval("return %s:CanUse()" % N) is False and note(tsu, "Sam") is None
     assert tsu.eval("return %s:GetPanel().right.note:IsShown()" % UI) is False
     gk = tsu.eval("return ns.Guild:GetGuildKey()")
-    assert tsu.eval("return CDLootDB.officerNotes[...] == nil", gk) is True
-    assert tsu.eval("return CDLootDB.officerNotes['debug ' .. ...] ~= nil", gk) is True
+    assert tsu.eval("return DisasterZoneDB.officerNotes[...] == nil", gk) is True
+    assert tsu.eval("return DisasterZoneDB.officerNotes['debug ' .. ...] ~= nil", gk) is True
     # a real officer pretending to be a raider keeps receiving (only the screen changes)
     w.assert_no_errors()
 

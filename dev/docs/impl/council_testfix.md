@@ -1,9 +1,9 @@
-**Final report: Test & Fix agent (Addenda D and E, CDLoot 0.3.0)**
+**Final report: Test & Fix agent (Addenda D and E, DisasterZone 0.3.0)**
 
 All 30 suites pass, `check.py` reports 0 errors and 0 global writes, and `find_multiret.py` shows no hazards. The other agents' dev scripts also pass: `smoke_e` 15/15, `mixed_e` 3/3 and `test_ui_e` 6/6.
 
 ## (1) Fixes
-Addon root: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`.
+Addon root: `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone`.
 
 **Cross-file needs**
 - **`Core\Ledger.lua`**
@@ -12,7 +12,7 @@ Addon root: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`.
   - A raid leader auto-recording loot is kept, per E §29.
   - Before this, a raid-scope pick, possibly from another guild, received the guild's full award history. The new council case catches that; I reverted the fix, confirmed the case failed, then restored it.
 - **`UI\MyBiS.lua`:** the phase tooltip now reads "Your group's current phase (set by X / you)" when group rules set the phase.
-- **`CDLoot.toc`:** version bumped to 0.3.0 so 0.2 users see the "newer version" notice. The test version strings are updated.
+- **`DisasterZone.toc`:** version bumped to 0.3.0 so 0.2 users see the "newer version" notice. The test version strings are updated.
 
 **Bugs found by the new tests**
 - **`Core\Sync.lua` `OnState`**
@@ -83,8 +83,8 @@ Addon root: `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`.
   - the Guild Info spy plus a static scan of the addon source;
   - raid-scope sync;
   - the new ledger scope case.
-- **`tests\grouprules\test_grouprules.py`, 12 cases covering D §28 as adjusted by E §33, plus the phase rule, `/cdl rules`, party eligibility order, and a mixed 0.2 run.**
-- **Fixture `tests\grouprules\addon02\CDLoot`:** a copy of CDLoot 0.2.0 used by the mixed test.
+- **`tests\grouprules\test_grouprules.py`, 12 cases covering D §28 as adjusted by E §33, plus the phase rule, `/dz rules`, party eligibility order, and a mixed 0.2 run.**
+- **Fixture `tests\grouprules\addon02\DisasterZone`:** a copy of DisasterZone 0.2.0 used by the mixed test.
 
 ## (3) Summary lines
 ```
@@ -110,19 +110,19 @@ sync: council_membership 4/4, demo_isolation 5/5, ledger_sync 10/10, sync_flows 
 8. Nothing should change your Guild Info text. The old CDL{} line can be deleted; the one-time notice says so.
 
 **Group rules**
-1. Raid leader sets Roll duration 45 and Raid phase P4: raiders' Settings show "Set by <leader>" with greyed controls, `/cdl rules` shows them, and the next roll lasts 45 s.
-2. With master loot, a leader who doesn't run CDLoot, and the ML running CDLoot: the ML's rules apply.
-3. Party: the leader runs `/cdl dungeon on` and every member becomes active. A plain member's switch does nothing for the party.
+1. Raid leader sets Roll duration 45 and Raid phase P4: raiders' Settings show "Set by <leader>" with greyed controls, `/dz rules` shows them, and the next roll lasts 45 s.
+2. With master loot, a leader who doesn't run DisasterZone, and the ML running DisasterZone: the ML's rules apply.
+3. Party: the leader runs `/dz dungeon on` and every member becomes active. A plain member's switch does nothing for the party.
 4. Disband: everyone is back on their own values.
 
 ## (5) Changelog (0.3.0)
-- **Loot Council is picked in CDLoot:** the Guild Master chooses the guild council from a searchable list of guild members, with a phase. Raid leaders can add council members for their own raid.
-- **Guild Info not used:** CDLoot no longer reads or writes the Guild Information text, so the CDL{…} line can be deleted.
-- **Group loot rules:** the raid leader (or master looter) sets roll time, minimum quality, the raid phase and dungeon mode for the group. Everyone else's Settings show "Set by …". New command: `/cdl rules`.
+- **Loot Council is picked in DisasterZone:** the Guild Master chooses the guild council from a searchable list of guild members, with a phase. Raid leaders can add council members for their own raid.
+- **Guild Info not used:** DisasterZone no longer reads or writes the Guild Information text, so the CDL{…} line can be deleted.
+- **Group loot rules:** the raid leader (or master looter) sets roll time, minimum quality, the raid phase and dungeon mode for the group. Everyone else's Settings show "Set by …". New command: `/dz rules`.
 - **Fixes:**
   - Joining a guild picks up that guild's council list.
   - Re-login shortly after a council change gets the new list.
   - Raid-only council members share that raid's awards but not the guild's full loot history.
   - The phase tooltip tells guild phase and group phase apart.
 
-Dev aids are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\tf_e\` (`run_all.py`, logs in `tf_e\final\`).
+Dev aids are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\tf_e\` (`run_all.py`, logs in `tf_e\final\`).

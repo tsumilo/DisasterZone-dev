@@ -34,7 +34,7 @@ from _common import (case, run_all, no_errors, World, Client, ExtraMember, insta
 import lr_common as lr  # noqa: E402
 
 REALM = "Thunderstrike"
-ADDON_DIR = os.path.normpath(r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot")
+ADDON_DIR = os.path.normpath(r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone")
 
 
 def K(name):
@@ -88,7 +88,7 @@ def raid_list(c):
 def tabs(c):
     return c.eval_py("""
       local out = {}
-      local f = CDLootMainFrame
+      local f = DisasterZoneMainFrame
       if not f or not f.Tabs then return out end
       for _, t in ipairs(f.Tabs) do if t:IsShown() then out[#out + 1] = t.cdlKey end end
       return out""") or []
@@ -96,7 +96,7 @@ def tabs(c):
 
 def open_window(c):
     if not c.eval("return ns.MainFrame:IsShown()"):
-        c.slash("/cdl")
+        c.slash("/dz")
         c.world.tick(0.3)
 
 
@@ -258,7 +258,7 @@ def forged_and_implausible_council_lists_are_rejected():
     for n in ("Mal", "Sam"):
         assert c[n].eval("return ns.Guild:GetGuildCouncilRev()") == rev + 8, n
         assert council(c[n], "Sam") is True, n
-    # CDLoot 0.5: the GM's own client never takes a relayed copy of "its" list (it may be forged); only its saves
+    # DisasterZone 0.5: the GM's own client never takes a relayed copy of "its" list (it may be forged); only its saves
     assert c["Gina"].eval("return ns.Guild:GetGuildCouncilRev()") == rev, "the GM took a relayed copy of its list"
     # 7) trust on first use: a fresh client (no list) takes a relay only when the relayer is on the relayed list
     c["Fresh"].login()
@@ -294,7 +294,7 @@ def gm_removes_a_member_who_loses_council_views_and_whisper_gates_everywhere():
     w, c = guild_world([("Gina", 0, "PALADIN"), ("Rita", 3, "PRIEST"), ("Sam", 3, "MAGE"), ("Tess", 3, "DRUID")])
     gm_pick(w, c["Gina"], ["Rita", "Sam"])
     open_window(c["Sam"])
-    c["Sam"].slash("/cdl council")
+    c["Sam"].slash("/dz council")
     w.tick(0.5)
     assert c["Sam"].eval("return ns.MainFrame:GetSelectedTab()") == "council"
     award = lambda i: {"id": "m%dSam%d" % (now(c["Sam"]), i), "i": i, "w": K("Tess"), "b": "",  # noqa: E731
@@ -458,7 +458,7 @@ def raid_leader_is_council_for_their_raid_and_loses_the_tab_after_leaving():
     assert council(c["Lee"]) is True and c["Lee"].eval("return ns.Guild:AmIRaidLeader()") is True
     assert tabs(c["Lee"]) == ["home", "mybis", "council", "loot", "raids", "members", "games", "settings", "changelog"], tabs(c["Lee"])
     assert tabs(c["Rita"]) == ["home", "mybis", "raids", "members", "games", "settings", "changelog"] or not c["Rita"].eval("return ns.MainFrame:IsShown()")
-    c["Lee"].slash("/cdl council")
+    c["Lee"].slash("/dz council")
     w.tick(0.5)
     assert c["Lee"].eval("return ns.MainFrame:GetSelectedTab()") == "council"
     w.disband()
@@ -524,7 +524,7 @@ def pug_raid_leader_from_another_guild_is_council_inside_the_raid():
 # the picker UI
 # ------------------------------------------------------------------------------------------------------------------
 PICKER_HELP = r"""
-function T_cv() return CDLootCouncilPanel and CDLootCouncilPanel.councilView end
+function T_cv() return DisasterZoneCouncilPanel and DisasterZoneCouncilPanel.councilView end
 function T_sec(kind) return T_cv()[kind] end
 function T_shown_keys(kind)
   local out = {}
@@ -545,7 +545,7 @@ function T_count(set) local n = 0 for _ in pairs(set or {}) do n = n + 1 end ret
 def open_picker(c):
     install_helpers(c)
     c.eval(PICKER_HELP)
-    c.slash("/cdl council")
+    c.slash("/dz council")
     c.world.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "council", "no Council tab for %s" % c.full_name
     c.eval("ns.CouncilUI:SetView('council')")
@@ -617,12 +617,12 @@ def searchable_dropdown_filters_toggles_saves_reverts_and_clears():
     gm.click(gm.eval("return %s.revert" % sec))
     # Clear list asks first; cancel keeps, accept saves + shares an empty list (the phase stays)
     gm.click(gm.eval("return %s.clear" % sec))
-    assert "CDLOOT_CLEAR_COUNCIL" in gm.popups()
-    gm.cancel_popup("CDLOOT_CLEAR_COUNCIL")
+    assert "DISASTERZONE_CLEAR_COUNCIL" in gm.popups()
+    gm.cancel_popup("DISASTERZONE_CLEAR_COUNCIL")
     w.tick(1)
     assert len(guild_list(rai)["members"]) == 2
     gm.click(gm.eval("return %s.clear" % sec))
-    gm.accept_popup("CDLOOT_CLEAR_COUNCIL")
+    gm.accept_popup("DISASTERZONE_CLEAR_COUNCIL")
     w.tick(1)
     assert guild_list(rai)["members"] == [] and guild_list(rai)["phase"] == 2
     assert council(rai) is False
@@ -670,7 +670,7 @@ OLD_DB = """{ schema = 1, settings = { viewPhase = 2 },
                guild = "Casual Disaster-Thunderstrike", fetchedAt = 1789990000 },
   guildInfoSeen = { ["Casual Disaster-Thunderstrike"] = true },
   guildInfoBackups = { { text = "Welcome\\nCDL{r1 p3 +Rai}", at = 1789990000, by = "Gm-Thunderstrike" } } }"""
-NOTICE = "CDLoot no longer uses the Guild Information text. You can delete the CDL{...} line from your Guild Info."
+NOTICE = "DisasterZone no longer uses the Guild Information text. You can delete the CDL{...} line from your Guild Info."
 
 
 @case
@@ -678,10 +678,10 @@ def migration_drops_the_guild_info_cache_and_prints_the_notice_once():
     w = World()
     w.set_guild_info_text("Welcome\nCDL{r1 p3 +Rai}")        # the old tag is still in the Guild Info
     rai = Client(w, "Rai", guild_rank=3, preload_lua=GUILD_INFO_SPY)
-    rai.set_saved_variable("CDLootDB", OLD_DB)
+    rai.set_saved_variable("DisasterZoneDB", OLD_DB)
     rai.load_addon()
     w.tick(3)
-    db = rai.eval_py("return CDLootDB")
+    db = rai.eval_py("return DisasterZoneDB")
     for k in ("guildCfg", "guildInfoSeen", "guildInfoBackups"):
         assert k not in db, "%s survived the migration" % k
     assert db["settings"].get("viewPhase") == 2, "other saved data must be kept"
@@ -697,10 +697,10 @@ def migration_drops_the_guild_info_cache_and_prints_the_notice_once():
     # a cache without a tag is dropped silently
     w2 = World()
     c2 = Client(w2, "Cee", guild_rank=3)
-    c2.set_saved_variable("CDLootDB", '{ schema = 1, guildCfg = { raw = "", fetchedAt = 1 }, guildInfoSeen = {} }')
+    c2.set_saved_variable("DisasterZoneDB", '{ schema = 1, guildCfg = { raw = "", fetchedAt = 1 }, guildInfoSeen = {} }')
     c2.load_addon()
     w2.tick(3)
-    assert "guildCfg" not in c2.eval_py("return CDLootDB")
+    assert "guildCfg" not in c2.eval_py("return DisasterZoneDB")
     assert not any(NOTICE in strip_codes(l) for l in c2.chat_frame)
     assert w.guild_info_text() == "Welcome\nCDL{r1 p3 +Rai}", "the Guild Info must not be touched"
     assert_no_guild_info([rai])
@@ -721,7 +721,7 @@ def guild_info_api_is_never_called():
     gm_pick(w, c["Gina"], ["Rita"], phase=2)
     for x in (c["Gina"], c["Rita"], c["Olaf"]):
         install_helpers(x)
-        for cmd in ("/cdl", "/cdl council", "/cdl settings", "/cdl log", "/cdl rules", "/cdl version", "/cdl sync"):
+        for cmd in ("/dz", "/dz council", "/dz settings", "/dz log", "/dz rules", "/dz version", "/dz sync"):
             x.slash(cmd)
             w.tick(0.3)
     c["Gina"].eval("ns.CouncilUI:SetView('council')")

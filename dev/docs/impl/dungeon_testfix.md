@@ -34,9 +34,9 @@ Heads-up: `Core/Guild.lua` and a new suite `tests/guildinfo/test_guildinfo.py` w
   - boss names in the drop panel from normal and heroic creature IDs and from chest objects;
   - the quality rules;
   - picker candidates for Mage and Warrior across several slots, with Heroic tags and headers;
-  - the My BiS progress card, the council Items tree, `/cdl test`, and the lead-handover case.
+  - the My BiS progress card, the council Items tree, `/dz test`, and the lead-handover case.
 - New: `tests/rollclose/test_rollclose.py` (15 cases), covering:
-  - (a) the Blizzard master-loot hand-out: in a raid, from a plain loot line, from an open roll with the queue moving on, and in a dungeon party with master loot. Also the CDLoot give path in a party;
+  - (a) the Blizzard master-loot hand-out: in a raid, from a plain loot line, from an open roll with the queue moving on, and in a dungeon party with master loot. Also the DisasterZone give path in a party;
   - (b) "Award…" and "Someone else…" (note kept), an award while the roll is open, a queued roll, and a non-council master looter. Exactly one log entry in each;
   - (c) two copies of a token closed in order;
   - (d) no change for items without a roll;
@@ -82,8 +82,8 @@ conformance/test_ui_xmodule.py: 11/11 passed
 
 ## (3) In-game checklist
 **Dungeon mode (5-man party)**
-- [ ] As party leader, tick Settings → "Enable dungeon mode". Every member sees one line: "CDLoot: dungeon mode enabled by <you> (5-man loot sharing & rolls)". Their Settings status reads "Active — enabled by <you>".
-- [ ] A member who is neither leader nor council runs `/cdl dungeon on`. It says only their client uses it, and nobody else changes.
+- [ ] As party leader, tick Settings → "Enable dungeon mode". Every member sees one line: "DisasterZone: dungeon mode enabled by <you> (5-man loot sharing & rolls)". Their Settings status reads "Active — enabled by <you>".
+- [ ] A member who is neither leader nor council runs `/dz dungeon on`. It says only their client uses it, and nobody else changes.
 - [ ] Kill a boss and open the loot. Blue items show in the drop panel for the leader and council, with the boss name and "<Dungeon> (5-man)". Members with the item on their BiS list get the toast.
 - [ ] Try a chest boss: Nazan's chest in Ramparts, or Ikiss's coffer in Sethekk.
 - [ ] Click Roll on an item. Popups show for everyone; members roll or pass, and the leader's panel shows the suggestion.
@@ -92,8 +92,8 @@ conformance/test_ui_xmodule.py: 11/11 passed
 - [ ] "Won N tonight" in a later raid ignores dungeon awards.
 - [ ] Pass the lead, then turn dungeon mode off. Everyone goes inactive.
 - [ ] Leaving the party, or converting it to a raid, turns the mode off.
-- [ ] `/cdl dungeon epic` means rares are no longer shared. Outside the instance, only epics are shared.
-- [ ] `/cdl test` inside the dungeon simulates 2–3 heroic items from that dungeon.
+- [ ] `/dz dungeon epic` means rares are no longer shared. Outside the instance, only epics are shared.
+- [ ] `/dz test` inside the dungeon simulates 2–3 heroic items from that dungeon.
 - [ ] Picker → "5-man dungeons" / "Raids + dungeons": headers end in "(5-man)", heroic-only items show an orange "Heroic" tag.
 
 **Roll popups closing**
@@ -105,7 +105,7 @@ conformance/test_ui_xmodule.py: 11/11 passed
 - [ ] Handing out an item that was never rolled leaves the open popups untouched.
 
 ## (4) Changelog (user-facing)
-- **Dungeon mode for 5-man parties** (`/cdl dungeon on|off|rare|epic|status`, or Settings → Dungeon mode):
+- **Dungeon mode for 5-man parties** (`/dz dungeon on|off|rare|epic|status`, or Settings → Dungeon mode):
   - The party leader or a council member turns it on for the whole party.
   - Boss drops are shared, with rares included by default.
   - Rolls run in party chat, and the leader gets the drop panel.
@@ -115,7 +115,7 @@ conformance/test_ui_xmodule.py: 11/11 passed
   - Tooltips and the drop panel name dungeon bosses.
   - My BiS lists dungeon items on their own line.
 - **Roll popups now close once the item is handed out:**
-  - This works whether the item is given through Blizzard's loot menu or through CDLoot's Award… menu.
+  - This works whether the item is given through Blizzard's loot menu or through DisasterZone's Award… menu.
   - The popup shows "Won by X" and fades after 5 s.
   - Hovering keeps it open.
 - **Awards made outside the roll:**
@@ -126,15 +126,15 @@ conformance/test_ui_xmodule.py: 11/11 passed
   - Wanted 5-man items now appear under "Other" in the council Items view.
   - The player who turned dungeon mode on can still turn it off after passing the lead.
 
-Files are in `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`:
+Files are in `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone`:
 - `UI\Council.lua`
 - `UI\DropPanel.lua`
 - `Core\Roll.lua`
 - `Core\Dungeon.lua`
 - `Core\ItemDB.lua`
 
-New tests are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\tests`:
+New tests are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\tests`:
 - `dungeon\test_dungeon.py`
 - `rollclose\test_rollclose.py`
 
-Test logs are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\out_tf\run2\`.
+Test logs are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\out_tf\run2\`.

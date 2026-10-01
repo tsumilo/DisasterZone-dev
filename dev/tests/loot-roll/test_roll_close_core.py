@@ -41,7 +41,7 @@ def visible_for(c, item):
 # ------------------------------------------------------------------------------------------------------------------
 @R.case
 def a_blizzard_hand_out_closes_every_popup():
-    """(a) The roll is closed; the ML hands the item out with Blizzard's master-loot menu (no CDLoot click)."""
+    """(a) The roll is closed; the ML hands the item out with Blizzard's master-loot menu (no DisasterZone click)."""
     r = setup()
     w = r.w
     sid = rolled_session(r)
@@ -89,7 +89,7 @@ def b_plain_award_goes_through_the_roll():
         vis = visible_for(r[n], RUBY_DRAPE)
         assert [(e["w"], e["s"], e["n"]) for e in vis] == [(key("Dave"), "m", "roll 80")], (n, vis)
     lines = [e for e in w.chat_log[chat0:] if "->" in e["text"]]
-    assert len(lines) == 1 and strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (rolled 80, Alt)", lines
+    assert len(lines) == 1 and strip_codes(lines[0]["text"]) == "DisasterZone: [Ruby Drape of the Mysticant] -> Dave (rolled 80, Alt)", lines
     # the same award again is a no-op (true, nothing new); another winner is refused (caller records itself)
     assert B.eval("return ns.Roll:MarkAwardedExternally(...)", sid, key("Dave")) is True
     ok, why = B.eval("return ns.Roll:MarkAwardedExternally(...)", sid, key("Carol"))
@@ -231,8 +231,8 @@ def f2_award_of_a_looted_copy_never_gives_the_other_copy():
     assert ses(A, s1)["via"] == "loot" and A.eval("return ns.Loot:FindLootSlot(...) ~= nil", RUBY_DRAPE)
     A.eval("ns.Roll:Award(...)", s1, key("Bob"))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_CONFIRM_AWARD"], A.popups()
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")
+    assert A.popups() == ["DISASTERZONE_CONFIRM_AWARD"], A.popups()
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(2)
     s = ses(A, s1)
     assert s["state"] == "awarded" and s["given"] is True and s["via"] is False, s

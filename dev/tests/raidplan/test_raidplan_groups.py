@@ -165,8 +165,8 @@ def short(keys):
 def teams_grid_moves_swaps_buffs_and_saves():
     w, c = guild()
     bob, rita = c["Bob"], c["Rita"]
-    c["Rita"].slash("/cdl raids")
-    bob.slash("/cdl raids")
+    c["Rita"].slash("/dz raids")
+    bob.slash("/dz raids")
     w.tick(0.5)
     bob.eval("ns.RaidsUI:SetView('teams')")
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().newTeamBtn"))
@@ -238,7 +238,7 @@ def autofill_button_and_size_change():
     w, c = guild()
     bob = c["Bob"]
     tid = team(bob, "Main", ["Lee", "Rita", "Sam", "Ena", "Eli", "Rhea", "Tank", "Bear", "Holly", "Hunt", "Lock", "Moon", "Pip"])
-    bob.slash("/cdl raids")
+    bob.slash("/dz raids")
     w.tick(0.3)
     bob.eval("ns.RaidsUI:SetView('teams'); ns.RaidPlanUI:SelectTeam(...)", tid)
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().teams.detail.autoBtn"))
@@ -267,8 +267,8 @@ def seat_order(cl, grid="ns.RaidPlanUI:GetTeamGrid()", g=1):
 def members_keep_the_seat_they_are_dropped_on():
     w, c = guild()
     bob, rita = c["Bob"], c["Rita"]
-    rita.slash("/cdl raids")
-    bob.slash("/cdl raids")
+    rita.slash("/dz raids")
+    bob.slash("/dz raids")
     w.tick(0.5)
     bob.eval("ns.RaidsUI:SetView('teams')")
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().newTeamBtn"))

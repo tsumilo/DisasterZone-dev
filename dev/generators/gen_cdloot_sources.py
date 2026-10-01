@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generator for CDLoot's crafted / reputation / Badge-of-Justice item database (SPEC_ADDENDUM_F section 37).
+Generator for DisasterZone's crafted / reputation / Badge-of-Justice item database (SPEC_ADDENDUM_F section 37).
 
 Companion of gen_cdloot_data.py (raids) and gen_cdloot_dungeons.py (5-mans): it IMPORTS them and reuses the Lua
 tokenizer / table parser, the file reader, the Questie NPC loader and the LoonBestInSlot loader. Neither earlier
@@ -22,7 +22,7 @@ Reads (read-only) from the installed WoW AddOns folder:
   * Questie/Database/Corrections/ContentPhases/BurningCrusade.lua -> phase of the 2.1 factions (Ogri'la/Skyguard,
                                                        Netherwing, BT chain) - verified by the comment markers
   * LoonBestInSlot/DB/ItemSources.lua               -> CROSS-CHECK ONLY (no license: nothing is copied to the output)
-  * CDLoot/Data/Items.lua, CDLoot/Data/Dungeons.lua -> overlap report only (never written)
+  * DisasterZone/Data/Items.lua, DisasterZone/Data/Dungeons.lua -> overlap report only (never written)
 
 Writes:
   * <ADDON>/Data/Sources.lua                    (the only file written inside the addon)
@@ -47,7 +47,7 @@ import luabc  # noqa: E402,F401  (puts lupa on sys.path)
 from lupa import lua51  # noqa: E402
 
 ADDONS = G.ADDONS
-ADDON_DIR = os.path.join(ADDONS, "CDLoot")
+ADDON_DIR = os.path.join(ADDONS, "DisasterZone")
 OUT_LUA_DEFAULT = os.path.join(ADDON_DIR, "Data", "Sources.lua")
 OUT_REPORT = os.path.join(HERE, "gen_sources_report.json")
 
@@ -74,7 +74,7 @@ P_DUNGEON_ITEMS = os.path.join(ADDON_DIR, "Data", "Dungeons.lua")
 # --------------------------------------------------------------------------------------
 # Configuration
 # --------------------------------------------------------------------------------------
-# AtlasLoot crafting table key -> (CDLoot key, display name, AtlasLoot/Profession.lua profession ID)
+# AtlasLoot crafting table key -> (DisasterZone key, display name, AtlasLoot/Profession.lua profession ID)
 PROFESSIONS = OrderedDict([
     ("BlacksmithingBC",  ("Blacksmithing",  "Blacksmithing",  2)),
     ("LeatherworkingBC", ("Leatherworking", "Leatherworking", 3)),
@@ -120,7 +120,7 @@ SPEC_ORDER = [None, "Armorsmith", "Weaponsmith", "Axesmith", "Hammersmith", "Swo
 # equippable (the Mercurial Stone in the same sub-table is a reagent and stays excluded).
 ALCHEMY_TRINKET_RX = re.compile(r"Alchemist Stone$")
 
-# AtlasLoot faction table key -> (CDLoot key, display name).  AtlasLoot's tables carry only FactionID (the game
+# AtlasLoot faction table key -> (DisasterZone key, display name).  AtlasLoot's tables carry only FactionID (the game
 # resolves the name at runtime); the English faction names are fixed.
 FACTIONS = OrderedDict([
     ("TheAldor", ("Aldor", "The Aldor")),
@@ -151,16 +151,16 @@ DIFF_SIDE = {"ALLIANCE_DIFF": "Alliance", "HORDE_DIFF": "Horde"}
 REP_MIN_REQ_LEVEL = 58  # items with 0 < requiredLevel < 58 are excluded; requiredLevel 0 (rings/trinkets) is kept
 
 # Faction phases beyond AtlasLoot's own ContentPhaseBC (only Shattered Sun Offensive has one).  Each entry names the
-# evidence: a comment marker inside Questie's TBC content-phase blacklist (verified at run time), or the CDLoot raid
+# evidence: a comment marker inside Questie's TBC content-phase blacklist (verified at run time), or the DisasterZone raid
 # phase of the raid that is the only source of that reputation.
 FACTION_PHASE_RULES = {
     "Ogrila":              {"phase": 2, "questie_marker": (2, "Ogri'la & Sha'tari Skyguard")},
     "ShatariSkyguard":     {"phase": 2, "questie_marker": (2, "Ogri'la & Sha'tari Skyguard")},
     "Netherwing":          {"phase": 3, "questie_marker": (3, "Netherwing")},
-    # Ashtongue reputation comes from Black Temple (CDLoot raid phase 3); Questie phase 3 also holds the "BT chain".
+    # Ashtongue reputation comes from Black Temple (DisasterZone raid phase 3); Questie phase 3 also holds the "BT chain".
     "AshtongueDeathsworn": {"phase": 3, "questie_marker": (3, "BT chain"), "raid": "BlackTemple"},
     # Scale of the Sands: the Friendly ring is the reward of the Hyjal attunement ("Mount Hyjal ring quests" are in
-    # Questie's phase-2 list); every higher standing needs Hyjal reputation (CDLoot raid phase 3).
+    # Questie's phase-2 list); every higher standing needs Hyjal reputation (DisasterZone raid phase 3).
     "ScaleOfTheSands":     {"phase": 3, "questie_marker": (2, "Mount Hyjal ring quests"), "raid": "HyjalSummit",
                             "standing_phase": {"Friendly": 2}},
 }
@@ -196,7 +196,7 @@ def vendor_sides(iid, Q, NPC):
     return sides if any_v else None
 
 
-# PvP (AtlasLootClassic_PvP/data-tbc.lua).  AtlasLoot table key -> (CDLoot group key, display name, phase or None).
+# PvP (AtlasLootClassic_PvP/data-tbc.lua).  AtlasLoot table key -> (DisasterZone group key, display name, phase or None).
 # Tables are processed in this order and an item is kept only in the FIRST group that lists it (the shared
 # PVP_INSIGNIA list is referenced by the Honor, Reputation and Season 1 tables -> kept under Honor).
 PVP_TABLES = OrderedDict([
@@ -458,14 +458,14 @@ def load_questie_phase_markers():
 
 
 def load_cdloot_ids(lua):
-    """(raid itemID -> [raid/boss], dungeon itemID -> [dungeon/boss]) from CDLoot's own data files (read-only)."""
+    """(raid itemID -> [raid/boss], dungeon itemID -> [dungeon/boss]) from DisasterZone's own data files (read-only)."""
     def run(path):
         if not os.path.exists(path):
             return None
         src = open(path, encoding="utf-8").read()
         f = lua.eval("function(s, n) return loadstring(s, n) end")(src, "@" + os.path.basename(path))
         ns = lua.table()
-        f("CDLoot", ns)
+        f("DisasterZone", ns)
         return ns
     raid, dung = defaultdict(list), defaultdict(list)
     ns = run(P_RAID_ITEMS)
@@ -667,12 +667,12 @@ def faction_phase(key, tbl, standing, markers, raid_phases, report):
     if mk and mk[1] not in markers.get(mk[0], []):
         report["warnings"].append(f"Questie phase marker {mk!r} for {key} not found - phase rule unverified")
     if rule.get("raid") and raid_phases.get(rule["raid"]) not in (None, rule["phase"]):
-        report["warnings"].append(f"{key}: CDLoot raid {rule['raid']} phase {raid_phases.get(rule['raid'])} != rule {rule['phase']}")
+        report["warnings"].append(f"{key}: DisasterZone raid {rule['raid']} phase {raid_phases.get(rule['raid'])} != rule {rule['phase']}")
     sp = rule.get("standing_phase", {}).get(standing)
     if sp:
         return sp, f"Questie phase-{mk[0]} marker '{mk[1]}'"
     return rule["phase"], (f"Questie phase-{mk[0]} marker '{mk[1]}'" if mk and mk[0] == rule["phase"] else "") + \
-        (f" + CDLoot raid {rule['raid']} phase" if rule.get("raid") else "")
+        (f" + DisasterZone raid {rule['raid']} phase" if rule.get("raid") else "")
 
 
 def build_reputation(Q, markers, raid_phases, report):
@@ -1004,7 +1004,7 @@ def build_pvp(Q, NPC, PRICES, report):
 # Lua writer
 # --------------------------------------------------------------------------------------
 HEADER = """\
--- CDLoot crafted / reputation / Badge of Justice / PvP item database (TBC Anniversary, Interface 20506)
+-- DisasterZone crafted / reputation / Badge of Justice / PvP item database (TBC Anniversary, Interface 20506)
 -- AUTO-GENERATED by gen_cdloot_sources.py - do not edit by hand; re-run the generator instead.
 -- Sources (all read locally; AtlasLootClassic data is GPL v2):
 --   AtlasLootClassic_Crafting/data-tbc.lua     TBC profession tables (rows are craft spell IDs; the Blacksmithing
@@ -1064,7 +1064,7 @@ ns.Data = ns.Data or {}
 """
 
 
-# Item-level phase corrections (CDLoot 0.5 final review, Wowhead TBC "Phase N" tags): the 2.1 engineering goggles
+# Item-level phase corrections (DisasterZone 0.5 final review, Wowhead TBC "Phase N" tags): the 2.1 engineering goggles
 # (the generator's default was P1), the 40000-honor Medallions (P5), and a few single items.
 PHASE_OVERRIDES = {32461: 2, 32472: 2, 32473: 2, 32474: 2, 32475: 2, 32476: 2, 32478: 2, 32479: 2, 32480: 2,
                    32494: 2, 32495: 2, 37864: 5, 37865: 5, 32973: 2, 35320: 5, 33204: 3}
@@ -1147,7 +1147,7 @@ def validate_lua(path, report):
     if f is None:
         raise SystemExit(f"Lua 5.1 compile error: {e}")
     ns = lua.table()
-    f("CDLoot", ns)
+    f("DisasterZone", ns)
     D = ns.Data
     errs, dups = [], []
     kinds = {"Crafted": ("id", "skill", "phase", "spell"), "Reputation": ("id", "standing", "phase"),

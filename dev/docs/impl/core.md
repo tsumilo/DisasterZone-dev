@@ -1,4 +1,4 @@
-1. **FILES WRITTEN** (all under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\Core\`)
+1. **FILES WRITTEN** (all under `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\Core\`)
 - `Init.lua`: 361 lines
 - `Util.lua`: 528 lines
 - `Constants.lua`: 276 lines
@@ -6,26 +6,26 @@
 - `DB.lua`: 175 lines
 - `Demo.lua`: 326 lines
 
-Smoke test (scratch only): `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\core_smoke.py`. It runs real Lua 5.1 with WoW mocks. Item class and subclass come from Questie's TBC item DB; the equip slot is guessed from the item name. It prints `ALL CORE CHECKS PASSED`.
+Smoke test (scratch only): `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\core_smoke.py`. It runs real Lua 5.1 with WoW mocks. Item class and subclass come from Questie's TBC item DB; the equip slot is guessed from the item name. It prints `ALL CORE CHECKS PASSED`.
 
-**Answer to the user's question (dependencies):** Nobody you share CDLoot with needs any other addon installed.
-- Every library it uses has its own copy in `CDLoot/Libs`: LibStub, CallbackHandler, AceComm, ChatThrottleLib, LibSerialize, LibDeflate, LibDataBroker, LibDBIcon and LibCustomGlow.
+**Answer to the user's question (dependencies):** Nobody you share DisasterZone with needs any other addon installed.
+- Every library it uses has its own copy in `DisasterZone/Libs`: LibStub, CallbackHandler, AceComm, ChatThrottleLib, LibSerialize, LibDeflate, LibDataBroker, LibDBIcon and LibCustomGlow.
 - The TOC has no `## Dependencies` line. It only has `## OptionalDeps: LoonBestInSlot`.
 - Across the addon's code, the only reference to another addon is `Core/Loon.lua`. It checks for `_G.LBIS`, which exists only when LoonBestInSlot is installed, and is used only for the optional "Suggest BiS" feature.
-- The loot data in `Data/Items.lua` was generated from other addons' data files but ships inside CDLoot, so nothing is read from them at runtime.
+- The loot data in `Data/Items.lua` was generated from other addons' data files but ships inside DisasterZone, so nothing is read from them at runtime.
 - My six core files reference no other addon.
 
 2. **PUBLIC API** (★ = extra beyond the spec, additive only)
 
 Init
-- `CDLoot = ns`, `ns.name`, `ns.version` (from C_AddOns metadata, else "0.0.0"), `ns.PROTO = 1`, `ns.initialized`, `ns.loggedIn`.
+- `DisasterZone = ns`, `ns.name`, `ns.version` (from C_AddOns metadata, else "0.0.0"), `ns.PROTO = 1`, `ns.initialized`, `ns.loggedIn`.
 - `ns:NewModule(name)`: errors if `ns[name]` already exists.
 - Lifecycle: `OnInit` and `OnLogin` are dispatched in TOC order, each call under xpcall. It also handles the addon loading after login.
 - `ns:RegisterEvent(event, fn)`: returns true, or false for an event the client doesn't know. Registering the same fn twice does nothing. Skipped events are debug-logged after init.
 - `ns:UnregisterEvent(event, fn)`.
 - `ns:On`, `ns:Off`, `ns:Fire`: handlers run in xpcall. Message names not in the §3.3 catalogue get a debug line, not an error.
 - `ns:Print(fmt, ...)` and `ns:Debug(fmt, ...)`: a bad format or nil argument falls back to plain concatenation instead of erroring.
-- Slash commands: `/cdl` and `/cdloot`. `ns:RegisterSlash(sub, fn, help)`. Empty input calls `ns.MainFrame:Toggle()` (guarded). `help` lists commands. Unknown commands print help. `debug` is registered here.
+- Slash commands: `/dz` and `/disasterzone`. `ns:RegisterSlash(sub, fn, help)`. Empty input calls `ns.MainFrame:Toggle()` (guarded). `help` lists commands. Unknown commands print help. `debug` is registered here.
 - ★ `ns.SafeCall(fn, ...)`. Plain Lua 5.1 xpcall does not pass extra arguments, so this uses a closure. It looks up `geterrorhandler()` on every call.
 - ★ `ns:IsDebug()`, ★ `ns:GetModules()`, ★ `ns:PrintSlashHelp()`.
 
@@ -63,13 +63,13 @@ ItemDB
   - GetSources and ExpandDrop return cached shared arrays; callers must not modify them.
 
 DB
-- `OnInit` creates `CDLootDB`, sets `ns.db` first, then fills defaults, then runs migrations by schema. The default fill never overwrites saved values, but replaces a value that should be a table and isn't.
+- `OnInit` creates `DisasterZoneDB`, sets `ns.db` first, then fills defaults, then runs migrations by schema. The default fill never overwrites saved values, but replaces a value that should be a table and isn't.
 - `GetSetting(path)` falls back to the defaults before SavedVariables load.
 - `SetSetting(path, value)` fires `SETTINGS_CHANGED(path)` only when the value actually changed, and returns true or false.
 - ★ `GetDefault(path)`.
 
 Demo
-- `IsEnabled`, `SetEnabled` (in memory only; needs the player to be logged in; fires `DEMO_TOGGLED` then `LISTS_RESET`), `GetRecords`, `GetRoster`, `IsInDemoRaid`, `/cdl demo [on|off]`.
+- `IsEnabled`, `SetEnabled` (in memory only; needs the player to be logged in; fires `DEMO_TOGGLED` then `LISTS_RESET`), `GetRecords`, `GetRoster`, `IsInDemoRaid`, `/dz demo [on|off]`.
 - ★ `Toggle`, `GetRecord(key)`, `GetMembers()`, `GetRaidKeys()` (me plus the fake raid).
 - Deviation: 18 fake members (2 per class) instead of about 16; 10 of them plus me are in the demo raid; ranks 1 (Officer) to 4.
 - Lists are generated with `GetCandidates(sid, {maxPhase, class, usableOnly=true, primaryArmorOnly=true})`, preferring items from exactly that phase. A pick sometimes carries over from the previous phase. Two-handers leave the off hand empty. Ring and trinket pairs get distinct items.
@@ -91,7 +91,7 @@ Demo
 tools/check.py Core/Init.lua Core/Util.lua Core/Constants.lua Core/ItemDB.lua Core/DB.lua Core/Demo.lua
 -- checked 6 file(s): 0 syntax error(s), 0 global write(s), 0 warning(s) []
 ```
-- The only global writes are `CDLoot`, `SLASH_CDLOOT1`, `SLASH_CDLOOT2` and `CDLootDB`, all allowed.
+- The only global writes are `DisasterZone`, `SLASH_DISASTERZONE1`, `SLASH_DISASTERZONE2` and `DisasterZoneDB`, all allowed.
 - The lupa compile one-liner reports OK for all six files.
 - The smoke test covers:
   - the lifecycle and `ns.db` timing
@@ -110,5 +110,5 @@ tools/check.py Core/Init.lua Core/Util.lua Core/Constants.lua Core/ItemDB.lua Co
   - Non-equippable items: I treat `""`, `INVTYPE_NON_EQUIP` and `INVTYPE_NON_EQUIP_IGNORE` as not equippable. Confirm what 2.5.6 actually returns.
   - Confirm `UnitNameUnmodified`. LootReserve uses it; `UnitName` is the fallback.
 - **Proficiency check:** hunters can use thrown weapons, following LootReserve (AtlasLoot disagrees). This only affects the ranged-slot "usable" filter.
-- **Message names:** a typo only shows up as a `[debug]` line, visible with `/cdl debug`.
+- **Message names:** a typo only shows up as a `[debug]` line, visible with `/dz debug`.
 - **Group tracking:** the member set is refreshed 0.3 s after roster events, so code that reads it in the same frame as `GROUP_ROSTER_UPDATE` sees the old set until `GROUP_UPDATED` fires.

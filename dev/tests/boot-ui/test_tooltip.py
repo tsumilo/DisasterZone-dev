@@ -10,7 +10,7 @@ MAG_HEAD = 32385          # Magtheridon's Head: quest item -> 4 rings; 15 demo w
 
 
 def cdl_lines(lines):
-    return [strip_codes(l) for l, _ in lines if "CDLoot" in l]
+    return [strip_codes(l) for l, _ in lines if "DisasterZone" in l]
 
 
 def show(c, item_id):
@@ -38,19 +38,19 @@ def own_lines_main_alt_obtained_other_phases():
     c.eval("ns.BiS:SetSlot(3, 1, 'main', ...)", head)
     c.eval("ns.BiS:SetSlot(2, 12, 'alt', ...)", ring)
     lines = cdl_lines(show(c, head))
-    assert lines == ["CDLoot  Your P1 BiS (main) - Head  also P2, P3"], lines
+    assert lines == ["DisasterZone  Your P1 BiS (main) - Head  also P2, P3"], lines
     lines = cdl_lines(show(c, ring))
-    assert lines == ["CDLoot Your P2 alt - Ring 2"], lines
+    assert lines == ["DisasterZone Your P2 alt - Ring 2"], lines
     # the view phase is listed first
     c.eval("ns.DB:SetSetting('viewPhase', 3)")
-    assert cdl_lines(show(c, head)) == ["CDLoot  Your P3 BiS (main) - Head  also P1, P2"]
+    assert cdl_lines(show(c, head)) == ["DisasterZone  Your P3 BiS (main) - Head  also P1, P2"]
     c.eval("ns.DB:SetSetting('viewPhase', nil)")
     # obtained suffix once the item is in the bags (after the debounced scan)
     c.set_bags({(0, 1): head})
     w.tick(2)
     lines = cdl_lines(show(c, head))
-    assert lines == ["CDLoot  Your P1 BiS (main) - Head obtained  also P2, P3"], lines
-    # unrelated item: no CDLoot line at all; non-council: never council lines
+    assert lines == ["DisasterZone  Your P1 BiS (main) - Head obtained  also P2, P3"], lines
+    # unrelated item: no DisasterZone line at all; non-council: never council lines
     other = first_candidate(c, 7)
     assert cdl_lines(show(c, other)) == []
     assert c.eval("return ns.Guild:AmICouncil()") is False
@@ -69,7 +69,7 @@ def token_and_upgrade_via_lines():
     c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", piece)
     pname = c.eval("return ns.ItemDB:GetName(...)", piece)
     lines = cdl_lines(show(c, token))
-    assert lines == ["CDLoot  Your P1 BiS (main) - Head (via token: %s)" % pname], lines
+    assert lines == ["DisasterZone  Your P1 BiS (main) - Head (via token: %s)" % pname], lines
     # holding the token counts the piece as obtained ("Have token")
     c.set_bags({(0, 1): token})
     w.tick(2)
@@ -90,9 +90,9 @@ def token_and_upgrade_via_lines():
 def council_lines_limit_shift_and_expand():
     w, c = solo("Alice", guild_rank=3, tick=4)
     install_helpers(c)
-    c.slash("/cdl demo on")
+    c.slash("/dz demo on")
     w.tick(0.3)
-    # CDLoot 0.5: the expected counts come from the demo data (they depend on the item database), the header says
+    # DisasterZone 0.5: the expected counts come from the demo data (they depend on the item database), the header says
     # "wanted by N" like the drop panel ("N want"), and the " · K BiS" part appears when some picks are alts.
     need, have, inraid, mains = c.eval_py("""
         local seen, need, have, inraid, mains = {}, 0, 0, 0, 0
@@ -110,8 +110,8 @@ def council_lines_limit_shift_and_expand():
     total = need + have
     assert total > 6 and have > 0 and inraid > 0, (need, have, inraid)
     lines = show(c, MAG_HEAD)
-    head = [strip_codes(l) for l, _ in lines if l.startswith("|cffff8000CDLoot|r: wanted by")]
-    want = "CDLoot: wanted by %d (%d in raid)%s, %d obtained" % (need, inraid,
+    head = [strip_codes(l) for l, _ in lines if l.startswith("|cffff8000DisasterZone|r: wanted by")]
+    want = "DisasterZone: wanted by %d (%d in raid)%s, %d obtained" % (need, inraid,
                                                              (" · %d BiS" % mains) if mains < need else "", have)
     assert head == [want], (head, want)
     names = [l for l, r in lines if l.startswith("  |c") or l.startswith("  ")]
@@ -153,21 +153,21 @@ def council_lines_limit_shift_and_expand():
 def settings_switch_lines_off():
     w, c = solo("Alice", guild_rank=3, tick=4)
     install_helpers(c)
-    c.slash("/cdl demo on")
+    c.slash("/dz demo on")
     head = first_candidate(c, 1)
     c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", head)
     c.eval("ns.BiS:SetSlot(1, 11, 'main', 28791)") if c.eval("return ns.ItemDB:FitsSlot(28791, 11)") else None
     assert cdl_lines(show(c, MAG_HEAD))
     c.eval("ns.DB:SetSetting('tooltip.council', false)")
     assert not any("wanted by" in l for l in cdl_lines(show(c, MAG_HEAD)))
-    assert cdl_lines(show(c, head)) == ["CDLoot  Your P1 BiS (main) - Head"]
+    assert cdl_lines(show(c, head)) == ["DisasterZone  Your P1 BiS (main) - Head"]
     c.eval("ns.DB:SetSetting('tooltip.enabled', false)")
     assert cdl_lines(show(c, head)) == []
     assert cdl_lines(show(c, MAG_HEAD)) == []
     c.eval("ns.DB:SetSetting('tooltip.enabled', true); ns.DB:SetSetting('tooltip.council', true)")
     assert cdl_lines(show(c, MAG_HEAD))
     # demo off: back to a plain raider -> no council lines
-    c.slash("/cdl demo off")
+    c.slash("/dz demo off")
     assert not any("wanted by" in l for l in cdl_lines(show(c, MAG_HEAD)))
     no_errors(w)
 
@@ -176,7 +176,7 @@ def settings_switch_lines_off():
 def no_duplicate_lines_on_repeated_set_item():
     w, c = solo("Alice", guild_rank=3, tick=4)
     install_helpers(c)
-    c.slash("/cdl demo on")
+    c.slash("/dz demo on")
     head = first_candidate(c, 1)
     c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", head)
     for item in (MAG_HEAD, head):
@@ -185,21 +185,21 @@ def no_duplicate_lines_on_repeated_set_item():
             c.eval("__MOCK.call_script(GameTooltip, 'OnTooltipSetItem')")
         again = tt_lines(c)
         assert again == base, (item, len(base), len(again))
-        assert sum(1 for l, _ in again if "CDLoot" in l) == sum(1 for l, _ in base if "CDLoot" in l)
+        assert sum(1 for l, _ in again if "DisasterZone" in l) == sum(1 for l, _ in base if "DisasterZone" in l)
     # ItemRefTooltip (chat links) is hooked too, also without duplicates
     link = c.eval("return (select(2, C_Item.GetItemInfo(...)))", head)
     c.eval("ItemRefTooltip:SetOwner(UIParent, 'ANCHOR_PRESERVE'); ItemRefTooltip:SetHyperlink(...)", link)
     c.eval("__MOCK.call_script(ItemRefTooltip, 'OnTooltipSetItem')")
     ref = tt_lines(c, "ItemRefTooltip")
-    own = [strip_codes(l) for l, _ in ref if "CDLoot" in l and "wanted by" not in l]
-    assert own == ["CDLoot  Your P1 BiS (main) - Head"], ref
+    own = [strip_codes(l) for l, _ in ref if "DisasterZone" in l and "wanted by" not in l]
+    assert own == ["DisasterZone  Your P1 BiS (main) - Head"], ref
     assert sum(1 for l, _ in ref if "wanted by" in l) == 1, ref
-    # a CDLoot item button tooltip (SetItemByID + extra lines) does not duplicate the own line either
-    c.slash("/cdl bis")
+    # a DisasterZone item button tooltip (SetItemByID + extra lines) does not duplicate the own line either
+    c.slash("/dz bis")
     w.tick(0.3)
     c.hover(c.eval("return T_tile(1).main"))
     tl = [strip_codes(l) for l, _ in tt_lines(c)]
-    assert sum(1 for l in tl if l.startswith("CDLoot ") and "Your P1 BiS" in l) == 1, tl
+    assert sum(1 for l in tl if l.startswith("DisasterZone ") and "Your P1 BiS" in l) == 1, tl
     no_errors(w)
 
 
@@ -210,15 +210,15 @@ def cache_is_invalidated_by_list_changes():
     head = first_candidate(c, 1)
     assert cdl_lines(show(c, head)) == []
     c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", head)       # within the 2 s cache window
-    assert cdl_lines(show(c, head)) == ["CDLoot  Your P1 BiS (main) - Head"]
+    assert cdl_lines(show(c, head)) == ["DisasterZone  Your P1 BiS (main) - Head"]
     c.eval("ns.BiS:SwapMainAlt(1, 1)")
-    assert cdl_lines(show(c, head)) == ["CDLoot Your P1 alt - Head"]
+    assert cdl_lines(show(c, head)) == ["DisasterZone Your P1 alt - Head"]
     c.eval("ns.BiS:SetManualObtained(..., true)", head)
     assert "obtained" in cdl_lines(show(c, head))[0]
     c.eval("ns.BiS:ClearSlot(1, 1)")
     assert cdl_lines(show(c, head)) == []
     # council side: an award (LEDGER_UPDATED) shows immediately
-    c.slash("/cdl demo on")
+    c.slash("/dz demo on")
     before = show(c, MAG_HEAD)
     first_name = next(l for l, _ in before if l.startswith("  |c"))
     key = strip_codes(first_name).strip() + "-Thunderstrike"

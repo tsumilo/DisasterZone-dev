@@ -29,7 +29,7 @@ def game(ui=False):
     c.eval("T_AZ.seed(9)")
     c.eval("ns.Azero:NewGame()")
     if ui:
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")
         w.tick(0.3)

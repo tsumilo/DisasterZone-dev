@@ -21,7 +21,7 @@ function T_menu_sub_select(subText, text)
 end
 function T_log_rows()
   local o = {}
-  for i, d in ipairs(T_data(CDLootLootLogPanel.list.box)) do
+  for i, d in ipairs(T_data(DisasterZoneLootLogPanel.list.box)) do
     local e = d.entry
     o[i] = { e.id, e.i, e.w, e.b or '', e.s, e.n or '', e.vd and 1 or 0 }
   end
@@ -44,7 +44,7 @@ def council_world(rank=1, members=(("Bob", "MAGE", 3), ("Carl", "ROGUE", 2), ("D
 
 
 def open_log(c):
-    c.slash("/cdl log")
+    c.slash("/dz log")
     c.world.tick(0.5)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "loot"
 
@@ -54,7 +54,7 @@ def log_rows(c):
 
 
 def dialog(c, field):
-    return c.eval("return CDLootAwardDialog.%s" % field)
+    return c.eval("return DisasterZoneAwardDialog.%s" % field)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -62,21 +62,21 @@ def dialog(c, field):
 def empty_log_and_add_award_dialog_happy_path():
     w, c = council_world()
     open_log(c)
-    assert c.eval("return CDLootLootLogPanel.count:GetText()") == "0 awards"
-    assert "No awards recorded yet" in c.eval("return CDLootLootLogPanel.empty:GetText()")
-    assert c.eval("return CDLootLootLogPanel.empty:IsShown()") is True
-    c.click(c.eval("return CDLootLootLogPanel.addBtn"))
-    assert c.eval("return CDLootAwardDialog:IsShown()") is True
-    assert c.eval("return CDLootAwardDialog.itemBox:HasFocus()") is True
+    assert c.eval("return DisasterZoneLootLogPanel.count:GetText()") == "0 awards"
+    assert "No awards recorded yet" in c.eval("return DisasterZoneLootLogPanel.empty:GetText()")
+    assert c.eval("return DisasterZoneLootLogPanel.empty:IsShown()") is True
+    c.click(c.eval("return DisasterZoneLootLogPanel.addBtn"))
+    assert c.eval("return DisasterZoneAwardDialog:IsShown()") is True
+    assert c.eval("return DisasterZoneAwardDialog.itemBox:HasFocus()") is True
     # save with nothing -> validation messages, nothing recorded
     c.click(dialog(c, "saveBtn"))
-    assert "Enter an item" in c.eval("return CDLootAwardDialog.status:GetText()")
+    assert "Enter an item" in c.eval("return DisasterZoneAwardDialog.status:GetText()")
     c.type_text(dialog(c, "itemBox"), str(PRINCE_ITEM))
-    assert "Nathrezim Mindblade" in strip_codes(c.eval("return CDLootAwardDialog.itemHint:GetText()"))
-    assert strip_codes(c.eval("return CDLootAwardDialog.bossText:GetText()")) == "Boss: Prince Malchezaar · Karazhan"
+    assert "Nathrezim Mindblade" in strip_codes(c.eval("return DisasterZoneAwardDialog.itemHint:GetText()"))
+    assert strip_codes(c.eval("return DisasterZoneAwardDialog.bossText:GetText()")) == "Boss: Prince Malchezaar · Karazhan"
     c.click(dialog(c, "saveBtn"))
-    assert c.eval("return CDLootAwardDialog.status:GetText()") == "Choose who received the item."
-    assert c.eval("return next(CDLootDB.ledger)") is None
+    assert c.eval("return DisasterZoneAwardDialog.status:GetText()") == "Choose who received the item."
+    assert c.eval("return next(DisasterZoneDB.ledger)") is None
     # winner menu: not in a group, guild online / all submenus
     c.click(dialog(c, "pickBtn"))
     texts = [e[2] for e in menu_texts(c.last_menu())]
@@ -84,20 +84,20 @@ def empty_log_and_add_award_dialog_happy_path():
     assert "Guild - online (1)" in texts and "Guild - all (4)" in texts, texts
     bob = next(t for t in texts if t and strip_codes(t) == "Bob")
     c.eval("T_menu_sub_select('Guild - all (4)', ...)", bob)
-    assert c.eval("return CDLootAwardDialog.winBox:GetText()") == "Bob"
+    assert c.eval("return DisasterZoneAwardDialog.winBox:GetText()") == "Bob"
     c.type_text(dialog(c, "noteBox"), "  first kill  ")
     p0 = len(c.chat_frame)
     c.click(dialog(c, "saveBtn"))
     w.tick(0.5)
-    assert c.eval("return CDLootAwardDialog:IsShown()") is False
+    assert c.eval("return DisasterZoneAwardDialog:IsShown()") is False
     rows = log_rows(c)
     assert len(rows) == 1, rows
     _, iid, win, boss, kind, note, vd = rows[0]
     assert (iid, win, boss, kind, note, vd) == (PRINCE_ITEM, "Bob-Thunderstrike", "Karazhan:Prince", "m", "first kill", 0), rows[0]
     assert any("Recorded award" in l and "Bob" in l for l in printed_since(c, p0)), printed_since(c, p0)
-    assert c.eval("return CDLootLootLogPanel.count:GetText()") == "1 award"
+    assert c.eval("return DisasterZoneLootLogPanel.count:GetText()") == "1 award"
     # the row widgets
-    r = c.eval_py("""local r = T_rows(CDLootLootLogPanel.list.box)[1]
+    r = c.eval_py("""local r = T_rows(DisasterZoneLootLogPanel.list.box)[1]
       return { r.item:GetText(), r.winner:GetText(), r.boss:GetText(), r.by:GetText(), r.date:GetText() }""")
     assert "Nathrezim Mindblade" in r[0] and strip_codes(r[1]) == "Bob" and r[2] == "Prince Malchezaar", r
     assert r[3] == "manual · Cou · note" and len(r[4]) == len("09/21 12:00"), r
@@ -108,35 +108,35 @@ def empty_log_and_add_award_dialog_happy_path():
 def award_dialog_item_inputs_and_typed_winners():
     w, c = council_world()
     open_log(c)
-    c.click(c.eval("return CDLootLootLogPanel.addBtn"))
+    c.click(c.eval("return DisasterZoneLootLogPanel.addBtn"))
     ib = dialog(c, "itemBox")
     link = c.eval("return (select(2, C_Item.GetItemInfo(...)))", PRINCE_ITEM)
     # a pasted link, junk, out-of-range IDs
     for text, ok in ((link, True), ("abc", False), ("999999", False), ("0", False), ("  28770  ", True)):
         c.type_text(ib, text)
-        got = c.eval("return CDLootAwardDialog.itemID")
+        got = c.eval("return DisasterZoneAwardDialog.itemID")
         assert (got == PRINCE_ITEM) == ok, (text, got)
     # shift-click while the item box has focus
     other = 28785
-    c.eval("CDLootAwardDialog.itemBox:SetFocus()")
+    c.eval("DisasterZoneAwardDialog.itemBox:SetFocus()")
     c.eval("ChatFrameUtil.InsertLink((select(2, C_Item.GetItemInfo(...))))", other)
-    assert c.eval("return CDLootAwardDialog.itemID") == other
+    assert c.eval("return DisasterZoneAwardDialog.itemID") == other
     # ... but not when another box has focus
-    c.eval("CDLootAwardDialog.noteBox:SetFocus()")
+    c.eval("DisasterZoneAwardDialog.noteBox:SetFocus()")
     c.eval("ChatFrameUtil.InsertLink((select(2, C_Item.GetItemInfo(...))))", PRINCE_ITEM)
-    assert c.eval("return CDLootAwardDialog.itemID") == other
+    assert c.eval("return DisasterZoneAwardDialog.itemID") == other
     # drag onto the item button / the box
     c.set_cursor_item(PRINCE_ITEM)
-    c.eval("T_script(CDLootAwardDialog.itemBtn, 'OnReceiveDrag')")
-    assert c.eval("return CDLootAwardDialog.itemID") == PRINCE_ITEM
+    c.eval("T_script(DisasterZoneAwardDialog.itemBtn, 'OnReceiveDrag')")
+    assert c.eval("return DisasterZoneAwardDialog.itemID") == PRINCE_ITEM
     c.set_cursor_item(other)
-    c.eval("T_script(CDLootAwardDialog.itemBox, 'OnReceiveDrag')")
-    assert c.eval("return CDLootAwardDialog.itemID") == other
+    c.eval("T_script(DisasterZoneAwardDialog.itemBox, 'OnReceiveDrag')")
+    assert c.eval("return DisasterZoneAwardDialog.itemID") == other
     assert c.eval("return GetCursorInfo()") is None
     # an item without a raid source: boss "none"
     w.define_item(190002, "Crafted Ring", 4, "INVTYPE_FINGER", 4, 0)
     c.type_text(ib, "190002")
-    assert strip_codes(c.eval("return CDLootAwardDialog.bossText:GetText()")) == "Boss: none"
+    assert strip_codes(c.eval("return DisasterZoneAwardDialog.bossText:GetText()")) == "Boss: none"
     # typed winners: case-insensitive guild match, unknown name normalised
     c.type_text(ib, str(PRINCE_ITEM))
     for typed, want in (("carl", "Carl-Thunderstrike"), ("DORA", "Dora-Thunderstrike"),
@@ -146,7 +146,7 @@ def award_dialog_item_inputs_and_typed_winners():
         w.tick(0.3)
         e = c.eval_py("local e = ns.Ledger:GetEntries({})[1]; return { e.w, e.i }")
         assert e == [want, PRINCE_ITEM], (typed, e)
-        c.click(c.eval("return CDLootLootLogPanel.addBtn"))
+        c.click(c.eval("return DisasterZoneLootLogPanel.addBtn"))
         c.type_text(ib, str(PRINCE_ITEM))
     # a long note is cut to 60 characters
     c.type_text(dialog(c, "winBox"), "Bob")
@@ -157,12 +157,12 @@ def award_dialog_item_inputs_and_typed_winners():
     assert note and len(note) <= 60, note
     # prefilled dialog from other views (item, winner, boss, note)
     c.eval("ns.LootLogUI:OpenAwardDialog(28785, 'Carl-Thunderstrike', 'Karazhan:Illhoof', 'pre')")
-    assert c.eval("return CDLootAwardDialog.itemID") == 28785
-    assert c.eval("return CDLootAwardDialog.winBox:GetText()") == "Carl"
-    assert c.eval("return CDLootAwardDialog.noteBox:GetText()") == "pre"
-    assert strip_codes(c.eval("return CDLootAwardDialog.bossText:GetText()")) == "Boss: Terestian Illhoof · Karazhan"
+    assert c.eval("return DisasterZoneAwardDialog.itemID") == 28785
+    assert c.eval("return DisasterZoneAwardDialog.winBox:GetText()") == "Carl"
+    assert c.eval("return DisasterZoneAwardDialog.noteBox:GetText()") == "pre"
+    assert strip_codes(c.eval("return DisasterZoneAwardDialog.bossText:GetText()")) == "Boss: Terestian Illhoof · Karazhan"
     c.click(dialog(c, "cancelBtn"))
-    assert c.eval("return CDLootAwardDialog:IsShown()") is False
+    assert c.eval("return DisasterZoneAwardDialog:IsShown()") is False
     no_errors(w)
 
 
@@ -176,7 +176,7 @@ def void_restore_show_voided_and_row_menu():
     assert len(log_rows(c)) == 3
     row_for = lambda item: c.eval("""
       local id = ...
-      for _, r in ipairs(T_rows(CDLootLootLogPanel.list.box)) do
+      for _, r in ipairs(T_rows(DisasterZoneLootLogPanel.list.box)) do
         if rawget(r, 'cdlEntry') and r.cdlEntry.i == id then return r end
       end""", item)
     c.click(row_for(28785), "RightButton")
@@ -187,10 +187,10 @@ def void_restore_show_voided_and_row_menu():
     c.menu_select("Void entry")
     w.tick(0.5)
     assert [r[1] for r in log_rows(c)] == [28762, 28770], log_rows(c)
-    assert c.eval("return CDLootLootLogPanel.count:GetText()") == "2 awards"
+    assert c.eval("return DisasterZoneLootLogPanel.count:GetText()") == "2 awards"
     # the saved entry is voided, not deleted
-    assert c.eval("for _, e in pairs(CDLootDB.ledger) do if e.i == 28785 then return e.vd end end") is True
-    c.click(c.eval("return CDLootLootLogPanel.voidCB"))
+    assert c.eval("for _, e in pairs(DisasterZoneDB.ledger) do if e.i == 28785 then return e.vd end end") is True
+    c.click(c.eval("return DisasterZoneLootLogPanel.voidCB"))
     w.tick(0.3)
     rows = log_rows(c)
     assert len(rows) == 3 and [r[6] for r in rows if r[1] == 28785] == [1], rows
@@ -217,7 +217,7 @@ def void_restore_show_voided_and_row_menu():
     w.tick(0.5)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "council"
     assert c.eval("return ns.CouncilUI:GetView()") == "member"
-    assert strip_codes(c.eval("return CDLootCouncilPanel.memberView.name:GetText()")) == "Bob"
+    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.memberView.name:GetText()")) == "Bob"
     no_errors(w)
 
 
@@ -228,7 +228,7 @@ def search_filters_by_winner_item_boss_and_id():
     c.eval("ns.Ledger:Award(28785, 'Carl-Thunderstrike', 'Karazhan:Illhoof', nil)")
     w.tick(1)
     open_log(c)
-    sb = c.eval("return CDLootLootLogPanel.search")
+    sb = c.eval("return DisasterZoneLootLogPanel.search")
     for text, want in (("bob", [28770]), ("CARL", [28785]), ("mindblade", [28770]), ("illhoof", [28785]),
                        ("28785", [28785]), ("offspec", [28770]), ("cou", [28770, 28785]), ("", [28770, 28785])):
         c.type_text(sb, text)
@@ -237,8 +237,8 @@ def search_filters_by_winner_item_boss_and_id():
         assert got == want, (text, got)
     c.type_text(sb, "nothing matches")
     w.tick(0.5)
-    assert c.eval("return CDLootLootLogPanel.count:GetText()") == "0 of 2 awards"
-    assert c.eval("return CDLootLootLogPanel.empty:GetText()") == "No awards match the search."
+    assert c.eval("return DisasterZoneLootLogPanel.count:GetText()") == "0 of 2 awards"
+    assert c.eval("return DisasterZoneLootLogPanel.empty:GetText()") == "No awards match the search."
     no_errors(w)
 
 
@@ -262,7 +262,7 @@ def auto_entries_from_loot_messages_show_in_the_log():
     w.tick(1)
     rows = log_rows(cou)
     assert len(rows) == 1 and rows[0][1:5] == [PRINCE_ITEM, "Bob-Thunderstrike", "Karazhan:Prince", "a"], rows
-    by = cou.eval("return T_rows(CDLootLootLogPanel.list.box)[1].by:GetText()")
+    by = cou.eval("return T_rows(DisasterZoneLootLogPanel.list.box)[1].by:GetText()")
     assert by.startswith("auto"), by
     # a manual award for the same item/winner right after hides the auto entry (manual wins)
     cou.eval("ns.Ledger:Award(...)", PRINCE_ITEM, "Bob-Thunderstrike", "Karazhan:Prince", None)
@@ -275,15 +275,15 @@ def auto_entries_from_loot_messages_show_in_the_log():
 @case
 def non_council_cannot_record_or_see_the_log():
     w, c = council_world(rank=3)
-    c.slash("/cdl log")
+    c.slash("/dz log")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     c.eval("ns.LootLogUI:OpenAwardDialog(28770, 'Bob-Thunderstrike')")
     p0 = len(c.chat_frame)
     c.click(dialog(c, "saveBtn"))
     w.tick(0.3)
-    assert c.eval("return next(CDLootDB.ledger)") is None
-    assert "council members only" in c.eval("return CDLootAwardDialog.status:GetText()")
+    assert c.eval("return next(DisasterZoneDB.ledger)") is None
+    assert "council members only" in c.eval("return DisasterZoneAwardDialog.status:GetText()")
     assert any("Only loot council members can record awards" in l for l in printed_since(c, p0))
     assert [e for e in w.addon_log if e["sender"] == c.full_name and e["chat_type"] == "WHISPER"] == []
     no_errors(w)
@@ -296,7 +296,7 @@ def log_refreshes_live_and_survives_relog():
     c.eval("ns.Ledger:Award(28770, 'Bob-Thunderstrike', '', nil)")
     w.tick(0.5)                                   # LEDGER_UPDATED -> debounced refresh while visible
     assert len(log_rows(c)) == 1
-    c.slash("/cdl")                               # hide; an award while hidden marks the panel dirty
+    c.slash("/dz")                               # hide; an award while hidden marks the panel dirty
     c.eval("ns.Ledger:Award(28785, 'Carl-Thunderstrike', '', nil)")
     w.tick(0.5)
     open_log(c)

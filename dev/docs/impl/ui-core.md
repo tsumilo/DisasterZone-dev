@@ -1,6 +1,6 @@
-No, the people you share the addon with won't need any other addons. Everything CDLoot uses is bundled inside its own `Libs` folder, and `CDLoot.toc` has no required dependencies. The only optional extra is LoonBestInSlot, which just powers the "Suggest" button. My five files never need Loon: they check that it's loaded first, and without it the Suggest button is simply hidden. They only use the bundled libraries, and each of those calls is also guarded so a missing one can't cause an error.
+No, the people you share the addon with won't need any other addons. Everything DisasterZone uses is bundled inside its own `Libs` folder, and `DisasterZone.toc` has no required dependencies. The only optional extra is LoonBestInSlot, which just powers the "Suggest" button. My five files never need Loon: they check that it's loaded first, and without it the Suggest button is simply hidden. They only use the bundled libraries, and each of those calls is also guarded so a missing one can't cause an error.
 
-**1. Files written** (all under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\UI\`)
+**1. Files written** (all under `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\UI\`)
 - `Widgets.lua`: 1031 lines
 - `MainFrame.lua`: 299 lines
 - `PaperDoll.lua`: 417 lines
@@ -21,7 +21,7 @@ No, the people you share the addon with won't need any other addons. Everything 
   - `onSlotClick` always receives the tile as its 4th argument.
   - `onSlotReceiveItem` gets a 3rd argument, `which` (`"main"` or `"alt"`), so dropping an item on the alt button sets the alt.
   - The doll repaints itself on ITEMINFO_READY when item names were still loading.
-- **`ns.MyBiS`:** CreatePanel, Refresh, SetPhase, GetPhase, ApplySuggestion, OnPickerClosed. Defines the popups CDLOOT_CLEAR_PHASE and CDLOOT_REPLACE_TEMPLATE on first use.
+- **`ns.MyBiS`:** CreatePanel, Refresh, SetPhase, GetPhase, ApplySuggestion, OnPickerClosed. Defines the popups DISASTERZONE_CLEAR_PHASE and DISASTERZONE_REPLACE_TEMPLATE on first use.
 - **`ns.Picker`:** Open, Close, IsOpen as spec'd; Rebuild and GetState are extra.
 - **Deviations:**
   - The default game font can't draw ✓ or ★, so I use the check and star textures, and a star texture as the guild-phase marker. "…" is written as "...", and `UI:SafeText` does these swaps.

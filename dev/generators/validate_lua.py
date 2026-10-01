@@ -1,4 +1,4 @@
-"""Syntax + semantic validation of CDLoot_Data_generated.lua using the generator's Lua tokenizer/parser.
+"""Syntax + semantic validation of DisasterZone_Data_generated.lua using the generator's Lua tokenizer/parser.
 Accepts only the statement forms the generated file is supposed to use:
     local _, ns = ...
     ns.Data = ns.Data or {}
@@ -9,7 +9,7 @@ here = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("gen", os.path.join(here, "gen_cdloot_data.py"))
 gen = importlib.util.module_from_spec(spec); spec.loader.exec_module(gen)
 
-path = os.path.join(here, "CDLoot_Data_generated.lua")
+path = os.path.join(here, "DisasterZone_Data_generated.lua")
 text = open(path, encoding="utf-8").read()
 toks, comments = gen.tokenize(text)   # raises on any unlexable character / unterminated string
 p = gen.Parser(toks)

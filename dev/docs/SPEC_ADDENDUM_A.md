@@ -1,8 +1,8 @@
-# CDLoot SPEC — ADDENDUM A (after the first in-game test by the user)
+# DisasterZone SPEC — ADDENDUM A (after the first in-game test by the user)
 
 Read together with `SPEC.md` (sections 18–20 continue its numbering). Topics: rolls, paired-slot display, demo ledger isolation.
 
-The user loaded v0.1 in game (demo mode + /cdl test) and the drop panel works. New requirements follow.
+The user loaded v0.1 in game (demo mode + /dz test) and the drop panel works. New requirements follow.
 
 ## 18. Paired-slot "currently wearing" display
 For rings, trinkets and weapons, the council must see BOTH currently equipped items of the slot pair, not only the slot the BiS entry sits in.
@@ -29,7 +29,7 @@ Decisions:
   - Priority tier: **BiS main (not obtained)**, then **BiS alt (not obtained)**, then **not listed / already obtained**.
   - Within a tier, the **highest roll** wins.
 - The ML or council **confirms** the winner.
-- If the confirming player is the **master looter with the loot window open**, CDLoot **hands the item over via master loot after a confirmation popup**. Otherwise it records and announces the award.
+- If the confirming player is the **master looter with the loot window open**, DisasterZone **hands the item over via master loot after a confirmation popup**. Otherwise it records and announces the award.
 
 ### 19.1 Core/Roll.lua — `ns.Roll` (module; add to the TOC after Core/Loot.lua)
 Session (one per rolled item):
@@ -54,7 +54,7 @@ session = {
 
 **Starting**
 - Broadcast `RS` on RAID (alert class).
-- Post one chat line when setting `roll.announce` is on: `"CDLoot: Roll for [Item] now — /roll (30s)"`. Send it via `ns.UI:AnnounceLine`, guarded.
+- Post one chat line when setting `roll.announce` is on: `"DisasterZone: Roll for [Item] now — /roll (30s)"`. Send it via `ns.UI:AnnounceLine`, guarded.
 - Handle the session locally too. The starter sees the council view and, if in a raid, also gets the roll popup; the starter may roll as well.
 
 **Reading rolls**
@@ -88,15 +88,15 @@ session = {
 - `suggested` = the first valid row. If more than one row shares its tier and roll, set `tie=true` on all of them.
 
 **Award:** `Roll:Award(id, key)`. Any council member, ML or leader may award. It is typically done from the panel after the session closes; it is allowed while the session is open, and then it closes the session first.
-1. If `ns.Loot:CanGiveItem(itemID)` is true (I am master looter, `LootFrame` is open, the item is in a loot slot, and `key` is a master-loot candidate for that slot), show StaticPopup `CDLOOT_GIVE_ITEM`: "Give [Item] to Name?".
+1. If `ns.Loot:CanGiveItem(itemID)` is true (I am master looter, `LootFrame` is open, the item is in a loot slot, and `key` is a master-loot candidate for that slot), show StaticPopup `DISASTERZONE_GIVE_ITEM`: "Give [Item] to Name?".
    - On accept, call `ns.Loot:GiveItem(itemID, key)` (§19.4). On success, continue with step 3.
    - On failure, print why, then fall through to step 2's confirmation.
-2. Otherwise show StaticPopup `CDLOOT_CONFIRM_AWARD`: "Award [Item] to Name? (hand it out via master loot or trade)".
+2. Otherwise show StaticPopup `DISASTERZONE_CONFIRM_AWARD`: "Award [Item] to Name? (hand it out via master loot or trade)".
 3. Record and announce:
    - `ns.Ledger:Award(itemID, key, session.b, "roll " .. roll)` creates a manual entry. The later CHAT_MSG_LOOT auto entry is hidden by the §11 de-dupe rule.
    - Set `state="awarded"`, `winner=key`, `given=bool`.
    - Broadcast `RW{id, w=key, g=given}`.
-   - Announce `"CDLoot: [Item] → Name (rolled 87, BiS)"`. The tier word is "BiS", "BiS alt" or "roll".
+   - Announce `"DisasterZone: [Item] → Name (rolled 87, BiS)"`. The tier word is "BiS", "BiS alt" or "roll".
 
 **Messages:** all RAID / alert class `CDLa`, single part. Register them with `Comm:Register`.
 
@@ -114,7 +114,7 @@ session = {
 - API: `Roll:Start(itemID, drop)`, `Roll:StartAll(drop)`, `Roll:End(id)`, `Roll:Award(id, key)`, `Roll:Get(id)`, `Roll:GetActive()` (the open session or nil), `Roll:GetForItem(itemID, dropS)` (latest session for that item and drop), `Roll:GetQueue()`, `Roll:GetResults(id)`, `Roll:RespondRoll(id)`, `Roll:RespondPass(id)`, `Roll:CanStart()`, `Roll:OnSystemMessage(text)`, `Roll:OnResponse(key, id, r)`.
 - Sessions are in memory only (not saved), pruned after 2h.
 - Settings, added to DB defaults: `roll = { duration = 30, announce = true, popup = true }`. Expose them in the Settings UI: duration dropdown 15/20/30/45/60, and checkboxes.
-- Slash: `/cdl roll <itemlink>` starts a roll for a linked item (council/lead/ML).
+- Slash: `/dz roll <itemlink>` starts a roll for a linked item (council/lead/ML).
 
 ### 19.2 Demo rolls
 When `ns.Demo:IsEnabled()`:
@@ -134,7 +134,7 @@ When `ns.Demo:IsEnabled()`:
 - Shown to everyone in the raid (including council) when the `roll.popup` setting is on.
 
 **Frame**
-- `CDLootRollFrame`, about 380 × 96, movable, position saved (default top-centre, y=-220), DIALOG strata.
+- `DisasterZoneRollFrame`, about 380 × 96, movable, position saved (default top-centre, y=-220), DIALOG strata.
 - Styled like Blizzard's group-loot roll frame: dark backdrop, gold border.
 
 **Contents**
@@ -195,5 +195,5 @@ Currently, awards made in demo mode (to fake members) are written to the REAL le
 - On `OnLogin`, purge demo awards from `ns.db.ledger`:
   - Remove any entry whose winner key's name part is one of the Demo fake names (add the API `ns.Demo:GetFakeNames()`) AND whose key is not a real guild roster member.
   - Defer the purge until the roster is ready.
-  - If N > 0, print "CDLoot: removed N demo award(s) from the loot log."
+  - If N > 0, print "DisasterZone: removed N demo award(s) from the loot log."
 - Make sure no other demo data leaks into SavedVariables or comms (review Store/Sync/Loot for demo keys).

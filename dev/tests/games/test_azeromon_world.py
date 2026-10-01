@@ -46,7 +46,7 @@ def periods_follow_the_realm_clock_and_tint_outdoors_only():
     expect = {0: "night", 4.9: "night", 5.5: "dawn", 7: "day", 12: "day", 18.5: "dusk", 21: "night", 23.9: "night"}
     for h, p in expect.items():
         assert c.eval("ns.Azero.clockHour = %s; return ns.Azero:Period()" % h) == p, (h, p)
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")                  # CONTINUE
     w.tick(0.3)
@@ -291,7 +291,7 @@ def a_raid_kill_sets_a_rare_loose_for_a_day():
 def meeting_and_taming_a_rare():
     w, c = game()
     strong(c, lvl=50)                                      # rares hit hard and nets rarely hold them (~9%)
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")
     w.tick(0.3)

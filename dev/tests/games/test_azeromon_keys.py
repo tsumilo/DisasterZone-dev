@@ -26,7 +26,7 @@ def game(seed=7, tips=False):
     c.eval("ns.Azero:NewGame()")
     c.eval("ns.Azero:AddMon(ns.AzeroMon.New('owlet', 3, ns.Azero.rng), 'caught')")
     c.eval("ns.Azero:Data().keys = {} ns.Azero:Data().tips = {}")
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")                    # title: CONTINUE
     w.tick(0.3)
@@ -141,7 +141,7 @@ def the_controls_page_from_the_menu_and_the_title():
     # the title screen has it too
     w2, c2 = solo("Bob", tick=2)
     c2.eval(BOT)
-    c2.slash("/cdl play azeromon")
+    c2.slash("/dz play azeromon")
     w2.tick(0.3)
     items = c2.eval_py("return ns.AzeroUI._MenuItems()")
     assert items[-1] == "CONTROLS", items
@@ -191,7 +191,7 @@ def the_type_chart_from_the_menu():
 def whats_new_on_the_title_screen():
     w, c = solo("Carol", tick=2)
     c.eval(BOT)
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     items = c.eval_py("return ns.AzeroUI._MenuItems()")
     assert "WHAT'S NEW" in items and c.eval("return ns.AzeroUI._ChangelogUnseen()") is True, items

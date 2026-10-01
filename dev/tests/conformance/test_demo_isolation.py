@@ -41,7 +41,7 @@ def scenario_drop_gate(demo):
     w.enter_instance("Karazhan", 532)
     w.tick(1)
     if demo:
-        alice.slash("/cdl demo on")
+        alice.slash("/dz demo on")
     w.tick(1)
     before = alice.eval("return #ns.Loot:GetHistory()")
     bob.open_loot([(28477, 4), (28453, 4)])
@@ -64,7 +64,7 @@ check("demo on: Alice still receives Bob's real raid D", a1 == b1 + 1, "history 
 w, alice, bob, carol = setup()
 w.make_raid([alice, bob, carol], master_looter=alice)
 w.tick(1)
-alice.slash("/cdl demo on")
+alice.slash("/dz demo on")
 w.tick(1)
 fake = alice.eval_py("return ns.Demo:GetFakeNames()")
 # an item some demo raid member has on their list
@@ -106,26 +106,26 @@ w.tick(1)
 alice.eval("ns.Roll:End(...)", sid)
 w.tick(1)
 check("real roll closed on Bob's client", bob.eval("local s = ns.Roll:Get(...); return s and s.state", sid) == "closed")
-alice.slash("/cdl demo on")
+alice.slash("/dz demo on")
 w.tick(1)
 state = alice.eval("local s = ns.Roll:Get(...); return s and s.state", sid)
 alice.eval("ns.Roll:Award(...)", sid, "Bob-Thunderstrike")
 popups = alice.popups() if hasattr(alice, "popups") else None
 try:
-    alice.accept_popup("CDLOOT_CONFIRM_AWARD")
+    alice.accept_popup("DISASTERZONE_CONFIRM_AWARD")
 except Exception as exc:  # noqa: BLE001
     print("accept_popup failed:", exc)
 w.tick(2)
-real_n = alice.eval("local n=0; for _ in pairs(CDLootDB.ledger) do n=n+1 end; return n")
+real_n = alice.eval("local n=0; for _ in pairs(DisasterZoneDB.ledger) do n=n+1 end; return n")
 demo_n = alice.eval("return #ns.Ledger:GetEntries({includeVoid=true})")
 rw = [e for e in w.addon_log if e["sender"].startswith("Alice") and e["prefix"] == "CDLa" and e["time"] > 0]
 bob_state = bob.eval("local s = ns.Roll:Get(...); return s and s.state", sid)
 check("real roll awarded in demo mode is written to the REAL ledger", real_n >= 1,
       "real ledger entries=%s, demo-view entries=%s, alice session state before=%s" % (real_n, demo_n, state))
 check("real roll awarded in demo mode reaches other raiders (RW)", bob_state == "awarded", "bob sees state=%s" % bob_state)
-alice.slash("/cdl demo off")
+alice.slash("/dz demo off")
 w.tick(1)
-real_after = alice.eval("local n=0; for _ in pairs(CDLootDB.ledger) do n=n+1 end; return n")
+real_after = alice.eval("local n=0; for _ in pairs(DisasterZoneDB.ledger) do n=n+1 end; return n")
 check("after demo off the award is still in the loot log", real_after >= 1, "real ledger entries=%s" % real_after)
 w.assert_no_errors()
 

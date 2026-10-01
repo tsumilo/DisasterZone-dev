@@ -40,7 +40,7 @@ def game(seed=7, ui=False):
     c.eval("ns.Azero:NewGame()")
     c.eval("ns.Azero:AddMon(ns.AzeroMon.New('owlet', 3, ns.Azero.rng), 'caught')")
     if ui:
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")                # title: CONTINUE
         w.tick(0.3)

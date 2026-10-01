@@ -1,7 +1,7 @@
 """ADDENDUM F §38: the raid leader locks / unlocks every raider's BiS list (GS lk / lkAt), on the real addon.
 
 Covers: locking by the raid's loot authority (GS fields, one raid chat line, everyone locked incl. the leader,
-BIS_LOCK_CHANGED, /cdl rules), every BiS editing API refusing (one print per 3 s) while obtained / equipped /
+BIS_LOCK_CHANGED, /dz rules), every BiS editing API refusing (one print per 3 s) while obtained / equipped /
 "Mark obtained" still sync, the My BiS lock banner / disabled controls / picker refusal, forged edits from a
 modified client (direct data change + commit) flagged on council clients (roster, member view, drop panel,
 GetWanters) with one council-only warning, flagged players never suggested in rolls (also for a non-council
@@ -26,7 +26,7 @@ import lr_common as lr  # noqa: E402
 
 ADDON_02 = os.path.join(TESTS, "grouprules", "addon02", "CDLoot")
 REALM = "Thunderstrike"
-ANNOUNCE = "CDLoot: BiS lists are locked for this raid."
+ANNOUNCE = "DisasterZone: BiS lists are locked for this raid."
 FLAG_GAP = 5          # a forged commit this long after the lock (the core accepts commits <= 3 s after it)
 
 EVENTS_LUA = r"""
@@ -99,7 +99,7 @@ def raid_leader_locks_everyone_learns_it():
     assert lee.eval("return ns.GroupRules:IsAuthority()") is True
     mark, chat0 = len(w.addon_log), len(w.chat_log)
     n0 = {n: len(x.chat_frame) for n, x in c.items()}
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(1)
     gs = [m for m in lr.msgs_of_type(w, "GS", mark) if m["_sender"] == K("Lee")]
     assert gs and gs[-1].get("lk") is True and isinstance(gs[-1].get("lkAt"), int), gs
@@ -116,22 +116,22 @@ def raid_leader_locks_everyone_learns_it():
     assert said(rita, n0["Rita"], "BiS lists are locked by Lee for this raid."), printed_since(rita, n0["Rita"])
     act = rita.eval_py("return ns.GroupRules:GetActive().values")
     assert act["lk"] is True and act["lkAt"] == gs[-1]["lkAt"], act
-    # /cdl rules shows it; locking again only says so (no second GS / announce)
+    # /dz rules shows it; locking again only says so (no second GS / announce)
     n1 = len(rita.chat_frame)
-    rita.slash("/cdl rules")
+    rita.slash("/dz rules")
     assert said(rita, n1, "BiS lists are locked by Lee."), printed_since(rita, n1)
     mark, chat0 = len(w.addon_log), len(w.chat_log)
     n1 = len(lee.chat_frame)
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(1)
     assert said(lee, n1, "BiS lists are already locked.")
     assert not [e for e in w.chat_log[chat0:] if e["text"] == ANNOUNCE]
     # without roll announcements there is no raid chat line
-    lee.slash("/cdl unlock")
+    lee.slash("/dz unlock")
     w.tick(2)
     lee.eval("ns.DB:SetSetting('roll.announce', false)")
     chat0 = len(w.chat_log)
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(2)
     assert all(locked(x) for x in c.values())
     assert not [e for e in w.chat_log[chat0:] if e["text"] == ANNOUNCE]
@@ -147,7 +147,7 @@ def every_edit_api_refuses_while_obtained_items_still_sync():
     raid(w, c)
     w.tick(10)
     assert bob.eval("return ns.Store:GetCached(...) ~= nil", K("Rita"))
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(2)
     h0 = rita.eval("return ns.Util.Hash({ ph = ns.BiS:GetData().ph, dx = ns.BiS:GetData().dx, sp = ns.BiS:GetData().sp })")
     n0 = len(rita.chat_frame)
@@ -169,7 +169,7 @@ def every_edit_api_refuses_while_obtained_items_still_sync():
     # the raid leader is locked too (and told how to unlock)
     n1 = len(lee.chat_frame)
     assert lee.eval("return ns.BiS:SetSlot(1, 1, 'main', ...)", cand(lee, 1)) is False
-    assert said(lee, n1, "/cdl unlock"), printed_since(lee, n1)
+    assert said(lee, n1, "/dz unlock"), printed_since(lee, n1)
     # obtained / equipped / manual marks still work and sync, without a "changed during lock" flag
     rev0 = bob.eval("return ns.Store:GetCached(...).rev", K("Rita"))
     rita.give_item(chest)
@@ -195,7 +195,7 @@ def my_bis_banner_disabled_controls_and_picker_refusal():
     lr.seed_bis(rita, [(1, 1, "main", cand(rita, 1))])
     raid(w, c)
     install_helpers(rita)
-    rita.slash("/cdl bis")
+    rita.slash("/dz bis")
     w.tick(0.3)
     rita.click(tile_btn(rita, 3))
     assert rita.eval("return ns.Picker:IsOpen()") is True
@@ -243,7 +243,7 @@ def forged_edit_is_flagged_on_council_clients_and_views():
     lr.seed_bis(sam, [(1, 1, "main", cand(sam, 1))])
     raid(w, c)
     w.tick(10)
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(FLAG_GAP)
     n0 = {n: len(x.chat_frame) for n, x in c.items()}
     forge(rita, "d.ph[1][2] = { %d, 0 }" % cand(rita, 2))
@@ -269,22 +269,22 @@ def forged_edit_is_flagged_on_council_clients_and_views():
     assert ws == [[K("Rita"), flag(bob, "Rita")]], ws
     # Council tab: roster marker, member header, lock status
     install_helpers(bob)
-    bob.slash("/cdl council")
+    bob.slash("/dz council")
     w.tick(0.5)
     warn = bob.eval_py("""
       local o = {}
-      for _, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do
+      for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do
         local d = rawget(r, 'cdlData')
         if d then o[d.key] = r.lockWarn:IsShown() and 1 or 0 end
       end
       return o""")
     assert warn.get(K("Rita")) == 1 and warn.get(K("Sam")) == 1 and warn.get(K("Bob"), 0) == 0, warn
-    assert bob.eval("return CDLootCouncilPanel.lockStatus:IsShown()") is True
-    assert "Locked by Lee" in strip_codes(bob.eval("return CDLootCouncilPanel.lockStatus.text:GetText()"))
+    assert bob.eval("return DisasterZoneCouncilPanel.lockStatus:IsShown()") is True
+    assert "Locked by Lee" in strip_codes(bob.eval("return DisasterZoneCouncilPanel.lockStatus.text:GetText()"))
     bob.eval("ns.CouncilUI:ShowMember(...)", K("Rita"))
     w.tick(0.3)
-    assert bob.eval("return CDLootCouncilPanel.memberView.lockFlag:IsShown()") is True
-    assert "changed during lock" in strip_codes(bob.eval("return CDLootCouncilPanel.memberView.lockFlag.text:GetText()"))
+    assert bob.eval("return DisasterZoneCouncilPanel.memberView.lockFlag:IsShown()") is True
+    assert "changed during lock" in strip_codes(bob.eval("return DisasterZoneCouncilPanel.memberView.lockFlag.text:GetText()"))
     # drop panel: the candidate row carries the warning icon + tooltip line
     bob.eval("ns.DropPanel:ShowDrop({ i = { ... }, b = '', ts = GetServerTime(), from = UnitName('player') })", ring)
     w.tick(0.5)
@@ -307,7 +307,7 @@ def flagged_player_is_not_suggested_but_can_be_awarded():
     lr.seed_bis(sam, [(1, 11, "main", item)])
     raid(w, c)
     w.tick(10)
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(FLAG_GAP)
     forge(rita, "d.ph[1][12] = { %d, 0 }" % item)
     w.tick(10)
@@ -343,7 +343,7 @@ def flagged_player_is_not_suggested_but_can_be_awarded():
     w.tick(1)
     bob.eval("ns.Roll:Award(...)", sid, K("Rita"))
     pops = bob.popups()
-    which = next(p for p in ("CDLOOT_CONFIRM_AWARD", "CDLOOT_GIVE_ITEM") if p in pops)
+    which = next(p for p in ("DISASTERZONE_CONFIRM_AWARD", "DISASTERZONE_GIVE_ITEM") if p in pops)
     bob.accept_popup(which)
     w.tick(2)
     ses = bob.eval_py("local s = ns.Roll:Get(...); return { s.state, s.winner }", sid)
@@ -352,7 +352,7 @@ def flagged_player_is_not_suggested_but_can_be_awarded():
     res = bob.eval_py("local o = {} for i, x in ipairs(ns.Roll:GetResults(...)) do o[i] = { x.key, x.lockChanged and 1 or 0 } end return o", sid)
     assert [x for x in res if x[0] == K("Rita")][0][1] == 1, res
     # unlocked: the flag is gone and a new roll suggests the top roll again
-    lee.slash("/cdl unlock")
+    lee.slash("/dz unlock")
     w.tick(2)
     assert bob.eval("return ns.Roll:Start(...)", item) is not False
     w.tick(1)
@@ -377,7 +377,7 @@ def non_council_master_looter_gets_the_flags_via_rt():
     lr.seed_bis(gina, [(1, 11, "main", item)])
     raid(w, c, master_looter=sam, tick=20)
     assert sam.eval("return ns.Guild:AmICouncil(true)") is False
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(FLAG_GAP)
     forge(rita, "d.ph[1][12] = { %d, 0 }" % item)
     w.tick(10)
@@ -406,16 +406,16 @@ def unlock_clears_flags_and_editing_works_again():
     lr.seed_bis(rita, [(1, 1, "main", cand(rita, 1))])
     raid(w, c)
     w.tick(10)
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(FLAG_GAP)
     forge(rita, "d.ph[1][2] = { %d, 0 }" % cand(rita, 2))
     w.tick(10)
     assert flag(bob, "Rita")
     install_helpers(bob)
-    bob.slash("/cdl council")
+    bob.slash("/dz council")
     w.tick(0.5)
     n0 = {n: len(x.chat_frame) for n, x in c.items()}
-    lee.slash("/cdl unlock")
+    lee.slash("/dz unlock")
     w.tick(2)
     for n, x in c.items():
         assert locked(x) is False, n
@@ -423,14 +423,14 @@ def unlock_clears_flags_and_editing_works_again():
         assert lock_events(x) == [1, 0], (n, lock_events(x))
         assert said(x, n0[n], "BiS lists are unlocked."), n
     assert flag(bob, "Rita") is None and bob.eval("return next(ns.Store:GetLockFlags())") is None
-    warn = bob.eval_py("local o = {} for _, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do "
+    warn = bob.eval_py("local o = {} for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do "
                        "local d = rawget(r, 'cdlData') if d then o[d.key] = r.lockWarn:IsShown() and 1 or 0 end end return o")
     assert warn.get(K("Rita")) == 0, warn
-    assert bob.eval("return CDLootCouncilPanel.lockStatus:IsShown()") is False
+    assert bob.eval("return DisasterZoneCouncilPanel.lockStatus:IsShown()") is False
     assert rita.eval("return ns.BiS:SetSlot(1, 3, 'main', ...)", cand(rita, 3)) is True
     assert rita.eval("return ns.BiS:SetSlotDisabled(1, 4, true)") is True
     # a new lock starts clean: the earlier change is not flagged again
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(10)
     assert flag(bob, "Rita") is None
     w.assert_no_errors()
@@ -441,7 +441,7 @@ def lock_ends_on_disband_authority_change_and_party():
     w, c = world()
     lee, rita, bob, sam = c["Lee"], c["Rita"], c["Bob"], c["Sam"]
     raid(w, c)
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(2)
     assert lee.eval("return ns.db.groupLock ~= nil") is True
     w.disband()
@@ -454,7 +454,7 @@ def lock_ends_on_disband_authority_change_and_party():
     raid(w, c)
     assert not any(locked(x) for x in c.values())
     # the lead moves to Bob: Lee's lock ends everywhere
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(2)
     assert all(locked(x) for x in c.values())
     raid(w, c, leader="Bob", tick=10)
@@ -463,7 +463,7 @@ def lock_ends_on_disband_authority_change_and_party():
         assert locked(x) is False, n
     assert lee.eval("return ns.db.groupLock") is None
     # the raid becomes a party: the lock ends (and a party can't lock)
-    bob.slash("/cdl lock")
+    bob.slash("/dz lock")
     w.tick(2)
     assert locked(rita) is True
     w.make_party([bob, rita, sam])
@@ -483,7 +483,7 @@ def only_the_authority_can_lock_forged_party_and_malformed_gs():
     ok, err = rita.eval("return ns.GroupRules:SetLocked(true)")
     assert ok is False and "raid leader" in err, (ok, err)
     n0 = len(rita.chat_frame)
-    rita.slash("/cdl lock")
+    rita.slash("/dz lock")
     assert said(rita, n0, "only the raid leader"), printed_since(rita, n0)
     # council members who are not the authority can't either
     assert bob.eval("return ns.GroupRules:SetLocked(true)")[0] is False
@@ -496,18 +496,18 @@ def only_the_authority_can_lock_forged_party_and_malformed_gs():
     # UI: the lock buttons are for the authority only
     for x in (lee, bob, rita):
         install_helpers(x)
-        x.slash("/cdl settings")
+        x.slash("/dz settings")
         w.tick(0.3)
     assert lee.eval("return ns.SettingsUI.lockBtn:IsShown() and ns.SettingsUI.lockBtn:IsEnabled()") in (True, 1)
     assert lee.eval("return ns.SettingsUI.lockBtn:GetText()") == "Lock BiS lists"
     assert rita.eval("return ns.SettingsUI.lockBtn:IsShown()") is True
     assert rita.eval("return ns.SettingsUI.lockBtn:IsEnabled()") in (False, 0)
     assert "raid leader only" in strip_codes(rita.eval("return ns.SettingsUI:LockStatusText()"))
-    bob.slash("/cdl council")
-    lee.slash("/cdl council")
+    bob.slash("/dz council")
+    lee.slash("/dz council")
     w.tick(0.5)
-    assert lee.eval("return CDLootCouncilPanel.lockBtn:IsShown()") is True
-    assert bob.eval("return CDLootCouncilPanel.lockBtn:IsShown()") is False
+    assert lee.eval("return DisasterZoneCouncilPanel.lockBtn:IsShown()") is True
+    assert bob.eval("return DisasterZoneCouncilPanel.lockBtn:IsShown()") is False
     # the drop panel footer: "Lock lists" for the leader only
     for x in (lee, bob):
         x.eval("ns.DropPanel:ShowDrop({ i = { 28766 }, b = '', ts = GetServerTime(), from = UnitName('player') })")
@@ -516,14 +516,14 @@ def only_the_authority_can_lock_forged_party_and_malformed_gs():
     assert lee.eval("return ns.DropPanel.lockBtn:GetText()") == "Lock lists"
     assert bob.eval("return ns.DropPanel.lockBtn:IsShown()") is False
     # the Settings button locks; the status follows
-    lee.slash("/cdl settings")
+    lee.slash("/dz settings")
     w.tick(0.3)
     lee.click(lee.eval("return ns.SettingsUI.lockBtn"))
     w.tick(2)
     assert all(locked(x) for x in c.values())
     assert lee.eval("return ns.SettingsUI.lockBtn:GetText()") == "Unlock BiS lists"
     assert "Locked by" in strip_codes(rita.eval("return ns.SettingsUI:LockStatusText()"))
-    assert bob.eval("return CDLootCouncilPanel.lockStatus:IsShown()") is True
+    assert bob.eval("return DisasterZoneCouncilPanel.lockStatus:IsShown()") is True
     lee.click(lee.eval("return ns.SettingsUI.lockBtn"))
     w.tick(2)
     assert not any(locked(x) for x in c.values())
@@ -574,7 +574,7 @@ def mid_raid_joiner_and_reloads_learn_the_lock():
     lee, rita, sam, bob, cou = c["Lee"], c["Rita"], c["Sam"], c["Bob"], c["Cou"]
     lr.seed_bis(sam, [(1, 1, "main", cand(sam, 1))])
     raid(w, c, members=("Lee", "Bob", "Rita", "Gina"))
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(2)
     # a raider and a council member join mid-raid: GQ -> the leader's GS
     mark = len(w.addon_log)
@@ -639,20 +639,20 @@ def popups_accepted_after_the_lock_started_change_nothing():
     w.make_raid([lee, gina, pal], leader=lee)
     w.tick(8)
     install_helpers(pal)
-    pal.slash("/cdl bis")
+    pal.slash("/dz bis")
     w.tick(0.3)
     assert pal.eval("return ns.BiS:GetSpec()") == "Holy"
     sug = pal.eval("return T_dropdown(T_mybis(), 'Suggest')")
     pal.dropdown_menu(sug)
     pal.menu_select("Replace all (confirm)")
-    assert "CDLOOT_REPLACE_TEMPLATE" in pal.popups()
+    assert "DISASTERZONE_REPLACE_TEMPLATE" in pal.popups()
     pal.click(pal.eval("return T_button(T_mybis(), 'Clear phase')"))
-    assert "CDLOOT_CLEAR_PHASE" in pal.popups()
-    lee.slash("/cdl lock")
+    assert "DISASTERZONE_CLEAR_PHASE" in pal.popups()
+    lee.slash("/dz lock")
     w.tick(2)
     n0 = len(pal.chat_frame)
-    pal.accept_popup("CDLOOT_REPLACE_TEMPLATE")
-    pal.accept_popup("CDLOOT_CLEAR_PHASE")
+    pal.accept_popup("DISASTERZONE_REPLACE_TEMPLATE")
+    pal.accept_popup("DISASTERZONE_CLEAR_PHASE")
     w.tick(0.5)
     assert pal.eval("return ns.BiS:GetSlot(1, 1)") == head
     lines = printed_since(pal, n0)
@@ -672,7 +672,7 @@ def reload_with_an_undetected_spec_is_not_flagged():
     rita.eval("ns.BiS:SetSpec(''); ns.BiS:Commit()")
     raid(w, c)
     w.tick(10)
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(FLAG_GAP)
     rita.relog()
     w.tick(30)
@@ -680,7 +680,7 @@ def reload_with_an_undetected_spec_is_not_flagged():
     assert rita.eval("return ns.BiS:GetData().sp") == ""
     assert flag(bob, "Rita") is None and flag(lee, "Rita") is None
     # unlocked (and in a raid without a lock) the spec is detected after the rules arrive
-    lee.slash("/cdl unlock")
+    lee.slash("/dz unlock")
     w.tick(2)
     rita.relog()
     w.tick(30)
@@ -705,7 +705,7 @@ def edit_just_before_the_lock_is_not_flagged():
     rev0 = bob.eval("return ns.Store:GetCached(...).rev", K("Rita"))
     assert rita.eval("return ns.BiS:SetSlot(1, 2, 'main', ...)", cand(rita, 2)) is True   # pending (8 s debounce)
     w.tick(1)
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(10)
     assert locked(rita) is True and rita.eval("return ns.BiS:IsDirty()") is False
     assert bob.eval("return ns.Store:GetCached(...).rev", K("Rita")) > rev0, "the pending edit was not committed"
@@ -734,7 +734,7 @@ def cdloot_02_raider_in_a_locked_raid():
     old.slash("/cdl sync")
     w.tick(20)
     assert bob.eval("return ns.Store:GetCached(...) ~= nil", K("Old"))
-    lee.slash("/cdl lock")
+    lee.slash("/dz lock")
     w.tick(FLAG_GAP)
     assert locked(bob) and locked(gina)
     # the old client knows nothing of the lock: it still edits, and the council sees that
@@ -742,7 +742,7 @@ def cdloot_02_raider_in_a_locked_raid():
     old.eval("ns.BiS:Commit()")
     w.tick(15)
     assert flag(bob, "Old"), "a 0.2 raider's change during the lock is not flagged"
-    lee.slash("/cdl unlock")
+    lee.slash("/dz unlock")
     w.tick(2)
     w.assert_no_errors()
 

@@ -53,7 +53,7 @@ def chat_leaks(w, mark_chat, fake):
 
 
 def sv_leaks(c, fake):
-    src = c.saved_variables().get("CDLootDB") or ""
+    src = c.saved_variables().get("DisasterZoneDB") or ""
     if isinstance(src, bytes):
         src = src.decode("utf-8", "replace")
     return contains_fake(src, fake)
@@ -72,7 +72,7 @@ def fake_key_with_list(c):
 def i_demo_on_council_sends_nothing_demo_related():
     w, R, C1, C2, fake = setup()
     mark, mark_chat = len(w.addon_log), len(w.chat_log)
-    C1.slash("/cdl demo")
+    C1.slash("/dz demo")
     assert C1.eval("return ns.Demo:IsEnabled()")
     fk = fake_key_with_list(C1)
     assert fk and fk.split("-")[0] in fake, fk
@@ -82,7 +82,7 @@ def i_demo_on_council_sends_nothing_demo_related():
     C1.eval("ns.Ledger:Award(...)", ITEM, fk, "", "demo award")
     C1.eval("ns.Ledger:Award(...)", ITEM, RK, "", "demo award to real")
     C1.eval("ns.Roll:Start(...)", ITEM)
-    C1.slash("/cdl test")
+    C1.slash("/dz test")
     settle(w, 40)
     # sync traffic next to demo mode: C2 and R say HELLO, C1 answers (S/M must only carry real data)
     C2.eval("ns.Sync:SendHello()")
@@ -100,9 +100,9 @@ def i_demo_on_council_sends_nothing_demo_related():
     assert not ({"A", "RS", "RW", "RE", "D"} & set(types)), "demo actions sent %s" % types
     cl = chat_leaks(w, mark_chat, fake)
     assert not cl, "demo names in chat: %s" % cl[:3]
-    assert not sv_leaks(C1, fake), "demo names in CDLootDB: %s" % sv_leaks(C1, fake)
+    assert not sv_leaks(C1, fake), "demo names in DisasterZoneDB: %s" % sv_leaks(C1, fake)
 
-    C1.slash("/cdl demo")                             # off: demo ledger discarded, nothing flushed
+    C1.slash("/dz demo")                             # off: demo ledger discarded, nothing flushed
     settle(w, 10)
     assert not C1.eval("return ns.Demo:IsEnabled()")
     assert ledger_ids(C1) == led_before
@@ -119,8 +119,8 @@ def i_demo_on_council_sends_nothing_demo_related():
 @r.case
 def i_real_sync_keeps_working_while_demo_on():
     w, R, C1, C2, fake = setup()
-    C1.slash("/cdl demo")
-    R.slash("/cdl demo")
+    C1.slash("/dz demo")
+    R.slash("/dz demo")
     mark = len(w.addon_log)
     edit(R, 1, commit=True)
     settle(w, 10)
@@ -143,7 +143,7 @@ def i_real_drop_announce_in_demo_mode_does_not_post_fake_names():
     """A council member tries demo mode during a real raid. A REAL boss drop comes in; the drop panel shows
     demo wanters (fine, local). Clicking 'Announce' must not post demo names into raid chat."""
     w, R, C1, C2, fake = setup()
-    C1.slash("/cdl demo")
+    C1.slash("/dz demo")
     fk, wanted = C1.eval("""
       -- a demo member of the (demo) raid with an unobtained boss item as a main pick
       for _, key in ipairs(ns.Demo:GetRaidKeys()) do
@@ -199,7 +199,7 @@ def i_council_overview_announce_in_demo_mode_does_not_post_fake_names():
     """Council overview (UI/Council.lua) item row -> right-click -> 'Announce to raid' while demo mode is on in a
     real raid: the line is built from demo wanters and posted to RAID chat."""
     w, R, C1, C2, fake = setup()
-    C1.slash("/cdl demo")
+    C1.slash("/dz demo")
     fk, wanted = C1.eval(DEMO_WANTED_LUA)
     assert wanted, "no demo raid member wants a boss item?"
     mark_chat = len(w.chat_log)
@@ -230,7 +230,7 @@ def i_council_overview_announce_in_demo_mode_does_not_post_fake_names():
 
 @r.case
 def i_legacy_demo_awards_purged_and_not_resynced():
-    """CDLoot 0.1 wrote demo awards into the real ledger. At login they are purged (roster needed), and a 0.1 peer
+    """DisasterZone 0.1 wrote demo awards into the real ledger. At login they are purged (roster needed), and a 0.1 peer
     that still has them cannot sync them back (A / LG)."""
     w = new_world()
     R = Client(w, "Raider", class_file="PALADIN", guild_rank=3)
@@ -239,7 +239,7 @@ def i_legacy_demo_awards_purged_and_not_resynced():
     up(R); up(C2)
     fake = list(C2.eval_py("return ns.Demo:GetFakeNames()"))
     f1 = fake[0] + "-Thunderstrike"
-    C1.set_saved_variable("CDLootDB", """{ schema = 1, ledger = {
+    C1.set_saved_variable("DisasterZoneDB", """{ schema = 1, ledger = {
       ["m1789990000Councila28477"] = { id = "m1789990000Councila28477", i = 28477, w = "%s", b = "", ts = 1789990000, by = "Councila-Thunderstrike", s = "m" },
       ["m1789990001Councila28453"] = { id = "m1789990001Councila28453", i = 28453, w = "Raider-Thunderstrike", b = "", ts = 1789990001, by = "Councila-Thunderstrike", s = "m" },
     } }""" % f1)

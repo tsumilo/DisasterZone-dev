@@ -1,4 +1,4 @@
-# CDLoot API cheat sheet: TBC Anniversary client (Interface 20506)
+# DisasterZone API cheat sheet: TBC Anniversary client (Interface 20506)
 
 ## 0. Environment and sources
 
@@ -10,7 +10,7 @@
   - `Blizzard_DeprecatedItemScript/Deprecated_ItemScript.lua`: `GetItemInfo = C_Item.GetItemInfo`, `GetItemInfoInstant`, `GetItemIcon = C_Item.GetItemIconByID`, `IsEquippableItem`, `IsUsableItem`, `GetItemQualityColor`, `GetItemClassInfo`, `GetItemSubClassInfo`, `GetItemCount`, `GetDetailedItemLevelInfo`, …
   - `Blizzard_DeprecatedChatInfo/Deprecated_ChatInfo.lua`: `SendChatMessage = C_ChatInfo.SendChatMessage`.
   - `Deprecated_ChatFrame.lua`: `ChatEdit_InsertLink = ChatFrameUtil.InsertLink`, `ChatEdit_GetActiveWindow = ChatFrameUtil.GetActiveWindow`, `ChatFrame_AddMessageEventFilter = ChatFrameUtil.AddMessageEventFilter`, `ChatFrame_OpenChat`, …
-  - **Rule for CDLoot:** call `C_Item.*`, `C_ChatInfo.*`, `ChatFrameUtil.*`, `C_GuildInfo.*`, `C_PartyInfo.*` and `C_Container.*` directly.
+  - **Rule for DisasterZone:** call `C_Item.*`, `C_ChatInfo.*`, `ChatFrameUtil.*`, `C_GuildInfo.*`, `C_PartyInfo.*` and `C_Container.*` directly.
 
 ---
 
@@ -363,7 +363,7 @@ self:SendCommMessage(PREFIX, enc, "GUILD"|"RAID"|"WHISPER", target, "NORMAL"|"BU
 - `PanelTemplates_SetNumTabs(frame, n)` and `PanelTemplates_SetTab(frame, i)` (LootReserve/Windows/ServerWindow.lua:902-903; LoonBestInSlot/UI/LootBrowser.lua:235).
 
 **Settings panel:**
-- `local cat = Settings.RegisterCanvasLayoutCategory(panel, "CDLoot"); Settings.RegisterAddOnCategory(cat)` (Leatrix_Plus.lua:11459-11460; GudaBags/UI/SettingsPopup.lua:1639-1641).
+- `local cat = Settings.RegisterCanvasLayoutCategory(panel, "DisasterZone"); Settings.RegisterAddOnCategory(cat)` (Leatrix_Plus.lua:11459-11460; GudaBags/UI/SettingsPopup.lua:1639-1641).
 - Subcategories: `Settings.RegisterCanvasLayoutSubcategory` (Auctionator/Source/Config/Mixins/PanelConfig.lua:25).
 - Open with `Settings.OpenToCategory(cat:GetID())`. AceConfigDialog's `AddToBlizOptions` returns `(frame, categoryID)` (LoonBestInSlot/Settings.lua:534, MinimapButton.lua:19).
 - `InterfaceOptions_AddCategory` should be treated as absent; AtlasLootClassic_OptionsPanel.lua:182 guards it.
@@ -420,7 +420,7 @@ self:SendCommMessage(PREFIX, enc, "GUILD"|"RAID"|"WHISPER", target, "NORMAL"|"BU
 - **TOC selection:** a flavor-specific TOC wins.
   - LootReserve/LootReserve.toc declares 50504, while LootReserve_TBC.toc declares 20506.
   - Both `_TBC.toc` and `-BCC.toc` are used (Questie/Questie-BCC.toc; GladiusEx-BCC.toc).
-  - A single `CDLoot.toc` with `## Interface: 20506` is enough (LoonBestInSlot, TehBox and RaidHelper_TBC all do this).
+  - A single `DisasterZone.toc` with `## Interface: 20506` is enough (LoonBestInSlot, TehBox and RaidHelper_TBC all do this).
   - A comma list is allowed: `## Interface: 20504, 20505, 20506` (Raidify_Loot/Raidify_Loot_TBC.toc:1; GudaBags/GudaBags.toc:1).
 - **Per-file conditions:** `file.lua [AllowLoadGameType tbc, wrath]` (Auctionator/Auctionator.toc:29-50).
 - **Other directives:**
@@ -455,7 +455,7 @@ self:SendCommMessage(PREFIX, enc, "GUILD"|"RAID"|"WHISPER", target, "NORMAL"|"BU
 
 Also present on this client: modern Settings, Menu/MenuUtil, ScrollBox, EditMode (there are `edit-mode-cache` files in WTF), `C_EventUtils` and the Item mixin.
 
-**Global pollution from other addons:** TehBox defines `TBRT`, `SendAddonMessage` and `RegisterAddonMessagePrefix`. `Details/luaserver.lua` is a lint stub that is not loaded — ignore its fake APIs. Prefix all CDLoot globals with `CDLoot`.
+**Global pollution from other addons:** TehBox defines `TBRT`, `SendAddonMessage` and `RegisterAddonMessagePrefix`. `Details/luaserver.lua` is a lint stub that is not loaded — ignore its fake APIs. Prefix all DisasterZone globals with `DisasterZone`.
 
 ---
 

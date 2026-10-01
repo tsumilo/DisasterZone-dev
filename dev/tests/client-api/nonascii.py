@@ -1,5 +1,5 @@
 import os, re, sys, unicodedata, collections
-ROOT = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
+ROOT = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 counts = collections.Counter()
 rows = []
 for sub in ("Core", "UI", "Data"):

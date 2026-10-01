@@ -50,7 +50,7 @@ def setup(team_a=(("murkling", 12),), team_b=(("emberwhelp", 12),), ui_a=False):
     for c, team, x in ((a, team_a, 8), (b, team_b, 9)):
         c.eval(BOT)
         c.eval(TRADE_BOT)
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")
         for _ in range(40):

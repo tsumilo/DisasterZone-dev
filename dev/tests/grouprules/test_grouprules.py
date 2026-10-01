@@ -3,16 +3,16 @@
 
 The group's loot authority (E §33): in a raid the raid leader (always council for their raid), else the master
 looter; in a party the party leader if council (GM / guild list) or if they turned dungeon mode on, else a guild-
-list council member in the party (lowest rank index, then name). Only members running CDLoot with group rules
+list council member in the party (lowest rank index, then name). Only members running DisasterZone with group rules
 count (they sent GS / GQ). The authority shares roll duration (rd), drop quality (q), dungeon mode (dm, parties)
 + 5-man quality (dq) and the phase (ph, E §32) in GS on the group channel; everyone reads them through
 ns.DB:GetEffective, the Settings controls go read-only ("Set by <Name> for this group").
 
 Cases: a raid leader's rules reach every raider (Settings read-only); a change reaches the raid and the next roll
 uses it (coalesced to one GS per 5 s); raid leader vs master looter (the leader wins, the ML takes over when the
-leader has no CDLoot, no authority without both); GQ after joining / reload; forged and out-of-range GS rejected;
+leader has no DisasterZone, no authority without both); GQ after joining / reload; forged and out-of-range GS rejected;
 the leader leaves -> the next authority or personal values; party dungeon mode and the party eligibility order;
-disband -> personal values; the phase rule; /cdl rules; mixed with CDLoot 0.2 clients (no errors, DM compat).
+disband -> personal values; the phase rule; /dz rules; mixed with CDLoot 0.2 clients (no errors, DM compat).
 
 Every case ends with world.assert_no_errors(). Standalone; prints PASS/FAIL per case, exit code 1 on a failure.
 Run: luaenv\\Scripts\\python.exe tests\\grouprules\\test_grouprules.py   [-k substring]
@@ -92,7 +92,7 @@ def set_(c, path, value):
 
 def open_settings(c):
     install_helpers(c)
-    c.slash("/cdl settings")
+    c.slash("/dz settings")
     c.world.tick(0.5)
     c.eval("ns.SettingsUI:Refresh()")
 
@@ -193,7 +193,7 @@ def leader_changes_the_duration_raiders_update_and_the_next_roll_uses_it():
 
 @case
 def raid_leader_wins_over_the_master_looter_who_takes_over_without_a_leader_with_cdloot():
-    # Both run CDLoot: the raid leader (not on any list) is the authority, the master looter's GS is ignored.
+    # Both run DisasterZone: the raid leader (not on any list) is the authority, the master looter's GS is ignored.
     w, c = world([("Gina", 0, "PALADIN"), ("Lee", 3, "WARRIOR"), ("Mia", 3, "MAGE"), ("Rita", 3, "PRIEST")])
     set_(c["Lee"], "roll.duration", 45)
     set_(c["Mia"], "roll.duration", 15)
@@ -207,7 +207,7 @@ def raid_leader_wins_over_the_master_looter_who_takes_over_without_a_leader_with
     w.tick(1)
     assert eff(c["Rita"], "roll.duration") == 45, "the ML's GS must not override the raid leader's rules"
     no_errors(w)
-    # the raid leader has no CDLoot: the master looter (not council) is the authority
+    # the raid leader has no DisasterZone: the master looter (not council) is the authority
     w2, d = world([("Gina", 0, "PALADIN"), ("Mia", 3, "MAGE"), ("Rita", 3, "PRIEST"), ("Sam", 3, "ROGUE")])
     zed = ExtraMember("Zed", "WARRIOR", guild="Casual Disaster", guild_rank=3)
     w2.offline_members.append(zed)
@@ -219,7 +219,7 @@ def raid_leader_wins_over_the_master_looter_who_takes_over_without_a_leader_with
         assert eff(d[n], "roll.duration") == 20, n
         assert d[n].eval("return ns.Guild:IsCouncil(...)", K("Zed")) is True, "the raid leader is council (E §29)"
     assert status(d["Mia"])[0] == "mine"
-    # group loot, leader without CDLoot: no authority, personal values
+    # group loot, leader without DisasterZone: no authority, personal values
     w2.make_raid([d["Mia"], d["Rita"], d["Sam"]], leader=zed, extra_members=[zed])
     for x in d.values():
         x.fire("PARTY_LOOT_METHOD_CHANGED")
@@ -315,7 +315,7 @@ def leader_leaves_the_next_eligible_authority_takes_over_or_personal_values():
     w.make_raid([c["Lee"], c["Mia"], c["Rita"]], leader=c["Lee"], master_looter=c["Mia"])
     w.tick(10)
     assert eff(c["Rita"], "roll.duration") == 45
-    # Lee leaves; the lead goes to Zed (no CDLoot): the master looter decides now
+    # Lee leaves; the lead goes to Zed (no DisasterZone): the master looter decides now
     w.make_raid([c["Mia"], c["Rita"]], leader=zed, extra_members=[zed], master_looter=c["Mia"])
     for x in (c["Lee"], c["Mia"], c["Rita"]):
         x.fire("PARTY_LEADER_CHANGED")
@@ -389,7 +389,7 @@ def raid_leaders_phase_is_a_group_rule_on_top_of_the_guild_phase():
     assert c["Rita"].eval("return ns.SettingsUI.phaseRuleDD:IsEnabled()") is False
     c["Rita"].eval("ns.SettingsUI.phaseRuleDD:GenerateMenu()")
     assert c["Rita"].eval("return ns.SettingsUI.phaseRuleDD:GetText()").startswith("P4 · ")
-    c["Rita"].slash("/cdl bis")
+    c["Rita"].slash("/dz bis")
     w.tick(0.3)
     if c["Rita"].eval("return ns.MainFrame:GetSelectedTab()") != "mybis":
         c["Rita"].eval("ns.MainFrame:Open('mybis')")
@@ -419,22 +419,22 @@ def raid_leaders_phase_is_a_group_rule_on_top_of_the_guild_phase():
 def slash_rules_prints_the_source_and_values():
     w, c = world([("Gina", 0, "PALADIN"), ("Lee", 3, "WARRIOR"), ("Rita", 3, "PRIEST")])
     n0 = len(c["Rita"].chat_frame)
-    c["Rita"].slash("/cdl rules")
+    c["Rita"].slash("/dz rules")
     lines = [strip_codes(l) for l in printed_since(c["Rita"], n0)]
-    assert lines[0] == "CDLoot: loot rules: your own settings (not in a group).", lines
-    assert lines[1].startswith("CDLoot:   rolls 30s, drops epics+, dungeon mode off"), lines
+    assert lines[0] == "DisasterZone: loot rules: your own settings (not in a group).", lines
+    assert lines[1].startswith("DisasterZone:   rolls 30s, drops epics+, dungeon mode off"), lines
     set_(c["Lee"], "roll.duration", 15)
     set_(c["Lee"], "groupPhase", 2)
     w.make_raid([c["Lee"], c["Rita"]], leader=c["Lee"])
     w.tick(8)
     n0 = len(c["Rita"].chat_frame)
-    c["Rita"].slash("/cdl rules")
+    c["Rita"].slash("/dz rules")
     lines = [strip_codes(l) for l in printed_since(c["Rita"], n0)]
-    assert lines[0] == "CDLoot: loot rules: set by Lee for this group.", lines
+    assert lines[0] == "DisasterZone: loot rules: set by Lee for this group.", lines
     assert "rolls 15s" in lines[1] and "phase 2" in lines[1], lines
     n0 = len(c["Lee"].chat_frame)
-    c["Lee"].slash("/cdl rules")
-    assert strip_codes(printed_since(c["Lee"], n0)[0]) == "CDLoot: loot rules: you set these for your group."
+    c["Lee"].slash("/dz rules")
+    assert strip_codes(printed_since(c["Lee"], n0)[0]) == "DisasterZone: loot rules: you set these for your group."
     no_errors(w)
 
 
@@ -450,16 +450,16 @@ def party_leader_enables_dungeon_mode_for_everyone_a_plain_member_cannot():
         assert authority(c[n]) is None, "a plain party leader without dungeon mode is no authority"
     # a plain member turns it on: only for herself (no authority), nobody else, no GS / DM
     mark = len(w.addon_log)
-    c["Dora"].slash("/cdl dungeon on")
+    c["Dora"].slash("/dz dungeon on")
     w.tick(2)
     assert gs_from(w, "Dora", mark) == [] and lr.msgs_of_type(w, "DM", mark) == []
     assert c["Dora"].eval("return ns.Util.IsDungeonModeActive()") is True
     for n in ("Carl", "Erin"):
         assert c[n].eval("return ns.Util.IsDungeonModeActive()") is False, n
-    c["Dora"].slash("/cdl dungeon off")
+    c["Dora"].slash("/dz dungeon off")
     # the party leader turns it on: the leader becomes the authority, every member is active
     set_(c["Carl"], "dungeon.quality", 4)
-    c["Carl"].slash("/cdl dungeon on")
+    c["Carl"].slash("/dz dungeon on")
     w.tick(3)
     gs = gs_from(w, "Carl", mark)
     assert gs and gs[-1]["dm"] is True and gs[-1]["dq"] == 4 and gs[-1]["_chat_type"] == "PARTY", gs
@@ -468,12 +468,12 @@ def party_leader_enables_dungeon_mode_for_everyone_a_plain_member_cannot():
         assert c[n].eval("return ns.Util.IsDungeonModeActive()") is True, n
         assert eff(c[n], "dungeon.quality") == 4, n
     # Dora's own switch is read-only now, and turning hers on/off changes nothing for the party
-    c["Dora"].slash("/cdl dungeon off")
+    c["Dora"].slash("/dz dungeon off")
     w.tick(2)
     assert c["Erin"].eval("return ns.Util.IsDungeonModeActive()") is True
     assert c["Dora"].eval("return ns.Util.IsDungeonModeActive()") is True, "the authority's rule applies to her too"
     # the leader turns it off: the party drops the leader's rules (one final GS) and goes back to own values
-    c["Carl"].slash("/cdl dungeon off")
+    c["Carl"].slash("/dz dungeon off")
     w.tick(3)
     for n in ("Carl", "Dora", "Erin"):
         assert c[n].eval("return ns.Util.IsDungeonModeActive()") is False, n
@@ -501,7 +501,7 @@ def party_authority_order_leader_if_council_else_listed_council_by_rank():
     w.tick(6)
     assert eff(c["Erin"], "roll.duration") == 20
     # 3) ... until the plain leader turns dungeon mode on: then the leader decides
-    c["Carl"].slash("/cdl dungeon on")
+    c["Carl"].slash("/dz dungeon on")
     w.tick(10)
     for n in ("Anna", "Olaf", "Erin"):
         assert authority(c[n]) == K("Carl"), (n, authority(c[n]))
@@ -556,11 +556,11 @@ def mixed_with_cdloot_02_clients_no_errors_and_dm_compatibility():
     w.make_party([c["New"], c["Old"]], leader=c["New"])
     w.tick(8)
     mark = len(w.addon_log)
-    c["New"].slash("/cdl dungeon on")
+    c["New"].slash("/dz dungeon on")
     w.tick(2)
     assert [m for m in lr.msgs_of_type(w, "DM", mark) if m["_sender"] == K("New") and m["on"] is True]
     assert c["Old"].eval("return ns.Util.IsDungeonModeActive()") is True
-    c["New"].slash("/cdl dungeon off")
+    c["New"].slash("/dz dungeon off")
     w.tick(2)
     assert c["Old"].eval("return ns.Util.IsDungeonModeActive()") is False
     no_errors(w)

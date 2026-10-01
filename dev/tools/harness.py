@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Offline WoW (TBC Anniversary 2.5.x) client simulator for CDLoot tests.
+"""Offline WoW (TBC Anniversary 2.5.x) client simulator for DisasterZone tests.
 
     from harness import World, Client
     w = World()
@@ -12,7 +12,7 @@
 
 Each Client is its own lupa Lua 5.1 runtime with the mock client (tools/wowmock/*.lua) installed. The World owns
 the virtual clock, the addon-message bus, chat, guild/group/instance state and SavedVariables across relogs.
-Run `python tools/harness.py` for a smoke test that loads CDLoot on three clients and prints the reports.
+Run `python tools/harness.py` for a smoke test that loads DisasterZone on three clients and prints the reports.
 """
 import heapq
 import itertools
@@ -28,11 +28,11 @@ if os.path.isdir(_SITE) and _SITE not in sys.path:
     sys.path.insert(0, _SITE)
 from lupa import lua51  # noqa: E402
 
-# CDLOOT_ADDON_DIR points the whole harness at another copy of the addon (tools/patched_run.py: a base release
-# tree whose saved CDLootPatchDB, named by CDLOOT_PATCH_SV, carries the current source as an in-game update).
-ADDON_DIR = os.environ.get("CDLOOT_ADDON_DIR") or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
-PATCH_SV_FILE = os.environ.get("CDLOOT_PATCH_SV") or None
-ADDON_NAME = "CDLoot"
+# DISASTERZONE_ADDON_DIR points the whole harness at another copy of the addon (tools/patched_run.py: a base release
+# tree whose saved DisasterZonePatchDB, named by DISASTERZONE_PATCH_SV, carries the current source as an in-game update).
+ADDON_DIR = os.environ.get("DISASTERZONE_ADDON_DIR") or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
+PATCH_SV_FILE = os.environ.get("DISASTERZONE_PATCH_SV") or None
+ADDON_NAME = "DisasterZone"
 MOCK_DIR = os.path.join(HERE, "wowmock")
 MODULES = ("core.lua", "objects.lua", "ui.lua", "game.lua")
 DEFAULT_RANKS = ["Guild Master", "Officer", "Raider", "Member", "Initiate"]
@@ -1006,6 +1006,10 @@ class Client:
         self.items_uncached = items_uncached
         self.preload_lua = preload_lua
         self.addon_dir = addon_dir or world.addon_dir
+        self._addon_name = None
+        # {global name: Lua source}: saved variables of OTHER addons this client has loaded (they load before ours,
+        # e.g. the old "CDLoot" next to DisasterZone); written back at logout like the client would
+        self.other_saved = {}
         self.other_addons = list(other_addons)
         self.bank_requires_open = bank_requires_open
         self.sv_before_files = sv_before_files
@@ -1151,24 +1155,35 @@ class Client:
         return tuple(r)
 
     # -- lifecycle -----------------------------------------------------------------------------------------------
+    @property
+    def addon_name(self):
+        """The addon this client runs: the name of the folder's .toc (an old-version fixture is still "CDLoot")."""
+        name = self._addon_name
+        if name is None:
+            tocs = [f[:-4] for f in os.listdir(self.addon_dir) if f.lower().endswith(".toc")]
+            name = self._addon_name = ADDON_NAME if (ADDON_NAME in tocs or not tocs) else sorted(tocs)[0]
+        return name
+
     def toc(self):
-        return parse_toc(self.addon_dir, ADDON_NAME)
+        return parse_toc(self.addon_dir, self.addon_name)
 
     def load_addon(self, reload=False):
-        """Parse CDLoot.toc, run every listed file with ("CDLoot", ns), apply SavedVariables, then fire
+        """Parse DisasterZone.toc, run every listed file with ("DisasterZone", ns), apply SavedVariables, then fire
         ADDON_LOADED, VARIABLES_LOADED, SPELLS_CHANGED, PLAYER_LOGIN, PLAYER_ENTERING_WORLD(true, false)
         (or (false, true) when reload=True)."""
         if self.runtime is None:
             raise RuntimeError("%s is offline; call login()" % self.full_name)
         headers, files = self.toc()
         self._set_time()
-        self.M.set_toc_meta(ADDON_NAME, to_lua(self.runtime, headers))
+        self.M.set_toc_meta(self.addon_name, to_lua(self.runtime, headers))
         sv_first = self.sv_before_files
         if sv_first is None:
             sv_first = (headers.get("loadsavedvariablesfirst") or "").lower() in ("1", "true")
-        if PATCH_SV_FILE and "CDLootPatchDB" not in self.world.saved.get(self.full_name, {}):
+        if PATCH_SV_FILE and self.addon_name == ADDON_NAME and "DisasterZonePatchDB" not in self.world.saved.get(self.full_name, {}):
             with open(PATCH_SV_FILE, encoding="utf-8") as fh:
-                self.world.saved.setdefault(self.full_name, {})["CDLootPatchDB"] = fh.read()
+                self.world.saved.setdefault(self.full_name, {})["DisasterZonePatchDB"] = fh.read()
+        for name, src in self.other_saved.items():
+            self.M.apply_saved(name, src)
         if sv_first:
             self._apply_saved(headers)
         missing = []
@@ -1186,12 +1201,12 @@ class Client:
             key = tuple(missing)
             if key not in self.world._warned_missing:
                 self.world._warned_missing.add(key)
-                print("wowmock: %s.toc lists %d missing file(s), skipped: %s" % (ADDON_NAME, len(missing), ", ".join(missing)),
+                print("wowmock: %s.toc lists %d missing file(s), skipped: %s" % (self.addon_name, len(missing), ", ".join(missing)),
                       file=sys.stderr)
         # WoW order: SavedVariables are assigned after the files ran and right before ADDON_LOADED
         if not sv_first:
             self._apply_saved(headers)
-        self.M.addon_loaded(ADDON_NAME)
+        self.M.addon_loaded(self.addon_name)
         self.M.login_events(not reload, bool(reload), self.world.roster_delay or 0)
         self.loaded = True
         if self.world.fail_fast:
@@ -1219,16 +1234,16 @@ class Client:
         if src.startswith(b"\xef\xbb\xbf"):
             src = src[3:]
         self._set_time()
-        self.M.load_file(src, "@Interface/AddOns/%s/%s" % (ADDON_NAME, rel.replace("\\", "/")), ADDON_NAME)
+        self.M.load_file(src, "@Interface/AddOns/%s/%s" % (self.addon_name, rel.replace("\\", "/")), self.addon_name)
 
     def load_files(self, files, fire_login=False, addon_name=ADDON_NAME):
         """Load specific files (relative to the addon folder, or absolute) with (addon_name, ns). With
         fire_login=True also fire ADDON_LOADED + login events afterwards."""
         missing = []
-        if PATCH_SV_FILE and addon_name == ADDON_NAME and not self.eval("return CDLootPatchDB ~= nil"):
+        if PATCH_SV_FILE and addon_name == ADDON_NAME and not self.eval("return DisasterZonePatchDB ~= nil"):
             # patched run: the stored update must be there before the first file, as load_addon() arranges
             with open(PATCH_SV_FILE, encoding="utf-8") as fh:
-                self.M.apply_saved("CDLootPatchDB", fh.read())
+                self.M.apply_saved("DisasterZonePatchDB", fh.read())
         for f in files:
             if os.path.isabs(f):
                 if not os.path.exists(f):
@@ -1283,6 +1298,10 @@ class Client:
                     store.pop(sv, None)
                 else:
                     store[sv] = s
+            for name in list(self.other_saved):
+                s = self.M.serialize_global(name)
+                if s is not None and s != "nil":
+                    self.other_saved[name] = s
         self._old_errors.extend(self._current_errors())
         self._old_warnings.extend(self._current_warnings())
         self._old_printed.extend(self._lua_list("printed"))
@@ -1376,7 +1395,7 @@ class Client:
                   local f, err = loadstring("return " .. code, "@eval")
                   if not f then f, err = loadstring(code, "@eval") end
                   if not f then return false, M.safe_str(err) end
-                  setfenv(f, setmetatable({ ns = M.ns, addonName = "CDLoot" }, { __index = _G, __newindex = _G }))
+                  setfenv(f, setmetatable({ ns = M.ns, addonName = "DisasterZone" }, { __index = _G, __newindex = _G }))
                   local n = select("#", ...)
                   local args = { ... }
                   local res = { xpcall(function() return f(unpack(args, 1, n)) end,
@@ -1596,7 +1615,7 @@ class Client:
         self._call("press_escape", self._frame_arg(editbox))
 
     def slash(self, line):
-        """Run a slash command, e.g. client.slash('/cdl sync'). Returns False if no handler matched."""
+        """Run a slash command, e.g. client.slash('/dz sync'). Returns False if no handler matched."""
         return bool(self._call("slash", line))
 
     def dump_ui(self, frame=None, depth=6, textures=False):

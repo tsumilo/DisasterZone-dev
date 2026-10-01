@@ -4,8 +4,8 @@
 
 It builds a "shadow" release in a temp folder in which every patchable file on disk is only its guard line plus
 `error("the disk copy ran")`, builds an update that carries the current source of all those files, stores it the
-way a finished download does (CDLootPatchDB) and points the harness at the shadow release (CDLOOT_ADDON_DIR /
-CDLOOT_PATCH_SV, see tools/harness.py). Then tf_e/run_all.py runs as usual, output in tf_e/patched/.
+way a finished download does (DisasterZonePatchDB) and points the harness at the shadow release (DISASTERZONE_ADDON_DIR /
+DISASTERZONE_PATCH_SV, see tools/harness.py). Then tf_e/run_all.py runs as usual, output in tf_e/patched/.
 
 Every suite must give the same result as a normal run: that proves the addon behaves the same when its code comes
 from the update path (loadstring of stored text, the boot loader's ordering) as when it comes from disk.
@@ -38,12 +38,12 @@ def build(tmp):
             continue
         with open(os.path.join(src, rel), "wb") as fh:
             fh.write(release.guard_for(rel) + b"\nerror('the disk copy of " + rel.encode("ascii") + b" ran')\n")
-    base_dir = os.path.join(tmp, "CDLoot")
+    base_dir = os.path.join(tmp, "DisasterZone")
     record = release.stage_tree(src, base_dir, lua_only=True)
     key = patchlib.keygen(2)
     bundle, notes = release.make_patch(record, release.ADDON_DIR, key, 1)
     assert len(bundle["items"]) == len(files) - 1, (len(bundle["items"]), len(files))
-    sv = os.path.join(tmp, "CDLootPatchDB.lua")
+    sv = os.path.join(tmp, "DisasterZonePatchDB.lua")
     with open(sv, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(patchlib.staged_sv(bundle))
     return base_dir, sv, bundle
@@ -55,7 +55,7 @@ def main():
         base_dir, sv, bundle = build(tmp)
         print("shadow release in %s: %d files travel as an update (%d KB of source)" % (
             base_dir, len(bundle["items"]), bundle["total"] // 1024))
-        env = dict(os.environ, CDLOOT_ADDON_DIR=base_dir, CDLOOT_PATCH_SV=sv)
+        env = dict(os.environ, DISASTERZONE_ADDON_DIR=base_dir, DISASTERZONE_PATCH_SV=sv)
         py = os.path.join(DEV, "luaenv", "Scripts", "python.exe")
         rc = subprocess.call([py, os.path.join(DEV, "tf_e", "run_all.py"), "patched"] + sys.argv[1:], cwd=DEV, env=env)
         sys.exit(rc)

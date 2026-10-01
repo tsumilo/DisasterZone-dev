@@ -62,7 +62,7 @@ def setup(team_a=("murkling", 12), team_b=("emberwhelp", 12), extra=None):
     for c, (sp, lvl), x in ((a, team_a, 8), (b, team_b, 9)):
         c.eval(BOT)
         c.eval(PVP_BOT)
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")
         for _ in range(40):
@@ -235,7 +235,7 @@ def a_match_through_the_real_ui_with_keys_only():
     w.tick(3)
     for c, x, face in ((a, 8, "right"), (b, 9, "left")):
         c.eval(BOT)
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")
         for _ in range(40):

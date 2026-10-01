@@ -65,7 +65,7 @@ end"""
 def start(c, w, x, y, face):
     c.eval(BOT)
     c.eval(BOTS)
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")
     for _ in range(40):

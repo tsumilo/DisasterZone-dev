@@ -9,7 +9,7 @@ for c in w.clients: c.load_addon()
 w.tick(3)
 w.make_raid([alice, bob], master_looter=alice)
 w.tick(1)
-alice.slash("/cdl demo on")
+alice.slash("/dz demo on")
 w.tick(1)
 item = alice.eval("""
   for _, key in ipairs(ns.Demo:GetRaidKeys()) do

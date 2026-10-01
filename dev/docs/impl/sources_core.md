@@ -2,9 +2,9 @@ FINAL REPORT: core agent, Addendum F (§35 core, §36, §37, §38)
 
 The core work is done. check.py reports 0 errors and 0 global writes. My dev smokes all pass. Of the 30 suites, 25 pass and 5 fail (6 cases). All 6 failures come from intended contract changes (new settings default, new slash commands) or the UI agent's in-progress Picker / context-menu work. The Test & Fix agent needs to update those tests.
 
-## Files changed (addon root `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`)
+## Files changed (addon root `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone`)
 
-- **`CDLoot.toc`:** `Data\Sources.lua` added after `Data\Dungeons.lua`.
+- **`DisasterZone.toc`:** `Data\Sources.lua` added after `Data\Dungeons.lua`.
 
 - **`Core/ItemDB.lua` (§37):**
   - **Lazy indexes:** built once from `ns.Data.Crafted/Reputation/Badges/PvP`, and only on first use of the new kinds:
@@ -40,7 +40,7 @@ The core work is done. check.py reports 0 errors and 0 global writes. My dev smo
     - `MatchItem` skips disabled slots.
     - `CopyPhase` and `ApplyTemplate` (which covers Loon suggestions) never fill a disabled slot; with overwrite they keep the picks already in it.
     - `GetPhaseItems` entries gain `disabled=true`.
-  - **Lock enforcement:** every editing API refuses while locked and returns false, printing "BiS lists are locked by X during the raid." at most once per 3 s. `ApplyTemplate` also returns false when locked. The raid leader is locked too (the message tells them `/cdl unlock`).
+  - **Lock enforcement:** every editing API refuses while locked and returns false, printing "BiS lists are locked by X during the raid." at most once per 3 s. `ApplyTemplate` also returns false when locked. The raid leader is locked too (the message tells them `/dz unlock`).
   - **Still allowed while locked:** obtained / equipped scanning and manual "Mark obtained".
   - **While locked:** automatic spec detection at login is skipped.
   - **When the lock arrives:** a pending edit is committed at once.
@@ -61,13 +61,13 @@ The core work is done. check.py reports 0 errors and 0 global writes. My dev smo
     - A lock received on PARTY is ignored.
     - A missing `lkAt` falls back to the time the lock was first seen.
   - **`SetLocked`:** only the raid's authority can call it. It sends the GS immediately, not on the 5 s throttle.
-  - **Lock announce:** "CDLoot: BiS lists are locked for this raid." goes to RAID once, if `roll.announce` is on.
+  - **Lock announce:** "DisasterZone: BiS lists are locked for this raid." goes to RAID once, if `roll.announce` is on.
   - **Status messages:** everyone's client prints a local line when the lock turns on or off.
   - **`BIS_LOCK_CHANGED`** fires on every change; the lock state is also part of the `GROUP_RULES_CHANGED` signature.
   - **When the lock ends:** on unlock, on disband, when I lose the authority, when the raid becomes a party, or when another authority's GS is accepted.
-  - **Reload:** the authority's lock is saved in `CDLootDB.groupLock` and restored after its own `/reload` (at most 12 h old).
+  - **Reload:** the authority's lock is saved in `DisasterZoneDB.groupLock` and restored after its own `/reload` (at most 12 h old).
   - **Joiners:** a raider who joins or reloads mid-raid learns the lock through GQ.
-  - **Slash:** `/cdl lock` and `/cdl unlock` are new; `/cdl rules` shows the lock.
+  - **Slash:** `/dz lock` and `/dz unlock` are new; `/dz rules` shows the lock.
 
 - **`Core/Roll.lua`:**
   - `GetResults` rows gain `lockChanged`.
@@ -139,7 +139,7 @@ The core work is done. check.py reports 0 errors and 0 global writes. My dev smo
 
   To confirm the UI cause, I ran `test_mybis` with the old Core plus the current UI: 6 cases fail, so the new UI needs the new Core, and the 3 remaining failures are UI-side.
 
-**My dev smokes** (in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\core_f\`):
+**My dev smokes** (in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\core_f\`):
 - **`smoke_lock.py`:** 7/7. Covers:
   - disabled-slot model, sync, summary, wanters, copy / template and the validator;
   - full lock flow: every API refuses, chat announce, obtained items still sync, forged edit flagged on the guild council and the RL, a single warning;
@@ -154,4 +154,4 @@ The core work is done. check.py reports 0 errors and 0 global writes. My dev smo
   - After that: about 0.4–0.6 ms per slot, with 87–384 rows.
   - `GetSourceText`: about 0.001 ms.
 
-**Backups** of the pre-change files are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\core_f_backup\`. Suite logs are in `…\scratchpad\tf_e\f_base\` (baseline) and `…\scratchpad\tf_e\f_run2\` (after).
+**Backups** of the pre-change files are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\core_f_backup\`. Suite logs are in `…\scratchpad\tf_e\f_base\` (baseline) and `…\scratchpad\tf_e\f_run2\` (after).

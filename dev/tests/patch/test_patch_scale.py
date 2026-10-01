@@ -38,7 +38,7 @@ def guild_sized_transfer():
     w.tick(2)
     start = w.now
     mark = len(w.addon_log)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     late = []
     for i in range(4):                                            # four log in while the stream is running
         w.tick(12)

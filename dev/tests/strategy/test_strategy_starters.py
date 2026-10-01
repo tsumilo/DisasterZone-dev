@@ -17,7 +17,7 @@ from st_common import world, strategies  # noqa: E402
 from _common import case, run_all  # noqa: E402
 
 P = "ns.RaidsUI:GetPanel()"
-W = "_G.CDLootStrategyBoard"
+W = "_G.DisasterZoneStrategyBoard"
 
 
 @case
@@ -61,10 +61,10 @@ def every_encounter_has_a_valid_starter():
 
 
 def new_strategy(cl, boss, name):
-    cl.slash("/cdl raids")
+    cl.slash("/dz raids")
     cl.eval("ns.RaidsUI:SetView('strategies'); ns.StrategiesUI:SelectBoss(...)", boss)
     cl.click(cl.eval("return %s.strategies.detail.newBtn" % P))
-    cl.type_text(cl.eval("return _G.CDLootStrategyPrompt.edit"), name, enter=True)
+    cl.type_text(cl.eval("return _G.DisasterZoneStrategyPrompt.edit"), name, enter=True)
 
 
 @case

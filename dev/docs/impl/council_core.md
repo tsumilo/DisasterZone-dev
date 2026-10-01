@@ -3,7 +3,7 @@ Final report: core agent, Addenda E §29/§31–§33 and D §24–§26 (as amend
 All the core work is in place. `check.py` is clean and a 15-case smoke scenario passes. With the new council model the existing suites fail wherever they assumed "rank ≤ 1 is council" or used the Guild Info tag. To tell those apart from real regressions, I also ran every suite with each client's guild list seeded with the rank ≤ 1 members. That seeded run's remaining failures are all tag or rank based, or intended design changes. None is a regression.
 
 ## Files changed
-All paths are under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`.
+All paths are under `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone`.
 
 - **`Core/Guild.lua`** (rewritten):
   - **Roster:** the roster cache is kept, and the GM is taken from `rankIndex == 0` in the live roster. The last GM seen is saved (`db.council.gm`) because offline rows are hidden when "Show Offline Members" is unchecked.
@@ -19,7 +19,7 @@ All paths are under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
   - **Removed:** everything that read or wrote Guild Info, the backups, and the popups.
 - **`Core/GroupRules.lua`** (new; in the TOC after `Core\Dungeon.lua`):
   - It is a plain self-wiring table like Dungeon. Registering it with `ns:NewModule` at that TOC position would make it module #1 and break the "ItemDB and DB first" rule.
-  - Authority, `GS` / `GQ` validation, the 5 s coalesced throttle, a one-time print per group session, and `/cdl rules`.
+  - Authority, `GS` / `GQ` validation, the 5 s coalesced throttle, a one-time print per group session, and `/dz rules`.
 - **`Core/DB.lua`:**
   - Adds `DB:GetEffective(path)` and `DB:IsGroupRulePath`.
   - Defaults: `council = {}` added, `settings.groupPhase` (nil) added, `guildCfg` removed.
@@ -40,7 +40,7 @@ All paths are under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
 - **`Core/Loot.lua`:** the quality threshold uses the effective value.
 - **`Core/Roll.lua`:** roll duration uses the effective value.
 - **`Core/Init.lua`:** `GROUP_RULES_CHANGED` added to the message catalogue.
-- **`CDLoot.toc`:** adds `Core\GroupRules.lua`.
+- **`DisasterZone.toc`:** adds `Core\GroupRules.lua`.
 - **Not changed:** `Comm.lua` and `Demo.lua` needed nothing.
 
 ## API
@@ -52,9 +52,9 @@ All paths are under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
 **Added (extras):**
 - `Guild:IsGuildCouncil`, `Guild:GetCouncilPhase` (already used by the UI agent), `Guild:GetGuildCouncilRev`, `Guild:OnCouncilRevSeen`.
 - `GroupRules:GetRemoteValue`, `GroupRules:GetRulePhase`, `GroupRules:IsSpeaker`, `GroupRules:OnDungeonSwitch`.
-- `DB:IsGroupRulePath`, and the `/cdl rules` slash command.
+- `DB:IsGroupRulePath`, and the `/dz rules` slash command.
 
-**Removed:** `GetConfig`, `BuildTag`, `WriteConfig`, `CanEditConfig`, `ParseConfig`, `GetInfoBackups`, `RestoreInfoBackup`, `NoteInfoTextSeen`, `OnInfoTextMaybeLoaded`, `/cdl guildinfo`, and the `CDLOOT_GUILDINFO_*` popups. Nothing in Core or UI still references Guild Info.
+**Removed:** `GetConfig`, `BuildTag`, `WriteConfig`, `CanEditConfig`, `ParseConfig`, `GetInfoBackups`, `RestoreInfoBackup`, `NoteInfoTextSeen`, `OnInfoTextMaybeLoaded`, `/dz guildinfo`, and the `DISASTERZONE_GUILDINFO_*` popups. Nothing in Core or UI still references Guild Info.
 
 ## Deviations from the addenda, and why
 1. **`GS`/`GQ` channel:** they go on RAID or PARTY by group type, not `Util.GetGroupChannel()`. That function returns nil in a party until dungeon mode is on, and the rules are what decide dungeon mode, so using it would be circular.
@@ -67,7 +67,7 @@ All paths are under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
    - Every `CR` from the current leader is accepted, with no rev ordering.
    - A leader without a list sends an empty `CR` (rev 0), so members know there is none.
 6. **`GQ` replies:** only the member that considers itself the authority answers. If every eligible member answered, a lower-priority member's rules could win on the joiner's client.
-7. **Who counts as having CDLoot:** a member that sent `GS` or `GQ` (a `GQ` proves it supports group rules).
+7. **Who counts as having DisasterZone:** a member that sent `GS` or `GQ` (a `GQ` proves it supports group rules).
 8. **Rev ordering for `GS`:** none. The rev resets per session and on /reload.
 9. **Eligibility (E §33):**
    - The D raid fallback ("council assist with the lowest rank") is dropped.
@@ -108,7 +108,7 @@ All paths are under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`
 - **UI agent:**
   - Use `Guild:GetCouncilPhase()` for the guild phase.
   - Use `DB:GetEffective` plus `GroupRules:GetStatus()` for the Settings controls; `GROUP_RULES_CHANGED` fires on every status change.
-  - `/cdl rules` is new and `/cdl guildinfo` is gone.
+  - `/dz rules` is new and `/dz guildinfo` is gone.
 - **TOC version:** I suggest bumping it to 0.3.0 so 0.2 users get the "newer version" notice. I left it alone because `test_boot` asserts 0.2.0.
 - **Test & Fix agent:** the migrations are listed under the suites below.
 
@@ -149,7 +149,7 @@ The reason in all six: while the party has a loot authority, a member's own dung
 - A mixed 0.2/0.3 run (0.2 party leader DM, 0.3 leader to a 0.2 member, 0.2 raid leader with a 0.3 master looter as authority) passes 3/3 with no Lua errors.
 - The smoke scenario covers picking the guild council, CQ relay/TOFU, forged and future-rev `CG`, raid council lifecycle (CRQ, disband, re-share, leader change), group rules (raid, master-looter fall-through, reload, forged or out-of-range `GS`, disband), party dungeon mode and stepping down, migration, raid-scope list sync, stale relays, the HELLO/STATE piggyback, alt guild parking, dual authority, and raid↔party conversion.
 
-Everything is in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad`:
+Everything is in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad`:
 - Dev scripts in `core_e_backup\`: `smoke_e.py`, `mixed_e.py`, `seeded.py`, `run_all.py`.
-- Pre-change backups: `core_e_backup\Core\`, `core_e_backup\CDLoot.toc`.
+- Pre-change backups: `core_e_backup\Core\`, `core_e_backup\DisasterZone.toc`.
 - Logs: `out_core_e\final_plain\`, `out_core_e\final_seeded\`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Dungeon mode, core side (Addendum B §21.2, §22.1-§22.3): 5-man ItemDB data, the DM switch and its gate,
 party drops (D on PARTY, 5-man quality threshold), party rolls (RS/RR/RE/RW on PARTY, CanStart gate), ledger dg
-entries, /cdl test inside a 5-man, and what must NOT change (party without the mode, raids).
+entries, /dz test inside a 5-man, and what must NOT change (party without the mode, raids).
 
 UI parts (RollFrame in a party, drop panel for the party leader, Loot Log tag/filter) are not covered here.
 
@@ -69,7 +69,7 @@ class Party:
             seed_bis(self.c[name], entries)
         if sync:
             for cl in self.c.values():
-                cl.slash("/cdl sync")
+                cl.slash("/dz sync")
                 self.w.tick(0.3)
             self.w.tick(45)
         if instance:
@@ -111,7 +111,7 @@ def changed(c):
 
 
 def enable(p, name="Alice", tick=1):
-    p[name].slash("/cdl dungeon on")
+    p[name].slash("/dz dungeon on")
     p.w.tick(tick)
 
 
@@ -214,7 +214,7 @@ def dm_from_party_leader_reaches_every_member():
     assert p["Alice"].eval("return ns.db.settings.dungeon.enabled") is True
     # turning it off tells the party too
     log1 = len(w.addon_log)
-    p["Alice"].slash("/cdl dungeon off")
+    p["Alice"].slash("/dz dungeon off")
     w.tick(1)
     dm = sent_by(w, "DM", "Alice", log1)
     assert len(dm) == 1 and dm[0]["on"] is False, dm
@@ -235,7 +235,7 @@ def dm_from_plain_member_is_ignored():
     w = p.w
     w.tick(5)                                    # the GM leader's group rules (GS) have reached everyone
     log0 = len(w.addon_log)
-    p["Carol"].slash("/cdl dungeon on")          # not leader, not council, not the group's loot authority
+    p["Carol"].slash("/dz dungeon on")          # not leader, not council, not the group's loot authority
     w.tick(1)
     assert sent_by(w, "DM", "Carol", log0) == [], "a plain member must not tell the party"
     assert sent_by(w, "GS", "Carol", log0) == [], "a plain member must not send group rules"
@@ -264,7 +264,7 @@ def dm_from_plain_member_is_ignored():
     q.w.tick(8)
     assert q["Carol"].eval("return ns.GroupRules:GetAuthority()") is None
     log1 = len(q.w.addon_log)
-    q["Carol"].slash("/cdl dungeon on")
+    q["Carol"].slash("/dz dungeon on")
     q.w.tick(1)
     assert sent_by(q.w, "DM", "Carol", log1) == [] and sent_by(q.w, "GS", "Carol", log1) == []
     assert active(q["Carol"]) and channel(q["Carol"]) == "PARTY"
@@ -291,7 +291,7 @@ def council_member_can_enable_and_non_council_leader_too():
     assert p["Dave"].eval("return ns.GroupRules:GetAuthority()") == key("Bob")
     log0 = len(w.addon_log)
     enable(p, "Bob")                              # council, not the leader
-    assert len(sent_by(w, "DM", "Bob", log0)) == 1, "the authority tells CDLoot 0.2 members too (DM)"
+    assert len(sent_by(w, "DM", "Bob", log0)) == 1, "the authority tells DisasterZone 0.2 members too (DM)"
     for n in NAMES:
         assert active(p[n]), n
     assert enabled_by(p["Carol"]) == key("Bob")
@@ -379,15 +379,15 @@ def disband_and_raid_conversion_clear_the_group_switch():
 def slash_quality_and_status():
     p = Party(sync=False)
     c = p["Alice"]
-    c.slash("/cdl dungeon epic")
+    c.slash("/dz dungeon epic")
     assert c.eval("return ns.db.settings.dungeon.quality") == 4
-    c.slash("/cdl dungeon rare")
+    c.slash("/dz dungeon rare")
     assert c.eval("return ns.db.settings.dungeon.quality") == 3
     n0 = len(c.chat_frame)
-    c.slash("/cdl dungeon status")
+    c.slash("/dz dungeon status")
     assert "off" in strip_codes(printed_lines(c)[-1]), printed_lines(c)[n0:]
-    c.slash("/cdl dungeon bogus")
-    assert "Usage: /cdl dungeon" in printed_lines(c)[-1]
+    c.slash("/dz dungeon bogus")
+    assert "Usage: /dz dungeon" in printed_lines(c)[-1]
     p.w.assert_no_errors()
 
 
@@ -412,7 +412,7 @@ def party_drop_broadcast_on_party_with_rare_threshold():
     assert toast_state(p["Erin"])["shown"] and toast_state(p["Erin"])["item"] == COWL, toast_state(p["Erin"])
     # quality setting Epic: rares are no longer tracked
     for n in NAMES:
-        p[n].slash("/cdl dungeon epic")
+        p[n].slash("/dz dungeon epic")
     p["Alice"].close_loot()
     log1 = len(w.addon_log)
     p["Alice"].open_loot([(SCARAB, 3)], source_guid="Creature-0-1-2-3-17880-000AE2")   # Temporus
@@ -435,7 +435,7 @@ def party_without_dungeon_mode_keeps_todays_behaviour():
     # a PARTY drop from someone else is ignored while the mode is off for me (a party without a loot authority,
     # where Carol's own switch applies to her client only)
     q = Party(roster=PLAIN_PARTY, bis={}, leader="Dave", sync=False)
-    q["Carol"].slash("/cdl dungeon on")
+    q["Carol"].slash("/dz dungeon on")
     q.w.tick(1)
     qlog = len(q.w.addon_log)
     q["Carol"].open_loot([(SCARAB, 3)], source_guid="Creature-0-1-2-3-17879-000AE3")   # Deja
@@ -448,7 +448,7 @@ def party_without_dungeon_mode_keeps_todays_behaviour():
     # Roll:CanStart needs the mode in a party (and says so)
     assert p["Alice"].eval("return ns.Roll:CanStart()") is False
     n0 = len(p["Alice"].chat_frame)
-    p["Alice"].slash("/cdl roll %d" % COWL)
+    p["Alice"].slash("/dz roll %d" % COWL)
     assert "need dungeon mode" in printed_lines(p["Alice"])[-1], printed_lines(p["Alice"])[n0:]
     w.assert_no_errors()
 
@@ -457,7 +457,7 @@ def party_without_dungeon_mode_keeps_todays_behaviour():
 def raid_is_unaffected_by_the_setting():
     r = Raid(sync=False)
     w = r.w
-    r["Bob"].slash("/cdl dungeon on")
+    r["Bob"].slash("/dz dungeon on")
     w.tick(1)
     assert not r["Bob"].eval("return ns.Util.IsDungeonModeActive()")
     assert r["Bob"].eval("return ns.Util.GetGroupChannel()") == "RAID"
@@ -511,8 +511,8 @@ def party_roll_award_records_dungeon_entry():
         assert session_info(p[n], sid)["rolls"][key("Carol")]["roll"] == 90, n
     A.eval("ns.Roll:Award(...)", sid, key("Erin"))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_CONFIRM_AWARD"], A.popups()
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")
+    assert A.popups() == ["DISASTERZONE_CONFIRM_AWARD"], A.popups()
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(2)
     RW = msgs_of_type(w, "RW", log0)
     assert len(RW) == 1 and RW[0]["_chat_type"] == "PARTY" and RW[0]["w"] == key("Erin"), RW
@@ -528,7 +528,7 @@ def party_roll_award_records_dungeon_entry():
         assert p[n].eval("return #ns.Ledger:GetEntries({ dungeonOnly = true })") == 1
     lines = [e for e in w.chat_log[chat0:] if "->" in e["text"]]
     assert len(lines) == 1 and lines[0]["chat_type"] == "PARTY", lines
-    assert strip_codes(lines[0]["text"]) == "CDLoot: [Cowl of the Guiltless] -> Erin (rolled 40, BiS)", lines[0]
+    assert strip_codes(lines[0]["text"]) == "DisasterZone: [Cowl of the Guiltless] -> Erin (rolled 40, BiS)", lines[0]
     # the loot line later only resolves nothing new; council clients keep one visible entry
     w.broadcast_loot_received(p["Erin"], COWL)
     w.tick(1)
@@ -554,7 +554,7 @@ def party_rs_gate_and_mode_off_closes_rolls():
     w.tick(1)
     sid = active_session(p["Alice"])["id"]
     assert session_info(p["Dave"], sid)["state"] == "open"
-    p["Alice"].slash("/cdl dungeon off")
+    p["Alice"].slash("/dz dungeon off")
     w.tick(1)
     for n in NAMES:
         assert session_info(p[n], sid)["state"] == "closed", n
@@ -587,7 +587,7 @@ def ledger_dg_field_validation_and_merge():
 
 
 # ------------------------------------------------------------------------------------------------------------------
-# §22.3 /cdl test in a 5-man
+# §22.3 /dz test in a 5-man
 # ------------------------------------------------------------------------------------------------------------------
 @R.case
 def cdl_test_in_a_dungeon_simulates_a_dungeon_boss_drop():
@@ -596,7 +596,7 @@ def cdl_test_in_a_dungeon_simulates_a_dungeon_boss_drop():
     enable(p, "Alice")
     log0 = len(w.addon_log)
     A = p["Alice"]
-    A.slash("/cdl test")
+    A.slash("/dz test")
     w.tick(1)
     drop = drops_fired(A)[-1]
     assert drop["test"] and drop["b"].startswith("BlackMorass:"), drop
@@ -605,10 +605,10 @@ def cdl_test_in_a_dungeon_simulates_a_dungeon_boss_drop():
     assert all(i in heroic for i in drop["i"]), (drop, heroic)
     assert msgs_of_type(w, "D", log0) == [], "test drops stay local"
     assert any("Simulated a dungeon drop" in l for l in printed_lines(A))
-    # outside dungeon mode /cdl test is the raid simulation as before
-    A.slash("/cdl dungeon off")
+    # outside dungeon mode /dz test is the raid simulation as before
+    A.slash("/dz dungeon off")
     w.tick(1)
-    A.slash("/cdl test")
+    A.slash("/dz test")
     w.tick(1)
     b = drops_fired(A)[-1]["b"]
     assert A.eval("return ns.ItemDB:GetBossRef(...).dungeon == nil", b), b

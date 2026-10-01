@@ -24,7 +24,7 @@ def battle(foe="rustgolem"):
     c.eval("T_AZ.seed(4)")
     c.eval("ns.Azero:NewGame()")
     c.eval("local M = ns.AzeroMon ns.Azero.save.party = { M.New('murkling', 30, ns.Azero.rng) }")
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")
     w.tick(0.3)

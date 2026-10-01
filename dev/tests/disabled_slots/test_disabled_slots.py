@@ -66,7 +66,7 @@ def menu_labels(c):
 def ui_setup(name="Alice", class_file="PALADIN", **kw):
     w, c = solo(name, class_file=class_file, guild_rank=3, tick=4, council=[], phase=1, **kw)
     install_helpers(c)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     return w, c
@@ -240,10 +240,10 @@ def match_item_wanters_summary_and_council_views_skip_disabled():
     assert s2["disabled"] == 0 and s2["total"] == 17 and s2["filled"] == 1, s2
     # Council tab: roster "–" cells with the tooltip, member view greyed tiles, counts without the slots
     install_helpers(cou)
-    cou.slash("/cdl council")
+    cou.slash("/dz council")
     w.tick(0.5)
     row = cou.eval_py("""
-      for _, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do
+      for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do
         local d = rawget(r, 'cdlData')
         if d and d.key == ... then
           local o = { cells = {}, filled = d.filled, need = d.need, disabled = d.disabled }
@@ -258,13 +258,13 @@ def match_item_wanters_summary_and_council_views_skip_disabled():
     assert row["cells"][0] == 11 and row["cells"][4] == 11 and sum(row["cells"]) == 22, row["cells"]
     assert (row["filled"], row["need"], row["disabled"]) == (1, 1, 2), row
     dash = cou.eval("""
-      for _, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do
+      for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do
         local d = rawget(r, 'cdlData')
         if d and d.key == ... then return r.cells[1].cdlDash:GetText() end
       end""", K("Rita"))
     assert dash == "–", dash
     cou.eval("""
-      for _, r in ipairs(T_rows(CDLootCouncilPanel.rosterView.list.box)) do
+      for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do
         local d = rawget(r, 'cdlData')
         if d and d.key == ... then local cell = r.cells[1]; cell:GetScript('OnEnter')(cell) end
       end""", K("Rita"))
@@ -272,10 +272,10 @@ def match_item_wanters_summary_and_council_views_skip_disabled():
     assert "Disabled by player" in tt, tt
     cou.eval("ns.CouncilUI:ShowMember(...)", K("Rita"))
     w.tick(0.3)
-    dis = cou.eval_py("local d = T_doll(CDLootCouncilPanel.memberView); local o = {} "
+    dis = cou.eval_py("local d = T_doll(DisasterZoneCouncilPanel.memberView); local o = {} "
                       "for s = 1, 17 do o[s] = d:IsTileDisabled(s) and 1 or 0 end return o")
     assert dis[0] == 1 and dis[4] == 1 and sum(dis) == 2, dis
-    summary = strip_codes(cou.eval("return CDLootCouncilPanel.memberView.centerParts.summary:GetText()"))
+    summary = strip_codes(cou.eval("return DisasterZoneCouncilPanel.memberView.centerParts.summary:GetText()"))
     assert "2 disabled" in summary and "1 needed" in summary, summary
     # enabling again restores everything on the council
     rita.eval("ns.BiS:SetSlotDisabled(1, 1, false); ns.BiS:SetSlotDisabled(1, 5, false); ns.BiS:Commit()")
@@ -377,7 +377,7 @@ def copy_phase_and_loon_suggestions_never_fill_a_disabled_slot():
     assert c.eval("return ns.BiS:GetSlot(1, 5)") is None, "Loon filled a disabled slot"
     c.dropdown_menu(sug)
     c.menu_select("Replace all (confirm)")
-    c.accept_popup("CDLOOT_REPLACE_TEMPLATE")
+    c.accept_popup("DISASTERZONE_REPLACE_TEMPLATE")
     w.tick(0.2)
     assert c.eval("return ns.BiS:GetSlot(1, 5)") is None and is_disabled(c, 1, SID_CHEST) is True
     no_errors(w)
@@ -470,7 +470,7 @@ def mixed_guild_02_council_accepts_keeps_and_relays_dx():
     new.eval("ns.BiS:SetSlotDisabled(1, 5, true); ns.BiS:SetSlotDisabled(3, 2, true); ns.BiS:Commit()")
     w.make_raid([gina, old, new], leader=gina)
     w.tick(20)
-    new.slash("/cdl sync")
+    new.slash("/dz sync")
     w.tick(20)
     own_rev, own_hash = new.eval("local r = ns.BiS:GetRecord(); return r.rev, r.hash")
     # the 0.2 council member stored the list as sent: dx kept, hash verified

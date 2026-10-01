@@ -11,7 +11,7 @@ from _common import (case, run_all, solo, no_errors, World, Client, printed_sinc
 
 TABS_LUA = """
 local out = {}
-local f = CDLootMainFrame
+local f = DisasterZoneMainFrame
 if not f or not f.Tabs then return out end
 for _, t in ipairs(f.Tabs) do
   if t:IsShown() then out[#out + 1] = t.cdlKey end
@@ -33,7 +33,7 @@ def panel_shown(c, key):
 
 
 def open_window(c):
-    c.slash("/cdl")
+    c.slash("/dz")
     c.world.tick(0.3)
 
 
@@ -43,21 +43,21 @@ def not_in_guild_only_personal_tabs():
     open_window(c)
     assert shown_tabs(c) == GUILDLESS_TABS, shown_tabs(c)
     n0 = len(c.chat_frame)
-    c.slash("/cdl council")
+    c.slash("/dz council")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
-    c.slash("/cdl log")
+    c.slash("/dz log")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     assert c.eval("return ns.MainFrame:GetPanel('council')") is None, "council panel built for a non-member"
-    c.slash("/cdl sync")
+    c.slash("/dz sync")
     assert any("not in a guild" in l for l in printed_since(c, n0)), printed_since(c, n0)
-    c.slash("/cdl settings")
+    c.slash("/dz settings")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "settings"
     assert c.find_text("You are not in a guild", True, True), "settings should explain the guildless state"
     # the title has no guild suffix
-    assert c.eval("return CDLootMainFrame.titleText:GetText()") == "CDLoot"
+    assert c.eval("return DisasterZoneMainFrame.titleText:GetText()") == "DisasterZone"
     no_errors(w)
 
 
@@ -68,8 +68,8 @@ def plain_raider_is_not_council():
     assert c.eval("return ns.Guild:IsCouncil('Bob-Thunderstrike')") is True
     open_window(c)
     assert shown_tabs(c) == PERSONAL_TABS, shown_tabs(c)
-    assert c.eval("return CDLootMainFrame.titleText:GetText()") == "CDLoot - <Casual Disaster>"
-    c.slash("/cdl council")
+    assert c.eval("return DisasterZoneMainFrame.titleText:GetText()") == "DisasterZone - <Casual Disaster>"
+    c.slash("/dz council")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     # a raider only ever sees his own list in the Store
@@ -147,7 +147,7 @@ def tabs_follow_config_updates_while_window_open():
     assert rai.eval("return ns.Guild:GetGuildPhase()") == 2
     assert rai.eval("return ns.MyBiS:GetPhase()") == 2
     # Rai opens the council tab, then gets removed while looking at it
-    rai.slash("/cdl council")
+    rai.slash("/dz council")
     w.tick(0.5)
     assert rai.eval("return ns.MainFrame:GetSelectedTab()") == "council"
     assert panel_shown(rai, "council")
@@ -165,28 +165,28 @@ def tabs_follow_demo_toggle():
     w, c = solo("Rai", guild_rank=3, tick=3)
     open_window(c)
     for i in range(3):
-        c.slash("/cdl demo on")
+        c.slash("/dz demo on")
         w.tick(0.3)
         assert shown_tabs(c) == ALL_TABS, shown_tabs(c)
-        c.slash("/cdl council")
+        c.slash("/dz council")
         w.tick(0.5)
         assert panel_shown(c, "council")
-        assert c.eval("return CDLootMainFrame.titleText:GetText()") == "CDLoot - <Casual Disaster>"
-        c.slash("/cdl demo off")
+        assert c.eval("return DisasterZoneMainFrame.titleText:GetText()") == "DisasterZone - <Casual Disaster>"
+        c.slash("/dz demo off")
         w.tick(0.3)
         assert shown_tabs(c) == PERSONAL_TABS, shown_tabs(c)
         assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
         assert not panel_shown(c, "council")
     # demo toggled while the window is closed: reopening lands on an available tab
-    c.slash("/cdl demo on")
-    c.slash("/cdl log")
+    c.slash("/dz demo on")
+    c.slash("/dz log")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "loot"
-    c.slash("/cdl")          # close
+    c.slash("/dz")          # close
     w.tick(0.1)
     assert c.eval("return ns.MainFrame:IsShown()") is False
-    c.slash("/cdl demo off")
-    c.slash("/cdl")          # reopen: lands on Home
+    c.slash("/dz demo off")
+    c.slash("/dz")          # reopen: lands on Home
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     assert shown_tabs(c) == PERSONAL_TABS
@@ -267,7 +267,7 @@ def leaving_the_guild_mid_session_drops_council_views():
     w, c = solo("Cou", guild_rank=1, tick=3, council=["Cou"], phase=3, members=[("Bob", "MAGE", 3)])
     c.eval("""local d = { v = 1, cl = 'MAGE', sp = '', ph = { [1] = { [1] = { 28744, 0 } } }, ob = {}, eq = {} }
       ns.Store:Put('Bob-Thunderstrike', { r = 1, ts = GetServerTime(), h = ns.Util.Hash(d), d = d }, 'direct')""")
-    c.slash("/cdl council")
+    c.slash("/dz council")
     w.tick(0.5)
     assert shown_tabs(c) == ALL_TABS
     assert c.eval("return ns.Guild:GetGuildPhase()") == 3
@@ -277,13 +277,13 @@ def leaving_the_guild_mid_session_drops_council_views():
     assert shown_tabs(c) == GUILDLESS_TABS, shown_tabs(c)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     assert not panel_shown(c, "council")
-    assert c.eval("return CDLootMainFrame.titleText:GetText()") == "CDLoot", c.eval("return CDLootMainFrame.titleText:GetText()")
+    assert c.eval("return DisasterZoneMainFrame.titleText:GetText()") == "DisasterZone", c.eval("return DisasterZoneMainFrame.titleText:GetText()")
     assert c.eval_py("return ns.Store:GetAllKeys()") == ["Cou-Thunderstrike"]
     assert c.eval("return ns.Sync:GetStatusText()") == "Not in a guild"
     # joining another guild as a plain member keeps the old guild's lists (and its council list) out of sight
     join_guild(w, c, "Other Guild", 3)
     assert c.eval("return ns.Guild:GetGuildName()") == "Other Guild"
-    assert c.eval("return CDLootMainFrame.titleText:GetText()") == "CDLoot - <Other Guild>"
+    assert c.eval("return DisasterZoneMainFrame.titleText:GetText()") == "DisasterZone - <Other Guild>"
     assert c.eval_py("return ns.Store:GetAllKeys()") == ["Cou-Thunderstrike"]
     assert c.eval("return ns.Guild:AmICouncil()") is False
     assert c.eval("return ns.Guild:GetGuildPhase()") == 1
@@ -317,7 +317,7 @@ def account_wide_saved_variables_with_an_alt_in_another_guild():
     assert alt.eval("return ns.db.settings.alerts.sound") is False          # settings are account-wide
     assert alt.eval("return ns.BiS:GetData().cl") == "DRUID"
     assert alt.eval_py("return {ns.BiS:GetSlot(1, 1)}") == [], "alt sees the main's BiS list"
-    alt.slash("/cdl council")
+    alt.slash("/dz council")
     w.tick(0.5)
     assert alt.eval("return #ns.Loot:GetHistory() >= 0") is True
     alt.logout()
@@ -329,7 +329,7 @@ def account_wide_saved_variables_with_an_alt_in_another_guild():
     assert main.eval("return ns.BiS:GetSlot(1, 1)") is not None
     assert main.eval("return ns.Guild:GetGuildPhase()") == 2
     assert main.eval("return ns.Guild:AmICouncil()") is True
-    assert main.eval("return CDLootDB.chars['Alty-Thunderstrike'].data.cl") == "DRUID"
+    assert main.eval("return DisasterZoneDB.chars['Alty-Thunderstrike'].data.cl") == "DRUID"
     no_errors(w)
 
 
@@ -353,10 +353,10 @@ def accented_and_cross_realm_names_on_the_list():
     members = sorted(dov.eval_py("local o = {} for k in pairs(ns.Guild:GetGuildCouncil().members) do o[#o + 1] = k end return o"))
     assert members == ["Bob-OtherRealm", "Dövid-Thunderstrike"], members
     install_helpers(dov)
-    dov.slash("/cdl")
+    dov.slash("/dz")
     w.tick(0.3)
     assert shown_tabs(dov) == ALL_TABS
-    assert w.guild_info_text() == "", "CDLoot must never write the Guild Information"
+    assert w.guild_info_text() == "", "DisasterZone must never write the Guild Information"
     no_errors(w)
 
 
@@ -377,7 +377,7 @@ def guild_rank_changes_do_not_change_council_only_the_list_and_the_gm_do():
     assert shown_tabs(rai) == PERSONAL_TABS, shown_tabs(rai)
     gm_pick(w, gm, ["Rai"])              # picked
     assert shown_tabs(rai) == ALL_TABS, shown_tabs(rai)
-    rai.slash("/cdl log")
+    rai.slash("/dz log")
     w.tick(0.3)
     assert panel_shown(rai, "loot")
     rai.guild_rank = 4                   # demoted: still on the list

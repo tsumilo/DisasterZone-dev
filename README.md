@@ -1,15 +1,15 @@
-# CDLoot dev kit
+# DisasterZone dev kit
 
-Development repository for **CDLoot**, the loot-council addon for <Casual Disaster> on WoW TBC Anniversary (Interface 20506).
+Development repository for **DisasterZone**, the loot-council addon for <Casual Disaster> on WoW TBC Anniversary (Interface 20506).
 It tracks the addon source together with everything needed to change it safely: the specs, an offline WoW-client mock, 38 test suites and the data generators.
 
-The guild-facing documentation is in `addon/CDLoot/README.md`.
+The guild-facing documentation is in `addon/DisasterZone/README.md`.
 
 ## Layout
 
 ```
 CDLoot-dev/
-  addon/CDLoot/   -> JUNCTION to C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot  (the live addon)
+  addon/DisasterZone/   -> JUNCTION to C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone  (the live addon)
   dev/
     docs/         SPEC.md + SPEC_ADDENDUM_A..H.md (design), research/ (api.md = verified 2.5.6 API notes),
                   impl/ (per-phase implementation, fix and review reports)
@@ -24,18 +24,18 @@ CDLoot-dev/
 ```
 
 ### The addon junction
-`addon/CDLoot` is a Windows directory junction pointing at the real addon folder in the game directory. That gives one set of files:
+`addon/DisasterZone` is a Windows directory junction pointing at the real addon folder in the game directory. That gives one set of files:
 - the game loads it;
 - the tools and tests read it;
 - git tracks it here.
 
 No `.git` or dev files end up in the AddOns folder you share with the guild.
 
-**Warning:** delete the junction with `rmdir addon\CDLoot` (cmd) only. Never use a recursive delete (Explorer "delete", `rm -rf`, `Remove-Item -Recurse`): those can follow the junction and **delete the real addon**.
+**Warning:** delete the junction with `rmdir addon\DisasterZone` (cmd) only. Never use a recursive delete (Explorer "delete", `rm -rf`, `Remove-Item -Recurse`): those can follow the junction and **delete the real addon**.
 
 If the junction is ever missing, recreate it (PowerShell):
 ```
-New-Item -ItemType Junction -Path C:\Users\emilo\CDLoot-dev\addon\CDLoot -Target "C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
+New-Item -ItemType Junction -Path C:\Users\emilo\CDLoot-dev\addon\DisasterZone -Target "C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 ```
 
 ## Setup (once, or after deleting `dev\luaenv`)
@@ -55,15 +55,15 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
 | One suite | `luaenv\Scripts\python.exe tests\loot-roll\test_rolls.py` (add `-k name` to run cases matching `name`) |
 | Harness self-test | `luaenv\Scripts\python.exe tools\test_harness_selftest.py` |
 | Multi-return hazard scan | `luaenv\Scripts\python.exe find_multiret.py` |
-| Regenerate the dungeon or sources data | `luaenv\Scripts\python.exe generators\gen_cdloot_dungeons.py` / `gen_cdloot_sources.py` (they write into `addon\CDLoot\Data\`) |
+| Regenerate the dungeon or sources data | `luaenv\Scripts\python.exe generators\gen_cdloot_dungeons.py` / `gen_cdloot_sources.py` (they write into `addon\DisasterZone\Data\`) |
 
 `tools\README.md` documents the mock client (World / Client, the guild and raid simulation, loot, `/roll`, relog). Use it to write new scenarios.
 
 ## Making a change
-1. Edit the addon under `addon\CDLoot\`. This is the same folder as the game's AddOns folder.
+1. Edit the addon under `addon\DisasterZone\`. This is the same folder as the game's AddOns folder.
 2. Run `tools\check.py` and `tf_e\run_all.py`, and add a test for any bug you fix.
 3. Test it in game with `/reload`. Paste any BugSack error into the next Claude session.
-4. Bump `## Version` in `CDLoot.toc` when you ship to the guild (see Releasing). A new Lua file needs the line-1 guard: `tools\release.py guards add`.
+4. Bump `## Version` in `DisasterZone.toc` when you ship to the guild (see Releasing). A new Lua file needs the line-1 guard: `tools\release.py guards add`.
 5. Commit here: `git add -A && git commit -m "..."`.
 
 **Mock fidelity lesson.** The only bug that reached the game so far was a mock/real API mismatch: `GetInventoryItemID` returns 2 values in the real client, and the mock returned 1. Whenever the real client disagrees with the mock, fix the mock first, then the addon.
@@ -75,8 +75,8 @@ the feature off.
 
 | What | Command (from `dev`) | Members do |
 |---|---|---|
-| Full release (zip) | bump `## Version`, `luaenv\Scripts\python.exe tools\release.py full` | download `dist\CDLoot-<version>.zip`, extract into AddOns |
-| In-game update | bump `## Version`, `luaenv\Scripts\python.exe tools\release.py patch`, in game `/reload` + `/cdl publish` | click Reload when the popup appears |
+| Full release (zip) | bump `## Version`, `luaenv\Scripts\python.exe tools\release.py full` | download `dist\DisasterZone-<version>.zip`, extract into AddOns |
+| In-game update | bump `## Version`, `luaenv\Scripts\python.exe tools\release.py patch`, in game `/reload` + `/dz publish` | click Reload when the popup appears |
 
 - Share the zip that `release.py full` writes, never a zip of the live folder: only the packaged copy has the build
   id that in-game updates are matched against.
@@ -88,4 +88,4 @@ the feature off.
 - Before publishing a large update: `luaenv\Scripts\python.exe tools\patched_run.py` runs every suite with the
   whole addon delivered through the update path.
 
-Read `addon\CDLoot\NOTICE.md` before sharing outside the guild. The data files are generated from GPL v2 AtlasLoot data.
+Read `addon\DisasterZone\NOTICE.md` before sharing outside the guild. The data files are generated from GPL v2 AtlasLoot data.

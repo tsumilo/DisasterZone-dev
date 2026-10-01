@@ -1,10 +1,10 @@
-**CDLoot raid-loot database: build report**
+**DisasterZone raid-loot database: build report**
 
 All 10 raids are generated and cross-checked against four other installed addons, and the tier-token mapping was found locally and fully verified (nothing built from memory). There is no Lua runtime on this machine, so the Lua file is checked by my own parser only; `luac -p` or an in-game `/reload` is still needed. Nothing was written inside the WoW folder.
 
 **(a) Paths**
-- Generator: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\gen_cdloot_data.py`
-- Generated file: `...\scratchpad\CDLoot_Data_generated.lua` (1,975 lines)
+- Generator: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\gen_cdloot_data.py`
+- Generated file: `...\scratchpad\DisasterZone_Data_generated.lua` (1,975 lines)
 - Report of skips, cross-checks and shared items: `...\scratchpad\gen_report.json`
 - Syntax check script: `...\scratchpad\validate_lua.py`
 - Runtimes: Python 3.13 (`C:\Users\emilo\AppData\Local\Programs\Python\Python313\python`) and node (`C:\nvm4w\nodejs\node`). No lua, luajit or luac anywhere.
@@ -88,7 +88,7 @@ Beyond the shape you gave, the file adds some fields and tables:
 **LoonBestInSlot `ItemSources.lua` (question 3)**
 - Format: `[id] = { Name, SourceType, Source, SourceNumber, SourceLocation, SourceFaction }`, with English strings via `LBIS.L[...]`.
 - Source types: Drop 1,420, Profession 759, PvP 689, Tier Token 292, Dungeon Token 253 (badge vendors G'eras / Smith Hauthaa, with the badge cost), Quest 244, Reputation 225, Token 54, Transmute 28, Vendor 2.
-- Yes, CDLoot could ship a generated subset of it to label where non-raid BiS items come from. It has no license file, though, so check before redistributing. AtlasLoot's data is GPL v2, which applies to the file generated here.
+- Yes, DisasterZone could ship a generated subset of it to label where non-raid BiS items come from. It has no license file, though, so check before redistributing. AtlasLoot's data is GPL v2, which applies to the file generated here.
 
 **(e) Caveats**
 - **Chest encounters:**
@@ -107,7 +107,7 @@ Beyond the shape you gave, the file adds some fields and tables:
   | M'uru | 25840 (Entropius) |
   | Eredar Twins, Romulo and Julianne | both NPCs |
 
-- **Shared items:** 63 item IDs appear under more than one boss (Opera, the Executioner formula at all six Zul'Aman bosses, Nether Vortex four times, trash shared between SSC/TK, Hyjal/BT and BT/Sunwell, the disputed Twins tokens). CDLoot needs an itemID → list-of-sources lookup.
+- **Shared items:** 63 item IDs appear under more than one boss (Opera, the Executioner formula at all six Zul'Aman bosses, Nether Vortex four times, trash shared between SSC/TK, Hyjal/BT and BT/Sunwell, the disputed Twins tokens). DisasterZone needs an itemID → list-of-sources lookup.
 - **Drop alerts:** match on the itemIDs actually in the loot window, expanded through Tokens, Upgrades and TokenArenaExchanges, not on which boss died. Some BiS items won't have a known source, so handle that gracefully.
 - **Non-equippable items are kept:** patterns, mounts, quest items and gems are in the lists; filter them at runtime if needed.
 

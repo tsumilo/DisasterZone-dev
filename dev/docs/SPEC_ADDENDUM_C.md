@@ -1,11 +1,11 @@
-# CDLoot SPEC — ADDENDUM C: roll popups close once the item is awarded or handed out
+# DisasterZone SPEC — ADDENDUM C: roll popups close once the item is awarded or handed out
 
 User feedback (2026-09-28, in-game): "After a loot has been awarded and given out, the roll windows could close for the raiders after like 5 seconds."
 
 ## Root cause (verified in the code)
 - `RollFrame` already fades `FADE_AFTER_AWARD = 5` seconds after its session reaches `state == "awarded"`. But only ONE path sets that state: `Roll:Award(id, key)`, the roll-mode "Award to X" button, which broadcasts `RW`.
 - `DropPanel:Award(itemID, key, bossKey)` is the plain "Award…" menu, reachable before or after a roll. It only calls `ns.Ledger:Award`; the roll session is never marked, so raider popups sit at "Rolls closed" for `LINGER_AFTER_CLOSE = 45` s.
-- When the master looter hands the item out with Blizzard's normal master-loot dropdown, without clicking anything in CDLoot, no `RW` is ever sent. Every raider does see `CHAT_MSG_LOOT` "X receives loot: [Item]." but `Roll` ignores it.
+- When the master looter hands the item out with Blizzard's normal master-loot dropdown, without clicking anything in DisasterZone, no `RW` is ever sent. Every raider does see `CHAT_MSG_LOOT` "X receives loot: [Item]." but `Roll` ignores it.
 
 ## 23. Required behaviour
 1. **Loot-message closure (every client, council or not):**
@@ -28,7 +28,7 @@ User feedback (2026-09-28, in-game): "After a loot has been awarded and given ou
    - "Rolls closed" without an award still lingers (45s) as today, but it now resolves early when the loot message arrives.
    - The drop panel's roll-mode header shows "Awarded to X" (with "(looted)" when `via=="loot"`).
 4. **Tests (harness):**
-   - (a) A roll is closed, then the ML gives via `GiveMasterLoot` from Blizzard's UI path (simulate `world.broadcast_loot_received(winner, itemID)` without any CDLoot award click) → every raider popup reaches "Won by X" and hides within 5s + fade.
+   - (a) A roll is closed, then the ML gives via `GiveMasterLoot` from Blizzard's UI path (simulate `world.broadcast_loot_received(winner, itemID)` without any DisasterZone award click) → every raider popup reaches "Won by X" and hides within 5s + fade.
    - (b) Plain "Award…" from the drop panel while a roll session exists → `RW` sent, popups close, exactly 1 ledger entry.
    - (c) Two copies of the same item: two loot messages close the two sessions in order.
    - (d) A loot message for an item with no session changes nothing.

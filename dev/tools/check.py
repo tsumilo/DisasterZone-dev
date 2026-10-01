@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-"""CDLoot static checker: Lua 5.1 syntax + global reads/writes via bytecode analysis.
+"""DisasterZone static checker: Lua 5.1 syntax + global reads/writes via bytecode analysis.
 
 Usage:
     luaenv\\Scripts\\python.exe tools\\check.py [paths...] [--libs] [--rebuild-known] [--strict]
                                                  [--quiet] [--json] [--no-events]
 
-Default target: every .lua file under the CDLoot addon folder, excluding Libs/ unless --libs.
+Default target: every .lua file under the DisasterZone addon folder, excluding Libs/ unless --libs.
 Paths may be files or directories (absolute, or relative to the CWD or to the addon folder).
 
 Output lines (grep-friendly):
@@ -30,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import luabc  # noqa: E402
 
-ADDON_DIR = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
+ADDON_DIR = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 ADDONS_ROOT = os.path.dirname(ADDON_DIR)
 KNOWN_PATH = os.path.join(HERE, "known_globals.json")
 
@@ -54,8 +54,8 @@ ADDON_PREFIXES = {
 MAX_HARVEST_FILE = 1_500_000  # bytes; bigger files are data dumps (item/quest DBs) with ~no API reads
 
 # Allowed global WRITES (fnmatch-style prefixes/names)
-WRITE_ALLOW_EXACT = {"CDLoot", "CDLootDB"}
-WRITE_ALLOW_PREFIX = ("SLASH_CDLOOT", "BINDING_", "CDLoot")
+WRITE_ALLOW_EXACT = {"DisasterZone", "DisasterZoneDB"}
+WRITE_ALLOW_PREFIX = ("SLASH_DISASTERZONE", "BINDING_", "DisasterZone")
 
 LUA_STDLIB = set("""
 assert collectgarbage error _G getfenv getmetatable ipairs load loadstring next pairs pcall print rawequal rawget

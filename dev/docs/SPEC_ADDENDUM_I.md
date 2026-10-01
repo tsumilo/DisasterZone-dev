@@ -1,4 +1,4 @@
-# CDLoot SPEC — ADDENDUM I: raid sessions and the raid log
+# DisasterZone SPEC — ADDENDUM I: raid sessions and the raid log
 
 User request (2026-09-28): a raid log with a history of every raid: attendance, bosses, and the items handed out.
 Agreed design: the session is **started and ended explicitly by the raid leader** (no location or timer
@@ -9,7 +9,7 @@ heuristics, which break on ghost runs, AFKs and long trash clears). Starting a r
 
 - **Start Raid** is available to the group authority (Addendum D/E: raid leader first) and to real council members in the
   raid. Places: the session bar's idle state (authority only), the Council tab toolbar, the drop panel footer,
-  `/cdl raid start`.
+  `/dz raid start`.
 - Start:
   1. creates the session `id = "<starterKey>-<serverTime>"` (deterministic, identical on every client);
   2. sets the BiS lock (F §38) if it isn't already on, with the same announce line;
@@ -25,10 +25,10 @@ heuristics, which break on ghost runs, AFKs and long trash clears). Starting a r
 - **Forgot to start:** `ENCOUNTER_START` in a raid instance with no session → the authority gets a **chat reminder**
   (at most once per 30 min; a popup would get in the way of the pull and the loot windows). The session bar (§51) is
   the visible prompt. A session started after a missed pull is backdated to when the authority entered the instance.
-- *Implemented (step 1):* start / end is **authority only** (`GroupRules:SetSession`, `/cdl raid start|end|status`);
+- *Implemented (step 1):* start / end is **authority only** (`GroupRules:SetSession`, `/dz raid start|end|status`);
   council members who aren't the authority are told who can. Letting them start or end through a request message is
   left for later.
-- A lock without a session is still allowed (`/cdl lock` is unchanged). Ending a session always unlocks.
+- A lock without a session is still allowed (`/dz lock` is unchanged). Ending a session always unlocks.
 
 ## 49. Data (`db.raids`, account-wide, guild-scoped like the Ledger)
 
@@ -82,7 +82,7 @@ db.raids[id] = {
   - Players: attendance % over the last N raids or weeks, items received, items per raid attended, and last item received.
 - *Implemented (step 2):* `UI/SessionBar.lua` (session and idle states; the idle "No raid session · Start raid" bar
   shows for the authority inside a raid instance and can be dismissed until the next instance; no shrink-to-pill
-  yet) and `UI/RaidsTab.lua` (Raids / Players views, bench via right-click, Start/End in the toolbar, `/cdl raids`).
+  yet) and `UI/RaidsTab.lua` (Raids / Players views, bench via right-click, Start/End in the toolbar, `/dz raids`).
   Boss totals come from the item database: distinct encounter ids per instance (Chess counts; trash doesn't).
 - *Implemented (step 3):* attendance (closed raids, last 8) in the drop panel's wanter and roll tooltips, the Council
   Items view flags (`att 88%`) and the member view header (`attendance 88% (7/8)`); cached, rebuilt on change.

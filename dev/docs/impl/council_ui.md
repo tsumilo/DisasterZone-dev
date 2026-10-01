@@ -1,7 +1,7 @@
 I built the council picker, the Loot Council view, and the new Settings council summary and group-rules section. My smoke test passes against the real core, including a live raid where the leader shares loot rules. Most existing suites now fail, as expected. I checked a sample of the failures: each one sets up council through a guild rank or a `CDL{...}` tag, and the new council model no longer supports either. I found no failure caused by the UI changes. The three council tests in `test_settings.py` fail only because the old editor is gone.
 
 ## Files changed
-All under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\UI\`. Backups of the originals are in `scratchpad\ui_e_backup\`.
+All under `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\UI\`. Backups of the originals are in `scratchpad\ui_e_backup\`.
 
 - **`Widgets.lua`** (additive only): new `UI:CreateSearchDropdown(parent, width, opts)`.
   - A search box with a list panel below it (up to 10 visible rows). Each row has a checkbox, class icon, class-coloured name and a grey note such as the rank.
@@ -23,9 +23,9 @@ All under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\UI\`. Back
 - No changes to `MainFrame.lua`, `DropPanel.lua` or `RollFrame.lua`. No UI file calls a removed Guild API any more.
 
 ## API added / removed
-- **Added to CouncilUI:** `ShowCouncil`, `CanEditCouncil(kind)`, `RefreshCouncilView`, `GetCouncilDraft`, `IsCouncilDirty`, `ToggleCouncilDraft`, `SetCouncilDraftPhase`, `RevertCouncil`, `SaveCouncil`, `ConfirmClearCouncil`, `ClearCouncil`, `GetCouncilSummary`. `SetView` now accepts `"council"`. New popup `CDLOOT_CLEAR_COUNCIL`.
+- **Added to CouncilUI:** `ShowCouncil`, `CanEditCouncil(kind)`, `RefreshCouncilView`, `GetCouncilDraft`, `IsCouncilDirty`, `ToggleCouncilDraft`, `SetCouncilDraftPhase`, `RevertCouncil`, `SaveCouncil`, `ConfirmClearCouncil`, `ClearCouncil`, `GetCouncilSummary`. `SetView` now accepts `"council"`. New popup `DISASTERZONE_CLEAR_COUNCIL`.
 - **Added to SettingsUI:** `BuildGroupRules`, `RuleDropdown`, `GroupRulesStatus`, `GroupRulesEditable`, `GroupPhaseEditable`, `GroupPhaseSelected`, `GroupRulesStatusText`, `RefreshGroupRules`, `CanEditCouncil`, `OpenCouncilEditor`. New fields: `rulesStatus`, `ruleControls`, `phaseRuleDD`, `dungeonCheck`, `cs.raidSummary`, `cs.raidMembers`, `cs.editBtn`, and `dd.cdlLabel` on dropdowns.
-- **Removed from SettingsUI:** `TagOf`, `ResetDraft`, `GetDraft`, `ResolveMember`, `DraftAdd`, `DraftRemove`, `ConfirmSave`, `SaveConfig`, `BuildEditor`, `LayoutEditor`, `LayoutNameRows`, `cs.editor`, and the `CDLOOT_SAVE_CONFIG` popup.
+- **Removed from SettingsUI:** `TagOf`, `ResetDraft`, `GetDraft`, `ResolveMember`, `DraftAdd`, `DraftRemove`, `ConfirmSave`, `SaveConfig`, `BuildEditor`, `LayoutEditor`, `LayoutNameRows`, `cs.editor`, and the `DISASTERZONE_SAVE_CONFIG` popup.
 
 ## Deviations
 - **"Clear list"** asks for confirmation, then saves and shares an empty list. It does not just empty the draft.

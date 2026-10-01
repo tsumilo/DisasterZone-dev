@@ -54,7 +54,7 @@ def publish_download_apply():
     w, base_dir, record, new_dir, bundle, (a, b) = setup(2)
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.tick(1)
     assert any("published update 9.9.9 (#1)" in l for l in p.chat_frame), p.chat_frame[-4:]
     assert boot_state(p)["applied"] is None                       # the publisher's own copy runs from disk
@@ -63,11 +63,11 @@ def publish_download_apply():
         st = patch_status(c)
         assert st["held"] == 1 and st.get("downloading") is None
         assert c.eval("return ns.Util.PATCH_MARK") is None        # nothing changes before the reload
-        assert c.eval("return CDLootPatchDB.active.version") == "9.9.9"
-        assert c.eval("return CDLootPatchDB.partial") is None
+        assert c.eval("return DisasterZonePatchDB.active.version") == "9.9.9"
+        assert c.eval("return DisasterZonePatchDB.partial") is None
         assert any("update 9.9.9 is downloaded" in l for l in c.chat_frame), c.chat_frame[-4:]
-        assert "CDLOOT_PATCH_READY" in c.popups(), c.popups()
-        c.accept_popup("CDLOOT_PATCH_READY")
+        assert "DISASTERZONE_PATCH_READY" in c.popups(), c.popups()
+        c.accept_popup("DISASTERZONE_PATCH_READY")
         assert c.eval("return __MOCK.reload_requested") is True
         c.relog()
     w.tick(3)
@@ -75,7 +75,7 @@ def publish_download_apply():
         s = boot_state(c)
         assert s["state"] == "applied" and s["version"] == "9.9.9" and c.eval("return ns.Util.PATCH_MARK") == "v2"
         assert patch_status(c).get("ready") is None
-        assert "CDLOOT_PATCH_READY" not in c.popups()
+        assert "DISASTERZONE_PATCH_READY" not in c.popups()
     # one server at a time: the chunks were sent once (plus nothing after everybody had them)
     chunks = patch_msgs(w, "C")
     n_expected = sum(-(-len(i["z"]) // patchlib.CHUNK) for i in bundle["items"]) + -(-len(bundle["z0"]) // patchlib.CHUNK)
@@ -90,7 +90,7 @@ def late_login_is_served_by_a_member():
     w, base_dir, record, new_dir, bundle, (a,) = setup(1)
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, [a])
     p.logout()                                                    # the publisher leaves
     w.tick(5)
@@ -116,7 +116,7 @@ def many_downloaders_one_stream():
     w, base_dir, record, new_dir, bundle, members = setup(6, new_mods=big_mods(40000))
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, members, timeout=400)
     n_expected = sum(-(-len(i["z"]) // patchlib.CHUNK) for i in bundle["items"]) + -(-len(bundle["z0"]) // patchlib.CHUNK)
     chunks = patch_msgs(w, "C")
@@ -126,7 +126,7 @@ def many_downloaders_one_stream():
     # the server kept inside the per-prefix allowance: nothing was refused
     assert not [e for e in patch_msgs(w) if e.get("error")], [e.get("error") for e in patch_msgs(w) if e.get("error")][:3]
     for m in members:
-        assert m.eval("return CDLootPatchDB.active.files['Core/Dungeon.lua'] ~= nil") is True
+        assert m.eval("return DisasterZonePatchDB.active.files['Core/Dungeon.lua'] ~= nil") is True
     w.assert_no_errors()
 
 
@@ -144,7 +144,7 @@ def lossy_duplicated_reordered_channel():
     w.addon_fault = fault
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, members, timeout=900)
     lost = sum(len(e.get("lost", [])) for e in patch_msgs(w))
     assert lost > 20, lost
@@ -161,13 +161,13 @@ def logout_mid_download_resumes():
     w, base_dir, record, new_dir, bundle, (a,) = setup(1, new_mods=big_mods(30000))
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     # wait until the small second file is complete but the big one is not
     w.run_until(lambda: (patch_status(a).get("downloading") or {}).get("known")
-                and a.eval("local p = CDLootPatchDB.partial return p and p.src and (p.src[1] or p.src[2]) and true or false"),
+                and a.eval("local p = DisasterZonePatchDB.partial return p and p.src and (p.src[1] or p.src[2]) and true or false"),
                 timeout=200)
     assert not is_ready(a)
-    stored = a.eval_py("local p = CDLootPatchDB.partial return { seq = p.seq, n = (p.src[1] and 1 or 0) + (p.src[2] and 1 or 0) }")
+    stored = a.eval_py("local p = DisasterZonePatchDB.partial return { seq = p.seq, n = (p.src[1] and 1 or 0) + (p.src[2] and 1 or 0) }")
     assert stored == {"seq": 1, "n": 1}, stored
     before = len(patch_msgs(w, "W", sender="MemberA"))
     a.relog(reload=False)                                         # logout + login
@@ -196,15 +196,15 @@ def newer_update_overtakes_a_download():
     a.load_addon()
     p = publisher(w, new_dir, b1)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.run_until(lambda: (patch_status(a).get("downloading") or {}).get("known"), timeout=120)
     # the publisher builds #2 and publishes it while #1 is still travelling
     with_outbox(new_dir, b2)
     p.relog()
     w.tick(1)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, [a], seq=2, timeout=300)
-    assert a.eval("return CDLootPatchDB.active.version") == "9.9.9" and a.eval("return CDLootPatchDB.seq") == 2
+    assert a.eval("return DisasterZonePatchDB.active.version") == "9.9.9" and a.eval("return DisasterZonePatchDB.seq") == 2
     a.relog()
     w.tick(3)
     assert boot_state(a)["version"] == "9.9.9" and a.eval("return ns.Util.PATCH_MARK") == "v3"
@@ -224,7 +224,7 @@ def update_on_top_of_a_running_update():
     assert boot_state(a)["version"] == "9.9.8" and a.eval("return ns.Util.PATCH_MARK") == "v2"
     p = publisher(w, newer, b2)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, [a], seq=2)
     assert boot_state(a)["version"] == "9.9.8"                    # still running #1 until the reload
     a.relog()
@@ -248,7 +248,7 @@ def revoke_goes_back_to_the_installed_version():
     assert boot_state(a)["state"] == "applied"
     p = publisher(w, new_dir, b2)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, [a], seq=2)
     a.relog()
     w.tick(3)
@@ -259,7 +259,7 @@ def revoke_goes_back_to_the_installed_version():
     old = member(w, "Old", base_dir, sv=staged(b1))
     old.load_addon()
     wait_ready(w, [old], seq=2, timeout=120)
-    assert a.eval("return CDLootPatchDB.active.seq") == 2
+    assert a.eval("return DisasterZonePatchDB.active.seq") == 2
     w.assert_no_errors()
 
 
@@ -287,7 +287,7 @@ def manifest_length_a_multiple_of_the_chunk_size():
     a.load_addon()
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, [a], timeout=300)
     manifest_chunks = [text_of(e) for e in patch_msgs(w, "C") if text_of(e).startswith("C:1:0:")]
     assert "C:1:0:%d:" % n0 in manifest_chunks, manifest_chunks[-2:]          # the empty end marker
@@ -313,7 +313,7 @@ def a_false_end_of_the_manifest_is_survived():
         evil.eval("C_ChatInfo.RegisterAddonMessagePrefix(...)", prefix)
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.run_until(lambda: len(patch_msgs(w, "C", sender="Pub")) >= 3, timeout=60)
     raw_send(evil, "CDLp2", "C:1:0:2:abc")                        # "the manifest ends at chunk 2" (below a held chunk)
     raw_send(evil, "CDLp3", "C:1:0:200:" + "a" * patchlib.CHUNK)  # far beyond the end
@@ -330,7 +330,7 @@ def joining_mid_stream_keeps_what_it_overhears():
     n_files = sum(-(-len(i["z"]) // patchlib.CHUNK) for i in bundle["items"])
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.run_until(lambda: len([e for e in patch_msgs(w, "C") if not text_of(e).startswith("C:1:0:")]) > n_files // 3,
                 timeout=200)
     late = member(w, "Late", base_dir)
@@ -376,7 +376,7 @@ def early_chunks_are_bounded_and_checked():
     assert kept == 3, kept                                        # (1,1) (1,2) (1,3): duplicates and out-of-range dropped
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, [a], timeout=400)                               # the junk failed its hash; the real data replaced it
     a.relog()
     w.tick(3)
@@ -390,7 +390,7 @@ def the_servers_own_announcements_get_through_during_a_stream():
     w, base_dir, record, new_dir, bundle, (a,) = setup(1, new_mods=big_mods(40000))
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.run_until(lambda: len(patch_msgs(w, "C")) > 80, timeout=200)
     assert all(e["prefix"] != "CDLp1" for e in patch_msgs(w, "C"))
     assert all(e["prefix"] == "CDLp1" for e in patch_msgs(w, "A") + patch_msgs(w, "W"))
@@ -428,7 +428,7 @@ def replay_of_an_older_signed_update_is_ignored():
     a.logout()
     w.tick(60)
     assert patch_status(fresh).get("downloading") is None and patch_status(fresh).get("held") is None
-    assert fresh.eval("return CDLootPatchDB.active") is None
+    assert fresh.eval("return DisasterZonePatchDB.active") is None
     # when a holder of #2 is around, everybody ends on #2
     a.login()
     wait_ready(w, [fresh, evil], seq=2, timeout=200)
@@ -446,12 +446,12 @@ def garbage_chunks_from_a_member_are_survived():
     junk = "a" * patchlib.CHUNK
     for prefix in PREFIXES:
         evil.eval("C_ChatInfo.RegisterAddonMessagePrefix(...)", prefix)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.tick(1.2)
     for idx in range(1, min(n0, 9) + 1):
         raw_send(evil, PREFIXES[1 + idx % 3], "C:1:0:%d:%s" % (idx, junk if idx < n0 else "abc"))
     wait_ready(w, [a], timeout=400)
-    assert a.eval("return CDLootPatchDB.active.seq") == 1
+    assert a.eval("return DisasterZonePatchDB.active.seq") == 1
     a.relog()
     w.tick(3)
     assert boot_state(a)["state"] == "applied" and a.eval("return ns.Util.PATCH_MARK") == "v2"
@@ -470,18 +470,18 @@ def forged_manifest_is_rejected():
     evil = Client(w, "Evil", addon_dir=evil_dir)
     evil.load_addon()
     w.tick(2)
-    evil.slash("/cdl publish")
+    evil.slash("/dz publish")
     w.tick(120)
     assert any("published update" in l for l in evil.chat_frame)
     assert len(patch_msgs(w, "C", sender="Evil")) > 0             # it was offered and downloaded ...
     st = patch_status(a)
     assert st.get("ready") is None and st.get("held") is None, st  # ... and refused
-    assert a.eval("return CDLootPatchDB.active") is None and a.eval("return CDLootPatchDB.partial") is None
-    assert a.eval("return CDLootPatchDB.seq") is None              # the replay floor did not move either
+    assert a.eval("return DisasterZonePatchDB.active") is None and a.eval("return DisasterZonePatchDB.partial") is None
+    assert a.eval("return DisasterZonePatchDB.seq") is None              # the replay floor did not move either
     # the genuine update still gets through afterwards
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, [a], seq=1, timeout=300)
     a.relog()
     w.tick(3)
@@ -494,31 +494,31 @@ def tampered_file_with_a_genuine_manifest_is_rejected():
     """The manifest is real, but a holder's stored file text was altered: the hash check stops it."""
     w, base_dir, record, new_dir, bundle, (a,) = setup(1)
     sv = staged(bundle)
-    evil_z = patchlib.encode_for_print(patchlib.deflate_raw(b'CDLootPwned = true\n'))
+    evil_z = patchlib.encode_for_print(patchlib.deflate_raw(b'DisasterZonePwned = true\n'))
     assert sv.count(bundle["items"][0]["z"]) == 1
     evil = member(w, "Evil", base_dir, sv=sv.replace(bundle["items"][0]["z"], evil_z))
     evil.load_addon()
     w.tick(200)
     st = patch_status(a)
     assert st.get("ready") is None, st
-    assert a.eval("return CDLootPwned") is None
-    assert a.eval("local p = CDLootPatchDB.partial return p and p.src and p.src[1]") is None
+    assert a.eval("return DisasterZonePwned") is None
+    assert a.eval("local p = DisasterZonePatchDB.partial return p and p.src and p.src[1]") is None
     # the downloader named the holder in its next request; the holder checked its copy and stopped serving it
     assert any("!Evil-" in text_of(e) for e in patch_msgs(w, "W", sender="MemberA")), \
         [text_of(e) for e in patch_msgs(w, "W", sender="MemberA")]
     assert patch_status(evil).get("held") is None
-    assert evil.eval("return CDLootPatchDB.active.z") is None
+    assert evil.eval("return DisasterZonePatchDB.active.z") is None
     quiet_from = len(patch_msgs(w, "C", sender="Evil"))
     # an honest holder arrives: the download completes from it, and the damaged holder stays silent
     good = member(w, "Good", base_dir, sv=staged(bundle))
     good.load_addon()
     wait_ready(w, [a], timeout=400)
-    assert a.eval("return CDLootPatchDB.active.files['Core/Util.lua']:find('PATCH_MARK') ~= nil") is True
+    assert a.eval("return DisasterZonePatchDB.active.files['Core/Util.lua']:find('PATCH_MARK') ~= nil") is True
     assert len(patch_msgs(w, "C", sender="Evil")) == quiet_from
     # after a relog the damaged holder fetches a fresh copy and serves again
     evil.relog(reload=False)
     w.run_until(lambda: patch_status(evil).get("held") == 1, timeout=300)
-    assert evil.eval("return #CDLootPatchDB.active.z") == 1
+    assert evil.eval("return #DisasterZonePatchDB.active.z") == 1
     w.assert_no_errors()
 
 
@@ -533,7 +533,7 @@ def fake_announcements_do_not_block_real_updates():
     assert patch_status(a)["downloading"]["seq"] == 900
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")                                       # #1 is announced while #900 is being looked for
+    p.slash("/dz publish")                                       # #1 is announced while #900 is being looked for
     wait_ready(w, [a], seq=1, timeout=400)
     # malformed and out-of-range announcements are ignored outright
     for bad in ("A:2:%s:99999" % record["build"], "A:-1:x:1", "A:2", "A:x:y:z", "A:70000:%s:1" % record["build"],
@@ -548,7 +548,7 @@ def fake_announcements_do_not_block_real_updates():
     w.tick(200)
     st = patch_status(a)
     assert st.get("downloading") is None and st["held"] == 1 and st["ready"]["seq"] == 1, st
-    assert a.eval("return CDLootPatchDB.seq") == 1
+    assert a.eval("return DisasterZonePatchDB.seq") == 1
     w.assert_no_errors()
 
 
@@ -556,7 +556,7 @@ def fake_announcements_do_not_block_real_updates():
 def request_flood_is_rate_limited():
     w, base_dir, record, new_dir, bundle, (holder, evil) = setup(2, new_mods=big_mods(20000))
     holder.logout()
-    holder.set_saved_variable("CDLootPatchDB", staged(bundle))
+    holder.set_saved_variable("DisasterZonePatchDB", staged(bundle))
     holder.login()
     w.tick(30)
     evil.eval("ns.Patch.OnPatchComm = function() end")
@@ -600,13 +600,13 @@ def other_build_other_key_and_kill_switch_do_not_download():
         c.load_addon()
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     wait_ready(w, [normal])
     w.tick(120)
     for c in (other, wrong, off, nosv):
         st = patch_status(c)
         assert st.get("ready") is None and st.get("held") is None, (c.name, st)
-        assert c.eval("return CDLootPatchDB.active") is None, c.name
+        assert c.eval("return DisasterZonePatchDB.active") is None, c.name
     assert patch_msgs(w, sender="Off") == []                      # switched off = silent
     assert patch_msgs(w, "W", sender="Other") == []               # never asked: the announce named another build
     assert patch_msgs(w, "W", sender="NoSv") == []
@@ -664,23 +664,23 @@ def encounter_pauses_serving_and_delays_the_popup():
     a.set_combat(True)
     p = publisher(w, new_dir, bundle)
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.tick(90)
     # in combat the heavy verification waits: the chunks are kept, nothing is stored, ready or popped up
-    assert a.eval("return CDLootPatchDB.partial") is None and not is_ready(a)
+    assert a.eval("return DisasterZonePatchDB.partial") is None and not is_ready(a)
     assert (patch_status(a).get("downloading") or {}).get("seq") == 1
-    assert "CDLOOT_PATCH_READY" not in a.popups()
+    assert "DISASTERZONE_PATCH_READY" not in a.popups()
     a.set_combat(False)
     a.fire("PLAYER_REGEN_ENABLED")
     wait_ready(w, [a], timeout=200)
     w.tick(10)
-    assert "CDLOOT_PATCH_READY" not in a.popups()                 # the encounter is still going
+    assert "DISASTERZONE_PATCH_READY" not in a.popups()                 # the encounter is still going
     a.fire("ENCOUNTER_END", 652, "Gruul", 4, 25, 1)
     w.tick(5)
-    assert "CDLOOT_PATCH_READY" in a.popups()
-    a.cancel_popup("CDLOOT_PATCH_READY")                          # "Later"
+    assert "DISASTERZONE_PATCH_READY" in a.popups()
+    a.cancel_popup("DISASTERZONE_PATCH_READY")                          # "Later"
     w.tick(30)
-    assert "CDLOOT_PATCH_READY" not in a.popups()                 # once per session
+    assert "DISASTERZONE_PATCH_READY" not in a.popups()                 # once per session
     a.relog()
     w.tick(3)
     assert boot_state(a)["state"] == "applied"                    # applied by the reload anyway
@@ -694,7 +694,7 @@ def forced_yields_do_not_change_the_result():
     p = publisher(w, new_dir, bundle)
     p.eval("ns.Patch.forceYield = true")
     w.tick(2)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.run_until(lambda: any("published update" in l for l in p.chat_frame), timeout=120)
     wait_ready(w, [a], timeout=600)
     a.relog()
@@ -712,36 +712,36 @@ def publish_refusals():
     m = member(w, "MemberA", base_dir)
     m.load_addon()
     w.tick(1)
-    m.slash("/cdl publish")
+    m.slash("/dz publish")
     assert any("nothing to publish" in l for l in m.chat_frame[-2:])
     # a damaged outbox
     broken = dict(bundle)
     broken["items"] = [dict(bundle["items"][0], z=bundle["items"][0]["z"][:-4] + "aaaa")]
     p = publisher(w, new_dir, broken)
     w.tick(1)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.tick(3)
     assert any("damaged" in l for l in p.chat_frame[-3:]), p.chat_frame[-3:]
-    assert p.eval("return CDLootPatchDB.active") is None
+    assert p.eval("return DisasterZonePatchDB.active") is None
     # the good one; publishing it twice only announces again
     with_outbox(new_dir, bundle)
     p.relog()
     w.tick(1)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.tick(3)
     assert any("published update 9.9.9 (#2)" in l for l in p.chat_frame[-3:]), p.chat_frame[-3:]
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.tick(3)
     assert any("already published" in l for l in p.chat_frame[-3:]), p.chat_frame[-3:]
     # an outbox older than what is out
     with_outbox(new_dir, make(record, new_dir, seq=1))
     p.relog()
     w.tick(1)
-    p.slash("/cdl publish")
+    p.slash("/dz publish")
     w.tick(3)
     assert any("already out" in l for l in p.chat_frame[-3:]), p.chat_frame[-3:]
-    assert p.eval("return CDLootPatchDB.active.seq") == 2
-    p.slash("/cdl update")
+    assert p.eval("return DisasterZonePatchDB.active.seq") == 2
+    p.slash("/dz update")
     w.assert_no_errors()
 
 

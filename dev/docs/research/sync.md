@@ -1,6 +1,6 @@
-# CDLoot data sync layer: survey of installed addons and proposed protocol
+# DisasterZone data sync layer: survey of installed addons and proposed protocol
 
-I only read files; nothing in the WoW folder was changed. One helper script was written to the scratchpad for the size estimates in §4.8: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\sizes.py`.
+I only read files; nothing in the WoW folder was changed. One helper script was written to the scratchpad for the size estimates in §4.8: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\sizes.py`.
 
 All paths below are relative to `C:\World of Warcraft\_anniversary_\Interface\AddOns\`.
 
@@ -41,8 +41,8 @@ All paths below are relative to `C:\World of Warcraft\_anniversary_\Interface\Ad
 - AceComm multipart spends 1 byte per part on a control marker, leaving 254 bytes of payload (AceComm-3.0.lua:119-136; Questie/Modules/Network/CommsEncoding.lua:24).
 - AceComm's send queue name is just the prefix (AceComm-3.0.lua:96). The receiver's reassembly key is `prefix\tdistribution\tsender` (AceComm-3.0.lua:165,179,200).
   - AceComm's own comment warns that mixed priorities cause out-of-order delivery (AceComm-3.0.lua:84).
-  - **Rule for CDLoot:** each (prefix, distribution) pair carries multipart messages at one priority only.
-- AceComm passes `Ambiguate(sender,"none")` to handlers (AceComm-3.0.lua:244): "Name" for your own realm, "Name-Realm" otherwise. CDLoot should normalize everything to "Name-Realm" to match `GetGuildRosterInfo`.
+  - **Rule for DisasterZone:** each (prefix, distribution) pair carries multipart messages at one priority only.
+- AceComm passes `Ambiguate(sender,"none")` to handlers (AceComm-3.0.lua:244): "Name" for your own realm, "Name-Realm" otherwise. DisasterZone should normalize everything to "Name-Realm" to match `GetGuildRosterInfo`.
 
 ### 2.2 Throttling
 - **ChatThrottleLib v32** (the newest installed, e.g. Raidify/Libs/Ace3/AceComm-3.0/ChatThrottleLib.lua):
@@ -241,7 +241,7 @@ All paths below are relative to `C:\World of Warcraft\_anniversary_\Interface\Ad
 - **Serializer:** AceSerializer-style (`Details:Serialize`).
 
 ### 3.8 Other installed addons worth noting
-**Attune** (the closest analogue to CDLoot: per-member data cached for offline guild members)
+**Attune** (the closest analogue to DisasterZone: per-member data cached for offline guild members)
 - On login it announces its version on GUILD and YELL (Attune.lua:646-656).
 - A `SILENTSURVEY` on GUILD makes every member whisper a `TOON` message, one `DONE` message per step, then `OVER` (Attune.lua:665, 3796-3808). That's hundreds of messages per survey.
 - It trusts the name inside the payload (Attune.lua:3887) and stamps records with the receiver's local clock (Attune.lua:3913).
@@ -302,7 +302,7 @@ All paths below are relative to `C:\World of Warcraft\_anniversary_\Interface\Ad
 
 ---
 
-## 4. Proposed CDLoot sync protocol
+## 4. Proposed DisasterZone sync protocol
 
 ### 4.1 Principles
 1. **Owners are the only writers.** A player's list is written only by that player's client, and each edit bumps a revision number `rev`.
@@ -315,7 +315,7 @@ All paths below are relative to `C:\World of Warcraft\_anniversary_\Interface\Ad
 5. **Don't send immediately after zoning or login.** CTL throttles hard then, and the network is busy.
 
 ### 4.2 Council membership: how it's defined and distributed
-**Recommended: a tag in the Guild Information text**, maintained through a GM/officer UI in CDLoot that calls `SetGuildInfoText`, preserving the rest of the text.
+**Recommended: a tag in the Guild Information text**, maintained through a GM/officer UI in DisasterZone that calls `SetGuildInfoText`, preserving the rest of the text.
 
 Example tag: `CDL:r2,+Alice,+Bob,-Carl,a1,p2,mc`
 
@@ -323,7 +323,7 @@ Example tag: `CDL:r2,+Alice,+Bob,-Carl,a1,p2,mc`
 |---|---|
 | `rN` | Guild ranks with index ≤ N are council (index 0 is GM). Use indices, not rank names; TBLC stores names (Settings.lua:1896), which break when a rank is renamed. |
 | `+Name` / `-Name` | Explicit additions or exclusions (realm assumed to be the guild's) |
-| `aN` | "Admin" rank threshold: who may edit CDLoot guild settings in the UI. The server also enforces this through the Modify Guild Info permission. |
+| `aN` | "Admin" rank threshold: who may edit DisasterZone guild settings in the UI. The server also enforces this through the Modify Guild Info permission. |
 | `pN` | Current raid phase, used when sorting drop matches |
 | `mc` / `mo` / `mx` | Privacy mode: council-only / open (GUILD) / council-only via OFFICER |
 
@@ -351,7 +351,7 @@ For OFFICER transport (`mx`), the council has to equal the ranks that can listen
 ### 4.3 Data model (SavedVariables)
 
 ```lua
-CDLootDB = {                         -- account-wide
+DisasterZoneDB = {                         -- account-wide
   schema = 1,
   guildKey = "Casual Disaster-<Realm>",
   own   = { ["Name-Realm"] = { rev=37, ts=1790123456, hash="2a9f3c11", data=<list>,
@@ -388,7 +388,7 @@ CDLootDB = {                         -- account-wide
   - Control: `<TYPE>|<major>|field|field…`, not compressed.
   - Data: `<TYPE>|<major>|~` + `EncodeForWoWAddonChannel(CompressDeflate(LibSerialize(body)))`.
 - **Receiving:** a different major version is ignored, with a one-time warning (Questie and Raidify patterns). Handlers run in `pcall`. Validate everything, then apply in one step.
-- **Libraries:** embed AceComm-3.0, ChatThrottleLib, LibDeflate and LibSerialize inside CDLoot (or AceSerializer, costing about 25% more bytes, see §4.8). CDLoot must not depend on other addons' copies.
+- **Libraries:** embed AceComm-3.0, ChatThrottleLib, LibDeflate and LibSerialize inside DisasterZone (or AceSerializer, costing about 25% more bytes, see §4.8). DisasterZone must not depend on other addons' copies.
 
 ### 4.5 Message catalogue
 | Msg | Prefix / dist | Direction | Payload | Size |
@@ -483,7 +483,7 @@ function Accept(kind, ownerKey, e, sender)          -- e = {rev, ts, hash, d}
   if kind == "R" and not IsCouncil(sender) then return end           -- a relay only from council
   if not InGuildRoster(ownerKey) then return end                     -- blocks junk names
   if not ValidateList(e.d) or Adler32(Canon(e.d)) ~= e.hash then return end
-  local cur = CDLootDB.lists[ownerKey]
+  local cur = DisasterZoneDB.lists[ownerKey]
   if not cur or e.rev > cur.rev then return Store(ownerKey, e, kind == "L" and "direct" or sender) end
   if e.rev == cur.rev and e.hash ~= cur.hash then
     if kind == "L" then return Store(ownerKey, e, "direct") end      -- a direct copy wins a fork
@@ -527,7 +527,7 @@ Recommendation: a compact positional table serialized with LibSerialize, batchin
 Guard rails:
 - No automatic sends within 20 s of `PLAYER_ENTERING_WORLD`, no data re-sends while a bulk transfer is running, and no peer SYNC while in combat.
 - Whisper only players who are online in the roster, to avoid "No player named…" spam.
-- Consider filtering `ERR_CHAT_PLAYER_NOT_FOUND_S` for names CDLoot just whispered.
+- Consider filtering `ERR_CHAT_PLAYER_NOT_FOUND_S` for names DisasterZone just whispered.
 
 ### 4.10 Privacy
 - **How sensitive the data is:** BiS lists themselves are low sensitivity; guilds often post them on Discord or in sheets. Council annotations, priorities and awards are sensitive.

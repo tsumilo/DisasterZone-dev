@@ -18,8 +18,8 @@ DEV = os.path.dirname(TESTS)
 sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
 sys.path.insert(0, os.path.join(DEV, "tools"))
 # these suites build their own trees: the overrides of tools/patched_run.py do not apply to them
-os.environ.pop("CDLOOT_ADDON_DIR", None)
-os.environ.pop("CDLOOT_PATCH_SV", None)
+os.environ.pop("DISASTERZONE_ADDON_DIR", None)
+os.environ.pop("DISASTERZONE_PATCH_SV", None)
 
 from _common import case, run_all  # noqa: E402,F401
 from harness import World, Client, LuaErrorsFound, LuaEvalError  # noqa: E402,F401
@@ -61,7 +61,7 @@ def _pristine():
             shutil.copyfile(os.path.join(SOURCE, rel), target)
         write(dst, "Core/Outbox.lua", patchlib.OUTBOX_STUB)
         write(dst, "Core/PatchKey.lua", release.patch_key_lua(key()))
-        write(dst, "Core/BuildInfo.lua", 'CDLootBuild = {\n    id = "dev",\n    assetPack = 1,\n}\n')
+        write(dst, "Core/BuildInfo.lua", 'DisasterZoneBuild = {\n    id = "dev",\n    assetPack = 1,\n}\n')
         _PRISTINE = dst
     return _PRISTINE
 
@@ -90,29 +90,29 @@ def replace(root, rel, old, new, count=1):
 
 def set_version(root, version):
     import re
-    src = read(root, "CDLoot.toc")
-    write(root, "CDLoot.toc", re.sub(r"## Version: [^\r\n]*", "## Version: " + version, src, count=1))
+    src = read(root, "DisasterZone.toc")
+    write(root, "DisasterZone.toc", re.sub(r"## Version: [^\r\n]*", "## Version: " + version, src, count=1))
 
 
 def toc_add(root, rel, after):
     """List a file in the TOC right after `after` (paths with forward slashes)."""
-    src = read(root, "CDLoot.toc")
+    src = read(root, "DisasterZone.toc")
     eol = "\r\n" if "\r\n" in src else "\n"
     line = after.replace("/", "\\")
     assert src.count(line + eol) == 1, after
-    write(root, "CDLoot.toc", src.replace(line + eol, line + eol + rel.replace("/", "\\") + eol))
+    write(root, "DisasterZone.toc", src.replace(line + eol, line + eol + rel.replace("/", "\\") + eol))
 
 
 def toc_remove(root, rel):
-    src = read(root, "CDLoot.toc")
+    src = read(root, "DisasterZone.toc")
     eol = "\r\n" if "\r\n" in src else "\n"
     line = rel.replace("/", "\\") + eol
     assert src.count(line) == 1, rel
-    write(root, "CDLoot.toc", src.replace(line, ""))
+    write(root, "DisasterZone.toc", src.replace(line, ""))
 
 
 def guard(rel):
-    return 'if CDLootBoot and CDLootBoot.Run("%s", ...) then return end ' % rel
+    return 'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end ' % rel
 
 
 def source_copy(name="src", mods=None, version=None):
@@ -172,7 +172,7 @@ def boot_state(c):
 
 
 def _boot_state(c):
-    return c.eval_py("""local B = CDLootBoot
+    return c.eval_py("""local B = DisasterZoneBoot
       return { state = B.state, detail = B.detail, applied = B.applied, safe = B.safeMode, sv = B.svFirst,
                build = B.buildId, errors = B.startupErrors, version = ns.version, disk = ns.diskVersion,
                init = ns.initialized, loggedIn = ns.loggedIn }""")
@@ -185,7 +185,7 @@ def patch_status(c):
 def member(w, name, addon_dir, sv=None, **kw):
     c = Client(w, name, addon_dir=addon_dir, **kw)
     if sv is not None:
-        c.set_saved_variable("CDLootPatchDB", sv)
+        c.set_saved_variable("DisasterZonePatchDB", sv)
     return c
 
 

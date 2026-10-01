@@ -23,7 +23,7 @@ def open_game(c, w, x, y, map_id="town"):
     """Opens the Games tab on Azeromon, starts a new game and places the player."""
     c.eval(BOT)
     c.eval("T_AZ.seed(5)")
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")        # NEW GAME
     for _ in range(40):
@@ -103,8 +103,8 @@ def closing_the_game_or_combat_stops_presence():
     assert game_msgs(w, n0, "Alice") == []
     a.set_combat(False)
     w.tick(2)
-    # close the CDLoot window: Alice says goodbye and disappears for Bob
-    a.slash("/cdl")
+    # close the DisasterZone window: Alice says goodbye and disappears for Bob
+    a.slash("/dz")
     w.tick(1)
     assert a.eval("return ns.AzeroNet:IsActive()") is False
     assert peer(b, "Alice") is None

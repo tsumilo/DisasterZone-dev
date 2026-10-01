@@ -25,7 +25,7 @@ def game(ui=True):
     c.eval("ns.Azero:NewGame()")
     c.eval("ns.Azero.save.party = { ns.AzeroMon.New('emberwhelp', 16, ns.Azero.rng) }")
     if ui:
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")
         w.tick(0.3)

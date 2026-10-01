@@ -1,4 +1,4 @@
-"""CDLoot release tool: full releases (a zip to download) and in-game updates (patches sent over the guild channel).
+"""DisasterZone release tool: full releases (a zip to download) and in-game updates (patches sent over the guild channel).
 
 Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
 
@@ -6,11 +6,11 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
                                       and writes its public half to the addon (Core\\PatchKey.lua)
   tools\\release.py guards add|remove|check
                                       the line-1 guard every patchable file needs (see Core\\Boot.lua)
-  tools\\release.py full               package the addon folder as dist\\CDLoot-<version>.zip and make that
+  tools\\release.py full               package the addon folder as dist\\DisasterZone-<version>.zip and make that
                                       release the base for in-game updates
   tools\\release.py patch              build + sign an in-game update with everything that changed since the
                                       base release and write it to Core\\Outbox.lua; then in game: /reload,
-                                      /cdl publish
+                                      /dz publish
   tools\\release.py patch --revoke     take the update back: everybody goes back to the base release, and so does
                                       this copy (the changed files are put back from the release zip; the versions
                                       you had are kept in dev\\releases\\undone\\). --keep-source leaves this
@@ -18,7 +18,7 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
   tools\\release.py status             base release, last update, what changed since the base
   tools\\release.py selftest           an update that carries EVERY patchable file, addressed to no real build, to
                                       try the whole mechanism in the real client on the development copy. In game:
-                                      /reload, /cdl publish, /cdlpatch try, /reload, /cdlpatch (must say "running
+                                      /reload, /dz publish, /dzpatch try, /reload, /dzpatch (must say "running
                                       an in-game update"), /reload to go back. Members ignore it.
 
 What an in-game update can carry: changed, new and deleted Lua files that the TOC lists (except Libs\\ and the boot
@@ -45,7 +45,7 @@ if HERE not in sys.path:
 
 import patchlib  # noqa: E402
 
-ADDON_NAME = "CDLoot"
+ADDON_NAME = "DisasterZone"
 ADDON_DIR = os.path.join(REPO, "addon", ADDON_NAME)
 KEY_PATH = os.path.join(DEV, "keys", "patch_key.json")
 RELEASES = os.path.join(DEV, "releases")
@@ -54,7 +54,7 @@ DIST = os.path.join(REPO, "dist")
 PROTECTED = ("Core/Boot.lua", "Core/BuildInfo.lua", "Core/BootEnd.lua", "Core/Outbox.lua")
 TOOL_MANAGED = ("Core/BuildInfo.lua", "Core/Outbox.lua")      # rewritten per release: not part of the build id
 DOC_EXT = (".md", ".txt")
-GUARD_RE = re.compile(rb'^if CDLootBoot and CDLootBoot\.Run\("([^"]+)", \.\.\.\) then return end ?')
+GUARD_RE = re.compile(rb'^if DisasterZoneBoot and DisasterZoneBoot\.Run\("([^"]+)", \.\.\.\) then return end ?')
 
 
 class ReleaseError(Exception):
@@ -128,14 +128,14 @@ def asset_pack(addon_dir):
 
 
 def build_info_lua(bid, pack):
-    return ("-- CDLoot: what is installed on disk (written by dev/tools/release.py for this release).\n"
+    return ("-- DisasterZone: what is installed on disk (written by dev/tools/release.py for this release).\n"
             "-- See the source tree's Core/BuildInfo.lua for what the fields mean. Never part of an in-game update.\n"
-            "CDLootBuild = {\n    id = \"%s\",\n    assetPack = %d,\n}\n" % (bid, pack))
+            "DisasterZoneBuild = {\n    id = \"%s\",\n    assetPack = %d,\n}\n" % (bid, pack))
 
 
 def patch_key_lua(key):
-    return ('if CDLootBoot and CDLootBoot.Run("Core/PatchKey.lua", ...) then return end '
-            "-- CDLoot: public key in-game updates are verified with (written by dev/tools/release.py keygen).\n"
+    return ('if DisasterZoneBoot and DisasterZoneBoot.Run("Core/PatchKey.lua", ...) then return end '
+            "-- DisasterZone: public key in-game updates are verified with (written by dev/tools/release.py keygen).\n"
             "-- The private half lives only on the publisher's machine. Core/Patch.lua explains the scheme.\n"
             "local addonName, ns = ...\n\n"
             "ns.PatchKey = {\n    seed = \"%s\",\n    root = \"%s\",\n    h = %d,\n}\n"
@@ -147,7 +147,7 @@ def patch_key_lua(key):
 # ---------------------------------------------------------------------------------------------------------------
 
 def guard_for(path):
-    return b'if CDLootBoot and CDLootBoot.Run("' + path.encode("ascii") + b'", ...) then return end '
+    return b'if DisasterZoneBoot and DisasterZoneBoot.Run("' + path.encode("ascii") + b'", ...) then return end '
 
 
 def guard_state(addon_dir, rel):
@@ -232,8 +232,8 @@ def check_tree(addon_dir):
     headers, files, _ = parse_toc(addon_dir)
     if headers.get("loadsavedvariablesfirst") not in ("1", "true"):
         problems.append("the TOC lacks '## LoadSavedVariablesFirst: 1'")
-    if "CDLootPatchDB" not in [s.strip() for s in headers.get("savedvariables", "").split(",")]:
-        problems.append("the TOC does not save CDLootPatchDB")
+    if "DisasterZonePatchDB" not in [s.strip() for s in headers.get("savedvariables", "").split(",")]:
+        problems.append("the TOC does not save DisasterZonePatchDB")
     lua = [f for f in files if f.endswith(".lua")]
     if lua[:2] != ["Core/BuildInfo.lua", "Core/Boot.lua"]:
         problems.append("Core/BuildInfo.lua and Core/Boot.lua must be the first two files in the TOC")
@@ -603,7 +603,7 @@ def cmd_patch(args):
         for rel, state in kept:
             print("    %s %s" % (state, rel))
         print("  you still see them in game, and the next 'release.py patch' sends them out again.")
-    print("  written to Core\\Outbox.lua. In game: /reload, then /cdl publish")
+    print("  written to Core\\Outbox.lua. In game: /reload, then /dz publish")
 
 
 SELFTEST_BUILD = "selftest"
@@ -647,9 +647,9 @@ def cmd_selftest(args):
         seq, len(bundle["items"]), bundle["total"] // 1024, (bundle["ztotal"] + len(bundle["z0"])) // 1024))
     print("  in game, on this development copy:")
     print("    /reload            loads the outbox")
-    print("    /cdl publish       checks the signature and every file, stores it (members ignore it)")
-    print("    /cdlpatch try      run the stored update once")
-    print("    /reload            then /cdlpatch must say: running an in-game update: %s" % bundle["version"])
+    print("    /dz publish       checks the signature and every file, stores it (members ignore it)")
+    print("    /dzpatch try      run the stored update once")
+    print("    /reload            then /dzpatch must say: running an in-game update: %s" % bundle["version"])
     print("    /reload            back to the files on disk")
     print("  afterwards 'release.py patch' (or 'full') replaces the outbox.")
 

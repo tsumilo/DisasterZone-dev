@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from PIL import Image
 from _common import solo
 
-ADDON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "addon", "CDLoot")
+ADDON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "addon", "DisasterZone")
 atlas = Image.open(os.path.join(ADDON, "Media", "Azeromon", "atlas.tga")).convert("RGBA")
 names = dict((m.group(1), int(m.group(2))) for m in re.finditer(r"^\s+(\w+) = (\d+),", open(os.path.join(ADDON, "Games", "Azeromon", "Atlas.lua")).read(), re.M))
 

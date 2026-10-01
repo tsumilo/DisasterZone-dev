@@ -21,7 +21,7 @@ from _azero_bot import BOT  # noqa: E402
 
 
 def open_game(c, w):
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")        # NEW GAME / CONTINUE
     for _ in range(40):

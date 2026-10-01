@@ -31,7 +31,7 @@ def game(seed=7, ui=False):
     c.eval("ns.AzeroCraft.clock = %d" % CLOCK)
     c.eval("ns.Azero:AddMon(ns.AzeroMon.New('murkling', 12, ns.Azero.rng), 'caught')")
     if ui:
-        c.slash("/cdl play azeromon")
+        c.slash("/dz play azeromon")
         w.tick(0.3)
         c.eval("ns.AzeroUI._HandleKey('A')")
         w.tick(0.3)

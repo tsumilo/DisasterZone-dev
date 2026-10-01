@@ -1,6 +1,6 @@
 I've finished the Test & Fix pass for Addendum F. All 33 suites pass (the original 30 plus three new ones), `check.py` shows 0 errors and 0 global writes, and the TOC is now 0.4.0. I found and fixed two real bugs and cleaned up two misleading messages.
 
-## (1) Fixes (addon root `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot`)
+## (1) Fixes (addon root `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone`)
 
 - **`Core/BiS.lua`, false "changed during lock" flag (reproduced, then fixed).**
   - **Symptom:** a raider whose spec was never detected who reloads in a locked raid gets flagged by the council.
@@ -8,7 +8,7 @@ I've finished the Test & Fix pass for Addendum F. All 33 suites pass (the origin
   - **Fix:** a new `AutoDetectSpec` waits (up to 3 × 5 s) for the raid's rules when you're in a raid and not the loot leader. While locked it leaves the spec alone.
 - **`UI/MyBiS.lua`, "Replace all" popup.** If you accepted it after the lock started, the list was correctly left alone but it still printed "Replaced P1 with LoonBestInSlot's … suggestions." It now returns quietly when refused. The auto-detect spec option now only prints "Spec detected" when the spec was actually saved.
 - **`Core/Loot.lua` (core agent's cross-file need):** `ItemQualifies` now uses `GetSources(id, "drops")`, so a crafted/rep/badge/PvP item handed out in a raid is no longer auto-recorded as boss loot.
-- **`CDLoot.toc`:** Version 0.4.0.
+- **`DisasterZone.toc`:** Version 0.4.0.
 - **Other cross-file needs:** all the test-side ones are handled below. The core agent's optional idea of putting a disabled slot in the demo data is not done, because the council-UI tests compare demo counts.
 
 **Wire compatibility (checked):** the 0.2 fixture's `Store.lua` is byte-identical to 0.3's. It ignores unknown top-level keys, and its shape and hash checks accept `dx`. In a new test, a 0.2 council member stores a list with `dx`, the hash matches, and it relays that list to a 0.4 council member with `dx` still intact. No schema bump was needed. Older clients ignore GS `lk`/`lkAt` and RT `lc`.
@@ -37,7 +37,7 @@ I've finished the Test & Fix pass for Addendum F. All 33 suites pass (the origin
   - Validator limits, and a damaged saved `dx` is cleaned up on load.
   - The 0.2 council compatibility case above.
 - **`bislock\test_bislock.py`, 16 cases:**
-  - The lock reaches everyone: GS fields, one raid chat line, status lines, `/cdl rules`.
+  - The lock reaches everyone: GS fields, one raid chat line, status lines, `/dz rules`.
   - Every editing API refuses, with one message per 3 s; obtained/equipped/"Mark obtained" still sync.
   - The My BiS banner, greyed controls and picker refusal.
   - A forged edit is flagged across roster, member view, drop panel and `GetWanters`, with a single council warning.
@@ -45,7 +45,7 @@ I've finished the Test & Fix pass for Addendum F. All 33 suites pass (the origin
   - Unlock clears everything.
   - The lock ends on disband, change of leader, or the raid turning into a party.
   - Only the loot leader can lock: raider and council attempts are refused, a forged GS is ignored, a malformed GS field is dropped without losing the rules, and a lock on PARTY is ignored.
-  - The master looter is the loot leader when the raid leader has no CDLoot.
+  - The master looter is the loot leader when the raid leader has no DisasterZone.
   - A mid-raid joiner learns the lock, and so do reloads of a raider, the leader and a council member.
   - The two regression cases for the fixes above.
   - An edit just before the lock is not flagged.
@@ -110,16 +110,16 @@ The other agents' dev smokes still pass (`smoke_lock` 7/7, `smoke_compat` OK, `t
    - Try "Disable in all phases" too.
 7. As a council member, the roster shows a dark "–" with the tooltip "Disabled by player". A drop of that item gives no toast for that player and doesn't list them.
 8. As raid leader:
-   - **Lock:** use `/cdl lock` or the Settings, Council toolbar or drop-panel button. Raid chat gets "CDLoot: BiS lists are locked for this raid." and raiders see the lock banner; edits, spec and the picker are refused, but "Mark obtained" and looting still update.
+   - **Lock:** use `/dz lock` or the Settings, Council toolbar or drop-panel button. Raid chat gets "DisasterZone: BiS lists are locked for this raid." and raiders see the lock banner; edits, spec and the picker are refused, but "Mark obtained" and looting still update.
    - **Forged edit (optional):** with a second account, ~10 s later edit via `/run` (direct data change + commit). Council clients should show ⚠ in the roster, member view and drop rows, plus one chat warning, and a roll must not suggest that player.
-   - **Unlock:** `/cdl unlock` clears everything.
+   - **Unlock:** `/dz unlock` clears everything.
 9. The lock ends when the raid disbands, the lead moves to someone else, or the raid becomes a party. A /reload by the leader keeps it.
 
 ## (5) Changelog (0.4.0)
 
 - **Item picker:** new Sources dropdown with Raids, 5-man dungeons, Crafted, Reputation, Badge vendors and PvP. Raids + 5-man is the default and your choice is remembered. Crafted, reputation, badge and PvP gear is grouped by profession, faction, vendor and season, with the skill, standing, cost and faction shown. PvP items appear for your faction only. The phase filter works on every source.
 - **My BiS:** right-click a slot to disable it for one phase or all phases. A disabled slot is greyed out, left out of your progress, the council's counts and drop alerts, and its pick is kept. "Still needed from" now lists Crafted, Reputation, Badges and PvP items.
-- **Raid lock:** the raid leader (the raid's loot leader) can lock or unlock every BiS list for the raid with `/cdl lock` / `/cdl unlock` or the buttons in Settings, the Council tab and the drop panel. Locked lists can't be edited, but obtained items still update. Council members see a ⚠ on anyone whose list changes anyway, and those players are never suggested as roll winners.
+- **Raid lock:** the raid leader (the raid's loot leader) can lock or unlock every BiS list for the raid with `/dz lock` / `/dz unlock` or the buttons in Settings, the Council tab and the drop panel. Locked lists can't be edited, but obtained items still update. Council members see a ⚠ on anyone whose list changes anyway, and those players are never suggested as roll winners.
 - **Fixes:** crafted, rep, badge and PvP items handed out in a raid are no longer recorded as boss loot. A /reload during a locked raid no longer falsely flags a raider whose spec had never been set.
 
 All new and changed test files are in `…\scratchpad\tests\` (`picker_sources\`, `disabled_slots\`, `bislock\`, `boot-ui\`, `dungeon\`, `ui-dungeon\`). Suite logs for this run are in `…\scratchpad\tf_e\tf_f_final\`.

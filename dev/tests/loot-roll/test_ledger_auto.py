@@ -55,7 +55,7 @@ def loot_message_seen_at_different_seconds_dedupes():
     shown = {}
     for n in COUNCIL:
         raw = ledger_raw(r[n])
-        # CDLoot 0.5: a council member's broadcast is cancelled when an earlier entry of the same line arrives
+        # DisasterZone 0.5: a council member's broadcast is cancelled when an earlier entry of the same line arrives
         # first, so a client may hold one or both raw entries (the digest sync evens them out later).
         assert 1 <= len(raw) <= 2, "the auto entries of one loot line (%s): %r" % (n, raw)
         vis = visible(r, n)
@@ -172,7 +172,7 @@ def council_member_joining_later_catches_up_via_digest():
     w.tick(2)
     r.form_raid([c for c in r.clients])
     w.tick(40)
-    r["Bob"].slash("/cdl sync")
+    r["Bob"].slash("/dz sync")
     w.tick(20)
     vis = visible(r, "Bob")
     assert [(e["w"], e["i"]) for e in vis] == [(key("Carol"), THOUSAND_MARKS)], vis

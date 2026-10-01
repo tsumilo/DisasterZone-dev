@@ -1,4 +1,4 @@
-"""Shared helpers for the Members tab / professions suites (real CDLoot addon + tools/harness.py)."""
+"""Shared helpers for the Members tab / professions suites (real DisasterZone addon + tools/harness.py)."""
 import os
 import sys
 

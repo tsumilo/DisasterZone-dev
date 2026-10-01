@@ -1,4 +1,4 @@
-"""List tonumber(<call>) sites in CDLoot where the argument is an unparenthesised function call.
+"""List tonumber(<call>) sites in DisasterZone where the argument is an unparenthesised function call.
 
 A Lua function returning multiple values passes its 2nd value as tonumber's `base` argument
 (e.g. GetInventoryItemID returns itemID, <number>) -> "bad argument #2 to 'tonumber' (base out of range)".
@@ -8,7 +8,7 @@ import os
 import re
 import sys
 
-ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
+ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 BS = chr(92)
 
 

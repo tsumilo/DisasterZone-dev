@@ -4,7 +4,7 @@
 Outputs:
   tools/wowmock/items.lua            return { [id] = {name, quality, equipLoc, classID, subclassID, icon,
                                                        itemLevel, minLevel, bindType, stackCount}, ... }
-                                     for every item referenced by CDLoot/Data/Items.lua (boss loot, tier tokens,
+                                     for every item referenced by DisasterZone/Data/Items.lua (boss loot, tier tokens,
                                      tier pieces, Sunmote upgrades, arena exchanges)
   tools/wowmock/items_fallback.json  {id: [name, quality, equipLoc, classID, subclassID, icon, itemLevel, minLevel]}
                                      for every other TBC item in Questie's DB (lazy fallback for tests that use
@@ -12,7 +12,7 @@ Outputs:
   tools/wowmock/items_report.json    coverage statistics
 
 Data sources (all read locally from installed addons):
-  * names:            `-- Name` comments in CDLoot/Data/Items.lua, else Questie
+  * names:            `-- Name` comments in DisasterZone/Data/Items.lua, else Questie
   * classID/subclassID/itemLevel/requiredLevel:
                       Questie/Database/TBC/tbcItemDB.lua (QuestieDB.itemKeys: 9=itemLevel 10=requiredLevel
                       12=class 13=subClass)
@@ -35,7 +35,7 @@ import luabc  # noqa: E402  (sets up lupa import path)
 from lupa import lua51  # noqa: E402
 
 ADDONS = r"C:\World of Warcraft\_anniversary_\Interface\AddOns"
-CDLOOT_ITEMS = os.path.join(ADDONS, "CDLoot", "Data", "Items.lua")
+DISASTERZONE_ITEMS = os.path.join(ADDONS, "DisasterZone", "Data", "Items.lua")
 QUESTIE_TBC = os.path.join(ADDONS, "Questie", "Database", "TBC", "tbcItemDB.lua")
 OUT_DIR = os.path.join(HERE, "wowmock")
 
@@ -70,8 +70,8 @@ MELEE_SPECS = {"DruidBear", "DruidCat", "HunterBeastMastery", "HunterMarksmanshi
 
 
 def parse_items_lua():
-    """Return (ordered id list, {id: name}) from CDLoot's Items.lua (executed in Lua + comment names)."""
-    text = open(CDLOOT_ITEMS, encoding="utf-8").read()
+    """Return (ordered id list, {id: name}) from DisasterZone's Items.lua (executed in Lua + comment names)."""
+    text = open(DISASTERZONE_ITEMS, encoding="utf-8").read()
     names = {}
     for m in re.finditer(r"(?m)^\s*(\d+),\s*--\s*(.+?)\s*$", text):
         nm = re.sub(r"^[A-Z]+:\s*", "", m.group(2))
@@ -86,7 +86,7 @@ def parse_items_lua():
         local src = ...
         local ns = {}
         local f = assert(loadstring(src, "@Data/Items.lua"))
-        f("CDLoot", ns)
+        f("DisasterZone", ns)
         local ids, seen = {}, {}
         local function add(id) if type(id) == "number" and not seen[id] then seen[id] = true; ids[#ids+1] = id end end
         local D = ns.Data

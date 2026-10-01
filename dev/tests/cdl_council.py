@@ -1,4 +1,4 @@
-"""Council helpers shared by the CDLoot suites (Addendum E: picked council, no Guild Info tag).
+"""Council helpers shared by the DisasterZone suites (Addendum E: picked council, no Guild Info tag).
 
 Imported by every suite's common module (tests/boot-ui/_common.py, tests/sync/common.py,
 tests/loot-roll/lr_common.py) and by the council / group-rules suites. Nothing here changes the addon or the
@@ -57,8 +57,8 @@ def _keys(names, realm=REALM):
 # ------------------------------------------------------------------------------------------------------------------
 SEED_LUA = r"""
 local members, phase, by, rev, recvAt, gk = ...
-if type(CDLootDB) ~= "table" then CDLootDB = {} end
-local db = CDLootDB
+if type(DisasterZoneDB) ~= "table" then DisasterZoneDB = {} end
+local db = DisasterZoneDB
 if type(db.council) ~= "table" then db.council = {} end
 local c = db.council
 local set = {}
@@ -170,7 +170,7 @@ def council_of(c):
 
 
 # ------------------------------------------------------------------------------------------------------------------
-# Guild Information API spy (Addendum E §33/§34: CDLoot never reads or writes the Guild Info text)
+# Guild Information API spy (Addendum E §33/§34: DisasterZone never reads or writes the Guild Info text)
 # ------------------------------------------------------------------------------------------------------------------
 GUILD_INFO_SPY = r"""
 __GI_SPY = { calls = {} }

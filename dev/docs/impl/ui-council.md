@@ -1,14 +1,14 @@
-ANSWER TO THE USER'S QUESTION (please pass this on): No. CDLoot does not need any other addon installed, for you or for anyone you share it with.
-- The libraries it uses (LibStub, AceComm/ChatThrottleLib, LibSerialize, LibDeflate, LibDataBroker, LibDBIcon, LibCustomGlow) are copied inside `CDLoot\Libs` and loaded by `CDLoot.toc`.
+ANSWER TO THE USER'S QUESTION (please pass this on): No. DisasterZone does not need any other addon installed, for you or for anyone you share it with.
+- The libraries it uses (LibStub, AceComm/ChatThrottleLib, LibSerialize, LibDeflate, LibDataBroker, LibDBIcon, LibCustomGlow) are copied inside `DisasterZone\Libs` and loaded by `DisasterZone.toc`.
 - The only other addon mentioned is LoonBestInSlot. It is listed as `OptionalDeps` and only adds the "Suggest BiS" templates. Without it, that menu simply doesn't appear.
-- My two files only call the Blizzard API and CDLoot's own modules. A search for `LibStub`, `LBIS` and `LoonBestInSlot` in them finds nothing.
+- My two files only call the Blizzard API and DisasterZone's own modules. A search for `LibStub`, `LBIS` and `LoonBestInSlot` in them finds nothing.
 
 FINAL REPORT (ui-council)
 
 1. FILES WRITTEN
-- `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\UI\Council.lua` (1861 lines)
-- `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\UI\LootLog.lua` (822 lines)
-- Scratch only, not part of the addon: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\ui-council-smoke\smoke.lua`. It is a runtime smoke test: the real Constants, Widgets and PaperDoll files plus my two files, with a widget mock and fake core modules shaped like the spec.
+- `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\UI\Council.lua` (1861 lines)
+- `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\UI\LootLog.lua` (822 lines)
+- Scratch only, not part of the addon: `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\ui-council-smoke\smoke.lua`. It is a runtime smoke test: the real Constants, Widgets and PaperDoll files plus my two files, with a widget mock and fake core modules shaped like the spec.
 
 2. PUBLIC API
 ns.CouncilUI (module "CouncilUI"):
@@ -46,7 +46,7 @@ Deviations from the spec, and why:
 - **Member view paper doll:** other players only sync `ob` and `eq`, not bag or bank details. So `ctx.obtainedState` returns "equipped" (item is in eq) or "obtained". I checked PaperDoll.lua: it falls back to the label "Obtained" and the obtained button state.
 - **Widgets extensions:** I checked Widgets.lua and use its `list:SetData(rows, resetScroll)` (scroll position is kept by default) and `UI:LinkInChat` (opens chat if none is active), each with a guarded fallback.
 - **Ledger:Award:** it returns nil on failure and prints its own message for non-council players. The dialog treats nil as failure and shows a status line.
-- **New named frames:** CDLootCouncilPanel, CDLootLootLogPanel, CDLootAwardDialog. All use the allowed prefix.
+- **New named frames:** DisasterZoneCouncilPanel, DisasterZoneLootLogPanel, DisasterZoneAwardDialog. All use the allowed prefix.
 
 4. CHECKER RESULTS
 `tools\check.py UI/Council.lua UI/LootLog.lua`:

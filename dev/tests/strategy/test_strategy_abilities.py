@@ -144,7 +144,7 @@ def editor_menus():
     w, c, occ, sid, npcs = raid()
     bob = c["Bob"]
     bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
-    B = "_G.CDLootStrategyBoard.blocks"
+    B = "_G.DisasterZoneStrategyBoard.blocks"
     bob.eval("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); %s:CellMenu(UIParent, k, 1, 3)" % B)
     texts = [strip_codes(t[2]).strip() for t in menu_texts(bob.last_menu()) if t[2]]
     assert "Circle of Healing (interrupt)  ~14 s" in texts and "Empowered Smite" in texts, texts
@@ -185,7 +185,7 @@ def curses_by_spell_id():
     whichever rank lands; the label is optional."""
     w, c, occ, sid, npcs = raid()
     bob, wal = c["Bob"], c["Wal"]
-    B = "_G.CDLootStrategyBoard.blocks"
+    B = "_G.DisasterZoneStrategyBoard.blocks"
     assert bob.eval("return ns.Strategy:FindBlock(ns.Strategy:GetStrategy(...), 'cu').d[1][2].a[1]", sid) == 1714
     # the editor: a Curse menu (no Abilities / Only when for a curse table); switch row 1 to Curse of the Elements
     bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
@@ -235,24 +235,24 @@ def tables_made_before_tracking():
     assert bob.eval("local s = ns.Strategy:GetStrategies(...)[1]; return ns.Strategy.TrackKind(ns.Strategy:FindBlock(s, 'mi')) "
                     ".. ',' .. ns.Strategy.TrackKind(ns.Strategy:FindBlock(s, 'cu')) .. ',' .. "
                     "tostring(ns.Strategy.TrackKind(ns.Strategy:FindBlock(s, 'md')))", BOSS) == "rot,curse,nil"
-    bob.slash("/cdl strat practice council")
+    bob.slash("/dz strat practice council")
     w.tick(4 + 1, step=0.25)
     L = bob.eval_py("return ns.StrategyReminder:Lines()")["lines"]
     assert any(x.startswith("Malande interrupts: [YOU]") for x in L), L
-    bob.slash("/cdl strat stop")
+    bob.slash("/dz strat stop")
     # nothing tracked or picked at all: practice explains
     bob.eval("local s = ns.Util.CopyTable(ns.Strategy:GetStrategies(...)[1]); "
              "for _, p in ipairs(s.p) do for _, k in ipairs(p.k) do for _, cells in pairs(k.d or {}) do "
              "for _, v in pairs(cells) do if type(v) == 'table' then v.a = nil end end end end end; "
              "ns.StrategyPractice:Start(s)", BOSS)
     assert any("no tables the encounter helpers follow" in m for m in bob.chat_frame[-4:]), bob.chat_frame[-4:]
-    bob.slash("/cdl strat stop")
+    bob.slash("/dz strat stop")
     # the editor: picking abilities in an untracked table tracks it as an interrupt rotation
     bob.eval("ns.StrategyBoard:OpenStrategy(ns.Strategy:GetStrategies(...)[1].id, 'edit'); "
              "local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); k.tr = nil; "
              "for _, cells in pairs(k.d) do for _, v in pairs(cells) do if type(v) == 'table' then v.a = nil end end end", BOSS)
     bob.eval("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); "
-             "_G.CDLootStrategyBoard.blocks:CellMenu(UIParent, k, 1, 3)")
+             "_G.DisasterZoneStrategyBoard.blocks:CellMenu(UIParent, k, 1, 3)")
     bob.eval("""local function find(d) for _, ch in ipairs(d.children) do
           local t = (ch.text or ''):gsub('|c%x%x%x%x%x%x%x%x', ''):gsub('|r', ''):gsub('|T.-|t', ''):gsub('^%s+', '')
           if t == 'Divine Wrath (interrupt)' then return ch end; local r = find(ch); if r then return r end end end
@@ -269,7 +269,7 @@ def slot_menu_by_table_and_long_rows_wrap():
     bob = c["Bob"]
     bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
     bob.eval("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'md'); "
-             "_G.CDLootStrategyBoard.blocks:CellMenu(UIParent, k, 1, 3)")
+             "_G.DisasterZoneStrategyBoard.blocks:CellMenu(UIParent, k, 1, 3)")
     tops = bob.eval_py("""local out = {}
         for _, ch in ipairs(__MOCK.last_menu.children) do
           if (ch.text or ''):find("Show a slot's player", 1, true) then
@@ -295,7 +295,7 @@ def slot_menu_by_table_and_long_rows_wrap():
     hun.eval("local c = ns.StrategyLive:GetCurrent(); for _, t in ipairs(c.trackers) do if t.kind == 'md' then "
              "for _, r in ipairs(t.rows) do r.label = 'Illidari Nightlord'; r.onto = 'Bartholomew-Thunderstrike' end end end; "
              "ns.StrategyReminder:Refresh()")
-    got = hun.eval_py("""local f = _G.CDLootStrategyReminder; local out = {}
+    got = hun.eval_py("""local f = _G.DisasterZoneStrategyReminder; local out = {}
         for _, r in ipairs(f.rows or {}) do
           if r:IsShown() and (r.text:GetText() or ''):find('Misdirect', 1, true) then
             out[#out + 1] = { text = r.text:GetText(), h = r:GetHeight(), wrap = r.text:CanWordWrap() }
@@ -317,13 +317,13 @@ def practice_shows_an_immunity():
     open_full_starter(bob, BOSS)
     bob.eval("ns.StrategyBoard:Save(); ns.StrategyBoard:Close()")
     w.tick(1)
-    bob.slash("/cdl strat practice council")
+    bob.slash("/dz strat practice council")
     w.tick(4 + 23, step=0.25)           # the pull, then the target gains Blessing of Protection 22 s in
     it = rot_item(bob)
     assert it["status"] == "immune to yours", it     # I'm the rogue: my Kick can't land
     w.tick(12, step=0.25)
     assert rot_item(bob)["status"] != "immune to yours"
-    bob.slash("/cdl strat stop")
+    bob.slash("/dz strat stop")
     w.assert_no_errors()
 
 

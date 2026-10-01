@@ -1,4 +1,4 @@
-# CDLoot SPEC — ADDENDUM B: Dungeon mode + 5-man loot data
+# DisasterZone SPEC — ADDENDUM B: Dungeon mode + 5-man loot data
 
 Read together with `SPEC.md` and `SPEC_ADDENDUM_A.md`. The user asked: "Does our addon work for dungeons? … Maybe we add a dungeon mode for it?"
 
@@ -12,7 +12,7 @@ Current state: all group traffic is raid-only. This includes:
 ## 21. 5-man dungeon loot data (always available, independent of the mode)
 
 ### 21.1 Data generation
-- Extend the existing generator `SCRATCH\gen_cdloot_data.py`, or write a companion `SCRATCH\gen_cdloot_dungeons.py` that reuses its parser, to emit **`CDLoot\Data\Dungeons.lua`**. Add it to the TOC right after `Data\Items.lua`.
+- Extend the existing generator `SCRATCH\gen_cdloot_data.py`, or write a companion `SCRATCH\gen_cdloot_dungeons.py` that reuses its parser, to emit **`DisasterZone\Data\Dungeons.lua`**. Add it to the TOC right after `Data\Items.lua`.
 - Source: `AtlasLootClassic_DungeonsAndRaids\data-tbc.lua`, the entries with `ContentType = DUNGEON_CONTENT` (TBC 5-mans only). Also check for Magisters' Terrace.
   - Hellfire Ramparts, Blood Furnace, Shattered Halls
   - Slave Pens, Underbog, Steamvault
@@ -60,14 +60,14 @@ ns.Data.Dungeons = {
 
 ### 22.1 Settings & activation
 - New settings (DB defaults): `dungeon = { enabled = false, quality = 3 }`. `quality` is the minimum quality for drops inside 5-man instances (3 = Rare).
-- Toggle it from a Settings "Dungeon mode" section (checkbox + quality dropdown Rare/Epic + short explanation), or with `/cdl dungeon [on|off]`.
+- Toggle it from a Settings "Dungeon mode" section (checkbox + quality dropdown Rare/Epic + short explanation), or with `/dz dungeon [on|off]`.
 - **Group propagation**: a new message `DM` on **PARTY** (alert class), fields `{t="DM", on=bool}`.
   - **Sending**:
     - When a player turns dungeon mode on while in a party (not a raid) and is the party leader or council, send `DM{on=true}`. Turning it off sends `DM{on=false}`.
     - While on, the enabler re-sends `DM{on=true}` (debounced 3s) on `GROUP_UPDATED` so newly joined members pick it up.
   - **Receiving**:
     - Gate: the sender is in my party AND (`UnitIsGroupLeader(senderUnit)` or `ns.Guild:IsCouncil(sender)`).
-    - On receipt, set the session-only flag `Dungeon.groupEnabledBy = senderKey` (or clear it), fire `DUNGEON_MODE_CHANGED`, and print "CDLoot: dungeon mode enabled by X (5-man loot sharing & rolls)".
+    - On receipt, set the session-only flag `Dungeon.groupEnabledBy = senderKey` (or clear it), fire `DUNGEON_MODE_CHANGED`, and print "DisasterZone: dungeon mode enabled by X (5-man loot sharing & rolls)".
     - The flag clears when I leave the group, or when the group becomes a raid.
 - **Effective mode** — implement in Util (or a small new module `Core/Dungeon.lua`; if new, add it to the TOC after Core/Util.lua):
   - `Util.IsDungeonModeActive()` = `IsInGroup() and not IsInRaid() and (settings.dungeon.enabled or groupEnabledBy ~= nil)`.
@@ -101,7 +101,7 @@ ns.Data.Dungeons = {
 - **Not in dungeon mode**: a party keeps today's behaviour. Local-only personal alerts apply if the player opens loot; nothing is broadcast.
 
 ### 22.3 Demo & tests
-- `/cdl test` in a 5-man instance with dungeon mode active should simulate a drop from a dungeon boss (a random boss of a random dungeon with `heroicItems`, picking 2–3 items).
+- `/dz test` in a 5-man instance with dungeon mode active should simulate a drop from a dungeon boss (a random boss of a random dungeon with `heroicItems`, picking 2–3 items).
 - Harness scenarios to add (tests/dungeon/):
   - A 5-client party in a 5-man instance (`world.enter_instance("Black Morass", 269, "party", 5, 2)`); make_party.
   - The leader enables dungeon mode and every member gets `DM`.

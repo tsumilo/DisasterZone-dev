@@ -309,7 +309,7 @@ def slash_plan_lists_raids():
     w.tick(2)
     signup(rita, occ, "A", 1)
     n0 = len(rita.chat_frame)
-    rita.slash("/cdl plan")
+    rita.slash("/dz plan")
     lines = [str(x) for x in rita.chat_frame[n0:]]
     assert any("Tempest Keep (25)" in l and "you: Accepted" in l for l in lines), lines
     w.assert_no_errors()

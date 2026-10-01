@@ -61,7 +61,7 @@ def rec(cl, rid):
 def start(w, c, members, leader="Bob"):
     w.make_raid([c[leader]] + [c[n] for n in members], leader=c[leader])
     w.tick(4)
-    c[leader].slash("/cdl raid start")
+    c[leader].slash("/dz raid start")
     w.tick(6)
     return session(c[leader])
 
@@ -97,7 +97,7 @@ def invite_and_sort_links_without_other_evidence():
     bob.eval("local o = ...; ns.RaidInvite:Start(o, ns.RaidPlan:GetRaid(o).grp, 'Karazhan')", occ)
     w.tick(10)
     assert w.group and w.group["kind"] == "raid"
-    bob.slash("/cdl raid start")
+    bob.slash("/dz raid start")
     w.tick(6)
     assert session(bob)["rp"] == occ
     w.assert_no_errors()
@@ -116,7 +116,7 @@ def two_raids_at_once_are_told_apart_by_who_is_there():
     sign(w, c, occ_b, B)
     s = start(w, c, [n for n, _, _ in B])
     assert s["rp"] == occ_b, s
-    bob.slash("/cdl raid end")
+    bob.slash("/dz raid end")
     w.tick(3)
     w.disband()
     w.tick(2)
@@ -163,7 +163,7 @@ def end_raid_keeps_signups_marks_bench_and_counts_no_shows():
     sign(w, c, occ, A + [("Ena", "SHAMAN", 2)], status={"Pip": "B", "Ena": "X"})
     s = start(w, c, ["Tank", "Rog", "Moon", "Gina"])     # Lock accepted but doesn't come; Pip is on the bench
     assert s["rp"] == occ
-    bob.slash("/cdl raid end")
+    bob.slash("/dz raid end")
     w.tick(3)
     r = rec(bob, s["id"])
     assert r["su"] == {K("Tank"): "A", K("Rog"): "A", K("Moon"): "A", K("Pip"): "B", K("Lock"): "A", K("Ena"): "X"}, r["su"]
@@ -172,7 +172,7 @@ def end_raid_keeps_signups_marks_bench_and_counts_no_shows():
     assert rel["accepted"] == 1 and rel["came"] == 0, rel
     assert bob.eval("return ns.RaidLog:GetReliabilityText(...)", K("Tank")) == "came to 1 of 1 accepted raids"
     # the Raid log shows the link and the no-show
-    bob.slash("/cdl raids")
+    bob.slash("/dz raids")
     w.tick(0.3)
     bob.eval("ns.RaidsUI:Select(...)", s["id"])
     w.tick(0.3)
@@ -194,13 +194,13 @@ def council_relinks_a_logged_raid_and_the_other_council_member_gets_it():
     sign(w, c, occ, A)
     s = start(w, c, [n for n, _, _ in A])
     assert s["rp"] == occ
-    bob.slash("/cdl raid end")
+    bob.slash("/dz raid end")
     w.tick(5)
     w.disband()
     w.tick(2)
     gina.logout()
     w.tick(1)
-    bob.slash("/cdl raids")
+    bob.slash("/dz raids")
     w.tick(0.3)
     bob.eval("ns.RaidsUI:Select(...)", s["id"])
     w.tick(0.3)

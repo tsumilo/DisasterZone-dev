@@ -80,8 +80,8 @@ def council_refresh_with_demo_data():
     w, c = solo("Alice", guild_rank=3, tick=3)
     install_helpers(c)
     c.eval(TIMER_LUA)
-    c.slash("/cdl demo on")
-    c.slash("/cdl council")
+    c.slash("/dz demo on")
+    c.slash("/dz council")
     w.tick(0.5)
     out = measure_views(c, "demo (19 lists)")
     check_limits(out, "demo")
@@ -105,7 +105,7 @@ def big_guild(n=60):
 @case
 def council_refresh_with_60_cached_lists_after_relog():
     w, c, members = big_guild(60)
-    c.slash("/cdl council")
+    c.slash("/dz council")
     w.tick(0.5)
     # count refreshes during a burst of 60 incoming lists while the panel is visible
     c.eval("__REFRESHES = 0; local orig = ns.CouncilUI.Refresh; ns.CouncilUI.Refresh = function(...) __REFRESHES = __REFRESHES + 1; return orig(...) end")
@@ -122,16 +122,16 @@ def council_refresh_with_60_cached_lists_after_relog():
     refreshes = c.eval("return __REFRESHES")
     print("    60 Store:Put (build+hash+validate+copy): %.0f ms total; council refreshes during the burst: %d" % (put_ms, refreshes))
     assert refreshes <= 3, "refresh not coalesced: %d refreshes for 60 LIST_UPDATED" % refreshes
-    assert c.eval("return #T_data(CDLootCouncilPanel.rosterView.list.box)") == 61
-    # SavedVariables round trip: the 60 lists come back from CDLootDB
+    assert c.eval("return #T_data(DisasterZoneCouncilPanel.rosterView.list.box)") == 61
+    # SavedVariables round trip: the 60 lists come back from DisasterZoneDB
     c.relog()
     w.tick(3)
     install_helpers(c)
     c.eval(TIMER_LUA)
-    assert c.eval("local n = 0 for _ in pairs(CDLootDB.lists) do n = n + 1 end return n") == 60
-    c.slash("/cdl council")
+    assert c.eval("local n = 0 for _ in pairs(DisasterZoneDB.lists) do n = n + 1 end return n") == 60
+    c.slash("/dz council")
     w.tick(0.5)
-    assert c.eval("return #T_data(CDLootCouncilPanel.rosterView.list.box)") == 61
+    assert c.eval("return #T_data(DisasterZoneCouncilPanel.rosterView.list.box)") == 61
     out = measure_views(c, "real (61 lists)")
     # wanted-item index rebuild after one LIST_UPDATED + a lookup of a popular item
     idx = timed(c, 5, """T_time(5, function()
@@ -175,7 +175,7 @@ def tooltip_hook_cost():
     lines = c.show_tooltip_item(32385)
     assert any("wanted by" in (l or "") for l, _ in lines), lines
     over_unc, over_c = max(0.0, uncached - base), max(0.0, cached - base)
-    print("    tooltip (council, 61 lists): plain %.3f ms, +CDLoot uncached %.3f ms, cached %.3f ms per SetItemByID"
+    print("    tooltip (council, 61 lists): plain %.3f ms, +DisasterZone uncached %.3f ms, cached %.3f ms per SetItemByID"
           % (base, over_unc, over_c))
     results["tooltip"] = (base, over_unc, over_c)
     assert over_unc <= LIMIT_MS["tooltip_uncached"], over_unc

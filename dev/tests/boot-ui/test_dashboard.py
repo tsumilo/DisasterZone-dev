@@ -56,7 +56,7 @@ def has(c, text):
 
 
 def open_home(c):
-    c.slash("/cdl home")
+    c.slash("/dz home")
     c.world.tick(0.5)
     assert selected(c) == "home", selected(c)
 
@@ -75,10 +75,10 @@ def chip(c, prefix):
 def home_is_the_default_tab_with_empty_states():
     w, c = solo("Rai", guild_rank=3, tick=3, council=["Bob"], members=[("Bob", "MAGE", 3)])
     install_helpers(c)
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(0.5)
     assert selected(c) == "home", selected(c)
-    assert c.eval("return CDLootMainFrame.Tabs[1].cdlKey") == "home"
+    assert c.eval("return DisasterZoneMainFrame.Tabs[1].cdlKey") == "home"
     texts = panel_texts(c)
     assert any("Your BiS · Phase 1" in t for t in texts), texts
     assert any("No Phase 1 picks yet" in t for t in texts), texts
@@ -93,8 +93,8 @@ def home_is_the_default_tab_with_empty_states():
     w.tick(0.3)
     assert selected(c) == "mybis"
     # closing and reopening lands on Home again (default "Open on: Home")
-    c.slash("/cdl")
-    c.slash("/cdl")
+    c.slash("/dz")
+    c.slash("/dz")
     w.tick(0.3)
     assert selected(c) == "home"
     no_errors(w)
@@ -104,16 +104,16 @@ def home_is_the_default_tab_with_empty_states():
 def open_on_last_tab_setting():
     w, c = solo("Rai", guild_rank=3, tick=3)
     c.eval("ns.DB:SetSetting('openOn', 'last')")
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
-    c.slash("/cdl")          # close
-    c.slash("/cdl")          # reopen on the tab used last
+    c.slash("/dz")          # close
+    c.slash("/dz")          # reopen on the tab used last
     w.tick(0.3)
     assert selected(c) == "mybis", selected(c)
     assert c.eval("return ns.db.settings.lastTab") == "mybis"
     c.eval("ns.DB:SetSetting('openOn', 'home')")
-    c.slash("/cdl")
-    c.slash("/cdl")
+    c.slash("/dz")
+    c.slash("/dz")
     w.tick(0.3)
     assert selected(c) == "home"
     no_errors(w)
@@ -296,12 +296,12 @@ def bis_card_follows_the_raids_phase_and_arrows_peek_at_others():
 @case
 def ticker_and_demo_mode_run_clean():
     w, c = solo("Rai", guild_rank=3, tick=3)
-    c.slash("/cdl demo on")
+    c.slash("/dz demo on")
     open_home(c)
     texts = panel_texts(c)
     assert any("Recent loot" in t for t in texts), "demo mode shows the council view of the loot"
     w.tick(65)       # two countdown refreshes
-    c.slash("/cdl demo off")
+    c.slash("/dz demo off")
     w.tick(1)
     assert selected(c) == "home"
     no_errors(w)

@@ -1,7 +1,7 @@
 The UI side of §35, §36 and §38 is done and works against the core agent's current code. `check.py` reports 0 errors and 0 global writes, and my 7-case smoke test passes. 24 of the 30 suites pass. The other 6 each have 1–3 failing cases, all old assertions that the new spec changes by design; none is a Lua error.
 
 ## Files changed
-All under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\UI\`. Backups of the originals are in `scratchpad\ui_f_backup\UI\`.
+All under `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\UI\`. Backups of the originals are in `scratchpad\ui_f_backup\UI\`.
 
 **`Widgets.lua`** (additive only; no existing line changed):
 - New `UI:CreateMultiDropdown`: a dropdown of checkboxes whose menu stays open while toggling, with a summary as the button text.
@@ -75,7 +75,7 @@ All under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\UI\`. Back
 
 ## CROSS-FILE NEEDS (Test & Fix agent)
 - **`test_mybis.py`**, 3 cases to migrate:
-  - The scope dropdown is replaced. `T_dropdown(CDLootPicker,'-')` is now the Phase dropdown. Use `ns.Picker:SetSourceEnabled` / `GetSources`, or the Sources dropdown found by its summary text ("Raids + 5-man").
+  - The scope dropdown is replaced. `T_dropdown(DisasterZonePicker,'-')` is now the Phase dropdown. Use `ns.Picker:SetSourceEnabled` / `GetSources`, or the Sources dropdown found by its summary text ("Raids + 5-man").
   - The default now includes dungeons.
   - The empty-list text is now "No items match…" / "No sources ticked…".
   - The slot menu adds a divider, "Disable slot (P1)" and "Disable in all phases".

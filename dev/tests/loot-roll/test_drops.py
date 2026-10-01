@@ -73,7 +73,7 @@ def drop_reaches_everyone_once_with_panels_toasts_badges():
             assert "Roll" in b["buttons"] and "Announce" in b["buttons"], (name, b["buttons"])
     for name in ("Carol", "Dave", "Erin", "Frank", "Gina"):
         assert panel_blocks(r[name]) == [], "%s (raider) must not get the council panel" % name
-        assert not r[name].eval("return CDLootDropPanel ~= nil and CDLootDropPanel:IsShown()")
+        assert not r[name].eval("return DisasterZoneDropPanel ~= nil and DisasterZoneDropPanel:IsShown()")
 
     # personal toast + chat line for raiders whose BiS dropped
     expect_toast = {"Alice": HELM_CHAMPION, "Bob": RUBY_DRAPE, "Carol": THOUSAND_MARKS, "Dave": RUBY_DRAPE,
@@ -142,7 +142,7 @@ def non_ml_opens_first_ml_right_after_single_broadcast():
 
 @R.case
 def raider_opens_alone_broadcasts_after_delay():
-    """CDLoot 0.5 (drop-preclaim finding): while master loot is on, a plain raider's D is not trusted (it could
+    """DisasterZone 0.5 (drop-preclaim finding): while master loot is on, a plain raider's D is not trusted (it could
     pre-claim the boss corpse with junk); the drop reaches everyone when the master looter opens the corpse."""
     r = Raid()
     w = r.w
@@ -400,7 +400,7 @@ def uncached_items_drop_panel_toast_and_chat():
     names = r["Bob"].eval_py("local out={} for _, b in ipairs(ns.DropPanel.blocks) do if b:IsShown() then out[#out+1]=b.name:GetText() end end return out")
     assert len(names) == 2 and "Ruby Drape" in strip_codes(names[0]) and "Fallen Champion" in strip_codes(names[1]), names
     t = toast_state(r["Bob"])
-    # CDLoot 0.5: the toast's icon / tooltip name the item; the line says slot, phase and pick (long names were cut)
+    # DisasterZone 0.5: the toast's icon / tooltip name the item; the line says slot, phase and pick (long names were cut)
     assert t["shown"] and t["item"] == RUBY_DRAPE and strip_codes(t["text"]) == "Back · P1 (main)", t
     t = toast_state(r["Gina"])
     assert t["shown"] and "Cyclone Headdress" in strip_codes(t["text"]), t

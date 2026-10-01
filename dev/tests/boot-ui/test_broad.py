@@ -25,17 +25,17 @@ def broad_session_all_windows_then_report():
         install_helpers(c)
     # raiders build lists through the UI (picker) and they sync to the council
     for c in (r1, r2):
-        c.slash("/cdl bis")
+        c.slash("/dz bis")
         w.tick(0.2)
         for sid in (1, 2, 3, 5, 11, 13, 15):
             c.click(c.eval("local s = ...; return T_tile(s).main", sid))
             row = c.eval("""
-              for _, r in ipairs(T_rows(T_box(CDLootPicker))) do
+              for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
                 local d = rawget(r, '__cdlData')
                 if d and d.type == 'item' then return r end
               end""")
             c.click(row)
-        c.slash("/cdl")        # closing commits
+        c.slash("/dz")        # closing commits
     w.tick(60)
     for c in (gm, off):
         keys = c.eval_py("return ns.Store:GetAllKeys()")
@@ -48,48 +48,48 @@ def broad_session_all_windows_then_report():
     wanted = r1.eval("return ns.BiS:GetSlot(1, 1)")
     gm.open_loot([(28770, 4), (28762, 4)])
     w.tick(2)
-    assert gm.eval("return CDLootDropPanel ~= nil and CDLootDropPanel:IsShown()") is True
+    assert gm.eval("return DisasterZoneDropPanel ~= nil and DisasterZoneDropPanel:IsShown()") is True
     # every tab on every client
     for c in w.clients:
-        for cmd in ("/cdl council", "/cdl log", "/cdl settings", "/cdl"):
+        for cmd in ("/dz council", "/dz log", "/dz settings", "/dz"):
             c.slash(cmd)
             w.tick(0.3)
-        c.slash("/cdl")
+        c.slash("/dz")
         w.tick(0.2)
         if c.eval("return ns.Guild:AmICouncil()"):
             for view in ("items", "member", "council", "roster"):
-                c.slash("/cdl council")
+                c.slash("/dz council")
                 c.eval("ns.CouncilUI:SetView(...)", view)
                 w.tick(0.3)
-            rows = c.eval("return #T_rows(CDLootCouncilPanel.rosterView.list.box)")
+            rows = c.eval("return #T_rows(DisasterZoneCouncilPanel.rosterView.list.box)")
             for i in range(1, rows + 1):
-                c.hover(c.eval("local i = ...; return T_rows(CDLootCouncilPanel.rosterView.list.box)[i].cells[1]", i))
+                c.hover(c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.rosterView.list.box)[i].cells[1]", i))
         for item in (28770, 28762, 32385, wanted or 28770):
             c.show_tooltip_item(item)
     # a roll from the drop panel item, raiders roll through the popup
     gm.eval("ns.Roll:Start(28770, ns.Loot:GetHistory()[#ns.Loot:GetHistory()])")
     w.tick(1)
     for c in (off, r1, r2):
-        if c.eval("return CDLootRollFrame ~= nil and CDLootRollFrame:IsShown()"):
-            btn = c.eval("return T_button(CDLootRollFrame, 'Roll')")
+        if c.eval("return DisasterZoneRollFrame ~= nil and DisasterZoneRollFrame:IsShown()"):
+            btn = c.eval("return T_button(DisasterZoneRollFrame, 'Roll')")
             if btn:
                 c.click(btn)
     w.tick(40)
     # the award dialog and the log
-    gm.slash("/cdl log")
+    gm.slash("/dz log")
     w.tick(0.3)
-    gm.click(gm.eval("return CDLootLootLogPanel.addBtn"))
-    gm.type_text(gm.eval("return CDLootAwardDialog.itemBox"), "28762")
-    gm.type_text(gm.eval("return CDLootAwardDialog.winBox"), "rog")
-    gm.click(gm.eval("return CDLootAwardDialog.saveBtn"))
+    gm.click(gm.eval("return DisasterZoneLootLogPanel.addBtn"))
+    gm.type_text(gm.eval("return DisasterZoneAwardDialog.itemBox"), "28762")
+    gm.type_text(gm.eval("return DisasterZoneAwardDialog.winBox"), "rog")
+    gm.click(gm.eval("return DisasterZoneAwardDialog.saveBtn"))
     w.tick(2)
     assert off.eval("return #ns.Ledger:GetEntries({})") >= 1, "award not synced to the officer"
     # demo on/off on the officer, settings editor on the GM
-    off.slash("/cdl demo on")
-    off.slash("/cdl council")
+    off.slash("/dz demo on")
+    off.slash("/dz council")
     w.tick(0.5)
-    off.slash("/cdl demo off")
-    gm.slash("/cdl settings")
+    off.slash("/dz demo off")
+    gm.slash("/dz settings")
     w.tick(0.5)
     gm.close_loot()
     w.tick(1)
@@ -99,7 +99,7 @@ def broad_session_all_windows_then_report():
     w.tick(30)
     for c in w.clients:
         install_helpers(c)
-        c.slash("/cdl")
+        c.slash("/dz")
         w.tick(0.2)
     rep = w.report()
     print(rep)

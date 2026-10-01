@@ -1,8 +1,8 @@
-**CDLoot 0.5.0: fixer report**
+**DisasterZone 0.5.0: fixer report**
 
 All 51 findings are dealt with: 44 fixed and 5 fixed in part, with the rest skipped for a stated reason (1 skipped outright; 2 of the partial fixes skip one piece). All 34 suites are green, including the new regression suite `tests\regressions\test_final_review.py` with 44 cases. Of those 44 cases, 42 fail on the untouched 0.4.0 code, so they really catch the bugs; the other 2 cover mock-only behaviour. The TOC is now 0.5.0 and the wire protocol is unchanged (still 1, no new message fields), so 0.2–0.4 clients still talk to it.
 
-Paths: addon `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot` (0.4.0 backup and full diff in `scratchpad\fixer\orig_040` and `scratchpad\fixer\final.diff`). Scratchpad = `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad`.
+Paths: addon `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone` (0.4.0 backup and full diff in `scratchpad\fixer\orig_040` and `scratchpad\fixer\final.diff`). Scratchpad = `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad`.
 
 Note for the docs agent: the new `Data\ItemClasses.lua` is generated from AtlasLootClassic `Requirements.lua` (GPL v2), so NOTICE.md needs an entry. Two changes go against the spec text and should get an addendum:
 - **Guild council list:** a list from the GM now replaces an unconfirmed (trust-on-first-use) list even at a lower rev, unlike Addendum E §31.
@@ -57,7 +57,7 @@ Note for the docs agent: the new `Data\ItemClasses.lua` is generated from AtlasL
 | auto-award-k2-fanout | fixed: random delay, cancelled when an earlier entry for the same loot line arrives | Core/Ledger.lua |
 | ledger-catchup-per-peer | fixed: each day is asked from one peer; newest days first | Core/Ledger.lua |
 | roster-rebuild-garbage | fixed: roster updated in place; the automatic re-request is kept | Core/Guild.lua |
-| class-restricted-raid-drops-usable-by-all | fixed: new generated data for 910 class-restricted items; such wanters show "can't use" and are never suggested | Data/ItemClasses.lua (new), CDLoot.toc, Core/ItemDB.lua, Core/Store.lua, Core/Roll.lua, Core/BiS.lua |
+| class-restricted-raid-drops-usable-by-all | fixed: new generated data for 910 class-restricted items; such wanters show "can't use" and are never suggested | Data/ItemClasses.lua (new), DisasterZone.toc, Core/ItemDB.lua, Core/Store.lua, Core/Roll.lua, Core/BiS.lua |
 | sources-class-restricted-pvp-rep | fixed: same data, plus class names on picker rows | UI/Picker.lua |
 | token-wanter-no-class-guard | fixed | Core/Store.lua, Core/Roll.lua, Core/BiS.lua |
 | arena-exchange-patch-gate-ignored | fixed: T6 → Season 3 exchange off until raised | Core/ItemDB.lua |
@@ -98,7 +98,7 @@ sync_traffic 2/2 · ui_dungeon 10/10
 ### 3. In-game checklist (things only the real client can confirm)
 
 1. Disenchant an epic, prospect, and open a lockbox in a raid. No drop panel or raid-warning sound should appear. With the loot window open, `/dump GetLootSourceInfo(1)` should start with `Item-`.
-2. Master-loot to a player with full bags. The red "inventory is full" error shows, then CDLoot offers "Award … ?". There is no announce and no log entry.
+2. Master-loot to a player with full bags. The red "inventory is full" error shows, then DisasterZone offers "Award … ?". There is no announce and no log entry.
 3. A normal give is recorded right after the slot empties. Two identical tokens given back to back are both recorded.
 4. Loot a boss with Blizzard's loot window. The drop panel sits beside it, also with Loot Under Mouse on near the right screen edge.
 5. With the restore popup up, press Escape. The popup closes and nothing is sent.
@@ -123,7 +123,7 @@ sync_traffic 2/2 · ui_dungeon 10/10
 - Roll suggestions use the raid's phase, not a council member's personal view phase. The master looter gets the same ranking even when the roll starter is the only council member in the raid.
 - A slot marked "not needed" in the current phase no longer counts through an older phase's pick.
 - Another Karazhan group's award of the same item no longer marks your drop as awarded or skips it in "Roll all".
-- When the loot message names someone other than the recorded winner, CDLoot flags it and offers a one-click fix to the log.
+- When the loot message names someone other than the recorded winner, DisasterZone flags it and offers a one-click fix to the log.
 - Awarding from Council > Items while a roll is open now goes through the roll.
 
 **Protection against modified clients**

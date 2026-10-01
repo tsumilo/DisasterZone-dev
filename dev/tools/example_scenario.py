@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Template scenario: three guild members load the REAL CDLoot addon, form a master-loot raid, kill a boss,
+"""Template scenario: three guild members load the REAL DisasterZone addon, form a master-loot raid, kill a boss,
 the ML awards an item, one player /reloads. Copy this file and add assertions for the feature under test.
 
 Run:  luaenv\\Scripts\\python.exe tools\\example_scenario.py
@@ -17,7 +17,7 @@ carol = Client(w, "Carol", class_file="WARRIOR", guild_rank=3)
 w.add_offline_member("Dave", "ROGUE", 3, officer_note="alt of Bob")
 
 for c in w.clients:
-    c.load_addon()                             # runs CDLoot.toc, fires ADDON_LOADED/PLAYER_LOGIN/PLAYER_ENTERING_WORLD
+    c.load_addon()                             # runs DisasterZone.toc, fires ADDON_LOADED/PLAYER_LOGIN/PLAYER_ENTERING_WORLD
 w.tick(2)                                      # guild roster arrives after 0.5 s (GUILD_ROSTER_UPDATE)
 
 w.make_raid([alice, bob, carol], master_looter=alice)
@@ -29,10 +29,10 @@ alice.eval("GiveMasterLoot(1, 2)")             # candidate 2 = Bob -> CHAT_MSG_L
 w.tick(1)
 alice.close_loot()
 
-bob.relog()                                    # /reload: CDLootDB serialized + restored in a fresh runtime
+bob.relog()                                    # /reload: DisasterZoneDB serialized + restored in a fresh runtime
 w.tick(15)                                     # let AceComm/ChatThrottleLib traffic settle
 
 print("addon messages:", len(w.addon_log), "chat lines:", len(w.chat_log))
-print("Bob's CDLootDB top-level keys:", sorted((bob.eval_py("return CDLootDB") or {}).keys()))
+print("Bob's DisasterZoneDB top-level keys:", sorted((bob.eval_py("return DisasterZoneDB") or {}).keys()))
 print(w.report())                              # errors, warnings, unknown template fields/methods, missing globals
 w.assert_no_errors()                           # raises LuaErrorsFound with every Lua traceback

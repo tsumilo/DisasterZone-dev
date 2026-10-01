@@ -1,7 +1,7 @@
 import sys, os, json, collections
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 import luabc, check
-ROOT = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
+ROOT = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 files = [f for f in check.iter_lua_files(ROOT)]
 known = check.load_known()
 kg = known.get("globals", {})

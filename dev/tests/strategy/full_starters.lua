@@ -1,4 +1,4 @@
--- CDLoot: starter strategies for the strategy boards (Addendum K). An author loads one from Raids > Strategies
+-- DisasterZone: starter strategies for the strategy boards (Addendum K). An author loads one from Raids > Strategies
 -- ("Starter") and gets it as an unsaved draft to adjust and Save; nothing is shared until then.
 -- Same shape as a strategy (Core/Strategy.lua) with two conveniences resolved when loaded:
 --   page.map = a Data/RaidMaps.lua file name (instead of the map id m)

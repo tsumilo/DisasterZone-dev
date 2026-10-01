@@ -39,7 +39,7 @@ def with_offspec(r, sync=True):
     if sync:
         r.w.tick(2)
         for n in ("Carol", "Dave"):
-            r[n].slash("/cdl sync")
+            r[n].slash("/dz sync")
             r.w.tick(0.5)
         r.w.tick(30)
 
@@ -234,14 +234,14 @@ def my_bis_switch_picker_and_remove():
     assert C.find_text("Off spec  ·  P"), "card title"
     # the picker opened from the off-spec view writes the off-spec list
     C.eval("ns.Picker:Open(1, 15, 'main', nil, 'os')")
-    assert "Off spec" in (C.eval("return CDLootPicker.TitleText and CDLootPicker.TitleText:GetText() or ''") or "")
+    assert "Off spec" in (C.eval("return DisasterZonePicker.TitleText and DisasterZonePicker.TitleText:GetText() or ''") or "")
     C.eval("ns.BiS:SetSlot(1, 15, 'main', ..., select(4, ns.Picker:GetState()))", MINDBLADE)
     assert C.eval("return (ns.BiS:GetSlot(1, 15, 'os'))") == MINDBLADE
     assert C.eval("return (ns.BiS:GetSlot(1, 15))") is None
     # removal asks first
     assert C.eval("return ns.BiS:HasOffSpec()") is True
     assert C.eval("return ns.MyBiS:ConfirmRemoveOffSpec()") is True
-    C.accept_popup("CDLOOT_REMOVE_OFFSPEC")
+    C.accept_popup("DISASTERZONE_REMOVE_OFFSPEC")
     r.w.tick(0.2)
     assert C.eval("return ns.BiS:HasOffSpec()") is False
     assert C.eval("return ns.MyBiS:GetList()") == "ms"
@@ -255,12 +255,12 @@ def council_off_spec_view():
     A = r["Alice"]
     A.eval("ns.MainFrame:Open('council')")
     r.w.tick(0.5)
-    A.eval("CDLootCouncilPanel.offspecCB:Click()")
+    A.eval("DisasterZoneCouncilPanel.offspecCB:Click()")
     r.w.tick(0.5)
     # the roster only holds players with an off-spec list, shown with the off-spec spec
     keys = A.eval_py("""
         local out = {}
-        local list = CDLootCouncilPanel.rosterView and CDLootCouncilPanel.rosterView.list
+        local list = DisasterZoneCouncilPanel.rosterView and DisasterZoneCouncilPanel.rosterView.list
         local data = list and list.data or {}
         for _, m in ipairs(data) do out[#out + 1] = m.key .. ':' .. (m.spec or '') end
         return out""")
@@ -274,7 +274,7 @@ def lock_covers_off_spec():
     w = r.w
     with_offspec(r)
     A, C = r["Alice"], r["Carol"]
-    A.slash("/cdl lock")
+    A.slash("/dz lock")
     w.tick(6)          # (lists committed up to 3 s after the lock count as saved before it)
     assert C.eval("return ns.BiS:SetSlot(1, 16, 'main', ..., 'os')", LIGHTS_JUSTICE) is False
     assert C.eval("return ns.BiS:SetSpec('Arms', 'os')") is False

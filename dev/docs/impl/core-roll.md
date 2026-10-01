@@ -1,11 +1,11 @@
 Addendum A core-roll work is complete. The checker and my new smoke test pass. One outside test (`uialerts_smoke.py`) now fails because of your parallel `UI/DropPanel.lua` change, not my files. Nothing has been tested in game.
 
-**Files changed / created** (under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\`)
-- `Core\Roll.lua` (new, §19.1): sessions, a one-open-at-a-time queue, the RS/RR/RE/RW messages with their gates, `/roll` parsing from `CHAT_MSG_SYSTEM`, results and suggestion, the award flow, both popups, and `/cdl roll <link>` (plus `/cdl roll end`). The TOC already listed it after Loot.lua.
+**Files changed / created** (under `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\`)
+- `Core\Roll.lua` (new, §19.1): sessions, a one-open-at-a-time queue, the RS/RR/RE/RW messages with their gates, `/roll` parsing from `CHAT_MSG_SYSTEM`, results and suggestion, the award flow, both popups, and `/dz roll <link>` (plus `/dz roll end`). The TOC already listed it after Loot.lua.
 - `Core\Loot.lua` (§19.4): tracks whether the loot window is open and adds the master-loot give helpers. It opens the candidate list with the LootReserve-style fake loot button when needed. Demo review fixes:
-  - `/cdl drop` never broadcasts in demo mode.
+  - `/dz drop` never broadcasts in demo mode.
   - Loot-chat auto records need real council.
-  - `/cdl test` drops are removed from saved history at logout and login.
+  - `/dz test` drops are removed from saved history at logout and login.
 - `Core\Ledger.lua` (§20):
   - In demo mode, reads and user actions (Award/Void) use an in-memory table that is emptied on every toggle, and nothing is sent.
   - Demo awards are purged once the guild roster is ready, with the "removed N demo award(s)" print.
@@ -64,7 +64,7 @@ Addendum A core-roll work is complete. The checker and my new smoke test pass. O
   - both simultaneous-start directions
   - duplicate copies
   - master-loot give: direct, via the fake loot-button click, and the fallback to the confirm popup
-  - `/cdl roll`
+  - `/dz roll`
   - demo rolls: 2 passes, 1 double roll, 1 invalid roll, 1 silent wanter
   - demo ledger isolation
 - An RS encodes to 137 bytes, so it fits one addon message.

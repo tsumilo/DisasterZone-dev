@@ -17,7 +17,7 @@ from st_common import world, K, DAY, now, create, signup, save_council, strategi
 from _common import case, run_all, strip_codes, menu_texts  # noqa: E402
 
 BOSS = "BlackTemple:Council"
-W = "_G.CDLootStrategyBoard"
+W = "_G.DisasterZoneStrategyBoard"
 CV = W + ".canvas"
 
 HELPERS = r"""
@@ -38,11 +38,11 @@ function T_menu_prefix(prefix)
   return __MOCK.menu_select(found.text, found.parent)
 end
 function T_key(key)
-  local w = _G.CDLootStrategyBoard
+  local w = _G.DisasterZoneStrategyBoard
   w:GetScript("OnKeyDown")(w, key)
 end
 function T_cell(ref)
-  for _, b in ipairs(_G.CDLootStrategyBoard.blocks.blocks) do
+  for _, b in ipairs(_G.DisasterZoneStrategyBoard.blocks.blocks) do
     for _, c in ipairs(b.cells) do
       if c:IsShown() and (c.slotRef == ref or c.headRef == ref) then return c end
     end

@@ -1,4 +1,4 @@
-"""Draws the strategy board's shape textures (Addendum K) into addon/CDLoot/Media/Strategy/.
+"""Draws the strategy board's shape textures (Addendum K) into addon/DisasterZone/Media/Strategy/.
 
 disc.tga  - a white filled circle with a soft edge (zones, tinted by vertex colour)
 ring.tga  - a white circle outline (zone borders)
@@ -12,7 +12,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "..", "..", "addon", "CDLoot", "Media", "Strategy")
+OUT = os.path.join(HERE, "..", "..", "addon", "DisasterZone", "Media", "Strategy")
 SIZE, OS = 128, 4
 
 

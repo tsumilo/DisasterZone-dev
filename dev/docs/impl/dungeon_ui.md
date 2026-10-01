@@ -1,6 +1,6 @@
 The UI for Addendum B (dungeon mode) and Addendum C (roll popups close once awarded) is done, and every related test suite passes. The core agent finished its side while I worked, so everything below runs against the real core APIs. The only stand-in is an inactive fallback in my own tests.
 
-**FILES CHANGED** (all under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\UI\`)
+**FILES CHANGED** (all under `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\UI\`)
 - **`Picker.lua`**
   - The scope dropdown gains "5-man dungeons" (`filter.scope="dungeons"`) and "Raids + dungeons" (`"all"`).
   - The existing raid options are unchanged, and default behaviour is unchanged.
@@ -62,4 +62,4 @@ The UI for Addendum B (dungeon mode) and Addendum C (roll popups close once awar
 | loot-roll (award 17, drops 17, ledger auto-record 9, rolls 20) | 63/63 |
 | conformance (demo isolation 7, ui_xmodule 11) | 18/18 |
 
-Backups of the original UI files are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\ui_b_backup\`.
+Backups of the original UI files are in `C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\ui_b_backup\`.

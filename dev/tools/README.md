@@ -1,12 +1,12 @@
-# CDLoot offline test toolchain
+# DisasterZone offline test toolchain
 
-Static checks and a mocked WoW TBC Anniversary client (2.5.x, Interface 20506, Lua 5.1) for the `CDLoot` addon.
+Static checks and a mocked WoW TBC Anniversary client (2.5.x, Interface 20506, Lua 5.1) for the `DisasterZone` addon.
 Nothing here touches the WoW folder; the addon is only read.
 
 **Python to use** (lupa 2.8 with a real Lua 5.1):
 
 ```
-C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-CDLoot\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\luaenv\Scripts\python.exe
+C:\Users\emilo\AppData\Local\Temp\claude\C--World-of-Warcraft--anniversary--Interface-AddOns-DisasterZone\ad52e6fc-e309-49be-aa3a-9ce45a30ad4b\scratchpad\luaenv\Scripts\python.exe
 ```
 
 Every tool also puts `luaenv\Lib\site-packages` on `sys.path` itself, so the base interpreter
@@ -18,20 +18,20 @@ directory (`SCRATCH`). The venv originally had no `python.exe`; it was restored 
 | `check.py` | Syntax check + global read/write analysis via Lua 5.1 bytecode |
 | `luabc.py` | Lua 5.1 compiler wrapper + bytecode parser (used by check.py) |
 | `known_globals.json` | Cache: globals/API fields/events read by 20 installed reference addons (`--rebuild-known`) |
-| `harness.py` | `World` / `Client` simulator (Python side). `python tools\harness.py` = smoke run on real CDLoot |
+| `harness.py` | `World` / `Client` simulator (Python side). `python tools\harness.py` = smoke run on real DisasterZone |
 | `wowmock/mock.lua` + `core.lua objects.lua ui.lua game.lua` | The mocked client (Lua side, plain 5.1) |
 | `wowmock/items.lua` | Item DB for every item in `Data/Items.lua` (generated) |
 | `wowmock/items_fallback.json` | 23,576 other TBC items (lazy fallback for arbitrary item IDs) |
 | `gen_items.py` | Regenerates the two item files + `items_report.json` |
-| `test_harness_selftest.py` | Proves the harness works using only CDLoot's `Libs/` |
-| `example_scenario.py` | Copy-me template: 3 players, ML raid, boss kill, award, /reload on real CDLoot |
+| `test_harness_selftest.py` | Proves the harness works using only DisasterZone's `Libs/` |
+| `example_scenario.py` | Copy-me template: 3 players, ML raid, boss kill, award, /reload on real DisasterZone |
 
 ---------------------------------------------------------------------------------------------------------------
 
 ## 1. `check.py` — static checker
 
 ```
-luaenv\Scripts\python.exe tools\check.py                 # every .lua in CDLoot except Libs/
+luaenv\Scripts\python.exe tools\check.py                 # every .lua in DisasterZone except Libs/
 luaenv\Scripts\python.exe tools\check.py Core UI\Council.lua   # files/dirs (relative to CWD or to the addon)
 luaenv\Scripts\python.exe tools\check.py --libs          # include Libs/ when scanning directories
 luaenv\Scripts\python.exe tools\check.py -q              # only ERROR lines + summary
@@ -45,7 +45,7 @@ Output, one problem per line (`file:line: ...`), then a summary line:
 | Line | Meaning |
 |---|---|
 | `ERROR syntax: <msg>` | `loadstring` (Lua 5.1) failed |
-| `ERROR global write 'x'` | `SETGLOBAL` not in the allowlist: `CDLoot`, `CDLootDB`, `SLASH_CDLOOT*`, `BINDING_*`, `CDLoot*` |
+| `ERROR global write 'x'` | `SETGLOBAL` not in the allowlist: `DisasterZone`, `DisasterZoneDB`, `SLASH_DISASTERZONE*`, `BINDING_*`, `DisasterZone*` |
 | `WARN _G write 'x'` | explicit `_G.x = ...` / `_G["x"] = ...` outside the allowlist |
 | `WARN UNKNOWN GLOBAL 'x' (verify it exists on 2.5.x)` | read of a global no reference addon reads |
 | `WARN UNKNOWN FIELD 'C_Foo.Bar'` | `C_*`/`Enum`/`Settings`/`MenuUtil`/`ScrollUtil`/`EventUtil`/`ChatFrameUtil`/... field no reference addon reads; also `string.x`/`table.x`/`math.x`/`os.x`/`bit.x` not in WoW's Lua (e.g. `table.unpack`, `os.getenv`). Works through `local C_Item = C_Item` aliases too. |
@@ -87,10 +87,10 @@ w = World()                                        # realm "Thunderstrike"
 a = Client(w, "Alice", guild_rank=1)               # PALADIN, guild "Casual Disaster", level 70, online
 b = Client(w, "Bob", class_file="MAGE")
 for c in (a, b):
-    c.load_addon()                                 # CDLoot.toc in order, ("CDLoot", ns), login events
+    c.load_addon()                                 # DisasterZone.toc in order, ("DisasterZone", ns), login events
 w.tick(2)                                          # virtual seconds; guild roster arrives at +0.5 s
 w.make_raid([a, b], master_looter=a)
-a.slash("/cdl sync")
+a.slash("/dz sync")
 w.tick(10)
 assert b.eval("return ns.Store:Get('Alice-Thunderstrike').rev") == 3
 w.assert_no_errors()                               # raises LuaErrorsFound with all Lua tracebacks
@@ -140,7 +140,7 @@ bank_requires_open=True, sv_before_files=None)`
 
 | Method / property | Notes |
 |---|---|
-| `load_addon(reload=False)` | parses `CDLoot.toc` (+ `<Script>/<Include>` in XML), skips missing files with a warning, runs each file with `("CDLoot", ns)`, assigns SavedVariables, fires `ADDON_LOADED("CDLoot")`, `VARIABLES_LOADED`, `SPELLS_CHANGED`, `PLAYER_LOGIN`, `PLAYER_ENTERING_WORLD(true,false)` (`(false,true)` when reload) |
+| `load_addon(reload=False)` | parses `DisasterZone.toc` (+ `<Script>/<Include>` in XML), skips missing files with a warning, runs each file with `("DisasterZone", ns)`, assigns SavedVariables, fires `ADDON_LOADED("DisasterZone")`, `VARIABLES_LOADED`, `SPELLS_CHANGED`, `PLAYER_LOGIN`, `PLAYER_ENTERING_WORLD(true,false)` (`(false,true)` when reload) |
 | `load_files([...], fire_login=False)` | load specific files (relative to the addon or absolute) |
 | `relog(reload=True)` | fires `PLAYER_LEAVING_WORLD`, `PLAYER_LOGOUT`, serializes the SavedVariables to Lua source, builds a **fresh** runtime, `load_addon(reload=True)`. `reload=False` = full logout + login |
 | `logout()` / `login()` | goes offline (guild sees `CHAT_MSG_SYSTEM "... has gone offline."`, roster update) / back online |
@@ -161,7 +161,7 @@ bank_requires_open=True, sv_before_files=None)`
 | `set_ml_refusal(member, kind="inv_full")` | the server refuses this client's `GiveMasterLoot` to `member`: `UI_ERROR_MESSAGE` with `ERR_LOOT_MASTER_INV_FULL` / `_UNIQUE_ITEM` / `_OTHER` / `ERR_LOOT_PLAYER_NOT_FOUND`, the item stays in the slot; `None` accepts again |
 | `last_menu()` / `menu_select(text)` / `dropdown_menu(frame)` | `MenuUtil.CreateContextMenu` / dropdown `SetupMenu` entries as `{kind, text, enabled, selected, children}`; select calls the callback / setSelected |
 | `click(frame_or_name, button)`, `hover()`, `leave()`, `type_text(editbox, text, enter=False)`, `press_enter()`, `press_escape()` | UI interaction (OnClick incl. CheckButton toggle; OnTextChanged(self, true)) |
-| `slash("/cdl sync")` | runs the matching `SlashCmdList` handler |
+| `slash("/dz sync")` | runs the matching `SlashCmdList` handler |
 | `frame(name)`, `dump_ui(frame=None, depth=6, textures=False)`, `find_text("substring")` | inspect the UI tree |
 | `set_modifiers(shift, ctrl, alt)`, `set_combat(bool)`, `set_target(name)`, `set_cursor_item(id)`, `set_talents((a,b,c))`, `combat_log(*cleu_args)`, `define_item(...)` | |
 
@@ -232,12 +232,12 @@ Faithful where addon logic depends on it; permissive for visuals.
 * **SavedVariables**: serialized to Lua source (nested tables, escaped strings incl. binary, integers up to
   2^53, floats `%.17g`, inf/nan, booleans; functions/userdata dropped; **recursive tables are an error**).
   WoW assigns SavedVariables **after** the addon's files ran, just before `ADDON_LOADED`, unless the TOC says
-  `## LoadSavedVariablesFirst: 1` (CDLoot's does, for in-game updates): then they are assigned before the first
+  `## LoadSavedVariablesFirst: 1` (DisasterZone's does, for in-game updates): then they are assigned before the first
   file. The mock follows the TOC; `sv_before_files=True` / `False` forces one order (`False` = a client that ignores
   the directive).
 * **Other copies of the addon**: `World(addon_dir=...)` / `Client(..., addon_dir=...)` load another folder (the
-  `tests/patch` suites build releases in a temp folder). The environment variables `CDLOOT_ADDON_DIR` and
-  `CDLOOT_PATCH_SV` (a file with a `CDLootPatchDB` table) redirect every suite; `tools/patched_run.py` sets them.
+  `tests/patch` suites build releases in a temp folder). The environment variables `DISASTERZONE_ADDON_DIR` and
+  `DISASTERZONE_PATCH_SV` (a file with a `DisasterZonePatchDB` table) redirect every suite; `tools/patched_run.py` sets them.
 * **Fault injection**: `world.addon_fault = fn(entry, recipient)` is called per recipient of every addon message;
   return `False` to lose it (listed in the entry's `lost`), bytes to replace its text, `None` to deliver.
 
@@ -263,7 +263,7 @@ Faithful where addon logic depends on it; permissive for visuals.
   (use `click()/hover()` helpers), animations only track duration.
 * `OnUpdate` runs only for **visible** frames (as in WoW; ChatThrottleLib shows its frame while queueing). Use
   `World(onupdate_hidden=True)` to also run hidden frames.
-* Performance: loading the real CDLoot takes ~0.2 s per client; 10 clients x 60 simulated seconds tick in ~0.2 s.
+* Performance: loading the real DisasterZone takes ~0.2 s per client; 10 clients x 60 simulated seconds tick in ~0.2 s.
 * One group per World; everybody is in the same "zone" unless in the World's instance. `UnitX("Name")` resolves only
   the player and group members (as in WoW); `set_target(name)` can target any online client. No combat log/aura/spell
   simulation beyond `client.combat_log(...)`; `GetSpellInfo` returns placeholders; no real talent trees.
@@ -281,7 +281,7 @@ Faithful where addon logic depends on it; permissive for visuals.
 
 `luaenv\Scripts\python.exe tools\gen_items.py` regenerates from local files only:
 
-* 1,434 items = every ID in CDLoot's `Data/Items.lua` (boss loot, tier tokens, tier pieces from `ns.Data.Tokens`,
+* 1,434 items = every ID in DisasterZone's `Data/Items.lua` (boss loot, tier tokens, tier pieces from `ns.Data.Tokens`,
   Sunmote upgrades, arena exchanges). Names: 100% from the `-- Name` comments.
 * classID/subclassID/itemLevel/requiredLevel: 100% from `Questie/Database/TBC/tbcItemDB.lua`
   (`QuestieDB.itemKeys`: 9 itemLevel, 10 requiredLevel, 12 class, 13 subClass). No local source has
@@ -310,7 +310,7 @@ C_Timer; events/scripts/visibility/errors; widgets/templates/unknown-field log; 
 popups/Settings/dropdowns; TOC loading + relog/logout persistence; loot/ML/rolls/CHAT_MSG_LOOT; items/guild/
 group/units/gear/bank/talents/tooltip hooks; LibDBIcon + LibCustomGlow; chat + slash commands; misc helpers
 (hover/escape/modifiers/combat/target/combat log/define_item/logout notices/show-offline/legacy flag). It uses a
-temporary addon folder containing only CDLoot's `Libs/`, so it does not depend on the in-progress addon code.
+temporary addon folder containing only DisasterZone's `Libs/`, so it does not depend on the in-progress addon code.
 
 Missing API? The run shows `attempt to call ... (a nil value)` in `errors` and the name in
 `report_missing_globals()`. For a one-off stub use `Client(..., preload_lua="function Foo() return 1 end")`; for a

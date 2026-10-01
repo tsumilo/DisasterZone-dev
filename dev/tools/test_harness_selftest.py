@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Self-tests proving the WoW mock + harness work WITHOUT any CDLoot code (only CDLoot's Libs are loaded).
+"""Self-tests proving the WoW mock + harness work WITHOUT any DisasterZone code (only DisasterZone's Libs are loaded).
 
 Run:  luaenv\\Scripts\\python.exe tools\\test_harness_selftest.py [-v] [-k substring]
 Every test_* function gets fresh World/Clients. Exit code 0 = all passed.
@@ -27,8 +27,8 @@ LIBS = [
     "Libs/LibCustomGlow-1.0/LibCustomGlow-1.0.lua",
 ]
 
-# A throw-away addon folder: CDLoot's Libs + a TOC with SavedVariables and one missing file, so load_addon()/relog()
-# can be tested without depending on the (in-progress) CDLoot Core/UI code.
+# A throw-away addon folder: DisasterZone's Libs + a TOC with SavedVariables and one missing file, so load_addon()/relog()
+# can be tested without depending on the (in-progress) DisasterZone Core/UI code.
 _FIXTURE = None
 
 
@@ -38,15 +38,15 @@ def fixture_dir():
         d = tempfile.mkdtemp(prefix="cdloot_selftest_", dir=os.path.dirname(HERE))
         _FIXTURE = d
         shutil.copytree(os.path.join(H.ADDON_DIR, "Libs"), os.path.join(d, "Libs"))
-        with open(os.path.join(d, "CDLoot.toc"), "w", encoding="utf-8") as fh:
-            fh.write("## Interface: 20506\n## Title: CDLoot selftest\n## Version: 9.9.9\n## X-CDL-Protocol: 7\n"
-                     "## SavedVariables: CDLootDB\n\n")
+        with open(os.path.join(d, "DisasterZone.toc"), "w", encoding="utf-8") as fh:
+            fh.write("## Interface: 20506\n## Title: DisasterZone selftest\n## Version: 9.9.9\n## X-CDL-Protocol: 7\n"
+                     "## SavedVariables: DisasterZoneDB\n\n")
             fh.write("\n".join(l.replace("/", "\\") for l in LIBS) + "\n")
             fh.write("Core\\DoesNotExist.lua\nTest\\Probe.lua\n")
         os.makedirs(os.path.join(d, "Test"))
         with open(os.path.join(d, "Test", "Probe.lua"), "w", encoding="utf-8") as fh:
             fh.write("""local addonName, ns = ...
-ns.probe = { addonName = addonName, loadedDBAtFileTime = CDLootDB }
+ns.probe = { addonName = addonName, loadedDBAtFileTime = DisasterZoneDB }
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_LOGIN")
@@ -55,8 +55,8 @@ ns.events = {}
 f:SetScript("OnEvent", function(self, event, ...)
   table.insert(ns.events, event)
   if event == "ADDON_LOADED" and ... == addonName then
-    CDLootDB = CDLootDB or { created = true }
-    ns.dbAtAddonLoaded = CDLootDB
+    DisasterZoneDB = DisasterZoneDB or { created = true }
+    ns.dbAtAddonLoaded = DisasterZoneDB
   elseif event == "PLAYER_ENTERING_WORLD" then
     ns.pew = { ... }
   end
@@ -259,7 +259,7 @@ def test_events_and_scripts():
     w, a, b = two_clients()
     a.eval("""
       __E = {}
-      local f = CreateFrame("Frame", "CDLootEvtFrame")
+      local f = CreateFrame("Frame", "DisasterZoneEvtFrame")
       f:RegisterEvent("BAG_UPDATE")
       f:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
       f:SetScript("OnEvent", function(self, event, ...) table.insert(__E, { event, ... }) end)
@@ -271,12 +271,12 @@ def test_events_and_scripts():
     a.fire("BAG_UPDATE", 3)
     a.fire("UNIT_INVENTORY_CHANGED", "target")
     a.fire("UNIT_INVENTORY_CHANGED", "player")
-    a.eval("CDLootEvtFrame:UnregisterEvent('BAG_UPDATE')")
+    a.eval("DisasterZoneEvtFrame:UnregisterEvent('BAG_UPDATE')")
     a.fire("BAG_UPDATE", 4)
     ev = a.eval_py("return __E")
     assert ev[1] == ["BAG_UPDATE", 3] and ev[2] == ["UNIT_INVENTORY_CHANGED", "player"] and len([k for k in ev if isinstance(k, int)]) == 2, ev
     assert ev["all"] == 4
-    assert a.eval("return CDLootEvtFrame:IsEventRegistered('UNIT_INVENTORY_CHANGED')") is True
+    assert a.eval("return DisasterZoneEvtFrame:IsEventRegistered('UNIT_INVENTORY_CHANGED')") is True
     # errors inside handlers are recorded, never swallowed, and do not stop other handlers
     a.eval("""
       local f1 = CreateFrame("Frame"); f1:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -324,7 +324,7 @@ def test_events_and_scripts():
 def test_frames_widgets_and_unknown_fields():
     w, a, b = two_clients()
     a.eval("""
-      local f = CreateFrame("Frame", "CDLootMain", UIParent, "BasicFrameTemplateWithInset")
+      local f = CreateFrame("Frame", "DisasterZoneMain", UIParent, "BasicFrameTemplateWithInset")
       f.TitleText:SetText("CD Loot")
       f:SetSize(300, 200)
       __R = { title = f.TitleText:GetText(), w = f:GetWidth(), close = f.CloseButton ~= nil, inset = f.Inset ~= nil,
@@ -334,13 +334,13 @@ def test_frames_widgets_and_unknown_fields():
       local cb = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
       cb.Text:SetText("Opt"); cb:SetChecked(true); cb:Click()
       __R.checked = cb:GetChecked()
-      local eb = CreateFrame("EditBox", "CDLootEdit", f, "InputBoxTemplate")
+      local eb = CreateFrame("EditBox", "DisasterZoneEdit", f, "InputBoxTemplate")
       eb:SetText("abc"); eb:Insert("d")
       __R.eb = eb:GetText()
       local sl = CreateFrame("Slider", nil, f, "OptionsSliderTemplate")
       sl:SetMinMaxValues(0, 10); sl:SetValue(15)
       __R.slider = sl:GetValue()
-      local btn = CreateFrame("Button", "CDLootBtn", f, "UIPanelButtonTemplate")
+      local btn = CreateFrame("Button", "DisasterZoneBtn", f, "UIPanelButtonTemplate")
       btn:SetText("Go"); btn:SetScript("OnClick", function(self, button) __R.clicked = button end)
       __R.btntext = btn:GetText()
       local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -354,9 +354,9 @@ def test_frames_widgets_and_unknown_fields():
     assert "unknownChild" not in r and "noopMethod" not in r
     assert r["hiddenByClose"] is True and r["checked"] is False and r["eb"] == "abcd" and r["slider"] == 10
     assert r["btntext"] == "Go" and r["fsw"] == 30 and r["nobackdrop"] and r["backdrop"]
-    a.click("CDLootBtn")
-    a.type_text("CDLootEdit", "typed", enter=True)
-    assert a.eval("return __R.clicked") == "LeftButton" and a.eval("return CDLootEdit:GetText()") == "typed"
+    a.click("DisasterZoneBtn")
+    a.type_text("DisasterZoneEdit", "typed", enter=True)
+    assert a.eval("return __R.clicked") == "LeftButton" and a.eval("return DisasterZoneEdit:GetText()") == "typed"
     rep = w.report_unknown_fields(addon_only=False)
     assert "SomeChild" in rep, rep
     assert "SetFooBar" in w.report_unknown_methods(addon_only=False)
@@ -371,7 +371,7 @@ def test_scrollbox_dataprovider_menu_popup_settings():
     w, a, b = two_clients()
     a.eval("""
       __R = { inits = {} }
-      local f = CreateFrame("Frame", "CDLootList", UIParent)
+      local f = CreateFrame("Frame", "DisasterZoneList", UIParent)
       local box = CreateFrame("Frame", nil, f, "WowScrollBoxList")
       local bar = CreateFrame("EventFrame", nil, f, "MinimalScrollBar")
       local view = CreateScrollBoxListLinearView()
@@ -395,11 +395,11 @@ def test_scrollbox_dataprovider_menu_popup_settings():
         root:CreateCheckbox("Show offline", function() return true end, function() __R.toggled = true end)
         root:CreateDivider()
       end)
-      StaticPopupDialogs["CDLOOT_TEST"] = { text = "Delete %s?", button1 = YES, button2 = NO, hasEditBox = true,
+      StaticPopupDialogs["DISASTERZONE_TEST"] = { text = "Delete %s?", button1 = YES, button2 = NO, hasEditBox = true,
         OnAccept = function(self, data) __R.accepted = { data, self.editBox:GetText() } end, timeout = 0 }
-      __R.popup = StaticPopup_Show("CDLOOT_TEST", "Bob", nil, "payload") ~= nil
+      __R.popup = StaticPopup_Show("DISASTERZONE_TEST", "Bob", nil, "payload") ~= nil
       local panel = CreateFrame("Frame")
-      local cat = Settings.RegisterCanvasLayoutCategory(panel, "CDLoot")
+      local cat = Settings.RegisterCanvasLayoutCategory(panel, "DisasterZone")
       Settings.RegisterAddOnCategory(cat)
       __R.catid = cat:GetID()
       local dd = CreateFrame("DropdownButton", nil, f, "WowStyle1DropdownTemplate")
@@ -419,8 +419,8 @@ def test_scrollbox_dataprovider_menu_popup_settings():
     assert menu["children"][2]["selected"] is True
     a.menu_select("Award")
     assert a.eval("return __R.award") == 42
-    assert a.popups() == ["CDLOOT_TEST"]
-    a.accept_popup("CDLOOT_TEST", text="typed")
+    assert a.popups() == ["DISASTERZONE_TEST"]
+    a.accept_popup("DISASTERZONE_TEST", text="typed")
     assert a.eval_py("return __R.accepted") == ["payload", "typed"] and a.popups() == []
     assert isinstance(r["catid"], (int, float)) and r["ddtext"] == "B"
     dd = a.dropdown_menu(a.eval("return __DD"))
@@ -437,41 +437,41 @@ def test_relog_persistence_and_toc_loading():
     a = H.Client(w, "Alice")
     a.load_addon()
     assert "Core/DoesNotExist.lua" in a.load_warnings[0]
-    assert a.eval("return ns.probe.addonName") == "CDLoot"
+    assert a.eval("return ns.probe.addonName") == "DisasterZone"
     assert a.eval("return ns.probe.loadedDBAtFileTime") is None, "SavedVariables are not set while files execute"
     assert a.eval_py("return ns.events") == ["ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD"]
     assert a.eval_py("return ns.pew") == [True, False]
-    assert a.eval("return C_AddOns.GetAddOnMetadata('CDLoot', 'X-CDL-Protocol')") == "7"
-    assert a.eval("return C_AddOns.GetAddOnMetadata('CDLoot', 'Version')") == "9.9.9"
+    assert a.eval("return C_AddOns.GetAddOnMetadata('DisasterZone', 'X-CDL-Protocol')") == "7"
+    assert a.eval("return C_AddOns.GetAddOnMetadata('DisasterZone', 'Version')") == "9.9.9"
     a.eval(r"""
-      CDLootDB.nested = { s = "q\"uote\nnl\\bs", t = true, f = false, [5] = 3.25, big = 2^40, neg = -7,
+      DisasterZoneDB.nested = { s = "q\"uote\nnl\\bs", t = true, f = false, [5] = 3.25, big = 2^40, neg = -7,
                           deep = { { 1, 2, { x = "y" } } }, ["key with space"] = 1 }
-      CDLootDB.bin = "\1\2\255\0end"
-      CDLootDB.fn = function() end
+      DisasterZoneDB.bin = "\1\2\255\0end"
+      DisasterZoneDB.fn = function() end
     """)
     a.relog()
     assert a.eval("return ns.probe.loadedDBAtFileTime") is None
     assert a.eval_py("return ns.pew") == [False, True], "/reload fires PLAYER_ENTERING_WORLD(false, true)"
-    db = a.eval_py("return CDLootDB")
+    db = a.eval_py("return DisasterZoneDB")
     assert db["created"] is True and db["nested"]["s"] == 'q"uote\nnl\\bs' and db["nested"]["t"] is True
     assert db["nested"]["f"] is False and db["nested"][5] == 3.25 and db["nested"]["big"] == 2 ** 40
     assert db["nested"]["deep"] == [[1, 2, {"x": "y"}]] and db["nested"]["key with space"] == 1
     assert db["bin"] == b"\x01\x02\xff\x00end" and "fn" not in db
-    assert a.eval("return ns.dbAtAddonLoaded == CDLootDB") is True
+    assert a.eval("return ns.dbAtAddonLoaded == DisasterZoneDB") is True
     # full logout / login
     a.logout()
     assert a.runtime is None and not a.online
     a.login()
-    assert a.eval("return CDLootDB.nested.neg") == -7
+    assert a.eval("return DisasterZoneDB.nested.neg") == -7
     assert a.eval_py("return ns.pew") == [True, False]
     # recursive tables cannot be saved -> recorded error
-    a.eval("CDLootDB.loop = {}; CDLootDB.loop.self = CDLootDB.loop")
+    a.eval("DisasterZoneDB.loop = {}; DisasterZoneDB.loop.self = DisasterZoneDB.loop")
     a.relog()
     assert any("recursive table" in e for e in a.errors)
     w.clear_errors()
     # pre-seeded SavedVariables + optional "assign before files" timing
     c = H.Client(w, "Seeded", sv_before_files=True)
-    c.set_saved_variable("CDLootDB", "{ seeded = 1 }")
+    c.set_saved_variable("DisasterZoneDB", "{ seeded = 1 }")
     c.load_addon()
     assert c.eval("return ns.probe.loadedDBAtFileTime.seeded") == 1
     # fractional ticks advance exactly
@@ -580,7 +580,7 @@ def test_items_guild_group_units_gear():
     assert a.eval("local it = Item:CreateFromItemID(28477); local n; it:ContinueOnItemLoad(function() n = it:GetItemName() end); return n") == "Harbinger Bands"
     assert a.eval("return RAID_CLASS_COLORS.PALADIN:GenerateHexColor()") == "fff58cba"
     assert a.eval("return C_ClassColor.GetClassColor('MAGE').colorStr") == "ff69ccf0"
-    fb = a.eval("return (C_Item.GetItemInfo(19019))")  # not in CDLoot data -> Questie fallback DB
+    fb = a.eval("return (C_Item.GetItemInfo(19019))")  # not in DisasterZone data -> Questie fallback DB
     assert fb == "Thunderfury, Blessed Blade of the Windseeker", fb
     # uncached item flow
     u = H.Client(w, "Uncached", items_uncached=True)
@@ -610,9 +610,9 @@ def test_items_guild_group_units_gear():
         pass
     assert a.eval_py("return { GetTalentTabInfo(3) }")[:5] == [381, "Retribution", "Retribution talents", 136246, 50]
     # tooltip hook
-    a.eval("GameTooltip:HookScript('OnTooltipSetItem', function(tt) local _, link = tt:GetItem(); tt:AddLine('CDLoot: BiS for 2') end)")
+    a.eval("GameTooltip:HookScript('OnTooltipSetItem', function(tt) local _, link = tt:GetItem(); tt:AddLine('DisasterZone: BiS for 2') end)")
     lines = a.show_tooltip_item(28477)
-    assert lines[0][0] == "Harbinger Bands" and lines[-1][0] == "CDLoot: BiS for 2", lines
+    assert lines[0][0] == "Harbinger Bands" and lines[-1][0] == "DisasterZone: BiS for 2", lines
     w.assert_no_errors()
 
 
@@ -620,27 +620,27 @@ def test_libdbicon_and_customglow():
     w, a, b = two_clients()
     a.eval("""
       local ldb = LibStub("LibDataBroker-1.1")
-      local obj = ldb:NewDataObject("CDLootSelftest", { type = "launcher", icon = 134400, OnClick = function() __CLICKED = true end })
+      local obj = ldb:NewDataObject("DisasterZoneSelftest", { type = "launcher", icon = 134400, OnClick = function() __CLICKED = true end })
       __DB = { minimap = { hide = false } }
-      LibStub("LibDBIcon-1.0"):Register("CDLootSelftest", obj, __DB.minimap)
-      local btn = CreateFrame("Button", "CDLootGlowBtn", UIParent)
+      LibStub("LibDBIcon-1.0"):Register("DisasterZoneSelftest", obj, __DB.minimap)
+      local btn = CreateFrame("Button", "DisasterZoneGlowBtn", UIParent)
       btn:SetSize(36, 36)
       local LCG = LibStub("LibCustomGlow-1.0")
       LCG.ButtonGlow_Start(btn)
       LCG.PixelGlow_Start(btn)
       LCG.AutoCastGlow_Start(btn)
     """)
-    assert a.eval("return LibDBIcon10_CDLootSelftest ~= nil and LibDBIcon10_CDLootSelftest:IsShown()") is True
+    assert a.eval("return LibDBIcon10_DisasterZoneSelftest ~= nil and LibDBIcon10_DisasterZoneSelftest:IsShown()") is True
     w.tick(1.0)
     a.eval("""
       local LCG = LibStub("LibCustomGlow-1.0")
-      LCG.ButtonGlow_Stop(CDLootGlowBtn)
-      LCG.PixelGlow_Stop(CDLootGlowBtn)
-      LCG.AutoCastGlow_Stop(CDLootGlowBtn)
-      LCG.ProcGlow_Start(CDLootGlowBtn)
+      LCG.ButtonGlow_Stop(DisasterZoneGlowBtn)
+      LCG.PixelGlow_Stop(DisasterZoneGlowBtn)
+      LCG.AutoCastGlow_Stop(DisasterZoneGlowBtn)
+      LCG.ProcGlow_Start(DisasterZoneGlowBtn)
     """)
     w.tick(1.0)
-    a.eval("LibStub('LibCustomGlow-1.0').ProcGlow_Stop(CDLootGlowBtn); LibStub('LibDBIcon-1.0'):Hide('CDLootSelftest')")
+    a.eval("LibStub('LibCustomGlow-1.0').ProcGlow_Stop(DisasterZoneGlowBtn); LibStub('LibDBIcon-1.0'):Hide('DisasterZoneSelftest')")
     w.tick(0.5)
     w.assert_no_errors()
 
@@ -652,7 +652,7 @@ def test_chat_and_slash():
         c.eval("__C = {}; local f = CreateFrame('Frame'); for _, e in ipairs({'CHAT_MSG_RAID','CHAT_MSG_RAID_LEADER','CHAT_MSG_RAID_WARNING','CHAT_MSG_GUILD','CHAT_MSG_WHISPER','CHAT_MSG_WHISPER_INFORM'}) do f:RegisterEvent(e) end f:SetScript('OnEvent', function(_, e, text, sender) table.insert(__C, {e, text, sender}) end)")
     a.eval("SendChatMessage('pull in 5', 'RAID_WARNING')")
     b.eval("C_ChatInfo.SendChatMessage('hi', 'WHISPER', nil, 'Alice')")
-    a.eval("ChatThrottleLib:SendChatMessage('NORMAL', 'CDLoot', 'guild via CTL', 'GUILD')")
+    a.eval("ChatThrottleLib:SendChatMessage('NORMAL', 'DisasterZone', 'guild via CTL', 'GUILD')")
     w.tick(1)
     ca = a.eval_py("return __C")
     assert ["CHAT_MSG_RAID_WARNING", "pull in 5", "Alice-Thunderstrike"] in ca and ["CHAT_MSG_WHISPER", "hi", "Bob-Thunderstrike"] in ca
@@ -660,7 +660,7 @@ def test_chat_and_slash():
     assert ["CHAT_MSG_WHISPER_INFORM", "hi", "Alice-Thunderstrike"] in b.eval_py("return __C")
     assert "pull in 5" in b.raid_notices
     assert [e["text"] for e in w.chat_log] == ["pull in 5", "hi", "guild via CTL"]
-    a.eval("SLASH_CDLOOTTEST1 = '/cdltest'; SlashCmdList.CDLOOTTEST = function(msg) print('got', msg) end")
+    a.eval("SLASH_DISASTERZONETEST1 = '/cdltest'; SlashCmdList.DISASTERZONETEST = function(msg) print('got', msg) end")
     assert a.slash("/cdltest sync now") is True and a.printed[-1] == "got sync now"
     w.assert_no_errors()
 
@@ -677,19 +677,19 @@ def test_misc_helpers():
         if e == "COMBAT_LOG_EVENT_UNFILTERED" then __M.cleu = { CombatLogGetCurrentEventInfo() } end
         if e == "CHAT_MSG_SYSTEM" then __M.sys = ... end
       end)
-      local b = CreateFrame("Button", "CDLootHoverBtn", UIParent)
+      local b = CreateFrame("Button", "DisasterZoneHoverBtn", UIParent)
       b:SetScript("OnEnter", function() __M.enter = true end)
       b:SetScript("OnLeave", function() __M.leave = true end)
-      local e = CreateFrame("EditBox", "CDLootEsc", UIParent, "InputBoxTemplate")
+      local e = CreateFrame("EditBox", "DisasterZoneEsc", UIParent, "InputBoxTemplate")
       e:SetAutoFocus(false)
       local fs = UIParent:CreateFontString(nil, "OVERLAY")
       fs:SetText("Needle in haystack")
     """)
-    a.hover("CDLootHoverBtn")
-    a.leave("CDLootHoverBtn")
-    a.eval("CDLootEsc:SetFocus()")
-    a.press_escape("CDLootEsc")
-    assert a.eval("return CDLootEsc:HasFocus()") is False, "InputBoxTemplate OnEscapePressed clears focus"
+    a.hover("DisasterZoneHoverBtn")
+    a.leave("DisasterZoneHoverBtn")
+    a.eval("DisasterZoneEsc:SetFocus()")
+    a.press_escape("DisasterZoneEsc")
+    assert a.eval("return DisasterZoneEsc:HasFocus()") is False, "InputBoxTemplate OnEscapePressed clears focus"
     assert len(a.find_text("Needle")) == 1 and a.find_text("nothing-like-this") == []
     a.set_modifiers(shift=True)
     assert a.eval("return IsShiftKeyDown() and IsModifiedClick('CHATLINK')") is True

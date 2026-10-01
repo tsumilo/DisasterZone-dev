@@ -1,4 +1,4 @@
-1. **Files written** (all under `C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot\Core\`)
+1. **Files written** (all under `C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone\Core\`)
    - `Guild.lua`: 500 lines
    - `Store.lua`: 532 lines
    - `Comm.lua`: 355 lines
@@ -6,7 +6,7 @@
 
    I also built a test simulation in my scratchpad (not part of the addon): `...\scratchpad\sync_sim\` (`sim.py`, `mock.lua`, `stubs.lua`).
 
-   On the user's question: this layer depends on no other addon. It only uses AceComm-3.0 (with ChatThrottleLib), LibSerialize, LibDeflate and LibStub, all shipped inside `CDLoot\Libs` and loaded by `CDLoot.toc`. The only other addon named anywhere is LoonBestInSlot, and it is optional.
+   On the user's question: this layer depends on no other addon. It only uses AceComm-3.0 (with ChatThrottleLib), LibSerialize, LibDeflate and LibStub, all shipped inside `DisasterZone\Libs` and loaded by `DisasterZone.toc`. The only other addon named anywhere is LoonBestInSlot, and it is optional.
 
 2. **Public API.** Everything in the spec is implemented with the spec's names. Where I added to it, the addition is optional and marked "extension".
    - **Guild**
@@ -27,7 +27,7 @@
      - "No player named ..." system messages are hidden for names this addon whispered in the last 15 seconds, and the player is marked offline.
    - **Sync**
      - `GetOnlineCouncilPeers`, `GetPeer`, `GetStatusText`, `SendHello`, `PushListTo(key, evidence)`, `PullFrom`, `OnCouncilHasNewer`, `NotePeerProtocol`, `GetVersions`, `RequestRestore(from, rev)`, `KeepMine()`.
-     - Slash commands: `/cdl sync`, `/cdl version`. Popup: `CDLOOT_RESTORE`.
+     - Slash commands: `/dz sync`, `/dz version`. Popup: `DISASTERZONE_RESTORE`.
      - Deviations:
        - The status check mark is a texture escape (`ReadyCheck-Ready`), because the default font has no ✓ character.
        - A fifth status, "Sharing with council…", is shown while a council member is online but hasn't confirmed our current rev yet.

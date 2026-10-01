@@ -5,7 +5,7 @@ Spots were read off Blizzard's floor maps (dev/art/blizzard_maps, the skull each
 given in map units: 0-1000 across the map's width and 0-1000 down its height. The view is the room's centre (same
 units) and a zoom (100 = the whole map); creatures become board icons with the portrait of that name.
 Each boss spot is checked against wowhead's spawn data (data/npc_spots.json, fetch_npc_spots.py) when it is there.
-Writes addon/CDLoot/Data/StarterStrategies.lua.
+Writes addon/DisasterZone/Data/StarterStrategies.lua.
 
 Run: luaenv\\Scripts\\python.exe generators\\gen_starter_strategies.py
 """
@@ -14,7 +14,7 @@ import math
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ADDON = os.path.join(HERE, "..", "..", "addon", "CDLoot")
+ADDON = os.path.join(HERE, "..", "..", "addon", "DisasterZone")
 OUT = os.path.join(ADDON, "Data", "StarterStrategies.lua")
 SPOTS = os.path.join(HERE, "data", "npc_spots.json")
 
@@ -153,7 +153,7 @@ def check_spots():
 def main():
     check_spots()
     lines = [
-        "-- CDLoot: starter strategies for the strategy boards (Addendum K): a new strategy for a boss starts from its",
+        "-- DisasterZone: starter strategies for the strategy boards (Addendum K): a new strategy for a boss starts from its",
         "-- starter: the boss' floor map framed on the room and the encounter's creatures where they stand at the pull.",
         "-- Same shape as a strategy page (Core/Strategy.lua) with two conveniences resolved when loaded:",
         "--   page.map = a Data/RaidMaps.lua file name (instead of the map id m)",

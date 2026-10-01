@@ -104,7 +104,7 @@ def without_a_team_layout_the_raid_is_autofilled():
 
 
 def open_groups(w, cl, occ):
-    cl.slash("/cdl raids")
+    cl.slash("/dz raids")
     w.tick(0.3)
     cl.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     cl.click(cl.eval("return ns.RaidsUI:GetPanel().upcoming.detail.tabGroups"))
@@ -256,13 +256,13 @@ def the_run_stops_when_the_raid_session_ends():
     bob = c["Bob"]
     w.make_raid([bob] + [c[n] for n, _, _ in TEAM], leader=bob)
     w.tick(2)
-    bob.slash("/cdl raid start")
+    bob.slash("/dz raid start")
     w.tick(2)
     open_groups(w, bob, occ)
     bob.eval("ns.RaidPlanUI:ResortRaid()")
     w.tick(10)
     assert bob.eval("return ns.RaidInvite:IsActive()") is True
-    bob.slash("/cdl raid end")
+    bob.slash("/dz raid end")
     w.tick(2)
     assert bob.eval("return ns.RaidInvite:IsActive()") is False
     # a late joiner is not moved any more

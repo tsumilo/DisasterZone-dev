@@ -444,7 +444,7 @@ def event_snapshots_follow_the_playback_order():
 def stacked_menus_draw_above_the_menu_below():
     """Battle > BAG > Healing Salve > party picker: each menu (and its rows) sits above the one under it."""
     w, c = game(seed=4)
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")
     for _ in range(40):
@@ -471,7 +471,7 @@ def stacked_menus_draw_above_the_menu_below():
 
 def _ui_battle(c, w, lead="emberwhelp"):
     """UI started, intro done, a wild battle open at the FIGHT / BAG / PARTY / RUN menu."""
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")
     for _ in range(40):
@@ -544,9 +544,9 @@ def _fit_all(no_template=False):
     if no_template:
         c.eval("__MOCK_NO_ACTOR_TEMPLATE = true")
     # in the mock, scene +y is screen-LEFT, so creatures only face each other with the facing flipped - the
-    # in-game fix (/cdl azeromon flip) a player would apply
+    # in-game fix (/dz azeromon flip) a player would apply
     c.eval("ns.Azero:Data().flipFacing = true")
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     ids = c.eval_py("return ns.AzeroData.dexOrder")
     out = []
@@ -608,7 +608,7 @@ def a_model_that_loads_late_is_still_fitted():
     its load event arrives, instead of staying wrong."""
     w, c = game()
     c.eval("ns.Azero:Data().flipFacing = true")
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("__MOCK_SLOW_DISPLAY = ns.AzeroData.species.kobling.display")
     c.eval("ns.AzeroUI._ShowFoe('kobling')")
@@ -626,7 +626,7 @@ def the_next_creature_never_inherits_a_death_pose():
     """A foe faints (death animation), the next battle reuses the same frame: the new creature must be idle
     (and is measured idle), not lying dead."""
     w, c = game(seed=4)
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     c.eval("ns.AzeroUI._HandleKey('A')")
     for _ in range(40):
@@ -654,15 +654,15 @@ def the_next_creature_never_inherits_a_death_pose():
 @case
 def the_title_screen_does_not_reload_its_creatures():
     w, c = game()
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(3)
     counts = lambda: c.eval_py("local t = {} for i, sc in ipairs(ns.AzeroUI._TitleScenes()) do "
                                "t[i] = sc.actor and sc.actor.modelRequests or 0 end return t")
     before = counts()
     assert before and all(n == 1 for n in before), before
-    c.slash("/cdl")          # close and reopen the window: the title is shown again
+    c.slash("/dz")          # close and reopen the window: the title is shown again
     w.tick(0.2)
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(1)
     assert counts() == before, (before, counts())
     no_errors(w)
@@ -671,7 +671,7 @@ def the_title_screen_does_not_reload_its_creatures():
 @case
 def ui_title_intro_walk_and_battle_by_keys():
     w, c = game(seed=4)
-    c.slash("/cdl play azeromon")
+    c.slash("/dz play azeromon")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "games"
     assert c.eval("return ns.AzeroUI._State() ~= nil")

@@ -30,13 +30,13 @@ for c in w.clients:
 w.tick(3)
 
 # --- demo mode, solo council client -----------------------------------------------------------------------
-alice.slash("/cdl demo on")
+alice.slash("/dz demo on")
 w.tick(1)
 for tab in ("council", "log", "settings"):
-    alice.slash("/cdl " + tab)
+    alice.slash("/dz " + tab)
     w.tick(0.5)
-alice.slash("/cdl")      # toggle closed
-alice.slash("/cdl")      # open (mybis)
+alice.slash("/dz")      # toggle closed
+alice.slash("/dz")      # open (mybis)
 w.tick(0.5)
 alice.eval("ns.CouncilUI:SetView('items')")
 w.tick(0.5)
@@ -53,7 +53,7 @@ lines = alice.show_tooltip_item(28822)
 check("council tooltip lines present in demo", any("wanted by" in (l or "") for l, _ in lines), lines[-4:])
 
 # drop panel + roll in demo
-alice.slash("/cdl test")
+alice.slash("/dz test")
 w.tick(1)
 check("drop panel shown for the simulated drop", alice.eval("return ns.DropPanel.frame and ns.DropPanel.frame:IsShown()"))
 drop_item = alice.eval("return ns.DropPanel.drop and ns.DropPanel.drop.i[1]")
@@ -67,15 +67,15 @@ check("demo roll closed after its duration", state == "closed", state)
 sug = alice.eval("local r = ns.Roll:GetResults(...); return r[1] and r[1].suggested and r[1].key", sid)
 if sug:
     alice.eval("ns.DropPanel:AwardRoll(...)", sid, sug)
-    alice.accept_popup("CDLOOT_CONFIRM_AWARD")
+    alice.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(1)
 check("demo award recorded in the demo ledger view", alice.eval("return #ns.Ledger:GetEntries({})") >= 1)
-check("demo award not in the saved ledger", alice.eval("return next(CDLootDB.ledger) == nil"))
+check("demo award not in the saved ledger", alice.eval("return next(DisasterZoneDB.ledger) == nil"))
 
 # loot log award dialog
 alice.eval("ns.LootLogUI:OpenAwardDialog(28822, ..., '')", key)
 w.tick(0.5)
-alice.slash("/cdl demo off")
+alice.slash("/dz demo off")
 w.tick(1)
 check("demo ledger discarded on demo off", alice.eval("return #ns.Ledger:GetEntries({})") == 0)
 
@@ -88,7 +88,7 @@ bob.open_loot([(28477, 4), (28453, 4)])
 w.tick(2)
 check("Bob (ML, not council) can start rolls", bob.eval("return ns.Roll:CanStart()"))
 check("Alice (council) got the drop via D", alice.eval("return #ns.Loot:GetHistory() >= 1"))
-bob.slash("/cdl drops")
+bob.slash("/dz drops")
 w.tick(0.5)
 bob.eval("ns.DropPanel:StartRoll(28477, 1)")
 w.tick(1)

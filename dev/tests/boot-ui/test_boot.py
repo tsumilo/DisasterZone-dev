@@ -1,4 +1,4 @@
-"""Boot / relog / SavedVariables scenarios for CDLoot (real addon, mocked client).
+"""Boot / relog / SavedVariables scenarios for DisasterZone (real addon, mocked client).
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_boot.py
 """
@@ -33,15 +33,15 @@ f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function(_, ev, name)
   table.insert(__LC.events, ev)
-  if ev ~= "ADDON_LOADED" or name ~= "CDLoot" or not CDLoot then return end
-  local ns = CDLoot
+  if ev ~= "ADDON_LOADED" or name ~= "DisasterZone" or not DisasterZone then return end
+  local ns = DisasterZone
   for _, M in ipairs(ns:GetModules()) do
     for _, meth in ipairs({ "OnInit", "OnLogin" }) do
       local orig = M[meth]
       if type(orig) == "function" then
         M[meth] = function(self, ...)
           table.insert(__LC.calls, { M.name, meth,
-            (ns.db ~= nil and ns.db == CDLootDB) and 1 or 0,
+            (ns.db ~= nil and ns.db == DisasterZoneDB) and 1 or 0,
             ns.loggedIn and 1 or 0,
             (ns.Util.PlayerKey() ~= nil) and 1 or 0,
             ns.initialized and 1 or 0 })
@@ -62,11 +62,11 @@ def strip_volatile(db):
 def fresh_boot_defaults_and_globals():
     w, c = solo("Alice", guild_rank=3, tick=30)
     no_errors(w)
-    assert c.eval("return CDLoot == ns") is True, "global CDLoot must be the namespace"
+    assert c.eval("return DisasterZone == ns") is True, "global DisasterZone must be the namespace"
     assert c.eval("return ns.initialized") is True and c.eval("return ns.loggedIn") is True
     assert c.eval("return ns.version") == toc_version(), c.eval("return ns.version")
     assert c.eval("return ns.PROTO") == 1
-    db = c.eval_py("return CDLootDB")
+    db = c.eval_py("return DisasterZoneDB")
     assert db["schema"] == 1, db.get("schema")
     assert db["settings"] == EXPECTED_SETTINGS, db["settings"]
     for k in ("lists", "ledger", "peers", "dropHistory", "raids"):
@@ -79,7 +79,7 @@ def fresh_boot_defaults_and_globals():
     # nothing was chosen, so nothing may be committed or shared (rev stays 0 for restore-on-reinstall)
     assert c.eval("return ns.BiS:IsDirty()") is False
     # ns.db is the SavedVariables table itself
-    assert c.eval("return ns.db == CDLootDB") is True
+    assert c.eval("return ns.db == DisasterZoneDB") is True
     no_errors(w)
 
 
@@ -136,13 +136,13 @@ def relog_persists_settings_edits_and_commits_on_logout():
     # /reload before the 8 s commit debounce: PLAYER_LOGOUT must commit (rev 1) and persist
     c.relog()
     w.tick(5)
-    db = c.eval_py("return CDLootDB")
+    db = c.eval_py("return DisasterZoneDB")
     s = db["settings"]
     assert s["alerts"]["sound"] is False and s["tooltip"]["maxNames"] == 12 and s["viewPhase"] == 3, s
     me = db["chars"]["Alice-Thunderstrike"]
     assert me["rev"] == 1, me["rev"]
-    assert c.eval_py("return {CDLootDB.chars['Alice-Thunderstrike'].data.ph[1][1][1], "
-                     "CDLootDB.chars['Alice-Thunderstrike'].data.ph[1][1][2]}") == [head, 0]
+    assert c.eval_py("return {DisasterZoneDB.chars['Alice-Thunderstrike'].data.ph[1][1][1], "
+                     "DisasterZoneDB.chars['Alice-Thunderstrike'].data.ph[1][1][2]}") == [head, 0]
     assert c.eval("return ns.BiS:GetSlot(1, 1)") == head
     assert c.eval("return ns.Guild:GetViewPhase()") == 3
     # full logout + login keeps it too
@@ -156,14 +156,14 @@ def relog_persists_settings_edits_and_commits_on_logout():
 @case
 def migration_and_defaults_are_idempotent_across_relogs():
     w, c = solo("Alice", guild_rank=0, tick=30, council=["Bob"], phase=2)
-    first = strip_volatile(c.eval_py("return CDLootDB"))
+    first = strip_volatile(c.eval_py("return DisasterZoneDB"))
     src1 = w.saved_variables(c)  # empty until the first logout
     c.relog()
     w.tick(30)
-    second = strip_volatile(c.eval_py("return CDLootDB"))
+    second = strip_volatile(c.eval_py("return DisasterZoneDB"))
     c.relog()
     w.tick(30)
-    third = strip_volatile(c.eval_py("return CDLootDB"))
+    third = strip_volatile(c.eval_py("return DisasterZoneDB"))
     assert first == second == third, (first, second, third)
     assert third["schema"] == 1
     no_errors(w)
@@ -173,14 +173,14 @@ def migration_and_defaults_are_idempotent_across_relogs():
 def corrupt_saved_variables_are_repaired_not_fatal():
     w = World()
     c = Client(w, "Alice", guild_rank=3)
-    c.set_saved_variable("CDLootDB", """{
+    c.set_saved_variable("DisasterZoneDB", """{
         settings = { alerts = "loud", tooltip = 7, minimap = true, sound = 1, dropPanelMode = "floating",
-                     qualityThreshold = 3, windows = { CDLootMainFrame = "x" } },
+                     qualityThreshold = 3, windows = { DisasterZoneMainFrame = "x" } },
         chars = "none", lists = 5, ledger = { "junk", [3] = 4 }, peers = false, guildCfg = "x",
         dropHistory = { 1, 2, 3 }, extra = { keep = true }, schema = 1 }""")
     c.load_addon()
     w.tick(20)
-    db = c.eval_py("return CDLootDB")
+    db = c.eval_py("return DisasterZoneDB")
     s = db["settings"]
     # invalid sub-tables replaced by defaults, valid saved values kept, unknown keys kept
     assert s["alerts"] == EXPECTED_SETTINGS["alerts"], s["alerts"]
@@ -191,9 +191,9 @@ def corrupt_saved_variables_are_repaired_not_fatal():
     assert isinstance(db["chars"], dict) and "Alice-Thunderstrike" in db["chars"], db["chars"]
     assert db["lists"] == {} and db["peers"] == {}
     # a corrupt saved window position must not break the main window
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(1)
-    assert c.eval("return CDLootMainFrame:IsShown()") is True
+    assert c.eval("return DisasterZoneMainFrame:IsShown()") is True
     no_errors(w)
 
 
@@ -201,11 +201,11 @@ def corrupt_saved_variables_are_repaired_not_fatal():
 def non_table_saved_variable_is_replaced():
     w = World()
     c = Client(w, "Alice", guild_rank=3)
-    c.set_saved_variable("CDLootDB", '"garbage"')
+    c.set_saved_variable("DisasterZoneDB", '"garbage"')
     c.load_addon()
     w.tick(5)
-    assert c.eval("return type(CDLootDB)") == "table"
-    assert c.eval("return CDLootDB.schema") == 1
+    assert c.eval("return type(DisasterZoneDB)") == "table"
+    assert c.eval("return DisasterZoneDB.schema") == 1
     no_errors(w)
 
 
@@ -213,15 +213,15 @@ def non_table_saved_variable_is_replaced():
 def saved_by_newer_version_is_kept_and_warned():
     w = World()
     c = Client(w, "Alice", guild_rank=3)
-    c.set_saved_variable("CDLootDB", "{ schema = 99, settings = { debug = false }, futureThing = { a = 1 } }")
+    c.set_saved_variable("DisasterZoneDB", "{ schema = 99, settings = { debug = false }, futureThing = { a = 1 } }")
     c.load_addon()
     w.tick(5)
-    assert c.eval("return CDLootDB.schema") == 99
-    assert any("newer CDLoot version" in str(x) for x in c.chat_frame), c.chat_frame
+    assert c.eval("return DisasterZoneDB.schema") == 99
+    assert any("newer DisasterZone version" in str(x) for x in c.chat_frame), c.chat_frame
     c.relog()
     w.tick(5)
-    assert c.eval("return CDLootDB.schema") == 99, "schema was downgraded on relog"
-    assert c.eval("return CDLootDB.futureThing.a") == 1
+    assert c.eval("return DisasterZoneDB.schema") == 99, "schema was downgraded on relog"
+    assert c.eval("return DisasterZoneDB.futureThing.a") == 1
     no_errors(w)
 
 
@@ -229,12 +229,12 @@ def saved_by_newer_version_is_kept_and_warned():
 def missing_schema_with_data_is_migrated_once():
     w = World()
     c = Client(w, "Alice", guild_rank=3)
-    c.set_saved_variable("CDLootDB", "{ settings = { alerts = { sound = false } }, ledger = {} }")
+    c.set_saved_variable("DisasterZoneDB", "{ settings = { alerts = { sound = false } }, ledger = {} }")
     c.load_addon()
     w.tick(5)
-    assert c.eval("return CDLootDB.schema") == 1
-    assert c.eval("return CDLootDB.settings.alerts.sound") is False
-    assert c.eval("return CDLootDB.settings.alerts.glow") is True
+    assert c.eval("return DisasterZoneDB.schema") == 1
+    assert c.eval("return DisasterZoneDB.settings.alerts.sound") is False
+    assert c.eval("return DisasterZoneDB.settings.alerts.glow") is True
     no_errors(w)
 
 
@@ -242,7 +242,7 @@ def missing_schema_with_data_is_migrated_once():
 def corrupt_own_record_is_sanitized_and_ui_opens():
     w = World()
     c = Client(w, "Alice", guild_rank=3)
-    c.set_saved_variable("CDLootDB", """{ schema = 1, chars = { ["Alice-Thunderstrike"] = {
+    c.set_saved_variable("DisasterZoneDB", """{ schema = 1, chars = { ["Alice-Thunderstrike"] = {
         rev = "x", ts = {}, hash = 5, manual = 3, bank = "b",
         data = { v = "1", cl = 5, sp = "SomeVeryLongSpecNameThatIsWayTooLong", ob = "o", eq = 9,
                  ph = { [9] = { [1] = { 1, 2 } }, [1] = { [99] = { 30000, 0 }, [1] = { "x", 5 }, [2] = { 0, 0 },
@@ -260,10 +260,10 @@ def corrupt_own_record_is_sanitized_and_ui_opens():
     # {"x", 5} -> main invalid (0) but alt 5 kept; {29076, 29076} -> alt dropped (same as main)
     assert c.eval_py("local s = ns.BiS:GetData().ph[1][1]; return {s[1], s[2]}") == [0, 5]
     assert c.eval_py("local s = ns.BiS:GetData().ph[1][3]; return {s[1], s[2]}") == [29076, 0]
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(1)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "home"
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mybis"
     no_errors(w)
@@ -284,22 +284,22 @@ def not_in_guild_boot_is_quiet():
 @case
 def window_positions_saved_and_restored():
     w, c = solo("Alice", guild_rank=3, tick=3)
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(0.2)
     c.eval("""
-      local f = CDLootMainFrame
+      local f = DisasterZoneMainFrame
       __MOCK.call_script(f, 'OnDragStart')
       f:ClearAllPoints(); f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 123.4, -56.6)
       __MOCK.call_script(f, 'OnDragStop')""")
-    assert c.eval_py("return CDLootDB.settings.windows.CDLootMainFrame") == ["TOPLEFT", "TOPLEFT", 123, -57]
+    assert c.eval_py("return DisasterZoneDB.settings.windows.DisasterZoneMainFrame") == ["TOPLEFT", "TOPLEFT", 123, -57]
     c.relog()
     w.tick(2)
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(0.2)
-    assert c.eval_py("local p, rel, rp, x, y = CDLootMainFrame:GetPoint(1); return { p, rp, x, y }") == ["TOPLEFT", "TOPLEFT", 123, -57]
-    # the picker never saves its position; every CDLoot window closes with Escape
+    assert c.eval_py("local p, rel, rp, x, y = DisasterZoneMainFrame:GetPoint(1); return { p, rp, x, y }") == ["TOPLEFT", "TOPLEFT", 123, -57]
+    # the picker never saves its position; every DisasterZone window closes with Escape
     specials = c.eval_py("return UISpecialFrames")
-    assert "CDLootMainFrame" in specials
+    assert "DisasterZoneMainFrame" in specials
     no_errors(w)
 
 
@@ -309,22 +309,22 @@ def late_load_after_login_runs_both_stages():
     w = World()
     c = Client(w, "Alice", guild_rank=1, preload_lua=LIFECYCLE_PRELOAD)
     headers, files = c.toc()
-    c.M.set_toc_meta("CDLoot", c._to_lua(headers))
+    c.M.set_toc_meta("DisasterZone", c._to_lua(headers))
     c.eval("__MOCK.logged_in = true")             # the player is already in the world
     c.load_files(files)
     # SavedVariables are assigned right before ADDON_LOADED: a stored guild council list (Addendum E) naming
     # Alice, guild phase 2
-    c.eval("""CDLootDB = { council = { guild = { rev = 1789900000, members = { ['Alice-Thunderstrike'] = true },
+    c.eval("""DisasterZoneDB = { council = { guild = { rev = 1789900000, members = { ['Alice-Thunderstrike'] = true },
       phase = 2, recvAt = GetServerTime() } } }""")
-    c.M.addon_loaded("CDLoot")                    # no PLAYER_LOGIN follows
+    c.M.addon_loaded("DisasterZone")                    # no PLAYER_LOGIN follows
     w.tick(3)
     assert c.eval("return ns.loggedIn") is True
     calls = c.eval_py("return __LC.calls")
     assert [x for x in calls if x[1] == "OnLogin"], "OnLogin never ran for a late load"
     assert c.eval("return ns.Guild:IsReady()") is True
     assert c.eval("return ns.Guild:GetGuildPhase()") == 2
-    assert c.eval("return LibDBIcon10_CDLoot ~= nil") is True
-    c.slash("/cdl council")
+    assert c.eval("return LibDBIcon10_DisasterZone ~= nil") is True
+    c.slash("/dz council")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "council"
     lines = c.show_tooltip_item(28770)

@@ -1,12 +1,12 @@
-"""Cross-module reference extractor for CDLoot (read-only audit helper).
+"""Cross-module reference extractor for DisasterZone (read-only audit helper).
 
 Usage: python xref.py [--calls] [--missing] [--msgs] [--settings] [--comm] [--slash] [--popups] [--frames]
 """
 import os, re, sys, json, collections
 
-ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\CDLoot"
+ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 TOC_ORDER = []
-for line in open(os.path.join(ADDON, "CDLoot.toc"), encoding="utf-8"):
+for line in open(os.path.join(ADDON, "DisasterZone.toc"), encoding="utf-8"):
     line = line.strip()
     if line and not line.startswith("#") and (line.startswith("Core") or line.startswith("UI")):
         TOC_ORDER.append(line.replace("\\", "/"))

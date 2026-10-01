@@ -79,10 +79,10 @@ def adler32_matches_zlib():
     rng = random.Random(2)
     for n in [0, 1, 2, 7, 8, 9, 15, 16, 17, 100, 5552, 5553, 70000]:
         data = bytes(rng.getrandbits(8) for _ in range(n))
-        got = c.eval(UNHEX + "return CDLootBoot.Adler32(unhex(...))", hexarg(data))
+        got = c.eval(UNHEX + "return DisasterZoneBoot.Adler32(unhex(...))", hexarg(data))
         assert got == (zlib.adler32(data) & 0xFFFFFFFF), n
     worst = b"\xff" * 300000        # largest sums: no precision loss
-    assert c.eval("return CDLootBoot.Adler32(string.rep('\\255', 300000))") == (zlib.adler32(worst) & 0xFFFFFFFF)
+    assert c.eval("return DisasterZoneBoot.Adler32(string.rep('\\255', 300000))") == (zlib.adler32(worst) & 0xFFFFFFFF)
     w.assert_no_errors()
 
 
@@ -104,7 +104,7 @@ def print_encoding_matches_libdeflate():
     src = read(SOURCE, "Core/Util.lua").encode("utf-8")
     z = patchlib.encode_for_print(patchlib.deflate_raw(src))
     n, adler = c.eval("local L = LibStub('LibDeflate') local s = L:DecompressDeflate(L:DecodeForPrint(...)) "
-                      "return #s, CDLootBoot.Adler32(s)", z)
+                      "return #s, DisasterZoneBoot.Adler32(s)", z)
     assert n == len(src) and adler == patchlib.adler32(src)
     w.assert_no_errors()
 
@@ -240,14 +240,14 @@ def client_that_ignores_the_directive():
     assert s["sv"] is False
     assert c.eval("return ns.Util.PATCH_MARK") is None
     # the saved table the client assigned afterwards is the one that is written to (nothing is lost)
-    assert c.eval("return CDLootPatchDB.active.seq") == 1
+    assert c.eval("return DisasterZonePatchDB.active.seq") == 1
     st = c.eval_py("return ns.Patch:GetStatus()")
     assert st.get("ready") is None                                     # no "reload to use it" when it cannot apply
-    lines = c.eval_py("return CDLootBoot.StatusLines()")
+    lines = c.eval_py("return DisasterZoneBoot.StatusLines()")
     assert any("cannot apply" in l for l in lines), lines
     c.relog()
     w.tick(2)
-    assert boot_state(c)["sv"] is False and c.eval("return CDLootPatchDB.active.seq") == 1
+    assert boot_state(c)["sv"] is False and c.eval("return DisasterZonePatchDB.active.seq") == 1
     w.assert_no_errors()
 
 
@@ -266,7 +266,7 @@ def patch_applies_and_survives_relog():
     assert c.eval("return ns.Util.PATCH_MARK") == "v2"
     assert s["init"] and s["loggedIn"] and s["errors"] == 0
     assert any("in-game update" in l for l in c.chat_frame), c.chat_frame[-5:]
-    assert c.eval("return CDLootPatchDB.lastLoad.seq") == 1
+    assert c.eval("return DisasterZonePatchDB.lastLoad.seq") == 1
     for how in (True, False):
         c.relog(reload=how)
         w.tick(2)
@@ -281,7 +281,7 @@ def patch_applies_and_survives_relog():
 
 @case
 def new_and_deleted_files():
-    order = "CDLootTestOrder = CDLootTestOrder or {} CDLootTestOrder[#CDLootTestOrder + 1] = "
+    order = "DisasterZoneTestOrder = DisasterZoneTestOrder or {} DisasterZoneTestOrder[#DisasterZoneTestOrder + 1] = "
 
     def base_mods(root):
         write(root, "Core/TestOld.lua", guard("Core/TestOld.lua") + "-- test\n" + order + "'old'\n")
@@ -311,13 +311,13 @@ def new_and_deleted_files():
     w = World(addon_dir=base_dir)
     plain = member(w, "Plain", base_dir)
     plain.load_addon()
-    assert plain.eval_py("return CDLootTestOrder") == ["old"]
+    assert plain.eval_py("return DisasterZoneTestOrder") == ["old"]
     c = member(w, "Alice", base_dir, sv=staged(bundle))
     c.load_addon()
     w.tick(2)
     assert boot_state(c)["state"] == "applied"
     # the deleted file did not run; A ran after Util and before Dungeon; B after the UI; Z after everything
-    assert c.eval_py("return CDLootTestOrder") == ["A:CDLoot:true:false", "B:false", "Z:true"], c.eval_py("return CDLootTestOrder")
+    assert c.eval_py("return DisasterZoneTestOrder") == ["A:DisasterZone:true:false", "B:false", "Z:true"], c.eval_py("return DisasterZoneTestOrder")
     assert c.eval("return ns.Util.PATCH_MARK") == "v2"
     w.assert_no_errors()
 
@@ -337,8 +337,8 @@ def patch_for_another_build_is_ignored_then_dropped():
     s = boot_state(c)
     assert s["state"] == "base" and s["applied"] is None and s["version"] == s["disk"]
     assert c.eval("return ns.Util.PATCH_MARK") is None
-    assert c.eval("return CDLootPatchDB.active") is None          # dropped at login: it can never apply here
-    assert c.eval("return CDLootPatchDB.seq") == 1                # the replay floor stays
+    assert c.eval("return DisasterZonePatchDB.active") is None          # dropped at login: it can never apply here
+    assert c.eval("return DisasterZonePatchDB.seq") == 1                # the replay floor stays
     w.assert_no_errors()
 
 
@@ -351,16 +351,16 @@ def kill_switch():
     c.load_addon()
     w.tick(2)
     assert boot_state(c)["state"] == "applied"
-    c.slash("/cdlpatch off")
+    c.slash("/dzpatch off")
     assert boot_state(c)["state"] == "applied"          # nothing changes until the reload
     c.relog()
     w.tick(2)
     s = boot_state(c)
     assert s["state"] == "off" and s["applied"] is None and c.eval("return ns.Util.PATCH_MARK") is None
-    assert c.eval("return CDLootPatchDB.active.seq") == 1   # kept: switching back on needs no download
-    c.slash("/cdlpatch")                                 # status prints without errors
+    assert c.eval("return DisasterZonePatchDB.active.seq") == 1   # kept: switching back on needs no download
+    c.slash("/dzpatch")                                 # status prints without errors
     assert any("switched off" in l for l in c.chat_frame[-8:]), c.chat_frame[-8:]
-    c.slash("/cdlpatch on")
+    c.slash("/dzpatch on")
     c.relog()
     w.tick(2)
     assert boot_state(c)["state"] == "applied" and c.eval("return ns.Util.PATCH_MARK") == "v2"
@@ -385,11 +385,11 @@ def damaged_text_is_rejected():
     assert s["state"] == "rejected" and "checksum" in s["detail"], s
     assert s["applied"] is None and s["version"] == s["disk"] and s["init"]
     assert c.eval("return ns.Util.PATCH_MARK") is None
-    assert "checksum" in c.eval("return CDLootPatchDB.bad[1]")
+    assert "checksum" in c.eval("return DisasterZonePatchDB.bad[1]")
     c.relog()
     w.tick(2)
     assert boot_state(c)["state"] == "none"             # the bad patch was dropped at the first login
-    assert c.eval("return CDLootPatchDB.bad[1]") is not None
+    assert c.eval("return DisasterZonePatchDB.bad[1]") is not None
     w.assert_no_errors()
 
 
@@ -409,7 +409,7 @@ def malformed_store_is_ignored():
         w.tick(2)
         s = boot_state(c)
         assert s["applied"] is None and s["init"] and s["loggedIn"] and s["version"] == s["disk"], (sv, s)
-        assert c.eval("return CDLootPatchDB.active") is None, sv
+        assert c.eval("return DisasterZonePatchDB.active") is None, sv
     w.assert_no_errors()
 
 
@@ -446,7 +446,7 @@ def load_error_enters_safe_mode():
     bundle = make(record, new_dir)
     w = World(addon_dir=base_dir)
     c = member(w, "Alice", base_dir, sv=staged(bundle))
-    c.set_saved_variable("CDLootDB", "{ marker = 42 }")
+    c.set_saved_variable("DisasterZoneDB", "{ marker = 42 }")
     c.load_addon()
     w.tick(3)
     s = boot_state(c)
@@ -454,16 +454,16 @@ def load_error_enters_safe_mode():
     assert "boom from the patch" in s["safe"]["err"]
     assert not s["init"] and not s["loggedIn"]                   # nothing started
     assert c.eval("return ns.DB") is None                        # files after the failing one did not run
-    assert c.eval("return CDLootDB.marker") == 42                # saved data untouched
+    assert c.eval("return DisasterZoneDB.marker") == 42                # saved data untouched
     errs = [e for e in c.errors if "boom from the patch" in str(e)]
     assert len(errs) == 1, c.errors                              # reported once (BugSack sees it), nothing else
     assert len(c.errors) == 1, c.errors
     w.clear_errors()
-    assert c.eval("return CDLootBootDialog:IsShown()") is True
-    assert "failed to load" in c.eval("return CDLootBootDialog.text:GetText()")
-    c.slash("/cdl")                                              # the main command only explains
+    assert c.eval("return DisasterZoneBootDialog:IsShown()") is True
+    assert "failed to load" in c.eval("return DisasterZoneBootDialog.text:GetText()")
+    c.slash("/dz")                                              # the main command only explains
     assert any("failed to load" in l for l in c.chat_frame[-3:]), c.chat_frame[-3:]
-    c.slash("/cdlpatch")                                         # status still works
+    c.slash("/dzpatch")                                         # status still works
     assert any("SAFE MODE" in l for l in c.chat_frame[-6:]), c.chat_frame[-6:]
     # events do not reach the half-loaded addon
     c.fire("GROUP_ROSTER_UPDATE")
@@ -471,16 +471,16 @@ def load_error_enters_safe_mode():
     w.tick(2)
     w.assert_no_errors()
     # the Reload button reloads; afterwards the installed version runs and the patch is gone
-    c.click(c.eval("return CDLootBootDialog.accept"))
+    c.click(c.eval("return DisasterZoneBootDialog.accept"))
     assert c.eval("return __MOCK.reload_requested") is True
     c.relog()
     w.tick(3)
     s = boot_state(c)
     assert s["state"] == "bad" and s["applied"] is None and s["init"] and s["loggedIn"] and s["version"] == s["disk"], s
-    assert c.eval("return CDLootDB.marker") == 42
-    assert c.eval("return CDLootPatchDB.active") is None
-    assert "Dungeon.lua" in c.eval("return CDLootPatchDB.bad[1]")
-    assert c.eval("return CDLootBootDialog") is None
+    assert c.eval("return DisasterZoneDB.marker") == 42
+    assert c.eval("return DisasterZonePatchDB.active") is None
+    assert "Dungeon.lua" in c.eval("return DisasterZonePatchDB.bad[1]")
+    assert c.eval("return DisasterZoneBootDialog") is None
     c.relog()
     w.tick(2)
     assert boot_state(c)["state"] == "none"
@@ -524,19 +524,19 @@ def startup_errors_offer_a_rollback():
     assert s["state"] == "applied" and s["errors"] == 2 and s["init"] and s["loggedIn"], s
     assert len(c.errors) == 2
     w.clear_errors()
-    assert c.eval("return CDLootPatchDB.lastLoad.errors") == 2
-    assert c.eval("return CDLootBootDialog:IsShown()") is True
-    assert "2 error(s) while starting" in c.eval("return CDLootBootDialog.text:GetText()")
+    assert c.eval("return DisasterZonePatchDB.lastLoad.errors") == 2
+    assert c.eval("return DisasterZoneBootDialog:IsShown()") is True
+    assert "2 error(s) while starting" in c.eval("return DisasterZoneBootDialog.text:GetText()")
     # "Keep it" just closes
-    c.click(c.eval("return CDLootBootDialog.cancel"))
-    assert c.eval("return CDLootBootDialog:IsShown()") is False
-    assert c.eval("return CDLootPatchDB.bad") is None
+    c.click(c.eval("return DisasterZoneBootDialog.cancel"))
+    assert c.eval("return DisasterZoneBootDialog:IsShown()") is False
+    assert c.eval("return DisasterZonePatchDB.bad") is None
     c.relog()
     w.tick(2)
     assert boot_state(c)["state"] == "applied"
     w.clear_errors()
     # "Roll back + reload"
-    c.click(c.eval("return CDLootBootDialog.accept"))
+    c.click(c.eval("return DisasterZoneBootDialog.accept"))
     assert c.eval("return __MOCK.reload_requested") is True
     c.relog()
     w.tick(2)
@@ -554,18 +554,18 @@ def slash_rollback_and_retry():
     c = member(w, "Alice", base_dir, sv=staged(bundle))
     c.load_addon()
     w.tick(2)
-    c.slash("/cdlpatch rollback")
-    assert c.eval("return CDLootPatchDB.bad[1]") is not None
-    c.slash("/cdlpatch retry")                       # changed my mind before reloading
-    assert c.eval("return CDLootPatchDB.bad") is None
+    c.slash("/dzpatch rollback")
+    assert c.eval("return DisasterZonePatchDB.bad[1]") is not None
+    c.slash("/dzpatch retry")                       # changed my mind before reloading
+    assert c.eval("return DisasterZonePatchDB.bad") is None
     c.relog()
     w.tick(2)
     assert boot_state(c)["state"] == "applied"
-    c.slash("/cdlpatch rollback")
+    c.slash("/dzpatch rollback")
     c.relog()
     w.tick(2)
     assert boot_state(c)["state"] == "bad"
-    c.slash("/cdlpatch rollback")                    # nothing running: just says so
+    c.slash("/dzpatch rollback")                    # nothing running: just says so
     assert any("no in-game update is running" in l for l in c.chat_frame[-2:])
     w.assert_no_errors()
 
@@ -581,9 +581,9 @@ def development_copy_never_applies_unless_asked():
     w.tick(2)
     s = boot_state(c)
     assert s["build"] == "dev" and s["state"] == "base" and s["applied"] is None
-    assert c.eval("return CDLootPatchDB.active.seq") == 1            # kept: the publisher serves it
+    assert c.eval("return DisasterZonePatchDB.active.seq") == 1            # kept: the publisher serves it
     assert c.eval_py("return ns.Patch:GetStatus()").get("ready") is None
-    c.slash("/cdlpatch try")
+    c.slash("/dzpatch try")
     c.relog()
     w.tick(2)
     assert boot_state(c)["state"] == "applied" and c.eval("return ns.Util.PATCH_MARK") == "v2"
@@ -594,8 +594,8 @@ def development_copy_never_applies_unless_asked():
     w2 = World(addon_dir=base_dir)
     m = member(w2, "Bob", base_dir)
     m.load_addon()
-    m.slash("/cdlpatch try")
-    assert m.eval("return CDLootPatchDB.tryOnce") is None
+    m.slash("/dzpatch try")
+    assert m.eval("return DisasterZonePatchDB.tryOnce") is None
     w.assert_no_errors()
     w2.assert_no_errors()
 
@@ -670,7 +670,7 @@ def every_file_from_the_patch():
         s = boot_state(c)
         assert s["state"] == "applied" and s["applied"]["files"] == len(files) - 1 and s["errors"] == 0, s
         assert s["version"] == "9.9.9" and s["init"] and s["loggedIn"]
-    a.slash("/cdl")
+    a.slash("/dz")
     w.tick(1)
     w.make_raid([a, b], master_looter=a)
     w.tick(40)
@@ -687,7 +687,7 @@ def without_the_loader_the_addon_runs_as_before():
     def mods(root):
         for rel in ("Core/BuildInfo.lua", "Core/Boot.lua", "Core/Outbox.lua", "Core/BootEnd.lua"):
             toc_remove(root, rel)
-        replace(root, "CDLoot.toc", "## LoadSavedVariablesFirst: 1\n", "")
+        replace(root, "DisasterZone.toc", "## LoadSavedVariablesFirst: 1\n", "")
     tree = source_copy("noloader", mods)
     base_dir, record, new_dir = simple_pair()
     w = World(addon_dir=tree)
@@ -698,17 +698,17 @@ def without_the_loader_the_addon_runs_as_before():
         c.load_addon()
     w.tick(60)
     for c in (a, b):
-        assert c.eval("return CDLootBoot") is None and c.eval("return ns.Boot") is None
+        assert c.eval("return DisasterZoneBoot") is None and c.eval("return ns.Boot") is None
         assert c.eval("return ns.initialized and ns.loggedIn") is True
         assert c.eval("return ns.version") == c.eval("return ns.diskVersion")
         assert c.eval("return ns.Util.PATCH_MARK") is None
         assert c.eval("return ns.assetPack") == 0 and c.eval("return ns:HasAssets(1)") is False
     assert [e for e in w.addon_log if e["prefix"].startswith("CDLp")] == []      # no update traffic at all
-    a.slash("/cdl update")                                                       # the command is simply not there
+    a.slash("/dz update")                                                       # the command is simply not there
     assert any("unknown command 'update'" in l for l in a.chat_frame[-60:]), a.chat_frame[-60:]
     a.relog()
     w.tick(3)
-    assert a.eval("return CDLootPatchDB.active.seq") == 1                        # the store is left alone
+    assert a.eval("return DisasterZonePatchDB.active.seq") == 1                        # the store is left alone
     w.assert_no_errors()
 
 
@@ -726,7 +726,7 @@ def guards_cover_every_patchable_file():
     assert release.guards(tree, "remove")[0] == []
     assert len(release.guards(tree, "check")[1]) == len(before)
     for rel in before:
-        assert not read(tree, rel).startswith("if CDLootBoot"), rel
+        assert not read(tree, rel).startswith("if DisasterZoneBoot"), rel
     # without guards (and with Boot still listed) the addon simply runs from disk
     w = World(addon_dir=tree)
     c = Client(w, "Alice")

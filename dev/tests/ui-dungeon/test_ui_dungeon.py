@@ -92,7 +92,7 @@ def award_shows_winner_then_fades_hover_holds_until_leave():
     # Bob (council, not the master looter) awards: confirm popup -> RW to everyone
     r["Bob"].eval("ns.DropPanel:AwardRoll(...)", sid, key("Dave"))
     w.tick(0.2)
-    r["Bob"].accept_popup("CDLOOT_CONFIRM_AWARD")
+    r["Bob"].accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(0.5)
     for n in ("Carol", "Erin", "Frank", "Gina"):
         st = rf(r[n])
@@ -209,12 +209,12 @@ def someone_else_dialog_goes_through_the_roll_and_add_award_does_not():
     sid = closed_session(r, item=THOUSAND_MARKS, rolls=(("Carol", 33),))
     A.eval("ns.DropPanel:AwardSomeoneElse(%d, 'Karazhan:Prince', 1)" % THOUSAND_MARKS)
     w.tick(0.1)
-    dlg = A.frame("CDLootAwardDialog")
-    assert dlg is not None and A.eval("return CDLootAwardDialog:IsShown()")
-    A.eval("local eb = ...; eb:SetText('Erin')", A.eval("return CDLootAwardDialog.winBox"))
-    A.click(A.eval("return CDLootAwardDialog.saveBtn"))
+    dlg = A.frame("DisasterZoneAwardDialog")
+    assert dlg is not None and A.eval("return DisasterZoneAwardDialog:IsShown()")
+    A.eval("local eb = ...; eb:SetText('Erin')", A.eval("return DisasterZoneAwardDialog.winBox"))
+    A.click(A.eval("return DisasterZoneAwardDialog.saveBtn"))
     w.tick(1.5)
-    assert not A.eval("return CDLootAwardDialog:IsShown()"), A.eval("return CDLootAwardDialog.status:GetText()")
+    assert not A.eval("return DisasterZoneAwardDialog:IsShown()"), A.eval("return DisasterZoneAwardDialog.status:GetText()")
     assert A.eval("return __UI.ledgerAwards") == 0
     for n in ADDON_USERS:
         s = session_info(r[n], sid)
@@ -223,7 +223,7 @@ def someone_else_dialog_goes_through_the_roll_and_add_award_does_not():
     # the Loot Log's own "Add award..." never touches rolls
     sid2 = closed_session(r, item=MINDBLADE, rolls=(("Dave", 10),))
     A.eval("ns.LootLogUI:OpenAwardDialog(%d, 'Frank-Thunderstrike', 'Karazhan:Prince')" % MINDBLADE)
-    A.click(A.eval("return CDLootAwardDialog.saveBtn"))
+    A.click(A.eval("return DisasterZoneAwardDialog.saveBtn"))
     w.tick(1)
     assert A.eval("return __UI.ledgerAwards") == 1
     assert session_info(A, sid2)["state"] == "closed", session_info(A, sid2)
@@ -291,7 +291,7 @@ def party_popup_and_panel_follow_dungeon_mode():
     # dungeon mode off: a roll popup does not show in a party
     C.eval("ns.RollFrame:OnRollStarted((function(...) " + FAKE_SESSION + " end)('x-1', %d))" % RUBY_DRAPE)
     assert not rf(C)["shown"]
-    A.slash("/cdl dungeon on")
+    A.slash("/dz dungeon on")
     w.tick(2)
     for c in (A, B, C):
         assert c.eval("return ns.Util.IsDungeonModeActive()") is True, c.name
@@ -308,7 +308,7 @@ def party_popup_and_panel_follow_dungeon_mode():
         sub = strip_codes(A.eval("return ns.DropPanel.sub:GetText()"))
         assert "(5-man)" in sub, sub
     # turning it off hides the leader's panel (no council seat, no roll rights) and the popup
-    A.slash("/cdl dungeon off")
+    A.slash("/dz dungeon off")
     w.tick(2)
     assert C.eval("return ns.Util.IsDungeonModeActive()") is False
     assert not rf(C)["shown"], rf(C)
@@ -330,7 +330,7 @@ def party_roll_end_to_end_leader_awards_through_the_roll():
     w.tick(1)
     w.enter_instance("The Black Morass", 269, "party", 5, 2)
     w.tick(1)
-    A.slash("/cdl dungeon on")
+    A.slash("/dz dungeon on")
     w.tick(2)
     A.open_loot([(COWL, 3)], source_guid=AEONUS_GUID)
     w.tick(2)
@@ -376,7 +376,7 @@ def settings_dungeon_section_toggle_quality_and_live_status():
     for c in (A, B):
         bu.install_helpers(c)
         c.eval("function T_settings() return ns.MainFrame:GetPanel('settings') end")
-        c.slash("/cdl settings")
+        c.slash("/dz settings")
     w.tick(0.5)
 
     def status(c):
@@ -415,18 +415,18 @@ def settings_dungeon_section_toggle_quality_and_live_status():
 # ------------------------------------------------------------------------------------------------------------------
 PICKER_DATA = r"""
 local out = {}
-for i, d in ipairs(T_data(T_box(CDLootPicker))) do
+for i, d in ipairs(T_data(T_box(DisasterZonePicker))) do
   out[i] = { d.type, d.name or '', d.itemID or 0, d.ref and d.ref.dungeon and 1 or 0, d.heroic and 1 or 0 }
 end
 return out"""
 
 # The Sources checkbox dropdown (Addendum F §35): the picker dropdown that is not the phase dropdown ('-').
-SOURCES_DD = ("return T_first(CDLootPicker, function(f, st) return st.default_text ~= nil and st.default_text ~= '-' "
+SOURCES_DD = ("return T_first(DisasterZonePicker, function(f, st) return st.default_text ~= nil and st.default_text ~= '-' "
               "and st.template == 'WowStyle1DropdownTemplate' end)")
 
 PICKER_SUBS = r"""
 local out = {}
-for _, r in ipairs(T_rows(T_box(CDLootPicker))) do
+for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
   local d = rawget(r, '__cdlData')
   if d and d.type == 'item' then out[#out + 1] = { d.itemID, d.heroic and 1 or 0, r.sub:GetText() or '' } end
 end
@@ -437,7 +437,7 @@ return out"""
 def picker_dungeon_scopes_headers_and_heroic_tag():
     w, c = bu.solo("Alice", class_file="PALADIN", guild_rank=3, tick=3)
     bu.install_helpers(c)
-    c.slash("/cdl bis")
+    c.slash("/dz bis")
     w.tick(0.3)
     if not c.eval("return ns.Data.Dungeons ~= nil and ns.ItemDB.GetBossRefs ~= nil"):
         print("     (dungeon data not loaded by the core yet: skipped)")
@@ -479,21 +479,21 @@ def loot_log_dungeon_tag_and_filter():
     e1 = c.eval("return ns.Ledger:Award(%d, 'Bob-Thunderstrike', 'Karazhan:Prince').id" % RUBY_DRAPE)
     e2 = c.eval("return ns.Ledger:Award(%d, 'Carol-Thunderstrike', 'BlackMorass:Aeonus').id" % MINDBLADE)
     c.eval("local id = ...; ns.db.ledger[id].dg = true; ns:Fire('LEDGER_UPDATED')", e2)
-    c.slash("/cdl log")
+    c.slash("/dz log")
     w.tick(0.5)
     if c.eval("return ns.MainFrame:GetSelectedTab()") != "loot":
         c.eval("ns.MainFrame:Open('loot')")
         w.tick(0.3)
     c.eval("ns.LootLogUI:Refresh(true)")
-    p = "CDLootLootLogPanel"
+    p = "DisasterZoneLootLogPanel"
     assert c.eval("return %s.count:GetText()" % p) == "2 awards"
     bosses = c.eval_py("""local o = {}
-      for _, r in ipairs(T_rows(T_box(CDLootLootLogPanel))) do
+      for _, r in ipairs(T_rows(T_box(DisasterZoneLootLogPanel))) do
         local e = rawget(r, 'cdlEntry'); if e then o[#o + 1] = { e.id, r.boss:GetText() or '' } end end
       return o""")
     tags = {x[0]: strip_codes(x[1]) for x in bosses}
     assert tags[e2].endswith("(dungeon)") and not tags[e1].endswith("(dungeon)"), tags
-    cb = c.eval("return T_checkbox(CDLootLootLogPanel, 'Show dungeon loot')")
+    cb = c.eval("return T_checkbox(DisasterZoneLootLogPanel, 'Show dungeon loot')")
     assert cb is not None and c.eval("local b = ...; return b:GetChecked()", cb)
     c.click(cb)
     w.tick(0.3)

@@ -1,4 +1,4 @@
-"""Shared helpers for the boot-ui scenario tests (real CDLoot addon + tools/harness.py).
+"""Shared helpers for the boot-ui scenario tests (real DisasterZone addon + tools/harness.py).
 
 Every test file in this folder is standalone:  luaenv\\Scripts\\python.exe tests\\boot-ui\\test_x.py
 Each file registers cases with @case, then calls run_all(), which runs every case (even after a failure),
@@ -33,10 +33,10 @@ _CASES = []
 def toc_version():
     """'## Version' of the addon under test (the release tool bumps and restores it; tests must not pin it)."""
     import harness
-    for line in open(os.path.join(harness.ADDON_DIR, "CDLoot.toc"), encoding="utf-8-sig"):
+    for line in open(os.path.join(harness.ADDON_DIR, "DisasterZone.toc"), encoding="utf-8-sig"):
         if line.startswith("## Version:"):
             return line.split(":", 1)[1].strip()
-    raise AssertionError("CDLoot.toc has no ## Version")
+    raise AssertionError("DisasterZone.toc has no ## Version")
 
 
 def case(fn):
@@ -164,7 +164,7 @@ def addon_msgs(w, since=0):
     return w.addon_log[since:]
 
 
-def db_py(c, path="CDLootDB"):
+def db_py(c, path="DisasterZoneDB"):
     return c.eval_py("return " + path)
 
 

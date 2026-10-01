@@ -1,12 +1,12 @@
-# CDLoot SPEC — ADDENDUM E: picked council (GM + raid leader) replaces the Guild Info tag
+# DisasterZone SPEC — ADDENDUM E: picked council (GM + raid leader) replaces the Guild Info tag
 
 User decisions (2026-09-28):
 - The council is chosen by picking characters from a **searchable dropdown of online guild members**.
 - **Who may pick:** the **Guild Master** and the **current Raid Leader**.
 - **Lifetime:** stored "until changed" (overwritten on demand).
-- **Remove Guild Information entirely:** CDLoot no longer reads or writes the Guild Info text. No `CDL{...}` tag, no rank threshold and no phase in the Guild Info.
+- **Remove Guild Information entirely:** DisasterZone no longer reads or writes the Guild Info text. No `CDL{...}` tag, no rank threshold and no phase in the Guild Info.
 
-This supersedes SPEC §13 (the guild config tag), the Settings "Loot Council (guild settings)" editor, and the guild-info safety/backup code added to Core/Guild.lua on 2026-09-28 (`WriteConfig`, `/cdl guildinfo`, `CDLOOT_GUILDINFO_*` popups). Remove those. Keep `CDLootDB.guildCfg` readable only so a migration can drop it (§33).
+This supersedes SPEC §13 (the guild config tag), the Settings "Loot Council (guild settings)" editor, and the guild-info safety/backup code added to Core/Guild.lua on 2026-09-28 (`WriteConfig`, `/dz guildinfo`, `DISASTERZONE_GUILDINFO_*` popups). Remove those. Keep `DisasterZoneDB.guildCfg` readable only so a migration can drop it (§33).
 
 ## 29. Council model
 Two council lists exist, plus two implicit members.
@@ -72,8 +72,8 @@ Two council lists exist, plus two implicit members.
 - `Guild:GetGuildPhase()` → the group-rules phase if in a group with rules, else the guild phase, else 1. `GetViewPhase()` keeps the personal override on top.
 
 ## 33. Migration & cleanup
-- On login, if `db.guildCfg` exists → delete it (one time). Print once, only if it contained a tag: "CDLoot no longer uses the Guild Information text. You can delete the CDL{...} line from your Guild Info."
-- Remove: `Guild:WriteConfig`, `BuildTag`, `ParseConfig`, the info-text readers/writers, `/cdl guildinfo`, the `CDLOOT_SAVE_CONFIG` and `CDLOOT_GUILDINFO_*` popups, `db.guildInfoSeen`, and `db.guildInfoBackups` (delete these on migration too). Remove the obsolete tests (tests/guildinfo, and tag-based parts of tests/boot-ui/test_access.py, test_settings.py, sync council-membership) and REPLACE them with picker/council-model tests (§34).
+- On login, if `db.guildCfg` exists → delete it (one time). Print once, only if it contained a tag: "DisasterZone no longer uses the Guild Information text. You can delete the CDL{...} line from your Guild Info."
+- Remove: `Guild:WriteConfig`, `BuildTag`, `ParseConfig`, the info-text readers/writers, `/dz guildinfo`, the `DISASTERZONE_SAVE_CONFIG` and `DISASTERZONE_GUILDINFO_*` popups, `db.guildInfoSeen`, and `db.guildInfoBackups` (delete these on migration too). Remove the obsolete tests (tests/guildinfo, and tag-based parts of tests/boot-ui/test_access.py, test_settings.py, sync council-membership) and REPLACE them with picker/council-model tests (§34).
 - Group-rules authority (Addendum D §24): the raid leader is now always council for their raid, so the "raid leader if council" eligibility simplifies to "raid leader; else master looter". Party: party leader if council (guild list/GM) or if they enabled dungeon mode; else a guild-list council member in the party.
 
 ## 34. Tests (tests/council/test_council_picker.py + updates to the existing suites)

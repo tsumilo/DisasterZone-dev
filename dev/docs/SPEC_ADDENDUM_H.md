@@ -1,4 +1,4 @@
-# CDLoot SPEC — ADDENDUM H: main-spec / off-spec lists
+# DisasterZone SPEC — ADDENDUM H: main-spec / off-spec lists
 
 User request (2026-09-28): separate main-spec and off-spec BiS lists, switched in the My BiS header. Agreed design
 (the user accepted both recommendations): **one** off-spec list per character, and off-spec wanters rank **between**

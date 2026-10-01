@@ -2,7 +2,7 @@
 """Addendum C end to end: roll popups close once the item is awarded or looted (real addon, 7 mocked raiders).
 
 (a) the roll is closed and the master looter hands the item out with Blizzard's own master-loot menu
-    (GiveMasterLoot, no CDLoot click) -> every popup shows "Won by X (looted)" and is gone within 5s + fade;
+    (GiveMasterLoot, no DisasterZone click) -> every popup shows "Won by X (looted)" and is gone within 5s + fade;
     the same for a plain loot line (world.broadcast_loot_received) and for an open roll; a dungeon-mode party too.
 (b) the drop panel's plain "Award..." (and "Someone else...") while a roll session exists -> RW, popups close,
     exactly one ledger entry (and the typed note is kept).
@@ -116,7 +116,7 @@ def candidate_index(c, name, slot=1):
 
 
 def blizzard_give(r, item, name):
-    """The master looter hands `item` to `name` with Blizzard's master-loot dropdown (no CDLoot click)."""
+    """The master looter hands `item` to `name` with Blizzard's master-loot dropdown (no DisasterZone click)."""
     A = r["Alice"]
     slot = A.eval("return ns.Loot:FindLootSlot(...)", item)
     assert slot, "item %s not in the loot window" % item
@@ -154,7 +154,7 @@ def alpha(c):
 
 
 # ------------------------------------------------------------------------------------------------------------------
-# (a) Blizzard master-loot hand-out, no CDLoot click
+# (a) Blizzard master-loot hand-out, no DisasterZone click
 # ------------------------------------------------------------------------------------------------------------------
 @R.case
 def a_blizzard_master_loot_hand_out_closes_every_popup():
@@ -251,7 +251,7 @@ def a3_dungeon_party_master_looter_hand_out():
     w.tick(1)
     w.enter_instance("Black Morass", 269, "party", 5, 2)
     w.tick(1)
-    A.slash("/cdl dungeon on")
+    A.slash("/dz dungeon on")
     w.tick(1.5)
     assert A.eval("return ns.Util.IsPlayerMasterLooter()") is True
     COWL, AEONUS = 28206, "Creature-0-1-2-3-17881-0000C01"
@@ -290,7 +290,7 @@ def a3_dungeon_party_master_looter_hand_out():
 
 @R.case
 def a4_cdloot_give_in_a_dungeon_party_master_loot():
-    """The award button as party master looter: CDLOOT_GIVE_ITEM hands the item out (party candidates), one RW,
+    """The award button as party master looter: DISASTERZONE_GIVE_ITEM hands the item out (party candidates), one RW,
     the loot line that follows is matched to the award (no second resolution), one dg ledger entry."""
     roster = [("Alice", "PALADIN", 0), ("Bob", "MAGE", 1), ("Carol", "WARRIOR", 3)]
     w = World()
@@ -307,7 +307,7 @@ def a4_cdloot_give_in_a_dungeon_party_master_loot():
     w.tick(1)
     w.enter_instance("Black Morass", 269, "party", 5, 2)
     w.tick(1)
-    A.slash("/cdl dungeon on")
+    A.slash("/dz dungeon on")
     w.tick(1.5)
     COWL = 28206
     A.open_loot([(COWL, 3)], source_guid="Creature-0-1-2-3-17881-0000C02")
@@ -324,8 +324,8 @@ def a4_cdloot_give_in_a_dungeon_party_master_loot():
     log0 = len(w.addon_log)
     A.eval("ns.Roll:Award(...)", sid, key("Carol"))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_GIVE_ITEM"], A.popups()
-    A.accept_popup("CDLOOT_GIVE_ITEM")
+    assert A.popups() == ["DISASTERZONE_GIVE_ITEM"], A.popups()
+    A.accept_popup("DISASTERZONE_GIVE_ITEM")
     w.tick(1)
     assert A.eval("return ns.Loot:FindLootSlot(...)", COWL) is None, "the item was handed out"
     RW = msgs_of_type(w, "RW", log0)
@@ -373,7 +373,7 @@ def b_plain_award_menu_goes_through_the_roll():
         assert status(r[n]) == want, (n, status(r[n]))
     lines = [e for e in w.chat_log[chat0:] if "->" in e["text"]]
     assert len(lines) == 1 and lines[0]["sender"] == key("Bob"), lines
-    assert strip_codes(lines[0]["text"]) == "CDLoot: [Ruby Drape of the Mysticant] -> Dave (no roll, Alt)", lines[0]
+    assert strip_codes(lines[0]["text"]) == "DisasterZone: [Ruby Drape of the Mysticant] -> Dave (no roll, Alt)", lines[0]
     w.tick(0.3)
     for n in ("Alice", "Bob"):
         info = block_info(r[n], RUBY_DRAPE)
@@ -411,12 +411,12 @@ def b2_someone_else_dialog_keeps_the_note_and_add_award_does_not_touch_rolls():
     log0 = len(w.addon_log)
     A.eval("ns.DropPanel:AwardSomeoneElse(%d, 'Karazhan:Prince', 1)" % THOUSAND_MARKS)
     w.tick(0.1)
-    assert A.eval("return CDLootAwardDialog:IsShown()")
-    A.eval("local eb = ...; eb:SetText('Erin')", A.eval("return CDLootAwardDialog.winBox"))
-    A.eval("local eb = ...; eb:SetText('offspec | for now')", A.eval("return CDLootAwardDialog.noteBox"))
-    A.click(A.eval("return CDLootAwardDialog.saveBtn"))
+    assert A.eval("return DisasterZoneAwardDialog:IsShown()")
+    A.eval("local eb = ...; eb:SetText('Erin')", A.eval("return DisasterZoneAwardDialog.winBox"))
+    A.eval("local eb = ...; eb:SetText('offspec | for now')", A.eval("return DisasterZoneAwardDialog.noteBox"))
+    A.click(A.eval("return DisasterZoneAwardDialog.saveBtn"))
     w.tick(1)
-    assert not A.eval("return CDLootAwardDialog:IsShown()"), A.eval("return CDLootAwardDialog.status:GetText()")
+    assert not A.eval("return DisasterZoneAwardDialog:IsShown()"), A.eval("return DisasterZoneAwardDialog.status:GetText()")
     RW = msgs_of_type(w, "RW", log0)
     assert len(RW) == 1 and RW[0]["w"] == key("Erin"), RW
     for n in ADDON_USERS:
@@ -439,7 +439,7 @@ def b2_someone_else_dialog_keeps_the_note_and_add_award_does_not_touch_rolls():
     # the Loot Log's own "Add award..." never touches rolls: a plain entry, the closed roll stays closed
     sid3 = rolled(r, HELM_CHAMPION, (("Erin", 5),))
     A.eval("ns.LootLogUI:OpenAwardDialog(%d, 'Gina-Thunderstrike', 'Karazhan:Prince')" % HELM_CHAMPION)
-    A.click(A.eval("return CDLootAwardDialog.saveBtn"))
+    A.click(A.eval("return DisasterZoneAwardDialog.saveBtn"))
     w.tick(1)
     assert A.eval("return __RC.plainAwards") == 1
     for n in ADDON_USERS:
@@ -711,8 +711,8 @@ def explicit_award_after_a_hand_out_to_someone_else_is_recorded_with_a_note():
     log0, n0 = len(w.addon_log), len(A.chat_frame)
     A.eval("ns.Roll:Award(...)", sid, key("Dave"))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_CONFIRM_AWARD"], "no master-loot hand-out of an item already handed out"
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")
+    assert A.popups() == ["DISASTERZONE_CONFIRM_AWARD"], "no master-loot hand-out of an item already handed out"
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(1)
     RW = msgs_of_type(w, "RW", log0)
     assert len(RW) == 1 and RW[0]["w"] == key("Dave") and RW[0]["g"] is False, RW
@@ -721,9 +721,9 @@ def explicit_award_after_a_hand_out_to_someone_else_is_recorded_with_a_note():
         assert s["state"] == "awarded" and s["winner"] == key("Dave") and s["via"] is False, (n, s)
     assert status(r["Carol"]) == "Won by Dave"
     notes = [strip_codes(l) for l in printed_lines(A)[n0:] if "loot message says" in l]
-    assert notes[0] == ("CDLoot: Note: the loot message says Frank received [Ruby Drape of the Mysticant]; "
+    assert notes[0] == ("DisasterZone: Note: the loot message says Frank received [Ruby Drape of the Mysticant]; "
                         "recorded as awarded to Dave."), notes
-    # CDLoot 0.5: the one copy went to Frank but the award names Dave: flagged for the council to fix the log
+    # DisasterZone 0.5: the one copy went to Frank but the award names Dave: flagged for the council to fix the log
     assert len(notes) == 2 and "but it was awarded to Dave" in notes[1] and "Fix the loot log" in notes[1], notes
     for n in ("Alice", "Bob"):
         vis = sorted((e["w"], e["s"]) for e in visible_for(r[n], RUBY_DRAPE))

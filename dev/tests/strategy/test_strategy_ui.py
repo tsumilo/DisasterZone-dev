@@ -18,7 +18,7 @@ from _common import case, run_all, strip_codes, menu_texts  # noqa: E402
 
 BOSS = "BlackTemple:Council"
 P = "ns.RaidsUI:GetPanel()"
-W = "_G.CDLootStrategyBoard"
+W = "_G.DisasterZoneStrategyBoard"
 
 HELPERS = r"""
 function T_menu_prefix(prefix)
@@ -37,7 +37,7 @@ function T_menu_prefix(prefix)
   return __MOCK.menu_select(found.text, found.parent)
 end
 function T_cell(ref)
-  for _, b in ipairs(_G.CDLootStrategyBoard.blocks.blocks) do
+  for _, b in ipairs(_G.DisasterZoneStrategyBoard.blocks.blocks) do
     for _, c in ipairs(b.cells) do
       if c:IsShown() and c.slotRef == ref then return c end
     end
@@ -69,7 +69,7 @@ def board(cl):
 
 
 def open_strategies(w, cl):
-    cl.slash("/cdl raids")
+    cl.slash("/dz raids")
     w.tick(0.5)
     cl.eval("ns.RaidsUI:SetView('strategies')")
     w.tick(0.5)
@@ -77,8 +77,8 @@ def open_strategies(w, cl):
 
 
 def prompt_answer(w, cl, text):
-    assert shown(cl, "_G.CDLootStrategyPrompt")
-    cl.type_text(cl.eval("return _G.CDLootStrategyPrompt.edit"), text, enter=True)
+    assert shown(cl, "_G.DisasterZoneStrategyPrompt")
+    cl.type_text(cl.eval("return _G.DisasterZoneStrategyPrompt.edit"), text, enter=True)
     w.tick(0.3)
 
 
@@ -100,12 +100,12 @@ def author_builds_a_strategy_in_the_board():
     st = board(bob)
     assert st["mode"] == "edit" and st["name"] == "25 farm" and st["boss"] == BOSS and st["dirty"], st
     assert shown(bob, W)
-    # the Council's floor of Black Temple (a map shipped with CDLoot) is the background: its two textures
+    # the Council's floor of Black Temple (a map shipped with DisasterZone) is the background: its two textures
     m = bob.eval("return ns.StrategyBoard:GetState().strat.p[1].m")
     assert bob.eval("for _, x in ipairs(ns.Data.RaidMaps) do if x.id == ... then return x.file end end", m) == "BT06"
     tiles = bob.eval_py("local out = {}; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then "
                         "out[#out + 1] = t:GetTexture() end end; return out" % W)
-    assert tiles == [r"Interface\AddOns\CDLoot\Media\Maps\BT06_a", r"Interface\AddOns\CDLoot\Media\Maps\BT06_b"], tiles
+    assert tiles == [r"Interface\AddOns\DisasterZone\Media\Maps\BT06_a", r"Interface\AddOns\DisasterZone\Media\Maps\BT06_b"], tiles
     assert bob.find_text("Black Temple - Chamber of Command", True, True)
     # it starts from the Council's starter: the room framed, the four council members where they stand
     st = bob.eval_py("local p = ns.StrategyBoard:GetState().strat.p[1]; local out = { vz = p.vz, i = {} }; "
@@ -164,7 +164,7 @@ def raid_leader_fills_and_raiders_see_their_jobs():
     signup(c["Gina"], occ, "A", 2)     # Protection
     w.tick(2)
     # a member sees the raid's Assignments tab (no Assign button)
-    rita.slash("/cdl raids")
+    rita.slash("/dz raids")
     w.tick(0.5)
     rita.eval("ns.RaidPlanUI:SelectRaid(...); ns.RaidPlanUI:SetDetailTab('assign')", occ)
     w.tick(0.3)
@@ -235,7 +235,7 @@ def unsaved_changes_are_guarded():
     bob.eval("ns.StrategyBoard:NewStrategy('BlackTemple:Illidan', 'Other')")
     w.tick(0.2)
     # nothing is asked and nothing dropped: the unsaved changes stay behind as a draft
-    assert "CDLOOT_PLAN_CONFIRM" not in bob.popups()
+    assert "DISASTERZONE_PLAN_CONFIRM" not in bob.popups()
     assert board(bob)["name"] == "Other"
     names = sorted(d["n"] for d in bob.eval_py("return ns.StrategyBoard:GetDrafts()"))
     assert names == ["Changed", "Other"], names

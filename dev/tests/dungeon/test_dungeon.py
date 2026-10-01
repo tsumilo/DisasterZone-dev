@@ -8,7 +8,7 @@
   Loot Log "(dungeon)" tag and filter, "won tonight" ignores it. A non-council party leader runs rolls too.
 - Disband / raid conversion clear the mode; a plain member cannot turn it on for the others; with the mode off a
   party drop is not broadcast.
-- Quality rules (rare only inside a 5-man with the mode active, epic elsewhere), /cdl test inside a dungeon, the
+- Quality rules (rare only inside a 5-man with the mode active, epic elsewhere), /dz test inside a dungeon, the
   picker's dungeon scopes (slots x classes, heroic tags), and the council Items tree (5-man items under "Other").
 
 Run: luaenv\\Scripts\\python.exe tests\\dungeon\\test_dungeon.py   [-k substring]
@@ -101,7 +101,7 @@ class Party:
             seed_bis(self.c[name], entries)
         if sync:
             for cl in self.c.values():
-                cl.slash("/cdl sync")
+                cl.slash("/dz sync")
                 self.w.tick(0.3)
             self.w.tick(45)
         if instance:
@@ -144,7 +144,7 @@ def sent_by(w, t, sender, start=0):
 
 def open_settings(c):
     c.eval("function T_settings() return ns.MainFrame:GetPanel('settings') end")
-    c.slash("/cdl settings")
+    c.slash("/dz settings")
 
 
 def settings_status(c):
@@ -215,7 +215,7 @@ def loot_log_rows(c):
     """[(entry id, boss column text)] of the visible Loot Log rows."""
     c.eval("ns.LootLogUI:Refresh(true)")
     rows = c.eval_py(r"""local o = {}
-      for _, r in ipairs(T_rows(T_box(CDLootLootLogPanel))) do
+      for _, r in ipairs(T_rows(T_box(DisasterZoneLootLogPanel))) do
         local e = rawget(r, 'cdlEntry')
         if e and r:IsShown() then o[#o + 1] = { e.id, r.boss:GetText() or '' } end
       end
@@ -224,7 +224,7 @@ def loot_log_rows(c):
 
 
 def open_loot_log(c):
-    c.slash("/cdl log")
+    c.slash("/dz log")
     if c.eval("return ns.MainFrame:GetSelectedTab()") != "loot":
         c.eval("ns.MainFrame:Open('loot')")
 
@@ -252,7 +252,7 @@ def leader_enables_in_settings_every_member_gets_dm():
     for n in NAMES[1:]:
         assert enabled_by(p[n]) == key("Alice"), (n, enabled_by(p[n]))
         lines = [strip_codes(l) for l in printed_lines(p[n])]
-        want = "CDLoot: dungeon mode enabled by Alice (5-man loot sharing & rolls)"
+        want = "DisasterZone: dungeon mode enabled by Alice (5-man loot sharing & rolls)"
         assert lines.count(want) == 1, (n, lines[-4:])
         # the member's own setting stays off: the switch is the group's
         assert p[n].eval("return ns.DB:GetSetting('dungeon.enabled')") is False, n
@@ -348,7 +348,7 @@ def drop_panel_names_the_dungeon_boss_from_its_guid():
         assert len(D) == 1 and D[0]["b"] == bkey, (guid, D)
         title, sub = panel_header(p["Bob"])
         assert title == boss and sub.startswith(where), ("Bob", guid, title, sub)
-    # CDLoot 0.5: a creature that is no mapped boss, right after a kill, counts as that kill's loot only when the item
+    # DisasterZone 0.5: a creature that is no mapped boss, right after a kill, counts as that kill's loot only when the item
     # is on that boss's loot list (the Scarab is an Aeonus drop); other trash loot is never filed under the last boss
     # (see tests/regressions/test_final_review.py); a raid GUID still names the raid boss
     A.open_loot([(COWL, 3)], source_guid=AEONUS_GUID.replace("00000A1", "00000B1"))
@@ -410,8 +410,8 @@ def party_roll_through_the_panel_awards_a_dungeon_ledger_entry():
     # party loot is group loot: the award is confirmed (no master-loot hand-out)
     A.click(A.eval("local b = ...; return b.awardRoll", block(A, COWL)))
     w.tick(0.2)
-    assert A.popups() == ["CDLOOT_CONFIRM_AWARD"], A.popups()
-    A.accept_popup("CDLOOT_CONFIRM_AWARD")
+    assert A.popups() == ["DISASTERZONE_CONFIRM_AWARD"], A.popups()
+    A.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(1)
     RW = msgs_of_type(w, "RW", log0)
     assert len(RW) == 1 and RW[0]["_chat_type"] == "PARTY" and RW[0]["w"] == key("Erin"), RW
@@ -420,7 +420,7 @@ def party_roll_through_the_panel_awards_a_dungeon_ledger_entry():
     assert strip_codes(rollframe_state(p["Erin"])["status"]) == "You won it!", rollframe_state(p["Erin"])
     lines = [e for e in w.chat_log[chat0:] if "->" in e["text"]]
     assert len(lines) == 1 and lines[0]["chat_type"] == "PARTY", lines
-    assert strip_codes(lines[0]["text"]) == "CDLoot: [Cowl of the Guiltless] -> Erin (rolled 40, BiS)", lines[0]
+    assert strip_codes(lines[0]["text"]) == "DisasterZone: [Cowl of the Guiltless] -> Erin (rolled 40, BiS)", lines[0]
     w.tick(6.5)
     for n in NAMES:
         assert not rollframe_state(p[n])["shown"], (n, rollframe_state(p[n]))
@@ -436,7 +436,7 @@ def party_roll_through_the_panel_awards_a_dungeon_ledger_entry():
     w.tick(0.5)
     rows = loot_log_rows(A)
     assert len(rows) == 1 and rows[0][1].endswith("(dungeon)"), rows
-    cb = A.eval("return T_checkbox(CDLootLootLogPanel, 'Show dungeon loot')")
+    cb = A.eval("return T_checkbox(DisasterZoneLootLogPanel, 'Show dungeon loot')")
     assert cb is not None and A.eval("local b = ...; return b:GetChecked() and true or false", cb) is True
     A.click(cb)
     w.tick(0.3)
@@ -461,7 +461,7 @@ def non_council_party_leader_runs_the_panel_and_rolls():
     w = p.w
     C = p["Carol"]
     log0 = len(w.addon_log)
-    C.slash("/cdl dungeon on")
+    C.slash("/dz dungeon on")
     w.tick(1.5)
     assert len(sent_by(w, "DM", "Carol", log0)) == 1, "the party leader may tell the party"
     for n in NAMES:
@@ -485,7 +485,7 @@ def non_council_party_leader_runs_the_panel_and_rolls():
     assert results(C, sid)[0]["key"] == key("Erin"), results(C, sid)
     C.eval("ns.Roll:Award(...)", sid, key("Erin"))
     w.tick(0.2)
-    C.accept_popup("CDLOOT_CONFIRM_AWARD")
+    C.accept_popup("DISASTERZONE_CONFIRM_AWARD")
     w.tick(1.5)
     RW = msgs_of_type(w, "RW", log0)
     assert len(RW) == 1 and RW[0]["_sender"] == key("Carol") and RW[0]["_chat_type"] == "PARTY", RW
@@ -562,7 +562,7 @@ def enabler_leaving_the_party_clears_it():
     w = p.w
     w.tick(8)
     assert authority(p["Dave"]) == key("Bob")
-    p["Bob"].slash("/cdl dungeon on")          # council, not the leader: the party's loot authority
+    p["Bob"].slash("/dz dungeon on")          # council, not the leader: the party's loot authority
     w.tick(1.5)
     for n in NAMES:
         assert active(p[n]), n
@@ -585,7 +585,7 @@ def enabler_who_passed_the_lead_no_longer_decides():
     w = p.w
     w.tick(8)
     assert authority(p["Dave"]) is None
-    p["Carol"].slash("/cdl dungeon on")          # non-council party leader: becomes the loot authority
+    p["Carol"].slash("/dz dungeon on")          # non-council party leader: becomes the loot authority
     w.tick(1.5)
     assert all(active(p[n]) for n in NAMES)
     assert authority(p["Erin"]) == key("Carol")
@@ -597,14 +597,14 @@ def enabler_who_passed_the_lead_no_longer_decides():
     assert active(p["Carol"]), "her own setting still applies to her own client"
     # she is no longer the leader nor council: she cannot turn it on for the party again
     log1 = len(w.addon_log)
-    p["Carol"].slash("/cdl dungeon off")
-    p["Carol"].slash("/cdl dungeon on")
+    p["Carol"].slash("/dz dungeon off")
+    p["Carol"].slash("/dz dungeon on")
     w.tick(1.5)
     assert [m for m in sent_by(w, "DM", "Carol", log1) if m["on"]] == []
     assert sent_by(w, "GS", "Carol", log1) == []
     assert active(p["Carol"]) and not active(p["Erin"])
     # the new leader turns it on: he decides now; forged "off" messages from others change nothing
-    p["Dave"].slash("/cdl dungeon on")
+    p["Dave"].slash("/dz dungeon on")
     w.tick(1.5)
     assert active(p["Erin"]) and enabled_by(p["Erin"]) == key("Dave")
     assert authority(p["Erin"]) == key("Dave")
@@ -667,7 +667,7 @@ def plain_member_cannot_enable_it_for_the_party():
     assert Q.eval("return ns.Roll:CanStart()") is False
     q.w.assert_no_errors()
     # a forged RS from her is ignored even by clients that have the mode on
-    p["Alice"].slash("/cdl dungeon on")
+    p["Alice"].slash("/dz dungeon on")
     w.tick(1.5)
     C.eval("ns.Comm:Send({ t = 'RS', id = 'Carol-1-1', i = %d, s = '', b = '', d = 30, ts = GetServerTime(), c = 1 }, 'PARTY', nil, 'alert')" % COWL)
     w.tick(1)
@@ -728,7 +728,7 @@ def quality_threshold_rare_in_dungeon_only_when_active_epic_elsewhere():
 
     RARE, EPIC = (COWL, 3), (RUBY_DRAPE, 4)
     # 1. open world party, mode active: the raid threshold (epic) applies, the drop still goes on PARTY
-    A.slash("/cdl dungeon on")
+    A.slash("/dz dungeon on")
     w.tick(1.5)
     assert active(A) and not A.eval("return ns.Util.InPartyInstance()")
     assert loot([RARE, EPIC]) == ([RUBY_DRAPE], [RUBY_DRAPE])
@@ -753,12 +753,12 @@ def quality_threshold_rare_in_dungeon_only_when_active_epic_elsewhere():
     w.tick(0.3)
     assert A.eval("return ns.DB:GetSetting('dungeon.quality')") == 3
     # 4. inside the 5-man with the mode off: nothing is broadcast, the local drop uses epic
-    A.slash("/cdl dungeon off")
+    A.slash("/dz dungeon off")
     w.tick(1.5)
     assert not active(A)
     assert loot([RARE, EPIC]) == (None, [RUBY_DRAPE])
     # 5. a raid in a raid instance with the dungeon setting on: raid rules (epic), D on RAID
-    A.slash("/cdl dungeon on")
+    A.slash("/dz dungeon on")
     w.make_raid(p.clients, leader=A)
     w.tick(1)
     w.enter_instance("Karazhan", 532)
@@ -789,7 +789,7 @@ def council_auto_record_in_a_dungeon_is_dungeon_loot():
 
 
 # ------------------------------------------------------------------------------------------------------------------
-# §22.3 /cdl test inside a 5-man
+# §22.3 /dz test inside a 5-man
 # ------------------------------------------------------------------------------------------------------------------
 @R.case
 def cdl_test_in_a_dungeon_simulates_that_dungeon():
@@ -798,7 +798,7 @@ def cdl_test_in_a_dungeon_simulates_that_dungeon():
     A = p["Alice"]
     enable_via_settings(p, "Alice")
     log0 = len(w.addon_log)
-    A.slash("/cdl test")
+    A.slash("/dz test")
     w.tick(1)
     drop = drops_fired(A)[-1]
     assert drop["test"] and drop["b"].startswith("BlackMorass:"), drop
@@ -814,12 +814,12 @@ def cdl_test_in_a_dungeon_simulates_that_dungeon():
     # another dungeon: that dungeon's bosses
     w.enter_instance("Hellfire Ramparts", 543, "party", 5, 2)
     w.tick(1)
-    A.slash("/cdl test")
+    A.slash("/dz test")
     w.tick(1)
     assert drops_fired(A)[-1]["b"].startswith("HellfireRamparts:"), drops_fired(A)[-1]
     # mode off: the raid simulation as before
     enable_via_settings(p, "Alice")
-    A.slash("/cdl test")
+    A.slash("/dz test")
     w.tick(1)
     b = drops_fired(A)[-1]["b"]
     assert A.eval("return ns.ItemDB:GetBossRef(...).dungeon == nil", b), b
@@ -839,18 +839,18 @@ CANDS = r"""
 
 PICKER_DATA = r"""
 local out = {}
-for i, d in ipairs(T_data(T_box(CDLootPicker))) do
+for i, d in ipairs(T_data(T_box(DisasterZonePicker))) do
   out[i] = { d.type, d.name or '', d.itemID or 0, (d.ref and d.ref.dungeon) and 1 or 0, d.heroic and 1 or 0 }
 end
 return out"""
 
 # The Sources checkbox dropdown (Addendum F §35): the picker dropdown that is not the phase dropdown ('-').
-SOURCES_DD = ("return T_first(CDLootPicker, function(f, st) return st.default_text ~= nil and st.default_text ~= '-' "
+SOURCES_DD = ("return T_first(DisasterZonePicker, function(f, st) return st.default_text ~= nil and st.default_text ~= '-' "
               "and st.template == 'WowStyle1DropdownTemplate' end)")
 
 PICKER_SUBS = r"""
 local out = {}
-for _, r in ipairs(T_rows(T_box(CDLootPicker))) do
+for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
   local d = rawget(r, '__cdlData')
   if d and d.type == 'item' then out[#out + 1] = { d.itemID, d.heroic and 1 or 0, r.sub:GetText() or '' } end
 end
@@ -910,7 +910,7 @@ def picker_dungeon_scopes_headers_and_heroic_tag():
     for cls, sids in (("MAGE", (SID_LEGS, SID_HEAD, 13)), ("WARRIOR", (SID_LEGS, SID_MH, SID_BACK))):
         w, c = bu.solo("Alice", class_file=cls, guild_rank=3, tick=3)
         bu.install_helpers(c)
-        c.slash("/cdl bis")
+        c.slash("/dz bis")
         w.tick(0.3)
         for sid in sids:
             c.click(c.eval("local s = ...; return T_tile(s).main", sid))
@@ -940,7 +940,7 @@ def picker_dungeon_scopes_headers_and_heroic_tag():
             # picking a dungeon item works like any other
             if cls == "MAGE" and sid == SID_LEGS:
                 c.eval("ns.Picker:Rebuild(true)")
-                row = c.eval("local id = ...; for _, r in ipairs(T_rows(T_box(CDLootPicker))) do "
+                row = c.eval("local id = ...; for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do "
                              "local d = rawget(r, '__cdlData'); if d and d.itemID == id then return r end end", BREECHES)
                 assert row is not None
                 c.click(row)
@@ -973,10 +973,10 @@ def council_items_tree_counts_dungeon_items_under_other():
     p = Party(instance=False)
     w = p.w
     A = p["Alice"]
-    A.slash("/cdl council")
+    A.slash("/dz council")
     A.eval("ns.CouncilUI:SetView('items')")
     w.tick(0.5)
-    tree = A.eval_py("local o = {} for i, d in ipairs(T_data(CDLootCouncilPanel.itemsView.tree.box)) do "
+    tree = A.eval_py("local o = {} for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.tree.box)) do "
                      "o[i] = { d.type, d.name or '', d.count or 0, d.key or '' } end return o") or []
     other = [t for t in tree if t[0] == "other"]
     # Erin's cowl + Dave's and Bob's breeches: 3 claims, all 5-man items
@@ -987,11 +987,11 @@ def council_items_tree_counts_dungeon_items_under_other():
     # jumping to a 5-man item opens the Other node with it
     A.eval("ns.CouncilUI:ShowItem(...)", BREECHES)
     w.tick(0.5)
-    title = strip_codes(A.eval("return CDLootCouncilPanel.itemsView.title:GetText()"))
+    title = strip_codes(A.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
     assert title.startswith("Other / no raid source"), title
-    ids = A.eval_py("local o = {} for i, d in ipairs(T_data(CDLootCouncilPanel.itemsView.list.box)) do o[i] = d.itemID end return o")
+    ids = A.eval_py("local o = {} for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.list.box)) do o[i] = d.itemID end return o")
     assert sorted(ids) == sorted([COWL, BREECHES]), ids
-    src = strip_codes(A.eval("for _, r in ipairs(T_rows(CDLootCouncilPanel.itemsView.list.box)) do "
+    src = strip_codes(A.eval("for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.itemsView.list.box)) do "
                              "local d = rawget(r, 'cdlData'); if d and d.itemID == %d then return r.source:GetText() end end" % BREECHES) or "")
     assert "Aeonus (H)" in src, src
     w.assert_no_errors()

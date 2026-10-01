@@ -1,0 +1,2 @@
+-- DisasterZone: placeholder. On the publisher's machine dev/tools/release.py writes the in-game update
+-- that /dz publish sends here; in a release this file stays empty.

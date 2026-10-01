@@ -140,7 +140,7 @@ def a_late_login_gets_everything_also_of_offline_members():
     open_tradeskill(b, "Tailoring", TAILORING)
     w.tick(SYNC)
     assert member(g, "Alfa")[ALCH]["recipes"] == 5 and member(g, "Bert")[TAIL]["recipes"] == 3
-    a.logout()                                 # the alchemist is offline when Cleo installs CDLoot
+    a.logout()                                 # the alchemist is offline when Cleo installs DisasterZone
     w.tick(5)
     cleo = join(w, "Cleo")
     w.tick(SYNC + 120)
@@ -272,12 +272,12 @@ def members_who_left_the_guild_are_forgotten():
     assert member(b, "Alfa") is not None
     # a record of somebody who is not on the roster (left while I was offline)
     b.eval("""local gk = ns.Guild:GetGuildKey()
-        CDLootDB.prof[gk]["Gone-Thunderstrike"] = { rev = 5, p = { [171] = { r = 1, m = 75, e = 1, rr = 0, n = 0 } }, R = {} }""")
+        DisasterZoneDB.prof[gk]["Gone-Thunderstrike"] = { rev = 5, p = { [171] = { r = 1, m = 75, e = 1, rr = 0, n = 0 } }, R = {} }""")
     w.add_offline_member("Newbie", "DRUID", 3)
     for cl in (a, b, g):
         cl.eval("C_GuildInfo.GuildRoster()")
     w.tick(5)
-    assert b.eval('return CDLootDB.prof[ns.Guild:GetGuildKey()]["Gone-Thunderstrike"]') is None
+    assert b.eval('return DisasterZoneDB.prof[ns.Guild:GetGuildKey()]["Gone-Thunderstrike"]') is None
     assert member(b, "Alfa") is not None
     w.assert_no_errors()
 
@@ -316,7 +316,7 @@ def a_guildless_character_only_sees_itself():
     w.tick(SYNC)
     assert member(a, "Alfa")[ALCH]["recipes"] == 5
     assert member_traffic(w) == []
-    a.slash("/cdl members")
+    a.slash("/dz members")
     w.tick(1)
     assert a.find_text("Alfa")
     w.assert_no_errors()
@@ -338,7 +338,7 @@ def ui_world():
     w.tick(2)
     open_tradeskill(g, "Tailoring", TAILORING)
     w.tick(SYNC)
-    b.slash("/cdl members")
+    b.slash("/dz members")
     w.tick(1)
     return w, g, a, b
 
@@ -472,7 +472,7 @@ def my_own_unread_professions_get_a_hint():
     w, g, a, b = trio()
     set_skills(b, [("Tailoring", 375, 375), ("Herbalism", 300, 375)])
     w.tick(5)
-    b.slash("/cdl members")
+    b.slash("/dz members")
     w.tick(1)
     d = detail(b)
     assert d[-1]["kind"] == "note" and "Open your Tailoring window" in d[-1]["text"], d
@@ -483,7 +483,7 @@ def my_own_unread_professions_get_a_hint():
     assert not any("Open your" in (x.get("text") or "") for x in d), d
     assert b.find_text("3 recipes")
     start = len(b.chat_frame)
-    b.slash("/cdl professions")
+    b.slash("/dz professions")
     assert any("3 recipes known" in str(line) for line in b.chat_frame[start:]), b.chat_frame[start:]
     w.assert_no_errors()
 

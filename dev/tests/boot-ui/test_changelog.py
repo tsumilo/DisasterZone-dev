@@ -1,6 +1,6 @@
 """The Changelog tab (UI/Changelog.lua + Data/Changelog.lua): release notes for everyone.
 
-Covers: the tab for everyone (even without a guild), /cdl changelog, the installed release selected first with
+Covers: the tab for everyone (even without a guild), /dz changelog, the installed release selected first with
 "New · your version", a release newer than the installed one marked "In testing", selecting another release,
 "New" only for releases newer than the one read before, the Home "What's new" chip until the notes are read,
 and the data itself (unique versions, newest first, dated, every release with sections and short lines).
@@ -44,12 +44,12 @@ def home_chip(c, prefix):
 def everyone_gets_the_tab_and_the_installed_release_first():
     w, c = solo("Solo", guild=None, tick=3)
     version = c.eval("return ns.version")
-    c.slash("/cdl changelog")
+    c.slash("/dz changelog")
     w.tick(0.3)
     assert selected(c) == "changelog", selected(c)
     assert c.eval("return ns.ChangelogUI:GetSelected()") == version
     t = texts(c)
-    assert any(x.startswith("CDLoot " + version) for x in t), t
+    assert any(x.startswith("DisasterZone " + version) for x in t), t
     assert any("New · your version" in x for x in t), t
     assert "Versions" in t and ("you have " + version) in t, t
     assert c.eval("return ns.db.settings.changelogSeen") == version
@@ -69,7 +69,7 @@ def everyone_gets_the_tab_and_the_installed_release_first():
 @case
 def selecting_a_release_shows_its_sections():
     w, c = solo("Rai", guild_rank=3, tick=3)
-    c.slash("/cdl changelog")
+    c.slash("/dz changelog")
     w.tick(0.3)
     first = c.eval_py("return ns.CHANGELOG[#ns.CHANGELOG]")
     row = c.eval("""local v = ...
@@ -84,7 +84,7 @@ def selecting_a_release_shows_its_sections():
     w.tick(0.1)
     assert c.eval("return ns.ChangelogUI:GetSelected()") == first["version"]
     t = texts(c)
-    assert any(x.startswith("CDLoot " + first["version"]) and first["title"] in x for x in t), t
+    assert any(x.startswith("DisasterZone " + first["version"]) and first["title"] in x for x in t), t
     for section in first["sections"]:
         assert section["heading"] in t, (section["heading"], t)
         for line in section["lines"]:
@@ -102,7 +102,7 @@ def new_badges_only_for_releases_after_the_one_read():
       return out""")
     assert len(versions) >= 3, versions
     c.eval("ns.db.settings.changelogSeen = ...", versions[2])      # two releases unread
-    c.slash("/cdl changelog")
+    c.slash("/dz changelog")
     w.tick(0.3)
     badges = c.eval_py("""local out = {}
       local list = ns.MainFrame:GetPanel('changelog').list
@@ -118,7 +118,7 @@ def new_badges_only_for_releases_after_the_one_read():
 @case
 def home_chip_until_the_notes_are_read():
     w, c = solo("Rai", guild_rank=3, tick=3)
-    c.slash("/cdl")
+    c.slash("/dz")
     w.tick(0.5)
     assert selected(c) == "home"
     version = c.eval("return ns.version")
@@ -127,7 +127,7 @@ def home_chip_until_the_notes_are_read():
     c.click(ch)
     w.tick(0.3)
     assert selected(c) == "changelog"
-    c.slash("/cdl home")
+    c.slash("/dz home")
     w.tick(0.5)
     assert home_chip(c, "What's new") is None, "the chip goes away once read"
     no_errors(w)

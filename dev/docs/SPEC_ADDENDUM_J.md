@@ -1,6 +1,6 @@
-# CDLoot SPEC — ADDENDUM J: raid planning (teams, raid events, sign-ups, group builder)
+# DisasterZone SPEC — ADDENDUM J: raid planning (teams, raid events, sign-ups, group builder)
 
-User request (2026-09-29): a Raid-Helper-style raid planner inside CDLoot, built into the Raids tab. It must be very
+User request (2026-09-29): a Raid-Helper-style raid planner inside DisasterZone, built into the Raids tab. It must be very
 easy to find and answer raids. Officers build **teams** and pick which teams a raid is for.
 
 Agreed decisions (2026-09-29):
@@ -96,7 +96,7 @@ Messages fired: `RAIDPLAN_CHANGED`.
 ## 58. Raids tab (step 2, built)
 
 - The tab is available to every guild member. Views: **Upcoming** (default), **Teams**, **Raid log** (council only;
-  the Addendum I Raids / Players modes). `/cdl raids` opens Upcoming; `/cdl plan` prints the list in chat.
+  the Addendum I Raids / Players modes). `/dz raids` opens Upcoming; `/dz plan` prints the list in chat.
 - **Upcoming:** the list is grouped This week / Next week / Later / Recent (started more than 6 h ago, newest first).
   A row shows date, time, raid (size), teams, accepted count and my answer; an orange bar = invited and not answered.
   The raid I still have to answer is selected first.
