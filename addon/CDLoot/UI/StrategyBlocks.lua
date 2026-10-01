@@ -34,6 +34,9 @@ BlocksUI.TEMPLATES = {
       make = function() return { n = "Innervates", r = 3, c = { { t = "p", n = "From", f = "DRUID" }, { t = "p", n = "To" } } } end },
     { label = "Single job", sub = "Bloodlust with a timing",
       make = function() return { n = "Bloodlust", r = 1, c = { { t = "p", n = "Player" }, { t = "x", n = "When" } } } end },
+    { label = "Dispel / decurse", sub = "who removes a curse, magic, poison, enrage",
+      make = function() return { n = "Dispels", r = 3, tr = "dsp", dy = "m", i = "i:Spell_Holy_DispelMagic",
+                                 c = { { t = "p", n = "Player", f = S().DispelFilter("m", false) } } } end },
     { label = "Notes", sub = "text only",
       make = function() return { n = "Notes", r = 3, c = { { t = "x" } } } end },
 }
@@ -512,6 +515,111 @@ function Panel:CopyBlock(k, p, at, quiet)
     if not quiet then self:Changed() end
 end
 
+-- A dispel table's type / side changed: its player columns take the classes that can remove such an effect.
+local function ApplyDispelFilter(k)
+    local dy = k.dy or "m"
+    k.en = S().DispelSide(dy, k.en) or nil
+    local f = S().DispelFilter(dy, k.en)
+    for _, col in ipairs(k.c) do
+        if col.t == "p" then col.f = f end
+    end
+end
+
+-- A dispel table in a line: "Curse, on our raid" / "Magic, on the enemy".
+local function DispelWhere(k)
+    local dy = k.dy or "m"
+    return S().DISPEL_NAME[dy] .. (S().DispelSide(dy, k.en) and ", on the enemy" or ", on our raid")
+end
+BlocksUI.DispelWhere = DispelWhere
+
+-- The menu of a dispel table: the effects to remove (the removable ones of the boss, or any spell id), their type,
+-- and whether they sit on our raid or on the enemy. One type per table: picking an effect of another type starts over.
+function Panel:DispelMenu(root, k)
+    local strat = self.opts.strat()
+    local chosen = {}
+    for _, id in ipairs(k.ds or {}) do chosen[id] = true end
+    local function setEffects()
+        local list = {}
+        for id in pairs(chosen) do list[#list + 1] = id end
+        table.sort(list)
+        k.ds = #list > 0 and list or nil
+        ApplyDispelFilter(k)
+        self:Changed()
+    end
+    local function toggle(id, t, en)
+        if chosen[id] then
+            chosen[id] = nil
+        else
+            if t and (t ~= (k.dy or "m") or not k.ds) then
+                -- another type (or the first pick): the table becomes that type, on the side that effect sits
+                if t ~= (k.dy or "m") then chosen = {} end
+                k.dy = t
+                k.en = en or nil
+            end
+            local n = 0
+            for _ in pairs(chosen) do n = n + 1 end
+            if n >= S().MAX_DISPELS then
+                ns:Print("A dispel table holds at most %d effects.", S().MAX_DISPELS)
+                return
+            end
+            chosen[id] = true
+        end
+        setEffects()
+    end
+    local function label(id, t)
+        return MapUI():IconString("sp:" .. id, 14) .. " " .. (GetSpellInfo(id) or ("Spell " .. id))
+            .. (t and grey("  " .. S().DISPEL_NAME[t]) or "")
+    end
+    local em = root:CreateButton("Effects to remove" .. (k.ds and (" (" .. #k.ds .. ")") or ""))
+    local listed = {}
+    local known = S():GetBossDispels(strat and strat.b)
+    for _, t in ipairs(S().DISPEL_ORDER) do
+        for _, e in ipairs(known) do
+            if e.t == t then
+                listed[e.id] = true
+                em:CreateCheckbox(label(e.id, e.t) .. (e.en and grey(" (on the enemy)") or ""),
+                    function() return chosen[e.id] == true end, function() toggle(e.id, e.t, e.en) end)
+            end
+        end
+    end
+    for _, id in ipairs(k.ds or {}) do
+        if not listed[id] then
+            em:CreateCheckbox(label(id), function() return chosen[id] == true end, function() toggle(id) end)
+        end
+    end
+    if #known == 0 then em:CreateTitle(grey("No removable effects listed for this boss")) end
+    em:CreateButton("By spell ID...", function()
+        self.opts.prompt("Spell ID of the effect to remove (e.g. 43095 for Creeping Paralysis)", "", function(text)
+            local id = tonumber(text)
+            if id and id > 0 and id < 10000000 then
+                id = floor(id)
+                if not chosen[id] then toggle(id, S():DispelTypeOf(id)) end
+            end
+        end)
+    end)
+    local tm = root:CreateButton("Type: " .. S().DISPEL_NAME[k.dy or "m"])
+    for _, t in ipairs(S().DISPEL_ORDER) do
+        tm:CreateRadio(S().DISPEL_NAME[t], function() return (k.dy or "m") == t end, function()
+            k.dy = t
+            ApplyDispelFilter(k)
+            self:Changed()
+        end)
+    end
+    if (k.dy or "m") == "m" then
+        local wm = root:CreateButton("Where: " .. (k.en and "on the enemy" or "on our raid"))
+        wm:CreateRadio("On our raid (dispel it off a player)", function() return not k.en end, function()
+            k.en = nil
+            ApplyDispelFilter(k)
+            self:Changed()
+        end)
+        wm:CreateRadio("On the enemy (purge / spellsteal)", function() return k.en == true end, function()
+            k.en = true
+            ApplyDispelFilter(k)
+            self:Changed()
+        end)
+    end
+end
+
 function Panel:BlockMenu(owner, page, k, index)
     UI():ContextMenu(owner, function(root)
         root:CreateTitle(k.n)
@@ -542,6 +650,7 @@ function Panel:BlockMenu(owner, page, k, index)
                 trm:CreateRadio(Live.KIND_NAME[kind], function() return S().TrackKind(k) == kind end,
                     function() k.tr = kind; self:Changed() end)
             end
+            if eff == "dsp" then self:DispelMenu(root, k) end
         end
         local rows = root:CreateButton("Rows (" .. k.r .. ")")
         rows:CreateButton("Add a row", function() self:InsertRow(k, k.r + 1) end)
@@ -1120,6 +1229,37 @@ function Panel:Render()
             c.targetInfo = nil
             c:Show()
             return c
+        end
+        if S().TrackKind(k) == "dsp" then
+            -- a dispel table: what to remove, of which type and where, in a line under the title
+            local c = cell(0, by, width, true)
+            local icons, tip = "", { "Remove: " .. DispelWhere(k) }
+            for _, id in ipairs(k.ds or {}) do
+                icons = icons .. MapUI():IconString("sp:" .. id, 13) .. " "
+                tip[#tip + 1] = MapUI():IconString("sp:" .. id, 13) .. " " .. (GetSpellInfo(id) or ("Spell " .. id))
+            end
+            local first = k.ds and k.ds[1]
+            local text = first and (icons .. (GetSpellInfo(first) or ("Spell " .. first))
+                .. (#k.ds > 1 and (" +" .. (#k.ds - 1)) or "") .. grey("  " .. DispelWhere(k)))
+                or grey(mode == "edit" and "click to pick the effect to remove" or ("any " .. DispelWhere(k)))
+            c.fs:SetText(text)
+            local who = {}
+            for _, cl in ipairs(S().DispelClasses(k.dy or "m", S().DispelSide(k.dy or "m", k.en))) do
+                who[#who + 1] = ns.CLASS_NAMES and ns.CLASS_NAMES[cl] or cl
+            end
+            tip[#tip + 1] = "Can remove it: " .. (#who > 0 and table.concat(who, ", ") or "nobody")
+            tip[#tip + 1] = "Everyone in this table is told at once when it is up. Left empty, everyone who can remove it is."
+            c.tip = tip
+            c.blockId = k.id
+            if mode == "edit" then
+                c.onClick = function(btn)
+                    UI():ContextMenu(btn, function(root)
+                        root:CreateTitle(k.n)
+                        self:DispelMenu(root, k)
+                    end)
+                end
+            end
+            by = by + ROW_H
         end
         if hasHead then
             local x = 0

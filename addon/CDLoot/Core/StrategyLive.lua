@@ -13,6 +13,8 @@ if CDLootBoot and CDLootBoot.Run("Core/StrategyLive.lua", ...) then return end -
 --       md/bl  once per pull: Misdirection, Bloodlust / Heroism (done or not; Bloodlust's "When" countdown)
 --       pi/iv  a cooldown on a target: Power Infusion, Innervate (ready / on cooldown)
 --       curse  keep a curse up: the curse named in each row's target cell, on that row's boss
+--       dsp    remove an effect (block.ds) from our raid or from the enemy: everyone in the table is told at once
+--              while it is up (first come, first served); an empty table means everyone whose class can remove it
 -- The reminder panel (UI/StrategyReminder.lua) draws GetCurrent(); every change fires STRATEGY_LIVE.
 local addonName, ns = ...
 
@@ -33,6 +35,7 @@ local REMARK_GAP = 1.5             -- seconds between two re-marks of the same m
 local REMARK_MAX = 6               -- re-marks per mob per boss (then the other addon wins)
 local TURN_TIMEOUT = 3             -- the rotation's current player has this long to kick a cast before it moves on
 local MISS_DEDUPE = 1              -- a cast + a miss of the same kick within this many seconds count once
+local DISPEL_STALE = 60            -- an effect whose removal the combat log never showed is forgotten after this long
 Live.PULL_WINDOW = 10              -- a pull-time job (Misdirection) not cast this long after the pull: "not cast"
 
 local function S() return ns.Strategy end
@@ -68,9 +71,12 @@ local CLASS_SCHOOL = { ROGUE = "phys", WARRIOR = "phys", DRUID = "phys", SHAMAN 
                        WARLOCK = "spell", PRIEST = "spell", PALADIN = "spell", HUNTER = "phys" }
 
 local KIND_NAME = { rot = "Interrupt rotation", md = "Misdirection", bl = "Bloodlust / Heroism",
-                    pi = "Power Infusion", iv = "Innervate", curse = "Curses (keep up)" }
+                    pi = "Power Infusion", iv = "Innervate", curse = "Curses (keep up)", dsp = "Dispels (remove)" }
 Live.KIND_NAME = KIND_NAME
-Live.KIND_ORDER = { "rot", "md", "bl", "pi", "iv", "curse" }
+Live.KIND_ORDER = { "rot", "md", "bl", "pi", "iv", "curse", "dsp" }
+
+-- The Felhunter's Devour Magic (every rank): a warlock only removes Magic with that pet out.
+local DEVOUR_MAGIC = { 19505, 19731, 19734, 19736, 27276, 27277 }
 
 local spellNames      -- [kind] = { [lower name] = cooldown }
 local function Names()
@@ -276,6 +282,16 @@ local function BuildTracker(bossRef, k, a)
         end
         tr.rows[#tr.rows + 1] = r
         r.backup = (kind == "rot" and bk[row]) or nil
+        -- a dispel table may have several player columns: everyone in them is responsible
+        if kind == "dsp" then
+            for ci, col in ipairs(k.c) do
+                local key = col.t == "p" and a[S().SlotRef(k.id, row, ci)]
+                if key and key ~= r.player then
+                    tr.rows[#tr.rows + 1] = { row = row, pcol = ci, player = key }
+                    tr.order[#tr.order + 1] = tr.rows[#tr.rows]
+                end
+            end
+        end
         -- the boss abilities this row is for (ids + names, as the combat log may give either)
         if r.target and r.target.a and kind ~= "curse" then
             r.spells = {}
@@ -293,6 +309,17 @@ local function BuildTracker(bossRef, k, a)
         r.cond = r.target and ParseCond(r.target.w) or nil
         if r.player then
             if r.backup then tr.backups[#tr.backups + 1] = r else tr.order[#tr.order + 1] = r end
+        end
+    end
+    if kind == "dsp" then
+        -- the effects by id and by name (the combat log may give either), what removes them, where they sit
+        tr.effects, tr.effectIds, tr.active = {}, {}, {}
+        tr.dtype, tr.enemy = k.dy or "m", S().DispelSide(k.dy or "m", k.en)
+        for _, id in ipairs(k.ds or {}) do
+            tr.effects[id] = true
+            tr.effectIds[#tr.effectIds + 1] = id
+            local name = GetSpellInfo and GetSpellInfo(id)
+            if type(name) == "string" then tr.effects[name:lower()] = true end
         end
     end
     -- the rotation's target: the first row's boss
@@ -415,6 +442,43 @@ local function CurseRow(who, spellName)
             end
         end
     end
+end
+
+-- Is this dispel table mine: I'm in it, or nobody is and my class can remove that kind of effect.
+function Live:DispelMine(tr)
+    local me = Me()
+    if #tr.order > 0 then
+        for _, r in ipairs(tr.order) do
+            if r.player == me then return true end
+        end
+        return false
+    end
+    local class = select(2, UnitClass("player"))
+    if not S().CanDispel(class, tr.dtype, tr.enemy) then return false end
+    if class == "WARLOCK" then
+        for _, id in ipairs(DEVOUR_MAGIC) do
+            if IsSpellKnown and IsSpellKnown(id, true) then return true end
+        end
+        return false
+    end
+    return true
+end
+
+-- Who carries a dispel table's effect now: { { guid, name, id, spell, at }, ... }, the longest first.
+function Live:DispelActive(tr)
+    local out, now = {}, GetTime()
+    for guid, e in pairs(tr.active or {}) do
+        if now - e.at > DISPEL_STALE then
+            tr.active[guid] = nil
+        else
+            out[#out + 1] = { guid = guid, name = e.name, id = e.id, spell = e.spell, at = e.at }
+        end
+    end
+    table.sort(out, function(x, y)
+        if x.at ~= y.at then return x.at < y.at end
+        return tostring(x.name) < tostring(y.name)
+    end)
+    return out
 end
 
 -- Does a row's condition hold now?
@@ -862,6 +926,28 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName, spellId
                 end
             end
         end
+        -- an effect of a dispel table lands on (or leaves) one of ours / an enemy
+        for _, tr in ipairs(Tracked("dsp")) do
+            if (spellId and tr.effects[spellId]) or (type(spellName) == "string" and tr.effects[spellName:lower()]) then
+                local isPlayer = type(dstGUID) == "string" and dstGUID:find("^Player%-") ~= nil
+                local fits = (tr.enemy and dstNpc ~= nil) or (not tr.enemy and isPlayer)
+                if fits then
+                    if sub == "SPELL_AURA_REMOVED" then
+                        if tr.active[dstGUID] then
+                            tr.active[dstGUID] = nil
+                            Debug("%s: %s left %s", tr.name, tostring(spellName), tostring(dstName))
+                            changed = true
+                        end
+                    elseif not tr.active[dstGUID] then
+                        tr.active[dstGUID] = { name = dstName, id = spellId, spell = spellName, at = now }
+                        Debug("%s: %s on %s", tr.name, tostring(spellName), tostring(dstName))
+                        changed = true
+                    else
+                        tr.active[dstGUID].at = now
+                    end
+                end
+            end
+        end
         -- a known curse, or one a row picked by spell id
         if who and (SpellIn("curse", spellName) or CurseRow(who, spellName)) then
             for _, tr in ipairs(Tracked("curse")) do
@@ -880,6 +966,13 @@ function Live:Handle(sub, srcGUID, srcName, dstGUID, dstName, spellName, spellId
         end
     elseif sub == "UNIT_DIED" then
         local key = KeyOf(dstGUID, dstName)
+        -- the dead carry nothing to remove
+        for _, tr in ipairs(Tracked("dsp")) do
+            if dstGUID and tr.active[dstGUID] then
+                tr.active[dstGUID] = nil
+                changed = true
+            end
+        end
         if key then
             for _, tr in ipairs(Tracked("rot")) do
                 for _, list in ipairs({ tr.order, tr.backups }) do

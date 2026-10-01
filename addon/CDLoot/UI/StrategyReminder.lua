@@ -35,7 +35,11 @@ local function orange(t) return "|cffff9933" .. tostring(t) .. "|r" end
 local KIND_ICON = {
     rot = "i:Ability_Kick", md = "i:Ability_Hunter_Misdirection", bl = "i:Spell_Nature_BloodLust",
     pi = "i:Spell_Holy_PowerInfusion", iv = "i:Spell_Nature_Lightning", curse = "i:Spell_Shadow_CurseOfTounges",
+    dsp = "i:Spell_Holy_DispelMagic",
 }
+
+-- What removing an effect is called, by its dispel type (from the enemy: purge / tranquilize).
+local DISPEL_VERB = { m = "Dispel", c = "Decurse", p = "Cure", d = "Cure", e = "Tranq" }
 
 local function Me() return ns.Util.PlayerKey() end
 
@@ -127,6 +131,25 @@ local function RowText(tr, r)
         return r.label or "Curse"
     end
     return r.label or tr.name
+end
+
+-- A dispel table's job in words ("Decurse Curse of Doom", "Purge Pyrogenics +1") and its icon.
+local function DispelText(tr)
+    local verb = (tr.enemy and tr.dtype == "m") and "Purge" or DISPEL_VERB[tr.dtype] or "Remove"
+    local first = tr.effectIds[1]
+    if not first then return verb .. ": " .. tr.name, tr.icon or KIND_ICON.dsp end
+    local name = GetSpellInfo(first) or ("spell " .. first)
+    return verb .. " " .. name .. (#tr.effectIds > 1 and (" +" .. (#tr.effectIds - 1)) or ""), tr.icon or ("sp:" .. first)
+end
+
+-- Who carries it now, in short: "Aldren, Brisa +2".
+local function DispelTargets(list)
+    local names = {}
+    for i, e in ipairs(list) do
+        if i > 2 then break end
+        names[i] = ns.Util.ShortName(tostring(e.name or "?")) or tostring(e.name or "?")
+    end
+    return tconcat(names, ", ") .. (#list > 2 and (" +" .. (#list - 2)) or "")
 end
 
 -- The rotation's chips: the designated kickers, then the backups. { text, current, me, dead, backup, cd }.
@@ -222,6 +245,23 @@ function Reminder:Items()
                                       status = status, alert = alert, chips = Chips(tr, pick), tr = tr, myTurn = myTurn,
                                       backupTurn = myTurn and how == "backup" }
             end
+        elseif tr.kind == "dsp" then
+            -- everyone responsible is told at once while the effect is up
+            if Live():DispelMine(tr) then
+                mineIn[tr.id] = true
+                local text, icon = DispelText(tr)
+                local active = Live():DispelActive(tr)
+                local status, alert
+                if UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then
+                    status = grey("you're dead")
+                elseif #active > 0 then
+                    status, alert = red("NOW: " .. DispelTargets(active)), true
+                    flash = flash or (text .. (tr.enemy and " on " or " from ") .. DispelTargets(active))
+                else
+                    status = c.engaged and grey("clear") or gold("watch for it")
+                end
+                items[#items + 1] = { kind = "row", icon = icon, text = text, status = status, alert = alert, tr = tr }
+            end
         else
             for _, r in ipairs(tr.rows) do
                 if r.player == me then
@@ -257,6 +297,15 @@ function Reminder:Items()
                         status = red(status .. " (not ready)") else status = grey(status) end
                     items[#items + 1] = { kind = "rot", icon = tr.icon or KIND_ICON.rot, text = tr.name,
                                           status = status, chips = Chips(tr, pick), tr = tr, overview = true }
+                elseif tr.kind == "dsp" then
+                    local names = {}
+                    for _, r in ipairs(tr.order) do names[#names + 1] = ns.Util.ShortName(r.player) end
+                    local active = Live():DispelActive(tr)
+                    local _, icon = DispelText(tr)
+                    items[#items + 1] = { kind = "row", icon = icon, text = tr.name,
+                                          status = #active > 0 and orange("on " .. DispelTargets(active)) or grey("clear"),
+                                          detail = (#names > 0 and tconcat(names, ", ") or "everyone who can") .. "  ",
+                                          tr = tr, overview = true }
                 else
                     local parts, alert = {}, false
                     for _, r in ipairs(tr.rows) do

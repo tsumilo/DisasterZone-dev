@@ -155,6 +155,8 @@ The Azeromon text font is **Pixel Operator** by Jayvee Enaguas (HarvettFox96), r
 
 **Raid maps (`Media\Maps\*.blp`, listed in `Data\RaidMaps.lua`).** These are Blizzard Entertainment's own floor maps of the TBC raids (the in-game world map art of later clients). The Anniversary client has none. They were downloaded from wowhead's image server (wow.zamimg.com, `maps/enus/original/<zone>-<floor>.jpg`) and converted to DXT1 BLP textures by `dev/generators/gen_raid_maps.py`. They are © Blizzard Entertainment. They are not openly licensed: they ship here the same way addons commonly reuse game art, for use inside World of Warcraft only. Don't redistribute them outside that context. `dev/art/blizzard_maps/` in the dev kit keeps the downloaded originals.
 
+**Boss abilities (`Data\BossAbilities.lua`).** Only numbers: spell IDs from the installed DBM-Raids-BC modules, and for each one whether players can remove it (its dispel type: Magic, Curse, Poison, Disease, Enrage) as listed on wowhead.com. Names and icons come from the game client.
+
 **Boss portraits (`Data\BossPortraits.lua`).** Only numbers and names: creature IDs from Questie's database (GPL-3.0) and creature display IDs as listed on wowhead.com. The portraits themselves are drawn by the game client from its own models; no Blizzard art is shipped.
 
 The shapes of the strategy board (`Media\Strategy\disc.tga`, `ring.tga`, `arrow.tga`) are drawn by `dev/generators/gen_strategy_media.py`.

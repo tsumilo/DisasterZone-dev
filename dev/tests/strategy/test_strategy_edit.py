@@ -369,7 +369,7 @@ def empty_page_cards_and_link_pills():
     cards = bob.eval_py("local out = {}; for _, cd in ipairs(%s.cards) do if cd:IsShown() then "
                         "out[#out + 1] = cd.title:GetText() end end; return out" % blocks)
     assert cards[0] == "Tanks on Magtheridon" and cards[1] == "Hellfire Channeler  x5", cards
-    assert len(cards) == 2 + 6, cards        # + the templates
+    assert len(cards) == 2 + 7, cards        # + the templates
     assert bob.eval("return %s.addBtn:IsShown()" % blocks) is False
     bob.click(bob.eval("return %s.cards[2]" % blocks))
     st = "ns.StrategyBoard:GetState().strat"

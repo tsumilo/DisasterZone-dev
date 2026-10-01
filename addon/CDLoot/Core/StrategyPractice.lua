@@ -3,7 +3,7 @@ if CDLootBoot and CDLootBoot.Run("Core/StrategyPractice.lua", ...) then return e
 -- The player takes the first row of every tracked table (and a plain job); demo players fill the other slots.
 -- A scripted minute: the boss is near, the pull, the rotation's target casting every few seconds (demo players kick
 -- on their turns, the player's real interrupt counts on any target), demo misdirects / cooldowns / a curse falling
--- off, then the kill. Whatever the player targets gets the plan's next raid mark, to see marking work solo.
+-- off, an effect of each dispel table landing on a demo player (or the target) twice, then the kill. Whatever the player targets gets the plan's next raid mark, to see marking work solo.
 -- Everything goes through Core/StrategyLive.lua exactly like a real encounter; nothing is sent to anyone.
 local addonName, ns = ...
 
@@ -14,6 +14,8 @@ local LENGTH = 60           -- seconds from the pull to the kill
 local PULL_AFTER = 4        -- seconds of "near the boss" before the pull
 local CAST_EVERY = 7        -- the rotation target casts this often
 local DEMO_REACTION = 1.2   -- a demo player kicks this long after the cast started
+local DISPEL_AT = { 9, 31 }  -- seconds after the pull a dispel table's effect lands
+local DISPEL_FOR = 7        -- and how long it stays (a demo player "removes" it, or it runs out)
 
 local DEMO = { "Aldren", "Brisa", "Corvin", "Dessa", "Eldor", "Fenna", "Gorim", "Halvi", "Isolde", "Joren", "Kaela",
                "Lirra", "Morn", "Nessa", "Orrin", "Pella", "Quen", "Rusk", "Sella", "Tavin", "Ulma", "Varn", "Wynne",
@@ -192,6 +194,23 @@ local function Script(token)
                     At(token, when + 14, function() DemoCast(r.player, "SPELL_AURA_REMOVED", name, r.npc) end)
                     At(token, when + 19, function() DemoCast(r.player, "SPELL_AURA_APPLIED", name, r.npc) end)
                 end
+            end
+        end
+    end
+    -- the dispel tables: their effect lands on a demo player (on the target for an enemy's buff), then goes
+    for ti, tr in ipairs(c.trackers) do
+        if tr.kind == "dsp" and #tr.effectIds > 0 then
+            for n, at in ipairs(DISPEL_AT) do
+                local id = tr.effectIds[(n - 1) % #tr.effectIds + 1]
+                local victim = Util.NormalizeName(DEMO[(#DEMO - ti - n) % #DEMO + 1])
+                local guid, name = DemoGUID(victim), ShortName(victim)
+                if tr.enemy then guid, name = NpcGUID(tr.npc or 0), "Practice target" end
+                At(token, t0 + at + ti, function()
+                    Live():Handle("SPELL_AURA_APPLIED", NpcGUID(0), "Practice target", guid, name, Spell(id), id)
+                end)
+                At(token, t0 + at + ti + DISPEL_FOR, function()
+                    Live():Handle("SPELL_AURA_REMOVED", NpcGUID(0), "Practice target", guid, name, Spell(id), id)
+                end)
             end
         end
     end

@@ -60,8 +60,18 @@ local MAX_COLOR = 12
 
 local ROLES = { tank = true, healer = true, melee = true, ranged = true }
 -- Tracked tables: rot = interrupt rotation, md / bl = once per pull (Misdirection, Bloodlust / Heroism),
--- pi / iv = cooldown on a target (Power Infusion, Innervate), curse = keep a curse up.
-local TRACK_KINDS = { rot = true, md = true, bl = true, pi = true, iv = true, curse = true }
+-- pi / iv = cooldown on a target (Power Infusion, Innervate), curse = keep a curse up, dsp = remove an effect
+-- (block.ds = its spell ids, block.dy = its dispel type, block.en = it sits on the enemy, not on our raid).
+local TRACK_KINDS = { rot = true, md = true, bl = true, pi = true, iv = true, curse = true, dsp = true }
+-- Dispel types (m = Magic, c = Curse, p = Poison, d = Disease, e = Enrage) and the classes that remove each in TBC,
+-- from a friend and from an enemy (a warlock's is the Felhunter's Devour Magic).
+local DISPEL_NAME = { m = "Magic", c = "Curse", p = "Poison", d = "Disease", e = "Enrage" }
+local DISPEL_FRIEND = {
+    m = { "PRIEST", "PALADIN", "WARLOCK" }, c = { "MAGE", "DRUID" },
+    p = { "DRUID", "PALADIN", "SHAMAN" }, d = { "PRIEST", "PALADIN", "SHAMAN" },
+}
+local DISPEL_ENEMY = { m = { "PRIEST", "SHAMAN", "MAGE", "WARLOCK" }, e = { "HUNTER" } }
+local MAX_DISPELS = 8                -- effects per dispel table
 local CURSE_IDS = { [1714] = true, [702] = true, [1490] = true, [704] = true, [603] = true, [980] = true, [17862] = true }
 local COL_TYPES = { p = true, g = true, o = true, x = true }
 
@@ -73,6 +83,7 @@ Strategy.MAX_HEADER, Strategy.MAX_PAGE_NAME = MAX_HEADER, MAX_PAGE_NAME
 Strategy.MAX_TEXT, Strategy.MAX_NOTES = MAX_TEXT, MAX_NOTES
 Strategy.TEXT_MIN, Strategy.TEXT_MAX, Strategy.TEXT_BOX_MIN = TEXT_MIN, TEXT_MAX, TEXT_BOX_MIN
 Strategy.ROLES = { "tank", "healer", "melee", "ranged" }
+Strategy.DISPEL_NAME, Strategy.DISPEL_ORDER, Strategy.MAX_DISPELS = DISPEL_NAME, { "m", "c", "p", "d", "e" }, MAX_DISPELS
 
 local roundSeen = {}
 local answeredAt = -1000
@@ -411,6 +422,29 @@ local function CleanBlock(k)
     if k.tr ~= nil then
         if not TRACK_KINDS[k.tr] then return nil end
         out.tr = k.tr
+    end
+    -- a dispel table: the effects to remove (spell ids), their dispel type, and whether they sit on the enemy
+    if k.ds ~= nil then
+        if type(k.ds) ~= "table" then return nil end
+        local seen, list = {}, {}
+        for i = 1, MAX_DISPELS + 1 do
+            local id = k.ds[i]
+            if id == nil then break end
+            if i > MAX_DISPELS or not IsInt(id, 1, 9999999) then return nil end
+            if not seen[id] then
+                seen[id] = true
+                list[#list + 1] = id
+            end
+        end
+        if #list > 0 then out.ds = list end
+    end
+    if k.dy ~= nil then
+        if not DISPEL_NAME[k.dy] then return nil end
+        out.dy = k.dy
+    end
+    if k.en ~= nil then
+        if k.en ~= true then return nil end
+        out.en = true
     end
     -- the backup kickers' rows of an interrupt rotation
     if k.bk ~= nil then
@@ -1063,6 +1097,52 @@ function Strategy.TrackKind(k)
     end
     if not any then return nil end
     return curses and "curse" or "rot"
+end
+
+-- Dispel tables: the classes that can remove an effect of that type (from the enemy when `enemy`), in class order.
+function Strategy.DispelClasses(dy, enemy)
+    local list = (enemy and DISPEL_ENEMY or DISPEL_FRIEND)[dy]
+    local out = {}
+    for i, c in ipairs(list or {}) do out[i] = c end
+    return out
+end
+
+-- The same as a player column's "who fits" filter (nil when nobody can).
+function Strategy.DispelFilter(dy, enemy)
+    local list = Strategy.DispelClasses(dy, enemy)
+    return #list > 0 and tconcat(list, ",") or nil
+end
+
+-- Can that class remove such an effect?
+function Strategy.CanDispel(class, dy, enemy)
+    for _, c in ipairs((enemy and DISPEL_ENEMY or DISPEL_FRIEND)[dy] or {}) do
+        if c == class then return true end
+    end
+    return false
+end
+
+-- Where an effect of that type can be removed at all: Enrage only from the enemy, curses / poisons / diseases only
+-- from our raid, Magic from both. Returns the side to use (true = enemy) for the one asked for.
+function Strategy.DispelSide(dy, enemy)
+    if dy == "e" then return true end
+    if dy == "m" then return enemy and true or false end
+    return false
+end
+
+-- The removable effects of a boss (Data/BossAbilities.lua): { { id, t = type, en = true when on the enemy }, ... }.
+function Strategy:GetBossDispels(bossRef)
+    local known = ns.Data and ns.Data.BossAbilities and ns.Data.BossAbilities[bossRef]
+    return known and known.d or {}
+end
+
+-- The dispel type of a spell id any boss' list knows (an effect typed in by id), and whether it sits on the enemy.
+function Strategy:DispelTypeOf(id)
+    for _, known in pairs(ns.Data and ns.Data.BossAbilities or {}) do
+        for _, e in ipairs(known.d or {}) do
+            if e.id == id then return e.t, e.en end
+        end
+    end
+    return nil
 end
 
 -- What makes a draft invalid, in words (the first problem found).

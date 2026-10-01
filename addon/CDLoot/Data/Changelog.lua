@@ -6,6 +6,20 @@ if CDLootBoot and CDLootBoot.Run("Data/Changelog.lua", ...) then return end -- C
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "0.10.1", date = "1 October 2026", title = "Dispel tables",
+      sections = {
+          { heading = "Strategy boards", lines = {
+              "New table: Dispel / decurse, for who removes a curse, magic, poison, disease or enrage.",
+              "Table menu > Effects to remove lists what the boss casts that can be removed.",
+              "An effect missing from the list can be added by its spell ID.",
+              "The type decides who fits: mages and druids for a curse, hunters for an enrage.",
+              "Magic is removed from our raid (dispel) or from the enemy (purge): Table menu > Where.",
+              "In the fight everyone in the table is told at once while it is up, and who has it.",
+              "A table left empty: everyone whose class can remove it gets the alert.",
+              "The practice run shows it: the effect lands on a demo player twice.",
+              "Everyone needs this version to receive strategies that use a dispel table.",
+          } },
+      } },
     { version = "0.10.0", date = "1 October 2026", title = "Updates that arrive in game",
       sections = {
           { heading = "In-game updates", lines = {
