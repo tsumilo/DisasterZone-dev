@@ -89,7 +89,7 @@ def author_builds_a_strategy_in_the_board():
     bob, rita = c["Bob"], c["Rita"]
     open_strategies(w, rita)
     rita.eval("ns.StrategiesUI:SelectBoss(...)", BOSS)
-    assert not shown(rita, P + ".strategies.detail.newBtn")
+    assert shown(rita, P + ".strategies.detail.newBtn")      # 1.0: every member builds strategies
     assert rita.find_text("No strategy for this boss yet", True, True)
     open_strategies(w, bob)
     bob.eval("ns.StrategiesUI:SelectBoss(...)", BOSS)
@@ -269,8 +269,10 @@ def members_view_only():
     # page 2 shows its notes; the tabs switch pages
     sam.eval("ns.StrategyBoard:GetState().page = 2; ns.StrategyBoard:Refresh()")
     assert sam.find_text("Dampen magic pre-pull", True, True)
+    # a member's own strategy: a new one, or a copy of someone's
     sam.eval("ns.StrategyBoard:NewStrategy(...)", BOSS)
-    assert board(sam)["id"] == sid                   # refused: not an author
+    st = board(sam)
+    assert st["mode"] == "edit" and st.get("id") is None, st
     w.assert_no_errors()
 
 

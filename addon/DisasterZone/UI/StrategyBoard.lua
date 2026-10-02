@@ -229,7 +229,15 @@ local function rebuildDups()
     dups = S():FindDuplicates(st.strat, st.assign)
 end
 
-local function canEdit() return S():CanEdit() end
+-- Building strategies is for every guild member (each changes only their own and the ones shared with them);
+-- a raid's names are for the GM, the guild council and the raid leaders.
+local function canBuild() return S():CanBuild() end
+local function canAssign() return S():CanAssign() end
+local function canEditStrat(s)
+    if type(s) ~= "table" then return false end
+    if not s.id then return canBuild() end       -- not saved yet: mine
+    return S():CanEditStrategy(s.id)
+end
 
 -- Opening a raid needs a planned raid I can still see.
 local function raidView()
@@ -741,7 +749,7 @@ end
 -- at, pages, blocks, open (it is the one on the board) }.
 function Board:GetDrafts(bossRef)
     local out = {}
-    if not canEdit() then return out end   -- drafts belong to building: not for a member who can't (any more)
+    if not canBuild() then return out end
     for _, d in pairs(draftStore() or {}) do
         if d.mode == "edit" and (bossRef == nil or d.strat.b == bossRef) then
             local blocks = 0
@@ -759,12 +767,12 @@ end
 
 -- Unsaved names for a raid's boss: the draft's id, or nil.
 function Board:FillDraft(occId, bossRef)
-    if not canEdit() then return nil end
+    if not canAssign() then return nil end
     local d = findDraft(function(d) return d.mode == "fill" and d.occ == occId and d.boss == bossRef end)
     return d and d.did or nil
 end
 
-function Board:HasDraft() return canEdit() and next(draftStore() or {}) ~= nil end
+function Board:HasDraft() return canBuild() and next(draftStore() or {}) ~= nil end
 
 local function show()
     ensureWindow()
@@ -778,19 +786,23 @@ end
 
 -- Goes on with a draft (did nil: the latest one). What the board held unsaved stays behind as its own draft.
 function Board:OpenDraft(did)
-    if not canEdit() then
-        ns:Print("Only the Guild Master, the guild council and the raid leaders work on strategies.")
+    if not canBuild() then
+        ns:Print("Your guild is not known yet; try again in a moment.")
         return false
     end
     local store = draftStore()
     local d
     if did == nil then
-        d = findDraft(function() return true end)
+        d = findDraft(function(x) return x.mode == "edit" or canAssign() end)
     else
         d = store and store[did]
     end
     if not d then
         ns:Print(did and "That draft is gone." or "No unsaved work on the strategy board.")
+        return false
+    end
+    if d.mode == "fill" and not canAssign() then
+        ns:Print("Only the Guild Master, the guild council and the raid leaders assign players for a raid.")
         return false
     end
     if d ~= st then
@@ -823,7 +835,7 @@ end
 
 -- Throws a draft away.
 function Board:DiscardDraft(did)
-    if not canEdit() then return end
+    if not canBuild() then return end
     local store = draftStore()
     local d = store and store[did]
     if not d then return end
@@ -837,12 +849,16 @@ function Board:DiscardDraft(did)
     end
 end
 
--- A strategy on its own (view; authors can Edit).
+-- A strategy on its own (view; its owner and collaborators can Edit).
 function Board:OpenStrategy(id, mode)
     if st.dirty and st.strat and st.strat.id == id and not st.occ then return show() end
     park()
+    local mine = S():CanEditStrategy(id)
+    if mode == "edit" and not mine then
+        ns:Print("Only its owner and the collaborators the owner invited can change this strategy. Copy makes one of your own.")
+    end
     -- editing goes on where its draft stopped
-    local d = mode == "edit" and canEdit() and editDraftOf(id)
+    local d = mode == "edit" and mine and editDraftOf(id)
     if d then return self:OpenDraft(d.did) end
     local s = S():GetStrategy(id)
     if not s then
@@ -851,7 +867,7 @@ function Board:OpenStrategy(id, mode)
     end
     st.strat, st.occ, st.boss, st.page = s, nil, s.b, 1
     st.assign, st.dirty, st.picked = {}, false, nil
-    st.mode = (mode == "edit" and canEdit()) and "edit" or "view"
+    st.mode = (mode == "edit" and mine) and "edit" or "view"
     Board:ResetHistory()
     show()
 end
@@ -899,11 +915,11 @@ function Board:StarterDraft(bossRef)
     return d
 end
 
--- A new strategy for a boss (authors): its starter (the floor map framed on the room, the creatures where they
+-- A new strategy for a boss (mine): its starter (the floor map framed on the room, the creatures where they
 -- stand) when it has one, else a blank page on the boss' floor.
 function Board:NewStrategy(bossRef, name)
-    if not canEdit() then
-        ns:Print("Only the Guild Master, the guild council and the raid leaders can build strategies.")
+    if not canBuild() then
+        ns:Print("Your guild is not known yet; try again in a moment.")
         return
     end
     park()
@@ -932,14 +948,14 @@ function Board:OpenRaid(occId, bossRef, mode)
     if st.dirty and st.occ == occId and st.boss == bossRef then return show() end
     park()
     -- unsaved names for this raid's boss: go on with them
-    local did = canEdit() and self:FillDraft(occId, bossRef)
+    local did = canAssign() and self:FillDraft(occId, bossRef)
     if did then return self:OpenDraft(did) end
     local s, fill = S():GetRaidStrategy(occId, bossRef)
     st.occ, st.boss, st.page, st.picked = occId, bossRef, 1, nil
     st.strat = s
     st.assign = (s and fill and fill.s == s.id) and S():ValidAssignments(s, fill.a) or {}
     st.dirty = false
-    st.mode = (mode == "fill" and canEdit() and s) and "fill" or "view"
+    st.mode = (mode == "fill" and canAssign() and s) and "fill" or "view"
     Board:ResetHistory()
     show()
 end
@@ -1039,8 +1055,8 @@ function Board:OnKey(key)
 end
 
 function Board:SetMode(mode)
-    if not canEdit() then return end
     if mode == "edit" then
+        if not canEditStrat(st.strat) then return end
         if st.mode ~= "edit" then
             park()
             local d = editDraftOf(st.strat and st.strat.id)
@@ -1053,8 +1069,10 @@ function Board:SetMode(mode)
         end
         st.mode = "edit"
     elseif mode == "fill" then
-        if not (st.occ and st.strat) then return end
+        if not (canAssign() and st.occ and st.strat) then return end
         st.mode = "fill"
+    else
+        return
     end
     self:ResetHistory()
     self:Refresh()
@@ -1152,7 +1170,7 @@ function Board:UseStrategy(id)
     st.page = 1
     st.assign = S():ValidAssignments(s, st.assign)
     if st.mode ~= "fill" then
-        st.mode = canEdit() and "fill" or "view"
+        st.mode = canAssign() and "fill" or "view"
     end
     self:MarkDirty(true)
 end
@@ -1162,7 +1180,7 @@ function Board:StrategyMenu(root)
     for _, s in ipairs(S():GetStrategies(st.boss)) do
         root:CreateRadio(s.n, function() return st.strat and st.strat.id == s.id end, function() Board:UseStrategy(s.id) end)
     end
-    if canEdit() then
+    if canBuild() then
         root:CreateDivider()
         root:CreateButton("New strategy for this boss...", function()
             Board:Prompt("Name of the new strategy", "", function(text)
@@ -1517,7 +1535,7 @@ function Board:Refresh()
     rebuildDups()
     local s = st.strat
     local mode = st.mode
-    local editor = canEdit()
+    local assigner = canAssign()
     local v = raidView()
     -- title
     local bossName = S():GetBossName(st.boss or (s and s.b))
@@ -1532,7 +1550,12 @@ function Board:Refresh()
     win.titleBtn:SetShown(mode == "edit" and s ~= nil)
     local sub = {}
     if v then sub[#sub + 1] = ns.RaidPlan:GetRaidName(v) .. " · " .. date("%a %d %b %H:%M", v.t) end
-    if s and s.by then sub[#sub + 1] = "strategy by " .. shortName(s.by) .. (s.rev and (", " .. date("%d %b", s.rev)) or "") end
+    local owner = s and (s.ow or s.by)
+    if owner then
+        local co = #(s.co or {})
+        sub[#sub + 1] = "strategy by " .. shortName(owner) .. (co > 0 and (" +" .. co) or "")
+            .. (s.rev and (", " .. date("%d %b", s.rev)) or "")
+    end
     if st.dirty then sub[#sub + 1] = "|cffff9933unsaved changes|r" end
     win.sub:SetText(grey(tconcat(sub, "  ·  ")))
     win:SetWindowTitle("Strategy board")
@@ -1544,8 +1567,8 @@ function Board:Refresh()
     elseif mode == "fill" then
         header = { win.saveBtn, win.cancelBtn, win.stratDD, s and win.practiceBtn }
     else
-        local canFill = editor and s ~= nil and st.occ ~= nil
-        header = { canFill and win.fillBtn, editor and s and win.editBtn, st.occ and win.stratDD, s and win.practiceBtn }
+        local canFill = assigner and s ~= nil and st.occ ~= nil
+        header = { canFill and win.fillBtn, canEditStrat(s) and win.editBtn, st.occ and win.stratDD, s and win.practiceBtn }
         -- the edit button is the main action when there is nothing to assign
         win.editBtn:SetKind(canFill and "secondary" or "primary")
     end
@@ -1599,7 +1622,7 @@ function Board:Refresh()
         local lines = {}
         if not s then
             lines[1] = grey("There is no strategy for this boss yet.") ..
-                (editor and "\nUse the Strategy menu (top right) to make one." or "")
+                (st.occ and "\nUse the Strategy menu (top right) to make one." or "")
         elseif st.occ then
             local me = ns.Util.PlayerKey()
             local jobs = {}

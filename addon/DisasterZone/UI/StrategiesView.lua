@@ -1,18 +1,24 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategiesView.lua", ...) then return end -- DisasterZone: UI/StrategiesView.lua
 -- Where the strategy boards live in the Raids tab (Addendum K):
---   Strategies view   - the library: raids and their bosses on the left, the selected boss' strategies on the right
---                       (open / edit / copy / delete; New strategy for the GM, guild council and raid leaders), with
---                       my unsaved drafts on top (continue / discard; saving one makes it a strategy).
+--   Strategies view   - the library, for every guild member to explore and build in. A filter bar (free search, a
+--                       guild member) over the raids and their bosses on the left (All raids / a raid / one boss) and
+--                       the matching strategies on the right: Open for everyone, Edit for the owner and the
+--                       collaborators, Share (the collaborators) for the owner, Copy for everyone (the copy is
+--                       yours), Delete for the owner, the GM and the guild council. My unsaved drafts sit on top
+--                       (continue / discard; saving one makes it a strategy).
 --   Assignments tab   - of a planned raid (Upcoming): its bosses, the strategy each uses and how many slots are
---                       filled, with Open (everyone) and Assign (authors).
+--                       filled, with Open (everyone) and Assign (the GM, the guild council and the raid leaders).
 local addonName, ns = ...
 
 local View = ns:NewModule("StrategiesUI")
+
+local tsort = table.sort
 
 local LIST_W = 290
 local BOSS_ROW_H = 22
 local STRAT_ROW_H = 40
 local RAID_ROW_H = 38
+local FILTER_H = 28
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
@@ -20,8 +26,10 @@ local function Board() return ns.StrategyBoard end
 local function grey(t) return "|cff808080" .. tostring(t) .. "|r" end
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
-local state = { boss = nil }
-local lib, assign
+-- The library's filter: raid (an ItemDB raid key) or boss (a boss ref) picked on the left (neither: all raids),
+-- text = the free search, by = nil (anyone) | "@me" | "@co" (shared with me) | a member's key.
+local state = { raid = nil, boss = nil, text = "", by = nil }
+local lib, assign, shareWin
 
 local function addHighlight(row)
     local hl = row:CreateTexture(nil, "HIGHLIGHT")
@@ -35,6 +43,36 @@ local function countBlocks(s)
     local n = 0
     for _, p in ipairs(s.p or {}) do n = n + #(p.k or {}) end
     return n
+end
+
+local function raidOf(ref)
+    return type(ref) == "string" and ref:match("^(%w+):") or nil
+end
+
+-- The filter as Strategy:Find takes it; `scoped` adds the raid / boss picked on the left.
+local function findFilter(scoped)
+    local me = ns.Util.PlayerKey()
+    local f = { text = state.text }
+    if state.by == "@me" then f.by = me
+    elseif state.by == "@co" then f.co = me
+    elseif state.by then f.by = state.by end
+    if scoped then f.raid, f.boss = state.raid, state.boss end
+    return f
+end
+
+local function filtered()
+    return state.by ~= nil or (state.text or ""):find("%S") ~= nil
+end
+
+-- Does one of my drafts pass the filter (drafts are mine: the member filter keeps them for "anyone" and "mine")?
+local function draftShown(dr, scoped)
+    if state.by ~= nil and state.by ~= "@me" and state.by ~= ns.Util.PlayerKey() then return false end
+    if scoped and ((state.boss and dr.b ~= state.boss) or (state.raid and raidOf(dr.b) ~= state.raid)) then return false end
+    local hay = (dr.n .. "\n" .. S():GetBossName(dr.b) .. "\n" .. S():GetRaidName(dr.b)):lower()
+    for w in (state.text or ""):lower():gmatch("%S+") do
+        if not hay:find(w, 1, true) then return false end
+    end
+    return true
 end
 
 ---------------------------------------------------------------------------
@@ -55,26 +93,25 @@ local function initBossRow(row, d)
         row.n:SetPoint("RIGHT", -8, 0)
         row:SetScript("OnClick", function(self)
             local data = self.__cdlData
-            if data and data.ref then
-                state.boss = data.ref
-                View:RefreshLibrary()
-            end
+            if not data then return end
+            if data.ref then View:SelectBoss(data.ref)
+            elseif data.raid then View:SelectRaid(data.raid)
+            else View:SelectRaid(nil) end
         end)
     end
-    if d.header then
-        row.fs:SetFontObject("GameFontNormal")
-        row.fs:SetText(d.name)
-        row.n:SetText("")
-        row.sel:Hide()
-        row:EnableMouse(false)
-    else
-        row:EnableMouse(true)
-        local drafts = d.drafts or 0
+    local drafts = d.drafts or 0
+    local counts = (drafts > 0 and ("|cffff9933" .. drafts .. (drafts == 1 and " draft" or " drafts") .. "|r"
+        .. (d.count > 0 and "  " or "")) or "") .. (d.count > 0 and tostring(d.count) or "")
+    row.n:SetText(counts)
+    if d.ref then
         row.fs:SetFontObject((d.count > 0 or drafts > 0) and "GameFontHighlight" or "GameFontDisable")
         row.fs:SetText("   " .. d.name)
-        row.n:SetText((drafts > 0 and ("|cffff9933" .. drafts .. (drafts == 1 and " draft" or " drafts") .. "|r"
-            .. (d.count > 0 and "  " or "")) or "") .. (d.count > 0 and tostring(d.count) or ""))
         row.sel:SetShown(d.ref == state.boss)
+    else
+        -- "All raids" or a raid: picks everything under it
+        row.fs:SetFontObject("GameFontNormal")
+        row.fs:SetText(d.name)
+        row.sel:SetShown(state.boss == nil and state.raid == d.raid)
     end
 end
 
@@ -84,12 +121,10 @@ local function initStratRow(row, d)
         addHighlight(row)
         row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         row.l1:SetPoint("TOPLEFT", 8, -4)
-        row.l1:SetPoint("RIGHT", -250, 0)
         row.l1:SetJustifyH("LEFT")
         row.l1:SetWordWrap(false)
         row.l2 = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         row.l2:SetPoint("TOPLEFT", 8, -21)
-        row.l2:SetPoint("RIGHT", -250, 0)
         row.l2:SetJustifyH("LEFT")
         row.l2:SetWordWrap(false)
         -- a draft: an orange strip on the left
@@ -109,35 +144,37 @@ local function initStratRow(row, d)
             end
             s = s and s.s
             if not s then return end
-            ns.RaidPlanUI:Confirm(("Delete the strategy \"%s\" for everyone?"):format(s.n), function()
+            local owner = S():GetOwner(s.id)
+            local whose = (owner and not ns.Util.IsMe(owner)) and (" by " .. shortName(owner)) or ""
+            ns.RaidPlanUI:Confirm(("Delete the strategy \"%s\"%s for everyone?"):format(s.n, whose), function()
                 local ok, err = S():DeleteStrategy(s.id)
                 if not ok then ns:Print("Could not delete it: %s", tostring(err)) end
             end)
         end)
-        row.del:SetPoint("RIGHT", -6, 0)
+        row.share = UI():CreateButton(row, "Share", 56, 20, function(self)
+            local s = self:GetParent().__cdlData
+            if s and s.s then View:OpenShare(s.s.id) end
+        end)
         row.copy = UI():CreateButton(row, "Copy", 56, 20, function(self)
             local s = self:GetParent().__cdlData
             s = s and s.s
             if not s then return end
-            Board():Prompt("Name of the copy", (s.n .. " (copy)"):sub(1, S().MAX_NAME_LEN), function(text)
+            Board():Prompt("Name of your copy", (s.n .. " (copy)"):sub(1, S().MAX_NAME_LEN), function(text)
                 text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_NAME_LEN)
                 if text == "" then return end
                 local ok, id = S():CopyStrategy(s.id, text)
                 if ok then Board():OpenStrategy(id, "edit") else ns:Print("Could not copy it: %s", tostring(id)) end
             end)
         end)
-        row.copy:SetPoint("RIGHT", row.del, "LEFT", -4, 0)
         row.edit = UI():CreateButton(row, "Edit", 56, 20, function(self)
             local s = self:GetParent().__cdlData
             if s and s.draft then Board():OpenDraft(s.draft.did)
             elseif s and s.s then Board():OpenStrategy(s.s.id, "edit") end
         end)
-        row.edit:SetPoint("RIGHT", row.copy, "LEFT", -4, 0)
         row.open = UI():CreateButton(row, "Open", 56, 20, function(self)
             local s = self:GetParent().__cdlData
             if s and s.s then Board():OpenStrategy(s.s.id) end
         end)
-        row.open:SetPoint("RIGHT", row.edit, "LEFT", -4, 0)
         row:SetScript("OnClick", function(self)
             local s = self.__cdlData
             if s and s.draft then Board():OpenDraft(s.draft.did)
@@ -145,49 +182,126 @@ local function initStratRow(row, d)
         end)
     end
     local draft = d.draft
+    local s = d.s
     row.strip:SetShown(draft ~= nil)
     row.edit:SetText(draft and "Continue" or "Edit")
     row.edit:SetWidth(draft and 76 or 56)
     row.del:SetText(draft and "Discard" or "Delete")
+    -- the boss, unless the list is one boss'
+    local where = state.boss == nil and ("  " .. grey(S():GetBossName((draft or s).b))) or ""
+    local show
     if draft then
         -- my unsaved work: only I see it, saving it makes it a strategy (or updates the one it changes)
-        row.l1:SetText(draft.n .. "  |cffff9933Draft|r")
+        row.l1:SetText(draft.n .. "  |cffff9933Draft|r" .. where)
         row.l2:SetText(("%s · %d page%s · %d block%s · last edited %s"):format(
             draft.id and "unsaved changes" or "not saved yet", draft.pages, draft.pages == 1 and "" or "s",
             draft.blocks, draft.blocks == 1 and "" or "s", date("%d %b %H:%M", draft.at)))
-        row.edit:Show()
-        row.del:Show()
-        row.copy:Hide()
-        row.open:Hide()
-        row.edit:ClearAllPoints()
-        row.edit:SetPoint("RIGHT", row.del, "LEFT", -4, 0)
-        return
+        show = { del = true, edit = true }
+    else
+        local owner = s.ow or s.by
+        local me = ns.Util.PlayerKey()
+        local co = #(s.co or {})
+        local mine = S():CanEditStrategy(s.id)
+        row.l1:SetText(s.n .. where)
+        row.l2:SetText(("%d page%s · %d block%s · by %s%s, %s%s"):format(#s.p, #s.p == 1 and "" or "s", countBlocks(s),
+            countBlocks(s) == 1 and "" or "s", owner == me and "you" or shortName(owner), co > 0 and (" +" .. co) or "",
+            date("%d %b %Y", s.rev), (mine and owner ~= me) and "  ·  |cff33ff99shared with you|r" or ""))
+        show = { del = S():CanDeleteStrategy(s.id), share = owner == me, copy = S():CanBuild(), edit = mine, open = true }
     end
-    row.edit:ClearAllPoints()
-    row.edit:SetPoint("RIGHT", row.copy, "LEFT", -4, 0)
-    row.open:Show()
-    local s = d.s
-    row.l1:SetText(s.n)
-    row.l2:SetText(("%d page%s · %d block%s · by %s, %s"):format(#s.p, #s.p == 1 and "" or "s", countBlocks(s),
-        countBlocks(s) == 1 and "" or "s", shortName(s.by), date("%d %b %Y", s.rev)))
-    local editor = S():CanEdit()
-    row.edit:SetShown(editor)
-    row.copy:SetShown(editor)
-    row.del:SetShown(editor)
-    row.open:ClearAllPoints()
-    if editor then row.open:SetPoint("RIGHT", row.edit, "LEFT", -4, 0) else row.open:SetPoint("RIGHT", -6, 0) end
+    -- the buttons this member has, right to left; the texts end where they start
+    local prev, used = nil, 6
+    for _, k in ipairs({ "del", "share", "copy", "edit", "open" }) do
+        local b = row[k]
+        b:SetShown(show[k] and true or false)
+        if show[k] then
+            b:ClearAllPoints()
+            if prev then b:SetPoint("RIGHT", prev, "LEFT", -4, 0) else b:SetPoint("RIGHT", -6, 0) end
+            used = used + b:GetWidth() + 4
+            prev = b
+        end
+    end
+    row.l1:SetPoint("RIGHT", -(used + 6), 0)
+    row.l2:SetPoint("RIGHT", -(used + 6), 0)
+end
+
+local function byOptions()
+    local out = {
+        { value = nil, text = "Anyone" },
+        { value = "@me", text = "My strategies" },
+        { value = "@co", text = "Shared with me" },
+    }
+    local authors = S():GetAuthors()
+    tsort(authors, function(a, b) return shortName(a.key):lower() < shortName(b.key):lower() end)
+    if #authors > 0 then out[#out + 1] = { isTitle = true, text = "Guild members" } end
+    for _, a in ipairs(authors) do
+        out[#out + 1] = { value = a.key, text = shortName(a.key) .. "  (" .. a.n .. ")" }
+    end
+    -- a member picked earlier who has no strategy any more stays pickable (and so visible)
+    if state.by and state.by:sub(1, 1) ~= "@" then
+        local found = false
+        for _, a in ipairs(authors) do found = found or a.key == state.by end
+        if not found then out[#out + 1] = { value = state.by, text = shortName(state.by) .. "  (0)" } end
+    end
+    return out
+end
+
+local function askName(bossRef)
+    Board():Prompt("Name of the new strategy for " .. S():GetBossName(bossRef) .. " (e.g. 25 farm)", "", function(text)
+        text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_NAME_LEN)
+        if text ~= "" then Board():NewStrategy(bossRef, text) end
+    end)
+end
+
+-- New strategy: for the boss picked on the left, else a menu of bosses to pick from.
+local function newStrategy(btn)
+    if state.boss then return askName(state.boss) end
+    UI():ContextMenu(btn, function(root)
+        root:CreateTitle("New strategy for...")
+        for _, raid in ipairs(S():GetRaidTree()) do
+            if state.raid == raid.key then
+                for _, b in ipairs(raid.bosses) do
+                    root:CreateButton(b.name, function() askName(b.ref) end)
+                end
+            elseif not state.raid then
+                local sub = root:CreateButton(raid.name)
+                for _, b in ipairs(raid.bosses) do
+                    sub:CreateButton(b.name, function() askName(b.ref) end)
+                end
+            end
+        end
+    end)
 end
 
 function View:CreateLibrary(parent)
     local f = CreateFrame("Frame", nil, parent)
     lib = f
+    f.search = UI():CreateSearchBox(f, LIST_W - 30, function(text)
+        text = ns.Util.Trim(text or "")
+        if text == state.text then return end
+        state.text = text
+        View:RefreshLibrary()
+    end, "Search strategies...")
+    f.search:SetPoint("TOPLEFT", 8, -2)
+    f.byLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.byLabel:SetPoint("TOPLEFT", LIST_W + 12, -7)
+    f.byLabel:SetText("By")
+    f.by = UI():CreateDropdown(f, 190, byOptions, function() return state.by end, function(value)
+        state.by = value
+        View:RefreshLibrary()
+    end)
+    f.by:SetPoint("LEFT", f.byLabel, "RIGHT", 6, 0)
+    f.clear = UI():CreateButton(f, "Clear filters", 96, 22, function() View:SetFilter({}) end)
+    f.clear:SetPoint("LEFT", f.by, "RIGHT", 8, 0)
+    f.found = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.found:SetPoint("LEFT", f.clear, "RIGHT", 10, 0)
+
     f.list = UI():CreateScrollList(f, BOSS_ROW_H, initBossRow)
-    f.list.frame:SetPoint("TOPLEFT", 0, 0)
+    f.list.frame:SetPoint("TOPLEFT", 0, -FILTER_H)
     f.list.frame:SetPoint("BOTTOMLEFT", 0, 0)
     f.list.frame:SetWidth(LIST_W)
 
     local d = CreateFrame("Frame", nil, f)
-    d:SetPoint("TOPLEFT", LIST_W + 10, 0)
+    d:SetPoint("TOPLEFT", LIST_W + 10, -FILTER_H)
     d:SetPoint("BOTTOMRIGHT", 0, 0)
     f.detail = d
     d.title = d:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -197,13 +311,8 @@ function View:CreateLibrary(parent)
     d.sub:SetPoint("TOPLEFT", 2, -24)
     d.sub:SetPoint("RIGHT", -130, 0)
     d.sub:SetJustifyH("LEFT")
-    d.newBtn = UI():CreateButton(d, "New strategy", 110, 22, function()
-        if not state.boss then return end
-        Board():Prompt("Name of the new strategy (e.g. 25 farm)", "", function(text)
-            text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_NAME_LEN)
-            if text ~= "" then Board():NewStrategy(state.boss, text) end
-        end)
-    end)
+    d.sub:SetWordWrap(false)
+    d.newBtn = UI():CreateButton(d, "New strategy", 110, 22, function(self) newStrategy(self) end)
     d.newBtn:SetPoint("TOPRIGHT", -2, -2)
     d.list = UI():CreateScrollList(d, STRAT_ROW_H, initStratRow)
     d.list.frame:SetPoint("TOPLEFT", 0, -46)
@@ -213,44 +322,221 @@ end
 
 function View:RefreshLibrary()
     if not lib or not lib:IsVisible() then return end
-    local counts = S():CountByBoss()
-    local drafts = {}
-    for _, dr in ipairs(Board():GetDrafts()) do drafts[dr.b] = (drafts[dr.b] or 0) + 1 end
-    local rows = {}
-    local first, firstWith
-    for _, raid in ipairs(S():GetRaidTree()) do
-        rows[#rows + 1] = { header = true, name = raid.name }
-        for _, b in ipairs(raid.bosses) do
-            rows[#rows + 1] = { ref = b.ref, name = b.name, count = counts[b.ref] or 0, drafts = drafts[b.ref] }
-            first = first or b.ref
-            if not firstWith and (counts[b.ref] or 0) > 0 then firstWith = b.ref end
+    local tree = S():GetRaidTree()
+    -- what was picked on the left must still exist
+    local okBoss, okRaid = false, false
+    for _, raid in ipairs(tree) do
+        okRaid = okRaid or raid.key == state.raid
+        for _, b in ipairs(raid.bosses) do okBoss = okBoss or b.ref == state.boss end
+    end
+    if not okBoss then state.boss = nil end
+    if not okRaid then state.raid = nil end
+
+    -- the tree: how many strategies (and drafts of mine) pass the search / member filter under each row
+    local counts, drafts = {}, {}
+    local total, totalDrafts = 0, 0
+    for _, s in ipairs(S():Find(findFilter(false))) do
+        counts[s.b] = (counts[s.b] or 0) + 1
+        total = total + 1
+    end
+    local myDrafts = Board():GetDrafts()
+    for _, dr in ipairs(myDrafts) do
+        if draftShown(dr, false) then
+            drafts[dr.b] = (drafts[dr.b] or 0) + 1
+            totalDrafts = totalDrafts + 1
         end
     end
-    if not state.boss then state.boss = firstWith or first end
-    lib.list:SetData(rows)
-    local d = lib.detail
-    local editor = S():CanEdit()
-    d.newBtn:SetShown(editor and state.boss ~= nil)
-    if not state.boss then
-        d.title:SetText("")
-        d.sub:SetText("")
-        d.list:SetData({})
-        return
+    local rows = { { name = "All raids", count = total, drafts = totalDrafts } }
+    for _, raid in ipairs(tree) do
+        local head = { raid = raid.key, name = raid.name, count = 0, drafts = 0 }
+        rows[#rows + 1] = head
+        for _, b in ipairs(raid.bosses) do
+            rows[#rows + 1] = { ref = b.ref, name = b.name, count = counts[b.ref] or 0, drafts = drafts[b.ref] or 0 }
+            head.count = head.count + (counts[b.ref] or 0)
+            head.drafts = head.drafts + (drafts[b.ref] or 0)
+        end
     end
-    d.title:SetText(S():GetBossName(state.boss))
-    d.sub:SetText(S():GetRaidName(state.boss) .. grey("  ·  a strategy is a map with zones, arrows and icons plus "
-        .. "blocks of jobs; the raid leader fills in the names per raid"))
+    lib.list:SetData(rows)
+
+    -- the filter bar
+    if lib.by.Refresh then lib.by:Refresh() end
+    lib.clear:SetShown(filtered())
+    lib.found:SetShown(filtered())
+    lib.found:SetText(total .. (total == 1 and " strategy" or " strategies") .. " found")
+
+    -- the strategies
+    local d = lib.detail
+    d.newBtn:SetShown(S():CanBuild())
+    if state.boss then
+        d.title:SetText(S():GetBossName(state.boss))
+        d.sub:SetText(S():GetRaidName(state.boss) .. grey("  ·  a map with zones, arrows and icons plus tables of jobs; "
+            .. "the raid leader fills in the names per raid"))
+    else
+        d.title:SetText(state.raid and S():GetRaidName(state.raid .. ":x") or "All raids")
+        d.sub:SetText(grey("Everyone builds strategies here. You change your own and the ones shared with you; "
+            .. "Copy makes any strategy yours."))
+    end
     local list = {}
-    for _, dr in ipairs(Board():GetDrafts(state.boss)) do list[#list + 1] = { draft = dr } end
-    for _, s in ipairs(S():GetStrategies(state.boss)) do list[#list + 1] = { s = s } end
-    d.list:SetEmptyText(editor and "No strategy for this boss yet.\nClick New strategy to build one."
-        or "No strategy for this boss yet.\nThe Guild Master, the guild council and the raid leaders build them here.")
+    for _, dr in ipairs(myDrafts) do
+        if draftShown(dr, true) then list[#list + 1] = { draft = dr } end
+    end
+    for _, s in ipairs(S():Find(findFilter(true))) do list[#list + 1] = { s = s } end
+    if filtered() then
+        d.list:SetEmptyText("No strategy matches the filters.")
+    elseif state.boss then
+        d.list:SetEmptyText("No strategy for this boss yet.\nClick New strategy to build one.")
+    else
+        d.list:SetEmptyText("No strategies yet.\nClick New strategy to build the first one.")
+    end
     d.list:SetData(list)
 end
 
 function View:SelectBoss(ref)
-    state.boss = ref
+    state.boss, state.raid = ref, nil
     self:RefreshLibrary()
+end
+
+-- A raid (an ItemDB raid key), or nil for all raids.
+function View:SelectRaid(key)
+    state.boss, state.raid = nil, key
+    self:RefreshLibrary()
+end
+
+-- Sets the whole filter: { raid =, boss =, text =, by = nil | "@me" | "@co" | a member's key }.
+function View:SetFilter(f)
+    f = type(f) == "table" and f or {}
+    state.raid, state.boss = f.raid, f.boss
+    if state.boss then state.raid = nil end
+    state.text = ns.Util.Trim(tostring(f.text or ""))
+    state.by = type(f.by) == "string" and f.by or nil
+    if lib and lib.search:GetText() ~= state.text then lib.search:SetText(state.text) end
+    self:RefreshLibrary()
+end
+
+function View:GetFilter()
+    return { raid = state.raid, boss = state.boss, text = state.text, by = state.by }
+end
+
+-- The library's rows as shown (for tests): the tree rows and the strategy rows.
+function View:GetRows()
+    return lib and lib.list:GetData() or {}, lib and lib.detail.list:GetData() or {}
+end
+
+---------------------------------------------------------------------------
+-- Share: the collaborators of one of my strategies
+---------------------------------------------------------------------------
+
+local function shareSet()
+    local set = {}
+    for _, key in ipairs(shareWin and shareWin.id and S():GetCollaborators(shareWin.id) or {}) do set[key] = true end
+    return set
+end
+
+local function shareItems()
+    local g = ns.Guild
+    local out = {}
+    local set = shareSet()
+    for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
+        if not ns.Util.IsMe(key) then
+            out[#out + 1] = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
+                              dim = not g:IsOnline(key) }
+            set[key] = nil
+        end
+    end
+    -- a collaborator who left the guild can still be taken off
+    for key in pairs(set) do out[#out + 1] = { key = key, text = shortName(key), note = "not in the guild", dim = true } end
+    tsort(out, function(a, b) return a.text:lower() < b.text:lower() end)
+    return out
+end
+
+local function initShareRow(row, d)
+    if not row.cdlInit then
+        row.cdlInit = true
+        row.fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.fs:SetPoint("LEFT", 6, 0)
+        row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.note:SetPoint("LEFT", 150, 0)
+        row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
+        row.remove:SetSize(20, 20)
+        row.remove:SetPoint("RIGHT", -4, 0)
+        row.remove:SetScript("OnClick", function(self)
+            local data = self:GetParent().__cdlData
+            if data then View:ToggleCollaborator(data.key) end
+        end)
+    end
+    local g = ns.Guild
+    row.fs:SetText(UI():ColoredName(d.key))
+    row.note:SetText(g and g.GetRankName and g:GetRankName(d.key) or "")
+end
+
+local function createShare()
+    local w = UI():CreateWindow("DisasterZoneStrategyShare", "Collaborators", 380, 380)
+    shareWin = w
+    local c = w.content
+    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    w.info:SetPoint("TOPLEFT", 10, -8)
+    w.info:SetPoint("RIGHT", -10, 0)
+    w.info:SetJustifyH("LEFT")
+    w.picker = UI():CreateSearchDropdown(c, 240, {
+        placeholder = "Invite guild members...",
+        emptyText = "No matching guild members.",
+        getItems = shareItems,
+        isChecked = function(key) return shareSet()[key] and true or false end,
+        onToggle = function(key) View:ToggleCollaborator(key) end,
+    })
+    w.picker.frame:SetPoint("TOPLEFT", 6, -64)
+    w.status = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    w.status:SetPoint("TOPLEFT", 10, -92)
+    w.list = UI():CreateScrollList(c, 22, initShareRow)
+    w.list.frame:SetPoint("TOPLEFT", 4, -108)
+    w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
+    w.list:SetEmptyText("Nobody yet: only you can change this strategy.\nInvite guild members with the search box.")
+    w:Hide()
+    return w
+end
+
+-- Opens the collaborators of one of my strategies.
+function View:OpenShare(id)
+    if not S():IsOwner(id) then
+        ns:Print("Only the owner of a strategy picks its collaborators.")
+        return false
+    end
+    if not shareWin then createShare() end
+    shareWin.id = id
+    shareWin:Show()
+    shareWin:Raise()
+    self:RefreshShare()
+    return true
+end
+
+function View:GetShareWindow() return shareWin end
+
+-- Invites a guild member to my strategy, or takes them off (shared at once).
+function View:ToggleCollaborator(key)
+    local id = shareWin and shareWin.id
+    if not id or type(key) ~= "string" then return false end
+    local ok, err
+    if shareSet()[key] then ok, err = S():RemoveCollaborator(id, key) else ok, err = S():AddCollaborator(id, key) end
+    if not ok then ns:Print("Could not change the collaborators: %s", tostring(err)) end
+    self:RefreshShare()
+    return ok and true or false
+end
+
+function View:RefreshShare()
+    if not shareWin or not shareWin:IsShown() then return end
+    local s = shareWin.id and S():GetStrategy(shareWin.id)
+    if not s or not S():IsOwner(s.id) then
+        shareWin:Hide()
+        return
+    end
+    shareWin.info:SetText(("|cffffd100%s|r  %s\nThe guild members you invite here can change this strategy with you. "
+        .. "Only you invite, remove and delete."):format(s.n, grey(S():GetBossName(s.b))))
+    local rows = {}
+    for _, key in ipairs(s.co or {}) do rows[#rows + 1] = { key = key } end
+    tsort(rows, function(a, b) return shortName(a.key):lower() < shortName(b.key):lower() end)
+    shareWin.status:SetText(#rows .. " / " .. S().MAX_COLLAB .. " collaborators")
+    shareWin.list:SetData(rows)
+    if shareWin.picker.IsOpen and shareWin.picker:IsOpen() then shareWin.picker:RefreshRows() end
 end
 
 ---------------------------------------------------------------------------
@@ -307,11 +593,11 @@ local function initRaidBossRow(row, d)
         if Board():FillDraft(d.occ, d.ref) then line = line .. "  ·  |cffff9933unsaved draft|r" end
     end
     row.l2:SetText(line)
-    local editor = S():CanEdit()
+    local editor = S():CanAssign()
     row.assign:SetShown(editor and s ~= nil)
     row.open:ClearAllPoints()
     if editor and s then row.open:SetPoint("RIGHT", row.assign, "LEFT", -4, 0) else row.open:SetPoint("RIGHT", -6, 0) end
-    row.open:SetShown(s ~= nil or editor)
+    row.open:SetShown(s ~= nil or S():CanBuild())
 end
 
 -- The frame shown in a planned raid's detail (RaidPlanUI adds it as the Assignments tab).
@@ -354,9 +640,11 @@ function View:OnInit()
             end
         end)
     end)
+    ns:On("ROSTER_UPDATED", function() View:RefreshShare() end)
     ns:On("STRATEGY_CHANGED", function()
         ns.Util.Debounce("strategies-ui", 0.2, function()
             View:RefreshLibrary()
+            View:RefreshShare()
             if assign and assign:IsVisible() and ns.RaidPlanUI and ns.RaidPlanUI.RefreshUpcoming then
                 ns.RaidPlanUI:RefreshUpcoming()
             end

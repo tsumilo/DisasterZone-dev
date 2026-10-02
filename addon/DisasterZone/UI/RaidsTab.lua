@@ -1,7 +1,7 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidsTab.lua", ...) then return end -- DisasterZone: "Raids" tab. Three views (Addendum J §58):
 --   Upcoming - planned raids and sign-ups (everyone; UI/RaidPlanUI.lua)
 --   Teams    - the raid teams (everyone can look; organizers edit; UI/RaidPlanUI.lua)
---   Strategies - the strategy boards per boss (everyone can look; GM, council and raid leaders build; Addendum K,
+--   Strategies - the strategy boards per boss (everyone looks and builds, each changes their own; Addendum K,
 --               UI/StrategiesView.lua)
 --   Raid log - council only (Addendum I §51), with two modes:
 --     Raids   - the raid sessions (newest first) and, for the selected one, its boss timeline, attendance (with

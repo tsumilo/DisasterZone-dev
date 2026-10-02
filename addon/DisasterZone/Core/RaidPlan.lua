@@ -5,6 +5,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 -- override of one occurrence of a series). Every character writes only its own sign-ups (U). Everything is cached by
 -- every guild member and kept per guild in db.raidplan[guildKey].
 --
+-- A raid names teams (tm) and extra invites (inv: players outside those teams). Left open, anyone signs up and the
+-- teams only say who is expected. Locked (lk), only the members of its teams and its extra invites sign up; a
+-- sign-up of anyone else is not counted (it is hidden, and shows again when they are invited or the lock goes).
+--
 -- Sync (§56): live edits go out on GUILD (RPU, RPS). At login the HELLO carries a hash of my plan data (pd); a client
 -- whose data differs answers with its per-item digest (RPD, on GUILD so the others can stay quiet), the new client
 -- asks for the items that differ (RPW) and sends its own copy of them; items travel one per message (RPG).
@@ -36,6 +40,7 @@ local MAX_EVENTS = 60
 local MAX_SIGNUPS = 60              -- per occurrence
 local MAX_SIGNUP_OCCS = 150         -- occurrences with sign-ups (bounds what a sender can make me store)
 local MAX_TEAMS_PER_RAID = 10
+local MAX_INVITES = 40              -- extra invites per raid (players outside its teams)
 local MAX_GROUP_ENTRIES = 40
 local MAX_DIGEST_ITEMS = 100
 local MAX_RPS_ENTRIES = 30
@@ -264,6 +269,25 @@ local function CleanTeamIds(tm)
     return out
 end
 
+-- A raid's extra invites: player keys, sorted, without doubles. nil = none given, false = invalid.
+local function CleanInvites(inv)
+    if inv == nil then return nil end
+    if type(inv) ~= "table" then return false end
+    local out, seen = {}, {}
+    for i = 1, MAX_INVITES + 1 do
+        local v = inv[i]
+        if v == nil then break end
+        local k = WireKey(v)
+        if i > MAX_INVITES or not k then return false end
+        if not seen[k] then
+            seen[k] = true
+            out[#out + 1] = k
+        end
+    end
+    tsort(out)
+    return out
+end
+
 local function CleanGroups(grp)
     if grp == nil then return nil end
     if type(grp) ~= "table" then return false end
@@ -370,6 +394,14 @@ local function CleanRaidFields(out, r, now, partial, minT)
     local tm = CleanTeamIds(r.tm)
     if tm == false then return false end
     out.tm = tm
+    -- locked to its teams and extra invites; an override says false / {} to undo what its series says
+    if r.lk ~= nil then
+        if type(r.lk) ~= "boolean" then return false end
+        if r.lk or partial then out.lk = r.lk end
+    end
+    local inv = CleanInvites(r.inv)
+    if inv == false then return false end
+    if inv and (#inv > 0 or partial) then out.inv = inv end
     if r.ti ~= nil then
         out.ti = CleanText(r.ti, MAX_NAME_LEN)
         if not out.ti then return false end
@@ -494,7 +526,7 @@ end
 -- Occurrences (the resolved view the UI reads)
 ---------------------------------------------------------------------------
 
-local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no" }
+local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "inv" }
 
 local function CopyList(t)
     if type(t) ~= "table" then return nil end
@@ -514,6 +546,7 @@ end
 local function ViewEvent(e)
     return {
         id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, ti = e.ti, no = e.no,
+        lk = e.lk and true or false, inv = CopyList(e.inv) or {},
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
         weekly = false,
     }
@@ -530,11 +563,14 @@ local function ViewOccurrence(root, s, k)
         id = occId, sid = s.id, k = k, by = s.by, rev = s.rev, weekly = true, cancelled = false, lastWeek = s.u,
     }
     for _, f in ipairs(RAID_FIELDS) do
-        local val = (o and o[f] ~= nil) and o[f] or s[f]
+        local val = s[f]
+        if o and o[f] ~= nil then val = o[f] end
         if f == "t" and not (o and o.t) then val = SeriesTime(s, k) end
         v[f] = type(val) == "table" and CopyList(val) or val
     end
     v.tm = v.tm or {}
+    v.lk = v.lk and true or false
+    v.inv = v.inv or {}
     if o then
         v.cancelled = o.x and true or false
         v.grp = CopyMap(o.grp)
@@ -932,13 +968,23 @@ function RaidPlan:GetRaid(occId)
     return ResolveOcc(Root(false), occId)
 end
 
--- { [key] = { st, sp, c, n, rev } } (copies).
+-- The members a locked raid takes sign-ups from { [key] = true }; nil when it is open to everyone (not locked, or
+-- locked without any team or invite).
+local function LockSet(v)
+    if not v or not v.lk then return nil end
+    return RaidPlan:GetInvited(v)
+end
+
+-- { [key] = { st, sp, c, n, rev } } (copies). A locked raid counts only its teams' members and its extra invites.
 function RaidPlan:GetSignups(occId)
     local out = {}
     local root = Root(false)
     local u = root and type(occId) == "string" and root.U[occId]
     if type(u) == "table" then
-        for key, s in pairs(u) do out[key] = CopyMap(s) end
+        local only = LockSet(ResolveOcc(root, occId))
+        for key, s in pairs(u) do
+            if not only or only[key] then out[key] = CopyMap(s) end
+        end
     end
     return out
 end
@@ -948,7 +994,27 @@ function RaidPlan:GetMySignup(occId)
     local root = Root(false)
     local u = root and me and type(occId) == "string" and root.U[occId]
     local s = type(u) == "table" and u[me]
+    if s then
+        local only = LockSet(ResolveOcc(root, occId))
+        if only and not only[me] then return nil end
+    end
     return s and CopyMap(s) or nil
+end
+
+-- Is the raid (a view or an id) locked to its teams and extra invites?
+function RaidPlan:IsLocked(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    return LockSet(v) ~= nil
+end
+
+-- May that member (default: me) sign up for the raid? Everyone for an open raid; for a locked one the members of
+-- its teams and its extra invites.
+function RaidPlan:CanSignUp(occId, key)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    if not v then return false end
+    local only = LockSet(v)
+    key = key or Util.PlayerKey()
+    return only == nil or (key ~= nil and only[key] == true)
 end
 
 -- The sign-up order of a raid: { [key] = position (1 = first) }, total. Ordered by the first answer (any status), so
@@ -965,18 +1031,21 @@ function RaidPlan:GetSignupOrder(occId)
     return out, #list
 end
 
--- The set of invited members { [key] = true } (the union of the raid's visible teams), or nil when the raid names
--- no team (open to everyone).
+-- The set of invited members { [key] = true } (the union of the raid's visible teams, plus its extra invites), or
+-- nil when the raid names no team and no invite (open to everyone).
 function RaidPlan:GetInvited(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
-    if not v or not v.tm or #v.tm == 0 then return nil end
+    if not v then return nil end
+    local tm, inv = v.tm or {}, v.inv or {}
+    if #tm == 0 and #inv == 0 then return nil end
     local set = {}
-    for _, id in ipairs(v.tm) do
+    for _, id in ipairs(tm) do
         local t = self:GetTeam(id)
         if t then
             for _, key in ipairs(t.members) do set[key] = true end
         end
     end
+    for _, key in ipairs(inv) do set[key] = true end
     return set
 end
 
@@ -1225,6 +1294,24 @@ local function ApplyFields(rec, f, partial)
         if tm == false then return false, "invalid team list" end
         rec.tm = tm
     end
+    -- an override of a weekly raid keeps false / {} (that week differs from its series); other records drop them
+    if f.lk ~= nil then
+        if f.lk then rec.lk = true
+        elseif rec.sid then rec.lk = false
+        else rec.lk = nil end
+    end
+    if f.inv ~= nil then
+        local list = {}
+        for k, v in pairs(type(f.inv) == "table" and f.inv or {}) do
+            local key = type(k) == "string" and v and k or (type(v) == "string" and v) or nil
+            key = key and WireKey(key)
+            if not key then return false, "invalid invite list" end
+            list[#list + 1] = key
+        end
+        if #list > MAX_INVITES then return false, "A raid has at most " .. MAX_INVITES .. " extra invites." end
+        local inv = CleanInvites(list)
+        rec.inv = (#inv > 0 or rec.sid) and inv or nil
+    end
     if f.ti ~= nil then
         if f.ti == false or Util.Trim(tostring(f.ti)) == "" then rec.ti = nil
         else
@@ -1243,7 +1330,8 @@ local function ApplyFields(rec, f, partial)
 end
 
 -- fields: { i = instance key, t = start (server time), sz = 10|25 (default: the instance's), tm = { teamId },
--- ti = title, no = note, weekly = bool }. Returns ok, occIdOrErr.
+-- lk = bool (locked: only its teams and extra invites sign up), inv = { key } (extra invites), ti = title,
+-- no = note, weekly = bool }. Returns ok, occIdOrErr.
 function RaidPlan:CreateRaid(f)
     local root, err = RequireOrganizer()
     if not root then return false, err end
@@ -1370,6 +1458,9 @@ function RaidPlan:SignUp(occId, status, spec, note)
     if v.cancelled then return false, "This raid was cancelled." end
     if v.t < Now() - SIGNUP_CLOSE then return false, "This raid is over." end
     if not STATUSES[status] then return false, "invalid status" end
+    if not self:CanSignUp(v, me) then
+        return false, "This raid is locked to its teams and invited players. Ask a raid leader for an invite."
+    end
     local class = MyClass()
     local cur = root.U[occId] and root.U[occId][me]
     local s = { st = status, rev = NextRev(cur), c = class }

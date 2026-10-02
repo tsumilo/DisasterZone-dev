@@ -376,9 +376,9 @@ def long_texts_fit_and_reach_the_guild():
 
 
 @case
-def drafts_are_only_for_members_who_can_build_strategies():
-    """A raider must not see, continue or discard drafts (they sit in the saved variables of a member who used to
-    build strategies, or of another character of the account)."""
+def a_builder_keeps_the_drafts_without_a_raid_role():
+    """1.0: building strategies is for every guild member, so losing the council seat / the raid leader spot keeps
+    the strategy drafts (only assigning a raid's players needs the role)."""
     w, c, bob, sid = setup()
     place(bob, 600)
     w.tick(1)
@@ -389,21 +389,15 @@ def drafts_are_only_for_members_who_can_build_strategies():
     gm_pick(w, c["Gina"], [])
     set_raid_leaders(w, c["Gina"], [])
     w.tick(3)
-    assert bob.eval("return ns.Strategy:CanEdit()") is False
-    assert drafts(bob) == [] and drafts(bob, BOSS) == []
-    assert bob.eval("return %s:HasDraft()" % B) is False
-    n0 = len(bob.chat_frame)
-    assert bob.eval("return %s:OpenDraft(...)" % B, did) is False
-    assert any("Only the Guild Master" in str(x) for x in bob.chat_frame[n0:]), bob.chat_frame[n0:]
-    bob.eval("%s:DiscardDraft(...)" % B, did)
-    assert ndrafts(bob) == 1                              # still there for when the rights come back
+    assert bob.eval("return ns.Strategy:CanAssign()") is False
+    assert bob.eval("return ns.Strategy:CanBuild()") is True
+    assert len(drafts(bob)) == 1 and len(drafts(bob, BOSS)) == 1
+    assert bob.eval("return %s:HasDraft()" % B) is True
     bob.slash("/dz raids")
     bob.eval("ns.RaidsUI:SetView('strategies')")
     w.tick(1)
-    assert not bob.find_text("Continue") and not bob.find_text("Discard")
-    gm_pick(w, c["Gina"], ["Bob"])
-    w.tick(3)
-    assert len(drafts(bob)) == 1
+    assert bob.find_text("Continue") and bob.find_text("Discard")
+    assert bob.eval("return %s:OpenDraft(...)" % B, did) is True
     w.assert_no_errors()
 
 

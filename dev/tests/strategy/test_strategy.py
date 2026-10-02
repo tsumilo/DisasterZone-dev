@@ -30,9 +30,10 @@ def names():
 def author_strategy_reaches_everyone():
     w, c = world(names())
     bob = c["Bob"]
-    assert bob.eval("return ns.Strategy:CanEdit()") is True
-    assert c["Gina"].eval("return ns.Strategy:CanEdit()") is True
-    assert c["Rita"].eval("return ns.Strategy:CanEdit()") is False
+    assert bob.eval("return ns.Strategy:CanAssign()") is True
+    assert c["Gina"].eval("return ns.Strategy:CanAssign()") is True
+    assert c["Rita"].eval("return ns.Strategy:CanAssign()") is False
+    assert c["Rita"].eval("return ns.Strategy:CanBuild()") is True      # 1.0: every member builds strategies
     sid = save_council(bob)
     w.tick(2)
     # (the SBU itself is a multi-part AceComm message; the log decoder only reads single-part ones)
@@ -62,13 +63,14 @@ def author_strategy_reaches_everyone():
 
 
 @case
-def members_refused_and_forged_records_hidden():
+def members_build_and_forged_records_are_dropped():
     w, c = world(names())
     rita, sam = c["Rita"], c["Sam"]
     res = rita.eval_py("local d = (loadstring(...))(); local ok, e = ns.Strategy:SaveStrategy(d); return { ok = ok, e = e }",
                        COUNCIL)
-    assert res["ok"] is False and "raid leaders" in res["e"], res
-    # forged editor name: dropped; a member's own record: stored but hidden
+    assert res["ok"] is True, res
+    rid = res["e"]
+    # forged editor name: dropped; a member's own record: stored and shown (1.0: every member builds)
     rita.eval("local d = (loadstring(...))(); d.id = 'f1'; d.rev = GetServerTime(); d.by = 'Bob-Thunderstrike';"
               " ns.Comm:Send({ t = 'SBU', k = 'B', r = d }, 'GUILD', nil, 'data')", COUNCIL)
     rita.eval("local d = (loadstring(...))(); d.id = 'f2'; d.rev = GetServerTime(); d.by = 'Rita-Thunderstrike';"
@@ -77,7 +79,7 @@ def members_refused_and_forged_records_hidden():
     root = "ns.db.strategy['%s']" % GUILD_KEY
     assert sam.eval("return %s.B.f1" % root) is None
     assert sam.eval("return %s.B.f2 ~= nil" % root) is True
-    assert strategies(sam) == []
+    assert sorted(s["id"] for s in strategies(sam)) == sorted(["f2", rid])
     # malformed: bad boss ref, unknown element, pipe in a label, too many pages, duplicate block ids, bad filter
     bad = [
         "d.b = 'Black Temple'",
@@ -95,7 +97,7 @@ def members_refused_and_forged_records_hidden():
     w.tick(2)
     stored = sam.eval_py("local out = {}; for id in pairs(%s.B) do out[#out + 1] = id end; table.sort(out); return out"
                          % root)
-    assert stored == ["f2"], stored
+    assert sorted(stored) == sorted(["f2", rid]), stored
     # the author's own validation says why
     assert c["Bob"].eval("local d = (loadstring(...))(); d.p[1].e[1].l = 'x|y'; return (ns.Strategy:Validate(d))",
                          COUNCIL) is None

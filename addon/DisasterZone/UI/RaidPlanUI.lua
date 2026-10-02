@@ -80,14 +80,24 @@ local function raidTitle(v)
     return ("%s (%d)"):format(RP():GetRaidName(v), v.sz or 0)
 end
 
+-- Who the raid is for: its teams, how many players are invited on top, and whether it is locked to them.
 local function teamNames(v)
-    if not v.tm or #v.tm == 0 then return "Everyone" end
     local names = {}
-    for _, id in ipairs(v.tm) do
+    for _, id in ipairs(v.tm or {}) do
         local t = RP():GetTeam(id)
         if t then names[#names + 1] = t.name end
     end
-    return #names > 0 and tconcat(names, ", ") or "Everyone"
+    local extra = #(v.inv or {})
+    local locked = RP():IsLocked(v)
+    local text
+    if #names > 0 then
+        text = tconcat(names, ", ") .. (extra > 0 and (" +" .. extra .. " invited") or "")
+    elseif locked then
+        text = extra .. " invited"
+    else
+        text = "Everyone"
+    end
+    return locked and ("|cffff9933Locked|r: " .. text) or text
 end
 
 -- Monday 00:00 of the week of `t`.
@@ -118,6 +128,7 @@ local function myStatusText(v)
     local inv = RP():GetInvited(v)
     local me = ns.Util.PlayerKey()
     if inv and me and inv[me] then return colorize("ff9933", "not answered"), "ff9933" end
+    if not RP():CanSignUp(v) then return grey("not invited"), nil end
     return grey("not answered"), nil
 end
 
@@ -1056,8 +1067,9 @@ local function refreshDetail(v)
 
     local mine = RP():GetMySignup(v.id)
     local open = not v.cancelled and v.t >= Now() - 6 * 3600
+    local invited = RP():CanSignUp(v)       -- false: locked to its teams and invited players, and I'm not one
     for st, b in pairs(upcoming.statusBtns) do
-        b:SetEnabled(open)
+        b:SetEnabled(open and invited)
         local chosen = mine and mine.st == st
         b:SetText(chosen and colorize(STATUS[st].color, STATUS[st].button) or STATUS[st].button)
         if chosen then b:LockHighlight() else b:UnlockHighlight() end
@@ -1069,6 +1081,7 @@ local function refreshDetail(v)
         upcoming.noteBox:SetText(note or "")
     end
     d.strip.closed:SetText(v.cancelled and "This raid was cancelled." or (not open and "Sign-ups are closed.")
+        or (not invited and colorize("ff9933", "Locked: ask a raid leader for an invite"))
         or (mine and grey("Saved: " .. STATUS[mine.st].label) or colorize("ff9933", "Pick an answer")))
 
     local c = counts(v.id)
@@ -1544,6 +1557,44 @@ local function teamSummary()
     return tconcat(names, ", ")
 end
 
+-- The guild members to invite on top of the teams (members of a picked team are in already).
+local function inviteItems()
+    local g = ns.Guild
+    local inTeam = {}
+    for _, t in ipairs(RP():GetTeams()) do
+        if editor.f.tm[t.id] then
+            for _, key in ipairs(t.members) do inTeam[key] = t.name end
+        end
+    end
+    local out, seen = {}, {}
+    for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
+        seen[key] = true
+        out[#out + 1] = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
+                          dim = not g:IsOnline(key), fixed = inTeam[key] }
+    end
+    for key in pairs(editor.f.inv) do
+        if not seen[key] then out[#out + 1] = { key = key, text = shortName(key), note = "not in the guild", dim = true } end
+    end
+    tsort(out, function(a, b) return a.text:lower() < b.text:lower() end)
+    return out
+end
+
+local function inviteList()
+    local list = {}
+    for key in pairs(editor.f.inv) do list[#list + 1] = key end
+    tsort(list)
+    return list
+end
+
+local function refreshInvites()
+    local list = inviteList()
+    tsort(list, nameLess)
+    local names = {}
+    for i, key in ipairs(list) do names[i] = shortName(key) end
+    editor.invInfo:SetText(#list == 0 and "Nobody outside the teams is invited."
+        or (#list .. " invited: " .. tconcat(names, ", ")))
+end
+
 local function editorFields()
     local f = editor.f
     local tm = {}
@@ -1551,7 +1602,7 @@ local function editorFields()
         if f.tm[t.id] then tm[#tm + 1] = t.id end
     end
     return {
-        i = f.i, sz = f.sz, t = editorTime(), tm = tm,
+        i = f.i, sz = f.sz, t = editorTime(), tm = tm, lk = f.lk and true or false, inv = inviteList(),
         ti = ns.Util.Trim(editor.titleBox:GetText() or "") ~= "" and editor.titleBox:GetText() or false,
         no = ns.Util.Trim(editor.noteBox:GetText() or "") ~= "" and editor.noteBox:GetText() or false,
     }
@@ -1574,12 +1625,21 @@ local function changedFields(fields, v)
     tsort(sa)
     tsort(sb)
     if a ~= b and tconcat(sa, ",") ~= tconcat(sb, ",") then out.tm = fields.tm end
+    if fields.lk ~= (v.lk and true or false) then out.lk = fields.lk end
+    local was = {}
+    for _, key in ipairs(v.inv or {}) do was[#was + 1] = key end
+    tsort(was)
+    if tconcat(fields.inv, ",") ~= tconcat(was, ",") then out.inv = fields.inv end
     return out
 end
 
 local function editorSave(scope)
     local fields = editorFields()
     local ok, res
+    if fields.lk and #fields.tm == 0 and #fields.inv == 0 then
+        editor.err:SetText("A locked raid needs a team or invited players.")
+        return false
+    end
     if editor.occ then
         local v = RP():GetRaid(editor.occ)
         if not v then
@@ -1615,10 +1675,10 @@ local function row(parent, label, y)
 end
 
 local function createEditor()
-    local w = UI():CreateWindow("DisasterZoneRaidEditor", "New raid", 400, 356)
+    local w = UI():CreateWindow("DisasterZoneRaidEditor", "New raid", 400, 430)
     editor = w
     local c = w.content
-    w.f = { tm = {} }
+    w.f = { tm = {}, inv = {} }
 
     row(c, "Raid", -14)
     w.instDD = UI():CreateDropdown(c, 190, instanceOptions, function() return w.f.i end, function(v)
@@ -1676,17 +1736,42 @@ local function createEditor()
     end, teamSummary)
     w.teamDD:SetPoint("TOPLEFT", 80, -136)
 
-    row(c, "Note", -174)
+    -- players outside the teams who are invited too
+    row(c, "Invite", -174)
+    w.invPicker = UI():CreateSearchDropdown(c, 270, {
+        placeholder = "Players outside the teams...",
+        emptyText = "No matching guild members.",
+        getItems = inviteItems,
+        isChecked = function(key) return w.f.inv[key] and true or false end,
+        onToggle = function(key)
+            w.f.inv[key] = not w.f.inv[key] or nil
+            refreshInvites()
+        end,
+    })
+    w.invPicker.frame:SetPoint("TOPLEFT", 80, -168)
+    w.invInfo = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    w.invInfo:SetPoint("TOPLEFT", 86, -194)
+    w.invInfo:SetPoint("RIGHT", -12, 0)
+    w.invInfo:SetJustifyH("LEFT")
+    w.invInfo:SetWordWrap(false)
+    w.lockCB = UI():CreateCheckbox(c, "Locked: only the teams and the invited players sign up",
+        function() return w.f.lk end, function(on) w.f.lk = on end)
+    w.lockCB:SetPoint("TOPLEFT", 80, -208)
+    w.lockCB.tooltipText = "Left open, every guild member can sign up and the teams only say who is expected. "
+        .. "Locked, the sign-up buttons work only for the members of the picked teams and the players invited here; "
+        .. "an answer from anyone else is not counted."
+
+    row(c, "Note", -246)
     w.noteBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
     w.noteBox:SetSize(270, 20)
     w.noteBox:SetAutoFocus(false)
     w.noteBox:SetMaxLetters(120)
-    w.noteBox:SetPoint("TOPLEFT", 86, -170)
+    w.noteBox:SetPoint("TOPLEFT", 86, -242)
 
     w.weeklyCB = UI():CreateCheckbox(c, "Repeat weekly (the next two weeks are always planned)", nil, nil)
-    w.weeklyCB:SetPoint("TOPLEFT", 80, -198)
+    w.weeklyCB:SetPoint("TOPLEFT", 80, -270)
     w.weeklyInfo = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.weeklyInfo:SetPoint("TOPLEFT", 84, -204)
+    w.weeklyInfo:SetPoint("TOPLEFT", 84, -276)
     w.weeklyInfo:SetPoint("RIGHT", -12, 0)
     w.weeklyInfo:SetJustifyH("LEFT")
     w.weeklyInfo:SetText("A weekly raid: save the change for this week only, or for every week.")
@@ -1716,12 +1801,14 @@ function PlanUI:OpenEditor(occId)
     local v = occId and RP():GetRaid(occId)
     editor.occ = v and v.id or nil
     editor.err:SetText("")
-    local f = { tm = {} }
+    local f = { tm = {}, inv = {}, lk = false }
     if v then
         local d = date("*t", v.t)
         f.i, f.sz, f.hour, f.min = v.i, v.sz, d.hour, d.min - d.min % 15
         f.y, f.m, f.d = d.year, d.month, d.day
         for _, id in ipairs(v.tm or {}) do f.tm[id] = true end
+        for _, key in ipairs(v.inv or {}) do f.inv[key] = true end
+        f.lk = v.lk and true or false
         editor.titleBox:SetText(v.ti or "")
         editor.noteBox:SetText(v.no or "")
     else
@@ -1739,9 +1826,12 @@ function PlanUI:OpenEditor(occId)
     editor.weeklyInfo:SetShown(v ~= nil and v.weekly)
     editor.saveBtn:SetText(v and (v.weekly and "This week only" or "Save") or "Create raid")
     editor.saveAllBtn:SetShown(v ~= nil and v.weekly)
-    for _, dd in ipairs({ editor.instDD, editor.sizeDD, editor.datePicker, editor.hourDD, editor.minDD, editor.teamDD }) do
+    for _, dd in ipairs({ editor.instDD, editor.sizeDD, editor.datePicker, editor.hourDD, editor.minDD, editor.teamDD,
+                          editor.lockCB }) do
         if dd.Refresh then dd:Refresh() end
     end
+    if editor.invPicker.Close then editor.invPicker:Close() end
+    refreshInvites()
     editor:Show()
     editor:Raise()
 end

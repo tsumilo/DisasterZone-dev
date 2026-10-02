@@ -6,6 +6,28 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.0.0", date = "2 October 2026", title = "Strategies for everyone, locked raids",
+      sections = {
+          { heading = "Strategy boards", lines = {
+              "Every guild member can build strategies now (Raids > Strategies > New strategy).",
+              "A strategy belongs to whoever made it. Only the owner changes it.",
+              "Share: the owner invites guild members to work on it together, and takes them off again.",
+              "Copy makes any strategy yours, to build on without touching the original.",
+              "Delete is for the owner, the Guild Master and the guild council.",
+              "Strategies made before this version belong to whoever saved them last.",
+              "The list shows every raid at once. Click a raid or a boss on the left to narrow it.",
+              "Search box: finds by strategy name, boss, raid, builder or table name.",
+              "By: show one guild member's strategies, your own, or the ones shared with you.",
+              "Assigning players for a raid stays with the raid leaders, the council and the GM.",
+          } },
+          { heading = "Raids", lines = {
+              "A raid can be locked to its teams: then only their members can sign up.",
+              "Invite: add players outside the teams to a raid; they can sign up too.",
+              "Both are in the New raid / Edit raid window. A weekly raid can differ for one week.",
+              "Not invited to a locked raid? The answer buttons are off; ask a raid leader.",
+              "Everyone needs this version: older ones do not know locks, invites or owners.",
+          } },
+      } },
     { version = "0.12.0", date = "1 October 2026", title = "CDLoot is now DisasterZone",
       sections = {
           { heading = "New name", lines = {

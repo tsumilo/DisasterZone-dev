@@ -8,8 +8,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Strategy.lua", ...) then retu
 -- are unique in the strategy, so a slot token on page 2 can show a slot of a page-1 block.
 -- A fill (kind F) is one raid's names for one boss: the strategy picked for it and { [slotRef] = player key }.
 --
--- Who: the GM, the guild council and the raid leaders write strategies and fills (the raid-groups rule, §62); everyone
--- in the guild caches and reads both. Sync mirrors the raid plan (§56): live edits on GUILD (SBU), and at login the
+-- Who (1.0): every guild member builds strategies. A strategy belongs to its creator (ow; a record from before 1.0
+-- has none: its last editor owns it); only the owner and the collaborators the owner invited (co) change it, only
+-- the owner changes the collaborators, and the owner, the GM and the guild council delete it. Fills are written by
+-- the GM, the guild council and the raid leaders (the raid-groups rule, §62). Everyone in the guild caches and reads
+-- both. Sync mirrors the raid plan (§56): live edits on GUILD (SBU), and at login the
 -- HELLO carries a hash of my data (sd); a client whose data differs answers with its digest (SBD), the new client asks
 -- for what differs (SBW) and both send their copies one item per message (SBG). Records merge by rev (then hash).
 local addonName, ns = ...
@@ -33,9 +36,11 @@ local SBD_DELAY_MEMBER = { 3, 8 }
 -- The board's own coordinate space (the map art of an instance floor is about 1002 x 668).
 local BOARD_W, BOARD_H = 1000, 666
 
-local MAX_STRATS = 80
+local MAX_STRATS = 150
+local MAX_OWN = 20                   -- strategies per owner
+local MAX_COLLAB = 10                -- collaborators per strategy
 local MAX_FILLS = 120
-local MAX_DIGEST_ITEMS = 200
+local MAX_DIGEST_ITEMS = 300
 local MAX_PAGES = 6
 local MAX_ELEMENTS = 80              -- per page
 local MAX_BLOCKS = 12                -- per page
@@ -80,6 +85,7 @@ Strategy.MAX_PAGES, Strategy.MAX_ELEMENTS, Strategy.MAX_BLOCKS = MAX_PAGES, MAX_
 Strategy.MAX_COLS, Strategy.MAX_ROWS = MAX_COLS, MAX_ROWS
 Strategy.MAX_NAME_LEN, Strategy.MAX_LABEL, Strategy.MAX_CELL = MAX_NAME_LEN, MAX_LABEL, MAX_CELL
 Strategy.MAX_HEADER, Strategy.MAX_PAGE_NAME = MAX_HEADER, MAX_PAGE_NAME
+Strategy.MAX_COLLAB = MAX_COLLAB
 Strategy.MAX_TEXT, Strategy.MAX_NOTES = MAX_TEXT, MAX_NOTES
 Strategy.TEXT_MIN, Strategy.TEXT_MAX, Strategy.TEXT_BOX_MIN = TEXT_MIN, TEXT_MAX, TEXT_BOX_MIN
 Strategy.ROLES = { "tank", "healer", "melee", "ranged" }
@@ -189,13 +195,53 @@ local function GuildKey()
     return G and G.GetGuildKey and G:GetGuildKey() or nil
 end
 
--- Authors (strategies and fills): the GM, the guild council and the raid leaders.
+-- Fills (a raid's names): the GM, the guild council and the raid leaders.
 local function CanWrite(key)
     local G = Guild()
     return type(key) == "string" and G ~= nil and G.IsRaidLogMember ~= nil and G:IsRaidLogMember(key) and true or false
 end
 
-local REFUSED = "Only the Guild Master, the guild council and the raid leaders can change strategies and assignments."
+-- The GM and the guild council may delete anyone's strategy (never edit it).
+local function CanModerate(key)
+    local G = Guild()
+    return type(key) == "string" and G ~= nil
+        and ((G.IsGM ~= nil and G:IsGM(key)) or (G.IsGuildCouncil ~= nil and G:IsGuildCouncil(key))) and true or false
+end
+
+-- The owner of a strategy: its creator (a record from before 1.0 names none: its last editor).
+local function Owner(rec)
+    return rec.ow or rec.by
+end
+
+local function IsCollab(rec, key)
+    for _, k in ipairs(rec.co or {}) do
+        if k == key then return true end
+    end
+    return false
+end
+
+local function SameList(a, b)
+    a, b = a or {}, b or {}
+    if #a ~= #b then return false end
+    for i = 1, #a do
+        if a[i] ~= b[i] then return false end
+    end
+    return true
+end
+
+-- May `rec` replace `cur` (nil / a tombstone: it is new to me)? The owner stays the owner, the owner and the
+-- collaborators change the board, only the owner changes the collaborators, the owner and the moderators delete.
+local function Allowed(cur, rec)
+    if not cur or cur.del then
+        return rec.del or rec.by == Owner(rec) or IsCollab(rec, rec.by)
+    end
+    if rec.del then return rec.by == Owner(cur) or CanModerate(rec.by) end
+    if Owner(rec) ~= Owner(cur) then return false end
+    if rec.by == Owner(cur) then return true end
+    return IsCollab(cur, rec.by) and SameList(cur.co, rec.co)
+end
+
+local REFUSED = "Only the Guild Master, the guild council and the raid leaders can change a raid's assignments."
 
 local function Send(msg, dist, target, class)
     local Comm = ns.Comm
@@ -561,6 +607,26 @@ local function CleanStrategy(r, now)
     if not IsBossRef(r.b) then return nil end
     out.b = r.b
     if r.am == false then out.am = false end      -- auto-marking off for this strategy
+    if r.ow ~= nil then
+        out.ow = WireKey(r.ow)
+        if not out.ow then return nil end
+    end
+    if r.co ~= nil then
+        if type(r.co) ~= "table" then return nil end
+        local owner, seen, list = out.ow or out.by, {}, {}
+        for i = 1, MAX_COLLAB + 1 do
+            local v = r.co[i]
+            if v == nil then break end
+            local k = WireKey(v)
+            if i > MAX_COLLAB or not k then return nil end
+            if k ~= owner and not seen[k] then
+                seen[k] = true
+                list[#list + 1] = k
+            end
+        end
+        tsort(list)
+        if #list > 0 then out.co = list end
+    end
     out.n = CleanText(r.n, MAX_NAME_LEN)
     if not out.n or type(r.p) ~= "table" then return nil end
     out.p = {}
@@ -638,6 +704,15 @@ end
 
 local CAP = { B = MAX_STRATS, F = MAX_FILLS }
 
+-- The strategies (not deleted) one member owns.
+local function CountOwned(root, key)
+    local n = 0
+    for _, rec in pairs(root.B) do
+        if not rec.del and Owner(rec) == key then n = n + 1 end
+    end
+    return n
+end
+
 local function MergeRecord(root, kind, rec)
     local store = root[kind]
     local cur = store[rec.id]
@@ -647,8 +722,15 @@ local function MergeRecord(root, kind, rec)
         ns:Debug("Strategy: %s store full, %s dropped", kind, rec.id)
         return false
     end
+    if kind == "B" then
+        if not Allowed(cur, rec) then
+            ns:Debug("Strategy: %s by %s refused (not its owner or a collaborator)", rec.id, rec.by)
+            return false
+        end
+        if (not cur or cur.del) and not rec.del and CountOwned(root, Owner(rec)) >= MAX_OWN then return false end
+    end
     store[rec.id] = rec
-    if Trusted(root, kind, rec) and kind == "F" then NoteLast(root, rec) end
+    if kind == "F" and Trusted(root, kind, rec) then NoteLast(root, rec) end
     return true
 end
 
@@ -851,7 +933,8 @@ end
 -- Reading
 ---------------------------------------------------------------------------
 
-function Strategy:CanEdit()
+-- May I write a raid's assignments (fills)? The GM, the guild council and the raid leaders.
+function Strategy:CanAssign()
     return CanWrite(Util.PlayerKey())
 end
 
@@ -859,8 +942,44 @@ function Strategy:CanWrite(key)
     return CanWrite(key)
 end
 
+-- May I build strategies? Every guild member.
+function Strategy:CanBuild()
+    return Util.PlayerKey() ~= nil and GuildKey() ~= nil
+end
+
+-- The owner of a strategy (a record or its id), or nil.
+function Strategy:GetOwner(s)
+    if type(s) == "string" then
+        local root = Root(false)
+        s = root and root.B[s]
+    end
+    return type(s) == "table" and not s.del and Owner(s) or nil
+end
+
+function Strategy:IsOwner(s, key)
+    local owner = self:GetOwner(s)
+    return owner ~= nil and owner == (key or Util.PlayerKey())
+end
+
+-- May I change this strategy (a record or its id)? Its owner and the collaborators the owner invited.
+function Strategy:CanEditStrategy(s)
+    if type(s) == "string" then
+        local root = Root(false)
+        s = root and root.B[s]
+    end
+    local me = Util.PlayerKey()
+    if type(s) ~= "table" or s.del or not me then return false end
+    return Owner(s) == me or IsCollab(s, me)
+end
+
+-- May I delete it? Its owner, the GM and the guild council.
+function Strategy:CanDeleteStrategy(s)
+    local me = Util.PlayerKey()
+    return self:IsOwner(s, me) or (self:GetOwner(s) ~= nil and CanModerate(me))
+end
+
 local function Visible(root, rec)
-    return rec and not rec.del and Trusted(root, "B", rec)
+    return rec and not rec.del
 end
 
 -- Visible strategies (copies), optionally of one boss, sorted by raid order then name.
@@ -891,6 +1010,73 @@ end
 function Strategy:CountByBoss()
     local out = {}
     for _, s in ipairs(self:GetStrategies()) do out[s.b] = (out[s.b] or 0) + 1 end
+    return out
+end
+
+-- The strategies that match a filter (copies; raid order, then boss order, then name). f (every field optional):
+-- raid = an ItemDB raid key ("BlackTemple"), boss = a boss ref, by = the owner's key, co = a collaborator's key,
+-- text = free search (every word must occur in its name, boss, raid, owner, collaborators, page names or table
+-- names).
+function Strategy:Find(f)
+    f = type(f) == "table" and f or {}
+    local out = {}
+    local root = Root(false)
+    if not root then return out end
+    local order, names, n = {}, {}, 0
+    for _, raid in ipairs(self:GetRaidTree()) do
+        for _, b in ipairs(raid.bosses) do
+            n = n + 1
+            order[b.ref] = n
+            names[b.ref] = b.name .. "\n" .. raid.name
+        end
+    end
+    local words = {}
+    for w in tostring(f.text or ""):lower():gmatch("%S+") do words[#words + 1] = w end
+    for _, rec in pairs(root.B) do
+        if Visible(root, rec) and (f.boss == nil or rec.b == f.boss)
+            and (f.raid == nil or rec.b:match("^(%w+):") == f.raid)
+            and (f.by == nil or Owner(rec) == f.by)
+            and (f.co == nil or IsCollab(rec, f.co)) then
+            local ok = true
+            if #words > 0 then
+                local hay = { rec.n, names[rec.b] or rec.b, Util.ShortName(Owner(rec)) or Owner(rec) }
+                for _, k in ipairs(rec.co or {}) do hay[#hay + 1] = Util.ShortName(k) or k end
+                for _, p in ipairs(rec.p) do
+                    hay[#hay + 1] = p.n
+                    for _, k in ipairs(p.k or {}) do hay[#hay + 1] = k.n end
+                end
+                local text = tconcat(hay, "\n"):lower()
+                for _, w in ipairs(words) do
+                    if not text:find(w, 1, true) then
+                        ok = false
+                        break
+                    end
+                end
+            end
+            if ok then out[#out + 1] = Copy(rec) end
+        end
+    end
+    tsort(out, function(a, b)
+        local oa, ob = order[a.b] or 9999, order[b.b] or 9999
+        if oa ~= ob then return oa < ob end
+        if a.b ~= b.b then return a.b < b.b end
+        local la, lb = a.n:lower(), b.n:lower()
+        if la ~= lb then return la < lb end
+        return a.id < b.id
+    end)
+    return out
+end
+
+-- The members who own a strategy: { { key, n = how many } }, by name.
+function Strategy:GetAuthors()
+    local count = {}
+    local root = Root(false)
+    for _, rec in pairs(root and root.B or {}) do
+        if Visible(root, rec) then count[Owner(rec)] = (count[Owner(rec)] or 0) + 1 end
+    end
+    local out = {}
+    for key, n in pairs(count) do out[#out + 1] = { key = key, n = n } end
+    tsort(out, function(a, b) return a.key < b.key end)
     return out
 end
 
@@ -963,10 +1149,20 @@ end
 -- Writing strategies
 ---------------------------------------------------------------------------
 
+local NO_GUILD = "Your guild is not known yet; try again in a moment."
+
+-- Fills.
 local function RequireWriter()
     if not CanWrite(Util.PlayerKey()) then return nil, REFUSED end
     local root = Root(true)
-    if not root then return nil, "Your guild is not known yet; try again in a moment." end
+    if not root then return nil, NO_GUILD end
+    return root
+end
+
+-- Strategies.
+local function RequireBuilder()
+    local root = Util.PlayerKey() and Root(true)
+    if not root then return nil, NO_GUILD end
     return root
 end
 
@@ -978,8 +1174,10 @@ local function Commit(root, kind, rec)
         return false, kind == "B" and "too many strategies (delete some old ones)" or "too many assignments stored"
     end
     root[kind][clean.id] = clean
-    Trusted(root, kind, clean)
-    if kind == "F" then NoteLast(root, clean) end
+    if kind == "F" then
+        Trusted(root, kind, clean)
+        NoteLast(root, clean)
+    end
     Broadcast(kind, clean)
     Changed()
     return true, clean
@@ -1173,36 +1371,100 @@ function Strategy:Explain(r)
     return "something in this strategy is not valid"
 end
 
--- Saves a draft (new when draft.id is nil). Returns ok, idOrErr.
+local NOT_YOURS = "Only its owner and the collaborators the owner invited can change this strategy (Copy makes one of your own)."
+
+-- Saves a draft (new when draft.id is nil: it is mine). The owner and the collaborators of a saved strategy stay
+-- what they are (SetCollaborators changes them). Returns ok, idOrErr.
 function Strategy:SaveStrategy(draft)
-    local root, err = RequireWriter()
+    local root, err = RequireBuilder()
     if not root then return false, err end
     if type(draft) ~= "table" then return false, "invalid strategy" end
     if not IsBossRef(draft.b) then return false, "Pick a boss." end
     if not CleanText(draft.n, MAX_NAME_LEN) then return false, "Strategy names are 1-32 characters." end
+    local me = Util.PlayerKey()
     local cur = draft.id and root.B[draft.id]
-    if draft.id and not cur then return false, "unknown strategy" end
+    if draft.id and (not cur or cur.del) then return false, "unknown strategy" end
+    if cur and not self:CanEditStrategy(cur) then return false, NOT_YOURS end
+    if not cur and CountOwned(root, me) >= MAX_OWN then
+        return false, "you have " .. MAX_OWN .. " strategies already (delete an old one)"
+    end
     local rec = Copy(draft)
     rec.id = draft.id or NewId()
-    rec.rev, rec.by, rec.del = NextRev(cur), Util.PlayerKey(), nil
+    rec.rev, rec.by, rec.del = NextRev(cur), me, nil
+    rec.ow = cur and Owner(cur) or me
+    rec.co = cur and cur.co and Copy(cur.co) or nil
     local ok, e = Commit(root, "B", rec)
     if not ok then return false, e end
     return true, rec.id
 end
 
 function Strategy:DeleteStrategy(id)
-    local root, err = RequireWriter()
+    local root, err = RequireBuilder()
     if not root then return false, err end
     local cur = type(id) == "string" and root.B[id]
     if not cur or cur.del then return false, "unknown strategy" end
+    if not self:CanDeleteStrategy(cur) then
+        return false, "Only its owner, the Guild Master and the guild council can delete this strategy."
+    end
     return (Commit(root, "B", { id = id, rev = NextRev(cur), by = Util.PlayerKey(), del = true }))
 end
 
--- Copies a strategy under a new name (optionally to another boss). Returns ok, newIdOrErr.
+-- The collaborators of a strategy (sorted keys; a copy).
+function Strategy:GetCollaborators(id)
+    local root = Root(false)
+    local cur = root and type(id) == "string" and root.B[id]
+    return cur and not cur.del and cur.co and Copy(cur.co) or {}
+end
+
+-- Sets who else may change my strategy: keys (an array or a set), at most MAX_COLLAB guild members. Returns ok, err.
+function Strategy:SetCollaborators(id, keys)
+    local root, err = RequireBuilder()
+    if not root then return false, err end
+    local cur = type(id) == "string" and root.B[id]
+    if not cur or cur.del then return false, "unknown strategy" end
+    local me = Util.PlayerKey()
+    if Owner(cur) ~= me then return false, "Only the owner of a strategy picks its collaborators." end
+    local G = Guild()
+    local list, seen = {}, {}
+    for k, v in pairs(type(keys) == "table" and keys or {}) do
+        local key = type(k) == "string" and v and k or (type(v) == "string" and v) or nil
+        key = key and WireKey(key)
+        if key and key ~= me and not seen[key] then
+            if G and G.IsInGuild and not G:IsInGuild(key, true) and not IsCollab(cur, key) then
+                return false, (Util.ShortName(key) or key) .. " is not in the guild"
+            end
+            seen[key] = true
+            list[#list + 1] = key
+        end
+    end
+    if #list > MAX_COLLAB then return false, "A strategy has at most " .. MAX_COLLAB .. " collaborators." end
+    tsort(list)
+    local rec = Copy(cur)
+    rec.rev, rec.by, rec.ow = NextRev(cur), me, me
+    rec.co = #list > 0 and list or nil
+    return (Commit(root, "B", rec))
+end
+
+function Strategy:AddCollaborator(id, key)
+    local list = self:GetCollaborators(id)
+    list[#list + 1] = key
+    return self:SetCollaborators(id, list)
+end
+
+function Strategy:RemoveCollaborator(id, key)
+    key = WireKey(key)
+    local list = {}
+    for _, k in ipairs(self:GetCollaborators(id)) do
+        if k ~= key then list[#list + 1] = k end
+    end
+    return self:SetCollaborators(id, list)
+end
+
+-- Copies a strategy under a new name (optionally to another boss); the copy is mine. Returns ok, newIdOrErr.
 function Strategy:CopyStrategy(id, name, bossRef)
     local s = self:GetStrategy(id)
     if not s then return false, "unknown strategy" end
-    s.id, s.rev, s.by = nil, nil, nil
+    s.id, s.rev, s.by, s.ow, s.co = nil, nil, nil, nil, nil
     s.n = name or (s.n .. " (copy)"):sub(1, MAX_NAME_LEN)
     if bossRef then s.b = bossRef end
     return self:SaveStrategy(s)
@@ -1417,7 +1679,7 @@ function Strategy:OnInit()
         Comm:Register("SBW", OnWant)
         Comm:Register("SBG", OnGive)
     end
-    -- The raid leaders / council lists decide what is shown: repaint when they change.
+    -- The raid leaders / council lists decide which fills are shown: repaint when they change.
     ns:On("CONFIG_UPDATED", Changed)
 end
 
