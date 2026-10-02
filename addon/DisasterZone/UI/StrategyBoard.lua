@@ -26,6 +26,7 @@ local POOL_COLS, CHIP_W, CHIP_H = 5, 136, 17
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
 local function MapUI() return ns.StrategyMapUI end
+local function Collab() return ns.StrategyCollab end
 local function grey(t) return "|cff808080" .. tostring(t) .. "|r" end
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
@@ -61,6 +62,8 @@ local st = {
     assign = {},        -- slot -> player key (view: the saved fill; fill: the draft)
     dirty = false,
     picked = nil,       -- fill: a player clicked in the pool, placed by clicking a slot
+    base = nil,         -- edit: what the saved strategy said when this draft started (Collab:ContentHash)
+    liveK = nil,        -- edit: the live session this draft was last part of (Core/StrategyCollab.lua)
 }
 
 ---------------------------------------------------------------------------
@@ -416,7 +419,14 @@ local function createWindow()
     f.canvas = MapUI():CreateCanvas(c, MAP_W, {
         editable = function() return st.mode == "edit" end,
         onChange = function() Board:MarkDirty(true) end,
-        onSelect = function() Board:RefreshTools() end,
+        onSelect = function()
+            Board:RefreshTools()
+            Board:ShareSelection()
+        end,
+        remoteSel = function()
+            local p = page()
+            return p and Collab():RemoteSelections(p.id) or {}
+        end,
         slotText = function(ref) return Board:SlotTokenText(ref) end,
         slotTip = function(ref, tt) Board:LinkTooltip(ref, tt) end,
         linkText = function(ref) return Board:LinkText(ref) end,
@@ -631,6 +641,7 @@ local function createWindow()
     f:SetScript("OnHide", function()
         if prompt then prompt:Hide() end
         if ghost then ghost:Hide() end
+        Collab():BoardChanged()
     end)
     f:Hide()
     return f
@@ -649,6 +660,7 @@ end
 -- histI, at }. The draft on the board is the board's state itself (stored by reference); the others are parked
 -- records. Save and Cancel take a draft out. Raids > Strategies lists them under their boss (UI/StrategiesView.lua).
 local MAX_DRAFTS = 12
+local checkStale, setBase
 local HIST_DRAFTS = 3       -- the parked drafts that keep their undo history (the latest; it is the bulk of a draft)
 
 local function validDraft(d)
@@ -720,8 +732,10 @@ local function park()
     local store = draftStore()
     if not (store and st.did and st.dirty) then return end
     store[st.did] = { did = st.did, mode = st.mode, strat = st.strat, occ = st.occ, boss = st.boss, page = st.page,
-        assign = st.assign, hist = st.hist, histI = st.histI, at = st.at or time() }
+        assign = st.assign, hist = st.hist, histI = st.histI, at = st.at or time(), base = st.base,
+        liveK = st.liveK }
     st.did, st.dirty, st.hist, st.histI = nil, false, nil, nil
+    st.base, st.liveK, st.stale = nil, nil, nil
     st.strat, st.assign = ns.Util.CopyTable(st.strat), ns.Util.CopyTable(st.assign)
     local list = {}
     for _, d in pairs(store) do
@@ -774,6 +788,58 @@ end
 
 function Board:HasDraft() return canBuild() and next(draftStore() or {}) ~= nil end
 
+-- The saved strategy as it is now, when it no longer says what it said when this draft started (someone else saved
+-- in between); nil otherwise.
+local function savedSince()
+    if not (st.mode == "edit" and st.base and st.strat and st.strat.id) then return nil end
+    local cur = S():GetStrategy(st.strat.id)
+    if cur and not ns.Util.IsMe(cur.by) and Collab():ContentHash(cur) ~= st.base then return cur end
+    return nil
+end
+
+-- st.stale: who saved a version my unsaved draft doesn't build on (shown in the header).
+checkStale = function()
+    local cur = st.dirty and savedSince()
+    st.stale = cur and not Collab():SameContent(cur, st.strat) and cur.by or nil
+end
+
+-- An edit starts from the saved strategy on the board: remember what it says.
+setBase = function()
+    st.liveK, st.stale = nil, nil
+    st.base = (st.mode == "edit" and st.strat and st.strat.id and not st.dirty) and Collab():ContentHash(st.strat) or nil
+end
+
+-- Who else has this strategy open: "live with A, B" (their boards are mine), "A is editing", "B is looking".
+local function presenceText()
+    local id = st.strat and st.strat.id
+    if not id then return nil end
+    local liveWith, editing, looking = {}, {}, {}
+    for _, e in ipairs(Collab():GetPresence(id)) do
+        local r, g, b = Collab():ColorOf(e.key)
+        local name = ("|cff%02x%02x%02x%s|r"):format(r * 255, g * 255, b * 255, shortName(e.key))
+        if e.live then
+            local pg
+            for i, p in ipairs(st.strat.p) do
+                if p.id == e.pg and i ~= st.page then pg = p.n end
+            end
+            liveWith[#liveWith + 1] = name .. (pg and (" |cff808080(" .. pg .. ")|r") or "")
+        elseif e.m == "e" then
+            editing[#editing + 1] = name
+        else
+            looking[#looking + 1] = name
+        end
+    end
+    local parts = {}
+    local joining, progress = Collab():IsJoining()
+    if joining and st.mode == "edit" then
+        parts[#parts + 1] = ("|cffffd100joining the live board... %d%%|r"):format((progress or 0) * 100)
+    end
+    if #liveWith > 0 then parts[#parts + 1] = "|cff33ff99live with|r " .. tconcat(liveWith, ", ") end
+    if #editing > 0 then parts[#parts + 1] = tconcat(editing, ", ") .. (#editing == 1 and " is" or " are") .. " editing" end
+    if #looking > 0 then parts[#parts + 1] = tconcat(looking, ", ") .. (#looking == 1 and " is" or " are") .. " looking" end
+    return #parts > 0 and tconcat(parts, "  ·  ") or nil
+end
+
 local function show()
     ensureWindow()
     -- the board is big: shrink it to fit smaller screens / larger UI scales (the tool rows sit at its bottom)
@@ -814,6 +880,7 @@ function Board:OpenDraft(did)
         st.boss = type(d.boss) == "string" and d.boss or s.b
         st.page = s.p[d.page] and d.page or 1
         st.picked, st.dragging = nil, nil
+        st.base, st.liveK = d.base, d.liveK
         -- the undo history, when it is there and whole
         local hist, ok = d.hist, type(d.hist) == "table" and #d.hist > 0
         if ok then
@@ -829,6 +896,7 @@ function Board:OpenDraft(did)
         end
         draftsChanged()
     end
+    checkStale()
     show()
     return true
 end
@@ -868,6 +936,7 @@ function Board:OpenStrategy(id, mode)
     st.strat, st.occ, st.boss, st.page = s, nil, s.b, 1
     st.assign, st.dirty, st.picked = {}, false, nil
     st.mode = (mode == "edit" and mine) and "edit" or "view"
+    setBase()
     Board:ResetHistory()
     show()
 end
@@ -939,6 +1008,7 @@ function Board:NewStrategy(bossRef, name)
     st.occ, st.boss, st.page, st.assign, st.picked = nil, bossRef, 1, {}, nil
     st.mode = "edit"
     st.dirty = true
+    setBase()
     Board:ResetHistory()
     show()
 end
@@ -956,6 +1026,7 @@ function Board:OpenRaid(occId, bossRef, mode)
     st.assign = (s and fill and fill.s == s.id) and S():ValidAssignments(s, fill.a) or {}
     st.dirty = false
     st.mode = (mode == "fill" and canAssign() and s) and "fill" or "view"
+    setBase()
     Board:ResetHistory()
     show()
 end
@@ -976,6 +1047,7 @@ function Board:MarkDirty(repaint)
     st.dirty = true
     self:Record()
     keepDraft()
+    if st.mode == "edit" then Collab():LocalChange() end
     if repaint ~= false then self:Refresh() end
 end
 
@@ -999,6 +1071,8 @@ function Board:ResetHistory()
 end
 
 function Board:Record()
+    -- a live board keeps my own actions instead (Core/StrategyCollab.lua)
+    if st.mode == "edit" and Collab():IsLive() then return end
     local snap = snapshot()
     if not snap then return end
     st.hist = st.hist or {}
@@ -1024,18 +1098,39 @@ local function restore(i)
     return true
 end
 
+local function live() return st.mode == "edit" and Collab():IsLive() end
+
 function Board:Undo()
+    if live() then return Collab():Undo() end
     if (st.histI or 0) <= 1 then return false end
     return restore(st.histI - 1)
 end
 
 function Board:Redo()
+    if live() then return Collab():Redo() end
     if not st.hist or (st.histI or 0) >= #st.hist then return false end
     return restore(st.histI + 1)
 end
 
-function Board:CanUndo() return (st.histI or 0) > 1 end
-function Board:CanRedo() return st.hist ~= nil and (st.histI or 0) < #st.hist end
+function Board:CanUndo()
+    if live() then return Collab():CanUndo() end
+    return (st.histI or 0) > 1
+end
+
+function Board:CanRedo()
+    if live() then return Collab():CanRedo() end
+    return st.hist ~= nil and (st.histI or 0) < #st.hist
+end
+
+-- What I have selected on the map, for the members who share a live board with me.
+function Board:ShareSelection()
+    if not (win and live()) then return end
+    local uids = {}
+    for _, e in ipairs(win.canvas:Selection()) do
+        if e._u then uids[#uids + 1] = e._u end
+    end
+    Collab():SetSelection(uids)
+end
 
 -- A key while the board has the keyboard. Returns true when used.
 function Board:OnKey(key)
@@ -1068,6 +1163,7 @@ function Board:SetMode(mode)
             st.assign = {}
         end
         st.mode = "edit"
+        if not st.dirty then setBase() end
     elseif mode == "fill" then
         if not (canAssign() and st.occ and st.strat) then return end
         st.mode = "fill"
@@ -1092,6 +1188,7 @@ end
 function Board:CancelChanges()
     local occ, boss, id = st.occ, st.boss, st.strat and st.strat.id
     st.dirty = false
+    st.base, st.liveK, st.stale = nil, nil, nil
     keepDraft()
     if occ then
         self:OpenRaid(occ, boss)
@@ -1102,8 +1199,15 @@ function Board:CancelChanges()
     end
 end
 
-function Board:Save()
+-- force: save over a version someone else saved since this draft started.
+function Board:Save(force)
     if st.mode == "edit" then
+        local newer = not force and savedSince()
+        if newer then
+            ns.RaidPlanUI:Confirm(("%s saved another version of this strategy (%s) after you started on yours. Save anyway? Your version replaces it.")
+                :format(shortName(newer.by), date("%d %b %H:%M", newer.rev)), function() Board:Save(true) end)
+            return false
+        end
         local ok, res = S():SaveStrategy(st.strat)
         if not ok then
             ns:Print("Could not save the strategy: %s", tostring(res))
@@ -1113,6 +1217,7 @@ function Board:Save()
         local s = S():GetStrategy(res)
         st.strat = s or st.strat
         st.mode = "view"
+        st.base, st.liveK, st.stale = nil, nil, nil
         ns:Print("Strategy saved: %s.", st.strat.n)
     elseif st.mode == "fill" then
         local ok, err = S():SaveFill(st.occ, st.boss, st.strat.id, st.assign)
@@ -1557,6 +1662,11 @@ function Board:Refresh()
             .. (s.rev and (", " .. date("%d %b", s.rev)) or "")
     end
     if st.dirty then sub[#sub + 1] = "|cffff9933unsaved changes|r" end
+    if mode == "edit" and st.stale then
+        sub[#sub + 1] = "|cffff5555" .. shortName(st.stale) .. " saved a newer version|r"
+    end
+    local here = presenceText()
+    if here then sub[#sub + 1] = here end
     win.sub:SetText(grey(tconcat(sub, "  ·  ")))
     win:SetWindowTitle("Strategy board")
 
@@ -1638,6 +1748,7 @@ function Board:Refresh()
         end
         win.view.mine:SetText(tconcat(lines, "\n"))
     end
+    Collab():BoardChanged()
 end
 
 ---------------------------------------------------------------------------
@@ -1663,7 +1774,23 @@ function Board:OnInit()
     local function refresh()
         if not (win and win:IsShown()) then return end
         -- a newer saved copy of what I'm looking at replaces it (never my unsaved draft)
-        if not st.dirty and st.strat and st.strat.id then
+        if st.mode == "edit" and st.strat and st.strat.id and not st.occ then
+            local s = S():GetStrategy(st.strat.id)
+            if s and (s.rev ~= st.strat.rev or s.by ~= st.strat.by) then
+                if Collab():SameContent(s, st.strat) then
+                    -- what was saved is what my board says (someone on the same live board saved it): nothing
+                    -- of mine is unsaved any more, and the board stays the tables it is
+                    st.strat.rev, st.strat.by, st.strat.ow, st.strat.co = s.rev, s.by, s.ow, s.co
+                    st.dirty, st.base, st.stale = false, Collab():ContentHash(s), nil
+                elseif not st.dirty then
+                    st.strat = s
+                    st.base, st.stale = Collab():ContentHash(s), nil
+                    Collab():Adopted()
+                else
+                    checkStale()
+                end
+            end
+        elseif not st.dirty and st.strat and st.strat.id then
             if st.occ then
                 local s, fill = S():GetRaidStrategy(st.occ, st.boss)
                 if s then
@@ -1678,6 +1805,9 @@ function Board:OnInit()
         ns.Util.Debounce("strategy-board", 0.2, function() Board:Refresh() end)
     end
     ns:On("STRATEGY_CHANGED", refresh)
+    ns:On("STRATEGY_PRESENCE_CHANGED", function()
+        if win and win:IsShown() then ns.Util.Debounce("strategy-board", 0.2, function() Board:Refresh() end) end
+    end)
     ns:On("RAIDPLAN_CHANGED", refresh)
     ns:On("ROSTER_UPDATED", refresh)
 end

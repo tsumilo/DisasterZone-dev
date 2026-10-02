@@ -570,13 +570,13 @@ function UI:CreateIconButton(parent, size, texture, coords, onClick)
     return b
 end
 
--- The editor icons: a 4x4 atlas of 64px cells drawn by dev/generators/gen_strategy_media.py, in this order:
+-- The editor icons: a 4x8 atlas of 64px cells drawn by dev/generators/gen_strategy_media.py, in this order:
 -- 1 select, 2 pan, 3 circle, 4 rectangle, 5 arrow, 6 line, 7 pin, 8 text, 9 undo, 10 redo, 11 help, 12 delete,
--- 13 gear, 14 chevron down.
+-- 13 gear, 14 chevron down, 15 eye (open), 16 pencil (edit), 17 copy, 18 share.
 UI.ICON_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
-    return { col / 4, (col + 1) / 4, row / 4, (row + 1) / 4 }
+    return { col / 4, (col + 1) / 4, row / 8, (row + 1) / 8 }
 end
 
 -- A flat dropdown: a sleek button with a chevron that opens build(root) as a context menu. Same surface as

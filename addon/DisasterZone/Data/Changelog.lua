@@ -6,6 +6,24 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.1.0", date = "2 October 2026", title = "Editing strategies together",
+      sections = {
+          { heading = "Strategy boards", lines = {
+              "The list's buttons are icons now. Hover one to see what it does.",
+              "The board and the list show who has a strategy open and who is editing it.",
+              "Editing together: editors of the same strategy share one live board.",
+              "On a live board the others' changes show within a second or two.",
+              "You see what the others have selected, in their class colour and with their name.",
+              "Undo on a live board takes back your own actions only.",
+              "One Save on a live board saves it for everyone on it.",
+              "Opening your unsaved draft while someone else is editing asks before you join them.",
+              "Saving over a version someone else saved after you started asks first.",
+          } },
+          { heading = "Behind the scenes", lines = {
+              "Less addon chatter when many members log in at once (tested with 60 online).",
+              "Strategies and raids reach a member who was away with far fewer repeated messages.",
+          } },
+      } },
     { version = "1.0.0", date = "2 October 2026", title = "Strategies for everyone, locked raids",
       sections = {
           { heading = "Strategy boards", lines = {

@@ -234,6 +234,8 @@ local KNOWN_MESSAGES = {
     BINGO_UPDATED = true,   -- Council Bingo (Games/Bingo): game started / square marked / game ended
     OFFICER_NOTES_UPDATED = true,   -- (key | nil) an officer note, or my access to them, changed
     PROFESSIONS_UPDATED = true,   -- the guild's professions / recipes changed (Core/Professions.lua)
+    -- who has a strategy open / what they have selected changed (Core/StrategyCollab.lua)
+    STRATEGY_PRESENCE_CHANGED = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)

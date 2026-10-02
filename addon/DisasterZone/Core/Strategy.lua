@@ -862,6 +862,13 @@ local function OnDigest(sender, msg, dist)
     for _, item in ipairs(give) do SendItem(root, item, sender) end
 end
 
+-- SBK { to }: someone is about to answer that client's HELLO with a digest.
+local function OnClaim(sender, msg, dist)
+    if dist ~= "GUILD" then return end
+    local to = WireKey(msg.to)
+    if to and not Util.IsMe(to) then roundSeen[to] = { h = "", at = GetTime() } end
+end
+
 -- Sync calls this for every HELLO on GUILD (sd = the sender's strategy hash; nil from older clients).
 function Strategy:OnHelloDigest(sender, sd)
     if type(sd) ~= "string" or #sd > 8 or type(sender) ~= "string" then return end
@@ -869,11 +876,24 @@ function Strategy:OnHelloDigest(sender, sd)
     if mine == "0" or sd == mine then return end
     if not RateLimit("SBDh:" .. sender, ROUND_WINDOW) then return end
     local delay = CanWrite(Util.PlayerKey()) and SBD_DELAY_COUNCIL or SBD_DELAY_MEMBER
-    Util.RandomDelay(delay[1], delay[2], function()
+    -- With item data still waiting in my queue the digest (and what the newcomer then asks for) would wait behind
+    -- it: answer after the members whose queue is empty had their turn (they serve the newcomer faster).
+    local Comm = ns.Comm
+    local queued = Comm and Comm.Backlog and Comm:Backlog("data") or 0
+    local busy = queued > 0 and min(12, 6 + queued / 240) or 0
+    -- Still catching up myself (my own round was answered moments ago): what I hold is incomplete, so I only answer
+    -- once that settled, if nobody else did.
+    busy = max(busy, ROUND_WINDOW - (GetTime() - answeredAt))
+    Util.RandomDelay(delay[1] + busy, delay[2] + busy, function()
         local h = Strategy:GetDigestHash()
         local seen = roundSeen[sender]
-        if h == "0" or (seen and GetTime() - seen.at < ROUND_WINDOW and seen.h == h) then return end
+        -- Somebody answered this round already (whatever their hash): the newcomer syncs with the first answer only
+        -- (answeredAt in OnDigest), so one more is noise.
+        if h == "0" or (seen and GetTime() - seen.at < ROUND_WINDOW) then return end
         roundSeen[sender] = { h = h, at = GetTime() }
+        -- The digest waits in the bulk queue behind item data; this short claim on the (mostly idle) live prefix tells the
+        -- others right away that the round is answered (older clients have no handler for it and ignore it).
+        Send({ t = "SBK", to = sender }, "GUILD", nil, "live")
         Send({ t = "SBD", to = sender, h = h, d = Strategy:GetDigest() }, "GUILD", nil, "data")
     end)
 end
@@ -962,14 +982,14 @@ function Strategy:IsOwner(s, key)
     return owner ~= nil and owner == (key or Util.PlayerKey())
 end
 
--- May I change this strategy (a record or its id)? Its owner, the collaborators the owner invited, and (as an
--- exception) the GM and the guild council.
-function Strategy:CanEditStrategy(s)
+-- May I (or that member) change this strategy (a record or its id)? Its owner, the collaborators the owner invited,
+-- and (as an exception) the GM and the guild council.
+function Strategy:CanEditStrategy(s, key)
     if type(s) == "string" then
         local root = Root(false)
         s = root and root.B[s]
     end
-    local me = Util.PlayerKey()
+    local me = key or Util.PlayerKey()
     if type(s) ~= "table" or s.del or not me then return false end
     return Owner(s) == me or IsCollab(s, me) or CanModerate(me)
 end
@@ -1687,6 +1707,7 @@ function Strategy:OnInit()
     if Comm and Comm.Register then
         Comm:Register("SBU", OnUpdate)
         Comm:Register("SBD", OnDigest)
+        Comm:Register("SBK", OnClaim)
         Comm:Register("SBW", OnWant)
         Comm:Register("SBG", OnGive)
     end

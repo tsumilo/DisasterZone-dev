@@ -17,6 +17,8 @@ local strformat = string.format
 
 local HELLO_RATE = 30              -- seconds between HELLOs
 local REPLY_RATE = 20              -- seconds between our S/M replies to the same HELLO sender
+local STATE_GAP = 2                -- seconds between two S replies when several wait (a login wave): half of the
+                                   -- server's allowance for the control prefix stays free for everything else
 local WANT_BATCH = 40              -- names per W
 local RELAY_BATCH = 8              -- entries per R
 local MAX_WANT_NAMES = 40
@@ -652,6 +654,53 @@ local function QueueWant(requester, names)
 end
 
 ---------------------------------------------------------------------------
+-- STATE replies (one per HELLO sender, paced)
+---------------------------------------------------------------------------
+
+local stateQueue = {}              -- { key, ... } in the order the HELLOs arrived
+local stateReadyAt = {}            -- [key] = GetTime() from which the reply may go out
+local stateTimer = false
+local lastStateAt = -1000
+
+local ScheduleStates
+
+local function DrainStates()
+    stateTimer = false
+    local key = stateQueue[1]
+    if not key then return end
+    local now = GetTime()
+    if stateReadyAt[key] <= now + 0.01 and now - lastStateAt >= STATE_GAP - 0.01 then
+        table.remove(stateQueue, 1)
+        stateReadyAt[key] = nil
+        lastStateAt = now
+        if AmCouncil() then
+            local cached = ns.Store and ns.Store:GetCached(key)
+            local r = (cached and IsRev(cached.rev)) and cached.rev or 0
+            local h = (r > 0 and type(cached.hash) == "string") and cached.hash or nil
+            Send({ t = "S", r = r, h = h, cg = OwnCouncilRev() }, "WHISPER", key, "ctrl")
+        end
+    end
+    ScheduleStates()
+end
+
+ScheduleStates = function()
+    local key = stateQueue[1]
+    if stateTimer or not key then return end
+    stateTimer = true
+    local now = GetTime()
+    Util.After(max(stateReadyAt[key], lastStateAt + STATE_GAP) - now, DrainStates)
+end
+
+-- Answers a HELLO with my copy of the sender's list (S) after the usual short random delay; in a login wave the
+-- replies leave one every STATE_GAP seconds instead of filling the control prefix for a minute.
+local function QueueState(sender)
+    if stateReadyAt[sender] then return end
+    stateQueue[#stateQueue + 1] = sender
+    stateReadyAt[sender] = GetTime() + 0.5 + random() * 3.5
+    ScheduleStates()
+end
+
+---------------------------------------------------------------------------
 -- Message handlers (sender = transport-verified name key)
 ---------------------------------------------------------------------------
 
@@ -675,12 +724,7 @@ local function OnHello(sender, msg, dist)
     local session = sender .. ":" .. ((type(n) == "number" and n == floor(n)) and tostring(n) or "")
 
     if amCouncil and RateLimit("Hx:" .. sender, 5) and RateLimit("Hs:" .. session, REPLY_RATE) then
-        Util.RandomDelay(0.5, 4, function()
-            local cached = ns.Store and ns.Store:GetCached(sender)
-            local r = (cached and IsRev(cached.rev)) and cached.rev or 0
-            local h = (r > 0 and type(cached.hash) == "string") and cached.hash or nil
-            Send({ t = "S", r = r, h = h, cg = OwnCouncilRev() }, "WHISPER", sender, "ctrl")
-        end)
+        QueueState(sender)
     end
 
     if msg.c and IsCouncil(sender) then

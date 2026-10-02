@@ -4,7 +4,7 @@ disc.tga  - a white filled circle with a soft edge (zones, tinted by vertex colo
 ring.tga  - a white circle outline (zone borders)
 arrow.tga - a white arrowhead pointing up (arrow ends, rotated in game)
 The shapes are 128x128 32-bit TGA (power of two, straight alpha), drawn 4x oversampled for smooth edges.
-tools.tga - the board's toolbar icons: a 256x256 grid of 4x4 cells of 64px, white on transparent (tinted in game),
+tools.tga - the board's toolbar icons: a 256x512 grid of 4x8 cells of 64px, white on transparent (tinted in game),
             in the order of TOOL_ICONS below (UI/StrategyBoard.lua picks them by index).
 """
 import math
@@ -141,18 +141,48 @@ def ic_chevron(d, k):
     d.line(_pts(k, [(14, 24), (32, 42), (50, 24)]), fill=255, width=_w(k, 7), joint="curve")
 
 
+def ic_eye(d, k):
+    # open (look at it): an almond with a pupil
+    lens = [(32 + 34 * math.cos(math.radians(a)), 49 + 34 * math.sin(math.radians(a))) for a in range(210, 331, 4)]
+    lens += [(32 + 34 * math.cos(math.radians(a)), 15 + 34 * math.sin(math.radians(a))) for a in range(30, 151, 4)]
+    d.polygon(_pts(k, lens), fill=255)
+    d.ellipse(_pts(k, [(21, 21), (43, 43)]), fill=0)
+    d.ellipse(_pts(k, [(27, 27), (37, 37)]), fill=255)
+
+
+def ic_pencil(d, k):
+    d.polygon(_pts(k, [(16, 38), (40, 14), (50, 24), (26, 48)]), fill=255)
+    d.polygon(_pts(k, [(8, 56), (13, 41), (23, 51)]), fill=255)
+    d.polygon(_pts(k, [(43, 11), (48, 6), (58, 16), (53, 21)]), fill=255)
+
+
+def ic_copy(d, k):
+    d.rectangle(_pts(k, [(8, 6), (40, 44)]), outline=255, width=_w(k, 5))
+    d.rectangle(_pts(k, [(19, 15), (60, 62)]), fill=0)
+    d.rectangle(_pts(k, [(24, 20), (56, 58)]), fill=255)
+
+
+def ic_share(d, k):
+    # one to two: three dots and their links
+    d.line(_pts(k, [(48, 13), (15, 32), (48, 51)]), fill=255, width=_w(k, 4), joint="curve")
+    for x, y in ((48, 13), (15, 32), (48, 51)):
+        d.ellipse(_pts(k, [(x - 9, y - 9), (x + 9, y + 9)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
-              ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron]
+              ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
+              ic_copy, ic_share]
+TOOL_ROWS = 8
 
 
 def tool_atlas():
     cell = 64
-    big = Image.new("L", (cell * 4 * OS, cell * 4 * OS), 0)
+    big = Image.new("L", (cell * 4 * OS, cell * TOOL_ROWS * OS), 0)
     for i, fn in enumerate(TOOL_ICONS):
         sub = Image.new("L", (cell * OS, cell * OS), 0)
         fn(ImageDraw.Draw(sub), OS)
         big.paste(sub, ((i % 4) * cell * OS, (i // 4) * cell * OS))
-    alpha = big.resize((cell * 4, cell * 4), Image.LANCZOS)
+    alpha = big.resize((cell * 4, cell * TOOL_ROWS), Image.LANCZOS)
     img = Image.new("RGBA", alpha.size, (255, 255, 255, 0))
     img.putalpha(alpha)
     return img

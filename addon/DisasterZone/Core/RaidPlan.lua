@@ -817,6 +817,13 @@ local function OnDigest(sender, msg, dist)
     for _, item in ipairs(give) do SendItem(root, item, sender) end
 end
 
+-- RPK { to }: someone is about to answer that client's HELLO with a digest.
+local function OnClaim(sender, msg, dist)
+    if dist ~= "GUILD" then return end
+    local to = WireKey(msg.to)
+    if to and not Util.IsMe(to) then roundSeen[to] = { h = "", at = GetTime() } end
+end
+
 -- Sync calls this for every HELLO on GUILD (pd = the sender's plan hash; nil from clients before 0.7).
 function RaidPlan:OnHelloDigest(sender, pd)
     if type(pd) ~= "string" or #pd > 8 or type(sender) ~= "string" then return end
@@ -825,11 +832,24 @@ function RaidPlan:OnHelloDigest(sender, pd)
     if not RateLimit("RPDh:" .. sender, ROUND_WINDOW) then return end
     local G = Guild()
     local delay = (G and G.IsGuildCouncil and G:IsGuildCouncil(Util.PlayerKey())) and RPD_DELAY_COUNCIL or RPD_DELAY_MEMBER
-    Util.RandomDelay(delay[1], delay[2], function()
+    -- With item data still waiting in my queue the digest (and what the newcomer then asks for) would wait behind
+    -- it: answer after the members whose queue is empty had their turn (they serve the newcomer faster).
+    local Comm = ns.Comm
+    local queued = Comm and Comm.Backlog and Comm:Backlog("data") or 0
+    local busy = queued > 0 and min(12, 6 + queued / 240) or 0
+    -- Still catching up myself (my own round was answered moments ago): what I hold is incomplete, so I only answer
+    -- once that settled, if nobody else did.
+    busy = max(busy, ROUND_WINDOW - (GetTime() - answeredAt))
+    Util.RandomDelay(delay[1] + busy, delay[2] + busy, function()
         local h = RaidPlan:GetDigestHash()
         local seen = roundSeen[sender]
-        if h == "0" or (seen and GetTime() - seen.at < ROUND_WINDOW and seen.h == h) then return end
+        -- Somebody answered this round already (whatever their hash): the newcomer syncs with the first answer only
+        -- (answeredAt in OnDigest), so one more is noise.
+        if h == "0" or (seen and GetTime() - seen.at < ROUND_WINDOW) then return end
         roundSeen[sender] = { h = h, at = GetTime() }
+        -- The digest waits in the bulk queue behind item data; this short claim on the (mostly idle) live prefix tells the
+        -- others right away that the round is answered (older clients have no handler for it and ignore it).
+        Send({ t = "RPK", to = sender }, "GUILD", nil, "live")
         Send({ t = "RPD", to = sender, h = h, d = RaidPlan:GetDigest() }, "GUILD", nil, "data")
     end)
 end
@@ -1603,6 +1623,7 @@ function RaidPlan:OnInit()
         Comm:Register("RPU", OnUpdate)
         Comm:Register("RPS", OnSignups)
         Comm:Register("RPD", OnDigest)
+        Comm:Register("RPK", OnClaim)
         Comm:Register("RPW", OnWant)
         Comm:Register("RPG", OnGive)
     end

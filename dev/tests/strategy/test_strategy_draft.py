@@ -218,8 +218,8 @@ def several_drafts_wait_in_the_list_of_their_boss():
         local function walk(f)
             for _, ch in ipairs({ f:GetChildren() }) do
                 if ch.l1 and ch.l2 and ch.edit and ch:IsVisible() then
-                    out[#out + 1] = { l1 = ch.l1:GetText(), l2 = ch.l2:GetText(), edit = ch.edit:GetText(),
-                        del = ch.del:GetText(), open = ch.open:IsShown(), draft = ch.strip:IsShown() }
+                    out[#out + 1] = { l1 = ch.l1:GetText(), l2 = ch.l2:GetText(), edit = ch.edit.tipTitle,
+                        del = ch.del.tipTitle, open = ch.open:IsShown(), draft = ch.strip:IsShown() }
                 end
                 walk(ch)
             end
@@ -396,7 +396,20 @@ def a_builder_keeps_the_drafts_without_a_raid_role():
     bob.slash("/dz raids")
     bob.eval("ns.RaidsUI:SetView('strategies')")
     w.tick(1)
-    assert bob.find_text("Continue") and bob.find_text("Discard")
+    # the draft's row is there with its two icons (what they do is in their tooltips)
+    assert bob.eval(r"""
+        local function walk(f)
+            for _, ch in ipairs({ f:GetChildren() }) do
+                if ch.l1 and ch.edit and ch:IsVisible() and ch.strip:IsShown() then
+                    return ch.edit:IsShown() and ch.del:IsShown() and ch.edit.tipTitle == "Continue"
+                        and ch.del.tipTitle == "Discard"
+                end
+                local r = walk(ch)
+                if r ~= nil then return r end
+            end
+        end
+        return walk(UIParent)
+    """) is True
     assert bob.eval("return %s:OpenDraft(...)" % B, did) is True
     w.assert_no_errors()
 

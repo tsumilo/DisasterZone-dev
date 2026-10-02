@@ -1,4 +1,4 @@
-# DisasterZone 1.0.0
+# DisasterZone 1.1.0
 
 BiS lists, a Loot Council overview, boss-drop alerts and rolls for **&lt;Casual Disaster&gt;**.
 For the WoW TBC Anniversary client (2.5.x, interface 20506).
@@ -323,6 +323,8 @@ are.
   search box (strategy, boss, raid, builder or table name), or pick a guild member under **By**.
 - **New strategy** builds one for a boss. It is yours: only you change it.
 - **Share** invites guild members to change your strategy with you, and takes them off again.
+- Editors who open the same strategy work on one live board: changes show for the others within a second or two,
+  and one Save saves it for everyone on it.
 - **Copy** makes any strategy yours. The Guild Master and the guild council can edit and delete any strategy.
 - Who does what in a raid (the Assignments tab of a raid) is filled in by the Guild Master, the guild council and the
   raid leaders.

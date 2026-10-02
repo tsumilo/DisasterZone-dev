@@ -1234,11 +1234,12 @@ function Canvas:HandleAt(x, y)
     return nil
 end
 
-function Canvas:SelBox(l, t, r, b, grouped)
+-- color (r, g, b) and name: the box of what another member has selected (a live board), in their colour.
+function Canvas:SelBox(l, t, r, b, grouped, color, name)
     local o = acquire(self, "box", function(L)
         local edges = {}
         for i = 1, 4 do edges[i] = L:CreateTexture(nil, "OVERLAY", nil, 6) end
-        return { edges = edges }
+        return { edges = edges, tag = newFS(L) }
     end, true)
     local px, py = self:P(l, t)
     local w, h = (r - l) * self.s, (b - t) * self.s
@@ -1246,14 +1247,31 @@ function Canvas:SelBox(l, t, r, b, grouped)
     local a = grouped and 0.55 or 0.95
     for i = 1, 4 do
         E[i]:ClearAllPoints()
-        E[i]:SetColorTexture(1, 0.85, 0.1, a)
+        if color then
+            E[i]:SetColorTexture(color[1], color[2], color[3], 0.9)
+        else
+            E[i]:SetColorTexture(1, 0.85, 0.1, a)
+        end
         E[i]:Show()
+    end
+    if name then
+        o.tag:SetFont(fontPath(), self:FontSize(10), "OUTLINE")
+        o.tag:ClearAllPoints()
+        o.tag:SetPoint("BOTTOMLEFT", self.layer, "TOPLEFT", px - 2, py + 3)
+        o.tag:SetTextColor(color[1], color[2], color[3])
+        o.tag:SetText(name)
+        o.tag:Show()
+    else
+        o.tag:Hide()
     end
     E[1]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py + 2); E[1]:SetSize(w + 4, 1)
     E[2]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py - h - 2); E[2]:SetSize(w + 4, 1)
     E[3]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px - 2, py + 2); E[3]:SetSize(1, h + 4)
     E[4]:SetPoint("TOPLEFT", self.layer, "TOPLEFT", px + w + 2, py + 2); E[4]:SetSize(1, h + 4)
-    o.hide = function() for i = 1, 4 do E[i]:Hide() end end
+    o.hide = function()
+        for i = 1, 4 do E[i]:Hide() end
+        o.tag:Hide()
+    end
 end
 
 function Canvas:RenderSelection()
@@ -1280,6 +1298,18 @@ function Canvas:RenderSelection()
     for g in pairs(groups) do
         local l, t, r, b = unionBounds(self:GroupOf({ g = g }))
         if l then self:SelBox(l - 4, t - 4, r + 4, b + 4) end
+    end
+    -- what the members on the same live board have selected: one box each, with the name
+    for _, other in ipairs(self.opts.remoteSel and self.opts.remoteSel() or {}) do
+        local list = {}
+        for _, e in ipairs(self.page.e) do
+            if e._u and other.sel[e._u] then list[#list + 1] = e end
+        end
+        if #list > 0 then
+            local l, t, r, b = unionBounds(list)
+            self:SelBox(l - 3, t - 3, r + 3, b + 3, false, { other.r, other.g, other.b },
+                ns.Util.ShortName(other.key))
+        end
     end
     local e = self.selected
     if not e or self:SelectionCount() ~= 1 then return end

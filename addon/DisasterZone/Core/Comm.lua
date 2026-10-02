@@ -1,5 +1,5 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Comm.lua", ...) then return end -- DisasterZone: addon-message transport. AceComm-3.0 (+ChatThrottleLib) for chunking/throttling,
--- LibSerialize + LibDeflate for the payload. Four prefixes (ctrl, data, alert, game), one priority each; every received
+-- LibSerialize + LibDeflate for the payload. A prefix per kind of traffic (PREFIX below), one priority each; every received
 -- message is gated on the server-provided sender before it is decoded and dispatched.
 local addonName, ns = ...
 
@@ -8,6 +8,7 @@ local Util = ns.Util
 
 local type, pairs, ipairs, tostring, pcall = type, pairs, ipairs, tostring, pcall
 local strsub = string.sub
+local max = math.max
 
 local AceComm = LibStub and LibStub("AceComm-3.0", true)
 local LibSerialize = LibStub and LibStub("LibSerialize", true)
@@ -19,9 +20,11 @@ end
 
 -- "game" (CDLg) carries only minigame traffic, so its per-prefix server budget never delays council sync.
 -- "member" (CDLm) carries the guild's professions and recipes (Core/Professions.lua), for the same reason.
-local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm" }
-local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK" }
-local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member" }
+-- "live" (CDLl) carries the strategy boards' presence and live edits (Core/StrategyCollab.lua): small and frequent.
+local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm",
+    live = "CDLl" }
+local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL" }
+local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live" }
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays)
 local MAX_WIRE_LEN_MEMBER = 4000 -- from anyone else: a full own list is ~1.1 KB, HELLO / rolls / drops far less
@@ -99,8 +102,20 @@ end
 -- Sending
 ---------------------------------------------------------------------------
 
+local backlog = {}               -- [class] = bytes handed to ChatThrottleLib and not on the wire yet
+
+-- AceComm calls this after every part that left: sent = bytes of the message sent so far.
+local function OnPartSent(state, sent)
+    sent = tonumber(sent) or state.total
+    if sent > state.total then sent = state.total end
+    backlog[state.class] = max(0, (backlog[state.class] or 0) - (sent - state.sent))
+    state.sent = sent
+end
+
 local function SendText(class, text, distribution, target)
-    Comm:SendCommMessage(PREFIX[class], text, distribution, target, PRIORITY[class])
+    backlog[class] = (backlog[class] or 0) + #text
+    Comm:SendCommMessage(PREFIX[class], text, distribution, target, PRIORITY[class], OnPartSent,
+        { class = class, total = #text, sent = 0 })
     Comm.stats.sent = Comm.stats.sent + 1
     Comm.stats.bytesSent = Comm.stats.bytesSent + #text
 end
@@ -125,7 +140,7 @@ local function CheckRoute(distribution, target)
     return false
 end
 
--- msg = table with string field t. class = "ctrl" | "data" | "alert" | "game" | "member" (default "ctrl").
+-- msg = table with string field t. class = "ctrl" | "data" | "alert" | "game" | "member" | "live" (default "ctrl").
 function Comm:Send(msg, distribution, target, class)
     if not Available() or not ns.loggedIn then return false end
     if type(msg) ~= "table" or type(msg.t) ~= "string" then return false end
@@ -165,6 +180,12 @@ function Comm:SendToCouncil(msg, class)
         end
     end
     return n
+end
+
+-- Bytes of this class still waiting in my send queue (the server lets about one 250-byte part through per second
+-- and prefix): who has a backlog leaves answering a question to somebody whose queue is empty.
+function Comm:Backlog(class)
+    return backlog[class or "ctrl"] or 0
 end
 
 function Comm:Register(msgType, handler)

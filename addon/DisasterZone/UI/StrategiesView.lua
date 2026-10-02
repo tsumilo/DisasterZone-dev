@@ -19,6 +19,7 @@ local BOSS_ROW_H = 22
 local STRAT_ROW_H = 40
 local RAID_ROW_H = 38
 local FILTER_H = 28
+local ROW_BTN = 24
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
@@ -115,6 +116,29 @@ local function initBossRow(row, d)
     end
 end
 
+-- A row's action as an icon (UI.ICON_ATLAS); what it does is in its tooltip (b.tipTitle, b.tipText).
+local function iconButton(row, icon, title, text, onClick)
+    local b = UI():CreateIconButton(row, ROW_BTN, UI().ICON_ATLAS, UI():IconCoords(icon), onClick)
+    b.tipTitle, b.tipText = title, text
+    b:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(self.tipTitle)
+        if self.tipText then GameTooltip:AddLine(self.tipText, 1, 1, 1, true) end
+        GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
+-- "  ·  A, B editing": the members changing a strategy right now (Core/StrategyCollab.lua).
+local function editingText(id)
+    local Collab = ns.StrategyCollab
+    local names = {}
+    for _, key in ipairs(Collab and Collab:GetEditors(id) or {}) do names[#names + 1] = shortName(key) end
+    if #names == 0 then return "" end
+    return "  ·  |cff33ff99" .. table.concat(names, ", ") .. " editing|r"
+end
+
 local function initStratRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
@@ -133,7 +157,7 @@ local function initStratRow(row, d)
         row.strip:SetPoint("BOTTOMLEFT", 0, 3)
         row.strip:SetWidth(3)
         row.strip:SetColorTexture(1, 0.6, 0.2, 1)
-        row.del = UI():CreateButton(row, "Delete", 60, 20, function(self)
+        row.del = iconButton(row, 12, "Delete", "Removes the strategy for everyone.", function(self)
             local s = self:GetParent().__cdlData
             local draft = s and s.draft
             if draft then
@@ -151,11 +175,11 @@ local function initStratRow(row, d)
                 if not ok then ns:Print("Could not delete it: %s", tostring(err)) end
             end)
         end)
-        row.share = UI():CreateButton(row, "Share", 56, 20, function(self)
+        row.share = iconButton(row, 18, "Share", "Pick the guild members who build it with you.", function(self)
             local s = self:GetParent().__cdlData
             if s and s.s then View:OpenShare(s.s.id) end
         end)
-        row.copy = UI():CreateButton(row, "Copy", 56, 20, function(self)
+        row.copy = iconButton(row, 17, "Copy", "Makes a copy that is yours.", function(self)
             local s = self:GetParent().__cdlData
             s = s and s.s
             if not s then return end
@@ -166,12 +190,12 @@ local function initStratRow(row, d)
                 if ok then Board():OpenStrategy(id, "edit") else ns:Print("Could not copy it: %s", tostring(id)) end
             end)
         end)
-        row.edit = UI():CreateButton(row, "Edit", 56, 20, function(self)
+        row.edit = iconButton(row, 16, "Edit", "Opens the strategy to change it.", function(self)
             local s = self:GetParent().__cdlData
             if s and s.draft then Board():OpenDraft(s.draft.did)
             elseif s and s.s then Board():OpenStrategy(s.s.id, "edit") end
         end)
-        row.open = UI():CreateButton(row, "Open", 56, 20, function(self)
+        row.open = iconButton(row, 15, "Open", "Opens the strategy to look at it.", function(self)
             local s = self:GetParent().__cdlData
             if s and s.s then Board():OpenStrategy(s.s.id) end
         end)
@@ -184,9 +208,10 @@ local function initStratRow(row, d)
     local draft = d.draft
     local s = d.s
     row.strip:SetShown(draft ~= nil)
-    row.edit:SetText(draft and "Continue" or "Edit")
-    row.edit:SetWidth(draft and 76 or 56)
-    row.del:SetText(draft and "Discard" or "Delete")
+    row.edit.tipTitle = draft and "Continue" or "Edit"
+    row.edit.tipText = draft and "Opens the draft where you left it." or "Opens the strategy to change it."
+    row.del.tipTitle = draft and "Discard" or "Delete"
+    row.del.tipText = draft and "Throws the draft's unsaved work away." or "Removes the strategy for everyone."
     -- the boss, unless the list is one boss'
     local where = state.boss == nil and ("  " .. grey(S():GetBossName((draft or s).b))) or ""
     local show
@@ -205,7 +230,8 @@ local function initStratRow(row, d)
         row.l1:SetText(s.n .. where)
         row.l2:SetText(("%d page%s · %d block%s · by %s%s, %s%s"):format(#s.p, #s.p == 1 and "" or "s", countBlocks(s),
             countBlocks(s) == 1 and "" or "s", owner == me and "you" or shortName(owner), co > 0 and (" +" .. co) or "",
-            date("%d %b %Y", s.rev), S():IsCollaborator(s.id) and "  ·  |cff33ff99shared with you|r" or ""))
+            date("%d %b %Y", s.rev), S():IsCollaborator(s.id) and "  ·  |cff33ff99shared with you|r" or "")
+            .. editingText(s.id))
         show = { del = S():CanDeleteStrategy(s.id), share = owner == me, copy = S():CanBuild(), edit = mine, open = true }
     end
     -- the buttons this member has, right to left; the texts end where they start
@@ -215,8 +241,8 @@ local function initStratRow(row, d)
         b:SetShown(show[k] and true or false)
         if show[k] then
             b:ClearAllPoints()
-            if prev then b:SetPoint("RIGHT", prev, "LEFT", -4, 0) else b:SetPoint("RIGHT", -6, 0) end
-            used = used + b:GetWidth() + 4
+            if prev then b:SetPoint("RIGHT", prev, "LEFT", -2, 0) else b:SetPoint("RIGHT", -6, 0) end
+            used = used + b:GetWidth() + 2
             prev = b
         end
     end
@@ -317,6 +343,10 @@ function View:CreateLibrary(parent)
     d.list = UI():CreateScrollList(d, STRAT_ROW_H, initStratRow)
     d.list.frame:SetPoint("TOPLEFT", 0, -46)
     d.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
+    -- who is editing what right now: ask once the list is looked at
+    f:HookScript("OnShow", function()
+        if ns.StrategyCollab then ns.StrategyCollab:Query() end
+    end)
     return f
 end
 
@@ -641,6 +671,9 @@ function View:OnInit()
         end)
     end)
     ns:On("ROSTER_UPDATED", function() View:RefreshShare() end)
+    ns:On("STRATEGY_PRESENCE_CHANGED", function()
+        ns.Util.Debounce("strategies-ui-presence", 0.3, function() View:RefreshLibrary() end)
+    end)
     ns:On("STRATEGY_CHANGED", function()
         ns.Util.Debounce("strategies-ui", 0.2, function()
             View:RefreshLibrary()
