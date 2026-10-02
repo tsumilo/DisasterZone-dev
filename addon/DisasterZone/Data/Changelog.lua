@@ -24,7 +24,7 @@ ns.CHANGELOG = {
               "A raid can be locked to its teams: then only their members can sign up.",
               "Invite: add players outside the teams to a raid; they can sign up too.",
               "Both are in the New raid / Edit raid window. A weekly raid can differ for one week.",
-              "Not invited to a locked raid? The answer buttons are off; ask a raid leader.",
+              "A locked raid is only listed for its teams, the invited players and the raid leaders.",
               "Everyone needs this version: older ones do not know locks, invites or owners.",
           } },
       } },

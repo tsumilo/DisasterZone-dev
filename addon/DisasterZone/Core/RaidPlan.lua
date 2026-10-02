@@ -7,7 +7,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 --
 -- A raid names teams (tm) and extra invites (inv: players outside those teams). Left open, anyone signs up and the
 -- teams only say who is expected. Locked (lk), only the members of its teams and its extra invites sign up; a
--- sign-up of anyone else is not counted (it is hidden, and shows again when they are invited or the lock goes).
+-- sign-up of anyone else is not counted (it is hidden, and shows again when they are invited or the lock goes), and
+-- the raid is not listed for them (GetRaids / CanSee).
 --
 -- Sync (§56): live edits go out on GUILD (RPU, RPS). At login the HELLO carries a hash of my plan data (pd); a client
 -- whose data differs answers with its per-item digest (RPD, on GUILD so the others can stay quiet), the new client
@@ -933,7 +934,8 @@ end
 
 -- Visible raids (occurrences) starting in [from, to] (default: 14 days back .. 180 days ahead; weekly raids only up
 -- to 14 days ahead, their first occurrence always), sorted by start time. Cancelled ones are included (cancelled).
-function RaidPlan:GetRaids(from, to)
+-- A locked raid is left out for a member it doesn't take sign-ups from (CanSee); `all` = true keeps those too.
+function RaidPlan:GetRaids(from, to, all)
     local out = {}
     local root = Root(false)
     if not root then return out end
@@ -957,11 +959,27 @@ function RaidPlan:GetRaids(from, to)
             end
         end
     end
+    if not all then
+        local seen = {}
+        for _, v in ipairs(out) do
+            if self:CanSee(v) then seen[#seen + 1] = v end
+        end
+        out = seen
+    end
     tsort(out, function(a, b)
         if a.t ~= b.t then return a.t < b.t end
         return a.id < b.id
     end)
     return out
+end
+
+-- Is the raid (a view or an id) listed for me? A locked raid only for the members of its teams, its extra invites,
+-- and those who plan raids or lay out groups (the GM, the guild council, the raid leaders). The data itself still
+-- reaches every guild member: this is what the lists show, not a secret.
+function RaidPlan:CanSee(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    if not v then return false end
+    return self:CanSignUp(v) or CanGroups(Util.PlayerKey())
 end
 
 function RaidPlan:GetRaid(occId)

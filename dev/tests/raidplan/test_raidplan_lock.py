@@ -1,7 +1,8 @@
 """Raid planning 1.0: a raid locked to its teams, with extra invites for players outside them.
 
 Covers: an open raid with teams taking everyone's sign-up, a locked raid taking only its teams' members and its extra
-invites (refused on the member's own client, not counted when it arrives anyway), inviting a player later, unlocking,
+invites (refused on the member's own client, not counted when it arrives anyway, and not listed for anyone else but
+the GM, the guild council and the raid leaders), inviting a player later, unlocking,
 an invite-only raid without a team, one week of a weekly raid differing from its series, and the New / Edit raid window
 and the sign-up strip.
 
@@ -13,7 +14,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from rp_common import world, K, DAY, now, team, create, raid, signup, signups, call  # noqa: E402
+from rp_common import world, K, DAY, now, team, create, raid, raids, signup, signups, call  # noqa: E402
 from _common import case, run_all  # noqa: E402
 
 P = "ns.RaidsUI:GetPanel()"
@@ -55,6 +56,12 @@ def a_locked_raid_takes_only_its_teams_and_invites():
     assert signup(sam, occ, "T")["ok"] is True          # invited on top
     res = signup(rita, occ, "A")
     assert res["ok"] is False and "locked" in res["e"], res
+    # listed for the team, the invited player and those who plan raids (Bob, Gina); not for Rita
+    for n, x in c.items():
+        ids = [v["id"] for v in raids(x)]
+        assert ids == ([open_occ] if n == "Rita" else [open_occ, occ]), (n, ids)
+        assert x.eval("return ns.RaidPlan:CanSee(...)", occ) is (n != "Rita"), n
+    assert [v["id"] for v in raids(rita, None, None, True)] == [open_occ, occ]
     # the invited player without an answer is waited for
     assert [x["id"] for x in c["Gina"].eval_py("return ns.RaidPlan:GetUnanswered(7)")] == [open_occ, occ]
     # a sign-up that arrives anyway is not counted
@@ -68,6 +75,7 @@ def a_locked_raid_takes_only_its_teams_and_invites():
     assert call(bob, "EditRaid", occ, {"inv": [K("Sam"), K("Rita")]})["ok"] is True
     w.tick(2)
     assert sorted(signups(lee, occ)) == sorted([K("Lee"), K("Sam"), K("Rita")])
+    assert [v["id"] for v in raids(rita)] == [open_occ, occ]
     assert signup(rita, occ, "B")["ok"] is True
     # taken off again, then the lock goes: everyone signs up
     assert call(bob, "EditRaid", occ, {"inv": []})["ok"] is True
@@ -167,13 +175,14 @@ def the_raid_window_and_the_sign_up_strip():
     v = raid(rita, occ)
     assert v["lk"] is True and list(v["inv"]) == [K("Sam")] and list(v["tm"]) == [tid], v
     assert bob.find_text("Kara A +1 invited", True, True) and bob.find_text("Locked", True, True)
-    # a member who is not invited: the answers are off and the strip says why
+    # the raid leader is not in it: the answers are off and the strip says why
+    assert bob.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
+    assert bob.find_text("ask a raid leader for an invite", True, True)
+    assert bob.find_text("not invited", True, True)
+    # a member who is not invited doesn't have the raid in the list
     open_tab(w, rita)
-    rita.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
-    w.tick(0.5)
-    assert rita.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
-    assert rita.find_text("ask a raid leader for an invite", True, True)
-    assert rita.find_text("not invited", True, True)
+    assert not rita.find_text("Karazhan (10)", True, True)
+    assert rita.eval("return ns.RaidPlanUI:GetSelectedRaid()") is None
     open_tab(w, sam)
     sam.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.5)
@@ -189,7 +198,9 @@ def the_raid_window_and_the_sign_up_strip():
     bob.click(bob.eval("return %s.saveBtn" % ED))
     w.tick(2)
     assert raid(rita, occ)["lk"] is False and list(raid(rita, occ)["inv"]) == [K("Sam")]
-    rita.eval("ns.RaidPlanUI:RefreshUpcoming()")
+    w.tick(1)
+    assert rita.find_text("Karazhan (10)", True, True)
+    assert rita.eval("return ns.RaidPlanUI:GetSelectedRaid()") == occ
     assert rita.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is True
     w.assert_no_errors()
 

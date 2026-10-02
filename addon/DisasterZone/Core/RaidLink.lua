@@ -47,7 +47,7 @@ function RaidLink:Match(start, roster, instID, preferOcc)
     local plan = RP()
     if not plan then return nil end
     local best, second
-    for _, v in ipairs(plan:GetRaids(start - BEFORE, start + AFTER)) do
+    for _, v in ipairs(plan:GetRaids(start - BEFORE, start + AFTER, true)) do
         local inst = plan:GetInstance(v.i)
         local wrongPlace = instID and inst and inst.instID and inst.instID ~= instID
         if not v.cancelled and not wrongPlace then
