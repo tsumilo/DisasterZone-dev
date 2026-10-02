@@ -104,6 +104,61 @@ def the_roster_shows_online_state_and_level():
     w.assert_no_errors()
 
 
+def version_icon(cl, name):
+    """Hovers the version icon of a member's roster row; returns (texture, tooltip text)."""
+    return cl.eval_py("""
+      local want = ...
+      local out
+      ns.MembersUI:GetPanel().roster.box:ForEachFrame(function(row)
+        local d = row.__cdlData
+        if d and d.key == want then
+          local b = row.version
+          b:GetScript("OnEnter")(b)
+          local lines = {}
+          for i = 1, GameTooltip:NumLines() do lines[#lines + 1] = _G["GameTooltipTextLeft" .. i]:GetText() end
+          b:GetScript("OnLeave")(b)
+          out = { shown = b:IsShown(), tex = b.tex:GetTexture(), tip = table.concat(lines, " | ") }
+        end
+      end)
+      return out""", K(name))
+
+
+@case
+def the_roster_shows_which_version_a_member_runs():
+    w = World()
+    g = Client(w, "Gina", class_file="PALADIN", guild_rank=0)
+    a = Client(w, "Alfa", class_file="MAGE")
+    b = Client(w, "Bert", class_file="ROGUE")
+    o = Client(w, "Olaf", class_file="HUNTER")
+    n = Client(w, "Nina", class_file="DRUID")
+    w.add_offline_member("Zed", "WARRIOR", 3)
+    for x in (g, a, b, o, n):
+        x.load_addon()
+        teach_names(x)
+        set_skills(x, [])
+    w.tick(SYNC)
+    b.slash("/dz members")
+    w.tick(1)
+    mine = b.eval("return ns.version")
+    v = version_icon(b, "Bert")
+    assert v["shown"] and "ReadyCheck-Ready" in v["tex"] and ("DisasterZone " + mine) in v["tip"], v
+    assert "same version as yours" in v["tip"] and "Last heard" not in v["tip"], v
+    v = version_icon(b, "Alfa")
+    assert "ReadyCheck-Ready" in v["tex"] and ("DisasterZone " + mine) in v["tip"] and "Last heard" in v["tip"], v
+    v = version_icon(b, "Zed")
+    assert "ReadyCheck-Waiting" in v["tex"] and "not seen" in v["tip"], v
+    assert b.eval("return (ns.MembersUI:GetVersion(...))", K("Zed")) == "none"
+    # Olaf's last message came from an older release, Nina's from a newer one
+    b.eval("ns.db.peers[...].v = '0.9.0'", K("Olaf"))
+    b.eval("ns.db.peers[...].v = '99.0.0'", K("Nina"))
+    b.eval("ns.MembersUI:Refresh()")
+    v = version_icon(b, "Olaf")
+    assert "ReadyCheck-NotReady" in v["tex"] and "DisasterZone 0.9.0" in v["tip"] and "Older than your" in v["tip"], v
+    v = version_icon(b, "Nina")
+    assert "DisasterZone 99.0.0" in v["tip"] and "you are behind" in v["tip"], v
+    w.assert_no_errors()
+
+
 def specs(cl, name):
     out = cl.eval_py("return %s:GetSpecs(...)" % P, K(name))
     return out and [(x.get("sp"), x["tab"], x.get("points")) for x in out]

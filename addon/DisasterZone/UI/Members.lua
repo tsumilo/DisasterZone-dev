@@ -246,7 +246,48 @@ end
 local NAME_X, ALT_INDENT = 20, 12
 local LEVEL_X, SPEC_X = 130, 154
 local PRIMARY_X = { 196, 246 }
-local SECONDARY_X = { 298, 320, 342 }
+local SECONDARY_X = { 296, 316, 336 }
+local VERSION_X = 358
+
+-- The DisasterZone a member runs, as their last addon message said: state ("same" | "older" | "newer" | "none"),
+-- version, when it was last heard.
+local function versionOf(key)
+    local Sync = ns.Sync
+    local p = Sync and Sync.GetPeer and Sync:GetPeer(key)
+    if not p or not p.v then return "none" end
+    local cmp = ns.Util.CompareVersions(p.v, ns.version)
+    return (cmp < 0 and "older") or (cmp > 0 and "newer") or "same", p.v, p.lastSeen
+end
+
+local VERSION_ICON = {
+    same = "Interface\\RaidFrame\\ReadyCheck-Ready", newer = "Interface\\RaidFrame\\ReadyCheck-Ready",
+    older = "Interface\\RaidFrame\\ReadyCheck-NotReady", none = "Interface\\RaidFrame\\ReadyCheck-Waiting",
+}
+
+local function versionTooltip(btn)
+    local d = btn:GetParent().__cdlData
+    if not d or not d.key then return end
+    local st, v, seen = versionOf(d.key)
+    local lines = { ns.UI:ColoredName(d.key, d.classFile) }
+    if st == "none" then
+        lines[#lines + 1] = { "DisasterZone not seen", 1, 0.82, 0 }
+        lines[#lines + 1] = { "This character has not been online with the addon since you installed it (or does "
+            .. "not have it).", 0.7, 0.7, 0.7, wrap = true }
+    else
+        lines[#lines + 1] = { "DisasterZone " .. tostring(v), 1, 0.82, 0 }
+        if st == "same" then
+            lines[#lines + 1] = { "The same version as yours.", 0.2, 1, 0.2 }
+        elseif st == "older" then
+            lines[#lines + 1] = { "Older than your " .. tostring(ns.version) .. ".", 1, 0.4, 0.3 }
+        else
+            lines[#lines + 1] = { "Newer than your " .. tostring(ns.version) .. ": you are behind.", 1, 0.6, 0.2 }
+        end
+        if not ns.Util.IsMe(d.key) and seen then
+            lines[#lines + 1] = { "Last heard with it " .. ns.Util.FormatAgo(seen) .. ".", 0.7, 0.7, 0.7 }
+        end
+    end
+    ns.UI:SetTextTooltip(btn, lines)
+end
 
 local function rosterTooltip(row)
     local d = row.__cdlData
@@ -307,6 +348,18 @@ local function initRosterRow(row, d)
         end
         row.primary = { slot(PRIMARY_X[1], true), slot(PRIMARY_X[2], true) }
         row.secondary = { slot(SECONDARY_X[1]), slot(SECONDARY_X[2]), slot(SECONDARY_X[3]) }
+        -- which DisasterZone the member runs (hover)
+        row.version = CreateFrame("Button", nil, row)
+        row.version:SetSize(12, 12)
+        row.version:SetPoint("LEFT", VERSION_X, 0)
+        row.version.tex = row.version:CreateTexture(nil, "ARTWORK")
+        row.version.tex:SetAllPoints()
+        row.version:SetScript("OnEnter", versionTooltip)
+        row.version:SetScript("OnLeave", function() ns.UI:HideTooltip() end)
+        row.version:SetScript("OnClick", function(self)
+            local data = self:GetParent().__cdlData
+            if data and data.key then MembersUI:SelectMember(data.key) end
+        end)
         row:SetScript("OnClick", function(self)
             local data = self.__cdlData
             if data and data.key then MembersUI:SelectMember(data.key) end
@@ -325,6 +378,7 @@ local function initRosterRow(row, d)
     row.hl:SetAlpha(isSep and 0 or 0.4)
     row.sel:SetShown(not isSep and d.key == state.member)
     row.dot:SetShown(not isSep)
+    row.version:SetShown(not isSep)
     row.note:SetText("")
     row.level:SetText("")
     if isSep then
@@ -333,6 +387,9 @@ local function initRosterRow(row, d)
         return
     end
     setDot(row.dot, d.status)
+    local vst = versionOf(d.key)
+    row.version.tex:SetTexture(VERSION_ICON[vst])
+    row.version.tex:SetAlpha(vst == "none" and 0.45 or 1)
     -- an alt sits indented under its main
     local indent = d.alt and ALT_INDENT or 0
     row.name:ClearAllPoints()
@@ -1184,6 +1241,9 @@ end
 -- Opens the officer note editor for a member (officers).
 function MembersUI:EditNote(key) editNote(key) end
 
+-- The DisasterZone a member runs: state ("same" | "older" | "newer" | "none"), version, last heard.
+function MembersUI:GetVersion(key) return versionOf(key) end
+
 function MembersUI:GetPanel() return panel end
 function MembersUI:GetState() return state end
 
@@ -1192,7 +1252,8 @@ function MembersUI:OnInit()
         ns.MainFrame:RegisterTab("members", "Members", 3.6, function(parent) return MembersUI:CreatePanel(parent) end)
     end
     local function refresh() MembersUI:RequestRefresh() end
-    for _, msg in ipairs({ "PROFESSIONS_UPDATED", "ROSTER_UPDATED", "DEMO_TOGGLED", "OFFICER_NOTES_UPDATED" }) do
+    for _, msg in ipairs({ "PROFESSIONS_UPDATED", "ROSTER_UPDATED", "DEMO_TOGGLED", "OFFICER_NOTES_UPDATED",
+                           "PEERS_UPDATED" }) do
         ns:On(msg, refresh)
     end
     ns:RegisterSlash("members", function() ns.MainFrame:Open("members") end,

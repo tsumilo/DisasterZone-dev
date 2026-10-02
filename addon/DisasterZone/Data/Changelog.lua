@@ -28,6 +28,10 @@ ns.CHANGELOG = {
               "A locked raid is only listed for its teams, the invited players and the raid leaders.",
               "Everyone needs this version: older ones do not know locks, invites or owners.",
           } },
+          { heading = "Members tab", lines = {
+              "Each member has a small icon on the right: hover it to see their DisasterZone version.",
+              "Green tick: same as yours. Red cross: older. Grey question mark: addon not seen.",
+          } },
       } },
     { version = "0.12.0", date = "1 October 2026", title = "CDLoot is now DisasterZone",
       sections = {
