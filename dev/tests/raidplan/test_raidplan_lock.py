@@ -177,7 +177,7 @@ def the_raid_window_and_the_sign_up_strip():
     assert bob.find_text("Kara A +1 invited", True, True) and bob.find_text("Locked", True, True)
     # the raid leader is not in it: the answers are off and the strip says why
     assert bob.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
-    assert bob.find_text("ask a raid leader for an invite", True, True)
+    assert bob.find_text("you are not in this raid (Invite adds you)", True, True)
     assert bob.find_text("not invited", True, True)
     # a member who is not invited doesn't have the raid in the list
     open_tab(w, rita)
@@ -202,6 +202,49 @@ def the_raid_window_and_the_sign_up_strip():
     assert rita.find_text("Karazhan (10)", True, True)
     assert rita.eval("return ns.RaidPlanUI:GetSelectedRaid()") == occ
     assert rita.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is True
+    w.assert_no_errors()
+
+
+@case
+def the_invite_button_and_window():
+    w, c = world()
+    bob, rita, lee = c["Bob"], c["Rita"], c["Lee"]
+    tid = team(bob, "Kara A", ["Lee"])
+    occ = create(bob, i="kara", t=now(bob) + DAY, tm=[tid], lk=True)
+    w.tick(2)
+    win = "ns.RaidPlanUI:GetInviteWindow()"
+    # a raid planner outside the raid: the strip points at Invite
+    open_tab(w, bob)
+    assert bob.eval("return %s.upcoming.detail.inviteBtn:IsShown()" % P) is True
+    assert bob.find_text("you are not in this raid (Invite adds you)", True, True)
+    bob.click(bob.eval("return %s.upcoming.detail.inviteBtn" % P))
+    assert bob.eval("return %s:IsShown()" % win) is True
+    assert bob.find_text("This raid is locked", True, True) and bob.find_text("0 invited on top of Kara A", True, True)
+    items = {e["key"]: e for e in bob.eval_py("local sd = %s.picker; sd:Open(); return sd:GetShown()" % win)}
+    assert items[K("Lee")].get("fixed") == "Kara A" and not items[K("Rita")].get("fixed")
+    # inviting is shared at once: the raid shows up for Rita, and Bob can answer after adding himself
+    assert rita.eval("return ns.RaidPlan:CanSee(...)", occ) is False
+    assert bob.eval("return ns.RaidPlanUI:ToggleInvite(...)", K("Rita")) is True
+    assert bob.eval("return ns.RaidPlanUI:ToggleInvite(...)", K("Bob")) is True
+    w.tick(2)
+    assert list(raid(lee, occ)["inv"]) == [K("Bob"), K("Rita")]
+    assert signup(rita, occ, "A")["ok"] is True
+    assert [r["key"] for r in bob.eval_py("return %s.list:GetData()" % win)] == [K("Bob"), K("Rita")]
+    assert bob.find_text("2 invited on top of Kara A", True, True)
+    assert bob.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is True
+    # the X of a row takes the invite back
+    bob.eval("local key = ...; local w = %s; w.list.box:ForEachFrame(function(row) if row.__cdlData.key == key then "
+             "row.remove:GetScript('OnClick')(row.remove) end end)" % win, K("Rita"))
+    w.tick(2)
+    assert list(raid(lee, occ)["inv"]) == [K("Bob")] and rita.eval("return ns.RaidPlan:CanSee(...)", occ) is False
+    # members have no Invite button and can't open the window
+    open_tab(w, lee)
+    assert lee.eval("return %s.upcoming.detail.inviteBtn:IsShown()" % P) is False
+    assert lee.eval("return ns.RaidPlanUI:OpenInvites(...)", occ) is False
+    # the raid is deleted: the window closes
+    assert call(bob, "DeleteRaid", occ)["ok"] is True
+    w.tick(1)
+    assert bob.eval("return %s:IsShown()" % win) is False
     w.assert_no_errors()
 
 

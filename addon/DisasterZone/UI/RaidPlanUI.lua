@@ -964,6 +964,12 @@ function PlanUI:CreateUpcoming(parent)
         GameTooltip:Show()
     end)
     d.deleteBtn:SetScript("OnLeave", hideTooltip)
+    d.inviteBtn = UI():CreateButton(d, "Invite", 64, 22, function()
+        if state.selected then PlanUI:OpenInvites(state.selected) end
+    end)
+    d.inviteBtn:SetPoint("RIGHT", d.deleteBtn, "LEFT", -6, 0)
+    tipButton(d.inviteBtn, "Invite players", "Players outside the raid's teams who can sign up too. On a locked raid "
+        .. "they are the only ones besides the teams.")
 
     -- Sign-up strip
     local strip = CreateFrame("Frame", nil, d, "BackdropTemplate")
@@ -1048,6 +1054,7 @@ local function refreshDetail(v)
     d.editBtn:SetShown(has and organizer)
     d.cancelBtn:SetShown(has and organizer)
     d.deleteBtn:SetShown(has and organizer)
+    d.inviteBtn:SetShown(has and organizer)
     if not has then return end
 
     d.title:SetText(raidTitle(v) .. (v.cancelled and "  |cffff5555CANCELLED|r" or ""))
@@ -1081,7 +1088,8 @@ local function refreshDetail(v)
         upcoming.noteBox:SetText(note or "")
     end
     d.strip.closed:SetText(v.cancelled and "This raid was cancelled." or (not open and "Sign-ups are closed.")
-        or (not invited and colorize("ff9933", "Locked: ask a raid leader for an invite"))
+        or (not invited and colorize("ff9933", organizer and "Locked: you are not in this raid (Invite adds you)"
+            or "Locked: ask a raid leader for an invite"))
         or (mine and grey("Saved: " .. STATUS[mine.st].label) or colorize("ff9933", "Pick an answer")))
 
     local c = counts(v.id)
@@ -1839,6 +1847,143 @@ end
 function PlanUI:GetEditor() return editor end
 
 ---------------------------------------------------------------------------
+-- Invite window (raid planners): the players invited on top of a raid's teams
+---------------------------------------------------------------------------
+
+local inviteWin
+
+local function inviteRaid()
+    return inviteWin and inviteWin.occ and RP():GetRaid(inviteWin.occ) or nil
+end
+
+local function inviteSet(v)
+    local set = {}
+    for _, key in ipairs(v and v.inv or {}) do set[key] = true end
+    return set
+end
+
+local function invitePickerItems()
+    local g = ns.Guild
+    local v = inviteRaid()
+    local inTeam = {}
+    for _, id in ipairs(v and v.tm or {}) do
+        local t = RP():GetTeam(id)
+        for _, key in ipairs(t and t.members or {}) do inTeam[key] = t.name end
+    end
+    local out, seen = {}, {}
+    for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
+        seen[key] = true
+        out[#out + 1] = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
+                          dim = not g:IsOnline(key), fixed = inTeam[key] }
+    end
+    for key in pairs(inviteSet(v)) do
+        if not seen[key] then out[#out + 1] = { key = key, text = shortName(key), note = "not in the guild", dim = true } end
+    end
+    tsort(out, function(a, b) return a.text:lower() < b.text:lower() end)
+    return out
+end
+
+local function initInviteRow(row, d)
+    if not row.cdlInit then
+        row.cdlInit = true
+        row.fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.fs:SetPoint("LEFT", 6, 0)
+        row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.note:SetPoint("LEFT", 150, 0)
+        row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
+        row.remove:SetSize(20, 20)
+        row.remove:SetPoint("RIGHT", -4, 0)
+        row.remove:SetScript("OnClick", function(self)
+            local data = self:GetParent().__cdlData
+            if data then PlanUI:ToggleInvite(data.key) end
+        end)
+    end
+    row.fs:SetText(UI():ColoredName(d.key))
+    row.note:SetText(d.note or "")
+end
+
+local function createInvites()
+    local w = UI():CreateWindow("DisasterZoneRaidInvites", "Invite players", 380, 380)
+    inviteWin = w
+    local c = w.content
+    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    w.info:SetPoint("TOPLEFT", 10, -8)
+    w.info:SetPoint("RIGHT", -10, 0)
+    w.info:SetJustifyH("LEFT")
+    w.picker = UI():CreateSearchDropdown(c, 240, {
+        placeholder = "Invite guild members...",
+        emptyText = "No matching guild members.",
+        getItems = invitePickerItems,
+        isChecked = function(key) return inviteSet(inviteRaid())[key] and true or false end,
+        onToggle = function(key) PlanUI:ToggleInvite(key) end,
+    })
+    w.picker.frame:SetPoint("TOPLEFT", 6, -78)
+    w.status = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    w.status:SetPoint("TOPLEFT", 10, -106)
+    w.list = UI():CreateScrollList(c, 22, initInviteRow)
+    w.list.frame:SetPoint("TOPLEFT", 4, -122)
+    w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
+    w.list:SetEmptyText("Nobody outside the teams is invited.\nInvite guild members with the search box.")
+    w:Hide()
+    return w
+end
+
+-- Opens the invites of a raid (raid planners).
+function PlanUI:OpenInvites(occId)
+    if not RP():CanOrganize() then
+        Print("Only the Guild Master and the raid leaders can invite players to a raid.")
+        return false
+    end
+    if not RP():GetRaid(occId) then return false end
+    if not inviteWin then createInvites() end
+    inviteWin.occ = occId
+    inviteWin:Show()
+    inviteWin:Raise()
+    self:RefreshInvites()
+    return true
+end
+
+function PlanUI:GetInviteWindow() return inviteWin end
+
+-- Invites a player to the raid on top of its teams, or takes the invite back (shared at once; for a weekly raid
+-- this week only: Edit > Save every week changes them all).
+function PlanUI:ToggleInvite(key)
+    local v = inviteRaid()
+    if not v or type(key) ~= "string" then return false end
+    local set = inviteSet(v)
+    set[key] = not set[key] or nil
+    local list = {}
+    for k in pairs(set) do list[#list + 1] = k end
+    tsort(list)
+    local ok, err = RP():EditRaid(v.id, { inv = list }, "one")
+    if not ok then Print("Could not change the invites: %s", tostring(err)) end
+    self:RefreshInvites()
+    return ok and true or false
+end
+
+function PlanUI:RefreshInvites()
+    if not inviteWin or not inviteWin:IsShown() then return end
+    local v = inviteRaid()
+    if not v or not RP():CanOrganize() then
+        inviteWin:Hide()
+        return
+    end
+    inviteWin.info:SetText(("|cffffd100%s|r  %s\n%s%s"):format(raidTitle(v), grey(fmtDay(v.t) .. " " .. fmtTime(v.t)),
+        RP():IsLocked(v) and "This raid is locked: only its teams and the players invited here can sign up and see it."
+            or "This raid is open: everyone can sign up. The players invited here are expected, like the teams.",
+        v.weekly and " Changes here are for this week only." or ""))
+    local g = ns.Guild
+    local rows = {}
+    for _, key in ipairs(v.inv or {}) do
+        rows[#rows + 1] = { key = key, note = g and g.GetRankName and g:GetRankName(key) or "" }
+    end
+    tsort(rows, function(a, b) return nameLess(a.key, b.key) end)
+    inviteWin.status:SetText(#rows .. " invited" .. (#(v.tm or {}) > 0 and (" on top of " .. teamNames({ tm = v.tm })) or ""))
+    inviteWin.list:SetData(rows)
+    if inviteWin.picker.IsOpen and inviteWin.picker:IsOpen() then inviteWin.picker:RefreshRows() end
+end
+
+---------------------------------------------------------------------------
 -- Refresh / lifecycle
 ---------------------------------------------------------------------------
 
@@ -1864,6 +2009,8 @@ function PlanUI:OnInit()
     for _, msg in ipairs({ "RAIDPLAN_CHANGED", "ROSTER_UPDATED", "CONFIG_UPDATED", "RAIDINVITE_CHANGED" }) do
         ns:On(msg, function() PlanUI:RequestRefresh() end)
     end
+    ns:On("RAIDPLAN_CHANGED", function() PlanUI:RefreshInvites() end)
+    ns:On("CONFIG_UPDATED", function() PlanUI:RefreshInvites() end)
     if StaticPopupDialogs then
         StaticPopupDialogs["DISASTERZONE_PLAN_DELETE"] = {
             text = "Delete %s?\n\nIt disappears for everyone, with its sign-ups and groups. This can't be undone.",
