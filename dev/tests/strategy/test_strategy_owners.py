@@ -1,6 +1,6 @@
 """Strategy boards 1.0: who builds, who edits, and finding strategies.
 
-Covers: every guild member building strategies, a strategy belonging to its creator (others can't change it, on
+Covers: every guild member building strategies, a strategy belonging to its creator (the GM and guild council may edit it; others can't change it, on
 their own client or with a forged message), collaborators (invited and removed by the owner only), deleting (the
 owner, the GM and the guild council), records from before 1.0, the filters (raid, encounter, guild member, free
 search), the library's filter bar and row buttons, and the Share window.
@@ -68,11 +68,13 @@ def every_member_builds_and_only_the_owner_changes_it():
         s = strat(x, rid)
         assert s and s["ow"] == K("Rita") and s["by"] == K("Rita"), (n, s)
         assert x.eval("return ns.Strategy:GetOwner(...)", rid) == K("Rita")
-        assert x.eval("return ns.Strategy:CanEditStrategy(...)", rid) is (n == "Rita"), n
-    # not the owner: refused on their own client, the guild council too
+        # the owner; and, as an exception, the GM (Gina) and the guild council (Bob)
+        assert x.eval("return ns.Strategy:CanEditStrategy(...)", rid) is (n in ("Rita", "Gina", "Bob")), n
+    # not the owner: refused on their own client
+    res = rename(sam, rid, "Mine now")
+    assert res["ok"] is False and "owner" in res["e"], res
+    # picking the collaborators is the owner's alone, also for the GM and the guild council
     for x in (sam, bob, c["Gina"]):
-        res = rename(x, rid, "Mine now")
-        assert res["ok"] is False and "owner" in res["e"], res
         assert call(x, "SetCollaborators", rid, [K("Sam")])["ok"] is False
     # and a forged edit / a forged change of owner is dropped by everyone else
     forge(sam, rid, "d.n = 'Hacked'")
@@ -85,6 +87,23 @@ def every_member_builds_and_only_the_owner_changes_it():
     assert rename(rita, rid, "25 prog")["ok"] is True
     w.tick(2)
     assert strat(lee, rid)["n"] == "25 prog"
+    # the GM and the guild council edit anyone's strategy: it stays the owner's, with the owner's collaborators
+    assert call(rita, "AddCollaborator", rid, K("Hana"))["ok"] is True
+    w.tick(2)
+    assert rename(bob, rid, "Council fix")["ok"] is True
+    w.tick(2)
+    s = strat(lee, rid)
+    assert s["n"] == "Council fix" and s["ow"] == K("Rita") and s["by"] == K("Bob") and s["co"] == [K("Hana")], s
+    assert rename(c["Gina"], rid, "GM fix")["ok"] is True
+    w.tick(2)
+    assert strat(lee, rid)["n"] == "GM fix" and strat(lee, rid)["ow"] == K("Rita")
+    forge(bob, rid, "d.co = { 'Bob-Thunderstrike' }")
+    forge(bob, rid, "d.ow = 'Bob-Thunderstrike'")
+    w.tick(2)
+    s = strat(lee, rid)
+    assert s["ow"] == K("Rita") and s["co"] == [K("Hana")], s
+    assert rename(rita, rid, "25 prog")["ok"] is True
+    w.tick(2)
     # a copy belongs to whoever copied it
     res = sam.eval_py("local ok, id = ns.Strategy:CopyStrategy(..., 'Sam variant'); return { ok = ok, id = id }", rid)
     assert res["ok"] is True, res
@@ -281,10 +300,11 @@ def the_library_filters_and_shows_what_a_member_may_do():
     assert buttons(sam, "Horse") == ["open", "edit", "copy", "share", "del"]
     assert buttons(sam, "Prog kite") == ["open", "edit", "copy"]
     assert buttons(sam, "25 farm") == ["open", "copy"]
-    assert sam.find_text("shared with you", True, True)
-    # the guild council also deletes
+    assert sam.find_text("33ff99shared with you", True, True)
+    # the guild council also edits and deletes (Share stays the owner's; no "shared with you")
     open_library(w, bob)
-    assert buttons(bob, "Horse") == ["open", "copy", "del"]
+    assert buttons(bob, "Horse") == ["open", "edit", "copy", "del"]
+    assert not bob.find_text("33ff99shared with you", True, True)
     assert buttons(bob, "25 farm") == ["open", "edit", "copy", "share", "del"]
     # raid and encounter (the tree), member, free search
     sam.eval("ns.StrategiesUI:SelectRaid('BlackTemple')")

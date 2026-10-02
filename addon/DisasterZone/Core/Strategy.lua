@@ -10,7 +10,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Strategy.lua", ...) then retu
 --
 -- Who (1.0): every guild member builds strategies. A strategy belongs to its creator (ow; a record from before 1.0
 -- has none: its last editor owns it); only the owner and the collaborators the owner invited (co) change it, only
--- the owner changes the collaborators, and the owner, the GM and the guild council delete it. Fills are written by
+-- the owner changes the collaborators, and the GM and the guild council may edit and delete any strategy. Fills are written by
 -- the GM, the guild council and the raid leaders (the raid-groups rule, §62). Everyone in the guild caches and reads
 -- both. Sync mirrors the raid plan (§56): live edits on GUILD (SBU), and at login the
 -- HELLO carries a hash of my data (sd); a client whose data differs answers with its digest (SBD), the new client asks
@@ -201,7 +201,7 @@ local function CanWrite(key)
     return type(key) == "string" and G ~= nil and G.IsRaidLogMember ~= nil and G:IsRaidLogMember(key) and true or false
 end
 
--- The GM and the guild council may delete anyone's strategy (never edit it).
+-- The GM and the guild council may edit and delete anyone's strategy (its collaborators stay the owner's to pick).
 local function CanModerate(key)
     local G = Guild()
     return type(key) == "string" and G ~= nil
@@ -229,16 +229,17 @@ local function SameList(a, b)
     return true
 end
 
--- May `rec` replace `cur` (nil / a tombstone: it is new to me)? The owner stays the owner, the owner and the
--- collaborators change the board, only the owner changes the collaborators, the owner and the moderators delete.
+-- May `rec` replace `cur` (nil / a tombstone: it is new to me)? The owner stays the owner; the owner, the
+-- collaborators and the moderators change the board; only the owner changes the collaborators; the owner and the
+-- moderators delete.
 local function Allowed(cur, rec)
     if not cur or cur.del then
-        return rec.del or rec.by == Owner(rec) or IsCollab(rec, rec.by)
+        return rec.del or rec.by == Owner(rec) or IsCollab(rec, rec.by) or CanModerate(rec.by)
     end
     if rec.del then return rec.by == Owner(cur) or CanModerate(rec.by) end
     if Owner(rec) ~= Owner(cur) then return false end
     if rec.by == Owner(cur) then return true end
-    return IsCollab(cur, rec.by) and SameList(cur.co, rec.co)
+    return (IsCollab(cur, rec.by) or CanModerate(rec.by)) and SameList(cur.co, rec.co)
 end
 
 local REFUSED = "Only the Guild Master, the guild council and the raid leaders can change a raid's assignments."
@@ -961,7 +962,8 @@ function Strategy:IsOwner(s, key)
     return owner ~= nil and owner == (key or Util.PlayerKey())
 end
 
--- May I change this strategy (a record or its id)? Its owner and the collaborators the owner invited.
+-- May I change this strategy (a record or its id)? Its owner, the collaborators the owner invited, and (as an
+-- exception) the GM and the guild council.
 function Strategy:CanEditStrategy(s)
     if type(s) == "string" then
         local root = Root(false)
@@ -969,7 +971,16 @@ function Strategy:CanEditStrategy(s)
     end
     local me = Util.PlayerKey()
     if type(s) ~= "table" or s.del or not me then return false end
-    return Owner(s) == me or IsCollab(s, me)
+    return Owner(s) == me or IsCollab(s, me) or CanModerate(me)
+end
+
+-- Did the owner invite that member (default: me) to this strategy (a record or its id)?
+function Strategy:IsCollaborator(s, key)
+    if type(s) == "string" then
+        local root = Root(false)
+        s = root and root.B[s]
+    end
+    return type(s) == "table" and not s.del and IsCollab(s, key or Util.PlayerKey())
 end
 
 -- May I delete it? Its owner, the GM and the guild council.
@@ -1371,7 +1382,7 @@ function Strategy:Explain(r)
     return "something in this strategy is not valid"
 end
 
-local NOT_YOURS = "Only its owner and the collaborators the owner invited can change this strategy (Copy makes one of your own)."
+local NOT_YOURS = "Only its owner, the collaborators the owner invited, the Guild Master and the guild council can change this strategy (Copy makes one of your own)."
 
 -- Saves a draft (new when draft.id is nil: it is mine). The owner and the collaborators of a saved strategy stay
 -- what they are (SetCollaborators changes them). Returns ok, idOrErr.

@@ -2,7 +2,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategiesView.lua", ...) then 
 -- Where the strategy boards live in the Raids tab (Addendum K):
 --   Strategies view   - the library, for every guild member to explore and build in. A filter bar (free search, a
 --                       guild member) over the raids and their bosses on the left (All raids / a raid / one boss) and
---                       the matching strategies on the right: Open for everyone, Edit for the owner and the
+--                       the matching strategies on the right: Open for everyone, Edit for the owner, the
 --                       collaborators, Share (the collaborators) for the owner, Copy for everyone (the copy is
 --                       yours), Delete for the owner, the GM and the guild council. My unsaved drafts sit on top
 --                       (continue / discard; saving one makes it a strategy).
@@ -205,7 +205,7 @@ local function initStratRow(row, d)
         row.l1:SetText(s.n .. where)
         row.l2:SetText(("%d page%s · %d block%s · by %s%s, %s%s"):format(#s.p, #s.p == 1 and "" or "s", countBlocks(s),
             countBlocks(s) == 1 and "" or "s", owner == me and "you" or shortName(owner), co > 0 and (" +" .. co) or "",
-            date("%d %b %Y", s.rev), (mine and owner ~= me) and "  ·  |cff33ff99shared with you|r" or ""))
+            date("%d %b %Y", s.rev), S():IsCollaborator(s.id) and "  ·  |cff33ff99shared with you|r" or ""))
         show = { del = S():CanDeleteStrategy(s.id), share = owner == me, copy = S():CanBuild(), edit = mine, open = true }
     end
     -- the buttons this member has, right to left; the texts end where they start

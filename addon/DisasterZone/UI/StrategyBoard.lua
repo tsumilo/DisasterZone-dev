@@ -855,7 +855,7 @@ function Board:OpenStrategy(id, mode)
     park()
     local mine = S():CanEditStrategy(id)
     if mode == "edit" and not mine then
-        ns:Print("Only its owner and the collaborators the owner invited can change this strategy. Copy makes one of your own.")
+        ns:Print("Only its owner, the collaborators the owner invited, the Guild Master and the guild council can change this strategy. Copy makes one of your own.")
     end
     -- editing goes on where its draft stopped
     local d = mode == "edit" and mine and editDraftOf(id)

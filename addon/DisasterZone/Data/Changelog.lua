@@ -13,7 +13,7 @@ ns.CHANGELOG = {
               "A strategy belongs to whoever made it. Only the owner changes it.",
               "Share: the owner invites guild members to work on it together, and takes them off again.",
               "Copy makes any strategy yours, to build on without touching the original.",
-              "Delete is for the owner, the Guild Master and the guild council.",
+              "The Guild Master and the guild council can edit and delete any strategy.",
               "Strategies made before this version belong to whoever saved them last.",
               "The list shows every raid at once. Click a raid or a boss on the left to narrow it.",
               "Search box: finds by strategy name, boss, raid, builder or table name.",
