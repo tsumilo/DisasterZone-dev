@@ -1,7 +1,7 @@
 # DisasterZone dev kit
 
 Development repository for **DisasterZone**, the loot-council addon for <Casual Disaster> on WoW TBC Anniversary (Interface 20506).
-It tracks the addon source together with everything needed to change it safely: the specs, an offline WoW-client mock, 38 test suites and the data generators.
+It tracks the addon source together with everything needed to change it safely: the specs, an offline WoW-client mock, 90 test suites and the data generators.
 
 The guild-facing documentation is in `addon/DisasterZone/README.md`.
 

@@ -1,4 +1,4 @@
-# DisasterZone 0.12.0
+# DisasterZone 1.0.0
 
 BiS lists, a Loot Council overview, boss-drop alerts and rolls for **&lt;Casual Disaster&gt;**.
 For the WoW TBC Anniversary client (2.5.x, interface 20506).
@@ -311,8 +311,21 @@ are.
   week.
 - The red **delete** button next to Edit removes the raid for everyone, with its sign-ups and groups, after you confirm.
   For a weekly raid you pick this week's raid only or the whole weekly raid.
-- Everyone sees every raid and anyone can sign up. The teams decide who gets the reminder and who is listed under
-  "No response".
+- An open raid is seen by everyone and anyone can sign up. The teams decide who gets the reminder and who is listed
+  under "No response".
+- **Locked** (a checkbox in the New raid / Edit window): only the members of the raid's teams and the invited players
+  can sign up, and only they (plus the Guild Master, the guild council and the raid leaders) see the raid.
+- **Invite** (the button next to Edit, or the Invite box in the raid window) adds players outside the teams to a raid.
+  From the button, a weekly raid changes for this week only.
+
+### Strategy boards (everyone)
+- **Raids > Strategies** lists every strategy. Click a raid or a boss on the left to narrow the list, type in the
+  search box (strategy, boss, raid, builder or table name), or pick a guild member under **By**.
+- **New strategy** builds one for a boss. It is yours: only you change it.
+- **Share** invites guild members to change your strategy with you, and takes them off again.
+- **Copy** makes any strategy yours. The Guild Master and the guild council can edit and delete any strategy.
+- Who does what in a raid (the Assignments tab of a raid) is filled in by the Guild Master, the guild council and the
+  raid leaders.
 
 ### Team groups (Guild Master and guild council)
 - In **Teams**, pick the team's size (10 / 25) and place members in groups: drag a name into a group, or click it and
