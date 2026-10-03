@@ -2294,3 +2294,5 @@ UI._State = function()
         state = sim and sim.state or false, phase = sim and sim.phase or false,
     }
 end
+-- Tests (tools/render_check.py): the 3D view's frames, read only.
+UI._View = function() return view, scene, meshFrames, overFrames, plateFrame, floorFrame end

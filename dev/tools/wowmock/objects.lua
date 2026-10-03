@@ -153,13 +153,21 @@ local function note_unknown(tbl, st, key)
   else tbl[k] = { label = label, kind = st.kind, key = key, where = caller_where(4), count = 1 } end
 end
 
+-- API call counting (tools/render_check.py): M.set_api_count(tbl) counts every method looked up on a widget
+-- (one lookup per obj:Method() call) into tbl[name]; M.set_api_count(nil) stops. Off by default.
+local api_count = nil
+function M.set_api_count(t) api_count = t end
+
 local OBJ_MT = {}
 M.OBJ_MT = OBJ_MT
 OBJ_MT.__index = function(t, k)
   local st = OBJ[t]
   if not st then return nil end
   local m = st.methods[k]
-  if m ~= nil then return m end
+  if m ~= nil then
+    if api_count then api_count[k] = (api_count[k] or 0) + 1 end
+    return m
+  end
   if type(k) ~= "string" then return nil end
   if BACKDROP_METHODS[k] then
     note_unknown(M.unknown_methods, st, k .. " (needs BackdropTemplate)")
@@ -827,8 +835,25 @@ define("TextureBase", "Region", {
 })
 define("Texture", "TextureBase", {})
 define("MaskTexture", "TextureBase", {})
+-- Line:SetStartPoint / SetEndPoint(relativePoint, [relativeTo,] offsetX, offsetY): recorded as
+-- { relativePoint, relativeTo (nil = the parent), x, y } for tools that resolve where a line is (M.line_points).
+local function line_point(self, relPoint, rel, x, y)
+  if type(rel) == "number" then rel, x, y = nil, rel, x end
+  if type(rel) == "string" then rel = _G[rel] end
+  if rel ~= nil and not OBJ[rel] then rel = nil end
+  return { type(relPoint) == "string" and supper(relPoint) or "CENTER", rel, tonumber(x) or 0, tonumber(y) or 0 }
+end
 define("Line", "TextureBase", {
-  SetStartPoint = function() end, SetEndPoint = function() end,
+  SetStartPoint = function(self, ...) S(self).lineStart = line_point(self, ...) end,
+  SetEndPoint = function(self, ...) S(self).lineEnd = line_point(self, ...) end,
+  GetStartPoint = function(self)
+    local p = S(self).lineStart
+    if p then return p[1], p[2] or S(self).parent, p[3], p[4] end
+  end,
+  GetEndPoint = function(self)
+    local p = S(self).lineEnd
+    if p then return p[1], p[2] or S(self).parent, p[3], p[4] end
+  end,
   SetThickness = function(self, t) S(self).thickness = t end, GetThickness = function(self) return S(self).thickness or 1 end,
 })
 define("FontString", "Region", FontStringMethods)
@@ -1215,16 +1240,38 @@ define("ModelScene", "Frame", {
   SetLightDirection = function(self, x, y, z) end,
   SetLightAmbientColor = function(self, r, g, b) end,
   SetLightDiffuseColor = function(self, r, g, b) end,
-  -- camera on +x looking along -x; horizontal FOV; screen-right = -y; returns pixels * effective scale
+  -- A pinhole camera at SetCameraPosition looking along SetCameraOrientationByYawPitchRoll(yaw, pitch, roll):
+  -- forward = (cos p cos y, cos p sin y, -sin p) (a positive pitch looks down, as Blizzard's orbit camera counts
+  -- it), a HORIZONTAL field of view, screen-right = up x forward (so screen-right = -y for a camera looking along
+  -- -x) and screen-up = forward x right; a roll turns right and up about forward (right towards up). Returns
+  -- pixels * effective scale and the depth; nil behind the camera. Without an orientation, or with exactly
+  -- (math.pi, 0, 0) - a camera on +x looking along -x - the original formula runs bit for bit.
   Project3DPointTo2D = function(self, x, y, z)
     local st = S(self)
     local c = st.camPos or { 0, 0, 0 }
-    local d = c[1] - x
-    if d <= 0 then return nil end
     local W, H = self:GetWidth(), self:GetHeight()
     local f = (W / 2) / math.tan((st.fov or 0.9) / 2)
     local es = self:GetEffectiveScale() or 1
-    return (W / 2 - (y - c[2]) / d * f) * es, (H / 2 + (z - c[3]) / d * f) * es, d
+    local o = st.camYPR
+    local yaw, pitch, roll = o and tonumber(o[1]) or nil, o and tonumber(o[2]) or 0, o and tonumber(o[3]) or 0
+    if not yaw or (yaw == math.pi and pitch == 0 and roll == 0) then
+      local d = c[1] - x
+      if d <= 0 then return nil end
+      return (W / 2 - (y - c[2]) / d * f) * es, (H / 2 + (z - c[3]) / d * f) * es, d
+    end
+    local cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
+    local fx, fy, fz = cp * cy, cp * sy, -sp
+    local rx, ry, rz = -sy, cy, 0
+    local ux, uy, uz = sp * cy, sp * sy, cp
+    if roll ~= 0 then
+      local cr, sr = math.cos(roll), math.sin(roll)
+      rx, ry, rz, ux, uy, uz = cr * rx + sr * ux, cr * ry + sr * uy, cr * rz + sr * uz,
+                               cr * ux - sr * rx, cr * uy - sr * ry, cr * uz - sr * rz
+    end
+    local dx, dy, dz = x - c[1], y - c[2], z - c[3]
+    local d = dx * fx + dy * fy + dz * fz
+    if d <= 0 then return nil end
+    return (W / 2 + (dx * rx + dy * ry + dz * rz) / d * f) * es, (H / 2 + (dx * ux + dy * uy + dz * uz) / d * f) * es, d
   end,
 })
 define("ColorSelect", "Frame", {})
@@ -1440,6 +1487,97 @@ STANDARD_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 UNIT_NAME_FONT = "Fonts\\FRIZQT__.TTF"
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 NAMEPLATE_FONT = "Fonts\\FRIZQT__.TTF"
+
+---------------------------------------------------------------------------------------------------
+-- Region rectangles worked out from their anchors (tools/render_check.py). GetLeft / GetBottom stay the
+-- permissive 0 stubs; this is separate. M.region_rect(region, origin, memo) -> left, bottom, width, height in
+-- origin's units with origin's bottom-left at 0, 0 (origin: UIParent by default, any frame works). Every set of
+-- SetPoint / SetAllPoints anchors is handled together with SetSize, as the client does it per axis: two edges,
+-- or one edge / the centre plus the size. Scales (SetScale) are honoured. nil when the rectangle cannot be
+-- worked out (no anchors, an anchor chain that ends outside origin's tree without resolving, a cycle).
+-- M.line_points(line, origin, memo) -> x1, y1, x2, y2 for a Line's SetStartPoint / SetEndPoint.
+---------------------------------------------------------------------------------------------------
+local PT_X = { TOPLEFT = 0, LEFT = 0, BOTTOMLEFT = 0, TOP = 0.5, CENTER = 0.5, BOTTOM = 0.5,
+               TOPRIGHT = 1, RIGHT = 1, BOTTOMRIGHT = 1 }
+local PT_Y = { BOTTOMLEFT = 0, BOTTOM = 0, BOTTOMRIGHT = 0, LEFT = 0.5, CENTER = 0.5, RIGHT = 0.5,
+               TOPLEFT = 1, TOP = 1, TOPRIGHT = 1 }
+local function chain_scale(st)
+  local s = 1
+  while st do s = s * (st.scale or 1); st = st.parent and OBJ[st.parent] end
+  return s
+end
+local function rect_ctx(origin, memo)
+  origin = origin or rawget(_G, "UIParent")
+  memo = memo or {}
+  if not memo.__origin then memo.__origin, memo.__oscale = origin, chain_scale(OBJ[origin]) end
+  return origin, memo
+end
+local function resolve_rect(o, origin, memo)
+  if o == origin then
+    local st = OBJ[o]
+    return 0, 0, eff_width(st), eff_height(st)
+  end
+  local m = memo[o]
+  if m ~= nil then
+    if m == false then return nil end
+    return m[1], m[2], m[3], m[4]
+  end
+  memo[o] = false                                   -- (a cycle resolves to nil)
+  local st = OBJ[o]
+  if not st then return nil end
+  local s = chain_scale(st) / memo.__oscale
+  local l, r, cx, t, b, cy
+  for _, p in ipairs(st.points) do
+    local rel = p[2]
+    if rel == nil or PT_X[p[1]] == nil or PT_X[p[3]] == nil then return nil end
+    local rl, rb, rw, rh = resolve_rect(rel, origin, memo)
+    if not rl then return nil end
+    local x = rl + PT_X[p[3]] * rw + p[4] * s
+    local y = rb + PT_Y[p[3]] * rh + p[5] * s
+    local hx, vy = PT_X[p[1]], PT_Y[p[1]]
+    if hx == 0 then l = x elseif hx == 1 then r = x else cx = x end
+    if vy == 0 then b = y elseif vy == 1 then t = y else cy = y end
+  end
+  local w, h = st.w and st.w * s, st.h and st.h * s
+  local left, width, bottom, height
+  if l and r then left, width = l, r - l
+  elseif l and w then left, width = l, w
+  elseif r and w then left, width = r - w, w
+  elseif cx and w then left, width = cx - w / 2, w
+  elseif l and cx then left, width = l, 2 * (cx - l)
+  elseif r and cx then left, width = 2 * cx - r, 2 * (r - cx)
+  else return nil end
+  if b and t then bottom, height = b, t - b
+  elseif b and h then bottom, height = b, h
+  elseif t and h then bottom, height = t - h, h
+  elseif cy and h then bottom, height = cy - h / 2, h
+  elseif b and cy then bottom, height = b, 2 * (cy - b)
+  elseif t and cy then bottom, height = 2 * cy - t, 2 * (t - cy)
+  else return nil end
+  memo[o] = { left, bottom, width, height }
+  return left, bottom, width, height
+end
+function M.region_rect(o, origin, memo)
+  origin, memo = rect_ctx(origin, memo)
+  if not (o and OBJ[o] and origin and OBJ[origin]) then return nil end
+  return resolve_rect(o, origin, memo)
+end
+function M.line_points(o, origin, memo)
+  origin, memo = rect_ctx(origin, memo)
+  local st = o and OBJ[o]
+  if not (st and origin and OBJ[origin] and st.lineStart and st.lineEnd) then return nil end
+  local s = chain_scale(st) / memo.__oscale
+  local out = {}
+  for i, p in ipairs({ st.lineStart, st.lineEnd }) do
+    local rel = p[2] or st.parent
+    if rel == nil or PT_X[p[1]] == nil then return nil end
+    local rl, rb, rw, rh = resolve_rect(rel, origin, memo)
+    if not rl then return nil end
+    out[i * 2 - 1] = rl + PT_X[p[1]] * rw + p[3] * s
+    out[i * 2] = rb + PT_Y[p[1]] * rh + p[4] * s
+  end
+  return out[1], out[2], out[3], out[4]
+end
 
 M.define = define
 M.ANCESTRY = ANCESTRY
