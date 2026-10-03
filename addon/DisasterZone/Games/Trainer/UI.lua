@@ -32,6 +32,7 @@ local ACTS = {
 
 local root, view, arena, overlay, focusOverlay
 local scene, floorFrame, plateFrame      -- the 3D view (scene == nil: flat fallback)
+local overFrame                          -- above the models: the pieces of the room that stand in front of one
 local cam = { dist = 14, pitch = 0.3, pitchSign = 1, mirror = 1, x = 0, y = 0, z = 0, fx = 1, fy = 0, fz = 0 }
 local actors = {}            -- unit id -> actor
 local actorPool = {}
@@ -337,7 +338,8 @@ end
 -- whose corners are moved to where the camera sees them (two corners share the third point). The scene's camera
 -- is measured once a frame (three projected points); the vertices are then projected here, in Lua. Triangles
 -- facing away, behind the camera or off screen are hidden; the rest are layered far to near.
-local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {} }
+local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {}, over = {}, occ = {}, nOcc = 0,
+                    x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, models = {} }
 local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
 local MESH_FAR = 110
 
@@ -353,6 +355,10 @@ local function PrepareMesh(mesh)
         local wx, wy, wz = v[c + 1] - v[a + 1], v[c + 2] - v[a + 2], v[c + 3] - v[a + 3]
         mesh.normal[i * 3 - 2], mesh.normal[i * 3 - 1], mesh.normal[i * 3] = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
         mesh.light[i] = (v[a + 6] + v[b + 6] + v[c + 6]) / 3
+        -- walls, pillars, the faces of steps: what can stand in front of someone (a floor cannot)
+        local nx, ny, nz = mesh.normal[i * 3 - 2], mesh.normal[i * 3 - 1], mesh.normal[i * 3]
+        mesh.steep = mesh.steep or {}
+        mesh.steep[i] = nz < 0.7 * math.sqrt(nx * nx + ny * ny + nz * nz)
     end
 end
 
@@ -362,6 +368,67 @@ local function HideMesh()
         meshState.shown[i] = nil
     end
     meshState.key = nil
+end
+
+-- The room is drawn under the models, so by itself a pillar between the camera and a character would be painted
+-- over by that character. Each frame: find the steep triangles that are nearer than a model they overlap on
+-- screen; those, and every steep triangle nearer still, move to a frame above the models. A triangle that has a
+-- model in front of it stays below.
+local function UpdateOcclusion()
+    local st, b = meshState, meshState.basis
+    if not (b and overFrame) then return end
+    local models, nm = st.models, 0
+    for _, u in ipairs(sim.units) do
+        if actors[u.id] and not u.dead then
+            local tall = PLATE_HEIGHT[u.kind] or 2.6
+            local dx, dy, dz = u.x - b.camX, b.m * u.y - b.camY, GroundZ(u.x, u.y) - b.camZ
+            local depth = dx * b.fx + dy * b.fy + dz * b.fz
+            local top = depth + tall * b.fz
+            if depth > 0.4 and top > 0.4 then
+                local r, up = (dx * b.rx + dy * b.ry) / depth, (dx * b.ux + dy * b.uy + dz * b.uz) / depth
+                local fx2, fy2 = b.cx + r * b.exx + up * b.eyx, b.cy + r * b.exy + up * b.eyy
+                r, up = (dx * b.rx + dy * b.ry) / top, (dx * b.ux + dy * b.uy + (dz + tall) * b.uz) / top
+                local hx, hy = b.cx + r * b.exx + up * b.eyx, b.cy + r * b.exy + up * b.eyy
+                local half = max(8, math.abs(hy - fy2) * 0.3)
+                nm = nm + 1
+                local mo = models[nm] or {}
+                models[nm] = mo
+                mo.x0, mo.x1 = min(fx2, hx) - half, max(fx2, hx) + half
+                mo.y0, mo.y1 = min(fy2, hy), max(fy2, hy)
+                mo.depth = depth
+            end
+        end
+    end
+    -- how deep the covering goes: the farthest model that has something in front of it
+    local reach = 0
+    local x0, x1, y0, y1, depth, occ = st.x0, st.x1, st.y0, st.y1, st.depth, st.occ
+    for n = 1, st.nOcc do
+        local i = occ[n]
+        local d = depth[i]
+        local blocked = false
+        for j = 1, nm do
+            local mo = models[j]
+            if x1[i] >= mo.x0 and x0[i] <= mo.x1 and y1[i] >= mo.y0 and y0[i] <= mo.y1 then
+                if d < mo.depth - 0.5 then
+                    if mo.depth > reach then reach = mo.depth end
+                else
+                    blocked = true
+                end
+            end
+        end
+        st.blocked = st.blocked or {}
+        st.blocked[i] = blocked
+    end
+    for n = 1, st.nOcc do
+        local i = occ[n]
+        local over = depth[i] < reach - 0.5 and not st.blocked[i]
+        if over ~= (st.over[i] or false) then
+            st.over[i] = over or nil
+            local tx = st.tex[i]
+            tx:SetParent(over and overFrame or floorFrame)
+            tx:SetDrawLayer(MESH_LAYERS[floor(tx.bucket / 16) + 1], tx.bucket % 16 - 8)
+        end
+    end
 end
 
 local function DrawMesh()
@@ -376,7 +443,10 @@ local function DrawMesh()
     local w, h = scene:GetWidth() or 0, scene:GetHeight() or 0
     -- nothing moved: nothing to do
     local key = string.format("%.3f %.3f %.3f %.4f %.4f %.4f %d %d", cam.x, cam.y, cam.z, cam.fx, cam.fy, cam.fz, w, h)
-    if meshState.key == key then return true end
+    if meshState.key == key then
+        UpdateOcclusion()                                              -- the view stands still, the others move
+        return true
+    end
 
     -- the camera, measured: the screen point straight ahead, and what one yard to the right and one yard up
     -- are worth there (10 yd ahead). All in scene space (y already mirrored).
@@ -404,6 +474,9 @@ local function DrawMesh()
     local v, t, normal = mesh.verts, mesh.tris, mesh.normal
     local sx, sy, sd = meshState.sx, meshState.sy, meshState.sd
     local camX, camY, camZ = cam.x, cam.y, cam.z
+    meshState.basis = { camX = camX, camY = camY, camZ = camZ, m = m, fx = fx, fy = fy, fz = fz, rx = rx, ry = ry,
+                        ux = ux, uy = uy, uz = uz, cx = cx, cy = cy, exx = exx, exy = exy, eyx = eyx, eyy = eyy }
+    local steep, nOcc = mesh.steep, 0
     for i = 1, mesh.nVerts do
         local o = i * 6 - 6
         local dx, dy, dz = v[o + 1] - camX, m * v[o + 2] - camY, v[o + 3] - camZ
@@ -461,6 +534,13 @@ local function DrawMesh()
                         shown[i] = true
                         tx:Show()
                     end
+                    if steep[i] then
+                        nOcc = nOcc + 1
+                        meshState.occ[nOcc] = i
+                        meshState.x0[i], meshState.x1[i] = min(ax, bx, qx), max(ax, bx, qx)
+                        meshState.y0[i], meshState.y1[i] = min(ay, by, qy), max(ay, by, qy)
+                        meshState.depth[i] = depth
+                    end
                 end
             end
         end
@@ -469,6 +549,8 @@ local function DrawMesh()
             tex[i]:Hide()
         end
     end
+    meshState.nOcc = nOcc
+    UpdateOcclusion()
     return true
 end
 
@@ -788,6 +870,9 @@ local function CreateScene(parent)
     plateFrame = CreateFrame("Frame", nil, parent)
     plateFrame:SetAllPoints()
     plateFrame:SetFrameLevel(parent:GetFrameLevel() + 4)
+    overFrame = CreateFrame("Frame", nil, parent)
+    overFrame:SetAllPoints()
+    overFrame:SetFrameLevel(parent:GetFrameLevel() + 3)
     pcall(sc.SetCameraFieldOfView, sc, 1.1)
     pcall(sc.SetCameraNearClip, sc, 0.5)
     pcall(sc.SetCameraFarClip, sc, 500)
@@ -1391,7 +1476,9 @@ UI._Floor = function()
     local n, m = 0, 0
     for _, t in ipairs(floorTiles) do if t:IsShown() then n = n + 1 end end
     for _ in pairs(meshState.shown) do m = m + 1 end
-    return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false, mesh = m }
+    local o = 0
+    for _ in pairs(meshState.over) do o = o + 1 end
+    return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false, mesh = m, over = o }
 end
 UI._Plates = function()
     local out = {}

@@ -346,6 +346,23 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
     assert m[0] > 2000 and m[1] > 3000 and 8 <= m[2] <= 20 and m[3] > 100000, m
     fl = c.eval_py("return ns.TrainerUI._Floor()")
     assert fl["tiles"] == 0 and 500 < fl["mesh"] < m[1] and fl["mini"] is True, fl
+    # a raider walked through the hall while the view stands still: wherever a pillar or a step's face is between
+    # him and the camera, those pieces of the room are lifted above the models; when he is in the open, none are
+    c.eval("T_R = T_TR.sim:Alive('raider')[5]")
+    found, clear = [], 0
+    for yy in (8, 20, 32, 44):
+        c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 56, %d  for _, u in ipairs(T_TR.sim:Alive('raider')) do u.x, u.y = 58, 57 end "
+               "T_TR.sim.boss.x, T_TR.sim.boss.y = 58, 57  ns.TrainerUI._Tick(0.05)" % yy)
+        for xx in range(3, 52, 3):
+            c.eval("T_R.x, T_R.y = %d, %d  ns.TrainerUI._Tick(0.05)" % (xx, yy))
+            over = c.eval_py("return ns.TrainerUI._Floor().over")
+            if over > 0:
+                found.append((xx, yy, over))
+            else:
+                clear += 1
+    assert len(found) >= 2 and clear >= 10, (found, clear)
+    c.eval("T_R.x, T_R.y = 58, 57  ns.TrainerUI._Tick(0.05)")
+    assert c.eval_py("return ns.TrainerUI._Floor().over") == 0
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 20, 50  ns.TrainerUI._Tick(0.05)")   # move: another view
     assert c.eval_py("return ns.TrainerUI._Floor().mesh") != fl["mesh"]
     # the spell effects are actors holding the effect's model file
