@@ -89,7 +89,7 @@ local function SetFocus(on)
 end
 
 local ShowBriefing, ShowResult
-local ResetScene
+local ResetScene, ResetUnitFrames
 
 local function StartTry(seed)
     local enc = Encounter()
@@ -647,7 +647,7 @@ end
 local function DrawEffects()
     lineCount.fx = 0
     local t = sim.target
-    if t and not t.dead then Circle(t.x, t.y, t.radius + 0.4, 1, 0.85, 0.1, 0.9, 2) end
+    if t and not t.dead then Circle(t.x, t.y, t.radius + 0.4, 1, 0.1, 0.1, 0.9, 3) end       -- hostile: red
     for i = lineCount.fx + 1, #fxLines do fxLines[i]:Hide() end
 end
 
@@ -760,7 +760,8 @@ local function DrawPlates()
                 f:SetPoint("CENTER", scene, "BOTTOMLEFT", x, y)
                 f.name:SetText(u.name)
                 local isTarget = sim.target == u
-                ns.UI:SetEdgeColor(f, isTarget and 1 or 0, isTarget and 0.85 or 0, isTarget and 0.1 or 0, 1)
+                ns.UI:SetEdgeColor(f, isTarget and 1 or 0, isTarget and 1 or 0, isTarget and 1 or 0, 1)
+                f:SetAlpha((isTarget or not sim.target) and 1 or 0.6)       -- the others dim, as the client's do
                 if u.hp then
                     f.hp:SetColorTexture(0.8, 0.15, 0.15, 1)
                     f.hp:SetWidth(max(0.1, 96 * u.hp / u.hpMax))
@@ -835,6 +836,7 @@ function ResetScene()
         actorPool[#actorPool + 1] = a
     end
     for fx in pairs(fxActors) do ReleaseFxActor(fx) end
+    ResetUnitFrames()
     HideMesh()
     for _, l in ipairs(floorLines) do l:Hide() end
     for _, l in ipairs(fxLines) do l:Hide() end
@@ -1084,9 +1086,252 @@ local function DrawCorpse()
     end
 end
 
+---------------------------------------------------------------------------
+-- The client's own look: player and target frame (Blizzard's unit frame art), debuffs with their sweep and
+-- stack count, your own auras with the time left, and damage numbers floating off what you hit.
+---------------------------------------------------------------------------
+
+local UF_TEX = "Interface\\TargetingFrame\\UI-TargetingFrame"
+local UF_ELITE = "Interface\\TargetingFrame\\UI-TargetingFrame-Elite"
+local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
+local hud = { texts = {}, textPool = {}, debuffs = {}, auras = {} }
+
+-- One unit frame in the stock layout (232 x 100; the target's art is the player's, mirrored).
+local function NewUnitFrame(parent, isPlayer)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(232, 100)
+    f.portrait = f:CreateTexture(nil, "BACKGROUND")
+    f.portrait:SetSize(64, 64)
+    f.nameBg = f:CreateTexture(nil, "BACKGROUND")
+    f.nameBg:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-LevelBackground")
+    f.nameBg:SetSize(119, 19)
+    f.barBg = f:CreateTexture(nil, "BACKGROUND")
+    f.barBg:SetColorTexture(0, 0, 0, 0.5)
+    f.barBg:SetSize(119, 23)
+    f.hp = f:CreateTexture(nil, "BORDER")
+    f.hp:SetTexture(BAR_TEX)
+    f.hp:SetVertexColor(0, 1, 0)
+    f.hp:SetHeight(12)
+    f.mp = f:CreateTexture(nil, "BORDER")
+    f.mp:SetTexture(BAR_TEX)
+    f.mp:SetVertexColor(0, 0, 1)
+    f.mp:SetSize(119, 11)
+    f.art = f:CreateTexture(nil, "ARTWORK")
+    f.art:SetTexture(UF_TEX)
+    f.art:SetAllPoints()
+    f.name = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.name:SetWidth(100)
+    f.level = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.hpText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.hpText:SetPoint("CENTER", f.hp, "LEFT", 59.5, 0)
+    if isPlayer then
+        f.art:SetTexCoord(1, 0.09375, 0, 0.78125)
+        f.portrait:SetPoint("TOPLEFT", 42, -12)
+        f.nameBg:SetPoint("TOPLEFT", 106, -22)
+        f.barBg:SetPoint("TOPLEFT", 106, -41)
+        f.hp:SetPoint("TOPLEFT", 106, -41)
+        f.mp:SetPoint("TOPLEFT", 106, -52)
+        f.name:SetPoint("CENTER", 50, 19)
+        f.level:SetPoint("CENTER", -63, -16)
+    else
+        f.art:SetTexCoord(0.09375, 1, 0, 0.78125)
+        f.portrait:SetPoint("TOPRIGHT", -42, -12)
+        f.nameBg:SetPoint("TOPLEFT", 7, -22)
+        f.barBg:SetPoint("TOPLEFT", 7, -41)
+        f.hp:SetPoint("TOPLEFT", 7, -41)
+        f.mp:SetPoint("TOPLEFT", 7, -52)
+        f.name:SetPoint("CENTER", -50, 19)
+        f.level:SetPoint("CENTER", 63, -16)
+    end
+    return f
+end
+
+local function SetPortrait(f, u)
+    local key = u.model or u.display
+    if f.portraitKey == key then return end
+    f.portraitKey = key
+    if u.model == "player" and SetPortraitTexture then
+        pcall(SetPortraitTexture, f.portrait, "player")
+    elseif u.display and SetPortraitTextureFromCreatureDisplayID then
+        pcall(SetPortraitTextureFromCreatureDisplayID, f.portrait, u.display)
+    else
+        f.portrait:SetTexture("Interface\\CharacterFrame\\TempPortrait")
+    end
+end
+
+local function FillUnitFrame(f, u, name)
+    SetPortrait(f, u)
+    f.name:SetText(name or u.name)
+    local level = u.level or 70
+    f.level:SetText(level < 0 and "??" or level)
+    f.art:SetTexture((u.elite and not f.isPlayer) and UF_ELITE or UF_TEX)
+    local frac = (u.hp and u.hpMax) and (u.hp / u.hpMax) or 1
+    f.hp:SetWidth(max(0.1, 119 * frac))
+    f.hpText:SetText(u.hp and string.format("%d / %d", u.hp, u.hpMax) or "")
+    f.mp:SetShown(u.mana ~= false)
+end
+
+-- A debuff on the target frame: icon, the coloured debuff border, the stack count, the client's cooldown sweep.
+local function DebuffButton(i)
+    local b = hud.debuffs[i]
+    if b then return b end
+    b = CreateFrame("Frame", nil, hud.target)
+    b:SetSize(21, 21)
+    b:SetPoint("TOPLEFT", hud.target, "BOTTOMLEFT", 5 + (i - 1) * 24, 32)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetAllPoints()
+    b.border = b:CreateTexture(nil, "OVERLAY")
+    b.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+    b.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+    b.border:SetPoint("TOPLEFT", -1, 1)
+    b.border:SetPoint("BOTTOMRIGHT", 1, -1)
+    local ok, cd = pcall(CreateFrame, "Cooldown", nil, b, "CooldownFrameTemplate")
+    if ok and cd then
+        cd:SetAllPoints()
+        if cd.SetReverse then cd:SetReverse(true) end
+        b.cd = cd
+    end
+    local top = CreateFrame("Frame", nil, b)
+    top:SetAllPoints()
+    top:SetFrameLevel(b:GetFrameLevel() + 3)
+    b.count = top:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    b.count:SetPoint("BOTTOMRIGHT", 2, -1)
+    hud.debuffs[i] = b
+    return b
+end
+
+-- One of your own auras, top right like the buff bar: icon and the time left under it.
+local function AuraButton(i)
+    local b = hud.auras[i]
+    if b then return b end
+    b = CreateFrame("Frame", nil, hud.frame)
+    b:SetSize(30, 30)
+    b:SetPoint("TOPRIGHT", view, "TOPRIGHT", -(MINI_W + 18) - (i - 1) * 36, -8)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetAllPoints()
+    b.border = b:CreateTexture(nil, "OVERLAY")
+    b.border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+    b.border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+    b.border:SetPoint("TOPLEFT", -1, 1)
+    b.border:SetPoint("BOTTOMRIGHT", 1, -1)
+    b.time = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.time:SetPoint("TOP", b, "BOTTOM", 0, -1)
+    hud.auras[i] = b
+    return b
+end
+
+local function CreateUnitFrames()
+    hud.frame = CreateFrame("Frame", nil, view)
+    hud.frame:SetAllPoints()
+    hud.frame:SetFrameLevel(view:GetFrameLevel() + 7)
+    hud.player = NewUnitFrame(hud.frame, true)
+    hud.player.isPlayer = true
+    hud.player:SetPoint("TOPLEFT", view, "TOPLEFT", -14, -2)
+    hud.target = NewUnitFrame(hud.frame, false)
+    hud.target:SetPoint("TOPLEFT", view, "TOPLEFT", 212, -2)
+    hud.target.nameBg:SetVertexColor(1, 0, 0)                    -- hostile
+    hud.player.nameBg:SetVertexColor(0, 0, 1)
+    hud.frame:Hide()
+end
+
+-- A number floating up from where the hit landed, in the client's damage font, spell yellow.
+local function FloatText(hit)
+    local fs = table.remove(hud.textPool)
+    if not fs then
+        fs = plateFrame:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(DAMAGE_TEXT_FONT or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 24, "OUTLINE")
+        fs:SetTextColor(1, 1, 0)
+    end
+    fs:SetText(hit.amount)
+    hud.texts[#hud.texts + 1] = { fs = fs, at = sim.time, x = hit.x, y = hit.y, tall = PLATE_HEIGHT[hit.kind] or 2.6,
+                                  drift = ((#hud.texts % 3) - 1) * 14 }
+end
+
+local function DrawCombatText()
+    for i, hit in ipairs(sim.hits) do
+        FloatText(hit)
+        sim.hits[i] = nil
+    end
+    for i = #hud.texts, 1, -1 do
+        local t = hud.texts[i]
+        local k = (sim.time - t.at) / 1.3
+        local x, y = Project(t.x, t.y, GroundZ(t.x, t.y) + t.tall)
+        if k >= 1 or k < 0 or not x then
+            t.fs:Hide()
+            hud.textPool[#hud.textPool + 1] = t.fs
+            table.remove(hud.texts, i)
+        else
+            t.fs:ClearAllPoints()
+            t.fs:SetPoint("CENTER", scene, "BOTTOMLEFT", x + t.drift, y + 24 + 70 * k)
+            t.fs:SetAlpha(k < 0.6 and 1 or (1 - k) / 0.4)
+            t.fs:Show()
+        end
+    end
+end
+
+local function DrawUnitFrames()
+    hud.frame:Show()
+    local p = sim.player
+    FillUnitFrame(hud.player, p, p.ghost and p.name or (UnitName and UnitName("player")) or p.name)
+    local t = sim.target
+    hud.target:SetShown(t ~= nil and not t.dead)
+    local n = 0
+    if t and not t.dead then
+        FillUnitFrame(hud.target, t)
+        for id, aura in pairs(t.auras) do
+            if aura.icon then
+                n = n + 1
+                local b = DebuffButton(n)
+                b.icon:SetTexture(aura.icon)
+                b.border:SetVertexColor(0.2, 0.6, 1)                 -- magic
+                b.count:SetText(aura.stacks > 1 and aura.stacks or "")
+                -- the sweep runs on the client's clock: start it where the aura stands now
+                if b.cd and (b.auraRef ~= aura or b.auraAt ~= aura.at) then
+                    b.auraRef, b.auraAt = aura, aura.at
+                    pcall(b.cd.SetCooldown, b.cd, GetTime() - (sim.time - aura.at), aura.total)
+                end
+                b:Show()
+            end
+        end
+    end
+    for i = n + 1, #hud.debuffs do
+        hud.debuffs[i].auraRef = nil
+        hud.debuffs[i]:Hide()
+    end
+    -- your own auras: the encounter's timers (Shadow of Death, the spirit's minute)
+    local m = 0
+    for _, bar in ipairs(sim.bars) do
+        if bar.icon then
+            m = m + 1
+            local b = AuraButton(m)
+            b.icon:SetTexture(bar.icon)
+            b.border:SetShown(bar.harmful and true or false)
+            b.border:SetVertexColor(0.8, 0, 0)
+            b.time:SetText(bar.remain >= 60 and string.format("%d m", bar.remain / 60 + 0.5) or string.format("%d s", bar.remain + 0.5))
+            b:Show()
+        end
+    end
+    for i = m + 1, #hud.auras do hud.auras[i]:Hide() end
+    DrawCombatText()
+end
+
+function ResetUnitFrames()
+    if not hud.frame then return end
+    hud.frame:Hide()
+    for i = #hud.texts, 1, -1 do
+        hud.texts[i].fs:Hide()
+        hud.textPool[#hud.textPool + 1] = hud.texts[i].fs
+        hud.texts[i] = nil
+    end
+end
+
 local function DrawHud()
     R.objective:SetText(sim.objective or "")
     local bar = sim.bars[1]
+    if scene then
+        DrawUnitFrames()
+        bar = nil                                   -- the timers are aura icons here
+    end
     R.timer:SetShown(bar ~= nil)
     if bar then
         local c = bar.color or { 1, 1, 1 }
@@ -1104,7 +1349,14 @@ local function DrawHud()
         R.banner:Hide()
     end
     local e = sim.error
-    if e and sim.time - e.at < 1.5 then
+    if scene and UIErrorsFrame and UIErrorsFrame.AddMessage then
+        -- the client's own red error line ("Out of range.")
+        if e and hud.lastError ~= e then
+            hud.lastError = e
+            pcall(UIErrorsFrame.AddMessage, UIErrorsFrame, e.text, 1, 0.1, 0.1, 1)
+        end
+        R.error:Hide()
+    elseif e and sim.time - e.at < 1.5 then
         R.error:SetText(e.text)
         R.error:Show()
     else
@@ -1178,8 +1430,10 @@ local function LayoutAbilities()
             b.icon = b:CreateTexture(nil, "ARTWORK")
             b.icon:SetAllPoints()
             b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-            ns.UI:AddEdges(b, "OVERLAY")
-            ns.UI:SetEdgeColor(b, 0, 0, 0, 1)
+            b.border = b:CreateTexture(nil, "OVERLAY")
+            b.border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+            b.border:SetPoint("TOPLEFT", -14, 14)
+            b.border:SetPoint("BOTTOMRIGHT", 14, -14)
             b.shade = b:CreateTexture(nil, "OVERLAY")
             b.shade:SetAllPoints()
             b.shade:SetColorTexture(0, 0, 0, 0.6)
@@ -1376,6 +1630,8 @@ function UI:CreatePanel(parent)
     ns.UI:SetEdgeColor(arena, 0.4, 0.3, 0.5, 1)
     arena:SetClipsChildren(true)
 
+    if scene then CreateUnitFrames() end
+
     R.corpse = arena:CreateTexture(nil, "ARTWORK")
     R.corpse:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
     R.corpse:SetSize(18, 18)
@@ -1499,6 +1755,21 @@ UI._OverDebug = function()
     local mo = {}
     for j, m in ipairs(meshState.models) do mo[#mo + 1] = string.format('%.1f z=%.1f', m.depth, m.z) end
     return { out, mo }
+end
+UI._Hud = function()
+    if not hud.frame then return nil end
+    local debuffs, auras, texts = {}, {}, {}
+    for _, b in ipairs(hud.debuffs) do
+        if b:IsShown() then debuffs[#debuffs + 1] = { icon = b.icon:GetTexture(), count = b.count:GetText() or "" } end
+    end
+    for _, b in ipairs(hud.auras) do
+        if b:IsShown() then auras[#auras + 1] = b.time:GetText() end
+    end
+    for _, t in ipairs(hud.texts) do texts[#texts + 1] = t.fs:GetText() end
+    return { player = hud.player.name:GetText(), playerHp = hud.player.hpText:GetText(),
+             target = hud.target:IsShown() and hud.target.name:GetText() or false,
+             targetHp = hud.target.hpText:GetText(), targetLevel = hud.target.level:GetText(),
+             targetWidth = hud.target.hp:GetWidth(), debuffs = debuffs, auras = auras, texts = texts }
 end
 UI._Plates = function()
     local out = {}

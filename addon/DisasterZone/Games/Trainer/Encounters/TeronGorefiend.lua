@@ -105,7 +105,8 @@ local abilities = {
           sim:Missile(FX.lanceMissile, sim.player.x, sim.player.y, target, 38, function(s, u)
               if u.dead then return end
               s:Damage(u, s:Random(6175, 6825))
-              s:AddAura(u, "lance", { dur = 9, slow = 0.3, maxStacks = 3, fade = 3 })
+              s:AddAura(u, "lance", { dur = 9, slow = 0.3, maxStacks = 3, fade = 3, name = "Spirit Lance",
+                                      icon = SpellIcon(40157, "Spell_Frost_FrostBolt") })
               s:Fx({ kind = "model", fdid = FX.lanceImpact, unit = u, z = 1.5 }, 0.8)
               s:Sound(FX.lanceImpactSound)
           end)
@@ -120,7 +121,8 @@ local abilities = {
           local hit = false
           for _, u in ipairs(Constructs(sim)) do
               sim:Damage(u, sim:Random(1900, 2100))
-              sim:AddAura(u, "chains", { dur = 5, stun = true })
+              sim:AddAura(u, "chains", { dur = 5, stun = true, name = "Spirit Chains",
+                                         icon = SpellIcon(40175, "Spell_Frost_ChainsOfIce") })
               if not u.dead then
                   sim:Fx({ kind = "model", fdid = FX.chainsBase, unit = u }, 5)
                   sim:Fx({ kind = "model", fdid = FX.chainsBody, unit = u, z = 1.5 }, 5)
@@ -177,7 +179,7 @@ local function Die(sim)
                               x = min(ARENA_W - 1, max(1, p.x + math.cos(ang) * r)),
                               y = min(ARENA_H - 1, max(1, p.y + math.sin(ang) * r)),
                               hp = CONSTRUCT_HP, speed = CREATURE_RUN, radius = 1.6, color = { 0.6, 0.25, 0.8 },
-                              display = DISPLAY_CONSTRUCT, prey = prey,
+                              display = DISPLAY_CONSTRUCT, prey = prey, level = 70, elite = true, mana = false,
                               goal = { x = prey.x, y = prey.y, stop = MELEE } })
         sim:AddAura(u, "rise", { dur = 1, stun = true })
         closest = min(closest, Dist(u.x, u.y, prey.x, prey.y) - MELEE)
@@ -209,7 +211,7 @@ local function Update(sim)
     if sim.phase == "marked" then
         local left = sim.diff.fuse - sim.time
         sim.bars[1] = { label = "Shadow of Death", remain = max(0, left), total = sim.diff.fuse, color = { 0.6, 0.3, 0.9 },
-                        icon = SpellIcon(40251, "Spell_Arcane_PrismaticCloak") }
+                        icon = SpellIcon(40251, "Spell_Arcane_PrismaticCloak"), harmful = true }
         if left <= 0 then Die(sim) end
         return
     end
@@ -232,7 +234,8 @@ local function Update(sim)
     end
     sim.stats.kills = kills
     local left = sim.ghostUntil - sim.time
-    sim.bars[1] = { label = "Vengeful Spirit", remain = max(0, left), total = GHOST_TIME, color = { 0.5, 0.75, 1 } }
+    sim.bars[1] = { label = "Vengeful Spirit", remain = max(0, left), total = GHOST_TIME, color = { 0.5, 0.75, 1 },
+                    icon = SpellIcon(40268, "Spell_Shadow_PossessUndead") }
     if alive == 0 then
         sim.ghostTime = GHOST_TIME - left
         sim:Win()

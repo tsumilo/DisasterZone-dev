@@ -135,7 +135,7 @@ function T:NewSim(encId, diffId, seed)
     local sim = setmetatable({
         enc = enc, diff = T:GetDifficulty(enc, diffId),
         time = 0, acc = 0, state = "run", seed = seed,
-        units = {}, nextId = 1, timers = {}, fx = {}, sounds = {}, bars = {}, zones = {},
+        units = {}, nextId = 1, timers = {}, fx = {}, sounds = {}, hits = {}, bars = {}, zones = {},
         cds = {}, gcdUntil = 0, gcdTotal = 1, moveX = 0, moveY = 0, fwd = 0, strafe = 0, turn = 0,
         stats = { casts = {} },
     }, Sim)
@@ -221,6 +221,9 @@ function Sim:Damage(u, amount)
     if u.dead or not u.hp then return end
     u.hp = max(0, u.hp - amount)
     u.hitAt = self.time
+    if #self.hits < 40 then                 -- for the UI's floating numbers (it empties the list)
+        self.hits[#self.hits + 1] = { amount = amount, x = u.x, y = u.y, kind = u.kind }
+    end
     if u.hp <= 0 then
         u.dead, u.diedAt = true, self.time
         if self.target == u then self.target = nil end
@@ -239,6 +242,7 @@ function Sim:AddAura(u, id, def)
     a.untilT = self.time + def.dur
     a.total = def.dur
     a.slow, a.stun, a.fade = def.slow, def.stun, def.fade
+    a.icon, a.name = def.icon, def.name            -- shown as a debuff on the target frame when it has an icon
     a.stacks = min(def.maxStacks or 1, a.stacks + 1)
     return a
 end

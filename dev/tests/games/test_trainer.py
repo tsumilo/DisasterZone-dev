@@ -563,10 +563,25 @@ def the_panel_runs_a_whole_try_to_the_result_screen():
     assert st["actors"] == 13 + 1 + 4, st                                 # + your corpse and the four constructs
     you = c.eval_py("local s = ns.TrainerUI._Sim() local a = ns.TrainerUI._Actor(s.player.id) return a.pending or a.display")
     assert you == 21300, you                                              # you are the Vengeful Spirit now
+    # the client's frames: yours shows the spirit now, no target frame until you pick one
+    hud = c.eval_py("return ns.TrainerUI._Hud()")
+    assert hud["player"] == "Vengeful Spirit" and hud["target"] is False and hud["auras"] == ["60 s"], hud
     c.eval("ns.TrainerUI._Key('TAB') ns.TrainerUI._Key('5') ns.TrainerUI._Tick(0.1)")
     assert c.eval_py("return ns.TrainerUI._Sim().stats.casts.volley") == 1
+    hud = c.eval_py("return ns.TrainerUI._Hud()")
+    assert hud["target"] == "Shadowy Construct" and hud["targetHp"].endswith(" / 41567") and str(hud["targetLevel"]) == "70", hud
+    assert len(hud["debuffs"]) == 0 and 0 < hud["targetWidth"] <= 119, hud
+    # Lance lands: the debuff with its stack count on the target frame, the bar shorter, a number floats up
+    c.eval("for _ = 1, 11 do ns.TrainerUI._Tick(0.1) end  ns.TrainerUI._Key('3')  for _ = 1, 4 do ns.TrainerUI._Tick(0.1) end")
+    c.eval("for _ = 1, 8 do ns.TrainerUI._Tick(0.1) end  ns.TrainerUI._Key('3')  for _ = 1, 4 do ns.TrainerUI._Tick(0.1) end")
+    hud = c.eval_py("return ns.TrainerUI._Hud()")
+    assert len(hud["debuffs"]) == 1 and str(hud["debuffs"][0]["count"]) == "2", hud
+    assert hud["targetWidth"] < 119 * 0.75 and hud["targetHp"].endswith("/ 41567") and not hud["targetHp"].startswith("41567"), hud
+    assert len(hud["texts"]) >= 1 and all(6175 <= int(t) <= 6825 for t in hud["texts"]), hud
+    c.eval("for _ = 1, 20 do ns.TrainerUI._Tick(0.1) end")
+    assert c.eval_py("return #ns.TrainerUI._Hud().texts") == 0                     # they fade out
     c.eval("for _, u in ipairs(T_TR.constructs()) do u.hp = 1 end")
-    c.eval("for _ = 1, 11 do ns.TrainerUI._Tick(0.1) end  ns.TrainerUI._Key('4') ns.TrainerUI._Tick(0.1)")
+    c.eval("ns.TrainerUI._Key('4') ns.TrainerUI._Tick(0.1)")
     st = c.eval_py("return ns.TrainerUI._State()")
     assert st["state"] == "won" and "New best!" in st["body"], st
     no_errors(w)
