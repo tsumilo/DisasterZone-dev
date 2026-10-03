@@ -2218,11 +2218,6 @@ local function createInvites()
     w.info:SetPoint("RIGHT", -10, 0)
     w.info:SetJustifyH("LEFT")
     w.info:SetWordWrap(false)
-    w.sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.sub:SetPoint("TOPLEFT", 10, -26)
-    w.sub:SetPoint("RIGHT", -10, 0)
-    w.sub:SetJustifyH("LEFT")
-    w.sub:SetWordWrap(false)
 
     local function tab(label, mode, width)
         return UI():CreateSleekButton(c, label, width, 20, function()
@@ -2232,7 +2227,7 @@ local function createInvites()
         end)
     end
     w.memberTab = tab("Guild member", "member", 100)
-    w.memberTab:SetPoint("TOPLEFT", 8, -48)
+    w.memberTab:SetPoint("TOPLEFT", 8, -32)
     tipButton(w.memberTab, "Guild member", "Invite guild members outside the raid's teams. On a locked raid they are "
         .. "the only ones besides the teams who can sign up and see it.")
     w.guestTab = tab("Guest", "guest", 70)
@@ -2248,14 +2243,14 @@ local function createInvites()
         isChecked = function(key) return inviteSet(inviteRaid())[key] and true or false end,
         onToggle = function(key) PlanUI:ToggleInvite(key) end,
     })
-    w.picker.frame:SetPoint("TOPLEFT", 6, -76)
+    w.picker.frame:SetPoint("TOPLEFT", 6, -60)
 
     -- guests (roster managers): name, class, spec
     w.nameBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
     w.nameBox:SetSize(116, 20)
     w.nameBox:SetAutoFocus(false)
     w.nameBox:SetMaxLetters(48)
-    w.nameBox:SetPoint("TOPLEFT", 14, -78)
+    w.nameBox:SetPoint("TOPLEFT", 14, -62)
     w.nameBox:SetScript("OnEnterPressed", function() PlanUI:AddGuest() end)
     w.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     w.nameHint = w.nameBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -2275,13 +2270,13 @@ local function createInvites()
     w.addBtn:SetPoint("LEFT", w.specDD, "RIGHT", 4, 0)
 
     w.err = c:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-    w.err:SetPoint("TOPLEFT", 12, -104)
+    w.err:SetPoint("TOPLEFT", 12, -88)
     w.err:SetPoint("RIGHT", -10, 0)
     w.err:SetJustifyH("LEFT")
     w.status = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.status:SetPoint("TOPLEFT", 10, -104)
+    w.status:SetPoint("TOPLEFT", 10, -88)
     w.list = UI():CreateScrollList(c, 22, initInviteRow)
-    w.list.frame:SetPoint("TOPLEFT", 4, -120)
+    w.list.frame:SetPoint("TOPLEFT", 4, -104)
     w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
     w.list:SetEmptyText("Nobody added yet.")
     w:Hide()
@@ -2364,8 +2359,6 @@ function PlanUI:RefreshInvites()
     local planner, manager = RP():CanOrganize(), RP():CanManageRoster()
     local w = inviteWin
     w.info:SetText(raidTitle(v) .. "  " .. grey(fmtDay(v.t) .. " " .. fmtTime(v.t)))
-    w.sub:SetText((RP():IsLocked(v) and "Locked to its teams and the players added here" or "Open to everyone")
-        .. (v.weekly and " · changes are for this week only" or ""))
     -- the tabs only when there is a choice
     if not planner then w.mode = "guest" elseif not manager then w.mode = "member" end
     local guestMode = w.mode == "guest"

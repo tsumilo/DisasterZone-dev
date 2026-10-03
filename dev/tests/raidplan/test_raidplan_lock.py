@@ -219,7 +219,7 @@ def the_invite_button_and_window():
     assert bob.find_text("you are not in this raid (Invite adds you)", True, True)
     bob.click(bob.eval("return %s.upcoming.detail.inviteBtn" % P))
     assert bob.eval("return %s:IsShown()" % win) is True
-    assert bob.find_text("Locked to its teams", True, True) and bob.find_text("Nobody added yet.", True, True)
+    assert bob.find_text("Nobody added yet.", True, True)
     items = {e["key"]: e for e in bob.eval_py("local sd = %s.picker; sd:Open(); return sd:GetShown()" % win)}
     assert items[K("Lee")].get("fixed") == "Kara A" and not items[K("Rita")].get("fixed")
     # inviting is shared at once: the raid shows up for Rita, and Bob can answer after adding himself
