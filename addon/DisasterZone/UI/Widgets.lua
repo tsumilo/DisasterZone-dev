@@ -204,6 +204,20 @@ function UI:ColoredName(key, classFile)
     return "|c" .. ClassHex(classFile) .. ShortName(key) .. "|r"
 end
 
+-- Is that player a guest: someone outside my guild (pugs in a raid, guests on a planned raid)? False while the
+-- guild roster is not known, and for my own character.
+function UI:IsGuest(key)
+    local G = ns.Guild
+    if type(key) ~= "string" or not (G and G.IsReady and G:IsReady()) then return false end
+    if ns.Util.IsMe(key) or G:IsInGuild(key) then return false end
+    return true
+end
+
+-- " (guest)" after the name of a player outside my guild, else "".
+function UI:GuestTag(key)
+    return self:IsGuest(key) and " |cff66ccff(guest)|r" or ""
+end
+
 function UI:ClassIcon(texture, classFile)
     if not texture then return end
     local coords = classFile and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]

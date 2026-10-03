@@ -932,9 +932,10 @@ local function refreshLaterCard(card, ctx)
                 right = colorize(STATUS[mine.st].color, STATUS[mine.st].label)
             else
                 local inv = rp:GetInvited(v)
-                right = (inv and inv[Me() or ""]) and colorize("ff9933", "no answer")
-                    or grey(rp:CanSignUp(v) and "open"
-                        or (rp:GetSignupBlock(v) == "level" and ("level " .. v.ml .. " only") or "not invited"))
+                local block = rp:GetSignupBlock(v)
+                right = (block == "blacklist" and grey("blocked")) or (block == "declined" and grey("declined"))
+                    or ((inv and inv[Me() or ""]) and colorize("ff9933", "no answer"))
+                    or grey(block == nil and "open" or (block == "level" and ("level " .. v.ml .. " only") or "not invited"))
             end
             rows[#rows + 1] = { text = date("%a %d %b %H:%M", v.t) .. "  " .. rp:GetRaidName(v), right = right,
                                 onClick = function() openRaid(v.id) end }

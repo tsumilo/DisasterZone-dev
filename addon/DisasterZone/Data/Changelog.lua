@@ -6,6 +6,43 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.3.0", date = "3 October 2026", title = "Guests, a raid blacklist, sign up with any character",
+      sections = {
+          { heading = "Guests (players outside the guild)", lines = {
+              "Raids > a raid > Guests: add a pug to the raid by name, with class and spec.",
+              "A guest counts as accepted, can be placed in a group and is invited with the raid.",
+              "For the Guild Master, officers, the guild council and the raid leaders.",
+              "Guests carry a (guest) mark: in the raid's roster, in rolls, the drop panel and the logs.",
+              "A pug's /roll counts as before, and a pug can be awarded an item like anyone else.",
+          } },
+          { heading = "Declining and removing sign-ups", lines = {
+              "Right-click a player in a raid's roster: Decline for this raid, or Remove their answer.",
+              "Declined players are listed apart from Bench and can't sign up for that raid again.",
+              "A removed answer is gone; the player can answer again.",
+              "Restore undoes a decline.",
+          } },
+          { heading = "Raid blacklist", lines = {
+              "Blacklist (top of the Raids tab): players who can't sign up for any raid.",
+              "They can't be added as a guest and are not invited either.",
+              "For a guild member it covers all their characters. A reason can be noted.",
+              "Kept by the Guild Master, officers, the guild council and the raid leaders.",
+          } },
+          { heading = "Sign up with any of your characters", lines = {
+              "With more than one character in the guild, the sign-up strip has an \"As\" picker.",
+              "Answer for any of them, whichever one you are logged in on.",
+              "Your characters count as one player: your last answer is the one that counts.",
+              "A character below the raid's level is not offered.",
+          } },
+          { heading = "Raid list", lines = {
+              "Filters above the list: one raid (e.g. Karazhan), and when (today, this week, next week).",
+              "Hover a raid in the list to see all of it: full name, time, who it is for, note.",
+          } },
+          { heading = "Invite & sort", lines = {
+              "Invites everyone who accepted, guests too, also those not placed in a group yet.",
+              "Missing: who has not joined and why (offline, declined, in another group, no answer).",
+              "It also lists who is in the raid without being on the roster, and can invite again.",
+          } },
+      } },
     { version = "1.2.0", date = "3 October 2026", title = "Raid sessions switch loot on, alts share roles",
       sections = {
           { heading = "Your characters share their roles", lines = {
@@ -27,9 +64,9 @@ ns.CHANGELOG = {
           } },
           { heading = "Free for All bosses (Lady Vashj, Kael'thas)", lines = {
               "Under Free for All, a boss item picked up is held for the council, not logged as an award.",
-              "This also counts when the boss was pulled under Free for All and the method was switched back.",
+              "Also when the boss was pulled under Free for All and the method was switched back.",
               "Rolls, votes and Award work as usual. The drop panel shows who holds the item.",
-              "The holder opens a trade with the winner: DisasterZone puts the awarded items in the trade window.",
+              "The holder trades the winner: DisasterZone puts the awarded items in the trade window.",
               "Once the trade is done, the award shows as handed out for everyone.",
               "Needs loot distribution switched on for the raid.",
           } },

@@ -63,7 +63,7 @@ end
 
 local function coloredName(key, classFile)
     if ns.UI and ns.UI.ColoredName then
-        return ns.UI:ColoredName(key, classFile or classOf(key))
+        return ns.UI:ColoredName(key, classFile or classOf(key)) .. ns.UI:GuestTag(key)
     end
     return shortName(key)
 end

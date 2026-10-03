@@ -108,7 +108,7 @@ end
 
 local function ColoredName(key)
     if type(key) ~= "string" then return "?" end
-    if ns.UI and ns.UI.ColoredName then return ns.UI:ColoredName(key) end
+    if ns.UI and ns.UI.ColoredName then return ns.UI:ColoredName(key) .. ns.UI:GuestTag(key) end
     return ShortName(key)
 end
 

@@ -134,7 +134,8 @@ end
 
 local function ColoredName(key, classFile)
     classFile = classFile or ClassOf(key)
-    if ns.UI and ns.UI.ColoredName then return ns.UI:ColoredName(key, classFile) end
+    -- players outside the guild (pugs) are marked: they roll and can be awarded like everyone else
+    if ns.UI and ns.UI.ColoredName then return ns.UI:ColoredName(key, classFile) .. ns.UI:GuestTag(key) end
     return ShortName(key)
 end
 

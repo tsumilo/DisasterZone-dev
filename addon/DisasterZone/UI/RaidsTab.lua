@@ -31,6 +31,7 @@ local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
 local function colored(key, classFile)
     return ns.UI:ColoredName(key, classFile or (ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)))
+        .. ns.UI:GuestTag(key)
 end
 
 local function duration(sec)
@@ -317,6 +318,16 @@ local function updateToolbar(p)
     p.sessionBtn:SetShown(auth and true or false)
     p.sessionBtn:SetText(GR and GR:GetSession() and "End raid" or "Start raid")
     local organizer = canOrganize()
+    local RP = ns.RaidPlan
+    p.blacklistBtn:SetShown(state.view == "upcoming" and RP and RP.CanManageRoster and RP:CanManageRoster() or false)
+    p.blacklistBtn:ClearAllPoints()
+    if organizer then
+        p.blacklistBtn:SetPoint("RIGHT", p.newRaidBtn, "LEFT", -6, 0)
+    elseif auth then
+        p.blacklistBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)
+    else
+        p.blacklistBtn:SetPoint("TOPRIGHT", -8, -6)
+    end
     p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
     p.newTeamBtn:SetShown(canTeams() and state.view == "teams")
     for _, b in ipairs({ p.newRaidBtn, p.newTeamBtn }) do
@@ -375,6 +386,8 @@ function RaidsUI:CreatePanel(parent)
     p.count:SetPoint("RIGHT", p.sessionBtn, "LEFT", -12, 0)
     p.newRaidBtn = UI:CreateSleekButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end, "primary")
     p.newTeamBtn = UI:CreateSleekButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end, "primary")
+    -- players kept out of every raid (the GM, officers, the guild council and the raid leaders)
+    p.blacklistBtn = UI:CreateSleekButton(p, "Blacklist", 76, 22, function() ns.RaidPlanUI:OpenBlacklist() end)
     -- Addendum J §62: who the raid leaders are (everyone can look; the GM edits)
     p.leadersBtn = UI:CreateSleekButton(p, "Raid leaders", 96, 22, function() ns.RaidLeadersUI:Open() end)
 

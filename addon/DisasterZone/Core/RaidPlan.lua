@@ -13,6 +13,18 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 -- A raid can ask for a minimum character level (ml; the New raid window sets 70 unless the planner allows lower
 -- characters). A character below it can't sign up and its answer is not counted; the raid stays listed for it.
 --
+-- Guests, and answers the organizers set aside (stored on the raid's own record, so they travel with it):
+--   gu  guests: players outside the guild an organizer added by name { [key] = { c, sp, at } }. A guest counts as
+--       accepted, can be placed in a group and is invited with the others.
+--   rj  declined: the organizers turned that member down { [key] = true }. Their answer is not counted, they can't
+--       answer again, and they are listed apart from Bench (GetDeclined).
+--   rm  removed: an answer taken off { [key] = rev of that answer }. A newer answer of the member counts again.
+-- A member's other characters (Guild:SameAccount) answer as one player: a character can be signed up from any of
+-- them (RPA), the newest answer of the player is the one that counts, and a decline covers all of them.
+--
+-- The blacklist (BLL) blocks a player from every raid: no sign-up, no guest seat, no invite. Kept by the roster
+-- managers: the GM, officers, the guild council and the raid leaders.
+--
 -- Sync (§56): live edits go out on GUILD (RPU, RPS). At login the HELLO carries a hash of my plan data (pd); a client
 -- whose data differs answers with its per-item digest (RPD, on GUILD so the others can stay quiet), the new client
 -- asks for the items that differ (RPW) and sends its own copy of them; items travel one per message (RPG).
@@ -54,6 +66,12 @@ local MAX_NAME_LEN = 32             -- team names, raid titles
 local MAX_NOTE_LEN = 120            -- raid notes
 local MAX_SIGNUP_NOTE = 40
 local MAX_LEVEL = 70                -- the level cap: the highest minimum level a raid can ask for
+local MAX_GUESTS = 25               -- guests per raid
+local MAX_MARKS = 60                -- declined / removed answers per raid
+local MAX_BLACKLIST = 100           -- players on the guild's blacklist
+local MAX_REASON_LEN = 80           -- a blacklist entry's reason
+local MAX_STAMP = 4294967295
+local BLL_REPLY_LIMIT = 30
 
 local RPD_DELAY_COUNCIL = { 0.5, 2.5 }
 local RPD_DELAY_MEMBER = { 3, 8 }
@@ -153,8 +171,16 @@ local function CanGroups(key)
     return type(key) == "string" and G ~= nil and G.IsRaidLogMember ~= nil and G:IsRaidLogMember(key) and true or false
 end
 
-local ALLOWED = { raids = IsOrganizer, teams = CanTeams, groups = CanGroups }
+-- roster (guests, declining / removing answers, the blacklist): those who lay out groups, and the officers
+local function CanRoster(key)
+    if CanGroups(key) then return true end
+    local G = Guild()
+    return type(key) == "string" and G ~= nil and G.IsOfficer ~= nil and G:IsOfficer(key) and true or false
+end
+
+local ALLOWED = { raids = IsOrganizer, teams = CanTeams, groups = CanGroups, roster = CanRoster }
 local REFUSED = {
+    roster = "Only the Guild Master, officers, the guild council and the raid leaders can do that.",
     raids = "Only the Guild Master and the raid leaders can plan raids.",
     teams = "Only the Guild Master and the guild council can change teams.",
     groups = "Only the Guild Master, the guild council and the raid leaders can change a raid's groups.",
@@ -167,7 +193,9 @@ local function Trusted(root, kind, rec)
     local k = kind .. ":" .. tostring(rec.id) .. ":" .. tostring(rec.rev)
     if root.OK and root.OK[k] then return true end
     local ok
-    if kind == "T" then ok = CanTeams(rec.by) else ok = IsOrganizer(rec.by) or CanGroups(rec.by) end
+    if kind == "T" then ok = CanTeams(rec.by)
+    elseif kind == "E" then ok = IsOrganizer(rec.by) or CanRoster(rec.by)
+    else ok = IsOrganizer(rec.by) or CanGroups(rec.by) end
     if ok then
         if root.OK then root.OK[k] = true end
         return true
@@ -321,6 +349,51 @@ local function CleanSeats(gs, grp)
     return next(out) and out or nil
 end
 
+-- gu: guests { [key] = { c = classFile, sp = spec index, at = when added } }. nil = none, false = invalid.
+local function CleanGuests(gu)
+    if gu == nil then return nil end
+    if type(gu) ~= "table" then return false end
+    local out, n = {}, 0
+    for key, g in pairs(gu) do
+        n = n + 1
+        if n > MAX_GUESTS then return false end
+        local k = WireKey(key)
+        if not k or type(g) ~= "table" or type(g.c) ~= "string" or not (ns.SPECS and ns.SPECS[g.c]) then return false end
+        local e = { c = g.c }
+        if g.sp ~= nil then
+            if not IsInt(g.sp, 1, SpecCount(g.c)) then return false end
+            e.sp = g.sp
+        end
+        if g.at ~= nil then
+            if not IsInt(g.at, 1, MAX_STAMP) then return false end
+            e.at = g.at
+        end
+        out[k] = e
+    end
+    return next(out) and out or nil
+end
+
+-- rj / rm: { [key] = true } (numeric = false) or { [key] = rev } (numeric = true). nil = none, false = invalid.
+local function CleanMarks(m, numeric)
+    if m == nil then return nil end
+    if type(m) ~= "table" then return false end
+    local out, n = {}, 0
+    for key, val in pairs(m) do
+        n = n + 1
+        if n > MAX_MARKS then return false end
+        local k = WireKey(key)
+        if not k then return false end
+        if numeric then
+            if not IsInt(val, 1, MAX_STAMP) then return false end
+            out[k] = val
+        else
+            if val ~= true then return false end
+            out[k] = true
+        end
+    end
+    return next(out) and out or nil
+end
+
 local function CleanCommon(r, now)
     if type(r) ~= "table" or not IsInt(r.rev, 1, now + FUTURE_SLACK) then return nil end
     local by = WireKey(r.by)
@@ -457,6 +530,9 @@ local function CleanEvent(r, now)
     if grp == false then return nil end
     out.grp = grp
     out.gs = CleanSeats(r.gs, grp)
+    local gu, rj, rm = CleanGuests(r.gu), CleanMarks(r.rj, false), CleanMarks(r.rm, true)
+    if gu == false or rj == false or rm == false then return nil end
+    out.gu, out.rj, out.rm = gu, rj, rm
     return out
 end
 
@@ -503,6 +579,11 @@ local function MergeRecord(root, kind, rec)
     local cur = store[rec.id]
     if cur then
         if not Newer(rec, cur) then return false end
+        -- A client before 1.3 drops the guests and the declined / removed answers from the copy it passes on: the
+        -- same version of a raid without them never replaces mine.
+        if kind == "E" and rec.rev == cur.rev and (cur.gu or cur.rj or cur.rm) and not (rec.gu or rec.rj or rec.rm) then
+            return false
+        end
     elseif CountTable(store) >= KIND_CAP[kind] then
         ns:Debug("RaidPlan: %s store full, %s dropped", kind, rec.id)
         return false
@@ -552,12 +633,20 @@ local function CopyMap(t)
     return out
 end
 
+local function CopyGuests(t)
+    if type(t) ~= "table" then return nil end
+    local out = {}
+    for k, g in pairs(t) do out[k] = { c = g.c, sp = g.sp, at = g.at } end
+    return out
+end
+
 -- The view of a visible one-off event.
 local function ViewEvent(e)
     return {
         id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, ti = e.ti, no = e.no,
         lk = e.lk and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
+        gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm),
         weekly = false,
     }
 end
@@ -586,6 +675,7 @@ local function ViewOccurrence(root, s, k)
         v.cancelled = o.x and true or false
         v.grp = CopyMap(o.grp)
         v.gs = CopyMap(o.gs)
+        v.gu, v.rj, v.rm = CopyGuests(o.gu), CopyMap(o.rj), CopyMap(o.rm)
         v.override = true
     end
     return v
@@ -678,12 +768,13 @@ local function Broadcast(kind, rec)
     Send({ t = "RPU", k = kind, r = rec }, "GUILD", nil, "data")
 end
 
-local function BroadcastSignups(list)
+-- kind: "RPS" (default: my own answers) or "RPA" (answers for other characters of my account; entries carry k).
+local function BroadcastSignups(list, kind)
     if #list == 0 then return end
     for i = 1, #list, MAX_RPS_ENTRIES do
         local chunk = {}
         for j = i, min(#list, i + MAX_RPS_ENTRIES - 1) do chunk[#chunk + 1] = list[j] end
-        Send({ t = "RPS", l = chunk }, "GUILD", nil, "ctrl")
+        Send({ t = kind or "RPS", l = chunk }, "GUILD", nil, "ctrl")
     end
 end
 
@@ -737,6 +828,26 @@ local function OnSignups(sender, msg, dist)
         if type(e) == "table" and IsOccId(e.o) then
             local s = CleanSignup(e.s, now)
             if s and MergeSignup(root, e.o, sender, s) then changed = true end
+        end
+    end
+    if changed then Changed() end
+end
+
+-- RPA { l = { { o = occId, k = character, s = signup }, ... } }: the sender's answers for other characters of their
+-- account (each must vouch for the other). Its own message: clients before 1.3 would file them under the sender.
+local function OnAltSignups(sender, msg, dist)
+    if dist ~= "GUILD" or type(msg.l) ~= "table" then return end
+    local root = Root(true)
+    local G = Guild()
+    if not root or not (G and G.SameAccount) then return end
+    local now, changed = Now(), false
+    for i = 1, MAX_RPS_ENTRIES do
+        local e = msg.l[i]
+        if e == nil then break end
+        local key = type(e) == "table" and IsOccId(e.o) and WireKey(e.k)
+        if key and key ~= sender and G:SameAccount(sender, key) then
+            local s = CleanSignup(e.s, now)
+            if s and MergeSignup(root, e.o, key, s) then changed = true end
         end
     end
     if changed then Changed() end
@@ -1003,16 +1114,6 @@ function RaidPlan:GetRaids(from, to, all)
     return out
 end
 
--- Is the raid (a view or an id) listed for me? A locked raid only for the members of its teams, its extra invites,
--- and those who plan raids or lay out groups (the GM, the guild council, the raid leaders). The data itself still
--- reaches every guild member: this is what the lists show, not a secret. (A raid my character's level is too low
--- for stays listed.)
-function RaidPlan:CanSee(occId)
-    local v = type(occId) == "table" and occId or self:GetRaid(occId)
-    if not v then return false end
-    return self:GetSignupBlock(v) ~= "lock" or CanGroups(Util.PlayerKey())
-end
-
 function RaidPlan:GetRaid(occId)
     return ResolveOcc(Root(false), occId)
 end
@@ -1022,6 +1123,221 @@ end
 local function LockSet(v)
     if not v or not v.lk then return nil end
     return RaidPlan:GetInvited(v)
+end
+
+-- The other characters of the player behind `key` (Guild:SameAccount), or an empty table.
+local function Linked(key)
+    local G = Guild()
+    return G and G.GetLinkedCharacters and G:GetLinkedCharacters(key) or {}
+end
+
+-- Is `key`, or another character of its player, in the set / map? Returns the character found.
+local function InSet(set, key)
+    if type(set) ~= "table" or type(key) ~= "string" then return nil end
+    if set[key] ~= nil then return key end
+    if next(set) == nil then return nil end
+    for _, m in ipairs(Linked(key)) do
+        if set[m] ~= nil then return m end
+    end
+    return nil
+end
+
+---------------------------------------------------------------------------
+-- Blacklist: players who take no part in the guild's raids. One list per guild, db.raidBlacklist[guildKey] =
+-- { rev, by, l = { [key] = { r = reason, by = who, at = when } } }, shared whole like the raid leaders list: BLL on
+-- GUILD (or WHISPER as an answer), accepted only from a roster manager, the newer rev wins. HELLO carries my rev
+-- (blr); a manager answers an older one, and a member asks (BLQ) a manager who holds a newer one.
+---------------------------------------------------------------------------
+
+local function BlacklistRec(create)
+    local db = ns.db
+    local g = GuildKey()
+    if not db or not g then return nil end
+    if type(db.raidBlacklist) ~= "table" then
+        if not create then return nil end
+        db.raidBlacklist = {}
+    end
+    local rec = db.raidBlacklist[g]
+    if type(rec) ~= "table" or type(rec.l) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) then
+        if not create then return nil end
+        rec = { rev = 0, l = {} }
+        db.raidBlacklist[g] = rec
+    end
+    return rec
+end
+
+-- An untrusted list { { k, r, b, a }, ... } -> { [key] = { r, by, at } }, or nil.
+local function CleanBlacklist(l)
+    if type(l) ~= "table" then return nil end
+    local out = {}
+    for i = 1, MAX_BLACKLIST + 1 do
+        local e = l[i]
+        if e == nil then break end
+        if i > MAX_BLACKLIST or type(e) ~= "table" then return nil end
+        local k = WireKey(e.k)
+        if not k then return nil end
+        local entry = {}
+        if e.r ~= nil then
+            entry.r = CleanText(e.r, MAX_REASON_LEN)
+            if not entry.r then return nil end
+        end
+        if e.b ~= nil then
+            entry.by = WireKey(e.b)
+            if not entry.by then return nil end
+        end
+        if e.a ~= nil then
+            if not IsInt(e.a, 1, MAX_STAMP) then return nil end
+            entry.at = e.a
+        end
+        out[k] = entry
+    end
+    return out
+end
+
+local function WireBlacklist(rec)
+    local keys = {}
+    for k in pairs(rec.l) do keys[#keys + 1] = k end
+    tsort(keys)
+    local l = {}
+    for i, k in ipairs(keys) do
+        local e = rec.l[k]
+        l[i] = { k = k, r = e.r, b = e.by, a = e.at }
+    end
+    return l
+end
+
+local function SendBlacklist(target)
+    local rec = BlacklistRec(false)
+    if not rec or rec.rev == 0 then return false end
+    local msg = { t = "BLL", rev = rec.rev, by = rec.by, l = WireBlacklist(rec) }
+    if target then return Send(msg, "WHISPER", target, "data") end
+    return Send(msg, "GUILD", nil, "data")
+end
+
+local function OnBlacklist(sender, msg, dist)
+    if (dist ~= "GUILD" and dist ~= "WHISPER") or not CanRoster(sender) then return end
+    if not IsInt(msg.rev, 1, Now() + FUTURE_SLACK) then return end
+    local l = CleanBlacklist(msg.l)
+    if not l then return end
+    local rec = BlacklistRec(true)
+    if not rec then return end
+    if msg.rev < rec.rev then return end
+    if msg.rev == rec.rev and Util.Hash(l) <= Util.Hash(rec.l) then return end   -- the same rev: every client keeps one
+    rec.rev, rec.l, rec.by = msg.rev, l, (msg.by ~= nil and WireKey(msg.by)) or sender
+    ns:Fire("RAID_BLACKLIST_CHANGED")
+    Changed()
+end
+
+local function OnBlacklistQuery(sender, msg, dist)
+    if dist ~= "WHISPER" or not CanRoster(Util.PlayerKey()) then return end
+    if not RateLimit("blq:" .. sender, BLL_REPLY_LIMIT) then return end
+    SendBlacklist(sender)
+end
+
+function RaidPlan:GetBlacklistRev()
+    local rec = BlacklistRec(false)
+    return rec and rec.rev or 0
+end
+
+-- Sync calls this for every HELLO (blr = the sender's blacklist rev; nil from clients before 1.3).
+function RaidPlan:OnBlacklistRevSeen(sender, blr)
+    if type(blr) ~= "number" or type(sender) ~= "string" then return end
+    local mine = self:GetBlacklistRev()
+    if blr < mine and CanRoster(Util.PlayerKey()) then
+        if RateLimit("bll-reply:" .. sender, BLL_REPLY_LIMIT) then
+            Util.RandomDelay(0.5, 3, function() SendBlacklist(sender) end)
+        end
+    elseif blr > mine and CanRoster(sender) then
+        if RateLimit("blq-ask:" .. sender, BLL_REPLY_LIMIT) then
+            Send({ t = "BLQ" }, "WHISPER", sender, "ctrl")
+        end
+    end
+end
+
+-- May I add guests, decline or remove answers, and keep the blacklist?
+function RaidPlan:CanManageRoster()
+    return CanRoster(Util.PlayerKey())
+end
+
+-- The blacklist entry that blocks `key`: its own, or that of another character of the same player.
+-- { key = the listed character, reason, by, at } or nil.
+function RaidPlan:GetBlacklistEntry(key)
+    local rec = BlacklistRec(false)
+    if not rec or next(rec.l) == nil then return nil end
+    local hit = InSet(rec.l, key)
+    local e = hit and rec.l[hit]
+    if type(e) ~= "table" then return nil end
+    return { key = hit, reason = e.r, by = e.by, at = e.at }
+end
+
+function RaidPlan:IsBlacklisted(key)
+    return self:GetBlacklistEntry(key) ~= nil
+end
+
+-- The whole list, sorted by name: { { key, reason, by, at }, ... }.
+function RaidPlan:GetBlacklist()
+    local out = {}
+    local rec = BlacklistRec(false)
+    for key, e in pairs(rec and rec.l or {}) do
+        if type(e) == "table" then out[#out + 1] = { key = key, reason = e.r, by = e.by, at = e.at } end
+    end
+    tsort(out, function(a, b) return a.key < b.key end)
+    return out
+end
+
+local function SaveBlacklist(rec)
+    rec.rev = max(Now(), rec.rev + 1)
+    rec.by = Util.PlayerKey()
+    SendBlacklist()
+    ns:Fire("RAID_BLACKLIST_CHANGED")
+    Changed()
+end
+
+-- Puts a player (a guild member or anyone else, by name) on the blacklist, or changes the reason. Returns ok, err.
+function RaidPlan:SetBlacklisted(name, reason)
+    if not CanRoster(Util.PlayerKey()) then return false, REFUSED.roster end
+    local rec = BlacklistRec(true)
+    if not rec then return false, "Your guild is not known yet; try again in a moment." end
+    local key = WireKey(type(name) == "string" and Util.Trim(name) or name)
+    if not key then return false, "That is not a player name." end
+    if Util.IsMe(key) then return false, "You can't blacklist yourself." end
+    local r
+    if reason ~= nil and Util.Trim(tostring(reason)) ~= "" then
+        r = CleanText(tostring(reason), MAX_REASON_LEN)
+        if not r then return false, "Reasons are at most " .. MAX_REASON_LEN .. " characters on one line." end
+    end
+    if not rec.l[key] and CountTable(rec.l) >= MAX_BLACKLIST then
+        return false, "The blacklist holds at most " .. MAX_BLACKLIST .. " players."
+    end
+    local cur = rec.l[key]
+    rec.l[key] = { r = r, by = Util.PlayerKey(), at = cur and cur.at or Now() }
+    SaveBlacklist(rec)
+    return true, key
+end
+
+function RaidPlan:RemoveBlacklisted(key)
+    if not CanRoster(Util.PlayerKey()) then return false, REFUSED.roster end
+    local rec = BlacklistRec(true)
+    if not rec or type(key) ~= "string" or not rec.l[key] then return false, "That player is not on the blacklist." end
+    rec.l[key] = nil
+    SaveBlacklist(rec)
+    return true
+end
+
+-- Is the member outside a locked raid's teams and invites? (Another character of an invited player is in.)
+local function LockedOut(v, key)
+    local only = LockSet(v)
+    return only ~= nil and InSet(only, key) == nil
+end
+
+-- Is the raid (a view or an id) listed for me? A locked raid only for the members of its teams, its extra invites,
+-- and those who plan raids or lay out groups (the GM, the guild council, the raid leaders). The data itself still
+-- reaches every guild member: this is what the lists show, not a secret. (A raid my character's level is too low
+-- for stays listed.)
+function RaidPlan:CanSee(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    if not v then return false end
+    return not LockedOut(v, Util.PlayerKey()) or CanGroups(Util.PlayerKey())
 end
 
 -- A character's level: my own exactly, a guild member's per the guild roster; nil when not known.
@@ -1040,33 +1356,99 @@ local function LevelOk(v, key)
     return level == nil or level >= ml
 end
 
+-- Was this answer taken off by the organizers (rm holds the rev of the answer that was removed)?
+local function Removed(v, key, s)
+    local rev = v and v.rm and v.rm[key]
+    return rev ~= nil and (s.rev or 0) <= rev
+end
+
 -- { [key] = { st, sp, c, n, rev } } (copies). A locked raid counts only its teams' members and its extra invites; a
--- raid with a minimum level only the characters at that level.
+-- raid with a minimum level only the characters at that level. Blacklisted players, declined members and answers
+-- the organizers removed are left out. A player's characters count once: the newest answer among them. Guests are
+-- included as accepted ({ st = "A", guest = true, c, sp, at }).
 function RaidPlan:GetSignups(occId)
     local out = {}
     local root = Root(false)
-    local u = root and type(occId) == "string" and root.U[occId]
+    if not root or type(occId) ~= "string" then return out end
+    local v = ResolveOcc(root, occId)
+    local u = root.U[occId]
+    local raw = {}
     if type(u) == "table" then
-        local v = ResolveOcc(root, occId)
-        local only = LockSet(v)
         for key, s in pairs(u) do
-            if (not only or only[key]) and LevelOk(v, key) then out[key] = CopyMap(s) end
+            if not LockedOut(v, key) and LevelOk(v, key) and not Removed(v, key, s) and not InSet(v and v.rj, key)
+                and not self:IsBlacklisted(key) then
+                raw[key] = s
+            end
+        end
+    end
+    for key, s in pairs(raw) do
+        local newest = true
+        for _, m in ipairs(Linked(key)) do
+            local o = raw[m]
+            if o and (o.rev > s.rev or (o.rev == s.rev and m > key)) then newest = false break end
+        end
+        if newest then out[key] = CopyMap(s) end
+    end
+    for key, g in pairs(v and v.gu or {}) do
+        if not out[key] and not self:IsBlacklisted(key) then
+            out[key] = { st = "A", c = g.c, sp = g.sp, guest = true, at = g.at or v.rev, rev = g.at or v.rev }
         end
     end
     return out
 end
 
+-- My player's answer for the raid: this character's, or the one given with (or for) another of my characters.
+-- Returns the sign-up (a copy), or nil.
 function RaidPlan:GetMySignup(occId)
+    local key = self:GetMySignupCharacter(occId)
+    return key and self:GetSignups(occId)[key] or nil
+end
+
+-- The character my player's answer for the raid is for (nil when I have not answered).
+function RaidPlan:GetMySignupCharacter(occId)
     local me = Util.PlayerKey()
+    if not me or type(occId) ~= "string" then return nil end
+    local signups = self:GetSignups(occId)
+    local key = InSet(signups, me)
+    if not key or signups[key].guest then return nil end
+    return key
+end
+
+-- Has the player behind `key` answered (with any of their characters)? `signups` = GetSignups(occId).
+function RaidPlan:HasAnswered(signups, key)
+    return InSet(signups, key) ~= nil
+end
+
+-- The members the organizers declined for the raid (a view or an id): { [key] = { c, sp, st } } (st = the answer
+-- they had given, nil when none).
+function RaidPlan:GetDeclined(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    local out = {}
+    if not v or not v.rj then return out end
     local root = Root(false)
-    local u = root and me and type(occId) == "string" and root.U[occId]
-    local s = type(u) == "table" and u[me]
-    if s then
-        local v = ResolveOcc(root, occId)
-        local only = LockSet(v)
-        if (only and not only[me]) or not LevelOk(v, me) then return nil end
+    local u = root and root.U[v.id] or {}
+    for key in pairs(v.rj) do
+        local s = u[key]
+        local sp, c = s and s.sp, s and s.c
+        if not sp then
+            local sp2, c2 = self:GetMemberSpec(key)
+            sp, c = sp2, c or c2
+        end
+        out[key] = { c = c, sp = sp, st = s and s.st or nil }
     end
-    return s and CopyMap(s) or nil
+    return out
+end
+
+-- The raid's guests (a view or an id): { [key] = { c, sp, at } }.
+function RaidPlan:GetGuests(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    return v and CopyGuests(v.gu) or {}
+end
+
+-- Is that player a guest of the raid?
+function RaidPlan:IsGuest(occId, key)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    return (v and v.gu and v.gu[key]) and true or false
 end
 
 -- Is the raid (a view or an id) locked to its teams and extra invites?
@@ -1075,14 +1457,16 @@ function RaidPlan:IsLocked(occId)
     return LockSet(v) ~= nil
 end
 
--- Why that member (default: me) can't sign up for the raid (a view or an id): "lock" (locked to its teams and extra
--- invites, and the member is not one of them), "level" (below the raid's minimum level), or nil when they can.
+-- Why that member (default: me) can't sign up for the raid (a view or an id): "blacklist" (the player is on the
+-- guild's blacklist), "declined" (the organizers turned them down for this raid), "lock" (locked to its teams and
+-- extra invites, and the member is not one of them), "level" (below the raid's minimum level), or nil when they can.
 function RaidPlan:GetSignupBlock(occId, key)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return nil end
-    local only = LockSet(v)
     key = key or Util.PlayerKey()
-    if only ~= nil and not (key ~= nil and only[key] == true) then return "lock" end
+    if key ~= nil and self:IsBlacklisted(key) then return "blacklist" end
+    if key ~= nil and InSet(v.rj, key) then return "declined" end
+    if LockSet(v) ~= nil and (key == nil or LockedOut(v, key)) then return "lock" end
     if key ~= nil and not LevelOk(v, key) then return "level" end
     return nil
 end
@@ -1144,13 +1528,14 @@ function RaidPlan:GetLayoutMembers(occId)
     for key, s in pairs(signups) do
         if s.st ~= "X" then
             local sp, c = s.sp, s.c
-            if not sp then sp, c = self:GetMemberSpec(key) end
-            out[#out + 1] = { key = key, c = c or s.c, sp = sp, st = s.st }
+            if not sp and not s.guest then sp, c = self:GetMemberSpec(key) end
+            out[#out + 1] = { key = key, c = c or s.c, sp = sp, st = s.st, guest = s.guest }
             seen[key] = true
         end
     end
     for key in pairs(v.grp or {}) do
-        if not seen[key] and not (signups[key] and signups[key].st == "X") then
+        if not seen[key] and not (signups[key] and signups[key].st == "X") and not InSet(v.rj, key)
+            and not self:IsBlacklisted(key) then
             local sp, c = self:GetMemberSpec(key)
             out[#out + 1] = { key = key, c = c, sp = sp }
         end
@@ -1270,17 +1655,33 @@ function RaidPlan:GetUnanswered(days)
     for _, v in ipairs(self:GetRaids(now, now + (tonumber(days) or 7) * DAY)) do
         if not v.cancelled then
             local inv = self:GetInvited(v)
-            if inv and inv[me] and not self:GetMySignup(v.id) and self:CanSignUp(v, me) then out[#out + 1] = v end
+            if inv and InSet(inv, me) and not self:GetMySignup(v.id) and self:CanSignUp(v, me) then out[#out + 1] = v end
         end
     end
     return out
 end
 
--- The spec index this character used last (nil = none yet).
-function RaidPlan:GetLastSpec()
-    local db, me = ns.db, Util.PlayerKey()
-    local t = db and me and type(db.raidplanSpec) == "table" and db.raidplanSpec[me]
-    return IsInt(t, 1, SpecCount(MyClass())) and t or nil
+-- The class of one of my player's characters: mine from the game, another one's from the guild roster.
+local function ClassOf(key)
+    if Util.IsMe(key) then return MyClass() end
+    local G = Guild()
+    return G and G.GetClass and G:GetClass(key) or nil
+end
+
+-- The spec index this character (default: the one logged in) used last (nil = none yet).
+function RaidPlan:GetLastSpec(key)
+    local db = ns.db
+    key = key or Util.PlayerKey()
+    local t = db and key and type(db.raidplanSpec) == "table" and db.raidplanSpec[key]
+    return IsInt(t, 1, SpecCount(ClassOf(key))) and t or nil
+end
+
+-- The characters I can answer raids with: this one first, then the others of my account in this guild (sorted).
+function RaidPlan:GetMyCharacters()
+    local me = Util.PlayerKey()
+    local out = { me }
+    for _, key in ipairs(me and Linked(me) or {}) do out[#out + 1] = key end
+    return out
 end
 
 ---------------------------------------------------------------------------
@@ -1535,31 +1936,152 @@ function RaidPlan:SetGroups(occId, grp, gs)
 end
 
 ---------------------------------------------------------------------------
--- Public API: sign-ups (everyone, for their own character)
+-- Public API: writing (roster managers): guests, declined and removed answers
 ---------------------------------------------------------------------------
 
--- status: "A" | "T" | "B" | "X"; spec: index into ns.SPECS[my class] (nil = keep / last used); note: optional
--- (false clears it). Returns ok, err.
-function RaidPlan:SignUp(occId, status, spec, note)
+-- Changes the raid's own record (an override for a weekly raid) through fn(o, v) and shares it. fn returns false, err
+-- to refuse. Returns ok, err.
+local function EditOcc(occId, fn)
+    local root, err = RequireOrganizer("roster")
+    if not root then return false, err end
+    local v = ResolveOcc(root, occId)
+    if not v then return false, "unknown raid" end
+    local cur = root.E[occId]
+    local o = cur and Util.CopyTable(cur) or { id = occId, sid = v.sid, k = v.k }
+    o.rev, o.by = NextRev(cur), Util.PlayerKey()
+    local ok, e = fn(o, v)
+    if ok == false then return false, e end
+    for _, f in ipairs({ "gu", "rj", "rm", "grp" }) do
+        if o[f] and not next(o[f]) then o[f] = nil end
+    end
+    if not o.grp then o.gs = nil end
+    return Commit(root, "E", o)
+end
+
+local function TakeOutOfGroups(o, key)
+    if o.grp then o.grp[key] = nil end
+    if o.gs then o.gs[key] = nil end
+end
+
+-- Adds a player outside the guild to the raid by name (or changes their class / spec). They count as accepted.
+-- Returns ok, keyOrErr.
+function RaidPlan:AddGuest(occId, name, classFile, spec)
+    local key = WireKey(type(name) == "string" and Util.Trim(name) or name)
+    if not key then return false, "Type the guest's character name." end
+    if type(classFile) ~= "string" or not (ns.SPECS and ns.SPECS[classFile]) then return false, "Pick the guest's class." end
+    if spec ~= nil and not IsInt(spec, 1, SpecCount(classFile)) then return false, "invalid spec" end
+    local G = Guild()
+    if G and G.IsInGuild and G:IsInGuild(key, true) then
+        return false, Util.ShortName(key) .. " is in the guild: guild members sign up themselves."
+    end
+    if self:IsBlacklisted(key) then return false, Util.ShortName(key) .. " is on the blacklist." end
+    local ok, err = EditOcc(occId, function(o)
+        o.gu = o.gu or {}
+        if not o.gu[key] and CountTable(o.gu) >= MAX_GUESTS then
+            return false, "A raid has at most " .. MAX_GUESTS .. " guests."
+        end
+        o.gu[key] = { c = classFile, sp = spec, at = o.gu[key] and o.gu[key].at or Now() }
+    end)
+    if not ok then return false, err end
+    return true, key
+end
+
+function RaidPlan:RemoveGuest(occId, key)
+    return EditOcc(occId, function(o)
+        if type(key) ~= "string" or not (o.gu and o.gu[key]) then return false, "not a guest of this raid" end
+        o.gu[key] = nil
+        TakeOutOfGroups(o, key)
+    end)
+end
+
+-- Turns a member down for the raid: their answer no longer counts, they can't answer again (with any of their
+-- characters) and they are listed as declined.
+function RaidPlan:DeclineSignup(occId, key)
+    key = WireKey(key)
+    if not key then return false, "unknown player" end
+    return EditOcc(occId, function(o, v)
+        if v.gu and v.gu[key] then return false, "That is a guest: remove them instead." end
+        o.rj = o.rj or {}
+        if not o.rj[key] and CountTable(o.rj) >= MAX_MARKS then return false, "Too many declined players on this raid." end
+        o.rj[key] = true
+        TakeOutOfGroups(o, key)
+    end)
+end
+
+-- Takes a member's answer off the raid, as if they never answered. They can answer again.
+function RaidPlan:RemoveSignup(occId, key)
+    key = WireKey(key)
+    if not key then return false, "unknown player" end
+    return EditOcc(occId, function(o)
+        local root = Root(false)
+        local s = root and root.U[occId] and root.U[occId][key]
+        if not s then return false, "That player has not answered." end
+        o.rm = o.rm or {}
+        if not o.rm[key] and CountTable(o.rm) >= MAX_MARKS then return false, "Too many removed answers on this raid." end
+        o.rm[key] = s.rev
+        if o.rj then o.rj[key] = nil end
+        TakeOutOfGroups(o, key)
+    end)
+end
+
+-- Undoes a decline (and a removal): the member's answer counts again.
+function RaidPlan:RestoreSignup(occId, key)
+    return EditOcc(occId, function(o)
+        if type(key) ~= "string" or not ((o.rj and o.rj[key]) or (o.rm and o.rm[key])) then
+            return false, "That player was not declined."
+        end
+        if o.rj then o.rj[key] = nil end
+        if o.rm then o.rm[key] = nil end
+    end)
+end
+
+---------------------------------------------------------------------------
+-- Public API: sign-ups (everyone, for their own characters)
+---------------------------------------------------------------------------
+
+-- status: "A" | "T" | "B" | "X"; spec: index into ns.SPECS[the character's class] (nil = keep / last used); note:
+-- optional (false clears it); charKey: another character of my account to answer with (default: this one).
+-- Returns ok, err.
+function RaidPlan:SignUp(occId, status, spec, note, charKey)
     local root = Root(true)
-    local me = Util.PlayerKey()
-    if not root or not me then return false, "Your guild is not known yet; try again in a moment." end
+    local player = Util.PlayerKey()
+    if not root or not player then return false, "Your guild is not known yet; try again in a moment." end
+    local me = player
+    if charKey ~= nil and charKey ~= player then
+        me = WireKey(charKey)
+        local G = Guild()
+        if not me or not (G and G.SameAccount and G:SameAccount(player, me)) then
+            return false, "That is not one of your characters in this guild. Log in on it once first."
+        end
+    end
     local v = ResolveOcc(root, occId)
     if not v then return false, "unknown raid" end
     if v.cancelled then return false, "This raid was cancelled." end
     if v.t < Now() - SIGNUP_CLOSE then return false, "This raid is over." end
     if not STATUSES[status] then return false, "invalid status" end
     local block = self:GetSignupBlock(v, me)
-    if block == "lock" then
+    if block == "blacklist" then
+        return false, "You can't sign up for raids. Contact an officer."
+    elseif block == "declined" then
+        return false, "The raid leaders took you off this raid."
+    elseif block == "lock" then
         return false, "This raid is locked to its teams and invited players. Ask a raid leader for an invite."
     elseif block == "level" then
         return false, strformat("This raid is for level %d characters.", v.ml)
     end
-    local class = MyClass()
+    local class = ClassOf(me)
+    if not class then return false, "That character's class is not known yet; try again in a moment." end
     local cur = root.U[occId] and root.U[occId][me]
     local s = { st = status, rev = NextRev(cur), c = class }
+    -- an answer the organizers removed is older than the new one, whatever the clocks say
+    if v.rm and v.rm[me] and s.rev <= v.rm[me] then s.rev = v.rm[me] + 1 end
+    -- the newest answer of my characters is the one that counts: this one
+    for _, other in ipairs(self:GetMyCharacters()) do
+        local o = other ~= me and root.U[occId] and root.U[occId][other]
+        if o and s.rev <= o.rev then s.rev = o.rev + 1 end
+    end
     s.at = cur and (cur.at or cur.rev) or s.rev
-    if spec == nil then spec = (cur and cur.sp) or self:GetLastSpec() end
+    if spec == nil then spec = (cur and cur.sp) or self:GetLastSpec(me) end
     if spec ~= nil then
         if not IsInt(spec, 1, SpecCount(class)) then return false, "invalid spec" end
         s.sp = spec
@@ -1577,26 +2099,43 @@ function RaidPlan:SignUp(occId, status, spec, note)
         if type(db.raidplanSpec) ~= "table" then db.raidplanSpec = {} end
         db.raidplanSpec[me] = clean.sp
     end
-    BroadcastSignups({ { o = occId, s = clean } })
+    if me == player then
+        BroadcastSignups({ { o = occId, s = clean } })
+    else
+        BroadcastSignups({ { o = occId, s = clean, k = me } }, "RPA")
+    end
     Changed()
     return true
 end
 
--- My sign-ups for raids still shown (sent at login, so one made while nobody else was online spreads later).
-local function MyLiveSignups()
+-- The sign-ups of `key` for raids still shown (sent at login, so one made while nobody else was online spreads
+-- later). `tag` = true names the character in each entry (RPA: another character of my account).
+local function LiveSignups(key, tag)
     local root = Root(false)
-    local me = Util.PlayerKey()
     local out = {}
-    if not root or not me then return out end
+    if not root or not key then return out end
     local minTs = Now() - KEEP_PAST
     for occId, u in pairs(root.U) do
-        local s = u[me]
+        local s = u[key]
         if s then
             local t = OccTime(root, occId)
-            if t and t >= minTs then out[#out + 1] = { o = occId, s = s } end
+            if t and t >= minTs then out[#out + 1] = { o = occId, s = s, k = tag and key or nil } end
         end
     end
     tsort(out, function(a, b) return a.o < b.o end)
+    return out
+end
+
+local function MyLiveSignups()
+    return LiveSignups(Util.PlayerKey())
+end
+
+local function MyAltSignups()
+    local out = {}
+    local me = Util.PlayerKey()
+    for _, key in ipairs(me and Linked(me) or {}) do
+        for _, e in ipairs(LiveSignups(key, true)) do out[#out + 1] = e end
+    end
     return out
 end
 
@@ -1678,6 +2217,9 @@ function RaidPlan:OnInit()
     if Comm and Comm.Register then
         Comm:Register("RPU", OnUpdate)
         Comm:Register("RPS", OnSignups)
+        Comm:Register("RPA", OnAltSignups)
+        Comm:Register("BLL", OnBlacklist)
+        Comm:Register("BLQ", OnBlacklistQuery)
         Comm:Register("RPD", OnDigest)
         Comm:Register("RPK", OnClaim)
         Comm:Register("RPW", OnWant)
@@ -1686,6 +2228,8 @@ function RaidPlan:OnInit()
     ns:RegisterSlash("plan", SlashPlan, "list the planned raids and your sign-ups")
     -- The council list decides what is shown: repaint when it changes.
     ns:On("CONFIG_UPDATED", Changed)
+    -- Whose characters belong together decides whose answers count: repaint when that changes.
+    ns:On("ACCOUNTS_UPDATED", Changed)
 end
 
 function RaidPlan:OnLogin()
@@ -1697,5 +2241,10 @@ function RaidPlan:OnLogin()
     Util.RandomDelay(15, 30, function()
         Daily()
         BroadcastSignups(MyLiveSignups())
+        BroadcastSignups(MyAltSignups(), "RPA")
+    end)
+    -- A roster manager shares the blacklist once after logging in, for members who logged in while none was online.
+    Util.RandomDelay(20, 40, function()
+        if CanRoster(Util.PlayerKey()) and RaidPlan:GetBlacklistRev() > 0 then SendBlacklist() end
     end)
 end

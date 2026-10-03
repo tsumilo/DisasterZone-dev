@@ -1246,6 +1246,31 @@ function Guild:GetMyCharacters()
     return SetToArray(e and e.m)
 end
 
+-- Do the two characters belong to one player? Only when each vouches for the other: one character naming another
+-- is not enough to answer raids in its name, or to share its blacklist entry.
+function Guild:SameAccount(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    if a == b then return true end
+    local idx = VouchIndex()
+    local function vouches(voucher, key)
+        for _, m in ipairs(idx[key] or {}) do
+            if m == voucher then return true end
+        end
+        return false
+    end
+    return vouches(a, b) and vouches(b, a)
+end
+
+-- The other characters of the player behind `key` (each vouches for the other; sorted, without `key`).
+function Guild:GetLinkedCharacters(key)
+    local out = {}
+    for _, m in ipairs(Principals(key) or {}) do
+        if Guild:SameAccount(key, m) then out[#out + 1] = m end
+    end
+    tsort(out)
+    return out
+end
+
 -- /dz account [forget <name>]: which of my characters share their roles; forget one that is not mine any more.
 local function SlashAccount(rest)
     local rec = AccountsDB(true)
