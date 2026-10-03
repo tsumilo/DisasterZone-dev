@@ -9,7 +9,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 -- def = {
 --   name, desc, icon, order,
 --   arena = { w = 70, h = 90, labels = { { x, y, text } }, walkable = function(x, y) end, outline = { { x, y }, .. },
---             map = { file, u0, u1, v0, v1 } },        (the floor picture: the texture piece that covers w x h)
+--             map = { file, u0, u1, v0, v1 },          (the floor picture: the texture piece that covers w x h)
+--             height = function(x, y) end },           (the floor's height there; drawn, it does not change speed)
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
 --   player = { x, y, speed, facing },
 --   abilities = { { id, key = "3", name, icon, tip, cooldown, gcd, range, needsTarget,
@@ -49,6 +50,25 @@ function T:RegisterEncounter(id, def)
 end
 
 function T:GetEncounter(id) return encs[id] end
+
+-- A floor's height function from a generated height grid (ns.TrainerFloors: one letter per square yard, rows
+-- south to north): smooth between the yard centres, the edge value outside.
+function T.HeightFn(grid)
+    if not grid then return nil end
+    local function cell(i, j)
+        i = max(1, min(grid.w, i))
+        j = max(1, min(grid.h, j))
+        return (grid.rows[j]:byte(i) - 65) * grid.step + grid.base
+    end
+    return function(x, y)
+        local fx, fy = x - 0.5, y - 0.5
+        local i, j = floor(fx), floor(fy)
+        local tx, ty = fx - i, fy - j
+        local a, b = cell(i + 1, j + 1), cell(i + 2, j + 1)
+        local c, d = cell(i + 1, j + 2), cell(i + 2, j + 2)
+        return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
+    end
+end
 
 function T:GetEncounters()
     local out = {}

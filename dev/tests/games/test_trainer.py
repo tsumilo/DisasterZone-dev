@@ -143,17 +143,9 @@ def movement_is_clamped_to_the_arena():
     c.eval("T_TR.sim:SetMove(-1, -1) T_TR.run(14)")
     x, y = sim(c, "return { s.player.x, s.player.y }")
     assert 1 <= x <= 2 and 1 <= y <= 2, (x, y)
-    # north of the square hall only the alcove is floor: beside it you slide along the hall's north wall
-    c.eval("T_TR.new('real') T_TR.sim.player.x, T_TR.sim.player.y = 8, 50  T_TR.sim:SetMove(0.2, 1) T_TR.run(4)")
-    x, y = sim(c, "return { s.player.x, s.player.y }")
-    assert 57.1 < y <= 57.5 and 9 < x < 16.4, (x, y)
-    c.eval("T_TR.sim.player.x = 29.5  T_TR.sim:SetMove(0, 1) T_TR.run(6)")                 # through the alcove's mouth
-    assert sim(c, "return s.player.y") > 80
-    c.eval("T_TR.sim:SetMove(-1, 0) T_TR.run(6)")                                         # its west wall
-    assert 16.3 <= sim(c, "return s.player.x") < 16.7
     # diagonal speed is not faster than straight: 7 yd/s
     c.eval("T_TR.new('quick') T_TR.sim:SetMove(1, 0) T_TR.run(2)")
-    assert abs(sim(c, "return s.player.x") - (29.5 + 14)) < 0.01
+    assert abs(sim(c, "return s.player.x") - (31 + 14)) < 0.01
 
 
 @case
@@ -326,16 +318,31 @@ def spells_fly_at_their_real_speed_with_their_own_effects_and_sounds():
 def the_room_is_the_real_hall_with_its_map_on_the_floor():
     w, c = boot()
     a = c.eval_py("local a = ns.Trainer:GetEncounter('teron').arena return { a.w, a.h, a.map.file, a.map.u0, a.map.u1, a.map.v0, a.map.v1 }")
-    assert a[0] == 59 and a[1] == 90.2 and a[2].endswith("BT04_a"), a
+    assert a[0] == 60 and a[1] == 58 and a[2].endswith("BT04_a"), a
     # 0.436 yd a pixel of the 1009-wide map, scaled to 1024: the texture piece is as wide and tall as the hall
     yd_per_u = 440.0                                                 # the map's width in yards (world Y 135..575)
-    assert abs((a[4] - a[3]) * yd_per_u - 59) < 0.5 and abs((a[6] - a[5]) * 512 / 683 * 293.4 - 90.2) < 0.5, a
+    assert abs((a[4] - a[3]) * yd_per_u - 60) < 1.5 and abs((a[6] - a[5]) * 512 / 683 * 293.4 - 58) < 1.5, a
+    # the floor's real heights (Blizzard's geometry of the hall): flat round the walls, a pit 2.75 yd deep in the
+    # middle of the north half with steps down its sides and a raised walkway into it from the south
+    h = lambda x, y: c.eval_py("return ns.Trainer:GetEncounter('teron').arena.height(%f, %f)" % (x, y))
+    rim = h(5, 5)
+    assert abs(rim) < 0.3 and abs(h(50, 15) - rim) < 0.05 and abs(h(12, 20) - rim) < 0.05, (rim, h(50, 15), h(12, 20))
+    assert abs(h(31, 45) - rim + 2.75) < 0.2 and abs(h(25, 55) - rim + 2.75) < 0.2, h(31, 45)
+    assert rim - 2.7 < h(18.5, 45) < rim - 0.1 and rim - 2.7 < h(43, 45) < rim - 0.1          # on the side steps
+    assert h(18.5, 45) < h(17.5, 45) < rim + 0.05                                                # going up westwards
+    assert abs(h(-5, -5) - h(0.5, 0.5)) < 1e-9                                                   # the edge value outside
     c.slash("/dz play trainer")
     w.tick(0.3)
-    c.eval("ns.TrainerUI._Start(3)  T_TR.sim = ns.TrainerUI._Sim()")
+    c.eval("ns.TrainerUI._Start(3)  T_TR.sim = ns.TrainerUI._Sim()  ns.TrainerUI._Tick(0.05)")
+    # everyone stands on the floor where they are: you and the raid down in the pit
+    z = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]")
+    assert abs(z - h(31, 38)) < 1e-6 and z < rim - 2, z
+    assert abs(c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.boss.id)[3]") - h(31, 52)) < 1e-6
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y, T_TR.sim.player.facing = 50, 30, math.pi  ns.TrainerUI._Tick(0.05)")
+    assert abs(c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]") - rim) < 0.05
+    assert abs(c.eval_py("return ns.TrainerUI._Camera().z") - (rim + 2.2 + 14 * math.sin(0.3))) < 0.1
     fl = c.eval_py("return ns.TrainerUI._Floor()")
-    assert fl["tiles"] == 196 and 60 < fl["shown"] < 196 and fl["mini"] is True, fl
+    assert fl["tiles"] == 400 and 60 < fl["shown"] <= 400 and fl["mini"] is True, fl
     # the spell effects are actors holding the effect's model file
     c.eval("T_TR.die_in_corner()  local s = T_TR.sim  for _, u in ipairs(T_TR.constructs()) do u.speed = 0 end "
            "ns.TrainerUI._Key('TAB') ns.TrainerUI._Key('3') ns.TrainerUI._Tick(0.05)")
@@ -466,12 +473,12 @@ def the_panel_briefs_plays_pauses_and_shows_the_result():
     for _ in range(20):
         c.eval("ns.TrainerUI._Tick(0.1)")
     y = c.eval_py("return ns.TrainerUI._Sim().player.y")
-    assert abs(y - (44 - 9)) < 0.5, y                              # two seconds backwards at 4.5 yd/s
+    assert abs(y - (38 - 9)) < 0.5, y                              # two seconds backwards at 4.5 yd/s
     # the 3D view: an actor per model (you, Teron, 11 raiders), Teron's name plate, the camera behind you
     st = c.eval_py("return ns.TrainerUI._State()")
     assert st["actors"] == 13, st
     cam = c.eval_py("local c = ns.TrainerUI._Camera() return { c.x, c.y, c.z, c.dist }")
-    assert cam[2] > 3 and abs(math.hypot(cam[0] - 29.5, abs(cam[1]) - y) - cam[3] * math.cos(0.3)) < 0.5, cam
+    assert cam[2] > 3 and abs(math.hypot(cam[0] - 31, abs(cam[1]) - y) - cam[3] * math.cos(0.3)) < 0.5, cam
     teron = c.eval_py("local s = ns.TrainerUI._Sim() for _, u in ipairs(s.units) do if u.kind == 'boss' then "
                       "local a = ns.TrainerUI._Actor(u.id) return { a.pending or a.display, a.anim } end end")
     assert teron[0] == 21254 and teron[1] in (17, 26), teron      # swinging at the tank

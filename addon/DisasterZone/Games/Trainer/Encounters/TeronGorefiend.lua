@@ -18,26 +18,20 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Encounters/TeronGore
 --     the Icy Veins / Warcraft Tavern guides;
 --   the room: Blizzard's map of Gorefiend's Vigil (Media/Maps/BT04) covers world X 343.3..636.7 and
 --     Y 135..575 (UiMapAssignment of UiMap 343), 0.436 yd a pixel. The square hall measures 135 x 134 pixels on
---     it: 59 x 58.5 yd; the alcove behind Teron adds a 28.3 yd wide, 31.7 yd deep piece to the north. The floor
---     shows that piece of the map. The stairs are drawn, not climbed: it is flat;
---   Teron stands at the north end of the hall, in the mouth of the alcove (his spawn point, world 579.7 /
---     400.7 as server emulators have it, falls there on the map).
+--     it: 59 x 58.5 yd. Blizzard's geometry of the hall (blacktemple.wmo, group "Gorefiend's Vigil") says the
+--     same: its floor is 60 x 58 yd. The floor shows that piece of the map;
+--   the floor's heights: that same geometry, see TeronGorefiendFloor.lua. The middle of the hall's north half
+--     is a pit 2.75 yd deep and 22 yd wide, with steps down its west, east and south sides.
 -- NOT verified anywhere: the run speed of constructs and of the spirit (8 yd/s, the creature default), and
--- where a raid stands around him.
+-- where Teron and a raid stand (here: in the pit, at its north end).
 local addonName, ns = ...
 
 local T = ns.Trainer
 local Dist = T.Dist
 local floor, min, max, pi = math.floor, math.min, math.max, math.pi
 
-local ARENA_W, ARENA_H = 59, 90.2
-local HALL_H = 58.5                         -- the square hall; north of it only the alcove
-local ALCOVE_X0, ALCOVE_X1 = 15.3, 43.6
-local BOSS_X, BOSS_Y = 29.5, 57
-
-local function Walkable(x, y)
-    return y <= HALL_H - 1 or (x >= ALCOVE_X0 + 1 and x <= ALCOVE_X1 - 1)
-end
+local ARENA_W, ARENA_H = 60, 58
+local BOSS_X, BOSS_Y = 31, 52
 local GHOST_TIME = 60
 local AOE_RANGE = 12
 local MELEE = 3
@@ -56,16 +50,16 @@ local FX = {
     markImpact = 166814, markSound = 743,
 }
 
--- The raid: the tank in front of the boss, melee behind him in the alcove's mouth, ranged and healers close around
--- them (you start among them), which leaves the whole hall between the raid and the corners by the entrance.
+-- The raid: the tank in front of the boss, melee behind him, ranged and healers close around them, all down in
+-- the pit (you start among them), which leaves the whole hall between the raid and the corners by the entrance.
 -- { x, y, display, what they do }. The models are the Shattered Sun Offensive's soldiers (display IDs from
 -- Wowhead: Veteran 22931, Warrior 20570, Trainee 22924, Peacekeeper 23714, Marksman 22752, Magi 22952,
 -- Archmage 22973, Cleric 22953): armed blood elves and draenei that every faction's client has.
 local RAID = {
-    { 29.5, 53, 22931, "melee", tank = true }, { 26.5, 60, 20570, "melee" }, { 29.5, 61, 22924, "melee" },
-    { 32.5, 60, 23714, "melee" },
-    { 19, 54, 22752, "bow" }, { 22.5, 50.5, 22952, "caster" }, { 26.5, 48.5, 22953, "caster" },
-    { 32.5, 48.5, 22973, "caster" }, { 40, 54, 22752, "bow" }, { 36.5, 50.5, 22953, "caster" }, { 29.5, 47, 22952, "caster" },
+    { 31, 48, 22931, "melee", tank = true }, { 28, 55, 20570, "melee" }, { 31, 56, 22924, "melee" },
+    { 34, 55, 23714, "melee" },
+    { 24, 48, 22752, "bow" }, { 26, 44.5, 22952, "caster" }, { 29, 42.5, 22953, "caster" },
+    { 33, 42.5, 22973, "caster" }, { 38, 48, 22752, "bow" }, { 36, 44.5, 22953, "caster" }, { 31, 41, 22952, "caster" },
 }
 
 local function SpellIcon(spellID, fallback)
@@ -281,16 +275,14 @@ T:RegisterEncounter("teron", {
     order = 10,
     -- map: the piece of Media/Maps/BT04_a (the top 1024 x 512 of the 1024 x 683 map) that is this hall
     arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
-              walkable = Walkable,
-              outline = { { 0, 0 }, { ARENA_W, 0 }, { ARENA_W, HALL_H }, { ALCOVE_X1, HALL_H }, { ALCOVE_X1, ARENA_H },
-                          { ALCOVE_X0, ARENA_H }, { ALCOVE_X0, HALL_H }, { 0, HALL_H } },
+              height = T.HeightFn(ns.TrainerFloors and ns.TrainerFloors.teron),
               map = { file = "Interface\\AddOns\\DisasterZone\\Media\\Maps\\BT04_a",
-                      u0 = 0.3221, u1 = 0.4560, v0 = 0.1090, v1 = 0.5193 } },
+                      u0 = 0.3221, u1 = 0.4560, v0 = 0.2537, v1 = 0.5193 } },
     difficulties = {
         { id = "quick", name = "Quick (15 sec mark)", fuse = 15 },
         { id = "real", name = "Real (55 sec mark)", fuse = 55 },
     },
-    player = { x = 29.5, y = 44, speed = 7, facing = pi / 2 },
+    player = { x = 31, y = 38, speed = 7, facing = pi / 2 },
     abilities = abilities,
     howTo = {
         "You are marked with |cffb48cffShadow of Death|r. Get away from the raid before the mark runs out.",

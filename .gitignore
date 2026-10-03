@@ -21,3 +21,4 @@ dev/keys/
 dist/
 dev/tf_e/*.log
 dev/releases/undone/
+dev/art/wmo/

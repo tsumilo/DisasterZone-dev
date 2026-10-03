@@ -38,7 +38,7 @@ local actorPool = {}
 local plates = {}
 local floorLines, fxLines = {}, {}
 local floorTiles = {}
-local TILES = 14             -- the floor map is drawn as TILES x TILES quads, each bent into perspective
+local TILES = 20             -- the floor map is drawn as TILES x TILES quads, each bent into perspective
 local fxActors = {}          -- effect -> actor
 local fxPool = {}            -- model file -> spare actors that already hold it
 local mouse = { look = false, left = false, lastX = 0 }
@@ -149,6 +149,12 @@ end
 -- client turns out to draw it the other way round (Calibrate).
 local function SY(y) return cam.mirror * y end
 
+-- The floor's height at a spot (0 on a flat floor).
+local function GroundZ(x, y)
+    local fn = sim and sim.enc.arena.height
+    return fn and fn(x, y) or 0
+end
+
 -- Scene point -> UI units from the scene's bottom-left corner; nil when it is behind the camera.
 local function Project(x, y, z)
     y = SY(y)
@@ -166,7 +172,7 @@ local function PlaceCamera()
     local p = sim.player
     local yaw, pitch = cam.mirror * p.facing, cam.pitch
     cam.fx, cam.fy, cam.fz = cos(pitch) * cos(yaw), cos(pitch) * sin(yaw), -sin(pitch)
-    local tx, ty, tz = p.x, SY(p.y), 2.2
+    local tx, ty, tz = p.x, SY(p.y), GroundZ(p.x, p.y) + 2.2
     cam.x, cam.y, cam.z = tx - cam.fx * cam.dist, ty - cam.fy * cam.dist, tz - cam.fz * cam.dist
     pcall(scene.SetCameraPosition, scene, cam.x, cam.y, cam.z)
     pcall(scene.SetCameraOrientationByYawPitchRoll, scene, yaw, cam.pitchSign * pitch, 0)
@@ -180,16 +186,17 @@ local function Calibrate()
     cam.calibrated = true
     local p = sim.player
     PlaceCamera()
-    local _, cy = Project(p.x, p.y, 2.2)
+    local eye = GroundZ(p.x, p.y) + 2.2
+    local _, cy = Project(p.x, p.y, eye)
     if not cy or math.abs(cy - h / 2) > h * 0.25 then
         cam.pitchSign = -cam.pitchSign
         PlaceCamera()
-        local _, cy2 = Project(p.x, p.y, 2.2)
+        local _, cy2 = Project(p.x, p.y, eye)
         if not cy2 or math.abs(cy2 - h / 2) > h * 0.25 then cam.pitchSign = -cam.pitchSign end   -- no better: keep
     end
     PlaceCamera()
-    local cx = Project(p.x, p.y, 2.2)
-    local lx = Project(p.x - sin(p.facing) * 2, p.y + cos(p.facing) * 2, 2.2)
+    local cx = Project(p.x, p.y, eye)
+    local lx = Project(p.x - sin(p.facing) * 2, p.y + cos(p.facing) * 2, eye)
     if cx and lx and lx > cx + 1 then cam.mirror = -cam.mirror end
     PlaceCamera()
 end
@@ -255,7 +262,7 @@ local function DrawActors()
             local a = ActorFor(u)
             if a then
                 seen[u.id] = true
-                pcall(a.SetPosition, a, u.x, SY(u.y), 0)
+                pcall(a.SetPosition, a, u.x, SY(u.y), GroundZ(u.x, u.y))
                 -- a strafing body swings round over a moment, not in one frame
                 local want = u.bodyTurn or 0
                 local have = a.bodyTurn or 0
@@ -321,8 +328,8 @@ local function Circle(x, y, radius, r, g, b, a, thick)
     local n = 20
     for i = 1, n do
         local a1, a2 = (i - 1) / n * 2 * pi, i / n * 2 * pi
-        Segment(fxLines, "fx", plateFrame, x + cos(a1) * radius, y + sin(a1) * radius, 0.1,
-                x + cos(a2) * radius, y + sin(a2) * radius, 0.1, r, g, b, a, thick)
+        local x1, y1, x2, y2 = x + cos(a1) * radius, y + sin(a1) * radius, x + cos(a2) * radius, y + sin(a2) * radius
+        Segment(fxLines, "fx", plateFrame, x1, y1, GroundZ(x1, y1) + 0.1, x2, y2, GroundZ(x2, y2) + 0.1, r, g, b, a, thick)
     end
 end
 
@@ -354,10 +361,10 @@ local function DrawFloorMap()
             end
             local x0, x1 = w * i / TILES, w * (i + 1) / TILES
             local y0, y1 = h * j / TILES, h * (j + 1) / TILES
-            local nwx, nwy = Project(x0, y1, 0)
-            local swx, swy = Project(x0, y0, 0)
-            local nex, ney = Project(x1, y1, 0)
-            local sex, sey = Project(x1, y0, 0)
+            local nwx, nwy = Project(x0, y1, GroundZ(x0, y1))
+            local swx, swy = Project(x0, y0, GroundZ(x0, y0))
+            local nex, ney = Project(x1, y1, GroundZ(x1, y1))
+            local sex, sey = Project(x1, y0, GroundZ(x1, y0))
             local inside = not sim.enc.arena.walkable or sim.enc.arena.walkable((x0 + x1) / 2, (y0 + y1) / 2)
             if inside and nwx and swx and nex and sex then
                 local ua, ub = map.u0 + (map.u1 - map.u0) * x0 / w, map.u0 + (map.u1 - map.u0) * x1 / w
@@ -384,11 +391,12 @@ local function DrawFloor()
     if not mapped then
         for _, t in ipairs(floorTiles) do t:Hide() end
     end
-    for x = 0, w, 10 do
+    local flat = not sim.enc.arena.height
+    for x = 0, flat and w or -1, 10 do
         local wall = x == 0 or x >= w
         if x > 0 then Segment(floorLines, "floor", floorFrame, x, 0, 0, x, h, 0, 0.55, 0.45, 0.7, mapped and 0.18 or 0.28, 1) end
     end
-    for y = 0, h, 10 do
+    for y = 0, flat and h or -1, 10 do
         if y > 0 then Segment(floorLines, "floor", floorFrame, 0, y, 0, w, y, 0, 0.55, 0.45, 0.7, mapped and 0.18 or 0.28, 1) end
     end
     local outline = sim.enc.arena.outline or { { 0, 0 }, { w, 0 }, { w, h }, { 0, h } }
@@ -446,7 +454,7 @@ local function DrawFxActors()
                 elseif u then
                     x, y = u.x, u.y
                 end
-                pcall(a.SetPosition, a, x, SY(y), z)
+                pcall(a.SetPosition, a, x, SY(y), GroundZ(x, y) + z)
                 pcall(a.SetYaw, a, cam.mirror * yaw)
                 pcall(a.SetShown, a, not a.bad and not (u and u.dead and fx.kind ~= "missile"))
             end
@@ -494,7 +502,7 @@ local function DrawPlates()
     for _, u in ipairs(sim.units) do
         local height = PLATE_HEIGHT[u.kind]
         if height and not u.dead then
-            local x, y = Project(u.x, u.y, height)
+            local x, y = Project(u.x, u.y, GroundZ(u.x, u.y) + height)
             if x then
                 n = n + 1
                 local f = Plate(n)
@@ -532,8 +540,9 @@ local function PickAt(x, y)
     local best, bestScore
     for _, u in ipairs(sim.units) do
         if not u.dead and u.targetable then
-            local fx, fy = Project(u.x, u.y, 0)
-            local hx, hy = Project(u.x, u.y, PLATE_HEIGHT[u.kind] or 3)
+            local ground = GroundZ(u.x, u.y)
+            local fx, fy = Project(u.x, u.y, ground)
+            local hx, hy = Project(u.x, u.y, ground + (PLATE_HEIGHT[u.kind] or 3))
             if fx and hx then
                 local half = max(10, math.abs(hy - fy) * 0.35)
                 local cx, cy = (fx + hx) / 2, (fy + hy) / 2
@@ -1224,7 +1233,8 @@ UI._Floor = function()
     for _, t in ipairs(floorTiles) do if t:IsShown() then n = n + 1 end end
     return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false }
 end
-UI._Project = function(x, y, z) return Project(x, y, z) end
+UI._Project = function(x, y, z) return Project(x, y, GroundZ(x, y) + z) end
+UI._ActorPos = function(unitId) local a = actors[unitId] if a then return { a:GetPosition() } end end
 UI._Click = function(x, y) return PickAt(x, y) end
 UI._Anim = function(unitId) return actors[unitId] and actors[unitId].anim end
 UI._Actor = function(unitId) return actors[unitId] end
