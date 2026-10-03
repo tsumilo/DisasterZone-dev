@@ -10,7 +10,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --   name, desc, icon, order,
 --   arena = { w = 70, h = 90, labels = { { x, y, text } } },
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
---   player = { x, y, speed },
+--   player = { x, y, speed, facing },
 --   abilities = { { id, key = "3", name, icon, tip, cooldown, gcd, range, needsTarget,
 --                   usable = function(sim) return ok, why end, use = function(sim, ability, target) end } },
 --   start = function(sim) end,          spawn units, set the first objective
@@ -25,6 +25,10 @@ T.GAME_ID = "trainer"
 T.STEP = 0.05
 
 local floor, sqrt, min, max = math.floor, math.sqrt, math.min, math.max
+local sin, cos, atan2, pi = math.sin, math.cos, math.atan2, math.pi
+
+T.TURN_RATE = pi            -- keyboard turning, radians per second (the client's default: 180 degrees)
+T.BACKPEDAL = 4.5 / 7       -- walking backwards: 4.5 yd/s at normal run speed
 
 local encs = {}     -- id -> def
 local encList = {}  -- defs sorted by order
@@ -110,12 +114,13 @@ function T:NewSim(encId, diffId, seed)
         enc = enc, diff = T:GetDifficulty(enc, diffId),
         time = 0, acc = 0, state = "run", seed = seed,
         units = {}, nextId = 1, timers = {}, fx = {}, bars = {}, zones = {},
-        cds = {}, gcdUntil = 0, gcdTotal = 1, moveX = 0, moveY = 0,
+        cds = {}, gcdUntil = 0, gcdTotal = 1, moveX = 0, moveY = 0, fwd = 0, strafe = 0, turn = 0,
         stats = { casts = {} },
     }, Sim)
     local p = enc.player or {}
     sim.player = sim:Spawn({ kind = "player", name = "You", x = p.x or enc.arena.w / 2, y = p.y or enc.arena.h / 2,
-                             speed = p.speed or 7, radius = 1.2, color = { 0.3, 0.9, 0.3 } })
+                             speed = p.speed or 7, radius = 1.2, color = { 0.3, 0.9, 0.3 },
+                             facing = p.facing or pi / 2, model = "player" })
     enc.start(sim)
     return sim
 end
@@ -135,6 +140,7 @@ function Sim:Spawn(u)
     u.hpMax = u.hpMax or u.hp
     u.auras = {}
     u.radius = u.radius or 1.5
+    u.facing = u.facing or 0
     self.units[#self.units + 1] = u
     return u
 end
@@ -185,16 +191,18 @@ function Sim:Damage(u, amount)
     end
 end
 
--- def = { dur, slow = 0.3 (per stack), stun = true, maxStacks }: applying again refreshes and adds a stack.
+-- def = { dur, slow = 0.3 (per stack), stun = true, maxStacks, fade = 3 }: applying again refreshes and adds a
+-- stack. fade: the slow weakens in steps, one every `fade` seconds, down to nothing when the aura ends.
 function Sim:AddAura(u, id, def)
     local a = u.auras[id]
     if not a then
         a = { stacks = 0 }
         u.auras[id] = a
     end
+    a.at = self.time
     a.untilT = self.time + def.dur
     a.total = def.dur
-    a.slow, a.stun = def.slow, def.stun
+    a.slow, a.stun, a.fade = def.slow, def.stun, def.fade
     a.stacks = min(def.maxStacks or 1, a.stacks + 1)
     return a
 end
@@ -204,11 +212,22 @@ function Sim:HasAura(u, id)
     return a and a.untilT > self.time and a or nil
 end
 
+-- The share of its speed an aura takes right now (0.9 = slowed by 90%).
+function Sim:AuraSlow(a)
+    if not a.slow then return 0 end
+    local k = 1
+    if a.fade then
+        local ticks = a.total / a.fade
+        k = max(0, 1 - floor((self.time - a.at) / a.fade + 1e-6) / ticks)
+    end
+    return a.slow * a.stacks * k
+end
+
 function Sim:UnitSpeed(u)
     local mult = 1
     for _, a in pairs(u.auras) do
         if a.stun then return 0 end
-        if a.slow then mult = mult - a.slow * a.stacks end
+        mult = mult - self:AuraSlow(a)
     end
     return (u.speed or 0) * max(0, mult)
 end
@@ -217,8 +236,19 @@ end
 -- Input: the move vector, the target, the abilities
 ---------------------------------------------------------------------------
 
+-- A direction on the map (tests, and the flat fallback view).
 function Sim:SetMove(dx, dy)
     self.moveX, self.moveY = dx or 0, dy or 0
+end
+
+-- The client's own controls: forward / back (1 / -1), strafe (1 = right), keyboard turn (1 = left).
+function Sim:SetControls(fwd, strafe, turn)
+    self.fwd, self.strafe, self.turn = fwd or 0, strafe or 0, turn or 0
+end
+
+-- Mouse look: turn by an angle (counter-clockwise seen from above).
+function Sim:Turn(rad)
+    self.player.facing = (self.player.facing + rad) % (2 * pi)
 end
 
 function Sim:SetTarget(u)
@@ -276,6 +306,10 @@ function Sim:Use(idOrKey)
         if not ok then return fail(why or "You can't do that yet.") end
     end
     if self:Cooldown(ab) > 0 then return fail("That ability isn't ready yet.") end
+    if ab.check then
+        local ok, why = ab.check(self)
+        if not ok then return fail(why or "You can't do that yet.") end
+    end
     local target
     if ab.needsTarget then
         target = self.target
@@ -309,6 +343,7 @@ end
 
 local function MoveToward(u, x, y, dist)
     local d = Dist(u.x, u.y, x, y)
+    if d > 0.01 then u.facing = atan2(y - u.y, x - u.x) end
     if d <= dist or d == 0 then u.x, u.y = x, y return end
     u.x = u.x + (x - u.x) / d * dist
     u.y = u.y + (y - u.y) / d * dist
@@ -334,15 +369,35 @@ function Sim:Step(dt)
     end
 
     local p, arena = self.player, self.enc.arena
-    if not p.rooted and (self.moveX ~= 0 or self.moveY ~= 0) then
-        local len = sqrt(self.moveX * self.moveX + self.moveY * self.moveY)
-        local step = self:UnitSpeed(p) * dt
-        p.x = min(arena.w - p.radius, max(p.radius, p.x + self.moveX / len * step))
-        p.y = min(arena.h - p.radius, max(p.radius, p.y + self.moveY / len * step))
+    if self.turn ~= 0 then self:Turn(self.turn * T.TURN_RATE * dt) end
+    local mx, my, speed = self.moveX, self.moveY, self:UnitSpeed(p)
+    p.backward = false
+    if self.fwd ~= 0 or self.strafe ~= 0 then
+        local cf, sf = cos(p.facing), sin(p.facing)
+        mx = cf * self.fwd + sf * self.strafe
+        my = sf * self.fwd - cf * self.strafe
+        if self.fwd < 0 then
+            speed = speed * T.BACKPEDAL
+            p.backward = true
+        end
+    elseif mx ~= 0 or my ~= 0 then
+        p.facing = atan2(my, mx)
+    end
+    p.moving = false
+    if not p.rooted and (mx ~= 0 or my ~= 0) then
+        local len = sqrt(mx * mx + my * my)
+        local step = speed * dt
+        p.x = min(arena.w - p.radius, max(p.radius, p.x + mx / len * step))
+        p.y = min(arena.h - p.radius, max(p.radius, p.y + my / len * step))
+        p.moving = true
     end
     for _, u in ipairs(self.units) do
         if not u.dead and u.goal then
-            MoveToward(u, u.goal.x, u.goal.y, self:UnitSpeed(u) * dt)
+            local step = self:UnitSpeed(u) * dt
+            local stop = u.goal.stop or 0
+            local d = Dist(u.x, u.y, u.goal.x, u.goal.y)
+            u.moving = step > 0 and d > stop
+            if u.moving then MoveToward(u, u.goal.x, u.goal.y, min(step, d - stop)) end
         end
     end
 
