@@ -637,10 +637,12 @@ local function DrawMesh()
     local nodeOf = mesh.nodeOf
 
     -- Pieces. A Texture maps its picture flat (no perspective), which is fine for a triangle that is all at
-    -- about one distance. One that runs from near the camera far into the room would swim, and one that reaches
-    -- behind the camera cannot be drawn at all: those are cut at the near plane and then halved along their
-    -- depth until every piece spans little of it; the pieces are drawn with pooled textures instead.
-    local RATIO, LEVELS = 1.6, 5
+    -- about one distance. One that runs from near the camera far into the room would warp, and one that reaches
+    -- behind the camera cannot be drawn at all. Those are halved, always across their longest edge, until every
+    -- piece spans little depth, and the pieces are drawn with pooled textures. The longest edge does not depend
+    -- on the camera, so the cuts fall on the same spots of the floor from frame to frame (nothing swims); only
+    -- how far the halving goes changes. Pieces behind the camera are left out.
+    local RATIO, LEVELS = 1.3, 8
     local extra = meshState.extra
     for _, pool in pairs(extra) do pool.used = 0 end
     local scratch, nScratch = meshState.scratch, 0
@@ -693,11 +695,21 @@ local function DrawMesh()
     end
     local function Cut(p1, p2, p3, level)
         local d1, d2, d3 = p1[3], p2[3], p3[3]
-        if level <= 0 or max(d1, d2, d3) <= min(d1, d2, d3) * RATIO then
+        local lo, hi = min(d1, d2, d3), max(d1, d2, d3)
+        if hi <= NEAR then return end                                  -- behind the camera
+        if lo > NEAR and hi <= lo * RATIO then
             Piece(p1, p2, p3)
             return
         end
-        local e12, e23, e31 = math.abs(d1 - d2), math.abs(d2 - d3), math.abs(d3 - d1)
+        if level <= 0 then
+            if lo > NEAR then Piece(p1, p2, p3) end                    -- (one still crossing the near plane: dropped)
+            return
+        end
+        -- halve the longest edge (lengths in camera space are the lengths in the room)
+        local ax, ay, az = p1[1] - p2[1], p1[2] - p2[2], d1 - d2
+        local bx, by, bz = p2[1] - p3[1], p2[2] - p3[2], d2 - d3
+        local qx, qy, qz = p3[1] - p1[1], p3[2] - p1[2], d3 - d1
+        local e12, e23, e31 = ax * ax + ay * ay + az * az, bx * bx + by * by + bz * bz, qx * qx + qy * qy + qz * qz
         if e12 >= e23 and e12 >= e31 then
             local m = Pt((p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2, (d1 + d2) / 2, (p1[4] + p2[4]) / 2, (p1[5] + p2[5]) / 2)
             Cut(p1, m, p3, level - 1)
@@ -716,7 +728,6 @@ local function DrawMesh()
     local occ, ox0, ox1, oy0, oy1, odepth, olow = meshState.occ, meshState.x0, meshState.x1, meshState.y0, meshState.y1,
                                                   meshState.depth, meshState.low
     local over = meshState.over
-    local poly = meshState.poly
     for i = 1, mesh.nTris do
         local a, b, c = t[i * 4 - 3], t[i * 4 - 2], t[i * 4 - 1]
         local da, db, dc = vd[a], vd[b], vd[c]
@@ -759,29 +770,13 @@ local function DrawMesh()
                         bx0, bx1, by0, by1 = min(x1, x2, x3), max(x1, x2, x3), min(y1, y2, y3), max(y1, y2, y3)
                     end
                 else
-                    -- cut it at the near plane (three or four corners are left), then into pieces
+                    -- into pieces, from its own three corners
                     nScratch = 0
-                    local n = 0
-                    local ia, ib = c, a
-                    for edge = 1, 3 do
-                        if edge == 2 then ia, ib = a, b elseif edge == 3 then ia, ib = b, c end
-                        local d1, d2 = vd[ia], vd[ib]
-                        local oa, ob = (ia - 1) * 6, (ib - 1) * 6
-                        if (d1 > NEAR) ~= (d2 > NEAR) then                -- the edge crosses: the crossing point
-                            local k = (NEAR - d1) / (d2 - d1)
-                            n = n + 1
-                            poly[n] = Pt(vr[ia] + (vr[ib] - vr[ia]) * k, vu[ia] + (vu[ib] - vu[ia]) * k, NEAR,
-                                         v[oa + 4] + (v[ob + 4] - v[oa + 4]) * k, v[oa + 5] + (v[ob + 5] - v[oa + 5]) * k)
-                        end
-                        if d2 > NEAR then                                 -- the edge's end point is in front
-                            n = n + 1
-                            poly[n] = Pt(vr[ib], vu[ib], d2, v[ob + 4], v[ob + 5])
-                        end
-                    end
+                    local oa, ob, oc = (a - 1) * 6, (b - 1) * 6, (c - 1) * 6
                     pieceTri, pieceSlot, pieceLight, pieceFile = i, nodeSlot[nodeOf[i]], mesh.light[i], mesh.textures[t[i * 4]]
                     bx0, bx1, by0, by1 = math.huge, -math.huge, math.huge, -math.huge
-                    if n >= 3 then Cut(poly[1], poly[2], poly[3], LEVELS) end
-                    if n == 4 then Cut(poly[1], poly[3], poly[4], LEVELS) end
+                    Cut(Pt(vr[a], vu[a], da, v[oa + 4], v[oa + 5]), Pt(vr[b], vu[b], db, v[ob + 4], v[ob + 5]),
+                        Pt(vr[c], vu[c], dc, v[oc + 4], v[oc + 5]), LEVELS)
                     listed = bx1 >= bx0
                 end
                 if listed then
