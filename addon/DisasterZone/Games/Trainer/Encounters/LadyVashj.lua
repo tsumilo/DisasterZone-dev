@@ -16,10 +16,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Encounters/LadyVashj
 --   models (Wowhead): Lady Vashj 20748, Tainted Elemental 11172, Enchanted Elemental 20076;
 --   effects and sounds: the client's spell visual tables (the core's missile 166648, its impact 166602, sound 4475;
 --     Poison Bolt's missile 166254 and impact 165738, sound 3134; the barrier on Vashj 166541).
--- NOT verified anywhere: the four generators' and the eight edge points' positions (from memory of an older
---   TrinityCore script; they do land on the platform and on the bottom ring of Blizzard's geometry), how long the
---   raid needs to kill a Tainted Elemental (8 s here), how fast Enchanted Elementals walk (2.5 yd/s here), and where
---   a raid stands. The wait between cores is cut from 50 s to a few seconds; Striders, Elites and Vashj's own
+--   the Shield Generators (AzerothCore's world database): game objects 185051-185054, display 7265 = the model
+--     coilfang_floor_light (file 191730) at scale 2.1, at world 52.05 / -901.24, 52.45 / -944.83, 7.81 / -945.24
+--     and 7.42 / -901.11, height 44; the twenty points on the bottom ring where the elementals come up are that
+--     database's trigger creatures (15384) round the room at height 22.7.
+-- NOT verified anywhere: how long the raid needs to kill a Tainted Elemental (8 s here), how fast Enchanted
+--   Elementals walk (2.5 yd/s here), and where a raid stands. The wait between cores is cut from 50 s to a few seconds; Striders, Elites and Vashj's own
 --   attacks are left out.
 local addonName, ns = ...
 
@@ -45,9 +47,15 @@ local RAID_ACTS = { "melee", "melee", "melee", "bow", "caster", "caster", "caste
 -- world (x north, y west) -> arena (x east, y north), Vashj in the middle
 local function W(wx, wy) return -wy - 923.27 + CX, wx - 29.83 + CY end
 
-local GENERATORS = { { W(49.6262, -902.181) }, { W(10.988, -901.616) }, { W(10.3859, -944.036) }, { W(49.3126, -943.398) } }
-local EDGES = { { W(8.3, -835.3) }, { W(53.4, -835.3) }, { W(96.0, -861.9) }, { W(96.0, -986.4) },
-                { W(54.4, -1010.6) }, { W(9.8, -1012.0) }, { W(-35.0, -987.6) }, { W(-58.9, -901.6) } }
+local GENERATORS = { { W(52.048, -901.236) }, { W(52.448, -944.825) }, { W(7.81, -945.244) }, { W(7.417, -901.109) } }
+local GENERATOR_FILE, GENERATOR_SCALE, GENERATOR_Z = 191730, 2.1, 44 - 42.9
+local EDGES = {
+    { W(105.067, -872.941) }, { W(84.7428, -853.508) }, { W(64.3357, -841.26) }, { W(40.8769, -834.864) },
+    { W(17.0779, -835.124) }, { W(-2.90954, -840.206) }, { W(-50.9143, -880.622) }, { W(-57.86, -905.553) },
+    { W(-61.1198, -928.764) }, { W(-41.9311, -977.386) }, { W(-23.5065, -995.797) }, { W(-4.12706, -1006.32) },
+    { W(19.4301, -1012.53) }, { W(45.0402, -1011.17) }, { W(66.2753, -1005.51) }, { W(85.0194, -993.275) },
+    { W(101.522, -977.193) }, { W(112.854, -957.347) }, { W(118.098, -938.05) },
+}
 
 local function SpellIcon(spellID, fallback)
     return (GetSpellTexture and GetSpellTexture(spellID)) or ("Interface\\Icons\\" .. fallback)
@@ -124,7 +132,6 @@ end
 local function UseOnGenerator(sim, who, gen)
     local core = sim.core
     gen.active = false
-    gen.name = "Shield Generator (off)"
     gen.interact = nil
     core.holder, core.state, core.doneAt = nil, "done", sim.time
     if who == sim.player then sim.player.rooted = false end
@@ -237,7 +244,8 @@ local function Start(sim)
     sim.generators = {}
     for i, g in ipairs(GENERATORS) do
         local u = sim:Spawn({ kind = "generator", name = "Shield Generator", x = g[1], y = g[2], radius = 1.5,
-                              color = { 0.3, 0.9, 1 }, active = true, plate = 5, label = true })
+                              color = { 0.3, 0.9, 1 }, active = true, tall = 6,
+                              fdid = GENERATOR_FILE, scale = GENERATOR_SCALE, z = GENERATOR_Z })
         u.interact = function(s, gen)
             if s.core and s.core.holder == s.player then
                 UseOnGenerator(s, s.player, gen)
@@ -251,7 +259,7 @@ local function Start(sim)
     local role = sim.diff.role
     local share = (role == "looter") and 0.8 or (role == "finisher") and 0.25 or 0.5
     local p = sim.player
-    p.x, p.y = Toward(EDGES[8][1], EDGES[8][2], share)
+    p.x, p.y = Toward(EDGES[9][1], EDGES[9][2], share)          -- (the south side)
     p.facing = math.atan2(CY - p.y, CX - p.x)
     sim.nextElemental = sim.time + 3
     sim.nextEnchanted = sim.time + 1
@@ -353,7 +361,7 @@ local function Update(sim, dt)
             if sim.target == e then sim.target = nil end
             core.state, core.diedAt = "onground", sim.time
             core.corpse = sim:Spawn({ kind = "core", name = "Tainted Core", x = e.x, y = e.y, radius = 1.2,
-                                      color = { 0.4, 1, 0.5 }, plate = 2, label = true, icon = CORE_ICON })
+                                      color = { 0.4, 1, 0.5 }, tall = 2.5, icon = CORE_ICON })
             core.corpse.interact = function(s) LootCore(s, s.player) end
             sim:Fx({ kind = "model", fdid = FX.coreImpact, unit = core.corpse, z = 1 }, LOOT_DESPAWN)   -- it glows where it lies
             if core.looter then core.looter.goal = { x = e.x, y = e.y, stop = 2.5 } end

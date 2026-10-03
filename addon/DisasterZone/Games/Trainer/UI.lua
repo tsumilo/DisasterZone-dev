@@ -227,12 +227,14 @@ local function ActorFor(u)
         actors[u.id] = a
         a.anim = nil               -- (a pooled actor keeps its model: the same key does not load again)
     end
-    local key = u.model or u.display
+    local key = u.model or u.display or (u.fdid and ("file" .. u.fdid))
     if a.key ~= key then
         a.key, a.anim = key, nil
         pcall(a.ClearModel, a)
         if u.model == "player" then
             if not (a.SetModelByUnit and pcall(a.SetModelByUnit, a, "player")) then a.noModel = true end
+        elseif u.fdid then
+            if not (a.SetModelByFileID and pcall(a.SetModelByFileID, a, u.fdid)) then a.noModel = true end
         elseif u.display then
             pcall(a.SetModelByCreatureDisplayID, a, u.display)
         end
@@ -263,12 +265,18 @@ end
 local function DrawActors()
     local seen = {}
     for _, u in ipairs(sim.units) do
-        local show = (u.model or u.display) and (not u.dead or sim.time - (u.diedAt or 0) < 2.5)
+        local show = (u.model or u.display or u.fdid) and (not u.dead or sim.time - (u.diedAt or 0) < 2.5)
         if show then
             local a = ActorFor(u)
             if a then
                 seen[u.id] = true
-                pcall(a.SetPosition, a, u.x, SY(u.y), GroundZ(u.x, u.y))
+                -- (an actor's position is multiplied by its scale: divide it out)
+                local scale = u.scale or 1
+                if a.scale ~= scale then
+                    a.scale = scale
+                    pcall(a.SetScale, a, scale)
+                end
+                pcall(a.SetPosition, a, u.x / scale, SY(u.y) / scale, (u.z or GroundZ(u.x, u.y)) / scale)
                 -- a strafing body swings round over a moment, not in one frame
                 local want = u.bodyTurn or 0
                 local have = a.bodyTurn or 0
@@ -301,6 +309,9 @@ end
 local lineCount = { floor = 0, fx = 0 }
 
 -- One world-space segment, cut at the camera's near plane, drawn as a Line over (or under) the scene.
+local PlaceTex
+local lineSlot       -- set while drawing marks: the place in the room's draw order the next lines go to (nil: on top)
+
 local function Segment(pool, which, parent, x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
     local function depth(x, y, z) return (x - cam.x) * cam.fx + (SY(y) - cam.y) * cam.fy + (z - cam.z) * cam.fz end
     local d1, d2 = depth(x1, y1, z1), depth(x2, y2, z2)
@@ -327,6 +338,13 @@ local function Segment(pool, which, parent, x1, y1, z1, x2, y2, z2, r, g, b, a, 
     l:SetColorTexture(r, g, b, a)
     l:SetStartPoint("BOTTOMLEFT", scene, ax, ay)
     l:SetEndPoint("BOTTOMLEFT", scene, bx, by)
+    if lineSlot then
+        PlaceTex(l, lineSlot, false)                -- among the room's triangles: what is nearer paints over it
+    elseif l.slot then
+        l.slot, l.fi = nil, nil
+        l:SetParent(parent)
+        l:SetDrawLayer("ARTWORK", 0)
+    end
     l:Show()
 end
 
@@ -345,15 +363,16 @@ end
 -- facing away, behind the camera or off screen are hidden; the rest are layered far to near.
 local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {}, over = {}, occ = {}, nOcc = 0,
                     x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, low = {}, models = {},
-                    vr = {}, vu = {}, vd = {}, clip = { {}, {}, {}, {} }, far = 110 }
+                    vr = {}, vu = {}, vd = {}, clip = { {}, {}, {}, {} }, far = 110, stackN = {}, stackP = {} }
 local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
-local MESH_FRAMES = 8                    -- frames stacked by level, each with 3 layers of 16 sublevels: 384 slots
-local MESH_SLOTS = MESH_FRAMES * 48
+local MESH_FRAMES = 64                   -- frames stacked by level, each with 3 layers of 16 sublevels
+local MESH_SLOTS = MESH_FRAMES * 48      -- 3072 places in the draw order
 
--- Draw order. A texture has no depth test, so the room is painted back to front in 384 slots, by each
--- triangle's farthest corner (a big floor piece then goes down before what stands on its far end), finer near
--- the camera.
-local function PlaceTex(tx, slot, over)
+-- Draw order. A texture has no depth test, so the room is painted back to front. The order comes from the
+-- mesh's BSP tree (built by the generator): at every node, the side the camera is not on, then the node's own
+-- triangles, then the camera's side. That is exact from any viewpoint. Every node gets its own place; the
+-- place after it is for lines lying on its triangles (marks on the floor).
+function PlaceTex(tx, slot, over)
     if tx.slot == slot and tx.over == over then return end
     local fi = floor(slot / 48) + 1
     if tx.fi ~= fi or tx.over ~= over then tx:SetParent((over and overFrames or meshFrames)[fi]) end
@@ -378,21 +397,16 @@ local function PrepareMesh(mesh)
         local nx, ny, nz = mesh.normal[i * 3 - 2], mesh.normal[i * 3 - 1], mesh.normal[i * 3]
         mesh.steep = mesh.steep or {}
         mesh.steep[i] = nz < 0.7 * math.sqrt(nx * nx + ny * ny + nz * nz)
-        mesh.top = mesh.top or {}
-        mesh.top[i] = max(v[a + 3], v[b + 3], v[c + 3])
     end
-    -- height bands: at most 32, each at least a yard
-    local lo, hi = math.huge, -math.huge
-    for i = 1, mesh.nTris do
-        lo, hi = min(lo, mesh.top[i]), max(hi, mesh.top[i])
+    -- the BSP tree: which node a triangle belongs to; how many places a node gets
+    local nodes = mesh.nodes
+    mesh.nNodes = #nodes / 8
+    mesh.nodeOf, mesh.nodeSlot = {}, {}
+    for k = 1, mesh.nNodes do
+        local o = k * 8 - 8
+        for i = nodes[o + 7], nodes[o + 7] + nodes[o + 8] - 1 do mesh.nodeOf[i] = k end
     end
-    local bandH = max(1, (hi - lo) / 32)
-    mesh.bands = max(1, math.ceil((hi - lo) / bandH + 0.001))
-    mesh.perBand = floor(MESH_SLOTS / mesh.bands)
-    mesh.band = {}
-    for i = 1, mesh.nTris do
-        mesh.band[i] = min(mesh.bands - 1, floor((mesh.top[i] - lo) / bandH))
-    end
+    mesh.slotStep = max(1, floor(MESH_SLOTS / mesh.nNodes))
 end
 
 local function HideMesh()
@@ -508,6 +522,7 @@ local function DrawMesh()
     meshState.basis = { camX = camX, camY = camY, camZ = camZ, m = m, fx = fx, fy = fy, fz = fz, rx = rx, ry = ry,
                         ux = ux, uy = uy, uz = uz, cx = cx, cy = cy, exx = exx, exy = exy, eyx = eyx, eyy = eyy }
     local nOcc = 0
+    local eyeX, eyeY = camX, m * camY                                  -- the camera in the mesh's own coordinates
     -- every vertex in camera space (right, up, ahead); the ones in front of the camera also on screen
     local vr, vu, vd = meshState.vr, meshState.vu, meshState.vd
     local NEAR = 0.4
@@ -525,8 +540,37 @@ local function DrawMesh()
     end
 
     local tex, shown = meshState.tex, meshState.shown
-    local eyeX, eyeY = camX, m * camY                                  -- the camera in the mesh's own coordinates
-    local far = meshState.far
+    -- walk the tree: far side, the node, near side
+    local nodes, nodeSlot, step = mesh.nodes, mesh.nodeSlot, mesh.slotStep
+    local stackN, stackP = meshState.stackN, meshState.stackP
+    local sp, rank = 1, 0
+    stackN[1], stackP[1] = 1, 0
+    local squeeze = (mesh.nNodes * step > MESH_SLOTS) and (MESH_SLOTS / (mesh.nNodes * step)) or 1
+    while sp > 0 do
+        local k, phase = stackN[sp], stackP[sp]
+        local o = k * 8 - 8
+        local side = nodes[o + 1] * eyeX + nodes[o + 2] * eyeY + nodes[o + 3] * camZ + nodes[o + 4]
+        if phase == 0 then
+            stackP[sp] = 1
+            local first = (side > 0) and nodes[o + 6] or nodes[o + 5]           -- the side the camera is not on
+            if first ~= 0 then
+                sp = sp + 1
+                stackN[sp], stackP[sp] = first, 0
+            end
+        elseif phase == 1 then
+            nodeSlot[k] = floor(rank * step * squeeze)
+            rank = rank + 1
+            stackP[sp] = 2
+            local second = (side > 0) and nodes[o + 5] or nodes[o + 6]
+            if second ~= 0 then
+                sp = sp + 1
+                stackN[sp], stackP[sp] = second, 0
+            end
+        else
+            sp = sp - 1
+        end
+    end
+    local nodeOf = mesh.nodeOf
     local clip = meshState.clip                                        -- scratch: up to 4 points of r, u, depth, tu, tv
     for i = 1, mesh.nTris do
         local a, b, c = t[i * 4 - 3], t[i * 4 - 2], t[i * 4 - 1]
@@ -601,11 +645,9 @@ local function DrawMesh()
                     tx:SetVertexOffset(2, x2, y2)
                     tx:SetVertexOffset(3, x4 - 1, y4 - 1)
                     tx:SetVertexOffset(4, x3 - 1, y3)
-                    -- its slot: far ones first, by the farthest corner (finer near the camera)
+                    -- its place in the draw order: its node's
                     local depth = (max(vd[a], NEAR) + max(vd[b], NEAR) + max(vd[c], NEAR)) / 3
-                    local reach = max(vd[a], vd[b], vd[c], NEAR)
-                    local slot = MESH_SLOTS - 1 - min(MESH_SLOTS - 1, floor(MESH_SLOTS * math.sqrt(min(1, reach / far))))
-                    PlaceTex(tx, slot, meshState.over[i] or false)
+                    PlaceTex(tx, nodeSlot[nodeOf[i]], meshState.over[i] or false)
                     if not shown[i] then
                         shown[i] = true
                         tx:Show()
@@ -716,15 +758,51 @@ local function DrawFloor()
     for i = lineCount.floor + 1, #floorLines do floorLines[i]:Hide() end
 end
 
+-- The place in the room's draw order for something lying on the floor at (x, y): right after the triangle it
+-- lies on (found on screen: the visible triangle under that point whose surface is at that height), so whatever
+-- is nearer still paints over it. Without a mesh, or off screen: nil (drawn on top, as before).
+local function SlotAt(x, y)
+    local st, mesh = meshState, meshState.mesh
+    if not (mesh and st.basis and sim.enc.arena.mesh == mesh) then return nil end
+    local z = GroundZ(x, y)
+    local px, py = Project(x, y, z)
+    if not px then return nil end
+    local sx, sy, t, v = st.sx, st.sy, mesh.tris, mesh.verts
+    local own, top
+    for n = 1, st.nOcc do
+        local i = st.occ[n]
+        if px >= st.x0[i] and px <= st.x1[i] and py >= st.y0[i] and py <= st.y1[i] and not st.tex[i].clipped then
+            local a, b, c = t[i * 4 - 3], t[i * 4 - 2], t[i * 4 - 1]
+            local ax, ay, bx, by, cx, cy = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
+            local d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+            if d ~= 0 then
+                local w1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d
+                local w2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d
+                local w3 = 1 - w1 - w2
+                if w1 >= -0.02 and w2 >= -0.02 and w3 >= -0.02 then
+                    local slot = st.tex[i].slot
+                    local zt = w1 * v[a * 6 - 3] + w2 * v[b * 6 - 3] + w3 * v[c * 6 - 3]
+                    if math.abs(zt - z) < 1.5 and (not own or slot > own) then own = slot end
+                    if not top or slot > top then top = slot end
+                end
+            end
+        end
+    end
+    local slot = own or top
+    return slot and min(MESH_SLOTS - 1, slot + (mesh.slotStep > 1 and 1 or 0))
+end
+
 local function DrawEffects()
     lineCount.fx = 0
     local t = sim.target
     if t and not t.dead then
+        lineSlot = SlotAt(t.x, t.y)
         if t.friendly then
             Circle(t.x, t.y, t.radius + 0.4, 0.1, 1, 0.1, 0.9, 3)
         else
             Circle(t.x, t.y, t.radius + 0.4, 1, 0.1, 0.1, 0.9, 3)                           -- hostile: red
         end
+        lineSlot = nil
     end
     -- the encounter's marks: a ring on the floor, a column standing on it, a label on top
     local nLabels = 0
@@ -746,18 +824,23 @@ local function DrawEffects()
     end
     for _, mk in ipairs(sim.marks or {}) do
         local c = mk.color or { 1, 1, 1 }
+        lineSlot = SlotAt(mk.x, mk.y)
         Circle(mk.x, mk.y, mk.r or 3, c[1], c[2], c[3], 0.9, 2)
         if (mk.column or 0) > 0 then
             local g = GroundZ(mk.x, mk.y)
             Segment(fxLines, "fx", plateFrame, mk.x, mk.y, g, mk.x, mk.y, g + mk.column, c[1], c[2], c[3], 0.8, 3)
         end
+        lineSlot = nil
         if mk.label then Label(mk.label, mk.x, mk.y, (mk.column or 0) + 0.5, c[1], c[2], c[3]) end
     end
     for i = nLabels + 1, #markLabels do markLabels[i]:Hide() end
     for _, b in ipairs(sim.beams or {}) do                           -- { x, y, z, x2, y2, z2, r, g, b }
+        local s1, s2 = SlotAt(b[1], b[2]), SlotAt(b[4], b[5])
+        lineSlot = (s1 and s2) and max(s1, s2) or s1 or s2
         Segment(fxLines, "fx", plateFrame, b[1], b[2], GroundZ(b[1], b[2]) + b[3], b[4], b[5], GroundZ(b[4], b[5]) + b[6],
                 b[7], b[8], b[9], 0.75, 3)
     end
+    lineSlot = nil
     for i = lineCount.fx + 1, #fxLines do fxLines[i]:Hide() end
 end
 
@@ -964,7 +1047,7 @@ local function PickAt(x, y)
         if not u.dead and (u.targetable or u.selectable or u.interact) then
             local ground = GroundZ(u.x, u.y)
             local fx, fy = Project(u.x, u.y, ground)
-            local hx, hy = Project(u.x, u.y, ground + (u.plate or PLATE_HEIGHT[u.kind] or 3))
+            local hx, hy = Project(u.x, u.y, ground + (u.plate or u.tall or PLATE_HEIGHT[u.kind] or 3))
             if fx and hx then
                 local half = max(10, math.abs(hy - fy) * 0.35)
                 local cx, cy = (fx + hx) / 2, (fy + hy) / 2
@@ -1055,16 +1138,16 @@ local function CreateScene(parent)
     for k = 1, MESH_FRAMES do
         meshFrames[k] = CreateFrame("Frame", nil, parent)
         meshFrames[k]:SetAllPoints()
-        meshFrames[k]:SetFrameLevel(parent:GetFrameLevel() + 1 + k)
+        meshFrames[k]:SetFrameLevel(parent:GetFrameLevel() + 1 + k)                   -- 2 .. 65
         overFrames[k] = CreateFrame("Frame", nil, parent)
         overFrames[k]:SetAllPoints()
-        overFrames[k]:SetFrameLevel(parent:GetFrameLevel() + 11 + k)
+        overFrames[k]:SetFrameLevel(parent:GetFrameLevel() + 70 + k)                  -- 71 .. 134
     end
     sc:SetAllPoints()
-    sc:SetFrameLevel(parent:GetFrameLevel() + 11)
+    sc:SetFrameLevel(parent:GetFrameLevel() + 70)
     plateFrame = CreateFrame("Frame", nil, parent)
     plateFrame:SetAllPoints()
-    plateFrame:SetFrameLevel(parent:GetFrameLevel() + 21)
+    plateFrame:SetFrameLevel(parent:GetFrameLevel() + 140)
     pcall(sc.SetCameraFieldOfView, sc, 1.1)
     pcall(sc.SetCameraNearClip, sc, 0.5)
     pcall(sc.SetCameraFarClip, sc, 500)
@@ -1411,7 +1494,7 @@ end
 local function CreateUnitFrames()
     hud.frame = CreateFrame("Frame", nil, view)
     hud.frame:SetAllPoints()
-    hud.frame:SetFrameLevel(view:GetFrameLevel() + 23)
+    hud.frame:SetFrameLevel(view:GetFrameLevel() + 142)
     hud.player = NewUnitFrame(hud.frame, true)
     hud.player.isPlayer = true
     hud.player:SetScale(0.72)
@@ -1839,7 +1922,7 @@ function UI:CreatePanel(parent)
     CreateScene(view)
 
     arena = CreateFrame("Frame", nil, view)
-    arena:SetFrameLevel(view:GetFrameLevel() + 23)
+    arena:SetFrameLevel(view:GetFrameLevel() + 142)
     if scene then arena:SetPoint("TOPRIGHT", view, "TOPRIGHT", -6, -6) else arena:SetPoint("CENTER") end
     arena:SetSize(MINI_W, MINI_H)
     local floorTex = arena:CreateTexture(nil, "BACKGROUND")
@@ -1862,7 +1945,7 @@ function UI:CreatePanel(parent)
     R.corpse:Hide()
 
     R.timer = CreateFrame("Frame", nil, view)
-    R.timer:SetFrameLevel(view:GetFrameLevel() + 24)
+    R.timer:SetFrameLevel(view:GetFrameLevel() + 143)
     R.timer:SetSize(200, 14)
     R.timer:SetPoint("TOP", view, "TOP", 0, -6)
     local tbg = R.timer:CreateTexture(nil, "BACKGROUND")
@@ -1877,7 +1960,7 @@ function UI:CreatePanel(parent)
 
     local hud = CreateFrame("Frame", nil, view)
     hud:SetAllPoints()
-    hud:SetFrameLevel(view:GetFrameLevel() + 24)
+    hud:SetFrameLevel(view:GetFrameLevel() + 143)
     R.banner = hud:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     if scene then
         -- below the unit frames and aura icons, where the client puts its raid warnings
@@ -1922,7 +2005,7 @@ function UI:CreatePanel(parent)
     -- briefing / result
     overlay = CreateFrame("Frame", nil, root)
     overlay:SetAllPoints(view)
-    overlay:SetFrameLevel(view:GetFrameLevel() + 40)
+    overlay:SetFrameLevel(view:GetFrameLevel() + 160)
     overlay:EnableMouse(true)
     local dim = overlay:CreateTexture(nil, "BACKGROUND")
     dim:SetAllPoints()
@@ -1940,7 +2023,7 @@ function UI:CreatePanel(parent)
     -- paused
     focusOverlay = CreateFrame("Button", nil, root)
     focusOverlay:SetAllPoints(view)
-    focusOverlay:SetFrameLevel(view:GetFrameLevel() + 38)
+    focusOverlay:SetFrameLevel(view:GetFrameLevel() + 158)
     local fdim = focusOverlay:CreateTexture(nil, "BACKGROUND")
     fdim:SetAllPoints()
     fdim:SetColorTexture(0, 0, 0, 0.55)
@@ -2031,6 +2114,24 @@ UI._Guide = function()
     local tiles = 0
     for _, t in ipairs(R.miniTiles) do if t:IsShown() then tiles = tiles + 1 end end
     return { status = R.status:GetText(), compass = compass, labels = labels, tiles = tiles }
+end
+-- Tests: the room's draw order (every node's place) and where the lines of the marks were put.
+UI._Order = function()
+    local mesh = meshState.mesh
+    if not mesh then return nil end
+    local seen, distinct, lines = {}, 0, {}
+    for k = 1, mesh.nNodes do
+        local s = mesh.nodeSlot[k]
+        if s and not seen[s] then seen[s] = true distinct = distinct + 1 end
+    end
+    for _, l in ipairs(fxLines) do
+        if l:IsShown() then lines[#lines + 1] = l.slot or -1 end
+    end
+    local wrong = 0
+    for i in pairs(meshState.shown) do
+        if meshState.tex[i].slot ~= mesh.nodeSlot[mesh.nodeOf[i]] then wrong = wrong + 1 end
+    end
+    return { nodes = mesh.nNodes, distinct = distinct, step = mesh.slotStep, lines = lines, wrong = wrong }
 end
 UI._Plates = function()
     local out = {}

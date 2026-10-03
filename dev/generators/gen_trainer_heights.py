@@ -48,7 +48,7 @@ ROOMS = {
         out="LadyVashjFloor.lua", key="vashj", root=112018, group=112025,
         title="Lady Vashj's room as Blizzard built it (coilfang_raid.wmo, group 6)",
         w=210, h=210, z_main=42.9, base=-26.0, step=0.5, top=4.5, alphabet=ALPHA62,
-        blank=True, floor_top=6.0, floor_bottom=-27.0, mesh_top=6.0, radius=100.0, band=7.0, max_edge=24.0,
+        blank=True, floor_top=6.0, floor_bottom=-27.0, mesh_top=6.0, radius=100.0, band=7.0, max_edge=40.0,
         to_arena=lambda x, y: (y - 923.27 + 105.0, -x - 29.83 + 105.0),
         to_local=lambda ax, ay: (-(ay - 105.0) - 29.83, ax - 105.0 + 923.27),
     ),
@@ -106,46 +106,103 @@ class Floor:
         return best
 
 
+EPS = 0.02
+
+
+def plane_of(tri):
+    n = normal(tri[0][:3], tri[1][:3], tri[2][:3])
+    if not n:
+        return None
+    return (n[0], n[1], n[2], -(n[0] * tri[0][0] + n[1] * tri[0][1] + n[2] * tri[0][2]))
+
+
+def split_tri(tri, plane):
+    """Cut a triangle (3 vertices of x, y, z, u, v, light) by a plane -> (front pieces, back pieces)."""
+    d = [plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3] for p in tri]
+    front, back = [], []
+    for k in range(3):
+        a, b, da, db = tri[k], tri[(k + 1) % 3], d[k], d[(k + 1) % 3]
+        if da >= -EPS:
+            front.append(a)
+        if da <= EPS:
+            back.append(a)
+        if (da > EPS and db < -EPS) or (da < -EPS and db > EPS):
+            t = da / (da - db)
+            m = tuple(a[i] + (b[i] - a[i]) * t for i in range(6))
+            front.append(m)
+            back.append(m)
+
+    def fan(poly):
+        return [(poly[0], poly[i], poly[i + 1]) for i in range(1, len(poly) - 1)] if len(poly) >= 3 else []
+    return fan(front), fan(back)
+
+
+def build_bsp(tris, rng):
+    """tris: [(tex, (v0, v1, v2))] -> nodes [{plane, front, back, tris}] (children are node indices, 0 = none).
+    Painting a node's far side, then its own triangles, then its near side gives an exact back-to-front order
+    from any viewpoint."""
+    nodes = [None]                                    # 1-based, like Lua
+    work = [(tris, None, None)]                       # (triangles, parent node index, 'front' / 'back')
+    while work:
+        items, parent, side = work.pop()
+        if not items:
+            continue
+        # the splitter: of a few candidates the one that cuts the fewest triangles and balances best
+        best, best_score = None, None
+        cands = items if len(items) <= 14 else rng.sample(items, 14)
+        sample = items if len(items) <= 400 else rng.sample(items, 400)
+        for _, tri in cands:
+            pl = plane_of(tri)
+            if not pl:
+                continue
+            f = b = sp = 0
+            for _, other in sample:
+                d = [pl[0] * p[0] + pl[1] * p[1] + pl[2] * p[2] + pl[3] for p in other]
+                if max(d) <= EPS and min(d) >= -EPS:
+                    continue
+                if min(d) >= -EPS:
+                    f += 1
+                elif max(d) <= EPS:
+                    b += 1
+                else:
+                    sp += 1
+            score = sp * 6 + abs(f - b)
+            if best_score is None or score < best_score:
+                best, best_score = pl, score
+        if best is None:                              # only degenerate triangles left
+            continue
+        node = {"plane": best, "front": 0, "back": 0, "tris": []}
+        nodes.append(node)
+        me = len(nodes) - 1
+        if parent:
+            nodes[parent][side] = me
+        fr, bk = [], []
+        for tex, tri in items:
+            d = [best[0] * p[0] + best[1] * p[1] + best[2] * p[2] + best[3] for p in tri]
+            if max(d) <= EPS and min(d) >= -EPS:
+                node["tris"].append((tex, tri))
+            elif min(d) >= -EPS:
+                fr.append((tex, tri))
+            elif max(d) <= EPS:
+                bk.append((tex, tri))
+            else:
+                f, b = split_tri(tri, best)
+                fr += [(tex, t) for t in f if plane_of(t)]
+                bk += [(tex, t) for t in b if plane_of(t)]
+        work.append((fr, me, "front"))
+        work.append((bk, me, "back"))
+    return nodes
+
+
 def build_mesh(root, group, room):
-    """-> (textures, verts [(x, y, z, u, v, light)], tris [(a, b, c, texture index)]) in arena coordinates."""
+    """-> (textures, verts [(x, y, z, u, v, light)], tris [(a, b, c, texture index)], nodes [(plane, front, back,
+    first triangle, count)]) in arena coordinates. The triangles are listed node by node."""
+    import random
     textures, tex_index = [], {}
-    verts, vert_index, tris = [], {}, []
     to_arena, z_main = room["to_arena"], room["z_main"]
     radius = room.get("radius")
     cx, cy = room["w"] / 2.0, room["h"] / 2.0
-
-    def vert(p):
-        key = tuple(round(v, 2) for v in p)
-        if key not in vert_index:
-            vert_index[key] = len(verts)
-            verts.append(key)
-        return vert_index[key]
-
-    def emit(pa, pb, pc, tex):
-        # a vertex = (x, y, z, u, v, light); split the longest edge until every edge is short enough
-        edges = [(math.dist(pa[:3], pb[:3]), 0), (math.dist(pb[:3], pc[:3]), 1), (math.dist(pc[:3], pa[:3]), 2)]
-        longest, which = max(edges)
-        zs = (pa[2], pb[2], pc[2])
-        n = normal(pa[:3], pb[:3], pc[:3])
-        steep = n is not None and abs(n[2]) < 0.5
-        if steep and longest <= room.get("max_edge", MAX_EDGE) and max(zs) - min(zs) > room.get("band", BAND) and longest > 1.5:
-            # a tall piece (a wall, a pillar): cut it into height bands, so the renderer can layer the room by
-            # height. Split the edge that climbs the most.
-            pts = [pa, pb, pc]
-            climbs = [(abs(pts[i][2] - pts[(i + 1) % 3][2]), i) for i in range(3)]
-            which = max(climbs)[1]
-            longest = MAX_EDGE * 1000
-        if longest > room.get("max_edge", MAX_EDGE):
-            pts = [pa, pb, pc]
-            p, q, r = pts[which], pts[(which + 1) % 3], pts[(which + 2) % 3]
-            m = tuple((p[i] + q[i]) / 2 for i in range(6))
-            emit(p, m, r, tex)
-            emit(m, q, r, tex)
-            return
-        if radius and min(math.hypot(p[0] - cx, p[1] - cy) for p in (pa, pb, pc)) > radius:
-            return                                       # outside the part of the room the fight uses
-        tris.append((vert(pa), vert(pb), vert(pc), tex))
-
+    raw_tris = []
     colors = group.get("colors")
     for t, mat in zip(group["tris"], group["mats"]):
         if mat == 255:                                   # collision only
@@ -169,13 +226,51 @@ def build_mesh(root, group, room):
                 light = (0.3 * r + 0.59 * g + 0.11 * b) / 127.0      # 127 = the texture as it is
             ax, ay = to_arena(x, y)
             pts.append((ax, ay, z - z_main, u, v, max(0.25, min(1.0, light))))
+        if radius and min(math.hypot(p[0] - cx, p[1] - cy) for p in pts) > radius:
+            continue                                     # outside the part of the room the fight uses
         if file_id not in tex_index:
             tex_index[file_id] = len(textures) + 1       # Lua index
             textures.append(file_id)
         # both rooms are turned, not mirrored, so the winding (and with it the front face) stays
-        emit(pts[0], pts[1], pts[2], tex_index[file_id])
-    # textures of triangles that were all cut away are harmless
-    return textures, verts, tris
+        raw_tris.append((tex_index[file_id], (pts[0], pts[1], pts[2])))
+
+    nodes = build_bsp(raw_tris, random.Random(7))
+
+    verts, vert_index, tris, out_nodes = [], {}, [], []
+
+    def vert(p):
+        key = tuple(round(v, 2) for v in p)
+        if key not in vert_index:
+            vert_index[key] = len(verts)
+            verts.append(key)
+        return vert_index[key]
+
+    def emit(pa, pb, pc, tex):
+        # long pieces are cut (inside their node: the order does not care) so textures do not swim
+        edges = [(math.dist(pa[:3], pb[:3]), 0), (math.dist(pb[:3], pc[:3]), 1), (math.dist(pc[:3], pa[:3]), 2)]
+        longest, which = max(edges)
+        if longest > room.get("max_edge", MAX_EDGE):
+            pts = [pa, pb, pc]
+            p, q, r = pts[which], pts[(which + 1) % 3], pts[(which + 2) % 3]
+            m = tuple((p[i] + q[i]) / 2 for i in range(6))
+            emit(p, m, r, tex)
+            emit(m, q, r, tex)
+            return
+        a, b, c = vert(pa), vert(pb), vert(pc)
+        if a != b and b != c and a != c:
+            tris.append((a, b, c, tex))
+
+    for node in nodes[1:]:
+        first = len(tris)
+        for tex, tri in node["tris"]:
+            emit(tri[0], tri[1], tri[2], tex)
+        out_nodes.append((node["plane"], node["front"], node["back"], first + 1, len(tris) - first))
+    return textures, verts, tris, out_nodes
+
+
+def num4(v):
+    s = ("%.4f" % v).rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "") else s
 
 
 def num(v):
@@ -203,7 +298,7 @@ def generate(name):
             lo, hi = min(lo, h), max(hi, h)
             row += alphabet[max(0, min(len(alphabet) - 1, int(round((h - base) / step))))]
         rows.append(row)
-    textures, verts, mesh_tris = build_mesh(root, group, room)
+    textures, verts, mesh_tris, nodes = build_mesh(root, group, room)
     out = os.path.join(OUT_DIR, room["out"])
     rel = "Games/Trainer/Encounters/" + room["out"]
     lines = [
@@ -213,7 +308,9 @@ def generate(name):
         "-- rows: the floor's height, one character per square yard, south to north, west to east:",
         "--       height = (its place in alphabet, from 0) * step + base; a space = no floor there.",
         "-- mesh: the room's own triangles. textures = texture file IDs; verts = x, y, z, u, v, light for each vertex;",
-        "--       tris = vertex a, b, c (1-based) and texture (index into textures) for each triangle.",
+        "--       tris = vertex a, b, c (1-based) and texture (index into textures) for each triangle;",
+        "--       nodes = a BSP tree of the triangles: plane a, b, c, d, front child, back child (0 = none), first",
+        "--       triangle and count for each node. Far side, the node, near side: back to front from anywhere.",
         "-- AUTO-GENERATED by gen_trainer_heights.py; do not edit by hand.",
         "local _, ns = ...",
         "ns.TrainerFloors = ns.TrainerFloors or {}",
@@ -227,11 +324,15 @@ def generate(name):
     lines += ["  },", "  tris = {"]
     for i in range(0, len(mesh_tris), 12):
         lines.append("    " + " ".join("%d,%d,%d,%d," % (a + 1, b + 1, c + 1, t) for a, b, c, t in mesh_tris[i:i + 12]))
+    lines += ["  },", "  nodes = {"]
+    for i in range(0, len(nodes), 4):
+        lines.append("    " + " ".join("%s,%s,%s,%s,%d,%d,%d,%d," % (num4(pl[0]), num4(pl[1]), num4(pl[2]), num(pl[3]), f, b, st, n)
+                                       for pl, f, b, st, n in nodes[i:i + 4]))
     lines += ["  },", "} }", ""]
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines))
-    print("wrote %s: %d x %d, heights %.2f .. %.2f, %d cells without floor; mesh %d vertices, %d triangles, %d textures, %d KB"
-          % (os.path.normpath(out), room["w"], room["h"], lo, hi, holes, len(verts), len(mesh_tris), len(textures),
+    print("wrote %s: %d x %d, heights %.2f .. %.2f, %d cells without floor; mesh %d vertices, %d triangles, %d nodes, %d textures, %d KB"
+          % (os.path.normpath(out), room["w"], room["h"], lo, hi, holes, len(verts), len(mesh_tris), len(nodes), len(textures),
              os.path.getsize(out) // 1024))
 
 

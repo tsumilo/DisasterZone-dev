@@ -94,7 +94,7 @@ def the_room_is_the_round_stepped_platform():
     g = c.eval_py("T_V.new('finisher') local t = {} for _, g in ipairs(T_V.sim.generators) do t[#t+1] = { g.x, g.y } end return t")
     assert len(g) == 4
     for x, y in g:
-        assert 26 < math.hypot(x - 105, y - 105) < 31 and -2.5 < h(x, y) < 0 and ok(x, y), (x, y, h(x, y))
+        assert 29 < math.hypot(x - 105, y - 105) < 33 and -2.5 < h(x, y) < 0.5 and ok(x, y), (x, y, h(x, y))
     no_errors(w)
 
 
@@ -116,7 +116,7 @@ def an_elemental_comes_up_is_killed_and_leaves_a_core():
     core = sim(c, "local c = s.core return { c.state, c.role, c.elemental.display, c.elemental.targetable, #s.beams }")
     assert core == ["elemental", "looter", 11172, True, 4], core
     d = sim(c, "return ns.Trainer.Dist(s.core.x, s.core.y, 105, 105)")
-    assert 85 < d < 95, d                                               # at the room's edge
+    assert 85 < d < 97, d                                               # at the room's edge
     assert sim(c, "return s.core.looter == nil") and sim(c, "return #s:Alive('raider')") >= 2   # relay + generator
     assert "LOOTER" in sim(c, "return s.objective")
     c.eval("T_V.run(4)")
@@ -273,6 +273,15 @@ def the_panel_shows_allies_and_things_to_use():
     assert sorted(marks) == [7, 7, 7, 16, 16], marks                     # four generators (yours taller), the elemental
     assert sim(c, "local n = 0 for _, u in ipairs(s.units) do if u.display == 20570 then n = n + 1 end end return n") == 0   # (an imp)
     assert sim(c, "local n = 0 for _, u in ipairs(s:Alive('raider')) do if u.name:find('^Raider %(') then n = n + 1 end end return n") >= 2
+    # the room's draw order: every node of its BSP tree has its own place, the triangles sit on their node's, and
+    # the marks' rings and columns are put right after the floor they lie on (an odd place), not on top of everything
+    o = c.eval_py("return ns.TrainerUI._Order()")
+    assert o["nodes"] > 1000 and o["distinct"] == o["nodes"] and o["step"] == 2 and o["wrong"] == 0, {k: v for k, v in o.items() if k != "lines"}
+    placed = [s for s in o["lines"] if s >= 0]
+    assert len(placed) > 20 and all(s % 2 == 1 for s in placed), o["lines"][:40]
+    # the generators are the game's own object: the floor light model, 2.1 times its size, on its own height
+    gen = sim(c, "local g = s.generators[1] local a = ns.TrainerUI._Actor(g.id) return { g.fdid, a and a.fileID, a and a.scale, a and ({ a:GetPosition() })[3] }")
+    assert gen[0] == 191730 and gen[1] == 191730 and gen[2] == 2.1 and abs(gen[3] * 2.1 - 1.1) < 1e-6, gen
     # F with nothing in reach is still our key; the 1 key is the core
     assert c.eval_py("return ns.TrainerUI._Key('F')") is True
     c.eval("ns.TrainerUI._Key('1')")
