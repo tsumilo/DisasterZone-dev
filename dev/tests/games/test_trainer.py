@@ -6,7 +6,10 @@ errors, the fading stacking slow, stuns); Teron with the real numbers: the mark 
 constructs (41,567 health) rise within 6 yd of the corpse, stand stunned for a second and each run at a raider,
 the clean rotation from a corner wins, dying in the raid or never slowing them loses, the spirit running out
 loses; scores and bests saved per encounter and mode; the panel (briefing, the 3D view's actors, name plates and
-camera, keys, mouse look, pause on Esc and on combat, the result screen).
+camera, keys, mouse look, pause on Esc and on combat, the result screen). The room renderer (Room.lua): both rooms in
+their exact BSP order (every node its own place, every piece on its node's, cluster frames one per level under the
+models), a still view costs no room calls, a wall through the near plane is cut there and not dropped, and without
+Room.lua (client not restarted) the view is drawn flat and says so.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_trainer.py [-k name]
 """
@@ -18,7 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
 
-from _common import case, run_all, solo, no_errors  # noqa: E402
+from _common import case, run_all, solo, no_errors, World, Client  # noqa: E402
 
 HELPERS = r"""
 T_TR = {}
@@ -346,31 +349,22 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
     assert m[0] > 2000 and m[1] > 3000 and 8 <= m[2] <= 20 and m[3] > 100000, m
     fl = c.eval_py("return ns.TrainerUI._Floor()")
     assert fl["tiles"] == 0 and 500 < fl["mesh"] < m[1] and fl["mini"] is True, fl
-    # a raider walked through the hall while the view stands still: wherever a pillar or a step's face is between
-    # him and the camera, those pieces of the room are lifted above the models; when he is in the open, none are
+    # a raider walks through the hall while the view stands still: the room is not drawn again for that (no piece
+    # moves; the copies of the room that hide him behind a pillar or a step's face are spec step 7, with their
+    # _Occluders checks) and its order holds every frame
     c.eval("T_R = T_TR.sim:Alive('raider')[5]")
-    found, clear = [], 0
     for yy in (8, 20, 32, 44):
         c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 56, %d  for _, u in ipairs(T_TR.sim:Alive('raider')) do u.x, u.y = 58, 57 end "
                "T_TR.sim.boss.x, T_TR.sim.boss.y = 58, 57  ns.TrainerUI._Tick(0.05)" % yy)
+        r0 = c.eval_py("return ns.TrainerUI._Render().redraws")
         for xx in range(3, 52, 3):
             c.eval("T_R.x, T_R.y = %d, %d  ns.TrainerUI._Tick(0.05)" % (xx, yy))
-            over = c.eval_py("return ns.TrainerUI._Floor().over")
-            if over > 0:
-                found.append((xx, yy, over))
-            else:
-                clear += 1
-    assert len(found) >= 2 and clear >= 10, (found, clear)
-    # everyone out on the open floor of the south half, the camera inside the hall: nothing is lifted
-    c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 40, 14  for _, u in ipairs(T_TR.sim:Alive('raider')) do u.x, u.y = 30, 14 end "
-           "T_TR.sim.boss.x, T_TR.sim.boss.y = 30, 14  ns.TrainerUI._Tick(0.05)")
-    assert c.eval_py("return ns.TrainerUI._Floor().over") == 0
-    # someone down in the pit seen across the raised walkway that runs into it from the south: its top is a
-    # floor, but it lies above his feet and between him and the camera, so it is lifted over him
+            o = c.eval_py("return ns.TrainerUI._Order()")
+            assert o["wrong"] == 0 and o["distinct"] == o["nodes"], (xx, yy, {k: v for k, v in o.items() if k != "levels"})
+        assert c.eval_py("return ns.TrainerUI._Render().redraws") == r0, yy
+    # the raised walkway that runs into the pit from the south stands well above the pit's floor
     h0 = h(29.5, 29)
-    assert h0 > h(22, 29.5) + 1.5, (h0, h(22, 29.5))                # the walkway stands well above the pit's floor
-    c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 40, 29.5  T_R.x, T_R.y = 22, 29.5  ns.TrainerUI._Tick(0.05)")
-    assert c.eval_py("return ns.TrainerUI._Floor().over") > 0
+    assert h0 > h(22, 29.5) + 1.5, (h0, h(22, 29.5))
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 20, 50  ns.TrainerUI._Tick(0.05)")   # move: another view
     assert c.eval_py("return ns.TrainerUI._Floor().mesh") != fl["mesh"]
     # the spell effects are actors holding the effect's model file
@@ -381,6 +375,77 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
     c.eval("for _ = 1, 20 do ns.TrainerUI._Tick(0.1) end")
     assert c.eval_py("return #ns.TrainerUI._Fx()") == 0
     assert c.eval_py("return #ns.TrainerUI._Sim().sounds") == 0      # played and cleared
+    no_errors(w)
+
+
+@case
+def the_room_is_drawn_in_its_bsp_order_in_both_rooms():
+    w, c = boot()
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    for enc, diff, nodes in (("teron", "quick", 1338), ("vashj", "looter", 1511)):
+        c.eval("ns.TrainerUI._Select('%s', '%s')  local v = ns.TrainerUI._View() v:SetSize(600, 400) "
+               "ns.TrainerUI._Start(3)  ns.TrainerUI._Tick(0.05)" % (enc, diff))
+        # every BSP node has its own place (a cluster frame's draw layer + sublevel), every piece sits on its
+        # node's place, the cluster frames stand one per level between the floor's line frame and the models
+        o = c.eval_py("return ns.TrainerUI._Order()")
+        st = c.eval_py("return ns.TrainerUI._Render()")
+        assert o["nodes"] == nodes and o["distinct"] == nodes and o["wrong"] == 0, (enc, {k: v for k, v in o.items() if k != "levels"})
+        assert 50 < o["frames"] == st["frames"] <= 200 and o["pieces"] == st["leaves"] > 100, (enc, o["frames"], st)
+        levels = list(o["levels"].values()) if isinstance(o["levels"], dict) else list(o["levels"])
+        view_lv, scene_lv = c.eval_py("local v, s = ns.TrainerUI._View() return { v:GetFrameLevel(), s:GetFrameLevel() }")
+        assert len(set(levels)) == len(levels) == o["frames"], enc
+        assert min(levels) == view_lv + 3 and max(levels) < scene_lv == view_lv + 210, (enc, min(levels), max(levels), scene_lv)
+        # nothing moves: the room costs nothing
+        c.eval("T_CNT = {}  __MOCK.set_api_count(T_CNT)  ns.TrainerUI._Tick(0)  __MOCK.set_api_count(nil)")
+        cnt = c.eval_py("return T_CNT")
+        for k in ("SetVertexOffset", "SetTexCoord", "SetDrawLayer", "SetFrameLevel", "SetParent", "CreateTexture"):
+            assert cnt.get(k, 0) == 0, (enc, k, cnt)
+        assert c.eval_py("return ns.TrainerUI._Render().redraw") is False
+    no_errors(w)
+
+
+@case
+def a_wall_through_the_near_plane_is_cut_there_not_dropped():
+    w, c = boot()
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Select('teron', 'quick')  local v = ns.TrainerUI._View() v:SetSize(600, 400) "
+           "ns.TrainerUI._Start(3)  ns.TrainerUI._RenderOpts({ collision = false })  ns.TrainerUI._Tick(0.05)")
+    # the camera 6 yd behind you with you at the west wall's foot: it hangs a hand's width from the wall, which
+    # runs through the camera's near plane inside the view
+    c.eval("local s = ns.TrainerUI._Sim()  s.player.x, s.player.y, s.player.facing = -0.1, 20, math.pi / 2 "
+           "local cam = ns.TrainerUI._Camera()  cam.pitch, cam.dist = 0.1, 6  ns.TrainerUI._Tick(0.05)")
+    st = c.eval_py("return ns.TrainerUI._Render()")
+    o = c.eval_py("return ns.TrainerUI._Order()")
+    assert st["clipped"] > 0 and st["midpoints"] > 0 and st["leaves"] > 300, st
+    assert o["wrong"] == 0 and o["distinct"] == o["nodes"], {k: v for k, v in o.items() if k != "levels"}
+    no_errors(w)
+
+
+@case
+def without_the_room_module_the_view_is_drawn_flat():
+    # Room.lua is a new file: until the client is restarted it is not loaded (a /reload does not read the TOC)
+    w = World()
+    c = Client(w, "Alice", class_file="PALADIN", guild_rank=3, guild="Casual Disaster")
+    toc = c.toc
+    c.toc = lambda: (toc()[0], [f for f in toc()[1] if not f.replace("/", "\\").endswith("Trainer\\Room.lua")])
+    c.load_addon()
+    w.tick(2)
+    n0 = len(c.chat_frame)
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    assert c.eval_py("return ns.TrainerRoom") is None
+    assert any("restart the game client" in str(line) for line in c.chat_frame[n0:]), c.chat_frame[n0:]
+    for enc, diff in (("teron", "quick"), ("vashj", "looter")):
+        c.eval("ns.TrainerUI._Select('%s', '%s')  ns.TrainerUI._Start(3)" % (enc, diff))
+        for _ in range(5):
+            c.eval("ns.TrainerUI._Tick(0.05)")
+        assert c.eval_py("return ns.TrainerUI._State().is3D") is True
+        fl = c.eval_py("return ns.TrainerUI._Floor()")
+        assert fl["mesh"] == 0 and fl["lines"] == 0, fl
+        assert c.eval_py("return ns.TrainerUI._Render()") is None and c.eval_py("return ns.TrainerUI._Order()") is None
+    assert c.eval_py("return ns.TrainerUI._Floor().tiles") > 0                    # (Teron's floor map was drawn)
     no_errors(w)
 
 

@@ -273,15 +273,14 @@ def the_panel_shows_allies_and_things_to_use():
     assert sorted(marks) == [7, 7, 7, 16, 16], marks                     # four generators (yours taller), the elemental
     assert sim(c, "local n = 0 for _, u in ipairs(s.units) do if u.display == 20570 then n = n + 1 end end return n") == 0   # (an imp)
     assert sim(c, "local n = 0 for _, u in ipairs(s:Alive('raider')) do if u.name:find('^Raider %(') then n = n + 1 end end return n") >= 2
-    # the room's draw order: every node of its BSP tree has its own place, the triangles sit on their node's, and
-    # the marks' rings and columns are put right after the floor they lie on (an odd place), not on top of everything
+    # the room's draw order: every node of its BSP tree has its own place, the pieces sit on their node's, and the
+    # marks' rings and columns are put into that order where they belong (the odd place right after a node, or the
+    # line frame under every node), not on top of everything
     o = c.eval_py("return ns.TrainerUI._Order()")
-    assert o["nodes"] > 1000 and o["distinct"] == o["nodes"] and o["step"] == 2 and o["wrong"] == 0, {k: v for k, v in o.items() if k != "lines"}
-    # triangles that run from near the camera far into the room (or behind it) are drawn as pieces, each spanning
-    # little depth, in their triangle's place in the order
+    assert o["nodes"] > 1000 and o["distinct"] == o["nodes"] and o["wrong"] == 0, {k: v for k, v in o.items() if k not in ("lines", "levels")}
     assert 20 < o["pieces"] < 3000, o["pieces"]
-    placed = [s for s in o["lines"] if s >= 0]
-    assert len(placed) > 20 and all(s % 2 == 1 for s in placed), o["lines"][:40]
+    lines = o["lines"]
+    assert len(lines) > 20 and all(l["frame"] == 0 or l["pos"] % 2 == 1 for l in lines), lines[:40]
     # the generators are the game's own object: the floor light model, 2.1 times its size, on its own height
     gen = sim(c, "local g = s.generators[1] local a = ns.TrainerUI._Actor(g.id) return { g.fdid, a and a.fileID, a and a.scale, a and ({ a:GetPosition() })[3] }")
     assert gen[0] == 191730 and gen[1] == 191730 and gen[2] == 2.1 and abs(gen[3] * 2.1 - 1.1) < 1e-6, gen

@@ -194,11 +194,13 @@ function RC.capture_trainer()
     return RC.capture(view, scene, ns.TrainerUI._Camera().mirror)
 end
 
--- An encounter's room mesh as text: "verts|tris|textures|nodeOf" (x y z u v light per vertex; a b c texture per
--- triangle, 1-based; texture file IDs; the BSP node each triangle belongs to, 1-based, 0 = none).
+-- An encounter's room mesh as text: "verts|tris|textures|nodeOf|pair" (x y z u v light per vertex; a b c texture
+-- per triangle, 1-based; texture file IDs; the BSP node each triangle belongs to, 1-based, 0 = none; each
+-- triangle's quad mate from the data format v2 pair list, 1-based, 0 = none: the renderer draws the two as one
+-- texture).
 function RC.mesh(encId)
     local m = ns.Trainer:GetEncounter(encId).arena.mesh
-    local v, t, x, no = {}, {}, {}, {}
+    local v, t, x, no, pr = {}, {}, {}, {}, {}
     for i = 1, #m.verts do v[i] = fmt("%.10g", m.verts[i]) end
     for i = 1, #m.tris do t[i] = tostring(m.tris[i]) end
     for i = 1, #m.textures do x[i] = tostring(m.textures[i]) end
@@ -209,9 +211,13 @@ function RC.mesh(encId)
         local first, count = nodes[k * 8 - 1], nodes[k * 8]
         for i = first, first + count - 1 do if i >= 1 and i <= nt then no[i] = k end end
     end
-    for i = 1, nt do no[i] = tostring(no[i]) end
+    local pair = (m.version == 2 and type(m.pair) == "table") and m.pair or {}
+    for i = 1, nt do
+        no[i] = tostring(no[i])
+        pr[i] = tostring(tonumber(pair[i]) or 0)
+    end
     return table.concat(v, " ") .. "|" .. table.concat(t, " ") .. "|" .. table.concat(x, " ") .. "|"
-        .. table.concat(no, " ")
+        .. table.concat(no, " ") .. "|" .. table.concat(pr, " ")
 end
 
 -- Which optional test hooks the trainer has: "name name ...".

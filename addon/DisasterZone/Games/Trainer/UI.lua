@@ -9,6 +9,7 @@ local addonName, ns = ...
 
 local UI = ns:NewModule("TrainerUI")
 local T = ns.Trainer
+local Room = ns.TrainerRoom      -- the room renderer (Room.lua); nil until the client is restarted once (spec 7.4)
 
 local floor, min, max = math.floor, math.min, math.max
 local sin, cos, pi = math.sin, math.cos, math.pi
@@ -30,9 +31,15 @@ local ACTS = {
     bow = { { 29, 2.5 }, { 0, 0.6 } },
 }
 
+-- Frame levels above the view's own. The room's cluster frames take room0 .. room0 + 199 (Room.lua), all under
+-- the single ModelScene; the copies of the room that hide the models sit just above it; the HUD above all that.
+local LV = { floor = 1, lines = 2, room0 = 3, scene = 210, copy0 = 211, plates = 250, arena = 252, hud = 253,
+             focus = 268, overlay = 270 }
+local NEAR_CLIP = 0.5            -- the scene's near clip; the room is cut at the same distance
+
 local root, view, arena, overlay, focusOverlay
 local scene, floorFrame, plateFrame      -- the 3D view (scene == nil: flat fallback)
-local meshFrames, overFrames = {}, {}     -- the room's triangles: under the models, and (what stands in front of one) over them
+local roomOn = false                     -- drawing the room with Room.lua this frame (marks go in its order)
 local cam = { dist = 14, pitch = 0.3, pitchSign = 1, mirror = 1, x = 0, y = 0, z = 0, fx = 1, fy = 0, fz = 0 }
 local actors = {}            -- unit id -> actor
 local actorPool = {}
@@ -308,10 +315,8 @@ end
 
 local lineCount = { floor = 0, fx = 0 }
 
--- One world-space segment, cut at the camera's near plane, drawn as a Line over (or under) the scene.
-local PlaceTex
-local lineSlot       -- set while drawing marks: the place in the room's draw order the next lines go to (nil: on top)
-
+-- One world-space segment, cut at the camera's near plane, drawn as a Line over the scene (the flat floor map's
+-- path; with the room, Room.Line puts mark segments into the room's own order).
 local function Segment(pool, which, parent, x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
     local function depth(x, y, z) return (x - cam.x) * cam.fx + (SY(y) - cam.y) * cam.fy + (z - cam.z) * cam.fz end
     local d1, d2 = depth(x1, y1, z1), depth(x2, y2, z2)
@@ -338,475 +343,28 @@ local function Segment(pool, which, parent, x1, y1, z1, x2, y2, z2, r, g, b, a, 
     l:SetColorTexture(r, g, b, a)
     l:SetStartPoint("BOTTOMLEFT", scene, ax, ay)
     l:SetEndPoint("BOTTOMLEFT", scene, bx, by)
-    if lineSlot then
-        PlaceTex(l, lineSlot, false)                -- among the room's triangles: what is nearer paints over it
-    elseif l.slot then
-        l.slot, l.fi = nil, nil
-        l:SetParent(parent)
-        l:SetDrawLayer("ARTWORK", 0)
-    end
     l:Show()
 end
 
+-- A ring on the floor: 20 segments. With the room they lie 0.08 yd over the room's own floor (Room.FloorZ) and go
+-- into its draw order, so whatever is nearer paints over them; without it they lie on the height grid, on top.
+local ringX, ringY, ringZ = {}, {}, {}
 local function Circle(x, y, radius, r, g, b, a, thick)
     local n = 20
+    for i = 0, n do
+        local ang = i / n * 2 * pi
+        local px_, py_ = x + cos(ang) * radius, y + sin(ang) * radius
+        ringX[i], ringY[i] = px_, py_
+        ringZ[i] = roomOn and (Room.FloorZ(px_, py_, GroundZ(px_, py_)) + 0.08) or (GroundZ(px_, py_) + 0.1)
+    end
     for i = 1, n do
-        local a1, a2 = (i - 1) / n * 2 * pi, i / n * 2 * pi
-        local x1, y1, x2, y2 = x + cos(a1) * radius, y + sin(a1) * radius, x + cos(a2) * radius, y + sin(a2) * radius
-        Segment(fxLines, "fx", plateFrame, x1, y1, GroundZ(x1, y1) + 0.1, x2, y2, GroundZ(x2, y2) + 0.1, r, g, b, a, thick)
-    end
-end
-
--- The room's own mesh (arena.mesh: Blizzard's triangles, textures and baked light). Every triangle is a Texture
--- whose corners are moved to where the camera sees them (two corners share the third point). The scene's camera
--- is measured once a frame (three projected points); the vertices are then projected here, in Lua. Triangles
--- facing away, behind the camera or off screen are hidden; the rest are layered far to near.
-local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {}, over = {}, occ = {}, nOcc = 0,
-                    x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, low = {}, models = {},
-                    vr = {}, vu = {}, vd = {}, far = 110, stackN = {}, stackP = {},
-                    extra = {}, scratch = {}, poly = {}, cols = {} }
-local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
-local MESH_FRAMES = 64                   -- frames stacked by level, each with 3 layers of 16 sublevels
-local MESH_SLOTS = MESH_FRAMES * 48      -- 3072 places in the draw order
-
--- Draw order. A texture has no depth test, so the room is painted back to front. The order comes from the
--- mesh's BSP tree (built by the generator): at every node, the side the camera is not on, then the node's own
--- triangles, then the camera's side. That is exact from any viewpoint. Every node gets its own place; the
--- place after it is for lines lying on its triangles (marks on the floor).
-function PlaceTex(tx, slot, over)
-    if tx.slot == slot and tx.over == over then return end
-    local fi = floor(slot / 48) + 1
-    if tx.fi ~= fi or tx.over ~= over then tx:SetParent((over and overFrames or meshFrames)[fi]) end
-    tx.fi, tx.over, tx.slot = fi, over, slot
-    local k = slot % 48
-    tx:SetDrawLayer(MESH_LAYERS[floor(k / 16) + 1], k % 16 - 8)
-end
-
-local function PrepareMesh(mesh)
-    if mesh.ready then return end
-    mesh.ready = true
-    local v, t = mesh.verts, mesh.tris
-    mesh.nVerts, mesh.nTris = #v / 6, #t / 4
-    mesh.normal, mesh.light = {}, {}
-    for i = 1, mesh.nTris do
-        local a, b, c = (t[i * 4 - 3] - 1) * 6, (t[i * 4 - 2] - 1) * 6, (t[i * 4 - 1] - 1) * 6
-        local ux, uy, uz = v[b + 1] - v[a + 1], v[b + 2] - v[a + 2], v[b + 3] - v[a + 3]
-        local wx, wy, wz = v[c + 1] - v[a + 1], v[c + 2] - v[a + 2], v[c + 3] - v[a + 3]
-        mesh.normal[i * 3 - 2], mesh.normal[i * 3 - 1], mesh.normal[i * 3] = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
-        mesh.light[i] = (v[a + 6] + v[b + 6] + v[c + 6]) / 3
-        -- walls, pillars, the faces of steps: what can stand in front of someone (a floor cannot)
-        local nx, ny, nz = mesh.normal[i * 3 - 2], mesh.normal[i * 3 - 1], mesh.normal[i * 3]
-        mesh.steep = mesh.steep or {}
-        mesh.steep[i] = nz < 0.7 * math.sqrt(nx * nx + ny * ny + nz * nz)
-    end
-    -- the BSP tree: which node a triangle belongs to; how many places a node gets
-    local nodes = mesh.nodes
-    mesh.nNodes = #nodes / 8
-    mesh.nodeOf, mesh.nodeSlot = {}, {}
-    for k = 1, mesh.nNodes do
-        local o = k * 8 - 8
-        for i = nodes[o + 7], nodes[o + 7] + nodes[o + 8] - 1 do mesh.nodeOf[i] = k end
-    end
-    mesh.slotStep = max(1, floor(MESH_SLOTS / mesh.nNodes))
-    -- the floors by 8 yd squares, to find the triangle a mark lies on
-    mesh.grid = {}
-    for i = 1, mesh.nTris do
-        if not mesh.steep[i] then
-            local a, b, c = (t[i * 4 - 3] - 1) * 6, (t[i * 4 - 2] - 1) * 6, (t[i * 4 - 1] - 1) * 6
-            for gx = floor(min(v[a + 1], v[b + 1], v[c + 1]) / 8), floor(max(v[a + 1], v[b + 1], v[c + 1]) / 8) do
-                for gy = floor(min(v[a + 2], v[b + 2], v[c + 2]) / 8), floor(max(v[a + 2], v[b + 2], v[c + 2]) / 8) do
-                    local key = gx * 1000 + gy
-                    local cell = mesh.grid[key]
-                    if not cell then
-                        cell = {}
-                        mesh.grid[key] = cell
-                    end
-                    cell[#cell + 1] = i
-                end
-            end
-        end
-    end
-end
-
-local function HideMesh()
-    for i in pairs(meshState.shown) do
-        meshState.tex[i]:Hide()
-        meshState.shown[i] = nil
-    end
-    for _, pool in pairs(meshState.extra) do
-        for k = 1, #pool do pool[k]:Hide() end
-        pool.used = 0
-    end
-    meshState.key = nil
-end
-
--- The room is drawn under the models, so by itself a pillar between the camera and a character would be painted
--- over by that character. Find the triangles that are nearer than a model they overlap on screen and can hide it
--- (anything steep; a floor only when it lies above that model's feet, like a walkway seen from below or beside);
--- those move to the frames above the models (in the same draw order). A triangle that has a model in front of
--- it, or that a model stands on, stays below.
--- The models are sorted into sixteen columns of the screen, so a triangle is only held against the few it can
--- touch; with the camera standing still this runs every third frame.
-local OCC_COLS = 16
-local function UpdateOcclusion(force)
-    local st, b = meshState, meshState.basis
-    if not (b and overFrames[1]) then return end
-    st.occTick = (st.occTick or 0) + 1
-    if not force and st.occTick % 3 ~= 0 then return end
-    local w = scene:GetWidth() or 1
-    if w <= 0 then w = 1 end
-    local cols = st.cols
-    for k = 1, OCC_COLS do
-        local col = cols[k]
-        if not col then
-            col = { n = 0 }
-            cols[k] = col
-        end
-        col.n = 0
-    end
-    local models, nm = st.models, 0
-    for _, u in ipairs(sim.units) do
-        if actors[u.id] and not u.dead then
-            local tall = u.plate or u.tall or PLATE_HEIGHT[u.kind] or 2.6
-            local dx, dy, dz = u.x - b.camX, b.m * u.y - b.camY, (u.z or GroundZ(u.x, u.y)) - b.camZ
-            local depth = dx * b.fx + dy * b.fy + dz * b.fz
-            local top = depth + tall * b.fz
-            if depth > 0.4 and top > 0.4 then
-                local r, up = (dx * b.rx + dy * b.ry) / depth, (dx * b.ux + dy * b.uy + dz * b.uz) / depth
-                local fx2, fy2 = b.cx + r * b.exx + up * b.eyx, b.cy + r * b.exy + up * b.eyy
-                r, up = (dx * b.rx + dy * b.ry) / top, (dx * b.ux + dy * b.uy + (dz + tall) * b.uz) / top
-                local hx, hy = b.cx + r * b.exx + up * b.eyx, b.cy + r * b.exy + up * b.eyy
-                local half = max(8, math.abs(hy - fy2) * 0.3)
-                local mx0, mx1 = min(fx2, hx) - half, max(fx2, hx) + half
-                if mx1 >= 0 and mx0 <= w then
-                    nm = nm + 1
-                    local mo = models[nm] or {}
-                    models[nm] = mo
-                    mo.x0, mo.x1 = mx0, mx1
-                    mo.y0, mo.y1 = min(fy2, hy), max(fy2, hy)
-                    mo.depth = depth
-                    mo.z = dz + b.camZ
-                    for k = max(1, floor(mx0 / w * OCC_COLS) + 1), min(OCC_COLS, floor(mx1 / w * OCC_COLS) + 1) do
-                        local col = cols[k]
-                        col.n = col.n + 1
-                        col[col.n] = mo
-                    end
-                end
-            end
-        end
-    end
-    local x0, x1, y0, y1, depth, occ = st.x0, st.x1, st.y0, st.y1, st.depth, st.occ
-    local steep, low, over = st.mesh.steep, st.low, st.over
-    for n = 1, st.nOcc do
-        local i = occ[n]
-        local covers, blocked = false, false
-        local tx0, tx1 = x0[i], x1[i]
-        if tx1 >= 0 and tx0 <= w then
-            local d, ty0, ty1 = depth[i], y0[i], y1[i]
-            for k = max(1, floor(tx0 / w * OCC_COLS) + 1), min(OCC_COLS, floor(tx1 / w * OCC_COLS) + 1) do
-                local col = cols[k]
-                for j = 1, col.n do
-                    local mo = col[j]
-                    if tx1 >= mo.x0 and tx0 <= mo.x1 and ty1 >= mo.y0 and ty0 <= mo.y1 then
-                        if d < mo.depth - 0.5 and (steep[i] or low[i] > mo.z + 0.4) then
-                            covers = true
-                        else
-                            blocked = true
-                        end
-                    end
-                end
-            end
-        end
-        local isOver = covers and not blocked
-        if isOver ~= (over[i] or false) then
-            over[i] = isOver or nil
-            if st.tex[i] then PlaceTex(st.tex[i], st.tex[i].slot, isOver) end
-            st.piecesDirty = true
-        end
-    end
-    if st.piecesDirty then                              -- the pieces of cut triangles go with their triangle
-        st.piecesDirty = false
-        for _, pool in pairs(st.extra) do
-            for k = 1, pool.used do
-                local tx = pool[k]
-                PlaceTex(tx, tx.slot, over[tx.parentTri] or false)
-            end
-        end
-    end
-end
-
-local function DrawMesh()
-    local mesh = sim.enc.arena.mesh
-    if not mesh then return false end
-    if meshState.mesh ~= mesh then
-        HideMesh()
-        for _, tex in pairs(meshState.tex) do tex:Hide() end
-        meshState.tex, meshState.mesh = {}, mesh
-        meshState.low, meshState.over = {}, {}
-        -- depth layers are spread over the room's own size
-        local aw, ah = sim.enc.arena.w, sim.enc.arena.h
-        meshState.far = max(110, math.sqrt(aw * aw + ah * ah) * 0.75)
-    end
-    PrepareMesh(mesh)
-    local w, h = scene:GetWidth() or 0, scene:GetHeight() or 0
-    -- nothing moved: nothing to do
-    local key = string.format("%.3f %.3f %.3f %.4f %.4f %.4f %d %d", cam.x, cam.y, cam.z, cam.fx, cam.fy, cam.fz, w, h)
-    if meshState.key == key then
-        UpdateOcclusion(false)                                         -- the view stands still, the others move
-        return true
-    end
-    meshState.gen = (meshState.gen or 0) + 1
-
-    -- the camera, measured: the screen point straight ahead, and what one yard to the right and one yard up
-    -- are worth there (10 yd ahead). All in scene space (y already mirrored).
-    local m = cam.mirror
-    local fx, fy, fz = cam.fx, cam.fy, cam.fz
-    local flat = math.sqrt(fx * fx + fy * fy)
-    if flat < 1e-4 then return true end
-    local rx, ry = fy / flat, -fx / flat                               -- right = forward x up
-    local ux, uy, uz = ry * fz, -rx * fz, rx * fy - ry * fx            -- up = right x forward
-    local function probe(dx, dy, dz)
-        local ok, px, py = pcall(scene.Project3DPointTo2D, scene, cam.x + fx * 10 + dx, cam.y + fy * 10 + dy, cam.z + fz * 10 + dz)
-        if ok and type(px) == "number" and type(py) == "number" then return px, py end
-    end
-    local cx, cy = probe(0, 0, 0)
-    local px1, py1 = probe(rx, ry, 0)
-    local px2, py2 = probe(ux, uy, uz)
-    if not (cx and px1 and px2) then return true end
-    local es = scene:GetEffectiveScale() or 1
-    if es <= 0 then es = 1 end
-    cx, cy = cx / es, cy / es
-    local exx, exy = (px1 / es - cx) * 10, (py1 / es - cy) * 10       -- per yard to the right, at 1 yd ahead
-    local eyx, eyy = (px2 / es - cx) * 10, (py2 / es - cy) * 10
-    meshState.key = key
-
-    local v, t, normal = mesh.verts, mesh.tris, mesh.normal
-    local sx, sy, sd = meshState.sx, meshState.sy, meshState.sd
-    local camX, camY, camZ = cam.x, cam.y, cam.z
-    meshState.basis = { camX = camX, camY = camY, camZ = camZ, m = m, fx = fx, fy = fy, fz = fz, rx = rx, ry = ry,
-                        ux = ux, uy = uy, uz = uz, cx = cx, cy = cy, exx = exx, exy = exy, eyx = eyx, eyy = eyy }
-    local nOcc = 0
-    local eyeX, eyeY = camX, m * camY                                  -- the camera in the mesh's own coordinates
-    -- every vertex in camera space (right, up, ahead); the ones in front of the camera also on screen
-    local vr, vu, vd = meshState.vr, meshState.vu, meshState.vd
-    local NEAR = 2          -- (nothing you can see is nearer: the camera hangs well above the floor it looks down on)
-    for i = 1, mesh.nVerts do
-        local o = i * 6 - 6
-        local dx, dy, dz = v[o + 1] - camX, m * v[o + 2] - camY, v[o + 3] - camZ
-        local depth = dx * fx + dy * fy + dz * fz
-        local r, u = dx * rx + dy * ry, dx * ux + dy * uy + dz * uz
-        vr[i], vu[i], vd[i] = r, u, depth
-        if depth > NEAR then
-            sx[i], sy[i], sd[i] = cx + (r * exx + u * eyx) / depth, cy + (r * exy + u * eyy) / depth, depth
+        if roomOn then
+            Room.Line(ringX[i - 1], ringY[i - 1], ringZ[i - 1], ringX[i], ringY[i], ringZ[i], r, g, b, a, thick)
         else
-            sd[i] = false
+            Segment(fxLines, "fx", plateFrame, ringX[i - 1], ringY[i - 1], ringZ[i - 1], ringX[i], ringY[i], ringZ[i],
+                    r, g, b, a, thick)
         end
     end
-
-    local tex, shown = meshState.tex, meshState.shown
-    -- walk the tree: far side, the node, near side
-    local nodes, nodeSlot, step = mesh.nodes, mesh.nodeSlot, mesh.slotStep
-    local stackN, stackP = meshState.stackN, meshState.stackP
-    local sp, rank = 1, 0
-    stackN[1], stackP[1] = 1, 0
-    local squeeze = (mesh.nNodes * step > MESH_SLOTS) and (MESH_SLOTS / (mesh.nNodes * step)) or 1
-    while sp > 0 do
-        local k, phase = stackN[sp], stackP[sp]
-        local o = k * 8 - 8
-        local side = nodes[o + 1] * eyeX + nodes[o + 2] * eyeY + nodes[o + 3] * camZ + nodes[o + 4]
-        if phase == 0 then
-            stackP[sp] = 1
-            local first = (side > 0) and nodes[o + 6] or nodes[o + 5]           -- the side the camera is not on
-            if first ~= 0 then
-                sp = sp + 1
-                stackN[sp], stackP[sp] = first, 0
-            end
-        elseif phase == 1 then
-            nodeSlot[k] = floor(rank * step * squeeze)
-            rank = rank + 1
-            stackP[sp] = 2
-            local second = (side > 0) and nodes[o + 5] or nodes[o + 6]
-            if second ~= 0 then
-                sp = sp + 1
-                stackN[sp], stackP[sp] = second, 0
-            end
-        else
-            sp = sp - 1
-        end
-    end
-    local nodeOf = mesh.nodeOf
-
-    -- Pieces. A Texture maps its picture flat (no perspective), which is fine for a triangle that is all at
-    -- about one distance. One that runs from near the camera far into the room would warp, and one that reaches
-    -- behind the camera cannot be drawn at all. Those are halved, always across their longest edge, until every
-    -- piece spans little depth, and the pieces are drawn with pooled textures. The longest edge does not depend
-    -- on the camera, so the cuts fall on the same spots of the floor from frame to frame (nothing swims); only
-    -- how far the halving goes changes. Pieces behind the camera are left out.
-    local RATIO, LEVELS = 1.3, 8
-    local extra = meshState.extra
-    for _, pool in pairs(extra) do pool.used = 0 end
-    local scratch, nScratch = meshState.scratch, 0
-    local function Pt(r, u, d, tu, tv)
-        nScratch = nScratch + 1
-        local p = scratch[nScratch]
-        if not p then
-            p = {}
-            scratch[nScratch] = p
-        end
-        p[1], p[2], p[3], p[4], p[5] = r, u, d, tu, tv
-        return p
-    end
-    local pieceTri, pieceSlot, pieceLight, pieceFile
-    local bx0, bx1, by0, by1
-    local function Piece(p1, p2, p3)
-        local x1, y1 = cx + (p1[1] * exx + p1[2] * eyx) / p1[3], cy + (p1[1] * exy + p1[2] * eyy) / p1[3]
-        local x2, y2 = cx + (p2[1] * exx + p2[2] * eyx) / p2[3], cy + (p2[1] * exy + p2[2] * eyy) / p2[3]
-        local x3, y3 = cx + (p3[1] * exx + p3[2] * eyx) / p3[3], cy + (p3[1] * exy + p3[2] * eyy) / p3[3]
-        if (x1 < 0 and x2 < 0 and x3 < 0) or (x1 > w and x2 > w and x3 > w)
-            or (y1 < 0 and y2 < 0 and y3 < 0) or (y1 > h and y2 > h and y3 > h) then
-            return
-        end
-        bx0, bx1 = min(bx0, x1, x2, x3), max(bx1, x1, x2, x3)
-        by0, by1 = min(by0, y1, y2, y3), max(by1, y1, y2, y3)
-        local pool = extra[pieceFile]
-        if not pool then
-            pool = { used = 0 }
-            extra[pieceFile] = pool
-        end
-        pool.used = pool.used + 1
-        local tx = pool[pool.used]
-        if not tx then
-            tx = meshFrames[1]:CreateTexture(nil, "BACKGROUND")
-            tx.fi, tx.over = 1, false
-            tx:SetSize(1, 1)
-            tx:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
-            tx:SetTexture(pieceFile, "REPEAT", "REPEAT")
-            pool[pool.used] = tx
-        end
-        tx:SetVertexColor(pieceLight, pieceLight, pieceLight)
-        tx:SetTexCoord(p1[4], p1[5], p2[4], p2[5], p3[4], p3[5], p3[4], p3[5])
-        tx:SetVertexOffset(1, x1, y1 - 1)
-        tx:SetVertexOffset(2, x2, y2)
-        tx:SetVertexOffset(3, x3 - 1, y3 - 1)
-        tx:SetVertexOffset(4, x3 - 1, y3)
-        tx.parentTri = pieceTri
-        PlaceTex(tx, pieceSlot, meshState.over[pieceTri] or false)
-        tx:Show()
-    end
-    local function Cut(p1, p2, p3, level)
-        local d1, d2, d3 = p1[3], p2[3], p3[3]
-        local lo, hi = min(d1, d2, d3), max(d1, d2, d3)
-        if hi <= NEAR then return end                                  -- behind the camera
-        if lo > NEAR and hi <= lo * RATIO then
-            Piece(p1, p2, p3)
-            return
-        end
-        if level <= 0 then
-            if lo > NEAR then Piece(p1, p2, p3) end                    -- (one still crossing the near plane: dropped)
-            return
-        end
-        -- halve the longest edge (lengths in camera space are the lengths in the room)
-        local ax, ay, az = p1[1] - p2[1], p1[2] - p2[2], d1 - d2
-        local bx, by, bz = p2[1] - p3[1], p2[2] - p3[2], d2 - d3
-        local qx, qy, qz = p3[1] - p1[1], p3[2] - p1[2], d3 - d1
-        local e12, e23, e31 = ax * ax + ay * ay + az * az, bx * bx + by * by + bz * bz, qx * qx + qy * qy + qz * qz
-        if e12 >= e23 and e12 >= e31 then
-            local m = Pt((p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2, (d1 + d2) / 2, (p1[4] + p2[4]) / 2, (p1[5] + p2[5]) / 2)
-            Cut(p1, m, p3, level - 1)
-            Cut(m, p2, p3, level - 1)
-        elseif e23 >= e31 then
-            local m = Pt((p2[1] + p3[1]) / 2, (p2[2] + p3[2]) / 2, (d2 + d3) / 2, (p2[4] + p3[4]) / 2, (p2[5] + p3[5]) / 2)
-            Cut(p1, p2, m, level - 1)
-            Cut(p1, m, p3, level - 1)
-        else
-            local m = Pt((p3[1] + p1[1]) / 2, (p3[2] + p1[2]) / 2, (d3 + d1) / 2, (p3[4] + p1[4]) / 2, (p3[5] + p1[5]) / 2)
-            Cut(p1, p2, m, level - 1)
-            Cut(m, p2, p3, level - 1)
-        end
-    end
-
-    local occ, ox0, ox1, oy0, oy1, odepth, olow = meshState.occ, meshState.x0, meshState.x1, meshState.y0, meshState.y1,
-                                                  meshState.depth, meshState.low
-    local over = meshState.over
-    for i = 1, mesh.nTris do
-        local a, b, c = t[i * 4 - 3], t[i * 4 - 2], t[i * 4 - 1]
-        local da, db, dc = vd[a], vd[b], vd[c]
-        local main, listed = false, false
-        if da > NEAR or db > NEAR or dc > NEAR then
-            local o = (a - 1) * 6
-            -- facing the camera?
-            local facing = normal[i * 3 - 2] * (eyeX - v[o + 1]) + normal[i * 3 - 1] * (eyeY - v[o + 2]) + normal[i * 3] * (camZ - v[o + 3])
-            if facing > 0 then
-                local lo, hi = min(da, db, dc), max(da, db, dc)
-                if lo > NEAR and hi <= lo * RATIO then
-                    -- all of it in front and at about one distance: its own texture, as it is
-                    local x1, y1, x2, y2, x3, y3 = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
-                    if not ((x1 < 0 and x2 < 0 and x3 < 0) or (x1 > w and x2 > w and x3 > w)
-                            or (y1 < 0 and y2 < 0 and y3 < 0) or (y1 > h and y2 > h and y3 > h)) then
-                        main, listed = true, true
-                        local tx = tex[i]
-                        if not tx then
-                            tx = meshFrames[1]:CreateTexture(nil, "BACKGROUND")
-                            tx.fi, tx.over = 1, false
-                            tx:SetSize(1, 1)
-                            tx:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
-                            tx:SetTexture(mesh.textures[t[i * 4]], "REPEAT", "REPEAT")
-                            local l = mesh.light[i]
-                            tx:SetVertexColor(l, l, l)
-                            local oa, ob, oc = (a - 1) * 6, (b - 1) * 6, (c - 1) * 6
-                            -- upper left = a, lower left = b, upper right and lower right = c
-                            tx:SetTexCoord(v[oa + 4], v[oa + 5], v[ob + 4], v[ob + 5], v[oc + 4], v[oc + 5], v[oc + 4], v[oc + 5])
-                            tex[i] = tx
-                        end
-                        tx:SetVertexOffset(1, x1, y1 - 1)
-                        tx:SetVertexOffset(2, x2, y2)
-                        tx:SetVertexOffset(3, x3 - 1, y3 - 1)
-                        tx:SetVertexOffset(4, x3 - 1, y3)
-                        PlaceTex(tx, nodeSlot[nodeOf[i]], over[i] or false)
-                        if not shown[i] then
-                            shown[i] = true
-                            tx:Show()
-                        end
-                        bx0, bx1, by0, by1 = min(x1, x2, x3), max(x1, x2, x3), min(y1, y2, y3), max(y1, y2, y3)
-                    end
-                else
-                    -- into pieces, from its own three corners
-                    nScratch = 0
-                    local oa, ob, oc = (a - 1) * 6, (b - 1) * 6, (c - 1) * 6
-                    pieceTri, pieceSlot, pieceLight, pieceFile = i, nodeSlot[nodeOf[i]], mesh.light[i], mesh.textures[t[i * 4]]
-                    bx0, bx1, by0, by1 = math.huge, -math.huge, math.huge, -math.huge
-                    Cut(Pt(vr[a], vu[a], da, v[oa + 4], v[oa + 5]), Pt(vr[b], vu[b], db, v[ob + 4], v[ob + 5]),
-                        Pt(vr[c], vu[c], dc, v[oc + 4], v[oc + 5]), LEVELS)
-                    listed = bx1 >= bx0
-                end
-                if listed then
-                    nOcc = nOcc + 1
-                    occ[nOcc] = i
-                    ox0[i], ox1[i], oy0[i], oy1[i] = bx0, bx1, by0, by1
-                    odepth[i] = (max(da, NEAR) + max(db, NEAR) + max(dc, NEAR)) / 3
-                    if not olow[i] then olow[i] = min(v[(a - 1) * 6 + 3], v[(b - 1) * 6 + 3], v[(c - 1) * 6 + 3]) end
-                end
-            end
-        end
-        if not main and shown[i] then
-            shown[i] = nil
-            tex[i]:Hide()
-        end
-        if not listed and over[i] then                                 -- out of sight: back under the models
-            over[i] = nil
-            if tex[i] then PlaceTex(tex[i], tex[i].slot, false) end
-        end
-    end
-    for _, pool in pairs(extra) do
-        for k = pool.used + 1, #pool do
-            if not pool[k]:IsShown() then break end
-            pool[k]:Hide()
-        end
-    end
-    meshState.nOcc = nOcc
-    meshState.piecesDirty = true
-    UpdateOcclusion(true)
-    return true
 end
 
 -- The floor map: the arena's piece of Blizzard's map, cut into tiles; every tile's four corners are moved to
@@ -829,6 +387,8 @@ local function DrawFloorMap()
                 t:SetSize(1, 1)
                 t:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
                 t:SetVertexColor(0.85, 0.85, 0.85)
+                if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false) end      -- a bent texture: no pixel snapping
+                if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
                 floorTiles[n] = t
             end
             if t.file ~= map.file then
@@ -859,15 +419,11 @@ local function DrawFloorMap()
     return true
 end
 
--- The room: its floor map, its walls and a line every 10 yd, so distance and speed read at a glance.
+-- A room without its own mesh (or without Room.lua): its floor map, its walls and a line every 10 yd, so distance
+-- and speed read at a glance.
 local function DrawFloor()
     lineCount.floor = 0
     local w, h = sim.enc.arena.w, sim.enc.arena.h
-    if DrawMesh() then                                                -- the real room: nothing else to draw
-        for _, t in ipairs(floorTiles) do t:Hide() end
-        for _, l in ipairs(floorLines) do l:Hide() end
-        return
-    end
     local mapped = DrawFloorMap()
     if not mapped then
         for _, t in ipairs(floorTiles) do t:Hide() end
@@ -890,46 +446,17 @@ local function DrawFloor()
     for i = lineCount.floor + 1, #floorLines do floorLines[i]:Hide() end
 end
 
--- The place in the room's draw order for something lying on the floor at (x, y): right after the floor triangle
--- it lies on, so whatever is nearer still paints over it. Without a mesh, or off the floor: nil (drawn on top).
-local function SlotAt(x, y)
-    local mesh = meshState.mesh
-    if not (mesh and mesh.grid and meshState.basis and sim.enc.arena.mesh == mesh) then return nil end
-    local cell = mesh.grid[floor(x / 8) * 1000 + floor(y / 8)]
-    if not cell then return nil end
-    local z = GroundZ(x, y)
-    local t, v = mesh.tris, mesh.verts
-    local best, bestGap
-    for n = 1, #cell do
-        local i = cell[n]
-        local a, b, c = (t[i * 4 - 3] - 1) * 6, (t[i * 4 - 2] - 1) * 6, (t[i * 4 - 1] - 1) * 6
-        local ax, ay, bx, by, cx, cy = v[a + 1], v[a + 2], v[b + 1], v[b + 2], v[c + 1], v[c + 2]
-        local d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
-        if d ~= 0 then
-            local w1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / d
-            local w2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / d
-            local w3 = 1 - w1 - w2
-            if w1 >= -0.01 and w2 >= -0.01 and w3 >= -0.01 then
-                local gap = math.abs(w1 * v[a + 3] + w2 * v[b + 3] + w3 * v[c + 3] - z)
-                if gap < 1.5 and (not bestGap or gap < bestGap) then best, bestGap = i, gap end
-            end
-        end
-    end
-    if not best then return nil end
-    return min(MESH_SLOTS - 1, mesh.nodeSlot[mesh.nodeOf[best]] + (mesh.slotStep > 1 and 1 or 0))
-end
-
+-- The target circle, the encounter's marks (ring, column, label) and beams. With the room (roomOn) every segment
+-- goes through Room.Line into the room's draw order; otherwise they are Lines on top of the scene.
 local function DrawEffects()
     lineCount.fx = 0
     local t = sim.target
     if t and not t.dead then
-        lineSlot = SlotAt(t.x, t.y)
         if t.friendly then
             Circle(t.x, t.y, t.radius + 0.4, 0.1, 1, 0.1, 0.9, 3)
         else
             Circle(t.x, t.y, t.radius + 0.4, 1, 0.1, 0.1, 0.9, 3)                           -- hostile: red
         end
-        lineSlot = nil
     end
     -- the encounter's marks: a ring on the floor, a column standing on it, a label on top
     local nLabels = 0
@@ -951,24 +478,30 @@ local function DrawEffects()
     end
     for _, mk in ipairs(sim.marks or {}) do
         local c = mk.color or { 1, 1, 1 }
-        lineSlot = SlotAt(mk.x, mk.y)
         Circle(mk.x, mk.y, mk.r or 3, c[1], c[2], c[3], 0.9, 2)
         if (mk.column or 0) > 0 then
-            local g = GroundZ(mk.x, mk.y)
-            Segment(fxLines, "fx", plateFrame, mk.x, mk.y, g, mk.x, mk.y, g + mk.column, c[1], c[2], c[3], 0.8, 3)
+            if roomOn then
+                local g = Room.FloorZ(mk.x, mk.y, GroundZ(mk.x, mk.y))
+                Room.Line(mk.x, mk.y, g, mk.x, mk.y, g + mk.column, c[1], c[2], c[3], 0.8, 3)
+            else
+                local g = GroundZ(mk.x, mk.y)
+                Segment(fxLines, "fx", plateFrame, mk.x, mk.y, g, mk.x, mk.y, g + mk.column, c[1], c[2], c[3], 0.8, 3)
+            end
         end
-        lineSlot = nil
         if mk.label then Label(mk.label, mk.x, mk.y, (mk.column or 0) + 0.5, c[1], c[2], c[3]) end
     end
     for i = nLabels + 1, #markLabels do markLabels[i]:Hide() end
     for _, b in ipairs(sim.beams or {}) do                           -- { x, y, z, x2, y2, z2, r, g, b }
-        local s1, s2 = SlotAt(b[1], b[2]), SlotAt(b[4], b[5])
-        lineSlot = (s1 and s2) and max(s1, s2) or s1 or s2
-        Segment(fxLines, "fx", plateFrame, b[1], b[2], GroundZ(b[1], b[2]) + b[3], b[4], b[5], GroundZ(b[4], b[5]) + b[6],
-                b[7], b[8], b[9], 0.75, 3)
+        local z1, z2 = GroundZ(b[1], b[2]) + b[3], GroundZ(b[4], b[5]) + b[6]
+        if roomOn then
+            Room.Line(b[1], b[2], z1, b[4], b[5], z2, b[7], b[8], b[9], 0.75, 3)
+        else
+            Segment(fxLines, "fx", plateFrame, b[1], b[2], z1, b[4], b[5], z2, b[7], b[8], b[9], 0.75, 3)
+        end
     end
-    lineSlot = nil
-    for i = lineCount.fx + 1, #fxLines do fxLines[i]:Hide() end
+    if not roomOn then
+        for i = lineCount.fx + 1, #fxLines do fxLines[i]:Hide() end
+    end
 end
 
 local function ReleaseFxActor(fx)
@@ -1201,13 +734,27 @@ local function CursorInScene()
     return x / es - (scene:GetLeft() or 0), y / es - (scene:GetBottom() or 0)
 end
 
-local function Draw3D()
+-- One frame of the 3D view (spec 5.1). elapsed: seconds since the last frame (nil: a jump, e.g. the result).
+local function Draw3D(elapsed)
+    local mesh = sim.enc.arena.mesh
+    local room = Room and mesh and Room.SetMesh(mesh)          -- (nothing when unchanged; false: the flat floor map)
     if not cam.calibrated then Calibrate() end
     PlaceCamera()
     DrawActors()
-    DrawFloor()
-    DrawEffects()
     DrawFxActors()
+    if room then
+        if Room.BeginFrame(cam) then
+            Room.DrawRoom()                                     -- (returns at once when the camera did not move)
+            roomOn = true
+            Room.BeginLines()
+            DrawEffects()
+            Room.EndLines()
+            roomOn = false
+        end
+    else
+        DrawFloor()
+        DrawEffects()
+    end
     DrawPlates()
 end
 
@@ -1221,7 +768,7 @@ function ResetScene()
     end
     for fx in pairs(fxActors) do ReleaseFxActor(fx) end
     ResetUnitFrames()
-    HideMesh()
+    if Room then Room.Clear() end
     for _, l in ipairs(floorLines) do l:Hide() end
     for _, l in ipairs(fxLines) do l:Hide() end
     for _, fs in ipairs(markLabels) do fs:Hide() end
@@ -1258,25 +805,18 @@ local function CreateScene(parent)
         return
     end
     actorPool[1] = probe
+    local base = parent:GetFrameLevel()
     floorFrame = CreateFrame("Frame", nil, parent)
     floorFrame:SetAllPoints()
-    floorFrame:SetFrameLevel(parent:GetFrameLevel() + 1)
-    -- the room's triangles: eight frames under the models, eight over them (see PlaceTex)
-    for k = 1, MESH_FRAMES do
-        meshFrames[k] = CreateFrame("Frame", nil, parent)
-        meshFrames[k]:SetAllPoints()
-        meshFrames[k]:SetFrameLevel(parent:GetFrameLevel() + 1 + k)                   -- 2 .. 65
-        overFrames[k] = CreateFrame("Frame", nil, parent)
-        overFrames[k]:SetAllPoints()
-        overFrames[k]:SetFrameLevel(parent:GetFrameLevel() + 70 + k)                  -- 71 .. 134
-    end
+    floorFrame:SetFrameLevel(base + LV.floor)
     sc:SetAllPoints()
-    sc:SetFrameLevel(parent:GetFrameLevel() + 70)
+    sc:SetFrameLevel(base + LV.scene)                          -- over the room's frames (Room.lua makes those)
     plateFrame = CreateFrame("Frame", nil, parent)
     plateFrame:SetAllPoints()
-    plateFrame:SetFrameLevel(parent:GetFrameLevel() + 140)
+    plateFrame:SetFrameLevel(base + LV.plates)
+    if Room then Room.Attach(parent, sc, LV, NEAR_CLIP) end
     pcall(sc.SetCameraFieldOfView, sc, 1.1)
-    pcall(sc.SetCameraNearClip, sc, 0.5)
+    pcall(sc.SetCameraNearClip, sc, NEAR_CLIP)
     pcall(sc.SetCameraFarClip, sc, 500)
     pcall(sc.SetLightVisible, sc, true)
     pcall(sc.SetLightDirection, sc, -0.4, 0.3, -0.8)
@@ -1621,7 +1161,7 @@ end
 local function CreateUnitFrames()
     hud.frame = CreateFrame("Frame", nil, view)
     hud.frame:SetAllPoints()
-    hud.frame:SetFrameLevel(view:GetFrameLevel() + 142)
+    hud.frame:SetFrameLevel(view:GetFrameLevel() + LV.arena)
     hud.player = NewUnitFrame(hud.frame, true)
     hud.player.isPlayer = true
     hud.player:SetScale(0.72)
@@ -1787,9 +1327,9 @@ local function DrawHud()
     end
 end
 
-local function Draw()
+local function Draw(elapsed)
     if not sim then return end
-    if scene then Draw3D() end
+    if scene then Draw3D(elapsed) end
     DrawZones()
     DrawUnits()
     if not scene then DrawFx() end
@@ -1963,7 +1503,7 @@ local function OnUpdate(self, elapsed)
             return
         end
     end
-    Draw()
+    Draw(elapsed)
 end
 
 ---------------------------------------------------------------------------
@@ -2047,9 +1587,16 @@ function UI:CreatePanel(parent)
     ns.UI:SetEdgeColor(view, 0.4, 0.3, 0.5, 1)
     view:SetClipsChildren(true)
     CreateScene(view)
+    if scene and not Room then
+        -- a new file in the TOC is only read when the client starts: until then the rooms are drawn flat
+        ns:Print("Raid Trainer: restart the game client once to load the new room renderer (a /reload is not enough). Until then the room is drawn flat.")
+    end
+    if view:GetFrameLevel() + LV.overlay > 9990 then
+        ns:Print("Raid Trainer: the window sits too high in the frame stack; the 3D view may draw in the wrong order.")
+    end
 
     arena = CreateFrame("Frame", nil, view)
-    arena:SetFrameLevel(view:GetFrameLevel() + 142)
+    arena:SetFrameLevel(view:GetFrameLevel() + LV.arena)
     if scene then arena:SetPoint("TOPRIGHT", view, "TOPRIGHT", -6, -6) else arena:SetPoint("CENTER") end
     arena:SetSize(MINI_W, MINI_H)
     local floorTex = arena:CreateTexture(nil, "BACKGROUND")
@@ -2072,7 +1619,7 @@ function UI:CreatePanel(parent)
     R.corpse:Hide()
 
     R.timer = CreateFrame("Frame", nil, view)
-    R.timer:SetFrameLevel(view:GetFrameLevel() + 143)
+    R.timer:SetFrameLevel(view:GetFrameLevel() + LV.hud)
     R.timer:SetSize(200, 14)
     R.timer:SetPoint("TOP", view, "TOP", 0, -6)
     local tbg = R.timer:CreateTexture(nil, "BACKGROUND")
@@ -2087,7 +1634,7 @@ function UI:CreatePanel(parent)
 
     local hud = CreateFrame("Frame", nil, view)
     hud:SetAllPoints()
-    hud:SetFrameLevel(view:GetFrameLevel() + 143)
+    hud:SetFrameLevel(view:GetFrameLevel() + LV.hud)
     R.banner = hud:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     if scene then
         -- below the unit frames and aura icons, where the client puts its raid warnings
@@ -2132,7 +1679,7 @@ function UI:CreatePanel(parent)
     -- briefing / result
     overlay = CreateFrame("Frame", nil, root)
     overlay:SetAllPoints(view)
-    overlay:SetFrameLevel(view:GetFrameLevel() + 160)
+    overlay:SetFrameLevel(view:GetFrameLevel() + LV.overlay)
     overlay:EnableMouse(true)
     local dim = overlay:CreateTexture(nil, "BACKGROUND")
     dim:SetAllPoints()
@@ -2150,7 +1697,7 @@ function UI:CreatePanel(parent)
     -- paused
     focusOverlay = CreateFrame("Button", nil, root)
     focusOverlay:SetAllPoints(view)
-    focusOverlay:SetFrameLevel(view:GetFrameLevel() + 158)
+    focusOverlay:SetFrameLevel(view:GetFrameLevel() + LV.focus)
     local fdim = focusOverlay:CreateTexture(nil, "BACKGROUND")
     fdim:SetAllPoints()
     fdim:SetColorTexture(0, 0, 0, 0.55)
@@ -2199,24 +1746,12 @@ UI._Fx = function()
     end
     return out
 end
+-- Tests: the floor map's tiles, and what the room shows (Room.lua): its pieces, copies and mark lines.
 UI._Floor = function()
-    local n, m = 0, 0
+    local n = 0
     for _, t in ipairs(floorTiles) do if t:IsShown() then n = n + 1 end end
-    for _ in pairs(meshState.shown) do m = m + 1 end
-    local o = 0
-    for _ in pairs(meshState.over) do o = o + 1 end
-    return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false, mesh = m, over = o }
-end
-UI._OverDebug = function()
-    local out, mesh = {}, meshState.mesh
-    for i in pairs(meshState.over) do
-        local a = (mesh.tris[i * 4 - 3] - 1) * 6
-        out[#out + 1] = string.format('%.0f,%.0f,%.1f d=%.1f steep=%s', mesh.verts[a + 1], mesh.verts[a + 2], mesh.verts[a + 3], meshState.depth[i], tostring(mesh.steep[i]))
-        if #out >= 12 then break end
-    end
-    local mo = {}
-    for j, m in ipairs(meshState.models) do mo[#mo + 1] = string.format('%.1f z=%.1f', m.depth, m.z) end
-    return { out, mo }
+    return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false,
+             mesh = Room and Room.ShownTextures() or 0, copies = 0, lines = Room and Room.ShownLines() or 0 }
 end
 UI._Hud = function()
     if not hud.frame then return nil end
@@ -2241,31 +1776,6 @@ UI._Guide = function()
     local tiles = 0
     for _, t in ipairs(R.miniTiles) do if t:IsShown() then tiles = tiles + 1 end end
     return { status = R.status:GetText(), compass = compass, labels = labels, tiles = tiles }
-end
--- Tests: the room's draw order (every node's place) and where the lines of the marks were put.
-UI._Order = function()
-    local mesh = meshState.mesh
-    if not mesh then return nil end
-    local seen, distinct, lines = {}, 0, {}
-    for k = 1, mesh.nNodes do
-        local s = mesh.nodeSlot[k]
-        if s and not seen[s] then seen[s] = true distinct = distinct + 1 end
-    end
-    for _, l in ipairs(fxLines) do
-        if l:IsShown() then lines[#lines + 1] = l.slot or -1 end
-    end
-    local wrong = 0
-    for i in pairs(meshState.shown) do
-        if meshState.tex[i].slot ~= mesh.nodeSlot[mesh.nodeOf[i]] then wrong = wrong + 1 end
-    end
-    local pieces = 0
-    for _, pool in pairs(meshState.extra) do
-        pieces = pieces + pool.used
-        for k = 1, pool.used do
-            if pool[k].slot ~= mesh.nodeSlot[mesh.nodeOf[pool[k].parentTri]] then wrong = wrong + 1 end
-        end
-    end
-    return { nodes = mesh.nNodes, distinct = distinct, step = mesh.slotStep, lines = lines, wrong = wrong, pieces = pieces }
 end
 UI._Plates = function()
     local out = {}
@@ -2294,5 +1804,17 @@ UI._State = function()
         state = sim and sim.state or false, phase = sim and sim.phase or false,
     }
 end
--- Tests (tools/render_check.py): the 3D view's frames, read only.
-UI._View = function() return view, scene, meshFrames, overFrames, plateFrame, floorFrame end
+-- Tests (tools/render_check.py, spec section 8; read only but _RenderOpts): the 3D view's frames; the renderer's
+-- numbers; render options; the room's draw order and where the mark lines went; the mark segments drawn.
+UI._View = function()
+    return view, scene, Room and Room.Frames() or {}, Room and Room.CopyFrames() or {}, plateFrame, floorFrame
+end
+UI._Render = function()
+    if not Room then return nil end
+    local st = Room.Stats()
+    st.camCur, st.camWant = cam.cur or cam.dist, cam.dist
+    return st
+end
+UI._RenderOpts = function(t) if Room then Room.SetOpts(t) end end
+UI._Order = function() return Room and Room.Order() or nil end
+UI._Marks = function() return Room and Room.Marks() or nil end

@@ -14,7 +14,8 @@ position (and the old camera-plane ones on request), thick actors are 12-sided p
 their billboard stands behind; the line truth sees a mark segment behind a wall as hidden and catches a hidden line drawn
 on top and a visible one never drawn; a copy (an exact duplicate, or a piece clipped in Lua with screen-affine texture
 coordinates) above the scene over an identical base region changes no pixel's class; ties between pieces of one BSP node
-are kept out of ambiguousPct; the camera's distance to the room; --gate runs a subset and reports hook-less checks as
+are kept out of ambiguousPct; a quad texture over a triangle and its quad mate (pair list) is one right piece and its
+fourth corner counts; the camera's distance to the room; --gate runs a subset and reports hook-less checks as
 SKIPPED with a consistent exit code.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_render_check.py [-k name]
@@ -419,6 +420,41 @@ def ties_between_pieces_of_one_node_are_kept_apart():
     assert res["ambiguousSameNodePct"] > 1 and res["ambiguousPct"] == 0, res
     res2, _, _ = analyse([(t, 2, 0, -8) for t in FLOOR] + [(t, 2, 0, -8) for t in WALL], mesh=node_mesh)
     assert res2["ambiguousPct"] > 0.5, res2                                            # two nodes: an order WoW lacks
+
+
+@case
+def a_quad_over_a_triangle_and_its_mate_is_one_right_piece():
+    # renderer v2 draws a triangle and its quad mate (data format v2 pair list) as one texture whose second GPU
+    # triangle (LL, LR, UR) lies on the mate: every pixel of it shows the right surface, and all four corners count
+    m = synthetic_mesh()
+    tris = np.concatenate([m.tri + 1, (m.tex_index + 1)[:, None]], axis=1)
+    qmesh = rc.Mesh(m.V.ravel(), tris.ravel(), m.textures, node_of=[1, 1, 2, 2], pair=[2, 1, 0, 0])
+    assert list(qmesh.mate) == [1, 0, -1, -1], qmesh.mate
+    lone = rc.Mesh(m.V.ravel(), tris.ravel(), m.textures, node_of=[1, 1, 2, 2], pair=[2, 0, 0, 0])
+    assert list(lone.mate) == [-1, -1, -1, -1], lone.mate                       # only mutual pairs
+    cam = camera()
+    sx, sy, _ = cam.project(qmesh.V[:4, :3])
+    uv = qmesh.V[:4, 3:5]
+
+    def floor_quad(lr_shift=0.0):
+        # cyclic (a, b, d, c) = vertices 1, 2, 3, 0: triangle 0 turned so that the edge it shares with triangle 1
+        # (0 - 2) is the LL - UR diagonal; UL = 1, LL = 2, UR = 0, LR = 3
+        return region_record(700, 2, 0, -8, 1001, ((sx[1], sy[1]), (sx[2], sy[2]), (sx[0], sy[0]),
+                                                   (sx[3] + lr_shift, sy[3])), (uv[1], uv[2], uv[0], uv[3]))
+
+    walls = [(t, 2, 0, -7) for t in WALL]
+    base, _, _ = analyse([(t, 2, 0, -8) for t in FLOOR] + walls, mesh=qmesh)
+    res, tr, pt = analyse(walls, extra=[floor_quad()], mesh=qmesh)
+    assert res["matchedRegions"] == 3 and res["unmatchedRegions"] == 0, res
+    assert (res.cls == base.cls).all(), int((res.cls != base.cls).sum())        # the same as the two triangles
+    m0, m1 = np.nan_to_num(base.mis), np.nan_to_num(res.mis)
+    assert np.abs(m0 - m1).max() < 1e-6, np.abs(m0 - m1).max()
+    assert res["wrongSurfacePct"] < 0.3 and res["holesPct"] < 0.3, res
+    # a misplaced fourth corner is not a piece of the quad; without the pair list the quad is no piece either
+    res2, _, _ = analyse(walls, extra=[floor_quad(25.0)], mesh=qmesh)
+    assert res2["matchedRegions"] == 2 and res2["unmatchedRegions"] == 1, res2
+    res3, _, _ = analyse(walls, extra=[floor_quad()], mesh=lone)
+    assert res3["matchedRegions"] == 2 and res3["unmatchedRegions"] == 1, res3
 
 
 @case

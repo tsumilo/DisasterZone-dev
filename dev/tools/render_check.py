@@ -19,9 +19,12 @@ walks a short path in small steps), and for every frame builds two images of the
            ModelScene uses (Project3DPointTo2D), with the actors' billboards depth tested against the room.
 
 Which surface a painted pixel shows. Every room texture the painter draws is first matched, from its own API data, to
-the mesh triangle it is a piece of: same texture file, its three corner texture coordinates inside that triangle's
-texture triangle, and the points of the triangle they stand for, projected through the camera, landing on its three
-corners (within 1 UI unit). A texture maps its picture affinely, but a correctly placed piece can only ever show
+the mesh triangle it is a piece of: same texture file, its four corner texture coordinates inside that triangle's
+texture triangle, and the points of the triangle they stand for, projected through the camera, landing on its four
+corners (within the match tolerance). A triangle and its quad mate (the data format v2 pair list: same node and
+texture, one shared edge, matching texture coordinates) count as one surface: the renderer draws them as one texture
+whose second GPU triangle lies on the mate, so a corner may lie on either and a pixel of the piece is right where the
+truth shows either. A texture maps its picture affinely, but a correctly placed piece can only ever show
 texels of its own triangle, so the affine distortion never makes a correct pixel count as wrong; how far the texel is
 off is reported separately as misplacement. Regions that match no triangle fall back to a texture rule: the texture
 file is the truth triangle's and the texel lies inside its texture triangle (barycentric >= -0.002). Both tests also
@@ -377,7 +380,7 @@ def affine_coefs(xy, vals):
 # the room mesh
 # ---------------------------------------------------------------------------------------------------------------
 class Mesh:
-    def __init__(self, V, T, textures, node_of=None):
+    def __init__(self, V, T, textures, node_of=None, pair=None):
         self.V = np.asarray(V, float).reshape(-1, 6)
         T = np.asarray(T, int).reshape(-1, 4)
         self.tri = T[:, :3] - 1
@@ -386,6 +389,15 @@ class Mesh:
             self.node_of = np.asarray(node_of, dtype=np.int64)
         else:
             self.node_of = np.arange(1, len(T) + 1, dtype=np.int64)
+        # each triangle's quad mate (0-based; -1 = none), from the data format v2 pair list (1-based, 0 = none): the
+        # renderer draws a triangle and its mate - same node, same texture, one shared edge, matching texture
+        # coordinates - as one texture. Only mutual pairs count.
+        self.mate = np.full(len(T), -1, dtype=np.int64)
+        if pair is not None and len(pair) == len(T):
+            p = np.asarray(pair, dtype=np.int64) - 1
+            ok = (p >= 0) & (p < len(T))
+            ok[ok] &= p[p[ok]] == np.nonzero(ok)[0]
+            self.mate[ok] = p[ok]
         self.textures = list(int(t) for t in textures)
         self.tex_index = T[:, 3] - 1
         self.file = np.array(self.textures)[self.tex_index]
@@ -412,7 +424,8 @@ class Mesh:
         parts = text.split("|")
         v, t, x = parts[:3]
         node_of = np.array(parts[3].split(), int) if len(parts) > 3 and parts[3].strip() else None
-        return cls(np.array(v.split(), float), np.array(t.split(), int), x.split(), node_of)
+        pair = np.array(parts[4].split(), int) if len(parts) > 4 and parts[4].strip() else None
+        return cls(np.array(v.split(), float), np.array(t.split(), int), x.split(), node_of, pair)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -623,10 +636,13 @@ MATCH_TOL = MATCH_BASE + DEFAULT_TAU   # (the default; a capture's own is cap.ma
 
 def match_regions(mesh, cap, rows_idx):
     """For the room regions rows_idx: the mesh triangle each one is a correctly placed piece of, or -1. A region is a
-    piece of T when its texture file is T's, its three corner texture coordinates (UL, LL, UR) lie inside T's texture
-    triangle and the points of T they stand for, projected through the camera, land on the region's corners (within
-    cap.match_tol = 1 + tau + dilate view units: a morphed midpoint or a Lua-clipped copy corner lies on a piece whose
-    affine error is at most tau). -> (src array aligned with rows_idx, corner error)."""
+    piece of T when its texture file is T's, its four corner texture coordinates (UL, LL, UR, LR) lie inside T's
+    texture triangle - or, when T has a quad mate M (mesh.mate), inside T's or M's - and the points they stand for
+    (mapped back through the triangle whose texture triangle holds them), projected through the camera, land on the
+    region's corners (within cap.match_tol = 1 + tau + dilate view units: a morphed midpoint or a Lua-clipped copy
+    corner lies on a piece whose affine error is at most tau). A triangle's UR and LR are one corner; a quad texture
+    (its second GPU triangle LL, LR, UR lies on M) is a piece of T's quad. -> (src array aligned with rows_idx, corner
+    error)."""
     tol = getattr(cap, "match_tol", MATCH_TOL)
     R = cap.regions
     n = len(rows_idx)
@@ -639,10 +655,19 @@ def match_regions(mesh, cap, rows_idx):
     o = rows[:, 22:30]
     sc = np.stack([np.stack([l + o[:, 0], b + h + o[:, 1]], 1),           # UL
                    np.stack([l + o[:, 2], b + o[:, 3]], 1),               # LL
-                   np.stack([l + w + o[:, 4], b + h + o[:, 5]], 1)], 1)   # UR      (n, 3, 2)
-    tc = np.stack([rows[:, 10:12], rows[:, 12:14], rows[:, 14:16]], 1)      # (n, 3, 2)
+                   np.stack([l + w + o[:, 4], b + h + o[:, 5]], 1),       # UR
+                   np.stack([l + w + o[:, 6], b + o[:, 7]], 1)], 1)       # LR      (n, 4, 2)
+    tc = np.stack([rows[:, 10:12], rows[:, 12:14], rows[:, 14:16], rows[:, 16:18]], 1)      # (n, 4, 2)
     files = rows[:, 5].astype(np.int64)
+    mate = getattr(mesh, "mate", None)
+    if mate is None:
+        mate = np.full(mesh.nt, -1, dtype=np.int64)
+    has_m = mate >= 0
+    mi_all = np.where(has_m, mate, np.arange(mesh.nt))
+    # the texture box of a triangle, or of its quad (with its mate)
     uvmin_t, uvmax_t = mesh.uv.min(axis=1), mesh.uv.max(axis=1)
+    uvmin_q = np.where(has_m[:, None], np.minimum(uvmin_t, uvmin_t[mi_all]), uvmin_t)
+    uvmax_q = np.where(has_m[:, None], np.maximum(uvmax_t, uvmax_t[mi_all]), uvmax_t)
     eps = 1e-3
     mirror = np.array([1.0, cap.mirror, 1.0])
     for f in np.unique(files):
@@ -653,21 +678,29 @@ def match_regions(mesh, cap, rows_idx):
         rmin, rmax = tc[ri].min(axis=1), tc[ri].max(axis=1)
         for c0 in range(0, len(ri), 512):                                   # (bounded memory)
             rs = ri[c0:c0 + 512]
-            cont = ((uvmin_t[ti][None, :, :] <= rmin[c0:c0 + 512][:, None, :] + eps).all(-1) &
-                    (uvmax_t[ti][None, :, :] >= rmax[c0:c0 + 512][:, None, :] - eps).all(-1))
+            cont = ((uvmin_q[ti][None, :, :] <= rmin[c0:c0 + 512][:, None, :] + eps).all(-1) &
+                    (uvmax_q[ti][None, :, :] >= rmax[c0:c0 + 512][:, None, :] - eps).all(-1))
             pr, pc = np.nonzero(cont)
             if len(pr) == 0:
                 continue
             rr, tt = rs[pr], ti[pc]
-            X = np.concatenate([tc[rr], np.ones((len(rr), 3, 1))], axis=2)      # (m, 3, 3) corner [u, v, 1]
-            beta = np.einsum("mij,mkj->mki", mesh.binv[tt], X)                  # (m, 3 corners, 3)
-            inside = (beta >= -eps).all(axis=(1, 2))
+            X = np.concatenate([tc[rr], np.ones((len(rr), 4, 1))], axis=2)      # (m, 4, 3) corner [u, v, 1]
+            beta = np.einsum("mij,mkj->mki", mesh.binv[tt], X)                  # (m, 4 corners, 3)
+            in_t = (beta >= -eps).all(axis=2)                                   # (m, 4)
+            mm = mi_all[tt]
+            hm = has_m[tt] & mesh.uv_ok[mm]
+            beta_m = np.einsum("mij,mkj->mki", mesh.binv[mm], X)
+            in_m = hm[:, None] & (beta_m >= -eps).all(axis=2) & ~in_t           # (on T first)
+            inside = (in_t | in_m).all(axis=1)
             if not inside.any():
                 continue
-            rr, tt, beta = rr[inside], tt[inside], beta[inside]
-            Q = np.einsum("mki,mij->mkj", beta, mesh.corners[tt]) * mirror      # (m, 3, 3) scene points
+            rr, tt, mm = rr[inside], tt[inside], mm[inside]
+            beta, beta_m, in_m = beta[inside], beta_m[inside], in_m[inside]
+            Q = np.einsum("mki,mij->mkj", beta, mesh.corners[tt])               # (m, 4, 3) arena points
+            Qm = np.einsum("mki,mij->mkj", beta_m, mesh.corners[mm])
+            Q = np.where(in_m[:, :, None], Qm, Q) * mirror                       # scene points
             qx, qy, qd = cap.cam.project(Q.reshape(-1, 3))
-            qx, qy, qd = qx.reshape(-1, 3), qy.reshape(-1, 3), qd.reshape(-1, 3)
+            qx, qy, qd = qx.reshape(-1, 4), qy.reshape(-1, 4), qd.reshape(-1, 4)
             e = np.hypot(qx - sc[rr, :, 0], qy - sc[rr, :, 1]).max(axis=1)
             e[(qd <= 0).any(axis=1) | np.isnan(e)] = np.inf
             order = np.lexsort((e, rr))                                       # per region, the smallest error
@@ -770,6 +803,7 @@ def render_painter(mesh, cap, tr, g, S):
     pt.copy_lines = 0                                            # lines in frames above it
     pt.lines = 0
     node_of = getattr(mesh, "node_of", None)
+    mate_of = getattr(mesh, "mate", None)
     scene_key = None
     if cap.scene_frame is not None:
         sf = cap.frames[cap.scene_frame]
@@ -783,7 +817,7 @@ def render_painter(mesh, cap, tr, g, S):
         above = scene_key is not None and (key[0], key[1]) > scene_key
         my_kind = {"room": 1, "scene": 2, "line": 3}[what]
 
-        def stamp(r0, c0, m, value, room, src_tri=-1, node=-1):
+        def stamp(r0, c0, m, value, room, src_tri=-1, node=-1, mate_tri=-1):
             hh, ww = m.shape
             sl = (slice(r0, r0 + hh), slice(c0, c0 + ww))
             o, ok_, fk_, fi_, ls_, on_ = own[sl], own_kind[sl], fkey[sl], fid_[sl], lsk[sl], own_node[sl]
@@ -802,7 +836,10 @@ def render_painter(mesh, cap, tr, g, S):
                 pt.kind[sl][m] = 1
                 pt.full_top[sl][m] = value
                 if src_tri >= 0:
-                    pt.painted_truth[sl][m & (tr.id[sl] == src_tri)] = True
+                    own_t = tr.id[sl] == src_tri
+                    if mate_tri >= 0:                            # a piece of a quad: either of its two triangles
+                        own_t |= tr.id[sl] == mate_tri
+                    pt.painted_truth[sl][m & own_t] = True
             else:
                 pt.kind[sl][m] = 3 if what == "line" else 2
                 pt.full_top[sl][m] = value
@@ -818,6 +855,7 @@ def render_painter(mesh, cap, tr, g, S):
                 pt.below_scene += 1
             src_i = pt.region_src.get(i, -1)
             node_i = int(node_of[src_i]) if (node_of is not None and src_i >= 0) else -1
+            mate_i = int(mate_of[src_i]) if (mate_of is not None and src_i >= 0) else -1
             (ul, ll, ur, lr), (tul, tll, tur, tlr) = region_quad(row)
             tris = ((ul, ll, ur, tul, tll, tur), (ll, lr, ur, tll, tlr, tur))
             corners = [ul, ll, ur, lr]
@@ -842,7 +880,7 @@ def render_painter(mesh, cap, tr, g, S):
                 pt.light_of[tid] = float(row[6])
                 pt.region_tri_count += 1
                 r0, c0, m, _, _, _ = res
-                stamp(r0, c0, m, tid, True, src_i, node_i)
+                stamp(r0, c0, m, tid, True, src_i, node_i, mate_i)
         elif what == "line":
             row = R[i]
             x1, y1, x2, y2 = row[18:22]
@@ -979,12 +1017,23 @@ def compare(mesh, cap, tr, pt, g, S):
                 lut[reg] = s
         srcs = lut[regs]
         matched = srcs >= 0
-        # matched regions: the triangle itself decides
+        # a piece of a quad shows either of its two triangles (the mate of the one it was matched to)
+        mate = getattr(mesh, "mate", None)
+        mates = np.full(n, -1, dtype=np.int64)
+        if mate is not None:
+            mates[matched] = mate[srcs[matched]]
+        # matched regions: the triangle itself (or its quad mate) decides
         for dr, dc in [(0, 0)] + NEIGHBOURS:
-            right |= matched & (_neighbour_ids(tr, g, rr, cc, dr, dc) == srcs)
+            nb = _neighbour_ids(tr, g, rr, cc, dr, dc)
+            right |= matched & ((nb == srcs) | ((mates >= 0) & (nb == mates)))
         idx = np.nonzero(matched & right)[0]
         if len(idx):
-            ok, m_, v_ = _surface_test(mesh, cap.cam, cap.mirror, S, srcs[idx], uvp[idx], filep[idx], px[idx], py[idx],
+            # the texel mapped back through the triangle the truth shows at the pixel (of the two of a quad)
+            tsel = srcs.copy()
+            here = tr.id[rr, cc]
+            sw = (mates >= 0) & (here == mates)
+            tsel[sw] = mates[sw]
+            ok, m_, v_ = _surface_test(mesh, cap.cam, cap.mirror, S, tsel[idx], uvp[idx], filep[idx], px[idx], py[idx],
                                        inside_test=False)
             mis[idx], vec[idx] = m_, v_
         # unmatched regions: the texture rule against the truth triangle, then its neighbours
