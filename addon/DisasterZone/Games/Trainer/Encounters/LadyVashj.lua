@@ -66,6 +66,7 @@ local function Toward(x, y, share)
 end
 
 local ROLE_NAME = { looter = "the LOOTER", relay = "the RELAY", finisher = "at the GENERATOR" }
+local JOB_NAME = { Looter = "Raider (looter)", Relay = "Raider (relay)", Generator = "Raider (at generator)" }
 
 ---------------------------------------------------------------------------
 -- The core
@@ -177,7 +178,7 @@ local function StartCore(sim)
     end
     local function raider(job, x, y, n)
         local k = (pick + n) % #RAID_DISPLAYS + 1
-        return sim:Spawn({ kind = "raider", job = job, name = job, x = x, y = y, selectable = true, friendly = true,
+        return sim:Spawn({ kind = "raider", job = job, name = JOB_NAME[job], x = x, y = y, selectable = true, friendly = true,
                            facing = math.atan2(ey - y, ex - x), display = RAID_DISPLAYS[k], act = RAID_ACTS[k],
                            speed = 7, radius = 0.9, color = { 0.3, 0.55, 1 }, plate = 2.6 })
     end
@@ -243,8 +244,51 @@ local function Start(sim)
     sim.objective = "Phase 2: bring a Tainted Core to each of the four Shield Generators."
 end
 
+-- What the view shows you: a ring round every generator (5 yd: where a core can be used), a tall marker on the
+-- one this core goes to, on the elemental / the core, on whoever holds it, and on the spot your job is done from.
+local function Guide(sim)
+    local p, core = sim.player, sim.core
+    local marks, status = {}, {}
+    for _, g in ipairs(sim.generators) do
+        if g.active then
+            local mine = core and core.gen == g and core.state ~= "done"
+            marks[#marks + 1] = { x = g.x, y = g.y, r = USE_RANGE, color = mine and { 0.3, 1, 1 } or { 0.2, 0.5, 0.7 },
+                                  column = mine and 16 or 7, label = mine and "Generator: bring it here" or nil }
+        end
+    end
+    if core and core.state ~= "done" then
+        status[#status + 1] = "Your job: |cffffd100" .. ROLE_NAME[core.role] .. "|r"
+        if core.state == "elemental" then
+            marks[#marks + 1] = { x = core.x, y = core.y, r = 4, color = { 0.3, 1, 0.4 }, column = 16, label = "Tainted Elemental" }
+            status[#status + 1] = string.format("Elemental: %s edge, %d yd from you", Compass(core.x, core.y), Dist(p.x, p.y, core.x, core.y))
+        elseif core.state == "onground" then
+            marks[#marks + 1] = { x = core.x, y = core.y, r = 4, color = { 0.3, 1, 0.4 }, column = 16, label = "Tainted Core: loot it" }
+            status[#status + 1] = string.format("Core: on the ground, %s edge, %d yd from you", Compass(core.x, core.y), Dist(p.x, p.y, core.x, core.y))
+        elseif core.holder == p then
+            status[#status + 1] = "Core: |cff66ff80YOU have it|r (you cannot move)"
+        elseif core.holder or core.flying then
+            local h = core.holder or core.flying
+            marks[#marks + 1] = { x = h.x, y = h.y, r = 1.5, color = { 0.3, 1, 0.4 }, column = 10, label = "Has the core" }
+            status[#status + 1] = string.format("Core: with %s, %d yd from you", h.name, Dist(p.x, p.y, h.x, h.y))
+        end
+        status[#status + 1] = string.format("Generator: the %s one, %d yd from you", Compass(core.gen.x, core.gen.y), Dist(p.x, p.y, core.gen.x, core.gen.y))
+        -- where your job is done from
+        if core.role == "relay" and core.holder ~= p then
+            marks[#marks + 1] = { x = core.spot.x, y = core.spot.y, r = 3, color = { 1, 0.85, 0.1 }, column = 12, label = "Relay: stand here" }
+        elseif core.role == "finisher" and core.holder ~= p then
+            local x, y = Toward(core.gen.x, core.gen.y, 1.1)
+            marks[#marks + 1] = { x = x, y = y, r = 2, color = { 1, 0.85, 0.1 }, column = 0, label = nil }
+        end
+    else
+        status[#status + 1] = string.format("Generators down: %d of 4. Next elemental soon.", sim.stats.down or 0)
+    end
+    sim.marks, sim.status = marks, status
+    sim.zones = marks                                   -- the minimap shows the same
+end
+
 local function Update(sim, dt)
     local p = sim.player
+    Guide(sim)
     -- the barrier's beams, the Paralyze icon
     sim.beams = {}
     for _, g in ipairs(sim.generators) do
@@ -378,6 +422,7 @@ T:RegisterEncounter("vashj", {
     player = { x = CX, y = CY - 48, speed = 7, facing = pi / 2 },
     abilities = abilities,
     interactKey = "F",
+    compass = true,
     resultTitle = function(sim) return sim.state == "won" and "Barrier down!" or "Wipe" end,
     howTo = {
         "A |cff66ff80Tainted Elemental|r comes up at the room's edge. The raid kills it; it leaves a |cff66ff80Tainted Core|r.",

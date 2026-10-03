@@ -171,10 +171,10 @@ def simulated_raiders_pass_it_on_and_use_it_at_the_generator():
     c.eval("T_V.new('looter', 3)  T_V.until_state('onground', 20)")
     c.eval("local s = T_V.sim  s.player.x, s.player.y = s.core.x + 2, s.core.y  s:Interact()")
     gen = sim(c, "return { s.core.gen.x, s.core.gen.y }")
-    relay = sim(c, "local best for _, u in ipairs(s:Alive('raider')) do if u.name == 'Relay' then best = u end end s:SetTarget(best) return { best.x, best.y }")
+    relay = sim(c, "local best for _, u in ipairs(s:Alive('raider')) do if u.job == 'Relay' then best = u end end s:SetTarget(best) return { best.x, best.y }")
     assert sim(c, "return s:Use('core')") is True
     c.eval("T_V.run(2)")
-    assert sim(c, "return s.core.holder ~= nil and s.core.holder.name") == "Relay"
+    assert sim(c, "return s.core.holder ~= nil and s.core.holder.job") == "Relay"
     assert c.eval_py("return T_V.until_state('done', 8)")
     assert sim(c, "return s.stats.down") == 1 and sim(c, "return s.core.gen.active") is False
     assert sim(c, "return #s.beams") == 4 and (c.eval("T_V.run(0.1)") or True) and sim(c, "return #s.beams") == 3
@@ -182,7 +182,7 @@ def simulated_raiders_pass_it_on_and_use_it_at_the_generator():
     # nobody for a raider to throw to: he calls for it, and a core nobody moves loses the try
     c.eval("T_V.new('relay', 3)  T_V.until_state('carried', 30)")
     c.eval("T_V.sim.player.x, T_V.sim.player.y = 105, 190  T_V.run(4)")
-    assert sim(c, "return s.core.holder.name") == "Looter" and "nobody in range" in sim(c, "return s.banner.text")
+    assert sim(c, "return s.core.holder.job") == "Looter" and "nobody in range" in sim(c, "return s.banner.text")
     c.eval("T_V.run(50)")
     assert sim(c, "return s.state") == "lost" and "never reached" in sim(c, "return s.reason")
     no_errors(w)
@@ -256,6 +256,14 @@ def the_panel_shows_allies_and_things_to_use():
     assert sim(c, "return s.core.state") == "elemental"
     c.eval("T_V.sim.player.facing = math.pi  ns.TrainerUI._Tick(0.05)")       # (the mock only projects a west view)
     assert c.eval_py("return ns.TrainerUI._Floor().mesh") > 300
+    # the job card, the marks with their labels, the compass
+    g = c.eval_py("return ns.TrainerUI._Guide()")
+    assert "Your job" in g["status"] and "LOOTER" in g["status"] and "Elemental:" in g["status"] and "Generator:" in g["status"], g
+    assert g["heading"] == "Facing west", g
+    assert any(l in ("N", "S", "E", "W") for l in g["labels"]), g
+    marks = sim(c, "local t = {} for _, m in ipairs(s.marks) do t[#t+1] = m.label or '' end return t")
+    assert "Tainted Elemental" in marks and "Generator: bring it here" in marks and len(marks) == 5, marks
+    assert sim(c, "local n = 0 for _, u in ipairs(s:Alive('raider')) do if u.name:find('^Raider %(') then n = n + 1 end end return n") >= 2
     # F with nothing in reach is still our key; the 1 key is the core
     assert c.eval_py("return ns.TrainerUI._Key('F')") is True
     c.eval("ns.TrainerUI._Key('1')")
@@ -267,13 +275,13 @@ def the_panel_shows_allies_and_things_to_use():
     hud = c.eval_py("return ns.TrainerUI._Hud()")
     assert hud["auras"] == [""] and hud["target"] is False, hud            # Paralyze: an icon, no time
     # an ally in front of you: click him (the view's own click picking), the target frame shows him, 1 throws
-    c.eval("local s = T_V.sim  for _, u in ipairs(s:Alive('raider')) do if u.name == 'Relay' then T_AL = u end end "
+    c.eval("local s = T_V.sim  for _, u in ipairs(s:Alive('raider')) do if u.job == 'Relay' then T_AL = u end end "
            "T_AL.x, T_AL.y = s.player.x - 20, s.player.y  ns.TrainerUI._Tick(0.05)")
     x, y = c.eval_py("local x, y = ns.TrainerUI._Project(T_AL.x, T_AL.y, 1.3) return { x, y }")
     assert c.eval_py("return ns.TrainerUI._Click(%f, %f) == T_AL" % (x, y))
     c.eval("ns.TrainerUI._Tick(0.05)")
     hud = c.eval_py("return ns.TrainerUI._Hud()")
-    assert hud["target"] == "Relay", hud
+    assert hud["target"] == "Raider (relay)", hud
     c.eval("ns.TrainerUI._Key('1')  ns.TrainerUI._Tick(0.05)")
     assert sim(c, "return s.core.holder == nil and s.core.flying == T_AL") and sim(c, "return s.player.rooted") is False
     no_errors(w)

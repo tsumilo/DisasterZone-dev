@@ -32,6 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(HERE, "..", "art", "wmo")
 OUT_DIR = os.path.join(HERE, "..", "..", "addon", "DisasterZone", "Games", "Trainer", "Encounters")
 MAX_EDGE = 9.0
+BAND = 2.5              # no triangle is taller than this (see the renderer's height layers)
 ALPHA62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 ROOMS = {
@@ -47,7 +48,7 @@ ROOMS = {
         out="LadyVashjFloor.lua", key="vashj", root=112018, group=112025,
         title="Lady Vashj's room as Blizzard built it (coilfang_raid.wmo, group 6)",
         w=210, h=210, z_main=42.9, base=-26.0, step=0.5, top=4.5, alphabet=ALPHA62,
-        blank=True, floor_top=6.0, floor_bottom=-27.0, mesh_top=6.0, radius=100.0, max_edge=24.0,
+        blank=True, floor_top=6.0, floor_bottom=-27.0, mesh_top=6.0, radius=100.0, band=7.0, max_edge=24.0,
         to_arena=lambda x, y: (y - 923.27 + 105.0, -x - 29.83 + 105.0),
         to_local=lambda ax, ay: (-(ay - 105.0) - 29.83, ax - 105.0 + 923.27),
     ),
@@ -124,6 +125,16 @@ def build_mesh(root, group, room):
         # a vertex = (x, y, z, u, v, light); split the longest edge until every edge is short enough
         edges = [(math.dist(pa[:3], pb[:3]), 0), (math.dist(pb[:3], pc[:3]), 1), (math.dist(pc[:3], pa[:3]), 2)]
         longest, which = max(edges)
+        zs = (pa[2], pb[2], pc[2])
+        n = normal(pa[:3], pb[:3], pc[:3])
+        steep = n is not None and abs(n[2]) < 0.5
+        if steep and longest <= room.get("max_edge", MAX_EDGE) and max(zs) - min(zs) > room.get("band", BAND) and longest > 1.5:
+            # a tall piece (a wall, a pillar): cut it into height bands, so the renderer can layer the room by
+            # height. Split the edge that climbs the most.
+            pts = [pa, pb, pc]
+            climbs = [(abs(pts[i][2] - pts[(i + 1) % 3][2]), i) for i in range(3)]
+            which = max(climbs)[1]
+            longest = MAX_EDGE * 1000
         if longest > room.get("max_edge", MAX_EDGE):
             pts = [pa, pb, pc]
             p, q, r = pts[which], pts[(which + 1) % 3], pts[(which + 2) % 3]

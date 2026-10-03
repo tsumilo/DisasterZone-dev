@@ -15,6 +15,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
 --   player = { x, y, speed, facing },
 --   interactKey = "F",                  that key uses the nearest thing with an .interact in reach
+--   compass = true,                     the view shows N / E / S / W at the room's edges (arena y is north)
+--   (the encounter may also keep these on the sim, redrawn every frame:
+--    sim.marks  = { { x, y, r, color = { r, g, b }, column = height, label = "text" } }   rings on the floor
+--    sim.status = { "line", ... }                                                         the job card
+--    sim.beams  = { { x, y, z, x2, y2, z2, r, g, b } })
 --   abilities = { { id, key = "3", name, icon, tip, cooldown, gcd, range, needsTarget, friendly (the target must be
 --                   a .selectable ally: no auto-target),
 --                   usable = function(sim) return ok, why end, use = function(sim, ability, target) end } },

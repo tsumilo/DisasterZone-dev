@@ -32,12 +32,13 @@ local ACTS = {
 
 local root, view, arena, overlay, focusOverlay
 local scene, floorFrame, plateFrame      -- the 3D view (scene == nil: flat fallback)
-local overFrame                          -- above the models: the pieces of the room that stand in front of one
+local meshFrames, overFrames = {}, {}     -- the room's triangles: under the models, and (what stands in front of one) over them
 local cam = { dist = 14, pitch = 0.3, pitchSign = 1, mirror = 1, x = 0, y = 0, z = 0, fx = 1, fy = 0, fz = 0 }
 local actors = {}            -- unit id -> actor
 local actorPool = {}
 local plates = {}
 local floorLines, fxLines = {}, {}
+local markLabels = {}        -- the text on the encounter's marks, and the compass letters
 local floorTiles = {}
 local TILES = 20             -- the floor map is drawn as TILES x TILES quads, each bent into perspective
 local fxActors = {}          -- effect -> actor
@@ -346,6 +347,21 @@ local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {}, over = {}, 
                     x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, low = {}, models = {},
                     vr = {}, vu = {}, vd = {}, clip = { {}, {}, {}, {} }, far = 110 }
 local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
+local MESH_FRAMES = 8                    -- frames stacked by level, each with 3 layers of 16 sublevels: 384 slots
+local MESH_SLOTS = MESH_FRAMES * 48
+
+-- Draw order. A texture has no depth test, so the room is painted back to front in 384 slots:
+-- first by height (a thing that lies wholly below a floor can never hide that floor, and seen from above a
+-- floor never hides a higher one), then within one height far to near. The generator cuts walls and pillars
+-- into pieces of limited height for this.
+local function PlaceTex(tx, slot, over)
+    if tx.slot == slot and tx.over == over then return end
+    local fi = floor(slot / 48) + 1
+    if tx.fi ~= fi or tx.over ~= over then tx:SetParent((over and overFrames or meshFrames)[fi]) end
+    tx.fi, tx.over, tx.slot = fi, over, slot
+    local k = slot % 48
+    tx:SetDrawLayer(MESH_LAYERS[floor(k / 16) + 1], k % 16 - 8)
+end
 
 local function PrepareMesh(mesh)
     if mesh.ready then return end
@@ -363,6 +379,20 @@ local function PrepareMesh(mesh)
         local nx, ny, nz = mesh.normal[i * 3 - 2], mesh.normal[i * 3 - 1], mesh.normal[i * 3]
         mesh.steep = mesh.steep or {}
         mesh.steep[i] = nz < 0.7 * math.sqrt(nx * nx + ny * ny + nz * nz)
+        mesh.top = mesh.top or {}
+        mesh.top[i] = max(v[a + 3], v[b + 3], v[c + 3])
+    end
+    -- height bands: at most 32, each at least a yard
+    local lo, hi = math.huge, -math.huge
+    for i = 1, mesh.nTris do
+        lo, hi = min(lo, mesh.top[i]), max(hi, mesh.top[i])
+    end
+    local bandH = max(1, (hi - lo) / 32)
+    mesh.bands = max(1, math.ceil((hi - lo) / bandH + 0.001))
+    mesh.perBand = floor(MESH_SLOTS / mesh.bands)
+    mesh.band = {}
+    for i = 1, mesh.nTris do
+        mesh.band[i] = min(mesh.bands - 1, floor((mesh.top[i] - lo) / bandH))
     end
 end
 
@@ -377,11 +407,11 @@ end
 -- The room is drawn under the models, so by itself a pillar between the camera and a character would be painted
 -- over by that character. Each frame: find the triangles that are nearer than a model they overlap on screen and
 -- can hide it (anything steep; a floor only when it lies above that model's feet, like a walkway seen from below
--- or beside); those, and every triangle nearer still that touches no model, move to a frame above the models.
--- A triangle that has a model in front of it, or that a model stands on, stays below.
+-- or beside); those move to the frames above the models (in the same draw order). A triangle that has a model
+-- in front of it, or that a model stands on, stays below.
 local function UpdateOcclusion()
     local st, b = meshState, meshState.basis
-    if not (b and overFrame) then return end
+    if not (b and overFrames[1]) then return end
     local models, nm = st.models, 0
     for _, u in ipairs(sim.units) do
         if actors[u.id] and not u.dead then
@@ -405,35 +435,26 @@ local function UpdateOcclusion()
             end
         end
     end
-    -- how deep the covering goes: the farthest model that has something in front of it
-    local reach = 0
     local x0, x1, y0, y1, depth, occ = st.x0, st.x1, st.y0, st.y1, st.depth, st.occ
     local steep, low = st.mesh.steep, st.low
     for n = 1, st.nOcc do
         local i = occ[n]
         local d = depth[i]
-        local blocked = false
+        local covers, blocked = false, false
         for j = 1, nm do
             local mo = models[j]
             if x1[i] >= mo.x0 and x0[i] <= mo.x1 and y1[i] >= mo.y0 and y0[i] <= mo.y1 then
                 if d < mo.depth - 0.5 and (steep[i] or low[i] > mo.z + 0.4) then
-                    if mo.depth > reach then reach = mo.depth end
+                    covers = true
                 else
                     blocked = true
                 end
             end
         end
-        st.blocked = st.blocked or {}
-        st.blocked[i] = blocked
-    end
-    for n = 1, st.nOcc do
-        local i = occ[n]
-        local over = depth[i] < reach - 0.5 and not st.blocked[i]
+        local over = covers and not blocked
         if over ~= (st.over[i] or false) then
             st.over[i] = over or nil
-            local tx = st.tex[i]
-            tx:SetParent(over and overFrame or floorFrame)
-            tx:SetDrawLayer(MESH_LAYERS[floor(tx.bucket / 16) + 1], tx.bucket % 16 - 8)
+            PlaceTex(st.tex[i], st.tex[i].slot, over)
         end
     end
 end
@@ -506,7 +527,7 @@ local function DrawMesh()
 
     local tex, shown = meshState.tex, meshState.shown
     local eyeX, eyeY = camX, m * camY                                  -- the camera in the mesh's own coordinates
-    local buckets = #MESH_LAYERS * 16
+    local band, perBand = mesh.band, mesh.perBand
     local far = meshState.far
     local clip = meshState.clip                                        -- scratch: up to 4 points of r, u, depth, tu, tv
     for i = 1, mesh.nTris do
@@ -559,7 +580,8 @@ local function DrawMesh()
                     visible = true
                     local tx = tex[i]
                     if not tx then
-                        tx = floorFrame:CreateTexture(nil, "BACKGROUND")
+                        tx = meshFrames[1]:CreateTexture(nil, "BACKGROUND")
+                        tx.fi, tx.over = 1, false
                         tx:SetSize(1, 1)
                         tx:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
                         tx:SetTexture(mesh.textures[t[i * 4]], "REPEAT", "REPEAT")
@@ -581,13 +603,10 @@ local function DrawMesh()
                     tx:SetVertexOffset(2, x2, y2)
                     tx:SetVertexOffset(3, x4 - 1, y4 - 1)
                     tx:SetVertexOffset(4, x3 - 1, y3)
-                    -- far ones first: three layers of sixteen sublevels
+                    -- its slot: the height band, and in it far ones first (finer near the camera)
                     local depth = (max(vd[a], NEAR) + max(vd[b], NEAR) + max(vd[c], NEAR)) / 3
-                    local bucket = buckets - 1 - max(0, min(buckets - 1, floor(depth / far * buckets)))
-                    if tx.bucket ~= bucket then
-                        tx.bucket = bucket
-                        tx:SetDrawLayer(MESH_LAYERS[floor(bucket / 16) + 1], bucket % 16 - 8)
-                    end
+                    local near = perBand - 1 - min(perBand - 1, floor(perBand * math.sqrt(min(1, depth / far))))
+                    PlaceTex(tx, band[i] * perBand + near, meshState.over[i] or false)
                     if not shown[i] then
                         shown[i] = true
                         tx:Show()
@@ -608,8 +627,7 @@ local function DrawMesh()
             tex[i]:Hide()
             if meshState.over[i] then                                  -- out of sight: back under the models
                 meshState.over[i] = nil
-                tex[i]:SetParent(floorFrame)
-                tex[i]:SetDrawLayer(MESH_LAYERS[floor(tex[i].bucket / 16) + 1], tex[i].bucket % 16 - 8)
+                PlaceTex(tex[i], tex[i].slot, false)
             end
         end
     end
@@ -709,6 +727,41 @@ local function DrawEffects()
             Circle(t.x, t.y, t.radius + 0.4, 1, 0.1, 0.1, 0.9, 3)                           -- hostile: red
         end
     end
+    -- the encounter's marks: a ring on the floor, a column standing on it, a label on top
+    local nLabels = 0
+    local function Label(text, x, y, z, r, g, b, big)
+        local sxp, syp = Project(x, y, GroundZ(x, y) + z)
+        if not sxp then return end
+        nLabels = nLabels + 1
+        local fs = markLabels[nLabels]
+        if not fs then
+            fs = plateFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            markLabels[nLabels] = fs
+        end
+        fs:SetFontObject(big and "GameFontNormalHuge" or "GameFontNormal")
+        fs:SetText(text)
+        fs:SetTextColor(r, g, b)
+        fs:ClearAllPoints()
+        fs:SetPoint("BOTTOM", scene, "BOTTOMLEFT", sxp, syp)
+        fs:Show()
+    end
+    for _, mk in ipairs(sim.marks or {}) do
+        local c = mk.color or { 1, 1, 1 }
+        Circle(mk.x, mk.y, mk.r or 3, c[1], c[2], c[3], 0.9, 2)
+        if (mk.column or 0) > 0 then
+            local g = GroundZ(mk.x, mk.y)
+            Segment(fxLines, "fx", plateFrame, mk.x, mk.y, g, mk.x, mk.y, g + mk.column, c[1], c[2], c[3], 0.8, 3)
+        end
+        if mk.label then Label(mk.label, mk.x, mk.y, (mk.column or 0) + 0.5, c[1], c[2], c[3]) end
+    end
+    if sim.enc.compass then
+        local w, h = sim.enc.arena.w, sim.enc.arena.h
+        Label("N", w / 2, h * 0.93, 10, 1, 1, 1, true)
+        Label("S", w / 2, h * 0.07, 10, 1, 1, 1, true)
+        Label("E", w * 0.93, h / 2, 10, 1, 1, 1, true)
+        Label("W", w * 0.07, h / 2, 10, 1, 1, 1, true)
+    end
+    for i = nLabels + 1, #markLabels do markLabels[i]:Hide() end
     for _, b in ipairs(sim.beams or {}) do                           -- { x, y, z, x2, y2, z2, r, g, b }
         Segment(fxLines, "fx", plateFrame, b[1], b[2], GroundZ(b[1], b[2]) + b[3], b[4], b[5], GroundZ(b[4], b[5]) + b[6],
                 b[7], b[8], b[9], 0.75, 3)
@@ -969,6 +1022,7 @@ function ResetScene()
     HideMesh()
     for _, l in ipairs(floorLines) do l:Hide() end
     for _, l in ipairs(fxLines) do l:Hide() end
+    for _, fs in ipairs(markLabels) do fs:Hide() end
     for _, t in ipairs(floorTiles) do t:Hide() end
     for _, f in ipairs(plates) do f:Hide() end
 end
@@ -1005,14 +1059,20 @@ local function CreateScene(parent)
     floorFrame = CreateFrame("Frame", nil, parent)
     floorFrame:SetAllPoints()
     floorFrame:SetFrameLevel(parent:GetFrameLevel() + 1)
+    -- the room's triangles: eight frames under the models, eight over them (see PlaceTex)
+    for k = 1, MESH_FRAMES do
+        meshFrames[k] = CreateFrame("Frame", nil, parent)
+        meshFrames[k]:SetAllPoints()
+        meshFrames[k]:SetFrameLevel(parent:GetFrameLevel() + 1 + k)
+        overFrames[k] = CreateFrame("Frame", nil, parent)
+        overFrames[k]:SetAllPoints()
+        overFrames[k]:SetFrameLevel(parent:GetFrameLevel() + 11 + k)
+    end
     sc:SetAllPoints()
-    sc:SetFrameLevel(parent:GetFrameLevel() + 2)
+    sc:SetFrameLevel(parent:GetFrameLevel() + 11)
     plateFrame = CreateFrame("Frame", nil, parent)
     plateFrame:SetAllPoints()
-    plateFrame:SetFrameLevel(parent:GetFrameLevel() + 4)
-    overFrame = CreateFrame("Frame", nil, parent)
-    overFrame:SetAllPoints()
-    overFrame:SetFrameLevel(parent:GetFrameLevel() + 3)
+    plateFrame:SetFrameLevel(parent:GetFrameLevel() + 21)
     pcall(sc.SetCameraFieldOfView, sc, 1.1)
     pcall(sc.SetCameraNearClip, sc, 0.5)
     pcall(sc.SetCameraFarClip, sc, 500)
@@ -1140,7 +1200,7 @@ local function DrawZones()
         f:SetSize(z.r * 2 * px, z.r * 2 * px)
         Place(f, z.x, z.y)
         f.disc:SetVertexColor(c[1], c[2], c[3], 0.22)
-        f.label:SetText(z.label or "")
+        f.label:SetText(scene and "" or (z.label or ""))        -- (the 3D view has the labels)
         -- the raid: a fixed sunflower of dots, so it reads as a group of players
         for d = 1, (z.dots or 0) do
             local dot = f.dots[d]
@@ -1359,7 +1419,7 @@ end
 local function CreateUnitFrames()
     hud.frame = CreateFrame("Frame", nil, view)
     hud.frame:SetAllPoints()
-    hud.frame:SetFrameLevel(view:GetFrameLevel() + 7)
+    hud.frame:SetFrameLevel(view:GetFrameLevel() + 23)
     hud.player = NewUnitFrame(hud.frame, true)
     hud.player.isPlayer = true
     hud.player:SetScale(0.72)
@@ -1464,8 +1524,25 @@ function ResetUnitFrames()
     end
 end
 
+local HEADINGS = { "east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east" }
+
 local function DrawHud()
     R.objective:SetText(sim.objective or "")
+    R.status:SetText(sim.status and table.concat(sim.status, "\n") or "")
+    if sim.enc.compass then
+        R.heading:SetText("Facing " .. HEADINGS[floor(sim.player.facing / (pi / 4) + 0.5) % 8 + 1])
+        R.north:Show()
+    else
+        R.heading:SetText("")
+        R.north:Hide()
+    end
+    -- which way you look, on the minimap
+    if R.facing then
+        local p = sim.player
+        R.facing:SetStartPoint("BOTTOMLEFT", arena, p.x * px, p.y * px)
+        R.facing:SetEndPoint("BOTTOMLEFT", arena, p.x * px + cos(p.facing) * 12, p.y * px + sin(p.facing) * 12)
+        R.facing:Show()
+    end
     local bar = sim.bars[1]
     if scene then
         DrawUnitFrames()
@@ -1702,6 +1779,10 @@ local function SelectEncounter(id)
     R.banner:Hide()
     R.error:Hide()
     R.objective:SetText("")
+    R.status:SetText("")
+    R.heading:SetText("")
+    R.north:Hide()
+    if R.facing then R.facing:Hide() end
     R.start:SetText("Start")
     R.encounter:Refresh()
     R.difficulty:Refresh()
@@ -1757,7 +1838,7 @@ function UI:CreatePanel(parent)
     CreateScene(view)
 
     arena = CreateFrame("Frame", nil, view)
-    arena:SetFrameLevel(view:GetFrameLevel() + 6)
+    arena:SetFrameLevel(view:GetFrameLevel() + 23)
     if scene then arena:SetPoint("TOPRIGHT", view, "TOPRIGHT", -6, -6) else arena:SetPoint("CENTER") end
     arena:SetSize(MINI_W, MINI_H)
     local floorTex = arena:CreateTexture(nil, "BACKGROUND")
@@ -1779,7 +1860,7 @@ function UI:CreatePanel(parent)
     R.corpse:Hide()
 
     R.timer = CreateFrame("Frame", nil, view)
-    R.timer:SetFrameLevel(view:GetFrameLevel() + 8)
+    R.timer:SetFrameLevel(view:GetFrameLevel() + 24)
     R.timer:SetSize(200, 14)
     R.timer:SetPoint("TOP", view, "TOP", 0, -6)
     local tbg = R.timer:CreateTexture(nil, "BACKGROUND")
@@ -1794,7 +1875,7 @@ function UI:CreatePanel(parent)
 
     local hud = CreateFrame("Frame", nil, view)
     hud:SetAllPoints()
-    hud:SetFrameLevel(view:GetFrameLevel() + 8)
+    hud:SetFrameLevel(view:GetFrameLevel() + 24)
     R.banner = hud:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     if scene then
         -- below the unit frames and aura icons, where the client puts its raid warnings
@@ -1804,6 +1885,25 @@ function UI:CreatePanel(parent)
     end
     R.banner:SetWidth(420)
     R.banner:Hide()
+    -- the job card under the unit frames; the heading and "N" on the minimap
+    R.status = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    R.status:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -84)
+    R.status:SetJustifyH("LEFT")
+    R.status:SetSpacing(3)
+    R.status:SetShadowColor(0, 0, 0, 1)
+    R.status:SetShadowOffset(1, -1)
+    R.heading = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    R.heading:SetPoint("TOP", arena, "BOTTOM", 0, -3)
+    R.north = hud:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    R.north:SetPoint("TOP", arena, "TOP", 0, -2)
+    R.north:SetText("N")
+    R.north:Hide()
+    if hud.CreateLine then
+        R.facing = hud:CreateLine(nil, "OVERLAY")
+        R.facing:SetThickness(2)
+        R.facing:SetColorTexture(1, 1, 1, 0.9)
+        R.facing:Hide()
+    end
     R.error = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     R.error:SetTextColor(1, 0.2, 0.2)
     R.error:SetPoint("BOTTOM", view, "BOTTOM", 0, 26)
@@ -1816,7 +1916,7 @@ function UI:CreatePanel(parent)
     -- briefing / result
     overlay = CreateFrame("Frame", nil, root)
     overlay:SetAllPoints(view)
-    overlay:SetFrameLevel(view:GetFrameLevel() + 30)
+    overlay:SetFrameLevel(view:GetFrameLevel() + 40)
     overlay:EnableMouse(true)
     local dim = overlay:CreateTexture(nil, "BACKGROUND")
     dim:SetAllPoints()
@@ -1834,7 +1934,7 @@ function UI:CreatePanel(parent)
     -- paused
     focusOverlay = CreateFrame("Button", nil, root)
     focusOverlay:SetAllPoints(view)
-    focusOverlay:SetFrameLevel(view:GetFrameLevel() + 28)
+    focusOverlay:SetFrameLevel(view:GetFrameLevel() + 38)
     local fdim = focusOverlay:CreateTexture(nil, "BACKGROUND")
     fdim:SetAllPoints()
     fdim:SetColorTexture(0, 0, 0, 0.55)
@@ -1916,6 +2016,11 @@ UI._Hud = function()
              target = hud.target:IsShown() and hud.target.name:GetText() or false,
              targetHp = hud.target.hpText:GetText(), targetLevel = hud.target.level:GetText(),
              targetWidth = hud.target.hp:GetWidth(), debuffs = debuffs, auras = auras, texts = texts }
+end
+UI._Guide = function()
+    local labels = {}
+    for _, fs in ipairs(markLabels) do if fs:IsShown() then labels[#labels + 1] = fs:GetText() end end
+    return { status = R.status:GetText(), heading = R.heading:GetText(), labels = labels }
 end
 UI._Plates = function()
     local out = {}
