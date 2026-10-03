@@ -9,7 +9,7 @@ ns.CHANGELOG = {
     { version = "1.3.0", date = "3 October 2026", title = "Guests, a raid blacklist, sign up with any character",
       sections = {
           { heading = "Guests (players outside the guild)", lines = {
-              "Raids > a raid > Guests: add a pug to the raid by name, with class and spec.",
+              "Add players (icon at the top right of a raid): add a pug by name, with class and spec.",
               "A guest counts as accepted, can be placed in a group and is invited with the raid.",
               "For the Guild Master, officers, the guild council and the raid leaders.",
               "Guests carry a (guest) mark: in the raid's roster, in rolls, the drop panel and the logs.",

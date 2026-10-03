@@ -483,7 +483,7 @@ def the_roster_marks_guests_and_managers_right_click():
     open_tab(w, lee, occ)
     assert lee.find_text("The raid leaders took you off this raid.", True, True)
     assert lee.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
-    assert not shown(lee, P + ".upcoming.detail.guestBtn") and not shown(lee, P + ".blacklistBtn")
+    assert not shown(lee, P + ".upcoming.detail.inviteBtn") and not shown(lee, P + ".blacklistBtn")
     open_tab(w, rita, occ)
     before = rita.last_menu()
     rita.click(rita.eval(ROSTER_CELL, K("Rita")), "RightButton")
@@ -500,11 +500,11 @@ def the_guests_and_blacklist_windows():
     assert signup(lee, occ, "A")["ok"] is True
     w.tick(2)
     open_tab(w, bob, occ)
-    assert shown(bob, P + ".upcoming.detail.guestBtn") and shown(bob, P + ".blacklistBtn")
-    # Guests: name, class and spec, Add
-    bob.click(bob.eval("return %s.upcoming.detail.guestBtn" % P))
-    G = "ns.RaidPlanUI:GetGuestWindow()"
-    assert shown(bob, G)
+    assert shown(bob, P + ".upcoming.detail.inviteBtn") and shown(bob, P + ".blacklistBtn")
+    # Add players (the icon at the top right of the raid): guild members to invite, and guests by name, class, spec
+    bob.click(bob.eval("return %s.upcoming.detail.inviteBtn" % P))
+    G = "ns.RaidPlanUI:GetInviteWindow()"
+    assert shown(bob, G) and shown(bob, G + ".picker.frame") and shown(bob, G + ".nameBox")
     bob.type_text(bob.eval("return %s.nameBox" % G), "Pugsy")
     bob.click(bob.eval("return %s.addBtn" % G))
     assert "class" in bob.eval("return %s.err:GetText()" % G)              # no class picked yet
@@ -519,7 +519,14 @@ def the_guests_and_blacklist_windows():
     g = rita.eval_py("return ns.RaidPlan:GetGuests(...)", occ)
     assert list(g) == [K("Pugsy")] and g[K("Pugsy")]["c"] == "ROGUE" and g[K("Pugsy")]["sp"] == 2, g
     assert bob.eval("return %s.nameBox:GetText()" % G) == ""
-    assert bob.find_text("Combat Rogue", True, True)
+    assert bob.find_text("Combat Rogue", True, True) and bob.find_text("0 invited · 1 guest", True, True)
+    rows = bob.eval_py("return %s.list:GetData()" % G)
+    assert [(r["key"], r.get("guest")) for r in rows] == [(K("Pugsy"), True)], rows
+    # an officer who plans no raids adds guests there too, without the guild member search
+    olaf = c["Olaf"]
+    open_tab(w, olaf, occ)
+    olaf.click(olaf.eval("return %s.upcoming.detail.inviteBtn" % P))
+    assert shown(olaf, G + ".nameBox") and not shown(olaf, G + ".picker.frame")
     bob.eval("ns.RaidPlanUI:RemoveGuest(...)", K("Pugsy"))
     w.tick(2)
     assert rita.eval_py("return ns.RaidPlan:GetGuests(...)", occ) == {}

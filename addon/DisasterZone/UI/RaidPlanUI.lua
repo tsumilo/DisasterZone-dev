@@ -1,7 +1,7 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidPlanUI.lua", ...) then return end -- DisasterZone: UI/RaidPlanUI.lua
 -- Raid planning views of the Raids tab (Addendum J §58): "Upcoming" (the raid list with its filters, a raid's sign-up
--- strip and roster) and "Teams" (team lists), plus the New / Edit raid window, the Guests window (players outside
--- the guild on a raid) and the Blacklist window. RaidsTab owns the tab and its toolbar and creates these views
+-- strip and roster) and "Teams" (team lists), plus the New / Edit raid window, the Add players window (invited guild
+-- members and guests from outside the guild) and the Blacklist window. RaidsTab owns the tab and its toolbar and creates these views
 -- inside its panel.
 local addonName, ns = ...
 
@@ -1190,8 +1190,9 @@ function PlanUI:CreateUpcoming(parent)
             if state.selected then PlanUI:OpenEditor(state.selected) end
         end)
     d.editBtn:SetPoint("RIGHT", d.cancelBtn, "LEFT", -3, 0)
-    d.inviteBtn = UI():CreateTipIconButton(d, ACT, 19, "Invite players", "Players outside the raid's teams who can "
-        .. "sign up too. On a locked raid they are the only ones besides the teams.", function()
+    d.inviteBtn = UI():CreateTipIconButton(d, ACT, 19, "Add players", "Guild members outside the raid's teams (on a "
+        .. "locked raid they are the only ones besides the teams), and guests: players who are not in the guild, "
+        .. "added by name.", function()
         if state.selected then PlanUI:OpenInvites(state.selected) end
     end)
     d.inviteBtn:SetPoint("RIGHT", d.editBtn, "LEFT", -3, 0)
@@ -1262,13 +1263,6 @@ function PlanUI:CreateUpcoming(parent)
     d.counts:SetPoint("RIGHT", -4, 0)
     d.counts:SetJustifyH("LEFT")
     d.counts:SetWordWrap(false)
-    -- roster managers: players outside the guild on this raid
-    d.guestBtn = UI():CreateSleekButton(d, "Guests", 64, 20, function()
-        if state.selected then PlanUI:OpenGuests(state.selected) end
-    end)
-    d.guestBtn:SetPoint("TOPRIGHT", -2, -(DETAIL_TOP + 62))
-    tipButton(d.guestBtn, "Guests", "Add players who are not in the guild to this raid by name. A guest counts as "
-        .. "accepted, can be placed in a group and is invited with everyone else.")
 
     d.roster = UI():CreateScrollList(d, CELL_H, initRosterRow, rosterExtent)
     d.roster.frame:SetPoint("TOPLEFT", 0, -(DETAIL_TOP + 84))
@@ -1289,8 +1283,6 @@ local function refreshDetail(v)
     local assignTab = state.detailTab == "assign"
     for _, region in ipairs({ d.title, d.sub, d.note, d.tabSignups, d.tabGroups, d.tabAssign }) do region:SetShown(has) end
     for _, region in ipairs({ d.strip, d.counts, d.roster.frame }) do region:SetShown(has and not groupsTab and not assignTab) end
-    d.guestBtn:SetShown(has and not groupsTab and not assignTab and RP():CanManageRoster() and not v.cancelled)
-    d.counts:SetPoint("RIGHT", d.guestBtn:IsShown() and -72 or -4, 0)
     d.groups:SetShown(has and groupsTab)
     d.assign:SetShown(has and assignTab)
     d.tabSignups:SetKind((groupsTab or assignTab) and "secondary" or "active")
@@ -1300,7 +1292,7 @@ local function refreshDetail(v)
     local organizer = RP():CanOrganize()
     d.editBtn:SetShown(has and organizer)
     d.cancelBtn:SetShown(has and organizer)
-    d.inviteBtn:SetShown(has and organizer)
+    d.inviteBtn:SetShown(has and (organizer or RP():CanManageRoster()))
     if not has then return end
 
     d.title:SetText(raidTitle(v) .. (v.cancelled and "  |cffff5555CANCELLED|r" or ""))
@@ -2141,7 +2133,8 @@ end
 function PlanUI:GetEditor() return editor end
 
 ---------------------------------------------------------------------------
--- Invite window (raid planners): the players invited on top of a raid's teams
+-- Add players window: the guild members invited on top of a raid's teams (raid planners), and its guests, players
+-- outside the guild added by name (roster managers). One list shows both.
 ---------------------------------------------------------------------------
 
 local inviteWin
@@ -2177,6 +2170,21 @@ local function invitePickerItems()
     return out
 end
 
+local function classOptions()
+    local out = {}
+    for classFile in pairs(ns.SPECS or {}) do
+        out[#out + 1] = { value = classFile, text = ns.CLASS_NAMES[classFile] or classFile }
+    end
+    tsort(out, function(a, b) return a.text < b.text end)
+    return out
+end
+
+local function guestSpecOptions()
+    local out = {}
+    for i, spec in ipairs(inviteWin and ns.SPECS[inviteWin.cls] or {}) do out[#out + 1] = { value = i, text = spec.label } end
+    return out
+end
+
 local function initInviteRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
@@ -2189,21 +2197,28 @@ local function initInviteRow(row, d)
         row.remove:SetPoint("RIGHT", -4, 0)
         row.remove:SetScript("OnClick", function(self)
             local data = self:GetParent().__cdlData
-            if data then PlanUI:ToggleInvite(data.key) end
+            if not data then return end
+            if data.guest then PlanUI:RemoveGuest(data.key) else PlanUI:ToggleInvite(data.key) end
         end)
     end
-    row.fs:SetText(UI():ColoredName(d.key))
+    row.fs:SetText(UI():ColoredName(d.key, d.c))
     row.note:SetText(d.note or "")
+    row.remove:SetShown(d.guest or RP():CanOrganize())
 end
 
 local function createInvites()
-    local w = UI():CreateWindow("DisasterZoneRaidInvites", "Invite players", 380, 380)
+    local w = UI():CreateWindow("DisasterZoneRaidInvites", "Add players", 380, 470)
     inviteWin = w
     local c = w.content
     w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     w.info:SetPoint("TOPLEFT", 10, -8)
     w.info:SetPoint("RIGHT", -10, 0)
     w.info:SetJustifyH("LEFT")
+
+    -- guild members (raid planners)
+    w.memberLabel = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    w.memberLabel:SetPoint("TOPLEFT", 10, -62)
+    w.memberLabel:SetText("Guild members")
     w.picker = UI():CreateSearchDropdown(c, 240, {
         placeholder = "Invite guild members...",
         emptyText = "No matching guild members.",
@@ -2211,26 +2226,59 @@ local function createInvites()
         isChecked = function(key) return inviteSet(inviteRaid())[key] and true or false end,
         onToggle = function(key) PlanUI:ToggleInvite(key) end,
     })
-    w.picker.frame:SetPoint("TOPLEFT", 6, -78)
+    w.picker.frame:SetPoint("TOPLEFT", 6, -76)
+
+    -- guests (roster managers): name, class, spec
+    w.guestLabel = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    w.guestLabel:SetPoint("TOPLEFT", 10, -110)
+    w.guestLabel:SetText("Guests " .. grey("(players outside the guild: type the character's name)"))
+    w.nameBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
+    w.nameBox:SetSize(118, 20)
+    w.nameBox:SetAutoFocus(false)
+    w.nameBox:SetMaxLetters(48)
+    w.nameBox:SetPoint("TOPLEFT", 14, -126)
+    w.nameBox:SetScript("OnEnterPressed", function() PlanUI:AddGuest() end)
+    w.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    w.classDD = UI():CreateSleekDropdown(c, 90, classOptions, function() return w.cls end, function(val)
+        w.cls, w.sp = val, nil
+        if w.specDD.Refresh then w.specDD:Refresh() end
+    end)
+    w.classDD:SetPoint("LEFT", w.nameBox, "RIGHT", 6, 0)
+    w.classDD:SetDefaultText("Class")
+    w.specDD = UI():CreateSleekDropdown(c, 86, guestSpecOptions, function() return w.sp end, function(val) w.sp = val end)
+    w.specDD:SetPoint("LEFT", w.classDD, "RIGHT", 3, 0)
+    w.specDD:SetDefaultText("Spec")
+    w.addBtn = UI():CreateSleekButton(c, "Add", 48, 22, function() PlanUI:AddGuest() end, "primary")
+    w.addBtn:SetPoint("LEFT", w.specDD, "RIGHT", 4, 0)
+    w.err = c:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
+    w.err:SetPoint("TOPLEFT", 12, -150)
+    w.err:SetPoint("RIGHT", -10, 0)
+    w.err:SetJustifyH("LEFT")
+
     w.status = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.status:SetPoint("TOPLEFT", 10, -106)
+    w.status:SetPoint("TOPLEFT", 10, -168)
     w.list = UI():CreateScrollList(c, 22, initInviteRow)
-    w.list.frame:SetPoint("TOPLEFT", 4, -122)
+    w.list.frame:SetPoint("TOPLEFT", 4, -184)
     w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
-    w.list:SetEmptyText("Nobody outside the teams is invited.\nInvite guild members with the search box.")
+    w.list:SetEmptyText("Nobody outside the teams is invited.\nSearch for guild members, or add a guest by name.")
     w:Hide()
     return w
 end
 
--- Opens the invites of a raid (raid planners).
+local function canAddPlayers()
+    return RP():CanOrganize() or RP():CanManageRoster()
+end
+
+-- Opens the Add players window of a raid: invites for raid planners, guests for roster managers.
 function PlanUI:OpenInvites(occId)
-    if not RP():CanOrganize() then
-        Print("Only the Guild Master and the raid leaders can invite players to a raid.")
+    if not canAddPlayers() then
+        Print("Only the Guild Master, officers, the guild council and the raid leaders can add players to a raid.")
         return false
     end
     if not RP():GetRaid(occId) then return false end
     if not inviteWin then createInvites() end
     inviteWin.occ = occId
+    inviteWin.err:SetText("")
     inviteWin:Show()
     inviteWin:Raise()
     self:RefreshInvites()
@@ -2255,130 +2303,9 @@ function PlanUI:ToggleInvite(key)
     return ok and true or false
 end
 
-function PlanUI:RefreshInvites()
-    if not inviteWin or not inviteWin:IsShown() then return end
-    local v = inviteRaid()
-    if not v or not RP():CanOrganize() then
-        inviteWin:Hide()
-        return
-    end
-    inviteWin.info:SetText(("|cffffd100%s|r  %s\n%s%s"):format(raidTitle(v), grey(fmtDay(v.t) .. " " .. fmtTime(v.t)),
-        RP():IsLocked(v) and "This raid is locked: only its teams and the players invited here can sign up and see it."
-            or "This raid is open: everyone can sign up. The players invited here are expected, like the teams.",
-        v.weekly and " Changes here are for this week only." or ""))
-    local g = ns.Guild
-    local rows = {}
-    for _, key in ipairs(v.inv or {}) do
-        rows[#rows + 1] = { key = key, note = g and g.GetRankName and g:GetRankName(key) or "" }
-    end
-    tsort(rows, function(a, b) return nameLess(a.key, b.key) end)
-    inviteWin.status:SetText(#rows .. " invited" .. (#(v.tm or {}) > 0 and (" on top of " .. teamNames({ tm = v.tm })) or ""))
-    inviteWin.list:SetData(rows)
-    if inviteWin.picker.IsOpen and inviteWin.picker:IsOpen() then inviteWin.picker:RefreshRows() end
-end
-
----------------------------------------------------------------------------
--- Guests window (roster managers): players outside the guild on a raid
----------------------------------------------------------------------------
-
-local guestWin
-
-local function classOptions()
-    local out = {}
-    for classFile in pairs(ns.SPECS or {}) do
-        out[#out + 1] = { value = classFile, text = ns.CLASS_NAMES[classFile] or classFile }
-    end
-    tsort(out, function(a, b) return a.text < b.text end)
-    return out
-end
-
-local function guestSpecOptions()
-    local out = {}
-    for i, spec in ipairs(guestWin and ns.SPECS[guestWin.cls] or {}) do out[#out + 1] = { value = i, text = spec.label } end
-    return out
-end
-
-local function initGuestRow(row, d)
-    if not row.cdlInit then
-        row.cdlInit = true
-        row.fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.fs:SetPoint("LEFT", 6, 0)
-        row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.note:SetPoint("LEFT", 150, 0)
-        row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-        row.remove:SetSize(20, 20)
-        row.remove:SetPoint("RIGHT", -4, 0)
-        row.remove:SetScript("OnClick", function(self)
-            local data = self:GetParent().__cdlData
-            if data then PlanUI:RemoveGuest(data.key) end
-        end)
-    end
-    row.fs:SetText(UI():ColoredName(d.key, d.c))
-    row.note:SetText(d.note or "")
-end
-
-local function createGuests()
-    local w = UI():CreateWindow("DisasterZoneRaidGuests", "Guests", 380, 380)
-    guestWin = w
-    local c = w.content
-    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    w.info:SetPoint("TOPLEFT", 10, -8)
-    w.info:SetPoint("RIGHT", -10, 0)
-    w.info:SetJustifyH("LEFT")
-    w.nameBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
-    w.nameBox:SetSize(120, 20)
-    w.nameBox:SetAutoFocus(false)
-    w.nameBox:SetMaxLetters(48)
-    w.nameBox:SetPoint("TOPLEFT", 14, -62)
-    w.nameBox:SetScript("OnEnterPressed", function() PlanUI:AddGuest() end)
-    w.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    w.nameHint = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.nameHint:SetPoint("BOTTOMLEFT", w.nameBox, "TOPLEFT", -2, 2)
-    w.nameHint:SetText("Character name")
-    w.classDD = UI():CreateSleekDropdown(c, 90, classOptions, function() return w.cls end, function(val)
-        w.cls, w.sp = val, nil
-        if w.specDD.Refresh then w.specDD:Refresh() end
-    end)
-    w.classDD:SetPoint("LEFT", w.nameBox, "RIGHT", 6, 0)
-    w.classDD:SetDefaultText("Class")
-    w.specDD = UI():CreateSleekDropdown(c, 86, guestSpecOptions, function() return w.sp end, function(val) w.sp = val end)
-    w.specDD:SetPoint("LEFT", w.classDD, "RIGHT", 3, 0)
-    w.specDD:SetDefaultText("Spec")
-    w.addBtn = UI():CreateSleekButton(c, "Add", 48, 22, function() PlanUI:AddGuest() end, "primary")
-    w.addBtn:SetPoint("LEFT", w.specDD, "RIGHT", 4, 0)
-    w.err = c:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-    w.err:SetPoint("TOPLEFT", 12, -88)
-    w.err:SetPoint("RIGHT", -10, 0)
-    w.err:SetJustifyH("LEFT")
-    w.list = UI():CreateScrollList(c, 22, initGuestRow)
-    w.list.frame:SetPoint("TOPLEFT", 4, -106)
-    w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
-    w.list:SetEmptyText("No guests on this raid.")
-    w:Hide()
-    return w
-end
-
--- Opens the guests of a raid (roster managers).
-function PlanUI:OpenGuests(occId)
-    if not RP():CanManageRoster() then
-        Print("Only the Guild Master, officers, the guild council and the raid leaders can add guests.")
-        return false
-    end
-    if not RP():GetRaid(occId) then return false end
-    if not guestWin then createGuests() end
-    guestWin.occ = occId
-    guestWin.err:SetText("")
-    guestWin:Show()
-    guestWin:Raise()
-    self:RefreshGuests()
-    return true
-end
-
-function PlanUI:GetGuestWindow() return guestWin end
-
 -- Adds the guest typed in the window (name, class, spec), or the one given.
 function PlanUI:AddGuest(name, classFile, spec)
-    local w = guestWin
+    local w = inviteWin
     if not w or not w.occ then return false end
     name = name or w.nameBox:GetText()
     local ok, err = RP():AddGuest(w.occ, name, classFile or w.cls, spec or w.sp)
@@ -2388,39 +2315,60 @@ function PlanUI:AddGuest(name, classFile, spec)
     end
     w.err:SetText("")
     w.nameBox:SetText("")
-    self:RefreshGuests()
+    self:RefreshInvites()
     return true
 end
 
 function PlanUI:RemoveGuest(key)
-    local w = guestWin
+    local w = inviteWin
     if not w or not w.occ then return false end
     local ok, err = RP():RemoveGuest(w.occ, key)
     if not ok then Print(err or "Could not remove the guest.") end
-    self:RefreshGuests()
+    self:RefreshInvites()
     return ok and true or false
 end
 
-function PlanUI:RefreshGuests()
-    if not guestWin or not guestWin:IsShown() then return end
-    local v = guestWin.occ and RP():GetRaid(guestWin.occ)
-    if not v or not RP():CanManageRoster() then
-        guestWin:Hide()
+function PlanUI:RefreshInvites()
+    if not inviteWin or not inviteWin:IsShown() then return end
+    local v = inviteRaid()
+    if not v or not canAddPlayers() then
+        inviteWin:Hide()
         return
     end
-    guestWin.info:SetText(("|cffffd100%s|r  %s\nGuests are players outside the guild. They count as accepted and are "
-        .. "invited with the raid."):format(raidTitle(v), grey(fmtDay(v.t) .. " " .. fmtTime(v.t))))
+    local planner, manager = RP():CanOrganize(), RP():CanManageRoster()
+    inviteWin.info:SetText(("|cffffd100%s|r  %s\n%s%s"):format(raidTitle(v), grey(fmtDay(v.t) .. " " .. fmtTime(v.t)),
+        RP():IsLocked(v) and "This raid is locked: only its teams and the players invited here can sign up and see it."
+            or "This raid is open: everyone can sign up. The players invited here are expected, like the teams.",
+        v.weekly and " Changes here are for this week only." or ""))
+    inviteWin.memberLabel:SetShown(planner)
+    inviteWin.picker.frame:SetShown(planner)
+    for _, region in ipairs({ inviteWin.guestLabel, inviteWin.nameBox, inviteWin.classDD, inviteWin.specDD,
+                              inviteWin.addBtn, inviteWin.err }) do
+        region:SetShown(manager)
+    end
+    local g = ns.Guild
     local rows = {}
-    for key, g in pairs(RP():GetGuests(v)) do
-        local spec = ns.SPECS[g.c] and g.sp and ns.SPECS[g.c][g.sp]
-        rows[#rows + 1] = { key = key, c = g.c, note = ((spec and spec.label .. " ") or "") .. (ns.CLASS_NAMES[g.c] or "")
-            .. (RP():IsBlacklisted(key) and "  |cffff5555blacklisted|r" or "") }
+    for _, key in ipairs(v.inv or {}) do
+        rows[#rows + 1] = { key = key, note = g and g.GetRankName and g:GetRankName(key) or "" }
     end
     tsort(rows, function(a, b) return nameLess(a.key, b.key) end)
-    guestWin.list:SetData(rows)
-    for _, dd in ipairs({ guestWin.classDD, guestWin.specDD }) do
+    local invited = #rows
+    -- guests after the guild members: "Guest · Combat Rogue"
+    local guests = {}
+    for key, gu in pairs(RP():GetGuests(v)) do
+        local spec = ns.SPECS[gu.c] and gu.sp and ns.SPECS[gu.c][gu.sp]
+        guests[#guests + 1] = { key = key, c = gu.c, guest = true,
+            note = "|cff66ccffGuest|r · " .. ((spec and spec.label .. " ") or "") .. (ns.CLASS_NAMES[gu.c] or "") }
+    end
+    tsort(guests, function(a, b) return nameLess(a.key, b.key) end)
+    for _, d in ipairs(guests) do rows[#rows + 1] = d end
+    inviteWin.status:SetText(invited .. " invited" .. (#(v.tm or {}) > 0 and (" on top of " .. teamNames({ tm = v.tm })) or "")
+        .. (#guests > 0 and (" · " .. #guests .. (#guests == 1 and " guest" or " guests")) or ""))
+    inviteWin.list:SetData(rows)
+    for _, dd in ipairs({ inviteWin.classDD, inviteWin.specDD }) do
         if dd.Refresh then dd:Refresh() end
     end
+    if inviteWin.picker.IsOpen and inviteWin.picker:IsOpen() then inviteWin.picker:RefreshRows() end
 end
 
 ---------------------------------------------------------------------------
@@ -2610,7 +2558,6 @@ function PlanUI:OnInit()
     for _, msg in ipairs({ "RAIDPLAN_CHANGED", "CONFIG_UPDATED" }) do
         ns:On(msg, function()
             PlanUI:RefreshInvites()
-            PlanUI:RefreshGuests()
             PlanUI:RefreshBlacklist()
         end)
     end
