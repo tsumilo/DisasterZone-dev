@@ -60,10 +60,10 @@ local FX = {
 -- The raid: the tank in front of the boss, melee behind him, ranged and healers close around them, all down in
 -- the pit (you start among them), which leaves the whole hall between the raid and the corners by the entrance.
 -- { x, y, display, what they do }. The models are the Shattered Sun Offensive's soldiers (display IDs from
--- Wowhead: Veteran 22931, Warrior 20570, Trainee 22924, Peacekeeper 23714, Marksman 22752, Magi 22952,
+-- Wowhead: Veteran 22931, Trainee 22924, Peacekeeper 23714, Marksman 22752, Magi 22952,
 -- Archmage 22973, Cleric 22953): armed blood elves and draenei that every faction's client has.
 local RAID = {
-    { 31, 48, 22931, "melee", tank = true }, { 28, 55, 20570, "melee" }, { 31, 56, 22924, "melee" },
+    { 31, 48, 22931, "melee", tank = true }, { 28, 55, 22931, "melee" }, { 31, 56, 22924, "melee" },
     { 34, 55, 23714, "melee" },
     { 24, 48, 22752, "bow" }, { 26, 44.5, 22952, "caster" }, { 29, 42.5, 22953, "caster" },
     { 33, 42.5, 22973, "caster" }, { 38, 48, 22752, "bow" }, { 36, 44.5, 22953, "caster" }, { 31, 41, 22952, "caster" },
@@ -287,6 +287,10 @@ T:RegisterEncounter("teron", {
     arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
               height = T.HeightFn(ns.TrainerFloors and ns.TrainerFloors.teron),
               mesh = ns.TrainerFloors and ns.TrainerFloors.teron and ns.TrainerFloors.teron.mesh,
+              -- the client's own minimap of the hall (world/minimaps/wmo/.../blacktemple_031_00_00: 2 pixels a
+              -- yard from the group's corner at local -675.07 / -817.63; the hall is turned half round)
+              minimap = { { file = 211944, x0 = -615 - (-675.068 + 64), y0 = -759 - (-817.626 + 128),
+                            x1 = -615 + 675.068, y1 = -759 + 817.626, uv = { 1, 1, 1, 0, 0, 1, 0, 0 } } },
               map = { file = "Interface\\AddOns\\DisasterZone\\Media\\Maps\\BT04_a",
                       u0 = 0.3221, u1 = 0.4560, v0 = 0.2537, v1 = 0.5193 } },
     difficulties = {

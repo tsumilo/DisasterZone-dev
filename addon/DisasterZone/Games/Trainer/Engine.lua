@@ -15,7 +15,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
 --   player = { x, y, speed, facing },
 --   interactKey = "F",                  that key uses the nearest thing with an .interact in reach
---   compass = true,                     the view shows N / E / S / W at the room's edges (arena y is north)
+--   compass = true,                     the minimap shows N / E / S / W (arena y is north)
+--   (arena.minimap = { { file, x0, y0, x1, y1, uv = { 8 numbers } }, ... }: the client's minimap tiles, each on its
+--    rectangle of the arena, with the texture coordinates of its upper left, lower left, upper right, lower right)
 --   (the encounter may also keep these on the sim, redrawn every frame:
 --    sim.marks  = { { x, y, r, color = { r, g, b }, column = height, label = "text" } }   rings on the floor
 --    sim.status = { "line", ... }                                                         the job card

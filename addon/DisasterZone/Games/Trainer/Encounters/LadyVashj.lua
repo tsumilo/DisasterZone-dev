@@ -39,8 +39,8 @@ local ELEMENTAL_WALK = 2.5
 local DISPLAY_VASHJ, DISPLAY_TAINTED, DISPLAY_ENCHANTED = 20748, 11172, 20076
 local FX = { coreMissile = 166648, coreImpact = 166602, coreSound = 4475, barrier = 166541,
              boltMissile = 166254, boltImpact = 165738, boltSound = 3134 }
-local RAID_DISPLAYS = { 22931, 20570, 22924, 23714, 22752, 22952, 22973, 22953 }
-local RAID_ACTS = { "melee", "melee", "melee", "melee", "bow", "caster", "caster", "caster" }
+local RAID_DISPLAYS = { 22931, 22924, 23714, 22752, 22952, 22973, 22953 }
+local RAID_ACTS = { "melee", "melee", "melee", "bow", "caster", "caster", "caster" }
 
 -- world (x north, y west) -> arena (x east, y north), Vashj in the middle
 local function W(wx, wy) return -wy - 923.27 + CX, wx - 29.83 + CY end
@@ -53,6 +53,20 @@ local function SpellIcon(spellID, fallback)
     return (GetSpellTexture and GetSpellTexture(spellID)) or ("Interface\\Icons\\" .. fallback)
 end
 local CORE_ICON = (GetItemIcon and GetItemIcon(31088)) or "Interface\\Icons\\Spell_Nature_ElementalShields"
+
+-- The client's own minimap of the room: nine tiles of 128 yd (2 pixels a yard) from the group's corner at local
+-- -197.123 / 790.687, world/minimaps/wmo/dungeon/ol_coilfang/coilfang_raid_006_XX_YY (files 216078 + 3 * XX + YY).
+-- A tile's picture has local x to the right and local y up; the arena has local y to the right and local -x up.
+local MINIMAP = {}
+for xx = 0, 2 do
+    for yy = 0, 2 do
+        local lx0, ly0 = -197.123 + xx * 128, 790.687 + yy * 128
+        MINIMAP[#MINIMAP + 1] = { file = 216078 + 3 * xx + yy,
+                                  x0 = ly0 - 923.27 + CX, x1 = ly0 + 128 - 923.27 + CX,
+                                  y0 = -(lx0 + 128) - 29.83 + CY, y1 = -lx0 - 29.83 + CY,
+                                  uv = { 0, 1, 1, 1, 0, 0, 1, 0 } }       -- upper left, lower left, upper right, lower right
+    end
+end
 
 local function Compass(x, y)
     local a = math.atan2(y - CY, x - CX)
@@ -253,28 +267,28 @@ local function Guide(sim)
         if g.active then
             local mine = core and core.gen == g and core.state ~= "done"
             marks[#marks + 1] = { x = g.x, y = g.y, r = USE_RANGE, color = mine and { 0.3, 1, 1 } or { 0.2, 0.5, 0.7 },
-                                  column = mine and 16 or 7, label = mine and "Generator: bring it here" or nil }
+                                  column = mine and 16 or 7 }
         end
     end
     if core and core.state ~= "done" then
         status[#status + 1] = "Your job: |cffffd100" .. ROLE_NAME[core.role] .. "|r"
         if core.state == "elemental" then
-            marks[#marks + 1] = { x = core.x, y = core.y, r = 4, color = { 0.3, 1, 0.4 }, column = 16, label = "Tainted Elemental" }
+            marks[#marks + 1] = { x = core.x, y = core.y, r = 4, color = { 0.3, 1, 0.4 }, column = 16 }
             status[#status + 1] = string.format("Elemental: %s edge, %d yd from you", Compass(core.x, core.y), Dist(p.x, p.y, core.x, core.y))
         elseif core.state == "onground" then
-            marks[#marks + 1] = { x = core.x, y = core.y, r = 4, color = { 0.3, 1, 0.4 }, column = 16, label = "Tainted Core: loot it" }
+            marks[#marks + 1] = { x = core.x, y = core.y, r = 4, color = { 0.3, 1, 0.4 }, column = 16 }
             status[#status + 1] = string.format("Core: on the ground, %s edge, %d yd from you", Compass(core.x, core.y), Dist(p.x, p.y, core.x, core.y))
         elseif core.holder == p then
             status[#status + 1] = "Core: |cff66ff80YOU have it|r (you cannot move)"
         elseif core.holder or core.flying then
             local h = core.holder or core.flying
-            marks[#marks + 1] = { x = h.x, y = h.y, r = 1.5, color = { 0.3, 1, 0.4 }, column = 10, label = "Has the core" }
+            marks[#marks + 1] = { x = h.x, y = h.y, r = 1.5, color = { 0.3, 1, 0.4 }, column = 10 }
             status[#status + 1] = string.format("Core: with %s, %d yd from you", h.name, Dist(p.x, p.y, h.x, h.y))
         end
         status[#status + 1] = string.format("Generator: the %s one, %d yd from you", Compass(core.gen.x, core.gen.y), Dist(p.x, p.y, core.gen.x, core.gen.y))
         -- where your job is done from
         if core.role == "relay" and core.holder ~= p then
-            marks[#marks + 1] = { x = core.spot.x, y = core.spot.y, r = 3, color = { 1, 0.85, 0.1 }, column = 12, label = "Relay: stand here" }
+            marks[#marks + 1] = { x = core.spot.x, y = core.spot.y, r = 3, color = { 1, 0.85, 0.1 }, column = 12 }
         elseif core.role == "finisher" and core.holder ~= p then
             local x, y = Toward(core.gen.x, core.gen.y, 1.1)
             marks[#marks + 1] = { x = x, y = y, r = 2, color = { 1, 0.85, 0.1 }, column = 0, label = nil }
@@ -282,7 +296,7 @@ local function Guide(sim)
     else
         status[#status + 1] = string.format("Generators down: %d of 4. Next elemental soon.", sim.stats.down or 0)
     end
-    sim.marks, sim.status = marks, status
+    sim.marks, sim.guide = marks, status          -- (the lines are for tests and a later, optional job card)
     sim.zones = marks                                   -- the minimap shows the same
 end
 
@@ -411,7 +425,7 @@ T:RegisterEncounter("vashj", {
     desc = "Phase 2: bring the Tainted Cores to the Shield Generators. You are one link of the chain.",
     icon = CORE_ICON,
     order = 20,
-    arena = { w = SIZE, h = SIZE,
+    arena = { w = SIZE, h = SIZE, minimap = MINIMAP,
               height = T.HeightFn(floorGrid), walkable = T.WalkableFn(floorGrid), mesh = floorGrid and floorGrid.mesh },
     difficulties = {
         { id = "all", name = "Any job (random)", role = "all" },

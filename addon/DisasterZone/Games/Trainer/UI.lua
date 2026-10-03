@@ -19,7 +19,7 @@ local MOVE_KEYS = {
     W = "up", UP = "up", S = "down", DOWN = "down",
     A = "left", LEFT = "left", D = "right", RIGHT = "right", Q = "strafeL", E = "strafeR",
 }
-local MINI_W, MINI_H = 120, 150
+local MINI_W, MINI_H = 170, 170
 local ANIM_STAND, ANIM_DEATH, ANIM_RUN, ANIM_DEAD, ANIM_BACK, ANIM_STUN = 0, 1, 5, 6, 13, 14
 local PLATE_HEIGHT = { construct = 3.2, boss = 7 }
 -- What a unit that stands and fights plays: { animation, seconds } in a loop (each unit starts somewhere else
@@ -350,10 +350,9 @@ local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
 local MESH_FRAMES = 8                    -- frames stacked by level, each with 3 layers of 16 sublevels: 384 slots
 local MESH_SLOTS = MESH_FRAMES * 48
 
--- Draw order. A texture has no depth test, so the room is painted back to front in 384 slots:
--- first by height (a thing that lies wholly below a floor can never hide that floor, and seen from above a
--- floor never hides a higher one), then within one height far to near. The generator cuts walls and pillars
--- into pieces of limited height for this.
+-- Draw order. A texture has no depth test, so the room is painted back to front in 384 slots, by each
+-- triangle's farthest corner (a big floor piece then goes down before what stands on its far end), finer near
+-- the camera.
 local function PlaceTex(tx, slot, over)
     if tx.slot == slot and tx.over == over then return end
     local fi = floor(slot / 48) + 1
@@ -527,7 +526,6 @@ local function DrawMesh()
 
     local tex, shown = meshState.tex, meshState.shown
     local eyeX, eyeY = camX, m * camY                                  -- the camera in the mesh's own coordinates
-    local band, perBand = mesh.band, mesh.perBand
     local far = meshState.far
     local clip = meshState.clip                                        -- scratch: up to 4 points of r, u, depth, tu, tv
     for i = 1, mesh.nTris do
@@ -603,10 +601,11 @@ local function DrawMesh()
                     tx:SetVertexOffset(2, x2, y2)
                     tx:SetVertexOffset(3, x4 - 1, y4 - 1)
                     tx:SetVertexOffset(4, x3 - 1, y3)
-                    -- its slot: the height band, and in it far ones first (finer near the camera)
+                    -- its slot: far ones first, by the farthest corner (finer near the camera)
                     local depth = (max(vd[a], NEAR) + max(vd[b], NEAR) + max(vd[c], NEAR)) / 3
-                    local near = perBand - 1 - min(perBand - 1, floor(perBand * math.sqrt(min(1, depth / far))))
-                    PlaceTex(tx, band[i] * perBand + near, meshState.over[i] or false)
+                    local reach = max(vd[a], vd[b], vd[c], NEAR)
+                    local slot = MESH_SLOTS - 1 - min(MESH_SLOTS - 1, floor(MESH_SLOTS * math.sqrt(min(1, reach / far))))
+                    PlaceTex(tx, slot, meshState.over[i] or false)
                     if not shown[i] then
                         shown[i] = true
                         tx:Show()
@@ -753,13 +752,6 @@ local function DrawEffects()
             Segment(fxLines, "fx", plateFrame, mk.x, mk.y, g, mk.x, mk.y, g + mk.column, c[1], c[2], c[3], 0.8, 3)
         end
         if mk.label then Label(mk.label, mk.x, mk.y, (mk.column or 0) + 0.5, c[1], c[2], c[3]) end
-    end
-    if sim.enc.compass then
-        local w, h = sim.enc.arena.w, sim.enc.arena.h
-        Label("N", w / 2, h * 0.93, 10, 1, 1, 1, true)
-        Label("S", w / 2, h * 0.07, 10, 1, 1, 1, true)
-        Label("E", w * 0.93, h / 2, 10, 1, 1, 1, true)
-        Label("W", w * 0.07, h / 2, 10, 1, 1, 1, true)
     end
     for i = nLabels + 1, #markLabels do markLabels[i]:Hide() end
     for _, b in ipairs(sim.beams or {}) do                           -- { x, y, z, x2, y2, z2, r, g, b }
@@ -1529,13 +1521,7 @@ local HEADINGS = { "east", "north-east", "north", "north-west", "west", "south-w
 local function DrawHud()
     R.objective:SetText(sim.objective or "")
     R.status:SetText(sim.status and table.concat(sim.status, "\n") or "")
-    if sim.enc.compass then
-        R.heading:SetText("Facing " .. HEADINGS[floor(sim.player.facing / (pi / 4) + 0.5) % 8 + 1])
-        R.north:Show()
-    else
-        R.heading:SetText("")
-        R.north:Hide()
-    end
+    for _, fs in ipairs(R.compass) do fs:SetShown(sim.enc.compass and true or false) end
     -- which way you look, on the minimap
     if R.facing then
         local p = sim.player
@@ -1609,7 +1595,8 @@ local function LayoutArena()
         R.miniMap:SetTexture(map.file)
         R.miniMap:SetTexCoord(map.u0, map.u1, map.v0, map.v1)
     end
-    R.miniMap:SetShown(map ~= nil)
+    local tiles = enc.arena.minimap
+    R.miniMap:SetShown(map ~= nil and not tiles)
     R.miniMap.on = map ~= nil
     local w, h = root:GetWidth() or 0, root:GetHeight() or 0
     local availW, availH = w - PAD * 2, h - TOOLBAR_H - BAR_H - PAD * 3
@@ -1621,6 +1608,21 @@ local function LayoutArena()
         px = max(1, min(availW / enc.arena.w, availH / enc.arena.h))
     end
     arena:SetSize(enc.arena.w * px, enc.arena.h * px)
+    -- the client's own minimap tiles, each on its piece of the arena
+    for i, tile in ipairs(tiles or {}) do
+        local t = R.miniTiles[i]
+        if not t then
+            t = arena:CreateTexture(nil, "BACKGROUND", nil, 2)
+            R.miniTiles[i] = t
+        end
+        t:SetTexture(tile.file)
+        t:SetTexCoord(unpack(tile.uv))
+        t:ClearAllPoints()
+        t:SetPoint("BOTTOMLEFT", arena, "BOTTOMLEFT", tile.x0 * px, tile.y0 * px)
+        t:SetSize((tile.x1 - tile.x0) * px, (tile.y1 - tile.y0) * px)
+        t:Show()
+    end
+    for i = #(tiles or {}) + 1, #R.miniTiles do R.miniTiles[i]:Hide() end
     local labels = scene and {} or enc.arena.labels or {}
     for i, l in ipairs(labels) do
         local fs = labelFonts[i]
@@ -1780,8 +1782,7 @@ local function SelectEncounter(id)
     R.error:Hide()
     R.objective:SetText("")
     R.status:SetText("")
-    R.heading:SetText("")
-    R.north:Hide()
+    for _, fs in ipairs(R.compass) do fs:Hide() end
     if R.facing then R.facing:Hide() end
     R.start:SetText("Start")
     R.encounter:Refresh()
@@ -1844,6 +1845,7 @@ function UI:CreatePanel(parent)
     local floorTex = arena:CreateTexture(nil, "BACKGROUND")
     floorTex:SetAllPoints()
     floorTex:SetColorTexture(0.09, 0.08, 0.11, scene and 0.8 or 1)
+    R.miniTiles = {}
     R.miniMap = arena:CreateTexture(nil, "BACKGROUND", nil, 1)
     R.miniMap:SetAllPoints()
     R.miniMap:SetVertexColor(0.8, 0.8, 0.8)
@@ -1892,12 +1894,16 @@ function UI:CreatePanel(parent)
     R.status:SetSpacing(3)
     R.status:SetShadowColor(0, 0, 0, 1)
     R.status:SetShadowOffset(1, -1)
-    R.heading = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    R.heading:SetPoint("TOP", arena, "BOTTOM", 0, -3)
-    R.north = hud:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    R.north:SetPoint("TOP", arena, "TOP", 0, -2)
-    R.north:SetText("N")
-    R.north:Hide()
+    R.compass = {}
+    for i, c in ipairs({ { "N", "TOP", 0, -2 }, { "S", "BOTTOM", 0, 2 }, { "W", "LEFT", 3, 0 }, { "E", "RIGHT", -3, 0 } }) do
+        local fs = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint(c[2], arena, c[2], c[3], c[4])
+        fs:SetText(c[1])
+        fs:SetShadowColor(0, 0, 0, 1)
+        fs:SetShadowOffset(1, -1)
+        fs:Hide()
+        R.compass[i] = fs
+    end
     if hud.CreateLine then
         R.facing = hud:CreateLine(nil, "OVERLAY")
         R.facing:SetThickness(2)
@@ -2020,7 +2026,11 @@ end
 UI._Guide = function()
     local labels = {}
     for _, fs in ipairs(markLabels) do if fs:IsShown() then labels[#labels + 1] = fs:GetText() end end
-    return { status = R.status:GetText(), heading = R.heading:GetText(), labels = labels }
+    local compass = {}
+    for _, fs in ipairs(R.compass) do if fs:IsShown() then compass[#compass + 1] = fs:GetText() end end
+    local tiles = 0
+    for _, t in ipairs(R.miniTiles) do if t:IsShown() then tiles = tiles + 1 end end
+    return { status = R.status:GetText(), compass = compass, labels = labels, tiles = tiles }
 end
 UI._Plates = function()
     local out = {}

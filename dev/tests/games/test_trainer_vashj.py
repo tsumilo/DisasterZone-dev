@@ -258,11 +258,20 @@ def the_panel_shows_allies_and_things_to_use():
     assert c.eval_py("return ns.TrainerUI._Floor().mesh") > 300
     # the job card, the marks with their labels, the compass
     g = c.eval_py("return ns.TrainerUI._Guide()")
-    assert "Your job" in g["status"] and "LOOTER" in g["status"] and "Elemental:" in g["status"] and "Generator:" in g["status"], g
-    assert g["heading"] == "Facing west", g
-    assert any(l in ("N", "S", "E", "W") for l in g["labels"]), g
-    marks = sim(c, "local t = {} for _, m in ipairs(s.marks) do t[#t+1] = m.label or '' end return t")
-    assert "Tainted Elemental" in marks and "Generator: bring it here" in marks and len(marks) == 5, marks
+    assert not g["status"] and g["labels"] == [], g                     # no text in the view itself
+    assert sorted(g["compass"]) == ["E", "N", "S", "W"], g                # the directions: on the minimap
+    # the minimap is the client's own: nine 128 yd tiles that cover the arena, Vashj in the middle of one
+    tiles = c.eval_py("return ns.Trainer:GetEncounter('vashj').arena.minimap")
+    assert len(tiles) == 9 and sorted(t["file"] for t in tiles) == list(range(216078, 216087)), tiles
+    assert all(abs(t["x1"] - t["x0"] - 128) < 1e-6 and abs(t["y1"] - t["y0"] - 128) < 1e-6 for t in tiles)
+    assert min(t["x0"] for t in tiles) < 0 and max(t["x1"] for t in tiles) > 210 and min(t["y0"] for t in tiles) < 0 and max(t["y1"] for t in tiles) > 210
+    mid = [t for t in tiles if t["x0"] <= 105 < t["x1"] and t["y0"] <= 105 < t["y1"]]
+    assert len(mid) == 1 and mid[0]["file"] == 216078 + 3 * 1 + 1, mid
+    guide = sim(c, "return table.concat(s.guide, ' / ')")
+    assert "Your job" in guide and "LOOTER" in guide and "Elemental:" in guide and "Generator:" in guide, guide
+    marks = sim(c, "local t = {} for _, m in ipairs(s.marks) do t[#t+1] = m.column end return t")
+    assert sorted(marks) == [7, 7, 7, 16, 16], marks                     # four generators (yours taller), the elemental
+    assert sim(c, "local n = 0 for _, u in ipairs(s.units) do if u.display == 20570 then n = n + 1 end end return n") == 0   # (an imp)
     assert sim(c, "local n = 0 for _, u in ipairs(s:Alive('raider')) do if u.name:find('^Raider %(') then n = n + 1 end end return n") >= 2
     # F with nothing in reach is still our key; the 1 key is the core
     assert c.eval_py("return ns.TrainerUI._Key('F')") is True
