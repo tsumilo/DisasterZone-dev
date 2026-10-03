@@ -14,7 +14,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --             mesh = { textures, verts, tris } },      (the room's own triangles, see TeronGorefiendFloor.lua)
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
 --   player = { x, y, speed, facing },
---   abilities = { { id, key = "3", name, icon, tip, cooldown, gcd, range, needsTarget,
+--   interactKey = "F",                  that key uses the nearest thing with an .interact in reach
+--   abilities = { { id, key = "3", name, icon, tip, cooldown, gcd, range, needsTarget, friendly (the target must be
+--                   a .selectable ally: no auto-target),
 --                   usable = function(sim) return ok, why end, use = function(sim, ability, target) end } },
 --   start = function(sim) end,          spawn units, set the first objective
 --   update = function(sim, dt) end,     every step: the script, sim:Win() / sim:Lose(reason)
@@ -56,10 +58,14 @@ function T:GetEncounter(id) return encs[id] end
 -- south to north): smooth between the yard centres, the edge value outside.
 function T.HeightFn(grid)
     if not grid then return nil end
-    local function cell(i, j)
+    local index = {}                                    -- character -> its place in the alphabet
+    local alphabet = grid.alphabet or "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    for k = 1, #alphabet do index[alphabet:byte(k)] = k - 1 end
+    local function cell(i, j)                           -- nil where there is no floor
         i = max(1, min(grid.w, i))
         j = max(1, min(grid.h, j))
-        return (grid.rows[j]:byte(i) - 65) * grid.step + grid.base
+        local n = index[grid.rows[j]:byte(i)]
+        return n and (n * grid.step + grid.base)
     end
     return function(x, y)
         local fx, fy = x - 0.5, y - 0.5
@@ -67,7 +73,19 @@ function T.HeightFn(grid)
         local tx, ty = fx - i, fy - j
         local a, b = cell(i + 1, j + 1), cell(i + 2, j + 1)
         local c, d = cell(i + 1, j + 2), cell(i + 2, j + 2)
+        local any = a or b or c or d or 0               -- at a hole's edge: the floor next to it
+        a, b, c, d = a or any, b or any, c or any, d or any
         return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
+    end
+end
+
+-- Where the grid has floor (a space in a row = none): the room's own outline, for arena.walkable.
+function T.WalkableFn(grid)
+    if not grid then return nil end
+    return function(x, y)
+        local i, j = floor(x) + 1, floor(y) + 1
+        if i < 1 or j < 1 or i > grid.w or j > grid.h then return false end
+        return grid.rows[j]:byte(i) ~= 32
     end
 end
 
@@ -292,7 +310,7 @@ function Sim:Turn(rad)
 end
 
 function Sim:SetTarget(u)
-    if u and (u.dead or not u.targetable) then return end
+    if u and (u.dead or not (u.targetable or u.selectable)) then return end
     self.target = u
     self.tabSeen = { [u or false] = true }
 end
@@ -371,7 +389,11 @@ function Sim:Use(idOrKey)
     local target
     if ab.needsTarget then
         target = self.target
-        if not target or target.dead then target = self:TabTarget() end
+        if ab.friendly then
+            if not target or target.dead or not target.selectable then return fail("You have no target.") end
+        elseif not target or target.dead or not target.targetable then
+            target = self:TabTarget()
+        end
         if not target then return fail("You have no target.") end
         if ab.range and Dist(self.player.x, self.player.y, target.x, target.y) > ab.range then
             return fail("Out of range.")
@@ -382,6 +404,31 @@ function Sim:Use(idOrKey)
     self.gcdTotal = ab.gcd or 1
     self.gcdUntil = self.time + self.gcdTotal
     self.stats.casts[ab.id] = (self.stats.casts[ab.id] or 0) + 1
+    return true
+end
+
+-- Use a thing in the world (a unit with .interact = function(sim, unit) and optionally .interactRange): the one
+-- given, or the nearest one in reach. Returns true, or false and why not.
+T.INTERACT_RANGE = 5
+function Sim:Interact(u)
+    if self.state ~= "run" then return false, "not running" end
+    local p = self.player
+    if not u then
+        local bestD
+        for _, o in ipairs(self.units) do
+            if o.interact and not o.dead then
+                local d = Dist(p.x, p.y, o.x, o.y)
+                if d <= (o.interactRange or T.INTERACT_RANGE) and (not bestD or d < bestD) then u, bestD = o, d end
+            end
+        end
+        if not u then return false, "nothing in reach" end
+    end
+    if not u.interact or u.dead then return false, "nothing to use" end
+    if Dist(p.x, p.y, u.x, u.y) > (u.interactRange or T.INTERACT_RANGE) then
+        self:Error("You are too far away.")
+        return false, "You are too far away."
+    end
+    u.interact(self, u)
     return true
 end
 

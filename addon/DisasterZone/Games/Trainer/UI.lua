@@ -122,6 +122,10 @@ local function HandleKey(key, down)
         sim:Use(key)
         return true
     end
+    if sim and sim.enc.interactKey == key then
+        sim:Interact()
+        return true
+    end
     return false
 end
 
@@ -339,9 +343,9 @@ end
 -- is measured once a frame (three projected points); the vertices are then projected here, in Lua. Triangles
 -- facing away, behind the camera or off screen are hidden; the rest are layered far to near.
 local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {}, over = {}, occ = {}, nOcc = 0,
-                    x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, low = {}, models = {} }
+                    x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, low = {}, models = {},
+                    vr = {}, vu = {}, vd = {}, clip = { {}, {}, {}, {} }, far = 110 }
 local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
-local MESH_FAR = 110
 
 local function PrepareMesh(mesh)
     if mesh.ready then return end
@@ -441,6 +445,10 @@ local function DrawMesh()
         HideMesh()
         for _, tex in pairs(meshState.tex) do tex:Hide() end
         meshState.tex, meshState.mesh = {}, mesh
+        meshState.low, meshState.over = {}, {}
+        -- depth layers are spread over the room's own size
+        local aw, ah = sim.enc.arena.w, sim.enc.arena.h
+        meshState.far = max(110, math.sqrt(aw * aw + ah * ah) * 0.75)
     end
     PrepareMesh(mesh)
     local w, h = scene:GetWidth() or 0, scene:GetHeight() or 0
@@ -480,14 +488,17 @@ local function DrawMesh()
     meshState.basis = { camX = camX, camY = camY, camZ = camZ, m = m, fx = fx, fy = fy, fz = fz, rx = rx, ry = ry,
                         ux = ux, uy = uy, uz = uz, cx = cx, cy = cy, exx = exx, exy = exy, eyx = eyx, eyy = eyy }
     local nOcc = 0
+    -- every vertex in camera space (right, up, ahead); the ones in front of the camera also on screen
+    local vr, vu, vd = meshState.vr, meshState.vu, meshState.vd
+    local NEAR = 0.4
     for i = 1, mesh.nVerts do
         local o = i * 6 - 6
         local dx, dy, dz = v[o + 1] - camX, m * v[o + 2] - camY, v[o + 3] - camZ
         local depth = dx * fx + dy * fy + dz * fz
-        if depth > 0.4 then
-            local r = (dx * rx + dy * ry) / depth
-            local u = (dx * ux + dy * uy + dz * uz) / depth
-            sx[i], sy[i], sd[i] = cx + r * exx + u * eyx, cy + r * exy + u * eyy, depth
+        local r, u = dx * rx + dy * ry, dx * ux + dy * uy + dz * uz
+        vr[i], vu[i], vd[i] = r, u, depth
+        if depth > NEAR then
+            sx[i], sy[i], sd[i] = cx + (r * exx + u * eyx) / depth, cy + (r * exy + u * eyy) / depth, depth
         else
             sd[i] = false
         end
@@ -496,18 +507,55 @@ local function DrawMesh()
     local tex, shown = meshState.tex, meshState.shown
     local eyeX, eyeY = camX, m * camY                                  -- the camera in the mesh's own coordinates
     local buckets = #MESH_LAYERS * 16
+    local far = meshState.far
+    local clip = meshState.clip                                        -- scratch: up to 4 points of r, u, depth, tu, tv
     for i = 1, mesh.nTris do
         local a, b, c = t[i * 4 - 3], t[i * 4 - 2], t[i * 4 - 1]
         local da, db, dc = sd[a], sd[b], sd[c]
         local visible = false
-        if da and db and dc then
+        if da or db or dc then
             local o = (a - 1) * 6
             -- facing the camera?
             local facing = normal[i * 3 - 2] * (eyeX - v[o + 1]) + normal[i * 3 - 1] * (eyeY - v[o + 2]) + normal[i * 3] * (camZ - v[o + 3])
             if facing > 0 then
-                local ax, ay, bx, by, qx, qy = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
-                if not ((ax < 0 and bx < 0 and qx < 0) or (ax > w and bx > w and qx > w)
-                        or (ay < 0 and by < 0 and qy < 0) or (ay > h and by > h and qy > h)) then
+                -- the corners on screen: upper left, lower left, lower right, upper right of the texture's quad
+                local x1, y1, x2, y2, x3, y3, x4, y4
+                local clipped = false
+                if da and db and dc then
+                    x1, y1, x2, y2, x3, y3 = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
+                    x4, y4 = x3, y3
+                else
+                    -- part of it is behind the camera: cut it at the near plane (a triangle or a four-corner)
+                    clipped = true
+                    local n = 0
+                    local ia, ib = c, a
+                    for step = 1, 3 do
+                        if step == 2 then ia, ib = a, b elseif step == 3 then ia, ib = b, c end
+                        local d1, d2 = vd[ia], vd[ib]
+                        local oa, ob = (ia - 1) * 6, (ib - 1) * 6
+                        if (d1 > NEAR) ~= (d2 > NEAR) then                -- the edge crosses: the crossing point
+                            local k = (NEAR - d1) / (d2 - d1)
+                            n = n + 1
+                            local p = clip[n]
+                            p[1], p[2], p[3] = vr[ia] + (vr[ib] - vr[ia]) * k, vu[ia] + (vu[ib] - vu[ia]) * k, NEAR
+                            p[4], p[5] = v[oa + 4] + (v[ob + 4] - v[oa + 4]) * k, v[oa + 5] + (v[ob + 5] - v[oa + 5]) * k
+                        end
+                        if d2 > NEAR then                                 -- the edge's end point is in front
+                            n = n + 1
+                            local p = clip[n]
+                            p[1], p[2], p[3], p[4], p[5] = vr[ib], vu[ib], d2, v[ob + 4], v[ob + 5]
+                        end
+                    end
+                    for k = 1, n do
+                        local p = clip[k]
+                        p[6], p[7] = cx + (p[1] * exx + p[2] * eyx) / p[3], cy + (p[1] * exy + p[2] * eyy) / p[3]
+                    end
+                    if n == 3 then clip[4] = clip[3] end
+                    x1, y1, x2, y2, x3, y3, x4, y4 = clip[1][6], clip[1][7], clip[2][6], clip[2][7], clip[3][6], clip[3][7],
+                                                     clip[4][6], clip[4][7]
+                end
+                if not ((x1 < 0 and x2 < 0 and x3 < 0 and x4 < 0) or (x1 > w and x2 > w and x3 > w and x4 > w)
+                        or (y1 < 0 and y2 < 0 and y3 < 0 and y4 < 0) or (y1 > h and y2 > h and y3 > h and y4 > h)) then
                     visible = true
                     local tx = tex[i]
                     if not tx then
@@ -515,20 +563,27 @@ local function DrawMesh()
                         tx:SetSize(1, 1)
                         tx:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
                         tx:SetTexture(mesh.textures[t[i * 4]], "REPEAT", "REPEAT")
+                        local l = mesh.light[i]
+                        tx:SetVertexColor(l, l, l)
+                        tx.clipped = true                                 -- (no texture coordinates yet)
+                        tex[i] = tx
+                    end
+                    if clipped then
+                        tx.clipped = true
+                        tx:SetTexCoord(clip[1][4], clip[1][5], clip[2][4], clip[2][5], clip[4][4], clip[4][5], clip[3][4], clip[3][5])
+                    elseif tx.clipped then
+                        tx.clipped = false
                         local oa, ob, oc = (a - 1) * 6, (b - 1) * 6, (c - 1) * 6
                         -- upper left = a, lower left = b, upper right and lower right = c
                         tx:SetTexCoord(v[oa + 4], v[oa + 5], v[ob + 4], v[ob + 5], v[oc + 4], v[oc + 5], v[oc + 4], v[oc + 5])
-                        local l = mesh.light[i]
-                        tx:SetVertexColor(l, l, l)
-                        tex[i] = tx
                     end
-                    tx:SetVertexOffset(1, ax, ay - 1)
-                    tx:SetVertexOffset(2, bx, by)
-                    tx:SetVertexOffset(3, qx - 1, qy - 1)
-                    tx:SetVertexOffset(4, qx - 1, qy)
+                    tx:SetVertexOffset(1, x1, y1 - 1)
+                    tx:SetVertexOffset(2, x2, y2)
+                    tx:SetVertexOffset(3, x4 - 1, y4 - 1)
+                    tx:SetVertexOffset(4, x3 - 1, y3)
                     -- far ones first: three layers of sixteen sublevels
-                    local depth = (da + db + dc) / 3
-                    local bucket = buckets - 1 - max(0, min(buckets - 1, floor(depth / MESH_FAR * buckets)))
+                    local depth = (max(vd[a], NEAR) + max(vd[b], NEAR) + max(vd[c], NEAR)) / 3
+                    local bucket = buckets - 1 - max(0, min(buckets - 1, floor(depth / far * buckets)))
                     if tx.bucket ~= bucket then
                         tx.bucket = bucket
                         tx:SetDrawLayer(MESH_LAYERS[floor(bucket / 16) + 1], bucket % 16 - 8)
@@ -539,8 +594,8 @@ local function DrawMesh()
                     end
                     nOcc = nOcc + 1
                     meshState.occ[nOcc] = i
-                    meshState.x0[i], meshState.x1[i] = min(ax, bx, qx), max(ax, bx, qx)
-                    meshState.y0[i], meshState.y1[i] = min(ay, by, qy), max(ay, by, qy)
+                    meshState.x0[i], meshState.x1[i] = min(x1, x2, x3, x4), max(x1, x2, x3, x4)
+                    meshState.y0[i], meshState.y1[i] = min(y1, y2, y3, y4), max(y1, y2, y3, y4)
                     meshState.depth[i] = depth
                     if not meshState.low[i] then
                         meshState.low[i] = min(v[(a - 1) * 6 + 3], v[(b - 1) * 6 + 3], v[(c - 1) * 6 + 3])
@@ -647,7 +702,17 @@ end
 local function DrawEffects()
     lineCount.fx = 0
     local t = sim.target
-    if t and not t.dead then Circle(t.x, t.y, t.radius + 0.4, 1, 0.1, 0.1, 0.9, 3) end       -- hostile: red
+    if t and not t.dead then
+        if t.friendly then
+            Circle(t.x, t.y, t.radius + 0.4, 0.1, 1, 0.1, 0.9, 3)
+        else
+            Circle(t.x, t.y, t.radius + 0.4, 1, 0.1, 0.1, 0.9, 3)                           -- hostile: red
+        end
+    end
+    for _, b in ipairs(sim.beams or {}) do                           -- { x, y, z, x2, y2, z2, r, g, b }
+        Segment(fxLines, "fx", plateFrame, b[1], b[2], GroundZ(b[1], b[2]) + b[3], b[4], b[5], GroundZ(b[4], b[5]) + b[6],
+                b[7], b[8], b[9], 0.75, 3)
+    end
     for i = lineCount.fx + 1, #fxLines do fxLines[i]:Hide() end
 end
 
@@ -739,7 +804,8 @@ local function Plate(i)
     f.name:SetPoint("BOTTOM", f, "TOP", 0, 4)
     f.debuffs = {}
     f:SetScript("OnClick", function(self)
-        if sim and self.unit then sim:SetTarget(self.unit) end
+        if not (sim and self.unit) then return end
+        if self.unit.interact then sim:Interact(self.unit) else sim:SetTarget(self.unit) end
     end)
     plates[i] = f
     return f
@@ -771,13 +837,22 @@ end
 local function DrawPlates()
     local n = 0
     for _, u in ipairs(sim.units) do
-        local height = PLATE_HEIGHT[u.kind]
+        local height = u.plate or PLATE_HEIGHT[u.kind]
         if height and not u.dead then
             local x, y = Project(u.x, u.y, GroundZ(u.x, u.y) + height)
             if x then
                 n = n + 1
                 local f = Plate(n)
                 f.unit = u
+                -- an enemy has the bar; an ally or a thing you can use only its name, as the client shows them
+                local nameOnly = u.friendly or u.label
+                f.border:SetShown(not nameOnly)
+                f.hp:SetShown(not nameOnly)
+                if nameOnly then
+                    f.name:SetTextColor(u.label and 1 or 0.4, u.label and 0.82 or 0.75, u.label and 0 or 1)
+                else
+                    f.name:SetTextColor(1, 1, 1)
+                end
                 -- plates of enemies standing together climb above each other instead of covering each other
                 local moved, passes = true, 0
                 while moved and passes < 8 do
@@ -797,13 +872,13 @@ local function DrawPlates()
                 f:SetPoint("CENTER", scene, "BOTTOMLEFT", x, y)
                 f.name:SetText(u.name)
                 local isTarget = sim.target == u
-                f:SetAlpha((isTarget or not sim.target) and 1 or 0.6)       -- the others dim, as the client's do
-                f.glow:SetShown(isTarget)
+                f:SetAlpha((isTarget or nameOnly or not sim.target) and 1 or 0.6)   -- the others dim, as the client's do
+                f.glow:SetShown(isTarget and not nameOnly)
                 f.hp:SetVertexColor(1, 0, 0)                                -- hostile
                 f.hp:SetWidth(max(0.1, PLATE_FILL * (u.hp and u.hp / u.hpMax or 1)))
                 local level = u.level or 70
-                f.skull:SetShown(level < 0)
-                f.level:SetText(level < 0 and "" or level)
+                f.skull:SetShown(level < 0 and not nameOnly)
+                f.level:SetText((level < 0 or nameOnly) and "" or level)
                 f.level:SetTextColor(1, 1, 0)                               -- your own level: yellow
                 -- your debuffs on it, in a row centred above the name
                 local shownAuras = 0
@@ -825,7 +900,7 @@ local function DrawPlates()
                         b:Hide()
                     end
                 end
-                f:EnableMouse(u.targetable and true or false)
+                f:EnableMouse((u.targetable or u.selectable or u.interact) and true or false)
                 f:Show()
             end
         end
@@ -841,10 +916,10 @@ end
 local function PickAt(x, y)
     local best, bestScore
     for _, u in ipairs(sim.units) do
-        if not u.dead and u.targetable then
+        if not u.dead and (u.targetable or u.selectable or u.interact) then
             local ground = GroundZ(u.x, u.y)
             local fx, fy = Project(u.x, u.y, ground)
-            local hx, hy = Project(u.x, u.y, ground + (PLATE_HEIGHT[u.kind] or 3))
+            local hx, hy = Project(u.x, u.y, ground + (u.plate or PLATE_HEIGHT[u.kind] or 3))
             if fx and hx then
                 local half = max(10, math.abs(hy - fy) * 0.35)
                 local cx, cy = (fx + hx) / 2, (fy + hy) / 2
@@ -858,7 +933,9 @@ local function PickAt(x, y)
             end
         end
     end
-    if best then sim:SetTarget(best) end
+    if best then
+        if best.interact then sim:Interact(best) else sim:SetTarget(best) end
+    end
     return best
 end
 
@@ -1219,7 +1296,14 @@ local function FillUnitFrame(f, u, name)
     f.art:SetTexture((u.elite and not f.isPlayer) and UF_ELITE or UF_TEX)
     local frac = (u.hp and u.hpMax) and (u.hp / u.hpMax) or 1
     f.hp:SetWidth(max(0.1, 119 * frac))
-    f.hpText:SetText(u.hp and string.format("%d / %d", u.hp, u.hpMax) or "")
+    if u.hp and u.hpPercent then
+        f.hpText:SetText(string.format("%d%%", frac * 100 + 0.5))
+    else
+        f.hpText:SetText(u.hp and string.format("%d / %d", u.hp, u.hpMax) or "")
+    end
+    if not f.isPlayer then
+        if u.friendly then f.nameBg:SetVertexColor(0, 0.7, 0) else f.nameBg:SetVertexColor(1, 0, 0) end
+    end
     f.mp:SetShown(u.mana ~= false)
 end
 
@@ -1361,7 +1445,8 @@ local function DrawUnitFrames()
             b.icon:SetTexture(bar.icon)
             b.border:SetShown(bar.harmful and true or false)
             b.border:SetVertexColor(0.8, 0, 0)
-            b.time:SetText(bar.remain >= 60 and string.format("%d m", bar.remain / 60 + 0.5) or string.format("%d s", bar.remain + 0.5))
+            local left = bar.remain
+            b.time:SetText(not left and "" or (left >= 60 and string.format("%d m", left / 60 + 0.5) or string.format("%d s", left + 0.5)))
             b:Show()
         end
     end
@@ -1385,6 +1470,8 @@ local function DrawHud()
     if scene then
         DrawUnitFrames()
         bar = nil                                   -- the timers are aura icons here
+    elseif bar and not bar.remain then
+        bar = nil
     end
     R.timer:SetShown(bar ~= nil)
     if bar then

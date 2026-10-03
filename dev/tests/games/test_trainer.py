@@ -79,7 +79,7 @@ def the_hub_lists_the_trainer_and_teron_is_registered():
     ids = c.eval_py("local t = {} for _, d in ipairs(ns.Games:GetList()) do t[#t+1] = d.id end return t")
     assert "trainer" in ids, ids
     encs = c.eval_py("local t = {} for _, e in ipairs(ns.Trainer:GetEncounters()) do t[#t+1] = e.id end return t")
-    assert encs == ["teron"], encs
+    assert encs == ["teron", "vashj"], encs
     fuses = c.eval_py("local t = {} for _, d in ipairs(ns.Trainer:GetEncounter('teron').difficulties) do t[d.id] = d.fuse end return t")
     assert fuses == {"quick": 15, "real": 55}, fuses
     keys = c.eval_py("local t = {} for _, a in ipairs(ns.Trainer:GetEncounter('teron').abilities) do t[#t+1] = a.key .. a.id end return t")
