@@ -933,7 +933,8 @@ local function refreshLaterCard(card, ctx)
             else
                 local inv = rp:GetInvited(v)
                 right = (inv and inv[Me() or ""]) and colorize("ff9933", "no answer")
-                    or grey(rp:CanSignUp(v) and "open" or "not invited")
+                    or grey(rp:CanSignUp(v) and "open"
+                        or (rp:GetSignupBlock(v) == "level" and ("level " .. v.ml .. " only") or "not invited"))
             end
             rows[#rows + 1] = { text = date("%a %d %b %H:%M", v.t) .. "  " .. rp:GetRaidName(v), right = right,
                                 onClick = function() openRaid(v.id) end }

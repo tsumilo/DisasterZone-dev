@@ -437,8 +437,9 @@ def copy_phase_and_clear_phase():
     c.click(c.eval("return T_button(T_mybis(), 'Clear phase')"))
     assert "DISASTERZONE_CLEAR_PHASE" not in c.popups()
     assert any("P2 has no picks to clear" in l for l in printed_since(c, n0))
-    # Suggest is hidden without LoonBestInSlot
-    assert c.eval("return T_dropdown(T_mybis(), 'Suggest'):IsShown()") is False
+    # Suggest is always there: the lists ship with the addon (no LoonBestInSlot installed here)
+    assert c.eval("return LBIS") is None
+    assert c.eval("return T_dropdown(T_mybis(), 'Suggest'):IsShown()") is True
     no_errors(w)
 
 
@@ -742,23 +743,22 @@ def many_raids_collapse_into_more_line_and_wearing_icon():
     no_errors(w)
 
 
-FAKE_LOON = r"""
--- Minimal stand-in for LoonBestInSlot's guide API (the real addon is optional); items come from __LOON_ITEMS
-LBIS = { L = setmetatable({}, { __index = function(_, k) return k end }) }
-function LBIS:RegisterSpec(class, spec, phase) return { class = class, spec = spec, phase = phase } end
-function LBIS:AddItem(entry, id, slot, rank) end
-function LBIS:AddGem() end
-function LBIS:AddEnchant() end
-function LBIS:LoadPaladinHoly()
-  local p1 = LBIS:RegisterSpec(LBIS.L["Paladin"], LBIS.L["Holy"], "1")
-  for _, e in ipairs(__LOON_ITEMS or {}) do LBIS:AddItem(p1, tostring(e[1]), LBIS.L[e[2]], e[3]) end
+SET_LISTS = r"""
+-- Replaces the shipped Paladin Holy list (Data/BiSLists.lua) with P1 = the given { item, slot name, rank } rows
+local names = { Head = 1, Neck = 2, Shoulder = 3, Back = 4, Chest = 5, Wrist = 6, Hands = 7, Waist = 8, Legs = 9,
+                Feet = 10, Ring = 11, Trinket = 12, ["Main Hand"] = 13, ["Off Hand"] = 14, ["Two Hand"] = 15 }
+local parts = {}
+for _, e in ipairs(... or {}) do
+  parts[#parts + 1] = names[e[2]] .. ":" .. e[1] .. (e[3] == "BIS" and "*" or "")
 end
+ns.Data.BiSLists.PaladinHoly = { [1] = table.concat(parts, ",") }
+ns.Loon:ClearCache()
 """
 
 
 @case
-def suggest_menu_with_loonbestinslot():
-    w, c = solo("Alice", guild_rank=3, tick=3, preload_lua=FAKE_LOON)
+def suggest_menu_fills_from_the_shipped_lists():
+    w, c = solo("Alice", guild_rank=3, tick=3)
     install_helpers(c)
     items = c.eval_py("""
       local o = {}
@@ -771,23 +771,21 @@ def suggest_menu_with_loonbestinslot():
       o[5] = { r[3].itemID, 'Ring', 'Alt' }
       o[6] = { r[1].itemID, 'Head', 'BIS' }     -- a ring listed as head: must be skipped (does not fit)
       return o""")
-    c.eval("__LOON_ITEMS = ...", items)
+    c.eval(SET_LISTS, items)
     c.slash("/dz bis")
     w.tick(0.3)
     sug = c.eval("return T_dropdown(T_mybis(), 'Suggest')")
-    assert c.eval("local d = ...; return d:IsShown()", sug) is True, "Suggest hidden although LBIS is loaded"
+    assert c.eval("local d = ...; return d:IsShown()", sug) is True, "Suggest hidden"
     c.eval("ns.BiS:SetSlot(1, 12, 'main', ...)", items[4][0])   # an existing pick is kept by "fill empty"
     menu = c.dropdown_menu(sug)
     texts = [e[2] for e in menu_texts(menu)]
-    assert "Fill empty slots from LoonBestInSlot (Holy P1)" in texts and "Replace all (confirm)" in texts, texts
-    c.menu_select("Fill empty slots from LoonBestInSlot (Holy P1)")
+    assert "Fill empty slots (Holy P1)" in texts and "Replace all (confirm)" in texts, texts
+    c.menu_select("Fill empty slots (Holy P1)")
     w.tick(0.2)
     assert c.eval_py("return {ns.BiS:GetSlot(1, 1)}") == [items[0][0], items[1][0]]
     assert c.eval_py("return {ns.BiS:GetSlot(1, 11)}")[0] == items[2][0]
     assert c.eval_py("return {ns.BiS:GetSlot(1, 12)}")[0] == items[4][0], "fill-empty replaced an existing pick"
     assert c.eval("return T_tile(1).main.itemID") == items[0][0], "doll not refreshed"
-    # LBIS functions are restored after the capture
-    assert c.eval("return LBIS.AddItem ~= nil and LBIS.RegisterSpec ~= nil") is True
     # replace all asks first
     c.eval("ns.BiS:SetSlot(1, 3, 'main', ns.ItemDB:GetCandidates(3, {maxPhase=1, class='PALADIN', usableOnly=true})[1].itemID)")
     c.dropdown_menu(sug)
@@ -800,12 +798,12 @@ def suggest_menu_with_loonbestinslot():
     c.eval("ns.BiS:SetSpec('')")
     menu = c.dropdown_menu(sug)
     assert "Choose your spec first" in [e[2] for e in menu_texts(menu)]
-    # a spec Loon has no guide for this phase: a message, nothing changes
+    # a phase the spec has no list for: a message, nothing changes
     c.eval("ns.BiS:SetSpec('Holy')")
     c.click(c.eval("return T_button(T_mybis(), 'P2')"))
     p0 = len(c.chat_frame)
     c.eval("ns.MyBiS:ApplySuggestion(2, false)")
-    assert any("has no Holy suggestions for P2" in l for l in printed_since(c, p0)), printed_since(c, p0)
+    assert any("no suggested Holy list for P2" in l for l in printed_since(c, p0)), printed_since(c, p0)
     assert c.eval("return #ns.BiS:GetPhaseItems(2)") == 0
     no_errors(w)
 
@@ -828,6 +826,43 @@ def tier_token_link_in_picker_does_not_become_a_stuck_pick():
     assert main != token or obtained, (
         "token %d stored as the head pick; after equipping the Paladin tier helm %d it is still not obtained "
         "(card: %r)" % (token, piece, card_texts(c)[0]))
+    no_errors(w)
+
+
+@case
+def the_shipped_lists_give_every_spec_a_template():
+    # Data/BiSLists.lua as generated: every spec of every class gets a template in every phase, made of items that
+    # fit their slots, without LoonBestInSlot installed.
+    w, c = solo("Alice", guild_rank=3, tick=3)
+    res = c.eval_py("""
+      local bad, n = {}, 0
+      for class, specs in pairs(ns.SPECS) do
+        local have = ns.Loon:GetSpecFunctions(class)
+        for _, spec in ipairs(specs) do
+          if not have[spec.label] then bad[#bad + 1] = class .. ' ' .. spec.label .. ': no guide' end
+          for phase = 1, 5 do
+            local tpl = ns.Loon:GetTemplate(class, spec.label, phase)
+            if not tpl then
+              bad[#bad + 1] = class .. ' ' .. spec.label .. ' P' .. phase .. ': no template'
+            else
+              local slots = 0
+              for sid, pair in pairs(tpl) do
+                slots = slots + 1
+                if not ns.ItemDB:FitsSlot(pair[1], sid) then bad[#bad + 1] = class .. ' ' .. spec.label .. ' sid ' .. sid end
+              end
+              if slots < 12 then bad[#bad + 1] = class .. ' ' .. spec.label .. ' P' .. phase .. ': ' .. slots .. ' slots' end
+              n = n + 1
+            end
+          end
+        end
+      end
+      return { bad = bad, n = n }""")
+    assert list(res["bad"] or []) == [], list(res["bad"])[:20]
+    assert res["n"] >= 27 * 5, res["n"]
+    # a real fill: a Holy paladin's empty P1
+    c.eval("ns.BiS:SetSpec('Holy')")
+    c.eval("ns.MyBiS:ApplySuggestion(1, false)")
+    assert c.eval("return #ns.BiS:GetPhaseItems(1)") >= 17
     no_errors(w)
 
 

@@ -454,6 +454,9 @@ end
 -- Council checks
 ---------------------------------------------------------------------------
 
+-- Accounts (a player's characters share their roles; defined with the raid leaders list below).
+local Principals, IsGMKey, AddAlts, InvalidateAccounts, NoteOwnCharacter
+
 -- "gm" | "guild" | "raidleader" | "raid" | nil, from real data only (no demo).
 ---------------------------------------------------------------------------
 -- Debug roles (for the addon's developer only): the character named DEBUG_CHAR can pretend to have another role with
@@ -488,6 +491,16 @@ local function RealSource(key)
         if gmKey and key == gmKey then return "gm" end
         local list = guildList
         if list and list.members[key] and roster[key] then return "guild" end
+        -- another character of the same player is the GM / on the guild list
+        local mains = roster[key] and Principals(key)
+        if mains then
+            local viaList = false
+            for _, m in ipairs(mains) do
+                if m == gmKey then return "gm" end
+                if list and list.members[m] and roster[m] then viaList = true end
+            end
+            if viaList then return "guild" end
+        end
     end
     if IsInRaid() then
         local leader = CurrentRaidLeader()
@@ -503,10 +516,16 @@ end
 -- Every effective (real) council member as a set.
 local function EffectiveCouncilSet()
     local set = {}
-    if gmKey then set[gmKey] = true end
+    if gmKey then
+        set[gmKey] = true
+        AddAlts(set, gmKey)
+    end
     if guildList then
         for key in pairs(guildList.members) do
-            if roster[key] then set[key] = true end
+            if roster[key] then
+                set[key] = true
+                AddAlts(set, key)
+            end
         end
     end
     if IsInRaid() then
@@ -538,6 +557,7 @@ end
 -- Fires CONFIG_UPDATED when the effective council set, my own status, the phase or the GM changed.
 local function Recompute()
     if not ns.loggedIn then return end
+    InvalidateAccounts()   -- (ranks and lists decide which vouches count)
     local me = Util.PlayerKey()
     local sig = tconcat(SetToArray(EffectiveCouncilSet()), ",")
         .. "|" .. tostring(me ~= nil and RealSource(me) ~= nil)
@@ -617,7 +637,7 @@ local function OnGuildCouncil(sender, msg, dist)
         return
     end
     -- Relayed revs are always in the past; only a CG straight from the GM may be a moment ahead (prev + 1).
-    local gmDirect = gmKey ~= nil and sender == gmKey
+    local gmDirect = IsGMKey(sender)   -- (the GM, or a character the GM vouches for)
     if v.rev > Now() + (gmDirect and FUTURE_SLACK or 5) then
         ns:Debug("Guild: CG from %s with a future rev ignored", tostring(sender))
         return
@@ -627,8 +647,8 @@ local function OnGuildCouncil(sender, msg, dist)
     if gmDirect then
         by, src = sender, "gm"
     else
-        if not gmKey or v.by ~= gmKey then return end
-        if Util.IsMe(gmKey) then
+        if not gmKey or not IsGMKey(v.by) then return end
+        if IsGMKey(Util.PlayerKey()) then
             -- I am the GM: a copy of my list from someone else is never trusted (it may be forged).
             if not stored and not gmRelayNoted then
                 gmRelayNoted = true
@@ -687,10 +707,10 @@ local function OnGuildCouncilQuery(sender, msg, dist)
     local rec = guildList
     if not rec or IsTofu(rec) then return end   -- an unconfirmed list is never re-served
     local me = Util.PlayerKey()
-    local amGM = me ~= nil and me == gmKey
+    local amGM = me ~= nil and IsGMKey(me)
     if not amGM then
         -- Receivers only take relays of the current GM's list from its council members.
-        if not (me and rec.members[me] and roster[me]) or not gmKey or rec.by ~= gmKey then return end
+        if not (me and rec.members[me] and roster[me]) or not gmKey or not IsGMKey(rec.by) then return end
     end
     local theirs = type(msg) == "table" and tonumber(msg.r) or 0
     if not theirs or theirs > rec.rev then return end
@@ -854,6 +874,7 @@ local function OnRosterUpdate(_, canRequestRosterUpdate)
         return
     end
     RefreshGuildList()
+    NoteOwnCharacter()
     if changed then
         -- membersChanged (DisasterZone 0.5): false when only online / rank / level flags changed.
         ns:Fire("ROSTER_UPDATED", membersChanged and true or false)
@@ -913,12 +934,376 @@ local function LeadersRec(create)
     return rec
 end
 
+---------------------------------------------------------------------------
+-- Accounts: a player's characters share their roles.
+--
+-- Every client knows which characters of its guild logged in on its own account (the saved variables are per
+-- account), and each character vouches for the others: "these are my player's characters too". A character has the
+-- roles of every guild member that vouches for it: the alt of the Guild Master counts as the Guild Master, the alt
+-- of a guild council member as guild council, of an officer as an officer, of a listed raid leader as a raid leader.
+-- Roles are never passed on twice: only what the vouching character itself is (its rank, the lists it is on) counts.
+--
+-- What makes it safe: a vouch only counts when it was heard from the vouching character itself (the game names the
+-- sender of an addon message; that cannot be forged), or passed on by the GM, an officer or a guild council member
+-- who holds every role the vouching character has. Somebody who passes on a made-up vouch can so only hand out roles
+-- they could hand to their own alt anyway; nobody can make themselves the alt of someone above them.
+--
+-- Message ACB { l = { { k = voucher, v = rev, m = { key, ... } }, ... } } (GUILD or WHISPER): each character sends
+-- its own entry once after logging in. HELLO carries a hash of what I hold (av); the GM, an officer or a council
+-- member who holds something else answers once with all of it, for members who were offline when a main spoke.
+-- Data: db.accounts[guildKey] = { mine = { [key] = true }, v = { [voucher] = { rev, m = { [key] = true }, src } } }
+-- (src: who I heard it from; the voucher itself, or the one who passed it on).
+---------------------------------------------------------------------------
+
+local MAX_ACCOUNT_CHARS = 12    -- other characters one character vouches for
+local MAX_VOUCHERS = 300        -- vouching characters stored per guild
+local ACB_PART = 25             -- entries per ACB message
+local ACC_LOGIN_MIN, ACC_LOGIN_SPREAD = 25, 20   -- my own entry goes out 25-45 s after login
+local ACB_REPLY_MIN, ACB_REPLY_SPREAD = 1, 5
+local ACB_GAP = 30              -- at most one passed-on batch per 30 s (mine, or anybody's seen on GUILD)
+local ACB_PER_MEMBER = 600      -- one answer per member per 10 minutes
+
+local vouchedBy                 -- [key] = { voucher, ... } (valid vouches only); nil = rebuild
+local batchSeenAt = -1000       -- GetTime() a passed-on batch was last sent / seen on GUILD
+
+-- A delay within [lo, lo + spread) that differs per character but draws nothing from math.random (rolls and the
+-- games share that sequence).
+local function OwnJitter(lo, spread, salt)
+    local n = Util.Adler32((Util.PlayerKey() or "?") .. salt .. tostring(Now()))
+    return lo + (n % 1000) / 1000 * spread
+end
+
+local function AccountsDB(create)
+    local db, gk = ns.db, GuildKey()
+    if not db or not gk then return nil end
+    if type(db.accounts) ~= "table" then
+        if not create then return nil end
+        db.accounts = {}
+    end
+    local rec = db.accounts[gk]
+    if type(rec) ~= "table" then
+        if not create then return nil end
+        rec = {}
+        db.accounts[gk] = rec
+    end
+    if type(rec.mine) ~= "table" then rec.mine = {} end
+    if type(rec.v) ~= "table" then rec.v = {} end
+    return rec
+end
+
+-- gm, officer, council, raid leader: what the character itself is (its rank, the lists it is on). No debug role,
+-- nothing shared by another character.
+local function OwnRoles(key)
+    local e = roster[key]
+    local gm = gmKey ~= nil and key == gmKey
+    local officer = e ~= nil and (tonumber(e.rankIndex) or 99) <= OFFICER_RANK
+    local list = guildList
+    local council = e ~= nil and list ~= nil and not IsTofu(list) and list.members[key] == true
+    local lrec = LeadersRec(false)
+    local leader = e ~= nil and lrec ~= nil and lrec.m[key] == true
+    return gm, officer, council, leader
+end
+
+-- May `relay` pass on a vouch of `voucher`? Only the GM, officers and the guild council pass vouches on, and only
+-- of characters that have no role the relay lacks.
+local function CoversRoles(relay, voucher)
+    if relay == voucher then return true end
+    local rg, ro, rc, rl = OwnRoles(relay)
+    if rg then return true end
+    if not (ro or rc) then return false end
+    local vg, vo, vc, vl = OwnRoles(voucher)
+    if vg or (vo and not ro) or (vc and not rc) or (vl and not (ro or rl)) then return false end
+    return true
+end
+
+local function ValidEntry(voucher, e)
+    return type(voucher) == "string" and type(e) == "table" and type(e.m) == "table"
+        and IsInt(e.rev, 1, MAX_REV) and type(e.src) == "string"
+end
+
+local function VouchIndex()
+    if vouchedBy then return vouchedBy end
+    local idx = {}
+    local rec = AccountsDB(false)
+    if not rec then return idx end          -- (the guild is not known yet: not cached)
+    for voucher, e in pairs(rec.v) do
+        if ValidEntry(voucher, e) and roster[voucher] and CoversRoles(e.src, voucher) then
+            for key, on in pairs(e.m) do
+                if on == true and type(key) == "string" and key ~= voucher and roster[key] then
+                    local list = idx[key]
+                    if not list then
+                        list = {}
+                        idx[key] = list
+                    end
+                    list[#list + 1] = voucher
+                end
+            end
+        end
+    end
+    vouchedBy = idx
+    return idx
+end
+
+-- The guild members that vouch for `key` (its player's other characters), or nil.
+function Principals(key)
+    if type(key) ~= "string" then return nil end
+    return VouchIndex()[key]
+end
+
+-- The Guild Master, or a character the Guild Master vouches for.
+function IsGMKey(key)
+    if type(key) ~= "string" or not gmKey then return false end
+    if key == gmKey then return true end
+    for _, m in ipairs(Principals(key) or {}) do
+        if m == gmKey then return true end
+    end
+    return false
+end
+
+-- Adds the characters `voucher` vouches for to a set.
+function AddAlts(set, voucher)
+    local rec = AccountsDB(false)
+    local e = rec and rec.v[voucher]
+    if not ValidEntry(voucher, e) or not CoversRoles(e.src, voucher) then return end
+    for key, on in pairs(e.m) do
+        if on == true and roster[key] then set[key] = true end
+    end
+end
+
+function InvalidateAccounts()
+    vouchedBy = nil
+end
+
+-- This character logged in on this account, in this guild (called once the guild roster is there).
+function NoteOwnCharacter()
+    local me = Util.PlayerKey()
+    local rec = me and AccountsDB(true)
+    if rec and rec.mine[me] == nil then rec.mine[me] = true end
+end
+
+-- My own entry, brought up to date: the characters of this account in this guild (they logged in here; the Members
+-- tab's own characters count too). nil while there is nothing to say.
+local function MyVouch()
+    local rec = AccountsDB(true)
+    local me = Util.PlayerKey()
+    if not rec or not me or not ready then return nil end
+    rec.mine[me] = true
+    local prof = ns.db.prof and ns.db.prof[GuildKey()]
+    for key, r in pairs(type(prof) == "table" and prof or {}) do
+        if type(key) == "string" and type(r) == "table" and r.own == true and rec.mine[key] == nil then
+            rec.mine[key] = true
+        end
+    end
+    local names = {}
+    for key, on in pairs(rec.mine) do
+        if on == true and type(key) == "string" and key ~= me and roster[key] and WireKey(key) == key then
+            names[#names + 1] = key
+        end
+    end
+    tsort(names)
+    local set = {}
+    for i = 1, min(#names, MAX_ACCOUNT_CHARS) do set[names[i]] = true end
+    local cur = rec.v[me]
+    if not ValidEntry(me, cur) then cur = nil end
+    if not cur and next(set) == nil then return nil end
+    if not cur or cur.src ~= me or not SameSet(cur.m, set) then
+        rec.v[me] = { rev = min(max(floor(Now()), (cur and cur.rev or 0) + 1), MAX_REV), m = set, src = me }
+        vouchedBy = nil
+    end
+    return rec.v[me]
+end
+
+local function WireEntry(voucher, e)
+    return { k = voucher, v = e.rev, m = SetToArray(e.m) }
+end
+
+local function SendOwnVouch()
+    local me = Util.PlayerKey()
+    local e = MyVouch()
+    Recompute()
+    if not e or not me then return false end
+    return Send({ t = "ACB", l = { WireEntry(me, e) } }, "GUILD", nil, "ctrl")
+end
+
+-- Everything I hold and may pass on, in parts.
+local function SendVouchBatch()
+    local rec = AccountsDB(false)
+    local me = Util.PlayerKey()
+    if not rec or not me then return end
+    local keys = {}
+    for voucher, e in pairs(rec.v) do
+        if ValidEntry(voucher, e) and roster[voucher] and CoversRoles(e.src, voucher) and CoversRoles(me, voucher) then
+            keys[#keys + 1] = voucher
+        end
+    end
+    tsort(keys)
+    for i = 1, #keys, ACB_PART do
+        local l = {}
+        for j = i, min(i + ACB_PART - 1, #keys) do l[#l + 1] = WireEntry(keys[j], rec.v[keys[j]]) end
+        Send({ t = "ACB", l = l }, "GUILD", nil, "data")
+    end
+    batchSeenAt = GetTime()
+end
+
+local function OnAccounts(sender, msg, dist)
+    if (dist ~= "GUILD" and dist ~= "WHISPER") or not ready or type(msg.l) ~= "table" or not roster[sender] then return end
+    local rec = AccountsDB(true)
+    if not rec then return end
+    local changed, n, passedOn = false, 0, false
+    for _, raw in pairs(msg.l) do
+        n = n + 1
+        if n > ACB_PART then break end
+        local voucher = type(raw) == "table" and WireKey(raw.k)
+        local set = voucher and IsInt(raw.v, 1, min(MAX_REV, Now() + FUTURE_SLACK)) and ParseWireList(raw.m)
+        if set then
+            set[voucher] = nil
+            local count = 0
+            for _ in pairs(set) do count = count + 1 end
+            if voucher ~= sender then passedOn = true end
+            if count > MAX_ACCOUNT_CHARS or not roster[voucher] then
+                -- (too long, or not a guild member: dropped)
+            elseif Util.IsMe(voucher) then
+                -- Somebody holds an entry of me that is not older than mine and says something else (an old
+                -- install, a forgery): mine wins, with a newer rev.
+                local mine = MyVouch()
+                if not Util.IsMe(sender) and raw.v >= (mine and mine.rev or 0) and not (mine and SameSet(mine.m, set)) then
+                    rec.v[voucher] = { rev = min(max(floor(Now()), raw.v + 1), MAX_REV), m = mine and mine.m or {},
+                                       src = voucher }
+                    changed = true
+                    Util.Debounce("cdl-acc-own", 2, SendOwnVouch)
+                end
+            elseif voucher == sender or CoversRoles(sender, voucher) then
+                local cur = rec.v[voucher]
+                if not ValidEntry(voucher, cur) then cur = nil end
+                if not cur then
+                    local stored = 0
+                    for _ in pairs(rec.v) do stored = stored + 1 end
+                    if stored < MAX_VOUCHERS then
+                        rec.v[voucher] = { rev = raw.v, m = set, src = sender }
+                        changed = true
+                    end
+                elseif raw.v > cur.rev or (raw.v == cur.rev and voucher == sender and not SameSet(cur.m, set)) then
+                    rec.v[voucher] = { rev = raw.v, m = set, src = sender }
+                    changed = true
+                elseif raw.v == cur.rev and SameSet(cur.m, set) and cur.src ~= voucher
+                    and (voucher == sender or not CoversRoles(cur.src, voucher)) then
+                    cur.src = sender        -- the same entry from a better source (the character itself)
+                    changed = true
+                end
+            end
+        end
+    end
+    if passedOn and dist == "GUILD" then batchSeenAt = GetTime() end
+    if changed then
+        vouchedBy = nil
+        Recompute()
+        ns:Fire("ACCOUNTS_UPDATED")
+    end
+end
+
+-- Hash of the entries I hold (Sync puts it in HELLO as av); "" while I hold none.
+function Guild:GetAccountsHash()
+    local rec = AccountsDB(false)
+    local list = {}
+    for voucher, e in pairs(rec and rec.v or {}) do
+        if ValidEntry(voucher, e) and roster[voucher] then list[#list + 1] = voucher .. ":" .. e.rev end
+    end
+    if #list == 0 then return "" end
+    tsort(list)
+    return Util.Hash(list)
+end
+
+-- Sync calls this for every HELLO (av = the sender's hash; nil from clients before 1.2). The GM, an officer or a
+-- guild council member who holds something else answers with what it holds, on GUILD so the others stay quiet.
+function Guild:OnAccountsSeen(sender, av)
+    if type(av) ~= "string" or type(sender) ~= "string" or not ready or Util.IsMe(sender) then return end
+    local me = Util.PlayerKey()
+    if not me then return end
+    local gm, officer, council = OwnRoles(me)
+    if not (gm or officer or council) then return end
+    local mine = Guild:GetAccountsHash()
+    if mine == "" or mine == av then return end
+    if not RateLimit("acb:" .. sender, ACB_PER_MEMBER) then return end
+    local asked = GetTime()
+    Util.After(OwnJitter(ACB_REPLY_MIN, ACB_REPLY_SPREAD, sender), function()
+        if batchSeenAt >= asked or GetTime() - batchSeenAt < ACB_GAP then return end
+        SendVouchBatch()
+    end)
+end
+
+-- The other characters of the player behind `key` that share roles with it: the guild members that vouch for it
+-- (sorted), or an empty table.
+function Guild:GetAccountMains(key)
+    local out = {}
+    for _, m in ipairs(Principals(key) or {}) do out[#out + 1] = m end
+    tsort(out)
+    return out
+end
+
+-- My account's characters in this guild as this client knows them (sorted; without me).
+function Guild:GetMyCharacters()
+    local e = MyVouch()
+    return SetToArray(e and e.m)
+end
+
+-- /dz account [forget <name>]: which of my characters share their roles; forget one that is not mine any more.
+local function SlashAccount(rest)
+    local rec = AccountsDB(true)
+    if not rec or not ready then
+        ns:Print("Your guild is not loaded yet; try again in a moment.")
+        return
+    end
+    local cmd, name = Util.Trim(rest or ""):match("^(%S*)%s*(.-)$")
+    if cmd:lower() == "forget" and name ~= "" then
+        local key = WireKey(name)
+        key = key and CanonicalKey(key)
+        if not key or Util.IsMe(key) or not rec.mine[key] then
+            ns:Print("'%s' is not one of the other characters of your account here.", name)
+            return
+        end
+        rec.mine[key] = false       -- (false, not nil: the Members tab's own characters don't bring it back)
+        SendOwnVouch()
+        ns:Fire("ACCOUNTS_UPDATED")
+        ns:Print("%s no longer shares your roles.", Util.ShortName(key))
+        return
+    end
+    local mine = Guild:GetMyCharacters()
+    if #mine == 0 then
+        ns:Print("No other character of your account is known in this guild yet. Log in on each of them once: "
+            .. "your characters then share their roles (Guild Master, officer, council, raid leader).")
+    else
+        local names = {}
+        for i, key in ipairs(mine) do names[i] = Util.ShortName(key) end
+        ns:Print("Your characters here share their roles: %s. (/dz account forget <name> takes one off.)",
+            tconcat(names, ", "))
+    end
+    local via = Guild:GetAccountMains(Util.PlayerKey())
+    if #via > 0 then
+        local names = {}
+        for i, key in ipairs(via) do names[i] = Util.ShortName(key) end
+        ns:Print("This character has the roles of: %s.", tconcat(names, ", "))
+    end
+end
+
+local function ShareAccountAfterLogin()
+    Util.After(OwnJitter(ACC_LOGIN_MIN, ACC_LOGIN_SPREAD, "acc"), function()
+        if IsInGuild() and ready then SendOwnVouch() end
+    end)
+end
+
 -- `real` (optional): ignore my debug role (network code: what the other clients see is my real rank).
+-- An officer's other characters are officers too (Accounts above).
 function Guild:IsOfficer(key, real)
     local role = not real and type(key) == "string" and DebugRole(key)
     if role then return role == "gm" or role == "officer" end
     local e = type(key) == "string" and roster[key]
-    return e ~= nil and e ~= false and (tonumber(e.rankIndex) or 99) <= OFFICER_RANK
+    if not e then return false end
+    if (tonumber(e.rankIndex) or 99) <= OFFICER_RANK then return true end
+    for _, m in ipairs(Principals(key) or {}) do
+        local me = roster[m]
+        if me and (tonumber(me.rankIndex) or 99) <= OFFICER_RANK then return true end
+    end
+    return false
 end
 
 function Guild:CanEditRaidLeaders()
@@ -930,7 +1315,12 @@ function Guild:IsListedRaidLeader(key)
     local role = type(key) == "string" and DebugRole(key)
     if role then return role == "raidleader" end
     local rec = LeadersRec(false)
-    return type(key) == "string" and rec ~= nil and rec.m[key] and roster[key] and true or false
+    if type(key) ~= "string" or rec == nil or not roster[key] then return false end
+    if rec.m[key] then return true end
+    for _, m in ipairs(Principals(key) or {}) do       -- another character of a listed raid leader
+        if rec.m[m] and roster[m] then return true end
+    end
+    return false
 end
 
 -- Plans raids (raids, teams, groups): the GM and the raid leaders list.
@@ -1076,6 +1466,7 @@ function Guild:GetDebugRole() return DebugRole() end
 
 function Guild:OnInit()
     if DebugAllowed() then ns:RegisterSlash("role", SlashRole, "(debug) pretend to be: " .. ROLE_HELP) end
+    ns:RegisterSlash("account", SlashAccount, "which of your characters share their roles (forget <name> takes one off)")
     CouncilDB()
     ns:RegisterEvent("GUILD_ROSTER_UPDATE", OnRosterUpdate)
     ns:RegisterEvent("PLAYER_GUILD_UPDATE", OnGuildChanged)
@@ -1097,6 +1488,7 @@ function Guild:OnInit()
     if ns.Comm and ns.Comm.Register then
         ns.Comm:Register("RLL", OnRaidLeaders)          -- Addendum J §62
         ns.Comm:Register("RLQ", OnRaidLeadersQuery)
+        ns.Comm:Register("ACB", OnAccounts)             -- accounts: a player's characters share their roles
     end
 end
 
@@ -1129,6 +1521,7 @@ function Guild:OnLogin()
     end
     RefreshRaidState()
     ShareRaidLeadersAfterLogin()
+    ShareAccountAfterLogin()
 end
 
 ---------------------------------------------------------------------------
@@ -1244,7 +1637,7 @@ end
 function Guild:IsGM(key)
     local role = DebugRole(key)
     if role then return role == "gm" end
-    return type(key) == "string" and gmKey ~= nil and key == gmKey
+    return IsGMKey(key)
 end
 
 -- GM, or on the guild list, or (in a raid) the raid leader / on the raid's council list.

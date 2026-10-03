@@ -34,7 +34,7 @@ DisasterZone only suggests. The council makes the loot decision.
 ## Install and update
 
 **Requirements:** the TBC Anniversary client. DisasterZone has no required dependencies because every library it uses is built in.
-**Optional:** LoonBestInSlot. If it is installed, My BiS shows a **Suggest** button that fills your list from its guides. Nothing else needs it.
+No other addon is needed. The suggested BiS lists behind the **Suggest** button of My BiS ship with DisasterZone (they come from LoonBestInSlot's class guides; you don't need that addon installed).
 
 ### Install
 1. Close the game.
@@ -129,7 +129,7 @@ The top bar holds these controls:
 - **Main spec** / **Off spec**: which of your two lists the tab shows. See [Off-spec list](#7-off-spec-list).
 - **Spec**: pick your spec, or choose **Auto-detect** to use the talent tree with the most points.
 - **Copy from ▾**: copy another phase into this one, using **Copy Pn (fill empty)** or **Copy Pn (overwrite)**. It also offers the same phase of your other list, e.g. **Copy main spec Pn**.
-- **Suggest ▾** (only shown when LoonBestInSlot is installed): **Fill empty slots from LoonBestInSlot (spec Pn)**, or **Replace all (confirm)**. You must choose your spec first.
+- **Suggest ▾**: **Fill empty slots (spec Pn)** from the suggested BiS list of your spec and phase, or **Replace all (confirm)**. You must choose your spec first.
 - **Clear phase**: removes every pick in this phase. It asks first.
 
 Below the top bar is a paper doll with all 17 slots. Each slot has a **main** pick (the large icon) and an **alt** pick (the small icon next to it).

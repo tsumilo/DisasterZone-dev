@@ -6,6 +6,25 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.2.0", date = "3 October 2026", title = "Alts share roles, level 70 raids, built-in BiS lists",
+      sections = {
+          { heading = "Your characters share their roles", lines = {
+              "DisasterZone knows which characters are yours: each one that logged in with it.",
+              "Your alts get the roles of your other characters: Guild Master, officer, council, raid leader.",
+              "Nothing to set up. Log in once on each character; the others in the guild pick it up.",
+              "A new alt counts for a member once that member was online together with your main (or an officer).",
+              "/dz account shows which characters share roles; /dz account forget Name takes one off.",
+          } },
+          { heading = "Raids", lines = {
+              "New raids are for level 70 characters. Lower characters can't sign up for them.",
+              "New raid window: tick \"Allow characters below level 70\" for a raid everyone can join.",
+              "Raids made before this version stay open to every level.",
+          } },
+          { heading = "My BiS", lines = {
+              "Suggest works for everyone now: the suggested BiS lists are built in.",
+              "You no longer need LoonBestInSlot installed to use it.",
+          } },
+      } },
     { version = "1.1.0", date = "2 October 2026", title = "Editing strategies together",
       sections = {
           { heading = "Strategy boards", lines = {

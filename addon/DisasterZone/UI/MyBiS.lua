@@ -214,7 +214,7 @@ local function EnsurePopups()
         preferredIndex = 3,
     }
     StaticPopupDialogs["DISASTERZONE_REPLACE_TEMPLATE"] = {
-        text = "Replace every pick in %s with the LoonBestInSlot suggestions for %s?",
+        text = "Replace every pick in %s with the suggested BiS list for %s?",
         button1 = YES or "Yes",
         button2 = NO or "No",
         OnAccept = function(_, data)
@@ -261,7 +261,7 @@ end
 function MyBiS:ApplySuggestion(phase, overwrite, list)
     local BiS, Loon = ns.BiS, ns.Loon
     if not (BiS and Loon and Loon.IsAvailable and Loon:IsAvailable()) then
-        ns:Print("LoonBestInSlot is not loaded.")
+        ns:Print("The suggested BiS lists are missing: reinstall DisasterZone.")
         return
     end
     if list == nil then list = ListArg() end
@@ -273,15 +273,15 @@ function MyBiS:ApplySuggestion(phase, overwrite, list)
     phase = ClampPhase(phase or CurrentPhase())
     local template = Loon:GetTemplate(MyClass(), spec, phase)
     if type(template) ~= "table" or next(template) == nil then
-        ns:Print("LoonBestInSlot has no %s suggestions for P%d.", spec, phase)
+        ns:Print("There is no suggested %s list for P%d.", spec, phase)
         return
     end
     -- false: refused (the lists were locked meanwhile, e.g. while the "Replace all" popup was open; §38)
     if BiS:ApplyTemplate(phase, template, overwrite and true or false, list) == false then return end
     if overwrite then
-        ns:Print("Replaced P%d with LoonBestInSlot's %s suggestions.", phase, spec)
+        ns:Print("Replaced P%d with the suggested %s list.", phase, spec)
     else
-        ns:Print("Filled empty P%d slots from LoonBestInSlot (%s).", phase, spec)
+        ns:Print("Filled empty P%d slots from the suggested %s list.", phase, spec)
     end
 end
 
@@ -502,16 +502,16 @@ end
 local function BuildSuggestMenu(root)
     local phase = CurrentPhase()
     local spec = SelectedSpec() or ""
-    root:CreateTitle("LoonBestInSlot")
+    root:CreateTitle("Suggested BiS list")
     if not (ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable()) then
-        root:CreateTitle("LoonBestInSlot is not loaded")
+        root:CreateTitle("The lists are missing: reinstall DisasterZone")
         return
     end
     if spec == "" then
         root:CreateTitle("Choose your spec first")
         return
     end
-    root:CreateButton(("Fill empty slots from LoonBestInSlot (%s P%d)"):format(spec, phase), function()
+    root:CreateButton(("Fill empty slots (%s P%d)"):format(spec, phase), function()
         MyBiS:ApplySuggestion(phase, false)
     end)
     root:CreateButton("Replace all (confirm)", function()

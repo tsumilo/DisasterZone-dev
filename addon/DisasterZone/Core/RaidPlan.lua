@@ -10,6 +10,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 -- sign-up of anyone else is not counted (it is hidden, and shows again when they are invited or the lock goes), and
 -- the raid is not listed for them (GetRaids / CanSee).
 --
+-- A raid can ask for a minimum character level (ml; the New raid window sets 70 unless the planner allows lower
+-- characters). A character below it can't sign up and its answer is not counted; the raid stays listed for it.
+--
 -- Sync (§56): live edits go out on GUILD (RPU, RPS). At login the HELLO carries a hash of my plan data (pd); a client
 -- whose data differs answers with its per-item digest (RPD, on GUILD so the others can stay quiet), the new client
 -- asks for the items that differ (RPW) and sends its own copy of them; items travel one per message (RPG).
@@ -50,6 +53,7 @@ local MAX_ID_LEN = 24
 local MAX_NAME_LEN = 32             -- team names, raid titles
 local MAX_NOTE_LEN = 120            -- raid notes
 local MAX_SIGNUP_NOTE = 40
+local MAX_LEVEL = 70                -- the level cap: the highest minimum level a raid can ask for
 
 local RPD_DELAY_COUNCIL = { 0.5, 2.5 }
 local RPD_DELAY_MEMBER = { 3, 8 }
@@ -403,6 +407,11 @@ local function CleanRaidFields(out, r, now, partial, minT)
     local inv = CleanInvites(r.inv)
     if inv == false then return false end
     if inv and (#inv > 0 or partial) then out.inv = inv end
+    -- the minimum character level; an override says 0 to undo what its series says
+    if r.ml ~= nil then
+        if not IsInt(r.ml, 0, MAX_LEVEL) then return false end
+        if r.ml > 0 or partial then out.ml = r.ml end
+    end
     if r.ti ~= nil then
         out.ti = CleanText(r.ti, MAX_NAME_LEN)
         if not out.ti then return false end
@@ -527,7 +536,7 @@ end
 -- Occurrences (the resolved view the UI reads)
 ---------------------------------------------------------------------------
 
-local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "inv" }
+local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "inv", "ml" }
 
 local function CopyList(t)
     if type(t) ~= "table" then return nil end
@@ -547,7 +556,7 @@ end
 local function ViewEvent(e)
     return {
         id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, ti = e.ti, no = e.no,
-        lk = e.lk and true or false, inv = CopyList(e.inv) or {},
+        lk = e.lk and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
         weekly = false,
     }
@@ -572,6 +581,7 @@ local function ViewOccurrence(root, s, k)
     v.tm = v.tm or {}
     v.lk = v.lk and true or false
     v.inv = v.inv or {}
+    if (v.ml or 0) <= 0 then v.ml = nil end
     if o then
         v.cancelled = o.x and true or false
         v.grp = CopyMap(o.grp)
@@ -995,11 +1005,12 @@ end
 
 -- Is the raid (a view or an id) listed for me? A locked raid only for the members of its teams, its extra invites,
 -- and those who plan raids or lay out groups (the GM, the guild council, the raid leaders). The data itself still
--- reaches every guild member: this is what the lists show, not a secret.
+-- reaches every guild member: this is what the lists show, not a secret. (A raid my character's level is too low
+-- for stays listed.)
 function RaidPlan:CanSee(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return false end
-    return self:CanSignUp(v) or CanGroups(Util.PlayerKey())
+    return self:GetSignupBlock(v) ~= "lock" or CanGroups(Util.PlayerKey())
 end
 
 function RaidPlan:GetRaid(occId)
@@ -1013,15 +1024,33 @@ local function LockSet(v)
     return RaidPlan:GetInvited(v)
 end
 
--- { [key] = { st, sp, c, n, rev } } (copies). A locked raid counts only its teams' members and its extra invites.
+-- A character's level: my own exactly, a guild member's per the guild roster; nil when not known.
+local function LevelOf(key)
+    if Util.IsMe(key) then return tonumber((UnitLevel("player"))) end
+    local G = Guild()
+    local m = G and G.GetMember and G:GetMember(key)
+    return m and tonumber(m.level) or nil
+end
+
+-- Is the character at the raid's minimum level (ml)? An unknown level passes.
+local function LevelOk(v, key)
+    local ml = v and v.ml
+    if not ml then return true end
+    local level = LevelOf(key)
+    return level == nil or level >= ml
+end
+
+-- { [key] = { st, sp, c, n, rev } } (copies). A locked raid counts only its teams' members and its extra invites; a
+-- raid with a minimum level only the characters at that level.
 function RaidPlan:GetSignups(occId)
     local out = {}
     local root = Root(false)
     local u = root and type(occId) == "string" and root.U[occId]
     if type(u) == "table" then
-        local only = LockSet(ResolveOcc(root, occId))
+        local v = ResolveOcc(root, occId)
+        local only = LockSet(v)
         for key, s in pairs(u) do
-            if not only or only[key] then out[key] = CopyMap(s) end
+            if (not only or only[key]) and LevelOk(v, key) then out[key] = CopyMap(s) end
         end
     end
     return out
@@ -1033,8 +1062,9 @@ function RaidPlan:GetMySignup(occId)
     local u = root and me and type(occId) == "string" and root.U[occId]
     local s = type(u) == "table" and u[me]
     if s then
-        local only = LockSet(ResolveOcc(root, occId))
-        if only and not only[me] then return nil end
+        local v = ResolveOcc(root, occId)
+        local only = LockSet(v)
+        if (only and not only[me]) or not LevelOk(v, me) then return nil end
     end
     return s and CopyMap(s) or nil
 end
@@ -1045,14 +1075,30 @@ function RaidPlan:IsLocked(occId)
     return LockSet(v) ~= nil
 end
 
+-- Why that member (default: me) can't sign up for the raid (a view or an id): "lock" (locked to its teams and extra
+-- invites, and the member is not one of them), "level" (below the raid's minimum level), or nil when they can.
+function RaidPlan:GetSignupBlock(occId, key)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    if not v then return nil end
+    local only = LockSet(v)
+    key = key or Util.PlayerKey()
+    if only ~= nil and not (key ~= nil and only[key] == true) then return "lock" end
+    if key ~= nil and not LevelOk(v, key) then return "level" end
+    return nil
+end
+
 -- May that member (default: me) sign up for the raid? Everyone for an open raid; for a locked one the members of
--- its teams and its extra invites.
+-- its teams and its extra invites. A raid with a minimum level takes only the characters at that level.
 function RaidPlan:CanSignUp(occId, key)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return false end
-    local only = LockSet(v)
-    key = key or Util.PlayerKey()
-    return only == nil or (key ~= nil and only[key] == true)
+    return self:GetSignupBlock(v, key) == nil
+end
+
+-- The minimum character level of the raid (a view or an id), or nil when every level signs up.
+function RaidPlan:GetMinLevel(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    return v and v.ml or nil
 end
 
 -- The sign-up order of a raid: { [key] = position (1 = first) }, total. Ordered by the first answer (any status), so
@@ -1224,7 +1270,7 @@ function RaidPlan:GetUnanswered(days)
     for _, v in ipairs(self:GetRaids(now, now + (tonumber(days) or 7) * DAY)) do
         if not v.cancelled then
             local inv = self:GetInvited(v)
-            if inv and inv[me] and not self:GetMySignup(v.id) then out[#out + 1] = v end
+            if inv and inv[me] and not self:GetMySignup(v.id) and self:CanSignUp(v, me) then out[#out + 1] = v end
         end
     end
     return out
@@ -1350,6 +1396,13 @@ local function ApplyFields(rec, f, partial)
         local inv = CleanInvites(list)
         rec.inv = (#inv > 0 or rec.sid) and inv or nil
     end
+    if f.ml ~= nil then
+        local ml = f.ml == false and 0 or f.ml   -- false / 0: every level
+        if not IsInt(ml, 0, MAX_LEVEL) then return false, "The minimum level is at most " .. MAX_LEVEL .. "." end
+        if ml > 0 then rec.ml = ml
+        elseif rec.sid then rec.ml = 0
+        else rec.ml = nil end
+    end
     if f.ti ~= nil then
         if f.ti == false or Util.Trim(tostring(f.ti)) == "" then rec.ti = nil
         else
@@ -1368,8 +1421,8 @@ local function ApplyFields(rec, f, partial)
 end
 
 -- fields: { i = instance key, t = start (server time), sz = 10|25 (default: the instance's), tm = { teamId },
--- lk = bool (locked: only its teams and extra invites sign up), inv = { key } (extra invites), ti = title,
--- no = note, weekly = bool }. Returns ok, occIdOrErr.
+-- lk = bool (locked: only its teams and extra invites sign up), inv = { key } (extra invites), ml = minimum
+-- character level (nil / 0 / false: every level), ti = title, no = note, weekly = bool }. Returns ok, occIdOrErr.
 function RaidPlan:CreateRaid(f)
     local root, err = RequireOrganizer()
     if not root then return false, err end
@@ -1496,8 +1549,11 @@ function RaidPlan:SignUp(occId, status, spec, note)
     if v.cancelled then return false, "This raid was cancelled." end
     if v.t < Now() - SIGNUP_CLOSE then return false, "This raid is over." end
     if not STATUSES[status] then return false, "invalid status" end
-    if not self:CanSignUp(v, me) then
+    local block = self:GetSignupBlock(v, me)
+    if block == "lock" then
         return false, "This raid is locked to its teams and invited players. Ask a raid leader for an invite."
+    elseif block == "level" then
+        return false, strformat("This raid is for level %d characters.", v.ml)
     end
     local class = MyClass()
     local cur = root.U[occId] and root.U[occId][me]

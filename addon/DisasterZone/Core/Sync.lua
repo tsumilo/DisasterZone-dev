@@ -386,6 +386,7 @@ function Sync:SendHello(force)
         msg.rd = RaidDigest()   -- Addendum J §62: raid leaders exchange the raid log (never lists or the award log)
     end
     if Guild.GetRaidLeadersRev then msg.rlr = Guild:GetRaidLeadersRev() end   -- Addendum J §62
+    if Guild.GetAccountsHash then msg.av = Guild:GetAccountsHash() end        -- accounts (Guild.lua)
     -- Addendum J §56: everyone carries the hash of their raid plan data (0.6 clients ignore it).
     local RaidPlan = ns.RaidPlan
     if RaidPlan and RaidPlan.GetDigestHash then msg.pd = RaidPlan:GetDigestHash() end
@@ -713,6 +714,7 @@ local function OnHello(sender, msg, dist)
     if Strategy and Strategy.OnHelloDigest then Strategy:OnHelloDigest(sender, msg.sd) end
     local G = ns.Guild
     if G and G.OnRaidLeadersRevSeen then G:OnRaidLeadersRevSeen(sender, msg.rlr) end
+    if G and G.OnAccountsSeen then G:OnAccountsSeen(sender, msg.av) end
     if msg.c then
         councilHelloAt[sender] = GetTime()
         NoteCouncilRev(sender, msg.cg)

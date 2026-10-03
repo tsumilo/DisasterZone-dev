@@ -609,16 +609,16 @@ def mid_raid_joiner_and_reloads_learn_the_lock():
     w.assert_no_errors()
 
 
-FAKE_LOON = r"""
-LBIS = { L = setmetatable({}, { __index = function(_, k) return k end }) }
-function LBIS:RegisterSpec(class, spec, phase) return { class = class, spec = spec, phase = phase } end
-function LBIS:AddItem(entry, id, slot, rank) end
-function LBIS:AddGem() end
-function LBIS:AddEnchant() end
-function LBIS:LoadPaladinHoly()
-  local p1 = LBIS:RegisterSpec(LBIS.L["Paladin"], LBIS.L["Holy"], "1")
-  for _, e in ipairs(__LOON_ITEMS or {}) do LBIS:AddItem(p1, tostring(e[1]), LBIS.L[e[2]], e[3]) end
+SET_LISTS = r"""
+-- Replaces the shipped Paladin Holy list (Data/BiSLists.lua) with P1 = the given { item, slot name, rank } rows
+local names = { Head = 1, Neck = 2, Shoulder = 3, Back = 4, Chest = 5, Wrist = 6, Hands = 7, Waist = 8, Legs = 9,
+                Feet = 10, Ring = 11, Trinket = 12, ["Main Hand"] = 13, ["Off Hand"] = 14, ["Two Hand"] = 15 }
+local parts = {}
+for _, e in ipairs(... or {}) do
+  parts[#parts + 1] = names[e[2]] .. ":" .. e[1] .. (e[3] == "BIS" and "*" or "")
 end
+ns.Data.BiSLists.PaladinHoly = { [1] = table.concat(parts, ",") }
+ns.Loon:ClearCache()
 """
 
 
@@ -629,13 +629,13 @@ def popups_accepted_after_the_lock_started_change_nothing():
     w = World()
     gina = Client(w, "Gina", guild_rank=0, class_file="PRIEST")
     lee = Client(w, "Lee", guild_rank=3, class_file="WARRIOR")
-    pal = Client(w, "Pal", guild_rank=3, class_file="PALADIN", preload_lua=FAKE_LOON)
+    pal = Client(w, "Pal", guild_rank=3, class_file="PALADIN")
     for x in (gina, lee, pal):
         x.load_addon()
     w.tick(3)
     head = cand(pal, 1)
     lr.seed_bis(pal, [(1, 1, "main", head)])
-    pal.eval("__LOON_ITEMS = ...", [[cand(pal, 1, 2), "Head", "BIS"]])
+    pal.eval(SET_LISTS, [[cand(pal, 1, 2), "Head", "BIS"]])
     w.make_raid([lee, gina, pal], leader=lee)
     w.tick(8)
     install_helpers(pal)

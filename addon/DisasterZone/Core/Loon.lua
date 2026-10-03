@@ -1,33 +1,32 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Loon.lua", ...) then return end -- DisasterZone: Core/Loon.lua
--- Optional "Suggest BiS" templates captured at runtime from LoonBestInSlot's guides.
--- DisasterZone never requires LoonBestInSlot: without it every function here returns nothing.
+-- "Suggest BiS" templates for My BiS, built from the BiS lists that ship with DisasterZone (Data/BiSLists.lua,
+-- generated from LoonBestInSlot's class guides). Nothing is read from other addons, so every member gets the same
+-- suggestions whether LoonBestInSlot is installed or not. (The module keeps its old name, ns.Loon.)
 local addonName, ns = ...
 
 local Loon = ns:NewModule("Loon")
 
--- Loader names from LoonBestInSlot/Guides/*.lua (function LBIS:Load<Class><Spec>()),
--- keyed by our spec labels (ns.SPECS). Loon has one Rogue guide ("Dps"), separate Druid
+-- The guide (key of ns.Data.BiSLists) per spec label (ns.SPECS). There is one Rogue guide ("Dps"), separate Druid
 -- Cat and Bear guides, and no Discipline guide (Holy is the closest healing set).
-local LOADERS = {
-    WARRIOR = { Arms = "LoadWarriorArms", Fury = "LoadWarriorFury", Protection = "LoadWarriorProtection" },
-    PALADIN = { Holy = "LoadPaladinHoly", Protection = "LoadPaladinProtection", Retribution = "LoadPaladinRetribution" },
+local GUIDES = {
+    WARRIOR = { Arms = "WarriorArms", Fury = "WarriorFury", Protection = "WarriorProtection" },
+    PALADIN = { Holy = "PaladinHoly", Protection = "PaladinProtection", Retribution = "PaladinRetribution" },
     HUNTER = {
-        ["Beast Mastery"] = "LoadHunterBeastMastery", Marksmanship = "LoadHunterMarksmanship",
-        Survival = "LoadHunterSurvival",
+        ["Beast Mastery"] = "HunterBeastMastery", Marksmanship = "HunterMarksmanship", Survival = "HunterSurvival",
     },
-    ROGUE = { Assassination = "LoadRogueDps", Combat = "LoadRogueDps", Subtlety = "LoadRogueDps" },
-    PRIEST = { Discipline = "LoadPriestHoly", Holy = "LoadPriestHoly", Shadow = "LoadPriestShadow" },
-    SHAMAN = { Elemental = "LoadShamanElemental", Enhancement = "LoadShamanEnhancement", Restoration = "LoadShamanRestoration" },
-    MAGE = { Arcane = "LoadMageArcane", Fire = "LoadMageFire", Frost = "LoadMageFrost" },
-    WARLOCK = { Affliction = "LoadWarlockAffliction", Demonology = "LoadWarlockDemonology", Destruction = "LoadWarlockDestruction" },
+    ROGUE = { Assassination = "RogueDps", Combat = "RogueDps", Subtlety = "RogueDps" },
+    PRIEST = { Discipline = "PriestHoly", Holy = "PriestHoly", Shadow = "PriestShadow" },
+    SHAMAN = { Elemental = "ShamanElemental", Enhancement = "ShamanEnhancement", Restoration = "ShamanRestoration" },
+    MAGE = { Arcane = "MageArcane", Fire = "MageFire", Frost = "MageFrost" },
+    WARLOCK = { Affliction = "WarlockAffliction", Demonology = "WarlockDemonology", Destruction = "WarlockDestruction" },
     DRUID = {
-        Balance = "LoadDruidBalance", ["Feral (Cat)"] = "LoadDruidCat", ["Feral (Bear)"] = "LoadDruidBear",
-        Restoration = "LoadDruidRestoration",
+        Balance = "DruidBalance", ["Feral (Cat)"] = "DruidCat", ["Feral (Bear)"] = "DruidBear",
+        Restoration = "DruidRestoration",
     },
 }
 
--- Loon's canonical (English) slot keys; guides pass them through LBIS.L[...] (localized).
-local CANON_SLOTS = {
+-- The slot numbers of the data strings (the generator, gen_bis_lists.py, has the same list).
+local DATA_SLOTS = {
     "Head", "Neck", "Shoulder", "Back", "Chest", "Wrist", "Hands", "Waist", "Legs", "Feet",
     "Ring", "Trinket", "Main Hand", "Off Hand", "Two Hand", "Ranged/Relic",
 }
@@ -37,95 +36,56 @@ local SIMPLE_SLOTS = {
     Legs = 9, Feet = 10, ["Ranged/Relic"] = 17,
 }
 
-local captureCache = {}   -- [loaderName] = { [phase] = { {slot=, id=, rank=, order=}, ... } } or false
-local templateCache = {}  -- [loaderName .. ":" .. phase] = template or false
+local templateCache = {}  -- [guide .. ":" .. phase] = template or false
 
-local function GetLBIS()
-    local lbis = _G.LBIS
-    if type(lbis) == "table" then return lbis end
-    return nil
+local function Lists()
+    local data = ns.Data and ns.Data.BiSLists
+    return type(data) == "table" and data or nil
 end
 
+-- The lists ship with the addon; false only when the data file is missing (a broken install).
 function Loon:IsAvailable()
-    local lbis = GetLBIS()
-    return lbis ~= nil and type(lbis.RegisterSpec) == "function"
+    return Lists() ~= nil
 end
 
+-- { [spec label] = guide } of the class's specs that have a list.
 function Loon:GetSpecFunctions(classFile)
     local out = {}
-    local map = LOADERS[classFile]
-    local lbis = GetLBIS()
-    if not map or not lbis or not self:IsAvailable() then return out end
-    for label, fnName in pairs(map) do
-        if type(lbis[fnName]) == "function" then out[label] = fnName end
+    local map = GUIDES[classFile]
+    local lists = Lists()
+    if not map or not lists then return out end
+    for label, guide in pairs(map) do
+        if type(lists[guide]) == "table" then out[label] = guide end
     end
     return out
 end
 
----------------------------------------------------------------------------
--- Capture: run one Loon guide loader with RegisterSpec/AddItem/AddGem/AddEnchant replaced
--- by recorders. Loon's originals are ALWAYS put back, whatever the loader does.
----------------------------------------------------------------------------
-
-local function BuildSlotReverseMap(lbis)
-    local rev = {}
-    local L = lbis.L
-    for _, canon in ipairs(CANON_SLOTS) do
-        local localized = type(L) == "table" and L[canon] or nil   -- Loon's L falls back to the key
-        if type(localized) == "string" and rev[localized] == nil then rev[localized] = canon end
-    end
-    for _, canon in ipairs(CANON_SLOTS) do
-        if rev[canon] == nil then rev[canon] = canon end
-    end
-    return rev
+-- Forgets the built templates (tests change ns.Data.BiSLists).
+function Loon:ClearCache()
+    templateCache = {}
 end
 
-local function Capture(fnName)
-    local lbis = GetLBIS()
-    local loader = lbis and lbis[fnName]
-    if type(loader) ~= "function" then return nil end
+---------------------------------------------------------------------------
+-- Reading a list: "slot:item[*],..." -> { { slot = name, id =, rank = "BIS" | "Alt", order = }, ... }
+---------------------------------------------------------------------------
 
-    local okMap, rev = pcall(BuildSlotReverseMap, lbis)
-    if not okMap then
-        ns:Debug("Loon: slot names unreadable: %s", tostring(rev))
-        return nil
-    end
-
-    local out, order = {}, 0
-    local function registerSpec(_, _, _, phase)
-        return { cdlPhase = tonumber(phase) }
-    end
-    local function addItem(_, entry, id, slot, rank)
-        local phase = type(entry) == "table" and entry.cdlPhase
+local function ParseList(text)
+    local out = {}
+    if type(text) ~= "string" then return out end
+    local order = 0
+    for slot, id, bis in text:gmatch("(%d+):(%d+)(%*?)") do
+        local canon = DATA_SLOTS[tonumber(slot)]
         local itemID = tonumber(id)
-        local canon = type(slot) == "string" and rev[slot]
-        if not (phase and itemID and canon) then return end
-        if itemID < 1 or itemID > 200000 or itemID ~= math.floor(itemID) then return end
-        order = order + 1
-        local list = out[phase]
-        if not list then
-            list = {}
-            out[phase] = list
+        if canon and itemID and itemID >= 1 and itemID <= 200000 then
+            order = order + 1
+            out[#out + 1] = { slot = canon, id = itemID, rank = bis == "*" and "BIS" or "Alt", order = order }
         end
-        list[#list + 1] = { slot = canon, id = itemID, rank = type(rank) == "string" and rank or "", order = order }
-    end
-    local function ignore() end
-
-    local origRegister, origAddItem = lbis.RegisterSpec, lbis.AddItem
-    local origAddGem, origAddEnchant = lbis.AddGem, lbis.AddEnchant
-    lbis.RegisterSpec, lbis.AddItem, lbis.AddGem, lbis.AddEnchant = registerSpec, addItem, ignore, ignore
-    local ok, err = pcall(loader, lbis)
-    lbis.RegisterSpec, lbis.AddItem, lbis.AddGem, lbis.AddEnchant = origRegister, origAddItem, origAddGem, origAddEnchant
-
-    if not ok then
-        ns:Debug("Loon: %s failed: %s", fnName, tostring(err))
-        return nil
     end
     return out
 end
 
 ---------------------------------------------------------------------------
--- Template building (file order = Loon's priority order)
+-- Template building (list order = the guide's priority order)
 ---------------------------------------------------------------------------
 
 local function IsBis(rank)
@@ -294,28 +254,20 @@ end
 function Loon:GetTemplate(classFile, specLabel, phase)
     phase = tonumber(phase)
     if not phase or phase < 1 or phase > (ns.MAX_PHASE or 5) or phase ~= math.floor(phase) then return nil end
-    if not self:IsAvailable() then return nil end
-    local fnName = LOADERS[classFile] and LOADERS[classFile][specLabel]
-    if not fnName then return nil end
+    local lists = Lists()
+    local guide = GUIDES[classFile] and GUIDES[classFile][specLabel]
+    local byPhase = lists and guide and lists[guide]
+    if type(byPhase) ~= "table" then return nil end
 
-    local key = fnName .. ":" .. phase
+    local key = guide .. ":" .. phase
     local tpl = templateCache[key]
     if tpl == nil then
-        local captured = captureCache[fnName]
-        if captured == nil then
-            local ok, result = pcall(Capture, fnName)
-            captured = ok and result or false
-            if not ok then ns:Debug("Loon: capture error: %s", tostring(result)) end
-            captureCache[fnName] = captured
-        end
         tpl = false
-        if captured then
-            local ok, result = pcall(BuildTemplate, captured[phase], classFile)
-            if ok and result then
-                tpl = result
-            elseif not ok then
-                ns:Debug("Loon: template error: %s", tostring(result))
-            end
+        local ok, result = pcall(BuildTemplate, ParseList(byPhase[phase]), classFile)
+        if ok and result then
+            tpl = result
+        elseif not ok then
+            ns:Debug("BiS lists: template error: %s", tostring(result))
         end
         templateCache[key] = tpl
     end

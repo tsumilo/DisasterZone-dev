@@ -15,6 +15,7 @@ local RAID_ROW_H = 36
 local HEADER_ROW_H = 22
 local CELL_H = 16
 local EDITOR_DAYS = 60
+local MAX_LEVEL = 70                -- a new raid asks for this level unless "Allow characters below level 70" is ticked
 
 local ROLE_COLS = {
     { key = "tank", label = "Tanks" },
@@ -128,7 +129,9 @@ local function myStatusText(v)
     local inv = RP():GetInvited(v)
     local me = ns.Util.PlayerKey()
     if inv and me and inv[me] then return colorize("ff9933", "not answered"), "ff9933" end
-    if not RP():CanSignUp(v) then return grey("not invited"), nil end
+    local block = RP():GetSignupBlock(v)
+    if block == "level" then return grey("level " .. v.ml .. " only"), nil end
+    if block then return grey("not invited"), nil end
     return grey("not answered"), nil
 end
 
@@ -1074,7 +1077,9 @@ local function refreshDetail(v)
 
     local mine = RP():GetMySignup(v.id)
     local open = not v.cancelled and v.t >= Now() - 6 * 3600
-    local invited = RP():CanSignUp(v)       -- false: locked to its teams and invited players, and I'm not one
+    -- "lock": locked to its teams and invited players, and I'm not one; "level": my character's level is too low
+    local block = RP():GetSignupBlock(v)
+    local invited = block == nil
     for st, b in pairs(upcoming.statusBtns) do
         b:SetEnabled(open and invited)
         local chosen = mine and mine.st == st
@@ -1088,6 +1093,7 @@ local function refreshDetail(v)
         upcoming.noteBox:SetText(note or "")
     end
     d.strip.closed:SetText(v.cancelled and "This raid was cancelled." or (not open and "Sign-ups are closed.")
+        or (block == "level" and colorize("ff9933", ("This raid is for level %d characters."):format(v.ml)))
         or (not invited and colorize("ff9933", organizer and "Locked: you are not in this raid (Invite adds you)"
             or "Locked: ask a raid leader for an invite"))
         or (mine and grey("Saved: " .. STATUS[mine.st].label) or colorize("ff9933", "Pick an answer")))
@@ -1611,6 +1617,7 @@ local function editorFields()
     end
     return {
         i = f.i, sz = f.sz, t = editorTime(), tm = tm, lk = f.lk and true or false, inv = inviteList(),
+        ml = f.low and 0 or MAX_LEVEL,
         ti = ns.Util.Trim(editor.titleBox:GetText() or "") ~= "" and editor.titleBox:GetText() or false,
         no = ns.Util.Trim(editor.noteBox:GetText() or "") ~= "" and editor.noteBox:GetText() or false,
     }
@@ -1634,6 +1641,7 @@ local function changedFields(fields, v)
     tsort(sb)
     if a ~= b and tconcat(sa, ",") ~= tconcat(sb, ",") then out.tm = fields.tm end
     if fields.lk ~= (v.lk and true or false) then out.lk = fields.lk end
+    if fields.ml ~= (v.ml or 0) then out.ml = fields.ml end
     local was = {}
     for _, key in ipairs(v.inv or {}) do was[#was + 1] = key end
     tsort(was)
@@ -1683,7 +1691,7 @@ local function row(parent, label, y)
 end
 
 local function createEditor()
-    local w = UI():CreateWindow("DisasterZoneRaidEditor", "New raid", 400, 430)
+    local w = UI():CreateWindow("DisasterZoneRaidEditor", "New raid", 400, 452)
     editor = w
     local c = w.content
     w.f = { tm = {}, inv = {} }
@@ -1768,18 +1776,23 @@ local function createEditor()
     w.lockCB.tooltipText = "Left open, every guild member can sign up and the teams only say who is expected. "
         .. "Locked, the sign-up buttons work only for the members of the picked teams and the players invited here; "
         .. "an answer from anyone else is not counted."
+    w.lowCB = UI():CreateCheckbox(c, ("Allow characters below level %d"):format(MAX_LEVEL),
+        function() return w.f.low end, function(on) w.f.low = on end)
+    w.lowCB:SetPoint("TOPLEFT", 80, -230)
+    w.lowCB.tooltipText = ("Unticked, only level %d characters can sign up; the answer of a lower character is not "
+        .. "counted. Tick it for a raid that lower characters may join too."):format(MAX_LEVEL)
 
-    row(c, "Note", -246)
+    row(c, "Note", -268)
     w.noteBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
     w.noteBox:SetSize(270, 20)
     w.noteBox:SetAutoFocus(false)
     w.noteBox:SetMaxLetters(120)
-    w.noteBox:SetPoint("TOPLEFT", 86, -242)
+    w.noteBox:SetPoint("TOPLEFT", 86, -264)
 
     w.weeklyCB = UI():CreateCheckbox(c, "Repeat weekly (the next two weeks are always planned)", nil, nil)
-    w.weeklyCB:SetPoint("TOPLEFT", 80, -270)
+    w.weeklyCB:SetPoint("TOPLEFT", 80, -292)
     w.weeklyInfo = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.weeklyInfo:SetPoint("TOPLEFT", 84, -276)
+    w.weeklyInfo:SetPoint("TOPLEFT", 84, -298)
     w.weeklyInfo:SetPoint("RIGHT", -12, 0)
     w.weeklyInfo:SetJustifyH("LEFT")
     w.weeklyInfo:SetText("A weekly raid: save the change for this week only, or for every week.")
@@ -1809,8 +1822,9 @@ function PlanUI:OpenEditor(occId)
     local v = occId and RP():GetRaid(occId)
     editor.occ = v and v.id or nil
     editor.err:SetText("")
-    local f = { tm = {}, inv = {}, lk = false }
+    local f = { tm = {}, inv = {}, lk = false, low = false }   -- (a new raid is for level 70 characters)
     if v then
+        f.low = v.ml == nil
         local d = date("*t", v.t)
         f.i, f.sz, f.hour, f.min = v.i, v.sz, d.hour, d.min - d.min % 15
         f.y, f.m, f.d = d.year, d.month, d.day
@@ -1835,7 +1849,7 @@ function PlanUI:OpenEditor(occId)
     editor.saveBtn:SetText(v and (v.weekly and "This week only" or "Save") or "Create raid")
     editor.saveAllBtn:SetShown(v ~= nil and v.weekly)
     for _, dd in ipairs({ editor.instDD, editor.sizeDD, editor.datePicker, editor.hourDD, editor.minDD, editor.teamDD,
-                          editor.lockCB }) do
+                          editor.lockCB, editor.lowCB }) do
         if dd.Refresh then dd:Refresh() end
     end
     if editor.invPicker.Close then editor.invPicker:Close() end

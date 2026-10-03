@@ -324,22 +324,22 @@ def drop_alert_toast_and_panel_skip_a_disabled_slot():
     w.assert_no_errors()
 
 
-FAKE_LOON = r"""
-LBIS = { L = setmetatable({}, { __index = function(_, k) return k end }) }
-function LBIS:RegisterSpec(class, spec, phase) return { class = class, spec = spec, phase = phase } end
-function LBIS:AddItem(entry, id, slot, rank) end
-function LBIS:AddGem() end
-function LBIS:AddEnchant() end
-function LBIS:LoadPaladinHoly()
-  local p1 = LBIS:RegisterSpec(LBIS.L["Paladin"], LBIS.L["Holy"], "1")
-  for _, e in ipairs(__LOON_ITEMS or {}) do LBIS:AddItem(p1, tostring(e[1]), LBIS.L[e[2]], e[3]) end
+SET_LISTS = r"""
+-- Replaces the shipped Paladin Holy list (Data/BiSLists.lua) with P1 = the given { item, slot name, rank } rows
+local names = { Head = 1, Neck = 2, Shoulder = 3, Back = 4, Chest = 5, Wrist = 6, Hands = 7, Waist = 8, Legs = 9,
+                Feet = 10, Ring = 11, Trinket = 12, ["Main Hand"] = 13, ["Off Hand"] = 14, ["Two Hand"] = 15 }
+local parts = {}
+for _, e in ipairs(... or {}) do
+  parts[#parts + 1] = names[e[2]] .. ":" .. e[1] .. (e[3] == "BIS" and "*" or "")
 end
+ns.Data.BiSLists.PaladinHoly = { [1] = table.concat(parts, ",") }
+ns.Loon:ClearCache()
 """
 
 
 @case
 def copy_phase_and_loon_suggestions_never_fill_a_disabled_slot():
-    w, c = ui_setup(preload_lua=FAKE_LOON)
+    w, c = ui_setup()
     head, head2 = cand(c, SID_HEAD, 1), cand(c, SID_HEAD, 2)
     ring = cand(c, SID_RING1, 1)
     chest = cand(c, SID_CHEST, 1)
@@ -365,13 +365,13 @@ def copy_phase_and_loon_suggestions_never_fill_a_disabled_slot():
     # the Suggest menu (LoonBestInSlot stand-in) on P1 with the chest disabled
     c.eval("ns.BiS:ClearPhase(1)")
     c.eval("ns.BiS:SetSlotDisabled(1, 5, true)")
-    c.eval("__LOON_ITEMS = ...", [[head, "Head", "BIS"], [chest, "Chest", "BIS"], [ring, "Ring", "BIS"]])
+    c.eval(SET_LISTS, [[head, "Head", "BIS"], [chest, "Chest", "BIS"], [ring, "Ring", "BIS"]])
     c.eval("ns.MyBiS:Refresh()")
     w.tick(0.2)
     sug = c.eval("return T_dropdown(T_mybis(), 'Suggest')")
     assert c.eval("local d = ...; return d:IsShown()", sug) is True
     c.dropdown_menu(sug)
-    c.menu_select("Fill empty slots from LoonBestInSlot (Holy P1)")
+    c.menu_select("Fill empty slots (Holy P1)")
     w.tick(0.2)
     assert c.eval("return ns.BiS:GetSlot(1, 1)") == head and c.eval("return ns.BiS:GetSlot(1, 11)") == ring
     assert c.eval("return ns.BiS:GetSlot(1, 5)") is None, "Loon filled a disabled slot"

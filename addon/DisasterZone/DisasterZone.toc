@@ -6,7 +6,7 @@
 ## X-CDL-Protocol: 1
 ## SavedVariables: DisasterZoneDB, DisasterZonePatchDB
 ## LoadSavedVariablesFirst: 1
-## OptionalDeps: LoonBestInSlot, CDLoot
+## OptionalDeps: CDLoot
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10_Blue
 ## Category: Raid
 
@@ -36,6 +36,7 @@ Data\Items.lua
 Data\Dungeons.lua
 Data\Sources.lua
 Data\ItemClasses.lua
+Data\BiSLists.lua
 Data\Changelog.lua
 Data\BossPortraits.lua
 Data\BossAbilities.lua

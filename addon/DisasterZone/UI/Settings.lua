@@ -738,14 +738,11 @@ function SettingsUI:RefreshAbout()
     local peers = S and S.GetVersions and S:GetVersions()
     local online = S and S.GetOnlineCouncilPeers and S:GetOnlineCouncilPeers()
     local status = (S and S.GetStatusText and S:GetStatusText()) or ""
-    local loon = (ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable())
-        and "LoonBestInSlot detected: BiS suggestions enabled."
-        or "LoonBestInSlot not installed (optional, only for BiS suggestions)."
     fs:SetText(format("Version %s · protocol %s\nPeers seen: %d · council online: %d\nSharing: %s\n%s",
         tostring(ns.version or "?"), tostring(ns.PROTO or "?"),
         type(peers) == "table" and #peers or 0, type(online) == "table" and #online or 0,
         tostring(status),
-        Paint("Standalone: all libraries are built in. " .. loon, "muted")))
+        Paint("Standalone: all libraries and the suggested BiS lists are built in.", "muted")))
 end
 
 ---------------------------------------------------------------------------
