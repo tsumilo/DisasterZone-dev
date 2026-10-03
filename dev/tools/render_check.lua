@@ -12,14 +12,29 @@
 --   A  a shown ModelScene actor: index, unit id (-1: an effect), position (scene units, scale multiplied in),
 --      scale, alpha, body height and width (yards), kind (1 unit, 2 effect)
 --   P  the player: x, y, facing (arena coordinates)
+--   H  the trainer's optional test hooks that exist (UI._Render, _RenderOpts, _Marks, _Order, _Occluders)
+--   T  (only with UI._Render) the renderer's screen-error bound tau and the corner dilation in px: the
+--      tolerance render_check matches regions with (1 + tau + dilate), never anything the painter uses
+--   M  (only with UI._Marks) one 3D mark segment the renderer drew: x1 y1 z1 x2 y2 z2 thickness (arena),
+--      for the line truth
 -- Only widget state the client itself would have is read (anchors, sizes, offsets, coordinates, layers,
--- levels, shown state, the actors' positions); the renderer's own tables are not looked at. The body sizes come
--- from the sim's units (u.plate / u.tall, else the trainer's PLATE_HEIGHT, else 2.6 yd).
+-- levels, shown state, the actors' positions) for the painter; the renderer's own tables are not looked at. The
+-- body sizes come from the sim's units (u.plate / u.tall, else the trainer's PLATE_HEIGHT, else 2.6 yd).
 local M = __MOCK
 local OBJ = M.OBJ
 local fmt, max, min = string.format, math.max, math.min
 local RC = {}
 __RC = RC
+RC.opts = {}             -- what render_check has set through UI._RenderOpts (merged)
+
+local HOOKS = { "_Render", "_RenderOpts", "_Marks", "_Order", "_Occluders" }
+local function hook(name)
+    local UI = ns.TrainerUI
+    local f = UI and rawget(UI, name)
+    if f == nil and UI then f = UI[name] end
+    return type(f) == "function" and f or nil
+end
+RC.hook = hook
 
 local LAYER = { BACKGROUND = 0, BORDER = 1, ARTWORK = 2, OVERLAY = 3, HIGHLIGHT = 4 }
 local STRATA = { WORLD = 0, BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5, FULLSCREEN = 6,
@@ -153,6 +168,22 @@ function RC.capture(view, scene, mirror)
                 exact(s), num(a.alpha or 1), num(height), num(width), kind))
         end
     end
+    -- the optional hooks: which exist, the match tolerance's tau, the 3D mark segments
+    local have = {}
+    for _, h in ipairs(HOOKS) do if hook(h) then have[#have + 1] = h end end
+    add("H " .. table.concat(have, " "))
+    local st = hook("_Render") and hook("_Render")()
+    if type(st) == "table" and type(st.tau) == "number" then
+        local dil = tonumber(st.dilate) or tonumber(RC.opts.dilate) or 0
+        add(fmt("T %s %s", exact(st.tau), exact(dil)))
+    end
+    local marks = hook("_Marks") and hook("_Marks")()
+    if type(marks) == "table" then
+        for _, sg in ipairs(marks) do
+            add(fmt("M %s %s %s %s %s %s %s", exact(sg[1]), exact(sg[2]), exact(sg[3]), exact(sg[4]), exact(sg[5]),
+                exact(sg[6]), num(sg[7] or 1)))
+        end
+    end
     return table.concat(out, "\n")
 end
 
@@ -163,16 +194,132 @@ function RC.capture_trainer()
     return RC.capture(view, scene, ns.TrainerUI._Camera().mirror)
 end
 
--- An encounter's room mesh as text: "verts|tris|textures" (x y z u v light per vertex; a b c texture per
--- triangle, 1-based; texture file IDs).
+-- An encounter's room mesh as text: "verts|tris|textures|nodeOf" (x y z u v light per vertex; a b c texture per
+-- triangle, 1-based; texture file IDs; the BSP node each triangle belongs to, 1-based, 0 = none).
 function RC.mesh(encId)
     local m = ns.Trainer:GetEncounter(encId).arena.mesh
-    local v, t, x = {}, {}, {}
+    local v, t, x, no = {}, {}, {}, {}
     for i = 1, #m.verts do v[i] = fmt("%.10g", m.verts[i]) end
     for i = 1, #m.tris do t[i] = tostring(m.tris[i]) end
     for i = 1, #m.textures do x[i] = tostring(m.textures[i]) end
-    return table.concat(v, " ") .. "|" .. table.concat(t, " ") .. "|" .. table.concat(x, " ")
+    local nt = math.floor(#m.tris / 4)
+    for i = 1, nt do no[i] = 0 end
+    local nodes = m.nodes or {}
+    for k = 1, math.floor(#nodes / 8) do
+        local first, count = nodes[k * 8 - 1], nodes[k * 8]
+        for i = first, first + count - 1 do if i >= 1 and i <= nt then no[i] = k end end
+    end
+    for i = 1, nt do no[i] = tostring(no[i]) end
+    return table.concat(v, " ") .. "|" .. table.concat(t, " ") .. "|" .. table.concat(x, " ") .. "|"
+        .. table.concat(no, " ")
 end
+
+-- Which optional test hooks the trainer has: "name name ...".
+function RC.hooks()
+    local have = {}
+    for _, h in ipairs(HOOKS) do if hook(h) then have[#have + 1] = h end end
+    return table.concat(have, " ")
+end
+
+-- Render options through UI._RenderOpts (merged into Room.opts by the renderer). -> false without the hook.
+function RC.set_opts(t)
+    local f = hook("_RenderOpts")
+    if not f then return false end
+    for k, v in pairs(t) do RC.opts[k] = v end
+    f(t)
+    return true
+end
+
+-- The renderer's own reports (nil without the hook).
+function RC.render_stats() local f = hook("_Render") return f and f() or nil end
+function RC.order() local f = hook("_Order") return f and f() or nil end
+function RC.occluders() local f = hook("_Occluders") return f and f() or nil end
+function RC.marks() local f = hook("_Marks") return f and f() or nil end
+
+-- The order invariants (spec 9.2.13), only when UI._Order has the v2 fields (frames, levels, lines as
+-- { frame, pos }): "nodes distinct wrong badLines lines pieces" - badLines = shown mark lines neither on an odd
+-- position nor in the bottom line frame (reported as frame 0). nil for the v1 renderer.
+function RC.order_summary()
+    local o = RC.order()
+    if type(o) ~= "table" or o.frames == nil or o.levels == nil then return nil end
+    local bad, n = 0, 0
+    for _, l in ipairs(o.lines or {}) do
+        n = n + 1
+        local fr, pos = l.frame or l[1], l.pos or l[2]
+        local bottom = fr == 0 or fr == "bottom" or l.bottom == true
+        if not bottom and not (type(pos) == "number" and pos % 2 == 1) then bad = bad + 1 end
+    end
+    return fmt("%d %d %d %d %d %d", tonumber(o.nodes) or -1, tonumber(o.distinct) or -1, tonumber(o.wrong) or -1,
+        bad, n, tonumber(o.pieces) or -1)
+end
+
+-- Put the index-th living unit of a kind ("raider", "boss", ...) at x, y and let it stand there. -> its unit id.
+function RC.place_unit(kind, index, x, y)
+    local s = ns.TrainerUI._Sim()
+    local u = s and s:Alive(kind)[index]
+    if not u then return nil end
+    u.x, u.y, u.goal = x, y, nil
+    return u.id
+end
+
+-- Remember where every unit stands (and where it was going), to put them back after a pose moved some.
+function RC.save_units()
+    local s, t = ns.TrainerUI._Sim(), {}
+    for _, u in ipairs(s.units) do t[u] = { u.x, u.y, u.goal, u.facing } end
+    RC.saved = t
+end
+function RC.restore_units()
+    for u, v in pairs(RC.saved or {}) do u.x, u.y, u.goal, u.facing = v[1], v[2], v[3], v[4] end
+    RC.saved = nil
+end
+
+-- A floor mark of render_check's own (a ring of radius r at x, y with a column of that height), kept in sim.marks
+-- even when the encounter rewrites the list every step.
+RC.extraMarks = {}
+local function keep_marks(sim)
+    if #RC.extraMarks == 0 then return end
+    local marks = sim.marks
+    if type(marks) ~= "table" then marks = {} sim.marks = marks end
+    for _, mk in ipairs(RC.extraMarks) do
+        local found = false
+        for _, o in ipairs(marks) do if o == mk then found = true break end end
+        if not found then marks[#marks + 1] = mk end
+    end
+end
+function RC.add_mark(x, y, r, column)
+    local s = ns.TrainerUI._Sim()
+    local mk = { x = x, y = y, r = r, column = column, color = { 1, 0.85, 0.1 } }
+    RC.extraMarks[#RC.extraMarks + 1] = mk
+    if not rawget(s, "__rcUpdate") then
+        local base = s.Update
+        s.__rcUpdate = true
+        s.Update = function(self, dt)
+            local a, b = base(self, dt)
+            keep_marks(self)
+            return a, b
+        end
+    end
+    keep_marks(s)
+    return #RC.extraMarks
+end
+function RC.clear_marks()
+    local s = ns.TrainerUI._Sim()
+    local gone = {}
+    for _, mk in ipairs(RC.extraMarks) do gone[mk] = true end
+    if s and type(s.marks) == "table" then
+        for i = #s.marks, 1, -1 do if gone[s.marks[i]] then table.remove(s.marks, i) end end
+    end
+    RC.extraMarks = {}
+end
+
+-- The camera as the trainer placed it: scene position, forward, mirror and the distance actually used.
+function RC.camera()
+    local c = ns.TrainerUI._Camera()
+    return { c.x, c.y, c.z, c.fx, c.fy, c.fz, c.mirror or 1, c.cur or c.dist, c.dist, c.pitch }
+end
+
+-- One panel tick without counting (the bench); the mock's setters may be no-ops then (M.null_setters).
+function RC.null_setters(on) return M.null_setters(on) end
 
 -- Put the player (and the camera behind him) somewhere: arena x, y, facing (radians, 0 = east), the camera's
 -- pitch and distance - what mouse look and the wheel would set.

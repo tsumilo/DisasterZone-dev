@@ -505,7 +505,14 @@ local Region = define("Region", nil, {
   SetIgnoreParentAlpha = function() end,
   IsMouseOver = function() return false end,
   IsMouseMotionFocus = function() return false end,
-  SetDrawLayer = function(self, layer, sub) local st = S(self); st.layer, st.sublayer = layer, sub end,
+  SetDrawLayer = function(self, layer, sub)
+    local st = S(self)
+    -- the client only accepts sublevels -8..7, like CreateTexture (a lax mock would hide the bug)
+    if sub ~= nil and (type(sub) ~= "number" or sub < -8 or sub > 7) then
+      error("SetDrawLayer: sublevel out of range (-8..7): " .. tostring(sub), 2)
+    end
+    st.layer, st.sublayer = layer, sub
+  end,
   GetDrawLayer = function(self) local st = S(self); return st.layer or "ARTWORK", st.sublayer or 0 end,
   SetVertexColor = function(self, r, g, b, a) S(self).vcolor = { r or 1, g or 1, b or 1, a or 1 } end,
   GetVertexColor = function(self) local c = S(self).vcolor or { 1, 1, 1, 1 }; return c[1], c[2], c[3], c[4] end,
@@ -627,8 +634,11 @@ local Frame = define("Frame", "Region", {
   end,
   CreateLine = function(self, name, layer, template, sub)
     S(self)
+    if sub ~= nil and (type(sub) ~= "number" or sub < -8 or sub > 7) then
+      error("CreateLine: sublevel out of range (-8..7): " .. tostring(sub), 2)
+    end
     local t, ts = M.CreateObject("Line", name, self)
-    ts.layer = layer
+    ts.layer, ts.sublayer = layer, sub
     return t
   end,
   CreateFontString = function(self, name, layer, inherits)
@@ -813,6 +823,12 @@ define("TextureBase", "Region", {
   end,
   SetDesaturated = function(self, v) S(self).desat = v and true or false end,
   SetVertexOffset = function(self, i, x, y) local st = S(self); st.voff = st.voff or {}; st.voff[i] = { x, y } end,
+  GetVertexOffset = function(self, i)
+    local o = S(self).voff
+    o = o and o[i]
+    if o then return o[1], o[2] end
+    return 0, 0
+  end,
   IsDesaturated = function(self) return S(self).desat or false end,
   SetDesaturation = function(self, v) S(self).desat = (v or 0) > 0 end,
   SetBlendMode = function(self, m) S(self).blend = m end,
@@ -857,6 +873,34 @@ define("Line", "TextureBase", {
   SetThickness = function(self, t) S(self).thickness = t end, GetThickness = function(self) return S(self).thickness or 1 end,
 })
 define("FontString", "Region", FontStringMethods)
+
+-- Bench mode (tools/render_check.py --bench): M.null_setters(true) turns the setters a software renderer calls per
+-- frame on Texture and Line objects into no-ops (nothing is recorded), so a timed tick measures the addon's own Lua
+-- and not the mock's bookkeeping; M.null_setters(false) puts the real ones back. Objects share their kind's method
+-- table, so this applies to every existing and new texture and line at once.
+local NULL_SETTERS = { "SetVertexOffset", "SetTexCoord", "SetVertexColor", "SetDrawLayer", "SetTexture", "SetBlendMode",
+                       "Show", "Hide", "SetStartPoint", "SetEndPoint", "SetThickness", "SetColorTexture" }
+local saved_setters = nil
+function M.null_setters(on)
+  if on and not saved_setters then
+    saved_setters = {}
+    for _, kind in ipairs({ "Texture", "Line" }) do
+      local mt = Methods[kind]
+      local keep = {}
+      for _, k in ipairs(NULL_SETTERS) do
+        if mt[k] ~= nil then keep[k] = mt[k]; mt[k] = NOOP end
+      end
+      saved_setters[kind] = keep
+    end
+  elseif not on and saved_setters then
+    for kind, keep in pairs(saved_setters) do
+      local mt = Methods[kind]
+      for k, f in pairs(keep) do mt[k] = f end
+    end
+    saved_setters = nil
+  end
+  return saved_setters ~= nil
+end
 
 ---------------------------------------------------------------------------------------------------
 -- Button / CheckButton
