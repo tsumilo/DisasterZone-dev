@@ -494,6 +494,7 @@ function M.unit_rec(unit)
     return guid and M.npcs[guid] or nil
   end
   if u == "target" then return M.target and M.unit_by_name(M.target, true) end
+  if u == "npc" and M.trade then return M.unit_by_name(M.trade.partner, true) end   -- the trade partner
   if u == "none" or u == "mouseover" or u == "focus" or u == "npc" or u == "pet" or u == "vehicle"
      or smatch(u, "^nameplate") or smatch(u, "^boss") or smatch(u, "^arena") then return nil end
   return M.unit_by_name(unit)
@@ -1387,6 +1388,60 @@ function M.give_item(id, count)
   end
   M.warn("give_item: bags full, item " .. tostring(id) .. " not added")
 end
+-- Trade window (my side only): M.open_trade(partner name), ClickTradeButton with an item on the cursor,
+-- M.complete_trade() (both accept: the items leave my bags) / M.cancel_trade().
+M.trade = nil
+function M.open_trade(partner)
+  M.trade = { partner = partner, items = {} }
+  M.fire("TRADE_SHOW")
+end
+function ClickTradeButton(n)
+  local t, c = M.trade, M.cursor
+  if not t or not c or c.kind ~= "item" or t.items[n] then return end
+  t.items[n] = c.id
+  M.cursor = nil
+  M.fire("TRADE_PLAYER_ITEM_CHANGED", n)
+end
+function GetTradePlayerItemInfo(n)
+  local id = M.trade and M.trade.items[n]
+  if not id then return nil end
+  local name, _, quality, _, _, _, _, _, _, icon = GetItemInfo(id)
+  return name or ("item " .. id), icon, 1, quality, true, nil
+end
+function GetTradePlayerItemLink(n)
+  local id = M.trade and M.trade.items[n]
+  return id and M.item_link(id) or nil
+end
+function M.complete_trade()
+  local t = M.trade
+  if not t then return {} end
+  M.fire("TRADE_ACCEPT_UPDATE", 1, 1)
+  local ids = {}
+  for n = 1, 7 do
+    local id = t.items[n]
+    if id then
+      ids[#ids + 1] = id
+      local done = false
+      for bag = 0, 4 do
+        local b = M.bags[bag]
+        if b and not done then
+          for slot, s in pairs(b.slots) do
+            if s.id == id then b.slots[slot] = nil; done = true; M.fire("BAG_UPDATE", bag); break end
+          end
+        end
+      end
+    end
+  end
+  M.trade = nil
+  M.fire("TRADE_CLOSED")
+  M.fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)
+  return ids
+end
+function M.cancel_trade()
+  if not M.trade then return end
+  M.trade = nil
+  M.fire("TRADE_CLOSED")
+end
 function M.open_bank()
   if not M.bank_open then M.bank_open = true; M.fire("BANKFRAME_OPENED") end
 end
@@ -1568,10 +1623,12 @@ end
 function GetActiveLootRollIDs() local out = {} for id in pairs(M.rolls) do out[#out + 1] = id end tsort(out) return out end
 M.roll_choices = {}
 function RollOnLoot(rollID, rollType) M.roll_choices[#M.roll_choices + 1] = { rollID = rollID, rollType = rollType } end
-function M.loot_message(winner_display, winner_full, winner_guid, id, count, is_self)
+function M.loot_message(winner_display, winner_full, winner_guid, id, count, is_self, pushed)
   local link = M.item_link(id) or ("[item:" .. tostring(id) .. "]")
   local text
-  if is_self then
+  if pushed then   -- "You receive item" (a trade): only the receiver sees it
+    text = sformat(LOOT_ITEM_PUSHED_SELF, link)
+  elseif is_self then
     if count and count > 1 then text = sformat(LOOT_ITEM_SELF_MULTIPLE, link, count) else text = sformat(LOOT_ITEM_SELF, link) end
   else
     if count and count > 1 then text = sformat(LOOT_ITEM_MULTIPLE, winner_display, link, count) else text = sformat(LOOT_ITEM, winner_display, link) end
@@ -1790,6 +1847,7 @@ ERR_LOOT_MASTER_INV_FULL = "That player's inventory is full"
 ERR_LOOT_MASTER_OTHER = "Can't assign item to that player"
 ERR_LOOT_MASTER_UNIQUE_ITEM = "Player has too many of that item already"
 ERR_LOOT_PLAYER_NOT_FOUND = "Player not found"
+ERR_TRADE_COMPLETE = "Trade complete."
 LOOT = "Loot"; MASTER_LOOTER = "Master Looter"; GROUP_LOOT = "Group Loot"; NEED_BEFORE_GREED = "Need Before Greed"
 FREE_FOR_ALL = "Free for All"; ROUND_ROBIN = "Round Robin"; PERSONAL_LOOT = "Personal Loot"
 NEED = "Need"; GREED = "Greed"; PASS = "Pass"; ROLL_DISENCHANT = "Disenchant"; TRANSMOGRIFICATION = "Transmogrification"

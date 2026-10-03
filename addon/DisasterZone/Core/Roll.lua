@@ -1344,6 +1344,12 @@ local function FlagLootConflict(ses, other)
     end
 end
 
+-- Bag loot (Loot.lua): key picked a copy of itemID up under Free for All and holds it for the council.
+local function HeldBy(itemID, key)
+    local Loot = ns.Loot
+    return (Loot and Loot.IsHeldBy and Loot:IsHeldBy(itemID, key)) and true or false
+end
+
 -- Session still awardable for a popup's data (someone else may have awarded it meanwhile).
 local function CheckAwardable(data)
     if type(data) ~= "table" then return nil end
@@ -1417,6 +1423,9 @@ local function Finish(ses, key, given, extraNote, areason)
     local me = Util.PlayerKey()
     -- Upgrading a loot mark: the item already went to that player (hand-out counts as given).
     if fromLoot and ses.winner == key then given = true end
+    -- Bag loot (Free for All): the winner picked the item up themselves and holds it already.
+    local heldByWinner = not ses.demo and HeldBy(ses.i, key)
+    if heldByWinner then given = true end
     -- The loot message named someone else (a misclick in the master-loot menu, or a trade to follow).
     local lootWinner = (fromLoot and ses.winner ~= key) and ses.winner or nil
     if not fromLoot then ReclaimLoot(ses, key) end
@@ -1459,7 +1468,7 @@ local function Finish(ses, key, given, extraNote, areason)
     ses.winner = key
     ses.given = given and true or false
     ses.via = nil
-    ses.looted = (ses.looted or fromLoot) or nil
+    ses.looted = (ses.looted or fromLoot or heldByWinner) or nil
     ses.lootPrev = nil
     ses.awardedBy = me
     ses.awardedAt = GetTime()
@@ -1763,6 +1772,46 @@ function Roll:ResolveLootConflict(id, choice)
     ses.lootOther, ses.lootOtherTs = nil, nil
     Updated(ses)
     return true
+end
+
+-- Bag loot: the awards to key that are not handed out yet, as item ids (one per award, oldest first).
+function Roll:GetOwed(key)
+    key = Util.NormalizeName(key)
+    local list, out = {}, {}
+    if not key then return out end
+    for _, ses in pairs(sessions) do
+        if not ses.demo and ses.state == "awarded" and ses.via ~= "loot" and not ses.given and ses.winner == key then
+            list[#list + 1] = ses
+        end
+    end
+    tsort(list, function(a, b) return a.seq < b.seq end)
+    for k, ses in ipairs(list) do out[k] = ses.i end
+    return out
+end
+
+-- Bag loot: key received itemID (traded by its holder, or picked up after it was awarded to them). The oldest
+-- award of it to key that is not handed out yet becomes handed out. tell: I traded it myself, so the raid is told
+-- (the same RW again with g set). Returns the session, or nil when no award matched.
+function Roll:MarkGiven(itemID, key, tell)
+    itemID = tonumber(itemID)
+    key = Util.NormalizeName(key)
+    if not itemID or not key then return nil end
+    local pick
+    for _, ses in pairs(sessions) do
+        if not ses.demo and ses.i == itemID and ses.state == "awarded" and ses.via ~= "loot" and not ses.given
+            and ses.winner == key and (not pick or ses.seq < pick.seq) then
+            pick = ses
+        end
+    end
+    if not pick then return nil end
+    pick.given = true
+    pick.looted = true
+    pick.lootOther, pick.lootOtherTs = nil, nil
+    Updated(pick)
+    if tell and RealCanAward() then
+        Send({ t = "RW", id = pick.id, w = key, g = true, at = pick.awardTs, r = pick.reason }, true)
+    end
+    return pick
 end
 
 -- Sessions of one drop share a group; a session without a drop identity is its own group.
@@ -2089,10 +2138,12 @@ local function OnRollWin(sender, msg, dist)
         at = nil   -- unknown: never wins a clash, and the ledger uses the receive time
     end
     local fromLoot = LootMarked(ses)
-    -- "Handed out" (g) only counts from the master looter (the only one who can hand an item out), or when the
-    -- loot message already says the item went to that player.
+    -- "Handed out" (g) only counts from the master looter (the only one who can hand an item out), when the
+    -- loot message already says the item went to that player, or under bag loot: from the holder (who traded it)
+    -- or for a winner who holds it already.
     local _, senderML = GroupRole(sender)
-    local given = (msg.g and (senderML or (fromLoot and ses.winner == w))) and true or false
+    local given = (msg.g and (senderML or (fromLoot and ses.winner == w) or HeldBy(ses.i, sender) or HeldBy(ses.i, w)))
+        and true or false
     local Ledger = ns.Ledger
     local council = AmRealCouncil() and Ledger ~= nil and Ledger.RecordRollAward ~= nil
     if fromLoot then
@@ -2101,7 +2152,14 @@ local function OnRollWin(sender, msg, dist)
         ReclaimLoot(ses, w)
     end
     if ses.state == "awarded" and not fromLoot then
-        if ses.winner == w then return end
+        if ses.winner == w then
+            -- the same award again, now handed out (the holder traded the item: Roll:MarkGiven)
+            if given and not ses.given then
+                ses.given = true
+                Updated(ses)
+            end
+            return
+        end
         -- Only awards that really crossed are resolved; a later RW for an awarded session is a re-award attempt.
         local crossed = GetTime() - (ses.awardedAt or 0) <= RW_CROSS_WINDOW
             and not (at and ses.awardTs and abs(at - ses.awardTs) > RW_CROSS_WINDOW)

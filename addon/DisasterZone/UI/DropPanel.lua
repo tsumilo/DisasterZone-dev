@@ -624,6 +624,14 @@ local function WanterReason(w)
     return w.which == "alt" and "alt" or "bis"
 end
 
+-- Bag loot: the player holding the session's item for the council (Loot:GetHolder), or nil.
+local function HolderOf(session)
+    local Loot = ns.Loot
+    if session.demo or not (Loot and Loot.GetHolder) then return nil end
+    local ok, key = pcall(Loot.GetHolder, Loot, session.i)
+    return ok and key or nil
+end
+
 local function RollStateText(session, stats, queuePos)
     if not session or queuePos then
         if queuePos and queuePos > 1 then
@@ -647,10 +655,18 @@ local function RollStateText(session, stats, queuePos)
             t = t .. Paint(" (looted)", "muted")      -- closed by the loot message (ADDENDUM C §23.1)
         elseif session.given then
             t = t .. Paint("  ·  handed out", "muted")
+        else
+            -- bag loot (Free for All): still in the looter's bags until they trade it
+            local holder = HolderOf(session)
+            if holder and holder ~= session.winner then
+                t = t .. Paint("  ·  in ", "muted") .. ColoredName(holder) .. Paint("'s bags (trade)", "muted")
+            end
         end
         return t
     end
     local t = Paint("Rolls closed", "warn") .. Paint(format("  ·  %d rolled", stats.rolled or 0), "muted")
+    local holder = HolderOf(session)
+    if holder then t = t .. Paint("  ·  held by ", "muted") .. ColoredName(holder) end
     if (stats.votes or 0) > 0 then t = t .. Paint("  ·  " .. VotesText(stats.votes), "muted") end
     if stats.tie then t = t .. Paint("  ·  tie", "warn") end
     return t
@@ -694,6 +710,7 @@ function DropPanel:OnInit()
     local function rollChanged() DropPanel:RequestRefresh(0.1) end
     ns:On("ROLL_UPDATED", rollChanged)
     ns:On("ROLL_STARTED", rollChanged)
+    ns:On("LOOT_HELD", rollChanged)
     ns:On("DEMO_TOGGLED", rollChanged)
     -- §38: the lock button's label / visibility and the "changed during lock" markers
     ns:On("BIS_LOCK_CHANGED", rollChanged)

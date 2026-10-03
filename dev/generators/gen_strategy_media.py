@@ -169,9 +169,27 @@ def ic_share(d, k):
         d.ellipse(_pts(k, [(x - 9, y - 9), (x + 9, y + 9)]), fill=255)
 
 
+def ic_invite(d, k):
+    # a player and a plus
+    d.ellipse(_pts(k, [(11, 8), (35, 32)]), fill=255)
+    d.pieslice(_pts(k, [(3, 36), (43, 80)]), 180, 360, fill=255)
+    d.line(_pts(k, [(50, 20), (50, 44)]), fill=255, width=_w(k, 6))
+    d.line(_pts(k, [(38, 32), (62, 32)]), fill=255, width=_w(k, 6))
+
+
+def ic_calloff(d, k):
+    # a calendar page with a cross
+    d.rectangle(_pts(k, [(8, 12), (56, 57)]), outline=255, width=_w(k, 5))
+    d.rectangle(_pts(k, [(8, 12), (56, 24)]), fill=255)
+    for x in (20, 44):
+        d.rectangle(_pts(k, [(x - 3, 5), (x + 3, 16)]), fill=255)
+    d.line(_pts(k, [(23, 32), (41, 49)]), fill=255, width=_w(k, 5))
+    d.line(_pts(k, [(41, 32), (23, 49)]), fill=255, width=_w(k, 5))
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
-              ic_copy, ic_share]
+              ic_copy, ic_share, ic_invite, ic_calloff]
 TOOL_ROWS = 8
 
 

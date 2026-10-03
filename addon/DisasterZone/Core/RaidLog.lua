@@ -143,7 +143,7 @@ local function Open(session)
     local raids = RaidsDB()
     if not raids then return nil end
     local rec = raids[session.id]
-    if type(rec) ~= "table" then
+    if type(rec) ~= "table" or rec.del then
         rec = { id = session.id, start = session.at, by = session.by, bosses = {}, att = {},
             last = GetServerTime() }
         raids[session.id] = rec
@@ -328,7 +328,9 @@ function RaidLog:GetRaid(id)
         end
     end
     local raids = RaidsDB()
-    return raids and type(id) == "string" and raids[id] or nil
+    local rec = raids and type(id) == "string" and raids[id] or nil
+    if type(rec) == "table" and rec.del then return nil end   -- deleted (RaidLog:Delete)
+    return rec
 end
 
 -- The raids of my current guild (and untagged ones), newest first. Stored tables: treat as read-only.
@@ -344,7 +346,7 @@ function RaidLog:GetRaids()
     if not raids then return out end
     local g = GuildKey()
     for _, rec in pairs(raids) do
-        if type(rec) == "table" and (rec.g == nil or rec.g == g) then out[#out + 1] = rec end
+        if type(rec) == "table" and not rec.del and (rec.g == nil or rec.g == g) then out[#out + 1] = rec end
     end
     tsort(out, function(a, b) return (a.start or 0) > (b.start or 0) end)
     return out
@@ -414,6 +416,32 @@ function RaidLog:SetBench(id, key, on)
     a = rec.att[key]
     if a then a.bts = GetServerTime() end   -- edit time (merge rule: the newer edit wins, §50)
     Changed(rec)
+    return true
+end
+
+-- The GM and the guild council may delete logged raids (raid leaders can't).
+local function IsDeleter(key)
+    local Guild = ns.Guild
+    return Guild and Guild.IsGuildCouncil and type(key) == "string" and Guild:IsGuildCouncil(key) and true or false
+end
+
+function RaidLog:CanDelete()
+    return not DemoRaids() and IsDeleter(Util.PlayerKey())
+end
+
+-- Deletes a closed raid: the record becomes a tombstone ({ del, delAt, delBy }, no attendance or kills) that
+-- spreads through the raid log sync, so the raid goes away for every raid planner and doesn't come back from a
+-- peer who still has it. Awards stay in the Loot Log. Returns ok, err.
+function RaidLog:Delete(id)
+    if not self:CanDelete() then return false, "Only the Guild Master and the guild council can delete a logged raid." end
+    local raids = RaidsDB()
+    local rec = raids and type(id) == "string" and raids[id]
+    if type(rec) ~= "table" or rec.del then return false, "That raid is no longer in the log." end
+    if not rec.stop then return false, "This raid is still running. End it first." end
+    raids[id] = { id = id, start = rec.start, stop = rec.stop, g = rec.g, del = true, delAt = GetServerTime(),
+                  delBy = Util.PlayerKey() }
+    Changed(raids[id])
+    self:OfferDigest()
     return true
 end
 
@@ -677,6 +705,7 @@ end
 
 -- The merge-relevant content of a record (what the digest covers).
 local function RecordHash(rec)
+    if rec.del then return Util.Hash({ "del", rec.delAt or 0, rec.delBy or "" }) end
     local att = {}
     for key, a in pairs(rec.att or {}) do
         att[key] = { a.j or 0, a.l or 0, a.k or 0, a.b and 1 or 0, a.bts or 0 }
@@ -723,6 +752,11 @@ end
 local function CleanRecord(r, now)
     if type(r) ~= "table" or not IsKey(r.id) then return nil end
     if not IsInt(r.start, 1, now + FUTURE_SLACK) or not IsInt(r.stop, r.start, now + FUTURE_SLACK) then return nil end
+    if r.del == true then                                   -- a deleted raid: nothing else is kept
+        if not IsInt(r.delAt, 1, now + FUTURE_SLACK) or not IsKey(r.delBy) then return nil end
+        return { id = r.id, start = r.start, stop = r.stop, del = true, delAt = r.delAt,
+                 delBy = Util.NormalizeName(r.delBy) }
+    end
     local out = { id = r.id, start = r.start, stop = r.stop, bosses = {}, att = {} }
     if IsKey(r.by) then out.by = Util.NormalizeName(r.by) end
     if IsKey(r.endedBy) then out.endedBy = Util.NormalizeName(r.endedBy) end
@@ -878,6 +912,11 @@ function RaidLog:MergeRecord(r, fromKey)
         return false
     end
     local cur = raids[e.id]
+    -- a deletion counts when the GM or a guild council member made it
+    if e.del and not IsDeleter(e.delBy) then
+        ns:Debug("RaidLog: rejected deletion by %s from %s", tostring(e.delBy), tostring(fromKey))
+        return false
+    end
     if type(cur) ~= "table" then
         e.g = g
         raids[e.id] = e
@@ -886,6 +925,20 @@ function RaidLog:MergeRecord(r, fromKey)
     end
     if not cur.stop then return false end   -- still running here: my own recording goes on
     if cur.g ~= g then return false end
+    -- deleted wins over the record; two deletions settle on the earlier one (then the smaller key)
+    if cur.del then
+        if e.del and (e.delAt < cur.delAt or (e.delAt == cur.delAt and e.delBy < cur.delBy)) then
+            cur.delAt, cur.delBy = e.delAt, e.delBy
+            return true
+        end
+        return false
+    end
+    if e.del then
+        e.g = g
+        raids[e.id] = e
+        Changed(e)
+        return true
+    end
     local changed = MergeRecord(cur, e)
     if changed then Changed(cur) end
     return changed

@@ -1528,6 +1528,22 @@ class Client:
     def give_item(self, item_id, count=1):
         return self._call("give_item", int(item_id), int(count))
 
+    def open_trade(self, partner):
+        """Open the trade window with a group member (a Client / ExtraMember or a name). Fires TRADE_SHOW."""
+        self._call("open_trade", partner if isinstance(partner, str) else partner.name)
+
+    def complete_trade(self):
+        """Both sides accept: my trade items leave my bags (TRADE_ACCEPT_UPDATE, TRADE_CLOSED, 'Trade complete.').
+        Returns the item ids given."""
+        return list((self._call("complete_trade") or {}).values())
+
+    def cancel_trade(self):
+        self._call("cancel_trade")
+
+    def receive_item_message(self, item_id):
+        """'You receive item: [..]' on this client (an item received in a trade)."""
+        return self._call("loot_message", self.name, self.full_name, self.guid, int(item_id), 1, True, True)
+
     def open_loot(self, items, source_guid="Creature-0-1-2-3-15690-000ABC"):
         """items: [(itemID, quality)] or [(itemID, quality, count)] or [itemID]. quality None = from item DB.
         Fires LOOT_READY(false) then LOOT_OPENED(false, false)."""

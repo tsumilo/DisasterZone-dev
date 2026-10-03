@@ -520,6 +520,63 @@ def forged_or_malformed_records_are_ignored():
 
 
 @case
+def gm_and_guild_council_delete_a_logged_raid_for_everyone():
+    w, c = world(council=("Bob", "Gina"))
+    bob, gina, lee, rita = c["Bob"], c["Gina"], c["Lee"], c["Rita"]
+    raid(w, c)
+    w.enter_instance("Karazhan", 532)
+    rid = start(w, c)
+    w.encounter(652, "Attumen the Huntsman")
+    w.tick(2)
+    # a running raid can't be deleted
+    ok = bob.eval_py("return { ns.RaidLog:Delete(...) }", rid)
+    assert ok[0] is False and "running" in ok[1], ok
+    lee.slash("/dz raid end")
+    w.tick(40)
+    assert rec(bob, rid) and rec(gina, rid)
+    # raiders (and the group's leader) can't
+    for x in (rita, lee):
+        assert x.eval("return ns.RaidLog:CanDelete()") is False
+        assert x.eval("return (ns.RaidLog:Delete(...))", rid) is False
+    # the council member deletes it with the bin in the Raid log view, after confirming
+    bob.slash("/dz raids")
+    w.tick(0.5)
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().logBtn"))
+    w.tick(0.3)
+    btn = bob.eval("return ns.RaidsUI:GetPanel().deleteLogBtn")
+    assert bob.eval("return ns.RaidsUI:GetPanel().deleteLogBtn:IsShown()") is True
+    bob.click(btn)
+    bob.cancel_popup("DISASTERZONE_PLAN_CONFIRM")
+    w.tick(1)
+    assert rec(bob, rid)
+    bob.click(btn)
+    bob.accept_popup("DISASTERZONE_PLAN_CONFIRM")
+    w.tick(40)
+    for x in (bob, gina):
+        assert rec(x, rid) is None, "gone"
+        assert x.eval("return #ns.RaidLog:GetRaids()") == 0
+        assert x.eval("return ns.RaidLog:GetAttendance(...)", K("Rita")) is None
+    assert bob.eval_py("return ns.RaidLog:GetDigest()") == gina.eval_py("return ns.RaidLog:GetDigest()")
+    assert bob.eval("return ns.RaidsUI:GetPanel().deleteLogBtn:IsShown()") is False
+    # a peer's copy of the raid doesn't bring it back
+    now = int(w.server_time)
+    live = {"id": rid, "start": now - 7200, "stop": now - 3600, "bosses": [],
+            "att": {K("Rita"): {"j": now - 7200, "l": now - 3600, "k": 0}}}
+    assert gina.eval("return ns.RaidLog:MergeRecord(...)", live, "x") is False
+    assert rec(gina, rid) is None
+    # a deletion that names a raider (or nobody) is ignored; the council's counts
+    other = dict(live, id="Lee-Thunderstrike-77")
+    assert gina.eval("return ns.RaidLog:MergeRecord(...)", other, "x") is True
+    tomb = {"id": other["id"], "start": other["start"], "stop": other["stop"], "del": True, "delAt": now}
+    assert gina.eval("return ns.RaidLog:MergeRecord(...)", dict(tomb, delBy=K("Rita")), "x") is False
+    assert gina.eval("return ns.RaidLog:MergeRecord(...)", tomb, "x") is False
+    assert rec(gina, other["id"])
+    assert gina.eval("return ns.RaidLog:MergeRecord(...)", dict(tomb, delBy=K("Bob")), "x") is True
+    assert rec(gina, other["id"]) is None
+    w.assert_no_errors()
+
+
+@case
 def attendance_shows_in_the_council_views():
     w, c = world()
     bob, lee = c["Bob"], c["Lee"]

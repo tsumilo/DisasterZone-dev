@@ -212,7 +212,7 @@ def teams_grid_moves_swaps_buffs_and_saves():
     bob.menu_select("Take out of the groups")
     w.tick(0.3)
     assert "Sam" not in short(grid_state(bob)["groups"][2])
-    assert bob.find_text("(not saved)", True, True)
+    assert bob.find_text("not saved", True, True)
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().teams.detail.saveBtn"))
     w.tick(2)
     t = rita.eval_py("return ns.RaidPlan:GetTeams()[1]")

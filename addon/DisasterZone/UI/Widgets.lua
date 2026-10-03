@@ -470,6 +470,9 @@ local SLEEK = {
                   text = { 0.88, 0.88, 0.88 } },
     danger    = { bg = { 0.30, 0.06, 0.06, 0.92 }, hover = { 0.45, 0.09, 0.09, 0.95 }, edge = { 0.75, 0.25, 0.25, 0.9 },
                   text = { 1, 0.85, 0.85 } },
+    -- the current tab of a row of tabs
+    active    = { bg = { 0.17, 0.14, 0.06, 0.95 }, hover = { 0.22, 0.18, 0.08, 0.95 }, edge = { 1, 0.82, 0, 0.9 },
+                  text = { 1, 0.82, 0 } },
 }
 UI.SLEEK = SLEEK
 
@@ -493,7 +496,8 @@ function UI:SetEdgeColor(f, r, g, b, a)
     for _, t in ipairs(f.edges or {}) do t:SetColorTexture(r, g, b, a or 1) end
 end
 
--- A flat editor button. kind = "primary" | "secondary" (default) | "danger"; b:SetKind(kind) restyles it.
+-- A flat editor button. kind = "primary" | "secondary" (default) | "danger" | "active"; b:SetKind(kind) restyles it.
+-- b:SetTint(r, g, b) paints it in that colour instead (a chosen answer); b:SetTint(nil) goes back to its kind.
 function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
     local b = CreateFrame("Button", nil, parent)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
@@ -508,14 +512,24 @@ function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
         local s = SLEEK[self.kind] or SLEEK.secondary
         local enabled = self:IsEnabled()
         local c = (enabled and self.hovered) and s.hover or s.bg
+        local e, t = s.edge, s.text
+        local tint = self.tint
+        if tint then
+            local k = (enabled and self.hovered) and 0.4 or 0.3
+            c = { tint[1] * k, tint[2] * k, tint[3] * k, 0.95 }
+            e = { tint[1], tint[2], tint[3], 0.9 }
+            t = tint
+        end
         self.bg:SetColorTexture(c[1], c[2], c[3], c[4])
-        local e = s.edge
         UI:SetEdgeColor(self, e[1], e[2], e[3], enabled and e[4] or e[4] * 0.4)
-        local t = s.text
         if enabled then fs:SetTextColor(t[1], t[2], t[3]) else fs:SetTextColor(0.45, 0.45, 0.45) end
     end
     function b:SetKind(k)
         self.kind = k or "secondary"
+        paint(self)
+    end
+    function b:SetTint(r, g, bl)
+        self.tint = r and { r, g, bl } or nil
         paint(self)
     end
     b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
@@ -572,11 +586,26 @@ end
 
 -- The editor icons: a 4x8 atlas of 64px cells drawn by dev/generators/gen_strategy_media.py, in this order:
 -- 1 select, 2 pan, 3 circle, 4 rectangle, 5 arrow, 6 line, 7 pin, 8 text, 9 undo, 10 redo, 11 help, 12 delete,
--- 13 gear, 14 chevron down, 15 eye (open), 16 pencil (edit), 17 copy, 18 share.
+-- 13 gear, 14 chevron down, 15 eye (open), 16 pencil (edit), 17 copy, 18 share, 19 invite (player +),
+-- 20 call off (calendar x).
 UI.ICON_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / 8, (row + 1) / 8 }
+end
+
+-- An icon button (UI.ICON_ATLAS index) that says what it does in a tooltip: title, then text.
+function UI:CreateTipIconButton(parent, size, icon, title, text, onClick)
+    local b = UI:CreateIconButton(parent, size, UI.ICON_ATLAS, UI:IconCoords(icon), onClick)
+    b.tipTitle, b.tipText = title, text
+    b:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(self.tipTitle)
+        if self.tipText then GameTooltip:AddLine(self.tipText, 1, 1, 1, true) end
+        GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
 end
 
 -- A flat dropdown: a sleek button with a chevron that opens build(root) as a context menu. Same surface as
@@ -603,6 +632,7 @@ function UI:CreateSleekMenuButton(parent, text, width, build, height)
     b:SetText(text or "")
     function b:SetDefaultText(t) self:SetText(t or "") end
     function b:Refresh() end
+    function b:OpenMenu() UI:ContextMenu(self, build) end
     return b
 end
 
@@ -854,6 +884,12 @@ function UI:CreateScrollList(parent, rowHeight, initRow, extentFn)
     if view.SetPanExtent then view:SetPanExtent(rowHeight * 2) end
     ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
     list.view = view
+    -- the bar only shows when there is something to scroll
+    if box.HasScrollableExtent and box.RegisterCallback and BaseScrollBoxEvents and BaseScrollBoxEvents.OnLayout then
+        box:RegisterCallback(BaseScrollBoxEvents.OnLayout, function()
+            bar:SetShown(box:HasScrollableExtent() and true or false)
+        end, list)
+    end
 
     list.emptyText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     list.emptyText:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -24)
@@ -1055,6 +1091,31 @@ function UI:CreateDropdown(parent, width, getOptions, getSelected, onSelect)
     end)
     b.Refresh = Update
     Update()
+    return b
+end
+
+-- CreateDropdown in the flat style: the button shows the selected option, its menu picks one.
+function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect)
+    local b
+    b = UI:CreateSleekMenuButton(parent, "-", width, function(root)
+        for _, opt in ipairs(getOptions() or {}) do
+            root:CreateRadio(opt.text or tostring(opt.value), function(v) return getSelected() == v end, function(v)
+                onSelect(v)
+                b:Refresh()
+                return MenuResponse and MenuResponse.Close or nil
+            end, opt.value)
+        end
+    end)
+    b.defaultText = "-"
+    function b:SetDefaultText(t)
+        self.defaultText = t or "-"
+        self:Refresh()
+    end
+    function b:Refresh()
+        local opt = FindOption(getOptions() or {}, getSelected())
+        self:SetText(opt and opt.text or self.defaultText)
+    end
+    b:Refresh()
     return b
 end
 

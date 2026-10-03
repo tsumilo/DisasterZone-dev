@@ -69,7 +69,7 @@ def member_sees_upcoming_and_answers_from_the_strip():
     w.tick(2)
     s = signups(bob, occ)[K("Rita")]
     assert s["st"] == "A" and s["sp"] == 3 and s["n"] == "late 10", s
-    assert rita.find_text("Saved: Accepted", True, True)
+    assert rita.eval("return ns.RaidsUI:GetPanel().upcoming.statusBtns.A.chosen") is True   # the lit answer
     # others' answers show in the roster of the organizer
     signup(c["Lee"], occ, "A", 3)      # Protection -> Tanks column
     signup(c["Sam"], occ, "X")
@@ -167,19 +167,20 @@ def cancel_menu_cancels_restores_and_deletes_weekly():
     bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.3)
     btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.cancelBtn")
-    entries = [e["text"] for e in bob.dropdown_menu(btn)["children"]]
-    assert entries == ["Cancel this week's raid", "Stop repeating after this raid"], entries
+    entries = [e["text"] for e in bob.dropdown_menu(btn)["children"] if e.get("text")]
+    assert entries == ["Cancel this week's raid", "Stop repeating after this raid", "Delete this week's raid...",
+                       "Delete the whole weekly raid..."], entries
     bob.menu_select("Cancel this week's raid")
     w.tick(2)
     assert raid(sam, occ)["cancelled"] is True
     w.tick(0.5)
     assert bob.find_text("CANCELLED", True, True)
-    assert "Restore this raid" in [e["text"] for e in bob.dropdown_menu(btn)["children"]]
+    assert "Restore this raid" in [e.get("text") for e in bob.dropdown_menu(btn)["children"]]
     bob.menu_select("Restore this raid")
     w.tick(2)
     assert raid(sam, occ)["cancelled"] is False
-    bob.click(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.deleteBtn"))
-    bob.menu_select("The whole weekly raid")
+    bob.dropdown_menu(btn)
+    bob.menu_select("Delete the whole weekly raid...")
     bob.accept_popup("DISASTERZONE_PLAN_DELETE")
     w.tick(2)
     assert raids(sam) == []
@@ -200,7 +201,7 @@ def teams_view_builds_a_team_members_read_only():
         bob.eval("ns.RaidPlanUI:ToggleDraftMember(...)", K(n))
     bob.eval("ns.RaidPlanUI:ToggleDraftMember(...)", K("Lee"))       # and removed again
     w.tick(0.3)
-    assert bob.find_text("(not saved)", True, True)
+    assert bob.find_text("not saved", True, True)
     assert bob.eval("return %s.detail.saveBtn:IsEnabled()" % tv) is True
     bob.click(bob.eval("return %s.detail.saveBtn" % tv))
     w.tick(2)
@@ -370,15 +371,17 @@ def delete_removes_a_raid_for_everyone_after_confirming():
     open_tab(w, bob)
     bob.eval("ns.RaidPlanUI:SelectRaid(...)", one)
     w.tick(0.3)
-    btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.deleteBtn")
+    btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.cancelBtn")   # Delete is in its menu
     # declining the dialog keeps it
     bob.click(btn)
+    bob.menu_select("Delete raid...")
     assert any(p.get("which") == "DISASTERZONE_PLAN_DELETE" if isinstance(p, dict) else "DISASTERZONE_PLAN_DELETE" in str(p)
                for p in (bob.popups() or [])), bob.popups()
     bob.cancel_popup("DISASTERZONE_PLAN_DELETE")
     w.tick(1)
     assert raid(sam, one) is not None
     bob.click(btn)
+    bob.menu_select("Delete raid...")
     bob.accept_popup("DISASTERZONE_PLAN_DELETE")
     w.tick(2)
     for n, x in c.items():
@@ -390,14 +393,14 @@ def delete_removes_a_raid_for_everyone_after_confirming():
     w.tick(0.3)
     bob.click(btn)
     items = [e["text"] for e in bob.last_menu()["children"] if e.get("text")]
-    assert items == ["Delete", "This week's raid only", "The whole weekly raid"], items
-    bob.menu_select("This week's raid only")
+    assert items[-2:] == ["Delete this week's raid...", "Delete the whole weekly raid..."], items
+    bob.menu_select("Delete this week's raid...")
     bob.accept_popup("DISASTERZONE_PLAN_DELETE")
     w.tick(2)
     assert [r["id"] for r in raids(rita)] == [sid + "#1"], raids(rita)
     # members don't get the button; a member who was offline doesn't bring the raids back
     open_tab(w, rita)
-    assert not rita.eval("return ns.RaidsUI:GetPanel().upcoming.detail.deleteBtn:IsShown()")
+    assert not rita.eval("return ns.RaidsUI:GetPanel().upcoming.detail.cancelBtn:IsShown()")
     c["Lee"].logout()
     w.tick(1)
     bob.eval("ns.RaidPlan:DeleteRaid(..., 'series')", sid + "#1")

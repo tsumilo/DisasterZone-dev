@@ -298,15 +298,17 @@ end
 local function updateToolbar(p)
     if state.view == "log" and not isCouncil() then state.view = "upcoming" end
     local log = state.view == "log"
-    p.upcomingBtn:SetEnabled(state.view ~= "upcoming")
-    p.teamsBtn:SetEnabled(state.view ~= "teams")
-    p.stratBtn:SetEnabled(state.view ~= "strategies")
+    -- the current view's tab is the lit one
+    local function tabKind(on) return on and "active" or "secondary" end
+    p.upcomingBtn:SetKind(tabKind(state.view == "upcoming"))
+    p.teamsBtn:SetKind(tabKind(state.view == "teams"))
+    p.stratBtn:SetKind(tabKind(state.view == "strategies"))
     p.logBtn:SetShown(isCouncil())
-    p.logBtn:SetEnabled(not log)
+    p.logBtn:SetKind(tabKind(log))
     p.raidsBtn:SetShown(log)
     p.playersBtn:SetShown(log)
-    p.raidsBtn:SetEnabled(state.mode ~= "raids")
-    p.playersBtn:SetEnabled(state.mode ~= "players")
+    p.raidsBtn:SetKind(tabKind(state.mode == "raids"))
+    p.playersBtn:SetKind(tabKind(state.mode == "players"))
     p.rangeBtn:SetShown(log and state.mode == "players")
     p.rangeBtn:SetText(rangeLabel(state.range))
     p.count:SetShown(log)
@@ -339,20 +341,20 @@ function RaidsUI:CreatePanel(parent)
     p:SetAllPoints(parent)
     panel = p
 
-    p.upcomingBtn = UI:CreateButton(p, "Upcoming", 86, 22, function() RaidsUI:SetView("upcoming") end)
+    p.upcomingBtn = UI:CreateSleekButton(p, "Upcoming", 86, 22, function() RaidsUI:SetView("upcoming") end)
     p.upcomingBtn:SetPoint("TOPLEFT", 8, -6)
-    p.teamsBtn = UI:CreateButton(p, "Teams", 70, 22, function() RaidsUI:SetView("teams") end)
-    p.teamsBtn:SetPoint("LEFT", p.upcomingBtn, "RIGHT", 4, 0)
-    p.stratBtn = UI:CreateButton(p, "Strategies", 86, 22, function() RaidsUI:SetView("strategies") end)
-    p.stratBtn:SetPoint("LEFT", p.teamsBtn, "RIGHT", 4, 0)
-    p.logBtn = UI:CreateButton(p, "Raid log", 80, 22, function() RaidsUI:SetView("log") end)
-    p.logBtn:SetPoint("LEFT", p.stratBtn, "RIGHT", 4, 0)
+    p.teamsBtn = UI:CreateSleekButton(p, "Teams", 70, 22, function() RaidsUI:SetView("teams") end)
+    p.teamsBtn:SetPoint("LEFT", p.upcomingBtn, "RIGHT", 3, 0)
+    p.stratBtn = UI:CreateSleekButton(p, "Strategies", 86, 22, function() RaidsUI:SetView("strategies") end)
+    p.stratBtn:SetPoint("LEFT", p.teamsBtn, "RIGHT", 3, 0)
+    p.logBtn = UI:CreateSleekButton(p, "Raid log", 80, 22, function() RaidsUI:SetView("log") end)
+    p.logBtn:SetPoint("LEFT", p.stratBtn, "RIGHT", 3, 0)
 
-    p.raidsBtn = UI:CreateButton(p, "Raids", 70, 22, function() state.mode = "raids"; RaidsUI:Refresh() end)
+    p.raidsBtn = UI:CreateSleekButton(p, "Raids", 70, 22, function() state.mode = "raids"; RaidsUI:Refresh() end)
     p.raidsBtn:SetPoint("LEFT", p.logBtn, "RIGHT", 24, 0)
-    p.playersBtn = UI:CreateButton(p, "Players", 70, 22, function() state.mode = "players"; RaidsUI:Refresh() end)
-    p.playersBtn:SetPoint("LEFT", p.raidsBtn, "RIGHT", 4, 0)
-    p.rangeBtn = UI:CreateMenuButton(p, rangeLabel(state.range), 120, function(root)
+    p.playersBtn = UI:CreateSleekButton(p, "Players", 70, 22, function() state.mode = "players"; RaidsUI:Refresh() end)
+    p.playersBtn:SetPoint("LEFT", p.raidsBtn, "RIGHT", 3, 0)
+    p.rangeBtn = UI:CreateSleekMenuButton(p, rangeLabel(state.range), 120, function(root)
         for _, n in ipairs(RANGES) do
             root:CreateButton(rangeLabel(n), function()
                 state.range = n
@@ -361,7 +363,7 @@ function RaidsUI:CreatePanel(parent)
         end
     end)
     p.rangeBtn:SetPoint("LEFT", p.playersBtn, "RIGHT", 8, 0)
-    p.sessionBtn = UI:CreateButton(p, "Start raid", 100, 22, function()
+    p.sessionBtn = UI:CreateSleekButton(p, "Start raid", 100, 22, function()
         if ns.GroupRules:GetSession() then
             ns.SessionBar:ConfirmEnd()
         else
@@ -371,10 +373,10 @@ function RaidsUI:CreatePanel(parent)
     p.sessionBtn:SetPoint("TOPRIGHT", -8, -6)
     p.count = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     p.count:SetPoint("RIGHT", p.sessionBtn, "LEFT", -12, 0)
-    p.newRaidBtn = UI:CreateButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end)
-    p.newTeamBtn = UI:CreateButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end)
+    p.newRaidBtn = UI:CreateSleekButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end, "primary")
+    p.newTeamBtn = UI:CreateSleekButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end, "primary")
     -- Addendum J §62: who the raid leaders are (everyone can look; the GM edits)
-    p.leadersBtn = UI:CreateButton(p, "Raid leaders", 96, 22, function() ns.RaidLeadersUI:Open() end)
+    p.leadersBtn = UI:CreateSleekButton(p, "Raid leaders", 96, 22, function() ns.RaidLeadersUI:Open() end)
 
     local PlanUI = ns.RaidPlanUI
     p.upcoming = PlanUI:CreateUpcoming(p)
@@ -396,6 +398,22 @@ function RaidsUI:CreatePanel(parent)
     p.detail = UI:CreateScrollList(p, ROW_H, initDetailRow, function(d) return d.header and 26 or ROW_H end)
     p.detail.frame:SetPoint("TOPLEFT", LIST_W + 8, -36)
     p.detail.frame:SetPoint("BOTTOMRIGHT", 0, 4)
+
+    -- GM / guild council: delete the selected logged raid (a bin at the top right of its details)
+    p.deleteLogBtn = UI:CreateTipIconButton(p.detail.frame, 22, 12, "Delete this raid from the log",
+        "Removes the logged raid for every raid planner: its boss kills and attendance no longer count. Awards stay "
+        .. "in the Loot Log. This can't be undone.", function()
+        local rec = state.selected and RL():GetRaid(state.selected)
+        if not rec then return end
+        ns.RaidPlanUI:Confirm(("Delete the logged raid %s (%s)?\n\nIts boss kills and attendance are removed for "
+            .. "everyone. Awards stay in the Loot Log. This can't be undone."):format(rec.zone or "Raid",
+            fmtTime(rec.start, "%a %d %b")), function()
+            local ok, err = RL():Delete(rec.id)
+            if not ok then ns:Print("%s", err or "Could not delete the raid.") end
+        end)
+    end)
+    p.deleteLogBtn:SetPoint("TOPRIGHT", -26, -2)
+    p.deleteLogBtn:SetFrameLevel(p.detail.frame:GetFrameLevel() + 10)
 
     p.players = UI:CreateScrollList(p, ROW_H, initDetailRow)
     p.players.frame:SetPoint("TOPLEFT", 0, -36)
@@ -435,6 +453,7 @@ function RaidsUI:Refresh()
         panel.raidList:SetData(rows)
         local sel = state.selected and RL():GetRaid(state.selected)
         panel.detail:SetData(sel and detailRows(sel) or {})
+        panel.deleteLogBtn:SetShown(sel ~= nil and sel.stop ~= nil and RL():CanDelete())
         panel.count:SetText(#raids == 1 and "1 raid" or (#raids .. " raids"))
     else
         local rows, total = playerRows()
