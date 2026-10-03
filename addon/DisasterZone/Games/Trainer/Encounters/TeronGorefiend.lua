@@ -7,6 +7,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Encounters/TeronGore
 --   spells (Wowhead TBC Classic): Spirit Strike 40325, Spirit Lance 40157, Spirit Chains 40175, Spirit Volley
 --     40314, Spirit Shield 40322, Shadow of Death 40251 (55 s), Summon Skeleton 40270 (within 6 yd of the corpse),
 --     Brief Stun 41421 (1 s, on every construct as it rises), Spiritual Vengeance 40268 (the spirit lasts 60 s);
+--   the three attacks, checked against the client's own spell tables (build 2.5.6: SpellEffect, SpellAuraOptions,
+--     SpellCooldowns, SpellDuration, SpellRange, SpellRadius, SpellMisc):
+--       Lance   6,175 - 6,825 damage (6174 + 1..651), 30 yd, no cooldown, 1 s global cooldown; a 30% slow that
+--               stacks to 3 (CumulativeAura 3), lasts 9 s and has a 3 s period;
+--       Chains  1,900 - 2,100 damage (1899 + 1..201) and a 5 s stun, 12 yd around you, 15 s cooldown;
+--       Volley  9,900 - 12,100 damage (9899 + 1..2201), 12 yd around you, 15 s cooldown;
 --   missile speeds (the client's SpellMisc table, build 2.5.6): Lance 38 yd/s, Volley 15 yd/s, Chains none.
 --     Damage lands when the missile does;
 --   effect models and sounds (the client's SpellXSpellVisual > SpellVisualEvent > SpellVisualKitEffect >
@@ -14,8 +20,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Encounters/TeronGore
 --   models (Wowhead): Teron 21254, Vengeful Spirit 21300, Shadowy Construct 21305;
 --   construct health 41,567 (TBC Classic DB); constructs take damage from Lance, Chains and Volley only and each
 --     runs at a random raider (server emulators' boss scripts);
---   Spirit Lance's slow fades by a third every 3 s (AzerothCore's spell script); that it stacks to 3 is from
---     the Icy Veins / Warcraft Tavern guides;
+--   what Lance's 3 s period does is server side: AzerothCore's spell script takes a third of the slow away at
+--     every period (30 / 20 / 10% a stack) and a new Lance starts the 9 s over. That is what is built here;
 --   the room: Blizzard's map of Gorefiend's Vigil (Media/Maps/BT04) covers world X 343.3..636.7 and
 --     Y 135..575 (UiMapAssignment of UiMap 343), 0.436 yd a pixel. The square hall measures 135 x 134 pixels on
 --     it: 59 x 58.5 yd. Blizzard's geometry of the hall (blacktemple.wmo, group "Gorefiend's Vigil") says the
@@ -90,7 +96,7 @@ local abilities = {
           return true
       end },
     { id = "lance", key = "3", spell = 40157, name = "Spirit Lance", icon = SpellIcon(40157, "Spell_Frost_FrostBolt"),
-      tip = "6,175 damage to your target, 30 yd. Slows it by 30% (stacks 3 times); the slow fades over 9 sec.",
+      tip = "6,175 to 6,825 damage to your target, 30 yd. Slows it by 30% (stacks 3 times); the slow fades over 9 sec.",
       range = 30, needsTarget = true, usable = IsGhost,
       use = function(sim, ab, target)
           sim:Sound(FX.lanceCastSound)
@@ -98,14 +104,14 @@ local abilities = {
                    color = { 0.6, 0.85, 1 } }, 0.25)
           sim:Missile(FX.lanceMissile, sim.player.x, sim.player.y, target, 38, function(s, u)
               if u.dead then return end
-              s:Damage(u, 6175)
+              s:Damage(u, s:Random(6175, 6825))
               s:AddAura(u, "lance", { dur = 9, slow = 0.3, maxStacks = 3, fade = 3 })
               s:Fx({ kind = "model", fdid = FX.lanceImpact, unit = u, z = 1.5 }, 0.8)
               s:Sound(FX.lanceImpactSound)
           end)
       end },
     { id = "chains", key = "4", spell = 40175, name = "Spirit Chains", icon = SpellIcon(40175, "Spell_Frost_ChainsOfIce"),
-      tip = "1,900 damage to every construct within 12 yd and stuns them for 5 sec. 15 sec cooldown.",
+      tip = "1,900 to 2,100 damage to every construct within 12 yd and stuns them for 5 sec. 15 sec cooldown.",
       cooldown = 15, usable = IsGhost,
       use = function(sim)
           sim:Sound(FX.chainsCastSound)
@@ -113,7 +119,7 @@ local abilities = {
           sim:Fx({ kind = "ring", x = sim.player.x, y = sim.player.y, r = AOE_RANGE, color = { 0.5, 0.7, 1 } }, 0.5)
           local hit = false
           for _, u in ipairs(Constructs(sim)) do
-              sim:Damage(u, 1900)
+              sim:Damage(u, sim:Random(1900, 2100))
               sim:AddAura(u, "chains", { dur = 5, stun = true })
               if not u.dead then
                   sim:Fx({ kind = "model", fdid = FX.chainsBase, unit = u }, 5)

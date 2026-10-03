@@ -262,9 +262,9 @@ def the_lance_slow_stacks_to_three_and_fades_and_chains_stun():
     c.eval("T_TR.sim:Use('lance') T_TR.run(1.05)")                 # starts again from one stack
     assert abs(speed() - 0.7) < 1e-6
     hp0 = c.eval_py("return T_U.hp")
-    assert hp0 == 41567 - 5 * 6175, hp0
+    assert 41567 - 5 * 6825 <= hp0 <= 41567 - 5 * 6175, hp0
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y = T_U.x, T_U.y  T_TR.sim:Use('chains')")
-    assert speed() == 0 and c.eval_py("return T_U.hp") == hp0 - 1900
+    assert speed() == 0 and 1900 <= hp0 - c.eval_py("return T_U.hp") <= 2100
     c.eval("T_TR.run(4.9)")
     assert speed() == 0
     c.eval("T_TR.run(0.2)")
@@ -287,7 +287,7 @@ def spells_fly_at_their_real_speed_with_their_own_effects_and_sounds():
     c.eval("T_TR.run(0.4)")
     assert c.eval_py("return T_U.hp") == 41567 and c.eval_py("return T_TR.sim:HasAura(T_U, 'lance')") is None
     c.eval("T_TR.run(0.15)")
-    assert c.eval_py("return T_U.hp") == 41567 - 6175 and c.eval_py("return T_TR.sim:HasAura(T_U, 'lance').stacks") == 1
+    assert 6175 <= 41567 - c.eval_py("return T_U.hp") <= 6825 and c.eval_py("return T_TR.sim:HasAura(T_U, 'lance').stacks") == 1
     assert sim(c, "local n = 0 for _, f in ipairs(s.fx) do if f.fdid == 166372 and f.unit == T_U then n = n + 1 end end return n") == 1
     assert sim(c, "return s.sounds") == [2559, 10009], sim(c, "return s.sounds")
     # Spirit Volley: 15 yd/s. From 9 yd the damage lands 0.6 s after the cast
@@ -303,7 +303,7 @@ def spells_fly_at_their_real_speed_with_their_own_effects_and_sounds():
     c.eval("T_TR.run(1)  local s = T_TR.sim  for i = #s.sounds, 1, -1 do s.sounds[i] = nil end")
     hp = c.eval_py("return T_U.hp")
     assert sim(c, "return s:Use('chains')") is True
-    assert c.eval_py("return T_U.hp") == hp - 1900 and c.eval_py("return T_TR.sim:UnitSpeed(T_U)") == 0
+    assert 1900 <= hp - c.eval_py("return T_U.hp") <= 2100 and c.eval_py("return T_TR.sim:UnitSpeed(T_U)") == 0
     kinds = sim(c, "local t = {} for _, f in ipairs(s.fx) do if f.fdid then t[#t+1] = f.fdid end end table.sort(t) return t")
     assert kinds == [165782, 166210, 166385], kinds
     assert sim(c, "return s.sounds") == [3076, 1502]
@@ -361,8 +361,16 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
             else:
                 clear += 1
     assert len(found) >= 2 and clear >= 10, (found, clear)
-    c.eval("T_R.x, T_R.y = 58, 57  ns.TrainerUI._Tick(0.05)")
+    # everyone out on the open floor of the south half, the camera inside the hall: nothing is lifted
+    c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 40, 14  for _, u in ipairs(T_TR.sim:Alive('raider')) do u.x, u.y = 30, 14 end "
+           "T_TR.sim.boss.x, T_TR.sim.boss.y = 30, 14  ns.TrainerUI._Tick(0.05)")
     assert c.eval_py("return ns.TrainerUI._Floor().over") == 0
+    # someone down in the pit seen across the raised walkway that runs into it from the south: its top is a
+    # floor, but it lies above his feet and between him and the camera, so it is lifted over him
+    h0 = h(29.5, 29)
+    assert h0 > h(22, 29.5) + 1.5, (h0, h(22, 29.5))                # the walkway stands well above the pit's floor
+    c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 40, 29.5  T_R.x, T_R.y = 22, 29.5  ns.TrainerUI._Tick(0.05)")
+    assert c.eval_py("return ns.TrainerUI._Floor().over") > 0
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 20, 50  ns.TrainerUI._Tick(0.05)")   # move: another view
     assert c.eval_py("return ns.TrainerUI._Floor().mesh") != fl["mesh"]
     # the spell effects are actors holding the effect's model file

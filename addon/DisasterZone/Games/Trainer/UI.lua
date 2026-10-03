@@ -339,7 +339,7 @@ end
 -- is measured once a frame (three projected points); the vertices are then projected here, in Lua. Triangles
 -- facing away, behind the camera or off screen are hidden; the rest are layered far to near.
 local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {}, over = {}, occ = {}, nOcc = 0,
-                    x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, models = {} }
+                    x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, low = {}, models = {} }
 local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
 local MESH_FAR = 110
 
@@ -371,9 +371,10 @@ local function HideMesh()
 end
 
 -- The room is drawn under the models, so by itself a pillar between the camera and a character would be painted
--- over by that character. Each frame: find the steep triangles that are nearer than a model they overlap on
--- screen; those, and every steep triangle nearer still, move to a frame above the models. A triangle that has a
--- model in front of it stays below.
+-- over by that character. Each frame: find the triangles that are nearer than a model they overlap on screen and
+-- can hide it (anything steep; a floor only when it lies above that model's feet, like a walkway seen from below
+-- or beside); those, and every triangle nearer still that touches no model, move to a frame above the models.
+-- A triangle that has a model in front of it, or that a model stands on, stays below.
 local function UpdateOcclusion()
     local st, b = meshState, meshState.basis
     if not (b and overFrame) then return end
@@ -396,12 +397,14 @@ local function UpdateOcclusion()
                 mo.x0, mo.x1 = min(fx2, hx) - half, max(fx2, hx) + half
                 mo.y0, mo.y1 = min(fy2, hy), max(fy2, hy)
                 mo.depth = depth
+                mo.z = dz + b.camZ
             end
         end
     end
     -- how deep the covering goes: the farthest model that has something in front of it
     local reach = 0
     local x0, x1, y0, y1, depth, occ = st.x0, st.x1, st.y0, st.y1, st.depth, st.occ
+    local steep, low = st.mesh.steep, st.low
     for n = 1, st.nOcc do
         local i = occ[n]
         local d = depth[i]
@@ -409,7 +412,7 @@ local function UpdateOcclusion()
         for j = 1, nm do
             local mo = models[j]
             if x1[i] >= mo.x0 and x0[i] <= mo.x1 and y1[i] >= mo.y0 and y0[i] <= mo.y1 then
-                if d < mo.depth - 0.5 then
+                if d < mo.depth - 0.5 and (steep[i] or low[i] > mo.z + 0.4) then
                     if mo.depth > reach then reach = mo.depth end
                 else
                     blocked = true
@@ -476,7 +479,7 @@ local function DrawMesh()
     local camX, camY, camZ = cam.x, cam.y, cam.z
     meshState.basis = { camX = camX, camY = camY, camZ = camZ, m = m, fx = fx, fy = fy, fz = fz, rx = rx, ry = ry,
                         ux = ux, uy = uy, uz = uz, cx = cx, cy = cy, exx = exx, exy = exy, eyx = eyx, eyy = eyy }
-    local steep, nOcc = mesh.steep, 0
+    local nOcc = 0
     for i = 1, mesh.nVerts do
         local o = i * 6 - 6
         local dx, dy, dz = v[o + 1] - camX, m * v[o + 2] - camY, v[o + 3] - camZ
@@ -534,12 +537,13 @@ local function DrawMesh()
                         shown[i] = true
                         tx:Show()
                     end
-                    if steep[i] then
-                        nOcc = nOcc + 1
-                        meshState.occ[nOcc] = i
-                        meshState.x0[i], meshState.x1[i] = min(ax, bx, qx), max(ax, bx, qx)
-                        meshState.y0[i], meshState.y1[i] = min(ay, by, qy), max(ay, by, qy)
-                        meshState.depth[i] = depth
+                    nOcc = nOcc + 1
+                    meshState.occ[nOcc] = i
+                    meshState.x0[i], meshState.x1[i] = min(ax, bx, qx), max(ax, bx, qx)
+                    meshState.y0[i], meshState.y1[i] = min(ay, by, qy), max(ay, by, qy)
+                    meshState.depth[i] = depth
+                    if not meshState.low[i] then
+                        meshState.low[i] = min(v[(a - 1) * 6 + 3], v[(b - 1) * 6 + 3], v[(c - 1) * 6 + 3])
                     end
                 end
             end
@@ -547,6 +551,11 @@ local function DrawMesh()
         if not visible and shown[i] then
             shown[i] = nil
             tex[i]:Hide()
+            if meshState.over[i] then                                  -- out of sight: back under the models
+                meshState.over[i] = nil
+                tex[i]:SetParent(floorFrame)
+                tex[i]:SetDrawLayer(MESH_LAYERS[floor(tex[i].bucket / 16) + 1], tex[i].bucket % 16 - 8)
+            end
         end
     end
     meshState.nOcc = nOcc
@@ -1479,6 +1488,17 @@ UI._Floor = function()
     local o = 0
     for _ in pairs(meshState.over) do o = o + 1 end
     return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false, mesh = m, over = o }
+end
+UI._OverDebug = function()
+    local out, mesh = {}, meshState.mesh
+    for i in pairs(meshState.over) do
+        local a = (mesh.tris[i * 4 - 3] - 1) * 6
+        out[#out + 1] = string.format('%.0f,%.0f,%.1f d=%.1f steep=%s', mesh.verts[a + 1], mesh.verts[a + 2], mesh.verts[a + 3], meshState.depth[i], tostring(mesh.steep[i]))
+        if #out >= 12 then break end
+    end
+    local mo = {}
+    for j, m in ipairs(meshState.models) do mo[#mo + 1] = string.format('%.1f z=%.1f', m.depth, m.z) end
+    return { out, mo }
 end
 UI._Plates = function()
     local out = {}
