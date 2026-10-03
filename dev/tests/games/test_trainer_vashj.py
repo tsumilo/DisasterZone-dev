@@ -277,6 +277,9 @@ def the_panel_shows_allies_and_things_to_use():
     # the marks' rings and columns are put right after the floor they lie on (an odd place), not on top of everything
     o = c.eval_py("return ns.TrainerUI._Order()")
     assert o["nodes"] > 1000 and o["distinct"] == o["nodes"] and o["step"] == 2 and o["wrong"] == 0, {k: v for k, v in o.items() if k != "lines"}
+    # triangles that run from near the camera far into the room (or behind it) are drawn as pieces, each spanning
+    # little depth, in their triangle's place in the order
+    assert 20 < o["pieces"] < 3000, o["pieces"]
     placed = [s for s in o["lines"] if s >= 0]
     assert len(placed) > 20 and all(s % 2 == 1 for s in placed), o["lines"][:40]
     # the generators are the game's own object: the floor light model, 2.1 times its size, on its own height

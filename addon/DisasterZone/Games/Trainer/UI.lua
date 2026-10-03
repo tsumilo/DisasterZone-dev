@@ -363,7 +363,8 @@ end
 -- facing away, behind the camera or off screen are hidden; the rest are layered far to near.
 local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {}, over = {}, occ = {}, nOcc = 0,
                     x0 = {}, x1 = {}, y0 = {}, y1 = {}, depth = {}, low = {}, models = {},
-                    vr = {}, vu = {}, vd = {}, clip = { {}, {}, {}, {} }, far = 110, stackN = {}, stackP = {} }
+                    vr = {}, vu = {}, vd = {}, far = 110, stackN = {}, stackP = {},
+                    extra = {}, scratch = {}, poly = {}, cols = {} }
 local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
 local MESH_FRAMES = 64                   -- frames stacked by level, each with 3 layers of 16 sublevels
 local MESH_SLOTS = MESH_FRAMES * 48      -- 3072 places in the draw order
@@ -407,6 +408,24 @@ local function PrepareMesh(mesh)
         for i = nodes[o + 7], nodes[o + 7] + nodes[o + 8] - 1 do mesh.nodeOf[i] = k end
     end
     mesh.slotStep = max(1, floor(MESH_SLOTS / mesh.nNodes))
+    -- the floors by 8 yd squares, to find the triangle a mark lies on
+    mesh.grid = {}
+    for i = 1, mesh.nTris do
+        if not mesh.steep[i] then
+            local a, b, c = (t[i * 4 - 3] - 1) * 6, (t[i * 4 - 2] - 1) * 6, (t[i * 4 - 1] - 1) * 6
+            for gx = floor(min(v[a + 1], v[b + 1], v[c + 1]) / 8), floor(max(v[a + 1], v[b + 1], v[c + 1]) / 8) do
+                for gy = floor(min(v[a + 2], v[b + 2], v[c + 2]) / 8), floor(max(v[a + 2], v[b + 2], v[c + 2]) / 8) do
+                    local key = gx * 1000 + gy
+                    local cell = mesh.grid[key]
+                    if not cell then
+                        cell = {}
+                        mesh.grid[key] = cell
+                    end
+                    cell[#cell + 1] = i
+                end
+            end
+        end
+    end
 end
 
 local function HideMesh()
@@ -414,22 +433,42 @@ local function HideMesh()
         meshState.tex[i]:Hide()
         meshState.shown[i] = nil
     end
+    for _, pool in pairs(meshState.extra) do
+        for k = 1, #pool do pool[k]:Hide() end
+        pool.used = 0
+    end
     meshState.key = nil
 end
 
 -- The room is drawn under the models, so by itself a pillar between the camera and a character would be painted
--- over by that character. Each frame: find the triangles that are nearer than a model they overlap on screen and
--- can hide it (anything steep; a floor only when it lies above that model's feet, like a walkway seen from below
--- or beside); those move to the frames above the models (in the same draw order). A triangle that has a model
--- in front of it, or that a model stands on, stays below.
-local function UpdateOcclusion()
+-- over by that character. Find the triangles that are nearer than a model they overlap on screen and can hide it
+-- (anything steep; a floor only when it lies above that model's feet, like a walkway seen from below or beside);
+-- those move to the frames above the models (in the same draw order). A triangle that has a model in front of
+-- it, or that a model stands on, stays below.
+-- The models are sorted into sixteen columns of the screen, so a triangle is only held against the few it can
+-- touch; with the camera standing still this runs every third frame.
+local OCC_COLS = 16
+local function UpdateOcclusion(force)
     local st, b = meshState, meshState.basis
     if not (b and overFrames[1]) then return end
+    st.occTick = (st.occTick or 0) + 1
+    if not force and st.occTick % 3 ~= 0 then return end
+    local w = scene:GetWidth() or 1
+    if w <= 0 then w = 1 end
+    local cols = st.cols
+    for k = 1, OCC_COLS do
+        local col = cols[k]
+        if not col then
+            col = { n = 0 }
+            cols[k] = col
+        end
+        col.n = 0
+    end
     local models, nm = st.models, 0
     for _, u in ipairs(sim.units) do
         if actors[u.id] and not u.dead then
-            local tall = PLATE_HEIGHT[u.kind] or 2.6
-            local dx, dy, dz = u.x - b.camX, b.m * u.y - b.camY, GroundZ(u.x, u.y) - b.camZ
+            local tall = u.plate or u.tall or PLATE_HEIGHT[u.kind] or 2.6
+            local dx, dy, dz = u.x - b.camX, b.m * u.y - b.camY, (u.z or GroundZ(u.x, u.y)) - b.camZ
             local depth = dx * b.fx + dy * b.fy + dz * b.fz
             local top = depth + tall * b.fz
             if depth > 0.4 and top > 0.4 then
@@ -438,36 +477,60 @@ local function UpdateOcclusion()
                 r, up = (dx * b.rx + dy * b.ry) / top, (dx * b.ux + dy * b.uy + (dz + tall) * b.uz) / top
                 local hx, hy = b.cx + r * b.exx + up * b.eyx, b.cy + r * b.exy + up * b.eyy
                 local half = max(8, math.abs(hy - fy2) * 0.3)
-                nm = nm + 1
-                local mo = models[nm] or {}
-                models[nm] = mo
-                mo.x0, mo.x1 = min(fx2, hx) - half, max(fx2, hx) + half
-                mo.y0, mo.y1 = min(fy2, hy), max(fy2, hy)
-                mo.depth = depth
-                mo.z = dz + b.camZ
+                local mx0, mx1 = min(fx2, hx) - half, max(fx2, hx) + half
+                if mx1 >= 0 and mx0 <= w then
+                    nm = nm + 1
+                    local mo = models[nm] or {}
+                    models[nm] = mo
+                    mo.x0, mo.x1 = mx0, mx1
+                    mo.y0, mo.y1 = min(fy2, hy), max(fy2, hy)
+                    mo.depth = depth
+                    mo.z = dz + b.camZ
+                    for k = max(1, floor(mx0 / w * OCC_COLS) + 1), min(OCC_COLS, floor(mx1 / w * OCC_COLS) + 1) do
+                        local col = cols[k]
+                        col.n = col.n + 1
+                        col[col.n] = mo
+                    end
+                end
             end
         end
     end
     local x0, x1, y0, y1, depth, occ = st.x0, st.x1, st.y0, st.y1, st.depth, st.occ
-    local steep, low = st.mesh.steep, st.low
+    local steep, low, over = st.mesh.steep, st.low, st.over
     for n = 1, st.nOcc do
         local i = occ[n]
-        local d = depth[i]
         local covers, blocked = false, false
-        for j = 1, nm do
-            local mo = models[j]
-            if x1[i] >= mo.x0 and x0[i] <= mo.x1 and y1[i] >= mo.y0 and y0[i] <= mo.y1 then
-                if d < mo.depth - 0.5 and (steep[i] or low[i] > mo.z + 0.4) then
-                    covers = true
-                else
-                    blocked = true
+        local tx0, tx1 = x0[i], x1[i]
+        if tx1 >= 0 and tx0 <= w then
+            local d, ty0, ty1 = depth[i], y0[i], y1[i]
+            for k = max(1, floor(tx0 / w * OCC_COLS) + 1), min(OCC_COLS, floor(tx1 / w * OCC_COLS) + 1) do
+                local col = cols[k]
+                for j = 1, col.n do
+                    local mo = col[j]
+                    if tx1 >= mo.x0 and tx0 <= mo.x1 and ty1 >= mo.y0 and ty0 <= mo.y1 then
+                        if d < mo.depth - 0.5 and (steep[i] or low[i] > mo.z + 0.4) then
+                            covers = true
+                        else
+                            blocked = true
+                        end
+                    end
                 end
             end
         end
-        local over = covers and not blocked
-        if over ~= (st.over[i] or false) then
-            st.over[i] = over or nil
-            PlaceTex(st.tex[i], st.tex[i].slot, over)
+        local isOver = covers and not blocked
+        if isOver ~= (over[i] or false) then
+            over[i] = isOver or nil
+            if st.tex[i] then PlaceTex(st.tex[i], st.tex[i].slot, isOver) end
+            st.piecesDirty = true
+        end
+    end
+    if st.piecesDirty then                              -- the pieces of cut triangles go with their triangle
+        st.piecesDirty = false
+        for _, pool in pairs(st.extra) do
+            for k = 1, pool.used do
+                local tx = pool[k]
+                PlaceTex(tx, tx.slot, over[tx.parentTri] or false)
+            end
         end
     end
 end
@@ -489,9 +552,10 @@ local function DrawMesh()
     -- nothing moved: nothing to do
     local key = string.format("%.3f %.3f %.3f %.4f %.4f %.4f %d %d", cam.x, cam.y, cam.z, cam.fx, cam.fy, cam.fz, w, h)
     if meshState.key == key then
-        UpdateOcclusion()                                              -- the view stands still, the others move
+        UpdateOcclusion(false)                                         -- the view stands still, the others move
         return true
     end
+    meshState.gen = (meshState.gen or 0) + 1
 
     -- the camera, measured: the screen point straight ahead, and what one yard to the right and one yard up
     -- are worth there (10 yd ahead). All in scene space (y already mirrored).
@@ -525,7 +589,7 @@ local function DrawMesh()
     local eyeX, eyeY = camX, m * camY                                  -- the camera in the mesh's own coordinates
     -- every vertex in camera space (right, up, ahead); the ones in front of the camera also on screen
     local vr, vu, vd = meshState.vr, meshState.vu, meshState.vd
-    local NEAR = 0.4
+    local NEAR = 2          -- (nothing you can see is nearer: the camera hangs well above the floor it looks down on)
     for i = 1, mesh.nVerts do
         local o = i * 6 - 6
         local dx, dy, dz = v[o + 1] - camX, m * v[o + 2] - camY, v[o + 3] - camZ
@@ -571,109 +635,182 @@ local function DrawMesh()
         end
     end
     local nodeOf = mesh.nodeOf
-    local clip = meshState.clip                                        -- scratch: up to 4 points of r, u, depth, tu, tv
+
+    -- Pieces. A Texture maps its picture flat (no perspective), which is fine for a triangle that is all at
+    -- about one distance. One that runs from near the camera far into the room would swim, and one that reaches
+    -- behind the camera cannot be drawn at all: those are cut at the near plane and then halved along their
+    -- depth until every piece spans little of it; the pieces are drawn with pooled textures instead.
+    local RATIO, LEVELS = 1.6, 5
+    local extra = meshState.extra
+    for _, pool in pairs(extra) do pool.used = 0 end
+    local scratch, nScratch = meshState.scratch, 0
+    local function Pt(r, u, d, tu, tv)
+        nScratch = nScratch + 1
+        local p = scratch[nScratch]
+        if not p then
+            p = {}
+            scratch[nScratch] = p
+        end
+        p[1], p[2], p[3], p[4], p[5] = r, u, d, tu, tv
+        return p
+    end
+    local pieceTri, pieceSlot, pieceLight, pieceFile
+    local bx0, bx1, by0, by1
+    local function Piece(p1, p2, p3)
+        local x1, y1 = cx + (p1[1] * exx + p1[2] * eyx) / p1[3], cy + (p1[1] * exy + p1[2] * eyy) / p1[3]
+        local x2, y2 = cx + (p2[1] * exx + p2[2] * eyx) / p2[3], cy + (p2[1] * exy + p2[2] * eyy) / p2[3]
+        local x3, y3 = cx + (p3[1] * exx + p3[2] * eyx) / p3[3], cy + (p3[1] * exy + p3[2] * eyy) / p3[3]
+        if (x1 < 0 and x2 < 0 and x3 < 0) or (x1 > w and x2 > w and x3 > w)
+            or (y1 < 0 and y2 < 0 and y3 < 0) or (y1 > h and y2 > h and y3 > h) then
+            return
+        end
+        bx0, bx1 = min(bx0, x1, x2, x3), max(bx1, x1, x2, x3)
+        by0, by1 = min(by0, y1, y2, y3), max(by1, y1, y2, y3)
+        local pool = extra[pieceFile]
+        if not pool then
+            pool = { used = 0 }
+            extra[pieceFile] = pool
+        end
+        pool.used = pool.used + 1
+        local tx = pool[pool.used]
+        if not tx then
+            tx = meshFrames[1]:CreateTexture(nil, "BACKGROUND")
+            tx.fi, tx.over = 1, false
+            tx:SetSize(1, 1)
+            tx:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
+            tx:SetTexture(pieceFile, "REPEAT", "REPEAT")
+            pool[pool.used] = tx
+        end
+        tx:SetVertexColor(pieceLight, pieceLight, pieceLight)
+        tx:SetTexCoord(p1[4], p1[5], p2[4], p2[5], p3[4], p3[5], p3[4], p3[5])
+        tx:SetVertexOffset(1, x1, y1 - 1)
+        tx:SetVertexOffset(2, x2, y2)
+        tx:SetVertexOffset(3, x3 - 1, y3 - 1)
+        tx:SetVertexOffset(4, x3 - 1, y3)
+        tx.parentTri = pieceTri
+        PlaceTex(tx, pieceSlot, meshState.over[pieceTri] or false)
+        tx:Show()
+    end
+    local function Cut(p1, p2, p3, level)
+        local d1, d2, d3 = p1[3], p2[3], p3[3]
+        if level <= 0 or max(d1, d2, d3) <= min(d1, d2, d3) * RATIO then
+            Piece(p1, p2, p3)
+            return
+        end
+        local e12, e23, e31 = math.abs(d1 - d2), math.abs(d2 - d3), math.abs(d3 - d1)
+        if e12 >= e23 and e12 >= e31 then
+            local m = Pt((p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2, (d1 + d2) / 2, (p1[4] + p2[4]) / 2, (p1[5] + p2[5]) / 2)
+            Cut(p1, m, p3, level - 1)
+            Cut(m, p2, p3, level - 1)
+        elseif e23 >= e31 then
+            local m = Pt((p2[1] + p3[1]) / 2, (p2[2] + p3[2]) / 2, (d2 + d3) / 2, (p2[4] + p3[4]) / 2, (p2[5] + p3[5]) / 2)
+            Cut(p1, p2, m, level - 1)
+            Cut(p1, m, p3, level - 1)
+        else
+            local m = Pt((p3[1] + p1[1]) / 2, (p3[2] + p1[2]) / 2, (d3 + d1) / 2, (p3[4] + p1[4]) / 2, (p3[5] + p1[5]) / 2)
+            Cut(p1, p2, m, level - 1)
+            Cut(m, p2, p3, level - 1)
+        end
+    end
+
+    local occ, ox0, ox1, oy0, oy1, odepth, olow = meshState.occ, meshState.x0, meshState.x1, meshState.y0, meshState.y1,
+                                                  meshState.depth, meshState.low
+    local over = meshState.over
+    local poly = meshState.poly
     for i = 1, mesh.nTris do
         local a, b, c = t[i * 4 - 3], t[i * 4 - 2], t[i * 4 - 1]
-        local da, db, dc = sd[a], sd[b], sd[c]
-        local visible = false
-        if da or db or dc then
+        local da, db, dc = vd[a], vd[b], vd[c]
+        local main, listed = false, false
+        if da > NEAR or db > NEAR or dc > NEAR then
             local o = (a - 1) * 6
             -- facing the camera?
             local facing = normal[i * 3 - 2] * (eyeX - v[o + 1]) + normal[i * 3 - 1] * (eyeY - v[o + 2]) + normal[i * 3] * (camZ - v[o + 3])
             if facing > 0 then
-                -- the corners on screen: upper left, lower left, lower right, upper right of the texture's quad
-                local x1, y1, x2, y2, x3, y3, x4, y4
-                local clipped = false
-                if da and db and dc then
-                    x1, y1, x2, y2, x3, y3 = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
-                    x4, y4 = x3, y3
+                local lo, hi = min(da, db, dc), max(da, db, dc)
+                if lo > NEAR and hi <= lo * RATIO then
+                    -- all of it in front and at about one distance: its own texture, as it is
+                    local x1, y1, x2, y2, x3, y3 = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
+                    if not ((x1 < 0 and x2 < 0 and x3 < 0) or (x1 > w and x2 > w and x3 > w)
+                            or (y1 < 0 and y2 < 0 and y3 < 0) or (y1 > h and y2 > h and y3 > h)) then
+                        main, listed = true, true
+                        local tx = tex[i]
+                        if not tx then
+                            tx = meshFrames[1]:CreateTexture(nil, "BACKGROUND")
+                            tx.fi, tx.over = 1, false
+                            tx:SetSize(1, 1)
+                            tx:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
+                            tx:SetTexture(mesh.textures[t[i * 4]], "REPEAT", "REPEAT")
+                            local l = mesh.light[i]
+                            tx:SetVertexColor(l, l, l)
+                            local oa, ob, oc = (a - 1) * 6, (b - 1) * 6, (c - 1) * 6
+                            -- upper left = a, lower left = b, upper right and lower right = c
+                            tx:SetTexCoord(v[oa + 4], v[oa + 5], v[ob + 4], v[ob + 5], v[oc + 4], v[oc + 5], v[oc + 4], v[oc + 5])
+                            tex[i] = tx
+                        end
+                        tx:SetVertexOffset(1, x1, y1 - 1)
+                        tx:SetVertexOffset(2, x2, y2)
+                        tx:SetVertexOffset(3, x3 - 1, y3 - 1)
+                        tx:SetVertexOffset(4, x3 - 1, y3)
+                        PlaceTex(tx, nodeSlot[nodeOf[i]], over[i] or false)
+                        if not shown[i] then
+                            shown[i] = true
+                            tx:Show()
+                        end
+                        bx0, bx1, by0, by1 = min(x1, x2, x3), max(x1, x2, x3), min(y1, y2, y3), max(y1, y2, y3)
+                    end
                 else
-                    -- part of it is behind the camera: cut it at the near plane (a triangle or a four-corner)
-                    clipped = true
+                    -- cut it at the near plane (three or four corners are left), then into pieces
+                    nScratch = 0
                     local n = 0
                     local ia, ib = c, a
-                    for step = 1, 3 do
-                        if step == 2 then ia, ib = a, b elseif step == 3 then ia, ib = b, c end
+                    for edge = 1, 3 do
+                        if edge == 2 then ia, ib = a, b elseif edge == 3 then ia, ib = b, c end
                         local d1, d2 = vd[ia], vd[ib]
                         local oa, ob = (ia - 1) * 6, (ib - 1) * 6
                         if (d1 > NEAR) ~= (d2 > NEAR) then                -- the edge crosses: the crossing point
                             local k = (NEAR - d1) / (d2 - d1)
                             n = n + 1
-                            local p = clip[n]
-                            p[1], p[2], p[3] = vr[ia] + (vr[ib] - vr[ia]) * k, vu[ia] + (vu[ib] - vu[ia]) * k, NEAR
-                            p[4], p[5] = v[oa + 4] + (v[ob + 4] - v[oa + 4]) * k, v[oa + 5] + (v[ob + 5] - v[oa + 5]) * k
+                            poly[n] = Pt(vr[ia] + (vr[ib] - vr[ia]) * k, vu[ia] + (vu[ib] - vu[ia]) * k, NEAR,
+                                         v[oa + 4] + (v[ob + 4] - v[oa + 4]) * k, v[oa + 5] + (v[ob + 5] - v[oa + 5]) * k)
                         end
                         if d2 > NEAR then                                 -- the edge's end point is in front
                             n = n + 1
-                            local p = clip[n]
-                            p[1], p[2], p[3], p[4], p[5] = vr[ib], vu[ib], d2, v[ob + 4], v[ob + 5]
+                            poly[n] = Pt(vr[ib], vu[ib], d2, v[ob + 4], v[ob + 5])
                         end
                     end
-                    for k = 1, n do
-                        local p = clip[k]
-                        p[6], p[7] = cx + (p[1] * exx + p[2] * eyx) / p[3], cy + (p[1] * exy + p[2] * eyy) / p[3]
-                    end
-                    if n == 3 then clip[4] = clip[3] end
-                    x1, y1, x2, y2, x3, y3, x4, y4 = clip[1][6], clip[1][7], clip[2][6], clip[2][7], clip[3][6], clip[3][7],
-                                                     clip[4][6], clip[4][7]
+                    pieceTri, pieceSlot, pieceLight, pieceFile = i, nodeSlot[nodeOf[i]], mesh.light[i], mesh.textures[t[i * 4]]
+                    bx0, bx1, by0, by1 = math.huge, -math.huge, math.huge, -math.huge
+                    if n >= 3 then Cut(poly[1], poly[2], poly[3], LEVELS) end
+                    if n == 4 then Cut(poly[1], poly[3], poly[4], LEVELS) end
+                    listed = bx1 >= bx0
                 end
-                if not ((x1 < 0 and x2 < 0 and x3 < 0 and x4 < 0) or (x1 > w and x2 > w and x3 > w and x4 > w)
-                        or (y1 < 0 and y2 < 0 and y3 < 0 and y4 < 0) or (y1 > h and y2 > h and y3 > h and y4 > h)) then
-                    visible = true
-                    local tx = tex[i]
-                    if not tx then
-                        tx = meshFrames[1]:CreateTexture(nil, "BACKGROUND")
-                        tx.fi, tx.over = 1, false
-                        tx:SetSize(1, 1)
-                        tx:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
-                        tx:SetTexture(mesh.textures[t[i * 4]], "REPEAT", "REPEAT")
-                        local l = mesh.light[i]
-                        tx:SetVertexColor(l, l, l)
-                        tx.clipped = true                                 -- (no texture coordinates yet)
-                        tex[i] = tx
-                    end
-                    if clipped then
-                        tx.clipped = true
-                        tx:SetTexCoord(clip[1][4], clip[1][5], clip[2][4], clip[2][5], clip[4][4], clip[4][5], clip[3][4], clip[3][5])
-                    elseif tx.clipped then
-                        tx.clipped = false
-                        local oa, ob, oc = (a - 1) * 6, (b - 1) * 6, (c - 1) * 6
-                        -- upper left = a, lower left = b, upper right and lower right = c
-                        tx:SetTexCoord(v[oa + 4], v[oa + 5], v[ob + 4], v[ob + 5], v[oc + 4], v[oc + 5], v[oc + 4], v[oc + 5])
-                    end
-                    tx:SetVertexOffset(1, x1, y1 - 1)
-                    tx:SetVertexOffset(2, x2, y2)
-                    tx:SetVertexOffset(3, x4 - 1, y4 - 1)
-                    tx:SetVertexOffset(4, x3 - 1, y3)
-                    -- its place in the draw order: its node's
-                    local depth = (max(vd[a], NEAR) + max(vd[b], NEAR) + max(vd[c], NEAR)) / 3
-                    PlaceTex(tx, nodeSlot[nodeOf[i]], meshState.over[i] or false)
-                    if not shown[i] then
-                        shown[i] = true
-                        tx:Show()
-                    end
+                if listed then
                     nOcc = nOcc + 1
-                    meshState.occ[nOcc] = i
-                    meshState.x0[i], meshState.x1[i] = min(x1, x2, x3, x4), max(x1, x2, x3, x4)
-                    meshState.y0[i], meshState.y1[i] = min(y1, y2, y3, y4), max(y1, y2, y3, y4)
-                    meshState.depth[i] = depth
-                    if not meshState.low[i] then
-                        meshState.low[i] = min(v[(a - 1) * 6 + 3], v[(b - 1) * 6 + 3], v[(c - 1) * 6 + 3])
-                    end
+                    occ[nOcc] = i
+                    ox0[i], ox1[i], oy0[i], oy1[i] = bx0, bx1, by0, by1
+                    odepth[i] = (max(da, NEAR) + max(db, NEAR) + max(dc, NEAR)) / 3
+                    if not olow[i] then olow[i] = min(v[(a - 1) * 6 + 3], v[(b - 1) * 6 + 3], v[(c - 1) * 6 + 3]) end
                 end
             end
         end
-        if not visible and shown[i] then
+        if not main and shown[i] then
             shown[i] = nil
             tex[i]:Hide()
-            if meshState.over[i] then                                  -- out of sight: back under the models
-                meshState.over[i] = nil
-                PlaceTex(tex[i], tex[i].slot, false)
-            end
+        end
+        if not listed and over[i] then                                 -- out of sight: back under the models
+            over[i] = nil
+            if tex[i] then PlaceTex(tex[i], tex[i].slot, false) end
+        end
+    end
+    for _, pool in pairs(extra) do
+        for k = pool.used + 1, #pool do
+            if not pool[k]:IsShown() then break end
+            pool[k]:Hide()
         end
     end
     meshState.nOcc = nOcc
-    UpdateOcclusion()
+    meshState.piecesDirty = true
+    UpdateOcclusion(true)
     return true
 end
 
@@ -758,38 +895,33 @@ local function DrawFloor()
     for i = lineCount.floor + 1, #floorLines do floorLines[i]:Hide() end
 end
 
--- The place in the room's draw order for something lying on the floor at (x, y): right after the triangle it
--- lies on (found on screen: the visible triangle under that point whose surface is at that height), so whatever
--- is nearer still paints over it. Without a mesh, or off screen: nil (drawn on top, as before).
+-- The place in the room's draw order for something lying on the floor at (x, y): right after the floor triangle
+-- it lies on, so whatever is nearer still paints over it. Without a mesh, or off the floor: nil (drawn on top).
 local function SlotAt(x, y)
-    local st, mesh = meshState, meshState.mesh
-    if not (mesh and st.basis and sim.enc.arena.mesh == mesh) then return nil end
+    local mesh = meshState.mesh
+    if not (mesh and mesh.grid and meshState.basis and sim.enc.arena.mesh == mesh) then return nil end
+    local cell = mesh.grid[floor(x / 8) * 1000 + floor(y / 8)]
+    if not cell then return nil end
     local z = GroundZ(x, y)
-    local px, py = Project(x, y, z)
-    if not px then return nil end
-    local sx, sy, t, v = st.sx, st.sy, mesh.tris, mesh.verts
-    local own, top
-    for n = 1, st.nOcc do
-        local i = st.occ[n]
-        if px >= st.x0[i] and px <= st.x1[i] and py >= st.y0[i] and py <= st.y1[i] and not st.tex[i].clipped then
-            local a, b, c = t[i * 4 - 3], t[i * 4 - 2], t[i * 4 - 1]
-            local ax, ay, bx, by, cx, cy = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
-            local d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
-            if d ~= 0 then
-                local w1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d
-                local w2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d
-                local w3 = 1 - w1 - w2
-                if w1 >= -0.02 and w2 >= -0.02 and w3 >= -0.02 then
-                    local slot = st.tex[i].slot
-                    local zt = w1 * v[a * 6 - 3] + w2 * v[b * 6 - 3] + w3 * v[c * 6 - 3]
-                    if math.abs(zt - z) < 1.5 and (not own or slot > own) then own = slot end
-                    if not top or slot > top then top = slot end
-                end
+    local t, v = mesh.tris, mesh.verts
+    local best, bestGap
+    for n = 1, #cell do
+        local i = cell[n]
+        local a, b, c = (t[i * 4 - 3] - 1) * 6, (t[i * 4 - 2] - 1) * 6, (t[i * 4 - 1] - 1) * 6
+        local ax, ay, bx, by, cx, cy = v[a + 1], v[a + 2], v[b + 1], v[b + 2], v[c + 1], v[c + 2]
+        local d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if d ~= 0 then
+            local w1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / d
+            local w2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / d
+            local w3 = 1 - w1 - w2
+            if w1 >= -0.01 and w2 >= -0.01 and w3 >= -0.01 then
+                local gap = math.abs(w1 * v[a + 3] + w2 * v[b + 3] + w3 * v[c + 3] - z)
+                if gap < 1.5 and (not bestGap or gap < bestGap) then best, bestGap = i, gap end
             end
         end
     end
-    local slot = own or top
-    return slot and min(MESH_SLOTS - 1, slot + (mesh.slotStep > 1 and 1 or 0))
+    if not best then return nil end
+    return min(MESH_SLOTS - 1, mesh.nodeSlot[mesh.nodeOf[best]] + (mesh.slotStep > 1 and 1 or 0))
 end
 
 local function DrawEffects()
@@ -2131,7 +2263,14 @@ UI._Order = function()
     for i in pairs(meshState.shown) do
         if meshState.tex[i].slot ~= mesh.nodeSlot[mesh.nodeOf[i]] then wrong = wrong + 1 end
     end
-    return { nodes = mesh.nNodes, distinct = distinct, step = mesh.slotStep, lines = lines, wrong = wrong }
+    local pieces = 0
+    for _, pool in pairs(meshState.extra) do
+        pieces = pieces + pool.used
+        for k = 1, pool.used do
+            if pool[k].slot ~= mesh.nodeSlot[mesh.nodeOf[pool[k].parentTri]] then wrong = wrong + 1 end
+        end
+    end
+    return { nodes = mesh.nNodes, distinct = distinct, step = mesh.slotStep, lines = lines, wrong = wrong, pieces = pieces }
 end
 UI._Plates = function()
     local out = {}
