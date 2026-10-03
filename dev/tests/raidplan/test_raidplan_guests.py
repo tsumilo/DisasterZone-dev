@@ -504,7 +504,9 @@ def the_guests_and_blacklist_windows():
     # Add players (the icon at the top right of the raid): guild members to invite, and guests by name, class, spec
     bob.click(bob.eval("return %s.upcoming.detail.inviteBtn" % P))
     G = "ns.RaidPlanUI:GetInviteWindow()"
-    assert shown(bob, G) and shown(bob, G + ".picker.frame") and shown(bob, G + ".nameBox")
+    assert shown(bob, G) and shown(bob, G + ".picker.frame") and not shown(bob, G + ".nameBox")   # one row at a time
+    bob.click(bob.eval("return %s.guestTab" % G))
+    assert shown(bob, G + ".nameBox") and not shown(bob, G + ".picker.frame")
     bob.type_text(bob.eval("return %s.nameBox" % G), "Pugsy")
     bob.click(bob.eval("return %s.addBtn" % G))
     assert "class" in bob.eval("return %s.err:GetText()" % G)              # no class picked yet
@@ -519,14 +521,14 @@ def the_guests_and_blacklist_windows():
     g = rita.eval_py("return ns.RaidPlan:GetGuests(...)", occ)
     assert list(g) == [K("Pugsy")] and g[K("Pugsy")]["c"] == "ROGUE" and g[K("Pugsy")]["sp"] == 2, g
     assert bob.eval("return %s.nameBox:GetText()" % G) == ""
-    assert bob.find_text("Combat Rogue", True, True) and bob.find_text("0 invited · 1 guest", True, True)
+    assert bob.find_text("Combat Rogue", True, True) and bob.find_text("1 guest", True, True)
     rows = bob.eval_py("return %s.list:GetData()" % G)
     assert [(r["key"], r.get("guest")) for r in rows] == [(K("Pugsy"), True)], rows
     # an officer who plans no raids adds guests there too, without the guild member search
     olaf = c["Olaf"]
     open_tab(w, olaf, occ)
     olaf.click(olaf.eval("return %s.upcoming.detail.inviteBtn" % P))
-    assert shown(olaf, G + ".nameBox") and not shown(olaf, G + ".picker.frame")
+    assert shown(olaf, G + ".nameBox") and not shown(olaf, G + ".picker.frame") and not shown(olaf, G + ".guestTab")
     bob.eval("ns.RaidPlanUI:RemoveGuest(...)", K("Pugsy"))
     w.tick(2)
     assert rita.eval_py("return ns.RaidPlan:GetGuests(...)", occ) == {}

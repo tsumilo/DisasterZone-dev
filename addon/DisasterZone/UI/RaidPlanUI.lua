@@ -2206,21 +2206,43 @@ local function initInviteRow(row, d)
     row.remove:SetShown(d.guest or RP():CanOrganize())
 end
 
+-- One input row at a time: the "Guild member" tab shows the member search, the "Guest" tab the guest's name, class
+-- and spec. What each tab is for is in its tooltip, not on the window.
 local function createInvites()
-    local w = UI():CreateWindow("DisasterZoneRaidInvites", "Add players", 380, 470)
+    local w = UI():CreateWindow("DisasterZoneRaidInvites", "Add players", 400, 400)
     inviteWin = w
     local c = w.content
-    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    w.mode = "member"
+    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     w.info:SetPoint("TOPLEFT", 10, -8)
     w.info:SetPoint("RIGHT", -10, 0)
     w.info:SetJustifyH("LEFT")
+    w.info:SetWordWrap(false)
+    w.sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    w.sub:SetPoint("TOPLEFT", 10, -26)
+    w.sub:SetPoint("RIGHT", -10, 0)
+    w.sub:SetJustifyH("LEFT")
+    w.sub:SetWordWrap(false)
+
+    local function tab(label, mode, width)
+        return UI():CreateSleekButton(c, label, width, 20, function()
+            w.mode = mode
+            w.err:SetText("")
+            PlanUI:RefreshInvites()
+        end)
+    end
+    w.memberTab = tab("Guild member", "member", 100)
+    w.memberTab:SetPoint("TOPLEFT", 8, -48)
+    tipButton(w.memberTab, "Guild member", "Invite guild members outside the raid's teams. On a locked raid they are "
+        .. "the only ones besides the teams who can sign up and see it.")
+    w.guestTab = tab("Guest", "guest", 70)
+    w.guestTab:SetPoint("LEFT", w.memberTab, "RIGHT", 3, 0)
+    tipButton(w.guestTab, "Guest", "Add a player who is not in the guild by character name. A guest counts as "
+        .. "accepted, can be placed in a group and is invited with the raid.")
 
     -- guild members (raid planners)
-    w.memberLabel = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    w.memberLabel:SetPoint("TOPLEFT", 10, -62)
-    w.memberLabel:SetText("Guild members")
-    w.picker = UI():CreateSearchDropdown(c, 240, {
-        placeholder = "Invite guild members...",
+    w.picker = UI():CreateSearchDropdown(c, 340, {
+        placeholder = "Search guild members...",
         emptyText = "No matching guild members.",
         getItems = invitePickerItems,
         isChecked = function(key) return inviteSet(inviteRaid())[key] and true or false end,
@@ -2229,38 +2251,39 @@ local function createInvites()
     w.picker.frame:SetPoint("TOPLEFT", 6, -76)
 
     -- guests (roster managers): name, class, spec
-    w.guestLabel = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    w.guestLabel:SetPoint("TOPLEFT", 10, -110)
-    w.guestLabel:SetText("Guests " .. grey("(players outside the guild: type the character's name)"))
     w.nameBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
-    w.nameBox:SetSize(118, 20)
+    w.nameBox:SetSize(116, 20)
     w.nameBox:SetAutoFocus(false)
     w.nameBox:SetMaxLetters(48)
-    w.nameBox:SetPoint("TOPLEFT", 14, -126)
+    w.nameBox:SetPoint("TOPLEFT", 14, -78)
     w.nameBox:SetScript("OnEnterPressed", function() PlanUI:AddGuest() end)
     w.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    w.classDD = UI():CreateSleekDropdown(c, 90, classOptions, function() return w.cls end, function(val)
+    w.nameHint = w.nameBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    w.nameHint:SetPoint("LEFT", 2, 0)
+    w.nameHint:SetText("Character name")
+    w.nameBox:SetScript("OnTextChanged", function(self) w.nameHint:SetShown(self:GetText() == "") end)
+    w.classDD = UI():CreateSleekDropdown(c, 84, classOptions, function() return w.cls end, function(val)
         w.cls, w.sp = val, nil
         if w.specDD.Refresh then w.specDD:Refresh() end
     end)
     w.classDD:SetPoint("LEFT", w.nameBox, "RIGHT", 6, 0)
     w.classDD:SetDefaultText("Class")
-    w.specDD = UI():CreateSleekDropdown(c, 86, guestSpecOptions, function() return w.sp end, function(val) w.sp = val end)
+    w.specDD = UI():CreateSleekDropdown(c, 84, guestSpecOptions, function() return w.sp end, function(val) w.sp = val end)
     w.specDD:SetPoint("LEFT", w.classDD, "RIGHT", 3, 0)
     w.specDD:SetDefaultText("Spec")
-    w.addBtn = UI():CreateSleekButton(c, "Add", 48, 22, function() PlanUI:AddGuest() end, "primary")
+    w.addBtn = UI():CreateSleekButton(c, "Add", 44, 22, function() PlanUI:AddGuest() end, "primary")
     w.addBtn:SetPoint("LEFT", w.specDD, "RIGHT", 4, 0)
+
     w.err = c:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-    w.err:SetPoint("TOPLEFT", 12, -150)
+    w.err:SetPoint("TOPLEFT", 12, -104)
     w.err:SetPoint("RIGHT", -10, 0)
     w.err:SetJustifyH("LEFT")
-
     w.status = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.status:SetPoint("TOPLEFT", 10, -168)
+    w.status:SetPoint("TOPLEFT", 10, -104)
     w.list = UI():CreateScrollList(c, 22, initInviteRow)
-    w.list.frame:SetPoint("TOPLEFT", 4, -184)
+    w.list.frame:SetPoint("TOPLEFT", 4, -120)
     w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
-    w.list:SetEmptyText("Nobody outside the teams is invited.\nSearch for guild members, or add a guest by name.")
+    w.list:SetEmptyText("Nobody added yet.")
     w:Hide()
     return w
 end
@@ -2279,6 +2302,7 @@ function PlanUI:OpenInvites(occId)
     if not inviteWin then createInvites() end
     inviteWin.occ = occId
     inviteWin.err:SetText("")
+    inviteWin.mode = RP():CanOrganize() and "member" or "guest"
     inviteWin:Show()
     inviteWin:Raise()
     self:RefreshInvites()
@@ -2311,10 +2335,12 @@ function PlanUI:AddGuest(name, classFile, spec)
     local ok, err = RP():AddGuest(w.occ, name, classFile or w.cls, spec or w.sp)
     if not ok then
         w.err:SetText(err or "Could not add the guest.")
+        w.status:SetText("")
         return false
     end
     w.err:SetText("")
     w.nameBox:SetText("")
+    w.nameBox:ClearFocus()
     self:RefreshInvites()
     return true
 end
@@ -2336,16 +2362,21 @@ function PlanUI:RefreshInvites()
         return
     end
     local planner, manager = RP():CanOrganize(), RP():CanManageRoster()
-    inviteWin.info:SetText(("|cffffd100%s|r  %s\n%s%s"):format(raidTitle(v), grey(fmtDay(v.t) .. " " .. fmtTime(v.t)),
-        RP():IsLocked(v) and "This raid is locked: only its teams and the players invited here can sign up and see it."
-            or "This raid is open: everyone can sign up. The players invited here are expected, like the teams.",
-        v.weekly and " Changes here are for this week only." or ""))
-    inviteWin.memberLabel:SetShown(planner)
-    inviteWin.picker.frame:SetShown(planner)
-    for _, region in ipairs({ inviteWin.guestLabel, inviteWin.nameBox, inviteWin.classDD, inviteWin.specDD,
-                              inviteWin.addBtn, inviteWin.err }) do
-        region:SetShown(manager)
-    end
+    local w = inviteWin
+    w.info:SetText(raidTitle(v) .. "  " .. grey(fmtDay(v.t) .. " " .. fmtTime(v.t)))
+    w.sub:SetText((RP():IsLocked(v) and "Locked to its teams and the players added here" or "Open to everyone")
+        .. (v.weekly and " · changes are for this week only" or ""))
+    -- the tabs only when there is a choice
+    if not planner then w.mode = "guest" elseif not manager then w.mode = "member" end
+    local guestMode = w.mode == "guest"
+    w.memberTab:SetShown(planner and manager)
+    w.guestTab:SetShown(planner and manager)
+    w.memberTab:SetKind(guestMode and "secondary" or "active")
+    w.guestTab:SetKind(guestMode and "active" or "secondary")
+    w.picker.frame:SetShown(not guestMode)
+    if guestMode and w.picker.Close then w.picker:Close() end
+    for _, region in ipairs({ w.nameBox, w.classDD, w.specDD, w.addBtn }) do region:SetShown(guestMode) end
+    w.nameHint:SetShown(w.nameBox:GetText() == "")
     local g = ns.Guild
     local rows = {}
     for _, key in ipairs(v.inv or {}) do
@@ -2362,8 +2393,11 @@ function PlanUI:RefreshInvites()
     end
     tsort(guests, function(a, b) return nameLess(a.key, b.key) end)
     for _, d in ipairs(guests) do rows[#rows + 1] = d end
-    inviteWin.status:SetText(invited .. " invited" .. (#(v.tm or {}) > 0 and (" on top of " .. teamNames({ tm = v.tm })) or "")
-        .. (#guests > 0 and (" · " .. #guests .. (#guests == 1 and " guest" or " guests")) or ""))
+    -- "2 invited · 1 guest" (nothing while the list is empty, or while an error is shown in its place)
+    local parts = {}
+    if invited > 0 then parts[#parts + 1] = invited .. " invited" end
+    if #guests > 0 then parts[#parts + 1] = #guests .. (#guests == 1 and " guest" or " guests") end
+    inviteWin.status:SetText((inviteWin.err:GetText() or "") == "" and tconcat(parts, " · ") or "")
     inviteWin.list:SetData(rows)
     for _, dd in ipairs({ inviteWin.classDD, inviteWin.specDD }) do
         if dd.Refresh then dd:Refresh() end
