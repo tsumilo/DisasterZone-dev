@@ -1709,7 +1709,12 @@ function UI:CreatePanel(parent)
     hud:SetAllPoints()
     hud:SetFrameLevel(view:GetFrameLevel() + 8)
     R.banner = hud:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    R.banner:SetPoint("TOP", R.timer, "BOTTOM", 0, -8)
+    if scene then
+        -- below the unit frames and aura icons, where the client puts its raid warnings
+        R.banner:SetPoint("TOP", view, "TOP", 0, -104)
+    else
+        R.banner:SetPoint("TOP", R.timer, "BOTTOM", 0, -8)
+    end
     R.banner:SetWidth(420)
     R.banner:Hide()
     R.error = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
