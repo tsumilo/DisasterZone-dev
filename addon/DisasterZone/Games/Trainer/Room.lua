@@ -12,15 +12,23 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Room.lua", ...) then
 --    when the order changes, only frame levels and the sublevels of textures move.
 --  * A triangle and its quad mate (the generator's pair list) are one texture; the client splits a texture along
 --    its lower-left - upper-right diagonal, which is the edge the two share.
---  * Pieces that cross the camera's near plane are halved (always across their longest edge in the room, so the
---    cuts do not depend on the camera) down to 0.05 yd and then clipped exactly at the near plane; nothing is
---    ever dropped. Whole subtrees and nodes outside the view are skipped by their bounding boxes.
+--  * A texture maps its picture affinely, a camera sees it in perspective: along an edge whose ends are d1 and d2
+--    deep and L px apart the picture is off by at most L |sqrt d1 - sqrt d2| / (sqrt d1 + sqrt d2) (spec A.1),
+--    and nowhere inside a piece by more than on its worst edge. A piece is drawn whole only when every edge (a
+--    quad's diagonals too) is within tau px; otherwise it is halved across its longest edge in the room, so the
+--    cuts never depend on the camera and stay put on the floor while you move. A piece that was halved in the
+--    last redraw stays halved until its error is under 0.75 tau (no flicker at the threshold). tau follows the
+--    number of pieces (about 1600; 1.5 to 5 px). The pieces are collected before any is drawn: a redraw that would
+--    run past the hard cap is collected again with a coarser tau, and only at 5 px does the cap stop the halving
+--    (the picture gets coarser, but nothing is ever left out).
+--  * Pieces that cross the camera's near plane are halved down to 0.05 yd and then clipped exactly at the near
+--    plane; nothing is ever dropped. Whole subtrees and nodes outside the view are skipped by their bounding boxes.
 --  * Every piece has a key (its prim and its path through the halvings) and keeps its texture from frame to frame,
 --    so a frame where the camera moved costs four SetVertexOffset per piece and little else; a frame where it did
 --    not move costs nothing.
 --  * Mark lines (rings, columns, beams) are put into that same order by running each segment down the tree.
--- Not here yet (later steps of the spec): the screen-error subdivision, camera collision, copies of the room over
--- the models, the texture morph and the budget controllers.
+-- Not here yet (later steps of the spec): camera collision, copies of the room over the models, the texture morph
+-- and the time-based budget controller.
 local _, ns = ...
 
 local Room = { opts = {} }
@@ -29,14 +37,20 @@ ns.TrainerRoom = Room
 local floor, sqrt, abs, max = math.floor, math.sqrt, math.abs, math.max
 local pairs, pcall, type = pairs, pcall, type
 local wipe = wipe
+-- (Lua 5.1 allows 200 locals in this main chunk: values only read once per redraw or less live in tables, CTL)
 
 ---------------------------------------------------------------------------
 -- Constants (spec section 3)
 ---------------------------------------------------------------------------
 
 local MARGIN = 2                  -- px: the frustum is this much bigger than the view
-local TAU_START = 2.0             -- the screen-error bound (reported to render_check; no subdivision uses it yet)
-local TARGET_START, HARD_CAP = 1600, 2800
+-- The screen-error bound tau and its count controller (spec 5.7, 5.11): tau starts at 2 px and stays within
+-- 1.5 .. 5; a piece halved in the last redraw is drawn whole again only under merge * tau; the controller aims at
+-- `target` pieces per redraw, nothing is halved past `cap`. State: tau = what the next redraw uses (the controller
+-- moves it), used = what the picture on screen was drawn with. selfEvery / selfPx / selfRun: the projection
+-- self-check runs every 30th camera move and warns after 10 checks in a row more than 1.5 px off.
+local CTL = { start = 2.0, min = 1.5, max = 5.0, merge = 0.75, target = 1600, cap = 2800, tau = 2.0, used = 2.0,
+              selfEvery = 30, selfPx = 1.5, selfRun = 10 }
 local MAXDEPTH = 18               -- halvings of one prim at most
 local MINCLIP2 = 0.05 * 0.05      -- a piece crossing the near plane is halved until its longest edge is under this
 local CAP_NODES, ROOM_FRAMES_MAX = 32, 200
@@ -51,9 +65,10 @@ local BLEND_CODE = { DISABLE = 0, ALPHAKEY = 1, BLEND = 2 }
 local VUL, VLL = UPPER_LEFT_VERTEX or 1, LOWER_LEFT_VERTEX or 2
 local VUR, VLR = UPPER_RIGHT_VERTEX or 3, LOWER_RIGHT_VERTEX or 4
 
--- Room.opts (spec section 8, UI._RenderOpts): tau (a number fixes the bound), adaptive, adaptiveTime, target,
--- hardCap, morph, copies, collision, siblingQuads, opaque, dilate, camDt. Of these only opaque does something yet.
-local DEFAULTS = { adaptive = true, adaptiveTime = true, target = TARGET_START, hardCap = HARD_CAP, morph = true,
+-- Room.opts (spec section 8, UI._RenderOpts): tau (a number fixes the bound and turns the controller off),
+-- adaptive (the count controller), adaptiveTime, target, hardCap, morph, copies, collision, siblingQuads, opaque,
+-- dilate, camDt. Not used yet (later steps): adaptiveTime, morph, copies, collision, siblingQuads, dilate, camDt.
+local DEFAULTS = { adaptive = true, adaptiveTime = true, target = CTL.target, hardCap = CTL.cap, morph = true,
                    copies = true, collision = true, siblingQuads = false, opaque = true, dilate = 0, camDt = false }
 for k, v in pairs(DEFAULTS) do Room.opts[k] = v end
 
@@ -69,7 +84,8 @@ local lineFrame                           -- mark segments that come before ever
 
 -- points: room vertices 1..nV, midpoints nV+1.., temporaries TMP0+1..
 local WX, WY, WZ, TU, TV, DU, DV = {}, {}, {}, {}, {}, {}, {}      -- arena position, texture coordinate (shown)
-local PS, PR, PU, PD, PX, PY = {}, {}, {}, {}, {}, {}              -- camera space and screen (valid: PS == gen)
+local PS, PR, PU, PD, PX, PY, PQ = {}, {}, {}, {}, {}, {}, {}      -- camera space, screen, sqrt(depth) (PS == gen)
+local MA, MB = {}, {}                                              -- a midpoint's edge (nil: a room vertex)
 local midOf = {}                                                   -- edge key -> midpoint id
 
 -- BSP nodes
@@ -84,13 +100,21 @@ local stN, stP = {}, {}                                            -- traversal 
 local QA, QB, QC, QD, QL, QO, QN, QTEX, QPOOL = {}, {}, {}, {}, {}, {}, {}, {}, {}
 
 local live, liveList = {}, {}                                      -- piece key -> texture; the live ones
+local splitPrev, splitCur = {}, {}                                 -- piece keys halved in the last / this redraw
+local LR = {}                                                      -- the redraw's pieces, 8 numbers each (Leaf)
+local redoOK, aborted = false, false                               -- past the hard cap: collect again coarser
 
 local curMesh, meshOk = nil, false
 local nV, nPts, nTmp, nNodes, nPrims, nFrames, nLive = 0, 0, 0, 0, 0, 0, 0
-local nLeaves, nClipped, gen, stamp1 = 0, 0, 0, 0
+local nLeaves, nClipped, nCapped, gen, stamp1 = 0, 0, 0, 0, 0
 local forceOrder, dirty, camMoved, haveBasis, wipeMid = true, true, false, false, false
+local camDriven = false                                            -- this redraw is there because the camera moved
 local orderValid = false                                           -- pass 1b ran for this mesh
-local stats = { redraws = 0, pass1b = 0, redraw = false }
+local stats = { redraws = 0, pass1b = 0, redraw = false, moves = 0, selfBad = 0, redone = 0 }
+
+-- for the redraw under way: tau^2 and (merge * tau)^2 (the hysteresis), and the hard cap
+local tau2, merge2, hardCap = CTL.tau ^ 2, (CTL.merge * CTL.tau) ^ 2, CTL.cap
+local morphOn = false             -- the per-edge texture morph (spec 5.6, step 8); off: shown = true coordinates
 
 -- the camera in the room's own (arena) coordinates, and the screen mapping measured from the scene
 local ex, ey, ez, Fx, Fy, Fz = 0, 0, 0, 1, 0, 0
@@ -119,7 +143,7 @@ local function PreparePoints(mesh)
         local o = i * 6 - 6
         WX[i], WY[i], WZ[i] = v[o + 1], v[o + 2], v[o + 3]
         TU[i], TV[i], DU[i], DV[i] = v[o + 4], v[o + 5], v[o + 4], v[o + 5]
-        PS[i] = 0
+        PS[i], MA[i], MB[i] = 0, nil, nil
     end
     nPts = nV
     wipe(midOf)
@@ -401,6 +425,27 @@ local function BoxOut(B, o)
     return false
 end
 
+-- The projection self-check (spec 5.3.6): a point 25 yd ahead, 4 right and 2 up, placed with the measured basis and
+-- with the scene's own Project3DPointTo2D. If the client's camera were not the pinhole the basis assumes (or lagged
+-- a frame behind SetCameraPosition), the room would swim against the models: say so once.
+-- s: the scene's effective scale; m: the camera's mirror.
+local function SelfCheck(s, m)
+    local x, y, z = ex + 25 * Fx + 4 * Rx + 2 * Ux, ey + 25 * Fy + 4 * Ry + 2 * Uy, ez + 25 * Fz + 2 * Uz
+    local qx, qy = Probe(x, m * y, z)
+    if not qx then return end
+    local dx, dy = qx / s - (cx + (4 * exx + 2 * eyx) / 25), qy / s - (cy + (4 * exy + 2 * eyy) / 25)
+    local e = sqrt(dx * dx + dy * dy)
+    stats.selfCheckPx = e
+    stats.selfBad = (e > CTL.selfPx) and (stats.selfBad + 1) or 0
+    if stats.selfBad >= CTL.selfRun and not stats.selfWarned then
+        stats.selfWarned = true
+        if ns.Print then
+            ns:Print(("Raid Trainer: the room may not line up with the characters (projection check off by %d px). "
+                .. "Please report this."):format(floor(e + 0.5)))
+        end
+    end
+end
+
 -- Is the view's frame level what the frames were put on? (A parent that is moved up or down moves the view.)
 local function CheckLevel()
     local lv = view:GetFrameLevel()
@@ -425,12 +470,12 @@ function Room.BeginFrame(c)
     local k = camKey
     if haveBasis and x == k[1] and y == k[2] and z == k[3] and fx == k[4] and fy == k[5] and fz == k[6]
         and w == k[7] and h == k[8] and s == k[9] then
-        camMoved = dirty
+        camMoved, camDriven = dirty, false
         return true
     end
     local flat = sqrt(fx * fx + fy * fy)
     if flat < 1e-4 then
-        camMoved = false
+        camMoved, camDriven = false, false
         return true
     end
     -- the screen point straight ahead and what one yard right / up is worth there, measured 10 yd ahead (scene
@@ -442,7 +487,7 @@ function Room.BeginFrame(c)
     local p1x, p1y = Probe(ax + rx, ay + ry, az)
     local p2x, p2y = Probe(ax + ux, ay + uy, az + uz)
     if not (p0x and p1x and p2x) then
-        camMoved = false
+        camMoved, camDriven = false, false
         return true
     end
     local m = c.mirror or 1
@@ -461,7 +506,9 @@ function Room.BeginFrame(c)
     SetPlane(13, -exy, -eyy, ct)
     FR[17], FR[18], FR[19], FR[20] = Fx, Fy, Fz, -(Fx * ex + Fy * ey + Fz * ez) - NEAR
     k[1], k[2], k[3], k[4], k[5], k[6], k[7], k[8], k[9] = x, y, z, fx, fy, fz, w, h, s
-    haveBasis, camMoved = true, true
+    haveBasis, camMoved, camDriven = true, true, true
+    stats.moves = stats.moves + 1
+    if stats.moves % CTL.selfEvery == 0 then SelfCheck(s, m) end
     return true
 end
 
@@ -469,7 +516,9 @@ end
 -- Points, culling, pieces (spec 5.6 - 5.9)
 ---------------------------------------------------------------------------
 
--- Camera space and screen position of a point, once per redraw.
+-- Camera space, screen position and sqrt(depth) of a point, once per redraw and only for the points of pieces that
+-- are looked at (spec 5.6; the texture morph of midpoints is step 8: until then a midpoint shows its true
+-- texture coordinate).
 local function Prep(id)
     if PS[id] == gen then return end
     PS[id] = gen
@@ -478,36 +527,13 @@ local function Prep(id)
     local r, u = dx * Rx + dy * Ry, dx * Ux + dy * Uy + dz * Uz
     PR[id], PU[id], PD[id] = r, u, d
     if d > 1e-6 then
-        PX[id], PY[id] = cx + (r * exx + u * eyx) / d, cy + (r * exy + u * eyy) / d
+        PX[id], PY[id], PQ[id] = cx + (r * exx + u * eyx) / d, cy + (r * exy + u * eyy) / d, sqrt(d)
     end
 end
 
--- All corners outside one frustum plane (camera space, so right for points behind the camera too)?
-local function Out3(a, b, c)
-    local da, db, dc = PD[a], PD[b], PD[c]
-    if da < NEAR and db < NEAR and dc < NEAR then return true end
-    local ra, ua, rb, ub, rc, uc = PR[a], PU[a], PR[b], PU[b], PR[c], PU[c]
-    local la, lb, lc = ra * exx + ua * eyx, rb * exx + ub * eyx, rc * exx + uc * eyx
-    if la + cl * da < 0 and lb + cl * db < 0 and lc + cl * dc < 0 then return true end
-    if cr * da < la and cr * db < lb and cr * dc < lc then return true end
-    local ba, bb, bc = ra * exy + ua * eyy, rb * exy + ub * eyy, rc * exy + uc * eyy
-    if ba + cb * da < 0 and bb + cb * db < 0 and bc + cb * dc < 0 then return true end
-    if ct * da < ba and ct * db < bb and ct * dc < bc then return true end
-    return false
-end
-
-local function Out4(a, b, c, d)
-    local da, db, dc, dd = PD[a], PD[b], PD[c], PD[d]
-    if da < NEAR and db < NEAR and dc < NEAR and dd < NEAR then return true end
-    local ra, ua, rb, ub, rc, uc, rd, ud = PR[a], PU[a], PR[b], PU[b], PR[c], PU[c], PR[d], PU[d]
-    local la, lb, lc, ld = ra * exx + ua * eyx, rb * exx + ub * eyx, rc * exx + uc * eyx, rd * exx + ud * eyx
-    if la + cl * da < 0 and lb + cl * db < 0 and lc + cl * dc < 0 and ld + cl * dd < 0 then return true end
-    if cr * da < la and cr * db < lb and cr * dc < lc and cr * dd < ld then return true end
-    local ba, bb, bc, bd = ra * exy + ua * eyy, rb * exy + ub * eyy, rc * exy + uc * eyy, rd * exy + ud * eyy
-    if ba + cb * da < 0 and bb + cb * db < 0 and bc + cb * dc < 0 and bd + cb * dd < 0 then return true end
-    if ct * da < ba and ct * db < bb and ct * dc < bc and ct * dd < bd then return true end
-    return false
-end
+-- (Out3 / Out4, the test whether a piece is out of view, are written out in RefineTri / RefineQuad: all corners
+-- behind the near plane, or all outside one side of the view, tested in camera space so that it holds for
+-- corners behind the camera too.)
 
 -- Squared length in the room: the same every frame, bit for bit (so the cuts never depend on the camera).
 local function W2(a, b)
@@ -533,6 +559,7 @@ local function Mid(a, b)
     WX[id], WY[id], WZ[id] = (WX[a] + WX[b]) * 0.5, (WY[a] + WY[b]) * 0.5, (WZ[a] + WZ[b]) * 0.5
     local u, v = (TU[a] + TU[b]) * 0.5, (TV[a] + TV[b]) * 0.5
     TU[id], TV[id], DU[id], DV[id] = u, v, u, v
+    MA[id], MB[id] = a, b
     PS[id] = 0
     return id
 end
@@ -581,7 +608,6 @@ end
 -- One piece on screen (spec 5.9.1): n = 3 (c1, c2, c3; c4 == c3) or 4 (cyclic c1..c4). UL = c1, LL = c2,
 -- UR = c4, LR = c3: a triangle's UR and LR are the same corner, a quad's diagonal LL - UR is c2 - c4.
 local function Emit(p, key, n, c1, c2, c3, c4, clipped)
-    nLeaves = nLeaves + 1
     local k = QN[p]
     local tx = live[key]
     if not tx then
@@ -597,7 +623,9 @@ local function Emit(p, key, n, c1, c2, c3, c4, clipped)
         end
     end
     tx.gen = gen
-    if clipped or not tx.uvOk or ((c1 > nV or c2 > nV or c3 > nV or c4 > nV) and UVMoved(tx, c1, c2, c4, c3)) then
+    -- (a key always has the same corners, so without the morph their texture coordinates never change)
+    if clipped or not tx.uvOk
+        or (morphOn and (c1 > nV or c2 > nV or c3 > nV or c4 > nV) and UVMoved(tx, c1, c2, c4, c3)) then
         local u1, v1, u2, v2, u3, v3, u4, v4 = DU[c1], DV[c1], DU[c2], DV[c2], DU[c4], DV[c4], DU[c3], DV[c3]
         tx:SetTexCoord(u1, v1, u2, v2, u3, v3, u4, v4)
         tx.u1, tx.v1, tx.u2, tx.v2, tx.u3, tx.v3, tx.u4, tx.v4 = u1, v1, u2, v2, u3, v3, u4, v4
@@ -635,10 +663,25 @@ local function ClipPoint(i, j)
     return id
 end
 
+-- A piece to draw (a leaf of the halvings): recorded in LR (8 numbers per leaf: prim, key, corners 3 or 4, the
+-- four corner points, clipped), drawn once the whole redraw is known to fit (Pass2). A redraw whose tau is still
+-- the controller's to move and that runs past the hard cap stops at once (aborted) and is done again coarser.
+local function Leaf(p, key, n, c1, c2, c3, c4, clipped)
+    local i = nLeaves + 1
+    nLeaves = i
+    if i > hardCap and redoOK then
+        aborted = true
+        return
+    end
+    local o = i * 8 - 8
+    LR[o + 1], LR[o + 2], LR[o + 3], LR[o + 4], LR[o + 5], LR[o + 6], LR[o + 7], LR[o + 8] =
+        p, key, n, c1, c2, c3, c4, clipped
+end
+
 -- A piece that crosses the near plane, cut there (Sutherland-Hodgman, spec 5.8): 3 or 4 corners are one texture;
 -- 5 (a quad) are two, the quad (v1, v2, v3, v4) and the triangle (v1, v4, v5) with the next key.
 local CI, CO = {}, {}
-local function EmitClip(p, key, n, a, b, c, d)
+local function ClipLeaf(p, key, n, a, b, c, d)
     CI[1], CI[2], CI[3], CI[4] = a, b, c, d
     local m = 0
     for i = 1, n do
@@ -657,67 +700,179 @@ local function EmitClip(p, key, n, a, b, c, d)
     if m < 3 then return end
     nClipped = nClipped + 1
     if m == 3 then
-        Emit(p, key, 3, CO[1], CO[2], CO[3], CO[3], true)
+        Leaf(p, key, 3, CO[1], CO[2], CO[3], CO[3], true)
     elseif m == 4 then
-        Emit(p, key, 4, CO[1], CO[2], CO[3], CO[4], true)
+        Leaf(p, key, 4, CO[1], CO[2], CO[3], CO[4], true)
     else
         local v1, v4, v5 = CO[1], CO[4], CO[5]
-        Emit(p, key, 4, v1, CO[2], CO[3], v4, true)
-        Emit(p, key + 1, 3, v1, v4, v5, v5, true)
+        Leaf(p, key, 4, v1, CO[2], CO[3], v4, true)
+        Leaf(p, key + 1, 3, v1, v4, v5, v5, true)
     end
 end
 
--- A triangle piece: drawn whole, or (crossing the near plane) halved across its longest edge until it is small,
--- then clipped. (P, M, R) and (M, Q, R) keep the winding. path = the halvings so far (root 1, children 2p, 2p+1).
+-- A triangle piece (spec 5.7): drawn whole when its affine error is within tau on every edge (under MERGE * tau
+-- when it was halved in the last redraw), else halved across its longest edge in the room: (P, M, R) and (M, Q, R)
+-- keep the winding. A piece crossing the near plane is halved until it is small, then clipped there. path = the
+-- halvings so far (root 1, children 2p, 2p+1); lev = how many. Past the hard cap (or MAXDEPTH) a piece in front
+-- of the near plane is drawn as it is.
+-- The edge test is exact (spec A.1): an edge L px long between depths d1 and d2 shows its picture at most
+-- L |sqrt d1 - sqrt d2| / (sqrt d1 + sqrt d2) px from where it belongs, and no point inside a piece is further off
+-- than on its worst edge. Compared squared, written out where it runs (every piece of every redraw): an edge from a
+-- to b (both in front of the near plane) is over t2 = tau^2 when
+--   ((PX[a] - PX[b])^2 + (PY[a] - PY[b])^2) (PQ[a] - PQ[b])^2 > t2 (PQ[a] + PQ[b])^2.
 local RefineTri, RefineQuad
 RefineTri = function(p, path, a, b, c, lev)
-    Prep(a) Prep(b) Prep(c)
-    if Out3(a, b, c) then return end
+    if aborted then return end
+    local g = gen
+    if PS[a] ~= g then Prep(a) end
+    if PS[b] ~= g then Prep(b) end
+    if PS[c] ~= g then Prep(c) end
+    -- out of view (Out3, written out): every corner behind the near plane or outside one side of the view
+    local da, db, dc = PD[a], PD[b], PD[c]
+    if da < NEAR and db < NEAR and dc < NEAR then return end
+    local ra, ua, rb, ub, rc, uc = PR[a], PU[a], PR[b], PU[b], PR[c], PU[c]
+    local la, lb, lc = ra * exx + ua * eyx, rb * exx + ub * eyx, rc * exx + uc * eyx
+    if (la + cl * da < 0 and lb + cl * db < 0 and lc + cl * dc < 0) or (cr * da < la and cr * db < lb and cr * dc < lc)
+    then return end
+    la, lb, lc = ra * exy + ua * eyy, rb * exy + ub * eyy, rc * exy + uc * eyy
+    if (la + cb * da < 0 and lb + cb * db < 0 and lc + cb * dc < 0) or (ct * da < la and ct * db < lb and ct * dc < lc)
+    then return end
     local key = p * KP + path * 4
-    if PD[a] < NEAR or PD[b] < NEAR or PD[c] < NEAR then
-        if lev < MAXDEPTH then
-            local lab, lbc, lca = W2(a, b), W2(b, c), W2(c, a)
-            if lab > MINCLIP2 or lbc > MINCLIP2 or lca > MINCLIP2 then
-                local P, Q, R
-                if lab >= lbc and lab >= lca then P, Q, R = a, b, c
-                elseif lbc >= lca then P, Q, R = b, c, a
-                else P, Q, R = c, a, b end
-                local M = Mid(P, Q)
-                RefineTri(p, path * 2, P, M, R, lev + 1)
-                RefineTri(p, path * 2 + 1, M, Q, R, lev + 1)
-                return
+    local crossing = da < NEAR or db < NEAR or dc < NEAR
+    local split = false
+    if lev < MAXDEPTH then
+        if crossing then
+            split = W2(a, b) > MINCLIP2 or W2(b, c) > MINCLIP2 or W2(c, a) > MINCLIP2
+        else
+            local room = nLeaves < hardCap
+            local t2 = (room and splitPrev[key]) and merge2 or tau2
+            local xa, ya, qa, xb, yb, qb, xc, yc, qc = PX[a], PY[a], PQ[a], PX[b], PY[b], PQ[b], PX[c], PY[c], PQ[c]
+            local dx, dy, ds, ss = xa - xb, ya - yb, qa - qb, qa + qb                   -- a - b
+            local over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            if not over then
+                dx, dy, ds, ss = xb - xc, yb - yc, qb - qc, qb + qc                     -- b - c
+                over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            end
+            if not over then
+                dx, dy, ds, ss = xc - xa, yc - ya, qc - qa, qc + qa                     -- c - a
+                over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            end
+            if room then
+                split = over
+            elseif over then
+                nCapped = nCapped + 1                                      -- (would have been halved)
             end
         end
-        EmitClip(p, key, 3, a, b, c, nil)
+    end
+    if split then
+        splitCur[key] = true
+        -- across the longest edge in the room (lengths that are the same every frame, bit for bit)
+        local x1, y1, z1, x2, y2, z2, x3, y3, z3 = WX[a], WY[a], WZ[a], WX[b], WY[b], WZ[b], WX[c], WY[c], WZ[c]
+        local u, v, w = x1 - x2, y1 - y2, z1 - z2
+        local lab = u * u + v * v + w * w
+        u, v, w = x2 - x3, y2 - y3, z2 - z3
+        local lbc = u * u + v * v + w * w
+        u, v, w = x3 - x1, y3 - y1, z3 - z1
+        local lca = u * u + v * v + w * w
+        local P, Q, R
+        if lab >= lbc and lab >= lca then P, Q, R = a, b, c
+        elseif lbc >= lca then P, Q, R = b, c, a
+        else P, Q, R = c, a, b end
+        local M = Mid(P, Q)
+        RefineTri(p, path * 2, P, M, R, lev + 1)
+        RefineTri(p, path * 2 + 1, M, Q, R, lev + 1)
+    elseif crossing then
+        ClipLeaf(p, key, 3, a, b, c, nil)
     else
-        Emit(p, key, 3, a, b, c, c, false)
+        Leaf(p, key, 3, a, b, c, c, false)
     end
 end
 
--- A quad piece (cyclic a, b, c, d): halved across its two longer opposite edges.
+-- A quad piece (cyclic a, b, c, d): its four edges and both diagonals must be within the bound (whichever diagonal
+-- the client splits it along); else it is halved across its two longer opposite edges (two quads, same winding).
 RefineQuad = function(p, path, a, b, c, d, lev)
-    Prep(a) Prep(b) Prep(c) Prep(d)
-    if Out4(a, b, c, d) then return end
+    if aborted then return end
+    local g = gen
+    if PS[a] ~= g then Prep(a) end
+    if PS[b] ~= g then Prep(b) end
+    if PS[c] ~= g then Prep(c) end
+    if PS[d] ~= g then Prep(d) end
+    -- out of view (Out4, written out)
+    local da, db, dc, dd = PD[a], PD[b], PD[c], PD[d]
+    if da < NEAR and db < NEAR and dc < NEAR and dd < NEAR then return end
+    local ra, ua, rb, ub, rc, uc, rd, ud = PR[a], PU[a], PR[b], PU[b], PR[c], PU[c], PR[d], PU[d]
+    local la, lb, lc, ld = ra * exx + ua * eyx, rb * exx + ub * eyx, rc * exx + uc * eyx, rd * exx + ud * eyx
+    if (la + cl * da < 0 and lb + cl * db < 0 and lc + cl * dc < 0 and ld + cl * dd < 0)
+        or (cr * da < la and cr * db < lb and cr * dc < lc and cr * dd < ld) then return end
+    la, lb, lc, ld = ra * exy + ua * eyy, rb * exy + ub * eyy, rc * exy + uc * eyy, rd * exy + ud * eyy
+    if (la + cb * da < 0 and lb + cb * db < 0 and lc + cb * dc < 0 and ld + cb * dd < 0)
+        or (ct * da < la and ct * db < lb and ct * dc < lc and ct * dd < ld) then return end
     local key = p * KP + path * 4
-    if PD[a] < NEAR or PD[b] < NEAR or PD[c] < NEAR or PD[d] < NEAR then
-        if lev < MAXDEPTH then
-            local lab, lbc, lcd, lda = W2(a, b), W2(b, c), W2(c, d), W2(d, a)
-            if lab > MINCLIP2 or lbc > MINCLIP2 or lcd > MINCLIP2 or lda > MINCLIP2 then
-                if lab + lcd >= lbc + lda then
-                    local m1, m2 = Mid(a, b), Mid(c, d)
-                    RefineQuad(p, path * 2, a, m1, m2, d, lev + 1)
-                    RefineQuad(p, path * 2 + 1, m1, b, c, m2, lev + 1)
-                else
-                    local m1, m2 = Mid(b, c), Mid(d, a)
-                    RefineQuad(p, path * 2, a, b, m1, m2, lev + 1)
-                    RefineQuad(p, path * 2 + 1, m2, m1, c, d, lev + 1)
-                end
-                return
+    local crossing = da < NEAR or db < NEAR or dc < NEAR or dd < NEAR
+    local split = false
+    if lev < MAXDEPTH then
+        if crossing then
+            split = W2(a, b) > MINCLIP2 or W2(b, c) > MINCLIP2 or W2(c, d) > MINCLIP2 or W2(d, a) > MINCLIP2
+        else
+            local room = nLeaves < hardCap
+            local t2 = (room and splitPrev[key]) and merge2 or tau2
+            local xa, ya, qa, xb, yb, qb = PX[a], PY[a], PQ[a], PX[b], PY[b], PQ[b]
+            local xc, yc, qc, xd, yd, qd = PX[c], PY[c], PQ[c], PX[d], PY[d], PQ[d]
+            local dx, dy, ds, ss = xa - xb, ya - yb, qa - qb, qa + qb                   -- a - b
+            local over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            if not over then
+                dx, dy, ds, ss = xb - xc, yb - yc, qb - qc, qb + qc                     -- b - c
+                over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            end
+            if not over then
+                dx, dy, ds, ss = xc - xd, yc - yd, qc - qd, qc + qd                     -- c - d
+                over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            end
+            if not over then
+                dx, dy, ds, ss = xd - xa, yd - ya, qd - qa, qd + qa                     -- d - a
+                over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            end
+            if not over then
+                dx, dy, ds, ss = xa - xc, ya - yc, qa - qc, qa + qc                     -- diagonal a - c
+                over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            end
+            if not over then
+                dx, dy, ds, ss = xb - xd, yb - yd, qb - qd, qb + qd                     -- diagonal b - d
+                over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
+            end
+            if room then
+                split = over
+            elseif over then
+                nCapped = nCapped + 1
             end
         end
-        EmitClip(p, key, 4, a, b, c, d)
+    end
+    if split then
+        splitCur[key] = true
+        -- across the two longer opposite edges (ab + cd against bc + da, room lengths)
+        local x1, y1, z1, x2, y2, z2 = WX[a], WY[a], WZ[a], WX[b], WY[b], WZ[b]
+        local x3, y3, z3, x4, y4, z4 = WX[c], WY[c], WZ[c], WX[d], WY[d], WZ[d]
+        local u, v, w = x1 - x2, y1 - y2, z1 - z2
+        local s1 = u * u + v * v + w * w
+        u, v, w = x3 - x4, y3 - y4, z3 - z4
+        s1 = s1 + (u * u + v * v + w * w)
+        u, v, w = x2 - x3, y2 - y3, z2 - z3
+        local s2 = u * u + v * v + w * w
+        u, v, w = x4 - x1, y4 - y1, z4 - z1
+        s2 = s2 + (u * u + v * v + w * w)
+        if s1 >= s2 then
+            local m1, m2 = Mid(a, b), Mid(c, d)
+            RefineQuad(p, path * 2, a, m1, m2, d, lev + 1)
+            RefineQuad(p, path * 2 + 1, m1, b, c, m2, lev + 1)
+        else
+            local m1, m2 = Mid(b, c), Mid(d, a)
+            RefineQuad(p, path * 2, a, b, m1, m2, lev + 1)
+            RefineQuad(p, path * 2 + 1, m2, m1, c, d, lev + 1)
+        end
+    elseif crossing then
+        ClipLeaf(p, key, 4, a, b, c, d)
     else
-        Emit(p, key, 4, a, b, c, d, false)
+        Leaf(p, key, 4, a, b, c, d, false)
     end
 end
 
@@ -812,17 +967,12 @@ local function Pass1()
     end
 end
 
--- The same order again, skipping what is out of view: every visible prim that faces the camera, piece by piece.
-local function Pass2()
-    gen = gen + 1
-    nLeaves, nClipped, nTmp = 0, 0, 0
-    if wipeMid then
-        wipe(midOf)
-        nPts, wipeMid = nV, false
-    end
+-- The same order again, skipping what is out of view: every visible prim that faces the camera, cut into the
+-- pieces tau asks for (recorded in LR, not drawn yet). Stops early when the redraw was aborted (Leaf).
+local function Collect()
     local sp = 1
     stN[1], stP[1] = 1, 0
-    while sp > 0 do
+    while sp > 0 and not aborted do
         local k, ph = stN[sp], stP[sp]
         if ph == 0 then
             if BoxOut(SB, k * 6 - 6) then
@@ -857,17 +1007,74 @@ local function Pass2()
             sp = sp - 1
         end
     end
+end
+
+-- Pass 2: collect the pieces, then draw them. When tau is the controller's (not fixed) and under its maximum, a
+-- redraw that runs past the hard cap is not drawn coarse (the nearest geometry would go unhalved, many px off): it is
+-- collected again at 1.25 tau, as often as needed (spec 11's order: tau rises to 5 px first, the cap applies only
+-- after that). Nothing is drawn before the pieces are known, so a second collection costs no widget calls.
+local function Pass2()
+    gen = gen + 1
+    if wipeMid then
+        wipe(midOf)
+        nPts, wipeMid = nV, false
+    end
+    splitPrev, splitCur = splitCur, splitPrev                         -- (the halvings of the last redraw)
+    local o, C = Room.opts, CTL
+    local fixed = type(o.tau) == "number" and o.tau > 0
+    if fixed then C.tau = o.tau end                                    -- a fixed bound (render_check, tests)
+    hardCap = tonumber(o.hardCap) or C.cap
+    stats.redone = 0
+    -- The hysteresis band (halved pieces merge only under merge * tau) holds tau still against a camera that moves.
+    -- In the redraw right after tau rose it starts again from the new tau: a piece halved at the old bound is over
+    -- that old bound, which is under merge * new tau for any rise below 1 / merge, so it would never merge and the
+    -- controller's rise would buy nothing for frames.
+    local lastTau = C.used
+    while true do
+        wipe(splitCur)
+        nLeaves, nClipped, nCapped, nTmp = 0, 0, 0, 0
+        local t = C.tau
+        redoOK, aborted = not fixed and o.adaptive ~= false and t < C.max, false
+        C.used, tau2 = t, t * t
+        merge2 = (t > lastTau) and tau2 or (C.merge * t) ^ 2
+        Collect()
+        if not aborted then break end
+        C.tau = math.min(C.max, t * 1.25)
+        stats.redone = stats.redone + 1
+    end
+    redoOK = false
+    for i = 1, nLeaves do
+        local q = i * 8 - 8
+        Emit(LR[q + 1], LR[q + 2], LR[q + 3], LR[q + 4], LR[q + 5], LR[q + 6], LR[q + 7], LR[q + 8])
+    end
     Release()
 end
 
 -- Draw the room for the camera BeginFrame measured. Returns at once when it did not move (and nothing was
 -- invalidated). -> true when it redrew.
+-- Then the count controller (spec 5.11), after a redraw the camera's motion caused: tau rises when the pieces run
+-- over the target and sinks slowly when there are few. It rises by the ratio it is over (between the spec's 1.08
+-- and 1.25, so a turn from a bare wall to the whole hall is back within the target in a few frames, not ten), by
+-- 1.25 near the hard cap. A fixed tau (opts.tau) or opts.adaptive == false turns it off. tau changes only here and
+-- in Pass2, so a camera that stands still never redraws.
 function Room.DrawRoom()
     stats.redraw = false
     if not (meshOk and haveBasis and camMoved) then return false end
     Pass1()
     Pass2()
-    dirty, camMoved = false, false
+    local o, C = Room.opts, CTL
+    if camDriven and type(o.tau) ~= "number" and o.adaptive ~= false then
+        local target, t = tonumber(o.target) or C.target, C.tau
+        if nLeaves > 0.95 * hardCap then
+            t = t * 1.25
+        elseif nLeaves > 1.1 * target then
+            t = t * math.min(1.25, max(1.08, nLeaves / (1.1 * target)))
+        elseif nLeaves < 0.8 * target then
+            t = t * 0.97
+        end
+        C.tau = math.min(C.max, max(C.min, t))
+    end
+    dirty, camMoved, camDriven = false, false, false
     stats.redraws = stats.redraws + 1
     stats.redraw = true
     return true
@@ -1090,7 +1297,9 @@ function Room.Clear()
         lineFrame.lineUsed = 0
         HideLines(lineFrame, 1)
     end
-    nMarks, nLeaves, nClipped = 0, 0, 0
+    nMarks, nLeaves, nClipped, nCapped = 0, 0, 0, 0
+    wipe(splitPrev)
+    wipe(splitCur)
     dirty, forceOrder = true, true
     camKey[1] = nil
 end
@@ -1127,12 +1336,14 @@ end
 -- Reports (the test hooks in UI.lua, spec section 8)
 ---------------------------------------------------------------------------
 
+-- tau: the bound the picture on screen was drawn with; tauNext: what the next redraw uses; capped: pieces drawn
+-- whole past the hard cap although over the bound; redone: how often the last redraw was collected again coarser.
 function Room.Stats()
-    local tau = Room.opts.tau
-    return { tau = (type(tau) == "number") and tau or TAU_START, target = Room.opts.target or TARGET_START,
-             leaves = nLeaves, clipped = nClipped, copies = 0, copyActors = 0, lines = Room.ShownLines(),
-             frames = nFrames, nodes = nNodes, prims = nPrims, redraw = stats.redraw, redraws = stats.redraws,
-             pass1b = stats.pass1b, ms = 0, midpoints = nPts - nV, collided = false, dilate = 0 }
+    return { tau = CTL.used, tauNext = CTL.tau, target = tonumber(Room.opts.target) or CTL.target, hardCap = hardCap,
+             leaves = nLeaves, clipped = nClipped, capped = nCapped, redone = stats.redone, copies = 0, copyActors = 0,
+             lines = Room.ShownLines(), frames = nFrames, nodes = nNodes, prims = nPrims, redraw = stats.redraw,
+             redraws = stats.redraws, pass1b = stats.pass1b, ms = 0, selfCheckPx = stats.selfCheckPx,
+             midpoints = nPts - nV, collided = false, dilate = 0 }
 end
 
 function Room.ShownTextures() return nLive end

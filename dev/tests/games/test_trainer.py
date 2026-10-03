@@ -8,8 +8,11 @@ the clean rotation from a corner wins, dying in the raid or never slowing them l
 loses; scores and bests saved per encounter and mode; the panel (briefing, the 3D view's actors, name plates and
 camera, keys, mouse look, pause on Esc and on combat, the result screen). The room renderer (Room.lua): both rooms in
 their exact BSP order (every node its own place, every piece on its node's, cluster frames one per level under the
-models), a still view costs no room calls, a wall through the near plane is cut there and not dropped, and without
-Room.lua (client not restarted) the view is drawn flat and says so.
+models), a still view costs no room calls, a wall through the near plane is cut there and not dropped, pieces are
+halved to the screen-error bound tau (finer for a smaller tau, coarser but complete past the hard cap), the count
+controller moves tau with the number of pieces and never without a camera move, the projection self-check (and its
+one warning when the client's camera is not the assumed pinhole), and without Room.lua (client not restarted) the
+view is drawn flat and says so.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_trainer.py [-k name]
 """
@@ -420,6 +423,76 @@ def a_wall_through_the_near_plane_is_cut_there_not_dropped():
     o = c.eval_py("return ns.TrainerUI._Order()")
     assert st["clipped"] > 0 and st["midpoints"] > 0 and st["leaves"] > 300, st
     assert o["wrong"] == 0 and o["distinct"] == o["nodes"], {k: v for k, v in o.items() if k != "levels"}
+    no_errors(w)
+
+
+@case
+def pieces_are_halved_to_the_screen_error_bound_and_tau_follows_the_count():
+    w, c = boot()
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Select('teron', 'quick')  local v = ns.TrainerUI._View() v:SetSize(600, 400) "
+           "ns.TrainerUI._Start(3)  ns.TrainerUI._Tick(0.001)")
+
+    def pose(x, y, facing, pitch=0.3, dist=14, dt=0.001):
+        c.eval("local s = ns.TrainerUI._Sim()  s.player.x, s.player.y, s.player.facing = %r, %r, %r "
+               "local cam = ns.TrainerUI._Camera()  cam.pitch, cam.dist = %r, %r  ns.TrainerUI._Tick(%r)"
+               % (x, y, facing, pitch, dist, dt))
+
+    def render():
+        return c.eval_py("return ns.TrainerUI._Render()")
+
+    # a fixed bound: the smaller it is, the finer the pieces; the picture reports the bound it was drawn with
+    leaves = {}
+    for t in (4.0, 2.0, 1.5):
+        c.eval("ns.TrainerUI._RenderOpts({ tau = %r, hardCap = 8000 })" % t)
+        pose(30, 8, math.pi / 2)
+        st = render()
+        assert st["tau"] == t and st["capped"] == 0 and st["midpoints"] > 0 and st["redraw"] is True, st
+        leaves[t] = st["leaves"]
+    assert leaves[4.0] < leaves[2.0] < leaves[1.5], leaves
+    # past the hard cap nothing is halved any more, but every piece is still drawn (coarser), in its place
+    c.eval("ns.TrainerUI._RenderOpts({ hardCap = 400 })")
+    pose(30, 8, math.pi / 2)
+    st, o = render(), c.eval_py("return ns.TrainerUI._Order()")
+    assert st["capped"] > 0 and 400 <= st["leaves"] < leaves[1.5], st
+    assert o["wrong"] == 0 and o["distinct"] == o["nodes"] and o["pieces"] == st["leaves"], o["wrong"]
+    # the count controller: tau rises while there are far more pieces than the target (fast near the hard cap) ...
+    c.eval("ns.TrainerUI._RenderOpts({ tau = false, adaptive = true, hardCap = 2800, target = 300 })")
+    taus = []
+    for k in range(25):
+        pose(30, 8 + 0.05 * k, math.pi / 2)
+        taus.append(render()["tauNext"])
+    assert all(b >= a for a, b in zip(taus, taus[1:])) and taus[0] < 2 and taus[-1] == 5.0, taus
+    # ... a camera that stands still never redraws (so tau stays where it is) ...
+    r0 = render()
+    for _ in range(3):
+        c.eval("ns.TrainerUI._Tick(0)")
+    st = render()
+    assert st["redraws"] == r0["redraws"] and st["tauNext"] == r0["tauNext"] and st["redraw"] is False, st
+    # ... and it sinks slowly to 1.5 px while there are few
+    c.eval("ns.TrainerUI._RenderOpts({ target = 6000, hardCap = 8000 })")
+    for k in range(45):
+        pose(30, 9 + 0.05 * k, math.pi / 2)
+    st = render()
+    assert st["tauNext"] == 1.5 and st["leaves"] > leaves[2.0], st
+    # the hard cap is the last resort: while tau is the controller's and under 5 px, a redraw that would run past
+    # the cap is collected again at 1.25 tau before anything is drawn (no coarse frame)
+    c.eval("ns.TrainerUI._RenderOpts({ hardCap = %d })" % (leaves[2.0] - 100))
+    pose(30, 8, math.pi / 2)
+    st = render()
+    assert st["redone"] >= 1 and st["capped"] == 0 and st["leaves"] <= leaves[2.0] - 100 and st["tau"] > 2, st
+    # the projection self-check (every 30th camera move): the mock's camera is the pinhole the basis assumes
+    assert st["selfCheckPx"] is not None and st["selfCheckPx"] < 0.01, st
+    # a client camera that is not that pinhole (here: drawn further right the deeper a point is) gets reported once
+    n0 = len(c.chat_frame)
+    c.eval("local v, sc = ns.TrainerUI._View()  v:SetSize(160, 120)  local f = sc.Project3DPointTo2D "
+           "sc.Project3DPointTo2D = function(self, x, y, z) local px, py, d = f(self, x, y, z) "
+           "if px then return px + 0.3 * d, py, d end end  ns.TrainerUI._RenderOpts({ tau = 5 })")
+    for k in range(330):
+        pose(30, 8 + 0.01 * (k % 60), math.pi / 2 + 0.001 * k)
+    said = [str(line) for line in c.chat_frame[n0:] if "may not line up" in str(line)]
+    assert len(said) == 1 and render()["selfCheckPx"] > 1.5, (said, render()["selfCheckPx"])
     no_errors(w)
 
 
