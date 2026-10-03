@@ -443,7 +443,7 @@ def a_click_on_a_construct_targets_it():
     # four constructs on one spot: their name plates climb above each other (and the frame still ends)
     c.eval("for _, k in ipairs(T_TR.constructs()) do k.x, k.y = 30.3, 37.7 end  ns.TrainerUI._Tick(0.05)")
     ys = sorted(p[1] for p in c.eval_py("return ns.TrainerUI._Plates()") if abs(p[0] - c.eval_py("return (ns.TrainerUI._Project(30.3, 37.7, 3.2))")) < 1)
-    assert len(ys) == 4 and all(abs(b - a - 38) < 1e-6 for a, b in zip(ys, ys[1:])), ys
+    assert len(ys) == 4 and all(abs(b - a - 46) < 1e-6 for a, b in zip(ys, ys[1:])), ys
     c.eval("local u = T_TR.constructs()  u[1].x, u[1].y = 30, 37  u[2].x, u[2].y = 26, 44  for i = 3, 4 do u[i].x, u[i].y = 5, 80 end  ns.TrainerUI._Tick(0.05)")
     assert c.eval_py("return ns.TrainerUI._Click(%f, %f)" % (ax, ay + 400)) is None     # the ceiling: nothing
     assert c.eval_py("return T_TR.sim.target == T_A")                                   # and the target stays

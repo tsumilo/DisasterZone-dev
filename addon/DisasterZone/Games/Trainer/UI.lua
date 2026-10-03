@@ -700,27 +700,63 @@ local function DrawFxActors()
     end
 end
 
+-- An enemy name plate as this client draws it in its Classic style (Blizzard_NamePlates: NamePlateConstants and
+-- NamePlateUnitFrameMixin's classic branch): a 128 x 10 bar area, the 128 x 16 Nameplate-Border art centred on it,
+-- the health fill (UI-TargetingFrame-BarFill) from 3.5 to 20.75 short of the right edge and half a pixel up, the
+-- level centred 11 left of the art's right edge, the name centred 4 above, your debuffs above the name.
+local PLATE_W, PLATE_H, PLATE_FILL = 128, 10, 128 - 3.5 - 20.75
+local PLATE_STEP = 46        -- how far plates of enemies standing together climb above each other
+
+local function PlateFont(name, fallback)
+    return _G[name] and name or fallback
+end
+
 local function Plate(i)
     local f = plates[i]
     if f then return f end
     f = CreateFrame("Button", nil, plateFrame)
-    f:SetSize(96, 12)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(0, 0, 0, 0.75)
-    ns.UI:AddEdges(f, "OVERLAY")
+    f:SetSize(PLATE_W, PLATE_H)
+    f.border = f:CreateTexture(nil, "BACKGROUND")
+    f.border:SetTexture("Interface\\Tooltips\\Nameplate-Border")
+    f.border:SetSize(128, 16)
+    f.border:SetPoint("CENTER")
     f.hp = f:CreateTexture(nil, "ARTWORK")
-    f.hp:SetPoint("LEFT")
-    f.hp:SetHeight(12)
-    f.name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.name:SetPoint("BOTTOM", f, "TOP", 0, 2)
-    f.state = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.state:SetPoint("TOP", f, "BOTTOM", 0, -1)
+    f.hp:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-BarFill")
+    f.hp:SetPoint("LEFT", f, "LEFT", 3.5, 0.5)
+    f.hp:SetHeight(PLATE_H)
+    f.glow = f:CreateTexture(nil, "ARTWORK", nil, 1)            -- the target's bar is brightened
+    f.glow:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-BarFill")
+    f.glow:SetBlendMode("ADD")
+    f.glow:SetAlpha(0.25)
+    f.glow:SetAllPoints(f.hp)
+    f.level = f:CreateFontString(nil, "OVERLAY", PlateFont("SystemFont_NamePlateLevel", "GameFontNormalSmall"))
+    f.level:SetPoint("CENTER", f.border, "RIGHT", -11, 0)
+    f.skull = f:CreateTexture(nil, "OVERLAY")
+    f.skull:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
+    f.skull:SetSize(15, 15)
+    f.skull:SetPoint("CENTER", f.border, "RIGHT", -11, 0)
+    f.name = f:CreateFontString(nil, "OVERLAY", PlateFont("SystemFont_NamePlate", "GameFontHighlightSmall"))
+    f.name:SetPoint("BOTTOM", f, "TOP", 0, 4)
+    f.debuffs = {}
     f:SetScript("OnClick", function(self)
         if sim and self.unit then sim:SetTarget(self.unit) end
     end)
     plates[i] = f
     return f
+end
+
+local function PlateDebuff(f, i)
+    local b = f.debuffs[i]
+    if b then return b end
+    b = CreateFrame("Frame", nil, f)
+    b:SetSize(20, 20)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetAllPoints()
+    b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    b.count:SetPoint("BOTTOMRIGHT", 3, -2)
+    f.debuffs[i] = b
+    return b
 end
 
 local function StateText(u)
@@ -748,9 +784,10 @@ local function DrawPlates()
                     moved, passes = false, passes + 1
                     for k = 1, n - 1 do
                         local o = plates[k]
-                        -- (37, not 38: o.py + 38 - o.py can come out a hair under 38 and would collide forever)
-                        if math.abs(o.px - x) < 100 and math.abs(o.py - y) < 37 then
-                            y = o.py + 38
+                        -- (a little under the step: o.py + step - o.py can come out a hair short and would
+                        -- collide forever)
+                        if math.abs(o.px - x) < PLATE_W and math.abs(o.py - y) < PLATE_STEP - 1 then
+                            y = o.py + PLATE_STEP
                             moved = true
                         end
                     end
@@ -760,19 +797,34 @@ local function DrawPlates()
                 f:SetPoint("CENTER", scene, "BOTTOMLEFT", x, y)
                 f.name:SetText(u.name)
                 local isTarget = sim.target == u
-                ns.UI:SetEdgeColor(f, isTarget and 1 or 0, isTarget and 1 or 0, isTarget and 1 or 0, 1)
                 f:SetAlpha((isTarget or not sim.target) and 1 or 0.6)       -- the others dim, as the client's do
-                if u.hp then
-                    f.hp:SetColorTexture(0.8, 0.15, 0.15, 1)
-                    f.hp:SetWidth(max(0.1, 96 * u.hp / u.hpMax))
-                    f.hp:Show()
-                    f.bg:Show()
-                else
-                    f.hp:Hide()
-                    f.bg:Hide()
-                    ns.UI:SetEdgeColor(f, 0, 0, 0, 0)
+                f.glow:SetShown(isTarget)
+                f.hp:SetVertexColor(1, 0, 0)                                -- hostile
+                f.hp:SetWidth(max(0.1, PLATE_FILL * (u.hp and u.hp / u.hpMax or 1)))
+                local level = u.level or 70
+                f.skull:SetShown(level < 0)
+                f.level:SetText(level < 0 and "" or level)
+                f.level:SetTextColor(1, 1, 0)                               -- your own level: yellow
+                -- your debuffs on it, in a row centred above the name
+                local shownAuras = 0
+                for _, aura in pairs(u.auras) do
+                    if aura.icon then
+                        shownAuras = shownAuras + 1
+                        local b = PlateDebuff(f, shownAuras)
+                        b.icon:SetTexture(aura.icon)
+                        b.count:SetText(aura.stacks > 1 and aura.stacks or "")
+                        b:Show()
+                    end
                 end
-                f.state:SetText(u.targetable and StateText(u) or "")
+                for k = 1, #f.debuffs do
+                    local b = f.debuffs[k]
+                    if k <= shownAuras then
+                        b:ClearAllPoints()
+                        b:SetPoint("BOTTOM", f.name, "TOP", (k - (shownAuras + 1) / 2) * 22, 2)
+                    else
+                        b:Hide()
+                    end
+                end
                 f:EnableMouse(u.targetable and true or false)
                 f:Show()
             end
@@ -1226,8 +1278,10 @@ local function CreateUnitFrames()
     hud.frame:SetFrameLevel(view:GetFrameLevel() + 7)
     hud.player = NewUnitFrame(hud.frame, true)
     hud.player.isPlayer = true
+    hud.player:SetScale(0.72)
     hud.player:SetPoint("TOPLEFT", view, "TOPLEFT", -14, -2)
     hud.target = NewUnitFrame(hud.frame, false)
+    hud.target:SetScale(0.72)
     hud.target:SetPoint("TOPLEFT", view, "TOPLEFT", 212, -2)
     hud.target.nameBg:SetVertexColor(1, 0, 0)                    -- hostile
     hud.player.nameBg:SetVertexColor(0, 0, 1)
