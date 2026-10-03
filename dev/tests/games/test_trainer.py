@@ -143,6 +143,14 @@ def movement_is_clamped_to_the_arena():
     c.eval("T_TR.sim:SetMove(-1, -1) T_TR.run(14)")
     x, y = sim(c, "return { s.player.x, s.player.y }")
     assert 1 <= x <= 2 and 1 <= y <= 2, (x, y)
+    # north of the square hall only the alcove is floor: beside it you slide along the hall's north wall
+    c.eval("T_TR.new('real') T_TR.sim.player.x, T_TR.sim.player.y = 8, 50  T_TR.sim:SetMove(0.2, 1) T_TR.run(4)")
+    x, y = sim(c, "return { s.player.x, s.player.y }")
+    assert 57.1 < y <= 57.5 and 9 < x < 16.4, (x, y)
+    c.eval("T_TR.sim.player.x = 29.5  T_TR.sim:SetMove(0, 1) T_TR.run(6)")                 # through the alcove's mouth
+    assert sim(c, "return s.player.y") > 80
+    c.eval("T_TR.sim:SetMove(-1, 0) T_TR.run(6)")                                         # its west wall
+    assert abs(sim(c, "return s.player.x") - 16.3) < 0.1
     # diagonal speed is not faster than straight: 7 yd/s
     c.eval("T_TR.new('quick') T_TR.sim:SetMove(1, 0) T_TR.run(2)")
     assert abs(sim(c, "return s.player.x") - (29.5 + 14)) < 0.01
@@ -159,6 +167,7 @@ def the_clients_controls_run_backpedal_strafe_and_turn():
     c.eval("T_TR.sim:SetControls(-1, 0, 0) T_TR.run(1)")          # backwards: 4.5 yd/s
     assert abs(sim(c, "return s.player.y") - (y0 + 7 - 4.5)) < 0.01 and sim(c, "return s.player.backward") is True
     c.eval("T_TR.sim:SetControls(0, 1, 0) T_TR.run(1)")           # strafe right, facing north: +x
+    assert abs(sim(c, "return s.player.bodyTurn") + math.pi / 2) < 1e-9   # the body runs sideways, the view stays
     assert abs(sim(c, "return s.player.x") - (x0 + 7)) < 0.01
     assert abs(sim(c, "return s.player.facing") - f0) < 1e-9
     c.eval("T_TR.sim:SetControls(0, 0, 1) T_TR.run(0.5)")         # turn left: 180 degrees a second
@@ -169,6 +178,17 @@ def the_clients_controls_run_backpedal_strafe_and_turn():
     assert abs(sim(c, "return s.player.facing") - math.pi / 2) < 1e-6
     c.eval("T_TR.run(0.2)")
     assert sim(c, "return s.player.moving") is False
+    assert sim(c, "return s.player.bodyTurn") == 0
+    # one step per frame, whatever its length; a long frame is cut into steps of at most 0.05 s
+    t0 = sim(c, "return s.time")
+    c.eval("T_TR.sim:SetControls(1, 0, 0)  T_N = 0  local step = T_TR.sim.Step "
+           "T_TR.sim.Step = function(self, dt) T_N = T_N + 1 return step(self, dt) end")
+    y0 = sim(c, "return s.player.y")
+    c.eval("T_TR.sim:Update(0.016)")
+    assert c.eval_py("return T_N") == 1 and abs(sim(c, "return s.time") - t0 - 0.016) < 1e-9
+    assert abs(sim(c, "return s.player.y") - y0 - 7 * 0.016) < 1e-6
+    c.eval("T_N = 0  T_TR.sim:Update(0.12)")
+    assert c.eval_py("return T_N") == 3 and abs(sim(c, "return s.time") - t0 - 0.136) < 1e-9
 
 
 @case
@@ -222,7 +242,7 @@ def cooldowns_the_global_cooldown_and_range():
     assert sim(c, "local ok, why = s:Use('7') return why") == "Out of range."
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 29.5, 20")
     assert sim(c, "return s:Use('7')") is True
-    c.eval("T_TR.run(1.05) T_TR.sim.player.x, T_TR.sim.player.y = 29.5, 45")
+    c.eval("T_TR.run(1.05) T_TR.sim.player.x, T_TR.sim.player.y = 29.5, 52")
     assert sim(c, "return s:Use('1')") is True
     assert sim(c, "return s.stats.strikes") == 1 and sim(c, "return s.stats.shields") == 1
     assert 87 < sim(c, "return (s:Cooldown(s:GetAbility('shield')))") < 90
@@ -306,21 +326,21 @@ def spells_fly_at_their_real_speed_with_their_own_effects_and_sounds():
 def the_room_is_the_real_hall_with_its_map_on_the_floor():
     w, c = boot()
     a = c.eval_py("local a = ns.Trainer:GetEncounter('teron').arena return { a.w, a.h, a.map.file, a.map.u0, a.map.u1, a.map.v0, a.map.v1 }")
-    assert a[0] == 59 and a[1] == 58.5 and a[2].endswith("BT04_a"), a
+    assert a[0] == 59 and a[1] == 90.2 and a[2].endswith("BT04_a"), a
     # 0.436 yd a pixel of the 1009-wide map, scaled to 1024: the texture piece is as wide and tall as the hall
     yd_per_u = 440.0                                                 # the map's width in yards (world Y 135..575)
-    assert abs((a[4] - a[3]) * yd_per_u - 59) < 0.5 and abs((a[6] - a[5]) * 512 / 683 * 293.4 - 58.5) < 0.5, a
+    assert abs((a[4] - a[3]) * yd_per_u - 59) < 0.5 and abs((a[6] - a[5]) * 512 / 683 * 293.4 - 90.2) < 0.5, a
     c.slash("/dz play trainer")
     w.tick(0.3)
     c.eval("ns.TrainerUI._Start(3)  T_TR.sim = ns.TrainerUI._Sim()")
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y, T_TR.sim.player.facing = 50, 30, math.pi  ns.TrainerUI._Tick(0.05)")
     fl = c.eval_py("return ns.TrainerUI._Floor()")
-    assert fl["tiles"] == 144 and fl["shown"] > 60 and fl["mini"] is True, fl
+    assert fl["tiles"] == 196 and 60 < fl["shown"] < 196 and fl["mini"] is True, fl
     # the spell effects are actors holding the effect's model file
     c.eval("T_TR.die_in_corner()  local s = T_TR.sim  for _, u in ipairs(T_TR.constructs()) do u.speed = 0 end "
            "ns.TrainerUI._Key('TAB') ns.TrainerUI._Key('3') ns.TrainerUI._Tick(0.05)")
     fx = c.eval_py("return ns.TrainerUI._Fx()")
-    assert any(f["fdid"] == 166373 and f["kind"] == "missile" and f["shown"] for f in fx), fx
+    assert any(f["fdid"] in (166373, 166372) and f["shown"] for f in fx), fx     # the missile, or its impact already
     c.eval("for _ = 1, 20 do ns.TrainerUI._Tick(0.1) end")
     assert c.eval_py("return #ns.TrainerUI._Fx()") == 0
     assert c.eval_py("return #ns.TrainerUI._Sim().sounds") == 0      # played and cleared
@@ -446,7 +466,7 @@ def the_panel_briefs_plays_pauses_and_shows_the_result():
     for _ in range(20):
         c.eval("ns.TrainerUI._Tick(0.1)")
     y = c.eval_py("return ns.TrainerUI._Sim().player.y")
-    assert abs(y - (34 - 9)) < 0.5, y                              # two seconds backwards at 4.5 yd/s
+    assert abs(y - (44 - 9)) < 0.5, y                              # two seconds backwards at 4.5 yd/s
     # the 3D view: an actor per model (you, Teron, 11 raiders), Teron's name plate, the camera behind you
     st = c.eval_py("return ns.TrainerUI._State()")
     assert st["actors"] == 13, st

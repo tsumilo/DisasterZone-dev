@@ -8,7 +8,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --
 -- def = {
 --   name, desc, icon, order,
---   arena = { w = 70, h = 90, labels = { { x, y, text } } },
+--   arena = { w = 70, h = 90, labels = { { x, y, text } }, walkable = function(x, y) end, outline = { { x, y }, .. },
+--             map = { file, u0, u1, v0, v1 } },        (the floor picture: the texture piece that covers w x h)
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
 --   player = { x, y, speed, facing },
 --   abilities = { { id, key = "3", name, icon, tip, cooldown, gcd, range, needsTarget,
@@ -404,6 +405,7 @@ function Sim:Step(dt)
     if self.turn ~= 0 then self:Turn(self.turn * T.TURN_RATE * dt) end
     local mx, my, speed = self.moveX, self.moveY, self:UnitSpeed(p)
     p.backward = false
+    p.bodyTurn = 0                  -- how far the body turns away from where you look, as the client shows a strafe
     if self.fwd ~= 0 or self.strafe ~= 0 then
         local cf, sf = cos(p.facing), sin(p.facing)
         mx = cf * self.fwd + sf * self.strafe
@@ -411,6 +413,11 @@ function Sim:Step(dt)
         if self.fwd < 0 then
             speed = speed * T.BACKPEDAL
             p.backward = true
+            p.bodyTurn = self.strafe * pi / 4          -- backing off to the right: the body swings left
+        elseif self.fwd > 0 then
+            p.bodyTurn = -self.strafe * pi / 4         -- running forward and right: the body leans into it
+        else
+            p.bodyTurn = -self.strafe * pi / 2         -- a pure strafe: the body runs sideways, the view stays
         end
     elseif mx ~= 0 or my ~= 0 then
         p.facing = atan2(my, mx)
@@ -419,8 +426,17 @@ function Sim:Step(dt)
     if not p.rooted and (mx ~= 0 or my ~= 0) then
         local len = sqrt(mx * mx + my * my)
         local step = speed * dt
-        p.x = min(arena.w - p.radius, max(p.radius, p.x + mx / len * step))
-        p.y = min(arena.h - p.radius, max(p.radius, p.y + my / len * step))
+        local nx = min(arena.w - p.radius, max(p.radius, p.x + mx / len * step))
+        local ny = min(arena.h - p.radius, max(p.radius, p.y + my / len * step))
+        -- arena.walkable(x, y): rooms that are not a rectangle. Blocked: slide along the wall on one axis.
+        local ok = arena.walkable
+        if not ok or ok(nx, ny) then
+            p.x, p.y = nx, ny
+        elseif ok(nx, p.y) then
+            p.x = nx
+        elseif ok(p.x, ny) then
+            p.y = ny
+        end
         p.moving = true
     end
     for _, u in ipairs(self.units) do
@@ -441,13 +457,14 @@ function Sim:Step(dt)
     end
 end
 
--- Real time in, fixed steps out (a long frame never tunnels a unit through a trigger).
+-- Real time in: one step per frame, so movement and turning are as smooth as the frame rate. A long frame is
+-- cut into steps of at most T.STEP (it never tunnels a unit through a trigger).
 function Sim:Update(elapsed)
-    if self.state ~= "run" then return end
-    self.acc = self.acc + min(elapsed, 0.25)
-    while self.acc >= T.STEP and self.state == "run" do
-        self.acc = self.acc - T.STEP
-        self:Step(T.STEP)
+    local left = min(elapsed, 0.25)
+    while left > 1e-6 and self.state == "run" do
+        local dt = min(left, T.STEP)
+        left = left - dt
+        self:Step(dt)
     end
 end
 

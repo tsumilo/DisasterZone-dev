@@ -38,7 +38,7 @@ local actorPool = {}
 local plates = {}
 local floorLines, fxLines = {}, {}
 local floorTiles = {}
-local TILES = 12             -- the floor map is drawn as TILES x TILES quads, each bent into perspective
+local TILES = 14             -- the floor map is drawn as TILES x TILES quads, each bent into perspective
 local fxActors = {}          -- effect -> actor
 local fxPool = {}            -- model file -> spare actors that already hold it
 local mouse = { look = false, left = false, lastX = 0 }
@@ -256,7 +256,16 @@ local function DrawActors()
             if a then
                 seen[u.id] = true
                 pcall(a.SetPosition, a, u.x, SY(u.y), 0)
-                pcall(a.SetYaw, a, cam.mirror * u.facing)
+                -- a strafing body swings round over a moment, not in one frame
+                local want = u.bodyTurn or 0
+                local have = a.bodyTurn or 0
+                if have ~= want then
+                    local step = 9 * (sim.time - (a.turnAt or sim.time))
+                    have = (want > have) and min(want, have + step) or max(want, have - step)
+                    a.bodyTurn = have
+                end
+                a.turnAt = sim.time
+                pcall(a.SetYaw, a, cam.mirror * (u.facing + have))
                 pcall(a.SetAlpha, a, u.ghost and 0.8 or 1)
                 local anim = AnimFor(u)
                 if a.anim ~= anim then
@@ -349,7 +358,8 @@ local function DrawFloorMap()
             local swx, swy = Project(x0, y0, 0)
             local nex, ney = Project(x1, y1, 0)
             local sex, sey = Project(x1, y0, 0)
-            if nwx and swx and nex and sex then
+            local inside = not sim.enc.arena.walkable or sim.enc.arena.walkable((x0 + x1) / 2, (y0 + y1) / 2)
+            if inside and nwx and swx and nex and sex then
                 local ua, ub = map.u0 + (map.u1 - map.u0) * x0 / w, map.u0 + (map.u1 - map.u0) * x1 / w
                 local vs, vn = map.v1 - (map.v1 - map.v0) * y0 / h, map.v1 - (map.v1 - map.v0) * y1 / h
                 t:SetTexCoord(ua, vn, ua, vs, ub, vn, ub, vs)            -- upper left, lower left, upper right, lower right
@@ -381,14 +391,12 @@ local function DrawFloor()
     for y = 0, h, 10 do
         if y > 0 then Segment(floorLines, "floor", floorFrame, 0, y, 0, w, y, 0, 0.55, 0.45, 0.7, mapped and 0.18 or 0.28, 1) end
     end
-    for _, wall in ipairs({ { 0, 0, w, 0 }, { w, 0, w, h }, { w, h, 0, h }, { 0, h, 0, 0 } }) do
-        Segment(floorLines, "floor", floorFrame, wall[1], wall[2], 0, wall[3], wall[4], 0, 0.55, 0.45, 0.7, 0.9, 3)
-        Segment(floorLines, "floor", floorFrame, wall[1], wall[2], 8, wall[3], wall[4], 8, 0.55, 0.45, 0.7, 0.5, 2)
-    end
-    for _, x in ipairs({ 0, w }) do                                   -- the corners stand up, so walls read as walls
-        for _, y in ipairs({ 0, h }) do
-            Segment(floorLines, "floor", floorFrame, x, y, 0, x, y, 8, 0.55, 0.45, 0.7, 0.9, 3)
-        end
+    local outline = sim.enc.arena.outline or { { 0, 0 }, { w, 0 }, { w, h }, { 0, h } }
+    for i, a in ipairs(outline) do                                    -- the walls: floor edge, top edge, corners
+        local b = outline[i % #outline + 1]
+        Segment(floorLines, "floor", floorFrame, a[1], a[2], 0, b[1], b[2], 0, 0.55, 0.45, 0.7, 0.9, 3)
+        Segment(floorLines, "floor", floorFrame, a[1], a[2], 8, b[1], b[2], 8, 0.55, 0.45, 0.7, 0.5, 2)
+        Segment(floorLines, "floor", floorFrame, a[1], a[2], 0, a[1], a[2], 8, 0.55, 0.45, 0.7, 0.9, 3)
     end
     for i = lineCount.floor + 1, #floorLines do floorLines[i]:Hide() end
 end
@@ -585,10 +593,11 @@ end
 
 local function MouseLook()
     if not (mouse.look and sim and sim.state == "run" and focused) then return end
-    local x = GetCursorPosition()
-    local dx = x - mouse.lastX
-    mouse.lastX = x
+    local x, y = GetCursorPosition()
+    local dx, dy = x - mouse.lastX, y - (mouse.lastY or y)
+    mouse.lastX, mouse.lastY = x, y
     if dx ~= 0 then sim:Turn(-dx * 0.006) end
+    if dy ~= 0 then cam.pitch = max(0.05, min(1.3, cam.pitch - dy * 0.004)) end      -- drag up: look up
 end
 
 local function CreateScene(parent)
@@ -622,7 +631,8 @@ local function CreateScene(parent)
     sc:EnableMouseWheel(true)
     sc:SetScript("OnMouseDown", function(_, button)
         if button == "RightButton" then
-            mouse.look, mouse.lastX = true, (GetCursorPosition())
+            mouse.look = true
+            mouse.lastX, mouse.lastY = GetCursorPosition()
         elseif button == "LeftButton" then
             mouse.left = true
             mouse.downX, mouse.downY = CursorInScene()
@@ -868,6 +878,7 @@ local function LayoutArena()
         R.miniMap:SetTexCoord(map.u0, map.u1, map.v0, map.v1)
     end
     R.miniMap:SetShown(map ~= nil)
+    R.miniMap.on = map ~= nil
     local w, h = root:GetWidth() or 0, root:GetHeight() or 0
     local availW, availH = w - PAD * 2, h - TOOLBAR_H - BAR_H - PAD * 3
     if availW <= 0 or availH <= 0 then return end
@@ -962,7 +973,7 @@ function ShowBriefing()
     for i, l in ipairs(enc.howTo or { enc.desc }) do lines[#lines + 1] = i .. ". " .. l end
     lines[#lines + 1] = ""
     if scene then
-        lines[#lines + 1] = "W / S run, A / D turn, Q / E strafe. Hold the right mouse button to look, wheel to zoom."
+        lines[#lines + 1] = "W / S run, A / D turn, Q / E strafe. Hold the right mouse button to turn and look, wheel to zoom."
         lines[#lines + 1] = "Tab targets what is in front of you; or click a construct or its name plate. Esc pauses."
     else
         lines[#lines + 1] = "Move: WASD or the arrow keys. Target: Tab or click. Esc pauses."
@@ -1211,7 +1222,7 @@ end
 UI._Floor = function()
     local n = 0
     for _, t in ipairs(floorTiles) do if t:IsShown() then n = n + 1 end end
-    return { tiles = #floorTiles, shown = n, mini = R.miniMap:IsShown() and true or false }
+    return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false }
 end
 UI._Project = function(x, y, z) return Project(x, y, z) end
 UI._Click = function(x, y) return PickAt(x, y) end

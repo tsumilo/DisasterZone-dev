@@ -18,17 +18,26 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Encounters/TeronGore
 --     the Icy Veins / Warcraft Tavern guides;
 --   the room: Blizzard's map of Gorefiend's Vigil (Media/Maps/BT04) covers world X 343.3..636.7 and
 --     Y 135..575 (UiMapAssignment of UiMap 343), 0.436 yd a pixel. The square hall measures 135 x 134 pixels on
---     it: 59 x 58.5 yd. The floor shows that piece of the map. The stairs are drawn, not climbed: it is flat.
+--     it: 59 x 58.5 yd; the alcove behind Teron adds a 28.3 yd wide, 31.7 yd deep piece to the north. The floor
+--     shows that piece of the map. The stairs are drawn, not climbed: it is flat;
+--   Teron stands at the north end of the hall, in the mouth of the alcove (his spawn point, world 579.7 /
+--     400.7 as server emulators have it, falls there on the map).
 -- NOT verified anywhere: the run speed of constructs and of the spirit (8 yd/s, the creature default), and
--- where exactly Teron and a raid stand in the room.
+-- where a raid stands around him.
 local addonName, ns = ...
 
 local T = ns.Trainer
 local Dist = T.Dist
 local floor, min, max, pi = math.floor, math.min, math.max, math.pi
 
-local ARENA_W, ARENA_H = 59, 58.5
-local BOSS_X, BOSS_Y = 29.5, 47
+local ARENA_W, ARENA_H = 59, 90.2
+local HALL_H = 58.5                         -- the square hall; north of it only the alcove
+local ALCOVE_X0, ALCOVE_X1 = 15.3, 43.6
+local BOSS_X, BOSS_Y = 29.5, 57
+
+local function Walkable(x, y)
+    return y <= HALL_H - 1 or (x >= ALCOVE_X0 + 1 and x <= ALCOVE_X1 - 1)
+end
 local GHOST_TIME = 60
 local AOE_RANGE = 12
 local MELEE = 3
@@ -47,16 +56,16 @@ local FX = {
     markImpact = 166814, markSound = 743,
 }
 
--- The raid: the tank, melee behind the boss, ranged and healers close around them at the north end (you start
--- among them), which leaves the whole hall between the raid and the corners by the entrance.
+-- The raid: the tank in front of the boss, melee behind him in the alcove's mouth, ranged and healers close around
+-- them (you start among them), which leaves the whole hall between the raid and the corners by the entrance.
 -- { x, y, display, what they do }. The models are the Shattered Sun Offensive's soldiers (display IDs from
 -- Wowhead: Veteran 22931, Warrior 20570, Trainee 22924, Peacekeeper 23714, Marksman 22752, Magi 22952,
 -- Archmage 22973, Cleric 22953): armed blood elves and draenei that every faction's client has.
 local RAID = {
-    { 29.5, 43, 22931, "melee", tank = true }, { 26.5, 50, 20570, "melee" }, { 29.5, 51, 22924, "melee" },
-    { 32.5, 50, 23714, "melee" },
-    { 19, 44, 22752, "bow" }, { 22.5, 40.5, 22952, "caster" }, { 26.5, 38.5, 22953, "caster" },
-    { 32.5, 38.5, 22973, "caster" }, { 40, 44, 22752, "bow" }, { 36.5, 40.5, 22953, "caster" }, { 29.5, 37, 22952, "caster" },
+    { 29.5, 53, 22931, "melee", tank = true }, { 26.5, 60, 20570, "melee" }, { 29.5, 61, 22924, "melee" },
+    { 32.5, 60, 23714, "melee" },
+    { 19, 54, 22752, "bow" }, { 22.5, 50.5, 22952, "caster" }, { 26.5, 48.5, 22953, "caster" },
+    { 32.5, 48.5, 22973, "caster" }, { 40, 54, 22752, "bow" }, { 36.5, 50.5, 22953, "caster" }, { 29.5, 47, 22952, "caster" },
 }
 
 local function SpellIcon(spellID, fallback)
@@ -248,7 +257,7 @@ local function Summary(sim)
     end
     if s.spawnDist then
         out[#out + 1] = string.format("They rose %d yd from the nearest raider they went for.", floor(s.spawnDist))
-        if s.spawnDist < 25 then
+        if s.spawnDist < 35 then
             out[#out + 1] = "|cffffd100Tip:|r die further away: the corners by the entrance give the most time."
         end
     end
@@ -272,13 +281,16 @@ T:RegisterEncounter("teron", {
     order = 10,
     -- map: the piece of Media/Maps/BT04_a (the top 1024 x 512 of the 1024 x 683 map) that is this hall
     arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
+              walkable = Walkable,
+              outline = { { 0, 0 }, { ARENA_W, 0 }, { ARENA_W, HALL_H }, { ALCOVE_X1, HALL_H }, { ALCOVE_X1, ARENA_H },
+                          { ALCOVE_X0, ARENA_H }, { ALCOVE_X0, HALL_H }, { 0, HALL_H } },
               map = { file = "Interface\\AddOns\\DisasterZone\\Media\\Maps\\BT04_a",
-                      u0 = 0.3221, u1 = 0.4560, v0 = 0.2537, v1 = 0.5193 } },
+                      u0 = 0.3221, u1 = 0.4560, v0 = 0.1090, v1 = 0.5193 } },
     difficulties = {
         { id = "quick", name = "Quick (15 sec mark)", fuse = 15 },
         { id = "real", name = "Real (55 sec mark)", fuse = 55 },
     },
-    player = { x = 29.5, y = 34, speed = 7, facing = pi / 2 },
+    player = { x = 29.5, y = 44, speed = 7, facing = pi / 2 },
     abilities = abilities,
     howTo = {
         "You are marked with |cffb48cffShadow of Death|r. Get away from the raid before the mark runs out.",
