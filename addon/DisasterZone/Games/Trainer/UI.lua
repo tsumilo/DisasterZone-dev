@@ -37,6 +37,10 @@ local actors = {}            -- unit id -> actor
 local actorPool = {}
 local plates = {}
 local floorLines, fxLines = {}, {}
+local floorTiles = {}
+local TILES = 12             -- the floor map is drawn as TILES x TILES quads, each bent into perspective
+local fxActors = {}          -- effect -> actor
+local fxPool = {}            -- model file -> spare actors that already hold it
 local mouse = { look = false, left = false, lastX = 0 }
 local R = {}                 -- widgets
 local unitFrames = {}        -- pool, by index
@@ -313,17 +317,73 @@ local function Circle(x, y, radius, r, g, b, a, thick)
     end
 end
 
--- The room: its walls and a line every 10 yd, so distance and speed read at a glance.
+-- The floor map: the arena's piece of Blizzard's map, cut into tiles; every tile's four corners are moved to
+-- where the scene projects them (Texture:SetVertexOffset), which bends the flat picture into the room's floor.
+local function DrawFloorMap()
+    local map = sim.enc.arena.map
+    if not map then return false end
+    local w, h = sim.enc.arena.w, sim.enc.arena.h
+    local n = 0
+    for i = 0, TILES - 1 do
+        for j = 0, TILES - 1 do
+            n = n + 1
+            local t = floorTiles[n]
+            if not t then
+                t = floorFrame:CreateTexture(nil, "BACKGROUND")
+                if not t.SetVertexOffset then
+                    t:Hide()
+                    return false
+                end
+                t:SetSize(1, 1)
+                t:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
+                t:SetVertexColor(0.85, 0.85, 0.85)
+                floorTiles[n] = t
+            end
+            if t.file ~= map.file then
+                t.file = map.file
+                t:SetTexture(map.file)
+            end
+            local x0, x1 = w * i / TILES, w * (i + 1) / TILES
+            local y0, y1 = h * j / TILES, h * (j + 1) / TILES
+            local nwx, nwy = Project(x0, y1, 0)
+            local swx, swy = Project(x0, y0, 0)
+            local nex, ney = Project(x1, y1, 0)
+            local sex, sey = Project(x1, y0, 0)
+            if nwx and swx and nex and sex then
+                local ua, ub = map.u0 + (map.u1 - map.u0) * x0 / w, map.u0 + (map.u1 - map.u0) * x1 / w
+                local vs, vn = map.v1 - (map.v1 - map.v0) * y0 / h, map.v1 - (map.v1 - map.v0) * y1 / h
+                t:SetTexCoord(ua, vn, ua, vs, ub, vn, ub, vs)            -- upper left, lower left, upper right, lower right
+                t:SetVertexOffset(1, nwx, nwy - 1)
+                t:SetVertexOffset(2, swx, swy)
+                t:SetVertexOffset(3, nex - 1, ney - 1)
+                t:SetVertexOffset(4, sex - 1, sey)
+                t:Show()
+            else
+                t:Hide()                                              -- a corner is behind the camera
+            end
+        end
+    end
+    return true
+end
+
+-- The room: its floor map, its walls and a line every 10 yd, so distance and speed read at a glance.
 local function DrawFloor()
     lineCount.floor = 0
     local w, h = sim.enc.arena.w, sim.enc.arena.h
+    local mapped = DrawFloorMap()
+    if not mapped then
+        for _, t in ipairs(floorTiles) do t:Hide() end
+    end
     for x = 0, w, 10 do
         local wall = x == 0 or x >= w
-        Segment(floorLines, "floor", floorFrame, x, 0, 0, x, h, 0, 0.55, 0.45, 0.7, wall and 0.9 or 0.28, wall and 3 or 1)
+        if x > 0 then Segment(floorLines, "floor", floorFrame, x, 0, 0, x, h, 0, 0.55, 0.45, 0.7, mapped and 0.18 or 0.28, 1) end
     end
     for y = 0, h, 10 do
-        local wall = y == 0 or y >= h
-        Segment(floorLines, "floor", floorFrame, 0, y, 0, w, y, 0, 0.55, 0.45, 0.7, wall and 0.9 or 0.28, wall and 3 or 1)
+        if y > 0 then Segment(floorLines, "floor", floorFrame, 0, y, 0, w, y, 0, 0.55, 0.45, 0.7, mapped and 0.18 or 0.28, 1) end
+    end
+    for _, wall in ipairs({ { 0, 0, w, 0 }, { w, 0, w, h }, { w, h, 0, h }, { 0, h, 0, 0 } }) do
+        Segment(floorLines, "floor", floorFrame, wall[1], wall[2], 0, wall[3], wall[4], 0, 0.55, 0.45, 0.7, 0.9, 3)
+        Segment(floorLines, "floor", floorFrame, wall[1], wall[2], 8, wall[3], wall[4], 8, 0.55, 0.45, 0.7, 0.5, 2)
     end
     for _, x in ipairs({ 0, w }) do                                   -- the corners stand up, so walls read as walls
         for _, y in ipairs({ 0, h }) do
@@ -337,16 +397,56 @@ local function DrawEffects()
     lineCount.fx = 0
     local t = sim.target
     if t and not t.dead then Circle(t.x, t.y, t.radius + 0.4, 1, 0.85, 0.1, 0.9, 2) end
+    for i = lineCount.fx + 1, #fxLines do fxLines[i]:Hide() end
+end
+
+local function ReleaseFxActor(fx)
+    local a = fxActors[fx]
+    fxActors[fx] = nil
+    if not a then return end
+    pcall(a.SetShown, a, false)
+    fxPool[a.fdid] = fxPool[a.fdid] or {}
+    table.insert(fxPool[a.fdid], a)
+end
+
+-- The spells' own effect models: an actor per running effect, on its unit or flying to it.
+local function DrawFxActors()
+    local seen = {}
     for _, fx in ipairs(sim.fx) do
-        local k = min(1, (sim.time - fx.at) / fx.dur)
-        local c = fx.color or { 1, 1, 1 }
-        if fx.kind == "ring" then
-            Circle(fx.x, fx.y, fx.r * (0.3 + 0.7 * k), c[1], c[2], c[3], 1 - k, 3)
-        else
-            Segment(fxLines, "fx", plateFrame, fx.x, fx.y, 1.8, fx.x2, fx.y2, 1.8, c[1], c[2], c[3], 1 - k, 4)
+        if fx.fdid then
+            local a = fxActors[fx]
+            if a == nil then
+                a = fxPool[fx.fdid] and table.remove(fxPool[fx.fdid])
+                if not a then
+                    a = NewActor()
+                    if a then
+                        a.fdid = fx.fdid
+                        a.bad = not (a.SetModelByFileID and pcall(a.SetModelByFileID, a, fx.fdid))
+                    end
+                end
+                if a then pcall(a.SetAnimation, a, ANIM_STAND) end
+                fxActors[fx] = a or false
+            end
+            if a then
+                seen[fx] = true
+                local u = fx.unit
+                local x, y, z, yaw = fx.x, fx.y, fx.z or 0, 0
+                if fx.kind == "missile" then
+                    local k = min(1, (sim.time - fx.at) / fx.dur)
+                    yaw = math.atan2(u.y - fx.y, u.x - fx.x)
+                    x, y, z = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k, 1.5
+                elseif u then
+                    x, y = u.x, u.y
+                end
+                pcall(a.SetPosition, a, x, SY(y), z)
+                pcall(a.SetYaw, a, cam.mirror * yaw)
+                pcall(a.SetShown, a, not a.bad and not (u and u.dead and fx.kind ~= "missile"))
+            end
         end
     end
-    for i = lineCount.fx + 1, #fxLines do fxLines[i]:Hide() end
+    for fx in pairs(fxActors) do
+        if not seen[fx] then ReleaseFxActor(fx) end
+    end
 end
 
 local function Plate(i)
@@ -456,6 +556,7 @@ local function Draw3D()
     DrawActors()
     DrawFloor()
     DrawEffects()
+    DrawFxActors()
     DrawPlates()
 end
 
@@ -467,9 +568,19 @@ function ResetScene()
         actors[id] = nil
         actorPool[#actorPool + 1] = a
     end
+    for fx in pairs(fxActors) do ReleaseFxActor(fx) end
     for _, l in ipairs(floorLines) do l:Hide() end
     for _, l in ipairs(fxLines) do l:Hide() end
+    for _, t in ipairs(floorTiles) do t:Hide() end
     for _, f in ipairs(plates) do f:Hide() end
+end
+
+-- The sounds the sim asked for since the last frame (sound kits, as the spells' visuals name them).
+local function PlaySounds()
+    for i, kit in ipairs(sim.sounds) do
+        if PlaySound then pcall(PlaySound, kit, "SFX") end
+        sim.sounds[i] = nil
+    end
 end
 
 local function MouseLook()
@@ -650,7 +761,11 @@ end
 
 local function DrawFx()
     local n = 0
+    local flat = {}
     for _, fx in ipairs(sim.fx) do
+        if fx.kind == "ring" or fx.kind == "beam" then flat[#flat + 1] = fx end
+    end
+    for _, fx in ipairs(flat) do
         n = n + 1
         local f = fxFrames[n]
         if not f then
@@ -747,6 +862,12 @@ end
 local function LayoutArena()
     local enc = Encounter()
     if not (enc and root) then return end
+    local map = enc.arena.map
+    if map then
+        R.miniMap:SetTexture(map.file)
+        R.miniMap:SetTexCoord(map.u0, map.u1, map.v0, map.v1)
+    end
+    R.miniMap:SetShown(map ~= nil)
     local w, h = root:GetWidth() or 0, root:GetHeight() or 0
     local availW, availH = w - PAD * 2, h - TOOLBAR_H - BAR_H - PAD * 3
     if availW <= 0 or availH <= 0 then return end
@@ -876,6 +997,7 @@ local function OnUpdate(self, elapsed)
     if sim.state == "run" and focused then
         MouseLook()
         sim:Update(elapsed)
+        PlaySounds()
         if sim.state ~= "run" then
             local score, best = T:Finish(sim)
             wipe(held)
@@ -973,6 +1095,10 @@ function UI:CreatePanel(parent)
     local floorTex = arena:CreateTexture(nil, "BACKGROUND")
     floorTex:SetAllPoints()
     floorTex:SetColorTexture(0.09, 0.08, 0.11, scene and 0.8 or 1)
+    R.miniMap = arena:CreateTexture(nil, "BACKGROUND", nil, 1)
+    R.miniMap:SetAllPoints()
+    R.miniMap:SetVertexColor(0.8, 0.8, 0.8)
+    R.miniMap:Hide()
     ns.UI:AddEdges(arena)
     ns.UI:SetEdgeColor(arena, 0.4, 0.3, 0.5, 1)
     arena:SetClipsChildren(true)
@@ -1075,6 +1201,18 @@ UI._Key = function(key, down) return HandleKey(key, down ~= false) end
 UI._Sim = function() return sim end
 UI._Mouse = function(look, left) mouse.look, mouse.left = look and true or false, left and true or false ApplyMove() end
 UI._Camera = function() return cam end
+UI._Fx = function()
+    local out = {}
+    for fx, a in pairs(fxActors) do
+        if a then out[#out + 1] = { fdid = a.fileID or a.fdid, kind = fx.kind, shown = a.shown } end
+    end
+    return out
+end
+UI._Floor = function()
+    local n = 0
+    for _, t in ipairs(floorTiles) do if t:IsShown() then n = n + 1 end end
+    return { tiles = #floorTiles, shown = n, mini = R.miniMap:IsShown() and true or false }
+end
 UI._Project = function(x, y, z) return Project(x, y, z) end
 UI._Click = function(x, y) return PickAt(x, y) end
 UI._Anim = function(unitId) return actors[unitId] and actors[unitId].anim end

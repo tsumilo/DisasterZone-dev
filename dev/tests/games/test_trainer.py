@@ -145,7 +145,7 @@ def movement_is_clamped_to_the_arena():
     assert 1 <= x <= 2 and 1 <= y <= 2, (x, y)
     # diagonal speed is not faster than straight: 7 yd/s
     c.eval("T_TR.new('quick') T_TR.sim:SetMove(1, 0) T_TR.run(2)")
-    assert abs(sim(c, "return s.player.x") - (35 + 14)) < 0.01
+    assert abs(sim(c, "return s.player.x") - (29.5 + 14)) < 0.01
 
 
 @case
@@ -220,9 +220,9 @@ def cooldowns_the_global_cooldown_and_range():
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 5, 5")
     assert sim(c, "local ok, why = s:Use('1') return why") == "Out of range."
     assert sim(c, "local ok, why = s:Use('7') return why") == "Out of range."
-    c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 35, 40")
+    c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 29.5, 20")
     assert sim(c, "return s:Use('7')") is True
-    c.eval("T_TR.run(1.05) T_TR.sim.player.x, T_TR.sim.player.y = 35, 60")
+    c.eval("T_TR.run(1.05) T_TR.sim.player.x, T_TR.sim.player.y = 29.5, 45")
     assert sim(c, "return s:Use('1')") is True
     assert sim(c, "return s.stats.strikes") == 1 and sim(c, "return s.stats.shields") == 1
     assert 87 < sim(c, "return (s:Cooldown(s:GetAbility('shield')))") < 90
@@ -234,13 +234,14 @@ def the_lance_slow_stacks_to_three_and_fades_and_chains_stun():
     c.eval("T_TR.new('quick') T_TR.die_in_corner()")
     c.eval("local s = T_TR.sim  T_U = s:Alive('construct')[1]  s:SetTarget(T_U)")
     c.eval("for i, u in ipairs(T_TR.constructs()) do u.speed = 0 end  T_U.speed = 8  T_U.goal = nil  T_TR.run(1.1)")
+    c.eval("T_TR.sim.player.x, T_TR.sim.player.y = T_U.x, T_U.y")       # point blank: the missile lands at once
     speed = lambda: c.eval_py("return T_TR.sim:UnitSpeed(T_U) / 8")
     assert abs(speed() - 1) < 1e-6
     for want in (0.7, 0.4, 0.1, 0.1):                              # 30% a stack, three stacks
         c.eval("T_TR.sim:Use('lance') T_TR.run(1.05)")
         assert abs(speed() - want) < 1e-6, (want, speed())
     assert c.eval_py("return T_TR.sim:HasAura(T_U, 'lance').stacks") == 3
-    c.eval("T_TR.run(2.0)")                                        # 3 s after the last one: a third of it is gone
+    c.eval("T_TR.run(2.1)")                                        # 3 s after the last one: a third of it is gone
     assert abs(speed() - 0.4) < 1e-6, speed()
     c.eval("T_TR.run(3.0)")
     assert abs(speed() - 0.7) < 1e-6, speed()
@@ -256,6 +257,74 @@ def the_lance_slow_stacks_to_three_and_fades_and_chains_stun():
     assert speed() == 0
     c.eval("T_TR.run(0.2)")
     assert c.eval_py("return T_TR.sim:HasAura(T_U, 'chains')") is None
+
+
+@case
+def spells_fly_at_their_real_speed_with_their_own_effects_and_sounds():
+    w, c = boot()
+    c.eval("T_TR.new('quick')")
+    assert sim(c, "return s.sounds[1]") == 743                               # the mark lands
+    assert sim(c, "return s.fx[1].fdid") == 166814
+    c.eval("T_TR.die_in_corner()")
+    c.eval("local s = T_TR.sim  for _, u in ipairs(T_TR.constructs()) do u.speed = 0 end  T_U = T_TR.constructs()[1] "
+           "s.player.x, s.player.y = 20, 10  T_U.x, T_U.y = 39, 10  s:SetTarget(T_U)  for i = #s.sounds, 1, -1 do s.sounds[i] = nil end")
+    # Spirit Lance: 38 yd/s, so 19 yd takes half a second; nothing happens to the target before that
+    assert sim(c, "return s:Use('lance')") is True
+    fx = sim(c, "local t = {} for _, f in ipairs(s.fx) do if f.kind == 'missile' then t[#t+1] = { f.fdid, f.dur } end end return t")
+    assert fx == [[166373, 0.5]], fx
+    c.eval("T_TR.run(0.4)")
+    assert c.eval_py("return T_U.hp") == 41567 and c.eval_py("return T_TR.sim:HasAura(T_U, 'lance')") is None
+    c.eval("T_TR.run(0.15)")
+    assert c.eval_py("return T_U.hp") == 41567 - 6175 and c.eval_py("return T_TR.sim:HasAura(T_U, 'lance').stacks") == 1
+    assert sim(c, "local n = 0 for _, f in ipairs(s.fx) do if f.fdid == 166372 and f.unit == T_U then n = n + 1 end end return n") == 1
+    assert sim(c, "return s.sounds") == [2559, 10009], sim(c, "return s.sounds")
+    # Spirit Volley: 15 yd/s. From 9 yd the damage lands 0.6 s after the cast
+    c.eval("T_TR.run(1)  local s = T_TR.sim  s.player.x = 30  for i = #s.sounds, 1, -1 do s.sounds[i] = nil end")
+    hp = c.eval_py("return T_U.hp")
+    assert sim(c, "return s:Use('volley')") is True
+    c.eval("T_TR.run(0.5)")
+    assert c.eval_py("return T_U.hp") == hp
+    c.eval("T_TR.run(0.15)")
+    assert 9900 <= hp - c.eval_py("return T_U.hp") <= 12100
+    assert sim(c, "return s.sounds") == [2559, 7]
+    # Spirit Chains: no missile, at once; its chains stay on the target for the 5 s
+    c.eval("T_TR.run(1)  local s = T_TR.sim  for i = #s.sounds, 1, -1 do s.sounds[i] = nil end")
+    hp = c.eval_py("return T_U.hp")
+    assert sim(c, "return s:Use('chains')") is True
+    assert c.eval_py("return T_U.hp") == hp - 1900 and c.eval_py("return T_TR.sim:UnitSpeed(T_U)") == 0
+    kinds = sim(c, "local t = {} for _, f in ipairs(s.fx) do if f.fdid then t[#t+1] = f.fdid end end table.sort(t) return t")
+    assert kinds == [165782, 166210, 166385], kinds
+    assert sim(c, "return s.sounds") == [3076, 1502]
+    c.eval("T_TR.run(4.9)")
+    assert sim(c, "local n = 0 for _, f in ipairs(s.fx) do if f.fdid == 166385 then n = n + 1 end end return n") == 1
+    c.eval("T_TR.run(0.2)")
+    assert sim(c, "local n = 0 for _, f in ipairs(s.fx) do if f.fdid then n = n + 1 end end return n") == 0
+    no_errors(w)
+
+
+@case
+def the_room_is_the_real_hall_with_its_map_on_the_floor():
+    w, c = boot()
+    a = c.eval_py("local a = ns.Trainer:GetEncounter('teron').arena return { a.w, a.h, a.map.file, a.map.u0, a.map.u1, a.map.v0, a.map.v1 }")
+    assert a[0] == 59 and a[1] == 58.5 and a[2].endswith("BT04_a"), a
+    # 0.436 yd a pixel of the 1009-wide map, scaled to 1024: the texture piece is as wide and tall as the hall
+    yd_per_u = 440.0                                                 # the map's width in yards (world Y 135..575)
+    assert abs((a[4] - a[3]) * yd_per_u - 59) < 0.5 and abs((a[6] - a[5]) * 512 / 683 * 293.4 - 58.5) < 0.5, a
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Start(3)  T_TR.sim = ns.TrainerUI._Sim()")
+    c.eval("T_TR.sim.player.x, T_TR.sim.player.y, T_TR.sim.player.facing = 50, 30, math.pi  ns.TrainerUI._Tick(0.05)")
+    fl = c.eval_py("return ns.TrainerUI._Floor()")
+    assert fl["tiles"] == 144 and fl["shown"] > 60 and fl["mini"] is True, fl
+    # the spell effects are actors holding the effect's model file
+    c.eval("T_TR.die_in_corner()  local s = T_TR.sim  for _, u in ipairs(T_TR.constructs()) do u.speed = 0 end "
+           "ns.TrainerUI._Key('TAB') ns.TrainerUI._Key('3') ns.TrainerUI._Tick(0.05)")
+    fx = c.eval_py("return ns.TrainerUI._Fx()")
+    assert any(f["fdid"] == 166373 and f["kind"] == "missile" and f["shown"] for f in fx), fx
+    c.eval("for _ = 1, 20 do ns.TrainerUI._Tick(0.1) end")
+    assert c.eval_py("return #ns.TrainerUI._Fx()") == 0
+    assert c.eval_py("return #ns.TrainerUI._Sim().sounds") == 0      # played and cleared
+    no_errors(w)
 
 
 @case
@@ -377,12 +446,12 @@ def the_panel_briefs_plays_pauses_and_shows_the_result():
     for _ in range(20):
         c.eval("ns.TrainerUI._Tick(0.1)")
     y = c.eval_py("return ns.TrainerUI._Sim().player.y")
-    assert abs(y - (42 - 9)) < 0.5, y                              # two seconds backwards at 4.5 yd/s
+    assert abs(y - (34 - 9)) < 0.5, y                              # two seconds backwards at 4.5 yd/s
     # the 3D view: an actor per model (you, Teron, 11 raiders), Teron's name plate, the camera behind you
     st = c.eval_py("return ns.TrainerUI._State()")
     assert st["actors"] == 13, st
     cam = c.eval_py("local c = ns.TrainerUI._Camera() return { c.x, c.y, c.z, c.dist }")
-    assert cam[2] > 3 and abs(math.hypot(cam[0] - 35, abs(cam[1]) - y) - cam[3] * math.cos(0.3)) < 0.5, cam
+    assert cam[2] > 3 and abs(math.hypot(cam[0] - 29.5, abs(cam[1]) - y) - cam[3] * math.cos(0.3)) < 0.5, cam
     teron = c.eval_py("local s = ns.TrainerUI._Sim() for _, u in ipairs(s.units) do if u.kind == 'boss' then "
                       "local a = ns.TrainerUI._Actor(u.id) return { a.pending or a.display, a.anim } end end")
     assert teron[0] == 21254 and teron[1] in (17, 26), teron      # swinging at the tank

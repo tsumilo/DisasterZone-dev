@@ -113,7 +113,7 @@ function T:NewSim(encId, diffId, seed)
     local sim = setmetatable({
         enc = enc, diff = T:GetDifficulty(enc, diffId),
         time = 0, acc = 0, state = "run", seed = seed,
-        units = {}, nextId = 1, timers = {}, fx = {}, bars = {}, zones = {},
+        units = {}, nextId = 1, timers = {}, fx = {}, sounds = {}, bars = {}, zones = {},
         cds = {}, gcdUntil = 0, gcdTotal = 1, moveX = 0, moveY = 0, fwd = 0, strafe = 0, turn = 0,
         stats = { casts = {} },
     }, Sim)
@@ -149,10 +149,24 @@ function Sim:After(delay, fn)
     self.timers[#self.timers + 1] = { at = self.time + delay, fn = fn }
 end
 
--- A short-lived effect for the UI: { kind = "ring", x, y, r } or { kind = "beam", x, y, x2, y2 }, plus color.
+-- A short-lived effect for the UI. The flat view draws { kind = "ring", x, y, r } and { kind = "beam", x, y, x2,
+-- y2 } (plus color); the 3D view draws { kind = "model", fdid, unit or x / y, z } (a spell effect's model file,
+-- on a unit or a spot) and { kind = "missile", ... } (Sim:Missile).
 function Sim:Fx(fx, dur)
     fx.at, fx.dur = self.time, dur or 0.4
     self.fx[#self.fx + 1] = fx
+end
+
+-- A spell missile: the model flies from (x, y) to the unit at `speed` yd/s and onHit(sim, unit) runs as it lands.
+function Sim:Missile(fdid, x, y, unit, speed, onHit)
+    local dur = max(0.05, Dist(x, y, unit.x, unit.y) / speed)
+    self:Fx({ kind = "missile", fdid = fdid, x = x, y = y, unit = unit }, dur)
+    self:After(dur, function(s) onHit(s, unit) end)
+end
+
+-- A sound kit for the UI to play.
+function Sim:Sound(kit)
+    self.sounds[#self.sounds + 1] = kit
 end
 
 function Sim:Banner(text, dur, r, g, b)

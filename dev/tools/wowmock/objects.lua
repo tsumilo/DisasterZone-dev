@@ -804,6 +804,7 @@ define("TextureBase", "Region", {
     return 0, 0, 0, 1, 1, 0, 1, 1
   end,
   SetDesaturated = function(self, v) S(self).desat = v and true or false end,
+  SetVertexOffset = function(self, i, x, y) local st = S(self); st.voff = st.voff or {}; st.voff[i] = { x, y } end,
   IsDesaturated = function(self) return S(self).desat or false end,
   SetDesaturation = function(self, v) S(self).desat = (v or 0) > 0 end,
   SetBlendMode = function(self, m) S(self).blend = m end,
@@ -1158,6 +1159,7 @@ function ActorMethods:SetModelByCreatureDisplayID(id)
   self.modelRequests = (self.modelRequests or 0) + 1
   return true
 end
+function ActorMethods:SetModelByFileID(id) self.display, self.pending, self.fileID = nil, nil, id return true end
 function ActorMethods:ClearModel() self.display, self.pending = nil, nil end
 function ActorMethods:IsLoaded() self:Tick() return self.display ~= nil end
 function ActorMethods:GetModelFileID() self:Tick() return self.display and (100000 + self.display) or nil end

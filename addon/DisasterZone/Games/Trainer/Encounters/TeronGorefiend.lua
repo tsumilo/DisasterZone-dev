@@ -7,21 +7,28 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Encounters/TeronGore
 --   spells (Wowhead TBC Classic): Spirit Strike 40325, Spirit Lance 40157, Spirit Chains 40175, Spirit Volley
 --     40314, Spirit Shield 40322, Shadow of Death 40251 (55 s), Summon Skeleton 40270 (within 6 yd of the corpse),
 --     Brief Stun 41421 (1 s, on every construct as it rises), Spiritual Vengeance 40268 (the spirit lasts 60 s);
+--   missile speeds (the client's SpellMisc table, build 2.5.6): Lance 38 yd/s, Volley 15 yd/s, Chains none.
+--     Damage lands when the missile does;
+--   effect models and sounds (the client's SpellXSpellVisual > SpellVisualEvent > SpellVisualKitEffect >
+--     SpellVisualKitModelAttach > SpellVisualEffectName tables, build 2.5.6): see FX below;
 --   models (Wowhead): Teron 21254, Vengeful Spirit 21300, Shadowy Construct 21305;
 --   construct health 41,567 (TBC Classic DB); constructs take damage from Lance, Chains and Volley only and each
 --     runs at a random raider (server emulators' boss scripts);
 --   Spirit Lance's slow fades by a third every 3 s (AzerothCore's spell script); that it stacks to 3 is from
---     the Icy Veins / Warcraft Tavern guides.
--- NOT verified anywhere: the run speed of constructs and of the spirit (8 yd/s, the creature default), the
--- room's size, and where a raid stands in it.
+--     the Icy Veins / Warcraft Tavern guides;
+--   the room: Blizzard's map of Gorefiend's Vigil (Media/Maps/BT04) covers world X 343.3..636.7 and
+--     Y 135..575 (UiMapAssignment of UiMap 343), 0.436 yd a pixel. The square hall measures 135 x 134 pixels on
+--     it: 59 x 58.5 yd. The floor shows that piece of the map. The stairs are drawn, not climbed: it is flat.
+-- NOT verified anywhere: the run speed of constructs and of the spirit (8 yd/s, the creature default), and
+-- where exactly Teron and a raid stand in the room.
 local addonName, ns = ...
 
 local T = ns.Trainer
 local Dist = T.Dist
 local floor, min, max, pi = math.floor, math.min, math.max, math.pi
 
-local ARENA_W, ARENA_H = 70, 90
-local BOSS_X, BOSS_Y = 35, 62
+local ARENA_W, ARENA_H = 59, 58.5
+local BOSS_X, BOSS_Y = 29.5, 47
 local GHOST_TIME = 60
 local AOE_RANGE = 12
 local MELEE = 3
@@ -30,15 +37,26 @@ local CREATURE_RUN = 8
 
 local DISPLAY_TERON, DISPLAY_SPIRIT, DISPLAY_CONSTRUCT = 21254, 21300, 21305
 
--- The raid: the tank, melee behind the boss, ranged and healers spread to the south (you start among them).
+-- Effect model files and sound kits, as the client's spell visuals name them.
+local FX = {
+    lanceMissile = 166373, lanceImpact = 166372, lanceCastSound = 2559, lanceImpactSound = 10009,
+    volleyMissile = 166375, volleyImpact = 166370, volleyCastSound = 2559, volleyImpactSound = 7,
+    chainsCast = 166210, chainsCastSound = 3076, chainsBase = 165782, chainsBody = 166385, chainsSound = 1502,
+    strikeImpact = 166239, strikeSound = 6477,
+    shield = 166540, shieldSound = 39,
+    markImpact = 166814, markSound = 743,
+}
+
+-- The raid: the tank, melee behind the boss, ranged and healers close around them at the north end (you start
+-- among them), which leaves the whole hall between the raid and the corners by the entrance.
 -- { x, y, display, what they do }. The models are the Shattered Sun Offensive's soldiers (display IDs from
 -- Wowhead: Veteran 22931, Warrior 20570, Trainee 22924, Peacekeeper 23714, Marksman 22752, Magi 22952,
 -- Archmage 22973, Cleric 22953): armed blood elves and draenei that every faction's client has.
 local RAID = {
-    { 35, 58, 22931, "melee", tank = true }, { 32, 65, 20570, "melee" }, { 35, 66, 22924, "melee" },
-    { 38, 65, 23714, "melee" },
-    { 27, 47, 22752, "bow" }, { 31, 44, 22952, "caster" }, { 35, 46, 22953, "caster" }, { 39, 44, 22973, "caster" },
-    { 43, 47, 22752, "bow" }, { 33, 49, 22953, "caster" }, { 37, 49, 22952, "caster" },
+    { 29.5, 43, 22931, "melee", tank = true }, { 26.5, 50, 20570, "melee" }, { 29.5, 51, 22924, "melee" },
+    { 32.5, 50, 23714, "melee" },
+    { 19, 44, 22752, "bow" }, { 22.5, 40.5, 22952, "caster" }, { 26.5, 38.5, 22953, "caster" },
+    { 32.5, 38.5, 22973, "caster" }, { 40, 44, 22752, "bow" }, { 36.5, 40.5, 22953, "caster" }, { 29.5, 37, 22952, "caster" },
 }
 
 local function SpellIcon(spellID, fallback)
@@ -60,6 +78,8 @@ local abilities = {
       usable = IsGhost,
       use = function(sim)
           sim.stats.strikes = (sim.stats.strikes or 0) + 1
+          sim:Fx({ kind = "model", fdid = FX.strikeImpact, unit = sim.boss, z = 2.5 }, 0.8)
+          sim:Sound(FX.strikeSound)
       end,
       check = function(sim)
           if Dist(sim.player.x, sim.player.y, BOSS_X, BOSS_Y) > 5 + 3 then return false, "Out of range." end
@@ -69,29 +89,50 @@ local abilities = {
       tip = "6,175 damage to your target, 30 yd. Slows it by 30% (stacks 3 times); the slow fades over 9 sec.",
       range = 30, needsTarget = true, usable = IsGhost,
       use = function(sim, ab, target)
-          sim:Damage(target, 6175)
-          sim:AddAura(target, "lance", { dur = 9, slow = 0.3, maxStacks = 3, fade = 3 })
+          sim:Sound(FX.lanceCastSound)
           sim:Fx({ kind = "beam", x = sim.player.x, y = sim.player.y, x2 = target.x, y2 = target.y,
                    color = { 0.6, 0.85, 1 } }, 0.25)
+          sim:Missile(FX.lanceMissile, sim.player.x, sim.player.y, target, 38, function(s, u)
+              if u.dead then return end
+              s:Damage(u, 6175)
+              s:AddAura(u, "lance", { dur = 9, slow = 0.3, maxStacks = 3, fade = 3 })
+              s:Fx({ kind = "model", fdid = FX.lanceImpact, unit = u, z = 1.5 }, 0.8)
+              s:Sound(FX.lanceImpactSound)
+          end)
       end },
     { id = "chains", key = "4", spell = 40175, name = "Spirit Chains", icon = SpellIcon(40175, "Spell_Frost_ChainsOfIce"),
       tip = "1,900 damage to every construct within 12 yd and stuns them for 5 sec. 15 sec cooldown.",
       cooldown = 15, usable = IsGhost,
       use = function(sim)
+          sim:Sound(FX.chainsCastSound)
+          sim:Fx({ kind = "model", fdid = FX.chainsCast, unit = sim.player }, 1.2)
+          sim:Fx({ kind = "ring", x = sim.player.x, y = sim.player.y, r = AOE_RANGE, color = { 0.5, 0.7, 1 } }, 0.5)
+          local hit = false
           for _, u in ipairs(Constructs(sim)) do
               sim:Damage(u, 1900)
               sim:AddAura(u, "chains", { dur = 5, stun = true })
+              if not u.dead then
+                  sim:Fx({ kind = "model", fdid = FX.chainsBase, unit = u }, 5)
+                  sim:Fx({ kind = "model", fdid = FX.chainsBody, unit = u, z = 1.5 }, 5)
+              end
+              hit = true
           end
-          sim:Fx({ kind = "ring", x = sim.player.x, y = sim.player.y, r = AOE_RANGE, color = { 0.5, 0.7, 1 } }, 0.5)
+          if hit then sim:Sound(FX.chainsSound) end
       end },
     { id = "volley", key = "5", spell = 40314, name = "Spirit Volley", icon = SpellIcon(40314, "Spell_Frost_IceStorm"),
       tip = "9,900 to 12,100 damage to every construct within 12 yd. 15 sec cooldown.",
       cooldown = 15, usable = IsGhost,
       use = function(sim)
-          for _, u in ipairs(Constructs(sim)) do
-              sim:Damage(u, sim:Random(9900, 12100))
-          end
+          sim:Sound(FX.volleyCastSound)
           sim:Fx({ kind = "ring", x = sim.player.x, y = sim.player.y, r = AOE_RANGE, color = { 0.8, 0.6, 1 } }, 0.5)
+          for _, target in ipairs(Constructs(sim)) do
+              sim:Missile(FX.volleyMissile, sim.player.x, sim.player.y, target, 15, function(s, u)
+                  if u.dead then return end
+                  s:Damage(u, s:Random(9900, 12100))
+                  s:Fx({ kind = "model", fdid = FX.volleyImpact, unit = u, z = 1.5 }, 0.8)
+                  s:Sound(FX.volleyImpactSound)
+              end)
+          end
       end },
     { id = "shield", key = "7", spell = 40322, name = "Spirit Shield", icon = SpellIcon(40322, "Ability_Shaman_WaterShield"),
       tip = "Shields the tank from 11,400 Shadow damage for 30 sec. 40 yd, 1.5 min cooldown.",
@@ -102,6 +143,8 @@ local abilities = {
       end,
       use = function(sim)
           sim.stats.shields = (sim.stats.shields or 0) + 1
+          sim:Fx({ kind = "model", fdid = FX.shield, unit = sim.tank }, 30)
+          sim:Sound(FX.shieldSound)
       end },
 }
 
@@ -138,15 +181,18 @@ end
 local function Start(sim)
     sim.phase = "marked"
     sim.stats.kills = 0
-    sim:Spawn({ kind = "boss", name = "Teron Gorefiend", x = BOSS_X, y = BOSS_Y, facing = -pi / 2, radius = 3,
-                color = { 0.55, 0.1, 0.1 }, display = DISPLAY_TERON, act = "melee" })
+    sim.boss = sim:Spawn({ kind = "boss", name = "Teron Gorefiend", x = BOSS_X, y = BOSS_Y, facing = -pi / 2, radius = 3,
+                           color = { 0.55, 0.1, 0.1 }, display = DISPLAY_TERON, act = "melee" })
     for _, r in ipairs(RAID) do
-        sim:Spawn({ kind = "raider", name = r.tank and "Tank" or "Raider", x = r[1], y = r[2], radius = 0.9,
-                    facing = math.atan2(BOSS_Y - r[2], BOSS_X - r[1]), display = r[3], act = r[4],
-                    color = { 0.3, 0.55, 1 } })
+        local u = sim:Spawn({ kind = "raider", name = r.tank and "Tank" or "Raider", x = r[1], y = r[2], radius = 0.9,
+                              facing = math.atan2(BOSS_Y - r[2], BOSS_X - r[1]), display = r[3], act = r[4],
+                              color = { 0.3, 0.55, 1 } })
+        if r.tank then sim.tank = u end
     end
     sim.objective = "Shadow of Death: get far away from the raid before you die."
     sim:Banner("You are marked with Shadow of Death!", 3, 0.8, 0.4, 1)
+    sim:Fx({ kind = "model", fdid = FX.markImpact, unit = sim.player, z = 1.5 }, 1.2)
+    sim:Sound(FX.markSound)
 end
 
 local function Update(sim)
@@ -202,7 +248,7 @@ local function Summary(sim)
     end
     if s.spawnDist then
         out[#out + 1] = string.format("They rose %d yd from the nearest raider they went for.", floor(s.spawnDist))
-        if s.spawnDist < 35 then
+        if s.spawnDist < 25 then
             out[#out + 1] = "|cffffd100Tip:|r die further away: the corners by the entrance give the most time."
         end
     end
@@ -224,12 +270,15 @@ T:RegisterEncounter("teron", {
     desc = "Shadow of Death: die away from the raid, then kill your four Shadowy Constructs as a Vengeful Spirit.",
     icon = "Interface\\Icons\\Spell_Shadow_DeathPact",
     order = 10,
-    arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } } },
+    -- map: the piece of Media/Maps/BT04_a (the top 1024 x 512 of the 1024 x 683 map) that is this hall
+    arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
+              map = { file = "Interface\\AddOns\\DisasterZone\\Media\\Maps\\BT04_a",
+                      u0 = 0.3221, u1 = 0.4560, v0 = 0.2537, v1 = 0.5193 } },
     difficulties = {
         { id = "quick", name = "Quick (15 sec mark)", fuse = 15 },
         { id = "real", name = "Real (55 sec mark)", fuse = 55 },
     },
-    player = { x = 35, y = 42, speed = 7, facing = pi / 2 },
+    player = { x = 29.5, y = 34, speed = 7, facing = pi / 2 },
     abilities = abilities,
     howTo = {
         "You are marked with |cffb48cffShadow of Death|r. Get away from the raid before the mark runs out.",
