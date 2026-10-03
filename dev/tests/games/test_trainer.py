@@ -12,7 +12,11 @@ models), a still view costs no room calls, a wall through the near plane is cut 
 halved to the screen-error bound tau (finer for a smaller tau, coarser but complete past the hard cap), the count
 controller moves tau with the number of pieces and never without a camera move, the projection self-check (and its
 one warning when the client's camera is not the assumed pinhole), and without Room.lua (client not restarted) the
-view is drawn flat and says so.
+view is drawn flat and says so. Fix round 1 (judged by tools/render_check.py where it is about pixels): a piece clear
+of the near plane again shows its whole picture, not the cut one; at 5 px a redraw past the hard cap is collected
+again coarser instead of leaving its nearest pieces whole; past the texture budget a frame borrows a hidden texture
+rather than making one; the midpoints cache is emptied when full without changing the picture; marks that stand
+still cost no line setters; a room switch while the projection gives nothing errs not.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_trainer.py [-k name]
 """
@@ -427,6 +431,33 @@ def a_wall_through_the_near_plane_is_cut_there_not_dropped():
 
 
 @case
+def a_piece_clear_of_the_near_plane_again_shows_its_whole_picture():
+    # The camera eases towards a wall of Vashj's hall until pieces cross its near plane (cut there, with cut texture
+    # coordinates), then backs off: the same pieces lie whole in front of the plane again and must show their whole
+    # picture, not the cut one (judged by tools/render_check.py: every texture matches its triangle, and no texel is
+    # further off than the screen-error bound allows).
+    rc = _render_check()
+    sess = rc.Session("vashj", (300, 200), 1.0, opts=dict(rc.R1_OPTS, collision=False))
+    x, y, f, p = 79.88, 176.39, -4.32, 0.147
+    toward = [8.31 - 0.02 * k for k in range(4)]
+    back = [toward[-1] + 0.02 * k for k in range(1, 7)]
+    sess.pose(x, y, f, p, toward[0] + 0.001)
+    sess.frame()
+    clipped = []
+    for d in toward + back:
+        sess.pose(x, y, f, p, d)
+        sess.frame()
+        st = sess.render_stats()
+        clipped.append(st["clipped"])
+        if d in back:
+            tr, pt, res = rc.analyse(sess, sess.capture())
+            assert res["unmatchedRegions"] == 0 and res["misplacementMaxPx"] <= 2 * st["tau"] + 0.5, (d, st["clipped"], {
+                k: res[k] for k in ("unmatchedRegions", "matchedRegions", "misplacementMaxPx", "wrongSurfacePct")})
+    assert min(clipped) > 0, clipped
+    sess.w.assert_no_errors()
+
+
+@case
 def pieces_are_halved_to_the_screen_error_bound_and_tau_follows_the_count():
     w, c = boot()
     c.slash("/dz play trainer")
@@ -493,6 +524,140 @@ def pieces_are_halved_to_the_screen_error_bound_and_tau_follows_the_count():
         pose(30, 8 + 0.01 * (k % 60), math.pi / 2 + 0.001 * k)
     said = [str(line) for line in c.chat_frame[n0:] if "may not line up" in str(line)]
     assert len(said) == 1 and render()["selfCheckPx"] > 1.5, (said, render()["selfCheckPx"])
+    no_errors(w)
+
+
+def _render_check():
+    tools = os.path.join(os.path.dirname(TESTS), "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import render_check as rc
+    return rc
+
+
+@case
+def at_5_px_a_redraw_past_the_hard_cap_coarsens_evenly_instead_of_cutting_its_nearest_pieces_short():
+    # Vashj's hall from the east side at 32 yd, looking across it: at 5 px it takes about 2820 pieces, over the
+    # hard cap (2800). The controller's tau stops at 5, so that redraw is collected again at 6.25 px (about 2490
+    # pieces) instead of drawing its last pieces in the BSP order - the nearest ones - whole and far off.
+    rc = _render_check()
+    sess = rc.Session("vashj", (600, 400), 1.0, opts={"adaptiveTime": False, "target": 300})
+    x, y, f, p, d = 167.157, 138.602, 2.345, 0.407, 32.344
+    for k in range(12):
+        sess.pose(x, y, f + (0.001 if k % 2 == 0 else -0.001), p, d)
+        sess.frame()
+    sess.pose(x, y, f, p, d)
+    sess.frame()
+    st = sess.render_stats()
+    assert st["tauNext"] == 5.0 and st["tau"] > 5.0 and st["redone"] >= 1, st
+    assert st["capped"] == 0 and st["leaves"] <= st["hardCap"] == 2800, st
+    tr, pt, res = rc.analyse(sess, sess.capture())
+    assert res["misplacementMaxPx"] <= 2 * st["tau"] + 0.5 and res["unmatchedRegions"] == 0, {
+        k: res[k] for k in ("misplacementMaxPx", "unmatchedRegions", "wrongSurfacePct")}
+    o = sess.check_order()
+    assert o and o["wrong"] == 0 and o["distinct"] == o["nodes"], o
+    sess.w.assert_no_errors()
+
+
+@case
+def past_the_texture_budget_a_frame_borrows_a_hidden_texture_instead_of_making_one():
+    # Textures never leave their cluster frame in the spec, so over a long session every frame keeps as many as it
+    # ever needed. Past Room's texture budget (here set low) a frame with none free borrows a hidden one from the
+    # frame with the most free ones: the total stops growing, the pieces still land right and in order, and a frame
+    # that needs no new texture moves none.
+    rc = _render_check()
+    budget = 1700
+    sess = rc.Session("teron", (300, 200), 1.0, opts=dict(rc.R1_OPTS, texBudget=budget))
+    peak, sp = 0, 0
+    for name, x, y, f, p, d, _ in rc.POSES["teron"][:8]:
+        sess.pose(x, y, f, p, d)
+        counts, _ = sess.frame()
+        sp += counts.get("SetParent", 0)
+        peak = max(peak, sess.c.eval_py("return ns.TrainerRoom.ShownTextures()"))
+        o = sess.check_order()
+        assert o["wrong"] == 0 and o["distinct"] == o["nodes"], (name, o)
+    st = sess.render_stats()
+    assert st["lent"] > 0 and sp == st["lent"] and st["textures"] <= max(budget, peak), (st["textures"], st["lent"], sp, peak)
+    tr, pt, res = rc.analyse(sess, sess.capture())
+    assert res["unmatchedRegions"] == 0 and res["wrongSurfacePct"] <= 0.02 and res["holesPct"] <= 0.01, {
+        k: res[k] for k in ("unmatchedRegions", "wrongSurfacePct", "holesPct", "misplacementMaxPx")}
+    # (a small turn: the pieces in view keep their textures, nothing moves between frames)
+    name, x, y, f, p, d, _ = rc.POSES["teron"][7]
+    sess.pose(x, y, f + 0.001, p, d)
+    counts, _ = sess.frame()
+    assert counts.get("SetParent", 0) == 0 and counts.get("CreateTexture", 0) == 0, counts
+    sess.w.assert_no_errors()
+
+
+@case
+def the_midpoints_cache_is_emptied_when_full_and_the_picture_does_not_mind():
+    # Every halved edge keeps its midpoint from frame to frame; once the cache holds more than its cap (16384, here
+    # 300) it is emptied at the start of a redraw. Keys are paths, so no texture minds: the pieces are the same.
+    rc = _render_check()
+    sess = rc.Session("teron", (300, 200), 1.0, opts=dict(rc.R1_OPTS, midCap=300))
+    mids = []
+    for k in range(6):
+        sess.pose(30 + 2 * k, 8 + 3 * k, math.pi / 2 + 0.2 * k, 0.3, 14)
+        sess.frame()
+        mids.append(sess.render_stats()["midpoints"])
+        tr, pt, res = rc.analyse(sess, sess.capture())
+        assert res["unmatchedRegions"] == 0 and res["misplacementMaxPx"] <= 4.5 and res["wrongSurfacePct"] <= 0.02, (k, {
+            kk: res[kk] for kk in ("unmatchedRegions", "misplacementMaxPx", "wrongSurfacePct")})
+    sess.set_opts({"midCap": False})
+    sess.pose(30 + 2 * 6, 8 + 3 * 6, math.pi / 2 + 1.2, 0.3, 14)
+    sess.frame()
+    grown = sess.render_stats()["midpoints"]
+    assert max(mids) < 3000 and grown > max(mids[-1], 300), (mids, grown)
+    sess.w.assert_no_errors()
+
+
+@case
+def marks_that_stand_still_are_put_into_the_order_once():
+    w, c = boot()
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Select('vashj', 'looter')  local v = ns.TrainerUI._View() v:SetSize(600, 400) "
+           "ns.TrainerUI._Start(3)")
+    for _ in range(40):
+        c.eval("ns.TrainerUI._Tick(0.1)")
+    c.eval("local s = ns.TrainerUI._Sim()  s.player.x, s.player.y, s.player.facing = 105, 48, -math.pi / 2 "
+           "local cam = ns.TrainerUI._Camera()  cam.pitch, cam.dist = 0.5, 14  ns.TrainerUI._Tick(0)")
+    o0, m0 = c.eval_py("return ns.TrainerUI._Order()"), c.eval_py("return ns.TrainerUI._Marks()")
+    assert len(m0) >= 20 and len(o0["lines"]) >= 20, (len(m0), len(o0["lines"]))
+    # the camera and the marks stand still: the same segments in the same places, and not one line setter (the one
+    # SetStartPoint + SetEndPoint is the minimap's facing arrow) nor label font
+    c.eval("T_CNT = {}  __MOCK.set_api_count(T_CNT)  ns.TrainerUI._Tick(0)  __MOCK.set_api_count(nil)")
+    cnt = c.eval_py("return T_CNT")
+    for k in ("SetThickness", "SetColorTexture", "SetDrawLayer", "CreateLine", "SetFontObject"):
+        assert cnt.get(k, 0) == 0, (k, cnt)
+    assert cnt.get("SetStartPoint", 0) <= 1 and cnt.get("SetEndPoint", 0) <= 1, cnt
+    o1, m1 = c.eval_py("return ns.TrainerUI._Order()"), c.eval_py("return ns.TrainerUI._Marks()")
+    assert m1 == m0 and o1["lines"] == o0["lines"], (len(m1), len(o1["lines"]))
+    # a ring that grows (the one on the steps in view, the last mark): its lines follow, the order holds
+    c.eval("local s = ns.TrainerUI._Sim()  local mk = s.marks[#s.marks]  mk.r = (mk.r or 3) + 1  ns.TrainerUI._Tick(0)")
+    o2, m2 = c.eval_py("return ns.TrainerUI._Order()"), c.eval_py("return ns.TrainerUI._Marks()")
+    assert m2 != m0 and o2["wrong"] == 0 and all(l["frame"] == 0 or l["pos"] % 2 == 1 for l in o2["lines"]), len(m2)
+    no_errors(w)
+
+
+@case
+def a_room_switch_while_the_projection_gives_nothing_errs_not():
+    # Project3DPointTo2D may return nothing: the camera cannot be measured, so the new room is neither drawn nor are
+    # marks put into its order until it can (they would land on the old room's order).
+    w, c = boot()
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Select('teron', 'quick')  local v = ns.TrainerUI._View() v:SetSize(600, 400) "
+           "ns.TrainerUI._Start(3)  ns.TrainerUI._Tick(0.05)")
+    c.eval("local v, sc = ns.TrainerUI._View()  T_P3D = sc.Project3DPointTo2D  sc.Project3DPointTo2D = function() end "
+           "ns.TrainerUI._Select('vashj', 'looter')  ns.TrainerUI._Start(3)")
+    for _ in range(3):
+        res = c.eval_py("local ok, err = pcall(ns.TrainerUI._Tick, 0.05) return { ok = ok, err = tostring(err) }")
+        assert res["ok"], res
+    assert c.eval_py("return ns.TrainerUI._Order()") is None
+    c.eval("local v, sc = ns.TrainerUI._View()  sc.Project3DPointTo2D = T_P3D  ns.TrainerUI._Tick(0.05)")
+    o = c.eval_py("return ns.TrainerUI._Order()")
+    assert o and o["nodes"] == 1511 and o["wrong"] == 0 and len(o["lines"]) > 0, o and {k: v for k, v in o.items() if k != "levels"}
     no_errors(w)
 
 

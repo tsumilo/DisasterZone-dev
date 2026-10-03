@@ -19,13 +19,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Room.lua", ...) then
 --    cuts never depend on the camera and stay put on the floor while you move. A piece that was halved in the
 --    last redraw stays halved until its error is under 0.75 tau (no flicker at the threshold). tau follows the
 --    number of pieces (about 1600; 1.5 to 5 px). The pieces are collected before any is drawn: a redraw that would
---    run past the hard cap is collected again with a coarser tau, and only at 5 px does the cap stop the halving
---    (the picture gets coarser, but nothing is ever left out).
+--    run past the hard cap is collected again with a coarser tau (past 5 px for that redraw alone, up to 10), and
+--    only then does the cap stop the halving (the picture gets coarser, but nothing is ever left out).
 --  * Pieces that cross the camera's near plane are halved down to 0.05 yd and then clipped exactly at the near
 --    plane; nothing is ever dropped. Whole subtrees and nodes outside the view are skipped by their bounding boxes.
 --  * Every piece has a key (its prim and its path through the halvings) and keeps its texture from frame to frame,
 --    so a frame where the camera moved costs four SetVertexOffset per piece and little else; a frame where it did
---    not move costs nothing.
+--    not move costs nothing. A texture that is no longer needed goes back to its frame's pool, where a new piece of
+--    any picture in that frame takes it (past a budget, a frame with none borrows one from another frame).
 --  * Mark lines (rings, columns, beams) are put into that same order by running each segment down the tree.
 -- Not here yet (later steps of the spec): camera collision, copies of the room over the models, the texture morph
 -- and the time-based budget controller.
@@ -49,11 +50,18 @@ local MARGIN = 2                  -- px: the frustum is this much bigger than th
 -- `target` pieces per redraw, nothing is halved past `cap`. State: tau = what the next redraw uses (the controller
 -- moves it), used = what the picture on screen was drawn with. selfEvery / selfPx / selfRun: the projection
 -- self-check runs every 30th camera move and warns after 10 checks in a row more than 1.5 px off.
+-- limit: a redraw that still runs past the cap at max is collected again coarser, up to this (spec 11 says the cap
+-- coarsens the nearest pieces only for a frame or two; at max tau cannot rise any more, so it would stay).
+-- midCap: midpoints kept from redraw to redraw (spec 3 kept up to 2^18: 16 arrays of that size are tens of MB).
+-- texBudget: room textures made before a frame with none free borrows a hidden one from another frame (a safety net:
+-- a frame's free textures serve all its pictures, so a session normally stays at 3-4k; render_check's runs, which jump
+-- across the room from pose to pose, make up to about 7.8k).
+-- epoch: counts the changes of camera, order and room that move mark lines (Room.Line reuses a still frame's).
 local CTL = { start = 2.0, min = 1.5, max = 5.0, merge = 0.75, target = 1600, cap = 2800, tau = 2.0, used = 2.0,
+              limit = 10.0, midCap = 16384, texBudget = 10000, epoch = 0,
               selfEvery = 30, selfPx = 1.5, selfRun = 10 }
 local MAXDEPTH = 18               -- halvings of one prim at most
 local MINCLIP2 = 0.05 * 0.05      -- a piece crossing the near plane is halved until its longest edge is under this
-local CAP_NODES, ROOM_FRAMES_MAX = 32, 200
 local EPS_SIDE = 1e-4             -- a node seen exactly edge-on draws nothing
 local LINE_EPS = 0.02             -- yd: mark segments this close to a node's plane lie in it
 local KP = 4194304                -- 2^22: piece key = prim * KP + path * 4 + kind (0 piece, 1 second clipped part)
@@ -61,16 +69,18 @@ local MIDK = 262144               -- 2^18: midpoint cache key = lo * MIDK + hi (
 local TMP0 = MIDK + 16            -- temporary points (near-plane clip points): TMP0 + 1 .., reset every redraw
 local LAYERS = { "BACKGROUND", "BORDER", "ARTWORK", "OVERLAY" }
 local BLENDS = { [0] = "DISABLE", [1] = "ALPHAKEY", [2] = "BLEND" }
-local BLEND_CODE = { DISABLE = 0, ALPHAKEY = 1, BLEND = 2 }
 local VUL, VLL = UPPER_LEFT_VERTEX or 1, LOWER_LEFT_VERTEX or 2
 local VUR, VLR = UPPER_RIGHT_VERTEX or 3, LOWER_RIGHT_VERTEX or 4
 
 -- Room.opts (spec section 8, UI._RenderOpts): tau (a number fixes the bound and turns the controller off),
 -- adaptive (the count controller), adaptiveTime, target, hardCap, morph, copies, collision, siblingQuads, opaque,
 -- dilate, camDt. Not used yet (later steps): adaptiveTime, morph, copies, collision, siblingQuads, dilate, camDt.
-local DEFAULTS = { adaptive = true, adaptiveTime = true, target = CTL.target, hardCap = CTL.cap, morph = true,
-                   copies = true, collision = true, siblingQuads = false, opaque = true, dilate = 0, camDt = false }
-for k, v in pairs(DEFAULTS) do Room.opts[k] = v end
+-- Not in the spec (tests and tuning; unset = CTL's): texBudget, midCap.
+do
+    local DEFAULTS = { adaptive = true, adaptiveTime = true, target = CTL.target, hardCap = CTL.cap, morph = true,
+                       copies = true, collision = true, siblingQuads = false, opaque = true, dilate = 0, camDt = false }
+    for k, v in pairs(DEFAULTS) do Room.opts[k] = v end
+end
 
 ---------------------------------------------------------------------------
 -- State. Everything hot is a flat array; nothing is allocated per frame.
@@ -102,6 +112,8 @@ local QA, QB, QC, QD, QL, QO, QN, QTEX, QPOOL = {}, {}, {}, {}, {}, {}, {}, {}, 
 local live, liveList = {}, {}                                      -- piece key -> texture; the live ones
 local splitPrev, splitCur = {}, {}                                 -- piece keys halved in the last / this redraw
 local LR = {}                                                      -- the redraw's pieces, 8 numbers each (Leaf)
+local LT = {}                                                      -- per piece: its texture from the last redraw
+local REL, nRel = {}, 0                                            -- textures given back this redraw (still shown)
 local redoOK, aborted = false, false                               -- past the hard cap: collect again coarser
 
 local curMesh, meshOk = nil, false
@@ -110,7 +122,7 @@ local nLeaves, nClipped, nCapped, gen, stamp1 = 0, 0, 0, 0, 0
 local forceOrder, dirty, camMoved, haveBasis, wipeMid = true, true, false, false, false
 local camDriven = false                                            -- this redraw is there because the camera moved
 local orderValid = false                                           -- pass 1b ran for this mesh
-local stats = { redraws = 0, pass1b = 0, redraw = false, moves = 0, selfBad = 0, redone = 0 }
+local stats = { redraws = 0, pass1b = 0, redraw = false, moves = 0, selfBad = 0, redone = 0, textures = 0, lent = 0 }
 
 -- for the redraw under way: tau^2 and (merge * tau)^2 (the hysteresis), and the hard cap
 local tau2, merge2, hardCap = CTL.tau ^ 2, (CTL.merge * CTL.tau) ^ 2, CTL.cap
@@ -126,7 +138,6 @@ local FR = {}                                                      -- the 5 frus
 local camKey = {}                                                  -- the last camera: x y z fx fy fz w h scale
 
 -- mark lines
-local LS = {}                                                      -- insertion stack: node + 6 coordinates
 local MKS, nMarks = {}, 0                                          -- segments drawn this frame (UI._Marks)
 local linesChanged = false
 
@@ -135,6 +146,12 @@ local floorCells, TRI                                              -- floor tria
 ---------------------------------------------------------------------------
 -- Preparing a mesh (once per room)
 ---------------------------------------------------------------------------
+
+-- (The helpers live in a block of their own: the main chunk's 200 locals are for what runs every frame.)
+local ComputePools, RoomFrame, Prepare
+do
+local CAP_NODES, ROOM_FRAMES_MAX = 32, 200
+local BLEND_CODE = { DISABLE = 0, ALPHAKEY = 1, BLEND = 2 }
 
 local function PreparePoints(mesh)
     local v = mesh.verts
@@ -211,7 +228,7 @@ end
 
 -- Pool key of every prim: texture file * 4 + blend code (opaque WMO materials draw with blending off; with
 -- Room.opts.opaque == false as plain textures).
-local function ComputePools()
+function ComputePools()
     local tex = curMesh.textures
     local bl = (curMesh.version == 2) and curMesh.blend or nil
     local opaque = Room.opts.opaque ~= false
@@ -362,18 +379,20 @@ local function BuildFloorGrid(mesh)
     floorCells = cells
 end
 
-local function RoomFrame(f)
+-- free: the frame's unused textures by pool, nfree of them in all (hidden; those given back in a redraw are hidden at
+-- its end unless a new piece took them).
+function RoomFrame(f)
     local fr = roomFrames[f]
     if not fr then
         fr = CreateFrame("Frame", nil, view)
         fr:SetAllPoints(view)
-        fr.free, fr.lines, fr.lineUsed, fr.lvl, fr.idx, fr.on = {}, {}, 0, -1, f, true
+        fr.free, fr.nfree, fr.lines, fr.lineUsed, fr.lvl, fr.idx, fr.on = {}, 0, {}, 0, -1, f, true
         roomFrames[f] = fr
     end
     return fr
 end
 
-local function Prepare(mesh)
+function Prepare(mesh)
     if type(mesh.verts) ~= "table" or type(mesh.tris) ~= "table" or type(mesh.nodes) ~= "table"
         or type(mesh.textures) ~= "table" or #mesh.nodes < 8 then
         return false
@@ -393,8 +412,10 @@ local function Prepare(mesh)
         if fr.on then fr:Hide() fr.on = false end
     end
     for k = 1, nNodes do sideSign[k] = nil end
-    forceOrder, dirty, orderValid = true, true, false
+    -- (the camera is measured again for this room before anything is drawn or a mark is put into its order)
+    forceOrder, dirty, orderValid, haveBasis = true, true, false, false
     return true
+end
 end
 
 ---------------------------------------------------------------------------
@@ -507,6 +528,7 @@ function Room.BeginFrame(c)
     FR[17], FR[18], FR[19], FR[20] = Fx, Fy, Fz, -(Fx * ex + Fy * ey + Fz * ez) - NEAR
     k[1], k[2], k[3], k[4], k[5], k[6], k[7], k[8], k[9] = x, y, z, fx, fy, fz, w, h, s
     haveBasis, camMoved, camDriven = true, true, true
+    CTL.epoch = CTL.epoch + 1
     stats.moves = stats.moves + 1
     if stats.moves % CTL.selfEvery == 0 then SelfCheck(s, m) end
     return true
@@ -541,20 +563,26 @@ local function W2(a, b)
     return dx * dx + dy * dy + dz * dz
 end
 
--- The midpoint of edge (a, b): one point per edge, kept from frame to frame.
+-- The midpoint of edge (a, b): one point per edge, kept from frame to frame (Pass2 empties the cache once it holds
+-- CTL.midCap midpoints; keys are paths, so no texture minds). The key lo * MIDK + hi is unique only while both ids
+-- are under MIDK: an edge with a temporary end (the cache ran full inside one redraw) gets a temporary of its own.
 local function Mid(a, b)
     if a > b then a, b = b, a end
-    local k = a * MIDK + b
-    local id = midOf[k]
-    if id then return id end
-    if nPts >= MIDK - 16 then                    -- full: a temporary now, the cache is emptied at the next redraw
+    local id
+    if b < TMP0 then
+        local k = a * MIDK + b
+        id = midOf[k]
+        if id then return id end
+        if nPts < MIDK - 16 then
+            nPts = nPts + 1
+            id = nPts
+            midOf[k] = id
+        end
+    end
+    if not id then                               -- full: a temporary now, the cache is emptied at the next redraw
         wipeMid = true
         nTmp = nTmp + 1
         id = TMP0 + nTmp
-    else
-        nPts = nPts + 1
-        id = nPts
-        midOf[k] = id
     end
     WX[id], WY[id], WZ[id] = (WX[a] + WX[b]) * 0.5, (WY[a] + WY[b]) * 0.5, (WZ[a] + WZ[b]) * 0.5
     local u, v = (TU[a] + TU[b]) * 0.5, (TV[a] + TV[b]) * 0.5
@@ -564,7 +592,24 @@ local function Mid(a, b)
     return id
 end
 
--- A free texture of frame f for pool (texture file * 4 + blend), or a new one (spec 4.3).
+-- One free texture of frame fr (any pool), or nil.
+local function TakeFree(fr)
+    for _, list in pairs(fr.free) do
+        local n = #list
+        if n > 0 then
+            local tx = list[n]
+            list[n] = nil
+            fr.nfree = fr.nfree - 1
+            return tx
+        end
+    end
+end
+
+-- A texture of frame f for pool (texture file * 4 + blend): a free one of that pool (the ones given back this
+-- redraw come first: they are still shown), else a free one of the frame with another picture (SetTexture), else
+-- a new one (spec 4.3). Textures never leave their frame (spec 6), so the frames' free ones add up over a long
+-- session: once CTL.texBudget textures exist, a frame that has none free borrows a hidden one from the frame
+-- with the most free ones (SetParent, instead of making one).
 local function Acquire(f, pool)
     local fr = roomFrames[f]
     local list = fr.free[pool]
@@ -572,9 +617,39 @@ local function Acquire(f, pool)
     if n > 0 then
         local tx = list[n]
         list[n] = nil
+        fr.nfree = fr.nfree - 1
         return tx
     end
-    local tx = fr:CreateTexture(nil, "BACKGROUND")
+    local tx = fr.nfree > 0 and TakeFree(fr)
+    if not tx and stats.textures >= (tonumber(Room.opts.texBudget) or CTL.texBudget) then
+        local d = roomFrames[CTL.donor or 0]
+        if not (d and d.nfree > 0) then
+            d = nil
+            local most = 0
+            for i = 1, #roomFrames do
+                local q = roomFrames[i]
+                if q.nfree > most then d, most = q, q.nfree end
+            end
+            CTL.donor = d and d.idx
+        end
+        tx = d and TakeFree(d)
+        if tx then
+            tx:SetParent(fr)
+            tx.frame = f
+            stats.lent = stats.lent + 1
+        end
+    end
+    if tx then
+        local was = tx.pool
+        if was ~= pool then
+            if floor(was / 4) ~= floor(pool / 4) then tx:SetTexture(floor(pool / 4), "REPEAT", "REPEAT") end
+            if was % 4 ~= pool % 4 then tx:SetBlendMode(BLENDS[pool % 4]) end
+            tx.pool = pool
+        end
+        return tx
+    end
+    stats.textures = stats.textures + 1
+    tx = fr:CreateTexture(nil, "BACKGROUND")
     tx:SetSize(1, 1)
     tx:SetPoint("CENTER", scene, "CENTER", 0, 0)      -- the 1 x 1 base sits mid-view: no cull / clip test fails on it
     if tx.SetSnapToPixelGrid then tx:SetSnapToPixelGrid(false) end
@@ -607,9 +682,9 @@ end
 
 -- One piece on screen (spec 5.9.1): n = 3 (c1, c2, c3; c4 == c3) or 4 (cyclic c1..c4). UL = c1, LL = c2,
 -- UR = c4, LR = c3: a triangle's UR and LR are the same corner, a quad's diagonal LL - UR is c2 - c4.
-local function Emit(p, key, n, c1, c2, c3, c4, clipped)
+-- tx: the piece's texture from the last redraw (false: it gets one).
+local function Emit(p, key, n, c1, c2, c3, c4, clipped, tx)
     local k = QN[p]
-    local tx = live[key]
     if not tx then
         tx = Acquire(frameOf[k], QPOOL[p])
         live[key] = tx
@@ -623,13 +698,15 @@ local function Emit(p, key, n, c1, c2, c3, c4, clipped)
         end
     end
     tx.gen = gen
-    -- (a key always has the same corners, so without the morph their texture coordinates never change)
+    -- (a key always has the same corners, so without the morph their texture coordinates never change; a piece cut
+    -- at the near plane has cut corners, and its key shows the whole piece again once it is clear of the plane: so a
+    -- cut send never counts as the whole piece's)
     if clipped or not tx.uvOk
         or (morphOn and (c1 > nV or c2 > nV or c3 > nV or c4 > nV) and UVMoved(tx, c1, c2, c4, c3)) then
         local u1, v1, u2, v2, u3, v3, u4, v4 = DU[c1], DV[c1], DU[c2], DV[c2], DU[c4], DV[c4], DU[c3], DV[c3]
         tx:SetTexCoord(u1, v1, u2, v2, u3, v3, u4, v4)
         tx.u1, tx.v1, tx.u2, tx.v2, tx.u3, tx.v3, tx.u4, tx.v4 = u1, v1, u2, v2, u3, v3, u4, v4
-        tx.uvOk = true
+        tx.uvOk = not clipped
     end
     local pp = pos[k]
     if tx.pos ~= pp then
@@ -680,8 +757,10 @@ end
 
 -- A piece that crosses the near plane, cut there (Sutherland-Hodgman, spec 5.8): 3 or 4 corners are one texture;
 -- 5 (a quad) are two, the quad (v1, v2, v3, v4) and the triangle (v1, v4, v5) with the next key.
+local ClipLeaf
+do
 local CI, CO = {}, {}
-local function ClipLeaf(p, key, n, a, b, c, d)
+function ClipLeaf(p, key, n, a, b, c, d)
     CI[1], CI[2], CI[3], CI[4] = a, b, c, d
     local m = 0
     for i = 1, n do
@@ -708,6 +787,7 @@ local function ClipLeaf(p, key, n, a, b, c, d)
         Leaf(p, key, 4, v1, CO[2], CO[3], v4, true)
         Leaf(p, key + 1, 3, v1, v4, v5, v5, true)
     end
+end
 end
 
 -- A triangle piece (spec 5.7): drawn whole when its affine error is within tau on every edge (under MERGE * tau
@@ -876,24 +956,31 @@ RefineQuad = function(p, path, a, b, c, d, lev)
     end
 end
 
--- Pieces not drawn this redraw go back to their frame's pool, hidden (spec 5.10).
+-- A texture back into its frame's pool.
+local function Free(tx)
+    local fr = roomFrames[tx.frame]
+    local free = fr.free
+    local list = free[tx.pool]
+    if not list then
+        list = {}
+        free[tx.pool] = list
+    end
+    list[#list + 1] = tx
+    fr.nfree = fr.nfree + 1
+end
+
+-- Pieces not drawn this redraw go back to their frame's pool (spec 5.10), before the new pieces are drawn but
+-- still shown: a new piece of the same frame takes one as it is (no Hide and Show of one texture in a frame, and
+-- no new texture while the camera turns); HideReleased hides the rest afterwards.
 local function Release()
-    local j = 1
+    local j, g = 1, gen
     while j <= nLive do
         local tx = liveList[j]
-        if tx.gen ~= gen then
-            if tx.shown then
-                tx:Hide()
-                tx.shown = false
-            end
+        if tx.gen ~= g then
             live[tx.key] = nil
-            local free = roomFrames[tx.frame].free
-            local list = free[tx.pool]
-            if not list then
-                list = {}
-                free[tx.pool] = list
-            end
-            list[#list + 1] = tx
+            Free(tx)
+            nRel = nRel + 1
+            REL[nRel] = tx
             liveList[j] = liveList[nLive]
             liveList[nLive] = nil
             nLive = nLive - 1
@@ -901,6 +988,19 @@ local function Release()
             j = j + 1
         end
     end
+end
+
+local function HideReleased()
+    local g = gen
+    for i = 1, nRel do
+        local tx = REL[i]
+        REL[i] = false
+        if tx.gen ~= g and tx.shown then
+            tx:Hide()
+            tx.shown = false
+        end
+    end
+    nRel = 0
 end
 
 ---------------------------------------------------------------------------
@@ -1009,18 +1109,20 @@ local function Collect()
     end
 end
 
--- Pass 2: collect the pieces, then draw them. When tau is the controller's (not fixed) and under its maximum, a
--- redraw that runs past the hard cap is not drawn coarse (the nearest geometry would go unhalved, many px off): it is
--- collected again at 1.25 tau, as often as needed (spec 11's order: tau rises to 5 px first, the cap applies only
--- after that). Nothing is drawn before the pieces are known, so a second collection costs no widget calls.
+-- Pass 2: collect the pieces, then draw them. When tau is the controller's (not fixed), a redraw that runs past the
+-- hard cap is not drawn coarse (the nearest geometry would go unhalved, many px off): it is collected again at
+-- 1.25 tau, as often as needed (spec 11's order: tau rises to 5 px first, the cap applies only after that). At 5 px
+-- the controller's tau stops, but such a redraw is still collected again (up to CTL.limit) rather than leaving its
+-- last, nearest pieces whole: the whole picture coarsens a little instead. Nothing is drawn before the pieces are
+-- known, so a second collection costs no widget calls.
 local function Pass2()
     gen = gen + 1
-    if wipeMid then
+    local o, C = Room.opts, CTL
+    if wipeMid or nPts - nV > (tonumber(o.midCap) or C.midCap) then   -- (the midpoints cache stays small)
         wipe(midOf)
         nPts, wipeMid = nV, false
     end
     splitPrev, splitCur = splitCur, splitPrev                         -- (the halvings of the last redraw)
-    local o, C = Room.opts, CTL
     local fixed = type(o.tau) == "number" and o.tau > 0
     if fixed then C.tau = o.tau end                                    -- a fixed bound (render_check, tests)
     hardCap = tonumber(o.hardCap) or C.cap
@@ -1029,25 +1131,33 @@ local function Pass2()
     -- In the redraw right after tau rose it starts again from the new tau: a piece halved at the old bound is over
     -- that old bound, which is under merge * new tau for any rise below 1 / merge, so it would never merge and the
     -- controller's rise would buy nothing for frames.
-    local lastTau = C.used
+    local lastTau, t = C.used, C.tau
+    local adaptive = not fixed and o.adaptive ~= false
     while true do
         wipe(splitCur)
         nLeaves, nClipped, nCapped, nTmp = 0, 0, 0, 0
-        local t = C.tau
-        redoOK, aborted = not fixed and o.adaptive ~= false and t < C.max, false
+        redoOK, aborted = adaptive and t < C.limit, false
         C.used, tau2 = t, t * t
         merge2 = (t > lastTau) and tau2 or (C.merge * t) ^ 2
         Collect()
         if not aborted then break end
-        C.tau = math.min(C.max, t * 1.25)
+        t = math.min(C.limit, t * 1.25)
+        C.tau = math.min(C.max, t)
         stats.redone = stats.redone + 1
     end
     redoOK = false
-    for i = 1, nLeaves do
-        local q = i * 8 - 8
-        Emit(LR[q + 1], LR[q + 2], LR[q + 3], LR[q + 4], LR[q + 5], LR[q + 6], LR[q + 7], LR[q + 8])
+    local g = gen
+    for i = 1, nLeaves do                                              -- pieces drawn again keep their texture
+        local tx = live[LR[i * 8 - 6]]
+        LT[i] = tx or false
+        if tx then tx.gen = g end
     end
     Release()
+    for i = 1, nLeaves do
+        local q = i * 8 - 8
+        Emit(LR[q + 1], LR[q + 2], LR[q + 3], LR[q + 4], LR[q + 5], LR[q + 6], LR[q + 7], LR[q + 8], LT[i])
+    end
+    HideReleased()
 end
 
 -- Draw the room for the camera BeginFrame measured. Returns at once when it did not move (and nothing was
@@ -1060,6 +1170,7 @@ end
 function Room.DrawRoom()
     stats.redraw = false
     if not (meshOk and haveBasis and camMoved) then return false end
+    CTL.epoch = CTL.epoch + 1
     Pass1()
     Pass2()
     local o, C = Room.opts, CTL
@@ -1084,15 +1195,6 @@ end
 -- Mark lines, put into the room's order (spec 5.12)
 ---------------------------------------------------------------------------
 
-local function NewLine(fr, i)
-    local l = fr:CreateLine(nil, "BACKGROUND")
-    if l.SetSnapToPixelGrid then l:SetSnapToPixelGrid(false) end
-    if l.SetTexelSnappingBias then l:SetTexelSnappingBias(0) end
-    l.shown = true
-    fr.lines[i] = l
-    return l
-end
-
 local function HideLines(fr, from)
     local ls = fr.lines
     for i = from, #ls do
@@ -1103,6 +1205,25 @@ local function HideLines(fr, from)
             linesChanged = true
         end
     end
+end
+
+-- (In a block of its own, like Prepare's helpers.) A camera that stands still sees the same marks every frame:
+-- Room.Line then finds each segment as it was in the last frame (same ends, colour and thickness, and every segment
+-- before it the same too) and takes its lines again as they stand (no cut, no walk down the tree, no setter).
+-- SI: per segment its 11 inputs; SPS / SPN: its first placement and how many; SMK: 1 when it went into MKS;
+-- PF: per placement the frame its line is in. CTL.epoch counts what moves lines (camera, order, room).
+do
+local LS = {}                                                      -- insertion stack: node + 6 coordinates
+local SI, SPS, SPN, SMK, PF = {}, {}, {}, {}, {}
+local nSeg, nSegLast, nPl, reuse, passEpoch = 0, 0, 0, false, -1
+
+local function NewLine(fr, i)
+    local l = fr:CreateLine(nil, "BACKGROUND")
+    if l.SetSnapToPixelGrid then l:SetSnapToPixelGrid(false) end
+    if l.SetTexelSnappingBias then l:SetTexelSnappingBias(0) end
+    l.shown = true
+    fr.lines[i] = l
+    return l
 end
 
 -- One placed segment: the next line of frame fr's pool at place p, from a to b (arena, in front of the camera).
@@ -1117,6 +1238,8 @@ local function PlaceSeg(fr, p, ax, ay, az, bx, by, bz, r, g, b, a, thick)
     local x2, y2 = cx + (rr * exx + uu * eyx) / d, cy + (rr * exy + uu * eyy) / d
     local i = fr.lineUsed + 1
     fr.lineUsed = i
+    nPl = nPl + 1
+    PF[nPl] = fr
     local l = fr.lines[i] or NewLine(fr, i)
     if l.pos ~= p then
         l:SetDrawLayer(LAYERS[floor(p / 16) + 1], p % 16 - 8)
@@ -1145,7 +1268,8 @@ local function PlaceSeg(fr, p, ax, ay, az, bx, by, bz, r, g, b, a, thick)
 end
 
 function Room.BeginLines()
-    nMarks = 0
+    nMarks, nSeg, nPl = 0, 0, 0
+    reuse = passEpoch == CTL.epoch
     for f = 1, nFrames do roomFrames[f].lineUsed = 0 end
     if lineFrame then lineFrame.lineUsed = 0 end
 end
@@ -1156,6 +1280,7 @@ function Room.EndLines()
         HideLines(fr, (f <= nFrames) and (fr.lineUsed + 1) or 1)
     end
     if lineFrame then HideLines(lineFrame, lineFrame.lineUsed + 1) end
+    nSegLast, passEpoch = nSeg, CTL.epoch
 end
 
 -- A mark segment (arena coordinates; colour; thickness): cut at the near plane, then run down the BSP tree. A
@@ -1163,8 +1288,30 @@ end
 -- the near subtree, or right after the node), one on the other side before it. It lands in the gap of the order
 -- where it belongs: the odd place after a node, or the bottom line frame before every node.
 function Room.Line(x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
-    if not (meshOk and haveBasis and lineFrame) then return end
+    if not (meshOk and haveBasis and orderValid and lineFrame) then return end
     thick = thick or 1
+    local s = nSeg + 1
+    nSeg = s
+    local o = s * 11 - 11
+    if reuse then
+        if s <= nSegLast and SI[o + 1] == x1 and SI[o + 2] == y1 and SI[o + 3] == z1 and SI[o + 4] == x2
+            and SI[o + 5] == y2 and SI[o + 6] == z2 and SI[o + 7] == r and SI[o + 8] == g and SI[o + 9] == b
+            and SI[o + 10] == a and SI[o + 11] == thick then
+            local first = SPS[s]
+            local last = first + SPN[s] - 1
+            for j = first, last do
+                local fr = PF[j]
+                fr.lineUsed = fr.lineUsed + 1
+            end
+            nPl = last
+            nMarks = nMarks + SMK[s]
+            return
+        end
+        reuse = false
+    end
+    SI[o + 1], SI[o + 2], SI[o + 3], SI[o + 4], SI[o + 5], SI[o + 6] = x1, y1, z1, x2, y2, z2
+    SI[o + 7], SI[o + 8], SI[o + 9], SI[o + 10], SI[o + 11] = r, g, b, a, thick
+    SPS[s], SPN[s], SMK[s] = nPl + 1, 0, 0
     local d1 = (x1 - ex) * Fx + (y1 - ey) * Fy + (z1 - ez) * Fz
     local d2 = (x2 - ex) * Fx + (y2 - ey) * Fy + (z2 - ez) * Fz
     if d1 < NEAR and d2 < NEAR then return end
@@ -1175,8 +1322,9 @@ function Room.Line(x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
         local t = (NEAR - d2) / (d1 - d2)
         x2, y2, z2 = x2 + (x1 - x2) * t, y2 + (y1 - y2) * t, z2 + (z1 - z2) * t
     end
-    local o = nMarks * 7
+    o = nMarks * 7
     nMarks = nMarks + 1
+    SMK[s] = 1
     MKS[o + 1], MKS[o + 2], MKS[o + 3], MKS[o + 4], MKS[o + 5], MKS[o + 6], MKS[o + 7] = x1, y1, z1, x2, y2, z2, thick
     local S = LS
     local sp = 1
@@ -1224,6 +1372,8 @@ function Room.Line(x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
             end
         end
     end
+    SPN[s] = nPl - SPS[s] + 1
+end
 end
 
 -- The height of the room's floor at (x, y): the floor triangle there whose height is nearest to hint (within
@@ -1270,7 +1420,8 @@ function Room.Attach(v, sc, lv, near)
     scene:SetFrameLevel(V + LVt.scene)
 end
 
--- Hide everything and forget the camera (a new try, another encounter).
+-- Hide everything and forget the camera (a new try, another encounter): nothing is drawn, and no mark is put into
+-- the order, until the camera has been measured again.
 function Room.Clear()
     for j = 1, nLive do
         local tx = liveList[j]
@@ -1279,16 +1430,12 @@ function Room.Clear()
             tx.shown = false
         end
         live[tx.key] = nil
-        local free = roomFrames[tx.frame].free
-        local list = free[tx.pool]
-        if not list then
-            list = {}
-            free[tx.pool] = list
-        end
-        list[#list + 1] = tx
+        Free(tx)
         liveList[j] = nil
     end
     nLive = 0
+    CTL.epoch = CTL.epoch + 1
+    haveBasis = false
     for f = 1, #roomFrames do
         roomFrames[f].lineUsed = 0
         HideLines(roomFrames[f], 1)
@@ -1337,13 +1484,14 @@ end
 ---------------------------------------------------------------------------
 
 -- tau: the bound the picture on screen was drawn with; tauNext: what the next redraw uses; capped: pieces drawn
--- whole past the hard cap although over the bound; redone: how often the last redraw was collected again coarser.
+-- whole past the hard cap although over the bound; redone: how often the last redraw was collected again coarser;
+-- textures: room textures made so far (all frames, all rooms); lent: textures that moved to another frame.
 function Room.Stats()
     return { tau = CTL.used, tauNext = CTL.tau, target = tonumber(Room.opts.target) or CTL.target, hardCap = hardCap,
              leaves = nLeaves, clipped = nClipped, capped = nCapped, redone = stats.redone, copies = 0, copyActors = 0,
              lines = Room.ShownLines(), frames = nFrames, nodes = nNodes, prims = nPrims, redraw = stats.redraw,
              redraws = stats.redraws, pass1b = stats.pass1b, ms = 0, selfCheckPx = stats.selfCheckPx,
-             midpoints = nPts - nV, collided = false, dilate = 0 }
+             midpoints = nPts - nV, collided = false, dilate = 0, textures = stats.textures, lent = stats.lent }
 end
 
 function Room.ShownTextures() return nLive end

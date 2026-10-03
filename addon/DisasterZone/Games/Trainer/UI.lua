@@ -348,14 +348,27 @@ end
 
 -- A ring on the floor: 20 segments. With the room they lie 0.08 yd over the room's own floor (Room.FloorZ) and go
 -- into its draw order, so whatever is nearer paints over them; without it they lie on the height grid, on top.
-local ringX, ringY, ringZ = {}, {}, {}
+-- The floor does not move: each ring of the frame (by its place in DrawEffects' order) keeps its points while its
+-- centre, radius and floor stay the same, so a ring that stands still costs no floor search.
+local rings, nRings = {}, 0
 local function Circle(x, y, radius, r, g, b, a, thick)
     local n = 20
-    for i = 0, n do
-        local ang = i / n * 2 * pi
-        local px_, py_ = x + cos(ang) * radius, y + sin(ang) * radius
-        ringX[i], ringY[i] = px_, py_
-        ringZ[i] = roomOn and (Room.FloorZ(px_, py_, GroundZ(px_, py_)) + 0.08) or (GroundZ(px_, py_) + 0.1)
+    nRings = nRings + 1
+    local ring = rings[nRings]
+    if not ring then
+        ring = { X = {}, Y = {}, Z = {} }
+        rings[nRings] = ring
+    end
+    local floorKey = roomOn and sim.enc.arena.mesh or sim.enc.arena
+    local ringX, ringY, ringZ = ring.X, ring.Y, ring.Z
+    if ring.x ~= x or ring.y ~= y or ring.r ~= radius or ring.floor ~= floorKey then
+        ring.x, ring.y, ring.r, ring.floor = x, y, radius, floorKey
+        for i = 0, n do
+            local ang = i / n * 2 * pi
+            local px_, py_ = x + cos(ang) * radius, y + sin(ang) * radius
+            ringX[i], ringY[i] = px_, py_
+            ringZ[i] = roomOn and (Room.FloorZ(px_, py_, GroundZ(px_, py_)) + 0.08) or (GroundZ(px_, py_) + 0.1)
+        end
     end
     for i = 1, n do
         if roomOn then
@@ -446,10 +459,51 @@ local function DrawFloor()
     for i = lineCount.floor + 1, #floorLines do floorLines[i]:Hide() end
 end
 
+-- A mark's label (text over it, on top of everything). The labels are reused by index; their setters run only when
+-- the text, font, colour or place changed (a still view re-anchors nothing). dzShown mirrors Show / Hide.
+local nLabels = 0
+local function Label(text, x, y, z, r, g, b, big)
+    local sxp, syp = Project(x, y, GroundZ(x, y) + z)
+    if not sxp then return end
+    nLabels = nLabels + 1
+    local fs = markLabels[nLabels]
+    if not fs then
+        fs = plateFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs.dzShown = true
+        markLabels[nLabels] = fs
+    end
+    local font = big and "GameFontNormalHuge" or "GameFontNormal"
+    if fs.dzFont ~= font then
+        fs:SetFontObject(font)
+        fs.dzFont = font
+    end
+    if fs.dzText ~= text then
+        fs:SetText(text)
+        fs.dzText = text
+    end
+    if fs.dzR ~= r or fs.dzG ~= g or fs.dzB ~= b then
+        fs:SetTextColor(r, g, b)
+        fs.dzR, fs.dzG, fs.dzB = r, g, b
+    end
+    if not fs.dzX or math.abs(fs.dzX - sxp) > 0.01 or math.abs(fs.dzY - syp) > 0.01 then
+        fs:ClearAllPoints()
+        fs:SetPoint("BOTTOM", scene, "BOTTOMLEFT", sxp, syp)
+        fs.dzX, fs.dzY = sxp, syp
+    end
+    if not fs.dzShown then
+        fs:Show()
+        fs.dzShown = true
+    end
+end
+
+-- The heights a mark's column stands on, by the mark's place in sim.marks (the floor does not move).
+local columns = {}
+
 -- The target circle, the encounter's marks (ring, column, label) and beams. With the room (roomOn) every segment
 -- goes through Room.Line into the room's draw order; otherwise they are Lines on top of the scene.
 local function DrawEffects()
     lineCount.fx = 0
+    nRings, nLabels = 0, 0
     local t = sim.target
     if t and not t.dead then
         if t.friendly then
@@ -459,38 +513,36 @@ local function DrawEffects()
         end
     end
     -- the encounter's marks: a ring on the floor, a column standing on it, a label on top
-    local nLabels = 0
-    local function Label(text, x, y, z, r, g, b, big)
-        local sxp, syp = Project(x, y, GroundZ(x, y) + z)
-        if not sxp then return end
-        nLabels = nLabels + 1
-        local fs = markLabels[nLabels]
-        if not fs then
-            fs = plateFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            markLabels[nLabels] = fs
-        end
-        fs:SetFontObject(big and "GameFontNormalHuge" or "GameFontNormal")
-        fs:SetText(text)
-        fs:SetTextColor(r, g, b)
-        fs:ClearAllPoints()
-        fs:SetPoint("BOTTOM", scene, "BOTTOMLEFT", sxp, syp)
-        fs:Show()
-    end
-    for _, mk in ipairs(sim.marks or {}) do
+    local floorKey = roomOn and sim.enc.arena.mesh or sim.enc.arena
+    for i, mk in ipairs(sim.marks or {}) do
         local c = mk.color or { 1, 1, 1 }
         Circle(mk.x, mk.y, mk.r or 3, c[1], c[2], c[3], 0.9, 2)
         if (mk.column or 0) > 0 then
+            local col = columns[i]
+            if not col then
+                col = {}
+                columns[i] = col
+            end
+            if col.x ~= mk.x or col.y ~= mk.y or col.floor ~= floorKey then
+                col.x, col.y, col.floor = mk.x, mk.y, floorKey
+                col.z = roomOn and Room.FloorZ(mk.x, mk.y, GroundZ(mk.x, mk.y)) or GroundZ(mk.x, mk.y)
+            end
+            local g = col.z
             if roomOn then
-                local g = Room.FloorZ(mk.x, mk.y, GroundZ(mk.x, mk.y))
                 Room.Line(mk.x, mk.y, g, mk.x, mk.y, g + mk.column, c[1], c[2], c[3], 0.8, 3)
             else
-                local g = GroundZ(mk.x, mk.y)
                 Segment(fxLines, "fx", plateFrame, mk.x, mk.y, g, mk.x, mk.y, g + mk.column, c[1], c[2], c[3], 0.8, 3)
             end
         end
         if mk.label then Label(mk.label, mk.x, mk.y, (mk.column or 0) + 0.5, c[1], c[2], c[3]) end
     end
-    for i = nLabels + 1, #markLabels do markLabels[i]:Hide() end
+    for i = nLabels + 1, #markLabels do
+        local fs = markLabels[i]
+        if fs.dzShown then
+            fs:Hide()
+            fs.dzShown = false
+        end
+    end
     for _, b in ipairs(sim.beams or {}) do                           -- { x, y, z, x2, y2, z2, r, g, b }
         local z1, z2 = GroundZ(b[1], b[2]) + b[3], GroundZ(b[4], b[5]) + b[6]
         if roomOn then
@@ -771,7 +823,10 @@ function ResetScene()
     if Room then Room.Clear() end
     for _, l in ipairs(floorLines) do l:Hide() end
     for _, l in ipairs(fxLines) do l:Hide() end
-    for _, fs in ipairs(markLabels) do fs:Hide() end
+    for _, fs in ipairs(markLabels) do
+        fs:Hide()
+        fs.dzShown = false
+    end
     for _, t in ipairs(floorTiles) do t:Hide() end
     for _, f in ipairs(plates) do f:Hide() end
 end
