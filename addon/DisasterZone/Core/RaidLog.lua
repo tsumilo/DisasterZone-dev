@@ -549,11 +549,14 @@ function RaidLog:GetAttendanceText(key, lastN)
 end
 
 -- startAt (optional): an earlier start time; default = now, or my instance entry after a missed boss pull.
-function RaidLog:Start(startAt)
+-- features (optional): { loot=, rolls=, lock= }, what the session runs; default = what I picked the last time in
+-- the Start raid window (everything, the first time).
+function RaidLog:Start(startAt, features)
     local GR = ns.GroupRules
     if not GR then return false end
     if not startAt and missedPull then startAt = zoneEnteredAt end
-    local ok, err = GR:SetSession(true, startAt)
+    if features == nil then features = ns.db and ns.db.settings and ns.db.settings.raidStart end
+    local ok, err = GR:SetSession(true, startAt, features)
     if not ok then ns:Print("%s", tostring(err)) end
     return ok
 end
@@ -605,6 +608,8 @@ local function SlashRaid(rest)
             return
         end
         RaidLog:Start()
+    elseif cmd == "options" or cmd == "features" then
+        if ns.SessionBar and ns.SessionBar.OpenOptions then ns.SessionBar:OpenOptions() end
     elseif cmd == "end" or cmd == "stop" then
         if not (ns.GroupRules and ns.GroupRules:GetSession()) then
             ns:Print("no raid session is running.")
@@ -1005,7 +1010,7 @@ function RaidLog:OnInit()
         ns.Comm:Register("RLG", OnRaidGive)
         ns.Comm:Register("RLD", OnRaidDigest)
     end
-    ns:RegisterSlash("raid", SlashRaid, "start | end | status - the raid session and raid log (raid leader starts / ends)")
+    ns:RegisterSlash("raid", SlashRaid, "start | options | end | status - the raid session: loot, rolls and the raid log (raid leader)")
 end
 
 function RaidLog:OnLogin()

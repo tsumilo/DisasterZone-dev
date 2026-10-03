@@ -2,6 +2,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Loot.lua", ...) then return e
 -- Drop detection: loot-window scan, DROP broadcast/receive (deduped by source key),
 -- CHAT_MSG_LOOT award parsing, group-roll hints, encounter context, /dz test and /dz drop,
 -- and master-loot hand-out helpers for roll awards (Addendum A §19.4).
+-- Bag loot (1.2): under Free for All in a raid that runs loot distribution, a boss item someone picks up is held
+-- for the council, not awarded; the holder trades it to the winner (the trade window is filled for them).
 -- Dungeon mode (Addendum B §22.2): drops go out on Util.GetGroupChannel() (RAID, or PARTY in a 5-man
 -- party with dungeon mode on) and the 5-man quality threshold applies inside party instances.
 -- Every loot message is passed to Roll:OnItemLooted (Addendum C §23.1).
@@ -27,11 +29,16 @@ local PENDING_GIVE_TIMEOUT = 5     -- seconds to wait for OPEN_MASTER_LOOT_LIST 
 local GIVE_CONFIRM_TIMEOUT = 5     -- seconds to wait for the server to hand a master-loot item over
 local AUTO_BOSS_AGE = 1800         -- an auto ledger entry takes the boss of a drop seen this recently holding the item
 local ITEM_CLASS_GEM, ITEM_CLASS_TRADEGOODS = 3, 7
+local HELD_AGE = 2 * 3600          -- a held item is tradable for 2 hours
+local HELD_MAX = 60
+local MAX_TRADE_SLOTS = 6          -- tradable slots of the trade window (the 7th is "will not be traded")
+local TRADE_PUT_DELAY = 0.1        -- between two items put into the trade window
 
 local seenSources = {}     -- [sourceKey] = true: drops handled this session
 local remoteSeen = {}      -- [sourceKey] = true: someone else already broadcast this source
 local broadcastDone = {}   -- [sourceKey] = true: we sent (or decided to send) the D for it
-local lastEncounter        -- { ref = bossRef, time = GetTime() }
+local lastEncounter        -- { ref = bossRef, time = GetTime(), ffa = pulled under Free for All }
+local pullFFA = false      -- the running / last encounter started under Free for All
 local lootPatterns         -- built lazily from the client's globalstrings
 local lootOpen = false     -- between LOOT_OPENED / LOOT_READY and LOOT_CLOSED
 local pendingGive          -- { itemID=, key=, slot=, at=, onDone= } waiting for the master-loot list
@@ -170,8 +177,8 @@ end
 local LOOT_FORMATS = {
     { name = "LOOT_ITEM_SELF_MULTIPLE", self = true },
     { name = "LOOT_ITEM_SELF", self = true },
-    { name = "LOOT_ITEM_PUSHED_SELF_MULTIPLE", self = true },
-    { name = "LOOT_ITEM_PUSHED_SELF", self = true },
+    { name = "LOOT_ITEM_PUSHED_SELF_MULTIPLE", self = true, pushed = true },
+    { name = "LOOT_ITEM_PUSHED_SELF", self = true, pushed = true },
     { name = "LOOT_ITEM_MULTIPLE", self = false },
     { name = "LOOT_ITEM", self = false },
 }
@@ -180,21 +187,22 @@ local function BuildLootPatterns()
     lootPatterns = {}
     for _, f in ipairs(LOOT_FORMATS) do
         local pat = FormatToPattern(_G[f.name])
-        if pat then lootPatterns[#lootPatterns + 1] = { pat = pat, self = f.self } end
+        if pat then lootPatterns[#lootPatterns + 1] = { pat = pat, self = f.self, pushed = f.pushed or false } end
     end
     return lootPatterns
 end
 
--- Returns link, winnerKey for a loot chat line, or nil.
+-- Returns link, winnerKey, pushed for a loot chat line, or nil. pushed: "You receive item" (a trade, a quest, a
+-- craft), not something picked up from a corpse.
 function Loot:ParseLootMessage(text)
     if type(text) ~= "string" or text == "" then return nil end
     for _, p in ipairs(lootPatterns or BuildLootPatterns()) do
         local ok, a, b = pcall(string.match, text, p.pat)
         if ok and a then
             if p.self then
-                return a, Util.PlayerKey()
+                return a, Util.PlayerKey(), p.pushed
             elseif b then
-                return b, Util.NormalizeName(a)
+                return b, Util.NormalizeName(a), false
             end
         end
     end
@@ -346,12 +354,20 @@ local function TrustedDropSender(sender, distribution)
     return ns.Guild and ns.Guild.IsCouncil and ns.Guild:IsCouncil(sender, true) and true or false
 end
 
+-- In a raid, loot distribution only runs while the raid leader's raid session has it on (GroupRules, 1.2).
+local function RaidLootOff(incoming)
+    local GR = ns.GroupRules
+    return IsInRaid() and GR ~= nil and GR.IsFeatureOn ~= nil and not GR:IsFeatureOn("loot", incoming)
+end
+
 local function OnDropMessage(sender, msg, distribution)
     if type(msg) ~= "table" then return end
     -- PARTY drops only count while dungeon mode is active for me (§22.2).
     if distribution == "PARTY" then
         if not DungeonActive() then return end
     elseif distribution ~= "RAID" then
+        return
+    elseif RaidLootOff(true) then
         return
     end
     -- The sender is already gated on the REAL group by Comm (Util.IsInMyGroup would use the demo
@@ -473,7 +489,7 @@ end
 function Loot:ScanLoot()
     local num = GetNumLootItems and GetNumLootItems() or 0
     if num <= 0 then return end
-    if FishingLoot() then return end
+    if FishingLoot() or RaidLootOff() then return end
     local threshold = QualityThreshold()
     local bySource, order = {}, {}
     for slot = 1, num do
@@ -564,17 +580,247 @@ end
 
 local NoteHandedOut   -- forward declaration (master-loot hand-out section)
 
+---------------------------------------------------------------------------
+-- Bag loot: Free for All (1.2)
+---------------------------------------------------------------------------
+-- Some fights need Free for All (Lady Vashj's Tainted Cores, Kael'thas' weapons), and the loot method of a fight
+-- is the one set at the pull. In a raid that runs loot distribution, a boss item picked up under Free for All is
+-- therefore no award: the looter holds it in their bags, the council awards it as usual (rolls, votes, Award)
+-- and the holder trades it to the winner. Nothing here is sent: every client reads the same loot line.
+
+local function FreeForAll()
+    local method = C_PartyInfo and C_PartyInfo.GetLootMethod and C_PartyInfo.GetLootMethod()
+    return method ~= nil and method == ((Enum and Enum.LootMethod and Enum.LootMethod.Freeforall) or 0)
+end
+
+local function BagLootMethodOn()
+    return (IsInRaid() and not RaidLootOff() and FreeForAll()) and true or false
+end
+
+-- Boss loot goes to bags first: a raid with loot distribution on, and Free for All now or at the pull of the
+-- boss killed last (the method may have been switched back since; the corpse keeps the one of the pull).
+function Loot:IsBagLoot()
+    if not IsInRaid() or RaidLootOff() then return false end
+    if FreeForAll() then return true end
+    return (lastEncounter and lastEncounter.ffa and GetTime() - lastEncounter.time <= ENCOUNTER_RECENT) and true or false
+end
+
+-- { {i = itemID, k = holder, ts = server time} }, oldest first; saved, so a /reload of the holder keeps it.
+local function HeldList()
+    if not ns.db then return {} end
+    if type(ns.db.heldLoot) ~= "table" then ns.db.heldLoot = {} end
+    return ns.db.heldLoot
+end
+
+local function PruneHeld(list)
+    local cutoff = GetServerTime() - HELD_AGE
+    local n, j = #list, 0
+    for k = 1, n do
+        local h = list[k]
+        if type(h) == "table" and type(h.k) == "string" and IsValidItemID(h.i) and (tonumber(h.ts) or 0) >= cutoff then
+            j = j + 1
+            list[j] = h
+        end
+    end
+    for k = n, j + 1, -1 do list[k] = nil end
+    while #list > HELD_MAX do table.remove(list, 1) end
+end
+
+-- The player holding a copy of itemID for the council (the newest pick-up of the last 2 hours), or nil.
+function Loot:GetHolder(itemID)
+    itemID = tonumber(itemID)
+    local cutoff = GetServerTime() - HELD_AGE
+    local list = HeldList()
+    for k = #list, 1, -1 do
+        local h = list[k]
+        if type(h) == "table" and h.i == itemID and (tonumber(h.ts) or 0) >= cutoff then return h.k end
+    end
+    return nil
+end
+
+function Loot:IsHeldBy(itemID, key)
+    itemID = tonumber(itemID)
+    key = Util.NormalizeName(key)
+    if not itemID or not key then return false end
+    local cutoff = GetServerTime() - HELD_AGE
+    for _, h in ipairs(HeldList()) do
+        if type(h) == "table" and h.i == itemID and h.k == key and (tonumber(h.ts) or 0) >= cutoff then return true end
+    end
+    return false
+end
+
+-- One held copy left its holder (traded to the winner).
+local function DropHeld(itemID, key)
+    local list = HeldList()
+    for k = 1, #list do
+        local h = list[k]
+        if type(h) == "table" and h.i == itemID and h.k == key then
+            table.remove(list, k)
+            ns:Fire("LOOT_HELD", itemID, nil)
+            return
+        end
+    end
+end
+
+local function NoteHeld(itemID, key)
+    local list = HeldList()
+    list[#list + 1] = { i = itemID, k = key, ts = GetServerTime() }
+    PruneHeld(list)
+    if key == Util.PlayerKey() then
+        ns:Print("You hold %s for the loot council. Once it is awarded, open a trade with the winner: DisasterZone "
+            .. "puts it in the trade window.", ItemText(itemID))
+    elseif AmRealCouncil() or Util.IsPlayerLeaderOrAssist() then
+        ns:Print("%s picked up %s (Free for All): held for the council, not logged as an award. Award it as usual; "
+            .. "%s trades it to the winner.", Util.ShortName(key), ItemText(itemID), Util.ShortName(key))
+    end
+    ns:Fire("LOOT_HELD", itemID, key)
+end
+
+-- A boss item picked up while bag loot applies. Returns true when the loot line was handled here (it is then
+-- neither a roll's hand-out nor an automatic log entry).
+local function OnBagLoot(id, link, winner)
+    if not Loot:IsBagLoot() or not Util.InRaidInstance() or not ItemQualifies(id, link) then return false end
+    -- Already awarded to the looter (awarded before anyone picked it up): this is its hand-out.
+    local Roll = ns.Roll
+    if Roll and Roll.MarkGiven and Roll:MarkGiven(id, winner) then return true end
+    NoteHeld(id, winner)
+    return true
+end
+
+-- An award of an item I hold: tell me whom to trade it to (once per award).
+local toldTrade = {}
+local function OnRollUpdatedForHeld(id)
+    local Roll = ns.Roll
+    local ses = Roll and Roll.Get and Roll:Get(id)
+    local me = Util.PlayerKey()
+    if type(ses) ~= "table" or ses.demo or ses.state ~= "awarded" or ses.given or ses.via == "loot" then return end
+    if not me or ses.winner == me or type(ses.winner) ~= "string" or toldTrade[id] == ses.winner then return end
+    if not Loot:IsHeldBy(ses.i, me) then return end
+    toldTrade[id] = ses.winner
+    ns:Print("%s was awarded to %s. It is in your bags: open a trade with %s and DisasterZone puts it in.",
+        ItemText(ses.i), Util.ShortName(ses.winner), Util.ShortName(ses.winner))
+end
+
+-- Trade window: what I hold for my trade partner goes in; a completed trade hands the awards out.
+
+local tradeOpen = false
+local tradeWith    -- the player I am (or was last) trading with
+local tradeGave    -- item ids in my trade slots when both sides had accepted
+
+local function BagAPI(name)
+    local C = C_Container
+    return (C and C[name]) or _G[name]
+end
+
+-- bag, slot of a copy of itemID in my bags that `taken` does not list yet.
+local function FindBagItem(itemID, taken)
+    local numSlots, getID = BagAPI("GetContainerNumSlots"), BagAPI("GetContainerItemID")
+    if not (numSlots and getID) then return nil end
+    for bag = 0, 4 do
+        for slot = 1, tonumber((numSlots(bag))) or 0 do
+            local tag = bag * 1000 + slot
+            if not taken[tag] and getID(bag, slot) == itemID then
+                taken[tag] = true
+                return bag, slot
+            end
+        end
+    end
+    return nil
+end
+
+local function FreeTradeSlot()
+    if type(GetTradePlayerItemInfo) ~= "function" then return nil end
+    for n = 1, MAX_TRADE_SLOTS do
+        if not GetTradePlayerItemInfo(n) then return n end
+    end
+    return nil
+end
+
+local function PutInTrade(bag, slot, partner)
+    if not tradeOpen or tradeWith ~= partner then return end   -- the trade closed meanwhile
+    local pickup = BagAPI("PickupContainerItem")
+    local n = FreeTradeSlot()
+    if not (pickup and n and type(ClickTradeButton) == "function") then return end
+    if ClearCursor then ClearCursor() end
+    if pcall(pickup, bag, slot) then pcall(ClickTradeButton, n) end
+    if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+end
+
+local function OnTradeShow()
+    tradeOpen = true
+    tradeWith = Util.UnitKey("NPC")
+    tradeGave = nil
+    local Roll = ns.Roll
+    local me = Util.PlayerKey()
+    if not (tradeWith and me and Roll and Roll.GetOwed) then return end
+    local partner = tradeWith
+    local taken, count = {}, 0
+    for _, itemID in ipairs(Roll:GetOwed(partner)) do
+        if count >= MAX_TRADE_SLOTS then break end
+        if Loot:IsHeldBy(itemID, me) then
+            local bag, slot = FindBagItem(itemID, taken)
+            if bag then
+                Util.After(TRADE_PUT_DELAY * count, function() PutInTrade(bag, slot, partner) end)
+                count = count + 1
+            end
+        end
+    end
+    if count > 0 then
+        ns:Print("Trade with %s: putting in %d awarded item%s. Check them, then accept.", Util.ShortName(partner),
+            count, count == 1 and "" or "s")
+    end
+end
+
+-- TRADE_ACCEPT_UPDATE: what I give is final once both sides accepted.
+local function OnTradeAccept(_, mine, theirs)
+    if not (tonumber(mine) == 1 and tonumber(theirs) == 1) or type(GetTradePlayerItemLink) ~= "function" then
+        tradeGave = nil
+        return
+    end
+    tradeGave = {}
+    for n = 1, MAX_TRADE_SLOTS do
+        local id = ItemIDFromLink(GetTradePlayerItemLink(n))
+        if id then tradeGave[#tradeGave + 1] = id end
+    end
+end
+
+-- UI_INFO_MESSAGE "Trade complete": the awards of the items I gave are handed out.
+local function OnTradeInfo(_, a, b)
+    local done = ERR_TRADE_COMPLETE
+    if type(done) ~= "string" or (a ~= done and b ~= done) then return end
+    local gave, partner = tradeGave, tradeWith
+    tradeGave = nil
+    local me = Util.PlayerKey()
+    if not (gave and partner and me) then return end
+    local Roll = ns.Roll
+    for _, itemID in ipairs(gave) do
+        if Roll and Roll.MarkGiven then Roll:MarkGiven(itemID, partner, true) end
+        DropHeld(itemID, me)
+    end
+end
+
+local wasBagLoot = false
+local function OnLootMethodChanged()
+    local on = BagLootMethodOn()
+    if on and not wasBagLoot and (AmRealCouncil() or Util.IsPlayerLeaderOrAssist()) then
+        ns:Print("Free for All loot: boss items go to the looter's bags and are not logged as awards. Award them "
+            .. "as usual; the holder trades each one to its winner.")
+    end
+    wasBagLoot = on
+end
+
 local function OnChatLoot(_, text)
-    local link, winner = Loot:ParseLootMessage(text)
+    local link, winner, pushed = Loot:ParseLootMessage(text)
     local id = ItemIDFromLink(link)
     if not id or not winner or not IsValidItemID(id) then return end
+    if not pushed and OnBagLoot(id, link, winner) then return end
     -- Addendum C §23.1: every client (council or not) resolves the roll of an item that was handed out.
     local Roll = ns.Roll
     if Roll and Roll.OnItemLooted then
         ns.SafeCall(Roll.OnItemLooted, Roll, id, winner)
     end
     NoteHandedOut(id, winner)   -- my own master-loot hand-out arrived
-    if not AmRealCouncil() then return end
+    if not AmRealCouncil() or RaidLootOff() then return end
     local dungeon = not Util.InRaidInstance() and DungeonLootContext()
     if not (dungeon or Util.InRaidInstance()) then return end
     if ItemQualifies(id, link) and ns.Ledger and ns.Ledger.RecordAuto then
@@ -586,7 +832,7 @@ local function OnStartLootRoll(_, rollID)
     if rollID == nil or not GetLootRollItemLink then return end
     local ok, link = pcall(GetLootRollItemLink, rollID)
     local id = ok and ItemIDFromLink(link)
-    if not id then return end
+    if not id or RaidLootOff() then return end
     ns:Fire("DROP", {
         s = "ROLL-" .. tostring(rollID), b = Loot:GetRecentBossKey() or "", i = { id },
         ts = GetServerTime(), roll = true, from = Util.PlayerKey(),
@@ -596,7 +842,7 @@ end
 local function OnEncounterEnd(_, encounterID, _, _, _, success)
     if success ~= 1 and success ~= true then return end
     local ref = ns.ItemDB and ns.ItemDB.GetBossByEncounter and ns.ItemDB:GetBossByEncounter(tonumber(encounterID))
-    if ref then lastEncounter = { ref = ref, time = GetTime() } end
+    if ref then lastEncounter = { ref = ref, time = GetTime(), ffa = pullFFA } end
 end
 
 ---------------------------------------------------------------------------
@@ -735,6 +981,11 @@ function Loot:ManualDrop(text)
     local demo = DemoOn()
     if not (demo or AmRealCouncil() or Util.IsPlayerLeaderOrAssist()) then
         ns:Print("Only loot council members or the raid leader / assistants can announce drops.")
+        return
+    end
+    if not demo and RaidLootOff() then
+        ns:Print("Loot distribution is off for this raid. The raid leader turns it on with Start raid (or the "
+            .. "session bar's Options).")
         return
     end
     local ids = {}
@@ -1071,6 +1322,13 @@ function Loot:OnInit()
     ns:RegisterEvent("CHAT_MSG_LOOT", OnChatLoot)
     ns:RegisterEvent("START_LOOT_ROLL", OnStartLootRoll)
     ns:RegisterEvent("ENCOUNTER_END", OnEncounterEnd)
+    ns:RegisterEvent("ENCOUNTER_START", function() pullFFA = FreeForAll() end)
+    ns:RegisterEvent("PARTY_LOOT_METHOD_CHANGED", OnLootMethodChanged)
+    ns:RegisterEvent("TRADE_SHOW", OnTradeShow)
+    ns:RegisterEvent("TRADE_CLOSED", function() tradeOpen = false end)
+    ns:RegisterEvent("TRADE_ACCEPT_UPDATE", OnTradeAccept)
+    ns:RegisterEvent("UI_INFO_MESSAGE", OnTradeInfo)
+    ns:On("ROLL_UPDATED", OnRollUpdatedForHeld)
     if ns.Comm and ns.Comm.Register then
         ns.Comm:Register("D", OnDropMessage)
     end
@@ -1082,4 +1340,6 @@ end
 function Loot:OnLogin()
     StripTestDrops()   -- in case the last session ended without PLAYER_LOGOUT (crash)
     PruneHistory(self:GetHistory())
+    PruneHeld(HeldList())
+    wasBagLoot = BagLootMethodOn()
 end

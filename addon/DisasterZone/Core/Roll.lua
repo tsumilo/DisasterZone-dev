@@ -169,6 +169,11 @@ local function CannotStartText()
         end
         return "Only the party leader, the master looter or a loot council member can start rolls."
     end
+    local GR = ns.GroupRules
+    if IsInRaid() and GR and GR.IsFeatureOn and not GR:IsFeatureOn("rolls") then
+        return GR:GetSession() and "Rolls are off for this raid (the raid leader turns them on: session bar > Options)."
+            or "Rolls start working when the raid leader starts the raid (Start raid)."
+    end
     return "Only loot council members, the master looter or the raid leader / assistants can start rolls, in a raid."
 end
 
@@ -1003,6 +1008,9 @@ end
 function Roll:CanStart()
     if DemoOn() then return true end
     if IsInRaid() then
+        -- rolls run only while the raid leader's raid session has them on (GroupRules, 1.2)
+        local GR = ns.GroupRules
+        if GR and GR.IsFeatureOn and not GR:IsFeatureOn("rolls") then return false end
         return AmRealCouncil() or Util.IsPlayerMasterLooter() or Util.IsPlayerLeaderOrAssist()
     end
     if DungeonActive() then
@@ -1931,6 +1939,10 @@ end
 local function OnRollStart(sender, msg, dist)
     if DemoOn() or not GroupDist(dist) or type(msg) ~= "table" then return end
     if not (IsRealCouncil(sender) or IsLeadOrML(sender)) then return end
+    if dist == "RAID" then
+        local GR = ns.GroupRules
+        if GR and GR.IsFeatureOn and not GR:IsFeatureOn("rolls", true) then return end
+    end
     local id = msg.id
     if not ValidId(id) or sessions[id] then return end
     local itemID = tonumber(msg.i)

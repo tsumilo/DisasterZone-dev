@@ -365,7 +365,7 @@ function RaidsUI:CreatePanel(parent)
         if ns.GroupRules:GetSession() then
             ns.SessionBar:ConfirmEnd()
         else
-            ns.RaidLog:Start()
+            ns.SessionBar:OpenStart()
         end
     end)
     p.sessionBtn:SetPoint("TOPRIGHT", -8, -6)

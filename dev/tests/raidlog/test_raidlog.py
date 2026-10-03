@@ -31,6 +31,7 @@ def world(names=(("Gina", 0, "PALADIN"), ("Lee", 3, "WARRIOR"), ("Bob", 1, "MAGE
                  ("Sam", 3, "ROGUE")), council=("Bob",)):
     """Gina = GM, Bob = guild council, Lee = raid leader, Rita / Sam = raiders."""
     w = World()
+    w.auto_session = False      # this suite starts and ends the raid sessions itself
     c = {}
     for name, rank, cls in names:
         c[name] = Client(w, name, guild_rank=rank, class_file=cls)
@@ -355,6 +356,9 @@ def session_bar_shows_for_everyone_and_the_leader_ends_from_it():
     assert b["shown"] and b["button"] == "Start raid" and b["close"], b
     assert not bar(rita)["shown"], "only the authority sees the idle bar"
     lee.click(lee.eval("return ns.SessionBar:GetFrame().button"))
+    w.tick(0.2)
+    # 1.2: Start raid asks what the session runs first (tests/raidlog/test_raid_features.py); everything by default
+    lee.click(lee.eval("return ns.SessionBar:GetStartWindow().startBtn"))
     w.tick(3)
     rid = session(rita)["id"]
     for n, x in c.items():

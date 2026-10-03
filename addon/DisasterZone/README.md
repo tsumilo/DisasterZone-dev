@@ -351,6 +351,19 @@ are.
 - **Re-sort** moves everyone in the raid back to their planned group, e.g. after swaps. Players who aren't in the plan
   go to groups 6-8. Nothing moves during combat; it continues when combat ends.
 
+### Starting the raid (raid leader)
+In a raid, DisasterZone leaves loot and rolls alone until the raid leader starts the raid.
+
+- **Start raid** is on the bar that appears when the leader enters a raid instance, and on the Raids tab.
+- It opens a small window asking what to run for this raid: **Loot distribution** (drops are announced, the council
+  sees who wants them, votes and awards are logged), **Rolls** (Roll / Pass popups) and **Lock everyone's BiS lists**.
+  Untick what you don't want. Attendance and boss kills are always logged while the raid runs.
+- **Options** on the bar changes it during the raid. **End raid** switches everything off again.
+- `/dz raid start` starts with your last choices without asking; `/dz raid options` opens the window.
+- To look at the window without a raid: `/dz demo on`, then `/dz raid options`. `/dz test` and 5-man dungeon mode
+  don't need a raid session.
+- A raid leader still on 1.1 starts raids the old way: everything runs.
+
 ### Raid log and planned raids
 - When the raid leader clicks **Start raid**, DisasterZone links the raid log to the planned raid automatically: the one you
   ran Invite & sort for, or the one most of the raid signed up for (it waits until that is clear, e.g. when two teams

@@ -4,6 +4,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SessionBar.lua", ...) then retu
 -- button on it (with a confirmation). Same slim style as the encounter reminder (UI:StyleHud). It can't be closed while the session runs: only ending the raid hides it.
 -- Idle state: the authority inside a raid instance with no session sees "No raid session" with a Start raid
 -- button (the visible prompt; it can be dismissed until the next instance).
+-- 1.2: Start raid opens a window asking what the session runs (loot distribution, rolls, the BiS lock); the
+-- authority changes that later with the bar's Options button.
 local addonName, ns = ...
 
 local SessionBar = ns:NewModule("SessionBar")
@@ -42,6 +44,161 @@ function SessionBar:GetText()
     parts[#parts + 1] = total and ("%d/%d bosses"):format(kills, total) or (kills == 1 and "1 boss" or (kills .. " bosses"))
     if ns.GroupRules:IsLocked() then parts[#parts + 1] = "BiS locked" end
     return table.concat(parts, " · ")
+end
+
+---------------------------------------------------------------------------
+-- The Start raid window: what the raid session runs. Loot distribution and rolls are off in a raid until the raid
+-- leader starts the session, and the leader picks here which of them it runs (GroupRules:IsFeatureOn). The same
+-- window changes the features of a running session ("Options" on the bar). In demo mode outside a raid it opens as
+-- a preview, so the flow can be shown without a raid.
+---------------------------------------------------------------------------
+
+local FEATURES = {
+    { key = "loot", label = "Loot distribution",
+      tip = "Drops are announced to the raid, the council sees who wants them, votes, and awards go into the loot log. "
+          .. "Off: DisasterZone leaves the loot alone in this raid." },
+    { key = "rolls", label = "Rolls",
+      tip = "The council and the raid leader can start rolls; raiders get the Roll / Pass popup. Off: no roll popups." },
+    { key = "lock", label = "Lock everyone's BiS lists",
+      tip = "Nobody changes their BiS list while the raid runs (it unlocks when the raid ends)." },
+}
+
+local startWin
+
+-- What I picked the last time (everything, the first time): { loot=, rolls=, lock= }.
+local function LastFeatures()
+    local saved = ns.db and ns.db.settings and ns.db.settings.raidStart
+    local f = {}
+    for _, feat in ipairs(FEATURES) do
+        f[feat.key] = type(saved) ~= "table" or saved[feat.key] ~= false
+    end
+    return f
+end
+
+local function CreateStartWindow()
+    local UI = ns.UI
+    local w = UI:CreateWindow("DisasterZoneRaidStart", "Start raid", 380, 250, { noSavePosition = true })
+    local c = w.content
+    w.f = LastFeatures()
+    w.head = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    w.head:SetPoint("TOPLEFT", 14, -12)
+    w.head:SetPoint("RIGHT", -14, 0)
+    w.head:SetJustifyH("LEFT")
+    w.boxes = {}
+    for i, feat in ipairs(FEATURES) do
+        local cb = UI:CreateCheckbox(c, feat.label, function() return w.f[feat.key] end,
+            function(on) w.f[feat.key] = on and true or false end)
+        cb:SetPoint("TOPLEFT", 14, -24 - i * 26)
+        cb.tooltipText = feat.tip
+        w.boxes[feat.key] = cb
+    end
+    w.note = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    w.note:SetPoint("TOPLEFT", 16, -138)
+    w.note:SetPoint("RIGHT", -14, 0)
+    w.note:SetJustifyH("LEFT")
+    w.startBtn = UI:CreateButton(c, "Start raid", 110, 22, function() SessionBar:ConfirmStart() end)
+    w.startBtn:SetPoint("BOTTOMRIGHT", -10, 10)
+    w.cancelBtn = UI:CreateButton(c, "Cancel", 80, 22, function() w:Hide() end)
+    w.cancelBtn:SetPoint("BOTTOMLEFT", 10, 10)
+    w:Hide()
+    startWin = w
+    return w
+end
+
+-- mode: "start" | "change" | "demo".
+local function ShowStartWindow(mode, features)
+    local w = startWin or CreateStartWindow()
+    w.mode = mode
+    w.f = features
+    w:SetWindowTitle(mode == "change" and "Raid options" or (mode == "demo" and "Start raid (demo)" or "Start raid"))
+    w.head:SetText(mode == "change" and "What this raid runs. Changes reach the raid at once."
+        or "Pick what DisasterZone runs for this raid. Until you start, it leaves loot and rolls alone.")
+    w.note:SetText((mode == "demo" and "Demo: this only shows the window; nothing is started.\n" or "")
+        .. "Attendance and boss kills are always logged while the raid runs.")
+    w.startBtn:SetText(mode == "change" and "Apply" or "Start raid")
+    for _, cb in pairs(w.boxes) do
+        if cb.Refresh then cb:Refresh() end
+    end
+    if not w:IsShown() then
+        w:ClearAllPoints()
+        w:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+    end
+    w:Show()
+    w:Raise()
+    return w
+end
+
+-- The Start raid button (the bar, the Raids tab): asks what the session runs, then starts it. true when the window
+-- opened.
+function SessionBar:OpenStart()
+    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
+    if not IsInRaid() then
+        if demo then
+            ShowStartWindow("demo", LastFeatures())
+            return true
+        end
+        ns:Print("A raid session can only run in a raid. (/dz demo on, then /dz raid options, shows the window.)")
+        return false
+    end
+    if not IsAuthority() then
+        ns:Print("Only the raid leader (the raid's loot authority) can start the raid.")
+        return false
+    end
+    if Session() then return self:OpenOptions() end
+    ShowStartWindow("start", LastFeatures())
+    return true
+end
+
+-- The features of the running session (the authority); without a session the Start raid window.
+function SessionBar:OpenOptions()
+    if not (IsInRaid() and Session()) then return self:OpenStart() end
+    if not IsAuthority() then
+        ns:Print("Only the raid leader (the raid's loot authority) can change what the raid runs.")
+        return false
+    end
+    local cur = ns.GroupRules:GetSessionFeatures() or LastFeatures()
+    ShowStartWindow("change", { loot = cur.loot, rolls = cur.rolls, lock = cur.lock })
+    return true
+end
+
+-- The window's Start raid / Apply button.
+function SessionBar:ConfirmStart()
+    local w = startWin
+    if not w then return false end
+    local f = { loot = w.f.loot and true or false, rolls = w.f.rolls and true or false, lock = w.f.lock and true or false }
+    if w.mode == "demo" then
+        ns:Print("Demo: a real raid would start now with %s.", SessionBar:DescribeFeatures(f))
+        w:Hide()
+        return true
+    end
+    if ns.db and ns.db.settings then ns.db.settings.raidStart = f end
+    local ok, err
+    if w.mode == "change" then
+        ok, err = ns.GroupRules:SetSessionFeatures(f)
+        if not ok then ns:Print("%s", tostring(err)) end
+    else
+        ok = ns.RaidLog:Start(nil, f)
+    end
+    if ok then w:Hide() end
+    return ok and true or false
+end
+
+function SessionBar:GetStartWindow()
+    return startWin
+end
+
+-- "loot distribution and rolls on, BiS lists locked" / "loot distribution and rolls off".
+function SessionBar:DescribeFeatures(f)
+    local on, off = {}, {}
+    for _, feat in ipairs({ { "loot", "loot distribution" }, { "rolls", "rolls" } }) do
+        local list = f[feat[1]] and on or off
+        list[#list + 1] = feat[2]
+    end
+    local parts = {}
+    if #on > 0 then parts[#parts + 1] = table.concat(on, " and ") .. " on" end
+    if #off > 0 then parts[#parts + 1] = table.concat(off, " and ") .. " off" end
+    parts[#parts + 1] = f.lock and "BiS lists locked" or "BiS lists open"
+    return table.concat(parts, ", ")
 end
 
 local function ConfirmEnd()
@@ -124,14 +281,16 @@ local function Create()
         if Session() then
             ConfirmEnd()
         else
-            ns.RaidLog:Start()
+            SessionBar:OpenStart()
         end
     end, END_TINT)
     f.button:SetPoint("RIGHT", -7, 0)
+    f.options = UI:CreateFlatButton(f, "Options", 58, 18, function() SessionBar:OpenOptions() end)
+    f.options:SetPoint("RIGHT", f.button, "LEFT", -4, 0)
 
     f.close = CreateFrame("Button", nil, f)
     f.close:SetSize(16, 16)
-    f.close:SetPoint("RIGHT", f.button, "LEFT", -4, 0)
+    f.close:SetPoint("RIGHT", f.button, "LEFT", -4, 0)   -- (the idle bar: Options is hidden there)
     f.close.fs = f.close:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     f.close.fs:SetPoint("CENTER")
     f.close.fs:SetText("x")
@@ -157,11 +316,15 @@ local function Create()
         local s = Session()
         if s then
             lines[#lines + 1] = "Started by " .. (ns.Util.ShortName(s.by) or "?") .. " at " .. date("%H:%M", s.at)
-            lines[#lines + 1] = "Attendance, boss kills and awards are being logged."
-            if IsAuthority() then lines[#lines + 1] = "End the raid when you are done to finish the log." end
+            lines[#lines + 1] = "Attendance and boss kills are being logged."
+            local feats = ns.GroupRules:GetSessionFeatures()
+            if feats then lines[#lines + 1] = "This raid: " .. SessionBar:DescribeFeatures(feats) .. "." end
+            if IsAuthority() then
+                lines[#lines + 1] = "Options changes what the raid runs. End the raid when you are done."
+            end
         else
-            lines[#lines + 1] = "Start a raid session to log attendance, boss kills and awards."
-            lines[#lines + 1] = "Starting also locks everyone's BiS lists."
+            lines[#lines + 1] = "Loot distribution and rolls stay off until you start the raid."
+            lines[#lines + 1] = "Start raid asks what to run: loot distribution, rolls, the BiS lock."
         end
         lines[#lines + 1] = "|cff808080Drag to move.|r"
         UI:SetTextTooltip(self, lines)
@@ -201,25 +364,31 @@ function SessionBar:Update()
         f.live = true
         f.dot:SetTexture("Interface\COMMON\Indicator-Green")
         f.title:SetText(zone)
-        f.text:SetText(dur .. "  \194\183  " .. bosses)
+        local feats = ns.GroupRules:GetSessionFeatures()
+        local off = feats and ((not feats.loot and not feats.rolls and "loot and rolls off")
+            or (not feats.loot and "loot off") or (not feats.rolls and "rolls off")) or nil
+        f.text:SetText(dur .. "  \194\183  " .. bosses .. (off and ("  \194\183  " .. off) or ""))
         f.button:SetText("End raid")
         f.button:SetTint(END_TINT)
         f.button:SetShown(IsAuthority())
+        f.options:SetShown(IsAuthority())
         f.close:Hide()
     else
         f.live = false
         f.dot:SetAlpha(1)
         f.dot:SetTexture("Interface\COMMON\Indicator-Gray")
         f.title:SetText("No raid session")
-        f.text:SetText("this raid is not being logged")
+        f.text:SetText("loot and rolls are off until you start")
         f.button:SetText("Start raid")
         f.button:SetTint(START_TINT)
         f.button:Show()
+        f.options:Hide()
         f.close:Show()
     end
     -- the right side: [pill] [x] [button]
     local anchor, gap = nil, 0
     if f.button:IsShown() then anchor = f.button end
+    if f.options:IsShown() then anchor = f.options end
     if f.close:IsShown() then anchor = f.close end
     f.pill:ClearAllPoints()
     if locked then
@@ -231,6 +400,7 @@ function SessionBar:Update()
     end
     local right = 10
     if f.button:IsShown() then right = right + f.button:GetWidth() + 4 end
+    if f.options:IsShown() then right = right + f.options:GetWidth() + 4 end
     if f.close:IsShown() then right = right + 20 end
     if f.pill:IsShown() then right = right + f.pill:GetWidth() + 8 end
     local left = 9 + 12 + 6 + (f.title:GetStringWidth() or 60) + 8 + (f.text:GetStringWidth() or 100)

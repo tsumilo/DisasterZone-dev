@@ -385,7 +385,26 @@ class World:
             c._fire("GROUP_ROSTER_UPDATE")
             if ml is not None:
                 c._fire("PARTY_LOOT_METHOD_CHANGED")
+        if kind == "raid" and self.auto_session:
+            self.start_raid_session()
         return self.group
+
+    # DisasterZone 1.2: in a raid, loot distribution and rolls are off until the raid's authority starts a raid
+    # session. Most suites are about what happens in a running raid, so make_raid starts one (loot + rolls, no BiS
+    # lock) on the authority's client. Suites about the session itself set `w.auto_session = False` first.
+    auto_session = True
+
+    def start_raid_session(self, features="{ loot = true, rolls = true, lock = false }"):
+        """The raid's loot authority (if it runs the addon) starts a raid session. Returns the client or None."""
+        for c in self._group_clients(self.group["members"] if self.group else []):
+            try:
+                if c.eval("local GR = ns and ns.GroupRules; if not (GR and GR.SetSession and ns.loggedIn and IsInRaid() "
+                          "and GR:IsAuthority()) then return false end; "
+                          "return GR:GetSession() ~= nil or (GR:SetSession(true, nil, %s)) == true" % features):
+                    return c
+            except Exception:
+                pass
+        return None
 
     def make_party(self, clients, leader=None, extra_members=()):
         return self.make_raid(clients, leader=leader, extra_members=extra_members, kind="party", loot_method=3)

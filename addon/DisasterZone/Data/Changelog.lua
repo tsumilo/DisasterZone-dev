@@ -6,14 +6,24 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.2.0", date = "3 October 2026", title = "Alts share roles, level 70 raids, built-in BiS lists",
+    { version = "1.2.0", date = "3 October 2026", title = "Raid sessions switch loot on, alts share roles",
       sections = {
           { heading = "Your characters share their roles", lines = {
               "DisasterZone knows which characters are yours: each one that logged in with it.",
-              "Your alts get the roles of your other characters: Guild Master, officer, council, raid leader.",
+              "Your alts get your roles: Guild Master, officer, council, raid leader.",
               "Nothing to set up. Log in once on each character; the others in the guild pick it up.",
-              "A new alt counts for a member once that member was online together with your main (or an officer).",
+              "A new alt counts for a member once they were online with your main or an officer.",
               "/dz account shows which characters share roles; /dz account forget Name takes one off.",
+          } },
+          { heading = "Raid sessions", lines = {
+              "In a raid, loot distribution and rolls are off until the raid leader starts the raid.",
+              "Start raid (the bar in a raid instance, or the Raids tab) now asks what to run.",
+              "Pick any of: loot distribution, rolls, locking the BiS lists.",
+              "Attendance and boss kills are always logged while the raid runs.",
+              "Options on the session bar changes it during the raid.",
+              "/dz raid start starts with your last choices; /dz raid options opens the window.",
+              "Try it alone: /dz demo on, then /dz raid options.",
+              "5-man dungeon mode and /dz test work as before.",
           } },
           { heading = "Raids", lines = {
               "New raids are for level 70 characters. Lower characters can't sign up for them.",

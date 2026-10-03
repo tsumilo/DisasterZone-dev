@@ -23,6 +23,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GroupRules.lua", ...) then re
 -- Starting one also locks the BiS lists, ending it unlocks them. Unlike a bare lock, a running session survives a
 -- change of authority: the new authority adopts the session (and its lock) it saw from the old one, so control
 -- follows the group. RaidLog (Core/RaidLog.lua) records the session.
+--
+-- Raid features (1.2): in a raid, loot distribution (drops, the council's views, votes, awards) and rolls are OFF
+-- until the authority starts a raid session, and the session says which of them it runs (GS rf: the letters l =
+-- loot distribution, r = rolls, k = lock the BiS lists; "-" = none). Every module asks GroupRules:IsFeatureOn(name).
+-- A session without rf (a raid leader on 1.1 or older) runs everything, as it did then. Parties (dungeon mode),
+-- test drops and demo mode are not affected.
 local addonName, ns = ...
 
 local GroupRules = {}
@@ -75,7 +81,8 @@ local memo                     -- { t = GetTime(), auth=, pos=, list= }
 local setupDone = false
 local myLock                   -- { at = serverTime } while I am the raid's authority and locked the lists
 local lastLocked = false       -- GroupRules:IsLocked() as last announced with BIS_LOCK_CHANGED
-local mySession                -- { id=, at= } while I am the raid's authority and run a raid session (Addendum I)
+local mySession                -- { id=, at=, f= } while I am the raid's authority and run a raid session (Addendum I);
+                               -- f = its features { loot=, rolls=, lock= } (nil: a session adopted without them = all)
 local seenSession              -- { id=, at=, by=, lkAt= } the session last seen from any authority in this raid
 
 ---------------------------------------------------------------------------
@@ -85,6 +92,55 @@ local seenSession              -- { id=, at=, by=, lkAt= } the session last seen
 local function Setting(path)
     local DB = ns.DB
     if DB and DB.GetSetting then return DB:GetSetting(path) end
+    return nil
+end
+
+-- Raid features on the wire: "lrk" letters, "-" when none is on.
+local FEATURE_LETTER = { loot = "l", rolls = "r", lock = "k" }
+local FEATURE_ORDER = { "loot", "rolls", "lock" }
+
+local function EncodeFeatures(f)
+    if type(f) ~= "table" then return nil end
+    local s = ""
+    for _, name in ipairs(FEATURE_ORDER) do
+        if f[name] then s = s .. FEATURE_LETTER[name] end
+    end
+    return s == "" and "-" or s
+end
+
+local function DecodeFeatures(rf)
+    if type(rf) ~= "string" then return nil end
+    local f = {}
+    for _, name in ipairs(FEATURE_ORDER) do
+        f[name] = rf:find(FEATURE_LETTER[name], 1, true) ~= nil
+    end
+    return f
+end
+
+-- features from the UI ({ loot=, rolls=, lock= }; nil = everything on) as a clean table.
+local function CleanFeatures(features)
+    local f = {}
+    for _, name in ipairs(FEATURE_ORDER) do
+        f[name] = type(features) ~= "table" or features[name] ~= false
+    end
+    return f
+end
+
+-- The features of my session survive my own /reload: ns.db.groupFeatures = { id = session id, rf = letters }.
+local function SaveFeatures()
+    local db = ns.db
+    if type(db) ~= "table" then return end
+    if mySession and mySession.f then
+        db.groupFeatures = { id = mySession.id, rf = EncodeFeatures(mySession.f) }
+    else
+        db.groupFeatures = nil
+    end
+end
+
+local function SavedFeatures(id)
+    local db = ns.db
+    local s = type(db) == "table" and db.groupFeatures
+    if type(s) == "table" and s.id == id then return DecodeFeatures(s.rf) end
     return nil
 end
 
@@ -250,6 +306,7 @@ local function MyValues()
         if mySession then
             v.rs = mySession.id                     -- Addendum I §48: raid session
             v.rsAt = mySession.at
+            v.rf = EncodeFeatures(mySession.f)      -- its features (nil: all, as before 1.2)
             if mySession.rp then
                 v.rp = mySession.rp                 -- Addendum J §61: the planned raid it is linked to
                 v.rpAt = mySession.rpAt
@@ -289,8 +346,11 @@ local function ValidateRules(msg)
             and type(rpAt) == "number" and rpAt == floor(rpAt) and rpAt > 0 and rpAt <= MAX_RULES_REV) then
         rp, rpAt = nil, nil
     end
+    -- The session's features (optional; needs a session): letters of "lrk", or "-".
+    local rf = msg.rf
+    if not (rs and type(rf) == "string" and #rf >= 1 and #rf <= 8 and rf:find("^[lrk%-]+$")) then rf = nil end
     return { rd = rd, q = q, dq = dq, dm = dm, ph = ph, lk = lk, lkAt = lkAt, rs = rs, rsAt = rsAt, rp = rp,
-             rpAt = rpAt }, rev
+             rpAt = rpAt, rf = rf }, rev
 end
 
 ---------------------------------------------------------------------------
@@ -342,6 +402,7 @@ local function StatusSignature()
     local sess = GroupRules:GetSession()
     parts[#parts + 1] = sess and sess.id or "-"
     parts[#parts + 1] = sess and (tostring(sess.rp) .. "@" .. tostring(sess.rpAt)) or "-"   -- Addendum J §61 link
+    parts[#parts + 1] = sess and (EncodeFeatures(sess.f) or "all") or "-"
     return tconcat(parts, "|")
 end
 
@@ -375,7 +436,8 @@ local function TrackSession()
     local s = GroupRules:GetSession()
     if s then
         local lock = GroupRules:GetLockInfo()
-        seenSession = { id = s.id, at = s.at, by = s.by, lkAt = lock and lock.at or nil, rp = s.rp, rpAt = s.rpAt }
+        seenSession = { id = s.id, at = s.at, by = s.by, lkAt = lock and lock.at or nil, rp = s.rp, rpAt = s.rpAt,
+                        f = s.f }
     else
         seenSession = nil
     end
@@ -480,7 +542,8 @@ local function Evaluate()
                 if open then adopt = { id = open.id, at = open.start, rp = open.pl, rpAt = open.plAt } end
             end
             if adopt then
-                mySession = { id = adopt.id, at = adopt.at, rp = adopt.rp, rpAt = adopt.rpAt }
+                mySession = { id = adopt.id, at = adopt.at, rp = adopt.rp, rpAt = adopt.rpAt,
+                              f = adopt.f or SavedFeatures(adopt.id) }
                 if not myLock and adopt.lkAt then
                     myLock = { at = adopt.lkAt }
                     SaveLock()
@@ -696,13 +759,64 @@ function GroupRules:GetSession()
     if not IsInRaid() then return nil end
     if AmAuthority() then
         return mySession and { id = mySession.id, at = mySession.at, by = Util.PlayerKey(), rp = mySession.rp,
-                               rpAt = mySession.rpAt } or nil
+                               rpAt = mySession.rpAt, f = mySession.f and CleanFeatures(mySession.f) or nil } or nil
     end
     if active and active.values.rs then
         return { id = active.values.rs, at = active.values.rsAt, by = active.from, rp = active.values.rp,
-                 rpAt = active.values.rpAt }
+                 rpAt = active.values.rpAt, f = DecodeFeatures(active.values.rf) }
     end
     return nil
+end
+
+-- Is a raid feature running for me: "loot" (loot distribution: drops, the council's views, votes, awards) or
+-- "rolls"? In a raid only while the authority runs a raid session with that feature (a session that names no
+-- features, from a raid leader on 1.1 or older, runs them all). Outside raids always true: parties have dungeon
+-- mode, and test drops / demo mode never ask.
+-- incoming = true (a drop or a roll somebody in the raid just announced): also true while I don't know the raid's
+-- rules yet (the first seconds after joining or a /reload, also when I am only the stand-in authority because the
+-- raid leader's addon has not spoken yet): the sender's client checked the feature itself.
+function GroupRules:IsFeatureOn(name, incoming)
+    if not IsInRaid() then return true end
+    if incoming and not active then
+        local auth, pos = Resolve()
+        if not (auth ~= nil and Util.IsMe(auth) and pos == 1) then return true end
+    end
+    local s = self:GetSession()
+    if not s then return false end
+    return s.f == nil or s.f[name] == true
+end
+
+-- The features of the running session { loot=, rolls=, lock= } (all true for a session that names none), or nil
+-- without a session.
+function GroupRules:GetSessionFeatures()
+    local s = self:GetSession()
+    if not s then return nil end
+    return s.f or CleanFeatures(nil)
+end
+
+-- Changes the features of the running session (the authority only). Returns ok, err.
+function GroupRules:SetSessionFeatures(features)
+    if not IsInRaid() then return false, "not in a raid." end
+    Invalidate()
+    if not AmAuthority() or not mySession then return false, "only the raid leader of a running raid session can." end
+    local f = CleanFeatures(features)
+    mySession.f = f
+    local announce = false
+    if f.lock and not myLock then
+        myLock = { at = GetServerTime() }
+        announce = true
+    elseif not f.lock then
+        myLock = nil
+    end
+    SaveLock()
+    SaveFeatures()
+    DoSend(false)
+    Changed()
+    if announce and Setting("roll.announce") ~= false then
+        local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+        if send then pcall(send, LOCK_ANNOUNCE, "RAID") end
+    end
+    return true
 end
 
 -- Addendum J §61: links the running raid session to a planned raid (occurrence id; nil unlinks). The authority only;
@@ -721,10 +835,11 @@ function GroupRules:SetSessionPlan(occId)
     return true
 end
 
--- Starts (on = true) or ends the raid session. Only the raid's loot authority can: returns ok, err. Starting
--- also locks the BiS lists (with the usual raid chat line); ending unlocks them. startAt (optional): an earlier
--- start time (a session started late, e.g. from the boss pull prompt).
-function GroupRules:SetSession(on, startAt)
+-- Starts (on = true) or ends the raid session. Only the raid's loot authority can: returns ok, err. features
+-- (optional): { loot=, rolls=, lock= }, what the session runs (nil: everything). With lock, starting also locks
+-- the BiS lists (with the usual raid chat line); ending unlocks them. startAt (optional): an earlier start time (a
+-- session started late, e.g. from the boss pull prompt).
+function GroupRules:SetSession(on, startAt, features)
     on = on and true or false
     if not IsInRaid() then return false, "a raid session can only run in a raid." end
     Invalidate()
@@ -738,8 +853,9 @@ function GroupRules:SetSession(on, startAt)
         local at = tonumber(startAt)
         if not at or at > now or at < now - MAX_LOCK_AGE then at = now end
         at = floor(at)
-        mySession = { id = ((Util.PlayerKey() or "?") .. "-" .. at):sub(1, MAX_SESSION_ID), at = at }
-        if not myLock then
+        mySession = { id = ((Util.PlayerKey() or "?") .. "-" .. at):sub(1, MAX_SESSION_ID), at = at,
+                      f = CleanFeatures(features) }
+        if mySession.f.lock and not myLock then
             myLock = { at = now }
             announce = true
         end
@@ -748,6 +864,7 @@ function GroupRules:SetSession(on, startAt)
         myLock = nil
     end
     SaveLock()
+    SaveFeatures()
     DoSend(false)
     wasAuthority = true   -- this GS is the announcement
     Changed()
