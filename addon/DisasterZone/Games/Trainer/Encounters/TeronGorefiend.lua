@@ -20,7 +20,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Encounters/TeronGore
 --     Y 135..575 (UiMapAssignment of UiMap 343), 0.436 yd a pixel. The square hall measures 135 x 134 pixels on
 --     it: 59 x 58.5 yd. Blizzard's geometry of the hall (blacktemple.wmo, group "Gorefiend's Vigil") says the
 --     same: its floor is 60 x 58 yd. The floor shows that piece of the map;
---   the floor's heights: that same geometry, see TeronGorefiendFloor.lua. The middle of the hall's north half
+--   the room you see: that same geometry with its own textures and baked light, and the floor's heights from
+--     it, see TeronGorefiendFloor.lua. The middle of the hall's north half
 --     is a pit 2.75 yd deep and 22 yd wide, with steps down its west, east and south sides.
 -- NOT verified anywhere: the run speed of constructs and of the spirit (8 yd/s, the creature default), and
 -- where Teron and a raid stand (here: in the pit, at its north end).
@@ -276,6 +277,7 @@ T:RegisterEncounter("teron", {
     -- map: the piece of Media/Maps/BT04_a (the top 1024 x 512 of the 1024 x 683 map) that is this hall
     arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
               height = T.HeightFn(ns.TrainerFloors and ns.TrainerFloors.teron),
+              mesh = ns.TrainerFloors and ns.TrainerFloors.teron and ns.TrainerFloors.teron.mesh,
               map = { file = "Interface\\AddOns\\DisasterZone\\Media\\Maps\\BT04_a",
                       u0 = 0.3221, u1 = 0.4560, v0 = 0.2537, v1 = 0.5193 } },
     difficulties = {

@@ -28,6 +28,11 @@ def read_root(path):
             for i in range(size // 32):
                 flags, x0, y0, z0, x1, y1, z1, name_ofs = struct.unpack_from("<I6fi", data, off + i * 32)
                 out["groups"].append({"index": i, "flags": flags, "bbox": (x0, y0, z0, x1, y1, z1), "name_ofs": name_ofs})
+        elif name == "MOMT":
+            out["materials"] = []
+            for i in range(size // 64):
+                flags, shader, blend, tex1 = struct.unpack_from("<4I", data, off + i * 64)
+                out["materials"].append({"flags": flags, "shader": shader, "blend": blend, "texture": tex1})
         elif name == "GFID":
             out["gfid"] = list(struct.unpack_from("<%dI" % (size // 4), data, off))
     for g in out["groups"]:
@@ -59,4 +64,9 @@ def read_group(path):
             elif sub == "MOVT":
                 v = struct.unpack_from("<%df" % (ssize // 4), data, soff)
                 out["verts"] = [v[i:i + 3] for i in range(0, len(v), 3)]
+            elif sub == "MOTV" and "uvs" not in out:
+                v = struct.unpack_from("<%df" % (ssize // 4), data, soff)
+                out["uvs"] = [v[i:i + 2] for i in range(0, len(v), 2)]
+            elif sub == "MOCV" and "colors" not in out:
+                out["colors"] = [struct.unpack_from("<4B", data, soff + i * 4) for i in range(ssize // 4)]   # b, g, r, a
     return out

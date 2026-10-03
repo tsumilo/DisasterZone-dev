@@ -341,8 +341,13 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y, T_TR.sim.player.facing = 50, 30, math.pi  ns.TrainerUI._Tick(0.05)")
     assert abs(c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]") - rim) < 0.05
     assert abs(c.eval_py("return ns.TrainerUI._Camera().z") - (rim + 2.2 + 14 * math.sin(0.3))) < 0.1
+    # the room itself: Blizzard's triangles with their own textures; the ones facing the camera are shown
+    m = c.eval_py("local m = ns.Trainer:GetEncounter('teron').arena.mesh return { #m.verts / 6, #m.tris / 4, #m.textures, m.textures[1] }")
+    assert m[0] > 2000 and m[1] > 3000 and 8 <= m[2] <= 20 and m[3] > 100000, m
     fl = c.eval_py("return ns.TrainerUI._Floor()")
-    assert fl["tiles"] == 400 and 60 < fl["shown"] <= 400 and fl["mini"] is True, fl
+    assert fl["tiles"] == 0 and 500 < fl["mesh"] < m[1] and fl["mini"] is True, fl
+    c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 20, 50  ns.TrainerUI._Tick(0.05)")   # move: another view
+    assert c.eval_py("return ns.TrainerUI._Floor().mesh") != fl["mesh"]
     # the spell effects are actors holding the effect's model file
     c.eval("T_TR.die_in_corner()  local s = T_TR.sim  for _, u in ipairs(T_TR.constructs()) do u.speed = 0 end "
            "ns.TrainerUI._Key('TAB') ns.TrainerUI._Key('3') ns.TrainerUI._Tick(0.05)")

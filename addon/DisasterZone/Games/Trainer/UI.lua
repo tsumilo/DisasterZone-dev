@@ -333,6 +333,145 @@ local function Circle(x, y, radius, r, g, b, a, thick)
     end
 end
 
+-- The room's own mesh (arena.mesh: Blizzard's triangles, textures and baked light). Every triangle is a Texture
+-- whose corners are moved to where the camera sees them (two corners share the third point). The scene's camera
+-- is measured once a frame (three projected points); the vertices are then projected here, in Lua. Triangles
+-- facing away, behind the camera or off screen are hidden; the rest are layered far to near.
+local meshState = { tex = {}, shown = {}, sx = {}, sy = {}, sd = {} }
+local MESH_LAYERS = { "BACKGROUND", "BORDER", "ARTWORK" }
+local MESH_FAR = 110
+
+local function PrepareMesh(mesh)
+    if mesh.ready then return end
+    mesh.ready = true
+    local v, t = mesh.verts, mesh.tris
+    mesh.nVerts, mesh.nTris = #v / 6, #t / 4
+    mesh.normal, mesh.light = {}, {}
+    for i = 1, mesh.nTris do
+        local a, b, c = (t[i * 4 - 3] - 1) * 6, (t[i * 4 - 2] - 1) * 6, (t[i * 4 - 1] - 1) * 6
+        local ux, uy, uz = v[b + 1] - v[a + 1], v[b + 2] - v[a + 2], v[b + 3] - v[a + 3]
+        local wx, wy, wz = v[c + 1] - v[a + 1], v[c + 2] - v[a + 2], v[c + 3] - v[a + 3]
+        mesh.normal[i * 3 - 2], mesh.normal[i * 3 - 1], mesh.normal[i * 3] = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+        mesh.light[i] = (v[a + 6] + v[b + 6] + v[c + 6]) / 3
+    end
+end
+
+local function HideMesh()
+    for i in pairs(meshState.shown) do
+        meshState.tex[i]:Hide()
+        meshState.shown[i] = nil
+    end
+    meshState.key = nil
+end
+
+local function DrawMesh()
+    local mesh = sim.enc.arena.mesh
+    if not mesh then return false end
+    if meshState.mesh ~= mesh then
+        HideMesh()
+        for _, tex in pairs(meshState.tex) do tex:Hide() end
+        meshState.tex, meshState.mesh = {}, mesh
+    end
+    PrepareMesh(mesh)
+    local w, h = scene:GetWidth() or 0, scene:GetHeight() or 0
+    -- nothing moved: nothing to do
+    local key = string.format("%.3f %.3f %.3f %.4f %.4f %.4f %d %d", cam.x, cam.y, cam.z, cam.fx, cam.fy, cam.fz, w, h)
+    if meshState.key == key then return true end
+
+    -- the camera, measured: the screen point straight ahead, and what one yard to the right and one yard up
+    -- are worth there (10 yd ahead). All in scene space (y already mirrored).
+    local m = cam.mirror
+    local fx, fy, fz = cam.fx, cam.fy, cam.fz
+    local flat = math.sqrt(fx * fx + fy * fy)
+    if flat < 1e-4 then return true end
+    local rx, ry = fy / flat, -fx / flat                               -- right = forward x up
+    local ux, uy, uz = ry * fz, -rx * fz, rx * fy - ry * fx            -- up = right x forward
+    local function probe(dx, dy, dz)
+        local ok, px, py = pcall(scene.Project3DPointTo2D, scene, cam.x + fx * 10 + dx, cam.y + fy * 10 + dy, cam.z + fz * 10 + dz)
+        if ok and type(px) == "number" and type(py) == "number" then return px, py end
+    end
+    local cx, cy = probe(0, 0, 0)
+    local px1, py1 = probe(rx, ry, 0)
+    local px2, py2 = probe(ux, uy, uz)
+    if not (cx and px1 and px2) then return true end
+    local es = scene:GetEffectiveScale() or 1
+    if es <= 0 then es = 1 end
+    cx, cy = cx / es, cy / es
+    local exx, exy = (px1 / es - cx) * 10, (py1 / es - cy) * 10       -- per yard to the right, at 1 yd ahead
+    local eyx, eyy = (px2 / es - cx) * 10, (py2 / es - cy) * 10
+    meshState.key = key
+
+    local v, t, normal = mesh.verts, mesh.tris, mesh.normal
+    local sx, sy, sd = meshState.sx, meshState.sy, meshState.sd
+    local camX, camY, camZ = cam.x, cam.y, cam.z
+    for i = 1, mesh.nVerts do
+        local o = i * 6 - 6
+        local dx, dy, dz = v[o + 1] - camX, m * v[o + 2] - camY, v[o + 3] - camZ
+        local depth = dx * fx + dy * fy + dz * fz
+        if depth > 0.4 then
+            local r = (dx * rx + dy * ry) / depth
+            local u = (dx * ux + dy * uy + dz * uz) / depth
+            sx[i], sy[i], sd[i] = cx + r * exx + u * eyx, cy + r * exy + u * eyy, depth
+        else
+            sd[i] = false
+        end
+    end
+
+    local tex, shown = meshState.tex, meshState.shown
+    local eyeX, eyeY = camX, m * camY                                  -- the camera in the mesh's own coordinates
+    local buckets = #MESH_LAYERS * 16
+    for i = 1, mesh.nTris do
+        local a, b, c = t[i * 4 - 3], t[i * 4 - 2], t[i * 4 - 1]
+        local da, db, dc = sd[a], sd[b], sd[c]
+        local visible = false
+        if da and db and dc then
+            local o = (a - 1) * 6
+            -- facing the camera?
+            local facing = normal[i * 3 - 2] * (eyeX - v[o + 1]) + normal[i * 3 - 1] * (eyeY - v[o + 2]) + normal[i * 3] * (camZ - v[o + 3])
+            if facing > 0 then
+                local ax, ay, bx, by, qx, qy = sx[a], sy[a], sx[b], sy[b], sx[c], sy[c]
+                if not ((ax < 0 and bx < 0 and qx < 0) or (ax > w and bx > w and qx > w)
+                        or (ay < 0 and by < 0 and qy < 0) or (ay > h and by > h and qy > h)) then
+                    visible = true
+                    local tx = tex[i]
+                    if not tx then
+                        tx = floorFrame:CreateTexture(nil, "BACKGROUND")
+                        tx:SetSize(1, 1)
+                        tx:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
+                        tx:SetTexture(mesh.textures[t[i * 4]], "REPEAT", "REPEAT")
+                        local oa, ob, oc = (a - 1) * 6, (b - 1) * 6, (c - 1) * 6
+                        -- upper left = a, lower left = b, upper right and lower right = c
+                        tx:SetTexCoord(v[oa + 4], v[oa + 5], v[ob + 4], v[ob + 5], v[oc + 4], v[oc + 5], v[oc + 4], v[oc + 5])
+                        local l = mesh.light[i]
+                        tx:SetVertexColor(l, l, l)
+                        tex[i] = tx
+                    end
+                    tx:SetVertexOffset(1, ax, ay - 1)
+                    tx:SetVertexOffset(2, bx, by)
+                    tx:SetVertexOffset(3, qx - 1, qy - 1)
+                    tx:SetVertexOffset(4, qx - 1, qy)
+                    -- far ones first: three layers of sixteen sublevels
+                    local depth = (da + db + dc) / 3
+                    local bucket = buckets - 1 - max(0, min(buckets - 1, floor(depth / MESH_FAR * buckets)))
+                    if tx.bucket ~= bucket then
+                        tx.bucket = bucket
+                        tx:SetDrawLayer(MESH_LAYERS[floor(bucket / 16) + 1], bucket % 16 - 8)
+                    end
+                    if not shown[i] then
+                        shown[i] = true
+                        tx:Show()
+                    end
+                end
+            end
+        end
+        if not visible and shown[i] then
+            shown[i] = nil
+            tex[i]:Hide()
+        end
+    end
+    return true
+end
+
 -- The floor map: the arena's piece of Blizzard's map, cut into tiles; every tile's four corners are moved to
 -- where the scene projects them (Texture:SetVertexOffset), which bends the flat picture into the room's floor.
 local function DrawFloorMap()
@@ -387,6 +526,11 @@ end
 local function DrawFloor()
     lineCount.floor = 0
     local w, h = sim.enc.arena.w, sim.enc.arena.h
+    if DrawMesh() then                                                -- the real room: nothing else to draw
+        for _, t in ipairs(floorTiles) do t:Hide() end
+        for _, l in ipairs(floorLines) do l:Hide() end
+        return
+    end
     local mapped = DrawFloorMap()
     if not mapped then
         for _, t in ipairs(floorTiles) do t:Hide() end
@@ -507,6 +651,19 @@ local function DrawPlates()
                 n = n + 1
                 local f = Plate(n)
                 f.unit = u
+                -- plates of enemies standing together climb above each other instead of covering each other
+                local moved, passes = true, 0
+                while moved and passes < 8 do
+                    moved, passes = false, passes + 1
+                    for k = 1, n - 1 do
+                        local o = plates[k]
+                        if math.abs(o.px - x) < 100 and math.abs(o.py - y) < 38 then
+                            y = o.py + 38
+                            moved = true
+                        end
+                    end
+                end
+                f.px, f.py = x, y
                 f:ClearAllPoints()
                 f:SetPoint("CENTER", scene, "BOTTOMLEFT", x, y)
                 f.name:SetText(u.name)
@@ -586,6 +743,7 @@ function ResetScene()
         actorPool[#actorPool + 1] = a
     end
     for fx in pairs(fxActors) do ReleaseFxActor(fx) end
+    HideMesh()
     for _, l in ipairs(floorLines) do l:Hide() end
     for _, l in ipairs(fxLines) do l:Hide() end
     for _, t in ipairs(floorTiles) do t:Hide() end
@@ -1229,9 +1387,15 @@ UI._Fx = function()
     return out
 end
 UI._Floor = function()
-    local n = 0
+    local n, m = 0, 0
     for _, t in ipairs(floorTiles) do if t:IsShown() then n = n + 1 end end
-    return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false }
+    for _ in pairs(meshState.shown) do m = m + 1 end
+    return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false, mesh = m }
+end
+UI._Plates = function()
+    local out = {}
+    for _, f in ipairs(plates) do if f:IsShown() then out[#out + 1] = { f.px, f.py } end end
+    return out
 end
 UI._Project = function(x, y, z) return Project(x, y, GroundZ(x, y) + z) end
 UI._ActorPos = function(unitId) local a = actors[unitId] if a then return { a:GetPosition() } end end

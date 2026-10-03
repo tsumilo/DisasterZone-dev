@@ -10,7 +10,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --   name, desc, icon, order,
 --   arena = { w = 70, h = 90, labels = { { x, y, text } }, walkable = function(x, y) end, outline = { { x, y }, .. },
 --             map = { file, u0, u1, v0, v1 },          (the floor picture: the texture piece that covers w x h)
---             height = function(x, y) end },           (the floor's height there; drawn, it does not change speed)
+--             height = function(x, y) end,             (the floor's height there; drawn, it does not change speed)
+--             mesh = { textures, verts, tris } },      (the room's own triangles, see TeronGorefiendFloor.lua)
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
 --   player = { x, y, speed, facing },
 --   abilities = { { id, key = "3", name, icon, tip, cooldown, gcd, range, needsTarget,
