@@ -657,7 +657,8 @@ local function DrawPlates()
                     moved, passes = false, passes + 1
                     for k = 1, n - 1 do
                         local o = plates[k]
-                        if math.abs(o.px - x) < 100 and math.abs(o.py - y) < 38 then
+                        -- (37, not 38: o.py + 38 - o.py can come out a hair under 38 and would collide forever)
+                        if math.abs(o.px - x) < 100 and math.abs(o.py - y) < 37 then
                             y = o.py + 38
                             moved = true
                         end
