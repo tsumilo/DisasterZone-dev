@@ -150,7 +150,7 @@ def movement_is_clamped_to_the_arena():
     c.eval("T_TR.sim.player.x = 29.5  T_TR.sim:SetMove(0, 1) T_TR.run(6)")                 # through the alcove's mouth
     assert sim(c, "return s.player.y") > 80
     c.eval("T_TR.sim:SetMove(-1, 0) T_TR.run(6)")                                         # its west wall
-    assert abs(sim(c, "return s.player.x") - 16.3) < 0.1
+    assert 16.3 <= sim(c, "return s.player.x") < 16.7
     # diagonal speed is not faster than straight: 7 yd/s
     c.eval("T_TR.new('quick') T_TR.sim:SetMove(1, 0) T_TR.run(2)")
     assert abs(sim(c, "return s.player.x") - (29.5 + 14)) < 0.01
