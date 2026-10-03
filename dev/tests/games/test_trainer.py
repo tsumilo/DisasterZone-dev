@@ -273,6 +273,53 @@ def tab_cycles_from_near_to_far_and_skips_the_dead():
 
 
 @case
+def tab_takes_what_is_in_front_first_and_never_repeats_within_a_round():
+    w, c = boot()
+    c.eval("T_TR.new('quick') T_TR.die_in_corner()")
+    # you at (20, 20) facing east; A 6 yd ahead, B 12 yd ahead, C 3 yd behind, D 20 yd ahead but far off to the side
+    c.eval("local s = T_TR.sim  s.player.x, s.player.y, s.player.facing = 20, 20, 0  local u = T_TR.constructs() "
+           "for _, k in ipairs(u) do k.speed = 0 end "
+           "u[1].x, u[1].y = 26, 20  u[2].x, u[2].y = 32, 21  u[3].x, u[3].y = 17, 20  u[4].x, u[4].y = 22, 40 "
+           "T_ID = { [u[1].id] = 'A', [u[2].id] = 'B', [u[3].id] = 'C', [u[4].id] = 'D' }")
+    tab = lambda: c.eval_py("return T_ID[T_TR.sim:TabTarget().id]")
+    assert [tab() for _ in range(4)] == ["A", "B", "C", "D"]       # in front near to far, then behind near to far
+    assert tab() == "A"                                             # a new round
+    # B overtakes A between two Tabs: the round still goes on to B, not back to A
+    c.eval("local u = T_TR.constructs()  u[2].x = 23")
+    assert tab() == "B"
+    # a click (or an auto-target) starts the round from that enemy
+    c.eval("local s = T_TR.sim  s:SetTarget(T_TR.constructs()[2])")
+    assert tab() == "A"
+    # turn round: what was behind is in front now
+    c.eval("T_TR.sim.player.facing = math.pi  T_TR.sim:SetTarget(nil)")
+    assert tab() == "C"
+
+
+@case
+def a_click_on_a_construct_targets_it():
+    w, c = boot()
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Start(3)  T_TR.sim = ns.TrainerUI._Sim()  T_TR.die_in_corner()")
+    # face west (the mock's projection only knows a camera that looks along -x), two constructs ahead
+    c.eval("local s = T_TR.sim  s.player.x, s.player.y, s.player.facing = 40, 40, math.pi  local u = T_TR.constructs() "
+           "for _, k in ipairs(u) do k.speed = 0 k.x, k.y = 5, 80 end "
+           "u[1].x, u[1].y = 30, 37  u[2].x, u[2].y = 26, 44  T_A, T_B = u[1], u[2]")
+    c.eval("ns.TrainerUI._Tick(0.05)")
+    ax, ay = c.eval_py("local x, y = ns.TrainerUI._Project(T_A.x, T_A.y, 1.5) return { x, y }")
+    bx, by = c.eval_py("local x, y = ns.TrainerUI._Project(T_B.x, T_B.y, 1.5) return { x, y }")
+    assert abs(ax - bx) > 30, (ax, bx)
+    assert c.eval_py("return ns.TrainerUI._Click(%f, %f) == T_A" % (ax, ay))
+    assert c.eval_py("return T_TR.sim.target == T_A")
+    assert c.eval_py("return ns.TrainerUI._Click(%f, %f) == T_B" % (bx + 3, by - 2))
+    assert c.eval_py("return T_TR.sim.target == T_B")
+    assert c.eval_py("return ns.TrainerUI._Click(%f, %f) == T_A" % (ax + 25, ay))      # a near miss still takes it
+    assert c.eval_py("return ns.TrainerUI._Click(%f, %f)" % (ax, ay + 400)) is None     # the ceiling: nothing
+    assert c.eval_py("return T_TR.sim.target == T_A")                                   # and the target stays
+    no_errors(w)
+
+
+@case
 def the_spirit_running_out_loses():
     w, c = boot()
     c.eval("T_TR.new('quick') T_TR.die_in_corner()")
@@ -338,7 +385,14 @@ def the_panel_briefs_plays_pauses_and_shows_the_result():
     assert cam[2] > 3 and abs(math.hypot(cam[0] - 35, abs(cam[1]) - y) - cam[3] * math.cos(0.3)) < 0.5, cam
     teron = c.eval_py("local s = ns.TrainerUI._Sim() for _, u in ipairs(s.units) do if u.kind == 'boss' then "
                       "local a = ns.TrainerUI._Actor(u.id) return { a.pending or a.display, a.anim } end end")
-    assert teron == [21254, 0], teron
+    assert teron[0] == 21254 and teron[1] in (17, 26), teron      # swinging at the tank
+    # the raid: different armed models, melee swinging, casters casting, each out of step with the next
+    raid = c.eval_py("local s, t = ns.TrainerUI._Sim(), {} for _, u in ipairs(s.units) do if u.kind == 'raider' then "
+                     "t[#t+1] = { u.display, u.act, ns.TrainerUI._Anim(u.id) } end end return t")
+    assert len(raid) == 11 and len(set(r[0] for r in raid)) >= 7, raid
+    allowed = {"melee": (17, 26), "caster": (51, 53, 0), "bow": (29, 0)}
+    assert all(r[2] in allowed[r[1]] for r in raid), raid
+    assert len(set(r[2] for r in raid if r[1] == "caster")) > 1, raid
     # combat pauses: time stands still, the keyboard is released
     c.eval("ns:Fire('GAMES_COMBAT', true)")
     t0 = c.eval_py("return ns.TrainerUI._Sim().time")

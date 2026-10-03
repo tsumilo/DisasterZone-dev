@@ -22,6 +22,13 @@ local MOVE_KEYS = {
 local MINI_W, MINI_H = 120, 150
 local ANIM_STAND, ANIM_DEATH, ANIM_RUN, ANIM_DEAD, ANIM_BACK, ANIM_STUN = 0, 1, 5, 6, 13, 14
 local PLATE_HEIGHT = { construct = 3.2, boss = 7 }
+-- What a unit that stands and fights plays: { animation, seconds } in a loop (each unit starts somewhere else
+-- in it). 17 Attack1H, 26 Ready1H, 29 ReadyBow, 51 ReadySpellDirected, 53 SpellCastDirected.
+local ACTS = {
+    melee = { { 26, 0.9 }, { 17, 1.1 } },
+    caster = { { 51, 1.6 }, { 53, 0.9 }, { 0, 0.7 } },
+    bow = { { 29, 2.5 }, { 0, 0.6 } },
+}
 
 local root, view, arena, overlay, focusOverlay
 local scene, floorFrame, plateFrame      -- the 3D view (scene == nil: flat fallback)
@@ -223,6 +230,16 @@ local function AnimFor(u)
         if aura.stun then return ANIM_STUN end
     end
     if u.moving then return u.backward and ANIM_BACK or ANIM_RUN end
+    local act = ACTS[u.act]
+    if act then
+        local total = 0
+        for _, step in ipairs(act) do total = total + step[2] end
+        local t = (sim.time + u.id * 0.83) % total
+        for _, step in ipairs(act) do
+            if t < step[2] then return step[1] end
+            t = t - step[2]
+        end
+    end
     return ANIM_STAND
 end
 
@@ -401,6 +418,38 @@ local function DrawPlates()
     end
 end
 
+-- A click in the view: the enemy whose body is under the cursor (the nearest one if several are), else the one
+-- whose body is closest to it within 40 pixels.
+local function PickAt(x, y)
+    local best, bestScore
+    for _, u in ipairs(sim.units) do
+        if not u.dead and u.targetable then
+            local fx, fy = Project(u.x, u.y, 0)
+            local hx, hy = Project(u.x, u.y, PLATE_HEIGHT[u.kind] or 3)
+            if fx and hx then
+                local half = max(10, math.abs(hy - fy) * 0.35)
+                local cx, cy = (fx + hx) / 2, (fy + hy) / 2
+                local inside = math.abs(x - cx) <= half and y >= min(fy, hy) - 4 and y <= max(fy, hy) + 16
+                local dx, dy = x - cx, y - cy
+                local miss = math.sqrt(dx * dx + dy * dy)
+                -- a hit beats any miss; among hits the one closest to the camera, among misses the nearest
+                local depth = (u.x - cam.x) * cam.fx + (SY(u.y) - cam.y) * cam.fy
+                local score = inside and depth or (miss <= half + 40 and 100000 + miss or nil)
+                if score and (not bestScore or score < bestScore) then best, bestScore = u, score end
+            end
+        end
+    end
+    if best then sim:SetTarget(best) end
+    return best
+end
+
+local function CursorInScene()
+    local x, y = GetCursorPosition()
+    local es = scene:GetEffectiveScale() or 1
+    if es <= 0 then es = 1 end
+    return x / es - (scene:GetLeft() or 0), y / es - (scene:GetBottom() or 0)
+end
+
 local function Draw3D()
     if not cam.calibrated then Calibrate() end
     PlaceCamera()
@@ -465,11 +514,22 @@ local function CreateScene(parent)
             mouse.look, mouse.lastX = true, (GetCursorPosition())
         elseif button == "LeftButton" then
             mouse.left = true
+            mouse.downX, mouse.downY = CursorInScene()
         end
         ApplyMove()
     end)
     sc:SetScript("OnMouseUp", function(_, button)
-        if button == "RightButton" then mouse.look = false elseif button == "LeftButton" then mouse.left = false end
+        if button == "RightButton" then
+            mouse.look = false
+        elseif button == "LeftButton" then
+            mouse.left = false
+            -- a click (not a drag, not running with both buttons) targets what is under the cursor
+            local x, y = CursorInScene()
+            if sim and sim.state == "run" and not mouse.look and mouse.downX
+                and math.abs(x - mouse.downX) < 6 and math.abs(y - mouse.downY) < 6 then
+                PickAt(x, y)
+            end
+        end
         ApplyMove()
     end)
     sc:SetScript("OnMouseWheel", function(_, delta)
@@ -782,7 +842,7 @@ function ShowBriefing()
     lines[#lines + 1] = ""
     if scene then
         lines[#lines + 1] = "W / S run, A / D turn, Q / E strafe. Hold the right mouse button to look, wheel to zoom."
-        lines[#lines + 1] = "Tab or a click on a name plate targets. Esc pauses."
+        lines[#lines + 1] = "Tab targets what is in front of you; or click a construct or its name plate. Esc pauses."
     else
         lines[#lines + 1] = "Move: WASD or the arrow keys. Target: Tab or click. Esc pauses."
     end
@@ -1015,6 +1075,9 @@ UI._Key = function(key, down) return HandleKey(key, down ~= false) end
 UI._Sim = function() return sim end
 UI._Mouse = function(look, left) mouse.look, mouse.left = look and true or false, left and true or false ApplyMove() end
 UI._Camera = function() return cam end
+UI._Project = function(x, y, z) return Project(x, y, z) end
+UI._Click = function(x, y) return PickAt(x, y) end
+UI._Anim = function(unitId) return actors[unitId] and actors[unitId].anim end
 UI._Actor = function(unitId) return actors[unitId] end
 UI._Start = function(seed) StartTry(seed) end
 UI._Select = function(enc, diff)

@@ -30,10 +30,15 @@ local CREATURE_RUN = 8
 
 local DISPLAY_TERON, DISPLAY_SPIRIT, DISPLAY_CONSTRUCT = 21254, 21300, 21305
 
--- tank, melee behind the boss, ranged and healers spread to the south (you start among them)
+-- The raid: the tank, melee behind the boss, ranged and healers spread to the south (you start among them).
+-- { x, y, display, what they do }. The models are the Shattered Sun Offensive's soldiers (display IDs from
+-- Wowhead: Veteran 22931, Warrior 20570, Trainee 22924, Peacekeeper 23714, Marksman 22752, Magi 22952,
+-- Archmage 22973, Cleric 22953): armed blood elves and draenei that every faction's client has.
 local RAID = {
-    { 35, 58, tank = true }, { 32, 65 }, { 35, 66 }, { 38, 65 },
-    { 27, 47 }, { 31, 44 }, { 35, 46 }, { 39, 44 }, { 43, 47 }, { 33, 49 }, { 37, 49 },
+    { 35, 58, 22931, "melee", tank = true }, { 32, 65, 20570, "melee" }, { 35, 66, 22924, "melee" },
+    { 38, 65, 23714, "melee" },
+    { 27, 47, 22752, "bow" }, { 31, 44, 22952, "caster" }, { 35, 46, 22953, "caster" }, { 39, 44, 22973, "caster" },
+    { 43, 47, 22752, "bow" }, { 33, 49, 22953, "caster" }, { 37, 49, 22952, "caster" },
 }
 
 local function SpellIcon(spellID, fallback)
@@ -134,10 +139,10 @@ local function Start(sim)
     sim.phase = "marked"
     sim.stats.kills = 0
     sim:Spawn({ kind = "boss", name = "Teron Gorefiend", x = BOSS_X, y = BOSS_Y, facing = -pi / 2, radius = 3,
-                color = { 0.55, 0.1, 0.1 }, display = DISPLAY_TERON })
+                color = { 0.55, 0.1, 0.1 }, display = DISPLAY_TERON, act = "melee" })
     for _, r in ipairs(RAID) do
         sim:Spawn({ kind = "raider", name = r.tank and "Tank" or "Raider", x = r[1], y = r[2], radius = 0.9,
-                    facing = math.atan2(BOSS_Y - r[2], BOSS_X - r[1]), model = "player",
+                    facing = math.atan2(BOSS_Y - r[2], BOSS_X - r[1]), display = r[3], act = r[4],
                     color = { 0.3, 0.55, 1 } })
     end
     sim.objective = "Shadow of Death: get far away from the raid before you die."

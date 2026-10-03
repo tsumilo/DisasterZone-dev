@@ -254,25 +254,43 @@ end
 function Sim:SetTarget(u)
     if u and (u.dead or not u.targetable) then return end
     self.target = u
+    self.tabSeen = { [u or false] = true }
 end
 
--- Tab: the living targets from near to far, the one after the current target.
+-- Tab, like the client's: the nearest enemy in front of you that this round of Tabs has not picked yet (what is
+-- in front = within T.TAB_CONE of where you face); then the ones behind you; then the round starts over. A
+-- round remembers its picks, so enemies that overtake each other are never picked twice while another waits.
+T.TAB_CONE = math.rad(70)
 function Sim:TabTarget()
     local p = self.player
-    local list = {}
-    for _, u in ipairs(self.units) do
-        if not u.dead and u.targetable then list[#list + 1] = u end
+    local seen = self.tabSeen or {}
+    local function nearest(frontOnly)
+        local best, bestD
+        for _, u in ipairs(self.units) do
+            if not u.dead and u.targetable and not seen[u] then
+                local d = Dist(p.x, p.y, u.x, u.y)
+                local off = 0
+                if frontOnly and d > 1.5 then
+                    off = math.abs((atan2(u.y - p.y, u.x - p.x) - p.facing + pi) % (2 * pi) - pi)
+                end
+                if off <= T.TAB_CONE and (not bestD or d < bestD or (d == bestD and u.id < best.id)) then
+                    best, bestD = u, d
+                end
+            end
+        end
+        return best
     end
-    if #list == 0 then self.target = nil return nil end
-    table.sort(list, function(a, b)
-        local da, db = Dist(p.x, p.y, a.x, a.y), Dist(p.x, p.y, b.x, b.y)
-        if da ~= db then return da < db end
-        return a.id < b.id
-    end)
-    local pick = list[1]
-    for i, u in ipairs(list) do
-        if u == self.target then pick = list[i % #list + 1] break end
+    local pick = nearest(true) or nearest(false)
+    if not pick then                                   -- everyone had a turn: a new round (not the same one again)
+        seen = { [self.target or false] = true }
+        pick = nearest(true) or nearest(false)
+        if not pick then
+            seen = {}
+            pick = nearest(true) or nearest(false)
+        end
     end
+    seen[pick or false] = true
+    self.tabSeen = seen
     self.target = pick
     return pick
 end
