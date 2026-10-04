@@ -86,7 +86,7 @@ ns.CHANGELOG = {
           } },
           { heading = "A raid leader for each raid", lines = {
               "The Guild Master and the raid leaders pick who leads a raid: the crown icon on the raid.",
-              "That leader runs the raid with them: edit, cancel, add players, groups, strategies.",
+              "That leader runs the raid with them: edit, cancel, add players, groups.",
               "The leader doesn't have to be on the raid leaders list.",
               "The guild council doesn't run a raid that has its own leader.",
               "Weekly raids: pick the leader for this week only or for every week.",
@@ -94,6 +94,8 @@ ns.CHANGELOG = {
           } },
           { heading = "Picking strategies for a raid", lines = {
               "Assignments: each boss has a dropdown with its strategies; a pick is saved at once.",
+              "Only the raid's leader and the Guild Master pick strategies and assign players.",
+              "A raid without its own leader: the raid leaders and the Guild Master. Everyone else reads.",
               "The list says who made each one, how many slots it has and which was used last time.",
               "A boss not picked yet uses the strategy the guild used last time, not the first by name.",
               "\"not picked yet\" marks those bosses when they have more than one strategy.",

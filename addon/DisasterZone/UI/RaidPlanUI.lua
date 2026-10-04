@@ -1254,8 +1254,8 @@ function PlanUI:CreateUpcoming(parent)
     end)
     d.inviteBtn:SetPoint("RIGHT", d.editBtn, "LEFT", -3, 0)
     d.leaderBtn = UI():CreateTipIconButton(d, ACT, UI().ICON.crown, "Raid leader", "Choose who leads this raid. "
-        .. "They run it with the Guild Master and the raid leaders: edit it, add players, lay out the groups and "
-        .. "pick the strategies.", function()
+        .. "They run it with the Guild Master and the raid leaders: edit it, add players, lay out the groups. Its "
+        .. "strategies and assignments are theirs and the Guild Master's alone.", function()
         if state.selected then PlanUI:OpenLeader(state.selected) end
     end)
     d.leaderBtn:SetPoint("RIGHT", d.inviteBtn, "LEFT", -3, 0)
@@ -2354,8 +2354,8 @@ local function createLeader()
     w.help:SetPoint("TOPLEFT", 12, -30)
     w.help:SetPoint("RIGHT", -12, 0)
     w.help:SetJustifyH("LEFT")
-    w.help:SetText("The raid leader runs this raid with the Guild Master and the raid leaders: they edit it, add "
-        .. "players, lay out the groups and pick the strategies, also when they are not on the raid leaders list.")
+    w.help:SetText("The raid leader runs this raid with the Guild Master and the raid leaders, even when not on the "
+        .. "list. Only they and the Guild Master pick its strategies and assign players.")
     row(c, "Leader", -82)
     w.picker = UI():CreateSearchDropdown(c, 190, {
         placeholder = "Find a guild member...",

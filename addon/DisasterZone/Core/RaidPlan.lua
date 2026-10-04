@@ -23,9 +23,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 -- them (RPA), the newest answer of the player is the one that counts, and a decline covers all of them.
 --
 -- A raid can have its own leader (rl, named by the GM or a raid leader on the list; rlb = who named them). That
--- leader runs the raid: edit, cancel, delete, players and guests, groups, strategy picks and names, together with the
--- GM and the raid leaders on the list (the leader need not be on it); the guild council does not (user decisions
--- 2026-10-04). On a weekly raid the series names the leader and a week's override can name another (false: none).
+-- leader runs the raid: edit, cancel, delete, players and guests, groups, together with the GM and the raid leaders on
+-- the list (the leader need not be on it); the guild council does not. Its strategy picks and names are the leader's
+-- and the GM's alone (a raid without a leader: the raid leaders on the list and the GM); everyone else reads them
+-- (user decisions 2026-10-04). On a weekly raid the series names the leader and a week's override can name another
+-- (false: none).
 --
 -- The blacklist (BLL) blocks a player from every raid: no sign-up, no guest seat, no invite. Kept by the roster
 -- managers: the GM, officers and the raid leaders.
@@ -228,15 +230,25 @@ local function CanManage(v, key)
     return IsOrganizer(key) or (v.rl ~= nil and SamePlayer(key, v.rl))
 end
 
--- May `key` lay out the raid's groups and assign its strategies? The same, plus the guild council on a raid without a
--- leader.
+-- May `key` lay out the raid's groups? The same, plus the guild council on a raid without a leader.
 local function CanArrange(v, key)
     if type(key) ~= "string" or type(v) ~= "table" then return false end
     if v.rl then return CanManage(v, key) end
     return CanGroups(key)
 end
 
-local ALLOWED = { raids = IsOrganizer, teams = CanTeams, groups = CanGroups, roster = CanRoster }
+-- May `key` pick the raid's strategies and assign its players (the Assignments tab)? Only who leads it: its own
+-- leader, or on a raid without one the raid leaders on the list; and the GM. Everyone else only reads them (user rule
+-- 2026-10-04).
+local function CanAssignJobs(v, key)
+    if type(key) ~= "string" or type(v) ~= "table" then return false end
+    local G = Guild()
+    if G ~= nil and G.IsGM ~= nil and G:IsGM(key) then return true end
+    if v.rl then return SamePlayer(key, v.rl) end
+    return IsOrganizer(key)
+end
+
+local ALLOWED ={ raids = IsOrganizer, teams = CanTeams, groups = CanGroups, roster = CanRoster }
 local REFUSED = {
     roster = "Only the Guild Master, officers and the raid leaders can do that.",
     raids = "Only the Guild Master and the raid leaders can plan raids.",
@@ -1117,9 +1129,10 @@ function RaidPlan:CanManageRaid(occId, key)
     return CanManage(AsView(occId), key or Util.PlayerKey())
 end
 
--- May I (or that player) pick the raid's strategies and assign its players? As CanEditGroups.
-function RaidPlan:CanArrangeRaid(occId, key)
-    return CanArrange(AsView(occId), key or Util.PlayerKey())
+-- May I (or that player) pick the raid's strategies and assign its players? Its own leader (a raid without one: the
+-- raid leaders on the list) and the GM; read-only for everyone else.
+function RaidPlan:CanAssignStrategies(occId, key)
+    return CanAssignJobs(AsView(occId), key or Util.PlayerKey())
 end
 
 -- May I (or that player) name a raid's leader? The GM and the raid leaders on the list.

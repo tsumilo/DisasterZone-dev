@@ -1355,10 +1355,11 @@ function Board:ClearAll()
     self:MarkDirty(true)
 end
 
--- fill: switch the raid to another strategy of the boss (names of matching slots are kept).
+-- fill: switch the raid to another strategy of the boss (names of matching slots are kept). Only who may assign the
+-- raid's players; for everyone else a raid's board is read-only.
 function Board:UseStrategy(id)
     local s = S():GetStrategy(id)
-    if not s then return end
+    if not s or (st.occ and not st.sandbox and not canAssign()) then return end
     st.strat = s
     st.page = 1
     st.assign = S():ValidAssignments(s, st.assign)
@@ -1771,8 +1772,11 @@ function Board:Refresh()
         header = { win.saveBtn, win.cancelBtn, not st.sandbox and win.stratDD, s and win.practiceBtn, win.tourBtn }
     else
         local canFill = assigner and s ~= nil and st.occ ~= nil
-        header = { canFill and win.fillBtn, canEditStrat(s) and win.editBtn, st.occ and not st.sandbox and win.stratDD,
-                   s and win.practiceBtn, win.tourBtn }
+        -- switching a raid's strategy: who may assign its players (everyone else reads the raid's board); a boss
+        -- without any strategy offers only "New strategy for this boss", for every builder
+        header = { canFill and win.fillBtn, canEditStrat(s) and win.editBtn,
+                   st.occ and not st.sandbox and (assigner or s == nil) and win.stratDD, s and win.practiceBtn,
+                   win.tourBtn }
         -- the edit button is the main action when there is nothing to assign
         win.editBtn:SetKind(canFill and "secondary" or "primary")
     end

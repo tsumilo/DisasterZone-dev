@@ -10,9 +10,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Strategy.lua", ...) then retu
 --
 -- Who (1.0): every guild member builds strategies. A strategy belongs to its creator (ow; a record from before 1.0
 -- has none: its last editor owns it); only the owner and the collaborators the owner invited (co) change it, only
--- the owner changes the collaborators, and the GM and the guild council may edit and delete any strategy. Fills are written by
--- the GM, the guild council and the raid leaders (the raid-groups rule, §62); a raid with its own leader (RaidPlan rl)
--- by that leader, the GM and the council (RaidPlan:CanArrangeRaid). Everyone in the guild caches and reads
+-- the owner changes the collaborators, and the GM and the guild council may edit and delete any strategy. A raid's
+-- fills (its strategy picks and names) are written only by who leads it: its own leader (RaidPlan rl), or on a raid
+-- without one the raid leaders on the list; and the GM (RaidPlan:CanAssignStrategies, user rule 2026-10-04); fills
+-- from anyone else are ignored. Everyone in the guild caches and reads
 -- both. Sync mirrors the raid plan (§56): live edits on GUILD (SBU), and at login the
 -- HELLO carries a hash of my data (sd); a client whose data differs answers with its digest (SBD), the new client asks
 -- for what differs (SBW) and both send their copies one item per message (SBG). Records merge by rev (then hash).
@@ -196,24 +197,25 @@ local function GuildKey()
     return G and G.GetGuildKey and G:GetGuildKey() or nil
 end
 
--- Fills (a raid's names): the GM, the guild council and the raid leaders.
+-- The raid planners and the guild council: they answer a digest first (SBD). Who writes a raid's fills: CanWriteRaid.
 local function CanWrite(key)
     local G = Guild()
     return type(key) == "string" and G ~= nil and G.IsRaidLogMember ~= nil and G:IsRaidLogMember(key) and true or false
 end
 
--- One raid's fills: who arranges that raid (its own leader, the GM, the council; without a leader as CanWrite).
+-- One raid's fills: who leads that raid and the GM (RaidPlan:CanAssignStrategies). A raid I don't know (yet): the GM
+-- and the raid leaders on the list. Returns allowed, and whether the raid was known.
 local function CanWriteRaid(occId, key)
     local RP = ns.RaidPlan
-    if RP and RP.GetRaid and RP:GetRaid(occId) then return RP:CanArrangeRaid(occId, key) end
-    return CanWrite(key)
+    if not RP then return false, false end
+    if RP.GetRaid and RP:GetRaid(occId) then return RP:CanAssignStrategies(occId, key) and true or false, true end
+    return RP.IsOrganizer ~= nil and RP:IsOrganizer(key) and true or false, false
 end
 
--- A stored fill came from someone allowed to write fills, or from the raid's own leader.
+-- Did the stored fill come from someone who may write that raid's fills? Second: the answer is final (the raid is
+-- known); while it isn't, the fill is judged again once it is.
 local function FillWriter(rec)
-    if CanWrite(rec.by) then return true end
-    local RP = ns.RaidPlan
-    return RP ~= nil and RP.IsLeaderOf ~= nil and RP:IsLeaderOf(rec.o, rec.by)
+    return CanWriteRaid(rec.o, rec.by)
 end
 
 -- The GM and the guild council may edit and delete anyone's strategy (its collaborators stay the owner's to pick).
@@ -257,8 +259,8 @@ local function Allowed(cur, rec)
     return (IsCollab(cur, rec.by) or CanModerate(rec.by)) and SameList(cur.co, rec.co)
 end
 
-local REFUSED = "Only the Guild Master, the guild council and the raid leaders can change a raid's assignments."
-local REFUSED_LED = "Only this raid's leader, the Guild Master and the guild council can change its assignments."
+local REFUSED = "Only the Guild Master and the raid leaders pick a raid's strategies and assign its players."
+local REFUSED_LED = "Only this raid's leader and the Guild Master pick its strategies and assign its players."
 
 local function Send(msg, dist, target, class)
     local Comm = ns.Comm
@@ -698,11 +700,9 @@ local function Trusted(root, kind, rec)
     if not rec then return false end
     local k = kind .. ":" .. tostring(rec.id) .. ":" .. tostring(rec.rev)
     if root.OK[k] then return true end
-    if FillWriter(rec) then
-        root.OK[k] = true
-        return true
-    end
-    return false
+    local ok, final = FillWriter(rec)
+    if ok and final then root.OK[k] = true end
+    return ok
 end
 
 local function Newer(a, b)
@@ -970,11 +970,13 @@ end
 -- Reading
 ---------------------------------------------------------------------------
 
--- May I write a raid's assignments (fills): pick its strategies and assign its players? With a raid id: who arranges
--- that raid (RaidPlan:CanArrangeRaid). Without: the GM, the guild council and the raid leaders.
+-- May I write a raid's assignments (fills): pick its strategies and assign its players? With a raid id: who leads
+-- that raid and the GM (RaidPlan:CanAssignStrategies). Without: the GM and the raid leaders on the list.
 function Strategy:CanAssign(occId)
-    if occId ~= nil then return CanWriteRaid(occId, Util.PlayerKey()) end
-    return CanWrite(Util.PlayerKey())
+    local me = Util.PlayerKey()
+    if occId ~= nil then return (CanWriteRaid(occId, me)) end
+    local RP = ns.RaidPlan
+    return RP ~= nil and RP.IsOrganizer ~= nil and RP:IsOrganizer(me) and true or false
 end
 
 function Strategy:CanWrite(key)
