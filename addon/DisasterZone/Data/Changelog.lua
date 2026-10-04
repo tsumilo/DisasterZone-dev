@@ -10,14 +10,14 @@ ns.CHANGELOG = {
       sections = {
           { heading = "Import and export BiS lists", lines = {
               "My BiS's ... menu at the end of the top bar: Import, Export and Clear, each with an icon.",
-              "Import: paste a list from That's My BiS, Sixty Upgrades, WoWSims or a Wowhead gear planner link.",
+              "Import: paste a list from That's My BiS, Sixty Upgrades, WoWSims or a Wowhead planner.",
               "Item links, Wowhead item links, item numbers and item names work too, one per line.",
               "That's My BiS: paste the guild's \"Just Wishlists\" CSV; your character is picked out of it.",
               "Its off-spec items go to your off-spec list; received items can be marked obtained.",
               "Items fill main, then alt, in the list's order; rings and trinkets fill both slots first.",
               "A tier token becomes your class's piece; with several sets, the one on your spec's lists.",
               "A preview shows every slot next to what you have now, and what doesn't fit and why.",
-              "Choose the phase, then Fill empty slots or Replace the phase. Locked lists can't be changed.",
+              "Pick the phase, then Fill empty slots or Replace the phase. Locked lists can't change.",
               "Export: your BiS list or the gear you wear, for wowsims.com/tbc (Import > Addon).",
               "It brings enchants, gems, talents, race and professions; picks you wear keep their gems.",
               "Or a WoWSims Bulk list of your main and alt picks, or a Wowhead gear planner link.",
