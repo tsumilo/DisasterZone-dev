@@ -750,28 +750,27 @@ def a_room_switch_while_the_projection_gives_nothing_errs_not():
 
 
 @case
-def without_the_room_module_the_view_is_drawn_flat():
-    # Room.lua is a new file: until the client is restarted it is not loaded (a /reload does not read the TOC)
+def without_the_3d_files_the_fight_is_played_on_the_map():
+    # Render3D/*.lua (the shared view, the room renderer, the rooms) are new files: until the client is restarted they
+    # are not loaded (a /reload does not read the TOC), and the fight is played on the minimap
     w = World()
     c = Client(w, "Alice", class_file="PALADIN", guild_rank=3, guild="Casual Disaster")
     toc = c.toc
-    c.toc = lambda: (toc()[0], [f for f in toc()[1] if not f.replace("/", "\\").endswith("Trainer\\Room.lua")])
+    c.toc = lambda: (toc()[0], [f for f in toc()[1] if "Render3D\\" not in f.replace("/", "\\")])
     c.load_addon()
     w.tick(2)
     n0 = len(c.chat_frame)
     c.slash("/dz play trainer")
     w.tick(0.3)
-    assert c.eval_py("return ns.TrainerRoom") is None
+    assert c.eval_py("return ns.TrainerRoom") is None and c.eval_py("return ns.Render3D") is None
     assert any("restart the game client" in str(line) for line in c.chat_frame[n0:]), c.chat_frame[n0:]
     for enc, diff in (("teron", "quick"), ("vashj", "looter")):
         c.eval("ns.TrainerUI._Select('%s', '%s')  ns.TrainerUI._Start(3)" % (enc, diff))
         for _ in range(5):
             c.eval("ns.TrainerUI._Tick(0.05)")
-        assert c.eval_py("return ns.TrainerUI._State().is3D") is True
-        fl = c.eval_py("return ns.TrainerUI._Floor()")
-        assert fl["mesh"] == 0 and fl["lines"] == 0, fl
+        st = c.eval_py("return ns.TrainerUI._State()")
+        assert st["is3D"] is False and st["state"] == "run", st
         assert c.eval_py("return ns.TrainerUI._Render()") is None and c.eval_py("return ns.TrainerUI._Order()") is None
-    assert c.eval_py("return ns.TrainerUI._Floor().tiles") > 0                    # (Teron's floor map was drawn)
     no_errors(w)
 
 

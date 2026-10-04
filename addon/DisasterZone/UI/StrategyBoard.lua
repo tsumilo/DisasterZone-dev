@@ -50,6 +50,10 @@ local SHORTCUTS = {
     { "Shift-drag onto a table", "link to a job" },
     { "Right-click the map", "add, pick the map" },
     { "Mouse wheel", "zoom" },
+    { "3D: right-drag", "turn and tilt the view" },
+    { "3D: middle-drag / Pan tool", "move the view" },
+    { "3D: Q / E, Home", "turn 45 degrees, whole room" },
+    { "3D: double-click the floor", "look there" },
 }
 
 local win
@@ -451,6 +455,20 @@ local function createWindow()
         end, promptFn)
     end)
     f.mapBtn:SetPoint("TOPRIGHT", c, "TOPLEFT", MAP_W, -33)
+    -- the page on the 2D map or in the boss' room in 3D (UI/StrategyMap3D.lua): one page, the same drawings
+    f.mode3d = UI():CreateSleekButton(c, "3D", 34, 20, function() Board:Set3D(true) end)
+    f.mode2d = UI():CreateSleekButton(c, "2D", 34, 20, function() Board:Set3D(false) end)
+    f.mode2d:SetPoint("RIGHT", f.mode3d, "LEFT", -1, 0)
+    for _, b in ipairs({ f.mode2d, f.mode3d }) do
+        if b.SetMotionScriptsWhileDisabled then b:SetMotionScriptsWhileDisabled(true) end
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(self == f.mode3d and "3D" or "2D")
+            GameTooltip:AddLine(self.tip or "", 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
 
     -- the map
     f.canvas = MapUI():CreateCanvas(c, MAP_W, {
@@ -475,6 +493,14 @@ local function createWindow()
         links = function() return Board:LinkTargets() end,
         prompt = promptFn,
         bossRef = function() return st.strat and st.strat.b end,
+        -- the 3D view: a player marker's ring is its player's class colour; "My spot" stands on mine
+        slotClass = function(ref) local key = st.assign[ref] return key and st.mode ~= "edit" and classOf(key) or nil end,
+        mySlots = function()
+            local me, out = ns.Util.PlayerKey(), {}
+            for ref, key in pairs(st.assign) do if key == me then out[ref] = true end end
+            return out
+        end,
+        on3D = function() Board:RefreshMode() end,
     })
     f.canvas.frame:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -TOP_H)
     local border = CreateFrame("Frame", nil, c, "BackdropTemplate")
@@ -484,7 +510,8 @@ local function createWindow()
         border:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 10 })
         border:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9)
     end
-    border:SetFrameLevel(f.canvas.frame:GetFrameLevel() + 5)
+    -- (over the 3D view too, which stacks several hundred levels above the canvas)
+    border:SetFrameLevel(f.canvas.frame:GetFrameLevel() + 1100)
     border:EnableMouse(false)
 
     -- the blocks
@@ -1603,6 +1630,54 @@ end
 -- Refresh
 ---------------------------------------------------------------------------
 
+-- The page on the map or in the room (the 2D / 3D switch above the map; the map tilts up into the room and back).
+function Board:Set3D(on)
+    if not win then return end
+    win.canvas:Set3D(on, true)
+    self:RefreshMode()
+end
+
+-- The 2D / 3D switch: there for a boss that has a room (Render3D/Rooms.lua), 3D chosen while the page shows in it,
+-- greyed out (and saying why) on a page drawn on another map.
+local restartSaid = false
+function Board:RefreshMode()
+    if not win then return end
+    local cv = win.canvas
+    local room, why, other = cv:Room3D()
+    if why == "restart" and not restartSaid and ns.StrategyMap3D == nil then
+        -- the update brought new files, which only a client restart reads
+        restartSaid = true
+        ns:Print("Restart the game client once (a /reload is not enough) to get the strategy board's 3D view.")
+    end
+    local show = page() ~= nil and (room ~= nil or why == "map")
+    win.mode2d:SetShown(show)
+    win.mode3d:SetShown(show)
+    if not show then return end
+    local on = cv:Is3D()
+    win.mode3d:SetEnabled(room ~= nil)
+    win.mode3d:SetKind(on and "chosen" or "secondary")
+    win.mode2d:SetKind(on and "secondary" or "chosen")
+    local r = room or other
+    if room then
+        win.mode3d.tip = "This page in " .. r.name .. ", the room as the game draws it, with the boss and its adds. "
+            .. "Everything on the map is there; draw and move things in the room too."
+    else
+        local mapName = r.map
+        for _, m in ipairs(ns.Data and ns.Data.RaidMaps or {}) do
+            if m.file == r.map then mapName = m.name end
+        end
+        win.mode3d.tip = "3D shows " .. r.name .. ", which is on the " .. mapName .. " map. This page uses another map."
+    end
+    win.mode2d.tip = "This page on the map."
+    win.mode3d:ClearAllPoints()
+    if win.mapBtn:IsShown() then
+        win.mode3d:SetPoint("RIGHT", win.mapBtn, "LEFT", -8, 0)
+    else
+        local w = win.mapLabel:IsShown() and (win.mapLabel:GetStringWidth() or 0) or 0
+        win.mode3d:SetPoint("TOPRIGHT", win.content, "TOPLEFT", MAP_W - w - (w > 0 and 10 or 0), -33)
+    end
+end
+
 function Board:RefreshTools()
     if not win then return end
     local tools = win.tools
@@ -1824,6 +1899,7 @@ function Board:Refresh()
     win.mapBtn:SetShown(mode == "edit")
     win.canvas:SetPage(p)
     win.canvas:UpdateHint()
+    self:RefreshMode()
     win.blocks:Render()
 
     win.tools:SetShown(mode == "edit")

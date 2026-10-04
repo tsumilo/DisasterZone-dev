@@ -73,29 +73,12 @@ end
 
 function T:GetEncounter(id) return encs[id] end
 
--- A floor's height function from a generated height grid (ns.TrainerFloors: one letter per square yard, rows
--- south to north): smooth between the yard centres, the edge value outside.
+-- A floor's height function from a generated height grid (ns.RoomFloors, alias ns.TrainerFloors: one letter per
+-- square yard, rows south to north), the shared one in Render3D/Rooms.lua; nil without a grid (the floor files come
+-- with Render3D, so without it there is none).
 function T.HeightFn(grid)
-    if not grid then return nil end
-    local index = {}                                    -- character -> its place in the alphabet
-    local alphabet = grid.alphabet or "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    for k = 1, #alphabet do index[alphabet:byte(k)] = k - 1 end
-    local function cell(i, j)                           -- nil where there is no floor
-        i = max(1, min(grid.w, i))
-        j = max(1, min(grid.h, j))
-        local n = index[grid.rows[j]:byte(i)]
-        return n and (n * grid.step + grid.base)
-    end
-    return function(x, y)
-        local fx, fy = x - 0.5, y - 0.5
-        local i, j = floor(fx), floor(fy)
-        local tx, ty = fx - i, fy - j
-        local a, b = cell(i + 1, j + 1), cell(i + 2, j + 1)
-        local c, d = cell(i + 1, j + 2), cell(i + 2, j + 2)
-        local any = a or b or c or d or 0               -- at a hole's edge: the floor next to it
-        a, b, c, d = a or any, b or any, c or any, d or any
-        return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
-    end
+    local R3 = ns.Render3D
+    return grid and R3 and R3.HeightFn and R3.HeightFn(grid) or nil
 end
 
 -- The ground the client walks on, from a floor file's walk table: Blizzard's collision faces no steeper than 50

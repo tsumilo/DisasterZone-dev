@@ -1,7 +1,9 @@
-if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Room.lua", ...) then return end -- DisasterZone Games/Trainer/Room.lua
--- ns.TrainerRoom: the Raid Trainer's room renderer (v2, dev/docs/trainer_renderer_v2/spec.md).
+if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Room.lua", ...) then return end -- DisasterZone Render3D/Room.lua
+-- ns.Render3D.NewRoom(): a room renderer (v2, dev/docs/trainer_renderer_v2/spec.md), shared by the Raid Trainer and
+-- the strategy board's 3D view. Every call makes an independent renderer (its own frames, textures and camera), so
+-- each view draws its own room; Render3D/View.lua sets one up with its ModelScene.
 --
--- The room is Blizzard's own mesh (ns.TrainerFloors.<key>.mesh). Every piece of it is a 1 x 1 Texture whose four
+-- The room is Blizzard's own mesh (ns.RoomFloors.<key>.mesh). Every piece of it is a 1 x 1 Texture whose four
 -- corners are bent onto where the camera sees them (SetVertexOffset). A texture has no depth test, so the room is
 -- painted back to front in the exact order of the mesh's BSP tree: at every node the side the camera is not on,
 -- then the node's own triangles, then the camera's side. That order is right from any viewpoint.
@@ -34,10 +36,17 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Room.lua", ...) then
 --  * Room.CameraDistance keeps UI.lua's camera out of the walls (spec 5.2) and inside the room's footprint (through a
 --    doorway the rays find nothing, and beyond it the room has nothing); a time controller moves the leaf target
 --    to keep a moving frame near 4 ms in game (spec 5.11). The texture morph (spec 5.6) is there but ships off.
+--  * Room.Project / Room.ScreenRay turn room points into screen points and back with the camera BeginFrame measured
+--    (the strategy board picks the floor under the mouse with them).
 local _, ns = ...
 
-local Room = { opts = {} }
-ns.TrainerRoom = Room
+ns.Render3D = ns.Render3D or {}
+
+-- (The whole renderer is the body of NewRoom, written at the file's own indent: its locals are a function's locals,
+-- with the same limits a main chunk has - 200 locals, 60 upvalues per function.)
+function ns.Render3D.NewRoom(label)
+
+local Room = { opts = {}, label = label or "3D view" }
 
 local floor, sqrt, abs, max = math.floor, math.sqrt, math.abs, math.max
 local pairs, pcall, type = pairs, pcall, type
@@ -333,7 +342,7 @@ end
 -- nodes gets a frame holding that whole subtree. Every other node (a "top node") joins the frame of a child whose
 -- whole subtree is a frame with room left (the smaller one), or gets a frame of its own. Either way a frame's
 -- nodes are contiguous in the drawing order: a subtree, or a subtree and its parent. -> false when there are more
--- than ROOM_FRAMES_MAX.
+-- than fit under the scene: the view's levels room0 .. scene - 1 (Room.Attach; ROOM_FRAMES_MAX before it).
 local function BuildClusters(order, size)
     for k = 1, nNodes do frameOf[k] = nil end
     local froot, fcount, fjoined = {}, {}, {}
@@ -377,7 +386,8 @@ local function BuildClusters(order, size)
         end
     end
     nFrames = nf
-    return nf <= ROOM_FRAMES_MAX
+    local most = (LVt and LVt.scene and LVt.room0) and (LVt.scene - LVt.room0) or ROOM_FRAMES_MAX
+    return nf <= most
 end
 
 -- The floors (normal at most ~45 degrees from up) by 4 yd squares, for FloorZ (a moving ring asks 21 times a frame).
@@ -514,8 +524,8 @@ local function SelfCheck(s, m)
     if stats.selfBad >= CTL.selfRun and not stats.selfWarned then
         stats.selfWarned = true
         if ns.Print then
-            ns:Print(("Raid Trainer: the room may not line up with the characters (projection check off by %d px). "
-                .. "Please report this."):format(floor(e + 0.5)))
+            ns:Print(("%s: the room may not line up with the characters (projection check off by %d px). "
+                .. "Please report this."):format(Room.label, floor(e + 0.5)))
         end
     end
 end
@@ -2899,7 +2909,7 @@ function Room.SetMesh(mesh)
     meshOk = (view ~= nil and type(mesh) == "table") and Prepare(mesh) or false
     if not meshOk and mesh and not warned then
         warned = true
-        if ns.Print then ns:Print("Raid Trainer: this room has too many parts for the 3D renderer") end
+        if ns.Print then ns:Print("%s: this room has too many parts for the 3D renderer", Room.label) end
     end
     return meshOk
 end
@@ -2918,6 +2928,30 @@ function Room.SetOpts(t)
         ComputePools()
     end
     dirty = true
+end
+
+-- A room point (arena coordinates) on the screen with the camera BeginFrame measured last: x, y in UI units from the
+-- scene's bottom-left corner, and the depth; nil when it lies behind the camera or nothing was measured yet.
+function Room.Project(x, y, z)
+    if not haveBasis then return nil end
+    local dx, dy, dz = x - ex, y - ey, z - ez
+    local d = dx * Fx + dy * Fy + dz * Fz
+    if d <= 1e-6 then return nil end
+    local r, u = dx * Rx + dy * Ry, dx * Ux + dy * Uy + dz * Uz
+    return cx + (r * exx + u * eyx) / d, cy + (r * exy + u * eyy) / d, d
+end
+
+-- The ray from the eye through a screen point (UI units from the scene's bottom-left corner), in arena coordinates:
+-- eye x, y, z and the direction (one unit of depth per unit of length along the view: dx, dy, dz); nil before the
+-- camera was measured.
+function Room.ScreenRay(sx, sy)
+    if not haveBasis then return nil end
+    local det = exx * eyy - eyx * exy
+    if det == 0 then return nil end
+    local qx, qy = sx - cx, sy - cy
+    local a = (qx * eyy - eyx * qy) / det                   -- right per unit of depth
+    local b = (exx * qy - qx * exy) / det                   -- up per unit of depth
+    return ex, ey, ez, Fx + a * Rx + b * Ux, Fy + a * Ry + b * Uy, Fz + b * Uz
 end
 
 ---------------------------------------------------------------------------
@@ -2941,7 +2975,7 @@ function Room.ShownTextures() return nLive end
 function Room.ShownLines()
     local n = 0
     for f = 1, nFrames do
-        local ls = roomFrames[f].lines
+        local ls = roomFrames[f] and roomFrames[f].lines or {}     -- (a room that could not be prepared has none)
         for i = 1, #ls do if ls[i].shown then n = n + 1 end end
     end
     if lineFrame then
@@ -3002,4 +3036,7 @@ function Room.Marks()
         out[i] = { MKS[o + 1], MKS[o + 2], MKS[o + 3], MKS[o + 4], MKS[o + 5], MKS[o + 6], MKS[o + 7] }
     end
     return out
+end
+
+return Room
 end

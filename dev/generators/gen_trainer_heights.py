@@ -12,7 +12,7 @@ The map's one WMO sits at the origin unturned, which makes world = (-local x, -l
 square round her with x east and y north (the game's world x is north, world y is west):
 arena x = local y - 923.27 + 105, arena y = -local x - 29.83 + 105, height = local z - 42.9 (her platform).
 
-Writes Games/Trainer/Encounters/<Name>Floor.lua:
+Writes Render3D/Rooms/<Name>Floor.lua (shared by the Raid Trainer and the strategy board's 3D view):
   rows: one character per square yard, south to north, west to east: height = index in `alphabet` * step + base;
         a space = no floor there (not walkable);
   mesh: the room's own triangles (floor, steps, walls up to mesh_top yd; ceilings and what faces down left out),
@@ -47,7 +47,7 @@ import wmo_tools as W
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(HERE, "..", "art", "wmo")
-OUT_DIR = os.path.join(HERE, "..", "..", "addon", "DisasterZone", "Games", "Trainer", "Encounters")
+OUT_DIR = os.path.join(HERE, "..", "..", "addon", "DisasterZone", "Render3D", "Rooms")
 MAX_EDGE = 9.0
 FORMAT_VERSION = 2
 BLEND_NAMES = {0: "DISABLE", 1: "ALPHAKEY"}       # MOMT blend mode -> SetBlendMode; anything else is "BLEND"
@@ -66,6 +66,21 @@ ROOMS = {
         title="Teron Gorefiend's hall as Blizzard built it (blacktemple.wmo, group \"Gorefiend's Vigil\")",
         w=60, h=58, z_main=371.75, base=-3.0, step=0.25, top=2.0, alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ",
         blank=False, floor_top=4.5, floor_bottom=-50, mesh_top=12.0,
+        to_arena=lambda x, y: (-615.0 - x, -759.0 - y),
+        to_local=lambda ax, ay: (-615.0 - ax, -759.0 - ay),
+    ),
+    # The whole of Gorefiend's Vigil for the strategy board: the hall (group 31) and the alcove Teron stands in, down
+    # the steps at its north end, which Blizzard put in group 17 ("test", 18,056 faces under much of the temple), cut
+    # to the box round the alcove. Teron's spawn (AzerothCore creature 148358: world 606.641, 402.173, 187.173) is
+    # local (-644.7, -844.2) through the temple's placement (ADT blacktemple_31_30 MODF, unique id 1075600), and group
+    # 17's floor there is at 365.52 (6.2 yd under the hall's): arena (29.9, 85.2). Same arena as "teron".
+    "teronVigil": dict(
+        out="TeronVigilFloor.lua", key="teronVigil", root=108713,
+        groups=[(108745, None), (108731, (-676.0, -867.0, 357.0, -613.0, -816.0, 395.0))],
+        title="Gorefiend's Vigil as Blizzard built it (blacktemple.wmo, the hall of group 31 and the alcove of "
+              "group 17)",
+        w=60, h=108, z_main=371.75, base=-8.0, step=0.25, top=4.0, alphabet=ALPHA62,
+        blank=True, floor_top=4.5, floor_bottom=-14, mesh_top=12.0,
         to_arena=lambda x, y: (-615.0 - x, -759.0 - y),
         to_local=lambda ax, ay: (-615.0 - ax, -759.0 - ay),
     ),
@@ -490,7 +505,7 @@ def round_trip(path, key, textures, blends, verts, tris, nodes, pair, walk_verts
     ns = lua.eval("{}")
     run = lua.eval("function(src, ns) local f = assert(loadstring(src)) f('DisasterZone', ns) end")
     run(src, ns)
-    m = ns.TrainerFloors[key].mesh
+    m = ns.RoomFloors[key].mesh
     lens = lua.eval("function(m) return m.version, #m.textures, #m.blend, #m.verts, #m.tris, #m.nodes, #m.pair end")
     got = tuple(lens(m))
     want = (FORMAT_VERSION, len(textures), len(blends), 6 * len(verts), 4 * len(tris), 8 * len(nodes), len(pair))
@@ -506,7 +521,7 @@ def round_trip(path, key, textures, blends, verts, tris, nodes, pair, walk_verts
     for i in range(len(blends)):
         if m.blend[i + 1] != blends[i] or m.textures[i + 1] != textures[i]:
             raise SystemExit("%s: texture %d differs after loading" % (path, i + 1))
-    wk = ns.TrainerFloors[key].walk
+    wk = ns.RoomFloors[key].walk
     if (len(wk.verts), len(wk.tris), len(wk.slide)) != (3 * len(walk_verts), 3 * len(walk_tris), 3 * len(slide_tris)):
         raise SystemExit("%s: the walk table does not load back as written" % path)
     for i in range(len(walk_verts)):
@@ -588,10 +603,65 @@ def build_walk(group, room):
     return verts, tris, slide
 
 
+def clip_poly(poly, axis, value, keep_below):
+    """Sutherland-Hodgman: the part of a polygon (vertices: x, y, z, u, v, b, g, r, a) on one side of an axis plane."""
+    out = []
+    n = len(poly)
+    for k in range(n):
+        p, q = poly[k], poly[(k + 1) % n]
+        dp = (value - p[axis]) if keep_below else (p[axis] - value)
+        dq = (value - q[axis]) if keep_below else (q[axis] - value)
+        if dp >= 0:
+            out.append(p)
+        if (dp >= 0) != (dq >= 0):
+            t = dp / (dp - dq)
+            out.append(tuple(p[i] + (q[i] - p[i]) * t for i in range(len(p))))
+    return out
+
+
+def load_groups(room):
+    """The room's group file(s) as one group (verts, tris, flags, mats, uvs, colors). A room may list several groups
+    of the same root as (file ID, crop box or None): a box (local x0, y0, z0, x1, y1, z1) keeps only the parts of that
+    group's faces inside it, cut exactly at its sides."""
+    specs = room.get("groups") or [(room["group"], None)]
+    if len(specs) == 1 and specs[0][1] is None:
+        return W.read_group(fetch(specs[0][0]))
+    out = {"verts": [], "tris": [], "flags": [], "mats": [], "uvs": [], "colors": []}
+    for fdid, box in specs:
+        g = W.read_group(fetch(fdid))
+        cols = g.get("colors")
+        for t, f, m in zip(g["tris"], g["flags"], g["mats"]):
+            poly = []
+            for i in t:
+                x, y, z = g["verts"][i]
+                u, v = g["uvs"][i]
+                c = cols[i] if cols else (127, 127, 127, 255)
+                poly.append((x, y, z, u, v) + tuple(float(q) for q in c))
+            if box:
+                for axis in range(3):
+                    poly = clip_poly(poly, axis, box[axis], False)
+                    if len(poly) >= 3:
+                        poly = clip_poly(poly, axis, box[axis + 3], True)
+                    if len(poly) < 3:
+                        break
+                if len(poly) < 3:
+                    continue
+            base = len(out["verts"])
+            for p in poly:
+                out["verts"].append(p[:3])
+                out["uvs"].append(p[3:5])
+                out["colors"].append(tuple(int(round(q)) for q in p[5:9]))
+            for k in range(1, len(poly) - 1):
+                out["tris"].append((base, base + k, base + k + 1))
+                out["flags"].append(f)
+                out["mats"].append(m)
+    return out
+
+
 def generate(name):
     room = ROOMS[name]
     root = W.read_root(fetch(room["root"]))
-    group = W.read_group(fetch(room["group"]))
+    group = load_groups(room)
     floor = Floor(group, room)
     alphabet, base, step = room["alphabet"], room["base"], room["step"]
     rows, lo, hi, holes = [], 99, -99, 0
@@ -612,10 +682,10 @@ def generate(name):
     pair, node_of = pair_tris(verts, mesh_tris, nodes)
     worst = self_check(name, textures, blends, verts, mesh_tris, nodes, pair, node_of)
     out = os.path.join(OUT_DIR, room["out"])
-    rel = "Games/Trainer/Encounters/" + room["out"]
+    rel = "Render3D/Rooms/" + room["out"]
     lines = [
         'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel),
-        "-- %s, in the trainer's" % room["title"],
+        "-- %s, in its room's" % room["title"],
         "-- coordinates (yards, x east, y north, height 0 = the main floor).",
         "-- rows: the floor's height, one character per square yard, south to north, west to east:",
         "--       height = (its place in alphabet, from 0) * step + base; a space = no floor there.",
@@ -634,8 +704,9 @@ def generate(name):
         "--       verts = x, y, z; tris, slide = vertex a, b, c (1-based) for each face.",
         "-- AUTO-GENERATED by gen_trainer_heights.py; do not edit by hand.",
         "local _, ns = ...",
-        "ns.TrainerFloors = ns.TrainerFloors or {}",
-        'ns.TrainerFloors.%s = { w = %d, h = %d, base = %s, step = %s, alphabet = "%s", rows = {'
+        "ns.RoomFloors = ns.RoomFloors or {}",
+        "ns.TrainerFloors = ns.RoomFloors",
+        'ns.RoomFloors.%s = { w = %d, h = %d, base = %s, step = %s, alphabet = "%s", rows = {'
         % (room["key"], room["w"], room["h"], base, step, alphabet),
     ]
     lines += ['  "%s",' % r for r in rows]

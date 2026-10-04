@@ -69,6 +69,14 @@ Core\Roll.lua
 Core\Loon.lua
 Core\Demo.lua
 
+# 3D rooms (Blizzard's own meshes, drawn in the UI): shared by the strategy board and the Raid Trainer
+Render3D\Room.lua
+Render3D\View.lua
+Render3D\Rooms\TeronGorefiendFloor.lua
+Render3D\Rooms\TeronVigilFloor.lua
+Render3D\Rooms\LadyVashjFloor.lua
+Render3D\Rooms.lua
+
 # UI
 UI\Widgets.lua
 UI\Tour.lua
@@ -86,6 +94,7 @@ UI\RaidPlanUI.lua
 UI\GuestBook.lua
 UI\RaidLeadersUI.lua
 UI\StrategyMap.lua
+UI\StrategyMap3D.lua
 UI\StrategyBlocks.lua
 UI\StrategyBoard.lua
 UI\StrategiesView.lua
@@ -109,11 +118,8 @@ Games\Bingo\Bingo.lua
 Games\Bingo\Detect.lua
 Games\Bingo\UI.lua
 Games\Trainer\Engine.lua
-Games\Trainer\Encounters\TeronGorefiendFloor.lua
 Games\Trainer\Encounters\TeronGorefiend.lua
-Games\Trainer\Encounters\LadyVashjFloor.lua
 Games\Trainer\Encounters\LadyVashj.lua
-Games\Trainer\Room.lua
 Games\Trainer\UI.lua
 Games\Azeromon\Data.lua
 Games\Azeromon\Atlas.lua

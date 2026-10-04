@@ -18,6 +18,7 @@ local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 
 local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\"
 local TEX_DISC, TEX_RING, TEX_ARROW = MEDIA .. "disc", MEDIA .. "ring", MEDIA .. "arrow"
+MapUI.TEX = { disc = TEX_DISC, ring = TEX_RING, arrow = TEX_ARROW }
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
@@ -427,6 +428,11 @@ function MapUI:DefaultMap(bossRef)
     return list[1] and list[1].id or 0
 end
 
+-- The shipped map (Data/RaidMaps.lua entry: id, file, raid, name) a page's map id stands for, or nil.
+function MapUI:ShippedMap(mapID)
+    return mapID and SHIPPED_BY_ID[mapID] or nil
+end
+
 function MapUI:MapName(mapID)
     if not mapID or mapID == 0 then return "Blank" end
     if SHIPPED_BY_ID[mapID] then return SHIPPED_BY_ID[mapID].name end
@@ -495,6 +501,7 @@ local function fontPath()
     local f = GameFontNormal and GameFontNormal.GetFont and GameFontNormal:GetFont()
     return f or "Fonts\\FRIZQT__.TTF"
 end
+MapUI.FontPath = fontPath
 
 -- The clipboard (copies of drawings), shared by every board.
 MapUI.clipboard = nil
@@ -597,6 +604,17 @@ function Canvas:SetPage(page)
         self.drag = nil
     end
     self.page = page
+    -- a page that cannot be drawn in the room shows the map; back in the room on one that can (if that was the view)
+    if self.v3 then
+        local can = self:Room3D()
+        if self:Is3D() and not can then
+            self.v3:Close(false)
+            self:Show2D()
+            return
+        elseif self.want3d and can and not self:Is3D() then
+            self:Enter3D(false)
+        end
+    end
     self:Render()
 end
 
@@ -617,7 +635,25 @@ function Canvas:Changed()
     self:Render()
 end
 
+-- What the mouse does in the room, per tool (the 3D view shows it).
+local TIPS3D = {
+    select = "Click to select, drag to move it on the floor. Right-drag turns the view, the wheel zooms, middle-drag "
+        .. "moves it; double-click the floor to look there.",
+    pan = "Drag to move the view. Right-drag turns it, the wheel zooms.",
+    circle = "Drag on the floor from the centre outwards to draw a circular zone.",
+    rect = "Drag on the floor from one corner to the other to draw a zone.",
+    arrow = "Drag on the floor from start to end.",
+    line = "Drag on the floor from start to end.",
+    icon = "Click the floor where the icon goes, then pick it.",
+    text = "Click the floor where the text goes, then type it.",
+}
+local READ3D = "Drag to move the view, right-drag to turn it, the wheel zooms; double-click the floor to look there."
+
 function Canvas:UpdateHint()
+    if self:Is3D() then
+        self.v3:SetHint(self:Editable() and TIPS3D[self.tool] or READ3D)
+        return
+    end
     if not self:Editable() then
         self.hint:SetText("")
         return
@@ -627,8 +663,87 @@ function Canvas:UpdateHint()
     end
 end
 
--- Cursor position in board units (clamped to the board unless raw).
+---------------------------------------------------------------------------
+-- 3D (UI/StrategyMap3D.lua): the same page in the boss' own room. The drawings stay in board units; in the room the
+-- canvas asks the view for the floor under the mouse and for what is under it, and lets it draw.
+---------------------------------------------------------------------------
+
+function Canvas:Is3D() return self.v3 ~= nil and self.v3:IsOn() end
+
+-- The room this page can be drawn in, or nil and why not ("restart" / "none" / "map": StrategyMap3D:RoomFor).
+function Canvas:Room3D()
+    local M3 = ns.StrategyMap3D
+    if not (M3 and M3.RoomFor) then return nil, "restart" end
+    return M3:RoomFor(self.opts.bossRef and self.opts.bossRef(), self.page)
+end
+
+-- The page in the room (on) or on the map; animate: the map tilts up into the room, or back down to it.
+-- -> true when that is the view (or it is on its way there).
+function Canvas:Set3D(on, animate)
+    if on then
+        if self:Is3D() then return true end
+        if not self:Room3D() then return false end
+        self.v3 = self.v3 or ns.StrategyMap3D:Create(self)
+        if not self.v3 then return false end
+        self.want3d = true
+        return self:Enter3D(animate)
+    end
+    self.want3d = false
+    if not self:Is3D() then return true end
+    if animate then
+        self.v3:Close(true, function() self:Show2D() end)
+    else
+        self.v3:Close(false)
+        self:Show2D()
+    end
+    return true
+end
+
+function Canvas:Enter3D(animate)
+    self.drag = nil
+    self.marq:Hide()
+    if not self.v3:Open(animate) then return false end
+    self.art:Hide()
+    self.layer:Hide()
+    self.top:Hide()
+    self.hint:SetText("")
+    self:SetHover(nil)
+    self:UpdateHint()
+    if self.opts.on3D then self.opts.on3D(true) end
+    return true
+end
+
+function Canvas:Show2D()
+    self.drag = nil
+    self.art:Show()
+    self.layer:Show()
+    self.top:Show()
+    self:Render()
+    if self.opts.on3D then self.opts.on3D(false) end
+end
+
+-- Stands at a drawing in the room, at eye height (going 3D first).
+function Canvas:ViewFrom3D(e)
+    if not self:Is3D() and not self:Set3D(true, false) then return end
+    self.v3:ViewFrom(e)
+end
+
+-- Cursor position in board units (clamped to the board unless raw). In the room: the floor under the mouse (where
+-- it meets none, over the horizon, the last floor point it met).
 function Canvas:Cursor(raw)
+    if self:Is3D() then
+        local bx, by = self.v3:CursorBoard()
+        if bx then
+            self.last3D = self.last3D or {}
+            self.last3D[1], self.last3D[2] = bx, by
+        elseif self.last3D then
+            bx, by = self.last3D[1], self.last3D[2]
+        else
+            bx, by = BW / 2, BH / 2
+        end
+        if raw then return bx, by end
+        return max(0, min(BW, floor(bx + 0.5))), max(0, min(BH, floor(by + 0.5)))
+    end
     local x, y = GetCursorPosition()
     local es = self.frame:GetEffectiveScale() or 1
     x, y = x / es, y / es
@@ -920,6 +1035,7 @@ end
 local function textBox(e)
     return e.w or TEXT_WRAP_W * textSize(e) / TEXT_SIZES[2]
 end
+MapUI.TextSize, MapUI.TextBox = textSize, textBox
 
 function Canvas:RenderText(e)
     local o = acquire(self, "text", function(L)
@@ -1030,6 +1146,7 @@ local function hits(e, x, y, tol)
     local l, t, r, b = bounds(e)
     return x >= l - tol / 2 and x <= r + tol / 2 and y >= t - tol / 2 and y <= b + tol / 2
 end
+MapUI.Hits = hits
 
 -- An element and the rest of its group (page order).
 function Canvas:GroupOf(e)
@@ -1082,6 +1199,13 @@ function Canvas:RenderLinks()
 end
 
 function Canvas:Render()
+    if self:Is3D() then
+        -- the room draws itself on its next frame (the small map in its corner too)
+        self.v3:Invalidate()
+        self.v3.insetStale = true
+        self:UpdateHint()
+        return
+    end
     self:RenderBackground()
     for _, pool in pairs(self.pools) do
         for i = 1, #pool do
@@ -1120,8 +1244,9 @@ end
 -- Selection
 ---------------------------------------------------------------------------
 
--- The topmost element at a board point (small elements before zones).
+-- The topmost element at a board point (small elements before zones). In the room: what is under the mouse.
 function Canvas:HitTest(x, y)
+    if self:Is3D() then return self.v3:HitTest() end
     local list = self.page and self.page.e or {}
     local tol = 6 / self.s
     for i = #list, 1, -1 do
@@ -1215,7 +1340,9 @@ function Canvas:SetTextAlign(j)
 end
 
 -- A handle of the only selected element under the point: "end1" | "end2" | "size" | "isize" | "xsize" | nil.
+-- (In the room only a zone's size and an arrow's ends have one; icons and texts size from their menu.)
 function Canvas:HandleAt(x, y)
+    if self:Is3D() then return self.v3:HandleAt() end
     local e = self.selected
     if not e or self:SelectionCount() ~= 1 then return nil end
     local tol = 8 / self.s
@@ -1275,6 +1402,17 @@ function Canvas:SelBox(l, t, r, b, grouped, color, name)
 end
 
 function Canvas:RenderSelection()
+    if self:Is3D() then
+        if self.page then
+            -- (drop selected elements that are gone, as below)
+            local present = {}
+            for _, e in ipairs(self.page.e) do present[e] = true end
+            for e in pairs(self.sel) do if not present[e] then self.sel[e] = nil end end
+            if self.selected and not self.sel[self.selected] then self.selected = self:Selection()[1] end
+        end
+        self.v3:Invalidate()
+        return
+    end
     local pool = self.pools.box
     for i = 1, #pool do
         pool[i].hide()
@@ -1625,6 +1763,7 @@ function Canvas:OnKey(key)
     if key == "RIGHT" then return self:Nudge(step, 0) end
     if key == "UP" then return self:Nudge(0, -step) end
     if key == "DOWN" then return self:Nudge(0, step) end
+    if self:Is3D() and not ctrl and self.v3:OnKey(key) then return true end
     if not ctrl then return false end
     if key == "A" then self:SelectAll(); return true end
     if key == "C" then return self:Copy() end
@@ -1682,21 +1821,39 @@ local function editLabel(self, e)
     end, e.t == "x", e.t == "x" and S().MAX_TEXT or nil)
 end
 
-function Canvas:OnMouseDown(button)
-    if not self.page then return end
-    local x, y = self:Cursor()
-    if not self:Editable() then return end
-    if button == "RightButton" then
-        local e = self:HitTest(x, y)
-        if e then
-            if not self.sel[e] then self:Select(e) end
-            self.selected = e
-            self:ElementMenu(e)
-        else
-            self:BackgroundMenu(x, y)
+-- A right click (in the room: a right button released without turning the view): the drawing's menu or the map's;
+-- reading, only "View from here" on a drawing whose page has a room.
+function Canvas:RightClick(x, y)
+    local e = self:HitTest(x, y)
+    if not self:Editable() then
+        if e and self:Room3D() then
+            local names = { z = "Zone", a = "Arrow", i = "Icon", x = "Text", s = "Name marker" }
+            ns.UI:ContextMenu(self.frame, function(root)
+                root:CreateTitle((e.l and (e.l:gsub("\n", " "))) or names[e.t] or "Drawing")
+                root:CreateButton(self:Is3D() and "View from here" or "View from here in 3D", function() self:ViewFrom3D(e) end)
+            end)
         end
         return
     end
+    if e then
+        if not self.sel[e] then self:Select(e) end
+        self.selected = e
+        self:ElementMenu(e)
+    else
+        self:BackgroundMenu(x, y)
+    end
+end
+
+function Canvas:OnMouseDown(button)
+    if not self.page then return end
+    -- in the room the camera takes the right and middle buttons (and the left one to move the view)
+    if self:Is3D() and self.v3:MouseDown(button, self:Editable(), self.tool) then return end
+    local x, y = self:Cursor()
+    if button == "RightButton" then
+        self:RightClick(x, y)
+        return
+    end
+    if not self:Editable() then return end
     if button ~= "LeftButton" then return end
     local tool = self.tool
     if tool == "select" then
@@ -1810,12 +1967,16 @@ function Canvas:OnDragUpdate()
             if m.t == "a" then m.x2, m.y2 = o[3] + dx, o[4] + dy end
         end
     elseif d.mode == "marquee" then
+        d.ex, d.ey = x, y
+        if self:Is3D() then
+            self:Render()                                -- (the room draws the box on the floor)
+            return
+        end
         local l, t = min(x, d.sx), min(y, d.sy)
         self.marq:ClearAllPoints()
         self.marq:SetPoint("TOPLEFT", self.layer, "TOPLEFT", l * self.s, -t * self.s)
         self.marq:SetSize(max(1, abs(x - d.sx) * self.s), max(1, abs(y - d.sy) * self.s))
         self.marq:Show()
-        d.ex, d.ey = x, y
         return
     elseif d.mode == "end1" then
         e.x, e.y = x, y
@@ -1865,6 +2026,16 @@ function Canvas:OnDragUpdate()
 end
 
 function Canvas:OnMouseUp(button)
+    if self:Is3D() then
+        local r = self.v3:MouseUp(button)
+        if r == "click" then
+            local x, y = self:Cursor()
+            self:RightClick(x, y)
+            return
+        elseif r then
+            return
+        end
+    end
     local d = self.drag
     if not d then return end
     self.drag = nil
@@ -1887,6 +2058,7 @@ function Canvas:OnMouseUp(button)
         return
     elseif d.mode == "marquee" then
         self.marq:Hide()
+        if self:Is3D() then self:Render() end
         if not d.ex then return end
         local l, t, r, b = min(d.sx, d.ex), min(d.sy, d.ey), max(d.sx, d.ex), max(d.sy, d.ey)
         for _, x in ipairs(self.page.e) do
@@ -1922,6 +2094,10 @@ function Canvas:OnMouseUp(button)
 end
 
 function Canvas:OnWheel(delta)
+    if self:Is3D() then
+        self.v3:Wheel(delta)                             -- (the camera, for everyone: the page stays as it is)
+        return
+    end
     if not self:Editable() or not self.page or not ArtLayer(self.page.m) then return end
     local z = self.page.vz or 100
     z = max(100, min(1000, floor(z * (delta > 0 and 1.15 or 1 / 1.15) + 0.5)))
@@ -2047,6 +2223,10 @@ function Canvas:ElementMenu(e)
         root:CreateButton("Duplicate  |cff808080Ctrl+D|r", function() self:Duplicate() end)
         root:CreateButton("Bring to front", function() self:Reorder(list, true) end)
         root:CreateButton("Send to back", function() self:Reorder(list, false) end)
+        if not many and self:Room3D() then
+            -- stand there in the room (an arrow: at its start, looking along it)
+            root:CreateButton(self:Is3D() and "View from here" or "View from here in 3D", function() self:ViewFrom3D(e) end)
+        end
         root:CreateButton("|cffff6060Delete|r  |cff808080Del|r", function() self:RemoveList(list) end)
     end)
 end
@@ -2072,6 +2252,17 @@ function Canvas:BackgroundMenu(x, y)
             root:CreateButton("Paste here  |cff808080Ctrl+V|r", function() self:Paste(x, y) end)
         end
         root:CreateButton("Select all  |cff808080Ctrl+A|r", function() self:SelectAll() end)
+        if self:Is3D() then
+            -- the camera: look at this spot, or stand on it
+            local v3 = self.v3
+            root:CreateDivider()
+            root:CreateButton("Look here", function()
+                local rx, ry = ns.Render3D.BoardToRoom(v3.room, page, x, y)
+                v3:LookAt(rx, ry, true)
+            end)
+            root:CreateButton("View from here", function() v3:ViewFrom({ t = "spot", x = x, y = y }) end)
+            return                                       -- (the map is picked on the 2D map, where it shows)
+        end
         root:CreateDivider()
         local map = root:CreateButton("Map: " .. MapUI:MapName(page.m))
         local bossRef = self.opts.bossRef and self.opts.bossRef()

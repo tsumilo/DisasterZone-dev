@@ -4,12 +4,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/UI.lua", ...) then r
 -- strafe, right mouse button to look, both buttons to run, wheel to zoom), name plates, an action bar, a minimap
 -- and the briefing / result overlay. Without ModelScene actors the minimap fills the view and is the game.
 -- The panel takes the keyboard only while a try is running: Esc pauses and gives it back (same as Azeromon),
--- combat pauses too.
+-- combat pauses too. The 3D view itself (scene, camera, room renderer) is the shared one in Render3D/.
 local addonName, ns = ...
 
 local UI = ns:NewModule("TrainerUI")
 local T = ns.Trainer
-local Room = ns.TrainerRoom      -- the room renderer (Room.lua); nil until the client is restarted once (spec 7.4)
+-- the shared 3D view (Render3D/View.lua) and the trainer's own room renderer (Render3D/Room.lua); both nil until the
+-- client is restarted once after an update that added them (a /reload does not read new files; spec 7.4)
+local R3 = ns.Render3D
+local Room = R3 and R3.NewRoom and R3.NewRoom("Raid Trainer")
+ns.TrainerRoom = Room
 
 local floor, min, max = math.floor, math.min, math.max
 local sin, cos, pi = math.sin, math.cos, math.pi
@@ -38,7 +42,8 @@ local LV = { floor = 1, lines = 2, room0 = 3, scene = 210, copy0 = 211, plates =
 local NEAR_CLIP = 0.5            -- the scene's near clip; the room is cut at the same distance
 
 local root, view, arena, overlay, focusOverlay
-local scene, floorFrame, plateFrame      -- the 3D view (scene == nil: flat fallback)
+local v3                                 -- the shared 3D view (Render3D/View.lua) in `view`
+local scene, floorFrame, plateFrame      -- its ModelScene and frames (scene == nil: the minimap is the game)
 local roomOn = false                     -- drawing the room with Room.lua this frame (marks go in its order)
 local cam = { dist = 14, pitch = 0.3, pitchSign = 1, mirror = 1, x = 0, y = 0, z = 0, fx = 1, fy = 0, fz = 0 }
 local actors = {}            -- unit id -> actor
@@ -202,16 +207,9 @@ local function AttachZ(u, fx)
     return (fx.z or 0) * UnitScale(u)
 end
 
--- Scene point -> UI units from the scene's bottom-left corner; nil when it is behind the camera.
+-- Sim point -> UI units from the scene's bottom-left corner; nil when it is behind the camera.
 local function Project(x, y, z)
-    y = SY(y)
-    local depth = (x - cam.x) * cam.fx + (y - cam.y) * cam.fy + (z - cam.z) * cam.fz
-    if depth < 0.5 then return nil end
-    local ok, px, py = pcall(scene.Project3DPointTo2D, scene, x, y, z)
-    if not ok or type(px) ~= "number" or type(py) ~= "number" then return nil end
-    local es = scene:GetEffectiveScale() or 1
-    if es <= 0 then es = 1 end
-    return px / es, py / es
+    return v3:Project(x, y, z)
 end
 
 -- A critically damped spring, stepped implicitly (stable for any dt): position x, speed v towards target.
@@ -262,43 +260,20 @@ local function PlaceCamera(dt, room)
     local d = cam.cur
     local tx, ty, tz = p.x, SY(p.y), cam.hz
     cam.x, cam.y, cam.z = tx - cam.fx * d, ty - cam.fy * d, tz - cam.fz * d
-    pcall(scene.SetCameraPosition, scene, cam.x, cam.y, cam.z)
-    pcall(scene.SetCameraOrientationByYawPitchRoll, scene, yaw, cam.pitchSign * pitch, 0)
+    v3:ApplyCamera(yaw, pitch)
 end
 
--- Which way the client counts pitch and which side it draws +y on is not documented: ask the projection once.
--- The point we look at must land mid-height, and a point to the character's left must land left of it.
+-- Which way the client counts pitch and which side it draws +y on is not documented: the shared view asks the
+-- projection once (Render3D/View.lua). The point we look at is the character's head, a point to its left must land
+-- left of it.
 local function Calibrate()
-    local w, h = scene:GetWidth() or 0, scene:GetHeight() or 0
-    if w <= 0 or h <= 0 then return end
-    cam.calibrated = true
     local p = sim.player
-    PlaceCamera()
     local eye = FeetZ(p) + 2.2
-    local _, cy = Project(p.x, p.y, eye)
-    if not cy or math.abs(cy - h / 2) > h * 0.25 then
-        cam.pitchSign = -cam.pitchSign
-        PlaceCamera()
-        local _, cy2 = Project(p.x, p.y, eye)
-        if not cy2 or math.abs(cy2 - h / 2) > h * 0.25 then cam.pitchSign = -cam.pitchSign end   -- no better: keep
-    end
-    PlaceCamera()
-    local cx = Project(p.x, p.y, eye)
-    local lx = Project(p.x - sin(p.facing) * 2, p.y + cos(p.facing) * 2, eye)
-    if cx and lx and lx > cx + 1 then cam.mirror = -cam.mirror end
-    PlaceCamera()
+    cam.calibrated = v3:Calibrate(PlaceCamera, p.x, p.y, eye, p.x - sin(p.facing) * 2, p.y + cos(p.facing) * 2, eye)
 end
 
 local function NewActor()
-    local ok, a = pcall(scene.CreateActor, scene, nil, "ModelSceneActorTemplate")
-    if not ok or not a then ok, a = pcall(scene.CreateActor, scene) end
-    if not ok or not a then return nil end
-    pcall(a.SetUseCenterForOrigin, a, false, false, false)
-    if a.SetOnModelLoadedCallback then
-        -- an animation does not survive a model change: set it again once the model is there
-        pcall(a.SetOnModelLoadedCallback, a, function(self) pcall(self.SetAnimation, self, self.anim or ANIM_STAND) end)
-    end
-    return a
+    return v3:NewActor()
 end
 
 local function ActorFor(u)
@@ -973,10 +948,7 @@ local function PickAt(x, y)
 end
 
 local function CursorInScene()
-    local x, y = GetCursorPosition()
-    local es = scene:GetEffectiveScale() or 1
-    if es <= 0 then es = 1 end
-    return x / es - (scene:GetLeft() or 0), y / es - (scene:GetBottom() or 0)
+    return v3:Cursor()
 end
 
 -- One frame of the 3D view (spec 5.1). elapsed: seconds since the last frame (nil: a jump, e.g. the result).
@@ -1043,35 +1015,15 @@ local function MouseLook()
     if dy ~= 0 then cam.pitch = max(0.05, min(1.3, cam.pitch - dy * 0.004)) end      -- drag up: look up
 end
 
+-- The 3D view (Render3D/View.lua: the scene, its floor and plate frames, the room renderer under the scene). Without
+-- it (the client not restarted after the update that brought it, or no ModelScene) the minimap is the game.
 local function CreateScene(parent)
-    if not parent.CreateLine then return end
-    local ok, sc = pcall(CreateFrame, "ModelScene", nil, parent)
-    if not ok or not sc or not sc.CreateActor or not sc.Project3DPointTo2D then return end
-    scene = sc
-    local probe = NewActor()
-    if not probe or not probe.SetModelByCreatureDisplayID then
-        scene = nil
-        sc:Hide()
-        return
-    end
-    actorPool[1] = probe
-    local base = parent:GetFrameLevel()
-    floorFrame = CreateFrame("Frame", nil, parent)
-    floorFrame:SetAllPoints()
-    floorFrame:SetFrameLevel(base + LV.floor)
-    sc:SetAllPoints()
-    sc:SetFrameLevel(base + LV.scene)                          -- over the room's frames (Room.lua makes those)
-    plateFrame = CreateFrame("Frame", nil, parent)
-    plateFrame:SetAllPoints()
-    plateFrame:SetFrameLevel(base + LV.plates)
-    if Room then Room.Attach(parent, sc, LV, NEAR_CLIP) end
-    pcall(sc.SetCameraFieldOfView, sc, 1.1)
-    pcall(sc.SetCameraNearClip, sc, NEAR_CLIP)
-    pcall(sc.SetCameraFarClip, sc, 500)
-    pcall(sc.SetLightVisible, sc, true)
-    pcall(sc.SetLightDirection, sc, -0.4, 0.3, -0.8)
-    pcall(sc.SetLightAmbientColor, sc, 0.7, 0.7, 0.75)
-    pcall(sc.SetLightDiffuseColor, sc, 0.85, 0.85, 0.85)
+    v3 = R3 and R3.NewView and R3.NewView(parent, { cam = cam, room = Room or false, lv = LV, near = NEAR_CLIP,
+                                                   fov = 1.1, far = 500, anim = ANIM_STAND })
+    if not v3 then return end
+    scene, floorFrame, plateFrame = v3.scene, v3.floorFrame, v3.plateFrame
+    actorPool[1] = v3.probe
+    local sc = scene
     sc:EnableMouse(true)
     sc:EnableMouseWheel(true)
     sc:SetScript("OnMouseDown", function(_, button)
@@ -1838,9 +1790,9 @@ function UI:CreatePanel(parent)
     view:SetClipsChildren(true)
     CreateScene(view)
     if Room and type(Data().render) == "table" then Room.SetOpts(Data().render) end   -- (/dz trainer render)
-    if scene and not Room then
-        -- a new file in the TOC is only read when the client starts: until then the rooms are drawn flat
-        ns:Print("Raid Trainer: restart the game client once to load the new room renderer (a /reload is not enough). Until then the room is drawn flat.")
+    if not (R3 and R3.NewView and Room) then
+        -- a new file in the TOC is only read when the client starts: until then the fight is played on the minimap
+        ns:Print("Raid Trainer: restart the game client once to load the 3D view (a /reload is not enough). Until then the fight is shown on the map only.")
     end
     if view:GetFrameLevel() + LV.overlay > 9990 then
         ns:Print("Raid Trainer: the window sits too high in the frame stack; the 3D view may draw in the wrong order.")
