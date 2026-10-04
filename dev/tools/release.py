@@ -84,8 +84,14 @@ def parse_toc(addon_dir):
     return headers, files, raw
 
 
+def is_room_data(path):
+    """The strategy board's generated 3D rooms (Render3D/Rooms/<Raid>_<Boss>.lua, dev/generators/gen_rooms.py):
+    megabytes of packed text, too much for an in-game update; a new or changed room ships with a full release."""
+    return path.startswith("Render3D/Rooms/") and "_" in path.rsplit("/", 1)[-1]
+
+
 def is_patchable(path):
-    return path.endswith(".lua") and not path.startswith("Libs/") and path not in PROTECTED
+    return path.endswith(".lua") and not path.startswith("Libs/") and path not in PROTECTED and not is_room_data(path)
 
 
 def patchable_files(addon_dir):
@@ -334,6 +340,9 @@ def diff_against_base(base, addon_dir):
         if rel.endswith(".lua"):
             if rel.startswith("Libs/") or rel in PROTECTED:
                 errors.append("%s changed" % rel)
+            elif is_room_data(rel):
+                if rel in now_set and rel in base_set:
+                    errors.append("%s changed (a 3D room: ship a full release)" % rel)
             elif rel not in now_set and rel not in base_set:
                 notes.append("ignored (not in the TOC): %s" % rel)
         elif rel.endswith(DOC_EXT):

@@ -54,7 +54,7 @@ def _pristine():
     if _PRISTINE is None:
         dst = os.path.join(TMP, "_pristine")
         for rel in release.all_files(SOURCE):
-            if not rel.endswith((".lua", ".toc")):
+            if not rel.endswith((".lua", ".toc")) or release.is_room_data(rel):     # (the 3D rooms: ~12 MB a copy)
                 continue
             target = os.path.join(dst, rel)
             os.makedirs(os.path.dirname(target), exist_ok=True)

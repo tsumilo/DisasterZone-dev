@@ -136,7 +136,7 @@ def close_all(cl):
     cl.eval("""
       for _, name in ipairs({ 'DisasterZoneGuests', 'DisasterZoneRaidInvites', 'DisasterZoneRaidStart',
                               'DisasterZoneRaidLeaders', 'DisasterZoneRaidEditor', 'DisasterZoneAwardDialog',
-                              'DisasterZoneRaidLeader' }) do
+                              'DisasterZoneRaidLeader', 'DisasterZoneShareWindow' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -309,6 +309,14 @@ STATES = [
     ("Members - member card", opened("members", "ns.MembersUI:ShowMember('Vaenyria-Thunderstrike')")),
     ("Members - recipes", opened("members", "ns.MembersUI:SetMode('recipes')")),
     ("Games", opened("games")),
+    # the Share window (UI/ShareWindow.lua), dropped from the icon that opened it
+    ("Share - raid", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
+                                     "ns.ShareWindow:Open('raid:' .. (...), "
+                                     "ns.RaidsUI:GetPanel().upcoming.detail.shareBtn)")),
+    ("Share - member", opened("members", "ns.MembersUI:ShowMember('Vaenyria-Thunderstrike'); "
+                                         "ns.ShareWindow:Open('member:Vaenyria', ns.MembersUI:GetPanel().right.share)")),
+    ("Share - window alone", opened("raids", "ns.MainFrame:Close(); ns.ShareWindow:Open('raid:' .. (...)); "
+                                             "ns.ShareWindow:GetWindow().msg:SetText('Sign-ups close Wednesday!')")),
     ("Settings", opened("settings")),
     ("Changelog", opened("changelog")),
     ("Demo - Council - roster", demo("ns.CouncilUI:SetView('roster')", "council")),

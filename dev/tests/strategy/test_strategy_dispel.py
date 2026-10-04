@@ -240,7 +240,7 @@ def the_editor():
     bob.eval("ns.StrategyBoard:NewStrategy('ZulAman:Halazzi', 'dispels')")
     # the template: a Magic table for our raid, priests / paladins / warlocks fit
     bob.eval("%s:AddMenu(UIParent)" % B)
-    pick_in_menu(bob, "Dispel / decurse  who removes a curse, magic, poison, enrage")
+    pick_in_menu(bob, "Dispel / decurse  curses, magic, poison, enrage")
     K1 = "local p = ns.StrategyBoard:GetState().strat.p[1]; local k = p.k[#p.k]; "
     k = bob.eval_py(K1 + "return { tr = k.tr, dy = k.dy, en = k.en, f = k.c[1].f, ds = k.ds }")
     assert k == {"tr": "dsp", "dy": "m", "f": "PRIEST,PALADIN,WARLOCK"}, k

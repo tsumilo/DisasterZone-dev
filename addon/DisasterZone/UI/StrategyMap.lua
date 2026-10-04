@@ -604,14 +604,15 @@ function Canvas:SetPage(page)
         self.drag = nil
     end
     self.page = page
-    -- a page that cannot be drawn in the room shows the map; back in the room on one that can (if that was the view)
+    -- a page that cannot be drawn in the room shows the map; back in the room on one that can (if that was the view);
+    -- another boss' room (a new strategy opened while in 3D) replaces the one shown
     if self.v3 then
         local can = self:Room3D()
         if self:Is3D() and not can then
             self.v3:Close(false)
             self:Show2D()
             return
-        elseif self.want3d and can and not self:Is3D() then
+        elseif can and (self.want3d and not self:Is3D() or self:Is3D() and can ~= self.v3.room) then
             self:Enter3D(false)
         end
     end
@@ -729,10 +730,16 @@ function Canvas:ViewFrom3D(e)
 end
 
 -- Cursor position in board units (clamped to the board unless raw). In the room: the floor under the mouse (where
--- it meets none, over the horizon, the last floor point it met).
+-- it meets none, over the horizon, the last floor point it met); while a drawing is moved, floors over 3 yd above
+-- the one it was picked up from are looked through (it slides past pillars and railings instead of catching on them).
 function Canvas:Cursor(raw)
     if self:Is3D() then
-        local bx, by = self.v3:CursorBoard()
+        local d, fromZ = self.drag, nil
+        if d and (d.mode == "move" or d.mode == "pending") then
+            d.fromZ = d.fromZ or self.v3:GroundAtBoard(d.sx, d.sy)
+            fromZ = d.fromZ
+        end
+        local bx, by = self.v3:CursorBoard(fromZ)
         if bx then
             self.last3D = self.last3D or {}
             self.last3D[1], self.last3D[2] = bx, by

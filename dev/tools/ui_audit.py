@@ -876,6 +876,8 @@ def group(findings):
 
 
 def main():
+    import harness
+    harness.LOAD_ROOMS = True                  # (the Teron 3D view needs its room)
     from ui_audit_states import STATES, build_world
     args = sys.argv[1:]
     only = None

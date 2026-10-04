@@ -42,6 +42,24 @@ def read_root(path):
     return out
 
 
+LIQUID_UNIT = 533.3333 / 128      # yd: a liquid tile (an ADT chunk's eighth)
+
+
+def read_mliq(data, off, size):
+    """A group's liquid (MLIQ): a grid of tiles LIQUID_UNIT apart from a corner (WMO local x, y), a height per vertex,
+    per tile its flags (low 4 bits 15: no liquid there; else the legacy kind: 0 water, 1 ocean, 2 magma, 3 slime).
+    -> { xverts, yverts, xtiles, ytiles, corner = (x, y, z), heights = [per vertex, row by row], tiles = [flags] }"""
+    xv, yv, xt, yt = struct.unpack_from("<4i", data, off)
+    corner = struct.unpack_from("<3f", data, off + 16)
+    nv, nt = xv * yv, xt * yt
+    if nv <= 0 or nt <= 0 or 30 + nv * 8 + nt > size:
+        return None
+    heights = [struct.unpack_from("<f", data, off + 30 + i * 8 + 4)[0] for i in range(nv)]
+    tiles = list(data[off + 30 + nv * 8:off + 30 + nv * 8 + nt])
+    return {"xverts": xv, "yverts": yv, "xtiles": xt, "ytiles": yt, "corner": corner, "heights": heights,
+            "tiles": tiles}
+
+
 def read_group(path):
     """-> { verts: [(x, y, z)], tris: [(a, b, c)], flags: [per-triangle MOPY flags] }"""
     data = open(path, "rb").read()
@@ -52,6 +70,7 @@ def read_group(path):
         # MOGP header is 68 bytes, then sub-chunks
         out["group_flags"] = struct.unpack_from("<I", data, off + 8)[0]
         out["bbox"] = struct.unpack_from("<6f", data, off + 12)
+        out["group_liquid"] = struct.unpack_from("<I", data, off + 52)[0]
         for sub, soff, ssize in chunks(data, off + 68, off + size):
             if sub == "MOPY":
                 for i in range(ssize // 2):
@@ -69,4 +88,6 @@ def read_group(path):
                 out["uvs"] = [v[i:i + 2] for i in range(0, len(v), 2)]
             elif sub == "MOCV" and "colors" not in out:
                 out["colors"] = [struct.unpack_from("<4B", data, soff + i * 4) for i in range(ssize // 4)]   # b, g, r, a
+            elif sub == "MLIQ" and ssize >= 30:
+                out["liquid"] = read_mliq(data, soff, ssize)
     return out

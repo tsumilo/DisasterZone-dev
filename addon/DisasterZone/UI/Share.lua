@@ -95,7 +95,7 @@ end
 
 -- "Thu 9 Oct 20:00" in this client's local time.
 local function When(t)
-    return ("%s %d %s %s"):format(date("%a", t), tonumber(date("%d", t)), date("%b", t), date("%H:%M", t))
+    return ("%s %d %s %s"):format(date("%a", t), tonumber((date("%d", t))), date("%b", t), date("%H:%M", t))
 end
 
 local function TexIcon(path)
@@ -196,7 +196,7 @@ KINDS.board = function(arg)
     local occ, boss = arg:match("^([^:]+):(.+)$")
     local v = occ and RP() and RP():GetRaid(occ)
     if not v then return { icon = TexIcon(ICON.board) } end
-    local day = ("%s %d %s"):format(date("%a", v.t), tonumber(date("%d", v.t)), date("%b", v.t))
+    local day = ("%s %d %s"):format(date("%a", v.t), tonumber((date("%d", v.t))), date("%b", v.t))
     return { label = BossName(boss) .. " · " .. RP():GetRaidName(v) .. " " .. day, icon = TexIcon(ICON.board),
              known = true }
 end
@@ -295,8 +295,12 @@ end
 -- Every [DisasterZone: ...] token of a message as a link (nil when there is none).
 function Share:Rewrite(msg)
     if type(msg) ~= "string" or not msg:find("[DisasterZone: ", 1, true) then return nil end
-    local n
-    msg, n = msg:gsub(TOKEN, function(label, ref) return Share:ChatLink(ref, label) end)
+    local n = 0
+    msg = msg:gsub(TOKEN, function(label, ref)
+        local link = Share:ChatLink(ref, label)
+        if link then n = n + 1 end
+        return link
+    end)
     return n > 0 and msg or nil
 end
 

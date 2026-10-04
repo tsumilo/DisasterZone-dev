@@ -449,7 +449,7 @@ def buttons(cl, name):
         "local want = ...; local out = {}; "
         "ns.RaidsUI:GetPanel().strategies.detail.list.box:ForEachFrame(function(row) "
         "  local d = row.__cdlData; if d and d.s and d.s.n == want then "
-        "    for _, k in ipairs({ 'open', 'edit', 'copy', 'share', 'del' }) do "
+        "    for _, k in ipairs({ 'open', 'edit', 'copy', 'share', 'collab', 'del' }) do "
         "      if row[k]:IsShown() then out[#out + 1] = k end end end end); return out", name)
 
 
@@ -468,16 +468,16 @@ def the_library_filters_and_shows_what_a_member_may_do():
     assert tree_count(sam, "All raids") == 3 and tree_count(sam, "Black Temple") == 2
     assert tree_count(sam, "Karazhan") == 1 and tree_count(sam, "The Illidari Council") == 2
     assert sam.eval("return %s.strategies.detail.newBtn:IsShown()" % P) is True
-    # mine: everything; shared with me: edit; someone else's: open and copy
-    assert buttons(sam, "Horse") == ["open", "edit", "copy", "share", "del"]
-    assert buttons(sam, "Prog kite") == ["open", "edit", "copy"]
-    assert buttons(sam, "25 farm") == ["open", "copy"]
+    # mine: everything; shared with me: edit; someone else's: open and copy; a link in chat for everyone
+    assert buttons(sam, "Horse") == ["open", "edit", "copy", "share", "collab", "del"]
+    assert buttons(sam, "Prog kite") == ["open", "edit", "copy", "share"]
+    assert buttons(sam, "25 farm") == ["open", "copy", "share"]
     assert sam.find_text("33ff99shared with you", True, True)
-    # the guild council also edits and deletes (Share stays the owner's; no "shared with you")
+    # the guild council also edits and deletes (Collaborators stays the owner's; no "shared with you")
     open_library(w, bob)
-    assert buttons(bob, "Horse") == ["open", "edit", "copy", "del"]
+    assert buttons(bob, "Horse") == ["open", "edit", "copy", "share", "del"]
     assert not bob.find_text("33ff99shared with you", True, True)
-    assert buttons(bob, "25 farm") == ["open", "edit", "copy", "share", "del"]
+    assert buttons(bob, "25 farm") == ["open", "edit", "copy", "share", "collab", "del"]
     # raid and encounter (the tree), member, free search
     sam.eval("ns.StrategiesUI:SelectRaid('BlackTemple')")
     assert row_names(sam) == ["25 farm", "Prog kite"]

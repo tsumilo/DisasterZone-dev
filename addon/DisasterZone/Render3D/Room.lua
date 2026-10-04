@@ -89,6 +89,18 @@ local MIDK = 262144               -- 2^18: midpoint cache key = lo * MIDK + hi (
 local TMP0 = MIDK + 16            -- temporary points (near-plane clip points): TMP0 + 1 .., reset every redraw
 local LAYERS = { "BACKGROUND", "BORDER", "ARTWORK", "OVERLAY" }
 local BLENDS = { [0] = "DISABLE", [1] = "ALPHAKEY", [2] = "BLEND" }
+-- Texture files drawn in a colour (r, g, b, alpha) instead of their own: the rooms' water is WHITE8X8 (130871) in a
+-- see-through blue (dev/generators/gen_rooms.py WATER_TEX).
+local TINT = { [130871] = { 0.24, 0.55, 0.9, 0.55 } }
+local function Paint(tx, L)
+    local t = TINT[floor(tx.pool / 4)]
+    if t then
+        tx:SetVertexColor(L * t[1], L * t[2], L * t[3], t[4])
+    else
+        tx:SetVertexColor(L, L, L, 1)
+    end
+    tx.light = L
+end
 local VUL, VLL = UPPER_LEFT_VERTEX or 1, LOWER_LEFT_VERTEX or 2
 local VUR, VLR = UPPER_RIGHT_VERTEX or 3, LOWER_RIGHT_VERTEX or 4
 
@@ -733,7 +745,7 @@ local function Acquire(f, pool)
         if was ~= pool then
             if floor(was / 4) ~= floor(pool / 4) then tx:SetTexture(floor(pool / 4), "REPEAT", "REPEAT") end
             if was % 4 ~= pool % 4 then tx:SetBlendMode(BLENDS[pool % 4]) end
-            tx.pool = pool
+            tx.pool, tx.light = pool, nil                -- (the colour goes with the file: Paint again)
         end
         return tx
     end
@@ -767,10 +779,7 @@ local function Emit(q, tx)
         liveList[nLive] = tx
         tx.key, tx.uvOk = key, false
         local L = QL[p]
-        if tx.light ~= L then
-            tx:SetVertexColor(L, L, L)
-            tx.light = L
-        end
+        if tx.light ~= L then Paint(tx, L) end
     end
     tx.gen = gen
     -- (a key always has the same corners, so without the morph their texture coordinates never change; a piece cut
@@ -2461,14 +2470,11 @@ local function InstallCopies()
             if tx.SetTexelSnappingBias then tx:SetTexelSnappingBias(0) end
             tx:SetTexture(floor(pool / 4), "REPEAT", "REPEAT")
             tx:SetBlendMode(BLENDS[pool % 4])
-            tx.shown = true
+            tx.shown, tx.pool = true, pool
             list[n] = tx
         end
         local L = IL[it]
-        if tx.light ~= L then
-            tx:SetVertexColor(L, L, L)
-            tx.light = L
-        end
+        if tx.light ~= L then Paint(tx, L) end
         if tx.pos ~= p then
             tx:SetDrawLayer(LAYERS[floor(p / 16) + 1], p % 16 - 8)
             tx.pos = p

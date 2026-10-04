@@ -8,7 +8,7 @@ local addonName, ns = ...
 
 local Win = ns:NewModule("ShareWindow")
 
-local W, H = 340, 376
+local W, H = 340, 340
 local ROW_H = 20
 local LIST_ROWS = 5
 local GAP = 3
@@ -262,15 +262,15 @@ local function Create()
     return w
 end
 
--- Places the window under the share icon that opened it (right edges lined up), else at the cursor.
+-- Places the window under the share icon that opened it (right edges lined up; it moves with that window until
+-- dragged), else at the cursor.
 local function Place(anchor)
     win:ClearAllPoints()
-    local ui = UIParent:GetEffectiveScale()
-    if anchor and anchor.GetRight and anchor:GetRight() and anchor:GetBottom() then
-        local s = anchor:GetEffectiveScale() / ui
-        win:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", anchor:GetRight() * s + 8, anchor:GetBottom() * s - 2)
+    if anchor and anchor.GetObjectType then
+        win:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 8, -2)
         return
     end
+    local ui = UIParent:GetEffectiveScale()
     local x, y = GetCursorPosition()
     if x and y and (x > 0 or y > 0) then
         win:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / ui - 20, y / ui + 20)

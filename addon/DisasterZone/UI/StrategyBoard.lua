@@ -20,10 +20,12 @@ local Board = ns:NewModule("StrategyBoard")
 local floor, max, min = math.floor, math.max, math.min
 local tinsert, tremove, tsort, tconcat = table.insert, table.remove, table.sort, table.concat
 
-local WIN_W, WIN_H = 1260, 720
--- The map is as wide as the strip under it lets it be (Board:Layout): the tools while editing, the raid's players while
--- assigning, your jobs while reading. MAP_W is where it starts.
-local MAP_W_MAX, MAP_W_MIN = 810, 640
+local WIN_W, WIN_H = 1340, 720
+local CONTENT_H = WIN_H - 32  -- (UI:CreateWindow's content: 26 under the top, 6 over the bottom)
+-- The map is as wide as the strip under it lets it be (Board:Layout): the tools while editing or reading (one size, so
+-- Edit does not move it; your jobs while reading when they need more), the raid's players while assigning. MAP_W is
+-- where it starts.
+local MAP_W_MAX, MAP_W_MIN = 900, 640
 local MAP_W = MAP_W_MAX
 local TOP_H = 56
 local TOOLS_H = 62          -- the tools under the map: two rows
@@ -443,6 +445,11 @@ local function createWindow()
     f.tourBtn = UI():CreateSleekButton(c, "Tutorial", 70, 24, function(self) ns.Tour:Menu(self, "strategy") end)
     tipButton(f.tourBtn, "Tutorial", "A guided tour on a practice board: building a strategy, assigning a raid, "
         .. "reading a plan. Nothing you do there is saved or shared; your unsaved work here stays as a draft.")
+    -- a link for the chat (UI/Share.lua): a raid's board for this boss (with its names), else the strategy
+    f.shareBtn = ns.Share:CreateButton(c, 24, function()
+        if st.occ and st.boss then return ns.Share:BoardRef(st.occ, st.boss) end
+        return st.strat and st.strat.id and ns.Share:StrategyRef(st.strat.id) or nil
+    end, "Share this board")
 
     -- page tabs; right above the map: the map picker (editing) or its name
     f.tabs = {}
@@ -1878,17 +1885,17 @@ function Board:Refresh()
         -- without any strategy offers only "New strategy for this boss", for every builder
         header = { canFill and win.fillBtn, canEditStrat(s) and win.editBtn,
                    st.occ and not st.sandbox and (assigner or s == nil) and win.stratDD, s and win.practiceBtn,
-                   win.tourBtn }
+                   win.tourBtn, s and s.id and not st.sandbox and win.shareBtn }
         -- the edit button is the main action when there is nothing to assign
         win.editBtn:SetKind(canFill and "secondary" or "primary")
     end
     for _, w in ipairs({ win.saveBtn, win.cancelBtn, win.practiceBtn, win.autoMark, win.editBtn, win.fillBtn,
-                         win.stratDD, win.tourBtn }) do
+                         win.stratDD, win.tourBtn, win.shareBtn }) do
         w:Hide()
     end
     local prev
     local used = 2      -- the width the actions take, from the right edge
-    for i = 1, 5 do
+    for i = 1, 6 do
         local w = header[i]
         if w then
             w:ClearAllPoints()
@@ -1967,7 +1974,7 @@ end
 function Board:Layout(mode)
     local cv = win.canvas
     local contentH = win.content:GetHeight() or 0
-    if contentH < 300 then contentH = WIN_H - 50 end
+    if contentH < 300 then contentH = CONTENT_H end       -- (not laid out yet)
     local function need(w)
         if mode == "edit" then return TOOLS_H end
         if mode == "fill" then
@@ -1975,7 +1982,7 @@ function Board:Layout(mode)
             if n == 0 then return 48 end
             return 28 + math.ceil(n / max(1, floor(w / CHIP_W))) * CHIP_H + 4
         end
-        return max(24, (win.view.mine:GetStringHeight() or 14) + 8)
+        return max(TOOLS_H, (win.view.mine:GetStringHeight() or 14) + 8)
     end
     local w = MAP_W_MIN
     for cand = MAP_W_MAX, MAP_W_MIN, -10 do

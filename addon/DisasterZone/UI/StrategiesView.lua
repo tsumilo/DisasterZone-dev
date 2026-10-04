@@ -3,8 +3,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategiesView.lua", ...) then 
 --   Strategies view   - the library, for every guild member to explore and build in. A filter bar (free search, a
 --                       guild member) over the raids and their bosses on the left (All raids / a raid / one boss) and
 --                       the matching strategies on the right: Open for everyone, Edit for the owner, the
---                       collaborators, the GM and the guild council, Share (the collaborators) for the owner, Copy
---                       for everyone (the copy is yours), Delete for the owner, the GM and the guild council. My
+--                       collaborators, the GM and the guild council, Collaborators for the owner, Share (a link in
+--                       chat) and Copy for everyone (the copy is yours), Delete for the owner, the GM and the guild
+--                       council. My
 --                       unsaved drafts sit on top (continue / discard; saving one makes it a strategy).
 --   Assignments tab   - of a planned raid (Upcoming): its bosses, the strategy each uses and how many slots are
 --                       filled, with Open (everyone) and Assign. Who leads the raid (its own leader; a raid without
@@ -186,10 +187,16 @@ local function initStratRow(row, d)
                 if not ok then ns:Print("Could not delete it: %s", tostring(err)) end
             end)
         end)
-        row.share = iconButton(row, 18, "Share", "Pick the guild members who build it with you.", function(self)
+        row.collab = iconButton(row, 19, "Collaborators", "Pick the guild members who build it with you.",
+            function(self)
+                local s = self:GetParent().__cdlData
+                if s and s.s then View:OpenShare(s.s.id) end
+            end)
+        -- a link to the board for the chat (UI/Share.lua)
+        row.share = ns.Share:CreateButton(row, ROW_BTN, function(self)
             local s = self:GetParent().__cdlData
-            if s and s.s then View:OpenShare(s.s.id) end
-        end)
+            return s and s.s and ns.Share:StrategyRef(s.s.id) or nil
+        end, "Share this strategy")
         row.copy = iconButton(row, 17, "Copy", "Makes a copy that is yours.", function(self)
             local s = self:GetParent().__cdlData
             s = s and s.s
@@ -242,11 +249,12 @@ local function initStratRow(row, d)
         row.l2:SetText(("by %s%s · %s%s%s"):format(owner == me and "you" or shortName(owner),
             co > 0 and (" +" .. co) or "", shortDate(s.rev), pagesText(#s.p),
             S():IsCollaborator(s.id) and " · |cff33ff99shared with you|r" or "") .. editingText(s.id))
-        show = { del = S():CanDeleteStrategy(s.id), share = owner == me, copy = S():CanBuild(), edit = mine, open = true }
+        show = { del = S():CanDeleteStrategy(s.id), collab = owner == me, share = true, copy = S():CanBuild(),
+                 edit = mine, open = true }
     end
     -- the buttons this member has, right to left; the texts end where they start
     local prev, used = nil, 6
-    for _, k in ipairs({ "del", "share", "copy", "edit", "open" }) do
+    for _, k in ipairs({ "del", "collab", "share", "copy", "edit", "open" }) do
         local b = row[k]
         b:SetShown(show[k] and true or false)
         if show[k] then

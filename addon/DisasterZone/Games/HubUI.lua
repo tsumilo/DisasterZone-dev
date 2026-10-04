@@ -61,6 +61,11 @@ local function RefreshList()
             row.highlight:Hide()
             row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
             row:SetScript("OnClick", function(self) ShowGame(self.id) end)
+            -- a link to the game for the chat ("come play"; UI/Share.lua)
+            row.share = ns.Share:CreateButton(row, 20, function(self)
+                return ns.Share:GameRef(self:GetParent().id)
+            end, "Share this game")
+            row.share:SetPoint("RIGHT", -4, 0)
             rows[i] = row
         end
         row.id = def.id
@@ -115,6 +120,8 @@ end
 function GamesUI:Select(id)
     if root then ShowGame(id) else selected = id end
 end
+
+function GamesUI:GetSelected() return selected end
 
 function GamesUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then

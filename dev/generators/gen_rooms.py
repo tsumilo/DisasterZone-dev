@@ -3,14 +3,19 @@
 For every encounter (Data/StarterStrategies.lua) the room is what the starter's page shows on its floor map: the board's
 1000 x 666 units at the page's pan and zoom, as a box in world coordinates (the floor map's world rectangle: retail
 UiMapAssignment). The boss stands where the server spawns it (AzerothCore creature.sql, the creature nearest the
-starter's portrait) or, for a creature the server summons, at the portrait on the floor of that map floor.
+starter's portrait) or, for a creature the server summons, at the portrait, on the floor at the height of another
+creature of that map floor (else the middle height of the creatures spawned within 90 yd: the Lurker's pool).
 
 Geometry in the box:
   * every WMO placed in it (a global WMO of the map's WDT, or the MODF placements of the ADT tiles under the box),
     every group whose box meets it, each face cut exactly at the box's sides and at a height band round the boss'
     floor (ROOM_DOWN below, ROOM_UP above: walls end there, a cut-away model; ceilings and faces turned down go);
-  * on maps with terrain the ADT height maps (MCVT; holes left out), textured with the game's own minimap tiles.
-A room over MAX_TRIS faces shrinks round the boss until it fits (the renderer's frame budget).
+  * on maps with terrain the ADT height maps (MCVT; holes left out), textured with the game's own minimap tiles,
+    kept TERRAIN_BAND yd over and under the boss (hills have no ceilings).
+A room over MAX_TRIS faces or MAX_NODES BSP nodes shrinks round the page's middle (the boss kept 15 yd inside) until it
+fits (the renderer's frame budget); as small as rooms get, its walls get lower, then the finest carving goes.
+The height grid (where drawings stand) is the highest floor up to FLOOR_UP yd over the boss', the ground's at any
+height; the first view looks at the middle of the floor within 10 yd of the boss' height.
 
 World <-> WMO local through the placement: wx = C - (pos.z + z'), wy = C - (pos.x + x'), wz = pos.y + local z, with
 (x', z') the local (x, -y) turned by rot.y - 90 degrees; C = 17066.67 for ADT placements and 0 for a WDT's global WMO
@@ -21,7 +26,8 @@ The fit to the shipped floor map is exact (both are axis-aligned): room x = ax *
 
 Writes Render3D/Rooms/<Raid>_<Boss>.lua (data format 3: the version 2 tables of gen_trainer_heights.py as text,
 deflated and printable-encoded for LibDeflate; Render3D/Rooms.lua unpacks a room when its 3D view opens) and
-Render3D/Rooms/Index.lua (per boss: its room, the map, the fit, the first view, the boss' spot).
+Render3D/Rooms/Index.lua (per boss: its room, the map, the fit, the first view, the boss' spot), and lists the rooms
+in DisasterZone.toc (the lines between Render3D\\View.lua and Render3D\\Rooms.lua).
 Blizzard's files are cached in dev/art/rooms (git-ignored).
 
 Run: luaenv\\Scripts\\python.exe generators\\gen_rooms.py [Raid:Boss ...] [--jobs N] [--index-only]
@@ -55,7 +61,12 @@ MAX_NODES = 2990                # BSP nodes at most (the 3D view's frames hold a
 MAX_EDGE = 40.0                 # yd: longer faces are halved (the renderer subdivides on screen; this only keeps
                                 # texture coordinates from growing huge)
 MIN_HALF = 30.0                 # yd: a shrinking room keeps at least this round the boss
-ROOM_UP, ROOM_DOWN = 14.0, 30.0 # yd over / under the boss' floor the room keeps
+ROOM_UP, ROOM_DOWN = 14.0, 30.0  # yd over / under the boss' floor the room keeps
+FLOOR_UP = 9.0                  # yd: the height grid's floors at most this over the boss' (Teron's hall: 6.2)
+TERRAIN, TERRAIN_BAND = -1, 60.0  # the flag of a ground face; yd over and under the boss it is kept
+LIQUID = -2                     # the flag of a liquid's face
+WATER_TEX = 130871              # Interface/Buttons/WHITE8X8, tinted by the renderer (Render3D/Room.lua TINT)
+LIQUID_TEX = {0: (WATER_TEX, 2), 1: (WATER_TEX, 2), 2: (219795, 0), 3: (219991, 0)}   # (+ lava.1.blp, slime.1.blp)
 TILE = 533.3333333              # an ADT tile
 ADT_C = 17066.6666667           # 32 tiles
 
@@ -315,6 +326,65 @@ def wmo_faces(pl, box, zlo, zhi):
                     light = max(0.25, min(1.0, (0.3 * rr + 0.59 * gg + 0.11 * bb) / 127.0))
                 pts.append((wx, wy, wz, u, v, light))
             out.append(((mats[mat]["texture"], mats[mat]["blend"]), pts, fl))
+        if gr.get("liquid"):
+            out += liquid_faces(pl, gr["liquid"])
+    return out
+
+
+def liquid_faces(pl, liq):
+    """A WMO group's liquid as flat faces (LIQUID): runs of tiles of one kind at one height merged into rectangles.
+    Water and ocean: WATER_TEX (a white texture the renderer tints, Render3D/Room.lua TINT); magma and slime: the
+    game's own textures."""
+    xt, yt, xv = liq["xtiles"], liq["ytiles"], liq["xverts"]
+    hs, tiles = liq["heights"], liq["tiles"]
+    cx, cy, _ = liq["corner"]
+    unit = W.LIQUID_UNIT
+    cell = {}
+    for j in range(yt):
+        for i in range(xt):
+            t = tiles[j * xt + i]
+            if t & 0x0F == 0x0F:
+                continue
+            kind = t & 3                             # (SSC's water groups say 15: "see the tiles")
+            c = [hs[j * xv + i], hs[j * xv + i + 1], hs[(j + 1) * xv + i + 1], hs[(j + 1) * xv + i]]
+            flat = max(c) - min(c) < 0.05
+            cell[(i, j)] = (kind, round(sum(c) / 4, 2) if flat else None, c)
+    out, done = [], set()
+
+    def face(kind, quad):
+        tex, blend = LIQUID_TEX[kind]
+        pts = []
+        for lx, ly, lz in quad:
+            wx, wy, wz = pl.to_world(lx, ly, lz)
+            pts.append((wx, wy, wz, lx / 16.0, ly / 16.0, 1.0))
+        a, b_, c_, d = pts
+        n = G.normal(a[:3], b_[:3], c_[:3])
+        if n and n[2] < 0:
+            a, b_, c_, d = a, d, c_, b_
+        out.append(((tex, blend), [a, b_, c_], LIQUID))
+        out.append(((tex, blend), [a, c_, d], LIQUID))
+    for j in range(yt):
+        for i in range(xt):
+            if (i, j) in done or (i, j) not in cell:
+                continue
+            kind, h, c = cell[(i, j)]
+            if h is None:                            # (a sloped tile: on its own, its corners' heights)
+                done.add((i, j))
+                x0, y0 = cx + i * unit, cy + j * unit
+                face(kind, [(x0, y0, c[0]), (x0 + unit, y0, c[1]), (x0 + unit, y0 + unit, c[2]), (x0, y0 + unit, c[3])])
+                continue
+            i1 = i
+            while (i1 + 1, j) not in done and cell.get((i1 + 1, j), (None, None))[:2] == (kind, h):
+                i1 += 1
+            j1 = j
+            while all((k, j1 + 1) not in done and cell.get((k, j1 + 1), (None, None))[:2] == (kind, h)
+                      for k in range(i, i1 + 1)):
+                j1 += 1
+            for jj in range(j, j1 + 1):
+                for ii in range(i, i1 + 1):
+                    done.add((ii, jj))
+            x0, y0, x1, y1 = cx + i * unit, cy + j * unit, cx + (i1 + 1) * unit, cy + (j1 + 1) * unit
+            face(kind, [(x0, y0, h), (x1, y0, h), (x1, y1, h), (x0, y1, h)])
     return out
 
 
@@ -361,20 +431,24 @@ def terrain_faces(mapdir, box, step):
                     r2, c2 = min(8, r + step), min(8, c + step)
                     a, bq, cq, d = vert(r, c), vert(r, c2), vert(r2, c2), vert(r2, c)
                     # (north-west, north-east, south-east, south-west: counter-clockwise seen from above)
-                    out.append(((mini, 0), [a, d, cq], 0))
-                    out.append(((mini, 0), [a, cq, bq], 0))
+                    out.append(((mini, 0), [a, d, cq], TERRAIN))
+                    out.append(((mini, 0), [a, cq, bq], TERRAIN))
     return out
 
 
-def clip_faces(faces, box, zlo, zhi):
-    """The parts of faces inside a box and a height band (exact cuts), turned-down faces dropped."""
+def clip_faces(faces, box, zlo, zhi, zb):
+    """The parts of faces inside a box and a height band (exact cuts; the ground's: TERRAIN_BAND yd round zb, its
+    hills have no ceilings over them), turned-down faces dropped."""
     x0, y0, x1, y1 = box
-    lo, hi = (x0, y0, zlo), (x1, y1, zhi)
     out = []
     for key, pts, fl in faces:
         n = G.normal(pts[0][:3], pts[1][:3], pts[2][:3])
         if not n or n[2] < -0.3:
             continue
+        if fl == TERRAIN:
+            lo, hi = (x0, y0, zb - TERRAIN_BAND), (x1, y1, zb + TERRAIN_BAND)
+        else:
+            lo, hi = (x0, y0, zlo), (x1, y1, zhi)
         poly = pts
         for axis in range(3):
             if min(p[axis] for p in poly) >= lo[axis] and max(p[axis] for p in poly) <= hi[axis]:
@@ -475,9 +549,17 @@ def plan(ref, starters, portraits, maps):
             if ost["p"][0].get("map") != mapfile or not other.startswith(raid + ":"):
                 continue
             for cr in portraits.get(other) or []:
-                ss = [s for s in spawns().get(cr["id"], []) if s[0] == mapid]
+                ss = [s for s in spawns().get(cr["id"], []) if s[0] == mapid
+                      and (s[1] - wx) ** 2 + (s[2] - wy) ** 2 < 150 ** 2]
                 if ss and ref_z is None:
                     ref_z = min(ss, key=lambda s: (s[1] - wx) ** 2 + (s[2] - wy) ** 2)[3]
+        if ref_z is None:
+            # (else the middle height of every creature spawned within 90 yd: the Lurker's pool has fish and
+            # technicians round it, but a world trigger hangs in the air)
+            zs = sorted(s[3] for ss in spawns().values() for s in ss
+                        if s[0] == mapid and (s[1] - wx) ** 2 + (s[2] - wy) ** 2 < 90 ** 2)
+            if zs:
+                ref_z = zs[len(zs) // 2]
     corners = [board_to_world(page, rect, x, y) for x, y in ((0, 0), (BW, 0), (0, BH), (BW, BH))]
     box = (min(c[0] for c in corners), min(c[1] for c in corners), max(c[0] for c in corners), max(c[1] for c in corners))
     name = (boss["n"] if boss else ref.split(":")[1])
@@ -508,8 +590,29 @@ def gather(p):
         sx, sy = p["portrait"]
         zmin = p["rect"][2]
         fl = floors_at(raw, sx, sy)
-        if p.get("ref_z") is not None and fl:
-            zb = min(fl, key=lambda z: abs(z - p["ref_z"]))
+        # the floor the creatures spawned within 60 yd stand on (one up to 3 yd under them: not a flier, a fish or a
+        # trigger in the air; Kil'jaeden's Anveena floats 42 yd over his terrace), those within 20 yd of the plan's
+        # guess first (Karazhan is a tower: under Nightbane's terrace are the stables), else the plan's guess
+        near = sorted((math.hypot(s[1] - sx, s[2] - sy), s) for ss in spawns().values() for s in ss
+                      if s[0] == p["mapid"] and (s[1] - sx) ** 2 + (s[2] - sy) ** 2 < 60 ** 2)[:40]
+        stand = []
+        for _, s in near:
+            under = [z for z in floors_at(raw, s[1], s[2]) if s[3] - 3 <= z <= s[3] + 1]
+            if under:
+                stand.append(max(under))
+        if p.get("ref_z") is not None and any(abs(z - p["ref_z"]) <= 20 for z in stand):
+            stand = [z for z in stand if abs(z - p["ref_z"]) <= 20]
+        if stand:
+            p = dict(p, ref_z=sorted(stand)[len(stand) // 2])
+        if p.get("ref_z") is not None:
+            # a floor under the spot near that height, else the one with the most area round it (the Lurker
+            # comes up from water: under his spot is the pool's bottom)
+            near = [z for z in fl if abs(z - p["ref_z"]) < 8]
+            if near:
+                zb = min(near, key=lambda z: abs(z - p["ref_z"]))
+            else:
+                zb = main_floor(raw, sx, sy, 60.0, p["ref_z"])
+                zb = p["ref_z"] if zb is None else zb
         elif zmin > -9999 and fl:
             above = [z for z in fl if z >= zmin - 2]
             zb = min(above) if above else max(fl)
@@ -518,16 +621,40 @@ def gather(p):
     return raw, (sx, sy, zb), box
 
 
-def shrink(box, spot):
-    """The box 12% smaller round the boss (not past the old one); None when it is as small as a room gets."""
+def shrink(box, spot, centre):
+    """The box 12% smaller round the room the starter frames (its centre), the boss kept 15 yd inside, not past the
+    old box; None when it is as small as a room gets. (Round the boss alone cut the chess board off: the Echo of
+    Medivh stands at its edge.)"""
     sx, sy, _ = spot
     hx, hy = (box[2] - box[0]) / 2 * 0.88, (box[3] - box[1]) / 2 * 0.88
     if hx < MIN_HALF and hy < MIN_HALF:
         return None
     hx, hy = max(MIN_HALF, hx), max(MIN_HALF, hy)
-    cx = min(max(sx, box[0] + hx), box[2] - hx)
-    cy = min(max(sy, box[1] + hy), box[3] - hy)
+    cx, cy = centre
+    cx = min(max(cx, sx - hx + 15), sx + hx - 15)
+    cy = min(max(cy, sy - hy + 15), sy + hy - 15)
+    cx = min(max(cx, box[0] + hx), box[2] - hx)
+    cy = min(max(cy, box[1] + hy), box[3] - hy)
     return (cx - hx, cy - hy, cx + hx, cy + hy)
+
+
+def main_floor(faces, x, y, r, z0):
+    """The height with the most floor (faces turned up, by area, 1 yd steps) within r yd of a point and 15 yd of
+    a height, or None."""
+    bins = collections.Counter()
+    for _, pts, _ in faces:
+        a, b, c = (q[:3] for q in pts)
+        mx, my = (a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3
+        if (mx - x) ** 2 + (my - y) ** 2 > r * r:
+            continue
+        ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+        vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        area = 0.5 * math.sqrt(nx * nx + ny * ny + nz * nz)
+        z = (a[2] + b[2] + c[2]) / 3
+        if area > 0 and nz / (2 * area) > 0.7 and abs(z - z0) < 15:
+            bins[round(z)] += area
+    return float(bins.most_common(1)[0][0]) if bins else None
 
 
 def build(p):
@@ -535,9 +662,10 @@ def build(p):
     raw, spot, box = gather(p)
     zb = spot[2]
     up, down, fine = ROOM_UP, ROOM_DOWN, 0.0
+    centre = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
     while True:
-        faces = clip_faces(raw, box, zb - down, zb + up)
-        smaller = shrink(box, spot)
+        faces = clip_faces(raw, box, zb - down, zb + up, zb)
+        smaller = shrink(box, spot, centre)
         if len(faces) > MAX_TRIS and smaller:
             box = smaller
             continue
@@ -576,7 +704,7 @@ def make(p, raw, spot, box, faces):
 
     def to_room(wx, wy, wz):
         return y1 - wy, wx - x0, wz - zb
-    tex_index, textures, blends, tris = {}, [], [], []
+    tex_index, textures, blends, tris, ground = {}, [], [], [], set()
     for (fid, blend), pts, fl in faces:
         key = (fid, blend)
         if key not in tex_index:
@@ -584,20 +712,23 @@ def make(p, raw, spot, box, faces):
             textures.append(fid)
             blends.append(G.BLEND_NAMES.get(blend, "BLEND"))
         tris.append((tex_index[key], tuple(to_room(*q[:3]) + tuple(q[3:]) for q in pts)))
-    # the height grid: the highest floor in the band at each cell
+        if fl == TERRAIN:
+            ground.add(len(tris) - 1)
+    # the height grid: the highest floor at each cell up to FLOOR_UP yd over the boss' (else a roof or a balcony),
+    # the ground's at any height
     cell = 1 if max(W_, H_) <= 180 else 2
     grid = collections.defaultdict(list)
-    for _, pts in tris:
+    for k, (_, pts) in enumerate(tris):
         n = G.normal(pts[0][:3], pts[1][:3], pts[2][:3])
         if n and n[2] > 0.6:
             xs, ys = [q[0] for q in pts], [q[1] for q in pts]
             for gx in range(int(min(xs) // 8), int(max(xs) // 8) + 1):
                 for gy in range(int(min(ys) // 8), int(max(ys) // 8) + 1):
-                    grid[(gx, gy)].append(pts)
+                    grid[(gx, gy)].append((pts, k in ground))
 
     def height(x, y):
         best = None
-        for pts in grid.get((int(x // 8), int(y // 8)), ()):
+        for pts, is_ground in grid.get((int(x // 8), int(y // 8)), ()):
             (ax, ay, az), (bx, by, bz), (cx, cy, cz) = (q[:3] for q in pts)
             d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
             if abs(d) < 1e-9:
@@ -607,12 +738,22 @@ def make(p, raw, spot, box, faces):
             w3 = 1 - w1 - w2
             if min(w1, w2, w3) >= -1e-4:
                 z = w1 * az + w2 * bz + w3 * cz
-                if z <= 6.0 and (best is None or z > best):
+                if (z <= FLOOR_UP or is_ground) and (best is None or z > best):
                     best = z
         return best
     cols, rws = (W_ + cell - 1) // cell, (H_ + cell - 1) // cell
     hs = [[height((i + 0.5) * cell, (j + 0.5) * cell) for i in range(cols)] for j in range(rws)]
     vals = [h for row in hs for h in row if h is not None] or [0.0]
+    # where the camera first looks: the middle of the floor near the boss' height (a starter's page can show
+    # much more than the room: Bloodboil's), far enough back to see all of it
+    near = [((i + 0.5) * cell, (j + 0.5) * cell) for j, row in enumerate(hs) for i, h in enumerate(row)
+            if h is not None and abs(h) <= 10]
+    if near:
+        nx0, nx1 = min(q[0] for q in near) - cell, max(q[0] for q in near) + cell
+        ny0, ny1 = min(q[1] for q in near) - cell, max(q[1] for q in near) + cell
+        view = ((nx0 + nx1) / 2, (ny0 + ny1) / 2, max(40.0, max(nx1 - nx0, ny1 - ny0) * 0.85))
+    else:
+        view = (W_ / 2.0, H_ / 2.0, max(W_, H_) * 0.85)
     lo, hi = min(vals), max(vals)
     base = math.floor(lo * 4) / 4
     step = 0.25
@@ -666,7 +807,7 @@ def make(p, raw, spot, box, faces):
     rx, ry, _ = to_room(sx, sy, zb)
     return dict(p, w=W_, h=H_, cell=cell, base=base, step=step, rows=rows, textures=textures, blends=blends,
                 verts=verts, tris=mtris, nodes=out_nodes, pair=pair, fit=fit, roombox=box, zb=zb,
-                bossSpot=(rx, ry), faces=len(faces), raw=len(raw))
+                bossSpot=(rx, ry), faces=len(faces), raw=len(raw), view=view)
 
 
 def payload(r):
@@ -710,9 +851,8 @@ def write_room(r):
 
 
 def index_entry(r):
-    v_dist = max(r["w"], r["h"]) * 0.85
     return dict(ref=r["ref"], floor=r["key"], name=r["name"], map=r["mapfile"], fit=r["fit"],
-                view=(r["w"] / 2.0, r["h"] / 2.0, v_dist), spot=r["bossSpot"], w=r["w"], h=r["h"])
+                view=r["view"], spot=r["bossSpot"], w=r["w"], h=r["h"])
 
 
 def display_scales(portraits):
@@ -758,6 +898,17 @@ def write_index(entries, scales=None):
     path = os.path.join(OUT_DIR, "Index.lua")
     tmp = G.write_temp(path, "\n".join(lines) + "\n")
     G.move_into_place(tmp, path)
+
+
+def write_toc(entries):
+    """The TOC loads every room, then the index, before Render3D\\Rooms.lua (the lines between View.lua and it)."""
+    toc = os.path.join(OUT_DIR, "..", "..", "DisasterZone.toc")
+    lines = open(toc, "rb").read().decode("utf-8").split("\n")
+    i, j = lines.index("Render3D\\View.lua"), lines.index("Render3D\\Rooms.lua")
+    keep = ["Render3D\\Rooms\\TeronGorefiendFloor.lua", "Render3D\\Rooms\\LadyVashjFloor.lua"]   # (the trainer's)
+    rooms = ["Render3D\\Rooms\\%s.lua" % e["floor"] for e in sorted(entries, key=lambda e: e["floor"])]
+    lines[i + 1:j] = keep + rooms + ["Render3D\\Rooms\\Index.lua"]
+    open(toc, "wb").write("\n".join(lines).encode("utf-8"))
 
 
 def run_one(ref):
@@ -810,6 +961,7 @@ def main(argv):
         if os.path.exists(os.path.join(OUT_DIR, e["floor"] + ".lua")):
             entries.append(e)
     write_index(entries, display_scales(portraits))
+    write_toc(entries)
     print("wrote the index: %d rooms" % len(entries))
 
 

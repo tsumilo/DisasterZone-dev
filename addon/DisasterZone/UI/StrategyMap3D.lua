@@ -354,8 +354,9 @@ function V:HeightRange()
 end
 
 -- The room point on the floor under a screen point (UI units from the scene's bottom-left), or nil (the view looks
--- over the horizon there). planeZ: meet that height instead of the floor (a drag that moves the camera).
-function V:FloorAt(sx, sy, planeZ)
+-- over the horizon there). planeZ: meet that height instead of the floor (a drag that moves the camera); maxZ: floors
+-- higher than that are looked through.
+function V:FloorAt(sx, sy, planeZ, maxZ)
     local R = self.R
     local ex, ey, ez, dx, dy, dz = R.ScreenRay(sx, sy)
     if not ex then return nil end
@@ -376,7 +377,8 @@ function V:FloorAt(sx, sy, planeZ)
     local t = t0
     while t <= t1 do
         local x, y, z = ex + dx * t, ey + dy * t, ez + dz * t
-        if z <= H(x, y) then
+        local h = H(x, y)
+        if z <= h and not (maxZ and h > maxZ) then
             local a, b = prev, t                          -- the crossing lies between: halve it down
             for _ = 1, 10 do
                 local m = (a + b) / 2
@@ -392,12 +394,20 @@ function V:FloorAt(sx, sy, planeZ)
     return nil
 end
 
--- The cursor's floor point in the page's board units (unrounded), or nil.
-function V:CursorBoard()
+-- The cursor's floor point in the page's board units (unrounded), or nil. fromZ (a drawing being moved from a floor
+-- that high): floors more than 3 yd over it are looked through, and where none is met, the mouse on that level.
+function V:CursorBoard(fromZ)
     local sx, sy = self.view:Cursor()
-    local x, y = self:FloorAt(sx, sy)
+    local x, y = self:FloorAt(sx, sy, nil, fromZ and fromZ + 3)
+    if not x and fromZ then x, y = self:FloorAt(sx, sy, fromZ) end
     if not x then return nil end
     return R3().RoomToBoard(self.room, self.canvas.page, x, y)
+end
+
+-- The floor height (room yards) under a board point of the page.
+function V:GroundAtBoard(bx, by)
+    local x, y = R3().BoardToRoom(self.room, self.canvas.page, bx, by)
+    return self:Ground(x, y)
 end
 
 ---------------------------------------------------------------------------
@@ -573,7 +583,7 @@ function V:DrawModels()
             if a then
                 seen[e] = true
                 if a.display ~= g.display then
-                    a.display, a.anim, a.box = g.display, 0, nil
+                    a.display, a.anim, a.box, a.bb = g.display, 0, nil, nil
                     pcall(a.ClearModel, a)
                     pcall(a.SetModelByCreatureDisplayID, a, g.display)
                     a.loadAt = GetTime()
@@ -592,19 +602,24 @@ function V:DrawModels()
                 pcall(a.SetPosition, a, g.x / s, self.view:SY(g.y) / s, g.z / s)
                 pcall(a.SetYaw, a, cam.mirror * face)
                 pcall(a.SetShown, a, true)
-                -- its height (the label goes over it): the model's name point, else its own box once loaded
-                local h = g.nameZ and (g.nameZ * s) or nil
-                if not h and a.GetActiveBoundingBox then
+                -- its own box once loaded (model units): how far it reaches round its feet and under them (the
+                -- Lurker: 15 yd across, half under the water), for what the room draws over it
+                if not a.bb and a.GetActiveBoundingBox then
                     local ok, x0, y0, z0, x1, y1, z1 = pcall(a.GetActiveBoundingBox, a)
-                    if ok and type(z1) == "number" and z1 > 0 then a.box = z1 * s end
-                    h = a.box
+                    if ok and type(z1) == "number" and type(z0) == "number" and z1 > z0 then
+                        a.bb = { r = max(abs(x0), abs(x1), abs(y0), abs(y1)), z0 = min(0, z0), z1 = z1 }
+                    end
                 end
+                local bb = a.bb
+                -- its height (the label goes over it): the model's name point, else its box
+                local h = g.nameZ and (g.nameZ * s) or (bb and bb.z1 > 0 and bb.z1 * s) or nil
                 g.h = (h or 2.5 * s) + 0.4
+                local under = bb and -bb.z0 * s or 0
                 n = n + 1
                 local o = occ[n] or {}
                 occ[n] = o
-                o.id, o.x, o.y, o.z, o.h = e, g.x, g.y, g.z, g.h - 0.4
-                o.w, o.rb, o.top, o.prio = max(1.2, 0.8 * s), 0.5 * s, g.h, 1
+                o.id, o.x, o.y, o.z, o.h = e, g.x, g.y, g.z - under, g.h - 0.4 + under
+                o.w, o.rb, o.top, o.prio = max(1.2, 0.8 * s), max(0.5 * s, bb and bb.r * s or 0), g.h + under, 1
             end
         end
     end

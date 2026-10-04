@@ -33,6 +33,19 @@ from lupa import lua51  # noqa: E402
 ADDON_DIR = os.environ.get("DISASTERZONE_ADDON_DIR") or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 PATCH_SV_FILE = os.environ.get("DISASTERZONE_PATCH_SV") or None
 ADDON_NAME = "DisasterZone"
+# The strategy board's generated 3D rooms (Render3D/Rooms/<Raid>_<Boss>.lua, ~12 MB of packed text) are left out of
+# a client's load unless LOAD_ROOMS is on (env DISASTERZONE_ROOMS=1, or a suite that needs them sets
+# harness.LOAD_ROOMS = True before its clients load): 60 mock clients holding them each run out of memory. Without
+# them the board acts as after an update that brought new files: no 2D / 3D switch. The Raid Trainer's own floors
+# (*Floor.lua) and Render3D/Rooms/Index.lua always load.
+LOAD_ROOMS = os.environ.get("DISASTERZONE_ROOMS") == "1"
+
+
+def is_board_room(rel):
+    rel = rel.replace("\\", "/")
+    return rel.startswith("Render3D/Rooms/") and "_" in rel.rsplit("/", 1)[-1]
+
+
 MOCK_DIR = os.path.join(HERE, "wowmock")
 MODULES = ("core.lua", "objects.lua", "ui.lua", "game.lua")
 DEFAULT_RANKS = ["Guild Master", "Officer", "Raider", "Member", "Initiate"]
@@ -1222,6 +1235,8 @@ class Client:
         if sv_first:
             self._apply_saved(headers)
         missing = []
+        if not LOAD_ROOMS:
+            files = [f for f in files if not is_board_room(f)]
         for rel in files:
             if rel.lower().endswith(".xml"):
                 if not os.path.exists(os.path.join(self.addon_dir, rel)):

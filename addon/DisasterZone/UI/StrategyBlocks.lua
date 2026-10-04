@@ -34,7 +34,7 @@ BlocksUI.TEMPLATES = {
       make = function() return { n = "Innervates", r = 3, c = { { t = "p", n = "From", f = "DRUID" }, { t = "p", n = "To" } } } end },
     { label = "Single job", sub = "Bloodlust with a timing",
       make = function() return { n = "Bloodlust", r = 1, c = { { t = "p", n = "Player" }, { t = "x", n = "When" } } } end },
-    { label = "Dispel / decurse", sub = "who removes a curse, magic, poison, enrage",
+    { label = "Dispel / decurse", sub = "curses, magic, poison, enrage",
       make = function() return { n = "Dispels", r = 3, tr = "dsp", dy = "m", i = "i:Spell_Holy_DispelMagic",
                                  c = { { t = "p", n = "Player", f = S().DispelFilter("m", false) } } } end },
     { label = "Notes", sub = "text only",
