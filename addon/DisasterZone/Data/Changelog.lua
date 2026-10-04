@@ -85,10 +85,10 @@ ns.CHANGELOG = {
               "The raid list shows your answer as a small icon, so the rest of the line fits.",
           } },
           { heading = "A raid leader for each raid", lines = {
-              "The Guild Master and the guild council pick who leads a raid: the crown icon on the raid.",
+              "The Guild Master and the raid leaders pick who leads a raid: the crown icon on the raid.",
               "That leader runs the raid with them: edit, cancel, add players, groups, strategies.",
-              "The other raid leaders on the list can't change it; they still plan new raids.",
-              "A raid without a leader works as before: every raid leader runs it.",
+              "The leader doesn't have to be on the raid leaders list.",
+              "The guild council doesn't run a raid that has its own leader.",
               "Weekly raids: pick the leader for this week only or for every week.",
               "The raid's line says \"led by\" and the name.",
           } },

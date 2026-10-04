@@ -22,13 +22,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 -- A member's other characters (Guild:SameAccount) answer as one player: a character can be signed up from any of
 -- them (RPA), the newest answer of the player is the one that counts, and a decline covers all of them.
 --
--- A raid can have its own leader (rl, named by the GM or the guild council; rlb = who named them). That leader runs
--- the raid: edit, cancel, delete, players and guests, groups, strategy picks and names. A raid with a leader is run by
--- that leader, the GM and the council only; a raid without one stays with every raid planner (user decision
+-- A raid can have its own leader (rl, named by the GM or a raid leader on the list; rlb = who named them). That
+-- leader runs the raid: edit, cancel, delete, players and guests, groups, strategy picks and names, together with the
+-- GM and the raid leaders on the list (the leader need not be on it); the guild council does not (user decisions
 -- 2026-10-04). On a weekly raid the series names the leader and a week's override can name another (false: none).
 --
 -- The blacklist (BLL) blocks a player from every raid: no sign-up, no guest seat, no invite. Kept by the roster
--- managers: the GM, officers, the guild council and the raid leaders.
+-- managers: the GM, officers and the raid leaders.
 --
 -- Sync (§56): live edits go out on GUILD (RPU, RPS). At login the HELLO carries a hash of my plan data (pd); a client
 -- whose data differs answers with its per-item digest (RPD, on GUILD so the others can stay quiet), the new client
@@ -185,9 +185,9 @@ local function CanRoster(key)
     return type(key) == "string" and G ~= nil and G.IsOfficer ~= nil and G:IsOfficer(key) and true or false
 end
 
--- A raid's own leader is named by the GM and the guild council.
+-- A raid's own leader is named by the GM and the raid leaders on the list (the raid planners).
 local function CanAssignLeader(key)
-    return CanTeams(key)
+    return IsOrganizer(key)
 end
 
 local function IsOfficer(key)
@@ -204,7 +204,7 @@ local function SamePlayer(a, b)
 end
 
 -- The leader a stored raid record names and who named them: its own (an override's false: none that week), else its
--- series'. Only a leader named by the GM or the council counts.
+-- series'. Only a leader named by the GM or a raid leader on the list counts.
 local function RecLeader(root, kind, rec)
     local rl, rlb = rec.rl, rec.rlb
     if rl == nil and kind == "E" and rec.sid then
@@ -221,15 +221,15 @@ local function LeaderWrote(root, kind, rec)
     return rl ~= nil and SamePlayer(rec.by, rl)
 end
 
--- May `key` run the raid (a view): edit, cancel, delete, players? Its leader, the GM and the council; a raid without a
--- leader: the raid planners.
+-- May `key` run the raid (a view): edit, cancel, delete, players? The raid planners (the GM, the raid leaders on the
+-- list), and the raid's own leader when it has one.
 local function CanManage(v, key)
     if type(key) ~= "string" or type(v) ~= "table" then return false end
-    if v.rl then return SamePlayer(key, v.rl) or CanAssignLeader(key) end
-    return IsOrganizer(key)
+    return IsOrganizer(key) or (v.rl ~= nil and SamePlayer(key, v.rl))
 end
 
--- May `key` lay out the raid's groups and assign its strategies? The same, plus the council on a raid without a leader.
+-- May `key` lay out the raid's groups and assign its strategies? The same, plus the guild council on a raid without a
+-- leader.
 local function CanArrange(v, key)
     if type(key) ~= "string" or type(v) ~= "table" then return false end
     if v.rl then return CanManage(v, key) end
@@ -242,8 +242,8 @@ local REFUSED = {
     raids = "Only the Guild Master and the raid leaders can plan raids.",
     teams = "Only the Guild Master and the guild council can change teams.",
     groups = "Only the Guild Master, the guild council and the raid leaders can change a raid's groups.",
-    led = "Only this raid's leader, the Guild Master and the guild council can change it.",
-    lead = "Only the Guild Master and the guild council choose a raid's leader.",
+    led = "Only this raid's leader, the Guild Master and the raid leaders can change it.",
+    lead = "Only the Guild Master and the raid leaders choose a raid's leader.",
 }
 
 -- A raid / team shows when its last editor was a raid planner when this version of it arrived, or is one now: a raid
@@ -1111,8 +1111,8 @@ function RaidPlan:IsLeaderOf(occId, key)
     return rl ~= nil and SamePlayer(key or Util.PlayerKey(), rl)
 end
 
--- May I (or that player) run the raid: edit, cancel, delete, add players? Its leader, the GM and the guild council; a
--- raid without a leader: the raid planners.
+-- May I (or that player) run the raid: edit, cancel, delete, add players? The GM and the raid leaders on the list,
+-- and the raid's own leader.
 function RaidPlan:CanManageRaid(occId, key)
     return CanManage(AsView(occId), key or Util.PlayerKey())
 end
@@ -1122,7 +1122,7 @@ function RaidPlan:CanArrangeRaid(occId, key)
     return CanArrange(AsView(occId), key or Util.PlayerKey())
 end
 
--- May I (or that player) name a raid's leader? The GM and the guild council.
+-- May I (or that player) name a raid's leader? The GM and the raid leaders on the list.
 function RaidPlan:CanAssignLeader(key)
     return CanAssignLeader(key or Util.PlayerKey())
 end

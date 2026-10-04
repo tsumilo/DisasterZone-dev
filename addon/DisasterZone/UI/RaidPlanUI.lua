@@ -1254,7 +1254,7 @@ function PlanUI:CreateUpcoming(parent)
     end)
     d.inviteBtn:SetPoint("RIGHT", d.editBtn, "LEFT", -3, 0)
     d.leaderBtn = UI():CreateTipIconButton(d, ACT, UI().ICON.crown, "Raid leader", "Choose who leads this raid. "
-        .. "They run it with the Guild Master and the guild council: edit it, add players, lay out the groups and "
+        .. "They run it with the Guild Master and the raid leaders: edit it, add players, lay out the groups and "
         .. "pick the strategies.", function()
         if state.selected then PlanUI:OpenLeader(state.selected) end
     end)
@@ -1363,7 +1363,7 @@ local function refreshDetail(v)
     d.tabGroups:SetActive(groupsTab)
     d.tabAssign:SetActive(assignTab)
     d.empty:SetShown(not has)
-    -- who runs this raid: its own leader, the GM and the council (a raid without a leader: the raid planners)
+    -- who runs this raid: the raid planners (GM, raid leaders) and the raid's own leader
     local organizer = has and RP():CanManageRaid(v)
     d.editBtn:SetShown(organizer)
     d.cancelBtn:SetShown(organizer)
@@ -2246,7 +2246,7 @@ end
 -- occId = nil: a new raid.
 function PlanUI:OpenEditor(occId)
     if occId and RP():GetRaid(occId) and not RP():CanManageRaid(occId) then
-        Print("Only this raid's leader, the Guild Master and the guild council can change it.")
+        Print("Only this raid's leader, the Guild Master and the raid leaders can change it.")
         return
     elseif not occId and not RP():CanOrganize() then
         Print("Only the Guild Master and the raid leaders can plan raids.")
@@ -2295,8 +2295,8 @@ end
 function PlanUI:GetEditor() return editor end
 
 ---------------------------------------------------------------------------
--- Raid leader window (the GM and the guild council): who leads one raid. That leader runs it with the GM and the
--- council; without one, every raid leader on the list does. A weekly raid: this week only, or every week.
+-- Raid leader window (the GM and the raid leaders): who leads one raid. That leader runs it with the GM and the raid
+-- leaders on the list (the leader need not be on it). A weekly raid: this week only, or every week.
 ---------------------------------------------------------------------------
 
 local leaderWin
@@ -2354,8 +2354,8 @@ local function createLeader()
     w.help:SetPoint("TOPLEFT", 12, -30)
     w.help:SetPoint("RIGHT", -12, 0)
     w.help:SetJustifyH("LEFT")
-    w.help:SetText("The raid leader runs this raid with the Guild Master and the guild council: they edit it, add "
-        .. "players, lay out the groups and pick the strategies. The other raid leaders don't.")
+    w.help:SetText("The raid leader runs this raid with the Guild Master and the raid leaders: they edit it, add "
+        .. "players, lay out the groups and pick the strategies, also when they are not on the raid leaders list.")
     row(c, "Leader", -82)
     w.picker = UI():CreateSearchDropdown(c, 190, {
         placeholder = "Find a guild member...",
@@ -2396,12 +2396,12 @@ local function createLeader()
     return w
 end
 
--- Opens the Raid leader window of a raid (the GM and the guild council).
+-- Opens the Raid leader window of a raid (the GM and the raid leaders).
 function PlanUI:OpenLeader(occId)
     local v = occId and RP():GetRaid(occId)
     if not v then return false end
     if not RP():CanAssignLeader() then
-        Print("Only the Guild Master and the guild council choose a raid's leader.")
+        Print("Only the Guild Master and the raid leaders choose a raid's leader.")
         return false
     end
     if not leaderWin then createLeader() end
@@ -2600,7 +2600,7 @@ end
 function PlanUI:OpenInvites(occId)
     if not RP():GetRaid(occId) then return false end
     if not canAddPlayers(occId) then
-        Print(RP():GetRaidLeader(occId) and "Only this raid's leader, the Guild Master, the guild council and officers can add players to it."
+        Print(RP():GetRaidLeader(occId) and "Only this raid's leader, the Guild Master, the raid leaders and officers can add players to it."
             or "Only the Guild Master, officers and the raid leaders can add players to a raid.")
         return false
     end

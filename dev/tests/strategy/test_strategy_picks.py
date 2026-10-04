@@ -1,8 +1,8 @@
 """ADDENDUM K, 1.3: picking a raid's strategy per boss, and a raid's own leader assigning it (user request 2026-10-04).
 
-Covers: Strategy:PickStrategy (saved at once, names in the slots both strategies share stay), who may pick (the raid's
-own leader, the GM, the council; a raid without a leader: the raid leaders too; the other raid leaders not on a led
-raid), the leader's fills being trusted by everyone, the default for a boss not picked yet (the strategy the guild used
+Covers: Strategy:PickStrategy (saved at once, names in the slots both strategies share stay), who may pick (a raid
+without a leader: the GM, the raid leaders on the list and the guild council; a led raid: its own leader, the GM and the
+raid leaders on the list, not the council), the leader's fills being trusted by everyone, the default for a boss not picked yet (the strategy the guild used
 last time, else the first by name; "only" for a single strategy), and the Assignments tab: the dropdown for who
 arranges the raid, the strategy's name for everyone else, "not picked yet", and a pick made from the dropdown's menu.
 
@@ -41,7 +41,7 @@ def used(cl, occ, boss=BOSS):
 
 # ------------------------------------------------------------------------------------------------------------------
 @case
-def the_raid_leader_picks_and_the_list_does_not():
+def the_raid_leader_picks_and_the_council_does_not_on_a_led_raid():
     w, c = world()
     bob, lee, rita, sam = c["Bob"], c["Lee"], c["Rita"], c["Sam"]
     a = save_council(lee, "A plan")
@@ -61,13 +61,14 @@ def the_raid_leader_picks_and_the_list_does_not():
     w.tick(2)
     f = get_fill(sam, occ, BOSS)
     assert f["s"] == a and f["a"] == {"tk.1.1": K("Lee"), "md.1.2": K("Hana")}, f
-    # Sam leads it now: Sam picks and assigns, the list doesn't
-    assert call(bob, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
+    # Sam leads it now (named by a raid leader on the list): Sam and the list pick and assign, the council doesn't
+    assert call(lee, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
     w.tick(2)
     assert sam.eval("return ns.Strategy:CanAssign(...)", occ) is True
-    assert rita.eval("return ns.Strategy:CanAssign(...)", occ) is False
-    assert rita.eval("return ns.Strategy:CanAssign()") is True       # (other raids)
-    res = pick(rita, occ, b)
+    assert rita.eval("return ns.Strategy:CanAssign(...)", occ) is True
+    assert bob.eval("return ns.Strategy:CanAssign(...)", occ) is False
+    assert bob.eval("return ns.Strategy:CanAssign()") is True        # (other raids)
+    res = pick(bob, occ, b)
     assert res["ok"] is False and "this raid's leader" in res["e"], res
     assert pick(sam, occ, b)["ok"] is True
     assert fill(sam, occ, BOSS, b, {"tk.2.1": K("Sam")})["ok"] is True
@@ -120,7 +121,7 @@ def the_assignments_tab_picks_from_the_row():
     b = save_council(rita, "B plan")
     occ = create(lee, i="bt", t=now(lee) + DAY)
     w.tick(2)
-    assert call(bob, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
+    assert call(lee, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
     w.tick(2)
 
     def council_row(cl):
@@ -139,8 +140,11 @@ def the_assignments_tab_picks_from_the_row():
     assert r["pick"] and r["assign"] and r["pickText"] == "A plan", r
     assert strip_codes(r["l2"]) == "not picked yet" and strip_codes(r["stat"]) == "0/10 filled", r
     assert 110 <= r["pickW"] <= 230, r
-    # a member of the list (not this raid's leader): the name as text, no dropdown
+    # a raid leader on the list runs it too: the dropdown
     r = council_row(lee)
+    assert r["pick"] and r["assign"], r
+    # the guild council (not on a led raid): the name as text, no dropdown
+    r = council_row(bob)
     assert not r["pick"] and not r["assign"] and strip_codes(r["l2"]) == "A plan", r
     assert strip_codes(r["stat"]) == "0/10 filled" and r["l1"] == "The Illidari Council", r
     # the leader opens the dropdown: both strategies, who made them, how big
@@ -155,8 +159,8 @@ def the_assignments_tab_picks_from_the_row():
     assert get_fill(lee, occ, BOSS)["s"] == b
     r = council_row(sam)
     assert r["pickText"] == "B plan" and strip_codes(r["l2"]) == "", r
-    # the list member's row follows
-    r = council_row(lee)
+    # the council's row follows
+    r = council_row(bob)
     assert strip_codes(r["l2"]) == "B plan", r
     # B is now what the guild used last time: the menu says so on another raid
     occ2 = create(lee, i="bt", t=now(lee) + 8 * DAY)
