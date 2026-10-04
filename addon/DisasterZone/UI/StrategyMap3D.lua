@@ -660,10 +660,13 @@ function V:DrawModels()
                 pcall(a.SetShown, a, true)
                 -- its own box once loaded (model units): how far it reaches round its feet and under them (the
                 -- Lurker: 15 yd across, half under the water), for what the room draws over it
-                if not a.bb and a.GetActiveBoundingBox then
-                    local ok, x0, y0, z0, x1, y1, z1 = pcall(a.GetActiveBoundingBox, a)
-                    if ok and type(z1) == "number" and type(z0) == "number" and z1 > z0 then
-                        a.bb = { r = max(abs(x0), abs(x1), abs(y0), abs(y1)), z0 = min(0, z0), z1 = z1 }
+                if not a.bb and a.loadedOnce then
+                    local fn = a.GetMaxBoundingBox or a.GetActiveBoundingBox
+                    local ok, x0, y0, z0, x1, y1, z1 = false, nil, nil, nil, nil, nil, nil
+                    if fn then ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a) end
+                    if ok and type(z1) == "number" and type(z0) == "number" and z1 > z0 and x1 > x0 then
+                        a.bb = { r = max(abs(x0), abs(x1), abs(y0), abs(y1)), z0 = min(0, z0), z1 = z1,
+                            x0 = x0, y0 = y0, x1 = x1, y1 = y1 }
                     end
                 end
                 local bb = a.bb
@@ -672,6 +675,16 @@ function V:DrawModels()
                 -- front of (the Lurker: 30 yd across, his tail 40 yd down in the water), not judged at one plane
                 -- through its middle; without it the client's box (one occluder)
                 local parts = R3().DISPLAY_PARTS and R3().DISPLAY_PARTS[g.display]
+                -- (parts that miss where the client draws the model are worse than its one box: Kil'jaeden's were
+                -- read off the wrong pose, three of them single points, reaching 8.5 model units past his box's side)
+                if parts and bb then
+                    local out = 0
+                    for k = 1, #parts - 5, 6 do
+                        out = max(out, bb.x0 - parts[k], bb.y0 - parts[k + 1], parts[k + 3] - bb.x1,
+                            parts[k + 4] - bb.y1)
+                    end
+                    if out > 0.2 * max(bb.x1 - bb.x0, bb.y1 - bb.y0, 0.5) then parts = nil end
+                end
                 local top = parts and 0 or (bb and bb.z1 or 0)
                 for k = 6, parts and #parts or 0, 6 do top = max(top, parts[k]) end
                 -- its height (the label goes over it): the model's name point, else its top
@@ -684,25 +697,35 @@ function V:DrawModels()
                         local x0, y0, z0, x1, y1, z1 = parts[k], parts[k + 1], parts[k + 2], parts[k + 3], parts[k + 4],
                             parts[k + 5]
                         local cx, cy, hx, hy = (x0 + x1) / 2 * s, (y0 + y1) / 2 * s, (x1 - x0) / 2 * s, (y1 - y0) / 2 * s
-                        local id = a.partIds[k]
-                        if not id then
-                            id = {}
-                            a.partIds[k] = id
+                        if hx > 0.05 or hy > 0.05 then              -- (a single point hides nothing)
+                            local id = a.partIds[k]
+                            if not id then
+                                id = {}
+                                a.partIds[k] = id
+                            end
+                            n = n + 1
+                            local o = occ[n] or {}
+                            occ[n] = o
+                            o.id, o.x, o.y = id, g.x + cf * cx - sf * cy, g.y + sf * cx + cf * cy
+                            o.z, o.h = g.z + z0 * s, (z1 - z0) * s
+                            o.w, o.rb, o.top, o.prio, o.group = 0, sqrt(hx * hx + hy * hy), (z1 - z0) * s, 1, e
                         end
-                        n = n + 1
-                        local o = occ[n] or {}
-                        occ[n] = o
-                        o.id, o.x, o.y = id, g.x + cf * cx - sf * cy, g.y + sf * cx + cf * cy
-                        o.z, o.h = g.z + z0 * s, (z1 - z0) * s
-                        o.w, o.rb, o.top, o.prio, o.group = 0, sqrt(hx * hx + hy * hy), (z1 - z0) * s, 1, e
                     end
                 else
+                    -- the client's box, judged at its middle (not the feet: Kil'jaeden's is 29 yd off his origin)
                     local under = bb and -bb.z0 * s or 0
+                    local ox, oy, rb = g.x, g.y, bb and bb.r * s or 0
+                    if bb and bb.x0 then
+                        local cx, cy = (bb.x0 + bb.x1) / 2 * s, (bb.y0 + bb.y1) / 2 * s
+                        local hx, hy = (bb.x1 - bb.x0) / 2 * s, (bb.y1 - bb.y0) / 2 * s
+                        ox, oy = g.x + cos(face) * cx - sin(face) * cy, g.y + sin(face) * cx + cos(face) * cy
+                        rb = sqrt(hx * hx + hy * hy)
+                    end
                     n = n + 1
                     local o = occ[n] or {}
                     occ[n] = o
-                    o.id, o.x, o.y, o.z, o.h, o.group = e, g.x, g.y, g.z - under, g.h - 0.4 + under, nil
-                    o.w, o.rb, o.top, o.prio = max(1.2, 0.8 * s), max(0.5 * s, bb and bb.r * s or 0), g.h + under, 1
+                    o.id, o.x, o.y, o.z, o.h, o.group = e, ox, oy, g.z - under, g.h - 0.4 + under, nil
+                    o.w, o.rb, o.top, o.prio = max(1.2, 0.8 * s), max(0.5 * s, rb), g.h + under, 1
                 end
             end
         end

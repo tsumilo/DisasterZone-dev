@@ -86,6 +86,7 @@ ns.CHANGELOG = {
               "Others with the strategy open see you walk there; in your group as your own character.",
               "Draw, move and undo with the planner's tools while you walk.",
               "Turn and size a boss or add in 3D with the knobs round it; its menu sets either back.",
+              "Kil'jaeden in 3D: the room no longer draws over him where it stands behind him.",
               "Bosses and adds hide behind the room part by part, at their true size (the Lurker's tail).",
               "A small 2D map in the corner shows what the camera sees; click it to look there.",
               "After updating, restart the game once (a /reload is not enough) to get the 3D view.",

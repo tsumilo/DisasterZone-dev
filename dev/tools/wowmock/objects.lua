@@ -1250,11 +1250,19 @@ local function MockSize(d) return 0.5 + (d % 9) * 0.6, 0.4 + (d % 5) * 0.5 end
 local FILE_BOXES = {
   [191730] = { -0.805, -1.430, -1.354, 1.088, 1.443, 2.138 },
 }
+-- Creature displays whose real box is known (CreatureModelData.GeoBox, model units): the Lurker (20216) and
+-- Kil'jaeden (23200, his box's middle 4.84 units off his origin).
+local DISPLAY_BOXES = {
+  [20216] = { -9.68, -10.55, -20.37, 5.6, 10.45, 8.37 },
+  [23200] = { -5.96, -5.75, -3.23, 15.65, 2.84, 4.88 },
+}
 function ActorMethods:GetActiveBoundingBox()
   self:Tick()
   local fb = not self.display and self.fileID and FILE_BOXES[self.fileID]
   if fb then return fb[1], fb[2], fb[3], fb[4], fb[5], fb[6] end
   if not self.display then return nil end
+  local db = DISPLAY_BOXES[self.display]
+  if db then return db[1], db[2], db[3], db[4], db[5], db[6] end
   local h, w = MockSize(self.display)
   local bob = (self.display % 3 == 0) and (0.5 + 0.3 * math.sin(Now() * 4)) or 0
   return -0.6 * w, -0.3 * w, bob, 0.4 * w, 0.7 * w, h + bob
@@ -1262,6 +1270,8 @@ end
 function ActorMethods:GetMaxBoundingBox()
   self:Tick()
   if not self.display then return nil end
+  local db = DISPLAY_BOXES[self.display]
+  if db then return db[1], db[2], db[3], db[4], db[5], db[6] end
   local h, w = MockSize(self.display)
   local hover = (self.display % 3 == 0) and 0.8 or 0
   return -0.6 * w, -0.3 * w, 0, 0.4 * w, 0.7 * w, h + hover + 0.8
