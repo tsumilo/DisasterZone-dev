@@ -1348,13 +1348,15 @@ end
 -- Visible raids (occurrences) starting in [from, to] (default: 14 days back .. 180 days ahead; weekly raids only up
 -- to 14 days ahead, their first occurrence always), sorted by start time. Cancelled ones are included (cancelled).
 -- A locked raid is left out for a member it doesn't take sign-ups from (CanSee); `all` = true keeps those too.
-function RaidPlan:GetRaids(from, to, all)
+-- `allWeeks` = true lists weekly raids up to `to` as well (at most 180 days ahead; the Home tab's calendar).
+function RaidPlan:GetRaids(from, to, all, allWeeks)
     local out = {}
     local root = Root(false)
     if not root then return out end
     local now = Now()
     from = tonumber(from) or (now - KEEP_PAST)
     to = tonumber(to) or (now + MAX_AHEAD)
+    local ahead = allWeeks and min(to, now + MAX_AHEAD) or (now + AHEAD)
     for _, e in pairs(root.E) do
         if not e.sid and not e.del and Trusted(root, "E", e) and e.t >= from and e.t <= to then
             out[#out + 1] = ViewEvent(e)
@@ -1362,11 +1364,11 @@ function RaidPlan:GetRaids(from, to, all)
     end
     for _, s in pairs(root.S) do
         if not s.x and Trusted(root, "S", s) then
-            local last = max(0, SeriesWeekAt(s, min(to, now + AHEAD)))
+            local last = max(0, SeriesWeekAt(s, min(to, ahead)))
             if s.u then last = min(last, s.u) end
             for k = max(0, SeriesWeekAt(s, from) - 1), last + 1 do
                 local v = ViewOccurrence(root, s, k)
-                if v and v.t >= from and v.t <= to and (k <= last or v.t <= now + AHEAD) then
+                if v and v.t >= from and v.t <= to and (k <= last or v.t <= ahead) then
                     out[#out + 1] = v
                 end
             end

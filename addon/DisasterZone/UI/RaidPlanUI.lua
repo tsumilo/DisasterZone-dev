@@ -350,7 +350,7 @@ local function raidRows()
     local ws = weekStart(now)
     local buckets = { {}, {}, {}, {} }
     local labels = { "This week", "Next week", "Later", "Recent" }
-    for _, v in ipairs(RP():GetRaids()) do
+    local function add(v)
         local b
         if v.t < now - 6 * 3600 then b = 4
         elseif v.t < ws + 7 * DAY then b = 1
@@ -358,6 +358,17 @@ local function raidRows()
         else b = 3
         end
         if passesFilter(v, now, ws) then buckets[b][#buckets[b] + 1] = v end
+    end
+    local listed = false
+    for _, v in ipairs(RP():GetRaids()) do
+        if v.id == state.opened then listed = true end
+        add(v)
+    end
+    -- a raid opened from elsewhere that the list doesn't reach (the Home calendar: a weekly raid further ahead)
+    local opened = not listed and state.opened and RP():GetRaid(state.opened)
+    if opened then
+        add(opened)
+        tsort(buckets[3], function(a, b) return a.t < b.t end)
     end
     local r = buckets[4]
     tsort(r, function(a, b) return a.t > b.t end)
@@ -1268,6 +1279,10 @@ function PlanUI:CreateUpcoming(parent)
         if state.selected then PlanUI:OpenLeader(state.selected) end
     end)
     d.leaderBtn:SetPoint("RIGHT", d.inviteBtn, "LEFT", -3, 0)
+    -- everyone: a link to this raid (and the tab open on it) for the chat, "sign up here" (UI/Share.lua)
+    d.shareBtn = ns.Share:CreateButton(d, ACT, function()
+        return state.selected and ns.Share:RaidRef(state.selected, state.detailTab) or nil
+    end, "Share this raid")
 
     -- Sign-up strip, flat: row 1 my answer (one joined control) and why I can't answer or when I did; row 2 my spec,
     -- the character I answer as and my note
@@ -1378,9 +1393,11 @@ local function refreshDetail(v)
     d.cancelBtn:SetShown(organizer)
     d.inviteBtn:SetShown(organizer or (has and RP():CanManageRoster(v)))
     d.leaderBtn:SetShown(has and RP():CanAssignLeader())
-    -- the shown icons sit right to left without gaps; the title ends where they start
+    d.shareBtn:SetShown(has)
+    -- the shown icons sit right to left without gaps (Share at the far right for everyone); the title ends where
+    -- they start
     local prev, n = nil, 0
-    for _, b in ipairs({ d.cancelBtn, d.editBtn, d.inviteBtn, d.leaderBtn }) do
+    for _, b in ipairs({ d.shareBtn, d.cancelBtn, d.editBtn, d.inviteBtn, d.leaderBtn }) do
         if b:IsShown() then
             b:ClearAllPoints()
             if prev then b:SetPoint("RIGHT", prev, "LEFT", -3, 0) else b:SetPoint("TOPRIGHT", -2, 0) end
@@ -1492,7 +1509,7 @@ function PlanUI:SelectRaid(occId)
             state.filterRaid, state.filterWhen = "all", "all"
         end
     end
-    state.selected = occId
+    state.selected, state.opened = occId, occId
     self:RefreshUpcoming()
 end
 
@@ -1719,6 +1736,8 @@ function PlanUI:SelectTeam(id)
     loadDraft(id)
     self:RefreshTeams()
 end
+
+function PlanUI:GetSelectedTeam() return state.team end
 
 function PlanUI:GetTeamGrid() return teamsView and teamsView.grid end
 

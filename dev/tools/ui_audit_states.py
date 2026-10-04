@@ -265,6 +265,10 @@ def st_start_window(w, c):
 
 STATES = [
     ("Home", opened("home")),
+    ("Home - calendar day", opened("home", "local v = ns.RaidPlan:GetRaid(select(4, ...)); "
+                                           "local key = tonumber(date('%Y%m%d', v.t)); "
+                                           "for _, c in ipairs(ns.Dashboard:GetPanel().calCard.cells) do "
+                                           "if c.key == key then c:GetScript('OnClick')(c) end end")),
     ("My BiS", opened("mybis")),
     ("My BiS - item picker", opened("mybis", "ns.Picker:Open(1, 1, 'main')")),
     ("Loot Log", opened("loot")),

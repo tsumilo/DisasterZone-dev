@@ -1,9 +1,10 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Dashboard.lua", ...) then return end -- DisasterZone: UI/Dashboard.lua
 -- The "Home" tab: the page the main window opens on. Only what needs attention now: a strip of action chips
 -- (unanswered raids, an empty BiS phase, a newer DisasterZone, the raid lock), the next raid with one-click sign-up
--- (a "raid in progress" view while a raid session runs), BiS progress with the picks that can drop in that raid,
--- recent loot, and for the council / raid organizers a readiness check of the next raid (else the later raids).
--- Every card links to the tab that holds the details. Read-only apart from the sign-up buttons.
+-- (a "raid in progress" view while a raid session runs) and the BiS picks that can drop there, a calendar of the
+-- planned and logged raids (past, now and ahead), recent loot, and for the council / raid organizers a readiness
+-- check of the next raid (else the later raids). Every card links to the tab that holds the details. Read-only
+-- apart from the sign-up buttons.
 local addonName, ns = ...
 
 local Dashboard = ns:NewModule("Dashboard")
@@ -40,7 +41,7 @@ local PILL_ICON = {
 
 local panel
 local pickedOcc     -- the raid picked among several on the same day (nil = the soonest)
-local viewPhase     -- { phase, key }: a phase picked with the BiS card's arrows, for the raid `key` only
+local cal = {}      -- the calendar: y, m = the month shown, day = the picked day (yyyymmdd); nil = today's
 
 local function UI() return ns.UI end
 local function RP() return ns.RaidPlan end
@@ -109,6 +110,17 @@ end
 local function openMyBiS(phase)
     openTab("mybis")
     if phase and ns.MyBiS and ns.MyBiS.SetPhase then ns.MyBiS:SetPhase(phase, true) end
+end
+
+-- A logged raid in the Raids tab's Raid log (its members only: the GM, the council, the raid leaders list).
+local function openLog(id)
+    openTab("raids")
+    if ns.RaidsUI and ns.RaidsUI.Select then ns.RaidsUI:Select(id) end
+end
+
+local function seesRaidLog()
+    local G = ns.Guild
+    return (isDemo() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember())) and true or false
 end
 
 ---------------------------------------------------------------------------
@@ -207,33 +219,27 @@ local function dropsIn(missing, raid)
     return out
 end
 
--- Missing main picks grouped by where they come from: { { name, count } } most first.
-local function missingBySource(missing)
-    local counts, names = {}, {}
-    local ItemDB = ns.ItemDB
-    for _, p in ipairs(missing) do
-        if p.which == "main" then
-            local src = ItemDB and ItemDB:GetSources(p.itemID)[1]
-            local key, name
-            if src and src.kind == "raid" then key, name = "r:" .. src.groupKey, src.groupName
-            elseif src and src.kind == "dungeon" then key, name = "dungeon", "5-man dungeons"
-            elseif src and src.kind == "craft" then key, name = "craft", "Crafted"
-            elseif src and src.kind == "rep" then key, name = "rep", "Reputation"
-            elseif src and src.kind == "badge" then key, name = "badge", "Badge vendors"
-            elseif src and src.kind == "pvp" then key, name = "pvp", "PvP"
-            else key, name = "other", "Other"
-            end
-            counts[key] = (counts[key] or 0) + 1
-            names[key] = name
+-- The raid card's BiS row: how many of my missing picks can drop in `raid` (an ItemDB raid), each item and its boss
+-- in the tooltip, a click opens My BiS on the raid's phase. nil when none can (or no raid is known).
+local function bisDropRow(raid)
+    if not raid then return nil end
+    local phase = guildPhase()
+    local raidPhase = tonumber(raid.phase)
+    if raidPhase and raidPhase > phase then phase = min(raidPhase, ns.MAX_PHASE or 5) end
+    local drops = dropsIn(bisSummary(phase).missing, raid)
+    if #drops == 0 then return nil end
+    local tip = { "Your Phase " .. phase .. " BiS picks that can drop in " .. raid.name }
+    for i, d in ipairs(drops) do
+        if i > 15 then
+            tip[#tip + 1] = grey("+" .. (#drops - 15) .. " more")
+            break
         end
+        tip[#tip + 1] = UI():ItemText(d.itemID) .. (d.which == "alt" and grey(" (alt)") or "")
+            .. grey(" - " .. d.boss .. (d.via == "token" and " (token)" or ""))
     end
-    local out = {}
-    for key, n in pairs(counts) do out[#out + 1] = { name = names[key], count = n } end
-    tsort(out, function(a, b)
-        if a.count ~= b.count then return a.count > b.count end
-        return a.name < b.name
-    end)
-    return out
+    tip[#tip + 1] = grey("Click to open My BiS")
+    return { text = grey("Your BiS: ") .. plural(#drops, "pick") .. " can drop in " .. raid.name, tip = tip,
+             onClick = function() openMyBiS(phase) end }
 end
 
 -- The highest DisasterZone version seen on a guild member in the last 14 days, when it is newer than mine.
@@ -704,6 +710,7 @@ local function refreshRaidCard(card, ctx)
         end
         local Lock = UI().GetBiSLock and UI():GetBiSLock()
         if Lock then rows[#rows + 1] = UI():LockIcon(12) .. " BiS lists locked" end
+        rows[#rows + 1] = bisDropRow(currentItemRaid() or (planned and itemRaidFor(planned.i)))
         local today = date("%Y%m%d", Now())
         for _, o in ipairs(ctx.raids) do
             if o.t > Now() and date("%Y%m%d", o.t) == today and not (planned and planned.id == o.id) then
@@ -772,6 +779,13 @@ local function refreshRaidCard(card, ctx)
     if v.no and v.no ~= "" then
         rows[#rows + 1] = { text = grey("\"" .. v.no .. "\""), tall = true, tip = { "Note", v.no } }
     end
+    -- my BiS picks that can drop there, when the row fits above my answer and the buttons
+    local bisRow = bisDropRow(itemRaidFor(v.i))
+    if bisRow then
+        local units = 2
+        for _, r in ipairs(rows) do units = units + ((type(r) == "table" and r.tall) and 2 or 1) end
+        if units <= floor((CARD_H + rowsY - 34) / ROW_H) then rows[#rows + 1] = bisRow end
+    end
     -- my player's answer, also one given with another of my characters
     local mine = rp:GetMySignup(v.id)
     local blocked, why = blockText(v)
@@ -799,66 +813,342 @@ local function refreshRaidCard(card, ctx)
     first:SetPoint("TOPLEFT", card, "TOPLEFT", 10, (card.rowsEndY or rowsY) - 6)
 end
 
-local function stepPhase(ctx, delta)
-    local p = ctx.bisPhase + delta
-    if p < 1 or p > (ns.MAX_PHASE or 5) then return end
-    viewPhase = { phase = p, key = ctx.phaseKey }
+---------------------------------------------------------------------------
+-- Calendar: a month (Monday first) with a dot per raid on its day, and the picked day's raids beside it. Planned
+-- raids (the Raids tab keeps them 15 days after they start; weekly ones show every week ahead) and the raid log's
+-- raids (kept a year; a member has the ones they were in). A raid opens in the Raids tab: planned ones in Upcoming,
+-- logged ones in the Raid log for its members.
+---------------------------------------------------------------------------
+
+local CAL_W, CAL_H = 28, 25         -- a day cell
+local CAL_X, CAL_TOP = 10, -44      -- the first week row (under the month and the weekday letters)
+local AGENDA_X = 2 * CAL_X + 7 * CAL_W + 4
+local AGENDA_ROW_H = 32
+local CAL_BACK = 365 * DAY          -- the raid log keeps raids a year
+local CAL_AHEAD = 180 * DAY         -- raids are planned at most 180 days ahead
+local MAX_DOTS = 3
+local WEEKDAYS = { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" }
+
+local function dayKey(t) return tonumber(date("%Y%m%d", t)) end
+-- Noon of a day (noon keeps DST shifts from moving the day); y-m-d may be out of range (time() normalises it).
+local function noon(y, m, d) return time({ year = y, month = m, day = d, hour = 12, min = 0, sec = 0 }) end
+local function midnight(y, m, d) return time({ year = y, month = m, day = d, hour = 0, min = 0, sec = 0 }) end
+local function dayOf(t)
+    local d = date("*t", t)
+    return d.year, d.month, d.day
+end
+local function keyDate(key) return floor(key / 10000), floor(key / 100) % 100, key % 100 end
+
+-- "Today · Sat 4 Oct", "Wednesday 8 Oct".
+local function dayTitle(key)
+    local y, m, d = keyDate(key)
+    local t = noon(y, m, d)
+    local short = date("%a ", t) .. d .. date(" %b", t)
+    local today = dayKey(Now())
+    if key == today then return "Today · " .. short end
+    if key == dayKey(noon(dayOf(Now())) + DAY) then return "Tomorrow · " .. short end
+    if key == dayKey(noon(dayOf(Now())) - DAY) then return "Yesterday · " .. short end
+    return date("%A ", t) .. d .. date(" %b", t)
+end
+
+-- A logged raid still being recorded (an open record with activity in the last 2 hours; one left open by a crash
+-- counts as ended at its last activity).
+local function running(rec)
+    return not rec.stop and Now() - (tonumber(rec.last) or rec.start) < 2 * HOUR
+end
+
+local function endOf(rec)
+    return rec.stop or (running(rec) and Now()) or tonumber(rec.last) or rec.start
+end
+
+local function bossText(rec)
+    local kills = #(rec.bosses or {})
+    local RL = ns.RaidLog
+    local total = RL and RL.GetBossTotal and RL:GetBossTotal(rec.instID)
+    if total then return ("%d/%d bosses"):format(kills, total) end
+    return kills == 1 and "1 boss" or (kills .. " bosses")
+end
+
+-- My answer to a planned raid: words, colour.
+local function answerState(v)
+    if v.cancelled then return "Cancelled", "808080" end
+    local rp = RP()
+    local mine = rp:GetMySignup(v.id)
+    if mine and STATUS[mine.st] then return STATUS[mine.st].label, STATUS[mine.st].color end
+    if v.t < Now() - CURRENT_FOR then return "No answer", "808080" end
+    local blocked = blockText(v)
+    if blocked then return blocked, "808080" end
+    local inv = rp:GetInvited(v)
+    if inv and inv[Me() or ""] then return "Answer needed", "ff9933" end
+    return "Open", "ffffff"
+end
+
+-- An event's status words and dot colour: my answer for a raid to come, how a logged one went (grey once over).
+local function eventState(ev)
+    local rec, v = ev.rec, ev.v
+    if rec then return running(rec) and "in progress" or bossText(rec), running(rec) and "33ff33" or "999999" end
+    if v.cancelled or v.t >= Now() - CURRENT_FOR then return answerState(v) end
+    return (answerState(v)), "999999"
+end
+
+-- The raids of [from, to] by day: { [yyyymmdd] = { { t, name, v = planned raid, rec = raid log record } } }, each
+-- day by start time. A logged raid linked to a planned one on the calendar is one event.
+local function calendarEvents(from, to)
+    local byDay = {}
+    local function add(ev)
+        local k = dayKey(ev.t)
+        byDay[k] = byDay[k] or {}
+        byDay[k][#byDay[k] + 1] = ev
+    end
+    local RL, rp = ns.RaidLog, RP()
+    local logs, linked = {}, {}
+    for _, rec in ipairs(RL and RL.GetRaids and RL:GetRaids() or {}) do
+        local t = tonumber(rec.start)
+        if t and t >= from and t <= to then
+            logs[#logs + 1] = rec
+            if rec.pl then linked[rec.pl] = rec end
+        end
+    end
+    local shown = {}
+    for _, v in ipairs(rp and rp.GetRaids and rp:GetRaids(from, to, false, true) or {}) do
+        shown[v.id] = true
+        add({ t = v.t, v = v, rec = linked[v.id], name = rp:GetRaidName(v) })
+    end
+    for _, rec in ipairs(logs) do
+        if not (rec.pl and shown[rec.pl]) then add({ t = rec.start, rec = rec, name = rec.zone or "Raid" }) end
+    end
+    for _, list in pairs(byDay) do
+        tsort(list, function(a, b) return a.t < b.t end)
+    end
+    return byDay
+end
+
+-- Where an event leads: a logged raid to the Raid log (its members), else the planned raid; nil = nowhere.
+local function eventClick(ev)
+    if ev.rec and seesRaidLog() then return function() openLog(ev.rec.id) end end
+    if ev.v then return function() openRaid(ev.v.id) end end
+    return nil
+end
+
+-- The agenda row's tooltip: when, the sign-ups or how it went, my answer, my loot, where a click leads.
+local function eventTip(ev)
+    local v, rec = ev.v, ev.rec
+    local tip = { ev.name }
+    if v then
+        local when = date("%A %d %B %H:%M", v.t)
+        if v.t >= Now() - CURRENT_FOR and not v.cancelled then when = when .. " · " .. whenText(v.t) end
+        tip[#tip + 1] = when
+        local sub = { (v.sz or 25) .. "-player" }
+        for _, id in ipairs(v.tm or {}) do
+            local team = RP():GetTeam(id)
+            if team then sub[#sub + 1] = team.name end
+        end
+        if v.weekly then sub[#sub + 1] = "weekly" end
+        tip[#tip + 1] = grey(tconcat(sub, " · "))
+        if v.cancelled then
+            tip[#tip + 1] = colorize("ff5555", "Cancelled")
+        else
+            local _, counts = signupCounts(v)
+            local parts = { colorize(STATUS.A.color, counts.A .. " accepted") }
+            if counts.T > 0 then parts[#parts + 1] = colorize(STATUS.T.color, counts.T .. " tentative") end
+            if counts.B > 0 then parts[#parts + 1] = colorize(STATUS.B.color, counts.B .. " bench") end
+            tip[#tip + 1] = tconcat(parts, " · ")
+            local label, color = answerState(v)
+            tip[#tip + 1] = "Your answer: " .. colorize(color, label)
+        end
+        if v.no and v.no ~= "" then tip[#tip + 1] = grey("\"" .. v.no .. "\"") end
+    elseif rec then
+        tip[#tip + 1] = date("%A %d %B %H:%M", rec.start)
+    end
+    if rec then
+        local took = duration(endOf(rec) - rec.start)
+        tip[#tip + 1] = bossText(rec) .. " · " .. (running(rec) and ("running " .. took) or took)
+        local mine = {}
+        for _, e in ipairs(ns.RaidLog:GetAwards(rec)) do
+            if e.w == Me() then mine[#mine + 1] = UI():ItemText(e.i) end
+        end
+        if #mine > 0 then
+            tip[#tip + 1] = "Your loot:"
+            for i, text in ipairs(mine) do
+                if i > 8 then tip[#tip + 1] = grey("+" .. (#mine - 8) .. " more") break end
+                tip[#tip + 1] = "  " .. text
+            end
+        end
+    end
+    if rec and seesRaidLog() then
+        tip[#tip + 1] = grey("Click to open it in the Raid log")
+    elseif v then
+        tip[#tip + 1] = grey("Click to open it in the Raids tab")
+    end
+    return tip
+end
+
+-- The agenda row's two lines: the raid, then its time and status.
+local function eventLines(ev)
+    local label, color = eventState(ev)
+    local when = date("%H:%M", ev.t)
+    local name = ev.name
+    if ev.v and ev.v.cancelled then name = grey(name) end
+    local status = colorize(color, label)
+    if ev.rec and not running(ev.rec) then
+        status = grey(label .. " · " .. duration(endOf(ev.rec) - ev.rec.start))
+    end
+    return name, grey(when .. " · ") .. status
+end
+
+local function newAgendaRow(card)
+    local r = CreateFrame("Button", nil, card)
+    r:SetHeight(AGENDA_ROW_H - 2)
+    r.bar = r:CreateTexture(nil, "ARTWORK")
+    r.bar:SetWidth(3)
+    r.bar:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -3)
+    r.bar:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 3)
+    r.l1 = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.l1:SetPoint("TOPLEFT", r, "TOPLEFT", 9, -3)
+    r.l1:SetPoint("TOPRIGHT", r, "TOPRIGHT", -2, -3)
+    r.l1:SetJustifyH("LEFT")
+    r.l2 = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.l2:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 9, 4)
+    r.l2:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -2, 4)
+    r.l2:SetJustifyH("LEFT")
+    r.l2:SetWordWrap(false)
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.08)
+    r:SetScript("OnEnter", Row_OnEnter)
+    r:SetScript("OnLeave", Row_OnLeave)
+    r:SetScript("OnClick", Row_OnClick)
+    return r
+end
+
+-- The picked day's raids: { { l1, l2, plain, color, tip, onClick } }; a raid name too long for one line takes two,
+-- and when the rest doesn't fit, the last row says how many more there are.
+local function setAgenda(card, items)
+    local width = card:GetWidth() or 0
+    if width < 300 then width = 388 end
+    local textW = width - AGENDA_X - 8 - 11
+    local tallH = AGENDA_ROW_H - 2 + 11
+    local y, bottom = -30, -(CARD_H - 4)
+    local used = 0
+    -- the row's texts; returns its height
+    local function fill(r, d)
+        r.l1:SetWordWrap(false)
+        r.l1:SetText(UI():SafeText(d.l1 or ""))
+        local tall = (r.l1:GetStringWidth() or 0) > textW
+        r.l1:SetWordWrap(tall)
+        if r.l1.SetMaxLines then r.l1:SetMaxLines(tall and 2 or 1) end
+        r.l2:SetText(UI():SafeText(d.l2 or ""))
+        return tall and tallH or (AGENDA_ROW_H - 2)
+    end
+    for i, d in ipairs(items) do
+        local r = card.agenda[i]
+        if not r then
+            r = newAgendaRow(card)
+            card.agenda[i] = r
+        end
+        local h = fill(r, d)
+        local rest = #items - i
+        if rest > 0 and y - h - 2 - tallH < bottom then
+            -- no room for another row after this one: this one says what else the day has
+            local names = { "More that day" }
+            for j = i, #items do names[#names + 1] = items[j].plain or "" end
+            d = { l1 = grey("+" .. (rest + 1) .. " more"), tip = names }
+            h = fill(r, d)
+        end
+        r:SetHeight(h)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", card, "TOPLEFT", AGENDA_X, y)
+        r:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, y)
+        r.bar:SetShown(d.color ~= nil)
+        if d.color then r.bar:SetColorTexture(hexRGB(d.color)) end
+        r.tip, r.onClick = d.tip, d.onClick
+        r:EnableMouse((d.tip or d.onClick) and true or false)
+        r:Show()
+        y = y - h - 2
+        used = i
+        if d ~= items[i] then break end
+    end
+    for j = used + 1, #card.agenda do
+        local r = card.agenda[j]
+        r:Hide()
+        r.tip, r.onClick = nil, nil
+    end
+end
+
+local function showDay(key)
+    cal.day = key
+    cal.y, cal.m = floor(key / 10000), floor(key / 100) % 100
     Dashboard:Refresh()
 end
 
-local function refreshBiSCard(card, ctx)
-    local s, phase = ctx.bisView, ctx.bisPhase
-    card.onOpen = function() openMyBiS(phase) end
-    local why = ""
-    if phase ~= ctx.phase then
-        why = grey(" (viewing)")
-    elseif ctx.targetRaid and tonumber(ctx.targetRaid.phase) == phase and phase > guildPhase() then
-        why = grey(" · " .. ctx.targetRaid.name)
-    end
-    card:SetTitle("Your BiS · Phase " .. phase .. why,
-        s.filled == 0 and ("No Phase " .. phase .. " picks yet") or (s.obtained .. " / " .. s.total .. " obtained"))
-    card.prevPhase.ctx, card.nextPhase.ctx = ctx, ctx
-    card.prevPhase:SetEnabled(phase > 1)
-    card.nextPhase:SetEnabled(phase < (ns.MAX_PHASE or 5))
-    local pct = s.total > 0 and (s.obtained / s.total) or 0
-    card.bar:SetShown(s.filled > 0)
-    card.barFill:SetShown(s.filled > 0 and pct > 0)
-    card.barFill:SetWidth(max(1, floor((card.bar:GetWidth() or 300) * pct)))
-    local rows = {}
-    if s.filled == 0 then
-        rows[#rows + 1] = { text = grey("Pick your best-in-slot items so the council knows what you need."),
-                            onClick = card.onOpen }
-        card:SetRows(rows, -50)
-        return
-    end
-    local raid, where = ctx.targetRaid, ctx.targetLabel
-    if raid then
-        local drops = dropsIn(s.missing, raid)
-        if #drops == 0 then
-            rows[#rows + 1] = grey("None of your missing picks drop in " .. raid.name .. ".")
-        else
-            rows[#rows + 1] = grey("Can drop " .. where .. " (" .. #drops .. ")")
-            for _, d in ipairs(drops) do
-                local text = UI():ItemText(d.itemID)
-                if d.which == "alt" then text = text .. grey(" (alt)") end
-                local right = d.boss
-                if d.via == "token" then right = right .. grey(" · token") end
-                rows[#rows + 1] = { text = text, right = right, itemID = d.itemID, indent = 4,
-                                    plain = (ns.ItemDB:GetName(d.itemID) or "?") .. " - " .. d.boss }
+local function refreshCalendarCard(card, ctx)
+    local now = Now()
+    local today = dayKey(now)
+    local ty, tm = dayOf(now)
+    local y, m = cal.y or ty, cal.m or tm
+    local picked = cal.day or today
+    card:SetTitle(date("%B %Y", noon(y, m, 1)))
+    -- the 6 weeks around the month, Monday first
+    local lead = (date("*t", noon(y, m, 1)).wday + 5) % 7
+    local from = midnight(y, m, 1 - lead)
+    local to = midnight(y, m, 1 - lead + 42) - 1
+    local byDay = calendarEvents(from, to)
+    for i, c in ipairs(card.cells) do
+        local cy, cm, cd = dayOf(noon(y, m, i - lead))
+        local key = cy * 10000 + cm * 100 + cd
+        c.key = key
+        c.num:SetText(cd)
+        local inMonth = cm == m
+        local shade = inMonth and 1 or 0.4
+        c.num:SetTextColor(shade, shade, shade)
+        c.sel:SetShown(key == picked)
+        UI():SetEdgeColor(c, 1, 0.82, 0, key == today and 0.9 or 0)
+        local list = byDay[key] or {}
+        local n = min(#list, MAX_DOTS)
+        for j, dot in ipairs(c.dots) do
+            if j <= n then
+                local _, color = eventState(list[j])
+                local r, g, b = hexRGB(color)
+                dot:SetColorTexture(r, g, b, inMonth and 1 or 0.5)
+                dot:ClearAllPoints()
+                dot:SetPoint("BOTTOM", c, "BOTTOM", (j - (n + 1) / 2) * 6, 3)
+                dot:Show()
+            else
+                dot:Hide()
             end
         end
-    else
-        local groups = missingBySource(s.missing)
-        if #groups == 0 then
-            rows[#rows + 1] = colorize("33ff33", "Everything on your list is obtained.")
-        else
-            rows[#rows + 1] = grey("Still needed, by source")
-            for _, g in ipairs(groups) do
-                rows[#rows + 1] = { text = g.name, right = plural(g.count, "item"), indent = 4 }
+        c.events = list
+    end
+    -- the arrows stop where there is nothing to show: a year back, 180 days ahead
+    card.prevMonth:SetEnabled(midnight(y, m, 1) - 1 >= now - CAL_BACK)
+    card.nextMonth:SetEnabled(midnight(y, m + 1, 1) <= now + CAL_AHEAD)
+    card.todayBtn:SetShown(picked ~= today or y ~= ty or m ~= tm)
+    -- the picked day
+    card.dayTitle:SetText(dayTitle(picked))
+    local items = {}
+    for _, ev in ipairs(byDay[picked] or {}) do
+        local l1, l2 = eventLines(ev)
+        local _, color = eventState(ev)
+        items[#items + 1] = { l1 = l1, l2 = l2, plain = date("%H:%M ", ev.t) .. ev.name, color = color,
+                              tip = eventTip(ev), onClick = eventClick(ev) }
+    end
+    if #items == 0 then
+        local py, pm, pd = keyDate(picked)
+        local dayEnd = midnight(py, pm, pd + 1)
+        items[1] = { l1 = grey(picked < today and "No raids that day." or "Nothing planned.") }
+        for _, v in ipairs(ctx.raids) do
+            if v.t >= dayEnd then
+                local key = dayKey(v.t)
+                items[2] = { l1 = grey("Next: ") .. RP():GetRaidName(v),
+                             l2 = grey(date("%a ", v.t) .. tonumber(date("%d", v.t)) .. date(" %b %H:%M", v.t)),
+                             tip = { "Next raid", RP():GetRaidName(v), date("%A %d %B %H:%M", v.t) .. " · " .. whenText(v.t),
+                                     grey("Click to show that day") },
+                             onClick = function() showDay(key) end }
+                break
             end
         end
     end
-    card:SetRows(rows, -58)
+    setAgenda(card, items)
 end
 
 local REASON_SHORT = { bis = "BiS", alt = "Alt", up = "Upgrade", os = "Offspec", de = "DE", bank = "Bank" }
@@ -1040,32 +1330,12 @@ local function buildContext()
         end
         if ctx.raid.id ~= pickedOcc then pickedOcc = nil end
     end
-    local here = currentItemRaid()
-    if here then
-        ctx.targetRaid, ctx.targetLabel = here, "here"
-    elseif ctx.raid then
-        local raid = itemRaidFor(ctx.raid.i)
-        if raid then
-            ctx.targetRaid = raid
-            local diff = ctx.raid.t - Now()
-            ctx.targetLabel = diff < DAY and diff > -CURRENT_FOR and ("in " .. raid.name .. " tonight")
-                or ("in " .. raid.name .. " " .. date("%A", ctx.raid.t))
-        end
-    end
-    -- The phase that matters is the raid's: a Phase 2 raid needs the Phase 2 list even while the guild phase is
-    -- still 1, and an older raid keeps the guild's current phase.
-    local raidPhase = ctx.targetRaid and tonumber(ctx.targetRaid.phase) or nil
+    -- The phase that matters is the raid's (the one I stand in, else the next): a Phase 2 raid needs the Phase 2 list
+    -- even while the guild phase is still 1, and an older raid keeps the guild's current phase.
+    local target = currentItemRaid() or (ctx.raid and itemRaidFor(ctx.raid.i))
+    local raidPhase = target and tonumber(target.phase) or nil
     if raidPhase and raidPhase > ctx.phase then ctx.phase = min(raidPhase, ns.MAX_PHASE or 5) end
     ctx.bis = bisSummary(ctx.phase)
-    -- The BiS card's arrows may show another phase (until another raid is shown).
-    ctx.phaseKey = ctx.targetRaid and ctx.targetRaid.key or "-"
-    if viewPhase and viewPhase.key == ctx.phaseKey and viewPhase.phase ~= ctx.phase then
-        ctx.bisPhase = viewPhase.phase
-        ctx.bisView = bisSummary(ctx.bisPhase)
-    else
-        viewPhase = nil
-        ctx.bisPhase, ctx.bisView = ctx.phase, ctx.bis
-    end
     return ctx
 end
 
@@ -1080,7 +1350,7 @@ function Dashboard:Refresh()
     panel.chipData.list = collectActions(ctx)
     layoutChips(panel.chipData)
     refreshRaidCard(panel.raidCard, ctx)
-    refreshBiSCard(panel.bisCard, ctx)
+    refreshCalendarCard(panel.calCard, ctx)
     refreshLootCard(panel.lootCard, ctx)
     local ready = canSeeReadiness()
     panel.readyCard:SetShown(ready)
@@ -1142,41 +1412,99 @@ function Dashboard:CreatePanel(parent)
         prev = b
     end
 
-    p.bisCard = createCard(p, "My BiS")
-    p.bisCard:SetPoint("TOPLEFT", p, "TOP", 3, top)
-    p.bisCard:SetPoint("RIGHT", p, "RIGHT", -4, 0)
+    local cc = createCard(p)
+    p.calCard = cc
+    cc:SetPoint("TOPLEFT", p, "TOP", 3, top)
+    cc:SetPoint("RIGHT", p, "RIGHT", -4, 0)
+    cc.agenda = {}
     local function arrow(dir, delta)
-        local b = CreateFrame("Button", nil, p.bisCard)
+        local b = CreateFrame("Button", nil, cc)
         b:SetSize(20, 20)
         b:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Up")
         b:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Down")
         b:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Disabled")
         b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
-        b:SetScript("OnClick", function(self) if self.ctx then stepPhase(self.ctx, delta) end end)
+        b:SetScript("OnClick", function()
+            local ty, tm = dayOf(Now())
+            local t = date("*t", noon(cal.y or ty, (cal.m or tm) + delta, 1))
+            cal.y, cal.m = t.year, t.month
+            Dashboard:Refresh()
+        end)
         b:SetScript("OnEnter", function(self)
-            UI():SetTextTooltip(self, { delta < 0 and "Previous phase" or "Next phase",
-                                        "Shows the raid's phase again when another raid is shown." })
+            UI():SetTextTooltip(self, { delta < 0 and "Previous month" or "Next month" })
         end)
         b:SetScript("OnLeave", Row_OnLeave)
         return b
     end
-    p.bisCard.nextPhase = arrow("Next", 1)
-    p.bisCard.nextPhase:SetPoint("RIGHT", p.bisCard.link, "LEFT", -2, 0)
-    p.bisCard.prevPhase = arrow("Prev", -1)
-    p.bisCard.prevPhase:SetPoint("RIGHT", p.bisCard.nextPhase, "LEFT", 2, 0)
-    p.bisCard.title:SetPoint("RIGHT", p.bisCard.prevPhase, "LEFT", -4, 0)
-    local bar = CreateFrame("Frame", nil, p.bisCard)
-    bar:SetHeight(6)
-    bar:SetPoint("TOPLEFT", p.bisCard, "TOPLEFT", 10, -46)
-    bar:SetPoint("TOPRIGHT", p.bisCard, "TOPRIGHT", -10, -46)
-    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-    bar.bg:SetAllPoints()
-    bar.bg:SetColorTexture(1, 1, 1, 0.1)
-    local fill = bar:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
-    fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0)
-    fill:SetColorTexture(0.30, 0.90, 0.40, 0.9)
-    p.bisCard.bar, p.bisCard.barFill = bar, fill
+    local gridRight = CAL_X + 7 * CAL_W
+    cc.nextMonth = arrow("Next", 1)
+    cc.nextMonth:SetPoint("TOPRIGHT", cc, "TOPLEFT", gridRight + 2, -5)
+    cc.prevMonth = arrow("Prev", -1)
+    cc.prevMonth:SetPoint("RIGHT", cc.nextMonth, "LEFT", 2, 0)
+    cc.todayBtn = CreateFrame("Button", nil, cc)
+    cc.todayBtn:SetSize(36, 16)
+    cc.todayBtn:SetPoint("RIGHT", cc.prevMonth, "LEFT", -2, 0)
+    cc.todayBtn.text = cc.todayBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    cc.todayBtn.text:SetPoint("RIGHT", cc.todayBtn, "RIGHT", 0, 0)
+    cc.todayBtn.text:SetText("Today")
+    cc.todayBtn:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 1, 1) end)
+    cc.todayBtn:SetScript("OnLeave", function(self) self.text:SetTextColor(1, 0.82, 0) end)
+    cc.todayBtn:SetScript("OnClick", function()
+        cal = {}
+        Dashboard:Refresh()
+    end)
+    cc.title:SetPoint("RIGHT", cc.todayBtn, "LEFT", -4, 0)
+    for i, letter in ipairs(WEEKDAYS) do
+        local fs = cc:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        fs:SetPoint("TOPLEFT", cc, "TOPLEFT", CAL_X + (i - 1) * CAL_W, -29)
+        fs:SetWidth(CAL_W)
+        fs:SetJustifyH("CENTER")
+        fs:SetText(letter)
+    end
+    cc.cells = {}
+    for i = 1, 42 do
+        local c = CreateFrame("Button", nil, cc)
+        c:SetSize(CAL_W - 2, CAL_H - 2)
+        c:SetPoint("TOPLEFT", cc, "TOPLEFT", CAL_X + ((i - 1) % 7) * CAL_W + 1, CAL_TOP - floor((i - 1) / 7) * CAL_H)
+        c.sel = c:CreateTexture(nil, "BACKGROUND")
+        c.sel:SetAllPoints()
+        c.sel:SetColorTexture(1, 0.82, 0, 0.22)
+        UI():AddEdges(c)
+        local hl = c:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 1, 1, 0.1)
+        c.num = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        c.num:SetPoint("TOP", c, "TOP", 0, -3)
+        c.dots = {}
+        for j = 1, MAX_DOTS do
+            local dot = c:CreateTexture(nil, "OVERLAY")
+            dot:SetSize(4, 4)
+            dot:Hide()
+            c.dots[j] = dot
+        end
+        c:SetScript("OnClick", function(self) if self.key then showDay(self.key) end end)
+        c:SetScript("OnEnter", function(self)
+            if not (self.events and #self.events > 0) then return end
+            local lines = { dayTitle(self.key) }
+            for _, ev in ipairs(self.events) do
+                local label, color = eventState(ev)
+                lines[#lines + 1] = date("%H:%M ", ev.t) .. ev.name .. " · " .. colorize(color, label)
+            end
+            UI():SetTextTooltip(self, lines)
+        end)
+        c:SetScript("OnLeave", Row_OnLeave)
+        cc.cells[i] = c
+    end
+    local sep = cc:CreateTexture(nil, "ARTWORK")
+    sep:SetWidth(1)
+    sep:SetPoint("TOPLEFT", cc, "TOPLEFT", AGENDA_X - 7, -8)
+    sep:SetPoint("BOTTOMLEFT", cc, "BOTTOMLEFT", AGENDA_X - 7, 8)
+    sep:SetColorTexture(1, 1, 1, 0.08)
+    cc.dayTitle = cc:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    cc.dayTitle:SetPoint("TOPLEFT", cc, "TOPLEFT", AGENDA_X, -9)
+    cc.dayTitle:SetPoint("RIGHT", cc, "RIGHT", -10, 0)
+    cc.dayTitle:SetJustifyH("LEFT")
+    cc.dayTitle:SetWordWrap(false)
 
     local footerH = 18
     local function lowerCard(label, left)
@@ -1185,7 +1513,7 @@ function Dashboard:CreatePanel(parent)
             c:SetPoint("TOPLEFT", p.raidCard, "BOTTOMLEFT", 0, -6)
             c:SetPoint("RIGHT", p, "CENTER", -3, 0)
         else
-            c:SetPoint("TOPLEFT", p.bisCard, "BOTTOMLEFT", 0, -6)
+            c:SetPoint("TOPLEFT", p.calCard, "BOTTOMLEFT", 0, -6)
             c:SetPoint("RIGHT", p, "RIGHT", -4, 0)
         end
         c:SetPoint("BOTTOM", p, "BOTTOM", 0, footerH + 6)

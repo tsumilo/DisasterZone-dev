@@ -8,6 +8,17 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.3.0", date = "3 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
       sections = {
+          { heading = "Home: a raid calendar", lines = {
+              "A calendar replaces the BiS card on Home: the month, with a dot on every raid day.",
+              "A dot is your answer: green accepted, yellow tentative, blue bench, red absent.",
+              "Orange: you're invited and haven't answered. Grey: the raid is over.",
+              "Click a day to list its raids beside the month; click a raid to open it in the Raids tab.",
+              "Past raids say how they went: bosses killed, how long, and your loot when you hover them.",
+              "History goes back a year: the logged raids you were in (raid log members see them all).",
+              "Weekly raids show every week ahead, also past the Raids tab's two weeks.",
+              "Raid log members open a past raid straight in the Raid log.",
+              "Your BiS picks that can drop in the next raid: one line on its card, hover for the list.",
+          } },
           { heading = "Strategy boards in 3D (Teron Gorefiend, Lady Vashj)", lines = {
               "2D / 3D above the map: the page in the boss' own room, as the game draws it.",
               "The boss and its adds stand as their models, at their real size, where the map has them.",
