@@ -36,13 +36,14 @@ local ICON = {
     version = "Interface\\Icons\\INV_Misc_Note_01",
 }
 
--- The pages: their label, the tab (and the Raids / Members view) they open, a line for the tooltip.
+-- The pages: their label, the tab (and the Raids / Members / Council view) they open, a line for the tooltip.
 local PAGES = {
     home       = { label = "Home", tab = "home", desc = "Your raids, BiS progress and what's new." },
     mybis      = { label = "My BiS", tab = "mybis", desc = "Your best in slot lists." },
     council    = { label = "Council", tab = "council", desc = "The loot council's view.",
                    closed = "The Council tab is for the loot council." },
-    loot       = { label = "Loot Log", tab = "loot", desc = "Every item handed out." },
+    loot       = { label = "Council: Loot Log", tab = "council", councilView = "log", desc = "Every item handed out.",
+                   closed = "The Loot Log is for the loot council." },
     raids      = { label = "Raids", tab = "raids", view = "upcoming", desc = "Planned raids and sign-ups." },
     teams      = { label = "Raids: Teams", tab = "raids", view = "teams", desc = "The raid teams." },
     strategies = { label = "Raids: Strategies", tab = "raids", view = "strategies",
@@ -414,6 +415,10 @@ function Share:Open(ref)
         ok = OpenTab(page.tab)
         if ok and page.view then ok = OpenRaids(page.view) end
         if ok and page.mode then ns.MembersUI:SetMode(page.mode) end
+        if ok and page.councilView then
+            ns.CouncilUI:SetView(page.councilView)
+            ok = ns.CouncilUI:GetView() == page.councilView
+        end
         if not ok then why = page.closed or (page.view and NOT_IN_GUILD) or "That page isn't open to you." end
     elseif kind and OPEN[kind] then
         local fine, a, b = pcall(OPEN[kind], arg)
@@ -629,6 +634,8 @@ function Share:CurrentRef()
     elseif tab == "changelog" and ns.ChangelogUI then
         local v = ns.ChangelogUI:GetSelected()
         return (v and ChangelogEntry(v)) and ("ver:" .. v) or "changelog"
+    elseif tab == "council" and ns.CouncilUI then
+        return ns.CouncilUI:GetView() == "log" and "loot" or "council"
     end
     return PAGES[tab] and tab or nil
 end

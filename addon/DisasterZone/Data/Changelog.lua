@@ -216,6 +216,7 @@ ns.CHANGELOG = {
               "My BiS: Clear phase is under the ... button at the top right.",
               "Drop panel: Award... is the main button; DE and Bank are icons (hover: who gets it).",
               "Council: views on the left of the top row; phase, Drops and search on the right.",
+              "The Loot Log is a view of the Council tab now, next to Member; /dz log still opens it.",
               "Lists of players: a small bin takes someone off.",
               "Home: the sign-up buttons sit right under the raid.",
               "Home: Roles also says how many accepted without a spec.",

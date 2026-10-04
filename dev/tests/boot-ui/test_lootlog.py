@@ -1,4 +1,4 @@
-"""Loot Log tab: add-award dialog (item by ID / link / shift-click / drag, winner menu and typed names, note,
+"""The Council tab's Loot Log view: add-award dialog (item by ID / link / shift-click / drag, winner menu and typed names, note,
 validation), void / restore, "Show voided", search, row menu and tooltip, auto entries, non-council refusal.
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_lootlog.py
@@ -46,7 +46,7 @@ def council_world(rank=1, members=(("Bob", "MAGE", 3), ("Carl", "ROGUE", 2), ("D
 def open_log(c):
     c.slash("/dz log")
     c.world.tick(0.5)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "loot"
+    assert c.eval("return ns.MainFrame:GetSelectedTab() == 'council' and ns.CouncilUI:GetView()") == "log"
 
 
 def log_rows(c):

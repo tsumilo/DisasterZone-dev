@@ -96,8 +96,7 @@ The window has these tabs:
 | **Home** | Everyone: what needs you now, the next raid (sign up in one click), your BiS picks that can drop there, recent loot, and a readiness check for the council and raid leaders |
 | **My BiS** | Everyone |
 | **Atlas** | Everyone: every item you can get (raids, dungeons, crafting, reputation, PvP, vendors, collections), with search. See [The Atlas tab](#the-atlas-tab) |
-| **Council** | Loot Council members (and anyone in demo mode) |
-| **Loot Log** | Loot Council members (and anyone in demo mode) |
+| **Council** | Loot Council members (and anyone in demo mode); the Loot Log is one of its views |
 | **Raids** | Everyone in a guild (the Raid log view: council, Guild Master and raid leaders) |
 | **Games** | Everyone |
 | **Settings** | Everyone |
@@ -501,7 +500,7 @@ Settings → **Loot Council** tells you whether you are on the council, and why.
 Toolbar controls:
 
 - **Phase**
-- View buttons: **Roster**, **Items**, **Member** and **Loot Council**
+- View buttons: **Roster**, **Items**, **Member**, **Loot Log** and **Loot Council**
 - **Drops**: opens the [boss drop panel](#drop-panel-boss-drop) with tonight's drops
 - A name search box
 - **All classes** and **All roles** dropdowns
@@ -602,7 +601,10 @@ If you award an item that has a roll, the roll closes for everyone and the popup
 - **Y passes it to X** keeps the award and voids Y's automatic log entry.
 - **Y keeps it (void the award to X)** voids the award to X and shows Y as the winner.
 
-### Loot Log tab
+### Loot Log (Council tab)
+
+Council tab → **Loot Log**, or `/dz log`.
+
 
 - **Automatic entries:** when your client sees "X receives loot: [item]" inside a raid instance (or a 5-man dungeon in dungeon mode), DisasterZone records it. This covers boss loot at or above the minimum quality, plus tier tokens.
 - **Manual entries:** awards from the drop panel, or **Add award...**. The dialog has an **Item** field (shift-click a link, drag an item, or type the item ID), a **Winner** field (type a name or use **Choose**), a **Note**, a **Reason**, and **Save**.
@@ -736,7 +738,7 @@ How it works:
 - A list holds up to 40 names.
 - **Revert** discards unsaved changes. **Clear list** removes everyone after asking. You stay council.
 - The list reaches online members at once. Members who log in later get it within about a minute, either from you or from a council member.
-- To remove someone, take them off the list and click **Save & share** again. They lose council status everywhere: the Council and Loot Log tabs close, and they stop receiving lists.
+- To remove someone, take them off the list and click **Save & share** again. They lose council status everywhere: the Council tab closes, and they stop receiving lists.
 - Your own client only trusts the list you saved yourself, and that list is stored on the PC you saved it on. If you play the GM on another PC, DisasterZone may print "Your guild council list is not saved on this PC: open Council > Loot Council and save it again". Save it once on that PC.
 
 ### Disenchanter and guild bank
@@ -815,7 +817,7 @@ The council always confirms the award. Nothing is given away without a click and
 | `/dz bis` | Opens the My BiS tab | everyone |
 | `/dz changelog` | Opens the Changelog tab | everyone |
 | `/dz council` | Opens the Council tab (My BiS if you aren't council) | council |
-| `/dz log` | Opens the Loot Log tab | council |
+| `/dz log` | Opens the Council tab's Loot Log | council |
 | `/dz raids` | Opens the Raids tab: upcoming raids and sign-ups | everyone |
 | `/dz plan` | Lists the planned raids and your answers in chat | everyone |
 | `/dz settings` or `/dz config` | Opens Settings | everyone |
@@ -875,7 +877,7 @@ Turn demo mode on with `/dz demo`, or tick **Demo data (fake guild members & rai
 What it adds:
 
 - Fake guild members with BiS lists, some of them in a pretend raid.
-- The Council and Loot Log tabs, even if you aren't council.
+- The Council tab (with the Loot Log), even if you aren't council.
 - Your own My BiS list stays real.
 
 Things to try:
@@ -973,7 +975,7 @@ A fresh install with an empty list is restored automatically.
 ### Something looks stuck
 - `/reload` rebuilds the windows.
 - Rolls in progress are kept in memory only. Avoid `/reload` on the client that started a roll until the roll is awarded.
-- If DisasterZone fails mid-raid, hand the item out the normal way (master loot or trade). Record it afterwards with Loot Log → **Add award...**.
+- If DisasterZone fails mid-raid, hand the item out the normal way (master loot or trade). Record it afterwards with Council → **Loot Log** → **Add award...**.
 
 ### Reporting a Lua error
 1. Install **BugSack** from CurseForge. It needs **!BugGrabber**; the CurseForge app installs both.

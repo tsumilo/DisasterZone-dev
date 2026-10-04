@@ -219,11 +219,14 @@ def sync_before_roster_ok_and_rate_limited():
 @case
 def council_log_settings_open_their_tabs():
     w, c = solo("Cou", guild_rank=1, tick=3, council=["Cou"])
-    for cmd, tab in (("council", "council"), ("log", "loot"), ("settings", "settings"), ("config", "settings")):
+    for cmd, tab in (("council", "council"), ("log", "council"), ("settings", "settings"), ("config", "settings")):
         c.slash("/dz " + cmd)
         w.tick(0.3)
         assert c.eval("return ns.MainFrame:GetSelectedTab()") == tab, (cmd, tab)
         assert c.eval("return ns.MainFrame:GetPanel(...):IsVisible()", tab) is True
+        if cmd == "log":    # the Loot Log is a view of the Council tab
+            assert c.eval("return ns.CouncilUI:GetView()") == "log"
+            assert c.eval("return DisasterZoneLootLogPanel:IsVisible()") is True
     no_errors(w)
 
 

@@ -54,7 +54,7 @@ local FALLBACK_COLORS = {
 -- Session-only view state (not saved).
 local state = {
     phase = nil,           -- nil = follow ns.Guild:GetViewPhase()
-    view = "roster",       -- "roster" | "items" | "member"
+    view = "roster",       -- "roster" | "items" | "member" | "log" (the Loot Log, UI/LootLog.lua) | "council"
     search = "",           -- lower-cased search text
     class = "ALL",
     role = "ALL",
@@ -2520,6 +2520,7 @@ local function createToolbar(p)
     p.viewButtons = {}
     local views = {
         { key = "roster", label = "Roster" }, { key = "items", label = "Items" }, { key = "member", label = "Member" },
+        { key = "log", label = "Loot Log", tip = "Every item handed out: search, void or restore, add an award." },
         { key = "council", label = "Loot Council",
           tip = "Who is on the Loot Council. The Guild Master picks the guild council; a raid leader can add council members for their own raid." },
     }
@@ -2750,16 +2751,21 @@ function CouncilUI:Refresh(resetScroll, keepTreeScroll)
     panel.dirty = false
     if ns.Util and ns.Util.CancelDebounce then ns.Util.CancelDebounce("council-ui") end
 
-    -- The Loot Council view has its own controls: the phase / search / filters don't apply to it.
-    local council = state.view == "council"
+    -- The Loot Log and Loot Council views have their own controls: the phase / search / filters don't apply to them.
+    local council, log = state.view == "council", state.view == "log"
     if council and not panel.councilView then
         panel.councilView = createCouncilView(panel)
     end
+    if log and not panel.logView and ns.LootLogUI then
+        panel.logView = ns.LootLogUI:CreatePanel(panel)
+    end
     if panel.councilView then panel.councilView:SetShown(council) end
-    panel.phaseLabel:SetShown(not council)
-    panel.phaseDD:SetShown(not council)
-    panel.search:SetShown(not council)
-    if council then
+    if panel.logView then panel.logView:SetShown(log) end
+    local own = council or log
+    panel.phaseLabel:SetShown(not own)
+    panel.phaseDD:SetShown(not own)
+    panel.search:SetShown(not own)
+    if own then
         panel.rosterView:Hide()
         if panel.itemsView then panel.itemsView:Hide() end
         if panel.memberView then panel.memberView:Hide() end
@@ -2767,7 +2773,7 @@ function CouncilUI:Refresh(resetScroll, keepTreeScroll)
         panel.row2:Hide()
         panel.footer:Hide()
         updateToolbar()
-        refreshCouncilView()
+        if council then refreshCouncilView() end
         return
     end
 
@@ -2836,7 +2842,7 @@ function CouncilUI:IsAvailable()
 end
 
 function CouncilUI:SetView(view)
-    if view ~= "roster" and view ~= "items" and view ~= "member" and view ~= "council" then return end
+    if view ~= "roster" and view ~= "items" and view ~= "member" and view ~= "log" and view ~= "council" then return end
     state.view = view
     if panel then
         panel.dirty = true
@@ -2864,6 +2870,12 @@ function CouncilUI:ShowMember(key)
     if type(key) ~= "string" or key == "" then return end
     state.memberKey = key
     state.view = "member"
+    self:OpenPanel()
+end
+
+-- The Loot Log view (/dz log, the Home cards, "loot" share links; MainFrame:Open("loot") lands here).
+function CouncilUI:ShowLog()
+    state.view = "log"
     self:OpenPanel()
 end
 

@@ -188,7 +188,7 @@ def a_raid_leader_gets_no_loot_council_data():
     rhea, cora = c["Rhea"], c["Cora"]
     assert tabs(rhea) == ["home", "mybis", "atlas", "raids", "members", "games", "changelog", "settings"], tabs(rhea)
     ct = tabs(cora)
-    assert "council" in ct and "loot" in ct, ct
+    assert "council" in ct, ct
     cora.eval("ns.Ledger:Award(28477, ..., 'Karazhan:Attumen', 'test')", K("Rita"))
     mark = len(w.addon_log)
     rhea.relog(reload=False)

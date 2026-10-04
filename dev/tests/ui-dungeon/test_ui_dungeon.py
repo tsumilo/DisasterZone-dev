@@ -480,7 +480,7 @@ def loot_log_dungeon_tag_and_filter():
     c.eval("local id = ...; ns.db.ledger[id].dg = true; ns:Fire('LEDGER_UPDATED')", e2)
     c.slash("/dz log")
     w.tick(0.5)
-    if c.eval("return ns.MainFrame:GetSelectedTab()") != "loot":
+    if c.eval("return ns.MainFrame:GetSelectedTab() == 'council' and ns.CouncilUI:GetView()") != "log":
         c.eval("ns.MainFrame:Open('loot')")
         w.tick(0.3)
     c.eval("ns.LootLogUI:Refresh(true)")

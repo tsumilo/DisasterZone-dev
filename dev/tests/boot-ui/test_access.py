@@ -19,7 +19,7 @@ end
 return out"""
 
 # The navigation strip: text tabs, then the Games, Changelog and Settings icons.
-ALL_TABS = ["home", "mybis", "atlas", "council", "loot", "raids", "members", "games", "changelog", "settings"]
+ALL_TABS = ["home", "mybis", "atlas", "council", "raids", "members", "games", "changelog", "settings"]
 # Addendum J: every guild member has the Raids tab (Upcoming / Teams); its Raid log view stays council only.
 PERSONAL_TABS = ["home", "mybis", "atlas", "raids", "members", "games", "changelog", "settings"]
 GUILDLESS_TABS = ["home", "mybis", "atlas", "members", "games", "changelog", "settings"]
@@ -31,6 +31,11 @@ def shown_tabs(c):
 
 def panel_shown(c, key):
     return bool(c.eval("local p = ns.MainFrame:GetPanel(...); return p ~= nil and p:IsVisible()", key))
+
+
+def log_shown(c):
+    """The Council tab's Loot Log view is on screen."""
+    return bool(c.eval("return DisasterZoneLootLogPanel ~= nil and DisasterZoneLootLogPanel:IsVisible()"))
 
 
 def open_window(c):
@@ -182,7 +187,7 @@ def tabs_follow_demo_toggle():
     c.slash("/dz demo on")
     c.slash("/dz log")
     w.tick(0.3)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "loot"
+    assert c.eval("return ns.MainFrame:GetSelectedTab() == 'council' and ns.CouncilUI:GetView()") == "log"
     c.slash("/dz")          # close
     w.tick(0.1)
     assert c.eval("return ns.MainFrame:IsShown()") is False
@@ -380,7 +385,7 @@ def guild_rank_changes_do_not_change_council_only_the_list_and_the_gm_do():
     assert shown_tabs(rai) == ALL_TABS, shown_tabs(rai)
     rai.slash("/dz log")
     w.tick(0.3)
-    assert panel_shown(rai, "loot")
+    assert log_shown(rai)
     rai.guild_rank = 4                   # demoted: still on the list
     w._sync(roster_changed=True)
     w.tick(1)
@@ -388,7 +393,7 @@ def guild_rank_changes_do_not_change_council_only_the_list_and_the_gm_do():
     gm_pick(w, gm, [])                   # removed from the list
     assert rai.eval("return ns.Guild:AmICouncil()") is False
     assert shown_tabs(rai) == PERSONAL_TABS, shown_tabs(rai)
-    assert not panel_shown(rai, "loot")
+    assert not log_shown(rai)
     assert rai.eval("return ns.MainFrame:GetSelectedTab()") == "home"
     # the guild is handed over: the new GM is council, the old one only if picked
     rai.guild_rank, gm.guild_rank = 0, 1

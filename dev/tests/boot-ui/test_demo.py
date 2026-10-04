@@ -211,7 +211,7 @@ def demo_works_without_a_guild_and_sends_nothing():
     c.slash("/dz")
     w.tick(0.3)
     tabs = c.eval_py("local o = {} for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t:IsShown() then o[#o + 1] = t.cdlKey end end return o")
-    assert tabs == ["home", "mybis", "atlas", "council", "loot", "raids", "members", "games", "changelog", "settings"], tabs
+    assert tabs == ["home", "mybis", "atlas", "council", "raids", "members", "games", "changelog", "settings"], tabs
     exercise_demo_ui(c, w)
     assert c.eval("return #T_data(DisasterZoneCouncilPanel.rosterView.list.box)") == 19
     c.slash("/dz test")

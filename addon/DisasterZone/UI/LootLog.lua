@@ -1,4 +1,6 @@
-if DisasterZoneBoot and DisasterZoneBoot.Run("UI/LootLog.lua", ...) then return end -- DisasterZone: "Loot Log" tab (SPEC §12.7): the council's award ledger with search, void/restore and manual awards.
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/LootLog.lua", ...) then return end -- DisasterZone: the Council tab's "Loot Log" view (SPEC §12.7): the council's award ledger with search, void/restore and manual awards.
+-- The Council panel hosts it (CouncilUI, view "log"): its search sits where the Council's own search is, the filters
+-- and Add award... on the row below the views.
 -- Dungeon-mode awards (entries with dg = true, ADDENDUM B §22.2) carry a grey "(dungeon)" tag and can be hidden.
 -- Also owns the "Record award" dialog that the Council view and the drop panel reuse (LootLogUI:OpenAwardDialog).
 local addonName, ns = ...
@@ -719,8 +721,8 @@ end
 
 local function createHeader(p)
     local h = ns.UI:CreateColumnHeader(p, 18)
-    h:SetPoint("TOPLEFT", 0, -34)
-    h:SetPoint("TOPRIGHT", 0, -34)
+    h:SetPoint("TOPLEFT", 0, -60)
+    h:SetPoint("TOPRIGHT", 0, -60)
     local titles = {
         { COL.date, "Date" }, { COL.item, "Item" }, { COL.winner, "Winner" }, { COL.reason, "Reason" },
         { COL.boss, "Boss" }, { COL.by, "Recorded" },
@@ -729,6 +731,7 @@ local function createHeader(p)
     return h
 end
 
+-- parent: the Council panel. The frame covers it; the Council's view tabs (top left) stay clickable above it.
 function LootLogUI:CreatePanel(parent)
     if panel then return panel end
     local UI = ns.UI
@@ -737,12 +740,14 @@ function LootLogUI:CreatePanel(parent)
     panel = p
     p.dirty = true
 
-    p.search = UI:CreateSearchBox(p, 220, function(text)
+    -- the Council's top row: the search in the Council search's place (hidden on this view)
+    p.search = UI:CreateSearchBox(p, 170, function(text)
         state.search = trim(text):lower()
         LootLogUI:Refresh(true)
     end)
-    p.search:SetPoint("LEFT", p, "TOPLEFT", 14, -16)
+    p.search:SetPoint("RIGHT", p, "TOPRIGHT", -10, -16)
 
+    -- the row under it: filters on the left, the count and Add award... on the right
     p.voidCB = UI:CreateCheckbox(p, "Show voided", function() return state.showVoid end, function(value)
         if type(value) == "boolean" then
             state.showVoid = value
@@ -751,7 +756,7 @@ function LootLogUI:CreatePanel(parent)
         end
         LootLogUI:Refresh(true)
     end)
-    p.voidCB:SetPoint("LEFT", p, "TOPLEFT", 250, -16)
+    p.voidCB:SetPoint("LEFT", p, "TOPLEFT", 8, -44)
 
     p.dungeonCB = UI:CreateCheckbox(p, "Show dungeon loot", function() return state.showDungeon end, function(value)
         if type(value) == "boolean" then
@@ -761,10 +766,10 @@ function LootLogUI:CreatePanel(parent)
         end
         LootLogUI:Refresh(true)
     end)
-    p.dungeonCB:SetPoint("LEFT", p, "TOPLEFT", 370, -16)
+    p.dungeonCB:SetPoint("LEFT", p, "TOPLEFT", 128, -44)
 
     p.addBtn = UI:CreateButton(p, "Add award...", 110, 22, function() LootLogUI:OpenAwardDialog() end)
-    p.addBtn:SetPoint("RIGHT", p, "TOPRIGHT", -8, -16)
+    p.addBtn:SetPoint("RIGHT", p, "TOPRIGHT", -10, -44)
 
     p.count = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     p.count:SetPoint("RIGHT", p.addBtn, "LEFT", -12, 0)
@@ -774,7 +779,7 @@ function LootLogUI:CreatePanel(parent)
 
     p.list = UI:CreateScrollList(p, ROW_HEIGHT, initRow)
     p.list.frame:ClearAllPoints()
-    p.list.frame:SetPoint("TOPLEFT", 0, -54)
+    p.list.frame:SetPoint("TOPLEFT", 0, -80)
     p.list.frame:SetPoint("BOTTOMRIGHT", 0, 22)
 
     p.empty = p:CreateFontString(nil, "OVERLAY", "GameFontDisable")
@@ -851,11 +856,6 @@ end
 -- Public API
 ----------------------------------------------------------------------------
 
-function LootLogUI:IsAvailable()
-    local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
-    return (council or demoEnabled()) and true or false
-end
-
 -- Opens the "Record award" dialog, optionally prefilled (all arguments optional).
 -- bossKey: bossRef key of the drop; when omitted the boss is derived from the item (and a recent kill).
 -- opts.onSave(itemID, winnerKey, bossKey, note, awardReason) -> ok[, reason]: records the award instead of the plain
@@ -892,12 +892,6 @@ end
 ----------------------------------------------------------------------------
 
 function LootLogUI:OnInit()
-    if ns.MainFrame and ns.MainFrame.RegisterTab then
-        ns.MainFrame:RegisterTab("loot", "Loot Log", 3,
-            function(parent) return LootLogUI:CreatePanel(parent) end,
-            function() return LootLogUI:IsAvailable() end)
-    end
-
     local function refresh()
         LootLogUI:RequestRefresh()
     end

@@ -85,6 +85,37 @@ local function firstPage()
     end
 end
 
+local function selectTool()
+    canvas():SetTool("select")
+    B():RefreshTools()
+end
+
+-- The page in the boss' room (UI/StrategyMap3D.lua) or on the map. The 2D chapters point at the map and watch its
+-- zoom, so they put the board back on the map; the 3D steps go into the room at once, however the member came.
+local function v3() return canvas().v3 end
+local function in3D() return canvas():Is3D() end
+local function view3D(on)
+    if in3D() ~= on then canvas():Set3D(on, false) end
+end
+local function flat() view3D(false) end
+-- No room to show this page in (the 3D files come with an update and need a client restart).
+local function no3D() return (canvas():Room3D()) == nil end
+-- Where the camera is going (where it is when it isn't moving).
+local function cam()
+    local v = v3()
+    return v.anim and v.anim.to or v.orb
+end
+-- A drawing's spot in the room on the screen, as the tour's cursor takes it, or nil when it is out of sight.
+local function inRoom(e)
+    local v, f = v3(), canvas().frame
+    if not (e and v and in3D()) then return nil end
+    local g = v:Geo(e)
+    local sx, sy = v:Proj(g.x, g.y, g.z)
+    local w, h = f:GetWidth() or 0, f:GetHeight() or 0
+    if not sx or w <= 0 or h <= 0 or sx < 0 or sx > w or sy < 0 or sy > h then return nil end
+    return { f, sx / w, 1 - sy / h }
+end
+
 local basics = {
     {
         title = "Welcome to the strategy board",
@@ -95,7 +126,8 @@ local basics = {
         title = "The map",
         anchor = function() return canvas().frame end,
         text = "The boss room, with the boss and his adds where they stand at the pull. Zones, arrows, icons and texts "
-            .. "go on top of it.",
+            .. "go on top of it.\n\nThe switch in its corner shows the same page in the room itself, in 3D: that has a "
+            .. "chapter of its own.",
     },
     {
         title = "The jobs",
@@ -158,6 +190,7 @@ local basics = {
         side = "bottom",
         text = "The new page starts with the same map and nothing on it.",
         hint = "Click the first tab to go back.",
+        skip = function() return #st().strat.p < 2 end,        -- (no page was added)
         done = function() return st().page == 1 end,
         ghost = function() return { from = { W().tabs[1], 0.5, 0.5 } } end,
     },
@@ -255,7 +288,186 @@ local drawing = {
         title = "Keys and mouse",
         anchor = function() return tools().helpBtn end,
         side = "top",
-        text = "Hover the question mark for every shortcut: copy and paste, duplicate, group, nudge with the arrows.",
+        text = "Hover the question mark for every shortcut: copy and paste, duplicate, group, nudge with the arrows, "
+            .. "and the camera in 3D.\n\nNext: the same page in the boss' room.",
+    },
+}
+
+---------------------------------------------------------------------------
+-- The room in 3D
+---------------------------------------------------------------------------
+
+local abs = math.abs
+
+-- The page was put on another floor (the basics' map menu): back on the room's own, so the room can open.
+local function roomMap()
+    local _, why, room = canvas():Room3D()
+    if why ~= "map" or not room then return end
+    for _, m in ipairs(ns.Data and ns.Data.RaidMaps or {}) do
+        if m.file == room.map then
+            local p = pg()
+            p.m, p.vx, p.vy, p.vz = m.id, 500, 500, 100
+            B():MarkDirty(true)
+            return
+        end
+    end
+end
+
+-- What to right-click for View from here: the selected drawing, else the last zone, else the boss.
+local function viewTarget()
+    local e = canvas():GetSelected()
+    if e then return e end
+    local list = pg().e
+    for i = #list, 1, -1 do
+        if list[i].t == "z" then return list[i] end
+    end
+    local _, model = v3():FirstModel()
+    return model
+end
+
+-- Walking needs the room's ground (the walk button is there only then).
+local function noWalk()
+    local room = canvas():Room3D()
+    return not (room and ns.Render3D.Ground and ns.Render3D.Ground(room))
+end
+
+local room3d = {
+    {
+        title = "3D after a restart",
+        skip = function() return not no3D() end,
+        text = "The board can show a page in the boss' room in 3D, as the game draws it. Those files come with an "
+            .. "update, and the game only reads new files when it starts: restart the client once (a /reload is not "
+            .. "enough), then come back to this chapter.\n\nNext: the tables of jobs.",
+    },
+    {
+        title = "The room in 3D",
+        anchor = function() return W().mode2d, W().mode3d end,
+        skip = no3D,
+        text = "Every raid boss has his room in 3D, with the boss and his adds as their own models, at their true "
+            .. "size. It is the same page: what is on the map stands in the room, and what you draw in the room is "
+            .. "on the map.",
+        hint = "Click 3D in the map's corner.",
+        done = in3D,
+        ghost = function() return { from = { W().mode3d, 0.5, 0.5 } } end,
+    },
+    {
+        title = "Turning the view",
+        anchor = function() return canvas().frame end,
+        skip = no3D,
+        text = "The camera circles a point on the floor. Right-drag turns and tilts it; Q and E turn it 45 degrees.",
+        hint = "Right-drag in the room.",
+        enter = function(ctx)
+            view3D(true)
+            local o = cam()
+            ctx.h, ctx.p = o.heading, o.pitch
+        end,
+        done = function(ctx)
+            local o = in3D() and cam()
+            return o and (abs(o.heading - ctx.h) > 0.05 or abs(o.pitch - ctx.p) > 0.05) or false
+        end,
+        ghost = function()
+            return { from = { canvas().frame, 0.62, 0.5 }, to = { canvas().frame, 0.42, 0.4 }, label = "Right-drag" }
+        end,
+    },
+    {
+        title = "Closer and farther",
+        anchor = function() return canvas().frame end,
+        skip = no3D,
+        text = "The wheel zooms. Middle-drag moves the view (a left-drag with the hand tool does too), and a "
+            .. "double-click on the floor looks there.",
+        hint = "Zoom in with the mouse wheel.",
+        enter = function(ctx)
+            view3D(true)
+            ctx.d = cam().dist
+        end,
+        done = function(ctx) return in3D() and abs(cam().dist - ctx.d) > 0.05 * ctx.d end,
+        ghost = function() return { from = { canvas().frame, 0.5, 0.5 }, label = "Mouse wheel" } end,
+    },
+    {
+        title = "The camera buttons",
+        anchor = function() return unpack(v3().hudBtns) end,
+        skip = no3D,
+        enter = function() view3D(true) end,
+        text = "From the left: turn left and right; From above (straight down, north up, like the map; again tilts "
+            .. "back); the whole room (Home); the small map; Walk. With a job on the plan an eye comes in too: My "
+            .. "spot.",
+    },
+    {
+        title = "The small map",
+        anchor = function() return v3().inset.frame end,
+        skip = no3D,
+        text = "The map in the corner shows where the camera is (the gold arrow) and what it sees (the white "
+            .. "outline). A click on it looks there; the map button hides it.",
+        hint = "Click a spot on the small map.",
+        enter = function(ctx)
+            view3D(true)
+            if not v3().insetOn then v3():ToggleInset() end
+            local o = cam()
+            ctx.x, ctx.y = o.x, o.y
+        end,
+        done = function(ctx)
+            local o = in3D() and cam()
+            return o and abs(o.x - ctx.x) + abs(o.y - ctx.y) > 1 or false
+        end,
+        ghost = function() return { from = { v3().inset.frame, 0.25, 0.7 } } end,
+    },
+    {
+        title = "Drawing in the room",
+        anchor = function() return canvas().frame, tools().btns[3] end,
+        skip = no3D,
+        text = "Every tool works here. A zone lies on the floor, down steps and up onto platforms; an arrow runs "
+            .. "along the floor; icons and texts stand over their spot like name plates.",
+        hint = "Pick the circle tool and drag on the floor.",
+        enter = function(ctx)
+            view3D(true)
+            ctx.n = #pg().e
+        end,
+        done = function(ctx) return in3D() and #pg().e > ctx.n and canvas().drag == nil end,
+        ghost = function()
+            local tool = canvas().tool
+            if tool == "select" or tool == "pan" then return { from = { tools().btns[3], 0.5, 0.5 } } end
+            return { from = { canvas().frame, 0.4, 0.62 }, to = { canvas().frame, 0.47, 0.72 }, label = "Drag" }
+        end,
+    },
+    {
+        title = "View from here",
+        anchor = function() return canvas().frame end,
+        skip = no3D,
+        text = "Right-click a drawing > View from here: you stand on it at eye height, looking at the boss (on an "
+            .. "arrow: from its start, along it). That is what the player sent there sees. The wheel steps back out.",
+        hint = "Right-click a drawing and pick View from here.",
+        enter = function() view3D(true) end,
+        done = function() return in3D() and cam().dist < 3 end,
+        ghost = function()
+            local at = inRoom(viewTarget())
+            return at and { from = at, label = "Right-click" } or nil
+        end,
+    },
+    {
+        title = "Walking in the room",
+        anchor = function() return v3().walkBtn end,
+        skip = function() return no3D() or noWalk() end,
+        text = "Walk round the room as your own character: drag this button to where you want to start, or click "
+            .. "it. WASD or the arrows move you, Space jumps, the mouse turns the camera, Esc stops. The tools work "
+            .. "on while you walk, and on a real strategy the others who have it open see you there.",
+        hint = "Click the button, take a few steps, then press Esc.",
+        enter = function() view3D(true) end,
+        done = function(ctx)
+            if not in3D() then return false end
+            if v3():IsWalking() then ctx.walked = true end
+            return ctx.walked == true and not v3():IsWalking()
+        end,
+        ghost = function() return not v3():IsWalking() and { from = { v3().walkBtn, 0.5, 0.5 } } or nil end,
+    },
+    {
+        title = "Back to the map",
+        anchor = function() return W().mode2d, W().mode3d end,
+        skip = no3D,
+        text = "2D lays the room back down as the map. Use whichever shows the fight better: both are the same "
+            .. "page, and every raider can switch to 3D when they read the plan.\n\nNext: the tables of jobs.",
+        hint = "Click 2D.",
+        done = function() return not in3D() end,
+        ghost = function() return { from = { W().mode2d, 0.5, 0.5 } } end,
     },
 }
 
@@ -749,11 +961,6 @@ local function board(mode, pre, post)
         if post then post() end
         return true
     end
-end
-
-local function selectTool()
-    canvas():SetTool("select")
-    B():RefreshTools()
 end
 
 local BUILD, RAID = "Building a strategy", "Running a raid"

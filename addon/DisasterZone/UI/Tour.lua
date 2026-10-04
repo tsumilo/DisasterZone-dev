@@ -22,6 +22,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Tour.lua", ...) then return end
 --       skip = function() return bool end,              -- true: the step is left out (nothing to show right now)
 --       enter = function(ctx) end,                      -- the step starts: remember what done() compares with
 --       done = function(ctx) return bool end,           -- polled; true: the step is done and the tour goes on
+--                                                       -- (already true when the step starts, e.g. after Back:
+--                                                       -- it waits for Next instead)
 --       ghost = function(ctx) return { from = { frame, fx, fy }, to = { frame, fx, fy }, label = "Drag" } end,
 --                                                       -- a cursor that shows the gesture (fx, fy: 0-1 from the
 --                                                       -- frame's top left; no `to`: a click)
@@ -45,7 +47,7 @@ local GHOST_CYCLE = 2.6
 local function UI() return ns.UI end
 
 local tours, order = {}, {}
-local run                   -- the tour running: { id, def, ci, si, step, ctx, doneAt, t0, moved }
+local run                   -- the tour running: { id, def, ci, si, step, ctx, doneAt, t0, moved, review }
 local offer                 -- the "take the tour?" box: { id, def, anchor }
 local offered = {}          -- [id] = offered this session
 local ov, box, cursor
@@ -348,7 +350,7 @@ local function paint()
         text = type(step.text) == "function" and call(step.text, run.ctx) or step.text or ""
         count = ("%d / %d"):format(run.si, #ch.steps)
         local lastStep, lastChapter = run.si == #ch.steps, run.ci == #def.chapters
-        if step.done and not run.doneAt then
+        if step.done and not run.doneAt and not run.review then
             hint = step.hint and ("|cffffd100Your turn:|r " .. step.hint) or nil
             nextText, primary = "Skip step", false
         else
@@ -390,7 +392,7 @@ end
 
 function Tour:Animate()
     if not cursor then return end
-    local g = run and not run.doneAt and run.step.ghost and call(run.step.ghost, run.ctx)
+    local g = run and not run.doneAt and not run.review and run.step.ghost and call(run.step.ghost, run.ctx)
     -- never over the member's own drag
     if not g or (IsMouseButtonDown and IsMouseButtonDown("LeftButton")) then
         cursor:Hide()
@@ -463,6 +465,9 @@ local function go(ci, si, dir)
             run.ci, run.si, run.step, run.ctx = ci, si, step, {}
             run.doneAt, run.moved, run.t0 = nil, nil, GetTime() or 0
             call(step.enter, run.ctx)
+            -- done already (Back to it, or the member did it before it came up): it reads as a plain step and waits
+            -- for Next, instead of going straight on again
+            run.review = step.done ~= nil and call(step.done, run.ctx) == true
             return paint()
         end
         -- left out, or past the chapter's end
@@ -548,7 +553,7 @@ function Tour:Tick()
     if alive and call(alive) ~= true then return self:Stop() end
     if run.doneAt then
         if (GetTime() or 0) - run.doneAt >= ADVANCE_AFTER then return self:Next() end
-    elseif run.step.done and call(run.step.done, run.ctx) == true then
+    elseif run.step.done and not run.review and call(run.step.done, run.ctx) == true then
         run.doneAt = GetTime() or 0
         pcall(PlaySound, SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
         paint()
@@ -601,7 +606,7 @@ function Tour:GetState()
     if not run then return nil end
     local ch = run.def.chapters[run.ci]
     return { id = run.id, chapter = ch.key, ci = run.ci, si = run.si, steps = #ch.steps, title = run.step.title,
-             interactive = run.step.done ~= nil, done = run.doneAt ~= nil,
+             interactive = run.step.done ~= nil, done = run.doneAt ~= nil, review = run.review == true,
              lit = run.step.anchor ~= nil and unionRect(call(run.step.anchor, run.ctx)) ~= nil,
              anchored = run.step.anchor ~= nil }
 end

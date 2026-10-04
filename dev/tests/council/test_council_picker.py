@@ -148,7 +148,7 @@ def gm_picks_three_members_and_every_online_client_sees_them():
         assert c[n].eval("return ns.Guild:GetGuildPhase()") == 2, n
     for n in ("Rita", "Sam", "Olaf", "Gina"):
         open_window(c[n])
-        assert "council" in tabs(c[n]) and "loot" in tabs(c[n]), (n, tabs(c[n]))
+        assert "council" in tabs(c[n]), (n, tabs(c[n]))
     for n in ("Tess", "Uma"):
         open_window(c[n])
         assert tabs(c[n]) == ["home", "mybis", "atlas", "raids", "members", "games", "changelog", "settings"], (n, tabs(c[n]))
@@ -478,7 +478,7 @@ def raid_leader_is_council_for_their_raid_and_loses_the_tab_after_leaving():
     w.make_raid([c["Lee"], c["Rita"], c["Sam"]], leader=c["Lee"])
     w.tick(5)
     assert council(c["Lee"]) is True and c["Lee"].eval("return ns.Guild:AmIRaidLeader()") is True
-    assert tabs(c["Lee"]) == ["home", "mybis", "atlas", "council", "loot", "raids", "members", "games", "changelog", "settings"], tabs(c["Lee"])
+    assert tabs(c["Lee"]) == ["home", "mybis", "atlas", "council", "raids", "members", "games", "changelog", "settings"], tabs(c["Lee"])
     assert tabs(c["Rita"]) == ["home", "mybis", "atlas", "raids", "members", "games", "changelog", "settings"] or not c["Rita"].eval("return ns.MainFrame:IsShown()")
     c["Lee"].slash("/dz council")
     w.tick(0.5)
@@ -494,7 +494,7 @@ def raid_leader_is_council_for_their_raid_and_loses_the_tab_after_leaving():
     w.tick(4)
     w.disband()
     w.tick(2)
-    assert tabs(c["Lee"]) == ["home", "mybis", "atlas", "council", "loot", "raids", "members", "games", "changelog", "settings"], tabs(c["Lee"])
+    assert tabs(c["Lee"]) == ["home", "mybis", "atlas", "council", "raids", "members", "games", "changelog", "settings"], tabs(c["Lee"])
     no_errors(w)
 
 

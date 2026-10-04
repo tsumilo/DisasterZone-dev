@@ -225,7 +225,7 @@ def loot_log_rows(c):
 
 def open_loot_log(c):
     c.slash("/dz log")
-    if c.eval("return ns.MainFrame:GetSelectedTab()") != "loot":
+    if c.eval("return ns.MainFrame:GetSelectedTab() == 'council' and ns.CouncilUI:GetView()") != "log":
         c.eval("ns.MainFrame:Open('loot')")
 
 

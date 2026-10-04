@@ -18,6 +18,12 @@ local NAV_ICONS = {
 }
 local NAV_HIDDEN = {}
 
+-- Pages that became a view of another tab: their old key opens that view (a saved "tab used last", callers that
+-- still say the old key). Returns true when it handled the open.
+local MOVED = {
+    loot = function() return ns.CouncilUI and ns.CouncilUI.ShowLog and (ns.CouncilUI:ShowLog() or true) end,
+}
+
 local tabDefs = {}      -- key -> { key, label, order, createFn, isAvailableFn, panel }
 local tabList = {}      -- defs sorted by order
 local frame, tabs, status, shareBtn
@@ -272,6 +278,7 @@ function MainFrame:Open(key)
     EnsureFrame()
     self:RefreshTabs()
     key = key or DefaultKey()
+    if MOVED[key] and MOVED[key]() then return end
     if not tabDefs[key] or not IsAvailable(tabDefs[key]) then
         key = FirstAvailableKey()
     end
