@@ -101,7 +101,7 @@ function M3:Create(canvas)
     if not (r3 and r3.NewView) then return nil end
     local self = setmetatable({ canvas = canvas, cam = {}, chips = {}, hits = {}, handles = {}, arrowHits = {},
                                 actors = {}, actorPool = {}, geo = setmetatable({}, { __mode = "k" }),
-                                walkers = {}, walkerLabels = {},
+                                walkers = {}, walkerLabels = {}, walkerPool = {},
                                 orb = { x = 0, y = 0, heading = NORTH, pitch = PITCH_VIEW, dist = 60 } }, V)
     local f = CreateFrame("Frame", nil, canvas.frame)
     f:SetAllPoints(canvas.frame)
@@ -1959,15 +1959,19 @@ function V:DrawWalkers(occ, n)
     for _, rw in ipairs(self:RemoteWalkers()) do
         local a = self.walkers[rw.key]
         if not a then
-            a = table.remove(self.actorPool) or self.view:NewActor()
+            -- (a pool of their own: an actor shared with the bosses' kept their scale and centre, and lost Hydross)
+            a = table.remove(self.walkerPool) or self.view:NewActor()
             if a then
                 a.look, a.display, a.anim, a.bb, a.wx, a.wy = nil, nil, nil, nil, nil, nil
+                a.scale, a.ctr, a.ctrMode, a.box, a.partIds = 1, nil, nil, nil, nil
                 self.walkers[rw.key] = a
             end
         end
         if a then
             seen[rw.key] = true
+            -- (their own character only while the client can see them: else it draws a white, untextured body)
             local unit = GroupUnit(rw.key)
+            if unit and not (UnitIsVisible and UnitIsVisible(unit)) then unit = nil end
             local look = unit or rw.d or 49
             if a.look ~= look then
                 a.look = look
@@ -2028,7 +2032,7 @@ function V:DrawWalkers(occ, n)
             pcall(a.ClearModel, a)
             a.look, a.display, a.anim = nil, nil, nil
             self.walkers[key] = nil
-            self.actorPool[#self.actorPool + 1] = a
+            self.walkerPool[#self.walkerPool + 1] = a
             if self.walkerLabels[key] then self.walkerLabels[key]:Hide() end
         end
     end

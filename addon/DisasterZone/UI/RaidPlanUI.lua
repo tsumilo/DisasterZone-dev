@@ -181,6 +181,8 @@ local function myStatusText(v)
     local me = ns.Util.PlayerKey()
     if inv and me and inv[me] then return colorize("ff9933", "not answered"), "ff9933" end
     if block == "level" then return grey("level " .. v.ml .. " only"), nil end
+    if RP():GetMyRequest(v.id) then return colorize("ffd100", "requested"), "ffd100" end
+    if RP():CanRequest(v) then return grey("ask to join"), nil end
     if block then return grey("not invited"), nil end
     return grey("not answered"), nil
 end
@@ -287,6 +289,8 @@ local function initRaidRow(row, d)
     local teams = teamNames(v, true)
     if teams ~= "Everyone" and not name:find(teams, 1, true) then parts[#parts + 1] = teams end
     if v.weekly then parts[#parts + 1] = "weekly" end
+    local nReq = (v.lk and RP():CanManageRaid(v)) and #RP():GetRequests(v.id) or 0
+    if nReq > 0 then name = name .. colorize("ffd100", ("  %d %s"):format(nReq, nReq == 1 and "request" or "requests")) end
     if v.cancelled then
         row.l1:SetText(grey(name))
         row.l2:SetText(when .. " · cancelled")
@@ -431,6 +435,12 @@ local function cellTooltip(cell)
     if d.declined then
         GameTooltip:AddLine("Declined for this raid", 1, 0.33, 0.33)
         if s and s.st and STATUS[s.st] then GameTooltip:AddLine("Had answered " .. STATUS[s.st].label, 0.7, 0.7, 0.7) end
+    elseif d.request then
+        GameTooltip:AddLine("Asks to join this raid (outside its teams)", 1, 0.82, 0, true)
+        if s and s.n then GameTooltip:AddLine('"' .. s.n .. '"', 1, 0.82, 0, true) end
+        if state.selected and RP():CanManageRaid(state.selected) then
+            GameTooltip:AddLine("Click to approve or deny", 0.5, 0.5, 0.5)
+        end
     elseif d.guest then
         GameTooltip:AddLine("Guest: a player outside the guild", 0.4, 0.8, 1, true)
         -- 1.3: what the guest book knows about them (roster managers)
@@ -441,7 +451,7 @@ local function cellTooltip(cell)
         if s.n then GameTooltip:AddLine('"' .. s.n .. '"', 1, 0.82, 0, true) end
         for _, line in ipairs(signupLines(s, d.order, d.total)) do GameTooltip:AddLine(line, 0.7, 0.7, 0.7) end
     end
-    if state.selected and RP():CanManageRoster(state.selected) then
+    if not d.request and state.selected and RP():CanManageRoster(state.selected) then
         GameTooltip:AddLine("Right-click for options", 0.5, 0.5, 0.5)
     end
     local RL = ns.RaidLog
@@ -460,11 +470,22 @@ end
 local function rosterMenu(cell)
     local d = cell.cdlCell
     local occ = state.selected
-    if not d or not occ or not RP():CanManageRoster(occ) then return end
+    if not d or not occ then return end
     local function run(fn, ...)
         local ok, err = fn(RP(), occ, ...)
         if not ok then Print(err or "Could not change the raid.") end
     end
+    -- a request to join: who runs the raid answers it (approve: invited to this raid only; deny: declined)
+    if d.request then
+        if not RP():CanManageRaid(occ) then return end
+        UI():ContextMenu(cell, function(root)
+            root:CreateTitle(shortName(d.key) .. " asks to join")
+            root:CreateButton("|cff33dd33Approve|r: invite to this raid", function() run(RP().ApproveRequest, d.key) end)
+            root:CreateButton("|cffff5555Deny|r", function() run(RP().DeclineSignup, d.key) end)
+        end)
+        return
+    end
+    if not RP():CanManageRoster(occ) then return end
     UI():ContextMenu(cell, function(root)
         root:CreateTitle(shortName(d.key))
         if d.guest then
@@ -492,8 +513,11 @@ local function initRosterRow(row, d)
         for i = 1, #ROLE_COLS do
             local cell = CreateFrame("Button", nil, row)
             cell:SetHeight(CELL_H)
-            cell:RegisterForClicks("RightButtonUp")
-            cell:SetScript("OnClick", rosterMenu)
+            cell:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            cell:SetScript("OnClick", function(self, button)
+                -- (a request opens with either button; the rest of the roster with the right one)
+                if button == "RightButton" or (self.cdlCell and self.cdlCell.request) then rosterMenu(self) end
+            end)
             cell.fs = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             cell.fs:SetPoint("LEFT", 2, 0)
             cell.fs:SetPoint("RIGHT", -2, 0)
@@ -627,6 +651,20 @@ local function rosterRows(v)
             rows[#rows + 1] = d
         end
     end
+    -- requests to join first under the columns: who runs the raid answers them
+    local requests = RP():GetRequests(v.id)
+    if #requests > 0 then
+        rows[#rows + 1] = { line = colorize("ffd100", "Requests to join (" .. #requests .. ")")
+            .. (RP():CanManageRaid(v) and grey("  click a name to approve or deny") or ""), plain = "Requests to join" }
+        for i = 1, #requests, #ROLE_COLS do
+            local d = { cols = {} }
+            for j = 1, #ROLE_COLS do
+                local r = requests[i + j - 1]
+                if r then d.cols[j] = { key = r.key, s = { c = r.c, sp = r.sp, n = r.n }, request = true } end
+            end
+            rows[#rows + 1] = d
+        end
+    end
     cells(colorize(STATUS.T.color, "Spec not set"), other.nospec)
     cells(colorize(STATUS.B.color, "Bench"), other.B)
     cells(colorize(STATUS.X.color, "Absent"), other.X)
@@ -676,7 +714,7 @@ local function myCharOptions()
     local cur = myChar(occ)
     local out = {}
     for _, key in ipairs(RP():GetMyCharacters()) do
-        if key == cur or (occ and RP():CanSignUp(occ, key)) then
+        if key == cur or (occ and (RP():CanSignUp(occ, key) or RP():CanRequest(occ, key))) then
             local cls = classOfChar(key)
             out[#out + 1] = { value = key, text = shortName(key) .. (cls and (" (" .. (ns.CLASS_NAMES[cls] or cls) .. ")") or "") }
         end
@@ -714,6 +752,9 @@ function PlanUI:Answer(status)
         return false
     end
     state.pendingSpec, state.pendingNote, state.noteEdited, state.pendingChar = nil, nil, nil, nil
+    if status ~= "X" and RP():GetMyRequest(occ) then
+        Print("Asked to join: whoever runs this raid will approve or deny it.")
+    end
     return true
 end
 
@@ -1429,7 +1470,11 @@ local function refreshDetail(v)
     -- "lock": locked to its teams and invited players, and I'm not one; "level": the character's level is too low;
     -- "blacklist" / "declined": the organizers keep me out (of every raid / of this one)
     local block = RP():GetSignupBlock(v, myChar(v.id))
-    local invited = block == nil
+    -- a locked raid I'm outside of: answering asks to join it (RaidPlan CanRequest); my request lights its answer
+    local canAsk = block == "lock" and RP():CanRequest(v, myChar(v.id))
+    local request = canAsk and RP():GetMyRequest(v.id)
+    local invited = block == nil or canAsk
+    if request and not mine then mine = request end
     local several = #RP():GetMyCharacters() > 1
     d.strip.charLabel:SetShown(several)
     upcoming.charDD:SetShown(several)
@@ -1456,8 +1501,10 @@ local function refreshDetail(v)
         or (block == "blacklist" and colorize("ff5555", "You can't sign up for raids. Contact an officer."))
         or (block == "declined" and colorize("ff5555", "You were taken off this raid."))
         or (block == "level" and colorize("ff9933", ("This raid is for level %d characters."):format(v.ml)))
-        or (not invited and colorize("ff9933", organizer and "Locked: you are not in this raid (Invite adds you)"
-            or "Locked: ask a raid leader for an invite"))
+        or (not invited and colorize("ff9933", organizer and ((v.pv and "Private" or "Locked") .. ": you are not in this raid (Invite adds you)")
+            or "Private: ask a raid leader for an invite"))
+        or (request and colorize("ffd100", "Request sent: a raid leader will approve it. Absent withdraws it."))
+        or (canAsk and colorize("ffd100", "Locked to its teams: pick an answer to ask to join."))
         or (mine and (mine.rev or mine.at) and grey("Answered " .. shortDay(mine.rev or mine.at)))
         or (mine and "" or colorize("ff9933", "Pick an answer")))
 
@@ -1476,6 +1523,8 @@ local function refreshDetail(v)
     if nDeclined > 0 then parts[#parts + 1] = colorize("ff5555", nDeclined .. " declined") end
     local missing = #noResponse(v, RP():GetSignups(v.id))
     if missing > 0 then parts[#parts + 1] = colorize("ff9933", missing .. " no response") end
+    local nReq = #RP():GetRequests(v.id)
+    if nReq > 0 then parts[#parts + 1] = colorize("ffd100", nReq .. (nReq == 1 and " request" or " requests")) end
     d.counts:SetText(tconcat(parts, " · "))
     d.roster:SetData(rosterRows(v))
 end
@@ -2076,6 +2125,7 @@ local function editorFields()
     end
     return {
         i = f.i, sz = f.sz, t = editorTime(), tm = tm, lk = f.lk and true or false, inv = inviteList(),
+        pv = (f.lk and f.pv) and true or false,
         ml = f.low and 0 or MAX_LEVEL,
         ti = ns.Util.Trim(editor.titleBox:GetText() or "") ~= "" and editor.titleBox:GetText() or false,
         no = ns.Util.Trim(editor.noteBox:GetText() or "") ~= "" and editor.noteBox:GetText() or false,
@@ -2100,6 +2150,7 @@ local function changedFields(fields, v)
     tsort(sb)
     if a ~= b and tconcat(sa, ",") ~= tconcat(sb, ",") then out.tm = fields.tm end
     if fields.lk ~= (v.lk and true or false) then out.lk = fields.lk end
+    if fields.pv ~= (v.pv and true or false) then out.pv = fields.pv end
     if fields.ml ~= (v.ml or 0) then out.ml = fields.ml end
     local was = {}
     for _, key in ipairs(v.inv or {}) do was[#was + 1] = key end
@@ -2234,24 +2285,29 @@ local function createEditor()
     w.lockCB:SetPoint("TOPLEFT", 80, -208)
     w.lockCB.tooltipText = "Left open, every guild member can sign up and the teams only say who is expected. "
         .. "Locked, the sign-up buttons work only for the members of the picked teams and the players invited here; "
-        .. "an answer from anyone else is not counted."
+        .. "an answer from anyone else is a request to join, for whoever runs the raid to approve or deny."
+    w.privCB = UI():CreateCheckbox(c, "Private: hidden from the rest, no requests",
+        function() return w.f.lk and w.f.pv end, function(on) w.f.pv = on end)
+    w.privCB:SetPoint("TOPLEFT", 80, -230)
+    w.privCB.tooltipText = "A locked raid is still listed for the whole guild, who can ask to join it. Private, "
+        .. "only its teams, the invited players and who runs raids see it."
     w.lowCB = UI():CreateCheckbox(c, ("Allow characters below level %d"):format(MAX_LEVEL),
         function() return w.f.low end, function(on) w.f.low = on end)
-    w.lowCB:SetPoint("TOPLEFT", 80, -230)
+    w.lowCB:SetPoint("TOPLEFT", 80, -252)
     w.lowCB.tooltipText = ("Unticked, only level %d characters can sign up; the answer of a lower character is not "
         .. "counted. Tick it for a raid that lower characters may join too."):format(MAX_LEVEL)
 
-    row(c, "Note", -268)
+    row(c, "Note", -290)
     w.noteBox = UI():CreateSleekEditBox(c)
     w.noteBox:SetSize(270, 20)
     w.noteBox:SetAutoFocus(false)
     w.noteBox:SetMaxLetters(120)
-    w.noteBox:SetPoint("TOPLEFT", 86, -264)
+    w.noteBox:SetPoint("TOPLEFT", 86, -286)
 
     w.weeklyCB = UI():CreateCheckbox(c, "Repeat weekly (the next two weeks are always planned)", nil, nil)
-    w.weeklyCB:SetPoint("TOPLEFT", 80, -292)
+    w.weeklyCB:SetPoint("TOPLEFT", 80, -314)
     w.weeklyInfo = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.weeklyInfo:SetPoint("TOPLEFT", 84, -298)
+    w.weeklyInfo:SetPoint("TOPLEFT", 84, -320)
     w.weeklyInfo:SetPoint("RIGHT", -12, 0)
     w.weeklyInfo:SetJustifyH("LEFT")
     w.weeklyInfo:SetText("A weekly raid: save the change for this week only, or for every week.")
@@ -2293,6 +2349,7 @@ function PlanUI:OpenEditor(occId)
         for _, id in ipairs(v.tm or {}) do f.tm[id] = true end
         for _, key in ipairs(v.inv or {}) do f.inv[key] = true end
         f.lk = v.lk and true or false
+        f.pv = v.pv and true or false
         editor.titleBox:SetText(v.ti or "")
         editor.noteBox:SetText(v.no or "")
     else

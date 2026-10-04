@@ -293,7 +293,7 @@ def officers_see_locked_raids_and_can_add_their_guests():
     bob, lee, olaf, una = c["Bob"], c["Lee"], c["Olaf"], c["Una"]
     tid = team(bob, "Core", ["Rita", "Sam"])
     w.tick(2)
-    occ = create(lee, i="kara", t=now(lee) + DAY, tm=[tid], lk=True)
+    occ = create(lee, i="kara", t=now(lee) + DAY, tm=[tid], lk=True, pv=True)
     w.tick(2)
     assert occ in [v["id"] for v in raids(olaf)] and olaf.eval("return ns.RaidPlan:CanSee(...)", occ)
     assert occ not in [v["id"] for v in raids(una)]

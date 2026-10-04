@@ -1669,6 +1669,17 @@ function DropPanel:NewBlock(parent)
     b.none = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     b.none:SetText("Nobody has this on their BiS list")
 
+    -- Awarded items: show / hide the folded rolls (FillBlock).
+    b.fold = CreateFrame("Button", nil, b)
+    b.fold:SetHeight(14)
+    b.fold:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2)
+    b.fold.label = b.fold:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.fold.label:SetPoint("RIGHT", b.fold, "RIGHT", 0, 0)
+    b.fold:SetScript("OnClick", function() DropPanel:ToggleFold(b.itemID, b.copy) end)
+    b.fold:SetScript("OnEnter", function() b.fold.label:SetTextColor(1, 1, 1) end)
+    b.fold:SetScript("OnLeave", function() b.fold.label:SetTextColor(1, 0.82, 0) end)
+    b.fold:Hide()
+
     b.announce = UI:CreateButton(b, "Announce", 74, 20, function() DropPanel:AnnounceItem(b.itemID) end)
     AddButtonTooltip(b.announce, function()
         if DropPanel.drop and DropPanel.drop.test then
@@ -1798,6 +1809,19 @@ local function SetAwardRollButton(btn, row, open)
     btn:SetWidth(min(open and 200 or 170, max(96, w + 24)))
 end
 
+-- Awarded items whose rolls were opened again (per item and copy, until the panel shows another drop).
+function DropPanel:IsUnfolded(itemID, copy)
+    return self.unfolded ~= nil and self.unfolded.drop == self.drop and self.unfolded[tostring(itemID) .. ":" .. tostring(copy or 1)] == true
+end
+
+function DropPanel:ToggleFold(itemID, copy)
+    if not itemID then return end
+    if not (self.unfolded and self.unfolded.drop == self.drop) then self.unfolded = { drop = self.drop } end
+    local k = tostring(itemID) .. ":" .. tostring(copy or 1)
+    self.unfolded[k] = not self.unfolded[k] or nil
+    self:RequestRefresh(0)
+end
+
 -- Paints one item block; returns its height. copy: which copy of itemID in the drop (1 = first).
 function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.itemID = itemID
@@ -1908,9 +1932,25 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             y = y + h
         end
     end
+    -- An awarded item folds its rolls / wanters away (they take a lot of room once it is dealt with); the
+    -- "Show rolls" toggle in the header opens them again.
+    local folded = winnerKey ~= nil and n > 0 and not self:IsUnfolded(itemID, copy)
+    if folded then
+        rowIdx, y = 0, ITEM_HEAD_H
+        b.reservedY = nil
+    end
+    if winnerKey and n > 0 then
+        b.count:SetText("")
+        b.fold.label:SetText(folded and format("Show %s (%d)", rolling and "rolls" or "list", n) or "Hide")
+        b.fold:SetWidth(b.fold.label:GetStringWidth() + 4)
+        b.fold:Show()
+    else
+        b.fold:Hide()
+    end
     for i = rowIdx + 1, #b.rows do b.rows[i]:Hide() end
 
-    if n == 0 then
+    if n == 0 or folded then
+        if folded then n = 0; noneText = "" end
         b.none:SetText(noneText)
         b.none:ClearAllPoints()
         b.none:SetPoint("TOPLEFT", b, "TOPLEFT", 38, -(y + 3))

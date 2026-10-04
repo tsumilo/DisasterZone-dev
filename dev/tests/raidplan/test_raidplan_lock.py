@@ -1,8 +1,9 @@
 """Raid planning 1.0: a raid locked to its teams, with extra invites for players outside them.
 
 Covers: an open raid with teams taking everyone's sign-up, a locked raid taking only its teams' members and its extra
-invites (refused on the member's own client, not counted when it arrives anyway, and not listed for anyone else but
-the GM, the guild council and the raid leaders), inviting a player later, unlocking,
+invites (private: refused on the member's own client, not counted when it arrives anyway, and not listed for anyone
+else but the GM, the guild council and the raid leaders), inviting a player later, unlocking, requests to join a locked
+raid that is not private (listed for everyone, approved or denied by who runs it),
 an invite-only raid without a team, one week of a weekly raid differing from its series, and the New / Edit raid window
 and the sign-up strip.
 
@@ -39,7 +40,7 @@ def a_locked_raid_takes_only_its_teams_and_invites():
     tid = team(bob, "Kara A", ["Lee", "Gina"])
     # open: the team says who is expected, everyone signs up
     open_occ = create(bob, i="kara", t=now(bob) + DAY, tm=[tid])
-    occ = create(bob, i="kara", t=now(bob) + 2 * DAY, tm=[tid], lk=True, inv=[K("Sam")])
+    occ = create(bob, i="kara", t=now(bob) + 2 * DAY, tm=[tid], lk=True, pv=True, inv=[K("Sam")])
     w.tick(2)
     v = raid(rita, open_occ)
     assert v["lk"] is False and list(v["inv"] or []) == [], v
@@ -55,7 +56,7 @@ def a_locked_raid_takes_only_its_teams_and_invites():
     assert signup(lee, occ, "A")["ok"] is True          # in the team
     assert signup(sam, occ, "T")["ok"] is True          # invited on top
     res = signup(rita, occ, "A")
-    assert res["ok"] is False and "locked" in res["e"], res
+    assert res["ok"] is False and "private" in res["e"], res
     # listed for the team, the invited player and those who plan raids (Bob, Gina); not for Rita
     for n, x in c.items():
         ids = [v["id"] for v in raids(x)]
@@ -96,7 +97,7 @@ def invite_only_and_a_lock_without_anyone():
     w, c = world()
     bob, rita, sam = c["Bob"], c["Rita"], c["Sam"]
     # no team, two invites, locked: invite-only
-    occ = create(bob, i="za", t=now(bob) + DAY, lk=True, inv=[K("Sam"), K("Rita"), K("Sam")])
+    occ = create(bob, i="za", t=now(bob) + DAY, lk=True, pv=True, inv=[K("Sam"), K("Rita"), K("Sam")])
     # locked without a team or an invite: nobody to lock it to, so it stays open
     odd = create(bob, i="za", t=now(bob) + 2 * DAY, lk=True)
     w.tick(2)
@@ -119,7 +120,7 @@ def one_week_of_a_weekly_raid_differs():
     w, c = world()
     bob, rita, lee = c["Bob"], c["Rita"], c["Lee"]
     tid = team(bob, "Main", ["Lee"])
-    occ0 = create(bob, i="ssc", t=now(bob) + DAY, tm=[tid], lk=True, weekly=True)
+    occ0 = create(bob, i="ssc", t=now(bob) + DAY, tm=[tid], lk=True, pv=True, weekly=True)
     occ1 = occ0.replace("#0", "#1")
     w.tick(2)
     assert raid(rita, occ0)["lk"] is True and raid(rita, occ1)["lk"] is True
@@ -179,10 +180,12 @@ def the_raid_window_and_the_sign_up_strip():
     assert bob.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
     assert bob.find_text("you are not in this raid (Invite adds you)", True, True)
     assert bob.find_text("not invited", True, True)
-    # a member who is not invited doesn't have the raid in the list
+    # a member who is not invited sees the raid and answers to ask to join
     open_tab(w, rita)
-    assert not rita.find_text("Karazhan (10)", True, True)
-    assert rita.eval("return ns.RaidPlanUI:GetSelectedRaid()") is None
+    rita.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
+    w.tick(0.5)
+    assert rita.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is True
+    assert rita.find_text("pick an answer to ask to join", True, True)
     open_tab(w, sam)
     sam.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.5)
@@ -210,7 +213,7 @@ def the_invite_button_and_window():
     w, c = world()
     bob, rita, lee = c["Bob"], c["Rita"], c["Lee"]
     tid = team(bob, "Kara A", ["Lee"])
-    occ = create(bob, i="kara", t=now(bob) + DAY, tm=[tid], lk=True)
+    occ = create(bob, i="kara", t=now(bob) + DAY, tm=[tid], lk=True, pv=True)
     w.tick(2)
     win = "ns.RaidPlanUI:GetInviteWindow()"
     # a raid planner outside the raid: the strip points at Invite
@@ -245,6 +248,66 @@ def the_invite_button_and_window():
     assert call(bob, "DeleteRaid", occ)["ok"] is True
     w.tick(1)
     assert bob.eval("return %s:IsShown()" % win) is False
+    w.assert_no_errors()
+
+
+@case
+def requests_to_join_a_locked_raid():
+    w, c = world()
+    bob, lee, rita, sam = c["Bob"], c["Lee"], c["Rita"], c["Sam"]
+    tid = team(bob, "Kara A", ["Lee"])
+    occ = create(bob, i="kara", t=now(bob) + DAY, tm=[tid], lk=True)
+    w.tick(2)
+    # listed for everyone; members outside ask, who runs it invites themselves
+    assert [v["id"] for v in raids(rita)] == [occ]
+    assert rita.eval("return ns.RaidPlan:CanRequest(...)", occ) is True
+    assert lee.eval("return ns.RaidPlan:CanRequest(...)", occ) is False
+    assert bob.eval("return ns.RaidPlan:CanRequest(...)", occ) is False
+    assert signup(bob, occ, "A")["ok"] is False
+    # the answer is a request: not counted, listed for the roster
+    assert signup(rita, occ, "A", None, "can heal")["ok"] is True
+    assert signup(sam, occ, "T")["ok"] is True
+    w.tick(2)
+    assert signups(bob, occ) == {} or K("Rita") not in signups(bob, occ)
+    reqs = bob.eval_py("return ns.RaidPlan:GetRequests(...)", occ)
+    assert [r["key"] for r in reqs] == [K("Rita"), K("Sam")], reqs
+    assert reqs[0]["n"] == "can heal"
+    assert rita.eval_py("return ns.RaidPlan:GetMyRequest(...)", occ)["key"] == K("Rita")
+    assert bob.eval("return (ns.RaidPlan:GetPendingRequests())") == 2
+    # members can't answer requests
+    assert call(lee, "ApproveRequest", occ, K("Rita"))["ok"] is False
+    # approve: invited to this raid, the answer counts; deny: declined
+    assert call(bob, "ApproveRequest", occ, K("Rita"))["ok"] is True
+    assert call(bob, "DeclineSignup", occ, K("Sam"))["ok"] is True
+    w.tick(2)
+    assert list(raid(lee, occ)["inv"]) == [K("Rita")]
+    assert K("Rita") in signups(lee, occ) and K("Sam") not in signups(lee, occ)
+    assert lee.eval_py("return ns.RaidPlan:GetRequests(...)", occ) in ([], {}, None)
+    assert sam.eval("return ns.RaidPlan:GetSignupBlock(...)", occ) == "declined"
+    assert signup(sam, occ, "A")["ok"] is False
+    # withdrawing: Absent takes the request back
+    occ2 = create(bob, i="kara", t=now(bob) + 2 * DAY, tm=[tid], lk=True)
+    w.tick(2)
+    assert signup(sam, occ2, "A")["ok"] is True
+    assert signup(sam, occ2, "X")["ok"] is True
+    w.tick(2)
+    assert bob.eval_py("return ns.RaidPlan:GetRequests(...)", occ2) in ([], {}, None)
+    # private: hidden again, no requests
+    assert call(bob, "EditRaid", occ2, {"pv": True})["ok"] is True
+    w.tick(2)
+    assert raid(sam, occ2)["pv"] is True and [v["id"] for v in raids(sam)] == [occ]
+    assert sam.eval("return ns.RaidPlan:CanRequest(...)", occ2) is False
+    assert "private" in signup(sam, occ2, "A")["e"]
+    # the roster shows the request; who runs it opens approve / deny with a click
+    occ3 = create(bob, i="kara", t=now(bob) + 3 * DAY, tm=[tid], lk=True)
+    w.tick(2)
+    assert signup(rita, occ3, "A")["ok"] is True
+    w.tick(2)
+    open_tab(w, bob)
+    bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ3)
+    w.tick(0.5)
+    assert bob.find_text("Requests to join (1)", True, True)
+    assert bob.find_text("1 request", True, True)
     w.assert_no_errors()
 
 

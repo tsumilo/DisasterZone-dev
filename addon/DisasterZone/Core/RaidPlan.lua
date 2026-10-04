@@ -596,6 +596,11 @@ local function CleanRaidFields(out, r, now, partial, minT)
         if type(r.lk) ~= "boolean" then return false end
         if r.lk or partial then out.lk = r.lk end
     end
+    -- private: a locked raid hidden from those it doesn't take, who can't ask to join either (false undoes the series')
+    if r.pv ~= nil then
+        if type(r.pv) ~= "boolean" then return false end
+        if r.pv or partial then out.pv = r.pv end
+    end
     local inv = CleanInvites(r.inv)
     if inv == false then return false end
     if inv and (#inv > 0 or partial) then out.inv = inv end
@@ -819,7 +824,7 @@ end
 -- Occurrences (the resolved view the UI reads)
 ---------------------------------------------------------------------------
 
-local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "inv", "ml", "rl", "rlb" }
+local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "pv", "inv", "ml", "rl", "rlb" }
 
 -- The view's leader: a leader named by the GM or a raid leader on the list, else none (rl, rlb = nil).
 local function ViewLeader(v)
@@ -852,7 +857,7 @@ end
 local function ViewEvent(e)
     return ViewLeader({
         id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, ti = e.ti, no = e.no,
-        lk = e.lk and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
+        lk = e.lk and true or false, pv = e.pv and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
         gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm), gx = CopyMap(e.gx), rl = e.rl, rlb = e.rlb,
         weekly = false,
@@ -877,6 +882,7 @@ local function ViewOccurrence(root, s, k)
     end
     v.tm = v.tm or {}
     v.lk = v.lk and true or false
+    v.pv = v.pv and true or false
     v.inv = v.inv or {}
     if (v.ml or 0) <= 0 then v.ml = nil end
     if o then
@@ -1607,23 +1613,6 @@ function RaidPlan:RemoveBlacklisted(key)
     return true
 end
 
--- Is the member outside a locked raid's teams and invites? (Another character of an invited player is in.)
-local function LockedOut(v, key)
-    local only = LockSet(v)
-    return only ~= nil and InSet(only, key) == nil
-end
-
--- Is the raid (a view or an id) listed for me? A locked raid only for the members of its teams, its extra invites,
--- those who plan raids or lay out groups (the GM, the guild council, the raid leaders), its own leader, and the
--- officers (they keep every raid's guests and declined answers). The data itself still reaches every guild member:
--- this is what the lists show, not a secret. (A raid my character's level is too low for stays listed.)
-function RaidPlan:CanSee(occId)
-    local v = type(occId) == "table" and occId or self:GetRaid(occId)
-    if not v then return false end
-    local me = Util.PlayerKey()
-    return not LockedOut(v, me) or CanGroups(me) or CanManage(v, me) or IsOfficer(me)
-end
-
 -- A character's level: my own exactly, a guild member's per the guild roster; nil when not known.
 local function LevelOf(key)
     if Util.IsMe(key) then return tonumber((UnitLevel("player"))) end
@@ -1644,6 +1633,87 @@ end
 local function Removed(v, key, s)
     local rev = v and v.rm and v.rm[key]
     return rev ~= nil and (s.rev or 0) <= rev
+end
+
+-- Is the member outside a locked raid's teams and invites? (Another character of an invited player is in.)
+local function LockedOut(v, key)
+    local only = LockSet(v)
+    return only ~= nil and InSet(only, key) == nil
+end
+
+-- Is the raid (a view or an id) listed for me? Every raid, a locked one too (the others ask to join it: user rule
+-- 2026-10-04), except a private one (pv): only for the members of its teams, its extra invites, those who plan raids
+-- or lay out groups (the GM, the guild council, the raid leaders), its own leader, and the officers. The data itself
+-- still reaches every guild member: this is what the lists show, not a secret.
+function RaidPlan:CanSee(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    if not v then return false end
+    local me = Util.PlayerKey()
+    return not (v.pv and LockedOut(v, me)) or CanGroups(me) or CanManage(v, me) or IsOfficer(me)
+end
+
+-- May that member (default: me) ask to join the locked raid (a view or an id)? Those outside it, when it isn't private
+-- (not who runs it: they invite themselves).
+function RaidPlan:CanRequest(occId, key)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    return v ~= nil and not v.pv and self:GetSignupBlock(v, key) == "lock"
+        and not CanManage(v, key or Util.PlayerKey())   -- (who runs it invites themselves)
+end
+
+-- A request to join a locked raid is the sign-up of a member outside it (not counted until they are invited).
+-- The open requests (not withdrawn, declined, removed or blacklisted), oldest first: { { key, c, sp, n, at }, ... }.
+-- A player's characters count once: the newest request among them.
+function RaidPlan:GetRequests(occId)
+    local out = {}
+    local root = Root(false)
+    local v = root and type(occId) == "string" and ResolveOcc(root, occId)
+    local u = v and root.U[occId]
+    if not (v and type(u) == "table" and LockSet(v) and not v.cancelled) then return out end
+    local raw = {}
+    for key, s in pairs(u) do
+        if s.st ~= "X" and LockedOut(v, key) and LevelOk(v, key) and not Removed(v, key, s) and not InSet(v.rj, key)
+            and not self:IsBlacklisted(key) then
+            raw[key] = s
+        end
+    end
+    for key, s in pairs(raw) do
+        local newest = true
+        for _, m in ipairs(Linked(key)) do
+            local o = raw[m]
+            if o and (o.rev > s.rev or (o.rev == s.rev and m > key)) then newest = false break end
+        end
+        if newest then out[#out + 1] = { key = key, st = s.st, c = s.c, sp = s.sp, n = s.n, at = s.at or s.rev } end
+    end
+    tsort(out, function(a, b)
+        if a.at ~= b.at then return a.at < b.at end
+        return a.key < b.key
+    end)
+    return out
+end
+
+-- My open request for the raid (any of my characters): { key, c, sp, n, at } or nil.
+function RaidPlan:GetMyRequest(occId)
+    local me = Util.PlayerKey()
+    for _, r in ipairs(self:GetRequests(occId)) do
+        if r.key == me or InSet({ [r.key] = true }, me) then return r end
+    end
+    return nil
+end
+
+-- Open requests on the upcoming raids I run (CanManageRaid): total, { [occId] = n }.
+function RaidPlan:GetPendingRequests()
+    local total, per = 0, {}
+    local now = Now()
+    for _, v in ipairs(self:GetRaids(now - 3 * 3600, nil, true)) do
+        if v.lk and not v.cancelled and self:CanManageRaid(v) then
+            local n = #self:GetRequests(v.id)
+            if n > 0 then
+                per[v.id] = n
+                total = total + n
+            end
+        end
+    end
+    return total, per
 end
 
 -- { [key] = { st, sp, c, n, rev } } (copies). A locked raid counts only its teams' members and its extra invites; a
@@ -2099,6 +2169,11 @@ local function ApplyFields(rec, f, partial)
         elseif rec.sid then rec.lk = false
         else rec.lk = nil end
     end
+    if f.pv ~= nil then
+        if f.pv then rec.pv = true
+        elseif rec.sid then rec.pv = false
+        else rec.pv = nil end
+    end
     if f.inv ~= nil then
         local list = {}
         for k, v in pairs(type(f.inv) == "table" and f.inv or {}) do
@@ -2380,6 +2455,20 @@ function RaidPlan:DeclineSignup(occId, key)
     end)
 end
 
+-- Approves a request to join the locked raid: the player becomes one of its extra invites (this raid only; a weekly
+-- raid's this week), so their answer counts. Who runs the raid does it (CanManageRaid). Deny: DeclineSignup.
+function RaidPlan:ApproveRequest(occId, key)
+    local v = self:GetRaid(occId)
+    if not v then return false, "unknown raid" end
+    key = WireKey(key)
+    if not key then return false, "unknown player" end
+    if not self:CanManageRaid(v) then return false, "Only who runs this raid can answer its requests." end
+    if not LockedOut(v, key) then return true end
+    local list = CopyList(v.inv) or {}
+    list[#list + 1] = key
+    return self:EditRaid(occId, { inv = list }, "one")
+end
+
 -- Takes a member's answer off the raid, as if they never answered. They can answer again.
 function RaidPlan:RemoveSignup(occId, key)
     key = WireKey(key)
@@ -2436,8 +2525,10 @@ function RaidPlan:SignUp(occId, status, spec, note, charKey)
         return false, "You can't sign up for raids. Contact an officer."
     elseif block == "declined" then
         return false, "You were taken off this raid."
-    elseif block == "lock" then
-        return false, "This raid is locked to its teams and invited players. Ask a raid leader for an invite."
+    elseif block == "lock" and not self:CanRequest(v, me) then
+        -- (outside a locked raid the answer is a request to join; private, or who runs it: invite instead)
+        return false, v.pv and "This raid is private to its teams and invited players. Ask a raid leader for an invite."
+            or "This raid is locked to its teams and invited players: add yourself with Invite."
     elseif block == "level" then
         return false, strformat("This raid is for level %d characters.", v.ml)
     end

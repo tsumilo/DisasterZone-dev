@@ -6,6 +6,22 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.3.1", date = "4 October 2026", title = "Ask to join locked raids, tidier loot panel",
+      sections = {
+          { heading = "Ask to join a locked raid", lines = {
+              "Raids locked to a team are now listed for the whole guild, with their roster.",
+              "Outside the team? Pick an answer to ask to join; your note goes with it.",
+              "Who runs the raid sees Requests to join under the roster: click a name to approve or deny.",
+              "Approved: invited to that raid only, and you see its strategies. Absent takes a request back.",
+              "Private (raid editor): the old way, hidden from the rest and no requests.",
+          } },
+          { heading = "Loot council panel", lines = {
+              "Once an item is awarded its rolls fold away; Show rolls at the top right opens them again.",
+          } },
+          { heading = "Fixes", lines = {
+              "Someone walking in the room no longer makes a boss vanish or shows up white and jittering.",
+          } },
+      } },
     { version = "1.3.0", date = "4 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
       sections = {
           { heading = "Import and export BiS lists", lines = {

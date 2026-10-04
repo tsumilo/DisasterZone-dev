@@ -580,7 +580,11 @@ local function blockText(v)
     local block = RP():GetSignupBlock(v, myChar(v))
     if block == "blacklist" then return "can't sign up", "You can't sign up for raids. Contact an officer."
     elseif block == "declined" then return "taken off this raid", "You were taken off this raid."
-    elseif block == "lock" then return "locked, not invited", "Locked: ask a raid leader for an invite."
+    elseif block == "lock" and RP():GetMyRequest(v.id) then
+        return "request sent", "You asked to join; a raid leader will approve it on the Raids tab."
+    elseif block == "lock" and RP():CanRequest(v, myChar(v)) then
+        return "ask to join", "Locked to its teams: answer on the Raids tab to ask to join."
+    elseif block == "lock" then return "private, not invited", "Private: ask a raid leader for an invite."
     elseif block == "level" then
         return ("level %d only"):format(v.ml or 0), ("This raid is for level %d characters."):format(v.ml or 0)
     end
@@ -1289,6 +1293,8 @@ local function refreshLaterCard(card, ctx)
                 local inv = rp:GetInvited(v)
                 local block = rp:GetSignupBlock(v)
                 right = (block == "blacklist" and grey("blocked")) or (block == "declined" and grey("declined"))
+                    or (rp:GetMyRequest(v.id) and colorize("ffd100", "requested"))
+                    or (block == "lock" and rp:CanRequest(v) and grey("ask to join"))
                     or ((inv and inv[Me() or ""]) and colorize("ff9933", "no answer"))
                     or grey(block == nil and "open" or (block == "level" and ("level " .. v.ml .. " only") or "not invited"))
             end
