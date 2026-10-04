@@ -576,7 +576,7 @@ def at_5_px_a_redraw_past_the_hard_cap_coarsens_evenly_instead_of_cutting_its_ne
     # hard cap (2800). The controller's tau stops at 5, so that redraw is collected again at 6.25 px (about 2490
     # pieces) instead of drawing its last pieces in the BSP order - the nearest ones - whole and far off.
     rc = _render_check()
-    sess = rc.Session("vashj", (600, 400), 1.0, opts={"adaptiveTime": False, "target": 300})
+    sess = rc.Session("vashj", (600, 400), 1.0, opts={"adaptiveTime": False, "target": 300, "hardCap": 2800})
     x, y, f, p, d = 167.157, 138.602, 2.345, 0.407, 32.344
     for k in range(12):
         sess.pose(x, y, f + (0.001 if k % 2 == 0 else -0.001), p, d)
@@ -828,9 +828,10 @@ def render_switches_are_kept_per_character_and_set_with_the_slash_command():
 
 
 @case
-def the_time_controller_keeps_a_moving_frame_near_4_ms_in_game():
-    # Spec 5.11: debugprofilestop around the room, its marks and the copies; three camera-driven redraws in a row
-    # over 4 ms lower the leaf target by 10%, sixty in a row under 2.4 ms raise it by 5% (900 .. 2200)
+def the_time_controller_keeps_a_moving_frame_near_6_ms_in_game():
+    # Spec 5.11 (tuned: 6 ms, 900 .. 2800, starting at 2000): debugprofilestop around the room, its marks and the
+    # copies; three camera-driven redraws in a row over 6 ms lower the leaf target by 10%, sixty in a row under
+    # 3.6 ms raise it by 5%
     w, c = boot()
     c.slash("/dz play trainer")
     w.tick(0.3)
@@ -839,23 +840,23 @@ def the_time_controller_keeps_a_moving_frame_near_4_ms_in_game():
     c.eval("T_DPS = debugprofilestop  T_MS = 0  T_STEP = 10  debugprofilestop = function() T_MS = T_MS + T_STEP return T_MS end")
     try:
         target = lambda: c.eval_py("return ns.TrainerUI._Render().target")
-        assert target() == 1600
+        assert target() == 2000
         for k in range(3):
             _pose(c, 30, 8 + 0.1 * k, math.pi / 2)
-        assert abs(target() - 1440) < 1e-9 and c.eval_py("return ns.TrainerUI._Render().ms") == 10, target()
+        assert abs(target() - 1800) < 1e-9 and c.eval_py("return ns.TrainerUI._Render().ms") == 10, target()
         c.eval("T_STEP = 1")
         for k in range(60):
             _pose(c, 30, 9 + 0.05 * k, math.pi / 2)
-        assert abs(target() - 1512) < 1e-9, target()
+        assert abs(target() - 1890) < 1e-9, target()
         # a still camera does not redraw: nothing to time
         r0 = c.eval_py("return ns.TrainerUI._Render().redraws")
         c.eval("ns.TrainerUI._Tick(0)")
-        assert c.eval_py("return ns.TrainerUI._Render().redraws") == r0 and abs(target() - 1512) < 1e-9
+        assert c.eval_py("return ns.TrainerUI._Render().redraws") == r0 and abs(target() - 1890) < 1e-9
         # off (render_check and the tests): the target stays
         c.eval("ns.TrainerUI._RenderOpts({ adaptiveTime = false })  T_STEP = 10")
         for k in range(5):
             _pose(c, 30, 12 + 0.1 * k, math.pi / 2)
-        assert abs(target() - 1512) < 1e-9
+        assert abs(target() - 1890) < 1e-9
     finally:
         c.eval("debugprofilestop = T_DPS")
     no_errors(w)

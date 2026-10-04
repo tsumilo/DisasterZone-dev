@@ -64,10 +64,12 @@ local MARGIN = 2                  -- px: the frustum is this much bigger than th
 -- borrowing is the last resort after it (each texture keeps 8 numbers, about 0.7 KB with its widget table).
 -- epoch: counts the changes of camera, order and room that move mark lines (Room.Line reuses a still frame's).
 -- target / targetMin / targetMax / targetMs, over, under, t0: the time controller (spec 5.11, StopClock) moves the
--- leaf target between 900 and 2200 to keep a camera-driven redraw near 4 ms (Room.opts.target, when set, wins).
-local CTL = { start = 2.0, min = 1.5, max = 5.0, merge = 0.75, target = 1600, cap = 2800, tau = 2.0, used = 2.0,
+-- leaf target between 900 and 2800 to keep a camera-driven redraw near 6 ms (Room.opts.target, when set, wins).
+-- Tuned towards sharp, steady textures (the user's priority; the spec had 1600 / 2200 / 4 ms): a client with time
+-- to spare reaches tau 2, a slow one falls back to coarser pieces (up to tau 5) instead of losing frames.
+local CTL = { start = 2.0, min = 1.5, max = 5.0, merge = 0.75, target = 2000, cap = 3200, tau = 2.0, used = 2.0,
               limit = 10.0, midCap = 16384, texBudget = 20000, epoch = 0,
-              targetMin = 900, targetMax = 2200, targetMs = 4.0, over = 0, under = 0,
+              targetMin = 900, targetMax = 2800, targetMs = 6.0, over = 0, under = 0,
               selfEvery = 30, selfPx = 1.5, selfRun = 10 }
 local MAXDEPTH = 18               -- halvings of one prim at most
 local MINCLIP2 = 0.05 * 0.05      -- a piece crossing the near plane is halved until its longest edge is under this
@@ -1281,8 +1283,8 @@ end
 
 -- The time controller (spec 5.11; in game only: opts.adaptiveTime and debugprofilestop): a camera-driven redraw
 -- starts the clock in DrawRoom, DrawCopies stops it (the room, its mark lines and the copies). Three such redraws in
--- a row over 4 ms lower the leaf target by 10% (not under 900); sixty in a row under 2.4 ms raise it by 5% (not
--- over 2200). The count controller then moves tau towards the target.
+-- a row over 6 ms lower the leaf target by 10% (not under 900); sixty in a row under 3.6 ms raise it by 5% (not
+-- over 2800). The count controller then moves tau towards the target.
 local function StopClock()
     local C = CTL
     local t0 = C.t0
