@@ -2721,6 +2721,7 @@ local function InstallCopies()
             local fr = CopyFrame(j * 2 + 1 + floor(q / 64))
             if ITY[it] == 1 then PutTex(fr, q % 64, it, hx, hy) else PutLine(fr, q % 64, it) end
         end
+        stats.copyItems, stats.copyDropped = (stats.copyItems or 0) + cnt, (stats.copyDropped or 0) + (cnt - keep)
         return texTotal, keep
     end
 
@@ -2788,6 +2789,7 @@ local function InstallCopies()
             end
         end
         local shown = texTotal
+        stats.copyItems, stats.copyDropped = 0, 0
         for j = 0, OCC_SLOTS - 1 do
             if SLOTDIRTY[j] then
                 local X, keep, before = SLOTOCC[j], 0, texTotal
@@ -2971,7 +2973,8 @@ end
 function Room.Stats()
     return { tau = CTL.used, tauNext = CTL.tau, target = tonumber(Room.opts.target) or CTL.target, hardCap = hardCap,
              leaves = nLeaves, clipped = nClipped, capped = nCapped, redone = stats.redone, copies = stats.copies or 0,
-             copyActors = stats.copyActors or 0, lines = Room.ShownLines(), frames = nFrames, nodes = nNodes,
+             copyActors = stats.copyActors or 0, copyItems = stats.copyItems or 0,
+             copyDropped = stats.copyDropped or 0, lines = Room.ShownLines(), frames = nFrames, nodes = nNodes,
              prims = nPrims, redraw = stats.redraw, redraws = stats.redraws, pass1b = stats.pass1b, ms = stats.ms or 0,
              selfCheckPx = stats.selfCheckPx, midpoints = nPts - nV, collided = false, dilate = 0,
              textures = stats.textures, lent = stats.lent }
