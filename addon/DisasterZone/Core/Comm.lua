@@ -21,10 +21,14 @@ end
 -- "game" (CDLg) carries only minigame traffic, so its per-prefix server budget never delays council sync.
 -- "member" (CDLm) carries the guild's professions and recipes (Core/Professions.lua), for the same reason.
 -- "live" (CDLl) carries the strategy boards' presence and live edits (Core/StrategyCollab.lua): small and frequent.
+-- "walk" (CDLw) carries where members walk in a strategy's 3D room (Core/StrategyCollab.lua): about once a second
+-- each, on a budget of its own so it never holds up the edits.
 local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm",
-    live = "CDLl" }
-local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL" }
-local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live" }
+    live = "CDLl", walk = "CDLw" }
+local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL",
+    walk = "NORMAL" }
+local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live",
+    CDLw = "walk" }
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays; anyone:
                                  -- strategy boards, see AllowLarge)
@@ -173,7 +177,8 @@ local function CheckRoute(distribution, target)
     return false
 end
 
--- msg = table with string field t. class = "ctrl" | "data" | "alert" | "game" | "member" | "live" (default "ctrl").
+-- msg = table with string field t. class = "ctrl" | "data" | "alert" | "game" | "member" | "live" | "walk" (default
+-- "ctrl").
 function Comm:Send(msg, distribution, target, class)
     if not Available() or not ns.loggedIn then return false end
     if type(msg) ~= "table" or type(msg.t) ~= "string" then return false end

@@ -1238,6 +1238,10 @@ function ActorMethods:SetOnModelLoadedCallback(fn)
   self.onLoaded = fn
 end
 function ActorMethods:SetUseCenterForOrigin(x, y, z) self.centerOrigin = { x, y, z } end
+function ActorMethods:IsUsingCenterForOrigin()
+  local c = self.centerOrigin or {}
+  return c[1] and true or false, c[2] and true or false, c[3] and true or false
+end
 function ActorMethods:SetPreferModelCollisionBounds(v) self.collision = v end
 local function MockSize(d) return 0.5 + (d % 9) * 0.6, 0.4 + (d % 5) * 0.5 end
 -- Model files shown by file ID whose real box is known: the M2 header's bounding box (min x, y, z, max x, y, z,

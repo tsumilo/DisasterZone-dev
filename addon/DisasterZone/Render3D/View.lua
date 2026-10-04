@@ -157,9 +157,28 @@ function View:NewActor(top)
     pcall(a.SetUseCenterForOrigin, a, false, false, false)
     if a.SetOnModelLoadedCallback then
         local default = self.anim
-        pcall(a.SetOnModelLoadedCallback, a, function(actor) pcall(actor.SetAnimation, actor, actor.anim or default) end)
+        pcall(a.SetOnModelLoadedCallback, a, function(actor)
+            -- (the model's own origin at the actor's position, asked again with every model: the client centred
+            -- big lopsided ones sideways on it - Kil'jaeden's box centre is 29 yd from his origin)
+            pcall(actor.SetUseCenterForOrigin, actor, false, false, false)
+            pcall(actor.SetAnimation, actor, actor.anim or default)
+        end)
     end
     return a
+end
+
+-- Where the client draws an actor's model sideways from its position, as room x, y to add to the position so the
+-- model's own origin stands there: 0, 0 unless the client says it centres the model's box (IsUsingCenterForOrigin),
+-- then the box's centre (GetActiveBoundingBox, model units) turned by its facing (room radians) and scaled.
+function View:CentreShift(a, scale, facing)
+    if not (a and a.IsUsingCenterForOrigin) then return 0, 0 end
+    local ok, ux, uy = pcall(a.IsUsingCenterForOrigin, a)
+    if not ok or not (ux or uy) then return 0, 0 end
+    local okb, x0, y0, _, x1, y1 = pcall(a.GetActiveBoundingBox, a)
+    if not okb or type(x1) ~= "number" or type(y1) ~= "number" then return 0, 0 end
+    local cx, cy = ux and (x0 + x1) / 2 * scale or 0, uy and (y0 + y1) / 2 * scale or 0
+    local m, c, s = self.cam.mirror or 1, cos(facing), sin(facing)
+    return c * cx - m * s * cy, s * cx + m * c * cy
 end
 
 -- The cursor in UI units from the scene's bottom-left corner.

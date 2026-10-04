@@ -503,7 +503,7 @@ def walking_starts_on_my_spot_and_the_mouse_turns_and_swings_the_camera():
     go3d(w, bob)
     bob.eval("local p = T3.page() local sx, sy = T3.toBoard(30, 60) "
              "table.insert(p.e, { t = 's', x = math.floor(sx + 0.5), y = math.floor(sy + 0.5), r = 'tk.1.1' }) "
-             "T3.cv().opts.mySlots = function() return { ['tk.1.1'] = true } end T3.cv():Render()")
+             "T3.cv().opts.mySlots = function() return { ['tk.1.1'] = true } end ns.StrategyBoard:MarkDirty(true)")
     tick(w, 0.2)
     bob.eval("T3.v():StartWalk()")
     k = bob.eval_py(WALKER)
@@ -527,13 +527,22 @@ def walking_starts_on_my_spot_and_the_mouse_turns_and_swings_the_camera():
     tick(w, 1.5)
     walk_key(bob, "W", False)
     assert abs(bob.eval_py("return T3.v().walk.yawOff")) < 0.02
-    # the wheel zooms the walking camera; nothing is drawn while walking
+    # the wheel zooms the walking camera
     d0 = bob.eval_py("return T3.v().walk.dist")
     bob.eval("T3.cv():OnWheel(1)")
     assert bob.eval_py("return T3.v().walk.dist") < d0
+    # the planner's tools work on while walking: a zone drawn on the floor, Ctrl+Z takes it back (the walking keys
+    # do not take Ctrl+ keys)
     n0 = bob.eval("return #T3.elems()")
     bob.eval("T3.cv():SetTool('circle') T3.cursor(300, 150) T3.press('LeftButton')")
     bob.eval("T3.cursor(330, 150) T3.cv():OnDragUpdate() T3.release('LeftButton')")
+    assert bob.eval("return #T3.elems()") == n0 + 1
+    assert bob.eval_py("return T3.v():IsWalking()") is True
+    w.tick(0.1)
+    bob.set_modifiers(False, True, False)
+    walk_key(bob, "Z", True)
+    bob.set_modifiers(False, False, False)
+    w.tick(0.1)
     assert bob.eval("return #T3.elems()") == n0
     # leaving the room (back to the map) stops walking
     bob.eval("ns.StrategyBoard:Set3D(false)")
@@ -573,6 +582,80 @@ def dragging_the_walk_button_into_the_room_drops_you_where_it_is_let_go():
     # you stand in the view's second scene, over the bosses' copies
     w.tick(0.05)
     assert bob.eval_py("return T3.v().view.scene2 ~= nil and T3.v().occ[T3.v().nOcc].layer") == 2
+    no_errors(w)
+
+
+@case
+def walking_shows_on_the_boards_of_the_others_who_have_the_strategy_open():
+    w, c = world()
+    bob, gina = c["Bob"], c["Gina"]
+    for cl in (bob, gina):
+        cl.eval(HELPERS)
+    bob.eval("ns.StrategyBoard:NewStrategy(...)", TERON)
+    w.tick(0.2)
+    res = bob.eval_py("local s = ns.StrategyBoard:GetState().strat local ok, r = ns.Strategy:SaveStrategy(s) "
+                      "return { ok = ok, r = r }")
+    assert res["ok"] is True, res
+    sid = res["r"]
+    w.tick(1)
+    for cl in (bob, gina):
+        cl.eval("ns.StrategyBoard:OpenStrategy(...)", sid)
+        w.tick(2)
+        cl.eval("local s = ns.Render3D.RoomForBoss(...).spot T3.ox, T3.oy = s.x - 29.9, s.y - 85.2", TERON)
+        go3d(w, cl)
+    tick(w, 2)
+    # Bob walks: Gina sees him go, his name over him
+    bob.eval("local o = T3.v().orb o.x, o.y = 30 + T3.ox, 20 + T3.oy T3.v():StartWalk()")
+    walk_key(bob, "W", True)
+    tick(w, 1.5)
+    walk_key(bob, "W", False)
+    tick(w, 1.0)
+    k = bob.eval_py(WALKER)
+    seen = gina.eval_py("local ws = T3.v():RemoteWalkers() local a = ws[1] and T3.v().walkers[ws[1].key] "
+                        "return { n = #ws, x = a and a.wx - T3.ox, y = a and a.wy - T3.oy }")
+    assert seen["n"] == 1 and math.hypot(seen["x"] - k["x"], seen["y"] - k["y"]) < 1, (seen, k)
+    assert gina.eval("local ws = T3.v():RemoteWalkers() return T3.v().walkerLabels[ws[1].key]:GetText()") == "Bob"
+    # he stops walking: gone from her room
+    walk_key(bob, "ESCAPE", True)
+    tick(w, 0.5)
+    assert gina.eval_py("return #T3.v():RemoteWalkers()") == 0
+    assert gina.eval_py("local n = 0 for _ in pairs(T3.v().walkers) do n = n + 1 end return n") == 0
+    # with nobody else on the strategy nothing is sent
+    gina.eval("ns.StrategyBoard:Close()")
+    tick(w, 2)
+    n0 = len(w.addon_log)
+    bob.eval("T3.v():StartWalk()")
+    walk_key(bob, "W", True)
+    tick(w, 1.5)
+    walk_key(bob, "W", False)
+    assert not [e for e in w.addon_log[n0:] if e["prefix"] == "CDLw"]
+    no_errors(w)
+
+
+@case
+def a_model_the_client_centres_sideways_still_stands_on_its_spot():
+    w, c, bob = boot()
+    go3d(w, bob)
+    tick(w, 0.5)
+    # the models ask for their own origin (the client centred big lopsided ones on it: Kil'jaeden 29 yd off)
+    get = ("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
+           "local a = T3.v().actors[e] local g = T3.v():Geo(e) local px, py = a:GetPosition() "
+           "return { cx = select(1, a:IsUsingCenterForOrigin()), cy = select(2, a:IsUsingCenterForOrigin()), "
+           "x = px * g.scale, y = T3.v().view:SY(py * g.scale), gx = g.x, gy = g.y }")
+    p = bob.eval_py(get)
+    assert p["cx"] is False and p["cy"] is False and abs(p["x"] - p["gx"]) < 1e-6 and abs(p["y"] - p["gy"]) < 1e-6, p
+    # where the client centres its box anyway (a box 4 units ahead of the origin, at Teron's scale 2.5): the
+    # position moves back by it, turned with his facing, so his own origin is on the spot again
+    bob.eval("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end local a = T3.v().actors[e] "
+             "a.IsUsingCenterForOrigin = function() return true, true, false end "
+             "a.GetActiveBoundingBox = function() return 2, -1, 0, 6, 1, 3 end T3.v():Invalidate()")
+    tick(w, 0.1)
+    p = bob.eval_py(get)
+    f = bob.eval_py("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
+                    "local a = T3.v().actors[e] return a.yaw or select(1, a:GetYaw())")
+    face = f * bob.eval_py("return T3.v().cam.mirror")
+    want = (p["gx"] + math.cos(face) * 4 * 2.5, p["gy"] + math.sin(face) * 4 * 2.5)
+    assert math.hypot(p["x"] - want[0], p["y"] - want[1]) < 1e-3, (p, want)
     no_errors(w)
 
 

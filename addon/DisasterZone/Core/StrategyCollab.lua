@@ -18,6 +18,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/StrategyCollab.lua", ...) the
 --
 -- Saving stays what it was (the whole strategy on GUILD). A board that turns out equal to the saved strategy has
 -- nothing unsaved any more, so one editor's Save settles it for all of them.
+--
+-- Walking together (SBW on GUILD, the "walk" prefix, its own server budget): someone walking in a strategy's 3D room
+-- (UI/StrategyMap3D.lua) says where about once a second, and at once when they start, stop running, jump or turn
+-- ({ id, r = the room, x, y, z = their feet in room yards, f = facing, vx, vy = yd/s, s = 1 moving + 2 backward +
+-- 4 falling + 8 swimming, d = how they look: a player race's creature display }); { id, off = true } when they stop
+-- walking. Only while someone else has that strategy open. The others who have it open show them there, guessing
+-- between messages from the speed; one not heard from for WALK_TTL seconds is gone.
 local addonName, ns = ...
 
 local Collab = ns:NewModule("StrategyCollab")
@@ -49,11 +56,14 @@ local MAX_PARTS = 400        -- of a board sent to a joiner
 local MAX_MESSAGES = 60      -- ... and the messages they travel in
 local SNAP_ELEMENTS = 30     -- drawings per part
 local HISTORY_MAX = 60
+local WALK_TTL = 4             -- seconds a walker stays without word from them
+local WALK_MAX = 2000          -- yd: a room point further than this from 0 is no room point
 
 local pres = {}              -- [strategy id] = { [member key] = { m, k, pg, sel, at, h, c, idle } }
 local mine                   -- what my board shows: { id, m, pg }
 local sess                   -- my edit session (see EnterEdit)
 local uidCounter = 0
+local walkers = {}           -- [member key] = { id, r, x, y, z, f, vx, vy, s, d, at } (Collab:RemoteWalkers)
 
 local function S() return ns.Strategy end
 local function Board() return ns.StrategyBoard end
@@ -829,6 +839,64 @@ function Collab:SetSelection(uids)
 end
 
 ---------------------------------------------------------------------------
+-- Walking together
+---------------------------------------------------------------------------
+
+local function Num(v, lo, hi)
+    return type(v) == "number" and v == v and v >= lo and v <= hi
+end
+
+-- Tells the others who have my board's strategy open where I walk in its room (w: { r, x, y, z, f, vx, vy, s, d }),
+-- or that I stopped (nil). -> true when it went out.
+function Collab:SendWalk(w)
+    if not (mine and mine.id) then return false end
+    local others = pres[mine.id]
+    if not (others and next(others)) then return false end
+    local msg
+    if w then
+        local function r2(v) return floor((v or 0) * 100 + 0.5) / 100 end
+        msg = { t = "SBW", id = mine.id, r = w.r, x = r2(w.x), y = r2(w.y), z = r2(w.z), f = r2(w.f), vx = r2(w.vx),
+                vy = r2(w.vy), s = w.s or 0, d = w.d }
+    else
+        msg = { t = "SBW", id = mine.id, off = true }
+    end
+    local Comm = ns.Comm
+    return (Comm and Comm.Send and Comm:Send(msg, "GUILD", nil, "walk")) and true or false
+end
+
+-- SBW: someone walking in a strategy's room (see the top of the file).
+local function OnWalk(sender, msg, dist)
+    if dist ~= "GUILD" or type(msg.id) ~= "string" or #msg.id > 40 then return end
+    if msg.off then
+        walkers[sender] = nil
+        return
+    end
+    if type(msg.r) ~= "string" or #msg.r > 60 then return end
+    if not (Num(msg.x, -WALK_MAX, WALK_MAX) and Num(msg.y, -WALK_MAX, WALK_MAX) and Num(msg.z, -WALK_MAX, WALK_MAX)
+            and Num(msg.f, -1000, 1000) and Num(msg.vx, -100, 100) and Num(msg.vy, -100, 100)) then return end
+    walkers[sender] = { id = msg.id, r = msg.r, x = msg.x, y = msg.y, z = msg.z, f = msg.f, vx = msg.vx, vy = msg.vy,
+                        s = Num(msg.s, 0, 15) and floor(msg.s) or 0, d = Num(msg.d, 1, 1e7) and floor(msg.d) or nil,
+                        at = GetTime() }
+end
+
+-- Who walks in strategy `id`'s room `roomKey` now (not me): { key, x, y, z, f, vx, vy, s, d, age (seconds since
+-- their last word), r, g, b (their class colour) }, by name.
+function Collab:RemoteWalkers(id, roomKey)
+    local out, now = {}, GetTime()
+    for key, w in pairs(walkers) do
+        if now - w.at > WALK_TTL then
+            walkers[key] = nil
+        elseif w.id == id and w.r == roomKey then
+            local r, g, b = self:ColorOf(key)
+            out[#out + 1] = { key = key, x = w.x, y = w.y, z = w.z, f = w.f, vx = w.vx, vy = w.vy, s = w.s, d = w.d,
+                              age = now - w.at, r = r, g = g, b = b }
+        end
+    end
+    table.sort(out, function(a, b) return a.key < b.key end)
+    return out
+end
+
+---------------------------------------------------------------------------
 -- Messages
 ---------------------------------------------------------------------------
 
@@ -1059,6 +1127,7 @@ local function OnPresence(sender, msg, dist)
     end
     if type(id) ~= "string" or #id > 24 then return end
     if msg.x then
+        walkers[sender] = nil
         if pres[id] and pres[id][sender] then
             pres[id][sender] = nil
             if not next(pres[id]) then pres[id] = nil end
@@ -1137,6 +1206,7 @@ function Collab:OnInit()
         Comm:Register("SBS", OnSnapshot)
         Comm:Register("SBO", OnOps)
         Comm:Register("SBC", OnSelection)
+        Comm:Register("SBW", OnWalk)
         -- one action can carry a whole page (a pasted / duplicated one): as large as a saved strategy may be
         if Comm.AllowLarge then Comm:AllowLarge("SBO", "live") end
     end

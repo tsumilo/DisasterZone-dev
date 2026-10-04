@@ -55,6 +55,11 @@ local WALK_KEYS = { W = "fwd", UP = "fwd", S = "back", DOWN = "back", A = "left"
                     RIGHT = "right", Q = "strafeL", E = "strafeR", SPACE = "jump" }
 local WANIM = { stand = 0, run = 5, back = 13, fall = 40, swimIdle = 41, swim = 42 }
 local SWIM_SINK, WALK_EYE = 1.5, 2.2
+-- How a member walking in the room looks to the others outside their group (in it: their own character): the
+-- race's own model (CreatureDisplayInfo, checked against character/<race>/<sex>/<race><sex>.m2), male / female.
+local RACE_DISPLAY = { Human = { 49, 50 }, Orc = { 51, 52 }, Dwarf = { 53, 54 }, NightElf = { 55, 56 },
+                       Scourge = { 57, 58 }, Tauren = { 59, 60 }, Gnome = { 1563, 1564 }, Troll = { 1478, 1479 },
+                       BloodElf = { 15476, 15475 }, Draenei = { 16125, 16126 } }
 
 -- Floor marks (yd over the floor, so they never sink into it), posts (yd)
 local LIFT, LIFT_HATCH, LIFT_SEL = 0.08, 0.06, 0.11
@@ -92,6 +97,7 @@ function M3:Create(canvas)
     if not (r3 and r3.NewView) then return nil end
     local self = setmetatable({ canvas = canvas, cam = {}, chips = {}, hits = {}, handles = {}, arrowHits = {},
                                 actors = {}, actorPool = {}, geo = setmetatable({}, { __mode = "k" }),
+                                walkers = {}, walkerLabels = {},
                                 orb = { x = 0, y = 0, heading = NORTH, pitch = PITCH_VIEW, dist = 60 } }, V)
     local f = CreateFrame("Frame", nil, canvas.frame)
     f:SetAllPoints(canvas.frame)
@@ -618,6 +624,7 @@ function V:DrawModels()
                     a.display, a.anim, a.box, a.bb = g.display, 0, nil, nil
                     pcall(a.ClearModel, a)
                     pcall(a.SetModelByCreatureDisplayID, a, g.display)
+                    pcall(a.SetUseCenterForOrigin, a, false, false, false)
                     a.loadAt = GetTime()
                 end
                 local s = g.scale
@@ -631,7 +638,8 @@ function V:DrawModels()
                     tx, ty = v.x or g.x, v.y or g.y - 1
                 end
                 local face = ((abs(tx - g.x) + abs(ty - g.y)) > 0.5) and atan2(ty - g.y, tx - g.x) or -pi / 2
-                pcall(a.SetPosition, a, g.x / s, self.view:SY(g.y) / s, g.z / s)
+                local dx, dy = self.view:CentreShift(a, s, face)
+                pcall(a.SetPosition, a, (g.x + dx) / s, self.view:SY(g.y + dy) / s, g.z / s)
                 pcall(a.SetYaw, a, cam.mirror * face)
                 pcall(a.SetShown, a, true)
                 -- its own box once loaded (model units): how far it reaches round its feet and under them (the
@@ -655,7 +663,7 @@ function V:DrawModels()
                 g.h = (h or 2.5 * s) + 0.4
                 if parts then
                     a.partIds = a.partIds or {}
-                    local cf, sf = cos(face), sin(face)
+                    local cf, sf, mr = cos(face), sin(face), cam.mirror or 1
                     for k = 1, #parts - 5, 6 do
                         local x0, y0, z0, x1, y1, z1 = parts[k], parts[k + 1], parts[k + 2], parts[k + 3], parts[k + 4],
                             parts[k + 5]
@@ -668,7 +676,7 @@ function V:DrawModels()
                         n = n + 1
                         local o = occ[n] or {}
                         occ[n] = o
-                        o.id, o.x, o.y = id, g.x + cf * cx - sf * cy, g.y + sf * cx + cf * cy
+                        o.id, o.x, o.y = id, g.x + cf * cx - mr * sf * cy, g.y + sf * cx + mr * cf * cy
                         o.z, o.h = g.z + z0 * s, (z1 - z0) * s
                         o.w, o.rb, o.top, o.prio, o.group = 0, sqrt(hx * hx + hy * hy), (z1 - z0) * s, 1, e
                     end
@@ -690,6 +698,7 @@ function V:DrawModels()
             self.actorPool[#self.actorPool + 1] = a
         end
     end
+    n = self:DrawWalkers(occ, n)
     -- your character, walking: hidden where the room is in front of it, first in line for the copies
     local wk = self.walk
     if wk then
@@ -1517,6 +1526,14 @@ function V:OnUpdate(elapsed)
         if IsMouseButtonDown("LeftButton") then self:LookAtInset(false) else self.insetDrag = false end
     end
     if self.walk and self:WalkStep(elapsed) then moved = true end
+    -- others walking here: drawn every frame while they are (asked for twice a second while nobody is)
+    self.walkPoll = (self.walkPoll or 0) + (elapsed or 0)
+    if next(self.walkers) then
+        moved = true
+    elseif self.walkPoll > 0.5 then
+        self.walkPoll = 0
+        if #self:RemoteWalkers() > 0 then moved = true end
+    end
     if self.pegging then
         if IsMouseButtonDown("LeftButton") then self:MovePeg() else self:DropPeg() end
     end
@@ -1579,6 +1596,7 @@ function V:StartWalk(atX, atY)
         a.display, a.anim, a.bb, a.box = nil, WANIM.stand, nil, nil
         pcall(a.ClearModel, a)
         if a.SetModelByUnit then pcall(a.SetModelByUnit, a, "player") end
+        pcall(a.SetUseCenterForOrigin, a, false, false, false)
         pcall(a.SetScale, a, 1)
         pcall(a.SetShown, a, true)
     end
@@ -1629,6 +1647,8 @@ function V:StopWalk()
     local wk = self.walk
     if not wk then return end
     self.walk, self.drag3 = nil, nil
+    local C = ns.StrategyCollab
+    if C and C.SendWalk and wk.sentAt then C:SendWalk(nil) end
     self.keys:EnableKeyboard(false)
     local a = wk.actor
     if a then
@@ -1650,8 +1670,12 @@ function V:WalkKey(key, down)
         if down then self:StopWalk() end
         return true
     end
-    local act = WALK_KEYS[key]
-    if not act then return false end
+    local act = not (IsControlKeyDown() or IsAltKeyDown()) and WALK_KEYS[key]
+    if not act then
+        -- the planner's keys (Delete, Ctrl+Z, Ctrl+C / V ...) while walking; the rest go on to the game
+        local B = ns.StrategyBoard
+        return (down and B and B.OnKey and B:OnKey(key)) and true or false
+    end
     if act == "jump" then
         if down then wk.jump = true end
         return true
@@ -1660,13 +1684,153 @@ function V:WalkKey(key, down)
     return true
 end
 
+-- Where I walk, to the others who have this strategy open (Core/StrategyCollab.lua SBW): at once when I start,
+-- start or stop running, jump, land or turn more than 20 degrees (no faster than 4 a second), else once a second
+-- while I move and every 2 s while I stand.
+function V:ShareWalk()
+    local C = ns.StrategyCollab
+    local wk = self.walk
+    if not (C and C.SendWalk and wk) then return end
+    local k, now = wk.k, GetTime()
+    local s = (k.moving and 1 or 0) + (k.backward and 2 or 0) + (k.falling and 4 or 0) + (k.swimming and 8 or 0)
+    local since = now - (wk.sentAt or -10)
+    local turned = wk.sentF and abs((k.facing - wk.sentF + pi) % (2 * pi) - pi) > 0.35
+    if not ((since >= 0.25 and (s ~= wk.sentS or turned)) or (since >= 1 and (k.moving or k.falling)) or since >= 2) then
+        return
+    end
+    if not wk.look then
+        local _, race = UnitRace("player")
+        local t = race and RACE_DISPLAY[race]
+        wk.look = t and t[UnitSex("player") == 3 and 2 or 1] or 49
+    end
+    C:SendWalk({ r = self.room.floor, x = k.x, y = k.y, z = k.z, f = k.facing, vx = k.vx or 0, vy = k.vy or 0, s = s,
+                 d = wk.look })
+    wk.sentAt, wk.sentS, wk.sentF = now, s, k.facing
+end
+
+-- The others walking in this room (Core/StrategyCollab.lua), or {}.
+function V:RemoteWalkers()
+    local C, B = ns.StrategyCollab, ns.StrategyBoard
+    local st = B and B.GetState and B:GetState()
+    local id = st and st.strat and st.strat.id
+    if not (C and C.RemoteWalkers and id and self.room) then return {} end
+    return C:RemoteWalkers(id, self.room.floor)
+end
+
+-- A member of my group by key: their unit ("raid3", "party1"), or nil.
+local function GroupUnit(key)
+    local Util = ns.Util
+    if not (Util and Util.UnitKey) then return nil end
+    if IsInRaid and IsInRaid() then
+        for i = 1, 40 do
+            local u = "raid" .. i
+            if UnitExists(u) and Util.UnitKey(u) == key then return u end
+        end
+    elseif IsInGroup and IsInGroup() then
+        for i = 1, 4 do
+            local u = "party" .. i
+            if UnitExists(u) and Util.UnitKey(u) == key then return u end
+        end
+    end
+    return nil
+end
+
+-- The others walking here, drawn: where they are now (from their last word and speed, at most 1.5 s on, eased there
+-- so a new word never makes them jump), looking as they do (in my group: their own character), running or standing,
+-- their name over them in their class colour; each an occluder. -> n with theirs added to occ.
+function V:DrawWalkers(occ, n)
+    local now = GetTime()
+    local dt = min(0.25, now - (self.walkersAt or now))
+    self.walkersAt = now
+    local seen, ground = {}, R3().Ground(self.room)
+    for _, rw in ipairs(self:RemoteWalkers()) do
+        local a = self.walkers[rw.key]
+        if not a then
+            a = table.remove(self.actorPool) or self.view:NewActor()
+            if a then
+                a.look, a.display, a.anim, a.bb, a.wx, a.wy = nil, nil, nil, nil, nil, nil
+                self.walkers[rw.key] = a
+            end
+        end
+        if a then
+            seen[rw.key] = true
+            local unit = GroupUnit(rw.key)
+            local look = unit or rw.d or 49
+            if a.look ~= look then
+                a.look = look
+                pcall(a.ClearModel, a)
+                if unit then pcall(a.SetModelByUnit, a, unit) else pcall(a.SetModelByCreatureDisplayID, a, look) end
+                pcall(a.SetUseCenterForOrigin, a, false, false, false)
+                pcall(a.SetScale, a, 1)
+            end
+            local t = min(rw.age, 1.5)
+            local px, py = rw.x + rw.vx * t, rw.y + rw.vy * t
+            if not a.wx or (px - a.wx) ^ 2 + (py - a.wy) ^ 2 > 100 then
+                a.wx, a.wy = px, py
+            else
+                local e = min(1, 10 * dt)
+                a.wx, a.wy = a.wx + (px - a.wx) * e, a.wy + (py - a.wy) * e
+            end
+            local falling, swimming = floor(rw.s / 4) % 2 == 1, floor(rw.s / 8) % 2 == 1
+            local z = rw.z
+            if not falling and ground then z = ground(a.wx, a.wy, rw.z + 0.5) or rw.z end
+            if swimming then z = z - SWIM_SINK end
+            local dx, dy = self.view:CentreShift(a, 1, rw.f)
+            pcall(a.SetPosition, a, a.wx + dx, self.view:SY(a.wy + dy), z)
+            pcall(a.SetYaw, a, self.cam.mirror * rw.f)
+            pcall(a.SetShown, a, true)
+            local moving, back = rw.s % 2 == 1, floor(rw.s / 2) % 2 == 1
+            local anim = (falling and WANIM.fall) or (swimming and (moving and WANIM.swim or WANIM.swimIdle))
+                or (moving and (back and WANIM.back or WANIM.run)) or WANIM.stand
+            if a.anim ~= anim then
+                a.anim = anim
+                pcall(a.SetAnimation, a, anim)
+            end
+            n = n + 1
+            local o = occ[n] or {}
+            occ[n] = o
+            o.id, o.x, o.y, o.z, o.h, o.group, o.layer = a, a.wx, a.wy, z, 2.4, nil, nil
+            o.w, o.rb, o.top, o.prio = 1.2, 0.6, 2.6, 1
+            -- the name over them
+            local fs = self.walkerLabels[rw.key]
+            if not fs then
+                fs = self.view.plateFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                self.walkerLabels[rw.key] = fs
+            end
+            local sx, sy = self:Proj(a.wx, a.wy, z + 2.7)
+            if sx then
+                fs:SetText((ns.Util and ns.Util.ShortName and ns.Util.ShortName(rw.key)) or rw.key)
+                fs:SetTextColor(rw.r or 1, rw.g or 1, rw.b or 1)
+                fs:ClearAllPoints()
+                fs:SetPoint("BOTTOM", self.view.plateFrame, "BOTTOMLEFT", sx, sy)
+                fs:Show()
+            else
+                fs:Hide()
+            end
+        end
+    end
+    for key, a in pairs(self.walkers) do
+        if not seen[key] then
+            pcall(a.SetShown, a, false)
+            pcall(a.ClearModel, a)
+            a.look, a.display, a.anim = nil, nil, nil
+            self.walkers[key] = nil
+            self.actorPool[#self.actorPool + 1] = a
+            if self.walkerLabels[key] then self.walkerLabels[key]:Hide() end
+        end
+    end
+    return n
+end
+
 -- Your character where the walker is: its feet (a swimmer's under the surface), its body's turn, its animation.
 function V:PlaceWalker()
     local wk = self.walk
     local a, k = wk.actor, wk.k
     if not a then return end
-    pcall(a.SetPosition, a, k.x, self.view:SY(k.y), k.z - (k.swimming and SWIM_SINK or 0))
-    pcall(a.SetYaw, a, self.cam.mirror * (k.facing + k.bodyTurn))
+    local f = k.facing + k.bodyTurn
+    local dx, dy = self.view:CentreShift(a, 1, f)
+    pcall(a.SetPosition, a, k.x + dx, self.view:SY(k.y + dy), k.z - (k.swimming and SWIM_SINK or 0))
+    pcall(a.SetYaw, a, self.cam.mirror * f)
     local anim = (k.falling and WANIM.fall) or (k.swimming and (k.moving and WANIM.swim or WANIM.swimIdle))
         or (k.moving and (k.backward and WANIM.back or WANIM.run)) or WANIM.stand
     if a.anim ~= anim then
@@ -1701,6 +1865,7 @@ function V:WalkStep(elapsed)
         k.moving, k.backward, k.bodyTurn = false, false, 0      -- (stood still: no step ran to say so)
     end
     wk.jump = nil
+    self:ShareWalk()
     if (k.moving or turn ~= 0) and wk.yawOff ~= 0 and not (self.drag3 and self.drag3.kind == "swing") then
         wk.yawOff = wk.yawOff * max(0, 1 - 4 * (elapsed or 0))
         if abs(wk.yawOff) < 0.01 then wk.yawOff = 0 end
@@ -1728,6 +1893,12 @@ function V:MouseDown(button, editable, tool)
             wk.k.facing, wk.yawOff = wk.k.facing + wk.yawOff, 0
             self.drag3 = { kind = "look", button = button, cx = cx, cy = cy, facing = wk.k.facing, pitch = wk.pitch }
         elseif button == "LeftButton" then
+            -- the planner's tools work on as you walk: a drawing tool draws on the floor, the select tool picks
+            -- and moves what is under the mouse; on empty floor (or with the Pan tool) the left button swings the
+            -- camera round you
+            if editable and tool ~= "pan" and (tool ~= "select" or self:HitTest() or self:HandleAt()) then
+                return false
+            end
             self.drag3 = { kind = "swing", button = button, cx = cx, cy = cy, yawOff = wk.yawOff, pitch = wk.pitch }
         end
         return true
@@ -1763,7 +1934,11 @@ function V:MouseUp(button)
     local d = self.drag3
     if d and d.button == button then
         self.drag3 = nil
-        if self.walk then return true end
+        if self.walk then
+            -- (a right click that did not turn you: the menu, as on the map)
+            if d.kind == "look" and not d.moved then return "click" end
+            return true
+        end
         if d.kind == "orbit" and not d.moved then return "click" end
         return true
     end

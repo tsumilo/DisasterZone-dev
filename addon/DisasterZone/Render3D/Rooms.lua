@@ -277,6 +277,7 @@ end
 function Walker:Step(dt, fwd, strafe, turn, jump)
     local C, ground = R3.WALK, self.ground
     local sqrt = math.sqrt
+    local x0, y0 = self.x, self.y
     if turn ~= 0 then self.facing = self.facing + turn * C.turn * dt end
     local mx, my = 0, 0
     self.backward, self.bodyTurn = false, 0
@@ -344,6 +345,7 @@ function Walker:Step(dt, fwd, strafe, turn, jump)
     end
     self.swimming = (swim and not self.falling) and true or false
     self.gx, self.gy = self.x, self.y
+    self.vx, self.vy = dt > 0 and (self.x - x0) / dt or 0, dt > 0 and (self.y - y0) / dt or 0      -- (how it went)
 end
 
 ---------------------------------------------------------------------------
