@@ -280,7 +280,7 @@ STATES = [
     ("Atlas - search", opened("atlas", "ns.AtlasUI:SetSearch('gladiator')")),
     ("Atlas - item menu", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen'); "
                                           "ns.AtlasUI:OpenMenu({ type = 'item', id = 28505 })")),
-    ("Loot Log", opened("loot")),
+    ("Council - Loot Log", opened("council", "ns.CouncilUI:ShowLog()")),
     ("Raids - Upcoming", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                           "ns.RaidPlanUI:SetDetailTab('signups')")),
     ("Raids - Upcoming - Groups", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
@@ -311,7 +311,7 @@ STATES = [
     ("Raids - Strategy board - Teron 2D", st_window("ns.StrategyBoard:NewStrategy('BlackTemple:Teron')")),
     ("Raids - Strategy board - Teron 3D", st_window("ns.StrategyBoard:NewStrategy('BlackTemple:Teron'); "
                                                     "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
-    ("Loot Log - award dialog", opened("loot", "ns.LootLogUI:OpenAwardDialog("
+    ("Council - Loot Log - award dialog", opened("council", "ns.CouncilUI:ShowLog(); ns.LootLogUI:OpenAwardDialog("
                                                "ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[1].itemID, "
                                                "'Shadowmelder-Thunderstrike', 'Karazhan:Prince')")),
     ("Members - roster", opened("members")),
@@ -332,7 +332,7 @@ STATES = [
     ("Demo - Council - items", demo("ns.CouncilUI:ShowBoss('Karazhan:Prince')", "council")),
     ("Demo - Council - member", demo("ns.CouncilUI:ShowMember('Aldrin-Thunderstrike')", "council")),
     ("Demo - Council - loot council", demo("ns.CouncilUI:ShowCouncil()", "council")),
-    ("Demo - Loot Log", demo(None, "loot")),
+    ("Demo - Council - loot log", demo("ns.CouncilUI:ShowLog()", "council")),
     ("Demo - Raid log - Players", demo("ns.RaidsUI:SetMode('players')", "raids")),
     ("Demo - Start raid window", demo("ns.SessionBar:OpenStart()")),
     ("Demo - test drop panel", demo("ns.Loot:SimulateDrop()")),

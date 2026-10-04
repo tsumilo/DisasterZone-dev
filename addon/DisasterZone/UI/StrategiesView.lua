@@ -370,8 +370,8 @@ function View:CreateLibrary(parent)
     d.tourBtn:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine("Tutorial")
-        GameTooltip:AddLine("A guided tour on a practice board: building a strategy, assigning a raid, reading a plan. "
-            .. "Nothing you do there is saved or shared.", 1, 1, 1, true)
+        GameTooltip:AddLine("A guided tour on a practice board: building a strategy, the room in 3D, assigning a "
+            .. "raid, reading a plan. Nothing you do there is saved or shared.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     d.tourBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)

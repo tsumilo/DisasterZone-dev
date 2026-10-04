@@ -1,6 +1,8 @@
 """The strategy board's tutorial (UI/Tour.lua, Data/Tours/Strategy.lua): a guided tour on a practice board that is
 never a draft, never saved and never shared. Every step must point at a control that exists, the steps the member
-does themselves must notice the real action, and the finished chapters are remembered.
+does themselves must notice the real action, and the finished chapters are remembered. A step that is done already
+when it comes up (Back to it) waits for Next. The 3D chapter runs in the boss' room (the room files load for those
+cases only); without them it is one step asking for a client restart.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy_tour.py [-k name]
 """
@@ -12,6 +14,7 @@ sys.path.insert(0, HERE)
 
 from st_common import world, strategies  # noqa: E402
 from _common import case, run_all  # noqa: E402
+import harness  # noqa: E402
 
 BOSS = "GruulsLair:Maulgar"
 W = "_G.DisasterZoneStrategyBoard"
@@ -37,6 +40,23 @@ function T_empty_slot()
         if not s.assign[sl.ref] then return sl.ref end
     end
 end
+-- the mouse in the 3D view (the mock puts every frame at 0, 0)
+T_down = {}
+_G.IsMouseButtonDown = function(b) return T_down[b or "LeftButton"] == true end
+function T_v() return T_canvas().v3 end
+function T_cursor(sx, sy)
+    local es = T_v().view.scene:GetEffectiveScale() or 1
+    _G.GetCursorPosition = function() return sx * es, sy * es end
+end
+function T_press(b) T_down[b] = true T_canvas():OnMouseDown(b) end
+function T_release(b) T_down[b] = nil T_canvas():OnMouseUp(b) end
+-- the boss on the screen in the room (where he stands)
+function T_boss()
+    local v = T_v()
+    local g = v:FirstModel()
+    local sx, sy = v:Proj(g.x, g.y, g.z)
+    return { sx, sy }
+end
 function T_names()
     local s, n, mine = ns.StrategyBoard:GetState(), 0, 0
     for _, key in pairs(s.assign) do
@@ -47,11 +67,17 @@ function T_names()
 end
 """
 
-CHAPTERS = ["basics", "drawing", "jobs", "helpers", "assign", "read", "library"]
+CHAPTERS = ["basics", "drawing", "room3d", "jobs", "helpers", "assign", "read", "library"]
 
 
-def setup():
-    w, c = world()
+def setup(rooms=False):
+    """rooms: the clients load the board's 3D rooms (the mock leaves them out otherwise)."""
+    keep = harness.LOAD_ROOMS
+    harness.LOAD_ROOMS = rooms or keep
+    try:
+        w, c = world()
+    finally:
+        harness.LOAD_ROOMS = keep
     bob = c["Bob"]
     bob.eval(HELPERS)
     return w, c, bob
@@ -86,6 +112,15 @@ def ndrafts(cl):
 def start(w, cl, chapter=None):
     assert cl.eval("return %s:Start('strategy', ...)" % T, chapter) is True
     w.tick(0.2)
+
+
+def nxt(w, cl):
+    cl.click(cl.eval("return _G.DisasterZoneTourBox.next"))
+    w.tick(0.1)
+
+
+def in3d(cl):
+    return cl.eval("return T_canvas():Is3D()")
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -165,38 +200,42 @@ def every_step_points_at_a_control_on_the_screen():
     start(w, bob)
     seen = []
     modes = {}
+    titles = {}
     for _ in range(120):
         s = state(bob)
         if s is None:
             break
         seen.append((s["chapter"], s["si"]))
+        titles[(s["chapter"], s["si"])] = s["title"]
         modes.setdefault(s["chapter"], bob.eval("return %s:IsShown() and %s.mode" % (B, ST)))
         if s["anchored"]:
             assert s["lit"] is True, "nothing to point at: %r" % (s,)
         # the texts are there
         txt = bob.eval_py("local b = _G.DisasterZoneTourBox; return { t = b.title:GetText(), x = b.text:GetText() }")
         assert txt["t"] and txt["x"], (s, txt)
-        if s["chapter"] == "jobs" and s["si"] == 1:
-            # the later steps point into a block: add the first suggested one
-            bob.eval("%s.blocks.cards[1].onPick()" % W)
-            w.tick(0.2)
-        if s["chapter"] == "helpers" and s["si"] == 2:
-            bob.eval("T_add_rotation()")        # the steps after it point at the rotation
-            w.tick(0.2)
+        # (nothing is done by hand: a step whose block was skipped brings one, see below)
         bob.click(bob.eval("return _G.DisasterZoneTourBox.next"))
         w.tick(0.1)
     assert state(bob) is None
     n = bob.eval_py("local out = {}; for i, ch in ipairs(%s:Get('strategy').chapters) do out[i] = #ch.steps end; "
                     "return out" % T)
-    # one page only (the step that adds one was skipped): the step about the page tabs is left out
-    assert ("read", 5) not in seen
-    assert len(seen) == sum(n) - 1, (len(seen), n)
+    # one page only (the step that adds one was skipped): going back to the first tab and the tabs while reading are
+    # left out; without the 3D files the 3D chapter is the one step that asks for a restart, and the 3D step while
+    # reading is left out too
+    skipped = [("basics", 9), ("room3d", 2), ("room3d", 3), ("room3d", 4), ("room3d", 5), ("room3d", 6),
+               ("room3d", 7), ("room3d", 8), ("room3d", 9), ("room3d", 10), ("read", 4), ("read", 6)]
+    every = [(ch, si) for ch, k in zip(CHAPTERS, n) for si in range(1, k + 1)]
+    assert seen == [x for x in every if x not in skipped], seen
+    assert titles[("room3d", 1)] == "3D after a restart", titles
+    # the blocks the skipped steps would have made came anyway: one suggested block, and a rotation to track
+    assert bob.eval_py("local s = %s; local out = {}; for i, k in ipairs(s.strat.p[1].k) do out[i] = k.n end; "
+                       "return out" % ST) == ["Tanks", "Rotation"]
     done = bob.eval_py("return %s:Progress('strategy').done" % T)
     assert done == {k: True for k in CHAPTERS}, done
     assert [c for c, _ in seen if c] and sorted(set(c for c, _ in seen), key=CHAPTERS.index) == CHAPTERS
     # each chapter had the board the way it needs it; the last one runs on the library
-    assert modes == {"basics": "edit", "drawing": "edit", "jobs": "edit", "helpers": "edit", "assign": "fill",
-                     "read": "view", "library": False}, modes
+    assert modes == {"basics": "edit", "drawing": "edit", "room3d": "edit", "jobs": "edit", "helpers": "edit",
+                     "assign": "fill", "read": "view", "library": False}, modes
     assert any("Tutorial finished" in p for p in bob.chat_frame), bob.chat_frame[-3:]
     assert ndrafts(bob) == 0
     assert not strategies(bob, BOSS)
@@ -253,6 +292,9 @@ def the_steps_notice_the_real_actions():
     assert did(w, bob)["si"] == 9
     nxt()
     s = state(bob)
+    assert (s["chapter"], s["si"], s["title"]) == ("room3d", 1, "3D after a restart"), s
+    nxt()
+    s = state(bob)
     assert (s["chapter"], s["si"]) == ("jobs", 1), s
 
     # jobs
@@ -273,7 +315,8 @@ def the_steps_notice_the_real_actions():
         nxt()
     s = state(bob)
     assert (s["chapter"], s["si"]) == ("helpers", 1), s
-    assert bob.eval_py("return %s:Progress('strategy').done" % T) == {"basics": True, "drawing": True, "jobs": True}
+    assert bob.eval_py("return %s:Progress('strategy').done" % T) == {"basics": True, "drawing": True, "room3d": True,
+                                                                      "jobs": True}
 
     # in-fight helpers
     nxt()
@@ -281,7 +324,7 @@ def the_steps_notice_the_real_actions():
     assert did(w, bob)["si"] == 3
     bob.eval("for _, k in ipairs(T_pg().k) do if k.id == ... then k.tr = 'rot' end end; T_changed()", rot)
     assert did(w, bob)["si"] == 4
-    for _ in range(4):
+    for _ in range(3):
         nxt()
 
     # assigning the demo raid: the same board, now with players
@@ -418,10 +461,27 @@ def back_and_the_chapter_menu():
     start(w, bob, 2)
     s = state(bob)
     assert (s["chapter"], s["si"]) == ("drawing", 1), s
-    # Back from a chapter's first step: the last step of the one before
+    # Back from a chapter's first step: the last step of the one before that is shown (one page: going back to the
+    # first tab is left out)
     bob.click(bob.eval("return _G.DisasterZoneTourBox.back"))
     s = state(bob)
-    assert (s["chapter"], s["si"]) == ("basics", s["steps"]), s
+    assert (s["chapter"], s["si"], s["title"]) == ("basics", s["steps"] - 1, "Pages"), s
+    bob.eval("%s:Stop()" % T)
+    # Back to a step that is done already: it waits for Next instead of going straight on again
+    start(w, bob, "drawing")
+    bob.click(bob.eval("return %s.tools.btns[3]" % W))                          # the circle tool
+    assert did(w, bob)["si"] == 2
+    bob.click(bob.eval("return _G.DisasterZoneTourBox.back"))
+    s = state(bob)
+    assert (s["si"], s["review"], s["done"]) == (1, True, False), s
+    tick(w, bob, 2.0)
+    s = state(bob)
+    assert (s["si"], s["done"]) == (1, False), s
+    assert bob.eval("return _G.DisasterZoneTourBox.next:GetText()") == "Next"
+    assert bob.eval("return _G.DisasterZoneTourBox.hint:IsShown()") is False
+    nxt(w, bob)
+    s = state(bob)
+    assert (s["si"], s["review"]) == (2, False), s
     bob.eval("%s:Stop()" % T)
     assert state(bob) is None
     # with nothing finished, it starts at the first chapter; later at the first one not finished
@@ -473,6 +533,136 @@ def the_library_offers_the_tour_once():
     s = state(rita)
     assert (s["id"], s["chapter"], s["si"]) == ("strategy", "basics", 1), s
     assert rita.eval("return %s.sandbox" % ST) is True
+    w.assert_no_errors()
+
+
+@case
+def the_3d_chapter_runs_in_the_boss_room():
+    w, c, bob = setup(rooms=True)
+    start(w, bob, "room3d")
+    # the room is there: no restart step; it starts on the map, at the switch in its corner
+    s = state(bob)
+    assert (s["chapter"], s["si"], s["title"], s["lit"]) == ("room3d", 2, "The room in 3D", True), s
+    assert in3d(bob) is False
+    bob.click(bob.eval("return %s.mode3d" % W))
+    assert in3d(bob) is True
+    tick(w, bob, 0.8)                                       # (the map tilts up into the room)
+    s = state(bob)
+    assert (s["si"], s["done"]) == (2, True), s
+    tick(w, bob, 1.0)
+    s = state(bob)
+    assert (s["si"], s["title"]) == (3, "Turning the view"), s
+    # right-drag turns the camera
+    bob.eval("T_cursor(300, 200) T_press('RightButton')")
+    bob.eval("T_cursor(380, 230)")
+    w.tick(0.05)
+    bob.eval("T_release('RightButton')")
+    assert did(w, bob)["title"] == "Closer and farther"
+    bob.eval("T_canvas():OnWheel(1)")
+    s = did(w, bob)
+    assert (s["title"], s["lit"]) == ("The camera buttons", True), s
+    nxt(w, bob)
+    s = state(bob)
+    assert (s["title"], s["lit"]) == ("The small map", True), s
+    # a click on the small map looks there
+    bob.eval("local i = T_v().inset i.Cursor = function() return 300, 260 end "
+             "i.frame:GetScript('OnMouseDown')(i.frame, 'LeftButton') i.frame:GetScript('OnMouseUp')(i.frame, 'LeftButton')")
+    s = did(w, bob)
+    assert (s["title"], s["lit"]) == ("Drawing in the room", True), s
+    tick(w, bob, 0.5)
+    # the circle tool, then a drag on the floor next to the boss
+    n = bob.eval("return #T_pg().e")
+    bob.click(bob.eval("return %s.tools.btns[3]" % W))
+    at = bob.eval_py("return T_boss()")
+    bob.eval("T_cursor(...) T_press('LeftButton')", at[0], at[1])
+    bob.eval("T_cursor(...) T_canvas():OnDragUpdate()", at[0] + 40, at[1])
+    bob.eval("T_release('LeftButton')")
+    assert bob.eval_py("local e = T_pg().e[#T_pg().e]; return { #T_pg().e, e.t }") == [n + 1, "z"]
+    assert did(w, bob)["title"] == "View from here"
+    # the drawing's menu: stand on it
+    bob.eval("T_canvas():ElementMenu(T_canvas():GetSelected())")
+    bob.menu_select("View from here")
+    s = did(w, bob)
+    assert (s["title"], s["lit"]) == ("Walking in the room", True), s
+    tick(w, bob, 0.5)
+    # a walk, then Esc
+    bob.click(bob.eval("return T_v().walkBtn"))
+    assert bob.eval("return T_v():IsWalking()") is True
+    tick(w, bob, 0.5)
+    assert state(bob)["done"] is False
+    bob.eval("local f = T_v().keys f:GetScript('OnKeyDown')(f, 'ESCAPE')")
+    s = did(w, bob)
+    assert (s["title"], s["lit"]) == ("Back to the map", True), s
+    bob.click(bob.eval("return %s.mode2d" % W))
+    tick(w, bob, 0.8)                                       # (the room lays back down)
+    assert in3d(bob) is False
+    s = did(w, bob)
+    assert (s["chapter"], s["si"]) == ("jobs", 1), s
+    assert bob.eval_py("return %s:Progress('strategy').done" % T) == {"room3d": True}
+    # Back: the last step is done (on the map) and waits there
+    bob.click(bob.eval("return _G.DisasterZoneTourBox.back"))
+    tick(w, bob, 2.0)
+    s = state(bob)
+    assert (s["chapter"], s["si"], s["review"]) == ("room3d", 10, True), s
+    assert bob.eval("return _G.DisasterZoneTourBox.next:GetText()") == "Next chapter"
+    # Back again: that step goes into the room by itself
+    bob.click(bob.eval("return _G.DisasterZoneTourBox.back"))
+    s = state(bob)
+    assert (s["title"], s["review"]) == ("Walking in the room", False), s
+    assert in3d(bob) is True
+    bob.eval("%s:Stop()" % T)
+    assert ndrafts(bob) == 0
+    assert not strategies(bob, BOSS)
+    w.assert_no_errors()
+
+
+@case
+def the_2d_chapters_put_the_board_back_on_the_map_and_reading_shows_my_spot_in_3d():
+    w, c, bob = setup(rooms=True)
+    # my own strategy, looked at in 3D; then the tutorial
+    bob.eval(B + ":NewStrategy(...)", BOSS, "Mine")
+    w.tick(0.2)
+    assert bob.eval("return T_canvas():Set3D(true, false)") is True
+    start(w, bob)
+    s = state(bob)
+    assert (s["chapter"], s["si"]) == ("basics", 1), s
+    assert bob.eval("return %s.sandbox" % ST) is True
+    assert in3d(bob) is False                               # the basics zoom the 2D map
+    for _ in range(3):
+        nxt(w, bob)
+    bob.eval("T_pg().vz = T_pg().vz + 40; T_changed()")
+    assert did(w, bob)["si"] == 5
+    bob.eval("%s:Stop()" % T)
+    assert ndrafts(bob) == 1                                # (mine stayed a draft)
+
+    # reading: my name stands on the map, and My spot stands me on it in 3D
+    start(w, bob, "read")
+    me = bob.eval("return ns.Util.PlayerKey()")
+    marker = bob.eval_py("local s = %s; for _, e in ipairs(s.strat.p[1].e) do "
+                         "if e.t == 's' and s.assign[e.r] == ns.Util.PlayerKey() then return e end end" % ST)
+    assert marker, "no marker for my job"
+    for _ in range(3):
+        nxt(w, bob)
+    s = state(bob)
+    assert (s["si"], s["title"], s["lit"]) == (4, "Your spot in 3D", True), s
+    bob.click(bob.eval("return %s.mode3d" % W))
+    tick(w, bob, 0.8)
+    assert bob.eval("return T_v().eyeBtn:IsShown()") is True
+    tick(w, bob)
+    assert state(bob)["lit"] is True                        # (now the eye)
+    bob.click(bob.eval("return T_v().eyeBtn"))
+    s = did(w, bob)
+    assert (s["si"], s["title"]) == (5, "The tables"), s
+    o = bob.eval_py("local o = T_v().orb; return { o.x, o.y, o.dist }")
+    xy = bob.eval_py("return { ns.Render3D.BoardToRoom(T_v().room, T_pg(), ...) }", marker["x"], marker["y"])
+    assert abs(o[0] - xy[0]) + abs(o[1] - xy[1]) < 1 and o[2] < 1, (o, xy)
+    # the marker is mine only once, however often the chapter starts
+    bob.eval("%s:Stop()" % T)
+    start(w, bob, "read")
+    n = bob.eval("local s = %s; local n = 0; for _, e in ipairs(s.strat.p[1].e) do "
+                 "if e.t == 's' and s.assign[e.r] == ns.Util.PlayerKey() then n = n + 1 end end; return n" % ST)
+    assert n == 1, n
+    assert me
     w.assert_no_errors()
 
 

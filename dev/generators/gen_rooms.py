@@ -1023,7 +1023,27 @@ def split_parts(vs, scale):
     return boxes
 
 
-def write_index(entries, scales=None, parts=None):
+def display_centres(portraits):
+    """display id -> (x, y): the middle of CreatureModelData.GeoBox (model units; the Stand animation's own box),
+    where it is off the model's origin by more than 0.02. The client turns and places a ModelScene creature by that
+    middle sideways, not by its origin (Kil'jaeden's is 29 yd off at his scale): the 3D view moves the actor back by
+    it so the origin stands on its spot (UI/StrategyMap3D.lua)."""
+    cdi = {int(r["ID"]): r for r in csv.DictReader(open(os.path.join(CACHE, "CreatureDisplayInfo.csv"), encoding="utf-8"))}
+    cmd = {int(r["ID"]): r for r in csv.DictReader(open(os.path.join(CACHE, "CreatureModelData.csv"), encoding="utf-8"))}
+    out = {}
+    for d in sorted({int(c["d"]) for cs in portraits.values() for c in cs}):
+        row = cdi.get(d)
+        model = row and cmd.get(int(row["ModelID"]))
+        if not model:
+            continue
+        g = [float(model["GeoBox_%d" % i]) for i in range(6)]
+        cx, cy = (g[0] + g[3]) / 2, (g[1] + g[4]) / 2
+        if abs(cx) > 0.02 or abs(cy) > 0.02:
+            out[d] = (round(cx, 3), round(cy, 3))
+    return out
+
+
+def write_index(entries, scales=None, parts=None, centres=None):
     rel = "Render3D/Rooms/Index.lua"
     lines = [
         'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel),
@@ -1056,6 +1076,13 @@ def write_index(entries, scales=None, parts=None):
     lines.append("ns.Render3D.DISPLAY_PARTS = {")
     for d, boxes in sorted((parts or {}).items()):
         lines.append("    [%d] = { %s }," % (d, ", ".join(G.num(v) for box in boxes for v in box)))
+    lines.append("}")
+    lines.append("-- Where the client centres each creature sideways (the middle of CreatureModelData.GeoBox, model units x, y;")
+    lines.append("-- gen_rooms.py display_centres): the 3D view moves the actor back by it so the model's origin is on its spot.")
+    lines.append("ns.Render3D.DISPLAY_CENTRE = {")
+    items = sorted((centres or {}).items())
+    for i in range(0, len(items), 4):
+        lines.append("    " + " ".join("[%d] = { %s, %s }," % (d, G.num(c[0]), G.num(c[1])) for d, c in items[i:i + 4]))
     lines.append("}")
     path = os.path.join(OUT_DIR, "Index.lua")
     tmp = G.write_temp(path, "\n".join(lines) + "\n")
@@ -1122,7 +1149,7 @@ def main(argv):
         e = json.load(open(os.path.join(CACHE, "index", f)))
         if os.path.exists(os.path.join(OUT_DIR, e["floor"] + ".lua")):
             entries.append(e)
-    write_index(entries, display_scales(portraits), display_parts(portraits))
+    write_index(entries, display_scales(portraits), display_parts(portraits), display_centres(portraits))
     write_toc(entries)
     print("wrote the index: %d rooms" % len(entries))
 

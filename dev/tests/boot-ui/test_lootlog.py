@@ -310,5 +310,58 @@ def log_refreshes_live_and_survives_relog():
     no_errors(w)
 
 
+
+@case
+def log_is_a_council_view_and_old_loot_opens_land_on_it():
+    w, c = council_world()
+    c.eval("ns.Ledger:Award(28770, 'Bob-Thunderstrike', '', nil)")
+    open_log(c)
+    shown = lambda expr: c.eval("return (%s):IsVisible()" % expr)
+    cp, lp = "DisasterZoneCouncilPanel", "DisasterZoneLootLogPanel"
+    # the log's own search takes the Council search's place; phase and filters go, Drops stays
+    assert shown(lp) and shown(lp + ".search") and shown(lp + ".addBtn")
+    assert not shown(cp + ".search") and not shown(cp + ".phaseDD") and not shown(cp + ".row2")
+    assert shown(cp + ".dropsBtn") and shown(cp + ".viewButtons.log")
+    assert c.eval("return %s.viewButtons.log.active" % cp) is True
+    assert len(log_rows(c)) == 1
+    assert c.eval("return ns.Share:CurrentRef()") == "loot"
+    # back to Roster and again to the log with the view tabs
+    c.click(c.eval("return %s.viewButtons.roster" % cp))
+    w.tick(0.3)
+    assert not shown(lp) and shown(cp + ".search") and shown(cp + ".row2")
+    assert c.eval("return ns.Share:CurrentRef()") == "council"
+    c.click(c.eval("return %s.viewButtons.log" % cp))
+    w.tick(0.3)
+    assert shown(lp) and not shown(cp + ".search")
+    # Show member (row menu) moves to the Member view of the same tab
+    c.eval("ns.CouncilUI:ShowMember('Bob-Thunderstrike')")
+    w.tick(0.3)
+    assert c.eval("return ns.CouncilUI:GetView()") == "member" and not shown(lp)
+    # the old "loot" page key: MainFrame:Open, share links, a saved "tab used last"
+    c.eval("ns.MainFrame:Open('settings')")
+    w.tick(0.3)
+    c.eval("ns.MainFrame:Open('loot')")
+    w.tick(0.3)
+    assert c.eval("return ns.MainFrame:GetSelectedTab() == 'council' and ns.CouncilUI:GetView()") == "log"
+    c.eval("ns.MainFrame:Open('home')")
+    w.tick(0.3)
+    assert c.eval("return ns.Share:Open('loot')") is True
+    w.tick(0.3)
+    assert c.eval("return ns.MainFrame:GetSelectedTab() == 'council' and ns.CouncilUI:GetView()") == "log"
+    assert shown(lp)
+    c.slash("/dz")                               # close
+    w.tick(0.1)
+    c.eval("ns.db.settings.openOn = 'last'; ns.db.settings.lastTab = 'loot'")
+    c.relog()
+    w.tick(3)
+    install_helpers(c)
+    c.eval(SUB_SELECT)
+    c.slash("/dz")
+    w.tick(0.5)
+    assert c.eval("return ns.MainFrame:GetSelectedTab() == 'council' and ns.CouncilUI:GetView()") == "log"
+    assert len(log_rows(c)) == 1
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

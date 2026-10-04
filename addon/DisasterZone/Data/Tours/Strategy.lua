@@ -90,6 +90,29 @@ local function selectTool()
     B():RefreshTools()
 end
 
+-- A block from the "+ Add block" template of that label, as the menu adds it.
+local function addTemplate(label)
+    local p = pg()
+    if #p.k >= ns.Strategy.MAX_BLOCKS then return end
+    for _, t in ipairs(ns.StrategyBlocksUI.TEMPLATES) do
+        if t.label == label then
+            local k = t.make()
+            k.id = ns.Strategy:NewPartId(st().strat, "k")
+            p.k[#p.k + 1] = k
+            blocks():Changed()
+            return
+        end
+    end
+end
+
+-- The steps after "Blocks" point into a block: when the member skipped making one, the first suggested block.
+local function oneBlock()
+    local p = pg()
+    if #p.k > 0 then return end
+    local sg = blocks():Suggestions(p)[1]
+    if sg then sg.apply() else addTemplate("Players with targets") end
+end
+
 -- The page in the boss' room (UI/StrategyMap3D.lua) or on the map. The 2D chapters point at the map and watch its
 -- zoom, so they put the board back on the map; the 3D steps go into the room at once, however the member came.
 local function v3() return canvas().v3 end
@@ -343,8 +366,8 @@ local room3d = {
         title = "The room in 3D",
         anchor = function() return W().mode2d, W().mode3d end,
         skip = no3D,
-        text = "Every raid boss has his room in 3D, with the boss and his adds as their own models, at their true "
-            .. "size. It is the same page: what is on the map stands in the room, and what you draw in the room is "
+        text = "Every raid boss has its room in 3D, as the game draws it, with the boss and its adds as their own "
+            .. "models at their true size. It is the same page: what is on the map stands in the room, and what you draw in the room is "
             .. "on the map.",
         hint = "Click 3D in the map's corner.",
         done = in3D,
@@ -490,6 +513,7 @@ local jobs = {
     {
         title = "Linked to the map",
         anchor = function() return canvas().frame end,
+        enter = oneBlock,
         text = function()
             for _, e in ipairs(pg().e) do
                 if e.ln then
@@ -519,8 +543,9 @@ local jobs = {
         title = "Targets",
         anchor = function() return targetCell() end,
         side = "left",
-        text = "A target cell says what the job is about. Click it to type a label, pick an icon or tie it to a boss "
-            .. "ability; or drop an icon from the map on it.",
+        text = "A target cell says what the job is about. Click it to type a label or pick an icon, or drop an icon "
+            .. "from the map on it. Its menu also ties the row to the boss' abilities: the in-fight helpers chapter "
+            .. "shows how.",
     },
     {
         title = "Linking a drawing yourself",
@@ -647,7 +672,11 @@ local helpers = {
             .. "everyone in it sees whose kick it is. Other kinds: misdirections, Bloodlust, Power Infusion, "
             .. "Innervate, curses, dispels.",
         hint = "Click the block's title bar, then Track in fight > Interrupt rotation.",
-        enter = function(ctx) ctx.sig = trackSig() end,
+        enter = function(ctx)
+            -- something to track: a rotation, when the step before was skipped
+            if not findBlock(isRotation) then addTemplate("Rotation (ordered)") end
+            ctx.sig = trackSig()
+        end,
         done = function(ctx) return trackSig() ~= ctx.sig end,
     },
     {
@@ -671,14 +700,9 @@ local helpers = {
         title = "Practice",
         anchor = function() return W().practiceBtn end,
         side = "bottom",
-        text = "Practice plays a minute of the fight for you alone: demo players take the other slots, and your real "
-            .. "interrupt on a target dummy counts when it is your turn. Try it once the tour is over.",
-    },
-    {
-        title = "In the raid",
-        text = "Near a planned boss, everyone gets a slim panel with their jobs and the live state of the tracked "
-            .. "tables they are in. The raid leader also sees the tables they are not in. A click on the panel's "
-            .. "header opens this board.\n\nNext: putting a raid's players into the slots.",
+        text = "Practice plays a minute of this fight for you alone, with demo players in the other slots: a quick "
+            .. "check that the tables you track go the way you meant, before a raid relies on them. Try it once the "
+            .. "tutorial is over.\n\nNext: putting a raid's players into the slots.",
     },
 }
 
@@ -745,6 +769,43 @@ local function emptyFiltered()
     return false
 end
 
+-- My name on the first page's map, unless a marker shows it already: beside the drawing linked to my job (else the
+-- first creature), towards the middle of the room. First on the page, so My spot (3D) goes there first.
+local function myMarker()
+    local s = st()
+    local p = s.strat.p[1]
+    if #p.e >= S().MAX_ELEMENTS then return end
+    local mine, ref = {}, nil
+    for _, sl in ipairs(S():GetSlots(s.strat)) do
+        if s.assign[sl.ref] == me() then
+            mine[sl.ref] = true
+            ref = ref or sl.ref
+        end
+    end
+    if not ref then return end
+    local near
+    for _, e in ipairs(p.e) do
+        if e.t == "s" and mine[e.r] then return end
+        if not near and e.ln and mine[e.ln] then near, ref = e, e.ln end
+    end
+    if not near then
+        for _, e in ipairs(p.e) do
+            if e.t == "i" then
+                near = e
+                break
+            end
+        end
+    end
+    local x, y = BW / 2, BH / 2
+    if near then
+        local dx, dy = x - near.x, y - near.y
+        local d = math.sqrt(dx * dx + dy * dy)
+        local k = d > 1 and math.min(60, d) / d or 0
+        x, y = near.x + dx * k, near.y + dy * k
+    end
+    table.insert(p.e, 1, { t = "s", x = x, y = y, r = ref })
+end
+
 -- Names in every slot of the practice board: the players who fit first, then whoever has the fewest jobs; me in one.
 local function fillNames()
     local s = st()
@@ -765,15 +826,16 @@ local function fillNames()
         if slots[#slots] then a[slots[#slots].ref] = me() end
     end
     s.assign = a
+    myMarker()
     B():Refresh()
 end
 
 local assigning = {
     {
         title = "Assigning a raid",
-        text = "A strategy holds the jobs; each raid gets its own names. A raid leader opens a boss from a planned "
-            .. "raid (Raids > Upcoming > the raid > Assignments) and clicks Assign players.\n\nThis practice board "
-            .. "has a demo raid: you and nine made-up players.",
+        text = "A strategy holds the jobs; each raid gets its own names. The raid's leader (or the Guild Master) opens "
+            .. "a boss from the planned raid (Raids > Upcoming > the raid > Assignments) and clicks Assign players."
+            .. "\n\nThis practice board has a demo raid: you and nine made-up players.",
     },
     {
         title = "This raid's players",
@@ -876,6 +938,23 @@ local reading = {
             .. "the tables; hover a row and its drawing lights up on the map.",
     },
     {
+        title = "Your spot in 3D",
+        anchor = function()
+            if in3D() and v3().eyeBtn:IsShown() then return v3().eyeBtn end
+            return W().mode2d, W().mode3d
+        end,
+        skip = no3D,
+        text = "In 3D, the eye button (My spot) stands you on your spot at eye height, looking at the boss: the fight "
+            .. "as you will see it. With several jobs, click it again for the next one.",
+        hint = "Click 3D, then the eye in the room's top right corner.",
+        done = function() return in3D() and cam().dist < 3 end,
+        ghost = function()
+            if not in3D() then return { from = { W().mode3d, 0.5, 0.5 } } end
+            local eye = v3().eyeBtn
+            return eye:IsShown() and { from = { eye, 0.5, 0.5 } } or nil
+        end,
+    },
+    {
         title = "The tables",
         anchor = function() return blocks().scroll end,
         side = "left",
@@ -890,17 +969,18 @@ local reading = {
         text = "Each tab is a phase of the fight, with its own map and jobs. Look at them all: your job can change.",
     },
     {
+        title = "In the raid",
+        text = "Near the boss a slim panel shows your jobs and follows the tracked tables you are in: whose kick it "
+            .. "is, your misdirect done, your curse up. The raid leader's also follows the tables they are not in. "
+            .. "It stays through the fight and fades after it.",
+    },
+    {
         title = "Try it before the raid",
         anchor = function() return W().practiceBtn end,
         side = "bottom",
-        text = "Practice plays a minute of the fight with your jobs: the panel you get in the raid, whose kick it "
-            .. "is, marks on what you target. Stand at a target dummy and use your real spells.",
-    },
-    {
-        title = "In the raid",
-        text = "Near the boss a slim panel shows your jobs and follows the tracked tables you are in: whose kick it "
-            .. "is, your misdirect done, your curse up. It stays through the fight and fades after it.\n\nNext: "
-            .. "where strategies live, and building one together.",
+        text = "Practice plays a minute of the fight with your jobs: that panel, whose kick it is, marks on what you "
+            .. "target. Demo players take the other slots; stand at a target dummy and use your real spells.\n\n"
+            .. "Next: where strategies live, and building one together.",
     },
 }
 
@@ -936,15 +1016,16 @@ local library = {
         title = "Building together",
         anchor = function() return L().detail.list.frame end,
         side = "left",
-        text = "Share, on a strategy you own, invites guild members as collaborators: they change it like you do.\n\n"
-            .. "When two of you edit at the same time the board goes live: you see each other's changes and "
-            .. "selections as they happen. The list shows who is editing right now.",
+        text = "Collaborators, on a strategy you own, picks the guild members who build it with you: they change it "
+            .. "like you do. Share puts a link to a strategy in the chat.\n\nWhen two of you edit at the same time "
+            .. "the board goes live: you see each other's changes and selections as they happen. The list shows who "
+            .. "is editing right now.",
     },
     {
         title = "Your turn",
         anchor = function() return L().detail.newBtn end,
         side = "left",
-        text = "New strategy starts a real one for the boss picked on the left. It opens with the boss' room and its "
+        text = "New strategy starts a real one for the boss picked on the left. It opens with the boss' map and its "
             .. "creatures in place, like the practice board did.\n\nThis tutorial stays under the Tutorial button, "
             .. "chapter by chapter.",
     },
@@ -963,27 +1044,40 @@ local function board(mode, pre, post)
     end
 end
 
+-- The board as most chapters start: the first page, the select tool, on the 2D map.
+local function onMap()
+    firstPage()
+    selectTool()
+    flat()
+end
+local function flatFirst()
+    firstPage()
+    flat()
+end
+
 local BUILD, RAID = "Building a strategy", "Running a raid"
 
 ns.Tour:Register("strategy", {
     title = "Strategy board",
     offerTitle = "New to the strategy board?",
-    offerText = "Take the guided tour on a practice board: building a strategy, assigning a raid, reading a plan. "
-        .. "Stop whenever you like; the chapters you finished are remembered. Nothing you do there is saved or shared.",
+    offerText = "Take the guided tour on a practice board: building a strategy, the room in 3D, assigning a raid, "
+        .. "reading a plan. Stop whenever you like; the chapters you finished are remembered. Nothing you do there is "
+        .. "saved or shared.",
     host = function() return W() end,
     open = board("edit"),
     alive = function() return B():IsShown() and st().sandbox == true and pg() ~= nil end,
     chapters = {
-        { key = "basics", group = BUILD, title = "The basics", steps = basics },
-        { key = "drawing", group = BUILD, title = "Drawing on the map", enter = selectTool, steps = drawing },
-        { key = "jobs", group = BUILD, title = "Jobs and links", enter = function() firstPage(); selectTool() end,
-          steps = jobs },
-        { key = "helpers", group = BUILD, title = "In-fight helpers", enter = function() firstPage(); selectTool() end,
-          steps = helpers },
-        { key = "assign", group = RAID, title = "Assigning a raid", open = board("fill", seed), enter = firstPage,
+        { key = "basics", group = BUILD, title = "The basics", enter = onMap, steps = basics },
+        { key = "drawing", group = BUILD, title = "Drawing on the map", enter = onMap, steps = drawing },
+        -- (it starts on the map too: its first step is the switch into the room)
+        { key = "room3d", group = BUILD, title = "The room in 3D", enter = function() onMap(); roomMap() end,
+          steps = room3d },
+        { key = "jobs", group = BUILD, title = "Jobs and links", enter = onMap, steps = jobs },
+        { key = "helpers", group = BUILD, title = "In-fight helpers", enter = onMap, steps = helpers },
+        { key = "assign", group = RAID, title = "Assigning a raid", open = board("fill", seed), enter = flatFirst,
           steps = assigning },
-        { key = "read", group = RAID, title = "Reading a plan", open = board("view", seed, fillNames), enter = firstPage,
-          steps = reading },
+        { key = "read", group = RAID, title = "Reading a plan", open = board("view", seed, fillNames),
+          enter = flatFirst, steps = reading },
         { key = "library", group = "The library", title = "Finding and sharing strategies",
           host = function() return L() end,
           open = function()

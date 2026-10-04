@@ -443,8 +443,9 @@ local function createWindow()
         .. "is, marks on what you target. Demo players fill the other slots; use your real spells on a target dummy.")
     -- the guided tour of the board, on a practice board (Data/Tours/Strategy.lua)
     f.tourBtn = UI():CreateSleekButton(c, "Tutorial", 70, 24, function(self) ns.Tour:Menu(self, "strategy") end)
-    tipButton(f.tourBtn, "Tutorial", "A guided tour on a practice board: building a strategy, assigning a raid, "
-        .. "reading a plan. Nothing you do there is saved or shared; your unsaved work here stays as a draft.")
+    tipButton(f.tourBtn, "Tutorial", "A guided tour on a practice board: building a strategy, the room in 3D, "
+        .. "assigning a raid, reading a plan. Nothing you do there is saved or shared; your unsaved work here stays as "
+        .. "a draft.")
     -- a link for the chat (UI/Share.lua): a raid's board for this boss (with its names), else the strategy
     f.shareBtn = ns.Share:CreateButton(c, 24, function()
         if st.occ and st.boss then return ns.Share:BoardRef(st.occ, st.boss) end

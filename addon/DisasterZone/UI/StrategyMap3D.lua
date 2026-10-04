@@ -638,7 +638,15 @@ function V:DrawModels()
                     tx, ty = v.x or g.x, v.y or g.y - 1
                 end
                 local face = ((abs(tx - g.x) + abs(ty - g.y)) > 0.5) and atan2(ty - g.y, tx - g.x) or -pi / 2
-                local dx, dy = self.view:CentreShift(a, s, face)
+                -- (the client turns and places a creature by the middle of its box sideways, not by its origin -
+                -- Illidan circled his ring as he turned, Kil'jaeden stood 29 yd off it - so the actor goes that
+                -- middle, turned by its facing, past the spot: the model's own origin stands on it)
+                local ctr = R3().DISPLAY_CENTRE and R3().DISPLAY_CENTRE[g.display]
+                local dx, dy = 0, 0
+                if ctr then
+                    local cx, cy, m = ctr[1] * s, ctr[2] * s, cam.mirror or 1
+                    dx, dy = cos(face) * cx - m * sin(face) * cy, sin(face) * cx + m * cos(face) * cy
+                end
                 pcall(a.SetPosition, a, (g.x + dx) / s, self.view:SY(g.y + dy) / s, g.z / s)
                 pcall(a.SetYaw, a, cam.mirror * face)
                 pcall(a.SetShown, a, true)

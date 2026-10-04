@@ -633,29 +633,34 @@ def walking_shows_on_the_boards_of_the_others_who_have_the_strategy_open():
 
 
 @case
-def a_model_the_client_centres_sideways_still_stands_on_its_spot():
-    w, c, bob = boot()
+def a_model_stands_on_its_spot_however_it_turns():
+    # The client turns and places a creature by the middle of its box sideways (CreatureModelData.GeoBox), not by
+    # its origin: the actor goes that middle, turned by its facing, past the spot, so the origin is on it.
+    w, c, bob = boot(LURKER)
     go3d(w, bob)
     tick(w, 0.5)
-    # the models ask for their own origin (the client centred big lopsided ones on it: Kil'jaeden 29 yd off)
     get = ("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
            "local a = T3.v().actors[e] local g = T3.v():Geo(e) local px, py = a:GetPosition() "
-           "return { cx = select(1, a:IsUsingCenterForOrigin()), cy = select(2, a:IsUsingCenterForOrigin()), "
-           "x = px * g.scale, y = T3.v().view:SY(py * g.scale), gx = g.x, gy = g.y }")
-    p = bob.eval_py(get)
-    assert p["cx"] is False and p["cy"] is False and abs(p["x"] - p["gx"]) < 1e-6 and abs(p["y"] - p["gy"]) < 1e-6, p
-    # where the client centres its box anyway (a box 4 units ahead of the origin, at Teron's scale 2.5): the
-    # position moves back by it, turned with his facing, so his own origin is on the spot again
-    bob.eval("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end local a = T3.v().actors[e] "
-             "a.IsUsingCenterForOrigin = function() return true, true, false end "
-             "a.GetActiveBoundingBox = function() return 2, -1, 0, 6, 1, 3 end T3.v():Invalidate()")
-    tick(w, 0.1)
-    p = bob.eval_py(get)
-    f = bob.eval_py("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
-                    "local a = T3.v().actors[e] return a.yaw or select(1, a:GetYaw())")
-    face = f * bob.eval_py("return T3.v().cam.mirror")
-    want = (p["gx"] + math.cos(face) * 4 * 2.5, p["gy"] + math.sin(face) * 4 * 2.5)
-    assert math.hypot(p["x"] - want[0], p["y"] - want[1]) < 1e-3, (p, want)
+           "local m = T3.v().cam.mirror return { x = px * g.scale, y = T3.v().view:SY(py * g.scale), gx = g.x, gy = g.y, "
+           "s = g.scale, f = a.yaw * m, m = m, c = ns.Render3D.DISPLAY_CENTRE[g.display], "
+           "cs = select(1, a:IsUsingCenterForOrigin()) }")
+    for k in range(4):
+        # turn him by moving the marker he faces round him
+        bob.eval("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end local g = T3.v():Geo(e) "
+                 "local p = T3.page() local ang = %f local bx, by = ns.Render3D.RoomToBoard(T3.v().room, p, "
+                 "g.x + math.cos(ang) * 20, g.y + math.sin(ang) * 20) for i = #p.e, 1, -1 do if p.e[i].t == 's' then "
+                 "table.remove(p.e, i) end end table.insert(p.e, { t = 's', x = math.floor(bx + 0.5), y = math.floor(by + 0.5), "
+                 "r = 'x' }) T3.cv():Render()" % (k * math.pi / 2))
+        tick(w, 0.1)
+        p = bob.eval_py(get)
+        assert p["cs"] is False, p
+        cx, cy = p["c"][0] * p["s"], p["c"][1] * p["s"]
+        # (the model's own left, +y, lies mirrored in room terms when the scene's y runs the other way: mirror)
+        m = p["m"]
+        want = (p["gx"] + math.cos(p["f"]) * cx - m * math.sin(p["f"]) * cy,
+                p["gy"] + math.sin(p["f"]) * cx + m * math.cos(p["f"]) * cy)
+        assert math.hypot(p["x"] - want[0], p["y"] - want[1]) < 1e-3, (k, p, want)
+        assert abs((p["f"] - k * math.pi / 2 + math.pi) % (2 * math.pi) - math.pi) < 0.1, (k, p["f"])
     no_errors(w)
 
 
