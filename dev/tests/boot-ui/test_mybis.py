@@ -3,7 +3,7 @@ phase, drag & drop, shift-click links, two-hander rule, progress card, spec drop
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_mybis.py
 """
-from _common import (case, run_all, solo, no_errors, World, Client, install_helpers, menu_texts, menu_find,
+from _common import (case, run_all, solo, no_errors, World, Client, install_helpers, menu_texts, menu_find, menu_pick,
                      printed_since, strip_codes, tt_lines, seed_guild_council)
 
 CLASSES = ["WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID"]
@@ -424,12 +424,12 @@ def copy_phase_and_clear_phase():
     c.click(c.eval("return T_button(T_mybis(), 'P2')"))
     n0 = len(c.chat_frame)
     c.click(c.eval("return T_mybis().moreBtn"))
-    c.menu_select("Clear P2...")
+    menu_pick(c, "Clear P2")
     assert "DISASTERZONE_CLEAR_PHASE" in c.popups()
     c.cancel_popup("DISASTERZONE_CLEAR_PHASE")
     assert c.eval("return #ns.BiS:GetPhaseItems(2)") == 3
     c.click(c.eval("return T_mybis().moreBtn"))
-    c.menu_select("Clear P2...")
+    menu_pick(c, "Clear P2")
     c.accept_popup("DISASTERZONE_CLEAR_PHASE")
     w.tick(0.2)
     assert c.eval("return #ns.BiS:GetPhaseItems(2)") == 0
@@ -437,7 +437,7 @@ def copy_phase_and_clear_phase():
     assert progress(c, 2)[0] == 0
     # clearing an empty phase only explains
     c.click(c.eval("return T_mybis().moreBtn"))
-    c.menu_select("Clear P2...")
+    menu_pick(c, "Clear P2")
     assert "DISASTERZONE_CLEAR_PHASE" not in c.popups()
     assert any("P2 has no picks to clear" in l for l in printed_since(c, n0))
     # Suggest is always there: the lists ship with the addon (no LoonBestInSlot installed here)

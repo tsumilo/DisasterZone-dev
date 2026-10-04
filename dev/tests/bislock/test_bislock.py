@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
 sys.path.insert(0, os.path.join(TESTS, "loot-roll"))
 
 from _common import (case, run_all, no_errors, World, Client, ExtraMember, install_helpers, menu_texts,  # noqa: E402
-                     printed_since, strip_codes, tt_lines, gm_pick)
+                     printed_since, strip_codes, tt_lines, gm_pick, menu_pick, menu_labels)
 import lr_common as lr  # noqa: E402
 
 ADDON_02 = os.path.join(TESTS, "grouprules", "addon02", "CDLoot")
@@ -225,9 +225,9 @@ def my_bis_banner_disabled_controls_and_picker_refusal():
     # toolbar: More stays usable for Export; its Import and Clear phase are greyed out
     assert rita.eval("return T_mybis().moreBtn:IsEnabled()") in (True, 1)
     rita.click(rita.eval("return T_mybis().moreBtn"))
-    more = {e[2]: e[3] for e in menu_texts(rita.last_menu()) if e[2]}
-    assert more.get("Import a BiS list...") is False and more.get("Clear P1...") is False, more
-    assert more.get("Export to WoWSims or Wowhead...") is True, more
+    more = menu_labels(rita)
+    assert more.get("Import") is False and more.get("Clear P1") is False, more
+    assert more.get("Export") is True, more
     # unlock: banner gone, controls back, the picker opens
     lee.eval("ns.GroupRules:SetLocked(false)")
     w.tick(2)
@@ -749,7 +749,7 @@ def popups_accepted_after_the_lock_started_change_nothing():
     pal.menu_select("Replace all (confirm)")
     assert "DISASTERZONE_REPLACE_TEMPLATE" in pal.popups()
     pal.click(pal.eval("return T_mybis().moreBtn"))
-    pal.menu_select("Clear P1...")
+    menu_pick(pal, "Clear P1")
     assert "DISASTERZONE_CLEAR_PHASE" in pal.popups()
     lee.slash("/dz lock")
     w.tick(2)

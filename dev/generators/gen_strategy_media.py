@@ -4,8 +4,8 @@ disc.tga  - a white filled circle with a soft edge (zones, tinted by vertex colo
 ring.tga  - a white circle outline (zone borders)
 arrow.tga - a white arrowhead pointing up (arrow ends, rotated in game)
 The shapes are 128x128 32-bit TGA (power of two, straight alpha), drawn 4x oversampled for smooth edges.
-tools.tga - the board's toolbar icons: a 256x512 grid of 4x8 cells of 64px, white on transparent (tinted in game),
-            in the order of TOOL_ICONS below (UI/StrategyBoard.lua picks them by index).
+tools.tga - the addon's icons (UI.ICON_ATLAS): a 256x1024 grid of 4x16 cells of 64px, white on transparent (tinted
+            in game), in the order of TOOL_ICONS below (UI:IconCoords(index); UI.ICON names the shared ones).
 """
 import math
 import os
@@ -275,11 +275,31 @@ def ic_minimap(d, k):
     d.polygon(_pts(k, [(36, 18), (44, 40), (36, 34), (28, 40)]), fill=255)
 
 
+def _tray(d, k):
+    # an open tray: the bottom and two short sides
+    d.line(_pts(k, [(8, 36), (8, 57), (56, 57), (56, 36)]), fill=255, width=_w(k, 6), joint="curve")
+
+
+def ic_import(d, k):
+    # import (My BiS): an arrow down into a tray
+    d.line(_pts(k, [(32, 4), (32, 32)]), fill=255, width=_w(k, 7))
+    d.polygon(_pts(k, [(19, 27), (45, 27), (32, 44)]), fill=255)
+    _tray(d, k)
+
+
+def ic_export(d, k):
+    # export (My BiS): an arrow up out of a tray
+    d.line(_pts(k, [(32, 46), (32, 18)]), fill=255, width=_w(k, 7))
+    d.polygon(_pts(k, [(19, 21), (45, 21), (32, 4)]), fill=255)
+    _tray(d, k)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
-              ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap]
-TOOL_ROWS = 8
+              ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
+              ic_export]
+TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 
 def tool_atlas():

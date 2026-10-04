@@ -836,14 +836,32 @@ local function CreateTopBar(p)
         StaticPopup_Show("DISASTERZONE_CLEAR_PHASE", "P" .. phase .. (ListArg() and " (off spec)" or ""), nil,
             { phase = phase, list = ListArg() })
     end
-    -- Import and Clear are edits (greyed out while the lists are locked, §38); Export always works.
+    -- An icon and a word per entry; what it does is in its tooltip. Import and Clear are edits (greyed out while the
+    -- lists are locked, §38); Export always works.
+    local GOLD, RED, GREY = { 1, 0.82, 0 }, { 0.92, 0.38, 0.32 }, { 0.5, 0.5, 0.5 }
+    local function entry(root, icon, text, color, tip, fn, locked)
+        local b = EditButton(root, UI:AtlasIconText(icon, 14, locked and GREY or color) .. "  " .. text, fn, locked)
+        if b and b.SetTooltip then
+            b:SetTooltip(function(tooltip)
+                tooltip:AddLine(text, 1, 0.82, 0)
+                tooltip:AddLine(tip, 1, 1, 1, true)
+                if locked then tooltip:AddLine("BiS lists are locked during the raid.", 1, 0.35, 0.3, true) end
+            end)
+        end
+        return b
+    end
     local function buildMore(root)
         local phase = CurrentPhase()
         local locked = ListLocked()
-        EditButton(root, "Import a BiS list...", function() openWindow("import") end, locked)
-        root:CreateButton("Export to WoWSims or Wowhead...", function() openWindow("export") end)
+        local which = "P" .. phase .. (ListArg() and " (off spec)" or "")
+        entry(root, UI.ICON.import, "Import", GOLD, "Bring in a BiS list from That's My BiS, Sixty Upgrades, WoWSims, "
+            .. "a Wowhead gear planner link or item links. You see what changes first.",
+            function() openWindow("import") end, locked)
+        entry(root, UI.ICON.export, "Export", GOLD, "Your BiS list or the gear you wear, for WoWSims "
+            .. "(wowsims.com/tbc) or Wowhead's gear planner.", function() openWindow("export") end, false)
         if root.CreateDivider then root:CreateDivider() end
-        EditButton(root, "Clear P" .. phase .. (ListArg() and " (off spec)" or "") .. "...", clearPhase, locked)
+        entry(root, UI.ICON.trash, "Clear " .. which, RED, "Removes every pick in " .. which .. ". Asks first.",
+            clearPhase, locked)
     end
     clearBtn = UI:CreateTipIconButton(p, 22, UI.ICON.more, "More", "Import a BiS list from another site, export "
         .. "yours to WoWSims or Wowhead, or clear this phase's picks.", function(self)

@@ -153,6 +153,21 @@ def strip_codes(s):
     return s
 
 
+def menu_pick(c, label):
+    """Invoke the entry of c's last menu whose text, without colour / icon escapes, is `label` (entries such as
+    My BiS's More menu start with an icon: "|T...|t  Import")."""
+    entries = [e[2] for e in menu_texts(c.last_menu()) if e[2]]
+    for text in entries:
+        if strip_codes(text).strip() == label:
+            return c.menu_select(text)
+    raise AssertionError("no menu entry %r in %r" % (label, [strip_codes(t).strip() for t in entries]))
+
+
+def menu_labels(c):
+    """{plain text: enabled} of c's last menu (colour / icon escapes removed)."""
+    return {strip_codes(e[2]).strip(): e[3] for e in menu_texts(c.last_menu()) if e[2]}
+
+
 def no_errors(w, allow=()):
     """assert_no_errors, optionally ignoring errors that contain one of the `allow` substrings (documented)."""
     errs = [e for e in w.errors() if not any(a in e for a in allow)]

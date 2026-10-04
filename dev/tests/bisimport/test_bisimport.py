@@ -20,7 +20,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "boot-ui"))
 
-from _common import case, run_all, solo, no_errors, install_helpers, strip_codes, menu_texts  # noqa: E402
+from _common import (case, run_all, solo, no_errors, install_helpers, strip_codes, menu_texts,  # noqa: E402
+                     menu_pick)
 
 # Karazhan / phase 1 items (Data/Items.lua)
 GREATHELM = 28593     # Eternium Greathelm: head
@@ -548,14 +549,19 @@ def my_bis_more_menu_opens_the_window():
     open_mybis(c, w)
     more = c.eval("return ns.MainFrame:GetPanel('mybis').moreBtn")
     c.click(more)
-    labels = [strip_codes(e[2]) for e in menu_texts(c.last_menu()) if e[2]]
-    assert labels == ["Import a BiS list...", "Export to WoWSims or Wowhead...", "Clear P1..."], labels
-    c.menu_select("Import a BiS list...")
+    entries = [e[2] for e in menu_texts(c.last_menu()) if e[2]]
+    assert [strip_codes(t).strip() for t in entries] == ["Import", "Export", "Clear P1"], entries
+    # each entry starts with its atlas icon (import 32, export 33, the bin 12)
+    for text, idx in zip(entries, (32, 33, 12)):
+        assert text.startswith("|T" + c.eval("return ns.UI.ICON_ATLAS")), text
+        col, row = (idx - 1) % 4, (idx - 1) // 4
+        assert ":256:1024:%d:%d:%d:%d:" % (col * 64, col * 64 + 64, row * 64, row * 64 + 64) in text, text
+    menu_pick(c, "Import")
     w.tick(0.1)
     assert c.eval("return ns.ImportExport:IsOpen()")
     assert c.eval("return ns.ImportExport:GetImportState().tab") == "import"
     c.click(more)
-    c.menu_select("Export to WoWSims or Wowhead...")
+    menu_pick(c, "Export")
     w.tick(0.1)
     assert c.eval("return ns.ImportExport:GetImportState().tab") == "export"
     no_errors(w)

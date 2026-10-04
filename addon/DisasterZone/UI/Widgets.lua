@@ -628,13 +628,25 @@ end
 -- 13 gear, 14 chevron down, 15 eye (open), 16 pencil (edit), 17 copy, 18 share, 19 invite (player +),
 -- 20 call off (calendar x), 21 dice (games), 22 sparkles (disenchant), 23 bank, 24 three dots (more actions),
 -- 25 page with lines (what's new), 26 crown (raid leader), and the strategy board's 3D view (UI/StrategyMap3D.lua):
--- 27 turn left, 28 turn right, 29 from above, 30 house (the whole room), 31 small map.
+-- 27 turn left, 28 turn right, 29 from above, 30 house (the whole room), 31 small map; 32 import (arrow into a
+-- tray), 33 export (arrow out of a tray). The atlas is 4 columns by UI.ICON_ROWS rows of 64px cells.
 UI.ICON_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
+UI.ICON_ROWS = 16
 UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, bank = 23, more = 24, notes = 25,
-            crown = 26 }
+            crown = 26, import = 32, export = 33 }
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
-    return { col / 4, (col + 1) / 4, row / 8, (row + 1) / 8 }
+    return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }
+end
+
+-- An atlas icon inside text ("|T...|t"), e.g. in front of a menu entry. color: { r, g, b } 0..1 (default white).
+function UI:AtlasIconText(i, size, color)
+    size = tonumber(size) or 14
+    local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
+    local c = color or { 1, 1, 1 }
+    local function byte(v) return math.floor((tonumber(v) or 1) * 255 + 0.5) end
+    return ("|T%s:%d:%d:0:0:256:%d:%d:%d:%d:%d:%d:%d:%d|t"):format(UI.ICON_ATLAS, size, size, 64 * UI.ICON_ROWS,
+        col * 64, (col + 1) * 64, row * 64, (row + 1) * 64, byte(c[1]), byte(c[2]), byte(c[3]))
 end
 
 -- An icon button (UI.ICON_ATLAS index) that says what it does in a tooltip: title, then text.
