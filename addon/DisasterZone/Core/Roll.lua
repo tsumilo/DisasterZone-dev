@@ -1102,7 +1102,7 @@ end
 function Roll:CanEnd(id)
     local ses = self:Get(id)
     if not ses then return false end
-    return DemoOn() or ses.isLocal or (not ses.demo and CanManage(ses)) or AmRealCouncil()
+    return DemoOn() or ses.isLocal or (not ses.demo and CanManage(ses))
 end
 
 ---------------------------------------------------------------------------
@@ -2083,7 +2083,7 @@ local function OnRollStart(sender, msg, dist)
     local now = GetServerTime()
     local ts = tonumber(msg.ts)
     -- Clash resolution only needs same-moment starts: a claimed start far in the past (or NaN) would let any
-    -- lead / assistant pre-empt the running roll everywhere.
+    -- council member / master looter pre-empt the running roll everywhere.
     if not ts or ts ~= ts or ts < now - RS_TS_PAST or ts > now + RS_TS_FUTURE then ts = now end
 
     Prune()

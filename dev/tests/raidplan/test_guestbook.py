@@ -1,8 +1,9 @@
 """Guest book 1.3: pugs in our raids, remembered for the organizers and for recruiting.
 
 Covers: a player outside the guild who joins a raid group that is a planned raid becoming its guest (no raid session
-needed; one writer: the raid leader, else the first assistant by name who may; a guest taken off by hand is not added
-again; no planned raid, no guest); a blacklisted player who joins (the leader's popup removes them, other organizers get
+needed; one writer: the raid leader, else the first assistant by name who may, and the next who may when the first can't
+tell the raid, e.g. an assistant who ran Invite & sort; a guest taken off by hand is not added again, whoever writes; no
+planned raid, no guest); a blacklisted player who joins (the leader's popup removes them, other organizers get
 a line, nobody adds them) and inviting one (a warning at once); the notes and Recruit marks (organizers only, shared,
 reaching an organizer who was offline, checked input); the history from the raid log (raids, a join line with it the
 next time); the player tooltip (the blacklist for everyone when outside the guild, guild members and reasons only for
@@ -427,6 +428,55 @@ def guests_are_left_out_of_the_players_list():
     bob.click(bob.eval("return %s.guestsToggle" % P))
     w.tick(0.5)
     assert "Pug (guest)" in names(), names()
+    w.assert_no_errors()
+
+
+@case
+def the_assistant_who_ran_invite_adds_the_pugs_when_the_leader_cannot_tell_the_raid():
+    w, c = world()
+    gina, lee, rita, pug = c["Gina"], c["Lee"], c["Rita"], c["Pug"]
+    occ = kara_now(w, c, signed=("Rita", "Sam"))
+    assert call(gina, "EditRaid", occ, {"rl": K("Lee")})["ok"] is True
+    w.tick(2)
+    # the GM formed the group; the raid's own leader (Lee) is an assistant and ran Invite & sort: only Lee's client
+    # knows which raid this is, so Lee steps in a little after the GM's turn
+    w.make_raid([gina, lee, rita, c["Sam"]], leader=gina, assistants=[lee])
+    w.tick(4)
+    res = lee.eval_py("local o, k = ...; local ok, e = ns.RaidInvite:Start(o, { [k] = 1 }, 'Kara'); "
+                      "return { ok = ok, e = e }", occ, K("Rita"))
+    assert res["ok"] is True, res
+    n0 = len(lee.chat_frame)
+    w.make_raid([gina, lee, rita, c["Sam"], pug], leader=gina, assistants=[lee])
+    w.tick(20)
+    assert list(guests(rita, occ)) == [K("Pug")]
+    assert any("Added Pug" in l for l in printed_since(lee, n0))
+    assert not any("Added" in l for l in printed_since(gina, 0))
+    w.assert_no_errors()
+
+
+@case
+def a_guest_taken_off_by_hand_stays_off_whoever_adds_the_pugs():
+    w, c = world()
+    bob, olaf, lee, rita, pug = c["Bob"], c["Olaf"], c["Lee"], c["Rita"], c["Pug"]
+    occ = kara_now(w, c)
+    w.make_raid([bob, lee, rita, c["Sam"], pug], leader=bob)
+    w.tick(6)
+    assert list(guests(rita, occ)) == [K("Pug")]
+    assert call(bob, "RemoveGuest", occ, K("Pug"))["ok"] is True
+    w.tick(2)
+    assert rita.eval("return ns.RaidPlan:IsGuestRemoved(...)", occ, K("Pug")) is True
+    w.disband()
+    w.tick(2)
+    # the raid lead goes to Olaf (an officer, who never added Pug): the raid itself says Pug was taken off
+    w.make_raid([olaf, lee, rita, c["Sam"], pug], leader=olaf)
+    w.tick(20)
+    assert guests(rita, occ) == {}
+    assert not any("Added" in l for l in printed_since(olaf, 0))
+    # added by hand again: a guest again, and no longer marked
+    assert call(olaf, "AddGuest", occ, "Pug", "WARLOCK")["ok"] is True
+    w.tick(2)
+    assert list(guests(rita, occ)) == [K("Pug")]
+    assert rita.eval("return ns.RaidPlan:IsGuestRemoved(...)", occ, K("Pug")) is False
     w.assert_no_errors()
 
 

@@ -673,6 +673,39 @@ def searchable_dropdown_filters_toggles_saves_reverts_and_clears():
 
 
 @case
+def settings_edit_council_button_follows_what_it_opens():
+    # 1.3 audit: Settings' "Edit council..." and its "You can edit ..." line follow what the Council tab really opens.
+    # A plain raider who once led a raid keeps a saved raid list, but has no Council tab: no button, no such line.
+    w, c = guild_world([("Gina", 0, "PALADIN"), ("Lee", 3, "WARRIOR"), ("Rita", 3, "PRIEST"), ("Sam", 3, "MAGE")])
+    gm_pick(w, c["Gina"], ["Rita"])
+    for leader in ("Lee", "Rita"):
+        w.make_raid([c[leader], c["Sam"]], leader=c[leader])
+        w.tick(5)
+        raid_pick(w, c[leader], ["Sam"])
+        w.disband()
+        w.tick(3)
+
+    def settings(cl):
+        open_window(cl)
+        cl.eval("ns.MainFrame:Open('settings')")
+        w.tick(0.5)
+        return (cl.eval("return ns.SettingsUI.cs.editBtn:IsShown()"),
+                strip_codes(cl.eval("return ns.SettingsUI.cs.info:GetText()") or ""))
+
+    assert c["Lee"].eval_py("return ns.Guild:GetMyRaidList() ~= nil") is True
+    shown, info = settings(c["Lee"])
+    assert shown is False and "You can edit" not in info, (shown, info)
+    shown, info = settings(c["Rita"])
+    assert shown is True and info == "You can edit your raid council list (used whenever you lead a raid).", (shown, info)
+    c["Rita"].click(c["Rita"].eval("return ns.SettingsUI.cs.editBtn"))
+    w.tick(0.5)
+    assert c["Rita"].eval("return ns.MainFrame:GetSelectedTab()") == "council"
+    shown, info = settings(c["Gina"])
+    assert shown is True and info == "You can edit the guild council (Guild Master).", (shown, info)
+    no_errors(w)
+
+
+@case
 def raid_leader_picker_lists_raid_members_first():
     w, c = guild_world([("Gm", 0, "WARRIOR"), ("Ann", 3, "PRIEST"), ("Rai", 3, "HUNTER"), ("Zed", 3, "ROGUE")])
     ann, rai = c["Ann"], c["Rai"]

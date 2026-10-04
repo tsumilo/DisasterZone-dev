@@ -20,7 +20,7 @@ local NAV_HIDDEN = {}
 
 local tabDefs = {}      -- key -> { key, label, order, createFn, isAvailableFn, panel }
 local tabList = {}      -- defs sorted by order
-local frame, tabs, status
+local frame, tabs, status, shareBtn
 local currentKey
 
 ---------------------------------------------------------------------------
@@ -70,9 +70,16 @@ local function BuildTabs()
     local inset = frame.Inset
     tabs.frame:SetPoint("TOPLEFT", inset or frame, "TOPLEFT", inset and 3 or 6, inset and -3 or -26)
     tabs.frame:SetPoint("TOPRIGHT", inset or frame, "TOPRIGHT", inset and -3 or -6, inset and -3 or -26)
+    -- right to left before the icon tabs: Share (what the page shows), then the sync status
+    local right = tabs.rightAnchor
+    if shareBtn then
+        shareBtn:ClearAllPoints()
+        shareBtn:SetPoint("RIGHT", tabs.rightAnchor, "RIGHT", 4, 0)
+        right = shareBtn
+    end
     if status then
         status:ClearAllPoints()
-        status:SetPoint("RIGHT", tabs.rightAnchor, "RIGHT", 0, 0)
+        status:SetPoint("RIGHT", right, shareBtn and "LEFT" or "RIGHT", 0, 0)
     end
 end
 
@@ -203,6 +210,10 @@ local function EnsureFrame()
     frame.content:SetPoint("TOPLEFT", inset or frame, "TOPLEFT", inset and 3 or 6, (inset and -3 or -26) - NAV_H)
 
     status = CreateStatus()
+    -- a link in chat to what the page shows (the raid, the member, ... picked on it; UI/Share.lua)
+    if ns.Share and ns.Share.CreateNavButton then
+        shareBtn = ns.Share:CreateNavButton(frame, function() return ns.Share:CurrentRef() end)
+    end
 
     frame:HookScript("OnShow", function()
         if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_OPEN then PlaySound(SOUNDKIT.IG_CHARACTER_INFO_OPEN) end

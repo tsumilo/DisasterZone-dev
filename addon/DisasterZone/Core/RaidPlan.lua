@@ -89,7 +89,6 @@ local RPD_DELAY_COUNCIL = { 0.5, 2.5 }
 local RPD_DELAY_MEMBER = { 3, 8 }
 local ROUND_WINDOW = 20             -- seconds an RPD round for one client lasts (suppression / answer once)
 local MAX_PENDING = 20              -- newer versions refused for now, tried again when the guild's roles change
-local ASK_AGAIN = 60                -- seconds before a planner is asked for the same record again
 local RESTAMP_AFTER_LOGIN = 90      -- the guild's lists and ranks settle first (plus a spread by name, below)
 local RESTAMP_WAIT = 20             -- after a change of roles
 local RESTAMP_SPREAD = 40           -- up to this many seconds more, by name: one planner usually writes first
@@ -119,6 +118,7 @@ local answeredAt = -1000            -- GetTime() I answered the first RPD of my 
 local idCounter = 0
 local pending = {}                  -- ["kind:id"] = { kind, rec, via }: newer versions refused for now (MergeRecord)
 local asks = {}                     -- [digest item] = true: records to ask a raid planner for (AskPlanner)
+local asked = {}                    -- [digest item] = rev: the version a planner was asked about last
 local restampQueued = false         -- a pass of RestampPass is scheduled
 
 ---------------------------------------------------------------------------
@@ -719,9 +719,11 @@ local function HoldBack(kind, rec, via)
 end
 
 -- Asks a raid planner who is online (the first by name) for their copy of these records (RPW): a raid's leader that
--- changed while I was away is taken from a planner's copy (MergeRecord). Gathered for a moment, one message.
-local function AskPlanner(item, via)
-    if not RateLimit("RPask:" .. item, ASK_AGAIN) then return end
+-- changed while I was away is taken from a planner's copy (MergeRecord). Once per version of a record (a made-up one
+-- comes back with every sync); gathered for a moment, one message.
+local function AskPlanner(item, rev, via)
+    if asked[item] == rev then return end
+    asked[item] = rev
     asks[item] = true
     Util.Debounce("raidplan-ask", 2, function()
         local list = {}
@@ -761,7 +763,7 @@ local function MergeRecord(root, kind, rec, via)
             if kind ~= "T" and not SameCrown(cur, rec) and not CanAssignLeader(rec.by) and not CanAssignLeader(via) then
                 -- named while I was away, or made up: a planner's copy tells
                 HoldBack(kind, rec, via)
-                AskPlanner((kind == "S" and "S:" or "O:") .. rec.id, via)
+                AskPlanner((kind == "S" and "S:" or "O:") .. rec.id, rec.rev, via)
                 return false
             end
             if not Trusted(root, kind, rec) then
@@ -2536,9 +2538,10 @@ local function InUse(root, kind, rec, now)
 end
 
 -- The new version of a record I show that a client getting it now would leave out, or whose leader no longer counts;
--- nil when it needs none.
+-- nil when it needs none, and when I know of a newer version (refused for now: mine is behind, written again it
+-- would undo that one's changes).
 local function Restamped(root, kind, rec)
-    if not Trusted(root, kind, rec) then return nil end
+    if pending[kind .. ":" .. rec.id] or not Trusted(root, kind, rec) then return nil end
     local stale = not Entitled(root, kind, rec)
     local crown = kind ~= "T" and type(rec.rl) == "string" and not CanAssignLeader(rec.rlb)
     if not stale and not crown then return nil end

@@ -757,7 +757,11 @@ local function MemberOnEnter(self)
     local rank = G and G.GetRankName and G:GetRankName(self.key)
     if rank then tt:AddLine(rank, 0.8, 0.8, 0.8) end
     tt:AddLine(self.online and "Online" or "Offline", 0.6, 0.6, 0.6)
-    if self.fixed then tt:AddLine(self.fixed .. ": always on the council", 0.6, 0.6, 0.6, true) end
+    if self.fixed == "Master looter" then
+        tt:AddLine("Master looter: on this raid's council while the raid runs the loot council", 0.6, 0.6, 0.6, true)
+    elseif self.fixed then
+        tt:AddLine(self.fixed .. ": always on the council", 0.6, 0.6, 0.6, true)
+    end
     tt:Show()
 end
 
@@ -826,10 +830,24 @@ function SettingsUI:BuildCouncil(parent)
     cs.info = NewFS(cs, "GameFontDisableSmall", COL_W - 8, true)
 end
 
-function SettingsUI:CanEditCouncil()
+-- What "Edit council…" opens for me: the lists of the Council tab's picker I can change, only while the Council tab
+-- itself is open to me (a council seat, or demo mode). A plain raider who once led a raid still has a saved raid list,
+-- but the tab does not open for them: no button, and no "you can edit" text. Empty = no button.
+function SettingsUI:EditableCouncilParts()
     local CU = ns.CouncilUI
-    if not (CU and CU.CanEditCouncil and CU:CanEditCouncil()) then return false end
-    return (CU.IsAvailable == nil or CU:IsAvailable()) and true or false
+    local parts = {}
+    if not (CU and CU.CanEditCouncil) or (CU.IsAvailable ~= nil and not CU:IsAvailable()) then return parts end
+    if CU:CanEditCouncil("guild") then parts[#parts + 1] = "the guild council (Guild Master)" end
+    if CU:CanEditCouncil("raid") then
+        -- (in a raid only its leader edits the raid list; outside one, whoever has a saved list)
+        parts[#parts + 1] = (_G.IsInRaid and _G.IsInRaid()) and "this raid's council list"
+            or "your raid council list (used whenever you lead a raid)"
+    end
+    return parts
+end
+
+function SettingsUI:CanEditCouncil()
+    return #self:EditableCouncilParts() > 0
 end
 
 function SettingsUI:OpenCouncilEditor()
@@ -887,7 +905,10 @@ function SettingsUI:RefreshCouncil()
     if sum and sum.inRaid then
         raidList = sum.raidMembers or {}
         local leader = sum.raidLeader
-        if sum.raidShared and leader then
+        if sum.raidLeaderOutside and leader then
+            cs.raidSummary:SetText(format("This raid's council: %s leads it but is not in your guild, so is never "
+                .. "loot council.", ColoredName(leader)))
+        elseif sum.raidShared and leader then
             cs.raidSummary:SetText(format("This raid's council (set by raid leader %s):", ColoredName(leader)))
         elseif leader then
             cs.raidSummary:SetText(format("This raid's council: only the raid leader %s.", ColoredName(leader)))
@@ -903,19 +924,19 @@ function SettingsUI:RefreshCouncil()
     y = LayoutMembers(cs, cs.raidMembers, raidList, y)
     y = y - 6
 
-    -- "Edit council…" for the Guild Master / raid leader, an explanation for everyone else.
-    if self:CanEditCouncil() then
+    -- "Edit council…" for the Guild Master / raid leader, an explanation for everyone else (both follow what the
+    -- button really opens: EditableCouncilParts).
+    local parts = self:EditableCouncilParts()
+    if #parts > 0 then
         Put(cs.editBtn, cs, 4, y)
         cs.editBtn:Show()
         y = y - 28
-        local parts = {}
-        if CU.CanEditCouncil and CU:CanEditCouncil("guild") then parts[#parts + 1] = "the guild council (Guild Master)" end
-        if CU.CanEditCouncil and CU:CanEditCouncil("raid") then parts[#parts + 1] = "your raid's council list" end
         cs.info:SetText("You can edit " .. table.concat(parts, " and ") .. ".")
     else
         cs.editBtn:Hide()
-        cs.info:SetText("The Guild Master picks the guild council in DisasterZone. A raid leader can add council "
-            .. "members for their own raid; they count as council only inside that raid.")
+        cs.info:SetText("The Guild Master picks the guild council in DisasterZone. A raid leader from the guild can add "
+            .. "guild members as council for their own raid, and while a raid runs the loot council its master looter "
+            .. "is council too; they count only inside that raid. Players outside the guild are never loot council.")
     end
     Put(cs.info, cs, 4, y)
     y = y - (TextHeight(cs.info) + 8)

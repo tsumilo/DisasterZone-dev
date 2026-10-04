@@ -332,7 +332,12 @@ function PickupItem(item)
   if id then M.cursor = { kind = "item", id = id, link = M.item_link(id) } end
 end
 M.itemrefs, M.dressups = {}, {}
-function SetItemRef(link, text, button, chatFrame) M.itemrefs[#M.itemrefs + 1] = link end
+-- Port of classic_anniversary Blizzard_UIPanels_Game/Classic/ItemRef.lua SetItemRef: the link handlers first
+-- (LinkUtil, UI mock); the item tooltip fallback is not modelled.
+function SetItemRef(link, text, button, chatFrame)
+  M.itemrefs[#M.itemrefs + 1] = link
+  if LinkUtil and type(link) == "string" then LinkUtil.ProcessLink(link, text, { button = button, frame = chatFrame }) end
+end
 function DressUpItemLink(link) M.dressups[#M.dressups + 1] = link; return true end
 function DressUpLink(link) return DressUpItemLink(link) end
 -- Port of classic_anniversary Blizzard_ItemButton/Classic/ItemButtonTemplate.lua HandleModifiedItemClick.
@@ -1747,11 +1752,13 @@ function M.deliver_chat(chatType, text, sender_full, sender_display, guid, is_le
   M.line_id = (M.line_id or 0) + 1
   if chatType == "WHISPER_INFORM" then ev = "CHAT_MSG_WHISPER_INFORM" end
   M.fire(ev, text, sender_full, "", "", sender_display, "", 0, 0, "", 0, M.line_id, guid or "", 0, false, false, false, false)
+  M.show_chat_event(ev, text, sender_full, "", "", sender_display, "", 0, 0, "", 0, M.line_id, guid or "", 0, false, false, false, false)
   if chatType == "RAID_WARNING" then RaidNotice_AddMessage(RaidWarningFrame, text) end
 end
 function M.deliver_whisper_inform(text, target_full, target_display, guid)
   M.line_id = (M.line_id or 0) + 1
   M.fire("CHAT_MSG_WHISPER_INFORM", text, target_full, "", "", target_display, "", 0, 0, "", 0, M.line_id, guid or "", 0, false, false, false, false)
+  M.show_chat_event("CHAT_MSG_WHISPER_INFORM", text, target_full, "", "", target_display, "", 0, 0, "", 0, M.line_id, guid or "", 0, false, false, false, false)
 end
 function M.system_message(text)
   M.line_id = (M.line_id or 0) + 1

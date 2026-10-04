@@ -1298,7 +1298,7 @@ local function RequireBuilder()
     return root
 end
 
-local TOO_BIG = "This strategy is too big to send to the guild: remove some pages, tables, drawings or notes."
+local TOO_BIG = "it is too big to send to the guild (remove some pages, tables, drawings or notes)"
 
 local function Commit(root, kind, rec)
     local now = Now()
@@ -1412,7 +1412,7 @@ function Strategy:Validate(draft)
     if type(draft) ~= "table" then return nil, "invalid strategy" end
     local r = Copy(draft)
     r.id = r.id or "draft"
-    r.rev, r.by = Now(), Util.PlayerKey() or "x-y"
+    r.rev, r.by, r.cr = Now(), Util.PlayerKey() or "x-y", nil
     local clean = CleanStrategy(r, Now())
     if not clean then return nil, self:Explain(r) end
     return clean

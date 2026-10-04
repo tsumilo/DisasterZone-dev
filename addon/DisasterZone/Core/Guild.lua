@@ -493,7 +493,6 @@ end
 -- Accounts (a player's characters share their roles; defined with the raid leaders list below).
 local Principals, IsGMKey, AddAlts, InvalidateAccounts, NoteOwnCharacter
 
--- "gm" | "guild" | "raidleader" | "raid" | nil, from real data only (no demo).
 ---------------------------------------------------------------------------
 -- Debug roles (for the addon's developer only): the character named DEBUG_CHAR can pretend to have another role with
 -- /dz role, to look at the addon as a GM, officer, council member, raid leader or plain raider. It only changes what
@@ -1936,20 +1935,12 @@ function Guild:AmIRaidLeader()
     return AmILeadingRaid()
 end
 
--- 1.3: I am the GM and `sender` holds another rev of the guild list than mine. A newer one was relayed by a council
--- member (perhaps rewritten) or saved by me on another PC: my list goes out on GUILD again, where it replaces every
--- relayed copy. An older one: the member gets mine by whisper.
+-- 1.3: I am the GM and `sender` holds a newer rev of the guild list than mine: relayed by a council member (perhaps
+-- rewritten), or saved by me on another PC. My list goes out on GUILD again, where it replaces every relayed copy.
+-- (An older rev needs nothing here: that member sees my rev in my HELLO / STATE and asks me, CQ.)
 local function ReshareAsGM(sender, rev)
     local mine = guildList
-    if not mine or IsTofu(mine) or rev == mine.rev then return false end
-    if rev < mine.rev then
-        if not RateLimit("cg-push:" .. sender .. ":" .. tostring(mine.rev), CQ_REPLY_LIMIT) then return false end
-        Util.RandomDelay(GM_REPLY_MIN, GM_REPLY_MAX, function()
-            local cur = guildList
-            if cur and not IsTofu(cur) then SendCG(cur, sender) end
-        end)
-        return true
-    end
+    if not mine or IsTofu(mine) or rev <= mine.rev then return false end
     if not gmNewerNoted then
         gmNewerNoted = true
         ns:Print("%s holds a newer guild council list than the one saved on this PC: yours was shared again and "

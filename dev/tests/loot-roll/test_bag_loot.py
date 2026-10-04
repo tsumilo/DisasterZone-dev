@@ -175,5 +175,53 @@ def held_items_survive_a_reload():
     r.w.assert_no_errors()
 
 
+@R.case
+def plain_raider_holder_trade_is_handed_out_everywhere():
+    """1.3: any looter may hold bag loot. A plain raider who traded the item to the council's winner tells the raid
+    (the award's RW again with g): every client shows it handed out and forgets the holder. From the holder only that
+    flag counts (it cannot pick a winner), and a later award of the same item to the former holder is not "handed
+    out" at once."""
+    r = setup_ffa()
+    w = r.w
+    C, D = r["Carol"], r["Dave"]
+    pick_up(r, "Carol", RUBY_DRAPE)
+    sid = rolled_session(r)
+    award(r, "Bob", sid, "Dave")
+    # neither somebody who does not hold it nor the holder naming another winner changes anything
+    r["Erin"].eval("ns.Comm:Send({ t = 'RW', id = ..., w = select(2, ...), g = true }, 'RAID', nil, 'alert')",
+                   sid, key("Dave"))
+    C.eval("ns.Comm:Send({ t = 'RW', id = ..., w = select(2, ...), g = true }, 'RAID', nil, 'alert')", sid, key("Carol"))
+    w.tick(1)
+    for n in ADDON_USERS:
+        s = session_info(r[n], sid)
+        assert s["winner"] == key("Dave") and not s["given"], (n, s)
+        assert held(r[n]) == [(RUBY_DRAPE, key("Carol"))], (n, held(r[n]))
+    log0 = len(w.addon_log)
+    C.open_trade("Dave")
+    w.tick(1)
+    assert C.complete_trade() == [RUBY_DRAPE]
+    D.receive_item_message(RUBY_DRAPE)
+    w.tick(3)
+    RW = msgs_of_type(w, "RW", log0)
+    assert [(m["_sender"], m["w"], m["g"]) for m in RW] == [(key("Carol"), key("Dave"), True)], RW
+    for n in ADDON_USERS:
+        s = session_info(r[n], sid)
+        assert s["state"] == "awarded" and s["winner"] == key("Dave") and s["given"] is True, (n, s)
+        assert held(r[n]) == [], (n, held(r[n]))
+    # the same item awarded to Carol later (another copy): not taken as already handed out
+    r["Alice"].eval("ns.Roll:Start(...)", RUBY_DRAPE)
+    w.tick(1)
+    sid2 = active_session(r["Alice"])["id"]
+    click_roll(r, "Carol", 70)
+    w.tick(1)
+    r["Alice"].eval("ns.Roll:End(...)", sid2)
+    w.tick(1)
+    award(r, "Bob", sid2, "Carol")
+    for n in ADDON_USERS:
+        s = session_info(r[n], sid2)
+        assert s["winner"] == key("Carol") and not s["given"], (n, s)
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     main(R)

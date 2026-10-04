@@ -493,14 +493,31 @@ def the_end_of_the_encounter_fades_the_panel():
 
 @case
 def without_a_linked_raid():
+    # 1.3: no plan until the raid is linked to a planned raid: no marks, no reminder (not some strategy picked by name);
+    # the raid leader gets a one-line hint where the reminder would be. Linking the raid brings the plan at once.
     w, c, occ, sid, npcs = raid(link=False, start_session=False)
     bob = c["Bob"]
     see(w, bob, "Gathios", "Malande", npcs=npcs)
-    # the guild's strategy still marks (no names needed for that)
-    assert mark_of(w, npcs["Gathios"]) == 8 and mark_of(w, npcs["Malande"]) == 1
+    assert mark_of(w, npcs["Gathios"]) is None and mark_of(w, npcs["Malande"]) is None
     d = lines(bob)
-    assert "(no raid linked)" in strip_codes(bob.eval("return ns.StrategyReminder:Lines().sub")), d
-    assert lines(c["Rog"]) is None          # no names, no jobs
+    assert d and strip_codes(bob.eval("return ns.StrategyReminder:Lines().sub")) == "Not linked to a planned raid", d
+    assert len(d["lines"]) == 1 and d["lines"][0].startswith("  No planned raid linked: "), d
+    assert lines(c["Rog"]) is None          # raiders: nothing
+    # the raid is linked (a planned raid with names): the plan comes at once, marks included
+    occ = create(bob, i="bt", t=now(bob) + 1800)
+    w.tick(2)
+    res = bob.eval_py("local o, b, s, a = ...; local ok, e = ns.Strategy:SaveFill(o, b, s, a); return { ok = ok, e = e }",
+                      occ, BOSS, sid, {ref: K(n) for ref, n in ASSIGN.items()})
+    assert res["ok"], res
+    if not bob.eval("return ns.GroupRules:GetSession() ~= nil"):
+        bob.slash("/dz raid start")
+        w.tick(6)
+    assert bob.eval("return ns.RaidLink:SetLink(...)", occ)
+    w.tick(3)
+    assert mark_of(w, npcs["Gathios"]) == 8 and mark_of(w, npcs["Malande"]) == 1
+    assert "Not linked" not in strip_codes(bob.eval("return ns.StrategyReminder:Lines().sub"))
+    see(w, c["Rog"], "Malande", npcs=npcs)
+    assert lines(c["Rog"]) is not None      # Rog's jobs now
     w.assert_no_errors()
 
 

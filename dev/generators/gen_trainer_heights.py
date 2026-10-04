@@ -69,21 +69,6 @@ ROOMS = {
         to_arena=lambda x, y: (-615.0 - x, -759.0 - y),
         to_local=lambda ax, ay: (-615.0 - ax, -759.0 - ay),
     ),
-    # The whole of Gorefiend's Vigil for the strategy board: the hall (group 31) and the alcove Teron stands in, down
-    # the steps at its north end, which Blizzard put in group 17 ("test", 18,056 faces under much of the temple), cut
-    # to the box round the alcove. Teron's spawn (AzerothCore creature 148358: world 606.641, 402.173, 187.173) is
-    # local (-644.7, -844.2) through the temple's placement (ADT blacktemple_31_30 MODF, unique id 1075600), and group
-    # 17's floor there is at 365.52 (6.2 yd under the hall's): arena (29.9, 85.2). Same arena as "teron".
-    "teronVigil": dict(
-        out="TeronVigilFloor.lua", key="teronVigil", root=108713,
-        groups=[(108745, None), (108731, (-676.0, -867.0, 357.0, -613.0, -816.0, 395.0))],
-        title="Gorefiend's Vigil as Blizzard built it (blacktemple.wmo, the hall of group 31 and the alcove of "
-              "group 17)",
-        w=60, h=108, z_main=371.75, base=-8.0, step=0.25, top=4.0, alphabet=ALPHA62,
-        blank=True, floor_top=4.5, floor_bottom=-14, mesh_top=12.0,
-        to_arena=lambda x, y: (-615.0 - x, -759.0 - y),
-        to_local=lambda ax, ay: (-615.0 - ax, -759.0 - ay),
-    ),
     "vashj": dict(
         out="LadyVashjFloor.lua", key="vashj", root=112018, group=112025,
         title="Lady Vashj's room as Blizzard built it (coilfang_raid.wmo, group 6)",

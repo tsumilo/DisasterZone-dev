@@ -20,8 +20,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from rp_common import world as rp_world, set_raid_leaders, K, DAY, now, team, create, raid, raids, signup, signups, \
-    call  # noqa: E402
+from rp_common import World, Client, gm_pick, world as rp_world, set_raid_leaders, K, DAY, now, team, create, raid, \
+    raids, signup, signups, call  # noqa: E402
 from _common import case, run_all, strip_codes, menu_texts  # noqa: E402
 
 P = "ns.RaidsUI:GetPanel()"
@@ -163,7 +163,7 @@ def made_up_deletions_neither_hide_a_raid_nor_wipe_its_signups():
     res = sam.eval_py("local o = ...; local root = ns.db.raidplan[ns.Guild:GetGuildKey()]; local e = root.E[o]; "
                       "local h = ns.Util.Hash(e); for i = 1, 200 do local copy = {}; "
                       "for k, v in pairs(e) do copy[k] = v end; copy.by = ns.Util.PlayerKey(); "
-                      "copy.no = 'gone ' .. i; if ns.Util.Hash(copy) > h then return copy end end", occ)
+                      "copy.no = string.rep('~', 60 + i % 60) .. i; if ns.Util.Hash(copy) > h then return copy end end", occ)
     assert res is not None
     sam.eval("ns.Comm:Send({ t = 'RPU', k = 'E', r = ... }, 'GUILD', nil, 'data')", res)
     w.tick(2)
@@ -290,8 +290,8 @@ def a_weeks_own_leader_edits_and_cancels_that_week_but_does_not_delete_it():
 @case
 def officers_see_locked_raids_and_can_add_their_guests():
     w, c = world()
-    lee, olaf, una = c["Lee"], c["Olaf"], c["Una"]
-    tid = team(lee, "Core", ["Rita", "Sam"])
+    bob, lee, olaf, una = c["Bob"], c["Lee"], c["Olaf"], c["Una"]
+    tid = team(bob, "Core", ["Rita", "Sam"])
     w.tick(2)
     occ = create(lee, i="kara", t=now(lee) + DAY, tm=[tid], lk=True)
     w.tick(2)
@@ -338,8 +338,22 @@ def buttons_enabled(cl):
 
 @case
 def the_home_card_answers_like_the_raids_tab():
-    from test_raidplan_guests import world as gw, ALT_NAMES
-    w, c = gw(ALT_NAMES, pairs=(("Lee", "Lalt"),))
+    w = World()
+    c = {}
+    for name, rank, cls in (("Gina", 0, "PALADIN"), ("Bob", 2, "MAGE"), ("Olaf", 1, "WARRIOR"), ("Lee", 3, "WARRIOR"),
+                            ("Rita", 3, "PRIEST"), ("Sam", 3, "ROGUE"), ("Lalt", 4, "WARLOCK")):
+        c[name] = Client(w, name, guild_rank=rank, class_file=cls, level=70)
+    for x in c.values():
+        x.load_addon()
+    w.tick(3)
+    gm_pick(w, c["Gina"], ["Bob"])
+    set_raid_leaders(w, c["Gina"], ("Bob",))
+    # Lalt is Lee's alt (as if each had logged in on the other's account)
+    for cl, other in ((c["Lee"], "Lalt"), (c["Lalt"], "Lee")):
+        cl.eval("local gk = ns.Guild:GetGuildKey(); ns.db.accounts = ns.db.accounts or {}; "
+                "ns.db.accounts[gk] = ns.db.accounts[gk] or { mine = {}, v = {} }; ns.db.accounts[gk].mine[...] = true",
+                K(other))
+    w.tick(50)                      # everyone's own account entry goes out 25-45 s after login
     bob, lee, rita, sam = c["Bob"], c["Lee"], c["Rita"], c["Sam"]
     tid = team(bob, "Kara A", ["Lee", "Rita", "Sam", "Olaf"])
     occ = create(bob, i="kara", t=now(bob) + DAY, tm=[tid])

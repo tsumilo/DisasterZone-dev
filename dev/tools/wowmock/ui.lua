@@ -1487,7 +1487,63 @@ ChatFrameUtil = {
   AddMessageEventFilter = ChatFrame_AddMessageEventFilter,
   RemoveMessageEventFilter = ChatFrame_RemoveMessageEventFilter,
   DisplayTimePlayed = function() end,
+  OpenChat = function(text, chatFrame) M.opened_chat = text end,
 }
+
+-- Chat lines as the chat frames show them: a CHAT_MSG_* message after the message event filters (Blizzard
+-- ChatFrameMixin:MessageEventHandler: a filter returning true drops the line; new arguments replace them all).
+M.chat_shown = {}
+function M.show_chat_event(event, ...)
+  local args, n = { ... }, select("#", ...)
+  for _, fn in ipairs(M.chat_filters[event] or {}) do
+    local res = { xpcall(fn, geterrorhandler(), ChatFrame1, event, unpack(args, 1, n)) }
+    if res[1] then
+      if res[2] then return end
+      if res[3] ~= nil then
+        n = #res - 2
+        args = { unpack(res, 3, #res) }
+      end
+    end
+  end
+  M.chat_shown[#M.chat_shown + 1] = { event = event, text = args[1], author = args[2] }
+end
+
+-- Port of classic_anniversary Blizzard_SharedXML/LinkUtil.lua (link handlers) and the "addon" handler of
+-- Blizzard_UIPanels_Game/Shared/ItemRefHandlersShared.lua: SetItemRef hands addon links to EventRegistry.
+LinkTypes = { AddOn = "addon", Item = "item", Player = "player", Spell = "spell", Enchant = "enchant", Quest = "quest" }
+LinkProcessorResponse = { Unhandled = 1, Handled = 2 }
+LinkUtil = {}
+do
+  local handlers = {}
+  function LinkUtil.SplitLinkData(link) return string.match(link, "(.-):(.*)") end
+  function LinkUtil.ProcessLink(link, text, contextData)
+    local linkType, linkOptions = LinkUtil.SplitLinkData(link)
+    local fn = linkType and handlers[linkType]
+    if not fn then return LinkProcessorResponse.Unhandled end
+    local response = fn(link, text, { type = linkType, options = linkOptions }, contextData)
+    if response == nil then response = LinkProcessorResponse.Handled end
+    return response
+  end
+  function LinkUtil.IsLinkHandlerRegistered(linkType) return handlers[linkType] ~= nil end
+  function LinkUtil.RegisterLinkHandler(linkType, fn)
+    if handlers[linkType] ~= nil then error("attempted to register a duplicate link handler for '" .. tostring(linkType) .. "'", 2) end
+    handlers[linkType] = fn
+  end
+  LinkUtil.RegisterLinkHandler(LinkTypes.AddOn, function(link, text, linkData, contextData)
+    EventRegistry:TriggerEvent("SetItemRef", link, text, contextData.button, contextData.frame)
+  end)
+end
+
+-- A click / hover on a hyperlink in ChatFrame1 (Blizzard_ChatFrameBase/Shared/ChatFrame.lua ChatFrameMixin).
+function M.click_hyperlink(link, text, button)
+  button = button or "LeftButton"
+  EventRegistry:TriggerEvent("ChatFrame.OnHyperlinkClick", ChatFrame1, link, text, button)
+  SetItemRef(link, text, button, ChatFrame1)
+end
+function M.hover_hyperlink(link, text)
+  EventRegistry:TriggerEvent("ChatFrame.OnHyperlinkEnter", ChatFrame1, link, text)
+end
+function M.leave_hyperlink() EventRegistry:TriggerEvent("ChatFrame.OnHyperlinkLeave", ChatFrame1) end
 
 GameTooltip = CreateFrame("GameTooltip", "GameTooltip", UIParent, "GameTooltipTemplate")
 ItemRefTooltip = CreateFrame("GameTooltip", "ItemRefTooltip", UIParent, "GameTooltipTemplate")

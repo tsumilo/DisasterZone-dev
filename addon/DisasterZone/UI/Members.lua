@@ -1024,6 +1024,12 @@ local function updateDetail(p)
             or "Pick a member to see their characters, specs and professions.")
         right.list:SetData({})
     end
+    -- Share sits left of Whisper / Link in chat; the title ends before them
+    right.share:SetShown(recipe ~= nil or member ~= nil)
+    local btn = (right.whisper:IsShown() and right.whisper) or (right.link:IsShown() and right.link) or nil
+    right.share:ClearAllPoints()
+    if btn then right.share:SetPoint("RIGHT", btn, "LEFT", -4, 0) else right.share:SetPoint("TOPRIGHT", -12, -14) end
+    right.title:SetPoint("RIGHT", -(12 + (btn and (btn:GetWidth() + 4) or 0) + 22 + 8), 0)
 end
 
 ----------------------------------------------------------------------------
@@ -1179,6 +1185,11 @@ function MembersUI:CreatePanel(parent)
         if r then linkRecipe(r) end
     end)
     right.link:SetPoint("TOPRIGHT", -12, -14)
+    -- a link to this member's card or this recipe's crafters for the chat (UI/Share.lua)
+    right.share = ns.Share:CreateButton(right, 22, function()
+        if state.mode == "recipes" then return state.recipe and ns.Share:RecipeRef(state.recipe) or nil end
+        return state.member and ns.Share:MemberRef(state.member) or nil
+    end)
     -- a member's card: small text tabs over the list
     right.cards = {}
     local prevCard

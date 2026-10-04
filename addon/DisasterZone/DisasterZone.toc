@@ -79,6 +79,8 @@ Render3D\Rooms.lua
 
 # UI
 UI\Widgets.lua
+UI\Share.lua
+UI\ShareWindow.lua
 UI\Tour.lua
 Data\Tours\Strategy.lua
 UI\DatePicker.lua

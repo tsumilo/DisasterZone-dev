@@ -578,10 +578,11 @@ local function SetCurrent(c)
     Changed()
 end
 
--- 1.3: a boss with strategies near while the raid has no planned raid linked: no plan, just the hint (in a group).
+-- 1.3: a boss with strategies near while the raid has no planned raid linked: no plan, just the hint (raids only: a
+-- party has no raid session to link).
 local function NoteUnlinked(bossRef)
     local Str = S()
-    if SessionOcc() or not (Str and IsInGroup() and #Str:GetStrategies(bossRef) > 0) then return end
+    if SessionOcc() or not (Str and IsInRaid() and #Str:GetStrategies(bossRef) > 0) then return end
     if unlinked and unlinked.boss == bossRef then
         unlinked.seenAt = GetTime()
         return
@@ -1060,6 +1061,7 @@ local function OnSessionLink()
         if fresh then
             fresh.seenAt = seenAt
             SetCurrent(fresh)
+            Live:Rescan()              -- (the new plan's marks on what is in sight)
         else
             SetCurrent(nil)
             NoteUnlinked(boss)
@@ -1067,7 +1069,7 @@ local function OnSessionLink()
     elseif unlinked and occ then
         local boss = unlinked.boss
         unlinked = nil                 -- linked now: the plan (when the raid has one for this boss) or nothing
-        if not Live:Approach(boss) then Changed() end
+        if Live:Approach(boss) then Live:Rescan() else Changed() end
     elseif unlinked then
         local running = (ns.GroupRules and ns.GroupRules:GetSession()) ~= nil
         if unlinked.session ~= running then

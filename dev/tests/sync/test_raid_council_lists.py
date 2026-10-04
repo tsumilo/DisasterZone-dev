@@ -117,6 +117,13 @@ def a_reload_mid_raid_keeps_them_and_the_guild_council_leading_keeps_everything(
     L.relog()
     settle(w, 30)
     assert cached(L, RK)["rev"] == own(R)["rev"] and cached(L, R2K)["rev"] == own(R2)["rev"]
+    # a copy left from an earlier raid session counts as none (not in the manifest), and the owner's push replaces it
+    L.eval("ns.db.lists[...].rs = 'Raidlead-Thunderstrike-1'", RK)
+    assert cached(L, RK) is None and RK not in (L.eval_py("return ns.Store:GetManifest()") or {})
+    edit(R, 2, commit=True)
+    settle(w, 10)
+    assert cached(L, RK)["rev"] == own(R)["rev"]
+    assert L.eval("return ns.db.lists[...].rs == ns.GroupRules:GetSession().id", RK) is True
     assert L.eval("return ns.RaidLog:End()") is True
     settle(w, 10)
     assert lists_of(L) == {}

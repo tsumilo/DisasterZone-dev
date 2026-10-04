@@ -369,6 +369,7 @@ function Store:Put(key, entry, via)
 
     local lists = Lists()
     local cur = lists[key]
+    if type(cur) == "table" and cur.rs and cur.rs ~= rs then cur = nil end   -- (an earlier raid session's copy)
     via = (type(via) == "string" and via ~= "") and via or "direct"
     local prevConfirmed = confirmed[key]
     if via == "direct" then confirmed[key] = { rev = r, at = GetServerTime() } end
@@ -431,8 +432,9 @@ function Store:GetManifest()
     local m = {}
     local Guild = ns.Guild
     local me = Util.PlayerKey()
+    local rs = RaidCopySession()
     for key, rec in pairs(Lists()) do
-        if key ~= me and type(rec) == "table" and IsInt(rec.rev, 1, MAX_REV)
+        if key ~= me and type(rec) == "table" and IsInt(rec.rev, 1, MAX_REV) and (not rec.rs or rec.rs == rs)
             and Guild and Guild:IsInGuild(key, true) then
             m[key] = rec.rev
         end
@@ -458,11 +460,14 @@ function Store:GetManifestHashes(manifest)
     return out
 end
 
--- Returns the cached (non-demo) record of another player; used by Sync to serve relays.
+-- Returns the cached (non-demo) record of another player; used by Sync to serve relays. 1.3: a raid council's copy
+-- from a raid session that is over (dropped soon, PurgeRaidCopies) counts as none.
 function Store:GetCached(key)
     if type(key) ~= "string" then return nil end
     local rec = Lists()[key]
-    return type(rec) == "table" and rec or nil
+    if type(rec) ~= "table" then return nil end
+    if rec.rs and rec.rs ~= RaidCopySession() then return nil end
+    return rec
 end
 
 -- Drops lists of players who left the guild more than 30 days ago (only this guild's copies).

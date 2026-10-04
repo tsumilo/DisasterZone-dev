@@ -293,10 +293,11 @@ local function NewWearButton(parent)
     return b
 end
 
+-- text: a string, or a function returning one (read when the tooltip opens).
 local function ButtonTooltip(btn, text)
     btn:HookScript("OnEnter", function(self)
         _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:AddLine(text, 1, 1, 1, true)
+        _G.GameTooltip:AddLine(type(text) == "function" and text() or text, 1, 1, 1, true)
         _G.GameTooltip:Show()
     end)
     btn:HookScript("OnLeave", HideTooltip)
@@ -360,8 +361,16 @@ function RollFrame:GetFrame()
     ButtonTooltip(f.pass, "Pass on this item.")
     f.roll = UI:CreateButton(f, "Roll", 64, 22, function() RollFrame:DoRoll() end)
     f.roll:SetPoint("RIGHT", f.pass, "LEFT", -4, 0)
-    ButtonTooltip(f.roll, "Roll 1-100 (a normal /roll). DisasterZone suggests the winner: BiS main first, "
-        .. "then BiS alt, then everyone else; the highest roll wins within each group. The council confirms.")
+    ButtonTooltip(f.roll, function()
+        -- 1.3: a plain roll (the raid runs without the loot council): the highest roll, the master looter confirms
+        local s = RollFrame:GetSession()
+        if type(s) == "table" and s.plain then
+            return "Roll 1-100 (a normal /roll). The loot council is off for this raid: the highest roll is "
+                .. "suggested (BiS lists don't count). The master looter confirms."
+        end
+        return "Roll 1-100 (a normal /roll). DisasterZone suggests the winner: BiS main first, "
+            .. "then BiS alt, then everyone else; the highest roll wins within each group. The council confirms."
+    end)
 
     f.status = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.status:SetPoint("RIGHT", f, "TOPRIGHT", -16, -55)

@@ -1506,6 +1506,26 @@ class Client:
         return self._lua_list("inserted_links")
 
     @property
+    def chat_shown(self):
+        """CHAT_MSG_* lines as the chat frames show them (after the message event filters): {event, text, author}."""
+        return self._lua_list("chat_shown")
+
+    @property
+    def opened_chat(self):
+        """The text the chat box was last opened with (ChatFrameUtil.OpenChat), or None."""
+        return self.M["opened_chat"] if self.M is not None else None
+
+    def click_link(self, link, text="", button="LeftButton"):
+        """Click a hyperlink in the chat frame (link = the |H data, e.g. "addon:DisasterZone:raids")."""
+        self._call("click_hyperlink", link, text, button)
+
+    def hover_link(self, link, text=""):
+        self._call("hover_hyperlink", link, text)
+
+    def leave_link(self):
+        self._call("leave_hyperlink")
+
+    @property
     def sent_addon(self):
         return [e for e in self.world.addon_log if e["sender"] == self.full_name]
 

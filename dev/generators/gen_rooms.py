@@ -51,7 +51,7 @@ CACHE = os.path.join(HERE, "..", "art", "rooms")
 WMO_CACHE = os.path.join(HERE, "..", "art", "wmo")
 
 MAX_TRIS = 7000                 # faces per room at most (the board's 3D view: 327 cluster frames of 32 nodes)
-MAX_NODES = 2900                # BSP nodes at most (the 3D view's frames hold about 10 each)
+MAX_NODES = 2990                # BSP nodes at most (the 3D view's frames hold about 10 each; the self-check: 3000)
 MAX_EDGE = 40.0                 # yd: longer faces are halved (the renderer subdivides on screen; this only keeps
                                 # texture coordinates from growing huge)
 MIN_HALF = 30.0                 # yd: a shrinking room keeps at least this round the boss
@@ -80,9 +80,17 @@ def _get(url, path):
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         for attempt in range(4):
-            subprocess.run(["curl", "-s", "-L", "-A", "Mozilla/5.0", "-o", path + ".part", url], check=False)
-            if os.path.exists(path + ".part") and os.path.getsize(path + ".part") > 0:
-                os.replace(path + ".part", path)
+            part = "%s.part%d" % (path, os.getpid())      # (parallel jobs fetch the same files)
+            subprocess.run(["curl", "-s", "-L", "-A", "Mozilla/5.0", "-o", part, url], check=False)
+            if os.path.exists(part) and os.path.getsize(part) > 0:
+                try:
+                    os.replace(part, path)
+                except OSError:
+                    if not os.path.exists(path):
+                        raise
+                    os.remove(part)
+                break
+            if os.path.exists(path) and os.path.getsize(path) > 0:
                 break
             time.sleep(1 + attempt)
     if not os.path.exists(path):
@@ -197,25 +205,40 @@ def read_modf(b, data_off, size):
     return out
 
 
+def _rot(axis, deg):
+    a = math.radians(deg)
+    c, s = math.cos(a), math.sin(a)
+    if axis == "x":
+        return ((1, 0, 0), (0, c, -s), (0, s, c))
+    if axis == "y":
+        return ((c, 0, s), (0, 1, 0), (-s, 0, c))
+    return ((c, -s, 0), (s, c, 0), (0, 0, 1))
+
+
+def _mul(a, b):
+    return tuple(tuple(sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)) for i in range(3))
+
+
 class Placement:
-    """A WMO placed in the world: local <-> world."""
+    """A WMO placed in the world: local -> world. In the placement space (x, y up, z) the local point (x, -y... as
+    (lx, lz, -ly)) is turned by Ry(rot.y - 90) Rz(-rot.x) Rx(rot.z) and moved to pos: checked against the world box
+    each MODF entry carries (13 tilted buildings of Black Temple, Zul'Aman and Hyjal to 0.002 yd)."""
 
     def __init__(self, p, global_wmo):
         self.file, self.uid = p["file"], p["uid"]
         self.px, self.py, self.pz = p["pos"]
         self.s = p["scale"]
         rx, ry, rz = p["rot"]
-        if abs(rx) > 0.01 or abs(rz) > 0.01:
-            TILTED[self.uid] = (rx, rz)
-        phi = math.radians(ry - 90.0)
-        self.c, self.s_ = math.cos(phi), math.sin(phi)
+        self.M = _mul(_mul(_rot("y", ry - 90.0), _rot("z", -rx)), _rot("x", rz))
         self.C = 0.0 if global_wmo else ADT_C
 
     def to_world(self, lx, ly, lz):
-        gx, gy, gz = lx * self.s, lz * self.s, -ly * self.s
-        x2 = gx * self.c + gz * self.s_
-        z2 = -gx * self.s_ + gz * self.c
-        return self.C - (self.pz + z2), self.C - (self.px + x2), self.py + gy
+        g = (lx * self.s, lz * self.s, -ly * self.s)
+        M = self.M
+        X = M[0][0] * g[0] + M[0][1] * g[1] + M[0][2] * g[2]
+        Y = M[1][0] * g[0] + M[1][1] * g[1] + M[1][2] * g[2]
+        Z = M[2][0] * g[0] + M[2][1] * g[1] + M[2][2] * g[2]
+        return self.C - (self.pz + Z), self.C - (self.px + X), self.py + Y
 
 
 _ROOTS, _GROUPS = {}, {}
@@ -389,7 +412,7 @@ def floors_at(faces, x, y):
         if x < min(ax, bx, cx) or x > max(ax, bx, cx) or y < min(ay, by, cy) or y > max(ay, by, cy):
             continue
         n = G.normal((ax, ay, az), (bx, by, bz), (cx, cy, cz))
-        if not n or abs(n[2]) < 0.6:
+        if not n or n[2] < 0.6:                      # (turned up: a ceiling is no floor)
             continue
         d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
         if abs(d) < 1e-9:
@@ -411,7 +434,6 @@ def num3(v):
     return G.num3(v)
 
 
-TILTED = {}                     # placement uid -> its rotation about the level axes (left out)
 
 
 def safe_key(ref):
@@ -446,11 +468,21 @@ def plan(ref, starters, portraits, maps):
             s = min(cands, key=lambda s: (s[1] - wx) ** 2 + (s[2] - wy) ** 2)
             if math.hypot(s[1] - wx, s[2] - wy) < 60:
                 spot, how = (s[1], s[2], s[3]), "AzerothCore spawn of %d" % boss["id"]
+    # without a spawn: the height of another creature on the same floor map that has one (the room's level)
+    ref_z = None
+    if not spot:
+        for other, ost in sorted(starters.items()):
+            if ost["p"][0].get("map") != mapfile or not other.startswith(raid + ":"):
+                continue
+            for cr in portraits.get(other) or []:
+                ss = [s for s in spawns().get(cr["id"], []) if s[0] == mapid]
+                if ss and ref_z is None:
+                    ref_z = min(ss, key=lambda s: (s[1] - wx) ** 2 + (s[2] - wy) ** 2)[3]
     corners = [board_to_world(page, rect, x, y) for x, y in ((0, 0), (BW, 0), (0, BH), (BW, BH))]
     box = (min(c[0] for c in corners), min(c[1] for c in corners), max(c[0] for c in corners), max(c[1] for c in corners))
     name = (boss["n"] if boss else ref.split(":")[1])
     return dict(ref=ref, key=safe_key(ref), raid=raid, mapid=mapid, mapdir=mapdir, mapfile=mapfile, rect=rect,
-                page=page, box=box, portrait=(wx, wy), spot=spot, how=how, name=name)
+                page=page, box=box, portrait=(wx, wy), spot=spot, how=how, name=name, ref_z=ref_z)
 
 
 def gather(p):
@@ -458,15 +490,15 @@ def gather(p):
     box = p["box"]
     pls, has_terrain = placements(p["mapdir"], box)
     raw = []
-    p["tilted"] = []
     for pl in pls:
-        got = wmo_faces(pl, box, -1e9, 1e9)
-        if pl.uid in TILTED and got:
-            p["tilted"].append((pl.uid, TILTED[pl.uid], len(got)))
-        raw += got
-    span = max(box[2] - box[0], box[3] - box[1])
+        raw += wmo_faces(pl, box, -1e9, 1e9)
+    # terrain: every vertex up to 1500 faces in the box, else every 2nd, 4th or 8th (a terrain face is a BSP node of
+    # its own: bumps are never in one plane)
+    step = 1
+    while step < 8 and (box[2] - box[0]) * (box[3] - box[1]) / (TILE / 128 * step) ** 2 * 2 > 1500:
+        step *= 2
     if has_terrain:
-        raw += terrain_faces(p["mapdir"], box, 1 if span < 160 else 2)
+        raw += terrain_faces(p["mapdir"], box, step)
     # the boss' floor
     if p["spot"]:
         sx, sy, sz = p["spot"]
@@ -476,7 +508,9 @@ def gather(p):
         sx, sy = p["portrait"]
         zmin = p["rect"][2]
         fl = floors_at(raw, sx, sy)
-        if zmin > -9999 and fl:
+        if p.get("ref_z") is not None and fl:
+            zb = min(fl, key=lambda z: abs(z - p["ref_z"]))
+        elif zmin > -9999 and fl:
             above = [z for z in fl if z >= zmin - 2]
             zb = min(above) if above else max(fl)
         else:
@@ -500,17 +534,37 @@ def build(p):
     """The room: its faces cut to the box (shrunk while it has more than MAX_TRIS faces or MAX_NODES BSP nodes)."""
     raw, spot, box = gather(p)
     zb = spot[2]
+    up, down, fine = ROOM_UP, ROOM_DOWN, 0.0
     while True:
-        faces = clip_faces(raw, box, zb - ROOM_DOWN, zb + ROOM_UP)
+        faces = clip_faces(raw, box, zb - down, zb + up)
         smaller = shrink(box, spot)
         if len(faces) > MAX_TRIS and smaller:
             box = smaller
             continue
         r = make(p, raw, spot, box, faces)
-        if len(r["nodes"]) > MAX_NODES and smaller:
-            box = smaller
-            continue
+        if len(r["nodes"]) > MAX_NODES:
+            if smaller:
+                box = smaller
+                continue
+            if up > 4:                               # as small as rooms get: lower walls (fewer pieces) instead
+                up, down = up - 3, max(8.0, down - 6)
+                continue
+            if fine < 4.0:                           # then leave out the finest carving (never a floor)
+                fine = fine * 2 if fine else 0.05
+                raw = [f for f in raw if not small(f, fine)]
+                continue
+            raise SystemExit("%s: %d BSP nodes even at the smallest room" % (p["ref"], len(r["nodes"])))
         return r
+
+
+def small(face, limit):
+    """Is a face smaller than `limit` square yards and no floor?"""
+    a, b, c = (q[:3] for q in face[1])
+    ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+    vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+    nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+    area = 0.5 * math.sqrt(nx * nx + ny * ny + nz * nz)
+    return area < limit and not (area > 0 and nz / (2 * area) > 0.7)
 
 
 def make(p, raw, spot, box, faces):
@@ -599,12 +653,13 @@ def make(p, raw, spot, box, faces):
         out_nodes.append((node["plane"], node["front"], node["back"], first + 1, len(mtris) - first))
     pair, node_of = G.pair_tris(verts, mtris, out_nodes)
     # (the planes are written with one decimal more than format 2: rooms reach 400 yd from their corner)
-    n4, n2 = G.num4, G.num
-    G.num4, G.num = num5, num3
-    try:
-        G.self_check(p["ref"], textures, blends, verts, mtris, out_nodes, pair, node_of)
-    finally:
-        G.num4, G.num = n4, n2
+    if len(out_nodes) <= MAX_NODES:                 # (over the budget the room is cut smaller first: build)
+        n4, n2 = G.num4, G.num
+        G.num4, G.num = num5, num3
+        try:
+            G.self_check(p["ref"], textures, blends, verts, mtris, out_nodes, pair, node_of)
+        finally:
+            G.num4, G.num = n4, n2
     # the fit: shipped map pixel -> room
     xMin, yMin, _, xMax, yMax, _ = p["rect"]
     fit = dict(ax=(yMax - yMin) / MAP_W, bx=y1 - yMax, ay=-(xMax - xMin) / MAP_H, by=xMax - x0)
@@ -723,10 +778,9 @@ def _run_one(ref):
     e = index_entry(r)
     with open(os.path.join(CACHE, "index", r["key"] + ".json"), "w") as fh:
         json.dump(e, fh)
-    tilt = "".join(" TILTED %d %s: %d faces;" % (u, rot, n) for u, rot, n in p.get("tilted", []))
     msg = ("%-32s %4dx%-4d faces %5d (of %6d), tris %5d, nodes %4d, textures %3d, %4.0f KB -> %4.0f KB, spot %s, %.0f s"
            % (ref, r["w"], r["h"], r["faces"], r["raw"], len(r["tris"]), len(r["nodes"]), len(r["textures"]),
-              n_raw / 1024, n_enc / 1024, p["how"], time.time() - t0)) + tilt
+              n_raw / 1024, n_enc / 1024, p["how"], time.time() - t0))
     return ref, e, msg
 
 

@@ -1836,7 +1836,7 @@ local function councilName(key)
     return coloredName(key, councilClass(key))
 end
 
--- Online per the guild roster, else per the raid roster (raid council members may be from other guilds).
+-- Online per the guild roster, else per the raid roster (a raid list may name a pug, who never counts: 1.3).
 local function councilOnline(key)
     if isOnline(key) then return true end
     local e = groupEntry(key)
@@ -1847,7 +1847,7 @@ local function rankNote(key)
     if realGuildMember(key) then
         return ns.Guild.GetRankName and ns.Guild:GetRankName(key) or ""
     end
-    return groupEntry(key) and "not in your guild" or ""
+    return groupEntry(key) and "not in your guild: never council" or ""
 end
 
 local function raidLeaderKey()
@@ -1977,14 +1977,17 @@ local function guildPickerItems()
     return out
 end
 
--- Items of the raid picker: my raid first, then online guild members. The raid leader is fixed.
+-- Items of the raid picker: my raid first, then online guild members. The raid leader is fixed. (1.3: guild members
+-- only: a pug on the list would never be council.)
 local function raidPickerItems()
     local out, seen = {}, {}
     local leader = raidLeaderKey()
     local raidKeys = {}
     local g = ns.Util and ns.Util.group
     if inRaid() and type(g) == "table" then
-        for key in pairs(g) do raidKeys[#raidKeys + 1] = key end
+        for key in pairs(g) do
+            if realGuildMember(key) then raidKeys[#raidKeys + 1] = key end
+        end
         table.sort(raidKeys, nameLess)
     end
     if #raidKeys > 0 then
@@ -2279,6 +2282,18 @@ local function sharedRows(kind, fixedKey, fixedText, members)
     return rows
 end
 
+-- 1.3: the master looter is council of the raid while it runs the loot council (Guild source "ml"): listed after the
+-- raid leader, not removable.
+local function addMasterLooterRow(rows)
+    local ml = guildCall("GetRaidMasterLooter")
+    if not ml or guildCall("GetCouncilSource", ml) ~= "ml" then return rows end
+    for _, r in ipairs(rows) do
+        if r.key == ml then return rows end
+    end
+    table.insert(rows, math.min(2, #rows + 1), { kind = "raid", key = ml, note = "master looter · loot council on" })
+    return rows
+end
+
 local function editorStatus(kind, n, saved)
     if draftDirty(kind) then
         return colorCode("warn") .. "Unsaved changes|r · " .. membersText(n)
@@ -2373,7 +2388,8 @@ local function refreshRaidSection(s)
         local saved = savedList("raid")
         if leading then
             s.title:SetText("This raid's council")
-            s.sub:SetText("Members of your raid only · you lead it, so you are always council")
+            s.sub:SetText("Guild members in your raid only · you lead it, so you are always council")
+            addMasterLooterRow(rows)
         else
             s.title:SetText("Your raid council list")
             s.sub:SetText("Shared automatically whenever you lead a raid")
@@ -2386,12 +2402,19 @@ local function refreshRaidSection(s)
         s.list:SetEmptyText(#rows <= (fixedKey and 1 or 0) and "Nobody picked yet: use the search box above." or "")
     else
         s.title:SetText("This raid's council")
-        s.sub:SetText("Members of your current raid only · the raid leader is always council")
+        s.sub:SetText("Guild members in your current raid only · the raid leader is always council")
         if not inRaid() then
             rows = {}
             s.targets:SetText("")
             s.status:SetText(grey("You are not in a raid."))
             s.foot:SetText("Lead a raid to pick extra council members for it.")
+            s.list:SetEmptyText("")
+        elseif raidLeaderKey() and not realGuildMember(raidLeaderKey()) then
+            -- 1.3: pugs are never loot council (not as raid leader either), and their raid list is ignored
+            rows = addMasterLooterRow({})
+            s.targets:SetText(targetsLine(nil, "Disenchanter / guild bank: the guild's picks."))
+            s.status:SetText(grey("Raid leader ") .. councilName(raidLeaderKey()) .. grey(": not in your guild, never council"))
+            s.foot:SetText("Players outside your guild are never loot council.")
             s.list:SetEmptyText("")
         else
             local leader = raidLeaderKey()
@@ -2400,6 +2423,7 @@ local function refreshRaidSection(s)
             s.targets:SetText(targetsLine(rc, "Disenchanter / guild bank: the guild's picks."))
             rows = sharedRows("raid", leader, "Raid leader", rc and rc.members)
             local n = #rows - (leader and 1 or 0)
+            addMasterLooterRow(rows)
             if rc then
                 s.status:SetText("Set by raid leader " .. councilName(rc.leader or leader) .. " · " .. membersText(n))
             elseif leader then
@@ -3073,7 +3097,8 @@ end
 
 -- Read-only summary for the Settings tab (everyone):
 -- { inGuild, gm, guild = {rev, by, phase} or nil, guildMembers = { {key, name, online, fixed}... },
---   inRaid, raidLeader, raidShared, raidMembers = {...}, mySource, canEdit }
+--   inRaid, raidLeader, raidLeaderOutside (1.3: the leader is not in my guild, so never council), raidShared,
+--   raidMembers = {...} (1.3: with the master looter while it is council), mySource, canEdit }
 function CouncilUI:GetCouncilSummary()
     local function entry(key, fixed)
         return { key = key, name = councilName(key), online = councilOnline(key), fixed = fixed }
@@ -3099,16 +3124,21 @@ function CouncilUI:GetCouncilSummary()
     end
     if out.inRaid then
         local leader = out.raidLeader
+        out.raidLeaderOutside = (leader and out.inGuild and not realGuildMember(leader)) or nil
         local rc = guildCall("GetRaidCouncil")
         if type(rc) ~= "table" or (leader and rc.leader and rc.leader ~= leader) then rc = nil end
-        if not rc and leader and leader == me then
+        if not rc and leader and leader == me and not out.raidLeaderOutside then
             local mine = savedList("raid")   -- I lead: my own list is this raid's council
             if mine then rc = { leader = me, members = mine.members } end
         end
         out.raidShared = rc ~= nil
-        if leader then out.raidMembers[1] = entry(leader, "Raid leader") end
+        if leader and not out.raidLeaderOutside then out.raidMembers[1] = entry(leader, "Raid leader") end
         for _, key in ipairs(sortedSet(copySet(rc and rc.members))) do
-            if key ~= leader then out.raidMembers[#out.raidMembers + 1] = entry(key) end
+            if key ~= leader and realGuildMember(key) then out.raidMembers[#out.raidMembers + 1] = entry(key) end
+        end
+        local ml = guildCall("GetRaidMasterLooter")
+        if ml and guildCall("GetCouncilSource", ml) == "ml" then
+            out.raidMembers[#out.raidMembers + 1] = entry(ml, "Master looter")
         end
     end
     return out

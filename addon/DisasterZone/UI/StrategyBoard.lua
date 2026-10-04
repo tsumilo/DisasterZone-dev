@@ -1690,15 +1690,16 @@ function Board:RefreshMode()
     win.mode3d:SetKind(on and "chosen" or "secondary")
     win.mode2d:SetKind(on and "secondary" or "chosen")
     local r = room or other
+    local where = S():GetBossName(st.strat and st.strat.b or st.boss) .. "'s room"
     if room then
-        win.mode3d.tip = "This page in " .. r.name .. ", the room as the game draws it, with the boss and its adds. "
+        win.mode3d.tip = "This page in " .. where .. ", as the game draws it, with the boss and its adds. "
             .. "Everything on the map is there; draw and move things in the room too."
     else
         local mapName = r.map
         for _, m in ipairs(ns.Data and ns.Data.RaidMaps or {}) do
             if m.file == r.map then mapName = m.name end
         end
-        win.mode3d.tip = "3D shows " .. r.name .. ", which is on the " .. mapName .. " map. This page uses another map."
+        win.mode3d.tip = "3D shows " .. where .. ", which is on the " .. mapName .. " map. This page uses another map."
     end
     win.mode2d.tip = "This page on the map."
 end
