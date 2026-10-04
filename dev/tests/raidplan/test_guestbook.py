@@ -122,6 +122,33 @@ def without_a_planned_raid_nobody_is_added_and_the_assistant_writes():
 
 
 @case
+def the_raids_own_leader_adds_the_pugs():
+    w, c = world()
+    bob, lee, gina, pug = c["Bob"], c["Lee"], c["Gina"], c["Pug"]
+    occ = kara_now(w, c)
+    # Lee (a member) leads this raid: Lee's client adds the pug, though Lee is on no list
+    assert call(gina, "EditRaid", occ, {"rl": K("Lee")})["ok"] is True
+    w.tick(2)
+    w.make_raid([lee, c["Rita"], c["Sam"], pug], leader=lee)
+    w.tick(6)
+    assert list(guests(c["Rita"], occ)) == [K("Pug")]
+    assert any("Added Pug" in l for l in printed_since(lee, 0))
+    w.disband()
+    w.tick(2)
+    # Sam (a member) leads the group: the first assistant who may add guests to this raid (Lee, its leader) does
+    assert call(lee, "RemoveGuest", occ, K("Pug"))["ok"] is True
+    lee.eval("ns.db.autoGuests = {}")
+    w.tick(2)
+    n0 = len(lee.chat_frame)
+    w.make_raid([c["Sam"], lee, c["Rita"], pug], leader=c["Sam"], assistants=[lee])
+    w.tick(6)
+    assert list(guests(c["Rita"], occ)) == [K("Pug")]
+    assert any("Added Pug" in l for l in printed_since(lee, n0))
+    assert not any("Added Pug" in l for l in printed_since(bob, 0))
+    w.assert_no_errors()
+
+
+@case
 def a_blacklisted_player_who_joins_or_is_invited():
     w, c = world()
     bob, olaf, rita, bad = c["Bob"], c["Olaf"], c["Rita"], c["Bad"]

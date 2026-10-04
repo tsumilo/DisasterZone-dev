@@ -14,6 +14,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --             ground = function(x, y, z) end,          (T.GroundFn: what units stand on - ledges, falls, walls)
 --             mesh = { textures, verts, tris } },      (the room's own triangles, see TeronGorefiendFloor.lua)
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
+--   displays = { [creature display ID] = { scale, chest, head, hand, name } }: each display's size (its
+--              CreatureModelScale: the view draws it, the client's ModelScene does not) and its model's attachment
+--              heights in model units (Chest, Head, SpellLeftHand, PlayerName), where effects (Fx attach) and
+--              name plates go
 --   player = { x, y, speed, facing },
 --   interactKey = "F",                  that key uses the nearest thing with an .interact in reach
 --   compass = true,                     the minimap shows N / E / S / W (arena y is north)

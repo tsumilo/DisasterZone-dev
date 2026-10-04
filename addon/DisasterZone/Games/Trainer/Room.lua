@@ -2827,7 +2827,7 @@ local function InstallCopies()
         local out = {}
         for i = 1, nOcc do
             local o = OIN[i]
-            out[i] = { id = o.id, family = FAMNAME[OFAM[i]], x = o.x, y = o.y, z = o.z, h = o.h, w = o.w,
+            out[i] = { id = o.id, family = FAMNAME[OFAM[i]], x = o.x, y = o.y, z = o.z, h = o.h, w = o.w, rb = o.rb,
                        box = { OX0[i], OY0[i], OX1[i], OY1[i] }, onScreen = OON[i] or false, slot = OSLOT[i] or -1,
                        copies = OCNT[i] or 0 }
         end

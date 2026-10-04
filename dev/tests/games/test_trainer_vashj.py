@@ -255,6 +255,24 @@ def every_job_plays_through_to_four_generators():
 
 
 @case
+def a_generator_stands_on_the_ring_for_the_copies_even_when_the_client_reports_no_box():
+    # In-game report 2026-10-04, looking up the steps: they hid the generators' bodies but not their pedestals (the
+    # client gave no usable model box, so the copies started at the generator's origin, 2.84 yd over its foot). The
+    # generator carries its model file's own box: the copies over it start on the ring's floor and are as wide as its
+    # pedestal (3 yd out from its axis), whatever GetActiveBoundingBox says - here nothing at all.
+    w, c = boot()
+    c.eval("local a = CreateFrame('ModelScene'):CreateActor()  getmetatable(a).GetActiveBoundingBox = function() return nil end")
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Select('vashj', 'looter')  ns.TrainerUI._Start(3)  T_V.sim = ns.TrainerUI._Sim() "
+           "T_V.sim.player.facing = math.pi  ns.TrainerUI._Tick(0.05)")
+    o = sim(c, "local g = s.generators[1] for _, o in ipairs(ns.TrainerUI._Occluders() or {}) do if o.id == g.id then "
+               "return { o.z, o.h, o.rb, s.enc.arena.ground(g.x, g.y, g.z) } end end")
+    assert o and abs(o[0] - o[3]) < 1e-6 and abs(o[0] + o[1] - (1.1 + 6)) < 1e-6 and o[2] > 3, o
+    no_errors(w)
+
+
+@case
 def the_panel_shows_allies_and_things_to_use():
     w, c = boot()
     c.slash("/dz play trainer")

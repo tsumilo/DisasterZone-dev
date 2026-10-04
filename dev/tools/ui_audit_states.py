@@ -59,6 +59,8 @@ def seed(w, c):
     gina, grumpy = c["Gina"], c["Grumpykat"]
     # strategies: shared ones (the "shared with you" tag), long names
     save_strategy(c["Victhar"], "Karazhan:Attumen", "Solo tanking")
+    # a second one for Attumen (the raid's Assignments row: a pick, "not picked yet"), the longest name allowed
+    save_strategy(grumpy, "Karazhan:Attumen", "Attumen and Midnight split pulls")
     IDS["strat"] = save_strategy(grumpy, "SerpentshrineCavern:Lurker", "The Lurker Below raiding tactics",
                                  ("Gina", "Victhar", "Shadowmelder"))
     save_strategy(grumpy, "SerpentshrineCavern:Leotheras", "Tactics and positioning", ("Gina", "Victhar", "Vaenyria"))
@@ -76,6 +78,11 @@ def seed(w, c):
     for n in ("Victhar", "Shadowmelder", "Vaenyria", "Thunderhoofx", "Moonwhisper", "Lightbringer"):
         signup(c[n], occ, "A", None, "might be 10 min late" if n == "Vaenyria" else None)
     signup(c["Frostweaver"], occ, "T")
+    w.tick(2)
+    # the raid's own leader ("led by" in the header), named by the GM
+    res = gina.eval_py("local o, k = ...; local ok, e = ns.RaidPlan:EditRaid(o, { rl = k }); return { ok = ok, e = e }",
+                       occ, K("Shadowmelder"))
+    assert res["ok"] is True, res
     w.tick(2)
     grumpy.eval("ns.RaidPlan:SetBlacklisted('Badlooterxx', 'ninja looted Gruul twice and left mid raid without a word')")
     grumpy.eval("ns.GuestBook:SetNote('Pugsyhealer', 'great resto priest, wants to join after Gruul', true)")
@@ -128,7 +135,8 @@ def seed(w, c):
 def close_all(cl):
     cl.eval("""
       for _, name in ipairs({ 'DisasterZoneGuests', 'DisasterZoneRaidInvites', 'DisasterZoneRaidStart',
-                              'DisasterZoneRaidLeaders', 'DisasterZoneRaidEditor', 'DisasterZoneAwardDialog' }) do
+                              'DisasterZoneRaidLeaders', 'DisasterZoneRaidEditor', 'DisasterZoneAwardDialog',
+                              'DisasterZoneRaidLeader' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -267,6 +275,8 @@ STATES = [
     ("Raids - Upcoming - Assignments", opened("raids", "ns.RaidsUI:SetView('upcoming'); "
                                                        "ns.RaidPlanUI:SelectRaid(...); "
                                                        "ns.RaidPlanUI:SetDetailTab('assign')")),
+    ("Raids - Upcoming - Raid leader", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
+                                                       "ns.RaidPlanUI:OpenLeader(...)")),
     ("Raids - Teams", opened("raids", "ns.RaidsUI:SetView('teams'); ns.RaidPlanUI:SelectTeam(select(3, ...))")),
     ("Raids - Strategies", opened("raids", "ns.RaidsUI:SetView('strategies')")),
     ("Raids - Strategies - share", opened("raids", "ns.RaidsUI:SetView('strategies'); "

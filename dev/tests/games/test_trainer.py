@@ -400,7 +400,10 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
     floor = lambda x, y: c.eval_py("return ns.TrainerRoom.FloorZ(%f, %f, %f)" % (x, y, h(x, y)))
     z = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]")
     assert abs(z - ground(31, 38)) < 1e-6 and abs(z - floor(31, 38)) < 0.01 and z < rim - 2, (z, ground(31, 38), h(31, 38))
-    zb = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.boss.id)[3]")
+    # (Teron is drawn 2.5 times the size of his model, his display's CreatureModelScale; the client multiplies an
+    # actor's position by its scale)
+    zb, sb = c.eval_py("local a = ns.TrainerUI._Actor(T_TR.sim.boss.id) return { ({ a:GetPosition() })[3] * a.scale, a.scale }")
+    assert sb == 2.5, sb
     assert abs(zb - ground(31, 52)) < 1e-6 and abs(zb - floor(31, 52)) < 0.01, (zb, h(31, 52))
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y, T_TR.sim.player.facing = 50, 30, math.pi  ns.TrainerUI._Tick(0.05)")
     z = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]")
@@ -1084,11 +1087,11 @@ def a_click_on_a_construct_targets_it():
     ys = sorted(p[1] for p in c.eval_py("return ns.TrainerUI._Plates()") if abs(p[0] - c.eval_py("return (ns.TrainerUI._Project(30.3, 37.7, 3.2))")) < 1)
     assert len(ys) == 4 and all(abs(b - a - 46) < 1e-6 for a, b in zip(ys, ys[1:])), ys
     # a plate is the client's: its gold border at its own 128 x 32 (the frame is the art's lower half) drawn over the
-    # red bar, which sits in the border's opening (rows 19-27 of the art: 7.5 px under the art's middle)
-    pl = c.eval_py("local f = ns.TrainerUI._Plate(1) local _, by = f.border:GetCenter() local _, hy = f.hp:GetCenter() "
+    # red bar, which sits in the border's opening (rows 19-27 of the art: the art's middle 7.5 px over the bar's)
+    pl = c.eval_py("local f = ns.TrainerUI._Plate(1) local b, h = { f.border:GetPoint(1) }, { f.hp:GetPoint(1) } "
                    "return { (f.border:GetDrawLayer()), (f.hp:GetDrawLayer()), f.border:GetWidth(), f.border:GetHeight(), "
-                   "f.hp:GetHeight(), by - hy }")
-    assert pl[:5] == ["OVERLAY", "ARTWORK", 128, 32, 9] and abs(pl[5] - 7.5) < 1e-6, pl
+                   "f.hp:GetHeight(), b[1], b[2] == f, b[3], b[4], b[5], h[1], h[2] == f, h[3], h[4], h[5] }")
+    assert pl == ["OVERLAY", "ARTWORK", 128, 32, 9, "LEFT", True, "LEFT", 0, 7.5, "LEFT", True, "LEFT", 4, 0], pl
     c.eval("local u = T_TR.constructs()  u[1].x, u[1].y = 30, 37  u[2].x, u[2].y = 26, 44  for i = 3, 4 do u[i].x, u[i].y = 5, 80 end  ns.TrainerUI._Tick(0.05)")
     assert c.eval_py("return ns.TrainerUI._Click(%f, %f)" % (ax, ay + 400)) is None     # the ceiling: nothing
     assert c.eval_py("return T_TR.sim.target == T_A")                                   # and the target stays

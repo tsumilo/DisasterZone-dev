@@ -261,9 +261,14 @@ local function rebuildDups()
 end
 
 -- Building strategies is for every guild member (each changes only their own and the ones shared with them);
--- a raid's names are for the GM, the guild council and the raid leaders.
+-- a raid's names are for who arranges that raid (default: the raid on the board): its own leader, the GM, the guild
+-- council (a raid without a leader: the raid leaders too).
 local function canBuild() return S():CanBuild() end
-local function canAssign() return S():CanAssign() end
+local function canAssign(occ)
+    occ = occ or st.occ
+    if occ == nil or occ == SANDBOX_OCC then return S():CanAssign() end
+    return S():CanAssign(occ)
+end
 local function canEditStrat(s)
     if type(s) ~= "table" then return false end
     if not s.id then return canBuild() end       -- not saved yet: mine
@@ -815,7 +820,7 @@ end
 
 -- Unsaved names for a raid's boss: the draft's id, or nil.
 function Board:FillDraft(occId, bossRef)
-    if not canAssign() then return nil end
+    if not canAssign(occId) then return nil end
     local d = findDraft(function(d) return d.mode == "fill" and d.occ == occId and d.boss == bossRef end)
     return d and d.did or nil
 end
@@ -893,7 +898,7 @@ function Board:OpenDraft(did)
     local store = draftStore()
     local d
     if did == nil then
-        d = findDraft(function(x) return x.mode == "edit" or canAssign() end)
+        d = findDraft(function(x) return x.mode == "edit" or canAssign(x.occ) end)
     else
         d = store and store[did]
     end
@@ -901,8 +906,8 @@ function Board:OpenDraft(did)
         ns:Print(did and "That draft is gone." or "No unsaved work on the strategy board.")
         return false
     end
-    if d.mode == "fill" and not canAssign() then
-        ns:Print("Only the Guild Master, the guild council and the raid leaders assign players for a raid.")
+    if d.mode == "fill" and not canAssign(d.occ) then
+        ns:Print("Only the raid's leader, the Guild Master and the guild council assign players for a raid.")
         return false
     end
     if d ~= st then
@@ -1076,14 +1081,14 @@ function Board:OpenRaid(occId, bossRef, mode)
     if st.dirty and st.occ == occId and st.boss == bossRef then return show() end
     park()
     -- unsaved names for this raid's boss: go on with them
-    local did = canAssign() and self:FillDraft(occId, bossRef)
+    local did = canAssign(occId) and self:FillDraft(occId, bossRef)
     if did then return self:OpenDraft(did) end
     local s, fill = S():GetRaidStrategy(occId, bossRef)
     st.occ, st.boss, st.page, st.picked = occId, bossRef, 1, nil
     st.strat = s
     st.assign = (s and fill and fill.s == s.id) and S():ValidAssignments(s, fill.a) or {}
     st.dirty = false
-    st.mode = (mode == "fill" and canAssign() and s) and "fill" or "view"
+    st.mode = (mode == "fill" and canAssign(occId) and s) and "fill" or "view"
     setBase()
     Board:ResetHistory()
     show()

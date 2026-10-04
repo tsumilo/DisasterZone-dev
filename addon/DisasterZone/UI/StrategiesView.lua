@@ -7,17 +7,22 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategiesView.lua", ...) then 
 --                       yours), Delete for the owner, the GM and the guild council. My unsaved drafts sit on top
 --                       (continue / discard; saving one makes it a strategy).
 --   Assignments tab   - of a planned raid (Upcoming): its bosses, the strategy each uses and how many slots are
---                       filled, with Open (everyone) and Assign (the GM, the guild council and the raid leaders).
+--                       filled, with Open (everyone) and Assign. Who arranges the raid (its own leader, the GM, the
+--                       guild council; a raid without a leader: the raid leaders too) picks each boss' strategy in
+--                       the row's dropdown, saved at once; a boss not picked yet uses the one the guild used last.
 local addonName, ns = ...
 
 local View = ns:NewModule("StrategiesUI")
 
 local tsort = table.sort
+local min, max, ceil = math.min, math.max, math.ceil
 
 local LIST_W = 290
 local BOSS_ROW_H = 22
 local STRAT_ROW_H = 40
-local RAID_ROW_H = 38
+local RAID_ROW_H = 46
+local PICK_MIN, PICK_MAX = 110, 230  -- a raid's strategy dropdown: as wide as the name (32 characters fit)
+local TEXT_END = 160                 -- a raid's boss row: its texts end where Open / Assign start
 local FILTER_H = 28
 local ROW_BTN = 24
 
@@ -599,20 +604,34 @@ end
 -- A planned raid's Assignments tab
 ---------------------------------------------------------------------------
 
+-- The strategy picker of a raid's boss row: every strategy of the boss, who made it and how big; the one the raid
+-- uses is ticked. A pick is saved at once.
+local function pickMenu(row, root)
+    local d = row.__cdlData
+    if not d then return end
+    root:CreateTitle(d.name)
+    local last = S():GetLastPick(d.ref, d.occ)
+    for _, s in ipairs(S():GetStrategies(d.ref)) do
+        local owner = s.ow or s.by
+        local extra = ("%s · %d slots%s"):format(shortName(owner), #S():GetSlots(s), pagesText(#s.p))
+        if s.id == last then extra = extra .. " · used last time" end
+        local radio = root:CreateRadio(s.n .. "  " .. grey(extra), function() return d.s and d.s.id == s.id end,
+            function() View:PickStrategy(d.occ, d.ref, s.id) end)
+        if radio and radio.SetTooltip then
+            radio:SetTooltip(function(tooltip)
+                tooltip:AddLine(s.n, 1, 0.82, 0)
+                tooltip:AddLine(("By %s, saved %s"):format(shortName(owner), shortDate(s.rev)), 1, 1, 1)
+                tooltip:AddLine(("%d player slots%s"):format(#S():GetSlots(s), pagesText(#s.p)), 1, 1, 1)
+                if s.id == last then tooltip:AddLine("The guild used it for this boss last time.", 0.2, 1, 0.6, true) end
+            end)
+        end
+    end
+end
+
 local function initRaidBossRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
         addHighlight(row)
-        row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.l1:SetPoint("TOPLEFT", 8, -4)
-        row.l1:SetPoint("RIGHT", -170, 0)
-        row.l1:SetJustifyH("LEFT")
-        row.l1:SetWordWrap(false)
-        row.l2 = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.l2:SetPoint("TOPLEFT", 8, -20)
-        row.l2:SetPoint("RIGHT", -170, 0)
-        row.l2:SetJustifyH("LEFT")
-        row.l2:SetWordWrap(false)
         row.assign = UI():CreateButton(row, "Assign", 70, 20, function(self)
             local data = self:GetParent().__cdlData
             if data then Board():OpenRaid(data.occ, data.ref, "fill") end
@@ -622,17 +641,53 @@ local function initRaidBossRow(row, d)
             local data = self:GetParent().__cdlData
             if data then Board():OpenRaid(data.occ, data.ref) end
         end)
+        -- line 1: the boss, and on the right how many of its slots are filled (my jobs in green); line 2: the
+        -- strategy (a dropdown as wide as its name for who arranges the raid, the name for everyone else) and, for
+        -- the arrangers, whether it still has to be picked
+        row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.l1:SetPoint("TOPLEFT", 8, -5)
+        row.l1:SetJustifyH("LEFT")
+        row.l1:SetWordWrap(false)
+        row.stat = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.stat:SetPoint("LEFT", row.l1, "RIGHT", 8, 0)
+        row.stat:SetPoint("RIGHT", row, "TOPRIGHT", -TEXT_END, -11)
+        row.stat:SetJustifyH("RIGHT")
+        row.stat:SetWordWrap(false)
+        row.pick = UI():CreateSleekMenuButton(row, "", PICK_MIN, function(root) pickMenu(row, root) end, 20)
+        row.pick:SetPoint("TOPLEFT", 6, -22)
+        row.pick:HookScript("OnEnter", function(self)
+            local data = row.__cdlData
+            if not (data and data.s) then return end
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine("Strategy for " .. data.name)
+            if data.how == "picked" then
+                GameTooltip:AddLine("Picked for this raid. Pick another to switch: names in the slots both "
+                    .. "strategies have stay.", 1, 1, 1, true)
+            elseif data.how == "last" then
+                GameTooltip:AddLine("Not picked yet: this raid uses the strategy the guild used last time. Pick one "
+                    .. "to keep it.", 1, 1, 1, true)
+            elseif data.how == "first" then
+                GameTooltip:AddLine("Not picked yet: this raid uses the first one by name. Pick one to keep it.",
+                    1, 1, 1, true)
+            else
+                GameTooltip:AddLine("The only strategy for this boss.", 1, 1, 1, true)
+            end
+            GameTooltip:Show()
+        end)
+        row.pick:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        row.l2 = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.l2:SetJustifyH("LEFT")
+        row.l2:SetWordWrap(false)
         row:SetScript("OnClick", function(self)
             local data = self.__cdlData
             if data then Board():OpenRaid(data.occ, data.ref) end
         end)
     end
     local s, fill = d.s, d.fill
-    row.l1:SetText(d.name .. (s and ("  " .. grey(s.n)) or ""))
-    local line
-    if not s then
-        line = grey("No strategy for this boss yet")
-    else
+    local arranger = S():CanAssign(d.occ)
+    row.l1:SetText(d.name)
+    local stat = ""
+    if s then
         local slots = S():GetSlots(s)
         local a = (fill and fill.s == s.id) and fill.a or {}
         local n, mine = 0, 0
@@ -643,17 +698,44 @@ local function initRaidBossRow(row, d)
                 if a[slot.ref] == me then mine = mine + 1 end
             end
         end
-        line = ("%d / %d slots filled"):format(n, #slots)
-        if mine > 0 then line = line .. "  ·  |cff33ff99you have " .. mine .. (mine == 1 and " job" or " jobs") .. "|r" end
-        if fill and fill.by then line = line .. grey("  ·  by " .. shortName(fill.by)) end
-        if Board():FillDraft(d.occ, d.ref) then line = line .. "  ·  |cffff9933unsaved draft|r" end
+        stat = ("%d/%d filled"):format(n, #slots)
+        if mine > 0 then stat = stat .. " · |cff33ff99" .. mine .. (mine == 1 and " job" or " jobs") .. " for you|r" end
     end
-    row.l2:SetText(line)
-    local editor = S():CanAssign()
-    row.assign:SetShown(editor and s ~= nil)
+    row.stat:SetText(stat)
+    row.pick:SetShown(arranger and s ~= nil)
+    row.l2:ClearAllPoints()
+    if arranger and s then
+        -- as wide as the name: its label measured on one anchor (unbounded), then put back between the edges
+        row.pick:SetText(s.n)
+        local fs = row.pick:GetFontString()
+        fs:ClearAllPoints()
+        fs:SetPoint("LEFT", 8, 0)
+        row.pick:SetWidth(min(PICK_MAX, max(PICK_MIN, ceil(fs:GetStringWidth() or 0) + 32)))
+        fs:SetPoint("RIGHT", -20, 0)
+        row.l2:SetPoint("LEFT", row.pick, "RIGHT", 8, 0)
+        -- names typed on the board but not saved, else a boss with several strategies where none was picked
+        row.l2:SetText((Board():FillDraft(d.occ, d.ref) and "|cffff9933unsaved names|r")
+            or ((d.count > 1 and d.how ~= "picked") and "|cffff9933not picked yet|r") or "")
+    else
+        row.l2:SetPoint("TOPLEFT", 8, -27)
+        row.l2:SetText(s and ("|cffffffff" .. s.n .. "|r") or "No strategy for this boss yet")
+    end
+    row.l2:SetPoint("RIGHT", row, "TOPRIGHT", -TEXT_END, -32)
+    row.assign:SetShown(arranger and s ~= nil)
     row.open:ClearAllPoints()
-    if editor and s then row.open:SetPoint("RIGHT", row.assign, "LEFT", -4, 0) else row.open:SetPoint("RIGHT", -6, 0) end
+    if arranger and s then row.open:SetPoint("RIGHT", row.assign, "LEFT", -4, 0) else row.open:SetPoint("RIGHT", -6, 0) end
     row.open:SetShown(s ~= nil or S():CanBuild())
+end
+
+-- The raid picks a strategy for a boss (the row's dropdown).
+function View:PickStrategy(occId, bossRef, stratId)
+    local ok, err = S():PickStrategy(occId, bossRef, stratId)
+    if not ok then
+        ns:Print("Could not pick the strategy: %s", tostring(err))
+        return false
+    end
+    if ns.RaidPlanUI and ns.RaidPlanUI.RefreshUpcoming then ns.RaidPlanUI:RefreshUpcoming() end
+    return true
 end
 
 -- The frame shown in a planned raid's detail (RaidPlanUI adds it as the Assignments tab).
@@ -677,12 +759,16 @@ function View:RefreshRaid(v)
         return
     end
     local bosses = S():GetBosses(v.i)
+    local counts = S():CountByBoss()
     local rows = {}
     for _, b in ipairs(bosses) do
-        local s, fill = S():GetRaidStrategy(v.id, b.ref)
-        rows[#rows + 1] = { occ = v.id, ref = b.ref, name = b.name, s = s, fill = fill }
+        local s, fill, how = S():GetRaidStrategy(v.id, b.ref)
+        rows[#rows + 1] = { occ = v.id, ref = b.ref, name = b.name, s = s, fill = fill, how = how,
+                            count = counts[b.ref] or 0 }
     end
-    assign.hint:SetText(#rows > 0 and "Who does what on each boss. Open a boss to see its board." or "")
+    local hint = "Who does what on each boss. Open a boss to see its board."
+    if S():CanAssign(v.id) then hint = "Pick the strategy for each boss here; Assign puts names in its slots." end
+    assign.hint:SetText(#rows > 0 and hint or "")
     assign.list:SetEmptyText("This raid has no boss list (\"Other\" raids have no strategy boards).")
     assign.list:SetData(rows)
 end

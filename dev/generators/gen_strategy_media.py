@@ -227,10 +227,18 @@ def ic_notes(d, k):
         d.rectangle(_pts(k, [(18, y), (x2, y + 4)]), fill=0)
 
 
+def ic_crown(d, k):
+    # the raid leader: a crown with three points on a band
+    d.polygon(_pts(k, [(6, 18), (20, 32), (32, 10), (44, 32), (58, 18), (52, 48), (12, 48)]), fill=255)
+    d.rectangle(_pts(k, [(12, 52), (52, 58)]), fill=255)
+    for x, y in ((6, 18), (32, 10), (58, 18)):
+        d.ellipse(_pts(k, [(x - 5, y - 5), (x + 5, y + 5)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
-              ic_notes]
+              ic_notes, ic_crown]
 TOOL_ROWS = 8
 
 

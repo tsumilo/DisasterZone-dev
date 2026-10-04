@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Widgets.lua", ...) then return end -- DisasterZone UI/Widgets.lua
 -- ns.UI: shared widget factory (windows, item buttons, scroll lists, dropdowns, menus, tabs) and
--- small colour / tooltip / chat helpers. Native WoW look; every frame is created on demand.
+-- small colour / tooltip / chat helpers. The flat look (see "The flat style" below); every frame is created on demand.
 local addonName, ns = ...
 
 local UI = ns:NewModule("UI")
@@ -627,9 +627,10 @@ end
 -- 1 select, 2 pan, 3 circle, 4 rectangle, 5 arrow, 6 line, 7 pin, 8 text, 9 undo, 10 redo, 11 help, 12 delete,
 -- 13 gear, 14 chevron down, 15 eye (open), 16 pencil (edit), 17 copy, 18 share, 19 invite (player +),
 -- 20 call off (calendar x), 21 dice (games), 22 sparkles (disenchant), 23 bank, 24 three dots (more actions),
--- 25 page with lines (what's new).
+-- 25 page with lines (what's new), 26 crown (raid leader).
 UI.ICON_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
-UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, bank = 23, more = 24, notes = 25 }
+UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, bank = 23, more = 24, notes = 25,
+            crown = 26 }
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / 8, (row + 1) / 8 }
@@ -825,7 +826,7 @@ function UI:CreateColumnHeader(parent, height)
         b.label = fs
         -- a wider title grows around the column's own anchor (a centred one stays centred over its values)
         width = width or 0
-        b:SetSize(math.max(width, (fs:GetStringWidth() or 0) + 2), self:GetHeight())
+        b:SetSize(math.max(width, (fs:GetStringWidth() or 0) + 6), self:GetHeight())
         local ax = (x or 0) + (justify == "CENTER" and width / 2 or (justify == "RIGHT" and width or 0))
         b:SetPoint(justify, self, "LEFT", ax, 0)
         if opts.onClick then b:SetScript("OnClick", function(btn) opts.onClick(btn) end) end
@@ -1453,7 +1454,7 @@ end
 
 ---------------------------------------------------------------------------
 -- Searchable dropdown (DisasterZone extension, ADDENDUM E §30)
--- A SearchBoxTemplate edit box with a list panel below it (ScrollBox, at most ~10 visible rows).
+-- A flat search field with a list panel below it (ScrollBox, at most ~10 visible rows).
 -- Typing filters (case-insensitive substring), Up/Down (or Tab) move the highlight, Enter toggles the
 -- highlighted (top) match, Escape closes. A click outside (GLOBAL_MOUSE_DOWN, as GudaBags does on this
 -- client) also closes it. Each row: checkbox, class icon, class-coloured name, grey note on the right.

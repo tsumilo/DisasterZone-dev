@@ -22,6 +22,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 -- A member's other characters (Guild:SameAccount) answer as one player: a character can be signed up from any of
 -- them (RPA), the newest answer of the player is the one that counts, and a decline covers all of them.
 --
+-- A raid can have its own leader (rl, named by the GM or the guild council; rlb = who named them). That leader runs
+-- the raid: edit, cancel, delete, players and guests, groups, strategy picks and names. A raid with a leader is run by
+-- that leader, the GM and the council only; a raid without one stays with every raid planner (user decision
+-- 2026-10-04). On a weekly raid the series names the leader and a week's override can name another (false: none).
+--
 -- The blacklist (BLL) blocks a player from every raid: no sign-up, no guest seat, no invite. Kept by the roster
 -- managers: the GM, officers, the guild council and the raid leaders.
 --
@@ -180,12 +185,65 @@ local function CanRoster(key)
     return type(key) == "string" and G ~= nil and G.IsOfficer ~= nil and G:IsOfficer(key) and true or false
 end
 
+-- A raid's own leader is named by the GM and the guild council.
+local function CanAssignLeader(key)
+    return CanTeams(key)
+end
+
+local function IsOfficer(key)
+    local G = Guild()
+    return type(key) == "string" and G ~= nil and G.IsOfficer ~= nil and G:IsOfficer(key) and true or false
+end
+
+-- The same player: the same character, or another character of their account (Guild:SameAccount).
+local function SamePlayer(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    if a == b then return true end
+    local G = Guild()
+    return G ~= nil and G.SameAccount ~= nil and G:SameAccount(a, b) and true or false
+end
+
+-- The leader a stored raid record names and who named them: its own (an override's false: none that week), else its
+-- series'. Only a leader named by the GM or the council counts.
+local function RecLeader(root, kind, rec)
+    local rl, rlb = rec.rl, rec.rlb
+    if rl == nil and kind == "E" and rec.sid then
+        local s = root.S[rec.sid]
+        if s then rl, rlb = s.rl, s.rlb end
+    end
+    if type(rl) ~= "string" or not CanAssignLeader(rlb) then return nil end
+    return rl, rlb
+end
+
+-- Was this record written by the raid's own leader?
+local function LeaderWrote(root, kind, rec)
+    local rl = RecLeader(root, kind, rec)
+    return rl ~= nil and SamePlayer(rec.by, rl)
+end
+
+-- May `key` run the raid (a view): edit, cancel, delete, players? Its leader, the GM and the council; a raid without a
+-- leader: the raid planners.
+local function CanManage(v, key)
+    if type(key) ~= "string" or type(v) ~= "table" then return false end
+    if v.rl then return SamePlayer(key, v.rl) or CanAssignLeader(key) end
+    return IsOrganizer(key)
+end
+
+-- May `key` lay out the raid's groups and assign its strategies? The same, plus the council on a raid without a leader.
+local function CanArrange(v, key)
+    if type(key) ~= "string" or type(v) ~= "table" then return false end
+    if v.rl then return CanManage(v, key) end
+    return CanGroups(key)
+end
+
 local ALLOWED = { raids = IsOrganizer, teams = CanTeams, groups = CanGroups, roster = CanRoster }
 local REFUSED = {
     roster = "Only the Guild Master, officers and the raid leaders can do that.",
     raids = "Only the Guild Master and the raid leaders can plan raids.",
     teams = "Only the Guild Master and the guild council can change teams.",
     groups = "Only the Guild Master, the guild council and the raid leaders can change a raid's groups.",
+    led = "Only this raid's leader, the Guild Master and the guild council can change it.",
+    lead = "Only the Guild Master and the guild council choose a raid's leader.",
 }
 
 -- A raid / team shows when its last editor was a raid planner when this version of it arrived, or is one now: a raid
@@ -196,8 +254,9 @@ local function Trusted(root, kind, rec)
     if root.OK and root.OK[k] then return true end
     local ok
     if kind == "T" then ok = CanTeams(rec.by)
-    elseif kind == "E" then ok = IsOrganizer(rec.by) or CanRoster(rec.by)
-    else ok = IsOrganizer(rec.by) or CanGroups(rec.by) end
+    elseif kind == "E" then
+        ok = IsOrganizer(rec.by) or CanRoster(rec.by) or CanGroups(rec.by) or LeaderWrote(root, kind, rec)
+    else ok = IsOrganizer(rec.by) or CanGroups(rec.by) or LeaderWrote(root, kind, rec) end
     if ok then
         if root.OK then root.OK[k] = true end
         return true
@@ -495,6 +554,14 @@ local function CleanRaidFields(out, r, now, partial, minT)
         out.no = CleanText(r.no, MAX_NOTE_LEN)
         if not out.no then return false end
     end
+    -- the raid's own leader and who named them; an override says false for no leader that week
+    if r.rl == false then
+        if not partial then return false end
+        out.rl = false
+    elseif r.rl ~= nil then
+        out.rl, out.rlb = WireKey(r.rl), WireKey(r.rlb)
+        if not (out.rl and out.rlb) then return false end
+    end
     return true
 end
 
@@ -586,6 +653,8 @@ local function MergeRecord(root, kind, rec)
         if kind == "E" and rec.rev == cur.rev and (cur.gu or cur.rj or cur.rm) and not (rec.gu or rec.rj or rec.rm) then
             return false
         end
+        -- nor without the raid's leader (1.3)
+        if rec.rev == cur.rev and cur.rl ~= nil and rec.rl == nil then return false end
     elseif CountTable(store) >= KIND_CAP[kind] then
         ns:Debug("RaidPlan: %s store full, %s dropped", kind, rec.id)
         return false
@@ -619,7 +688,13 @@ end
 -- Occurrences (the resolved view the UI reads)
 ---------------------------------------------------------------------------
 
-local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "inv", "ml" }
+local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "inv", "ml", "rl", "rlb" }
+
+-- The view's leader: a leader named by the GM or the council, else none (rl, rlb = nil).
+local function ViewLeader(v)
+    if type(v.rl) ~= "string" or not CanAssignLeader(v.rlb) then v.rl, v.rlb = nil, nil end
+    return v
+end
 
 local function CopyList(t)
     if type(t) ~= "table" then return nil end
@@ -644,13 +719,13 @@ end
 
 -- The view of a visible one-off event.
 local function ViewEvent(e)
-    return {
+    return ViewLeader({
         id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, ti = e.ti, no = e.no,
         lk = e.lk and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
-        gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm),
+        gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm), rl = e.rl, rlb = e.rlb,
         weekly = false,
-    }
+    })
 end
 
 -- The view of series occurrence k (nil when the series doesn't have it).
@@ -680,7 +755,7 @@ local function ViewOccurrence(root, s, k)
         v.gu, v.rj, v.rm = CopyGuests(o.gu), CopyMap(o.rj), CopyMap(o.rm)
         v.override = true
     end
-    return v
+    return ViewLeader(v)
 end
 
 local function ResolveOcc(root, occId)
@@ -1001,7 +1076,7 @@ function RaidPlan:IsOrganizer(key)
     return IsOrganizer(key)
 end
 
--- May I plan raids (create / edit / cancel / delete)?
+-- May I plan raids (create new ones)? A raid that exists: CanManageRaid.
 function RaidPlan:CanOrganize()
     return IsOrganizer(Util.PlayerKey())
 end
@@ -1011,9 +1086,45 @@ function RaidPlan:CanManageTeams()
     return CanTeams(Util.PlayerKey())
 end
 
--- May I change a raid's group layout?
-function RaidPlan:CanEditGroups()
-    return CanGroups(Util.PlayerKey())
+-- A raid (a view or an id) -> its view, or nil.
+local function AsView(occId)
+    if type(occId) == "table" then return occId end
+    return RaidPlan:GetRaid(occId)
+end
+
+-- May I (or that player) change the raid's group layout? Without a raid: may I lay out groups at all.
+function RaidPlan:CanEditGroups(occId, key)
+    key = key or Util.PlayerKey()
+    if occId == nil then return CanGroups(key) end
+    return CanArrange(AsView(occId), key)
+end
+
+-- The raid's own leader (a view or an id), or nil (then every raid planner runs it).
+function RaidPlan:GetRaidLeader(occId)
+    local v = AsView(occId)
+    return v and v.rl or nil
+end
+
+-- Is that player (default: me), or another character of theirs, the raid's own leader?
+function RaidPlan:IsLeaderOf(occId, key)
+    local rl = self:GetRaidLeader(occId)
+    return rl ~= nil and SamePlayer(key or Util.PlayerKey(), rl)
+end
+
+-- May I (or that player) run the raid: edit, cancel, delete, add players? Its leader, the GM and the guild council; a
+-- raid without a leader: the raid planners.
+function RaidPlan:CanManageRaid(occId, key)
+    return CanManage(AsView(occId), key or Util.PlayerKey())
+end
+
+-- May I (or that player) pick the raid's strategies and assign its players? As CanEditGroups.
+function RaidPlan:CanArrangeRaid(occId, key)
+    return CanArrange(AsView(occId), key or Util.PlayerKey())
+end
+
+-- May I (or that player) name a raid's leader? The GM and the guild council.
+function RaidPlan:CanAssignLeader(key)
+    return CanAssignLeader(key or Util.PlayerKey())
 end
 
 -- Visible teams, sorted by name: { id, name, members = { key, ... }, by, rev }.
@@ -1256,9 +1367,13 @@ function RaidPlan:OnBlacklistRevSeen(sender, blr)
     end
 end
 
--- May I add guests, decline or remove answers, and keep the blacklist?
-function RaidPlan:CanManageRoster()
-    return CanRoster(Util.PlayerKey())
+-- May I keep the guest book and the blacklist? With a raid (a view or an id): may I (or that player) add its guests
+-- and decline or remove its answers: those who run it (CanManageRaid) and the officers.
+function RaidPlan:CanManageRoster(occId, key)
+    key = key or Util.PlayerKey()
+    if occId == nil then return CanRoster(key) end
+    local v = AsView(occId)
+    return v ~= nil and (CanManage(v, key) or IsOfficer(key))
 end
 
 -- May that player (a roster manager: the GM, officers, the raid leaders) do so? (Guest book.)
@@ -1344,7 +1459,8 @@ end
 function RaidPlan:CanSee(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return false end
-    return not LockedOut(v, Util.PlayerKey()) or CanGroups(Util.PlayerKey())
+    local me = Util.PlayerKey()
+    return not LockedOut(v, me) or CanGroups(me) or (v.rl ~= nil and SamePlayer(me, v.rl))
 end
 
 -- A character's level: my own exactly, a guild member's per the guild roster; nil when not known.
@@ -1705,6 +1821,25 @@ local function RequireOrganizer(what)
     return root
 end
 
+local RAID_CHECK = { raids = CanManage, groups = CanArrange,
+                     roster = function(v, key) return CanManage(v, key) or IsOfficer(key) end }
+
+-- A change to one raid: what = "raids" (run it: CanManageRaid), "groups" (CanEditGroups) or "roster"
+-- (CanManageRoster). series = true: the whole weekly series (its own leader decides). Returns root, view or nil, err.
+local function RequireRaid(occId, what, series)
+    local root = Root(true)
+    if not root then return nil, "Your guild is not known yet; try again in a moment." end
+    local v = ResolveOcc(root, occId)
+    if not v then return nil, "unknown raid" end
+    local who = v
+    if series and v.sid then
+        local s = root.S[v.sid]
+        who = ViewLeader({ rl = s.rl, rlb = s.rlb })
+    end
+    if not RAID_CHECK[what](who, Util.PlayerKey()) then return nil, who.rl and REFUSED.led or REFUSED[what] end
+    return root, v
+end
+
 -- Stores my own record (already built) after validating it, and shares it. Returns ok, err.
 local function Commit(root, kind, rec)
     local clean
@@ -1825,16 +1960,29 @@ local function ApplyFields(rec, f, partial)
             if not rec.no then return false, "Notes are at most 120 characters on one line." end
         end
     end
+    -- the raid's leader (I name them: the callers check CanAssignLeader); false: none (an override: none that week)
+    if f.rl ~= nil then
+        if f.rl == false or f.rl == "" then
+            if rec.sid then rec.rl = false else rec.rl = nil end
+            rec.rlb = nil
+        else
+            local key = WireKey(f.rl)
+            if not key then return false, "unknown raid leader" end
+            rec.rl, rec.rlb = key, Util.PlayerKey()
+        end
+    end
     return true
 end
 
 -- fields: { i = instance key, t = start (server time), sz = 10|25 (default: the instance's), tm = { teamId },
 -- lk = bool (locked: only its teams and extra invites sign up), inv = { key } (extra invites), ml = minimum
--- character level (nil / 0 / false: every level), ti = title, no = note, weekly = bool }. Returns ok, occIdOrErr.
+-- character level (nil / 0 / false: every level), ti = title, no = note, rl = the raid's leader (the GM and the
+-- council only), weekly = bool }. Returns ok, occIdOrErr.
 function RaidPlan:CreateRaid(f)
     local root, err = RequireOrganizer()
     if not root then return false, err end
     if type(f) ~= "table" then return false, "invalid raid" end
+    if f.rl and not CanAssignLeader(Util.PlayerKey()) then return false, REFUSED.lead end
     if IsInt(f.t, 0, Now() + MAX_AHEAD) and f.t < Now() - 3600 then return false, "That date is in the past." end
     local rec = { id = NewId(), by = Util.PlayerKey(), rev = NextRev(nil) }
     local ok, e = ApplyFields(rec, f, false)
@@ -1847,13 +1995,25 @@ end
 
 -- scope: "one" (default: this raid only) | "series" (every raid of a weekly series). Moving the time of a series
 -- moves every occurrence by the same amount. fields as CreateRaid (partial) plus x = false to restore a cancelled
--- raid. Returns ok, err.
+-- raid. Who runs the raid edits it (CanManageRaid); naming its leader (rl) is for the GM and the council, on any raid.
+-- Returns ok, err.
 function RaidPlan:EditRaid(occId, f, scope)
-    local root, err = RequireOrganizer()
-    if not root then return false, err end
-    local v = ResolveOcc(root, occId)
-    if not v or type(f) ~= "table" then return false, "unknown raid" end
+    if type(f) ~= "table" then return false, "unknown raid" end
     local me = Util.PlayerKey()
+    if f.rl ~= nil and not CanAssignLeader(me) then return false, REFUSED.lead end
+    local onlyLeader = f.rl ~= nil
+    for k in pairs(f) do
+        if k ~= "rl" then onlyLeader = false end
+    end
+    local root, v
+    if onlyLeader then
+        root = Root(true)
+        v = root and ResolveOcc(root, occId)
+        if not v then return false, "unknown raid" end
+    else
+        root, v = RequireRaid(occId, "raids", scope == "series")
+        if not root then return false, v end
+    end
     if not v.sid then
         local rec = Util.CopyTable(root.E[occId])
         rec.rev, rec.by = NextRev(rec), me
@@ -1885,10 +2045,8 @@ end
 
 -- scope "one" cancels this raid (it stays listed as cancelled); "series" deletes the whole weekly series.
 function RaidPlan:CancelRaid(occId, scope)
-    local root, err = RequireOrganizer()
-    if not root then return false, err end
-    local v = ResolveOcc(root, occId)
-    if not v then return false, "unknown raid" end
+    local root, v = RequireRaid(occId, "raids", scope == "series")
+    if not root then return false, v end
     local me = Util.PlayerKey()
     if v.sid and scope == "series" then
         local s = Util.CopyTable(root.S[v.sid])
@@ -1904,10 +2062,8 @@ end
 -- Deletes a raid for everyone (it disappears, with its sign-ups and group layout). scope "series" on a weekly raid
 -- deletes the whole weekly series; otherwise only this raid (for a weekly raid: this week's). Returns ok, err.
 function RaidPlan:DeleteRaid(occId, scope)
-    local root, err = RequireOrganizer()
-    if not root then return false, err end
-    local v = ResolveOcc(root, occId)
-    if not v then return false, "unknown raid" end
+    local root, v = RequireRaid(occId, "raids", scope == "series")
+    if not root then return false, v end
     if v.sid and scope == "series" then return self:CancelRaid(occId, "series") end
     local ok, e = Commit(root, "E", { id = occId, sid = v.sid, k = v.k, rev = NextRev(root.E[occId]),
                                       by = Util.PlayerKey(), del = true })
@@ -1917,10 +2073,9 @@ end
 
 -- A weekly series ends after this occurrence ("Stop repeating").
 function RaidPlan:StopRepeating(occId)
-    local root, err = RequireOrganizer()
-    if not root then return false, err end
-    local v = ResolveOcc(root, occId)
-    if not v or not v.sid then return false, "not a weekly raid" end
+    local root, v = RequireRaid(occId, "raids", true)
+    if not root then return false, v end
+    if not v.sid then return false, "not a weekly raid" end
     local s = Util.CopyTable(root.S[v.sid])
     s.rev, s.by, s.u = NextRev(s), Util.PlayerKey(), v.k
     return Commit(root, "S", s)
@@ -1928,10 +2083,8 @@ end
 
 -- grp: { [key] = group 1..8 } (nil / empty clears the layout); gs (optional): { [key] = seat 1..5 in the group }.
 function RaidPlan:SetGroups(occId, grp, gs)
-    local root, err = RequireOrganizer("groups")
-    if not root then return false, err end
-    local v = ResolveOcc(root, occId)
-    if not v then return false, "unknown raid" end
+    local root, v = RequireRaid(occId, "groups")
+    if not root then return false, v end
     local clean = CleanGroups(grp or {})
     if clean == false then return false, "invalid group layout" end
     local cur = root.E[occId]
@@ -1949,10 +2102,8 @@ end
 -- Changes the raid's own record (an override for a weekly raid) through fn(o, v) and shares it. fn returns false, err
 -- to refuse. Returns ok, err.
 local function EditOcc(occId, fn)
-    local root, err = RequireOrganizer("roster")
-    if not root then return false, err end
-    local v = ResolveOcc(root, occId)
-    if not v then return false, "unknown raid" end
+    local root, v = RequireRaid(occId, "roster")
+    if not root then return false, v end
     local cur = root.E[occId]
     local o = cur and Util.CopyTable(cur) or { id = occId, sid = v.sid, k = v.k }
     o.rev, o.by = NextRev(cur), Util.PlayerKey()

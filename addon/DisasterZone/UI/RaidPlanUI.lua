@@ -430,7 +430,9 @@ local function cellTooltip(cell)
         if s.n then GameTooltip:AddLine('"' .. s.n .. '"', 1, 0.82, 0, true) end
         for _, line in ipairs(signupLines(s, d.order, d.total)) do GameTooltip:AddLine(line, 0.7, 0.7, 0.7) end
     end
-    if RP():CanManageRoster() then GameTooltip:AddLine("Right-click for options", 0.5, 0.5, 0.5) end
+    if state.selected and RP():CanManageRoster(state.selected) then
+        GameTooltip:AddLine("Right-click for options", 0.5, 0.5, 0.5)
+    end
     local RL = ns.RaidLog
     if ns.Guild and ns.Guild.AmIRaidLogMember and ns.Guild:AmIRaidLogMember() and RL and RL.GetAttendanceText then
         local att = RL:GetAttendanceText(d.key)
@@ -446,7 +448,7 @@ end
 local function rosterMenu(cell)
     local d = cell.cdlCell
     local occ = state.selected
-    if not d or not occ or not RP():CanManageRoster() then return end
+    if not d or not occ or not RP():CanManageRoster(occ) then return end
     local function run(fn, ...)
         local ok, err = fn(RP(), occ, ...)
         if not ok then Print(err or "Could not change the raid.") end
@@ -892,7 +894,7 @@ end
 
 function PlanUI:MoveRaidMember(key, g, target, seat, shown)
     local v = selectedRaid()
-    if not v or not RP():CanEditGroups() then return false end
+    if not v or not RP():CanEditGroups(v) then return false end
     local dr = raidDraft(v)
     local valid = {}
     for _, m in ipairs(raidMembers()) do valid[m.key] = true end
@@ -904,7 +906,7 @@ end
 
 function PlanUI:SwapRaidGroups(a, b)
     local v = selectedRaid()
-    if not v or not RP():CanEditGroups() then return end
+    if not v or not RP():CanEditGroups(v) then return end
     local dr = raidDraft(v)
     swapGroups(dr.grp, a, b)
     dr.dirty = true
@@ -913,7 +915,7 @@ end
 
 function PlanUI:AutoFillRaid()
     local v = selectedRaid()
-    if not v or not RP():CanEditGroups() then return end
+    if not v or not RP():CanEditGroups(v) then return end
     local accepted = {}
     for _, m in ipairs(RP():GetLayoutMembers(v)) do
         if m.st == "A" then accepted[#accepted + 1] = m end
@@ -926,7 +928,7 @@ end
 -- Back to the starting layout (the teams' layouts adjusted to who accepted).
 function PlanUI:ResetRaidLayout()
     local v = selectedRaid()
-    if not v or not RP():CanEditGroups() then return end
+    if not v or not RP():CanEditGroups(v) then return end
     local dr = raidDraft(v)
     local grp, seats = RP():BuildLayout(v)
     dr.grp, dr.gs, dr.dirty = grp, seats or {}, true
@@ -962,7 +964,7 @@ function PlanUI:InviteRaid()
         Print("Nobody is in a group yet. Place players in groups first (or use Auto-fill).")
         return false
     end
-    if RP():CanEditGroups() and (dr.dirty or not dr.saved) and not self:SaveRaidLayout() then return false end
+    if RP():CanEditGroups(v) and (dr.dirty or not dr.saved) and not self:SaveRaidLayout() then return false end
     -- the groups are who has a spot: only they are invited; who accepted without a group is named
     local ok, err = ns.RaidInvite:Start(v.id, dr.grp, raidTitle(v))
     if not ok then
@@ -1079,7 +1081,10 @@ local function createRaidGroups(d)
             local v = selectedRaid()
             return v and raidDraft(v).gs or {}
         end,
-        isEditable = function() return RP():CanEditGroups() end,
+        isEditable = function()
+            local v = selectedRaid()
+            return v ~= nil and RP():CanEditGroups(v)
+        end,
         onDrop = function(key, grp, target, seat, shown)
             PlanUI:MoveRaidMember(key, grp, target, seat, shown)
             PlanUI:RequestRefresh()
@@ -1108,7 +1113,7 @@ end
 
 local function refreshGroups(v)
     local g = upcoming.detail.groups
-    local organizer = RP():CanEditGroups()
+    local organizer = RP():CanEditGroups(v)
     local dr = raidDraft(v)
     local lead = leadsGroup()
     for _, b in ipairs({ g.autoBtn, g.teamBtn, g.undoBtn, g.saveBtn }) do b:SetShown(organizer) end
@@ -1248,6 +1253,12 @@ function PlanUI:CreateUpcoming(parent)
         if state.selected then PlanUI:OpenInvites(state.selected) end
     end)
     d.inviteBtn:SetPoint("RIGHT", d.editBtn, "LEFT", -3, 0)
+    d.leaderBtn = UI():CreateTipIconButton(d, ACT, UI().ICON.crown, "Raid leader", "Choose who leads this raid. "
+        .. "They run it with the Guild Master and the guild council: edit it, add players, lay out the groups and "
+        .. "pick the strategies.", function()
+        if state.selected then PlanUI:OpenLeader(state.selected) end
+    end)
+    d.leaderBtn:SetPoint("RIGHT", d.inviteBtn, "LEFT", -3, 0)
 
     -- Sign-up strip, flat: row 1 my answer (one joined control) and why I can't answer or when I did; row 2 my spec,
     -- the character I answer as and my note
@@ -1352,16 +1363,30 @@ local function refreshDetail(v)
     d.tabGroups:SetActive(groupsTab)
     d.tabAssign:SetActive(assignTab)
     d.empty:SetShown(not has)
-    local organizer = RP():CanOrganize()
-    d.editBtn:SetShown(has and organizer)
-    d.cancelBtn:SetShown(has and organizer)
-    d.inviteBtn:SetShown(has and (organizer or RP():CanManageRoster()))
+    -- who runs this raid: its own leader, the GM and the council (a raid without a leader: the raid planners)
+    local organizer = has and RP():CanManageRaid(v)
+    d.editBtn:SetShown(organizer)
+    d.cancelBtn:SetShown(organizer)
+    d.inviteBtn:SetShown(organizer or (has and RP():CanManageRoster(v)))
+    d.leaderBtn:SetShown(has and RP():CanAssignLeader())
+    -- the shown icons sit right to left without gaps; the title ends where they start
+    local prev, n = nil, 0
+    for _, b in ipairs({ d.cancelBtn, d.editBtn, d.inviteBtn, d.leaderBtn }) do
+        if b:IsShown() then
+            b:ClearAllPoints()
+            if prev then b:SetPoint("RIGHT", prev, "LEFT", -3, 0) else b:SetPoint("TOPRIGHT", -2, 0) end
+            prev, n = b, n + 1
+        end
+    end
+    d.title:SetPoint("RIGHT", -(n * 27 + 6), 0)
     if not has then return end
 
     d.title:SetText(raidTitle(v) .. (v.cancelled and "  |cffff5555CANCELLED|r" or ""))
     local sub = ("%s · %s · %s"):format(date("%A %d %B", v.t), fmtTime(v.t), teamNames(v))
     if v.weekly then sub = sub .. grey(" · weekly") end
-    if v.by then sub = sub .. grey(" · by " .. shortName(v.by)) end
+    -- the raid's own leader says more than who planned it
+    if v.rl then sub = sub .. " · led by " .. colored(v.rl)
+    elseif v.by then sub = sub .. grey(" · by " .. shortName(v.by)) end
     d.sub:SetText(sub)
     d.note:SetText(v.no or "")
     if groupsTab then
@@ -2220,7 +2245,10 @@ end
 
 -- occId = nil: a new raid.
 function PlanUI:OpenEditor(occId)
-    if not RP():CanOrganize() then
+    if occId and RP():GetRaid(occId) and not RP():CanManageRaid(occId) then
+        Print("Only this raid's leader, the Guild Master and the guild council can change it.")
+        return
+    elseif not occId and not RP():CanOrganize() then
         Print("Only the Guild Master and the raid leaders can plan raids.")
         return
     end
@@ -2265,6 +2293,145 @@ function PlanUI:OpenEditor(occId)
 end
 
 function PlanUI:GetEditor() return editor end
+
+---------------------------------------------------------------------------
+-- Raid leader window (the GM and the guild council): who leads one raid. That leader runs it with the GM and the
+-- council; without one, every raid leader on the list does. A weekly raid: this week only, or every week.
+---------------------------------------------------------------------------
+
+local leaderWin
+
+-- The guild members, the raid leaders list first, then the guild council, then everyone else.
+local function leaderItems()
+    local g = ns.Guild
+    local lists = { {}, {}, {} }
+    for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
+        local listed = g.IsListedRaidLeader and g:IsListedRaidLeader(key)
+        local council = not listed and g.IsGuildCouncil and g:IsGuildCouncil(key)
+        local e = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
+                    dim = not g:IsOnline(key) }
+        local list = listed and lists[1] or (council and lists[2]) or lists[3]
+        list[#list + 1] = e
+    end
+    local out = {}
+    for i, title in ipairs({ "Raid leaders", "Guild council", "Everyone else" }) do
+        tsort(lists[i], function(a, b) return a.text:lower() < b.text:lower() end)
+        if #lists[i] > 0 then out[#out + 1] = { header = title } end
+        for _, e in ipairs(lists[i]) do out[#out + 1] = e end
+    end
+    return out
+end
+
+local function refreshLeaderPick()
+    local w = leaderWin
+    w.pickText:SetText(w.pick and (colored(w.pick) .. " leads this raid.")
+        or grey("No raid leader: every raid leader on the list runs it."))
+    w.noneBtn:SetEnabled(w.pick ~= false)
+    if w.picker.RefreshRows then w.picker:RefreshRows() end
+end
+
+local function leaderSave(scope)
+    local w = leaderWin
+    local ok, err = RP():EditRaid(w.occ, { rl = w.pick or false }, scope)
+    if not ok then
+        w.err:SetText(err or "Could not change the raid leader.")
+        return false
+    end
+    w:Hide()
+    return true
+end
+
+local function createLeader()
+    local w = UI():CreateWindow("DisasterZoneRaidLeader", "Raid leader", 380, 220)
+    leaderWin = w
+    local c = w.content
+    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    w.info:SetPoint("TOPLEFT", 12, -10)
+    w.info:SetPoint("RIGHT", -12, 0)
+    w.info:SetJustifyH("LEFT")
+    w.info:SetWordWrap(false)
+    w.help = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    w.help:SetPoint("TOPLEFT", 12, -30)
+    w.help:SetPoint("RIGHT", -12, 0)
+    w.help:SetJustifyH("LEFT")
+    w.help:SetText("The raid leader runs this raid with the Guild Master and the guild council: they edit it, add "
+        .. "players, lay out the groups and pick the strategies. The other raid leaders don't.")
+    row(c, "Leader", -82)
+    w.picker = UI():CreateSearchDropdown(c, 190, {
+        placeholder = "Find a guild member...",
+        emptyText = "No matching guild members.",
+        getItems = leaderItems,
+        isChecked = function(key) return w.pick == key end,
+        onToggle = function(key)
+            w.pick = (w.pick ~= key) and key or false
+            w.err:SetText("")
+            refreshLeaderPick()
+            if w.picker.Close then w.picker:Close() end
+        end,
+    })
+    w.picker.frame:SetPoint("TOPLEFT", 80, -76)
+    w.noneBtn = UI():CreateSleekButton(c, "No leader", 76, 22, function()
+        w.pick = false
+        w.err:SetText("")
+        refreshLeaderPick()
+    end)
+    w.noneBtn:SetPoint("LEFT", w.picker.frame, "RIGHT", 6, 0)
+    w.pickText = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    w.pickText:SetPoint("TOPLEFT", 82, -106)
+    w.pickText:SetPoint("RIGHT", -12, 0)
+    w.pickText:SetJustifyH("LEFT")
+    w.pickText:SetWordWrap(false)
+
+    w.err = c:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
+    w.err:SetPoint("BOTTOMLEFT", 12, 40)
+    w.err:SetPoint("RIGHT", -12, 0)
+    w.err:SetJustifyH("LEFT")
+    w.saveBtn = UI():CreateSleekButton(c, "Save", 110, 22, function() leaderSave("one") end, "primary")
+    w.saveBtn:SetPoint("BOTTOMRIGHT", -10, 10)
+    w.saveAllBtn = UI():CreateSleekButton(c, "Every week", 100, 22, function() leaderSave("series") end)
+    w.saveAllBtn:SetPoint("RIGHT", w.saveBtn, "LEFT", -6, 0)
+    w.closeBtn = UI():CreateSleekButton(c, "Close", 70, 22, function() w:Hide() end)
+    w.closeBtn:SetPoint("BOTTOMLEFT", 10, 10)
+    w:Hide()
+    return w
+end
+
+-- Opens the Raid leader window of a raid (the GM and the guild council).
+function PlanUI:OpenLeader(occId)
+    local v = occId and RP():GetRaid(occId)
+    if not v then return false end
+    if not RP():CanAssignLeader() then
+        Print("Only the Guild Master and the guild council choose a raid's leader.")
+        return false
+    end
+    if not leaderWin then createLeader() end
+    local w = leaderWin
+    w.occ, w.pick = v.id, v.rl or false
+    w.err:SetText("")
+    w.info:SetText(raidTitle(v) .. "  " .. grey(fmtDay(v.t) .. " " .. fmtTime(v.t)))
+    w.saveBtn:SetText(v.weekly and "This week only" or "Save")
+    w.saveAllBtn:SetShown(v.weekly)
+    if w.picker.Close then w.picker:Close() end
+    refreshLeaderPick()
+    w:Show()
+    w:Raise()
+    return true
+end
+
+function PlanUI:GetLeaderWindow() return leaderWin end
+
+-- The pick in the Raid leader window (key, or false: no leader), then Save ("one") / Every week ("series").
+function PlanUI:PickLeader(key)
+    if not leaderWin or not leaderWin:IsShown() then return false end
+    leaderWin.pick = key or false
+    refreshLeaderPick()
+    return true
+end
+
+function PlanUI:SaveLeader(scope)
+    if not leaderWin or not leaderWin:IsShown() then return false end
+    return leaderSave(scope == "series" and "series" or "one")
+end
 
 ---------------------------------------------------------------------------
 -- Add players window: the guild members invited on top of a raid's teams (raid planners), and its guests, players
@@ -2336,7 +2503,7 @@ local function initInviteRow(row, d)
     end
     row.fs:SetText(UI():ColoredName(d.key, d.c))
     row.note:SetText(d.note or "")
-    row.remove:SetShown(d.guest or RP():CanOrganize())
+    row.remove:SetShown(d.guest or (inviteWin ~= nil and inviteWin.occ ~= nil and RP():CanManageRaid(inviteWin.occ)))
 end
 
 -- One input row at a time: the "Guild member" tab shows the member search, the "Guest" tab the guest's name, class
@@ -2424,21 +2591,23 @@ local function createInvites()
     return w
 end
 
-local function canAddPlayers()
-    return RP():CanOrganize() or RP():CanManageRoster()
+-- Who runs the raid invites guild members (and adds guests); officers add guests.
+local function canAddPlayers(occId)
+    return RP():CanManageRaid(occId) or RP():CanManageRoster(occId)
 end
 
--- Opens the Add players window of a raid: invites for raid planners, guests for roster managers.
+-- Opens the Add players window of a raid: invites for who runs it, guests for them and the officers.
 function PlanUI:OpenInvites(occId)
-    if not canAddPlayers() then
-        Print("Only the Guild Master, officers, the guild council and the raid leaders can add players to a raid.")
+    if not RP():GetRaid(occId) then return false end
+    if not canAddPlayers(occId) then
+        Print(RP():GetRaidLeader(occId) and "Only this raid's leader, the Guild Master, the guild council and officers can add players to it."
+            or "Only the Guild Master, officers and the raid leaders can add players to a raid.")
         return false
     end
-    if not RP():GetRaid(occId) then return false end
     if not inviteWin then createInvites() end
     inviteWin.occ = occId
     inviteWin.err:SetText("")
-    inviteWin.mode = RP():CanOrganize() and "member" or "guest"
+    inviteWin.mode = RP():CanManageRaid(occId) and "member" or "guest"
     inviteWin:Show()
     inviteWin:Raise()
     self:RefreshInvites()
@@ -2577,11 +2746,11 @@ end
 function PlanUI:RefreshInvites()
     if not inviteWin or not inviteWin:IsShown() then return end
     local v = inviteRaid()
-    if not v or not canAddPlayers() then
+    if not v or not canAddPlayers(v) then
         inviteWin:Hide()
         return
     end
-    local planner, manager = RP():CanOrganize(), RP():CanManageRoster()
+    local planner, manager = RP():CanManageRaid(v), RP():CanManageRoster(v)
     local w = inviteWin
     w.info:SetText(raidTitle(v) .. "  " .. grey(fmtDay(v.t) .. " " .. fmtTime(v.t)))
     -- the tabs only when there is a choice

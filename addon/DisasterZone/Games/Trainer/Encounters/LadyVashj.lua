@@ -43,12 +43,33 @@ local FX = { coreMissile = 166648, coreImpact = 166602, coreSound = 4475, barrie
              boltMissile = 166254, boltImpact = 165738, boltSound = 3134 }
 local RAID_DISPLAYS = { 22931, 22924, 23714, 22752, 22952, 22973, 22953 }
 local RAID_ACTS = { "melee", "melee", "melee", "bow", "caster", "caster", "caster" }
+-- Each creature's size and where its name plate and spell effects go, from the game's data (wago.tools, build
+-- 2.5.6.69795): CreatureDisplayInfo.CreatureModelScale (the server adds none: AzerothCore's creature_template_model
+-- has DisplayScale 1 for all of them) and the model file's attachment points in model units (M2: Chest 34, Head 20,
+-- SpellLeftHand 21, PlayerName 18). The client's ModelScene draws every display at scale 1; the view scales it.
+local DISPLAYS = {
+    [DISPLAY_VASHJ] = { scale = 3.5, chest = 1.74, head = 2.33, hand = 1.81, name = 2.77 },       -- model 2535
+    [DISPLAY_TAINTED] = { scale = 2, chest = 1.42, head = 2.92, hand = 0.56, name = 3.19 },       -- model 110
+    [DISPLAY_ENCHANTED] = { scale = 2, chest = 1.42, head = 2.92, hand = 0.56, name = 3.19 },     -- model 110
+}
+for _, d in ipairs(RAID_DISPLAYS) do                  -- the raid's stand-ins: models 2208 (22973: 2209), scale 1
+    DISPLAYS[d] = (d == 22973) and { scale = 1, chest = 1.35, head = 2.04, hand = 0.93, name = 2.08 }
+        or { scale = 1, chest = 1.50, head = 2.19, hand = 1.03, name = 2.22 }
+end
+-- A name plate's height: 0.4 yd over the PlayerName point (where the raid's plates, at 2.6 yd, always were).
+local function PlateOf(display)
+    local d = DISPLAYS[display]
+    return d.name * d.scale + 0.4
+end
 
 -- world (x north, y west) -> arena (x east, y north), Vashj in the middle
 local function W(wx, wy) return -wy - 923.27 + CX, wx - 29.83 + CY end
 
 local GENERATORS = { { W(52.048, -901.236) }, { W(52.448, -944.825) }, { W(7.81, -945.244) }, { W(7.417, -901.109) } }
 local GENERATOR_FILE, GENERATOR_SCALE, GENERATOR_Z = 191730, 2.1, 44 - 42.9
+-- coilfang_floor_light.m2's own bounding box (its M2 header; model units): the origin is mid-height and the pedestal
+-- ends 1.354 under it, 2.84 yd at scale 2.1 - just under the ring's floor. For the view's occlusion (UI.lua).
+local GENERATOR_BOX = { -0.805, -1.430, -1.354, 1.088, 1.443, 2.138 }
 local EDGES = {
     { W(105.067, -872.941) }, { W(84.7428, -853.508) }, { W(64.3357, -841.26) }, { W(40.8769, -834.864) },
     { W(17.0779, -835.124) }, { W(-2.90954, -840.206) }, { W(-50.9143, -880.622) }, { W(-57.86, -905.553) },
@@ -122,7 +143,7 @@ local function Throw(sim, from, to)
     sim:Sound(FX.coreSound)
     sim:Fx({ kind = "beam", x = from.x, y = from.y, x2 = to.x, y2 = to.y, color = { 0.4, 1, 0.5 } }, 0.3)
     sim:Missile(FX.coreMissile, from.x, from.y, to, 30, function(s, u)
-        s:Fx({ kind = "model", fdid = FX.coreImpact, unit = u, z = 1.5 }, 0.8)
+        s:Fx({ kind = "model", fdid = FX.coreImpact, unit = u, attach = "hand" }, 0.8)
         s.core.flying = nil
         GiveCore(s, u)
     end)
@@ -191,7 +212,7 @@ local function StartCore(sim)
     core.elemental = sim:Spawn({ kind = "tainted", name = "Tainted Elemental", x = ex, y = ey, targetable = true,
                                  facing = math.atan2(CY - ey, CX - ex), hp = 100, hpMax = 100, hpPercent = true,
                                  radius = 2, color = { 0.3, 0.9, 0.4 }, display = DISPLAY_TAINTED, level = 71,
-                                 elite = true, mana = false, plate = 4.5 })
+                                 elite = true, mana = false, plate = PlateOf(DISPLAY_TAINTED) })
     core.nextBolt = sim.time + 1
     -- the simulated links of this chain; the one you play is missing
     for _, u in ipairs(sim.units) do
@@ -239,13 +260,14 @@ end
 local function Start(sim)
     sim.stats.times, sim.stats.down = {}, 0
     sim.boss = sim:Spawn({ kind = "boss", name = "Lady Vashj", x = CX, y = CY, facing = -pi / 2, radius = 3,
-                           color = { 0.55, 0.1, 0.5 }, display = DISPLAY_VASHJ, level = -1, plate = 9 })
-    sim:Fx({ kind = "model", fdid = FX.barrier, unit = sim.boss, z = 3 }, 100000)
+                           color = { 0.55, 0.1, 0.5 }, display = DISPLAY_VASHJ, level = -1,
+                           plate = PlateOf(DISPLAY_VASHJ) })
+    sim:Fx({ kind = "model", fdid = FX.barrier, unit = sim.boss, attach = "chest" }, 100000)
     sim.generators = {}
     for i, g in ipairs(GENERATORS) do
         local u = sim:Spawn({ kind = "generator", name = "Shield Generator", x = g[1], y = g[2], radius = 1.5,
                               color = { 0.3, 0.9, 1 }, active = true, tall = 6,
-                              fdid = GENERATOR_FILE, scale = GENERATOR_SCALE, z = GENERATOR_Z })
+                              fdid = GENERATOR_FILE, scale = GENERATOR_SCALE, z = GENERATOR_Z, box = GENERATOR_BOX })
         u.interact = function(s, gen)
             if s.core and s.core.holder == s.player then
                 UseOnGenerator(s, s.player, gen)
@@ -330,7 +352,8 @@ local function Update(sim, dt)
             local a = sim:Random() * 2 * pi
             sim:Spawn({ kind = "enchanted", name = "Enchanted Elemental", x = e[1] + math.cos(a) * 4, y = e[2] + math.sin(a) * 4,
                         display = DISPLAY_ENCHANTED, speed = ELEMENTAL_WALK, radius = 1, color = { 0.4, 0.6, 1 },
-                        goal = { x = CX, y = CY, stop = 6 }, dieAt = 42 + sim:Random() * 22 })
+                        tall = PlateOf(DISPLAY_ENCHANTED), goal = { x = CX, y = CY, stop = 6 },
+                        dieAt = 42 + sim:Random() * 22 })
         end
     end
     for _, u in ipairs(sim.units) do
@@ -352,7 +375,7 @@ local function Update(sim, dt)
             local raiders = sim:Alive("raider")
             local target = (#raiders > 0 and sim:Random(1, 3) > 1) and raiders[sim:Random(1, #raiders)] or p
             sim:Missile(FX.boltMissile, e.x, e.y, target, 40, function(s, u)
-                s:Fx({ kind = "model", fdid = FX.boltImpact, unit = u, z = 1.5 }, 0.8)
+                s:Fx({ kind = "model", fdid = FX.boltImpact, unit = u, attach = "chest" }, 0.8)
                 s:Sound(FX.boltSound)
             end)
         end
@@ -363,7 +386,7 @@ local function Update(sim, dt)
             core.corpse = sim:Spawn({ kind = "core", name = "Tainted Core", x = e.x, y = e.y, radius = 1.2,
                                       color = { 0.4, 1, 0.5 }, tall = 2.5, icon = CORE_ICON })
             core.corpse.interact = function(s) LootCore(s, s.player) end
-            sim:Fx({ kind = "model", fdid = FX.coreImpact, unit = core.corpse, z = 1 }, LOOT_DESPAWN)   -- it glows where it lies
+            sim:Fx({ kind = "model", fdid = FX.coreImpact, unit = core.corpse, z = 0.5 }, LOOT_DESPAWN)  -- it glows where it lies
             if core.looter then core.looter.goal = { x = e.x, y = e.y, stop = 2.5 } end
             sim:Banner("The Tainted Elemental is dead: loot the core!", 2.5, 0.4, 1, 0.5)
         end
@@ -433,6 +456,7 @@ T:RegisterEncounter("vashj", {
     desc = "Phase 2: bring the Tainted Cores to the Shield Generators. You are one link of the chain.",
     icon = CORE_ICON,
     order = 20,
+    displays = DISPLAYS,
     arena = { w = SIZE, h = SIZE, minimap = MINIMAP,
               height = T.HeightFn(floorGrid), walkable = T.WalkableFn(floorGrid), mesh = floorGrid and floorGrid.mesh,
               ground = T.GroundFn(floorGrid and floorGrid.walk) },

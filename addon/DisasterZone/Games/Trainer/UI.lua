@@ -177,6 +177,31 @@ local function FeetZ(u)
     return sim:FeetZ(u)
 end
 
+-- A unit's size: its own scale, else its display's (the encounter's def.displays: CreatureDisplayInfo's
+-- CreatureModelScale). The client draws a ModelScene actor at scale 1 whatever its display says, so it is set here.
+local function DisplayOf(u)
+    local t = u.display and sim.enc.displays
+    return t and t[u.display]
+end
+local function UnitScale(u)
+    if u.scale then return u.scale end
+    local d = DisplayOf(u)
+    return d and d.scale or 1
+end
+
+-- How high over a unit's feet a spell effect on it sits (yards): at the model's attachment point fx.attach
+-- ("chest", "head", "hand" - the left, where spells are held - or "base"), from def.displays, else a humanoid's
+-- (a Blood Elf's, model 2208: 1.50, 2.19, 1.03); or fx.z (yards on a model of scale 1). Both grow with the unit.
+local ATTACH = { base = 0, chest = 1.5, head = 2.19, hand = 1.03 }
+local CHEST = { attach = "chest" }
+local function AttachZ(u, fx)
+    if fx.attach then
+        local d = DisplayOf(u)
+        return ((d and d[fx.attach]) or ATTACH[fx.attach] or 0) * UnitScale(u)
+    end
+    return (fx.z or 0) * UnitScale(u)
+end
+
 -- Scene point -> UI units from the scene's bottom-left corner; nil when it is behind the camera.
 local function Project(x, y, z)
     y = SY(y)
@@ -329,7 +354,7 @@ local function DrawActors()
             if a then
                 seen[u.id] = true
                 -- (an actor's position is multiplied by its scale: divide it out)
-                local scale = u.scale or 1
+                local scale = UnitScale(u)
                 if a.scale ~= scale then
                     a.scale = scale
                     pcall(a.SetScale, a, scale)
@@ -619,7 +644,8 @@ local function ReleaseFxActor(fx)
     table.insert(fxPool[a.fdid], a)
 end
 
--- The spells' own effect models: an actor per running effect, on its unit or flying to it.
+-- The spells' own effect models: an actor per running effect, on its unit or flying to it. One on a unit sits at its
+-- attachment point and is as much bigger as the unit (attached models take their unit's scale in the client).
 local function DrawFxActors()
     local seen = {}
     for _, fx in ipairs(sim.fx) do
@@ -640,20 +666,24 @@ local function DrawFxActors()
             if a then
                 seen[fx] = true
                 local u = fx.unit
-                local x, y, z, yaw = fx.x, fx.y, fx.z or 0, 0
+                local x, y, z, yaw, s = fx.x, fx.y, fx.z or 0, 0, 1
                 if fx.kind == "missile" then
-                    -- (from chest high where it was cast to chest high on its target, wherever that stands)
+                    -- (from chest high where it was cast to its target's chest, wherever that stands)
                     local k = min(1, (sim.time - fx.at) / fx.dur)
                     yaw = math.atan2(u.y - fx.y, u.x - fx.x)
                     x, y = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k
-                    local z0 = GroundZ(fx.x, fx.y)
-                    z = z0 + (FeetZ(u) - z0) * k + 1.5
+                    local z0 = GroundZ(fx.x, fx.y) + ATTACH.chest
+                    z = z0 + (FeetZ(u) + AttachZ(u, CHEST) - z0) * k
                 elseif u then
-                    x, y, z = u.x, u.y, FeetZ(u) + z
+                    x, y, z, s = u.x, u.y, FeetZ(u) + AttachZ(u, fx), UnitScale(u)
                 else
                     z = GroundZ(x, y) + z
                 end
-                pcall(a.SetPosition, a, x, SY(y), z)
+                if a.scale ~= s then
+                    a.scale = s
+                    pcall(a.SetScale, a, s)
+                end
+                pcall(a.SetPosition, a, x / s, SY(y) / s, z / s)          -- (multiplied by the actor's scale)
                 pcall(a.SetYaw, a, cam.mirror * yaw)
                 pcall(a.SetShown, a, not a.bad and not (u and u.dead and fx.kind ~= "missile"))
             end
@@ -670,7 +700,9 @@ end
 -- an effect on a unit raises its top, a flying missile is a record of its own. Records are reused.
 -- A model whose origin is not at its feet (a Shield Generator's is mid-height, its pedestal ends 2.8 yd lower) is
 -- recorded from where its box ends, no lower than the floor under it: the copies keep only what lies higher than an
--- occluder's feet, so feet recorded too high would let every step in front of it draw under it.
+-- occluder's feet, so feet recorded too high would let every step in front of it draw under it. Besides what the
+-- client reports (GetActiveBoundingBox), a unit may carry its model's own box (u.box: min x, y, z, max x, y, z in
+-- model units, from the model file) for a model the client may report no box for.
 local occList, occBox = {}, {}
 local function Occ(n)
     local o = occList[n]
@@ -692,6 +724,17 @@ local function BuildOccluders()
             o.h, o.w = h, max(1.2, min(2 * (u.radius or 0.6), 0.6 * h))
             o.prio = (u == sim.player) and 2 or 1
             local bb = a.key and occBox[a.key]
+            local ub = a.key and u.box
+            if ub then
+                local s = UnitScale(u)
+                if not bb then
+                    bb = { 0, 0, 0 }
+                    occBox[a.key] = bb
+                end
+                bb[1] = max(bb[1], math.abs(ub[1]) * s, math.abs(ub[2]) * s, math.abs(ub[4]) * s, math.abs(ub[5]) * s)
+                bb[2] = max(bb[2], ub[6] * s)
+                bb[3] = min(bb[3], ub[3] * s)
+            end
             if a.key and a.GetActiveBoundingBox then
                 local ok, x0, y0, z0, x1, y1, z1 = pcall(a.GetActiveBoundingBox, a)
                 if ok and type(x0) == "table" and type(y0) == "table" and x0.GetXYZ then   -- documented form: two vectors
@@ -701,7 +744,7 @@ local function BuildOccluders()
                 end
                 if ok and type(z1) == "number" and type(x0) == "number" and type(y0) == "number"
                     and type(x1) == "number" and type(y1) == "number" then
-                    local s = u.scale or 1
+                    local s = UnitScale(u)
                     local rb = max(math.abs(x0), math.abs(x1), math.abs(y0), math.abs(y1)) * s
                     if not bb then
                         bb = { 0, 0, 0 }
@@ -712,7 +755,7 @@ local function BuildOccluders()
                     if type(z0) == "number" and z0 * s < bb[3] then bb[3] = z0 * s end
                 end
             end
-            o.rb, o.top = bb and bb[1] or 0, bb and bb[2] or 0
+            o.rb, o.top, o.feet = bb and bb[1] or 0, bb and bb[2] or 0, o.z
             if bb and bb[3] < 0 then
                 local ground = sim.enc.arena.ground
                 local under = ground and ground(u.x, u.y, o.z) or GroundZ(u.x, u.y)
@@ -730,8 +773,8 @@ local function BuildOccluders()
             if fx.kind == "missile" and u then
                 local k = min(1, (sim.time - fx.at) / fx.dur)
                 local x, y = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k
-                local z0 = GroundZ(fx.x, fx.y)
-                local z = z0 + (FeetZ(u) - z0) * k + 1.5                    -- (as DrawFxActors)
+                local z0 = GroundZ(fx.x, fx.y) + ATTACH.chest
+                local z = z0 + (FeetZ(u) + AttachZ(u, CHEST) - z0) * k     -- (as DrawFxActors)
                 n = n + 1
                 local o = Occ(n)
                 o.id, o.x, o.y, o.z, o.h, o.w = fx, x, y, z - 0.6, 1.2, 1.0
@@ -740,7 +783,7 @@ local function BuildOccluders()
                 for i = 1, n do
                     local o = occList[i]
                     if o.unit == u then
-                        o.top = max(o.top, (fx.z or 0) + 1.5)
+                        o.top = max(o.top, o.feet - o.z + AttachZ(u, fx) + 1.5 * UnitScale(u))
                         break
                     end
                 end

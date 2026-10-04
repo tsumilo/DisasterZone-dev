@@ -70,6 +70,25 @@ local RAID = {
     { 33, 42.5, 22973, "caster" }, { 38, 48, 22752, "bow" }, { 36, 44.5, 22953, "caster" }, { 31, 41, 22952, "caster" },
 }
 
+-- Each creature's size and where its name plate and spell effects go, from the game's data (wago.tools, build
+-- 2.5.6.69795): CreatureDisplayInfo.CreatureModelScale (the server adds none: AzerothCore's creature_template_model
+-- has DisplayScale 1 for all of them) and the model file's attachment points in model units (M2: Chest 34, Head 20,
+-- SpellLeftHand 21, PlayerName 18). The client's ModelScene draws every display at scale 1; the view scales it.
+local DISPLAYS = {
+    [DISPLAY_TERON] = { scale = 2.5, chest = 1.79, head = 2.54, name = 2.45 },                    -- model 51
+    [DISPLAY_SPIRIT] = { scale = 1.5, chest = 1.89, head = 3.04, hand = 0.97, name = 3.39 },     -- model 9
+    [DISPLAY_CONSTRUCT] = { scale = 1.75, chest = 1.11, head = 1.83, hand = 0.72, name = 2.29 },  -- model 1771
+}
+for _, r in ipairs(RAID) do                            -- the raid's stand-ins: models 2208 (22973: 2209), scale 1
+    DISPLAYS[r[3]] = (r[3] == 22973) and { scale = 1, chest = 1.35, head = 2.04, hand = 0.93, name = 2.08 }
+        or { scale = 1, chest = 1.50, head = 2.19, hand = 1.03, name = 2.22 }
+end
+-- A name plate's height: 0.4 yd over the PlayerName point (where the raiders' plates, at 2.6 yd, always were).
+local function PlateOf(display)
+    local d = DISPLAYS[display]
+    return d.name * d.scale + 0.4
+end
+
 local function SpellIcon(spellID, fallback)
     return (GetSpellTexture and GetSpellTexture(spellID)) or ("Interface\\Icons\\" .. fallback)
 end
@@ -89,7 +108,7 @@ local abilities = {
       usable = IsGhost,
       use = function(sim)
           sim.stats.strikes = (sim.stats.strikes or 0) + 1
-          sim:Fx({ kind = "model", fdid = FX.strikeImpact, unit = sim.boss, z = 2.5 }, 0.8)
+          sim:Fx({ kind = "model", fdid = FX.strikeImpact, unit = sim.boss, attach = "chest" }, 0.8)
           sim:Sound(FX.strikeSound)
       end,
       check = function(sim)
@@ -108,7 +127,7 @@ local abilities = {
               s:Damage(u, s:Random(6175, 6825))
               s:AddAura(u, "lance", { dur = 9, slow = 0.3, maxStacks = 3, fade = 3, name = "Spirit Lance",
                                       icon = SpellIcon(40157, "Spell_Frost_FrostBolt") })
-              s:Fx({ kind = "model", fdid = FX.lanceImpact, unit = u, z = 1.5 }, 0.8)
+              s:Fx({ kind = "model", fdid = FX.lanceImpact, unit = u, attach = "chest" }, 0.8)
               s:Sound(FX.lanceImpactSound)
           end)
       end },
@@ -126,7 +145,7 @@ local abilities = {
                                          icon = SpellIcon(40175, "Spell_Frost_ChainsOfIce") })
               if not u.dead then
                   sim:Fx({ kind = "model", fdid = FX.chainsBase, unit = u }, 5)
-                  sim:Fx({ kind = "model", fdid = FX.chainsBody, unit = u, z = 1.5 }, 5)
+                  sim:Fx({ kind = "model", fdid = FX.chainsBody, unit = u, attach = "head" }, 5)
               end
               hit = true
           end
@@ -142,7 +161,7 @@ local abilities = {
               sim:Missile(FX.volleyMissile, sim.player.x, sim.player.y, target, 15, function(s, u)
                   if u.dead then return end
                   s:Damage(u, s:Random(9900, 12100))
-                  s:Fx({ kind = "model", fdid = FX.volleyImpact, unit = u, z = 1.5 }, 0.8)
+                  s:Fx({ kind = "model", fdid = FX.volleyImpact, unit = u, attach = "chest" }, 0.8)
                   s:Sound(FX.volleyImpactSound)
               end)
           end
@@ -181,7 +200,7 @@ local function Die(sim)
                               y = min(ARENA_H - 1, max(1, p.y + math.sin(ang) * r)),
                               hp = CONSTRUCT_HP, speed = CREATURE_RUN, radius = 1.6, color = { 0.6, 0.25, 0.8 },
                               display = DISPLAY_CONSTRUCT, prey = prey, level = 70, elite = true, mana = false,
-                              goal = { x = prey.x, y = prey.y, stop = MELEE } })
+                              plate = PlateOf(DISPLAY_CONSTRUCT), goal = { x = prey.x, y = prey.y, stop = MELEE } })
         sim:AddAura(u, "rise", { dur = 1, stun = true })
         closest = min(closest, Dist(u.x, u.y, prey.x, prey.y) - MELEE)
     end
@@ -195,7 +214,8 @@ local function Start(sim)
     sim.phase = "marked"
     sim.stats.kills = 0
     sim.boss = sim:Spawn({ kind = "boss", name = "Teron Gorefiend", x = BOSS_X, y = BOSS_Y, facing = -pi / 2, radius = 3,
-                           color = { 0.55, 0.1, 0.1 }, display = DISPLAY_TERON, act = "melee" })
+                           color = { 0.55, 0.1, 0.1 }, display = DISPLAY_TERON, act = "melee",
+                           plate = PlateOf(DISPLAY_TERON) })
     for _, r in ipairs(RAID) do
         local u = sim:Spawn({ kind = "raider", name = r.tank and "Tank" or "Raider", x = r[1], y = r[2], radius = 0.9,
                               facing = math.atan2(BOSS_Y - r[2], BOSS_X - r[1]), display = r[3], act = r[4],
@@ -204,7 +224,7 @@ local function Start(sim)
     end
     sim.objective = "Shadow of Death: get far away from the raid before you die."
     sim:Banner("You are marked with Shadow of Death!", 3, 0.8, 0.4, 1)
-    sim:Fx({ kind = "model", fdid = FX.markImpact, unit = sim.player, z = 1.5 }, 1.2)
+    sim:Fx({ kind = "model", fdid = FX.markImpact, unit = sim.player, attach = "chest" }, 1.2)
     sim:Sound(FX.markSound)
 end
 
@@ -285,6 +305,7 @@ T:RegisterEncounter("teron", {
     icon = "Interface\\Icons\\Spell_Shadow_DeathPact",
     order = 10,
     -- map: the piece of Media/Maps/BT04_a (the top 1024 x 512 of the 1024 x 683 map) that is this hall
+    displays = DISPLAYS,
     arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
               height = T.HeightFn(ns.TrainerFloors and ns.TrainerFloors.teron),
               mesh = ns.TrainerFloors and ns.TrainerFloors.teron and ns.TrainerFloors.teron.mesh,

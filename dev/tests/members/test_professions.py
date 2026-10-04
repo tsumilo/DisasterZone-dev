@@ -379,7 +379,7 @@ def the_roster_lists_everyone_with_their_professions():
     assert b.find_text("3 members") and b.find_text("11 recipes")
     b.eval("ns.MembersUI:SelectMember(...)", K("Alfa"))
     d = detail(b)
-    assert [(x["kind"], x.get("id")) for x in d] == [("head", None), ("prof", 171), ("prof", 333), ("prof", 185)], d
+    assert [(x["kind"], x.get("id")) for x in d] == [("prof", 171), ("prof", 333), ("prof", 185)], d   # the Professions card
     assert b.find_text("Potion Master") and b.find_text("375 / 375") and b.find_text("5 recipes")
     # a profession opens into its recipes, grouped
     b.eval("ns.MembersUI:GetState().open[171] = true; ns.MembersUI:Refresh()")

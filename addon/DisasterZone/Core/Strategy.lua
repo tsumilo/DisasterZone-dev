@@ -11,7 +11,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Strategy.lua", ...) then retu
 -- Who (1.0): every guild member builds strategies. A strategy belongs to its creator (ow; a record from before 1.0
 -- has none: its last editor owns it); only the owner and the collaborators the owner invited (co) change it, only
 -- the owner changes the collaborators, and the GM and the guild council may edit and delete any strategy. Fills are written by
--- the GM, the guild council and the raid leaders (the raid-groups rule, §62). Everyone in the guild caches and reads
+-- the GM, the guild council and the raid leaders (the raid-groups rule, §62); a raid with its own leader (RaidPlan rl)
+-- by that leader, the GM and the council (RaidPlan:CanArrangeRaid). Everyone in the guild caches and reads
 -- both. Sync mirrors the raid plan (§56): live edits on GUILD (SBU), and at login the
 -- HELLO carries a hash of my data (sd); a client whose data differs answers with its digest (SBD), the new client asks
 -- for what differs (SBW) and both send their copies one item per message (SBG). Records merge by rev (then hash).
@@ -201,6 +202,20 @@ local function CanWrite(key)
     return type(key) == "string" and G ~= nil and G.IsRaidLogMember ~= nil and G:IsRaidLogMember(key) and true or false
 end
 
+-- One raid's fills: who arranges that raid (its own leader, the GM, the council; without a leader as CanWrite).
+local function CanWriteRaid(occId, key)
+    local RP = ns.RaidPlan
+    if RP and RP.GetRaid and RP:GetRaid(occId) then return RP:CanArrangeRaid(occId, key) end
+    return CanWrite(key)
+end
+
+-- A stored fill came from someone allowed to write fills, or from the raid's own leader.
+local function FillWriter(rec)
+    if CanWrite(rec.by) then return true end
+    local RP = ns.RaidPlan
+    return RP ~= nil and RP.IsLeaderOf ~= nil and RP:IsLeaderOf(rec.o, rec.by)
+end
+
 -- The GM and the guild council may edit and delete anyone's strategy (its collaborators stay the owner's to pick).
 local function CanModerate(key)
     local G = Guild()
@@ -243,6 +258,7 @@ local function Allowed(cur, rec)
 end
 
 local REFUSED = "Only the Guild Master, the guild council and the raid leaders can change a raid's assignments."
+local REFUSED_LED = "Only this raid's leader, the Guild Master and the guild council can change its assignments."
 
 local function Send(msg, dist, target, class)
     local Comm = ns.Comm
@@ -682,7 +698,7 @@ local function Trusted(root, kind, rec)
     if not rec then return false end
     local k = kind .. ":" .. tostring(rec.id) .. ":" .. tostring(rec.rev)
     if root.OK[k] then return true end
-    if CanWrite(rec.by) then
+    if FillWriter(rec) then
         root.OK[k] = true
         return true
     end
@@ -954,8 +970,10 @@ end
 -- Reading
 ---------------------------------------------------------------------------
 
--- May I write a raid's assignments (fills)? The GM, the guild council and the raid leaders.
-function Strategy:CanAssign()
+-- May I write a raid's assignments (fills): pick its strategies and assign its players? With a raid id: who arranges
+-- that raid (RaidPlan:CanArrangeRaid). Without: the GM, the guild council and the raid leaders.
+function Strategy:CanAssign(occId)
+    if occId ~= nil then return CanWriteRaid(occId, Util.PlayerKey()) end
     return CanWrite(Util.PlayerKey())
 end
 
@@ -1182,9 +1200,12 @@ end
 
 local NO_GUILD = "Your guild is not known yet; try again in a moment."
 
--- Fills.
-local function RequireWriter()
-    if not CanWrite(Util.PlayerKey()) then return nil, REFUSED end
+-- Fills (of that raid).
+local function RequireWriter(occId)
+    if not CanWriteRaid(occId, Util.PlayerKey()) then
+        local RP = ns.RaidPlan
+        return nil, (RP and RP.GetRaidLeader and RP:GetRaidLeader(occId)) and REFUSED_LED or REFUSED
+    end
     local root = Root(true)
     if not root then return nil, NO_GUILD end
     return root
@@ -1517,18 +1538,62 @@ function Strategy:GetFill(occId, bossRef)
     return rec and Copy(rec) or nil
 end
 
--- The strategy a raid uses for a boss: the fill's pick, else the only (or first) strategy of that boss.
+-- The strategy the guild picked for a boss in its latest raid up to `before` (else in its latest raid at all), other
+-- than raid exceptOcc: a strategy id or nil. Pruned fills count through root.L.
+local function LastPick(root, bossRef, exceptOcc, before)
+    local best, bestT, latest, latestT
+    local function consider(sid, o, t)
+        if o == exceptOcc or type(t) ~= "number" then return end
+        local s = root.B[sid]
+        if not s or s.del or s.b ~= bossRef then return end
+        if t <= before and (not bestT or t > bestT) then best, bestT = sid, t end
+        if not latestT or t > latestT then latest, latestT = sid, t end
+    end
+    for _, f in pairs(root.F) do
+        if f.b == bossRef and f.s and Trusted(root, "F", f) then consider(f.s, f.o, f.t) end
+    end
+    for sid, l in pairs(root.L) do consider(sid, l.o, l.t) end
+    return best or latest
+end
+
+-- The strategy a raid uses for a boss, its fill, and why that one: "picked" (the raid's pick), "last" (none picked:
+-- the one the guild used last time), "only" (the boss has one) or "first" (none used yet: the first by name). nil
+-- when the boss has no strategy.
 function Strategy:GetRaidStrategy(occId, bossRef)
     local f = self:GetFill(occId, bossRef)
     local s = f and f.s and self:GetStrategy(f.s)
-    if s and s.b == bossRef then return s, f end
+    if s and s.b == bossRef then return s, f, "picked" end
     local list = self:GetStrategies(bossRef)
-    return list[1], f
+    if #list <= 1 then return list[1], f, list[1] and "only" or nil end
+    local root = Root(false)
+    local RP = ns.RaidPlan
+    local v = RP and RP.GetRaid and RP:GetRaid(occId)
+    local last = root and LastPick(root, bossRef, occId, v and v.t or Now())
+    s = last and self:GetStrategy(last)
+    if s then return s, f, "last" end
+    return list[1], f, "first"
+end
+
+-- The strategy the guild used for a boss last time (another raid than occId): its id or nil.
+function Strategy:GetLastPick(bossRef, occId)
+    local root = Root(false)
+    local RP = ns.RaidPlan
+    local v = occId and RP and RP.GetRaid and RP:GetRaid(occId)
+    return root and LastPick(root, bossRef, occId, v and v.t or Now()) or nil
+end
+
+-- Picks the strategy a raid uses for a boss and saves it at once; the names in the slots both strategies have stay.
+-- Returns ok, err.
+function Strategy:PickStrategy(occId, bossRef, stratId)
+    local s = self:GetStrategy(stratId)
+    if not s or s.b ~= bossRef then return false, "unknown strategy" end
+    local cur = self:GetFill(occId, bossRef)
+    return self:SaveFill(occId, bossRef, s.id, self:ValidAssignments(s, cur and cur.a))
 end
 
 -- Saves (raid, boss) -> strategy + names. assignments: { [slotRef] = key } (nil keeps the current ones).
 function Strategy:SaveFill(occId, bossRef, stratId, assignments)
-    local root, err = RequireWriter()
+    local root, err = RequireWriter(occId)
     if not root then return false, err end
     if not IsOccId(occId) or not IsBossRef(bossRef) then return false, "unknown raid or boss" end
     local RP = ns.RaidPlan

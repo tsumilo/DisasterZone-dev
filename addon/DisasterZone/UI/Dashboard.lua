@@ -356,6 +356,7 @@ function CardMethods:SetRows(rows, startY)
             r.itemID, r.tip, r.onClick = nil, nil, nil
         end
     end
+    self.rowsEndY = y
 end
 
 function CardMethods:SetTitle(text, big)
@@ -408,14 +409,14 @@ local CHIP_COLORS = {
 }
 
 local function newChip(parent)
-    local c = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    local c = CreateFrame("Button", nil, parent)
     c:SetHeight(CHIP_H)
-    c:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 10,
-        insets = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
+    c.bg = c:CreateTexture(nil, "BACKGROUND")
+    c.bg:SetAllPoints()
+    UI():AddEdges(c)
+    local hl = c:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 1, 0.08)
     c.text = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     c.text:SetPoint("CENTER", c, "CENTER", 0, 0)
     c.text:SetWordWrap(false)
@@ -487,8 +488,8 @@ local function layoutChips(chips)
         c.text:SetText(UI():SafeText(a.text))
         local w = floor((c.text:GetStringWidth() or 80) + 22)
         local col = CHIP_COLORS[a.kind] or CHIP_COLORS.info
-        c:SetBackdropColor(col[1] * 0.25, col[2] * 0.25, col[3] * 0.25, 0.85)
-        c:SetBackdropBorderColor(col[1], col[2], col[3], 0.9)
+        c.bg:SetColorTexture(col[1] * 0.22, col[2] * 0.22, col[3] * 0.22, 0.9)
+        UI():SetEdgeColor(c, col[1], col[2], col[3], 0.8)
         c.text:SetTextColor(min(1, col[1] + 0.3), min(1, col[2] + 0.3), min(1, col[3] + 0.3))
         c.tip, c.onClick = a.tip, a.onClick
         c:SetWidth(w)
@@ -723,8 +724,15 @@ local function refreshRaidCard(card, ctx)
     if counts.X > 0 then parts[#parts + 1] = colorize(STATUS.X.color, counts.X .. " absent") end
     rows[#rows + 1] = tconcat(parts, " · ")
     if counts.A > 0 then
-        local rp2 = {}
-        for _, role in ipairs(ROLE_ORDER) do rp2[#rp2 + 1] = roles[role] .. ROLE_SHORT[role] end
+        -- the roles that are there, and how many accepted without a spec (their role is not known)
+        local rp2, known = {}, 0
+        for _, role in ipairs(ROLE_ORDER) do
+            if roles[role] > 0 then rp2[#rp2 + 1] = roles[role] .. ROLE_SHORT[role] end
+            known = known + roles[role]
+        end
+        if counts.A > known then
+            rp2[#rp2 + 1] = colorize("ff9933", (counts.A - known) .. " without a spec")
+        end
         rows[#rows + 1] = { text = grey("Roles: ") .. tconcat(rp2, "  "),
                             tip = { "Accepted by role", "T tank · H healer · M melee · R ranged" } }
     end
@@ -756,6 +764,10 @@ local function refreshRaidCard(card, ctx)
         if mine and mine.st == st then b:SetTint(hexRGB(STATUS[st].color)) else b:SetTint(nil) end
     end
     card:SetRows(rows, rowsY)
+    -- the answer buttons right under "Your answer" (not at the card's bottom, with a gap above them)
+    local first = card.buttons[1]
+    first:ClearAllPoints()
+    first:SetPoint("TOPLEFT", card, "TOPLEFT", 10, (card.rowsEndY or rowsY) - 6)
 end
 
 local function stepPhase(ctx, delta)

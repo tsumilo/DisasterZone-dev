@@ -544,17 +544,23 @@ local function CanRemove()
     return IsInRaid() and UnitIsGroupAssistant("player") and true or false
 end
 
--- The one client that adds the pugs: the raid leader when they may add guests, else the first assistant (by name)
--- who may. Then two edits of the raid's record never cross.
-local function AmGuestWriter(roster)
+-- The one client that adds the pugs: the raid leader when they may add guests to that planned raid (occ; its own
+-- leader counts, a raid leader it doesn't belong to doesn't), else the first assistant (by name) who may. Then two
+-- edits of the raid's record never cross.
+local function AmGuestWriter(roster, occ)
+    local R = RP()
+    local function may(key)
+        if R and R.CanManageRoster then return R:CanManageRoster(occ, key) and true or false end
+        return IsManager(key)
+    end
     local leader, assists = nil, {}
     for key, r in pairs(roster) do
         if r.rank == 2 then leader = key elseif r.rank == 1 then assists[#assists + 1] = key end
     end
-    if leader and IsManager(leader) then return Util.IsMe(leader) end
+    if leader and may(leader) then return Util.IsMe(leader) end
     tsort(assists)
     for _, key in ipairs(assists) do
-        if IsManager(key) then return Util.IsMe(key) end
+        if may(key) then return Util.IsMe(key) end
     end
     return false
 end
@@ -607,10 +613,10 @@ end
 
 local function AutoGuests(roster)
     local R = RP()
-    if not (R and R.AddGuests and R.GetSignups and R.GetRaid) or DemoOn() or not AmGuestWriter(roster) then return end
+    if not (R and R.AddGuests and R.GetSignups and R.GetRaid) or DemoOn() then return end
     local occ = PlannedRaid(roster)
     local v = occ and R:GetRaid(occ)
-    if not v or v.cancelled then return end
+    if not v or v.cancelled or not AmGuestWriter(roster, occ) then return end
     local signups = R:GetSignups(occ)
     local done = AutoDone(occ)
     local list = {}

@@ -97,6 +97,11 @@ local function createChip(parent, grid)
     chip.picked:SetAllPoints()
     chip.picked:SetColorTexture(1, 0.82, 0, 0.35)
     chip.picked:Hide()
+    -- an empty seat is a faint box (the group's "4/5" already counts them)
+    chip.seat = chip:CreateTexture(nil, "BACKGROUND")
+    chip.seat:SetAllPoints()
+    chip.seat:SetColorTexture(1, 1, 1, 0.04)
+    chip.seat:Hide()
     chip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     chip:RegisterForDrag("LeftButton")
     chip:SetScript("OnEnter", function(self)
@@ -112,10 +117,11 @@ end
 local function setChip(chip, m)
     chip.member = m
     chip.key = m and m.key or nil
+    chip.seat:SetShown(m == nil and chip.slot ~= nil)
     if not m then
         chip.cls:Hide()
         chip.spec:Hide()
-        chip.fs:SetText("|cff505050empty|r")
+        chip.fs:SetText("")
         chip.picked:Hide()
         chip:EnableMouse(chip.slot ~= nil and chip.grid.opts.isEditable())
         return
