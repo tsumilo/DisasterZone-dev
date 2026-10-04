@@ -385,6 +385,14 @@ end
 
 -- Addendum F §38: locked, lockInfo {by=key, at=serverTime} (nil when unlocked). While locked every editing
 -- API below refuses (returns false; prints at most once per 3 s).
+-- The piece of my class a token / quest item turns into in that slot (nil: not a token, or none / more than one).
+-- The BiS import preview (Core/BiSImport.lua) uses it to show where a token from another site lands.
+function BiS:ResolveTokenForSlot(itemID, sid)
+    itemID = tonumber(itemID)
+    if not itemID or not IsValidSid(sid) or not IsToken(itemID) then return nil end
+    return ResolveToken(itemID, sid)
+end
+
 function BiS:IsLocked()
     return LockState()
 end

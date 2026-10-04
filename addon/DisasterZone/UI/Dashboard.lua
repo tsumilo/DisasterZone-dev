@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Dashboard.lua", ...) then return end -- DisasterZone: UI/Dashboard.lua
--- The "Home" tab: the page the main window opens on. Only what needs attention now: a strip of action chips
--- (unanswered raids, an empty BiS phase, a newer DisasterZone, the raid lock), the next raid with one-click sign-up
+-- The "Home" tab: the page the main window opens on. Only what needs attention now: a greeting and a strip of action
+-- chips (unanswered raids, an empty BiS phase, a newer DisasterZone, the raid lock), the next raid with one-click sign-up
 -- (a "raid in progress" view while a raid session runs) and the BiS picks that can drop there, a calendar of the
 -- planned and logged raids (past, now and ahead), recent loot, and for the council / raid organizers a readiness
 -- check of the next raid (else the later raids). Every card links to the tab that holds the details. Read-only
@@ -479,9 +479,20 @@ local function collectActions(ctx)
     return out
 end
 
+-- "Good evening, Name" by the player's own clock, the name in its class colour.
+local function greetingText()
+    local hour = tonumber(date("%H")) or 12
+    local part = (hour >= 5 and hour < 12) and "morning" or (hour >= 12 and hour < 18) and "afternoon" or "evening"
+    local _, classFile = UnitClass("player")
+    return "Good " .. part .. ", |c" .. ns.Util.ClassColorHex(classFile) .. (UnitName("player") or "") .. "|r"
+end
+
+-- The greeting always leads the strip; the chips follow it past a thin divider, else "All caught up" sits right.
 local function layoutChips(chips)
     local list = chips.list or {}
-    local x = 0
+    panel.greeting:SetText(UI():SafeText(greetingText()))
+    local x = floor(4 + (panel.greeting:GetStringWidth() or 0) + 21)
+    panel.greetSep:SetShown(#list > 0)
     local width = panel.actions:GetWidth()
     if not width or width < 50 then width = 760 end
     local shown = 0
@@ -1379,9 +1390,16 @@ function Dashboard:CreatePanel(parent)
     p.actions:SetPoint("TOPLEFT", p, "TOPLEFT", 6, -6)
     p.actions:SetPoint("TOPRIGHT", p, "TOPRIGHT", -6, -6)
     p.actions:SetHeight(CHIP_H)
-    p.allSet = p.actions:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p.allSet:SetPoint("LEFT", p.actions, "LEFT", 4, 0)
-    p.allSet:SetText(UI():SafeText("|cff33ff33\226\156\147|r You're all set: nothing needs you right now."))
+    p.greeting = p.actions:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    p.greeting:SetPoint("LEFT", p.actions, "LEFT", 4, 0)
+    p.greeting:SetWordWrap(false)
+    p.greetSep = p.actions:CreateTexture(nil, "ARTWORK")
+    p.greetSep:SetSize(1, 14)
+    p.greetSep:SetPoint("LEFT", p.greeting, "RIGHT", 10, 0)
+    p.greetSep:SetColorTexture(1, 1, 1, 0.15)
+    p.allSet = p.actions:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    p.allSet:SetPoint("RIGHT", p.actions, "RIGHT", -4, 0)
+    p.allSet:SetText(UI():SafeText("|cff5fa05f\226\156\147|r All caught up"))
     p.moreChips = CreateFrame("Button", nil, p.actions)
     p.moreChips:SetSize(60, CHIP_H)
     p.moreChips.text = p.moreChips:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")

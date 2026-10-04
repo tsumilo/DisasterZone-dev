@@ -51,6 +51,7 @@ ns.CHANGELOG = {
               "Weekly raids show every week ahead, also past the Raids tab's two weeks.",
               "Raid log members open a past raid straight in the Raid log.",
               "Your BiS picks that can drop in the next raid: one line on its card, hover for the list.",
+              "Home greets you by name; with nothing to do it says \"All caught up\".",
           } },
           { heading = "Strategy boards in 3D", lines = {
               "2D / 3D above the map: the page in the boss' own room, as the game draws it.",

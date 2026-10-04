@@ -169,6 +169,39 @@ def home_is_the_default_tab_with_empty_states():
 
 
 @case
+def greeting_leads_the_strip_and_all_caught_up_when_nothing_is_left():
+    w, c = solo("Rai", guild_rank=3, tick=3)
+    install_helpers(c)
+    open_home(c)
+    hour = c.eval("return tonumber(date('%H'))")
+    part = "morning" if 5 <= hour < 12 else "afternoon" if 12 <= hour < 18 else "evening"
+    greet = strip_codes(c.eval("return ns.Dashboard:GetPanel().greeting:GetText()"))
+    assert greet == "Good %s, Rai" % part, greet
+    # something to do: the chips follow the greeting past the divider
+    assert chip(c, "Pick your Phase 1 BiS") is not None
+    state = c.eval_py("""
+      local p = ns.Dashboard:GetPanel()
+      local _, _, _, x = p.chips[1]:GetPoint(1)
+      return { sep = p.greetSep:IsShown(), caught = p.allSet:IsShown(), x = x, w = p.greeting:GetStringWidth() }""")
+    assert state["sep"] and not state["caught"], state
+    assert state["x"] >= state["w"] + 20, state
+    # one pick, the other slots off, the notes read: nothing left
+    c.eval("""
+      local class = select(2, UnitClass('player'))
+      for sid = 2, ns.NUM_SLOTS or 17 do ns.BiS:SetSlotDisabled(1, sid, true) end
+      ns.BiS:SetSlot(1, 1, 'main', ns.ItemDB:GetCandidates(1, { class = class, usableOnly = true })[1].itemID)
+      ns.ChangelogUI:MarkRead()
+      ns.Dashboard:Refresh()""")
+    w.tick(0.3)
+    p = "ns.Dashboard:GetPanel()"
+    assert not any(c.eval("return %s.chips[...]:IsShown()" % p, i + 1)
+                   for i in range(c.eval("return #%s.chips" % p))), panel_texts(c)
+    assert c.eval("return %s.allSet:IsShown() and not %s.greetSep:IsShown()" % (p, p))
+    assert has(c, "All caught up") and has(c, "Good %s, Rai" % part), panel_texts(c)
+    no_errors(w)
+
+
+@case
 def open_on_last_tab_setting():
     w, c = solo("Rai", guild_rank=3, tick=3)
     c.eval("ns.DB:SetSetting('openOn', 'last')")
