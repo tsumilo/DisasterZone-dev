@@ -16,7 +16,12 @@ view is drawn flat and says so. Fix round 1 (judged by tools/render_check.py whe
 of the near plane again shows its whole picture, not the cut one; at 5 px a redraw past the hard cap is collected
 again coarser instead of leaving its nearest pieces whole; past the texture budget a frame borrows a hidden texture
 rather than making one; the midpoints cache is emptied when full without changing the picture; marks that stand
-still cost no line setters; a room switch while the projection gives nothing errs not.
+still cost no line setters; a room switch while the projection gives nothing errs not. Fix round 2: the models are
+hidden by copies of the room in front of them (_Occluders: behind a pillar, in the open, in the pit behind the
+walkway) and stand on the room's own floor; the camera stays in the hall (collision, easing back out) and its height
+eases over steps; /dz trainer render switches are kept per character; the time controller moves the leaf target;
+the morph switches on and off without leaving its texture coordinates behind; copies kept from frames before (only
+the slots a moving raider can change are copied again) are what copying every slot makes.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_trainer.py [-k name]
 """
@@ -344,21 +349,51 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
     c.slash("/dz play trainer")
     w.tick(0.3)
     c.eval("ns.TrainerUI._Start(3)  T_TR.sim = ns.TrainerUI._Sim()  ns.TrainerUI._Tick(0.05)")
-    # everyone stands on the floor where they are: you and the raid down in the pit
+    # everyone stands on the floor where they are: you and the raid down in the pit, on the room's own floor (the
+    # height grid lies a hand's width off it; a model sunk into a step would have the step copied over its front)
+    floor = lambda x, y: c.eval_py("return ns.TrainerRoom.FloorZ(%f, %f, %f)" % (x, y, h(x, y)))
     z = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]")
-    assert abs(z - h(31, 38)) < 1e-6 and z < rim - 2, z
-    assert abs(c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.boss.id)[3]") - h(31, 52)) < 1e-6
+    assert abs(z - floor(31, 38)) < 1e-6 and abs(z - h(31, 38)) < 0.25 and z < rim - 2, (z, floor(31, 38), h(31, 38))
+    zb = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.boss.id)[3]")
+    assert abs(zb - floor(31, 52)) < 1e-6 and abs(zb - h(31, 52)) < 0.25, (zb, h(31, 52))
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y, T_TR.sim.player.facing = 50, 30, math.pi  ns.TrainerUI._Tick(0.05)")
-    assert abs(c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]") - rim) < 0.05
-    assert abs(c.eval_py("return ns.TrainerUI._Camera().z") - (rim + 2.2 + 14 * math.sin(0.3))) < 0.1
+    assert abs(c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]") - rim) < 0.15
+    # the camera 14 yd behind you would stand outside the east wall: it is pulled in before the wall (spec 5.2),
+    # still on the line behind you at the pitch you look with
+    cm = c.eval_py("local c = ns.TrainerUI._Camera() return { c.z, c.cur, c.dist, c.x, c.collided }")
+    assert cm[2] == 14 and 5 < cm[1] < 14 and cm[4] is True and cm[3] < 60, cm
+    assert abs(cm[0] - (rim + 2.2 + cm[1] * math.sin(0.3))) < 0.1, cm
     # the room itself: Blizzard's triangles with their own textures; the ones facing the camera are shown
     m = c.eval_py("local m = ns.Trainer:GetEncounter('teron').arena.mesh return { #m.verts / 6, #m.tris / 4, #m.textures, m.textures[1] }")
     assert m[0] > 2000 and m[1] > 3000 and 8 <= m[2] <= 20 and m[3] > 100000, m
     fl = c.eval_py("return ns.TrainerUI._Floor()")
     assert fl["tiles"] == 0 and 500 < fl["mesh"] < m[1] and fl["mini"] is True, fl
+    # the models are hidden by the room in front of them: the pieces in front of each one are copied over it (spec
+    # 5.13). A raider behind the west pillar gets copies; one in the open in front of you gets (almost) none; one down
+    # in the pit behind the raised walkway gets copies.
+    def occ(uid):
+        for o in c.eval_py("return ns.TrainerUI._Occluders()") or []:
+            if o["id"] == uid:
+                return o
+    def stand(px, py, facing, rx, ry):
+        c.eval("local s = T_TR.sim  s.player.x, s.player.y, s.player.facing = %r, %r, %r "
+               "local cam = ns.TrainerUI._Camera()  cam.pitch, cam.dist = 0.3, 14 "
+               "for i, u in ipairs(s:Alive('raider')) do u.x, u.y, u.goal = 58, 57, nil end "
+               "T_R = s:Alive('raider')[1]  T_R.x, T_R.y = %r, %r  s.boss.x, s.boss.y = 58, 57 "
+               "ns.TrainerUI._Tick(0.05)" % (px, py, facing, rx, ry))
+        return c.eval_py("return T_R.id")
+    uid = stand(25.5, 8, math.pi / 2, 24.0, 24.5)
+    o = occ(uid)
+    assert o and o["family"] == "A" and o["onScreen"] and o["copies"] > 0, o
+    uid = stand(25.5, 8, math.pi / 2, 28.0, 15.0)
+    o = occ(uid)
+    assert o and o["onScreen"] and o["copies"] <= 2, o
+    uid = stand(10, 29.5, 0, 36.0, 29.5)
+    o = occ(uid)
+    assert o and o["onScreen"] and o["copies"] > 0, o
+    assert c.eval_py("return ns.TrainerUI._Floor().copies") > 0
     # a raider walks through the hall while the view stands still: the room is not drawn again for that (no piece
-    # moves; the copies of the room that hide him behind a pillar or a step's face are spec step 7, with their
-    # _Occluders checks) and its order holds every frame
+    # moves; only the copies follow him) and its order holds every frame
     c.eval("T_R = T_TR.sim:Alive('raider')[5]")
     for yy in (8, 20, 32, 44):
         c.eval("T_TR.sim.player.x, T_TR.sim.player.y = 56, %d  for _, u in ipairs(T_TR.sim:Alive('raider')) do u.x, u.y = 58, 57 end "
@@ -437,7 +472,7 @@ def a_piece_clear_of_the_near_plane_again_shows_its_whole_picture():
     # picture, not the cut one (judged by tools/render_check.py: every texture matches its triangle, and no texel is
     # further off than the screen-error bound allows).
     rc = _render_check()
-    sess = rc.Session("vashj", (300, 200), 1.0, opts=dict(rc.R1_OPTS, collision=False))
+    sess = rc.Session("vashj", (300, 200), 1.0, opts=dict(rc.R1_OPTS, collision=False, morph=False))
     x, y, f, p = 79.88, 176.39, -4.32, 0.147
     toward = [8.31 - 0.02 * k for k in range(4)]
     back = [toward[-1] + 0.02 * k for k in range(1, 7)]
@@ -567,7 +602,7 @@ def past_the_texture_budget_a_frame_borrows_a_hidden_texture_instead_of_making_o
     # that needs no new texture moves none.
     rc = _render_check()
     budget = 1700
-    sess = rc.Session("teron", (300, 200), 1.0, opts=dict(rc.R1_OPTS, texBudget=budget))
+    sess = rc.Session("teron", (300, 200), 1.0, opts=dict(rc.R1_OPTS, texBudget=budget, morph=False))
     peak, sp = 0, 0
     for name, x, y, f, p, d, _ in rc.POSES["teron"][:8]:
         sess.pose(x, y, f, p, d)
@@ -594,7 +629,7 @@ def the_midpoints_cache_is_emptied_when_full_and_the_picture_does_not_mind():
     # Every halved edge keeps its midpoint from frame to frame; once the cache holds more than its cap (16384, here
     # 300) it is emptied at the start of a redraw. Keys are paths, so no texture minds: the pieces are the same.
     rc = _render_check()
-    sess = rc.Session("teron", (300, 200), 1.0, opts=dict(rc.R1_OPTS, midCap=300))
+    sess = rc.Session("teron", (300, 200), 1.0, opts=dict(rc.R1_OPTS, midCap=300, morph=False))
     mids = []
     for k in range(6):
         sess.pose(30 + 2 * k, 8 + 3 * k, math.pi / 2 + 0.2 * k, 0.3, 14)
@@ -685,6 +720,232 @@ def without_the_room_module_the_view_is_drawn_flat():
         assert c.eval_py("return ns.TrainerUI._Render()") is None and c.eval_py("return ns.TrainerUI._Order()") is None
     assert c.eval_py("return ns.TrainerUI._Floor().tiles") > 0                    # (Teron's floor map was drawn)
     no_errors(w)
+
+
+def _pose(c, x, y, facing, pitch=0.3, dist=14, dt=0.001):
+    c.eval("local s = ns.TrainerUI._Sim()  s.player.x, s.player.y, s.player.facing = %r, %r, %r "
+           "local cam = ns.TrainerUI._Camera()  cam.pitch, cam.dist = %r, %r  ns.TrainerUI._Tick(%r)"
+           % (x, y, facing, pitch, dist, dt))
+
+
+@case
+def the_camera_stays_in_the_hall_and_its_height_eases_over_steps():
+    # Spec 5.2: facing east by the west wall, the camera 14 yd back would hang outside the hall (and show the room
+    # through the wall). It is pulled in before the wall; without collision it is not.
+    w, c = boot()
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Select('teron', 'quick')  local v = ns.TrainerUI._View() v:SetSize(600, 400) "
+           "ns.TrainerUI._Start(3)  ns.TrainerUI._Tick(0.05)")
+    _pose(c, 10, 12, 0)
+    cam = lambda: c.eval_py("local c = ns.TrainerUI._Camera() return { c.x, c.cur, c.dist, c.collided, c.hz }")
+    x, cur, dist, hit, _ = cam()
+    assert hit is True and 0.8 <= cur < dist == 14 and x > 0, (x, cur, dist, hit)
+    st = c.eval_py("return ns.TrainerUI._Render()")
+    assert st["camCur"] == cur and st["camWant"] == 14 and st["collided"] is True, st
+    # without collision it eases back out at 6 yd a second (0.3 yd in a 0.05 s frame), then stays outside the wall
+    c.eval("ns.TrainerUI._RenderOpts({ collision = false })")
+    _pose(c, 10, 12, 0.001, dt=0.05)
+    assert hit is True and abs(cam()[1] - (cur + 0.3)) < 1e-9 and cam()[3] is False, (cur, cam())
+    for _ in range(25):
+        _pose(c, 10, 12, 0.001, dt=0.05)
+    x, cur, dist, hit, _ = cam()
+    assert hit is False and cur == 14 and x < 0, (x, cur, hit)
+    c.eval("ns.TrainerUI._RenderOpts({ collision = true })")
+    # in the open nothing is in the way: the whole distance
+    _pose(c, 30, 20, math.pi / 2)
+    assert cam()[1] == 14 and cam()[3] is False
+    # all five rays leave the hall through the doorway in its east wall, where the room has nothing beyond: the
+    # camera still stops 0.5 yd inside the room's footprint (its points span x -0.73 .. 60.04)
+    _pose(c, 48, 17.2, 2.87, pitch=0.05, dist=32.2)
+    x, cur, dist, hit, _ = cam()
+    assert hit is True and abs(x - (60.04 - 0.5)) < 0.05 and 11 < cur < 13, (x, cur, hit)
+    c.eval("ns.TrainerUI._RenderOpts({ collision = false })")
+    _pose(c, 48, 17.2, 2.87, pitch=0.05, dist=32.0)                    # (another distance: no easing out)
+    assert cam()[0] > 75 and cam()[3] is False, cam()
+    c.eval("ns.TrainerUI._RenderOpts({ collision = true })")
+    # the pivot's height follows the floor on a spring: a step down the pit's side eases over a few frames instead
+    # of jumping (a jump of the player, a new distance or pitch snaps it)
+    h = lambda x, y: c.eval_py("return ns.Trainer:GetEncounter('teron').arena.height(%f, %f)" % (x, y))
+    a, b = (17.0, 45), (18.6, 45)
+    assert h(*a) - h(*b) > 0.4, (h(*a), h(*b))
+    _pose(c, a[0], a[1], 0, dt=0.03)
+    _pose(c, a[0], a[1], 0, dt=0.03)
+    assert abs(cam()[4] - (h(*a) + 2.2)) < 1e-6
+    _pose(c, b[0], b[1], 0, dt=0.03)
+    hz = cam()[4]
+    assert h(*b) + 2.2 < hz < h(*a) + 2.2, (hz, h(*a), h(*b))
+    for _ in range(40):
+        _pose(c, b[0], b[1], 0, dt=0.03)
+    assert abs(cam()[4] - (h(*b) + 2.2)) < 0.01, cam()
+    no_errors(w)
+
+
+@case
+def render_switches_are_kept_per_character_and_set_with_the_slash_command():
+    # Spec 7.3: /dz trainer render ... writes Data().render and sets Room.opts; the panel applies Data().render
+    w = World()
+    c = Client(w, "Alice", class_file="PALADIN", guild_rank=3, guild="Casual Disaster")
+    c.load_addon()
+    w.tick(2)
+    c.eval("ns.Games:GetData('trainer').render = { copies = false }")
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    opts = lambda: c.eval_py("local o = ns.TrainerRoom.opts return { o.copies, o.collision, o.morph, o.quads, o.opaque, "
+                             "o.target or false }")
+    assert opts()[0] is False, opts()
+    c.eval("ns.TrainerUI._Select('teron', 'quick')  local v = ns.TrainerUI._View() v:SetSize(600, 400) "
+           "ns.TrainerUI._Start(3)")
+    _pose(c, 25.5, 8, math.pi / 2)
+    assert c.eval_py("return ns.TrainerUI._Floor().copies") == 0
+    n0 = len(c.chat_frame)
+    c.slash("/dz trainer render copies on")
+    _pose(c, 25.5, 8, math.pi / 2 + 0.001)
+    assert opts()[0] is True and c.eval_py("return ns.Games:GetData('trainer').render.copies") is True
+    c.slash("/dz trainer render collision off")
+    c.slash("/dz trainer render target 1200")
+    assert opts()[1] is False and opts()[5] == 1200, opts()
+    assert c.eval_py("return ns.TrainerUI._Render().target") == 1200
+    said = [str(l) for l in c.chat_frame[n0:] if "Raid Trainer render" in str(l)]
+    assert said and "collision off" in said[-1] and "target 1200" in said[-1], said
+    # quads off: every triangle a texture of its own (the room is prepared again)
+    p1 = c.eval_py("return ns.TrainerUI._Render().prims")
+    c.slash("/dz trainer render quads off")
+    _pose(c, 25.5, 8, math.pi / 2 + 0.002)
+    p2 = c.eval_py("return ns.TrainerUI._Render().prims")
+    nt = c.eval_py("return #ns.Trainer:GetEncounter('teron').arena.mesh.tris / 4")
+    assert p1 < p2 == nt, (p1, p2, nt)
+    o = c.eval_py("return ns.TrainerUI._Order()")
+    assert o["wrong"] == 0 and o["distinct"] == o["nodes"], o["wrong"]
+    c.slash("/dz trainer render reset")
+    _pose(c, 25.5, 8, math.pi / 2 + 0.003)
+    assert opts() == [True, True, False, True, True, False], opts()
+    assert c.eval_py("local n = 0 for _ in pairs(ns.Games:GetData('trainer').render) do n = n + 1 end return n") == 0
+    assert c.eval_py("return ns.TrainerUI._Render().prims") == p1
+    c.slash("/dz trainer render bogus on")
+    assert any("unknown render setting" in str(l) for l in c.chat_frame[n0:])
+    no_errors(w)
+
+
+@case
+def the_time_controller_keeps_a_moving_frame_near_4_ms_in_game():
+    # Spec 5.11: debugprofilestop around the room, its marks and the copies; three camera-driven redraws in a row
+    # over 4 ms lower the leaf target by 10%, sixty in a row under 2.4 ms raise it by 5% (900 .. 2200)
+    w, c = boot()
+    c.slash("/dz play trainer")
+    w.tick(0.3)
+    c.eval("ns.TrainerUI._Select('teron', 'quick')  local v = ns.TrainerUI._View() v:SetSize(600, 400) "
+           "ns.TrainerUI._Start(3)  ns.TrainerUI._Tick(0.05)")
+    c.eval("T_DPS = debugprofilestop  T_MS = 0  T_STEP = 10  debugprofilestop = function() T_MS = T_MS + T_STEP return T_MS end")
+    try:
+        target = lambda: c.eval_py("return ns.TrainerUI._Render().target")
+        assert target() == 1600
+        for k in range(3):
+            _pose(c, 30, 8 + 0.1 * k, math.pi / 2)
+        assert abs(target() - 1440) < 1e-9 and c.eval_py("return ns.TrainerUI._Render().ms") == 10, target()
+        c.eval("T_STEP = 1")
+        for k in range(60):
+            _pose(c, 30, 9 + 0.05 * k, math.pi / 2)
+        assert abs(target() - 1512) < 1e-9, target()
+        # a still camera does not redraw: nothing to time
+        r0 = c.eval_py("return ns.TrainerUI._Render().redraws")
+        c.eval("ns.TrainerUI._Tick(0)")
+        assert c.eval_py("return ns.TrainerUI._Render().redraws") == r0 and abs(target() - 1512) < 1e-9
+        # off (render_check and the tests): the target stays
+        c.eval("ns.TrainerUI._RenderOpts({ adaptiveTime = false })  T_STEP = 10")
+        for k in range(5):
+            _pose(c, 30, 12 + 0.1 * k, math.pi / 2)
+        assert abs(target() - 1512) < 1e-9
+    finally:
+        c.eval("debugprofilestop = T_DPS")
+    no_errors(w)
+
+
+@case
+def the_morph_switches_on_and_off_without_leaving_its_texture_coordinates_behind():
+    # The morph (spec 5.6) ships off (spec step 8); switched on and off again, every piece shows its true picture
+    # again (judged by tools/render_check.py: every texture matches its triangle within the bound)
+    rc = _render_check()
+    sess = rc.Session("teron", (300, 200), 1.0, opts=dict(rc.R1_OPTS, morph=False))
+    assert sess.c.eval_py("return ns.TrainerRoom.Defaults.morph") is False
+    for k, morph in enumerate((False, True, True, False)):
+        sess.set_opts({"morph": morph})
+        sess.pose(30, 8, math.pi / 2 + 0.001 * k, 0.3, 14)
+        sess.frame()
+    tr, pt, res = rc.analyse(sess, sess.capture())
+    assert res["unmatchedRegions"] == 0 and res["misplacementMaxPx"] <= 2.5 and res["wrongSurfacePct"] <= 0.02, {
+        k: res[k] for k in ("unmatchedRegions", "misplacementMaxPx", "wrongSurfacePct")}
+    sess.w.assert_no_errors()
+
+
+COPY_DUMP = r"""
+local out = {}
+for fi, fr in ipairs(ns.TrainerRoom.CopyFrames()) do
+    for pool, list in pairs(fr.tex) do
+        for i = 1, (fr.used[pool] or 0) do
+            local t = list[i]
+            out[#out + 1] = { fi, pool, t.pos, t.u1, t.v1, t.u2, t.v2, t.u3, t.v3, t.u4, t.v4,
+                              t.ox1, t.oy1, t.ox2, t.oy2, t.ox3, t.oy3, t.ox4, t.oy4 }
+        end
+    end
+    for i = 1, fr.lineUsed do
+        local l = fr.lines[i]
+        out[#out + 1] = { fi, -1, l.pos, 0, 0, 0, 0, 0, 0, 0, 0, l.x1, l.y1, l.x2, l.y2, 0, 0, 0, 0 }
+    end
+end
+local occ = {}
+for _, o in ipairs(ns.TrainerUI._Occluders()) do occ[#occ + 1] = { o.id, o.slot, o.copies } end
+return { out, occ }
+"""
+
+
+@case
+def the_copies_kept_from_frames_before_are_what_copying_every_slot_makes():
+    # Spec 5.13 (incremental): when a raider moves under a still camera, only the slots whose copies can change are
+    # copied again - its own, and those whose pieces its restricting region covers, then or now; the others keep
+    # theirs. After any run of such frames the copies are the ones a pass over every slot makes (same textures in
+    # the same frames and places, same pictures and corners; vertex offsets are sent on a change over 0.01 px).
+    rc = _render_check()
+    sess = rc.Session("teron", (600, 400), 1.0, opts=dict(rc.R1_OPTS, morph=False))
+    sess.pose(25.5, 8, math.pi / 2 + 0.004, 0.3, 14)
+    sess.frame()
+    sess.pose(25.5, 8, math.pi / 2, 0.3, 14)
+    sess.frame()
+    raider = lambda i, x, y: sess.c.eval("local r = ns.TrainerUI._Sim():Alive('raider')[%d] r.x, r.y, r.goal = %r, %r, nil"
+                                         % (i, x, y))
+    raider(2, 24.0, 24.5)                      # behind the west pillar
+    raider(3, 27.5, 16.0)                      # in front of it, over the others on the screen
+    sess.frame(0.0)
+
+    def key(r):
+        return tuple(r[:3]) + tuple(round(v, 4) for v in r[3:11])
+
+    def same(a, b):
+        (ca, oa), (cb, ob) = a, b
+        assert sorted(map(tuple, oa)) == sorted(map(tuple, ob)), (oa, ob)
+        assert len(ca) == len(cb), (len(ca), len(cb))
+        for ra, rb in zip(sorted(ca, key=key), sorted(cb, key=key)):
+            assert ra[:3] == rb[:3], (ra, rb)
+            assert all(abs(x - y) < 1e-6 for x, y in zip(ra[3:11], rb[3:11])), (ra, rb)
+            assert all(abs(x - y) <= 0.0101 for x, y in zip(ra[11:], rb[11:])), (ra, rb)
+
+    passes, total = 0, 0
+    for k in range(16):
+        raider(1, 19.0 + 0.85 * k, 24.0)       # walks west to east right behind the pillar, through raider 2
+        if k % 3 == 2:
+            raider(3, 27.5 - 0.3 * k, 16.0)    # and now and then raider 3 moves too
+        r0 = sess.c.eval_py("return ns.TrainerUI._Render().redraws")
+        sess.frame(0.0)
+        assert sess.c.eval_py("return ns.TrainerUI._Render().redraws") == r0      # (the room stands: copies only)
+        total += sess.c.eval_py("return ns.TrainerUI._Floor().copies")
+        if k % 4 == 3:
+            kept = sess.c.eval_py(COPY_DUMP)
+            sess.c.eval("ns.TrainerRoom.HideCopies()  ns.TrainerRoom.DrawCopies()")
+            whole = sess.c.eval_py(COPY_DUMP)
+            same(kept, whole)
+            passes += 1
+    assert passes == 4 and total > 0, (passes, total)
+    sess.w.assert_no_errors()
 
 
 @case

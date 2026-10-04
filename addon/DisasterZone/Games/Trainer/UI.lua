@@ -180,13 +180,46 @@ local function Project(x, y, z)
     return px / es, py / es
 end
 
--- The camera sits behind and above the character and looks where it faces.
-local function PlaceCamera()
+-- A critically damped spring, stepped implicitly (stable for any dt): position x, speed v towards target.
+local function Spring(x, v, target, w, dt)
+    local f, hw2 = 1 + 2 * dt * w, dt * w * w
+    local det = 1 / (f + dt * hw2)
+    return (f * x + dt * v + dt * hw2 * target) * det, (v + hw2 * (target - x)) * det
+end
+
+-- The camera sits behind and above the character and looks where it faces (spec 5.2). The point it turns round
+-- (the pivot, 2.2 yd over the floor) follows the floor's height on a spring, so steps do not jolt the view; with the
+-- room (room = true) it is pulled in where the room is in the way (Room.CameraDistance) and eases back out at 6 yd a
+-- second. cam.dist is the distance wanted (the wheel), cam.cur the one used. dt: seconds since the last frame
+-- (Room.opts.camDt replaces it: render_check's walks); nil, a jump of the player, a new distance or pitch, or a
+-- height far off snap everything to where it belongs.
+local function PlaceCamera(dt, room)
     local p = sim.player
+    local o = Room and Room.opts
+    if dt and o and type(o.camDt) == "number" then dt = o.camDt end
     local yaw, pitch = cam.mirror * p.facing, cam.pitch
     cam.fx, cam.fy, cam.fz = cos(pitch) * cos(yaw), cos(pitch) * sin(yaw), -sin(pitch)
-    local tx, ty, tz = p.x, SY(p.y), GroundZ(p.x, p.y) + 2.2
-    cam.x, cam.y, cam.z = tx - cam.fx * cam.dist, ty - cam.fy * cam.dist, tz - cam.fz * cam.dist
+    local target = GroundZ(p.x, p.y) + 2.2
+    local snap = not dt or not cam.hz or (p.x - cam.px) ^ 2 + (p.y - cam.py) ^ 2 > 9
+        or math.abs(cam.dist - cam.lastDist) > 0.15 or math.abs(pitch - cam.lastPitch) > 0.15
+        or math.abs(target - cam.hz) > 2
+    if snap then
+        cam.hz, cam.hv = target, 0
+    else
+        cam.hz, cam.hv = Spring(cam.hz, cam.hv, target, 12, dt)
+    end
+    cam.px, cam.py, cam.lastDist, cam.lastPitch = p.x, p.y, cam.dist, pitch
+    local allowed, hit = cam.dist, false
+    if room and o.collision ~= false then allowed, hit = Room.CameraDistance(p.x, p.y, cam.hz, cam, cam.dist) end
+    cam.collided = hit
+    if snap or not cam.cur or allowed < cam.cur then
+        cam.cur = allowed
+    else
+        cam.cur = min(allowed, cam.cur + 6 * dt)
+    end
+    local d = cam.cur
+    local tx, ty, tz = p.x, SY(p.y), cam.hz
+    cam.x, cam.y, cam.z = tx - cam.fx * d, ty - cam.fy * d, tz - cam.fz * d
     pcall(scene.SetCameraPosition, scene, cam.x, cam.y, cam.z)
     pcall(scene.SetCameraOrientationByYawPitchRoll, scene, yaw, cam.pitchSign * pitch, 0)
 end
@@ -269,6 +302,21 @@ local function AnimFor(u)
     return ANIM_STAND
 end
 
+-- Where a unit's feet are: its own height (u.z), else the floor under it. With the room drawn in 3D that is the
+-- room's own floor (Room.FloorZ, nearest the height grid's value): the grid lies up to 0.2 yd under Blizzard's steps,
+-- and a model sunk into the steps would have its front cut by the step it should stand on (the room's copies over
+-- it go by the floor's height). The copies' occluders use the same value (a.feetZ). Kept while the unit stands still.
+local feetRoom = false                   -- Draw3D: the room is drawn with Room.lua this frame
+local function FeetZ(u, a)
+    if u.z then return u.z end
+    local mesh = feetRoom and sim.enc.arena.mesh or false
+    if a.fzX == u.x and a.fzY == u.y and a.fzMesh == mesh then return a.fz end
+    local g = GroundZ(u.x, u.y)
+    local z = mesh and Room.FloorZ(u.x, u.y, g) or g
+    a.fzX, a.fzY, a.fzMesh, a.fz = u.x, u.y, mesh, z
+    return z
+end
+
 local function DrawActors()
     local seen = {}
     for _, u in ipairs(sim.units) do
@@ -283,7 +331,9 @@ local function DrawActors()
                     a.scale = scale
                     pcall(a.SetScale, a, scale)
                 end
-                pcall(a.SetPosition, a, u.x / scale, SY(u.y) / scale, (u.z or GroundZ(u.x, u.y)) / scale)
+                local z = FeetZ(u, a)
+                a.feetZ = z
+                pcall(a.SetPosition, a, u.x / scale, SY(u.y) / scale, z / scale)
                 -- a strafing body swings round over a moment, not in one frame
                 local want = u.bodyTurn or 0
                 local have = a.bodyTurn or 0
@@ -605,6 +655,78 @@ local function DrawFxActors()
     end
 end
 
+-- The models on screen, for the room's copies (spec 5.13.1): one record per shown unit actor (the dead ones too while
+-- shown) at its feet, with the body size render_check and the plates use, its model's own box (radius and height,
+-- the largest seen for that model so it never shrinks or bobs) and you first; an effect on a unit raises its top, a
+-- flying missile is a record of its own. Records are reused.
+local occList, occBox = {}, {}
+local function Occ(n)
+    local o = occList[n]
+    if not o then
+        o = {}
+        occList[n] = o
+    end
+    return o
+end
+local function BuildOccluders()
+    local n = 0
+    for _, u in ipairs(sim.units) do
+        local a = actors[u.id]
+        if a then
+            n = n + 1
+            local o = Occ(n)
+            local h = u.plate or u.tall or PLATE_HEIGHT[u.kind] or 2.6
+            o.id, o.x, o.y, o.z = u.id, u.x, u.y, a.feetZ or u.z or GroundZ(u.x, u.y)
+            o.h, o.w = h, max(1.2, min(2 * (u.radius or 0.6), 0.6 * h))
+            o.prio = (u == sim.player) and 2 or 1
+            local bb = a.key and occBox[a.key]
+            if a.key and a.GetActiveBoundingBox then
+                local ok, x0, y0, _, x1, y1, z1 = pcall(a.GetActiveBoundingBox, a)
+                if ok and type(x0) == "table" and type(y0) == "table" and x0.GetXYZ then   -- documented form: two vectors
+                    local bx, by = x0:GetXYZ()
+                    local tx, ty, tz = y0:GetXYZ()
+                    x0, y0, x1, y1, z1 = bx, by, tx, ty, tz
+                end
+                if ok and type(z1) == "number" and type(x0) == "number" and type(y0) == "number"
+                    and type(x1) == "number" and type(y1) == "number" then
+                    local s = u.scale or 1
+                    local rb = max(math.abs(x0), math.abs(x1), math.abs(y0), math.abs(y1)) * s
+                    if not bb then
+                        bb = { 0, 0 }
+                        occBox[a.key] = bb
+                    end
+                    if rb > bb[1] then bb[1] = rb end
+                    if z1 * s > bb[2] then bb[2] = z1 * s end
+                end
+            end
+            o.rb, o.top = bb and bb[1] or 0, bb and bb[2] or 0
+            o.unit = u
+        end
+    end
+    for fx, a in pairs(fxActors) do
+        if a and not a.bad then
+            local u = fx.unit
+            if fx.kind == "missile" and u then
+                local k = min(1, (sim.time - fx.at) / fx.dur)
+                local x, y = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k
+                n = n + 1
+                local o = Occ(n)
+                o.id, o.x, o.y, o.z, o.h, o.w = fx, x, y, GroundZ(x, y) + 1.5 - 0.6, 1.2, 1.0
+                o.rb, o.top, o.prio, o.unit = 0, 0, 1, nil
+            elseif u and not u.dead then
+                for i = 1, n do
+                    local o = occList[i]
+                    if o.unit == u then
+                        o.top = max(o.top, (fx.z or 0) + 1.5)
+                        break
+                    end
+                end
+            end
+        end
+    end
+    Room.SetOccluders(occList, n)
+end
+
 -- An enemy name plate as this client draws it in its Classic style (Blizzard_NamePlates: NamePlateConstants and
 -- NamePlateUnitFrameMixin's classic branch): a 128 x 10 bar area, the 128 x 16 Nameplate-Border art centred on it,
 -- the health fill (UI-TargetingFrame-BarFill) from 3.5 to 20.75 short of the right edge and half a pixel up, the
@@ -791,17 +913,20 @@ local function Draw3D(elapsed)
     local mesh = sim.enc.arena.mesh
     local room = Room and mesh and Room.SetMesh(mesh)          -- (nothing when unchanged; false: the flat floor map)
     if not cam.calibrated then Calibrate() end
-    PlaceCamera()
+    PlaceCamera(elapsed, room)
+    feetRoom = room and true or false
     DrawActors()
     DrawFxActors()
     if room then
         if Room.BeginFrame(cam) then
+            BuildOccluders()                                    -- (the models' planes and boxes, for the copies)
             Room.DrawRoom()                                     -- (returns at once when the camera did not move)
             roomOn = true
             Room.BeginLines()
             DrawEffects()
             Room.EndLines()
             roomOn = false
+            Room.DrawCopies()                                   -- (the room in front of the models, over them)
         end
     else
         DrawFloor()
@@ -1642,6 +1767,7 @@ function UI:CreatePanel(parent)
     ns.UI:SetEdgeColor(view, 0.4, 0.3, 0.5, 1)
     view:SetClipsChildren(true)
     CreateScene(view)
+    if Room and type(Data().render) == "table" then Room.SetOpts(Data().render) end   -- (/dz trainer render)
     if scene and not Room then
         -- a new file in the TOC is only read when the client starts: until then the rooms are drawn flat
         ns:Print("Raid Trainer: restart the game client once to load the new room renderer (a /reload is not enough). Until then the room is drawn flat.")
@@ -1789,6 +1915,66 @@ function UI:OnInit()
     end)
 end
 
+-- The room renderer's switches, kept per character (Data().render) and set in game with /dz trainer render (spec 7.3,
+-- 13: the fallbacks for what could not be checked outside the client). Applied when the panel is made.
+local RENDER_SWITCHES = { copies = "the room drawn again over the models it hides", collision = "the camera kept out of "
+    .. "the walls", morph = "texture morph between finer and coarser pieces", quads = "two triangles drawn as one "
+    .. "texture where they can", opaque = "opaque textures (blending off)" }
+local function RenderSettings()
+    local d = Data()
+    if type(d.render) ~= "table" then d.render = {} end
+    return d.render
+end
+local function SlashTrainer(rest)
+    local cmd, what, value = (rest or ""):lower():match("^(%S*)%s*(%S*)%s*(%S*)")
+    if cmd ~= "render" then
+        ns:Print("Raid Trainer: /dz trainer render [copies|collision|morph|quads|opaque on|off | target <n>|auto | reset]")
+        return
+    end
+    local set = RenderSettings()
+    if what == "reset" then
+        local back = {}
+        for k in pairs(set) do
+            local v = Room and Room.Defaults and Room.Defaults[k]
+            if v == nil then v = false end                      -- (target: back to the time controller's)
+            back[k] = v
+        end
+        wipe(set)
+        if Room then Room.SetOpts(back) end
+        ns:Print("Raid Trainer: render settings back to their defaults.")
+        return
+    end
+    if what == "target" then
+        local n = tonumber(value)
+        if value == "auto" then
+            set.target = nil
+            if Room then Room.SetOpts({ target = false }) end
+        elseif n then
+            n = max(300, min(4000, floor(n)))
+            set.target = n
+            if Room then Room.SetOpts({ target = n }) end
+        end
+    elseif RENDER_SWITCHES[what] and (value == "on" or value == "off") then
+        set[what] = value == "on"
+        if Room then Room.SetOpts({ [what] = value == "on" }) end
+    elseif what ~= "" then
+        ns:Print("Raid Trainer: unknown render setting '%s'.", what)
+        return
+    end
+    if not Room then
+        ns:Print("Raid Trainer: restart the game client once to load the new room renderer (a /reload is not enough).")
+        return
+    end
+    local o, parts = Room.opts, {}
+    for _, k in ipairs({ "copies", "collision", "morph", "quads", "opaque" }) do
+        parts[#parts + 1] = k .. " " .. ((o[k] ~= false) and "on" or "off")
+    end
+    parts[#parts + 1] = "target " .. (tonumber(o.target) and tostring(o.target) or "auto")
+    ns:Print("Raid Trainer render: %s.", table.concat(parts, ", "))
+end
+ns:RegisterSlash("trainer", SlashTrainer, "render <copies|collision|morph|quads|opaque> on|off, render target <n>|auto, "
+    .. "render reset - the Raid Trainer's 3D room (fallbacks if it looks wrong)")
+
 -- Tests
 UI._Key = function(key, down) return HandleKey(key, down ~= false) end
 UI._Sim = function() return sim end
@@ -1805,8 +1991,10 @@ end
 UI._Floor = function()
     local n = 0
     for _, t in ipairs(floorTiles) do if t:IsShown() then n = n + 1 end end
+    local st = Room and Room.Stats()
     return { tiles = #floorTiles, shown = n, mini = R.miniMap.on or false,
-             mesh = Room and Room.ShownTextures() or 0, copies = 0, lines = Room and Room.ShownLines() or 0 }
+             mesh = Room and Room.ShownTextures() or 0, copies = st and st.copies or 0,
+             lines = Room and Room.ShownLines() or 0 }
 end
 UI._Hud = function()
     if not hud.frame then return nil end
@@ -1867,9 +2055,10 @@ end
 UI._Render = function()
     if not Room then return nil end
     local st = Room.Stats()
-    st.camCur, st.camWant = cam.cur or cam.dist, cam.dist
+    st.camCur, st.camWant, st.collided = cam.cur or cam.dist, cam.dist, cam.collided or false
     return st
 end
 UI._RenderOpts = function(t) if Room then Room.SetOpts(t) end end
 UI._Order = function() return Room and Room.Order() or nil end
 UI._Marks = function() return Room and Room.Marks() or nil end
+UI._Occluders = function() return Room and Room.Occluders() or nil end

@@ -28,8 +28,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Room.lua", ...) then
 --    not move costs nothing. A texture that is no longer needed goes back to its frame's pool, where a new piece of
 --    any picture in that frame takes it (past a budget, a frame with none borrows one from another frame).
 --  * Mark lines (rings, columns, beams) are put into that same order by running each segment down the tree.
--- Not here yet (later steps of the spec): camera collision, copies of the room over the models, the texture morph
--- and the time-based budget controller.
+--  * The models stand in one ModelScene over all of the room; the room pieces (and mark lines) in front of each model
+--    are drawn once more above the scene, clipped in Lua to that model (the copies, spec 5.13). Under a still camera
+--    only the models whose copies can change are copied again (one that moved, and those its region covers).
+--  * Room.CameraDistance keeps UI.lua's camera out of the walls (spec 5.2) and inside the room's footprint (through a
+--    doorway the rays find nothing, and beyond it the room has nothing); a time controller moves the leaf target
+--    to keep a moving frame near 4 ms in game (spec 5.11). The texture morph (spec 5.6) is there but ships off.
 local _, ns = ...
 
 local Room = { opts = {} }
@@ -53,12 +57,17 @@ local MARGIN = 2                  -- px: the frustum is this much bigger than th
 -- limit: a redraw that still runs past the cap at max is collected again coarser, up to this (spec 11 says the cap
 -- coarsens the nearest pieces only for a frame or two; at max tau cannot rise any more, so it would stay).
 -- midCap: midpoints kept from redraw to redraw (spec 3 kept up to 2^18: 16 arrays of that size are tens of MB).
--- texBudget: room textures made before a frame with none free borrows a hidden one from another frame (a safety net:
--- a frame's free textures serve all its pictures, so a session normally stays at 3-4k; render_check's runs, which jump
--- across the room from pose to pose, make up to about 7.8k).
+-- texBudget: room textures made before a frame with none free borrows a hidden one from another frame (SetParent).
+-- Textures never leave their frame otherwise, so a session makes the sum of what every frame ever needed at once: in
+-- 12000 frames of walking about with any pitch and zoom 13k in Teron and 19k in Vashj, still slowly growing; one
+-- frame alone (a floor right under a low camera) can hold 2000. The budget is set past what normal play makes;
+-- borrowing is the last resort after it (each texture keeps 8 numbers, about 0.7 KB with its widget table).
 -- epoch: counts the changes of camera, order and room that move mark lines (Room.Line reuses a still frame's).
+-- target / targetMin / targetMax / targetMs, over, under, t0: the time controller (spec 5.11, StopClock) moves the
+-- leaf target between 900 and 2200 to keep a camera-driven redraw near 4 ms (Room.opts.target, when set, wins).
 local CTL = { start = 2.0, min = 1.5, max = 5.0, merge = 0.75, target = 1600, cap = 2800, tau = 2.0, used = 2.0,
-              limit = 10.0, midCap = 16384, texBudget = 10000, epoch = 0,
+              limit = 10.0, midCap = 16384, texBudget = 20000, epoch = 0,
+              targetMin = 900, targetMax = 2200, targetMs = 4.0, over = 0, under = 0,
               selfEvery = 30, selfPx = 1.5, selfRun = 10 }
 local MAXDEPTH = 18               -- halvings of one prim at most
 local MINCLIP2 = 0.05 * 0.05      -- a piece crossing the near plane is halved until its longest edge is under this
@@ -72,14 +81,21 @@ local BLENDS = { [0] = "DISABLE", [1] = "ALPHAKEY", [2] = "BLEND" }
 local VUL, VLL = UPPER_LEFT_VERTEX or 1, LOWER_LEFT_VERTEX or 2
 local VUR, VLR = UPPER_RIGHT_VERTEX or 3, LOWER_RIGHT_VERTEX or 4
 
--- Room.opts (spec section 8, UI._RenderOpts): tau (a number fixes the bound and turns the controller off),
--- adaptive (the count controller), adaptiveTime, target, hardCap, morph, copies, collision, siblingQuads, opaque,
--- dilate, camDt. Not used yet (later steps): adaptiveTime, morph, copies, collision, siblingQuads, dilate, camDt.
--- Not in the spec (tests and tuning; unset = CTL's): texBudget, midCap.
+-- Room.opts (spec section 8, UI._RenderOpts; in game also /dz trainer render): tau (a number fixes the bound and
+-- turns the controllers off), adaptive (the count controller), adaptiveTime (the time controller), target (fixes the
+-- leaf target; unset: the time controller's), hardCap, morph, copies, collision (read by UI.lua's camera), opaque,
+-- quads (the generator's quad pairs; off: every triangle a texture of its own), camDt (UI.lua). Not used:
+-- siblingQuads, dilate (spec 12.10: no pose needs it). Not in the spec (tests and tuning; unset = CTL's): texBudget,
+-- midCap.
+-- The morph ships off (spec step 8: kept only when it makes the walk's largest pop 30% smaller; measured, it made it
+-- larger - 3.4 / 2.6 px against 2.2 / 2.4 - and doubled the texels' misplacement: a piece is halved across its
+-- longest edge in the room when any edge is over tau, but its midpoint slides by that edge's own offset, often far
+-- under tau, so the halves keep showing the parent's picture for levels).
 do
-    local DEFAULTS = { adaptive = true, adaptiveTime = true, target = CTL.target, hardCap = CTL.cap, morph = true,
+    local DEFAULTS = { adaptive = true, adaptiveTime = true, hardCap = CTL.cap, morph = false, quads = true,
                        copies = true, collision = true, siblingQuads = false, opaque = true, dilate = 0, camDt = false }
-    for k, v in pairs(DEFAULTS) do Room.opts[k] = v end
+    Room.Defaults = {}
+    for k, v in pairs(DEFAULTS) do Room.opts[k], Room.Defaults[k] = v, v end
 end
 
 ---------------------------------------------------------------------------
@@ -136,12 +152,17 @@ local ox, oy = 0, 0                                                -- the scene'
 local cl, cr, cb, ct = 0, 0, 0, 0                                  -- frustum constants (left, right, bottom, top)
 local FR = {}                                                      -- the 5 frustum planes in arena space
 local camKey = {}                                                  -- the last camera: x y z fx fy fz w h scale
+local CAMT = {}                                                    -- the same camera for the copies (spec 5.13)
 
 -- mark lines
 local MKS, nMarks = {}, 0                                          -- segments drawn this frame (UI._Marks)
 local linesChanged = false
+-- the placed pieces of this frame's mark segments, for the copies: per placement 6 arena coordinates (A), 4 screen
+-- coordinates (S), its key in the order (K: 2 rank + 1 of the node it follows, -1 before every node) and colour and
+-- thickness (C, 5); n placements
+local MKR = { A = {}, S = {}, K = {}, C = {}, n = 0 }
 
-local floorCells, TRI                                              -- floor triangles by 8 yd square (FloorZ)
+local floorCells, TRI                                              -- floor triangles by 4 yd square (FloorZ)
 
 ---------------------------------------------------------------------------
 -- Preparing a mesh (once per room)
@@ -156,12 +177,19 @@ local BLEND_CODE = { DISABLE = 0, ALPHAKEY = 1, BLEND = 2 }
 local function PreparePoints(mesh)
     local v = mesh.verts
     nV = floor(#v / 6)
+    local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge     -- (the room's footprint: CameraDistance)
     for i = 1, nV do
         local o = i * 6 - 6
-        WX[i], WY[i], WZ[i] = v[o + 1], v[o + 2], v[o + 3]
+        local x, y = v[o + 1], v[o + 2]
+        WX[i], WY[i], WZ[i] = x, y, v[o + 3]
         TU[i], TV[i], DU[i], DV[i] = v[o + 4], v[o + 5], v[o + 4], v[o + 5]
         PS[i], MA[i], MB[i] = 0, nil, nil
+        if x < x0 then x0 = x end
+        if x > x1 then x1 = x end
+        if y < y0 then y0 = y end
+        if y > y1 then y1 = y end
     end
+    CTL.fx0, CTL.fy0, CTL.fx1, CTL.fy1 = x0, y0, x1, y1
     nPts = nV
     wipe(midOf)
     wipeMid = false
@@ -177,7 +205,7 @@ end
 -- +1 when the prim's winding agrees with its node's plane normal, -1 when it is the other way round.
 local function PreparePrims(mesh)
     local t, nodes, v = mesh.tris, mesh.nodes, mesh.verts
-    local pair = (mesh.version == 2) and mesh.pair or nil
+    local pair = (mesh.version == 2 and Room.opts.quads ~= false) and mesh.pair or nil
     nNodes = floor(#nodes / 8)
     local np, solo = 0, {}
     for k = 1, nNodes do
@@ -350,7 +378,7 @@ local function BuildClusters(order, size)
     return nf <= ROOM_FRAMES_MAX
 end
 
--- The floors (normal at most ~45 degrees from up) by 8 yd squares, for FloorZ.
+-- The floors (normal at most ~45 degrees from up) by 4 yd squares, for FloorZ (a moving ring asks 21 times a frame).
 local function BuildFloorGrid(mesh)
     TRI = mesh.tris
     local cells = {}
@@ -363,8 +391,8 @@ local function BuildFloorGrid(mesh)
         if len > 0 and nz >= 0.7 * len then
             local x0, x1 = math.min(WX[a], WX[b], WX[c]), math.max(WX[a], WX[b], WX[c])
             local y0, y1 = math.min(WY[a], WY[b], WY[c]), math.max(WY[a], WY[b], WY[c])
-            for gx = floor(x0 / 8), floor(x1 / 8) do
-                for gy = floor(y0 / 8), floor(y1 / 8) do
+            for gx = floor(x0 / 4), floor(x1 / 4) do
+                for gy = floor(y0 / 4), floor(y1 / 4) do
                     local key = gx * 1000 + gy
                     local cell = cells[key]
                     if not cell then
@@ -434,17 +462,40 @@ local function SetPlane(i, ar, au, ad)
     FR[i], FR[i + 1], FR[i + 2], FR[i + 3] = nx, ny, nz, -(nx * ex + ny * ey + nz * ez)
 end
 
--- An axis-aligned box (6 numbers from B[o + 1]) entirely outside one frustum plane?
-local function BoxOut(B, o)
-    local x0, y0, z0, x1, y1, z1 = B[o + 1], B[o + 2], B[o + 3], B[o + 4], B[o + 5], B[o + 6]
-    for i = 1, 17, 4 do
-        local nx, ny, nz = FR[i], FR[i + 1], FR[i + 2]
-        if nx * (nx >= 0 and x1 or x0) + ny * (ny >= 0 and y1 or y0) + nz * (nz >= 0 and z1 or z0) + FR[i + 3] < 0 then
-            return true
-        end
+-- An axis-aligned box (6 numbers from B[o + 1]) against the frustum planes still in mask (bit 1, 2, 4, 8 = left,
+-- right, bottom, top; 16 = near): -> -1 when it lies entirely outside one of them, else the planes it is not
+-- entirely inside (a box inside a plane has all its children inside it too, so a subtree tests fewer and fewer
+-- planes on the way down, and a node entirely in view tests none, nor do its pieces).
+local BoxTest
+do
+local PLIST, PBIT = {}, {}                       -- mask -> plane offsets in FR; plane offset -> its bit
+for i = 0, 4 do PBIT[i * 4 + 1] = 2 ^ i end
+for m = 0, 31 do
+    local list, r = {}, m
+    for i = 0, 4 do
+        if r % 2 == 1 then list[#list + 1] = i * 4 + 1 end
+        r = floor(r / 2)
     end
-    return false
+    PLIST[m] = list
 end
+function BoxTest(B, o, mask)
+    local x0, y0, z0, x1, y1, z1 = B[o + 1], B[o + 2], B[o + 3], B[o + 4], B[o + 5], B[o + 6]
+    local list = PLIST[mask]
+    for j = 1, #list do
+        local i = list[j]
+        local nx, ny, nz, nd = FR[i], FR[i + 1], FR[i + 2], FR[i + 3]
+        local ax, bx, ay, by, az, bz = x1, x0, y1, y0, z1, z0       -- the corner furthest along n, and nearest
+        if nx < 0 then ax, bx = x0, x1 end
+        if ny < 0 then ay, by = y0, y1 end
+        if nz < 0 then az, bz = z0, z1 end
+        if nx * ax + ny * ay + nz * az + nd < 0 then return -1 end
+        if nx * bx + ny * by + nz * bz + nd >= 0 then mask = mask - PBIT[i] end
+    end
+    return mask
+end
+end
+local stM = {}                                   -- Collect's stack: the planes each subtree still has to test
+local inView, inNear = false, false              -- the node being collected lies entirely in view / before NEAR
 
 -- The projection self-check (spec 5.3.6): a point 25 yd ahead, 4 right and 2 up, placed with the measured basis and
 -- with the scene's own Project3DPointTo2D. If the client's camera were not the pinhole the basis assumes (or lagged
@@ -526,6 +577,10 @@ function Room.BeginFrame(c)
     SetPlane(9, exy, eyy, cb)
     SetPlane(13, -exy, -eyy, ct)
     FR[17], FR[18], FR[19], FR[20] = Fx, Fy, Fz, -(Fx * ex + Fy * ey + Fz * ez) - NEAR
+    local C = CAMT
+    C.ex, C.ey, C.ez, C.Fx, C.Fy, C.Fz, C.Rx, C.Ry, C.Ux, C.Uy, C.Uz = ex, ey, ez, Fx, Fy, Fz, Rx, Ry, Ux, Uy, Uz
+    C.cx, C.cy, C.exx, C.exy, C.eyx, C.eyy, C.W, C.H = cx, cy, exx, exy, eyx, eyy, w, h
+    C.stamp = (C.stamp or 0) + 1
     k[1], k[2], k[3], k[4], k[5], k[6], k[7], k[8], k[9] = x, y, z, fx, fy, fz, w, h, s
     haveBasis, camMoved, camDriven = true, true, true
     CTL.epoch = CTL.epoch + 1
@@ -539,8 +594,11 @@ end
 ---------------------------------------------------------------------------
 
 -- Camera space, screen position and sqrt(depth) of a point, once per redraw and only for the points of pieces that
--- are looked at (spec 5.6; the texture morph of midpoints is step 8: until then a midpoint shows its true
--- texture coordinate).
+-- are looked at (spec 5.6). With the morph on, a midpoint's texture coordinate (DU, DV) follows its edge's error: the
+-- true midpoint of the edge lands e = L |d1 - d2| / (2 (d1 + d2)) px from where the unhalved parent showed it. Up to
+-- e = tau (where a piece is halved, and below 0.75 tau, where it is joined again) the midpoint shows what the parent
+-- showed there - (d1 uv1 + d2 uv2) / (d1 + d2), spec A.2 - so neither halving nor joining can be seen; from tau to
+-- 2 tau it slides to the true texel. A pure function of the edge: both pieces sharing it show the same.
 local function Prep(id)
     if PS[id] == gen then return end
     PS[id] = gen
@@ -550,6 +608,25 @@ local function Prep(id)
     PR[id], PU[id], PD[id] = r, u, d
     if d > 1e-6 then
         PX[id], PY[id], PQ[id] = cx + (r * exx + u * eyx) / d, cy + (r * exy + u * eyy) / d, sqrt(d)
+    end
+    if morphOn then
+        local a = MA[id]
+        if a then                                   -- (its edge's ends are the corners of the piece just halved)
+            local b = MB[id]
+            local mu, mv = (DU[a] + DU[b]) * 0.5, (DV[a] + DV[b]) * 0.5
+            local da, db = PD[a], PD[b]
+            if da > NEAR and db > NEAR then
+                local lx, ly = PX[a] - PX[b], PY[a] - PY[b]
+                local t = (sqrt(lx * lx + ly * ly) * abs(da - db) / (2 * (da + db)) - CTL.used) / CTL.used
+                if t < 1 then
+                    if t < 0 then t = 0 end
+                    local s = da + db
+                    local au, av = (da * DU[a] + db * DU[b]) / s, (da * DV[a] + db * DV[b]) / s
+                    mu, mv = au + (mu - au) * t, av + (mv - av) * t
+                end
+            end
+            DU[id], DV[id] = mu, mv
+        end
     end
 end
 
@@ -660,30 +737,16 @@ local function Acquire(f, pool)
     return tx
 end
 
--- Did a corner's texture coordinate move by more than 0.3 px worth of texture since it was sent? (spec 5.9.2)
-local function UVMoved(tx, ul, ll, ur, lr)
-    local du = max(abs(DU[ul] - tx.u1), abs(DV[ul] - tx.v1), abs(DU[ll] - tx.u2), abs(DV[ll] - tx.v2),
-                   abs(DU[ur] - tx.u3), abs(DV[ur] - tx.v3), abs(DU[lr] - tx.u4), abs(DV[lr] - tx.v4))
-    if du <= 1e-6 then return false end
-    local best, buv = -1, 0
-    for e = 1, 4 do
-        local a = (e == 1 and ul) or (e == 2 and ll) or (e == 3 and lr) or ur
-        local b = (e == 1 and ll) or (e == 2 and lr) or (e == 3 and ur) or ul
-        local sx, sy = PX[a] - PX[b], PY[a] - PY[b]
-        local L = sx * sx + sy * sy
-        if L > best then
-            local su, sv = DU[a] - DU[b], DV[a] - DV[b]
-            best, buv = L, su * su + sv * sv
-        end
-    end
-    if buv < 1e-12 then return true end
-    return du * sqrt(best / buv) > 0.3
-end
-
 -- One piece on screen (spec 5.9.1): n = 3 (c1, c2, c3; c4 == c3) or 4 (cyclic c1..c4). UL = c1, LL = c2,
 -- UR = c4, LR = c3: a triangle's UR and LR are the same corner, a quad's diagonal LL - UR is c2 - c4.
 -- tx: the piece's texture from the last redraw (false: it gets one).
-local function Emit(p, key, n, c1, c2, c3, c4, clipped, tx)
+-- A texture shows its corners' DU, DV as they are this redraw (what the copies read): a key's corners are always the
+-- same points, so without the morph they never change; a cut piece and, with the morph, a piece with a midpoint
+-- corner send theirs every time (the texture keeps no copy of them: spec 5.9.2's UVMoved would need 8 numbers on
+-- every one of the 10-20 thousand textures a long session makes).
+local function Emit(q, tx)
+    local p, key, n, c1, c2, c3, c4, clipped = LR[q + 1], LR[q + 2], LR[q + 3], LR[q + 4], LR[q + 5], LR[q + 6],
+        LR[q + 7], LR[q + 8]
     local k = QN[p]
     if not tx then
         tx = Acquire(frameOf[k], QPOOL[p])
@@ -701,11 +764,8 @@ local function Emit(p, key, n, c1, c2, c3, c4, clipped, tx)
     -- (a key always has the same corners, so without the morph their texture coordinates never change; a piece cut
     -- at the near plane has cut corners, and its key shows the whole piece again once it is clear of the plane: so a
     -- cut send never counts as the whole piece's)
-    if clipped or not tx.uvOk
-        or (morphOn and (c1 > nV or c2 > nV or c3 > nV or c4 > nV) and UVMoved(tx, c1, c2, c4, c3)) then
-        local u1, v1, u2, v2, u3, v3, u4, v4 = DU[c1], DV[c1], DU[c2], DV[c2], DU[c4], DV[c4], DU[c3], DV[c3]
-        tx:SetTexCoord(u1, v1, u2, v2, u3, v3, u4, v4)
-        tx.u1, tx.v1, tx.u2, tx.v2, tx.u3, tx.v3, tx.u4, tx.v4 = u1, v1, u2, v2, u3, v3, u4, v4
+    if clipped or not tx.uvOk or (morphOn and (c1 > nV or c2 > nV or c3 > nV or c4 > nV)) then
+        tx:SetTexCoord(DU[c1], DV[c1], DU[c2], DV[c2], DU[c4], DV[c4], DU[c3], DV[c3])
         tx.uvOk = not clipped
     end
     local pp = pos[k]
@@ -713,14 +773,22 @@ local function Emit(p, key, n, c1, c2, c3, c4, clipped, tx)
         tx:SetDrawLayer(LAYERS[floor(pp / 16) + 1], pp % 16 - 8)
         tx.pos = pp
     end
-    tx:SetVertexOffset(VUL, PX[c1] - ox + 0.5, PY[c1] - oy - 0.5)
-    tx:SetVertexOffset(VLL, PX[c2] - ox + 0.5, PY[c2] - oy + 0.5)
-    tx:SetVertexOffset(VUR, PX[c4] - ox - 0.5, PY[c4] - oy - 0.5)
-    tx:SetVertexOffset(VLR, PX[c3] - ox - 0.5, PY[c3] - oy + 0.5)
+    local x1, y1, x2, y2, x3, y3, x4, y4 = PX[c1], PY[c1], PX[c2], PY[c2], PX[c3], PY[c3], PX[c4], PY[c4]
+    tx:SetVertexOffset(VUL, x1 - ox + 0.5, y1 - oy - 0.5)
+    tx:SetVertexOffset(VLL, x2 - ox + 0.5, y2 - oy + 0.5)
+    tx:SetVertexOffset(VUR, x4 - ox - 0.5, y4 - oy - 0.5)
+    tx:SetVertexOffset(VLR, x3 - ox - 0.5, y3 - oy + 0.5)
     if not tx.shown then
         tx:Show()
         tx.shown = true
     end
+    -- its screen box, for the copies' bins (spec 5.13.4)
+    if x2 < x1 then x1, x2 = x2, x1 end
+    if x4 < x3 then x3, x4 = x4, x3 end
+    if y2 < y1 then y1, y2 = y2, y1 end
+    if y4 < y3 then y3, y4 = y4, y3 end
+    LR[q + 9], LR[q + 10] = (x1 < x3) and x1 or x3, (y1 < y3) and y1 or y3
+    LR[q + 11], LR[q + 12] = (x2 > x4) and x2 or x4, (y2 > y4) and y2 or y4
 end
 
 -- The point where segment i -> j meets the near plane (exactly: linear in the room and in camera space).
@@ -750,7 +818,7 @@ local function Leaf(p, key, n, c1, c2, c3, c4, clipped)
         aborted = true
         return
     end
-    local o = i * 8 - 8
+    local o = i * 12 - 12
     LR[o + 1], LR[o + 2], LR[o + 3], LR[o + 4], LR[o + 5], LR[o + 6], LR[o + 7], LR[o + 8] =
         p, key, n, c1, c2, c3, c4, clipped
 end
@@ -807,18 +875,21 @@ RefineTri = function(p, path, a, b, c, lev)
     if PS[a] ~= g then Prep(a) end
     if PS[b] ~= g then Prep(b) end
     if PS[c] ~= g then Prep(c) end
-    -- out of view (Out3, written out): every corner behind the near plane or outside one side of the view
     local da, db, dc = PD[a], PD[b], PD[c]
-    if da < NEAR and db < NEAR and dc < NEAR then return end
-    local ra, ua, rb, ub, rc, uc = PR[a], PU[a], PR[b], PU[b], PR[c], PU[c]
-    local la, lb, lc = ra * exx + ua * eyx, rb * exx + ub * eyx, rc * exx + uc * eyx
-    if (la + cl * da < 0 and lb + cl * db < 0 and lc + cl * dc < 0) or (cr * da < la and cr * db < lb and cr * dc < lc)
-    then return end
-    la, lb, lc = ra * exy + ua * eyy, rb * exy + ub * eyy, rc * exy + uc * eyy
-    if (la + cb * da < 0 and lb + cb * db < 0 and lc + cb * dc < 0) or (ct * da < la and ct * db < lb and ct * dc < lc)
-    then return end
+    if not inView then
+        -- out of view (Out3, written out): every corner behind the near plane or outside one side of the view (a
+        -- node whose box lies entirely in view skips this: none of its pieces can be out)
+        if da < NEAR and db < NEAR and dc < NEAR then return end
+        local ra, ua, rb, ub, rc, uc = PR[a], PU[a], PR[b], PU[b], PR[c], PU[c]
+        local la, lb, lc = ra * exx + ua * eyx, rb * exx + ub * eyx, rc * exx + uc * eyx
+        if (la + cl * da < 0 and lb + cl * db < 0 and lc + cl * dc < 0) or (cr * da < la and cr * db < lb and cr * dc < lc)
+        then return end
+        la, lb, lc = ra * exy + ua * eyy, rb * exy + ub * eyy, rc * exy + uc * eyy
+        if (la + cb * da < 0 and lb + cb * db < 0 and lc + cb * dc < 0) or (ct * da < la and ct * db < lb and ct * dc < lc)
+        then return end
+    end
     local key = p * KP + path * 4
-    local crossing = da < NEAR or db < NEAR or dc < NEAR
+    local crossing = not inNear and (da < NEAR or db < NEAR or dc < NEAR)
     local split = false
     if lev < MAXDEPTH then
         if crossing then
@@ -877,18 +948,20 @@ RefineQuad = function(p, path, a, b, c, d, lev)
     if PS[b] ~= g then Prep(b) end
     if PS[c] ~= g then Prep(c) end
     if PS[d] ~= g then Prep(d) end
-    -- out of view (Out4, written out)
     local da, db, dc, dd = PD[a], PD[b], PD[c], PD[d]
-    if da < NEAR and db < NEAR and dc < NEAR and dd < NEAR then return end
-    local ra, ua, rb, ub, rc, uc, rd, ud = PR[a], PU[a], PR[b], PU[b], PR[c], PU[c], PR[d], PU[d]
-    local la, lb, lc, ld = ra * exx + ua * eyx, rb * exx + ub * eyx, rc * exx + uc * eyx, rd * exx + ud * eyx
-    if (la + cl * da < 0 and lb + cl * db < 0 and lc + cl * dc < 0 and ld + cl * dd < 0)
-        or (cr * da < la and cr * db < lb and cr * dc < lc and cr * dd < ld) then return end
-    la, lb, lc, ld = ra * exy + ua * eyy, rb * exy + ub * eyy, rc * exy + uc * eyy, rd * exy + ud * eyy
-    if (la + cb * da < 0 and lb + cb * db < 0 and lc + cb * dc < 0 and ld + cb * dd < 0)
-        or (ct * da < la and ct * db < lb and ct * dc < lc and ct * dd < ld) then return end
+    if not inView then
+        -- out of view (Out4, written out)
+        if da < NEAR and db < NEAR and dc < NEAR and dd < NEAR then return end
+        local ra, ua, rb, ub, rc, uc, rd, ud = PR[a], PU[a], PR[b], PU[b], PR[c], PU[c], PR[d], PU[d]
+        local la, lb, lc, ld = ra * exx + ua * eyx, rb * exx + ub * eyx, rc * exx + uc * eyx, rd * exx + ud * eyx
+        if (la + cl * da < 0 and lb + cl * db < 0 and lc + cl * dc < 0 and ld + cl * dd < 0)
+            or (cr * da < la and cr * db < lb and cr * dc < lc and cr * dd < ld) then return end
+        la, lb, lc, ld = ra * exy + ua * eyy, rb * exy + ub * eyy, rc * exy + uc * eyy, rd * exy + ud * eyy
+        if (la + cb * da < 0 and lb + cb * db < 0 and lc + cb * dc < 0 and ld + cb * dd < 0)
+            or (ct * da < la and ct * db < lb and ct * dc < lc and ct * dd < ld) then return end
+    end
     local key = p * KP + path * 4
-    local crossing = da < NEAR or db < NEAR or dc < NEAR or dd < NEAR
+    local crossing = not inNear and (da < NEAR or db < NEAR or dc < NEAR or dd < NEAR)
     local split = false
     if lev < MAXDEPTH then
         if crossing then
@@ -1071,42 +1144,49 @@ end
 -- pieces tau asks for (recorded in LR, not drawn yet). Stops early when the redraw was aborted (Leaf).
 local function Collect()
     local sp = 1
-    stN[1], stP[1] = 1, 0
+    stN[1], stP[1], stM[1] = 1, 0, 31
     while sp > 0 and not aborted do
         local k, ph = stN[sp], stP[sp]
         if ph == 0 then
-            if BoxOut(SB, k * 6 - 6) then
+            local m = stM[sp]
+            if m > 0 then m = BoxTest(SB, k * 6 - 6, m) end
+            if m < 0 then
                 sp = sp - 1                                           -- the whole subtree is out of view
             else
-                stP[sp] = 1
+                stP[sp], stM[sp] = 1, m
                 local far = sideSign[k] and NBK[k] or NFR[k]
                 if far ~= 0 then
                     sp = sp + 1
-                    stN[sp], stP[sp] = far, 0
+                    stN[sp], stP[sp], stM[sp] = far, 0, m
                 end
             end
         elseif ph == 1 then
             stP[sp] = 2
-            local s = side[k]
-            if (s > EPS_SIDE or s < -EPS_SIDE) and FP[k] <= LP[k] and not BoxOut(OB, k * 6 - 6) then
-                local want = (s > 0) and 1 or -1                      -- prims facing the camera
-                for p = FP[k], LP[k] do
-                    if QO[p] == want then
-                        local d = QD[p]
-                        if d == 0 then RefineTri(p, 1, QA[p], QB[p], QC[p], 0)
-                        else RefineQuad(p, 1, QA[p], QB[p], QC[p], d, 0) end
+            local s, m = side[k], stM[sp]
+            if (s > EPS_SIDE or s < -EPS_SIDE) and FP[k] <= LP[k] then
+                if m > 0 then m = BoxTest(OB, k * 6 - 6, m) end
+                if m >= 0 then
+                    inView, inNear = m == 0, m < 16
+                    local want = (s > 0) and 1 or -1                  -- prims facing the camera
+                    for p = FP[k], LP[k] do
+                        if QO[p] == want then
+                            local d = QD[p]
+                            if d == 0 then RefineTri(p, 1, QA[p], QB[p], QC[p], 0)
+                            else RefineQuad(p, 1, QA[p], QB[p], QC[p], d, 0) end
+                        end
                     end
                 end
             end
             local near = sideSign[k] and NFR[k] or NBK[k]
             if near ~= 0 then
                 sp = sp + 1
-                stN[sp], stP[sp] = near, 0
+                stN[sp], stP[sp], stM[sp] = near, 0, stM[sp - 1]
             end
         else
             sp = sp - 1
         end
     end
+    inView, inNear = false, false
 end
 
 -- Pass 2: collect the pieces, then draw them. When tau is the controller's (not fixed), a redraw that runs past the
@@ -1118,6 +1198,11 @@ end
 local function Pass2()
     gen = gen + 1
     local o, C = Room.opts, CTL
+    local morph = o.morph ~= false
+    if morph ~= morphOn then                                           -- (midpoints kept with the other kind of uv,
+        morphOn, wipeMid = morph, true                                 -- and pieces showing it: send theirs again)
+        for j = 1, nLive do liveList[j].uvOk = false end
+    end
     if wipeMid or nPts - nV > (tonumber(o.midCap) or C.midCap) then   -- (the midpoints cache stays small)
         wipe(midOf)
         nPts, wipeMid = nV, false
@@ -1144,19 +1229,17 @@ local function Pass2()
         t = math.min(C.limit, t * 1.25)
         C.tau = math.min(C.max, t)
         stats.redone = stats.redone + 1
+        gen = gen + 1                                                  -- (the morph depends on tau: prepare again)
     end
     redoOK = false
     local g = gen
     for i = 1, nLeaves do                                              -- pieces drawn again keep their texture
-        local tx = live[LR[i * 8 - 6]]
+        local tx = live[LR[i * 12 - 10]]
         LT[i] = tx or false
         if tx then tx.gen = g end
     end
     Release()
-    for i = 1, nLeaves do
-        local q = i * 8 - 8
-        Emit(LR[q + 1], LR[q + 2], LR[q + 3], LR[q + 4], LR[q + 5], LR[q + 6], LR[q + 7], LR[q + 8], LT[i])
-    end
+    for i = 1, nLeaves do Emit(i * 12 - 12, LT[i]) end
     HideReleased()
 end
 
@@ -1170,10 +1253,15 @@ end
 function Room.DrawRoom()
     stats.redraw = false
     if not (meshOk and haveBasis and camMoved) then return false end
-    CTL.epoch = CTL.epoch + 1
+    local o, C = Room.opts, CTL
+    C.t0 = nil
+    if camDriven and o.adaptiveTime ~= false and type(o.tau) ~= "number" and o.adaptive ~= false
+        and debugprofilestop then
+        C.t0 = debugprofilestop()                                     -- (StopClock, at the end of DrawCopies)
+    end
+    C.epoch = C.epoch + 1
     Pass1()
     Pass2()
-    local o, C = Room.opts, CTL
     if camDriven and type(o.tau) ~= "number" and o.adaptive ~= false then
         local target, t = tonumber(o.target) or C.target, C.tau
         if nLeaves > 0.95 * hardCap then
@@ -1189,6 +1277,28 @@ function Room.DrawRoom()
     stats.redraws = stats.redraws + 1
     stats.redraw = true
     return true
+end
+
+-- The time controller (spec 5.11; in game only: opts.adaptiveTime and debugprofilestop): a camera-driven redraw
+-- starts the clock in DrawRoom, DrawCopies stops it (the room, its mark lines and the copies). Three such redraws in
+-- a row over 4 ms lower the leaf target by 10% (not under 900); sixty in a row under 2.4 ms raise it by 5% (not
+-- over 2200). The count controller then moves tau towards the target.
+local function StopClock()
+    local C = CTL
+    local t0 = C.t0
+    if not t0 then return end
+    C.t0 = nil
+    local ms = debugprofilestop() - t0
+    stats.ms = ms
+    if ms > C.targetMs then
+        C.over, C.under = C.over + 1, 0
+        if C.over >= 3 then C.over, C.target = 0, max(C.targetMin, C.target * 0.9) end
+    elseif ms < 0.6 * C.targetMs then
+        C.under, C.over = C.under + 1, 0
+        if C.under >= 60 then C.under, C.target = 0, math.min(C.targetMax, C.target * 1.05) end
+    else
+        C.over, C.under = 0, 0
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -1216,6 +1326,12 @@ do
 local LS = {}                                                      -- insertion stack: node + 6 coordinates
 local SI, SPS, SPN, SMK, PF = {}, {}, {}, {}, {}
 local nSeg, nSegLast, nPl, reuse, passEpoch = 0, 0, 0, false, -1
+-- The walk down the tree does not depend on the camera: at a node a piece always goes on into the child on its own
+-- side (the camera only decides, at the node where it lands, whether it goes after or before it - and which child a
+-- piece lying in a plane takes). So each segment's pieces (6 coordinates, the node it lands at and its side there)
+-- are kept while its ends and the room stay the same (DCI: 6 coordinates and the mesh; DCP: { n, ... } or false
+-- when a piece lay in a plane with a child to choose).
+local DCI, DCP = {}, {}
 
 local function NewLine(fr, i)
     local l = fr:CreateLine(nil, "BACKGROUND")
@@ -1226,8 +1342,9 @@ local function NewLine(fr, i)
     return l
 end
 
--- One placed segment: the next line of frame fr's pool at place p, from a to b (arena, in front of the camera).
-local function PlaceSeg(fr, p, ax, ay, az, bx, by, bz, r, g, b, a, thick)
+-- One placed segment: the next line of frame fr's pool at place p, from a to b (arena, in front of the camera);
+-- key: its place in the order (2 rank + 1 of the node it follows, -1 before every node), recorded for the copies.
+local function PlaceSeg(fr, p, key, ax, ay, az, bx, by, bz, r, g, b, a, thick)
     local dx, dy, dz = ax - ex, ay - ey, az - ez
     local d = dx * Fx + dy * Fy + dz * Fz
     local rr, uu = dx * Rx + dy * Ry, dx * Ux + dy * Uy + dz * Uz
@@ -1240,6 +1357,14 @@ local function PlaceSeg(fr, p, ax, ay, az, bx, by, bz, r, g, b, a, thick)
     fr.lineUsed = i
     nPl = nPl + 1
     PF[nPl] = fr
+    local R, q = MKR, nPl * 6 - 6
+    local RA, RS, RC = R.A, R.S, R.C
+    RA[q + 1], RA[q + 2], RA[q + 3], RA[q + 4], RA[q + 5], RA[q + 6] = ax, ay, az, bx, by, bz
+    q = nPl * 4 - 4
+    RS[q + 1], RS[q + 2], RS[q + 3], RS[q + 4] = x1, y1, x2, y2
+    q = nPl * 5 - 5
+    RC[q + 1], RC[q + 2], RC[q + 3], RC[q + 4], RC[q + 5] = r, g, b, a, thick
+    R.K[nPl] = key
     local l = fr.lines[i] or NewLine(fr, i)
     if l.pos ~= p then
         l:SetDrawLayer(LAYERS[floor(p / 16) + 1], p % 16 - 8)
@@ -1281,6 +1406,47 @@ function Room.EndLines()
     end
     if lineFrame then HideLines(lineFrame, lineFrame.lineUsed + 1) end
     nSegLast, passEpoch = nSeg, CTL.epoch
+    MKR.n = nPl
+end
+
+-- A segment's pieces into P (see DCI / DCP): -> false when one lay in a plane with a child to choose.
+local function Descend(P, x1, y1, z1, x2, y2, z2)
+    local S, sp, n = LS, 1, 0
+    S[1], S[2], S[3], S[4], S[5], S[6], S[7] = 1, x1, y1, z1, x2, y2, z2
+    while sp > 0 do
+        local q = sp * 7 - 7
+        local k, ax, ay, az, bx, by, bz = S[q + 1], S[q + 2], S[q + 3], S[q + 4], S[q + 5], S[q + 6], S[q + 7]
+        sp = sp - 1
+        local na, nb, nc, nd = NA[k], NB[k], NC[k], ND[k]
+        local s1, s2 = na * ax + nb * ay + nc * az + nd, na * bx + nb * by + nc * bz + nd
+        local c1 = (s1 > LINE_EPS) and 1 or ((s1 < -LINE_EPS) and -1 or 0)
+        local c2 = (s2 > LINE_EPS) and 1 or ((s2 < -LINE_EPS) and -1 or 0)
+        if c1 * c2 < 0 then
+            local t = s1 / (s1 - s2)
+            local mx, my, mz = ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t
+            q = sp * 7
+            S[q + 1], S[q + 2], S[q + 3], S[q + 4], S[q + 5], S[q + 6], S[q + 7] = k, ax, ay, az, mx, my, mz
+            S[q + 8], S[q + 9], S[q + 10], S[q + 11], S[q + 12], S[q + 13], S[q + 14] = k, mx, my, mz, bx, by, bz
+            sp = sp + 2
+        else
+            local c = (c1 ~= 0) and c1 or c2
+            local ch = 0
+            if c > 0 then ch = NFR[k] elseif c < 0 then ch = NBK[k]
+            elseif NFR[k] ~= 0 or NBK[k] ~= 0 then return false end
+            if ch ~= 0 then
+                q = sp * 7
+                S[q + 1], S[q + 2], S[q + 3], S[q + 4], S[q + 5], S[q + 6], S[q + 7] = ch, ax, ay, az, bx, by, bz
+                sp = sp + 1
+            else
+                q = n * 8
+                P[q + 1], P[q + 2], P[q + 3], P[q + 4], P[q + 5], P[q + 6], P[q + 7], P[q + 8] = ax, ay, az, bx, by, bz,
+                    k, c
+                n = n + 1
+            end
+        end
+    end
+    P.n = n
+    return true
 end
 
 -- A mark segment (arena coordinates; colour; thickness): cut at the near plane, then run down the BSP tree. A
@@ -1326,6 +1492,38 @@ function Room.Line(x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
     nMarks = nMarks + 1
     SMK[s] = 1
     MKS[o + 1], MKS[o + 2], MKS[o + 3], MKS[o + 4], MKS[o + 5], MKS[o + 6], MKS[o + 7] = x1, y1, z1, x2, y2, z2, thick
+    if d1 >= NEAR and d2 >= NEAR then                         -- (all in front: the kept pieces, placed for this camera)
+        o = s * 7 - 7
+        local P = DCP[s]
+        if not (DCI[o + 1] == x1 and DCI[o + 2] == y1 and DCI[o + 3] == z1 and DCI[o + 4] == x2 and DCI[o + 5] == y2
+            and DCI[o + 6] == z2 and DCI[o + 7] == curMesh) then
+            P = P or {}
+            if not Descend(P, x1, y1, z1, x2, y2, z2) then P.n = false end
+            DCP[s] = P
+            DCI[o + 1], DCI[o + 2], DCI[o + 3], DCI[o + 4], DCI[o + 5], DCI[o + 6], DCI[o + 7] = x1, y1, z1, x2, y2, z2,
+                curMesh
+        end
+        if P.n then
+            for q = 0, P.n * 8 - 8, 8 do
+                local k, c = P[q + 7], P[q + 8]
+                local fr, p, key
+                if c == 0 or (c > 0) == (sideSign[k] == true) then          -- after node k
+                    fr, p, key = roomFrames[frameOf[k]], pos[k] + 1, 2 * rankOf[k] + 1
+                else                                                         -- before node k
+                    local rk = rankOf[k] - 1
+                    if rk < 0 then
+                        fr, p, key = lineFrame, 0, -1
+                    else
+                        local j = orderNode[rk]
+                        fr, p, key = roomFrames[frameOf[j]], pos[j] + 1, 2 * rk + 1
+                    end
+                end
+                PlaceSeg(fr, p, key, P[q + 1], P[q + 2], P[q + 3], P[q + 4], P[q + 5], P[q + 6], r, g, b, a, thick)
+            end
+            SPN[s] = nPl - SPS[s] + 1
+            return
+        end
+    end
     local S = LS
     local sp = 1
     S[1], S[2], S[3], S[4], S[5], S[6], S[7] = 1, x1, y1, z1, x2, y2, z2
@@ -1347,19 +1545,19 @@ function Room.Line(x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
         else
             local c = (c1 ~= 0) and c1 or c2                      -- lying in the plane: the camera's side
             local camSide = sideSign[k] and 1 or -1
-            local ch, fr, p
+            local ch, fr, p, key
             if c == 0 or c == camSide then                        -- after node k
                 ch = sideSign[k] and NFR[k] or NBK[k]
-                if ch == 0 then fr, p = roomFrames[frameOf[k]], pos[k] + 1 end
+                if ch == 0 then fr, p, key = roomFrames[frameOf[k]], pos[k] + 1, 2 * rankOf[k] + 1 end
             else                                                  -- before node k
                 ch = sideSign[k] and NBK[k] or NFR[k]
                 if ch == 0 then
                     local rk = rankOf[k] - 1
                     if rk < 0 then
-                        fr, p = lineFrame, 0
+                        fr, p, key = lineFrame, 0, -1
                     else
                         local j = orderNode[rk]
-                        fr, p = roomFrames[frameOf[j]], pos[j] + 1
+                        fr, p, key = roomFrames[frameOf[j]], pos[j] + 1, 2 * rk + 1
                     end
                 end
             end
@@ -1368,7 +1566,7 @@ function Room.Line(x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
                 S[q + 1], S[q + 2], S[q + 3], S[q + 4], S[q + 5], S[q + 6], S[q + 7] = ch, ax, ay, az, bx, by, bz
                 sp = sp + 1
             else
-                PlaceSeg(fr, p, ax, ay, az, bx, by, bz, r, g, b, a, thick)
+                PlaceSeg(fr, p, key, ax, ay, az, bx, by, bz, r, g, b, a, thick)
             end
         end
     end
@@ -1376,10 +1574,118 @@ function Room.Line(x1, y1, z1, x2, y2, z2, r, g, b, a, thick)
 end
 end
 
+-- How far the camera may stand from the pivot (arena px, py, pz: the player's head) before something of the room is
+-- in the way (spec 5.2). Five rays from the pivot to where the camera would be, the middle one and four through the
+-- corners of the near plane's rectangle (0.35 yd right / left, 0.25 yd up / down), are run through the BSP tree front
+-- to back; the first triangle any of them meets (either face) puts the camera 0.6 yd before it (not nearer the pivot
+-- than 0.8 yd). Nor does the camera leave the room's footprint (the box of its points on the floor, 0.5 yd inside):
+-- the room has nothing beyond it, so where all five rays find a way out (a doorway) the view would be the room from
+-- outside, its one-sided walls from behind. c: the trainer's camera (fx, fy, fz in scene coordinates, mirror); want:
+-- the distance wanted. The same pivot, direction and distance give the last answer without casting again.
+-- -> distance, and whether something (a triangle or the footprint's edge) was in the way.
+-- (In a function of its own: the main chunk's locals are kept for what runs every frame.)
+Room.CameraDistance = (function()
+    local X0, Y0, Z0, DX, DY, DZ = 0, 0, 0, 0, 0, 0
+    local TOL2 = 0.05 * 0.05                     -- yd: a crossing this close outside a triangle still hits it
+    local SIDE = 0.02                            -- yd: points this close to a plane lie in it
+    local EDGE = 0.5                             -- yd: the camera stays this far inside the room's footprint
+    local last = {}
+
+    -- how far p may go along d (per unit of distance) and stay within lo .. hi
+    local function ToEdge(p, d, lo, hi)
+        if d > 1e-9 then return (hi - p) / d end
+        if d < -1e-9 then return (lo - p) / d end
+        return math.huge
+    end
+
+    -- Is the point (on node k's plane) inside one of k's triangles or quads, within 0.05 yd?
+    local function Inside(k, x, y, z)
+        local na, nb, nc = NA[k], NB[k], NC[k]
+        for p = FP[k], LP[k] do
+            local o = QO[p]
+            if o ~= 0 then
+                local n = (QD[p] == 0) and 3 or 4
+                local inside = true
+                for e = 1, n do
+                    local i = (e == 1 and QA[p]) or (e == 2 and QB[p]) or (e == 3 and QC[p]) or QD[p]
+                    local j = (e == n and QA[p]) or (e == 1 and QB[p]) or (e == 2 and QC[p]) or QD[p]
+                    local ex_, ey_, ez_ = WX[j] - WX[i], WY[j] - WY[i], WZ[j] - WZ[i]
+                    local qx, qy, qz = x - WX[i], y - WY[i], z - WZ[i]
+                    -- (edge x to-point) . normal, signed by the prim's winding: >= 0 inside
+                    local s = o * ((ey_ * qz - ez_ * qy) * na + (ez_ * qx - ex_ * qz) * nb + (ex_ * qy - ey_ * qx) * nc)
+                    if s < 0 and s * s > TOL2 * (ex_ * ex_ + ey_ * ey_ + ez_ * ez_) then
+                        inside = false
+                        break
+                    end
+                end
+                if inside then return true end
+            end
+        end
+        return false
+    end
+
+    -- The first hit of the segment S(t) = P0 + t D, t0 <= t <= t1, in subtree k (front to back), or nil.
+    local function Cast(k, t0, t1)
+        if k == 0 then return nil end
+        local na, nb, nc, nd = NA[k], NB[k], NC[k], ND[k]
+        local s0 = na * (X0 + t0 * DX) + nb * (Y0 + t0 * DY) + nc * (Z0 + t0 * DZ) + nd
+        local s1 = na * (X0 + t1 * DX) + nb * (Y0 + t1 * DY) + nc * (Z0 + t1 * DZ) + nd
+        local c0 = (s0 > SIDE) and 1 or ((s0 < -SIDE) and -1 or 0)
+        local c1 = (s1 > SIDE) and 1 or ((s1 < -SIDE) and -1 or 0)
+        if c0 * c1 >= 0 then                                         -- no proper crossing
+            if c0 + c1 > 0 then return Cast(NFR[k], t0, t1) end
+            if c0 + c1 < 0 then return Cast(NBK[k], t0, t1) end
+            return Cast(NFR[k], t0, t1) or Cast(NBK[k], t0, t1)      -- (lying in the plane)
+        end
+        local near, far = NBK[k], NFR[k]
+        if c0 > 0 then near, far = far, near end
+        local tm = t0 + (t1 - t0) * s0 / (s0 - s1)
+        local h = Cast(near, t0, tm)
+        if h then return h end
+        if Inside(k, X0 + tm * DX, Y0 + tm * DY, Z0 + tm * DZ) then return tm end
+        return Cast(far, tm, t1)
+    end
+
+    return function(px, py, pz, c, want)
+        if not (meshOk and nNodes > 0) then return want, false end
+        local fx, fy, fz, m = c.fx, c.fy, c.fz, c.mirror or 1
+        if last[1] == px and last[2] == py and last[3] == pz and last[4] == fx and last[5] == fy and last[6] == fz
+            and last[7] == want and last[8] == m and last[11] == curMesh then
+            return last[9], last[10]
+        end
+        local flat = sqrt(fx * fx + fy * fy)
+        local rx, ry = 0, 1
+        if flat > 1e-6 then rx, ry = fy / flat, -fx / flat end
+        local ux, uy, uz = ry * fz, -rx * fz, rx * fy - ry * fx
+        fy, ry, uy = m * fy, m * ry, m * uy                          -- (arena coordinates)
+        X0, Y0, Z0 = px, py, pz
+        local tmin
+        for i = 0, 4 do
+            local a = (i == 0) and 0 or ((i <= 2) and 0.35 or -0.35)
+            local b = (i == 0) and 0 or ((i % 2 == 1) and 0.25 or -0.25)
+            DX, DY, DZ = -fx * want + a * rx + b * ux, -fy * want + a * ry + b * uy, -fz * want + b * uz
+            local t = Cast(1, 0, 1)
+            if t and t > 0 and (not tmin or t < tmin) then tmin = t end
+        end
+        local allowed = tmin and max(0.8, tmin * want - 0.6) or want
+        if allowed > want then allowed = want end
+        local hit = tmin ~= nil
+        local C = CTL
+        if C.fx0 then
+            local edge = math.min(ToEdge(px, -fx, C.fx0 + EDGE, C.fx1 - EDGE),
+                ToEdge(py, -fy, C.fy0 + EDGE, C.fy1 - EDGE))                       -- (fx, fy: per yard of distance)
+            if edge < allowed then allowed, hit = max(0.8, edge), true end
+        end
+        last[1], last[2], last[3], last[4], last[5], last[6], last[7], last[8] = px, py, pz, c.fx, c.fy, c.fz, want, m
+        last[9], last[10], last[11] = allowed, hit, curMesh
+        return allowed, hit
+    end
+end)()
+
 -- The height of the room's floor at (x, y): the floor triangle there whose height is nearest to hint (within
 -- 1.5 yd), else hint.
 function Room.FloorZ(x, y, hint)
-    local cell = floorCells and meshOk and floorCells[floor(x / 8) * 1000 + floor(y / 8)]
+    local cell = floorCells and meshOk and floorCells[floor(x / 4) * 1000 + floor(y / 4)]
     if not cell then return hint end
     local best, bestGap
     for n = 1, #cell do
@@ -1399,6 +1705,1134 @@ function Room.FloorZ(x, y, hint)
         end
     end
     return best or hint
+end
+
+---------------------------------------------------------------------------
+-- Copies of the room over the models (spec 5.13)
+---------------------------------------------------------------------------
+-- The room is drawn under the single ModelScene, so every model is drawn over all of it. Where a model should be
+-- hidden, the room pieces in front of it are drawn once more above the scene: for each model on screen (an
+-- occluder) the pieces on the camera's side of a plane through it - family A: upright through its axis, facing the
+-- camera; family B (the camera nearly over it): only what is nearer than all of it; skip (a corner behind the near
+-- plane): nothing - clipped in Lua to its box on the screen. Along any ray from the eye such a set is a prefix (the
+-- nearest surfaces first), so a copy never changes a room pixel: it shows the nearest surface there or nothing
+-- (spec 5.13.6). Where boxes overlap, a copy also stays on the camera's side of every other occluder whose box holds
+-- it (Restrict), so nothing behind a nearer model is ever drawn over it. Mark lines in front of a model are copied
+-- the same way. Each occluder gets two copy frames over the scene (128 places: the copied pieces' places in the
+-- room's order, nearest kept first).
+-- (One function of its own: its locals do not count against the main chunk's 200.)
+do
+local function InstallCopies()
+    local OCC_SLOTS, COPY_TEX_MAX, KEYS_MAX, G_MIN, PHI_EPS, FOOT = 16, 600, 128, 0.5, 1e-6, 0.1
+    local huge, min = math.huge, math.min
+
+    -- the camera of this pass (CAMT, from BeginFrame) and the scene's size
+    local cex, cey, cez, cFx, cFy, cFz, cRx, cRy, cUx, cUy, cUz = 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1
+    local ccx, ccy, cexx, cexy, ceyx, ceyy, cW, cH = 0, 0, 1, 0, 0, 1, 0, 0
+    local function LoadCam()
+        local C = CAMT
+        if not C.ex then return false end
+        cex, cey, cez, cFx, cFy, cFz = C.ex, C.ey, C.ez, C.Fx, C.Fy, C.Fz
+        cRx, cRy, cUx, cUy, cUz = C.Rx, C.Ry, C.Ux, C.Uy, C.Uz
+        ccx, ccy, cexx, cexy, ceyx, ceyy, cW, cH = C.cx, C.cy, C.exx, C.exy, C.eyx, C.eyy, C.W, C.H
+        return true
+    end
+
+    -- an arena point -> screen x, y (nil behind the camera) and its depth
+    local function Proj(x, y, z)
+        local dx, dy, dz = x - cex, y - cey, z - cez
+        local d = dx * cFx + dy * cFy + dz * cFz
+        if d <= 1e-6 then return nil, nil, d end
+        local r, u = dx * cRx + dy * cRy, dx * cUx + dy * cUy + dz * cUz
+        return ccx + (r * cexx + u * ceyx) / d, ccy + (r * cexy + u * ceyy) / d, d
+    end
+
+    -- The occluders of this frame (1..nOcc): the UI's record, family (1 A, 2 B, 3 skip), the plane as
+    -- phi * w = a Xw + b Yw + e w + k (w = 1 / depth, Xw = X w, Yw = Y w: affine on the screen over any flat piece),
+    -- the screen box (clamped to the view) and whether it is on screen, the slot, and how many copies it got.
+    local OIN, OFAM, OPA, OPB, OPE, OPK = {}, {}, {}, {}, {}, {}
+    local OX0, OY0, OX1, OY1, OON, OSLOT, OCNT = {}, {}, {}, {}, {}, {}, {}
+    local OZT = {}                               -- its feet's height (+ FOOT), false with the camera not above it
+    -- Where an occluder restricts the others' copies (spec 5.13.5): its body as the screen sees it - the upright
+    -- rectangle through its axis, w wide, from its feet to h (the plates' and render_check's body; no effects, no
+    -- model box, no margins: a bigger region would let whoever stands behind it show through the walls around it),
+    -- widened by RW px. 4 half-planes a x + b y + c >= 0 (12 numbers in ORQ) and their bounding box. Family B and
+    -- skip use their box.
+    local ORQ, RX0, RY0, RX1, RY1 = {}, {}, {}, {}, {}
+    local RW = 0.25
+    local nOcc, occChanged = 0, false
+    local PREV = {}                              -- per index: last id, x, y, z and box (what changed)
+    -- Per index the inputs it was derived from (id, x, y, z, h, w, rb, top and the camera's stamp: a still occluder
+    -- under a still camera derives nothing again), and its restricting region's box when its last change was taken
+    -- (LASTR). This frame's changes: CHG[1 .. nChg] the indices, CB their region's box before (4 numbers each).
+    -- occAll: a change that concerns every slot (how many there are, an index holding another unit).
+    local OSIG, LASTR, CHG, CB, nChg, occAll = {}, {}, {}, {}, 0, false
+    local FAMNAME = { "A", "B", "skip" }
+    local PCX, PCY, PCZ, PCD = {}, {}, {}, {}    -- the prism's 8 corners (0..7) and their depths
+    local PE = { 0, 1, 1, 3, 3, 2, 2, 0, 4, 5, 5, 7, 7, 6, 6, 4, 0, 4, 1, 5, 2, 6, 3, 7 }    -- its 12 edges
+
+    -- the restricting region of occluder i from its corners (screen; counter-clockwise or not) or its box
+    local function SetRegion(i, x1, y1, x2, y2, x3, y3, x4, y4)
+        local o = i * 12 - 12
+        local s = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1)          -- winding: the inside is to the left if > 0
+        local sg = (s >= 0) and 1 or -1
+        local px, py = x4, y4
+        local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
+        for e = 1, 4 do
+            local qx = (e == 1 and x1) or (e == 2 and x2) or (e == 3 and x3) or x4
+            local qy = (e == 1 and y1) or (e == 2 and y2) or (e == 3 and y3) or y4
+            local ex_, ey_ = qx - px, qy - py
+            local len = sqrt(ex_ * ex_ + ey_ * ey_)
+            local a, b = 0, 0
+            if len > 1e-9 then a, b = -ey_ * sg / len, ex_ * sg / len end   -- unit inward normal
+            ORQ[o + e * 3 - 2], ORQ[o + e * 3 - 1], ORQ[o + e * 3] = a, b, -(a * px + b * py) + RW
+            if qx < bx0 then bx0 = qx end
+            if qx > bx1 then bx1 = qx end
+            if qy < by0 then by0 = qy end
+            if qy > by1 then by1 = qy end
+            px, py = qx, qy
+        end
+        RX0[i], RY0[i], RX1[i], RY1[i] = bx0 - RW, by0 - RW, bx1 + RW, by1 + RW
+    end
+
+    -- Occluder i (its record o) for the camera of this pass: family, plane, box and restricting region; when that
+    -- changed (past 0.01 yd or 0.25 px), it goes on this frame's list of changes (CHG, CB) with its region before.
+    local function Derive(i, o)
+        local ax, ay, az = o.x, o.y, o.z
+        local R = max((o.w or 1.2) / 2, o.rb or 0) + 0.3
+        local T = max(o.h or 2.6, o.top or 0) + 0.3
+        local hx, hy = ax - cex, ay - cey
+        local hd = sqrt(hx * hx + hy * hy)
+        local nx, ny = 1, 0
+        if hd > 1e-6 then
+            nx, ny = hx / hd, hy / hd
+        else
+            local f = sqrt(cFx * cFx + cFy * cFy)
+            if f > 1e-6 then nx, ny = cFx / f, cFy / f end
+        end
+        local lx, ly = -ny, nx
+        -- the prism around it: A +- R l +- R n, at its feet and T higher
+        local dmin, behind, front = huge, false, false
+        local x0, y0, x1, y1, top = huge, huge, -huge, -huge, -huge
+        for c = 0, 7 do
+            local sl = (c % 2 == 0) and R or -R
+            local sn = (c % 4 < 2) and R or -R
+            local px, py, pz = ax + sl * lx + sn * nx, ay + sl * ly + sn * ny, (c < 4) and az or (az + T)
+            local sx, sy, d = Proj(px, py, pz)
+            PCX[c], PCY[c], PCZ[c], PCD[c] = px, py, pz, d
+            if d < dmin then dmin = d end
+            if d <= NEAR or not sx then
+                behind = true
+            else
+                front = true
+                if sx < x0 then x0 = sx end
+                if sx > x1 then x1 = sx end
+                if sy < y0 then y0 = sy end
+                if sy > y1 then y1 = sy end
+                if c >= 4 and sy > top then top = sy end
+            end
+        end
+        if behind and front then
+            -- through the near plane: where its edges cross it belongs to what is on screen too
+            for e = 1, 12 do
+                local ci, cj = PE[e * 2 - 1], PE[e * 2]
+                local di, dj = PCD[ci], PCD[cj]
+                if (di > NEAR) ~= (dj > NEAR) then
+                    local t = (NEAR + 1e-3 - di) / (dj - di)
+                    local sx, sy = Proj(PCX[ci] + (PCX[cj] - PCX[ci]) * t, PCY[ci] + (PCY[cj] - PCY[ci]) * t,
+                        PCZ[ci] + (PCZ[cj] - PCZ[ci]) * t)
+                    if sx then
+                        if sx < x0 then x0 = sx end
+                        if sx > x1 then x1 = sx end
+                        if sy < y0 then y0 = sy end
+                        if sy > y1 then y1 = sy end
+                    end
+                end
+            end
+        end
+        -- Its feet: with the camera above them, nothing lower than its feet (+ FOOT) can be in front of any of it
+        -- along a ray from the eye (the ray to a point of it stays above that height), so its copies, and the
+        -- copies over it, keep only what lies higher: the floor it stands on is never drawn over it. A half-space
+        -- holding the eye, like its plane: the copies stay a prefix of every ray (spec 5.13.6).
+        local zt = az + FOOT
+        OZT[i] = (cez > zt + 0.05) and zt or false
+        local fam
+        if hd >= G_MIN and not behind then
+            -- family A: the plane through its axis facing the camera; the box from the prism's sides (+2 px) up
+            -- to its top (+2 px) and down to the prism's bottom (with the camera at or under its feet: down to its
+            -- feet at the axis's depth, the floor in front of them lying lower on the screen)
+            fam = 1
+            local bot = y0 - 2
+            if not OZT[i] then
+                bot = huge
+                for s = -1, 1 do
+                    local _, sy = Proj(ax + s * R * lx, ay + s * R * ly, az)
+                    if sy and sy < bot then bot = sy end
+                end
+            end
+            x0, x1, y0, y1 = x0 - 2, x1 + 2, bot, top + 2
+            -- (phi + PHI_EPS < 0: what lies in the plane itself - a mark's column through its axis, a beam that
+            -- starts there - is inside the model and stays under it, whatever the rounding)
+            OPA[i], OPB[i], OPE[i], OPK[i] = nx, ny, -(nx * ax + ny * ay) + PHI_EPS, 0
+        else
+            -- family B: only what is nearer than every corner of the prism; skip when that reaches the near plane.
+            -- Its box: what of the prism is in front of the near plane (nothing when all of it is behind)
+            dmin = dmin - 0.05
+            if not front then x0, y0, x1, y1 = 0, 0, -1, -1 end
+            if dmin <= NEAR then
+                fam = 3
+                OPA[i], OPB[i], OPE[i], OPK[i] = 0, 0, 0, 1          -- (phi = +1: nothing on its near side)
+            else
+                fam = 2
+                OPA[i], OPB[i], OPE[i], OPK[i] = 0, 0, -dmin, 1
+            end
+        end
+        if x0 < 0 then x0 = 0 end
+        if y0 < 0 then y0 = 0 end
+        if x1 > cW then x1 = cW end
+        if y1 > cH then y1 = cH end
+        OFAM[i], OX0[i], OY0[i], OX1[i], OY1[i], OON[i] = fam, x0, y0, x1, y1, (x0 < x1 and y0 < y1)
+        if fam == 1 then
+            local r, h = (o.w or 1.2) / 2, o.h or 2.6                    -- (inside the prism: all in front)
+            local sx1, sy1 = Proj(ax - r * lx, ay - r * ly, az)
+            local sx2, sy2 = Proj(ax + r * lx, ay + r * ly, az)
+            local sx3, sy3 = Proj(ax + r * lx, ay + r * ly, az + h)
+            local sx4, sy4 = Proj(ax - r * lx, ay - r * ly, az + h)
+            SetRegion(i, sx1, sy1, sx2, sy2, sx3, sy3, sx4, sy4)
+        else
+            SetRegion(i, x0, y0, x1, y0, x1, y1, x0, y1)
+        end
+        local q, P = i * 8 - 8, PREV
+        if P[q + 1] ~= o.id or abs(P[q + 2] - ax) > 0.01 or abs(P[q + 3] - ay) > 0.01 or abs(P[q + 4] - az) > 0.01
+            or abs(P[q + 5] - x0) > 0.25 or abs(P[q + 6] - y0) > 0.25 or abs(P[q + 7] - x1) > 0.25
+            or abs(P[q + 8] - y1) > 0.25 then
+            occChanged = true
+            if P[q + 1] ~= o.id then occAll = true end
+            P[q + 1], P[q + 2], P[q + 3], P[q + 4], P[q + 5], P[q + 6], P[q + 7], P[q + 8] = o.id, ax, ay, az, x0, y0,
+                x1, y1
+            nChg = nChg + 1
+            CHG[nChg] = i
+            local c, r, L = nChg * 4 - 4, i * 4 - 4, LASTR
+            CB[c + 1], CB[c + 2] = L[r + 1] or huge, L[r + 2] or huge
+            CB[c + 3], CB[c + 4] = L[r + 3] or -huge, L[r + 4] or -huge
+            L[r + 1], L[r + 2], L[r + 3], L[r + 4] = RX0[i], RY0[i], RX1[i], RY1[i]
+        end
+    end
+
+    -- list[1..n]: { id, x, y, z (arena: the model's feet), h, w (yd), rb, top (the model's own box: radius and
+    -- height; 0 when unknown), prio (2 for you) }. Derives family, plane and box for the camera BeginFrame measured
+    -- (again only for an occluder whose inputs or camera changed).
+    function Room.SetOccluders(list, n)
+        n = n or #list
+        nChg = 0
+        if not (meshOk and haveBasis and LoadCam()) then
+            if nOcc ~= 0 then occChanged, occAll = true, true end
+            nOcc = 0
+            return
+        end
+        if n ~= nOcc then occChanged, occAll = true, true end
+        nOcc = n
+        local cs, S = CAMT.stamp, OSIG
+        for i = 1, n do
+            local o = list[i]
+            OIN[i] = o
+            local g = i * 9 - 9
+            if not (S[g + 1] == o.id and S[g + 2] == o.x and S[g + 3] == o.y and S[g + 4] == o.z and S[g + 5] == o.h
+                and S[g + 6] == o.w and S[g + 7] == o.rb and S[g + 8] == o.top and S[g + 9] == cs) then
+                S[g + 1], S[g + 2], S[g + 3], S[g + 4], S[g + 5] = o.id, o.x, o.y, o.z, o.h
+                S[g + 6], S[g + 7], S[g + 8], S[g + 9] = o.w, o.rb, o.top, cs
+                Derive(i, o)
+            end
+        end
+    end
+
+    -- Slots: up to OCC_SLOTS occluders on screen (not skip) get copies, you first, then the biggest boxes; one keeps
+    -- its slot from the last frame.
+    local slotOf, SLOTOCC, ORDER = {}, {}, {}
+    local function SlotCmp(a, b)
+        local pa, pb = OIN[a].prio or 1, OIN[b].prio or 1
+        if pa ~= pb then return pa > pb end
+        local sa, sb = (OX1[a] - OX0[a]) * (OY1[a] - OY0[a]), (OX1[b] - OX0[b]) * (OY1[b] - OY0[b])
+        if sa ~= sb then return sa > sb end
+        return a < b
+    end
+    local function AssignSlots()
+        local n = 0
+        for i = 1, nOcc do
+            OSLOT[i], OCNT[i] = -1, 0
+            if OON[i] and OFAM[i] ~= 3 then
+                n = n + 1
+                ORDER[n] = i
+            end
+        end
+        for i = n + 1, #ORDER do ORDER[i] = nil end
+        if n > 1 then table.sort(ORDER, SlotCmp) end
+        if n > OCC_SLOTS then
+            for i = OCC_SLOTS + 1, n do ORDER[i] = nil end
+            n = OCC_SLOTS
+        end
+        for j = 0, OCC_SLOTS - 1 do SLOTOCC[j] = false end
+        for k = 1, n do
+            local i = ORDER[k]
+            local j = slotOf[OIN[i].id]
+            if j and not SLOTOCC[j] then SLOTOCC[j], OSLOT[i] = i, j end
+        end
+        local free = 0
+        for k = 1, n do
+            local i = ORDER[k]
+            if OSLOT[i] < 0 then
+                while SLOTOCC[free] do free = free + 1 end
+                SLOTOCC[free], OSLOT[i] = i, free
+            end
+        end
+        wipe(slotOf)
+        for k = 1, n do slotOf[OIN[ORDER[k]].id] = OSLOT[ORDER[k]] end
+    end
+
+    -- Polygons: screen points only (x, y: 2 numbers per corner), in reusable buffers. Over one GPU triangle of a piece
+    -- every other value the copies need - u, v as its texture shows them (the GPU's own interpolation), w = 1 / depth,
+    -- X w, Y w, Z w (a flat triangle through a pinhole camera) - is an affine function of the screen point, so every
+    -- cut is a half-plane of the screen (exact) and those values are worked out only where they are used (TA).
+    -- Clip keeps the part where A x + B y + C >= 0: src (m corners) -> dst, its corner count.
+    local BUFS = {}
+    local function Buf(i)
+        local b = BUFS[i]
+        if not b then
+            b = {}
+            BUFS[i] = b
+        end
+        return b
+    end
+    local function Clip(src, m, dst, A, B, C)
+        local n, po = 0, m * 2 - 2
+        local px, py = src[po + 1], src[po + 2]
+        local pf = A * px + B * py + C
+        for q = 0, m * 2 - 2, 2 do
+            local x, y = src[q + 1], src[q + 2]
+            local f = A * x + B * y + C
+            if (f >= 0) ~= (pf >= 0) then
+                local t, d = pf / (pf - f), n * 2
+                dst[d + 1], dst[d + 2] = px + (x - px) * t, py + (y - py) * t
+                n = n + 1
+            end
+            if f >= 0 then
+                local d = n * 2
+                dst[d + 1], dst[d + 2] = x, y
+                n = n + 1
+            end
+            px, py, pf = x, y, f
+        end
+        return n
+    end
+
+    -- The GPU triangle being copied. TA: per value A its function A = Ax x + Ay y + A0 (3 numbers): u 1..3, v 4..6
+    -- (Setup), w 7..9, X w 10..12, Y w 13..15, Z w 16..18 (SetupW, once a cut needs them: taW); its corners 19, 20,
+    -- 27; its first corner's screen point 21, 22, the edges to the others 23..26 and 1 / det 28.
+    local TA, taW = {}, false
+    -- the function through values A1, A2, A3 at the corners -> TA[o + 1 .. o + 3]
+    local function Affine(o, A1, A2, A3)
+        local T = TA
+        local d2, d3, r = A2 - A1, A3 - A1, T[28]
+        local gx, gy = (d2 * T[26] - d3 * T[24]) * r, (d3 * T[23] - d2 * T[25]) * r
+        T[o + 1], T[o + 2], T[o + 3] = gx, gy, A1 - gx * T[21] - gy * T[22]
+    end
+    -- Corners i1, i2, i3 into polygon P (3 corners) and TA's u, v. -> false when the triangle covers under 1 px^2
+    -- (nothing of it would show: Fan drops anything that small)
+    local function Setup(P, i1, i2, i3)
+        local x1, y1, x2, y2, x3, y3 = PX[i1], PY[i1], PX[i2], PY[i2], PX[i3], PY[i3]
+        local ax, ay, bx, by = x2 - x1, y2 - y1, x3 - x1, y3 - y1
+        local det = ax * by - bx * ay
+        if det < 2 and det > -2 then return false end
+        P[1], P[2], P[3], P[4], P[5], P[6] = x1, y1, x2, y2, x3, y3
+        local r, T = 1 / det, TA
+        T[19], T[20], T[27], T[21], T[22], T[23], T[24], T[25], T[26], T[28] = i1, i2, i3, x1, y1, ax, ay, bx, by, r
+        local A1 = DU[i1]
+        local d2, d3 = DU[i2] - A1, DU[i3] - A1
+        local gx, gy = (d2 * by - d3 * ay) * r, (d3 * ax - d2 * bx) * r
+        T[1], T[2], T[3] = gx, gy, A1 - gx * x1 - gy * y1
+        A1 = DV[i1]
+        d2, d3 = DV[i2] - A1, DV[i3] - A1
+        gx, gy = (d2 * by - d3 * ay) * r, (d3 * ax - d2 * bx) * r
+        T[4], T[5], T[6] = gx, gy, A1 - gx * x1 - gy * y1
+        taW = false
+        return true
+    end
+    local function SetupW()
+        local T = TA
+        local i1, i2, i3 = T[19], T[20], T[27]
+        local w1, w2, w3 = 1 / PD[i1], 1 / PD[i2], 1 / PD[i3]
+        Affine(6, w1, w2, w3)
+        Affine(9, WX[i1] * w1, WX[i2] * w2, WX[i3] * w3)
+        Affine(12, WY[i1] * w1, WY[i2] * w2, WY[i3] * w3)
+        Affine(15, WZ[i1] * w1, WZ[i2] * w2, WZ[i3] * w3)
+        taW = true
+    end
+
+    -- An occluder's near side (phi < 0: phi w = a X w + b Y w + e w + k < 0) and, when the camera is above its feet,
+    -- the part higher than them (Z w - zt w > 0), over the current triangle: src (m corners) -> into buffer a (b:
+    -- scratch) -> the buffer holding it, its corner count.
+    local function NearSide(N, src, m, a, b)
+        if not taW then SetupW() end
+        local T = TA
+        local pa, pb, pe, pk, zt = OPA[N], OPB[N], OPE[N], OPK[N], OZT[N]
+        local gx, gy = pa * T[10] + pb * T[13] + pe * T[7], pa * T[11] + pb * T[14] + pe * T[8]
+        local g0 = pa * T[12] + pb * T[15] + pe * T[9] + pk
+        local hx, hy, h0 = 0, 0, 0
+        if zt then hx, hy, h0 = T[16] - zt * T[7], T[17] - zt * T[8], T[18] - zt * T[9] end
+        local allIn = true                             -- (all of it on the near side: nothing to cut)
+        for v = 0, m * 2 - 2, 2 do
+            local x, y = src[v + 1], src[v + 2]
+            if gx * x + gy * y + g0 >= 0 or (zt and hx * x + hy * y + h0 <= 0) then
+                allIn = false
+                break
+            end
+        end
+        if allIn then return src, m end
+        m = Clip(src, m, a, -gx, -gy, -g0)
+        if not zt or m < 3 then return a, m end
+        return b, Clip(a, m, b, hx, hy, h0)
+    end
+
+    -- The part of src (m corners) inside the rectangle, using buffers ba / bb (never writing into src) -> the
+    -- buffer that holds it (src itself when it lies inside already) and its corner count (0: nothing inside).
+    local function ClipRect(src, m, x0, y0, x1, y1, ba, bb)
+        local px0, py0, px1, py1 = huge, huge, -huge, -huge
+        for q = 0, m * 2 - 2, 2 do
+            local x, y = src[q + 1], src[q + 2]
+            if x < px0 then px0 = x end
+            if x > px1 then px1 = x end
+            if y < py0 then py0 = y end
+            if y > py1 then py1 = y end
+        end
+        if px1 <= x0 or px0 >= x1 or py1 <= y0 or py0 >= y1 then return src, 0 end
+        local cur, out = src, ba
+        if px0 < x0 then
+            m = Clip(cur, m, out, 1, 0, -x0)
+            cur, out = out, (out == ba) and bb or ba
+            if m < 3 then return cur, 0 end
+        end
+        if px1 > x1 then
+            m = Clip(cur, m, out, -1, 0, x1)
+            cur, out = out, (out == ba) and bb or ba
+            if m < 3 then return cur, 0 end
+        end
+        if py0 < y0 then
+            m = Clip(cur, m, out, 0, 1, -y0)
+            cur, out = out, (out == ba) and bb or ba
+            if m < 3 then return cur, 0 end
+        end
+        if py1 > y1 then
+            m = Clip(cur, m, out, 0, -1, y1)
+            cur = out
+            if m < 3 then return cur, 0 end
+        end
+        return cur, m
+    end
+
+    -- Copy items of this pass: key (the piece's place in the room's order), kind (1 a texture: pool, light, 16
+    -- numbers = x, y, u, v of UL, LL, UR, LR; 2 a line: x1, y1, x2, y2, r, g, b, a, thickness).
+    local IK, ITY, IP, IL, IV = {}, {}, {}, {}, {}
+    local nItems = 0
+    local curKey, curPool, curLight = 0, 0, 1
+
+    -- A fragment (b, m corners) -> texture items: a fan of quads (v1, vi, vi+1, vi+2) and a last triangle. A quad's
+    -- corners go UL = v1, LL = vi, LR = vi+1, UR = vi+2; a triangle's UR and LR are both its last corner. All lie in
+    -- one GPU triangle of the piece, with its texture coordinates, so either diagonal shows the same picture.
+    local function Fan(b, m)
+        local s, q = 0, m * 2 - 2
+        local px, py = b[q + 1], b[q + 2]
+        for o = 0, m * 2 - 2, 2 do
+            local x, y = b[o + 1], b[o + 2]
+            s = s + (px * y - x * py)
+            px, py = x, y
+        end
+        if abs(s) < 2 then return end                                -- (under 1 px^2)
+        local T = TA
+        local ux, uy, u0, vx, vy, v0 = T[1], T[2], T[3], T[4], T[5], T[6]
+        local x1, y1 = b[1], b[2]
+        local U1, V1 = ux * x1 + uy * y1 + u0, vx * x1 + vy * y1 + v0
+        local i = 2
+        while i + 1 <= m do
+            nItems = nItems + 1
+            local it = nItems
+            IK[it], ITY[it], IP[it], IL[it] = curKey, 1, curPool, curLight
+            local o = it * 16 - 16
+            local qb, qc = (i - 1) * 2, i * 2                         -- vi, vi+1
+            local qd = qc                                             -- UR: vi+2 for a quad, vi+1 for a triangle
+            if i + 2 <= m then qd = (i + 1) * 2 end
+            local xb, yb, xc, yc, xd, yd = b[qb + 1], b[qb + 2], b[qc + 1], b[qc + 2], b[qd + 1], b[qd + 2]
+            -- UL, LL, UR, LR: x, y, u, v
+            IV[o + 1], IV[o + 2], IV[o + 3], IV[o + 4] = x1, y1, U1, V1
+            IV[o + 5], IV[o + 6], IV[o + 7], IV[o + 8] = xb, yb, ux * xb + uy * yb + u0, vx * xb + vy * yb + v0
+            IV[o + 9], IV[o + 10], IV[o + 11], IV[o + 12] = xd, yd, ux * xd + uy * yd + u0, vx * xd + vy * yd + v0
+            IV[o + 13], IV[o + 14], IV[o + 15], IV[o + 16] = xc, yc, ux * xc + uy * yc + u0, vx * xc + vy * yc + v0
+            i = i + ((i + 2 <= m) and 2 or 1)
+        end
+    end
+
+    -- The other occluders a fragment of X's copies must respect (OVL: those whose restricting region overlaps X's
+    -- box), the ones overlapping the fragment, largest overlap first: OTH[1..nOth].
+    local OVL, nOvl, OTH, OTHA, nOth = {}, 0, {}, {}, 0
+    local function Others(x0, y0, x1, y1)
+        nOth = 0
+        for v = 1, nOvl do
+            local N = OVL[v]
+            local w = min(x1, RX1[N]) - max(x0, RX0[N])
+            local h = min(y1, RY1[N]) - max(y0, RY0[N])
+            if w > 0 and h > 0 then
+                local ar, j = w * h, nOth
+                while j > 0 and OTHA[j] < ar do
+                    OTH[j + 1], OTHA[j + 1] = OTH[j], OTHA[j]
+                    j = j - 1
+                end
+                OTH[j + 1], OTHA[j + 1] = N, ar
+                nOth = nOth + 1
+            end
+        end
+    end
+
+    -- Restrict (spec 5.13.5): at every pixel a copy lies on the near side of each other occluder whose restricting
+    -- region holds it. For the EXACT largest overlaps the fragment is split exactly: its part inside N's region is cut
+    -- to N's near side, the parts outside it (frag in edges 1..i-1, out of edge i: disjoint) stay as they are; any
+    -- further N cuts it everywhere (on the safe side). Level lvl owns buffers 4 lvl .. 4 lvl + 3.
+    local EXACT = 4
+    local Restrict
+    Restrict = function(b, m, lvl)
+        if lvl > nOth then
+            Fan(b, m)
+            return
+        end
+        local N = OTH[lvl]
+        local ca, cb, pc, pd = Buf(4 * lvl), Buf(4 * lvl + 1), Buf(4 * lvl + 2), Buf(4 * lvl + 3)
+        if lvl > EXACT then
+            local c, mm = NearSide(N, b, m, pc, pd)
+            if mm >= 3 then Restrict(c, mm, lvl + 1) end
+            return
+        end
+        local o, cur, out = N * 12 - 12, b, ca
+        for i = 1, 4 do
+            local qa, qb, qc = ORQ[o + i * 3 - 2], ORQ[o + i * 3 - 1], ORQ[o + i * 3]
+            local fin, fout = false, false                              -- (corners inside / outside edge i)
+            for v = 0, m * 2 - 2, 2 do
+                if qa * cur[v + 1] + qb * cur[v + 2] + qc >= 0 then fin = true else fout = true end
+            end
+            if not fin then                                             -- all of it outside N's region
+                Restrict(cur, m, lvl + 1)
+                return
+            end
+            if fout then
+                local mm = Clip(cur, m, pc, -qa, -qb, -qc)               -- outside edge i: not N's
+                if mm >= 3 then Restrict(pc, mm, lvl + 1) end
+                m = Clip(cur, m, out, qa, qb, qc)                        -- inside it: on to the next edge
+                if m < 3 then return end
+                cur, out = out, (out == ca) and cb or ca
+            end
+        end
+        local c, mm = NearSide(N, cur, m, pc, pd)                       -- inside N's region: N's near side only
+        if mm >= 3 then Restrict(c, mm, lvl + 1) end
+    end
+
+    -- the leaves' screen bins (after each redraw; their screen boxes are in LR, from Emit), and per slot the leaves
+    -- whose box overlaps its occluder's
+    local leafStamp = -1
+    local binX0, binY0, binX1, binY1 = 0, 0, 0, 0             -- (the union of the slots' boxes the bins were made for)
+    local GX, GY, GRID, GN = 16, 12, {}, {}
+    for c = 0, GX * GY - 1 do GRID[c], GN[c] = {}, 0 end
+    local BIG, nBig = {}, 0                                   -- leaves over more than 4 cells
+    local SEEN, seenStamp = {}, 0
+    local CAND, NC = {}, {}
+    for j = 0, OCC_SLOTS - 1 do CAND[j], NC[j] = {}, 0 end
+    local ibx0, iby0, ibx1, iby1 = 0, 0, 0, 0                 -- the box of this slot's fragments before Restrict
+
+    -- X's copies of the room pieces: every leaf in its box with a corner on its near side (and above its feet), each
+    -- of its GPU triangles (UL, LL, UR; a quad also LL, LR, UR, the LL - UR split) clipped to the box and the near
+    -- side (not needed when its three corners lie there: all of it does), then restricted by the others.
+    local function CopyLeaves(X, list, n)
+        local a, b, e, k, zt = OPA[X], OPB[X], OPE[X], OPK[X], OZT[X]
+        local bx0, by0, bx1, by1 = OX0[X], OY0[X], OX1[X], OY1[X]
+        local P, B2, B3, B4 = Buf(1), Buf(2), Buf(3), Buf(0)
+        for ii = 1, n do
+            local i = list[ii]
+            local q = i * 12 - 12
+            local p, key, cn = LR[q + 1], LR[q + 2], LR[q + 3]
+            if live[key] then
+                local c1, c2, c3, c4 = LR[q + 4], LR[q + 5], LR[q + 6], LR[q + 7]
+                local f1 = (a * WX[c1] + b * WY[c1] + e) / PD[c1] + k < 0
+                local f2 = (a * WX[c2] + b * WY[c2] + e) / PD[c2] + k < 0
+                local f3 = (a * WX[c3] + b * WY[c3] + e) / PD[c3] + k < 0
+                local f4 = (a * WX[c4] + b * WY[c4] + e) / PD[c4] + k < 0
+                local h1, h2, h3, h4 = true, true, true, true
+                if zt then h1, h2, h3, h4 = WZ[c1] > zt, WZ[c2] > zt, WZ[c3] > zt, WZ[c4] > zt end
+                if (f1 or f2 or f3 or f4) and (h1 or h2 or h3 or h4) then
+                    curKey, curPool, curLight = 2 * rankOf[QN[p]], QPOOL[p], QL[p]
+                    local inside = LR[q + 9] >= bx0 and LR[q + 11] <= bx1 and LR[q + 10] >= by0 and LR[q + 12] <= by1
+                    f1, f2, f3, f4 = f1 and h1, f2 and h2, f3 and h3, f4 and h4      -- (the corner is on the near side)
+                    for t = 1, (cn == 4) and 2 or 1 do
+                        local ok, near
+                        if t == 1 then                              -- UL (c1), LL (c2), UR (c4)
+                            ok, near = Setup(P, c1, c2, c4), f1 and f2 and f4
+                        else                                        -- LL (c2), LR (c3), UR (c4)
+                            ok, near = Setup(P, c2, c3, c4), f2 and f3 and f4
+                        end
+                        if ok then
+                            local src, m = P, 3
+                            if not inside then src, m = ClipRect(P, 3, bx0, by0, bx1, by1, B2, B3) end
+                            if m >= 3 and not near then
+                                if src == B2 then src, m = NearSide(X, src, m, B3, B4)
+                                else src, m = NearSide(X, src, m, B2, B4) end
+                            end
+                            if m >= 3 then
+                                local fx0, fy0, fx1, fy1 = huge, huge, -huge, -huge
+                                for o = 0, m * 2 - 2, 2 do
+                                    local x, y = src[o + 1], src[o + 2]
+                                    if x < fx0 then fx0 = x end
+                                    if x > fx1 then fx1 = x end
+                                    if y < fy0 then fy0 = y end
+                                    if y > fy1 then fy1 = y end
+                                end
+                                if fx0 < ibx0 then ibx0 = fx0 end
+                                if fy0 < iby0 then iby0 = fy0 end
+                                if fx1 > ibx1 then ibx1 = fx1 end
+                                if fy1 > iby1 then iby1 = fy1 end
+                                if nOvl > 0 then Others(fx0, fy0, fx1, fy1) else nOth = 0 end
+                                Restrict(src, m, 1)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Mark lines: a placed segment A + t (B - A), 0 <= t <= 1 (arena; in front of the near plane). Every test is
+    -- linear in t (the screen box multiplied out by the depth), so its copies are intervals of t.
+    local sax, say, saz, sbx, sby, sbz = 0, 0, 0, 0, 0, 0
+    local sdA, srA, suA, sdB, srB, suB = 0, 0, 0, 0, 0, 0
+    local lr, lg, lb, la, lt, lkey = 1, 1, 1, 1, 1, 0
+    local function Cut(lo, hi, g0, g1)                -- the part of [lo, hi] where g0 + t (g1 - g0) >= 0, or nil
+        local gl, gh = g0 + (g1 - g0) * lo, g0 + (g1 - g0) * hi
+        if gl >= 0 and gh >= 0 then return lo, hi end
+        if gl < 0 and gh < 0 then return nil end
+        local t = g0 / (g0 - g1)
+        if gl < 0 then return t, hi end
+        return lo, t
+    end
+    local function CutBox(lo, hi, x0, y0, x1, y1)
+        lo, hi = Cut(lo, hi, (ccx - x0) * sdA + cexx * srA + ceyx * suA, (ccx - x0) * sdB + cexx * srB + ceyx * suB)
+        if not lo then return nil end
+        lo, hi = Cut(lo, hi, (x1 - ccx) * sdA - cexx * srA - ceyx * suA, (x1 - ccx) * sdB - cexx * srB - ceyx * suB)
+        if not lo then return nil end
+        lo, hi = Cut(lo, hi, (ccy - y0) * sdA + cexy * srA + ceyy * suA, (ccy - y0) * sdB + cexy * srB + ceyy * suB)
+        if not lo then return nil end
+        return Cut(lo, hi, (y1 - ccy) * sdA - cexy * srA - ceyy * suA, (y1 - ccy) * sdB - cexy * srB - ceyy * suB)
+    end
+    local function CutPhi(lo, hi, N)                  -- N's near side: phi < 0 (phi = a X + b Y + e + k d), above its feet
+        local a, b, e, k = OPA[N], OPB[N], OPE[N], OPK[N]
+        lo, hi = Cut(lo, hi, -(a * sax + b * say + e + k * sdA), -(a * sbx + b * sby + e + k * sdB))
+        local zt = OZT[N]
+        if not (lo and zt) then return lo, hi end
+        return Cut(lo, hi, saz - zt, sbz - zt)
+    end
+    local function EmitLine(t0, t1)
+        local x1, y1 = Proj(sax + (sbx - sax) * t0, say + (sby - say) * t0, saz + (sbz - saz) * t0)
+        local x2, y2 = Proj(sax + (sbx - sax) * t1, say + (sby - say) * t1, saz + (sbz - saz) * t1)
+        if not (x1 and x2) or (x2 - x1) ^ 2 + (y2 - y1) ^ 2 < 0.09 then return end
+        nItems = nItems + 1
+        local it = nItems
+        IK[it], ITY[it] = lkey, 2
+        local o = it * 16 - 16
+        IV[o + 1], IV[o + 2], IV[o + 3], IV[o + 4], IV[o + 5] = x1, y1, x2, y2, lr
+        IV[o + 6], IV[o + 7], IV[o + 8], IV[o + 9] = lg, lb, la, lt
+    end
+    local function CutRegion(lo, hi, N)                -- the part of [lo, hi] inside N's restricting region, or nil
+        local o = N * 12 - 12
+        for i = 1, 4 do
+            local qa, qb, qc = ORQ[o + i * 3 - 2], ORQ[o + i * 3 - 1], ORQ[o + i * 3]
+            -- a x + b y + c >= 0, x = cx + (r exx + u eyx) / d, y = cy + (r exy + u eyy) / d, times d > 0
+            local kd, kr, ku = qa * ccx + qb * ccy + qc, qa * cexx + qb * cexy, qa * ceyx + qb * ceyy
+            lo, hi = Cut(lo, hi, kd * sdA + kr * srA + ku * suA, kd * sdB + kr * srB + ku * suB)
+            if not lo then return nil end
+        end
+        return lo, hi
+    end
+    local RestrictT
+    RestrictT = function(lo, hi, lvl)
+        if lvl > nOth then
+            EmitLine(lo, hi)
+            return
+        end
+        local N = OTH[lvl]
+        if lvl > EXACT then
+            local a, b = CutPhi(lo, hi, N)
+            if a then RestrictT(a, b, lvl + 1) end
+            return
+        end
+        local b0, b1 = CutRegion(lo, hi, N)
+        if not b0 then
+            RestrictT(lo, hi, lvl + 1)
+            return
+        end
+        local a, b = CutPhi(b0, b1, N)
+        if a then RestrictT(a, b, lvl + 1) end
+        if b0 > lo then RestrictT(lo, b0, lvl + 1) end
+        if b1 < hi then RestrictT(b1, hi, lvl + 1) end
+    end
+    local function CopyLines(X)
+        local R = MKR
+        local RS, RA, RC, RK = R.S, R.A, R.C, R.K
+        local bx0, by0, bx1, by1 = OX0[X], OY0[X], OX1[X], OY1[X]
+        for j = 1, R.n do
+            local q = j * 4 - 4
+            local x1, y1, x2, y2 = RS[q + 1], RS[q + 2], RS[q + 3], RS[q + 4]
+            local th = RC[j * 5]
+            local mx0, mx1 = min(x1, x2) - th, max(x1, x2) + th
+            local my0, my1 = min(y1, y2) - th, max(y1, y2) + th
+            if mx1 >= bx0 and mx0 <= bx1 and my1 >= by0 and my0 <= by1 then
+                q = j * 6 - 6
+                sax, say, saz, sbx, sby, sbz = RA[q + 1], RA[q + 2], RA[q + 3], RA[q + 4], RA[q + 5], RA[q + 6]
+                local dx, dy, dz = sax - cex, say - cey, saz - cez
+                sdA, srA, suA = dx * cFx + dy * cFy + dz * cFz, dx * cRx + dy * cRy, dx * cUx + dy * cUy + dz * cUz
+                dx, dy, dz = sbx - cex, sby - cey, sbz - cez
+                sdB, srB, suB = dx * cFx + dy * cFy + dz * cFz, dx * cRx + dy * cRy, dx * cUx + dy * cUy + dz * cUz
+                local lo, hi = CutPhi(0, 1, X)
+                if lo then lo, hi = CutBox(lo, hi, bx0, by0, bx1, by1) end
+                if lo and hi - lo > 1e-6 then
+                    if mx0 < ibx0 then ibx0 = mx0 end
+                    if my0 < iby0 then iby0 = my0 end
+                    if mx1 > ibx1 then ibx1 = mx1 end
+                    if my1 > iby1 then iby1 = my1 end
+                    q = j * 5 - 5
+                    lr, lg, lb, la, lt, lkey = RC[q + 1], RC[q + 2], RC[q + 3], RC[q + 4], RC[q + 5], RK[j]
+                    if nOvl > 0 then Others(mx0, my0, mx1, my1) else nOth = 0 end
+                    RestrictT(lo, hi, 1)
+                end
+            end
+        end
+    end
+
+    -- Copy frames: two per slot, at V + copy0 + 2 slot and one higher; per frame its textures by pool and its lines,
+    -- with how many this pass used. Setters are cached on each texture / line.
+    local CF = {}                                -- (made in order: CF[1 .. #CF] all exist)
+    local function CopyFrame(fi)
+        local fr = CF[fi]
+        while not fr do
+            local i = #CF + 1
+            fr = CreateFrame("Frame", nil, view)
+            fr:SetAllPoints(view)
+            fr.tex, fr.used, fr.lines, fr.lineUsed, fr.lvl = {}, {}, {}, 0, -1
+            CF[i] = fr
+            fr = CF[fi]
+        end
+        local lvl = V + LVt.copy0 + fi - 1
+        if fr.lvl ~= lvl then
+            fr:SetFrameLevel(lvl)
+            fr.lvl = lvl
+        end
+        return fr
+    end
+
+    local function PutTex(fr, p, it, hx, hy)
+        local pool = IP[it]
+        local list = fr.tex[pool]
+        if not list then
+            list = {}
+            fr.tex[pool] = list
+        end
+        local n = (fr.used[pool] or 0) + 1
+        fr.used[pool] = n
+        local tx = list[n]
+        if not tx then
+            tx = fr:CreateTexture(nil, "BACKGROUND")
+            tx:SetSize(1, 1)
+            tx:SetPoint("CENTER", scene, "CENTER", 0, 0)
+            if tx.SetSnapToPixelGrid then tx:SetSnapToPixelGrid(false) end
+            if tx.SetTexelSnappingBias then tx:SetTexelSnappingBias(0) end
+            tx:SetTexture(floor(pool / 4), "REPEAT", "REPEAT")
+            tx:SetBlendMode(BLENDS[pool % 4])
+            tx.shown = true
+            list[n] = tx
+        end
+        local L = IL[it]
+        if tx.light ~= L then
+            tx:SetVertexColor(L, L, L)
+            tx.light = L
+        end
+        if tx.pos ~= p then
+            tx:SetDrawLayer(LAYERS[floor(p / 16) + 1], p % 16 - 8)
+            tx.pos = p
+        end
+        local o = it * 16 - 16
+        local u1, v1, u2, v2 = IV[o + 3], IV[o + 4], IV[o + 7], IV[o + 8]
+        local u3, v3, u4, v4 = IV[o + 11], IV[o + 12], IV[o + 15], IV[o + 16]
+        if tx.u1 ~= u1 or tx.v1 ~= v1 or tx.u2 ~= u2 or tx.v2 ~= v2 or tx.u3 ~= u3 or tx.v3 ~= v3 or tx.u4 ~= u4
+            or tx.v4 ~= v4 then
+            tx:SetTexCoord(u1, v1, u2, v2, u3, v3, u4, v4)
+            tx.u1, tx.v1, tx.u2, tx.v2, tx.u3, tx.v3, tx.u4, tx.v4 = u1, v1, u2, v2, u3, v3, u4, v4
+        end
+        local x, y = IV[o + 1] - hx + 0.5, IV[o + 2] - hy - 0.5                 -- (spec 4.3)
+        if not tx.ox1 or abs(tx.ox1 - x) > 0.01 or abs(tx.oy1 - y) > 0.01 then
+            tx:SetVertexOffset(VUL, x, y)
+            tx.ox1, tx.oy1 = x, y
+        end
+        x, y = IV[o + 5] - hx + 0.5, IV[o + 6] - hy + 0.5
+        if not tx.ox2 or abs(tx.ox2 - x) > 0.01 or abs(tx.oy2 - y) > 0.01 then
+            tx:SetVertexOffset(VLL, x, y)
+            tx.ox2, tx.oy2 = x, y
+        end
+        x, y = IV[o + 9] - hx - 0.5, IV[o + 10] - hy - 0.5
+        if not tx.ox3 or abs(tx.ox3 - x) > 0.01 or abs(tx.oy3 - y) > 0.01 then
+            tx:SetVertexOffset(VUR, x, y)
+            tx.ox3, tx.oy3 = x, y
+        end
+        x, y = IV[o + 13] - hx - 0.5, IV[o + 14] - hy + 0.5
+        if not tx.ox4 or abs(tx.ox4 - x) > 0.01 or abs(tx.oy4 - y) > 0.01 then
+            tx:SetVertexOffset(VLR, x, y)
+            tx.ox4, tx.oy4 = x, y
+        end
+        if not tx.shown then
+            tx:Show()
+            tx.shown = true
+        end
+    end
+
+    local function PutLine(fr, p, it)
+        local n = fr.lineUsed + 1
+        fr.lineUsed = n
+        local l = fr.lines[n]
+        if not l then
+            l = fr:CreateLine(nil, "BACKGROUND")
+            if l.SetSnapToPixelGrid then l:SetSnapToPixelGrid(false) end
+            if l.SetTexelSnappingBias then l:SetTexelSnappingBias(0) end
+            l.shown = true
+            fr.lines[n] = l
+        end
+        local o = it * 16 - 16
+        local x1, y1, x2, y2 = IV[o + 1], IV[o + 2], IV[o + 3], IV[o + 4]
+        local r, g, b, a, th = IV[o + 5], IV[o + 6], IV[o + 7], IV[o + 8], IV[o + 9]
+        if l.pos ~= p then
+            l:SetDrawLayer(LAYERS[floor(p / 16) + 1], p % 16 - 8)
+            l.pos = p
+        end
+        if l.thick ~= th then
+            l:SetThickness(th)
+            l.thick = th
+        end
+        if l.cr ~= r or l.cg ~= g or l.cb ~= b or l.ca ~= a then
+            l:SetColorTexture(r, g, b, a)
+            l.cr, l.cg, l.cb, l.ca = r, g, b, a
+        end
+        if not l.x1 or abs(l.x1 - x1) > 0.01 or abs(l.y1 - y1) > 0.01 then
+            l:SetStartPoint("BOTTOMLEFT", scene, x1, y1)
+            l.x1, l.y1 = x1, y1
+        end
+        if not l.x2 or abs(l.x2 - x2) > 0.01 or abs(l.y2 - y2) > 0.01 then
+            l:SetEndPoint("BOTTOMLEFT", scene, x2, y2)
+            l.x2, l.y2 = x2, y2
+        end
+        if not l.shown then
+            l:Show()
+            l.shown = true
+        end
+    end
+
+    -- hide what this pass did not use in copy frames f0 .. f1 (all when not given); -> copy textures shown there
+    local function HideUnused(f0, f1)
+        local shown = 0
+        if not f1 or f1 > #CF then f1 = #CF end
+        for fi = f0 or 1, f1 do
+            local fr = CF[fi]
+            for pool, list in pairs(fr.tex) do
+                local used = fr.used[pool] or 0
+                shown = shown + used
+                for i = used + 1, #list do
+                    local tx = list[i]
+                    if tx.shown then
+                        tx:Hide()
+                        tx.shown = false
+                    end
+                end
+            end
+            local ls = fr.lines
+            for i = fr.lineUsed + 1, #ls do
+                local l = ls[i]
+                if l.shown then
+                    l:Hide()
+                    l.shown = false
+                end
+            end
+        end
+        return shown
+    end
+    -- copy frames f0 .. f1 to be filled again from nothing
+    local function ResetFrames(f0, f1)
+        if f1 > #CF then f1 = #CF end
+        for fi = f0, f1 do
+            local fr = CF[fi]
+            for pool in pairs(fr.used) do fr.used[pool] = 0 end
+            fr.lineUsed = 0
+        end
+    end
+
+    local SORT, nSort = {}, 0
+    local function ItemCmp(a, b)
+        local ka, kb = IK[a], IK[b]
+        if ka ~= kb then return ka > kb end
+        return a < b
+    end
+
+    local anyShown = false
+    -- The leaves' screen bins (spec 5.13.4: a 16 x 12 grid), once per redraw: those overlapping some slot's box.
+    local function BinLeaves(ux0, uy0, ux1, uy1)
+        leafStamp = stats.redraws
+        local cw, chh = cW / GX, cH / GY
+        for c = 0, GX * GY - 1 do GN[c] = 0 end
+        nBig = 0
+        for q = 0, nLeaves * 12 - 12, 12 do
+            local x0, x1 = LR[q + 9], LR[q + 11]
+            if x1 >= ux0 and x0 <= ux1 then
+                local y0, y1 = LR[q + 10], LR[q + 12]
+                if y1 >= uy0 and y0 <= uy1 then
+                    local gx0, gx1, gy0, gy1 = x0 / cw, x1 / cw, y0 / chh, y1 / chh
+                    gx0, gx1, gy0, gy1 = gx0 - gx0 % 1, gx1 - gx1 % 1, gy0 - gy0 % 1, gy1 - gy1 % 1   -- (floor)
+                    if gx0 < 0 then gx0 = 0 end
+                    if gy0 < 0 then gy0 = 0 end
+                    if gx1 >= GX then gx1 = GX - 1 end
+                    if gy1 >= GY then gy1 = GY - 1 end
+                    local i = q / 12 + 1
+                    if (gx1 - gx0 + 1) * (gy1 - gy0 + 1) > 4 then        -- (a big one: in the list every slot reads)
+                        nBig = nBig + 1
+                        BIG[nBig] = i
+                    else
+                        for gy = gy0, gy1 do
+                            for gx = gx0, gx1 do
+                                local c = gy * GX + gx
+                                local nn = GN[c] + 1
+                                GN[c] = nn
+                                GRID[c][nn] = i
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Slot j's leaves (its occluder X's box): from the cells under the box, each leaf once. Also the others whose
+    -- restricting region overlaps the box (OVL).
+    local function Gather(j, X)
+        seenStamp = seenStamp + 1
+        local cw, chh = cW / GX, cH / GY
+        local bx0, by0, bx1, by1 = OX0[X], OY0[X], OX1[X], OY1[X]
+        local gx0, gx1, gy0, gy1 = floor(bx0 / cw), floor(bx1 / cw), floor(by0 / chh), floor(by1 / chh)
+        if gx0 < 0 then gx0 = 0 end
+        if gy0 < 0 then gy0 = 0 end
+        if gx1 >= GX then gx1 = GX - 1 end
+        if gy1 >= GY then gy1 = GY - 1 end
+        local L, nc = CAND[j], 0
+        for gy = gy0, gy1 do
+            for gx = gx0, gx1 do
+                local c = gy * GX + gx
+                local cell = GRID[c]
+                for k = 1, GN[c] do
+                    local i = cell[k]
+                    if SEEN[i] ~= seenStamp then
+                        SEEN[i] = seenStamp
+                        local q = i * 12 - 12
+                        if LR[q + 11] >= bx0 and LR[q + 9] <= bx1 and LR[q + 12] >= by0 and LR[q + 10] <= by1 then
+                            nc = nc + 1
+                            L[nc] = i
+                        end
+                    end
+                end
+            end
+        end
+        for k = 1, nBig do
+            local i = BIG[k]
+            local q = i * 12 - 12
+            if LR[q + 11] >= bx0 and LR[q + 9] <= bx1 and LR[q + 12] >= by0 and LR[q + 10] <= by1 then
+                nc = nc + 1
+                L[nc] = i
+            end
+        end
+        NC[j] = nc
+        nOvl = 0
+        for N = 1, nOcc do
+            if N ~= X and OON[N] and RX1[N] > bx0 and RX0[N] < bx1 and RY1[N] > by0 and RY0[N] < by1 then
+                nOvl = nOvl + 1
+                OVL[nOvl] = N
+            end
+        end
+    end
+
+    -- Slot j's items (nItems of them) into its two copy frames: nearest key first, the nearest KEYS_MAX keys and copy
+    -- textures up to COPY_TEX_MAX in all (what goes is the far end: the rest is still the near end of every ray); the
+    -- kept keys in ascending order (back to front) get places 0, 1, ... -> copy textures used in all, and how many
+    -- items X kept.
+    local function EmitSlot(j, texTotal, hx, hy)
+        local cnt = nItems
+        if cnt == 0 or texTotal >= COPY_TEX_MAX then return texTotal, 0 end
+        for i = 1, cnt do SORT[i] = i end
+        for i = cnt + 1, nSort do SORT[i] = nil end
+        nSort = cnt
+        if cnt > 1 then table.sort(SORT, ItemCmp) end
+        local keep, distinct, lastKey = 0, 0, nil
+        for i = 1, cnt do
+            local it = SORT[i]
+            if IK[it] ~= lastKey then
+                if distinct == KEYS_MAX then break end
+                distinct, lastKey = distinct + 1, IK[it]
+            end
+            if ITY[it] == 1 then
+                if texTotal >= COPY_TEX_MAX then break end
+                texTotal = texTotal + 1
+            end
+            keep = i
+        end
+        distinct, lastKey = 0, nil
+        for i = 1, keep do
+            local kk = IK[SORT[i]]
+            if kk ~= lastKey then distinct, lastKey = distinct + 1, kk end
+        end
+        local q = distinct
+        lastKey = nil
+        for i = 1, keep do
+            local it = SORT[i]
+            local kk = IK[it]
+            if kk ~= lastKey then q, lastKey = q - 1, kk end
+            local fr = CopyFrame(j * 2 + 1 + floor(q / 64))
+            if ITY[it] == 1 then PutTex(fr, q % 64, it, hx, hy) else PutLine(fr, q % 64, it) end
+        end
+        return texTotal, keep
+    end
+
+    -- What each slot's last pass left: its occluder's id (false: none), the box of what it copied before the others
+    -- restricted it (SLOTIB, 4 numbers; empty when nothing), the copy textures it uses and how many items it kept;
+    -- whether this pass copies it again.
+    local SLOTID, SLOTIB, SLOTTEX, SLOTKEEP, SLOTDIRTY = {}, {}, {}, {}, {}
+    local function Overlap(a0, b0, a1, b1, c0, d0, c1, d1)
+        return a1 + 1 >= c0 and a0 - 1 <= c1 and b1 + 1 >= d0 and b0 - 1 <= d1
+    end
+    -- Does slot j (occluder X, nil: none) need copying again? With all (the room redrew, a mark line changed, the
+    -- occluders are others) every slot does; else when it holds another occluder than its copies were made for, its
+    -- occluder changed, or one that changed restricts - or restricted - where it copies: what a slot copies before
+    -- the restriction depends only on the room, the lines and its own occluder, and another occluder changes it only
+    -- inside that one's restricting region, then or now.
+    local function SlotDirty(j, X, all)
+        if all or SLOTID[j] ~= (X and OIN[X].id or false) then return true end
+        if not X then return false end
+        local b = j * 4
+        local x0, y0, x1, y1 = SLOTIB[b + 1], SLOTIB[b + 2], SLOTIB[b + 3], SLOTIB[b + 4]
+        for c = 1, nChg do
+            local N = CHG[c]
+            if N == X then return true end
+            local q = c * 4 - 4
+            if Overlap(RX0[N], RY0[N], RX1[N], RY1[N], x0, y0, x1, y1)
+                or Overlap(CB[q + 1], CB[q + 2], CB[q + 3], CB[q + 4], x0, y0, x1, y1) then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function Pass(all)
+        LoadCam()
+        AssignSlots()
+        local top, ux0, uy0, ux1, uy1 = -1, huge, huge, -huge, -huge
+        for j = 0, OCC_SLOTS - 1 do
+            local X = SLOTOCC[j]
+            if X then
+                top = j
+                if OX0[X] < ux0 then ux0 = OX0[X] end
+                if OY0[X] < uy0 then uy0 = OY0[X] end
+                if OX1[X] > ux1 then ux1 = OX1[X] end
+                if OY1[X] > uy1 then uy1 = OY1[X] end
+            end
+        end
+        -- (the bins hold what any slot's box could want: built again when a redraw or the slots' boxes changed)
+        if top >= 0 and (leafStamp ~= stats.redraws or ux0 < binX0 or uy0 < binY0 or ux1 > binX1 or uy1 > binY1) then
+            if leafStamp == stats.redraws then ux0, uy0, ux1, uy1 = 0, 0, cW, cH end   -- (outgrown in a still room)
+            binX0, binY0, binX1, binY1 = ux0, uy0, ux1, uy1
+            BinLeaves(ux0, uy0, ux1, uy1)
+        end
+        -- the slots kept as they are count against the copy textures' cap first
+        local texTotal, actors, hx, hy = 0, 0, cW / 2, cH / 2     -- (the scene's centre: the textures hang there)
+        for j = 0, OCC_SLOTS - 1 do
+            local X = SLOTOCC[j]
+            local d = SlotDirty(j, X, all)
+            SLOTDIRTY[j] = d
+            if not d then
+                texTotal = texTotal + SLOTTEX[j]
+                if X then
+                    OCNT[X] = SLOTKEEP[j]
+                    if SLOTKEEP[j] > 0 then actors = actors + 1 end
+                end
+            end
+        end
+        local shown = texTotal
+        for j = 0, OCC_SLOTS - 1 do
+            if SLOTDIRTY[j] then
+                local X, keep, before = SLOTOCC[j], 0, texTotal
+                ResetFrames(j * 2 + 1, j * 2 + 2)
+                if X then
+                    Gather(j, X)
+                    nItems = 0
+                    ibx0, iby0, ibx1, iby1 = huge, huge, -huge, -huge
+                    CopyLeaves(X, CAND[j], NC[j])
+                    CopyLines(X)
+                    texTotal, keep = EmitSlot(j, texTotal, hx, hy)
+                    OCNT[X] = keep
+                    if keep > 0 then actors = actors + 1 end
+                    local b = j * 4
+                    SLOTIB[b + 1], SLOTIB[b + 2], SLOTIB[b + 3], SLOTIB[b + 4] = ibx0, iby0, ibx1, iby1
+                end
+                SLOTID[j], SLOTTEX[j], SLOTKEEP[j] = X and OIN[X].id or false, texTotal - before, keep
+                shown = shown + HideUnused(j * 2 + 1, j * 2 + 2)
+            end
+        end
+        stats.copies, stats.copyActors, anyShown = shown, actors, shown > 0
+    end
+
+    -- Draw the copies for this frame: only when the room redrew, an occluder moved or a mark line changed (else
+    -- they stand as they are). Also stops the time controller's clock.
+    function Room.DrawCopies()
+        local o = Room.opts
+        if o.copies == false or not (meshOk and haveBasis) then
+            if anyShown then Room.HideCopies() end
+        elseif stats.redraw or occChanged or linesChanged then
+            local all = stats.redraw or linesChanged or occAll
+            occChanged, linesChanged, occAll = false, false, false
+            Pass(all)
+        end
+        StopClock()
+    end
+
+    function Room.HideCopies()
+        ResetFrames(1, #CF)
+        HideUnused()
+        anyShown, stats.copies, stats.copyActors = false, 0, 0
+        wipe(SLOTID)
+        occChanged, occAll = true, true
+    end
+
+    function Room.CopyFrames()
+        local t = {}
+        for fi = 1, #CF do t[fi] = CF[fi] end
+        return t
+    end
+
+    -- the occluders as the copies saw them (UI._Occluders)
+    function Room.Occluders()
+        local out = {}
+        for i = 1, nOcc do
+            local o = OIN[i]
+            out[i] = { id = o.id, family = FAMNAME[OFAM[i]], x = o.x, y = o.y, z = o.z, h = o.h, w = o.w,
+                       box = { OX0[i], OY0[i], OX1[i], OY1[i] }, onScreen = OON[i] or false, slot = OSLOT[i] or -1,
+                       copies = OCNT[i] or 0 }
+        end
+        return out
+    end
+end
+InstallCopies()
 end
 
 ---------------------------------------------------------------------------
@@ -1445,10 +2879,12 @@ function Room.Clear()
         HideLines(lineFrame, 1)
     end
     nMarks, nLeaves, nClipped, nCapped = 0, 0, 0, 0
+    MKR.n = 0
     wipe(splitPrev)
     wipe(splitCur)
     dirty, forceOrder = true, true
     camKey[1] = nil
+    if Room.HideCopies then Room.HideCopies() end
 end
 
 -- The room to draw (an encounter's arena.mesh): prepared once, nothing when it is the one already drawn.
@@ -1470,9 +2906,12 @@ end
 function Room.SetOpts(t)
     if type(t) ~= "table" then return end
     local opts = Room.opts
-    local was = opts.opaque ~= false
+    local was, quads = opts.opaque ~= false, opts.quads ~= false
     for k, v in pairs(t) do opts[k] = v end
-    if (opts.opaque ~= false) ~= was and meshOk then
+    if (opts.quads ~= false) ~= quads and curMesh then
+        Room.Clear()                                     -- the prims change: prepare the room again
+        meshOk = Prepare(curMesh) or false
+    elseif (opts.opaque ~= false) ~= was and meshOk then
         Room.Clear()                                     -- the pools change: every piece comes back from its new one
         ComputePools()
     end
@@ -1488,10 +2927,11 @@ end
 -- textures: room textures made so far (all frames, all rooms); lent: textures that moved to another frame.
 function Room.Stats()
     return { tau = CTL.used, tauNext = CTL.tau, target = tonumber(Room.opts.target) or CTL.target, hardCap = hardCap,
-             leaves = nLeaves, clipped = nClipped, capped = nCapped, redone = stats.redone, copies = 0, copyActors = 0,
-             lines = Room.ShownLines(), frames = nFrames, nodes = nNodes, prims = nPrims, redraw = stats.redraw,
-             redraws = stats.redraws, pass1b = stats.pass1b, ms = 0, selfCheckPx = stats.selfCheckPx,
-             midpoints = nPts - nV, collided = false, dilate = 0, textures = stats.textures, lent = stats.lent }
+             leaves = nLeaves, clipped = nClipped, capped = nCapped, redone = stats.redone, copies = stats.copies or 0,
+             copyActors = stats.copyActors or 0, lines = Room.ShownLines(), frames = nFrames, nodes = nNodes,
+             prims = nPrims, redraw = stats.redraw, redraws = stats.redraws, pass1b = stats.pass1b, ms = stats.ms or 0,
+             selfCheckPx = stats.selfCheckPx, midpoints = nPts - nV, collided = false, dilate = 0,
+             textures = stats.textures, lent = stats.lent }
 end
 
 function Room.ShownTextures() return nLive end
@@ -1513,8 +2953,6 @@ function Room.Frames()
     for f = 1, nFrames do t[f] = roomFrames[f] end
     return t
 end
-
-function Room.CopyFrames() return {} end
 
 -- The order invariants: nodes, frames, distinct (frame, place) pairs over the nodes, wrong = live pieces not on
 -- their node's (frame, place), the shown mark lines as { frame, pos } (frame 0: the bottom line frame), pieces
