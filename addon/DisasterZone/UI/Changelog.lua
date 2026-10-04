@@ -282,7 +282,7 @@ function ChangelogUI:CreatePanel(parent)
     rule:SetHeight(1)
     rule:SetPoint("TOPLEFT", right, "TOPLEFT", PAD, -52)
     rule:SetPoint("TOPRIGHT", right, "TOPRIGHT", -PAD, -52)
-    d.scroll = CreateFrame("ScrollFrame", "DisasterZoneChangelogScroll", right, "UIPanelScrollFrameTemplate")
+    d.scroll = ns.UI:CreateScrollFrame(right, "DisasterZoneChangelogScroll")
     d.scroll:SetPoint("TOPLEFT", right, "TOPLEFT", PAD, -60)
     d.scroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -28, 8)
     d.child = CreateFrame("Frame", nil, d.scroll)
@@ -300,7 +300,7 @@ end
 
 function ChangelogUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
-        ns.MainFrame:RegisterTab("changelog", "Changelog", 5, function(parent) return ChangelogUI:CreatePanel(parent) end)
+        ns.MainFrame:RegisterTab("changelog", "Changelog", 3.9, function(parent) return ChangelogUI:CreatePanel(parent) end)
     end
     ns:RegisterSlash("changelog", function() ChangelogUI:Open() end, "open the Changelog: what's new in each version")
 end

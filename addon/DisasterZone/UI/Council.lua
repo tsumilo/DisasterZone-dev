@@ -1004,53 +1004,42 @@ end
 local SORT_LABELS = { presence = "presence", name = "name", need = "most needed", age = "oldest list" }
 
 local function createRosterHeader(parent)
-    local h = CreateFrame("Frame", nil, parent)
-    h:SetHeight(20)
+    local h = ns.UI:CreateColumnHeader(parent, 20)
     h.sortButtons = {}
 
     -- sortKeys: clicking cycles through them (Name: presence -> name).
     local function textHeader(text, x, width, sortKeys, justify)
-        local b = CreateFrame("Button", nil, h)
-        b:SetPoint("LEFT", x, 0)
-        b:SetSize(width, 18)
-        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetAllPoints()
-        fs:SetJustifyH(justify or "LEFT")
-        fs:SetText(text)
-        b.label = fs
-        b.sortKeys = sortKeys
-        b:SetScript("OnClick", function()
-            local nextKey = sortKeys[1]
-            for i, k in ipairs(sortKeys) do
-                if k == state.sort then
-                    nextKey = sortKeys[i % #sortKeys + 1]
-                    break
+        local b = h:AddColumn(text, x, width, {
+            justify = justify,
+            onClick = function()
+                local nextKey = sortKeys[1]
+                for i, k in ipairs(sortKeys) do
+                    if k == state.sort then
+                        nextKey = sortKeys[i % #sortKeys + 1]
+                        break
+                    end
                 end
-            end
-            state.sort = nextKey
-            CouncilUI:Refresh(true)
-        end)
-        b:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            local labels = {}
-            for _, k in ipairs(sortKeys) do
-                labels[#labels + 1] = SORT_LABELS[k] or k
-            end
-            GameTooltip:AddLine("Sort by " .. table.concat(labels, " / "))
-            GameTooltip:AddLine("Current: " .. (SORT_LABELS[state.sort] or state.sort), 1, 1, 1)
-            GameTooltip:Show()
-        end)
-        b:SetScript("OnLeave", hideTooltip)
+                state.sort = nextKey
+                CouncilUI:Refresh(true)
+            end,
+            tip = function()
+                local labels = {}
+                for _, k in ipairs(sortKeys) do
+                    labels[#labels + 1] = SORT_LABELS[k] or k
+                end
+                GameTooltip:AddLine("Sort by " .. table.concat(labels, " / "))
+                GameTooltip:AddLine("Current: " .. (SORT_LABELS[state.sort] or state.sort), 1, 1, 1)
+            end,
+        })
+        b.sortKeys = sortKeys
         h.sortButtons[#h.sortButtons + 1] = b
         return b
     end
 
     textHeader("Name", 4, 150, { "presence", "name" })
+    h:AddColumn("Spec", 156, 70)
     textHeader("Need", 232, 26, { "need" }, "CENTER")
     textHeader("Age", AGE_X, 36, { "age" })
-    local specLabel = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    specLabel:SetPoint("LEFT", 156, 0)
-    specLabel:SetText("Spec")
 
     for sid = 1, NUM_SLOTS do
         local f = CreateFrame("Frame", nil, h)
@@ -2503,61 +2492,34 @@ end
 local function createToolbar(p)
     local UI = ns.UI
 
-    -- Row 1: phase, view switch, search.
-    local phaseLabel = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    phaseLabel:SetPoint("LEFT", p, "TOPLEFT", 8, -16)
-    phaseLabel:SetText("Phase")
-    p.phaseLabel = phaseLabel
-
-    p.phaseDD = UI:CreateDropdown(p, 100, phaseOptions, currentPhase, function(value)
-        state.phase = tonumber(value) or state.phase
-        -- A new phase starts on its own first boss (only ShowItem/ShowBoss jumps keep a sticky node).
-        state.selectedNode = nil
-        state.focus = nil
-        CouncilUI:Refresh(true)
-    end)
-    p.phaseDD:SetPoint("LEFT", phaseLabel, "RIGHT", 8, 0)
-
+    -- Row 1: the views (text tabs) on the left; the phase, the drop panel and the search on the right.
     p.viewButtons = {}
     local views = {
         { key = "roster", label = "Roster" }, { key = "items", label = "Items" }, { key = "member", label = "Member" },
-        { key = "council", label = "Loot Council", width = 100,
+        { key = "council", label = "Loot Council",
           tip = "Who is on the Loot Council. The Guild Master picks the guild council; a raid leader can add council members for their own raid." },
     }
     local prev
     for _, info in ipairs(views) do
         local key = info.key
-        local b = UI:CreateButton(p, info.label, info.width or 72, 22, function() CouncilUI:SetView(key) end)
+        local b = UI:CreateUnderlineTab(p, info.label, function() CouncilUI:SetView(key) end)
         if info.tip then
-            b:SetScript("OnEnter", function(self)
+            b:HookScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_TOP")
                 GameTooltip:AddLine(info.label)
                 GameTooltip:AddLine(info.tip, 1, 1, 1, true)
                 GameTooltip:Show()
             end)
-            b:SetScript("OnLeave", hideTooltip)
+            b:HookScript("OnLeave", hideTooltip)
         end
         if prev then
-            b:SetPoint("LEFT", prev, "RIGHT", 2, 0)
+            b:SetPoint("LEFT", prev, "RIGHT", 4, 0)
         else
-            b:SetPoint("LEFT", p, "TOPLEFT", 180, -16)
+            b:SetPoint("LEFT", p, "TOPLEFT", 4, -16)
         end
         p.viewButtons[key] = b
         prev = b
     end
-    -- Opens the boss drop panel (one Escape closes it together with the loot window).
-    p.dropsBtn = UI:CreateButton(p, "Drops", 64, 22, function()
-        if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
-    end)
-    p.dropsBtn:SetPoint("LEFT", prev, "RIGHT", 6, 0)
-    p.dropsBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Drops")
-        GameTooltip:AddLine("Open the boss drop panel with tonight's drops (also /dz drops, or Shift-click the "
-            .. "minimap button).", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    p.dropsBtn:SetScript("OnLeave", hideTooltip)
 
     p.search = UI:CreateSearchBox(p, 170, function(text)
         text = type(text) == "string" and text or ""
@@ -2566,6 +2528,33 @@ local function createToolbar(p)
         CouncilUI:Refresh(true)
     end)
     p.search:SetPoint("RIGHT", p, "TOPRIGHT", -10, -16)
+
+    -- Opens the boss drop panel (one Escape closes it together with the loot window).
+    p.dropsBtn = UI:CreateButton(p, "Drops", 64, 22, function()
+        if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
+    end)
+    p.dropsBtn:SetPoint("RIGHT", p.search, "LEFT", -8, 0)
+
+    p.phaseDD = UI:CreateDropdown(p, 100, phaseOptions, currentPhase, function(value)
+        state.phase = tonumber(value) or state.phase
+        -- A new phase starts on its own first boss (only ShowItem/ShowBoss jumps keep a sticky node).
+        state.selectedNode = nil
+        state.focus = nil
+        CouncilUI:Refresh(true)
+    end)
+    p.phaseDD:SetPoint("RIGHT", p.dropsBtn, "LEFT", -12, 0)
+    local phaseLabel = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    phaseLabel:SetPoint("RIGHT", p.phaseDD, "LEFT", -6, 0)
+    phaseLabel:SetText("Phase")
+    p.phaseLabel = phaseLabel
+    p.dropsBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Drops")
+        GameTooltip:AddLine("Open the boss drop panel with tonight's drops (also /dz drops, or Shift-click the "
+            .. "minimap button).", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    p.dropsBtn:SetScript("OnLeave", hideTooltip)
 
     -- Row 2: class, role, raid-only, hide obtained (hidden in the member view).
     local row2 = CreateFrame("Frame", nil, p)
@@ -2681,9 +2670,7 @@ local function updateToolbar()
     if p.obtainedCB and p.obtainedCB.Refresh then p.obtainedCB:Refresh() end
     if p.offspecCB and p.offspecCB.Refresh then p.offspecCB:Refresh() end
     updateLockControls()
-    for key, b in pairs(p.viewButtons or {}) do
-        if b.SetKind then b:SetKind(key == state.view and "active" or "secondary") end   -- the current view lit
-    end
+    for key, b in pairs(p.viewButtons or {}) do b:SetActive(key == state.view) end   -- the current view lit
 end
 
 local function updateFooter(stats)

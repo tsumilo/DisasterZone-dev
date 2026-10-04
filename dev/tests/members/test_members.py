@@ -1,5 +1,6 @@
 """The Members tab beyond professions: recipe names that load late, online state and level in the roster, main and off
-spec (primary / secondary talents), alts under their main, and the officer notes (Core/OfficerNotes.lua).
+spec (primary / secondary talents), alts under their main, the gear everyone wears (shared with the whole guild; the BiS
+lists stay with the loot council), and the officer notes (Core/OfficerNotes.lua).
 
 Run: luaenv\\Scripts\\python.exe tests\\members\\test_members.py [-k name]
 """
@@ -230,11 +231,13 @@ def alts_sit_under_their_main():
     names = [(r["name"], r["alt"]) for r in rows]
     assert names[:2] == [("Alfa", False), ("Alto", True)], names          # the offline alt right under its main
     b.eval("%s:SelectMember(...)" % UI, K("Alfa"))
+    assert detail(b)[0]["kind"] == "prof"                                 # the card opens on Professions
+    b.eval("%s:SetCard('chars')" % UI)
     d = detail(b)
-    assert [(x["kind"], x.get("key"), x.get("main")) for x in d[:2]] == [("head", None, None), ("char", K("Alto"), False)], d
+    assert [(x["kind"], x.get("key"), x.get("main")) for x in d[:1]] == [("char", K("Alto"), False)], d
     b.eval("%s:SelectMember(...)" % UI, K("Alto"))
     d = detail(b)
-    assert (d[1]["kind"], d[1]["key"], d[1]["main"]) == ("char", K("Alfa"), True), d
+    assert (d[0]["kind"], d[0]["key"], d[0]["main"]) == ("char", K("Alfa"), True), d
     assert b.find_text("Whisper Alfa")                                   # the player is on the main right now
     # a recipe of the offline alt: its player can be whispered on the character that is online
     b.eval("%s:ShowRecipe(31456)" % UI)
@@ -249,6 +252,7 @@ def alts_sit_under_their_main():
     # my own view: the main line with Change; unlinking again
     a.slash("/dz members")
     w.tick(1)
+    a.eval("%s:SetCard('chars')" % UI)
     d = detail(a)
     assert any(x["kind"] == "main" and "your main" in x["text"] for x in d), d
     assert a.eval("return %s:SetMain(nil)" % P) is True
@@ -274,6 +278,45 @@ def a_chain_of_alts_or_a_stranger_as_main_is_ignored():
     g.slash("/dz members")
     w.tick(1)
     assert len(roster_rows(g)) == 3
+    w.assert_no_errors()
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Gear
+# ------------------------------------------------------------------------------------------------------------------
+HELM, NECK = 29086, 29381     # Judgement Crown, Choker of Vile Intent
+
+
+@case
+def everyone_sees_everyones_gear_but_not_their_lists():
+    w, g, a, b = trio()
+    a.equip({1: HELM, 2: NECK})
+    w.tick(SYNC)
+    # Bert (no council) gets Alfa's gear with her professions summary, nothing of her BiS list
+    gear = b.eval_py("local g = %s:GetGear(...); local o = {}; for sid, id in pairs(g or {}) do o[tostring(sid)] = id end; "
+                     "return o" % P, K("Alfa"))
+    assert gear == {"1": HELM, "2": NECK}, gear
+    assert b.eval("return ns.Store:Get(...) == nil", K("Alfa")) is True, "a raider got someone's BiS list"
+    # the Equipment card: one line per slot, Head and Neck filled, a line saying when it was shared
+    b.slash("/dz members")
+    w.tick(1)
+    b.eval("%s:SelectMember(...)" % UI, K("Alfa"))
+    b.eval("%s:SetCard('gear')" % UI)
+    d = detail(b)
+    assert d[0]["kind"] == "source" and "last shared" in d[0]["text"], d[0]
+    items = b.eval_py("local o = {}; for _, d in ipairs(ns.MembersUI:GetPanel().right.list:GetData()) do "
+                      "if d.kind == 'gear' then o[#o + 1] = d.item or 0 end end; return o")
+    assert len(items) == 17 and items[0] == HELM and items[1] == NECK and items[2] == 0, items
+    # a change of gear reaches the guild (at most every two minutes)
+    a.equip({1: None})
+    w.tick(SYNC)
+    assert b.eval("return (%s:GetGear(...))[1]" % P, K("Alfa")) is None
+    # my own card shows what I wear now
+    a.slash("/dz members")
+    w.tick(1)
+    a.eval("%s:SelectMember(...)" % UI, K("Alfa"))
+    a.eval("%s:SetCard('gear')" % UI)
+    assert "What you wear now" in detail(a)[0]["text"]
     w.assert_no_errors()
 
 

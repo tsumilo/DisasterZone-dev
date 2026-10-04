@@ -646,7 +646,8 @@ local function DrawFxActors()
                     local k = min(1, (sim.time - fx.at) / fx.dur)
                     yaw = math.atan2(u.y - fx.y, u.x - fx.x)
                     x, y = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k
-                    z = GroundZ(fx.x, fx.y) + (FeetZ(u) - GroundZ(fx.x, fx.y)) * k + 1.5
+                    local z0 = GroundZ(fx.x, fx.y)
+                    z = z0 + (FeetZ(u) - z0) * k + 1.5
                 elseif u then
                     x, y, z = u.x, u.y, FeetZ(u) + z
                 else
@@ -664,9 +665,12 @@ local function DrawFxActors()
 end
 
 -- The models on screen, for the room's copies (spec 5.13.1): one record per shown unit actor (the dead ones too while
--- shown) at its feet, with the body size render_check and the plates use, its model's own box (radius and height,
--- the largest seen for that model so it never shrinks or bobs) and you first; an effect on a unit raises its top, a
--- flying missile is a record of its own. Records are reused.
+-- shown) at its feet, with the body size render_check and the plates use, its model's own box (radius, height and
+-- how far it reaches below its origin, the largest seen for that model so it never shrinks or bobs) and you first;
+-- an effect on a unit raises its top, a flying missile is a record of its own. Records are reused.
+-- A model whose origin is not at its feet (a Shield Generator's is mid-height, its pedestal ends 2.8 yd lower) is
+-- recorded from where its box ends, no lower than the floor under it: the copies keep only what lies higher than an
+-- occluder's feet, so feet recorded too high would let every step in front of it draw under it.
 local occList, occBox = {}, {}
 local function Occ(n)
     local o = occList[n]
@@ -689,25 +693,34 @@ local function BuildOccluders()
             o.prio = (u == sim.player) and 2 or 1
             local bb = a.key and occBox[a.key]
             if a.key and a.GetActiveBoundingBox then
-                local ok, x0, y0, _, x1, y1, z1 = pcall(a.GetActiveBoundingBox, a)
+                local ok, x0, y0, z0, x1, y1, z1 = pcall(a.GetActiveBoundingBox, a)
                 if ok and type(x0) == "table" and type(y0) == "table" and x0.GetXYZ then   -- documented form: two vectors
-                    local bx, by = x0:GetXYZ()
+                    local bx, by, bz = x0:GetXYZ()
                     local tx, ty, tz = y0:GetXYZ()
-                    x0, y0, x1, y1, z1 = bx, by, tx, ty, tz
+                    x0, y0, z0, x1, y1, z1 = bx, by, bz, tx, ty, tz
                 end
                 if ok and type(z1) == "number" and type(x0) == "number" and type(y0) == "number"
                     and type(x1) == "number" and type(y1) == "number" then
                     local s = u.scale or 1
                     local rb = max(math.abs(x0), math.abs(x1), math.abs(y0), math.abs(y1)) * s
                     if not bb then
-                        bb = { 0, 0 }
+                        bb = { 0, 0, 0 }
                         occBox[a.key] = bb
                     end
                     if rb > bb[1] then bb[1] = rb end
                     if z1 * s > bb[2] then bb[2] = z1 * s end
+                    if type(z0) == "number" and z0 * s < bb[3] then bb[3] = z0 * s end
                 end
             end
             o.rb, o.top = bb and bb[1] or 0, bb and bb[2] or 0
+            if bb and bb[3] < 0 then
+                local ground = sim.enc.arena.ground
+                local under = ground and ground(u.x, u.y, o.z) or GroundZ(u.x, u.y)
+                local drop = o.z - max(under, o.z + bb[3])
+                if drop > 0 then
+                    o.z, o.h, o.top = o.z - drop, o.h + drop, o.top + drop
+                end
+            end
             o.unit = u
         end
     end
@@ -717,7 +730,8 @@ local function BuildOccluders()
             if fx.kind == "missile" and u then
                 local k = min(1, (sim.time - fx.at) / fx.dur)
                 local x, y = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k
-                local z = GroundZ(fx.x, fx.y) + (FeetZ(u) - GroundZ(fx.x, fx.y)) * k + 1.5     -- (as DrawFxActors)
+                local z0 = GroundZ(fx.x, fx.y)
+                local z = z0 + (FeetZ(u) - z0) * k + 1.5                    -- (as DrawFxActors)
                 n = n + 1
                 local o = Occ(n)
                 o.id, o.x, o.y, o.z, o.h, o.w = fx, x, y, z - 0.6, 1.2, 1.0
@@ -740,7 +754,11 @@ end
 -- NamePlateUnitFrameMixin's classic branch): a 128 x 10 bar area, the 128 x 16 Nameplate-Border art centred on it,
 -- the health fill (UI-TargetingFrame-BarFill) from 3.5 to 20.75 short of the right edge and half a pixel up, the
 -- level centred 11 left of the art's right edge, the name centred 4 above, your debuffs above the name.
-local PLATE_W, PLATE_H, PLATE_FILL = 128, 10, 128 - 3.5 - 20.75
+-- The client's plate art, Interface\Tooltips\Nameplate-Border (file 137053), is 128 x 32 with the frame in its lower
+-- half (rows 15-31): the bar shows through its opening (columns 5-105, rows 20-26; the bar runs one pixel under the
+-- rim on each side, columns 4-106 and rows 19-27, so no gap shows) and the level sits in the box at columns 107-125.
+-- The border is drawn at its own size over the bar, its opening centred on the plate frame (PLATE_W x PLATE_H).
+local PLATE_W, PLATE_H, PLATE_FILL, PLATE_BAR_H = 128, 10, 103, 9
 local PLATE_STEP = 46        -- how far plates of enemies standing together climb above each other
 
 local function PlateFont(name, fallback)
@@ -752,27 +770,28 @@ local function Plate(i)
     if f then return f end
     f = CreateFrame("Button", nil, plateFrame)
     f:SetSize(PLATE_W, PLATE_H)
-    f.border = f:CreateTexture(nil, "BACKGROUND")
-    f.border:SetTexture("Interface\\Tooltips\\Nameplate-Border")
-    f.border:SetSize(128, 16)
-    f.border:SetPoint("CENTER")
     f.hp = f:CreateTexture(nil, "ARTWORK")
     f.hp:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-BarFill")
-    f.hp:SetPoint("LEFT", f, "LEFT", 3.5, 0.5)
-    f.hp:SetHeight(PLATE_H)
+    f.hp:SetPoint("LEFT", f, "LEFT", 4, 0)
+    f.hp:SetHeight(PLATE_BAR_H)
     f.glow = f:CreateTexture(nil, "ARTWORK", nil, 1)            -- the target's bar is brightened
     f.glow:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-BarFill")
     f.glow:SetBlendMode("ADD")
     f.glow:SetAlpha(0.25)
     f.glow:SetAllPoints(f.hp)
+    f.border = f:CreateTexture(nil, "OVERLAY")                   -- over the bar: its rim frames it
+    f.border:SetTexture("Interface\\Tooltips\\Nameplate-Border")
+    f.border:SetSize(128, 32)
+    f.border:SetPoint("LEFT", f, "LEFT", 0, 7.5)                 -- (the opening's middle, row 23.5, 7.5 under its own)
     f.level = f:CreateFontString(nil, "OVERLAY", PlateFont("SystemFont_NamePlateLevel", "GameFontNormalSmall"))
-    f.level:SetPoint("CENTER", f.border, "RIGHT", -11, 0)
-    f.skull = f:CreateTexture(nil, "OVERLAY")
+    f.level:SetDrawLayer("OVERLAY", 1)
+    f.level:SetPoint("CENTER", f, "RIGHT", -11.5, 0)
+    f.skull = f:CreateTexture(nil, "OVERLAY", nil, 1)
     f.skull:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
     f.skull:SetSize(15, 15)
-    f.skull:SetPoint("CENTER", f.border, "RIGHT", -11, 0)
+    f.skull:SetPoint("CENTER", f, "RIGHT", -11.5, 0)
     f.name = f:CreateFontString(nil, "OVERLAY", PlateFont("SystemFont_NamePlate", "GameFontHighlightSmall"))
-    f.name:SetPoint("BOTTOM", f, "TOP", 0, 4)
+    f.name:SetPoint("BOTTOM", f, "TOP", 0, 6)                    -- (the border's top edge is 3.5 over the frame's)
     f.debuffs = {}
     f:SetScript("OnClick", function(self)
         if not (sim and self.unit) then return end
@@ -2033,6 +2052,7 @@ UI._Plates = function()
     for _, f in ipairs(plates) do if f:IsShown() then out[#out + 1] = { f.px, f.py } end end
     return out
 end
+UI._Plate = function(i) return plates[i] end
 UI._Project = function(x, y, z) return Project(x, y, GroundZ(x, y) + z) end
 UI._ActorPos = function(unitId) local a = actors[unitId] if a then return { a:GetPosition() } end end
 UI._Click = function(x, y) return PickAt(x, y) end

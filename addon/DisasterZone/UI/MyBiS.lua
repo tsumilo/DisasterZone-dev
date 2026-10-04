@@ -768,7 +768,7 @@ local function UpdatePhaseButtons()
     local phase = CurrentPhase()
     local guildPhase = GuildPhase()
     for p, b in ipairs(phaseButtons) do
-        if b.SetKind then b:SetKind(p == phase and "active" or "secondary") end   -- the shown phase lit
+        if b.SetKind then b:SetKind(p == phase and "chosen" or "secondary") end   -- the shown phase lit
         b.marker:SetShown(guildPhase == p)
     end
 end
@@ -821,7 +821,8 @@ local function CreateTopBar(p)
     suggestBtn = UI:CreateMenuButton(p, "Suggest", 80, BuildSuggestMenu)
     suggestBtn:SetPoint("LEFT", copyBtn, "RIGHT", 4, 0)
 
-    clearBtn = UI:CreateButton(p, "Clear phase", 84, 22, function()
+    -- Actions that can't be undone wait behind "More" (asked again in a popup).
+    local function clearPhase()
         local phase = CurrentPhase()
         if #PhaseItems(phase) == 0 then
             ns:Print("P%d has no picks to clear.", phase)
@@ -830,8 +831,16 @@ local function CreateTopBar(p)
         EnsurePopups()
         StaticPopup_Show("DISASTERZONE_CLEAR_PHASE", "P" .. phase .. (ListArg() and " (off spec)" or ""), nil,
             { phase = phase, list = ListArg() })
+    end
+    local function buildMore(root)
+        local phase = CurrentPhase()
+        root:CreateButton("Clear P" .. phase .. (ListArg() and " (off spec)" or "") .. "...", clearPhase)
+    end
+    clearBtn = UI:CreateTipIconButton(p, 22, UI.ICON.more, "More", "Clear this phase's picks.", function(self)
+        UI:ContextMenu(self, buildMore)
     end)
     clearBtn:SetPoint("TOPRIGHT", p, "TOPRIGHT", -8, -8)
+    p.moreBtn = clearBtn
 end
 
 ---------------------------------------------------------------------------
@@ -890,8 +899,8 @@ function MyBiS:Refresh()
     -- Addendum H: the list buttons (the shown one highlighted; "+ Off spec" until there is one).
     if msBtn and osBtn then
         local os = IsOffSpecView()
-        msBtn:SetKind(os and "secondary" or "active")
-        osBtn:SetKind(os and "active" or "secondary")
+        msBtn:SetKind(os and "secondary" or "chosen")
+        osBtn:SetKind(os and "chosen" or "secondary")
         osBtn:SetText(HasOffSpec() and "Off spec" or "+ Off spec")
     end
     if specDD and specDD.SetDefaultText then

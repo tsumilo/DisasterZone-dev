@@ -84,7 +84,7 @@ Renderer v2 additions (docs/trainer_renderer_v2/spec.md section 9.2):
                    odd positions or in the bottom line frame; SetParent per frame after a session's first.
   walks            set UI._RenderOpts{camDt = step / 7} when that hook exists (camera smoothing as in game while the
                    sim stays frozen).
-  new poses        7 poses with preconditions that fail loudly (NEW_POSES).
+  new poses        8 poses with preconditions that fail loudly (NEW_POSES).
   --gate           runs the runs of spec section 10 (R1..R5, Bench) and checks its criteria in a pass / fail table.
                    --criteria 1,2,8 and --runs R1,R5 run a subset; a check whose hook does not exist yet is SKIPPED.
                    Exit code 0: every check passed; 1: something failed; 2: nothing failed but something was skipped.
@@ -207,6 +207,10 @@ NEW_POSES = {
              note="a ring with a column across the top edge of the steps: the edge hides its far half "
                   "(spec: the mark at 105, 32 - from this pose the 29 degree steps are as steep as the camera "
                   "pitch, so that ring was 99.5% hidden)"),
+        dict(name="generator_over_steps", x=54.32, y=156.11, facing=-0.789, pitch=0.3, dist=14, pre="generator",
+             units=[("generator", 1, 82.97, 127.22)],
+             note="down the north-west steps looking up at a Shield Generator on the ring: the top step hides its "
+                  "pedestal (the model's origin is mid-height, 2.8 yd over its base: in-game report 2026-10-04)"),
     ],
 }
 ENC_DIFF = {"teron": "quick", "vashj": "looter"}
@@ -295,7 +299,7 @@ class Capture:
                 v = rest.split()
                 actors.append(dict(index=int(v[0]), unit=int(float(v[1])), pos=(float(v[2]), float(v[3]), float(v[4])),
                                    scale=float(v[5]), alpha=float(v[6]), height=float(v[7]), width=float(v[8]),
-                                   kind=int(v[9])))
+                                   kind=int(v[9]), bottom=float(v[10]) if len(v) > 10 else 0.0))
             elif tag == "C":
                 v = [float(x) for x in rest.split()]
                 self.cam_raw = v
@@ -472,7 +476,9 @@ def billboard_tris(actors, cam, billboard=None):
     for k, a in enumerate(actors):
         if a["kind"] != 1 or a["height"] <= FEET:
             continue
-        p = np.array(a["pos"]) + np.array([0.0, 0.0, FEET])
+        # (from where the model's own box ends - its feet, or lower for a model whose origin is mid-height - up to
+        # its body height over its origin)
+        p = np.array(a["pos"]) + np.array([0.0, 0.0, a.get("bottom", 0.0) + FEET])
         lat = rh
         if billboard == "axis":
             vx, vy = p[0] - cam.C[0], p[1] - cam.C[1]
@@ -480,7 +486,7 @@ def billboard_tris(actors, cam, billboard=None):
             if hd > 1e-6:
                 lat = np.array([-vy / hd, vx / hd, 0.0])
         hw = lat * a["width"] / 2
-        up = np.array([0, 0, a["height"] - FEET])
+        up = np.array([0, 0, a["height"] - a.get("bottom", 0.0) - FEET])
         bl, br, tl, tr = p - hw, p + hw, p - hw + up, p + hw + up
         out.append((k, (bl, br, tr)))
         out.append((k, (bl, tr, tl)))
@@ -497,7 +503,7 @@ def prism_faces(actors):
             continue
         x, y, z = a["pos"]
         rad = max(PRISM_MIN_RADIUS, a["width"] / 2)
-        z0, z1 = z + FEET, z + a["height"]
+        z0, z1 = z + a.get("bottom", 0.0) + FEET, z + a["height"]
         bot = [np.array([x + rad * math.cos(t), y + rad * math.sin(t), z0]) for t in ang]
         top = [np.array([x + rad * math.cos(t), y + rad * math.sin(t), z1]) for t in ang]
         for i in range(PRISM_SIDES):
@@ -1689,6 +1695,11 @@ def check_precondition(sess, spec, rec, cap, tr, res):
         else:
             msg += "; families not checked (no UI._Occluders)"
         return ok, msg, False
+    if kind == "generator":
+        e = unit("generator1")
+        frac = e["truthHidden"] / e["px"] if e["px"] else 0.0
+        ok = e["px"] > 0 and 0.10 <= frac <= 0.90
+        return ok, "truth hides %.1f%% of the generator (want 10-90%%)" % (100 * frac), False
     if kind == "grazing":
         d = rec.get("camMinDist", float("inf"))
         return d <= 0.8, "the camera is %.2f yd from the nearest room triangle (want <= 0.8)" % d, False
@@ -2700,9 +2711,9 @@ def main(argv=None):
     ap.add_argument("--json", metavar="FILE", help="write every number here (default: OUTDIR/metrics.json with --png)")
     ap.add_argument("--size", default="600x400", help="the view's size in UI units (default 600x400)")
     ap.add_argument("--scale", type=float, default=1.0, help="pixels per UI unit of the pictures (default 1)")
-    ap.add_argument("--poses", help="only these poses (comma separated names, the 26 and the 7 v2 poses)")
+    ap.add_argument("--poses", help="only these poses (comma separated names, the 26 and the 8 v2 poses)")
     ap.add_argument("--no-walk", action="store_true", help="skip the walk and the actor walk")
-    ap.add_argument("--no-new", action="store_true", help="skip the 7 v2 poses (default run)")
+    ap.add_argument("--no-new", action="store_true", help="skip the 8 v2 poses (default run)")
     ap.add_argument("--compare", metavar="JSON", help="print the change against an earlier run's metrics.json (the "
                     "gate also takes its R2 walk ms and its check.py warnings from it)")
     ap.add_argument("--billboard", default="axis", choices=("axis", "forward"),

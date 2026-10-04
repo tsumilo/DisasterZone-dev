@@ -21,7 +21,7 @@ local STATUS_COLOR = {
 local STATUS_TEXT = { online = "|cff33ff33Online|r", afk = "|cffffcc1aAway|r", dnd = "|cffff801aDo not disturb|r",
                       offline = "|cff808080Offline|r" }
 
-local state = { mode = "roster", prof = nil, search = "", member = nil, recipe = nil, open = {} }
+local state = { mode = "roster", prof = nil, search = "", member = nil, recipe = nil, open = {}, card = "profs" }
 local panel
 
 ----------------------------------------------------------------------------
@@ -558,7 +558,11 @@ end
 -- Detail list (right): one list with mixed rows
 ----------------------------------------------------------------------------
 
-local ROW_H = { prof = 46, group = 20, recipe = 20, head = 26, note = 40, crafter = 28, char = 24, main = 30 }
+local ROW_H = { prof = 46, group = 20, recipe = 20, head = 26, note = 40, crafter = 28, char = 24, main = 30, gear = 22,
+                source = 24 }
+-- a member's card: Characters / Professions / Equipment
+local CARDS = { { key = "chars", label = "Characters" }, { key = "profs", label = "Professions" },
+                { key = "gear", label = "Equipment" } }
 
 local function detailExtent(d)
     return ROW_H[d.kind] or 20
@@ -633,6 +637,12 @@ local function detailWidgets(row)
     w.mainBtn = ns.UI:CreateSleekButton(row, "Change", 72, 20, function(self) mainMenu(self) end)
     w.mainBtn:SetPoint("RIGHT", -6, 0)
 
+    -- an equipment slot: slot name, item icon, item name (quality colour)
+    w.slot = rowText(row, "GameFontDisableSmall", 10, 70)
+    w.itemIcon = rowIcon(row, 16, 84)
+    w.item = rowText(row, "GameFontHighlightSmall", 106)
+    w.item:SetPoint("RIGHT", -8, 0)
+
     row:SetScript("OnClick", function(self)
         local d = self.__cdlData
         if not d then return end
@@ -647,13 +657,19 @@ local function detailWidgets(row)
             MembersUI:ShowMember(d.key, d.recipe and d.recipe.prof)
         elseif d.kind == "char" then
             MembersUI:ShowMember(d.key)
+        elseif d.kind == "gear" and d.item then
+            ns.UI:HandleModifiedItemClick(d.item)
         end
     end)
     row:SetScript("OnEnter", function(self)
         local d = self.__cdlData
         if d and d.kind == "recipe" then showRecipeTooltip(self, d.r) end
+        if d and d.kind == "gear" and d.item then ns.UI:SetItemTooltip(self, d.item) end
     end)
-    row:SetScript("OnLeave", hideRecipeTooltip)
+    row:SetScript("OnLeave", function(self)
+        local d = self.__cdlData
+        if d and d.kind == "gear" then ns.UI:HideTooltip() else hideRecipeTooltip() end
+    end)
 end
 
 local function initDetailRow(row, d)
@@ -675,8 +691,15 @@ local function initDetailRow(row, d)
     w.info:SetShown(isPerson)
     w.whisper:SetShown(kind == "crafter" and d.canWhisper and true or false)
     w.mainBtn:SetShown(kind == "main" and d.canChange and true or false)
+    local isGear = kind == "gear"
+    w.slot:SetShown(isGear)
+    w.itemIcon:SetShown(isGear and d.item ~= nil)
+    w.item:SetShown(isGear)
+    w.text:SetShown(not isProf and not isPerson and not isGear)
+    -- a character line has no Whisper button: its details may use the width
+    w.info:SetPoint("RIGHT", kind == "crafter" and -84 or -8, 0)
     row.sel:Hide()
-    row.hl:SetAlpha((kind == "recipe" or isPerson or (isProf and d.canOpen)) and 0.4 or 0)
+    row.hl:SetAlpha((kind == "recipe" or isPerson or (isProf and d.canOpen) or (isGear and d.item)) and 0.4 or 0)
 
     if isProf then
         local def = P():GetProfession(d.id)
@@ -709,6 +732,15 @@ local function initDetailRow(row, d)
             parts[#parts + 1] = STATUS_TEXT[d.status]
         end
         w.info:SetText(table.concat(parts, "  ·  "))
+    elseif isGear then
+        w.slot:SetText(d.label)
+        if d.item then
+            w.itemIcon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(d.item))
+                or (GetItemIcon and GetItemIcon(d.item)) or 134400)
+            w.item:SetText(ns.UI:ItemText(d.item))
+        else
+            w.item:SetText(grey("-"))
+        end
     elseif kind == "char" then
         setDot(w.dot, d.status)
         w.who:SetText(ns.UI:ColoredName(d.key, d.classFile))
@@ -737,6 +769,12 @@ local function initDetailRow(row, d)
             w.text:SetPoint("RIGHT", -8, 0)
             w.text:SetWordWrap(false)
             w.text:SetText(d.text)
+        elseif kind == "source" then
+            w.text:SetFontObject("GameFontDisableSmall")
+            w.text:SetPoint("LEFT", 10, 0)
+            w.text:SetPoint("RIGHT", -8, 0)
+            w.text:SetWordWrap(false)
+            w.text:SetText(d.text)
         elseif kind == "main" then
             w.text:SetFontObject("GameFontHighlightSmall")
             w.text:SetPoint("LEFT", 10, 0)
@@ -760,21 +798,18 @@ local function isOwn(key)
     return false
 end
 
-local function memberDetailRows(key)
+-- Characters: the player's other characters (main first), and on my own characters which one is my main.
+local function characterRows(key)
     local rows = {}
-    -- the player's characters
     local others = P():GetOtherCharacters(key)
     local main = P():GetMain(key)
-    if #others > 0 then
-        rows[#rows + 1] = { kind = "head", text = "Characters" }
-        table.sort(others, function(a, b)
-            if (a == main) ~= (b == main) then return a == main end
-            return shortName(a):lower() < shortName(b):lower()
-        end)
-        for _, c in ipairs(others) do
-            rows[#rows + 1] = { kind = "char", key = c, isMain = c == main, status = statusOf(c), classFile = classOf(c),
-                                level = levelOf(c), specs = P():GetSpecs(c) }
-        end
+    table.sort(others, function(a, b)
+        if (a == main) ~= (b == main) then return a == main end
+        return shortName(a):lower() < shortName(b):lower()
+    end)
+    for _, c in ipairs(others) do
+        rows[#rows + 1] = { kind = "char", key = c, isMain = c == main, status = statusOf(c), classFile = classOf(c),
+                            level = levelOf(c), specs = P():GetSpecs(c) }
     end
     if isOwn(key) then
         local own = P():GetOwnCharacters()
@@ -786,8 +821,14 @@ local function memberDetailRows(key)
             rows[#rows + 1] = { kind = "note", text = "Alts: log in once on each of your other characters in the guild, "
                 .. "then pick your main here. The guild then sees them as one player." }
         end
+    elseif #others == 0 then
+        rows[#rows + 1] = { kind = "note", text = shortName(key) .. " has no other characters linked to this one." }
     end
+    return rows
+end
 
+local function professionRows(key)
+    local rows = {}
     local profs = P():GetMember(key)
     if not profs then
         rows[#rows + 1] = { kind = "note", text = shortName(key) .. " has not shared anything yet. Professions and specs "
@@ -798,7 +839,6 @@ local function memberDetailRows(key)
         rows[#rows + 1] = { kind = "note", text = shortName(key) .. " has no professions." }
         return rows
     end
-    rows[#rows + 1] = { kind = "head", text = "Professions" }
     for _, e in ipairs(profs) do
         local def = P():GetProfession(e.id)
         local canOpen = def.crafts and e.recipes > 0
@@ -830,6 +870,40 @@ local function memberDetailRows(key)
         end
     end
     return rows
+end
+
+-- Equipment: what the character wears, mine live, the others' as they last shared it with the guild (their BiS
+-- lists stay with the loot council).
+local function gearRows(key)
+    local rows = {}
+    local gear, at
+    if ns.Util.IsMe(key) then
+        gear = {}
+        for sid, slot in ipairs(ns.SLOTS or {}) do
+            local id = GetInventoryItemID("player", slot.invSlot)
+            if type(id) == "number" and id > 0 then gear[sid] = id end
+        end
+        rows[1] = { kind = "source", text = "What you wear now. The guild sees it as you last logged it." }
+    else
+        gear, at = P():GetGear(key)
+        if not gear then
+            rows[1] = { kind = "note", text = shortName(key) .. " has not shared their gear yet. It appears once they "
+                .. "log in with DisasterZone 1.3 or newer." }
+            return rows
+        end
+        rows[1] = { kind = "source", text = "Worn when " .. shortName(key) .. " last shared it: "
+            .. (ns.Util.FormatAgo and ns.Util.FormatAgo(at) or date("%d %b", at)) .. "." }
+    end
+    for sid, slot in ipairs(ns.SLOTS or {}) do
+        rows[#rows + 1] = { kind = "gear", label = slot.label, item = gear[sid] }
+    end
+    return rows
+end
+
+local function memberDetailRows(key)
+    if state.card == "chars" then return characterRows(key) end
+    if state.card == "gear" then return gearRows(key) end
+    return professionRows(key)
 end
 
 local function recipeDetailRows(recipe)
@@ -873,7 +947,7 @@ local function updateNote(right, member)
     local show = member ~= nil and notes ~= nil and notes:CanUse()
     right.note:SetShown(show)
     right.list.frame:ClearAllPoints()
-    right.list.frame:SetPoint("TOPLEFT", 4, -78)
+    right.list.frame:SetPoint("TOPLEFT", 4, member and -94 or -78)
     right.list.frame:SetPoint("BOTTOMRIGHT", -4, show and (NOTE_H + 8) or 6)
     if not show then return end
     local rec = notes:Get(member)
@@ -899,6 +973,13 @@ local function updateDetail(p)
     right.whisper:Hide()
     right.link:Hide()
     right.sub2:SetText("")
+    for key, b in pairs(right.cards) do
+        b:SetShown(member ~= nil)
+        b:SetActive(key == state.card)
+    end
+    right.line:ClearAllPoints()
+    right.line:SetPoint("TOPLEFT", 8, member and -90 or -74)
+    right.line:SetPoint("TOPRIGHT", -8, member and -90 or -74)
     updateNote(right, member)
     if recipe then
         right.icon:SetTexture(P():GetRecipeIcon(recipe))
@@ -979,8 +1060,8 @@ local function createChip(p, def)
 end
 
 local function updateToolbar(p)
-    p.rosterBtn:SetKind(state.mode == "roster" and "primary" or "secondary")
-    p.recipesBtn:SetKind(state.mode == "recipes" and "primary" or "secondary")
+    p.rosterBtn:SetActive(state.mode == "roster")
+    p.recipesBtn:SetActive(state.mode == "recipes")
     if p.search.Instructions then
         p.search.Instructions:SetText(state.mode == "recipes" and "Search recipes..." or "Search members...")
     end
@@ -1022,10 +1103,10 @@ function MembersUI:CreatePanel(parent)
     p:SetAllPoints(parent)
     panel = p
 
-    p.rosterBtn = UI:CreateSleekButton(p, "Roster", 84, 22, function() MembersUI:SetMode("roster") end)
-    p.rosterBtn:SetPoint("TOPLEFT", 8, -8)
-    p.recipesBtn = UI:CreateSleekButton(p, "Recipes", 84, 22, function() MembersUI:SetMode("recipes") end)
-    p.recipesBtn:SetPoint("LEFT", p.rosterBtn, "RIGHT", -1, 0)
+    p.rosterBtn = UI:CreateUnderlineTab(p, "Roster", function() MembersUI:SetMode("roster") end)
+    p.rosterBtn:SetPoint("TOPLEFT", 4, -8)
+    p.recipesBtn = UI:CreateUnderlineTab(p, "Recipes", function() MembersUI:SetMode("recipes") end)
+    p.recipesBtn:SetPoint("LEFT", p.rosterBtn, "RIGHT", 4, 0)
     p.search = UI:CreateSearchBox(p, 200, function(text)
         text = ns.Util.Trim(text or "")
         if text == state.search then return end
@@ -1098,13 +1179,23 @@ function MembersUI:CreatePanel(parent)
         if r then linkRecipe(r) end
     end)
     right.link:SetPoint("TOPRIGHT", -12, -14)
+    -- a member's card: small text tabs over the list
+    right.cards = {}
+    local prevCard
+    for _, c in ipairs(CARDS) do
+        local key = c.key
+        local b = UI:CreateUnderlineTab(right, c.label, function() MembersUI:SetCard(key) end, "small")
+        if prevCard then b:SetPoint("LEFT", prevCard, "RIGHT", 4, 0) else b:SetPoint("TOPLEFT", 6, -72) end
+        right.cards[key] = b
+        prevCard = b
+    end
     right.line = right:CreateTexture(nil, "ARTWORK")
     right.line:SetColorTexture(1, 1, 1, 0.08)
     right.line:SetHeight(1)
-    right.line:SetPoint("TOPLEFT", 8, -74)
-    right.line:SetPoint("TOPRIGHT", -8, -74)
+    right.line:SetPoint("TOPLEFT", 8, -90)
+    right.line:SetPoint("TOPRIGHT", -8, -90)
     right.list = UI:CreateScrollList(right, 20, initDetailRow, detailExtent)
-    right.list.frame:SetPoint("TOPLEFT", 4, -78)
+    right.list.frame:SetPoint("TOPLEFT", 4, -94)
     right.list.frame:SetPoint("BOTTOMRIGHT", -4, 6)
 
     -- the officer note (officers only): the text, who wrote it, Edit
@@ -1220,11 +1311,20 @@ function MembersUI:SelectRecipe(spell)
     self:Refresh()
 end
 
--- Jumps to a member in the Roster view (profId: that profession opened).
+-- "chars" | "profs" | "gear": what a member's card shows.
+function MembersUI:SetCard(card)
+    state.card = (card == "chars" or card == "gear") and card or "profs"
+    self:Refresh()
+end
+
+function MembersUI:GetCard() return state.card end
+
+-- Jumps to a member in the Roster view (profId: that profession opened, on the Professions card).
 function MembersUI:ShowMember(key, profId)
     state.mode, state.member, state.search = "roster", key, ""
     state.prof = nil
     state.open = profId and { [profId] = true } or {}
+    if profId then state.card = "profs" end
     if panel then panel.search:SetText("") end
     self:Refresh(true)
 end

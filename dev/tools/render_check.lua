@@ -10,7 +10,8 @@
 --      (UL, LL, UR, LR: 8), rectangle (4; for a line its start x, y and end x, y), vertex offsets (UL, LL, UR,
 --      LR: 8), line thickness, colour of a colour texture (4), alpha down the parent chain
 --   A  a shown ModelScene actor: index, unit id (-1: an effect), position (scene units, scale multiplied in),
---      scale, alpha, body height and width (yards), kind (1 unit, 2 effect)
+--      scale, alpha, body height and width (yards), kind (1 unit, 2 effect), bottom (yards from the position down
+--      to where the model's own box ends, 0 or less: a model whose origin is not at its feet)
 --   P  the player: x, y, facing (arena coordinates)
 --   H  the trainer's optional test hooks that exist (UI._Render, _RenderOpts, _Marks, _Order, _Occluders)
 --   T  (only with UI._Render) the renderer's screen-error bound tau and the corner dilation in px: the
@@ -164,8 +165,10 @@ function RC.capture(view, scene, mirror)
                 width = max(1.2, min(2 * (u.radius or 0.6), 0.6 * height))
                 uid, kind = u.id, 1
             end
-            add(fmt("A %d %d %s %s %s %s %s %s %s %d", i, uid, exact(pos[1] * s), exact(pos[2] * s), exact(pos[3] * s),
-                exact(s), num(a.alpha or 1), num(height), num(width), kind))
+            local _, _, z0 = a:GetActiveBoundingBox()
+            local bottom = (type(z0) == "number" and z0 < 0) and z0 * s or 0
+            add(fmt("A %d %d %s %s %s %s %s %s %s %d %s", i, uid, exact(pos[1] * s), exact(pos[2] * s),
+                exact(pos[3] * s), exact(s), num(a.alpha or 1), num(height), num(width), kind, num(bottom)))
         end
     end
     -- the optional hooks: which exist, the match tolerance's tau, the 3D mark segments

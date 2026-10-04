@@ -96,7 +96,7 @@ local function ensurePrompt()
     f.title:SetPoint("TOPLEFT", 16, -16)
     f.title:SetPoint("RIGHT", -16, 0)
     f.title:SetJustifyH("LEFT")
-    f.edit = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+    f.edit = UI():CreateSleekEditBox(f)
     f.edit:SetAutoFocus(false)
     f.edit:SetHeight(22)
     f.edit:SetPoint("TOPLEFT", 22, -40)
@@ -1703,8 +1703,8 @@ function Board:RefreshTabs()
         b:SetWidth(w)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", c, "TOPLEFT", x, -34)
-        -- the page shown is the gold tab; a single page needs no tab strip unless it can grow
-        b:SetKind(i == st.page and "primary" or "secondary")
+        -- the page shown is the chosen one; a single page needs no tab strip unless it can grow
+        b:SetKind(i == st.page and "chosen" or "secondary")
         b:SetShown(#pages > 1 or st.mode == "edit")
         x = x + w + 3
     end

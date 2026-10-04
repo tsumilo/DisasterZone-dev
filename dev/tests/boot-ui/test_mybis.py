@@ -111,7 +111,7 @@ def phase_buttons_select_phase_and_mark_guild_phase():
           local out = {}
           for p = 1, 5 do
             local b = T_button(T_mybis(), "P" .. p)
-            out[p] = { rawget(b, "kind") == "active" and 1 or 0, rawget(b, "marker"):IsShown() and 1 or 0 }
+            out[p] = { rawget(b, "kind") == "chosen" and 1 or 0, rawget(b, "marker"):IsShown() and 1 or 0 }
           end
           return out""")
         assert [s[0] for s in states] == [1 if i == p else 0 for i in range(1, 6)], states
@@ -248,7 +248,7 @@ def picker_search_scope_filters_and_clear():
     c.click(tile_btn(c, 15))
     base = item_rows(c)
     assert base
-    sb = c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]")
+    sb = c.eval("return T_search(DisasterZonePicker)")
     # search by item name (case-insensitive) and by numeric item ID
     target = base[3][1]
     tname = c.eval("return ns.ItemDB:GetName(...)", target)
@@ -317,7 +317,7 @@ def picker_search_scope_filters_and_clear():
     # the filter state is kept for the next opening (session), the search is reset
     c.eval("ns.Picker:Close()")
     c.click(tile_btn(c, 16))
-    assert c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]:GetText()") == ""
+    assert c.eval("return T_search(DisasterZonePicker):GetText()") == ""
     # Clear button: disabled without a pick, clears the pick with one
     clear = c.eval("return T_button(DisasterZonePicker, 'Clear')")
     assert c.eval("local b = ...; return b:IsEnabled()", clear) in (False, 0)
@@ -423,18 +423,21 @@ def copy_phase_and_clear_phase():
     # clear phase: confirmation popup, then empty
     c.click(c.eval("return T_button(T_mybis(), 'P2')"))
     n0 = len(c.chat_frame)
-    c.click(c.eval("return T_button(T_mybis(), 'Clear phase')"))
+    c.click(c.eval("return T_mybis().moreBtn"))
+    c.menu_select("Clear P2...")
     assert "DISASTERZONE_CLEAR_PHASE" in c.popups()
     c.cancel_popup("DISASTERZONE_CLEAR_PHASE")
     assert c.eval("return #ns.BiS:GetPhaseItems(2)") == 3
-    c.click(c.eval("return T_button(T_mybis(), 'Clear phase')"))
+    c.click(c.eval("return T_mybis().moreBtn"))
+    c.menu_select("Clear P2...")
     c.accept_popup("DISASTERZONE_CLEAR_PHASE")
     w.tick(0.2)
     assert c.eval("return #ns.BiS:GetPhaseItems(2)") == 0
     assert c.eval("return #ns.BiS:GetPhaseItems(1)") == 3, "clearing P2 touched P1"
     assert progress(c, 2)[0] == 0
     # clearing an empty phase only explains
-    c.click(c.eval("return T_button(T_mybis(), 'Clear phase')"))
+    c.click(c.eval("return T_mybis().moreBtn"))
+    c.menu_select("Clear P2...")
     assert "DISASTERZONE_CLEAR_PHASE" not in c.popups()
     assert any("P2 has no picks to clear" in l for l in printed_since(c, n0))
     # Suggest is always there: the lists ship with the addon (no LoonBestInSlot installed here)

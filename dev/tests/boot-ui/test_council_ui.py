@@ -485,7 +485,7 @@ def search_boxes_accept_lua_pattern_characters():
     c.eval("ns.MainFrame:Open('mybis')")
     w.tick(0.2)
     c.click(c.eval("return T_tile(1).main"))
-    sb = c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]")
+    sb = c.eval("return T_search(DisasterZonePicker)")
     for text in ("[", "%", "(a", "%d+"):
         c.type_text(sb, text)
         w.tick(0.5)

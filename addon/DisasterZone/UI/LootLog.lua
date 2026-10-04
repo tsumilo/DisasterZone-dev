@@ -617,8 +617,7 @@ local function installLinkHook()
 end
 
 local function createEditBox(parent, width, maxLetters)
-    local eb = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
-    eb:SetSize(width, 20)
+    local eb = ns.UI:CreateSleekEditBox(parent, width, 22)
     eb:SetAutoFocus(false)
     eb:SetMaxLetters(maxLetters)
     eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -719,21 +718,14 @@ end
 ----------------------------------------------------------------------------
 
 local function createHeader(p)
-    local h = CreateFrame("Frame", nil, p)
+    local h = ns.UI:CreateColumnHeader(p, 18)
     h:SetPoint("TOPLEFT", 0, -34)
     h:SetPoint("TOPRIGHT", 0, -34)
-    h:SetHeight(18)
     local titles = {
         { COL.date, "Date" }, { COL.item, "Item" }, { COL.winner, "Winner" }, { COL.reason, "Reason" },
         { COL.boss, "Boss" }, { COL.by, "Recorded" },
     }
-    for _, t in ipairs(titles) do
-        local fs = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetPoint("LEFT", t[1].x, 0)
-        fs:SetWidth(t[1].w)
-        fs:SetJustifyH("LEFT")
-        fs:SetText(t[2])
-    end
+    for _, t in ipairs(titles) do h:AddColumn(t[2], t[1].x, t[1].w) end
     return h
 end
 

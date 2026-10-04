@@ -963,13 +963,20 @@ function PlanUI:InviteRaid()
         return false
     end
     if RP():CanEditGroups() and (dr.dirty or not dr.saved) and not self:SaveRaidLayout() then return false end
-    -- everyone who accepted is invited, also those without a group yet (guests included)
-    local extra = {}
-    for _, m in ipairs(RP():GetLayoutMembers(v)) do
-        if m.st == "A" and not dr.grp[m.key] then extra[#extra + 1] = m.key end
+    -- the groups are who has a spot: only they are invited; who accepted without a group is named
+    local ok, err = ns.RaidInvite:Start(v.id, dr.grp, raidTitle(v))
+    if not ok then
+        Print(err or "Could not invite.")
+    else
+        local left = {}
+        for _, m in ipairs(RP():GetLayoutMembers(v)) do
+            if m.st == "A" and not dr.grp[m.key] then left[#left + 1] = shortName(m.key) end
+        end
+        table.sort(left)
+        if #left > 0 then
+            Print("Not invited, no group: %s. Place them in a group to invite them.", tconcat(left, ", "))
+        end
     end
-    local ok, err = ns.RaidInvite:Start(v.id, dr.grp, raidTitle(v), extra)
-    if not ok then Print(err or "Could not invite.") end
     self:RefreshUpcoming()
     return ok
 end
@@ -1021,10 +1028,10 @@ local function createRaidGroups(d)
         .. "joiners or a change of plan. Players who aren't planned go to groups 6-8.")
     g.inviteBtn = UI():CreateSleekButton(g, "Invite & sort", 100, 22, function() PlanUI:InviteRaid() end)
     g.inviteBtn:SetPoint("RIGHT", g.resortBtn, "LEFT", -4, 0)
-    tipButton(g.inviteBtn, "Invite & sort", "Invites everyone placed in a group and everyone else who accepted, guests "
-        .. "too, makes the group a raid and moves each player into their group as they join. Players who join later "
-        .. "are sorted too, until the raid ends. Missing shows who has not joined and why. Needs the raid leader or "
-        .. "an assistant.")
+    tipButton(g.inviteBtn, "Invite & sort", "Invites everyone placed in a group, guests too (an accepted player "
+        .. "without a group is not invited), makes the group a raid and moves each player into their group as they "
+        .. "join. Players who join later are sorted too, until the raid ends. Missing shows who has not joined and "
+        .. "why. Needs the raid leader or an assistant.")
 
     g.status = g:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     g.status:SetPoint("TOPLEFT", 2, -28)
@@ -1201,17 +1208,17 @@ function PlanUI:CreateUpcoming(parent)
     d.note:SetWordWrap(false)
 
     -- Sign-ups / Groups / Assignments (Addendum K: the raid's strategy boards, who does what on each boss)
-    -- text tabs with an underline, so they don't look like the page's own tab buttons above
+    -- small text tabs: views inside the page's Upcoming view
     local function tab(label, key)
         local b = UI():CreateUnderlineTab(d, label, function()
             state.detailTab = key
             PlanUI:RefreshUpcoming()
-        end)
+        end, "small")
         b.key = key
         return b
     end
     d.tabSignups = tab("Sign-ups", "signups")
-    d.tabSignups:SetPoint("TOPLEFT", -4, -56)
+    d.tabSignups:SetPoint("TOPLEFT", -4, -58)
     d.tabGroups = tab("Groups", "groups")
     d.tabGroups:SetPoint("LEFT", d.tabSignups, "RIGHT", 6, 0)
     d.tabAssign = tab("Assignments", "assign")
@@ -2109,7 +2116,7 @@ local function createEditor()
     w.sizeDD:SetPoint("LEFT", w.instDD, "RIGHT", 8, 0)
 
     row(c, "Title", -46)
-    w.titleBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
+    w.titleBox = UI():CreateSleekEditBox(c)
     w.titleBox:SetSize(200, 20)
     w.titleBox:SetAutoFocus(false)
     w.titleBox:SetMaxLetters(32)
@@ -2182,7 +2189,7 @@ local function createEditor()
         .. "counted. Tick it for a raid that lower characters may join too."):format(MAX_LEVEL)
 
     row(c, "Note", -268)
-    w.noteBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
+    w.noteBox = UI():CreateSleekEditBox(c)
     w.noteBox:SetSize(270, 20)
     w.noteBox:SetAutoFocus(false)
     w.noteBox:SetMaxLetters(120)
@@ -2319,8 +2326,7 @@ local function initInviteRow(row, d)
         row.fs:SetPoint("LEFT", 6, 0)
         row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         row.note:SetPoint("LEFT", 150, 0)
-        row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-        row.remove:SetSize(20, 20)
+        row.remove = UI():CreateRemoveButton(row, "Take off this raid")
         row.remove:SetPoint("RIGHT", -4, 0)
         row.remove:SetScript("OnClick", function(self)
             local data = self:GetParent().__cdlData
@@ -2346,19 +2352,19 @@ local function createInvites()
     w.info:SetJustifyH("LEFT")
     w.info:SetWordWrap(false)
 
-    local function tab(label, mode, width)
-        return UI():CreateSleekButton(c, label, width, 20, function()
+    local function tab(label, mode)
+        return UI():CreateUnderlineTab(c, label, function()
             w.mode = mode
             w.err:SetText("")
             PlanUI:RefreshInvites()
         end)
     end
-    w.memberTab = tab("Guild member", "member", 100)
-    w.memberTab:SetPoint("TOPLEFT", 8, -32)
+    w.memberTab = tab("Guild member", "member")
+    w.memberTab:SetPoint("TOPLEFT", 4, -32)
     tipButton(w.memberTab, "Guild member", "Invite guild members outside the raid's teams. On a locked raid they are "
         .. "the only ones besides the teams who can sign up and see it.")
-    w.guestTab = tab("Guest", "guest", 70)
-    w.guestTab:SetPoint("LEFT", w.memberTab, "RIGHT", 3, 0)
+    w.guestTab = tab("Guest", "guest")
+    w.guestTab:SetPoint("LEFT", w.memberTab, "RIGHT", 4, 0)
     tipButton(w.guestTab, "Guest", "Add a player who is not in the guild by character name. A guest counts as "
         .. "accepted, can be placed in a group and is invited with the raid.")
     -- 1.3: one click for a player we know (the guest book, my group, my target), with their class and spec
@@ -2378,7 +2384,7 @@ local function createInvites()
     w.picker.frame:SetPoint("TOPLEFT", 6, -60)
 
     -- guests (roster managers): name, class, spec
-    w.nameBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
+    w.nameBox = UI():CreateSleekEditBox(c)
     w.nameBox:SetSize(116, 20)
     w.nameBox:SetAutoFocus(false)
     w.nameBox:SetMaxLetters(48)
@@ -2386,7 +2392,7 @@ local function createInvites()
     w.nameBox:SetScript("OnEnterPressed", function() PlanUI:AddGuest() end)
     w.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     w.nameHint = w.nameBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.nameHint:SetPoint("LEFT", 2, 0)
+    w.nameHint:SetPoint("LEFT", 6, 0)
     w.nameHint:SetText("Character name")
     w.nameBox:SetScript("OnTextChanged", function(self)
         w.nameHint:SetShown(self:GetText() == "")
@@ -2583,8 +2589,8 @@ function PlanUI:RefreshInvites()
     local guestMode = w.mode == "guest"
     w.memberTab:SetShown(planner and manager)
     w.guestTab:SetShown(planner and manager)
-    w.memberTab:SetKind(guestMode and "secondary" or "active")
-    w.guestTab:SetKind(guestMode and "active" or "secondary")
+    w.memberTab:SetActive(not guestMode)
+    w.guestTab:SetActive(guestMode)
     w.picker.frame:SetShown(not guestMode)
     if guestMode and w.picker.Close then w.picker:Close() end
     for _, region in ipairs({ w.nameBox, w.classDD, w.specDD, w.addBtn, w.knownBtn }) do region:SetShown(guestMode) end

@@ -302,20 +302,31 @@ function Sync:GetPeer(key)
     return type(p) == "table" and p or nil
 end
 
-function Sync:GetStatusText()
-    if not IsInGuild() then return "Not in a guild" end
+-- kind: "none" (no guild), "busy" (waiting or sending), "ok" (shared), "warn" (not shared: no council online)
+local function Status()
+    if not IsInGuild() then return "none", "Not in a guild" end
     local Guild = ns.Guild
-    if not (Guild and Guild:IsReady()) then return "Waiting for guild roster…" end
+    if not (Guild and Guild:IsReady()) then return "busy", "Waiting for guild roster…" end
     local BiS = ns.BiS
-    if BiS and BiS.IsDirty and BiS:IsDirty() then return "Changes pending…" end
+    if BiS and BiS.IsDirty and BiS:IsDirty() then return "busy", "Changes pending…" end
     local rev = OwnRev()
     if rev > 0 and sharedRev == rev and lastSharedTs then
-        return "Shared with council " .. CHECK .. " " .. Util.FormatAgo(lastSharedTs)
+        return "ok", "Shared with council " .. CHECK .. " " .. Util.FormatAgo(lastSharedTs)
     end
     if #Sync:GetOnlineCouncilPeers() == 0 then
-        return "Not shared yet — no council member online"
+        return "warn", "Not shared yet — no council member online"
     end
-    return "Sharing with council…"
+    return "busy", "Sharing with council…"
+end
+
+function Sync:GetStatusText()
+    local _, text = Status()
+    return text
+end
+
+-- Returns kind, text (kinds as in Status above).
+function Sync:GetStatus()
+    return Status()
 end
 
 function Sync:GetVersions()

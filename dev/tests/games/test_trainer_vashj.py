@@ -1,7 +1,7 @@
 """Raid Trainer: Lady Vashj, phase 2 (the Tainted Core run), and the engine pieces it added.
 
 Covers: the room (Blizzard's geometry: a round stepped platform, holes where there is no floor, walls from the
-same grid); the round (an elemental at the edge, killed by the raid, a core on the ground); looting roots you
+same grid, the steps one smooth ramp underfoot); the round (an elemental at the edge, killed by the raid, a core on the ground); looting roots you
 (Paralyze) until the core is gone; Throw Key: allies only, 40 yd, the core flies at 30 yd/s; simulated raiders
 pass it on towards the generator and use it there; using it yourself on a generator from 5 yd; each job (looter,
 relay, at the generator) played through to four generators down; a core nobody moves loses the try; the panel:
@@ -105,6 +105,19 @@ def walls_come_from_the_floor_grid():
     y = sim(c, "return s.player.y")
     assert 2 < y < 20 and c.eval_py("return ns.Trainer:GetEncounter('vashj').arena.walkable(105, %f)" % y), y
     assert not c.eval_py("return ns.Trainer:GetEncounter('vashj').arena.walkable(105, %f)" % (y - 2.5))
+
+
+@case
+def the_steps_up_to_the_platform_are_one_smooth_ramp_underfoot():
+    # The steps round the platform carry Blizzard's invisible collision ramp: from the bottom up to the ring round
+    # Vashj you rise steadily (0.35 yd a step at 7 yd/s), never by a step's height at once, and never fall
+    w, c = boot()
+    r = c.eval_py("T_V.new('finisher') local s, t = T_V.sim, {} local p = s.player  p.x, p.y = 105, 16  s:SetMove(0, 1) "
+                  "for _ = 1, 160 do s:Step(0.05) t[#t+1] = { p.y, s:FeetZ(p), p.falling and true or false } end return t")
+    z = [q[1] for q in r]
+    assert z[0] < -15 and z[-1] > -2.5 and r[-1][0] > 70 and not any(q[2] for q in r), (r[0], r[-1])
+    assert all(b >= a - 1e-3 for a, b in zip(z, z[1:])) and max(b - a for a, b in zip(z, z[1:])) < 0.25, z
+    no_errors(w)
 
 
 @case
@@ -284,6 +297,11 @@ def the_panel_shows_allies_and_things_to_use():
     # the generators are the game's own object: the floor light model, 2.1 times its size, on its own height
     gen = sim(c, "local g = s.generators[1] local a = ns.TrainerUI._Actor(g.id) return { g.fdid, a and a.fileID, a and a.scale, a and ({ a:GetPosition() })[3] }")
     assert gen[0] == 191730 and gen[1] == 191730 and gen[2] == 2.1 and abs(gen[3] * 2.1 - 1.1) < 1e-6, gen
+    # its origin is mid-height (the model's box reaches 2.84 yd below it, past the floor): for the room's copies it
+    # stands on the ring under it and is as tall as before, so the steps in front of it hide its pedestal
+    o = sim(c, "local g = s.generators[1] for _, o in ipairs(ns.TrainerUI._Occluders() or {}) do if o.id == g.id then "
+               "return { o.z, o.h, s.enc.arena.ground(g.x, g.y, g.z) } end end")
+    assert o and abs(o[0] - o[2]) < 1e-6 and -1.6 < o[0] < -1.2 and abs(o[0] + o[1] - (1.1 + 6)) < 1e-6, o
     # F with nothing in reach is still our key; the 1 key is the core
     assert c.eval_py("return ns.TrainerUI._Key('F')") is True
     c.eval("ns.TrainerUI._Key('1')")

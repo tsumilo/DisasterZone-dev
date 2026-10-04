@@ -148,7 +148,7 @@ def summary(c):
 
 
 def search_box(c):
-    return c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]")
+    return c.eval("return T_search(DisasterZonePicker)")
 
 
 def cands(c, sid, **f):
@@ -526,7 +526,7 @@ def search_by_profession_faction_vendor_and_season():
     assert ANGELISTA in [r[2] for r in got], (name, got)
     c.eval("ns.Picker:Close()")
     open_picker(c, 11)
-    assert c.eval("return T_template(DisasterZonePicker, 'SearchBoxTemplate')[1]:GetText()") == ""
+    assert c.eval("return T_search(DisasterZonePicker):GetText()") == ""
     # ItemDB:Search itself matches group, specialisation, standing and faction
     n = c.eval("""
       local rows = ns.ItemDB:GetCandidates(5, { sources = { crafted = true, rep = true, badges = true, pvp = true },

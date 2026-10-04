@@ -3,10 +3,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidInvite.lua", ...) then re
 -- group. While it runs, players who join later are sorted automatically (until the raid session ends, I leave the
 -- group, or it is stopped); "Re-sort" runs the sorting on demand. Needs the raid leader or an assistant (the game only
 -- lets them invite and move players); nothing is moved in combat.
--- Everyone who accepted is invited, guild member or guest: those placed in a group (the plan) and those who are not
--- (extra; they stay where the game puts them). Blacklisted players are never invited. Who is still missing, and why
--- (offline, declined, already in a group, no answer yet), is in GetStatus, with who is in the raid without being
--- on the raid's roster.
+-- The Groups tab is who has a spot: only the players placed in a group are invited, guild member or guest (an
+-- accepted player without a group is not; the organizer is told who). Blacklisted players are never invited. Who is
+-- still missing, and why (offline, declined, already in a group, no answer yet), is in GetStatus, with who is in the
+-- raid without being on the raid's roster.
 local addonName, ns = ...
 
 local RaidInvite = ns:NewModule("RaidInvite")
@@ -20,7 +20,7 @@ local MAX_MOVES = 8          -- subgroup moves per pass (the next pass follows t
 local MAX_AGE = 8 * 3600     -- a run stops after this
 local REPASS_DELAY = 2       -- a pass that moved people checks again after this (in case no roster update comes)
 
-local active                 -- { occ, plan = { [key] = g }, extra = { [key] = true }, name,
+local active                 -- { occ, plan = { [key] = g }, name,
                              --   invited = { [key] = GetTime() }, failed = { [key] = "declined" | "offline" |
                              --   "grouped" }, at, session, wasInGroup, announced, waitCombat, offline = { key, ... } }
 
@@ -52,7 +52,7 @@ local function Save()
     local db = ns.db
     if not db then return end
     if active then
-        db.raidInvite = { occ = active.occ, plan = active.plan, extra = active.extra, name = active.name, at = active.at,
+        db.raidInvite = { occ = active.occ, plan = active.plan, name = active.name, at = active.at,
                           session = active.session }
     else
         db.raidInvite = nil
@@ -91,7 +91,7 @@ local function IsBlocked(key)
     return active ~= nil and RP.GetSignupBlock ~= nil and RP:GetSignupBlock(active.occ, key) == "declined"
 end
 
--- Everyone the run invites: the planned players by group, then the extra ones by name.
+-- Everyone the run invites: the planned players, by group.
 local function InviteKeys()
     local keys = {}
     for key in pairs(active.plan) do keys[#keys + 1] = key end
@@ -99,12 +99,6 @@ local function InviteKeys()
         if active.plan[a] ~= active.plan[b] then return active.plan[a] < active.plan[b] end
         return a < b
     end)
-    local extra = {}
-    for key in pairs(active.extra or {}) do
-        if not active.plan[key] then extra[#extra + 1] = key end
-    end
-    tsort(extra)
-    for _, key in ipairs(extra) do keys[#keys + 1] = key end
     return keys
 end
 
@@ -324,39 +318,29 @@ function RaidInvite:CanRun()
     return true
 end
 
--- extra (optional): { key, ... } or a set: players to invite who have no group in the plan (nil keeps the run's).
-local function Begin(occ, plan, name, inviting, extra)
+local function Begin(occ, plan, name, inviting)
     local clean = {}
     for key, g in pairs(type(plan) == "table" and plan or {}) do
         if type(key) == "string" and type(g) == "number" and g >= 1 and g <= 8 then clean[key] = g end
     end
-    local more
-    if type(extra) == "table" then
-        more = {}
-        for k, v in pairs(extra) do
-            local key = type(k) == "string" and v and k or (type(v) == "string" and v) or nil
-            if key then more[key] = true end
-        end
-    end
     if active and active.occ == occ then
         active.plan, active.name = clean, name or active.name
-        if more then active.extra = more end
         active.inviting = active.inviting or inviting
         active.announced = nil
     else
-        active = { occ = occ, plan = clean, extra = more or {}, name = name, invited = {}, failed = {}, at = Now(),
+        active = { occ = occ, plan = clean, name = name, invited = {}, failed = {}, at = Now(),
                    session = Session(), wasInGroup = IsInGroup(), inviting = inviting, offline = {} }
     end
     Save()
     return clean
 end
 
--- Invites everyone in `plan` ({ [key] = group }) and in `extra` (players without a group) who is online and not in
--- my group yet, then sorts the raid. Players who join later are sorted as they come. Returns ok, err.
-function RaidInvite:Start(occ, plan, name, extra)
+-- Invites everyone in `plan` ({ [key] = group }) who is online and not in my group yet, then sorts the raid.
+-- Players who join later are sorted as they come. Returns ok, err.
+function RaidInvite:Start(occ, plan, name)
     local ok, err = self:CanRun()
     if not ok then return false, err end
-    Begin(occ, plan, name, true, extra or {})
+    Begin(occ, plan, name, true)
     active.invited, active.failed = {}, {}   -- a new press invites the missing players again
     local n = #InviteKeys()
     ns:Print("Inviting and sorting %d players for %s.", n, name or "the raid")
@@ -375,9 +359,9 @@ function RaidInvite:Resort(occ, plan, name)
 end
 
 -- The plan changed (the layout was saved, a player was taken off the raid) while a run is going: follow it.
-function RaidInvite:UpdatePlan(occ, plan, extra)
+function RaidInvite:UpdatePlan(occ, plan)
     if active and active.occ == occ then
-        Begin(occ, plan, nil, false, extra)
+        Begin(occ, plan, nil, false)
         SchedulePump(0.2)
     end
 end
@@ -409,7 +393,7 @@ end
 --   declined = declined the invite,   grouped = already in another group,
 --   pending  = invited, no answer yet,
 --   unlisted = in my group but not on the raid's roster } or nil when nothing runs.
--- planned / inRaid count everyone the run invites (with or without a group); sorted only those with a group.
+-- planned / inRaid count everyone the run invites (the players placed in a group).
 function RaidInvite:GetStatus()
     if not active then return nil end
     local roster = Roster()
@@ -466,7 +450,7 @@ function RaidInvite:OnLogin()
     local saved = ns.db and ns.db.raidInvite
     if type(saved) == "table" and type(saved.plan) == "table" and tonumber(saved.at)
         and Now() - saved.at < MAX_AGE then
-        active = { occ = saved.occ, plan = saved.plan, extra = type(saved.extra) == "table" and saved.extra or {},
+        active = { occ = saved.occ, plan = saved.plan,
                    name = saved.name, invited = {}, failed = {}, at = saved.at, session = saved.session,
                    wasInGroup = true, offline = {} }
         Util.After(3, function() Pump() end)

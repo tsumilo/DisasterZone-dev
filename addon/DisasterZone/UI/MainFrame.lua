@@ -1,16 +1,26 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MainFrame.lua", ...) then return end -- DisasterZone UI/MainFrame.lua
--- ns.MainFrame: the 800x580 main window, its bottom-tab registry (panels created lazily),
--- the sync status in the title bar, and the minimap / LibDataBroker launcher.
+-- ns.MainFrame: the main window, its navigation strip and page registry (panels created lazily), the sync status
+-- at the right of the strip, and the minimap / LibDataBroker launcher.
 local addonName, ns = ...
 
 local MainFrame = ns:NewModule("MainFrame")
 
 local FRAME_NAME = "DisasterZoneMainFrame"
-local WIDTH, HEIGHT = 800, 580
+local NAV_H = 28                          -- the navigation strip; every page keeps an 800x580 window's space
+local WIDTH, HEIGHT = 800, 580 + NAV_H
+
+-- Pages shown as an icon at the right of the strip (in the pages' order: Games, Changelog, Settings), and pages
+-- without a tab (none at the moment).
+local NAV_ICONS = {
+    games     = { icon = 21, tip = { "Games", "Bingo and the other games to play with the guild." } },
+    changelog = { icon = 25, tip = { "What's new", "The changes of every DisasterZone release." } },
+    settings  = { icon = 13, tip = { "Settings" } },
+}
+local NAV_HIDDEN = {}
 
 local tabDefs = {}      -- key -> { key, label, order, createFn, isAvailableFn, panel }
 local tabList = {}      -- defs sorted by order
-local frame, tabs, statusText
+local frame, tabs, status
 local currentKey
 
 ---------------------------------------------------------------------------
@@ -48,14 +58,22 @@ local ShowPanel   -- forward
 
 local function BuildTabs()
     if not frame then return end
-    if tabs then
-        for _, button in ipairs(tabs.buttons) do button:Hide() end
-    end
+    if tabs then tabs.frame:Hide() end
     local defs = {}
-    for i, def in ipairs(tabList) do
-        defs[i] = { key = def.key, label = def.label }
+    for _, def in ipairs(tabList) do
+        if not NAV_HIDDEN[def.key] then
+            local icon = NAV_ICONS[def.key]
+            defs[#defs + 1] = { key = def.key, label = def.label, icon = icon and icon.icon, tip = icon and icon.tip }
+        end
     end
-    tabs = ns.UI:CreateTabs(frame, defs, function(key) ShowPanel(key) end)
+    tabs = ns.UI:CreateNavStrip(frame, defs, function(key) ShowPanel(key) end)
+    local inset = frame.Inset
+    tabs.frame:SetPoint("TOPLEFT", inset or frame, "TOPLEFT", inset and 3 or 6, inset and -3 or -26)
+    tabs.frame:SetPoint("TOPRIGHT", inset or frame, "TOPRIGHT", inset and -3 or -6, inset and -3 or -26)
+    if status then
+        status:ClearAllPoints()
+        status:SetPoint("RIGHT", tabs.rightAnchor, "RIGHT", 0, 0)
+    end
 end
 
 function MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn)
@@ -95,13 +113,55 @@ local function UpdateTitle()
     end
 end
 
+-- The sync status at the right of the strip: a small icon (shared / sending / not shared) with the full text in its
+-- tooltip; words only when something needs a look (not shared, demo mode).
+local STATUS_ICONS = {
+    ok   = "Interface\\RaidFrame\\ReadyCheck-Ready",
+    busy = "Interface\\RaidFrame\\ReadyCheck-Waiting",
+    warn = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew",
+}
+
 local function UpdateStatus()
-    if not frame or not statusText then return end
-    local text = ns.Sync and ns.Sync.GetStatusText and ns.Sync:GetStatusText() or ""
-    if ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() then
-        text = "|cffff8000Demo mode|r" .. (text ~= "" and ("  ·  " .. text) or "")
-    end
-    statusText:SetText(ns.UI:SafeText(text or ""))
+    if not frame or not status then return end
+    local kind, text = "none", ""
+    if ns.Sync and ns.Sync.GetStatus then kind, text = ns.Sync:GetStatus() end
+    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
+    local words = {}
+    if demo then words[#words + 1] = "|cffff8000Demo mode|r" end
+    if kind == "warn" then words[#words + 1] = "|cffff8000Not shared yet|r" end
+    status.text:SetText(table.concat(words, "  ·  "))
+    status.icon:SetShown(STATUS_ICONS[kind] ~= nil)
+    if STATUS_ICONS[kind] then status.icon:SetTexture(STATUS_ICONS[kind]) end
+    status.tip = ns.UI:SafeText(text or "")
+    local w = (status.text:GetStringWidth() or 0) + (status.icon:IsShown() and 18 or 0)
+    status:SetWidth(math.max(1, w))
+    status:SetShown(w > 0)
+end
+
+local function CreateStatus()
+    local s = CreateFrame("Frame", nil, frame)
+    s:SetHeight(18)
+    s.icon = s:CreateTexture(nil, "ARTWORK")
+    s.icon:SetSize(14, 14)
+    s.icon:SetPoint("RIGHT", 0, 0)
+    s.text = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    s.text:SetPoint("RIGHT", s.icon, "LEFT", -4, 0)
+    s.text:SetJustifyH("RIGHT")
+    s.text:SetWordWrap(false)
+    s:EnableMouse(true)
+    s:SetScript("OnEnter", function(self)
+        UpdateStatus()   -- "1m ago" stays current
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine("Your BiS lists")
+        if self.tip and self.tip ~= "" then GameTooltip:AddLine(self.tip, 1, 1, 1, true) end
+        if ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() then
+            GameTooltip:AddLine("Demo mode: made-up members, lists and a raid to try the council views; never saved.",
+                1, 0.5, 0, true)
+        end
+        GameTooltip:Show()
+    end)
+    s:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return s
 end
 
 ---------------------------------------------------------------------------
@@ -138,14 +198,11 @@ local function EnsureFrame()
     local UI = ns.UI
     frame = UI:CreateWindow(FRAME_NAME, "DisasterZone", WIDTH, HEIGHT)
     frame:Hide()
+    -- the pages start under the navigation strip
+    local inset = frame.Inset
+    frame.content:SetPoint("TOPLEFT", inset or frame, "TOPLEFT", inset and 3 or 6, (inset and -3 or -26) - NAV_H)
 
-    statusText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statusText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -30, -6)
-    statusText:SetWidth(250)
-    statusText:SetHeight(14)
-    statusText:SetJustifyH("RIGHT")
-    statusText:SetWordWrap(false)
-    statusText:SetTextColor(0.75, 0.75, 0.75)
+    status = CreateStatus()
 
     frame:HookScript("OnShow", function()
         if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_OPEN then PlaySound(SOUNDKIT.IG_CHARACTER_INFO_OPEN) end

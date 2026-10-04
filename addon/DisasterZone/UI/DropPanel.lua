@@ -897,7 +897,7 @@ function DropPanel:GetFrame()
     self.title, self.sub = title, sub
 
     -- Scrollable item blocks.
-    local scroll = CreateFrame("ScrollFrame", PANEL_NAME .. "Scroll", c, "UIPanelScrollFrameTemplate")
+    local scroll = UI:CreateScrollFrame(c, PANEL_NAME .. "Scroll")
     scroll:SetPoint("TOPLEFT", c, "TOPLEFT", 4, -HEADER_H)
     scroll:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -SCROLLBAR_W, FOOTER_H)
     scroll.scrollBarHideable = true
@@ -1720,11 +1720,20 @@ function DropPanel:NewBlock(parent)
     AddButtonTooltip(b.unqueue, function()
         return "Take this item out of the roll queue."
     end)
-    -- ADDENDUM G §41: one click to the guild's (or this raid's) disenchanter / guild bank character.
-    b.deBtn = UI:CreateButton(b, "DE", 40, 20, function() DropPanel:AwardToTarget(b, "de") end)
-    AddButtonTooltip(b.deBtn, function() return DropPanel:TargetTooltip("de") end)
-    b.bankBtn = UI:CreateButton(b, "Bank", 50, 20, function() DropPanel:AwardToTarget(b, "bank") end)
-    AddButtonTooltip(b.bankBtn, function() return DropPanel:TargetTooltip("bank") end)
+    -- ADDENDUM G §41: one click to the guild's (or this raid's) disenchanter / guild bank character (icons: the
+    -- tooltip names the character).
+    local function targetIcon(kind, icon)
+        local btn = UI:CreateIconButton(b, 20, UI.ICON_ATLAS, UI:IconCoords(icon), function()
+            DropPanel:AwardToTarget(b, kind)
+        end)
+        btn.icon:ClearAllPoints()
+        btn.icon:SetPoint("TOPLEFT", 3, -3)
+        btn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+        AddButtonTooltip(btn, function() return DropPanel:TargetTooltip(kind) end)
+        return btn
+    end
+    b.deBtn = targetIcon("de", UI.ICON.disenchant)
+    b.bankBtn = targetIcon("bank", UI.ICON.bank)
     b.actionButtons = { b.announce, b.award, b.rollBtn, b.endRoll, b.awardRoll, b.reroll, b.unqueue, b.deBtn, b.bankBtn }
 
     b.awarded = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1957,6 +1966,10 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         buttons[1] = b.award   -- the fix of a loot-message conflict lives in the Award... menu
     end
     if FakeDropLocked(drop) or not canAwardItem then b.award:Disable() else b.award:Enable() end
+    -- the block's main action is gold: the suggested award while rolling, else Award... (Roll when the loot
+    -- council is off for this raid)
+    local main = rolling and b.awardRoll or (plain and b.rollBtn or b.award)
+    for _, btn in ipairs({ b.award, b.rollBtn, b.awardRoll }) do btn:SetKind(btn == main and "primary" or "secondary") end
     LayoutActions(b, y, buttons, self.child and self.child:GetWidth())
     if winnerKey then
         local t = Paint("Awarded to ", "obtained") .. ColoredName(winnerKey)

@@ -108,6 +108,7 @@ EXTRA_KNOWN = {
     "BNSendGameData",                                                    # used by ChatThrottleLib via hooksecurefunc
     "IsFishingLoot",                                                     # classic_anniversary Blizzard LootFrame.lua:319
     "ConvertToRaid",                                                     # party -> raid (since 1.x; Attune.lua:5400 calls it)
+    "BaseScrollBoxEvents",                                               # classic_anniversary SharedXML Scroll/ScrollBox.lua:2
 }
 EXTRA_KNOWN_FIELDS = {
     "C_ChatInfo": {"SendAddonMessageLogged", "SendAddonMessage", "RegisterAddonMessagePrefix",
@@ -115,6 +116,8 @@ EXTRA_KNOWN_FIELDS = {
     "C_Timer": {"After", "NewTimer", "NewTicker"},
     # map art tiles (Blizzard_MapCanvas' detail layer; Leatrix_Maps calls GetMapArtLayers on this client)
     "C_Map": {"GetMapArtLayers", "GetMapArtLayerTextures"},
+    # classic_anniversary SharedXML Scroll/ScrollBox.lua (ScrollBoxConstants table)
+    "ScrollBoxConstants": {"NoScrollInterpolation"},
 }
 # Globals owned by addons in the TOC's OptionalDeps: reported as INFO (must be nil-guarded), not as unknown.
 OPTIONAL_DEP_PREFIXES = {"LoonBestInSlot": ("LBIS", "LoonBestInSlot")}

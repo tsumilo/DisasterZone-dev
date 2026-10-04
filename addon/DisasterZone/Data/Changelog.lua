@@ -60,7 +60,8 @@ ns.CHANGELOG = {
               "Hover a raid in the list to see all of it: full name, time, who it is for, note.",
           } },
           { heading = "Invite & sort", lines = {
-              "Invites everyone who accepted, guests too, also those not placed in a group yet.",
+              "Invites the players placed in a group, guests too: the Groups tab is who has a spot.",
+              "Who accepted without a group is not invited; the chat names them.",
               "Missing: who has not joined and why (offline, declined, in another group, no answer).",
               "It also lists who is in the raid without being on the roster, and can invite again.",
           } },

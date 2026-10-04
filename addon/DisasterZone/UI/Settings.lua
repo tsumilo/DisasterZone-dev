@@ -384,7 +384,7 @@ function SettingsUI:CreatePanel(parent)
     panel.dirty = true
     self.panel = panel
 
-    local scroll = CreateFrame("ScrollFrame", "DisasterZoneSettingsScroll", panel, "UIPanelScrollFrameTemplate")
+    local scroll = ns.UI:CreateScrollFrame(panel, "DisasterZoneSettingsScroll")
     scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -4)
     scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, 4)
     local child = CreateFrame("Frame", nil, scroll)

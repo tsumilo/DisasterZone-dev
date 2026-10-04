@@ -476,7 +476,12 @@ function UI:CreateFlatButton(parent, text, width, height, onClick, tint)
 end
 
 ---------------------------------------------------------------------------
--- The flat editor style (strategy board): dark buttons with a 1px border; one gold "primary" action per view.
+-- The flat style: one meaning per look, on every page.
+--   where you are     gold text + gold underline (CreateUnderlineTab, the main window's navigation)
+--   main action       "primary": gold fill, one per page
+--   chosen option     "chosen": light grey fill, the picked one of a set (P1-P5, Main / Off spec, a toggle)
+--   other actions     "secondary": dark grey
+--   can't undo        "danger": red
 ---------------------------------------------------------------------------
 
 local SLEEK = {
@@ -486,10 +491,10 @@ local SLEEK = {
                   text = { 0.88, 0.88, 0.88 } },
     danger    = { bg = { 0.30, 0.06, 0.06, 0.92 }, hover = { 0.45, 0.09, 0.09, 0.95 }, edge = { 0.75, 0.25, 0.25, 0.9 },
                   text = { 1, 0.85, 0.85 } },
-    -- the current tab of a row of tabs
-    active    = { bg = { 0.17, 0.14, 0.06, 0.95 }, hover = { 0.22, 0.18, 0.08, 0.95 }, edge = { 1, 0.82, 0, 0.9 },
-                  text = { 1, 0.82, 0 } },
+    chosen    = { bg = { 0.27, 0.27, 0.30, 0.95 }, hover = { 0.32, 0.32, 0.36, 0.95 }, edge = { 0.72, 0.72, 0.76, 0.9 },
+                  text = { 1, 1, 1 } },
 }
+SLEEK.active = SLEEK.chosen   -- the older name of "chosen"
 UI.SLEEK = SLEEK
 
 -- A 1px border of four textures around frame f: f.edges, recoloured by UI:SetEdgeColor(f, r, g, b, a).
@@ -512,7 +517,8 @@ function UI:SetEdgeColor(f, r, g, b, a)
     for _, t in ipairs(f.edges or {}) do t:SetColorTexture(r, g, b, a or 1) end
 end
 
--- A flat editor button. kind = "primary" | "secondary" (default) | "danger" | "active"; b:SetKind(kind) restyles it.
+-- A flat button. kind = "primary" | "secondary" (default) | "danger" | "chosen" ("active" is the same as "chosen");
+-- b:SetKind(kind) restyles it.
 -- b:SetTint(r, g, b) paints it in that colour instead (a chosen answer); b:SetTint(nil) goes back to its kind.
 function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
     local b = CreateFrame("Button", nil, parent)
@@ -525,8 +531,9 @@ function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
     b:SetText(text or "")
     b:SetSize(width or ((fs:GetStringWidth() or 40) + 24), height or 22)
     local function paint(self)
-        local s = SLEEK[self.kind] or SLEEK.secondary
         local enabled = self:IsEnabled()
+        -- a disabled button is plain grey whatever its kind (a Save with nothing to save is not gold)
+        local s = enabled and (SLEEK[self.kind] or SLEEK.secondary) or SLEEK.secondary
         local c = (enabled and self.hovered) and s.hover or s.bg
         local e, t = s.edge, s.text
         local tint = self.tint
@@ -573,7 +580,8 @@ function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
     return b
 end
 
--- A square icon button for toolbars: texture + texcoords (l, r, t, b). b:SetActive(on) marks the current tool.
+-- A square icon button for toolbars: texture + texcoords (l, r, t, b). b:SetActive(on) marks the current tool (the
+-- "chosen" look).
 function UI:CreateIconButton(parent, size, texture, coords, onClick)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(size, size)
@@ -588,9 +596,11 @@ function UI:CreateIconButton(parent, size, texture, coords, onClick)
     local function paint(self)
         local enabled = self:IsEnabled()
         if self.active then
-            self.bg:SetColorTexture(0.42, 0.30, 0.04, 0.9)
-            UI:SetEdgeColor(self, 1, 0.82, 0, 0.9)
-            self.icon:SetVertexColor(1, 0.9, 0.5)
+            local s = SLEEK.chosen
+            local c = (enabled and self.hovered) and s.hover or s.bg
+            self.bg:SetColorTexture(c[1], c[2], c[3], c[4])
+            UI:SetEdgeColor(self, s.edge[1], s.edge[2], s.edge[3], s.edge[4])
+            self.icon:SetVertexColor(1, 1, 1)
         else
             local v = (enabled and self.hovered) and 0.2 or 0.1
             self.bg:SetColorTexture(v, v, v + 0.02, 0.92)
@@ -616,8 +626,10 @@ end
 -- The editor icons: a 4x8 atlas of 64px cells drawn by dev/generators/gen_strategy_media.py, in this order:
 -- 1 select, 2 pan, 3 circle, 4 rectangle, 5 arrow, 6 line, 7 pin, 8 text, 9 undo, 10 redo, 11 help, 12 delete,
 -- 13 gear, 14 chevron down, 15 eye (open), 16 pencil (edit), 17 copy, 18 share, 19 invite (player +),
--- 20 call off (calendar x).
+-- 20 call off (calendar x), 21 dice (games), 22 sparkles (disenchant), 23 bank, 24 three dots (more actions),
+-- 25 page with lines (what's new).
 UI.ICON_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
+UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, bank = 23, more = 24, notes = 25 }
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / 8, (row + 1) / 8 }
@@ -634,6 +646,16 @@ function UI:CreateTipIconButton(parent, size, icon, title, text, onClick)
         GameTooltip:Show()
     end)
     b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
+-- The small bin at the end of a list row that takes the entry off the list (tooltip: title). The caller sets the
+-- position and the OnClick.
+function UI:CreateRemoveButton(parent, title)
+    local b = UI:CreateTipIconButton(parent, 18, UI.ICON.trash, title or "Remove", nil)
+    b.icon:ClearAllPoints()
+    b.icon:SetPoint("TOPLEFT", 3, -3)
+    b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
     return b
 end
 
@@ -704,15 +726,28 @@ function UI:SetEditPlaceholder(eb, text, fontObject)
     eb.cdlHint:SetShown((eb:GetText() or "") == "")
 end
 
--- A text tab for a second row of tabs (under a page's own tab buttons): grey text, gold with a gold underline while
--- it is the open one. b:SetActive(on).
-function UI:CreateUnderlineTab(parent, text, onClick)
+-- Every tab of the addon is a text tab: grey text, gold with a gold underline while it is the open one.
+-- size: "nav" (the main window's navigation), nil (a page's views: Upcoming / Teams / ...), "small" (views inside a
+-- view: Sign-ups / Groups / Assignments). b:SetActive(on); b:SetLabel(text) also refits the width.
+local TAB_SIZES = {
+    nav   = { font = "GameFontHighlightMedium", fallback = "GameFontHighlight", height = 26, pad = 18 },
+    page  = { font = "GameFontHighlight", height = 22, pad = 16 },
+    small = { font = "GameFontHighlightSmall", height = 18, pad = 12 },
+}
+function UI:CreateUnderlineTab(parent, text, onClick, size)
+    local s = TAB_SIZES[size or "page"] or TAB_SIZES.page
+    local font = s.font
+    if s.fallback and not _G[font] then font = s.fallback end
     local b = CreateFrame("Button", nil, parent)
-    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local fs = b:CreateFontString(nil, "OVERLAY", font)
     fs:SetPoint("CENTER", 0, 1)
     b:SetFontString(fs)
     b:SetText(text or "")
-    b:SetSize((fs:GetStringWidth() or 40) + 16, 20)
+    b:SetSize((fs:GetStringWidth() or 40) + s.pad, s.height)
+    function b:SetLabel(t)
+        self:SetText(t or "")
+        self:SetWidth((fs:GetStringWidth() or 40) + s.pad)
+    end
     b.line = b:CreateTexture(nil, "ARTWORK")
     b.line:SetPoint("BOTTOMLEFT", 4, 0)
     b.line:SetPoint("BOTTOMRIGHT", -4, 0)
@@ -770,6 +805,43 @@ function UI:CreateLabel(parent, text, fontObject)
     fs:SetJustifyH("LEFT")
     fs:SetText(text or "")
     return fs
+end
+
+-- The column titles over a list (small gold text). h:AddColumn(text, x, width, opts) adds one and returns its button
+-- (b.label is the text); opts = { justify = "LEFT" | "CENTER" | "RIGHT", onClick = fn(b), tip = fn(b) (fills
+-- GameTooltip) }. A title is never cut off: its button grows to fit the text.
+function UI:CreateColumnHeader(parent, height)
+    local h = CreateFrame("Frame", nil, parent)
+    h:SetHeight(height or 18)
+    h.columns = {}
+    function h:AddColumn(text, x, width, opts)
+        opts = opts or {}
+        local justify = opts.justify or "LEFT"
+        local b = CreateFrame("Button", nil, self)
+        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetWordWrap(false)
+        fs:SetText(text or "")
+        fs:SetPoint(justify, b, justify, 0, 0)
+        b.label = fs
+        -- a wider title grows around the column's own anchor (a centred one stays centred over its values)
+        width = width or 0
+        b:SetSize(math.max(width, (fs:GetStringWidth() or 0) + 2), self:GetHeight())
+        local ax = (x or 0) + (justify == "CENTER" and width / 2 or (justify == "RIGHT" and width or 0))
+        b:SetPoint(justify, self, "LEFT", ax, 0)
+        if opts.onClick then b:SetScript("OnClick", function(btn) opts.onClick(btn) end) end
+        if opts.tip then
+            b:SetScript("OnEnter", function(btn)
+                GameTooltip:SetOwner(btn, "ANCHOR_TOP")
+                opts.tip(btn)
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+        if not (opts.onClick or opts.tip) then b:EnableMouse(false) end
+        self.columns[#self.columns + 1] = b
+        return b
+    end
+    return h
 end
 
 ---------------------------------------------------------------------------
@@ -953,6 +1025,133 @@ ns:On("ITEMINFO_READY", function()
 end)
 
 ---------------------------------------------------------------------------
+-- Flat scroll bar: a thin dark track and a grey thumb (lighter on hover, gold while dragged), only shown when there
+-- is something to scroll. It drives a ScrollBox (CreateScrollList) or a plain ScrollFrame (CreateScrollFrame)
+-- through an adapter a = { get = fn -> 0..1, visible = fn -> visible fraction 0..1 (1: nothing to scroll),
+-- set = fn(0..1), step = fn(dir) (dir 1: one wheel step down, -1: up) }.
+---------------------------------------------------------------------------
+
+local BAR_W = 6
+
+local function Clamp01(v)
+    if v < 0 then return 0 elseif v > 1 then return 1 end
+    return v
+end
+
+local function CreateFlatScrollBar(parent, a)
+    local bar = CreateFrame("Frame", nil, parent)
+    bar:SetWidth(BAR_W)
+    bar.track = bar:CreateTexture(nil, "BACKGROUND")
+    bar.track:SetAllPoints()
+    bar.track:SetColorTexture(1, 1, 1, 0.06)
+    local thumb = CreateFrame("Button", nil, bar)
+    thumb:SetWidth(BAR_W)
+    thumb:SetPoint("TOP")
+    thumb:SetHeight(20)
+    thumb.tex = thumb:CreateTexture(nil, "ARTWORK")
+    thumb.tex:SetAllPoints()
+    bar.thumb = thumb
+    local function paint()
+        if thumb.dragging then
+            thumb.tex:SetColorTexture(1, 0.82, 0, 0.85)
+        elseif thumb.hovered then
+            thumb.tex:SetColorTexture(0.75, 0.75, 0.78, 0.9)
+        else
+            thumb.tex:SetColorTexture(0.45, 0.45, 0.49, 0.85)
+        end
+    end
+    function bar:Update()
+        local vis = a.visible() or 1
+        if vis >= 0.999 then
+            self:Hide()
+            return
+        end
+        self:Show()
+        local h = self:GetHeight() or 0
+        local th = math.min(h, math.max(18, h * vis))
+        thumb:SetHeight(th)
+        thumb:ClearAllPoints()
+        thumb:SetPoint("TOP", self, "TOP", 0, -(h - th) * Clamp01(a.get() or 0))
+    end
+    function bar:Page(dir)
+        local vis = a.visible() or 1
+        if vis >= 0.999 then return end
+        a.set(Clamp01((a.get() or 0) + dir * vis / (1 - vis)))
+    end
+    local function cursorY(f)
+        local _, y = GetCursorPosition()
+        return y / (f:GetEffectiveScale() or 1)
+    end
+    thumb:SetScript("OnEnter", function() thumb.hovered = true; paint() end)
+    thumb:SetScript("OnLeave", function() thumb.hovered = false; paint() end)
+    thumb:SetScript("OnMouseDown", function(self, button)
+        if button ~= "LeftButton" then return end
+        self.dragging, self.startY, self.startAt = true, cursorY(self), a.get() or 0
+        paint()
+        self:SetScript("OnUpdate", function(s)
+            local free = (bar:GetHeight() or 0) - (s:GetHeight() or 0)
+            if free > 0 then a.set(Clamp01(s.startAt + (s.startY - cursorY(s)) / free)) end
+        end)
+    end)
+    thumb:SetScript("OnMouseUp", function(self)
+        self.dragging = false
+        self:SetScript("OnUpdate", nil)
+        paint()
+    end)
+    -- a click on the track pages towards it; the wheel scrolls as over the list
+    bar:SetScript("OnMouseDown", function(self)
+        local top = thumb:GetTop()
+        self:Page((top and cursorY(self) > top) and -1 or 1)
+    end)
+    bar:EnableMouseWheel(true)
+    bar:SetScript("OnMouseWheel", function(_, delta) a.step(delta > 0 and -1 or 1) end)
+    bar:SetScript("OnSizeChanged", function(self) self:Update() end)
+    paint()
+    return bar
+end
+
+-- A ScrollFrame with the flat scroll bar to the right of it (outside its right edge, like the old template's bar:
+-- leave about 12px for it) and mouse wheel scrolling. sf.ScrollBar is the bar.
+function UI:CreateScrollFrame(parent, name)
+    local sf = CreateFrame("ScrollFrame", name, parent)
+    local function range() return sf:GetVerticalScrollRange() or 0 end
+    local bar
+    bar = CreateFlatScrollBar(parent, {
+        get = function()
+            local r = range()
+            return r > 0 and (sf:GetVerticalScroll() or 0) / r or 0
+        end,
+        visible = function()
+            local h, r = sf:GetHeight() or 0, range()
+            if r <= 0 or h <= 0 then return 1 end
+            return h / (h + r)
+        end,
+        set = function(p) sf:SetVerticalScroll(p * range()) end,
+        step = function(dir)
+            local r = range()
+            sf:SetVerticalScroll(math.max(0, math.min(r, (sf:GetVerticalScroll() or 0) + dir * 40)))
+        end,
+    })
+    bar:SetPoint("TOPLEFT", sf, "TOPRIGHT", 4, 0)
+    bar:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 4, 0)
+    sf.ScrollBar = bar
+    local function update()
+        local r = range()
+        if (sf:GetVerticalScroll() or 0) > r then sf:SetVerticalScroll(r) end   -- the content got shorter
+        bar:Update()
+    end
+    sf:HookScript("OnScrollRangeChanged", update)
+    sf:HookScript("OnVerticalScroll", function() bar:Update() end)
+    sf:HookScript("OnSizeChanged", update)
+    sf:EnableMouseWheel(true)
+    sf:SetScript("OnMouseWheel", function(_, delta)
+        local r = range()
+        sf:SetVerticalScroll(math.max(0, math.min(r, (sf:GetVerticalScroll() or 0) - delta * 40)))
+    end)
+    return sf
+end
+
+---------------------------------------------------------------------------
 -- Scroll list (modern ScrollBox; call shapes as in Auctionator RecentsContainer/ListsContainer)
 ---------------------------------------------------------------------------
 
@@ -969,9 +1168,20 @@ function UI:CreateScrollList(parent, rowHeight, initRow, extentFn)
     box:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 0)
     list.box = box
 
-    local bar = CreateFrame("EventFrame", nil, frame, "WowTrimScrollBar")
-    bar:SetPoint("TOPLEFT", box, "TOPRIGHT", 4, 0)
-    bar:SetPoint("BOTTOMLEFT", box, "BOTTOMRIGHT", 4, 0)
+    local function scrollable() return box.HasScrollableExtent and box:HasScrollableExtent() end
+    local bar = CreateFlatScrollBar(frame, {
+        get = function() return box:GetScrollPercentage() or 0 end,
+        visible = function()
+            if not scrollable() then return 1 end
+            return box.GetVisibleExtentPercentage and box:GetVisibleExtentPercentage() or 1
+        end,
+        set = function(p) box:SetScrollPercentage(p, ScrollBoxConstants and ScrollBoxConstants.NoScrollInterpolation) end,
+        step = function(dir)
+            if dir > 0 then box:ScrollIncrease() else box:ScrollDecrease() end
+        end,
+    })
+    bar:SetPoint("TOPLEFT", box, "TOPRIGHT", 8, 0)
+    bar:SetPoint("BOTTOMLEFT", box, "BOTTOMRIGHT", 8, 0)
     list.bar = bar
 
     local view = CreateScrollBoxListLinearView(0, 0, 0, 0)
@@ -986,14 +1196,14 @@ function UI:CreateScrollList(parent, rowHeight, initRow, extentFn)
         initRow(row, data)
     end)
     if view.SetPanExtent then view:SetPanExtent(rowHeight * 2) end
-    ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
+    box:Init(view)
     list.view = view
-    -- the bar only shows when there is something to scroll
-    if box.HasScrollableExtent and box.RegisterCallback and BaseScrollBoxEvents and BaseScrollBoxEvents.OnLayout then
-        box:RegisterCallback(BaseScrollBoxEvents.OnLayout, function()
-            bar:SetShown(box:HasScrollableExtent() and true or false)
-        end, list)
+    -- the bar follows the list (and only shows when there is something to scroll)
+    if box.RegisterCallback and BaseScrollBoxEvents then
+        box:RegisterCallback(BaseScrollBoxEvents.OnScroll, function() bar:Update() end, bar)
+        box:RegisterCallback(BaseScrollBoxEvents.OnLayout, function() bar:Update() end, list)
     end
+    bar:Update()
 
     list.emptyText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     list.emptyText:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -24)
@@ -1043,18 +1253,58 @@ function UI:CreateButton(parent, text, width, height, onClick)
     return UI:CreateSleekButton(parent, text, width, height or 22, onClick)
 end
 
+-- A checkbox in the flat style: a dark 14px box with a 1px edge (gold while hovered) and a gold check; the label
+-- to its right is part of the click area. The frame keeps the old 24x24 size, so callers' anchors still fit.
+local CHECK_MARK = "Interface\\Buttons\\UI-CheckBox-Check"
 function UI:CreateCheckbox(parent, label, getter, setter)
-    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    local cb = CreateFrame("CheckButton", nil, parent)
     cb:SetSize(24, 24)
-    -- Hide the template's own label (name differs between clients) and use our own.
-    if cb.Text then cb.Text:SetText("") end
-    if cb.text then cb.text:SetText("") end
+    -- the box is drawn on the button itself (a child frame would cover the check mark)
+    local box = cb:CreateTexture(nil, "BACKGROUND")
+    box:SetSize(14, 14)
+    box:SetPoint("LEFT", 4, 0)
+    box:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    box.edges = {}
+    for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
+                         { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+        local t = cb:CreateTexture(nil, "BORDER")
+        t:SetPoint(e[1], box, e[1])
+        t:SetPoint(e[2], box, e[2])
+        if e[3] then t:SetHeight(1) else t:SetWidth(1) end
+        box.edges[#box.edges + 1] = t
+    end
+    cb.box = box
+    local check = cb:CreateTexture(nil, "ARTWORK")
+    check:SetPoint("CENTER", box, "CENTER", 1, 1)
+    check:SetSize(20, 20)
+    check:SetTexture(CHECK_MARK)
+    cb:SetCheckedTexture(check)
+    local dimCheck = cb:CreateTexture(nil, "ARTWORK")
+    dimCheck:SetPoint("CENTER", box, "CENTER", 1, 1)
+    dimCheck:SetSize(20, 20)
+    dimCheck:SetTexture(CHECK_MARK)
+    dimCheck:SetDesaturated(true)
+    dimCheck:SetAlpha(0.5)
+    cb:SetDisabledCheckedTexture(dimCheck)
     cb.label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    cb.label:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+    cb.label:SetPoint("LEFT", box, "RIGHT", 6, 0)
     cb.label:SetJustifyH("LEFT")
     cb.label:SetText(label or "")
     cb:SetHitRectInsets(0, -(cb.label:GetStringWidth() + 4), 0, 0)
 
+    local function paint(self)
+        local enabled = self:IsEnabled()
+        if enabled and self.hovered then
+            UI:SetEdgeColor(box, 1, 0.82, 0, 0.75)
+        else
+            UI:SetEdgeColor(box, 0.45, 0.45, 0.50, enabled and 0.95 or 0.4)
+        end
+    end
+    -- the label greys out only while disabled (callers may give it their own font object otherwise)
+    local function enableChanged(self)
+        if self:IsEnabled() then self.label:SetTextColor(1, 1, 1) else self.label:SetTextColor(0.5, 0.5, 0.5) end
+        paint(self)
+    end
     function cb:Refresh()
         self:SetChecked(getter and getter() and true or false)
     end
@@ -1065,6 +1315,11 @@ function UI:CreateCheckbox(parent, label, getter, setter)
     cb:SetScript("OnClick", function(self)
         if setter then setter(self:GetChecked() and true or false) end
     end)
+    cb:SetScript("OnEnable", enableChanged)
+    cb:SetScript("OnDisable", enableChanged)
+    cb:HookScript("OnEnter", function(self) self.hovered = true; paint(self) end)
+    cb:HookScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    paint(cb)
     cb:HookScript("OnEnter", function(self)
         if self.tooltipText then
             UI:SetTextTooltip(self, { self.label:GetText() or "", self.tooltipText })
@@ -1076,20 +1331,48 @@ function UI:CreateCheckbox(parent, label, getter, setter)
 end
 
 local searchBoxCount = 0
--- placeholder (optional, DisasterZone extension): instruction text shown while empty.
+local SEARCH_ICON = "Interface\\Common\\UI-Searchbox-Icon"
+local CLEAR_ICON = "Interface\\FriendsFrame\\ClearBroadcastIcon"
+-- A search field in the flat style: a magnifier, a grey hint while empty (placeholder, default "Search"), and a clear
+-- button while there is text. onChanged(text) runs 0.2s after typing stops. eb.Instructions is the hint (as on
+-- Blizzard's SearchBoxTemplate).
 function UI:CreateSearchBox(parent, width, onChanged, placeholder)
     searchBoxCount = searchBoxCount + 1
     local key = "ui-search-" .. searchBoxCount
-    local eb = CreateFrame("EditBox", nil, parent, "SearchBoxTemplate")
-    eb:SetSize(width or 200, 20)
-    eb:SetAutoFocus(false)
+    local eb = UI:CreateSleekEditBox(parent, width or 200, 22, "GameFontHighlightSmall")
     eb:SetMaxLetters(60)
-    if placeholder and eb.Instructions then eb.Instructions:SetText(placeholder) end
+    eb:SetTextInsets(20, 20, 0, 0)
+    local icon = eb:CreateTexture(nil, "OVERLAY")
+    icon:SetSize(12, 12)
+    icon:SetPoint("LEFT", 5, -1)
+    icon:SetTexture(SEARCH_ICON)
+    icon:SetVertexColor(0.7, 0.7, 0.7)
+    local clear = CreateFrame("Button", nil, eb)
+    clear:SetSize(14, 14)
+    clear:SetPoint("RIGHT", -4, 0)
+    clear.tex = clear:CreateTexture(nil, "ARTWORK")
+    clear.tex:SetAllPoints()
+    clear.tex:SetTexture(CLEAR_ICON)
+    clear.tex:SetAlpha(0.6)
+    clear:SetScript("OnEnter", function(self) self.tex:SetAlpha(1) end)
+    clear:SetScript("OnLeave", function(self) self.tex:SetAlpha(0.6) end)
+    clear:SetScript("OnClick", function()
+        eb:SetText("")
+        eb:ClearFocus()
+    end)
+    clear:Hide()
+    eb.clearButton = clear
     eb:HookScript("OnTextChanged", function(self)
+        clear:SetShown((self:GetText() or "") ~= "")
         if not onChanged then return end
         Debounce(key, 0.2, function() onChanged(self:GetText() or "") end)
     end)
-    eb:HookScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    UI:SetEditPlaceholder(eb, placeholder or "Search")
+    eb.cdlHint:ClearAllPoints()
+    eb.cdlHint:SetPoint("LEFT", eb, "LEFT", 20, 0)
+    eb.cdlHint:SetPoint("RIGHT", eb, "RIGHT", -20, 0)
+    eb.Instructions = eb.cdlHint
+    eb.cdlSearch = true
     return eb
 end
 
@@ -1663,63 +1946,131 @@ function UI:CreateSearchDropdown(parent, width, opts)
 end
 
 ---------------------------------------------------------------------------
--- Bottom tabs (CharacterFrameTabButtonTemplate, as GudaBags / LoonBestInSlot on this client)
+-- The main window's navigation: a flat strip of text tabs on the left and icon tabs on the right (Games,
+-- Settings), with a hairline under it. defs = { { key =, label =, icon = UI.ICON_ATLAS index, tip = { title,
+-- text } } } in order; a def with icon becomes an icon tab. Pages can be selected without a tab (obj:Select(key)
+-- works for any key). parent.Tabs lists the tab buttons (b.cdlKey).
 ---------------------------------------------------------------------------
 
-local tabSetCount = 0
+local NAV_ICON = 16
 
-function UI:CreateTabs(frame, tabs, onSelect)
-    tabSetCount = tabSetCount + 1
-    local baseName = (frame:GetName() or ("DisasterZoneTabSet" .. tabSetCount))
-    if tabSetCount > 1 or not frame:GetName() then
-        baseName = baseName .. "Set" .. tabSetCount
+local function CreateNavIcon(parent, def, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(NAV_ICON + 14, 26)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(NAV_ICON, NAV_ICON)
+    b.icon:SetPoint("CENTER", 0, 1)
+    b.icon:SetTexture(UI.ICON_ATLAS)
+    b.icon:SetTexCoord(unpack(UI:IconCoords(def.icon)))
+    b.line = b:CreateTexture(nil, "ARTWORK")
+    b.line:SetPoint("BOTTOMLEFT", 4, 0)
+    b.line:SetPoint("BOTTOMRIGHT", -4, 0)
+    b.line:SetHeight(2)
+    b.line:SetColorTexture(1, 0.82, 0, 0.9)
+    local function paint(self)
+        self.line:SetShown(self.active and true or false)
+        if self.active then
+            self.icon:SetVertexColor(1, 0.82, 0)
+        elseif self.hovered then
+            self.icon:SetVertexColor(1, 1, 1)
+        else
+            self.icon:SetVertexColor(0.62, 0.62, 0.62)
+        end
     end
+    function b:SetActive(on)
+        self.active = on and true or false
+        paint(self)
+    end
+    local tip = def.tip or { def.label }
+    b:SetScript("OnEnter", function(self)
+        self.hovered = true
+        paint(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine(tip[1] or def.label or "")
+        if tip[2] then GameTooltip:AddLine(tip[2], 1, 1, 1, true) end
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function(self)
+        self.hovered = false
+        paint(self)
+        GameTooltip:Hide()
+    end)
+    b:RegisterForClicks("LeftButtonUp")
+    b:SetScript("OnClick", onClick)
+    paint(b)
+    return b
+end
 
-    local obj = { frame = frame, buttons = {}, byKey = {}, selected = nil }
-    frame.Tabs = {}
+function UI:CreateNavStrip(parent, defs, onSelect)
+    local strip = CreateFrame("Frame", nil, parent)
+    strip:SetHeight(28)
+    local rule = strip:CreateTexture(nil, "BORDER")
+    rule:SetPoint("BOTTOMLEFT")
+    rule:SetPoint("BOTTOMRIGHT")
+    rule:SetHeight(1)
+    rule:SetColorTexture(1, 1, 1, 0.12)
+    -- other widgets (the sync status) anchor their RIGHT to this: just left of the icon tabs
+    local rightAnchor = CreateFrame("Frame", nil, strip)
+    rightAnchor:SetSize(1, 1)
 
-    for i, def in ipairs(tabs or {}) do
-        local tab = CreateFrame("Button", baseName .. "Tab" .. i, frame, "CharacterFrameTabButtonTemplate")
-        tab:SetID(i)
-        tab:SetText(def.label or def.key)
-        tab.cdlKey = def.key
-        tab.cdlShown = true
-        if PanelTemplates_TabResize then PanelTemplates_TabResize(tab, 0) end
-        tab:SetScript("OnClick", function(self)
+    local obj = { frame = strip, buttons = {}, byKey = {}, selected = nil, rightAnchor = rightAnchor }
+    parent.Tabs = {}
+
+    for i, def in ipairs(defs or {}) do
+        local function click(self)
             if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB then PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB) end
             obj:Select(self.cdlKey)
-        end)
+        end
+        local tab
+        if def.icon then
+            tab = CreateNavIcon(strip, def, click)
+            tab.cdlIcon = true
+        else
+            tab = UI:CreateUnderlineTab(strip, def.label or def.key, click, "nav")
+        end
+        tab.cdlKey = def.key
+        tab.cdlShown = true
         obj.buttons[i] = tab
         obj.byKey[def.key] = tab
-        frame.Tabs[i] = tab
+        parent.Tabs[i] = tab
     end
-    PanelTemplates_SetNumTabs(frame, #obj.buttons)
-    -- keep the tabs on screen together with the window
-    if frame.SetClampRectInsets then frame:SetClampRectInsets(0, 0, 0, -30) end
 
     function obj:Layout()
-        local prev
+        local prevLeft, prevRight
         for _, tab in ipairs(self.buttons) do
             tab:ClearAllPoints()
-            if tab.cdlShown then
-                if prev then
-                    tab:SetPoint("TOPLEFT", prev, "TOPRIGHT", -16, 0)
+            if tab.cdlShown and not tab.cdlIcon then
+                if prevLeft then
+                    tab:SetPoint("BOTTOMLEFT", prevLeft, "BOTTOMRIGHT", 2, 0)
                 else
-                    tab:SetPoint("TOPLEFT", self.frame, "BOTTOMLEFT", 8, 2)
+                    tab:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 2, 0)
                 end
-                tab:Show()
-                prev = tab
-            else
-                tab:Hide()
+                prevLeft = tab
             end
+        end
+        for i = #self.buttons, 1, -1 do
+            local tab = self.buttons[i]
+            if tab.cdlShown and tab.cdlIcon then
+                if prevRight then
+                    tab:SetPoint("BOTTOMRIGHT", prevRight, "BOTTOMLEFT", -2, 0)
+                else
+                    tab:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -2, 0)
+                end
+                prevRight = tab
+            end
+        end
+        for _, tab in ipairs(self.buttons) do tab:SetShown(tab.cdlShown and true or false) end
+        rightAnchor:ClearAllPoints()
+        if prevRight then
+            rightAnchor:SetPoint("RIGHT", prevRight, "LEFT", -8, 0)
+        else
+            rightAnchor:SetPoint("RIGHT", self.frame, "RIGHT", -8, 0)
         end
     end
 
     function obj:Select(key)
-        local tab = self.byKey[key]
-        if not tab then return end
         self.selected = key
-        PanelTemplates_SetTab(self.frame, tab:GetID())
+        for k, tab in pairs(self.byKey) do tab:SetActive(k == key) end
         if onSelect then onSelect(key) end
     end
 

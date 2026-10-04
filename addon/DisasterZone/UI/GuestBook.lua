@@ -1,5 +1,5 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/GuestBook.lua", ...) then return end -- DisasterZone: UI/GuestBook.lua
--- The Guests window (1.3; the GM, officers, the guild council and the raid leaders), two tabs:
+-- The Guests window (1.3; the GM, officers and the raid leaders), two tabs:
 --   Guest book - the players outside the guild who raided with us (Core/GuestBook.lua): raids, items, no-shows, an
 --                upcoming guest seat, a note and a Recruit mark. Right-click: add to a raid, recruit, note,
 --                blacklist, whisper.
@@ -65,22 +65,6 @@ end
 ---------------------------------------------------------------------------
 -- Guest book: rows, tooltip, menu
 ---------------------------------------------------------------------------
-
-local function raidsText(e)
-    if e.raids > 0 then
-        return (e.raids == 1 and "1 raid" or (e.raids .. " raids")) .. grey(" · last " .. date("%d %b", e.last))
-    end
-    if e.next then return "|cff66ccffguest of " .. e.next.name .. " " .. date("%a %d %b", e.next.t) .. "|r" end
-    return grey("no raid yet")
-end
-
-local function tagsText(e)
-    local parts = {}
-    if e.blacklisted then parts[#parts + 1] = "|cffff4040Blacklisted|r" end
-    if e.recruit then parts[#parts + 1] = "|cff33ff33Recruit|r" end
-    if e.note then parts[#parts + 1] = grey('"' .. e.note .. '"') end
-    return tconcat(parts, " ")
-end
 
 local function bookTooltip(owner, e)
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
@@ -198,9 +182,21 @@ function GuestUI:AddToRaid(key, occId)
     return true
 end
 
--- Two lines: who (name, spec) and how often (raids, last), then what we know (blacklisted, Recruit, the note) and
--- the counts that matter (items, no-shows).
-local BOOK_ROW_H = 36
+-- One line per player, in columns: the name (class colour; the spec is in the tooltip), what we know (blacklisted,
+-- Recruit, a note, their next guest seat), raids with us, the last one, items (loot council) and no-shows. The
+-- tooltip has the details (the note itself, every raid, the items).
+local BOOK_ROW_H = 22
+local COL = { name = 6, status = 160, raids = 366, last = 412, items = 482, noShows = 530 }
+local COL_W = { name = 150, status = 200, raids = 40, last = 64, items = 40, noShows = 60 }
+
+local function statusText(e)
+    local parts = {}
+    if e.blacklisted then parts[#parts + 1] = "|cffff4040Blacklisted|r" end
+    if e.recruit then parts[#parts + 1] = "|cff33ff33Recruit|r" end
+    if e.note then parts[#parts + 1] = grey("Note") end
+    if e.next then parts[#parts + 1] = "|cff66ccffGuest " .. date("%a %d %b", e.next.t) .. "|r" end
+    return tconcat(parts, grey(" · "))
+end
 
 local function initBookRow(row, e)
     if not row.cdlInit then
@@ -209,38 +205,33 @@ local function initBookRow(row, e)
         local hl = row:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
         hl:SetColorTexture(1, 1, 1, 0.06)
-        row.raids = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.raids:SetPoint("TOPRIGHT", -8, -5)
-        row.raids:SetJustifyH("RIGHT")
-        row.raids:SetWordWrap(false)
-        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.name:SetPoint("TOPLEFT", 8, -4)
-        row.name:SetPoint("RIGHT", row.raids, "LEFT", -10, 0)
-        row.name:SetJustifyH("LEFT")
-        row.name:SetWordWrap(false)
-        row.extra = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.extra:SetPoint("TOPRIGHT", -8, -21)
-        row.extra:SetJustifyH("RIGHT")
-        row.extra:SetWordWrap(false)
-        row.tags = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.tags:SetPoint("TOPLEFT", 8, -21)
-        row.tags:SetPoint("RIGHT", row.extra, "LEFT", -10, 0)
-        row.tags:SetJustifyH("LEFT")
-        row.tags:SetWordWrap(false)
+        local function cell(key, font, justify)
+            local fs = row:CreateFontString(nil, "OVERLAY", font)
+            fs:SetPoint("LEFT", COL[key], 0)
+            fs:SetWidth(COL_W[key])
+            fs:SetJustifyH(justify or "LEFT")
+            fs:SetWordWrap(false)
+            return fs
+        end
+        row.name = cell("name", "GameFontHighlight")
+        row.status = cell("status", "GameFontHighlightSmall")
+        row.raids = cell("raids", "GameFontHighlightSmall", "CENTER")
+        row.last = cell("last", "GameFontHighlightSmall")
+        row.items = cell("items", "GameFontHighlightSmall", "CENTER")
+        row.noShows = cell("noShows", "GameFontHighlightSmall", "CENTER")
         row:SetScript("OnEnter", function(self) if self.__cdlData then bookTooltip(self, self.__cdlData) end end)
         row:SetScript("OnLeave", hideTooltip)
         row:SetScript("OnClick", function(self)
             if self.__cdlData then GuestUI:OpenEntryMenu(self, self.__cdlData) end
         end)
     end
-    local st = specText(e.c, e.sp)
-    row.name:SetText(UI():ColoredName(e.key, e.c) .. (st ~= "" and grey("  " .. st) or ""))
-    row.raids:SetText(raidsText(e))
-    local extra = {}
-    if seesItems() and e.items > 0 then extra[#extra + 1] = e.items .. (e.items == 1 and " item" or " items") end
-    if e.noShows > 0 then extra[#extra + 1] = "|cffff8080" .. e.noShows .. " no-show" .. (e.noShows == 1 and "" or "s") .. "|r" end
-    row.extra:SetText(tconcat(extra, " · "))
-    row.tags:SetText(tagsText(e))
+    row.name:SetText(UI():ColoredName(e.key, e.c))
+    row.status:SetText(statusText(e))
+    row.raids:SetText(e.raids > 0 and tostring(e.raids) or grey("-"))
+    row.last:SetText(e.raids > 0 and date("%d %b", e.last) or "")
+    row.items:SetShown(seesItems())
+    row.items:SetText(e.items > 0 and tostring(e.items) or "")
+    row.noShows:SetText(e.noShows > 0 and ("|cffff8080" .. e.noShows .. "|r") or "")
 end
 
 ---------------------------------------------------------------------------
@@ -255,8 +246,7 @@ local function initBlackRow(row, d)
         row.fs:SetWidth(130)
         row.fs:SetJustifyH("LEFT")
         row.fs:SetWordWrap(false)
-        row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-        row.remove:SetSize(20, 20)
+        row.remove = UI():CreateRemoveButton(row, "Take off the blacklist")
         row.remove:SetPoint("RIGHT", -4, 0)
         row.remove:SetScript("OnClick", function(self)
             local data = self:GetParent().__cdlData
@@ -297,7 +287,7 @@ local function createBlackPage(parent)
     w.info:SetJustifyH("LEFT")
     w.info:SetText("Players on this list can't sign up for raids, can't be added as a guest and are not invited. "
         .. "For a guild member it covers all their characters.")
-    w.nameBox = CreateFrame("EditBox", nil, w, "InputBoxTemplate")
+    w.nameBox = UI():CreateSleekEditBox(w)
     w.nameBox:SetSize(110, 20)
     w.nameBox:SetAutoFocus(false)
     w.nameBox:SetMaxLetters(48)
@@ -305,9 +295,9 @@ local function createBlackPage(parent)
     w.nameBox:SetScript("OnEnterPressed", function() w.reasonBox:SetFocus() end)
     w.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     local nameHint = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    nameHint:SetPoint("BOTTOMLEFT", w.nameBox, "TOPLEFT", -2, 2)
+    nameHint:SetPoint("BOTTOMLEFT", w.nameBox, "TOPLEFT", 0, 2)
     nameHint:SetText("Character name")
-    w.reasonBox = CreateFrame("EditBox", nil, w, "InputBoxTemplate")
+    w.reasonBox = UI():CreateSleekEditBox(w)
     w.reasonBox:SetSize(260, 20)
     w.reasonBox:SetAutoFocus(false)
     w.reasonBox:SetMaxLetters(80)
@@ -315,7 +305,7 @@ local function createBlackPage(parent)
     w.reasonBox:SetScript("OnEnterPressed", function() GuestUI:AddBlacklist() end)
     w.reasonBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     local reasonHint = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    reasonHint:SetPoint("BOTTOMLEFT", w.reasonBox, "TOPLEFT", -2, 2)
+    reasonHint:SetPoint("BOTTOMLEFT", w.reasonBox, "TOPLEFT", 0, 2)
     reasonHint:SetText("Reason (only the raid leaders and officers see it)")
     w.addBtn = UI():CreateSleekButton(w, "Add", 48, 22, function() GuestUI:AddBlacklist() end, "primary")
     w.addBtn:SetPoint("LEFT", w.reasonBox, "RIGHT", 6, 0)
@@ -348,18 +338,13 @@ local function createBookPage(parent)
     end)
     p.recruits:SetPoint("LEFT", p.search, "RIGHT", 10, 0)
     -- a player not in the book yet (met in trade chat, a friend of a member): a note or a Recruit mark adds them
-    p.nameBox = CreateFrame("EditBox", nil, p, "InputBoxTemplate")
-    p.nameBox:SetSize(110, 20)
-    p.nameBox:SetAutoFocus(false)
+    p.nameBox = UI():CreateSleekEditBox(p)
+    p.nameBox:SetSize(120, 22)
     p.nameBox:SetMaxLetters(48)
-    p.nameBox:SetPoint("TOPRIGHT", -64, -4)
+    p.nameBox:SetPoint("TOPRIGHT", -58, -4)
     p.nameBox:SetScript("OnEnterPressed", function(self) GuestUI:EditNote(self:GetText()) end)
-    p.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    p.nameHint = p.nameBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.nameHint:SetPoint("LEFT", 2, 0)
-    p.nameHint:SetText("Add a player")
-    p.nameBox:SetScript("OnTextChanged", function(self) p.nameHint:SetShown(self:GetText() == "") end)
-    p.addBtn = UI():CreateSleekButton(p, "Note", 50, 22, function() GuestUI:EditNote(p.nameBox:GetText()) end, "primary")
+    UI():SetEditPlaceholder(p.nameBox, "Add a player")
+    p.addBtn = UI():CreateSleekButton(p, "Add", 48, 22, function() GuestUI:EditNote(p.nameBox:GetText()) end)
     p.addBtn:SetPoint("LEFT", p.nameBox, "RIGHT", 4, 0)
     p.addBtn:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -369,16 +354,23 @@ local function createBookPage(parent)
         GameTooltip:Show()
     end)
     p.addBtn:HookScript("OnLeave", hideTooltip)
-    p.header = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    p.header:SetPoint("TOPLEFT", 10, -32)
-    p.header:SetPoint("RIGHT", -10, 0)
-    p.header:SetJustifyH("LEFT")
-    p.count = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.count:SetPoint("TOPRIGHT", -12, -32)
+
+    p.header = UI():CreateColumnHeader(p, 18)
+    p.header:SetPoint("TOPLEFT", 4, -34)
+    p.header:SetPoint("TOPRIGHT", -24, -34)
+    p.header:AddColumn("Player", COL.name, COL_W.name)
+    p.header:AddColumn("Status", COL.status, COL_W.status)
+    p.header:AddColumn("Raids", COL.raids, COL_W.raids, { justify = "CENTER" })
+    p.header:AddColumn("Last raid", COL.last, COL_W.last)
+    p.itemsHeader = p.header:AddColumn("Items", COL.items, COL_W.items, { justify = "CENTER" })
+    p.header:AddColumn("No-shows", COL.noShows, COL_W.noShows, { justify = "CENTER" })
     p.list = UI():CreateScrollList(p, BOOK_ROW_H, initBookRow)
-    p.list.frame:SetPoint("TOPLEFT", 4, -48)
-    p.list.frame:SetPoint("BOTTOMRIGHT", -4, 4)
+    p.list.frame:SetPoint("TOPLEFT", 4, -54)
+    p.list.frame:SetPoint("BOTTOMRIGHT", -4, 22)
     p.list:SetEmptyText("Nobody yet. Players outside the guild who raid with us show up here, with their raids.")
+    p.count = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    p.count:SetPoint("BOTTOMLEFT", 10, 6)
+    p.count:SetJustifyH("LEFT")
     return p
 end
 
@@ -390,13 +382,13 @@ local function create()
     local w = UI():CreateWindow("DisasterZoneGuests", "Guests", 640, 440)
     win = w
     local c = w.content
-    local function tab(label, key, width)
-        return UI():CreateSleekButton(c, label, width, 22, function() GuestUI:SetTab(key) end)
+    local function tab(label, key)
+        return UI():CreateUnderlineTab(c, label, function() GuestUI:SetTab(key) end)
     end
-    w.bookTab = tab("Guest book", "book", 96)
-    w.bookTab:SetPoint("TOPLEFT", 8, -6)
-    w.blackTab = tab("Blacklist", "black", 80)
-    w.blackTab:SetPoint("LEFT", w.bookTab, "RIGHT", 3, 0)
+    w.bookTab = tab("Guest book", "book")
+    w.bookTab:SetPoint("TOPLEFT", 4, -6)
+    w.blackTab = tab("Blacklist", "black")
+    w.blackTab:SetPoint("LEFT", w.bookTab, "RIGHT", 4, 0)
     w.pages = CreateFrame("Frame", nil, c)
     w.pages:SetPoint("TOPLEFT", 0, -34)
     w.pages:SetPoint("BOTTOMRIGHT", 0, 0)
@@ -422,7 +414,7 @@ end
 -- Opens the window on its last tab (the Raids tab's Guests button). Roster managers only.
 function GuestUI:Open(tab)
     if not isManager() then
-        Print("Only the Guild Master, officers, the guild council and the raid leaders keep the guest book and the "
+        Print("Only the Guild Master, officers and the raid leaders keep the guest book and the "
             .. "blacklist.")
         return false
     end
@@ -535,8 +527,8 @@ function GuestUI:Refresh()
         return
     end
     local book = state.tab ~= "black"
-    win.bookTab:SetKind(book and "active" or "secondary")
-    win.blackTab:SetKind(book and "secondary" or "active")
+    win.bookTab:SetActive(book)
+    win.blackTab:SetActive(not book)
     win.book:SetShown(book)
     win.black:SetShown(not book)
     if book then
@@ -544,10 +536,9 @@ function GuestUI:Refresh()
         local all = GB():GetEntries()
         local recruits = 0
         for _, e in ipairs(all) do if e.recruit then recruits = recruits + 1 end end
-        win.book.header:SetText("Players outside the guild who raided with us, newest first. Hover for their raids, "
-            .. "right-click for options.")
-        win.book.count:SetText(("%d player%s · %d recruit%s"):format(#all, #all == 1 and "" or "s", recruits,
-            recruits == 1 and "" or "s"))
+        win.book.itemsHeader:SetShown(seesItems())
+        win.book.count:SetText(("%d player%s · %d recruit%s · newest first; hover for their raids, right-click for "
+            .. "options"):format(#all, #all == 1 and "" or "s", recruits, recruits == 1 and "" or "s"))
         win.book.list:SetData(rows)
         if win.book.recruits.Refresh then win.book.recruits:Refresh() end
     else

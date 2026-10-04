@@ -1,13 +1,14 @@
 """Raid planning 1.3: guests, declined / removed answers, the blacklist, answering with another character, and the
 invite run's "missing" lists.
 
-Covers: a roster manager (GM, officer, guild council, raid leader) adding a player outside the guild as a guest (who
-counts as accepted, is laid out and invited), members refused; declining a member (their answer no longer counts, they
+Covers: a roster manager (GM, officer, raid leader) adding a player outside the guild as a guest (who counts as
+accepted, is laid out and invited), members and the guild council (who don't plan raids) refused; declining a member (their answer no longer counts, they
 can't answer again, listed apart) and removing an answer (they can answer again), with Restore; the guild's blacklist
 (hard block: the sign-up is refused on the member's client and not counted when it arrives anyway, no guest seat, no
 invite, only managers change it, it reaches a member who was offline); a player answering with another character of
 their account (one answer per player, the newest counts, other players' characters refused); Invite & sort inviting
-guests and accepted players without a group, skipping blacklisted and declined ones, and telling who is missing.
+guests and the other players placed in a group (not those who accepted without one: they are named), skipping
+blacklisted and declined ones, and telling who is missing.
 
 Run: luaenv\\Scripts\\python.exe tests\\raidplan\\test_raidplan_guests.py [-k name]
 """
@@ -403,10 +404,13 @@ def invite_and_sort_takes_guests_and_tells_who_is_missing():
     open_tab(w, bob, occ)
     bob.click(bob.eval("return %s.upcoming.detail.tabGroups" % P))
     w.tick(0.3)
+    n0 = len(bob.chat_frame)
     bob.click(bob.eval("return %s.upcoming.detail.groups.inviteBtn" % P))
     w.tick(20)
     members = {m.name for m in w.group_members()}
-    assert members == {"Bob", "Tank", "Pug", "Pip", "Rog"}, members        # the guest and the unplaced came along
+    assert members == {"Bob", "Tank", "Pug"}, members                     # the groups are who has a spot
+    said = [strip_codes(str(l)) for l in bob.chat_frame[n0:]]
+    assert any("Not invited, no group: Pip, Rog" in l for l in said), said
     invited = {e["target"].split("-")[0] for e in w.invite_log}
     assert "Bad" not in invited and "Nay" not in invited, invited          # blacklisted / declined: never invited
     assert w.subgroup_of("Tank") == 1 and w.subgroup_of("Pug") == 1, (w.subgroup_of("Tank"), w.subgroup_of("Pug"))
@@ -415,14 +419,14 @@ def invite_and_sort_takes_guests_and_tells_who_is_missing():
     assert list(st["declined"] or []) == [] and list(st["unlisted"] or []) == [], st
     # somebody declines, somebody is in a group already, somebody outside the roster is brought along
     w.auto_accept_invites = False
-    bob.eval("ns.RaidInvite:Start(...)", occ, {K("Tank"): 1}, "Kara", [K("Late"), K("Ghost")])
+    bob.eval("ns.RaidInvite:Start(...)", occ, {K("Tank"): 1, K("Late"): 2, K("Ghost"): 2}, "Kara")
     w.tick(3)
     assert bob.eval("return ns.RaidInvite:OnSystemMessage(...)", "Late declines your group invitation.") is True
     assert bob.eval("return ns.RaidInvite:OnSystemMessage(...)", "Somebody declines your group invitation.") is False
     assert bob.eval("return ns.RaidInvite:OnSystemMessage(...)", "Late has joined the raid group.") is False
     st = bob.eval_py("return ns.RaidInvite:GetStatus()")
     assert list(st["declined"]) == [K("Late")] and list(st["offline"]) == [K("Ghost")], st
-    assert sorted(st["unlisted"]) == sorted([K("Pug"), K("Pip"), K("Rog")]), st
+    assert list(st["unlisted"]) == [K("Pug")], st
     assert st["planned"] == 3 and st["inRaid"] == 1, st
     bob.eval("ns.RaidInvite:OnSystemMessage(...)", "Late is already in a group.")
     assert list(bob.eval_py("return ns.RaidInvite:GetStatus()")["grouped"]) == [K("Late")]
@@ -430,10 +434,10 @@ def invite_and_sort_takes_guests_and_tells_who_is_missing():
     w.tick(1)
     assert shown(bob, P + ".upcoming.detail.groups.missingBtn")
     btn = bob.eval("return %s.upcoming.detail.groups.missingBtn" % P)
-    assert strip_codes(bob.eval("return (...):GetText()", btn)) == "Missing (5)"
+    assert strip_codes(bob.eval("return (...):GetText()", btn)) == "Missing (3)"
     texts = [e.get("text") for e in bob.dropdown_menu(btn)["children"]]
     assert "Offline or not found (1)" in texts and "Already in a group (1)" in texts, texts
-    assert "In the raid, not on the roster (3)" in texts and "Invite the missing players again" in texts, texts
+    assert "In the raid, not on the roster (1)" in texts and "Invite the missing players again" in texts, texts
     w.assert_no_errors()
 
 
@@ -636,6 +640,29 @@ def the_strip_answers_with_another_character():
     w.tick(2)
     s = signups(bob, occ)
     assert list(s) == [K("Lee")] and s[K("Lee")]["st"] == "A" and s[K("Lee")]["c"] == "WARRIOR", s
+    w.assert_no_errors()
+
+
+@case
+def the_guild_council_does_not_add_guests():
+    # 2026-10-04: guests, the guest book and the blacklist belong to those who plan raids (GM, raid leaders) and the
+    # officers; a guild council member who is neither keeps teams and groups only
+    w, c = world(names=NAMES + (("Cara", 3, "DRUID", 70),))
+    gm_pick(w, c["Gina"], ["Bob", "Cara"])
+    w.tick(2)
+    gina, cara = c["Gina"], c["Cara"]
+    occ = create(gina, i="kara", t=now(gina) + DAY)
+    w.tick(2)
+    assert cara.eval("return ns.RaidPlan:CanManageTeams()") is True
+    assert cara.eval("return ns.RaidPlan:CanEditGroups()") is True
+    assert cara.eval("return ns.RaidPlan:CanManageRoster()") is False
+    assert gina.eval("return ns.RaidPlan:IsRosterManager(...)", K("Cara")) is False
+    assert gina.eval("return ns.RaidPlan:IsRosterManager(...)", K("Bob")) is True     # raid leader
+    assert gina.eval("return ns.RaidPlan:IsRosterManager(...)", K("Olaf")) is True    # officer
+    res = call(cara, "AddGuest", occ, "Pugsy", "ROGUE")
+    assert res["ok"] is False and "raid leaders" in (res.get("e") or ""), res
+    open_tab(w, cara, occ)
+    assert not shown(cara, P + ".guestsBtn")
     w.assert_no_errors()
 
 

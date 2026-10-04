@@ -1030,6 +1030,9 @@ M.ScrollBoxMock = {
   SetScrollPercentage = function(self, p) OBJ[self].scrollbox.pct = p end,
   GetScrollPercentage = function(self) return OBJ[self].scrollbox.pct or 0 end,
   HasScrollableExtent = function() return false end,
+  GetVisibleExtentPercentage = function() return 1 end,
+  ScrollIncrease = function() end,
+  ScrollDecrease = function() end,
   SetPanExtent = function() end,
   SetInterpolateScroll = function() end,
   SetAlignmentOverlapIgnored = function() end,
@@ -1037,6 +1040,8 @@ M.ScrollBoxMock = {
   UnregisterCallback = function() end,
   GetScrollTarget = function(self) return rawget(self, "ScrollTarget") end,
 }
+BaseScrollBoxEvents = { OnAllowScrollChanged = "OnAllowScrollChanged", OnSizeChanged = "OnSizeChanged",
+  OnScroll = "OnScroll", OnLayout = "OnLayout" }
 ScrollBoxListMixin = { Event = { OnScroll = "OnScroll", OnLayout = "OnLayout", OnAcquiredFrame = "OnAcquiredFrame",
   OnReleasedFrame = "OnReleasedFrame", OnDataRangeChanged = "OnDataRangeChanged", OnUpdate = "OnUpdate" } }
 ScrollBoxConstants = { UpdateQueued = false, UpdateImmediately = true, NoScrollInterpolation = true, RetainScrollPosition = true,

@@ -215,8 +215,8 @@ def my_bis_banner_disabled_controls_and_picker_refusal():
     for label in ("Choose main...", "Choose alt...", "Clear slot", "Disable slot (P1)", "Disable in all phases"):
         assert menu.get(label) is False, (label, menu)
     assert menu.get("Mark obtained") is True and menu.get("Link main in chat") is True, menu
-    # toolbar: Clear phase disabled; tooltips mention the lock
-    en = rita.eval("return T_button(T_mybis(), 'Clear phase'):IsEnabled()")
+    # toolbar: the More menu (Clear phase) disabled; tooltips mention the lock
+    en = rita.eval("return T_mybis().moreBtn:IsEnabled()")
     assert en in (False, 0), en
     rita.eval("T_tile(3).main:GetScript('OnEnter')(T_tile(3).main)")
     assert any("locked during the raid" in strip_codes(l[0]) for l in tt_lines(rita)), tt_lines(rita)
@@ -228,7 +228,7 @@ def my_bis_banner_disabled_controls_and_picker_refusal():
     lee.eval("ns.GroupRules:SetLocked(false)")
     w.tick(2)
     assert rita.eval("return T_card().lockBanner:IsShown()") is False
-    assert rita.eval("return T_button(T_mybis(), 'Clear phase'):IsEnabled()") in (True, 1)
+    assert rita.eval("return T_mybis().moreBtn:IsEnabled()") in (True, 1)
     rita.click(tile_btn(rita, 2))
     assert rita.eval("return ns.Picker:IsOpen()") is True
     w.assert_no_errors()
@@ -646,7 +646,8 @@ def popups_accepted_after_the_lock_started_change_nothing():
     pal.dropdown_menu(sug)
     pal.menu_select("Replace all (confirm)")
     assert "DISASTERZONE_REPLACE_TEMPLATE" in pal.popups()
-    pal.click(pal.eval("return T_button(T_mybis(), 'Clear phase')"))
+    pal.click(pal.eval("return T_mybis().moreBtn"))
+    pal.menu_select("Clear P1...")
     assert "DISASTERZONE_CLEAR_PHASE" in pal.popups()
     lee.slash("/dz lock")
     w.tick(2)

@@ -1869,7 +1869,7 @@ local function InstallCopies()
                 bot = huge
                 for s = -1, 1 do
                     local _, sy = Proj(ax + s * R * lx, ay + s * R * ly, az)
-                    if sy and sy < bot then bot = sy end
+                    if sy and sy - 2 < bot then bot = sy - 2 end           -- (+2 px, as the other sides)
                 end
             end
             x0, x1, y0, y1 = x0 - 2, x1 + 2, bot, top + 2

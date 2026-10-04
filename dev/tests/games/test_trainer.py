@@ -18,10 +18,13 @@ again coarser instead of leaving its nearest pieces whole; past the texture budg
 rather than making one; the midpoints cache is emptied when full without changing the picture; marks that stand
 still cost no line setters; a room switch while the projection gives nothing errs not. Fix round 2: the models are
 hidden by copies of the room in front of them (_Occluders: behind a pillar, in the open, in the pit behind the
-walkway) and stand on the room's own floor; the camera stays in the hall (collision, easing back out) and its height
-eases over steps; /dz trainer render switches are kept per character; the time controller moves the leaf target;
-the morph switches on and off without leaving its texture coordinates behind; copies kept from frames before (only
-the slots a moving raider can change are copied again) are what copying every slot makes.
+walkway) and stand on the room's own floor; the camera stays in the hall (collision, easing back out); /dz trainer
+render switches are kept per character; the time controller moves the leaf target; the morph switches on and off
+without leaving its texture coordinates behind; copies kept from frames before (only the slots a moving raider can
+change are copied again) are what copying every slot makes. Stairs: you walk on the hall's collision faces as the
+client does (the invisible ramp over the pit's steps: no hopping from step to step; walls, pillars and ledges over
+a step up stop you; off a ledge or down a too-steep slope you fall with the client's gravity, steering nothing),
+and the camera rides 2.2 yd over your feet, easing only a ledge stepped up.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_trainer.py [-k name]
 """
@@ -1080,6 +1083,12 @@ def a_click_on_a_construct_targets_it():
     c.eval("for _, k in ipairs(T_TR.constructs()) do k.x, k.y = 30.3, 37.7 end  ns.TrainerUI._Tick(0.05)")
     ys = sorted(p[1] for p in c.eval_py("return ns.TrainerUI._Plates()") if abs(p[0] - c.eval_py("return (ns.TrainerUI._Project(30.3, 37.7, 3.2))")) < 1)
     assert len(ys) == 4 and all(abs(b - a - 46) < 1e-6 for a, b in zip(ys, ys[1:])), ys
+    # a plate is the client's: its gold border at its own 128 x 32 (the frame is the art's lower half) drawn over the
+    # red bar, which sits in the border's opening (rows 19-27 of the art: 7.5 px under the art's middle)
+    pl = c.eval_py("local f = ns.TrainerUI._Plate(1) local _, by = f.border:GetCenter() local _, hy = f.hp:GetCenter() "
+                   "return { (f.border:GetDrawLayer()), (f.hp:GetDrawLayer()), f.border:GetWidth(), f.border:GetHeight(), "
+                   "f.hp:GetHeight(), by - hy }")
+    assert pl[:5] == ["OVERLAY", "ARTWORK", 128, 32, 9] and abs(pl[5] - 7.5) < 1e-6, pl
     c.eval("local u = T_TR.constructs()  u[1].x, u[1].y = 30, 37  u[2].x, u[2].y = 26, 44  for i = 3, 4 do u[i].x, u[i].y = 5, 80 end  ns.TrainerUI._Tick(0.05)")
     assert c.eval_py("return ns.TrainerUI._Click(%f, %f)" % (ax, ay + 400)) is None     # the ceiling: nothing
     assert c.eval_py("return T_TR.sim.target == T_A")                                   # and the target stays

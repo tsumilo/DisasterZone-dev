@@ -9,7 +9,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Professions.lua", ...) then r
 --           t = { a, b, c [, a2, b2, c2] } talent points per tab of the primary (and secondary) talents,
 --           ms / os = the main / off spec picked in My BiS (index into ns.SPECS[class]); the talents only fill in
 --           when My BiS has none (somebody's primary talents can be their off spec),
---           a = key of the player's main when this character is an alt }
+--           a = key of the player's main when this character is an alt,
+--           g = { itemID or 0, ... } the gear worn, one per ns.SLOTS slot (1.3; the whole guild sees it: the BiS lists
+--               stay with the loot council) }
 --   own   a character of this account (it logged in here): only this account says which of them is the main
 --   rev   server time of the last change of anything in the record (newer wins)
 --   e     server time the owner's client first saw the profession: dropping and relearning one starts a new epoch,
@@ -19,7 +21,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Professions.lua", ...) then r
 --
 -- Messages (their own prefix, class "member", so a long recipe transfer never delays council traffic):
 --   PFI { i = { [key] = rev }, a, b }  GUILD, once after login: what I have (keys in (a, b], in parts of 150)
---   PFB { l = { { k, v, p = { { id, r, m, s, e, rr, n }, ... }, ts, ms, os, a }, ... } }   summaries, GUILD (or WHISPER)
+--   PFB { l = { { k, v, p = { { id, r, m, s, e, rr, n }, ... }, ts, ms, os, a, g }, ... } }   summaries, GUILD (or WHISPER)
 --   PFR { k, i = profId, e, rr, d }    one part (at most 250 recipes) of a character's recipes
 --   PFW { s = { key, ... }, r = { { key, profId }, ... } }   WHISPER: send me these summaries / recipes
 -- Anyone in the guild may pass on anyone's record (that is how offline members' professions are known); the owner's
@@ -87,6 +89,7 @@ local BATCH = 20                -- summaries per PFB
 local INDEX_PART = 150          -- keys per PFI
 local MAX_KEY_LEN = 48
 local MAX_SPEC = 8              -- spec index (ns.SPECS[class] has 3 or 4)
+local MAX_ITEM = 2147483647
 
 local SCAN_DELAY = 2            -- after a skill change / a profession window update
 local OWN_SEND_DELAY = 15       -- my own changes are shared this long after the last one ...
@@ -268,6 +271,16 @@ end
 -- Storage
 ---------------------------------------------------------------------------
 
+-- The worn gear: one item id (0 = nothing) per ns.SLOTS slot.
+local function ValidGear(g)
+    local n = ns.SLOTS and #ns.SLOTS or 0
+    if type(g) ~= "table" or #g ~= n or n == 0 then return false end
+    for i = 1, n do
+        if not IsInt(g[i], 0, MAX_ITEM) then return false end
+    end
+    return true
+end
+
 local function ValidRecord(rec)
     if type(rec) ~= "table" or not IsInt(rec.rev, 0, MAX_REV) or type(rec.p) ~= "table" then return false end
     for id, e in pairs(rec.p) do
@@ -287,6 +300,7 @@ local function ValidRecord(rec)
         if not ok then rec.t = nil end
     end
     if rec.a ~= nil and type(rec.a) ~= "string" then rec.a = nil end
+    if rec.g ~= nil and not ValidGear(rec.g) then rec.g = nil end
     if not IsInt(rec.ms, 1, MAX_SPEC) then rec.ms = nil end
     if not IsInt(rec.os, 1, MAX_SPEC) then rec.os = nil end
     if type(rec.R) ~= "table" then rec.R = {} end
@@ -484,6 +498,17 @@ local function SameList(a, b)
     return true
 end
 
+-- The gear I wear, as stored in rec.g (nil before login / without the slot table).
+local function ReadGear()
+    if not (ns.loggedIn and ns.SLOTS and GetInventoryItemID) then return nil end
+    local g = {}
+    for sid, slot in ipairs(ns.SLOTS) do
+        local id = GetInventoryItemID("player", slot.invSlot)   -- (two returns on this client; the first is the id)
+        g[sid] = IsInt(id, 1, MAX_ITEM) and id or 0
+    end
+    return g
+end
+
 local ScheduleOwnSend   -- forward
 
 local function UpdateOwn()
@@ -523,6 +548,11 @@ local function UpdateOwn()
     local ms, os = BiSSpecs()
     if rec.ms ~= ms or rec.os ~= os then
         rec.ms, rec.os = ms, os
+        changed = true
+    end
+    local gear = ReadGear()
+    if gear and not SameList(gear, rec.g) then
+        rec.g = gear
         changed = true
     end
     if changed or rec.rev == 0 then
@@ -622,7 +652,7 @@ local function Summary(key, rec)
         p[#p + 1] = { id, e.r, e.m, e.s or 0, e.e, e.rr or 0, e.n or 0 }
     end
     tsort(p, function(a, b) return a[1] < b[1] end)
-    return { k = key, v = rec.rev, p = p, ts = rec.t, ms = rec.ms, os = rec.os, a = rec.a }
+    return { k = key, v = rec.rev, p = p, ts = rec.t, ms = rec.ms, os = rec.os, a = rec.a, g = rec.g }
 end
 
 -- Summaries of `keys`, in batches. Returns the number of messages.
@@ -832,7 +862,13 @@ local function ParseSummary(s)
         if not main or main == key then return nil end
     end
     if (s.ms ~= nil and not IsInt(s.ms, 1, MAX_SPEC)) or (s.os ~= nil and not IsInt(s.os, 1, MAX_SPEC)) then return nil end
-    return { key = key, rev = s.v, p = p, t = t, a = main, ms = s.ms, os = s.os }
+    local gear
+    if s.g ~= nil then
+        if not ValidGear(s.g) then return nil end
+        gear = {}
+        for i = 1, #s.g do gear[i] = s.g[i] end
+    end
+    return { key = key, rev = s.v, p = p, t = t, a = main, ms = s.ms, os = s.os, g = gear }
 end
 
 -- Returns true when the record changed.
@@ -849,6 +885,11 @@ local function ApplySummary(s, sender)
         return false
     end
     local rec = b[s.key]
+    -- the same version passed on by a client from before 1.3 had no gear: the owner's copy fills it in
+    if rec and rec.rev == s.rev and rec.g == nil and s.g ~= nil then
+        rec.g = s.g
+        return true
+    end
     if rec and rec.rev >= s.rev then return false end
     local R = rec and rec.R or {}
     for id, set in pairs(R) do
@@ -856,7 +897,7 @@ local function ApplySummary(s, sender)
         if not e or set.e < e.e then R[id] = nil end
     end
     b[s.key] = { rev = s.rev, p = s.p, R = R, src = sender, own = rec and rec.own or nil, t = s.t, a = s.a,
-                 ms = s.ms, os = s.os }
+                 ms = s.ms, os = s.os, g = s.g }
     QueueWants(s.key)
     return true
 end
@@ -1176,6 +1217,18 @@ function Prof:SetMain(mainKey)
     return true
 end
 
+-- The gear a character wears as last shared: { [sid] = itemID } (empty slots left out), the time it was shared (the
+-- record's rev), or nil when they shared none (not logged in with 1.3 or newer since).
+function Prof:GetGear(key)
+    local rec = GetRec(key)
+    if not (rec and rec.g) then return nil end
+    local out = {}
+    for sid, id in ipairs(rec.g) do
+        if id > 0 then out[sid] = id end
+    end
+    return out, rec.rev
+end
+
 function Prof:HasData(key)
     local rec = type(key) == "string" and GetRec(key)
     return (rec and rec.rev > 0 and Visible(key)) and true or false
@@ -1387,6 +1440,7 @@ function Prof:OnInit()
     ns:RegisterEvent("SKILL_LINES_CHANGED", scanSkills)
     ns:RegisterEvent("CHARACTER_POINTS_CHANGED", scanSkills)
     ns:On("MYLIST_CHANGED", scanSkills)   -- (the spec picked in My BiS)
+    ns:On("OWNED_UPDATED", scanSkills)    -- (the gear worn: BiS rescans after an equipment change)
     ns:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", scanSkills)
     ns:RegisterEvent("SPELL_DATA_LOAD_RESULT", function(_, spell, ok)
         if ok and nameRequested[spell] and index and index.pending > 0 then

@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GuestBook.lua", ...) then return end -- DisasterZone: Core/GuestBook.lua
--- Guest book (1.3): the players outside the guild who raid with us, for the roster managers (the GM, officers, the
--- guild council and the raid leaders) and for recruiting.
+-- Guest book (1.3): the players outside the guild who raid with us, for the roster managers (the GM, officers and
+-- the raid leaders) and for recruiting.
 --   History (derived; nothing new on the wire): the raid log (raids, boss kills, no-shows of a linked raid's guests),
 --     the Loot Log (items received; loot council only) and the planned raids' guest seats (upcoming raids).
 --   Notes (shared): per player a short note and a Recruit mark. db.guestNotes[guildKey] = { rev, by, l = { [key] =
@@ -265,7 +265,7 @@ end
 -- keeps it). Roster managers only. Returns ok, keyOrErr.
 function GuestBook:SetNote(name, note, recruit)
     if not AmManager() then
-        return false, "Only the Guild Master, officers, the guild council and the raid leaders keep the guest book."
+        return false, "Only the Guild Master, officers and the raid leaders keep the guest book."
     end
     local rec = NotesRec(true)
     if not rec then return false, "Your guild is not known yet; try again in a moment." end

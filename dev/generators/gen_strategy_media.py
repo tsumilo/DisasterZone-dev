@@ -187,9 +187,50 @@ def ic_calloff(d, k):
     d.line(_pts(k, [(41, 32), (23, 49)]), fill=255, width=_w(k, 5))
 
 
+def ic_dice(d, k):
+    # games: a die showing five
+    d.rounded_rectangle(_pts(k, [(8, 8), (56, 56)]), radius=10 * k, fill=255)
+    for x, y in ((20, 20), (44, 20), (32, 32), (20, 44), (44, 44)):
+        d.ellipse(_pts(k, [(x - 5, y - 5), (x + 5, y + 5)]), fill=0)
+
+
+def _star4(d, k, cx, cy, r, w):
+    d.polygon(_pts(k, [(cx, cy - r), (cx + w, cy - w), (cx + r, cy), (cx + w, cy + w),
+                       (cx, cy + r), (cx - w, cy + w), (cx - r, cy), (cx - w, cy - w)]), fill=255)
+
+
+def ic_disenchant(d, k):
+    # disenchant: a big and a small sparkle
+    _star4(d, k, 26, 36, 22, 6)
+    _star4(d, k, 48, 14, 11, 3)
+
+
+def ic_bank(d, k):
+    # guild bank: a roof, four columns and a base
+    d.polygon(_pts(k, [(32, 4), (60, 20), (4, 20)]), fill=255)
+    for x in (12, 25, 39, 52):
+        d.rectangle(_pts(k, [(x - 4, 24), (x + 4, 48)]), fill=255)
+    d.rectangle(_pts(k, [(4, 52), (60, 60)]), fill=255)
+
+
+def ic_more(d, k):
+    # more actions: three dots
+    for x in (12, 32, 52):
+        d.ellipse(_pts(k, [(x - 7, 25), (x + 7, 39)]), fill=255)
+
+
+def ic_notes(d, k):
+    # what's new: a page with a folded corner and text lines
+    d.polygon(_pts(k, [(10, 4), (42, 4), (54, 16), (54, 60), (10, 60)]), fill=255)
+    d.polygon(_pts(k, [(42, 4), (42, 16), (54, 16)]), fill=0)
+    for y, x2 in ((26, 44), (36, 44), (46, 34)):
+        d.rectangle(_pts(k, [(18, y), (x2, y + 4)]), fill=0)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
-              ic_copy, ic_share, ic_invite, ic_calloff]
+              ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
+              ic_notes]
 TOOL_ROWS = 8
 
 

@@ -288,7 +288,9 @@ def the_guests_window():
     assert bob.eval("return %s:IsVisible()" % B) is True
     rows = bob.eval_py("local o = {}; for _, e in ipairs(%s.list:GetData()) do o[#o + 1] = e.key end; return o" % B)
     assert rows == [K("Pug")], rows
-    assert bob.find_text("guest of Karazhan", True, True)
+    # the row's Status column: their next guest seat (the raid's name is in the tooltip)
+    seat = bob.eval("return date('%a %d %b', ns.GuestBook:GetEntry(...).next.t)", K("Pug"))
+    assert bob.find_text("Guest " + seat, True, True)
     # the row's menu: recruit, a note, add to a raid
     bob.eval("ns.GuestBookUI:OpenEntryMenu(UIParent, ns.GuestBook:GetEntry(...))", K("Pug"))
     texts = [strip_codes(t[2] or "") for t in menu_texts(bob.last_menu())]

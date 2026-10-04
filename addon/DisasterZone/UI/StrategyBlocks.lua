@@ -58,7 +58,7 @@ function BlocksUI:Create(parent, opts)
     local self = setmetatable({}, Panel)
     self.opts = opts
     self.blocks = {}
-    local sf = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
+    local sf = UI():CreateScrollFrame(parent)
     self.scroll = sf
     local child = CreateFrame("Frame", nil, sf)
     child:SetSize(10, 10)
@@ -68,7 +68,8 @@ function BlocksUI:Create(parent, opts)
     self.notes:SetJustifyH("LEFT")
     self.notes:SetJustifyV("TOP")
     self.notesBtn = UI():CreateSleekButton(child, "Page notes...", 100, 22, function() self:EditNotes() end)
-    self.addBtn = UI():CreateSleekButton(child, "+ Add block", 110, 22, function(btn) self:AddMenu(btn) end, "primary")
+    -- secondary: Save is the board's main action while editing
+    self.addBtn = UI():CreateSleekButton(child, "+ Add block", 110, 22, function(btn) self:AddMenu(btn) end)
     self.empty = child:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     self.empty:SetJustifyH("LEFT")
     -- editing an empty page: a heading, a line of help, and cards that add a block in one click

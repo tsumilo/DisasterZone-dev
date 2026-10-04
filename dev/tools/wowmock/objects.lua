@@ -1239,8 +1239,16 @@ end
 function ActorMethods:SetUseCenterForOrigin(x, y, z) self.centerOrigin = { x, y, z } end
 function ActorMethods:SetPreferModelCollisionBounds(v) self.collision = v end
 local function MockSize(d) return 0.5 + (d % 9) * 0.6, 0.4 + (d % 5) * 0.5 end
+-- Model files shown by file ID whose real box is known: the M2 header's bounding box (min x, y, z, max x, y, z,
+-- model units). 191730 = coilfang_floor_light.m2, Lady Vashj's Shield Generator: its origin is mid-height, the
+-- pedestal reaches 1.354 below it.
+local FILE_BOXES = {
+  [191730] = { -0.805, -1.430, -1.354, 1.088, 1.443, 2.138 },
+}
 function ActorMethods:GetActiveBoundingBox()
   self:Tick()
+  local fb = not self.display and self.fileID and FILE_BOXES[self.fileID]
+  if fb then return fb[1], fb[2], fb[3], fb[4], fb[5], fb[6] end
   if not self.display then return nil end
   local h, w = MockSize(self.display)
   local bob = (self.display % 3 == 0) and (0.5 + 0.3 * math.sin(Now() * 4)) or 0

@@ -171,16 +171,18 @@ local function CanGroups(key)
     return type(key) == "string" and G ~= nil and G.IsRaidLogMember ~= nil and G:IsRaidLogMember(key) and true or false
 end
 
--- roster (guests, declining / removing answers, the blacklist): those who lay out groups, and the officers
+-- roster (guests from outside the guild, declining / removing answers, the guest book, the blacklist): those who
+-- plan raids (the GM, the raid leaders) and the officers. Not the guild council: they don't invite guild members to
+-- raids either (user decision 2026-10-04).
 local function CanRoster(key)
-    if CanGroups(key) then return true end
+    if IsOrganizer(key) then return true end
     local G = Guild()
     return type(key) == "string" and G ~= nil and G.IsOfficer ~= nil and G:IsOfficer(key) and true or false
 end
 
 local ALLOWED = { raids = IsOrganizer, teams = CanTeams, groups = CanGroups, roster = CanRoster }
 local REFUSED = {
-    roster = "Only the Guild Master, officers, the guild council and the raid leaders can do that.",
+    roster = "Only the Guild Master, officers and the raid leaders can do that.",
     raids = "Only the Guild Master and the raid leaders can plan raids.",
     teams = "Only the Guild Master and the guild council can change teams.",
     groups = "Only the Guild Master, the guild council and the raid leaders can change a raid's groups.",
@@ -1259,7 +1261,7 @@ function RaidPlan:CanManageRoster()
     return CanRoster(Util.PlayerKey())
 end
 
--- May that player (a roster manager: the GM, officers, the guild council, the raid leaders) do so? (Guest book.)
+-- May that player (a roster manager: the GM, officers, the raid leaders) do so? (Guest book.)
 function RaidPlan:IsRosterManager(key)
     return CanRoster(key)
 end

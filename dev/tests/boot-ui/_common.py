@@ -189,6 +189,7 @@ function T_desc(root, pred)
 end
 function T_first(root, pred) return T_desc(root, pred)[1] end
 function T_template(root, tpl) return T_desc(root, function(f, st) return st.template == tpl end) end
+function T_search(root) return T_first(root, function(f) return rawget(f, "cdlSearch") == true end) end  -- UI:CreateSearchBox
 function T_button(root, label)  -- Button (not CheckButton) whose own text is `label`
   return T_first(root, function(f, st)
     return (st.kind == "Button") and f.GetText and f:GetText() == label
