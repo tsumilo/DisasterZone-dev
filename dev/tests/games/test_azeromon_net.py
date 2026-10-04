@@ -172,7 +172,7 @@ def the_hub_shows_how_many_are_playing_now():
     assert "1 playing now" in status(a), status(a)
     # Bob goes quiet without a goodbye (a disconnect): he drops out after the timeout, Alice's game closed or not
     w.tick(30)
-    assert "No one playing right now" in status(a), status(a)
+    assert "No one playing" in status(a), status(a)
     no_errors(w)
 
 

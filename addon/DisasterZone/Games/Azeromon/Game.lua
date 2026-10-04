@@ -1375,7 +1375,7 @@ function G:OnInit()
         status = function()
             local n = ns.AzeroNet and ns.AzeroNet:PlayingNow() or 0
             if n > 0 then return string.format("|cff5fd35f%d playing now|r", n) end
-            return "|cff888888No one playing right now|r"
+            return "|cff888888No one playing|r"
         end,
     })
 end
