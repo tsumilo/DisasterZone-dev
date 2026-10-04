@@ -8,6 +8,20 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.3.0", date = "3 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
       sections = {
+          { heading = "Strategy boards in 3D (Teron Gorefiend, Lady Vashj)", lines = {
+              "2D / 3D above the map: the page in the boss' own room, as the game draws it.",
+              "The boss and its adds stand as their models, at their real size, where the map has them.",
+              "Zones lie on the floor, down steps and up platforms; arrows run along the floor.",
+              "Player markers are rings in the player's class colour, with their name over them.",
+              "Everything on the 2D map is in the room; what you draw or move in the room is on the map.",
+              "Draw, move, link and assign in the room with the same tools, menus and keys as on the map.",
+              "Right-drag turns the view, the wheel zooms, middle-drag moves it.",
+              "Q / E turn the view 45 degrees, Home shows the whole room.",
+              "Right-click a drawing: View from here (an arrow: from its start, along it).",
+              "My spot: stand where you are on the plan, at eye height, looking at the boss.",
+              "A small 2D map in the corner shows what the camera sees; click it to look there.",
+              "After updating, restart the game once (a /reload is not enough) to get the 3D view.",
+          } },
           { heading = "Guests (players outside the guild)", lines = {
               "Add players (icon at the top right of a raid): add a pug by name, with class and spec.",
               "A guest counts as accepted, can be placed in a group and is invited with the raid.",

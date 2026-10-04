@@ -627,7 +627,8 @@ end
 -- 1 select, 2 pan, 3 circle, 4 rectangle, 5 arrow, 6 line, 7 pin, 8 text, 9 undo, 10 redo, 11 help, 12 delete,
 -- 13 gear, 14 chevron down, 15 eye (open), 16 pencil (edit), 17 copy, 18 share, 19 invite (player +),
 -- 20 call off (calendar x), 21 dice (games), 22 sparkles (disenchant), 23 bank, 24 three dots (more actions),
--- 25 page with lines (what's new), 26 crown (raid leader).
+-- 25 page with lines (what's new), 26 crown (raid leader), and the strategy board's 3D view (UI/StrategyMap3D.lua):
+-- 27 turn left, 28 turn right, 29 from above, 30 house (the whole room), 31 small map.
 UI.ICON_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
 UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, bank = 23, more = 24, notes = 25,
             crown = 26 }

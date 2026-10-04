@@ -455,7 +455,8 @@ local function createWindow()
         end, promptFn)
     end)
     f.mapBtn:SetPoint("TOPRIGHT", c, "TOPLEFT", MAP_W, -33)
-    -- the page on the 2D map or in the boss' room in 3D (UI/StrategyMap3D.lua): one page, the same drawings
+    -- the page on the 2D map or in the boss' room in 3D (UI/StrategyMap3D.lua): one page, the same drawings; the
+    -- switch sits on the map's bottom right corner (placed and levelled once the map exists, below)
     f.mode3d = UI():CreateSleekButton(c, "3D", 34, 20, function() Board:Set3D(true) end)
     f.mode2d = UI():CreateSleekButton(c, "2D", 34, 20, function() Board:Set3D(false) end)
     f.mode2d:SetPoint("RIGHT", f.mode3d, "LEFT", -1, 0)
@@ -513,6 +514,8 @@ local function createWindow()
     -- (over the 3D view too, which stacks several hundred levels above the canvas)
     border:SetFrameLevel(f.canvas.frame:GetFrameLevel() + 1100)
     border:EnableMouse(false)
+    f.mode3d:SetPoint("BOTTOMRIGHT", f.canvas.frame, "BOTTOMRIGHT", -6, 6)
+    for _, b in ipairs({ f.mode2d, f.mode3d }) do b:SetFrameLevel(f.canvas.frame:GetFrameLevel() + 1050) end
 
     -- the blocks
     f.blocks = ns.StrategyBlocksUI:Create(c, {
@@ -1652,6 +1655,8 @@ function Board:RefreshMode()
     local show = page() ~= nil and (room ~= nil or why == "map")
     win.mode2d:SetShown(show)
     win.mode3d:SetShown(show)
+    -- the map's hint line ends before the switch
+    cv.hint:SetPoint("RIGHT", cv.frame, "RIGHT", show and -84 or -6, 0)
     if not show then return end
     local on = cv:Is3D()
     win.mode3d:SetEnabled(room ~= nil)
@@ -1669,13 +1674,6 @@ function Board:RefreshMode()
         win.mode3d.tip = "3D shows " .. r.name .. ", which is on the " .. mapName .. " map. This page uses another map."
     end
     win.mode2d.tip = "This page on the map."
-    win.mode3d:ClearAllPoints()
-    if win.mapBtn:IsShown() then
-        win.mode3d:SetPoint("RIGHT", win.mapBtn, "LEFT", -8, 0)
-    else
-        local w = win.mapLabel:IsShown() and (win.mapLabel:GetStringWidth() or 0) or 0
-        win.mode3d:SetPoint("TOPRIGHT", win.content, "TOPLEFT", MAP_W - w - (w > 0 and 10 or 0), -33)
-    end
 end
 
 function Board:RefreshTools()

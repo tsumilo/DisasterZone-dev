@@ -294,6 +294,10 @@ STATES = [
     ("Raids - Raid leaders", st_window("ns.RaidLeadersUI:Open()")),
     ("Raids - Strategy board", st_window("ns.StrategyBoard:OpenStrategy(select(2, ...))")),
     ("Raids - Strategy board - edit", st_window("ns.StrategyBoard:OpenStrategy(select(2, ...), 'edit')")),
+    # a boss with a room: the 2D / 3D switch on the map, and the page in 3D (UI/StrategyMap3D.lua)
+    ("Raids - Strategy board - Teron 2D", st_window("ns.StrategyBoard:NewStrategy('BlackTemple:Teron')")),
+    ("Raids - Strategy board - Teron 3D", st_window("ns.StrategyBoard:NewStrategy('BlackTemple:Teron'); "
+                                                    "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
     ("Loot Log - award dialog", opened("loot", "ns.LootLogUI:OpenAwardDialog("
                                                "ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[1].itemID, "
                                                "'Shadowmelder-Thunderstrike', 'Karazhan:Prince')")),

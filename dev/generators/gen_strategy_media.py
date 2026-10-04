@@ -235,10 +235,50 @@ def ic_crown(d, k):
         d.ellipse(_pts(k, [(x - 5, y - 5), (x + 5, y + 5)]), fill=255)
 
 
+def _turn(d, k, sign):
+    # the 3D view's turn buttons: a circular arrow, round the left (sign 1) or the right (-1)
+    box = _pts(k, [(10, 12), (54, 56)])
+    if sign > 0:
+        d.arc(box, 300, 200, fill=255, width=_w(k, 5))
+        d.polygon(_pts(k, [(4, 26), (22, 26), (11, 9)]), fill=255)
+    else:
+        d.arc(box, 340, 240, fill=255, width=_w(k, 5))
+        d.polygon(_pts(k, [(60, 26), (42, 26), (53, 9)]), fill=255)
+
+
+def ic_turn_left(d, k):
+    _turn(d, k, 1)
+
+
+def ic_turn_right(d, k):
+    _turn(d, k, -1)
+
+
+def ic_top(d, k):
+    # from above: an arrow down onto the floor seen at a slant
+    d.polygon(_pts(k, [(14, 44), (58, 44), (50, 60), (6, 60)]), outline=255, width=_w(k, 4))
+    d.line(_pts(k, [(32, 4), (32, 30)]), fill=255, width=_w(k, 6))
+    d.polygon(_pts(k, [(20, 26), (44, 26), (32, 40)]), fill=255)
+
+
+def ic_home(d, k):
+    # the whole room: a house
+    d.polygon(_pts(k, [(32, 6), (60, 30), (4, 30)]), fill=255)
+    d.rectangle(_pts(k, [(12, 30), (52, 58)]), fill=255)
+    d.rectangle(_pts(k, [(26, 40), (38, 58)]), fill=0)
+
+
+def ic_minimap(d, k):
+    # the small map: a framed map with where you are on it
+    d.rectangle(_pts(k, [(6, 10), (58, 54)]), outline=255, width=_w(k, 4))
+    d.line(_pts(k, [(6, 32), (30, 24), (58, 36)]), fill=255, width=_w(k, 2))
+    d.polygon(_pts(k, [(36, 18), (44, 40), (36, 34), (28, 40)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
-              ic_notes, ic_crown]
+              ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap]
 TOOL_ROWS = 8
 
 

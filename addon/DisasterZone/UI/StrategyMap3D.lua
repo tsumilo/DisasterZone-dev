@@ -1092,6 +1092,7 @@ end
 -- 15 the eye.
 local HUD_ICONS = { rotL = 27, rotR = 28, top = 29, home = 30, map = 31, eye = 15 }
 local INSET_W = 200
+local EYE_HINT = "Standing here at eye height: right-drag looks around, the wheel steps back out."
 
 function V:CreateHud()
     local hud = CreateFrame("Frame", nil, self.frame)
@@ -1141,7 +1142,7 @@ function V:CreateHud()
     self.hintBg:SetColorTexture(0, 0, 0, 0.5)
     self.hint = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     self.hint:SetPoint("BOTTOMLEFT", 6, 5)
-    self.hint:SetPoint("RIGHT", hud, "RIGHT", -6, 0)
+    self.hint:SetPoint("RIGHT", hud, "RIGHT", -84, 0)          -- (the board's 2D / 3D switch is in that corner)
     self.hint:SetJustifyH("LEFT")
     self.hintBg:SetPoint("TOPLEFT", self.hint, "TOPLEFT", -4, 3)
     self.hintBg:SetPoint("BOTTOMRIGHT", self.hint, "BOTTOMRIGHT", 4, -3)
@@ -1184,7 +1185,15 @@ function V:CreateHud()
     self.insetOn = true
 end
 
+-- The hint the canvas gives for its tool (DrawHud shows another one while the camera stands on a spot).
 function V:SetHint(text)
+    self.baseHint = text
+    self:ShowHint(self.orb.dist < 3 and EYE_HINT or text)
+end
+
+function V:ShowHint(text)
+    if self.hintShown == text then return end
+    self.hintShown = text
     self.hint:SetText(text or "")
     self.hintBg:SetShown(text ~= nil and text ~= "")
 end
@@ -1274,6 +1283,7 @@ function V:DrawHud()
     else
         comp:Hide()
     end
+    self:ShowHint(o.dist < 3 and EYE_HINT or self.baseHint)
     self.eyeBtn:SetShown(#self:MySpots() > 0)
     self.topBtn:SetActive(o.pitch >= PITCH_TOP - 0.05)
     self.mapBtn:SetActive(self.insetOn)
