@@ -71,16 +71,39 @@ function R3.NewView(parent, opts)
             scenes[2] = sc2
         end
     end
-    for _, s in ipairs(scenes) do
-        pcall(s.SetCameraFieldOfView, s, opts.fov or 1.1)
-        pcall(s.SetCameraNearClip, s, v.near)
-        pcall(s.SetCameraFarClip, s, opts.far or 500)
-        pcall(s.SetLightVisible, s, true)
-        pcall(s.SetLightDirection, s, -0.4, 0.3, -0.8)
-        pcall(s.SetLightAmbientColor, s, 0.7, 0.7, 0.75)
-        pcall(s.SetLightDiffuseColor, s, 0.85, 0.85, 0.85)
-    end
+    v.fov, v.far = opts.fov or 1.1, opts.far or 500
+    for _, s in ipairs(scenes) do v:SetupScene(s) end
     return v
+end
+
+-- A scene's lens and light (every scene of the view the same).
+function View:SetupScene(s)
+    pcall(s.SetCameraFieldOfView, s, self.fov)
+    pcall(s.SetCameraNearClip, s, self.near)
+    pcall(s.SetCameraFarClip, s, self.far)
+    pcall(s.SetLightVisible, s, true)
+    pcall(s.SetLightDirection, s, -0.4, 0.3, -0.8)
+    pcall(s.SetLightAmbientColor, s, 0.7, 0.7, 0.75)
+    pcall(s.SetLightDiffuseColor, s, 0.85, 0.85, 0.85)
+end
+
+-- The backdrop: a third ModelScene under every room piece (at lv.floor), made when first asked for. A model there is
+-- hidden by all of the room and seen only where nothing of it is drawn - for a creature far bigger than the room's
+-- pieces that stands beyond them (Kil'jaeden over the Sunwell's edge), which no plane through it can sort.
+function View:Backdrop()
+    if self.scene0 == nil then
+        local ok, s = pcall(CreateFrame, "ModelScene", nil, self.parent)
+        if ok and s and s.CreateActor then
+            s:SetAllPoints()
+            s:SetFrameLevel(self.parent:GetFrameLevel() + self.lv.floor)
+            self:SetupScene(s)
+            self.scene0 = s
+            if self.yaw then self:ApplyCamera(self.yaw, self.pitch) end
+        else
+            self.scene0 = false
+        end
+    end
+    return self.scene0 or nil
 end
 
 -- Room y -> scene y.
@@ -92,6 +115,12 @@ function View:ApplyCamera(yaw, pitch)
     local sc, cam = self.scene, self.cam
     pcall(sc.SetCameraPosition, sc, cam.x, cam.y, cam.z)
     pcall(sc.SetCameraOrientationByYawPitchRoll, sc, yaw, cam.pitchSign * pitch, 0)
+    self.yaw, self.pitch = yaw, pitch
+    local sc0 = self.scene0
+    if sc0 then
+        pcall(sc0.SetCameraPosition, sc0, cam.x, cam.y, cam.z)
+        pcall(sc0.SetCameraOrientationByYawPitchRoll, sc0, yaw, cam.pitchSign * pitch, 0)
+    end
     local sc2 = self.scene2
     if sc2 then
         pcall(sc2.SetCameraPosition, sc2, cam.x, cam.y, cam.z)
@@ -150,7 +179,7 @@ end
 -- A new model actor (nil when the client makes none). Its feet are its origin; an animation does not survive a model
 -- change, so a loaded model plays the actor's .anim again (else the view's default).
 function View:NewActor(top)
-    local sc = (top and self.scene2) or self.scene
+    local sc = (top == "back" and self:Backdrop()) or (top == true and self.scene2) or self.scene
     local ok, a = pcall(sc.CreateActor, sc, nil, "ModelSceneActorTemplate")
     if not ok or not a then ok, a = pcall(sc.CreateActor, sc) end
     if not ok or not a then return nil end

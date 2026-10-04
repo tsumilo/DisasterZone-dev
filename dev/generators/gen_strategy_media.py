@@ -294,11 +294,26 @@ def ic_export(d, k):
     _tray(d, k)
 
 
+def ic_handle_turn(d, k):
+    # a 3D model's turn knob: a ring of arrow, a head at either end (it turns both ways)
+    d.arc(_pts(k, [(10, 10), (54, 54)]), 190, 330, fill=255, width=_w(k, 7))
+    d.arc(_pts(k, [(10, 10), (54, 54)]), 10, 150, fill=255, width=_w(k, 7))
+    d.polygon(_pts(k, [(40, 22), (62, 22), (51, 38)]), fill=255)
+    d.polygon(_pts(k, [(2, 42), (24, 42), (13, 26)]), fill=255)
+
+
+def ic_handle_size(d, k):
+    # a 3D model's size knob: a diagonal arrow with a head at both ends (bigger or smaller)
+    d.line(_pts(k, [(18, 46), (46, 18)]), fill=255, width=_w(k, 7))
+    d.polygon(_pts(k, [(6, 58), (6, 32), (32, 58)]), fill=255)
+    d.polygon(_pts(k, [(58, 6), (58, 32), (32, 6)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
-              ic_export]
+              ic_export, ic_handle_turn, ic_handle_size]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

@@ -526,10 +526,14 @@ local d = a.display
 if not d or not a.scale then return nil end
 local h, w = 0.5 + (d % 9) * 0.6, 0.4 + (d % 5) * 0.5
 local zTop = (d % 3 == 0) and (h + 0.8) or h
+local bx0, by0, bz0, bx1, by1, bz1 = -0.6 * w, -0.3 * w, 0, 0.4 * w, 0.7 * w, zTop
+-- (a creature whose real box the mock knows - the Lurker's lurkling - has that box instead)
+local rx0, ry0, rz0, rx1, ry1, rz1 = a:GetMaxBoundingBox()
+if rx0 and math.abs(rx0 - bx0) > 1e-6 then bx0, by0, bz0, bx1, by1, bz1 = rx0, ry0, rz0, rx1, ry1, rz1 end
 local sn, cs = math.sin(a.yaw or 0), math.cos(a.yaw or 0)
 local es = sc:GetEffectiveScale() or 1
 local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge
-for _, x in ipairs({ -0.6 * w, 0.4 * w }) do for _, y in ipairs({ -0.3 * w, 0.7 * w }) do for _, z in ipairs({ 0, zTop }) do
+for _, x in ipairs({ bx0, bx1 }) do for _, y in ipairs({ by0, by1 }) do for _, z in ipairs({ bz0, bz1 }) do
   local px, py = sc:Project3DPointTo2D((x * cs - y * sn) * a.scale, (x * sn + y * cs) * a.scale, z * a.scale)
   px, py = px / es, py / es
   x0, x1, y0, y1 = math.min(x0, px), math.max(x1, px), math.min(y0, py), math.max(y1, py)
@@ -571,8 +575,10 @@ def _check_fits(results):
         assert abs(truth["feet"] - 0.03) < 0.005, (sp, truth)
         assert abs(truth["center"] - 0.5) < 0.01, (sp, truth)
         # measured THIS creature, not the previous one still loaded in the same frame (mock: w = 0.4 + d%5 * 0.5)
-        width = 0.4 + (disp % 5) * 0.5
-        assert abs(info["x0"] + 0.6 * width) < 1e-6 and abs(info["x1"] - 0.4 * width) < 1e-6, (sp, disp, info)
+        # (the mock's real boxes, wowmock/objects.lua DISPLAY_BOXES: the Lurker's lurkling)
+        x0, x1 = {20216: (-9.68, 5.6), 23200: (-5.96, 15.65)}.get(disp, (-0.6 * (0.4 + (disp % 5) * 0.5),
+                                                                 0.4 * (0.4 + (disp % 5) * 0.5)))
+        assert abs(info["x0"] - x0) < 1e-6 and abs(info["x1"] - x1) < 1e-6, (sp, disp, info)
         if disp % 3 == 0:
             # hovering idle (mock: 0.2 .. 0.8 above its ground): the whole bob is measured, the rearing animation
             # of the all-animations box is not, and the ground stays in (it lands there when it faints)

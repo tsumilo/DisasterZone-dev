@@ -34,7 +34,8 @@ W = "_G.DisasterZoneStrategyBoard"
 # Teron stands at 29.9, 85.2 in his alcove, the hall 6.2 yd over it, its entrance near y = 5; Vashj in the middle at
 # 105, 105), moved onto the generated room by its boss spot (T3.ox, T3.oy).
 LURKER = "SerpentshrineCavern:Lurker"
-BASE = {TERON: (29.9, 85.2), VASHJ: (105.0, 105.0), LURKER: (0.0, 0.0)}
+KJ = "SunwellPlateau:Kiljaeden"
+BASE = {TERON: (29.9, 85.2), VASHJ: (105.0, 105.0), LURKER: (0.0, 0.0), KJ: (0.0, 0.0)}
 
 HELPERS = r"""
 T3 = { down = {} }
@@ -729,6 +730,21 @@ def a_model_turns_and_sizes_with_its_knobs_and_keeps_it():
     bob.eval(MODEL + "e.f, e.ms = nil, nil T3.cv():Changed()")
     tick(w, 0.1)
     assert bob.eval_py(MODEL + "return T3.v():Geo(e).scale") == s0
+    no_errors(w)
+
+
+@case
+def kiljaeden_stands_in_the_backdrop_under_the_whole_room():
+    w, c, bob = boot(KJ)
+    go3d(w, bob)
+    tick(w, 1.0)
+    # 130 yd of him leaning in over the edge: no plane through him sorts the room, so every piece covers him
+    r = bob.eval_py("local v = T3.v() for e, a in pairs(v.actors) do if a.display == 23200 then "
+                    "return { back = a.back, scene0 = v.view.scene0 ~= nil and v.view.scene0 ~= false } end end")
+    assert r and r["back"] is True and r["scene0"] is True, r
+    occ = bob.eval_py("local v = T3.v() local n = 0 for i = 1, v.nOcc do local o = v.occ[i] "
+                      "for e, a in pairs(v.actors) do if a.display == 23200 and (o.id == e or o.group == e) then n = n + 1 end end end return n")
+    assert occ == 0, occ
     no_errors(w)
 
 

@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.0", date = "3 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
+    { version = "1.3.0", date = "4 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
       sections = {
           { heading = "Import and export BiS lists", lines = {
               "My BiS's ... menu at the end of the top bar: Import, Export and Clear, each with an icon.",
@@ -86,7 +86,9 @@ ns.CHANGELOG = {
               "Others with the strategy open see you walk there; in your group as your own character.",
               "Draw, move and undo with the planner's tools while you walk.",
               "Turn and size a boss or add in 3D with the knobs round it; its menu sets either back.",
-              "Kil'jaeden in 3D: the room no longer draws over him where it stands behind him.",
+              "The 3D turn and size knobs are round buttons with a turn or a resize arrow on them.",
+              "3D models stand on their spot by their full box by default (/dz 3d centre to change it).",
+              "Kil'jaeden in 3D looms beyond the Sunwell's edge, with no stray room pieces over him.",
               "Bosses and adds hide behind the room part by part, at their true size (the Lurker's tail).",
               "A small 2D map in the corner shows what the camera sees; click it to look there.",
               "After updating, restart the game once (a /reload is not enough) to get the 3D view.",

@@ -66,6 +66,9 @@ local LIFT, LIFT_HATCH, LIFT_SEL = 0.08, 0.06, 0.11
 local POST_ICON, POST_SLOT = 2.2, 1.6
 local GOLD = { 1, 0.85, 0.1 }
 local TURN_COLOR = { 0.35, 0.75, 1 }              -- (a model's turn knob)
+local KNOB = 22                                     -- px: a model's knob (its icon on a disc)
+local DISC_TEX = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\disc"
+local RING_TEX = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\ring"
 
 ---------------------------------------------------------------------------
 -- Which pages can be drawn in a room
@@ -348,11 +351,7 @@ function V:Close(animate, done)
         self.on, self.anim, self.drag3 = false, nil, nil
         self.frame:Hide()
         if self.R then self.R.Clear() end
-        for e, a in pairs(self.actors) do
-            pcall(a.SetShown, a, false)
-            self.actors[e] = nil
-            self.actorPool[#self.actorPool + 1] = a
-        end
+        for e, a in pairs(self.actors) do self:ReleaseActor(e, a) end
         if done then done() end
     end
     if animate and self.on and self.room then
@@ -601,13 +600,32 @@ end
 -- Models (boss portraits as the creatures)
 ---------------------------------------------------------------------------
 
-function V:Actor(e)
+-- Creatures drawn in the view's backdrop, under the whole room (Render3D/View.lua View:Backdrop): too big for the
+-- room to be sorted against them piece by piece. Kil'jaeden: 130 yd long, leaning in over the Sunwell's edge.
+local BACKDROP = { [23200] = true }
+
+function V:Actor(e, back)
     local a = self.actors[e]
-    if a then return a end
-    a = table.remove(self.actorPool) or self.view:NewActor()
+    if a and (a.back or false) == back then return a end
+    if a then self:ReleaseActor(e, a) end
+    local pool = back and self.backPool or self.actorPool
+    if back and not pool then
+        pool = {}
+        self.backPool = pool
+    end
+    a = table.remove(pool) or self.view:NewActor(back and "back" or nil)
     if not a then return nil end
+    a.back = back
     self.actors[e] = a
     return a
+end
+
+-- An element's actor back to its scene's pool, hidden.
+function V:ReleaseActor(e, a)
+    pcall(a.SetShown, a, false)
+    self.actors[e] = nil
+    local pool = a.back and self.backPool or self.actorPool
+    pool[#pool + 1] = a
 end
 
 -- Places the page's models: each where its portrait is, at its real size, facing the nearest player marker (else the
@@ -620,7 +638,8 @@ function V:DrawModels()
     for _, e in ipairs(self.canvas.page and self.canvas.page.e or {}) do
         local g = e.t == "i" and self:Geo(e)
         if g and g.display then
-            local a = self:Actor(e)
+            local back = BACKDROP[g.display] and self.view:Backdrop() and true or false
+            local a = self:Actor(e, back)
             if a then
                 seen[e] = true
                 if a.display ~= g.display then
@@ -690,7 +709,9 @@ function V:DrawModels()
                 -- its height (the label goes over it): the model's name point, else its top
                 local h = g.nameZ and (g.nameZ * s) or (top > 0 and top * s) or nil
                 g.h = (h or 2.5 * s) + 0.4
-                if parts then
+                if back then
+                    -- (no occluder: every piece of the room is in front of it)
+                elseif parts then
                     a.partIds = a.partIds or {}
                     local cf, sf = cos(face), sin(face)
                     for k = 1, #parts - 5, 6 do
@@ -731,11 +752,7 @@ function V:DrawModels()
         end
     end
     for e, a in pairs(self.actors) do
-        if not seen[e] then
-            pcall(a.SetShown, a, false)
-            self.actors[e] = nil
-            self.actorPool[#self.actorPool + 1] = a
-        end
+        if not seen[e] then self:ReleaseActor(e, a) end
     end
     n = self:DrawWalkers(occ, n)
     -- your character, walking: hidden where the room is in front of it, first in line for the copies
@@ -1126,7 +1143,7 @@ function V:DrawPlates(remote)
     local mg = e and cv:SelectionCount() == 1 and e.t == "i" and self:Geo(e)
     if mg and mg.display then
         -- a model: the blue knob in front of it turns it, the gold one at its right side sizes it
-        -- (at least 22 px out on the screen, so the two never sit on each other seen from afar)
+        -- (at least 28 px out on the screen, so the two never sit on each other seen from afar)
         local r, f = self:KnobRadius(mg), mg.curFace or mg.face or 0
         local z0 = self:Ground(mg.x, mg.y) + LIFT
         local ax, ay = self:Proj(mg.x, mg.y, z0)
@@ -1134,16 +1151,16 @@ function V:DrawPlates(remote)
         local cx, cy = self:Proj(mg.x, mg.y + 1, z0)
         if ax and bx and cx then
             local px = min(sqrt((bx - ax) ^ 2 + (by - ay) ^ 2), sqrt((cx - ax) ^ 2 + (cy - ay) ^ 2))
-            if px > 1e-3 then r = max(r, 22 / px) end
+            if px > 1e-3 then r = max(r, 28 / px) end
         end
         mg.knobR = r
-        local function knob(name, ang, color)
+        local function knob(name, ang, color, icon)
             local x, y = mg.x + cos(ang) * r, mg.y + sin(ang) * r
             local sx, sy = self:Proj(x, y, self:Ground(x, y) + LIFT)
-            if sx then handles[#handles + 1] = { name = name, x = sx, y = sy, color = color } end
+            if sx then handles[#handles + 1] = { name = name, x = sx, y = sy, color = color, icon = icon } end
         end
-        knob("mturn", f, TURN_COLOR)
-        knob("msize", f - pi / 2, GOLD)
+        knob("mturn", f, TURN_COLOR, UI().ICON.knobTurn)
+        knob("msize", f - pi / 2, GOLD, UI().ICON.knobSize)
     end
     if e and cv:SelectionCount() == 1 and (e.t == "z" or e.t == "a") then
         local g = self:Geo(e)
@@ -1180,19 +1197,45 @@ function V:DrawHandles()
     for i, hd in ipairs(self.handles) do
         local t = T[i]
         if not t then
+            -- a square (a zone's or arrow's corner), or a model's knob: its icon on a dark disc ringed in its colour
             t = self.hud:CreateTexture(nil, "OVERLAY", nil, 7)
-            t:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
-            t:SetSize(8, 8)
+            t.disc = self.hud:CreateTexture(nil, "OVERLAY", nil, 5)
+            t.disc:SetTexture(DISC_TEX)
+            t.ring = self.hud:CreateTexture(nil, "OVERLAY", nil, 6)
+            t.ring:SetTexture(RING_TEX)
             T[i] = t
         end
         local c = hd.color or GOLD
-        t:SetColorTexture(c[1], c[2], c[3], 1)
-        t:SetSize(hd.color and 11 or 8, hd.color and 11 or 8)
         t:ClearAllPoints()
         t:SetPoint("CENTER", self.view.scene, "BOTTOMLEFT", hd.x, hd.y)
+        if hd.icon then
+            t:SetTexture(UI().ICON_ATLAS)
+            t:SetTexCoord(unpack(UI():IconCoords(hd.icon)))
+            t:SetVertexColor(c[1], c[2], c[3], 1)
+            t:SetSize(KNOB - 8, KNOB - 8)
+            for _, x in ipairs({ t.disc, t.ring }) do
+                x:ClearAllPoints()
+                x:SetPoint("CENTER", t)
+                x:SetSize(KNOB, KNOB)
+                x:Show()
+            end
+            t.disc:SetVertexColor(0.05, 0.05, 0.07, 0.85)
+            t.ring:SetVertexColor(c[1], c[2], c[3], 1)
+        else
+            t:SetTexCoord(0, 1, 0, 1)
+            t:SetColorTexture(c[1], c[2], c[3], 1)
+            t:SetVertexColor(1, 1, 1, 1)
+            t:SetSize(8, 8)
+            t.disc:Hide()
+            t.ring:Hide()
+        end
         t:Show()
     end
-    for i = #self.handles + 1, #T do T[i]:Hide() end
+    for i = #self.handles + 1, #T do
+        T[i]:Hide()
+        T[i].disc:Hide()
+        T[i].ring:Hide()
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -1244,7 +1287,7 @@ function V:HandleAt()
     local best, bd
     for _, hd in ipairs(self.handles) do
         local d = max(abs(cx - hd.x), abs(cy - hd.y))
-        if d <= 9 and (not bd or d < bd) then best, bd = hd.name, d end
+        if d <= (hd.icon and KNOB / 2 or 9) and (not bd or d < bd) then best, bd = hd.name, d end
     end
     return best
 end
@@ -1287,7 +1330,7 @@ end
 -- itself gives once the model is loaded (Active: its pose now; Max: all its animations), else CreatureModelData's
 -- (Render3D/Rooms/Index.lua DISPLAY_CENTRE); M3.centre picks the rule ("active" by default, /dz 3d centre).
 function V:ModelCentre(a, display)
-    local mode = M3.centre or "active"
+    local mode = M3.centre or "max"
     if mode == "off" then return 0, 0 end
     if mode ~= "geo" and a and a.loadedOnce then
         if a.ctrMode ~= mode then
@@ -1313,7 +1356,7 @@ function M3:Report()
         ns:Print("Open a strategy in 3D first.")
         return
     end
-    ns:Print("3D models (centring: %s):", M3.centre or "active")
+    ns:Print("3D models (centring: %s):", M3.centre or "max")
     for e, a in pairs(v.actors) do
         local g = v:Geo(e)
         local function box(fn)
