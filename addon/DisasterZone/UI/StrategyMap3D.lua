@@ -1684,7 +1684,7 @@ function V:WalkKey(key, down)
     return true
 end
 
--- Where I walk, to the others who have this strategy open (Core/StrategyCollab.lua SBW): at once when I start,
+-- Where I walk, to the others who have this strategy open (Core/StrategyCollab.lua SWK): at once when I start,
 -- start or stop running, jump, land or turn more than 20 degrees (no faster than 4 a second), else once a second
 -- while I move and every 2 s while I stand.
 function V:ShareWalk()

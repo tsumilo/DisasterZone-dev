@@ -19,7 +19,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/StrategyCollab.lua", ...) the
 -- Saving stays what it was (the whole strategy on GUILD). A board that turns out equal to the saved strategy has
 -- nothing unsaved any more, so one editor's Save settles it for all of them.
 --
--- Walking together (SBW on GUILD, the "walk" prefix, its own server budget): someone walking in a strategy's 3D room
+-- Walking together (SWK on GUILD, the "walk" prefix, its own server budget): someone walking in a strategy's 3D room
 -- (UI/StrategyMap3D.lua) says where about once a second, and at once when they start, stop running, jump or turn
 -- ({ id, r = the room, x, y, z = their feet in room yards, f = facing, vx, vy = yd/s, s = 1 moving + 2 backward +
 -- 4 falling + 8 swimming, d = how they look: a player race's creature display }); { id, off = true } when they stop
@@ -855,16 +855,16 @@ function Collab:SendWalk(w)
     local msg
     if w then
         local function r2(v) return floor((v or 0) * 100 + 0.5) / 100 end
-        msg = { t = "SBW", id = mine.id, r = w.r, x = r2(w.x), y = r2(w.y), z = r2(w.z), f = r2(w.f), vx = r2(w.vx),
+        msg = { t = "SWK", id = mine.id, r = w.r, x = r2(w.x), y = r2(w.y), z = r2(w.z), f = r2(w.f), vx = r2(w.vx),
                 vy = r2(w.vy), s = w.s or 0, d = w.d }
     else
-        msg = { t = "SBW", id = mine.id, off = true }
+        msg = { t = "SWK", id = mine.id, off = true }
     end
     local Comm = ns.Comm
     return (Comm and Comm.Send and Comm:Send(msg, "GUILD", nil, "walk")) and true or false
 end
 
--- SBW: someone walking in a strategy's room (see the top of the file).
+-- SWK: someone walking in a strategy's room (see the top of the file).
 local function OnWalk(sender, msg, dist)
     if dist ~= "GUILD" or type(msg.id) ~= "string" or #msg.id > 40 then return end
     if msg.off then
@@ -1206,7 +1206,7 @@ function Collab:OnInit()
         Comm:Register("SBS", OnSnapshot)
         Comm:Register("SBO", OnOps)
         Comm:Register("SBC", OnSelection)
-        Comm:Register("SBW", OnWalk)
+        Comm:Register("SWK", OnWalk)
         -- one action can carry a whole page (a pasted / duplicated one): as large as a saved strategy may be
         if Comm.AllowLarge then Comm:AllowLarge("SBO", "live") end
     end
