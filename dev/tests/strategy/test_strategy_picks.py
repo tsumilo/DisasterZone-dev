@@ -1,10 +1,12 @@
 """ADDENDUM K, 1.3: picking a raid's strategy per boss, and a raid's own leader assigning it (user request 2026-10-04).
 
-Covers: Strategy:PickStrategy (saved at once, names in the slots both strategies share stay), who may pick (a raid
-without a leader: the GM, the raid leaders on the list and the guild council; a led raid: its own leader, the GM and the
-raid leaders on the list, not the council), the leader's fills being trusted by everyone, the default for a boss not picked yet (the strategy the guild used
-last time, else the first by name; "only" for a single strategy), and the Assignments tab: the dropdown for who
-arranges the raid, the strategy's name for everyone else, "not picked yet", and a pick made from the dropdown's menu.
+Covers: Strategy:PickStrategy (saved at once, names in the slots both strategies share stay), who may pick and assign
+(user rule 2026-10-04: only who leads the raid and the GM; a raid without its own leader: the raid leaders on the list and
+the GM; read-only for the council, the other raid leaders and the members), a forged fill from anyone else being
+ignored, the leader's fills being trusted by everyone, the default for a boss not picked yet (the strategy the guild used
+last time, else the first by name; "only" for a single strategy), the Assignments tab (the dropdown for who may pick,
+the strategy's name for everyone else, "not picked yet", a pick made from the dropdown's menu) and the raid's board
+being read-only for everyone else (no strategy switch).
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy_picks.py [-k name]
 """
@@ -41,41 +43,59 @@ def used(cl, occ, boss=BOSS):
 
 # ------------------------------------------------------------------------------------------------------------------
 @case
-def the_raid_leader_picks_and_the_council_does_not_on_a_led_raid():
+def only_the_raid_leader_and_the_gm_pick_and_assign():
     w, c = world()
-    bob, lee, rita, sam = c["Bob"], c["Lee"], c["Rita"], c["Sam"]
+    gina, bob, lee, rita, sam = c["Gina"], c["Bob"], c["Lee"], c["Rita"], c["Sam"]
     a = save_council(lee, "A plan")
     b = save_council(rita, "B plan")
     occ = create(lee, i="bt", t=now(lee) + DAY)
     w.tick(2)
-    # no leader: the raid leaders on the list and the council pick; members don't
+    # no leader of its own: the raid leaders on the list and the GM pick; the council and members don't
     assert used(sam, occ) == {"id": a, "how": "first"}
     assert pick(rita, occ, b)["ok"] is True
-    assert pick(sam, occ, a)["ok"] is False
+    for x in (bob, sam):
+        res = pick(x, occ, a)
+        assert res["ok"] is False and "raid leaders pick" in res["e"], (x.name, res)
     w.tick(2)
     assert used(sam, occ) == {"id": b, "how": "picked"}
     # names in the slots both share stay when the pick changes (both are copies of the same plan)
     assert fill(rita, occ, BOSS, b, {"tk.1.1": K("Lee"), "md.1.2": K("Hana")})["ok"] is True
     w.tick(2)
-    assert pick(bob, occ, a)["ok"] is True
+    assert pick(gina, occ, a)["ok"] is True
     w.tick(2)
     f = get_fill(sam, occ, BOSS)
     assert f["s"] == a and f["a"] == {"tk.1.1": K("Lee"), "md.1.2": K("Hana")}, f
-    # Sam leads it now (named by a raid leader on the list): Sam and the list pick and assign, the council doesn't
+    # Sam leads it now (named by a raid leader on the list): only Sam and the GM pick and assign
     assert call(lee, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
     w.tick(2)
     assert sam.eval("return ns.Strategy:CanAssign(...)", occ) is True
-    assert rita.eval("return ns.Strategy:CanAssign(...)", occ) is True
-    assert bob.eval("return ns.Strategy:CanAssign(...)", occ) is False
-    assert bob.eval("return ns.Strategy:CanAssign()") is True        # (other raids)
-    res = pick(bob, occ, b)
-    assert res["ok"] is False and "this raid's leader" in res["e"], res
+    assert gina.eval("return ns.Strategy:CanAssign(...)", occ) is True
+    for x in (rita, lee, bob):
+        assert x.eval("return ns.Strategy:CanAssign(...)", occ) is False, x.name
+        res = pick(x, occ, b)
+        assert res["ok"] is False and "this raid's leader and the Guild Master" in res["e"], (x.name, res)
+    assert rita.eval("return ns.Strategy:CanAssign()") is True       # (raids without a leader of their own)
+    assert bob.eval("return ns.Strategy:CanAssign()") is False
     assert pick(sam, occ, b)["ok"] is True
     assert fill(sam, occ, BOSS, b, {"tk.2.1": K("Sam")})["ok"] is True
     w.tick(2)
     for x in c.values():
         f = get_fill(x, occ, BOSS)
         assert f and f["s"] == b and f["a"] == {"tk.2.1": K("Sam")}, (x.name, f)
+    # a fill sent past the local check (a tampered client) by a raid leader who doesn't lead it is ignored
+    rita.eval("local o, b, s, me = ...; local root = ns.db.strategy[next(ns.db.strategy)]; "
+              "local id = ns.Strategy.FillId(o, b); local cur = root.F[id]; "
+              "local r = { id = id, o = o, b = b, t = cur.t, rev = cur.rev + 5, by = me, s = s, a = { ['tk.1.1'] = me } }; "
+              "ns.Comm:Send({ t = 'SBU', k = 'F', r = r }, 'GUILD', nil, 'data')", occ, BOSS, a, K("Rita"))
+    w.tick(2)
+    for x in (gina, sam, bob, lee):
+        f = get_fill(x, occ, BOSS)
+        assert f is None or (f["s"] == b and f["a"] == {"tk.2.1": K("Sam")}), (x.name, f)
+        assert used(x, occ)["id"] == b, x.name
+    # the GM may still change it
+    assert pick(gina, occ, a)["ok"] is True
+    w.tick(2)
+    assert used(sam, occ) == {"id": a, "how": "picked"}
     # an unknown strategy, or one of another boss
     assert pick(sam, occ, "nope")["ok"] is False
     assert pick(sam, occ, a, "BlackTemple:Illidan")["ok"] is False
@@ -140,13 +160,11 @@ def the_assignments_tab_picks_from_the_row():
     assert r["pick"] and r["assign"] and r["pickText"] == "A plan", r
     assert strip_codes(r["l2"]) == "not picked yet" and strip_codes(r["stat"]) == "0/10 filled", r
     assert 110 <= r["pickW"] <= 230, r
-    # a raid leader on the list runs it too: the dropdown
-    r = council_row(lee)
-    assert r["pick"] and r["assign"], r
-    # the guild council (not on a led raid): the name as text, no dropdown
-    r = council_row(bob)
-    assert not r["pick"] and not r["assign"] and strip_codes(r["l2"]) == "A plan", r
-    assert strip_codes(r["stat"]) == "0/10 filled" and r["l1"] == "The Illidari Council", r
+    # a raid leader on the list who doesn't lead it, and the guild council: the name as text, no dropdown, no Assign
+    for x in (lee, bob):
+        r = council_row(x)
+        assert not r["pick"] and not r["assign"] and strip_codes(r["l2"]) == "A plan", (x.name, r)
+        assert strip_codes(r["stat"]) == "0/10 filled" and r["l1"] == "The Illidari Council", (x.name, r)
     # the leader opens the dropdown: both strategies, who made them, how big
     sam.eval("local ref = ...; %s.box:ForEachFrame(function(row) local d = row.__cdlData; if d and d.ref == ref then "
              "row.pick:OpenMenu() end end)" % ROWS, BOSS)
@@ -162,6 +180,20 @@ def the_assignments_tab_picks_from_the_row():
     # the council's row follows
     r = council_row(bob)
     assert strip_codes(r["l2"]) == "B plan", r
+    # the raid's board: read-only for them (no strategy switch, no Assign players, no local switching)
+    W = "_G.DisasterZoneStrategyBoard"
+    lee.eval("ns.StrategyBoard:OpenRaid(...)", occ, BOSS)
+    w.tick(0.3)
+    assert not lee.eval("return %s.stratDD:IsShown()" % W) and not lee.eval("return %s.fillBtn:IsShown()" % W)
+    lee.eval("ns.StrategyBoard:UseStrategy(...)", a)
+    st = lee.eval_py("local st = ns.StrategyBoard:GetState(); return { id = st.strat and st.strat.id, dirty = st.dirty, "
+                     "mode = st.mode }")
+    assert st == {"id": b, "dirty": False, "mode": "view"}, st
+    sam.eval("ns.StrategyBoard:OpenRaid(...)", occ, BOSS)
+    w.tick(0.3)
+    assert sam.eval("return %s.stratDD:IsShown()" % W) and sam.eval("return %s.fillBtn:IsShown()" % W)
+    sam.eval("ns.StrategyBoard:Close()")
+    lee.eval("ns.StrategyBoard:Close()")
     # B is now what the guild used last time: the menu says so on another raid
     occ2 = create(lee, i="bt", t=now(lee) + 8 * DAY)
     w.tick(2)

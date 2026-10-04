@@ -746,6 +746,14 @@ local function MergeRecord(root, kind, rec)
         end
         if (not cur or cur.del) and not rec.del and CountOwned(root, Owner(rec)) >= MAX_OWN then return false end
     end
+    -- a fill from someone who may not write that raid's fills never replaces one from someone who may
+    if kind == "F" and cur and Trusted(root, kind, cur) then
+        local ok, final = FillWriter(rec)
+        if not ok and final then
+            ns:Debug("Strategy: fill %s by %s refused (not who leads that raid)", rec.id, rec.by)
+            return false
+        end
+    end
     store[rec.id] = rec
     if kind == "F" and Trusted(root, kind, rec) then NoteLast(root, rec) end
     return true

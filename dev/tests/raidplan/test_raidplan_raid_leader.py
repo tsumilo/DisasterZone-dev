@@ -48,7 +48,10 @@ def the_raid_leaders_name_a_leader_who_runs_the_raid():
     # no leader yet: the raid leaders on the list run it; the council lays out groups
     assert raid(sam, occ).get("rl") is None
     assert can(rita, "CanManageRaid", occ) and not can(bob, "CanManageRaid", occ) and not can(sam, "CanManageRaid", occ)
-    assert can(bob, "CanEditGroups", occ) and can(bob, "CanArrangeRaid", occ)
+    assert can(bob, "CanEditGroups", occ)
+    # strategies and names: the raid leaders on the list and the GM only (the council reads them)
+    assert can(rita, "CanAssignStrategies", occ) and can(gina, "CanAssignStrategies", occ)
+    assert not can(bob, "CanAssignStrategies", occ) and not can(sam, "CanAssignStrategies", occ)
     assert lee.eval("return ns.RaidPlan:CanAssignLeader()") and gina.eval("return ns.RaidPlan:CanAssignLeader()")
     assert not bob.eval("return ns.RaidPlan:CanAssignLeader()")
     # only the GM and the raid leaders on the list name one (not the council, not a member)
@@ -80,6 +83,10 @@ def the_raid_leaders_name_a_leader_who_runs_the_raid():
     # the other raid leaders on the list and the GM run it with the leader
     assert can(rita, "CanManageRaid", occ) and can(rita, "CanEditGroups", occ)
     assert call(rita, "EditRaid", occ, {"no": "Rita's note"})["ok"] is True
+    # ... but its strategies and names are the leader's and the GM's alone
+    assert can(sam, "CanAssignStrategies", occ) and can(gina, "CanAssignStrategies", occ)
+    for x in (rita, lee, bob, vic):
+        assert not can(x, "CanAssignStrategies", occ), x.name
     assert call(gina, "SetGroups", occ, {K("Lee"): 1})["ok"] is True
     # a locked raid is listed for its leader even when they are not in it
     w.tick(2)
