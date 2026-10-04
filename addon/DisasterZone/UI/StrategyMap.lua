@@ -1995,6 +1995,8 @@ function Canvas:OnDragUpdate()
         if e.s == "c" and not IsShiftKeyDown() then w, h = max(w, h), max(w, h) end
         e.w, e.h = floor(w), floor(h)
         e.x, e.y = floor(l + e.w / 2), floor(t + e.h / 2)
+    elseif d.mode == "mturn" or d.mode == "msize" then
+        if self.v3 then self.v3:DragModelKnob(d, e, x, y) end
     elseif d.mode == "isize" then
         -- icons stay square around their centre
         e.z = max(12, min(96, floor(2 * max(abs(x - e.x), abs(y - e.y)) + 0.5)))
@@ -2233,6 +2235,11 @@ function Canvas:ElementMenu(e)
         if not many and self:Room3D() then
             -- stand there in the room (an arrow: at its start, looking along it)
             root:CreateButton(self:Is3D() and "View from here" or "View from here in 3D", function() self:ViewFrom3D(e) end)
+        end
+        -- a boss / add model: back to facing the nearest player marker, back to its real size
+        if not many and e.t == "i" and (e.f or e.ms) then
+            if e.f then root:CreateButton("Face the nearest player marker", function() e.f = nil self:Changed() end) end
+            if e.ms then root:CreateButton("Real size", function() e.ms = nil self:Changed() end) end
         end
         root:CreateButton("|cffff6060Delete|r  |cff808080Del|r", function() self:RemoveList(list) end)
     end)

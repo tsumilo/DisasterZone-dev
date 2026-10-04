@@ -65,6 +65,7 @@ local RACE_DISPLAY = { Human = { 49, 50 }, Orc = { 51, 52 }, Dwarf = { 53, 54 },
 local LIFT, LIFT_HATCH, LIFT_SEL = 0.08, 0.06, 0.11
 local POST_ICON, POST_SLOT = 2.2, 1.6
 local GOLD = { 1, 0.85, 0.1 }
+local TURN_COLOR = { 0.35, 0.75, 1 }              -- (a model's turn knob)
 
 ---------------------------------------------------------------------------
 -- Which pages can be drawn in a room
@@ -518,7 +519,7 @@ end
 
 local function Sig(e, view)
     return table.concat({ view, e.t, e.x, e.y, e.w or "", e.h == true and "h" or (e.h or ""), e.s or "", e.x2 or "",
-                          e.y2 or "", e.i or "" }, ",")
+                          e.y2 or "", e.i or "", e.f or "", e.ms or "" }, ",")
 end
 
 -- A drawing's geometry in the room: x, y, z (its spot on the floor); a zone's half axes rx, ry and its outline,
@@ -581,7 +582,9 @@ function V:Geo(e)
         local disp = e.t == "i" and type(e.i) == "string" and tonumber(e.i:match("^boss:(%d+)$"))
         if disp then
             local d = r3.DISPLAYS and r3.DISPLAYS[disp]
-            g.display, g.scale, g.nameZ = disp, d and d.scale or 1, d and d.name
+            -- its real size times the size set on it (e.ms, percent), and the way set for it to face (e.f, degrees)
+            g.display, g.scale, g.nameZ = disp, (d and d.scale or 1) * (e.ms or 100) / 100, d and d.name
+            g.face = e.f and math.rad(e.f) or nil
             self:Ring(g.ring, g.x, g.y, 0.6 * g.scale, 0.6 * g.scale, LIFT)
         elseif e.t == "s" then
             self:Ring(g.ring, g.x, g.y, 0.6, 0.6, LIFT, 14)
@@ -621,7 +624,7 @@ function V:DrawModels()
             if a then
                 seen[e] = true
                 if a.display ~= g.display then
-                    a.display, a.anim, a.box, a.bb = g.display, 0, nil, nil
+                    a.display, a.anim, a.box, a.bb, a.loadedOnce, a.ctr = g.display, 0, nil, nil, nil, nil
                     pcall(a.ClearModel, a)
                     pcall(a.SetModelByCreatureDisplayID, a, g.display)
                     pcall(a.SetUseCenterForOrigin, a, false, false, false)
@@ -638,16 +641,18 @@ function V:DrawModels()
                     tx, ty = v.x or g.x, v.y or g.y - 1
                 end
                 local face = ((abs(tx - g.x) + abs(ty - g.y)) > 0.5) and atan2(ty - g.y, tx - g.x) or -pi / 2
+                if g.face then face = g.face end
+                g.curFace = face
                 -- (the client turns and places a creature by the middle of its box sideways, not by its origin -
                 -- Illidan circled his ring as he turned, Kil'jaeden stood 29 yd off it - so the actor goes that
                 -- middle, turned by its facing, past the spot: the model's own origin stands on it)
                 -- (the model keeps its own left and right whichever way the scene's y runs: a plain turn by its
                 -- facing - turned with the mirror, Illidan stood 2.1 yd to his right of his ring, twice his box's
                 -- sideways middle)
-                local ctr = R3().DISPLAY_CENTRE and R3().DISPLAY_CENTRE[g.display]
+                local mcx, mcy = self:ModelCentre(a, g.display)
                 local dx, dy = 0, 0
-                if ctr then
-                    local cx, cy = ctr[1] * s, ctr[2] * s
+                if mcx ~= 0 or mcy ~= 0 then
+                    local cx, cy = mcx * s, mcy * s
                     dx, dy = cos(face) * cx - sin(face) * cy, sin(face) * cx + cos(face) * cy
                 end
                 pcall(a.SetPosition, a, (g.x + dx) / s, self.view:SY(g.y + dy) / s, g.z / s)
@@ -1095,6 +1100,28 @@ function V:DrawPlates(remote)
     self.nHits = nh
     -- the corner handles of the one selected drawing (a zone's size, an arrow's ends)
     local e = editable and cv.selected
+    local mg = e and cv:SelectionCount() == 1 and e.t == "i" and self:Geo(e)
+    if mg and mg.display then
+        -- a model: the blue knob in front of it turns it, the gold one at its right side sizes it
+        -- (at least 22 px out on the screen, so the two never sit on each other seen from afar)
+        local r, f = self:KnobRadius(mg), mg.curFace or mg.face or 0
+        local z0 = self:Ground(mg.x, mg.y) + LIFT
+        local ax, ay = self:Proj(mg.x, mg.y, z0)
+        local bx, by = self:Proj(mg.x + 1, mg.y, z0)
+        local cx, cy = self:Proj(mg.x, mg.y + 1, z0)
+        if ax and bx and cx then
+            local px = min(sqrt((bx - ax) ^ 2 + (by - ay) ^ 2), sqrt((cx - ax) ^ 2 + (cy - ay) ^ 2))
+            if px > 1e-3 then r = max(r, 22 / px) end
+        end
+        mg.knobR = r
+        local function knob(name, ang, color)
+            local x, y = mg.x + cos(ang) * r, mg.y + sin(ang) * r
+            local sx, sy = self:Proj(x, y, self:Ground(x, y) + LIFT)
+            if sx then handles[#handles + 1] = { name = name, x = sx, y = sy, color = color } end
+        end
+        knob("mturn", f, TURN_COLOR)
+        knob("msize", f - pi / 2, GOLD)
+    end
     if e and cv:SelectionCount() == 1 and (e.t == "z" or e.t == "a") then
         local g = self:Geo(e)
         local function handle(name, p)
@@ -1135,6 +1162,9 @@ function V:DrawHandles()
             t:SetSize(8, 8)
             T[i] = t
         end
+        local c = hd.color or GOLD
+        t:SetColorTexture(c[1], c[2], c[3], 1)
+        t:SetSize(hd.color and 11 or 8, hd.color and 11 or 8)
         t:ClearAllPoints()
         t:SetPoint("CENTER", self.view.scene, "BOTTOMLEFT", hd.x, hd.y)
         t:Show()
@@ -1188,11 +1218,117 @@ end
 -- The handle of the selected drawing under the mouse, or nil.
 function V:HandleAt()
     local cx, cy = self.view:Cursor()
+    local best, bd
     for _, hd in ipairs(self.handles) do
-        if abs(cx - hd.x) <= 9 and abs(cy - hd.y) <= 9 then return hd.name end
+        local d = max(abs(cx - hd.x), abs(cy - hd.y))
+        if d <= 9 and (not bd or d < bd) then best, bd = hd.name, d end
     end
-    return nil
+    return best
 end
+
+-- How far round a model its knobs stand: just outside its ring, further for a big one (its parts' reach).
+function V:KnobRadius(g)
+    local parts = R3().DISPLAY_PARTS and R3().DISPLAY_PARTS[g.display]
+    local reach = 0.6
+    for k = 1, parts and #parts - 5 or 0, 6 do
+        reach = max(reach, abs(parts[k]), abs(parts[k + 1]), abs(parts[k + 3]), abs(parts[k + 4]))
+    end
+    return max(1.2, min(reach, 3) * g.scale * 0.8 + 0.6)
+end
+
+-- A model's knob dragged (the canvas' drag d, its drawing e, the mouse at board bx, by): "mturn" faces it at the
+-- mouse (Alt: in steps of 15 degrees), "msize" sizes it as the mouse goes out or in from where the drag started.
+function V:DragModelKnob(d, e, bx, by)
+    local r3, page = R3(), self.canvas.page
+    local x, y = r3.BoardToRoom(self.room, page, bx, by)
+    local gx, gy = r3.BoardToRoom(self.room, page, e.x, e.y)
+    local dist = sqrt((x - gx) ^ 2 + (y - gy) ^ 2)
+    if d.mode == "mturn" then
+        if dist < 0.2 then return end
+        local deg = math.deg(atan2(y - gy, x - gx)) % 360
+        if IsAltKeyDown() then deg = floor(deg / 15 + 0.5) * 15 end
+        e.f = floor(deg + 0.5) % 360
+    else
+        if not d.r0 then                                                        -- (where the knob was)
+            local g = self:Geo(e)
+            d.r0, d.ms0 = g.knobR or self:KnobRadius(g), e.ms or 100
+        end
+        local ms = floor(d.ms0 * dist / d.r0 + 0.5)
+        if IsAltKeyDown() then ms = floor(ms / 25 + 0.5) * 25 end
+        ms = max(25, min(400, ms))
+        e.ms = (ms ~= 100) and ms or nil
+    end
+end
+
+-- The middle of a model's box sideways (model units), which the client turns and places it by: the box the client
+-- itself gives once the model is loaded (Active: its pose now; Max: all its animations), else CreatureModelData's
+-- (Render3D/Rooms/Index.lua DISPLAY_CENTRE); M3.centre picks the rule ("active" by default, /dz 3d centre).
+function V:ModelCentre(a, display)
+    local mode = M3.centre or "active"
+    if mode == "off" then return 0, 0 end
+    if mode ~= "geo" and a and a.loadedOnce then
+        if a.ctrMode ~= mode then
+            local fn = (mode == "max") and a.GetMaxBoundingBox or a.GetActiveBoundingBox
+            local ok, x0, y0, _, x1, y1 = false, nil, nil, nil, nil, nil
+            if fn then ok, x0, y0, _, x1, y1 = pcall(fn, a) end
+            if ok and type(x1) == "number" and type(y1) == "number" and x1 > x0 then
+                a.ctr, a.ctrMode = { (x0 + x1) / 2, (y0 + y1) / 2 }, mode
+            end
+        end
+        if a.ctr and a.ctrMode == mode then return a.ctr[1], a.ctr[2] end
+    end
+    local c = R3().DISPLAY_CENTRE and R3().DISPLAY_CENTRE[display]
+    return c and c[1] or 0, c and c[2] or 0
+end
+
+-- /dz 3d: what the client says of each model on the page (to find how it places them), and the centring rule.
+function M3:Report()
+    local B = ns.StrategyBoard
+    local cv = B and B.GetState and _G.DisasterZoneStrategyBoard and _G.DisasterZoneStrategyBoard.canvas
+    local v = cv and cv.v3
+    if not (v and v.on) then
+        ns:Print("Open a strategy in 3D first.")
+        return
+    end
+    ns:Print("3D models (centring: %s):", M3.centre or "active")
+    for e, a in pairs(v.actors) do
+        local g = v:Geo(e)
+        local function box(fn)
+            if not fn then return "-" end
+            local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
+            if not ok or type(x0) ~= "number" then return "-" end
+            return string.format("%.2f %.2f %.2f / %.2f %.2f %.2f", x0, y0, z0, x1, y1, z1)
+        end
+        local okc, ux, uy, uz = false, nil, nil, nil
+        if a.IsUsingCenterForOrigin then okc, ux, uy, uz = pcall(a.IsUsingCenterForOrigin, a) end
+        local cx, cy = v:ModelCentre(a, g.display)
+        local geo = R3().DISPLAY_CENTRE and R3().DISPLAY_CENTRE[g.display]
+        ns:Print("  %s (display %s, scale %.2f, facing %d): centre %.2f %.2f; GeoBox centre %s; active %s; max %s; "
+            .. "centred x y z: %s %s %s", MapUI():PortraitName(g.display, cv.opts.bossRef and cv.opts.bossRef())
+            or "?", tostring(g.display), g.scale or 0, math.floor(math.deg(g.curFace or 0) % 360 + 0.5), cx, cy,
+            geo and string.format("%.2f %.2f", geo[1], geo[2]) or "-", box(a.GetActiveBoundingBox),
+            box(a.GetMaxBoundingBox), tostring(okc and ux), tostring(okc and uy), tostring(okc and uz))
+    end
+end
+
+ns:RegisterSlash("3d", function(rest)
+    local cmd, arg = strsplit(" ", strtrim(rest or ""), 2)
+    if cmd == "centre" or cmd == "center" then
+        if arg == "active" or arg == "max" or arg == "geo" or arg == "off" then
+            M3.centre = arg
+            local cv = _G.DisasterZoneStrategyBoard and _G.DisasterZoneStrategyBoard.canvas
+            if cv and cv.v3 then
+                for _, a in pairs(cv.v3.actors) do a.ctrMode = nil end
+                cv.v3:Invalidate()
+            end
+            ns:Print("3D models are placed by: %s.", arg)
+        else
+            ns:Print("/dz 3d centre active | max | geo | off - how the 3D view undoes the client's centring of a model.")
+        end
+        return
+    end
+    M3:Report()
+end, "the 3D strategy board's models (what the client says of them); centre <active|max|geo|off>")
 
 ---------------------------------------------------------------------------
 -- The camera buttons, the compass, the small map, the hint
@@ -1921,7 +2057,8 @@ function V:MouseDown(button, editable, tool)
     local now = GetTime()
     local double = self.lastDown and now - self.lastDown.at < 0.35 and abs(cx - self.lastDown.x) + abs(cy - self.lastDown.y) < 8
     self.lastDown = { at = now, x = cx, y = cy }
-    if button == "LeftButton" and double and (not editable or tool == "pan" or (tool == "select" and not self:HitTest())) then
+    if button == "LeftButton" and double and not self:HandleAt()
+        and (not editable or tool == "pan" or (tool == "select" and not self:HitTest())) then
         local sx, sy = self.view:Cursor()
         local x, y = self:FloorAt(sx, sy)
         if x then self:LookAt(x, y, true) end

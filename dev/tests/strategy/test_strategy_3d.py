@@ -632,35 +632,103 @@ def walking_shows_on_the_boards_of_the_others_who_have_the_strategy_open():
     no_errors(w)
 
 
+MODEL = "local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
+
+
 @case
 def a_model_stands_on_its_spot_however_it_turns():
-    # The client turns and places a creature by the middle of its box sideways (CreatureModelData.GeoBox), not by
-    # its origin: the actor goes that middle, turned by its facing, past the spot, so the origin is on it.
+    # The client turns and places a creature by the middle of its box sideways, not by its origin: the actor goes
+    # that middle, turned by its facing, past the spot, so the origin is on it. The box is the client's own once the
+    # model has loaded (/dz 3d centre: active, max; geo = CreatureModelData's; off = none).
     w, c, bob = boot(LURKER)
     go3d(w, bob)
     tick(w, 0.5)
-    get = ("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
-           "local a = T3.v().actors[e] local g = T3.v():Geo(e) local px, py = a:GetPosition() "
-           "local m = T3.v().cam.mirror return { x = px * g.scale, y = T3.v().view:SY(py * g.scale), gx = g.x, gy = g.y, "
-           "s = g.scale, f = a.yaw * m, m = m, c = ns.Render3D.DISPLAY_CENTRE[g.display], "
-           "cs = select(1, a:IsUsingCenterForOrigin()) }")
-    for k in range(4):
-        # turn him by moving the marker he faces round him
-        bob.eval("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end local g = T3.v():Geo(e) "
-                 "local p = T3.page() local ang = %f local bx, by = ns.Render3D.RoomToBoard(T3.v().room, p, "
-                 "g.x + math.cos(ang) * 20, g.y + math.sin(ang) * 20) for i = #p.e, 1, -1 do if p.e[i].t == 's' then "
-                 "table.remove(p.e, i) end end table.insert(p.e, { t = 's', x = math.floor(bx + 0.5), y = math.floor(by + 0.5), "
-                 "r = 'x' }) T3.cv():Render()" % (k * math.pi / 2))
-        tick(w, 0.1)
+    get = (MODEL + "local a = T3.v().actors[e] local g = T3.v():Geo(e) local px, py = a:GetPosition() "
+           "local x0, y0, _, x1, y1 = a:GetActiveBoundingBox() local m0, n0, _, m1, n1 = a:GetMaxBoundingBox() "
+           "return { x = px * g.scale, y = T3.v().view:SY(py * g.scale), gx = g.x, gy = g.y, s = g.scale, "
+           "f = a.yaw * T3.v().cam.mirror, geo = ns.Render3D.DISPLAY_CENTRE[g.display], "
+           "active = { (x0 + x1) / 2, (y0 + y1) / 2 }, max = { (m0 + m1) / 2, (n0 + n1) / 2 }, "
+           "loaded = a.loadedOnce or false, cs = select(1, a:IsUsingCenterForOrigin()) }")
+
+    def check(k, centre):
         p = bob.eval_py(get)
-        assert p["cs"] is False, p
-        cx, cy = p["c"][0] * p["s"], p["c"][1] * p["s"]
-        # (a plain turn by the facing, the model's own left on its left whichever way the scene's y runs: with the
-        # y part turned the other way under a mirrored scene Illidan stood 2.1 yd to his right of his ring in game)
+        assert p["cs"] is False and p["loaded"] is True, p
+        cx, cy = centre(p)
+        cx, cy = cx * p["s"], cy * p["s"]
+        # (a plain turn by the facing: the model keeps its own left whichever way the scene's y runs - turned with
+        # the mirror, Illidan stood 2.1 yd to his right of his ring in game)
         want = (p["gx"] + math.cos(p["f"]) * cx - math.sin(p["f"]) * cy,
                 p["gy"] + math.sin(p["f"]) * cx + math.cos(p["f"]) * cy)
         assert math.hypot(p["x"] - want[0], p["y"] - want[1]) < 1e-3, (k, p, want)
         assert abs((p["f"] - k * math.pi / 2 + math.pi) % (2 * math.pi) - math.pi) < 0.1, (k, p["f"])
+
+    for k in range(4):
+        # turn him by moving the marker he faces round him
+        bob.eval(MODEL + "local g = T3.v():Geo(e) local p = T3.page() local ang = %f "
+                 "local bx, by = ns.Render3D.RoomToBoard(T3.v().room, p, g.x + math.cos(ang) * 20, g.y + math.sin(ang) * 20) "
+                 "for i = #p.e, 1, -1 do if p.e[i].t == 's' then table.remove(p.e, i) end end "
+                 "table.insert(p.e, { t = 's', x = math.floor(bx + 0.5), y = math.floor(by + 0.5), r = 'x' }) T3.cv():Render()"
+                 % (k * math.pi / 2))
+        tick(w, 0.1)
+        check(k, lambda p: p["active"])
+    # the other rules
+    for rule, centre in (("max", lambda p: p["max"]), ("geo", lambda p: p["geo"]), ("off", lambda p: (0, 0))):
+        bob.slash("/dz 3d centre " + rule)
+        tick(w, 0.1)
+        check(3, centre)
+    bob.slash("/dz 3d centre active")
+    bob.slash("/dz 3d")
+    assert any("3D models (centring: active)" in str(line) for line in bob.chat_frame[-6:]), bob.chat_frame[-6:]
+    no_errors(w)
+
+
+@case
+def a_model_turns_and_sizes_with_its_knobs_and_keeps_it():
+    w, c, bob = boot()
+    go3d(w, bob)
+    tick(w, 0.3)
+    bob.eval(MODEL + "T3.cv():Select(e)")
+    tick(w, 0.1)
+    knobs = bob.eval_py("local out = {} for _, h in ipairs(T3.v().handles) do out[h.name] = { h.x, h.y } end return out")
+    assert set(knobs) == {"mturn", "msize"}, knobs
+
+    def drag(name, x, y):
+        k = knobs[name]
+        bob.eval("T3.cursor(%f, %f) T3.press('LeftButton')" % (k[0], k[1]))
+        bob.eval("T3.at(%f, %f) T3.cv():OnDragUpdate() T3.release('LeftButton')" % (x, y))
+        w.tick(0.1)
+
+    teron = bob.eval_py(MODEL + "return T3.room(e)")
+    # the blue knob: turn him to face the mouse (east of him)
+    drag("mturn", teron[0] + 6, teron[1])
+    e = bob.eval_py(MODEL + "return { f = e.f, ms = e.ms }")
+    assert e["f"] is not None and min(e["f"], 360 - e["f"]) <= 6, e
+    yaw = bob.eval_py(MODEL + "local a = T3.v().actors[e] return a.yaw * T3.v().cam.mirror")
+    assert abs((yaw - math.radians(e["f"]) + math.pi) % (2 * math.pi) - math.pi) < 1e-6, (yaw, e)
+    # the gold knob: twice as far out, twice his size (his actor's scale with it)
+    tick(w, 0.1)
+    knobs = bob.eval_py("local out = {} for _, h in ipairs(T3.v().handles) do out[h.name] = { h.x, h.y } end return out")
+    r0 = bob.eval_py(MODEL + "return T3.v():Geo(e).knobR")
+    s0 = bob.eval_py(MODEL + "return T3.v():Geo(e).scale")
+    # (the size knob stands at his right: facing east, that is south of him)
+    drag("msize", teron[0], teron[1] - 2 * r0)
+    e = bob.eval_py(MODEL + "return { f = e.f, ms = e.ms }")
+    assert 180 <= e["ms"] <= 220, e
+    tick(w, 0.1)
+    s1 = bob.eval_py(MODEL + "return T3.v():Geo(e).scale")
+    assert abs(s1 - s0 * e["ms"] / 100) < 1e-6, (s0, s1, e)
+    # both are kept: saved and loaded back as they are; out of range they are refused
+    clean = bob.eval_py(MODEL + "local c = ns.Strategy._CleanElement(e) return { f = c.f, ms = c.ms }")
+    assert clean == e, (clean, e)
+    assert bob.eval_py("return ns.Strategy._CleanElement({ t = 'i', x = 10, y = 10, i = 'boss:21254', f = 400 })") is None
+    assert bob.eval_py("return ns.Strategy._CleanElement({ t = 'i', x = 10, y = 10, i = 'boss:21254', ms = 10 })") is None
+    # the menu takes either back
+    bob.eval(MODEL + "T3.cv():ElementMenu(e)")
+    texts = [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]
+    assert "Face the nearest player marker" in texts and "Real size" in texts, texts
+    bob.eval(MODEL + "e.f, e.ms = nil, nil T3.cv():Changed()")
+    tick(w, 0.1)
+    assert bob.eval_py(MODEL + "return T3.v():Geo(e).scale") == s0
     no_errors(w)
 
 

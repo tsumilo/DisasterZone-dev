@@ -383,6 +383,16 @@ local function CleanElement(e)
             if not IsInt(e.z, 12, 96) then return nil end
             out.z = e.z
         end
+        -- a boss / add as its model in the 3D room: which way it faces (degrees, 0 = east, 90 = north; nil = towards
+        -- the nearest player marker) and its size (percent of its real size; nil = 100)
+        if e.f ~= nil then
+            if not IsInt(e.f, 0, 359) then return nil end
+            out.f = e.f
+        end
+        if e.ms ~= nil then
+            if not IsInt(e.ms, 25, 400) then return nil end
+            out.ms = e.ms
+        end
     elseif t == "x" then
         if not out.l then return nil end
         -- the size: 1-3 (small / normal / large) or the font size itself (dragged at the corner)
@@ -408,6 +418,8 @@ local function CleanElement(e)
     end
     return out
 end
+
+Strategy._CleanElement = CleanElement        -- (tests)
 
 -- A filter: comma-separated class files (MAGE) and roles (tank / healer / melee / ranged). "" / nil = anyone.
 local function CleanFilter(f)

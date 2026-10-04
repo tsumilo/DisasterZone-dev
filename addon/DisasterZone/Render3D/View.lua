@@ -161,6 +161,7 @@ function View:NewActor(top)
             -- (the model's own origin at the actor's position, asked again with every model: the client centred
             -- big lopsided ones sideways on it - Kil'jaeden's box centre is 29 yd from his origin)
             pcall(actor.SetUseCenterForOrigin, actor, false, false, false)
+            actor.loadedOnce = true                     -- (its own box can be asked now: UI/StrategyMap3D.lua)
             pcall(actor.SetAnimation, actor, actor.anim or default)
         end)
     end

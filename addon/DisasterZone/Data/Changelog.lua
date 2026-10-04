@@ -8,6 +8,20 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.3.0", date = "3 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
       sections = {
+          { heading = "Import and export BiS lists", lines = {
+              "My BiS's More menu (... at the end of the top bar) has Import and Export; both open one window.",
+              "Import: paste a list from That's My BiS, Sixty Upgrades, WoWSims or a Wowhead gear planner link.",
+              "Item links, Wowhead item links, item numbers and item names work too, one per line.",
+              "That's My BiS: paste the guild's \"Just Wishlists\" CSV; your character is picked out of it.",
+              "Its off-spec items go to your off-spec list; received items can be marked obtained.",
+              "Items fill main, then alt, in the list's order; rings and trinkets fill both slots first.",
+              "A tier token becomes your class's piece; with several sets, the one on your spec's lists.",
+              "A preview shows every slot next to what you have now, and what doesn't fit and why.",
+              "Choose the phase, then Fill empty slots or Replace the phase. Locked lists can't be changed.",
+              "Export: your BiS list or the gear you wear, for wowsims.com/tbc (Import > Addon).",
+              "It brings enchants, gems, talents, race and professions; picks you wear keep their gems.",
+              "Or a WoWSims Bulk list of your main and alt picks, or a Wowhead gear planner link.",
+          } },
           { heading = "Atlas: browse all the loot", lines = {
               "A new Atlas tab for everyone: raids, dungeons, crafting, reputation, PvP, vendors, more.",
               "Pick a source on the left and a boss or list in the middle; its items show on the right.",
@@ -71,6 +85,7 @@ ns.CHANGELOG = {
               "Drag the walk button into the room or onto the small map: you start where you let go.",
               "Others with the strategy open see you walk there; in your group as your own character.",
               "Draw, move and undo with the planner's tools while you walk.",
+              "Turn and size a boss or add in 3D with the knobs round it; its menu sets either back.",
               "Bosses and adds hide behind the room part by part, at their true size (the Lurker's tail).",
               "A small 2D map in the corner shows what the camera sees; click it to look there.",
               "After updating, restart the game once (a /reload is not enough) to get the 3D view.",
