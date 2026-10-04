@@ -271,6 +271,15 @@ STATES = [
                                            "if c.key == key then c:GetScript('OnClick')(c) end end")),
     ("My BiS", opened("mybis")),
     ("My BiS - item picker", opened("mybis", "ns.Picker:Open(1, 1, 'main')")),
+    ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
+    ("Atlas - dungeon heroic", opened("atlas", "ns.AtlasUI:Select('dungeons', 'BlackMorass', nil, true)")),
+    ("Atlas - reputation", opened("atlas", "ns.AtlasUI:Select('reputation', 'Shatar')")),
+    ("Atlas - crafting", opened("atlas", "ns.AtlasUI:Select('crafting', 'Enchanting')")),
+    ("Atlas - sets", opened("atlas", "ns.AtlasUI:Select('sets', 'Tier6')")),
+    ("Atlas - arena sets", opened("atlas", "ns.AtlasUI:Select('sets', 'ArenaS4', 'Priest')")),
+    ("Atlas - search", opened("atlas", "ns.AtlasUI:SetSearch('gladiator')")),
+    ("Atlas - item menu", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen'); "
+                                          "ns.AtlasUI:OpenMenu({ type = 'item', id = 28505 })")),
     ("Loot Log", opened("loot")),
     ("Raids - Upcoming", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                           "ns.RaidPlanUI:SetDetailTab('signups')")),

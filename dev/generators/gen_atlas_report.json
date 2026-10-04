@@ -1,0 +1,1499 @@
+{
+ "notes": [
+  "reputation/ShatariSkyguard: phase 2 from gen_cdloot_sources FACTION_PHASE_RULES (AtlasLoot has no ContentPhaseBC)",
+  "reputation/Netherwing: phase 3 from gen_cdloot_sources FACTION_PHASE_RULES (AtlasLoot has no ContentPhaseBC)",
+  "collections/WorldEpicsBC/One-Handed Weapons: rows keyed [NORMAL_ITTYPE] read as NORMAL_DIFF (AtlasLoot typo)",
+  "collections/WorldEpicsBC/Two-Handed Weapons: rows keyed [NORMAL_ITTYPE] read as NORMAL_DIFF (AtlasLoot typo)",
+  "collections/WorldEpicsBC/Ranged Weapons: rows keyed [NORMAL_ITTYPE] read as NORMAL_DIFF (AtlasLoot typo)",
+  "collections/WorldEpicsBC/Trinket & Finger & Neck: rows keyed [NORMAL_ITTYPE] read as NORMAL_DIFF (AtlasLoot typo)",
+  "collections/WorldEpicsBC/Equip: rows keyed [NORMAL_ITTYPE] read as NORMAL_DIFF (AtlasLoot typo)",
+  "collections/TabardsBC/Factions: [HORDE_DIFF] GetItemsFromDiff = ALLIANCE_DIFF (+11 rows at positions [2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 17])",
+  "collections/LegendarysBC/Legendaries: rows keyed [NORMAL_ITTYPE] read as NORMAL_DIFF (AtlasLoot typo)",
+  "collections/LegendarysBC/Tempest Keep: rows keyed [NORMAL_ITTYPE] read as NORMAL_DIFF (AtlasLoot typo)"
+ ],
+ "atlasloot_names": {
+  "pvp/HonorSetBCC": "Honor",
+  "pvp/ReputationSetBCC": "Reputation",
+  "pvp/PvPMountsBCC": "Mounts",
+  "pvp/ArenaS1PvP": "Season 1",
+  "pvp/ArenaS2PvP": "Season 2",
+  "pvp/ArenaS3PvP": "Season 3",
+  "pvp/ArenaS4PvP": "Season 4",
+  "pvp/HellfirePeninsulaPvP": null,
+  "pvp/NagrandPvP": null,
+  "pvp/TerokkarPvP": null,
+  "pvp/ZangarmarshPvP": null,
+  "vendors/BadgeofJustice": "'Badge of Justice' Vendor",
+  "vendors/BadgeofJustice4": "'Badge of Justice P4' Vendor",
+  "vendors/BadgeofJusticeP5": "'Badge of Justice P5' Vendor",
+  "vendors/BCCSunmote": "'Sunmote' Vendor",
+  "collections/WorldEpicsBC": "World Epics",
+  "collections/MountsBC": "Mounts",
+  "collections/CompanionsBC": "Companions",
+  "collections/TabardsBC": "Tabard",
+  "collections/LegendarysBC": "Legendaries",
+  "events/ChildrensWeekBC": "Children's Week",
+  "events/MidsummerFestivalBC": "Midsummer Festival",
+  "events/Brewfest": "Brewfest",
+  "events/HalloweenBC": "Hallow's End"
+ },
+ "phase_not_from_atlasloot": {
+  "pvp/HonorSetBCC": "1 (S.PVP_TABLES fixed phase)",
+  "pvp/ReputationSetBCC": "1 (S.PVP_TABLES fixed phase)",
+  "pvp/ArenaS1PvP": "1 (S.SEASON_PHASE (season 1))",
+  "pvp/HellfirePeninsulaPvP": "1 (S.PVP_TABLES fixed phase)",
+  "pvp/NagrandPvP": "1 (S.PVP_TABLES fixed phase)",
+  "pvp/TerokkarPvP": "1 (S.PVP_TABLES fixed phase)",
+  "pvp/ZangarmarshPvP": "1 (S.PVP_TABLES fixed phase)",
+  "vendors/BadgeofJustice": "1 (gen_cdloot_sources build_badges rule (no P<n> in the table name = phase 1))"
+ },
+ "tier_piece_class_ids_not_elsewhere": [],
+ "names_from_atlasloot_comment": {
+  "23770": "Blue Smoke Flare",
+  "23775": "Khorium Toolbox",
+  "30459": "Netherflame Robe",
+  "30461": "Netherflame Boots",
+  "30465": "Lifeblood Leggings",
+  "30460": "Netherflame Belt",
+  "30464": "Lifeblood Bracers",
+  "185848": "Greater Drums of Battle",
+  "185849": "Greater Drums of Panic",
+  "185850": "Greater Drums of Restoration",
+  "185851": "Greater Drums of Speed",
+  "185852": "Greater Drums of War",
+  "21780": "Blood Crown",
+  "21793": "Arcanite Sword Pendant",
+  "20956": "Silver Rose Pendant",
+  "23158": "Solid Aquamarine",
+  "23159": "Sparkling Aquamarine",
+  "191061": "Brilliant Glass",
+  "25884": "Primal Stone Statue",
+  "16082": "Artisan Fishing - The Way of the Lure",
+  "43516": "Brutal Nether Drake",
+  "32977": "Marshal's Mooncloth Cuffs",
+  "32976": "Marshal's Mooncloth Belt",
+  "32978": "Marshal's Mooncloth Slippers",
+  "32973": "General's Mooncloth Cuffs",
+  "32974": "General's Mooncloth Belt",
+  "32975": "General's Mooncloth Slippers",
+  "32994": "Marshal's Ringmail Bracers",
+  "32995": "Marshal's Ringmail Girdle",
+  "32996": "Marshal's Ringmail Sabatons",
+  "32991": "General's Ringmail Bracers",
+  "32992": "General's Ringmail Girdle",
+  "32993": "General's Ringmail Sabatons",
+  "32986": "Marshal's Ornamented Bracers",
+  "32985": "Marshal's Ornamented Belt",
+  "32987": "Marshal's Ornamented Greaves",
+  "32983": "General's Ornamented Bracers",
+  "32982": "General's Ornamented Belt",
+  "32984": "General's Ornamented Greaves",
+  "37739": "Brutal Gladiator's Blade of Alacrity",
+  "37740": "Brutal Gladiator's Swift Judgement",
+  "34519": "Silver Pig Coin",
+  "34518": "Golden Pig Coin",
+  "32498": "Fortune Coin",
+  "32465": "Fortune Coin",
+  "31665": "Toy RC Mortar Tank",
+  "37298": "Competitor's Souvenir",
+  "278953": "Frostscythe of Lord Ahune",
+  "279240": "Shroud of Winter's Chill",
+  "278819": "The Frost Lord's War Cloak",
+  "278823": "Icebound Cloak",
+  "278774": "Cloak of the Frigid Winds",
+  "278827": "Amulet of Bitter Hatred",
+  "278833": "Choker of the Arctic Flow",
+  "278838": "Amulet of Glacial Tranquility",
+  "278847": "Hailstone Pendant",
+  "281893": "Balebrew Charm",
+  "281895": "Brightbrew Charm",
+  "281739": "Empty Mug of Direbrew",
+  "281748": "Direbrew Hops",
+  "281743": "Coren's Lucky Coin",
+  "281903": "Direbrew's Shanker"
+ },
+ "recipes_unmapped": [
+  {
+   "id": 6530,
+   "name": "Nightcrawlers",
+   "spell": 8088,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6532,
+   "name": "Bright Baubles",
+   "spell": 8090,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6533,
+   "name": "Aquadynamic Fish Attractor",
+   "spell": 8089,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 6811,
+   "name": "Aquadynamic Fish Lens",
+   "spell": 8532,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 7148,
+   "name": "Goblin Jumper Cables",
+   "spell": 8342,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 7307,
+   "name": "Flesh Eating Worm",
+   "spell": 9092,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16082,
+   "name": "Artisan Fishing - The Way of the Lure",
+   "spell": 18248,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 16083,
+   "name": "Expert Fishing - The Bass and You",
+   "spell": 7732,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 18587,
+   "name": "Goblin Jumper Cables XL",
+   "spell": 22999,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 19971,
+   "name": "High Test Eternium Fishing Line",
+   "spell": 24302,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  },
+  {
+   "id": 27532,
+   "name": "Master Fishing - The Art of Angling",
+   "reason": "not in Recipe.lua (CLASSIC/BCC)"
+  },
+  {
+   "id": 34109,
+   "name": "Weather-Beaten Journal",
+   "spell": 43308,
+   "reason": "Recipe.lua spell is not a craft in Profession.lua (fishing lure / book, ...)"
+  }
+ ],
+ "recipe_value_name_sources": {
+  "Questie TBC item DB": 5
+ },
+ "recipes": 394,
+ "name_sources": {
+  "Questie TBC item DB": 4889,
+  "spell: crafting row comment": 74,
+  "AtlasLoot row comment": 62
+ },
+ "ids_without_names": [],
+ "output": "C:\\Users\\emilo\\CDLoot-dev\\addon\\DisasterZone\\Data\\Atlas.lua",
+ "bytes": 495327,
+ "validation_errors": [],
+ "validation_counts": {
+  "pages": 527,
+  "entries": 3856,
+  "items": 3782,
+  "spells": 74,
+  "xt": 80,
+  "set_pages": 166,
+  "names": 5030,
+  "tree_unique_ids": 3471,
+  "recipes": 394
+ },
+ "addon_data_ids": 3748,
+ "atlas_names": 5030,
+ "counts": {
+  "crafting": {
+   "Alchemy": {
+    "Flasks": 6,
+    "Transmutes": 13,
+    "HealingManaPotions": 6,
+    "ProtectionPotions": 6,
+    "UtilPotions": 10,
+    "Elixirs": 19,
+    "Cauldrons": 5,
+    "Stones": 5
+   },
+   "Blacksmithing": {
+    "WeaponsDaggers": 3,
+    "WeaponsAxes": 13,
+    "WeaponsMaces": 15,
+    "WeaponsSwords": 14,
+    "WeaponsThrown": 4,
+    "ArmorHeadMail": 2,
+    "ArmorHeadPlate": 7,
+    "ArmorShoulderPlate": 3,
+    "ArmorChestMail": 6,
+    "ArmorChestPlate": 13,
+    "ArmorFeetPlate": 6,
+    "ArmorHandMail": 3,
+    "ArmorHandPlate": 9,
+    "ArmorLegsMail": 1,
+    "ArmorLegsPlate": 8,
+    "ArmorWaistPlate": 6,
+    "ArmorWristPlate": 9,
+    "ArmorsmithMail": 5,
+    "ArmorsmithPlate": 5,
+    "Weaponsmith": 3,
+    "Axesmith": 8,
+    "Hammersmith": 8,
+    "Swordsmith": 8,
+    "Misc": 13
+   },
+   "Enchanting": {
+    "WeaponEnhancements": 13,
+    "2HWeaponEnhancements": 2,
+    "CloakEnhancements": 12,
+    "ChestEnhancements": 6,
+    "FeetEnhancements": 6,
+    "HandEnhancements": 8,
+    "ShieldEnhancements": 6,
+    "WristEnhancements": 9,
+    "RingEnhancements": 4,
+    "Misc": 11
+   },
+   "Engineering": {
+    "Armor": 3,
+    "ArmorHeadCloth": 8,
+    "ArmorHeadLeather": 9,
+    "ArmorHeadMail": 7,
+    "ArmorHeadPlate": 6,
+    "ArmorTrinket": 4,
+    "WeaponEnhancements": 3,
+    "WeaponsGuns": 4,
+    "Projectile": 3,
+    "Parts": 9,
+    "Flares": 5,
+    "Explosives": 6,
+    "Pets": 1,
+    "Misc": 11
+   },
+   "Tailoring": {
+    "ArmorCloak": 8,
+    "ArmorHead": 3,
+    "ArmorShoulder": 5,
+    "ArmorChest": 16,
+    "ArmorFeet": 9,
+    "ArmorHand": 6,
+    "ArmorLegs": 8,
+    "ArmorWaist": 11,
+    "ArmorWrist": 10,
+    "Bag": 7,
+    "Enhancements": 4,
+    "Misc": 7
+   },
+   "Leatherworking": {
+    "ArmorCloak": 1,
+    "ArmorChestLeather": 10,
+    "ArmorChestMail": 9,
+    "ArmorFeetLeather": 9,
+    "ArmorFeetMail": 9,
+    "ArmorHandLeather": 9,
+    "ArmorHandMail": 7,
+    "ArmorHeadLeather": 5,
+    "ArmorHeadMail": 4,
+    "ArmorLegsLeather": 9,
+    "ArmorLegsMail": 7,
+    "ArmorShoulderLeather": 2,
+    "ArmorShoulderMail": 2,
+    "ArmorWaistLeather": 6,
+    "ArmorWaistMail": 8,
+    "ArmorWristLeather": 5,
+    "ArmorWristMail": 6,
+    "Enhancements": 14,
+    "Drums": 10,
+    "Bag": 7,
+    "Misc": 5
+   },
+   "Jewelcrafting": {
+    "ArmorHead": 7,
+    "ArmorNeck": 35,
+    "ArmorRing": 55,
+    "ArmorTrinket": 19,
+    "WeaponsFistWeapons": 1,
+    "GemsMeta": 14,
+    "GemsRed": 22,
+    "GemsYellow": 25,
+    "GemsBlue": 13,
+    "GemsOrange": 20,
+    "GemsGreen": 16,
+    "GemsPurple": 22,
+    "RawGemsClassic": 22,
+    "RawGems": 22,
+    "Misc": 12
+   },
+   "Mining": {
+    "Smelting": 9
+   },
+   "Herbalism": {
+    "Master": 10
+   },
+   "Cooking": {
+    "AgilitySpirit": 2,
+    "StrengthSpirit": 1,
+    "AttackPowerSpirit": 1,
+    "SpellDamageSpirit": 3,
+    "CriticalStrikeSpellSpirit": 1,
+    "BonusHealingSpirit": 1,
+    "StaminaSpirit": 8,
+    "StaminaManaPer5Sec": 1,
+    "HitSpirit": 1,
+    "Resistance": 1,
+    "Food": 3,
+    "Pet": 2,
+    "Misc": 6,
+    "Special": 3
+   },
+   "FirstAid": {
+    "FirstAid": 2
+   },
+   "Fishing": {
+    "Fishing": 12,
+    "FishingPole": 8,
+    "Fishes": 9
+   },
+   "RoguePoisons": {
+    "Poisons": 24
+   }
+  },
+  "reputation": {
+   "Aldor": {
+    "Exalted": 12,
+    "Revered": 8,
+    "Honored": 11,
+    "Friendly": 3
+   },
+   "Scryers": {
+    "Exalted": 11,
+    "Revered": 10,
+    "Honored": 9,
+    "Friendly": 2
+   },
+   "Shatar": {
+    "Exalted": 6,
+    "Revered": 10,
+    "Honored": 20,
+    "Friendly": 1
+   },
+   "LowerCity": {
+    "Exalted": 6,
+    "Revered": 10,
+    "Honored": 18,
+    "Friendly": 1
+   },
+   "KeepersOfTime": {
+    "Exalted": 6,
+    "Revered": 7,
+    "Honored": 21
+   },
+   "VioletEye": {
+    "Exalted": 6,
+    "Revered": 8,
+    "Honored": 10,
+    "Friendly": 4
+   },
+   "CenarionExpedition": {
+    "Exalted": 11,
+    "Revered": 10,
+    "Honored": 27,
+    "Friendly": 4
+   },
+   "Consortium": {
+    "Exalted": 5,
+    "Revered": 10,
+    "Honored": 11,
+    "Friendly": 4
+   },
+   "AshtongueDeathsworn": {
+    "Exalted": 9,
+    "Honored": 9,
+    "Friendly": 8
+   },
+   "ScaleOfTheSands": {
+    "Exalted": 4,
+    "Revered": 8,
+    "Honored": 19,
+    "Friendly": 17
+   },
+   "ShatteredSunOffensive": {
+    "Exalted": 23,
+    "Revered": 25,
+    "Honored": 11,
+    "Friendly": 13
+   },
+   "ShatariSkyguard": {
+    "Exalted": 9,
+    "Revered": 2,
+    "Honored": 1,
+    "Friendly": 1
+   },
+   "Netherwing": {
+    "Exalted": 6,
+    "Revered": 1,
+    "Honored": 2,
+    "Friendly": 1
+   },
+   "Sporeggar": {
+    "Exalted": 3,
+    "Revered": 4,
+    "Honored": 3,
+    "Friendly": 4
+   },
+   "Ogrila": {
+    "Exalted": 6,
+    "Revered": 4,
+    "Honored": 3,
+    "Friendly": 2
+   },
+   "Tranquillien": {
+    "ExaltedH": 1,
+    "ReveredH": 3,
+    "HonoredH": 3,
+    "FriendlyH": 4
+   },
+   "Thrallmar": {
+    "ExaltedH": 7,
+    "ReveredH": 8,
+    "HonoredH": 23,
+    "FriendlyH": 5
+   },
+   "Maghar": {
+    "ExaltedH": 12,
+    "ReveredH": 5,
+    "HonoredH": 5,
+    "FriendlyH": 1
+   },
+   "HonorHold": {
+    "ExaltedA": 7,
+    "ReveredA": 8,
+    "HonoredA": 23,
+    "FriendlyA": 5
+   },
+   "Kurenai": {
+    "ExaltedA": 12,
+    "ReveredA": 5,
+    "HonoredA": 5,
+    "FriendlyA": 1
+   }
+  },
+  "pvp": {
+   "Honor": {
+    "WeaponsOneHandedA": 11,
+    "WeaponsOneHandedH": 11,
+    "WeaponsTwoHandedA": 6,
+    "WeaponsTwoHandedH": 6,
+    "WeaponsRangedA": 1,
+    "WeaponsRangedH": 1,
+    "WeaponsOffHandA": 2,
+    "WeaponsOffHandH": 2,
+    "BackA": 2,
+    "BackH": 2,
+    "InsigniaA": 11,
+    "InsigniaH": 11,
+    "Gems": 6
+   },
+   "Reputation": {
+    "InsigniaA": 11,
+    "InsigniaH": 11,
+    "Gems": 6
+   },
+   "Mounts": {
+    "MountsA": 10,
+    "MountsH": 10
+   },
+   "ArenaS1": {
+    "WeaponsOneHanded": 13,
+    "WeaponsTwoHanded": 6,
+    "WeaponsRanged": 3,
+    "WeaponsOffHand": 3,
+    "Relic": 9,
+    "Neck": 2,
+    "Finger": 2,
+    "NonSetClothA": 9,
+    "NonSetClothH": 9,
+    "NonSetLeatherA": 12,
+    "NonSetLeatherH": 12,
+    "NonSetMailA": 12,
+    "NonSetMailH": 12,
+    "NonSetPlateA": 12,
+    "NonSetPlateH": 12,
+    "InsigniaA": 11,
+    "InsigniaH": 11,
+    "Gems": 6,
+    "GladiatorMount": 1
+   },
+   "ArenaS2": {
+    "WeaponsOneHanded": 13,
+    "WeaponsTwoHanded": 6,
+    "WeaponsRanged": 3,
+    "WeaponsOffHand": 5,
+    "Relic": 9,
+    "Neck": 4,
+    "Finger": 3,
+    "NonSetCloth": 9,
+    "NonSetLeather": 12,
+    "NonSetMail": 12,
+    "NonSetPlate": 12,
+    "InsigniaA": 11,
+    "InsigniaH": 11,
+    "Gems": 6,
+    "GladiatorMount": 1
+   },
+   "ArenaS3": {
+    "WeaponsOneHanded": 16,
+    "WeaponsTwoHanded": 8,
+    "WeaponsRanged": 7,
+    "WeaponsOffHand": 6,
+    "Relic": 9,
+    "Neck": 6,
+    "Finger": 4,
+    "Trinket": 6,
+    "NonSetCloth": 9,
+    "NonSetLeather": 12,
+    "NonSetMail": 12,
+    "NonSetPlate": 12,
+    "InsigniaA": 11,
+    "InsigniaH": 11,
+    "Gems": 6,
+    "GladiatorMount": 1
+   },
+   "ArenaS4": {
+    "WeaponsOneHanded": 19,
+    "WeaponsTwoHanded": 8,
+    "WeaponsRanged": 7,
+    "WeaponsOffHand": 6,
+    "Relic": 9,
+    "Neck": 6,
+    "Finger": 4,
+    "NonSetCloth": 9,
+    "NonSetLeather": 12,
+    "NonSetMail": 12,
+    "NonSetPlate": 12,
+    "InsigniaA": 11,
+    "InsigniaH": 11,
+    "Gems": 6,
+    "GladiatorMount": 1
+   },
+   "Hellfire": {
+    "HellfirePeninsulaA": 5,
+    "HellfirePeninsulaH": 5
+   },
+   "Nagrand": {
+    "Vendor": 23,
+    "NagrandA": 6,
+    "NagrandH": 6
+   },
+   "Terokkar": {
+    "TerokkarForest": 18
+   },
+   "Zangarmarsh": {
+    "ZangarmarshA": 10,
+    "ZangarmarshH": 10
+   }
+  },
+  "vendors": {
+   "BadgeofJustice": {
+    "ArmorCloth": 6,
+    "ArmorLeather": 6,
+    "ArmorMail": 6,
+    "ArmorPlate": 6,
+    "OffHand": 10,
+    "Neck": 4,
+    "Cloak": 4,
+    "Finger": 4,
+    "Trinket": 4,
+    "Relic": 3
+   },
+   "BadgeofJustice4": {
+    "ArmorCloth": 7,
+    "ArmorLeather": 18,
+    "ArmorMail": 15,
+    "ArmorPlate": 17,
+    "OffHand": 2,
+    "Neck": 1,
+    "Back": 6,
+    "Trinket": 6,
+    "Relic": 9,
+    "Wand": 1
+   },
+   "BadgeofJusticeP5": {
+    "ArmorCloth": 9,
+    "ArmorLeather": 12,
+    "ArmorMail": 9,
+    "ArmorPlate": 12,
+    "Weapon": 11,
+    "Finger": 4,
+    "Gem": 6
+   },
+   "Sunmote": {
+    "ArmorCloth": 5,
+    "ArmorLeather": 10,
+    "ArmorMail": 5,
+    "ArmorPlate": 8
+   }
+  },
+  "collections": {
+   "WorldEpics": {
+    "OneHandedWeapons": 4,
+    "TwoHandedWeapons": 3,
+    "RangedWeapons": 2,
+    "TrinketFingerNeck": 5,
+    "Equip": 8
+   },
+   "Mounts": {
+    "FactionMountsA": 13,
+    "FactionMountsH": 14,
+    "PvPA": 7,
+    "PvPH": 7,
+    "Drops": 4,
+    "ReputationA": 20,
+    "ReputationH": 21,
+    "Crafting": 2,
+    "Special": 5
+   },
+   "Companions": {
+    "Drops": 4,
+    "Quest": 1,
+    "Vendor": 12,
+    "WorldEvents": 7,
+    "Fishing": 5,
+    "Unobtainable": 14
+   },
+   "Tabards": {
+    "FactionsA": 13,
+    "FactionsH": 13,
+    "UnobtainableTabards": 2
+   },
+   "Legendaries": {
+    "Legendaries": 3,
+    "TempestKeep": 8
+   }
+  },
+  "events": {
+   "ChildrensWeek": {
+    "ChildrenSWeek": 7
+   },
+   "Midsummer": {
+    "MidsummerFestival": 15,
+    "TheSlavePensAhune": 9,
+    "TheSlavePensAhuneHeroic": 14
+   },
+   "Brewfest": {
+    "Brewfest": 22,
+    "Food": 10,
+    "BlackrockDepthsCorenDirebrew": 11
+   },
+   "HallowsEnd": {
+    "HallowSEndMisc": 8,
+    "HallowSEndWands": 8,
+    "HallowSEndMasks": 16,
+    "ScarletMonasteryHeadlessHorseman": 14
+   }
+  },
+  "sets": {
+   "Tier4": {
+    "639": 5,
+    "640": 5,
+    "638": 5,
+    "651": 5,
+    "648": 5,
+    "624": 5,
+    "625": 5,
+    "626": 5,
+    "663": 5,
+    "664": 5,
+    "621": 5,
+    "632": 5,
+    "633": 5,
+    "631": 5,
+    "645": 5,
+    "655": 5,
+    "654": 5
+   },
+   "Tier5": {
+    "643": 5,
+    "641": 5,
+    "642": 5,
+    "652": 5,
+    "649": 5,
+    "627": 5,
+    "628": 5,
+    "629": 5,
+    "665": 5,
+    "666": 5,
+    "622": 5,
+    "635": 5,
+    "636": 5,
+    "634": 5,
+    "646": 5,
+    "657": 5,
+    "656": 5
+   },
+   "Tier6": {
+    "677": 8,
+    "676": 8,
+    "678": 8,
+    "669": 8,
+    "671": 8,
+    "681": 8,
+    "679": 8,
+    "680": 8,
+    "675": 8,
+    "674": 8,
+    "668": 8,
+    "684": 8,
+    "682": 8,
+    "683": 8,
+    "670": 8,
+    "672": 8,
+    "673": 8
+   },
+   "ArenaS1": {
+    "585": 5,
+    "584": 5,
+    "685": 5,
+    "586": 5,
+    "579": 5,
+    "690": 5,
+    "582": 5,
+    "583": 5,
+    "687": 5,
+    "581": 5,
+    "577": 5,
+    "686": 5,
+    "578": 5,
+    "580": 5,
+    "568": 5,
+    "615": 5,
+    "567": 5
+   },
+   "ArenaS2": {
+    "716": 5,
+    "711": 5,
+    "709": 5,
+    "706": 5,
+    "710": 5,
+    "708": 5,
+    "700": 5,
+    "714": 5,
+    "705": 5,
+    "707": 5,
+    "713": 5,
+    "715": 5,
+    "703": 5,
+    "712": 5,
+    "702": 5,
+    "704": 5,
+    "701": 5
+   },
+   "ArenaS3": {
+    "722": 5,
+    "721": 5,
+    "720": 5,
+    "723": 5,
+    "724": 5,
+    "725": 5,
+    "727": 5,
+    "726": 5,
+    "728": 5,
+    "729": 5,
+    "730": 5,
+    "731": 5,
+    "732": 5,
+    "733": 5,
+    "734": 5,
+    "735": 5,
+    "736": 5
+   },
+   "ArenaS4": {
+    "2000585": 5,
+    "2000584": 5,
+    "2000685": 5,
+    "2000586": 5,
+    "2000579": 5,
+    "2000690": 5,
+    "2000582": 5,
+    "2000583": 5,
+    "2000687": 5,
+    "2000581": 5,
+    "2000577": 5,
+    "2000686": 5,
+    "2000578": 5,
+    "2000580": 5,
+    "2000568": 5,
+    "2000615": 5,
+    "2000567": 5
+   },
+   "Honor": {
+    "609A": 5,
+    "610H": 5,
+    "601A": 5,
+    "602H": 5,
+    "688A": 5,
+    "689H": 5,
+    "595A": 5,
+    "596H": 5,
+    "599A": 5,
+    "600H": 5,
+    "693A": 5,
+    "694H": 5,
+    "589A": 5,
+    "587H": 5,
+    "607A": 5,
+    "608H": 5,
+    "691A": 5,
+    "692H": 5,
+    "597A": 5,
+    "598H": 5,
+    "605A": 5,
+    "606H": 5,
+    "695A": 5,
+    "696H": 5,
+    "593A": 5,
+    "594H": 5,
+    "603A": 5,
+    "604H": 5,
+    "591A": 5,
+    "592H": 5,
+    "590A": 5,
+    "588H": 5
+   },
+   "RepPvP": {
+    "743": 5,
+    "742": 5,
+    "744": 5,
+    "749": 5,
+    "741": 5,
+    "751": 5,
+    "752": 5,
+    "739": 5,
+    "740": 5,
+    "745": 5,
+    "746": 5,
+    "748": 5,
+    "747": 5,
+    "738": 5,
+    "750": 5
+   }
+  }
+ },
+ "skipped_counts": {
+  "empty page dropped": 1,
+  "icon / header / marker string row": 104,
+  "same created item twice on a page - second craft listed as its spell": 5,
+  "secondary id in row ignored (kept the main id)": 2,
+  "set sub-table moved to the Sets category": 6,
+  "version-gated sub-table (AtlasLoot:GameVersion_* call, Wrath-only)": 2
+ },
+ "skipped": {
+  "empty page dropped": [
+   "reputation/AshtongueDeathsworn/Revered [NORMAL_DIFF]"
+  ],
+  "icon / header / marker string row": [
+   "crafting/BlacksmithingBC/Weapons - Axes [NORMAL_DIFF] pos 1 INV_sword_04",
+   "crafting/BlacksmithingBC/Weapons - Axes [NORMAL_DIFF] pos 16 INV_sword_04",
+   "crafting/BlacksmithingBC/Weapons - Maces [NORMAL_DIFF] pos 1 INV_sword_04",
+   "crafting/BlacksmithingBC/Weapons - Maces [NORMAL_DIFF] pos 16 INV_sword_04",
+   "crafting/BlacksmithingBC/Weapons - Swords [NORMAL_DIFF] pos 1 INV_sword_04",
+   "crafting/BlacksmithingBC/Weapons - Swords [NORMAL_DIFF] pos 16 INV_sword_06",
+   "reputation/TheAldor/Exalted [NORMAL_DIFF] pos 1 f932rep8",
+   "reputation/TheAldor/Revered [NORMAL_DIFF] pos 1 f932rep7",
+   "reputation/TheAldor/Honored [NORMAL_DIFF] pos 1 f932rep6",
+   "reputation/TheAldor/Friendly [NORMAL_DIFF] pos 1 f932rep5",
+   "reputation/TheScryers/Exalted [NORMAL_DIFF] pos 1 f934rep8",
+   "reputation/TheScryers/Revered [NORMAL_DIFF] pos 1 f934rep7",
+   "reputation/TheScryers/Honored [NORMAL_DIFF] pos 1 f934rep6",
+   "reputation/TheScryers/Friendly [NORMAL_DIFF] pos 1 f934rep5",
+   "reputation/TheShatar/Exalted [NORMAL_DIFF] pos 1 f935rep8",
+   "reputation/TheShatar/Revered [NORMAL_DIFF] pos 1 f935rep7",
+   "reputation/TheShatar/Honored [NORMAL_DIFF] pos 1 f935rep6",
+   "reputation/TheShatar/Friendly [NORMAL_DIFF] pos 1 f935rep5",
+   "reputation/LowerCity/Exalted [NORMAL_DIFF] pos 1 f1011rep8",
+   "reputation/LowerCity/Revered [NORMAL_DIFF] pos 1 f1011rep7",
+   "reputation/LowerCity/Honored [NORMAL_DIFF] pos 1 f1011rep6",
+   "reputation/LowerCity/Friendly [NORMAL_DIFF] pos 1 f1011rep5",
+   "reputation/KeepersOfTime/Exalted [NORMAL_DIFF] pos 1 f989rep8",
+   "reputation/KeepersOfTime/Revered [NORMAL_DIFF] pos 1 f989rep7",
+   "reputation/KeepersOfTime/Honored [NORMAL_DIFF] pos 1 f989rep6",
+   "reputation/TheVioletEye/Exalted [NORMAL_DIFF] pos 1 f967rep8",
+   "reputation/TheVioletEye/Exalted [NORMAL_DIFF] pos 2 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Exalted [NORMAL_DIFF] pos 5 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Exalted [NORMAL_DIFF] pos 17 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Exalted [NORMAL_DIFF] pos 20 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Revered [NORMAL_DIFF] pos 1 f967rep7",
+   "reputation/TheVioletEye/Revered [NORMAL_DIFF] pos 2 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Revered [NORMAL_DIFF] pos 5 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Revered [NORMAL_DIFF] pos 17 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Revered [NORMAL_DIFF] pos 20 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Honored [NORMAL_DIFF] pos 1 f967rep6",
+   "reputation/TheVioletEye/Honored [NORMAL_DIFF] pos 2 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Honored [NORMAL_DIFF] pos 5 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Honored [NORMAL_DIFF] pos 17 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Honored [NORMAL_DIFF] pos 20 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Friendly [NORMAL_DIFF] pos 1 f967rep5",
+   "reputation/TheVioletEye/Friendly [NORMAL_DIFF] pos 2 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Friendly [NORMAL_DIFF] pos 5 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Friendly [NORMAL_DIFF] pos 17 INV_Jewelry_Ring_62",
+   "reputation/TheVioletEye/Friendly [NORMAL_DIFF] pos 20 INV_Jewelry_Ring_62",
+   "reputation/CenarionExpedition/Exalted [NORMAL_DIFF] pos 1 f942rep8",
+   "reputation/CenarionExpedition/Revered [NORMAL_DIFF] pos 1 f942rep7",
+   "reputation/CenarionExpedition/Honored [NORMAL_DIFF] pos 1 f942rep6",
+   "reputation/CenarionExpedition/Friendly [NORMAL_DIFF] pos 1 f942rep5",
+   "reputation/TheConsortium/Exalted [NORMAL_DIFF] pos 1 f933rep8",
+   "reputation/TheConsortium/Revered [NORMAL_DIFF] pos 1 f933rep7",
+   "reputation/TheConsortium/Honored [NORMAL_DIFF] pos 1 f933rep6",
+   "reputation/TheConsortium/Friendly [NORMAL_DIFF] pos 1 f933rep5",
+   "reputation/AshtongueDeathsworn/Exalted [NORMAL_DIFF] pos 1 f1012rep8",
+   "reputation/AshtongueDeathsworn/Revered [NORMAL_DIFF] pos 1 f1012rep7",
+   "reputation/AshtongueDeathsworn/Honored [NORMAL_DIFF] pos 1 f1012rep6",
+   "reputation/AshtongueDeathsworn/Friendly [NORMAL_DIFF] pos 1 f1012rep5",
+   "reputation/TheScaleOfTheSands/Exalted [NORMAL_DIFF] pos 1 f990rep8",
+   "reputation/TheScaleOfTheSands/Revered [NORMAL_DIFF] pos 1 f990rep7",
+   "reputation/TheScaleOfTheSands/Honored [NORMAL_DIFF] pos 1 f990rep6"
+  ],
+  "same created item twice on a page - second craft listed as its spell": [
+   "crafting/AlchemyBC/Transmutes [NORMAL_DIFF] 22452 -> -28568",
+   "crafting/AlchemyBC/Transmutes [NORMAL_DIFF] 21885 -> -28567",
+   "crafting/AlchemyBC/Transmutes [NORMAL_DIFF] 21884 -> -28566",
+   "crafting/EnchantingBC/Misc [NORMAL_DIFF] 22449 -> -28022",
+   "crafting/EnchantingBC/Misc [NORMAL_DIFF] 22448 -> -42613"
+  ],
+  "secondary id in row ignored (kept the main id)": [
+   "crafting/HerbalismBC/Master [NORMAL_DIFF] pos 3 22791 (+22576)",
+   "crafting/HerbalismBC/Master [NORMAL_DIFF] pos 8 22785 (+22795)"
+  ],
+  "set sub-table moved to the Sets category": [
+   "pvp/HonorSetBCC/Sets",
+   "pvp/ReputationSetBCC/Sets",
+   "pvp/ArenaS1PvP/Sets",
+   "pvp/ArenaS2PvP/Sets",
+   "pvp/ArenaS3PvP/Sets",
+   "pvp/ArenaS4PvP/Sets"
+  ],
+  "version-gated sub-table (AtlasLoot:GameVersion_* call, Wrath-only)": [
+   "pvp/ArenaS4PvP#6",
+   "pvp/ArenaS4PvP#10"
+  ]
+ },
+ "x_without_cost_by_category": {
+  "pvp": 510,
+  "vendors": 28,
+  "collections": 152,
+  "events": 117
+ },
+ "x_too_long_truncated": [],
+ "xt_sample": [
+  {
+   "where": "pvp/Honor/InsigniaA",
+   "id": 25829,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/Honor/InsigniaH",
+   "id": 24551,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/Reputation/InsigniaA",
+   "id": 25829,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/Reputation/InsigniaH",
+   "id": 24551,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsA",
+   "id": 19030,
+   "x": "50 AV Marks",
+   "xt": "50 Alterac Valley Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsA",
+   "id": 29467,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsA",
+   "id": 29465,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsA",
+   "id": 29468,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsA",
+   "id": 29471,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsA",
+   "id": 35906,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsH",
+   "id": 19029,
+   "x": "50 AV Marks",
+   "xt": "50 Alterac Valley Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsH",
+   "id": 29469,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsH",
+   "id": 29466,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsH",
+   "id": 29472,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsH",
+   "id": 29470,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/Mounts/MountsH",
+   "id": 34129,
+   "x": "30 AV Marks",
+   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
+  },
+  {
+   "where": "pvp/ArenaS1/InsigniaA",
+   "id": 25829,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/ArenaS1/InsigniaH",
+   "id": 24551,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/ArenaS2/InsigniaA",
+   "id": 25829,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/ArenaS2/InsigniaH",
+   "id": 24551,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/ArenaS3/InsigniaA",
+   "id": 25829,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/ArenaS3/InsigniaH",
+   "id": 24551,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/ArenaS4/InsigniaA",
+   "id": 25829,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/ArenaS4/InsigniaH",
+   "id": 24551,
+   "x": "22950 Honor",
+   "xt": "22950 Honor and 10 Eye of the Storm Marks"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 28915,
+   "x": "70 Halaa BT",
+   "xt": "70 Halaa Battle Tokens and 15 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27679,
+   "x": "100 Halaa BT",
+   "xt": "100 Halaa Battle Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27649,
+   "x": "40 Halaa BT",
+   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27648,
+   "x": "40 Halaa BT",
+   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27650,
+   "x": "40 Halaa BT",
+   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27647,
+   "x": "40 Halaa BT",
+   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27652,
+   "x": "40 Halaa BT",
+   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27654,
+   "x": "40 Halaa BT",
+   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27653,
+   "x": "40 Halaa BT",
+   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 29228,
+   "x": "100 Halaa BT",
+   "xt": "100 Halaa Battle Tokens and 20 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27680,
+   "x": "8 Halaa RT",
+   "xt": "8 Halaa Research Tokens"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27638,
+   "x": "20 Halaa BT",
+   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27645,
+   "x": "20 Halaa BT",
+   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27637,
+   "x": "20 Halaa BT",
+   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27646,
+   "x": "20 Halaa BT",
+   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
+  },
+  {
+   "where": "pvp/Nagrand/Vendor",
+   "id": 27643,
+   "x": "20 Halaa BT",
+   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
+  }
+ ],
+ "spot_checks": {
+  "enchanting_first_page": {
+   "page": "Weapon - Enhancements",
+   "first3": [
+    {
+     "id": -42974,
+     "name": "Enchant Weapon - Executioner"
+    },
+    {
+     "id": -27982,
+     "name": "Enchant Weapon - Soulfrost"
+    },
+    {
+     "id": -27981,
+     "name": "Enchant Weapon - Sunfire"
+    }
+   ],
+   "x": [
+    "Skill 375",
+    "Skill 375",
+    "Skill 375"
+   ]
+  },
+  "shatar_exalted": [
+   {
+    "id": 29177,
+    "name": "A'dal's Command"
+   },
+   {
+    "id": 29175,
+    "name": "Gavel of Pure Light"
+   },
+   {
+    "id": 29176,
+    "name": "Crest of the Sha'tar"
+   },
+   {
+    "id": 31781,
+    "name": "Sha'tar Tabard"
+   },
+   {
+    "id": 33153,
+    "name": "Formula: Enchant Gloves - Threat"
+   },
+   {
+    "id": 31354,
+    "name": "Recipe: Flask of the Titans"
+   }
+  ],
+  "tier6_pages": [
+   {
+    "key": "677",
+    "name": "Druid (Balance)",
+    "title": "Thunderheart Regalia",
+    "items": 8
+   },
+   {
+    "key": "676",
+    "name": "Druid (Feral)",
+    "title": "Thunderheart Harness",
+    "items": 8
+   },
+   {
+    "key": "678",
+    "name": "Druid (Heal)",
+    "title": "Thunderheart Raiment",
+    "items": 8
+   },
+   {
+    "key": "669",
+    "name": "Hunter",
+    "title": "Gronnstalker's Armor",
+    "items": 8
+   },
+   {
+    "key": "671",
+    "name": "Mage",
+    "title": "Tempest Regalia",
+    "items": 8
+   },
+   {
+    "key": "681",
+    "name": "Paladin (Heal)",
+    "title": "Lightbringer Raiment",
+    "items": 8
+   },
+   {
+    "key": "679",
+    "name": "Paladin (Prot)",
+    "title": "Lightbringer Armor",
+    "items": 8
+   },
+   {
+    "key": "680",
+    "name": "Paladin (Ret)",
+    "title": "Lightbringer Battlegear",
+    "items": 8
+   },
+   {
+    "key": "675",
+    "name": "Priest (Heal)",
+    "title": "Vestments of Absolution",
+    "items": 8
+   },
+   {
+    "key": "674",
+    "name": "Priest (Shadow)",
+    "title": "Absolution Regalia",
+    "items": 8
+   },
+   {
+    "key": "668",
+    "name": "Rogue",
+    "title": "Slayer's Armor",
+    "items": 8
+   },
+   {
+    "key": "684",
+    "name": "Shaman (Elemental)",
+    "title": "Skyshatter Regalia",
+    "items": 8
+   },
+   {
+    "key": "682",
+    "name": "Shaman (Enh)",
+    "title": "Skyshatter Harness",
+    "items": 8
+   },
+   {
+    "key": "683",
+    "name": "Shaman (Heal)",
+    "title": "Skyshatter Raiment",
+    "items": 8
+   },
+   {
+    "key": "670",
+    "name": "Warlock",
+    "title": "Malefic Raiment",
+    "items": 8
+   },
+   {
+    "key": "672",
+    "name": "Warrior (DPS)",
+    "title": "Onslaught Battlegear",
+    "items": 8
+   },
+   {
+    "key": "673",
+    "name": "Warrior (Prot)",
+    "title": "Onslaught Armor",
+    "items": 8
+   }
+  ],
+  "sets_phases": {
+   "Tier4": 1,
+   "Tier5": 2,
+   "Tier6": 3,
+   "ArenaS1": 1,
+   "ArenaS2": 2,
+   "ArenaS3": 3,
+   "ArenaS4": 5,
+   "Honor": 1,
+   "RepPvP": 1
+  },
+  "recipes_sample": [
+   {
+    "recipe": 13517,
+    "recipe_name": "Recipe: Alchemist's Stone",
+    "teaches": 13503,
+    "teaches_name": "Alchemist's Stone"
+   },
+   {
+    "recipe": 24180,
+    "recipe_name": "Design: Dawnstone Crab",
+    "teaches": 24125,
+    "teaches_name": "Figurine - Dawnstone Crab"
+   },
+   {
+    "recipe": 29721,
+    "recipe_name": "Pattern: Nethercleft Leg Armor",
+    "teaches": 29536,
+    "teaches_name": "Nethercleft Leg Armor"
+   },
+   {
+    "recipe": 32429,
+    "recipe_name": "Pattern: Boots of Shackled Souls",
+    "teaches": 32398,
+    "teaches_name": "Boots of Shackled Souls"
+   },
+   {
+    "recipe": 35204,
+    "recipe_name": "Pattern: Sunfire Handwraps",
+    "teaches": 34366,
+    "teaches_name": "Sunfire Handwraps"
+   }
+  ],
+  "recipes_sample_spell": {
+   "recipe": 22531,
+   "recipe_name": "Formula: Enchant Bracer - Superior Healing",
+   "teaches": -27911,
+   "teaches_name": "Enchant Bracer - Superior Healing"
+  },
+  "mounts_pages": [
+   {
+    "key": "FactionMountsA",
+    "name": "Faction Mounts",
+    "side": "Alliance",
+    "items": 13
+   },
+   {
+    "key": "FactionMountsH",
+    "name": "Faction Mounts",
+    "side": "Horde",
+    "items": 14
+   },
+   {
+    "key": "PvPA",
+    "name": "PvP",
+    "side": "Alliance",
+    "items": 7
+   },
+   {
+    "key": "PvPH",
+    "name": "PvP",
+    "side": "Horde",
+    "items": 7
+   },
+   {
+    "key": "Drops",
+    "name": "Drops",
+    "side": null,
+    "items": 4
+   },
+   {
+    "key": "ReputationA",
+    "name": "Reputation",
+    "side": "Alliance",
+    "items": 20
+   },
+   {
+    "key": "ReputationH",
+    "name": "Reputation",
+    "side": "Horde",
+    "items": 21
+   },
+   {
+    "key": "Crafting",
+    "name": "Crafting",
+    "side": null,
+    "items": 2
+   },
+   {
+    "key": "Special",
+    "name": "Special",
+    "side": null,
+    "items": 5
+   }
+  ],
+  "file": {
+   "bytes": 495327,
+   "atlas_names": 5030
+  }
+ }
+}

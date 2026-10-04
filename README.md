@@ -18,7 +18,8 @@ CDLoot-dev/
     tests/        38 scenario suites: tests/<area>/test_*.py
     tf_e/         run_all.py (runs every suite in parallel; output goes to tf_e/<name>/, git-ignored)
     generators/   gen_cdloot_data.py (raids), gen_cdloot_dungeons.py, gen_cdloot_sources.py
-                  (crafted/rep/badges/PvP), gen_itemclasses.py (class-restricted items), reports, validators
+                  (crafted/rep/badges/PvP), gen_itemclasses.py (class-restricted items), gen_atlas.py (the Atlas
+                  tab: every other AtlasLoot TBC table, item names, recipes), reports, validators
     find_multiret.py   scans for tonumber(<multi-return call>) hazards
     requirements.txt   lupa==2.8 (real Lua 5.1 inside Python)
 ```
@@ -56,6 +57,7 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
 | Harness self-test | `luaenv\Scripts\python.exe tools\test_harness_selftest.py` |
 | Multi-return hazard scan | `luaenv\Scripts\python.exe find_multiret.py` |
 | Regenerate the dungeon or sources data | `luaenv\Scripts\python.exe generators\gen_cdloot_dungeons.py` / `gen_cdloot_sources.py` (they write into `addon\DisasterZone\Data\`) |
+| Regenerate the Atlas tab's data | `luaenv\Scripts\python.exe generators\gen_atlas.py` (writes `Data\Atlas.lua`; run it again after changing Items, Dungeons or Sources, for the names) |
 
 `tools\README.md` documents the mock client (World / Client, the guild and raid simulation, loot, `/roll`, relog). Use it to write new scenarios.
 

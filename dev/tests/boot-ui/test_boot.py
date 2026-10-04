@@ -19,6 +19,7 @@ EXPECTED_SETTINGS = {
     "dungeon": {"enabled": False, "quality": 3},   # Addendum B §22.1
     # Addendum F §35: the item picker's Sources (default Raids + 5-man dungeons)
     "pickerSources": {"raids": True, "dungeons": True, "crafted": False, "rep": False, "badges": False, "pvp": False},
+    "atlas": {"show": "all"},   # the Atlas tab's Show filter
     "raidlog": {"keepDays": 365}, "strategy": {"autoMark": True, "reminder": True},
     "debug": False,
     "windows": {},

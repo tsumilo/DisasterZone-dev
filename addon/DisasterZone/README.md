@@ -17,17 +17,18 @@ DisasterZone only suggests. The council makes the loot decision.
 2. [Opening DisasterZone](#opening-disasterzone)
 3. [Before the first raid](#before-the-first-raid)
 4. [Quick start: Raider](#quick-start-raider)
-5. [Raid sign-ups and teams](#raid-sign-ups-and-teams)
-6. [Members tab](#members-tab)
-7. [Quick start: Loot Council](#quick-start-loot-council)
-8. [Quick start: Raid leader](#quick-start-raid-leader)
-9. [Quick start: Guild Master](#quick-start-guild-master)
-10. [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner)
-11. [Slash commands](#slash-commands)
-12. [Settings reference](#settings-reference)
-13. [Demo mode (try it solo)](#demo-mode-try-it-solo)
-14. [FAQ and troubleshooting](#faq-and-troubleshooting)
-15. [How it syncs, and privacy](#how-it-syncs-and-privacy)
+5. [The Atlas tab](#the-atlas-tab)
+6. [Raid sign-ups and teams](#raid-sign-ups-and-teams)
+7. [Members tab](#members-tab)
+8. [Quick start: Loot Council](#quick-start-loot-council)
+9. [Quick start: Raid leader](#quick-start-raid-leader)
+10. [Quick start: Guild Master](#quick-start-guild-master)
+11. [How rolls pick a suggested winner](#how-rolls-pick-a-suggested-winner)
+12. [Slash commands](#slash-commands)
+13. [Settings reference](#settings-reference)
+14. [Demo mode (try it solo)](#demo-mode-try-it-solo)
+15. [FAQ and troubleshooting](#faq-and-troubleshooting)
+16. [How it syncs, and privacy](#how-it-syncs-and-privacy)
 
 ---
 
@@ -94,6 +95,7 @@ The window has these tabs:
 |---|---|
 | **Home** | Everyone: what needs you now, the next raid (sign up in one click), your BiS picks that can drop there, recent loot, and a readiness check for the council and raid leaders |
 | **My BiS** | Everyone |
+| **Atlas** | Everyone: every item you can get (raids, dungeons, crafting, reputation, PvP, vendors, collections), with search. See [The Atlas tab](#the-atlas-tab) |
 | **Council** | Loot Council members (and anyone in demo mode) |
 | **Loot Log** | Loot Council members (and anyone in demo mode) |
 | **Raids** | Everyone in a guild (the Raid log view: council, Guild Master and raid leaders) |
@@ -262,6 +264,48 @@ During a raid the raid leader can lock everyone's lists. While locked:
 - My BiS shows a banner, "BiS lists locked by *name*".
 - You can't change picks, spec or disabled slots.
 - Items you get, and **Mark obtained**, still update and still sync.
+
+---
+
+## The Atlas tab
+
+A loot browser for everyone, like AtlasLoot, built in: you don't need another addon to look up an item.
+
+- **Left**: the sources, grouped under **Raids**, **Dungeons**, **Crafting**, **Reputation**, **PvP**, **Badges & Sunmote**, **Collections** (world epics, mounts, companions, tabards, legendaries), **World Events** and **Sets** (Tier 4–6, arena and honor sets). Click a group to fold it open. Raids show their phase.
+- **Middle**: the bosses or lists of the source you picked, for example a raid's bosses, a profession's recipe lists or a faction's standings. A set source (Tier 6, an arena season) lists the classes; a class shows its sets with a heading per spec (for example Holy, Protection, Retribution). It opens on your class. Dungeons have **Normal** / **Heroic** above the list. A source with a single list (a vendor, tabards) has no middle list.
+- **Right**: the items. Each row shows the slot and armor or weapon type; crafting shows the skill needed, vendors the cost (hover for the full cost). Set pieces say where they come from instead, for example "Token · Prince Malchezaar".
+- The tab opens on the first raid of the guild's phase. Reputation and PvP show your own faction's rewards only.
+
+**What an item turns into**: indented rows under an item show what it becomes, and they work like any other item (right-click to add one to your BiS list):
+
+- under a tier token (or a quest item such as Magtheridon's Head): the pieces it gives your class;
+- under a Sunwell drop: its Sunmote upgrade; under a Sunmote item (Badges & Sunmote → Sunmote): the drop it's made from;
+- under a pattern, plan, formula or design: what it makes.
+
+**Search** (top left) looks through every item at once. Type part of a name (several words in any order work) or an item number. Tier pieces are found under the boss that drops their token. A result shows where it comes from; click it to open its page with the item highlighted. While you search, the middle column turns into **Found in**: **All** and each category with its number of matches. Click one to see only those.
+
+**Filters**:
+
+- **Show ▾**: **All items**; **My class** hides gear your class can't equip (a paladin still sees leather and mail); **your spec** (for example **Retribution**) also hides gear whose stats don't suit it: spell power, healing, mp5 or spell hit for a melee spec, strength or agility gear for a caster. Gear with nothing to judge by (stamina only, trinkets with a use effect) stays. With an off-spec list there is a choice for it too. Under a filter the middle column only lists pages that have something for your class.
+- The slot menu shows one slot, or **Not gear** (recipes, mounts, enchants and the like).
+- The spec filter reads the item's stats from its tooltip, so an item the game hasn't loaded yet shows until it has (a moment).
+
+**Item rows**
+
+| Action | What it does |
+|---|---|
+| Hover | The item's tooltip (with your BiS line, and for the council who wants it) |
+| Shift-click | Links the item in chat |
+| Ctrl-click | Tries it on in the dressing room |
+| Right-click | **Add to my BiS list** → phase → **As best** / **As alt**, **Try on**, **Link in chat** |
+
+- Rings, trinkets and one-handers ask which slot (for example **Ring 2 · As alt**).
+- A tier token offers the piece of your class that it gives.
+- **Phase N and later** puts the item in phase N, and in every later phase where that place is still empty.
+- With an off-spec list the menu has **Add to main spec** and **Add to off spec**.
+- The entries are missing while the raid leader has [locked the lists](#lock-and-unlock-bis-lists), and for items your class can't use.
+
+**Marks on the right of a row**: a star and the phases when the item is on your list as best (blue **Alt** or purple **OS** for an alt or off-spec pick), a check when you already have it. Loot Council members also see **N want**: how many members have it on their main-spec list and still need it.
 
 ---
 

@@ -8,6 +8,27 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.3.0", date = "3 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
       sections = {
+          { heading = "Atlas: browse all the loot", lines = {
+              "A new Atlas tab for everyone: raids, dungeons, crafting, reputation, PvP, vendors, more.",
+              "Pick a source on the left and a boss or list in the middle; its items show on the right.",
+              "Dungeons switch between Normal and Heroic. Crafting lists every recipe, enchants too.",
+              "Sets: pick a tier or arena season, then a class: its sets, a heading per spec.",
+              "Under a tier token: the pieces it gives your class; under a Sunwell drop: its upgrade.",
+              "Sunmote items show the drop they're made from; patterns and plans what they make.",
+              "Set pieces say where they come from, such as the token and the boss.",
+              "Search finds any item by name or item number; click a result to open its page.",
+              "While you search, the middle column shows where matches are from; click one to see those.",
+              "Show: All items, My class (what you can equip) or your spec, judged by the item's stats.",
+              "A Retribution paladin keeps leather and mail with strength, not spell power gear.",
+              "The slot menu shows one slot only, or Not gear.",
+              "Right-click an item to add it to your BiS list: pick the phase, then best or alt.",
+              "Rings, trinkets and one-handers ask which slot; a tier token gives your class's piece.",
+              "\"Phase N and later\" also fills that place in later phases where it is still empty.",
+              "With an off-spec list, choose Add to main spec or Add to off spec.",
+              "A star marks items on your list, with their phases; a check, items you already have.",
+              "Loot Council members see how many members want each item.",
+              "Shift-click links an item, ctrl-click tries it on.",
+          } },
           { heading = "Share links in chat", lines = {
               "Share icons on raids, members, recipes, strategies, raid boards and games.",
               "The Share icon at the top of the window links what the page shows.",

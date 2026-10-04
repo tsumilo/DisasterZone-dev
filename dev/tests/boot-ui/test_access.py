@@ -19,10 +19,10 @@ end
 return out"""
 
 # The navigation strip: text tabs, then the Games, Changelog and Settings icons.
-ALL_TABS = ["home", "mybis", "council", "loot", "raids", "members", "games", "changelog", "settings"]
+ALL_TABS = ["home", "mybis", "atlas", "council", "loot", "raids", "members", "games", "changelog", "settings"]
 # Addendum J: every guild member has the Raids tab (Upcoming / Teams); its Raid log view stays council only.
-PERSONAL_TABS = ["home", "mybis", "raids", "members", "games", "changelog", "settings"]
-GUILDLESS_TABS = ["home", "mybis", "members", "games", "changelog", "settings"]
+PERSONAL_TABS = ["home", "mybis", "atlas", "raids", "members", "games", "changelog", "settings"]
+GUILDLESS_TABS = ["home", "mybis", "atlas", "members", "games", "changelog", "settings"]
 
 
 def shown_tabs(c):

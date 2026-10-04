@@ -44,6 +44,7 @@ local DEFAULTS = {
         pickerSources = {        -- Addendum F §35: item picker "Sources" (ItemDB:GetCandidates filter.sources)
             raids = true, dungeons = true, crafted = false, rep = false, badges = false, pvp = false,
         },
+        atlas = { show = "all" },      -- Atlas tab: Show "all" | "class" | "spec" | "os" (off spec)
         raidlog = { keepDays = 365 },  -- Addendum I §49: whole raids older than this are dropped from the raid log
         strategy = {             -- Addendum K encounter helpers (Core/StrategyLive.lua)
             autoMark = true,     -- as raid leader: put the plan's raid marks on the mobs
