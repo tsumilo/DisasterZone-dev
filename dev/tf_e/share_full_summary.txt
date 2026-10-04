@@ -1,0 +1,128 @@
+bislock__test_bislock                         rc=1    61s  -- test_bislock.py: 17 case(s), 16 passed, 1 failed (58.6s)
+      FAIL non_council_master_looter_gets_the_flags_via_rt (2.86s)
+boot-ui__test_access                          rc=0    13s  -- test_access.py: 12 case(s), 12 passed, 0 failed (12.6s)
+boot-ui__test_boot                            rc=1    11s  -- test_boot.py: 12 case(s), 11 passed, 1 failed (10.2s)
+      FAIL late_load_after_login_runs_both_stages (0.43s)
+boot-ui__test_broad                           rc=0     6s  -- test_broad.py: 1 case(s), 1 passed, 0 failed (5.2s)
+boot-ui__test_changelog                       rc=0     2s  -- test_changelog.py: 5 case(s), 5 passed, 0 failed (2.1s)
+boot-ui__test_council_ui                      rc=0    11s  -- test_council_ui.py: 14 case(s), 14 passed, 0 failed (10.6s)
+boot-ui__test_dashboard                       rc=0    18s  -- test_dashboard.py: 9 case(s), 9 passed, 0 failed (17.9s)
+boot-ui__test_demo                            rc=0     6s  -- test_demo.py: 5 case(s), 5 passed, 0 failed (5.3s)
+boot-ui__test_lootlog                         rc=0     5s  -- test_lootlog.py: 7 case(s), 7 passed, 0 failed (4.7s)
+boot-ui__test_mybis                           rc=0    25s  -- test_mybis.py: 17 case(s), 17 passed, 0 failed (23.8s)
+boot-ui__test_perf                            rc=0     7s  -- test_perf.py: 3 case(s), 3 passed, 0 failed (6.3s)
+boot-ui__test_settings                        rc=0     9s  -- test_settings.py: 9 case(s), 9 passed, 0 failed (8.3s)
+boot-ui__test_slash                           rc=1     6s  -- test_slash.py: 9 case(s), 6 passed, 3 failed (5.2s)
+      FAIL help_lists_every_subcommand_and_unknown_prints_help (0.36s)
+      FAIL test_and_drops_and_drop (0.43s)
+      FAIL roll_usage_permission_demo_and_end (0.47s)
+boot-ui__test_tooltip                         rc=0     3s  -- test_tooltip.py: 6 case(s), 6 passed, 0 failed (2.9s)
+conformance__test_comm_types                  rc=0     0s  -- test_comm_types.py: 1 case(s), 1 passed, 0 failed (0.0s)
+conformance__test_demo_isolation              rc=0     7s  7/7 passed
+conformance__test_ui_xmodule                  rc=0     2s  11/11 passed
+council__test_accounts                        rc=0    39s  -- test_accounts.py: 5 case(s), 5 passed, 0 failed (37.0s)
+council__test_council_picker                  rc=0    66s  -- test_council_picker.py: 17 case(s), 17 passed, 0 failed (64.0s)
+disabled_slots__test_disabled_slots           rc=0    15s  -- test_disabled_slots.py: 8 case(s), 8 passed, 0 failed (13.5s)
+dungeon__test_dungeon                         rc=0    60s  -- dungeon mode (Addendum B, end to end): 16 case(s), 16 passed, 0 failed
+dungeon__test_dungeon_core                    rc=0    69s  -- dungeon / core: 16 case(s), 16 passed, 0 failed
+games__test_azeromon                          rc=0    12s  -- test_azeromon.py: 21 case(s), 21 passed, 0 failed (11.3s)
+games__test_azeromon_ach                      rc=0     5s  -- test_azeromon_ach.py: 7 case(s), 7 passed, 0 failed (4.0s)
+games__test_azeromon_arena                    rc=0     3s  -- test_azeromon_arena.py: 4 case(s), 4 passed, 0 failed (2.2s)
+games__test_azeromon_battlebox                rc=0     6s  -- test_azeromon_battlebox.py: 7 case(s), 7 passed, 0 failed (5.2s)
+games__test_azeromon_bounty                   rc=0     8s  -- test_azeromon_bounty.py: 7 case(s), 7 passed, 0 failed (7.4s)
+games__test_azeromon_craft                    rc=0     9s  -- test_azeromon_craft.py: 11 case(s), 11 passed, 0 failed (7.8s)
+games__test_azeromon_deadmines                rc=0     3s  -- test_azeromon_deadmines.py: 4 case(s), 4 passed, 0 failed (2.8s)
+games__test_azeromon_duskwood                 rc=0     7s  -- test_azeromon_duskwood.py: 8 case(s), 8 passed, 0 failed (6.0s)
+games__test_azeromon_evolve                   rc=0     3s  -- test_azeromon_evolve.py: 2 case(s), 2 passed, 0 failed (2.1s)
+games__test_azeromon_guild                    rc=0    14s  -- test_azeromon_guild.py: 6 case(s), 6 passed, 0 failed (13.3s)
+games__test_azeromon_hideout                  rc=0     6s  -- test_azeromon_hideout.py: 6 case(s), 6 passed, 0 failed (5.0s)
+games__test_azeromon_keys                     rc=0     8s  -- test_azeromon_keys.py: 9 case(s), 9 passed, 0 failed (7.5s)
+games__test_azeromon_menus                    rc=0     7s  -- test_azeromon_menus.py: 7 case(s), 7 passed, 0 failed (5.8s)
+games__test_azeromon_net                      rc=0    11s  -- test_azeromon_net.py: 6 case(s), 6 passed, 0 failed (10.1s)
+games__test_azeromon_pvp                      rc=0    13s  -- test_azeromon_pvp.py: 7 case(s), 7 passed, 0 failed (12.4s)
+games__test_azeromon_relearn                  rc=0     4s  -- test_azeromon_relearn.py: 5 case(s), 5 passed, 0 failed (3.5s)
+games__test_azeromon_rematch                  rc=0     2s  -- test_azeromon_rematch.py: 3 case(s), 3 passed, 0 failed (2.0s)
+games__test_azeromon_shiny                    rc=0     6s  -- test_azeromon_shiny.py: 7 case(s), 7 passed, 0 failed (5.3s)
+games__test_azeromon_shop                     rc=0     2s  -- test_azeromon_shop.py: 3 case(s), 3 passed, 0 failed (1.9s)
+games__test_azeromon_sound                    rc=0     3s  -- test_azeromon_sound.py: 4 case(s), 4 passed, 0 failed (2.6s)
+games__test_azeromon_stable                   rc=0     3s  -- test_azeromon_stable.py: 3 case(s), 3 passed, 0 failed (2.2s)
+games__test_azeromon_stranglethorn            rc=0     6s  -- test_azeromon_stranglethorn.py: 8 case(s), 8 passed, 0 failed (5.7s)
+games__test_azeromon_trade                    rc=0    22s  -- test_azeromon_trade.py: 14 case(s), 14 passed, 0 failed (20.8s)
+games__test_azeromon_watch                    rc=0    16s  -- test_azeromon_watch.py: 6 case(s), 6 passed, 0 failed (15.5s)
+games__test_azeromon_world                    rc=0     7s  -- test_azeromon_world.py: 10 case(s), 10 passed, 0 failed (6.4s)
+games__test_azeromon_worldmap                 rc=0     4s  -- test_azeromon_worldmap.py: 6 case(s), 6 passed, 0 failed (3.7s)
+games__test_bingo                             rc=0    62s  -- test_bingo.py: 25 case(s), 25 passed, 0 failed (60.2s)
+games__test_render_check                      rc=0    10s  -- test_render_check.py: 17 case(s), 17 passed, 0 failed (9.0s)
+games__test_trainer                           rc=0    63s  -- test_trainer.py: 35 case(s), 35 passed, 0 failed (62.3s)
+games__test_trainer_vashj                     rc=0     8s  -- test_trainer_vashj.py: 10 case(s), 10 passed, 0 failed (7.4s)
+grouprules__test_grouprules                   rc=0    43s  -- test_grouprules.py: 13 case(s), 13 passed, 0 failed (42.2s)
+loot-roll__test_award                         rc=0    94s  -- loot-roll / award: 17 case(s), 17 passed, 0 failed
+loot-roll__test_bag_loot                      rc=0    49s  -- loot-roll / bag loot (Free for All): 9 case(s), 9 passed, 0 failed
+loot-roll__test_drops                         rc=0    96s  -- loot-roll / drops: 17 case(s), 17 passed, 0 failed
+loot-roll__test_guest_rolls                   rc=0     5s  -- loot-roll / guest rolls: 1 case(s), 1 passed, 0 failed
+loot-roll__test_ledger_auto                   rc=0    48s  -- loot-roll / ledger auto-record: 9 case(s), 9 passed, 0 failed
+loot-roll__test_loot_rights                   rc=0    28s  -- loot-roll / loot rights (1.3): 5 case(s), 5 passed, 0 failed
+loot-roll__test_roll_close_core               rc=0    65s  -- loot-roll / roll close (Addendum C core): 10 case(s), 10 passed, 0 failed
+loot-roll__test_rolls                         rc=0   135s  -- loot-roll / rolls: 21 case(s), 21 passed, 0 failed
+members__test_members                         rc=0    37s  -- test_members.py: 11 case(s), 11 passed, 0 failed (35.6s)
+members__test_professions                     rc=0    50s  -- test_professions.py: 20 case(s), 20 passed, 0 failed (48.8s)
+migrate__test_migrate                         rc=0    19s  -- test_migrate.py: 14 case(s), 14 passed, 0 failed (18.3s)
+offspec__test_offspec                         rc=0    54s  -- off-spec lists (Addendum H): 9 case(s), 9 passed, 0 failed
+patch__test_patch_boot                        rc=1   547s  -- test_patch_boot.py: 24 case(s), 23 passed, 1 failed (309.4s)
+      FAIL every_file_from_the_patch (9.79s)
+patch__test_patch_net                         rc=1   600s  -- test_patch_net.py: 25 case(s), 22 passed, 3 failed (579.9s)
+      FAIL encounter_pauses_serving_and_delays_the_popup (0.41s)
+      FAIL forced_yields_do_not_change_the_result (0.13s)
+      FAIL publish_refusals (0.00s)
+patch__test_patch_scale                       rc=0   224s  -- test_patch_scale.py: 2 case(s), 2 passed, 0 failed (179.4s)
+patch__test_release_tool                      rc=1   281s  -- test_release_tool.py: 10 case(s), 9 passed, 1 failed (269.8s)
+      FAIL selftest_runs_the_whole_addon_from_the_store_on_the_development_copy (6.43s)
+picker_sources__test_picker_sources           rc=0    15s  -- test_picker_sources.py: 13 case(s), 13 passed, 0 failed (14.2s)
+raidlog__test_raid_features                   rc=0    66s  -- test_raid_features.py: 18 case(s), 18 passed, 0 failed (65.0s)
+raidlog__test_raid_link                       rc=0    26s  -- test_raid_link.py: 3 case(s), 3 passed, 0 failed (23.9s)
+raidlog__test_raidlog                         rc=0    86s  -- test_raidlog.py: 19 case(s), 19 passed, 0 failed (83.0s)
+raidplan__test_guestbook                      rc=0   112s  -- test_guestbook.py: 14 case(s), 14 passed, 0 failed (102.0s)
+raidplan__test_raidplan                       rc=0    49s  -- test_raidplan.py: 9 case(s), 9 passed, 0 failed (46.4s)
+raidplan__test_raidplan_groups                rc=0    32s  -- test_raidplan_groups.py: 7 case(s), 7 passed, 0 failed (29.7s)
+raidplan__test_raidplan_guests                rc=0    94s  -- test_raidplan_guests.py: 11 case(s), 11 passed, 0 failed (92.2s)
+raidplan__test_raidplan_invite                rc=0   127s  -- test_raidplan_invite.py: 8 case(s), 8 passed, 0 failed (122.2s)
+raidplan__test_raidplan_leaders               rc=0    95s  -- test_raidplan_leaders.py: 11 case(s), 11 passed, 0 failed (93.1s)
+raidplan__test_raidplan_level                 rc=0    16s  -- test_raidplan_level.py: 4 case(s), 4 passed, 0 failed (15.1s)
+raidplan__test_raidplan_link                  rc=0    76s  -- test_raidplan_link.py: 6 case(s), 6 passed, 0 failed (73.3s)
+raidplan__test_raidplan_lock                  rc=0    19s  -- test_raidplan_lock.py: 5 case(s), 5 passed, 0 failed (16.7s)
+raidplan__test_raidplan_raid_leader           rc=1    30s  -- test_raidplan_raid_leader.py: 7 case(s), 6 passed, 1 failed (29.0s)
+      FAIL the_raid_leader_window_and_header (3.98s)
+raidplan__test_raidplan_trust                 rc=0    49s  -- test_raidplan_trust.py: 8 case(s), 8 passed, 0 failed (46.9s)
+raidplan__test_raidplan_ui                    rc=0    35s  -- test_raidplan_ui.py: 9 case(s), 9 passed, 0 failed (34.0s)
+regressions__test_final_review                rc=0   365s  -- regressions / final review (0.5.0): 46 case(s), 46 passed, 0 failed
+rollclose__test_rollclose                     rc=0   124s  -- roll popups close (Addendum C, end to end): 15 case(s), 15 passed, 0 failed
+scale__test_raid_night                        rc=0  1101s  -- test_raid_night.py: 4 case(s), 4 passed, 0 failed (564.7s)
+share__test_share                             rc=0    53s  -- test_share.py: 13 case(s), 13 passed, 0 failed (50.6s)
+strategy__test_strategy                       rc=0    45s  -- test_strategy.py: 7 case(s), 7 passed, 0 failed (43.5s)
+strategy__test_strategy_3d                    rc=1    96s  -- test_strategy_3d.py: 12 case(s), 10 passed, 2 failed (93.1s)
+      FAIL the_rooms_put_the_starters_bosses_where_the_server_spawns_them (3.55s)
+      FAIL reading_a_board_the_camera_moves_with_a_left_drag (3.45s)
+strategy__test_strategy_abilities             rc=0    93s  -- test_strategy_abilities.py: 9 case(s), 9 passed, 0 failed (90.2s)
+strategy__test_strategy_collab                rc=0    79s  -- test_strategy_collab.py: 11 case(s), 11 passed, 0 failed (77.6s)
+strategy__test_strategy_dispel                rc=0    59s  -- test_strategy_dispel.py: 9 case(s), 9 passed, 0 failed (45.4s)
+strategy__test_strategy_draft                 rc=0    41s  -- test_strategy_draft.py: 9 case(s), 9 passed, 0 failed (39.2s)
+strategy__test_strategy_edit                  rc=0    41s  -- test_strategy_edit.py: 12 case(s), 12 passed, 0 failed (38.9s)
+strategy__test_strategy_live                  rc=0    83s  -- test_strategy_live.py: 11 case(s), 11 passed, 0 failed (77.5s)
+strategy__test_strategy_owners                rc=0    27s  -- test_strategy_owners.py: 10 case(s), 10 passed, 0 failed (24.5s)
+strategy__test_strategy_picks                 rc=0    13s  -- test_strategy_picks.py: 5 case(s), 5 passed, 0 failed (12.2s)
+strategy__test_strategy_starters              rc=0     7s  -- test_strategy_starters.py: 3 case(s), 3 passed, 0 failed (5.2s)
+strategy__test_strategy_tour                  rc=0    22s  -- test_strategy_tour.py: 9 case(s), 9 passed, 0 failed (21.2s)
+strategy__test_strategy_ui                    rc=0    16s  -- test_strategy_ui.py: 5 case(s), 5 passed, 0 failed (14.6s)
+sync__test_council_membership                 rc=0    10s  -- council membership: 4 passed, 0 failed
+sync__test_demo_isolation                     rc=0     9s  -- demo isolation: 5 passed, 0 failed
+sync__test_ledger_sync                        rc=0    20s  -- ledger sync: 10 passed, 0 failed
+sync__test_raid_council_lists                 rc=0     7s  -- raid council lists: 2 passed, 0 failed
+sync__test_sync_flows                         rc=0    47s  -- sync flows: 18 passed, 0 failed
+sync__test_sync_hostile                       rc=1    44s  -- hostile traffic: 13 passed, 1 failed (f_restore_relay_with_wrong_hash_not_adopted)
+      FAIL f_restore_relay_with_wrong_hash_not_adopted (4.9s)
+sync__test_sync_traffic                       rc=1    90s  (no summary) rc=1
+ui-dungeon__test_ui_dungeon                   rc=0    28s  -- ui / dungeon mode + popup closing: 10 case(s), 10 passed, 0 failed
+votes__test_votes                             rc=1    74s  -- votes / award reasons / DE-bank (Addendum G): 21 case(s), 18 passed, 3 failed
+      FAIL disenchant_and_bank_neither_counted_nor_awarded: 
+      FAIL raid_leader_target_overrides_guild: 
+      FAIL de_button_records_for_non_ml_council: 
