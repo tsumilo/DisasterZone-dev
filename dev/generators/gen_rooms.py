@@ -65,8 +65,9 @@ ROOM_UP, ROOM_DOWN = 14.0, 30.0  # yd over / under the boss' floor the room keep
 FLOOR_UP = 9.0                  # yd: the height grid's floors at most this over the boss' (Teron's hall: 6.2)
 TERRAIN, TERRAIN_BAND = -1, 60.0  # the flag of a ground face; yd over and under the boss it is kept
 LIQUID = -2                     # the flag of a liquid's face
-WATER_TEX = 130871              # Interface/Buttons/WHITE8X8, tinted by the renderer (Render3D/Room.lua TINT)
-LIQUID_TEX = {0: (WATER_TEX, 2), 1: (WATER_TEX, 2), 2: (219795, 0), 3: (219991, 0)}   # (+ lava.1.blp, slime.1.blp)
+WATER_TEX = 219885              # xtextures/river/fast_a.1.blp (grey ripples), tinted blue by the renderer (Render3D/Room.lua
+                                # TINT); opaque: a see-through piece the 3D view redraws over a model shows twice
+LIQUID_TEX = {0: (WATER_TEX, 0), 1: (WATER_TEX, 0), 2: (219795, 0), 3: (219991, 0)}   # (+ lava.1.blp, slime.1.blp)
 TILE = 533.3333333              # an ADT tile
 ADT_C = 17066.6666667           # 32 tiles
 
@@ -333,7 +334,7 @@ def wmo_faces(pl, box, zlo, zhi):
 
 def liquid_faces(pl, liq):
     """A WMO group's liquid as flat faces (LIQUID): runs of tiles of one kind at one height merged into rectangles.
-    Water and ocean: WATER_TEX (a white texture the renderer tints, Render3D/Room.lua TINT); magma and slime: the
+    Water and ocean: WATER_TEX (a grey texture the renderer tints, Render3D/Room.lua TINT); magma and slime: the
     game's own textures."""
     xt, yt, xv = liq["xtiles"], liq["ytiles"], liq["xverts"]
     hs, tiles = liq["heights"], liq["tiles"]

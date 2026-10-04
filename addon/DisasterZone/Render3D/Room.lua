@@ -89,9 +89,10 @@ local MIDK = 262144               -- 2^18: midpoint cache key = lo * MIDK + hi (
 local TMP0 = MIDK + 16            -- temporary points (near-plane clip points): TMP0 + 1 .., reset every redraw
 local LAYERS = { "BACKGROUND", "BORDER", "ARTWORK", "OVERLAY" }
 local BLENDS = { [0] = "DISABLE", [1] = "ALPHAKEY", [2] = "BLEND" }
--- Texture files drawn in a colour (r, g, b, alpha) instead of their own: the rooms' water is WHITE8X8 (130871) in a
--- see-through blue (dev/generators/gen_rooms.py WATER_TEX).
-local TINT = { [130871] = { 0.24, 0.55, 0.9, 0.55 } }
+-- Texture files drawn tinted (r, g, b, alpha): the rooms' water is the game's grey river ripples (fast_a.1.blp,
+-- 219885) in blue, opaque (dev/generators/gen_rooms.py WATER_TEX: a see-through piece redrawn over a model would
+-- show twice).
+local TINT = { [219885] = { 0.5, 0.78, 1, 1 } }
 local function Paint(tx, L)
     local t = TINT[floor(tx.pool / 4)]
     if t then
