@@ -148,6 +148,10 @@ local stN, stP = {}, {}                                            -- traversal 
 
 -- prims (node by node): a triangle (QD = 0) or a quad, cyclic QA, QB, QC, QD
 local QA, QB, QC, QD, QL, QO, QN, QTEX, QPOOL = {}, {}, {}, {}, {}, {}, {}, {}, {}
+-- Per prim: how much looser than tau its texture may sit, squared (1 for most; water's ripples, TINT's files, can
+-- be far off without anyone seeing it: a pool seen across at a low angle would otherwise be halved into thousands)
+local QLOOSE = {}
+local LOOSE = { [219885] = 8 * 8 }
 
 local live, liveList = {}, {}                                      -- piece key -> texture; the live ones
 local splitPrev, splitCur = {}, {}                                 -- piece keys halved in the last / this redraw
@@ -289,6 +293,7 @@ function ComputePools()
         local code = BLEND_CODE[bl and bl[ti] or "DISABLE"] or 0
         if code == 0 and not opaque then code = 2 end
         QPOOL[p] = (tonumber(tex[ti]) or 0) * 4 + code
+        QLOOSE[p] = LOOSE[tonumber(tex[ti]) or 0] or 1
     end
 end
 
@@ -918,7 +923,7 @@ RefineTri = function(p, path, a, b, c, lev)
             split = W2(a, b) > MINCLIP2 or W2(b, c) > MINCLIP2 or W2(c, a) > MINCLIP2
         else
             local room = nLeaves < hardCap
-            local t2 = (room and splitPrev[key]) and merge2 or tau2
+            local t2 = ((room and splitPrev[key]) and merge2 or tau2) * QLOOSE[p]
             local xa, ya, qa, xb, yb, qb, xc, yc, qc = PX[a], PY[a], PQ[a], PX[b], PY[b], PQ[b], PX[c], PY[c], PQ[c]
             local dx, dy, ds, ss = xa - xb, ya - yb, qa - qb, qa + qb                   -- a - b
             local over = (dx * dx + dy * dy) * ds * ds > t2 * ss * ss
@@ -990,7 +995,7 @@ RefineQuad = function(p, path, a, b, c, d, lev)
             split = W2(a, b) > MINCLIP2 or W2(b, c) > MINCLIP2 or W2(c, d) > MINCLIP2 or W2(d, a) > MINCLIP2
         else
             local room = nLeaves < hardCap
-            local t2 = (room and splitPrev[key]) and merge2 or tau2
+            local t2 = ((room and splitPrev[key]) and merge2 or tau2) * QLOOSE[p]
             local xa, ya, qa, xb, yb, qb = PX[a], PY[a], PQ[a], PX[b], PY[b], PQ[b]
             local xc, yc, qc, xd, yd, qd = PX[c], PY[c], PQ[c], PX[d], PY[d], PQ[d]
             local dx, dy, ds, ss = xa - xb, ya - yb, qa - qb, qa + qb                   -- a - b
@@ -1745,7 +1750,9 @@ end
 -- (One function of its own: its locals do not count against the main chunk's 200.)
 do
 local function InstallCopies()
-    local OCC_SLOTS, COPY_TEX_MAX, KEYS_MAX, G_MIN, PHI_EPS, FOOT = 16, 600, 128, 0.5, 1e-6, 0.1
+    -- (19 slots: two copy frames each between the views' copy0 and plates levels, 39 apart in both; a big model on
+    -- the strategy board is up to 6 occluders, one per part of it)
+    local OCC_SLOTS, COPY_TEX_MAX, KEYS_MAX, G_MIN, PHI_EPS, FOOT = 19, 1500, 128, 0.5, 1e-6, 0.1
     local huge, min = math.huge, math.min
 
     -- the camera of this pass (CAMT, from BeginFrame) and the scene's size
@@ -1879,11 +1886,14 @@ local function InstallCopies()
         local zt = az + FOOT
         OZT[i] = (cez > zt + 0.05) and zt or false
         local fam
-        if hd >= G_MIN and not behind then
+        if hd >= G_MIN and front then
             -- family A: the plane through its axis facing the camera; the box from the prism's sides (+2 px) up
             -- to its top (+2 px) and down to the prism's bottom (with the camera at or under its feet: down to its
-            -- feet at the axis's depth, the floor in front of them lying lower on the screen)
+            -- feet at the axis's depth, the floor in front of them lying lower on the screen). A prism reaching
+            -- behind the camera (a big model, walking up to it) keeps the plane: its box is what of it lies in front
+            -- of the near plane (the corners there and where its edges cross it), up to the highest of those.
             fam = 1
+            if behind then top = y1 end
             local bot = y0 - 2
             if not OZT[i] then
                 bot = huge
@@ -1920,7 +1930,11 @@ local function InstallCopies()
             local sx2, sy2 = Proj(ax + r * lx, ay + r * ly, az)
             local sx3, sy3 = Proj(ax + r * lx, ay + r * ly, az + h)
             local sx4, sy4 = Proj(ax - r * lx, ay - r * ly, az + h)
-            SetRegion(i, sx1, sy1, sx2, sy2, sx3, sy3, sx4, sy4)
+            if sx1 and sx2 and sx3 and sx4 then
+                SetRegion(i, sx1, sy1, sx2, sy2, sx3, sy3, sx4, sy4)
+            else                                                         -- (its axis reaches behind the camera)
+                SetRegion(i, x0, y0, x1, y0, x1, y1, x0, y1)
+            end
         else
             SetRegion(i, x0, y0, x1, y0, x1, y1, x0, y1)
         end
@@ -2195,6 +2209,7 @@ local function InstallCopies()
     -- The other occluders a fragment of X's copies must respect (OVL: those whose restricting region overlaps X's
     -- box), the ones overlapping the fragment, largest overlap first: OTH[1..nOth].
     local OVL, nOvl, OTH, OTHA, nOth = {}, 0, {}, {}, 0
+    local SLOTLAYER = {}                          -- slot -> its occluder's layer (2: the second scene, over the copies)
     local function Others(x0, y0, x1, y1)
         nOth = 0
         for v = 1, nOvl do
@@ -2218,6 +2233,7 @@ local function InstallCopies()
     -- to N's near side, the parts outside it (frag in edges 1..i-1, out of edge i: disjoint) stay as they are; any
     -- further N cuts it everywhere (on the safe side). Level lvl owns buffers 4 lvl .. 4 lvl + 3.
     local EXACT = 4
+    local CURGROUP, CURSLOT = nil, -1              -- (the occluder being copied: its model, its slot)
     local Restrict
     Restrict = function(b, m, lvl)
         if lvl > nOth then
@@ -2250,7 +2266,11 @@ local function InstallCopies()
                 cur, out = out, (out == ca) and cb or ca
             end
         end
-        local c, mm = NearSide(N, cur, m, pc, pd)                       -- inside N's region: N's near side only
+        -- inside N's region: N's near side only; another part of the same model (record.group) in an earlier slot
+        -- copies that very piece itself (cut by both planes there too): not twice
+        local g = OIN[N].group
+        if g ~= nil and g == CURGROUP and OSLOT[N] >= 0 and OSLOT[N] < CURSLOT then return end
+        local c, mm = NearSide(N, cur, m, pc, pd)
         if mm >= 3 then Restrict(c, mm, lvl + 1) end
     end
 
@@ -2445,7 +2465,9 @@ local function InstallCopies()
             CF[i] = fr
             fr = CF[fi]
         end
+        -- (a slot whose occluder stands in the second scene - record.layer 2 - copies over that scene, at copy2)
         local lvl = V + LVt.copy0 + fi - 1
+        if LVt.copy2 and SLOTLAYER[floor((fi - 1) / 2)] == 2 then lvl = V + LVt.copy2 + (fi - 1) % 2 end
         if fr.lvl ~= lvl then
             fr:SetFrameLevel(lvl)
             fr.lvl = lvl
@@ -2675,8 +2697,11 @@ local function InstallCopies()
         end
         NC[j] = nc
         nOvl = 0
+        -- (one in the second scene is drawn over these copies: it never needs them kept off it)
+        local lx = OIN[X].layer or 1
         for N = 1, nOcc do
-            if N ~= X and OON[N] and RX1[N] > bx0 and RX0[N] < bx1 and RY1[N] > by0 and RY0[N] < by1 then
+            if N ~= X and OON[N] and RX1[N] > bx0 and RX0[N] < bx1 and RY1[N] > by0 and RY0[N] < by1
+                and not ((OIN[N].layer or 1) > lx) then
                 nOvl = nOvl + 1
                 OVL[nOvl] = N
             end
@@ -2794,7 +2819,9 @@ local function InstallCopies()
             if SLOTDIRTY[j] then
                 local X, keep, before = SLOTOCC[j], 0, texTotal
                 ResetFrames(j * 2 + 1, j * 2 + 2)
+                SLOTLAYER[j] = X and OIN[X].layer or 1
                 if X then
+                    CURGROUP, CURSLOT = OIN[X].group, j
                     Gather(j, X)
                     nItems = 0
                     ibx0, iby0, ibx1, iby1 = huge, huge, -huge, -huge
@@ -2981,6 +3008,16 @@ function Room.Stats()
 end
 
 function Room.ShownTextures() return nLive end
+
+-- Tests: the room's textures on screen by texture file (file ID -> how many).
+function Room._FileCounts()
+    local out = {}
+    for j = 1, nLive do
+        local f = floor(liveList[j].pool / 4)
+        out[f] = (out[f] or 0) + 1
+    end
+    return out
+end
 
 function Room.ShownLines()
     local n = 0

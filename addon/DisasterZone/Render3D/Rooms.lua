@@ -88,8 +88,10 @@ function R3.HasFloor(room)
 end
 
 -- A packed floor (format 3) -> the format 2 tables: rows, mesh = { version = 2, textures, blend, verts, tris, nodes,
--- pair }. The packed text keeps its sections apart with "|": the rows (one per line), the texture file IDs, the blend
--- codes (D, A, B), then verts, tris, nodes and pair as numbers. -> false when it cannot be read.
+-- pair }, walk = { verts, tris, slide, swim }. The packed text keeps its sections apart with "|": the rows (one per
+-- line), the texture file IDs, the blend codes (D, A, B), then verts, tris, nodes and pair as numbers, then (rooms
+-- made since walking) the ground's verts (x, y, z) and its walk, slide and swim faces (vertex a, b, c, 1-based).
+-- -> false when it cannot be read.
 local BLEND = { D = "DISABLE", A = "ALPHAKEY", B = "BLEND" }
 local function Numbers(s)
     local out, n = {}, 0
@@ -107,7 +109,7 @@ local function Unpack(f)
     if type(text) ~= "string" or #text ~= f.size then return false end
     local parts = {}
     for part in (text .. "|"):gmatch("([^|]*)|") do parts[#parts + 1] = part end
-    if #parts ~= 7 then return false end
+    if #parts ~= 7 and #parts ~= 11 then return false end
     local rows = {}
     for line in (parts[1] .. "\n"):gmatch("([^\n]*)\n") do rows[#rows + 1] = line end
     local blend = {}
@@ -115,6 +117,10 @@ local function Unpack(f)
     f.rows = rows
     f.mesh = { version = 2, textures = Numbers(parts[2]), blend = blend, verts = Numbers(parts[4]),
                tris = Numbers(parts[5]), nodes = Numbers(parts[6]), pair = Numbers(parts[7]) }
+    if parts[8] then
+        f.walk = { verts = Numbers(parts[8]), tris = Numbers(parts[9]), slide = Numbers(parts[10]),
+                   swim = Numbers(parts[11]) }
+    end
     return true
 end
 
@@ -139,9 +145,9 @@ function R3.Floor(room)
     unpacked[#unpacked + 1] = f
     while #unpacked > KEEP do
         local old = table.remove(unpacked, 1)
-        old.rows, old.mesh = nil, nil
+        old.rows, old.mesh, old.walk = nil, nil, nil
         for _, r in pairs(ROOMS) do
-            if floors[r.floor] == old then r.heightFn = nil end
+            if floors[r.floor] == old then r.heightFn, r.groundFn = nil, nil end
         end
     end
     return f
@@ -152,6 +158,192 @@ function R3.Height(room)
     if not room then return nil end
     if not room.heightFn then room.heightFn = R3.HeightFn(R3.Floor(room)) end
     return room.heightFn
+end
+
+---------------------------------------------------------------------------
+-- Walking on a room: the ground (the Raid Trainer's units and the strategy board's walk mode)
+---------------------------------------------------------------------------
+
+-- The client's numbers: running, walking backwards and swimming (yd/s), keyboard turning (rad/s), gravity and the
+-- fastest fall (yd/s^2, yd/s: TrinityCore), a jump's upward speed (yd/s), the highest step walked up (yd), the steepest
+-- slope walked (tan 50 degrees). (Games/Trainer/Engine.lua keeps its own copies of them.)
+R3.WALK = { run = 7, back = 4.5, swim = 4.722222, turn = math.pi, gravity = 19.291103, terminal = 60.148003,
+            jump = 7.95577, stepUp = 1.0, maxSlope = math.tan(math.rad(50)) }
+
+-- The ground walking units stand on, from a floor's walk table: Blizzard's collision faces no steeper than 50 degrees
+-- (tris; on a staircase that is the invisible ramp over the steps, so feet glide up it as in the game), the steeper
+-- ones you slide down but cannot walk up (slide) and the water's surface (swim). ground(x, y, z, air) = the highest
+-- face at (x, y) a unit with its feet at z can be on: ground up to stepUp above z (in the air: none above z), a slope
+-- no higher than z; nil where there is none (a pillar, a wall, outside the room). z nil: the highest of all. On a
+-- slope it also returns the slope's rise per yard east and north (the way down is against them); on water a 4th
+-- value, true. Faces are kept by 4 yd squares. stepUp: yd (R3.WALK.stepUp when not given).
+function R3.GroundFn(walk, stepUp)
+    if not walk or not walk.tris then return nil end
+    stepUp = stepUp or R3.WALK.stepUp
+    local V = walk.verts
+    local cells, n = {}, 0
+    -- per face: barycentric weights w1 = K1 dx + K2 dy, w2 = K3 dx + K4 dy from its third corner (CX, CY), its
+    -- plane z = PA x + PB y + PC, and KIND: 1 ground, 2 a slope, 3 water
+    local K1, K2, K3, K4, CX, CY, PA, PB, PC, KIND = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+    local function add(list, kind)
+        for t = 1, floor(#list / 3) do
+            local a, b, c = list[t * 3 - 2] * 3, list[t * 3 - 1] * 3, list[t * 3] * 3
+            local ax, ay, az = V[a - 2], V[a - 1], V[a]
+            local bx, by, bz = V[b - 2], V[b - 1], V[b]
+            local cx, cy, cz = V[c - 2], V[c - 1], V[c]
+            local det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+            local ux, uy, uz = bx - ax, by - ay, bz - az
+            local vx, vy, vz = cx - ax, cy - ay, cz - az
+            local nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+            if det ~= 0 and nz ~= 0 then                -- (never upright: the generators keep 80 degrees at most)
+                n = n + 1
+                K1[n], K2[n] = (by - cy) / det, (cx - bx) / det
+                K3[n], K4[n] = (cy - ay) / det, (ax - cx) / det
+                CX[n], CY[n], KIND[n] = cx, cy, kind
+                PA[n], PB[n] = -nx / nz, -ny / nz
+                PC[n] = az - PA[n] * ax - PB[n] * ay
+                for gx = floor(min(ax, bx, cx) / 4), floor(max(ax, bx, cx) / 4) do
+                    for gy = floor(min(ay, by, cy) / 4), floor(max(ay, by, cy) / 4) do
+                        local key = (gx + 500) * 1000 + gy + 500
+                        local cell = cells[key]
+                        if not cell then
+                            cell = {}
+                            cells[key] = cell
+                        end
+                        cell[#cell + 1] = n
+                    end
+                end
+            end
+        end
+    end
+    add(walk.tris, 1)
+    add(walk.slide or {}, 2)
+    add(walk.swim or {}, 3)
+    if n == 0 then return nil end
+    local EPS = -1e-4                                   -- (a point on a shared edge belongs to both sides)
+    return function(x, y, z, air)
+        local cell = cells[(floor(x / 4) + 500) * 1000 + floor(y / 4) + 500]
+        if not cell then return nil end
+        local limit = z and (z + (air and 0 or stepUp) + 1e-6) or math.huge
+        local slopeLimit = z and (z + 0.05) or math.huge
+        local best, bi
+        for k = 1, #cell do
+            local i = cell[k]
+            local dx, dy = x - CX[i], y - CY[i]
+            local w1 = K1[i] * dx + K2[i] * dy
+            if w1 >= EPS then
+                local w2 = K3[i] * dx + K4[i] * dy
+                if w2 >= EPS and 1 - w1 - w2 >= EPS then
+                    local h = PA[i] * x + PB[i] * y + PC[i]
+                    if h <= (KIND[i] == 2 and slopeLimit or limit) and (not best or h > best) then best, bi = h, i end
+                end
+            end
+        end
+        if bi and KIND[bi] == 2 then return best, PA[bi], PB[bi] end
+        if bi and KIND[bi] == 3 then return best, nil, nil, true end
+        return best
+    end
+end
+
+-- A room's ground as a function (R3.GroundFn; cached while its floor stays unpacked), or nil (a room made before
+-- walking, or one without ground).
+function R3.Ground(room)
+    if not room then return nil end
+    if room.groundFn == nil then
+        local f = R3.Floor(room)
+        room.groundFn = f and f.walk and R3.GroundFn(f.walk) or false
+    end
+    return room.groundFn or nil
+end
+
+-- Someone walking on a room's ground (ground: a GroundFn; w, h: the room's size, which it stays 0.5 yd inside),
+-- feet at (x, y, z), facing (radians, 0 = east). W:Step(dt, fwd, strafe, turn, jump) moves it as the client moves a
+-- character: running, backing off, strafing (the body turns into it: bodyTurn), turning by keyboard, steps up to
+-- R3.WALK.stepUp; walls, pillars and ledges stop it (it slides along them on the free axis); off an edge it falls,
+-- a steep slope slides it down, a jump arcs; on water it swims at the surface. What it is doing: moving, backward,
+-- falling, swimming.
+local Walker = {}
+Walker.__index = Walker
+
+function R3.NewWalker(ground, w, h, x, y, z, facing)
+    local k = setmetatable({ ground = ground, w = w, h = h, x = x, y = y, facing = facing or 0, vz = 0,
+                             bodyTurn = 0 }, Walker)
+    local g, _, _, swim = ground(x, y, z)
+    if not g then g, _, _, swim = ground(x, y, nil) end
+    k.z, k.swimming, k.gx, k.gy = g or z or 0, swim and true or false, x, y
+    return k
+end
+
+function Walker:Step(dt, fwd, strafe, turn, jump)
+    local C, ground = R3.WALK, self.ground
+    local sqrt = math.sqrt
+    if turn ~= 0 then self.facing = self.facing + turn * C.turn * dt end
+    local mx, my = 0, 0
+    self.backward, self.bodyTurn = false, 0
+    if fwd ~= 0 or strafe ~= 0 then
+        local cf, sf = math.cos(self.facing), math.sin(self.facing)
+        mx, my = cf * fwd + sf * strafe, sf * fwd - cf * strafe
+        if fwd < 0 then
+            self.backward, self.bodyTurn = true, strafe * math.pi / 4      -- backing off to the right: swings left
+        elseif fwd > 0 then
+            self.bodyTurn = -strafe * math.pi / 4                         -- running forward and right: leans in
+        else
+            self.bodyTurn = -strafe * math.pi / 2                         -- a pure strafe: runs sideways
+        end
+    end
+    local speed = self.swimming and C.swim or (self.backward and C.back or C.run)
+    local vx, vy = 0, 0
+    self.moving = false
+    if self.falling then
+        vx, vy = self.fvx or 0, self.fvy or 0                             -- (in the air the keys steer nothing)
+    elseif mx ~= 0 or my ~= 0 then
+        local len = sqrt(mx * mx + my * my)
+        vx, vy = mx / len * speed, my / len * speed
+        self.moving = true
+    end
+    if jump and not self.falling and not self.swimming then
+        self.falling, self.vz, self.fvx, self.fvy = true, C.jump, vx, vy
+    end
+    local z0, air = self.z, self.falling
+    if vx ~= 0 or vy ~= 0 then
+        local nx = min(self.w - 0.5, max(0.5, self.x + vx * dt))
+        local ny = min(self.h - 0.5, max(0.5, self.y + vy * dt))
+        if ground(nx, ny, z0, air) then
+            self.x, self.y = nx, ny
+        elseif ground(nx, self.y, z0, air) then
+            self.x = nx
+        elseif ground(self.x, ny, z0, air) then
+            self.y = ny
+        elseif self.falling then
+            self.fvx, self.fvy = 0, 0
+        end
+    end
+    -- onto the ground where it now is, or on with its fall (the Raid Trainer's Sim:Settle)
+    local moved2 = (self.x - self.gx) ^ 2 + (self.y - self.gy) ^ 2
+    local g, sx, sy, swim = ground(self.x, self.y, z0, self.falling)
+    if not self.falling and g and (sx or g < z0 - sqrt(moved2) * C.maxSlope - 0.02) then
+        local v = dt > 0 and sqrt(moved2) / dt or 0
+        local kk = dt > 0 and min(1, max(speed, C.run) / max(v, 1e-9)) / dt or 0
+        self.falling, self.vz, self.fvx, self.fvy = true, 0, (self.x - self.gx) * kk, (self.y - self.gy) * kk
+    end
+    if self.falling then
+        local vz = max(-C.terminal, self.vz - C.gravity * dt)
+        local nz = z0 + vz * dt
+        if g and nz > g then
+            self.z, self.vz = nz, vz
+        elseif sx then
+            -- on the slope: held on it, and pushed off downhill as gravity pulls along it
+            local push = C.gravity / (1 + sx * sx + sy * sy) * dt
+            self.z, self.vz = g, vz
+            self.fvx, self.fvy = (self.fvx or 0) - sx * push, (self.fvy or 0) - sy * push
+        else                                                              -- landed
+            self.z, self.vz, self.falling, self.fvx, self.fvy = g or z0, 0, nil, nil, nil
+        end
+    elseif g then
+        self.z = g
+    end
+    self.swimming = (swim and not self.falling) and true or false
+    self.gx, self.gy = self.x, self.y
 end
 
 ---------------------------------------------------------------------------

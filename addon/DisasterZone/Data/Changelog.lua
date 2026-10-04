@@ -45,6 +45,8 @@ ns.CHANGELOG = {
               "Q / E turn the view 45 degrees, Home shows the whole room.",
               "Right-click a drawing: View from here (an arrow: from its start, along it).",
               "My spot: stand where you are on the plan, at eye height, looking at the boss.",
+              "Walk in the room as your own character: WASD and the mouse, steps, falls, jumps, swimming.",
+              "Bosses and adds hide behind the room part by part, at their true size (the Lurker's tail).",
               "A small 2D map in the corner shows what the camera sees; click it to look there.",
               "After updating, restart the game once (a /reload is not enough) to get the 3D view.",
               "The strategy board is wider, and the map fills the space down to its tools.",

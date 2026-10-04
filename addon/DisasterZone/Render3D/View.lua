@@ -26,9 +26,11 @@ View.__index = View
 
 -- parent: the view's frame (the caller sets its size and clipping). opts: cam (the camera table to use; fields are
 -- added), room (a renderer from R3.NewRoom; nil makes one, false none), label (the renderer's name in messages),
--- lv (frame levels, default R3.LV), near (the scene's near clip, 0.5), fov (1.1), far (500), anim (the animation a
--- loaded model plays when its actor has none set, 0 = stand). -> the view, or nil when the client has no ModelScene
--- that can show creatures (the caller falls back to something flat).
+-- lv (frame levels, default R3.LV; with lv.scene2 a second ModelScene there, over the first one's copies: what
+-- stands nearest - the strategy board's walking character - with its own copies at lv.copy2), near (the scene's near
+-- clip, 0.5), fov (1.1), far (500), anim (the animation a loaded model plays when its actor has none set, 0 = stand).
+-- -> the view, or nil when the client has no ModelScene that can show creatures (the caller falls back to something
+-- flat).
 function R3.NewView(parent, opts)
     opts = opts or {}
     if not parent.CreateLine then return nil end
@@ -59,13 +61,25 @@ function R3.NewView(parent, opts)
         v.room = opts.room or (R3.NewRoom and R3.NewRoom(opts.label)) or nil
         if v.room then v.room.Attach(parent, sc, v.lv, v.near) end
     end
-    pcall(sc.SetCameraFieldOfView, sc, opts.fov or 1.1)
-    pcall(sc.SetCameraNearClip, sc, v.near)
-    pcall(sc.SetCameraFarClip, sc, opts.far or 500)
-    pcall(sc.SetLightVisible, sc, true)
-    pcall(sc.SetLightDirection, sc, -0.4, 0.3, -0.8)
-    pcall(sc.SetLightAmbientColor, sc, 0.7, 0.7, 0.75)
-    pcall(sc.SetLightDiffuseColor, sc, 0.85, 0.85, 0.85)
+    local scenes = { sc }
+    if v.lv.scene2 then
+        local ok2, sc2 = pcall(CreateFrame, "ModelScene", nil, parent)
+        if ok2 and sc2 and sc2.CreateActor then
+            sc2:SetAllPoints()
+            sc2:SetFrameLevel(base + v.lv.scene2)
+            v.scene2 = sc2
+            scenes[2] = sc2
+        end
+    end
+    for _, s in ipairs(scenes) do
+        pcall(s.SetCameraFieldOfView, s, opts.fov or 1.1)
+        pcall(s.SetCameraNearClip, s, v.near)
+        pcall(s.SetCameraFarClip, s, opts.far or 500)
+        pcall(s.SetLightVisible, s, true)
+        pcall(s.SetLightDirection, s, -0.4, 0.3, -0.8)
+        pcall(s.SetLightAmbientColor, s, 0.7, 0.7, 0.75)
+        pcall(s.SetLightDiffuseColor, s, 0.85, 0.85, 0.85)
+    end
     return v
 end
 
@@ -78,6 +92,11 @@ function View:ApplyCamera(yaw, pitch)
     local sc, cam = self.scene, self.cam
     pcall(sc.SetCameraPosition, sc, cam.x, cam.y, cam.z)
     pcall(sc.SetCameraOrientationByYawPitchRoll, sc, yaw, cam.pitchSign * pitch, 0)
+    local sc2 = self.scene2
+    if sc2 then
+        pcall(sc2.SetCameraPosition, sc2, cam.x, cam.y, cam.z)
+        pcall(sc2.SetCameraOrientationByYawPitchRoll, sc2, yaw, cam.pitchSign * pitch, 0)
+    end
 end
 
 -- Puts the camera `dist` yards back from the room point (x, y, z), looking at it along the room heading `heading`
@@ -130,8 +149,8 @@ end
 
 -- A new model actor (nil when the client makes none). Its feet are its origin; an animation does not survive a model
 -- change, so a loaded model plays the actor's .anim again (else the view's default).
-function View:NewActor()
-    local sc = self.scene
+function View:NewActor(top)
+    local sc = (top and self.scene2) or self.scene
     local ok, a = pcall(sc.CreateActor, sc, nil, "ModelSceneActorTemplate")
     if not ok or not a then ok, a = pcall(sc.CreateActor, sc) end
     if not ok or not a then return nil end

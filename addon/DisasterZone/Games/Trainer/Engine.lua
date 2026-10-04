@@ -81,77 +81,12 @@ function T.HeightFn(grid)
     return grid and R3 and R3.HeightFn and R3.HeightFn(grid) or nil
 end
 
--- The ground the client walks on, from a floor file's walk table: Blizzard's collision faces no steeper than 50
--- degrees (tris; on a staircase that is the invisible ramp over the steps, so feet glide up it as in the game) and
--- the steeper ones you slide down but cannot walk up (slide). ground(x, y, z, air) = the highest face at (x, y) a
--- unit with its feet at z can be on: ground up to T.STEP_UP above z (in the air: none above z), a slope no higher
--- than z; nil where there is none (a pillar, a wall, outside the room). z nil: the highest of all. On a slope it
--- also returns the slope's rise per yard east and north (the way down is against them). Faces are kept by 4 yd
--- squares.
+-- The ground the client walks on, from a floor file's walk table (Render3D/Rooms.lua R3.GroundFn: Blizzard's
+-- collision faces, steps up to T.STEP_UP, slopes you slide down): ground(x, y, z, air) -> the height there, and on a
+-- slope its rise per yard east and north; nil without the Render3D files or a walk table.
 function T.GroundFn(walk)
-    if not walk or not walk.tris then return nil end
-    local V = walk.verts
-    local cells, n = {}, 0
-    -- per face: barycentric weights w1 = K1 dx + K2 dy, w2 = K3 dx + K4 dy from its third corner (CX, CY), its
-    -- plane z = PA x + PB y + PC, and SL = a slope
-    local K1, K2, K3, K4, CX, CY, PA, PB, PC, SL = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
-    local function add(list, slide)
-        for t = 1, floor(#list / 3) do
-            local a, b, c = list[t * 3 - 2] * 3, list[t * 3 - 1] * 3, list[t * 3] * 3
-            local ax, ay, az = V[a - 2], V[a - 1], V[a]
-            local bx, by, bz = V[b - 2], V[b - 1], V[b]
-            local cx, cy, cz = V[c - 2], V[c - 1], V[c]
-            local det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
-            if det ~= 0 then
-                n = n + 1
-                K1[n], K2[n] = (by - cy) / det, (cx - bx) / det
-                K3[n], K4[n] = (cy - ay) / det, (ax - cx) / det
-                CX[n], CY[n], SL[n] = cx, cy, slide
-                -- the plane through the three corners (never upright: the generator keeps 80 degrees at most)
-                local ux, uy, uz = bx - ax, by - ay, bz - az
-                local vx, vy, vz = cx - ax, cy - ay, cz - az
-                local nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
-                PA[n], PB[n] = -nx / nz, -ny / nz
-                PC[n] = az - PA[n] * ax - PB[n] * ay
-                for gx = floor(min(ax, bx, cx) / 4), floor(max(ax, bx, cx) / 4) do
-                    for gy = floor(min(ay, by, cy) / 4), floor(max(ay, by, cy) / 4) do
-                        local key = (gx + 500) * 1000 + gy + 500
-                        local cell = cells[key]
-                        if not cell then
-                            cell = {}
-                            cells[key] = cell
-                        end
-                        cell[#cell + 1] = n
-                    end
-                end
-            end
-        end
-    end
-    add(walk.tris, false)
-    add(walk.slide or {}, true)
-    if n == 0 then return nil end
-    local EPS = -1e-4                                   -- (a point on a shared edge belongs to both sides)
-    return function(x, y, z, air)
-        local cell = cells[(floor(x / 4) + 500) * 1000 + floor(y / 4) + 500]
-        if not cell then return nil end
-        local limit = z and (z + (air and 0 or T.STEP_UP) + 1e-6) or math.huge
-        local slopeLimit = z and (z + 0.05) or math.huge
-        local best, bi
-        for k = 1, #cell do
-            local i = cell[k]
-            local dx, dy = x - CX[i], y - CY[i]
-            local w1 = K1[i] * dx + K2[i] * dy
-            if w1 >= EPS then
-                local w2 = K3[i] * dx + K4[i] * dy
-                if w2 >= EPS and 1 - w1 - w2 >= EPS then
-                    local h = PA[i] * x + PB[i] * y + PC[i]
-                    if h <= (SL[i] and slopeLimit or limit) and (not best or h > best) then best, bi = h, i end
-                end
-            end
-        end
-        if bi and SL[bi] then return best, PA[bi], PB[bi] end
-        return best
-    end
+    local R3 = ns.Render3D
+    return walk and R3 and R3.GroundFn and R3.GroundFn(walk, T.STEP_UP) or nil
 end
 
 -- Where the grid has floor (a space in a row = none): the room's own outline, for arena.walkable.

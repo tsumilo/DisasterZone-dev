@@ -68,6 +68,8 @@ LIQUID = -2                     # the flag of a liquid's face
 WATER_TEX = 219885              # xtextures/river/fast_a.1.blp (grey ripples), tinted blue by the renderer (Render3D/Room.lua
                                 # TINT); opaque: a see-through piece the 3D view redraws over a model shows twice
 LIQUID_TEX = {0: (WATER_TEX, 0), 1: (WATER_TEX, 0), 2: (219795, 0), 3: (219991, 0)}   # (+ lava.1.blp, slime.1.blp)
+WALK_COS = math.cos(math.radians(50))   # the steepest ground the client walks on (gen_trainer_heights.py)
+SLIDE_COS = math.cos(math.radians(80))  # steeper up to here: a slope you slide down; steeper still: a wall
 TILE = 533.3333333              # an ADT tile
 ADT_C = 17066.6666667           # 32 tiles
 
@@ -297,8 +299,10 @@ def tiles(box):
     return [(tx, ty) for tx in txs for ty in tys]
 
 
-def wmo_faces(pl, box, zlo, zhi):
-    """World faces of a placed WMO inside a box: [(texture key, [(x, y, z, u, v, light)] * 3, flags)]."""
+def wmo_faces(pl, box, zlo, zhi, coll=None):
+    """World faces of a placed WMO inside a box: [(texture key, [(x, y, z, u, v, light)] * 3, flags)]. coll: a list
+    that gets the faces the client collides with that are no steeper than SLIDE_COS ([(x, y, z)] * 3, "walk" or
+    "slide", False): the ground walking units stand on (the invisible ramps over stairs included)."""
     x0, y0, x1, y1 = box
     r = root(pl.file)
     out = []
@@ -315,6 +319,13 @@ def wmo_faces(pl, box, zlo, zhi):
         cols = gr.get("colors")
         mats = r["materials"]
         for t, mat, fl in zip(gr["tris"], gr["mats"], gr["flags"]):
+            if coll is not None and G.collidable(fl):
+                P = [pl.to_world(*gr["verts"][i]) for i in t]
+                if not (max(q[0] for q in P) < x0 or min(q[0] for q in P) > x1 or max(q[1] for q in P) < y0
+                        or min(q[1] for q in P) > y1):
+                    n = G.normal(*P)
+                    if n and n[2] >= SLIDE_COS:
+                        coll.append((P, "walk" if n[2] >= WALK_COS else "slide", False))
             if mat == 255 or mat >= len(mats) or not mats[mat]["texture"]:
                 continue
             pts = []
@@ -500,6 +511,50 @@ def floors_at(faces, x, y):
     return out
 
 
+def num2(v):
+    s = ("%.2f" % v).rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "") else s
+
+
+def walk_tables(coll, box, zb, to_room):
+    """The ground walking units stand on, in room coordinates: (verts [(x, y, z)], walk, slide, swim [(a, b, c)]):
+    the collision faces cut to the box, those reaching into the room's height band (the ground's: TERRAIN_BAND),
+    vertices welded at 1 cm (Render3D/Rooms.lua R3.GroundFn reads them)."""
+    x0, y0, x1, y1 = box
+    verts, index, out = [], {}, {"walk": [], "slide": [], "swim": []}
+    lo, hi = zb - ROOM_DOWN - 2, zb + ROOM_UP
+    for P, kind, ground in coll:
+        zs = [q[2] for q in P]
+        if ground:
+            if max(zs) < zb - TERRAIN_BAND or min(zs) > zb + TERRAIN_BAND:
+                continue
+        elif max(zs) < lo or min(zs) > hi:
+            continue
+        poly = [tuple(q) for q in P]
+        for axis, a0, a1 in ((0, x0, x1), (1, y0, y1)):
+            if min(q[axis] for q in poly) >= a0 and max(q[axis] for q in poly) <= a1:
+                continue
+            poly = G.clip_poly(poly, axis, a0, False)
+            if len(poly) >= 3:
+                poly = G.clip_poly(poly, axis, a1, True)
+            if len(poly) < 3:
+                break
+        if len(poly) < 3:
+            continue
+        ids = []
+        for q in poly:
+            rx, ry, rz = to_room(q[0], q[1], q[2])
+            key = (round(rx, 2), round(ry, 2), round(rz, 2))
+            if key not in index:
+                index[key] = len(verts)
+                verts.append(key)
+            ids.append(index[key])
+        for k in range(1, len(ids) - 1):
+            if len({ids[0], ids[k], ids[k + 1]}) == 3:
+                out[kind].append((ids[0], ids[k], ids[k + 1]))
+    return verts, out["walk"], out["slide"], out["swim"]
+
+
 def num5(v):
     s = ("%.5f" % v).rstrip("0").rstrip(".")
     return "0" if s in ("-0", "") else s
@@ -572,9 +627,9 @@ def gather(p):
     """The room's faces in world coordinates, the boss' spot and floor height, the box used."""
     box = p["box"]
     pls, has_terrain = placements(p["mapdir"], box)
-    raw = []
+    raw, coll = [], []
     for pl in pls:
-        raw += wmo_faces(pl, box, -1e9, 1e9)
+        raw += wmo_faces(pl, box, -1e9, 1e9, coll)
     # terrain: every vertex up to 1500 faces in the box, else every 2nd, 4th or 8th (a terrain face is a BSP node of
     # its own: bumps are never in one plane)
     step = 1
@@ -582,6 +637,15 @@ def gather(p):
         step *= 2
     if has_terrain:
         raw += terrain_faces(p["mapdir"], box, step)
+    # the ground, and the water you swim in (the ground's faces and the liquids' as they are drawn)
+    for _, pts, fl in raw:
+        if fl == TERRAIN or fl == LIQUID:
+            P = [q[:3] for q in pts]
+            n = G.normal(*P)
+            if fl == LIQUID:
+                coll.append((P, "swim", False))
+            elif n and n[2] >= SLIDE_COS:
+                coll.append((P, "walk" if n[2] >= WALK_COS else "slide", True))
     # the boss' floor
     if p["spot"]:
         sx, sy, sz = p["spot"]
@@ -619,7 +683,7 @@ def gather(p):
             zb = min(above) if above else max(fl)
         else:
             zb = max(fl) if fl else 0.0
-    return raw, (sx, sy, zb), box
+    return raw, (sx, sy, zb), box, coll
 
 
 def shrink(box, spot, centre):
@@ -660,7 +724,7 @@ def main_floor(faces, x, y, r, z0):
 
 def build(p):
     """The room: its faces cut to the box (shrunk while it has more than MAX_TRIS faces or MAX_NODES BSP nodes)."""
-    raw, spot, box = gather(p)
+    raw, spot, box, coll = gather(p)
     zb = spot[2]
     up, down, fine = ROOM_UP, ROOM_DOWN, 0.0
     centre = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
@@ -670,7 +734,7 @@ def build(p):
         if len(faces) > MAX_TRIS and smaller:
             box = smaller
             continue
-        r = make(p, raw, spot, box, faces)
+        r = make(p, raw, spot, box, faces, coll)
         if len(r["nodes"]) > MAX_NODES:
             if smaller:
                 box = smaller
@@ -696,7 +760,7 @@ def small(face, limit):
     return area < limit and not (area > 0 and nz / (2 * area) > 0.7)
 
 
-def make(p, raw, spot, box, faces):
+def make(p, raw, spot, box, faces, coll=()):
     sx, sy, zb = spot
     x0, y0, x1, y1 = box
     # room coordinates: x east from the box's west side (largest world y), y north from its south side (smallest x)
@@ -705,7 +769,7 @@ def make(p, raw, spot, box, faces):
 
     def to_room(wx, wy, wz):
         return y1 - wy, wx - x0, wz - zb
-    tex_index, textures, blends, tris, ground = {}, [], [], [], set()
+    tex_index, textures, blends, tris, ground, water_z = {}, [], [], [], set(), set()
     for (fid, blend), pts, fl in faces:
         key = (fid, blend)
         if key not in tex_index:
@@ -715,6 +779,8 @@ def make(p, raw, spot, box, faces):
         tris.append((tex_index[key], tuple(to_room(*q[:3]) + tuple(q[3:]) for q in pts)))
         if fl == TERRAIN:
             ground.add(len(tris) - 1)
+        elif fl == LIQUID:
+            water_z.add(round(tris[-1][1][0][2], 3))
     # the height grid: the highest floor at each cell up to FLOOR_UP yd over the boss' (else a roof or a balcony),
     # the ground's at any height
     cell = 1 if max(W_, H_) <= 180 else 2
@@ -763,7 +829,7 @@ def make(p, raw, spot, box, faces):
     rows = ["".join(" " if h is None else G.ALPHA62[max(0, min(61, int(round((h - base) / step))))] for h in row)
             for row in hs]
     # the mesh: BSP order, long pieces cut, quad pairs (gen_trainer_heights' format version 2)
-    nodes = G.build_bsp(tris, random.Random(7))
+    nodes = G.build_bsp(tris, random.Random(7), [(0.0, 0.0, 1.0, -z) for z in sorted(water_z)])
     verts, vert_index, mtris, out_nodes = [], {}, [], []
 
     def vert(q):
@@ -778,7 +844,7 @@ def make(p, raw, spot, box, faces):
     def emit(pa, pb, pc, tex):
         edges = [(math.dist(pa[:3], pb[:3]), 0), (math.dist(pb[:3], pc[:3]), 1), (math.dist(pc[:3], pa[:3]), 2)]
         longest, which = max(edges)
-        if longest > MAX_EDGE:
+        if longest > MAX_EDGE and textures[tex - 1] != WATER_TEX:      # (water: one big flat piece stays one)
             pts = [pa, pb, pc]
             a, b_, c_ = pts[which], pts[(which + 1) % 3], pts[(which + 2) % 3]
             m = tuple((a[i] + b_[i]) / 2 for i in range(6))
@@ -808,6 +874,7 @@ def make(p, raw, spot, box, faces):
     rx, ry, _ = to_room(sx, sy, zb)
     return dict(p, w=W_, h=H_, cell=cell, base=base, step=step, rows=rows, textures=textures, blends=blends,
                 verts=verts, tris=mtris, nodes=out_nodes, pair=pair, fit=fit, roombox=box, zb=zb,
+                walk=walk_tables(coll, box, zb, to_room),
                 bossSpot=(rx, ry), faces=len(faces), raw=len(raw), view=view)
 
 
@@ -822,6 +889,9 @@ def payload(r):
              " ".join("%s %s %s %s %d %d %d %d" % (num5(pl[0]), num5(pl[1]), num5(pl[2]), num3(pl[3]), f, b, s, n)
                       for pl, f, b, s, n in r["nodes"]),
              " ".join(str(m) for m in r["pair"])]
+    wv, wt, ws, wsw = r.get("walk") or ([], [], [], [])
+    parts += [" ".join("%s %s %s" % (num2(v[0]), num2(v[1]), num2(v[2])) for v in wv)]
+    parts += [" ".join("%d %d %d" % (a + 1, b + 1, c + 1) for a, b, c in faces) for faces in (wt, ws, wsw)]
     return "|".join(parts).encode("ascii")
 
 
@@ -869,7 +939,91 @@ def display_scales(portraits):
     return out
 
 
-def write_index(entries, scales=None):
+def display_parts(portraits):
+    """display id -> [(x0, y0, z0, x1, y1, z1)] in model units: the creature as the client shows it standing (its
+    Stand animation's first frame, m2_tools.py) cut into up to 6 boxes where it has volume (k-means over the
+    occupied cells of an 8-cell grid over its longest side; one box under 4 yd), for the 3D view's occlusion: each
+    box is drawn over by the room pieces in front of it (UI/StrategyMap3D.lua). Models: CreatureDisplayInfo.ModelID
+    -> CreatureModelData.FileDataID (wago.tools, build 2.5.6.69795); cached in dev/art/rooms/parts.json (the .m2
+    files are not kept)."""
+    import m2_tools
+    cache_path = os.path.join(CACHE, "parts.json")
+    cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
+    cdi = {int(r["ID"]): r for r in csv.DictReader(open(_get(
+        "https://wago.tools/db2/CreatureDisplayInfo/csv?build=2.5.6.69795", os.path.join(CACHE, "CreatureDisplayInfo.csv")),
+        encoding="utf-8"))}
+    cmd = {int(r["ID"]): r for r in csv.DictReader(open(_get(
+        "https://wago.tools/db2/CreatureModelData/csv?build=2.5.6.69795", os.path.join(CACHE, "CreatureModelData.csv")),
+        encoding="utf-8"))}
+    out = {}
+    for d in sorted({int(c["d"]) for cs in portraits.values() for c in cs}):
+        if str(d) in cache:
+            out[d] = cache[str(d)]
+            continue
+        row = cdi.get(d)
+        model = row and cmd.get(int(row["ModelID"]))
+        if not model:
+            continue
+        scale = float(row["CreatureModelScale"] or 1) or 1.0
+        geo = [float(model["GeoBox_%d" % i]) for i in range(6)]
+        parts = [geo]
+        fid = int(model["FileDataID"] or 0)
+        path = None
+        try:
+            if fid:
+                path = casc(fid)
+                vs, _ = m2_tools.standing_vertices(open(path, "rb").read())
+                if vs:
+                    parts = split_parts(vs, scale)
+        except Exception as ex:                       # (a model that cannot be read keeps its GeoBox)
+            print("display %d: %s" % (d, ex))
+        finally:
+            if path and path.startswith(os.path.abspath(CACHE)) or (path and CACHE in path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        out[d] = cache[str(d)] = [[round(v, 2) for v in box] for box in parts]
+    json.dump(cache, open(cache_path, "w"))
+    return out
+
+
+def split_parts(vs, scale):
+    """Standing vertices -> up to 6 boxes (model units) where the model has volume."""
+    xs, ys, zs = zip(*vs)
+    lo = (min(xs), min(ys), min(zs))
+    hi = (max(xs), max(ys), max(zs))
+    size = max(hi[i] - lo[i] for i in range(3))
+    k = 1 if size * scale < 4 else min(6, int(math.ceil(size * scale / 5)))
+    if k == 1:
+        return [list(lo) + list(hi)]
+    cell = size / 8.0
+    cells = {}
+    for v in vs:
+        key = tuple(int((v[i] - lo[i]) / cell) for i in range(3))
+        cells.setdefault(key, []).append(v)
+    pts = [tuple(lo[i] + (key[i] + 0.5) * cell for i in range(3)) for key in cells]
+    keys = list(cells)
+    # farthest-point start, then Lloyd's steps
+    cent = [pts[0]]
+    while len(cent) < min(k, len(pts)):
+        cent.append(max(pts, key=lambda q: min(sum((q[i] - c[i]) ** 2 for i in range(3)) for c in cent)))
+    for _ in range(25):
+        groups = [[] for _ in cent]
+        for q in pts:
+            groups[min(range(len(cent)), key=lambda j: sum((q[i] - cent[j][i]) ** 2 for i in range(3)))].append(q)
+        cent = [tuple(sum(q[i] for q in g) / len(g) for i in range(3)) if g else cent[j] for j, g in enumerate(groups)]
+    boxes = []
+    for j in range(len(cent)):
+        members = [v for key, q in zip(keys, pts) if min(range(len(cent)), key=lambda c: sum(
+            (q[i] - cent[c][i]) ** 2 for i in range(3))) == j for v in cells[key]]
+        if members:
+            mx, my, mz = zip(*members)
+            boxes.append([min(mx), min(my), min(mz), max(mx), max(my), max(mz)])
+    return boxes
+
+
+def write_index(entries, scales=None, parts=None):
     rel = "Render3D/Rooms/Index.lua"
     lines = [
         'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel),
@@ -895,6 +1049,13 @@ def write_index(entries, scales=None):
     items = sorted((scales or {}).items())
     for i in range(0, len(items), 8):
         lines.append("    " + " ".join("[%d] = %s," % (d, G.num(s)) for d, s in items[i:i + 8]))
+    lines.append("}")
+    lines.append("-- Every creature on a boss portrait as it stands (model units, x forward, y left, z up from its feet; times the")
+    lines.append("-- scale above): up to 6 boxes x0, y0, z0, x1, y1, z1 in a row (gen_rooms.py display_parts), what the 3D view")
+    lines.append("-- has the room drawn over where it lies in front of them.")
+    lines.append("ns.Render3D.DISPLAY_PARTS = {")
+    for d, boxes in sorted((parts or {}).items()):
+        lines.append("    [%d] = { %s }," % (d, ", ".join(G.num(v) for box in boxes for v in box)))
     lines.append("}")
     path = os.path.join(OUT_DIR, "Index.lua")
     tmp = G.write_temp(path, "\n".join(lines) + "\n")
@@ -961,7 +1122,7 @@ def main(argv):
         e = json.load(open(os.path.join(CACHE, "index", f)))
         if os.path.exists(os.path.join(OUT_DIR, e["floor"] + ".lua")):
             entries.append(e)
-    write_index(entries, display_scales(portraits))
+    write_index(entries, display_scales(portraits), display_parts(portraits))
     write_toc(entries)
     print("wrote the index: %d rooms" % len(entries))
 

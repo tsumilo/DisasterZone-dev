@@ -162,19 +162,30 @@ def split_tri(tri, plane):
     return fan(front), fan(back)
 
 
-def build_bsp(tris, rng):
+def build_bsp(tris, rng, first=()):
     """tris: [(tex, (v0, v1, v2))] -> nodes [{plane, front, back, tris}] (children are node indices, 0 = none).
     Painting a node's far side, then its own triangles, then its near side gives an exact back-to-front order
-    from any viewpoint."""
+    from any viewpoint. first: planes (a, b, c, d) to split by before any other, in order, where they hold or cut
+    anything (gen_rooms.py: the water's levels, so the big flat water stays whole instead of being cut by every
+    wall that stands in it)."""
     nodes = [None]                                    # 1-based, like Lua
-    work = [(tris, None, None)]                       # (triangles, parent node index, 'front' / 'back')
+    work = [(tris, None, None, 0)]                    # (triangles, parent node index, 'front' / 'back', next first)
     while work:
-        items, parent, side = work.pop()
+        items, parent, side, fi = work.pop()
         if not items:
             continue
-        # the splitter: of a few candidates the one that cuts the fewest triangles and balances best
+        # the splitter: a plane from `first` that holds or cuts something here, else of a few candidates the one
+        # that cuts the fewest triangles and balances best
         best, best_score = None, None
-        cands = items if len(items) <= 14 else rng.sample(items, 14)
+        while fi < len(first) and best is None:
+            pl = first[fi]
+            fi += 1
+            for _, tri in items:
+                d = [pl[0] * p[0] + pl[1] * p[1] + pl[2] * p[2] + pl[3] for p in tri]
+                if min(d) < EPS and max(d) > -EPS:
+                    best = pl
+                    break
+        cands = [] if best else (items if len(items) <= 14 else rng.sample(items, 14))
         sample = items if len(items) <= 400 else rng.sample(items, 400)
         for _, tri in cands:
             pl = plane_of(tri)
@@ -214,8 +225,8 @@ def build_bsp(tris, rng):
                 f, b = split_tri(tri, best)
                 fr += [(tex, t) for t in f if plane_of(t)]
                 bk += [(tex, t) for t in b if plane_of(t)]
-        work.append((fr, me, "front"))
-        work.append((bk, me, "back"))
+        work.append((fr, me, "front", fi))
+        work.append((bk, me, "back", fi))
     return nodes
 
 

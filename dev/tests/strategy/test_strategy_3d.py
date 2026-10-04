@@ -2,7 +2,8 @@
 
 Covers: the rooms and their map fits (a board point and a room point are one spot: the starters' bosses land where
 the server spawns them, on the room's own floor); every starter's room unpacking (only the last two used stay
-unpacked); the 2D / 3D switch (only for a boss with a room, greyed on a page
+unpacked); walking in the room as your own character (keys, mouse, steps, walls, a jump, the camera); the 2D / 3D
+switch (only for a boss with a room, greyed on a page
 drawn on another map, hidden without the 3D files, which only a client restart loads); the map tilting up into the
 room and back; the room drawn by the board's own renderer (not the trainer's); the boss portrait as its model with
 its name over it; drawing a zone on the floor with the circle tool, moving a drawing on the floor, picking what is
@@ -32,7 +33,8 @@ W = "_G.DisasterZoneStrategyBoard"
 # The tests' room points are in a frame of their own round the boss, the Raid Trainer's old rooms' (Teron's hall:
 # Teron stands at 29.9, 85.2 in his alcove, the hall 6.2 yd over it, its entrance near y = 5; Vashj in the middle at
 # 105, 105), moved onto the generated room by its boss spot (T3.ox, T3.oy).
-BASE = {TERON: (29.9, 85.2), VASHJ: (105.0, 105.0)}
+LURKER = "SerpentshrineCavern:Lurker"
+BASE = {TERON: (29.9, 85.2), VASHJ: (105.0, 105.0), LURKER: (0.0, 0.0)}
 
 HELPERS = r"""
 T3 = { down = {} }
@@ -426,6 +428,180 @@ def a_drawing_moved_in_the_room_looks_through_what_stands_high_over_its_floor():
     w.tick(0.1)
     xy = bob.eval_py("return T3.room(T3.elems()[#T3.elems()])")
     assert math.hypot(xy[0] - 40, xy[1] - 20) < 1.5, xy
+    no_errors(w)
+
+
+def walk_key(bob, key, down):
+    bob.eval("local f = T3.v().keys f:GetScript('%s')(f, '%s')" % ("OnKeyDown" if down else "OnKeyUp", key))
+
+
+WALKER = ("local k = T3.v().walk.k return { x = k.x - T3.ox, y = k.y - T3.oy, z = k.z, f = k.facing, "
+          "falling = k.falling or false, swimming = k.swimming }")
+
+
+@case
+def walking_in_the_room_runs_down_the_steps_stops_at_walls_and_jumps():
+    w, c, bob = boot()
+    go3d(w, bob)
+    tick(w, 0.3)
+    # dropped in where the camera looks (the hall's entrance), facing Teron (north)
+    bob.eval("local o = T3.v().orb o.x, o.y = 30 + T3.ox, 20 + T3.oy")
+    bob.eval("T3.v().walkBtn:Click()")
+    w.tick(0.05)
+    k = bob.eval_py(WALKER)
+    assert math.hypot(k["x"] - 30, k["y"] - 20) < 0.01 and abs(k["z"] - 6.2) < 0.6, k
+    assert abs(k["f"] - math.pi / 2) < 0.05, k
+    assert bob.eval_py("return T3.v().walkBtn.active") is True
+    # W: 7 yd a second, the camera behind you
+    walk_key(bob, "W", True)
+    tick(w, 1.0)
+    k = bob.eval_py(WALKER)
+    assert abs(k["y"] - 27) < 0.3 and abs(k["x"] - 30) < 0.2, k
+    assert bob.eval_py("return T3.v().walk.actor.anim") == 5                     # (running)
+    walk_key(bob, "W", False)
+    w.tick(0.05)
+    assert bob.eval_py("return T3.v().walk.actor.anim") == 0                     # (standing once stopped)
+    walk_key(bob, "W", True)
+    o = bob.eval_py("return T3.orb()")
+    assert math.hypot(o["x"] - k["x"], o["y"] - k["y"]) < 0.01 and abs(o["heading"] - k["f"]) < 1e-6, o
+    # on north: down the ramp into the alcove (Teron's floor, the room's 0), and the alcove's back wall stops you
+    tick(w, 11.05)
+    walk_key(bob, "W", False)
+    k = bob.eval_py(WALKER)
+    assert abs(k["z"]) < 0.3 and 88 < k["y"] < 95 and not k["falling"], k
+    y = k["y"]
+    walk_key(bob, "W", True)
+    tick(w, 1.0)
+    walk_key(bob, "W", False)
+    assert abs(bob.eval_py(WALKER)["y"] - y) < 0.05
+    # Space: up about 1.6 yd and down again
+    walk_key(bob, "SPACE", True)
+    walk_key(bob, "SPACE", False)
+    top = 0
+    for _ in range(20):
+        w.tick(0.05)
+        top = max(top, bob.eval_py("return T3.v().walk.k.z"))
+    assert 1.3 < top < 1.8, top
+    assert abs(bob.eval_py(WALKER)["z"]) < 0.05
+    # only the walking keys stay with the view, the rest go on to the game
+    assert bob.eval("local f = T3.v().keys return f:GetPropagateKeyboardInput()") is False
+    walk_key(bob, "M", True)
+    assert bob.eval("local f = T3.v().keys return f:GetPropagateKeyboardInput()") is True
+    # Escape: the free camera again, over where you were
+    walk_key(bob, "ESCAPE", True)
+    assert bob.eval_py("return T3.v():IsWalking()") is False
+    o = bob.eval_py("return T3.orb()")
+    assert math.hypot(o["x"] - 29.9, o["y"] - y) < 0.5 and o["dist"] >= 12, o
+    no_errors(w)
+
+
+@case
+def walking_starts_on_my_spot_and_the_mouse_turns_and_swings_the_camera():
+    w, c, bob = boot()
+    bob.eval("local p = T3.page() p.k = { { id = 'tk', n = 'Tanks', r = 1, c = { { t = 'p', n = 'Tank' } } } } "
+             "ns.StrategyBoard:MarkDirty(true)")
+    go3d(w, bob)
+    bob.eval("local p = T3.page() local sx, sy = T3.toBoard(30, 60) "
+             "table.insert(p.e, { t = 's', x = math.floor(sx + 0.5), y = math.floor(sy + 0.5), r = 'tk.1.1' }) "
+             "T3.cv().opts.mySlots = function() return { ['tk.1.1'] = true } end T3.cv():Render()")
+    tick(w, 0.2)
+    bob.eval("T3.v():StartWalk()")
+    k = bob.eval_py(WALKER)
+    assert math.hypot(k["x"] - 30, k["y"] - 60) < 1, k
+    # right-drag turns you; left-drag swings the camera round you without turning you
+    f0 = k["f"]
+    bob.eval("T3.cursor(300, 200) T3.press('RightButton')")
+    bob.eval("T3.cursor(350, 200)")
+    w.tick(0.05)
+    bob.eval("T3.release('RightButton')")
+    f1 = bob.eval_py(WALKER)["f"]
+    assert abs(f1 - (f0 - 50 * 0.008)) < 1e-6, (f0, f1)
+    bob.eval("T3.cursor(300, 200) T3.press('LeftButton')")
+    bob.eval("T3.cursor(250, 200)")
+    w.tick(0.05)
+    bob.eval("T3.release('LeftButton')")
+    assert abs(bob.eval_py(WALKER)["f"] - f1) < 1e-6
+    assert abs(bob.eval_py("return T3.v().walk.yawOff") - 50 * 0.008) < 1e-6
+    # running brings the camera back behind you
+    walk_key(bob, "W", True)
+    tick(w, 1.5)
+    walk_key(bob, "W", False)
+    assert abs(bob.eval_py("return T3.v().walk.yawOff")) < 0.02
+    # the wheel zooms the walking camera; nothing is drawn while walking
+    d0 = bob.eval_py("return T3.v().walk.dist")
+    bob.eval("T3.cv():OnWheel(1)")
+    assert bob.eval_py("return T3.v().walk.dist") < d0
+    n0 = bob.eval("return #T3.elems()")
+    bob.eval("T3.cv():SetTool('circle') T3.cursor(300, 150) T3.press('LeftButton')")
+    bob.eval("T3.cursor(330, 150) T3.cv():OnDragUpdate() T3.release('LeftButton')")
+    assert bob.eval("return #T3.elems()") == n0
+    # leaving the room (back to the map) stops walking
+    bob.eval("ns.StrategyBoard:Set3D(false)")
+    tick(w, 0.8)
+    assert bob.eval_py("return T3.v():IsWalking()") is False
+    no_errors(w)
+
+
+@case
+def dragging_the_walk_button_into_the_room_drops_you_where_it_is_let_go():
+    w, c, bob = boot()
+    go3d(w, bob)
+    tick(w, 0.3)
+    btn = "T3.v().walkBtn"
+    bob.eval("%s:GetScript('OnDragStart')(%s)" % (btn, btn))
+    assert bob.eval("return T3.v().peg:IsShown()") is True
+    # let go over the room at (40, 30): you stand there (the mock's mouse is over nothing unless told)
+    bob.eval("T3.v().frame.IsMouseOver = function() return true end T3.at(40, 30)")
+    bob.eval("%s:GetScript('OnDragStop')(%s)" % (btn, btn))
+    assert bob.eval("return T3.v().peg:IsShown()") is False
+    k = bob.eval_py(WALKER)
+    assert math.hypot(k["x"] - 40, k["y"] - 30) < 1, k
+    # dragged again, onto the small map: that board point
+    bob.eval("%s:GetScript('OnDragStart')(%s)" % (btn, btn))
+    bob.eval("T3.v().frame.IsMouseOver = function() return false end "
+             "local i = T3.v().inset i.frame.IsMouseOver = function() return true end "
+             "local bx, by = T3.toBoard(20, 50) i.Cursor = function() return bx, by end")
+    bob.eval("%s:GetScript('OnDragStop')(%s)" % (btn, btn))
+    k = bob.eval_py(WALKER)
+    assert math.hypot(k["x"] - 20, k["y"] - 50) < 1, k
+    # let go over nothing: still where you were
+    bob.eval("%s:GetScript('OnDragStart')(%s)" % (btn, btn))
+    bob.eval("T3.v().inset.frame.IsMouseOver = function() return false end")
+    bob.eval("%s:GetScript('OnDragStop')(%s)" % (btn, btn))
+    k = bob.eval_py(WALKER)
+    assert math.hypot(k["x"] - 20, k["y"] - 50) < 1, k
+    # you stand in the view's second scene, over the bosses' copies
+    w.tick(0.05)
+    assert bob.eval_py("return T3.v().view.scene2 ~= nil and T3.v().occ[T3.v().nOcc].layer") == 2
+    no_errors(w)
+
+
+@case
+def a_big_model_is_hidden_part_by_part_and_you_swim_in_its_pool():
+    w, c, bob = boot(LURKER)
+    go3d(w, bob)
+    tick(w, 1.0)
+    # the Lurker as he stands (30 yd across, his tail 40 yd down in the water): one occluder per part of him
+    parts = bob.eval_py("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
+                        "local d = T3.v():Geo(e).display return #ns.Render3D.DISPLAY_PARTS[d] / 6")
+    assert parts == 6, parts
+    bob.eval("local o = T3.v().orb o.x, o.y, o.dist, o.heading, o.pitch = T3.ox, T3.oy - 3, 30, math.pi / 2, 0.55 "
+             "T3.v():Draw()")
+    tick(w, 0.2)
+    assert bob.eval_py("return T3.v().nOcc") == 6
+    st = bob.eval_py("return T3.v().R.Stats()")
+    assert st["copyActors"] >= 4 and st["copyDropped"] == 0 and st["copies"] > 0, st
+    # dropped in on him: in the pool, swimming at its surface
+    bob.eval("local o = T3.v().orb o.x, o.y = T3.ox + 20, T3.oy + 30")
+    bob.eval("T3.v():StartWalk()")
+    k = bob.eval_py(WALKER)
+    assert k["swimming"] is True and abs(k["z"]) < 0.5, k
+    assert bob.eval_py("return T3.v().walk.actor.anim") == 41                    # (swimming in place)
+    walk_key(bob, "W", True)
+    tick(w, 1.0)
+    walk_key(bob, "W", False)
+    k2 = bob.eval_py(WALKER)
+    assert 3.5 < math.hypot(k2["x"] - k["x"], k2["y"] - k["y"]) < 5.5, (k, k2)     # (4.7 yd a second)
     no_errors(w)
 
 

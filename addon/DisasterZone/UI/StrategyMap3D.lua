@@ -35,7 +35,8 @@ local function UI() return ns.UI end
 -- room's cluster frames take room0 .. scene - 1 (more than the trainer's: Gorefiend's Vigil needs over 200), the
 -- copies over the models copy0 .. copy0 + 31, the plates plates + 1 .. plates + CHIP_LEVELS (the nearest highest);
 -- the camera buttons and the small map sit over all of it.
-local LV = { floor = 1, lines = 2, room0 = 3, scene = 330, copy0 = 331, plates = 370, hud = 560 }
+local LV = { floor = 1, lines = 2, room0 = 3, scene = 330, copy0 = 331, scene2 = 370, copy2 = 371, plates = 373,
+             hud = 560 }
 local CHIP_LEVELS = 180
 
 local EYE = 1.9                       -- yd: the eye over the floor, all the way in
@@ -44,6 +45,16 @@ local DIST_MIN, DIST_NEAR = 0.3, 40   -- yd: all the way in; a drawing looked at
 local FOV = 1.1                       -- the scene's field of view (Render3D/View.lua's)
 local TILT, MOVE = 0.5, 0.35          -- s: the map tilting into the room (and back); the camera moving to a view
 local NORTH = pi / 2                  -- the heading that shows the room as the map does (north up)
+-- Walking in the room (your own character): the button's icon (Sprint), the hint, the keys (the client's defaults),
+-- the character's animations, how deep a swimmer's feet hang under the surface and where over the feet the camera
+-- looks (the client's 2.2 yd).
+local WALK_ICON = "Interface\\Icons\\Ability_Rogue_Sprint"
+local WALK_HINT = "Walking: WASD / arrows move, Q / E step aside, Space jumps, right-drag turns you, left-drag looks "
+    .. "round, the wheel zooms, Esc stops."
+local WALK_KEYS = { W = "fwd", UP = "fwd", S = "back", DOWN = "back", A = "left", LEFT = "left", D = "right",
+                    RIGHT = "right", Q = "strafeL", E = "strafeR", SPACE = "jump" }
+local WANIM = { stand = 0, run = 5, back = 13, fall = 40, swimIdle = 41, swim = 42 }
+local SWIM_SINK, WALK_EYE = 1.5, 2.2
 
 -- Floor marks (yd over the floor, so they never sink into it), posts (yd)
 local LIFT, LIFT_HATCH, LIFT_SEL = 0.08, 0.06, 0.11
@@ -121,8 +132,27 @@ end
 
 local function Clamp(v, lo, hi) return max(lo, min(hi, v)) end
 
--- The camera as self.orb says, handed to the scene.
+-- The camera as self.orb says, handed to the scene. Walking: behind and over your character, looking where it
+-- faces (and wherever a left-drag swung it), pulled in where the room is in the way (Room.CameraDistance) and easing
+-- back out at 6 yd a second; self.orb follows it (the compass, the small map).
 function V:Place()
+    local wk = self.walk
+    if wk then
+        local k = wk.k
+        local pz = k.z + WALK_EYE - (k.swimming and SWIM_SINK or 0)
+        local heading = k.facing + wk.yawOff
+        self.view:Orbit(k.x, k.y, pz, heading, wk.pitch, wk.dist)
+        local R = self.R
+        local allowed = (R and R.CameraDistance) and R.CameraDistance(k.x, k.y, pz, self.cam, wk.dist) or wk.dist
+        local now = GetTime()
+        local dt = wk.camT and min(0.25, now - wk.camT) or 0
+        wk.camT = now
+        if not wk.cur or allowed < wk.cur then wk.cur = allowed else wk.cur = min(allowed, wk.cur + 6 * dt) end
+        if wk.cur < wk.dist then self.view:Orbit(k.x, k.y, pz, heading, wk.pitch, wk.cur) end
+        local o = self.orb
+        o.x, o.y, o.heading, o.pitch, o.dist = k.x, k.y, heading, wk.pitch, max(wk.cur, DIST_MIN)
+        return
+    end
     local o = self.orb
     self.view:Orbit(o.x, o.y, self:Ground(o.x, o.y) + Lift(o.dist), o.heading, o.pitch, o.dist)
 end
@@ -275,6 +305,7 @@ end
 
 -- Opens the view on the canvas' page (animate: the 2D map tilts up into the room). -> false without a room.
 function V:Open(animate)
+    if self.walk then self:StopWalk() end
     local cv = self.canvas
     local room = M3:RoomFor(cv.opts.bossRef and cv.opts.bossRef(), cv.page)
     if not room then return false end
@@ -305,6 +336,7 @@ end
 
 -- Leaves (animate: back down to the map seen from above first; done() then).
 function V:Close(animate, done)
+    if self.walk then self:StopWalk() end
     local function finish()
         self.on, self.anim, self.drag3 = false, nil, nil
         self.frame:Hide()
@@ -611,15 +643,43 @@ function V:DrawModels()
                     end
                 end
                 local bb = a.bb
-                -- its height (the label goes over it): the model's name point, else its box
-                local h = g.nameZ and (g.nameZ * s) or (bb and bb.z1 > 0 and bb.z1 * s) or nil
+                -- the creature as it stands (Render3D/Rooms/Index.lua DISPLAY_PARTS: up to 6 boxes, model units):
+                -- each box an occluder of its own, so the room is drawn over the part of a big model it lies in
+                -- front of (the Lurker: 30 yd across, his tail 40 yd down in the water), not judged at one plane
+                -- through its middle; without it the client's box (one occluder)
+                local parts = R3().DISPLAY_PARTS and R3().DISPLAY_PARTS[g.display]
+                local top = parts and 0 or (bb and bb.z1 or 0)
+                for k = 6, parts and #parts or 0, 6 do top = max(top, parts[k]) end
+                -- its height (the label goes over it): the model's name point, else its top
+                local h = g.nameZ and (g.nameZ * s) or (top > 0 and top * s) or nil
                 g.h = (h or 2.5 * s) + 0.4
-                local under = bb and -bb.z0 * s or 0
-                n = n + 1
-                local o = occ[n] or {}
-                occ[n] = o
-                o.id, o.x, o.y, o.z, o.h = e, g.x, g.y, g.z - under, g.h - 0.4 + under
-                o.w, o.rb, o.top, o.prio = max(1.2, 0.8 * s), max(0.5 * s, bb and bb.r * s or 0), g.h + under, 1
+                if parts then
+                    a.partIds = a.partIds or {}
+                    local cf, sf = cos(face), sin(face)
+                    for k = 1, #parts - 5, 6 do
+                        local x0, y0, z0, x1, y1, z1 = parts[k], parts[k + 1], parts[k + 2], parts[k + 3], parts[k + 4],
+                            parts[k + 5]
+                        local cx, cy, hx, hy = (x0 + x1) / 2 * s, (y0 + y1) / 2 * s, (x1 - x0) / 2 * s, (y1 - y0) / 2 * s
+                        local id = a.partIds[k]
+                        if not id then
+                            id = {}
+                            a.partIds[k] = id
+                        end
+                        n = n + 1
+                        local o = occ[n] or {}
+                        occ[n] = o
+                        o.id, o.x, o.y = id, g.x + cf * cx - sf * cy, g.y + sf * cx + cf * cy
+                        o.z, o.h = g.z + z0 * s, (z1 - z0) * s
+                        o.w, o.rb, o.top, o.prio, o.group = 0, sqrt(hx * hx + hy * hy), (z1 - z0) * s, 1, e
+                    end
+                else
+                    local under = bb and -bb.z0 * s or 0
+                    n = n + 1
+                    local o = occ[n] or {}
+                    occ[n] = o
+                    o.id, o.x, o.y, o.z, o.h, o.group = e, g.x, g.y, g.z - under, g.h - 0.4 + under, nil
+                    o.w, o.rb, o.top, o.prio = max(1.2, 0.8 * s), max(0.5 * s, bb and bb.r * s or 0), g.h + under, 1
+                end
             end
         end
     end
@@ -629,6 +689,16 @@ function V:DrawModels()
             self.actors[e] = nil
             self.actorPool[#self.actorPool + 1] = a
         end
+    end
+    -- your character, walking: hidden where the room is in front of it, first in line for the copies
+    local wk = self.walk
+    if wk then
+        local k = wk.k
+        n = n + 1
+        local o = occ[n] or {}
+        occ[n] = o
+        o.id, o.x, o.y, o.z, o.h, o.group = wk, k.x, k.y, k.z - (k.swimming and SWIM_SINK or 0), 2.4, nil
+        o.w, o.rb, o.top, o.prio, o.layer = 1.2, 0.6, 2.6, 2, self.view.scene2 and 2 or nil
     end
     self.nOcc = n
     return occ, n
@@ -1110,7 +1180,7 @@ end
 
 -- The editor icons (UI.ICON_ATLAS): 27 turn left, 28 turn right, 29 from above, 30 the whole room, 31 the small map,
 -- 15 the eye.
-local HUD_ICONS = { rotL = 27, rotR = 28, top = 29, home = 30, map = 31, eye = 15 }
+local HUD_ICONS = { rotL = 27, rotR = 28, top = 29, home = 30, map = 31, eye = 15, walk = 15 }
 local INSET_W = 200
 local EYE_HINT = "Standing here at eye height: right-drag looks around, the wheel steps back out."
 
@@ -1126,6 +1196,36 @@ function V:CreateHud()
         b.key = key
         return b
     end
+    self.walkBtn = button("walk", "Walk in the room", "Drag this into the room (or onto the small map) and let go "
+        .. "where you want to start, or click it: on your spot on this page, else where the camera looks. Then walk "
+        .. "round as in the game: WASD or the arrows, Space jumps, the mouse turns the camera. Esc or this button "
+        .. "again: back to the free camera.", function() self:ToggleWalk() end)
+    self.walkBtn.icon:SetTexture(WALK_ICON)
+    self.walkBtn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- dragged out (like a map's street-view figure): your character hangs under the mouse until it is let go
+    self.walkBtn:RegisterForDrag("LeftButton")
+    self.walkBtn:SetScript("OnDragStart", function() self:BeginPeg() end)
+    self.walkBtn:SetScript("OnDragStop", function() self:DropPeg() end)
+    local peg = CreateFrame("Frame", nil, hud)
+    peg:SetSize(28, 28)
+    peg:SetFrameLevel(hud:GetFrameLevel() + 30)
+    peg.icon = peg:CreateTexture(nil, "OVERLAY")
+    peg.icon:SetAllPoints()
+    peg.icon:SetTexture(WALK_ICON)
+    peg.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    UI():AddEdges(peg)
+    UI():SetEdgeColor(peg, GOLD[1], GOLD[2], GOLD[3], 1)
+    peg:Hide()
+    self.peg = peg
+    -- the keyboard while walking: the movement keys stay here, every other key goes on to the game
+    local keys = CreateFrame("Frame", nil, hud)
+    keys:EnableKeyboard(false)
+    keys:SetScript("OnKeyDown", function(f, key)
+        local used = self:WalkKey(key, true)
+        if not InCombatLockdown() and f.SetPropagateKeyboardInput then f:SetPropagateKeyboardInput(not used) end
+    end)
+    keys:SetScript("OnKeyUp", function(_, key) self:WalkKey(key, false) end)
+    self.keys = keys
     self.mapBtn = button("map", "Small map", "Shows or hides the 2D map in the corner: where the camera is and what it "
         .. "sees. Click it to look there.", function() self:ToggleInset() end)
     self.eyeBtn = button("eye", "My spot", "Stand where you are on this page, at eye height, looking at the boss. "
@@ -1303,8 +1403,10 @@ function V:DrawHud()
     else
         comp:Hide()
     end
-    self:ShowHint(o.dist < 3 and EYE_HINT or self.baseHint)
-    self.eyeBtn:SetShown(#self:MySpots() > 0)
+    self:ShowHint(self.walk and WALK_HINT or (o.dist < 3 and EYE_HINT or self.baseHint))
+    self.eyeBtn:SetShown(#self:MySpots() > 0 and not self.walk)
+    self.walkBtn:SetActive(self.walk ~= nil)
+    self.walkBtn:SetShown(self.walk ~= nil or R3().Ground(self.room) ~= nil)
     self.topBtn:SetActive(o.pitch >= PITCH_TOP - 0.05)
     self.mapBtn:SetActive(self.insetOn)
     -- the buttons close up when one is hidden
@@ -1390,6 +1492,13 @@ function V:OnUpdate(elapsed)
                 self.anim = nil
                 self:ClampOrb(o)
                 moved = true
+            elseif (d.kind == "look" or d.kind == "swing") and self.walk then
+                -- walking: the right button turns you (and the camera with you), the left one swings the camera
+                -- round you; both tilt it
+                local wk = self.walk
+                if d.kind == "look" then wk.k.facing = d.facing - dx * 0.008 else wk.yawOff = d.yawOff - dx * 0.008 end
+                wk.pitch = Clamp(d.pitch - dy * 0.006, -0.6, 1.45)
+                moved = true
             elseif d.kind == "pan" and d.moved then
                 -- the floor point under the mouse at the start stays under it
                 local sx, sy = self.view:Cursor()
@@ -1407,6 +1516,10 @@ function V:OnUpdate(elapsed)
     if self.insetDrag then
         if IsMouseButtonDown("LeftButton") then self:LookAtInset(false) else self.insetDrag = false end
     end
+    if self.walk and self:WalkStep(elapsed) then moved = true end
+    if self.pegging then
+        if IsMouseButtonDown("LeftButton") then self:MovePeg() else self:DropPeg() end
+    end
     -- models still loading: look again now and then (their height, for the labels and the copies)
     local loading = false
     for _, act in pairs(self.actors) do
@@ -1421,6 +1534,183 @@ function V:OnUpdate(elapsed)
 end
 
 ---------------------------------------------------------------------------
+-- Walking: your own character in the room (Render3D/Rooms.lua R3.NewWalker on the room's ground)
+---------------------------------------------------------------------------
+
+function V:IsWalking() return self.walk ~= nil end
+
+function V:ToggleWalk()
+    if self.walk then self:StopWalk() else self:StartWalk() end
+end
+
+-- Puts you in the room: at room point (x, y) when given, else on your spot on this page, else where the camera
+-- looks; facing the boss. -> true when walking.
+function V:StartWalk(atX, atY)
+    if self.walk then self:StopWalk() end
+    if not self.on or not self.room then return false end
+    if InCombatLockdown() then
+        ns:Print("Walking in the room waits until you leave combat.")
+        return false
+    end
+    local r3 = R3()
+    local ground, fl = r3.Ground(self.room), r3.Floor(self.room)
+    if not (ground and fl) then
+        ns:Print("This room has no ground to walk on yet.")
+        return false
+    end
+    local x, y = self.orb.x, self.orb.y
+    local spot = self:MySpots()[1]
+    if atX then
+        x, y = atX, atY
+    elseif spot then
+        local g = self:Geo(spot)
+        x, y = g.x, g.y
+    end
+    x, y = Clamp(x, 1, fl.w - 1), Clamp(y, 1, fl.h - 1)
+    local facing = self.orb.heading
+    local m = self:FirstModel()
+    if m and abs(m.x - x) + abs(m.y - y) > 1 then facing = atan2(m.y - y, m.x - x) end
+    local k = r3.NewWalker(ground, fl.w, fl.h, x, y, self:Ground(x, y) + 0.5, facing)
+    -- (your character stands in the view's second scene, over the bosses and their copies: what lies between you
+    -- and them is drawn over them, and only what lies in front of you over you)
+    local a = self.walkActor or self.view:NewActor(true)
+    self.walkActor = a
+    if a then
+        a.display, a.anim, a.bb, a.box = nil, WANIM.stand, nil, nil
+        pcall(a.ClearModel, a)
+        if a.SetModelByUnit then pcall(a.SetModelByUnit, a, "player") end
+        pcall(a.SetScale, a, 1)
+        pcall(a.SetShown, a, true)
+    end
+    self.walk = { k = k, actor = a, held = {}, dist = 7, pitch = 0.32, yawOff = 0 }
+    self.anim, self.drag3, self.canvas.drag = nil, nil, nil
+    self.keys:EnableKeyboard(true)
+    self:PlaceWalker()
+    self:Invalidate()
+    return true
+end
+
+-- The walk button dragged out: your character follows the mouse (OnUpdate) until DropPeg.
+function V:BeginPeg()
+    if not (self.on and R3().Ground(self.room)) then return end
+    self.pegging = true
+    self.peg:Show()
+    self:MovePeg()
+end
+
+function V:MovePeg()
+    local hud, es = self.hud, self.hud:GetEffectiveScale() or 1
+    local x, y = GetCursorPosition()
+    if es <= 0 then es = 1 end
+    self.peg:ClearAllPoints()
+    self.peg:SetPoint("CENTER", hud, "BOTTOMLEFT", x / es - (hud:GetLeft() or 0), y / es - (hud:GetBottom() or 0) + 16)
+end
+
+-- Let go: over the small map, at that board point; over the room, on the floor under the mouse; anywhere else
+-- nothing happens.
+function V:DropPeg()
+    if not self.pegging then return end
+    self.pegging = false
+    self.peg:Hide()
+    local x, y
+    local inset = self.inset
+    if self.insetOn and inset and inset.frame:IsShown() and inset.frame:IsMouseOver() then
+        local bx, by = inset:Cursor(true)
+        if bx then x, y = R3().BoardToRoom(self.room, self.canvas.page, bx, by) end
+    elseif self.frame:IsMouseOver() then
+        local sx, sy = self.view:Cursor()
+        x, y = self:FloorAt(sx, sy)
+    end
+    if x then self:StartWalk(x, y) end
+end
+
+-- Back to the free camera, where the walking camera was.
+function V:StopWalk()
+    local wk = self.walk
+    if not wk then return end
+    self.walk, self.drag3 = nil, nil
+    self.keys:EnableKeyboard(false)
+    local a = wk.actor
+    if a then
+        pcall(a.SetShown, a, false)
+        a.anim = nil
+    end
+    local k, o = wk.k, self.orb
+    o.x, o.y, o.heading = k.x, k.y, k.facing + wk.yawOff
+    o.pitch, o.dist = max(wk.pitch, PITCH_MIN), max(wk.dist, 12)
+    self:ClampOrb(o)
+    self:Invalidate()
+end
+
+-- A key while walking (down / up). -> true when it is one of the walking keys.
+function V:WalkKey(key, down)
+    local wk = self.walk
+    if not wk then return false end
+    if key == "ESCAPE" then
+        if down then self:StopWalk() end
+        return true
+    end
+    local act = WALK_KEYS[key]
+    if not act then return false end
+    if act == "jump" then
+        if down then wk.jump = true end
+        return true
+    end
+    wk.held[act] = down or nil
+    return true
+end
+
+-- Your character where the walker is: its feet (a swimmer's under the surface), its body's turn, its animation.
+function V:PlaceWalker()
+    local wk = self.walk
+    local a, k = wk.actor, wk.k
+    if not a then return end
+    pcall(a.SetPosition, a, k.x, self.view:SY(k.y), k.z - (k.swimming and SWIM_SINK or 0))
+    pcall(a.SetYaw, a, self.cam.mirror * (k.facing + k.bodyTurn))
+    local anim = (k.falling and WANIM.fall) or (k.swimming and (k.moving and WANIM.swim or WANIM.swimIdle))
+        or (k.moving and (k.backward and WANIM.back or WANIM.run)) or WANIM.stand
+    if a.anim ~= anim then
+        a.anim = anim
+        pcall(a.SetAnimation, a, anim)
+    end
+end
+
+-- One frame of walking: the keys held (with the right button down A / D step aside; both buttons run), steps of at
+-- most 1/30 s; the camera swings back behind you as you go. -> true when anything moved.
+function V:WalkStep(elapsed)
+    local wk = self.walk
+    local k, h = wk.k, wk.held
+    local fwd = (h.fwd and 1 or 0) - (h.back and 1 or 0)
+    local side = (h.right and 1 or 0) - (h.left and 1 or 0)
+    local strafe = (h.strafeR and 1 or 0) - (h.strafeL and 1 or 0)
+    local look = self.drag3 and self.drag3.kind == "look"
+    if look and IsMouseButtonDown("LeftButton") then fwd = 1 end
+    local turn = 0
+    if look then strafe = strafe + side else turn = -side end
+    strafe = Clamp(strafe, -1, 1)
+    local x, y, z, f = k.x, k.y, k.z, k.facing
+    local left = min(elapsed or 0, 0.25)
+    if wk.jump or fwd ~= 0 or strafe ~= 0 or turn ~= 0 or k.falling then
+        while left > 1e-6 do
+            local s = min(left, 1 / 30)
+            k:Step(s, fwd, strafe, turn, wk.jump)
+            wk.jump = nil
+            left = left - s
+        end
+    else
+        k.moving, k.backward, k.bodyTurn = false, false, 0      -- (stood still: no step ran to say so)
+    end
+    wk.jump = nil
+    if (k.moving or turn ~= 0) and wk.yawOff ~= 0 and not (self.drag3 and self.drag3.kind == "swing") then
+        wk.yawOff = wk.yawOff * max(0, 1 - 4 * (elapsed or 0))
+        if abs(wk.yawOff) < 0.01 then wk.yawOff = 0 end
+    end
+    local moved = k.x ~= x or k.y ~= y or k.z ~= z or k.facing ~= f or k.falling
+    self:PlaceWalker()
+    return moved or (wk.cur and wk.cur < wk.dist) or false
+end
+
+---------------------------------------------------------------------------
 -- Mouse (the canvas hands its events here first)
 ---------------------------------------------------------------------------
 
@@ -1430,6 +1720,18 @@ end
 function V:MouseDown(button, editable, tool)
     local cx, cy = GetCursorPosition()
     local o = self.orb
+    local wk = self.walk
+    if wk then
+        -- walking: the right button turns you to where the camera looks and on with the mouse; the left one swings
+        -- the camera round you (both: run)
+        if button == "RightButton" then
+            wk.k.facing, wk.yawOff = wk.k.facing + wk.yawOff, 0
+            self.drag3 = { kind = "look", button = button, cx = cx, cy = cy, facing = wk.k.facing, pitch = wk.pitch }
+        elseif button == "LeftButton" then
+            self.drag3 = { kind = "swing", button = button, cx = cx, cy = cy, yawOff = wk.yawOff, pitch = wk.pitch }
+        end
+        return true
+    end
     if button == "RightButton" then
         self.drag3 = { kind = "orbit", button = button, cx = cx, cy = cy, heading = o.heading, pitch = o.pitch }
         return true
@@ -1461,6 +1763,7 @@ function V:MouseUp(button)
     local d = self.drag3
     if d and d.button == button then
         self.drag3 = nil
+        if self.walk then return true end
         if d.kind == "orbit" and not d.moved then return "click" end
         return true
     end
@@ -1468,6 +1771,12 @@ function V:MouseUp(button)
 end
 
 function V:Wheel(delta)
+    local wk = self.walk
+    if wk then
+        wk.dist = Clamp(wk.dist * (delta > 0 and 0.82 or 1 / 0.82), 1.5, 40)
+        self:Invalidate()
+        return
+    end
     local o = Copy(self.anim and self.anim.to or self.orb)
     o.dist = o.dist * (delta > 0 and 0.82 or 1 / 0.82)
     if o.dist < DIST_MIN * 1.5 then o.dist = DIST_MIN end
