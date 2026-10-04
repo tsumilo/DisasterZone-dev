@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from rp_common import World, Client, gm_pick, K, DAY, now, team, create, signup, set_raid_leaders  # noqa: E402
-from _common import case, run_all, printed_since, strip_codes  # noqa: E402
+from _common import case, run_all, printed_since, strip_codes, install_helpers, tt_lines  # noqa: E402
 
 # name, class, rank
 ROSTER = [
@@ -72,6 +72,49 @@ def comp_data_covers_every_spec_and_buffs_follow_the_spec():
     assert lit == {"fortitude", "misery", "arcaneint", "impscorch"}, lit
     party = bob.eval_py("return ns.RaidComp:Coverage({ { key = 'A', c = 'PRIEST', sp = 3 } }, 'party')")
     assert [e["buff"]["key"] for e in party if e["providers"]] == ["vampirictouch"]
+    w.assert_no_errors()
+
+
+@case
+def shaman_air_totem_follows_the_group():
+    w, c = guild()
+    bob = c["Bob"]
+
+    def party(*members):
+        """members: (name, class, spec index or None) -> {lit party buff: its note ('' without one)}"""
+        ms = [{"key": K(n), "c": cl, "sp": (sp if sp is not None else False)} for n, cl, sp in members]
+        return bob.eval_py("local ms = ...; for _, m in ipairs(ms) do if m.sp == false then m.sp = nil end end;"
+                           " local out = {}; for _, e in ipairs(ns.RaidComp:Coverage(ms, 'party')) do"
+                           " if #e.providers > 0 then out[e.buff.key] = e.note or '' end end; return out", ms) or {}
+
+    def air(*members):
+        return sorted(k for k in party(*members) if k in ("windfury", "wrathofair"))
+
+    # mostly melee (a rogue and a warrior count without a spec: all their specs are melee): Windfury
+    melee = party(("Enh", "SHAMAN", 2), ("Rog", "ROGUE", None), ("War", "WARRIOR", None), ("Ret", "PALADIN", 3))
+    assert "windfury" in melee and "wrathofair" not in melee, melee
+    assert melee["windfury"] == "Picked for this group: mostly melee.", melee
+    assert air(("Resto", "SHAMAN", 3), ("Tank", "WARRIOR", 3), ("Cat", "DRUID", 2), ("Rog", "ROGUE", 3)) == ["windfury"]
+    # mostly casters, or healers: Wrath of Air
+    assert air(("Ele", "SHAMAN", 1), ("Mage", "MAGE", None), ("Lock", "WARLOCK", 3), ("Sp", "PRIEST", 3)) == ["wrathofair"]
+    heal = party(("Resto", "SHAMAN", 3), ("Hp", "PRIEST", 2), ("Hpal", "PALADIN", 1), ("Rog", "ROGUE", 2))
+    assert "wrathofair" in heal and "windfury" not in heal, heal
+    assert heal["wrathofair"] == "Picked for this group: mostly casters and healers.", heal
+    # hunters gain from neither; a druid without a spec could be either: neither counts
+    assert air(("Sha", "SHAMAN", None), ("H1", "HUNTER", 2), ("H2", "HUNTER", 1), ("Rog", "ROGUE", 1)) == ["windfury"]
+    assert air(("Sha", "SHAMAN", None), ("Dru", "DRUID", None), ("Mage", "MAGE", 1)) == ["wrathofair"]
+    # uncertain: both show, and say why
+    even = party(("Sha", "SHAMAN", None), ("Rog", "ROGUE", 1), ("Mage", "MAGE", 1))
+    assert {"windfury", "wrathofair"} <= set(even), even
+    assert even["windfury"] == "Melee and casters are even here, so both show.", even
+    assert air(("Sha", "SHAMAN", None)) == ["windfury", "wrathofair"]
+    # two shamans: one of each when both kinds are there, else still the group's one
+    two = party(("Enh", "SHAMAN", 2), ("Ele", "SHAMAN", 1), ("Rog", "ROGUE", 1), ("Mage", "MAGE", 1), ("War", "WARRIOR", 2))
+    assert {"windfury", "wrathofair"} <= set(two) and two["wrathofair"] == "Two shamans here: one of each air totem.", two
+    assert air(("E1", "SHAMAN", 2), ("E2", "SHAMAN", 2), ("Rog", "ROGUE", 1), ("War", "WARRIOR", 2)) == ["windfury"]
+    # the raid-wide strip is not touched; other party buffs carry no note
+    assert bob.eval("return ns.RaidComp:AirTotem({ { key = 'x', c = 'MAGE', sp = 1 } })") is None
+    assert melee["heroism"] == "", melee
     w.assert_no_errors()
 
 
@@ -195,6 +238,23 @@ def teams_grid_moves_swaps_buffs_and_saves():
     assert short(st["groups"][1]) == ["Ena", "Holly", "Lee", "Sam", "Tank"], st
     assert {"heroism", "windfury", "unleashedrage", "battleshout", "paladinaura"} <= set(st["buffs"][1]), st["buffs"]
     assert "moonkin" not in st["buffs"][1]
+    assert "wrathofair" not in st["buffs"][1], st["buffs"]     # a melee group: its shaman's air totem is Windfury
+    install_helpers(bob)
+    ena = bob.eval("for _, ch in ipairs(%s.boxes[1].chips) do if ch.key == ... then return ch end end" % grid, K("Ena"))
+    bob.hover(ena)
+    tip = [strip_codes(l) for l, _ in tt_lines(bob)]
+    bob.leave(ena)
+    assert any("Windfury Totem" in l for l in tip) and not any("Wrath of Air" in l for l in tip), tip
+    wf = bob.eval("for _, b in ipairs(%s.boxes[1].buffs) do if b:IsShown() and b.entry.buff.key == 'windfury' then"
+                  " return b end end" % grid)
+    bob.hover(wf)
+    tip = [strip_codes(l) for l, _ in tt_lines(bob)]
+    bob.leave(wf)
+    assert "Picked for this group: mostly melee." in tip, tip
+    # a faint line between seats: on seats 2-5, not above the first
+    rules = bob.eval_py("local out = {}; for s, ch in ipairs(%s.boxes[1].chips) do out[s] = ch.rule ~= nil end;"
+                        " return out" % grid)
+    assert list(rules.values() if isinstance(rules, dict) else rules) == [False, True, True, True, True], rules
     # group 1 is full: dropping on the box is refused, dropping onto a member swaps
     n0 = len(bob.chat_frame)
     bob.eval("%s:Drop(..., 1)" % grid, K("Moon"))

@@ -47,9 +47,14 @@ local function chipTooltip(chip)
     else
         GameTooltip:AddLine(cls .. " · spec unknown", 1, 1, 1)
     end
+    -- in a group, a shaman lists only the air totem that group gets
+    local grid, g = chip.grid, chip:GetParent().group
+    local air = g and grid and grid.air and grid.air[g]
     local brings = {}
     for _, b in ipairs(Comp().BUFFS) do
-        if Comp():Provides(b.key, m.c, m.sp) then brings[#brings + 1] = iconText(Comp():BuffIcon(b)) .. " " .. b.name end
+        if Comp():Provides(b.key, m.c, m.sp) and not (b.air and air and air ~= b.key) then
+            brings[#brings + 1] = iconText(Comp():BuffIcon(b)) .. " " .. b.name
+        end
     end
     if #brings > 0 then
         GameTooltip:AddLine(" ")
@@ -57,7 +62,6 @@ local function chipTooltip(chip)
     end
     if m.extra then GameTooltip:AddLine(m.extra, 1, 0.82, 0, true) end
     for _, line in ipairs(m.info or {}) do GameTooltip:AddLine(line, 0.75, 0.75, 0.75, true) end
-    local grid = chip.grid
     if grid and grid.opts.isEditable() then
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Drag to a group, onto a player to swap places or onto an empty slot to take it (or click it, "
@@ -163,6 +167,7 @@ local function buffTooltip(btn)
     else
         GameTooltip:AddLine(btn.missingText or "Nobody brings this.", 1, 0.4, 0.4, true)
     end
+    if e.note then GameTooltip:AddLine(e.note, 0.6, 0.6, 0.6, true) end
     GameTooltip:Show()
 end
 
@@ -267,6 +272,14 @@ function GroupsUI:CreateGrid(parent, opts)
             local chip = createChip(box, grid)
             chip.slot = s
             chip:SetPoint("TOPLEFT", 4, -HEADER_H - (s - 1) * CHIP_H)
+            if s > 1 then
+                -- a faint line between seats, so the players don't run together
+                chip.rule = chip:CreateTexture(nil, "BORDER")
+                chip.rule:SetPoint("TOPLEFT", 0, 0)
+                chip.rule:SetPoint("TOPRIGHT", 0, 0)
+                chip.rule:SetHeight(1)
+                chip.rule:SetColorTexture(1, 1, 1, 0.1)
+            end
             box.chips[s] = chip
         end
         box.buffs = {}
@@ -337,7 +350,7 @@ function Grid:Refresh()
     local members = self.opts.getMembers() or {}
     local groups = self.opts.getGroups() or {}
     local seats = self.opts.getSeats and self.opts.getSeats() or {}
-    self.shown = {}
+    self.shown, self.air = {}, {}
     local n = self:GroupCount()
     local byGroup, pool = {}, {}
     for g = 1, 8 do byGroup[g] = {} end
@@ -392,6 +405,7 @@ function Grid:Refresh()
             else
                 box.swap.fs:SetText("swap")
             end
+            self.air[g] = Comp():AirTotem(list)
             local present = {}
             for _, e in ipairs(Comp():Coverage(list, "party")) do
                 if #e.providers > 0 then present[#present + 1] = e end

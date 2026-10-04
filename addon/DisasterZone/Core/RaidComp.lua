@@ -37,9 +37,10 @@ local BUFFS = {
     { key = "heroism", name = "Bloodlust / Heroism", icon = "Spell_Nature_BloodLust", iconA = "Ability_Shaman_Heroism",
       scope = "party", p = { { "SHAMAN" } } },
     { key = "windfury", name = "Windfury Totem", icon = "Spell_Nature_Windfury", scope = "party", p = { { "SHAMAN" } },
-      tip = "Melee haste. One air totem per shaman (Windfury or Wrath of Air)." },
+      air = true, tip = "Melee haste. One air totem per shaman (Windfury or Wrath of Air)." },
     { key = "wrathofair", name = "Wrath of Air Totem", icon = "Spell_Nature_SlowingTotem", scope = "party",
-      p = { { "SHAMAN" } }, tip = "Spell damage. One air totem per shaman (Windfury or Wrath of Air)." },
+      p = { { "SHAMAN" } }, air = true,
+      tip = "Spell damage and healing. One air totem per shaman (Windfury or Wrath of Air)." },
     { key = "totemofwrath", name = "Totem of Wrath", icon = "Spell_Fire_TotemOfWrath", scope = "party",
       p = { { "SHAMAN", "Elemental" } }, tip = "Spell hit and crit." },
     { key = "unleashedrage", name = "Unleashed Rage", icon = "Spell_Nature_UnleashedRage", scope = "party",
@@ -146,18 +147,58 @@ function RaidComp:Provides(buffKey, classFile, sp)
     return b ~= nil and Provides(b, classFile, sp)
 end
 
+-- Who gains from which air totem: "melee" (melee and tanks: Windfury), "spell" (casters and healers: Wrath of Air),
+-- or nil (hunters; or a spec that is unknown and the class's specs don't agree).
+local function AirKind(classFile, sp)
+    local function kind(role)
+        if role == "melee" or role == "tank" then return "melee" end
+        if role == "caster" or role == "healer" then return "spell" end
+        return nil
+    end
+    local specs = classFile and ns.SPECS[classFile]
+    if not specs then return nil end
+    if sp and specs[sp] then return kind(specs[sp].role) end
+    local k = specs[1] and kind(specs[1].role)
+    for _, spec in ipairs(specs) do
+        if kind(spec.role) ~= k then return nil end
+    end
+    return k
+end
+
+-- The air totem a group's shamans put down: "windfury" when most of the group is melee, "wrathofair" when most are
+-- casters and healers; nil when both show (no shaman, an even split, or two shamans and both kinds to serve).
+-- Second value: why, for the buff's tooltip.
+function RaidComp:AirTotem(members)
+    local shamans, melee, spell = 0, 0, 0
+    for _, m in ipairs(members) do
+        if m.c == "SHAMAN" then shamans = shamans + 1 end
+        local k = AirKind(m.c, m.sp)
+        if k == "melee" then melee = melee + 1 elseif k == "spell" then spell = spell + 1 end
+    end
+    if shamans == 0 then return nil end
+    if shamans > 1 and melee > 0 and spell > 0 then return nil, "Two shamans here: one of each air totem." end
+    if melee > spell then return "windfury", "Picked for this group: mostly melee." end
+    if spell > melee then return "wrathofair", "Picked for this group: mostly casters and healers." end
+    return nil, "Melee and casters are even here, so both show."
+end
+
 -- members: array of { key, c = classFile, sp = spec index|nil }. scope: "party" | "raid".
--- Returns an array (in BUFFS order) of { buff = b, providers = { key, ... } } for every buff of that scope.
+-- Returns an array (in BUFFS order) of { buff = b, providers = { key, ... }, note = text|nil } for every buff of that
+-- scope. In a party, the shamans' air totem follows the group (AirTotem): the other one has no providers.
 function RaidComp:Coverage(members, scope)
+    local air, why
+    if scope == "party" then air, why = self:AirTotem(members) end
     local out = {}
     for _, b in ipairs(BUFFS) do
         if b.scope == scope then
             local providers = {}
-            for _, m in ipairs(members) do
-                if Provides(b, m.c, m.sp) then providers[#providers + 1] = m.key end
+            if not (b.air and air and air ~= b.key) then
+                for _, m in ipairs(members) do
+                    if Provides(b, m.c, m.sp) then providers[#providers + 1] = m.key end
+                end
             end
             tsort(providers)
-            out[#out + 1] = { buff = b, providers = providers }
+            out[#out + 1] = { buff = b, providers = providers, note = b.air and #providers > 0 and why or nil }
         end
     end
     return out

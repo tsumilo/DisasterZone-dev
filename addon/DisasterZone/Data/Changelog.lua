@@ -76,6 +76,12 @@ ns.CHANGELOG = {
               "The next raid that invites the team, with its date; hover it for all of them.",
               "Member search lists (Teams, council, raid leaders, invites) are solid, in the flat style.",
           } },
+          { heading = "Groups (Teams and a raid's Groups tab)", lines = {
+              "A faint line between seats, so the players of a group don't run together.",
+              "A shaman's air totem follows their group: Windfury or Wrath of Air.",
+              "Windfury for a group of mostly melee, Wrath of Air for mostly casters and healers.",
+              "Both show when it's even, or when two shamans can do one each; hover it to see why.",
+          } },
           { heading = "Upcoming raids", lines = {
               "Sign-ups, Groups and Assignments are text tabs, apart from the page's own buttons.",
               "Your answer is one joined row of buttons; beside it, when you answered or why you can't.",
