@@ -655,10 +655,10 @@ def a_model_stands_on_its_spot_however_it_turns():
         p = bob.eval_py(get)
         assert p["cs"] is False, p
         cx, cy = p["c"][0] * p["s"], p["c"][1] * p["s"]
-        # (the model's own left, +y, lies mirrored in room terms when the scene's y runs the other way: mirror)
-        m = p["m"]
-        want = (p["gx"] + math.cos(p["f"]) * cx - m * math.sin(p["f"]) * cy,
-                p["gy"] + math.sin(p["f"]) * cx + m * math.cos(p["f"]) * cy)
+        # (a plain turn by the facing, the model's own left on its left whichever way the scene's y runs: with the
+        # y part turned the other way under a mirrored scene Illidan stood 2.1 yd to his right of his ring in game)
+        want = (p["gx"] + math.cos(p["f"]) * cx - math.sin(p["f"]) * cy,
+                p["gy"] + math.sin(p["f"]) * cx + math.cos(p["f"]) * cy)
         assert math.hypot(p["x"] - want[0], p["y"] - want[1]) < 1e-3, (k, p, want)
         assert abs((p["f"] - k * math.pi / 2 + math.pi) % (2 * math.pi) - math.pi) < 0.1, (k, p["f"])
     no_errors(w)

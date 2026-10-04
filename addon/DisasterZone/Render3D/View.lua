@@ -177,8 +177,8 @@ function View:CentreShift(a, scale, facing)
     local okb, x0, y0, _, x1, y1 = pcall(a.GetActiveBoundingBox, a)
     if not okb or type(x1) ~= "number" or type(y1) ~= "number" then return 0, 0 end
     local cx, cy = ux and (x0 + x1) / 2 * scale or 0, uy and (y0 + y1) / 2 * scale or 0
-    local m, c, s = self.cam.mirror or 1, cos(facing), sin(facing)
-    return c * cx - m * s * cy, s * cx + m * c * cy
+    local c, s = cos(facing), sin(facing)                -- (the model keeps its handedness: a plain turn)
+    return c * cx - s * cy, s * cx + c * cy
 end
 
 -- The cursor in UI units from the scene's bottom-left corner.

@@ -641,11 +641,14 @@ function V:DrawModels()
                 -- (the client turns and places a creature by the middle of its box sideways, not by its origin -
                 -- Illidan circled his ring as he turned, Kil'jaeden stood 29 yd off it - so the actor goes that
                 -- middle, turned by its facing, past the spot: the model's own origin stands on it)
+                -- (the model keeps its own left and right whichever way the scene's y runs: a plain turn by its
+                -- facing - turned with the mirror, Illidan stood 2.1 yd to his right of his ring, twice his box's
+                -- sideways middle)
                 local ctr = R3().DISPLAY_CENTRE and R3().DISPLAY_CENTRE[g.display]
                 local dx, dy = 0, 0
                 if ctr then
-                    local cx, cy, m = ctr[1] * s, ctr[2] * s, cam.mirror or 1
-                    dx, dy = cos(face) * cx - m * sin(face) * cy, sin(face) * cx + m * cos(face) * cy
+                    local cx, cy = ctr[1] * s, ctr[2] * s
+                    dx, dy = cos(face) * cx - sin(face) * cy, sin(face) * cx + cos(face) * cy
                 end
                 pcall(a.SetPosition, a, (g.x + dx) / s, self.view:SY(g.y + dy) / s, g.z / s)
                 pcall(a.SetYaw, a, cam.mirror * face)
@@ -671,7 +674,7 @@ function V:DrawModels()
                 g.h = (h or 2.5 * s) + 0.4
                 if parts then
                     a.partIds = a.partIds or {}
-                    local cf, sf, mr = cos(face), sin(face), cam.mirror or 1
+                    local cf, sf = cos(face), sin(face)
                     for k = 1, #parts - 5, 6 do
                         local x0, y0, z0, x1, y1, z1 = parts[k], parts[k + 1], parts[k + 2], parts[k + 3], parts[k + 4],
                             parts[k + 5]
@@ -684,7 +687,7 @@ function V:DrawModels()
                         n = n + 1
                         local o = occ[n] or {}
                         occ[n] = o
-                        o.id, o.x, o.y = id, g.x + cf * cx - mr * sf * cy, g.y + sf * cx + mr * cf * cy
+                        o.id, o.x, o.y = id, g.x + cf * cx - sf * cy, g.y + sf * cx + cf * cy
                         o.z, o.h = g.z + z0 * s, (z1 - z0) * s
                         o.w, o.rb, o.top, o.prio, o.group = 0, sqrt(hx * hx + hy * hy), (z1 - z0) * s, 1, e
                     end
