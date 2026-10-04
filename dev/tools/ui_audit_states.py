@@ -136,7 +136,7 @@ def close_all(cl):
     cl.eval("""
       for _, name in ipairs({ 'DisasterZoneGuests', 'DisasterZoneRaidInvites', 'DisasterZoneRaidStart',
                               'DisasterZoneRaidLeaders', 'DisasterZoneRaidEditor', 'DisasterZoneAwardDialog',
-                              'DisasterZoneRaidLeader', 'DisasterZoneShareWindow' }) do
+                              'DisasterZoneRaidLeader', 'DisasterZoneShareWindow', 'DisasterZoneImportExport' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -257,6 +257,16 @@ def st_raids_in_raid(lua):
     return fn
 
 
+TMB_SAMPLE = "\n".join([
+    "type,raid_group_name,member_name,character_name,character_class,character_is_alt,character_inactive_at,"
+    "character_note,sort_order,item_name,item_id,is_offspec,note,received_at,import_id,item_note,item_prio_note,"
+    "item_tier,item_tier_label,created_at,updated_at",
+] + ["wishlist,Main,m,%s,Paladin,0,,,%d,\"x\",%d,%d,,,,,,,,," % (who, n, item, os_) for who, n, item, os_ in (
+    ("Gina", 1, 28593, 0), ("Gina", 2, 28586, 0), ("Gina", 3, 28510, 0), ("Gina", 4, 28649, 0), ("Gina", 5, 28661, 0),
+    ("Gina", 6, 28528, 0), ("Gina", 7, 28573, 0), ("Gina", 8, 28754, 0), ("Gina", 9, 28507, 1), ("Gina", 10, 28568, 0),
+    ("Grumpykat", 1, 28510, 0))] + ["received,Main,m,Gina,Paladin,0,,,0,\"x\",28510,0,,,,,,,,,"])
+
+
 def st_start_window(w, c):
     g = raid_with_session(w, c, None)
     g.eval("ns.SessionBar:OpenStart()")
@@ -271,6 +281,13 @@ STATES = [
                                            "if c.key == key then c:GetScript('OnClick')(c) end end")),
     ("My BiS", opened("mybis")),
     ("My BiS - item picker", opened("mybis", "ns.Picker:Open(1, 1, 'main')")),
+    # the Import / Export window (UI/ImportExport.lua): a That's My BiS paste over Gina's seeded P1 list, an error,
+    # and the export tab
+    ("My BiS - Import", opened("mybis", "ns.ImportExport:Open('import'); ns.ImportExport:SetSource([==[" + TMB_SAMPLE
+                                         + "]==])")),
+    ("My BiS - Import error", opened("mybis", "ns.ImportExport:Open('import'); "
+                                               "ns.ImportExport:SetSource('{\"items\": [1, 2')")),
+    ("My BiS - Export", opened("mybis", "ns.ImportExport:Open('export')")),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
     ("Atlas - dungeon heroic", opened("atlas", "ns.AtlasUI:Select('dungeons', 'BlackMorass', nil, true)")),
     ("Atlas - reputation", opened("atlas", "ns.AtlasUI:Select('reputation', 'Shatar')")),

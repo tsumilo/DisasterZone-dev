@@ -131,7 +131,20 @@ The top bar holds these controls:
 - **Spec**: pick your spec, or choose **Auto-detect** to use the talent tree with the most points.
 - **Copy from ▾**: copy another phase into this one, using **Copy Pn (fill empty)** or **Copy Pn (overwrite)**. It also offers the same phase of your other list, e.g. **Copy main spec Pn**.
 - **Suggest ▾**: **Fill empty slots (spec Pn)** from the suggested BiS list of your spec and phase, or **Replace all (confirm)**. You must choose your spec first.
-- **Clear phase**: removes every pick in this phase. It asks first.
+- **More (…)**, at the end of the bar, holds the three entries below. While the raid has the lists locked, only Export works.
+- **Import a BiS list...**: paste a list you keep on another site. The window recognises what you paste:
+  - **That's My BiS**: on thatsmybis.com, Guild → Exports → "Just Wishlists" → View CSV, copy everything. Your character is picked out of the guild's list (choose another one in the window if your name differs). Items marked off spec go to your off-spec list, and items it lists as received can be marked obtained.
+  - **Sixty Upgrades** (Seventy Upgrades moved there): the set's Export text.
+  - **WoWSims**: its JSON export, or the WoWSims exporter addon's text.
+  - **Wowhead**: a gear planner link (wowhead.com/tbc/gear-planner/…).
+  - Anything else: item links from chat, Wowhead item links, item numbers or item names, one per line.
+
+  Items go to the main pick of their slot, then the alt, in the list's order (rings and trinkets fill both slots first). A tier token becomes your class's piece; if your class has several tier sets, the one on your spec's suggested lists. The preview shows each slot next to what you have now, and what didn't fit and why. Pick the phase, then **Fill empty slots** or **Replace Pn** (it asks first when the phase has picks). Gems and enchants from those sites are not kept: BiS lists have none.
+- **Export to WoWSims or Wowhead...**: your BiS list (a phase) or the gear you wear, as text to paste elsewhere. The text is selected; press Ctrl+C.
+  - **WoWSims**: on wowsims.com/tbc open your spec's sim, Import → Addon, paste. It brings gear, enchants, gems, talents, race and professions. In a BiS export, slots without a pick use what you wear, and picks you wear keep their gems and enchant.
+  - **WoWSims Bulk**: your main and alt picks of the phase, for the sim's Bulk tab (Import), so it can rank them.
+  - **Wowhead link**: opens Wowhead's TBC gear planner with the items and gems (Wowhead's links can't carry the enchants).
+- **Clear Pn...**: removes every pick in this phase. It asks first.
 
 Below the top bar is a paper doll with all 17 slots. Each slot has a **main** pick (the large icon) and an **alt** pick (the small icon next to it).
 

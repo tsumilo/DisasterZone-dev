@@ -385,7 +385,8 @@ local function ParseItems(text)
             for name in gmatch(line, "%[([^%]]+)%]") do Add(IdByName(name)) end
         end
         if #items == before then
-            for id in gmatch(line, "%f[%d](%d%d%d%d%d?%d?)%f[%D]") do Add(id) end
+            -- 5 or 6 digits: TBC items are 20000 and up, and a year such as 2026 is a real (vanilla) item number
+            for id in gmatch(line, "%f[%d](%d%d%d%d%d%d?)%f[%D]") do Add(id) end
         end
         if #items == before and strfind(line, "%a") then
             for cell in gmatch(line .. "\t", "([^\t]*)\t") do Add(IdByName(CleanName(cell))) end
@@ -439,17 +440,60 @@ end
 -- Plan: fit the items into the slots
 ---------------------------------------------------------------------------
 
--- { { sid, item } } where the item can go, in slot order (a token: my class's piece per slot), or {}, why.
-local function Candidates(id, class)
-    local db, bis = ItemDB(), BiS()
-    local out = {}
-    if db:IsToken(id) then
-        for sid = 1, NUM_SLOTS do
-            local piece = bis:ResolveTokenForSlot(id, sid)
-            if piece then out[#out + 1] = { sid = sid, item = piece } end
+-- Every item on the bundled BiS lists of a spec (all phases): which tier set a token means for that spec.
+local specItemsCache = {}
+local function SpecItems(class, spec)
+    if type(spec) ~= "string" or spec == "" then return nil end
+    local key = tostring(class) .. ":" .. spec
+    if specItemsCache[key] ~= nil then return specItemsCache[key] or nil end
+    local loon, set = ns.Loon, false
+    if loon and loon.IsAvailable and loon:IsAvailable() then
+        set = {}
+        for phase = 1, ns.MAX_PHASE or 5 do
+            for _, e in pairs(loon:GetTemplate(class, spec, phase) or {}) do
+                if type(e) == "table" then
+                    for _, id in ipairs(e) do set[tonumber(id) or 0] = true end
+                end
+            end
         end
-        return out, "token"
     end
+    specItemsCache[key] = set
+    return set or nil
+end
+
+-- A token's piece for my class in each slot. Classes with more than one tier set (a paladin's Fallen Champion helm
+-- is a holy, a protection or a retribution helm) take the set on their spec's bundled BiS lists.
+local function TokenCandidates(id, class, spec)
+    local db, data = ItemDB(), ns.Data or {}
+    local pieces, tierClass = data.Tokens and data.Tokens[id], data.TierPieceClass or {}
+    local out, ambiguous = {}, false
+    for sid = 1, NUM_SLOTS do
+        local mine = {}
+        for _, p in ipairs(type(pieces) == "table" and pieces or {}) do
+            if tierClass[p] == class and db:FitsSlot(p, sid) then mine[#mine + 1] = p end
+        end
+        if #mine == 1 then
+            out[#out + 1] = { sid = sid, item = mine[1] }
+        elseif #mine > 1 then
+            local onList = SpecItems(class, spec) or {}
+            local hit, hits = nil, 0
+            for _, p in ipairs(mine) do
+                if onList[p] then
+                    hit = p
+                    hits = hits + 1
+                end
+            end
+            if hits == 1 then out[#out + 1] = { sid = sid, item = hit } else ambiguous = true end
+        end
+    end
+    return out, ambiguous and "tokenspec" or "token"
+end
+
+-- { { sid, item } } where the item can go, in slot order (a token: my class's piece per slot), or {}, why.
+local function Candidates(id, class, spec)
+    local db = ItemDB()
+    local out = {}
+    if db:IsToken(id) then return TokenCandidates(id, class, spec) end
     local sids = db:GetSlotsForItem(id)
     if #sids == 0 then return out, "slot" end
     for _, sid in ipairs(sids) do
@@ -458,8 +502,8 @@ local function Candidates(id, class)
     return out, "class"
 end
 
-local function Place(slots, id, wantSid, class)
-    local cands, why = Candidates(id, class)
+local function Place(slots, id, wantSid, class, spec)
+    local cands, why = Candidates(id, class, spec)
     if #cands == 0 then return false, why end
     if wantSid then
         for k, c in ipairs(cands) do
@@ -496,7 +540,8 @@ local function Place(slots, id, wantSid, class)
 end
 
 Imp.WHY = {
-    token = "a token with no piece for your class: pick the piece yourself",
+    token = "a token or quest item without a piece for your class: pick the item yourself",
+    tokenspec = "a tier token: choose your spec in My BiS (or pick the piece yourself)",
     slot = "not something you wear (or an item number this client doesn't know)",
     class = "your class can't use it",
     twice = "on the list twice",
@@ -518,6 +563,8 @@ function Imp:Plan(parsed, opts)
         received = c and c.received
     end
     local class = MyClass()
+    local bis = BiS()
+    local specs = { ms = bis and bis:GetSpec() or "", os = bis and bis:HasOffSpec() and bis:GetSpec("os") or "" }
     for _, e in ipairs(entries or {}) do
         local list = tmb and (e.os and "os" or "ms") or (opts.list == "os" and "os" or "ms")
         local slots = plan.lists[list]
@@ -525,7 +572,7 @@ function Imp:Plan(parsed, opts)
             slots = {}
             plan.lists[list] = slots
         end
-        local ok, why, sid = Place(slots, e.id, e.sid, class)
+        local ok, why, sid = Place(slots, e.id, e.sid, class, specs[list])
         if ok then
             plan.count = plan.count + 1
         else

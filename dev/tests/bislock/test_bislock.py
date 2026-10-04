@@ -215,15 +215,19 @@ def my_bis_banner_disabled_controls_and_picker_refusal():
     for label in ("Choose main...", "Choose alt...", "Clear slot", "Disable slot (P1)", "Disable in all phases"):
         assert menu.get(label) is False, (label, menu)
     assert menu.get("Mark obtained") is True and menu.get("Link main in chat") is True, menu
-    # toolbar: the More menu (Clear phase) disabled; tooltips mention the lock
-    en = rita.eval("return T_mybis().moreBtn:IsEnabled()")
-    assert en in (False, 0), en
+    # tooltips mention the lock
     rita.eval("T_tile(3).main:GetScript('OnEnter')(T_tile(3).main)")
     assert any("locked during the raid" in strip_codes(l[0]) for l in tt_lines(rita)), tt_lines(rita)
     # a menu click on "Mark obtained" works while locked
     rita.menu_select("Mark obtained")
     w.tick(0.2)
     assert rita.eval("return ns.BiS:GetObtainedState(...)", cand(rita, 1)) == "manual"
+    # toolbar: More stays usable for Export; its Import and Clear phase are greyed out
+    assert rita.eval("return T_mybis().moreBtn:IsEnabled()") in (True, 1)
+    rita.click(rita.eval("return T_mybis().moreBtn"))
+    more = {e[2]: e[3] for e in menu_texts(rita.last_menu()) if e[2]}
+    assert more.get("Import a BiS list...") is False and more.get("Clear P1...") is False, more
+    assert more.get("Export to WoWSims or Wowhead...") is True, more
     # unlock: banner gone, controls back, the picker opens
     lee.eval("ns.GroupRules:SetLocked(false)")
     w.tick(2)

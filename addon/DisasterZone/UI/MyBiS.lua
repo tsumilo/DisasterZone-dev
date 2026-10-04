@@ -1,5 +1,5 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyBiS.lua", ...) then return end -- DisasterZone UI/MyBiS.lua
--- ns.MyBiS: the "My BiS" tab - phase buttons, spec, copy / suggest / clear tools, the editable
+-- ns.MyBiS: the "My BiS" tab - phase buttons, spec, copy / suggest tools, More (import / export / clear), the editable
 -- paper doll and the progress card (what's obtained, which raids still have loot for you).
 -- ADDENDUM F: slots can be disabled per phase from the tile menu (§36; left out of the progress card),
 -- crafted / reputation / badge / PvP items get their own "Still needed from" lines (§37), and while the
@@ -821,7 +821,11 @@ local function CreateTopBar(p)
     suggestBtn = UI:CreateMenuButton(p, "Suggest", 80, BuildSuggestMenu)
     suggestBtn:SetPoint("LEFT", copyBtn, "RIGHT", 4, 0)
 
-    -- Actions that can't be undone wait behind "More" (asked again in a popup).
+    -- "More": lists from other sites in, my gear / BiS list out to WoWSims and Wowhead (UI/ImportExport.lua), and
+    -- actions that can't be undone (asked again in a popup).
+    local function openWindow(tab)
+        if ns.ImportExport then ns.ImportExport:Open(tab) end
+    end
     local function clearPhase()
         local phase = CurrentPhase()
         if #PhaseItems(phase) == 0 then
@@ -832,11 +836,17 @@ local function CreateTopBar(p)
         StaticPopup_Show("DISASTERZONE_CLEAR_PHASE", "P" .. phase .. (ListArg() and " (off spec)" or ""), nil,
             { phase = phase, list = ListArg() })
     end
+    -- Import and Clear are edits (greyed out while the lists are locked, §38); Export always works.
     local function buildMore(root)
         local phase = CurrentPhase()
-        root:CreateButton("Clear P" .. phase .. (ListArg() and " (off spec)" or "") .. "...", clearPhase)
+        local locked = ListLocked()
+        EditButton(root, "Import a BiS list...", function() openWindow("import") end, locked)
+        root:CreateButton("Export to WoWSims or Wowhead...", function() openWindow("export") end)
+        if root.CreateDivider then root:CreateDivider() end
+        EditButton(root, "Clear P" .. phase .. (ListArg() and " (off spec)" or "") .. "...", clearPhase, locked)
     end
-    clearBtn = UI:CreateTipIconButton(p, 22, UI.ICON.more, "More", "Clear this phase's picks.", function(self)
+    clearBtn = UI:CreateTipIconButton(p, 22, UI.ICON.more, "More", "Import a BiS list from another site, export "
+        .. "yours to WoWSims or Wowhead, or clear this phase's picks.", function(self)
         UI:ContextMenu(self, buildMore)
     end)
     clearBtn:SetPoint("TOPRIGHT", p, "TOPRIGHT", -8, -8)
@@ -912,7 +922,8 @@ function MyBiS:Refresh()
 
     -- §38: while the lists are locked every editing control is disabled (viewing phases still works).
     local locked = ListLocked()
-    for _, ctrl in ipairs({ specDD, copyBtn, suggestBtn, clearBtn }) do
+    -- (More stays: its Export works while locked; Import and Clear are greyed out in its menu.)
+    for _, ctrl in ipairs({ specDD, copyBtn, suggestBtn }) do
         if ctrl and ctrl.SetEnabled then ctrl:SetEnabled(not locked) end
     end
     if locked and ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end

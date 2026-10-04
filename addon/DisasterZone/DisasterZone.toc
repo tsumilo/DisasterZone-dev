@@ -69,6 +69,9 @@ Core\Loot.lua
 Core\Roll.lua
 Core\Loon.lua
 Core\Atlas.lua
+Core\Codec.lua
+Core\BiSImport.lua
+Core\BiSExport.lua
 Core\Demo.lua
 
 # 3D rooms (Blizzard's own meshes, drawn in the UI): shared by the strategy board and the Raid Trainer
@@ -145,6 +148,7 @@ UI\MainFrame.lua
 UI\Dashboard.lua
 UI\PaperDoll.lua
 UI\MyBiS.lua
+UI\ImportExport.lua
 UI\Picker.lua
 UI\Atlas.lua
 UI\Council.lua
