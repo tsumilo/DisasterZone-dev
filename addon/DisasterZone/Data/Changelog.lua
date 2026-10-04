@@ -9,7 +9,7 @@ ns.CHANGELOG = {
     { version = "1.3.0", date = "3 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
       sections = {
           { heading = "Import and export BiS lists", lines = {
-              "My BiS's ... button (end of the top bar) now holds Import, Export and Clear, each with its icon.",
+              "My BiS's ... menu at the end of the top bar: Import, Export and Clear, each with an icon.",
               "Import: paste a list from That's My BiS, Sixty Upgrades, WoWSims or a Wowhead gear planner link.",
               "Item links, Wowhead item links, item numbers and item names work too, one per line.",
               "That's My BiS: paste the guild's \"Just Wishlists\" CSV; your character is picked out of it.",
