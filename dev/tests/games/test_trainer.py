@@ -164,6 +164,48 @@ def movement_is_clamped_to_the_arena():
 
 
 @case
+def you_walk_on_the_halls_collision_faces_ramps_walls_ledges_and_slopes():
+    # Blizzard lays an invisible collision ramp over every staircase (the visible steps are faces nothing collides
+    # with): you glide up and down it instead of hopping from step to step. Walls, pillars and ledges more than a
+    # step up (1 yd) stop you; off a ledge, or onto a slope too steep to stand on (over 50 degrees), you fall with
+    # the client's gravity, keeping the speed you went over with and steering nothing until you land.
+    w, c = boot()
+    def walk(x, y, mx, my, secs):
+        c.eval("T_TR.new('quick')  local p = T_TR.sim.player  p.x, p.y = %r, %r  T_TR.sim:SetMove(%r, %r)" % (x, y, mx, my))
+        return c.eval_py("local s, t = T_TR.sim, {} for _ = 1, %d do s:Step(0.05) local p = s.player "
+                         "t[#t+1] = { p.x, p.y, s:FeetZ(p), p.falling and true or false } end return t" % round(secs / 0.05))
+    # down the pit's west steps: at most 0.18 yd lower a step (0.35 yd at 7 yd/s on the 27 degree ramp)
+    r = walk(12, 40, 1, 0, 2.0)
+    z = [q[2] for q in r]
+    assert abs(z[0] + 0.12) < 0.02 and abs(z[-1] + 2.67) < 0.02 and not any(q[3] for q in r), z
+    assert all(b <= a + 1e-3 for a, b in zip(z, z[1:])) and max(a - b for a, b in zip(z, z[1:])) < 0.2, z
+    # from the pit, the walkway's north end (a 68 degree slope 2.5 yd high) is a wall: you stop at its foot
+    r = walk(30, 34, 0, -1, 1.5)
+    assert 29.4 < r[-1][1] < 30 and abs(r[-1][2] + 2.67) < 0.02, r[-1]
+    # so is the west pillar
+    r = walk(24.5, 14, 0, 1, 1.5)
+    assert 16.8 < r[-1][1] < 17.4 and abs(r[-1][2] + 0.12) < 0.02, r[-1]
+    # off the walkway's west side onto the south steps below: in the air the keys (now north) steer nothing, you
+    # keep going west at 7 yd/s, and the fall takes as long as gravity says
+    r = c.eval_py("T_TR.new('quick') local s, t = T_TR.sim, {} local p = s.player  p.x, p.y = 27.5, 25  s:SetMove(-1, 0) "
+                  "local turned = false for _ = 1, 30 do s:Step(0.05) "
+                  "if p.falling and not turned then turned = true s:SetMove(0, 1) end "
+                  "t[#t+1] = { p.x, p.y, s:FeetZ(p), p.falling and true or false } end return t")
+    air = [i for i, q in enumerate(r) if q[3]]
+    assert air and air == list(range(air[0], air[-1] + 1)), r
+    for i in air[1:]:
+        assert abs(r[i][1] - 25) < 1e-9 and abs(r[i - 1][0] - r[i][0] - 0.35) < 1e-6, (i, r[i - 1], r[i])
+    drop = r[air[0] - 1][2] - r[air[-1] + 1][2]
+    secs = (len(air) + 1) * 0.05
+    assert 1 < drop < 2.6 and abs(secs - math.sqrt(2 * drop / 19.291103)) <= 0.05, (drop, secs)
+    assert r[-1][1] > 25.5 and not r[-1][3], r[-1]                     # landed: north again
+    # off the walkway's north end down its slope into the pit
+    r = walk(30, 24, 0, 1, 2.0)
+    assert any(q[3] for q in r) and r[-1][1] > 31 and abs(r[-1][2] + 2.67) < 0.02 and not r[-1][3], r[-1]
+    no_errors(w)
+
+
+@case
 def the_clients_controls_run_backpedal_strafe_and_turn():
     w, c = boot()
     c.eval("T_TR.new('quick')")
@@ -349,20 +391,22 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
     c.slash("/dz play trainer")
     w.tick(0.3)
     c.eval("ns.TrainerUI._Start(3)  T_TR.sim = ns.TrainerUI._Sim()  ns.TrainerUI._Tick(0.05)")
-    # everyone stands on the floor where they are: you and the raid down in the pit, on the room's own floor (the
-    # height grid lies a hand's width off it; a model sunk into a step would have the step copied over its front)
+    # everyone stands on the ground the client walks on where they are (the hall's collision faces): you and the raid
+    # down in the pit, where that is the room's own visible floor too
+    ground = lambda x, y: c.eval_py("return ns.Trainer:GetEncounter('teron').arena.ground(%f, %f, %f)" % (x, y, h(x, y)))
     floor = lambda x, y: c.eval_py("return ns.TrainerRoom.FloorZ(%f, %f, %f)" % (x, y, h(x, y)))
     z = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]")
-    assert abs(z - floor(31, 38)) < 1e-6 and abs(z - h(31, 38)) < 0.25 and z < rim - 2, (z, floor(31, 38), h(31, 38))
+    assert abs(z - ground(31, 38)) < 1e-6 and abs(z - floor(31, 38)) < 0.01 and z < rim - 2, (z, ground(31, 38), h(31, 38))
     zb = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.boss.id)[3]")
-    assert abs(zb - floor(31, 52)) < 1e-6 and abs(zb - h(31, 52)) < 0.25, (zb, h(31, 52))
+    assert abs(zb - ground(31, 52)) < 1e-6 and abs(zb - floor(31, 52)) < 0.01, (zb, h(31, 52))
     c.eval("T_TR.sim.player.x, T_TR.sim.player.y, T_TR.sim.player.facing = 50, 30, math.pi  ns.TrainerUI._Tick(0.05)")
-    assert abs(c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]") - rim) < 0.15
+    z = c.eval_py("return ns.TrainerUI._ActorPos(T_TR.sim.player.id)[3]")
+    assert abs(z - ground(50, 30)) < 1e-6 and abs(z - rim) < 0.15, (z, rim)
     # the camera 14 yd behind you would stand outside the east wall: it is pulled in before the wall (spec 5.2),
-    # still on the line behind you at the pitch you look with
+    # still on the line behind you at the pitch you look with, 2.2 yd over your feet
     cm = c.eval_py("local c = ns.TrainerUI._Camera() return { c.z, c.cur, c.dist, c.x, c.collided }")
     assert cm[2] == 14 and 5 < cm[1] < 14 and cm[4] is True and cm[3] < 60, cm
-    assert abs(cm[0] - (rim + 2.2 + cm[1] * math.sin(0.3))) < 0.1, cm
+    assert abs(cm[0] - (z + 2.2 + cm[1] * math.sin(0.3))) < 0.01, (cm, z)
     # the room itself: Blizzard's triangles with their own textures; the ones facing the camera are shown
     m = c.eval_py("local m = ns.Trainer:GetEncounter('teron').arena.mesh return { #m.verts / 6, #m.tris / 4, #m.textures, m.textures[1] }")
     assert m[0] > 2000 and m[1] > 3000 and 8 <= m[2] <= 20 and m[3] > 100000, m
@@ -616,11 +660,14 @@ def past_the_texture_budget_a_frame_borrows_a_hidden_texture_instead_of_making_o
     tr, pt, res = rc.analyse(sess, sess.capture())
     assert res["unmatchedRegions"] == 0 and res["wrongSurfacePct"] <= 0.02 and res["holesPct"] <= 0.01, {
         k: res[k] for k in ("unmatchedRegions", "wrongSurfacePct", "holesPct", "misplacementMaxPx")}
-    # (a small turn: the pieces in view keep their textures, nothing moves between frames)
+    # (a small turn: the pieces in view keep their textures, nothing moves between frames. The room's own textures
+    # are counted; the copies over the models keep theirs apart and may need one more as a model's outline crosses
+    # another piece)
     name, x, y, f, p, d, _ = rc.POSES["teron"][7]
+    tex0 = sess.render_stats()["textures"]
     sess.pose(x, y, f + 0.001, p, d)
     counts, _ = sess.frame()
-    assert counts.get("SetParent", 0) == 0 and counts.get("CreateTexture", 0) == 0, counts
+    assert counts.get("SetParent", 0) == 0 and sess.render_stats()["textures"] == tex0, (counts, tex0)
     sess.w.assert_no_errors()
 
 
@@ -729,7 +776,7 @@ def _pose(c, x, y, facing, pitch=0.3, dist=14, dt=0.001):
 
 
 @case
-def the_camera_stays_in_the_hall_and_its_height_eases_over_steps():
+def the_camera_stays_in_the_hall_and_rides_on_your_feet():
     # Spec 5.2: facing east by the west wall, the camera 14 yd back would hang outside the hall (and show the room
     # through the wall). It is pulled in before the wall; without collision it is not.
     w, c = boot()
@@ -764,20 +811,44 @@ def the_camera_stays_in_the_hall_and_its_height_eases_over_steps():
     _pose(c, 48, 17.2, 2.87, pitch=0.05, dist=32.0)                    # (another distance: no easing out)
     assert cam()[0] > 75 and cam()[3] is False, cam()
     c.eval("ns.TrainerUI._RenderOpts({ collision = true })")
-    # the pivot's height follows the floor on a spring: a step down the pit's side eases over a few frames instead
-    # of jumping (a jump of the player, a new distance or pitch snaps it)
-    h = lambda x, y: c.eval_py("return ns.Trainer:GetEncounter('teron').arena.height(%f, %f)" % (x, y))
-    a, b = (17.0, 45), (18.6, 45)
-    assert h(*a) - h(*b) > 0.4, (h(*a), h(*b))
-    _pose(c, a[0], a[1], 0, dt=0.03)
-    _pose(c, a[0], a[1], 0, dt=0.03)
-    assert abs(cam()[4] - (h(*a) + 2.2)) < 1e-6
-    _pose(c, b[0], b[1], 0, dt=0.03)
-    hz = cam()[4]
-    assert h(*b) + 2.2 < hz < h(*a) + 2.2, (hz, h(*a), h(*b))
-    for _ in range(40):
-        _pose(c, b[0], b[1], 0, dt=0.03)
-    assert abs(cam()[4] - (h(*b) + 2.2)) < 0.01, cam()
+    # the pivot rides 2.2 yd over your feet frame for frame, as the client's does: down the pit's west steps (on
+    # the invisible ramp over them: no lag, no jolt) and through a fall off the walkway's side (the Fall animation)
+    sim_ = "local s = ns.TrainerUI._Sim() "
+    def start(x, y, facing):
+        c.eval(sim_ + "s.player.x, s.player.y, s.player.facing = %r, %r, %r  s:SetControls(0, 0, 0) "
+               "local cam = ns.TrainerUI._Camera()  cam.pitch, cam.dist = 0.3, 14  ns.TrainerUI._Tick(0.05) "
+               "s:SetControls(1, 0, 0)" % (x, y, facing))
+    def frame():
+        return c.eval_py(sim_ + "ns.TrainerUI._Tick(0.05) return { s:FeetZ(s.player), ns.TrainerUI._Camera().hz, "
+                         "s.player.falling and true or false, ns.TrainerUI._Anim(s.player.id) }")
+    start(12, 40, 0)
+    down = [frame() for _ in range(45)]
+    feet = [r[0] for r in down]
+    assert feet[0] > -0.2 and feet[-1] < -2.6, feet
+    assert all(b <= a + 1e-3 for a, b in zip(feet, feet[1:])) and max(a - b for a, b in zip(feet, feet[1:])) < 0.2, feet
+    assert all(abs(r[1] - (r[0] + 2.2)) < 1e-9 and not r[2] for r in down), down
+    start(27.5, 25, math.pi)
+    fall = [frame() for _ in range(20)]
+    falling = [r for r in fall if r[2]]
+    assert 4 <= len(falling) <= 10 and all(r[3] == 40 for r in falling), fall
+    assert all(abs(r[1] - (r[0] + 2.2)) < 1e-9 for r in fall) and fall[-1][0] < -1, fall
+    # a ledge stepped up (the 0.7 yd side of the diagonal ramp at the walkway's north end, from the pit floor) eases
+    # the view up over a few frames instead of jolting it
+    start(24.4, 30.5, 0)
+    before = frame()
+    for _ in range(10):
+        r = frame()
+        if r[0] > before[0] + 0.5:
+            break
+        before = r
+    c.eval(sim_ + "s:SetControls(0, 0, 0)")
+    jump = r[0] - before[0]
+    assert 0.5 < jump <= 1.0 and not r[2], (before, r)
+    lag = [r[0] + 2.2 - r[1]]
+    for _ in range(20):
+        r = frame()
+        lag.append(r[0] + 2.2 - r[1])
+    assert 0.3 < lag[0] < jump and all(b <= a + 1e-9 for a, b in zip(lag, lag[1:])) and lag[-1] < 0.01, (jump, lag)
     no_errors(w)
 
 
@@ -1070,10 +1141,11 @@ def the_panel_briefs_plays_pauses_and_shows_the_result():
     c.eval("ns.TrainerUI._Key('E', false) ns.TrainerUI._Key('S')")
     assert ctl() == [-1, 0, 0]
     assert c.eval_py("return ns.TrainerUI._Key('F')") is False     # not ours: the client keeps it
-    for _ in range(20):
+    for _ in range(15):
         c.eval("ns.TrainerUI._Tick(0.1)")
     y = c.eval_py("return ns.TrainerUI._Sim().player.y")
-    assert abs(y - (38 - 9)) < 0.5, y                              # two seconds backwards at 4.5 yd/s
+    # 1.5 seconds backwards at 4.5 yd/s (half a second more and you back into the walkway's end, 2.5 yd high)
+    assert abs(y - (38 - 6.75)) < 0.5, y
     # the 3D view: an actor per model (you, Teron, 11 raiders), Teron's name plate, the camera behind you
     st = c.eval_py("return ns.TrainerUI._State()")
     assert st["actors"] == 13, st

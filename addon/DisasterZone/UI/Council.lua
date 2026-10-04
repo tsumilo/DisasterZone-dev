@@ -942,14 +942,14 @@ local function setupRosterRow(row)
     row.lockWarn:Hide()
 
     row.spec = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    row.spec:SetPoint("LEFT", 158, 0)
-    row.spec:SetWidth(70)   -- "Marksmanship" / "Beast Mastery" need ~69 px
+    row.spec:SetPoint("LEFT", 156, 0)
+    row.spec:SetWidth(76)   -- "Marksmanship" / "Beast Mastery" need ~74 in game
     row.spec:SetJustifyH("LEFT")
     row.spec:SetWordWrap(false)
 
     row.need = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.need:SetPoint("LEFT", 230, 0)
-    row.need:SetWidth(28)
+    row.need:SetPoint("LEFT", 232, 0)
+    row.need:SetWidth(26)
     row.need:SetJustifyH("CENTER")
 
     row.cells = {}
@@ -1046,10 +1046,10 @@ local function createRosterHeader(parent)
     end
 
     textHeader("Name", 4, 150, { "presence", "name" })
-    textHeader("Need", 230, 28, { "need" }, "CENTER")
+    textHeader("Need", 232, 26, { "need" }, "CENTER")
     textHeader("Age", AGE_X, 36, { "age" })
     local specLabel = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    specLabel:SetPoint("LEFT", 158, 0)
+    specLabel:SetPoint("LEFT", 156, 0)
     specLabel:SetText("Spec")
 
     for sid = 1, NUM_SLOTS do
@@ -1595,8 +1595,7 @@ local function memberHeaderInfo(key, rec, data, classFile)
     if att then parts[#parts + 1] = "attendance " .. att end   -- Addendum I: last 8 raids
     if rec then
         local ts = tonumber(rec.ts) or 0
-        local text = "updated " .. formatAgo(ts)
-        if (tonumber(rec.rev) or 0) > 0 then text = text .. " (rev " .. rec.rev .. ")" end
+        local text = "list updated " .. formatAgo(ts)
         if ts > 0 and GetServerTime() - ts > STALE_SECONDS then
             text = colorCode("warn") .. text .. "|r"
         end
@@ -1604,16 +1603,11 @@ local function memberHeaderInfo(key, rec, data, classFile)
     else
         parts[#parts + 1] = "no list received"
     end
+    -- their DisasterZone only when it is not the one I run (that is when it matters)
     local isMe = ns.Util and ns.Util.IsMe and ns.Util.IsMe(key)
-    if isMe then
-        parts[#parts + 1] = "DisasterZone " .. tostring(ns.version or "?")
-    else
-        local peer = ns.Sync and ns.Sync.GetPeer and ns.Sync:GetPeer(key)
-        if type(peer) == "table" and peer.v then
-            parts[#parts + 1] = "DisasterZone " .. tostring(peer.v)
-        else
-            parts[#parts + 1] = "DisasterZone version unknown"
-        end
+    local peer = not isMe and ns.Sync and ns.Sync.GetPeer and ns.Sync:GetPeer(key)
+    if type(peer) == "table" and peer.v and tostring(peer.v) ~= tostring(ns.version) then
+        parts[#parts + 1] = colorCode("warn") .. "DisasterZone " .. tostring(peer.v) .. "|r"
     end
     return table.concat(parts, " · ")
 end
@@ -1695,7 +1689,7 @@ local function dressMember(v, key, data, phase, rec)
         if slotDisabled(rec or { data = data }, phase, sid) then return nil end
         return (getPicks(data, phase, sid))
     end)
-    c.noModel:SetText(shown and "" or (shortName(key) .. "'s model shows while they're nearby."))
+    c.noModel:SetText(shown and "" or (shortName(key) .. "'s model shows when nearby."))
 end
 
 local function refreshMember(phase)
@@ -2688,11 +2682,7 @@ local function updateToolbar()
     if p.offspecCB and p.offspecCB.Refresh then p.offspecCB:Refresh() end
     updateLockControls()
     for key, b in pairs(p.viewButtons or {}) do
-        if key == state.view then
-            b:LockHighlight()
-        else
-            b:UnlockHighlight()
-        end
+        if b.SetKind then b:SetKind(key == state.view and "active" or "secondary") end   -- the current view lit
     end
 end
 

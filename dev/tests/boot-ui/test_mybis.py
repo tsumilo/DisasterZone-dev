@@ -111,7 +111,7 @@ def phase_buttons_select_phase_and_mark_guild_phase():
           local out = {}
           for p = 1, 5 do
             local b = T_button(T_mybis(), "P" .. p)
-            out[p] = { T_state(b).highlight_locked and 1 or 0, rawget(b, "marker"):IsShown() and 1 or 0 }
+            out[p] = { rawget(b, "kind") == "active" and 1 or 0, rawget(b, "marker"):IsShown() and 1 or 0 }
           end
           return out""")
         assert [s[0] for s in states] == [1 if i == p else 0 for i in range(1, 6)], states
@@ -538,7 +538,7 @@ def two_hander_locks_off_hand():
     w.tick(0.1)
     oh_alpha = c.eval("return T_tile(16):GetAlpha()")
     assert oh_alpha < 1, oh_alpha
-    assert "Two-hander equipped in main hand" in strip_codes(tile_text(c, 16)[1])
+    assert "Two-hander in main hand" in strip_codes(tile_text(c, 16)[1])
     prog = card_texts(c)
     assert "0 / 16 obtained" in prog[0] and progress(c)[:2] == [1, 16], prog
     # still clickable: the off hand picker opens (a 2H + shield list is allowed but stays flagged)
@@ -546,7 +546,7 @@ def two_hander_locks_off_hand():
     assert c.eval_py("return {ns.Picker:GetState()}") == [1, 16, "main"]
     click_row(c, shield)
     assert c.eval("return T_tile(16):GetAlpha()") < 1
-    assert "Two-hander equipped in main hand" in strip_codes(tile_text(c, 16)[1])
+    assert "Two-hander in main hand" in strip_codes(tile_text(c, 16)[1])
     # hover tooltip explains it
     c.hover(tile_btn(c, 16))
     tt = [strip_codes(l[0]) for l in c.eval_py("return T_ttlines()")]

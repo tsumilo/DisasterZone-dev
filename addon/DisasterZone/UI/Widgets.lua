@@ -201,7 +201,9 @@ function UI:ColoredName(key, classFile)
     if not classFile and key and ns.Guild and ns.Guild.GetClass then
         classFile = ns.Guild:GetClass(key)
     end
-    return "|c" .. ClassHex(classFile) .. ShortName(key) .. "|r"
+    -- (a player from another realm: "Name*", the realm is long and the tooltips say it)
+    local name = (ns.Util and ns.Util.DisplayName) and ns.Util.DisplayName(key) or ShortName(key)
+    return "|c" .. ClassHex(classFile) .. name .. "|r"
 end
 
 -- Is that player a guest: someone outside my guild (pugs in a raid, guests on a planned raid)? False while the
@@ -548,6 +550,19 @@ function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
     end
     b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
     b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    -- a caller's own OnEnter / OnLeave (a tooltip) keeps the hover look
+    local setScript = b.SetScript
+    function b:SetScript(name, fn)
+        if (name == "OnEnter" or name == "OnLeave") and type(fn) == "function" then
+            local hover = name == "OnEnter"
+            return setScript(self, name, function(f, ...)
+                f.hovered = hover
+                paint(f)
+                return fn(f, ...)
+            end)
+        end
+        return setScript(self, name, fn)
+    end
     b:SetScript("OnEnable", paint)
     b:SetScript("OnDisable", paint)
     b:SetScript("OnMouseDown", function(self) if self:IsEnabled() then fs:SetPoint("CENTER", 1, -1) end end)
@@ -647,6 +662,81 @@ function UI:CreateSleekMenuButton(parent, text, width, build, height)
     function b:SetDefaultText(t) self:SetText(t or "") end
     function b:Refresh() end
     function b:OpenMenu() UI:ContextMenu(self, build) end
+    return b
+end
+
+-- A one-line text field in the flat style: dark fill, grey 1px edges that turn gold while typing. Enter and Escape
+-- drop the focus.
+function UI:CreateSleekEditBox(parent, width, height, fontObject)
+    local eb = CreateFrame("EditBox", nil, parent)
+    eb:SetSize(width or 150, height or 22)
+    eb:SetFontObject(fontObject or "GameFontHighlight")
+    eb:SetTextInsets(6, 6, 0, 0)
+    eb:SetAutoFocus(false)
+    eb.bg = eb:CreateTexture(nil, "BACKGROUND")
+    eb.bg:SetAllPoints()
+    eb.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    UI:AddEdges(eb)
+    local function paint(self)
+        if self:HasFocus() then UI:SetEdgeColor(self, 1, 0.82, 0, 0.75) else UI:SetEdgeColor(self, 0.34, 0.34, 0.38, 0.9) end
+    end
+    eb:SetScript("OnEditFocusGained", paint)
+    eb:SetScript("OnEditFocusLost", paint)
+    eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    paint(eb)
+    return eb
+end
+
+-- A grey hint inside an edit box while it is empty ("Note for the organizers..."). Hooks the box's scripts, so call
+-- it after the caller's own SetScript calls.
+function UI:SetEditPlaceholder(eb, text, fontObject)
+    if not eb.cdlHint then
+        local hint = eb:CreateFontString(nil, "ARTWORK", fontObject or "GameFontDisableSmall")
+        hint:SetPoint("LEFT", eb, "LEFT", 6, 0)
+        hint:SetPoint("RIGHT", eb, "RIGHT", -6, 0)
+        hint:SetJustifyH("LEFT")
+        hint:SetWordWrap(false)
+        eb.cdlHint = hint
+        eb:HookScript("OnTextChanged", function(self) self.cdlHint:SetShown((self:GetText() or "") == "") end)
+    end
+    eb.cdlHint:SetText(text or "")
+    eb.cdlHint:SetShown((eb:GetText() or "") == "")
+end
+
+-- A text tab for a second row of tabs (under a page's own tab buttons): grey text, gold with a gold underline while
+-- it is the open one. b:SetActive(on).
+function UI:CreateUnderlineTab(parent, text, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    fs:SetPoint("CENTER", 0, 1)
+    b:SetFontString(fs)
+    b:SetText(text or "")
+    b:SetSize((fs:GetStringWidth() or 40) + 16, 20)
+    b.line = b:CreateTexture(nil, "ARTWORK")
+    b.line:SetPoint("BOTTOMLEFT", 4, 0)
+    b.line:SetPoint("BOTTOMRIGHT", -4, 0)
+    b.line:SetHeight(2)
+    b.line:SetColorTexture(1, 0.82, 0, 0.9)
+    local function paint(self)
+        self.line:SetShown(self.active and true or false)
+        if self.active then
+            fs:SetTextColor(1, 0.82, 0)
+        elseif self.hovered then
+            fs:SetTextColor(1, 1, 1)
+        else
+            fs:SetTextColor(0.62, 0.62, 0.62)
+        end
+    end
+    function b:SetActive(on)
+        self.active = on and true or false
+        paint(self)
+    end
+    b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
+    b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    b:RegisterForClicks("LeftButtonUp")
+    if onClick then b:SetScript("OnClick", function(self, mouseButton) onClick(self, mouseButton) end) end
+    paint(b)
     return b
 end
 
@@ -947,19 +1037,10 @@ end
 -- Buttons, checkboxes, search box
 ---------------------------------------------------------------------------
 
+-- A text button in the flat style (every text button of the addon; b:SetKind("primary") marks a view's main action,
+-- "danger" a destructive one). Without a width it fits its label.
 function UI:CreateButton(parent, text, width, height, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetText(text or "")
-    local w = width
-    if not w then
-        local fs = b:GetFontString()
-        w = (fs and fs:GetStringWidth() or 60) + 24
-    end
-    b:SetSize(w, height or 22)
-    if onClick then
-        b:SetScript("OnClick", function(self, mouseButton) onClick(self, mouseButton) end)
-    end
-    return b
+    return UI:CreateSleekButton(parent, text, width, height or 22, onClick)
 end
 
 function UI:CreateCheckbox(parent, label, getter, setter)
@@ -1013,14 +1094,8 @@ function UI:CreateSearchBox(parent, width, onChanged, placeholder)
 end
 
 ---------------------------------------------------------------------------
--- Dropdowns & menus (MenuUtil; pattern from Leatrix_Plus / Auctionator FilterKeySelector)
+-- Dropdowns & menus: flat buttons that open a MenuUtil context menu
 ---------------------------------------------------------------------------
-
-local function ModernDropdownAvailable()
-    if not MenuUtil then return false end
-    if DoesTemplateExist and not DoesTemplateExist("WowStyle1DropdownTemplate") then return false end
-    return true
-end
 
 local NIL_VALUE = {}   -- stands in for option values that are nil (radio data can't be nil)
 
@@ -1031,93 +1106,39 @@ local function FindOption(options, value)
     return nil
 end
 
+-- A dropdown in the flat style (every dropdown of the addon): the button shows the selected option, its menu picks
+-- one. getOptions() -> { { value =, text =, tooltip =, disabled = } | { isTitle = true, text = } }; nil values work.
 function UI:CreateDropdown(parent, width, getOptions, getSelected, onSelect)
-    width = width or 150
+    return UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect)
+end
+
+function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect)
+    local b
     local function IsSelected(data)
         if data == NIL_VALUE then data = nil end
         return getSelected() == data
     end
-    local function SetSelected(data)
-        if data == NIL_VALUE then data = nil end
-        onSelect(data)
-    end
-
-    if ModernDropdownAvailable() then
-        local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
-        dd:SetWidth(width)
-        if dd.SetDefaultText then dd:SetDefaultText("-") end
-        dd:SetupMenu(function(_, root)
-            for _, opt in ipairs(getOptions() or {}) do
-                if opt.isTitle then
-                    root:CreateTitle(opt.text or "")
-                else
-                    local value = opt.value
-                    if value == nil then value = NIL_VALUE end
-                    local radio = root:CreateRadio(opt.text or tostring(opt.value), IsSelected, SetSelected, value)
-                    if opt.disabled and radio and radio.SetEnabled then radio:SetEnabled(false) end
-                    if opt.tooltip and radio and radio.SetTooltip then
-                        radio:SetTooltip(function(tooltip)
-                            tooltip:AddLine(opt.text or "", 1, 0.82, 0)
-                            tooltip:AddLine(opt.tooltip, 1, 1, 1, true)
-                        end)
-                    end
+    b = UI:CreateSleekMenuButton(parent, "-", width or 150, function(root)
+        for _, opt in ipairs(getOptions() or {}) do
+            if opt.isTitle then
+                root:CreateTitle(opt.text or "")
+            else
+                local value = opt.value
+                if value == nil then value = NIL_VALUE end
+                local radio = root:CreateRadio(opt.text or tostring(opt.value), IsSelected, function(v)
+                    if v == NIL_VALUE then v = nil end
+                    onSelect(v)
+                    b:Refresh()
+                    return MenuResponse and MenuResponse.Close or nil
+                end, value)
+                if opt.disabled and radio and radio.SetEnabled then radio:SetEnabled(false) end
+                if opt.tooltip and radio and radio.SetTooltip then
+                    radio:SetTooltip(function(tooltip)
+                        tooltip:AddLine(opt.text or "", 1, 0.82, 0)
+                        tooltip:AddLine(opt.tooltip, 1, 1, 1, true)
+                    end)
                 end
             end
-        end)
-        function dd:Refresh()
-            self:GenerateMenu()
-        end
-        return dd
-    end
-
-    -- Fallback: a plain button that opens a context menu, or cycles options without MenuUtil.
-    local b = UI:CreateButton(parent, "", width, 22)
-    local function Update()
-        local opt = FindOption(getOptions() or {}, getSelected())
-        b:SetText(opt and opt.text or "-")
-    end
-    b:SetScript("OnClick", function(self)
-        local options = getOptions() or {}
-        if MenuUtil and MenuUtil.CreateContextMenu then
-            UI:ContextMenu(self, function(root)
-                for _, opt in ipairs(options) do
-                    if not opt.isTitle then
-                        local value = opt.value
-                        if value == nil then value = NIL_VALUE end
-                        root:CreateRadio(opt.text or tostring(opt.value), IsSelected, function(v) SetSelected(v); Update() end, value)
-                    end
-                end
-            end)
-            return
-        end
-        local selectable = {}
-        for _, opt in ipairs(options) do
-            if not opt.isTitle and not opt.disabled then selectable[#selectable + 1] = opt end
-        end
-        if #selectable == 0 then return end
-        local cur = getSelected()
-        local nextIndex = 1
-        for i, opt in ipairs(selectable) do
-            if opt.value == cur then nextIndex = (i % #selectable) + 1 break end
-        end
-        onSelect(selectable[nextIndex].value)
-        Update()
-    end)
-    b.Refresh = Update
-    Update()
-    return b
-end
-
--- CreateDropdown in the flat style: the button shows the selected option, its menu picks one.
-function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect)
-    local b
-    b = UI:CreateSleekMenuButton(parent, "-", width, function(root)
-        for _, opt in ipairs(getOptions() or {}) do
-            root:CreateRadio(opt.text or tostring(opt.value), function(v) return getSelected() == v end, function(v)
-                onSelect(v)
-                b:Refresh()
-                return MenuResponse and MenuResponse.Close or nil
-            end, opt.value)
         end
     end)
     b.defaultText = "-"
@@ -1141,27 +1162,10 @@ function UI:ContextMenu(owner, build)
     return MenuUtil.CreateContextMenu(owner, function(_, root) build(root) end)
 end
 
--- DisasterZone extension: a dropdown-looking button whose menu holds actions (build(root) as in ContextMenu).
--- The menu is regenerated on hover so it always reflects the current state.
+-- DisasterZone extension: a dropdown-looking button whose menu holds actions (build(root) as in ContextMenu), in the
+-- flat style. The menu is built when it opens, so it always reflects the current state.
 function UI:CreateMenuButton(parent, text, width, build)
-    if ModernDropdownAvailable() then
-        local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
-        dd:SetWidth(width or 120)
-        if dd.SetDefaultText then dd:SetDefaultText(text or "") end
-        dd:SetupMenu(function(_, root) build(root) end)
-        dd:HookScript("OnEnter", function(self)
-            if not (self.IsMenuOpen and self:IsMenuOpen()) then self:GenerateMenu() end
-        end)
-        function dd:Refresh()
-            self:GenerateMenu()
-        end
-        return dd
-    end
-    local b = UI:CreateButton(parent, text, width, 22, function(self)
-        UI:ContextMenu(self, build)
-    end)
-    b.Refresh = function() end
-    return b
+    return UI:CreateSleekMenuButton(parent, text, width, build)
 end
 
 ---------------------------------------------------------------------------
@@ -1187,16 +1191,13 @@ end
 --           GetMatches, GetActive, MoveActive, ToggleActive, ToggleEntry, SetEnabled, IsEnabled, SetText }.
 ---------------------------------------------------------------------------
 
-local SD_BACKDROP = {
-    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true, tileSize = 16, edgeSize = 14,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 },
-}
-local SD_PAD = 8
+local SD_PAD = 5
 local SD_FOOTER_H = 22
-local SD_CHECK_BOX = "Interface\\Buttons\\UI-CheckBox-Up"
 local SD_CHECK_MARK = "Interface\\Buttons\\UI-CheckBox-Check"
+local SD_SEARCH_ICON = "Interface\\Common\\UI-Searchbox-Icon"
+local SD_CLEAR_ICON = "Interface\\FriendsFrame\\ClearBroadcastIcon"
+local SD_EDGE = { 0.34, 0.34, 0.38, 0.9 }
+local SD_EDGE_FOCUS = { 1, 0.82, 0, 0.75 }
 
 local function SDTrim(s)
     if type(s) ~= "string" then return "" end
@@ -1217,32 +1218,76 @@ function UI:CreateSearchDropdown(parent, width, opts)
     local maxRows = math.max(1, tonumber(opts.maxRows) or 10)
     local sd = { items = {}, shown = {}, matches = {}, active = 1, enabled = true }
 
+    -- The field, in the flat style: search icon, edit box, placeholder, clear (x) and the list chevron.
     local holder = CreateFrame("Frame", nil, parent)
     holder:SetSize(width, 22)
+    holder:EnableMouse(true)
+    holder.bg = holder:CreateTexture(nil, "BACKGROUND")
+    holder.bg:SetAllPoints()
+    holder.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    UI:AddEdges(holder)
+    UI:SetEdgeColor(holder, unpack(SD_EDGE))
     sd.frame = holder
 
-    local eb = CreateFrame("EditBox", nil, holder, "SearchBoxTemplate")
-    eb:SetPoint("LEFT", holder, "LEFT", 6, 0)
-    eb:SetPoint("RIGHT", holder, "RIGHT", -26, 0)
-    eb:SetHeight(20)
-    eb:SetAutoFocus(false)
-    eb:SetMaxLetters(48)
-    if opts.placeholder and eb.Instructions then eb.Instructions:SetText(opts.placeholder) end
-    sd.editBox = eb
+    local icon = holder:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(12, 12)
+    icon:SetPoint("LEFT", holder, "LEFT", 6, 0)
+    icon:SetTexture(SD_SEARCH_ICON)
+    icon:SetVertexColor(0.7, 0.7, 0.7)
 
     local arrow = CreateFrame("Button", nil, holder)
-    arrow:SetSize(24, 24)
-    arrow:SetPoint("RIGHT", holder, "RIGHT", 0, 0)
-    arrow:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
-    arrow:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Down")
-    arrow:SetDisabledTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Disabled")
-    arrow:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    arrow:SetPoint("TOPRIGHT", holder, "TOPRIGHT", -1, -1)
+    arrow:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -1, 1)
+    arrow:SetWidth(20)
+    arrow.hl = arrow:CreateTexture(nil, "HIGHLIGHT")
+    arrow.hl:SetAllPoints()
+    arrow.hl:SetColorTexture(1, 1, 1, 0.08)
+    arrow.icon = arrow:CreateTexture(nil, "ARTWORK")
+    arrow.icon:SetSize(12, 12)
+    arrow.icon:SetPoint("CENTER")
+    arrow.icon:SetTexture(UI.ICON_ATLAS)
+    arrow.icon:SetTexCoord(unpack(UI:IconCoords(14)))
+    arrow.icon:SetVertexColor(1, 0.82, 0)
+    arrow:SetScript("OnEnable", function(self) self.icon:SetVertexColor(1, 0.82, 0) end)
+    arrow:SetScript("OnDisable", function(self) self.icon:SetVertexColor(0.4, 0.4, 0.4) end)
     sd.arrow = arrow
 
-    local panel = CreateFrame("Frame", nil, holder, "BackdropTemplate")
-    panel:SetBackdrop(SD_BACKDROP)
-    panel:SetBackdropColor(0.05, 0.05, 0.05, 0.96)
-    panel:SetBackdropBorderColor(0.65, 0.65, 0.65, 1)
+    local clear = CreateFrame("Button", nil, holder)
+    clear:SetSize(16, 16)
+    clear:SetPoint("RIGHT", arrow, "LEFT", -1, 0)
+    clear.icon = clear:CreateTexture(nil, "ARTWORK")
+    clear.icon:SetAllPoints()
+    clear.icon:SetTexture(SD_CLEAR_ICON)
+    clear.icon:SetAlpha(0.5)
+    clear:SetScript("OnEnter", function(self) self.icon:SetAlpha(1) end)
+    clear:SetScript("OnLeave", function(self) self.icon:SetAlpha(0.5) end)
+    clear:Hide()
+    sd.clearButton = clear
+
+    local eb = CreateFrame("EditBox", nil, holder)
+    eb:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+    eb:SetPoint("RIGHT", clear, "LEFT", -2, 0)
+    eb:SetHeight(20)
+    eb:SetFontObject("GameFontHighlightSmall")
+    eb:SetTextInsets(0, 0, 0, 0)
+    eb:SetAutoFocus(false)
+    eb:SetMaxLetters(48)
+    sd.editBox = eb
+
+    local hint = eb:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    hint:SetPoint("LEFT", eb, "LEFT", 0, 0)
+    hint:SetPoint("RIGHT", eb, "RIGHT", 0, 0)
+    hint:SetJustifyH("LEFT")
+    hint:SetWordWrap(false)
+    hint:SetText(opts.placeholder or "Search...")
+    eb.Instructions = hint
+
+    local panel = CreateFrame("Frame", nil, holder)
+    panel.bg = panel:CreateTexture(nil, "BACKGROUND")
+    panel.bg:SetAllPoints()
+    panel.bg:SetColorTexture(0.06, 0.06, 0.07, 1)
+    UI:AddEdges(panel)
+    UI:SetEdgeColor(panel, 0.45, 0.45, 0.5, 1)
     panel:SetFrameStrata("FULLSCREEN_DIALOG")
     panel:SetToplevel(true)
     panel:SetClampedToScreen(true)
@@ -1252,6 +1297,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
     panel:SetHeight(SD_PAD + rowHeight + 4 + SD_FOOTER_H + 6)
     panel:Hide()
     sd.panel = panel
+    local PaintField -- the field's look (below)
 
     local function RowChecked(e)
         if e.fixed then return true end
@@ -1295,12 +1341,17 @@ function UI:CreateSearchDropdown(parent, width, opts)
         row.hl:SetTexture(Tex("rowHilight"))
         row.hl:SetBlendMode("ADD")
         row.hl:SetAlpha(0.45)
-        row.box = row:CreateTexture(nil, "ARTWORK")
-        row.box:SetSize(18, 18)
-        row.box:SetPoint("LEFT", row, "LEFT", 1, 0)
-        row.box:SetTexture(SD_CHECK_BOX)
+        -- a flat check box: a 1px frame (box) around a dark square (boxIn)
+        row.box = row:CreateTexture(nil, "BORDER")
+        row.box:SetSize(12, 12)
+        row.box:SetPoint("LEFT", row, "LEFT", 4, 0)
+        row.box:SetColorTexture(0.45, 0.45, 0.5, 1)
+        row.boxIn = row:CreateTexture(nil, "ARTWORK")
+        row.boxIn:SetPoint("TOPLEFT", row.box, "TOPLEFT", 1, -1)
+        row.boxIn:SetPoint("BOTTOMRIGHT", row.box, "BOTTOMRIGHT", -1, 1)
+        row.boxIn:SetColorTexture(0.03, 0.03, 0.04, 1)
         row.check = row:CreateTexture(nil, "OVERLAY")
-        row.check:SetSize(18, 18)
+        row.check:SetSize(16, 16)
         row.check:SetPoint("CENTER", row.box, "CENTER", 0, 0)
         row.check:SetTexture(SD_CHECK_MARK)
         row.icon = row:CreateTexture(nil, "ARTWORK")
@@ -1331,6 +1382,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
             row.header:SetText(e.header)
             row.header:Show()
             row.box:Hide()
+            row.boxIn:Hide()
             row.check:Hide()
             row.icon:Hide()
             row.name:SetText("")
@@ -1342,9 +1394,11 @@ function UI:CreateSearchDropdown(parent, width, opts)
         row.header:Hide()
         row.hl:SetAlpha(0.45)
         row.box:Show()
+        row.boxIn:Show()
         row.check:SetShown(RowChecked(e))
         row.check:SetDesaturated(e.fixed and true or false)
         row.box:SetAlpha(e.fixed and 0.5 or 1)
+        row.boxIn:SetAlpha(e.fixed and 0.5 or 1)
         UI:ClassIcon(row.icon, e.classFile)
         row.icon:SetAlpha(e.dim and 0.5 or 1)
         local text = e.text or ShortName(e.key)
@@ -1375,6 +1429,11 @@ function UI:CreateSearchDropdown(parent, width, opts)
     footer:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", SD_PAD, 5)
     footer:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -SD_PAD, 5)
     footer:SetHeight(SD_FOOTER_H)
+    footer.line = footer:CreateTexture(nil, "BORDER")
+    footer.line:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 2)
+    footer.line:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 2)
+    footer.line:SetHeight(1)
+    footer.line:SetColorTexture(1, 1, 1, 0.08)
     footer.count = footer:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     footer.count:SetPoint("RIGHT", footer, "RIGHT", -2, 0)
     footer.count:SetJustifyH("RIGHT")
@@ -1510,6 +1569,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
             self:Close()
             eb:ClearFocus()
         end
+        PaintField()
     end
 
     function sd:IsEnabled()
@@ -1521,8 +1581,17 @@ function UI:CreateSearchDropdown(parent, width, opts)
         if panel:IsShown() then self:Refresh() end
     end
 
+    -- The field's look: gold edges while typing or open, the placeholder and the clear button follow the text.
+    PaintField = function()
+        local hasText = (eb:GetText() or "") ~= ""
+        hint:SetShown(not hasText)
+        clear:SetShown(hasText and sd.enabled)
+        UI:SetEdgeColor(holder, unpack((eb:HasFocus() or panel:IsShown()) and SD_EDGE_FOCUS or SD_EDGE))
+    end
+
     -- Keyboard: typing filters, Enter toggles the highlighted match, Up/Down/Tab move, Escape closes.
     eb:HookScript("OnTextChanged", function(_, userInput)
+        PaintField()
         if userInput and not panel:IsShown() then
             sd:Open()
         elseif panel:IsShown() then
@@ -1531,8 +1600,10 @@ function UI:CreateSearchDropdown(parent, width, opts)
     end)
     eb:HookScript("OnEditFocusGained", function()
         if not panel:IsShown() then sd:Open() end
+        PaintField()
     end)
     eb:HookScript("OnEditFocusLost", function()
+        PaintField()
         C_Timer.After(0.2, function()
             if panel:IsShown() and not eb:HasFocus() and not panel:IsMouseOver() and not holder:IsMouseOver() then
                 sd:Close()
@@ -1562,13 +1633,23 @@ function UI:CreateSearchDropdown(parent, width, opts)
     end)
 
     arrow:SetScript("OnClick", function() sd:Toggle() end)
+    clear:SetScript("OnClick", function()
+        eb:SetText("")
+        if sd.enabled then eb:SetFocus() end
+    end)
+    -- a click on the field's padding (around the edit box) types into it too
+    holder:SetScript("OnMouseDown", function()
+        if sd.enabled then eb:SetFocus() end
+    end)
 
     -- A click anywhere outside the widget closes the list.
     panel:SetScript("OnShow", function(self)
         if SDEventValid("GLOBAL_MOUSE_DOWN") then self:RegisterEvent("GLOBAL_MOUSE_DOWN") end
+        PaintField()
     end)
     panel:SetScript("OnHide", function(self)
         self:UnregisterEvent("GLOBAL_MOUSE_DOWN")
+        PaintField()
     end)
     panel:SetScript("OnEvent", function(self, event)
         if event == "GLOBAL_MOUSE_DOWN" and not self:IsMouseOver() and not holder:IsMouseOver() then
@@ -1576,6 +1657,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
         end
     end)
     holder:SetScript("OnHide", function() sd:Close() end)
+    PaintField()
 
     return sd
 end
@@ -1724,7 +1806,7 @@ function UI:AnnounceLine(text)
 end
 
 ---------------------------------------------------------------------------
--- Multi-select dropdown (DisasterZone extension, ADDENDUM F §35): a WowStyle1 dropdown whose menu holds
+-- Multi-select dropdown (DisasterZone extension, ADDENDUM F §35): a flat dropdown whose menu holds
 -- checkboxes (MenuUtil CreateCheckbox: the menu stays open while toggling). The button shows summary().
 --   getOptions() -> array of { value =, text =, tooltip = } | { isTitle = true, text = } | { isDivider = true }
 --                   | { isButton = true, text =, onClick = fn } (a button closes the menu)
@@ -1732,9 +1814,12 @@ end
 ---------------------------------------------------------------------------
 
 function UI:CreateMultiDropdown(parent, width, getOptions, isChecked, onToggle, summary)
-    width = width or 150
+    local b
     local function IsSelected(value) return isChecked(value) and true or false end
-    local function Toggle(value) onToggle(value, not IsSelected(value)) end
+    local function Toggle(value)
+        onToggle(value, not IsSelected(value))
+        if b then b:Refresh() end   -- the summary follows every tick (the menu stays open)
+    end
     local function Build(root)
         for _, opt in ipairs(getOptions() or {}) do
             if opt.isTitle then
@@ -1742,8 +1827,8 @@ function UI:CreateMultiDropdown(parent, width, getOptions, isChecked, onToggle, 
             elseif opt.isDivider then
                 if root.CreateDivider then root:CreateDivider() end
             elseif opt.isButton then
-                local b = root:CreateButton(opt.text or "", function() if opt.onClick then opt.onClick() end end)
-                if opt.disabled and b and b.SetEnabled then b:SetEnabled(false) end
+                local btn = root:CreateButton(opt.text or "", function() if opt.onClick then opt.onClick() end end)
+                if opt.disabled and btn and btn.SetEnabled then btn:SetEnabled(false) end
             else
                 local cb = root:CreateCheckbox(opt.text or tostring(opt.value), IsSelected, Toggle, opt.value)
                 if opt.disabled and cb and cb.SetEnabled then cb:SetEnabled(false) end
@@ -1756,32 +1841,10 @@ function UI:CreateMultiDropdown(parent, width, getOptions, isChecked, onToggle, 
             end
         end
     end
-
-    if ModernDropdownAvailable() then
-        local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
-        dd:SetWidth(width)
-        if dd.SetDefaultText then dd:SetDefaultText(summary and summary() or "-") end
-        if summary and dd.SetSelectionText then
-            dd:SetSelectionText(function() return summary() end)
-        end
-        dd:SetupMenu(function(_, root) Build(root) end)
-        function dd:Refresh()
-            if summary and self.SetDefaultText then self:SetDefaultText(summary()) end
-            self:GenerateMenu()
-        end
-        return dd
-    end
-
-    local b = UI:CreateButton(parent, "", width, 22)
-    local function Update() b:SetText(summary and summary() or "-") end
-    b:SetScript("OnClick", function(self)
-        UI:ContextMenu(self, function(root)
-            Build(root)
-            if root.AddMenuResponseCallback then root:AddMenuResponseCallback(Update) end
-        end)
-    end)
-    b.Refresh = Update
-    Update()
+    b = UI:CreateSleekMenuButton(parent, "", width or 150, Build)
+    b.multi = true
+    function b:Refresh() self:SetText(summary and summary() or "-") end
+    b:Refresh()
     return b
 end
 

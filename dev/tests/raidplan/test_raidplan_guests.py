@@ -448,7 +448,7 @@ def the_roster_marks_guests_and_managers_right_click():
     w.tick(2)
     open_tab(w, bob, occ)
     install_helpers(bob)
-    assert bob.find_text("3 accepted", True, True) and bob.find_text("1 guest", True, True)
+    assert bob.find_text("3/10 accepted", True, True) and bob.find_text("1 guest", True, True)
     cell = bob.eval(ROSTER_CELL, K("Pugsy"))
     assert cell is not None and "(guest)" in strip_codes(bob.eval("return (...).fs:GetText()", cell))
     bob.hover(cell)
@@ -458,7 +458,7 @@ def the_roster_marks_guests_and_managers_right_click():
     # a guest: Remove guest
     bob.click(cell, "RightButton")
     texts = [e.get("text") for e in bob.last_menu()["children"] if e.get("text")]
-    assert texts == ["Pugsy", "Remove guest", "Blacklist..."], texts
+    assert texts == ["Pugsy", "Remove guest", "Blacklist...", "Guest book..."], texts
     # a member: decline / remove the answer
     bob.click(bob.eval(ROSTER_CELL, K("Lee")), "RightButton")
     texts = [e.get("text") for e in bob.last_menu()["children"] if e.get("text")]
@@ -483,7 +483,7 @@ def the_roster_marks_guests_and_managers_right_click():
     open_tab(w, lee, occ)
     assert lee.find_text("The raid leaders took you off this raid.", True, True)
     assert lee.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
-    assert not shown(lee, P + ".upcoming.detail.inviteBtn") and not shown(lee, P + ".blacklistBtn")
+    assert not shown(lee, P + ".upcoming.detail.inviteBtn") and not shown(lee, P + ".guestsBtn")
     open_tab(w, rita, occ)
     before = rita.last_menu()
     rita.click(rita.eval(ROSTER_CELL, K("Rita")), "RightButton")
@@ -500,7 +500,7 @@ def the_guests_and_blacklist_windows():
     assert signup(lee, occ, "A")["ok"] is True
     w.tick(2)
     open_tab(w, bob, occ)
-    assert shown(bob, P + ".upcoming.detail.inviteBtn") and shown(bob, P + ".blacklistBtn")
+    assert shown(bob, P + ".upcoming.detail.inviteBtn") and shown(bob, P + ".guestsBtn")
     # Add players (the icon at the top right of the raid): guild members to invite, and guests by name, class, spec
     bob.click(bob.eval("return %s.upcoming.detail.inviteBtn" % P))
     G = "ns.RaidPlanUI:GetInviteWindow()"
@@ -547,7 +547,7 @@ def the_guests_and_blacklist_windows():
     assert lee.find_text("You can't sign up for raids. Contact an officer.", True, True)
     assert lee.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
     assert lee.eval("return ns.RaidPlanUI:OpenBlacklist()") is False
-    bob.click(bob.eval("return %s.blacklistBtn" % P))
+    bob.click(bob.eval("return %s.guestsBtn" % P))
     bob.eval("ns.RaidPlanUI:Unblacklist(...)", K("Lee"))
     w.tick(3)
     assert rita.eval("return ns.RaidPlan:IsBlacklisted(...)", K("Lee")) is False

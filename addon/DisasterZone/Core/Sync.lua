@@ -391,6 +391,8 @@ function Sync:SendHello(force)
     local RaidPlan = ns.RaidPlan
     if RaidPlan and RaidPlan.GetDigestHash then msg.pd = RaidPlan:GetDigestHash() end
     if RaidPlan and RaidPlan.GetBlacklistRev then msg.blr = RaidPlan:GetBlacklistRev() end   -- the raid blacklist
+    local GuestBook = ns.GuestBook
+    if GuestBook and GuestBook.GetNotesRev then msg.gnr = GuestBook:GetNotesRev() end   -- the guest book's notes (1.3)
     -- Addendum K: the hash of my strategy boards and raid assignments (older clients ignore it).
     local Strategy = ns.Strategy
     if Strategy and Strategy.GetDigestHash then msg.sd = Strategy:GetDigestHash() end
@@ -712,6 +714,8 @@ local function OnHello(sender, msg, dist)
     local RaidPlan = ns.RaidPlan
     if RaidPlan and RaidPlan.OnHelloDigest then RaidPlan:OnHelloDigest(sender, msg.pd) end
     if RaidPlan and RaidPlan.OnBlacklistRevSeen then RaidPlan:OnBlacklistRevSeen(sender, msg.blr) end
+    local GuestBook = ns.GuestBook
+    if GuestBook and GuestBook.OnNotesRevSeen then GuestBook:OnNotesRevSeen(sender, msg.gnr) end
     local Strategy = ns.Strategy
     if Strategy and Strategy.OnHelloDigest then Strategy:OnHelloDigest(sender, msg.sd) end
     local G = ns.Guild

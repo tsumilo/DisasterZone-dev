@@ -585,6 +585,21 @@ class World:
             self._roster_changed_group()
         self._enqueue(self.latency, None, "call", accept)
 
+    # UninviteUnit from client `by` (like WoW: the leader, or a raid assistant): the member leaves the group at once.
+    def uninvite(self, by, name):
+        g = self.group
+        if not g or not any(m is by for m in g["members"]) or not self._can_lead(by):
+            return
+        base = str(name).split("-")[0]
+        target = next((m for m in g["members"] if m.name == base), None)
+        if target is None or target is by:
+            return
+        g["members"] = [m for m in g["members"] if m is not target]
+        g["subgroups"].pop(id(target), None)
+        if g.get("ml") is target:
+            g["ml"] = None
+        self._roster_changed_group(extra=[target])
+
     def convert_to_raid(self, by):
         g = self.group
         if not g or g["kind"] != "party" or g["leader"] is not by:
@@ -1083,6 +1098,7 @@ class Client:
             "random_roll": self._py_random_roll,
             "set_raid_target": lambda guid, idx: self.world.set_raid_target(self, guid, idx),
             "invite": lambda name: self.world.invite(self, name),
+            "uninvite": lambda name: self.world.uninvite(self, name),
             "convert_to_raid": lambda: self.world.convert_to_raid(self),
             "set_raid_subgroup": lambda i, g: self.world.set_raid_subgroup(self, i, g),
             "swap_raid_subgroup": lambda a, b: self.world.swap_raid_subgroup(self, a, b),

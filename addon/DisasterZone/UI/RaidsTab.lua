@@ -18,7 +18,7 @@ local RAID_ROW_H = 34
 local ROW_H = 20
 local RANGES = { 4, 8, 12, 0 }   -- 0 = all raids
 
-local state = { view = "upcoming", mode = "raids", selected = nil, range = 8 }
+local state = { view = "upcoming", mode = "raids", selected = nil, range = 8, showGuests = false }
 local panel
 
 ----------------------------------------------------------------------------
@@ -225,20 +225,23 @@ local function detailRows(rec)
     add({ (rec.zone or "Raid") .. "  " .. grey(fmtTime(rec.start, "%Y-%m-%d")) .. raidTag(rec) }, { header = true })
     local ended = rec.stop and (fmtTime(rec.stop) .. (rec.endedBy and (" by " .. shortName(rec.endedBy)) or
         (rec.autoEnded and " (group disbanded)" or ""))) or "running"
-    add({ "Started " .. fmtTime(rec.start) .. " by " .. by .. "  ·  ended " .. ended })
-    add({ raidSummary(rec) })
+    add({ "Started " .. fmtTime(rec.start) .. " by " .. by .. "  ·  ended " .. ended }, { wide = true })
+    add({ raidSummary(rec) }, { wide = true })
     for _, line in ipairs(planLines(rec)) do
         add({ line }, { menu = function(row) planMenu(row, rec) end, wide = true })
     end
 
     add({ "Bosses" }, { header = true })
     local nBoss = #(rec.bosses or {})
-    if nBoss == 0 then add({ grey("No boss kills logged.") }) end
+    if nBoss == 0 then add({ grey("No boss kills logged.") }, { wide = true }) end
     for _, b in ipairs(rec.bosses or {}) do
         local off = 0
         for _ in pairs(b.off or {}) do off = off + 1 end
-        add({ fmtTime(b.ts), b.name or ("Encounter " .. tostring(b.enc)),
-            b.roster and (#b.roster .. " in raid") or "", off > 0 and ("|cffff8080" .. off .. " offline|r") or "" })
+        -- one line: when, who, how many were there
+        local parts = { fmtTime(b.ts) .. "  " .. (b.name or ("Encounter " .. tostring(b.enc))) }
+        if b.roster then parts[#parts + 1] = grey(#b.roster .. " in raid") end
+        if off > 0 then parts[#parts + 1] = "|cffff8080" .. off .. " offline|r" end
+        add({ table.concat(parts, "  ·  ") }, { wide = true })
     end
 
     add({ "Attendance" }, { header = true })
@@ -256,7 +259,7 @@ local function detailRows(rec)
     if not seesItems() then return rows end
     add({ "Awards" }, { header = true })
     local awards = RL():GetAwards(rec)
-    if #awards == 0 then add({ grey("No awards during this raid.") }) end
+    if #awards == 0 then add({ grey("No awards during this raid.") }, { wide = true }) end
     for _, e in ipairs(awards) do
         add({ fmtTime(e.ts), ns.UI:ItemText(e.i), colored(e.w), ns.ReasonLabel and ns.ReasonLabel(e.r) or "",
             e.vd and grey("void") or "" }, { itemID = e.i })
@@ -269,15 +272,19 @@ local function playerRows()
     local stats, total = RL():GetPlayerStats(n)
     local rows = { { cols = { "Player", "Raids", "Attendance", "Boss kills", "Items (last)" }, colHeader = true } }
     for _, s in ipairs(stats) do
-        local last = s.lastItem and (s.items .. "  " .. ns.UI:ItemText(s.lastItem.i)) or tostring(s.items)
-        -- Addendum J §61: accepted raids they didn't come to (raids linked to a planned raid)
-        local rel = RL().GetReliability and RL():GetReliability(s.key, n or 1000)
-        local noShow = rel and (rel.accepted - rel.came) or 0
-        if not seesItems() then last = "" end
-        rows[#rows + 1] = { cols = { colored(s.key, s.class), ("%d/%d"):format(s.raids, total) ..
-            (s.bench > 0 and grey(" (" .. s.bench .. " bench)") or ""),
-            s.pct .. "%" .. (noShow > 0 and (" |cffff8080" .. noShow .. " no-show|r") or ""),
-            ("%d/%d"):format(s.kills, s.killTotal), last }, itemID = seesItems() and s.lastItem and s.lastItem.i or nil }
+        -- 1.3: players outside the guild have the guest book; they show here only on request
+        if state.showGuests or not ns.UI:IsGuest(s.key) then
+            local last = s.lastItem and (s.items .. "  " .. ns.UI:ItemText(s.lastItem.i)) or tostring(s.items)
+            -- Addendum J §61: accepted raids they didn't come to (raids linked to a planned raid)
+            local rel = RL().GetReliability and RL():GetReliability(s.key, n or 1000)
+            local noShow = rel and (rel.accepted - rel.came) or 0
+            if not seesItems() then last = "" end
+            rows[#rows + 1] = { cols = { colored(s.key, s.class), ("%d/%d"):format(s.raids, total) ..
+                (s.bench > 0 and grey(" (" .. s.bench .. " bench)") or ""),
+                s.pct .. "%" .. (noShow > 0 and (" |cffff8080" .. noShow .. " no-show|r") or ""),
+                ("%d/%d"):format(s.kills, s.killTotal), last },
+                itemID = seesItems() and s.lastItem and s.lastItem.i or nil }
+        end
     end
     return rows, total
 end
@@ -312,21 +319,24 @@ local function updateToolbar(p)
     p.playersBtn:SetKind(tabKind(state.mode == "players"))
     p.rangeBtn:SetShown(log and state.mode == "players")
     p.rangeBtn:SetText(rangeLabel(state.range))
-    p.count:SetShown(log)
+    p.guestsToggle:SetShown(log and state.mode == "players")
+    p.guestsToggle:SetKind(state.showGuests and "active" or "secondary")
+    -- the raid count, in the Raids list only (each player's "Raids" column already says how many raids count)
+    p.count:SetShown(log and state.mode == "raids")
     local GR = ns.GroupRules
     local auth = IsInRaid() and GR and GR:IsAuthority()
     p.sessionBtn:SetShown(auth and true or false)
     p.sessionBtn:SetText(GR and GR:GetSession() and "End raid" or "Start raid")
     local organizer = canOrganize()
     local RP = ns.RaidPlan
-    p.blacklistBtn:SetShown(state.view == "upcoming" and RP and RP.CanManageRoster and RP:CanManageRoster() or false)
-    p.blacklistBtn:ClearAllPoints()
+    p.guestsBtn:SetShown(state.view == "upcoming" and RP and RP.CanManageRoster and RP:CanManageRoster() or false)
+    p.guestsBtn:ClearAllPoints()
     if organizer then
-        p.blacklistBtn:SetPoint("RIGHT", p.newRaidBtn, "LEFT", -6, 0)
+        p.guestsBtn:SetPoint("RIGHT", p.newRaidBtn, "LEFT", -6, 0)
     elseif auth then
-        p.blacklistBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)
+        p.guestsBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)
     else
-        p.blacklistBtn:SetPoint("TOPRIGHT", -8, -6)
+        p.guestsBtn:SetPoint("TOPRIGHT", -8, -6)
     end
     p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
     p.newTeamBtn:SetShown(canTeams() and state.view == "teams")
@@ -361,11 +371,11 @@ function RaidsUI:CreatePanel(parent)
     p.logBtn = UI:CreateSleekButton(p, "Raid log", 80, 22, function() RaidsUI:SetView("log") end)
     p.logBtn:SetPoint("LEFT", p.stratBtn, "RIGHT", 3, 0)
 
-    p.raidsBtn = UI:CreateSleekButton(p, "Raids", 70, 22, function() state.mode = "raids"; RaidsUI:Refresh() end)
-    p.raidsBtn:SetPoint("LEFT", p.logBtn, "RIGHT", 24, 0)
-    p.playersBtn = UI:CreateSleekButton(p, "Players", 70, 22, function() state.mode = "players"; RaidsUI:Refresh() end)
+    p.raidsBtn = UI:CreateSleekButton(p, "Raids", 64, 22, function() state.mode = "raids"; RaidsUI:Refresh() end)
+    p.raidsBtn:SetPoint("LEFT", p.logBtn, "RIGHT", 14, 0)
+    p.playersBtn = UI:CreateSleekButton(p, "Players", 64, 22, function() state.mode = "players"; RaidsUI:Refresh() end)
     p.playersBtn:SetPoint("LEFT", p.raidsBtn, "RIGHT", 3, 0)
-    p.rangeBtn = UI:CreateSleekMenuButton(p, rangeLabel(state.range), 120, function(root)
+    p.rangeBtn = UI:CreateSleekMenuButton(p, rangeLabel(state.range), 100, function(root)
         for _, n in ipairs(RANGES) do
             root:CreateButton(rangeLabel(n), function()
                 state.range = n
@@ -374,7 +384,24 @@ function RaidsUI:CreatePanel(parent)
         end
     end)
     p.rangeBtn:SetPoint("LEFT", p.playersBtn, "RIGHT", 8, 0)
-    p.sessionBtn = UI:CreateSleekButton(p, "Start raid", 100, 22, function()
+    -- 1.3: players outside the guild (the guest book has them) are left out of the attendance list unless shown
+    -- (a switch: lit while they are shown; it stays clear of Start raid at the top right)
+    local function guestsTip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(state.showGuests and "Guests shown" or "Guests left out")
+        GameTooltip:AddLine("Players outside the guild (pugs) who raided with us. Click to "
+            .. (state.showGuests and "leave them out." or "list them too."), 1, 1, 1, true)
+        GameTooltip:Show()
+    end
+    p.guestsToggle = UI:CreateSleekButton(p, "Guests", 64, 22, function(self)
+        state.showGuests = not state.showGuests
+        RaidsUI:Refresh()
+        if GameTooltip:GetOwner() == self then guestsTip(self) end
+    end)
+    p.guestsToggle:SetPoint("LEFT", p.rangeBtn, "RIGHT", 4, 0)
+    p.guestsToggle:HookScript("OnEnter", guestsTip)
+    p.guestsToggle:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    p.sessionBtn = UI:CreateSleekButton(p, "Start raid", 88, 22, function()
         if ns.GroupRules:GetSession() then
             ns.SessionBar:ConfirmEnd()
         else
@@ -383,11 +410,20 @@ function RaidsUI:CreatePanel(parent)
     end)
     p.sessionBtn:SetPoint("TOPRIGHT", -8, -6)
     p.count = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.count:SetPoint("RIGHT", p.sessionBtn, "LEFT", -12, 0)
+    p.count:SetPoint("LEFT", p.playersBtn, "RIGHT", 12, 0)
     p.newRaidBtn = UI:CreateSleekButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end, "primary")
     p.newTeamBtn = UI:CreateSleekButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end, "primary")
-    -- players kept out of every raid (the GM, officers, the guild council and the raid leaders)
-    p.blacklistBtn = UI:CreateSleekButton(p, "Blacklist", 76, 22, function() ns.RaidPlanUI:OpenBlacklist() end)
+    -- 1.3: the guest book (players outside the guild who raided with us) and the blacklist (players kept out of
+    -- every raid), for the GM, officers, the guild council and the raid leaders
+    p.guestsBtn = UI:CreateSleekButton(p, "Guests", 70, 22, function() ns.GuestBookUI:Open() end)
+    p.guestsBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Guests")
+        GameTooltip:AddLine("The guest book (players outside the guild who raided with us: their raids, a note, "
+            .. "recruits) and the raid blacklist.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    p.guestsBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     -- Addendum J §62: who the raid leaders are (everyone can look; the GM edits)
     p.leadersBtn = UI:CreateSleekButton(p, "Raid leaders", 96, 22, function() ns.RaidLeadersUI:Open() end)
 

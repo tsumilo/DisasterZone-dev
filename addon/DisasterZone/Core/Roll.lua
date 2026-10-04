@@ -9,6 +9,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Roll.lua", ...) then return e
 -- Addendum G: council members vote on every roll (RV on the group channel, one vote each, voter names visible);
 -- once anyone voted, the most-voted player still in the group is suggested (ties: BiS tier, then the roll).
 -- Awards carry a reason (ns.AWARD_REASONS: the awarder's choice, else the winner's BiS tier) in RW and the log.
+-- 1.3: a raid that runs rolls without the loot council rolls plain (ses.plain, RS pl): the highest roll is suggested,
+-- BiS tiers and votes don't count, and the winner gets no tier reason.
 local addonName, ns = ...
 
 local Roll = ns:NewModule("Roll")
@@ -148,6 +150,14 @@ end
 local function GroupDist(dist)
     if dist == "RAID" then return true end
     return dist == "PARTY" and DungeonActive()
+end
+
+-- 1.3: a raid that runs rolls without the loot council rolls plain: the highest roll wins, BiS lists and council
+-- votes don't count. Decided by the starter when the roll opens (RS pl = 1).
+local function PlainRaid()
+    if not IsInRaid() then return false end
+    local GR = ns.GroupRules
+    return (GR and GR.IsFeatureOn and not GR:IsFeatureOn("loot")) and true or false
 end
 
 -- real: the message belongs to a real (non-demo) session and may go out while demo mode is on
@@ -568,6 +578,7 @@ local function OpenLocal(ses)
         return false
     end
     ses.party = (not ses.demo and channel == "PARTY") or nil   -- a dungeon-mode (5-man party) roll
+    ses.plain = (not ses.demo and not ses.party and PlainRaid()) or nil
     ses.state = "open"
     ses.startedAt = GetServerTime()
     ses.duration = Duration()
@@ -576,7 +587,9 @@ local function OpenLocal(ses)
     SnapshotTiers(ses)
     local id = ses.id
     if not ses.demo then
-        Send({ t = "RS", id = id, i = ses.i, s = ses.s, b = ses.b, d = ses.duration, ts = ses.startedAt, c = ses.c })
+        -- pl (1.3, ignored by older clients): a plain roll, every client suggests the highest roll.
+        Send({ t = "RS", id = id, i = ses.i, s = ses.s, b = ses.b, d = ses.duration, ts = ses.startedAt, c = ses.c,
+               pl = ses.plain and 1 or nil })
         -- A council starter tells a non-council master looter the tiers too (it may be the only council member in
         -- the raid). A moment later, so the RS is there first.
         Util.After(0.5, function()
@@ -728,6 +741,10 @@ end
 -- player it was handed to. Players missing from the snapshot (list arrived later) use live data.
 SnapshotTiers = function(ses)
     local snap = {}
+    if ses.plain then
+        ses.snap = snap
+        return
+    end
     for key, b in pairs(LiveWanters(ses)) do
         local w = b.entry
         snap[key] = { tier = b.tier, which = w.which, phase = w.phase, os = w.os and true or nil,
@@ -769,10 +786,12 @@ local function BuildResults(ses)
     for key in pairs(ses.rolls) do Row(key) end
     for key in pairs(ses.responses) do Row(key) end
 
-    local best = LiveWanters(ses)
-    local snap = ses.snap
+    -- A plain roll (1.3) lists only who rolled or passed: no BiS tiers, no council votes.
+    local plain = ses.plain
+    local best = plain and {} or LiveWanters(ses)
+    local snap = not plain and ses.snap or nil
     -- Tiers from a council member (RT): I am a non-council starter / master looter without the lists.
-    local remote = (not ses.demo and not AmRealCouncil()) and ses.remoteTiers or nil
+    local remote = (not plain and not ses.demo and not AmRealCouncil()) and ses.remoteTiers or nil
     -- Winners of the other copies of this item from this drop: the tiers are frozen when a copy opens, so the
     -- winner of copy 1 (awarded after copy 2 opened) would still be suggested for copy 2.
     local sibWon = SiblingWinners(ses)
@@ -787,7 +806,7 @@ local function BuildResults(ses)
     end
     -- Council votes (Addendum G): only voters who are (still) council count; demo votes always do.
     local tally, voters = {}, {}
-    for voter, cand in pairs(ses.votes or {}) do
+    for voter, cand in pairs(not plain and ses.votes or {}) do
         if type(cand) == "string" and (ses.demo or IsRealCouncil(voter)) then
             tally[cand] = (tally[cand] or 0) + 1
             local list = voters[cand]
@@ -847,7 +866,7 @@ local function BuildResults(ses)
         r.spec = (w and w.spec) or SpecOf(key)
         r.equippedList = (w and type(w.equippedList) == "table") and w.equippedList or EquippedFor(key, ses.i)
         r.wonTonight = (w and tonumber(w.wonTonight)) or WonTonight(key)
-        r.lockChanged = LockFlag(ses, key)   -- never suggested (Addendum F §38)
+        r.lockChanged = not plain and LockFlag(ses, key) or nil   -- never suggested (Addendum F §38)
         r.votes = tally[key] or 0
         local vl = voters[key] or {}
         tsort(vl)
@@ -956,6 +975,11 @@ end
 
 function Roll:Get(id)
     return type(id) == "string" and sessions[id] or nil
+end
+
+-- 1.3: does a roll started now in my raid roll plain (rolls on, loot council off)?
+function Roll:IsPlainRaid()
+    return PlainRaid()
 end
 
 -- The open session (the earliest started if, briefly, there are two) or nil.
@@ -1438,7 +1462,8 @@ local function Finish(ses, key, given, extraNote, areason)
             break
         end
     end
-    local reason = ns.AWARD_REASON[areason] and areason or ns.ReasonForTier(tier)
+    -- A plain roll's winner has no BiS tier: no reason unless the awarder picked one ("roll" in the chat line).
+    local reason = ns.AWARD_REASON[areason] and areason or (not ses.plain and ns.ReasonForTier(tier) or nil)
     local rr = ses.rolls[key]
     local rollText, note
     if rr and rr.roll then
@@ -1646,7 +1671,7 @@ end
 -- or closed and not awarded yet.
 function Roll:CanVote(id)
     local ses = self:Get(id)
-    if not ses or (ses.state ~= "open" and ses.state ~= "closed") then return false end
+    if not ses or (ses.state ~= "open" and ses.state ~= "closed") or ses.plain then return false end
     if ses.demo then return DemoOn() end
     return AmRealCouncil() and GroupChannel() ~= nil
 end
@@ -1907,7 +1932,7 @@ end
 -- looter the BiS tiers (1 main, 2 alt, 3 off spec) of this item's wanters in the raid, so its suggestion follows
 -- the same priority. Only they are told; the lists themselves stay with the council.
 SendTiers = function(ses)
-    if ses.demo or DemoOn() or not AmRealCouncil() or type(ses.snap) ~= "table" then return end
+    if ses.demo or ses.plain or DemoOn() or not AmRealCouncil() or type(ses.snap) ~= "table" then return end
     local targets = {}
     if ses.starter and not IsRealCouncil(ses.starter) then targets[ses.starter] = true end
     local ml = MasterLooterKey()
@@ -2012,6 +2037,8 @@ local function OnRollStart(sender, msg, dist)
     Prune()
     local ses = NewSession({ id = id, i = itemID, s = s, b = b, c = c, starter = sender, state = "open" })
     ses.party = (dist == "PARTY") or nil   -- a dungeon-mode (5-man party) roll
+    -- A plain roll (1.3): the starter says so; an older starter doesn't, then the raid's own rules decide.
+    ses.plain = (dist == "RAID" and (msg.pl == 1 or PlainRaid())) or nil
     ses.startedAt = floor(ts)
     ses.duration = d
     ses.endsAt = GetTime() + d

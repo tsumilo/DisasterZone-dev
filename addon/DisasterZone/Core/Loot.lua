@@ -354,10 +354,19 @@ local function TrustedDropSender(sender, distribution)
     return ns.Guild and ns.Guild.IsCouncil and ns.Guild:IsCouncil(sender, true) and true or false
 end
 
--- In a raid, loot distribution only runs while the raid leader's raid session has it on (GroupRules, 1.2).
+-- In a raid, the loot council (BiS candidates, votes, bag loot) only runs while the raid leader's raid session has
+-- it on (GroupRules, 1.2).
 local function RaidLootOff(incoming)
     local GR = ns.GroupRules
     return IsInRaid() and GR ~= nil and GR.IsFeatureOn ~= nil and not GR:IsFeatureOn("loot", incoming)
+end
+
+-- 1.3: drops (the loot window scan, D, the drop panel) run while the session runs the loot council or rolls; with
+-- rolls only, the drop panel is a plain roll panel (no BiS, no votes). Handed-out loot is recorded either way.
+local function RaidDropsOff(incoming)
+    local GR = ns.GroupRules
+    if not (IsInRaid() and GR and GR.IsFeatureOn) then return false end
+    return not GR:IsFeatureOn("loot", incoming) and not GR:IsFeatureOn("rolls", incoming)
 end
 
 local function OnDropMessage(sender, msg, distribution)
@@ -367,7 +376,7 @@ local function OnDropMessage(sender, msg, distribution)
         if not DungeonActive() then return end
     elseif distribution ~= "RAID" then
         return
-    elseif RaidLootOff(true) then
+    elseif RaidDropsOff(true) then
         return
     end
     -- The sender is already gated on the REAL group by Comm (Util.IsInMyGroup would use the demo
@@ -489,7 +498,7 @@ end
 function Loot:ScanLoot()
     local num = GetNumLootItems and GetNumLootItems() or 0
     if num <= 0 then return end
-    if FishingLoot() or RaidLootOff() then return end
+    if FishingLoot() or RaidDropsOff() then return end
     local threshold = QualityThreshold()
     local bySource, order = {}, {}
     for slot = 1, num do
@@ -820,7 +829,9 @@ local function OnChatLoot(_, text)
         ns.SafeCall(Roll.OnItemLooted, Roll, id, winner)
     end
     NoteHandedOut(id, winner)   -- my own master-loot hand-out arrived
-    if not AmRealCouncil() or RaidLootOff() then return end
+    -- 1.3: recorded also while the raid runs without the loot council (or before Start raid): only the council's
+    -- distribution is switched off, the loot log still says who got what.
+    if not AmRealCouncil() then return end
     local dungeon = not Util.InRaidInstance() and DungeonLootContext()
     if not (dungeon or Util.InRaidInstance()) then return end
     if ItemQualifies(id, link) and ns.Ledger and ns.Ledger.RecordAuto then
@@ -832,7 +843,7 @@ local function OnStartLootRoll(_, rollID)
     if rollID == nil or not GetLootRollItemLink then return end
     local ok, link = pcall(GetLootRollItemLink, rollID)
     local id = ok and ItemIDFromLink(link)
-    if not id or RaidLootOff() then return end
+    if not id or RaidDropsOff() then return end
     ns:Fire("DROP", {
         s = "ROLL-" .. tostring(rollID), b = Loot:GetRecentBossKey() or "", i = { id },
         ts = GetServerTime(), roll = true, from = Util.PlayerKey(),
@@ -983,9 +994,9 @@ function Loot:ManualDrop(text)
         ns:Print("Only loot council members or the raid leader / assistants can announce drops.")
         return
     end
-    if not demo and RaidLootOff() then
-        ns:Print("Loot distribution is off for this raid. The raid leader turns it on with Start raid (or the "
-            .. "session bar's Options).")
+    if not demo and RaidDropsOff() then
+        ns:Print("The loot council and rolls are off for this raid. The raid leader turns them on with Start raid "
+            .. "(or the session bar's Options).")
         return
     end
     local ids = {}

@@ -1,0 +1,791 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Tours/Strategy.lua", ...) then return end -- DisasterZone: Data/Tours/Strategy.lua
+-- The tutorial of the strategy board (the engine: UI/Tour.lua). It runs on a practice board (Board:OpenSandbox):
+-- High King Maulgar's starter, which is never kept as a draft, never saved and never shared.
+-- A step that the member does themselves compares the board with what it was when the step started (enter / done);
+-- nothing here changes how the board works. Everything is looked up when a step runs, so this file only needs
+-- UI/Tour.lua loaded before it.
+local addonName, ns = ...
+
+local tconcat = table.concat
+
+local BOSS = "GruulsLair:Maulgar"
+local BW, BH = 1000, 666        -- the map's own units (UI/StrategyMap.lua)
+
+local function B() return ns.StrategyBoard end
+local function W() return B():GetWindow() end
+local function st() return B():GetState() end
+local function pg()
+    local s = st()
+    return s.strat and s.strat.p[s.page] or nil
+end
+local function canvas() return W().canvas end
+local function tools() return W().tools end
+local function blocks() return W().blocks end
+
+-- The values of some fields of every drawing on the page, as one text: a change shows as another text.
+local function drawingSig(...)
+    local out = {}
+    for _, e in ipairs(pg().e) do
+        for i = 1, select("#", ...) do out[#out + 1] = tostring(e[(select(i, ...))]) end
+    end
+    return tconcat(out, ",")
+end
+
+-- Who fits the player slots of the page (the columns' rules and the slots' own).
+local function filterSig()
+    local out = {}
+    for _, k in ipairs(pg().k) do
+        for ci, c in ipairs(k.c) do
+            out[#out + 1] = tostring(c.f)
+            for row = 1, k.r do
+                local v = k.d and k.d[row] and k.d[row][ci]
+                out[#out + 1] = type(v) == "table" and tostring(v.f) or "-"
+            end
+        end
+    end
+    return tconcat(out, ",")
+end
+
+-- The first cell on the screen that pred likes.
+local function findCell(pred)
+    for _, b in ipairs(blocks().blocks) do
+        if b:IsShown() then
+            for _, c in ipairs(b.cells) do
+                if c:IsShown() and pred(c) then return c end
+            end
+        end
+    end
+    return nil
+end
+local function slotCell() return findCell(function(c) return c.slotRef ~= nil end) end
+local function targetCell() return findCell(function(c) return c.targetInfo ~= nil end) end
+
+-- A drawing's place on the map, as the tour's cursor takes it.
+local function onMap(e)
+    return { canvas().frame, e.x / BW, e.y / BH }
+end
+
+-- A drawing that isn't linked to a job yet (zones first), or nil.
+local function unlinked()
+    local any
+    for _, e in ipairs(pg().e) do
+        if e.t ~= "s" and not e.ln then
+            if e.t == "z" then return e end
+            any = any or e
+        end
+    end
+    return any
+end
+
+local function firstPage()
+    local s = st()
+    if s.page ~= 1 then
+        s.page = 1
+        B():Refresh()
+    end
+end
+
+local basics = {
+    {
+        title = "Welcome to the strategy board",
+        text = "A strategy is a map you draw on, plus tables of jobs beside it.\n\nThis is a practice board for High King "
+            .. "Maulgar. Nothing you do here is saved or shared, so try everything.",
+    },
+    {
+        title = "The map",
+        anchor = function() return canvas().frame end,
+        text = "The boss room, with the boss and his adds where they stand at the pull. Zones, arrows, icons and texts "
+            .. "go on top of it.",
+    },
+    {
+        title = "The jobs",
+        anchor = function() return blocks().scroll end,
+        side = "left",
+        text = "Tables of jobs: who tanks what, who interrupts, who stands where. The strategy holds the job slots; "
+            .. "the raid leader puts the names in for each raid.",
+    },
+    {
+        title = "Zooming",
+        anchor = function() return canvas().frame end,
+        text = "The map zooms around its middle.",
+        hint = "Scroll the mouse wheel over the map.",
+        enter = function(ctx) ctx.z = pg().vz end,
+        done = function(ctx) return pg().vz ~= ctx.z end,
+        ghost = function() return { from = { canvas().frame, 0.5, 0.5 }, label = "Mouse wheel" } end,
+    },
+    {
+        title = "Moving the map",
+        anchor = function() return tools().btns[2] end,
+        side = "top",
+        text = "The hand tool moves the map under your drawings.",
+        hint = "Pick the hand tool.",
+        done = function() return canvas().tool == "pan" end,
+        ghost = function() return { from = { tools().btns[2], 0.5, 0.5 } } end,
+    },
+    {
+        title = "Moving the map",
+        anchor = function() return canvas().frame end,
+        text = "Frame the room the way the raid should see it. Do this first, then draw: drawings stay where they are "
+            .. "when the map moves.",
+        hint = "Drag the map.",
+        enter = function(ctx) ctx.x, ctx.y = pg().vx, pg().vy end,
+        done = function(ctx) return pg().vx ~= ctx.x or pg().vy ~= ctx.y end,
+        ghost = function()
+            return { from = { canvas().frame, 0.6, 0.45 }, to = { canvas().frame, 0.42, 0.6 }, label = "Drag" }
+        end,
+    },
+    {
+        title = "Another floor",
+        anchor = function() return W().mapBtn end,
+        side = "left",
+        text = "Each page has its own map. This menu lists the floors of the raid; a right-click on the map has the "
+            .. "same list.",
+    },
+    {
+        title = "Pages",
+        anchor = function() return W().tabs[1], W().addPage end,
+        side = "bottom",
+        text = "A fight with phases gets a page per phase, each with its own map and jobs. Right-click a tab to "
+            .. "rename, move or delete the page.",
+        hint = "Click + to add a page.",
+        enter = function(ctx) ctx.n = #st().strat.p end,
+        done = function(ctx) return #st().strat.p > ctx.n end,
+        ghost = function() return { from = { W().addPage, 0.5, 0.5 } } end,
+    },
+    {
+        title = "Pages",
+        anchor = function() return W().tabs[1] end,
+        side = "bottom",
+        text = "The new page starts with the same map and nothing on it.",
+        hint = "Click the first tab to go back.",
+        done = function() return st().page == 1 end,
+        ghost = function() return { from = { W().tabs[1], 0.5, 0.5 } } end,
+    },
+}
+
+local drawing = {
+    {
+        title = "Zones",
+        anchor = function() return tools().btns[3] end,
+        side = "top",
+        text = "Zones mark where to stand and what to stay out of.",
+        hint = "Pick the circle tool.",
+        done = function() return canvas().tool == "circle" end,
+        ghost = function() return { from = { tools().btns[3], 0.5, 0.5 } } end,
+    },
+    {
+        title = "Zones",
+        anchor = function() return canvas().frame end,
+        text = "A circle grows from its centre. A plain click makes one of the usual size.",
+        hint = "Drag on the map to draw a zone.",
+        enter = function(ctx) ctx.n = #pg().e end,
+        done = function(ctx) return #pg().e > ctx.n and canvas().drag == nil end,
+        ghost = function()
+            return { from = { canvas().frame, 0.3, 0.72 }, to = { canvas().frame, 0.38, 0.84 }, label = "Drag" }
+        end,
+    },
+    {
+        title = "Colours",
+        anchor = function() return tools().swatches[1], tools().swatches[#tools().swatches] end,
+        side = "top",
+        text = "The zone you drew is selected: the gold box. A colour goes on the selection and on what you draw next.",
+        hint = "Pick another colour.",
+        enter = function(ctx) ctx.c = canvas().color end,
+        done = function(ctx) return canvas().color ~= ctx.c end,
+    },
+    {
+        title = "Move and resize",
+        anchor = function() return canvas().frame end,
+        text = "Drag a drawing to move it. Drag a gold handle to resize it. Hold Alt while dragging to snap.",
+        hint = "Move or resize something.",
+        enter = function(ctx) ctx.sig = drawingSig("x", "y", "w", "h", "x2", "y2") end,
+        done = function(ctx)
+            return canvas().drag == nil and drawingSig("x", "y", "w", "h", "x2", "y2") ~= ctx.sig
+        end,
+        ghost = function()
+            local e = canvas():GetSelected() or pg().e[#pg().e]
+            if not e then return nil end
+            return { from = onMap(e), to = { canvas().frame, e.x / BW + 0.1, e.y / BH - 0.08 }, label = "Drag" }
+        end,
+    },
+    {
+        title = "Labels",
+        anchor = function() return canvas().frame end,
+        text = "A zone or an icon can say what it is: \"Melee\", \"Stack here\".",
+        hint = "Double-click a zone or an icon and type a label.",
+        enter = function(ctx) ctx.sig = drawingSig("l") end,
+        done = function(ctx) return drawingSig("l") ~= ctx.sig end,
+        ghost = function()
+            local e = canvas():GetSelected() or pg().e[#pg().e]
+            return e and { from = onMap(e), label = "Double-click" } or nil
+        end,
+    },
+    {
+        title = "Icons, texts, arrows",
+        anchor = function() return canvas().frame end,
+        text = "A right-click on an empty spot adds something there: Icon has the raid marks, class and spell icons "
+            .. "and this boss' creatures. The arrow, line, icon and text tools in the toolbar do the same by hand.",
+        hint = "Add one more drawing of any kind.",
+        enter = function(ctx) ctx.n = #pg().e end,
+        done = function(ctx) return #pg().e > ctx.n and canvas().drag == nil end,
+        ghost = function() return { from = { canvas().frame, 0.7, 0.75 }, label = "Right-click" } end,
+    },
+    {
+        title = "Several at once",
+        anchor = function() return canvas().frame end,
+        text = "Drag a box over an empty part of the map to select what it touches, or Shift-click drawings one by "
+            .. "one. A selection moves, copies (Ctrl+C, Ctrl+V) and deletes together; Ctrl+G makes it a group "
+            .. "that stays together.",
+        hint = "Select two or more drawings.",
+        done = function() return canvas().drag == nil and canvas():SelectionCount() > 1 end,
+        ghost = function()
+            return { from = { canvas().frame, 0.25, 0.15 }, to = { canvas().frame, 0.7, 0.4 }, label = "Drag a box" }
+        end,
+    },
+    {
+        title = "Undo",
+        anchor = function() return tools().undoBtn, tools().redoBtn end,
+        side = "top",
+        text = "Every change can be taken back, and brought back again: these buttons, or Ctrl+Z and Ctrl+Y.",
+        hint = "Undo your last change.",
+        enter = function(ctx) ctx.i = st().histI or 0 end,
+        done = function(ctx) return (st().histI or 0) < ctx.i end,
+    },
+    {
+        title = "Keys and mouse",
+        anchor = function() return tools().helpBtn end,
+        side = "top",
+        text = "Hover the question mark for every shortcut: copy and paste, duplicate, group, nudge with the arrows.",
+    },
+}
+
+local jobs = {
+    {
+        title = "Blocks",
+        anchor = function() return blocks().scroll end,
+        side = "left",
+        text = function()
+            if #pg().k > 0 then
+                return "A block is a small table of jobs. + Add block under the tables starts another one from a template."
+            end
+            return "A block is a small table of jobs. The cards under \"Suggested from the map\" build one from the "
+                .. "creatures on the map: a row each, already linked to them. The templates below start empty."
+        end,
+        hint = "Click a card to add a block.",
+        enter = function(ctx) ctx.n = #pg().k end,
+        done = function(ctx) return #pg().k > ctx.n end,
+    },
+    {
+        title = "Linked to the map",
+        anchor = function() return canvas().frame end,
+        text = function()
+            for _, e in ipairs(pg().e) do
+                if e.ln then
+                    return "The creature on the map now shows the job it is linked to. Once a raid is assigned, the "
+                        .. "player's name stands there instead: everyone sees their spot on the map."
+                end
+            end
+            return "A drawing can be linked to a job. Once a raid is assigned, the player's name stands on the "
+                .. "drawing: everyone sees their spot on the map. A later step links one."
+        end,
+    },
+    {
+        title = "Who fits a slot",
+        anchor = function() return slotCell() end,
+        side = "left",
+        text = "A player slot can be limited to a role or to classes. Suggest fill uses that when the raid leader "
+            .. "assigns the raid.",
+        hint = "Click the slot and pick a role or a class.",
+        enter = function(ctx) ctx.sig = filterSig() end,
+        done = function(ctx) return filterSig() ~= ctx.sig end,
+        ghost = function()
+            local c = slotCell()
+            return c and { from = { c, 0.3, 0.5 } } or nil
+        end,
+    },
+    {
+        title = "Targets",
+        anchor = function() return targetCell() end,
+        side = "left",
+        text = "A target cell says what the job is about. Click it to type a label, pick an icon or tie it to a boss "
+            .. "ability; or drop an icon from the map on it.",
+    },
+    {
+        title = "Linking a drawing yourself",
+        anchor = function() return canvas().frame, slotCell() end,
+        side = "bottom",
+        text = "Dropped on a slot, a drawing shows that player. On a column header or a block's title bar it shows "
+            .. "everyone in the column or the block.",
+        hint = "Hold Shift and drag a drawing onto a table.",
+        enter = function(ctx)
+            -- something to link: a zone, when everything on the map is linked already
+            if not unlinked() then
+                canvas():Place({ t = "z", s = "c", x = 300, y = 480, w = 110, h = 110, c = canvas().color, l = "Melee" })
+            end
+            ctx.sig = drawingSig("ln")
+        end,
+        done = function(ctx) return canvas().drag == nil and drawingSig("ln") ~= ctx.sig end,
+        ghost = function()
+            local e, c = unlinked(), slotCell()
+            if not (e and c) then return nil end
+            return { from = onMap(e), to = { c, 0.4, 0.5 }, label = "Shift + drag" }
+        end,
+    },
+    {
+        title = "Names on the map",
+        anchor = function() return slotCell() end,
+        side = "left",
+        text = "It works the other way round too: drag a player slot onto the map to put a name marker there. It "
+            .. "shows whoever gets that slot.",
+        ghost = function()
+            local c = slotCell()
+            return c and { from = { c, 0.4, 0.5 }, to = { canvas().frame, 0.55, 0.7 }, label = "Drag" } or nil
+        end,
+    },
+    {
+        title = "Shaping a block",
+        anchor = function() return blocks().blocks[1] end,
+        side = "left",
+        text = "Click the title bar to rename, colour, move, copy or delete the block, or to have it tracked in the "
+            .. "fight (an interrupt rotation, dispels). + row and + column grow it; a click on a column header "
+            .. "changes the column.",
+    },
+    {
+        title = "Other kinds of tables",
+        anchor = function() return blocks().addBtn end,
+        side = "left",
+        text = "+ Add block has a template for the usual shapes: players with targets, an ordered rotation "
+            .. "(interrupts, misdirects), groups or zones, pairs (Innervate: from, to), a single job with a timing, "
+            .. "dispels, plain notes. Each is a starting point: columns and rows can be changed afterwards.",
+    },
+    {
+        title = "Page notes",
+        anchor = function() return blocks().notesBtn end,
+        side = "left",
+        text = "Free text under the tables, for what doesn't fit one.",
+    },
+    {
+        title = "Saving",
+        anchor = function() return W().saveBtn end,
+        side = "bottom",
+        text = "On a real strategy, Save shares it with the guild. Until then your work is a private draft: it "
+            .. "survives closing the window, a reload and a logout.\n\nNext: the helpers that follow a table during "
+            .. "the fight.",
+    },
+}
+
+---------------------------------------------------------------------------
+-- In the fight
+---------------------------------------------------------------------------
+
+local function S() return ns.Strategy end
+
+-- The first block (and its frame) that pred likes.
+local function findBlock(pred)
+    for i, k in ipairs(pg().k) do
+        if pred(k) then return k, blocks().blocks[i] end
+    end
+    return nil
+end
+local function isRotation(k)
+    for _, c in ipairs(k.c) do
+        if c.t == "o" then return true end
+    end
+    return false
+end
+local function countBlocks(pred)
+    local n = 0
+    for _, k in ipairs(pg().k) do
+        if pred(k) then n = n + 1 end
+    end
+    return n
+end
+local function trackSig()
+    local out = {}
+    for _, k in ipairs(pg().k) do out[#out + 1] = tostring(S().TrackKind(k)) end
+    return tconcat(out, ",")
+end
+
+local helpers = {
+    {
+        title = "Tables the addon follows",
+        text = "A plan doesn't have to stay on paper. A table can be tracked during the fight: whose interrupt it "
+            .. "is, whether a misdirect went out, a dispel that is needed right now.\n\nThat is set per block.",
+    },
+    {
+        title = "A rotation",
+        anchor = function()
+            if blocks().addBtn:IsShown() then return blocks().addBtn end
+            return blocks().scroll
+        end,
+        side = "left",
+        text = "An ordered table: the players take turns from the top.",
+        hint = "Add a block from the template \"Rotation (ordered)\".",
+        enter = function(ctx) ctx.n = countBlocks(isRotation) end,
+        done = function(ctx) return countBlocks(isRotation) > ctx.n end,
+    },
+    {
+        title = "Track in fight",
+        anchor = function()
+            local _, frame = findBlock(isRotation)
+            return frame
+        end,
+        side = "left",
+        text = "Tracking says what the table means. An interrupt rotation is followed through the combat log: "
+            .. "everyone in it sees whose kick it is. Other kinds: misdirections, Bloodlust, Power Infusion, "
+            .. "Innervate, curses, dispels.",
+        hint = "Click the block's title bar, then Track in fight > Interrupt rotation.",
+        enter = function(ctx) ctx.sig = trackSig() end,
+        done = function(ctx) return trackSig() ~= ctx.sig end,
+    },
+    {
+        title = "What a row is about",
+        anchor = function()
+            local k = findBlock(isRotation)
+            return findCell(function(c) return c.targetInfo ~= nil and (k == nil or c.targetInfo.k == k) end)
+        end,
+        side = "left",
+        text = "In a target cell's menu, Abilities lists the boss' casts: tick the ones this row is about. Only when "
+            .. "limits a row to part of the fight: the boss below a health percentage, or while it has a buff.",
+    },
+    {
+        title = "Raid marks",
+        anchor = function() return W().autoMark end,
+        side = "bottom",
+        text = "Right-click a creature's portrait on the map > Raid mark to give it a skull or a cross. With Auto-mark "
+            .. "on, the raid leader's DisasterZone puts those marks on the mobs as their nameplates appear.",
+    },
+    {
+        title = "Practice",
+        anchor = function() return W().practiceBtn end,
+        side = "bottom",
+        text = "Practice plays a minute of the fight for you alone: demo players take the other slots, and your real "
+            .. "interrupt on a target dummy counts when it is your turn. Try it once the tour is over.",
+    },
+    {
+        title = "In the raid",
+        text = "Near a planned boss, everyone gets a slim panel with their jobs and the live state of the tracked "
+            .. "tables they are in. The raid leader also sees the tables they are not in. A click on the panel's "
+            .. "header opens this board.\n\nNext: putting a raid's players into the slots.",
+    },
+}
+
+---------------------------------------------------------------------------
+-- Assigning a raid
+---------------------------------------------------------------------------
+
+local function me() return ns.Util.PlayerKey() end
+local function assign() return st().assign end
+local function assignCount()
+    local n = 0
+    for _ in pairs(assign()) do n = n + 1 end
+    return n
+end
+local function mine()
+    for _, key in pairs(assign()) do
+        if key == me() then return true end
+    end
+    return false
+end
+local function emptySlotCell()
+    return findCell(function(c) return c.slotRef ~= nil and assign()[c.slotRef] == nil end)
+end
+local function chip(pred)
+    for _, c in ipairs(W().pool.chips) do
+        if c:IsShown() and (pred == nil or pred(c)) then return c end
+    end
+    return nil
+end
+local function myChip() return chip(function(c) return c.key == me() end) end
+
+-- Limits the first table's players to tanks (something for Suggest fill to work with). clear: and empties them.
+local function tankSlots(p, clear)
+    local k = p.k[1]
+    if not k then return end
+    for ci, c in ipairs(k.c) do
+        if c.t == "p" then
+            c.f = "tank"
+            if clear then
+                for row = 1, k.r do assign()[S().SlotRef(k.id, row, ci)] = nil end
+            end
+            return
+        end
+    end
+end
+
+-- The practice board's jobs when a chapter starts without them: a block for every creature on the first page.
+local function seed()
+    local p = st().strat.p[1]
+    if #p.k > 0 then return end
+    for _ = 1, S().MAX_BLOCKS do
+        local sg = blocks():Suggestions(p)[1]
+        if not sg then break end
+        sg.apply()
+    end
+    tankSlots(p)
+end
+
+-- Is there an empty slot limited to a role or a class (what Suggest fill fills)?
+local function emptyFiltered()
+    for _, sl in ipairs(S():GetSlots(st().strat)) do
+        if sl.f and not assign()[sl.ref] then return true end
+    end
+    return false
+end
+
+-- Names in every slot of the practice board: the players who fit first, then whoever has the fewest jobs; me in one.
+local function fillNames()
+    local s = st()
+    local members = blocks().opts.members() or {}
+    if #members == 0 then return end
+    local a = S():SuggestFill(s.strat, s.assign, members)
+    local n = 0
+    for _, sl in ipairs(S():GetSlots(s.strat)) do
+        if not a[sl.ref] then
+            n = n + 1
+            a[sl.ref] = members[(n - 1) % #members + 1].key
+        end
+    end
+    local has = false
+    for _, key in pairs(a) do has = has or key == me() end
+    if not has then
+        local slots = S():GetSlots(s.strat)
+        if slots[#slots] then a[slots[#slots].ref] = me() end
+    end
+    s.assign = a
+    B():Refresh()
+end
+
+local assigning = {
+    {
+        title = "Assigning a raid",
+        text = "A strategy holds the jobs; each raid gets its own names. A raid leader opens a boss from a planned "
+            .. "raid (Raids > Upcoming > the raid > Assignments) and clicks Assign players.\n\nThis practice board "
+            .. "has a demo raid: you and nine made-up players.",
+    },
+    {
+        title = "This raid's players",
+        anchor = function() return W().pool end,
+        side = "top",
+        text = "Everyone signed up for the raid, and whoever is in your raid group, sorted by role. The number "
+            .. "behind a name counts the jobs they have.",
+    },
+    {
+        title = "Putting a player in a slot",
+        anchor = function() return W().pool, emptySlotCell() or slotCell() end,
+        side = "top",
+        text = "Three ways: drag a player onto a slot; click the player, then the slot; or click the slot and pick "
+            .. "from its list, where the players who fit come first.",
+        hint = "Put a player in a slot.",
+        enter = function(ctx) ctx.n = assignCount() end,
+        done = function(ctx) return assignCount() > ctx.n end,
+        ghost = function()
+            local c, cell = chip(), emptySlotCell()
+            if not (c and cell) then return nil end
+            return { from = { c, 0.3, 0.5 }, to = { cell, 0.4, 0.5 }, label = "Drag" }
+        end,
+    },
+    {
+        title = "Suggest fill",
+        anchor = function() return W().pool.suggestBtn end,
+        side = "top",
+        text = "Fills the empty slots that are limited to a role or a class with players who fit, spreading the "
+            .. "jobs. Slots open to anyone stay for you to decide.",
+        hint = "Click Suggest fill.",
+        enter = function(ctx)
+            -- something for it to fill: the first table's slots are for tanks
+            if not emptyFiltered() then
+                tankSlots(pg(), true)
+                B():Refresh()
+            end
+            ctx.n = assignCount()
+        end,
+        done = function(ctx) return assignCount() > ctx.n end,
+        ghost = function() return { from = { W().pool.suggestBtn, 0.5, 0.5 } } end,
+    },
+    {
+        title = "Checks while you assign",
+        anchor = function() return blocks().scroll end,
+        side = "left",
+        text = "A player placed twice in the same table turns orange. A name in red is someone who isn't signed up "
+            .. "for this raid. A right-click on a slot clears it; Ctrl+Z takes a step back.",
+    },
+    {
+        title = "From the last raid",
+        anchor = function() return W().pool.carryBtn, W().pool.clearBtn end,
+        side = "top",
+        text = "Carry over starts from the names of the last raid that used this strategy, so a farm boss takes a "
+            .. "few fixes instead of a full round. Clear all empties every slot.",
+    },
+    {
+        title = "A job for you",
+        anchor = function() return W().pool, emptySlotCell() or slotCell() end,
+        side = "top",
+        text = "The next chapter shows the plan the way a raider sees it, so take a job yourself.",
+        hint = "Put yourself in a slot.",
+        skip = function() return mine() end,
+        done = function() return mine() end,
+        ghost = function()
+            local c, cell = myChip(), emptySlotCell() or slotCell()
+            if not (c and cell) then return nil end
+            return { from = { c, 0.3, 0.5 }, to = { cell, 0.4, 0.5 }, label = "Drag" }
+        end,
+    },
+    {
+        title = "Saving the names",
+        anchor = function() return W().saveBtn end,
+        side = "bottom",
+        text = "Save shares the names with the raid; until then they are a draft of yours. On a real raid a Strategy "
+            .. "menu sits here too: it switches the raid to another strategy of the boss and keeps the names of the "
+            .. "slots both have.\n\nNext: the plan as a raider reads it.",
+    },
+}
+
+---------------------------------------------------------------------------
+-- Reading a plan
+---------------------------------------------------------------------------
+
+local reading = {
+    {
+        title = "Reading a plan",
+        text = "This is what every raider sees. Open a boss from a raid (Raids > Upcoming > the raid > Assignments), "
+            .. "or click the header of the jobs panel that appears near the boss.",
+    },
+    {
+        title = "Your jobs",
+        anchor = function() return W().view end,
+        side = "top",
+        text = "Everything you are assigned to on this board, across all its pages.",
+    },
+    {
+        title = "Where you stand",
+        anchor = function() return canvas().frame end,
+        text = "Linked drawings carry the names: find yours on the map. Hover a drawing and its row lights up in "
+            .. "the tables; hover a row and its drawing lights up on the map.",
+    },
+    {
+        title = "The tables",
+        anchor = function() return blocks().scroll end,
+        side = "left",
+        text = "Who does what. Hover a cell for the details: who fits the slot, which boss abilities a row is "
+            .. "about, when it applies.",
+    },
+    {
+        title = "Phases",
+        anchor = function() return W().tabs[1], W().tabs[#st().strat.p] end,
+        side = "bottom",
+        skip = function() return #st().strat.p < 2 end,
+        text = "Each tab is a phase of the fight, with its own map and jobs. Look at them all: your job can change.",
+    },
+    {
+        title = "Try it before the raid",
+        anchor = function() return W().practiceBtn end,
+        side = "bottom",
+        text = "Practice plays a minute of the fight with your jobs: the panel you get in the raid, whose kick it "
+            .. "is, marks on what you target. Stand at a target dummy and use your real spells.",
+    },
+    {
+        title = "In the raid",
+        text = "Near the boss a slim panel shows your jobs and follows the tracked tables you are in: whose kick it "
+            .. "is, your misdirect done, your curse up. It stays through the fight and fades after it.\n\nNext: "
+            .. "where strategies live, and building one together.",
+    },
+}
+
+---------------------------------------------------------------------------
+-- The library (Raids > Strategies)
+---------------------------------------------------------------------------
+
+local function L() return ns.StrategiesUI:GetLibrary() end
+
+local library = {
+    {
+        title = "Raids and bosses",
+        anchor = function() return L().list.frame end,
+        text = "Every strategy belongs to a boss. Pick a raid or a boss to see its strategies; the numbers count "
+            .. "them, and an orange count is unsaved work of yours.",
+    },
+    {
+        title = "Finding one",
+        anchor = function() return L().search, L().by end,
+        side = "bottom",
+        text = "Search by strategy, boss or raid name. By narrows the list to your own, the ones shared with you, "
+            .. "or one guild member's.",
+    },
+    {
+        title = "The strategies",
+        anchor = function() return L().detail.list.frame end,
+        side = "left",
+        text = "Each row has its actions as icons on the right. Open looks at a strategy. Edit changes yours and the "
+            .. "ones shared with you. Copy makes any strategy yours. Delete is for the owner, the Guild Master and "
+            .. "the guild council.\n\nYour drafts sit on top with an orange strip: continue or discard them.",
+    },
+    {
+        title = "Building together",
+        anchor = function() return L().detail.list.frame end,
+        side = "left",
+        text = "Share, on a strategy you own, invites guild members as collaborators: they change it like you do.\n\n"
+            .. "When two of you edit at the same time the board goes live: you see each other's changes and "
+            .. "selections as they happen. The list shows who is editing right now.",
+    },
+    {
+        title = "Your turn",
+        anchor = function() return L().detail.newBtn end,
+        side = "left",
+        text = "New strategy starts a real one for the boss picked on the left. It opens with the boss' room and its "
+            .. "creatures in place, like the practice board did.\n\nThis tutorial stays under the Tutorial button, "
+            .. "chapter by chapter.",
+    },
+}
+
+---------------------------------------------------------------------------
+
+-- Gets the practice board on the screen in a mode. pre runs before the mode changes, post after it.
+local function board(mode, pre, post)
+    return function()
+        if not B():OpenSandbox(BOSS, true) then return false end
+        if pre then pre() end
+        if st().mode ~= mode then B():SandboxMode(mode) end
+        if post then post() end
+        return true
+    end
+end
+
+local function selectTool()
+    canvas():SetTool("select")
+    B():RefreshTools()
+end
+
+local BUILD, RAID = "Building a strategy", "Running a raid"
+
+ns.Tour:Register("strategy", {
+    title = "Strategy board",
+    offerTitle = "New to the strategy board?",
+    offerText = "Take the guided tour on a practice board: building a strategy, assigning a raid, reading a plan. "
+        .. "Stop whenever you like; the chapters you finished are remembered. Nothing you do there is saved or shared.",
+    host = function() return W() end,
+    open = board("edit"),
+    alive = function() return B():IsShown() and st().sandbox == true and pg() ~= nil end,
+    chapters = {
+        { key = "basics", group = BUILD, title = "The basics", steps = basics },
+        { key = "drawing", group = BUILD, title = "Drawing on the map", enter = selectTool, steps = drawing },
+        { key = "jobs", group = BUILD, title = "Jobs and links", enter = function() firstPage(); selectTool() end,
+          steps = jobs },
+        { key = "helpers", group = BUILD, title = "In-fight helpers", enter = function() firstPage(); selectTool() end,
+          steps = helpers },
+        { key = "assign", group = RAID, title = "Assigning a raid", open = board("fill", seed), enter = firstPage,
+          steps = assigning },
+        { key = "read", group = RAID, title = "Reading a plan", open = board("view", seed, fillNames), enter = firstPage,
+          steps = reading },
+        { key = "library", group = "The library", title = "Finding and sharing strategies",
+          host = function() return L() end,
+          open = function()
+              B():Close()
+              ns.MainFrame:Open("raids")
+              ns.RaidsUI:SetView("strategies")
+              return L() ~= nil and L():IsVisible()
+          end,
+          alive = function() return L() ~= nil and L():IsVisible() end,
+          steps = library },
+    },
+})

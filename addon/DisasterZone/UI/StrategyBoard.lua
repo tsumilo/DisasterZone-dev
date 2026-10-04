@@ -64,6 +64,7 @@ local st = {
     picked = nil,       -- fill: a player clicked in the pool, placed by clicking a slot
     base = nil,         -- edit: what the saved strategy said when this draft started (Collab:ContentHash)
     liveK = nil,        -- edit: the live session this draft was last part of (Core/StrategyCollab.lua)
+    sandbox = nil,      -- edit: the tutorial's practice board (never a draft, never saved; Board:OpenSandbox)
 }
 
 ---------------------------------------------------------------------------
@@ -203,11 +204,38 @@ local function rebuildSlots()
     for _, s in ipairs(S():GetSlots(st.strat)) do slotLabels[s.ref] = s.label end
 end
 
+-- The practice board's raid (Board:SandboxMode): me and nine made-up players, a spec each so the roles show.
+local SANDBOX_OCC = "sandbox"
+local SANDBOX_RAID = { { "Aldren", "WARRIOR", "tank" }, { "Brisa", "PALADIN", "tank" }, { "Corvin", "PRIEST", "healer" },
+                       { "Dessa", "SHAMAN", "healer" }, { "Eldor", "DRUID", "healer" }, { "Fenna", "ROGUE", "melee" },
+                       { "Gorim", "HUNTER", "ranged" }, { "Halvi", "MAGE", "ranged" }, { "Isolde", "WARLOCK", "ranged" } }
+local sandboxMembers
+local function sandboxRaid()
+    if sandboxMembers then return sandboxMembers end
+    local out = {}
+    local me = ns.Util.PlayerKey()
+    if me then
+        local _, class = UnitClass("player")
+        out[1] = { key = me, c = class, sp = ns.RaidPlan and ns.RaidPlan:GetMemberSpec(me) or nil }
+    end
+    for _, d in ipairs(SANDBOX_RAID) do
+        local sp
+        for i, spec in pairs(ns.SPECS and ns.SPECS[d[2]] or {}) do
+            local role = type(spec) == "table" and (spec.role == "caster" and "ranged" or spec.role)
+            if role == d[3] and (sp == nil or i < sp) then sp = i end
+        end
+        out[#out + 1] = { key = ns.Util.NormalizeName(d[1]), c = d[2], sp = sp }
+    end
+    tsort(out, function(a, b) return a.key < b.key end)
+    sandboxMembers = out
+    return out
+end
+
 local memberSet, memberList = {}, {}
 local function rebuildMembers()
     memberSet, memberList = {}, {}
     if not st.occ then return end
-    memberList = S():GetRaidMembers(st.occ)
+    memberList = st.sandbox and sandboxRaid() or S():GetRaidMembers(st.occ)
     for _, m in ipairs(memberList) do memberSet[m.key] = m end
 end
 
@@ -369,7 +397,7 @@ local function createWindow()
     f.titleBtn:SetScript("OnLeave", function(self) self.hl:Hide(); GameTooltip:Hide() end)
     f.sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.sub:SetPoint("TOPLEFT", 4, -24)
-    f.sub:SetPoint("RIGHT", c, "RIGHT", -420, 0)
+    f.sub:SetPoint("RIGHT", c, "RIGHT", -500, 0)
     f.sub:SetJustifyH("LEFT")
     f.sub:SetWordWrap(false)
 
@@ -396,6 +424,10 @@ local function createWindow()
     end)
     tipButton(f.practiceBtn, "Practice", "Try this strategy's in-fight helpers alone: your jobs panel, whose kick it "
         .. "is, marks on what you target. Demo players fill the other slots; use your real spells on a target dummy.")
+    -- the guided tour of the board, on a practice board (Data/Tours/Strategy.lua)
+    f.tourBtn = UI():CreateSleekButton(c, "Tutorial", 70, 24, function(self) ns.Tour:Menu(self, "strategy") end)
+    tipButton(f.tourBtn, "Tutorial", "A guided tour on a practice board: building a strategy, assigning a raid, "
+        .. "reading a plan. Nothing you do there is saved or shared; your unsaved work here stays as a draft.")
 
     -- page tabs; right above the map: the map picker (editing) or its name
     f.tabs = {}
@@ -707,6 +739,7 @@ local function draftsChanged() ns:Fire("STRATEGY_DRAFTS_CHANGED") end
 
 -- The board's unsaved work is a draft; once nothing is unsaved (Save, Cancel) the draft is gone.
 local function keepDraft()
+    if st.sandbox then return end
     local store = draftStore()
     if not store then return end
     if st.dirty and st.strat and (st.mode == "edit" or st.mode == "fill") then
@@ -729,6 +762,7 @@ end
 
 -- The board moves on to something else: its unsaved work stays behind as a draft of its own.
 local function park()
+    st.sandbox = nil        -- a practice board is simply left behind
     local store = draftStore()
     if not (store and st.did and st.dirty) then return end
     store[st.did] = { did = st.did, mode = st.mode, strat = st.strat, occ = st.occ, boss = st.boss, page = st.page,
@@ -1013,6 +1047,30 @@ function Board:NewStrategy(bossRef, name)
     show()
 end
 
+-- The tutorial's practice board (UI/Tour.lua, Data/Tours/Strategy.lua): a new strategy for a boss, as New strategy
+-- opens it, that is never kept as a draft, never saved and never shared. What the board held unsaved stays behind
+-- as its draft. keep: the practice board of earlier this session, when the board still holds it, comes back as it was.
+function Board:OpenSandbox(bossRef, keep)
+    if not canBuild() then
+        ns:Print("Your guild is not known yet; try again in a moment.")
+        return false
+    end
+    if keep and st.sandbox and st.strat and st.strat.b == bossRef then
+        show()
+        return true
+    end
+    park()
+    local d = self:StarterDraft(bossRef) or S():NewDraft(bossRef, "Practice board", MapUI():DefaultMap(bossRef))
+    d.n = "Practice board"
+    st.strat = d
+    st.occ, st.boss, st.page, st.assign, st.picked = nil, bossRef, 1, {}, nil
+    st.mode, st.dirty, st.sandbox = "edit", false, true
+    setBase()
+    Board:ResetHistory()
+    show()
+    return true
+end
+
 -- A raid's board for a boss: the chosen (or only) strategy with that raid's names.
 function Board:OpenRaid(occId, bossRef, mode)
     if st.dirty and st.occ == occId and st.boss == bossRef then return show() end
@@ -1036,6 +1094,9 @@ function Board:Close()
 end
 
 function Board:IsShown() return win ~= nil and win:IsShown() end
+
+-- The window (nil until the board was opened once): the tutorial points at its controls.
+function Board:GetWindow() return win end
 
 function Board:GetState() return st end
 
@@ -1149,7 +1210,21 @@ function Board:OnKey(key)
     return false
 end
 
+-- The practice board in another mode (the tutorial's chapters): "edit", "fill" (assigning its demo raid) or "view"
+-- (reading the plan with that raid's names). The names stay through the modes.
+function Board:SandboxMode(mode)
+    if not st.sandbox then return false end
+    if mode ~= "fill" and mode ~= "view" then mode = "edit" end
+    st.mode = mode
+    st.occ = mode ~= "edit" and SANDBOX_OCC or nil
+    st.picked = nil
+    self:ResetHistory()
+    self:Refresh()
+    return true
+end
+
 function Board:SetMode(mode)
+    if st.sandbox then return self:SandboxMode(mode) end
     if mode == "edit" then
         if not canEditStrat(st.strat) then return end
         if st.mode ~= "edit" then
@@ -1186,6 +1261,10 @@ function Board:RenameStrategy()
 end
 
 function Board:CancelChanges()
+    if st.sandbox then
+        st.dirty = false
+        return self:Close()
+    end
     local occ, boss, id = st.occ, st.boss, st.strat and st.strat.id
     st.dirty = false
     st.base, st.liveK, st.stale = nil, nil, nil
@@ -1201,6 +1280,10 @@ end
 
 -- force: save over a version someone else saved since this draft started.
 function Board:Save(force)
+    if st.sandbox then
+        ns:Print("This is the tutorial's practice board: nothing here is saved. New strategy (Raids > Strategies) starts a real one.")
+        return false
+    end
     if st.mode == "edit" then
         local newer = not force and savedSince()
         if newer then
@@ -1640,7 +1723,7 @@ function Board:Refresh()
     rebuildDups()
     local s = st.strat
     local mode = st.mode
-    local assigner = canAssign()
+    local assigner = canAssign() or st.sandbox == true
     local v = raidView()
     -- title
     local bossName = S():GetBossName(st.boss or (s and s.b))
@@ -1650,8 +1733,7 @@ function Board:Refresh()
     else
         win.title:SetText(bossName .. "  " .. grey("no strategy yet"))
     end
-    win.title:SetWidth(0)
-    if (win.title:GetStringWidth() or 0) > 560 then win.title:SetWidth(560) end
+    win.title:SetWidth(0)       -- as wide as its text; cut once the actions are laid out (below)
     win.titleBtn:SetShown(mode == "edit" and s ~= nil)
     local sub = {}
     if v then sub[#sub + 1] = ns.RaidPlan:GetRaidName(v) .. " · " .. date("%a %d %b %H:%M", v.t) end
@@ -1661,7 +1743,12 @@ function Board:Refresh()
         sub[#sub + 1] = "strategy by " .. shortName(owner) .. (co > 0 and (" +" .. co) or "")
             .. (s.rev and (", " .. date("%d %b", s.rev)) or "")
     end
-    if st.dirty then sub[#sub + 1] = "|cffff9933unsaved changes|r" end
+    if st.sandbox then
+        sub[#sub + 1] = "|cff33ff99tutorial practice board|r" .. (st.occ and " with a demo raid" or "")
+            .. ": nothing here is saved or shared"
+    elseif st.dirty then
+        sub[#sub + 1] = "|cffff9933unsaved changes|r"
+    end
     if mode == "edit" and st.stale then
         sub[#sub + 1] = "|cffff5555" .. shortName(st.stale) .. " saved a newer version|r"
     end
@@ -1673,37 +1760,47 @@ function Board:Refresh()
     -- header actions, right to left: the main action (gold) at the far right
     local header
     if mode == "edit" then
-        header = { win.saveBtn, win.cancelBtn, s and win.practiceBtn, win.autoMark }
+        header = { win.saveBtn, win.cancelBtn, s and win.practiceBtn, win.autoMark, win.tourBtn }
     elseif mode == "fill" then
-        header = { win.saveBtn, win.cancelBtn, win.stratDD, s and win.practiceBtn }
+        -- (the practice board has no other strategy to switch its demo raid to)
+        header = { win.saveBtn, win.cancelBtn, not st.sandbox and win.stratDD, s and win.practiceBtn, win.tourBtn }
     else
         local canFill = assigner and s ~= nil and st.occ ~= nil
-        header = { canFill and win.fillBtn, canEditStrat(s) and win.editBtn, st.occ and win.stratDD, s and win.practiceBtn }
+        header = { canFill and win.fillBtn, canEditStrat(s) and win.editBtn, st.occ and not st.sandbox and win.stratDD,
+                   s and win.practiceBtn, win.tourBtn }
         -- the edit button is the main action when there is nothing to assign
         win.editBtn:SetKind(canFill and "secondary" or "primary")
     end
     for _, w in ipairs({ win.saveBtn, win.cancelBtn, win.practiceBtn, win.autoMark, win.editBtn, win.fillBtn,
-                         win.stratDD }) do
+                         win.stratDD, win.tourBtn }) do
         w:Hide()
     end
     local prev
-    for i = 1, 4 do
+    local used = 2      -- the width the actions take, from the right edge
+    for i = 1, 5 do
         local w = header[i]
         if w then
             w:ClearAllPoints()
-            local gap = (w == win.practiceBtn or w == win.stratDD) and 14 or 6
+            local gap = (w == win.practiceBtn or w == win.stratDD or w == win.tourBtn) and 14 or 6
             if w == win.autoMark then
                 -- a checkbox: its label reaches to the right of the box
-                w:SetPoint("RIGHT", prev, "LEFT", -((w.label:GetStringWidth() or 60) + 18), 0)
+                gap = (w.label:GetStringWidth() or 60) + 18
+                w:SetPoint("RIGHT", prev, "LEFT", -gap, 0)
             elseif prev then
                 w:SetPoint("RIGHT", prev, "LEFT", -gap, 0)
             else
+                gap = 0
                 w:SetPoint("TOPRIGHT", -2, -2)
             end
+            used = used + gap + (w:GetWidth() or 0)
             w:Show()
             prev = w
         end
     end
+    -- the title and the line under it end where the actions start
+    local room = max(200, min(560, (win.content:GetWidth() or WIN_W) - used - 20))
+    if (win.title:GetStringWidth() or 0) > room then win.title:SetWidth(room) end
+    win.sub:SetPoint("RIGHT", win.content, "RIGHT", -(used + 16), 0)
     if win.autoMark.Refresh then win.autoMark:Refresh() end
     if win.stratDD:IsShown() then
         local label = s and ("Strategy: " .. s.n) or "Pick a strategy"

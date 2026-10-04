@@ -21,7 +21,7 @@ local MOVE_KEYS = {
     A = "left", LEFT = "left", D = "right", RIGHT = "right", Q = "strafeL", E = "strafeR",
 }
 local MINI_W, MINI_H = 170, 170
-local ANIM_STAND, ANIM_DEATH, ANIM_RUN, ANIM_DEAD, ANIM_BACK, ANIM_STUN = 0, 1, 5, 6, 13, 14
+local ANIM_STAND, ANIM_DEATH, ANIM_RUN, ANIM_DEAD, ANIM_BACK, ANIM_STUN, ANIM_FALL = 0, 1, 5, 6, 13, 14, 40
 local PLATE_HEIGHT = { construct = 3.2, boss = 7 }
 -- What a unit that stands and fights plays: { animation, seconds } in a loop (each unit starts somewhere else
 -- in it). 17 Attack1H, 26 Ready1H, 29 ReadyBow, 51 ReadySpellDirected, 53 SpellCastDirected.
@@ -162,10 +162,19 @@ end
 -- client turns out to draw it the other way round (Calibrate).
 local function SY(y) return cam.mirror * y end
 
--- The floor's height at a spot (0 on a flat floor).
+-- The floor's height at a spot (0 on a flat floor): the ground units walk on there (arena.ground, near the height
+-- grid's value), else the grid's.
 local function GroundZ(x, y)
-    local fn = sim and sim.enc.arena.height
-    return fn and fn(x, y) or 0
+    local arena = sim and sim.enc.arena
+    local fn = arena and arena.height
+    local z = fn and fn(x, y) or 0
+    local ground = arena and arena.ground
+    return ground and ground(x, y, z) or z
+end
+
+-- Where a unit's feet are: on the room's ground as the sim keeps it (up ramps, through a fall), or its own height.
+local function FeetZ(u)
+    return sim:FeetZ(u)
 end
 
 -- Scene point -> UI units from the scene's bottom-left corner; nil when it is behind the camera.
@@ -188,26 +197,34 @@ local function Spring(x, v, target, w, dt)
 end
 
 -- The camera sits behind and above the character and looks where it faces (spec 5.2). The point it turns round
--- (the pivot, 2.2 yd over the floor) follows the floor's height on a spring, so steps do not jolt the view; with the
--- room (room = true) it is pulled in where the room is in the way (Room.CameraDistance) and eases back out at 6 yd a
--- second. cam.dist is the distance wanted (the wheel), cam.cur the one used. dt: seconds since the last frame
--- (Room.opts.camDt replaces it: render_check's walks); nil, a jump of the player, a new distance or pitch, or a
--- height far off snap everything to where it belongs.
+-- (the pivot, cam.hz) rides 2.2 yd over your feet as the client's does, up and down ramps and through a fall frame
+-- for frame; only a jump of the feet no walking makes (a ledge stepped up) goes into cam.hoff, which a spring takes
+-- back to 0, so it eases over a few frames instead of jolting the view. With the room (room = true) the camera is
+-- pulled in where the room is in the way (Room.CameraDistance) and eases back out at 6 yd a second. cam.dist is the
+-- distance wanted (the wheel), cam.cur the one used. dt: seconds since the last frame (Room.opts.camDt replaces
+-- it: render_check's walks); nil, a jump of the player, a new distance or pitch, or a height far off snap everything
+-- to where it belongs.
 local function PlaceCamera(dt, room)
     local p = sim.player
     local o = Room and Room.opts
     if dt and o and type(o.camDt) == "number" then dt = o.camDt end
     local yaw, pitch = cam.mirror * p.facing, cam.pitch
     cam.fx, cam.fy, cam.fz = cos(pitch) * cos(yaw), cos(pitch) * sin(yaw), -sin(pitch)
-    local target = GroundZ(p.x, p.y) + 2.2
-    local snap = not dt or not cam.hz or (p.x - cam.px) ^ 2 + (p.y - cam.py) ^ 2 > 9
+    local target = FeetZ(p) + 2.2
+    local moved2 = cam.px and (p.x - cam.px) ^ 2 + (p.y - cam.py) ^ 2 or 0
+    local jump = cam.lastTarget and target - cam.lastTarget or 0
+    local snap = not dt or not cam.hz or moved2 > 9
         or math.abs(cam.dist - cam.lastDist) > 0.15 or math.abs(pitch - cam.lastPitch) > 0.15
-        or math.abs(target - cam.hz) > 2
+        or (math.abs(jump) > 2 and not p.falling)
     if snap then
-        cam.hz, cam.hv = target, 0
+        cam.hoff, cam.hv = 0, 0
     else
-        cam.hz, cam.hv = Spring(cam.hz, cam.hv, target, 12, dt)
+        -- more than walking (up to the steepest ground) or the fall can move the feet in this frame: a step up
+        local walk = math.sqrt(moved2) * T.MAX_SLOPE + math.abs(p.vz or 0) * dt + T.GRAVITY * dt * dt + 0.02
+        if math.abs(jump) > walk then cam.hoff = (cam.hoff or 0) - jump end
+        cam.hoff, cam.hv = Spring(cam.hoff or 0, cam.hv or 0, 0, 12, dt)
     end
+    cam.hz, cam.lastTarget = target + cam.hoff, target
     cam.px, cam.py, cam.lastDist, cam.lastPitch = p.x, p.y, cam.dist, pitch
     local allowed, hit = cam.dist, false
     if room and o.collision ~= false then allowed, hit = Room.CameraDistance(p.x, p.y, cam.hz, cam, cam.dist) end
@@ -232,7 +249,7 @@ local function Calibrate()
     cam.calibrated = true
     local p = sim.player
     PlaceCamera()
-    local eye = GroundZ(p.x, p.y) + 2.2
+    local eye = FeetZ(p) + 2.2
     local _, cy = Project(p.x, p.y, eye)
     if not cy or math.abs(cy - h / 2) > h * 0.25 then
         cam.pitchSign = -cam.pitchSign
@@ -285,6 +302,7 @@ end
 local function AnimFor(u)
     if u.dead then return ANIM_DEATH end
     if u.pose == "dead" then return ANIM_DEAD end
+    if u.falling then return ANIM_FALL end
     for _, aura in pairs(u.auras) do
         if aura.stun then return ANIM_STUN end
     end
@@ -302,21 +320,6 @@ local function AnimFor(u)
     return ANIM_STAND
 end
 
--- Where a unit's feet are: its own height (u.z), else the floor under it. With the room drawn in 3D that is the
--- room's own floor (Room.FloorZ, nearest the height grid's value): the grid lies up to 0.2 yd under Blizzard's steps,
--- and a model sunk into the steps would have its front cut by the step it should stand on (the room's copies over
--- it go by the floor's height). The copies' occluders use the same value (a.feetZ). Kept while the unit stands still.
-local feetRoom = false                   -- Draw3D: the room is drawn with Room.lua this frame
-local function FeetZ(u, a)
-    if u.z then return u.z end
-    local mesh = feetRoom and sim.enc.arena.mesh or false
-    if a.fzX == u.x and a.fzY == u.y and a.fzMesh == mesh then return a.fz end
-    local g = GroundZ(u.x, u.y)
-    local z = mesh and Room.FloorZ(u.x, u.y, g) or g
-    a.fzX, a.fzY, a.fzMesh, a.fz = u.x, u.y, mesh, z
-    return z
-end
-
 local function DrawActors()
     local seen = {}
     for _, u in ipairs(sim.units) do
@@ -331,7 +334,8 @@ local function DrawActors()
                     a.scale = scale
                     pcall(a.SetScale, a, scale)
                 end
-                local z = FeetZ(u, a)
+                -- (the copies' occluders stand where the model does: a.feetZ)
+                local z = FeetZ(u)
                 a.feetZ = z
                 pcall(a.SetPosition, a, u.x / scale, SY(u.y) / scale, z / scale)
                 -- a strafing body swings round over a moment, not in one frame
@@ -638,13 +642,17 @@ local function DrawFxActors()
                 local u = fx.unit
                 local x, y, z, yaw = fx.x, fx.y, fx.z or 0, 0
                 if fx.kind == "missile" then
+                    -- (from chest high where it was cast to chest high on its target, wherever that stands)
                     local k = min(1, (sim.time - fx.at) / fx.dur)
                     yaw = math.atan2(u.y - fx.y, u.x - fx.x)
-                    x, y, z = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k, 1.5
+                    x, y = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k
+                    z = GroundZ(fx.x, fx.y) + (FeetZ(u) - GroundZ(fx.x, fx.y)) * k + 1.5
                 elseif u then
-                    x, y = u.x, u.y
+                    x, y, z = u.x, u.y, FeetZ(u) + z
+                else
+                    z = GroundZ(x, y) + z
                 end
-                pcall(a.SetPosition, a, x, SY(y), GroundZ(x, y) + z)
+                pcall(a.SetPosition, a, x, SY(y), z)
                 pcall(a.SetYaw, a, cam.mirror * yaw)
                 pcall(a.SetShown, a, not a.bad and not (u and u.dead and fx.kind ~= "missile"))
             end
@@ -676,7 +684,7 @@ local function BuildOccluders()
             n = n + 1
             local o = Occ(n)
             local h = u.plate or u.tall or PLATE_HEIGHT[u.kind] or 2.6
-            o.id, o.x, o.y, o.z = u.id, u.x, u.y, a.feetZ or u.z or GroundZ(u.x, u.y)
+            o.id, o.x, o.y, o.z = u.id, u.x, u.y, a.feetZ or FeetZ(u)
             o.h, o.w = h, max(1.2, min(2 * (u.radius or 0.6), 0.6 * h))
             o.prio = (u == sim.player) and 2 or 1
             local bb = a.key and occBox[a.key]
@@ -709,9 +717,10 @@ local function BuildOccluders()
             if fx.kind == "missile" and u then
                 local k = min(1, (sim.time - fx.at) / fx.dur)
                 local x, y = fx.x + (u.x - fx.x) * k, fx.y + (u.y - fx.y) * k
+                local z = GroundZ(fx.x, fx.y) + (FeetZ(u) - GroundZ(fx.x, fx.y)) * k + 1.5     -- (as DrawFxActors)
                 n = n + 1
                 local o = Occ(n)
-                o.id, o.x, o.y, o.z, o.h, o.w = fx, x, y, GroundZ(x, y) + 1.5 - 0.6, 1.2, 1.0
+                o.id, o.x, o.y, o.z, o.h, o.w = fx, x, y, z - 0.6, 1.2, 1.0
                 o.rb, o.top, o.prio, o.unit = 0, 0, 1, nil
             elseif u and not u.dead then
                 for i = 1, n do
@@ -801,7 +810,7 @@ local function DrawPlates()
     for _, u in ipairs(sim.units) do
         local height = u.plate or PLATE_HEIGHT[u.kind]
         if height and not u.dead then
-            local x, y = Project(u.x, u.y, GroundZ(u.x, u.y) + height)
+            local x, y = Project(u.x, u.y, FeetZ(u) + height)
             if x then
                 n = n + 1
                 local f = Plate(n)
@@ -879,7 +888,7 @@ local function PickAt(x, y)
     local best, bestScore
     for _, u in ipairs(sim.units) do
         if not u.dead and (u.targetable or u.selectable or u.interact) then
-            local ground = GroundZ(u.x, u.y)
+            local ground = FeetZ(u)
             local fx, fy = Project(u.x, u.y, ground)
             local hx, hy = Project(u.x, u.y, ground + (u.plate or u.tall or PLATE_HEIGHT[u.kind] or 3))
             if fx and hx then
@@ -914,7 +923,6 @@ local function Draw3D(elapsed)
     local room = Room and mesh and Room.SetMesh(mesh)          -- (nothing when unchanged; false: the flat floor map)
     if not cam.calibrated then Calibrate() end
     PlaceCamera(elapsed, room)
-    feetRoom = room and true or false
     DrawActors()
     DrawFxActors()
     if room then

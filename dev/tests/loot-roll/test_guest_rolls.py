@@ -44,8 +44,15 @@ def a_pug_rolls_wins_and_is_marked_as_guest():
         assert guest_tag(r[n], "Yuri") == " (guest)", n
         assert guest_tag(r[n], "Zed") == "" and guest_tag(r[n], "Bob") == "" and guest_tag(r[n], n) == "", n
     assert "Award to Yuri" in panel_blocks(bob)[0]["buttons"], panel_blocks(bob)[0]
-    rows = [strip_codes(bob.eval("local o = ...; return o:GetText()", o) or "") for o in bob.find_text("(guest)", True, True)]
-    assert rows and all(t.startswith("Yuri") for t in rows), rows          # the roll row of the pug, and only that one
+    # the pug's roll row says "guest" where a spec would be (no "(guest)" after the narrow name column)
+    marks = [o for o in bob.find_text("guest", True, True)
+             if strip_codes(bob.eval("local o = ...; return o:GetText()", o) or "") == "guest"]
+    rows = [strip_codes(bob.eval("""local o = ...; local t = {}
+        for _, rg in ipairs({ o:GetParent():GetRegions() }) do
+          if rg.GetText and rg:GetText() then t[#t + 1] = rg:GetText() end
+        end
+        return table.concat(t, " | ")""", o) or "") for o in marks]
+    assert len(rows) == 1 and "Yuri" in rows[0], rows                       # the roll row of the pug, and only that one
     # the award goes through like any other, and is in the loot log
     alice.close_loot()
     alice.eval("ns.Roll:Award(...)", sid, key("Yuri"))

@@ -29,6 +29,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GroupRules.lua", ...) then re
 -- loot distribution, r = rolls, k = lock the BiS lists; "-" = none). Every module asks GroupRules:IsFeatureOn(name).
 -- A session without rf (a raid leader on 1.1 or older) runs everything, as it did then. Parties (dungeon mode),
 -- test drops and demo mode are not affected.
+--
+-- Asking the raid (1.3): WoW writes saved data only on a /reload or a logout, so after a game crash the authority's
+-- saved session can be missing or out of date, while the raiders still remember the last GS. An authority that loaded
+-- (logged in or reloaded) inside the raid and has not seen the session from anyone first asks the raid (GSQ); each
+-- raider answers (GSA) with the session, its features and the lock it last knew, or that none runs, and stays quiet
+-- once two others said the same. Two agreeing answers, and more than any other answer got, win over my saved copy;
+-- otherwise the saved copy stands, as before. My GS waits for the answers (ASK_WINDOW), so the raid keeps the rules it
+-- had (and checks incoming drops and rolls against them) while my client runs on its saved copy. A change I make myself
+-- in the meantime ends the question: my choice stands.
 local addonName, ns = ...
 
 local GroupRules = {}
@@ -62,6 +71,13 @@ local MAX_RULES_REV = 2147483647
 local MAX_LOCK_AGE = 12 * 3600 -- a saved lock older than this is not restored after a /reload
 local LOCK_ANNOUNCE = "DisasterZone: BiS lists are locked for this raid."
 local MAX_SESSION_ID = 64
+local ASK_WINDOW = 2.5         -- an authority asking the raid which session runs collects answers this long
+local ASK_AGREE = 2            -- answers that must agree before they win over my saved session
+local ASK_REPLY_MIN, ASK_REPLY_MAX = 0.2, 1.6   -- a raider's random delay before it answers (spread out, so most
+                                                -- hear two agreeing answers first and stay quiet)
+local ASK_RATE = 10            -- a raider answers one asker at most once per 10 s
+local LOGIN_GRACE = 2          -- a group the game shows me in this soon after loading was there before (login /
+                               -- reload inside it); a group I join later is a new one
 
 ---------------------------------------------------------------------------
 -- State (one "group session" = from joining a group until leaving it)
@@ -84,6 +100,12 @@ local lastLocked = false       -- GroupRules:IsLocked() as last announced with B
 local mySession                -- { id=, at=, f= } while I am the raid's authority and run a raid session (Addendum I);
                                -- f = its features { loot=, rolls=, lock= } (nil: a session adopted without them = all)
 local seenSession              -- { id=, at=, by=, lkAt= } the session last seen from any authority in this raid
+local ask                      -- asking the raid which session runs: nil = not yet this group session, false = done,
+                               -- { votes = { [sig] = { n=, a= answer } }, from = { [key] = true } } while waiting
+local heard = {}               -- [asker] = { [sig] = n }: GSA answers I heard for a GSQ I mean to answer
+local loadedAt                 -- GetTime() of my first PLAYER_ENTERING_WORLD (a login or a /reload)
+local loadedInGroup = false    -- I was in a group when I loaded (or it showed up within LOGIN_GRACE of it)
+local askable = false          -- this group session was already there when I loaded: the raid may know more than me
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -316,19 +338,9 @@ local function MyValues()
     return v
 end
 
--- values, rev of a well-formed GS; nil when any field is out of range. The lock fields (Addendum F) are
--- optional: a malformed lk / lkAt is dropped rather than rejecting the rules.
-local function ValidateRules(msg)
-    if type(msg) ~= "table" then return nil end
-    local rd, q, dq, dm, ph, rev = msg.rd, msg.q, msg.dq, msg.dm, msg.ph, msg.v
-    if type(rd) ~= "number" or not VALID_DURATIONS[rd] then return nil end
-    if q ~= 3 and q ~= 4 then return nil end
-    if dq ~= 3 and dq ~= 4 then return nil end
-    if dm ~= nil and dm ~= true and dm ~= false then return nil end
-    if ph ~= nil and not ValidPhase(ph) then return nil end
-    if rev ~= nil and not (type(rev) == "number" and rev == floor(rev) and rev >= 0 and rev <= MAX_RULES_REV) then
-        return nil
-    end
+-- The optional lock and raid session fields of a GS (or of a GSA, the raid's answer which session runs) as
+-- { lk, lkAt, rs, rsAt, rp, rpAt, rf }. A malformed field is dropped rather than rejecting the message.
+local function ValidateSessionFields(msg)
     local lk = (msg.lk == true) or nil
     local lkAt = msg.lkAt
     if not (lk and type(lkAt) == "number" and lkAt == floor(lkAt) and lkAt > 0 and lkAt <= MAX_RULES_REV) then
@@ -349,8 +361,25 @@ local function ValidateRules(msg)
     -- The session's features (optional; needs a session): letters of "lrk", or "-".
     local rf = msg.rf
     if not (rs and type(rf) == "string" and #rf >= 1 and #rf <= 8 and rf:find("^[lrk%-]+$")) then rf = nil end
-    return { rd = rd, q = q, dq = dq, dm = dm, ph = ph, lk = lk, lkAt = lkAt, rs = rs, rsAt = rsAt, rp = rp,
-             rpAt = rpAt, rf = rf }, rev
+    return { lk = lk, lkAt = lkAt, rs = rs, rsAt = rsAt, rp = rp, rpAt = rpAt, rf = rf }
+end
+
+-- values, rev of a well-formed GS; nil when any field is out of range. The lock fields (Addendum F) are
+-- optional: a malformed lk / lkAt is dropped rather than rejecting the rules.
+local function ValidateRules(msg)
+    if type(msg) ~= "table" then return nil end
+    local rd, q, dq, dm, ph, rev = msg.rd, msg.q, msg.dq, msg.dm, msg.ph, msg.v
+    if type(rd) ~= "number" or not VALID_DURATIONS[rd] then return nil end
+    if q ~= 3 and q ~= 4 then return nil end
+    if dq ~= 3 and dq ~= 4 then return nil end
+    if dm ~= nil and dm ~= true and dm ~= false then return nil end
+    if ph ~= nil and not ValidPhase(ph) then return nil end
+    if rev ~= nil and not (type(rev) == "number" and rev == floor(rev) and rev >= 0 and rev <= MAX_RULES_REV) then
+        return nil
+    end
+    local v = ValidateSessionFields(msg)
+    v.rd, v.q, v.dq, v.dm, v.ph = rd, q, dq, dm, ph
+    return v, rev
 end
 
 ---------------------------------------------------------------------------
@@ -463,6 +492,7 @@ local function DoSend(final)
     local Comm = ns.Comm
     if not ch or not (Comm and Comm.Send) then return false end
     if not final and not AmAuthority() then return false end
+    if not final and type(ask) == "table" then return false end   -- asking the raid: my GS waits for its answers
     rulesRev = rulesRev + 1
     local msg = MyValues()
     msg.t = "GS"
@@ -494,6 +524,98 @@ local function SendQuery()
 end
 
 ---------------------------------------------------------------------------
+-- Asking the raid which session runs (1.3: GSQ / GSA)
+---------------------------------------------------------------------------
+
+-- What an answer says, as one string: two answers agree when it is the same.
+local function AnswerSig(a)
+    return tconcat({ a.rs or "-", a.rs and (a.rf or "*") or "", a.lk and "k" or "", a.rp or "" }, "|")
+end
+
+-- What I know of the raid's session, as GSA fields; nil when I know nothing (no authority rules, no session seen).
+local function MyAnswer()
+    if not IsInRaid() then return nil end
+    local s, lock
+    if GroupRules:GetStatus() ~= "own" then
+        s, lock = GroupRules:GetSession(), GroupRules:GetLockInfo()
+    elseif seenSession then
+        s, lock = seenSession, seenSession.lkAt and { at = seenSession.lkAt } or nil
+    else
+        return nil
+    end
+    local m = {}
+    if s then m.rs, m.rsAt, m.rf, m.rp, m.rpAt = s.id, s.at, EncodeFeatures(s.f), s.rp, s.rpAt end
+    if lock then m.lk, m.lkAt = true, lock.at end
+    return m
+end
+
+-- My own session and lock as an answer (to tell whether the raid's answer changes anything).
+local function MySig()
+    return AnswerSig({ rs = mySession and mySession.id, rf = mySession and EncodeFeatures(mySession.f),
+                       lk = myLock and true, rp = mySession and mySession.rp })
+end
+
+-- The answers are in: two that agree, and more than any other answer got, set my session, its features and the
+-- lock; otherwise my saved copy stands. Then my GS goes out.
+local function ResolveAsk()
+    local a = ask
+    if type(a) ~= "table" then return end
+    ask = false
+    Util.CancelDebounce("cdl-gr-ask")
+    if IsInRaid() and AmAuthority() then
+        local best, bestN, tie = nil, 0, false
+        for _, v in pairs(a.votes) do
+            if v.n > bestN then
+                best, bestN, tie = v.a, v.n, false
+            elseif v.n == bestN then
+                tie = true
+            end
+        end
+        if best and bestN >= ASK_AGREE and not tie and AnswerSig(best) ~= MySig() then
+            if best.rs then
+                mySession = { id = best.rs, at = best.rsAt, rp = best.rp, rpAt = best.rpAt, f = DecodeFeatures(best.rf) }
+            else
+                mySession = nil
+            end
+            myLock = best.lk and { at = best.lkAt or (myLock and myLock.at) or GetServerTime() } or nil
+            SaveLock()
+            SaveFeatures()
+            if mySession then
+                local SB = ns.SessionBar
+                local f = mySession.f and CleanFeatures(mySession.f)
+                ns:Print("picked up the raid session from what the raid last heard (%s).",
+                    (f and SB and SB.DescribeFeatures) and SB:DescribeFeatures(f) or "everything on")
+            else
+                ns:Print("the raid says its raid session has ended, so it was not resumed.")
+            end
+        end
+        Util.Debounce("cdl-gr-announce", 0.1, function()
+            if AmAuthority() then SendRules() end
+        end)
+    end
+    Changed()
+end
+
+-- GSQ to the raid; the answers are counted for ASK_WINDOW. Returns false when it could not be sent.
+local function StartAsk()
+    ask = { votes = {}, from = {} }
+    local Comm = ns.Comm
+    if not (Comm and Comm.Send and Comm:Send({ t = "GSQ" }, "RAID", nil, "alert")) then
+        ask = false
+        return false
+    end
+    Util.Debounce("cdl-gr-ask", ASK_WINDOW, ResolveAsk)
+    return true
+end
+
+-- A change I make (or another authority's rules) while asking: that stands, the answers no longer matter.
+local function EndAsk()
+    if type(ask) ~= "table" then return end
+    ask = false
+    Util.CancelDebounce("cdl-gr-ask")
+end
+
+---------------------------------------------------------------------------
 -- Evaluation
 ---------------------------------------------------------------------------
 
@@ -504,7 +626,9 @@ local function ResetSession()
     wasAuthority = false
     groupKind = nil
     mySession, seenSession = nil, nil
+    ask, heard, askable, loadedInGroup = nil, {}, false, false
     DropLock()   -- the group is gone: so is its lock
+    Util.CancelDebounce("cdl-gr-ask")
     Util.CancelDebounce("cdl-gr-announce")
     Util.CancelDebounce("cdl-gr-query")
     Util.CancelDebounce("cdl-gr-reply")
@@ -524,9 +648,14 @@ local function Evaluate()
     local joined = groupKind == nil
     local kindChanged = groupKind ~= nil and groupKind ~= kind
     groupKind = kind
+    if joined then askable = loadedInGroup end
+    if kindChanged then askable = false end   -- a raid that was a party a moment ago runs no session
     local auth, pos, list = Resolve()
     local mine = auth ~= nil and Util.IsMe(auth)
     if mine and kind == "raid" then
+        -- 1.3: I loaded inside this raid and have not seen its session from anyone: ask the raid which one runs, my
+        -- saved copy may be out of date after a game crash. The saved copy below stands in meanwhile.
+        if askable and ask == nil and not seenSession and not mySession then StartAsk() end
         -- Addendum F §38: my lock from before a /reload inside this raid.
         if not myLock then
             local at = SavedLockAt()
@@ -544,6 +673,7 @@ local function Evaluate()
             if adopt then
                 mySession = { id = adopt.id, at = adopt.at, rp = adopt.rp, rpAt = adopt.rpAt,
                               f = adopt.f or SavedFeatures(adopt.id) }
+                SaveFeatures()   -- an adopted session's features must survive my /reload too (else: all on)
                 if not myLock and adopt.lkAt then
                     myLock = { at = adopt.lkAt }
                     SaveLock()
@@ -632,6 +762,7 @@ local function OnRules(sender, msg, dist)
     end
     active = { from = sender, rev = rev or 0, values = values, at = GetTime() }
     wasAuthority = false
+    EndAsk()   -- (I asked as a stand-in authority: the raid's authority has spoken)
     if myLock or (ns.db and ns.db.groupLock) then DropLock() end   -- someone else holds the authority now
     Util.CancelDebounce("cdl-gr-announce")
     Util.CancelDebounce("cdl-gr-query")
@@ -659,6 +790,50 @@ local function OnQuery(sender, _, dist)
             if AmAuthority() then SendRules() end
         end)
     end
+end
+
+-- GSQ (RAID): an authority that has not seen the raid's session asks which one runs. Answered only for the raid
+-- leader / master looter, once per asker and ASK_RATE, after a random delay, and not once two others said the same.
+local function OnSessionAsk(sender, _, dist)
+    if dist ~= "RAID" or not IsInRaid() or type(sender) ~= "string" then return end
+    if not speaks[sender] then
+        speaks[sender] = true   -- like a GQ: the sender runs DisasterZone with group rules
+        ScheduleEvaluate()
+    end
+    Invalidate()
+    local _, _, list = Resolve()
+    local Comm = ns.Comm
+    if not PositionOf(list, sender) or not (Comm and Comm.Send and Comm.RateLimit) then return end
+    if not MyAnswer() or not Comm:RateLimit("gr-ask:" .. sender, ASK_RATE) then return end
+    heard[sender] = {}
+    Util.After(ASK_REPLY_MIN + random() * (ASK_REPLY_MAX - ASK_REPLY_MIN), function()
+        local h = heard[sender]
+        heard[sender] = nil
+        local m = MyAnswer()
+        if not m or (h and h[AnswerSig(m)] or 0) >= ASK_AGREE then return end
+        m.t, m.to = "GSA", sender
+        Comm:Send(m, "RAID", nil, "alert")
+    end)
+end
+
+-- GSA (RAID): a raider's answer to someone's GSQ. Everyone counts the answers to a GSQ they mean to answer; the
+-- asker counts one answer per raider.
+local function OnSessionAnswer(sender, msg, dist)
+    if dist ~= "RAID" or not IsInRaid() or type(sender) ~= "string" or type(msg) ~= "table" then return end
+    local to = type(msg.to) == "string" and Util.NormalizeName(msg.to)
+    if not to then return end
+    local a = ValidateSessionFields(msg)
+    local sig = AnswerSig(a)
+    local h = heard[to]
+    if h then h[sig] = (h[sig] or 0) + 1 end
+    if type(ask) ~= "table" or not Util.IsMe(to) or ask.from[sender] then return end
+    ask.from[sender] = true
+    local v = ask.votes[sig]
+    if not v then
+        v = { n = 0, a = a }
+        ask.votes[sig] = v
+    end
+    v.n = v.n + 1
 end
 
 ---------------------------------------------------------------------------
@@ -738,6 +913,7 @@ function GroupRules:SetLocked(locked)
         return false, "only the raid leader (the raid's loot authority) can lock or unlock BiS lists."
     end
     if locked == (myLock ~= nil) then return true end
+    EndAsk()   -- my choice stands over what the raid would answer
     myLock = locked and { at = GetServerTime() } or nil
     SaveLock()
     DoSend(false)
@@ -768,7 +944,8 @@ function GroupRules:GetSession()
     return nil
 end
 
--- Is a raid feature running for me: "loot" (loot distribution: drops, the council's views, votes, awards) or
+-- Is a raid feature running for me: "loot" (the loot council: BiS candidates, the council's views, votes; 1.3: drops
+-- also run for "rolls", and handed-out loot is recorded either way) or
 -- "rolls"? In a raid only while the authority runs a raid session with that feature (a session that names no
 -- features, from a raid leader on 1.1 or older, runs them all). Outside raids always true: parties have dungeon
 -- mode, and test drops / demo mode never ask.
@@ -799,6 +976,7 @@ function GroupRules:SetSessionFeatures(features)
     if not IsInRaid() then return false, "not in a raid." end
     Invalidate()
     if not AmAuthority() or not mySession then return false, "only the raid leader of a running raid session can." end
+    EndAsk()   -- my choice stands over what the raid would answer
     local f = CleanFeatures(features)
     mySession.f = f
     local announce = false
@@ -829,6 +1007,7 @@ function GroupRules:SetSessionPlan(occId)
         return false, "invalid raid"
     end
     if mySession.rp == occId then return true end
+    EndAsk()   -- my choice stands over what the raid would answer
     mySession.rp, mySession.rpAt = occId, GetServerTime()
     DoSend(false)
     Changed()
@@ -847,6 +1026,7 @@ function GroupRules:SetSession(on, startAt, features)
         return false, "only the raid leader (the raid's loot authority) can start or end the raid."
     end
     if on == (mySession ~= nil) then return true end
+    EndAsk()   -- my choice stands over what the raid would answer
     local announce = false
     if on then
         local now = GetServerTime()
@@ -984,6 +1164,8 @@ local function Setup()
     setupDone = true
     Comm:Register("GS", OnRules)
     Comm:Register("GQ", OnQuery)
+    Comm:Register("GSQ", OnSessionAsk)
+    Comm:Register("GSA", OnSessionAnswer)
 end
 
 ns:On("SETTINGS_CHANGED", OnSettingChanged)
@@ -991,7 +1173,17 @@ ns:On("GROUP_UPDATED", ScheduleEvaluate)
 ns:On("CONFIG_UPDATED", ScheduleEvaluate)
 ns:On("DUNGEON_MODE_CHANGED", ScheduleEvaluate)
 ns:On("ROSTER_UPDATED", ScheduleEvaluate)       -- guild rank order among council members of a party
-ns:RegisterEvent("GROUP_ROSTER_UPDATE", ScheduleEvaluate)
+-- The group I was in when I loaded (shown by the game at once, or within LOGIN_GRACE): set when the game says so,
+-- not when the (debounced) evaluation gets to it.
+local function NoteLoadGroup()
+    if loadedAt and not loadedInGroup and not groupKind and GetTime() - loadedAt <= LOGIN_GRACE and IsInGroup() then
+        loadedInGroup = true
+    end
+end
+ns:RegisterEvent("GROUP_ROSTER_UPDATE", function()
+    NoteLoadGroup()
+    ScheduleEvaluate()
+end)
 ns:RegisterEvent("PARTY_LEADER_CHANGED", ScheduleEvaluate)
 ns:RegisterEvent("PARTY_LOOT_METHOD_CHANGED", ScheduleEvaluate)
 local function OnAddonLoaded(_, name)
@@ -1002,6 +1194,8 @@ end
 ns:RegisterEvent("ADDON_LOADED", OnAddonLoaded)
 ns:RegisterEvent("PLAYER_LOGIN", Setup)
 ns:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+    if not loadedAt then loadedAt = GetTime() end
+    NoteLoadGroup()
     Setup()
     ScheduleEvaluate()
 end)

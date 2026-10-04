@@ -1259,6 +1259,11 @@ function RaidPlan:CanManageRoster()
     return CanRoster(Util.PlayerKey())
 end
 
+-- May that player (a roster manager: the GM, officers, the guild council, the raid leaders) do so? (Guest book.)
+function RaidPlan:IsRosterManager(key)
+    return CanRoster(key)
+end
+
 -- The blacklist entry that blocks `key`: its own, or that of another character of the same player.
 -- { key = the listed character, reason, by, at } or nil.
 function RaidPlan:GetBlacklistEntry(key)
@@ -1984,6 +1989,32 @@ function RaidPlan:AddGuest(occId, name, classFile, spec)
     end)
     if not ok then return false, err end
     return true, key
+end
+
+-- 1.3 guest book: several players who joined the raid at once, as one edit of the raid's record. list = { { key, c,
+-- sp }, ... }; players in the guild, blacklisted ones, and those already guests are skipped. Returns ok, keysOrErr
+-- (the keys added).
+function RaidPlan:AddGuests(occId, list)
+    if type(list) ~= "table" then return false, "nothing to add" end
+    local G = Guild()
+    local added = {}
+    local ok, err = EditOcc(occId, function(o)
+        o.gu = o.gu or {}
+        for _, g in ipairs(list) do
+            local key = type(g) == "table" and WireKey(g.key) or nil
+            local spec = g and g.sp
+            if key and not o.gu[key] and type(g.c) == "string" and ns.SPECS and ns.SPECS[g.c]
+                and not (G and G.IsInGuild and G:IsInGuild(key, true)) and not self:IsBlacklisted(key)
+                and CountTable(o.gu) < MAX_GUESTS then
+                if spec ~= nil and not IsInt(spec, 1, SpecCount(g.c)) then spec = nil end
+                o.gu[key] = { c = g.c, sp = spec, at = Now() }
+                added[#added + 1] = key
+            end
+        end
+        if #added == 0 then return false, "nobody to add" end
+    end)
+    if not ok then return false, err end
+    return true, added
 end
 
 function RaidPlan:RemoveGuest(occId, key)

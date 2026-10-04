@@ -434,7 +434,8 @@ T:RegisterEncounter("vashj", {
     icon = CORE_ICON,
     order = 20,
     arena = { w = SIZE, h = SIZE, minimap = MINIMAP,
-              height = T.HeightFn(floorGrid), walkable = T.WalkableFn(floorGrid), mesh = floorGrid and floorGrid.mesh },
+              height = T.HeightFn(floorGrid), walkable = T.WalkableFn(floorGrid), mesh = floorGrid and floorGrid.mesh,
+              ground = T.GroundFn(floorGrid and floorGrid.walk) },
     difficulties = {
         { id = "all", name = "Any job (random)", role = "all" },
         { id = "looter", name = "Looter", role = "looter" },

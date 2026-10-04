@@ -28,7 +28,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Encounters/TeronGore
 --     same: its floor is 60 x 58 yd. The floor shows that piece of the map;
 --   the room you see: that same geometry with its own textures and baked light, and the floor's heights from
 --     it, see TeronGorefiendFloor.lua. The middle of the hall's north half
---     is a pit 2.75 yd deep and 22 yd wide, with steps down its west, east and south sides.
+--     is a pit 2.75 yd deep and 22 yd wide, with steps down its west, east and south sides. You walk on the
+--     hall's collision faces as the client does: the invisible ramps over those steps, the walls and pillars.
 -- NOT verified anywhere: the run speed of constructs and of the spirit (8 yd/s, the creature default), and
 -- where Teron and a raid stand (here: in the pit, at its north end).
 local addonName, ns = ...
@@ -287,6 +288,7 @@ T:RegisterEncounter("teron", {
     arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
               height = T.HeightFn(ns.TrainerFloors and ns.TrainerFloors.teron),
               mesh = ns.TrainerFloors and ns.TrainerFloors.teron and ns.TrainerFloors.teron.mesh,
+              ground = T.GroundFn(ns.TrainerFloors and ns.TrainerFloors.teron and ns.TrainerFloors.teron.walk),
               -- the client's own minimap of the hall (world/minimaps/wmo/.../blacktemple_031_00_00: 2 pixels a
               -- yard from the group's corner at local -675.07 / -817.63; the hall is turned half round)
               minimap = { { file = 211944, x0 = -615 - (-675.068 + 64), y0 = -759 - (-817.626 + 128),

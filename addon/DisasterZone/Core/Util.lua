@@ -92,6 +92,20 @@ function Util.ShortName(key)
     return key
 end
 
+-- The name as lists show it: my realm's players by name, a player from another realm as "Name*" (the realm is in
+-- Util.RealmOf for tooltips). Chat lines keep Util.ShortName (Name-Realm), which a whisper needs.
+function Util.DisplayName(key)
+    local short = Util.ShortName(key)
+    local name = short:match("^([^%-]+)%-")
+    return name and (name .. "*") or short
+end
+
+-- The realm part of a player from another realm, or nil for my own realm.
+function Util.RealmOf(key)
+    local short = Util.ShortName(key)
+    return short:match("^[^%-]+%-(.+)$")
+end
+
 local playerKey
 
 -- Own name key. Reliable only after PLAYER_LOGIN (cached from then on).

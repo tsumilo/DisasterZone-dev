@@ -744,7 +744,7 @@ function ConvertToParty() end
 function InviteUnit(name) if PY and PY.invite and type(name) == "string" then PY.invite(name) end end
 function SetRaidSubgroup(index, sub) if PY and PY.set_raid_subgroup then PY.set_raid_subgroup(index, sub) end end
 function SwapRaidSubgroup(a, b) if PY and PY.swap_raid_subgroup then PY.swap_raid_subgroup(a, b) end end
-function UninviteUnit() end
+function UninviteUnit(name) if PY and PY.uninvite and type(name) == "string" then PY.uninvite(name) end end
 function LeaveParty() end
 function PromoteToLeader() end
 function PromoteToAssistant() end

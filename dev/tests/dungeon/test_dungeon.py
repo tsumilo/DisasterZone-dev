@@ -739,8 +739,8 @@ def quality_threshold_rare_in_dungeon_only_when_active_epic_elsewhere():
     # 3. dungeon quality Epic (Settings dropdown): only the epic
     open_settings(A)
     w.tick(0.3)
-    dd = A.eval("""for _, f in ipairs(T_desc(T_settings(), function(f, st) return st.menu_gen ~= nil end)) do
-        f:GenerateMenu(); local m = f:GetMenuDescription()
+    dd = A.eval("""for _, f in ipairs(T_dropdown_list(T_settings())) do
+        local m = T_menu(f)
         if m and m.children[1] and m.children[1].text == 'Rare' then return f end end""")
     assert dd is not None, "no Rare / Epic dropdown in the Settings panel"
     A.dropdown_menu(dd)
@@ -845,8 +845,7 @@ end
 return out"""
 
 # The Sources checkbox dropdown (Addendum F §35): the picker dropdown that is not the phase dropdown ('-').
-SOURCES_DD = ("return T_first(DisasterZonePicker, function(f, st) return st.default_text ~= nil and st.default_text ~= '-' "
-              "and st.template == 'WowStyle1DropdownTemplate' end)")
+SOURCES_DD = "return T_multi_dropdown(DisasterZonePicker)"
 
 PICKER_SUBS = r"""
 local out = {}

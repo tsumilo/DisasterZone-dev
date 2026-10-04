@@ -10,7 +10,7 @@ local ChangelogUI = ns:NewModule("ChangelogUI")
 local floor, max = math.floor, math.max
 
 local LIST_W = 206
-local ROW_H = 40
+local ROW_H = 50          -- the version line, then the title on up to two lines
 local PAD = 12
 
 local panel
@@ -202,7 +202,9 @@ local function InitRow(row, data)
         row.title:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -22)
         row.title:SetPoint("RIGHT", row, "RIGHT", -6, 0)
         row.title:SetJustifyH("LEFT")
-        row.title:SetWordWrap(false)
+        row.title:SetJustifyV("TOP")
+        row.title:SetWordWrap(true)
+        if row.title.SetMaxLines then row.title:SetMaxLines(2) end
         row:SetScript("OnClick", function(self)
             local e = self.__cdlData and self.__cdlData.entry
             if e then ChangelogUI:Select(e.version) end
@@ -215,7 +217,7 @@ local function InitRow(row, data)
     row.version:SetText(e.version)
     local badge, color = Badge(e)
     row.badge:SetText(badge and ("|cff" .. color .. badge .. "|r") or ("|cff808080" .. ShortDate(e) .. "|r"))
-    row.title:SetText(UI():SafeText(badge and (ShortDate(e) .. " · " .. (e.title or "")) or (e.title or "")))
+    row.title:SetText(UI():SafeText(e.title or ""))
 end
 
 function ChangelogUI:Select(version)

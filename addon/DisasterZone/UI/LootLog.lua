@@ -13,13 +13,13 @@ local ROW_HILIGHT = "Interface\\QuestFrame\\UI-QuestTitleHighlight"
 
 -- Column x offsets / widths inside a row (and the header above the list).
 local COL = {
-    date = { x = 6, w = 74 },
-    icon = { x = 84 },
-    item = { x = 110, w = 200 },
-    winner = { x = 314, w = 104 },
-    reason = { x = 422, w = 70 },    -- award reason (ADDENDUM G)
-    boss = { x = 496, w = 130 },
-    by = { x = 630, w = 120 },
+    date = { x = 6, w = 62 },
+    icon = { x = 72 },
+    item = { x = 98, w = 228 },      -- the longest raid item names (36 letters) fit
+    winner = { x = 330, w = 132 },   -- a 12-letter name with its (guest) mark fits
+    reason = { x = 466, w = 60 },    -- award reason (ADDENDUM G)
+    boss = { x = 530, w = 136 },
+    by = { x = 670, w = 96 },
 }
 
 local ITEM_HINT = "Shift-click, drag or type an item ID."
@@ -368,8 +368,8 @@ local function initRow(row, d)
     local boss = bossName(e.b) or grey("-")
     if isDungeonEntry(e) then boss = boss .. " " .. DUNGEON_TAG end
     row.boss:SetText(boss)
-    local kind = e.s == "m" and "manual" or "auto"
-    local by = kind .. (e.by and (" · " .. shortName(e.by)) or "")
+    -- who typed a manual entry in; the rest came from loot messages (the tooltip has the details)
+    local by = e.s == "m" and (e.by and shortName(e.by) or "manual") or "auto"
     if type(e.n) == "string" and e.n ~= "" then by = by .. " · note" end
     row.by:SetText(by)
     row:SetAlpha(e.vd and 0.6 or 1)

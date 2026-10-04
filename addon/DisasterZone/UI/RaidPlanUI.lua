@@ -1,8 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidPlanUI.lua", ...) then return end -- DisasterZone: UI/RaidPlanUI.lua
 -- Raid planning views of the Raids tab (Addendum J §58): "Upcoming" (the raid list with its filters, a raid's sign-up
--- strip and roster) and "Teams" (team lists), plus the New / Edit raid window, the Add players window (invited guild
--- members and guests from outside the guild) and the Blacklist window. RaidsTab owns the tab and its toolbar and creates these views
--- inside its panel.
+-- strip and roster) and "Teams" (team lists), plus the New / Edit raid window and the Add players window (invited guild
+-- members and guests from outside the guild). The blacklist lives in the Guests window (UI/GuestBook.lua). RaidsTab
+-- owns the tab and its toolbar and creates these views inside its panel.
 local addonName, ns = ...
 
 local PlanUI = ns:NewModule("RaidPlanUI")
@@ -84,6 +84,8 @@ end
 
 local function fmtDay(t) return date("%a %d %b", t) end
 local function fmtTime(t) return date("%H:%M", t) end
+-- "Sun 5 Oct"
+local function shortDay(t) return ("%s %d %s"):format(date("%a", t), tonumber(date("%d", t)), date("%b", t)) end
 
 local function raidTitle(v)
     return ("%s (%d)"):format(RP():GetRaidName(v), v.sz or 0)
@@ -183,6 +185,18 @@ local function myStatusText(v)
     return grey("not answered"), nil
 end
 
+-- The list row's short form: my answer as its ready-check icon (Bench in words, it has none); anything else as text.
+local LIST_ICON = {
+    A = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t",
+    T = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:14|t",
+    X = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:14|t",
+}
+local function myStatusMark(v)
+    local mine = RP():GetMySignup(v.id)
+    if mine and LIST_ICON[mine.st] then return LIST_ICON[mine.st], STATUS[mine.st].color end
+    return myStatusText(v)
+end
+
 -- Hovering a raid in the list: everything about it, in full (the row cuts long names and lines off).
 local function raidRowTooltip(row)
     local d = row.__cdlData
@@ -268,7 +282,7 @@ local function initRaidRow(row, d)
     local when = fmtDay(v.t) .. "  " .. fmtTime(v.t)
     local name = raidTitle(v)
     local c = counts(v.id)
-    local status, hex = myStatusText(v)
+    local status, hex = myStatusMark(v)
     local parts = { ("%d/%d accepted"):format(c.A, v.sz or 0) }
     local teams = teamNames(v, true)
     if teams ~= "Everyone" and not name:find(teams, 1, true) then parts[#parts + 1] = teams end
@@ -408,6 +422,9 @@ local function cellTooltip(cell)
         if s and s.st and STATUS[s.st] then GameTooltip:AddLine("Had answered " .. STATUS[s.st].label, 0.7, 0.7, 0.7) end
     elseif d.guest then
         GameTooltip:AddLine("Guest: not in the guild, added by the raid leaders", 0.4, 0.8, 1, true)
+        -- 1.3: what the guest book knows about them (roster managers)
+        local summary = RP():CanManageRoster() and ns.GuestBook and ns.GuestBook:Summary(d.key)
+        if summary then GameTooltip:AddLine(summary, 0.7, 0.7, 0.7, true) end
     elseif s then
         GameTooltip:AddLine(STATUS[s.st].label, 0.8, 0.8, 0.8)
         if s.n then GameTooltip:AddLine('"' .. s.n .. '"', 1, 0.82, 0, true) end
@@ -448,6 +465,7 @@ local function rosterMenu(cell)
         end
         root:CreateDivider()
         root:CreateButton("Blacklist...", function() PlanUI:OpenBlacklist(d.key) end)
+        if d.guest then root:CreateButton("Guest book...", function() ns.GuestBookUI:OpenGuest(d.key) end) end
     end)
 end
 
@@ -467,10 +485,22 @@ local function initRosterRow(row, d)
             cell.fs:SetWordWrap(false)
             cell:SetScript("OnEnter", cellTooltip)
             cell:SetScript("OnLeave", hideTooltip)
+            -- the role headers' underline
+            cell.rule = cell:CreateTexture(nil, "BORDER")
+            cell.rule:SetPoint("BOTTOMLEFT", 2, 1)
+            cell.rule:SetPoint("BOTTOMRIGHT", -8, 1)
+            cell.rule:SetHeight(1)
+            cell.rule:SetColorTexture(1, 0.82, 0, 0.25)
             row.cells[i] = cell
         end
+        -- a section below the role columns (No response, Bench, ...): a divider, then its title
+        row.sep = row:CreateTexture(nil, "BORDER")
+        row.sep:SetPoint("TOPLEFT", 0, -3)
+        row.sep:SetPoint("TOPRIGHT", 0, -3)
+        row.sep:SetHeight(1)
+        row.sep:SetColorTexture(1, 1, 1, 0.08)
         row.line = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.line:SetPoint("TOPLEFT", 4, -2)
+        row.line:SetPoint("TOPLEFT", 4, -9)
         row.line:SetPoint("RIGHT", -4, 0)
         row.line:SetJustifyH("LEFT")
         row.line:SetJustifyV("TOP")
@@ -483,6 +513,8 @@ local function initRosterRow(row, d)
         cell:SetWidth(w)
         local c = d.cols and d.cols[i]
         cell.cdlCell = type(c) == "table" and c or nil
+        cell.rule:SetShown(d.header and true or false)
+        cell.fs:SetAlpha(1)
         if type(c) == "string" then
             cell.fs:SetText(c)
             cell:Show()
@@ -496,18 +528,20 @@ local function initRosterRow(row, d)
             if c.guest then text = text .. GUEST_TAG end
             if c.s and c.s.n then text = text .. grey(" *") end
             cell.fs:SetText(text)
-            cell.fs:SetAlpha(st == "T" and 0.7 or 1)
+            -- tentative and not-answered players are drawn fainter
+            cell.fs:SetAlpha((d.dim and 0.6) or (st == "T" and 0.7) or 1)
             cell:Show()
         else
             cell:Hide()
         end
     end
     row.line:SetShown(d.line ~= nil)
+    row.sep:SetShown(d.line ~= nil)
     row.line:SetText(d.line or "")
 end
 
 local function rosterExtent(d)
-    if d.line then return 16 * max(1, ceil(#(d.plain or "") / 75)) + 4 end
+    if d.line then return 16 * max(1, ceil(#(d.plain or "") / 75)) + 12 end
     if d.header then return 20 end
     return CELL_H
 end
@@ -545,9 +579,14 @@ local function rosterRows(v)
         end)
         local accepted = 0
         for _, key in ipairs(list) do if signups[key].st == "A" then accepted = accepted + 1 end end
-        -- "Ranged 1 +1 (?)": accepted, then the tentative ones with their mark
-        header.cols[i] = ("|cffffd100%s|r %d"):format(col.label, accepted)
-            .. (#list > accepted and (grey(" +" .. (#list - accepted)) .. " " .. ICON.T) or "")
+        -- "Ranged 1 +1 tentative": accepted, then the tentative ones (just "+12 (?)" when that would not fit)
+        local tentative = #list - accepted
+        local more = ""
+        if tentative > 0 then
+            more = (accepted < 10 and tentative < 10) and grey((" +%d tentative"):format(tentative))
+                or (grey(" +" .. tentative) .. " " .. ICON.T)
+        end
+        header.cols[i] = ("|cffffd100%s|r %d"):format(col.label, accepted) .. more
         depth = max(depth, #list)
     end
     rows[1] = header
@@ -560,12 +599,12 @@ local function rosterRows(v)
         rows[#rows + 1] = d
     end
     -- players outside the role columns: a header line, then their names as cells (hover shows the order)
-    local function cells(label, keys, less)
+    local function cells(label, keys, less, dim)
         if #keys == 0 then return end
         tsort(keys, less or function(a, b) return (order[a] or 0) < (order[b] or 0) end)
         rows[#rows + 1] = { line = label .. " (" .. #keys .. ")", plain = label }
         for i = 1, #keys, #ROLE_COLS do
-            local d = { cols = {} }
+            local d = { cols = {}, dim = dim }
             for j = 1, #ROLE_COLS do
                 if keys[i + j - 1] then d.cols[j] = cell(keys[i + j - 1]) end
             end
@@ -580,7 +619,7 @@ local function rosterRows(v)
         if not signups[key] then out[#out + 1] = key end
     end
     cells(colorize("ff5555", "Declined"), out, nameLess)
-    cells(colorize("ff9933", "No response"), noResponse(v, signups), nameLess)
+    cells(colorize("ff9933", "No response"), noResponse(v, signups), nameLess, true)
     return rows
 end
 
@@ -1162,20 +1201,26 @@ function PlanUI:CreateUpcoming(parent)
     d.note:SetWordWrap(false)
 
     -- Sign-ups / Groups / Assignments (Addendum K: the raid's strategy boards, who does what on each boss)
-    local function tab(label, key, width)
-        local b = UI():CreateSleekButton(d, label, width, 20, function()
+    -- text tabs with an underline, so they don't look like the page's own tab buttons above
+    local function tab(label, key)
+        local b = UI():CreateUnderlineTab(d, label, function()
             state.detailTab = key
             PlanUI:RefreshUpcoming()
         end)
         b.key = key
         return b
     end
-    d.tabSignups = tab("Sign-ups", "signups", 80)
-    d.tabSignups:SetPoint("TOPLEFT", 0, -56)
-    d.tabGroups = tab("Groups", "groups", 80)
-    d.tabGroups:SetPoint("LEFT", d.tabSignups, "RIGHT", 3, 0)
-    d.tabAssign = tab("Assignments", "assign", 96)
-    d.tabAssign:SetPoint("LEFT", d.tabGroups, "RIGHT", 3, 0)
+    d.tabSignups = tab("Sign-ups", "signups")
+    d.tabSignups:SetPoint("TOPLEFT", -4, -56)
+    d.tabGroups = tab("Groups", "groups")
+    d.tabGroups:SetPoint("LEFT", d.tabSignups, "RIGHT", 6, 0)
+    d.tabAssign = tab("Assignments", "assign")
+    d.tabAssign:SetPoint("LEFT", d.tabGroups, "RIGHT", 6, 0)
+    d.tabLine = d:CreateTexture(nil, "BORDER")
+    d.tabLine:SetPoint("TOPLEFT", 0, -76)
+    d.tabLine:SetPoint("TOPRIGHT", 0, -76)
+    d.tabLine:SetHeight(1)
+    d.tabLine:SetColorTexture(1, 1, 1, 0.1)
 
     -- Organizer actions (top right): icons, what each does is in its tooltip
     local ACT = 24
@@ -1197,43 +1242,52 @@ function PlanUI:CreateUpcoming(parent)
     end)
     d.inviteBtn:SetPoint("RIGHT", d.editBtn, "LEFT", -3, 0)
 
-    -- Sign-up strip: my answer and spec, then my note
-    local strip = CreateFrame("Frame", nil, d, "BackdropTemplate")
+    -- Sign-up strip, flat: row 1 my answer (one joined control) and why I can't answer or when I did; row 2 my spec,
+    -- the character I answer as and my note
+    local strip = CreateFrame("Frame", nil, d)
     strip:SetPoint("TOPLEFT", 0, -DETAIL_TOP)
     strip:SetPoint("RIGHT", 0, 0)
-    strip:SetHeight(60)
-    if strip.SetBackdrop then
-        strip:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-        strip:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-        strip:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9)
-    end
+    strip:SetHeight(64)
+    strip.bg = strip:CreateTexture(nil, "BACKGROUND")
+    strip.bg:SetAllPoints()
+    strip.bg:SetColorTexture(0.08, 0.08, 0.09, 0.75)
+    UI():AddEdges(strip)
+    UI():SetEdgeColor(strip, 0.3, 0.3, 0.34, 0.8)
     d.strip = strip
     u.statusBtns = {}
     local prev
     for _, st in ipairs(STATUS_ORDER) do
-        local b = UI():CreateSleekButton(strip, STATUS[st].button, 76, 22, function() PlanUI:Answer(st) end)
-        if prev then b:SetPoint("LEFT", prev, "RIGHT", 3, 0) else b:SetPoint("TOPLEFT", 8, -8) end
+        local b = UI():CreateSleekButton(strip, STATUS[st].button, 72, 22, function() PlanUI:Answer(st) end)
+        -- joined: neighbours share their 1px edge
+        if prev then b:SetPoint("LEFT", prev, "RIGHT", -1, 0) else b:SetPoint("TOPLEFT", 8, -8) end
         b.st = st
         u.statusBtns[st] = b
         prev = b
     end
+    -- why I can't answer, that I still have to, or when I did: on the answers' row, cut short before them
+    strip.closed = strip:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    strip.closed:SetPoint("LEFT", prev, "RIGHT", 10, 0)
+    strip.closed:SetPoint("RIGHT", strip, "TOPRIGHT", -10, -19)
+    strip.closed:SetJustifyH("RIGHT")
+    strip.closed:SetWordWrap(false)
+
     strip.specLabel = strip:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    strip.specLabel:SetPoint("LEFT", prev, "RIGHT", 12, 0)
+    strip.specLabel:SetPoint("LEFT", strip, "TOPLEFT", 10, -45)
     strip.specLabel:SetText("Spec")
-    u.specDD = UI():CreateSleekDropdown(strip, 118, mySpecOptions, function() return mySpec(state.selected) end, setSpec)
+    u.specDD = UI():CreateSleekDropdown(strip, 104, mySpecOptions, function() return mySpec(state.selected) end, setSpec)
     u.specDD:SetPoint("LEFT", strip.specLabel, "RIGHT", 6, 0)
-    strip.noteLabel = strip:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    strip.noteLabel:SetPoint("TOPLEFT", 10, -39)
-    strip.noteLabel:SetText("Note")
-    u.noteBox = CreateFrame("EditBox", nil, strip, "InputBoxTemplate")
-    u.noteBox:SetSize(190, 20)
-    u.noteBox:SetAutoFocus(false)
+    -- which of my characters answers (shown when my account has more than one in the guild)
+    strip.charLabel = strip:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    strip.charLabel:SetPoint("LEFT", u.specDD, "RIGHT", 10, 0)
+    strip.charLabel:SetText("As")
+    u.charDD = UI():CreateSleekDropdown(strip, 130, myCharOptions, function() return myChar(state.selected) end, setChar)
+    u.charDD:SetPoint("LEFT", strip.charLabel, "RIGHT", 6, 0)
+    tipButton(u.charDD, "Sign up as", "Answer with another of your characters in the guild, whichever one you are "
+        .. "logged in on. Your characters count as one player: the last answer is the one that counts.")
+    -- my note: the rest of the row, after the spec or the "As" picker (placed in refreshDetail)
+    u.noteBox = UI():CreateSleekEditBox(strip, 120, 22, "GameFontHighlightSmall")
     u.noteBox:SetMaxLetters(40)
-    u.noteBox:SetPoint("LEFT", strip.noteLabel, "RIGHT", 10, 0)
     u.noteBox:SetScript("OnEnterPressed", saveNote)
-    u.noteBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     -- A typed note is kept through repaints (a spec pick repaints) until it is saved or another raid is picked.
     u.noteBox:SetScript("OnTextChanged", function(_, userInput) if userInput then state.noteEdited = true end end)
     u.noteBox:SetScript("OnEnter", function(self)
@@ -1243,29 +1297,27 @@ function PlanUI:CreateUpcoming(parent)
         GameTooltip:Show()
     end)
     u.noteBox:SetScript("OnLeave", hideTooltip)
-    -- which of my characters answers (shown when my account has more than one in the guild)
-    strip.charLabel = strip:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    strip.charLabel:SetPoint("LEFT", u.noteBox, "RIGHT", 10, 0)
-    strip.charLabel:SetText("As")
-    u.charDD = UI():CreateSleekDropdown(strip, 150, myCharOptions, function() return myChar(state.selected) end, setChar)
-    u.charDD:SetPoint("LEFT", strip.charLabel, "RIGHT", 6, 0)
-    tipButton(u.charDD, "Sign up as", "Answer with another of your characters in the guild, whichever one you are "
-        .. "logged in on. Your characters count as one player: the last answer is the one that counts.")
-    -- why I can't answer, or that I still have to
-    strip.closed = strip:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    strip.closed:SetPoint("LEFT", u.noteBox, "RIGHT", 10, 0)
-    strip.closed:SetPoint("RIGHT", -10, 0)
-    strip.closed:SetJustifyH("RIGHT")
-    strip.closed:SetWordWrap(false)
+    UI():SetEditPlaceholder(u.noteBox, "Note for the organizers...")
 
+    -- "6/10 accepted · 1 tentative · 7 no response", after a bar that fills up to the raid's size
+    d.fill = CreateFrame("Frame", nil, d)
+    d.fill:SetSize(70, 6)
+    d.fill:SetPoint("TOPLEFT", 2, -(DETAIL_TOP + 75))
+    d.fill.bg = d.fill:CreateTexture(nil, "BACKGROUND")
+    d.fill.bg:SetAllPoints()
+    d.fill.bg:SetColorTexture(1, 1, 1, 0.1)
+    d.fill.bar = d.fill:CreateTexture(nil, "ARTWORK")
+    d.fill.bar:SetPoint("TOPLEFT")
+    d.fill.bar:SetPoint("BOTTOMLEFT")
+    d.fill.bar:SetColorTexture(0.2, 0.8, 0.2, 0.9)
     d.counts = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    d.counts:SetPoint("TOPLEFT", 2, -(DETAIL_TOP + 66))
-    d.counts:SetPoint("RIGHT", -4, 0)
+    d.counts:SetPoint("LEFT", d.fill, "RIGHT", 8, 0)
+    d.counts:SetPoint("RIGHT", d, "TOPRIGHT", -4, -(DETAIL_TOP + 78))
     d.counts:SetJustifyH("LEFT")
     d.counts:SetWordWrap(false)
 
     d.roster = UI():CreateScrollList(d, CELL_H, initRosterRow, rosterExtent)
-    d.roster.frame:SetPoint("TOPLEFT", 0, -(DETAIL_TOP + 84))
+    d.roster.frame:SetPoint("TOPLEFT", 0, -(DETAIL_TOP + 90))
     d.roster.frame:SetPoint("BOTTOMRIGHT", 0, 0)
     d.roster:SetEmptyText("")
 
@@ -1281,13 +1333,17 @@ local function refreshDetail(v)
     local has = v ~= nil
     local groupsTab = state.detailTab == "groups"
     local assignTab = state.detailTab == "assign"
-    for _, region in ipairs({ d.title, d.sub, d.note, d.tabSignups, d.tabGroups, d.tabAssign }) do region:SetShown(has) end
-    for _, region in ipairs({ d.strip, d.counts, d.roster.frame }) do region:SetShown(has and not groupsTab and not assignTab) end
+    for _, region in ipairs({ d.title, d.sub, d.note, d.tabSignups, d.tabGroups, d.tabAssign, d.tabLine }) do
+        region:SetShown(has)
+    end
+    for _, region in ipairs({ d.strip, d.fill, d.counts, d.roster.frame }) do
+        region:SetShown(has and not groupsTab and not assignTab)
+    end
     d.groups:SetShown(has and groupsTab)
     d.assign:SetShown(has and assignTab)
-    d.tabSignups:SetKind((groupsTab or assignTab) and "secondary" or "active")
-    d.tabGroups:SetKind(groupsTab and "active" or "secondary")
-    d.tabAssign:SetKind(assignTab and "active" or "secondary")
+    d.tabSignups:SetActive(not groupsTab and not assignTab)
+    d.tabGroups:SetActive(groupsTab)
+    d.tabAssign:SetActive(assignTab)
     d.empty:SetShown(not has)
     local organizer = RP():CanOrganize()
     d.editBtn:SetShown(has and organizer)
@@ -1320,14 +1376,17 @@ local function refreshDetail(v)
     d.strip.charLabel:SetShown(several)
     upcoming.charDD:SetShown(several)
     if several and upcoming.charDD.Refresh then upcoming.charDD:Refresh() end
-    d.strip.closed:ClearAllPoints()
-    d.strip.closed:SetPoint("LEFT", several and upcoming.charDD or upcoming.noteBox, "RIGHT", 10, 0)
-    d.strip.closed:SetPoint("RIGHT", -10, 0)
+    -- the note takes the rest of the row, after the "As" picker or the spec
+    upcoming.noteBox:ClearAllPoints()
+    upcoming.noteBox:SetPoint("LEFT", several and upcoming.charDD or upcoming.specDD, "RIGHT", 10, 0)
+    upcoming.noteBox:SetPoint("RIGHT", d.strip, "TOPRIGHT", -8, -45)
+    local level = d.strip:GetFrameLevel()
     for st, b in pairs(upcoming.statusBtns) do
         b:SetEnabled(open and invited)
-        -- my saved answer is the lit one
+        -- my saved answer is the lit one (raised, so its coloured edge shows over the shared ones)
         b.chosen = (mine and mine.st == st) and true or false
         if b.chosen then b:SetTint(hexRGB(STATUS[st].color)) else b:SetTint(nil) end
+        b:SetFrameLevel(level + (b.chosen and 2 or 1))
     end
     if upcoming.specDD.Refresh then upcoming.specDD:Refresh() end
     if not upcoming.noteBox:HasFocus() and not state.noteEdited then
@@ -1341,11 +1400,15 @@ local function refreshDetail(v)
         or (block == "level" and colorize("ff9933", ("This raid is for level %d characters."):format(v.ml)))
         or (not invited and colorize("ff9933", organizer and "Locked: you are not in this raid (Invite adds you)"
             or "Locked: ask a raid leader for an invite"))
+        or (mine and (mine.rev or mine.at) and grey("Answered " .. shortDay(mine.rev or mine.at)))
         or (mine and "" or colorize("ff9933", "Pick an answer")))
 
     local c = counts(v.id)
-    -- only what there is: "3 accepted · 1 guest · 1 tentative · 10 no response · 10-player raid"
-    local parts = { colorize(STATUS.A.color, c.A .. " accepted") }
+    -- only what there is: "3/10 accepted · 1 guest · 1 tentative · 10 no response"; the bar fills up to the size
+    local size = max(1, v.sz or 0)
+    d.fill.bar:SetWidth(max(1, floor(d.fill:GetWidth() * min(1, c.A / size) + 0.5)))
+    d.fill.bar:SetShown(c.A > 0)
+    local parts = { colorize(STATUS.A.color, ("%d/%d accepted"):format(c.A, v.sz or 0)) }
     if c.guests > 0 then parts[#parts + 1] = c.guests .. (c.guests == 1 and " guest" or " guests") end
     if c.T > 0 then parts[#parts + 1] = c.T .. " tentative" end
     if c.B > 0 then parts[#parts + 1] = c.B .. " bench" end
@@ -1355,7 +1418,6 @@ local function refreshDetail(v)
     if nDeclined > 0 then parts[#parts + 1] = colorize("ff5555", nDeclined .. " declined") end
     local missing = #noResponse(v, RP():GetSignups(v.id))
     if missing > 0 then parts[#parts + 1] = colorize("ff9933", missing .. " no response") end
-    parts[#parts + 1] = grey(("%d-player raid"):format(v.sz or 0))
     d.counts:SetText(tconcat(parts, " · "))
     d.roster:SetData(rosterRows(v))
 end
@@ -1433,11 +1495,17 @@ local function initTeamRow(row, d)
         row.sel = row:CreateTexture(nil, "BACKGROUND")
         row.sel:SetAllPoints()
         row.sel:SetColorTexture(1, 0.82, 0, 0.12)
+        -- two lines, like the raid list: the name, then size and members
         row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.l1:SetPoint("LEFT", 8, 0)
+        row.l1:SetPoint("TOPLEFT", 8, -4)
+        row.l1:SetPoint("RIGHT", -6, 0)
         row.l1:SetJustifyH("LEFT")
+        row.l1:SetWordWrap(false)
         row.l2 = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.l2:SetPoint("TOPLEFT", 8, -20)
         row.l2:SetPoint("RIGHT", -6, 0)
+        row.l2:SetJustifyH("LEFT")
+        row.l2:SetWordWrap(false)
         row:SetScript("OnClick", function(self)
             local data = self.__cdlData
             if data then PlanUI:SelectTeam(data.id) end
@@ -1615,24 +1683,37 @@ function PlanUI:GetTeamGrid() return teamsView and teamsView.grid end
 
 function PlanUI:GetDraft() return state.draft end
 
--- Upcoming raids that invite a team: "Tue Karazhan, Thu Gruul's Lair".
+-- Upcoming raids that invite a team, soonest first.
 local function teamRaids(id)
     local out = {}
     for _, v in ipairs(RP():GetRaids(Now() - 6 * 3600)) do
         if not v.cancelled then
             for _, tid in ipairs(v.tm or {}) do
-                if tid == id then out[#out + 1] = date("%a", v.t) .. " " .. RP():GetRaidName(v) break end
+                if tid == id then out[#out + 1] = v break end
             end
         end
     end
+    tsort(out, function(a, b) return a.t < b.t end)
     return out
+end
+
+-- The team header's raid line: every upcoming raid that invites the team, one per tooltip line.
+local function teamRaidsTooltip(self)
+    local raids = self.raids
+    if not raids or #raids == 0 then return end
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Invited to")
+    for _, v in ipairs(raids) do
+        GameTooltip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, 0.7, 0.7, 0.7)
+    end
+    GameTooltip:Show()
 end
 
 function PlanUI:CreateTeams(parent)
     local t = CreateFrame("Frame", nil, parent)
     teamsView = t
 
-    t.list = UI():CreateScrollList(t, 26, initTeamRow)
+    t.list = UI():CreateScrollList(t, RAID_ROW_H, initTeamRow)
     t.list.frame:SetPoint("TOPLEFT", 0, 0)
     t.list.frame:SetPoint("BOTTOMLEFT", 0, 0)
     t.list.frame:SetWidth(LIST_W)
@@ -1646,20 +1727,28 @@ function PlanUI:CreateTeams(parent)
     d.empty:SetPoint("TOP", 0, -60)
     d.empty:SetWidth(360)
 
-    -- Row 1: name, Undo / Save and the Delete icon
-    d.nameLabel = d:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    d.nameLabel:SetPoint("TOPLEFT", 2, -6)
-    d.nameLabel:SetText("Name")
-    t.nameBox = CreateFrame("EditBox", nil, d, "InputBoxTemplate")
-    t.nameBox:SetSize(150, 20)
-    t.nameBox:SetAutoFocus(false)
+    -- Row 1, the team: its name (a field for organizers, a title for everyone else), size and member count; Undo /
+    -- Save and the Delete icon on the right.
+    t.nameBox = UI():CreateSleekEditBox(d, 150, 24, "GameFontHighlightLarge")
+    t.nameBox:SetTextInsets(6, 20, 0, 0)
     t.nameBox:SetMaxLetters(32)
-    t.nameBox:SetPoint("TOPLEFT", 44, -2)
-    t.nameBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    t.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    t.nameBox:SetPoint("TOPLEFT", 0, 0)
     t.nameBox:SetScript("OnTextChanged", function() PlanUI:RefreshTeamButtons() end)
+    t.nameBox.pencil = t.nameBox:CreateTexture(nil, "ARTWORK")
+    t.nameBox.pencil:SetSize(12, 12)
+    t.nameBox.pencil:SetPoint("RIGHT", -5, 0)
+    t.nameBox.pencil:SetTexture(UI().ICON_ATLAS)
+    t.nameBox.pencil:SetTexCoord(unpack(UI():IconCoords(16)))
+    t.nameBox.pencil:SetVertexColor(0.55, 0.55, 0.55)
+    t.nameBox:HookScript("OnEditFocusGained", function(self) self.pencil:Hide() end)
+    t.nameBox:HookScript("OnEditFocusLost", function(self) self.pencil:Show() end)
     d.title = d:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    d.title:SetPoint("TOPLEFT", 2, -2)
+    d.title:SetPoint("LEFT", d, "TOPLEFT", 2, -12)
+
+    t.sizeDD = UI():CreateSleekDropdown(d, 80, function()
+        return { { value = 10, text = "10-man" }, { value = 25, text = "25-man" } }
+    end, function() return state.draft and state.draft.sz or 25 end, function(v) PlanUI:SetDraftSize(v) end)
+    t.sizeDD:SetPoint("LEFT", t.nameBox, "RIGHT", 6, 0)
 
     d.deleteBtn = UI():CreateTipIconButton(d, 22, 12, "Delete team", "Removes the team for everyone. Raids that "
         .. "invited it stay planned.", function()
@@ -1672,34 +1761,45 @@ function PlanUI:CreateTeams(parent)
             PlanUI:RefreshTeams()
         end)
     end)
-    d.deleteBtn:SetPoint("TOPRIGHT", -2, 0)
-    d.saveBtn = UI():CreateSleekButton(d, "Save", 64, 22, function() PlanUI:SaveTeam() end, "primary")
-    d.revertBtn = UI():CreateSleekButton(d, "Undo", 56, 22, function() PlanUI:SelectTeam(state.team) end)
+    d.deleteBtn:SetPoint("RIGHT", d, "TOPRIGHT", -2, -12)
+    d.saveBtn = UI():CreateSleekButton(d, "Save", 60, 22, function() PlanUI:SaveTeam() end, "primary")
+    d.revertBtn = UI():CreateSleekButton(d, "Undo", 54, 22, function() PlanUI:SelectTeam(state.team) end)
     d.revertBtn:SetPoint("RIGHT", d.saveBtn, "LEFT", -3, 0)
 
-    -- Row 2: add members, size, Auto-fill
-    t.picker = UI():CreateSearchDropdown(d, 210, {
+    -- "14 members · not saved": after the size (organizers) or the title, cut short before the buttons
+    d.count = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    d.count:SetTextColor(0.6, 0.6, 0.6)
+    d.count:SetJustifyH("LEFT")
+    d.count:SetWordWrap(false)
+
+    -- Row 2, editing: add members, Auto-fill; the raids that invite the team on the right
+    t.picker = UI():CreateSearchDropdown(d, 236, {
         placeholder = "Add guild members...",
         emptyText = "No matching guild members.",
         getItems = pickerItems,
         isChecked = function(key) return state.draft and state.draft.members[key] and true or false end,
         onToggle = function(key) PlanUI:ToggleDraftMember(key) end,
     })
-    t.picker.frame:SetPoint("TOPLEFT", 0, -28)
-    t.sizeDD = UI():CreateSleekDropdown(d, 86, function()
-        return { { value = 10, text = "10-man" }, { value = 25, text = "25-man" } }
-    end, function() return state.draft and state.draft.sz or 25 end, function(v) PlanUI:SetDraftSize(v) end)
-    t.sizeDD:SetPoint("TOPLEFT", 218, -27)
-    d.autoBtn = UI():CreateSleekButton(d, "Auto-fill", 76, 22, function() PlanUI:AutoFillDraft() end)
-    d.autoBtn:SetPoint("LEFT", t.sizeDD, "RIGHT", 6, 0)
+    t.picker.frame:SetPoint("TOPLEFT", 0, -30)
+    d.autoBtn = UI():CreateSleekButton(d, "Auto-fill", 72, 22, function() PlanUI:AutoFillDraft() end)
+    d.autoBtn:SetPoint("LEFT", t.picker.frame, "RIGHT", 10, 0)
     tipButton(d.autoBtn, "Auto-fill groups", "A starting layout: tanks, melee groups with a shaman each, casters, "
         .. "healers. Adjust it by dragging, then Save.")
 
-    d.info = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    d.info:SetPoint("TOPLEFT", 2, -54)
-    d.info:SetPoint("RIGHT", -4, 0)
-    d.info:SetJustifyH("LEFT")
-    d.info:SetWordWrap(false)
+    d.raids = CreateFrame("Frame", nil, d)
+    d.raids:SetHeight(22)
+    d.raids:EnableMouse(true)
+    d.raids:SetScript("OnEnter", teamRaidsTooltip)
+    d.raids:SetScript("OnLeave", hideTooltip)
+    d.raids.fs = d.raids:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    d.raids.fs:SetAllPoints()
+    d.raids.fs:SetWordWrap(false)
+
+    d.rule = d:CreateTexture(nil, "BORDER")
+    d.rule:SetPoint("TOPLEFT", 0, -58)
+    d.rule:SetPoint("TOPRIGHT", 0, -58)
+    d.rule:SetHeight(1)
+    d.rule:SetColorTexture(1, 1, 1, 0.08)
 
     t.grid = ns.RaidGroupsUI:CreateGrid(d, {
         getSize = function() return state.draft and state.draft.sz or 25 end,
@@ -1715,7 +1815,7 @@ function PlanUI:CreateTeams(parent)
         onMenu = memberMenu,
         poolLabel = "Not in a group",
     })
-    t.grid.frame:SetPoint("TOPLEFT", 0, -68)
+    t.grid.frame:SetPoint("TOPLEFT", 0, -62)
     t.grid.frame:SetPoint("BOTTOMRIGHT", 0, 0)
     return t
 end
@@ -1726,17 +1826,30 @@ function PlanUI:RefreshTeamButtons()
     local organizer = RP():CanManageTeams()
     local has = state.draft ~= nil and (state.team ~= nil or state.newTeam)
     local dirty = organizer and draftDirty()
+    local saved = has and state.draft.id ~= nil
     d.saveBtn:SetShown(organizer and has)
     d.saveBtn:SetEnabled(dirty and true or false)
     -- Save sits at the right edge until the team exists and has a Delete icon
     d.saveBtn:ClearAllPoints()
-    if organizer and has and state.draft.id ~= nil then
+    if organizer and saved then
         d.saveBtn:SetPoint("RIGHT", d.deleteBtn, "LEFT", -8, 0)
     else
-        d.saveBtn:SetPoint("TOPRIGHT", -2, 0)
+        d.saveBtn:SetPoint("RIGHT", d, "TOPRIGHT", -2, -12)
     end
-    d.revertBtn:SetShown(organizer and has and state.draft.id ~= nil)
+    d.revertBtn:SetShown(organizer and saved)
     d.revertBtn:SetEnabled(dirty and true or false)
+
+    -- the member count follows the size (organizers) or the title and stops short of the buttons
+    d.count:SetShown(has)
+    if not has then return end
+    local n = 0
+    for _ in pairs(state.draft.members) do n = n + 1 end
+    d.count:SetText((n == 1 and "1 member" or ("%d members"):format(n))
+        .. (dirty and colorize("ff9933", " · not saved") or ""))
+    d.count:ClearAllPoints()
+    d.count:SetPoint("LEFT", organizer and teamsView.sizeDD or d.title, "RIGHT", 10, 0)
+    local stop = (organizer and saved and d.revertBtn) or (organizer and d.saveBtn) or nil
+    if stop then d.count:SetPoint("RIGHT", stop, "LEFT", -8, 0) else d.count:SetPoint("RIGHT", d, "TOPRIGHT", -2, -12) end
 end
 
 function PlanUI:RefreshTeams()
@@ -1757,27 +1870,41 @@ function PlanUI:RefreshTeams()
     local dr = (state.team or state.newTeam) and state.draft or nil
     local has = dr ~= nil
     teamsView.nameBox:SetShown(has and organizer)
-    d.nameLabel:SetShown(has and organizer)
     d.title:SetShown(has and not organizer)
     teamsView.picker.frame:SetShown(has and organizer)
     teamsView.sizeDD:SetShown(has and organizer)
     d.autoBtn:SetShown(has and organizer)
     d.deleteBtn:SetShown(has and organizer and dr.id ~= nil)
-    d.info:SetShown(has)
+    d.raids:SetShown(has and dr.id ~= nil)
+    d.rule:SetShown(has)
     teamsView.grid.frame:SetShown(has)
     d.empty:SetShown(not has)
     d.empty:SetText(organizer and "Make a team with New team, then pick it when you plan a raid."
         or "Teams are made by the Guild Master and the guild council.")
+    if has then d.title:SetText(dr.name .. grey(("  %d-man"):format(dr.sz or 25))) end
     self:RefreshTeamButtons()
     if not has then return end
-    d.title:SetText(dr.name .. grey(("  %d-man"):format(dr.sz or 25)))
     if teamsView.sizeDD.Refresh then teamsView.sizeDD:Refresh() end
-    local n = 0
-    for _ in pairs(dr.members) do n = n + 1 end
+    -- "2 raids · Next Sun 5 Oct  Karazhan": the count first, so a long raid name is what gets cut; the tooltip
+    -- lists them all. Organizers have it after Auto-fill, everyone else on its own row.
     local raids = dr.id and teamRaids(dr.id) or {}
-    d.info:SetText(("%d members"):format(n)
-        .. (#raids > 0 and (" · invited to: " .. tconcat(raids, ", ")) or "")
-        .. (organizer and draftDirty() and colorize("ff9933", " · not saved") or ""))
+    d.raids.raids = raids
+    d.raids:ClearAllPoints()
+    if organizer then
+        d.raids:SetPoint("TOPLEFT", d.autoBtn, "TOPRIGHT", 12, 0)
+        d.raids.fs:SetJustifyH("RIGHT")
+    else
+        d.raids:SetPoint("TOPLEFT", 2, -30)
+        d.raids.fs:SetJustifyH("LEFT")
+    end
+    d.raids:SetPoint("TOPRIGHT", d, "TOPRIGHT", -2, -30)
+    if #raids == 0 then
+        d.raids.fs:SetText(grey("No upcoming raids"))
+    else
+        local v = raids[1]
+        d.raids.fs:SetText((#raids > 1 and grey(("%d raids · "):format(#raids)) or "") .. colorize("ffd100", "Next ")
+            .. shortDay(v.t) .. "  " .. RP():GetRaidName(v))
+    end
     teamsView.grid:Refresh()
     if teamsView.picker.IsOpen and teamsView.picker:IsOpen() then teamsView.picker:RefreshRows() end
 end
@@ -2234,6 +2361,11 @@ local function createInvites()
     w.guestTab:SetPoint("LEFT", w.memberTab, "RIGHT", 3, 0)
     tipButton(w.guestTab, "Guest", "Add a player who is not in the guild by character name. A guest counts as "
         .. "accepted, can be placed in a group and is invited with the raid.")
+    -- 1.3: one click for a player we know (the guest book, my group, my target), with their class and spec
+    w.knownBtn = UI():CreateSleekMenuButton(c, "Known players", 120, function(root) PlanUI:BuildKnownGuestsMenu(root) end)
+    w.knownBtn:SetPoint("TOPRIGHT", -8, -32)
+    tipButton(w.knownBtn, "Known players", "Players outside the guild from the guest book, your group and your target. "
+        .. "Pick one to add them with the class and spec last seen.")
 
     -- guild members (raid planners)
     w.picker = UI():CreateSearchDropdown(c, 340, {
@@ -2256,7 +2388,10 @@ local function createInvites()
     w.nameHint = w.nameBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     w.nameHint:SetPoint("LEFT", 2, 0)
     w.nameHint:SetText("Character name")
-    w.nameBox:SetScript("OnTextChanged", function(self) w.nameHint:SetShown(self:GetText() == "") end)
+    w.nameBox:SetScript("OnTextChanged", function(self)
+        w.nameHint:SetShown(self:GetText() == "")
+        PlanUI:GuessGuestClass(self:GetText())
+    end)
     w.classDD = UI():CreateSleekDropdown(c, 84, classOptions, function() return w.cls end, function(val)
         w.cls, w.sp = val, nil
         if w.specDD.Refresh then w.specDD:Refresh() end
@@ -2334,10 +2469,94 @@ function PlanUI:AddGuest(name, classFile, spec)
         return false
     end
     w.err:SetText("")
+    w.cls, w.sp = nil, nil      -- (the next name typed fills them in again when it is a known player)
     w.nameBox:SetText("")
     w.nameBox:ClearFocus()
     self:RefreshInvites()
     return true
+end
+
+-- Players outside the guild we know, for the Guest tab: { key, c, sp, where = "group" | "target" | "book" }, my
+-- group first, then my target, then the guest book (newest first). Guests of the raid and blacklisted players are
+-- left out.
+local MAX_KNOWN = 15
+function PlanUI:GetKnownGuests()
+    local v = inviteRaid()
+    local out, seen = {}, {}
+    local guests = v and RP():GetSignups(v.id) or {}
+    local G = ns.Guild
+    local function add(key, c, sp, where)
+        if type(key) ~= "string" or seen[key] or guests[key] or ns.Util.IsMe(key) or RP():IsBlacklisted(key) then return end
+        if not (G and G.IsReady and G:IsReady()) or G:IsInGuild(key, true) then return end
+        seen[key] = true
+        local gc, gsp = ns.GuestBook and ns.GuestBook:GetSpec(key)
+        if gc and (c == nil or gc == c) then c, sp = gc, sp or gsp end
+        out[#out + 1] = { key = key, c = c, sp = sp, where = where }
+    end
+    for i = 1, GetNumGroupMembers() or 0 do
+        local unit = IsInRaid() and ("raid" .. i) or ("party" .. i)
+        if UnitExists(unit) then add(ns.Util.UnitKey(unit), select(2, UnitClass(unit)), nil, "group") end
+    end
+    if UnitExists("target") and UnitIsPlayer("target") then
+        add(ns.Util.UnitKey("target"), select(2, UnitClass("target")), nil, "target")
+    end
+    local n = 0
+    for _, e in ipairs(ns.GuestBook and ns.GuestBook:GetEntries() or {}) do
+        if n >= MAX_KNOWN then break end
+        if not e.blacklisted then
+            local before = #out
+            add(e.key, e.c, e.sp, "book")
+            if #out > before then n = n + 1 end
+        end
+    end
+    return out
+end
+
+function PlanUI:BuildKnownGuestsMenu(root)
+    local list = self:GetKnownGuests()
+    if #list == 0 then
+        local b = root:CreateButton(grey("Nobody: the guest book is empty and nobody outside the guild is with you"),
+            function() end)
+        if b and b.SetEnabled then b:SetEnabled(false) end
+        return
+    end
+    local titles = { group = "In your group", target = "Your target", book = "Guest book" }
+    local last
+    for _, g in ipairs(list) do
+        if g.where ~= last then
+            root:CreateTitle(titles[g.where])
+            last = g.where
+        end
+        local spec = g.c and g.sp and ns.SPECS[g.c] and ns.SPECS[g.c][g.sp]
+        local label = colored(g.key, g.c) .. grey("  " .. ((spec and spec.label .. " ") or "")
+            .. (g.c and ns.CLASS_NAMES[g.c] or "class unknown"))
+        local key, c, sp = g.key, g.c, g.sp
+        root:CreateButton(label, function()
+            if c then
+                PlanUI:AddGuest(key, c, sp)
+            else
+                inviteWin.nameBox:SetText(shortName(key))   -- pick the class, then Add
+            end
+        end)
+    end
+end
+
+-- A name typed on the Guest tab that the guest book (or my group) knows fills in the class and spec, unless one was
+-- picked already.
+function PlanUI:GuessGuestClass(text)
+    local w = inviteWin
+    if not w or w.cls or type(text) ~= "string" then return end
+    local name = ns.Util.Trim(text):lower()
+    if name == "" then return end
+    for _, g in ipairs(self:GetKnownGuests()) do
+        if g.c and shortName(g.key):lower() == name then
+            w.cls, w.sp = g.c, g.sp
+            for _, dd in ipairs({ w.classDD, w.specDD }) do
+                if dd.Refresh then dd:Refresh() end
+            end
+            return
+        end
+    end
 end
 
 function PlanUI:RemoveGuest(key)
@@ -2368,7 +2587,7 @@ function PlanUI:RefreshInvites()
     w.guestTab:SetKind(guestMode and "active" or "secondary")
     w.picker.frame:SetShown(not guestMode)
     if guestMode and w.picker.Close then w.picker:Close() end
-    for _, region in ipairs({ w.nameBox, w.classDD, w.specDD, w.addBtn }) do region:SetShown(guestMode) end
+    for _, region in ipairs({ w.nameBox, w.classDD, w.specDD, w.addBtn, w.knownBtn }) do region:SetShown(guestMode) end
     w.nameHint:SetShown(w.nameBox:GetText() == "")
     local g = ns.Guild
     local rows = {}
@@ -2399,162 +2618,20 @@ function PlanUI:RefreshInvites()
 end
 
 ---------------------------------------------------------------------------
--- Blacklist window (roster managers): players who can't sign up for, or be added to, any raid
+-- Blacklist (roster managers): 1.3 moved it into the Guests window (UI/GuestBook.lua), next to the guest book.
 ---------------------------------------------------------------------------
 
-local blackWin
+-- Opens the blacklist; key (optional) = a player to put in the name box.
+function PlanUI:OpenBlacklist(key) return ns.GuestBookUI:OpenBlacklist(key) end
 
-local function initBlackRow(row, d)
-    if not row.cdlInit then
-        row.cdlInit = true
-        row.fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.fs:SetPoint("LEFT", 6, 0)
-        row.fs:SetWidth(110)
-        row.fs:SetJustifyH("LEFT")
-        row.fs:SetWordWrap(false)
-        row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-        row.remove:SetSize(20, 20)
-        row.remove:SetPoint("RIGHT", -4, 0)
-        row.remove:SetScript("OnClick", function(self)
-            local data = self:GetParent().__cdlData
-            if data then PlanUI:Unblacklist(data.key) end
-        end)
-        row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.note:SetPoint("LEFT", 120, 0)
-        row.note:SetPoint("RIGHT", row.remove, "LEFT", -4, 0)
-        row.note:SetJustifyH("LEFT")
-        row.note:SetWordWrap(false)
-        row:SetScript("OnEnter", function(self)
-            local data = self.__cdlData
-            if not data then return end
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine(UI():ColoredName(data.key))
-            GameTooltip:AddLine(data.reason or "No reason given.", 1, 1, 1, true)
-            if data.by then
-                GameTooltip:AddLine(("Added by %s%s"):format(shortName(data.by),
-                    data.at and (" on " .. date("%d %b %Y", data.at)) or ""), 0.7, 0.7, 0.7)
-            end
-            if data.alts and #data.alts > 0 then
-                GameTooltip:AddLine("Also blocked: " .. tconcat(data.alts, ", "), 0.7, 0.7, 0.7, true)
-            end
-            GameTooltip:Show()
-        end)
-        row:SetScript("OnLeave", hideTooltip)
-    end
-    row.fs:SetText(UI():ColoredName(d.key))
-    row.note:SetText(d.reason or grey("no reason given"))
-end
+-- The blacklist page of the Guests window (nameBox, reasonBox, addBtn, err, list), or nil before it was opened.
+function PlanUI:GetBlacklistWindow() return ns.GuestBookUI:GetBlacklistPage() end
 
-local function createBlacklist()
-    local w = UI():CreateWindow("DisasterZoneRaidBlacklist", "Raid blacklist", 420, 400)
-    blackWin = w
-    local c = w.content
-    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    w.info:SetPoint("TOPLEFT", 10, -8)
-    w.info:SetPoint("RIGHT", -10, 0)
-    w.info:SetJustifyH("LEFT")
-    w.info:SetText("Players on this list can't sign up for raids, can't be added as a guest and are not invited. "
-        .. "For a guild member it covers all their characters.")
-    w.nameBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
-    w.nameBox:SetSize(110, 20)
-    w.nameBox:SetAutoFocus(false)
-    w.nameBox:SetMaxLetters(48)
-    w.nameBox:SetPoint("TOPLEFT", 14, -64)
-    w.nameBox:SetScript("OnEnterPressed", function() w.reasonBox:SetFocus() end)
-    w.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    local nameHint = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    nameHint:SetPoint("BOTTOMLEFT", w.nameBox, "TOPLEFT", -2, 2)
-    nameHint:SetText("Character name")
-    w.reasonBox = CreateFrame("EditBox", nil, c, "InputBoxTemplate")
-    w.reasonBox:SetSize(200, 20)
-    w.reasonBox:SetAutoFocus(false)
-    w.reasonBox:SetMaxLetters(80)
-    w.reasonBox:SetPoint("LEFT", w.nameBox, "RIGHT", 10, 0)
-    w.reasonBox:SetScript("OnEnterPressed", function() PlanUI:AddBlacklist() end)
-    w.reasonBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    local reasonHint = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    reasonHint:SetPoint("BOTTOMLEFT", w.reasonBox, "TOPLEFT", -2, 2)
-    reasonHint:SetText("Reason (only the raid leaders and officers see it here)")
-    w.addBtn = UI():CreateSleekButton(c, "Add", 48, 22, function() PlanUI:AddBlacklist() end, "primary")
-    w.addBtn:SetPoint("LEFT", w.reasonBox, "RIGHT", 6, 0)
-    w.err = c:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-    w.err:SetPoint("TOPLEFT", 12, -90)
-    w.err:SetPoint("RIGHT", -10, 0)
-    w.err:SetJustifyH("LEFT")
-    w.list = UI():CreateScrollList(c, 22, initBlackRow)
-    w.list.frame:SetPoint("TOPLEFT", 4, -108)
-    w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
-    w.list:SetEmptyText("Nobody is blacklisted.")
-    w:Hide()
-    return w
-end
+function PlanUI:AddBlacklist(name, reason) return ns.GuestBookUI:AddBlacklist(name, reason) end
 
--- Opens the blacklist (roster managers); key (optional) = a player to put in the name box.
-function PlanUI:OpenBlacklist(key)
-    if not RP():CanManageRoster() then
-        Print("Only the Guild Master, officers, the guild council and the raid leaders keep the blacklist.")
-        return false
-    end
-    if not blackWin then createBlacklist() end
-    blackWin.err:SetText("")
-    blackWin.nameBox:SetText(key and shortName(key) or "")
-    blackWin.fullKey = key
-    blackWin.reasonBox:SetText("")
-    blackWin:Show()
-    blackWin:Raise()
-    if key then blackWin.reasonBox:SetFocus() end
-    self:RefreshBlacklist()
-    return true
-end
+function PlanUI:Unblacklist(key) return ns.GuestBookUI:Unblacklist(key) end
 
-function PlanUI:GetBlacklistWindow() return blackWin end
-
--- Blacklists the player typed in the window (or the one given), with the reason.
-function PlanUI:AddBlacklist(name, reason)
-    local w = blackWin
-    if not w then return false end
-    name = name or w.nameBox:GetText()
-    -- the name box shows the short name of a player picked from a roster: keep their realm
-    if w.fullKey and shortName(w.fullKey) == ns.Util.Trim(name or "") then name = w.fullKey end
-    local ok, err = RP():SetBlacklisted(name, reason or w.reasonBox:GetText())
-    if not ok then
-        w.err:SetText(err or "Could not blacklist that player.")
-        return false
-    end
-    w.err:SetText("")
-    w.nameBox:SetText("")
-    w.reasonBox:SetText("")
-    w.fullKey = nil
-    w.nameBox:ClearFocus()
-    w.reasonBox:ClearFocus()
-    self:RefreshBlacklist()
-    return true
-end
-
-function PlanUI:Unblacklist(key)
-    local ok, err = RP():RemoveBlacklisted(key)
-    if not ok then Print(err or "Could not take that player off the blacklist.") end
-    self:RefreshBlacklist()
-    return ok and true or false
-end
-
-function PlanUI:RefreshBlacklist()
-    if not blackWin or not blackWin:IsShown() then return end
-    if not RP():CanManageRoster() then
-        blackWin:Hide()
-        return
-    end
-    local G = ns.Guild
-    local rows = RP():GetBlacklist()
-    for _, d in ipairs(rows) do
-        d.alts = {}
-        for _, alt in ipairs(G and G.GetLinkedCharacters and G:GetLinkedCharacters(d.key) or {}) do
-            d.alts[#d.alts + 1] = shortName(alt)
-        end
-    end
-    tsort(rows, function(a, b) return nameLess(a.key, b.key) end)
-    blackWin.list:SetData(rows)
-end
+function PlanUI:RefreshBlacklist() ns.GuestBookUI:RequestRefresh() end
 
 ---------------------------------------------------------------------------
 -- Refresh / lifecycle

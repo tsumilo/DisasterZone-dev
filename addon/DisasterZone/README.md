@@ -351,13 +351,42 @@ are.
 - **Re-sort** moves everyone in the raid back to their planned group, e.g. after swaps. Players who aren't in the plan
   go to groups 6-8. Nothing moves during combat; it continues when combat ends.
 
+### Guests, the guest book and the blacklist (Guild Master, officers, guild council, raid leaders)
+- **Guests** are players outside the guild (pugs). Add one with the **Add players** icon at the top right of a raid:
+  the **Guest** tab takes a name, class and spec, and **Known players** adds someone from your group, your target or
+  the guest book in one click. A guest counts as accepted, can be placed in a group and is invited with the raid.
+- A pug who **joins the raid group** of a planned raid becomes its guest by themselves. No started raid is needed:
+  the raid is the one Invite & sort ran for, or the one most of the group signed up for. The raid leader adds them (or,
+  when the leader can't, the first assistant who can) and gets a chat line. Take a guest off with a right-click in the
+  raid's roster: they are not added again.
+- **Guests** (top of the Raids tab) opens the guest book and the blacklist:
+  - **Guest book**: every pug who raided with us, newest first: their raids, boss kills, items received (loot council),
+    no-shows and their next guest seat. Hover a row for the details. Right-click a row to add them to an upcoming raid,
+    mark them as a **Recruit**, write a short note, blacklist them or whisper them. Notes and Recruit marks are shared
+    between the organizers. A pug who hasn't raided with us yet: type the name, click **Note**.
+  - **Blacklist**: players who can't sign up for any raid, can't be added as a guest and are not invited. For a guild
+    member it covers all their characters. The reason is only shown to the organizers.
+- **Wherever you meet a player**:
+  - Their tooltip says when they are on the raid blacklist (a guild member's only for the organizers), and what the
+    guest book knows about a pug (organizers).
+  - Right-click a player (unit frames, raid frames, chat names): **Blacklist...** and **Guest book...** (organizers).
+  - Inviting a blacklisted player warns you at once. If one joins anyway, the raid leader gets a popup:
+    **Remove from group** or **Keep**.
+  - When a pug the guest book knows joins, the organizers get a chat line: their raids with us, Recruit, the note.
+- The Raid log's **Players** list leaves pugs out; **Guests hidden / shown** switches it.
+
 ### Starting the raid (raid leader)
-In a raid, DisasterZone leaves loot and rolls alone until the raid leader starts the raid.
+In a raid, DisasterZone leaves the loot council and rolls alone until the raid leader starts the raid. The loot
+handed out is always recorded in the Loot Log (loot council members' clients record it), started or not.
 
 - **Start raid** is on the bar that appears when the leader enters a raid instance, and on the Raids tab.
-- It opens a small window asking what to run for this raid: **Loot distribution** (drops are announced, the council
-  sees who wants them, votes and awards are logged), **Rolls** (Roll / Pass popups) and **Lock everyone's BiS lists**.
-  Untick what you don't want. Attendance and boss kills are always logged while the raid runs.
+- It opens a small window asking what to run for this raid: **Loot council** (the council sees who has each drop on
+  their BiS list, votes, and rolls rank BiS lists first), **Rolls** (the drop panel and Roll / Pass popups) and **Lock
+  everyone's BiS lists** (only with the loot council). Untick what you don't want. Attendance, boss kills and the loot
+  handed out are always logged.
+- **Rolls without the loot council** (a raid with pugs, loot managed outside the addon): the drop panel still opens for
+  the raid leader and the council, as a plain roll panel: the items, **Roll**, the rolls and **Award**, without BiS
+  candidates, badges or votes. The highest roll is suggested and the winner gets no BiS reason.
 - **Options** on the bar changes it during the raid. **End raid** switches everything off again.
 - `/dz raid start` starts with your last choices without asking; `/dz raid options` opens the window.
 - To look at the window without a raid: `/dz demo on`, then `/dz raid options`. `/dz test` and 5-man dungeon mode
@@ -689,6 +718,9 @@ DisasterZone no longer uses the Guild Information text. If an old `CDL{...}` lin
 ---
 
 ## How rolls pick a suggested winner
+
+In a raid started without the **Loot council**, rolls are plain: the highest valid roll is suggested, and BiS lists,
+votes and the BiS lock don't count. The rest of this section is about raids with the loot council.
 
 **Council votes come first.** As soon as any council member has voted on an item, the player with the most votes is suggested:
 

@@ -768,13 +768,7 @@ local function UpdatePhaseButtons()
     local phase = CurrentPhase()
     local guildPhase = GuildPhase()
     for p, b in ipairs(phaseButtons) do
-        if p == phase then
-            b:LockHighlight()
-            b:SetNormalFontObject("GameFontHighlight")
-        else
-            b:UnlockHighlight()
-            b:SetNormalFontObject("GameFontNormal")
-        end
+        if b.SetKind then b:SetKind(p == phase and "active" or "secondary") end   -- the shown phase lit
         b.marker:SetShown(guildPhase == p)
     end
 end
@@ -896,10 +890,8 @@ function MyBiS:Refresh()
     -- Addendum H: the list buttons (the shown one highlighted; "+ Off spec" until there is one).
     if msBtn and osBtn then
         local os = IsOffSpecView()
-        if os then msBtn:UnlockHighlight() else msBtn:LockHighlight() end
-        if os then osBtn:LockHighlight() else osBtn:UnlockHighlight() end
-        msBtn:SetNormalFontObject(os and "GameFontNormal" or "GameFontHighlight")
-        osBtn:SetNormalFontObject(os and "GameFontHighlight" or "GameFontNormal")
+        msBtn:SetKind(os and "secondary" or "active")
+        osBtn:SetKind(os and "active" or "secondary")
         osBtn:SetText(HasOffSpec() and "Off spec" or "+ Off spec")
     end
     if specDD and specDD.SetDefaultText then

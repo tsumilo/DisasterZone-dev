@@ -49,6 +49,10 @@ local function Me() return ns.Util.PlayerKey() end
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 local function grey(text) return "|cff808080" .. tostring(text) .. "|r" end
 local function colorize(hex, text) return "|cff" .. hex .. tostring(text) .. "|r" end
+
+local function hexRGB(hex)
+    return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255
+end
 local function plural(n, word) return n .. " " .. word .. (n == 1 and "" or "s") end
 
 local function isCouncil()
@@ -291,10 +295,14 @@ end
 
 local CardMethods = {}
 
--- rows: { { text, right, itemID, icon, tip, onClick, indent } } (a string = a plain text row).
+-- rows: { { text, right, itemID, icon, tip, onClick, indent, tall } } (a string = a plain text row). tall: the
+-- text may take two lines (a note), the row is twice as high.
 function CardMethods:SetRows(rows, startY)
     local y = startY or -28
     local avail = floor((self:GetHeight() + y - (self.buttonsShown and 34 or 8)) / ROW_H)
+    for _, d in ipairs(rows) do
+        if type(d) == "table" and d.tall then avail = avail - 1 end
+    end
     local n = #rows
     if n > avail and avail > 0 then
         local extra = n - avail + 1
@@ -320,8 +328,12 @@ function CardMethods:SetRows(rows, startY)
             if type(d) == "string" then d = { text = d } end
             local indent = d.indent or 0
             r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", self, "TOPLEFT", 10 + indent, y - (i - 1) * ROW_H)
-            r:SetPoint("TOPRIGHT", self, "TOPRIGHT", -10, y - (i - 1) * ROW_H)
+            r:SetPoint("TOPLEFT", self, "TOPLEFT", 10 + indent, y)
+            r:SetPoint("TOPRIGHT", self, "TOPRIGHT", -10, y)
+            r:SetHeight(d.tall and 2 * ROW_H or ROW_H)
+            r.left:SetWordWrap(d.tall and true or false)
+            if r.left.SetMaxLines then r.left:SetMaxLines(d.tall and 2 or 1) end
+            y = y - (d.tall and 2 or 1) * ROW_H
             local iconTex = d.icon
             if d.itemID and not iconTex and ns.ItemDB then iconTex = ns.ItemDB:GetIcon(d.itemID) end
             r.left:ClearAllPoints()
@@ -725,7 +737,9 @@ local function refreshRaidCard(card, ctx)
         rows[#rows + 1] = { text = colorize("ff9933", #noAnswer .. " invited, no response"),
                             tip = { "No response yet", tconcat(names, ", ") } }
     end
-    if v.no and v.no ~= "" then rows[#rows + 1] = grey("\"" .. v.no .. "\"") end
+    if v.no and v.no ~= "" then
+        rows[#rows + 1] = { text = grey("\"" .. v.no .. "\""), tall = true, tip = { "Note", v.no } }
+    end
     local mine = ups[Me() or ""]
     if mine and STATUS[mine.st] then
         rows[#rows + 1] = "Your answer: " .. colorize(STATUS[mine.st].color, STATUS[mine.st].label)
@@ -738,7 +752,8 @@ local function refreshRaidCard(card, ctx)
         local b = card.buttons[i]
         b:SetShown(open)
         b.occ = v
-        if mine and mine.st == st then b:LockHighlight() else b:UnlockHighlight() end
+        -- my answer in its colour (as on the Raids tab's sign-up strip)
+        if mine and mine.st == st then b:SetTint(hexRGB(STATUS[st].color)) else b:SetTint(nil) end
     end
     card:SetRows(rows, rowsY)
 end
@@ -770,8 +785,8 @@ local function refreshBiSCard(card, ctx)
     card.barFill:SetWidth(max(1, floor((card.bar:GetWidth() or 300) * pct)))
     local rows = {}
     if s.filled == 0 then
-        rows[#rows + 1] = grey("Pick your best-in-slot items so the council knows what you need.")
-        rows[#rows + 1] = { text = colorize("ffd100", "Open My BiS"), onClick = card.onOpen }
+        rows[#rows + 1] = { text = grey("Pick your best-in-slot items so the council knows what you need."),
+                            onClick = card.onOpen }
         card:SetRows(rows, -50)
         return
     end
@@ -855,12 +870,10 @@ local function refreshReadinessCard(card, ctx)
         if s.st == "A" or s.st == "T" then coming[#coming + 1] = key end
     end
     tsort(coming)
+    -- only what needs attention; one "all set" line when nothing does
     local rows = {}
-    local function line(list, okText, badText, tipTitle)
-        if #list == 0 then
-            rows[#rows + 1] = colorize("33ff33", okText)
-            return
-        end
+    local function line(list, badText, tipTitle)
+        if #list == 0 then return end
         local names = {}
         for i, key in ipairs(list) do
             if i > 15 then names[#names + 1] = "..." break end
@@ -868,7 +881,6 @@ local function refreshReadinessCard(card, ctx)
         end
         rows[#rows + 1] = { text = colorize("ff9933", badText:format(#list)), tip = { tipTitle, tconcat(names, ", ") } }
     end
-    rows[#rows + 1] = grey(plural(#coming, "player") .. " coming (accepted or tentative)")
     if isCouncil() then
         local Store, BiS = ns.Store, ns.BiS
         local empty = {}
@@ -882,8 +894,7 @@ local function refreshReadinessCard(card, ctx)
             end
             if filled == 0 then empty[#empty + 1] = key end
         end
-        line(empty, "Everyone coming has a Phase " .. ctx.phase .. " list",
-             "%d coming without a Phase " .. ctx.phase .. " list", "No BiS picks for Phase " .. ctx.phase)
+        line(empty, "%d coming without a Phase " .. ctx.phase .. " list", "No BiS picks for Phase " .. ctx.phase)
     end
     local Sync = ns.Sync
     local noAddon, oldAddon = {}, {}
@@ -895,22 +906,24 @@ local function refreshReadinessCard(card, ctx)
             oldAddon[#oldAddon + 1] = key
         end
     end
-    line(noAddon, "Everyone coming has DisasterZone", "%d coming, DisasterZone never seen", "DisasterZone not seen on")
-    line(oldAddon, "Nobody coming is on an older DisasterZone", "%d coming on an older DisasterZone",
-         "Older than your " .. tostring(ns.version))
+    line(noAddon, "%d coming, DisasterZone never seen", "DisasterZone not seen on")
+    line(oldAddon, "%d coming on an older DisasterZone", "Older than your " .. tostring(ns.version))
     if rp:GetInvited(v) then
-        line(noAnswer, "Every invited player answered", "%d invited, no response", "No response yet")
+        line(noAnswer, "%d invited, no response", "No response yet")
     end
     local flags = ns.Store and ns.Store.GetLockFlags and ns.Store:GetLockFlags() or {}
     local flagged = {}
     for key in pairs(flags) do flagged[#flagged + 1] = key end
     tsort(flagged)
     if #flagged > 0 then
-        line(flagged, "", "%d BiS edits during the lock", "Changed their list while locked")
+        line(flagged, "%d BiS edits during the lock", "Changed their list while locked")
     end
     local size = v.sz or 25
     if counts.A < size then
-        rows[#rows + 1] = grey(("%d of %d spots filled by accepted players"):format(counts.A, size))
+        rows[#rows + 1] = colorize("ff9933", ("%d of %d spots filled"):format(counts.A, size))
+    end
+    if #rows == 0 then
+        rows[1] = colorize("33ff33", "All set: " .. plural(#coming, "player") .. " coming, nothing missing")
     end
     card:SetRows(rows, -28)
 end
@@ -947,7 +960,7 @@ end
 
 local function refreshFooter(ctx)
     local Sync = ns.Sync
-    panel.footerLeft:SetText(UI():SafeText(Sync and Sync.GetStatusText and Sync:GetStatusText() or ""))
+    panel.footerLeft:SetText("")   -- (the sync status is in the window's title bar)
     local online = 0
     for _, e in ipairs(Sync and Sync.GetVersions and Sync:GetVersions() or {}) do
         if e.online then online = online + 1 end

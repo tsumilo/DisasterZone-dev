@@ -6,6 +6,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/DropPanel.lua", ...) then retur
 -- the footer, and candidates / roll rows of players who changed their list while locked carry a warning
 -- marker (ADDENDUM F §38). ADDENDUM G: council votes on roll rows (a vote column you click to vote), award
 -- reasons ("Award to X as ▸", "Reason ▸"), and one-click DE / Bank buttons for the guild's disenchanter / bank.
+-- 1.3: a raid that runs rolls without the loot council gets a plain roll panel (PlainMode): items, rolls and awards,
+-- no BiS candidates, badges, votes or lock button.
 local addonName, ns = ...
 
 local DropPanel = ns:NewModule("DropPanel")
@@ -547,6 +549,15 @@ local function RollAllows(method, fallback, ...)
     return CallRoll(method, ...) and true or false
 end
 
+-- 1.3: the raid runs rolls without the loot council, so the panel is a plain roll panel: the items, rolls and
+-- awards, without BiS candidates, badges, votes or the lock button. A roll keeps what it was started as
+-- (session.plain); simulated drops (/dz test) keep the full panel.
+local function PlainMode(drop, session)
+    if type(session) == "table" then return session.plain and true or false end
+    if type(drop) == "table" and drop.test then return false end
+    return HasRoll("IsPlainRaid") and CallRoll("IsPlainRaid") and true or false
+end
+
 local function TierBadge(row, vp)
     local tier = tonumber(row.tier) or 4
     if tier == 3 then
@@ -907,6 +918,7 @@ function DropPanel:GetFrame()
         if DropPanel.drop and DropPanel.drop.test then
             return "Simulated drop: the lines are only printed in your chat window."
         end
+        if PlainMode(DropPanel.drop) then return "Link every item of this drop in raid chat." end
         return "Announce every item of this drop and who has it on their BiS list."
     end)
     local rollAll = UI:CreateButton(c, "Roll all", 80, 22, function() DropPanel:RollAll() end)
@@ -1144,7 +1156,13 @@ function DropPanel:Render()
     if used == 0 then y = 40 end
     self.child:SetHeight(max(y, 1))
     if self.rollAllBtn then self.rollAllBtn:SetShown(canRoll and used > 0 and HasRoll("StartAll")) end
-    if self.lockBtn and self.lockBtn.Refresh then self.lockBtn:Refresh() end
+    if self.lockBtn and self.lockBtn.Refresh then
+        self.lockBtn:Refresh()
+        -- nothing reads the BiS lists while the raid runs without the loot council (1.3)
+        if PlainMode(drop) and not (ns.GroupRules and ns.GroupRules.IsLocked and ns.GroupRules:IsLocked()) then
+            self.lockBtn:Hide()
+        end
+    end
     self:UpdateRollTicker(anyOpen)
 
     local height = (self.chrome or 32) + HEADER_H + FOOTER_H + y + 4
@@ -1216,7 +1234,7 @@ local function RollTag(row, session)
     if row.wonCopy then return Paint("won a copy", "muted") end
     local won = tonumber(row.wonTonight) or 0
     if won > 0 then return Paint("won " .. won, "muted") end
-    if LockChanged(row) then return Paint("changed", "warn") end
+    if not PlainMode(nil, session) and LockChanged(row) then return Paint("changed", "warn") end
     return ""
 end
 
@@ -1241,13 +1259,16 @@ end
 local function RollRowTooltip(self, tt, vp)
     local row, session = self.data, self.session
     if type(row) ~= "table" then return end
+    local plain = PlainMode(nil, session)
     tt:AddLine(ColoredName(row.key, row.classFile))
     local specLine = ((type(row.spec) == "string" and row.spec ~= "") and (row.spec .. " ") or "") .. ClassName(row.classFile)
     tt:AddLine(specLine, 0.8, 0.8, 0.8)
-    local tier = tonumber(row.tier) or 4
-    local c = (tier == 1 and Color("main")) or (tier == 2 and Color("alt")) or (tier == 3 and Color("offspec")) or Color("muted")
-    local p = tonumber(row.phase)
-    tt:AddLine(TierWord(row) .. ((tier <= 3 and p) and format(" in P%d", p) or ""), c[1], c[2], c[3])
+    if not plain then
+        local tier = tonumber(row.tier) or 4
+        local c = (tier == 1 and Color("main")) or (tier == 2 and Color("alt")) or (tier == 3 and Color("offspec")) or Color("muted")
+        local p = tonumber(row.phase)
+        tt:AddLine(TierWord(row) .. ((tier <= 3 and p) and format(" in P%d", p) or ""), c[1], c[2], c[3])
+    end
 
     local n = tonumber(row.roll)
     local r = type(session) == "table" and type(session.rolls) == "table" and session.rolls[row.key]
@@ -1296,7 +1317,7 @@ local function RollRowTooltip(self, tt, vp)
     if row.cantUse then
         tt:AddLine("Their class cannot use this item: never suggested", Color("bad")[1], Color("bad")[2], Color("bad")[3])
     end
-    local note = ns.Store and ns.Store.GetLockNote and ns.Store:GetLockNote(row.key)
+    local note = not plain and ns.Store and ns.Store.GetLockNote and ns.Store:GetLockNote(row.key)
     if note then
         tt:AddLine("List changed during the lock but claims an earlier save: please check", Color("warn")[1],
             Color("warn")[2], Color("warn")[3], true)
@@ -1304,7 +1325,7 @@ local function RollRowTooltip(self, tt, vp)
     local inRaid = row.inRaid
     if inRaid == nil then inRaid = IsInMyGroup(row.key) end
     if not inRaid then tt:AddLine("Not in your raid", 0.7, 0.7, 0.7) end
-    local changed = LockChanged(row)
+    local changed = not plain and LockChanged(row)
     if changed then AddLockChangedLine(tt, changed, "Never suggested as the winner; you can still award it.") end
     local worn = WornOfRow(row, self.itemSid)
     if #worn > 0 then tt:AddLine(WearingText(worn), 0.7, 0.7, 0.7) end
@@ -1322,11 +1343,12 @@ local function RowOnEnter(self)
     tt:SetOwner(self, "ANCHOR_RIGHT")
     if self.more then
         tt:AddLine(format("%d more", #self.more), 1, 0.82, 0)
+        local plain = self.moreKind == "roll" and PlainMode(nil, self.session)
         for _, x in ipairs(self.more) do
-            local warn = LockChanged(x) and (" " .. WarnIcon(10)) or ""
+            local warn = (not plain and LockChanged(x)) and (" " .. WarnIcon(10)) or ""
             if self.moreKind == "roll" then
-                tt:AddDoubleLine(ColoredName(x.key, x.classFile) .. warn .. " " .. TierBadge(x, vp), RollCell(x, self.session),
-                    1, 1, 1, 0.8, 0.8, 0.8)
+                tt:AddDoubleLine(ColoredName(x.key, x.classFile) .. warn .. (plain and "" or (" " .. TierBadge(x, vp))),
+                    RollCell(x, self.session), 1, 1, 1, 0.8, 0.8, 0.8)
             else
                 tt:AddDoubleLine(ColoredName(x.key, x.classFile) .. warn .. " " .. BadgeText(x, vp), PresenceText(x),
                     1, 1, 1, 0.6, 0.6, 0.6)
@@ -1569,15 +1591,22 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     end
     local classFile = row.classFile or ClassOf(row.key)
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, classFile) end
+    -- A plain roll (1.3): no BiS badge, no votes, no lock markers.
+    local plain = PlainMode(nil, session)
     -- §38 marker at the end of the name (the tag column only fits "Suggested")
-    r.name:SetText(ColoredName(row.key, classFile) .. (LockChanged(row) and (" " .. WarnIcon(10)) or ""))
-    r.spec:SetText(type(row.spec) == "string" and row.spec or "")
-    r.badge:SetText(TierBadge(row, vp))
+    -- a pug: the name alone (the column is narrow), "guest" where their spec would be (we never have it)
+    local guest = ns.UI and ns.UI.IsGuest and ns.UI:IsGuest(row.key)
+    local name = guest and ns.UI:ColoredName(row.key, classFile) or ColoredName(row.key, classFile)
+    r.name:SetText(name .. ((not plain and LockChanged(row)) and (" " .. WarnIcon(10)) or ""))
+    local spec = type(row.spec) == "string" and row.spec or ""
+    r.spec:SetText((guest and spec == "") and "|cff66ccffguest|r" or spec)
+    r.badge:SetText(plain and "" or TierBadge(row, vp))
     r.tag:SetText(RollTag(row, session))
-    local canVote = type(session) == "table" and HasRoll("CanVote") and CallRoll("CanVote", session.id) and inRaid
-        and row.response ~= "pass" and true or false
+    local canVote = not plain and type(session) == "table" and HasRoll("CanVote") and CallRoll("CanVote", session.id)
+        and inRaid and row.response ~= "pass" and true or false
     r.canVote = canVote
     r.votes:SetText(VoteCell(row, canVote))
+    r.votes:SetShown(not plain and IsCouncil())
     r.voteBtn:SetShown(canVote)
     r.roll:SetText(RollCell(row, session))
     SetEquipped(r, WornOfRow(row, itemSid))
@@ -1643,6 +1672,7 @@ function DropPanel:NewBlock(parent)
         if DropPanel.drop and DropPanel.drop.test then
             return "Simulated drop: the line is only printed in your chat window."
         end
+        if PlainMode(DropPanel.drop) then return "Link this item in raid chat." end
         return "Announce this item and its BiS candidates in " .. GroupWord() .. " chat."
     end)
     b.award = UI:CreateButton(b, "Award...", 74, 20, function() DropPanel:OpenAwardMenu(b, b.award) end)
@@ -1667,6 +1697,11 @@ function DropPanel:NewBlock(parent)
         local text = "Start a roll: everyone in the " .. GroupWord() .. " gets a Roll / Pass popup (a normal /roll 1-100). "
             .. "DisasterZone suggests the winner: BiS main first, then BiS alt, then everyone else; "
             .. "the highest roll wins within each group. You confirm the award."
+        if PlainMode(DropPanel.drop) then
+            text = "Start a roll: everyone in the raid gets a Roll / Pass popup, and players without DisasterZone type "
+                .. "/roll. The loot council is off for this raid, so the highest roll is suggested (BiS lists don't "
+                .. "count). You confirm the award."
+        end
         if DemoEnabled() then text = text .. "\n\nDemo mode: fake raiders roll; nothing is sent." end
         return text
     end)
@@ -1770,12 +1805,15 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.button:SetState(winnerKey and "awarded" or nil)
     local itemSid = FirstSlotOfItem(itemID)
 
-    -- Roll mode lists roll results; the Award... menu then fetches the wanters itself.
-    local wanters = (not rolling) and UniqueWanters(itemID, { includeObtained = false, list = "both" }) or nil
+    -- Roll mode lists roll results; the Award... menu then fetches the wanters itself. The plain roll panel (1.3, no
+    -- loot council) lists no BiS candidates.
+    local plain = PlainMode(drop, rolling and session or nil)
+    local wanters = (not rolling) and (plain and {} or UniqueWanters(itemID, { includeObtained = false, list = "both" }))
+        or nil
     b.wanters = wanters
 
     local y, rowIdx, n = ITEM_HEAD_H, 0, 0
-    local noneText = "Nobody has this on their BiS list"
+    local noneText = plain and "Not rolled yet" or "Nobody has this on their BiS list"
     if rolling then
         local results = {}
         local raw = CallRoll("GetResults", session.id)
@@ -1935,7 +1973,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     else
         b.awarded:SetText("")
     end
-    b:SetAlpha((n == 0 and not winnerKey and not rolling) and 0.75 or 1)
+    b:SetAlpha((n == 0 and not winnerKey and not rolling and not plain) and 0.75 or 1)
     return y + ACTION_H + 4
 end
 
@@ -2048,7 +2086,7 @@ function DropPanel:AwardSuggestedTooltip(b)
     if row.suggestedBy == "votes" then parts[#parts + 1] = VotesText(row.votes) end
     local n = tonumber(row.roll)
     if n then parts[#parts + 1] = "rolled " .. n end
-    parts[#parts + 1] = TierWord(row)
+    if not PlainMode(nil, b.rollSession) then parts[#parts + 1] = TierWord(row) end
     local won = tonumber(row.wonTonight) or 0
     if won > 0 then parts[#parts + 1] = format("won %d tonight", won) end
     local text = format("Award to %s (%s).", ShortName(row.key), tconcat(parts, ", "))
@@ -2102,12 +2140,14 @@ function DropPanel:OpenMoreRollMenu(r)
     if not canAward then return end
     local id, vp = session.id, ViewPhase()
     local open = session.state == "open"
+    local plain = PlainMode(nil, session)
     ns.UI:ContextMenu(r, function(root)
         root:CreateTitle(format("%d more", #rest))
         for _, x in ipairs(rest) do
             local key = x.key
             root:CreateButton((open and "End roll & award to " or "Award to ") .. ColoredName(key, x.classFile)
-                .. " " .. TierBadge(x, vp) .. " " .. RollCell(x, session), function() DropPanel:AwardRoll(id, key) end)
+                .. (plain and "" or (" " .. TierBadge(x, vp))) .. " " .. RollCell(x, session),
+                function() DropPanel:AwardRoll(id, key) end)
         end
     end)
 end
@@ -2117,6 +2157,8 @@ end
 ---------------------------------------------------------------------------
 function DropPanel:BuildAnnounceLine(itemID)
     local link = ItemLink(itemID) or ItemName(itemID)
+    -- No loot council (1.3): the item alone, BiS lists don't count in this raid.
+    if PlainMode(self.drop) then return format("DisasterZone: %s", link) end
     local wanters = UniqueWanters(itemID, { includeObtained = false, list = "both" })
     local inGroup = _G.IsInGroup and _G.IsInGroup()
     local mains, alts, offs = {}, {}, {}
@@ -2462,8 +2504,10 @@ function DropPanel:OpenAwardMenu(b, owner)
     local bossKey = type(drop.b) == "string" and drop.b or ""
     local copy = b.copy
     local vp = ViewPhase()
-    -- Fetched when the menu opens (the group may have changed since the panel was painted).
-    local wanters = UniqueWanters(itemID, { includeObtained = false, list = "both" })
+    -- Fetched when the menu opens (the group may have changed since the panel was painted). None without the loot
+    -- council (1.3): the menu offers the raid's members.
+    local plain = PlainMode(drop, b.rollSession)
+    local wanters = plain and {} or UniqueWanters(itemID, { includeObtained = false, list = "both" })
     local awardEntry = b.awardEntry
     local conflict = b.rollSession and type(b.rollSession.lootOther) == "string" and b.rollSession or nil
     local function award(key, reason) DropPanel:Award(itemID, key, bossKey, copy, drop, nil, reason) end
@@ -2528,7 +2572,7 @@ function DropPanel:OpenAwardMenu(b, owner)
         sort(others, function(x, y) return ShortName(x) < ShortName(y) end)
         if #wanters > #away then root:CreateDivider() end
         if #others > 0 then
-            local sub = root:CreateButton("Other " .. GroupWord() .. " member")
+            local sub = root:CreateButton(plain and "Raid member" or ("Other " .. GroupWord() .. " member"))
             for _, key in ipairs(others) do
                 sub:CreateButton(ColoredName(key), function() award(key) end)
             end
@@ -2815,7 +2859,7 @@ function DropPanel:DecorateLootButton(index)
     local mine = OwnNeededMatch(itemID) ~= nil
     local text
     if showBadges then
-        if IsCouncil() then
+        if IsCouncil() and not PlainMode() then   -- (no BiS counts while the raid runs without the loot council)
             local mains, alts = CountRaidWanters(itemID)
             if mains > 0 then
                 text = Paint("BiS ×" .. mains, "main")

@@ -6,14 +6,33 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.0", date = "3 October 2026", title = "Guests, a raid blacklist, sign up with any character",
+    { version = "1.3.0", date = "3 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",
       sections = {
           { heading = "Guests (players outside the guild)", lines = {
               "Add players (icon at the top right of a raid): add a pug by name, with class and spec.",
               "A guest counts as accepted, can be placed in a group and is invited with the raid.",
               "For the Guild Master, officers, the guild council and the raid leaders.",
-              "Guests carry a (guest) mark: in the raid's roster, in rolls, the drop panel and the logs.",
+              "Guests carry a (guest) mark in the roster and logs; in rolls, \"guest\" replaces the spec.",
               "A pug's /roll counts as before, and a pug can be awarded an item like anyone else.",
+              "A pug who joins the raid group of a planned raid becomes its guest by themselves.",
+              "No started raid needed: Invite & sort or the sign-ups tell which raid it is.",
+              "A guest taken off by hand is not added again.",
+              "Add players > Guest > Known players: a pug from your group or the guest book, one click.",
+          } },
+          { heading = "Guest book (Guests, top of the Raids tab)", lines = {
+              "Every pug who raided with us: raids, boss kills, items, no-shows, their next guest seat.",
+              "A short note and a Recruit mark, shared between the officers and the raid leaders.",
+              "Right-click a pug: add to an upcoming raid, mark as recruit, note, blacklist, whisper.",
+              "When a known pug joins, the organizers get a line: their raids with us, Recruit, the note.",
+              "Their tooltip says the same, for the organizers.",
+              "The Raid log's Players list leaves pugs out; the Guests switch lists them too.",
+          } },
+          { heading = "Raids without the loot council", lines = {
+              "Start raid: \"Loot distribution\" is now \"Loot council\".",
+              "Loot handed out is always recorded in the Loot Log, with or without the loot council.",
+              "Without it, rolls still bring up the drop panel: items and rolls, no BiS lists or votes.",
+              "The highest roll is suggested; BiS lists don't count. The winner gets no BiS reason.",
+              "Locking the BiS lists needs the loot council.",
           } },
           { heading = "Declining and removing sign-ups", lines = {
               "Right-click a player in a raid's roster: Decline for this raid, or Remove their answer.",
@@ -22,10 +41,13 @@ ns.CHANGELOG = {
               "Restore undoes a decline.",
           } },
           { heading = "Raid blacklist", lines = {
-              "Blacklist (top of the Raids tab): players who can't sign up for any raid.",
+              "Guests > Blacklist (top of the Raids tab): players who can't sign up for any raid.",
               "They can't be added as a guest and are not invited either.",
               "For a guild member it covers all their characters. A reason can be noted.",
               "Kept by the Guild Master, officers, the guild council and the raid leaders.",
+              "Their tooltip says so wherever you meet them (a guild member's only for the organizers).",
+              "Inviting one warns you at once. One who joins anyway: the raid leader can remove them.",
+              "Right-click a player anywhere (frames, chat names): Blacklist... and Guest book...",
           } },
           { heading = "Sign up with any of your characters", lines = {
               "With more than one character in the guild, the sign-up strip has an \"As\" picker.",
@@ -41,6 +63,41 @@ ns.CHANGELOG = {
               "Invites everyone who accepted, guests too, also those not placed in a group yet.",
               "Missing: who has not joined and why (offline, declined, in another group, no answer).",
               "It also lists who is in the raid without being on the roster, and can invite again.",
+          } },
+          { heading = "Raid sessions survive a crash", lines = {
+              "A raid leader whose game crashed gets the raid session back from the raid on login.",
+              "What it runs (loot council, rolls, BiS lock) comes back as the raid last heard it.",
+              "A raid ended just before the crash stays ended.",
+              "Two raiders must agree on the answer; otherwise the leader's own saved copy is used.",
+          } },
+          { heading = "Teams", lines = {
+              "A tidier top: name, size and member count on one row; adding members and Auto-fill below.",
+              "The next raid that invites the team, with its date; hover it for all of them.",
+              "Member search lists (Teams, council, raid leaders, invites) are solid, in the flat style.",
+          } },
+          { heading = "Upcoming raids", lines = {
+              "Sign-ups, Groups and Assignments are text tabs, apart from the page's own buttons.",
+              "Your answer is one joined row of buttons; beside it, when you answered or why you can't.",
+              "Spec, the character you answer as and your note share the second row.",
+              "\"6/10 accepted\" with a bar that fills up to the raid's size.",
+              "No response, Bench and Absent are set apart under the role columns.",
+              "The raid list shows your answer as a small icon, so the rest of the line fits.",
+          } },
+          { heading = "Tidier pages", lines = {
+              "Buttons and dropdowns are in the flat style everywhere; no more red buttons.",
+              "Nothing is cut off with \"...\" any more: long item, boss and player names fit.",
+              "My BiS and the council's member view: wider slots, the longest item names fit.",
+              "Loot Log: \"Recorded\" says who typed in a manual entry, else \"auto\".",
+              "Strategies: one line under each name (owner, date, pages, shared); help behind the ? icon.",
+              "Raid log: boss kills on one line; a slimmer toolbar that stays clear of Start raid.",
+              "Teams, the guest book and the changelog use two lines instead of squeezing into one.",
+              "Home: the raid card lists only what is missing, or \"All set\".",
+              "Council member header: the addon version only shows when it differs from yours.",
+              "Members: main and off spec side by side; an empty officer note says \"No note yet.\"",
+          } },
+          { heading = "Fixes", lines = {
+              "A raid started without loot distribution or rolls switched them all on after the raid",
+              "lead changed hands and the new leader reloaded. They now stay as the raid was started.",
           } },
       } },
     { version = "1.2.0", date = "3 October 2026", title = "Raid sessions switch loot on, alts share roles",

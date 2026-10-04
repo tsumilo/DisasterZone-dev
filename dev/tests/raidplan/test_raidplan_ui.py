@@ -80,7 +80,7 @@ def member_sees_upcoming_and_answers_from_the_strip():
     assert bob.find_text("Tanks", True, True) and bob.find_text("Ranged", True, True)
     assert bob.find_text("Lee", True, True) and bob.find_text("Rita", True, True)
     assert has_line(bob, "Absent", "(1)")
-    assert bob.find_text("2 accepted", True, True)
+    assert bob.find_text("2/10 accepted", True, True)
     assert shown(bob, P + ".logBtn") and shown(bob, P + ".newRaidBtn")
     w.assert_no_errors()
 

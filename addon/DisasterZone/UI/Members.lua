@@ -605,8 +605,9 @@ local function detailWidgets(row)
     w.chevron = row:CreateTexture(nil, "ARTWORK")
     w.chevron:SetSize(14, 14)
     w.chevron:SetPoint("RIGHT", -8, 0)
+    -- on the name's line, right-aligned: the line below holds the skill bar and its numbers
     w.right = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    w.right:SetPoint("RIGHT", -28, 0)
+    w.right:SetPoint("TOPRIGHT", -28, -9)
     w.right:SetJustifyH("RIGHT")
 
     -- recipe / group / heading / note lines
@@ -881,7 +882,7 @@ local function updateNote(right, member)
         right.note.text:SetText(rec.text)
         right.note.meta:SetText(grey(("%s, %s"):format(rec.by and shortName(rec.by) or "?", date("%d %b %Y", rec.rev))))
     else
-        right.note.text:SetText(grey("No note. Officers and the Guild Master can write one; only they see it."))
+        right.note.text:SetText(grey("No note yet."))   -- (only officers see this box)
         right.note.meta:SetText("")
     end
     if notes:IsLocalOnly() then
@@ -922,10 +923,10 @@ local function updateDetail(p)
         local specs = {}
         for i, spec in ipairs(P():GetSpecs(member) or {}) do
             local _, icon = specInfo(classFile, spec)
-            specs[#specs + 1] = grey(i == 1 and "Main spec " or "Off spec ") .. (icon and (ns.UI:IconText(icon, 14) .. " ") or "")
+            specs[#specs + 1] = grey(i == 1 and "Main " or "Off ") .. (icon and (ns.UI:IconText(icon, 14) .. " ") or "")
                 .. specText(classFile, spec)
         end
-        right.sub2:SetText(table.concat(specs, "     "))
+        right.sub2:SetText(table.concat(specs, "    "))
         local on = onlineCharacter(member)
         right.whisperTarget = on
         right.whisper:SetText(on and on ~= member and ("Whisper " .. shortName(on)) or "Whisper")
@@ -1006,7 +1007,7 @@ local function updateToolbar(p)
         local n = counts[state.prof] or 0
         p.filter:SetText(gold(P():GetName(state.prof)) .. "  " .. grey(n == 1 and "1 member" or (n .. " members")))
     else
-        p.filter:SetText(grey("Click a profession to filter"))
+        p.filter:SetText("")   -- (each profession says what a click does in its tooltip)
     end
 end
 

@@ -142,7 +142,7 @@ def raid_leaders_rules_reach_every_raider_and_settings_go_read_only():
     open_settings(c["Rita"])
     assert rules_status_text(c["Rita"]).startswith("Set by Lee for this group"), rules_status_text(c["Rita"])
     assert controls_enabled(c["Rita"]) == [0, 0, 0, 0], controls_enabled(c["Rita"])
-    c["Rita"].eval("ns.SettingsUI.ruleControls[1]:GenerateMenu()")
+    c["Rita"].eval("ns.SettingsUI.ruleControls[1]:Refresh()")
     assert c["Rita"].eval("return ns.SettingsUI.ruleControls[1]:GetText()") == "45 seconds"
     open_settings(c["Lee"])
     assert rules_status_text(c["Lee"]).startswith("You set these for your group")
@@ -387,7 +387,7 @@ def raid_leaders_phase_is_a_group_rule_on_top_of_the_guild_phase():
     # the raider's view: read-only "Raid phase", My BiS follows and marks it as the group's phase
     open_settings(c["Rita"])
     assert c["Rita"].eval("return ns.SettingsUI.phaseRuleDD:IsEnabled()") is False
-    c["Rita"].eval("ns.SettingsUI.phaseRuleDD:GenerateMenu()")
+    c["Rita"].eval("ns.SettingsUI.phaseRuleDD:Refresh()")
     assert c["Rita"].eval("return ns.SettingsUI.phaseRuleDD:GetText()").startswith("P4 · ")
     c["Rita"].slash("/dz bis")
     w.tick(0.3)

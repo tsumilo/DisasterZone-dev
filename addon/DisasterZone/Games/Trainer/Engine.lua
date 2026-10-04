@@ -11,6 +11,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --   arena = { w = 70, h = 90, labels = { { x, y, text } }, walkable = function(x, y) end, outline = { { x, y }, .. },
 --             map = { file, u0, u1, v0, v1 },          (the floor picture: the texture piece that covers w x h)
 --             height = function(x, y) end,             (the floor's height there; drawn, it does not change speed)
+--             ground = function(x, y, z) end,          (T.GroundFn: what units stand on - ledges, falls, walls)
 --             mesh = { textures, verts, tris } },      (the room's own triangles, see TeronGorefiendFloor.lua)
 --   difficulties = { { id = "normal", name = "Normal", ... the encounter's own numbers ... } },   first = default
 --   player = { x, y, speed, facing },
@@ -41,6 +42,13 @@ local sin, cos, atan2, pi = math.sin, math.cos, math.atan2, math.pi
 
 T.TURN_RATE = pi            -- keyboard turning, radians per second (the client's default: 180 degrees)
 T.BACKPEDAL = 4.5 / 7       -- walking backwards: 4.5 yd/s at normal run speed
+-- Standing on the room (arena.ground): the client's gravity and fastest fall (TrinityCore's Movement::gravity and
+-- terminalVelocity); the highest ledge it walks up without a jump (the 1.12 client's 1.0, as reverse-engineered by
+-- the benilla project; not checked against 2.5); the steepest ground it walks, 50 degrees, as rise per yard.
+T.GRAVITY = 19.291103
+T.TERMINAL = 60.148003
+T.STEP_UP = 1.0
+T.MAX_SLOPE = math.tan(math.rad(50))
 
 local encs = {}     -- id -> def
 local encList = {}  -- defs sorted by order
@@ -83,6 +91,79 @@ function T.HeightFn(grid)
         local any = a or b or c or d or 0               -- at a hole's edge: the floor next to it
         a, b, c, d = a or any, b or any, c or any, d or any
         return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
+    end
+end
+
+-- The ground the client walks on, from a floor file's walk table: Blizzard's collision faces no steeper than 50
+-- degrees (tris; on a staircase that is the invisible ramp over the steps, so feet glide up it as in the game) and
+-- the steeper ones you slide down but cannot walk up (slide). ground(x, y, z, air) = the highest face at (x, y) a
+-- unit with its feet at z can be on: ground up to T.STEP_UP above z (in the air: none above z), a slope no higher
+-- than z; nil where there is none (a pillar, a wall, outside the room). z nil: the highest of all. On a slope it
+-- also returns the slope's rise per yard east and north (the way down is against them). Faces are kept by 4 yd
+-- squares.
+function T.GroundFn(walk)
+    if not walk or not walk.tris then return nil end
+    local V = walk.verts
+    local cells, n = {}, 0
+    -- per face: barycentric weights w1 = K1 dx + K2 dy, w2 = K3 dx + K4 dy from its third corner (CX, CY), its
+    -- plane z = PA x + PB y + PC, and SL = a slope
+    local K1, K2, K3, K4, CX, CY, PA, PB, PC, SL = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+    local function add(list, slide)
+        for t = 1, floor(#list / 3) do
+            local a, b, c = list[t * 3 - 2] * 3, list[t * 3 - 1] * 3, list[t * 3] * 3
+            local ax, ay, az = V[a - 2], V[a - 1], V[a]
+            local bx, by, bz = V[b - 2], V[b - 1], V[b]
+            local cx, cy, cz = V[c - 2], V[c - 1], V[c]
+            local det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+            if det ~= 0 then
+                n = n + 1
+                K1[n], K2[n] = (by - cy) / det, (cx - bx) / det
+                K3[n], K4[n] = (cy - ay) / det, (ax - cx) / det
+                CX[n], CY[n], SL[n] = cx, cy, slide
+                -- the plane through the three corners (never upright: the generator keeps 80 degrees at most)
+                local ux, uy, uz = bx - ax, by - ay, bz - az
+                local vx, vy, vz = cx - ax, cy - ay, cz - az
+                local nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+                PA[n], PB[n] = -nx / nz, -ny / nz
+                PC[n] = az - PA[n] * ax - PB[n] * ay
+                for gx = floor(min(ax, bx, cx) / 4), floor(max(ax, bx, cx) / 4) do
+                    for gy = floor(min(ay, by, cy) / 4), floor(max(ay, by, cy) / 4) do
+                        local key = (gx + 500) * 1000 + gy + 500
+                        local cell = cells[key]
+                        if not cell then
+                            cell = {}
+                            cells[key] = cell
+                        end
+                        cell[#cell + 1] = n
+                    end
+                end
+            end
+        end
+    end
+    add(walk.tris, false)
+    add(walk.slide or {}, true)
+    if n == 0 then return nil end
+    local EPS = -1e-4                                   -- (a point on a shared edge belongs to both sides)
+    return function(x, y, z, air)
+        local cell = cells[(floor(x / 4) + 500) * 1000 + floor(y / 4) + 500]
+        if not cell then return nil end
+        local limit = z and (z + (air and 0 or T.STEP_UP) + 1e-6) or math.huge
+        local slopeLimit = z and (z + 0.05) or math.huge
+        local best, bi
+        for k = 1, #cell do
+            local i = cell[k]
+            local dx, dy = x - CX[i], y - CY[i]
+            local w1 = K1[i] * dx + K2[i] * dy
+            if w1 >= EPS then
+                local w2 = K3[i] * dx + K4[i] * dy
+                if w2 >= EPS and 1 - w1 - w2 >= EPS then
+                    local h = PA[i] * x + PB[i] * y + PC[i]
+                    if h <= (SL[i] and slopeLimit or limit) and (not best or h > best) then best, bi = h, i end
+                end
+            end
+        end
+        if bi and SL[bi] then return best, PA[bi], PB[bi] end
+        return best
     end
 end
 
@@ -453,6 +534,70 @@ function Sim:Lose(reason)
     self.state, self.reason = "lost", reason
 end
 
+-- Feet on the room's ground (arena.ground). Each unit keeps its feet's height u.gz for the spot (u.gzX, u.gzY) it
+-- was found for. A unit whose ground drops away faster than it could walk down it (off a ledge) falls with the
+-- client's gravity (u.falling, u.vz; you keep the speed you went over the edge with, u.fallVX / u.fallVY) and lands
+-- on what is under it; you also fall onto a slope too steep to stand on and slide down it (the other units walk
+-- where they are sent, slopes and all). One that went further than a step can take (a script or a test put it
+-- there) is set on the ground at its new spot. u.z (a fixed height) wins over all of it.
+local TELEPORT = 3 * 3                    -- (yd squared: further than anyone moves in one step)
+
+local function GroundRef(arena, x, y)    -- a height near the room's main floor there: the height grid's
+    return arena.height and arena.height(x, y) or 0
+end
+
+local function Place(sim, u)             -- true when it had to be put on the ground afresh
+    if u.gz and (u.x - u.gzX) ^ 2 + (u.y - u.gzY) ^ 2 <= TELEPORT then return false end
+    local arena = sim.enc.arena
+    local ref = GroundRef(arena, u.x, u.y)
+    u.gz, u.gzX, u.gzY, u.vz, u.falling, u.fallVX, u.fallVY = arena.ground(u.x, u.y, ref) or ref, u.x, u.y, 0, nil, nil, nil
+    return true
+end
+
+-- The height of a unit's feet now (for the view and the scripts).
+function Sim:FeetZ(u)
+    if u.z then return u.z end
+    local arena = self.enc.arena
+    if not arena.ground then return GroundRef(arena, u.x, u.y) end
+    if u.gz and ((u.gzX == u.x and u.gzY == u.y) or u.falling) then return u.gz end
+    local ref = (u.gz and (u.x - u.gzX) ^ 2 + (u.y - u.gzY) ^ 2 <= TELEPORT) and u.gz or GroundRef(arena, u.x, u.y)
+    return arena.ground(u.x, u.y, ref) or ref
+end
+
+-- After a step's move: onto the ground where the unit now is, or on with its fall.
+function Sim:Settle(u, dt)
+    local ground = self.enc.arena.ground
+    if not ground or u.z or Place(self, u) then return end
+    local x, y, gz = u.x, u.y, u.gz
+    local moved2 = (x - u.gzX) ^ 2 + (y - u.gzY) ^ 2
+    if not u.falling and moved2 == 0 then return end
+    local g, sx, sy = ground(x, y, gz, u.falling)
+    local slides = sx and u == self.player
+    if not u.falling and g and (slides or g < gz - sqrt(moved2) * T.MAX_SLOPE - 0.02) then
+        -- (the speed it moved at in this step; a script's push is not a run: no faster than a run)
+        local v = dt > 0 and sqrt(moved2) / dt or 0
+        local k = dt > 0 and min(1, max(u.speed or 0, 7) / max(v, 1e-9)) / dt or 0
+        u.falling, u.vz, u.fallVX, u.fallVY = true, 0, (x - u.gzX) * k, (y - u.gzY) * k
+    end
+    if u.falling then
+        local vz = max(-T.TERMINAL, u.vz - T.GRAVITY * dt)
+        local nz = gz + vz * dt
+        if g and nz > g then
+            u.gz, u.vz = nz, vz
+        elseif slides then
+            -- on the slope: held on it, and pushed off downhill as gravity pulls along it (g sin a cos a)
+            local push = T.GRAVITY / (1 + sx * sx + sy * sy) * dt
+            u.gz, u.vz = g, vz
+            u.fallVX, u.fallVY = (u.fallVX or 0) - sx * push, (u.fallVY or 0) - sy * push
+        else                                   -- landed (with nothing under it at all it stops where it is)
+            u.gz, u.vz, u.falling, u.fallVX, u.fallVY = g or gz, 0, nil, nil, nil
+        end
+    elseif g then
+        u.gz = g
+    end                                        -- (no ground: a scripted unit walked into a pillar; it keeps its height)
+    u.gzX, u.gzY = x, y
+end
+
 local function MoveToward(u, x, y, dist)
     local d = Dist(u.x, u.y, x, y)
     if d > 0.01 then u.facing = atan2(y - u.y, x - u.x) end
@@ -502,21 +647,36 @@ function Sim:Step(dt)
         p.facing = atan2(my, mx)
     end
     p.moving = false
-    if not p.rooted and (mx ~= 0 or my ~= 0) then
+    local ground = arena.ground
+    if ground then Place(self, p) end
+    local vx, vy = 0, 0
+    if p.falling then
+        vx, vy = p.fallVX or 0, p.fallVY or 0          -- in the air the keys steer nothing
+    elseif not p.rooted and (mx ~= 0 or my ~= 0) then
         local len = sqrt(mx * mx + my * my)
-        local step = speed * dt
-        local nx = min(arena.w - p.radius, max(p.radius, p.x + mx / len * step))
-        local ny = min(arena.h - p.radius, max(p.radius, p.y + my / len * step))
-        -- arena.walkable(x, y): rooms that are not a rectangle. Blocked: slide along the wall on one axis.
-        local ok = arena.walkable
-        if not ok or ok(nx, ny) then
+        vx, vy = mx / len * speed, my / len * speed
+        p.moving = true
+    end
+    if vx ~= 0 or vy ~= 0 then
+        local nx = min(arena.w - p.radius, max(p.radius, p.x + vx * dt))
+        local ny = min(arena.h - p.radius, max(p.radius, p.y + vy * dt))
+        -- arena.walkable(x, y): rooms that are not a rectangle; arena.ground: something to be on there (no higher
+        -- than a step up; in the air, or a slope: no higher than your feet), so walls, pillars, high ledges and
+        -- slopes going up stop you. Blocked: slide along the wall on one axis; in the air, drop straight down.
+        local walkable = arena.walkable
+        local gz, air = p.gz, p.falling
+        local function ok(x, y)
+            return (not walkable or walkable(x, y)) and (not ground or ground(x, y, gz, air) ~= nil)
+        end
+        if ok(nx, ny) then
             p.x, p.y = nx, ny
         elseif ok(nx, p.y) then
             p.x = nx
         elseif ok(p.x, ny) then
             p.y = ny
+        elseif p.falling then
+            p.fallVX, p.fallVY = 0, 0
         end
-        p.moving = true
     end
     for _, u in ipairs(self.units) do
         if not u.dead and u.goal then
@@ -526,6 +686,7 @@ function Sim:Step(dt)
             u.moving = step > 0 and d > stop
             if u.moving then MoveToward(u, u.goal.x, u.goal.y, min(step, d - stop)) end
         end
+        if ground then self:Settle(u, dt) end
     end
 
     if self.enc.update then self.enc.update(self, dt) end

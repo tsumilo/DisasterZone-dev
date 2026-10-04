@@ -8,10 +8,12 @@ local addonName, ns = ...
 local PaperDoll = {}
 ns.PaperDoll = PaperDoll
 
--- Layout (fits a ~780 x 430 area): tiles 236 x 42 on a 46px pitch.
-local TILE_W, TILE_H, PITCH = 236, 42, 46
+-- Layout (fits a ~774 x 430 area): side tiles 260 x 42 on a 46px pitch, so the longest raid item names
+-- (36 letters) fit on one line; the weapon row's three tiles span the same width as the two columns.
+local TILE_W, TILE_H, PITCH = 260, 42, 46
+local BOTTOM_W, BOTTOM_GAP_X = 246, 10
 local MAIN_SIZE, ALT_SIZE, WEAR_SIZE = 36, 22, 14
-local TEXT_X, TEXT_W = 66, 170
+local TEXT_X = 66
 local SIDE_X, TOP_Y = 8, -4
 local BOTTOM_GAP, CENTER_GAP = 8, 10
 
@@ -196,10 +198,10 @@ local function HandleDrop(doll, tile, itemID, which)
     if cb then cb(tile.sid, itemID, which) end
 end
 
-local function CreateTile(doll, sid, side)
+local function CreateTile(doll, sid, side, width)
     local UI = ns.UI
     local tile = CreateFrame("Button", nil, doll)
-    tile:SetSize(TILE_W, TILE_H)
+    tile:SetSize(width, TILE_H)
     tile.sid = sid
     tile.side = side
     tile:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -225,7 +227,7 @@ local function CreateTile(doll, sid, side)
     tile.line1 = tile:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     tile.line2 = tile:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     for _, fs in ipairs({ tile.line1, tile.line2 }) do
-        fs:SetWidth(TEXT_W)
+        fs:SetWidth(width - TEXT_X)
         fs:SetHeight(14)
         fs:SetWordWrap(false)
     end
@@ -350,7 +352,7 @@ local function PaintTile(doll, tile, main, alt, ctx, eqID, twoHandBlocked, disab
         pending = pending or loading
         tile.line1:SetText(text)
         if twoHandBlocked then
-            tile.line2:SetText(ColorKey("warn", "Two-hander equipped in main hand"))
+            tile.line2:SetText(ColorKey("warn", "Two-hander in main hand"))
         elseif state then
             tile.line2:SetText(ColorKey("obtained", UI.OBTAINED_LABELS[state] or "Obtained"))
         elseif awarded then
@@ -366,7 +368,7 @@ local function PaintTile(doll, tile, main, alt, ctx, eqID, twoHandBlocked, disab
             tile.line1:SetText(Grey(label))
         end
         if twoHandBlocked then
-            tile.line2:SetText(Grey("Two-hander equipped in main hand"))
+            tile.line2:SetText(Grey("Two-hander in main hand"))
         else
             tile.line2:SetText(editable and "" or Grey("No item chosen"))
         end
@@ -486,23 +488,23 @@ function PaperDoll:Create(parent, opts)
     local bottom = ns.DOLL_BOTTOM or DEFAULT_BOTTOM
 
     for i, sid in ipairs(left) do
-        local tile = CreateTile(doll, sid, "L")
+        local tile = CreateTile(doll, sid, "L", TILE_W)
         tile:SetPoint("TOPLEFT", doll, "TOPLEFT", SIDE_X, TOP_Y - (i - 1) * PITCH)
         doll.tiles[sid] = tile
     end
     for i, sid in ipairs(right) do
-        local tile = CreateTile(doll, sid, "R")
+        local tile = CreateTile(doll, sid, "R", TILE_W)
         tile:SetPoint("TOPRIGHT", doll, "TOPRIGHT", -SIDE_X, TOP_Y - (i - 1) * PITCH)
         doll.tiles[sid] = tile
     end
 
     local rows = math.max(#left, #right)
     local bottomY = TOP_Y - rows * PITCH - BOTTOM_GAP
-    local gap = 12
-    local totalW = #bottom * TILE_W + math.max(0, #bottom - 1) * gap
+    local gap = BOTTOM_GAP_X
+    local totalW = #bottom * BOTTOM_W + math.max(0, #bottom - 1) * gap
     for i, sid in ipairs(bottom) do
-        local tile = CreateTile(doll, sid, "L")
-        tile:SetPoint("TOPLEFT", doll, "TOP", -totalW / 2 + (i - 1) * (TILE_W + gap), bottomY)
+        local tile = CreateTile(doll, sid, "L", BOTTOM_W)
+        tile:SetPoint("TOPLEFT", doll, "TOP", -totalW / 2 + (i - 1) * (BOTTOM_W + gap), bottomY)
         doll.tiles[sid] = tile
     end
 

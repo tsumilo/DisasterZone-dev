@@ -37,9 +37,8 @@ DD_LIST = r"""
 function T_settings() return ns.MainFrame:GetPanel("settings") end
 function T_dropdowns(root)
   local out = {}
-  for _, f in ipairs(T_desc(root, function(f, st) return st.menu_gen ~= nil end)) do
-    f:GenerateMenu()
-    local m = f:GetMenuDescription()
+  for _, f in ipairs(T_dropdown_list(root)) do
+    local m = T_menu(f)
     local first = m and m.children[1] and m.children[1].text or ""
     out[#out + 1] = { f, first, f:GetText() or "", f:IsVisible() and 1 or 0 }
   end
@@ -129,7 +128,7 @@ def every_dropdown_writes_its_setting():
             c.menu_select(text)
             w.tick(0.2)
             assert setting(c, path) == value, "%s -> %s = %r, expected %r" % (text, path, setting(c, path), value)
-            c.eval("local d = ...; d:GenerateMenu()", dd)
+            c.eval("local d = ...; d:Refresh()", dd)
             assert c.eval("local d = ...; return d:GetText()", dd) == text, (path, c.eval("local d = ...; return d:GetText()", dd))
     # view phase: "Follow guild (P1)" = nil, P3 = 3
     vp = c.eval("return T_dd_by_first(T_settings(), 'Follow guild (P1)')")

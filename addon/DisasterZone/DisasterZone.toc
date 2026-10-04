@@ -59,6 +59,7 @@ Core\RaidPlan.lua
 Core\RaidComp.lua
 Core\RaidInvite.lua
 Core\RaidLink.lua
+Core\GuestBook.lua
 Core\Strategy.lua
 Core\StrategyLive.lua
 Core\StrategyPractice.lua
@@ -70,6 +71,8 @@ Core\Demo.lua
 
 # UI
 UI\Widgets.lua
+UI\Tour.lua
+Data\Tours\Strategy.lua
 UI\DatePicker.lua
 UI\MainFrame.lua
 UI\Dashboard.lua
@@ -80,6 +83,7 @@ UI\Council.lua
 UI\LootLog.lua
 UI\RaidGroups.lua
 UI\RaidPlanUI.lua
+UI\GuestBook.lua
 UI\RaidLeadersUI.lua
 UI\StrategyMap.lua
 UI\StrategyBlocks.lua
@@ -104,6 +108,13 @@ Games\Bingo\Card.lua
 Games\Bingo\Bingo.lua
 Games\Bingo\Detect.lua
 Games\Bingo\UI.lua
+Games\Trainer\Engine.lua
+Games\Trainer\Encounters\TeronGorefiendFloor.lua
+Games\Trainer\Encounters\TeronGorefiend.lua
+Games\Trainer\Encounters\LadyVashjFloor.lua
+Games\Trainer\Encounters\LadyVashj.lua
+Games\Trainer\Room.lua
+Games\Trainer\UI.lua
 Games\Azeromon\Data.lua
 Games\Azeromon\Atlas.lua
 Games\Azeromon\Mon.lua

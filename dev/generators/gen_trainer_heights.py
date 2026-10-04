@@ -29,6 +29,11 @@ Writes Games/Trainer/Encounters/<Name>Floor.lua:
                      span <= 0.15) or 0. The renderer may draw a pair as one quad texture (a, b, d, c).
         The run checks itself (triangles on their node's plane, every pair re-checked, node count, vertex indices)
         and fails if anything is off. Each file is written to a temporary file first and then moved into place.
+  walk: the ground the client walks on: the group's collision faces (MOPY flag 0x08, or 0x20 without 0x04 - the
+        invisible ramps Blizzard lays over every staircase included; the visible steps themselves are mostly
+        "detail" faces nothing collides with) no steeper than the client's 50 degrees (tris), and the steeper ones
+        up to 80 degrees that you slide down and cannot walk up (slide: the walkway's bevelled edges), in the
+        floor band, in arena coordinates: verts = x, y, z (3 decimals); tris, slide = vertex a, b, c (1-based).
 
 Run: luaenv\\Scripts\\python.exe generators\\gen_trainer_heights.py [teron|vashj]
 """
@@ -51,7 +56,9 @@ PAIR_UV_TOL = 1e-3          # the mate's lone vertex UV against the triangle's a
 PAIR_LIGHT_SPAN = 0.15      # light range over the quad's 4 corners
 PLANE_TOL = 0.03            # yd: a triangle's vertices off its node's (written) plane
 MAX_NODES = 3000
-ALPHA62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+WALK_COS = math.cos(math.radians(50))   # the steepest ground the client walks on: 50 degrees
+SLIDE_COS = math.cos(math.radians(80))  # steeper up to here: a slope you slide down; steeper still: a wall
+ALPHA62 ="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 ROOMS = {
     "teron": dict(
@@ -472,7 +479,7 @@ def self_check(name, textures, blends, verts, tris, nodes, pair, node_of):
     return worst
 
 
-def round_trip(path, key, textures, blends, verts, tris, nodes, pair):
+def round_trip(path, key, textures, blends, verts, tris, nodes, pair, walk_verts, walk_tris, slide_tris):
     """Load the written file in real Lua 5.1 (lupa, when available) and compare it with what was meant."""
     try:
         from lupa import lua51 as lupa
@@ -499,6 +506,18 @@ def round_trip(path, key, textures, blends, verts, tris, nodes, pair):
     for i in range(len(blends)):
         if m.blend[i + 1] != blends[i] or m.textures[i + 1] != textures[i]:
             raise SystemExit("%s: texture %d differs after loading" % (path, i + 1))
+    wk = ns.TrainerFloors[key].walk
+    if (len(wk.verts), len(wk.tris), len(wk.slide)) != (3 * len(walk_verts), 3 * len(walk_tris), 3 * len(slide_tris)):
+        raise SystemExit("%s: the walk table does not load back as written" % path)
+    for i in range(len(walk_verts)):
+        for q in range(3):
+            if abs(wk.verts[3 * i + q + 1] - walk_verts[i][q]) > 1e-9:
+                raise SystemExit("%s: walk vertex %d differs after loading" % (path, i + 1))
+    for name, got, faces in (("walk", wk.tris, walk_tris), ("slide", wk.slide, slide_tris)):
+        for i in range(len(faces)):
+            for q in range(3):
+                if got[3 * i + q + 1] != faces[i][q] + 1:
+                    raise SystemExit("%s: %s triangle %d differs after loading" % (path, name, i + 1))
     return "ok"
 
 
@@ -522,6 +541,51 @@ def move_into_place(tmp, path):
             if attempt == 19:
                 raise
             time.sleep(0.25)
+
+
+def collidable(flags):
+    """A WMO face the client collides with (MOPY flags): F_COLLISION (0x08: the collision-only faces, material
+    255), or F_RENDER (0x20) without F_DETAIL (0x04)."""
+    return bool(flags & 0x08) or (bool(flags & 0x20) and not flags & 0x04)
+
+
+def build_walk(group, room):
+    """-> (verts [(x, y, z)], tris [(a, b, c)], slide [(a, b, c)]) in arena coordinates: the collision faces you can
+    stand on and the steeper ones (up to 80 degrees) you slide down (see the module doc), in the floor band and over
+    the arena (Vashj's: within its radius)."""
+    to_arena, z_main = room["to_arena"], room["z_main"]
+    lo, hi = room["floor_bottom"], room["floor_top"]
+    radius = room.get("radius")
+    cx, cy = room["w"] / 2.0, room["h"] / 2.0
+    verts, index, tris, slide = [], {}, [], []
+    for t, f in zip(group["tris"], group["flags"]):
+        if not collidable(f):
+            continue
+        raw = [group["verts"][i] for i in t]
+        n = normal(*raw)
+        if not n or n[2] < SLIDE_COS:
+            continue
+        pts = []
+        for x, y, z in raw:
+            ax, ay = to_arena(x, y)
+            pts.append((round(ax, 3), round(ay, 3), round(z - z_main, 3)))
+        if min(p[2] for p in pts) > hi or max(p[2] for p in pts) < lo:
+            continue
+        if max(p[0] for p in pts) < -2 or min(p[0] for p in pts) > room["w"] + 2:
+            continue
+        if max(p[1] for p in pts) < -2 or min(p[1] for p in pts) > room["h"] + 2:
+            continue
+        if radius and min(math.hypot(p[0] - cx, p[1] - cy) for p in pts) > radius:
+            continue
+        ids = []
+        for p in pts:
+            if p not in index:
+                index[p] = len(verts)
+                verts.append(p)
+            ids.append(index[p])
+        if len(set(ids)) == 3:
+            (tris if n[2] >= WALK_COS else slide).append(tuple(ids))
+    return verts, tris, slide
 
 
 def generate(name):
@@ -565,6 +629,9 @@ def generate(name):
         "--       back to front from anywhere;",
         "--       pair = per triangle its quad mate (1-based) or 0: same node and texture, one shared edge, a convex",
         "--       union and matching texture coordinates, so the two can be drawn as one quad (a, b, d, c).",
+        "-- walk: the ground the client walks on: the room's collision faces no steeper than 50 degrees (the",
+        "--       invisible ramps over the steps included) and the steeper ones up to 80 degrees you slide down:",
+        "--       verts = x, y, z; tris, slide = vertex a, b, c (1-based) for each face.",
         "-- AUTO-GENERATED by gen_trainer_heights.py; do not edit by hand.",
         "local _, ns = ...",
         "ns.TrainerFloors = ns.TrainerFloors or {}",
@@ -588,10 +655,19 @@ def generate(name):
     lines += ["  },", "  pair = {"]
     for i in range(0, len(pair), 24):
         lines.append("    " + " ".join("%d," % m for m in pair[i:i + 24]))
+    walk_verts, walk_tris, slide_tris = build_walk(group, room)
+    lines += ["  },", "}, walk = {", "  verts = {"]
+    for i in range(0, len(walk_verts), 8):
+        lines.append("    " + " ".join("%s,%s,%s," % (num3(v[0]), num3(v[1]), num3(v[2])) for v in walk_verts[i:i + 8]))
+    for key, faces in (("tris", walk_tris), ("slide", slide_tris)):
+        lines += ["  },", "  %s = {" % key]
+        for i in range(0, len(faces), 16):
+            lines.append("    " + " ".join("%d,%d,%d," % (a + 1, b + 1, c + 1) for a, b, c in faces[i:i + 16]))
     lines += ["  },", "} }", ""]
     tmp = write_temp(out, "\n".join(lines))
     try:
-        rt = round_trip(tmp, room["key"], textures, blends, verts, mesh_tris, nodes, pair)
+        rt = round_trip(tmp, room["key"], textures, blends, verts, mesh_tris, nodes, pair,
+                        walk_verts, walk_tris, slide_tris)
     except BaseException:
         os.remove(tmp)
         raise

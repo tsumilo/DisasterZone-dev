@@ -1267,7 +1267,9 @@ function Panel:Render()
                 local c = cell(x, by, widths[ci], ci == #k.c)
                 c:SetHeight(HEAD_H)
                 c.bg:SetColorTexture(0.08, 0.08, 0.09, 0.95)
-                c.fs:SetText("|cffffd100" .. (col.n or (mode == "edit" and grey(COL_TYPE_NAME[col.t]) or "")) .. "|r")
+                -- the order column is only ORDER_W wide: "#" (its name stays in the tooltip and menu)
+                local label = col.t == "o" and grey("#") or col.n or (mode == "edit" and grey(COL_TYPE_NAME[col.t]) or "")
+                c.fs:SetText("|cffffd100" .. label .. "|r")
                 c.hoverRef = k.id .. "." .. ci
                 c.headRef = c.hoverRef
                 if mode == "edit" then

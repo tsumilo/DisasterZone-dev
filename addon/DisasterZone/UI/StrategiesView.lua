@@ -40,12 +40,6 @@ local function addHighlight(row)
     hl:SetAlpha(0.5)
 end
 
-local function countBlocks(s)
-    local n = 0
-    for _, p in ipairs(s.p or {}) do n = n + #(p.k or {}) end
-    return n
-end
-
 local function raidOf(ref)
     return type(ref) == "string" and ref:match("^(%w+):") or nil
 end
@@ -139,6 +133,18 @@ local function editingText(id)
     return "  ·  |cff33ff99" .. table.concat(names, ", ") .. " editing|r"
 end
 
+-- "21 Sep" this year, "21 Sep 2025" before.
+local function shortDate(t)
+    if date("%Y", t) == date("%Y") then return date("%d %b", t) end
+    return date("%d %b %Y", t)
+end
+
+-- " · 3 pages" (nothing for one page).
+local function pagesText(n)
+    n = tonumber(n) or 1
+    return n > 1 and (" · " .. n .. " pages") or ""
+end
+
 local function initStratRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
@@ -218,9 +224,8 @@ local function initStratRow(row, d)
     if draft then
         -- my unsaved work: only I see it, saving it makes it a strategy (or updates the one it changes)
         row.l1:SetText(draft.n .. "  |cffff9933Draft|r" .. where)
-        row.l2:SetText(("%s · %d page%s · %d block%s · last edited %s"):format(
-            draft.id and "unsaved changes" or "not saved yet", draft.pages, draft.pages == 1 and "" or "s",
-            draft.blocks, draft.blocks == 1 and "" or "s", date("%d %b %H:%M", draft.at)))
+        row.l2:SetText(("%s · last edited %s%s"):format(draft.id and "unsaved changes" or "not saved yet",
+            date("%d %b %H:%M", draft.at), pagesText(draft.pages)))
         show = { del = true, edit = true }
     else
         local owner = s.ow or s.by
@@ -228,10 +233,10 @@ local function initStratRow(row, d)
         local co = #(s.co or {})
         local mine = S():CanEditStrategy(s.id)
         row.l1:SetText(s.n .. where)
-        row.l2:SetText(("%d page%s · %d block%s · by %s%s, %s%s"):format(#s.p, #s.p == 1 and "" or "s", countBlocks(s),
-            countBlocks(s) == 1 and "" or "s", owner == me and "you" or shortName(owner), co > 0 and (" +" .. co) or "",
-            date("%d %b %Y", s.rev), S():IsCollaborator(s.id) and "  ·  |cff33ff99shared with you|r" or "")
-            .. editingText(s.id))
+        -- who, when, how big: what tells strategies apart at a glance (blocks and the full date are in the board)
+        row.l2:SetText(("by %s%s · %s%s%s"):format(owner == me and "you" or shortName(owner),
+            co > 0 and (" +" .. co) or "", shortDate(s.rev), pagesText(#s.p),
+            S():IsCollaborator(s.id) and " · |cff33ff99shared with you|r" or "") .. editingText(s.id))
         show = { del = S():CanDeleteStrategy(s.id), share = owner == me, copy = S():CanBuild(), edit = mine, open = true }
     end
     -- the buttons this member has, right to left; the texts end where they start
@@ -335,11 +340,28 @@ function View:CreateLibrary(parent)
     d.title:SetJustifyH("LEFT")
     d.sub = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     d.sub:SetPoint("TOPLEFT", 2, -24)
-    d.sub:SetPoint("RIGHT", -130, 0)
+    d.sub:SetPoint("RIGHT", -210, 0)
     d.sub:SetJustifyH("LEFT")
     d.sub:SetWordWrap(false)
-    d.newBtn = UI():CreateButton(d, "New strategy", 110, 22, function(self) newStrategy(self) end)
+    d.newBtn = UI():CreateSleekButton(d, "New strategy", 110, 22, function(self) newStrategy(self) end, "primary")
     d.newBtn:SetPoint("TOPRIGHT", -2, -2)
+    -- what this view is: in its help icon, not on the screen
+    d.help = UI():CreateTipIconButton(d, 22, 11, "Strategies",
+        "Everyone builds strategies here: a map with zones, arrows and icons, plus tables of jobs. You change your own "
+        .. "and the ones shared with you; Copy makes any strategy yours. For a raid, the raid leader fills in the "
+        .. "names (Raids > Upcoming > Assignments).")
+    d.help:SetPoint("LEFT", d.title, "RIGHT", 6, 0)
+    -- the guided tour of the strategy board (Data/Tours/Strategy.lua)
+    d.tourBtn = UI():CreateSleekButton(d, "Tutorial", 70, 22, function(self) ns.Tour:Menu(self, "strategy") end)
+    d.tourBtn:SetPoint("RIGHT", d.newBtn, "LEFT", -6, 0)
+    d.tourBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Tutorial")
+        GameTooltip:AddLine("A guided tour on a practice board: building a strategy, assigning a raid, reading a plan. "
+            .. "Nothing you do there is saved or shared.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    d.tourBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     d.list = UI():CreateScrollList(d, STRAT_ROW_H, initStratRow)
     d.list.frame:SetPoint("TOPLEFT", 0, -46)
     d.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
@@ -397,20 +419,22 @@ function View:RefreshLibrary()
     -- the strategies
     local d = lib.detail
     d.newBtn:SetShown(S():CanBuild())
-    if state.boss then
-        d.title:SetText(S():GetBossName(state.boss))
-        d.sub:SetText(S():GetRaidName(state.boss) .. grey("  ·  a map with zones, arrows and icons plus tables of jobs; "
-            .. "the raid leader fills in the names per raid"))
-    else
-        d.title:SetText(state.raid and S():GetRaidName(state.raid .. ":x") or "All raids")
-        d.sub:SetText(grey("Everyone builds strategies here. You change your own and the ones shared with you; "
-            .. "Copy makes any strategy yours."))
-    end
+    d.tourBtn:SetShown(S():CanBuild())
+    -- never looked at the tutorial: offer it (once per session, until it is started or turned down)
+    if S():CanBuild() then ns.Tour:Offer("strategy", function() return d.tourBtn end) end
     local list = {}
     for _, dr in ipairs(myDrafts) do
         if draftShown(dr, true) then list[#list + 1] = { draft = dr } end
     end
     for _, s in ipairs(S():Find(findFilter(true))) do list[#list + 1] = { s = s } end
+    local count = #list == 1 and "1 strategy" or (#list .. " strategies")
+    if state.boss then
+        d.title:SetText(S():GetBossName(state.boss))
+        d.sub:SetText(grey(S():GetRaidName(state.boss) .. "  ·  " .. count))
+    else
+        d.title:SetText(state.raid and S():GetRaidName(state.raid .. ":x") or "All raids")
+        d.sub:SetText(grey(count))
+    end
     if filtered() then
         d.list:SetEmptyText("No strategy matches the filters.")
     elseif state.boss then
@@ -446,6 +470,9 @@ end
 function View:GetFilter()
     return { raid = state.raid, boss = state.boss, text = state.text, by = state.by }
 end
+
+-- The library's frame (nil until the Raids tab made it): the tutorial points at its controls.
+function View:GetLibrary() return lib end
 
 -- The library's rows as shown (for tests): the tree rows and the strategy rows.
 function View:GetRows()

@@ -100,7 +100,7 @@ def empty_log_and_add_award_dialog_happy_path():
     r = c.eval_py("""local r = T_rows(DisasterZoneLootLogPanel.list.box)[1]
       return { r.item:GetText(), r.winner:GetText(), r.boss:GetText(), r.by:GetText(), r.date:GetText() }""")
     assert "Nathrezim Mindblade" in r[0] and strip_codes(r[1]) == "Bob" and r[2] == "Prince Malchezaar", r
-    assert r[3] == "manual · Cou · note" and len(r[4]) == len("09/21 12:00"), r
+    assert r[3] == "Cou · note" and len(r[4]) == len("09/21 12:00"), r
     no_errors(w)
 
 

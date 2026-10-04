@@ -199,9 +199,23 @@ function T_textregion(root, needle)  -- FontString containing needle (plain)
     return st.kind == "FontString" and type(st.text) == "string" and string.find(st.text, needle, 1, true) ~= nil
   end)
 end
-function T_dropdown(root, defaultText) -- WowStyle1 dropdown by its default text
-  return T_first(root, function(f, st) return st.default_text == defaultText end)
+function T_dropdown(root, defaultText) -- a dropdown by its default text (flat: defaultText, or a menu button's label)
+  return T_first(root, function(f, st)
+    if st.default_text == defaultText then return true end
+    if rawget(f, "OpenMenu") == nil then return false end
+    local d = rawget(f, "defaultText")
+    if d ~= nil then return d == defaultText end
+    return f.GetText and f:GetText() == defaultText
+  end)
 end
+function T_is_dropdown(f, st) return st.menu_gen ~= nil or rawget(f, "OpenMenu") ~= nil end
+function T_dropdown_list(root) return T_desc(root, T_is_dropdown) end
+function T_menu(f)               -- a dropdown's menu (built now): a WowStyle1 one, or a flat one (opened)
+  if OBJ[f].menu_gen ~= nil then f:GenerateMenu(); return f:GetMenuDescription() end
+  f:OpenMenu()
+  return __MOCK.last_menu
+end
+function T_multi_dropdown(root) return T_first(root, function(f) return rawget(f, "multi") == true end) end
 function T_checkbox(root, label)  -- ns.UI:CreateCheckbox result by its label
   return T_first(root, function(f, st)
     local l = rawget(f, "label")

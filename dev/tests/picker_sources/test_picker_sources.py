@@ -130,8 +130,7 @@ def items(c):
 
 
 def sources_dd(c):
-    return c.eval("return T_first(DisasterZonePicker, function(f, st) return st.default_text ~= nil "
-                  "and st.default_text ~= '-' and st.template == 'WowStyle1DropdownTemplate' end)")
+    return c.eval("return T_multi_dropdown(DisasterZonePicker)")
 
 
 def phase_dd(c):
@@ -144,9 +143,8 @@ def set_sources(c, **on):
 
 
 def summary(c):
-    """The Sources button text: the dropdown's selection-text function (what the game shows)."""
-    return c.eval("local d = ...; local st = __MOCK.OBJ[d]; return st.sel_text and st.sel_text({}) or st.default_text",
-                  sources_dd(c))
+    """The Sources button text (what the game shows)."""
+    return c.eval("local d = ...; return d:GetText()", sources_dd(c))
 
 
 def search_box(c):

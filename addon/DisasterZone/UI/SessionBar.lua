@@ -5,7 +5,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SessionBar.lua", ...) then retu
 -- Idle state: the authority inside a raid instance with no session sees "No raid session" with a Start raid
 -- button (the visible prompt; it can be dismissed until the next instance).
 -- 1.2: Start raid opens a window asking what the session runs (loot distribution, rolls, the BiS lock); the
--- authority changes that later with the bar's Options button.
+-- authority changes that later with the bar's Options button. 1.3: "loot distribution" is the loot council; loot is
+-- recorded whatever runs, and the lock needs the loot council.
 local addonName, ns = ...
 
 local SessionBar = ns:NewModule("SessionBar")
@@ -53,14 +54,19 @@ end
 -- a preview, so the flow can be shown without a raid.
 ---------------------------------------------------------------------------
 
+-- 1.3: loot handed out is recorded in the loot log whatever runs; "loot" is the loot council (wire letter l as
+-- before). Without it, rolls are plain (the highest roll wins) and the BiS lock has nothing to protect.
 local FEATURES = {
-    { key = "loot", label = "Loot distribution",
-      tip = "Drops are announced to the raid, the council sees who wants them, votes, and awards go into the loot log. "
-          .. "Off: DisasterZone leaves the loot alone in this raid." },
+    { key = "loot", label = "Loot council",
+      tip = "The council sees who has each drop on their BiS list, votes, and rolls rank BiS lists first. "
+          .. "Off: no BiS candidates or votes; rolls (when on) go to the highest roll. "
+          .. "Loot handed out is recorded in the loot log either way." },
     { key = "rolls", label = "Rolls",
-      tip = "The council and the raid leader can start rolls; raiders get the Roll / Pass popup. Off: no roll popups." },
+      tip = "The drop panel opens for the raid leader and the council to start rolls; raiders get the Roll / Pass "
+          .. "popup, players without DisasterZone type /roll. Off: no roll popups." },
     { key = "lock", label = "Lock everyone's BiS lists",
-      tip = "Nobody changes their BiS list while the raid runs (it unlocks when the raid ends)." },
+      tip = "Nobody changes their BiS list while the raid runs (it unlocks when the raid ends). "
+          .. "Needs the loot council." },
 }
 
 local startWin
@@ -87,7 +93,10 @@ local function CreateStartWindow()
     w.boxes = {}
     for i, feat in ipairs(FEATURES) do
         local cb = UI:CreateCheckbox(c, feat.label, function() return w.f[feat.key] end,
-            function(on) w.f[feat.key] = on and true or false end)
+            function(on)
+                w.f[feat.key] = on and true or false
+                if feat.key == "loot" then SessionBar:SyncLockBox() end
+            end)
         cb:SetPoint("TOPLEFT", 14, -24 - i * 26)
         cb.tooltipText = feat.tip
         w.boxes[feat.key] = cb
@@ -105,6 +114,20 @@ local function CreateStartWindow()
     return w
 end
 
+-- The BiS lock needs the loot council (1.3): greyed out and off while the loot council is.
+function SessionBar:SyncLockBox()
+    local w = startWin
+    local cb = w and w.boxes and w.boxes.lock
+    if not cb then return end
+    local on = w.f.loot and true or false
+    if not on then w.f.lock = false end
+    cb:SetEnabled(on)
+    if cb.label and cb.label.SetFontObject then
+        cb.label:SetFontObject(on and "GameFontHighlightSmall" or "GameFontDisableSmall")
+    end
+    cb:Refresh()
+end
+
 -- mode: "start" | "change" | "demo".
 local function ShowStartWindow(mode, features)
     local w = startWin or CreateStartWindow()
@@ -112,13 +135,14 @@ local function ShowStartWindow(mode, features)
     w.f = features
     w:SetWindowTitle(mode == "change" and "Raid options" or (mode == "demo" and "Start raid (demo)" or "Start raid"))
     w.head:SetText(mode == "change" and "What this raid runs. Changes reach the raid at once."
-        or "Pick what DisasterZone runs for this raid. Until you start, it leaves loot and rolls alone.")
+        or "Pick what DisasterZone runs for this raid. Until you start, it leaves the council and rolls alone.")
     w.note:SetText((mode == "demo" and "Demo: this only shows the window; nothing is started.\n" or "")
-        .. "Attendance and boss kills are always logged while the raid runs.")
+        .. "Attendance, boss kills and the loot handed out are always logged.")
     w.startBtn:SetText(mode == "change" and "Apply" or "Start raid")
     for _, cb in pairs(w.boxes) do
         if cb.Refresh then cb:Refresh() end
     end
+    SessionBar:SyncLockBox()
     if not w:IsShown() then
         w:ClearAllPoints()
         w:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
@@ -165,7 +189,8 @@ end
 function SessionBar:ConfirmStart()
     local w = startWin
     if not w then return false end
-    local f = { loot = w.f.loot and true or false, rolls = w.f.rolls and true or false, lock = w.f.lock and true or false }
+    local f = { loot = w.f.loot and true or false, rolls = w.f.rolls and true or false,
+                lock = (w.f.loot and w.f.lock) and true or false }
     if w.mode == "demo" then
         ns:Print("Demo: a real raid would start now with %s.", SessionBar:DescribeFeatures(f))
         w:Hide()
@@ -187,10 +212,10 @@ function SessionBar:GetStartWindow()
     return startWin
 end
 
--- "loot distribution and rolls on, BiS lists locked" / "loot distribution and rolls off".
+-- "loot council and rolls on, BiS lists locked" / "loot council and rolls off, BiS lists open".
 function SessionBar:DescribeFeatures(f)
     local on, off = {}, {}
-    for _, feat in ipairs({ { "loot", "loot distribution" }, { "rolls", "rolls" } }) do
+    for _, feat in ipairs({ { "loot", "loot council" }, { "rolls", "rolls" } }) do
         local list = f[feat[1]] and on or off
         list[#list + 1] = feat[2]
     end
@@ -323,8 +348,8 @@ local function Create()
                 lines[#lines + 1] = "Options changes what the raid runs. End the raid when you are done."
             end
         else
-            lines[#lines + 1] = "Loot distribution and rolls stay off until you start the raid."
-            lines[#lines + 1] = "Start raid asks what to run: loot distribution, rolls, the BiS lock."
+            lines[#lines + 1] = "The loot council and rolls stay off until you start the raid."
+            lines[#lines + 1] = "Start raid asks what to run: loot council, rolls, the BiS lock."
         end
         lines[#lines + 1] = "|cff808080Drag to move.|r"
         UI:SetTextTooltip(self, lines)
@@ -365,8 +390,8 @@ function SessionBar:Update()
         f.dot:SetTexture("Interface\COMMON\Indicator-Green")
         f.title:SetText(zone)
         local feats = ns.GroupRules:GetSessionFeatures()
-        local off = feats and ((not feats.loot and not feats.rolls and "loot and rolls off")
-            or (not feats.loot and "loot off") or (not feats.rolls and "rolls off")) or nil
+        local off = feats and ((not feats.loot and not feats.rolls and "council and rolls off")
+            or (not feats.loot and "council off") or (not feats.rolls and "rolls off")) or nil
         f.text:SetText(dur .. "  \194\183  " .. bosses .. (off and ("  \194\183  " .. off) or ""))
         f.button:SetText("End raid")
         f.button:SetTint(END_TINT)
@@ -378,7 +403,7 @@ function SessionBar:Update()
         f.dot:SetAlpha(1)
         f.dot:SetTexture("Interface\COMMON\Indicator-Gray")
         f.title:SetText("No raid session")
-        f.text:SetText("loot and rolls are off until you start")
+        f.text:SetText("council and rolls are off until you start")
         f.button:SetText("Start raid")
         f.button:SetTint(START_TINT)
         f.button:Show()

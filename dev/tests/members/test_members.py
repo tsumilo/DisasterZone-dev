@@ -188,7 +188,7 @@ def specs_come_from_my_bis_and_else_from_the_talents():
     a.slash("/dz members")
     w.tick(1)
     a.eval("%s:SelectMember(...)" % UI, K("Gina"))
-    assert a.find_text("Retribution") and a.find_text("Protection") and a.find_text("Off spec")
+    assert a.find_text("Retribution") and a.find_text("Protection") and a.find_text("Off ")
     # garbage in a record is refused whole
     for bad in ("ts = { 1, 2 }", "ms = 99", "os = 'x'"):
         b.eval('ns.Comm:Send({ t = "PFB", l = { { k = ..., v = GetServerTime(), p = {}, %s } } }, "GUILD", nil, "member")' % bad,
