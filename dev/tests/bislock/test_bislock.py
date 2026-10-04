@@ -370,13 +370,21 @@ def flagged_player_is_not_suggested_but_can_be_awarded():
 
 @case
 def non_council_master_looter_gets_the_flags_via_rt():
+    # 1.3: a master looter from the guild is council of the raid while it runs the loot council (it holds the lists
+    # and flags itself), so the non-council master looter here is a pug, who gets the tiers and flags by RT.
     w, c = world()
-    rita, bob, lee, sam, gina = c["Rita"], c["Bob"], c["Lee"], c["Sam"], c["Gina"]
+    rita, bob, lee, gina = c["Rita"], c["Bob"], c["Lee"], c["Gina"]
+    sam = Client(w, "Pugml", guild=None, class_file="ROGUE")
+    sam.load_addon()
+    sam.eval(EVENTS_LUA)
+    w.tick(2)
     item = cand(rita, 11, 1, "PRIEST")
     lr.seed_bis(rita, [(1, 11, "main", item)])
     lr.seed_bis(gina, [(1, 11, "main", item)])
-    raid(w, c, master_looter=sam, tick=20)
+    w.make_raid([c[n] for n in ("Lee", "Bob", "Rita", "Sam", "Gina")] + [sam], leader=lee, master_looter=sam)
+    w.tick(20)
     assert sam.eval("return ns.Guild:AmICouncil(true)") is False
+    assert bob.eval("return ns.Guild:IsCouncil(..., true)", K("Pugml")) is False
     lee.slash("/dz lock")
     w.tick(FLAG_GAP)
     forge(rita, "d.ph[1][12] = { %d, 0 }" % item)

@@ -719,6 +719,11 @@ function SettingsUI:LockStatusText()
     end
     if not (_G.IsInRaid and _G.IsInRaid()) then return "BiS lists: unlocked" .. Paint(" (raids only)", "muted") end
     if UI.CanSetBiSLock and UI:CanSetBiSLock() then return "BiS lists: unlocked" end
+    -- 1.3: the raid leader can't lock yet either: the lock needs a raid started with the loot council
+    local GR = ns.GroupRules
+    if GR and GR.IsAuthority and GR:IsAuthority() then
+        return "BiS lists: unlocked" .. Paint(" (needs a raid started with the loot council)", "muted")
+    end
     return "BiS lists: unlocked" .. Paint(" (raid leader only)", "muted")
 end
 

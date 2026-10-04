@@ -230,11 +230,18 @@ def stale_ml_flag_new_master_looter_gets_tiers():
     w.set_master_looter(r["Frank"])          # the loot method changes, no roster change
     w.tick(1)
     assert A.eval("return ns.Util.group[...].isML", key("Frank")) is True
+    # 1.3: a master looter from the guild is council of the raid while it runs the loot council. Every client knows
+    # the new master looter at once (no stale flag): it is council ("ml") everywhere and gets the raid's lists like
+    # other raid-scope council, instead of the tiers by RT.
+    for n, c in r.c.items():
+        assert c.eval("return ns.Guild:GetCouncilSource(...)", key("Frank")) == "ml", n
+    w.tick(20)                               # (raid-scope council gets the lists pushed after 10-15 s)
     log0 = len(w.addon_log)
     start_roll(A, RUBY_DRAPE)
     w.tick(2)
-    RT = msgs_of_type(w, "RT", log0)
-    assert RT and any(m["_sender"] in (key("Alice"), key("Bob")) for m in RT), RT
+    assert msgs_of_type(w, "RT", log0) == []
+    assert wanter_keys(r["Frank"], RUBY_DRAPE) == wanter_keys(A, RUBY_DRAPE), (wanter_keys(r["Frank"], RUBY_DRAPE),
+                                                                              wanter_keys(A, RUBY_DRAPE))
     w.assert_no_errors()
 
 
@@ -441,8 +448,10 @@ def cg_tofu_forged_list_is_unconfirmed_and_the_gm_replaces_it():
             "WHISPER", key("Newbie"))
     w.tick(2)
     N = c["Newbie"]
-    assert N.eval("return ns.Guild:IsCouncil(..., true)", key("Mallory")) is True
     assert N.eval("return ns.Guild:IsGuildCouncilUnconfirmed()") is True
+    # 1.3: an unconfirmed list makes nobody council until the GM confirms it
+    assert N.eval("return ns.Guild:IsCouncil(..., true)", key("Mallory")) is False
+    assert N.eval("return ns.Guild:GetGuildCouncilRev()") == t
     # never re-served: no CG answer to a query, no cg in HELLO
     log0 = len(w.addon_log)
     send_as(c["Mallory"], {"t": "CQ", "r": 0}, "WHISPER", key("Newbie"))
@@ -524,17 +533,23 @@ def rw_forged_given_or_late_rw_cannot_override_an_award():
     w.tick(1)
     confirm_award(A, sid, key("Bob"), RUBY_DRAPE)
     w.tick(1)
-    # the assistant (not the ML) forges a "handed out" award with an early time, right away
+    # the assistant (not the ML) forges a "handed out" award with an early time, right away (1.3: an assistant has
+    # no loot rights at all, its RW is not even looked at)
     send_as(r["Frank"], {"t": "RW", "id": sid, "w": key("Frank"), "g": True, "at": 1}, "RAID", None, "alert")
     w.tick(1)
     for n in ("Alice", "Bob", "Carol"):
         assert session_info(r[n], sid)["winner"] == key("Bob"), n
+    # a council member (not the ML) sends a crossing "handed out" award with an early time: the ML's hand-out stands
+    send_as(r["Bob"], {"t": "RW", "id": sid, "w": key("Frank"), "g": True, "at": 1}, "RAID", None, "alert")
+    w.tick(1)
+    for n in ("Alice", "Carol"):
+        assert session_info(r[n], sid)["winner"] == key("Bob"), n
     assert not [e for e in ledger_visible(A) if e["w"] == key("Frank")]
     # a re-award long after the award is ignored too
     w.tick(40)
-    send_as(r["Frank"], {"t": "RW", "id": sid, "w": key("Frank"), "g": False}, "RAID", None, "alert")
+    send_as(r["Bob"], {"t": "RW", "id": sid, "w": key("Frank"), "g": False}, "RAID", None, "alert")
     w.tick(1)
-    assert session_info(r["Bob"], sid)["winner"] == key("Bob")
+    assert session_info(r["Carol"], sid)["winner"] == key("Bob")
     assert any("tried to re-award" in strip_codes(l) for l in printed_lines(A))
     w.assert_no_errors()
 
@@ -604,12 +619,18 @@ def rs_backdated_start_cannot_cancel_a_running_roll():
     sid = active_session(A)["id"]
     roll(w, r["Bob"], 40)
     w.tick(0.5)
+    # 1.3: a raid assistant may not start rolls at all: its RS is ignored
     send_as(r["Frank"], {"t": "RS", "id": "Frank-1-1", "i": MINDBLADE, "s": "", "b": "", "d": 60,
                          "ts": now(A) - 299, "c": 1}, "RAID", None, "alert")
     w.tick(1)
+    assert session_info(r["Bob"], "Frank-1-1") is None
+    # a council member's backdated start does not pre-empt the running roll: the new one is dropped
+    send_as(r["Bob"], {"t": "RS", "id": "Bob-1-1", "i": MINDBLADE, "s": "", "b": "", "d": 60,
+                       "ts": now(A) - 299, "c": 1}, "RAID", None, "alert")
+    w.tick(1)
     for n in ("Alice", "Bob", "Carol"):
         assert session_info(r[n], sid)["state"] == "open", n
-    assert session_info(r["Bob"], "Frank-1-1")["state"] == "cancelled"
+    assert session_info(r["Carol"], "Bob-1-1")["state"] == "cancelled"
     w.assert_no_errors()
 
 
@@ -650,6 +671,12 @@ def crossguild_master_looter_receives_tiers():
     w.tick(2)
     w.make_raid(r.clients + [pug], master_looter=pug, leader=A)
     w.tick(2)
+    # 1.3: the pug is never council for us, and on its own client (another guild) only the raid it is a guest in
+    # counts: once it knows the raid's session (GS from Alice's guild) it follows that raid's leader, so it takes
+    # Alice's roll and her tiers (RT).
+    w.run_until(lambda: pug.eval("return ns.GroupRules:GetSession() ~= nil") is True, timeout=30)
+    assert A.eval("return ns.Guild:IsCouncil(..., true)", key("Pugml")) is False
+    assert pug.eval("return ns.Guild:AmICouncil(true)") is False
     A.open_loot([(RUBY_DRAPE, 4)])
     w.tick(2)
     start_roll(A, RUBY_DRAPE)

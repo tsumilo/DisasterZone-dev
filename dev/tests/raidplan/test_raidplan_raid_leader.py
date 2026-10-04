@@ -280,7 +280,7 @@ def the_raid_leader_window_and_header():
     # the title ends where the shown icons start
     right = sam.eval("local d = %s; for i = 1, d.title:GetNumPoints() do local p, _, _, x = d.title:GetPoint(i); "
                      "if p == 'RIGHT' then return x end end" % D)
-    assert right == -(3 * 27 + 6), right
+    assert right == -(4 * 27 + 6), right   # share, cancel, edit, invite
     # Sam opens the editor; the council is told why not
     sam.eval("ns.RaidPlanUI:OpenEditor(...)", occ)
     assert sam.eval("return ns.RaidPlanUI:GetEditor():IsShown()")

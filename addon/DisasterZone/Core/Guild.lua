@@ -457,16 +457,29 @@ local function CurrentMasterLooter()
     return raidML or nil
 end
 
--- 1.3: the raid runs the loot council (the raid session's "loot" feature, GroupRules). While it does, a master
--- looter from my guild is council for that raid (source "ml"). Never true while the question comes from GroupRules
--- itself (a check of the authority asking who is council must not loop back here).
+-- 1.3: whose raid session runs my raid (GroupRules): "mine" when its authority is a member of my guild, "guest" when
+-- it is not (I am a guest in another guild's raid), nil without a session. Never asked while the question comes from
+-- GroupRules itself (a check of the authority asking who is council must not loop back here).
+local function SessionOwner()
+    local GR = ns.GroupRules
+    if mlCheck or not (GR and GR.GetSession) then return nil end
+    mlCheck = true
+    local ok, s = pcall(GR.GetSession, GR)
+    mlCheck = false
+    local by = ok and type(s) == "table" and s.by or nil
+    if type(by) ~= "string" then return nil end
+    return roster[by] and "mine" or "guest"
+end
+
+-- 1.3: my guild's raid session runs the loot council (its "loot" feature). While it does, a master looter from my
+-- guild is council for that raid (source "ml").
 local function LootCouncilOn()
     local GR = ns.GroupRules
     if mlCheck or not (GR and GR.IsFeatureOn) then return false end
     mlCheck = true
     local ok, on = pcall(GR.IsFeatureOn, GR, "loot")
     mlCheck = false
-    return (ok and on) and true or false
+    return (ok and on and SessionOwner() == "mine") and true or false
 end
 
 -- key is a member of my current raid (the real one; demo raid members don't count).
@@ -550,12 +563,14 @@ end
 
 -- 1.3: pugs are never loot council. In my raid only members of my guild (the live roster) count: the raid leader,
 -- the raid council list of a raid leader from my guild, and - while the loot council runs - the master looter.
--- A client outside any guild (a pug with DisasterZone) has no guild to go by: it follows the raid's leader and that
--- leader's list as before 1.3 (never counting itself), so it still takes the raid's rolls and awards. That only
--- changes what the pug's own client accepts; every guild client still ignores the pug.
+-- A guest in another guild's raid (the raid session's authority is not in my guild, or I am in no guild at all) has
+-- no guild of its own to go by there: it follows the raid's leader and that leader's list as before 1.3 (never
+-- counting itself), so it still takes that raid's rolls and awards. That only changes what the guest's own client
+-- accepts; every client of the raid's guild still ignores the guest.
 local function RaidMemberCounts(key)
     if roster[key] then return true end
-    return not IsInGuild() and not Util.IsMe(key)
+    if Util.IsMe(key) then return false end
+    return not IsInGuild() or SessionOwner() == "guest"
 end
 
 local function GuildRaidCouncil(leader)
@@ -850,17 +865,14 @@ local function ScheduleCRQ(delay)
 end
 
 -- CR {rev, m}: only from the current raid leader per GetRaidRosterInfo. Replaces the raid council.
--- 1.3: only from a raid leader in my guild (pugs are never loot council; until my guild roster has loaded the list is
--- kept, and the council checks skip it while its leader is not on the roster).
+-- 1.3: the list of a raid leader outside my guild names nobody (pugs are never loot council): it is kept, but every
+-- council check skips it while its leader does not count (RaidMemberCounts: my guild roster may still be loading, and
+-- a guest in another guild's raid follows that raid's leader).
 local function OnRaidCouncil(sender, msg, dist)
     if dist ~= "RAID" or type(msg) ~= "table" or not IsInRaid() then return end
     local rank = Util.GetGroupRole and Util.GetGroupRole(sender)
     if rank ~= 2 then
         ns:Debug("Guild: CR from %s ignored (not the raid leader)", tostring(sender))
-        return
-    end
-    if ready and not roster[sender] then
-        ns:Debug("Guild: CR from %s ignored (not in my guild)", tostring(sender))
         return
     end
     local rev = msg.rev

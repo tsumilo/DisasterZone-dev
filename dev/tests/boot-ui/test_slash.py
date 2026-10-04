@@ -10,7 +10,7 @@ from _common import (case, run_all, toc_version, solo, no_errors, World, Client,
 # Addendum F §38 added "lock" / "unlock" (raid BiS list lock); the Raid Trainer's renderer v2 added "trainer" (render
 # switches).
 SUBCOMMANDS = ["account", "azeromon", "bingo", "bis", "changelog", "config", "council", "debug", "demo", "drop", "drops", "dungeon", "home", "lock", "log", "maps", "members", "plan", "play", "professions", "publish", "raid", "raids", "roll", "rules",
-               "settings", "strat", "sync", "test", "trainer", "unlock", "update", "version"]
+               "settings", "share", "strat", "sync", "test", "trainer", "unlock", "update", "version"]
 
 
 def said(c, n0):
@@ -136,7 +136,7 @@ def test_and_drops_and_drop():
     # /dz drop: a raider not leading the raid is refused; council gets usage / a drop
     n2 = len(c.chat_frame)
     c.slash("/dz drop |cffa335ee|Hitem:28770::::::::70:::::::::|h[Nathrezim Mindblade]|h|r")
-    assert said(c, n2) == ["DisasterZone: Only loot council members or the raid leader / assistants can announce drops."]
+    assert said(c, n2) == ["DisasterZone: Only the loot council (the raid leader counts) or the master looter can announce drops."]
     w2 = World()
     seed_guild_council(w2, ["Cou"])
     cou = Client(w2, "Cou", guild_rank=1)
@@ -169,7 +169,7 @@ def roll_usage_permission_demo_and_end():
     assert said(c, n0)[0].startswith("DisasterZone: Usage: /dz roll [item link]"), said(c, n0)
     n1 = len(c.chat_frame)
     c.slash("/dz roll " + link)
-    assert said(c, n1) == ["DisasterZone: Only loot council members, the master looter or the raid leader / assistants can start rolls, in a raid."]
+    assert said(c, n1) == ["DisasterZone: Only the loot council (the raid leader counts) or the master looter can start rolls in a raid."]
     n2 = len(c.chat_frame)
     c.slash("/dz roll end")
     assert said(c, n2) == ["DisasterZone: No roll is running."]

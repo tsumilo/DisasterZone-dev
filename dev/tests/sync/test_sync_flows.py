@@ -626,6 +626,13 @@ def j_guildless_then_guild_change_while_online():
     settle(w, 40)
     assert R.eval("return ns.Guild:GetGuildName()") == "Other Guild"
     assert R.eval("return ns.Guild:GetGuildPhase()") == 2, "guild B's council list (phase 2) did not reach the new member"
+    # 1.3: relayed by Bofficer while guild B's GM is offline, the list is taken on trust and makes nobody council
+    # until the GM confirms it; then the GM's list reaches the new member (seeded here: the GM is no client)
+    assert R.eval("return ns.Guild:IsGuildCouncilUnconfirmed()") is True
+    assert R.eval("return ns.Guild:IsCouncil(...)", key("Bofficer")) is False
+    seed_guild_council(w, ["Bofficer"], phase=2, guild="Other Guild", by="Bgm")
+    settle(w, 5)
+    assert R.eval("return ns.Guild:IsGuildCouncilUnconfirmed()") is False
     assert R.eval("return ns.Guild:IsCouncil(...)", key("Bofficer")) is True
     mark = len(w.addon_log)
     edit(R, 1, commit=True)

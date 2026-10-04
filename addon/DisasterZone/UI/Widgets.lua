@@ -2322,13 +2322,20 @@ function UI:CreateBiSLockButton(parent, width, height, opts)
                 .. "the group edit their BiS list again.", 1, 1, 1, true)
         else
             GameTooltip:AddLine("Lock BiS lists", 1, 0.82, 0)
-            GameTooltip:AddLine("Stops everyone in the group from editing their BiS list until you unlock it "
-                .. "or the group disbands. Obtained items still update. Council members see who changes "
+            GameTooltip:AddLine("Stops everyone in the raid from editing their BiS list until you unlock it "
+                .. "or the raid ends. Obtained items still update. Council members see who changes "
                 .. "their list anyway.", 1, 1, 1, true)
         end
         if not UI:CanSetBiSLock() then
-            GameTooltip:AddLine("Only the group's loot leader (the raid leader) can lock or unlock the lists.",
-                0.6, 0.6, 0.6, true)
+            -- why not (GroupRules:CanLock: not the raid's loot authority, no started raid, no loot council)
+            local GR, why = ns.GroupRules, nil
+            if type(GR) == "table" and type(GR.CanLock) == "function" then
+                local _, reason = GR:CanLock()
+                why = reason
+            end
+            why = type(why) == "string" and why ~= "" and (why:sub(1, 1):upper() .. why:sub(2))
+                or "Only the raid leader can lock or unlock the lists."
+            GameTooltip:AddLine(why, 0.6, 0.6, 0.6, true)
         end
         GameTooltip:Show()
     end)
