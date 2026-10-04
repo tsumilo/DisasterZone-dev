@@ -753,5 +753,6 @@ def generate(name):
              len(textures), len(set(textures)), "/".join(sorted(set(blends))), os.path.getsize(out) // 1024))
 
 
-for which in (sys.argv[1:] or sorted(ROOMS)):
-    generate(which)
+if __name__ == "__main__":
+    for which in (sys.argv[1:] or sorted(ROOMS)):
+        generate(which)

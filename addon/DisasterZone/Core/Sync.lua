@@ -4,7 +4,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Sync.lua", ...) then return e
 -- Addendum E: council members carry the rev of their guild council list in HELLO / STATE ("cg") so an
 -- outdated client asks them for it (Guild CQ). Everyone's lists and the award log are exchanged between
 -- guild-wide council members (the GM and the guild list); a raid-scope council member (raid leader / raid
--- list) receives the lists of the raid's members from the members themselves.
+-- list) receives the lists of the raid's members from the members themselves. 1.3: only while the raid runs with the
+-- loot council (after Start raid, GroupRules:IsLootCouncilOn), and only for that raid session: their copies are
+-- dropped on their own client afterwards (Store), so each raid session gets the lists again.
 local addonName, ns = ...
 
 local Sync = ns:NewModule("Sync")
@@ -53,7 +55,7 @@ local helloScheduledFor            -- guild name the automatic HELLO was schedul
 local wasCouncil
 local periodicTicker
 local councilHelloAt = {}          -- [key] = GetTime() of their last HELLO with c = true
-local raidCouncilSeen = {}         -- [key] = true: raid-scope council members as of the last CONFIG_UPDATED
+local raidShared = {}              -- [key] = raid session id: a raid-scope council member my list is for in that session
 local RAID_PUSH_MIN, RAID_PUSH_MAX = 10, 15   -- push to a newly picked raid-scope council member (unless
                                               -- their promotion HELLO arrived meanwhile)
 
@@ -97,6 +99,19 @@ local function FullPair(key)
     return IsGuildCouncil(key) and AmGuildCouncil()
 end
 
+-- 1.3: the raid runs with the loot council (a raid session after Start raid with it on): only then do raid-scope
+-- council members get the raiders' lists.
+local function RaidListsOpen()
+    local GR = ns.GroupRules
+    return (GR and GR.IsLootCouncilOn and GR:IsLootCouncilOn()) and true or false
+end
+
+-- May key (a council member in my view) get BiS lists now? The guild council always; a raid-scope council member
+-- (raid leader, raid list) only while the raid runs with the loot council.
+local function ListsFor(key)
+    return IsGuildCouncil(key) or RaidListsOpen()
+end
+
 -- A member of my current (real) raid.
 local function InMyRaid(key)
     if type(key) ~= "string" or not IsInRaid() then return false end
@@ -108,7 +123,7 @@ end
 -- May I relay owner's cached list to requester (a council member in my view)?
 local function MayRelay(requester, owner)
     if FullPair(requester) then return true end
-    return InMyRaid(requester) and InMyRaid(owner)
+    return InMyRaid(requester) and InMyRaid(owner) and ListsFor(requester)
 end
 
 -- My guild council list rev for HELLO / STATE ("cg"), when I can relay that list (GM / guild list).
@@ -441,6 +456,7 @@ end
 function Sync:PushListTo(key, evidence)
     if type(key) ~= "string" or Util.IsMe(key) or not IsInGuild() then return false end
     if not IsCouncil(key) then return false end   -- lists only go to the council
+    if not ListsFor(key) then return false end    -- 1.3: raid-scope council only while the loot council runs
     local entry = OwnEntry()
     if not entry then return false end
     local p = pushed[key]
@@ -616,7 +632,7 @@ local function FlushWant(requester)
     RateLimit("W:" .. requester, 0)   -- record this answer for the rate limit
     local Guild, Store = ns.Guild, ns.Store
     local me = Util.PlayerKey()
-    local requesterCouncil = IsCouncil(requester)
+    local requesterCouncil = IsCouncil(requester) and ListsFor(requester)   -- (1.3: raid council: loot council on)
     local amCouncil = AmCouncil()
 
     local keys = {}
@@ -896,29 +912,36 @@ local function MaybeScheduleHello()
 end
 
 -- A raid member I now see as raid-scope council (picked by the raid leader, or I joined their raid after
--- the pick) gets my list, unless their promotion HELLO arrives meanwhile (that exchange covers it).
+-- the pick) gets my list, unless their promotion HELLO arrives meanwhile (that exchange covers it). 1.3: only while
+-- the raid runs with the loot council, once per raid session: their copy is dropped on their client when the session
+-- is over (Store), so a later session (the same evening too) sends it again.
 local function PushToNewRaidCouncil()
-    local Guild = ns.Guild
-    if not (Guild and IsInGuild() and IsInRaid()) then
-        raidCouncilSeen = {}
-        return
-    end
-    local me = Util.PlayerKey()
-    local seen = {}
-    local since = GetTime()
-    for key in pairs(type(Util.group) == "table" and Util.group or {}) do
-        if key ~= me and IsCouncil(key) and not IsGuildCouncil(key) then
-            seen[key] = true
-            if not raidCouncilSeen[key] and Guild:IsInGuild(key, true) then
-                Util.RandomDelay(RAID_PUSH_MIN, RAID_PUSH_MAX, function()
-                    local h = councilHelloAt[key]
-                    if h and h >= since then return end
-                    if IsCouncil(key) and Guild:IsOnline(key, true) then Sync:PushListTo(key) end
-                end)
-            end
+    local Guild, GR = ns.Guild, ns.GroupRules
+    -- (the raid's rules unknown for a moment: a /reload, the authority changing hands: nothing changes)
+    if IsInRaid() and GR and GR.GetStatus and GR:GetStatus() == "own" then return end
+    local s = IsInGuild() and IsInRaid() and GR and GR.GetSession and GR:GetSession()
+    local sid = s and s.id or nil
+    for key, id in pairs(raidShared) do
+        if id ~= sid then
+            raidShared[key] = nil
+            if not IsGuildCouncil(key) then pushed[key] = nil end   -- (the push guard: a new session sends again)
         end
     end
-    raidCouncilSeen = seen
+    if not (Guild and sid and RaidListsOpen()) then return end
+    local me = Util.PlayerKey()
+    local since = GetTime()
+    for key in pairs(type(Util.group) == "table" and Util.group or {}) do
+        if key ~= me and not raidShared[key] and IsCouncil(key) and not IsGuildCouncil(key)
+            and Guild:IsInGuild(key, true) then
+            raidShared[key] = sid
+            pushed[key] = nil
+            Util.RandomDelay(RAID_PUSH_MIN, RAID_PUSH_MAX, function()
+                local h = councilHelloAt[key]
+                if h and h >= since then return end
+                if IsCouncil(key) and Guild:IsOnline(key, true) then Sync:PushListTo(key) end
+            end)
+        end
+    end
 end
 
 local function OnConfigUpdated()
@@ -1002,6 +1025,9 @@ function Sync:OnInit()
     ns:On("MYLIST_COMMITTED", OnCommitted)
     ns:On("ROSTER_UPDATED", MaybeScheduleHello)
     ns:On("CONFIG_UPDATED", OnConfigUpdated)
+    -- 1.3: Start raid with the loot council (or switching it on) opens the raid council's lists; End raid closes them
+    ns:On("GROUP_RULES_CHANGED", PushToNewRaidCouncil)
+    ns:On("GROUP_UPDATED", PushToNewRaidCouncil)
 
     ns:RegisterSlash("sync", SlashSync, "ask the guild / council to sync BiS lists now")
     ns:RegisterSlash("version", SlashVersion, "list DisasterZone versions seen in the guild")

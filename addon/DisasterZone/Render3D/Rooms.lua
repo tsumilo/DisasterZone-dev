@@ -1,9 +1,14 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Rooms.lua", ...) then return end -- DisasterZone Render3D/Rooms.lua
--- ns.Render3D rooms: the boss rooms the 3D views can draw (Blizzard's own meshes, Render3D/Rooms/<Name>Floor.lua, made
--- by dev/generators/gen_trainer_heights.py), which strategy bosses use them, and where each lies on the strategy
--- board's floor map, so a drawing on the 2D map and the same drawing in the room are one spot.
+-- ns.Render3D rooms: the boss rooms the 3D views can draw (Blizzard's own meshes), which strategy bosses use them, and
+-- where each lies on the strategy board's floor map, so a drawing on the 2D map and the same drawing in the room are
+-- one spot.
+--  * The strategy board's rooms: one per encounter, Render3D/Rooms/<Raid>_<Boss>.lua (data format 3: packed, see
+--    R3.Floor) and Render3D/Rooms/Index.lua (ns.Render3D.ROOM_INDEX), made by dev/generators/gen_rooms.py from the
+--    area each encounter's starter strategy shows on its floor map.
+--  * The Raid Trainer's own rooms: Render3D/Rooms/TeronGorefiendFloor.lua and LadyVashjFloor.lua (format 2: plain
+--    tables, read at load time; dev/generators/gen_trainer_heights.py).
 --
--- Room coordinates ("arena"): yards, x east, y north, height 0 = the room's main floor, as the floor files have them.
+-- Room coordinates ("arena"): yards, x east, y north, height 0 = the room's main floor (a board room's: the boss').
 -- The board: 1000 x 666 units over a shipped 1024 x 683 floor map that the page pans (vx, vy) and zooms (vz) as
 -- UI/StrategyMap.lua draws it; a map pixel turns into room yards with the room's fit (x = ax * px + bx,
 -- y = ay * py + by: the maps are drawn north up, so no turn).
@@ -13,22 +18,25 @@ local R3 = ns.Render3D or {}
 ns.Render3D = R3
 
 local floor, min, max = math.floor, math.min, math.max
+local tonumber = tonumber
 
--- A floor's height function from a generated height grid (one letter per square yard, rows south to north): smooth
--- between the yard centres, the edge value outside; nil without a grid.
+-- A floor's height function from a generated height grid (one letter per cell of grid.cell yards, 1 when not given,
+-- rows south to north): smooth between the cell centres, the edge value outside; nil without a grid.
 function R3.HeightFn(grid)
-    if not grid then return nil end
+    if not (grid and grid.rows and grid.rows[1]) then return nil end
     local index = {}                                    -- character -> its place in the alphabet
     local alphabet = grid.alphabet or "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     for k = 1, #alphabet do index[alphabet:byte(k)] = k - 1 end
+    local size = grid.cell or 1
+    local cols, nrows = #grid.rows[1], #grid.rows
     local function cell(i, j)                           -- nil where there is no floor
-        i = max(1, min(grid.w, i))
-        j = max(1, min(grid.h, j))
+        i = max(1, min(cols, i))
+        j = max(1, min(nrows, j))
         local n = index[grid.rows[j]:byte(i)]
         return n and (n * grid.step + grid.base)
     end
     return function(x, y)
-        local fx, fy = x - 0.5, y - 0.5
+        local fx, fy = x / size - 0.5, y / size - 0.5
         local i, j = floor(fx), floor(fy)
         local tx, ty = fx - i, fy - j
         local a, b = cell(i + 1, j + 1), cell(i + 2, j + 1)
@@ -42,7 +50,7 @@ end
 -- The creatures the strategy boards show as models: CreatureDisplayInfo.CreatureModelScale (wago.tools, build
 -- 2.5.6.69795; the client draws a ModelScene actor at scale 1 whatever its display says) and, where known, the
 -- model's PlayerName attachment height in model units (the M2 file; the label goes 0.4 yd over it). Without one the
--- view asks the model's own box.
+-- view asks the model's own box. Render3D/Rooms/Index.lua gives the scale of every portrait (DISPLAY_SCALE).
 R3.DISPLAYS = {
     [21254] = { scale = 2.5, name = 2.45 },        -- Teron Gorefiend (model 51)
     [21300] = { scale = 1.5, name = 3.39 },        -- Vengeful Spirit (model 9)
@@ -50,47 +58,22 @@ R3.DISPLAYS = {
     [20748] = { scale = 3.5, name = 2.77 },        -- Lady Vashj (model 2535)
     [11172] = { scale = 2, name = 3.19 },          -- Tainted Elemental (model 110)
     [20076] = { scale = 2, name = 3.19 },          -- Enchanted Elemental (model 110)
-    [20772] = { scale = 3 },                       -- Coilfang Elite (model 2353)
-    [18194] = { scale = 3 },                       -- Coilfang Strider (model 2385)
 }
-
--- The rooms. floor: the key in ns.RoomFloors; bosses: the strategy bosses (Core/Strategy.lua refs) drawn in it; map:
--- the shipped floor map (Data/RaidMaps.lua file) a page must use for its drawings to land in the room; fit: map
--- pixel -> room yards; view: where the camera first looks (room point, distance).
-local ROOMS = {}
-R3.ROOMS = ROOMS
-
-do
-    -- Gorefiend's Vigil on Black Temple's floor 4 (BT04): the hall and, down the steps at its north end, the alcove
-    -- Teron stands in (Render3D/Rooms/TeronVigilFloor.lua; the Raid Trainer's "teron" is the hall alone, in the same
-    -- coordinates). The fit: room point -> the temple's local coordinates (x = -615 - room x, y = -759 - room y) ->
-    -- world through the temple's placement (ADT blacktemple_31_30 MODF, unique id 1075600: turned 269.65 degrees)
-    -- -> the map's world rectangle (retail UiMapAssignment, uiMap 343: world x 343.333 .. 636.667, y 135 .. 575),
-    -- fitted over the room (off by 0.37 yd at most: the placement's 0.35 degree turn). It puts Teron's spawn
-    -- (AzerothCore: world 606.641, 402.173) at room (29.9, 85.2), on the alcove floor the mesh has there.
-    ROOMS.teron = {
-        key = "teron", name = "Gorefiend's Vigil", floor = "teronVigil", bosses = { "BlackTemple:Teron" },
-        map = "BT04",
-        fit = { ax = 0.429637, bx = -142.9243, ay = -0.429482, by = 115.2135 },
-        view = { x = 30, y = 50, dist = 78 },
-    }
-    -- Lady Vashj's room on the Serpentshrine Cavern map: the map's world rectangle (retail UiMapAssignment, uiMap 332:
-    -- world x -400 .. 650.002, y -1362.500 .. 212.502; the map's left edge is the largest y, its top the largest x)
-    -- and the room's own coordinates (Games/Trainer/Encounters/LadyVashj.lua: x = -world y - 923.27 + 105,
-    -- y = world x - 29.83 + 105). Her starter's portrait lands within a map pixel of her spot.
-    local xMin, xMax, yMin, yMax = -400, 650.00201, -1362.50049, 212.50249
-    ROOMS.vashj = {
-        key = "vashj", name = "Lady Vashj's room", floor = "vashj", bosses = { "SerpentshrineCavern:Vashj" },
-        map = "Serpentshrine",
-        fit = { ax = (yMax - yMin) / 1024, bx = -yMax - 923.27 + 105,
-                ay = -(xMax - xMin) / 683, by = xMax - 29.83 + 105 },
-        view = { x = 105, y = 100, dist = 115 },
-    }
+for id, s in pairs(R3.DISPLAY_SCALE or {}) do
+    if not R3.DISPLAYS[id] then R3.DISPLAYS[id] = { scale = s } end
 end
 
+-- The rooms, from the generated index: per encounter (keyed by its floor key) { key, name, floor, bosses, map (the
+-- shipped floor map a page must use for its drawings to land in the room), fit (map pixel -> room yards), view (where
+-- the camera first looks: room point, distance), spot (where the boss stands) }.
+local ROOMS = {}
+R3.ROOMS = ROOMS
 local byBoss = {}
-for _, room in pairs(ROOMS) do
-    for _, b in ipairs(room.bosses) do byBoss[b] = room end
+for ref, e in pairs(R3.ROOM_INDEX or {}) do
+    local room = { key = e.floor, name = e.name, floor = e.floor, bosses = { ref }, map = e.map, fit = e.fit,
+                   view = e.view, spot = e.spot }
+    ROOMS[e.floor] = room
+    byBoss[ref] = room
 end
 
 -- The room of a strategy boss ("BlackTemple:Teron"), or nil.
@@ -98,17 +81,77 @@ function R3.RoomForBoss(bossRef)
     return type(bossRef) == "string" and byBoss[bossRef] or nil
 end
 
--- A room's floor file (ns.RoomFloors.<key>: w, h, rows, mesh, walk), or nil when it is not loaded.
-function R3.Floor(room)
+-- Is a room's floor file there (without unpacking it)?
+function R3.HasFloor(room)
     local floors = ns.RoomFloors
-    return room and floors and floors[room.floor] or nil
+    return room ~= nil and floors ~= nil and floors[room.floor] ~= nil
 end
 
--- A room's height grid as a function (cached), or nil.
+-- A packed floor (format 3) -> the format 2 tables: rows, mesh = { version = 2, textures, blend, verts, tris, nodes,
+-- pair }. The packed text keeps its sections apart with "|": the rows (one per line), the texture file IDs, the blend
+-- codes (D, A, B), then verts, tris, nodes and pair as numbers. -> false when it cannot be read.
+local BLEND = { D = "DISABLE", A = "ALPHAKEY", B = "BLEND" }
+local function Numbers(s)
+    local out, n = {}, 0
+    for w in s:gmatch("%S+") do
+        n = n + 1
+        out[n] = tonumber(w)
+    end
+    return out
+end
+local function Unpack(f)
+    local LD = LibStub and LibStub("LibDeflate", true)
+    if not LD or type(f.data) ~= "table" then return false end
+    local raw = LD:DecodeForPrint(table.concat(f.data))
+    local text = raw and LD:DecompressDeflate(raw)
+    if type(text) ~= "string" or #text ~= f.size then return false end
+    local parts = {}
+    for part in (text .. "|"):gmatch("([^|]*)|") do parts[#parts + 1] = part end
+    if #parts ~= 7 then return false end
+    local rows = {}
+    for line in (parts[1] .. "\n"):gmatch("([^\n]*)\n") do rows[#rows + 1] = line end
+    local blend = {}
+    for code in parts[3]:gmatch("%S+") do blend[#blend + 1] = BLEND[code] or "BLEND" end
+    f.rows = rows
+    f.mesh = { version = 2, textures = Numbers(parts[2]), blend = blend, verts = Numbers(parts[4]),
+               tris = Numbers(parts[5]), nodes = Numbers(parts[6]), pair = Numbers(parts[7]) }
+    return true
+end
+
+-- A room's floor (ns.RoomFloors.<key>: w, h, rows, mesh; the trainer's also walk), unpacked when packed: the last
+-- KEEP rooms used stay unpacked, older ones keep only their packed text. nil when it is not loaded or cannot be read.
+local unpacked = {}                      -- floors unpacked, the most recent last
+local KEEP = 2
+function R3.Floor(room)
+    local floors = ns.RoomFloors
+    local f = room and floors and floors[room.floor]
+    if not f then return nil end
+    if f.version ~= 3 then return f end
+    for i = #unpacked, 1, -1 do
+        if unpacked[i] == f then table.remove(unpacked, i) end
+    end
+    if not f.mesh then
+        if f.bad or not Unpack(f) then
+            f.bad = true
+            return nil
+        end
+    end
+    unpacked[#unpacked + 1] = f
+    while #unpacked > KEEP do
+        local old = table.remove(unpacked, 1)
+        old.rows, old.mesh = nil, nil
+        for _, r in pairs(ROOMS) do
+            if floors[r.floor] == old then r.heightFn = nil end
+        end
+    end
+    return f
+end
+
+-- A room's height grid as a function (cached while its floor stays unpacked), or nil.
 function R3.Height(room)
     if not room then return nil end
-    if room.heightFn == nil then room.heightFn = R3.HeightFn(R3.Floor(room)) or false end
-    return room.heightFn or nil
+    if not room.heightFn then room.heightFn = R3.HeightFn(R3.Floor(room)) end
+    return room.heightFn
 end
 
 ---------------------------------------------------------------------------

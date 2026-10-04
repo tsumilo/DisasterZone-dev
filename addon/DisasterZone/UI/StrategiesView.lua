@@ -3,13 +3,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategiesView.lua", ...) then 
 --   Strategies view   - the library, for every guild member to explore and build in. A filter bar (free search, a
 --                       guild member) over the raids and their bosses on the left (All raids / a raid / one boss) and
 --                       the matching strategies on the right: Open for everyone, Edit for the owner, the
---                       collaborators, Share (the collaborators) for the owner, Copy for everyone (the copy is
---                       yours), Delete for the owner, the GM and the guild council. My unsaved drafts sit on top
---                       (continue / discard; saving one makes it a strategy).
+--                       collaborators, the GM and the guild council, Share (the collaborators) for the owner, Copy
+--                       for everyone (the copy is yours), Delete for the owner, the GM and the guild council. My
+--                       unsaved drafts sit on top (continue / discard; saving one makes it a strategy).
 --   Assignments tab   - of a planned raid (Upcoming): its bosses, the strategy each uses and how many slots are
---                       filled, with Open (everyone) and Assign. Who arranges the raid (its own leader, the GM, the
---                       guild council; a raid without a leader: the raid leaders too) picks each boss' strategy in
---                       the row's dropdown, saved at once; a boss not picked yet uses the one the guild used last.
+--                       filled, with Open (everyone) and Assign. Who leads the raid (its own leader; a raid without
+--                       one: the raid leaders) and the GM pick each boss' strategy in the row's dropdown, saved at
+--                       once; a boss not picked yet uses the one the guild used last.
 local addonName, ns = ...
 
 local View = ns:NewModule("StrategiesUI")
@@ -551,7 +551,7 @@ local function createShare()
     w.list = UI():CreateScrollList(c, 22, initShareRow)
     w.list.frame:SetPoint("TOPLEFT", 4, -108)
     w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
-    w.list:SetEmptyText("Nobody yet: only you can change this strategy.\nInvite guild members with the search box.")
+    w.list:SetEmptyText("Nobody yet: only you, the GM and the guild council can change it.\nInvite guild members with the search box.")
     w:Hide()
     return w
 end
@@ -591,7 +591,7 @@ function View:RefreshShare()
         return
     end
     shareWin.info:SetText(("|cffffd100%s|r  %s\nThe guild members you invite here can change this strategy with you. "
-        .. "Only you invite, remove and delete."):format(s.n, grey(S():GetBossName(s.b))))
+        .. "Only you invite and remove; you, the GM and the guild council delete."):format(s.n, grey(S():GetBossName(s.b))))
     local rows = {}
     for _, key in ipairs(s.co or {}) do rows[#rows + 1] = { key = key } end
     tsort(rows, function(a, b) return shortName(a.key):lower() < shortName(b.key):lower() end)

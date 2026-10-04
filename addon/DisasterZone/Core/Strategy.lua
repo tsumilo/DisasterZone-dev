@@ -13,10 +13,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Strategy.lua", ...) then retu
 -- the owner changes the collaborators, and the GM and the guild council may edit and delete any strategy. A raid's
 -- fills (its strategy picks and names) are written only by who leads it: its own leader (RaidPlan rl), or on a raid
 -- without one the raid leaders on the list; and the GM (RaidPlan:CanAssignStrategies, user rule 2026-10-04); fills
--- from anyone else are ignored. Everyone in the guild caches and reads
+-- from anyone else are ignored, judged anew on every read (a leader whose crown goes stops leading at once, on every
+-- client). Everyone in the guild caches and reads
 -- both. Sync mirrors the raid plan (§56): live edits on GUILD (SBU), and at login the
 -- HELLO carries a hash of my data (sd); a client whose data differs answers with its digest (SBD), the new client asks
--- for what differs (SBW) and both send their copies one item per message (SBG). Records merge by rev (then hash).
+-- for what differs (SBW) and both send their copies one item per message (SBG). Records merge by rev (then hash); a
+-- strategy built on a newer list of collaborators (cr) wins first, and a deletion wins over any edit (MergeStrategy).
+-- Every member's strategy may be as large as a council member's message (Comm:AllowLarge, user rule 2026-10-04).
 local addonName, ns = ...
 
 local Strategy = ns:NewModule("Strategy")
@@ -38,11 +41,15 @@ local SBD_DELAY_MEMBER = { 3, 8 }
 -- The board's own coordinate space (the map art of an instance floor is about 1002 x 668).
 local BOARD_W, BOARD_H = 1000, 666
 
-local MAX_STRATS = 150
+local MAX_STRATS = 150               -- strategies in the guild (deleted ones don't count)
 local MAX_OWN = 20                   -- strategies per owner
 local MAX_COLLAB = 10                -- collaborators per strategy
 local MAX_FILLS = 120
 local MAX_DIGEST_ITEMS = 300
+-- Strategy records stored, deletions (kept TOMBSTONE_DAYS) included: with every fill they fit one digest. When full,
+-- a new strategy makes room by forgetting the oldest deletion.
+local MAX_RECORDS = MAX_DIGEST_ITEMS - MAX_FILLS
+local SIZE_HEADROOM = 0.1            -- of the message caps, kept free when a strategy is saved (Comm:Fits)
 local MAX_PAGES = 6
 local MAX_ELEMENTS = 80              -- per page
 local MAX_BLOCKS = 12                -- per page
@@ -208,12 +215,14 @@ end
 local function CanWriteRaid(occId, key)
     local RP = ns.RaidPlan
     if not RP then return false, false end
-    if RP.GetRaid and RP:GetRaid(occId) then return RP:CanAssignStrategies(occId, key) and true or false, true end
+    local v = RP.GetRaid and RP:GetRaid(occId)
+    if v then return RP:CanAssignStrategies(v, key) and true or false, true end
     return RP.IsOrganizer ~= nil and RP:IsOrganizer(key) and true or false, false
 end
 
--- Did the stored fill come from someone who may write that raid's fills? Second: the answer is final (the raid is
--- known); while it isn't, the fill is judged again once it is.
+-- Does a fill come from someone who may write that raid's fills, as things are now? Second: the raid is known (while
+-- it isn't, the raid leaders on the list and the GM). Never remembered: who leads a raid can change, and every client
+-- must then judge its fills the same way at once.
 local function FillWriter(rec)
     return CanWriteRaid(rec.o, rec.by)
 end
@@ -246,17 +255,18 @@ local function SameList(a, b)
     return true
 end
 
--- May `rec` replace `cur` (nil / a tombstone: it is new to me)? The owner stays the owner; the owner, the
--- collaborators and the moderators change the board; only the owner changes the collaborators; the owner and the
--- moderators delete.
+-- May the strategy `rec` replace the strategy `cur` (nil: it is new to me)? The owner stays the owner; the owner, the
+-- collaborators and the moderators change the board; only the owner changes the collaborators (and their version cr).
 local function Allowed(cur, rec)
-    if not cur or cur.del then
-        return rec.del or rec.by == Owner(rec) or IsCollab(rec, rec.by) or CanModerate(rec.by)
-    end
-    if rec.del then return rec.by == Owner(cur) or CanModerate(rec.by) end
+    if not cur then return rec.by == Owner(rec) or IsCollab(rec, rec.by) or CanModerate(rec.by) end
     if Owner(rec) ~= Owner(cur) then return false end
     if rec.by == Owner(cur) then return true end
-    return (IsCollab(cur, rec.by) or CanModerate(rec.by)) and SameList(cur.co, rec.co)
+    return (IsCollab(cur, rec.by) or CanModerate(rec.by)) and SameList(cur.co, rec.co) and rec.cr == cur.cr
+end
+
+-- Does the deletion `t` delete the strategy `rec`? Its owner's and a moderator's do; one from anyone else never counts.
+local function Deletes(t, rec)
+    return t.by == Owner(rec) or CanModerate(t.by)
 end
 
 local REFUSED = "Only the Guild Master and the raid leaders pick a raid's strategies and assign its players."
@@ -287,7 +297,7 @@ local function Root(create)
         r = {}
         db.strategy[g] = r
     end
-    for _, k in ipairs({ "B", "F", "L", "OK" }) do
+    for _, k in ipairs({ "B", "F", "L" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
     end
     return r
@@ -646,6 +656,11 @@ local function CleanStrategy(r, now)
         tsort(list)
         if #list > 0 then out.co = list end
     end
+    -- the collaborators' version: the rev of the owner's latest change of them (SetCollaborators)
+    if r.cr ~= nil then
+        if not IsInt(r.cr, 1, out.rev) then return nil end
+        out.cr = r.cr
+    end
     out.n = CleanText(r.n, MAX_NAME_LEN)
     if not out.n or type(r.p) ~= "table" then return nil end
     out.p = {}
@@ -696,17 +711,16 @@ Strategy._CleanStrategy = CleanStrategy   -- for tests
 -- Merge
 ---------------------------------------------------------------------------
 
-local function Trusted(root, kind, rec)
-    if not rec then return false end
-    local k = kind .. ":" .. tostring(rec.id) .. ":" .. tostring(rec.rev)
-    if root.OK[k] then return true end
-    local ok, final = FillWriter(rec)
-    if ok and final then root.OK[k] = true end
-    return ok
+-- Is that fill shown (FillWriter, judged now)?
+local function Trusted(rec)
+    return rec ~= nil and (FillWriter(rec))
 end
 
+-- Strategies built on a newer list of collaborators (cr) come first: the owner's change of them beats an edit made on
+-- the list before it, whichever arrives first. Then the rev, then the hash (fills have no cr).
 local function Newer(a, b)
     if not b then return true end
+    if (a.cr or 0) ~= (b.cr or 0) then return (a.cr or 0) > (b.cr or 0) end
     if a.rev ~= b.rev then return a.rev > b.rev end
     return Util.Hash(a) > Util.Hash(b)
 end
@@ -719,8 +733,6 @@ local function NoteLast(root, f)
     root.L[f.s] = { t = f.t, o = f.o, a = Copy(f.a) }
 end
 
-local CAP = { B = MAX_STRATS, F = MAX_FILLS }
-
 -- The strategies (not deleted) one member owns.
 local function CountOwned(root, key)
     local n = 0
@@ -730,33 +742,91 @@ local function CountOwned(root, key)
     return n
 end
 
-local function MergeRecord(root, kind, rec)
-    local store = root[kind]
-    local cur = store[rec.id]
-    if cur then
-        if not Newer(rec, cur) then return false end
-    elseif CountTable(store) >= CAP[kind] then
-        ns:Debug("Strategy: %s store full, %s dropped", kind, rec.id)
-        return false
+-- The strategies in the guild (not deleted): MAX_STRATS of them at most.
+local function CountLive(root)
+    local n = 0
+    for _, rec in pairs(root.B) do
+        if not rec.del then n = n + 1 end
     end
-    if kind == "B" then
-        if not Allowed(cur, rec) then
+    return n
+end
+
+-- Room to store one more strategy record (MAX_RECORDS): a new strategy forgets the oldest deletion for it; a new
+-- deletion of a strategy I never had is not kept then. The same on the sender (Commit) and the receivers.
+local function Room(root, live)
+    if CountTable(root.B) < MAX_RECORDS then return true end
+    if not live then return false end
+    local oldest
+    for id, rec in pairs(root.B) do
+        if rec.del and (not oldest or rec.rev < root.B[oldest].rev
+            or (rec.rev == root.B[oldest].rev and id < oldest)) then oldest = id end
+    end
+    if not oldest then return false end
+    root.B[oldest] = nil
+    return true
+end
+
+-- Strategies (user rule 2026-10-04): a deletion wins. Its owner's or a moderator's deletion replaces the strategy
+-- whatever the revs (one that crossed a later edit still deletes it), and no edit brings a deleted strategy back
+-- (Copy makes a new one); a deletion from anyone else never counts, so the strategy replaces it. Otherwise the newer
+-- record wins (Newer) if it may (Allowed). Every client ends up with the same, whatever the order things arrive in;
+-- a copy that comes back after the deletion was pruned (TOMBSTONE_DAYS, Room) is a strategy again, for everyone.
+local function MergeStrategy(root, cur, rec)
+    local live = cur and not cur.del and cur or nil
+    if rec.del then
+        if live then
+            if not Deletes(rec, live) then
+                ns:Debug("Strategy: deletion of %s by %s refused (not its owner)", rec.id, rec.by)
+                return false
+            end
+        elseif cur then
+            if not Newer(rec, cur) then return false end
+        elseif not Room(root, false) then
+            return false
+        end
+    elseif cur and cur.del and Deletes(cur, rec) then
+        ns:Debug("Strategy: %s is deleted, %s's edit dropped", rec.id, rec.by)
+        return false
+    elseif live then
+        if not Newer(rec, live) then return false end
+        if not Allowed(live, rec) then
             ns:Debug("Strategy: %s by %s refused (not its owner or a collaborator)", rec.id, rec.by)
             return false
         end
-        if (not cur or cur.del) and not rec.del and CountOwned(root, Owner(rec)) >= MAX_OWN then return false end
-    end
-    -- a fill from someone who may not write that raid's fills never replaces one from someone who may
-    if kind == "F" and cur and Trusted(root, kind, cur) then
-        local ok, final = FillWriter(rec)
-        if not ok and final then
-            ns:Debug("Strategy: fill %s by %s refused (not who leads that raid)", rec.id, rec.by)
+    else
+        if not Allowed(nil, rec) or CountOwned(root, Owner(rec)) >= MAX_OWN then return false end
+        if CountLive(root) >= MAX_STRATS or (not cur and not Room(root, true)) then
+            ns:Debug("Strategy: store full, %s dropped", rec.id)
             return false
         end
     end
-    store[rec.id] = rec
-    if kind == "F" and Trusted(root, kind, rec) then NoteLast(root, rec) end
+    root.B[rec.id] = rec
     return true
+end
+
+-- Fills: one from someone who may write that raid's fills beats one from someone who may not, whatever the revs (an
+-- untrusted fill never replaces a trusted one, and the same wins in any order); otherwise the newer one.
+local function MergeFill(root, cur, rec)
+    if cur then
+        local curOk, known = FillWriter(cur)
+        local recOk = FillWriter(rec)
+        if known and curOk and not recOk then
+            ns:Debug("Strategy: fill %s by %s refused (not who leads that raid)", rec.id, rec.by)
+            return false
+        end
+        if not (known and recOk and not curOk) and not Newer(rec, cur) then return false end
+    elseif CountTable(root.F) >= MAX_FILLS then
+        ns:Debug("Strategy: fill store full, %s dropped", rec.id)
+        return false
+    end
+    root.F[rec.id] = rec
+    if Trusted(rec) then NoteLast(root, rec) end
+    return true
+end
+
+local function MergeRecord(root, kind, rec)
+    if kind == "B" then return MergeStrategy(root, root.B[rec.id], rec) end
+    return MergeFill(root, root.F[rec.id], rec)
 end
 
 local function StoreRecord(kind, r)
@@ -1228,18 +1298,27 @@ local function RequireBuilder()
     return root
 end
 
+local TOO_BIG = "This strategy is too big to send to the guild: remove some pages, tables, drawings or notes."
+
 local function Commit(root, kind, rec)
     local now = Now()
     local clean = kind == "B" and CleanStrategy(rec, now) or CleanFill(rec, now)
     if not clean then return false, kind == "B" and Strategy:Explain(rec) or "invalid assignment data" end
-    if not root[kind][clean.id] and CountTable(root[kind]) >= CAP[kind] then
-        return false, kind == "B" and "too many strategies (delete some old ones)" or "too many assignments stored"
+    local cur = root[kind][clean.id]
+    if kind == "F" then
+        if not cur and CountTable(root.F) >= MAX_FILLS then return false, "too many assignments stored" end
+    else
+        -- everyone must take it (with room to spare for whoever passes it on later): nothing is dropped unseen
+        local Comm = ns.Comm
+        if Comm and Comm.Fits and not Comm:Fits({ t = "SBU", k = "B", r = clean }, SIZE_HEADROOM) then
+            return false, TOO_BIG
+        end
+        if not clean.del and not cur and (CountLive(root) >= MAX_STRATS or not Room(root, true)) then
+            return false, "the guild has " .. MAX_STRATS .. " strategies already (delete some old ones)"
+        end
     end
     root[kind][clean.id] = clean
-    if kind == "F" then
-        Trusted(root, kind, clean)
-        NoteLast(root, clean)
-    end
+    if kind == "F" then NoteLast(root, clean) end
     Broadcast(kind, clean)
     Changed()
     return true, clean
@@ -1455,6 +1534,7 @@ function Strategy:SaveStrategy(draft)
     rec.rev, rec.by, rec.del = NextRev(cur), me, nil
     rec.ow = cur and Owner(cur) or me
     rec.co = cur and cur.co and Copy(cur.co) or nil
+    rec.cr = cur and cur.cr or nil
     local ok, e = Commit(root, "B", rec)
     if not ok then return false, e end
     return true, rec.id
@@ -1504,6 +1584,8 @@ function Strategy:SetCollaborators(id, keys)
     local rec = Copy(cur)
     rec.rev, rec.by, rec.ow = NextRev(cur), me, me
     rec.co = #list > 0 and list or nil
+    -- a new list is a new version of it: an edit made on the old list, arriving later, loses to this (Newer)
+    if not SameList(cur.co, rec.co) then rec.cr = rec.rev end
     return (Commit(root, "B", rec))
 end
 
@@ -1526,7 +1608,7 @@ end
 function Strategy:CopyStrategy(id, name, bossRef)
     local s = self:GetStrategy(id)
     if not s then return false, "unknown strategy" end
-    s.id, s.rev, s.by, s.ow, s.co = nil, nil, nil, nil, nil
+    s.id, s.rev, s.by, s.ow, s.co, s.cr = nil, nil, nil, nil, nil, nil
     s.n = name or (s.n .. " (copy)"):sub(1, MAX_NAME_LEN)
     if bossRef then s.b = bossRef end
     return self:SaveStrategy(s)
@@ -1538,7 +1620,7 @@ end
 
 local function FillRec(root, occId, bossRef)
     local rec = root and root.F[FillId(occId, bossRef)]
-    if rec and Trusted(root, "F", rec) and rec.o == occId and rec.b == bossRef then return rec end
+    if rec and rec.o == occId and rec.b == bossRef and Trusted(rec) then return rec end
     return nil
 end
 
@@ -1560,7 +1642,7 @@ local function LastPick(root, bossRef, exceptOcc, before)
         if not latestT or t > latestT then latest, latestT = sid, t end
     end
     for _, f in pairs(root.F) do
-        if f.b == bossRef and f.s and Trusted(root, "F", f) then consider(f.s, f.o, f.t) end
+        if f.b == bossRef and f.s and f.o ~= exceptOcc and Trusted(f) then consider(f.s, f.o, f.t) end
     end
     for sid, l in pairs(root.L) do consider(sid, l.o, l.t) end
     return best or latest
@@ -1629,7 +1711,7 @@ function Strategy:GetLastFill(stratId, exceptOcc)
     if not root or type(stratId) ~= "string" then return nil end
     local best
     for _, f in pairs(root.F) do
-        if f.s == stratId and f.o ~= exceptOcc and next(f.a) and Trusted(root, "F", f) then
+        if f.s == stratId and f.o ~= exceptOcc and next(f.a) and Trusted(f) then
             if not best or f.t > best.t then best = f end
         end
     end
@@ -1765,11 +1847,7 @@ function Strategy:Prune(now)
         local s = root.B[sid]
         if not s or s.del then root.L[sid] = nil end
     end
-    for k in pairs(root.OK) do
-        local kind, id, rev = k:match("^(%u):(.+):(%d+)$")
-        local rec = kind and root[kind] and root[kind][id]
-        if not rec or tostring(rec.rev) ~= rev then root.OK[k] = nil end
-    end
+    root.OK = nil           -- (up to 1.2 the fills found trusted were remembered here; FillWriter judges them now)
     if changed then Changed() end
 end
 
@@ -1785,6 +1863,10 @@ function Strategy:OnInit()
         Comm:Register("SBK", OnClaim)
         Comm:Register("SBW", OnWant)
         Comm:Register("SBG", OnGive)
+        -- everyone builds strategies: a member's (and the digest of them) may be as large as a council member's
+        if Comm.AllowLarge then
+            for _, t in ipairs({ "SBU", "SBG", "SBD" }) do Comm:AllowLarge(t, "data") end
+        end
     end
     -- The raid leaders / council lists decide which fills are shown: repaint when they change.
     ns:On("CONFIG_UPDATED", Changed)

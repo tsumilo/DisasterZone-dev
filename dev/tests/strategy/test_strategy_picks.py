@@ -6,7 +6,8 @@ the GM; read-only for the council, the other raid leaders and the members), a fo
 ignored, the leader's fills being trusted by everyone, the default for a boss not picked yet (the strategy the guild used
 last time, else the first by name; "only" for a single strategy), the Assignments tab (the dropdown for who may pick,
 the strategy's name for everyone else, "not picked yet", a pick made from the dropdown's menu) and the raid's board
-being read-only for everyone else (no strategy switch).
+being read-only for everyone else (no strategy switch). Fills are judged as things are now on every client (user rule
+2026-10-04: a crowned leader stops leading when the crown goes), and a trusted fill beats an untrusted one in any order.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy_picks.py [-k name]
 """
@@ -99,6 +100,78 @@ def only_the_raid_leader_and_the_gm_pick_and_assign():
     # an unknown strategy, or one of another boss
     assert pick(sam, occ, "nope")["ok"] is False
     assert pick(sam, occ, a, "BlackTemple:Illidan")["ok"] is False
+    w.assert_no_errors()
+
+
+def deliver_fill(cl, sender, rec):
+    """Hands one fill (SBU) to that client alone, as from `sender`: the order things arrive in, picked."""
+    cl.eval("local sender, r = ...; local LS, LD = LibStub('LibSerialize'), LibStub('LibDeflate'); "
+            "local text = tostring(ns.PROTO or 1) .. LD:EncodeForWoWAddonChannel(LD:CompressDeflate("
+            "LS:Serialize({ t = 'SBU', k = 'F', r = r }))); ns.Comm:OnCommReceived('CDLd', text, 'GUILD', sender)",
+            sender, rec)
+
+
+def stored_fill(cl, occ, boss=BOSS):
+    return cl.eval_py("local o, b = ...; local r = ns.db.strategy[ns.Guild:GetGuildKey()]; "
+                      "return r.F[ns.Strategy.FillId(o, b)]", occ, boss)
+
+
+@case
+def a_former_leaders_fills_go_on_every_client_at_once():
+    """The crown is taken off Sam: every client stops showing his fills at once, also one that had them before and
+    one that gets them later (nothing remembered), and they all fall back to the same default."""
+    w, c = world()
+    lee, sam, hana, gina = c["Lee"], c["Sam"], c["Hana"], c["Gina"]
+    a = save_council(lee, "A plan")
+    b = save_council(c["Rita"], "B plan")
+    occ = create(lee, i="bt", t=now(lee) + DAY)
+    w.tick(2)
+    assert call(lee, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
+    w.tick(2)
+    hana.logout()
+    w.tick(1)
+    assert fill(sam, occ, BOSS, b, {"tk.1.1": K("Sam")})["ok"] is True
+    w.tick(2)
+    assert used(lee, occ) == {"id": b, "how": "picked"}
+    assert call(lee, "EditRaid", occ, {"rl": False})["ok"] is True
+    w.tick(2)
+    hana.login()
+    w.tick(40)
+    assert stored_fill(hana, occ)["by"] == K("Sam")             # Hana has it too, now
+    for x in (lee, sam, hana, gina):
+        assert get_fill(x, occ, BOSS) is None, x.name
+        assert used(x, occ) == {"id": a, "how": "first"}, (x.name, used(x, occ))
+    # crowned again: his fill shows again, everywhere
+    assert call(lee, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
+    w.tick(2)
+    for x in (lee, hana, gina):
+        assert used(x, occ) == {"id": b, "how": "picked"}, x.name
+    w.assert_no_errors()
+
+
+@case
+def a_trusted_fill_wins_whatever_arrives_first():
+    """A fill from who leads the raid beats a newer one from someone who doesn't (a tampered client), in either order."""
+    w, c = world()
+    lee, rita, hana, gina = c["Lee"], c["Rita"], c["Hana"], c["Gina"]
+    a = save_council(lee, "A plan")
+    b = save_council(rita, "B plan")
+    occ = create(lee, i="bt", t=now(lee) + DAY)
+    w.tick(2)
+    assert call(lee, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
+    w.tick(2)
+    good = gina.eval_py("local o, b, s = ...; local orig = ns.Comm.Send; ns.Comm.Send = function() return true end; "
+                        "assert(ns.Strategy:PickStrategy(o, b, s)); ns.Comm.Send = orig; "
+                        "return ns.db.strategy[ns.Guild:GetGuildKey()].F[ns.Strategy.FillId(o, b)]", occ, BOSS, a)
+    bad = dict(good, by=K("Rita"), s=b, rev=good["rev"] + 30, a={"tk.1.1": K("Rita")})
+    deliver_fill(lee, K("Gina"), good)
+    deliver_fill(lee, K("Rita"), bad)
+    deliver_fill(hana, K("Rita"), bad)
+    assert get_fill(hana, occ, BOSS) is None                # (shown by nobody)
+    deliver_fill(hana, K("Gina"), good)
+    for x in (lee, hana):
+        assert stored_fill(x, occ) == good, (x.name, stored_fill(x, occ))
+        assert used(x, occ) == {"id": a, "how": "picked"}, x.name
     w.assert_no_errors()
 
 

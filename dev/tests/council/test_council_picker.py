@@ -8,7 +8,10 @@
   malformed lists dropped.
 - The GM removes a member: council views and whisper gates close for that member everywhere.
 - The raid leader's list (CR on RAID): raid scope only, cleared on disband, re-shared when leading again, the
-  leader change mid-raid, CRQ after joining / reloading, forged CR ignored, a pug raid leader from another guild.
+  leader change mid-raid, CRQ after joining / reloading, forged CR ignored, a pug raid leader from another guild
+  (1.3: never council, its CR is ignored; a pug on a raid list is not council either).
+- 1.3: an unconfirmed (TOFU) guild list makes nobody council until the GM confirms it; the GM's own CG outranks a
+  relayed list whatever its rev, and the GM shares its list again when a newer rev is advertised.
 - The raid leader is council for their raid (Council tab in the raid, gone after leaving).
 - The searchable dropdown: substring filter, draft toggles, Save & share only after a change, Revert, Clear with
   confirmation, "Show offline members", raid members first for the raid list.
@@ -199,14 +202,21 @@ def offline_member_gets_the_list_relayed_by_a_council_member_while_the_gm_is_off
     assert cg[0]["by"] == K("Gina"), "a relayed list keeps the GM as its author"
     g = guild_list(c["Lara"])
     assert g["members"] == [K("Rita")] and g["phase"] == 4 and g["by"] == K("Gina"), g
-    assert council(c["Lara"], "Rita") is True and council(c["Lara"], "Gina") is True
     assert c["Lara"].eval("return ns.Guild:GetGuildPhase()") == 4
+    # 1.3: a list taken on trust (Lara had none; the relayer is on the list it relays) makes nobody council until the
+    # GM confirms it: any member could seed a fresh client with a list naming themselves
+    assert c["Lara"].eval("return ns.Guild:IsGuildCouncilUnconfirmed()") is True
+    assert council(c["Lara"], "Rita") is False and council(c["Lara"], "Gina") is True
     # the relay is answered once: a second query within 60 s from the same member gets no second copy
     mark = len(w.addon_log)
     send_as(c["Lara"], {"t": "CQ", "r": 0}, "WHISPER", K("Rita"))
     send_as(c["Lara"], {"t": "CQ", "r": 0}, "WHISPER", K("Rita"))
     w.tick(10)
     assert len([m for m in msgs(w, "CG", mark) if m["_sender"] == K("Rita")]) <= 1
+    # the GM logs in: its HELLO (cg) makes Lara ask it, and the GM's own CG confirms the list
+    c["Gina"].login()
+    w.run_until(lambda: c["Lara"].eval("return ns.Guild:IsGuildCouncilUnconfirmed()") is False, timeout=30)
+    assert council(c["Lara"], "Rita") is True and guild_list(c["Lara"])["rev"] == rev
     assert_no_guild_info(c.values())
     no_errors(w)
 
@@ -260,29 +270,41 @@ def forged_and_implausible_council_lists_are_rejected():
         assert council(c[n], "Sam") is True, n
     # DisasterZone 0.5: the GM's own client never takes a relayed copy of "its" list (it may be forged); only its saves
     assert c["Gina"].eval("return ns.Guild:GetGuildCouncilRev()") == rev, "the GM took a relayed copy of its list"
+    # 1.3: ... and the GM's own CG outranks a relayed copy whatever its rev. Sam, council under the relayed list, says
+    # hello with the newer rev; the GM sees it and shares its own list again, which replaces every relayed copy.
+    mark = len(w.addon_log)
+    w.tick(12)
+    reshare = [m for m in msgs(w, "CG", mark) if m["_sender"] == K("Gina") and m["_chat_type"] == "GUILD"]
+    assert reshare and reshare[0]["rev"] == rev, [(m["_sender"], m["rev"]) for m in msgs(w, "CG", mark)]
+    assert revs() == base, revs()
+    for n in ("Mal", "Sam"):
+        assert council(c[n], "Sam") is False, n
     # 7) trust on first use: a fresh client (no list) takes a relay only when the relayer is on the relayed list
     c["Fresh"].login()
     w.tick(3)
     send_as(c["Mal"], {"t": "CG", "rev": rev + 9, "m": [K("Rita")], "ph": 1, "by": K("Gina")}, "WHISPER", K("Fresh"))
     w.tick(2)
     fresh_rev = c["Fresh"].eval("return ns.Guild:GetGuildCouncilRev()")
-    assert fresh_rev in (0, rev + 8), "a relayer that is not on its relayed list was trusted (%s)" % fresh_rev
+    assert fresh_rev in (0, rev), "a relayer that is not on its relayed list was trusted (%s)" % fresh_rev
     assert council(c["Fresh"], "Mal") is False
     no_errors(w)
-    # a fresh client with only Mal's forged self-listing list: TOFU takes it (documented residual risk, capped
-    # at now + 300); the GM's next save with a newer rev replaces it everywhere
+    # a fresh client with only Mal's forged self-listing list: TOFU stores it, but (1.3) an unconfirmed list makes
+    # nobody council; the GM's HELLO after its login makes the client ask the GM, whose own list replaces it
     w2, d = guild_world([("Gina", 0, "PALADIN"), ("Mal", 3, "ROGUE"), ("New", 3, "DRUID", False)])
-    gm_pick(w2, d["Gina"], [])
+    gm_rev = gm_pick(w2, d["Gina"], [])
     d["Gina"].logout()
     d["New"].login()
     w2.tick(3)
     t = now(d["Mal"])
     send_as(d["Mal"], {"t": "CG", "rev": t, "m": [K("Mal")], "ph": 1, "by": K("Gina")}, "WHISPER", K("New"))
     w2.tick(2)
-    assert council(d["New"], "Mal") is True, "TOFU: the relayer on its own relayed list is trusted by a fresh client"
+    assert d["New"].eval("return ns.Guild:IsGuildCouncilUnconfirmed()") is True
+    assert council(d["New"], "Mal") is False, "an unconfirmed (TOFU) list must not make its relayer council"
+    assert d["New"].eval("return #ns.Guild:GetCouncilMembers()") == 1, "only the GM is council on the fresh client"
     w2.tick(5)
     d["Gina"].login()
-    w2.tick(3)
+    w2.run_until(lambda: d["New"].eval("return ns.Guild:IsGuildCouncilUnconfirmed()") is False, timeout=30)
+    assert guild_list(d["New"])["rev"] == gm_rev and guild_list(d["New"])["members"] == []
     gm_pick(w2, d["Gina"], ["New"])
     assert council(d["New"], "Mal") is False and council(d["New"], "New") is True
     assert council(d["Mal"], "Mal") is False, "Mal's own client must not take its forged list as the GM's"
@@ -503,7 +525,9 @@ def joining_mid_raid_and_reload_get_the_raid_council_via_crq():
 
 
 @case
-def pug_raid_leader_from_another_guild_is_council_inside_the_raid():
+def pug_raid_leader_from_another_guild_is_never_council():
+    # 1.3: pugs are never loot council. A raid leader outside my guild is not council, and its raid council list (CR)
+    # is ignored, also for the members of my guild it names.
     w, c = guild_world([("Gina", 0, "PALADIN"), ("Rita", 3, "PRIEST"), ("Out", 3, "MAGE")])
     pug = Client(w, "Pugger", guild="Other Guild", guild_rank=3, class_file="SHAMAN", preload_lua=GUILD_INFO_SPY)
     pug.load_addon()
@@ -512,10 +536,21 @@ def pug_raid_leader_from_another_guild_is_council_inside_the_raid():
     w.tick(5)
     raid_pick(w, pug, ["Rita"])
     for n in ("Rita", "Gina"):
-        assert council(c[n], "Pugger") is True and source(c[n], "Pugger") == "raidleader", n
-        assert council(c[n], "Rita") is True and source(c[n], "Rita") == "raid", n
+        assert council(c[n], "Pugger") is False and source(c[n], "Pugger") is None, n
+        assert council(c[n], "Rita") is False and source(c[n], "Rita") is None, n
+        assert raid_list(c[n]) is None, (n, raid_list(c[n]))
+        assert council(c[n], "Gina") is True, n          # the guild council stays council in the raid
     assert council(c["Out"], "Pugger") is False and council(c["Out"], "Rita") is False
-    assert council(pug) is True
+    # (inside its own guild the pug leads a raid as usual: its own client sees itself as that raid's leader)
+    assert source(pug, "Pugger") == "raidleader"
+    # a raid leader of my guild picking a pug: the pug is not council either
+    w.make_raid([c["Rita"], pug, c["Gina"]], leader=c["Rita"])
+    w.tick(5)
+    raid_pick(w, c["Rita"], ["Pugger", "Gina"])
+    for n in ("Rita", "Gina"):
+        assert source(c[n], "Rita") == "raidleader", n
+        assert council(c[n], "Pugger") is False, n
+        assert K("Pugger") not in (raid_list(c[n]) or {}).get("members", []), (n, raid_list(c[n]))
     assert_no_guild_info(list(c.values()) + [pug])
     no_errors(w)
 

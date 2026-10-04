@@ -3,7 +3,9 @@
 Covers: every guild member building strategies, a strategy belonging to its creator (the GM and guild council may edit it; others can't change it, on
 their own client or with a forged message), collaborators (invited and removed by the owner only), deleting (the
 owner, the GM and the guild council), records from before 1.0, the filters (raid, encounter, guild member, free
-search), the library's filter bar and row buttons, and the Share window.
+search), the library's filter bar and row buttons, and the Share window. 1.3 (user rules 2026-10-04): a deletion wins
+over any edit and the owner's change of the collaborators over an edit made on the old list, the same on every client
+whatever order things arrive in; deleted strategies don't count toward the 150 / 20 caps.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy_owners.py [-k name]
 """
@@ -55,6 +57,26 @@ def save_as(cl, name, boss=None):
                      "local ok, r = ns.Strategy:SaveStrategy(d); return { ok = ok, r = r }", COUNCIL, name, boss)
     assert res["ok"] is True, res
     return res["r"]
+
+
+def stored(cl, sid):
+    """The stored record, a deletion (tombstone) included."""
+    return cl.eval_py("local r = ns.db.strategy and ns.db.strategy[ns.Guild:GetGuildKey()]; return r and r.B[...]", sid)
+
+
+def deliver(cl, sender, rec):
+    """Hands one strategy record (SBU) to that client alone, as from `sender`: the order things arrive in, picked."""
+    cl.eval("local sender, r = ...; local LS, LD = LibStub('LibSerialize'), LibStub('LibDeflate'); "
+            "local text = tostring(ns.PROTO or 1) .. LD:EncodeForWoWAddonChannel(LD:CompressDeflate("
+            "LS:Serialize({ t = 'SBU', k = 'B', r = r }))); ns.Comm:OnCommReceived('CDLd', text, 'GUILD', sender)",
+            sender, rec)
+
+
+def quietly(cl, code, *args):
+    """Runs code on that client without anything leaving it (the record stays its own until delivered)."""
+    return cl.eval_py("local orig = ns.Comm.Send; ns.Comm.Send = function() return true end; "
+                      "local ok, res = pcall(function(...) " + code + " end, ...); ns.Comm.Send = orig; "
+                      "assert(ok, res); return res", *args)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -181,6 +203,156 @@ def the_owner_the_gm_and_the_guild_council_delete():
     w.tick(2)
     for x in c.values():
         assert strategies(x) == []
+    w.assert_no_errors()
+
+
+@case
+def a_deletion_wins_over_any_edit_on_every_client():
+    """User rule 2026-10-04: a deleted strategy stays deleted (Copy brings one back, under a new id)."""
+    w, c = world(names())
+    rita, sam, lee, hana, gina = c["Rita"], c["Sam"], c["Lee"], c["Hana"], c["Gina"]
+    rid = save_as(rita, "R plan")
+    w.tick(2)
+    assert call(rita, "AddCollaborator", rid, K("Sam"))["ok"] is True
+    w.tick(2)
+    old = stored(sam, rid)                       # collaborator Sam's copy, before the deletion
+    assert call(gina, "DeleteStrategy", rid)["ok"] is True
+    w.tick(2)
+    # Sam's client saves the copy it had (the deletion hadn't reached it yet), with a newer rev: it stays deleted
+    sam.eval("local d = ...; d.rev = GetServerTime() + 5; d.by = ns.Util.PlayerKey(); d.n = 'R plan v2'; "
+             "ns.Comm:Send({ t = 'SBU', k = 'B', r = d }, 'GUILD', nil, 'data')", old)
+    w.tick(2)
+    for x in c.values():
+        assert strat(x, rid) is None and stored(x, rid)["del"] is True, (x.name, stored(x, rid))
+    # a deletion that crossed a later edit still deletes it, whichever of the two arrives first
+    rid2 = save_as(rita, "Second")
+    w.tick(2)
+    assert call(rita, "AddCollaborator", rid2, K("Sam"))["ok"] is True
+    w.tick(2)
+    cur = stored(rita, rid2)
+    edit = dict(cur, n="Sam's edit", by=K("Sam"), rev=cur["rev"] + 20)
+    gone = {"id": rid2, "rev": cur["rev"] + 1, "by": K("Rita"), "del": True}
+    deliver(lee, K("Sam"), edit)
+    assert strat(lee, rid2)["n"] == "Sam's edit"
+    deliver(lee, K("Rita"), gone)
+    deliver(hana, K("Rita"), gone)
+    deliver(hana, K("Sam"), edit)
+    assert stored(lee, rid2) == gone and stored(hana, rid2) == gone, (stored(lee, rid2), stored(hana, rid2))
+    assert call(rita, "DeleteStrategy", rid2)["ok"] is True      # (the others hear of it too)
+    w.tick(2)
+    # a deletion from anyone else never counts, even where it arrives before the strategy it names
+    rid3 = quietly(rita, "local d = (loadstring(...))(); d.n = 'Third'; return assert(select(2, "
+                         "ns.Strategy:SaveStrategy(d)))", COUNCIL)
+    deliver(lee, K("Sam"), {"id": rid3, "rev": stored(rita, rid3)["rev"] + 50, "by": K("Sam"), "del": True})
+    assert stored(lee, rid3)["del"] is True     # (nothing to check it against yet)
+    deliver(lee, K("Rita"), stored(rita, rid3))
+    assert strat(lee, rid3)["n"] == "Third"
+    assert rename(rita, rid3, "Third v2")["ok"] is True
+    w.tick(2)
+    hashes = {n: x.eval("return ns.Strategy:GetDigestHash()") for n, x in c.items()}
+    assert len(set(hashes.values())) == 1, hashes
+    w.assert_no_errors()
+
+
+@case
+def the_owners_change_of_collaborators_wins_whatever_arrives_first():
+    """An edit made on the collaborators list before the owner's change of it reached the editor loses to that change
+    on every client, in either order (Strategy cr: the list's version)."""
+    w, c = world(names())
+    rita, lee, hana = c["Rita"], c["Lee"], c["Hana"]
+    rid = save_as(rita, "R plan")
+    w.tick(2)
+    assert call(rita, "SetCollaborators", rid, [K("Sam"), K("Bob")])["ok"] is True
+    w.tick(2)
+    before = stored(lee, rid)
+    assert before["co"] == [K("Bob"), K("Sam")] and before["cr"] == before["rev"], before
+    # Rita takes Sam off while Sam saves an edit on the list he still has (a newer rev). Lee gets Sam's edit first,
+    # Hana the owner's change first: both keep the owner's change
+    quietly(rita, "local id, key = ...; assert(ns.Strategy:RemoveCollaborator(id, key))", rid, K("Sam"))
+    change = stored(rita, rid)
+    assert change["co"] == [K("Bob")] and change["cr"] == change["rev"] > before["cr"], change
+    edit = dict(before, n="Sam's edit", by=K("Sam"), rev=change["rev"] + 30)
+    deliver(lee, K("Sam"), edit)
+    assert strat(lee, rid)["n"] == "Sam's edit"
+    deliver(lee, K("Rita"), change)
+    deliver(hana, K("Rita"), change)
+    deliver(hana, K("Sam"), edit)
+    for x in (lee, hana):
+        assert stored(x, rid) == change, (x.name, stored(x, rid))
+    # an edit made on the new list is newer than the change, as always; a collaborator can't raise the version
+    after = dict(change, n="Bob's edit", by=K("Bob"), rev=change["rev"] + 5)
+    forged = dict(change, n="Bob's own list", by=K("Bob"), rev=change["rev"] + 9, cr=change["rev"] + 9)
+    for x in (lee, hana):
+        deliver(x, K("Bob"), after)
+        deliver(x, K("Bob"), forged)
+        assert strat(x, rid)["n"] == "Bob's edit", x.name
+    # an unchanged list keeps its version (no edit is dropped for nothing)
+    assert call(rita, "SetCollaborators", rid, [K("Bob")])["ok"] is True
+    assert stored(rita, rid)["cr"] == change["cr"]
+    w.assert_no_errors()
+
+
+FILL = r"""
+local src, prefix, nLive, nDel, owners, revBase = ...
+local g = ns.Guild:GetGuildKey()
+ns.db.strategy = ns.db.strategy or {}
+local root = ns.db.strategy[g] or { B = {}, F = {}, L = {} }
+ns.db.strategy[g] = root
+local now = GetServerTime()
+for i = 1, nLive + nDel do
+    local d = (loadstring(src))()
+    d.id, d.rev, d.n = prefix .. i, revBase + i, prefix .. i
+    d.by = owners[(i - 1) % #owners + 1]
+    d.ow = d.by
+    local r = assert(ns.Strategy._CleanStrategy(d, now))
+    if i > nLive then r = { id = r.id, rev = r.rev, by = r.by, del = true } end
+    root.B[r.id] = r
+end
+"""
+
+COUNT = ("local n, live = 0, 0; for _, r in pairs(ns.db.strategy[ns.Guild:GetGuildKey()].B) do n = n + 1; "
+         "if not r.del then live = live + 1 end end; return { n = n, live = live }")
+
+
+@case
+def deleted_strategies_dont_count_toward_the_caps():
+    """User rule 2026-10-04: 150 strategies in the guild and 20 per owner count the strategies there are, not the
+    deletions kept for 30 days (180 records at most: a new strategy then forgets the oldest deletion)."""
+    w, c = world(names())
+    rita, sam, hana = c["Rita"], c["Sam"], c["Hana"]
+    t = rita.eval("return GetServerTime()")
+    for x in c.values():
+        x.eval(FILL, COUNCIL, "sam", 19, 5, [K("Sam")], t - 3000)
+    # 20 per owner: the deleted five don't count
+    s20 = save_as(sam, "Twentieth")
+    res = sam.eval_py("local d = (loadstring(...))(); d.n = 'One more'; local ok, r = ns.Strategy:SaveStrategy(d); "
+                      "return { ok = ok, r = r }", COUNCIL)
+    assert res["ok"] is False and "20 strategies already" in res["r"], res
+    assert call(sam, "DeleteStrategy", "sam1")["ok"] is True
+    w.tick(2)
+    s21 = save_as(sam, "In its place")
+    w.tick(2)
+    assert strat(hana, s20) and strat(hana, s21), "the receivers count the same way"
+    # 150 in the guild: 20 of Sam's + 129 more, with 25 more deletions = 180 records, the most kept
+    owners = ["Own%d-Thunderstrike" % i for i in range(1, 11)]
+    for x in c.values():
+        x.eval(FILL, COUNCIL, "old", 129, 25, owners, t - 9000)
+        assert x.eval_py(COUNT) == {"n": 180, "live": 149}, (x.name, x.eval_py(COUNT))
+    a = save_as(rita, "150th")
+    w.tick(2)
+    for x in (rita, hana):
+        assert x.eval_py(COUNT) == {"n": 180, "live": 150}, (x.name, x.eval_py(COUNT))
+        assert stored(x, "old130") is None and stored(x, "old131")["del"] is True, x.name   # the oldest deletion went
+    assert strat(hana, a)["n"] == "150th"
+    res = rita.eval_py("local d = (loadstring(...))(); d.n = '151st'; local ok, r = ns.Strategy:SaveStrategy(d); "
+                       "return { ok = ok, r = r }", COUNCIL)
+    assert res["ok"] is False and "the guild has 150 strategies already" in res["r"], res
+    # deleting one makes room at once, here and for everyone else
+    assert call(rita, "DeleteStrategy", a)["ok"] is True
+    w.tick(2)
+    b = save_as(rita, "Instead")
+    w.tick(2)
+    assert strat(hana, b)["n"] == "Instead" and hana.eval_py(COUNT)["live"] == 150
     w.assert_no_errors()
 
 
@@ -355,7 +527,9 @@ def the_share_window_invites_and_removes():
     assert rita.eval("return ns.StrategiesUI:OpenShare(...)", rid) is True
     win = "ns.StrategiesUI:GetShareWindow()"
     assert rita.eval("return %s:IsShown()" % win) is True
-    assert rita.find_text("only you can change this strategy", True, True)
+    assert rita.find_text("only you, the GM and the guild council can change it", True, True)
+    # (the GM and the guild council delete too, user rule 1.0)
+    assert rita.find_text("Only you invite and remove; you, the GM and the guild council delete.", True, True)
     assert rita.eval("return ns.StrategiesUI:ToggleCollaborator(...)", K("Lee")) is True
     assert rita.eval("return ns.StrategiesUI:ToggleCollaborator(...)", K("Sam")) is True
     w.tick(2)

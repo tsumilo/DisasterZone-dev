@@ -472,14 +472,16 @@ function Collab:Query()
     Send({ t = "SBP", q = true }, "GUILD")
 end
 
--- Who else has this strategy open: { key, m = "e" | "v", pg = page id, live = shares my board }, editors first.
+-- Who else has this strategy open: { key, m = "e" | "v", pg = page id, live = shares my board }, editors first. Only
+-- who may change it now shows as editing (a collaborator the owner took off is looking, whatever their board says).
 function Collab:GetPresence(id)
     local out = {}
     local now = GetTime()
     for key, e in pairs(pres[id] or {}) do
         if now - e.at <= PRESENCE_TTL then
-            out[#out + 1] = { key = key, m = e.m, pg = e.pg,
-                live = (sess ~= nil and sess.id == id and sess.peers[key] ~= nil) or nil }
+            local editing = e.m == "e" and CanEdit(id, key)
+            out[#out + 1] = { key = key, m = editing and "e" or "v", pg = e.pg,
+                live = (editing and sess ~= nil and sess.id == id and sess.peers[key] ~= nil) or nil }
         end
     end
     table.sort(out, function(a, b)
@@ -1135,6 +1137,8 @@ function Collab:OnInit()
         Comm:Register("SBS", OnSnapshot)
         Comm:Register("SBO", OnOps)
         Comm:Register("SBC", OnSelection)
+        -- one action can carry a whole page (a pasted / duplicated one): as large as a saved strategy may be
+        if Comm.AllowLarge then Comm:AllowLarge("SBO", "live") end
     end
 end
 

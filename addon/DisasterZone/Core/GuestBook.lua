@@ -13,7 +13,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GuestBook.lua", ...) then ret
 --   A player outside the guild who joins a raid that is a planned raid (Invite & sort ran for it, the raid session is
 --   linked to it, or the players in it signed up for it; a started raid session is not needed) becomes a guest of
 --   that raid. One client writes it, so two edits of the raid's record never cross: the raid leader when they may add
---   guests, else the first such assistant by name. A guest taken off by hand is not added again.
+--   guests, else the first such assistant by name; when that one can't tell which raid it is (the assistant who ran
+--   Invite & sort can), the next who may steps in a little later. A guest taken off by hand is not added again: the
+--   raid itself keeps who was taken off (RaidPlan gx), so whoever writes next knows.
 --   A blacklisted player who joins: the leader / assistants get a popup (Remove from group / Keep), other roster
 --   managers a chat line. A guild member's blacklisting is only shown to roster managers.
 --   A known guest who joins: the roster managers get one line with their history and note.
@@ -39,6 +41,7 @@ local AUTO_KEEP = 2 * 86400        -- players added automatically are remembered
 local INVITE_WARN_AGAIN = 10       -- one warning per invited name in this window
 local ZONES_KEPT = 10              -- raids listed per guest (newest first)
 local NEXT_RAID_SLACK = 6 * 3600   -- a raid that started this long ago still counts as the guest's next raid
+local FALLBACK_WAIT = 8            -- seconds per writer before me who may add the pugs (GuestWriterTurn)
 
 local members            -- { [key] = true }: the group as last looked at (nil = not looked at yet in this group)
 local resumed = false    -- I was in a group when I logged in / reloaded: the first look at it is quiet (no popups, no
@@ -544,10 +547,11 @@ local function CanRemove()
     return IsInRaid() and UnitIsGroupAssistant("player") and true or false
 end
 
--- The one client that adds the pugs: the raid leader when they may add guests to that planned raid (occ; its own
--- leader counts, a raid leader it doesn't belong to doesn't), else the first assistant (by name) who may. Then two
--- edits of the raid's record never cross.
-local function AmGuestWriter(roster, occ)
+-- Who adds the pugs, in turn: the raid leader when they may add guests to that planned raid (occ; its own leader
+-- counts, a raid leader it doesn't belong to doesn't), then the assistants (by name) who may. The first one writes, so
+-- two edits of the raid's record never cross; the others step in after a wait when the pugs are still missing (only
+-- they may know which raid this is: Invite & sort is known to whoever ran it). Returns my turn (1 = first) or nil.
+local function GuestWriterTurn(roster, occ)
     local R = RP()
     local function may(key)
         if R and R.CanManageRoster then return R:CanManageRoster(occ, key) and true or false end
@@ -557,12 +561,16 @@ local function AmGuestWriter(roster, occ)
     for key, r in pairs(roster) do
         if r.rank == 2 then leader = key elseif r.rank == 1 then assists[#assists + 1] = key end
     end
-    if leader and may(leader) then return Util.IsMe(leader) end
+    local order = {}
+    if leader and may(leader) then order[1] = leader end
     tsort(assists)
     for _, key in ipairs(assists) do
-        if may(key) then return Util.IsMe(key) end
+        if may(key) then order[#order + 1] = key end
     end
-    return false
+    for i, key in ipairs(order) do
+        if Util.IsMe(key) then return i end
+    end
+    return nil
 end
 
 local function CurrentInstance()
@@ -587,8 +595,8 @@ local function PlannedRaid(roster)
     return (RL:Match(Now(), keys, CurrentInstance()))
 end
 
--- db.autoGuests = { [occ] = { [key] = when } }: who was added automatically (or tried), so a guest taken off by hand
--- is not added again.
+-- db.autoGuests = { [occ] = { [key] = when } }: who I added automatically (or tried), so I don't try again at every
+-- change of the group. (A guest taken off by hand: the raid's own mark, gx, for every client.)
 local function AutoDone(occ)
     local db = ns.db
     if not db then return {} end
@@ -611,23 +619,40 @@ local function AutoDone(occ)
     return set
 end
 
-local function AutoGuests(roster)
-    local R = RP()
-    if not (R and R.AddGuests and R.GetSignups and R.GetRaid) or DemoOn() then return end
-    local occ = PlannedRaid(roster)
-    local v = occ and R:GetRaid(occ)
-    if not v or v.cancelled or not AmGuestWriter(roster, occ) then return end
-    local signups = R:GetSignups(occ)
-    local done = AutoDone(occ)
+-- The pugs of the group who are not on the raid (a view) yet: not blacklisted, not taken off it by hand (the raid's
+-- own mark, gx: whoever writes respects it), not tried by me already. Sorted by name.
+local function MissingGuests(R, roster, v, done)
+    local signups = R:GetSignups(v.id)
     local list = {}
     for key, r in pairs(roster) do
-        if IsOutsider(key) and not signups[key] and not done[key] and not R:IsBlacklisted(key) and r.c then
+        if IsOutsider(key) and not signups[key] and not done[key] and not R:IsBlacklisted(key)
+            and not (v.gx and v.gx[key]) and r.c then
             local c, sp = GuestBook:GetSpec(key)
             list[#list + 1] = { key = key, c = r.c, sp = (c == r.c) and sp or nil }
         end
     end
-    if #list == 0 then return end
     tsort(list, function(a, b) return a.key < b.key end)
+    return list
+end
+
+-- fallback: my turn came because the ones before me (GuestWriterTurn) left the pugs out.
+local function AutoGuests(roster, fallback)
+    local R = RP()
+    if not (R and R.AddGuests and R.GetSignups and R.GetRaid) or DemoOn() then return end
+    local occ = PlannedRaid(roster)
+    local v = occ and R:GetRaid(occ)
+    if not v or v.cancelled then return end
+    local turn = GuestWriterTurn(roster, occ)
+    if not turn then return end
+    local done = AutoDone(occ)
+    local list = MissingGuests(R, roster, v, done)
+    if #list == 0 then return end
+    if turn > 1 and not fallback then
+        Util.Debounce("guestbook-fallback", FALLBACK_WAIT * (turn - 1), function()
+            if IsInRaid() and ns.loggedIn and GuildReady() then AutoGuests(RosterNow(), true) end
+        end)
+        return
+    end
     local now = Now()
     for _, g in ipairs(list) do done[g.key] = now end
     local ok, added = R:AddGuests(occ, list)

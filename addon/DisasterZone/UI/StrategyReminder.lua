@@ -2,7 +2,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategyReminder.lua", ...) the
 -- The encounter reminder (Addendum K): a slim panel near a planned boss with my jobs from the raid's strategy and the
 -- live state of the tracked tables I'm in (whose kick it is, my misdirect done, Innervate ready, my curse up). The
 -- raid leader also sees the tracked tables they are not in. It stays through the fight and fades after it; the body is
--- click-through, the header drags it and opens the board.
+-- click-through, the header drags it and opens the board. 1.3: no plan until the raid is linked to a planned raid; near a
+-- boss with strategies the raid leader and raid log members get a one-line "not linked" hint instead.
 -- Items() is the content (rows with an icon, text and status); Lines() flattens it for tests and chat;
 -- Core/StrategyLive.lua holds the state.
 local addonName, ns = ...
@@ -197,14 +198,31 @@ local function JobIcon(c, slot)
     return k and k.i or nil
 end
 
+-- 1.3: no plan until the raid is linked to a planned raid: near a boss with strategies, whoever can link it (the raid
+-- leader, raid log members) gets a short hint instead of the reminder. nil for everyone else.
+local function UnlinkedItems()
+    local u = Live().GetUnlinked and Live():GetUnlinked()
+    if not u then return nil end
+    local G = ns.Guild
+    if not (Live():IsMarker() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember())) then return nil end
+    local boss = ns.Data and ns.Data.BossPortraits and ns.Data.BossPortraits[u.boss]
+    return {
+        title = u.name or "Boss", state = "next", mine = false, hint = true,
+        items = { { kind = "row", icon = "i:INV_Misc_Note_01", text = "No planned raid linked", status = "", overview = true,
+                    detail = u.session and "No reminders or raid marks until it is." or "Start the raid, then link it." } },
+        portrait = boss and boss[1] and ("boss:" .. boss[1].d) or nil,
+        boss = u.boss, strategy = "Not linked to a planned raid", linked = false,
+    }
+end
+
 -- The content: { title, state, practice, boss, occ, strat, items = { ... }, flash } or nil when nothing to show.
 -- item kinds: job { icon, text, sub }; row { icon, text, status, alert }; rot { icon, text, status, alert, chips };
--- header { text } (the raid section).
+-- header { text } (the raid section). hint = true: the "not linked" hint (UnlinkedItems).
 function Reminder:Items()
-    local c = Live():GetCurrent()
-    if not c then return nil end
     local DB = ns.DB
     if DB and DB.GetSetting and DB:GetSetting("strategy.reminder") == false then return nil end
+    local c = Live():GetCurrent()
+    if not c then return UnlinkedItems() end
     local me = Me()
     local items, flash = {}, nil
     local tracked, mineIn = {}, {}
@@ -362,8 +380,8 @@ function Reminder:Lines()
     end
     return {
         title = d.title .. "  " .. d.state,
-        sub = (d.practice and "PRACTICE  " or "") .. (d.mine and "Your jobs" or "Overview") .. "  \194\183  "
-            .. d.strategy .. ((d.linked or d.practice) and "" or " (no raid linked)"),
+        sub = d.hint and d.strategy or ((d.practice and "PRACTICE  " or "") .. (d.mine and "Your jobs" or "Overview")
+            .. "  \194\183  " .. d.strategy .. ((d.linked or d.practice) and "" or " (no raid linked)")),
         lines = lines, flash = d.flash, boss = d.boss, occ = d.occ, strat = d.strat,
     }
 end
@@ -461,16 +479,31 @@ local function Create()
     h:SetScript("OnClick", function()
         local d = f.data
         if not d then return end
-        if d.occ then ns.StrategyBoard:OpenRaid(d.occ, d.boss) elseif d.strat then ns.StrategyBoard:OpenStrategy(d.strat) end
+        if d.hint then
+            -- the raid running now in the Raid log, where raid log members link it
+            local RL, G = ns.RaidLog, ns.Guild
+            local id = RL and RL.GetCurrentID and RL:GetCurrentID()
+            if id and G and G.AmIRaidLogMember and G:AmIRaidLogMember() and ns.MainFrame and ns.RaidsUI then
+                ns.MainFrame:Open("raids")
+                ns.RaidsUI:Select(id)
+            end
+        elseif d.occ then ns.StrategyBoard:OpenRaid(d.occ, d.boss) elseif d.strat then ns.StrategyBoard:OpenStrategy(d.strat) end
     end)
     h:SetScript("OnEnter", function(self)
         local d = f.data
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:AddLine(d and d.strategy or "Strategy board")
-        if d and not d.linked and not d.practice then
-            GameTooltip:AddLine("No planned raid is linked to this raid session, so there are no names.", 1, 0.6, 0.2, true)
+        if d and d.hint then
+            GameTooltip:AddLine("Reminders and raid marks come from the planned raid's strategies, so there are none until "
+                .. "this raid is linked to its planned raid. Raid leaders and the guild council link it in the Raid log.",
+                1, 0.6, 0.2, true)
+            GameTooltip:AddLine("Drag to move.", 0.8, 0.8, 0.8, true)
+        else
+            if d and not d.linked and not d.practice then
+                GameTooltip:AddLine("No planned raid is linked to this raid session, so there are no names.", 1, 0.6, 0.2, true)
+            end
+            GameTooltip:AddLine("Click to open the board; drag to move.", 0.8, 0.8, 0.8, true)
         end
-        GameTooltip:AddLine("Click to open the board; drag to move.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     h:SetScript("OnLeave", function() GameTooltip:Hide() end)

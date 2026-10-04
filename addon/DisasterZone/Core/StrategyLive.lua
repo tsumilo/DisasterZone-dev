@@ -1,7 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/StrategyLive.lua", ...) then return end -- DisasterZone: Core/StrategyLive.lua
 -- The strategy boards in the actual encounter (Addendum K, encounter helpers):
---   * which plan applies: the raid session's linked planned raid -> its strategy + names for the boss (else the
---     guild's only strategy of that boss, without names);
+--   * which plan applies: the raid session's linked planned raid -> its strategy + names for the boss. 1.3: none until
+--     the raid is linked to a planned raid (no reminder, no auto-marks; the raid leader and the raid log members see a
+--     short "not linked" hint near the boss instead, GetUnlinked);
 --   * "near the boss": this client sees one of the encounter's creatures (a nameplate, its target, the mouseover),
 --     or the encounter starts;
 --   * auto-marking (the raid leader's client only, setting + per strategy): the raid marks drawn as badges on the
@@ -197,6 +198,8 @@ end
 local cur                  -- the current encounter context (see Build)
 local debugOn = false
 local generation = 0       -- bumps whenever cur is replaced (stale timers check it)
+local unlinked             -- 1.3: { boss=, name=, seenAt=, session=, ended= } a boss with strategies near while the raid
+                           -- isn't linked to a planned raid (no plan: the "not linked" hint)
 
 local function Debug(fmt, ...)
     if debugOn then ns:Print("|cff66ccff[strat]|r " .. fmt, ...) end
@@ -364,10 +367,8 @@ local function Build(bossRef, fixed)
         s, a = fixed.s, fixed.a
     elseif occ then
         s, fill = Str:GetRaidStrategy(occ, bossRef)
-    else
-        s = Str:GetStrategies(bossRef)[1]
     end
-    if not s then return nil end
+    if not s then return nil end   -- (1.3: no planned raid linked, no plan)
     a = a or ((fill and fill.s == s.id) and Str:ValidAssignments(s, fill.a) or {})
     local c = {
         boss = bossRef, name = Str:GetBossName(bossRef), occ = occ, s = s, a = a, trackers = {},
@@ -573,6 +574,22 @@ end
 local function SetCurrent(c)
     generation = generation + 1
     cur = c
+    if c then unlinked = nil end
+    Changed()
+end
+
+-- 1.3: a boss with strategies near while the raid has no planned raid linked: no plan, just the hint (in a group).
+local function NoteUnlinked(bossRef)
+    local Str = S()
+    if SessionOcc() or not (Str and IsInGroup() and #Str:GetStrategies(bossRef) > 0) then return end
+    if unlinked and unlinked.boss == bossRef then
+        unlinked.seenAt = GetTime()
+        return
+    end
+    local GR = ns.GroupRules
+    unlinked = { boss = bossRef, name = Str:GetBossName(bossRef), seenAt = GetTime(),
+                 session = (GR and GR.GetSession and GR:GetSession()) ~= nil }
+    Debug("near %s (%s): no planned raid linked, no plan", unlinked.name, bossRef)
     Changed()
 end
 
@@ -586,15 +603,26 @@ function Live:Approach(bossRef, engaged)
     end
     if cur and cur.engaged then return cur end     -- never switch in the middle of a fight
     local c = Build(bossRef)
-    if not c then return nil end
-    Debug("near %s (%s), plan %s%s", c.name, bossRef, c.s.n, c.occ and (" for raid " .. c.occ) or " (no raid linked)")
+    if not c then
+        NoteUnlinked(bossRef)
+        return nil
+    end
+    Debug("near %s (%s), plan %s%s", c.name, bossRef, c.s.n, c.occ and (" for raid " .. c.occ) or "")
     SetCurrent(c)
     if engaged then self:Engage() end
     return c
 end
 
+-- 1.3: { boss, name, seenAt, session } of a boss with strategies near while no planned raid is linked (no plan, no
+-- marks), or nil. The reminder shows a short hint for it to whoever can link the raid.
+function Live:GetUnlinked()
+    if cur then return nil end
+    return unlinked
+end
+
 -- Forget the current boss (tests, leaving the group).
 function Live:Reset()
+    unlinked = nil
     SetCurrent(nil)
 end
 
@@ -1002,11 +1030,51 @@ local function OnEncounterStart(encounterID)
 end
 
 local function OnEncounterEnd(encounterID, _, _, _, success)
-    if not cur then return end
     local ItemDB = ns.ItemDB
     local ref = ItemDB and ItemDB.GetBossByEncounter and ItemDB:GetBossByEncounter(encounterID)
+    if not cur then
+        -- (the "not linked" hint goes like the reminder would)
+        local u = unlinked
+        if u and not (ref and ref.key ~= u.boss) then
+            Util.After(FADE_AFTER_END, function()
+                if unlinked == u then
+                    unlinked = nil
+                    Changed()
+                end
+            end)
+        end
+        return
+    end
     if ref and ref.key ~= cur.boss then return end
     Live:EndEncounter(success == 1 or success == true)
+end
+
+-- 1.3: the raid session's planned raid changed (linked, relinked by a raid log member, unlinked): a boss that is only
+-- near gets the new plan, or the hint (never in the middle of a fight, never a practice run).
+local function OnSessionLink()
+    local occ = SessionOcc()
+    if cur then
+        if cur.engaged or cur.ended or cur.practice or cur.occ == occ then return end
+        local boss, seenAt = cur.boss, cur.seenAt
+        local fresh = occ and Build(boss)
+        if fresh then
+            fresh.seenAt = seenAt
+            SetCurrent(fresh)
+        else
+            SetCurrent(nil)
+            NoteUnlinked(boss)
+        end
+    elseif unlinked and occ then
+        local boss = unlinked.boss
+        unlinked = nil                 -- linked now: the plan (when the raid has one for this boss) or nothing
+        if not Live:Approach(boss) then Changed() end
+    elseif unlinked then
+        local running = (ns.GroupRules and ns.GroupRules:GetSession()) ~= nil
+        if unlinked.session ~= running then
+            unlinked.session = running
+            Changed()
+        end
+    end
 end
 
 -- /dz strat check: everything the helpers depend on, checkable alone outside a raid.
@@ -1031,15 +1099,9 @@ function Live:Check()
     local occ = SessionOcc()
     local RP = ns.RaidPlan
     local v = occ and RP and RP:GetRaid(occ)
-    P("  Raid session linked to a planned raid: %s", v and ("|cff33ff66" .. RP:GetRaidName(v) .. " " .. date("%a %d %b %H:%M", v.t) .. "|r") or "|cffff5050no|r (plans without names)")
-    local bosses = v and S():GetBosses(v.i) or {}
-    if not v then
-        for _, raid in ipairs(S():GetRaidTree()) do
-            for _, b in ipairs(raid.bosses) do
-                if #S():GetStrategies(b.ref) > 0 then bosses[#bosses + 1] = b end
-            end
-        end
-    end
+    P("  Raid session linked to a planned raid: %s", v and ("|cff33ff66" .. RP:GetRaidName(v) .. " " .. date("%a %d %b %H:%M", v.t) .. "|r") or "|cffff5050no|r (no reminders or raid marks until it is)")
+    if not v then return end   -- (1.3: no planned raid linked, no plan)
+    local bosses = S():GetBosses(v.i) or {}
     local any = false
     for _, b in ipairs(bosses) do
         local c = Build(b.ref)
@@ -1084,8 +1146,11 @@ local function Slash(rest)
     else
         if cur then
             ns:Print("Near %s: plan \"%s\"%s; %d tracked tables, marks for %d creatures.", cur.name, cur.s.n,
-                cur.occ and "" or " (no planned raid linked: no names)", #cur.trackers,
+                (cur.occ or cur.practice) and "" or " (no planned raid linked: no names)", #cur.trackers,
                 (function() local n = 0; for _ in pairs(cur.marks) do n = n + 1 end; return n end)())
+        elseif unlinked then
+            ns:Print("Near %s: this raid isn't linked to a planned raid, so there is no plan (no reminders or raid marks).",
+                unlinked.name or "?")
         else
             ns:Print("No boss nearby. The helpers start when you see a planned boss (or the pull).")
         end
@@ -1129,6 +1194,7 @@ function Live:OnInit()
     if C_Timer and C_Timer.NewTicker then
         C_Timer.NewTicker(30, function()
             if cur and not cur.engaged and not cur.ended and GetTime() - cur.seenAt > FORGET_AFTER then Live:Reset() end
+            if not cur and unlinked and GetTime() - unlinked.seenAt > FORGET_AFTER then Live:Reset() end
         end)
         C_Timer.NewTicker(0.5, function()
             if cur and cur.engaged then Live:UpdateHealth() end
@@ -1145,4 +1211,5 @@ function Live:OnInit()
             end
         end
     end)
+    ns:On("GROUP_RULES_CHANGED", OnSessionLink)
 end

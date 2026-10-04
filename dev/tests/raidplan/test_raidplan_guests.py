@@ -212,7 +212,7 @@ def declined_and_removed_answers():
     assert K("Lee") not in layout_members(rita, occ)
     assert block(lee, occ) == "declined" and block(bob, occ, "Lee") == "declined"
     res = signup(lee, occ, "T")
-    assert res["ok"] is False and "took you off" in res["e"], res
+    assert res["ok"] is False and "taken off this raid" in res["e"], res
     assert lee.eval("return ns.RaidPlan:GetMySignup(...)", occ) is None
     assert [v["id"] for v in lee.eval_py("return ns.RaidPlan:GetUnanswered(7)")] == []
     forged_signup(lee, occ)
@@ -476,7 +476,7 @@ def the_roster_marks_guests_and_managers_right_click():
     bob.hover(cell)
     lines = [strip_codes(l) for l, _ in tt_lines(bob)]
     bob.leave(cell)
-    assert "Declined by the raid leaders" in lines and "Had answered Accepted" in lines, lines
+    assert "Declined for this raid" in lines and "Had answered Accepted" in lines, lines
     bob.click(cell, "RightButton")
     bob.menu_select("Restore: their answer counts again")
     w.tick(2)
@@ -485,13 +485,23 @@ def the_roster_marks_guests_and_managers_right_click():
     assert call(bob, "DeclineSignup", occ, K("Lee"))["ok"] is True
     w.tick(2)
     open_tab(w, lee, occ)
-    assert lee.find_text("The raid leaders took you off this raid.", True, True)
+    assert lee.find_text("You were taken off this raid.", True, True)
     assert lee.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
     assert not shown(lee, P + ".upcoming.detail.inviteBtn") and not shown(lee, P + ".guestsBtn")
     open_tab(w, rita, occ)
     before = rita.last_menu()
     rita.click(rita.eval(ROSTER_CELL, K("Rita")), "RightButton")
     assert rita.last_menu() == before
+    # the raid's own leader (a member) runs its roster, but the blacklist and the guest book are not theirs
+    assert call(bob, "EditRaid", occ, {"rl": K("Sam")})["ok"] is True
+    w.tick(2)
+    open_tab(w, sam, occ)
+    sam.click(sam.eval(ROSTER_CELL, K("Pugsy")), "RightButton")
+    texts = [e.get("text") for e in sam.last_menu()["children"] if e.get("text")]
+    assert texts == ["Pugsy", "Remove guest"], texts
+    sam.click(sam.eval(ROSTER_CELL, K("Rita")), "RightButton")
+    texts = [e.get("text") for e in sam.last_menu()["children"] if e.get("text")]
+    assert texts == ["Rita", "Decline for this raid", "Remove their answer"], texts
     w.assert_no_errors()
 
 

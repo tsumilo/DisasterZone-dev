@@ -332,6 +332,59 @@ def leader_leaves_the_next_eligible_authority_takes_over_or_personal_values():
 
 
 @case
+def a_guild_assistant_with_the_raid_log_runs_a_pug_led_raid():
+    # 1.3: a pug never runs our raid session: a pug raid leader (with DisasterZone or not) or pug master looter counts as
+    # one without it. Then a raid assistant of the guild who has the raid log (the raid leaders list, the GM, the guild
+    # council) is the authority: the alphabetically first one with DisasterZone, the same on every guild client. An
+    # assistant without the raid log never is; the guild's raid leader with DisasterZone still comes first.
+    w, c = world([("Gina", 0, "PALADIN"), ("Bob", 1, "MAGE"), ("Rita", 3, "PRIEST"), ("Sam", 3, "ROGUE"),
+                  ("Pete", 3, "WARRIOR", {"guild": None})], council=["Bob"])
+    w.auto_session = False
+    pete, gina, bob, rita, sam = c["Pete"], c["Gina"], c["Bob"], c["Rita"], c["Sam"]
+    guildies = (gina, bob, rita, sam)
+    set_(bob, "roll.duration", 45)
+    set_(pete, "roll.duration", 15)
+    w.make_raid([pete, gina, bob, rita, sam], leader=pete, assistants=[sam, gina, bob])
+    w.tick(12)
+    for x in guildies:
+        assert authority(x) == K("Bob"), (x.name, authority(x))
+        assert eff(x, "roll.duration") == 45, x.name
+    assert bob.eval("return ns.GroupRules:IsAuthority()") is True
+    assert sam.eval("return ns.GroupRules:IsAuthority()") is False
+    # Bob starts the raid (Start raid, End raid and Options are his); the pug's own session never reaches us
+    res = bob.eval_py("local ok, e = ns.GroupRules:SetSession(true, nil, { loot = true, rolls = true, lock = false }); "
+                      "return { ok = ok, e = e }")
+    assert res["ok"] is True, res
+    pete.eval("ns.GroupRules:SetSession(true, nil, { loot = false, rolls = true, lock = false })")
+    w.tick(6)
+    for x in guildies:
+        s = x.eval_py("return ns.GroupRules:GetSession()")
+        assert s and s["by"] == K("Bob"), (x.name, s)
+        assert x.eval("return ns.RaidLog:GetCurrentID()") == s["id"], x.name     # attendance is logged
+    assert sam.eval_py("local ok, e = ns.GroupRules:SetSession(false); return { ok = ok, e = e }")["ok"] is False
+    assert bob.eval("return ns.SessionBar:OpenOptions()") is True
+    # Bob is no longer an assistant: Gina (the GM, next by name) takes the session over
+    rid = rita.eval("return ns.GroupRules:GetSession().id")
+    w.make_raid([pete, gina, bob, rita, sam], leader=pete, assistants=[sam, gina])
+    w.tick(15)
+    for x in guildies:
+        assert authority(x) == K("Gina"), (x.name, authority(x))
+        s = x.eval_py("return ns.GroupRules:GetSession()")
+        assert s and s["by"] == K("Gina") and s["id"] == rid, (x.name, s)
+    # a pug master looter with DisasterZone (a leader without it) is no authority either; no eligible assistant: none
+    w.make_raid([pete, gina, rita, sam], leader="Norl", extra_members=["Norl"], master_looter=pete, assistants=[sam])
+    w.tick(12)
+    for x in (gina, rita, sam):
+        assert authority(x) is None, (x.name, authority(x))
+    # the guild's raid leader with DisasterZone comes first, assistants or not
+    w.make_raid([pete, gina, rita, sam], leader=rita, assistants=[gina], master_looter=pete)
+    w.tick(12)
+    for x in (gina, rita, sam):
+        assert authority(x) == K("Rita"), (x.name, authority(x))
+    no_errors(w)
+
+
+@case
 def disband_reverts_everyone_to_personal_values():
     w, c = world([("Gina", 0, "PALADIN"), ("Lee", 3, "WARRIOR"), ("Rita", 3, "PRIEST")])
     set_(c["Lee"], "roll.duration", 60)

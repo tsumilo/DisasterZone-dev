@@ -3,9 +3,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategyBoard.lua", ...) then r
 -- blocks beside it (UI/StrategyBlocks.lua).
 -- Modes:
 --   view  - anyone: the board as drawn; opened from a raid it shows that raid's names and "your jobs".
---   edit  - authors (GM, guild council, raid leaders): draw on the map, shape the blocks, add pages, then Save.
---   fill  - authors, from a raid: pick the strategy for the boss and put players into the slots (carry over last
---           raid's names, drag from the raid's players, Suggest fill), then Save.
+--   edit  - its owner, the collaborators the owner invited, the GM and the guild council: draw on the map, shape the
+--           blocks, add pages, then Save.
+--   fill  - who leads the raid (its own leader, else the raid leaders) and the GM, from a raid: pick the strategy for
+--           the boss and put players into the slots (carry over last raid's names, drag from the raid's players,
+--           Suggest fill), then Save.
 -- Unsaved work is a draft: it stays in the window while it is closed, stays behind (Raids > Strategies lists the
 -- drafts) when something else is opened, and survives a /reload, a logout and a disconnect with its undo history.
 -- Editing and assigning keep an undo history (Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z); while editing the keyboard also drives
@@ -18,10 +20,14 @@ local Board = ns:NewModule("StrategyBoard")
 local floor, max, min = math.floor, math.max, math.min
 local tinsert, tremove, tsort, tconcat = table.insert, table.remove, table.sort, table.concat
 
-local WIN_W, WIN_H = 1180, 720
-local MAP_W = 700
+local WIN_W, WIN_H = 1260, 720
+-- The map is as wide as the strip under it lets it be (Board:Layout): the tools while editing, the raid's players while
+-- assigning, your jobs while reading. MAP_W is where it starts.
+local MAP_W_MAX, MAP_W_MIN = 810, 640
+local MAP_W = MAP_W_MAX
 local TOP_H = 56
-local POOL_COLS, CHIP_W, CHIP_H = 5, 136, 17
+local TOOLS_H = 62          -- the tools under the map: two rows
+local CHIP_W, CHIP_H = 136, 17
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
@@ -265,8 +271,8 @@ local function rebuildDups()
 end
 
 -- Building strategies is for every guild member (each changes only their own and the ones shared with them);
--- a raid's names are for who arranges that raid (default: the raid on the board): its own leader, the GM, the guild
--- council (a raid without a leader: the raid leaders too).
+-- a raid's names are for who leads that raid (default: the raid on the board) and the GM: its own leader, or on a
+-- raid without one the raid leaders (RaidPlan:CanAssignStrategies).
 local function canBuild() return S():CanBuild() end
 local function canAssign(occ)
     occ = occ or st.occ
@@ -937,7 +943,28 @@ function Board:OpenDraft(did)
         return false
     end
     if d.mode == "fill" and not canAssign(d.occ) then
-        ns:Print("Only the raid's leader, the Guild Master and the guild council assign players for a raid.")
+        local RP = ns.RaidPlan
+        ns:Print((RP and RP.GetRaidLeader and RP:GetRaidLeader(d.occ))
+            and "Only this raid's leader and the Guild Master assign its players."
+            or "Only the raid leaders and the Guild Master assign a raid's players.")
+        return false
+    end
+    -- an edit of a strategy I may no longer change (the owner took me off it, it was deleted): the draft goes
+    if d.mode == "edit" and d.strat.id and not S():CanEditStrategy(d.strat.id) then
+        local id = d.strat.id
+        if S():GetStrategy(id) and not (ns.Guild and ns.Guild:IsReady()) then
+            ns:Print("Your guild is not known yet; try again in a moment.")
+            return false
+        end
+        if d == st then
+            st.dirty, st.base, st.liveK, st.stale = false, nil, nil, nil
+            keepDraft()
+        else
+            store[d.did] = nil
+            draftsChanged()
+        end
+        ns:Print(("You can no longer change \"%s\", so your unsaved changes to it are dropped."):format(d.strat.n))
+        if S():GetStrategy(id) then self:OpenStrategy(id) elseif d == st then self:Close() end
         return false
     end
     if d ~= st then
@@ -1741,7 +1768,8 @@ function Board:RefreshPool()
         end
         chip.key = m.key
         chip:ClearAllPoints()
-        local col, row = (i - 1) % POOL_COLS, floor((i - 1) / POOL_COLS)
+        local cols = win.poolCols or 5
+        local col, row = (i - 1) % cols, floor((i - 1) / cols)
         chip:SetPoint("TOPLEFT", pool, "TOPLEFT", col * CHIP_W, -28 - row * CHIP_H)
         UI():ClassIcon(chip.icon, m.c)
         local name = coloredName(m.key)
@@ -1928,7 +1956,46 @@ function Board:Refresh()
         end
         win.view.mine:SetText(tconcat(lines, "\n"))
     end
+    self:Layout(mode)
     Collab():BoardChanged()
+end
+
+-- The map as big as the strip under it leaves room for (the window's height is fixed): the tools while editing, the
+-- raid's players while assigning (in as many columns as fit), your jobs while reading. The tables take the width the
+-- map leaves. Nothing moves while the mode and the raid stay the same.
+function Board:Layout(mode)
+    local cv = win.canvas
+    local contentH = win.content:GetHeight() or 0
+    if contentH < 300 then contentH = WIN_H - 50 end
+    local function need(w)
+        if mode == "edit" then return TOOLS_H end
+        if mode == "fill" then
+            local n = #memberList
+            if n == 0 then return 48 end
+            return 28 + math.ceil(n / max(1, floor(w / CHIP_W))) * CHIP_H + 4
+        end
+        return max(24, (win.view.mine:GetStringHeight() or 14) + 8)
+    end
+    local w = MAP_W_MIN
+    for cand = MAP_W_MAX, MAP_W_MIN, -10 do
+        if contentH - TOP_H - floor(666 * cand / 1000 + 0.5) - 10 >= need(cand) then
+            w = cand
+            break
+        end
+    end
+    if w == win.mapW then return end
+    win.mapW = w
+    cv:SetWidth(w)
+    local c = win.content
+    win.mapLabel:SetPoint("TOPRIGHT", c, "TOPLEFT", w, -40)
+    win.mapBtn:SetPoint("TOPRIGHT", c, "TOPLEFT", w, -33)
+    win.below:SetPoint("BOTTOMRIGHT", c, "BOTTOMLEFT", w, 2)
+    win.blocks.width = WIN_W - w - 30
+    win.blocks.scroll:SetPoint("TOPLEFT", c, "TOPLEFT", w + 10, -TOP_H)
+    win.poolCols = max(1, floor(w / CHIP_W))
+    cv:Render()
+    win.blocks:Render()
+    if mode == "fill" then self:RefreshPool() end
 end
 
 ---------------------------------------------------------------------------

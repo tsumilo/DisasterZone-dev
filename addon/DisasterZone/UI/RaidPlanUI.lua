@@ -418,10 +418,10 @@ local function cellTooltip(cell)
     local cls = classOf(d.key, s)
     GameTooltip:AddLine(((spec and spec.label .. " ") or "") .. (cls and ns.CLASS_NAMES[cls] or ""), 1, 1, 1)
     if d.declined then
-        GameTooltip:AddLine("Declined by the raid leaders", 1, 0.33, 0.33)
+        GameTooltip:AddLine("Declined for this raid", 1, 0.33, 0.33)
         if s and s.st and STATUS[s.st] then GameTooltip:AddLine("Had answered " .. STATUS[s.st].label, 0.7, 0.7, 0.7) end
     elseif d.guest then
-        GameTooltip:AddLine("Guest: not in the guild, added by the raid leaders", 0.4, 0.8, 1, true)
+        GameTooltip:AddLine("Guest: a player outside the guild", 0.4, 0.8, 1, true)
         -- 1.3: what the guest book knows about them (roster managers)
         local summary = RP():CanManageRoster() and ns.GuestBook and ns.GuestBook:Summary(d.key)
         if summary then GameTooltip:AddLine(summary, 0.7, 0.7, 0.7, true) end
@@ -443,8 +443,9 @@ local function cellTooltip(cell)
     GameTooltip:Show()
 end
 
--- Right-click on a player of the roster (roster managers): decline, remove the answer, restore, remove a guest,
--- blacklist.
+-- Right-click on a player of the roster (roster managers): decline, remove the answer, restore, remove a guest; the
+-- blacklist and the guest book for who keeps them (the GM, officers, the raid leaders on the list: a raid's own leader
+-- only runs that raid's roster).
 local function rosterMenu(cell)
     local d = cell.cdlCell
     local occ = state.selected
@@ -465,9 +466,11 @@ local function rosterMenu(cell)
                 root:CreateButton("Remove their answer", function() run(RP().RemoveSignup, d.key) end)
             end
         end
-        root:CreateDivider()
-        root:CreateButton("Blacklist...", function() PlanUI:OpenBlacklist(d.key) end)
-        if d.guest then root:CreateButton("Guest book...", function() ns.GuestBookUI:OpenGuest(d.key) end) end
+        if RP():CanManageRoster() then
+            root:CreateDivider()
+            root:CreateButton("Blacklist...", function() PlanUI:OpenBlacklist(d.key) end)
+            if d.guest then root:CreateButton("Guest book...", function() ns.GuestBookUI:OpenGuest(d.key) end) end
+        end
     end)
 end
 
@@ -745,14 +748,20 @@ local function cancelMenu(root)
             run(RP().CancelRaid, v.id)
         end)
     end
-    if v.weekly then
+    -- the whole weekly raid, and deleting, only for who may (a leader of one week cancels that week, nothing more)
+    local series = v.weekly and RP():CanManageSeries(v)
+    if series then
         root:CreateButton("Stop repeating after this raid", function() run(RP().StopRepeating, v.id) end)
     end
     -- deleting removes the raid for everyone, with its sign-ups and groups (cancelling keeps it listed)
+    local one = RP():CanDeleteRaid(v)
+    if not one and not series then return end
     root:CreateDivider()
     if v.weekly then
-        root:CreateButton("Delete this week's raid...", function() PlanUI:ConfirmDelete(nil) end)
-        root:CreateButton("Delete the whole weekly raid...", function() PlanUI:ConfirmDelete("series") end)
+        if one then root:CreateButton("Delete this week's raid...", function() PlanUI:ConfirmDelete(nil) end) end
+        if series then
+            root:CreateButton("Delete the whole weekly raid...", function() PlanUI:ConfirmDelete("series") end)
+        end
     else
         root:CreateButton("Delete raid...", function() PlanUI:ConfirmDelete(nil) end)
     end
@@ -1428,7 +1437,7 @@ local function refreshDetail(v)
     end
     d.strip.closed:SetText(v.cancelled and "This raid was cancelled." or (not open and "Sign-ups are closed.")
         or (block == "blacklist" and colorize("ff5555", "You can't sign up for raids. Contact an officer."))
-        or (block == "declined" and colorize("ff5555", "The raid leaders took you off this raid."))
+        or (block == "declined" and colorize("ff5555", "You were taken off this raid."))
         or (block == "level" and colorize("ff9933", ("This raid is for level %d characters."):format(v.ml)))
         or (not invited and colorize("ff9933", organizer and "Locked: you are not in this raid (Invite adds you)"
             or "Locked: ask a raid leader for an invite"))
@@ -2279,9 +2288,11 @@ function PlanUI:OpenEditor(occId)
     editor:SetWindowTitle(v and ("Edit raid: " .. raidTitle(v)) or "New raid")
     editor.weeklyCB:SetShown(v == nil)
     editor.weeklyCB:SetChecked(false)
-    editor.weeklyInfo:SetShown(v ~= nil and v.weekly)
+    -- every week: who may change the whole weekly raid (not a leader of this week only)
+    local series = (v and v.weekly and RP():CanManageSeries(v)) and true or false
+    editor.weeklyInfo:SetShown(series)
     editor.saveBtn:SetText(v and (v.weekly and "This week only" or "Save") or "Create raid")
-    editor.saveAllBtn:SetShown(v ~= nil and v.weekly)
+    editor.saveAllBtn:SetShown(series)
     for _, dd in ipairs({ editor.instDD, editor.sizeDD, editor.datePicker, editor.hourDD, editor.minDD, editor.teamDD,
                           editor.lockCB, editor.lowCB }) do
         if dd.Refresh then dd:Refresh() end

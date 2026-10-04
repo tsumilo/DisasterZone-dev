@@ -527,15 +527,105 @@ def only_the_authority_can_lock_forged_party_and_malformed_gs():
     lee.click(lee.eval("return ns.SettingsUI.lockBtn"))
     w.tick(2)
     assert not any(locked(x) for x in c.values())
-    # a malformed lk / lkAt from the real authority is dropped, the rules themselves still apply
-    lee.eval("return ns.Comm:Send({ t = 'GS', v = 900, rd = 45, q = 4, dq = 3, lk = 'yes', lkAt = -5 }, 'RAID', nil, 'alert')")
+    # a malformed lk / lkAt from the real authority is dropped, the rules themselves still apply (1.3: a lock counts
+    # only with a running session that has the loot council)
+    sess = "rs = ns.GroupRules:GetSession().id, rsAt = ns.GroupRules:GetSession().at, rf = 'lr'"
+    lee.eval("return ns.Comm:Send({ t = 'GS', v = 900, rd = 45, q = 4, dq = 3, lk = 'yes', lkAt = -5, %s }, 'RAID', nil, "
+             "'alert')" % sess)
     w.tick(2)
     assert rita.eval("return ns.GroupRules:GetActive().values.rd") == 45
     assert locked(rita) is False
-    lee.eval("return ns.Comm:Send({ t = 'GS', v = 901, rd = 45, q = 4, dq = 3, lk = true, lkAt = 'x' }, 'RAID', nil, 'alert')")
+    lee.eval("return ns.Comm:Send({ t = 'GS', v = 901, rd = 45, q = 4, dq = 3, lk = true, lkAt = 'x', %s }, 'RAID', nil, "
+             "'alert')" % sess)
     w.tick(2)
     assert locked(rita) is True, "lk without a valid lkAt still locks (time of first sight)"
     assert isinstance(rita.eval_py("return ns.GroupRules:GetLockInfo()")["at"], int)
+    w.assert_no_errors()
+
+
+@case
+def the_lock_needs_a_raid_with_the_loot_council_and_is_its_lock_feature():
+    # 1.3: the BiS lock needs a running raid session with the loot council, and the session's lock feature is the lock
+    # (one truth: the session bar, its tooltip and the Options window agree); ending the raid or switching the loot
+    # council off unlocks; receivers don't count a lock without such a session either
+    w, c = world()
+    w.auto_session = False
+    lee, rita = c["Lee"], c["Rita"]
+    raid(w, c)
+
+    def feats(x):
+        return x.eval_py("local f = ns.GroupRules:GetSessionFeatures(); return f and { f.loot, f.rolls, f.lock }")
+
+    # no raid session: no lock (the slash command, the buttons)
+    n0 = len(lee.chat_frame)
+    lee.slash("/dz lock")
+    w.tick(2)
+    assert said(lee, n0, "start the raid"), printed_since(lee, n0)
+    assert not any(locked(x) for x in c.values())
+    assert lee.eval("return ns.UI:CanSetBiSLock()") is False
+    # a raid without the loot council: the lock feature is off too, and nothing locks
+    res = lee.eval_py("local ok, e = ns.GroupRules:SetSession(true, nil, { loot = false, rolls = true, lock = true }); "
+                      "return { ok = ok, e = e }")
+    assert res["ok"] is True, res
+    w.tick(3)
+    for x in c.values():
+        assert feats(x) == [False, True, False] and locked(x) is False, (x.name, feats(x))
+    n0 = len(lee.chat_frame)
+    lee.slash("/dz lock")
+    w.tick(2)
+    assert said(lee, n0, "needs the loot council"), printed_since(lee, n0)
+    assert not any(locked(x) for x in c.values()) and lee.eval("return ns.UI:CanSetBiSLock()") is False
+    # with the loot council: /dz lock locks, and the session's lock feature says so everywhere (Options ticked)
+    assert lee.eval_py("return { ns.GroupRules:SetSessionFeatures({ loot = true, rolls = true, lock = false }) }")[0]
+    w.tick(3)
+    assert lee.eval("return ns.UI:CanSetBiSLock()") is True
+    lee.slash("/dz lock")
+    w.tick(2)
+    for x in c.values():
+        assert locked(x) is True and feats(x) == [True, True, True], (x.name, feats(x))
+    assert "BiS lists locked" in rita.eval("return ns.SessionBar:DescribeFeatures(ns.GroupRules:GetSessionFeatures())")
+    lee.eval("ns.SessionBar:OpenOptions()")
+    w.tick(0.2)
+    assert lee.eval("return ns.SessionBar:GetStartWindow().boxes.lock:GetChecked()") is True
+    lee.click(lee.eval("return ns.SessionBar:GetStartWindow().startBtn"))          # Apply as it is: still locked
+    w.tick(3)
+    assert all(locked(x) for x in c.values())
+    # /dz unlock: the feature follows
+    lee.slash("/dz unlock")
+    w.tick(2)
+    for x in c.values():
+        assert locked(x) is False and feats(x) == [True, True, False], (x.name, feats(x))
+    # switching the loot council off unlocks
+    lee.slash("/dz lock")
+    w.tick(2)
+    assert all(locked(x) for x in c.values())
+    assert lee.eval_py("return { ns.GroupRules:SetSessionFeatures({ loot = false, rolls = true, lock = true }) }")[0]
+    w.tick(3)
+    for x in c.values():
+        assert locked(x) is False and feats(x) == [False, True, False], (x.name, feats(x))
+    # the leader's /reload keeps the lock with its session; End raid unlocks
+    lee.eval_py("return { ns.GroupRules:SetSessionFeatures({ loot = true, rolls = true, lock = true }) }")
+    w.tick(3)
+    lee.relog()
+    w.tick(12)
+    assert all(locked(x) for x in c.values())
+    assert lee.eval("return ns.RaidLog:End()") is True
+    w.tick(3)
+    assert not any(locked(x) for x in c.values()) and lee.eval("return ns.db.groupLock") is None
+    n0 = len(lee.chat_frame)
+    lee.slash("/dz lock")
+    assert said(lee, n0, "start the raid") and not locked(rita)
+    # receivers count a lock only with such a session (an older raid leader's lock without one, or without the council)
+    gs = "return ns.Comm:Send({ t = 'GS', v = %d, rd = 30, q = 4, dq = 3, lk = true, lkAt = GetServerTime()%s }, 'RAID', nil, 'alert')"
+    lee.eval(gs % (950, ""))
+    w.tick(2)
+    assert locked(rita) is False
+    lee.eval(gs % (951, ", rs = 'Lee-1', rsAt = GetServerTime() - 5, rf = 'r'"))
+    w.tick(2)
+    assert locked(rita) is False and rita.eval("return ns.GroupRules:GetSession() ~= nil") is True
+    lee.eval(gs % (952, ", rs = 'Lee-1', rsAt = GetServerTime() - 5, rf = 'lr'"))
+    w.tick(2)
+    assert locked(rita) is True and rita.eval_py("return ns.GroupRules:GetSessionFeatures().lock") is True
     w.assert_no_errors()
 
 

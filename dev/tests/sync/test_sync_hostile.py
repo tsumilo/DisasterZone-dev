@@ -310,6 +310,48 @@ def f_oversized_payload_dropped():
 
 
 @r.case
+def f_member_caps_hold_for_all_but_strategy_messages():
+    """1.3 (user rule 2026-10-04, everyone builds strategies): a type registered with Comm:AllowLarge may come from any
+    guild member as large as from a council member (the cap is picked by its prefix before decoding); every other type
+    on that prefix from a member still meets the member caps after decoding: past 4,000 wire bytes dropped, past 16 KB
+    inflated dropped and the sender ignored for the session."""
+    w, R, R2, C1, C2, S, _ = setup()
+    R.eval("__got = {}; ns.Comm:Register('ZZB', function(s, m) __got[#__got + 1] = m.n end); "
+           "ns.Comm:Register('ZZS', function(s, m) __got[#__got + 1] = m.n end); ns.Comm:AllowLarge('ZZB', 'data')")
+    # __noise: 6 KB deflate can't shrink; __mix: 19.5 KB inflated from 1.6 KB on the wire (within the 16:1 ratio)
+    for x in (S, R2):
+        x.eval("local t, x = {}, 7; for i = 1, 6000 do x = x * 16807 % 2147483647; t[i] = string.char(x % 256) end; "
+               "__noise = table.concat(t); __mix = string.rep('ab', 9000) .. __noise:sub(1, 1500)")
+
+    def dropped():
+        return R.eval("return ns.Comm.stats.dropped")
+
+    d0 = dropped()
+    # the large type: 19.5 KB inflated from a member, taken
+    raw(S, "CDLd", '__enc({ t = "ZZB", n = 1, pad = __mix })', "GUILD")
+    settle(w, 10)
+    assert R.eval_py("return __got") == [1] and dropped() == d0
+    # another type on the same prefix: 6 KB on the wire (past 4,000) -> dropped, the sender not ignored
+    raw(S, "CDLd", '__enc({ t = "ZZS", n = 2, pad = __noise })', "GUILD")
+    settle(w, 60)
+    assert R.eval_py("return __got") == [1] and dropped() == d0 + 1
+    raw(S, "CDLd", '__enc({ t = "ZZS", n = 3 })', "GUILD")
+    settle(w, 5)
+    assert R.eval_py("return __got") == [1, 3]
+    # 19.5 KB inflated (past 16 KB): dropped, and the sender is ignored from then on (the large type too)
+    raw(S, "CDLd", '__enc({ t = "ZZS", n = 4, pad = __mix })', "GUILD")
+    settle(w, 5)
+    raw(S, "CDLd", '__enc({ t = "ZZB", n = 5 })', "GUILD")
+    settle(w, 5)
+    assert R.eval_py("return __got") == [1, 3] and dropped() == d0 + 3
+    # the large type on another prefix: the member caps (its prefix is what is known before decoding)
+    raw(R2, "CDLc", '__enc({ t = "ZZB", n = 6, pad = __mix })', "GUILD")
+    settle(w, 5)
+    assert R.eval_py("return __got") == [1, 3]
+    w.assert_no_errors()
+
+
+@r.case
 def f_decompression_bomb_is_cheap_to_reject():
     """A message under the 24,000-byte wire cap that inflates to ~8 MB is rejected by MAX_INFLATED_LEN (200 KB),
     but only AFTER LibDeflate inflated all of it (Comm.lua Decode). Every online guild member pays that for one

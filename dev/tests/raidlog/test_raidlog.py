@@ -564,14 +564,16 @@ def gm_and_guild_council_delete_a_logged_raid_for_everyone():
             "att": {K("Rita"): {"j": now - 7200, "l": now - 3600, "k": 0}}}
     assert gina.eval("return ns.RaidLog:MergeRecord(...)", live, "x") is False
     assert rec(gina, rid) is None
-    # a deletion that names a raider (or nobody) is ignored; the council's counts
+    # 1.3: a deletion counts by who sends it (the GM / guild council), whoever it names: a raid leader or raider can't
+    # relay one that names a council member, and one naming somebody who has left the council since still spreads
     other = dict(live, id="Lee-Thunderstrike-77")
     assert gina.eval("return ns.RaidLog:MergeRecord(...)", other, "x") is True
     tomb = {"id": other["id"], "start": other["start"], "stop": other["stop"], "del": True, "delAt": now}
-    assert gina.eval("return ns.RaidLog:MergeRecord(...)", dict(tomb, delBy=K("Rita")), "x") is False
+    assert gina.eval("return ns.RaidLog:MergeRecord(...)", dict(tomb, delBy=K("Bob")), K("Lee")) is False
+    assert gina.eval("return ns.RaidLog:MergeRecord(...)", dict(tomb, delBy=K("Bob")), K("Rita")) is False
     assert gina.eval("return ns.RaidLog:MergeRecord(...)", tomb, "x") is False
     assert rec(gina, other["id"])
-    assert gina.eval("return ns.RaidLog:MergeRecord(...)", dict(tomb, delBy=K("Bob")), "x") is True
+    assert gina.eval("return ns.RaidLog:MergeRecord(...)", dict(tomb, delBy=K("Rita")), K("Bob")) is True
     assert rec(gina, other["id"]) is None
     w.assert_no_errors()
 

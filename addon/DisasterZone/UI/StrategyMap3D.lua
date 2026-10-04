@@ -62,7 +62,7 @@ function M3:RoomFor(bossRef, page)
     if not (r3 and r3.NewView and r3.NewRoom and r3.RoomForBoss) then return nil, "restart" end
     local room = r3.RoomForBoss(bossRef)
     if not room then return nil, "none" end
-    if not r3.Floor(room) then return nil, "restart" end
+    if not r3.HasFloor(room) then return nil, "restart" end
     local m = page and MapUI():ShippedMap(page.m)
     if not (m and m.file == room.map) then return nil, "map", room end
     return room
@@ -278,14 +278,19 @@ function V:Open(animate)
     local cv = self.canvas
     local room = M3:RoomFor(cv.opts.bossRef and cv.opts.bossRef(), cv.page)
     if not room then return false end
+    local fl = R3().Floor(room)                       -- (a packed room is unpacked here, the first time)
+    if not (fl and fl.mesh) then
+        ns:Print("The 3D room of this boss could not be read.")
+        return false
+    end
     if room ~= self.room then
         self.room, self.calibrated = room, false
-        self.H = R3().Height(room)
         self.hiZ, self.loZ = nil, nil
     end
+    self.H = R3().Height(room)
     self.on, self.anim, self.drag3 = true, nil, nil
     self.frame:Show()
-    self.R.SetMesh(R3().Floor(room).mesh)
+    self.R.SetMesh(fl.mesh)
     local goal = self:DefaultView()
     if animate then
         self.orb = self:MapView()

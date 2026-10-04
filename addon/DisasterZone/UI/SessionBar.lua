@@ -387,7 +387,7 @@ function SessionBar:Update()
         local zone, dur, bosses
         zone, dur, bosses, locked = self:GetParts()
         f.live = true
-        f.dot:SetTexture("Interface\COMMON\Indicator-Green")
+        f.dot:SetTexture("Interface\\COMMON\\Indicator-Green")
         f.title:SetText(zone)
         local feats = ns.GroupRules:GetSessionFeatures()
         local off = feats and ((not feats.loot and not feats.rolls and "council and rolls off")
@@ -401,7 +401,7 @@ function SessionBar:Update()
     else
         f.live = false
         f.dot:SetAlpha(1)
-        f.dot:SetTexture("Interface\COMMON\Indicator-Gray")
+        f.dot:SetTexture("Interface\\COMMON\\Indicator-Gray")
         f.title:SetText("No raid session")
         f.text:SetText("council and rolls are off until you start")
         f.button:SetText("Start raid")

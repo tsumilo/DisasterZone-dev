@@ -143,22 +143,35 @@ def non_ml_opens_first_ml_right_after_single_broadcast():
 @R.case
 def raider_opens_alone_broadcasts_after_delay():
     """DisasterZone 0.5 (drop-preclaim finding): while master loot is on, a plain raider's D is not trusted (it could
-    pre-claim the boss corpse with junk); the drop reaches everyone when the master looter opens the corpse."""
+    pre-claim the boss corpse with junk); the drop reaches everyone when the master looter opens the corpse.
+    1.3: the raider's client does not send the D at all (the sender checks itself like the receivers do), and a raid
+    assistant is no more trusted than a plain raider (no loot rights)."""
     r = Raid()
     w = r.w
     log0 = len(w.addon_log)
     loot_prince(r, "Carol")          # a raider opens the corpse first
     w.tick(3)
     D = msgs_of_type(w, "D", log0)
-    assert len(D) == 1 and D[0]["_sender"] == key("Carol"), D
+    assert D == [], D
     assert len(drops_fired(r["Carol"])) == 1
     for c in r.clients:
         if c.name != "Carol":
             assert len(drops_fired(c)) == 0, "%s trusted a plain raider's D under master loot" % c.name
+    # a forged D from a raid assistant (Frank: not council, not the master looter) is ignored too
+    r.w.make_raid(list(r.c.values()), master_looter=r["Alice"], leader=r["Alice"], assistants=[r["Frank"]],
+                  extra_members=r.extra)
+    w.tick(1)
+    r["Frank"].eval("ns.Comm:Send({ t = 'D', s = 'Creature-0-1-2-3-15690-FORGED', b = '', i = { 28766 }, "
+                    "ts = GetServerTime() }, 'RAID', nil, 'alert')")
+    w.tick(1)
+    for c in r.clients:
+        if c.name != "Frank":
+            assert len(drops_fired(c)) == (1 if c.name == "Carol" else 0), \
+                "%s trusted a raid assistant's D under master loot" % c.name
     loot_prince(r, "Alice")          # the master looter opens it: sends at once, everyone gets it once
     w.tick(3)
-    D = msgs_of_type(w, "D", log0)
-    assert [m["_sender"] for m in D] == [key("Carol"), key("Alice")], D
+    D = [m for m in msgs_of_type(w, "D", log0) if m["_sender"] != key("Frank")]
+    assert [m["_sender"] for m in D] == [key("Alice")], D
     for c in r.clients:
         assert len(drops_fired(c)) == 1, c.name
     assert panel_blocks(r["Alice"]) and panel_blocks(r["Bob"]), "council panel from the master looter's broadcast"

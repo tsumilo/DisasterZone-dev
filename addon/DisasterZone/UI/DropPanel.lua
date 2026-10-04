@@ -708,8 +708,8 @@ function DropPanel:OnInit()
         DropPanel:RequestRefresh()
         DropPanel:RefreshToastText()
     end)
-    -- Master looters / raid leads (and the party leader in dungeon mode) may keep the panel open for
-    -- rolls (/dz drops); everyone else loses it with their council seat or the dungeon mode.
+    -- Master looters (and the party leader in dungeon mode) may keep the panel open for rolls (/dz drops);
+    -- everyone else loses it with their council seat or the dungeon mode.
     local function accessChanged()
         local f = DropPanel.frame
         if f and f:IsShown() and not IsCouncil() and not IsDungeonLeader() and not CanStartRolls(DropPanel.drop) then
@@ -748,7 +748,9 @@ function DropPanel:OnDrop(drop)
     if ns.ItemDB and ns.ItemDB.Prefetch then ns.ItemDB:Prefetch(items) end
 
     local soundPlayed = false
-    if not drop.roll and Setting("alerts.councilPanel", true) and (IsCouncil() or IsDungeonLeader()) then
+    -- 1.3: the master looter gets the panel too (it may always start rolls), also outside the council
+    local ml = ns.Util and ns.Util.IsPlayerMasterLooter and ns.Util.IsPlayerMasterLooter() and CanStartRolls(drop)
+    if not drop.roll and Setting("alerts.councilPanel", true) and (IsCouncil() or IsDungeonLeader() or ml) then
         if self:IsBusyWithShownDrop() then
             -- The shown drop still has a roll running or waiting for its award: stay on it; the new drop is one
             -- page further (the pager says so).
@@ -1923,9 +1925,11 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     y = y + 3
     local manage = canRoll or IsCouncil()
     local buttons = {}
+    -- 1.3: Roll:CanAward / CanEnd follow the roll's own rules (with the loot council on only the council awards; a
+    -- plain roll's master looter may too); whoever may start rolls may re-roll.
+    local canAward = rolling and RollAllows("CanAward", manage, session.id) or false
     if rolling then
         if not winnerKey then
-            local canAward = RollAllows("CanAward", manage)
             if session.state == "open" then
                 if RollAllows("CanEnd", manage, session.id) then buttons[#buttons + 1] = b.endRoll end
                 if canAward then buttons[#buttons + 1] = b.awardRoll end
@@ -1933,6 +1937,8 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
                 buttons[#buttons + 1] = b.suggested and b.awardRoll or b.award
                 if b.suggested then buttons[#buttons + 1] = b.award end   -- someone else (e.g. a "+N more" row)
                 if canRoll then buttons[#buttons + 1] = b.reroll end
+            elseif canRoll then
+                buttons[#buttons + 1] = b.reroll
             end
             SetAwardRollButton(b.awardRoll, b.suggested, session.state == "open")
         end
@@ -1946,13 +1952,14 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         end
     end
     -- Award...: the council records it in the log; an item with an open / closed roll can also be awarded
-    -- by whoever may award rolls (master looter, leader), because the award then goes through the roll.
+    -- by whoever may award that roll (a plain roll's master looter), because the award then goes through the roll.
     local rollAwardable = rolling and not winnerKey and (session.state == "open" or session.state == "closed")
-    local canAwardItem = IsCouncil() or (rollAwardable and RollAllows("CanAward", manage))
+    local canAwardItem = IsCouncil() or (rollAwardable and canAward)
     -- DE / Bank (ADDENDUM G §41): while nobody is picked (no roll, or a roll without a suggestion) and a target is
-    -- set; the Award... menu has them too.
+    -- set; the Award... menu has them too. A rolled item goes through its roll (whoever may award it); an item without
+    -- a roll also for the master looter who can hand it out now (1.3: the council records it with its reason, LT).
     if not winnerKey and not FakeDropLocked(drop) and (mode == "normal" or (rolling and not b.suggested))
-        and (canAwardItem or CanMasterLoot(itemID)) then
+        and (canAwardItem or (mode == "normal" and CanMasterLoot(itemID))) then
         for _, kind in ipairs({ "de", "bank" }) do
             local key = LootTarget(kind)
             if key then
@@ -2006,7 +2013,7 @@ function DropPanel:StartRoll(itemID, copy)
         return
     end
     if not CanStartRolls(drop) then
-        ns:Print("Only loot council members, the master looter or the raid leader / assistants can start rolls.")
+        ns:Print("Only the loot council (the raid leader counts) or the master looter can start rolls.")
         return
     end
     CallRoll("Start", itemID, drop, copy)
@@ -2021,7 +2028,7 @@ function DropPanel:RollAll()
         return
     end
     if not CanStartRolls(drop) or not HasRoll("StartAll") then
-        ns:Print("Only loot council members, the master looter or the raid leader / assistants can start rolls.")
+        ns:Print("Only the loot council (the raid leader counts) or the master looter can start rolls.")
         return
     end
     CallRoll("StartAll", drop)
@@ -2124,7 +2131,7 @@ function DropPanel:OpenRollRowMenu(r)
     if type(row) ~= "table" or type(session) ~= "table" or not (ns.UI and ns.UI.ContextMenu) then return end
     local key, itemID, id = row.key, r.itemID, session.id
     local canAward = (session.state == "open" or session.state == "closed")
-        and RollAllows("CanAward", IsCouncil() or CanStartRolls(self.drop))
+        and RollAllows("CanAward", IsCouncil() or CanStartRolls(self.drop), session.id)
     local open = session.state == "open"
     local canVote = r.canVote
     ns.UI:ContextMenu(r, function(root)
@@ -2149,7 +2156,7 @@ function DropPanel:OpenMoreRollMenu(r)
     local rest, session = r and r.more, r and r.session
     if type(rest) ~= "table" or type(session) ~= "table" or not (ns.UI and ns.UI.ContextMenu) then return end
     local canAward = (session.state == "open" or session.state == "closed")
-        and RollAllows("CanAward", IsCouncil() or CanStartRolls(self.drop))
+        and RollAllows("CanAward", IsCouncil() or CanStartRolls(self.drop), session.id)
     if not canAward then return end
     local id, vp = session.id, ViewPhase()
     local open = session.state == "open"
@@ -2314,6 +2321,17 @@ function DropPanel:Award(itemID, key, bossKey, copy, drop, note, awardReason)
 
     if not (ns.Ledger and ns.Ledger.Award) then return false, "The award log is not available." end
     if not IsCouncil() then
+        -- 1.3: a master looter outside the council gave the item to the disenchanter / guild bank character: the
+        -- council clients record it with that reason (Loot LT), so it does not count as loot won.
+        local Loot = ns.Loot
+        if (awardReason == "de" or awardReason == "bank") and Loot and Loot.AnnounceTargetHandout
+            and Loot:AnnounceTargetHandout(itemID, key, awardReason, bossKey) then
+            ns:Print("%s went to %s (%s): the loot council records it.", ItemLink(itemID) or ItemName(itemID),
+                ShortName(key), ReasonLabel(awardReason) or awardReason)
+            if type(session) == "table" and session.state == "queued" then CallRoll("End", session.id) end
+            self:RequestRefresh(0.1)
+            return true
+        end
         ns:Print("Only Loot Council members can record awards.")
         return false, "Could not record the award (council members only)."
     end

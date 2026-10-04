@@ -330,7 +330,7 @@ def session_id(cl):
 @case
 def a_leader_who_crashed_gets_the_session_back_from_the_raid():
     # nothing saved since Start raid: the leader comes back with no session, the raid still knows it
-    want = {"loot": False, "rolls": True, "lock": True}
+    want = {"loot": True, "rolls": True, "lock": True}
     w, c = world(session=want)
     lee, rita = c["Lee"], c["Rita"]
     rid = session_id(rita)
@@ -342,9 +342,9 @@ def a_leader_who_crashed_gets_the_session_back_from_the_raid():
         assert x.eval("return ns.GroupRules:IsLocked()") is True, x.name
     assert lee.eval("return ns.RaidLog:GetCurrentID()") == rid             # the raid log records again
     assert any("picked up the raid session" in l for l in printed_since(lee, 0)), printed_since(lee, 0)
-    assert on(lee, "rolls") is True
+    assert on(lee, "rolls") is True and on(lee, "loot") is True
     loot(w, lee, epic(lee))
-    assert all(drops(x) == 1 and plain(x) is True for x in c.values()), [(drops(x), plain(x)) for x in c.values()]
+    assert all(drops(x) == 1 and plain(x) is False for x in c.values()), [(drops(x), plain(x)) for x in c.values()]
     w.assert_no_errors()
 
 

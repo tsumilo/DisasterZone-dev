@@ -116,6 +116,7 @@ local function Scan(rec)
             a = { j = now, k = 0 }
             rec.att[key] = a
         end
+        if not a.j then a.j = now end   -- (a bench mark of somebody who never joined, joining now)
         if m.class then a.c = m.class end
         a.l = nil   -- present (again)
         if m.online and rec.zone and m.zone == rec.zone then inside = true end
@@ -139,6 +140,37 @@ local function ScheduleScan()
     end)
 end
 
+-- An attendance entry of somebody who was never in the raid: a bench mark only (1.3: no join / leave times; earlier
+-- entries carry the raid's start and end).
+local function NeverJoined(rec, a)
+    if (tonumber(a.k) or 0) > 0 then return false end
+    return a.j == nil or (a.j == rec.start and a.l == rec.stop)
+end
+
+-- Addendum J §61 (1.3): the sign-ups kept on a record (su) and the bench marks made from them (edit time = the time of
+-- the link they came from, plAt) belong to that link. Dropped when the record is linked to another planned raid or
+-- unlinked: nothing of the old raid's sign-ups stays behind (no-shows, reliability, the guest book).
+local function DropSignups(rec, plAt)
+    rec.su = nil
+    plAt = tonumber(plAt)
+    if not plAt or plAt <= 0 or type(rec.att) ~= "table" then return end
+    for key, a in pairs(rec.att) do
+        if a.b and a.bts == plAt then
+            if NeverJoined(rec, a) then
+                rec.att[key] = nil
+            else
+                a.b, a.bts = nil, nil
+            end
+        end
+    end
+end
+
+-- A new link decision (planned raid occurrence id or nil, at plAt): another raid (or none) drops the old one's sign-ups.
+local function SetLink(rec, pl, plAt)
+    if pl ~= rec.pl then DropSignups(rec, rec.plAt) end
+    rec.pl, rec.plAt = pl, plAt
+end
+
 local function Open(session)
     local raids = RaidsDB()
     if not raids then return nil end
@@ -154,8 +186,9 @@ local function Open(session)
         rec.stop, rec.endedBy, rec.autoEnded = nil, nil, nil
     end
     ns.db.raidCurrent = rec.id
-    if session.rp and (tonumber(rec.plAt) or 0) < (tonumber(session.rpAt) or 0) then
-        rec.pl, rec.plAt = session.rp, session.rpAt
+    -- the session's link (1.3: rpAt without rp = unlinked on purpose)
+    if session.rpAt and (tonumber(rec.plAt) or 0) < (tonumber(session.rpAt) or 0) then
+        SetLink(rec, session.rp, session.rpAt)
     end
     Scan(rec)
     Changed(rec)
@@ -177,7 +210,7 @@ local function SnapshotPlan(rec)
             rec.att = type(rec.att) == "table" and rec.att or {}
             local a = rec.att[key]
             if not a then
-                rec.att[key] = { j = rec.start, l = rec.stop, k = 0, b = true, bts = rec.plAt, c = s.c }
+                rec.att[key] = { k = 0, b = true, bts = rec.plAt, c = s.c }   -- (never joined: no times)
             end
         end
     end
@@ -196,7 +229,7 @@ local function Close(rec, endedBy)
         rec.autoEnded = true
     end
     for _, a in pairs(rec.att or {}) do
-        if not a.l then a.l = rec.stop end
+        if not a.l and a.j then a.l = rec.stop end   -- (a bench mark of somebody who never joined has no times)
     end
     SnapshotPlan(rec)
     if ns.db and ns.db.raidCurrent == rec.id then ns.db.raidCurrent = nil end
@@ -223,7 +256,7 @@ local function Reconcile()
         if not rec or rec.id ~= s.id then
             Open(s)
         elseif s.rpAt and (tonumber(rec.plAt) or 0) < s.rpAt then
-            rec.pl, rec.plAt = s.rp, s.rpAt
+            SetLink(rec, s.rp, s.rpAt)
             Changed(rec)
         end
     elseif rec then
@@ -303,14 +336,16 @@ function RaidLog:GetCurrentID()
     return rec and rec.id or nil
 end
 
--- The open record when a new authority may resume it (I am in a raid and it was active recently), or nil.
+-- The open record when a new authority may resume it (I am in a raid and it was active recently), or nil:
+-- { id, start, pl, plAt } (1.3: with its planned-raid link, so a resumed session keeps it; plAt without pl = unlinked
+-- on purpose).
 function RaidLog:GetResumable()
     if not IsInRaid() then return nil end
     local rec = OpenRecord()
     if not rec then return nil end
     local last = tonumber(rec.last) or tonumber(rec.start) or 0
     if GetServerTime() - last > RESUME_MAX_IDLE then return nil end
-    return { id = rec.id, start = rec.start }
+    return { id = rec.id, start = rec.start, pl = rec.pl, plAt = tonumber(rec.plAt) }
 end
 
 -- Demo mode (Addendum I): the Raids tab and attendance read the demo raids instead of the saved ones.
@@ -405,21 +440,27 @@ function RaidLog:SetBench(id, key, on)
     local a = rec.att[key]
     if on then
         if not a then
-            a = { j = rec.start, l = rec.stop, k = 0 }
+            a = { k = 0 }   -- (never joined: no times)
             rec.att[key] = a
         end
         a.b = true
     elseif a then
         a.b = nil
-        if (tonumber(a.k) or 0) == 0 and a.j == rec.start and a.l == rec.stop then rec.att[key] = nil end
+        if NeverJoined(rec, a) then rec.att[key] = nil end
     end
     a = rec.att[key]
-    if a then a.bts = GetServerTime() end   -- edit time (merge rule: the newer edit wins, §50)
+    if a then
+        -- edit time (merge rule: the newer edit wins, §50); never the link time, which marks the bench marks made from
+        -- the sign-ups (DropSignups)
+        local t = GetServerTime()
+        if t == tonumber(rec.plAt) then t = t + 1 end
+        a.bts = t
+    end
     Changed(rec)
     return true
 end
 
--- The GM and the guild council may delete logged raids (raid leaders can't).
+-- The GM and the guild council may delete logged raids (raid leaders can't). Peers take a deletion only from them.
 local function IsDeleter(key)
     local Guild = ns.Guild
     return Guild and Guild.IsGuildCouncil and type(key) == "string" and Guild:IsGuildCouncil(key) and true or false
@@ -445,28 +486,38 @@ function RaidLog:Delete(id)
     return true
 end
 
--- Addendum J §61, council: link a logged raid to a planned raid (occurrence id; nil = not linked).
+-- Addendum J §61, raid log members: link a logged raid to a planned raid (occurrence id; nil = not linked). A relink
+-- replaces the record's sign-ups (and the bench marks made from them) with the new raid's, an unlink clears them.
+-- 1.3: the raid running now is relinked through its session, for the whole raid (GroupRules:RequestSessionPlan).
 function RaidLog:SetPlanned(id, occId)
     local rec = self:GetRaid(id)
     if not rec or DemoRaids() or not IsPlanner(Util.PlayerKey()) then return false end
     if occId ~= nil and not (type(occId) == "string" and #occId <= 40 and occId:find("^[%w#]+$")) then return false end
-    rec.pl, rec.plAt = occId, GetServerTime()
-    if occId == nil then rec.su = nil end
+    if not rec.stop and ns.db and ns.db.raidCurrent == rec.id then
+        local GR = ns.GroupRules
+        local s = GR and GR.GetSession and GR:GetSession()
+        local ok, err = false, "the raid's session isn't known right now; try again in a moment."
+        if s and s.id == rec.id then ok, err = GR:RequestSessionPlan(occId) end
+        if not ok and err then ns:Print("%s", tostring(err)) end
+        return ok and true or false
+    end
+    if rec.pl == occId and (occId ~= nil or rec.plAt) then return true end
+    SetLink(rec, occId, GetServerTime())
     if rec.stop and occId then SnapshotPlan(rec) end
     Changed(rec)
     return true
 end
 
--- Addendum J §61: sign-up reliability over the last `lastN` closed raids with sign-ups on record: accepted = raids
--- they answered Accept, came = of those, raids they attended (or were marked bench for); also tentative / absent
--- counts. nil when no such raid.
+-- Addendum J §61: sign-up reliability over the last `lastN` closed raids linked to a planned raid, with sign-ups on
+-- record: accepted = raids they answered Accept, came = of those, raids they attended (or were marked bench for); also
+-- tentative / absent counts. nil when no such raid.
 function RaidLog:GetReliability(key, lastN)
     key = Util.NormalizeName(key)
     if not key then return nil end
     lastN = lastN or 8
     local out = { raids = 0, accepted = 0, came = 0, tentative = 0, absent = 0, noShows = {} }
     for _, rec in ipairs(self:GetRaids()) do
-        if rec.stop and rec.su then
+        if rec.stop and rec.pl and rec.su then
             out.raids = out.raids + 1
             local st = rec.su[key]
             local present = rec.att and rec.att[key] ~= nil
@@ -611,10 +662,13 @@ function RaidLog:Prune(now)
             raids[id] = nil
         elseif rec.stop and now - rec.start > keepDays * DAY then
             raids[id] = nil
-        elseif now - rec.start > ROSTER_KEEP_DAYS * DAY then
-            for _, b in ipairs(rec.bosses or {}) do
-                b.roster, b.off = nil, nil
+        else
+            if now - rec.start > ROSTER_KEEP_DAYS * DAY then
+                for _, b in ipairs(rec.bosses or {}) do
+                    b.roster, b.off = nil, nil
+                end
             end
+            if rec.su and not rec.pl and not rec.del then rec.su = nil end   -- 1.3: sign-ups only with a link
         end
     end
 end
@@ -768,7 +822,7 @@ local function CleanRecord(r, now)
     elseif r.pl == nil and IsInt(r.plAt, 1, now + FUTURE_SLACK) then
         out.plAt = r.plAt                                   -- unlinked by the council
     end
-    if type(r.su) == "table" then
+    if type(r.su) == "table" and out.pl then                -- (1.3: sign-ups belong to a link)
         local n = 0
         for key, st in pairs(r.su) do
             n = n + 1
@@ -840,6 +894,28 @@ local function MaxN(a, b) if a and b then return math.max(a, b) end return a or 
 -- Merges a clean peer record into mine (commutative). Returns true when mine changed.
 local function MergeRecord(cur, e)
     local before = RecordHash(cur)
+    -- the planned-raid link: the newer decision wins (the same time: the larger id, so both sides agree). 1.3: the
+    -- sign-ups (su) and the bench marks made from them belong to a link: two copies of the same link are joined, else the
+    -- winning link's come along and the other link's are dropped (loseAt: the losing link's time in e's bench marks).
+    local cp, ep = tonumber(cur.plAt) or 0, tonumber(e.plAt) or 0
+    local eWins = ep > cp or (ep == cp and ep > 0 and (e.pl or "") > (cur.pl or ""))
+    local loseAt
+    if (e.pl or "") == (cur.pl or "") then
+        if eWins then cur.plAt = e.plAt end
+        if e.su then
+            cur.su = cur.su or {}
+            for key, st in pairs(e.su) do
+                if not cur.su[key] or st > cur.su[key] then cur.su[key] = st end
+            end
+        end
+    elseif eWins then
+        DropSignups(cur, cp)
+        cur.pl, cur.plAt = e.pl, e.plAt
+        cur.su = e.su and Util.CopyTable(e.su) or nil
+    else
+        loseAt = ep > 0 and ep or nil
+    end
+    if not cur.pl then cur.su = nil end
     cur.start = MinN(cur.start, e.start)
     -- The end: an explicit End beats the safety net; two of a kind settle on the later one (then the smaller key).
     local cx, ex = cur.endedBy ~= nil, e.endedBy ~= nil
@@ -851,20 +927,21 @@ local function MergeRecord(cur, e)
         end
     end
     if not cur.zone and e.zone then cur.zone, cur.instID = e.zone, e.instID end
-    -- the planned-raid link: the newer decision wins (the same time: the larger id, so both sides agree)
-    local cp, ep = tonumber(cur.plAt) or 0, tonumber(e.plAt) or 0
-    if ep > cp or (ep == cp and ep > 0 and (e.pl or "") > (cur.pl or "")) then cur.pl, cur.plAt = e.pl, e.plAt end
-    if e.su then
-        cur.su = cur.su or {}
-        for key, st in pairs(e.su) do
-            if not cur.su[key] or st > cur.su[key] then cur.su[key] = st end
-        end
-    end
     if not cur.by and e.by then cur.by = e.by end
     cur.att = type(cur.att) == "table" and cur.att or {}
     for key, a in pairs(e.att) do
-        local c = cur.att[key]
-        if not c then
+        local stale = loseAt and a.b and a.bts == loseAt   -- a bench mark from the losing link's sign-ups
+        if stale then
+            if NeverJoined(e, a) then
+                a = nil
+            else
+                a.b, a.bts = nil, nil
+            end
+        end
+        local c = a and cur.att[key]
+        if not a then
+            -- (nothing: the losing link's bench mark of somebody who never joined)
+        elseif not c then
             cur.att[key] = a
         else
             c.j = MinN(c.j, a.j)
@@ -912,8 +989,9 @@ function RaidLog:MergeRecord(r, fromKey)
         return false
     end
     local cur = raids[e.id]
-    -- a deletion counts when the GM or a guild council member made it
-    if e.del and not IsDeleter(e.delBy) then
+    -- a deletion counts when the GM or a guild council member sends it (1.3: whoever it names: a raid leader can't relay
+    -- one that names a council member, and a deletion by someone who has left the council since still spreads)
+    if e.del and not IsDeleter(fromKey) then
         ns:Debug("RaidLog: rejected deletion by %s from %s", tostring(e.delBy), tostring(fromKey))
         return false
     end

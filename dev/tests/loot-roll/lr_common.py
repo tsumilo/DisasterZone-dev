@@ -199,6 +199,15 @@ class Raid:
         return self.c[name]
 
 
+def set_features(r, loot=True, rolls=True, lock=False, by="Alice", tick=3):
+    """The running raid session's features (1.2): loot council, rolls, BiS lock; set by the raid's authority. 1.3:
+    loot=False makes rolls plain and takes the master looter off the raid's council."""
+    res = r[by].eval_py("local ok, e = ns.GroupRules:SetSessionFeatures(...); return { ok = ok, e = e }",
+                        {"loot": loot, "rolls": rolls, "lock": lock})
+    assert res.get("ok") is True, "SetSessionFeatures refused: %r" % (res,)
+    r.w.tick(tick)
+
+
 def setup_council(w, clients, roster):
     """The loot council of a scenario roster: the rank-0 client is the Guild Master and picks every rank-1 member
     (Guild:SetGuildCouncil -> CG on GUILD). Without a GM client the rank-1 members get the stored list directly."""

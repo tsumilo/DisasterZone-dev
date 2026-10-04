@@ -134,8 +134,9 @@ local function benchMenu(row, rec, key, a)
     end)
 end
 
--- Addendum J §61: link a logged raid to a planned raid (council). The running session of the raid I lead is
--- relinked for everyone (GS); any other record is changed here and reaches the council through the raid log sync.
+-- Addendum J §61: link a logged raid to a planned raid (raid log members). The running session is relinked for the
+-- whole raid (GS: by the raid's authority, at the request of anyone else with the raid log; 1.3); any other record is
+-- changed here and reaches the raid planners through the raid log sync.
 local function planMenu(row, rec)
     local RP = ns.RaidPlan
     if not RP then return end
@@ -251,8 +252,9 @@ local function detailRows(rec)
     for _, key in ipairs(keys) do
         local a = rec.att[key]
         local note = a.b and "|cffffd100bench|r" or ""
-        add({ colored(key, a.c), ("%d/%d"):format(tonumber(a.k) or 0, nBoss), fmtTime(a.j),
-            (a.l and a.l ~= rec.stop) and fmtTime(a.l) or grey("end"), note },
+        local left = (a.j == nil and grey("-")) or ((a.l and a.l ~= rec.stop) and fmtTime(a.l)) or grey("end")
+        add({ colored(key, a.c), ("%d/%d"):format(tonumber(a.k) or 0, nBoss), a.j and fmtTime(a.j) or grey("-"),
+            left, note },
             { menu = function(row) benchMenu(row, rec, key, a) end })
     end
 

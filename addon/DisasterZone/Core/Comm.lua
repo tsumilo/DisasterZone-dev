@@ -7,8 +7,8 @@ local Comm = ns:NewModule("Comm")
 local Util = ns.Util
 
 local type, pairs, ipairs, tostring, pcall = type, pairs, ipairs, tostring, pcall
-local strsub = string.sub
-local max = math.max
+local strsub, strchar, tconcat = string.sub, string.char, table.concat
+local max, floor = math.max, math.floor
 
 local AceComm = LibStub and LibStub("AceComm-3.0", true)
 local LibSerialize = LibStub and LibStub("LibSerialize", true)
@@ -26,13 +26,15 @@ local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", me
 local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL" }
 local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live" }
 
-local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays)
+local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays; anyone:
+                                 -- strategy boards, see AllowLarge)
 local MAX_WIRE_LEN_MEMBER = 4000 -- from anyone else: a full own list is ~1.1 KB, HELLO / rolls / drops far less
 local MAX_INFLATED_LEN = 200000  -- decompressed bytes accepted
 local MAX_INFLATED_LEN_MEMBER = 16384   -- from a non-council sender (a full 5-phase own list is ~0.7 KB inflated)
 -- Deflate can expand a few wire bytes ~400-fold (a 250-byte message -> 99 KB of '{}'), so the wire caps alone do
 -- not bound the decode work. Real DisasterZone payloads (item ids, names, revs) inflate at most ~2:1: anything past
--- this ratio is refused before it is deserialized, and the sender is ignored for the rest of the session.
+-- this ratio is refused before it is deserialized, and the sender is ignored for the rest of the session. (A
+-- strategy full of near-equal texts packs tighter: Encode keeps such a message within the ratio.)
 local MAX_INFLATE_RATIO = 16
 local INFLATE_SLACK = 2048
 local HOLD_MAX = 40              -- messages held while the guild roster is not known yet
@@ -45,6 +47,8 @@ local held = {}                  -- { {prefix=, text=, dist=, key=, at=} ... }
 local holdTimerRunning = false
 local recentWhispers = {}        -- [key] = GetTime()
 local oversized = {}             -- [key] = true: sent a payload that inflated past the cap (ignored this session)
+local largeTypes = {}            -- [msgType] = prefix: any guild member may send it as large as a council member
+local largePrefix = {}           -- [prefix] = true: carries such a type
 local notFoundPattern
 
 Comm.stats = { sent = 0, recv = 0, bytesSent = 0, dropped = 0 }
@@ -61,13 +65,42 @@ end
 -- Encoding
 ---------------------------------------------------------------------------
 
+-- n bytes deflate can't shrink: a plain number sequence (the same every time, nothing random about it).
+local function Filler(n)
+    local t, x = {}, n % 2147483646 + 1
+    for i = 1, n do
+        x = x * 16807 % 2147483647       -- (exact in a double)
+        t[i] = strchar(floor(x / 256) % 256)
+    end
+    return tconcat(t)
+end
+
+-- The text on the wire, and the sizes a receiver checks: inflated and deflated bytes. Deflate packs a big repetitive
+-- payload (a strategy full of near-equal texts: 40 KB into 2 KB) past the receivers' ratio (Decode): such a message
+-- takes along a few bytes deflate can't shrink (field _f, which no handler reads), enough to stay within the ratio,
+-- rather than being refused and getting its sender ignored.
 local function Encode(msg)
     local serialized = LibSerialize:Serialize(msg)
     local compressed = LibDeflate:CompressDeflate(serialized)
-    return ProtoMajor() .. LibDeflate:EncodeForWoWAddonChannel(compressed)
+    local over = #serialized - (MAX_INFLATE_RATIO * #compressed + INFLATE_SLACK)
+    if over > 0 then
+        local padded = {}
+        for k, v in pairs(msg) do padded[k] = v end
+        padded._f = Filler(floor(over / (MAX_INFLATE_RATIO - 1)) + 64)
+        serialized = LibSerialize:Serialize(padded)
+        compressed = LibDeflate:CompressDeflate(serialized)
+    end
+    return ProtoMajor() .. LibDeflate:EncodeForWoWAddonChannel(compressed), #serialized, #compressed
 end
 
--- member: the sender is not council (smaller inflate cap).
+-- What every receiver takes from any sender (OnCommReceived, Decode); anything bigger is never sent: it would be
+-- dropped everywhere, and get me ignored for the session on top.
+local function Sendable(text, inflated, deflated)
+    return #text <= MAX_WIRE_LEN and inflated <= MAX_INFLATED_LEN
+        and inflated <= MAX_INFLATE_RATIO * deflated + INFLATE_SLACK
+end
+
+-- member: the sender is not council (smaller inflate cap). Returns the message and its inflated size.
 local function Decode(body, member)
     local decoded = LibDeflate:DecodeForWoWAddonChannel(body)
     if not decoded then error("decode failed", 0) end
@@ -80,7 +113,7 @@ local function Decode(body, member)
     end
     local ok, value = LibSerialize:Deserialize(inflated)
     if not ok then error("deserialize failed: " .. tostring(value), 0) end
-    return value
+    return value, n
 end
 
 ---------------------------------------------------------------------------
@@ -148,13 +181,28 @@ function Comm:Send(msg, distribution, target, class)
     if not PREFIX[class] then return false end
     local ok, resolved = CheckRoute(distribution, target)
     if not ok then return false end
-    local encOk, text = pcall(Encode, msg)
+    local encOk, text, inflated, deflated = pcall(Encode, msg)
     if not encOk then
         ns:Debug("Comm: could not encode '%s': %s", tostring(msg.t), tostring(text))
         return false
     end
+    if not Sendable(text, inflated, deflated) then
+        ns:Debug("Comm: '%s' is too large to send (%d bytes)", tostring(msg.t), #text)
+        return false
+    end
     SendText(class, text, distribution, distribution == "WHISPER" and resolved or nil)
     return true
+end
+
+-- Would every guild member take msg, a type any of them may send large (AllowLarge)? headroom (0..1, default 0): the
+-- share of each cap to leave free, for a record another member sends on later (serialized in another order it packs
+-- a little differently). Returns fits, wire bytes, inflated bytes.
+function Comm:Fits(msg, headroom)
+    if not Available() then return true end
+    local k = 1 - (headroom or 0)
+    local ok, text, inflated = pcall(Encode, msg)
+    if not ok then return false end
+    return #text <= MAX_WIRE_LEN * k and inflated <= MAX_INFLATED_LEN * k, #text, inflated
 end
 
 -- Whispers msg to every online council peer (excluding me). Returns the number of sends.
@@ -166,9 +214,13 @@ function Comm:SendToCouncil(msg, class)
     if #peers == 0 then return 0 end
     class = class or "ctrl"
     if not PREFIX[class] then return 0 end
-    local encOk, text = pcall(Encode, msg)   -- encode once for all recipients
+    local encOk, text, inflated, deflated = pcall(Encode, msg)   -- encode once for all recipients
     if not encOk then
         ns:Debug("Comm: could not encode '%s': %s", tostring(msg.t), tostring(text))
+        return 0
+    end
+    if not Sendable(text, inflated, deflated) then
+        ns:Debug("Comm: '%s' is too large to send (%d bytes)", tostring(msg.t), #text)
         return 0
     end
     local n = 0
@@ -196,6 +248,17 @@ function Comm:Register(msgType, handler)
         ns:Debug("Comm: handler for '%s' replaced", msgType)
     end
     handlers[msgType] = handler
+end
+
+-- Any guild member may send msgType as large as a council member may (strategy boards: everyone builds them). It
+-- travels on `class`: that prefix then takes large messages from every guild member (the cap is picked before
+-- decoding), and once decoded the other types on it from a non-council sender are held to the member caps after all.
+function Comm:AllowLarge(msgType, class)
+    if type(msgType) ~= "string" or not PREFIX[class] then
+        error("Comm:AllowLarge(msgType, class): bad arguments", 2)
+    end
+    largeTypes[msgType] = PREFIX[class]
+    largePrefix[PREFIX[class]] = true
 end
 
 -- True if allowed now (and records the call); false if called again within `seconds`.
@@ -229,18 +292,21 @@ local function Dispatch(prefix, text, distribution, senderKey, allow, holdDenied
         if Sync and Sync.NotePeerProtocol then Sync:NotePeerProtocol(senderKey, major) end
         return
     end
-    -- Inflating is the expensive step: only council members may send large messages, and a sender
-    -- whose payload already blew the inflate cap is not decoded again this session.
+    -- Inflating is the expensive step: only council members may send large messages (and any guild member on a
+    -- prefix that carries strategy boards, AllowLarge), and a sender whose payload already blew the inflate cap is not
+    -- decoded again this session.
     local Guild = ns.Guild
     local council = (Guild and (Guild:IsCouncil(senderKey, true)
         or (Guild.IsRaidLogMember and Guild:IsRaidLogMember(senderKey)))) and true or false
-    local limit = council and MAX_WIRE_LEN or MAX_WIRE_LEN_MEMBER
+    local large = council or (allow == nil and largePrefix[prefix] == true
+        and (distribution == "GUILD" or distribution == "WHISPER"))
+    local limit = large and MAX_WIRE_LEN or MAX_WIRE_LEN_MEMBER
     if oversized[senderKey] or #text > limit then
         Comm.stats.dropped = Comm.stats.dropped + 1
         ns:Debug("Comm: oversized message from %s dropped", senderKey)
         return
     end
-    local ok, msg = pcall(Decode, strsub(text, 2), not council)
+    local ok, msg, inflated = pcall(Decode, strsub(text, 2), not large)
     if not ok then
         Comm.stats.dropped = Comm.stats.dropped + 1
         if msg == "payload too large" then oversized[senderKey] = true end
@@ -249,6 +315,14 @@ local function Dispatch(prefix, text, distribution, senderKey, allow, holdDenied
     end
     if type(msg) ~= "table" or type(msg.t) ~= "string" then
         Comm.stats.dropped = Comm.stats.dropped + 1
+        return
+    end
+    -- taken large for a strategy board, but it is something else: the member caps after all (as before decoding)
+    if not council and large and largeTypes[msg.t] ~= prefix
+        and (#text > MAX_WIRE_LEN_MEMBER or inflated > MAX_INFLATED_LEN_MEMBER) then
+        Comm.stats.dropped = Comm.stats.dropped + 1
+        if inflated > MAX_INFLATED_LEN_MEMBER then oversized[senderKey] = true end
+        ns:Debug("Comm: oversized '%s' from %s dropped", msg.t, senderKey)
         return
     end
     if allow and not allow[msg.t] then

@@ -13,6 +13,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Ledger.lua", ...) then return
 -- guild bank awards don't count as loot received, and disenchant / bank awards don't mark the item awarded.
 -- Raid log (Addendum I §49): optional rid = the raid session the award was made in (every council client in the raid
 -- knows the same session). Not part of the digest; a peer's rid fills in a missing one.
+-- 1.3: the disenchant / guild bank hand-outs of a master looter outside the council (Loot LT) are recorded by every
+-- council client in the group under one id (RecordTargetAward).
 local addonName, ns = ...
 
 local Ledger = ns:NewModule("Ledger")
@@ -607,6 +609,39 @@ function Ledger:RecordRollAward(sessionID, itemID, winnerKey, bossKey, note, byK
     elseif broadcast then
         Broadcast(entry)
     end
+    return entry
+end
+
+-- 1.3: a master looter outside the council gave itemID to the disenchanter / guild bank character (Loot LT): every
+-- council client in the group records the same manual award with that reason (the id is built like Ledger:Award's,
+-- from the master looter, its time and the item), so the loot line's auto entry is hidden and the hand-out does not
+-- count as loot won. Not broadcast: each council client in the group records it, the others get it by sync.
+function Ledger:RecordTargetAward(itemID, winnerKey, bossKey, reason, byKey, ts)
+    if not AmRealCouncil() or (reason ~= "de" and reason ~= "bank") or not ns.AWARD_REASON[reason] then return nil end
+    local db = LedgerDB()
+    local gkey = EntryGuildKey()
+    winnerKey, byKey = Util.NormalizeName(winnerKey), Util.NormalizeName(byKey)
+    itemID = tonumber(itemID)
+    if not db or gkey == nil or not winnerKey or not byKey or not IsInt(itemID, 1, 200000) then return nil end
+    local now = GetServerTime()
+    ts = tonumber(ts)
+    if not IsInt(ts, 1, MAX_TS) or ts > now + FUTURE_SLACK or ts < now - DAY then ts = now end
+    local base = ("m" .. ts .. IdName(byKey) .. itemID):sub(1, MAX_ID_LEN - 4)
+    local id, n = base, 1
+    while db[id] do
+        local cur = db[id]
+        if type(cur) == "table" and cur.i == itemID and cur.w == winnerKey then return cur end   -- (recorded already)
+        n = n + 1
+        id = base .. "-" .. n
+    end
+    local entry = {
+        id = id, i = itemID, w = winnerKey, ts = ts, by = byKey, s = "m",
+        b = IsStr(bossKey, MAX_ID_LEN, true) and bossKey or "", g = gkey or nil, dg = DgFlag(nil), r = reason,
+        rid = CurrentRaidID(),
+    }
+    db[id] = entry
+    if gkey == false then pendingScope[id] = "quiet" end
+    Invalidate()
     return entry
 end
 

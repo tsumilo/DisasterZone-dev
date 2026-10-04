@@ -2246,11 +2246,13 @@ function UI:IsMyListLocked()
 end
 
 -- I may lock / unlock: the raid's loot authority (raid leader first) with a core that has the lock. The lock
--- only exists in raids.
+-- only exists in raids; 1.3: only while the raid runs with the loot council (GroupRules:CanLock; a held lock can
+-- always be undone).
 function UI:CanSetBiSLock()
     local GR = ns.GroupRules
     if type(GR) ~= "table" or type(GR.SetLocked) ~= "function" then return false end
     if not (IsInRaid and IsInRaid()) then return false end
+    if type(GR.CanLock) == "function" then return (GR:CanLock()) and true or false end
     return (type(GR.IsAuthority) == "function" and GR:IsAuthority()) and true or false
 end
 

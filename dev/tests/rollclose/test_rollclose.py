@@ -482,9 +482,12 @@ def b3_plain_award_while_open_ends_the_roll_and_queued_is_cancelled():
 @R.case
 def b4_non_council_master_looter_awards_through_the_roll():
     """A non-council master looter's plain Award... goes through the roll too: the council clients record the
-    RW (one shared entry); the master looter writes nothing and gets no plain-award refusal."""
+    RW (one shared entry); the master looter writes nothing and gets no plain-award refusal.
+    1.3: a non-council master looter awards rolls while the raid rolls plain (loot council off); with the loot council
+    on, a master looter from the guild is council of the raid."""
     r = Raid(ml="Frank")
     w = r.w
+    set_features(r, loot=False, rolls=True)
     for c in r.clients:
         bu.install_helpers(c)
         c.eval(LEDGER_SPY)

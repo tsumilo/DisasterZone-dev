@@ -1,6 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Guild.lua", ...) then return end -- DisasterZone: guild roster cache and the loot council (Addendum E §29-§33). The council is the Guild Master,
 -- the guild council list the GM picks (CG / CQ on GUILD, relayed by council members), the current raid
 -- leader and the raid council that leader picks (CR / CRQ on RAID, kept in memory for that raid only).
+-- 1.3: only members of my guild are council (a pug never is, not as raid leader, master looter or on a raid list), and
+-- while the raid runs the loot council its master looter is council of that raid too.
 -- Every other module asks ns.Guild who is council and who is online. DisasterZone no longer reads or writes
 -- the Guild Information text.
 local addonName, ns = ...
@@ -50,6 +52,7 @@ local pollTicker
 local guildList                 -- db.council.guild when it is valid for my current guild, else nil
 local inRaid = false
 local raidLeader                -- current raid leader key (cached from GetRaidRosterInfo); nil outside raids
+local raidML                    -- current master looter key (cached like raidLeader); false = none, nil = read again
 local raidCouncil               -- { leader=, rev=, members={} } accepted for my current raid (memory only)
 local configSignature           -- effective council set + my status + phase + GM; change => CONFIG_UPDATED
 local cgSeen = {}               -- [rev] = GetTime() a trusted CG with this rev was seen / sent on GUILD
@@ -59,6 +62,8 @@ local loginQueryGuild           -- guild key the login CQ was scheduled for (a g
 local rosterGen = 0             -- BuildRoster generation (entries are updated in place)
 local keyReadyFired             -- guild key GUILD_KEY_READY was fired for
 local gmRelayNoted = false      -- the "your list is not on this PC" hint was printed (GM only)
+local gmNewerNoted = false      -- the "a newer list than yours is shared" hint was printed (GM only)
+local mlCheck = false           -- inside the master looter's loot-council check (GroupRules must not loop back)
 local crReplyPending = false
 local raidSince                 -- server time I joined my current raid (raid-scope council sees its awards only)
 local lastCrReply = -1000
@@ -433,6 +438,37 @@ local function AmILeadingRaid()
     return (IsInRaid() and UnitIsGroupLeader("player")) and true or false
 end
 
+-- The master looter of my raid (GetRaidRosterInfo says isML only while the loot method is Master Looter).
+local function LiveMasterLooter()
+    if not IsInRaid() then return nil end
+    local n = min(tonumber(GetNumGroupMembers()) or 0, 40)
+    for i = 1, n do
+        local name, _, _, _, _, _, _, _, _, _, isML = GetRaidRosterInfo(i)
+        if isML and type(name) == "string" and name ~= "" and name ~= UNKNOWNOBJECT then
+            return Util.NormalizeName(name)
+        end
+    end
+    return nil
+end
+
+local function CurrentMasterLooter()
+    if not IsInRaid() then return nil end
+    if raidML == nil then raidML = LiveMasterLooter() or false end
+    return raidML or nil
+end
+
+-- 1.3: the raid runs the loot council (the raid session's "loot" feature, GroupRules). While it does, a master
+-- looter from my guild is council for that raid (source "ml"). Never true while the question comes from GroupRules
+-- itself (a check of the authority asking who is council must not loop back here).
+local function LootCouncilOn()
+    local GR = ns.GroupRules
+    if mlCheck or not (GR and GR.IsFeatureOn) then return false end
+    mlCheck = true
+    local ok, on = pcall(GR.IsFeatureOn, GR, "loot")
+    mlCheck = false
+    return (ok and on) and true or false
+end
+
 -- key is a member of my current raid (the real one; demo raid members don't count).
 local function InMyRaid(key)
     if type(key) ~= "string" or not IsInRaid() then return false end
@@ -482,33 +518,63 @@ local function DebugRole(key)
     return nil
 end
 
-local function RealSource(key)
+-- The guild list that makes its members council: an unconfirmed one (trust on first use, src "tofu") names nobody
+-- until the GM's own CG confirms it (any member could seed a fresh client with a list naming themselves).
+local function ConfirmedGuildList()
+    local list = guildList
+    if list and list.src == "tofu" then return nil end
+    return list
+end
+
+-- "gm" | "guild" | nil: the guild-wide council only (the GM, or on the confirmed guild list).
+local function GuildSource(key)
     if type(key) ~= "string" then return nil end
     local role = DebugRole(key)
     if role == "gm" then return "gm" end
     if role == "council" then return "guild" end
-    if not role then
-        if gmKey and key == gmKey then return "gm" end
-        local list = guildList
-        if list and list.members[key] and roster[key] then return "guild" end
-        -- another character of the same player is the GM / on the guild list
-        local mains = roster[key] and Principals(key)
-        if mains then
-            local viaList = false
-            for _, m in ipairs(mains) do
-                if m == gmKey then return "gm" end
-                if list and list.members[m] and roster[m] then viaList = true end
-            end
-            if viaList then return "guild" end
+    if role then return nil end
+    if gmKey and key == gmKey then return "gm" end
+    local list = ConfirmedGuildList()
+    if list and list.members[key] and roster[key] then return "guild" end
+    -- another character of the same player is the GM / on the guild list
+    local mains = roster[key] and Principals(key)
+    if mains then
+        local viaList = false
+        for _, m in ipairs(mains) do
+            if m == gmKey then return "gm" end
+            if list and list.members[m] and roster[m] then viaList = true end
         end
+        if viaList then return "guild" end
     end
-    if IsInRaid() then
+    return nil
+end
+
+-- 1.3: pugs are never loot council. In my raid only members of my guild (the live roster) count: the raid leader,
+-- the raid council list of a raid leader from my guild, and - while the loot council runs - the master looter.
+-- A client outside any guild (a pug with DisasterZone) has no guild to go by: it follows the raid's leader and that
+-- leader's list as before 1.3 (never counting itself), so it still takes the raid's rolls and awards. That only
+-- changes what the pug's own client accepts; every guild client still ignores the pug.
+local function RaidMemberCounts(key)
+    if roster[key] then return true end
+    return not IsInGuild() and not Util.IsMe(key)
+end
+
+local function GuildRaidCouncil(leader)
+    local rc = raidCouncil
+    if not (leader and RaidMemberCounts(leader) and rc and rc.leader == leader) then return nil end
+    return rc
+end
+
+-- "gm" | "guild" | "raidleader" | "raid" | "ml" | nil, from real data only (no demo).
+local function RealSource(key)
+    local s = GuildSource(key)
+    if s or type(key) ~= "string" then return s end
+    if IsInRaid() and RaidMemberCounts(key) then
         local leader = CurrentRaidLeader()
-        if leader then
-            if key == leader then return "raidleader" end
-            local rc = raidCouncil
-            if rc and rc.leader == leader and rc.members[key] and InMyRaid(key) then return "raid" end
-        end
+        if leader and key == leader then return "raidleader" end
+        local rc = GuildRaidCouncil(leader)
+        if rc and rc.members[key] and InMyRaid(key) then return "raid" end
+        if roster[key] and key == CurrentMasterLooter() and LootCouncilOn() then return "ml" end
     end
     return nil
 end
@@ -520,8 +586,9 @@ local function EffectiveCouncilSet()
         set[gmKey] = true
         AddAlts(set, gmKey)
     end
-    if guildList then
-        for key in pairs(guildList.members) do
+    local list = ConfirmedGuildList()
+    if list then
+        for key in pairs(list.members) do
             if roster[key] then
                 set[key] = true
                 AddAlts(set, key)
@@ -530,15 +597,17 @@ local function EffectiveCouncilSet()
     end
     if IsInRaid() then
         local leader = CurrentRaidLeader()
-        if leader then
+        if leader and RaidMemberCounts(leader) then
             set[leader] = true
-            local rc = raidCouncil
-            if rc and rc.leader == leader then
+            local rc = GuildRaidCouncil(leader)
+            if rc then
                 for key in pairs(rc.members) do
-                    if InMyRaid(key) then set[key] = true end
+                    if RaidMemberCounts(key) and InMyRaid(key) then set[key] = true end
                 end
             end
         end
+        local ml = CurrentMasterLooter()
+        if ml and roster[ml] and LootCouncilOn() then set[ml] = true end
     end
     return set
 end
@@ -579,8 +648,12 @@ end
 -- the live-roster GM), "relay" (relayed by a council member of a confirmed list), "tofu" (trust on first use: no
 -- list yet and the relayed list named its relayer; unconfirmed). nil = a list stored by DisasterZone 0.3 / 0.4.
 -- An unconfirmed list is never re-served (CQ answers, cg in HELLO / STATE), is re-queried at every login, and any
--- CG straight from the GM replaces it whatever its rev.
+-- CG straight from the GM replaces it whatever its rev. 1.3: it makes nobody council until the GM confirms it.
 local function IsTofu(rec) return type(rec) == "table" and rec.src == "tofu" end
+
+-- 1.3: a list I did not get straight from the GM (relayed, unconfirmed, or stored by DisasterZone 0.3 / 0.4). The GM's
+-- own CG outranks it whatever its rev: a council member could relay a rewritten list "by the GM" with a newer rev.
+local function IsRelayed(rec) return type(rec) == "table" and rec.src ~= "self" and rec.src ~= "gm" end
 
 local function SendCG(rec, target)
     if type(rec) ~= "table" then return false end
@@ -628,7 +701,9 @@ end
 -- when it was made by the current GM and the relaying member is council under my current (confirmed) guild
 -- list, or - trust on first use - I have no confirmed list and the relayed list names the relaying member
 -- (then it stays unconfirmed until the GM's own CG arrives, see IsTofu). The GM's own client never takes a
--- relayed copy of "its" list: only its own saves count there.
+-- relayed copy of "its" list: only its own saves count there. 1.3: a CG straight from the GM replaces any
+-- relayed copy whatever the revs (IsRelayed), and the GM shares its list again when someone holds another rev
+-- (Guild:OnCouncilRevSeen).
 local function OnGuildCouncil(sender, msg, dist)
     if (dist ~= "GUILD" and dist ~= "WHISPER") or not ready then return end
     local v = ValidateCG(msg)
@@ -674,8 +749,8 @@ local function OnGuildCouncil(sender, msg, dist)
     local storedRev = stored and stored.rev or 0
     local same = stored ~= nil and SameSet(stored.members, v.members) and stored.phase == v.phase
         and stored.de == v.de and stored.bank == v.bank
-    if gmDirect and IsTofu(stored) then
-        -- The GM outranks an unconfirmed list whatever its rev: confirm it, or replace it.
+    if gmDirect and IsRelayed(stored) then
+        -- The GM outranks a relayed or unconfirmed list whatever its rev: confirm it, or replace it.
         if dist == "GUILD" then cgSeen[v.rev] = GetTime() end
         if same and v.rev == storedRev then
             stored.src, stored.recvAt = "gm", Now()
@@ -776,11 +851,17 @@ local function ScheduleCRQ(delay)
 end
 
 -- CR {rev, m}: only from the current raid leader per GetRaidRosterInfo. Replaces the raid council.
+-- 1.3: only from a raid leader in my guild (pugs are never loot council; until my guild roster has loaded the list is
+-- kept, and the council checks skip it while its leader is not on the roster).
 local function OnRaidCouncil(sender, msg, dist)
     if dist ~= "RAID" or type(msg) ~= "table" or not IsInRaid() then return end
     local rank = Util.GetGroupRole and Util.GetGroupRole(sender)
     if rank ~= 2 then
         ns:Debug("Guild: CR from %s ignored (not the raid leader)", tostring(sender))
+        return
+    end
+    if ready and not roster[sender] then
+        ns:Debug("Guild: CR from %s ignored (not in my guild)", tostring(sender))
         return
     end
     local rev = msg.rev
@@ -818,6 +899,7 @@ local function RefreshRaidState()
     local joined = nowInRaid and not inRaid
     local changed = leader ~= raidLeader
     inRaid, raidLeader = nowInRaid, leader
+    raidML = nil   -- (read again when asked)
     if joined then raidSince = Now() elseif not nowInRaid then raidSince = nil end
     if not nowInRaid then
         raidCouncil = nil
@@ -1498,6 +1580,11 @@ function Guild:OnInit()
     ns:RegisterEvent("GROUP_ROSTER_UPDATE", RefreshRaidState)
     ns:RegisterEvent("PARTY_LEADER_CHANGED", RefreshRaidState)
     ns:RegisterEvent("PLAYER_ENTERING_WORLD", RefreshRaidState)
+    -- 1.3: the master looter is council of the raid while it runs the loot council
+    ns:RegisterEvent("PARTY_LOOT_METHOD_CHANGED", function()
+        raidML = nil
+        Recompute()
+    end)
     ns:On("GROUP_UPDATED", Recompute)          -- raid council members joining / leaving the raid
     ns:On("GROUP_RULES_CHANGED", Recompute)    -- the group's phase
     ns:On("SETTINGS_CHANGED", function(path)
@@ -1680,7 +1767,8 @@ function Guild:AmICouncil(real)
     return me ~= nil and Guild:IsCouncil(me, real)
 end
 
--- "gm" | "guild" | "raidleader" | "raid" | nil (for UI labels).
+-- "gm" | "guild" | "raidleader" | "raid" | "ml" | nil (for UI labels). "ml" (1.3): the master looter, council of
+-- the raid while it runs the loot council; like "raid", council for that raid only.
 function Guild:GetCouncilSource(key)
     local s = RealSource(key)
     if s then return s end
@@ -1690,8 +1778,12 @@ end
 
 -- DisasterZone extension: guild-wide council (the GM or on the guild list), not raid-scope.
 function Guild:IsGuildCouncil(key)
-    local s = RealSource(key)
-    return s == "gm" or s == "guild"
+    return GuildSource(key) ~= nil
+end
+
+-- 1.3: the master looter of my raid, or nil.
+function Guild:GetRaidMasterLooter()
+    return CurrentMasterLooter()
 end
 
 -- Sorted array of every council member (demo mode adds me and the fake officers).
@@ -1761,9 +1853,12 @@ function Guild:GetRaidSince()
     return raidSince
 end
 
+-- 1.3: nil while the raid leader is not in my guild, and only the members of my guild are listed (pugs are never
+-- loot council).
 function Guild:GetRaidCouncil()
     if not IsInRaid() then return nil end
     local leader = CurrentRaidLeader()
+    if not (leader and RaidMemberCounts(leader)) then return nil end
     local rc = raidCouncil
     if not rc or rc.leader ~= leader then
         if AmILeadingRaid() then
@@ -1772,7 +1867,11 @@ function Guild:GetRaidCouncil()
             return nil
         end
     end
-    return { leader = rc.leader, rev = rc.rev, members = CopySet(rc.members), de = rc.de, bank = rc.bank }
+    local members = {}
+    for key in pairs(rc.members) do
+        if RaidMemberCounts(key) then members[key] = true end
+    end
+    return { leader = rc.leader, rev = rc.rev, members = members, de = rc.de, bank = rc.bank }
 end
 
 -- My own saved raid list (a copy { rev, members, de, bank }), or nil.
@@ -1782,9 +1881,9 @@ function Guild:GetMyRaidList()
     return { rev = rec.rev, members = CopySet(rec.members), de = rec.de, bank = rec.bank }
 end
 
--- Saves my raid list "until changed" (a set or an array of keys, at most 40; raid members of any guild) and
--- the raid's loot targets (Addendum G; like SetGuildCouncil's `targets`). While I lead a raid it becomes that
--- raid's council at once and is shared (CR). Returns ok, err.
+-- Saves my raid list "until changed" (a set or an array of keys, at most 40; 1.3: only members of my guild count as
+-- council, a pug on it never does) and the raid's loot targets (Addendum G; like SetGuildCouncil's `targets`). While I
+-- lead a raid it becomes that raid's council at once and is shared (CR). Returns ok, err.
 function Guild:SetMyRaidList(membersSet, targets)
     local c = CouncilDB()
     if not c then return false, "settings are not loaded yet" end
@@ -1806,14 +1905,17 @@ end
 
 -- Addendum G §41: the character that gets "de" (disenchant) or "bank" (guild bank) awards, and where that comes
 -- from: key, "raid" (the current raid leader's pick for this raid) | "guild" (the GM's pick). nil when unset.
--- The raid's pick wins while I am in that raid; demo mode picks a fake raider so the buttons can be tried.
+-- The raid's pick wins while I am in that raid (1.3: a raid leader from my guild); demo mode picks a fake raider so
+-- the buttons can be tried.
 function Guild:GetLootTarget(kind)
     if not TARGET_KINDS[kind] then return nil end
     if IsInRaid() then
         local leader = CurrentRaidLeader()
         local rc = raidCouncil
         if leader and Util.IsMe(leader) then rc = OwnRaidCouncil() end
-        if rc and rc.leader == leader and type(rc[kind]) == "string" then return rc[kind], "raid" end
+        if leader and RaidMemberCounts(leader) and rc and rc.leader == leader and type(rc[kind]) == "string" then
+            return rc[kind], "raid"
+        end
     end
     local rec = guildList
     if rec and type(rec[kind]) == "string" then return rec[kind], "guild" end
@@ -1834,13 +1936,48 @@ function Guild:AmIRaidLeader()
     return AmILeadingRaid()
 end
 
+-- 1.3: I am the GM and `sender` holds another rev of the guild list than mine. A newer one was relayed by a council
+-- member (perhaps rewritten) or saved by me on another PC: my list goes out on GUILD again, where it replaces every
+-- relayed copy. An older one: the member gets mine by whisper.
+local function ReshareAsGM(sender, rev)
+    local mine = guildList
+    if not mine or IsTofu(mine) or rev == mine.rev then return false end
+    if rev < mine.rev then
+        if not RateLimit("cg-push:" .. sender .. ":" .. tostring(mine.rev), CQ_REPLY_LIMIT) then return false end
+        Util.RandomDelay(GM_REPLY_MIN, GM_REPLY_MAX, function()
+            local cur = guildList
+            if cur and not IsTofu(cur) then SendCG(cur, sender) end
+        end)
+        return true
+    end
+    if not gmNewerNoted then
+        gmNewerNoted = true
+        ns:Print("%s holds a newer guild council list than the one saved on this PC: yours was shared again and "
+            .. "replaces it. If you changed the council on another PC, open Council > Loot Council and save it again.",
+            Util.ShortName(sender))
+    end
+    if not RateLimit("cg-reshare:" .. tostring(rev), CQ_REPLY_LIMIT) then return false end
+    local asked = GetTime()
+    Util.RandomDelay(GM_REPLY_MIN, GM_REPLY_MAX, function()
+        local cur = guildList
+        if not cur or IsTofu(cur) then return end
+        local seen = cgSeen[cur.rev]
+        if seen and seen >= asked then return end   -- already shared on GUILD meanwhile
+        SendCG(cur)
+    end)
+    return true
+end
+
 -- HELLO / STATE piggyback (Addendum E §31): a council member holds guild list rev `rev`. When mine is
--- older, ask that member by whisper (CQ). Returns true when a query was sent.
+-- older, ask that member by whisper (CQ). Returns true when a query was sent (or, as the GM, my list was shared).
 function Guild:OnCouncilRevSeen(sender, rev)
     if type(sender) ~= "string" or not IsInt(rev, 1, MAX_REV) or rev > Now() + FUTURE_SLACK then return false end
     if not IsInGuild() or Util.IsMe(sender) or not roster[sender] then return false end   -- guild members only
-    -- An unconfirmed list asks the GM whenever the GM advertises another rev (the GM's CG then replaces it).
-    local tofuVsGM = IsTofu(guildList) and sender == gmKey and rev ~= guildList.rev
+    local me = Util.PlayerKey()
+    if me and IsGMKey(me) then return ReshareAsGM(sender, rev) end
+    -- An unconfirmed list asks the GM whenever the GM advertises a rev (the GM's CG then confirms or replaces it;
+    -- 1.3: until then the list makes nobody council).
+    local tofuVsGM = IsTofu(guildList) and IsGMKey(sender)
     if rev <= (guildList and guildList.rev or 0) and not tofuVsGM then return false end
     local now = GetTime()
     if cqInFlight and cqInFlight.rev >= rev and now - cqInFlight.at < CQ_INFLIGHT and not tofuVsGM then
@@ -1849,7 +1986,7 @@ function Guild:OnCouncilRevSeen(sender, rev)
     if not RateLimit("cq-w:" .. sender, CQ_REPLY_LIMIT) then return false end
     cqInFlight = { rev = rev, at = now }
     Util.RandomDelay(0.5, 2, function()
-        if (guildList and guildList.rev or 0) < rev or (IsTofu(guildList) and sender == gmKey) then
+        if (guildList and guildList.rev or 0) < rev or (IsTofu(guildList) and IsGMKey(sender)) then
             SendCQ("WHISPER", sender)
         end
     end)

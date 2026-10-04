@@ -1,7 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidLink.lua", ...) then return end -- DisasterZone: Core/RaidLink.lua
 -- Addendum J §61: links a running raid session (Addendum I) to the planned raid it is, automatically. The raid leader's
 -- client decides (it is the session's authority) and the link rides on the session's GS (rp / rpAt), so every raider
--- records the same one; the council can change it later in the Raid log.
+-- records the same one. 1.3: anyone with the raid log (the raid leaders list, the GM, the guild council) in the raid can
+-- change it in the Raid log, for the whole raid (GroupRules:RequestSessionPlan); after the raid, for its record.
 --
 -- A planned raid matches when it starts between 4 hours before and 3 hours after the session started, isn't cancelled
 -- and isn't for another instance (when I am inside one). Evidence, strongest first: Invite & sort ran for it; the
@@ -90,8 +91,8 @@ local function TryLink()
     if not occ then return end
     if GR:SetSessionPlan(occ) then
         local v = RP():GetRaid(occ)
-        ns:Print("This raid is linked to the planned raid %s (%s). The council can change it in the Raid log.",
-            v and RP():GetRaidName(v) or "?", v and date("%a %d %b %H:%M", v.t) or "?")
+        ns:Print("This raid is linked to the planned raid %s (%s). Raid leaders and the guild council can change that "
+            .. "in the Raid log, for the whole raid.", v and RP():GetRaidName(v) or "?", v and date("%a %d %b %H:%M", v.t) or "?")
     end
 end
 

@@ -1,7 +1,8 @@
 """Strategy boards, together (Core/StrategyCollab.lua): who has a strategy open (the board's header, the list of
 strategies), several editors on one live board (changes travel as the fields they touch, the later change of a field
 wins everywhere, a drifted board is fetched again), undo of my own actions only, what the others have selected, one
-editor's Save settling all of them, and the warning before saving over a version someone else saved meanwhile.
+editor's Save settling all of them, and the warning before saving over a version someone else saved meanwhile. A
+collaborator the owner takes off no longer shows as editing, and can't take up the draft he had (1.3).
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy_collab.py [-k name]
 """
@@ -431,6 +432,45 @@ def only_the_strategys_editors_take_part():
     assert state(rita)["peers"] == [K("Sam")] and state(sam)["peers"] == [K("Rita")]
     assert CONFIRM not in rita.popups() and CONFIRM not in sam.popups()
     assert content(rita) == before and content(sam) == before
+    # (and nobody sees Lee editing: he may not)
+    assert [(e["key"], e["m"]) for e in rita.eval_py("return %s:GetPresence(...)" % C, sid)] == [(K("Sam"), "e"),
+                                                                                                (K("Lee"), "v")]
+    w.assert_no_errors()
+
+
+@case
+def a_collaborator_taken_off_stops_editing():
+    """Rita takes Sam off while his board has unsaved changes: nobody sees him editing any more (whatever his board
+    says), and his draft can't be taken up again: it is dropped with a message and the strategy opens read-only."""
+    w, c, sid = setup("Rita", "Sam")
+    rita, sam, lee = c["Rita"], c["Sam"], c["Lee"]
+    other = save_council(lee, "Other")
+    lee.eval(B + ":OpenStrategy(...)", sid)
+    w.tick(3)
+    seen = lee.eval_py("return %s:GetPresence(...)" % C, sid)
+    assert [(e["key"], e["m"]) for e in seen] == [(K("Rita"), "e"), (K("Sam"), "e")], seen
+    place(sam, 640)
+    w.tick(2)
+    did = sam.eval("return %s.did" % ST)
+    assert did and sam.eval("return %s.dirty" % ST) is True
+    assert rita.eval_py("local ok, e = ns.Strategy:RemoveCollaborator(...); return { ok = ok, e = e }",
+                        sid, K("Sam"))["ok"] is True
+    w.tick(2)
+    for x in (rita, lee):
+        seen = x.eval_py("return %s:GetPresence(...)" % C, sid)
+        assert (K("Sam"), "v") in [(e["key"], e["m"]) for e in seen], (x.name, seen)
+        assert x.eval_py("return %s:GetEditors(...)" % C, sid) in ([K("Rita")], []), x.name
+    assert "Sam is looking" in sub(lee) and "Sam is editing" not in sub(lee), sub(lee)
+    # Sam moves on to another strategy; his draft stays behind, and can't be taken up again
+    sam.eval(B + ":OpenStrategy(...)", other)
+    w.tick(1)
+    assert [d["did"] for d in sam.eval_py("return %s:GetDrafts()" % B) or []] == [did]
+    n0 = len(sam.chat_frame)
+    assert sam.eval("return %s:OpenDraft(...)" % B, did) is False
+    assert any("can no longer change" in str(x) for x in sam.chat_frame[n0:]), sam.chat_frame[n0:]
+    assert (sam.eval_py("return %s:GetDrafts()" % B) or []) == []
+    st = sam.eval_py("local s = %s; return { mode = s.mode, dirty = s.dirty, id = s.strat.id }" % ST)
+    assert st == {"mode": "view", "dirty": False, "id": sid}, st
     w.assert_no_errors()
 
 

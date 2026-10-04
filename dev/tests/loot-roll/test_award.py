@@ -347,14 +347,18 @@ def handed_out_before_confirming_keeps_bis_winner():
 
 @R.case
 def non_council_master_looter_suggestion_follows_bis_tiers():
-    """Spec §19: the master looter (council or not) may start and award rolls, and the panel's primary button is
-    "Award to <suggested>". A non-council client holds no other player's list, so every roller is tier 3 there."""
-    r = Raid(ml="Frank")                        # Frank: rank 2, not council, master looter
+    """Spec §19: the master looter (council or not) may start rolls. A non-council client holds no other player's
+    list, so the council tells it the tiers (RT) and its suggestion follows them.
+    1.3: with the loot council on, a master looter from the guild is council of the raid, so the non-council master
+    looter here is a pug (never council): it starts the roll, but only the council awards it."""
+    roster = list(ROSTER) + [("Pete", "WARRIOR", 3)]
+    r = Raid(roster=roster, ml="Pete", client_kw={"Pete": {"guild": None}})   # Pete: a pug master looter
     w = r.w
-    F = r["Frank"]
+    F = r["Pete"]
+    assert r["Alice"].eval("return ns.Guild:IsCouncil(..., true)", key("Pete")) is False
     F.open_loot([(RUBY_DRAPE, 4)])
     w.tick(2)
-    assert F.eval("return ns.Roll:CanStart() and ns.Roll:CanAward()")
+    assert F.eval("return ns.Roll:CanStart()") is True and F.eval("return ns.Roll:CanAward()") is False
     F.slash("/dz drops")
     w.tick(0.5)
     F.eval("ns.DropPanel:StartRoll(...)", RUBY_DRAPE, 1)
@@ -369,19 +373,29 @@ def non_council_master_looter_suggestion_follows_bis_tiers():
     ml = [x["key"] for x in results(F, sid) if x["suggested"]]
     assert council == [key("Bob")], council
     assert ml == council, "the master looter's panel suggests %r, the council's %r" % (ml, council)
+    # 1.3: with the loot council on only the council awards; the pug master looter hands the item out
+    assert F.eval("return ns.Roll:Award(...)", sid, key("Bob")) is False
+    assert any("Only the loot council can award" in l for l in printed_lines(F)[-1:]), printed_lines(F)[-1:]
+    blk = next(b for b in panel_blocks(F) if b["item"] == RUBY_DRAPE)
+    assert not any(t.startswith("Award") for t in blk["buttons"]), blk
+    assert "Re-roll" in blk["buttons"], blk                      # (it may still roll the item out again)
     w.assert_no_errors()
 
 
 @R.case
 def non_council_master_looter_award_reaches_the_award_log():
     """Spec §19.1 step 3 records every roll award in the ledger. A non-council ML cannot write the (council-only)
-    ledger itself; when the item is handed out by trade (no loot message) the council must still learn it."""
+    ledger itself; when the item is handed out by trade (no loot message) the council must still learn it.
+    1.3: a non-council master looter awards only while the raid rolls plain (the loot council is off); with it on, a
+    master looter from the guild is council."""
     r = Raid(ml="Frank")
     w = r.w
+    set_features(r, loot=False, rolls=True)
     F = r["Frank"]
+    assert F.eval("return ns.Guild:AmICouncil(true)") is False
     F.open_loot([(RUBY_DRAPE, 4)])
     w.tick(2)
-    F.slash("/dz drops")                       # not council: the panel does not open by itself
+    F.slash("/dz drops")
     w.tick(0.5)
     F.eval("ns.DropPanel:StartRoll(...)", RUBY_DRAPE, 1)
     w.tick(1)

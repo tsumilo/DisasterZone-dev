@@ -322,6 +322,21 @@ function Store:GetAllKeys()
     return keys
 end
 
+-- 1.3: the raid session whose loot council I am in as raid-scope council (raid leader, raid list; not the guild
+-- council): its id while the raid runs with the loot council, else nil.
+local function RaidCopySession()
+    local GR = ns.GroupRules
+    if not (GR and GR.IsLootCouncilOn and GR:IsLootCouncilOn()) then return nil end
+    local s = GR:GetSession()
+    return s and s.id or nil
+end
+
+local function AmGuildCouncil()
+    local Guild = ns.Guild
+    local me = Util.PlayerKey()
+    return (me and Guild and Guild.IsGuildCouncil and Guild:IsGuildCouncil(me)) and true or false
+end
+
 -- entry = { r=rev, ts=, h=hash, d=data } (wire shape). Returns true if stored.
 function Store:Put(key, entry, via)
     if type(key) ~= "string" or type(entry) ~= "table" then return false end
@@ -329,6 +344,13 @@ function Store:Put(key, entry, via)
     local Guild = ns.Guild
     if not (Guild and Guild:AmICouncil(true)) then return false end
     if not Guild:IsInGuild(key, true) then return false end
+    -- 1.3: raid-scope council (not the guild council) holds the lists of the raid's players for one raid session that
+    -- runs the loot council; the copy remembers the session (rs) and goes when it is over (PurgeRaidCopies)
+    local rs
+    if not AmGuildCouncil() then
+        rs = RaidCopySession()
+        if not rs or not InRealGroup(key) then return false end
+    end
 
     local r, ts, h, d = entry.r, entry.ts, entry.h, entry.d
     if not IsInt(r, 1, MAX_REV) then return false end
@@ -363,6 +385,7 @@ function Store:Put(key, entry, via)
         rev = r, ts = ts, hash = h, data = Util.CopyTable(d),
         recvAt = GetServerTime(), via = via,
         g = Guild.GetGuildName and Guild:GetGuildName() or nil,   -- which guild this copy belongs to
+        rs = rs,                                                  -- (1.3: a raid council's copy for this raid session)
     }
     -- Addendum F §38: the list is accepted either way (obtained / equipped updates matter).
     CheckLockChange(key, d, ts, r, prevConfirmed)
@@ -471,6 +494,51 @@ local function PruneFormerMembers()
         MarkDirty()
         ns:Fire("LISTS_RESET")
     end
+end
+
+-- 1.3: a raid-scope council member's copies (rs = the raid session they came for) are dropped once that session is
+-- over for me: it ended (End raid, the loot council's raid is no longer the one running), or I left the raid. Only on
+-- my own client: nothing is sent, no revision changes, and a guild council member (GM / guild list, real roles: also
+-- one promoted since) keeps every copy. Players' own lists are never in here. While the raid's rules are unknown
+-- (right after a /reload, the authority changing hands) nothing is dropped.
+local loginAt                    -- GetTime() of my login (the group may show up a moment later)
+local PURGE_LOGIN_GRACE = 10
+
+local SchedulePurge
+
+local function PurgeRaidCopies()
+    local Guild, GR = ns.Guild, ns.GroupRules
+    if not (ns.db and Guild and Guild.IsReady and Guild:IsReady() and GR) then return end
+    local lists = Lists()
+    local keep
+    if IsInRaid() then
+        if GR:GetStatus() == "own" then return end
+        local s = GR:GetSession()
+        keep = s and s.id or nil
+    elseif not loginAt or GetTime() - loginAt < PURGE_LOGIN_GRACE then
+        SchedulePurge(PURGE_LOGIN_GRACE)   -- not in a raid right after loading: make sure the group isn't still coming
+        return
+    end
+    local guild = AmGuildCouncil()
+    local removed = false
+    for key, rec in pairs(lists) do
+        if type(rec) == "table" and rec.rs and rec.rs ~= keep then
+            if guild then
+                rec.rs = nil                     -- the guild council keeps it
+            elseif not Util.IsMe(key) then
+                lists[key] = nil
+                removed = true
+            end
+        end
+    end
+    if removed then
+        MarkDirty()
+        ns:Fire("LISTS_RESET")
+    end
+end
+
+SchedulePurge = function(delay)
+    Util.Debounce("store-raid-copies", delay or 3, PurgeRaidCopies)
 end
 
 ---------------------------------------------------------------------------
@@ -805,6 +873,7 @@ function Store:OnInit()
         -- Online / rank / level flips (membersChanged == false) do not change which lists are indexed.
         if membersChanged ~= false then MarkDirty() end
         PruneFormerMembers()
+        if membersChanged ~= false then SchedulePurge() end
     end)
     ns:On("CONFIG_UPDATED", function()
         MarkDirty()
@@ -815,11 +884,20 @@ function Store:OnInit()
         end
         wasCouncil = now
         SnapshotMissing()   -- became council during a lock
+        SchedulePurge()
     end)
     -- Addendum F §38: lock snapshots (start / end) and members joining during the lock.
     ns:On("BIS_LOCK_CHANGED", OnLockChanged)
     ns:On("GROUP_UPDATED", function()
         MarkDirty()   -- raid-scope council: the raid's players decide which lists are visible
         SnapshotMissing()
+        SchedulePurge()
     end)
+    -- 1.3: the raid council's copies go when their raid session is over (End raid)
+    ns:On("GROUP_RULES_CHANGED", function() SchedulePurge() end)
+end
+
+function Store:OnLogin()
+    loginAt = GetTime()
+    SchedulePurge(PURGE_LOGIN_GRACE)   -- (copies from a raid that ended while I was offline; the group shows up first)
 end

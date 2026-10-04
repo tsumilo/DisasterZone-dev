@@ -536,22 +536,46 @@ local function signupCounts(v)
             if roles[role] then roles[role] = roles[role] + 1 end
         end
     end
+    -- the invited members still to answer, as the Raids tab counts them: a player who answered with another of their
+    -- characters has answered; declined and blacklisted players are not waited for
     local noAnswer = {}
     local inv = rp:GetInvited(v)
     if inv then
         for key in pairs(inv) do
-            if not ups[key] then noAnswer[#noAnswer + 1] = key end
+            if not rp:HasAnswered(ups, key) then
+                local block = rp:GetSignupBlock(v, key)
+                if block ~= "declined" and block ~= "blacklist" then noAnswer[#noAnswer + 1] = key end
+            end
         end
         tsort(noAnswer)
     end
     return ups, counts, roles, noAnswer
 end
 
+-- The character I answer the raid with: the one my answer is for (maybe another of mine), else the one logged in.
+local function myChar(v)
+    return RP():GetMySignupCharacter(v.id) or Me()
+end
+
+-- Why I can't answer the raid: a few words for the card, and the Raids tab's sentence for the tooltip; nil when I can.
+local function blockText(v)
+    if v.cancelled then return "cancelled", "This raid was cancelled." end
+    local block = RP():GetSignupBlock(v, myChar(v))
+    if block == "blacklist" then return "can't sign up", "You can't sign up for raids. Contact an officer."
+    elseif block == "declined" then return "taken off this raid", "You were taken off this raid."
+    elseif block == "lock" then return "locked, not invited", "Locked: ask a raid leader for an invite."
+    elseif block == "level" then
+        return ("level %d only"):format(v.ml or 0), ("This raid is for level %d characters."):format(v.ml or 0)
+    end
+    return nil
+end
+
 local function answer(v, st)
     local rp = RP()
     local spec
     local mine = rp:GetMySignup(v.id)
-    if not (mine and mine.sp) and not rp:GetLastSpec() then
+    local char = myChar(v)
+    if not (mine and mine.sp) and not rp:GetLastSpec(char) and ns.Util.IsMe(char) then
         -- first sign-up ever: use my BiS list's spec, like the Raids tab does
         local label = ns.BiS and ns.BiS.GetSpec and ns.BiS:GetSpec() or ""
         local _, classFile = UnitClass("player")
@@ -559,7 +583,7 @@ local function answer(v, st)
             if sp.label == label then spec = i end
         end
     end
-    local ok, err = rp:SignUp(v.id, st, spec)
+    local ok, err = rp:SignUp(v.id, st, spec, nil, char)
     if not ok then ns:Print(err or "Could not save your answer.") end
 end
 
@@ -748,9 +772,13 @@ local function refreshRaidCard(card, ctx)
     if v.no and v.no ~= "" then
         rows[#rows + 1] = { text = grey("\"" .. v.no .. "\""), tall = true, tip = { "Note", v.no } }
     end
-    local mine = ups[Me() or ""]
+    -- my player's answer, also one given with another of my characters
+    local mine = rp:GetMySignup(v.id)
+    local blocked, why = blockText(v)
     if mine and STATUS[mine.st] then
         rows[#rows + 1] = "Your answer: " .. colorize(STATUS[mine.st].color, STATUS[mine.st].label)
+    elseif blocked then
+        rows[#rows + 1] = { text = "Your answer: " .. colorize("ff5555", blocked), tip = { "You can't answer", why } }
     else
         rows[#rows + 1] = "Your answer: " .. colorize("ff9933", "none yet")
     end
@@ -759,6 +787,7 @@ local function refreshRaidCard(card, ctx)
     for i, st in ipairs(STATUS_ORDER) do
         local b = card.buttons[i]
         b:SetShown(open)
+        b:SetEnabled(blocked == nil)
         b.occ = v
         -- my answer in its colour (as on the Raids tab's sign-up strip)
         if mine and mine.st == st then b:SetTint(hexRGB(STATUS[st].color)) else b:SetTint(nil) end

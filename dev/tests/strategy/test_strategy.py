@@ -2,7 +2,8 @@
 
 Covers: an author's strategy reaching every guild member, members refused and forged / non-author records hidden,
 malformed records rejected, slots (labels, filters, shared across pages), fills per raid + boss (carry over, suggest,
-duplicates), a late login catching up through the digest, copy / delete, and pruning.
+duplicates), a late login catching up through the digest, copy / delete, and pruning. 1.3: a member's strategy may be
+as large as a council member's message (user rule 2026-10-04), and one too big to send is refused when saved.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_strategy.py [-k name]
 """
@@ -211,6 +212,75 @@ def old_fills_and_tombstones_are_pruned():
     assert bob.eval("return %s.B[...]" % root, sid2) is None
     # the last fill survives for carry over
     assert bob.eval_py("return (ns.Strategy:GetLastFill(...))", sid, "other") == {"tk.1.1": K("Lee")}
+    w.assert_no_errors()
+
+
+# A strategy of nPages pages with nElems texts each on the map; random: words nobody repeats (packs ~1.6:1), else
+# near-equal lines (pack ~24:1, past the receivers' 16:1 inflate ratio). Saved by that client: { ok, r }.
+TEXTS = r"""
+local src, name, nPages, nElems, random = ...
+local d = (loadstring(src))()
+d.n, d.p = name, {}
+local x = 7
+local function word()
+    local t = {}
+    for i = 1, 5 do x = x * 16807 % 2147483647; t[i] = string.char(97 + x % 26) end
+    return table.concat(t)
+end
+for i = 1, nPages do
+    local e = {}
+    for j = 1, nElems do
+        local l
+        if random then
+            local w = {}
+            for k = 1, 26 do w[k] = word() end
+            l = table.concat(w, ' '):sub(1, 158)
+        else
+            l = ('Line %d of page %d: everyone stack here behind the boss\nthen move left when the fire comes\nand kick'
+                 .. ' every cast'):format(j, i)
+        end
+        e[j] = { t = 'x', x = 10 + j * 7, y = 20 + (j % 9) * 50, l = l, z = 14 }
+    end
+    d.p[i] = { id = 'p' .. i, n = 'P' .. i, m = 0, e = e, k = {} }
+end
+local ok, r = ns.Strategy:SaveStrategy(d)
+return { ok = ok, r = r }
+"""
+
+RATIO = ("local r = ns.Strategy:GetStrategy(...); local LS, LD = LibStub('LibSerialize'), LibStub('LibDeflate'); "
+         "local s = LS:Serialize({ t = 'SBU', k = 'B', r = r }); return { ser = #s, ratio = #s / #LD:CompressDeflate(s) }")
+
+
+@case
+def a_members_big_strategy_reaches_everyone():
+    """Everyone builds strategies (user rule 2026-10-04): a member's may be as large as a council member's message
+    (the member caps were 16 KB inflated: the sender was ignored for the session, later messages too)."""
+    w, c = world(names())
+    sam = c["Sam"]
+    assert sam.eval("return ns.Guild:IsRaidLogMember(ns.Util.PlayerKey())") is False     # a plain member
+    others = [x for n, x in c.items() if n != "Sam"]
+    dropped = {x.name: x.eval("return ns.Comm.stats.dropped") for x in others}
+    big = sam.eval_py(TEXTS, COUNCIL, "Big", 6, 80, False)
+    assert big["ok"] is True, big
+    size = sam.eval_py(RATIO, big["r"])
+    assert size["ser"] > 60000 and size["ratio"] > 20, size        # (packed past 16:1: Comm pads it)
+    w.tick(30)
+    for x in others:
+        s = x.eval_py("return ns.Strategy:GetStrategy(...)", big["r"])
+        assert s and len(s["p"]) == 6 and all(len(p["e"]) == 80 for p in s["p"]), x.name
+    # his next one arrives too: nobody ignores him
+    small = sam.eval_py("local d = (loadstring(...))(); d.n = 'Small'; local ok, r = ns.Strategy:SaveStrategy(d); "
+                        "return { ok = ok, r = r }", COUNCIL)
+    assert small["ok"] is True
+    w.tick(5)
+    for x in others:
+        assert x.eval("return ns.Strategy:GetStrategy(...) ~= nil", small["r"]) is True, x.name
+        assert x.eval("return ns.Comm.stats.dropped") == dropped[x.name], x.name
+    # one too big for anyone to take is refused when saved, with a message: nothing is dropped unseen
+    n0 = len(strategies(sam))
+    res = sam.eval_py(TEXTS, COUNCIL, "Huge", 6, 80, True)
+    assert res["ok"] is False and "too big to send to the guild" in res["r"], res
+    assert len(strategies(sam)) == n0
     w.assert_no_errors()
 
 

@@ -136,15 +136,12 @@ def the_raids_own_leader_adds_the_pugs():
     w.disband()
     w.tick(2)
     # Sam (a member) leads the group: the first assistant who may add guests to this raid (Lee, its leader) does
-    assert call(lee, "RemoveGuest", occ, K("Pug"))["ok"] is True
-    lee.eval("ns.db.autoGuests = {}")
-    w.tick(2)
     n0 = len(lee.chat_frame)
-    w.make_raid([c["Sam"], lee, c["Rita"], pug], leader=c["Sam"], assistants=[lee])
+    w.make_raid([c["Sam"], lee, c["Rita"], pug, c["Bad"]], leader=c["Sam"], assistants=[lee])
     w.tick(6)
-    assert list(guests(c["Rita"], occ)) == [K("Pug")]
-    assert any("Added Pug" in l for l in printed_since(lee, n0))
-    assert not any("Added Pug" in l for l in printed_since(bob, 0))
+    assert sorted(guests(c["Rita"], occ)) == [K("Bad"), K("Pug")]
+    assert any("Added Bad" in l for l in printed_since(lee, n0))
+    assert not any("Added" in l for l in printed_since(bob, 0))
     w.assert_no_errors()
 
 

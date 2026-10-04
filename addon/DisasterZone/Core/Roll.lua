@@ -11,6 +11,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Roll.lua", ...) then return e
 -- Awards carry a reason (ns.AWARD_REASONS: the awarder's choice, else the winner's BiS tier) in RW and the log.
 -- 1.3: a raid that runs rolls without the loot council rolls plain (ses.plain, RS pl): the highest roll is suggested,
 -- BiS tiers and votes don't count, and the winner gets no tier reason.
+-- 1.3 loot rights in a raid (see IManage / Manages): with the loot council on, only the council votes, awards and ends
+-- rolls (a master looter from the guild is council of the raid then); the master looter can always start rolls and
+-- hand items out. Rolling plain, the master looter also ends rolls and awards the winner. Raid assistants who are
+-- neither have no loot rights; pugs are never council (Guild).
 local addonName, ns = ...
 
 local Roll = ns:NewModule("Roll")
@@ -135,6 +139,12 @@ local function IsLeadOrML(key)
     return rank ~= nil and (rank >= 1 or isML)
 end
 
+-- The master looter of my group, per the live roster.
+local function IsMasterLooter(key)
+    local _, isML = GroupRole(key)
+    return isML and true or false
+end
+
 -- Addendum B §22: in a 5-man party with dungeon mode on.
 local function DungeonActive()
     return (Util.IsDungeonModeActive and Util.IsDungeonModeActive()) and true or false
@@ -158,6 +168,22 @@ local function PlainRaid()
     if not IsInRaid() then return false end
     local GR = ns.GroupRules
     return (GR and GR.IsFeatureOn and not GR:IsFeatureOn("loot")) and true or false
+end
+
+-- 1.3: may I end and award a roll of this kind (plain: rolled without the loot council in a raid; party: a dungeon-mode
+-- roll)? The council; rolling plain also the master looter; in a 5-man party also the master looter and the party
+-- leader. Receivers check the sender with Manages, the same rules.
+local function IManage(plain, party)
+    if AmRealCouncil() then return true end
+    if party then return Util.IsPlayerMasterLooter() or (UnitIsGroupLeader("player") and true or false) end
+    return (plain and Util.IsPlayerMasterLooter()) and true or false
+end
+
+-- IManage for a sender, from the live group roster (a 5-man party has no assistants: rank 1+ is its leader).
+local function Manages(key, plain, party)
+    if IsRealCouncil(key) then return true end
+    if party then return IsLeadOrML(key) and true or false end
+    return (plain and IsMasterLooter(key)) and true or false
 end
 
 -- real: the message belongs to a real (non-demo) session and may go out while demo mode is on
@@ -184,7 +210,14 @@ local function CannotStartText()
         return GR:GetSession() and "Rolls are off for this raid (the raid leader turns them on: session bar > Options)."
             or "Rolls start working when the raid leader starts the raid (Start raid)."
     end
-    return "Only loot council members, the master looter or the raid leader / assistants can start rolls, in a raid."
+    return "Only the loot council (the raid leader counts) or the master looter can start rolls in a raid."
+end
+
+-- Why I cannot award / end a roll of this kind (plain, party: like IManage).
+local function CannotAwardText(plain, party)
+    if party then return "Only the party leader, the master looter or a loot council member can award this roll." end
+    if plain then return "Only the master looter or the loot council can award this roll." end
+    return "Only the loot council can award loot in this raid (the master looter hands it out)."
 end
 
 local function Updated(ses)
@@ -587,9 +620,10 @@ local function OpenLocal(ses)
     SnapshotTiers(ses)
     local id = ses.id
     if not ses.demo then
-        -- pl (1.3, ignored by older clients): a plain roll, every client suggests the highest roll.
+        -- pl (1.3, ignored by older clients): 1 = a plain roll, every client suggests the highest roll; 0 = a loot
+        -- council roll. Always said in a raid: a receiver that just reloaded does not know the raid's rules yet.
         Send({ t = "RS", id = id, i = ses.i, s = ses.s, b = ses.b, d = ses.duration, ts = ses.startedAt, c = ses.c,
-               pl = ses.plain and 1 or nil })
+               pl = (not ses.party) and (ses.plain and 1 or 0) or nil })
         -- A council starter tells a non-council master looter the tiers too (it may be the only council member in
         -- the raid). A moment later, so the RS is there first.
         Util.After(0.5, function()
@@ -1027,15 +1061,15 @@ function Roll:GetResults(id)
     return BuildResults(ses)
 end
 
--- Raid: council, master looter, raid leader / assistant. 5-man party with dungeon mode on: party
--- leader, master looter or council. Demo mode: anyone (local only).
+-- Raid: council (the raid leader of my guild counts) or the master looter (1.3: no raid assistants). 5-man party
+-- with dungeon mode on: party leader, master looter or council. Demo mode: anyone (local only).
 function Roll:CanStart()
     if DemoOn() then return true end
     if IsInRaid() then
         -- rolls run only while the raid leader's raid session has them on (GroupRules, 1.2)
         local GR = ns.GroupRules
         if GR and GR.IsFeatureOn and not GR:IsFeatureOn("rolls") then return false end
-        return AmRealCouncil() or Util.IsPlayerMasterLooter() or Util.IsPlayerLeaderOrAssist()
+        return AmRealCouncil() or Util.IsPlayerMasterLooter()
     end
     if DungeonActive() then
         return AmRealCouncil() or Util.IsPlayerMasterLooter() or (UnitIsGroupLeader("player") and true or false)
@@ -1043,22 +1077,32 @@ function Roll:CanStart()
     return false
 end
 
+-- May I award a roll started now (IManage for my group as it is).
 local function RealCanAward()
-    return AmRealCouncil() or Util.IsPlayerMasterLooter()
-        or ((IsInRaid() or DungeonActive()) and Util.IsPlayerLeaderOrAssist())
+    if IsInRaid() then return IManage(PlainRaid(), false) end
+    return IManage(false, DungeonActive())
 end
 
--- DisasterZone extension: may award (council, master looter, raid leader / assistant; demo: anyone).
-function Roll:CanAward()
+-- May I award / end this (real) session: IManage for the kind of roll it was started as.
+local function CanManage(ses)
+    return IManage(ses.plain, ses.party)
+end
+
+-- DisasterZone extension: may award (demo: anyone). id (optional, 1.3): that roll's rules (a plain roll's master
+-- looter may); without it, a roll started now.
+function Roll:CanAward(id)
     if DemoOn() then return true end
+    local ses = id ~= nil and self:Get(id) or nil
+    if ses and not ses.demo then return CanManage(ses) end
     return RealCanAward()
 end
 
--- DisasterZone extension: may end / unqueue this session (its starter or a council member).
+-- DisasterZone extension: may end / unqueue this session (its starter, a council member; 1.3: whoever may award it,
+-- the master looter of a plain roll).
 function Roll:CanEnd(id)
     local ses = self:Get(id)
     if not ses then return false end
-    return DemoOn() or ses.isLocal or AmRealCouncil()
+    return DemoOn() or ses.isLocal or (not ses.demo and CanManage(ses)) or AmRealCouncil()
 end
 
 ---------------------------------------------------------------------------
@@ -1212,12 +1256,13 @@ function Roll:StartAll(drop)
     return n
 end
 
--- Ends an open roll early (starter / council), or removes a queued one.
+-- Ends an open roll early (starter / council; a plain roll's master looter), or removes a queued one.
 function Roll:End(id)
     local ses = self:Get(id)
     if not ses then return false end
     if not self:CanEnd(id) then
-        ns:Print("Only the player who started the roll or a loot council member can end it.")
+        ns:Print("Only the player who started the roll or the loot council can end it%s.",
+            ses.plain and " (or the master looter)" or "")
         return false
     end
     if ses.state == "queued" then return CancelSession(ses) end
@@ -1595,15 +1640,16 @@ function Roll:ConfirmAward(data)
     if ses then Finish(ses, data.key, false, nil, data.reason) end
 end
 
--- Awards a session's item to key (council / ML / leader). Closes an open session first, then asks
--- for confirmation: DISASTERZONE_GIVE_ITEM when I can master-loot it right now, else DISASTERZONE_CONFIRM_AWARD.
+-- Awards a session's item to key (CanManage: the council; a plain roll's master looter). Closes an open session
+-- first, then asks for confirmation: DISASTERZONE_GIVE_ITEM when I can master-loot it right now, else
+-- DISASTERZONE_CONFIRM_AWARD.
 -- areason (optional, Addendum G): the award reason (an ns.AWARD_REASONS key); nil = from the winner's BiS tier.
 function Roll:Award(id, key, areason)
     local ses = self:Get(id)
     key = Util.NormalizeName(key)
     if not ses or not key then return false end
-    if not (ses.demo and self:CanAward() or RealCanAward()) then
-        ns:Print("Only loot council members, the master looter or the raid leader can award loot.")
+    if not (ses.demo and self:CanAward() or (not ses.demo and CanManage(ses))) then
+        ns:Print("%s", CannotAwardText(ses.plain, ses.party))
         return false
     end
     if ses.state == "awarded" and not LootMarked(ses) then
@@ -1645,7 +1691,7 @@ function Roll:MarkAwardedExternally(id, key, note, areason)
     local ses = self:Get(id)
     key = Util.NormalizeName(key)
     if not ses or not key then return false, "unknown" end
-    if not (ses.demo and self:CanAward() or RealCanAward()) then return false, "denied" end
+    if not (ses.demo and self:CanAward() or (not ses.demo and CanManage(ses))) then return false, "denied" end
     if ses.state == "queued" then
         CancelSession(ses)
         return false, "queued"
@@ -1816,11 +1862,14 @@ end
 
 -- Bag loot: key received itemID (traded by its holder, or picked up after it was awarded to them). The oldest
 -- award of it to key that is not handed out yet becomes handed out. tell: I traded it myself, so the raid is told
--- (the same RW again with g set). Returns the session, or nil when no award matched.
+-- (the same RW again with g set; 1.3: also when I am a plain raider holding it: receivers take only the "handed out"
+-- flag from the holder, and forget that I hold it). Returns the session, or nil when no award matched.
 function Roll:MarkGiven(itemID, key, tell)
     itemID = tonumber(itemID)
     key = Util.NormalizeName(key)
     if not itemID or not key then return nil end
+    local me = Util.PlayerKey()
+    local holder = tell and me ~= nil and HeldBy(itemID, me)   -- (read before the trade drops my held entry)
     local pick
     for _, ses in pairs(sessions) do
         if not ses.demo and ses.i == itemID and ses.state == "awarded" and ses.via ~= "loot" and not ses.given
@@ -1833,7 +1882,7 @@ function Roll:MarkGiven(itemID, key, tell)
     pick.looted = true
     pick.lootOther, pick.lootOtherTs = nil, nil
     Updated(pick)
-    if tell and RealCanAward() then
+    if tell and (holder or CanManage(pick)) then
         Send({ t = "RW", id = pick.id, w = key, g = true, at = pick.awardTs, r = pick.reason }, true)
     end
     return pick
@@ -2009,13 +2058,16 @@ local function OnRollTiers(sender, msg, dist)
     end
 end
 
--- RS {id, i, s, b, d, ts, c}: sender in my raid and council / leader / assist / master looter.
+-- RS {id, i, s, b, d, ts, c, pl}: sender in my group; in a raid the council or the master looter (1.3: like
+-- Roll:CanStart, no raid assistants), in a 5-man party also the party leader.
 local function OnRollStart(sender, msg, dist)
     if DemoOn() or not GroupDist(dist) or type(msg) ~= "table" then return end
-    if not (IsRealCouncil(sender) or IsLeadOrML(sender)) then return end
     if dist == "RAID" then
+        if not (IsRealCouncil(sender) or IsMasterLooter(sender)) then return end
         local GR = ns.GroupRules
         if GR and GR.IsFeatureOn and not GR:IsFeatureOn("rolls", true) then return end
+    elseif not (IsRealCouncil(sender) or IsLeadOrML(sender)) then
+        return
     end
     local id = msg.id
     if not ValidId(id) or sessions[id] then return end
@@ -2037,8 +2089,14 @@ local function OnRollStart(sender, msg, dist)
     Prune()
     local ses = NewSession({ id = id, i = itemID, s = s, b = b, c = c, starter = sender, state = "open" })
     ses.party = (dist == "PARTY") or nil   -- a dungeon-mode (5-man party) roll
-    -- A plain roll (1.3): the starter says so; an older starter doesn't, then the raid's own rules decide.
-    ses.plain = (dist == "RAID" and (msg.pl == 1 or PlainRaid())) or nil
+    -- A plain roll (1.3): the starter's pl decides (1 plain, 0 loot council). Only a starter that doesn't say (an older
+    -- client) leaves it to the raid's rules as I know them: right after a /reload or joining I may not know them yet.
+    local pl = msg.pl
+    if pl == 1 or pl == 0 then
+        ses.plain = (dist == "RAID" and pl == 1) or nil
+    else
+        ses.plain = (dist == "RAID" and PlainRaid()) or nil
+    end
     ses.startedAt = floor(ts)
     ses.duration = d
     ses.endsAt = GetTime() + d
@@ -2124,13 +2182,14 @@ local function OnRollResponse(sender, msg, dist)
     Roll:OnResponse(sender, id, r)
 end
 
--- RE {id, x}: from the starter or a council member. x = the session was cancelled (lost a
+-- RE {id, x}: from the starter or whoever may award the roll (Manages: a council member; 1.3: the master looter of a
+-- plain roll, whose End roll / award ended it only on its own screen before). x = the session was cancelled (lost a
 -- simultaneous start) rather than closed.
 local function OnRollEnd(sender, msg, dist)
     if DemoOn() or not GroupDist(dist) or type(msg) ~= "table" or not ValidId(msg.id) then return end
     local ses = sessions[msg.id]
     if not ses then return end
-    if sender ~= ses.starter and not IsRealCouncil(sender) then return end
+    if sender ~= ses.starter and not Manages(sender, ses.plain, ses.party) then return end
     if msg.x then
         if ses.state == "open" or ses.state == "closed" then CancelSession(ses) end
     else
@@ -2149,16 +2208,36 @@ local function AwardBeats(given, at, by, ses)
     return tostring(by) < tostring(ses.awardedBy or "")
 end
 
--- RW {id, w, g, at, n}: from the starter, a council member, the leader / an assistant or the ML.
+-- Bag loot: `holder` traded ses's item to its winner (their RW with g, Roll:MarkGiven): handed out, and the holder
+-- no longer holds that copy (a later award of the same item to them must not count as handed out at once).
+local function HandedOutByHolder(ses, holder)
+    local Loot = ns.Loot
+    if Loot and Loot.ReleaseHeld then Loot:ReleaseHeld(ses.i, holder) end
+    if ses.given then return end
+    ses.given = true
+    ses.looted = true
+    ses.lootOther, ses.lootOtherTs = nil, nil
+    Updated(ses)
+end
+
+-- RW {id, w, g, at, n}: from whoever may award the roll (Manages: a council member; a plain roll's master looter;
+-- in a 5-man party the party leader / ML; 1.3: no raid assistants, no starter that may not award).
 -- at (award server time) and n (ledger note) are DisasterZone 0.2 additions.
 -- A session resolved only by a loot message (via "loot") takes the RW as its real award (no conflict).
+-- 1.3: under bag loot the holder of the item (any raider) sends the RW of the award again with g once they traded it:
+-- from them only the "handed out" flag of that very award counts.
 local function OnRollWin(sender, msg, dist)
     if DemoOn() or not GroupDist(dist) or type(msg) ~= "table" or not ValidId(msg.id) then return end
     local ses = sessions[msg.id]
     if not ses or (ses.state ~= "open" and ses.state ~= "closed" and ses.state ~= "awarded") then return end
-    if not (sender == ses.starter or IsRealCouncil(sender) or IsLeadOrML(sender)) then return end
     local w = type(msg.w) == "string" and #msg.w <= MAX_ID_LEN and Util.NormalizeName(msg.w) or nil
     if not w then return end
+    if not Manages(sender, ses.plain, ses.party) then
+        if msg.g and ses.state == "awarded" and ses.via ~= "loot" and ses.winner == w and HeldBy(ses.i, sender) then
+            HandedOutByHolder(ses, sender)
+        end
+        return
+    end
     local nowTs = GetServerTime()
     local at = tonumber(msg.at)
     if at and (at ~= floor(at) or at < (ses.startedAt or nowTs) - RW_AT_PAST or at > nowTs + RW_AT_FUTURE) then
@@ -2181,7 +2260,9 @@ local function OnRollWin(sender, msg, dist)
     if ses.state == "awarded" and not fromLoot then
         if ses.winner == w then
             -- the same award again, now handed out (the holder traded the item: Roll:MarkGiven)
-            if given and not ses.given then
+            if given and HeldBy(ses.i, sender) then
+                HandedOutByHolder(ses, sender)
+            elseif given and not ses.given then
                 ses.given = true
                 Updated(ses)
             end
@@ -2371,7 +2452,7 @@ function Roll:OnInit()
         Comm:Register("RT", OnRollTiers)
         Comm:Register("RV", OnRollVote)
     end
-    ns:RegisterSlash("roll", SlashRoll, "<item link> - start a raid roll for an item (council / lead / ML); 'end' ends it")
+    ns:RegisterSlash("roll", SlashRoll, "<item link> - start a raid roll for an item (loot council / master looter); 'end' ends it")
 
     if StaticPopupDialogs then
         StaticPopupDialogs["DISASTERZONE_GIVE_ITEM"] = {

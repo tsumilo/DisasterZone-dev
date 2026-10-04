@@ -5,7 +5,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GroupRules.lua", ...) then re
 -- ns.DB:GetEffective(path) while they are active.
 --
 -- The authority is computed locally on every client from the live roster and the council lists:
---   raid:  the raid leader; else the master looter.
+--   raid:  the raid leader; else the master looter; else (1.3) a raid assistant who has the raid log (the raid
+--          leaders list, the GM, the guild council), alphabetically. A player outside my guild (a pug) never runs
+--          our session: a pug raid leader or master looter counts as one without DisasterZone. (The guild check
+--          applies once my guild roster is known and another raid member is in my guild; a pug with DisasterZone
+--          among us can't tell, so it keeps the old rule.)
 --   party: the party leader if council (GM / guild list) or if they turned dungeon mode on; else a guild
 --          council member in the party (lowest guild rank index, then name).
 -- Only members known to run a DisasterZone with group rules count (they sent GS or GQ this group session); I
@@ -18,6 +22,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GroupRules.lua", ...) then re
 -- locked; raids only). While locked, BiS refuses edits and council clients watch incoming lists (Store). The
 -- lock ends on unlock, when the group disbands or when the authority changes (its rules are cleared).
 -- BIS_LOCK_CHANGED(locked) fires whenever GroupRules:IsLocked() changes.
+-- 1.3: the lock needs a running raid session with the loot council, and it is that session's lock feature (one
+-- truth: the lock button, /dz lock and the raid's Options all change both). Ending the raid or turning the loot
+-- council off unlocks; receivers count a lock only with such a session, as the authority's own client does.
 --
 -- Addendum I §48: the authority can run a raid session (GS rs = session id, rsAt = its start time; raids only).
 -- Starting one also locks the BiS lists, ending it unlocks them. Unlike a bare lock, a running session survives a
@@ -78,6 +85,7 @@ local ASK_REPLY_MIN, ASK_REPLY_MAX = 0.2, 1.6   -- a raider's random delay befor
 local ASK_RATE = 10            -- a raider answers one asker at most once per 10 s
 local LOGIN_GRACE = 2          -- a group the game shows me in this soon after loading was there before (login /
                                -- reload inside it); a group I join later is a new one
+local PLAN_WAIT = 8            -- a raid log member's relink request (GSP) is back in the authority's GS by then
 
 ---------------------------------------------------------------------------
 -- State (one "group session" = from joining a group until leaving it)
@@ -139,13 +147,20 @@ local function DecodeFeatures(rf)
     return f
 end
 
--- features from the UI ({ loot=, rolls=, lock= }; nil = everything on) as a clean table.
+-- features from the UI ({ loot=, rolls=, lock= }; nil = everything on) as a clean table. 1.3: the lock needs the loot
+-- council.
 local function CleanFeatures(features)
     local f = {}
     for _, name in ipairs(FEATURE_ORDER) do
         f[name] = type(features) ~= "table" or features[name] ~= false
     end
+    if not f.loot then f.lock = false end
     return f
+end
+
+-- The session's features run the loot council (nil: a session from 1.1 or older, which runs everything).
+local function LootCouncilIn(f)
+    return f == nil or f.loot == true
 end
 
 -- The features of my session survive my own /reload: ns.db.groupFeatures = { id = session id, rf = letters }.
@@ -170,6 +185,11 @@ local function ValidPhase(p)
     local maxP = ns.MAX_PHASE or 5
     if type(p) == "number" and p == floor(p) and p >= 1 and p <= maxP then return p end
     return nil
+end
+
+-- A planned raid's occurrence id (Addendum J §61).
+local function ValidPlanId(occId)
+    return type(occId) == "string" and #occId <= 40 and occId:find("^[%w#]+$") ~= nil
 end
 
 local function SnapDuration(d)
@@ -229,22 +249,50 @@ local function CouncilOrder(a, b)
     return a < b
 end
 
+-- 1.3: is this raid one of my guild's (the guild check of the raid's authority applies)? My guild roster is known and
+-- another raid member is in my guild. A pug with DisasterZone (or the guild's only member here) can't tell who is a pug.
+local function GuildRaid(members)
+    local G = ns.Guild
+    if not (G and G.IsReady and G.IsInGuild and IsInGuild() and G:IsReady()) then return false end
+    for _, key in ipairs(members) do
+        if not Util.IsMe(key) and G:IsInGuild(key, true) then return true end
+    end
+    return false
+end
+
 -- Eligible members in priority order, from live roster data.
 local function Candidates()
     local list = {}
     if IsInRaid() then
         local leader, ml
+        local assists, members = {}, {}
         local n = min(tonumber(GetNumGroupMembers()) or 0, 40)
         for i = 1, n do
             local name, rank, _, _, _, _, _, _, _, _, isML = GetRaidRosterInfo(i)
             if type(name) == "string" and name ~= "" and name ~= UNKNOWNOBJECT then
                 local key = Util.NormalizeName(name)
-                if rank == 2 then leader = key end
+                members[#members + 1] = key
+                if rank == 2 then leader = key elseif rank == 1 then assists[#assists + 1] = key end
                 if isML then ml = key end
             end
         end
+        local G = ns.Guild
+        local guildRaid = GuildRaid(members)
+        -- a pug (not in my guild) never runs our session: as if they had no DisasterZone
+        if leader and guildRaid and not G:IsInGuild(leader, true) then leader = nil end
+        if ml and guildRaid and not G:IsInGuild(ml, true) then ml = nil end
         if leader then list[1] = leader end
         if ml and ml ~= leader then list[#list + 1] = ml end
+        if guildRaid and G.IsRaidLogMember then
+            -- 1.3: neither runs DisasterZone (a pug-led raid): a raid assistant of the guild with the raid log (raid
+            -- leaders list, GM, guild council), alphabetically; the same order on every client
+            local extra = {}
+            for _, key in ipairs(assists) do
+                if key ~= ml and G:IsInGuild(key, true) and G:IsRaidLogMember(key) then extra[#extra + 1] = key end
+            end
+            tsort(extra)
+            for _, key in ipairs(extra) do list[#list + 1] = key end
+        end
     elseif IsInGroup() then
         local leader
         local council = {}
@@ -329,9 +377,9 @@ local function MyValues()
             v.rs = mySession.id                     -- Addendum I §48: raid session
             v.rsAt = mySession.at
             v.rf = EncodeFeatures(mySession.f)      -- its features (nil: all, as before 1.2)
-            if mySession.rp then
-                v.rp = mySession.rp                 -- Addendum J §61: the planned raid it is linked to
-                v.rpAt = mySession.rpAt
+            if mySession.rpAt then
+                v.rp = mySession.rp                 -- Addendum J §61: the planned raid it is linked to (1.3: rpAt
+                v.rpAt = mySession.rpAt             -- without rp = unlinked on purpose; older clients drop it)
             end
         end
     end
@@ -352,9 +400,10 @@ local function ValidateSessionFields(msg)
             and type(rsAt) == "number" and rsAt == floor(rsAt) and rsAt > 0 and rsAt <= MAX_RULES_REV) then
         rs, rsAt = nil, nil
     end
-    -- Addendum J §61: the planned raid the session is linked to (optional; needs a session).
+    -- Addendum J §61: the planned raid the session is linked to (optional; needs a session). 1.3: rpAt alone = the
+    -- session was unlinked on purpose at that time.
     local rp, rpAt = msg.rp, msg.rpAt
-    if not (rs and type(rp) == "string" and #rp <= 40 and rp:find("^[%w#]+$")
+    if not (rs and (rp == nil or ValidPlanId(rp))
             and type(rpAt) == "number" and rpAt == floor(rpAt) and rpAt > 0 and rpAt <= MAX_RULES_REV) then
         rp, rpAt = nil, nil
     end
@@ -410,6 +459,13 @@ end
 local function DropLock()
     if myLock then myLock = nil end
     SaveLock()
+end
+
+-- 1.3: my lock and my session's lock feature are one truth, and the lock needs the session's loot council: no session
+-- (or no loot council) means no lock. A session adopted without features (1.1 or older) keeps the lock as it is.
+local function SyncLock()
+    if myLock and not (mySession and LootCouncilIn(mySession.f)) then myLock = nil end
+    if mySession and mySession.f then mySession.f.lock = myLock ~= nil end
 end
 
 ---------------------------------------------------------------------------
@@ -578,6 +634,7 @@ local function ResolveAsk()
                 mySession = nil
             end
             myLock = best.lk and { at = best.lkAt or (myLock and myLock.at) or GetServerTime() } or nil
+            SyncLock()
             SaveLock()
             SaveFeatures()
             if mySession then
@@ -680,6 +737,11 @@ local function Evaluate()
                 end
             end
         end
+        -- 1.3: no session with the loot council, no lock (also a lock saved before a /reload); the lock feature follows
+        local hadLock, hadFeature = myLock ~= nil, mySession and mySession.f and mySession.f.lock
+        SyncLock()
+        if hadLock ~= (myLock ~= nil) then SaveLock() end
+        if mySession and mySession.f and hadFeature ~= mySession.f.lock then SaveFeatures() end
     else
         if myLock then
             DropLock()   -- lost the authority, or the raid became a party: the lock ends
@@ -836,6 +898,34 @@ local function OnSessionAnswer(sender, msg, dist)
     v.n = v.n + 1
 end
 
+-- GSP {rs, rp} (whisper, 1.3): a raid log member asks me, the raid's authority, to link the running session to
+-- another planned raid (no rp: unlink it). Checked with real roles: the sender has the raid log (the raid leaders list,
+-- the GM, the guild council) and is in my raid.
+local function OnPlanRequest(sender, msg, dist)
+    if dist ~= "WHISPER" or type(sender) ~= "string" or type(msg) ~= "table" or not IsInRaid() then return end
+    Invalidate()
+    if not AmAuthority() or not mySession or msg.rs ~= mySession.id then return end
+    local rp = msg.rp
+    if rp ~= nil and not ValidPlanId(rp) then return end
+    local G = ns.Guild
+    if not Util.GetGroupRole(sender) or not (G and G.IsRaidLogMember and G:IsRaidLogMember(sender)) then
+        ns:Debug("GroupRules: planned raid request from %s ignored", sender)
+        return
+    end
+    local Comm = ns.Comm
+    if Comm and Comm.RateLimit and not Comm:RateLimit("gr-plan:" .. sender, 2) then return end
+    if mySession.rp == rp and (rp ~= nil or mySession.rpAt) then return end
+    if not GroupRules:SetSessionPlan(rp) then return end
+    local RP = ns.RaidPlan
+    local v = rp and RP and RP.GetRaid and RP:GetRaid(rp)
+    if rp then
+        ns:Print("%s linked this raid to the planned raid %s.", Util.ShortName(sender),
+            v and (RP:GetRaidName(v) .. " (" .. date("%a %d %b %H:%M", v.t) .. ")") or "?")
+    else
+        ns:Print("%s unlinked this raid from its planned raid.", Util.ShortName(sender))
+    end
+end
+
 ---------------------------------------------------------------------------
 -- Settings
 ---------------------------------------------------------------------------
@@ -887,11 +977,44 @@ end
 -- BiS list lock (Addendum F §38)
 ---------------------------------------------------------------------------
 
+-- The authority's rules lock the lists: 1.3: only with its running session's loot council (as its own client
+-- enforces; a lock from an older raid leader without one doesn't count).
+local function RemoteLocked()
+    local v = active and active.values
+    if not (v and v.lk == true and v.rs) then return false end
+    return LootCouncilIn(DecodeFeatures(v.rf))
+end
+
 -- The raid's BiS lists are locked (by me as the authority, or by the authority's rules). Raids only.
 function GroupRules:IsLocked()
     if not IsInRaid() then return false end
     if AmAuthority() then return myLock ~= nil end
-    return (active ~= nil and active.values.lk == true) and true or false
+    return RemoteLocked()
+end
+
+-- 1.3: may I lock the raid's BiS lists now? The raid's loot authority in a running raid session with the loot council
+-- (a lock I hold can always be undone). Returns ok, reason.
+function GroupRules:CanLock()
+    if not IsInRaid() then return false, "BiS lists can only be locked in a raid." end
+    if not AmAuthority() then
+        return false, "only the raid leader (the raid's loot authority) can lock or unlock BiS lists."
+    end
+    if myLock then return true end
+    if not mySession then
+        return false, "BiS lists can only be locked while the raid runs: start the raid (with the loot council) first."
+    end
+    if not LootCouncilIn(mySession.f) then
+        return false, "the BiS lock needs the loot council: turn it on in the raid's Options first."
+    end
+    return true
+end
+
+-- 1.3: the raid's loot council runs: a raid session with the loot council (a session from 1.1 or older runs
+-- everything). Raids only. The BiS lock and the raid-scope council's copies of the raiders' BiS lists need it.
+function GroupRules:IsLootCouncilOn()
+    if not IsInRaid() then return false end
+    local s = self:GetSession()
+    return s ~= nil and LootCouncilIn(s.f)
 end
 
 -- { by = key, at = serverTime } of the current lock, or nil.
@@ -904,7 +1027,8 @@ end
 -- Locks / unlocks the raid's BiS lists. Only the raid's loot authority (the raid leader, else the master
 -- looter; §33) can: returns ok, err. The GS goes out at once (a deliberate toggle, not a settings burst:
 -- raiders must learn the lock before they could edit); locking also posts one raid chat line when roll
--- announcements are on.
+-- announcements are on. 1.3: locking needs a running raid session with the loot council (CanLock), and the
+-- session's lock feature follows (the raid's Options show it).
 function GroupRules:SetLocked(locked)
     locked = locked and true or false
     if not IsInRaid() then return false, "BiS lists can only be locked in a raid." end
@@ -913,9 +1037,15 @@ function GroupRules:SetLocked(locked)
         return false, "only the raid leader (the raid's loot authority) can lock or unlock BiS lists."
     end
     if locked == (myLock ~= nil) then return true end
+    if locked then
+        local ok, why = self:CanLock()
+        if not ok then return false, why end
+    end
     EndAsk()   -- my choice stands over what the raid would answer
     myLock = locked and { at = GetServerTime() } or nil
+    SyncLock()
     SaveLock()
+    SaveFeatures()
     DoSend(false)
     wasAuthority = true   -- this GS is the announcement
     Changed()
@@ -938,8 +1068,10 @@ function GroupRules:GetSession()
                                rpAt = mySession.rpAt, f = mySession.f and CleanFeatures(mySession.f) or nil } or nil
     end
     if active and active.values.rs then
+        local f = DecodeFeatures(active.values.rf)
+        if f then f.lock = RemoteLocked() end   -- 1.3: the lock feature and the lock are one truth
         return { id = active.values.rs, at = active.values.rsAt, by = active.from, rp = active.values.rp,
-                 rpAt = active.values.rpAt, f = DecodeFeatures(active.values.rf) }
+                 rpAt = active.values.rpAt, f = f }
     end
     return nil
 end
@@ -986,6 +1118,7 @@ function GroupRules:SetSessionFeatures(features)
     elseif not f.lock then
         myLock = nil
     end
+    SyncLock()
     SaveLock()
     SaveFeatures()
     DoSend(false)
@@ -997,20 +1130,49 @@ function GroupRules:SetSessionFeatures(features)
     return true
 end
 
--- Addendum J §61: links the running raid session to a planned raid (occurrence id; nil unlinks). The authority only;
--- the link rides on GS (rp / rpAt), so every raider records the same one. Returns ok, err.
+-- Addendum J §61: links the running raid session to a planned raid (occurrence id; nil unlinks, which also stops the
+-- automatic link). The authority only; the link rides on GS (rp / rpAt), so every raider records the same one.
+-- Returns ok, err.
 function GroupRules:SetSessionPlan(occId)
     if not IsInRaid() then return false, "not in a raid." end
     Invalidate()
     if not AmAuthority() or not mySession then return false, "only the raid leader of a running raid session can." end
-    if occId ~= nil and not (type(occId) == "string" and #occId <= 40 and occId:find("^[%w#]+$")) then
-        return false, "invalid raid"
-    end
-    if mySession.rp == occId then return true end
+    if occId ~= nil and not ValidPlanId(occId) then return false, "invalid raid" end
+    if mySession.rp == occId and (occId ~= nil or mySession.rpAt) then return true end
     EndAsk()   -- my choice stands over what the raid would answer
     mySession.rp, mySession.rpAt = occId, GetServerTime()
     DoSend(false)
     Changed()
+    return true
+end
+
+-- 1.3: a raid log member (the raid leaders list, the GM, the guild council) in the raid changes the running session's
+-- planned raid for the whole raid: the request (GSP, a whisper) goes to the raid's authority, which takes it into the
+-- session (GS rp / rpAt), so every raider's raid log, the strategy reminders and the auto guests follow. The authority
+-- itself just sets it. Returns ok, err.
+function GroupRules:RequestSessionPlan(occId)
+    if not IsInRaid() then return false, "not in a raid." end
+    Invalidate()
+    if AmAuthority() then return self:SetSessionPlan(occId) end
+    if occId ~= nil and not ValidPlanId(occId) then return false, "invalid raid" end
+    local s = self:GetSession()
+    if not (s and s.by) then return false, "no raid session is running." end
+    local G = ns.Guild
+    if not (G and G.IsRaidLogMember and G:IsRaidLogMember(Util.PlayerKey())) then
+        return false, "only the raid leaders and the guild council can change the raid's planned raid."
+    end
+    local Comm = ns.Comm
+    if not (Comm and Comm.Send and Comm:Send({ t = "GSP", rs = s.id, rp = occId }, "WHISPER", s.by, "alert")) then
+        return false, "could not reach " .. Util.ShortName(s.by) .. "."
+    end
+    -- the authority's GS brings the change back; an authority on an older DisasterZone ignores the request
+    Util.Debounce("cdl-gr-plan", PLAN_WAIT, function()
+        local now = GroupRules:GetSession()
+        if now and now.id == s.id and now.rp ~= occId then
+            ns:Print("%s's DisasterZone did not take the change (an older version?). They can change it in the Raid log.",
+                Util.ShortName(s.by))
+        end
+    end)
     return true
 end
 
@@ -1038,11 +1200,14 @@ function GroupRules:SetSession(on, startAt, features)
         if mySession.f.lock and not myLock then
             myLock = { at = now }
             announce = true
+        elseif not mySession.f.lock then
+            myLock = nil
         end
     else
         mySession = nil
         myLock = nil
     end
+    SyncLock()
     SaveLock()
     SaveFeatures()
     DoSend(false)
@@ -1166,6 +1331,7 @@ local function Setup()
     Comm:Register("GQ", OnQuery)
     Comm:Register("GSQ", OnSessionAsk)
     Comm:Register("GSA", OnSessionAnswer)
+    Comm:Register("GSP", OnPlanRequest)
 end
 
 ns:On("SETTINGS_CHANGED", OnSettingChanged)

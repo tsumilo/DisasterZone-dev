@@ -321,8 +321,13 @@ end
 -- The master looter sends at once (even when someone else's D for the source arrived first: receivers dedupe
 -- by source key); anyone else waits a random moment and stays quiet if a D for the same source arrived
 -- meanwhile. The rare double send (two timers firing together) is harmless.
+local TrustedDropSender   -- forward declaration (receive section)
+
 local function BroadcastDrop(drop)
-    if not GroupChannel() or broadcastDone[drop.s] then return end
+    local channel = GroupChannel()
+    if not channel or broadcastDone[drop.s] then return end
+    -- (the raid would ignore my D: under master loot only the master looter and the council announce drops)
+    if not TrustedDropSender(Util.PlayerKey(), channel) then return end
     if Util.IsPlayerMasterLooter() then
         SendDrop(drop)
         return
@@ -340,17 +345,17 @@ local function IsItemSource(s)
     return type(s) == "string" and s:sub(1, 5) == "Item-"
 end
 
--- While master loot is on in a raid, only the loot authority side announces drops: the master looter, the
--- leader / an assistant, or a council member. (Anyone else could pre-claim a boss corpse's source key with junk
--- and every client, the ML's own included, would ignore the real loot window.) PARTY / other loot methods: any
--- real group member, as before.
-local function TrustedDropSender(sender, distribution)
+-- While master loot is on in a raid, only the loot authority side announces drops: the master looter or a council
+-- member (the raid leader of my guild counts; 1.3: raid assistants have no loot rights). (Anyone else could pre-claim
+-- a boss corpse's source key with junk and every client, the ML's own included, would ignore the real loot window.)
+-- PARTY / other loot methods: any real group member, as before. (BroadcastDrop checks me the same way.)
+TrustedDropSender = function(sender, distribution)
     if distribution ~= "RAID" then return true end
     local method = C_PartyInfo and C_PartyInfo.GetLootMethod and C_PartyInfo.GetLootMethod()
     local ml = (Enum and Enum.LootMethod and Enum.LootMethod.Masterlooter) or 2
     if method ~= ml then return true end
-    local rank, isML = Util.GetGroupRole(sender)
-    if isML or (tonumber(rank) or 0) >= 1 then return true end
+    local _, isML = Util.GetGroupRole(sender)
+    if isML then return true end
     return ns.Guild and ns.Guild.IsCouncil and ns.Guild:IsCouncil(sender, true) and true or false
 end
 
@@ -671,6 +676,14 @@ local function DropHeld(itemID, key)
     end
 end
 
+-- 1.3: the holder told the raid they traded a copy to its winner (Roll, their RW with g): it is not held any more,
+-- so a later award of the same item to them is not taken as handed out.
+function Loot:ReleaseHeld(itemID, key)
+    itemID = tonumber(itemID)
+    key = Util.NormalizeName(key)
+    if itemID and key then DropHeld(itemID, key) end
+end
+
 local function NoteHeld(itemID, key)
     local list = HeldList()
     list[#list + 1] = { i = itemID, k = key, ts = GetServerTime() }
@@ -678,7 +691,7 @@ local function NoteHeld(itemID, key)
     if key == Util.PlayerKey() then
         ns:Print("You hold %s for the loot council. Once it is awarded, open a trade with the winner: DisasterZone "
             .. "puts it in the trade window.", ItemText(itemID))
-    elseif AmRealCouncil() or Util.IsPlayerLeaderOrAssist() then
+    elseif AmRealCouncil() or Util.IsPlayerMasterLooter() then
         ns:Print("%s picked up %s (Free for All): held for the council, not logged as an award. Award it as usual; "
             .. "%s trades it to the winner.", Util.ShortName(key), ItemText(itemID), Util.ShortName(key))
     end
@@ -811,7 +824,7 @@ end
 local wasBagLoot = false
 local function OnLootMethodChanged()
     local on = BagLootMethodOn()
-    if on and not wasBagLoot and (AmRealCouncil() or Util.IsPlayerLeaderOrAssist()) then
+    if on and not wasBagLoot and AmRealCouncil() then
         ns:Print("Free for All loot: boss items go to the looter's bags and are not logged as awards. Award them "
             .. "as usual; the holder trades each one to its winner.")
     end
@@ -988,10 +1001,13 @@ function Loot:SimulateDrop()
         table.concat(names, ", "))
 end
 
+-- /dz drop: the loot council or the master looter (1.3: in a raid no assistants; the raid leader of my guild is
+-- council), in a 5-man party also the party leader.
 function Loot:ManualDrop(text)
     local demo = DemoOn()
-    if not (demo or AmRealCouncil() or Util.IsPlayerLeaderOrAssist()) then
-        ns:Print("Only loot council members or the raid leader / assistants can announce drops.")
+    local partyLead = not IsInRaid() and Util.IsPlayerLeaderOrAssist()
+    if not (demo or AmRealCouncil() or Util.IsPlayerMasterLooter() or partyLead) then
+        ns:Print("Only the loot council (the raid leader counts) or the master looter can announce drops.")
         return
     end
     if not demo and RaidDropsOff() then
@@ -1297,6 +1313,60 @@ function Loot:GiveItem(itemID, key, onDone)
 end
 
 ---------------------------------------------------------------------------
+-- Disenchant / guild bank hand-outs by a master looter outside the council (1.3)
+---------------------------------------------------------------------------
+-- With the loot council off the master looter hands the loot out, but only the council writes the loot log: an item
+-- the master looter gives to the disenchanter / guild bank character (drop panel DE / Bank) would be logged from its
+-- loot line as a normal award, loot won. So the master looter tells the group (LT { i, w, r = "de" | "bank", b, at })
+-- and every council client records the hand-out with that reason (Ledger:RecordTargetAward, one id everywhere).
+-- Receivers take it only from the master looter and only for the disenchanter / guild bank character they know.
+
+local MAX_TARGET_BOSS_LEN = 64
+local LT_AT_SLACK = 120   -- an LT time further than this from my server time is not believed
+
+-- Sends LT for a hand-out of itemID to key, the "de" / "bank" target. Returns true when sent (I am the master
+-- looter, not council, outside demo mode).
+function Loot:AnnounceTargetHandout(itemID, key, kind, bossKey)
+    itemID = tonumber(itemID)
+    key = Util.NormalizeName(key)
+    if DemoOn() or AmRealCouncil() or not Util.IsPlayerMasterLooter() then return false end
+    if (kind ~= "de" and kind ~= "bank") or not IsValidItemID(itemID) or not key then return false end
+    local channel = GroupChannel()
+    if not (channel and ns.Comm and ns.Comm.Send) then return false end
+    local b = (type(bossKey) == "string" and #bossKey <= MAX_TARGET_BOSS_LEN) and bossKey or ""
+    return ns.Comm:Send({ t = "LT", i = itemID, w = key, r = kind, b = b, at = GetServerTime() }, channel, nil, "alert")
+        and true or false
+end
+
+local function OnTargetHandout(sender, msg, distribution)
+    if DemoOn() or type(msg) ~= "table" then return end
+    if distribution == "PARTY" then
+        if not DungeonActive() then return end
+    elseif distribution ~= "RAID" then
+        return
+    end
+    local _, isML = Util.GetGroupRole(sender)
+    if not isML then return end
+    local kind, itemID = msg.r, tonumber(msg.i)
+    if (kind ~= "de" and kind ~= "bank") or not IsValidItemID(itemID) then return end
+    local w = type(msg.w) == "string" and #msg.w <= 64 and not msg.w:find("[%c|]") and Util.NormalizeName(msg.w) or nil
+    local target = ns.Guild and ns.Guild.GetLootTarget and ns.Guild:GetLootTarget(kind)
+    if not w or w ~= target then
+        ns:Debug("Loot: LT from %s ignored (%s is not the %s character)", tostring(sender), tostring(w), tostring(kind))
+        return
+    end
+    if not AmRealCouncil() or not (ns.Ledger and ns.Ledger.RecordTargetAward) then return end
+    local b = msg.b
+    if type(b) ~= "string" or #b > MAX_TARGET_BOSS_LEN or (b ~= "" and not (ns.ItemDB and ns.ItemDB:GetBossRef(b))) then
+        b = ""
+    end
+    local now = GetServerTime()
+    local at = tonumber(msg.at)
+    if not at or at ~= floor(at) or math.abs(at - now) > LT_AT_SLACK then at = now end
+    ns.Ledger:RecordTargetAward(itemID, w, b, kind, sender, at)
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 
@@ -1342,10 +1412,11 @@ function Loot:OnInit()
     ns:On("ROLL_UPDATED", OnRollUpdatedForHeld)
     if ns.Comm and ns.Comm.Register then
         ns.Comm:Register("D", OnDropMessage)
+        ns.Comm:Register("LT", OnTargetHandout)   -- 1.3: DE / bank hand-outs of a master looter outside the council
     end
     ns:RegisterSlash("test", function() Loot:SimulateDrop() end, "simulate a boss drop to try the alerts")
     ns:RegisterSlash("drop", function(rest) Loot:ManualDrop(rest) end,
-        "<item links> - announce a drop to the raid (council / raid lead)")
+        "<item links> - announce a drop to the raid (loot council / master looter)")
 end
 
 function Loot:OnLogin()

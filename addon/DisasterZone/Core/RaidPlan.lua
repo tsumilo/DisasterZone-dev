@@ -1,9 +1,9 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then return end -- DisasterZone: Core/RaidPlan.lua
 -- Raid planning (Addendum J §54-§57): teams, raid events (one-off or weekly), sign-ups and group layouts.
 --
--- Organizers (the GM and the raid leaders, §62) write teams (T), weekly series (S) and events (E: a one-off raid, or an
--- override of one occurrence of a series). Every character writes only its own sign-ups (U). Everything is cached by
--- every guild member and kept per guild in db.raidplan[guildKey].
+-- The raid planners (the GM and the raid leaders list, §62) write weekly series (S) and events (E: a one-off raid, or
+-- an override of one occurrence of a series); the GM and the guild council write teams (T). Every character writes
+-- only its own sign-ups (U). Everything is cached by every guild member and kept per guild in db.raidplan[guildKey].
 --
 -- A raid names teams (tm) and extra invites (inv: players outside those teams). Left open, anyone signs up and the
 -- teams only say who is expected. Locked (lk), only the members of its teams and its extra invites sign up; a
@@ -19,6 +19,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 --   rj  declined: the organizers turned that member down { [key] = true }. Their answer is not counted, they can't
 --       answer again, and they are listed apart from Bench (GetDeclined).
 --   rm  removed: an answer taken off { [key] = rev of that answer }. A newer answer of the member counts again.
+--   gx  guests taken off by hand { [key] = when }: whoever adds the pugs of the raid's group automatically (GuestBook)
+--       leaves them out; adding them by hand again clears the mark.
 -- A member's other characters (Guild:SameAccount) answer as one player: a character can be signed up from any of
 -- them (RPA), the newest answer of the player is the one that counts, and a decline covers all of them.
 --
@@ -27,7 +29,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 -- the list (the leader need not be on it); the guild council does not. Its strategy picks and names are the leader's
 -- and the GM's alone (a raid without a leader: the raid leaders on the list and the GM); everyone else reads them
 -- (user decisions 2026-10-04). On a weekly raid the series names the leader and a week's override can name another
--- (false: none).
+-- (false: none); a leader of one week only edits and cancels that week, they don't delete it.
 --
 -- The blacklist (BLL) blocks a player from every raid: no sign-up, no guest seat, no invite. Kept by the roster
 -- managers: the GM, officers and the raid leaders.
@@ -35,7 +37,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/RaidPlan.lua", ...) then retu
 -- Sync (§56): live edits go out on GUILD (RPU, RPS). At login the HELLO carries a hash of my plan data (pd); a client
 -- whose data differs answers with its per-item digest (RPD, on GUILD so the others can stay quiet), the new client
 -- asks for the items that differ (RPW) and sends its own copy of them; items travel one per message (RPG).
--- Records merge by rev (then by hash), so both sides converge.
+-- Records merge by rev (then by hash), so both sides converge. A version whose writer may not write it (see Trusted)
+-- never replaces one that shows, and only who names leaders changes a stored raid's leader: a hand-made message
+-- can't delete, change or take over a raid on a client that holds it. (A copy passed on by someone else, RPG, can't
+-- prove who wrote it: a client that never had the record takes it at its word.)
 local addonName, ns = ...
 
 local RaidPlan = ns:NewModule("RaidPlan")
@@ -83,6 +88,12 @@ local BLL_REPLY_LIMIT = 30
 local RPD_DELAY_COUNCIL = { 0.5, 2.5 }
 local RPD_DELAY_MEMBER = { 3, 8 }
 local ROUND_WINDOW = 20             -- seconds an RPD round for one client lasts (suppression / answer once)
+local MAX_PENDING = 20              -- newer versions refused for now, tried again when the guild's roles change
+local ASK_AGAIN = 60                -- seconds before a planner is asked for the same record again
+local RESTAMP_AFTER_LOGIN = 90      -- the guild's lists and ranks settle first (plus a spread by name, below)
+local RESTAMP_WAIT = 20             -- after a change of roles
+local RESTAMP_SPREAD = 40           -- up to this many seconds more, by name: one planner usually writes first
+local MAX_RESTAMPS = 10             -- records written again per pass
 
 -- §54: the TBC raids (key -> name, default size, instance map id as used by the raid log).
 local INSTANCES = {
@@ -106,6 +117,9 @@ local STATUSES = { A = true, T = true, B = true, X = true }   -- Accept, Tentati
 local roundSeen = {}                -- [key] = { h = hash, at = GetTime() }: an RPD to that client was seen
 local answeredAt = -1000            -- GetTime() I answered the first RPD of my login round
 local idCounter = 0
+local pending = {}                  -- ["kind:id"] = { kind, rec, via }: newer versions refused for now (MergeRecord)
+local asks = {}                     -- [digest item] = true: records to ask a raid planner for (AskPlanner)
+local restampQueued = false         -- a pass of RestampPass is scheduled
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -162,7 +176,8 @@ end
 -- Who may do what (§55, §62, user rules 2026-09-29):
 --   raids  (create / edit / cancel / delete): the GM and the raid leaders list
 --   teams  (members, specs, team groups):     the GM and the guild council
---   groups (a raid's group layout):          the GM, the guild council and the raid leaders
+--   groups (a raid's group layout):          the GM, the raid leaders, and the guild council on a raid without its
+--                                            own leader
 local function IsOrganizer(key)
     local G = Guild()
     return type(key) == "string" and G ~= nil and G.IsRaidPlanner ~= nil and G:IsRaidPlanner(key) and true or false
@@ -256,24 +271,43 @@ local REFUSED = {
     groups = "Only the Guild Master, the guild council and the raid leaders can change a raid's groups.",
     led = "Only this raid's leader, the Guild Master and the raid leaders can change it.",
     lead = "Only the Guild Master and the raid leaders choose a raid's leader.",
+    week = "You lead this week only: you can cancel it, not delete it.",
 }
 
--- A raid / team shows when its last editor was a raid planner when this version of it arrived, or is one now: a raid
--- leader taken off the list later doesn't make their raids vanish. Kept per record version, locally (root.OK).
+-- May the writer of this version of a record (rec.by) write it, by the rules as they are now? Teams: the GM and the
+-- guild council. Raids: the raid planners, the raid's own leader, the guild council on a version without a leader (its
+-- group layout), and the officers on a raid's own record (its guests and declined answers). A raid is deleted only by
+-- who runs it: a deletion (del) by an officer or the council is not theirs to write.
+local function Entitled(root, kind, rec)
+    local by = rec.by
+    if kind == "T" then return CanTeams(by) end
+    if IsOrganizer(by) or LeaderWrote(root, kind, rec) then return true end
+    if kind == "E" and rec.del then return false end
+    if CanGroups(by) and not RecLeader(root, kind, rec) then return true end
+    return kind == "E" and IsOfficer(by)
+end
+
+-- The trust mark of a record version: kind, id, rev and writer, so a made-up copy of that version by someone else
+-- doesn't share the mark.
+local function TrustKey(kind, rec)
+    return kind .. ":" .. tostring(rec.id) .. ":" .. tostring(rec.rev) .. ":" .. tostring(rec.by)
+end
+
+-- A raid / team shows when its writer was entitled to write it when this version arrived, or is now: a raid leader
+-- taken off the list later doesn't make their raids vanish where they were seen. Kept per record version, locally
+-- (root.OK). A client that gets the version only later goes by the rules then: see RestampPass.
 local function Trusted(root, kind, rec)
     if not rec then return false end
-    local k = kind .. ":" .. tostring(rec.id) .. ":" .. tostring(rec.rev)
+    local k = TrustKey(kind, rec)
     if root.OK and root.OK[k] then return true end
-    local ok
-    if kind == "T" then ok = CanTeams(rec.by)
-    elseif kind == "E" then
-        ok = IsOrganizer(rec.by) or CanRoster(rec.by) or CanGroups(rec.by) or LeaderWrote(root, kind, rec)
-    else ok = IsOrganizer(rec.by) or CanGroups(rec.by) or LeaderWrote(root, kind, rec) end
-    if ok then
-        if root.OK then root.OK[k] = true end
-        return true
-    end
-    return false
+    if not Entitled(root, kind, rec) then return false end
+    if root.OK then root.OK[k] = true end
+    return true
+end
+
+-- Do two versions of a raid record name the same leader, named by the same player, in their own fields (rl / rlb)?
+local function SameCrown(a, b)
+    return a.rl == b.rl and a.rlb == b.rlb
 end
 
 local function Send(msg, dist, target, class)
@@ -314,6 +348,17 @@ local function Root(create)
     end
     for _, k in ipairs({ "T", "S", "E", "U", "OK" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
+    end
+    -- 1.3: trust marks name the version's writer too (TrustKey); a mark of before is moved to the version stored
+    if r.okv ~= 2 then
+        local old = r.OK
+        r.OK = {}
+        for k in pairs(old) do
+            local kind, id, rev = k:match("^(%u):([^:]+):(%d+)$")
+            local rec = kind and type(r[kind]) == "table" and r[kind][id]
+            if type(rec) == "table" and tostring(rec.rev) == rev then r.OK[TrustKey(kind, rec)] = true end
+        end
+        r.okv = 2
     end
     return r
 end
@@ -446,7 +491,8 @@ local function CleanGuests(gu)
     return next(out) and out or nil
 end
 
--- rj / rm: { [key] = true } (numeric = false) or { [key] = rev } (numeric = true). nil = none, false = invalid.
+-- rj / rm / gx: { [key] = true } (numeric = false) or { [key] = rev or time } (numeric = true). nil = none, false =
+-- invalid.
 local function CleanMarks(m, numeric)
     if m == nil then return nil end
     if type(m) ~= "table" then return false end
@@ -603,6 +649,14 @@ local function CleanEvent(r, now)
     end
     if r.del == true then          -- deleted: a tombstone that spreads the deletion (§54)
         out.del = true
+        -- (1.3) with the raid's leader of the version deleted: a deletion by that leader is theirs to write
+        if r.rl == false then
+            if not sid then return nil end
+            out.rl = false
+        elseif r.rl ~= nil then
+            out.rl, out.rlb = WireKey(r.rl), WireKey(r.rlb)
+            if not (out.rl and out.rlb) then return nil end
+        end
         return out
     end
     if r.x == true then out.x = true end
@@ -611,9 +665,9 @@ local function CleanEvent(r, now)
     if grp == false then return nil end
     out.grp = grp
     out.gs = CleanSeats(r.gs, grp)
-    local gu, rj, rm = CleanGuests(r.gu), CleanMarks(r.rj, false), CleanMarks(r.rm, true)
-    if gu == false or rj == false or rm == false then return nil end
-    out.gu, out.rj, out.rm = gu, rj, rm
+    local gu, rj, rm, gx = CleanGuests(r.gu), CleanMarks(r.rj, false), CleanMarks(r.rm, true), CleanMarks(r.gx, true)
+    if gu == false or rj == false or rm == false or gx == false then return nil end
+    out.gu, out.rj, out.rm, out.gx = gu, rj, rm, gx
     return out
 end
 
@@ -654,32 +708,95 @@ end
 
 local KIND_CAP = { T = MAX_TEAMS, S = MAX_SERIES, E = MAX_EVENTS }
 
--- Stores a clean record of kind T / S / E. Returns true when stored.
-local function MergeRecord(root, kind, rec)
+-- Keeps a newer version MergeRecord refused, to try it again when the guild's roles change (RetryPending): its writer
+-- may only look unentitled because the guild's lists or ranks are still on their way to me.
+local function HoldBack(kind, rec, via)
+    local k = kind .. ":" .. rec.id
+    local cur = pending[k]
+    if cur and not Newer(rec, cur.rec) then return end
+    if not cur and CountTable(pending) >= MAX_PENDING then return end
+    pending[k] = { kind = kind, rec = rec, via = via }
+end
+
+-- Asks a raid planner who is online (the first by name) for their copy of these records (RPW): a raid's leader that
+-- changed while I was away is taken from a planner's copy (MergeRecord). Gathered for a moment, one message.
+local function AskPlanner(item, via)
+    if not RateLimit("RPask:" .. item, ASK_AGAIN) then return end
+    asks[item] = true
+    Util.Debounce("raidplan-ask", 2, function()
+        local list = {}
+        for i in pairs(asks) do list[#list + 1] = i end
+        asks = {}
+        tsort(list)
+        local G = Guild()
+        local me = Util.PlayerKey()
+        for _, key in ipairs(G and G.GetOnlineMembers and G:GetOnlineMembers() or {}) do
+            if key ~= me and key ~= via and CanAssignLeader(key) then
+                Send({ t = "RPW", w = list }, "WHISPER", key, "ctrl")
+                return
+            end
+        end
+    end)
+end
+
+-- Stores a clean record of kind T / S / E (via: who sent it to me; the writer for a live edit). Returns true when
+-- stored. Over a version that shows (Trusted), a newer one is stored only when its writer may write it, and a raid's
+-- leader (rl / rlb) changes only when someone who names leaders wrote it or passed it on (a hand-made message can't
+-- delete a raid, wipe its sign-ups or name a leader). A record I don't have yet can't be checked against anything: it
+-- is stored, and shows only when its writer is entitled, as before.
+local function MergeRecord(root, kind, rec, via)
     local store = root[kind]
     local cur = store[rec.id]
     if cur then
         if not Newer(rec, cur) then return false end
         -- A client before 1.3 drops the guests and the declined / removed answers from the copy it passes on: the
         -- same version of a raid without them never replaces mine.
-        if kind == "E" and rec.rev == cur.rev and (cur.gu or cur.rj or cur.rm) and not (rec.gu or rec.rj or rec.rm) then
+        if kind == "E" and rec.rev == cur.rev and (cur.gu or cur.rj or cur.rm or cur.gx)
+            and not (rec.gu or rec.rj or rec.rm or rec.gx) then
             return false
         end
         -- nor without the raid's leader (1.3)
         if rec.rev == cur.rev and cur.rl ~= nil and rec.rl == nil then return false end
+        if Trusted(root, kind, cur) then
+            if kind ~= "T" and not SameCrown(cur, rec) and not CanAssignLeader(rec.by) and not CanAssignLeader(via) then
+                -- named while I was away, or made up: a planner's copy tells
+                HoldBack(kind, rec, via)
+                AskPlanner((kind == "S" and "S:" or "O:") .. rec.id, via)
+                return false
+            end
+            if not Trusted(root, kind, rec) then
+                HoldBack(kind, rec, via)
+                return false
+            end
+        end
     elseif CountTable(store) >= KIND_CAP[kind] then
         ns:Debug("RaidPlan: %s store full, %s dropped", kind, rec.id)
         return false
     end
     store[rec.id] = rec
-    Trusted(root, kind, rec)
-    if kind == "E" and rec.del then root.U[rec.id] = nil end   -- a deleted raid takes its sign-ups with it
+    local p = pending[kind .. ":" .. rec.id]
+    if p and not Newer(p.rec, rec) then pending[kind .. ":" .. rec.id] = nil end
+    -- a deleted raid takes its sign-ups with it (a deletion its writer may not make doesn't)
+    if Trusted(root, kind, rec) and kind == "E" and rec.del then root.U[rec.id] = nil end
     return true
+end
+
+-- The refused versions again, after a change of the guild's roles (or of who shares an account).
+local function RetryPending()
+    local root = next(pending) and Root(false)
+    if not root then return end
+    local list = pending
+    pending = {}
+    local changed = false
+    for _, p in pairs(list) do
+        if MergeRecord(root, p.kind, p.rec, p.via) then changed = true end
+    end
+    if changed then Changed() end
 end
 
 local function MergeSignup(root, occId, key, s)
     local e = root.E[occId]
-    if e and e.del then return false end
+    if e and e.del and Trusted(root, "E", e) then return false end
     local occ = root.U[occId]
     if not occ then
         if CountTable(root.U) >= MAX_SIGNUP_OCCS then return false end
@@ -702,7 +819,7 @@ end
 
 local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "inv", "ml", "rl", "rlb" }
 
--- The view's leader: a leader named by the GM or the council, else none (rl, rlb = nil).
+-- The view's leader: a leader named by the GM or a raid leader on the list, else none (rl, rlb = nil).
 local function ViewLeader(v)
     if type(v.rl) ~= "string" or not CanAssignLeader(v.rlb) then v.rl, v.rlb = nil, nil end
     return v
@@ -735,7 +852,7 @@ local function ViewEvent(e)
         id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, ti = e.ti, no = e.no,
         lk = e.lk and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
-        gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm), rl = e.rl, rlb = e.rlb,
+        gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm), gx = CopyMap(e.gx), rl = e.rl, rlb = e.rlb,
         weekly = false,
     })
 end
@@ -764,7 +881,7 @@ local function ViewOccurrence(root, s, k)
         v.cancelled = o.x and true or false
         v.grp = CopyMap(o.grp)
         v.gs = CopyMap(o.gs)
-        v.gu, v.rj, v.rm = CopyGuests(o.gu), CopyMap(o.rj), CopyMap(o.rm)
+        v.gu, v.rj, v.rm, v.gx = CopyGuests(o.gu), CopyMap(o.rj), CopyMap(o.rm), CopyMap(o.gx)
         v.override = true
     end
     return ViewLeader(v)
@@ -885,7 +1002,8 @@ end
 -- Receiving
 ---------------------------------------------------------------------------
 
-local function StoreRecord(kind, r)
+-- via: who sent it to me (MergeRecord).
+local function StoreRecord(kind, r, via)
     local root = Root(true)
     if not root then return false end
     local now = Now()
@@ -895,14 +1013,14 @@ local function StoreRecord(kind, r)
     elseif kind == "E" then rec = CleanEvent(r, now)
     end
     if not rec then return false end
-    return MergeRecord(root, kind, rec)
+    return MergeRecord(root, kind, rec, via)
 end
 
 -- RPU { k, r }: an organizer's live edit (the editor must be the sender).
 local function OnUpdate(sender, msg, dist)
     if dist ~= "GUILD" or type(msg.r) ~= "table" or WireKey(msg.r.by) ~= sender then return end
     if not (msg.k == "T" or msg.k == "S" or msg.k == "E") then return end
-    if StoreRecord(msg.k, msg.r) then Changed() end
+    if StoreRecord(msg.k, msg.r, sender) then Changed() end
 end
 
 -- RPS { l = { { o = occId, s = signup }, ... } }: the sender's own sign-ups.
@@ -942,21 +1060,22 @@ local function OnAltSignups(sender, msg, dist)
     if changed then Changed() end
 end
 
--- RPG: one item (a team, a series, or an occurrence's override + sign-ups), relayed by anyone in the guild.
+-- RPG: one item (a team, a series, or an occurrence's override + sign-ups), relayed by anyone in the guild. The
+-- records go through the same checks as a live edit (MergeRecord); who relays them only counts for a raid's leader.
 local function OnGive(sender, msg, dist)
     if dist ~= "WHISPER" then return end
     local changed = false
     if msg.T ~= nil then
-        changed = StoreRecord("T", msg.T)
+        changed = StoreRecord("T", msg.T, sender)
     elseif msg.S ~= nil then
-        changed = StoreRecord("S", msg.S)
+        changed = StoreRecord("S", msg.S, sender)
     elseif IsOccId(msg.o) then
         local root = Root(true)
         if not root then return end
         local now = Now()
         if msg.e ~= nil then
             local e = CleanEvent(msg.e, now)
-            if e and e.id == msg.o and MergeRecord(root, "E", e) then changed = true end
+            if e and e.id == msg.o and MergeRecord(root, "E", e, sender) then changed = true end
         end
         if type(msg.u) == "table" then
             local n = 0
@@ -1127,6 +1246,31 @@ end
 -- and the raid's own leader.
 function RaidPlan:CanManageRaid(occId, key)
     return CanManage(AsView(occId), key or Util.PlayerKey())
+end
+
+-- Who decides for a whole weekly series: a view that has only the series' own leader (a week's leader doesn't count).
+-- A one-off raid: its own view.
+local function SeriesWho(root, v)
+    local s = v.sid and root and root.S[v.sid]
+    if not s then return v end
+    return ViewLeader({ rl = s.rl, rlb = s.rlb })
+end
+
+-- May I (or that player) change a whole weekly series (every week, stop repeating, delete it)? The GM, the raid
+-- leaders on the list and the series' own leader; a leader of one week only runs that week. A one-off raid: who runs it.
+function RaidPlan:CanManageSeries(occId, key)
+    local v = AsView(occId)
+    return v ~= nil and CanManage(SeriesWho(Root(false), v), key or Util.PlayerKey())
+end
+
+-- May I (or that player) delete the raid (scope "series": the whole weekly series)? Who runs it, but a leader of one
+-- week of a weekly raid edits and cancels that week, they don't delete it (user decision 2026-10-04).
+function RaidPlan:CanDeleteRaid(occId, scope, key)
+    local v = AsView(occId)
+    key = key or Util.PlayerKey()
+    if not v then return false end
+    if v.sid and scope == "series" then return self:CanManageSeries(v, key) end
+    return CanManage(v, key) and CanManage(SeriesWho(Root(false), v), key)
 end
 
 -- May I (or that player) pick the raid's strategies and assign its players? Its own leader (a raid without one: the
@@ -1466,14 +1610,14 @@ local function LockedOut(v, key)
 end
 
 -- Is the raid (a view or an id) listed for me? A locked raid only for the members of its teams, its extra invites,
--- and those who plan raids or lay out groups (the GM, the guild council, the raid leaders). The data itself still
--- reaches every guild member: this is what the lists show, not a secret. (A raid my character's level is too low
--- for stays listed.)
+-- those who plan raids or lay out groups (the GM, the guild council, the raid leaders), its own leader, and the
+-- officers (they keep every raid's guests and declined answers). The data itself still reaches every guild member:
+-- this is what the lists show, not a secret. (A raid my character's level is too low for stays listed.)
 function RaidPlan:CanSee(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return false end
     local me = Util.PlayerKey()
-    return not LockedOut(v, me) or CanGroups(me) or (v.rl ~= nil and SamePlayer(me, v.rl))
+    return not LockedOut(v, me) or CanGroups(me) or CanManage(v, me) or IsOfficer(me)
 end
 
 -- A character's level: my own exactly, a guild member's per the guild roster; nil when not known.
@@ -1844,13 +1988,24 @@ local function RequireRaid(occId, what, series)
     if not root then return nil, "Your guild is not known yet; try again in a moment." end
     local v = ResolveOcc(root, occId)
     if not v then return nil, "unknown raid" end
-    local who = v
-    if series and v.sid then
-        local s = root.S[v.sid]
-        who = ViewLeader({ rl = s.rl, rlb = s.rlb })
-    end
+    local who = series and SeriesWho(root, v) or v
     if not RAID_CHECK[what](who, Util.PlayerKey()) then return nil, who.rl and REFUSED.led or REFUSED[what] end
     return root, v
+end
+
+-- What my edit of one raid's own record starts from: the stored record as it shows (a one-off raid, or a week's
+-- override), else a new override of that week. A stored version that doesn't show (a deletion or change its writer
+-- may not make) is never built on; the new rev still goes past it. Stamped with a new rev and me as the writer.
+local function OccBase(root, occId, v)
+    local cur = root.E[occId]
+    local o
+    if cur and not cur.del and Trusted(root, "E", cur) then
+        o = Util.CopyTable(cur)
+    else
+        o = { id = occId, sid = v.sid, k = v.k }
+    end
+    o.rev, o.by = NextRev(cur), Util.PlayerKey()
+    return o
 end
 
 -- Stores my own record (already built) after validating it, and shares it. Returns ok, err.
@@ -1989,8 +2144,8 @@ end
 
 -- fields: { i = instance key, t = start (server time), sz = 10|25 (default: the instance's), tm = { teamId },
 -- lk = bool (locked: only its teams and extra invites sign up), inv = { key } (extra invites), ml = minimum
--- character level (nil / 0 / false: every level), ti = title, no = note, rl = the raid's leader (the GM and the
--- council only), weekly = bool }. Returns ok, occIdOrErr.
+-- character level (nil / 0 / false: every level), ti = title, no = note, rl = the raid's leader (named by the GM and
+-- the raid leaders on the list only), weekly = bool }. Returns ok, occIdOrErr.
 function RaidPlan:CreateRaid(f)
     local root, err = RequireOrganizer()
     if not root then return false, err end
@@ -2008,8 +2163,8 @@ end
 
 -- scope: "one" (default: this raid only) | "series" (every raid of a weekly series). Moving the time of a series
 -- moves every occurrence by the same amount. fields as CreateRaid (partial) plus x = false to restore a cancelled
--- raid. Who runs the raid edits it (CanManageRaid); naming its leader (rl) is for the GM and the council, on any raid.
--- Returns ok, err.
+-- raid. Who runs the raid edits it (CanManageRaid; the whole series: CanManageSeries); naming its leader (rl) is for
+-- the GM and the raid leaders on the list, on any raid. Returns ok, err.
 function RaidPlan:EditRaid(occId, f, scope)
     if type(f) ~= "table" then return false, "unknown raid" end
     local me = Util.PlayerKey()
@@ -2028,8 +2183,7 @@ function RaidPlan:EditRaid(occId, f, scope)
         if not root then return false, v end
     end
     if not v.sid then
-        local rec = Util.CopyTable(root.E[occId])
-        rec.rev, rec.by = NextRev(rec), me
+        local rec = OccBase(root, occId, v)
         local ok, e = ApplyFields(rec, f, true)
         if not ok then return false, e end
         if f.x == false then rec.x = nil end
@@ -2048,8 +2202,7 @@ function RaidPlan:EditRaid(occId, f, scope)
         if not ok then return false, e end
         return Commit(root, "S", s)
     end
-    local o = root.E[occId] and Util.CopyTable(root.E[occId]) or { id = occId, sid = v.sid, k = v.k }
-    o.rev, o.by = NextRev(root.E[occId]), me
+    local o = OccBase(root, occId, v)
     local ok, e = ApplyFields(o, f, true)
     if not ok then return false, e end
     if f.x == false then o.x = nil end
@@ -2066,20 +2219,23 @@ function RaidPlan:CancelRaid(occId, scope)
         s.rev, s.by, s.x = NextRev(s), me, true
         return Commit(root, "S", s)
     end
-    local cur = root.E[occId]
-    local o = cur and Util.CopyTable(cur) or { id = occId, sid = v.sid, k = v.k }
-    o.rev, o.by, o.x = NextRev(cur), me, true
+    local o = OccBase(root, occId, v)
+    o.x = true
     return Commit(root, "E", o)
 end
 
 -- Deletes a raid for everyone (it disappears, with its sign-ups and group layout). scope "series" on a weekly raid
--- deletes the whole weekly series; otherwise only this raid (for a weekly raid: this week's). Returns ok, err.
+-- deletes the whole weekly series; otherwise only this raid (for a weekly raid: this week's; not by a leader of that
+-- week only: CanDeleteRaid). Returns ok, err.
 function RaidPlan:DeleteRaid(occId, scope)
     local root, v = RequireRaid(occId, "raids", scope == "series")
     if not root then return false, v end
     if v.sid and scope == "series" then return self:CancelRaid(occId, "series") end
-    local ok, e = Commit(root, "E", { id = occId, sid = v.sid, k = v.k, rev = NextRev(root.E[occId]),
-                                      by = Util.PlayerKey(), del = true })
+    if not CanManage(SeriesWho(root, v), Util.PlayerKey()) then return false, REFUSED.week end
+    -- the tombstone keeps the leader of the version deleted: a leader's own deletion is theirs to write (Entitled)
+    local base = OccBase(root, occId, v)
+    local ok, e = Commit(root, "E", { id = occId, sid = v.sid, k = v.k, rev = base.rev, by = base.by, del = true,
+                                      rl = base.rl, rlb = base.rlb })
     if ok and ns.RaidInvite and ns.RaidInvite.IsActive and ns.RaidInvite:IsActive(occId) then ns.RaidInvite:Stop() end
     return ok, e
 end
@@ -2100,9 +2256,7 @@ function RaidPlan:SetGroups(occId, grp, gs)
     if not root then return false, v end
     local clean = CleanGroups(grp or {})
     if clean == false then return false, "invalid group layout" end
-    local cur = root.E[occId]
-    local o = cur and Util.CopyTable(cur) or { id = occId, sid = v.sid, k = v.k }
-    o.rev, o.by = NextRev(cur), Util.PlayerKey()
+    local o = OccBase(root, occId, v)
     o.grp = next(clean) and clean or nil
     o.gs = o.grp and CleanSeats(gs, o.grp) or nil
     return Commit(root, "E", o)
@@ -2117,12 +2271,10 @@ end
 local function EditOcc(occId, fn)
     local root, v = RequireRaid(occId, "roster")
     if not root then return false, v end
-    local cur = root.E[occId]
-    local o = cur and Util.CopyTable(cur) or { id = occId, sid = v.sid, k = v.k }
-    o.rev, o.by = NextRev(cur), Util.PlayerKey()
+    local o = OccBase(root, occId, v)
     local ok, e = fn(o, v)
     if ok == false then return false, e end
-    for _, f in ipairs({ "gu", "rj", "rm", "grp" }) do
+    for _, f in ipairs({ "gu", "rj", "rm", "gx", "grp" }) do
         if o[f] and not next(o[f]) then o[f] = nil end
     end
     if not o.grp then o.gs = nil end
@@ -2134,8 +2286,8 @@ local function TakeOutOfGroups(o, key)
     if o.gs then o.gs[key] = nil end
 end
 
--- Adds a player outside the guild to the raid by name (or changes their class / spec). They count as accepted.
--- Returns ok, keyOrErr.
+-- Adds a player outside the guild to the raid by name (or changes their class / spec). They count as accepted. (One
+-- taken off by hand before is added: by hand, that is meant.) Returns ok, keyOrErr.
 function RaidPlan:AddGuest(occId, name, classFile, spec)
     local key = WireKey(type(name) == "string" and Util.Trim(name) or name)
     if not key then return false, "Type the guest's character name." end
@@ -2152,14 +2304,15 @@ function RaidPlan:AddGuest(occId, name, classFile, spec)
             return false, "A raid has at most " .. MAX_GUESTS .. " guests."
         end
         o.gu[key] = { c = classFile, sp = spec, at = o.gu[key] and o.gu[key].at or Now() }
+        if o.gx then o.gx[key] = nil end
     end)
     if not ok then return false, err end
     return true, key
 end
 
 -- 1.3 guest book: several players who joined the raid at once, as one edit of the raid's record. list = { { key, c,
--- sp }, ... }; players in the guild, blacklisted ones, and those already guests are skipped. Returns ok, keysOrErr
--- (the keys added).
+-- sp }, ... }; players in the guild, blacklisted ones, those already guests and guests taken off by hand (gx) are
+-- skipped. Returns ok, keysOrErr (the keys added).
 function RaidPlan:AddGuests(occId, list)
     if type(list) ~= "table" then return false, "nothing to add" end
     local G = Guild()
@@ -2169,7 +2322,8 @@ function RaidPlan:AddGuests(occId, list)
         for _, g in ipairs(list) do
             local key = type(g) == "table" and WireKey(g.key) or nil
             local spec = g and g.sp
-            if key and not o.gu[key] and type(g.c) == "string" and ns.SPECS and ns.SPECS[g.c]
+            if key and not o.gu[key] and not (o.gx and o.gx[key])
+                and type(g.c) == "string" and ns.SPECS and ns.SPECS[g.c]
                 and not (G and G.IsInGuild and G:IsInGuild(key, true)) and not self:IsBlacklisted(key)
                 and CountTable(o.gu) < MAX_GUESTS then
                 if spec ~= nil and not IsInt(spec, 1, SpecCount(g.c)) then spec = nil end
@@ -2183,12 +2337,29 @@ function RaidPlan:AddGuests(occId, list)
     return true, added
 end
 
+-- Takes a guest off the raid. Remembered on the raid (gx), so nobody's client adds them again when they join the
+-- raid's group (GuestBook); at most MAX_MARKS, the oldest give way.
 function RaidPlan:RemoveGuest(occId, key)
     return EditOcc(occId, function(o)
         if type(key) ~= "string" or not (o.gu and o.gu[key]) then return false, "not a guest of this raid" end
         o.gu[key] = nil
         TakeOutOfGroups(o, key)
+        o.gx = o.gx or {}
+        if CountTable(o.gx) >= MAX_MARKS then
+            local oldest
+            for k, at in pairs(o.gx) do
+                if not oldest or at < o.gx[oldest] or (at == o.gx[oldest] and k < oldest) then oldest = k end
+            end
+            o.gx[oldest] = nil
+        end
+        o.gx[key] = Now()
     end)
+end
+
+-- Was that player taken off the raid (a view or an id) as a guest by hand (and not added by hand again since)?
+function RaidPlan:IsGuestRemoved(occId, key)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    return (v and v.gx and type(key) == "string" and v.gx[key]) and true or false
 end
 
 -- Turns a member down for the raid: their answer no longer counts, they can't answer again (with any of their
@@ -2260,7 +2431,7 @@ function RaidPlan:SignUp(occId, status, spec, note, charKey)
     if block == "blacklist" then
         return false, "You can't sign up for raids. Contact an officer."
     elseif block == "declined" then
-        return false, "The raid leaders took you off this raid."
+        return false, "You were taken off this raid."
     elseif block == "lock" then
         return false, "This raid is locked to its teams and invited players. Ask a raid leader for an invite."
     elseif block == "level" then
@@ -2337,6 +2508,101 @@ local function MyAltSignups()
 end
 
 ---------------------------------------------------------------------------
+-- The same raids for everyone after a role is taken away (user decision 2026-10-04)
+---------------------------------------------------------------------------
+-- A version shows where it arrived while its writer was entitled to write it (Trusted keeps that), so after the
+-- writer loses the role (off the raid leaders list or the council, an officer no more) the clients that had it keep
+-- showing it, while one that gets it only now (a fresh install, a member who was away) would not: the raid would be
+-- gone for them, and they could not sign up. A raid's leader also stops leading once whoever named them may no longer
+-- name leaders (the raid goes back to the raid leaders on the list). So a raid planner's client (for teams: the GM's
+-- or a council member's) that shows such a record writes it again as its own, the same apart from a leader who no
+-- longer counts, and every client shows the same again. Only what is still in use (teams, weekly raids that go on,
+-- raids not over yet, deletions still spreading), each once, a while after the change, spread by name: one planner
+-- usually writes and the others then find nothing to do. Until a planner (for teams: the GM or a council member) is
+-- online, a client that only gets such a record now still leaves it out.
+
+local loginAt                       -- GetTime() of my login (RestampPass waits for the guild's lists and ranks)
+
+-- Is the record still in use (worth writing again)?
+local function InUse(root, kind, rec, now)
+    if kind == "T" then return true end
+    if kind == "S" then
+        if rec.x then return rec.rev >= now - TOMBSTONE_DAYS end
+        return not (rec.u and SeriesTime(rec, rec.u) < now - SIGNUP_CLOSE)
+    end
+    local t = OccTime(root, rec.id)
+    if t then return t >= now - SIGNUP_CLOSE end
+    return rec.rev >= now - TOMBSTONE_DAYS
+end
+
+-- The new version of a record I show that a client getting it now would leave out, or whose leader no longer counts;
+-- nil when it needs none.
+local function Restamped(root, kind, rec)
+    if not Trusted(root, kind, rec) then return nil end
+    local stale = not Entitled(root, kind, rec)
+    local crown = kind ~= "T" and type(rec.rl) == "string" and not CanAssignLeader(rec.rlb)
+    if not stale and not crown then return nil end
+    local out = Util.CopyTable(rec)
+    out.rev, out.by = NextRev(rec), Util.PlayerKey()
+    if crown then
+        -- no leader, as it shows now (a week's own leader: none that week)
+        if rec.sid then out.rl = false else out.rl = nil end
+        out.rlb = nil
+    end
+    return out
+end
+
+local RestampPass
+
+-- RestampPass after `wait` seconds plus my spread (and not before the lists settled after my login); once: more
+-- triggers meanwhile don't move it.
+local function ScheduleRestamp(wait)
+    if restampQueued or not ns.loggedIn then return end
+    restampQueued = true
+    if loginAt then wait = max(wait, RESTAMP_AFTER_LOGIN - (GetTime() - loginAt)) end
+    local spread = (tonumber(Util.Hash(Util.PlayerKey() or ""):sub(1, 4), 16) or 0) % (RESTAMP_SPREAD + 1)
+    Util.After(wait + spread, function()
+        restampQueued = false
+        RestampPass()
+    end)
+end
+
+RestampPass = function()
+    local root = Root(false)
+    local me = Util.PlayerKey()
+    local G = Guild()
+    if not root or not me or not (G and G.IsReady and G:IsReady()) then return end
+    local plans, teams = IsOrganizer(me), CanTeams(me)
+    if not plans and not teams then return end
+    local now, n = Now(), 0
+    for _, kind in ipairs({ "T", "S", "E" }) do
+        if (kind == "T" and teams) or (kind ~= "T" and plans) then
+            local ids = {}
+            for id in pairs(root[kind]) do ids[#ids + 1] = id end
+            tsort(ids)
+            for _, id in ipairs(ids) do
+                local rec = root[kind][id]
+                local new = rec and InUse(root, kind, rec, now) and Restamped(root, kind, rec)
+                if new then
+                    if n >= MAX_RESTAMPS then
+                        ScheduleRestamp(RESTAMP_WAIT)
+                        return
+                    end
+                    if RateLimit("RPR:" .. kind .. ":" .. id, 600) and Commit(root, kind, new) then n = n + 1 end
+                end
+            end
+        end
+    end
+end
+
+-- The guild's roles (or who shares an account) changed: the versions refused for now again, and later a look for
+-- records to write again.
+local function RolesChanged()
+    RetryPending()
+    ScheduleRestamp(RESTAMP_WAIT)
+end
+
+---------------------------------------------------------------------------
 -- Retention (§54)
 ---------------------------------------------------------------------------
 
@@ -2374,9 +2640,9 @@ function RaidPlan:Prune(now)
     end
     -- trust marks of record versions that are gone
     for k in pairs(root.OK) do
-        local kind, id, rev = k:match("^(%u):(.+):(%d+)$")
-        local rec = kind and root[kind] and root[kind][id]
-        if not rec or tostring(rec.rev) ~= rev then root.OK[k] = nil end
+        local kind, id = k:match("^(%u):([^:]+):")
+        local rec = kind and type(root[kind]) == "table" and root[kind][id]
+        if type(rec) ~= "table" or TrustKey(kind, rec) ~= k then root.OK[k] = nil end
     end
     if changed then Changed() end
 end
@@ -2427,9 +2693,13 @@ function RaidPlan:OnInit()
     ns:On("CONFIG_UPDATED", Changed)
     -- Whose characters belong together decides whose answers count: repaint when that changes.
     ns:On("ACCOUNTS_UPDATED", Changed)
+    -- Who may write what changed: versions refused for now, and records to write again (RestampPass).
+    for _, msg in ipairs({ "CONFIG_UPDATED", "ACCOUNTS_UPDATED", "ROSTER_UPDATED" }) do ns:On(msg, RolesChanged) end
 end
 
 function RaidPlan:OnLogin()
+    loginAt = GetTime()
+    ScheduleRestamp(RESTAMP_AFTER_LOGIN)
     local function Daily()
         RaidPlan:Prune()
         Util.After(DAY / 4, Daily)

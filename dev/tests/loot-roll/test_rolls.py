@@ -403,9 +403,9 @@ def start_gates_and_forged_messages():
     C = r["Carol"]
     assert not C.eval("return ns.Roll:CanStart()")
     assert C.eval("return ns.Roll:Start(%d, nil)" % RUBY_DRAPE) is None
-    assert any("Only loot council" in l for l in printed_lines(C))
+    assert any("Only the loot council" in l for l in printed_lines(C))
     log0 = len(w.addon_log)
-    # a raider forges an RS (not council, not lead/assist/ML): nobody opens it
+    # a raider forges an RS (not council, not the ML): nobody opens it
     C.eval("ns.Comm:Send({ t = 'RS', id = 'Carol-1-1', i = %d, s = '', b = '', d = 30, ts = GetServerTime(), c = 1 }, 'RAID', nil, 'alert')" % RUBY_DRAPE)
     w.tick(1)
     for n in ADDON_USERS:
@@ -420,6 +420,41 @@ def start_gates_and_forged_messages():
     w.tick(1)
     st = states(r, sid)
     assert all(v == "open" for k, v in st.items() if k != "Carol"), st
+    w.assert_no_errors()
+
+
+@R.case
+def raid_assistant_has_no_loot_rights():
+    """1.3 (user decision): a raid assistant who is neither council nor the master looter has no loot rights - they
+    just roll. They cannot start, end or award rolls, announce drops, and their RS / RE / RW are ignored everywhere."""
+    r = setup()
+    w = r.w
+    F = r["Frank"]                                   # guild rank 2, not council
+    r.w.make_raid(list(r.c.values()), master_looter=r["Alice"], leader=r["Alice"], assistants=[F],
+                  extra_members=r.extra)
+    w.tick(2)
+    assert F.eval("return UnitIsGroupAssistant('player')") is True
+    assert F.eval("return ns.Roll:CanStart()") is False and F.eval("return ns.Roll:CanAward()") is False
+    assert F.eval("return ns.Roll:Start(%d, nil)" % RUBY_DRAPE) is None
+    F.eval("ns.Loot:ManualDrop(...)", "28766")
+    assert any("Only the loot council" in strip_codes(l) for l in printed_lines(F)[-2:]), printed_lines(F)[-2:]
+    # an assistant's RS is ignored
+    F.eval("ns.Comm:Send({ t = 'RS', id = 'Frank-1-1', i = %d, s = '', b = '', d = 30, ts = GetServerTime(), c = 1, "
+           "pl = 0 }, 'RAID', nil, 'alert')" % RUBY_DRAPE)
+    w.tick(1)
+    for n in ADDON_USERS:
+        assert active_session(r[n]) is None, (n, active_session(r[n]))
+    # ... and so are its RE / RW for the council's roll (plain or not)
+    panel_start(r["Alice"], RUBY_DRAPE)
+    w.tick(1)
+    sid = active_session(r["Alice"])["id"]
+    assert F.eval("return ns.Roll:CanEnd(...)", sid) is False and F.eval("return ns.Roll:CanAward(...)", sid) is False
+    F.eval("ns.Comm:Send({ t = 'RE', id = ... }, 'RAID', nil, 'alert')", sid)
+    F.eval("ns.Comm:Send({ t = 'RW', id = ..., w = 'Frank-Thunderstrike', g = true }, 'RAID', nil, 'alert')", sid)
+    w.tick(1)
+    st = states(r, sid)
+    assert all(v == "open" for k, v in st.items() if k != "Frank"), st
+    assert F.eval("return ns.Roll:Award(...)", sid, key("Frank")) is False
     w.assert_no_errors()
 
 

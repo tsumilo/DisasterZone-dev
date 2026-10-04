@@ -112,7 +112,8 @@ local function bookTooltip(owner, e)
     GameTooltip:Show()
 end
 
--- The raids of the next two weeks I may add guests to, with the player not on them yet.
+-- The raids of the next two weeks I may add guests to (locked ones too: they are listed for the roster managers),
+-- with the player not on them yet.
 local function addableRaids(key)
     local R = RP()
     local out = {}
@@ -120,7 +121,7 @@ local function addableRaids(key)
     local now = GetServerTime()
     local signups
     for _, v in ipairs(R:GetRaids(now - 6 * 3600, now + ADD_AHEAD)) do
-        if not v.cancelled then
+        if not v.cancelled and R:CanManageRoster(v) then
             signups = R:GetSignups(v.id)
             if not signups[key] then out[#out + 1] = v end
         end
