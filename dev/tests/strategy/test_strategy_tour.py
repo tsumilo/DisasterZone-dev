@@ -542,7 +542,7 @@ def the_3d_chapter_runs_in_the_boss_room():
     start(w, bob, "room3d")
     # the room is there: no restart step; it starts on the map, at the switch in its corner
     s = state(bob)
-    assert (s["chapter"], s["si"], s["title"], s["lit"]) == ("room3d", 2, "The room in 3D", True), s
+    assert (s["chapter"], s["si"], s["title"], s["lit"]) == ("room3d", 2, "Into the room", True), s
     assert in3d(bob) is False
     bob.click(bob.eval("return %s.mode3d" % W))
     assert in3d(bob) is True
@@ -583,6 +583,10 @@ def the_3d_chapter_runs_in_the_boss_room():
     bob.eval("T_canvas():ElementMenu(T_canvas():GetSelected())")
     bob.menu_select("View from here")
     s = did(w, bob)
+    assert (s["title"], s["done"]) == ("View from here", True), s       # (it stays: look round from there)
+    assert bob.eval("return _G.DisasterZoneTourBox.next:GetText()") == "Next"
+    nxt(w, bob)
+    s = state(bob)
     assert (s["title"], s["lit"]) == ("Walking in the room", True), s
     tick(w, bob, 0.5)
     # a walk, then Esc
@@ -637,7 +641,6 @@ def the_2d_chapters_put_the_board_back_on_the_map_and_reading_shows_my_spot_in_3
 
     # reading: my name stands on the map, and My spot stands me on it in 3D
     start(w, bob, "read")
-    me = bob.eval("return ns.Util.PlayerKey()")
     marker = bob.eval_py("local s = %s; for _, e in ipairs(s.strat.p[1].e) do "
                          "if e.t == 's' and s.assign[e.r] == ns.Util.PlayerKey() then return e end end" % ST)
     assert marker, "no marker for my job"
@@ -649,10 +652,12 @@ def the_2d_chapters_put_the_board_back_on_the_map_and_reading_shows_my_spot_in_3
     tick(w, bob, 0.8)
     assert bob.eval("return T_v().eyeBtn:IsShown()") is True
     tick(w, bob)
-    assert state(bob)["lit"] is True                        # (now the eye)
+    assert state(bob)["lit"] is True                        # (now the room, the eye in its corner)
     bob.click(bob.eval("return T_v().eyeBtn"))
     s = did(w, bob)
-    assert (s["si"], s["title"]) == (5, "The tables"), s
+    assert (s["si"], s["done"]) == (4, True), s             # (it stays: a look from my spot)
+    nxt(w, bob)
+    assert state(bob)["title"] == "The tables"
     o = bob.eval_py("local o = T_v().orb; return { o.x, o.y, o.dist }")
     xy = bob.eval_py("return { ns.Render3D.BoardToRoom(T_v().room, T_pg(), ...) }", marker["x"], marker["y"])
     assert abs(o[0] - xy[0]) + abs(o[1] - xy[1]) < 1 and o[2] < 1, (o, xy)
@@ -662,7 +667,6 @@ def the_2d_chapters_put_the_board_back_on_the_map_and_reading_shows_my_spot_in_3
     n = bob.eval("local s = %s; local n = 0; for _, e in ipairs(s.strat.p[1].e) do "
                  "if e.t == 's' and s.assign[e.r] == ns.Util.PlayerKey() then n = n + 1 end end; return n" % ST)
     assert n == 1, n
-    assert me
     w.assert_no_errors()
 
 

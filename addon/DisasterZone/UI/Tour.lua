@@ -24,6 +24,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Tour.lua", ...) then return end
 --       done = function(ctx) return bool end,           -- polled; true: the step is done and the tour goes on
 --                                                       -- (already true when the step starts, e.g. after Back:
 --                                                       -- it waits for Next instead)
+--       stay = true,                                    -- done: it waits for Next (what came of it is worth a look)
 --       ghost = function(ctx) return { from = { frame, fx, fy }, to = { frame, fx, fy }, label = "Drag" } end,
 --                                                       -- a cursor that shows the gesture (fx, fy: 0-1 from the
 --                                                       -- frame's top left; no `to`: a click)
@@ -552,7 +553,7 @@ function Tour:Tick()
     local alive = run.def.chapters[run.ci].alive or run.def.alive
     if alive and call(alive) ~= true then return self:Stop() end
     if run.doneAt then
-        if (GetTime() or 0) - run.doneAt >= ADVANCE_AFTER then return self:Next() end
+        if not run.step.stay and (GetTime() or 0) - run.doneAt >= ADVANCE_AFTER then return self:Next() end
     elseif run.step.done and not run.review and call(run.step.done, run.ctx) == true then
         run.doneAt = GetTime() or 0
         pcall(PlaySound, SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)

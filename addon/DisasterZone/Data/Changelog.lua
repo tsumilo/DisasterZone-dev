@@ -78,6 +78,13 @@ ns.CHANGELOG = {
               "Starter strategies: bosses and their adds stand where the game spawns them.",
               "Starter strategies: Shade of Aran and Terestian Illhoof were on each other's floor.",
           } },
+          { heading = "Strategy board tutorial", lines = {
+              "Tutorial (Raids > Strategies, or on the board): a guided tour on a practice board.",
+              "From drawing a plan and the room in 3D to assigning a raid and reading the plan.",
+              "You do each thing yourself and the tour goes on once it sees it done.",
+              "Nothing on the practice board is saved or shared; your own unsaved work stays a draft.",
+              "Stop any time: finished chapters are remembered, and the Tutorial button lists them all.",
+          } },
           { heading = "Guests (players outside the guild)", lines = {
               "Add players (icon at the top right of a raid): add a pug by name, with class and spec.",
               "A guest counts as accepted, can be placed in a group and is invited with the raid.",

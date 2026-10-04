@@ -363,7 +363,7 @@ local room3d = {
             .. "enough), then come back to this chapter.\n\nNext: the tables of jobs.",
     },
     {
-        title = "The room in 3D",
+        title = "Into the room",
         anchor = function() return W().mode2d, W().mode3d end,
         skip = no3D,
         text = "Every raid boss has its room in 3D, as the game draws it, with the boss and its adds as their own "
@@ -461,6 +461,7 @@ local room3d = {
         hint = "Right-click a drawing and pick View from here.",
         enter = function() view3D(true) end,
         done = function() return in3D() and cam().dist < 3 end,
+        stay = true,                                            -- (look round from there)
         ghost = function()
             local at = inRoom(viewTarget())
             return at and { from = at, label = "Right-click" } or nil
@@ -468,7 +469,8 @@ local room3d = {
     },
     {
         title = "Walking in the room",
-        anchor = function() return v3().walkBtn end,
+        -- (once walking, the room is lit: nobody walks in the dark)
+        anchor = function() return v3():IsWalking() and canvas().frame or v3().walkBtn end,
         skip = function() return no3D() or noWalk() end,
         text = "Walk round the room as your own character: drag this button to where you want to start, or click "
             .. "it. WASD or the arrows move you, Space jumps, the mouse turns the camera, Esc stops. The tools work "
@@ -939,15 +941,17 @@ local reading = {
     },
     {
         title = "Your spot in 3D",
+        -- (in the room: all of it, the eye in its corner included)
         anchor = function()
-            if in3D() and v3().eyeBtn:IsShown() then return v3().eyeBtn end
+            if in3D() then return canvas().frame end
             return W().mode2d, W().mode3d
         end,
         skip = no3D,
         text = "In 3D, the eye button (My spot) stands you on your spot at eye height, looking at the boss: the fight "
-            .. "as you will see it. With several jobs, click it again for the next one.",
+            .. "as you will see it. Right-drag looks round; with several jobs, the eye again goes to the next one.",
         hint = "Click 3D, then the eye in the room's top right corner.",
         done = function() return in3D() and cam().dist < 3 end,
+        stay = true,
         ghost = function()
             if not in3D() then return { from = { W().mode3d, 0.5, 0.5 } } end
             local eye = v3().eyeBtn
