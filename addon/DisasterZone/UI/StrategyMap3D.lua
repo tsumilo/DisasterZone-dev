@@ -30,15 +30,14 @@ local tinsert, tsort = table.insert, table.sort
 local function R3() return ns.Render3D end
 local function MapUI() return ns.StrategyMapUI end
 local function UI() return ns.UI end
+local function SO() return ns.StrategyObjects end
 
 -- Frame levels above the 3D frame's own (Render3D/View.lua puts the room, the scene and the plate frame there): the
 -- room's cluster frames take room0 .. scene - 1 (more than the trainer's: Gorefiend's Vigil needs over 200), the
 -- copies over the models copy0 .. copy0 + 31, the plates plates + 1 .. plates + CHIP_LEVELS (the nearest highest);
 -- the camera buttons and the small map sit over all of it.
--- (plates and hud sit far up: in depth slices, /dz 3d slices, the room's bands and the slice scenes take room0 ..
--- plates - 1, up to K copies of every cluster frame)
-local LV = { floor = 1, lines = 2, room0 = 3, scene = 330, copy0 = 331, scene2 = 370, copy2 = 371, plates = 3000,
-             hud = 3200 }
+local LV = { floor = 1, lines = 2, room0 = 3, scene = 330, copy0 = 331, scene2 = 370, copy2 = 371, plates = 373,
+             hud = 560 }
 local CHIP_LEVELS = 180
 
 local EYE = 1.9                       -- yd: the eye over the floor, all the way in
@@ -50,9 +49,15 @@ local NORTH = pi / 2                  -- the heading that shows the room as the 
 -- Walking in the room (your own character): the button's icon (Sprint), the hint, the keys (the client's defaults),
 -- the character's animations, how deep a swimmer's feet hang under the surface and where over the feet the camera
 -- looks (the client's 2.2 yd).
-local WALK_ICON = "Interface\\Icons\\Ability_Rogue_Sprint"
 local WALK_HINT = "Walking: WASD / arrows move, Q / E step aside, Space jumps, right-drag turns you, left-drag looks "
     .. "round, the wheel zooms, Esc stops."
+-- The walk button held over the room: where you would land (a ring on the floor, a ripple going out from it, a
+-- chevron the way you would face, you see-through in it), red where there is nothing to stand on; the hints.
+local PEG_BAD = { 1, 0.32, 0.25 }
+local PEG_RIPPLE = 1.2                -- s: one ripple
+local PEG_ALPHA = 0.55                -- your see-through self
+local PEG_HINT = "Let go to walk from here."
+local PEG_BAD_HINT = "Nothing to stand on here: let go somewhere else."
 local WALK_KEYS = { W = "fwd", UP = "fwd", S = "back", DOWN = "back", A = "left", LEFT = "left", D = "right",
                     RIGHT = "right", Q = "strafeL", E = "strafeR", SPACE = "jump" }
 local WANIM = { stand = 0, run = 5, back = 13, fall = 40, swimIdle = 41, swim = 42 }
@@ -543,7 +548,7 @@ end
 
 local function Sig(e, view)
     return table.concat({ view, e.t, e.x, e.y, e.w or "", e.h == true and "h" or (e.h or ""), e.s or "", e.x2 or "",
-                          e.y2 or "", e.i or "", e.f or "", e.ms or "" }, ",")
+                          e.y2 or "", e.i or "", e.f or "", e.ms or "", e.st or "" }, ",")
 end
 
 -- A drawing's geometry in the room: x, y, z (its spot on the floor); a zone's half axes rx, ry and its outline,
@@ -604,18 +609,54 @@ function V:Geo(e)
     else
         g.ring, g.post = {}, nil
         local disp = e.t == "i" and type(e.i) == "string" and tonumber(e.i:match("^boss:(%d+)$"))
+        -- an asset that is only a spot (a trigger the game never shows: its data model is a stand-in, an Infernal for
+        -- Magtheridon's debris points): an icon on a post, its states' effects and beams still shown
+        local def = e.t == "i" and SO().DefOf(e.i)
+        local marker = def and def.marker
+        -- a creature the boss' script puts in the fight ("npc:<id>"): its model at the NPC's own size too
+        local npcPct = 100
+        if not disp and not marker and e.t == "i" then
+            local d, pct = SO().Creature(e.i)
+            if d then disp, npcPct = d, pct or 100 end
+        end
+        local obj = not disp and not marker and e.t == "i" and SO().EntryOf(e.i)
+        local od = obj and SO().Object(obj)
         if disp then
             local d = r3.DISPLAYS and r3.DISPLAYS[disp]
-            -- its real size times the size set on it (e.ms, percent), and the way set for it to face (e.f, degrees)
-            g.display, g.scale, g.nameZ = disp, (d and d.scale or 1) * (e.ms or 100) / 100, d and d.name
+            -- its real size times the size set on it (e.ms, percent), and the way set for it to face (e.f, degrees);
+            -- a creature placed by its ID: its CreatureModelScale from Data/ModelIndex.lua
+            g.model, g.display = true, disp
+            g.scale = (d and d.scale or SO().DisplayScale(disp)) * npcPct / 100 * (e.ms or 100) / 100
+            g.nameZ, g.chest = d and d.name, d and d.chest
+            g.parts = r3.DISPLAY_PARTS and r3.DISPLAY_PARTS[disp]
             g.face = e.f and math.rad(e.f) or nil
             self:Ring(g.ring, g.x, g.y, 0.6 * g.scale, 0.6 * g.scale, LIFT)
+        elseif od then
+            -- a game object: its model file (Data/ModelIndex.lua: only checked M2 files) at its size, its origin `lift`
+            -- over the floor (Data/EncounterObjects.lua; as the server spawns it, else on the floor), its parts as it
+            -- stands (Render3D/Rooms/Index.lua FILE_PARTS) else its box
+            local def = SO().Def(obj)
+            g.model, g.fdid = true, od.fdid
+            g.scale = od.size * (e.ms or 100) / 100
+            g.lift = def and def.lift or 0
+            g.parts = r3.FILE_PARTS and r3.FILE_PARTS[od.fdid] or od.box
+            g.face = e.f and math.rad(e.f) or nil
+            local reach, top = 0.3, 0
+            for k = 1, #g.parts - 5, 6 do
+                local p = g.parts
+                reach = max(reach, abs(p[k]), abs(p[k + 1]), abs(p[k + 3]), abs(p[k + 4]))
+                top = max(top, p[k + 5])
+            end
+            g.top = g.z + g.lift + top * g.scale
+            local r = max(0.5, min(reach, 3) * g.scale)
+            self:Ring(g.ring, g.x, g.y, r, r, LIFT)
         elseif e.t == "s" then
             self:Ring(g.ring, g.x, g.y, 0.6, 0.6, LIFT, 14)
             g.post = POST_SLOT
         elseif e.t == "i" then
             self:Ring(g.ring, g.x, g.y, 0.45, 0.45, LIFT, 12)
             g.post = POST_ICON
+            if marker then g.marker, g.scale, g.h = true, def.scale or 1, POST_ICON + 0.4 end
         end
     end
     return g
@@ -653,6 +694,149 @@ function V:ReleaseActor(e, a)
     pool[#pool + 1] = a
 end
 
+-- A game object's actor (V:Geo: g.fdid, its size, lift, parts) placed, facing as set (a starter: as spawned; else
+-- east), playing its state's animation; each part an occluder of the object (group e), cut off at the floor: the
+-- Shield Generator's pedestal sinks into it. -> the occluder count.
+function V:DrawObject(e, g, occ, n)
+    local a = self.actors[e]
+    if a.fdid ~= g.fdid or a.display then
+        a.display, a.fdid, a.anim, a.box, a.bb, a.loadedOnce, a.ctr = nil, g.fdid, nil, nil, nil, nil, nil
+        pcall(a.ClearModel, a)
+        -- (only a file ID from Data/ModelIndex.lua, a checked M2 model: any other number can crash the client)
+        pcall(a.SetModelByFileID, a, g.fdid)
+        pcall(a.SetUseCenterForOrigin, a, false, false, false)
+        a.loadAt = GetTime()
+    end
+    local s = g.scale
+    if a.scale ~= s then
+        a.scale = s
+        pcall(a.SetScale, a, s)
+    end
+    local _, st = SO().StateOf(e)
+    local anim = st and st.anim or 0
+    if a.anim ~= anim then
+        a.anim = anim
+        pcall(a.SetAnimation, a, anim)
+    end
+    local face = g.face or 0
+    g.curFace = face
+    local z = g.z + g.lift
+    pcall(a.SetPosition, a, g.x / s, self.view:SY(g.y) / s, z / s)
+    pcall(a.SetYaw, a, self.cam.mirror * face)
+    pcall(a.SetShown, a, true)
+    g.h = max(0.5, g.top - g.z) + 0.4
+    local cf, sf, parts = cos(face), sin(face), g.parts
+    a.partIds = a.partIds or {}
+    for k = 1, #parts - 5, 6 do
+        local x0, y0, z0, x1, y1, z1 = parts[k], parts[k + 1], parts[k + 2], parts[k + 3], parts[k + 4], parts[k + 5]
+        local cx, cy, hx, hy = (x0 + x1) / 2 * s, (y0 + y1) / 2 * s, (x1 - x0) / 2 * s, (y1 - y0) / 2 * s
+        local zb, zt = max(z + z0 * s, g.z + 0.05), z + z1 * s
+        if zt > zb + 0.05 and (hx > 0.05 or hy > 0.05) then
+            local id = a.partIds[k]
+            if not id then
+                id = {}
+                a.partIds[k] = id
+            end
+            n = n + 1
+            local o = occ[n] or {}
+            occ[n] = o
+            o.id, o.x, o.y, o.z, o.h = id, g.x + cf * cx - sf * cy, g.y + sf * cx + cf * cy, zb, zt - zb
+            o.w, o.rb, o.top, o.prio, o.group, o.layer = 0, sqrt(hx * hx + hy * hy), zt - zb, 1, e, nil
+        end
+    end
+    return n
+end
+
+-- Where on a model a beam or an effect meets it (yd over its feet): "chest" = its Chest attachment (Render3D/Rooms.lua
+-- DISPLAYS) times its size, else two thirds of the way to its name point; "top" = an object's top, a creature's name
+-- point; "origin" = an object's origin (its lift); anything else its feet.
+function V:AttachZ(g, at)
+    if type(at) == "number" then return at end      -- (yd over the feet: a cube's beam starts 1.8 yd up)
+    if at == "chest" then
+        if g.chest then return g.chest * g.scale end
+        return g.h and (g.h - 0.4) * 0.65 or 1.2 * (g.scale or 1)
+    elseif at == "top" then
+        return g.top and (g.top - g.z) or (g.h and g.h - 0.4) or 2 * (g.scale or 1)
+    elseif at == "origin" then
+        return g.lift or 0
+    end
+    return 0
+end
+
+-- The effects of the assets' states (Data/EncounterObjects.lua): beam.fx on each target its beams reach (Lady Vashj's
+-- barrier while a Shield Generator is on) and a state's own fx on the asset itself (an orb's ring of flames). One
+-- actor per model and effect, at its attach point, its size; an occluder of the effect's size (fxSize / fx.size) in
+-- the model's group. -> the occluder count.
+function V:DrawEffects(occ, n)
+    local want = {}                                  -- "t" / "s" .. slot -> { holder, fdid, at, size }
+    local list = {}
+    for _, b in ipairs(SO().Beams(self.canvas.page)) do
+        local fx = b.beam.fx
+        if fx and not want[b.dst] then
+            want[b.dst] = true
+            list[#list + 1] = { e = b.dst, kind = "t", fdid = fx, at = b.beam.at, size = b.beam.fxSize }
+        end
+    end
+    for _, e in ipairs(self.canvas.page and self.canvas.page.e or {}) do
+        local _, st = SO().StateOf(e)
+        local fx = st and st.fx
+        if fx and fx.fdid then
+            list[#list + 1] = { e = e, kind = "s", fdid = fx.fdid, at = fx.at, size = fx.size, scale = fx.scale }
+        end
+    end
+    self.fxActors, self.fxPool = self.fxActors or {}, self.fxPool or {}
+    local keep = {}
+    for _, w in ipairs(list) do
+        local g = self.geo[w.e]
+        if g and (g.model and self.actors[w.e] or g.marker) then
+            local slot = self.fxActors[w.e] or {}
+            self.fxActors[w.e] = slot
+            local a = slot[w.kind] or table.remove(self.fxPool) or self.view:NewActor()
+            if a then
+                slot[w.kind], keep[a] = a, true
+                if a.fdid ~= w.fdid then
+                    a.fdid, a.anim = w.fdid, 0
+                    pcall(a.ClearModel, a)
+                    -- (a file named by Data/EncounterObjects.lua, the spell's own effect model)
+                    pcall(a.SetModelByFileID, a, w.fdid)
+                    pcall(a.SetAnimation, a, 0)
+                end
+                -- (the model's size; a state's own effect may name its own: an object's size need not apply to it)
+                local s = w.scale or g.scale
+                if a.scale ~= s then
+                    a.scale = s
+                    pcall(a.SetScale, a, s)
+                end
+                local cz = g.z + self:AttachZ(g, w.at)
+                pcall(a.SetPosition, a, g.x / s, self.view:SY(g.y) / s, cz / s)
+                pcall(a.SetYaw, a, self.cam.mirror * (g.curFace or 0))
+                pcall(a.SetShown, a, true)
+                local sz = w.size
+                if sz then
+                    local zb = max(g.z + 0.05, cz - sz[2] * s)
+                    n = n + 1
+                    local o = occ[n] or {}
+                    occ[n] = o
+                    o.id, o.x, o.y, o.z, o.h = a, g.x, g.y, zb, cz + sz[2] * s - zb
+                    o.w, o.rb, o.top, o.prio, o.group, o.layer = 0, sz[1] * s, o.h, 1, w.e, nil
+                end
+            end
+        end
+    end
+    -- effects no longer wanted back to the pool
+    for e, slot in pairs(self.fxActors) do
+        for kind, a in pairs(slot) do
+            if not keep[a] then
+                pcall(a.SetShown, a, false)
+                slot[kind] = nil
+                self.fxPool[#self.fxPool + 1] = a
+            end
+        end
+        if not next(slot) then self.fxActors[e] = nil end
+    end
+    return n
+end
+
 -- Places the page's models: each where its portrait is, at its real size, facing the nearest player marker (else the
 -- room's middle); the ones no longer on the page go back to the pool. -> the occluder records (Room.SetOccluders).
 function V:DrawModels()
@@ -668,7 +852,7 @@ function V:DrawModels()
             if a then
                 seen[e] = true
                 if a.display ~= g.display then
-                    a.display, a.anim, a.box, a.bb, a.loadedOnce, a.ctr = g.display, 0, nil, nil, nil, nil
+                    a.display, a.anim, a.box, a.bb, a.loadedOnce, a.ctr, a.fdid = g.display, 0, nil, nil, nil, nil, nil
                     pcall(a.ClearModel, a)
                     pcall(a.SetModelByCreatureDisplayID, a, g.display)
                     pcall(a.SetUseCenterForOrigin, a, false, false, false)
@@ -678,6 +862,13 @@ function V:DrawModels()
                 if a.scale ~= s then
                     a.scale = s
                     pcall(a.SetScale, a, s)
+                end
+                -- an encounter asset's state: its animation (a channeler lying dead: 6)
+                local _, st = SO().StateOf(e)
+                local anim = st and st.anim or 0
+                if a.anim ~= anim then
+                    a.anim = anim
+                    pcall(a.SetAnimation, a, anim)
                 end
                 local tx, ty = self:NearestSlot(g.x, g.y)
                 if not tx then
@@ -705,7 +896,9 @@ function V:DrawModels()
                 -- its own box once loaded (model units): how far it reaches round its feet and under them (the
                 -- Lurker: 15 yd across, half under the water), for what the room draws over it
                 if not a.bb and a.loadedOnce then
-                    local fn = a.GetMaxBoundingBox or a.GetActiveBoundingBox
+                    -- (a creature without baked parts - one placed by its ID - goes by its standing box: the Max box
+                    -- holds every animation and is far too big, Kil'jaeden's +-48 yd)
+                    local fn = (not g.parts and a.GetActiveBoundingBox) or a.GetMaxBoundingBox or a.GetActiveBoundingBox
                     local ok, x0, y0, z0, x1, y1, z1 = false, nil, nil, nil, nil, nil, nil
                     if fn then ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a) end
                     if ok and type(z1) == "number" and type(z0) == "number" and z1 > z0 and x1 > x0 then
@@ -718,7 +911,7 @@ function V:DrawModels()
                 -- each box an occluder of its own, so the room is drawn over the part of a big model it lies in
                 -- front of (the Lurker: 30 yd across, his tail 40 yd down in the water), not judged at one plane
                 -- through its middle; without it the client's box (one occluder)
-                local parts = R3().DISPLAY_PARTS and R3().DISPLAY_PARTS[g.display]
+                local parts = g.parts
                 -- (parts that miss where the client draws the model are worse than its one box: Kil'jaeden's were
                 -- read off the wrong pose, three of them single points, reaching 8.5 model units past his box's side)
                 if parts and bb then
@@ -779,11 +972,17 @@ function V:DrawModels()
                     o.w, o.rb, o.top, o.prio = max(1.2, 0.8 * s), max(0.5 * s, rb), g.h + under, 1
                 end
             end
+        elseif g and g.fdid then
+            if self:Actor(e, false) then
+                seen[e] = true
+                n = self:DrawObject(e, g, occ, n)
+            end
         end
     end
     for e, a in pairs(self.actors) do
         if not seen[e] then self:ReleaseActor(e, a) end
     end
+    n = self:DrawEffects(occ, n)
     n = self:DrawWalkers(occ, n)
     -- your character, walking: hidden where the room is in front of it, first in line for the copies
     local wk = self.walk
@@ -795,6 +994,7 @@ function V:DrawModels()
         o.id, o.x, o.y, o.z, o.h, o.group = wk, k.x, k.y, k.z - (k.swimming and SWIM_SINK or 0), 2.4, nil
         o.w, o.rb, o.top, o.prio, o.layer = 1.2, 0.6, 2.6, 2, self.view.scene2 and 2 or nil
     end
+    n = self:DrawPegGhost(occ, n)
     self.nOcc = n
     return occ, n
 end
@@ -863,7 +1063,7 @@ function V:DrawLines(remote)
                 local r, gg, b = ClassColor(cls)
                 Emit(R, g.ring, r, gg, b, 0.95, 3)
                 R.Line(g.x, g.y, g.z + LIFT, g.x, g.y, g.z + g.post, r, gg, b, 0.9, 2)
-            elseif g.display then
+            elseif g.model then
                 local r, gg, b = MapUI():Color(e.c or 9)
                 Emit(R, g.ring, r, gg, b, sel[e] and 1 or 0.55, sel[e] and 3 or 2)
             elseif e.t == "i" then
@@ -872,6 +1072,16 @@ function V:DrawLines(remote)
             end
         end
     end
+    -- the assets' beams (an active Shield Generator to Lady Vashj): from the asset to where it meets its target
+    for _, bm in ipairs(SO().Beams(cv.page)) do
+        local gs, gd = self:Geo(bm.src), self:Geo(bm.dst)
+        -- (where the beam says, else from an object's top, a creature's chest)
+        local from = bm.beam.from
+        local z1 = from and (gs.z + self:AttachZ(gs, from)) or gs.top or (gs.z + self:AttachZ(gs, "chest"))
+        local c = bm.beam.color or GOLD
+        R.Line(gs.x, gs.y, z1, gd.x, gd.y, gd.z + self:AttachZ(gd, bm.beam.at), c[1], c[2], c[3], 0.85, 3)
+    end
+    self:DrawPegRing(R)
     -- the selection box being dragged lies on the floor
     local d = cv.drag
     if d and d.mode == "marquee" and d.ex then
@@ -1004,7 +1214,7 @@ function V:DrawPlates(remote)
             add(e, "text", g.x, g.y, g.z + 0.6)
         elseif e.t == "s" then
             add(e, "slot", g.x, g.y, g.z + g.post)
-        elseif g.display then
+        elseif g.model then
             add(e, "model", g.x, g.y, g.z + (g.h or 3))
         elseif e.t == "i" then
             add(e, "icon", g.x, g.y, g.z + g.post)
@@ -1154,7 +1364,7 @@ function V:DrawPlates(remote)
     -- a model's body is under the mouse too (feet to its name)
     for _, e in ipairs(page and page.e or {}) do
         local g = e.t == "i" and self.geo[e]
-        if g and g.display and self.actors[e] then
+        if g and g.model and self.actors[e] then
             local fx, fy, d = self:Proj(g.x, g.y, g.z)
             local hx, hy = self:Proj(g.x, g.y, g.z + (g.h or 3))
             if fx and hx then
@@ -1171,7 +1381,7 @@ function V:DrawPlates(remote)
     -- the corner handles of the one selected drawing (a zone's size, an arrow's ends)
     local e = editable and cv.selected
     local mg = e and cv:SelectionCount() == 1 and e.t == "i" and self:Geo(e)
-    if mg and mg.display then
+    if mg and mg.model then
         -- a model: the blue knob in front of it turns it, the gold one at its right side sizes it
         -- (at least 28 px out on the screen, so the two never sit on each other seen from afar)
         local r, f = self:KnobRadius(mg), mg.curFace or mg.face or 0
@@ -1324,7 +1534,7 @@ end
 
 -- How far round a model its knobs stand: just outside its ring, further for a big one (its parts' reach).
 function V:KnobRadius(g)
-    local parts = R3().DISPLAY_PARTS and R3().DISPLAY_PARTS[g.display]
+    local parts = g.parts
     local reach = 0.6
     for k = 1, parts and #parts - 5 or 0, 6 do
         reach = max(reach, abs(parts[k]), abs(parts[k + 1]), abs(parts[k + 3]), abs(parts[k + 4]))
@@ -1391,41 +1601,6 @@ function M3:Report()
         return
     end
     ns:Print("3D models (centring: %s):", M3.centre or "off")
-    if v.sliced and v.R.SliceLevels then
-        -- depth slices: the cuts, each slice scene's clips and level, and where you and each model stand in depth
-        local lv, used, cuts = v.R.SliceLevels()
-        local cam = v.cam
-        local parts = {}
-        for i, c in ipairs(cuts) do parts[i] = string.format("%.2f", c) end
-        ns:Print("  slices: cuts %s; levels used %d; camera at %.1f %.1f %.1f looking %.2f %.2f %.2f",
-            table.concat(parts, " "), used or 0, cam.x, cam.y, cam.z, cam.fx, cam.fy, cam.fz)
-        for i = 1, #cuts + 1 do ns:Print("    band %d: model scenes from level %s", i, tostring(lv[i])) end
-        local function band(d)
-            local b = 1
-            while cuts[b] and d >= cuts[b] do b = b + 1 end
-            return b
-        end
-        local function line(name, a, x, y, z)
-            local d = (x - cam.x) * cam.fx + (v.view:SY(y) - cam.y) * cam.fy + (z - cam.z) * cam.fz
-            local shown, nm = {}, 0
-            for i, m in pairs(a and a.mirrors or {}) do
-                nm = nm + 1
-                local sc = a.sliceScenes and a.sliceScenes[i]
-                local okn, cn = pcall(sc.GetCameraNearClip, sc)
-                local okf, cf = pcall(sc.GetCameraFarClip, sc)
-                shown[#shown + 1] = string.format("%d:%s L%d %s-%s", i, (sc and sc:IsShown()) and "on" or "off",
-                    sc and sc:GetFrameLevel() or -1, okn and string.format("%.1f", cn) or "?",
-                    okf and string.format("%.1f", cf) or "?")
-            end
-            ns:Print("    %s: feet depth %.2f (band %d), %d mirrors %s", name, d, band(d), nm, table.concat(shown, " "))
-        end
-        for e, a in pairs(v.actors) do
-            local g = v:Geo(e)
-            line(MapUI():PortraitName(g.display, cv.opts.bossRef and cv.opts.bossRef()) or "model", a, g.x, g.y, g.z)
-        end
-        local wk = v.walk
-        if wk then line("you", wk.actor, wk.k.x, wk.k.y, wk.k.z) end
-    end
     for e, a in pairs(v.actors) do
         local g = v:Geo(e)
         local function box(fn)
@@ -1447,280 +1622,8 @@ function M3:Report()
     end
 end
 
--- /dz 3d slicetest [display]: can a model be cut by depth, per pixel, with two model scenes? One model in two
--- scenes on top of each other, the same camera: the front one clipped to the near half of the depth (far clip at the
--- model), the back one to the far half (near clip at the model). Near / Far / Both show the halves; "Both" must look
--- like the whole model, without a seam or a gap, for depth slicing to work. The split moves with the slider.
--- /dz 3d pairtest [display]: does a model scene depth-test its models against each other? Your own character 15 yd
--- from the camera, a big creature 35 yd away right behind it, in ONE scene; "Swap" makes the creature first instead of
--- you (creation order). If you are hidden behind the creature (in either order), the scene draws models one after
--- another without a depth test between them.
--- /dz 3d scenetest [display]: which of two model scenes is drawn on top - the one on the higher frame level, or the one
--- made first / last? You in one scene (15 yd away), a big creature in another (35 yd away, behind you). Four setups:
--- your scene made first or second, on the higher or the lower level. You should be in front where yours is higher.
-local stest
-local function SceneTest(display)
-    display = tonumber(display) or 20216
-    if not stest then
-        local f = CreateFrame("Frame", "DisasterZoneSceneTest", UIParent)
-        f:SetSize(520, 580)
-        f:SetPoint("CENTER")
-        f:SetFrameStrata("DIALOG")
-        f:SetMovable(true)
-        f:EnableMouse(true)
-        f:RegisterForDrag("LeftButton")
-        f:SetScript("OnDragStart", f.StartMoving)
-        f:SetScript("OnDragStop", f.StopMovingOrSizing)
-        local bg = f:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
-        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-        close:SetPoint("TOPRIGHT", 0, 0)
-        local info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        info:SetPoint("BOTTOMLEFT", 12, 40)
-        info:SetPoint("BOTTOMRIGHT", -12, 40)
-        info:SetJustifyH("LEFT")
-        stest = { f = f, info = info, n = 1, scenes = {} }
-        local SETUPS = { { meFirst = true, meHigh = true }, { meFirst = true, meHigh = false },
-                         { meFirst = false, meHigh = true }, { meFirst = false, meHigh = false } }
-        function stest.Build()
-            for _, sc in ipairs(stest.scenes) do sc:Hide() end
-            wipe(stest.scenes)
-            local cfg = SETUPS[stest.n]
-            local function scene(unit)
-                local sc = CreateFrame("ModelScene", nil, f)
-                sc:SetPoint("TOPLEFT", 10, -30)
-                sc:SetSize(500, 440)
-                pcall(sc.SetCameraFieldOfView, sc, 0.9)
-                pcall(sc.SetCameraNearClip, sc, 0.5)
-                pcall(sc.SetCameraFarClip, sc, 500)
-                pcall(sc.SetCameraPosition, sc, -15, 0, 1.5)
-                pcall(sc.SetCameraOrientationByYawPitchRoll, sc, 0, 0, 0)
-                local a = sc:CreateActor()
-                if unit then
-                    pcall(a.SetModelByUnit, a, "player")
-                    pcall(a.SetPosition, a, 0, 0, 0)
-                else
-                    pcall(a.SetModelByCreatureDisplayID, a, stest.display)
-                    pcall(a.SetPosition, a, 20, 0, -2)
-                end
-                pcall(a.SetUseCenterForOrigin, a, false, false, false)
-                pcall(a.SetYaw, a, math.pi)
-                stest.scenes[#stest.scenes + 1] = sc
-                return sc
-            end
-            local me, it
-            if cfg.meFirst then me = scene(true) it = scene(false) else it = scene(false) me = scene(true) end
-            local base = f:GetFrameLevel()
-            me:SetFrameLevel(base + (cfg.meHigh and 6 or 3))
-            it:SetFrameLevel(base + (cfg.meHigh and 3 or 6))
-            info:SetText(string.format("Setup %d of 4: your scene made %s, on the %s level. Are you in front of the "
-                .. "creature or hidden behind it? (Next: the next setup)", stest.n, cfg.meFirst and "FIRST" or "SECOND",
-                cfg.meHigh and "HIGHER" or "LOWER"))
-        end
-        local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        b:SetSize(90, 22)
-        b:SetPoint("BOTTOMLEFT", 10, 10)
-        b:SetText("Next")
-        b:SetScript("OnClick", function()
-            stest.n = stest.n % 4 + 1
-            stest.Build()
-        end)
-    end
-    stest.display = display
-    stest.n = 1
-    stest.Build()
-    stest.f:Show()
-end
-
-local pair
-local function PairTest(display)
-    display = tonumber(display) or 20216
-    if not pair then
-        local f = CreateFrame("Frame", "DisasterZonePairTest", UIParent)
-        f:SetSize(520, 560)
-        f:SetPoint("CENTER")
-        f:SetFrameStrata("DIALOG")
-        f:SetMovable(true)
-        f:EnableMouse(true)
-        f:RegisterForDrag("LeftButton")
-        f:SetScript("OnDragStart", f.StartMoving)
-        f:SetScript("OnDragStop", f.StopMovingOrSizing)
-        local bg = f:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
-        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-        close:SetPoint("TOPRIGHT", 0, 0)
-        local info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        info:SetPoint("BOTTOMLEFT", 12, 40)
-        info:SetPoint("BOTTOMRIGHT", -12, 40)
-        info:SetJustifyH("LEFT")
-        pair = { f = f, info = info, first = "player" }
-        function pair.Build()
-            if pair.sc then pair.sc:Hide() end
-            local sc = CreateFrame("ModelScene", nil, f)
-            sc:SetPoint("TOPLEFT", 10, -30)
-            sc:SetSize(500, 440)
-            sc:SetFrameLevel(f:GetFrameLevel() + 2)
-            pcall(sc.SetCameraFieldOfView, sc, 0.9)
-            pcall(sc.SetCameraNearClip, sc, 0.5)
-            pcall(sc.SetCameraFarClip, sc, 500)
-            pcall(sc.SetCameraPosition, sc, -15, 0, 1.5)
-            pcall(sc.SetCameraOrientationByYawPitchRoll, sc, 0, 0, 0)
-            pair.sc = sc
-            local function me()
-                local a = sc:CreateActor()
-                pcall(a.SetModelByUnit, a, "player")
-                pcall(a.SetUseCenterForOrigin, a, false, false, false)
-                pcall(a.SetPosition, a, 0, 0, 0)
-                pcall(a.SetYaw, a, math.pi)
-                return a
-            end
-            local function big()
-                local a = sc:CreateActor()
-                pcall(a.SetModelByCreatureDisplayID, a, pair.display)
-                pcall(a.SetUseCenterForOrigin, a, false, false, false)
-                pcall(a.SetPosition, a, 20, 0, -2)
-                pcall(a.SetYaw, a, math.pi)
-                return a
-            end
-            if pair.first == "player" then me() big() else big() me() end
-            info:SetText(string.format("You 15 yd away, display %d 35 yd away right behind you, one scene. Made first: %s. "
-                .. "Are you in front of it (correct) or hidden behind it?", pair.display, pair.first == "player" and "you"
-                or "the creature"))
-        end
-        local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        b:SetSize(90, 22)
-        b:SetPoint("BOTTOMLEFT", 10, 10)
-        b:SetText("Swap order")
-        b:SetScript("OnClick", function()
-            pair.first = (pair.first == "player") and "creature" or "player"
-            pair.Build()
-        end)
-    end
-    pair.display = display
-    pair.Build()
-    pair.f:Show()
-end
-
-local slice
-local function SliceTest(display)
-    display = tonumber(display) or 20216
-    if not slice then
-        local f = CreateFrame("Frame", "DisasterZoneSliceTest", UIParent, "BackdropTemplate")
-        f:SetSize(520, 600)
-        f:SetPoint("CENTER")
-        f:SetFrameStrata("DIALOG")
-        f:SetMovable(true)
-        f:EnableMouse(true)
-        f:RegisterForDrag("LeftButton")
-        f:SetScript("OnDragStart", f.StartMoving)
-        f:SetScript("OnDragStop", f.StopMovingOrSizing)
-        local bg = f:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
-        local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        title:SetPoint("TOP", 0, -8)
-        title:SetText("Depth slice test")
-        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-        close:SetPoint("TOPRIGHT", 0, 0)
-        slice = { f = f, scenes = {}, actors = {} }
-        for i = 1, 2 do
-            local sc = CreateFrame("ModelScene", nil, f)
-            sc:SetPoint("TOPLEFT", 10, -30)
-            sc:SetSize(500, 480)
-            sc:SetFrameLevel(f:GetFrameLevel() + (i == 1 and 3 or 2))   -- the near half in front
-            pcall(sc.SetCameraFieldOfView, sc, 0.9)
-            slice.scenes[i] = sc
-            slice.actors[i] = sc:CreateActor()
-        end
-        slice.info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        slice.info:SetPoint("BOTTOMLEFT", 12, 40)
-        slice.info:SetPoint("BOTTOMRIGHT", -12, 40)
-        slice.info:SetJustifyH("LEFT")
-        local modes = { "Near", "Far", "Both" }
-        for i, m in ipairs(modes) do
-            local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-            b:SetSize(70, 22)
-            b:SetPoint("BOTTOMLEFT", 10 + (i - 1) * 76, 10)
-            b:SetText(m)
-            b:SetScript("OnClick", function()
-                slice.scenes[1]:SetShown(m ~= "Far")
-                slice.scenes[2]:SetShown(m ~= "Near")
-            end)
-        end
-        local sl = CreateFrame("Slider", nil, f, "OptionsSliderTemplate")
-        sl:SetPoint("BOTTOMRIGHT", -20, 14)
-        sl:SetWidth(240)
-        sl:SetMinMaxValues(-15, 15)
-        sl:SetValueStep(0.5)
-        sl:SetValue(0)
-        sl:SetScript("OnValueChanged", function(_, v) slice.split = v slice.Apply() end)
-        slice.split, slice.yaw = 0, 0
-        f:SetScript("OnUpdate", function(_, el)
-            slice.yaw = slice.yaw + el * 0.4                -- the model turns slowly: the cut shows at every angle
-            for i = 1, 2 do pcall(slice.actors[i].SetYaw, slice.actors[i], slice.yaw) end
-        end)
-        function slice.Apply()
-            local D, H = 45, 6                              -- the camera 45 yd in front of the model, a little over it
-            local ok1 = pcall(slice.scenes[1].SetCameraNearClip, slice.scenes[1], 0.5)
-            local ok2 = pcall(slice.scenes[1].SetCameraFarClip, slice.scenes[1], D + slice.split)
-            local ok3 = pcall(slice.scenes[2].SetCameraNearClip, slice.scenes[2], D + slice.split)
-            local ok4 = pcall(slice.scenes[2].SetCameraFarClip, slice.scenes[2], 500)
-            for i = 1, 2 do
-                local sc = slice.scenes[i]
-                pcall(sc.SetCameraPosition, sc, -D, 0, H)
-                pcall(sc.SetCameraOrientationByYawPitchRoll, sc, 0, 0, 0)
-            end
-            slice.info:SetText(string.format("Display %d. Clip API: %s. Split %.1f yd from the model's origin (slider). "
-                .. "Near: in front of the split; Far: behind it; Both must be the whole model, no seam.",
-                slice.display or 0, (ok1 and ok2 and ok3 and ok4) and "yes" or "MISSING", slice.split))
-        end
-    end
-    slice.display = display
-    for i = 1, 2 do
-        local a = slice.actors[i]
-        pcall(a.ClearModel, a)
-        pcall(a.SetModelByCreatureDisplayID, a, display)
-        pcall(a.SetUseCenterForOrigin, a, false, false, false)
-        pcall(a.SetPosition, a, 0, 0, 0)
-        slice.scenes[i]:Show()
-    end
-    slice.Apply()
-    slice.f:Show()
-end
-
 ns:RegisterSlash("3d", function(rest)
     local cmd, arg = strsplit(" ", strtrim(rest or ""), 2)
-    if cmd == "slices" then
-        local on, k = strsplit(" ", arg or "")
-        if on == "on" or on == "off" then
-            M3.slices = on == "on" or nil
-            M3.sliceK = tonumber(k) or M3.sliceK
-            local cv = _G.DisasterZoneStrategyBoard and _G.DisasterZoneStrategyBoard.canvas
-            if cv and cv.v3 then cv.v3:Invalidate() end
-            ns:Print("3D depth slices: %s%s.", on, M3.slices and (" (" .. (M3.sliceK or 8) .. " bands)") or "")
-            local probe = cv and cv.v3 and cv.v3.view and cv.v3.view.probe
-            ns:Print("  Particles kept to one slice: %s.", (probe and probe.SetParticleOverrideScale) and "yes"
-                or "no (this client has no SetParticleOverrideScale: glows show in every slice)")
-        else
-            ns:Print("/dz 3d slices on [bands] | off - the models cut by depth between the room's bands instead of the "
-                .. "boxes and copies (testing).")
-        end
-        return
-    end
-    if cmd == "scenetest" then
-        SceneTest(arg)
-        return
-    end
-    if cmd == "pairtest" then
-        PairTest(arg)
-        return
-    end
-    if cmd == "slicetest" then
-        SliceTest(arg)
-        return
-    end
     if cmd == "centre" or cmd == "center" then
         if arg == "active" or arg == "max" or arg == "geo" or arg == "off" then
             M3.centre = arg
@@ -1735,16 +1638,23 @@ ns:RegisterSlash("3d", function(rest)
         end
         return
     end
+    if cmd == "probe" then
+        -- the render probe (Render3D/Probe.lua): what this client's model scenes can do, for the depth design
+        local probe = ns.Render3D and ns.Render3D.Probe
+        if probe then probe.Slash(arg) else ns:Print("the 3D probe is not loaded.") end
+        return
+    end
     M3:Report()
-end, "the 3D strategy board's models (what the client says of them); centre <active|max|geo|off>")
+end, "the 3D strategy board's models (what the client says of them); centre <active|max|geo|off>; "
+    .. "probe [safe/only <key>/results/reset/clear] - the render probe")
 
 ---------------------------------------------------------------------------
 -- The camera buttons, the compass, the small map, the hint
 ---------------------------------------------------------------------------
 
 -- The editor icons (UI.ICON_ATLAS): 27 turn left, 28 turn right, 29 from above, 30 the whole room, 31 the small map,
--- 15 the eye.
-local HUD_ICONS = { rotL = 27, rotR = 28, top = 29, home = 30, map = 31, eye = 15, walk = 15 }
+-- 15 the eye, 36 walk (a figure striding over a ring).
+local HUD_ICONS = { rotL = 27, rotR = 28, top = 29, home = 30, map = 31, eye = 15, walk = 36 }
 local INSET_W = 200
 local EYE_HINT = "Standing here at eye height: right-drag looks around, the wheel steps back out."
 
@@ -1764,21 +1674,19 @@ function V:CreateHud()
         .. "where you want to start, or click it: on your spot on this page, else where the camera looks. Then walk "
         .. "round as in the game: WASD or the arrows, Space jumps, the mouse turns the camera. Esc or this button "
         .. "again: back to the free camera.", function() self:ToggleWalk() end)
-    self.walkBtn.icon:SetTexture(WALK_ICON)
-    self.walkBtn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    -- dragged out (like a map's street-view figure): your character hangs under the mouse until it is let go
+    -- dragged out (like a map's street-view figure): over the room the floor shows where you would land (V:MovePeg);
+    -- the figure itself hangs under the mouse only off the room and over the small map
     self.walkBtn:RegisterForDrag("LeftButton")
     self.walkBtn:SetScript("OnDragStart", function() self:BeginPeg() end)
     self.walkBtn:SetScript("OnDragStop", function() self:DropPeg() end)
     local peg = CreateFrame("Frame", nil, hud)
-    peg:SetSize(28, 28)
+    peg:SetSize(30, 30)
     peg:SetFrameLevel(hud:GetFrameLevel() + 30)
     peg.icon = peg:CreateTexture(nil, "OVERLAY")
     peg.icon:SetAllPoints()
-    peg.icon:SetTexture(WALK_ICON)
-    peg.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    UI():AddEdges(peg)
-    UI():SetEdgeColor(peg, GOLD[1], GOLD[2], GOLD[3], 1)
+    peg.icon:SetTexture(UI().ICON_ATLAS)
+    peg.icon:SetTexCoord(unpack(UI():IconCoords(HUD_ICONS.walk)))
+    peg.icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
     peg:Hide()
     self.peg = peg
     -- the keyboard while walking: the movement keys stay here, every other key goes on to the game
@@ -1837,6 +1745,9 @@ function V:CreateHud()
         linkText = function(ref) return self.canvas.opts.linkText and self.canvas.opts.linkText(ref) or nil end,
         slotTip = self.canvas.opts.slotTip,
         bossRef = self.canvas.opts.bossRef,
+        -- (no names under its icons: 200 px wide, Lady Vashj's four Generators wrote over each other; the room
+        -- names everything on its plates)
+        iconLabels = false,
     })
     inset.frame:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -6, -34)
     inset.hint:Hide()
@@ -1967,7 +1878,9 @@ function V:DrawHud()
     else
         comp:Hide()
     end
-    self:ShowHint(self.walk and WALK_HINT or (o.dist < 3 and EYE_HINT or self.baseHint))
+    local pg = self.pegging and self.pegAt
+    self:ShowHint((pg and (pg.ok and PEG_HINT or PEG_BAD_HINT)) or (self.walk and WALK_HINT)
+        or (o.dist < 3 and EYE_HINT or self.baseHint))
     self.eyeBtn:SetShown(#self:MySpots() > 0 and not self.walk)
     self.walkBtn:SetActive(self.walk ~= nil)
     self.walkBtn:SetShown(self.walk ~= nil or R3().Ground(self.room) ~= nil)
@@ -1989,68 +1902,6 @@ end
 -- A frame
 ---------------------------------------------------------------------------
 
--- Where the depth slices are cut (yd along the view axis, ascending): at the near and the far side of every model
--- (DrawModels' records grouped by model: the boxes round its parts), yours first, then the near sides, then the far
--- ones; cuts left over spread through the models' own depths by their length. A model whose depths no other model
--- shares gets bands of its own, so the layering by distance (View:SetSliceClips) is exact for it. Quantized to 1/4 yd
--- (a still camera keeps its cuts).
-function V:SliceCuts(occ, n, K)
-    local cam, near = self.cam, (self.view.near or 0.5) + 0.25
-    local fx, fy, fz = cam.fx, cam.fy, cam.fz
-    local groups, list = {}, {}
-    for i = 1, n do
-        local o = occ[i]
-        local hz = (o.h or 0) / 2
-        local r = sqrt((o.rb or 0) ^ 2 + hz * hz)
-        local d = (o.x - cam.x) * fx + (self.view:SY(o.y) - cam.y) * fy + (o.z + hz - cam.z) * fz
-        local key = o.group or o.id or i
-        local g = groups[key]
-        if not g then
-            g = { lo = d - r, hi = d + r, mine = (o.prio == 2) }
-            groups[key] = g
-            list[#list + 1] = g
-        else
-            g.lo, g.hi = math.min(g.lo, d - r), max(g.hi, d + r)
-        end
-    end
-    local want = K - 1
-    local edges = {}
-    local function add(d, rank)
-        if d > near then edges[#edges + 1] = { d = floor(d * 4 + 0.5) / 4, rank = rank } end
-    end
-    for _, g in ipairs(list) do
-        add(g.lo, g.mine and 0 or 1)
-        add(g.hi, g.mine and 0 or 2)
-    end
-    table.sort(edges, function(a, b) if a.rank ~= b.rank then return a.rank < b.rank end return a.d < b.d end)
-    local cuts = {}
-    local function has(d)
-        for _, c in ipairs(cuts) do
-            if math.abs(c - d) < 0.25 then return true end
-        end
-    end
-    for _, e in ipairs(edges) do
-        if #cuts >= want then break end
-        if not has(e.d) then cuts[#cuts + 1] = e.d end
-    end
-    -- the rest through the models' depths, by length
-    local rest = want - #cuts
-    if rest > 0 then
-        local total = 0
-        for _, g in ipairs(list) do total = total + max(0, g.hi - max(g.lo, near)) end
-        for _, g in ipairs(list) do
-            local a, b = max(g.lo, near), g.hi
-            local k = (total > 0 and b > a) and floor(rest * (b - a) / total + 0.5) or 0
-            for j2 = 1, k do
-                local c = floor((a + (b - a) * j2 / (k + 1)) * 4 + 0.5) / 4
-                if #cuts < want and c > near and not has(c) then cuts[#cuts + 1] = c end
-            end
-        end
-    end
-    table.sort(cuts)
-    return cuts
-end
-
 function V:Draw()
     self.dirty = false
     local cv, R = self.canvas, self.R
@@ -2068,51 +1919,12 @@ function V:Draw()
     local remote = self:RemoteMarks()
     self.measured = ok and R.BeginFrame(self.cam) or false
     if self.measured then
-        local slicing = M3.slices and R.SetSlices and self.view.SetSlices
-        if slicing then
-            -- depth slices: the models cut by depth in K scenes between the room's bands (no boxes, no copies)
-            if not self.sliced then
-                self.sliced = true
-                if R.HideCopies then R.HideCopies() end
-            end
-            local cuts = self:SliceCuts(occ, n, M3.sliceK or 8)
-            local K, models = self.view:SetSlices(#cuts + 1)
-            while #cuts > K - 1 do cuts[#cuts] = nil end
-            R.SetSlices(cuts, max(1, models))
-        elseif self.sliced then
-            self.sliced = false
-            R.SetSlices(nil)
-            self.view:SetSlices(0)
-        end
-        if not slicing then R.SetOccluders(occ, n) end
+        R.SetOccluders(occ, n)
         R.DrawRoom()
         R.BeginLines()
         self:DrawLines(remote)
         R.EndLines()
-        if slicing then
-            local lv, _, cuts = R.SliceLevels()
-            self.view:SetSliceClips(cuts, lv)
-            -- each model's particles in the slice that holds its middle only
-            local cam = self.cam
-            local parts = 0
-            for e, act in pairs(self.actors) do
-                local g = self.geo[e]
-                if g and act.mirrors then
-                    local d = (g.x - cam.x) * cam.fx + (self.view:SY(g.y) - cam.y) * cam.fy
-                        + (g.z + (g.h or 2) / 2 - cam.z) * cam.fz
-                    if self.view:SliceParticles(act, d, cuts) then parts = parts + 1 end
-                end
-            end
-            local wk = self.walk
-            if wk and wk.actor and wk.actor.mirrors then
-                local k = wk.k
-                local d = (k.x - cam.x) * cam.fx + (self.view:SY(k.y) - cam.y) * cam.fy + (k.z + 1 - cam.z) * cam.fz
-                self.view:SliceParticles(wk.actor, d, cuts)
-            end
-            self.sliceParticles = parts > 0
-        else
-            R.DrawCopies()
-        end
+        R.DrawCopies()
     end
     self:DrawPlates(remote)
     self:DrawHud()
@@ -2267,38 +2079,138 @@ function V:StartWalk(atX, atY)
     return true
 end
 
--- The walk button dragged out: your character follows the mouse (OnUpdate) until DropPeg.
+-- The walk button dragged out: where you would land follows the mouse (OnUpdate) until DropPeg.
 function V:BeginPeg()
     if not (self.on and R3().Ground(self.room)) then return end
-    self.pegging = true
-    self.peg:Show()
+    self.pegging, self.pegLook = true, nil
     self:MovePeg()
 end
 
-function V:MovePeg()
-    local hud, es = self.hud, self.hud:GetEffectiveScale() or 1
-    local x, y = GetCursorPosition()
-    if es <= 0 then es = 1 end
-    self.peg:ClearAllPoints()
-    self.peg:SetPoint("CENTER", hud, "BOTTOMLEFT", x / es - (hud:GetLeft() or 0), y / es - (hud:GetBottom() or 0) + 16)
-end
-
--- Let go: over the small map, at that board point; over the room, on the floor under the mouse; anywhere else
--- nothing happens.
-function V:DropPeg()
-    if not self.pegging then return end
-    self.pegging = false
-    self.peg:Hide()
-    local x, y
+-- Where letting go at the mouse would put you: { x, y, z (your feet), face, ok (there is ground to stand on), where
+-- ("room" / "inset") }, or nil off the room. Over the small map: at that board point. You face the first model on
+-- the page, as StartWalk turns you.
+function V:PegTarget()
+    local x, y, where
     local inset = self.inset
     if self.insetOn and inset and inset.frame:IsShown() and inset.frame:IsMouseOver() then
         local bx, by = inset:Cursor(true)
         if bx then x, y = R3().BoardToRoom(self.room, self.canvas.page, bx, by) end
+        where = "inset"
     elseif self.frame:IsMouseOver() then
         local sx, sy = self.view:Cursor()
         x, y = self:FloorAt(sx, sy)
+        where = "room"
     end
-    if x then self:StartWalk(x, y) end
+    if not x then return nil end
+    local r3 = R3()
+    local ground, fl = r3.Ground(self.room), r3.Floor(self.room)
+    local gz = self:Ground(x, y)
+    -- (the walk ground as StartWalk's walker settles on it: nil on a wall, a pillar or off the room's floor)
+    local inside = fl and x >= 1 and y >= 1 and x <= fl.w - 1 and y <= fl.h - 1
+    local z = inside and ground and ground(x, y, gz + 0.5) or nil
+    local face = self.orb.heading
+    local m = self:FirstModel()
+    if m and abs(m.x - x) + abs(m.y - y) > 1 then face = atan2(m.y - y, m.x - x) end
+    return { x = x, y = y, z = z or gz, face = face, ok = z ~= nil, where = where }
+end
+
+function V:MovePeg()
+    local t = self:PegTarget()
+    self.pegAt = t
+    -- the figure under the mouse off the room and over the small map; over the room the floor shows the spot
+    local peg = self.peg
+    if t and t.where == "room" then
+        peg:Hide()
+    else
+        local hud, es = self.hud, self.hud:GetEffectiveScale() or 1
+        local x, y = GetCursorPosition()
+        if es <= 0 then es = 1 end
+        peg:ClearAllPoints()
+        peg:SetPoint("CENTER", hud, "BOTTOMLEFT", x / es - (hud:GetLeft() or 0), y / es - (hud:GetBottom() or 0) + 18)
+        peg.icon:SetVertexColor(unpack((t and not t.ok) and PEG_BAD or GOLD))
+        peg:Show()
+    end
+    self:Invalidate()                                -- (the ring's ripple moves on every frame)
+end
+
+-- Let go: where the ring was green-gold (over the room or the small map, on ground you can stand on) you start
+-- walking there; anywhere else nothing happens.
+function V:DropPeg()
+    if not self.pegging then return end
+    local t = self:PegTarget()
+    self.pegging, self.pegAt = false, nil
+    self.peg:Hide()
+    self:Invalidate()
+    if t and t.ok then self:StartWalk(t.x, t.y) end
+end
+
+-- Your see-through self standing where you would land while the walk button is held over the room (a third actor
+-- in the second scene, as your walking character: drawn over the bosses, under what lies in front of it), hidden
+-- otherwise. -> the occluder count.
+function V:DrawPegGhost(occ, n)
+    local t = self.pegging and self.pegAt
+    local a = self.pegActor
+    if not (t and t.ok) then
+        if a and a.pegShown then
+            pcall(a.SetShown, a, false)
+            a.pegShown = false
+        end
+        return n
+    end
+    if not a then
+        a = self.view:NewActor(true)
+        if not a then return n end
+        self.pegActor = a
+    end
+    if not self.pegLook then                         -- (your look as it is now, once per drag)
+        self.pegLook = true
+        pcall(a.ClearModel, a)
+        if a.SetModelByUnit then pcall(a.SetModelByUnit, a, "player") end
+        pcall(a.SetUseCenterForOrigin, a, false, false, false)
+        pcall(a.SetScale, a, 1)
+        a.anim = WANIM.stand
+        pcall(a.SetAnimation, a, WANIM.stand)
+    end
+    local dx, dy = self.view:CentreShift(a, 1, t.face)
+    pcall(a.SetAlpha, a, PEG_ALPHA)
+    pcall(a.SetPosition, a, t.x + dx, self.view:SY(t.y + dy), t.z)
+    pcall(a.SetYaw, a, self.cam.mirror * t.face)
+    pcall(a.SetShown, a, true)
+    a.pegShown = true
+    n = n + 1
+    local o = occ[n] or {}
+    occ[n] = o
+    o.id, o.x, o.y, o.z, o.h, o.group = a, t.x, t.y, t.z, 2.4, nil
+    o.w, o.rb, o.top, o.prio, o.layer = 1.2, 0.6, 2.6, 2, self.view.scene2 and 2 or nil
+    return n
+end
+
+-- The landing ring of a held walk button (V:PegTarget), in the room's draw order: a solid ring, a ripple going out
+-- from it, a chevron the way you would face; red with a cross where there is nothing to stand on.
+function V:DrawPegRing(R)
+    local t = self.pegging and self.pegAt
+    if not t then return end
+    local c = t.ok and GOLD or PEG_BAD
+    local L = {}
+    self:Ring(L, t.x, t.y, 0.6, 0.6, LIFT_SEL, 24)
+    Emit(R, L, c[1], c[2], c[3], 0.95, 3)
+    local ph = (GetTime() % PEG_RIPPLE) / PEG_RIPPLE
+    L = {}
+    self:Ring(L, t.x, t.y, 0.7 + 1.1 * ph, 0.7 + 1.1 * ph, LIFT, 32)
+    Emit(R, L, c[1], c[2], c[3], 0.8 * (1 - ph), 2)
+    L = {}
+    local fx, fy = cos(t.face), sin(t.face)
+    if t.ok then
+        local tx, ty = t.x + fx * 1.3, t.y + fy * 1.3
+        for s = -1, 1, 2 do
+            self:Path(L, tx, ty, t.x + fx * 0.95 - fy * 0.32 * s, t.y + fy * 0.95 + fx * 0.32 * s, LIFT_SEL, 1)
+        end
+    else
+        local r = 0.3
+        self:Path(L, t.x - r, t.y - r, t.x + r, t.y + r, LIFT_SEL, 1)
+        self:Path(L, t.x - r, t.y + r, t.x + r, t.y - r, LIFT_SEL, 1)
+    end
+    Emit(R, L, c[1], c[2], c[3], 0.95, 3)
 end
 
 -- Back to the free camera, where the walking camera was.

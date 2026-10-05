@@ -328,6 +328,17 @@ STATES = [
     ("Raids - Strategy board - Teron 2D", st_window("ns.StrategyBoard:NewStrategy('BlackTemple:Teron')")),
     ("Raids - Strategy board - Teron 3D", st_window("ns.StrategyBoard:NewStrategy('BlackTemple:Teron'); "
                                                     "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
+    # Lady Vashj's Shield Generators (Data/EncounterObjects.lua): their models, beams and her barrier; then the walk
+    # button held over the floor beside her (the landing ring and you see-through in it)
+    ("Raids - Strategy board - Vashj 3D", st_window("ns.StrategyBoard:NewStrategy('SerpentshrineCavern:Vashj'); "
+                                                    "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
+    ("Raids - Strategy board - Vashj 3D walk drop", st_window(
+        "ns.StrategyBoard:NewStrategy('SerpentshrineCavern:Vashj'); local cv = _G.DisasterZoneStrategyBoard.canvas; "
+        "cv:Set3D(true, false); local v = cv.v3; v:Draw(); local s = ns.Render3D.RoomForBoss('SerpentshrineCavern:Vashj')"
+        ".spot; local sx, sy = v.R.Project(s.x + 10, s.y - 6, v:Ground(s.x + 10, s.y - 6)); "
+        "local es = v.view.scene:GetEffectiveScale() or 1; _G.GetCursorPosition = function() return sx * es, sy * es end; "
+        "_G.IsMouseButtonDown = function() return true end; v.frame.IsMouseOver = function() return true end; "
+        "v:BeginPeg(); v:Draw()")),
     ("Council - Loot Log - award dialog", opened("council", "ns.CouncilUI:ShowLog(); ns.LootLogUI:OpenAwardDialog("
                                                "ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[1].itemID, "
                                                "'Shadowmelder-Thunderstrike', 'Karazhan:Prince')")),

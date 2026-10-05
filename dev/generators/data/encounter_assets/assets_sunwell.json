@@ -1,0 +1,1841 @@
+{
+ "SunwellPlateau:Kalecgos": [
+  {
+   "kind": "npc",
+   "id": 24850,
+   "name": "Kalecgos",
+   "why": "Dragon-realm boss: plan for his 10% enrage and the 1% banish that has to line up with Sathrovarr's.",
+   "when": "pull",
+   "display": 23345,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1704.22,
+     "y": 924.758,
+     "z": 53.1608,
+     "o": 1.5359,
+     "source": "creature.sql guid 54810"
+    }
+   ],
+   "states": [
+    {
+     "name": "asleep",
+     "look": "Lies asleep on the platform until pulled (stand state SLEEP).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "creature_template_addon 24850 bytes1=3; boss_kalecgos.cpp:117 SetStandState(UNIT_STAND_STATE_SLEEP)"
+    },
+    {
+     "name": "crazed rage (10%)",
+     "look": "Enrages when he or Sathrovarr drops to 10%: Crazed Rage aura, pulses 44806 every 5 s.",
+     "spell": 44807,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kalecgos.cpp:125-129, 148 (ScheduleHealthCheckEvent 10 -> ACTION_ENRAGE); 5 s period from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect 44807"
+    },
+    {
+     "name": "banished (1%)",
+     "look": "At 1% he banishes himself and waits; the fight ends only when Sathrovarr is banished too.",
+     "spell": 44836,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kalecgos.cpp:131-133, 153, 182 (ScheduleHealthCheckEvent 1 -> SPELL_BANISH; win check HasAura(BANISH) && _sathBanished)"
+    }
+   ],
+   "notes": "Only attacks targets above z 50, the normal realm (boss_kalecgos.cpp:100-102). Resets if >50 yd from home (CheckInRoom). Spectral Rift (GO 187055, summoned by Spectral Blast 44866 at the targeted player's spot, 15 s) is dynamic, so NOT listed. Force field GO 188421 and collision GOs 188523/188524 are doors (skipped)."
+  },
+  {
+   "kind": "npc",
+   "id": 24892,
+   "name": "Sathrovarr the Corruptor",
+   "why": "Spectral-realm boss: the portal team tanks him and gets him to 1% while the dragon team handles Kalecgos.",
+   "when": "9 s after pull (spectral realm)",
+   "display": 26628,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1704.62,
+     "y": 927.78,
+     "z": -73.9,
+     "o": 2.0,
+     "source": "boss_kalecgos.cpp:254 SummonCreature(NPC_SATHROVARR, ...) in the 9 s scheduler after JustEngagedWith",
+     "label": "spectral realm (z -73.9, below the platform)"
+    }
+   ],
+   "states": [
+    {
+     "name": "demonic visual",
+     "look": "Permanent demonic aura visual. He also has Spectral Invisibility (44801), so only players in the spectral realm see him.",
+     "spell": 44800,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kalecgos.cpp:335-336 Reset(): DoCastSelf(SPELL_DEMONIC_VISUAL), DoCastSelf(SPELL_SPECTRAL_INVISIBILITY)"
+    },
+    {
+     "name": "crazed rage (10%)",
+     "look": "Enrages when he or Kalecgos reaches 10%.",
+     "spell": 44807,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kalecgos.cpp:361-366, 399"
+    },
+    {
+     "name": "banished (1%)",
+     "look": "Banishes at 1%; together with Kalecgos' banish this ends the fight.",
+     "spell": 44836,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kalecgos.cpp:373-378, 401"
+    }
+   ],
+   "notes": "The spectral realm has the same x/y as the platform but sits ~127.6 yd lower. Teleport: Spectral Realm 46019 lands players at (1704.34, 928.17, -74.558) and Teleport: Normal Realm 46020 sends them back to (1704.34, 928.17, 53.079) (spell_target_position). The Spectral Realm aura 46021 lasts 60 s (DB2 duration index 3) and ends with Spectral Exhaustion + teleport back (boss_kalecgos.cpp:541-544). He only attacks targets below z 50 (boss_kalecgos.cpp:328-330). On success he is moved to (1696.20, 915.0, 53.079) for the RP kill (boss_kalecgos.cpp:220)."
+  },
+  {
+   "kind": "npc",
+   "id": 24891,
+   "name": "Kalecgos (Kalec, human form)",
+   "why": "Friendly ally in the spectral realm. Healers keep him alive: if he dies Kalecgos resets (wipe).",
+   "when": "9 s after pull (spectral realm)",
+   "display": 23350,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1702.21,
+     "y": 931.7,
+     "z": -74.56,
+     "o": 5.07,
+     "source": "boss_kalecgos.cpp:251 SummonCreature(NPC_KALEC, ...)",
+     "label": "spectral realm (z -74.56)"
+    }
+   ],
+   "states": [
+    {
+     "name": "spectral",
+     "look": "Spectral Invisibility: only players in the spectral realm see him.",
+     "spell": 44801,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kalecgos.cpp:252 kalec->CastSpell(kalec, SPELL_SPECTRAL_INVISIBILITY)"
+    }
+   ],
+   "notes": "Death handler: boss_kalecgos.cpp:303-308 (JustDied -> ACTION_KALEC_DIED -> Kalecgos evades after 9 s)."
+  }
+ ],
+ "SunwellPlateau:Brutallus": [],
+ "SunwellPlateau:Felmyst": [
+  {
+   "kind": "npc",
+   "id": 25038,
+   "name": "Felmyst",
+   "why": "Boss states the raid plans around: 60 s ground phase, then an air phase with 3 Deep Breaths, then landing.",
+   "when": "pull",
+   "display": 22838,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1477.94,
+     "y": 643.22,
+     "z": 21.21,
+     "o": 4.9347,
+     "source": "Summon Felblaze 45069 (summon at caster, TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect target 18) cast by Madrigosa, creature.sql guid 54812; boss_brutallus.cpp:360-362, instance_sunwell_plateau.cpp:98-103",
+     "label": "spawn point (Madrigosa's corpse), before she takes off on her pre-pull path"
+    }
+   ],
+   "states": [
+    {
+     "name": "pre-pull flight",
+     "look": "Circles the courtyard on waypoint path 250380 until engaged, then lands on whoever engaged her.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_felmyst.cpp:160, 365 MoveWaypoint(entry*10); boss_felmyst.cpp:181-184 MoveLand(landPos = engager position)"
+    },
+    {
+     "name": "ground phase",
+     "look": "Landed: Noxious Fumes area aura on the raid (periodic damage every 3 s, 100 yd).",
+     "spell": 47002,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_felmyst.cpp:260-283 POINT_GROUND; tick/radius from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect 47002"
+    },
+    {
+     "name": "takeoff",
+     "look": "After 60 s on the ground she lifts 20 yd straight up and becomes invincible. Demonic Vapor summons at +5 s and +17 s; at +27 s she moves to the nearer hover point.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_felmyst.cpp:234-250, 284-299"
+    },
+    {
+     "name": "deep breath",
+     "look": "Flies to a random lane end (3 per air phase) and emotes 'takes a deep breath'. 5 s later she dives to the opposite end with Speed Burst, strafing every 250 ms for 4 s.",
+     "spell": 45495,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_felmyst.cpp:301-335 (urand(0,2) lane, 16 x CorruptTriggers every 250 ms, SPELL_FELMYST_SPEED_BURST)"
+    }
+   ],
+   "notes": "Display from creature_template_model. The Felmyst Flight Target triggers (25357 guid 54814 left, 25358 guid 54815 right) only decide which side she is on (FindNearestCreature 25358 within 30 yd)."
+  },
+  {
+   "kind": "npc",
+   "id": 25038,
+   "name": "Felmyst air-phase spots",
+   "why": "Hover points and the 6 breath-lane ends: plan where the raid stands for each lane.",
+   "when": "air phase",
+   "display": 22838,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1469.0642,
+     "y": 729.5854,
+     "z": 59.8239,
+     "o": 4.6774,
+     "source": "boss_felmyst.cpp:110 LeftSide",
+     "label": "air phase hover point, left side (high y); each breath cycle starts here"
+    },
+    {
+     "map": 580,
+     "x": 1458.5555,
+     "y": 502.1995,
+     "z": 59.8995,
+     "o": 1.6057,
+     "source": "boss_felmyst.cpp:109 RightSide",
+     "label": "air phase hover point, right side (low y)"
+    },
+    {
+     "map": 580,
+     "x": 1494.745,
+     "y": 704.0001,
+     "z": 50.0847,
+     "o": 4.7472,
+     "source": "boss_felmyst.cpp:95-107 LeftSideLanes[0]",
+     "label": "breath lane TOP, left end"
+    },
+    {
+     "map": 580,
+     "x": 1469.923,
+     "y": 703.2391,
+     "z": 50.0859,
+     "o": 4.7472,
+     "source": "boss_felmyst.cpp:95-107 LeftSideLanes[1]",
+     "label": "breath lane MIDDLE, left end"
+    },
+    {
+     "map": 580,
+     "x": 1446.5154,
+     "y": 701.5184,
+     "z": 50.0854,
+     "o": 4.7472,
+     "source": "boss_felmyst.cpp:95-107 LeftSideLanes[2]",
+     "label": "breath lane BOTTOM, left end"
+    },
+    {
+     "map": 580,
+     "x": 1492.82,
+     "y": 515.668,
+     "z": 50.0833,
+     "o": 1.4486,
+     "source": "boss_felmyst.cpp:95-107 RightSideLanes[0]",
+     "label": "breath lane TOP, right end"
+    },
+    {
+     "map": 580,
+     "x": 1466.7322,
+     "y": 515.5953,
+     "z": 50.5715,
+     "o": 1.4486,
+     "source": "boss_felmyst.cpp:95-107 RightSideLanes[1]",
+     "label": "breath lane MIDDLE, right end"
+    },
+    {
+     "map": 580,
+     "x": 1441.64,
+     "y": 520.52,
+     "z": 50.0833,
+     "o": 1.4486,
+     "source": "boss_felmyst.cpp:95-107 RightSideLanes[2]",
+     "label": "breath lane BOTTOM, right end"
+    }
+   ],
+   "states": [],
+   "notes": "These are Felmyst's own positions in the air (z 50-60), not ground spots. Lanes run along y between the left end (y ~704) and the right end (y ~516). Script quirk: the RightSideLanes[0] end is 37.5 yd from the right-side trigger, past the 30 yd check, so the side test can misfire for the top lane on the right side (boss_felmyst.cpp:330)."
+  },
+  {
+   "kind": "npc",
+   "id": 25038,
+   "name": "Felmyst landing points",
+   "why": "Where she lands after her 3rd breath: left or right, depending on which side she ends on.",
+   "when": "end of air phase",
+   "display": 22838,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1476.77,
+     "y": 665.094,
+     "z": 20.6423,
+     "o": null,
+     "source": "boss_felmyst.cpp:111 LandingLeftPos (no orientation in constant)",
+     "label": "landing, left side"
+    },
+    {
+     "map": 580,
+     "x": 1469.93,
+     "y": 557.009,
+     "z": 22.6317,
+     "o": null,
+     "source": "boss_felmyst.cpp:112 LandingRightPos (no orientation in constant)",
+     "label": "landing, right side"
+    }
+   ],
+   "states": [],
+   "notes": "Chosen at boss_felmyst.cpp:303-307 (isRightSide ? LandingRightPos : LandingLeftPos)."
+  },
+  {
+   "kind": "npc",
+   "id": 25038,
+   "name": "Felmyst pre-pull flight path",
+   "why": "Her circling route before the pull (helps time the pull and her landing spot).",
+   "when": "pre-pull",
+   "display": 22838,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1469.84,
+     "y": 617.638,
+     "z": 43.109,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 1",
+     "label": "pre-pull path point 1"
+    },
+    {
+     "map": 580,
+     "x": 1457.06,
+     "y": 601.483,
+     "z": 45.9423,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 2",
+     "label": "pre-pull path point 2"
+    },
+    {
+     "map": 580,
+     "x": 1441.81,
+     "y": 579.315,
+     "z": 47.8868,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 3",
+     "label": "pre-pull path point 3"
+    },
+    {
+     "map": 580,
+     "x": 1436.96,
+     "y": 553.724,
+     "z": 48.1369,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 4",
+     "label": "pre-pull path point 4"
+    },
+    {
+     "map": 580,
+     "x": 1445.2,
+     "y": 530.017,
+     "z": 47.6091,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 5",
+     "label": "pre-pull path point 5"
+    },
+    {
+     "map": 580,
+     "x": 1466.54,
+     "y": 511.741,
+     "z": 46.9424,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 6",
+     "label": "pre-pull path point 6"
+    },
+    {
+     "map": 580,
+     "x": 1495.12,
+     "y": 512.106,
+     "z": 47.0564,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 7",
+     "label": "pre-pull path point 7"
+    },
+    {
+     "map": 580,
+     "x": 1508.43,
+     "y": 531.745,
+     "z": 46.6748,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 8",
+     "label": "pre-pull path point 8"
+    },
+    {
+     "map": 580,
+     "x": 1511.31,
+     "y": 556.956,
+     "z": 46.8713,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 9",
+     "label": "pre-pull path point 9"
+    },
+    {
+     "map": 580,
+     "x": 1507.68,
+     "y": 580.329,
+     "z": 47.0102,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 10",
+     "label": "pre-pull path point 10"
+    },
+    {
+     "map": 580,
+     "x": 1497.41,
+     "y": 601.979,
+     "z": 47.3713,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 11",
+     "label": "pre-pull path point 11"
+    },
+    {
+     "map": 580,
+     "x": 1479.37,
+     "y": 624.207,
+     "z": 47.2879,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 12",
+     "label": "pre-pull path point 12"
+    },
+    {
+     "map": 580,
+     "x": 1467.83,
+     "y": 637.919,
+     "z": 46.5657,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 13",
+     "label": "pre-pull path point 13"
+    },
+    {
+     "map": 580,
+     "x": 1449.88,
+     "y": 658.88,
+     "z": 46.0379,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 14",
+     "label": "pre-pull path point 14"
+    },
+    {
+     "map": 580,
+     "x": 1442.15,
+     "y": 681.624,
+     "z": 45.2601,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 15",
+     "label": "pre-pull path point 15"
+    },
+    {
+     "map": 580,
+     "x": 1438.89,
+     "y": 713.952,
+     "z": 44.9545,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 16",
+     "label": "pre-pull path point 16"
+    },
+    {
+     "map": 580,
+     "x": 1452.22,
+     "y": 737.732,
+     "z": 44.2324,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 17",
+     "label": "pre-pull path point 17"
+    },
+    {
+     "map": 580,
+     "x": 1476.13,
+     "y": 743.082,
+     "z": 43.8434,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 18",
+     "label": "pre-pull path point 18"
+    },
+    {
+     "map": 580,
+     "x": 1498.36,
+     "y": 726.618,
+     "z": 43.8434,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 19",
+     "label": "pre-pull path point 19"
+    },
+    {
+     "map": 580,
+     "x": 1503.42,
+     "y": 693.786,
+     "z": 44.2601,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 20",
+     "label": "pre-pull path point 20"
+    },
+    {
+     "map": 580,
+     "x": 1496.35,
+     "y": 664.36,
+     "z": 43.0379,
+     "o": 0.0,
+     "source": "waypoint_data id 250380 point 21",
+     "label": "pre-pull path point 21"
+    }
+   ],
+   "states": [],
+   "notes": "21-point looping waypoint path; draw it as a line, not 21 models. move_type 2 = fly."
+  },
+  {
+   "kind": "npc",
+   "id": 23472,
+   "name": "Fog of Corruption point (top lane)",
+   "why": "Where fog lands when Felmyst breathes down the top lane: keep these spots clear.",
+   "when": "air phase, Deep Breath down the top lane",
+   "display": 18783,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1510.45,
+     "y": 524.354,
+     "z": 26.6284,
+     "o": 2.9845,
+     "source": "creature.sql guid 54435",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1517.4,
+     "y": 614.236,
+     "z": 29.7816,
+     "o": 1.501,
+     "source": "creature.sql guid 54593",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1526.31,
+     "y": 636.493,
+     "z": 36.256,
+     "o": 2.81,
+     "source": "creature.sql guid 54595",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1494.97,
+     "y": 540.017,
+     "z": 25.8136,
+     "o": 4.468,
+     "source": "creature.sql guid 54597",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1494.96,
+     "y": 560.01,
+     "z": 25.2375,
+     "o": 4.6251,
+     "source": "creature.sql guid 54603",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1531.06,
+     "y": 666.553,
+     "z": 27.4053,
+     "o": 4.3633,
+     "source": "creature.sql guid 54623",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1516.21,
+     "y": 642.402,
+     "z": 27.1559,
+     "o": 0.9599,
+     "source": "creature.sql guid 54769",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1550.99,
+     "y": 537.98,
+     "z": 33.6018,
+     "o": 4.3982,
+     "source": "creature.sql guid 54770",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1530.97,
+     "y": 609.005,
+     "z": 35.8885,
+     "o": 2.8449,
+     "source": "creature.sql guid 54771",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1513.84,
+     "y": 672.901,
+     "z": 25.2126,
+     "o": 1.1868,
+     "source": "creature.sql guid 54775",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1527.6,
+     "y": 536.79,
+     "z": 30.6338,
+     "o": 4.0143,
+     "source": "creature.sql guid 54776",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1525.77,
+     "y": 622.454,
+     "z": 35.694,
+     "o": 1.0996,
+     "source": "creature.sql guid 54778",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1514.72,
+     "y": 549.309,
+     "z": 30.1433,
+     "o": 5.8818,
+     "source": "creature.sql guid 54779",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1495.1,
+     "y": 680.0,
+     "z": 21.2197,
+     "o": 5.7247,
+     "source": "creature.sql guid 54782",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1507.31,
+     "y": 693.957,
+     "z": 28.849,
+     "o": 2.8973,
+     "source": "creature.sql guid 54783",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1545.4,
+     "y": 594.886,
+     "z": 35.9539,
+     "o": 2.6355,
+     "source": "creature.sql guid 54784",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1532.74,
+     "y": 556.122,
+     "z": 33.0917,
+     "o": 2.4958,
+     "source": "creature.sql guid 54791",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1495.1,
+     "y": 659.942,
+     "z": 22.8368,
+     "o": 6.2657,
+     "source": "creature.sql guid 54793",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1494.96,
+     "y": 599.914,
+     "z": 25.303,
+     "o": 4.2412,
+     "source": "creature.sql guid 54795",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1513.26,
+     "y": 571.209,
+     "z": 28.7967,
+     "o": 3.7001,
+     "source": "creature.sql guid 54797",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1494.94,
+     "y": 580.008,
+     "z": 23.8434,
+     "o": 5.4803,
+     "source": "creature.sql guid 54800",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1529.81,
+     "y": 515.108,
+     "z": 23.6588,
+     "o": 2.426,
+     "source": "creature.sql guid 54801",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1495.29,
+     "y": 639.835,
+     "z": 23.6399,
+     "o": 3.8223,
+     "source": "creature.sql guid 54802",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1495.13,
+     "y": 620.012,
+     "z": 25.3659,
+     "o": 4.1713,
+     "source": "creature.sql guid 54804",
+     "label": "top lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1523.57,
+     "y": 587.714,
+     "z": 31.0093,
+     "o": 1.7279,
+     "source": "creature.sql guid 54806",
+     "label": "top lane fog point"
+    }
+   ],
+   "states": [
+    {
+     "name": "fog",
+     "look": "Felmyst's strafe (spell 45585) hits this trigger and it casts Fog of Corruption on itself (10 s aura, pulses 45782 every 1 s). Players standing in it get mind-controlled (Fog of Corruption charm 45717).",
+     "spell": 45582,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_felmyst.cpp:192-196 SpellHitTarget(strafe) -> target->CastSpell(target, SPELL_FOG_OF_CORRUPTION); duration/period from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect/SpellMisc 45582"
+    }
+   ],
+   "notes": "Invisible World Trigger (display is an invisible stalker model). Lane membership from conditions.sql SourceType 13 spell 45585 (ConditionValue2 = creature guid). AC SpellInfoCorrections.cpp:4862-4867: Strafe (Top) hits up to 3 triggers within 70 yd per tick, so not every point fogs on every breath. The top set includes points east of x 1495 (ramps)."
+  },
+  {
+   "kind": "npc",
+   "id": 23472,
+   "name": "Fog of Corruption point (middle lane)",
+   "why": "Where fog lands when Felmyst breathes down the middle lane: keep these spots clear.",
+   "when": "air phase, Deep Breath down the middle lane",
+   "display": 18783,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1472.56,
+     "y": 639.987,
+     "z": 21.3267,
+     "o": 3.9794,
+     "source": "creature.sql guid 54602",
+     "label": "middle lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1472.58,
+     "y": 539.995,
+     "z": 23.0061,
+     "o": 3.8572,
+     "source": "creature.sql guid 54608",
+     "label": "middle lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1472.58,
+     "y": 560.0,
+     "z": 22.875,
+     "o": 1.8326,
+     "source": "creature.sql guid 54772",
+     "label": "middle lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1472.54,
+     "y": 659.999,
+     "z": 20.8059,
+     "o": 6.1959,
+     "source": "creature.sql guid 54773",
+     "label": "middle lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1472.55,
+     "y": 580.021,
+     "z": 22.4463,
+     "o": 4.1539,
+     "source": "creature.sql guid 54789",
+     "label": "middle lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1472.57,
+     "y": 600.019,
+     "z": 23.258,
+     "o": 5.1138,
+     "source": "creature.sql guid 54790",
+     "label": "middle lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1472.56,
+     "y": 679.989,
+     "z": 22.3604,
+     "o": 4.468,
+     "source": "creature.sql guid 54798",
+     "label": "middle lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1472.57,
+     "y": 620.0,
+     "z": 22.268,
+     "o": 4.9393,
+     "source": "creature.sql guid 54808",
+     "label": "middle lane fog point"
+    }
+   ],
+   "states": [
+    {
+     "name": "fog",
+     "look": "Felmyst's strafe (spell 45633) hits this trigger and it casts Fog of Corruption on itself (10 s aura, pulses 45782 every 1 s). Players standing in it get mind-controlled (Fog of Corruption charm 45717).",
+     "spell": 45582,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_felmyst.cpp:192-196 SpellHitTarget(strafe) -> target->CastSpell(target, SPELL_FOG_OF_CORRUPTION); duration/period from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect/SpellMisc 45582"
+    }
+   ],
+   "notes": "Invisible World Trigger (display is an invisible stalker model). Lane membership from conditions.sql SourceType 13 spell 45633 (ConditionValue2 = creature guid). AC SpellInfoCorrections.cpp:4869-4873: 70 yd radius; target type 38 (nearest entry) per tick."
+  },
+  {
+   "kind": "npc",
+   "id": 23472,
+   "name": "Fog of Corruption point (bottom lane)",
+   "why": "Where fog lands when Felmyst breathes down the bottom lane: keep these spots clear.",
+   "when": "air phase, Deep Breath down the bottom lane",
+   "display": 18783,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1451.98,
+     "y": 540.0,
+     "z": 23.0558,
+     "o": 2.3387,
+     "source": "creature.sql guid 54774",
+     "label": "bottom lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1451.98,
+     "y": 560.0,
+     "z": 23.0558,
+     "o": 0.6109,
+     "source": "creature.sql guid 54777",
+     "label": "bottom lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1451.98,
+     "y": 600.0,
+     "z": 23.0558,
+     "o": 5.1836,
+     "source": "creature.sql guid 54781",
+     "label": "bottom lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1451.98,
+     "y": 660.0,
+     "z": 23.0533,
+     "o": 5.5502,
+     "source": "creature.sql guid 54785",
+     "label": "bottom lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1451.98,
+     "y": 640.0,
+     "z": 23.0558,
+     "o": 3.7699,
+     "source": "creature.sql guid 54788",
+     "label": "bottom lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1451.98,
+     "y": 580.0,
+     "z": 23.0558,
+     "o": 4.1364,
+     "source": "creature.sql guid 54792",
+     "label": "bottom lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1451.99,
+     "y": 679.459,
+     "z": 23.058,
+     "o": 1.3963,
+     "source": "creature.sql guid 54794",
+     "label": "bottom lane fog point"
+    },
+    {
+     "map": 580,
+     "x": 1451.98,
+     "y": 620.0,
+     "z": 23.0558,
+     "o": 0.0,
+     "source": "creature.sql guid 54796",
+     "label": "bottom lane fog point"
+    }
+   ],
+   "states": [
+    {
+     "name": "fog",
+     "look": "Felmyst's strafe (spell 45635) hits this trigger and it casts Fog of Corruption on itself (10 s aura, pulses 45782 every 1 s). Players standing in it get mind-controlled (Fog of Corruption charm 45717).",
+     "spell": 45582,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_felmyst.cpp:192-196 SpellHitTarget(strafe) -> target->CastSpell(target, SPELL_FOG_OF_CORRUPTION); duration/period from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect/SpellMisc 45582"
+    }
+   ],
+   "notes": "Invisible World Trigger (display is an invisible stalker model). Lane membership from conditions.sql SourceType 13 spell 45635 (ConditionValue2 = creature guid). AC SpellInfoCorrections.cpp:4869-4873: 70 yd radius; target type 38 (nearest entry) per tick."
+  }
+ ],
+ "SunwellPlateau:EredarTwins": [
+  {
+   "kind": "npc",
+   "id": 25165,
+   "name": "Lady Sacrolash",
+   "why": "Shadow twin; tanks keep both twins near home (leash).",
+   "when": "pull",
+   "display": 23177,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1813.98,
+     "y": 625.911,
+     "z": 33.4038,
+     "o": 3.1492,
+     "source": "creature.sql guid 53687"
+    }
+   ],
+   "states": [
+    {
+     "name": "shadowform",
+     "look": "Permanent shadow-form visual.",
+     "spell": 45455,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_eredar_twins.cpp:103 Reset(): DoCastSelf(SPELL_SHADOWFORM)"
+    },
+    {
+     "name": "empowered",
+     "look": "When Alythess dies: Empower (heals her, raises damage) and she takes over Conflagration.",
+     "spell": 45366,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_eredar_twins.cpp:113-133 DoAction(ACTION_SISTER_DIED) -> CastSpell(SPELL_EMPOWER)"
+    }
+   ],
+   "notes": "Leash: if Sacrolash is >=50 yd (2D) from her spawn, both twins cast Fireblast 45232 (raid-wide) - boss_eredar_twins.cpp:86-99."
+  },
+  {
+   "kind": "npc",
+   "id": 25166,
+   "name": "Grand Warlock Alythess",
+   "why": "Fire twin; ranged stack/spread plan around her Pyrogenics and Flame Sear.",
+   "when": "pull",
+   "display": 23334,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1819.18,
+     "y": 625.539,
+     "z": 33.4038,
+     "o": 6.1101,
+     "source": "creature.sql guid 53668"
+    }
+   ],
+   "states": [
+    {
+     "name": "fireform",
+     "look": "Permanent fire-form visual.",
+     "spell": 45457,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_eredar_twins.cpp:214 Reset(): DoCastSelf(SPELL_FIREFORM)"
+    },
+    {
+     "name": "empowered",
+     "look": "When Sacrolash dies: Empower and she takes over Shadow Nova.",
+     "spell": 45366,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_eredar_twins.cpp:231-264 DoAction(ACTION_SISTER_DIED) -> CastSpell(SPELL_EMPOWER)"
+    }
+   ],
+   "notes": "The Blaze GO and Shadow Images spawn on players / at Sacrolash's current spot (dynamic, not listed)."
+  }
+ ],
+ "SunwellPlateau:Muru": [
+  {
+   "kind": "npc",
+   "id": 25741,
+   "name": "M'uru",
+   "why": "Stationary boss: phase 1 adds come to him, then he turns into Entropius.",
+   "when": "pull",
+   "display": 23404,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1816.25,
+     "y": 625.484,
+     "z": 69.6036,
+     "o": 5.6243,
+     "source": "creature.sql guid 53705"
+    }
+   ],
+   "states": [
+    {
+     "name": "phase 1",
+     "look": "Negative Energy periodic aura (pulses 46008 every 1 s).",
+     "spell": 46009,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_muru.cpp:90-96 JustEngagedWith"
+    },
+    {
+     "name": "transforming",
+     "look": "At 0 hp: unselectable, casts Open All Portals, and every portal target fires Transform Visual Missiles (46178/46208) into him. Entropius is summoned at +7 s; M'uru goes invisible at +8 s.",
+     "spell": 46177,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_muru.cpp:114-135 DamageTaken"
+    }
+   ],
+   "notes": "Pulls when a player above z 69 comes within 25 yd (boss_muru.cpp:79-88)."
+  },
+  {
+   "kind": "npc",
+   "id": 25770,
+   "name": "M'uru Portal Target",
+   "why": "The 10 fixed void-portal spots around the room edge. One opens every 30 s and drops a Void Sentinel; all of them open at the transition.",
+   "when": "pull (fixed all fight)",
+   "display": 169,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1781.65,
+     "y": 621.09,
+     "z": 78.5541,
+     "o": 1.1519,
+     "source": "creature.sql guid 45574"
+    },
+    {
+     "map": 580,
+     "x": 1824.17,
+     "y": 588.977,
+     "z": 78.621,
+     "o": 1.7977,
+     "source": "creature.sql guid 45580"
+    },
+    {
+     "map": 580,
+     "x": 1794.84,
+     "y": 604.343,
+     "z": 78.549,
+     "o": 0.0873,
+     "source": "creature.sql guid 45712"
+    },
+    {
+     "map": 580,
+     "x": 1824.05,
+     "y": 653.748,
+     "z": 78.5587,
+     "o": 5.044,
+     "source": "creature.sql guid 46283"
+    },
+    {
+     "map": 580,
+     "x": 1839.93,
+     "y": 652.875,
+     "z": 78.5929,
+     "o": 3.9619,
+     "source": "creature.sql guid 46303"
+    },
+    {
+     "map": 580,
+     "x": 1852.49,
+     "y": 623.461,
+     "z": 78.6198,
+     "o": 3.0369,
+     "source": "creature.sql guid 46679"
+    },
+    {
+     "map": 580,
+     "x": 1849.18,
+     "y": 641.002,
+     "z": 78.6183,
+     "o": 3.5605,
+     "source": "creature.sql guid 46687"
+    },
+    {
+     "map": 580,
+     "x": 1775.98,
+     "y": 635.201,
+     "z": 78.5586,
+     "o": 0.0698,
+     "source": "creature.sql guid 46688"
+    },
+    {
+     "map": 580,
+     "x": 1803.18,
+     "y": 657.192,
+     "z": 78.5476,
+     "o": 4.0666,
+     "source": "creature.sql guid 46689"
+    },
+    {
+     "map": 580,
+     "x": 1802.91,
+     "y": 591.566,
+     "z": 78.5747,
+     "o": 1.2566,
+     "source": "creature.sql guid 47028"
+    }
+   ],
+   "states": [
+    {
+     "name": "idle",
+     "look": "Invisible trigger (no visual).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "creature_template_model 25770 (invisible trigger models 169/23377)"
+    },
+    {
+     "name": "portal open",
+     "look": "Open Portal visual (10 s) on the chosen target. 5 s later it summons the Void Sentinel Summoner in front of itself and links to it (45989); the summoner then summons the Void Sentinel.",
+     "spell": 45977,
+     "beamTo": null,
+     "anim": null,
+     "source": "M'uru Open Portal Periodic 45994 (period 30 s, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)) -> 45976 picks 1 random portal target (spell_script_names: spell_gen_select_target_count_7_1; conditions 13/45976 -> 25770); smart_scripts 25770 id 1 -> actionlist 2577000 (45977 @0.5 s, 45978 @+4.5 s, 45989 @+0.5 s), id 3 -> cross cast 45988"
+    },
+    {
+     "name": "transform beams",
+     "look": "On Open All Portals every portal opens (45977) and fires 5 pairs of Transform Visual Missiles at M'uru.",
+     "spell": 46178,
+     "beamTo": "M'uru",
+     "anim": null,
+     "source": "smart_scripts 25770 id 4 -> actionlist 2577001 (45977, then 46178/46208 x5 every 1.5 s); conditions 13/46178 and 13/46208 -> target M'uru 25741"
+    }
+   ],
+   "notes": "They float ~9 yd above the floor (z 78.5), 29-41 yd horizontally from M'uru."
+  },
+  {
+   "kind": "npc",
+   "id": 25772,
+   "name": "Void Sentinel (spawn spots)",
+   "why": "Where each Void Sentinel lands: in front of the portal that opened. Off-tank pick-up spots.",
+   "when": "every 30 s (one random portal)",
+   "display": 23372,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1783.6837,
+     "y": 625.6577,
+     "z": 69.6036,
+     "o": 1.1519,
+     "source": "derived: portal target creature.sql guid 45574 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 45574"
+    },
+    {
+     "map": 580,
+     "x": 1823.0452,
+     "y": 593.8488,
+     "z": 69.6036,
+     "o": 1.7977,
+     "source": "derived: portal target creature.sql guid 45580 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 45580"
+    },
+    {
+     "map": 580,
+     "x": 1799.821,
+     "y": 604.7788,
+     "z": 69.6036,
+     "o": 0.0873,
+     "source": "derived: portal target creature.sql guid 45712 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 45712"
+    },
+    {
+     "map": 580,
+     "x": 1825.6778,
+     "y": 649.0204,
+     "z": 69.6036,
+     "o": 5.044,
+     "source": "derived: portal target creature.sql guid 46283 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 46283"
+    },
+    {
+     "map": 580,
+     "x": 1836.52,
+     "y": 649.2182,
+     "z": 69.6036,
+     "o": 3.9619,
+     "source": "derived: portal target creature.sql guid 46303 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 46303"
+    },
+    {
+     "map": 580,
+     "x": 1847.5174,
+     "y": 623.9837,
+     "z": 69.6036,
+     "o": 3.0369,
+     "source": "derived: portal target creature.sql guid 46679 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 46679"
+    },
+    {
+     "map": 580,
+     "x": 1844.6123,
+     "y": 638.9683,
+     "z": 69.6036,
+     "o": 3.5605,
+     "source": "derived: portal target creature.sql guid 46687 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 46687"
+    },
+    {
+     "map": 580,
+     "x": 1780.9678,
+     "y": 635.5498,
+     "z": 69.6036,
+     "o": 0.0698,
+     "source": "derived: portal target creature.sql guid 46688 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 46688"
+    },
+    {
+     "map": 580,
+     "x": 1800.1709,
+     "y": 653.1988,
+     "z": 69.6036,
+     "o": 4.0666,
+     "source": "derived: portal target creature.sql guid 46689 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 46689"
+    },
+    {
+     "map": 580,
+     "x": 1804.4551,
+     "y": 596.3213,
+     "z": 69.6036,
+     "o": 1.2566,
+     "source": "derived: portal target creature.sql guid 47028 + 5 yd along its o (spell 45978 target DEST_CASTER_FRONT, radius idx 8 = 5 yd, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)); z is snapped to the floor by spell_gen_summon_target_floor (spell_script_names 45978, boss_muru.cpp:509-530) - z given here is M'uru's floor height (guid 53705), not sampled at this x/y",
+     "label": "Void Sentinel drop spot below portal guid 47028"
+    }
+   ],
+   "states": [],
+   "notes": "x/y derived from source (portal position + 5 yd forward); the core uses the first-collision position, so the real spot can be shorter. Orientation copied from the portal target (summon facing not verified). On death each Sentinel spawns 8 Void Spawn (smart_scripts 25772 ids 3-10)."
+  },
+  {
+   "kind": "npc",
+   "id": 25798,
+   "name": "Shadowsword Berserker",
+   "why": "Add wave from each entrance: 2 Berserkers per side.",
+   "when": "every 60 s, first wave 10 s after pull",
+   "display": 23225,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1780.16,
+     "y": 666.83,
+     "z": 71.19,
+     "o": 5.21,
+     "source": "spell_target_position 46037 (Summon Berserker, side A)",
+     "label": "entrance A"
+    },
+    {
+     "map": 580,
+     "x": 1847.93,
+     "y": 600.3,
+     "z": 71.3,
+     "o": 2.57,
+     "source": "spell_target_position 46040 (Summon Berserker, side B)",
+     "label": "entrance B"
+    }
+   ],
+   "states": [],
+   "notes": "Wave = boss_muru.cpp:362-370 (FM1, FM2, B1, B2, B1, B2); first tick 10 s (boss_muru.cpp:359), then every 60 s (Summon Blood Elves Periodic 46041, TBC Anniversary DB2 via wago.tools (branch wow_anniversary)). Each summon lands at a random point within 5 yd of the DB spot (SpellEffect 46037/46040 eff1 targets DEST_DEST + DEST_DEST_RANDOM, radius idx 8)."
+  },
+  {
+   "kind": "npc",
+   "id": 25799,
+   "name": "Shadowsword Fury Mage",
+   "why": "Add wave from each entrance: 1 Fury Mage per side (interrupt/kill).",
+   "when": "every 60 s, first wave 10 s after pull",
+   "display": 23226,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1780.16,
+     "y": 666.83,
+     "z": 71.19,
+     "o": 5.21,
+     "source": "spell_target_position 46038 (Summon Fury Mage, side A)",
+     "label": "entrance A"
+    },
+    {
+     "map": 580,
+     "x": 1847.93,
+     "y": 600.3,
+     "z": 71.3,
+     "o": 2.57,
+     "source": "spell_target_position 46039 (Summon Fury Mage, side B)",
+     "label": "entrance B"
+    }
+   ],
+   "states": [],
+   "notes": "Same timing as the Berserkers; random point within 5 yd of the DB spot."
+  },
+  {
+   "kind": "npc",
+   "id": 25840,
+   "name": "Entropius",
+   "why": "Phase 2 boss; appears where M'uru stood.",
+   "when": "phase 2 (7 s after M'uru hits 0 hp)",
+   "display": 23428,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1816.25,
+     "y": 625.484,
+     "z": 69.6036,
+     "o": 5.6243,
+     "source": "Summon Entropius 46217 summons at the caster (TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect target 18) - M'uru creature.sql guid 53705; boss_muru.cpp:125-128"
+    }
+   ],
+   "states": [
+    {
+     "name": "spawn",
+     "look": "Entropius Cosmetic Spawn, passive for 3 s, then attacks.",
+     "spell": 46223,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_muru.cpp:143-157"
+    }
+   ],
+   "notes": "Orientation copied from M'uru's spawn (summon facing not verified)."
+  }
+ ],
+ "SunwellPlateau:Kiljaeden": [
+  {
+   "kind": "object",
+   "id": 187869,
+   "name": "Orb of the Blue Flight (1st in activation order)",
+   "why": "Click to become a blue dragon (2 min possess): Shield of the Blue against Darkness of a Thousand Souls, haste/revitalize breaths, Blink.",
+   "when": "usable 38 s after KJ hits 85%; again at 55% (+38 s) if it was used; at 25% (+49 s) with all others",
+   "display": 4891,
+   "scale": 2,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1746.57,
+     "y": 621.913,
+     "z": 28.0502,
+     "o": 2.9845,
+     "source": "gameobject.sql guid 268112"
+    }
+   ],
+   "states": [
+    {
+     "name": "dormant",
+     "look": "Orb on its pedestal, not clickable (GO flag NOT_SELECTABLE), GO state READY.",
+     "spell": null,
+     "beamTo": null,
+     "anim": 147,
+     "source": "gameobject_template_addon 187869 flags=16 (spawns NOT_SELECTABLE); boss_kiljaeden.cpp:138-143 ResetOrbs() on controller Reset; gameobject.sql guid 268112 state=1 (READY)"
+    },
+    {
+     "name": "usable",
+     "look": "Ring of Blue Flame on the ground around the orb (dynamic object, 5 yd radius, 10 min) and the orb becomes clickable.",
+     "spell": 45825,
+     "beamTo": null,
+     "anim": 147,
+     "source": "boss_kiljaeden.cpp:589-610 EmpowerOrb(): RemoveGameObjectFlag(NOT_SELECTABLE) + SummonTrigger (12999) at the orb casting SPELL_RING_OF_BLUE_FLAMES; radius/duration from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) (SpellEffect 45825 eff0 E27 radius idx 8 = 5 yd, duration idx 6 = 600 s)"
+    },
+    {
+     "name": "used",
+     "look": "On click the user gets Power of the Blue Flight (summons drake 25653 + Vengeance of the Blue Flight possess, 2 min). The orb goes ACTIVE for 5 s, then becomes unclickable again and the ring trigger is despawned.",
+     "spell": 45833,
+     "beamTo": null,
+     "anim": 149,
+     "source": "gameobject_template 187869 Data10=45833 (spell), Data3=5000 (autoClose), Data4=0 (no customAnim) -> AC GameObject.cpp Use() GOOBER sets GO_STATE_ACTIVE until autoClose, then READY; boss_kiljaeden.cpp:1087-1110; smart_scripts 187869 source_type 1 (On Gossip Hello: set GO flags 16, despawn 12999 [WORLD_TRIGGER, Unit.h] within 10 yd)"
+    }
+   ],
+   "notes": "Model file 203892 (ScholomanceCrystalBall01) per GameObjectDisplayInfo 4891. Activation order follows the instance gameObjectData order 187869, 188114, 188115, 188116 (instance_sunwell_plateau.cpp:54-62); EmpowerOrb picks the first orb that still has NOT_SELECTABLE. A used orb gets that flag back, so it is re-armed first (AC behaviour). The 'used' anim 149 assumes the client plays Opened while the goober is GO_STATE_ACTIVE - not verified for this model."
+  },
+  {
+   "kind": "object",
+   "id": 188114,
+   "name": "Orb of the Blue Flight (2nd in activation order)",
+   "why": "Click to become a blue dragon (2 min possess): Shield of the Blue against Darkness of a Thousand Souls, haste/revitalize breaths, Blink.",
+   "when": "usable at 55% (+38 s) only if the 1st orb was NOT used at 85%; otherwise at 25% (+49 s)",
+   "display": 4891,
+   "scale": 2,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1704.3,
+     "y": 582.681,
+     "z": 28.1648,
+     "o": 1.6057,
+     "source": "gameobject.sql guid 268111"
+    }
+   ],
+   "states": [
+    {
+     "name": "dormant",
+     "look": "Orb on its pedestal, not clickable (GO flag NOT_SELECTABLE), GO state READY.",
+     "spell": null,
+     "beamTo": null,
+     "anim": 147,
+     "source": "gameobject_template_addon 188114 flags=16 (spawns NOT_SELECTABLE); boss_kiljaeden.cpp:138-143 ResetOrbs() on controller Reset; gameobject.sql guid 268111 state=1 (READY)"
+    },
+    {
+     "name": "usable",
+     "look": "Ring of Blue Flame on the ground around the orb (dynamic object, 5 yd radius, 10 min) and the orb becomes clickable.",
+     "spell": 45825,
+     "beamTo": null,
+     "anim": 147,
+     "source": "boss_kiljaeden.cpp:589-610 EmpowerOrb(): RemoveGameObjectFlag(NOT_SELECTABLE) + SummonTrigger (12999) at the orb casting SPELL_RING_OF_BLUE_FLAMES; radius/duration from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) (SpellEffect 45825 eff0 E27 radius idx 8 = 5 yd, duration idx 6 = 600 s)"
+    },
+    {
+     "name": "used",
+     "look": "On click the user gets Power of the Blue Flight (summons drake 25653 + Vengeance of the Blue Flight possess, 2 min). The orb goes ACTIVE for 5 s, then becomes unclickable again and the ring trigger is despawned.",
+     "spell": 45833,
+     "beamTo": null,
+     "anim": 149,
+     "source": "gameobject_template 188114 Data10=45833 (spell), Data3=5000 (autoClose), Data4=0 (no customAnim) -> AC GameObject.cpp Use() GOOBER sets GO_STATE_ACTIVE until autoClose, then READY; boss_kiljaeden.cpp:1087-1110; smart_scripts 188114 source_type 1 (On Gossip Hello: set GO flags 16, despawn 12999 [WORLD_TRIGGER, Unit.h] within 10 yd)"
+    }
+   ],
+   "notes": "Model file 203892 (ScholomanceCrystalBall01) per GameObjectDisplayInfo 4891. Activation order follows the instance gameObjectData order 187869, 188114, 188115, 188116 (instance_sunwell_plateau.cpp:54-62); EmpowerOrb picks the first orb that still has NOT_SELECTABLE. A used orb gets that flag back, so it is re-armed first (AC behaviour). The 'used' anim 149 assumes the client plays Opened while the goober is GO_STATE_ACTIVE - not verified for this model."
+  },
+  {
+   "kind": "object",
+   "id": 188115,
+   "name": "Orb of the Blue Flight (3rd in activation order)",
+   "why": "Click to become a blue dragon (2 min possess): Shield of the Blue against Darkness of a Thousand Souls, haste/revitalize breaths, Blink.",
+   "when": "usable at 25% (+49 s, all dormant orbs)",
+   "display": 4891,
+   "scale": 2,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1651.92,
+     "y": 635.35,
+     "z": 28.1287,
+     "o": 6.1959,
+     "source": "gameobject.sql guid 268110"
+    }
+   ],
+   "states": [
+    {
+     "name": "dormant",
+     "look": "Orb on its pedestal, not clickable (GO flag NOT_SELECTABLE), GO state READY.",
+     "spell": null,
+     "beamTo": null,
+     "anim": 147,
+     "source": "gameobject_template_addon 188115 flags=16 (spawns NOT_SELECTABLE); boss_kiljaeden.cpp:138-143 ResetOrbs() on controller Reset; gameobject.sql guid 268110 state=1 (READY)"
+    },
+    {
+     "name": "usable",
+     "look": "Ring of Blue Flame on the ground around the orb (dynamic object, 5 yd radius, 10 min) and the orb becomes clickable.",
+     "spell": 45825,
+     "beamTo": null,
+     "anim": 147,
+     "source": "boss_kiljaeden.cpp:589-610 EmpowerOrb(): RemoveGameObjectFlag(NOT_SELECTABLE) + SummonTrigger (12999) at the orb casting SPELL_RING_OF_BLUE_FLAMES; radius/duration from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) (SpellEffect 45825 eff0 E27 radius idx 8 = 5 yd, duration idx 6 = 600 s)"
+    },
+    {
+     "name": "used",
+     "look": "On click the user gets Power of the Blue Flight (summons drake 25653 + Vengeance of the Blue Flight possess, 2 min). The orb goes ACTIVE for 5 s, then becomes unclickable again and the ring trigger is despawned.",
+     "spell": 45833,
+     "beamTo": null,
+     "anim": 149,
+     "source": "gameobject_template 188115 Data10=45833 (spell), Data3=5000 (autoClose), Data4=0 (no customAnim) -> AC GameObject.cpp Use() GOOBER sets GO_STATE_ACTIVE until autoClose, then READY; boss_kiljaeden.cpp:1087-1110; smart_scripts 188115 source_type 1 (On Gossip Hello: set GO flags 16, despawn 12999 [WORLD_TRIGGER, Unit.h] within 10 yd)"
+    }
+   ],
+   "notes": "Model file 203892 (ScholomanceCrystalBall01) per GameObjectDisplayInfo 4891. Activation order follows the instance gameObjectData order 187869, 188114, 188115, 188116 (instance_sunwell_plateau.cpp:54-62); EmpowerOrb picks the first orb that still has NOT_SELECTABLE. A used orb gets that flag back, so it is re-armed first (AC behaviour). The 'used' anim 149 assumes the client plays Opened while the goober is GO_STATE_ACTIVE - not verified for this model."
+  },
+  {
+   "kind": "object",
+   "id": 188116,
+   "name": "Orb of the Blue Flight (4th in activation order)",
+   "why": "Click to become a blue dragon (2 min possess): Shield of the Blue against Darkness of a Thousand Souls, haste/revitalize breaths, Blink.",
+   "when": "usable at 25% (+49 s, all dormant orbs)",
+   "display": 4891,
+   "scale": 2,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1696.15,
+     "y": 674.968,
+     "z": 28.0502,
+     "o": 4.8171,
+     "source": "gameobject.sql guid 268109"
+    }
+   ],
+   "states": [
+    {
+     "name": "dormant",
+     "look": "Orb on its pedestal, not clickable (GO flag NOT_SELECTABLE), GO state READY.",
+     "spell": null,
+     "beamTo": null,
+     "anim": 147,
+     "source": "gameobject_template_addon 188116 flags=16 (spawns NOT_SELECTABLE); boss_kiljaeden.cpp:138-143 ResetOrbs() on controller Reset; gameobject.sql guid 268109 state=1 (READY)"
+    },
+    {
+     "name": "usable",
+     "look": "Ring of Blue Flame on the ground around the orb (dynamic object, 5 yd radius, 10 min) and the orb becomes clickable.",
+     "spell": 45825,
+     "beamTo": null,
+     "anim": 147,
+     "source": "boss_kiljaeden.cpp:589-610 EmpowerOrb(): RemoveGameObjectFlag(NOT_SELECTABLE) + SummonTrigger (12999) at the orb casting SPELL_RING_OF_BLUE_FLAMES; radius/duration from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) (SpellEffect 45825 eff0 E27 radius idx 8 = 5 yd, duration idx 6 = 600 s)"
+    },
+    {
+     "name": "used",
+     "look": "On click the user gets Power of the Blue Flight (summons drake 25653 + Vengeance of the Blue Flight possess, 2 min). The orb goes ACTIVE for 5 s, then becomes unclickable again and the ring trigger is despawned.",
+     "spell": 45833,
+     "beamTo": null,
+     "anim": 149,
+     "source": "gameobject_template 188116 Data10=45833 (spell), Data3=5000 (autoClose), Data4=0 (no customAnim) -> AC GameObject.cpp Use() GOOBER sets GO_STATE_ACTIVE until autoClose, then READY; boss_kiljaeden.cpp:1087-1110; smart_scripts 188116 source_type 1 (On Gossip Hello: set GO flags 16, despawn 12999 [WORLD_TRIGGER, Unit.h] within 10 yd)"
+    }
+   ],
+   "notes": "Model file 203892 (ScholomanceCrystalBall01) per GameObjectDisplayInfo 4891. Activation order follows the instance gameObjectData order 187869, 188114, 188115, 188116 (instance_sunwell_plateau.cpp:54-62); EmpowerOrb picks the first orb that still has NOT_SELECTABLE. A used orb gets that flag back, so it is re-armed first (AC behaviour). The 'used' anim 149 assumes the client plays Opened while the goober is GO_STATE_ACTIVE - not verified for this model."
+  },
+  {
+   "kind": "npc",
+   "id": 25315,
+   "name": "Kil'jaeden",
+   "why": "Stationary boss in the Sunwell; key visual states for orb/shield timing.",
+   "when": "after the 3 Hands die",
+   "display": 23200,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1698.45,
+     "y": 628.03,
+     "z": 29.6989,
+     "o": 4.3,
+     "source": "boss_kiljaeden.cpp:250 SummonCreature(NPC_KILJAEDEN, controller pos + 1.5 z, o 4.3); controller creature.sql guid 56332"
+    }
+   ],
+   "states": [
+    {
+     "name": "emerging",
+     "look": "Rises with Rebirth 1 s after being summoned; attackable after 11 s.",
+     "spell": 44200,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kiljaeden.cpp:273-289 InitializeAI"
+    },
+    {
+     "name": "darkness of a thousand souls",
+     "look": "Long channel; when it finishes it hits the raid hard (45657) unless dragons shield them.",
+     "spell": 46605,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kiljaeden.cpp:329-332, 369-378, 435-444 (after 85%: first at +55 s, then every 45 s; after 55%: +64 s / 45 s; after the 25% stun: +15 s / 25 s)"
+    },
+    {
+     "name": "stunned by Anveena",
+     "look": "At 25% (+37 s) Anveena sacrifices herself: Sacrifice of Anveena on KJ (raises damage taken) plus a 7 s stun state (Custom 08 State 45800 + pacify).",
+     "spell": 46474,
+     "beamTo": "Kil'jaeden",
+     "anim": null,
+     "source": "boss_kiljaeden.cpp:415-452; conditions 13/46474 -> KJ"
+    }
+   ],
+   "notes": "Cannot move (creature_template unit_flags 4 DISABLE_MOVE). The encounter resets if no live non-GM player is within 60 yd (2D) of the controller (boss_kiljaeden.cpp:211-222). Spell 45800 is not in the TBC Anniversary DB2."
+  },
+  {
+   "kind": "npc",
+   "id": 25588,
+   "name": "Hand of the Deceiver",
+   "why": "Phase 1 adds; killing all 3 summons Kil'jaeden.",
+   "when": "pull (pre-pull, fixed)",
+   "display": 19294,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1702.62,
+     "y": 611.19,
+     "z": 27.66,
+     "o": 1.81,
+     "source": "boss_kiljaeden.cpp:152 SummonCreature(NPC_HAND_OF_THE_DECEIVER, ...)",
+     "label": "Hand 1"
+    },
+    {
+     "map": 580,
+     "x": 1684.099,
+     "y": 618.848,
+     "z": 27.67,
+     "o": 0.589,
+     "source": "boss_kiljaeden.cpp:153 SummonCreature(NPC_HAND_OF_THE_DECEIVER, ...)",
+     "label": "Hand 2"
+    },
+    {
+     "map": 580,
+     "x": 1688.38,
+     "y": 641.1,
+     "z": 27.5,
+     "o": 5.43,
+     "source": "boss_kiljaeden.cpp:154 SummonCreature(NPC_HAND_OF_THE_DECEIVER, ...)",
+     "label": "Hand 3"
+    }
+   ],
+   "states": [
+    {
+     "name": "channeling",
+     "look": "Out of combat they channel Shadow Channelling on themselves (self-target, no beam).",
+     "spell": 46757,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts 25588 id 4 (OOC every 0.5 s, target self; re-issued in AC update 2026_10_01_03.sql); TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect 46757 eff0 aura DUMMY, ImplicitTarget 1 (caster)"
+    }
+   ],
+   "notes": "The Felfire Portals (46875) they cast in combat appear at random spots (not listed)."
+  },
+  {
+   "kind": "npc",
+   "id": 26046,
+   "name": "Anveena",
+   "why": "Floats imprisoned above the Sunwell; her sacrifice at 25% starts the last burn.",
+   "when": "pull (until 25% +37 s)",
+   "display": 23503,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1698.45,
+     "y": 628.03,
+     "z": 68.1989,
+     "o": 0.0,
+     "source": "boss_kiljaeden.cpp:155 SummonCreature(NPC_ANVEENA, controller pos + 40 z, o 0); controller creature.sql guid 56332"
+    }
+   ],
+   "states": [
+    {
+     "name": "imprisoned",
+     "look": "Anveena's Prison visual.",
+     "spell": 46367,
+     "beamTo": null,
+     "anim": null,
+     "source": "creature_template_addon 26046 auras '46367'"
+    },
+    {
+     "name": "sacrifice",
+     "look": "Drops her auras, casts Sacrifice of Anveena on Kil'jaeden, despawns 1.5 s later.",
+     "spell": 46474,
+     "beamTo": "Kil'jaeden",
+     "anim": null,
+     "source": "boss_kiljaeden.cpp:415-421; conditions 13/46474 -> KJ"
+    }
+   ],
+   "notes": "While the Hands live, the controller carries Anveena Energy Drain 46410. DB2 makes it a self-target dummy, so no beam is sourced. It is removed when the last Hand dies (boss_kiljaeden.cpp:158, 249)."
+  },
+  {
+   "kind": "npc",
+   "id": 25502,
+   "name": "Shield Orb",
+   "why": "Orbs that fire shadow bolts and must die fast; they spawn at fixed slots around KJ and circle him.",
+   "when": "phase 2: 1 orb, phase 3 (85%): 2, phase 4 (55%): 3; every 40 s, first 10 s into the phase; none after 25%",
+   "display": 18996,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1707.45,
+     "y": 643.6185,
+     "z": 40.0,
+     "o": 0.0,
+     "source": "derived: boss_kiljaeden.cpp:480-489 (KJ pos + 18 yd at angle (2i-1)*pi/3, z 40) with KJ = controller creature.sql guid 56332 + 1.5 z (boss_kiljaeden.cpp:250)",
+     "label": "spawn slot i=1 (used from phase 2 (pull))"
+    },
+    {
+     "map": 580,
+     "x": 1680.45,
+     "y": 628.03,
+     "z": 40.0,
+     "o": 0.0,
+     "source": "derived: boss_kiljaeden.cpp:480-489 (KJ pos + 18 yd at angle (2i-1)*pi/3, z 40) with KJ = controller creature.sql guid 56332 + 1.5 z (boss_kiljaeden.cpp:250)",
+     "label": "spawn slot i=2 (used from phase 3 (85%))"
+    },
+    {
+     "map": 580,
+     "x": 1707.45,
+     "y": 612.4415,
+     "z": 40.0,
+     "o": 0.0,
+     "source": "derived: boss_kiljaeden.cpp:480-489 (KJ pos + 18 yd at angle (2i-1)*pi/3, z 40) with KJ = controller creature.sql guid 56332 + 1.5 z (boss_kiljaeden.cpp:250)",
+     "label": "spawn slot i=3 (used from phase 4 (55%))"
+    }
+   ],
+   "states": [
+    {
+     "name": "active",
+     "look": "Fires Shadow Bolt (45680) every 0.5 s at a random target.",
+     "spell": 45679,
+     "beamTo": null,
+     "anim": null,
+     "source": "creature_template_addon 25502 auras '45679'; period/trigger from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect 45679"
+    }
+   ],
+   "notes": "After spawning, each orb flies a circle of radius 18 around KJ at z 40 (MoveCirclePath, 20 points, clockwise=false) - boss_kiljaeden.cpp:486-487."
+  },
+  {
+   "kind": "npc",
+   "id": 25319,
+   "name": "Kalecgos (dragon)",
+   "why": "Flies above the Sunwell and announces each orb; no interaction.",
+   "when": "after the 3 Hands die",
+   "display": 23345,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 580,
+     "x": 1734.465,
+     "y": 592.5678,
+     "z": 142.3971,
+     "o": 4.5331,
+     "source": "boss_kiljaeden.cpp:251 SummonCreature(NPC_KALECGOS_KJ, ...)",
+     "label": "summon point"
+    },
+    {
+     "map": 580,
+     "x": 1735.393,
+     "y": 593.6747,
+     "z": 140.5267,
+     "o": null,
+     "source": "waypoint_data id 253190 point 1 (AC update data/sql/updates/db_world/2026_06_10_03.sql; not in base SQL)",
+     "label": "flight path point 1"
+    },
+    {
+     "map": 580,
+     "x": 1746.861,
+     "y": 621.0573,
+     "z": 141.2209,
+     "o": null,
+     "source": "waypoint_data id 253190 point 2 (AC update data/sql/updates/db_world/2026_06_10_03.sql; not in base SQL)",
+     "label": "flight path point 2"
+    },
+    {
+     "map": 580,
+     "x": 1734.7,
+     "y": 663.6804,
+     "z": 139.3877,
+     "o": null,
+     "source": "waypoint_data id 253190 point 3 (AC update data/sql/updates/db_world/2026_06_10_03.sql; not in base SQL)",
+     "label": "flight path point 3"
+    },
+    {
+     "map": 580,
+     "x": 1695.096,
+     "y": 677.7586,
+     "z": 139.9433,
+     "o": null,
+     "source": "waypoint_data id 253190 point 4 (AC update data/sql/updates/db_world/2026_06_10_03.sql; not in base SQL)",
+     "label": "flight path point 4"
+    },
+    {
+     "map": 580,
+     "x": 1663.575,
+     "y": 664.397,
+     "z": 139.952,
+     "o": null,
+     "source": "waypoint_data id 253190 point 5 (AC update data/sql/updates/db_world/2026_06_10_03.sql; not in base SQL)",
+     "label": "flight path point 5"
+    },
+    {
+     "map": 580,
+     "x": 1651.432,
+     "y": 634.5519,
+     "z": 140.1377,
+     "o": null,
+     "source": "waypoint_data id 253190 point 6 (AC update data/sql/updates/db_world/2026_06_10_03.sql; not in base SQL)",
+     "label": "flight path point 6"
+    },
+    {
+     "map": 580,
+     "x": 1666.394,
+     "y": 594.8594,
+     "z": 139.1098,
+     "o": null,
+     "source": "waypoint_data id 253190 point 7 (AC update data/sql/updates/db_world/2026_06_10_03.sql; not in base SQL)",
+     "label": "flight path point 7"
+    },
+    {
+     "map": 580,
+     "x": 1704.55,
+     "y": 579.4996,
+     "z": 140.3171,
+     "o": null,
+     "source": "waypoint_data id 253190 point 8 (AC update data/sql/updates/db_world/2026_06_10_03.sql; not in base SQL)",
+     "label": "flight path point 8"
+    }
+   ],
+   "states": [
+    {
+     "name": "arcane bolt",
+     "look": "Arcane Bolt aura (triggers 45666 every 8 s; the damage part is unscripted in AC).",
+     "spell": 45670,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kiljaeden.cpp:197-198, 730-735 ACTION_START_AERIAL_SUPPORT; period from TBC Anniversary DB2 via wago.tools (branch wow_anniversary) SpellEffect 45670"
+    }
+   ],
+   "notes": "The path is a loop at z ~140 (MoveWaypoint(253190, repeat))."
+  }
+ ]
+}

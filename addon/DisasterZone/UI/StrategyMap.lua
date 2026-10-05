@@ -22,8 +22,23 @@ MapUI.TEX = { disc = TEX_DISC, ring = TEX_RING, arrow = TEX_ARROW }
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
+local function SO() return ns.StrategyObjects end
 
 local BW, BH = 1000, 666
+
+-- An encounter asset's icon on the map (a texture: a path or a file ID): its definition's (icon: a file under
+-- Interface\Icons or a file ID; item: that item's icon); else a game object a gear, a creature nil (its portrait).
+local function AssetIcon(key)
+    local def = SO().DefOf(key)
+    if def and def.item and GetItemIcon then
+        local icon = GetItemIcon(def.item)
+        if icon then return icon end
+    end
+    local icon = def and def.icon
+    if type(icon) == "number" then return icon end
+    if type(icon) == "string" then return "Interface\\Icons\\" .. icon end
+    return SO().Parse(key) == "obj" and "Interface\\Icons\\INV_Misc_Gear_01" or nil
+end
 
 ---------------------------------------------------------------------------
 -- Colours and icons (shared with the blocks and the board)
@@ -109,6 +124,7 @@ MapUI.SPELL_ICONS = {
 function MapUI:SetIcon(tex, key)
     tex:SetTexCoord(0, 1, 0, 1)
     tex:SetVertexColor(1, 1, 1, 1)
+    if tex.SetDesaturated then tex:SetDesaturated(false) end
     if type(key) ~= "string" then
         tex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
         return false
@@ -137,6 +153,17 @@ function MapUI:SetIcon(tex, key)
         tex:SetTexture("Interface\\Icons\\" .. ROLE_ICON[role])
         tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         return true
+    end
+    if SO().Parse(key) then
+        local icon = AssetIcon(key)
+        local disp = not icon and SO().Creature(key)
+        if disp and SetPortraitTextureFromCreatureDisplayID then
+            SetPortraitTextureFromCreatureDisplayID(tex, disp)
+            return true
+        end
+        tex:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        return icon ~= nil
     end
     local sp = key:match("^sp:(%d+)$")
     if sp then
@@ -182,6 +209,8 @@ function MapUI:IconString(key, size)
     if it then path = GetItemIcon and GetItemIcon(tonumber(it)) end
     local file = key:match("^i:(.+)$")
     if file then path = "Interface\\Icons\\" .. file end
+    local asset = SO().Parse(key) and AssetIcon(key)
+    if asset then path = asset end
     if not path then return "" end
     return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(tostring(path), size, size)
 end
@@ -201,6 +230,7 @@ function MapUI:IconName(key, bossRef)
     if sp then return (GetSpellInfo and GetSpellInfo(tonumber(sp))) or ("Spell " .. sp) end
     local it = key:match("^it:(%d+)$")
     if it then return (ns.ItemDB and ns.ItemDB:GetName(tonumber(it))) or ("Item " .. it) end
+    if SO().Parse(key) then return SO().KeyName(key) end
     local file = key:match("^i:(.+)$")
     for _, e in ipairs(self.SPELL_ICONS) do
         if e[1] == file then return e[2] end
@@ -232,8 +262,11 @@ function MapUI:PortraitName(displayID, bossRef)
     return portraitNames[tonumber(displayID)]
 end
 
--- Adds an icon picker to a menu description: onPick(key). prompt(title, default, cb) asks for a spell / item id.
-function MapUI:BuildIconMenu(root, current, onPick, prompt, bossRef)
+-- Adds an icon picker to a menu description: onPick(key, extra). prompt(title, default, cb) asks for a spell / item
+-- id. models (the map's drawings, not table cells): also the encounter's assets and a creature or object by its ID
+-- (extra = { label, ms }: Core/StrategyObjects.lua SO.Resolve); models.onGroup(group): a group of the encounter's
+-- assets placed at their own spots (Data/EncounterSpawns.lua).
+function MapUI:BuildIconMenu(root, current, onPick, prompt, bossRef, models)
     local function radio(parent, key, label)
         local icon = self:IconString(key, 14)
         parent:CreateRadio((icon ~= "" and (icon .. " ") or "") .. label, function() return current == key end,
@@ -244,6 +277,19 @@ function MapUI:BuildIconMenu(root, current, onPick, prompt, bossRef)
     if #portraits > 0 then
         local sub = root:CreateButton("This boss: " .. S():GetBossName(bossRef))
         for _, c in ipairs(portraits) do radio(sub, "boss:" .. c.d, c.n) end
+    end
+    -- the encounter's assets (Data/EncounterObjects.lua): one here, or a group where the script puts them
+    local objects = models and SO().ForEncounter(bossRef) or {}
+    local spawns = type(models) == "table" and models.onGroup and SO().Spawns(bossRef)
+    if #objects > 0 or spawns then
+        local sub = root:CreateButton("Encounter objects")
+        for _, key in ipairs(objects) do radio(sub, key, SO().KeyName(key)) end
+        if spawns then
+            if #objects > 0 then sub:CreateDivider() end
+            for _, grp in ipairs(spawns.groups or {}) do
+                sub:CreateButton(("%s at their spots (%d)"):format(grp.n, #grp.e), function() models.onGroup(grp) end)
+            end
+        end
     end
     local marks = root:CreateButton("Raid marks")
     for i = 1, 8 do radio(marks, "rt" .. i, RT_NAMES[i]) end
@@ -266,7 +312,33 @@ function MapUI:BuildIconMenu(root, current, onPick, prompt, bossRef)
                 if id and id > 0 and id < 1000000 then onPick("it:" .. floor(id)) end
             end)
         end)
+        if models then
+            -- a creature or game object as its 3D model, by an ID or a pasted Wowhead link
+            local sub = root:CreateButton("From a model ID")
+            for _, k in ipairs({ { "npc", "NPC ID...", "NPC ID or Wowhead link (e.g. 21212 for Lady Vashj)" },
+                                 { "obj", "Object ID...", "Object ID or Wowhead link (e.g. 185051 for a Shield Generator)" },
+                                 { "display", "Display ID...", "Creature display ID (e.g. 20748 for Lady Vashj)" } }) do
+                sub:CreateButton(k[2], function()
+                    prompt(k[3], "", function(text)
+                        local key, extra = SO().Resolve(k[1], text)
+                        if key then onPick(key, extra) else ns:Print(extra) end
+                    end)
+                end)
+            end
+        end
     end
+end
+
+-- A new icon drawing at a board point from a picked key (BuildIconMenu's onPick: key, extra): a portrait large with
+-- the creature's name, an object with its name; extra.label when the name is not known, extra.ms its size.
+function MapUI:NewIcon(x, y, key, extra, bossRef)
+    extra = extra or {}
+    local portrait = key:match("^boss:(%d+)$")
+    local kind = SO().Parse(key)
+    local label = portrait and (self:PortraitName(portrait, bossRef) or extra.label)
+        or kind and (extra.label or SO().KeyName(key)) or nil
+    local z = portrait and 48 or (kind == "npc" and 40) or 32
+    return { t = "i", x = x, y = y, i = key, z = z, l = label, ms = extra.ms }
 end
 
 ---------------------------------------------------------------------------
@@ -527,7 +599,7 @@ function MapUI:CreateCanvas(parent, width, opts)
     self.tool = "select"
     self.color = 1
     self.sel = {}
-    self.pools = { zone = {}, arrow = {}, icon = {}, text = {}, slot = {}, link = {}, box = {} }
+    self.pools = { zone = {}, arrow = {}, icon = {}, text = {}, slot = {}, link = {}, box = {}, beam = {} }
     self.used = {}
     local f = CreateFrame("Frame", nil, parent)
     self.frame = f
@@ -1000,12 +1072,17 @@ function Canvas:RenderIcon(e)
     o.tex:SetSize(size, size)
     o.tex:SetPoint("CENTER", self.layer, "TOPLEFT", e.x * self.s, -e.y * self.s)
     MapUI:SetIcon(o.tex, e.i)
+    local _, st = SO().StateOf(e)
+    if st and st.dim then                                -- a game object in a state that greys it (switched off)
+        o.tex:SetDesaturated(true)
+        o.tex:SetVertexColor(0.6, 0.6, 0.6, 0.85)
+    end
     o.tex:Show()
     o.glow:ClearAllPoints()
     o.glow:SetPoint("TOPLEFT", o.tex, "TOPLEFT", -3, 3)
     o.glow:SetPoint("BOTTOMRIGHT", o.tex, "BOTTOMRIGHT", 3, -3)
     o.glow:SetShown(self.lit and self.lit[e] and true or false)
-    if e.l then
+    if e.l and self.opts.iconLabels ~= false then
         local r, g, b = MapUI:Color(e.c or 9)
         o.fs:SetFont(fontPath(), self:FontSize(11), "OUTLINE")
         o.fs:ClearAllPoints()
@@ -1025,6 +1102,22 @@ function Canvas:RenderIcon(e)
         o.fs:Hide()
         if o.badge then o.badge:Hide() end
     end
+end
+
+-- A game object's beam to its target (Core/StrategyObjects.lua SO.Beams: an active Shield Generator to Lady Vashj).
+function Canvas:RenderBeam(b)
+    local o = acquire(self, "beam", function(L)
+        return { line = L:CreateLine(nil, "ARTWORK", nil, 1) }
+    end)
+    local c = b.beam.color or { 1, 1, 1 }
+    local x1, y1 = self:P(b.src.x, b.src.y)
+    local x2, y2 = self:P(b.dst.x, b.dst.y)
+    o.line:SetStartPoint("TOPLEFT", self.layer, x1, y1)
+    o.line:SetEndPoint("TOPLEFT", self.layer, x2, y2)
+    o.line:SetThickness(max(2, floor(2.5 * self.s / 0.7 + 0.5)))
+    o.line:SetColorTexture(c[1], c[2], c[3], 0.8)
+    o.line:Show()
+    o.hide = function() o.line:Hide() end
 end
 
 local TEXT_SIZES = { 10, 13, 17 }
@@ -1233,6 +1326,11 @@ function Canvas:Render()
                 self:RenderZone(e)
                 self.lastObj.holder:SetFrameLevel(base + zi)
             end
+        end
+        -- game objects' beams: over the zones, under every icon
+        for _, b in ipairs(SO().Beams(page)) do
+            self:RenderBeam(b)
+            self.lastObj.holder:SetFrameLevel(base + 99)
         end
         for _, e in ipairs(page.e or {}) do
             if e.t ~= "z" and RENDER[e.t] then
@@ -1561,6 +1659,66 @@ function Canvas:Add(e)
     if not room(self) then return nil end
     tinsert(self.page.e, e)
     return e
+end
+
+-- The icon menu's models option for this canvas: the encounter's assets, and their groups placed at their spots.
+function Canvas:SpawnMenu()
+    return { onGroup = function(grp) self:PlaceSpawns(grp) end }
+end
+
+-- A group of the encounter's assets (Data/EncounterSpawns.lua) onto the page where the script puts them (the page
+-- must show the group's floor map; the save check's 50 units past an edge is as far as they may lie), selected.
+function Canvas:PlaceSpawns(grp)
+    local bossRef = self.opts.bossRef and self.opts.bossRef()
+    local spawns = SO().Spawns(bossRef)
+    local page = self.page
+    local m = page and MapUI:ShippedMap(page.m)
+    if not (spawns and m and m.file == spawns.map) then
+        local name = spawns and spawns.map
+        for _, sm in ipairs(SHIPPED) do if sm.file == name then name = sm.name end end
+        ns:Print("These spots are on the %s map: pick it for this page first.", tostring(name))
+        return
+    end
+    -- (the board's own map math, as R3.BoardToRoom: the map pixel at the board's middle, board units per pixel)
+    local LW, LH = SHIPPED_LAYER.layerWidth, SHIPPED_LAYER.layerHeight
+    local cx, cy = (page.vx or 500) / 1000 * LW, (page.vy or 500) / 1000 * LH
+    local k = min(BW / LW, BH / LH) * (page.vz or 100) / 100
+    local function board(mx, my)
+        return floor((mx / 1000 * LW - cx) * k + BW / 2 + 0.5), floor((my / 1000 * LH - cy) * k + BH / 2 + 0.5)
+    end
+    local function inside(bx, by) return bx >= -50 and bx <= BW + 50 and by >= -50 and by <= BH + 50 end
+    local list = {}
+    for _, s in ipairs(grp.e) do
+        local bx, by = board(s.mx, s.my)
+        if s.a then                                  -- an arrow (a route, a line the boss draws)
+            local bx2, by2 = board(s.mx2, s.my2)
+            if inside(bx, by) and inside(bx2, by2) then
+                list[#list + 1] = { t = "a", x = bx, y = by, x2 = bx2, y2 = by2, h = true, c = s.c }
+            end
+        elseif s.z then                              -- a zone (a radius, an area the boss uses)
+            if inside(bx, by) then
+                local w = min(BW, max(4, floor(2 * s.hx / 1000 * LW * k + 0.5)))
+                local h = min(BW, max(4, floor(2 * s.hy / 1000 * LH * k + 0.5)))
+                list[#list + 1] = { t = "z", s = s.z, x = bx, y = by, w = w, h = h, c = s.c, l = s.l }
+            end
+        elseif inside(bx, by) then
+            local label = s.l or grp.l
+            local e = MapUI:NewIcon(bx, by, s.i, { label = label }, bossRef)
+            if label then e.l = label end
+            e.f, e.st = s.f, s.st
+            list[#list + 1] = e
+        end
+    end
+    if #list == 0 then
+        ns:Print("None of these spots is in this page's view: zoom out or move the map.")
+        return
+    end
+    if not room(self, #list) then return end
+    for _, e in ipairs(list) do tinsert(page.e, e) end
+    self:SetTool("select")
+    self:Changed()
+    self:ClearSelection()
+    for _, e in ipairs(list) do self:Select(e, true) end
 end
 
 -- Adds an element and selects it (tools and menus).
@@ -1926,11 +2084,10 @@ function Canvas:IconAt(x, y)
     if not room(self) then return end
     ns.UI:ContextMenu(self.frame, function(root)
         root:CreateTitle("Icon")
-        MapUI:BuildIconMenu(root, nil, function(key)
-            local portrait = key:match("^boss:(%d+)$")
-            self:Place({ t = "i", x = x, y = y, i = key, z = portrait and 48 or 32,
-                         l = portrait and MapUI:PortraitName(portrait, self.opts.bossRef and self.opts.bossRef()) or nil })
-        end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef())
+        local bossRef = self.opts.bossRef and self.opts.bossRef()
+        MapUI:BuildIconMenu(root, nil, function(key, extra)
+            self:Place(MapUI:NewIcon(x, y, key, extra, bossRef))
+        end, self.opts.prompt, bossRef, self:SpawnMenu())
     end)
 end
 
@@ -2184,6 +2341,21 @@ function Canvas:ElementMenu(e)
                     end)
             end
         end
+        -- a game object's state (Data/EncounterObjects.lua): every selected object of the same kind together
+        local def = e.t == "i" and SO().DefOf(e.i)
+        if def and def.states and #def.states > 1 then
+            local same = {}
+            for _, m in ipairs(list) do
+                if m.t == "i" and SO().DefOf(m.i) == def then same[#same + 1] = m end
+            end
+            local stm = root:CreateButton("State: " .. def.states[(SO().StateOf(e))].name)
+            for n, st in ipairs(def.states) do
+                stm:CreateRadio(st.name, function() return (SO().StateOf(e)) == n end, function()
+                    for _, m in ipairs(same) do m.st = n > 1 and n or nil end
+                    self:Changed()
+                end)
+            end
+        end
         local link = root:CreateButton(e.t == "s" and "Shows the player of" or "Link to assignment")
         self:BuildLinkMenu(link, self:LinkOf(e), function(ref) self:LinkList(list, ref) end)
         if not many then
@@ -2198,8 +2370,11 @@ function Canvas:ElementMenu(e)
                 end)
             elseif e.t == "i" then
                 local ic = root:CreateButton("Icon")
-                MapUI:BuildIconMenu(ic, e.i, function(key) e.i = key; self:Changed() end, self.opts.prompt,
-                    self.opts.bossRef and self.opts.bossRef())
+                MapUI:BuildIconMenu(ic, e.i, function(key, extra)
+                    e.i, e.st = key, nil
+                    if extra then e.ms = extra.ms end
+                    self:Changed()
+                end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef(), true)
                 local size = root:CreateButton("Size")
                 for _, z in ipairs({ { 20, "Small" }, { 32, "Medium" }, { 48, "Large" }, { 72, "Huge" }, { 96, "Largest" } }) do
                     size:CreateRadio(z[2], function() return (e.z or 32) == z[1] end, function() e.z = z[1]; self:Changed() end)
@@ -2250,11 +2425,10 @@ function Canvas:BackgroundMenu(x, y)
     ns.UI:ContextMenu(self.frame, function(root)
         root:CreateTitle("Add here")
         local ic = root:CreateButton("Icon")
-        MapUI:BuildIconMenu(ic, nil, function(key)
-            local portrait = key:match("^boss:(%d+)$")
-            self:Place({ t = "i", x = x, y = y, i = key, z = portrait and 48 or 32,
-                         l = portrait and MapUI:PortraitName(portrait, self.opts.bossRef and self.opts.bossRef()) or nil })
-        end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef())
+        local ref = self.opts.bossRef and self.opts.bossRef()
+        MapUI:BuildIconMenu(ic, nil, function(key, extra)
+            self:Place(MapUI:NewIcon(x, y, key, extra, ref))
+        end, self.opts.prompt, ref, self:SpawnMenu())
         root:CreateButton("Text...", function() self:TextAt(x, y) end)
         root:CreateButton("Circle zone", function()
             self:Place({ t = "z", s = "c", x = x, y = y, w = 100, h = 100, c = self.color })

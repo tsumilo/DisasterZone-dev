@@ -630,11 +630,12 @@ end
 -- 25 page with lines (what's new), 26 crown (raid leader), and the strategy board's 3D view (UI/StrategyMap3D.lua):
 -- 27 turn left, 28 turn right, 29 from above, 30 house (the whole room), 31 small map; 32 import (arrow into a
 -- tray), 33 export (arrow out of a tray), 34 a model's turn knob (two curved arrows), 35 its size knob (a
--- two-headed diagonal arrow). The atlas is 4 columns by UI.ICON_ROWS rows of 64px cells.
+-- two-headed diagonal arrow), 36 walk (a figure striding over a ring). The atlas is 4 columns by UI.ICON_ROWS rows
+-- of 64px cells.
 UI.ICON_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
 UI.ICON_ROWS = 16
 UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, bank = 23, more = 24, notes = 25,
-            crown = 26, import = 32, export = 33, knobTurn = 34, knobSize = 35 }
+            crown = 26, import = 32, export = 33, knobTurn = 34, knobSize = 35, walk = 36 }
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }

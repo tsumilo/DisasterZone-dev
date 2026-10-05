@@ -1,0 +1,1705 @@
+{
+ "GruulsLair:Maulgar": [],
+ "GruulsLair:Gruul": [],
+ "MagtheridonsLair:Magtheridon": [
+  {
+   "kind": "object",
+   "id": 181713,
+   "name": "Manticron Cube",
+   "why": "5 cubes around the room; 5 players click at once to Shadow Cage (stun, +100% dmg taken) Magtheridon and interrupt Blast Nova; each clicker then gets Mind Exhaustion and can't click again for 3 min, so plan 2+ rotations of clickers per cube.",
+   "when": "pull (clickable only after Magtheridon is released)",
+   "display": 6896,
+   "scale": 1.5,
+   "positions": [
+    {
+     "map": 544,
+     "x": 8.89169,
+     "y": -19.392,
+     "z": 0.630908,
+     "o": 2.44346,
+     "source": "gameobject.sql guid 43157",
+     "beamOrigin": {
+      "npc": 17376,
+      "name": "Hellfire Raid Trigger",
+      "x": 8.79722,
+      "y": -19.4801,
+      "z": 2.43646,
+      "source": "creature.sql guid 90977 (nearest 17376 to this cube, 1.81 yd away)"
+     }
+    },
+    {
+     "map": 544,
+     "x": -31.7948,
+     "y": 38.3964,
+     "z": 0.630919,
+     "o": -1.20428,
+     "source": "gameobject.sql guid 43158",
+     "beamOrigin": {
+      "npc": 17376,
+      "name": "Hellfire Raid Trigger",
+      "x": -31.8918,
+      "y": 38.4303,
+      "z": 2.18647,
+      "source": "creature.sql guid 91252 (nearest 17376 to this cube, 1.56 yd away)"
+     }
+    },
+    {
+     "map": 544,
+     "x": -31.4977,
+     "y": -34.0832,
+     "z": 0.630935,
+     "o": 1.22173,
+     "source": "gameobject.sql guid 43159",
+     "beamOrigin": {
+      "npc": 17376,
+      "name": "Hellfire Raid Trigger",
+      "x": -31.471,
+      "y": -34.156,
+      "z": 2.2351,
+      "source": "creature.sql guid 90983 (nearest 17376 to this cube, 1.61 yd away)"
+     }
+    },
+    {
+     "map": 544,
+     "x": -54.2302,
+     "y": 2.32818,
+     "z": 0.630945,
+     "o": 0.017453,
+     "source": "gameobject.sql guid 43160",
+     "beamOrigin": {
+      "npc": 17376,
+      "name": "Hellfire Raid Trigger",
+      "x": -54.2772,
+      "y": 2.34374,
+      "z": 2.30456,
+      "source": "creature.sql guid 91251 (nearest 17376 to this cube, 1.67 yd away)"
+     }
+    },
+    {
+     "map": 544,
+     "x": 9.39513,
+     "y": 23.2389,
+     "z": 0.630891,
+     "o": -2.49582,
+     "source": "gameobject.sql guid 43161",
+     "beamOrigin": {
+      "npc": 17376,
+      "name": "Hellfire Raid Trigger",
+      "x": 9.3589,
+      "y": 23.2286,
+      "z": 2.24895,
+      "source": "creature.sql guid 91253 (nearest 17376 to this cube, 1.62 yd away)"
+     }
+    }
+   ],
+   "states": [
+    {
+     "name": "Inactive",
+     "look": "idle cube, cannot be clicked (GO_FLAG_NOT_SELECTABLE) while Magtheridon is caged and after a wipe",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "gameobject_template_addon 181713 flags 48 (0x10 NOT_SELECTABLE + 0x20 NODESPAWN); instance_magtheridons_lair.cpp SetBossState lines 185-187 re-adds the flag on any non-IN_PROGRESS state"
+    },
+    {
+     "name": "Clickable",
+     "look": "idle cube, now usable",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_magtheridon.cpp ScheduleCombatEvents line 143 instance->SetData(DATA_ACTIVATE_CUBES) -> instance_magtheridons_lair.cpp lines 227-231 RemoveGameObjectFlag(GO_FLAG_NOT_SELECTABLE); runs 3 s after release (ReleaseMagtheridon lines 183-195)"
+    },
+    {
+     "name": "Channelled",
+     "look": "clicker channels Shadow Grasp into the cube (beam player -> Hellfire Raid Trigger floating ~1.6-1.8 yd above the cube; clicker takes 800 shadow dmg/s for up to 10 s), and the trigger beams Shadow Grasp to Magtheridon",
+     "spell": 30166,
+     "beamTo": "Magtheridon",
+     "beamFrom": "Hellfire Raid Trigger (17376) over this cube (see positions[].beamOrigin)",
+     "playerSpell": 30410,
+     "playerBeamTo": "Hellfire Raid Trigger",
+     "anim": null,
+     "source": "boss_magtheridon.cpp go_manticron_cube::OnGossipHello lines 448-458 (trigger within 10 yd casts SPELL_SHADOW_GRASP_VISUAL 30166; player casts SPELL_SHADOW_GRASP 30410); conditions.sql 13/1/30166 'Requires Magtheridon', 13/1/30410 'Requires Hellfire Raid Trigger'; Wowhead TBC tooltip 30410: channeled 10 s, 800 shadow dmg per sec"
+    },
+    {
+     "name": "All 5 channelled",
+     "look": "Magtheridon stunned in Shadow Cage while 5 Shadow Grasp beams hit him; ends as soon as any one beam drops",
+     "spell": 30168,
+     "beamTo": "Magtheridon",
+     "anim": null,
+     "source": "boss_magtheridon.cpp spell_magtheridon_shadow_grasp_visual lines 380-391 (5 auras of 30166 -> DoAction(ACTION_BANISH_SELF) -> DoCastSelf(SPELL_SHADOW_CAGE_STUN 30168), line 267; any 30166 removal removes 30168); Wowhead TBC 30168: 'Stunned. Damage taken increased by 100%'"
+    }
+   ],
+   "notes": "Clicker debuff: Mind Exhaustion 44032 is applied when the clicker's 30410 periodic effect ends (spell_magtheridon_shadow_grasp lines 363-366); OnGossipHello refuses players with 44032 or 30410 (line 450). 44032 duration 3 min and 'Unable to use a Manticron Cube' are from the Wowhead TBC tooltip, not the AC repo. The template spell (Data10 = 30410) is bypassed because the script returns true. The cube GO itself has no GO state change in the script; the 'channelled' look is only the two beams."
+  },
+  {
+   "kind": "npc",
+   "id": 17256,
+   "name": "Hellfire Channeler",
+   "why": "Already on the starter page; states only: they beam Shadow Grasp into Magtheridon to hold his cage until pulled, and each one that dies empowers the survivors.",
+   "when": "pull",
+   "display": 9865,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 544,
+     "x": -55.6891,
+     "y": 2.17024,
+     "z": 0.71428,
+     "o": 0.05236,
+     "source": "creature.sql guid 90978"
+    },
+    {
+     "map": 544,
+     "x": -31.9479,
+     "y": 40.2201,
+     "z": 0.714251,
+     "o": 4.93928,
+     "source": "creature.sql guid 90979"
+    },
+    {
+     "map": 544,
+     "x": 10.4777,
+     "y": 23.9914,
+     "z": 0.714224,
+     "o": 3.66519,
+     "source": "creature.sql guid 90980"
+    },
+    {
+     "map": 544,
+     "x": 10.3369,
+     "y": -19.7942,
+     "z": 0.714241,
+     "o": 2.53073,
+     "source": "creature.sql guid 90981"
+    },
+    {
+     "map": 544,
+     "x": -31.7645,
+     "y": -35.8374,
+     "z": 0.714268,
+     "o": 1.37881,
+     "source": "creature.sql guid 90982"
+    }
+   ],
+   "states": [
+    {
+     "name": "Channelling cage",
+     "look": "out of combat, channels Shadow Grasp beam into Magtheridon (recast every 3.6 s)",
+     "spell": 30207,
+     "beamTo": "Magtheridon",
+     "anim": null,
+     "source": "smart_scripts.sql 17256 id 4 (event 1 OOC 3600/3600 -> cast 30207 'Shadow Grasp'); conditions.sql 13/1/30207 'Requires Magtheridon'"
+    },
+    {
+     "name": "In combat",
+     "look": "channel stops; casts Shadow Bolt Volley 30510, Fear 30530, Dark Mending 30528, Burning Abyssal 30511 (random target)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts.sql 17256 ids 0-3; id 7 on aggro sets instance data 10 (DATA_CHANNELER_COMBAT) which starts the encounter (instance_magtheridons_lair.cpp lines 216-226)"
+    },
+    {
+     "name": "Dies: Soul Transfer",
+     "look": "on death casts Soul Transfer on the remaining living Channelers",
+     "spell": 30531,
+     "beamTo": "Hellfire Channeler",
+     "anim": null,
+     "source": "smart_scripts.sql 17256 id 5 (On Just Died -> cast 30531); conditions.sql 13/7/30531 'Requires Hellfire Channeler' + 'Requires Alive Target'"
+    }
+   ],
+   "notes": "Model: two displays (9865, 9609), picked at random (creature_template_model idx 0/1). Whether 30531 draws a visible beam is not verified. Last Channeler dead -> Magtheridon released (instance_magtheridons_lair.cpp OnUnitDeath lines 93-105)."
+  },
+  {
+   "kind": "npc",
+   "id": 17257,
+   "name": "Magtheridon",
+   "why": "Already on the starter page; states only: caged by the Channelers, then free, then stunned by the 5 cubes.",
+   "when": "pull",
+   "display": 18527,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 544,
+     "x": -18.7012,
+     "y": 2.24051,
+     "z": -0.320873,
+     "o": 3.00197,
+     "source": "creature.sql guid 91254"
+    }
+   ],
+   "states": [
+    {
+     "name": "Caged",
+     "look": "Shadow Cage (stunned), not selectable, immune to players; Channeler beams on him",
+     "spell": 30205,
+     "beamTo": null,
+     "anim": null,
+     "source": "creature_addon.sql guid 91254 auras '30205'; boss_magtheridon.cpp Reset lines 96-99 DoCastSelf(SPELL_SHADOW_CAGE)"
+    },
+    {
+     "name": "Released",
+     "look": "cage removed, attacks",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_magtheridon.cpp ReleaseMagtheridon lines 183-195 (+3 s -> ScheduleCombatEvents removes 30205, line 144); triggered 120 s after the Channeler pull (JustEngagedWith lines 214-220) or when the last Channeler dies"
+    },
+    {
+     "name": "Blast Nova",
+     "look": "casting Blast Nova (what the cubes interrupt)",
+     "spell": 30616,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_magtheridon.cpp lines 170-175 (first 55.65 s after ScheduleCombatEvents, i.e. release + 3 s; then every 54.35-55.4 s; scheduler.DelayAll(10s) while casting)"
+    },
+    {
+     "name": "Banished by cubes",
+     "look": "Shadow Cage stun from 5 cube beams",
+     "spell": 30168,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_magtheridon.cpp DoAction ACTION_BANISH_SELF lines 265-268"
+    }
+   ],
+   "notes": "Leash: circle boundary centre (-18.70, 2.24) radius 52.30 (instance_magtheridons_lair.cpp line 25). Hellfire Warders (18829, 12 spawns in 4 groups of 3 outside the boss circle: at z 22.8 / 45.1 and at (-73.7, 47.4) by the entrance; creature.sql guids 90985-90993, 91247-91249) are pulled into the fight if still alive when the encounter starts (instance SetBossState lines 173-181)."
+  },
+  {
+   "kind": "object",
+   "id": 184634,
+   "name": "Magtheridon Column (cave-in)",
+   "why": "The 6 pillars collapse at 30%: everyone in the room takes Debris (stun 2 s) 7 s later, then ceiling debris keeps falling (see Target Trigger).",
+   "when": "30% health (+8 s)",
+   "display": 7206,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 544,
+     "x": 17.7522,
+     "y": 34.5464,
+     "z": 0.144816,
+     "o": 0.179666,
+     "source": "gameobject.sql guid 30647",
+     "entry": 184634,
+     "name": "Magtheridon Column 003"
+    },
+    {
+     "map": 544,
+     "x": 19.0966,
+     "y": -29.2772,
+     "z": 0.133036,
+     "o": -1.26399,
+     "source": "gameobject.sql guid 43152",
+     "entry": 184635,
+     "name": "Magtheridon Column 002"
+    },
+    {
+     "map": 544,
+     "x": -30.8852,
+     "y": 46.6723,
+     "z": -0.497104,
+     "o": 1.23468,
+     "source": "gameobject.sql guid 43153",
+     "entry": 184636,
+     "name": "Magtheridon Column 004"
+    },
+    {
+     "map": 544,
+     "x": -60.2491,
+     "y": 27.9361,
+     "z": -0.018443,
+     "o": 1.94711,
+     "source": "gameobject.sql guid 43154",
+     "entry": 184637,
+     "name": "Magtheridon Column 005"
+    },
+    {
+     "map": 544,
+     "x": -60.8202,
+     "y": -21.9269,
+     "z": -0.03026,
+     "o": 3.08278,
+     "source": "gameobject.sql guid 43155",
+     "entry": 184638,
+     "name": "Magtheridon Column 000"
+    },
+    {
+     "map": 544,
+     "x": -29.7699,
+     "y": -43.4445,
+     "z": -0.522461,
+     "o": -2.37604,
+     "source": "gameobject.sql guid 43156",
+     "entry": 184639,
+     "name": "Magtheridon Column 001"
+    }
+   ],
+   "states": [
+    {
+     "name": "Standing",
+     "look": "intact column",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "gameobject.sql state 1 (GO_STATE_READY) on all six; instance_magtheridons_lair.cpp line 190 sets GO_READY again on wipe"
+    },
+    {
+     "name": "Collapsed",
+     "look": "column FX GO set active (collapse plays) with Camera Shake - Magtheridon 36455",
+     "spell": 36455,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_magtheridon.cpp ScheduleHealthCheckEvent(30) lines 101-110: 8 s after SAY_PHASE3 -> DoCastSelf(SPELL_CAMERA_SHAKE) + instance->SetData(DATA_COLLAPSE, GO_STATE_ACTIVE) -> instance_magtheridons_lair.cpp lines 232-235 SetGoState on every column + hall FX"
+    },
+    {
+     "name": "Collapse damage",
+     "look": "Debris on every player (stunned 2 s)",
+     "spell": 36449,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_magtheridon.cpp lines 111-113 (15 s after SAY_PHASE3); conditions.sql 13/3/36449 'Target Players'; Wowhead TBC 36449 'Stunned. 2 seconds remaining'"
+    }
+   ],
+   "notes": "Six different entries share display 7206 (RAID_COLUMN_FX.MDX); each position carries its own entry/name. Which animation the model plays in GO_STATE_ACTIVE was not sourced (anim null)."
+  },
+  {
+   "kind": "object",
+   "id": 184653,
+   "name": "Doodad_Hellfire_Raid_FX01 (ceiling collapse FX)",
+   "why": "Room-wide collapse effect, flipped together with the columns at 30%.",
+   "when": "30% health (+8 s)",
+   "display": 7208,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 544,
+     "x": 0.0,
+     "y": 0.0,
+     "z": 0.0,
+     "o": 3.14159,
+     "source": "gameobject.sql guid 43150"
+    }
+   ],
+   "states": [
+    {
+     "name": "Standing",
+     "look": "intact",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "gameobject.sql guid 43150 state 1 (GO_STATE_READY)"
+    },
+    {
+     "name": "Collapsed",
+     "look": "collapse FX active",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "instance_magtheridons_lair.cpp OnGameObjectCreate lines 132-139 puts GO_MAGTHERIDON_HALL 184653 in _columnSet; DATA_COLLAPSE lines 232-235"
+    }
+   ],
+   "notes": "Model HELLFIRE_RAID_FX.MDX (godi.csv 7208) placed at map origin (0,0,0) with o=pi; what it looks like in each state was not checked."
+  },
+  {
+   "kind": "npc",
+   "id": 17474,
+   "name": "Target Trigger (debris impact points)",
+   "why": "After the collapse, every 20 s one of these 12 points (random) gets a falling-debris warning, then takes damage 5 s later: don't stand on them.",
+   "when": "30% health (+15 s, first debris 20 s later, then every 20 s)",
+   "display": 169,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 544,
+     "x": 12.2773,
+     "y": 1.42213,
+     "z": -0.412512,
+     "o": 0.0,
+     "source": "creature.sql guid 99126"
+    },
+    {
+     "map": 544,
+     "x": 12.2096,
+     "y": -1.64567,
+     "z": -0.4125,
+     "o": 0.0,
+     "source": "creature.sql guid 99127"
+    },
+    {
+     "map": 544,
+     "x": -41.2568,
+     "y": -18.7582,
+     "z": -0.412446,
+     "o": 0.0,
+     "source": "creature.sql guid 99128"
+    },
+    {
+     "map": 544,
+     "x": -36.7745,
+     "y": -18.4708,
+     "z": -0.412449,
+     "o": 0.0,
+     "source": "creature.sql guid 99129"
+    },
+    {
+     "map": 544,
+     "x": -39.8655,
+     "y": 23.404,
+     "z": -0.412467,
+     "o": 0.0,
+     "source": "creature.sql guid 99130"
+    },
+    {
+     "map": 544,
+     "x": -39.3052,
+     "y": 22.4724,
+     "z": -0.412467,
+     "o": 0.0,
+     "source": "creature.sql guid 99131"
+    },
+    {
+     "map": 544,
+     "x": -10.5702,
+     "y": -36.7259,
+     "z": -0.412454,
+     "o": 0.0,
+     "source": "creature.sql guid 99132"
+    },
+    {
+     "map": 544,
+     "x": -23.3668,
+     "y": -28.9441,
+     "z": -0.412462,
+     "o": 0.0,
+     "source": "creature.sql guid 99133"
+    },
+    {
+     "map": 544,
+     "x": -5.87666,
+     "y": 30.1406,
+     "z": -0.412483,
+     "o": 0.0,
+     "source": "creature.sql guid 99134"
+    },
+    {
+     "map": 544,
+     "x": -12.4285,
+     "y": 38.7171,
+     "z": -0.168065,
+     "o": 0.0,
+     "source": "creature.sql guid 99135"
+    },
+    {
+     "map": 544,
+     "x": -15.282,
+     "y": -1.45613,
+     "z": -0.412131,
+     "o": 0.0,
+     "source": "creature.sql guid 99136"
+    },
+    {
+     "map": 544,
+     "x": -15.0245,
+     "y": 0.879358,
+     "z": -0.41214,
+     "o": 0.0,
+     "source": "creature.sql guid 99137"
+    }
+   ],
+   "states": [
+    {
+     "name": "Debris warning",
+     "look": "Debris visual ('The ceiling above you is collapsing'), 5 s",
+     "spell": 30632,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_magtheridon.cpp lines 117-121 (DoCastAOE(SPELL_DEBRIS_TARGET 30629) every 20 s) + spell_magtheridon_debris_target_selector lines 420-434 (keeps only NPC_TARGET_TRIGGER 17474, picks 1 at random, it casts SPELL_DEBRIS_SPAWN 30630); npc_target_trigger::Reset lines 309-320 casts SPELL_DEBRIS_VISUAL 30632; Wowhead TBC 30632 buff text"
+    },
+    {
+     "name": "Debris impact",
+     "look": "Debris damage",
+     "spell": 30631,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_magtheridon.cpp npc_target_trigger lines 315-319 (5 s later DoCastSelf(SPELL_DEBRIS_DAMAGE 30631), despawn 6 s after); conditions.sql 13/1/30631 'Target Players'"
+    }
+   ],
+   "notes": "Invisible trigger models (169 / 15435). The 12 home points are fixed, BUT every spawn has MovementType 1 with wander_distance 10.8-18 yd (creature.sql), so the live point can roam that far from home. The npc_target_trigger script that plays 30632/30631 is on entry 17516 'Magtheridon's Room' (creature_template ScriptName); that 30630 summons 17516 at the chosen trigger is inferred, not verified (spell data is in the DBC, not in the AC repo)."
+  }
+ ],
+ "HyjalSummit:Winterchill": [
+  {
+   "kind": "npc",
+   "id": 17772,
+   "name": "Lady Jaina Proudmoore",
+   "why": "Talk to her to start the waves; she fights at the Alliance base (Blizzard, Pyroblast, water elementals) and if she dies the event resets, so the boss is pulled away from / kept off her.",
+   "when": "pull",
+   "display": 30864,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5084.07,
+     "y": -1789.03,
+     "z": 1322.65,
+     "o": 3.24631,
+     "source": "creature.sql guid 139534"
+    }
+   ],
+   "states": [],
+   "notes": "Script: hyjal.cpp npc_hyjal_jaina lines 95-196 (gossip starts waves via DATA_RESET_WAVES + DATA_SPAWN_WAVES lines 181-187; combat spells Blizzard 31266, Pyroblast 31263, Summon Water Elementals 31264 lines 123-136; JustDied -> DATA_RESET_ALLIANCE lines 152-157). Passive auras Brilliance Aura 31260 + Salvation 31745 (creature_template_addon 17772). Display 30864 comes from a VerifiedBuild 51831 row and is not in the scratchpad cdi.csv subset: check it exists in the 2.5.x client."
+  },
+  {
+   "kind": "npc",
+   "id": 17895,
+   "name": "Undead wave spawn (Alliance base)",
+   "why": "Where all 8 trash waves appear before walking to the base; the boss itself spawns here after wave 8.",
+   "when": "waves 1-8 after the gossip; next wave every 130 s, boss 190 s after wave 8 (instance_hyjal.cpp hyjalWaveTimers[0], line 56); a wave also comes early when the previous one is fully dead (OnUnitDeath line 239-240)",
+   "display": 571,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 4923.17,
+     "y": -1524.42,
+     "z": 1328.3,
+     "o": 4.261,
+     "spreadYd": 20.0,
+     "count": 96,
+     "source": "creature_summon_groups summonerId 534 type 2, groupId 0-7: centroid of 96 ground-undead rows (all within 20.0 yd); spawned by instance_hyjal.cpp ScheduleWaves -> instance->SummonCreatureGroup(startWaves + _currentWave) (line 533)"
+    }
+   ],
+   "states": [],
+   "bossSpawn": {
+    "map": 534,
+    "x": 4936.22,
+    "y": -1513.44,
+    "z": 1327.19,
+    "o": 4.10407,
+    "source": "creature_summon_groups 534/2 groupId 8 entry 17767 (the 9th 'wave')"
+   },
+   "paths": {
+    "charge": [
+     {
+      "waypoint_data id": 177721,
+      "points": 14,
+      "start": [
+       4905.36,
+       -1557.74,
+       1332.16
+      ],
+      "end": [
+       5024.15,
+       -1743.28,
+       1322.64
+      ]
+     },
+     {
+      "waypoint_data id": 177722,
+      "points": 15,
+      "start": [
+       4912.51,
+       -1554.88,
+       1330.11
+      ],
+      "end": [
+       5024.32,
+       -1743.64,
+       1322.64
+      ]
+     },
+     {
+      "waypoint_data id": 177723,
+      "points": 13,
+      "start": [
+       4895.43,
+       -1590.81,
+       1332.06
+      ],
+      "end": [
+       5016.94,
+       -1749.02,
+       1322.39
+      ]
+     }
+    ],
+    "after": [
+     {
+      "waypoint_data id": 177724,
+      "points": 25,
+      "start": [
+       5036.99,
+       -1763.02,
+       1324.2
+      ],
+      "end": [
+       5036.99,
+       -1763.02,
+       1324.2
+      ]
+     },
+     {
+      "waypoint_data id": 177725,
+      "points": 30,
+      "start": [
+       5040.88,
+       -1739.35,
+       1321.02
+      ],
+      "end": [
+       5040.88,
+       -1739.35,
+       1321.02
+      ]
+     },
+     {
+      "waypoint_data id": 177726,
+      "points": 30,
+      "start": [
+       5040.88,
+       -1739.35,
+       1321.02
+      ],
+      "end": [
+       5040.88,
+       -1739.35,
+       1321.02
+      ]
+     }
+    ]
+   },
+   "notes": "Waves and the boss walk a random ALLIANCE_BASE_CHARGE_1-3 path (hyjal.cpp line 491; boss_rage_winterchill.cpp line 97 / boss_anetheron.cpp line 94) ending at the base entrance, then loop a random ALLIANCE_BASE_PATROL_1-3 path (waypoint_data ids in 'paths'). Marker uses Ghoul (17895) as the representative; each wave is ~12 mixed ground undead (Ghoul, Crypt Fiend, Abomination, Shadowy Necromancer, Banshee, Fel Stalker) placed individually in those rows."
+  }
+ ],
+ "HyjalSummit:Anetheron": [
+  {
+   "kind": "npc",
+   "id": 17772,
+   "name": "Lady Jaina Proudmoore",
+   "why": "Talk to her to start the waves; she fights at the Alliance base (Blizzard, Pyroblast, water elementals) and if she dies the event resets, so the boss is pulled away from / kept off her.",
+   "when": "pull",
+   "display": 30864,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5084.07,
+     "y": -1789.03,
+     "z": 1322.65,
+     "o": 3.24631,
+     "source": "creature.sql guid 139534"
+    }
+   ],
+   "states": [],
+   "notes": "Script: hyjal.cpp npc_hyjal_jaina lines 95-196 (gossip starts waves via DATA_RESET_WAVES + DATA_SPAWN_WAVES lines 181-187; combat spells Blizzard 31266, Pyroblast 31263, Summon Water Elementals 31264 lines 123-136; JustDied -> DATA_RESET_ALLIANCE lines 152-157). Passive auras Brilliance Aura 31260 + Salvation 31745 (creature_template_addon 17772). Display 30864 comes from a VerifiedBuild 51831 row and is not in the scratchpad cdi.csv subset: check it exists in the 2.5.x client."
+  },
+  {
+   "kind": "npc",
+   "id": 17895,
+   "name": "Undead wave spawn (Alliance base)",
+   "why": "Where all 8 trash waves appear before walking to the base; the boss itself spawns here after wave 8.",
+   "when": "waves 1-8 after the gossip; next wave every 130 s, boss 190 s after wave 8 (instance_hyjal.cpp hyjalWaveTimers[1], line 57); early when the previous wave is dead (line 239-240)",
+   "display": 571,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 4926.66,
+     "y": -1519.82,
+     "z": 1327.86,
+     "o": 4.247,
+     "spreadYd": 17.1,
+     "count": 96,
+     "source": "creature_summon_groups summonerId 534 type 2, groupId 9-16: centroid of 96 ground-undead rows (all within 17.1 yd); spawned by instance_hyjal.cpp ScheduleWaves -> instance->SummonCreatureGroup(startWaves + _currentWave) (line 533)"
+    }
+   ],
+   "states": [],
+   "bossSpawn": {
+    "map": 534,
+    "x": 4938.75,
+    "y": -1510.62,
+    "z": 1327.08,
+    "o": 4.17698,
+    "source": "creature_summon_groups 534/2 groupId 17 entry 17808 (the 9th 'wave')"
+   },
+   "paths": {
+    "charge": [
+     {
+      "waypoint_data id": 177721,
+      "points": 14,
+      "start": [
+       4905.36,
+       -1557.74,
+       1332.16
+      ],
+      "end": [
+       5024.15,
+       -1743.28,
+       1322.64
+      ]
+     },
+     {
+      "waypoint_data id": 177722,
+      "points": 15,
+      "start": [
+       4912.51,
+       -1554.88,
+       1330.11
+      ],
+      "end": [
+       5024.32,
+       -1743.64,
+       1322.64
+      ]
+     },
+     {
+      "waypoint_data id": 177723,
+      "points": 13,
+      "start": [
+       4895.43,
+       -1590.81,
+       1332.06
+      ],
+      "end": [
+       5016.94,
+       -1749.02,
+       1322.39
+      ]
+     }
+    ],
+    "after": [
+     {
+      "waypoint_data id": 177724,
+      "points": 25,
+      "start": [
+       5036.99,
+       -1763.02,
+       1324.2
+      ],
+      "end": [
+       5036.99,
+       -1763.02,
+       1324.2
+      ]
+     },
+     {
+      "waypoint_data id": 177725,
+      "points": 30,
+      "start": [
+       5040.88,
+       -1739.35,
+       1321.02
+      ],
+      "end": [
+       5040.88,
+       -1739.35,
+       1321.02
+      ]
+     },
+     {
+      "waypoint_data id": 177726,
+      "points": 30,
+      "start": [
+       5040.88,
+       -1739.35,
+       1321.02
+      ],
+      "end": [
+       5040.88,
+       -1739.35,
+       1321.02
+      ]
+     }
+    ]
+   },
+   "notes": "Waves and the boss walk a random ALLIANCE_BASE_CHARGE_1-3 path (hyjal.cpp line 491; boss_rage_winterchill.cpp line 97 / boss_anetheron.cpp line 94) ending at the base entrance, then loop a random ALLIANCE_BASE_PATROL_1-3 path (waypoint_data ids in 'paths'). Marker uses Ghoul (17895) as the representative; each wave is ~12 mixed ground undead (Ghoul, Crypt Fiend, Abomination, Shadowy Necromancer, Banshee, Fel Stalker) placed individually in those rows."
+  }
+ ],
+ "HyjalSummit:Kazrogal": [
+  {
+   "kind": "npc",
+   "id": 17852,
+   "name": "Thrall",
+   "why": "Talk to him to start the waves at the Horde base; he fights (Chain Lightning, dire wolves) and if he dies the event resets. The boss walks straight to him.",
+   "when": "pull",
+   "display": 17370,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5450.54,
+     "y": -2723.97,
+     "z": 1485.59,
+     "o": 6.00393,
+     "source": "creature.sql guid 139637"
+    }
+   ],
+   "states": [],
+   "notes": "Script: hyjal.cpp npc_hyjal_thrall lines 198-271 (gossip starts waves lines 256-262; Chain Lightning 31330 and Feral Spirit 31331 lines 223-232; JustDied -> DATA_RESET_HORDE lines 235-240). Passive aura Salvation 31745 (creature_template_addon 17852). Kaz'rogal/Azgalor walk HORDE_BOSS_PATH 178527 which ends ~15 yd from his spawn."
+  },
+  {
+   "kind": "npc",
+   "id": 17895,
+   "name": "Undead wave spawn (Horde base)",
+   "why": "Where all 8 trash waves appear before walking to the base; the boss itself spawns here after wave 8.",
+   "when": "waves 1-8 after the gossip; gaps 130/155/130/155/130/130/155 s, boss 225 s after wave 8 (instance_hyjal.cpp hyjalWaveTimers[2], line 58); early when the previous wave is dead",
+   "display": 571,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5478.92,
+     "y": -2380.94,
+     "z": 1461.54,
+     "o": 5.426,
+     "spreadYd": 17.7,
+     "count": 80,
+     "source": "creature_summon_groups summonerId 534 type 2, groupId 18-25: centroid of 80 ground-undead rows (all within 17.7 yd); spawned by instance_hyjal.cpp ScheduleWaves -> instance->SummonCreatureGroup(startWaves + _currentWave) (line 533)"
+    }
+   ],
+   "states": [],
+   "bossSpawn": {
+    "map": 534,
+    "x": 5526.32,
+    "y": -2449.31,
+    "z": 1468.57,
+    "o": 5.38635,
+    "source": "creature_summon_groups 534/2 groupId 26 entry 17888 (the 9th 'wave')"
+   },
+   "paths": {
+    "charge": [
+     {
+      "waypoint_data id": 178521,
+      "points": 14,
+      "start": [
+       5515.9,
+       -2439.38,
+       1466.81
+      ],
+      "end": [
+       5539.03,
+       -2632.82,
+       1480.86
+      ]
+     },
+     {
+      "waypoint_data id": 178522,
+      "points": 11,
+      "start": [
+       5527.6,
+       -2409.19,
+       1468.77
+      ],
+      "end": [
+       5548.2,
+       -2632.01,
+       1482.87
+      ]
+     },
+     {
+      "waypoint_data id": 178523,
+      "points": 15,
+      "start": [
+       5508.93,
+       -2425.52,
+       1465.02
+      ],
+      "end": [
+       5539.03,
+       -2632.82,
+       1480.86
+      ]
+     }
+    ],
+    "after": [
+     {
+      "waypoint_data id": 178527,
+      "points": 21,
+      "start": [
+       5539.68,
+       -2464.61,
+       1470.32
+      ],
+      "end": [
+       5464.58,
+       -2728.47,
+       1484.94
+      ]
+     }
+    ]
+   },
+   "notes": "Trash walks a random HORDE_BASE_CHARGE_1-3 path then a HORDE_BASE_PATROL path (hyjal.cpp lines 493-496, 518-524); the boss walks HORDE_BOSS_PATH 178527 (boss_kazrogal.cpp line 103 / boss_azgalor.cpp line 82) whose 'end' is beside Thrall. Marker uses Ghoul (17895) as the representative; each wave is ~12 mixed ground undead (Ghoul, Crypt Fiend, Abomination, Shadowy Necromancer, Banshee, Fel Stalker) placed individually in those rows."
+  },
+  {
+   "kind": "npc",
+   "id": 17906,
+   "name": "Gargoyle wave spawn (air)",
+   "why": "Flying waves 2, 4 and 6 appear in the air at two spots and dive onto the base; ranged/casters have to cover them.",
+   "when": "waves 2, 4 (troll-camp side) and 6 (fortress side)",
+   "display": 17311,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5792.61,
+     "y": -2872.53,
+     "z": 1585.3,
+     "o": 3.219,
+     "spreadYd": 72.6,
+     "count": 16,
+     "source": "creature_summon_groups summonerId 534 type 2, groupId 19,21: centroid of 16 Gargoyle (x>=5500, troll-camp side) rows (all within 72.6 yd); spawned by instance_hyjal.cpp ScheduleWaves -> instance->SummonCreatureGroup(startWaves + _currentWave) (line 533)"
+    },
+    {
+     "map": 534,
+     "x": 5427.43,
+     "y": -2532.99,
+     "z": 1533.29,
+     "o": 5.726,
+     "spreadYd": 51.4,
+     "count": 8,
+     "source": "creature_summon_groups summonerId 534 type 2, groupId 23: centroid of 8 Gargoyle (x<5500, fortress side) rows (all within 51.4 yd); spawned by instance_hyjal.cpp ScheduleWaves -> instance->SummonCreatureGroup(startWaves + _currentWave) (line 533)"
+    }
+   ],
+   "states": [],
+   "paths": {
+    "fortress side (x<5500)": [
+     {
+      "waypoint_data id": 179064,
+      "points": 11,
+      "start": [
+       5464.78,
+       -2556.56,
+       1579.43
+      ],
+      "end": [
+       5522.59,
+       -2696.16,
+       1486.19
+      ]
+     },
+     {
+      "waypoint_data id": 179065,
+      "points": 10,
+      "start": [
+       5484.68,
+       -2545.95,
+       1564.77
+      ],
+      "end": [
+       5512.28,
+       -2675.32,
+       1487.19
+      ]
+     },
+     {
+      "waypoint_data id": 179066,
+      "points": 9,
+      "start": [
+       5442.28,
+       -2569.38,
+       1595.67
+      ],
+      "end": [
+       5476.57,
+       -2708.71,
+       1494.35
+      ]
+     }
+    ],
+    "troll-camp side (x>=5500)": [
+     {
+      "waypoint_data id": 179061,
+      "points": 16,
+      "start": [
+       5789.41,
+       -2929.64,
+       1667.93
+      ],
+      "end": [
+       5581.82,
+       -2853.31,
+       1515.84
+      ]
+     },
+     {
+      "waypoint_data id": 179062,
+      "points": 11,
+      "start": [
+       5761.94,
+       -2873.93,
+       1644.56
+      ],
+      "end": [
+       5612.74,
+       -2818.38,
+       1508.91
+      ]
+     },
+     {
+      "waypoint_data id": 179063,
+      "points": 11,
+      "start": [
+       5761.9,
+       -2817.49,
+       1623.48
+      ],
+      "end": [
+       5602.23,
+       -2858.05,
+       1515.17
+      ]
+     }
+    ]
+   },
+   "notes": "Gargoyles at x<5500 fly a random GARGOYLE_PATH_FORTRESS_1-3, others a random GARGOYLE_PATH_TROLL_CAMP_1-3 (hyjal.cpp lines 605-611), then wander 30 yd (line 623). Spawns are spread in height (z ~1490-1630)."
+  },
+  {
+   "kind": "npc",
+   "id": 17907,
+   "name": "Frost Wyrm spawn",
+   "why": "One Frost Wyrm in waves 6 and 7 (Frost Breath); it flies in from these points.",
+   "when": "wave 6 (fortress side) and wave 7 (troll-camp side)",
+   "display": 16919,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5448.23,
+     "y": -2475.62,
+     "z": 1468.52,
+     "o": 4.75688,
+     "source": "creature_summon_groups 534/2 groupId 23 entry 17907"
+    },
+    {
+     "map": 534,
+     "x": 5753.52,
+     "y": -2701.92,
+     "z": 1586.14,
+     "o": 3.26914,
+     "source": "creature_summon_groups 534/2 groupId 24 entry 17907"
+    }
+   ],
+   "states": [],
+   "paths": [
+    {
+     "waypoint_data id": 179071,
+     "points": 7,
+     "start": [
+      5730.1,
+      -2705.81,
+      1642.44
+     ],
+     "end": [
+      5495.48,
+      -2790.48,
+      1518.55
+     ]
+    },
+    {
+     "waypoint_data id": 179072,
+     "points": 7,
+     "start": [
+      5452.18,
+      -2562.78,
+      1586.86
+     ],
+     "end": [
+      5496.99,
+      -2735.56,
+      1505.73
+     ]
+    },
+    {
+     "waypoint_data id": 179073,
+     "points": 9,
+     "start": [
+      5526.81,
+      -2776.26,
+      1520.12
+     ],
+     "end": [
+      5523.59,
+      -2768.92,
+      1510.31
+     ]
+    }
+   ],
+   "notes": "x<5500 -> FROST_WYRM_FORTRESS 179072 then patrol 179073; else FROST_WYRM_TROLL_CAMP 179071 (hyjal.cpp lines 671-692)."
+  }
+ ],
+ "HyjalSummit:Azgalor": [
+  {
+   "kind": "npc",
+   "id": 17852,
+   "name": "Thrall",
+   "why": "Talk to him to start the waves at the Horde base; he fights (Chain Lightning, dire wolves) and if he dies the event resets. The boss walks straight to him.",
+   "when": "pull",
+   "display": 17370,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5450.54,
+     "y": -2723.97,
+     "z": 1485.59,
+     "o": 6.00393,
+     "source": "creature.sql guid 139637"
+    }
+   ],
+   "states": [],
+   "notes": "Script: hyjal.cpp npc_hyjal_thrall lines 198-271 (gossip starts waves lines 256-262; Chain Lightning 31330 and Feral Spirit 31331 lines 223-232; JustDied -> DATA_RESET_HORDE lines 235-240). Passive aura Salvation 31745 (creature_template_addon 17852). Kaz'rogal/Azgalor walk HORDE_BOSS_PATH 178527 which ends ~15 yd from his spawn."
+  },
+  {
+   "kind": "npc",
+   "id": 17895,
+   "name": "Undead wave spawn (Horde base)",
+   "why": "Where all 8 trash waves appear before walking to the base; the boss itself spawns here after wave 8.",
+   "when": "waves 1-8 after the gossip; gaps 130/190/190/190/130/155/190 s, boss 225 s after wave 8 (instance_hyjal.cpp hyjalWaveTimers[3], line 59); early when the previous wave is dead",
+   "display": 571,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5480.33,
+     "y": -2381.14,
+     "z": 1461.56,
+     "o": 5.397,
+     "spreadYd": 20.8,
+     "count": 77,
+     "source": "creature_summon_groups summonerId 534 type 2, groupId 27-34: centroid of 77 ground-undead rows (all within 20.8 yd); spawned by instance_hyjal.cpp ScheduleWaves -> instance->SummonCreatureGroup(startWaves + _currentWave) (line 533)"
+    }
+   ],
+   "states": [],
+   "bossSpawn": {
+    "map": 534,
+    "x": 5526.62,
+    "y": -2449.26,
+    "z": 1468.58,
+    "o": 5.36069,
+    "source": "creature_summon_groups 534/2 groupId 35 entry 17842 (the 9th 'wave')"
+   },
+   "paths": {
+    "charge": [
+     {
+      "waypoint_data id": 178521,
+      "points": 14,
+      "start": [
+       5515.9,
+       -2439.38,
+       1466.81
+      ],
+      "end": [
+       5539.03,
+       -2632.82,
+       1480.86
+      ]
+     },
+     {
+      "waypoint_data id": 178522,
+      "points": 11,
+      "start": [
+       5527.6,
+       -2409.19,
+       1468.77
+      ],
+      "end": [
+       5548.2,
+       -2632.01,
+       1482.87
+      ]
+     },
+     {
+      "waypoint_data id": 178523,
+      "points": 15,
+      "start": [
+       5508.93,
+       -2425.52,
+       1465.02
+      ],
+      "end": [
+       5539.03,
+       -2632.82,
+       1480.86
+      ]
+     }
+    ],
+    "after": [
+     {
+      "waypoint_data id": 178527,
+      "points": 21,
+      "start": [
+       5539.68,
+       -2464.61,
+       1470.32
+      ],
+      "end": [
+       5464.58,
+       -2728.47,
+       1484.94
+      ]
+     }
+    ]
+   },
+   "notes": "Trash walks a random HORDE_BASE_CHARGE_1-3 path then a HORDE_BASE_PATROL path (hyjal.cpp lines 493-496, 518-524); the boss walks HORDE_BOSS_PATH 178527 (boss_kazrogal.cpp line 103 / boss_azgalor.cpp line 82) whose 'end' is beside Thrall. Marker uses Ghoul (17895) as the representative; each wave is ~12 mixed ground undead (Ghoul, Crypt Fiend, Abomination, Shadowy Necromancer, Banshee, Fel Stalker) placed individually in those rows."
+  },
+  {
+   "kind": "npc",
+   "id": 17906,
+   "name": "Gargoyle wave spawn (air)",
+   "why": "Wave 2's 8 Gargoyles (+1 Frost Wyrm) appear in the air on the fortress side.",
+   "when": "wave 2",
+   "display": 17311,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5420.73,
+     "y": -2532.09,
+     "z": 1528.79,
+     "o": 5.621,
+     "spreadYd": 37.1,
+     "count": 8,
+     "source": "creature_summon_groups summonerId 534 type 2, groupId 28: centroid of 8 Gargoyle (x<5500, fortress side) rows (all within 37.1 yd); spawned by instance_hyjal.cpp ScheduleWaves -> instance->SummonCreatureGroup(startWaves + _currentWave) (line 533)"
+    }
+   ],
+   "states": [],
+   "paths": {
+    "fortress side (x<5500)": [
+     {
+      "waypoint_data id": 179064,
+      "points": 11,
+      "start": [
+       5464.78,
+       -2556.56,
+       1579.43
+      ],
+      "end": [
+       5522.59,
+       -2696.16,
+       1486.19
+      ]
+     },
+     {
+      "waypoint_data id": 179065,
+      "points": 10,
+      "start": [
+       5484.68,
+       -2545.95,
+       1564.77
+      ],
+      "end": [
+       5512.28,
+       -2675.32,
+       1487.19
+      ]
+     },
+     {
+      "waypoint_data id": 179066,
+      "points": 9,
+      "start": [
+       5442.28,
+       -2569.38,
+       1595.67
+      ],
+      "end": [
+       5476.57,
+       -2708.71,
+       1494.35
+      ]
+     }
+    ]
+   },
+   "notes": "hyjal.cpp lines 605-611 (path choice by x)."
+  },
+  {
+   "kind": "npc",
+   "id": 17907,
+   "name": "Frost Wyrm spawn",
+   "why": "One Frost Wyrm with wave 2.",
+   "when": "wave 2",
+   "display": 16919,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5423.37,
+     "y": -2540.91,
+     "z": 1531.12,
+     "o": 5.63367,
+     "source": "creature_summon_groups 534/2 groupId 28 entry 17907"
+    }
+   ],
+   "states": [],
+   "paths": [
+    {
+     "waypoint_data id": 179071,
+     "points": 7,
+     "start": [
+      5730.1,
+      -2705.81,
+      1642.44
+     ],
+     "end": [
+      5495.48,
+      -2790.48,
+      1518.55
+     ]
+    },
+    {
+     "waypoint_data id": 179072,
+     "points": 7,
+     "start": [
+      5452.18,
+      -2562.78,
+      1586.86
+     ],
+     "end": [
+      5496.99,
+      -2735.56,
+      1505.73
+     ]
+    },
+    {
+     "waypoint_data id": 179073,
+     "points": 9,
+     "start": [
+      5526.81,
+      -2776.26,
+      1520.12
+     ],
+     "end": [
+      5523.59,
+      -2768.92,
+      1510.31
+     ]
+    }
+   ],
+   "notes": "hyjal.cpp lines 671-692."
+  },
+  {
+   "kind": "npc",
+   "id": 21075,
+   "name": "Infernal Target (Hyjal) - infernal landing spots",
+   "why": "In waves 3, 4 and 7 infernals rain down from the sky onto these 6 spots in the Horde base (8 per wave: two spots get 2); keep the raid and Thrall clear of them.",
+   "when": "Azgalor waves 3, 4 and 7",
+   "display": 1126,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5423.34,
+     "y": -2776.28,
+     "z": 1495.84,
+     "o": 2.0135,
+     "source": "creature.sql guid 139623"
+    },
+    {
+     "map": 534,
+     "x": 5484.91,
+     "y": -2703.85,
+     "z": 1482.26,
+     "o": 5.6719,
+     "source": "creature.sql guid 139644"
+    },
+    {
+     "map": 534,
+     "x": 5491.14,
+     "y": -2642.31,
+     "z": 1483.66,
+     "o": 1.75461,
+     "source": "creature.sql guid 139645"
+    },
+    {
+     "map": 534,
+     "x": 5525.58,
+     "y": -2775.63,
+     "z": 1493.73,
+     "o": 0.289304,
+     "source": "creature.sql guid 139651"
+    },
+    {
+     "map": 534,
+     "x": 5523.56,
+     "y": -2624.46,
+     "z": 1483.31,
+     "o": 2.53951,
+     "source": "creature.sql guid 139657"
+    },
+    {
+     "map": 534,
+     "x": 5569.67,
+     "y": -2711.74,
+     "z": 1486.54,
+     "o": 4.62437,
+     "source": "creature.sql guid 139668"
+    }
+   ],
+   "states": [
+    {
+     "name": "Infernal incoming",
+     "look": "an Infernal Relay high above cross-casts 'Infernal' onto the spot; an infernal lands there",
+     "spell": 32148,
+     "beamTo": null,
+     "beamFrom": "Infernal Relay (Hyjal) 18242 (random one of 6)",
+     "anim": null,
+     "source": "instance_hyjal.cpp ScheduleWaves lines 535-548 (Kaz'rogal done, Azgalor not done, wave 3/4/7 -> DATA_SPAWN_INFERNALS) + lines 428-446 (first 2 targets SetData 2, the rest 1); smart_scripts.sql 21075 ids 0-1 -> action lists 2107500-2107511 (cross cast 32148 'Infernal' from relay guid 139617/139647/139659/139663/139684/139690 onto the target)"
+    }
+   ],
+   "relays": [
+    {
+     "map": 534,
+     "x": 5395.46,
+     "y": -2701.0,
+     "z": 1591.39,
+     "o": 1.3439,
+     "source": "creature.sql guid 139617",
+     "npc": 18242,
+     "name": "Infernal Relay (Hyjal)"
+    },
+    {
+     "map": 534,
+     "x": 5511.56,
+     "y": -2613.27,
+     "z": 1571.1,
+     "o": 4.95674,
+     "source": "creature.sql guid 139647",
+     "npc": 18242,
+     "name": "Infernal Relay (Hyjal)"
+    },
+    {
+     "map": 534,
+     "x": 5536.6,
+     "y": -2813.09,
+     "z": 1607.19,
+     "o": 5.20108,
+     "source": "creature.sql guid 139659",
+     "npc": 18242,
+     "name": "Infernal Relay (Hyjal)"
+    },
+    {
+     "map": 534,
+     "x": 5548.28,
+     "y": -2669.32,
+     "z": 1566.98,
+     "o": 1.69297,
+     "source": "creature.sql guid 139663",
+     "npc": 18242,
+     "name": "Infernal Relay (Hyjal)"
+    },
+    {
+     "map": 534,
+     "x": 5613.96,
+     "y": -2864.49,
+     "z": 1617.05,
+     "o": 0.488692,
+     "source": "creature.sql guid 139684",
+     "npc": 18242,
+     "name": "Infernal Relay (Hyjal)"
+    },
+    {
+     "map": 534,
+     "x": 5659.94,
+     "y": -2706.53,
+     "z": 1623.12,
+     "o": 6.17847,
+     "source": "creature.sql guid 139690",
+     "npc": 18242,
+     "name": "Infernal Relay (Hyjal)"
+    }
+   ],
+   "notes": "Invisible trigger models (1126/15880); relays are listed in 'relays' (z 1567-1623, i.e. in the sky). Targets have MovementType 1 with wander_distance 18 (creature.sql), so a landing spot can be up to 18 yd from home. Which 2 targets get double infernals depends on creation order (not fixed). The summoned creature is presumably Giant Infernal 17908 (wave comments say '8 Infernal'; 17908 is NPC_INFER in hyjal.h) - the 32148 -> 17908 link is not verified."
+  }
+ ],
+ "HyjalSummit:Archimonde": [
+  {
+   "kind": "npc",
+   "id": 22418,
+   "name": "Archimonde Channel Target (Nordrassil)",
+   "why": "Marks the World Tree point Archimonde drains before the pull; if Archimonde gets within 75 yd of it during the fight he enrages (Hand of Death every 3 s), so tank him away from the tree.",
+   "when": "pull (summoned when Archimonde becomes active after Azgalor dies)",
+   "display": 18783,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5503.713,
+     "y": -3523.436,
+     "z": 1608.781,
+     "o": 0.0,
+     "source": "boss_archimonde.cpp nordrassilPosition (line 90); summoned there by DoAction(ACTION_BECOME_ACTIVE_AND_CHANNEL) lines 243-254, 20 min timed despawn"
+    },
+    {
+     "map": 534,
+     "x": 5502.29,
+     "y": -3525.47,
+     "z": 1607.91,
+     "o": 2.61799,
+     "source": "creature.sql guid 139646"
+    }
+   ],
+   "states": [
+    {
+     "name": "Drain World Tree",
+     "look": "Archimonde channels a drain beam into the tree point, which beams back to him",
+     "spell": 39140,
+     "beamTo": "Archimonde Channel Target",
+     "beamFrom": "Archimonde",
+     "returnSpell": 39141,
+     "returnBeamTo": "Archimonde",
+     "anim": null,
+     "source": "boss_archimonde.cpp lines 248-252 (DoCast(nordrassil, SPELL_DRAIN_WORLD_TREE 39140); nordrassil casts SPELL_DRAIN_WORLD_TREE_2 39141 on Archimonde); stops on pull: InterruptNonMeleeSpells line 262"
+    }
+   ],
+   "enrageRadius": {
+    "yd": 75.0,
+    "center": [
+     5503.713,
+     -3523.436
+    ],
+    "source": "boss_archimonde.cpp lines 280-295: every 5 s, GetExactDist2d(nordrassilPosition) < 75 -> SAY_ENRAGE + Red Sky 32111 / Hand of Death 35354 on the victim every 3 s"
+   },
+   "notes": "Two sources: the script summons its own target at nordrassilPosition; creature.sql also has a static 22418 (guid 139646) ~2.5 yd away with no script attached. Invisible model (18783/18657)."
+  },
+  {
+   "kind": "npc",
+   "id": 17968,
+   "name": "Archimonde",
+   "why": "Already on the starter page; states only: hidden until Azgalor dies, then channels the tree; enrages near the tree; at 10% wisps finish him.",
+   "when": "pull",
+   "display": 20939,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5601.94,
+     "y": -3446.28,
+     "z": 1577.49,
+     "o": 3.7001,
+     "source": "creature.sql guid 139680"
+    }
+   ],
+   "states": [
+    {
+     "name": "Hidden",
+     "look": "invisible and passive until Azgalor is dead",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_archimonde.cpp Reset lines 200-204"
+    },
+    {
+     "name": "Draining tree",
+     "look": "channels Drain World Tree into the Channel Target",
+     "spell": 39140,
+     "beamTo": "Archimonde Channel Target",
+     "anim": null,
+     "source": "boss_archimonde.cpp lines 243-254"
+    },
+    {
+     "name": "Enraged at tree",
+     "look": "Hand of Death (instant kill) on his target every 3 s",
+     "spell": 35354,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_archimonde.cpp lines 280-295 (also after 10 min, lines 316-320)"
+    },
+    {
+     "name": "10%: Protection of Elune",
+     "look": "players protected, Ancient Wisps spawn and shoot Ancient Spark at him until he dies",
+     "spell": 38528,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_archimonde.cpp ScheduleHealthCheckEvent(10) lines 210-236 (wisp 17946 every 1.5 s, casts Ancient Spark 39349 on him, dies at 30 wisps)"
+    }
+   ],
+   "notes": "Wisps spawn at random: Archimonde's position + rand()%40 on x and on y (0-39 yd, toward +x/+y; lines 224-225), so not fixed. Doomfire spawns at a random angle 15 yd from him (lines 397-416) - not fixed."
+  },
+  {
+   "kind": "npc",
+   "id": 17948,
+   "name": "Tyrande Whisperwind",
+   "why": "Talk to her before the fight to get Tears of the Goddess (slow fall) for Air Burst knock-ups; she defends the Night Elf village and her death resets the event.",
+   "when": "pull",
+   "display": 17873,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5184.97,
+     "y": -3383.56,
+     "z": 1638.26,
+     "o": 6.00393,
+     "source": "creature.sql guid 139553"
+    }
+   ],
+   "states": [],
+   "notes": "hyjal.cpp npc_hyjal_tyrande lines 323-328: gossip -> casts SPELL_SUMMON_TEARS_OF_THE_GODDESS 39118 on the player; JustDied -> DATA_RESET_NIGHT_ELF (lines 306-311). The item text 'Briefly slows falling speed' is from Wowhead TBC item 24494; that 39118 creates item 24494 is assumed from the name. creature_template_addon 17948 mount 6080 (she is mounted). She is ~420 yd from Archimonde's spawn."
+  },
+  {
+   "kind": "npc",
+   "id": 17895,
+   "name": "Night Elf wave spawn",
+   "why": "One undead wave (6 Ghouls, 1 Crypt Fiend, 1 Abomination) spawns when Archimonde is pulled and runs to the Night Elf village, not to the raid.",
+   "when": "Archimonde pull",
+   "display": 571,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 534,
+     "x": 5370.55,
+     "y": -3276.63,
+     "z": 1621.47,
+     "o": 5.002,
+     "spreadYd": 15.5,
+     "count": 8,
+     "source": "creature_summon_groups summonerId 534 type 2, groupId 42: centroid of 8 Night Elf Wave rows (all within 15.5 yd); spawned by instance_hyjal.cpp ScheduleWaves -> instance->SummonCreatureGroup(startWaves + _currentWave) (line 533)"
+    }
+   ],
+   "states": [],
+   "paths": [
+    {
+     "waypoint_data id": 179481,
+     "points": 12,
+     "start": [
+      5387.52,
+      -3330.54,
+      1639.99
+     ],
+     "end": [
+      5226.67,
+      -3366.95,
+      1644.12
+     ]
+    },
+    {
+     "waypoint_data id": 179482,
+     "points": 10,
+     "start": [
+      5398.46,
+      -3334.41,
+      1644.14
+     ],
+     "end": [
+      5213.83,
+      -3395.12,
+      1640.61
+     ]
+    },
+    {
+     "waypoint_data id": 179483,
+     "points": 10,
+     "start": [
+      5399.1,
+      -3341.23,
+      1647.56
+     ],
+     "end": [
+      5230.95,
+      -3377.04,
+      1644.76
+     ]
+    }
+   ],
+   "notes": "boss_archimonde.cpp JustEngagedWith line 326 -> instance_hyjal.cpp DATA_SPAWN_WAVES lines 403-407 (group START_WAVE_NIGHT_ELF 42, one wave); hyjal.cpp lines 498-499 random NIGHT_ELF_BASE_CHARGE_1-3 path then 5 yd random wander."
+  }
+ ]
+}

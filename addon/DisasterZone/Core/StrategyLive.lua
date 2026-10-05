@@ -180,6 +180,9 @@ end
 
 -- The npc id behind a portrait icon key of a boss' strategy ("boss:<displayID>").
 local function NpcOfIcon(bossRef, key)
+    -- an encounter asset's creature ("npc:<id>", Core/StrategyObjects.lua) names its NPC itself
+    local npc = type(key) == "string" and tonumber(key:match("^npc:(%d+)$"))
+    if npc then return npc end
     BuildIndex()
     local d = type(key) == "string" and tonumber(key:match("^boss:(%d+)$"))
     if not d then return nil end

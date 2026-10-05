@@ -1,0 +1,1775 @@
+{
+ "Karazhan:Attumen": [
+  {
+   "kind": "npc",
+   "id": 16152,
+   "name": "Attumen the Huntsman",
+   "why": "Final form: Attumen mounts Midnight and both become this one boss; plan where the merged boss is tanked and who eats Charge.",
+   "when": "Midnight or Attumen below 25%",
+   "display": 16040,
+   "scale": 1.0,
+   "positions": [],
+   "states": [],
+   "notes": "No fixed spot: created by Summon Attumen (Mounted) 29799 (target DEST_CASTER_SUMMON, SpellEffect) next to Attumen once he has walked to Midnight after Mount 29770 (boss_midnight.cpp L124-131, L226-260, cast at L249); Midnight is hidden and Attumen despawns. Mounted Attumen casts Charge 29847 on a player 8-25 yd away every 10-25 s and Knockdown 29711 (L173-197). Fight boundary: circle r=50 yd around (-11126.3,-1929.11), z 49-55 (instance_karazhan.cpp L69-73). Different entry/model from the starter's unmounted Attumen 15550 (display 16416)."
+  }
+ ],
+ "Karazhan:Rokad": [],
+ "Karazhan:Shadikith": [],
+ "Karazhan:Hyakiss": [
+  {
+   "kind": "npc",
+   "id": 16179,
+   "name": "Hyakiss the Lurker",
+   "why": "Starts stealthed on his spawn spot; plan the pull/detection before he is visible.",
+   "when": "after 50 Servants' Quarters trash kills, if he is the one of three picked",
+   "display": 15938,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10960.9814,
+     "y": -1940.1384,
+     "z": 46.1781,
+     "o": 4.12,
+     "source": "instance_karazhan.cpp OptionalSpawn[0] (L32)"
+    }
+   ],
+   "states": [
+    {
+     "name": "Stealthed",
+     "look": "Sneak aura: stealthed (MOD_STEALTH) and slowed; re-applied on every Reset",
+     "spell": 22766,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_servant_quarters.cpp SPELL_SNEAK L24, DoCastSelf in Reset L44-47; aura types from SpellEffect 22766"
+    },
+    {
+     "name": "In combat",
+     "look": "visible, Acidic Fang on tank / Hyakiss' Web on a random player within 30 yd",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_servant_quarters.cpp JustEngagedWith L53-63"
+    }
+   ],
+   "notes": "Only one of Hyakiss/Shadikith/Rokad spawns per instance (urand over the three entries, instance_karazhan.cpp L176-192). He is already on the starter page; entry added only for the stealth state."
+  }
+ ],
+ "Karazhan:Moroes": [
+  {
+   "kind": "npc",
+   "id": 17007,
+   "name": "Lady Keira Berrybuck",
+   "why": "Dinner guest (casts Holy Light, Cleanse, Divine Shield, Greater Blessing of Might); assign CC/kill order.",
+   "when": "pull (if attending)",
+   "display": 16639,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10987.38,
+     "y": -1883.38,
+     "z": 81.73,
+     "o": 1.5,
+     "source": "boss_moroes.cpp GuestsPosition[0] (L59-65); always spot 0 when attending"
+    }
+   ],
+   "states": [],
+   "notes": "4 of the 6 guests attend: one of {17007,19872,19873} and one of {19874,19875,19876} is left out at random (RAND masks, boss_moroes.cpp InitializeGuests L85-91); the attending guests fill GuestsPosition 0..3 in GuestEntries order (L93-100), so the first trio always takes spots 0-1 and the second trio spots 2-3. Guests are summoned again on every Moroes Reset. Guest spells and their call-for-help (15 yd) / zone-in-combat on aggro are from smart_scripts. The fight evades if a living guest goes past x < -11028 or y < -1955 (L199-213)."
+  },
+  {
+   "kind": "npc",
+   "id": 19872,
+   "name": "Lady Catriona Von'Indi",
+   "why": "Dinner guest (casts Greater Heal, Holy Fire, Dispel Magic, Power Word: Shield); assign CC/kill order.",
+   "when": "pull (if attending)",
+   "display": 16640,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10987.38,
+     "y": -1883.38,
+     "z": 81.73,
+     "o": 1.5,
+     "source": "boss_moroes.cpp GuestsPosition[0] (L59-65); when Lady Keira (17007) is the one left out"
+    },
+    {
+     "map": 532,
+     "x": -10989.6,
+     "y": -1881.27,
+     "z": 81.73,
+     "o": 0.73,
+     "source": "boss_moroes.cpp GuestsPosition[1] (L59-65); when Lord Crispin (19873) is the one left out"
+    }
+   ],
+   "states": [],
+   "notes": "4 of the 6 guests attend: one of {17007,19872,19873} and one of {19874,19875,19876} is left out at random (RAND masks, boss_moroes.cpp InitializeGuests L85-91); the attending guests fill GuestsPosition 0..3 in GuestEntries order (L93-100), so the first trio always takes spots 0-1 and the second trio spots 2-3. Guests are summoned again on every Moroes Reset. Guest spells and their call-for-help (15 yd) / zone-in-combat on aggro are from smart_scripts. The fight evades if a living guest goes past x < -11028 or y < -1955 (L199-213)."
+  },
+  {
+   "kind": "npc",
+   "id": 19873,
+   "name": "Lord Crispin Ference",
+   "why": "Dinner guest (casts Disarm, Heroic Strike, Shield Wall, Shield Bash); assign CC/kill order.",
+   "when": "pull (if attending)",
+   "display": 16638,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10989.6,
+     "y": -1881.27,
+     "z": 81.73,
+     "o": 0.73,
+     "source": "boss_moroes.cpp GuestsPosition[1] (L59-65); always spot 1 when attending"
+    }
+   ],
+   "states": [],
+   "notes": "4 of the 6 guests attend: one of {17007,19872,19873} and one of {19874,19875,19876} is left out at random (RAND masks, boss_moroes.cpp InitializeGuests L85-91); the attending guests fill GuestsPosition 0..3 in GuestEntries order (L93-100), so the first trio always takes spots 0-1 and the second trio spots 2-3. Guests are summoned again on every Moroes Reset. Guest spells and their call-for-help (15 yd) / zone-in-combat on aggro are from smart_scripts. The fight evades if a living guest goes past x < -11028 or y < -1955 (L199-213)."
+  },
+  {
+   "kind": "npc",
+   "id": 19874,
+   "name": "Baron Rafe Dreuger",
+   "why": "Dinner guest (casts Seal/Judgement of Command, Hammer of Justice); assign CC/kill order.",
+   "when": "pull (if attending)",
+   "display": 16637,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10978.81,
+     "y": -1884.08,
+     "z": 81.73,
+     "o": 1.5,
+     "source": "boss_moroes.cpp GuestsPosition[2] (L59-65); always spot 2 when attending"
+    }
+   ],
+   "states": [],
+   "notes": "4 of the 6 guests attend: one of {17007,19872,19873} and one of {19874,19875,19876} is left out at random (RAND masks, boss_moroes.cpp InitializeGuests L85-91); the attending guests fill GuestsPosition 0..3 in GuestEntries order (L93-100), so the first trio always takes spots 0-1 and the second trio spots 2-3. Guests are summoned again on every Moroes Reset. Guest spells and their call-for-help (15 yd) / zone-in-combat on aggro are from smart_scripts. The fight evades if a living guest goes past x < -11028 or y < -1955 (L199-213)."
+  },
+  {
+   "kind": "npc",
+   "id": 19875,
+   "name": "Baroness Dorothea Millstipe",
+   "why": "Dinner guest (casts Shadowform, Mana Burn, Mind Flay, Shadow Word: Pain); assign CC/kill order.",
+   "when": "pull (if attending)",
+   "display": 19327,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10978.81,
+     "y": -1884.08,
+     "z": 81.73,
+     "o": 1.5,
+     "source": "boss_moroes.cpp GuestsPosition[2] (L59-65); when Baron Rafe (19874) is the one left out"
+    },
+    {
+     "map": 532,
+     "x": -10976.38,
+     "y": -1882.59,
+     "z": 81.73,
+     "o": 2.31,
+     "source": "boss_moroes.cpp GuestsPosition[3] (L59-65); when Lord Robin (19876) is the one left out"
+    }
+   ],
+   "states": [],
+   "notes": "4 of the 6 guests attend: one of {17007,19872,19873} and one of {19874,19875,19876} is left out at random (RAND masks, boss_moroes.cpp InitializeGuests L85-91); the attending guests fill GuestsPosition 0..3 in GuestEntries order (L93-100), so the first trio always takes spots 0-1 and the second trio spots 2-3. Guests are summoned again on every Moroes Reset. Guest spells and their call-for-help (15 yd) / zone-in-combat on aggro are from smart_scripts. The fight evades if a living guest goes past x < -11028 or y < -1955 (L199-213)."
+  },
+  {
+   "kind": "npc",
+   "id": 19876,
+   "name": "Lord Robin Daris",
+   "why": "Dinner guest (casts Mortal Strike, Whirlwind, Hamstring); assign CC/kill order.",
+   "when": "pull (if attending)",
+   "display": 19328,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10976.38,
+     "y": -1882.59,
+     "z": 81.73,
+     "o": 2.31,
+     "source": "boss_moroes.cpp GuestsPosition[3] (L59-65); always spot 3 when attending"
+    }
+   ],
+   "states": [],
+   "notes": "4 of the 6 guests attend: one of {17007,19872,19873} and one of {19874,19875,19876} is left out at random (RAND masks, boss_moroes.cpp InitializeGuests L85-91); the attending guests fill GuestsPosition 0..3 in GuestEntries order (L93-100), so the first trio always takes spots 0-1 and the second trio spots 2-3. Guests are summoned again on every Moroes Reset. Guest spells and their call-for-help (15 yd) / zone-in-combat on aggro are from smart_scripts. The fight evades if a living guest goes past x < -11028 or y < -1955 (L199-213)."
+  }
+ ],
+ "Karazhan:Maiden": [],
+ "Karazhan:OperaOz": [
+  {
+   "kind": "npc",
+   "id": 18168,
+   "name": "The Crone",
+   "why": "Last Oz boss: spawns once all four Oz actors are dead; Chain Lightning and Cyclones on the stage.",
+   "when": "after Dorothee, Roar, Strawman and Tinhead are all dead",
+   "display": 17550,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10891.96,
+     "y": -1755.95,
+     "z": 90.5,
+     "o": 4.64,
+     "source": "bosses_opera.cpp SummonCroneIfReady L104 (x, y, o); z is the last-killed actor's own z, shown as the actors' spawn z SPAWN_Z 90.5 (karazhan.cpp L126)"
+    }
+   ],
+   "states": [],
+   "notes": "Cyclones (18412) spawn every 22 s at a random 0-9 yd offset from the Crone and wander (L604-608, L644-657): no fixed spot, not listed. Oz actors become attackable after Dorothee's first update: Dorothee 11.7 s, Roar 16.67 s, Strawman 26.3 s, Tinhead 34.47 s (bosses_opera.cpp L173, L316, L404, L499)."
+  },
+  {
+   "kind": "npc",
+   "id": 17548,
+   "name": "Tito",
+   "why": "Dorothee's dog: appears beside her 41 s into the fight; plan who picks it up / kill order.",
+   "when": "41 s after Dorothee engages",
+   "display": 17079,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10896.0,
+     "y": -1758.0,
+     "z": 90.5,
+     "o": 4.738,
+     "source": "beside Dorothee: SummonCreature(CREATURE_TITO, 0,0,0) = close point next to the summoner (bosses_opera.cpp L198-218; Object.cpp SummonCreature L2390-2394); Dorothee never moves (SetCombatMovement(false) L155) and stands on karazhan.cpp Spawns[0] x -10896, SPAWN_Y -1758, SPAWN_Z 90.5, SPAWN_O 4.738 (L116-128)"
+    }
+   ],
+   "states": [],
+   "notes": "Exact offset from Dorothee is the engine's close point (about her size), not a stored coordinate. Oz actors become attackable after Dorothee's first update: Dorothee 11.7 s, Roar 16.67 s, Strawman 26.3 s, Tinhead 34.47 s (bosses_opera.cpp L173, L316, L404, L499)."
+  },
+  {
+   "kind": "object",
+   "id": 183496,
+   "name": "Wizard of Oz Hay",
+   "why": "Oz stage set piece (hay bale), spawned only for this play; takes up stage floor.",
+   "when": "pull (spawned when Barnes starts Oz)",
+   "display": 7065,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10906.7,
+     "y": -1750.01,
+     "z": 90.4765,
+     "o": -1.693,
+     "source": "gameobject.sql guid 260589 (entry 183496)"
+    },
+    {
+     "map": 532,
+     "x": -10883.0,
+     "y": -1751.81,
+     "z": 90.4765,
+     "o": -1.7279,
+     "source": "gameobject.sql guid 260590 (entry 183496)"
+    },
+    {
+     "map": 532,
+     "x": -10877.7,
+     "y": -1763.18,
+     "z": 90.4771,
+     "o": -1.693,
+     "source": "gameobject.sql guid 260591 (entry 183496)"
+    },
+    {
+     "map": 532,
+     "x": -10909.5,
+     "y": -1761.79,
+     "z": 90.4773,
+     "o": -1.6581,
+     "source": "gameobject.sql guid 260592 (entry 183496)"
+    }
+   ],
+   "states": [],
+   "notes": "Decoration, respawned by DATA_SPAWN_OPERA_DECORATIONS when the Oz play is picked (karazhan.cpp L271, instance_karazhan.cpp L217-224, L381-383). Whether it blocks movement is unverified."
+  }
+ ],
+ "Karazhan:OperaWolf": [
+  {
+   "kind": "npc",
+   "id": 17603,
+   "name": "Grandmother",
+   "why": "Talk to her (3 gossip pages) to start: she despawns and The Big Bad Wolf appears on her spot.",
+   "when": "before the pull (on stage after Barnes' intro)",
+   "display": 17121,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10892.0,
+     "y": -1758.0,
+     "z": 90.5,
+     "o": 4.738,
+     "source": "karazhan.cpp Spawns[4] x -10892 with SPAWN_Y -1758, SPAWN_Z 90.5, SPAWN_O 4.738 (L116-128, summoned L264-267)"
+    }
+   ],
+   "states": [],
+   "notes": "Wolf is summoned at a close point beside her (SummonCreature with 0,0,0; bosses_opera.cpp L715-720, Object.cpp L2390-2394)."
+  },
+  {
+   "kind": "object",
+   "id": 183493,
+   "name": "Red Riding Hood House",
+   "why": "Red Riding Hood stage set piece (house, centre stage, size 1.5), spawned only for this play; the Red Riding Hood kite runs around it.",
+   "when": "pull (spawned when Barnes starts Red Riding Hood)",
+   "display": 7063,
+   "scale": 1.5,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10888.7,
+     "y": -1756.65,
+     "z": 90.47,
+     "o": -1.6755,
+     "source": "gameobject.sql guid 260586 (entry 183493)"
+    }
+   ],
+   "states": [],
+   "notes": "Decoration (instance_karazhan.cpp L385-388). Collision with players unverified."
+  },
+  {
+   "kind": "object",
+   "id": 183492,
+   "name": "Red Riding Hood Tree",
+   "why": "Red Riding Hood stage set piece (tree), spawned only for this play; takes up stage floor.",
+   "when": "pull (spawned when Barnes starts Red Riding Hood)",
+   "display": 7062,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10880.2,
+     "y": -1760.6,
+     "z": 90.47,
+     "o": -1.6755,
+     "source": "gameobject.sql guid 260583 (entry 183492)"
+    },
+    {
+     "map": 532,
+     "x": -10898.7,
+     "y": -1752.38,
+     "z": 90.47,
+     "o": -1.6755,
+     "source": "gameobject.sql guid 260584 (entry 183492)"
+    },
+    {
+     "map": 532,
+     "x": -10907.4,
+     "y": -1759.4,
+     "z": 90.47,
+     "o": -1.6755,
+     "source": "gameobject.sql guid 260585 (entry 183492)"
+    }
+   ],
+   "states": [],
+   "notes": "Decoration (instance_karazhan.cpp L385-388). Collision with players unverified."
+  }
+ ],
+ "Karazhan:OperaRomulo": [
+  {
+   "kind": "npc",
+   "id": 17534,
+   "name": "Julianne",
+   "why": "Already on the starter page; added for her fake-death / resurrect states.",
+   "when": "pull (attackable 10 s after spawn)",
+   "display": 17068,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10900.0,
+     "y": -1758.0,
+     "z": 90.5,
+     "o": 4.738,
+     "source": "karazhan.cpp Spawns[5] x -10900 with SPAWN_Y -1758, SPAWN_Z 90.5, SPAWN_O 4.738 (L116-128)"
+    }
+   ],
+   "states": [
+    {
+     "name": "Fighting",
+     "look": "normal",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "bosses_opera.cpp ScheduleCombat L969-1001"
+    },
+    {
+     "name": "Drinks poison",
+     "look": "at 1 HP in phase 1 she casts Drink Poison on herself, 2.5 s later fakes death",
+     "spell": 30907,
+     "beamTo": null,
+     "anim": null,
+     "source": "bosses_opera.cpp DamageTaken L1045-1060, SpellHit L1013-1034"
+    },
+    {
+     "name": "Fake death",
+     "look": "lies dead (SetStandState UNIT_STAND_STATE_DEAD = 7), unselectable, passive",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "bosses_opera.cpp PretendToDie L873-883; stand-state value from AzerothCore UnitDefines.h"
+    },
+    {
+     "name": "Resurrected",
+     "look": "stands up at full health with Resurrection Impact Visual",
+     "spell": 24171,
+     "beamTo": null,
+     "anim": null,
+     "source": "bosses_opera.cpp Resurrect L885-900"
+    }
+   ],
+   "notes": "Phase 3: when one of them 'dies' (fake death) the other must die within 10 s, otherwise the dead one is resurrected (instance_karazhan.cpp DoAction ACTION_SCHEDULE_RAJ_CHECK L421-455; bosses_opera.cpp L1063-1068)."
+  },
+  {
+   "kind": "npc",
+   "id": 17533,
+   "name": "Romulo",
+   "why": "Already on the starter page; added for his entry spot and fake-death / resurrect states.",
+   "when": "12.5 s after Julianne drinks poison (2.5 s + 10 s)",
+   "display": 17067,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10900.0,
+     "y": -1758.0,
+     "z": 90.5,
+     "o": 0.0,
+     "source": "bosses_opera.cpp ROMULO_X/ROMULO_Y (L847-848), o 0, summoned L1024-1031; z = Julianne's z at that moment, shown as SPAWN_Z 90.5 (karazhan.cpp L126)"
+    }
+   ],
+   "states": [
+    {
+     "name": "Fighting",
+     "look": "normal",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "bosses_opera.cpp boss_romulo"
+    },
+    {
+     "name": "Fake death",
+     "look": "lies dead (UNIT_STAND_STATE_DEAD = 7), unselectable",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "bosses_opera.cpp PretendToDie L873-883"
+    },
+    {
+     "name": "Resurrected",
+     "look": "Julianne resurrects him (Resurrection Impact Visual)",
+     "spell": 24171,
+     "beamTo": null,
+     "anim": null,
+     "source": "bosses_opera.cpp ACTION_RESS_ROMULO L945-956, Resurrect L885-900"
+    }
+   ],
+   "notes": "Phase 3: when one of them 'dies' (fake death) the other must die within 10 s, otherwise the dead one is resurrected (instance_karazhan.cpp DoAction ACTION_SCHEDULE_RAJ_CHECK L421-455; bosses_opera.cpp L1063-1068)."
+  },
+  {
+   "kind": "object",
+   "id": 183495,
+   "name": "Romeo and Juliet Balcony",
+   "why": "Romeo and Juliet stage set piece (balcony at the back of the stage), spawned only for this play.",
+   "when": "pull (spawned when Barnes starts Romeo and Juliet)",
+   "display": 7064,
+   "scale": 0.65,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10895.9,
+     "y": -1748.06,
+     "z": 90.4765,
+     "o": -1.6755,
+     "source": "gameobject.sql guid 260588 (entry 183495)"
+    }
+   ],
+   "states": [],
+   "notes": "Decoration (instance_karazhan.cpp L390-393). The play's moon (183494) hangs at z 110 and the three backdrops (183442/183443/183491) are scenery; not listed."
+  }
+ ],
+ "Karazhan:Curator": [
+  {
+   "kind": "npc",
+   "id": 15691,
+   "name": "The Curator",
+   "why": "Already on the starter page; added for his burn-window states.",
+   "when": "pull",
+   "display": 16958,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11169.1,
+     "y": -1908.56,
+     "z": 165.765,
+     "o": 3.8147,
+     "source": "creature.sql guid 135489 (entry 15691); patrols waypoint path 1354890 before the pull"
+    }
+   ],
+   "states": [
+    {
+     "name": "Summoning flares",
+     "look": "normal; summons an Astral Flare every 10 s while above 15%",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_curator.cpp L100-122"
+    },
+    {
+     "name": "Evocation",
+     "look": "channels Evocation when mana < 10% (script pauses his other abilities 20 s): stunned and takes +200% damage (auras 12 and 87 bp 199)",
+     "spell": 30254,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_curator.cpp L111-117; aura data SpellEffect 30254"
+    },
+    {
+     "name": "Arcane Infusion",
+     "look": "enraged at 15% health, no more flares or evocation",
+     "spell": 30403,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_curator.cpp L57-61, L102"
+    }
+   ],
+   "notes": "Astral Flares are NOT at fixed spots: Summon Astral Flare NE/NW/SE/SW (30236/30239/30240/30241) target DEST_CASTER_FRONT_RIGHT/FRONT_LEFT/BACK_RIGHT/BACK_LEFT (41/44/42/43) with radius index 13, i.e. relative to the Curator's position and facing (AzerothCore spell_dbc.sql rows for 30236-30241); summoned creatures 19781/17096/19782/19783, invisible display 16946 with Astral Flare Passive 30234."
+  }
+ ],
+ "Karazhan:Aran": [
+  {
+   "kind": "npc",
+   "id": 17167,
+   "name": "Conjured Elemental",
+   "why": "Four Water Elementals (Water Bolt casters) appear at the room's four marker spots; plan who picks up / kills them.",
+   "when": "Shade of Aran at 40%",
+   "display": 5450,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11168.1,
+     "y": -1939.29,
+     "z": 232.092,
+     "o": 1.4661,
+     "source": "creature.sql guid 135132 (entry 17172); Summon Water Elementals 29962 is limited to Teleport NE 17172 by conditions (SourceType 13), summon target DEST_NEARBY_ENTRY"
+    },
+    {
+     "map": 532,
+     "x": -11138.2,
+     "y": -1915.38,
+     "z": 232.092,
+     "o": 3.002,
+     "source": "creature.sql guid 135154 (entry 17175); Summon Water Elementals 37051 is limited to Teleport NW 17175 by conditions (SourceType 13), summon target DEST_NEARBY_ENTRY"
+    },
+    {
+     "map": 532,
+     "x": -11161.7,
+     "y": -1885.36,
+     "z": 232.092,
+     "o": 4.5902,
+     "source": "creature.sql guid 135138 (entry 17174); Summon Water Elementals 37052 is limited to Teleport SW 17174 by conditions (SourceType 13), summon target DEST_NEARBY_ENTRY"
+    },
+    {
+     "map": 532,
+     "x": -11192.4,
+     "y": -1909.36,
+     "z": 232.092,
+     "o": 6.1959,
+     "source": "creature.sql guid 135133 (entry 17173); Summon Water Elementals 37053 is limited to Teleport SE 17173 by conditions (SourceType 13), summon target DEST_NEARBY_ENTRY"
+    }
+   ],
+   "states": [],
+   "notes": "Cast together by boss_shade_of_aran.cpp ScheduleHealthCheckEvent(40) L137-146. Orientation shown is the marker's own (spawn sits on the marker). SAI: Water Bolt 31012 every 2 s in combat."
+  },
+  {
+   "kind": "npc",
+   "id": 17161,
+   "name": "Blizzard (Shade of Aran)",
+   "why": "Invisible Blizzard emitter that walks a fixed loop round the room; when Aran picks Blizzard it drops Blizzard where it walks, so the cold zone sweeps round the room.",
+   "when": "pull (always walking); active 20 s after Aran casts Summon Blizzard",
+   "display": 11686,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11179.1,
+     "y": -1903.99,
+     "z": 231.996,
+     "o": 0.9973,
+     "source": "creature.sql guid 135127 (entry 17161); MovementType 2, walks path 1351270 (creature_addon)"
+    }
+   ],
+   "states": [
+    {
+     "name": "Idle",
+     "look": "invisible (display 11686), walking its circle",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "creature.sql/creature_addon guid 135127"
+    },
+    {
+     "name": "Blizzard",
+     "look": "recasts Blizzard every 1-2 s for 20 s while it keeps walking: a persistent ground AoE placed beside it (spell targets DEST_CASTER_LEFT / DEST_DYNOBJ_ENEMY, radius index 17 = 13 yd in the 2.5.4 client SpellEffect; a second row there has index 19 = 18 yd)",
+     "spell": 29951,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts entry 17161 id 0-2 (spellhit 29969 -> phase 1); Summon Blizzard 29969 is limited to entry 17161 by conditions; boss_shade_of_aran.cpp L319-350"
+    }
+   ],
+   "notes": "Path (16 points, a loop about 16.5 yd from the Teleport Center spot -11164.8,-1912.0) is in the extra key 'path'. Aran picks Blizzard / Arcane Explosion / Flame Wreath at random every 35-40 s, never the same twice in a row (L311-352).",
+   "path": [
+    {
+     "map": 532,
+     "x": -11179.1,
+     "y": -1903.99,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 1"
+    },
+    {
+     "map": 532,
+     "x": -11175.6,
+     "y": -1898.68,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 2"
+    },
+    {
+     "map": 532,
+     "x": -11170.1,
+     "y": -1896.42,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 3"
+    },
+    {
+     "map": 532,
+     "x": -11163.8,
+     "y": -1896.4,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 4"
+    },
+    {
+     "map": 532,
+     "x": -11157.4,
+     "y": -1897.88,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 5"
+    },
+    {
+     "map": 532,
+     "x": -11152.1,
+     "y": -1901.69,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 6"
+    },
+    {
+     "map": 532,
+     "x": -11148.6,
+     "y": -1906.88,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 7"
+    },
+    {
+     "map": 532,
+     "x": -11148.3,
+     "y": -1914.24,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 8"
+    },
+    {
+     "map": 532,
+     "x": -11149.9,
+     "y": -1919.92,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 9"
+    },
+    {
+     "map": 532,
+     "x": -11154.8,
+     "y": -1924.69,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 10"
+    },
+    {
+     "map": 532,
+     "x": -11160.9,
+     "y": -1927.34,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 11"
+    },
+    {
+     "map": 532,
+     "x": -11166.8,
+     "y": -1927.01,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 12"
+    },
+    {
+     "map": 532,
+     "x": -11173.3,
+     "y": -1925.44,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 13"
+    },
+    {
+     "map": 532,
+     "x": -11178.1,
+     "y": -1922.45,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 14"
+    },
+    {
+     "map": 532,
+     "x": -11180.8,
+     "y": -1915.32,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 15"
+    },
+    {
+     "map": 532,
+     "x": -11181.1,
+     "y": -1909.66,
+     "z": 231.996,
+     "source": "waypoint_data id 1351270 point 16"
+    }
+   ]
+  },
+  {
+   "kind": "npc",
+   "id": 17176,
+   "name": "Shade of Aran Teleport Center",
+   "why": "Aran blinks to this spot before every super spell (Flame Wreath, Blizzard, Arcane Explosion); Arcane Explosion pulls everyone here, so run out from it.",
+   "when": "every 35-40 s from 6 s after pull",
+   "display": 15435,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11164.8,
+     "y": -1912.01,
+     "z": 232.092,
+     "o": 2.3038,
+     "source": "creature.sql guid 135172 (entry 17176); target of Blink 29967 by conditions (SourceType 13)"
+    }
+   ],
+   "states": [],
+   "notes": "Invisible trigger (display 15435, its only model row has probability 0). boss_shade_of_aran.cpp DoCastSelf(SPELL_BLINK_CENTER) L317. The script's evade check uses a different centre (-11158,-1920), 45 yd (L106, L149-152)."
+  },
+  {
+   "kind": "npc",
+   "id": 16524,
+   "name": "Shade of Aran",
+   "why": "Already on the starter page; added for his drink and Arcane Explosion states.",
+   "when": "pull",
+   "display": 16621,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11165.5,
+     "y": -1911.71,
+     "z": 232.009,
+     "o": 2.2927,
+     "source": "creature.sql guid 135692 (entry 16524)"
+    }
+   ],
+   "states": [
+    {
+     "name": "Casting",
+     "look": "normal: Frostbolt / Fireball / Arcane Missiles from up to 45 yd",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_aran.cpp L265-303"
+    },
+    {
+     "name": "Arcane Explosion",
+     "look": "at the centre spot: Attract Magic pulls all players to him, Mass Slow, then Arcane Explosion",
+     "spell": 29973,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_aran.cpp L336-341 (32265 Attract Magic, 30035 Mass Slow)"
+    },
+    {
+     "name": "Drinking",
+     "look": "below 13.5% mana once: Mass Polymorph 29963 on the raid, Conjure 29975, then sits (UNIT_STAND_STATE_SIT = 1) drinking; Pyroblast 29978 when he stands (after 12 s or when hit)",
+     "spell": 30024,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_aran.cpp OnPowerUpdate L216-250, DamageTaken L201-213"
+    }
+   ],
+   "notes": ""
+  }
+ ],
+ "Karazhan:Illhoof": [
+  {
+   "kind": "npc",
+   "id": 17265,
+   "name": "Fiendish Portal",
+   "why": "Two Fiendish Portals open beside Illhoof and keep spawning Fiendish Imps (17267, Firebolt) every 2.4-8 s; plan AoE on the imp stream.",
+   "when": "10 s and 11 s after pull, until the fight ends",
+   "display": 9510,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11249.7,
+     "y": -1704.61,
+     "z": 179.434,
+     "o": 0.0,
+     "source": "spell_target_position spell 30171 (Fiendish Portal, cast at 10 s: boss_terestian_illhoof.cpp L194-196)"
+    },
+    {
+     "map": 532,
+     "x": -11242.1,
+     "y": -1713.33,
+     "z": 179.434,
+     "o": 0.0,
+     "source": "spell_target_position spell 30179 (Fiendish Portal, cast at 11 s: boss_terestian_illhoof.cpp L197-199)"
+    }
+   ],
+   "states": [],
+   "notes": "Summon target DEST_DB (SpellEffect 30171/30179). Imps: smart_scripts 17265 casts Summon Fiendish Imp 30184 (DEST_CASTER) every 2.4-8 s, so imps appear at the portal."
+  },
+  {
+   "kind": "object",
+   "id": 181273,
+   "name": "Summoning Circle",
+   "why": "Sacrifice spot: Sacrifice teleports its victim onto this circle and Demon Chains appear there; DPS must break the chains.",
+   "when": "pull (fixed)",
+   "display": 674,
+   "scale": 2.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11233.6,
+     "y": -1698.0,
+     "z": 179.237,
+     "o": 2.0071,
+     "source": "gameobject.sql guid 24512 (entry 181273)"
+    }
+   ],
+   "states": [],
+   "notes": "Same spot as spell_target_position 30115 (Sacrifice, effect 0 TELEPORT_UNITS to DEST_DB): (-11234.2,-1698.46,179.24)."
+  },
+  {
+   "kind": "npc",
+   "id": 17248,
+   "name": "Demon Chains",
+   "why": "Demon Chains holding the sacrificed player; kill it to free them.",
+   "when": "every 30 s from 30 s after pull (Sacrifice)",
+   "display": 20367,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11234.2,
+     "y": -1698.46,
+     "z": 179.24,
+     "o": 0.6762,
+     "source": "spell_target_position spell 30115 (Sacrifice teleport destination); chains are summoned 1 s later by the victim at its own spot (boss_terestian_illhoof.cpp L178-189)"
+    }
+   ],
+   "states": [],
+   "notes": "Summon Demon Chains 30120 uses DEST_DB but has no spell_target_position row, so AzerothCore falls back to the target/caster = the stunned victim on the sacrifice spot (Spell.cpp L1445-1459). Display 20367 is the invisible stalker model; the chains look comes from the aura it casts on itself, Demon Chains Passive 30206 (L121-125). Killing it removes Sacrifice 30115 (L131-141).",
+   "aura": 30206
+  }
+ ],
+ "Karazhan:Netherspite": [
+  {
+   "kind": "npc",
+   "id": 17369,
+   "name": "Nether Portal - Perseverence",
+   "why": "Red tank portal (subname 'Tanking Portal'): a tank stands in its beam; Netherspite then attacks whoever holds the red beam.",
+   "when": "portal phases (pull, then every 90 s for 60 s)",
+   "display": 5047,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11195.3535,
+     "y": -1613.2372,
+     "z": 278.2373,
+     "o": 0.0,
+     "source": "boss_netherspite.cpp PortalCoord[0] (left side, L57-62); red here when r = 0 or 2 (50%); o 0 from SummonCreature L117"
+    },
+    {
+     "map": 532,
+     "x": -11137.8467,
+     "y": -1685.6074,
+     "z": 278.2393,
+     "o": 0.0,
+     "source": "boss_netherspite.cpp PortalCoord[1] (right side, L57-62); red here when r = 1 (25%); o 0 from SummonCreature L117"
+    },
+    {
+     "map": 532,
+     "x": -11094.4932,
+     "y": -1591.9692,
+     "z": 279.9492,
+     "o": 0.0,
+     "source": "boss_netherspite.cpp PortalCoord[2] (back side, L57-62); red here when r = 3 (25%); o 0 from SummonCreature L117"
+    }
+   ],
+   "states": [
+    {
+     "name": "No beam",
+     "look": "portal visual only, first 10 s after it opens",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_netherspite.cpp UpdatePortals first runs 10 s into the portal phase (L206-209)"
+    },
+    {
+     "name": "Beam on Netherspite",
+     "look": "beam to Netherspite when nobody stands in it; Netherspite gains buff 30466",
+     "spell": 30465,
+     "beamTo": "Netherspite",
+     "anim": null,
+     "source": "boss_netherspite.cpp PortalBeam[0]/NetherBuff[0] (L66, L68), UpdatePortals L125-178"
+    },
+    {
+     "name": "Beam on player",
+     "look": "beam to the closest living player standing on the line portal-Netherspite (within 1.5 yd) without Nether Exhaustion 38637; player gains buff 30421",
+     "spell": 30465,
+     "beamTo": "player in the beam",
+     "anim": null,
+     "source": "boss_netherspite.cpp PlayerBuff[0]/PlayerDebuff[0] (L67, L69), IsBetween L75-93, UpdatePortals L140-177"
+    }
+   ],
+   "notes": "Portals open at every portal phase (pull, then every 90 s: 60 s portals + 30 s banish) and the colour-to-spot layout is re-rolled each time with r = rand()%4 (SummonPortals L108-123): r0 red-left/green-right/blue-back, r1 red-right/green-left/blue-back, r2 red-left/green-back/blue-right, r3 red-back/green-left/blue-right. Portals despawn when the banish phase starts (L249, DestroyPortals L222-238). The beam is cast by a hidden copy of the portal summoned on the same spot (L161-177). Display: Wowhead and creature_template_model Idx 0 give 5047; creature_template_model also lists invisible display 16946 (Idx 1, same probability). The portal look comes from the aura 30487 it gets on spawn (L120). Red beam on a player adds 100000 threat for that player (L179-183)."
+  },
+  {
+   "kind": "npc",
+   "id": 17367,
+   "name": "Nether Portal - Serenity",
+   "why": "Green healer portal (subname 'Healing Portal'): a healer soaks its beam, otherwise it heals Netherspite.",
+   "when": "portal phases (pull, then every 90 s for 60 s)",
+   "display": 1201,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11195.3535,
+     "y": -1613.2372,
+     "z": 278.2373,
+     "o": 0.0,
+     "source": "boss_netherspite.cpp PortalCoord[0] (left side, L57-62); green here when r = 1 or 3 (50%); o 0 from SummonCreature L117"
+    },
+    {
+     "map": 532,
+     "x": -11137.8467,
+     "y": -1685.6074,
+     "z": 278.2393,
+     "o": 0.0,
+     "source": "boss_netherspite.cpp PortalCoord[1] (right side, L57-62); green here when r = 0 (25%); o 0 from SummonCreature L117"
+    },
+    {
+     "map": 532,
+     "x": -11094.4932,
+     "y": -1591.9692,
+     "z": 279.9492,
+     "o": 0.0,
+     "source": "boss_netherspite.cpp PortalCoord[2] (back side, L57-62); green here when r = 2 (25%); o 0 from SummonCreature L117"
+    }
+   ],
+   "states": [
+    {
+     "name": "No beam",
+     "look": "portal visual only, first 10 s after it opens",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_netherspite.cpp UpdatePortals first runs 10 s into the portal phase (L206-209)"
+    },
+    {
+     "name": "Beam on Netherspite",
+     "look": "beam to Netherspite when nobody stands in it; Netherspite gains buff 30467",
+     "spell": 30464,
+     "beamTo": "Netherspite",
+     "anim": null,
+     "source": "boss_netherspite.cpp PortalBeam[1]/NetherBuff[1] (L66, L68), UpdatePortals L125-178"
+    },
+    {
+     "name": "Beam on player",
+     "look": "beam to the closest living player standing on the line portal-Netherspite (within 1.5 yd) without Nether Exhaustion 38638; player gains buff 30422",
+     "spell": 30464,
+     "beamTo": "player in the beam",
+     "anim": null,
+     "source": "boss_netherspite.cpp PlayerBuff[1]/PlayerDebuff[1] (L67, L69), IsBetween L75-93, UpdatePortals L140-177"
+    }
+   ],
+   "notes": "Portals open at every portal phase (pull, then every 90 s: 60 s portals + 30 s banish) and the colour-to-spot layout is re-rolled each time with r = rand()%4 (SummonPortals L108-123): r0 red-left/green-right/blue-back, r1 red-right/green-left/blue-back, r2 red-left/green-back/blue-right, r3 red-back/green-left/blue-right. Portals despawn when the banish phase starts (L249, DestroyPortals L222-238). The beam is cast by a hidden copy of the portal summoned on the same spot (L161-177). Display: Wowhead and creature_template_model Idx 0 give 1201; creature_template_model also lists invisible display 16946 (Idx 1, same probability). The portal look comes from the aura 30490 it gets on spawn (L120)."
+  },
+  {
+   "kind": "npc",
+   "id": 17368,
+   "name": "Nether Portal - Dominance",
+   "why": "Blue damage portal (subname 'Damage Portal'): a DPS soaks its beam, otherwise it empowers Netherspite. Never on the left spot.",
+   "when": "portal phases (pull, then every 90 s for 60 s)",
+   "display": 5561,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11137.8467,
+     "y": -1685.6074,
+     "z": 278.2393,
+     "o": 0.0,
+     "source": "boss_netherspite.cpp PortalCoord[1] (right side, L57-62); blue here when r = 2 or 3 (50%); o 0 from SummonCreature L117"
+    },
+    {
+     "map": 532,
+     "x": -11094.4932,
+     "y": -1591.9692,
+     "z": 279.9492,
+     "o": 0.0,
+     "source": "boss_netherspite.cpp PortalCoord[2] (back side, L57-62); blue here when r = 0 or 1 (50%); o 0 from SummonCreature L117"
+    }
+   ],
+   "states": [
+    {
+     "name": "No beam",
+     "look": "portal visual only, first 10 s after it opens",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_netherspite.cpp UpdatePortals first runs 10 s into the portal phase (L206-209)"
+    },
+    {
+     "name": "Beam on Netherspite",
+     "look": "beam to Netherspite when nobody stands in it; Netherspite gains buff 30468",
+     "spell": 30463,
+     "beamTo": "Netherspite",
+     "anim": null,
+     "source": "boss_netherspite.cpp PortalBeam[2]/NetherBuff[2] (L66, L68), UpdatePortals L125-178"
+    },
+    {
+     "name": "Beam on player",
+     "look": "beam to the closest living player standing on the line portal-Netherspite (within 1.5 yd) without Nether Exhaustion 38639; player gains buff 30423",
+     "spell": 30463,
+     "beamTo": "player in the beam",
+     "anim": null,
+     "source": "boss_netherspite.cpp PlayerBuff[2]/PlayerDebuff[2] (L67, L69), IsBetween L75-93, UpdatePortals L140-177"
+    }
+   ],
+   "notes": "Portals open at every portal phase (pull, then every 90 s: 60 s portals + 30 s banish) and the colour-to-spot layout is re-rolled each time with r = rand()%4 (SummonPortals L108-123): r0 red-left/green-right/blue-back, r1 red-right/green-left/blue-back, r2 red-left/green-back/blue-right, r3 red-back/green-left/blue-right. Portals despawn when the banish phase starts (L249, DestroyPortals L222-238). The beam is cast by a hidden copy of the portal summoned on the same spot (L161-177). Display: Wowhead and creature_template_model Idx 0 give 5561; creature_template_model also lists invisible display 16946 (Idx 1, same probability). The portal look comes from the aura 30491 it gets on spawn (L120)."
+  },
+  {
+   "kind": "npc",
+   "id": 15689,
+   "name": "Netherspite",
+   "why": "Already on the starter page; added for his portal/banish phase looks.",
+   "when": "pull",
+   "display": 15363,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11134.0,
+     "y": -1582.82,
+     "z": 278.794,
+     "o": 4.4759,
+     "source": "creature.sql guid 135476 (entry 15689); wanders path 1354760 before the pull"
+    }
+   ],
+   "states": [
+    {
+     "name": "Portal phase",
+     "look": "60 s: Empowerment 38549 and Nether Burn aura 30522 (from 10 s), Void Zones every 15 s",
+     "spell": 38549,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_netherspite.cpp SwitchToPortalPhase L188-220"
+    },
+    {
+     "name": "Banish phase",
+     "look": "30 s: rooted and shaded black (Vertex Shade Black 39833 + Self Root 42716); Netherbreath 38523 on random players within 40 yd",
+     "spell": 39833,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_netherspite.cpp SwitchToBanishPhase L240-266"
+    }
+   ],
+   "notes": "Enrage (Nether Infusion 38688) after 9 min (L282-290)."
+  }
+ ],
+ "Karazhan:Chess": [
+  {
+   "kind": "npc",
+   "id": 17211,
+   "name": "Human Footman",
+   "why": "Alliance pawn: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16276,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11089.7,
+     "y": -1887.11,
+     "z": 220.751,
+     "o": 0.7156,
+     "source": "creature.sql guid 76021 (entry 17211)"
+    },
+    {
+     "map": 532,
+     "x": -11093.3,
+     "y": -1882.73,
+     "z": 220.751,
+     "o": 0.6632,
+     "source": "creature.sql guid 76022 (entry 17211)"
+    },
+    {
+     "map": 532,
+     "x": -11096.7,
+     "y": -1878.41,
+     "z": 220.751,
+     "o": 0.6632,
+     "source": "creature.sql guid 76023 (entry 17211)"
+    },
+    {
+     "map": 532,
+     "x": -11100.2,
+     "y": -1873.87,
+     "z": 220.751,
+     "o": 0.6458,
+     "source": "creature.sql guid 76025 (entry 17211)"
+    },
+    {
+     "map": 532,
+     "x": -11079.3,
+     "y": -1900.23,
+     "z": 220.75,
+     "o": 0.6632,
+     "source": "creature.sql guid 76026 (entry 17211)"
+    },
+    {
+     "map": 532,
+     "x": -11103.7,
+     "y": -1869.47,
+     "z": 220.751,
+     "o": 0.6981,
+     "source": "creature.sql guid 76027 (entry 17211)"
+    },
+    {
+     "map": 532,
+     "x": -11082.7,
+     "y": -1895.74,
+     "z": 220.751,
+     "o": 0.6632,
+     "source": "creature.sql guid 76029 (entry 17211)"
+    },
+    {
+     "map": 532,
+     "x": -11086.3,
+     "y": -1891.32,
+     "z": 220.751,
+     "o": 0.6458,
+     "source": "creature.sql guid 76031 (entry 17211)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21160,
+   "name": "Conjured Water Elemental",
+   "why": "Alliance rook: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 5564,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11083.2,
+     "y": -1903.35,
+     "z": 220.75,
+     "o": 0.6632,
+     "source": "creature.sql guid 76024 (entry 21160)"
+    },
+    {
+     "map": 532,
+     "x": -11107.9,
+     "y": -1873.03,
+     "z": 220.751,
+     "o": 0.7156,
+     "source": "creature.sql guid 76045 (entry 21160)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21664,
+   "name": "Human Charger",
+   "why": "Alliance knight: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 19783,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11086.9,
+     "y": -1899.18,
+     "z": 220.751,
+     "o": 0.733,
+     "source": "creature.sql guid 76018 (entry 21664)"
+    },
+    {
+     "map": 532,
+     "x": -11104.6,
+     "y": -1877.51,
+     "z": 220.751,
+     "o": 0.6807,
+     "source": "creature.sql guid 76019 (entry 21664)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21682,
+   "name": "Human Cleric",
+   "why": "Alliance bishop: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16278,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11101.0,
+     "y": -1881.93,
+     "z": 220.751,
+     "o": 0.6632,
+     "source": "creature.sql guid 76046 (entry 21682)"
+    },
+    {
+     "map": 532,
+     "x": -11090.6,
+     "y": -1894.99,
+     "z": 220.751,
+     "o": 0.6283,
+     "source": "creature.sql guid 76048 (entry 21682)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21683,
+   "name": "Human Conjurer",
+   "why": "Alliance queen: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16280,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11097.5,
+     "y": -1886.2,
+     "z": 220.751,
+     "o": 0.7854,
+     "source": "creature.sql guid 76047 (entry 21683)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21684,
+   "name": "King Llane",
+   "why": "Alliance king: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16293,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11093.8,
+     "y": -1890.47,
+     "z": 220.751,
+     "o": 0.6981,
+     "source": "creature.sql guid 76049 (entry 21684)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 17469,
+   "name": "Orc Grunt",
+   "why": "Horde pawn: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16264,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11064.7,
+     "y": -1874.34,
+     "z": 220.751,
+     "o": 3.8397,
+     "source": "creature.sql guid 76020 (entry 17469)"
+    },
+    {
+     "map": 532,
+     "x": -11068.1,
+     "y": -1869.96,
+     "z": 220.751,
+     "o": 3.8921,
+     "source": "creature.sql guid 76028 (entry 17469)"
+    },
+    {
+     "map": 532,
+     "x": -11071.7,
+     "y": -1865.53,
+     "z": 220.751,
+     "o": 3.8223,
+     "source": "creature.sql guid 76030 (entry 17469)"
+    },
+    {
+     "map": 532,
+     "x": -11075.0,
+     "y": -1861.29,
+     "z": 220.751,
+     "o": 3.735,
+     "source": "creature.sql guid 76032 (entry 17469)"
+    },
+    {
+     "map": 532,
+     "x": -11078.5,
+     "y": -1856.99,
+     "z": 220.751,
+     "o": 3.8921,
+     "source": "creature.sql guid 76033 (entry 17469)"
+    },
+    {
+     "map": 532,
+     "x": -11057.6,
+     "y": -1883.09,
+     "z": 220.751,
+     "o": 3.8048,
+     "source": "creature.sql guid 76035 (entry 17469)"
+    },
+    {
+     "map": 532,
+     "x": -11082.0,
+     "y": -1852.19,
+     "z": 220.751,
+     "o": 3.8048,
+     "source": "creature.sql guid 76036 (entry 17469)"
+    },
+    {
+     "map": 532,
+     "x": -11061.3,
+     "y": -1878.63,
+     "z": 220.751,
+     "o": 3.9095,
+     "source": "creature.sql guid 76040 (entry 17469)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21726,
+   "name": "Summoned Daemon",
+   "why": "Horde rook: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16269,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11053.5,
+     "y": -1879.72,
+     "z": 220.751,
+     "o": 4.0143,
+     "source": "creature.sql guid 76034 (entry 21726)"
+    },
+    {
+     "map": 532,
+     "x": -11077.7,
+     "y": -1848.79,
+     "z": 220.751,
+     "o": 3.9095,
+     "source": "creature.sql guid 76039 (entry 21726)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21748,
+   "name": "Orc Wolf",
+   "why": "Horde knight: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 2352,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11056.9,
+     "y": -1875.29,
+     "z": 220.751,
+     "o": 3.6652,
+     "source": "creature.sql guid 76038 (entry 21748)"
+    },
+    {
+     "map": 532,
+     "x": -11074.3,
+     "y": -1853.26,
+     "z": 220.751,
+     "o": 3.735,
+     "source": "creature.sql guid 76042 (entry 21748)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21747,
+   "name": "Orc Necrolyte",
+   "why": "Horde bishop: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16267,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11060.3,
+     "y": -1870.9,
+     "z": 220.751,
+     "o": 3.8048,
+     "source": "creature.sql guid 76037 (entry 21747)"
+    },
+    {
+     "map": 532,
+     "x": -11070.9,
+     "y": -1857.75,
+     "z": 220.751,
+     "o": 3.8397,
+     "source": "creature.sql guid 76041 (entry 21747)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21750,
+   "name": "Orc Warlock",
+   "why": "Horde queen: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16263,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11067.6,
+     "y": -1861.94,
+     "z": 220.751,
+     "o": 3.8397,
+     "source": "creature.sql guid 76043 (entry 21750)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  },
+  {
+   "kind": "npc",
+   "id": 21752,
+   "name": "Warchief Blackhand",
+   "why": "Horde king: an Alliance raid controls the Alliance pieces and Medivh the Horde ones, and the other way round for a Horde raid.",
+   "when": "pull (start squares)",
+   "display": 16270,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11063.6,
+     "y": -1866.36,
+     "z": 220.751,
+     "o": 3.8223,
+     "source": "creature.sql guid 76044 (entry 21752)"
+    }
+   ],
+   "states": [],
+   "notes": "Pieces start on these squares and move during the game; board cells are 64 triggers at x = -11108.099609 + 3.49*col + 4.4*row, y = -1872.910034 - 4.4*col + 3.45*row, z 220.667 (boss_chess_event.cpp SetupBoard L247-258; rows 0-1 Alliance, 6-7 Horde L264-350). Side ownership: IsMedivhPiece L363-382. If your king dies the game resets; if Medivh's king dies you win (L612-650). Medivh's cheats are random: heal his king, fire under up to 3 of your pieces, or Hand of Medivh on 1-4 of his (HandleCheat L1173-1262)."
+  }
+ ],
+ "Karazhan:Prince": [
+  {
+   "kind": "npc",
+   "id": 17646,
+   "name": "Netherspite Infernal",
+   "why": "Infernals land on one of these 12 fixed spots and burn the area with Hellfire for 3 min; plan where the raid can stand and how to dodge them.",
+   "when": "40 s after pull, then every 45 s (every 15 s below 30%)",
+   "display": 18036,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11001.4,
+     "y": -1991.33,
+     "z": 275.119,
+     "o": 4.9742,
+     "source": "creature.sql guid 135923 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10984.4,
+     "y": -2016.32,
+     "z": 275.166,
+     "o": 3.1765,
+     "source": "creature.sql guid 135924 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10976.4,
+     "y": -1961.86,
+     "z": 275.128,
+     "o": 5.3931,
+     "source": "creature.sql guid 135925 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10975.6,
+     "y": -1984.06,
+     "z": 275.297,
+     "o": 2.9147,
+     "source": "creature.sql guid 135926 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10962.1,
+     "y": -2014.65,
+     "z": 275.512,
+     "o": 0.6283,
+     "source": "creature.sql guid 135927 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10953.4,
+     "y": -1983.33,
+     "z": 275.446,
+     "o": 5.0091,
+     "source": "creature.sql guid 135928 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10951.9,
+     "y": -1957.37,
+     "z": 275.31,
+     "o": 5.8992,
+     "source": "creature.sql guid 135929 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10931.5,
+     "y": -1983.72,
+     "z": 275.614,
+     "o": 3.2289,
+     "source": "creature.sql guid 135930 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10942.5,
+     "y": -2014.21,
+     "z": 275.737,
+     "o": 5.9167,
+     "source": "creature.sql guid 135931 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10929.6,
+     "y": -1958.1,
+     "z": 275.468,
+     "o": 4.7124,
+     "source": "creature.sql guid 135932 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10911.0,
+     "y": -1987.62,
+     "z": 275.881,
+     "o": 1.0123,
+     "source": "creature.sql guid 135933 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    },
+    {
+     "map": 532,
+     "x": -10924.4,
+     "y": -2005.02,
+     "z": 275.794,
+     "o": 6.0563,
+     "source": "creature.sql guid 135934 (entry 17644); Infernal Target 17644 spawn = possible infernal landing spot"
+    }
+   ],
+   "states": [
+    {
+     "name": "Falling",
+     "look": "invisible (display 11686) while the Infernal Relay drops it: Infernal Rain cast on it",
+     "spell": 33814,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_prince_malchezaar.cpp SpawnInfernal L154-165"
+    },
+    {
+     "name": "Landed",
+     "look": "visible infernal (native display 18036), unselectable, takes no damage",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_prince_malchezaar.cpp SpellHit L299-305, DamageTaken L313-316"
+    },
+    {
+     "name": "Hellfire",
+     "look": "Hellfire aura (pulses 30860 every 1 s) from 4 s after landing",
+     "spell": 30859,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_prince_malchezaar.cpp L306-309; period from SpellEffect 30859"
+    }
+   ],
+   "notes": "Spot list = every Infernal Target within 100 yd of Prince at pull (L192-193); a used spot is put back 3 min later (L222-230); infernals last 180 s (L156). The drop comes from Infernal Relay 17645 high above the room (creature.sql guids 135921 at z 342.3 and 135922 at z 380.9; L216-225). Malchezaar's Axes (17650, P3) are summoned on Prince's position and fly to random players: no fixed spot, not listed."
+  },
+  {
+   "kind": "npc",
+   "id": 15690,
+   "name": "Prince Malchezaar",
+   "why": "Already on the starter page; added for his three phase looks.",
+   "when": "pull",
+   "display": 19274,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -10962.2,
+     "y": -2018.73,
+     "z": 275.443,
+     "o": 3.1057,
+     "source": "creature.sql guid 135477 (entry 15690); walks path 1354770 before the pull"
+    }
+   ],
+   "states": [
+    {
+     "name": "Phase 1",
+     "look": "unarmed: Enfeeble on 5 players, Shadow Nova, Shadow Word: Pain",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_prince_malchezaar.cpp L195-242"
+    },
+    {
+     "name": "Phase 2 (60%)",
+     "look": "wields two axes (Wield Axes 30857, equipment item 33542 in both hands), Thrash, Sunder Armor",
+     "spell": 30857,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_prince_malchezaar.cpp L101-118"
+    },
+    {
+     "name": "Phase 3 (30%)",
+     "look": "axes removed from his hands and summoned as Prince Malchezaar's Axes 17650; Amplify Damage, faster infernals",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_prince_malchezaar.cpp L120-140"
+    }
+   ],
+   "notes": ""
+  }
+ ],
+ "Karazhan:Nightbane": [
+  {
+   "kind": "object",
+   "id": 194092,
+   "name": "Blackened Urn",
+   "why": "Click the urn to summon Nightbane (only while he is not yet engaged); he flies in and lands on the terrace.",
+   "when": "pull (used to start the encounter)",
+   "display": 6358,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11107.8,
+     "y": -1879.43,
+     "z": 91.47,
+     "o": 0.0,
+     "source": "gameobject.sql guid 268257 (entry 194092)"
+    }
+   ],
+   "states": [],
+   "notes": "go_blackened_urn OnGossipHello -> Nightbane DoAction(ACTION_START_INTRO) (boss_nightbane.cpp L497-520)."
+  },
+  {
+   "kind": "npc",
+   "id": 17225,
+   "name": "Nightbane",
+   "why": "Already on the starter page; added for his landing spots and air phases.",
+   "when": "pull",
+   "display": 18062,
+   "scale": 1.0,
+   "positions": [
+    {
+     "map": 532,
+     "x": -11142.712,
+     "y": -1891.193,
+     "z": 92.2504,
+     "o": 0.0,
+     "source": "boss_nightbane.cpp introLandPos L104 (first landing, ground phase starts here; L301)"
+    },
+    {
+     "map": 532,
+     "x": -11162.231,
+     "y": -1900.3287,
+     "z": 91.4763,
+     "o": 0.0,
+     "source": "boss_nightbane.cpp landPos L110 (lands here after each air phase; L335)"
+    },
+    {
+     "map": 532,
+     "x": -11160.125,
+     "y": -1870.683,
+     "z": 97.7388,
+     "o": 0.0,
+     "source": "boss_nightbane.cpp flyPos L109 (hovers here during air phases; L371-381)"
+    }
+   ],
+   "states": [
+    {
+     "name": "Ground",
+     "look": "on the terrace at introLandPos / landPos, Cleave, Tail Sweep, Smoldering Breath, Charred Earth, Bellowing Roar",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_nightbane.cpp ScheduleGround L191-227"
+    },
+    {
+     "name": "Air",
+     "look": "at 75/50/25% flies up via the nearest pre-fly point and hovers at flyPos (-11160.1,-1870.7,97.7) for 35 s: Rain of Bones + 5 Restless Skeletons on a random player, Smoking Blast on the top-threat target, Distracting Ash",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_nightbane.cpp L132-134, TriggerHealthTakeOff L419-436, MovementInform L377-381, ScheduleFly L229-278, ScheduleLand L459-470"
+    }
+   ],
+   "notes": "Spawn row creature.sql guid 135475 is his sleeping perch in the air at (-11003.7,-1760.19,140.253) (homePos L103). Pre-fly points: preFlyPos/East/South/West L105-108; invisible Nightbane Helper Target 17260 spawns sit on those points (creature.sql guids 135675-135681). Fireball Barrage hits players farther than 40 yd (L219-226, L527-539)."
+  }
+ ]
+}

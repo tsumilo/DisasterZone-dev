@@ -43,6 +43,9 @@ Data\BossPortraits.lua
 Data\BossAbilities.lua
 Data\RaidMaps.lua
 Data\StarterStrategies.lua
+Data\ModelIndex.lua
+Data\EncounterObjects.lua
+Data\EncounterSpawns.lua
 Core\ItemDB.lua
 Core\DB.lua
 Core\Guild.lua
@@ -62,6 +65,7 @@ Core\RaidInvite.lua
 Core\RaidLink.lua
 Core\GuestBook.lua
 Core\Strategy.lua
+Core\StrategyObjects.lua
 Core\StrategyLive.lua
 Core\StrategyPractice.lua
 Core\StrategyCollab.lua
@@ -136,6 +140,7 @@ Render3D\Rooms\ZulAman_Nalorakk.lua
 Render3D\Rooms\ZulAman_Zuljin.lua
 Render3D\Rooms\Index.lua
 Render3D\Rooms.lua
+Render3D\Probe.lua
 
 # UI
 UI\Widgets.lua

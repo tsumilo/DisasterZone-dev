@@ -49,13 +49,14 @@ end
 
 -- The creatures the strategy boards show as models: CreatureDisplayInfo.CreatureModelScale (wago.tools, build
 -- 2.5.6.69795; the client draws a ModelScene actor at scale 1 whatever its display says) and, where known, the
--- model's PlayerName attachment height in model units (the M2 file; the label goes 0.4 yd over it). Without one the
--- view asks the model's own box. Render3D/Rooms/Index.lua gives the scale of every portrait (DISPLAY_SCALE).
+-- model's PlayerName attachment height in model units (the M2 file; the label goes 0.4 yd over it) and its Chest
+-- attachment's (where a beam or a spell effect meets it). Without one the view asks the model's own box.
+-- Render3D/Rooms/Index.lua gives the scale of every portrait (DISPLAY_SCALE).
 R3.DISPLAYS = {
     [21254] = { scale = 2.5, name = 2.45 },        -- Teron Gorefiend (model 51)
     [21300] = { scale = 1.5, name = 3.39 },        -- Vengeful Spirit (model 9)
     [21305] = { scale = 1.75, name = 2.29 },       -- Shadowy Construct (model 1771)
-    [20748] = { scale = 3.5, name = 2.77 },        -- Lady Vashj (model 2535)
+    [20748] = { scale = 3.5, name = 2.77, chest = 1.74 },  -- Lady Vashj (model 2535; chest: the Raid Trainer's)
     [11172] = { scale = 2, name = 3.19 },          -- Tainted Elemental (model 110)
     [20076] = { scale = 2, name = 3.19 },          -- Enchanted Elemental (model 110)
 }

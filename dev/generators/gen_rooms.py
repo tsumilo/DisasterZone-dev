@@ -28,10 +28,13 @@ Writes Render3D/Rooms/<Raid>_<Boss>.lua (data format 3: the version 2 tables of 
 deflated and printable-encoded for LibDeflate; Render3D/Rooms.lua unpacks a room when its 3D view opens) and
 Render3D/Rooms/Index.lua (per boss: its room, the map, the fit, the first view, the boss' spot), and lists the rooms
 in DisasterZone.toc (the lines between Render3D\\View.lua and Render3D\\Rooms.lua).
-Blizzard's files are read from the installed client (casc_local.py; the bytes cached per build in dev/art/casc/files),
-only a file it lacks from wago.tools (logged; cached in dev/art/rooms). Both caches are git-ignored.
+Blizzard's files are read from the installed client (casc_local.py; the bytes cached per build in dev/art/casc/files).
+A map file (WMO root or group, WDT, ADT) it lacks fails the room, and the room is not written. wago.tools' copy can be
+of another build, and a root and its groups from different builds put faces on the wrong texture (Karazhan in 1.3.0).
+--allow-wago takes the copy anyway; each room then lists the files it took. Other files (creature models) fall back to
+wago.tools with a logged line. The wago copies are cached in dev/art/rooms. Both caches are git-ignored.
 
-Run: luaenv\\Scripts\\python.exe generators\\gen_rooms.py [Raid:Boss ...] [--jobs N] [--index-only]
+Run: luaenv\\Scripts\\python.exe generators\\gen_rooms.py [Raid:Boss ...] [--jobs N] [--index-only] [--allow-wago]
 """
 import collections
 import csv
@@ -117,6 +120,8 @@ def _get(url, path):
 
 _LOCAL = []                     # [build] once the installed client was found, [None] when it was not
 _FELL_BACK = {}                 # file ID -> why the installed client could not give it
+_ALLOW_WAGO = [False]           # --allow-wago (set per room by run_one: parallel jobs are other processes)
+_WAGO_USED = []                 # the files the room being built took from wago.tools
 
 
 def local_build():
@@ -124,6 +129,7 @@ def local_build():
     if not _LOCAL:
         try:
             casc_local.root()
+            casc_local.names()                  # (both tables cached now, or each parallel job parses the root)
             _LOCAL.append(casc_local.build_name())
         except (OSError, KeyError, ValueError, SystemExit) as ex:
             print("no installed client to read (%s): every game file from wago.tools" % ex, flush=True)
@@ -143,7 +149,7 @@ def local_file(fdid):
     try:
         data = casc_local.read_fid(fdid)
     except (KeyError, ValueError) as ex:
-        _FELL_BACK[fdid] = str(ex)[:80]
+        _FELL_BACK[fdid] = str(ex.args[0] if ex.args else ex)[:80]
         return None
     os.makedirs(os.path.dirname(path), exist_ok=True)
     part = "%s.part%d" % (path, os.getpid())         # (parallel jobs read the same files)
@@ -161,11 +167,14 @@ def local_file(fdid):
 
 def casc(fdid, folder=CACHE):
     """A game file by its ID -> a path: the installed client's copy, else (logged) wago.tools' download, which is
-    not tied to a build (101 of 290 WMO groups of the old downloads differed from the client's, ~9% fewer faces)."""
+    not tied to a build: the old downloads mixed builds (Karazhan's root had a material list shifted by one against
+    its groups: up to 66% of a room on the wrong texture, Prince's platform dropped; 114 room groups differed)."""
     path = local_file(fdid)
     if path:
         return path
     why = _FELL_BACK.get(fdid, "no installed client")
+    if local_build():
+        _WAGO_USED.append(fdid)
     for d in (WMO_CACHE, folder):
         for ext in (".wmo", ".bin", ".adt", ".wdt"):
             p = os.path.join(d, "%d%s" % (fdid, ext))
@@ -176,16 +185,28 @@ def casc(fdid, folder=CACHE):
     return _get("https://wago.tools/api/casc/%d?download" % fdid, os.path.join(folder, "%d.bin" % fdid))
 
 
+def map_file(fdid):
+    """A WMO root or group, WDT or ADT by its ID -> a path, as casc, but never wago.tools' copy next to the installed
+    client's files without --allow-wago: these files point into each other (a group's material numbers into its
+    root's list), so one file of another build among them retextures or drops faces with no error (the shipped Hyjal
+    rooms lost the Alliance base's tower that way). SystemExit fails the room (run_one), and nothing is written."""
+    if local_build() and not _ALLOW_WAGO[0] and not local_file(fdid):
+        raise SystemExit("map file %d is not in the installed client %s (%s); wago.tools' copy may be of another "
+                         "build: --allow-wago takes it anyway" % (fdid, local_build(), _FELL_BACK.get(fdid, "?")))
+    return casc(fdid)
+
+
 _FDIDS = None
 
 
 def fdid_of(filename):
     """A file's ID by its path: the installed client's own name table (casc_local), else wago.tools' file search,
-    cached in dev/art/rooms/fdids.json; None when unknown."""
+    cached in dev/art/rooms/fdids.json; None when unknown. With a client, a path its table lacks is a file it does
+    not have (every file there has its name): None, as the search would find another build's (unless --allow-wago)."""
     global _FDIDS
     if local_build():
         fid = casc_local.fdid_of(filename)
-        if fid is not None:
+        if fid is not None or not _ALLOW_WAGO[0]:
             return fid
     path = os.path.join(CACHE, "fdids.json")
     if _FDIDS is None:
@@ -320,20 +341,20 @@ _ROOTS, _GROUPS = {}, {}
 
 def root(fid):
     if fid not in _ROOTS:
-        _ROOTS[fid] = W.read_root(casc(fid))
+        _ROOTS[fid] = W.read_root(map_file(fid))
     return _ROOTS[fid]
 
 
 def group(fid):
     if fid not in _GROUPS:
-        _GROUPS[fid] = W.read_group(casc(fid))
+        _GROUPS[fid] = W.read_group(map_file(fid))
     return _GROUPS[fid]
 
 
 def placements(mapdir, box):
     """The WMOs placed over a world box (x0, y0, x1, y1): a WDT's global WMO, else the ADT tiles' MODF entries."""
     wdt = fdid_of("world/maps/%s/%s.wdt" % (mapdir.lower(), mapdir.lower()))
-    b = open(casc(wdt), "rb").read()
+    b = open(map_file(wdt), "rb").read()
     for tag, off, size in chunks(b):
         if tag == "MODF" and size:
             return [Placement(p, True) for p in read_modf(b, off, size)], False
@@ -342,7 +363,7 @@ def placements(mapdir, box):
         fid = fdid_of("world/maps/%s/%s_%d_%d_obj0.adt" % (mapdir.lower(), mapdir.lower(), tx, ty))
         if not fid:
             continue
-        b = open(casc(fid), "rb").read()
+        b = open(map_file(fid), "rb").read()
         for tag, off, size in chunks(b):
             if tag == "MODF":
                 for p in read_modf(b, off, size):
@@ -469,7 +490,7 @@ def terrain_faces(mapdir, box, step):
         mini = fdid_of("world/minimaps/%s/map%02d_%02d.blp" % (mapdir.lower(), tx, ty))
         if not fid or not mini:
             continue
-        b = open(casc(fid), "rb").read()
+        b = open(map_file(fid), "rb").read()
         top_y, top_x = (32 - tx) * TILE, (32 - ty) * TILE           # the tile's north-west corner (world)
         for tag, off, size in chunks(b):
             if tag != "MCNK":
@@ -1254,6 +1275,38 @@ def display_parts(portraits):
     return out
 
 
+def file_parts():
+    """model file ID -> boxes (as display_parts) for the game objects of Data/EncounterObjects.lua: entry -> display,
+    size (AzerothCore gameobject_template) -> FileDataID (GameObjectDisplayInfo, build 2.5.6.69795) -> the .m2 from
+    the installed client, standing. Cached in parts.json as "f<file id>". (Not the states' effect models: the barrier
+    on Vashj, 166541, is a sheet facing the camera with no standing vertices; its size is in the definition.)"""
+    import m2_tools
+    import gen_model_index as MI
+    src = open(os.path.join(ADDON, "Data", "EncounterObjects.lua"), encoding="utf-8").read()
+    block = src[src.index("    entries = {"):]
+    block = block[:block.index("\n    },")]                        # (the game objects, not the npcs that follow)
+    entries = sorted({int(m) for m in re.findall(r'\[(\d+)\]\s*=\s*"\w+"', block)})
+    got = {row[0]: (row[2], row[7] or 1.0) for row in MI.sql_rows(_get(
+        MI.ACORE + "gameobject_template.sql", os.path.join(CACHE, "gameobject_template.sql")))}
+    godi = {int(r["ID"]): int(r["FileDataID"] or 0) for r in csv.DictReader(open(_get(
+        MI.WAGO % "GameObjectDisplayInfo", os.path.join(CACHE, "GameObjectDisplayInfo.csv")), encoding="utf-8"))}
+    files = {}
+    for entry in entries:
+        disp, size = got[entry]
+        files.setdefault(godi[disp], float(size))
+    cache_path = os.path.join(CACHE, "parts.json")
+    cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
+    out = {}
+    for fid, size in sorted(files.items()):
+        key = "f%d" % fid
+        if key not in cache:
+            vs, _ = m2_tools.standing_vertices(open(casc(fid), "rb").read())
+            cache[key] = [[round(v, 2) for v in box] for box in split_parts(vs, size)]
+        out[fid] = cache[key]
+    json.dump(cache, open(cache_path, "w"))
+    return out
+
+
 def split_parts(vs, scale):
     """Standing vertices -> up to 6 boxes (model units) where the model has volume."""
     xs, ys, zs = zip(*vs)
@@ -1309,7 +1362,7 @@ def display_centres(portraits):
     return out
 
 
-def write_index(entries, scales=None, parts=None, centres=None):
+def write_index(entries, scales=None, parts=None, centres=None, fparts=None):
     rel = "Render3D/Rooms/Index.lua"
     lines = [
         'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel),
@@ -1350,6 +1403,12 @@ def write_index(entries, scales=None, parts=None, centres=None):
     for i in range(0, len(items), 4):
         lines.append("    " + " ".join("[%d] = { %s, %s }," % (d, G.num(c[0]), G.num(c[1])) for d, c in items[i:i + 4]))
     lines.append("}")
+    lines.append("-- The game objects of Data/EncounterObjects.lua by model file ID, as they stand (as DISPLAY_PARTS; times the")
+    lines.append("-- object's size; gen_rooms.py file_parts).")
+    lines.append("ns.Render3D.FILE_PARTS = {")
+    for f, boxes in sorted((fparts or {}).items()):
+        lines.append("    [%d] = { %s }," % (f, ", ".join(G.num(v) for box in boxes for v in box)))
+    lines.append("}")
     path = os.path.join(OUT_DIR, "Index.lua")
     tmp = G.write_temp(path, "\n".join(lines) + "\n")
     G.move_into_place(tmp, path)
@@ -1366,11 +1425,17 @@ def write_toc(entries):
     open(toc, "wb").write("\n".join(lines).encode("utf-8"))
 
 
-def run_one(ref):
+def run_one(ref, allow_wago=False):
+    _ALLOW_WAGO[0] = allow_wago
+    del _WAGO_USED[:]
     try:
-        return _run_one(ref)
+        ref, e, msg = _run_one(ref)
     except BaseException as ex:              # (one room failing must not stop the others)
         return ref, None, "FAILED: %s" % str(ex).replace(chr(10), " / ")[:400]
+    if _WAGO_USED:                           # (--allow-wago: say which files may be of another build)
+        ids = sorted(set(_WAGO_USED))
+        msg += "\n    %d files from wago.tools: %s" % (len(ids), " ".join(str(f) for f in ids[:20]))
+    return ref, e, msg
 
 
 def _run_one(ref):
@@ -1396,29 +1461,39 @@ def main(argv):
         jobs = int(argv[argv.index("--jobs") + 1])
         del argv[argv.index("--jobs"):argv.index("--jobs") + 2]
     index_only = "--index-only" in argv
-    argv = [a for a in argv if a != "--index-only"]
+    allow_wago = _ALLOW_WAGO[0] = "--allow-wago" in argv
+    argv = [a for a in argv if a not in ("--index-only", "--allow-wago")]
     os.makedirs(os.path.join(CACHE, "index"), exist_ok=True)
     local_build()                               # (the client's tables read and cached once, before parallel jobs)
     starters, portraits, _ = addon_data()
     refs = argv or sorted(starters)
+    failed = []
     if not index_only:
         if jobs > 1:
             from concurrent.futures import ProcessPoolExecutor
             with ProcessPoolExecutor(jobs) as ex:
-                for ref, e, msg in ex.map(run_one, refs):
+                results = ex.map(run_one, refs, [allow_wago] * len(refs))
+                for ref, e, msg in results:
                     print(msg if e else "%s: %s" % (ref, msg), flush=True)
+                    if msg.startswith("FAILED"):
+                        failed.append(ref)
         else:
             for ref in refs:
-                ref, e, msg = run_one(ref)
+                ref, e, msg = run_one(ref, allow_wago)
                 print(msg if e else "%s: %s" % (ref, msg), flush=True)
+                if msg.startswith("FAILED"):
+                    failed.append(ref)
     entries = []
     for f in sorted(os.listdir(os.path.join(CACHE, "index"))):
         e = json.load(open(os.path.join(CACHE, "index", f)))
         if os.path.exists(os.path.join(OUT_DIR, e["floor"] + ".lua")):
             entries.append(e)
-    write_index(entries, display_scales(portraits), display_parts(portraits), display_centres(portraits))
+    write_index(entries, display_scales(portraits), display_parts(portraits), display_centres(portraits), file_parts())
     write_toc(entries)
     print("wrote the index: %d rooms" % len(entries))
+    if failed:                                  # (said again at the end: a --jobs run's lines are easy to miss)
+        print("%d rooms FAILED, their old files kept: %s" % (len(failed), ", ".join(failed)), flush=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

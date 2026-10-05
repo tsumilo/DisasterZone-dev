@@ -1,0 +1,2269 @@
+{
+ "SerpentshrineCavern:Hydross": [
+  {
+   "kind": "npc",
+   "id": 21934,
+   "name": "Hydross Cleansing Field Helper",
+   "why": "Centre of the cleansing field: Hydross inside it is in frost form, pulled outside he turns corrupted (nature) and the tanks swap at the edge.",
+   "when": "pull",
+   "display": 19725,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": -239.43,
+     "y": -363.48,
+     "z": 12.0,
+     "o": 1.191,
+     "source": "creature.sql guid 153019"
+    }
+   ],
+   "states": [],
+   "notes": "Invisible trigger (display 19725, alt 15880) that carries area aura 37935 'Cleansing Field' from creature_template_addon entry 21934. Spell 37935 effect 0 is an area aura with radius index 9 = 20 yd (wago.tools SpellEffect/SpellRadius, build 2.5.4.44833). The helper hovers at z 12, ~12.7 yd above Hydross' spawn (z -0.745); if the server measures this range in 3D the circle on the floor is about 15.4 yd (derived, not tested). Entering/leaving the aura is what flips Hydross' form (boss_hydross_the_unstable.cpp spell_hydross_cleansing_field_aura L303-324, DoAction L125-136).",
+   "aura": 37935,
+   "radius": 20
+  },
+  {
+   "kind": "npc",
+   "id": 21933,
+   "name": "Hydross Beam Helper",
+   "why": "Two wall emitters that beam onto Hydross while he stands in the cleansing field; the beams drop when he is pulled out (visual cue for the swap).",
+   "when": "pull",
+   "display": 19725,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": -218.8,
+     "y": -371.34,
+     "z": 14.608,
+     "o": 2.72,
+     "source": "creature.sql guid 153020"
+    },
+    {
+     "map": 548,
+     "x": -259.13,
+     "y": -356.28,
+     "z": 15.03,
+     "o": 6.04,
+     "source": "creature.sql guid 153021"
+    }
+   ],
+   "states": [
+    {
+     "name": "beaming",
+     "look": "Blue beam from the helper to Hydross (Hydross inside the field, frost form). Also the out-of-combat look, since he spawns inside the field.",
+     "spell": 38015,
+     "beamTo": "Hydross the Unstable",
+     "anim": null,
+     "source": "boss_hydross_the_unstable.cpp SetBeams() L112-123 (helper->CastSpell(helper, SPELL_BLUE_BEAM) L121, called from DoAction L131); beam target from conditions SourceType 13 entry 38015 -> creature 21216"
+    },
+    {
+     "name": "idle",
+     "look": "No beam (Hydross outside the field, corrupted form).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_hydross_the_unstable.cpp SetBeams(false) -> helper->InterruptNonMeleeSpells L118-119"
+    }
+   ],
+   "notes": "Invisible trigger model (display 19725, alt 15880); only the beam is visible."
+  },
+  {
+   "kind": "npc",
+   "id": 21216,
+   "name": "Hydross the Unstable",
+   "why": "Already on the starter page; added only for his two forms.",
+   "when": "pull",
+   "display": 20162,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": -239.843,
+     "y": -366.494,
+     "z": -0.745,
+     "o": 1.222,
+     "source": "creature.sql guid 153018"
+    }
+   ],
+   "states": [
+    {
+     "name": "frost form",
+     "look": "Normal blue water elemental (display 20162). Inside the cleansing field; casts Mark of Hydross + Water Tomb.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_hydross_the_unstable.cpp SetForm(corrupt=false) L196-227, RemoveAurasDueToSpell(SPELL_CORRUPTION) L201"
+    },
+    {
+     "name": "corrupted form",
+     "look": "Green/poison elemental: aura 37961 'Corruption' transforms him into creature 21932 (display 20609). Outside the field; Mark of Corruption + Vile Sludge.",
+     "spell": 37961,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_hydross_the_unstable.cpp SetForm(corrupt=true) L164-195, DoCastSelf(SPELL_CORRUPTION) L169; transform target from SpellEffect 37961 MiscValue 21932; display from creature_template_model 21932"
+    }
+   ],
+   "notes": "Mark of Hydross / Mark of Corruption (38215-38218, 38231, 40584 / 38219-38222, 38230, 40583) are debuffs on players, not world objects, so there is no 'purification mark' to place."
+  },
+  {
+   "kind": "npc",
+   "id": 22035,
+   "name": "Pure Spawn of Hydross",
+   "why": "4 frost adds that appear around Hydross each time he switches back to frost form.",
+   "when": "each switch back to frost form (Hydross re-enters the field; not at the pull)",
+   "display": 5564,
+   "scale": 1,
+   "positions": [],
+   "states": [],
+   "notes": "No fixed world spot: summoned by spells 38198-38201 (boss_hydross_the_unstable.cpp L244-248) whose summon targets are caster-relative (implicit targets 41/42/43/44 = 4 corners around Hydross, radius index 13 = 10 yd; AzerothCore spell_dbc rows 38198-38201). Immune to frost (JustSummoned L276-279)."
+  },
+  {
+   "kind": "npc",
+   "id": 22036,
+   "name": "Tainted Spawn of Hydross",
+   "why": "4 nature adds that appear around Hydross each time he turns corrupted.",
+   "when": "each switch to corrupted form (Hydross leaves the field; not at the pull)",
+   "display": 11172,
+   "scale": 1,
+   "positions": [],
+   "states": [],
+   "notes": "No fixed world spot: summoned by spells 38188-38191 (boss_hydross_the_unstable.cpp L236-240), caster-relative corners (targets 41-44, radius index 13 = 10 yd; spell_dbc 38188-38191). Immune to nature (JustSummoned L285-288). The out-of-combat Tainted Water Elemental (21253, spawn point spell_target_position 36459 at -347.518,-350.367,1.075, walks waypoint path 212530 and is purified by Hydross) is pre-pull cosmetic and was skipped."
+  }
+ ],
+ "SerpentshrineCavern:Lurker": [
+  {
+   "kind": "object",
+   "id": 184956,
+   "name": "Strange Pool",
+   "why": "Fish in it to summon the Lurker (25% per fishing attempt while he is alive and no encounter is running).",
+   "when": "pull (before the pull)",
+   "display": 6527,
+   "scale": 3,
+   "positions": [
+    {
+     "map": 548,
+     "x": 40.406,
+     "y": -417.108,
+     "z": -21.835,
+     "o": 1.695,
+     "source": "gameobject.sql guid 16818"
+    }
+   ],
+   "states": [
+    {
+     "name": "fishable",
+     "look": "Fishing-hole pool on the water (GO type 25, spawn state 1).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "gameobject.sql guid 16818; gameobject_template 184956 type 25"
+    },
+    {
+     "name": "gone",
+     "look": "Despawned the moment the Lurker emerges; respawns 10 s after a wipe (EnterEvadeMode).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_lurker_below.cpp go_strange_pool::OnGossipHello L243-259 (go->DespawnOrUnsummon L252); EnterEvadeMode L82-92"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 21217,
+   "name": "The Lurker Below",
+   "why": "Already on the starter page; added for his sourced summon point and his phases.",
+   "when": "after a successful fishing attempt",
+   "display": 20216,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 38.457,
+     "y": -417.324,
+     "z": -18.917,
+     "o": 2.95,
+     "source": "boss_lurker_below.cpp go_strange_pool L249 (SummonCreature NPC_THE_LURKER_BELOW)"
+    }
+   ],
+   "states": [
+    {
+     "name": "up",
+     "look": "Emerged, standing in the pool, melee / Water Bolt.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_lurker_below.cpp DoAction ACTION_START_EVENT L107-118"
+    },
+    {
+     "name": "spout",
+     "look": "Takes a breath (37431 visual) then sweeps a frontal water cone, turning 0.1 rad every 250 ms for 16 s (37429 or 37430 = clockwise / counter-clockwise).",
+     "spell": 37431,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_lurker_below.cpp SchedulerPhaseOne spout L153-167; spell_lurker_below_spout L262-303 (first at 38.8 s, then every 60 s)"
+    },
+    {
+     "name": "whirl",
+     "look": "Spins (Whirl 37660) hitting everyone in melee.",
+     "spell": 37660,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_lurker_below.cpp L149-152"
+    },
+    {
+     "name": "submerged",
+     "look": "Dives under (Submerge Visual 28819), unselectable, while 9 adds are up; returns after 60 s or 1 s after the last add dies.",
+     "spell": 28819,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_lurker_below.cpp phase 2 L168-181, SummonedCreatureDies L135-141, SchedulerPhaseTwo L184-195 (first at 91 s, then 90.75 s after each re-emerge)"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 21865,
+   "name": "Coilfang Ambusher",
+   "why": "6 ranged adds (Shoot / Spread Shot) on the outer ledges during each submerge phase.",
+   "when": "each submerge phase (first at 1:31)",
+   "display": 19365,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 2.855,
+     "y": -459.824,
+     "z": -19.183,
+     "o": 0.873,
+     "source": "boss_lurker_below.cpp positions[0] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    },
+    {
+     "map": 548,
+     "x": 12.4,
+     "y": -466.042,
+     "z": -19.183,
+     "o": 1.08,
+     "source": "boss_lurker_below.cpp positions[1] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    },
+    {
+     "map": 548,
+     "x": 51.367,
+     "y": -460.836,
+     "z": -19.183,
+     "o": 1.859,
+     "source": "boss_lurker_below.cpp positions[2] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    },
+    {
+     "map": 548,
+     "x": 62.598,
+     "y": -457.433,
+     "z": -19.183,
+     "o": 2.113,
+     "source": "boss_lurker_below.cpp positions[3] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    },
+    {
+     "map": 548,
+     "x": 77.607,
+     "y": -384.303,
+     "z": -19.183,
+     "o": 3.842,
+     "source": "boss_lurker_below.cpp positions[4] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    },
+    {
+     "map": 548,
+     "x": 63.898,
+     "y": -378.985,
+     "z": -19.183,
+     "o": 4.127,
+     "source": "boss_lurker_below.cpp positions[5] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    }
+   ],
+   "states": [],
+   "notes": "Positions are hardcoded in the script ('needs sniffed spell probably', L177); despawn 10 s after leaving combat."
+  },
+  {
+   "kind": "npc",
+   "id": 21873,
+   "name": "Coilfang Guardian",
+   "why": "3 melee adds (Arcing Smash / Hamstring) that spawn close to the pool during each submerge phase.",
+   "when": "each submerge phase (first at 1:31)",
+   "display": 18384,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 34.447,
+     "y": -387.334,
+     "z": -19.183,
+     "o": 4.845,
+     "source": "boss_lurker_below.cpp positions[6] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    },
+    {
+     "map": 548,
+     "x": 14.388,
+     "y": -423.468,
+     "z": -19.625,
+     "o": 0.25,
+     "source": "boss_lurker_below.cpp positions[7] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    },
+    {
+     "map": 548,
+     "x": 42.472,
+     "y": -445.115,
+     "z": -19.769,
+     "o": 1.714,
+     "source": "boss_lurker_below.cpp positions[8] (L57-68); o = positions[i].GetAngle(Lurker) per L178, computed toward the Lurker summon point"
+    }
+   ],
+   "states": [],
+   "notes": "Same script array as the Ambushers: entries 6-8 are Guardians (i < 6 ? Ambusher : Guardian, L178)."
+  }
+ ],
+ "SerpentshrineCavern:Leotheras": [
+  {
+   "kind": "npc",
+   "id": 21215,
+   "name": "Leotheras the Blind",
+   "why": "Already on the starter page; added for his banish / whirlwind / demon / split states.",
+   "when": "pull",
+   "display": 20514,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 376.543,
+     "y": -438.631,
+     "z": 29.608,
+     "o": 2.67,
+     "source": "creature.sql guid 153139"
+    }
+   ],
+   "states": [
+    {
+     "name": "banished",
+     "look": "Kneeling inside a banish effect (aura 37546, stand state 8 = kneel) until all 3 Greyheart Spellbinders are dead.",
+     "spell": 37546,
+     "beamTo": null,
+     "anim": null,
+     "source": "creature_addon guid 153139 (bytes1 8, auras '37546'); released in boss_leotheras_the_blind.cpp DoAction ACTION_CHECK_SPELLBINDERS L138-162 (RemoveAllAuras L146)",
+     "standState": 8
+    },
+    {
+     "name": "whirlwind",
+     "look": "Night elf form spinning (Whirlwind 37640), drops threat and chases random players.",
+     "spell": 37640,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_leotheras_the_blind.cpp ElfTime L170 (first 25-32.5 s, then every 30-35 s)"
+    },
+    {
+     "name": "demon form",
+     "look": "Metamorphosis 37673 transforms him into creature 21845 (display 20125); ranged Chaos Blast, Inner Demons.",
+     "spell": 37673,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_leotheras_the_blind.cpp DemonTime L197 (60.35 s after each elf phase starts); transform target from SpellEffect 37673 MiscValue 21845"
+    },
+    {
+     "name": "final split",
+     "look": "At 15%: kneels for ~6 s (stand state 8), back to night elf form, and a separate Shadow of Leotheras (21875) appears.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_leotheras_the_blind.cpp ScheduleHealthCheckEvent(15) L87-123 (SetStandState KNEEL L105, summon shadow L112)",
+     "standState": 8
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 21806,
+   "name": "Greyheart Spellbinder",
+   "why": "Already on the starter page; added for the channel that keeps Leotheras banished.",
+   "when": "pull",
+   "display": 20638,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 373.219,
+     "y": -429.148,
+     "z": 29.606,
+     "o": 5.049,
+     "source": "creature.sql guid 153140"
+    },
+    {
+     "map": 548,
+     "x": 385.158,
+     "y": -441.597,
+     "z": 29.612,
+     "o": 2.81,
+     "source": "creature.sql guid 153141"
+    },
+    {
+     "map": 548,
+     "x": 369.234,
+     "y": -446.473,
+     "z": 29.602,
+     "o": 0.821,
+     "source": "creature.sql guid 153142"
+    }
+   ],
+   "states": [
+    {
+     "name": "channeling",
+     "look": "Green beam from each Spellbinder to Leotheras (out of combat, recast every 1 s).",
+     "spell": 37626,
+     "beamTo": "Leotheras the Blind",
+     "anim": null,
+     "source": "smart_scripts entry 21806 id 3 (OOC, cast 37626 Green Beam); target from conditions SourceType 13 entry 37626 -> creature 21215"
+    },
+    {
+     "name": "fighting",
+     "look": "Beam stops once in combat (Mind Blast, Spell Shock, Banish on players).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts entry 21806 ids 0,1,5"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 21875,
+   "name": "Shadow of Leotheras",
+   "why": "The demon half that splits off at 15% and must be killed / tanked separately.",
+   "when": "Leotheras at 15% HP (4 s after the kneel)",
+   "display": 20568,
+   "scale": 1,
+   "positions": [],
+   "states": [],
+   "notes": "No fixed world spot: spell 37781 summons it at the caster (implicit target 18 = caster location, radius index 8 = 5 yd; AzerothCore spell_dbc 37781). Starts at 15% HP (smart_scripts 21875 id 0)."
+  }
+ ],
+ "SerpentshrineCavern:Karathress": [
+  {
+   "kind": "npc",
+   "id": 21214,
+   "name": "Fathom-Lord Karathress",
+   "why": "Already on the starter page; added only for the Blessing of the Tides state.",
+   "when": "pull",
+   "display": 20662,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 456.869,
+     "y": -539.741,
+     "z": -7.464,
+     "o": 6.109,
+     "source": "creature.sql guid 153154"
+    }
+   ],
+   "states": [
+    {
+     "name": "blessed",
+     "look": "At 75% every living Fathom-Guard casts Blessing of the Tides on him: bigger model (effect 2 = mod scale +25%) and stronger hits.",
+     "spell": 38449,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_fathomlord_karathress.cpp ScheduleHealthCheckEvent(75) L96-108 (CastSpell L100); target from conditions SourceType 13 entry 38449 -> creature 21214; effects from wago SpellEffect 38449"
+    }
+   ],
+   "notes": "Nothing else in this fight has a fixed spot: Spitfire/Earthbind/Poison Cleansing totems drop at Tidalvess, Sharkkis' pet at Sharkkis, Caribdis' cyclones (22104) wander randomly (MoveRandom 50, instance_serpent_shrine.cpp L133-135). Seer Olum (22820, guid 153158) in his Cage (GO 185474, guid 265632) is post-fight RP and was skipped."
+  }
+ ],
+ "SerpentshrineCavern:Morogrim": [
+  {
+   "kind": "npc",
+   "id": 21913,
+   "name": "Water Globule",
+   "why": "Below 25% Morogrim summons 4 slow globules that fixate a player and explode on contact (Freeze); kite or kill them.",
+   "when": "below 25% HP: every 25 s instead of Watery Grave",
+   "display": 20782,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 372.85,
+     "y": -690.84,
+     "z": -13.91,
+     "o": 3.61,
+     "source": "spell_target_position ID 37854 (AzerothCore db_world)",
+     "label": "globule 1"
+    },
+    {
+     "map": 548,
+     "x": 366.27,
+     "y": -709.4,
+     "z": -13.92,
+     "o": 3.82,
+     "source": "spell_target_position ID 37858 (AzerothCore db_world)",
+     "label": "globule 2"
+    },
+    {
+     "map": 548,
+     "x": 365.53,
+     "y": -737.12,
+     "z": -14.0,
+     "o": 2.88,
+     "source": "spell_target_position ID 37860 (AzerothCore db_world)",
+     "label": "globule 3"
+    },
+    {
+     "map": 548,
+     "x": 337.69,
+     "y": -732.87,
+     "z": -13.74,
+     "o": 1.06,
+     "source": "spell_target_position ID 37861 (AzerothCore db_world)",
+     "label": "globule 4"
+    }
+   ],
+   "states": [],
+   "notes": "Positions: Summon Water Globule spells 37854/37858/37860/37861 (boss_morogrim_tidewalker.cpp L46-53, cast L102-105) use target DEST_DB, so the spots come from spell_target_position; summoned entry 21913 from wago SpellEffect MiscValue. Above 25% the same 4 spots are the Watery Grave bubble destinations (spells 37850/38023/38024/38025, also spell_target_position, boss_morogrim_tidewalker.cpp L94-98 + spell_morogrim_tidewalker_watery_grave): players get teleported there, stunned, and explode for 9 yd (37852) when it ends.",
+   "wateryGraveSpots": [
+    {
+     "map": 548,
+     "x": 372.85,
+     "y": -690.84,
+     "z": -13.91,
+     "o": 3.61,
+     "source": "spell_target_position ID 37850 (AzerothCore db_world)",
+     "label": "Watery Grave 4 (same spot as globule 1)"
+    },
+    {
+     "map": 548,
+     "x": 366.27,
+     "y": -709.4,
+     "z": -13.92,
+     "o": 3.82,
+     "source": "spell_target_position ID 38023 (AzerothCore db_world)",
+     "label": "Watery Grave 1 (same spot as globule 2)"
+    },
+    {
+     "map": 548,
+     "x": 365.53,
+     "y": -737.12,
+     "z": -14.0,
+     "o": 2.88,
+     "source": "spell_target_position ID 38024 (AzerothCore db_world)",
+     "label": "Watery Grave 2 (same spot as globule 3)"
+    },
+    {
+     "map": 548,
+     "x": 337.69,
+     "y": -732.87,
+     "z": -13.74,
+     "o": 1.06,
+     "source": "spell_target_position ID 38025 (AzerothCore db_world)",
+     "label": "Watery Grave 3 (same spot as globule 4)"
+    }
+   ]
+  },
+  {
+   "kind": "npc",
+   "id": 21920,
+   "name": "Tidewalker Lurker",
+   "why": "Murloc swarm from both side ledges after each Earthquake; AoE them near the boss or on the way in.",
+   "when": "8 s after each Earthquake (first Earthquake 0:40, then every 45-60 s)",
+   "display": 391,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 424.84,
+     "y": -732.18,
+     "z": -7.14,
+     "o": 3.13,
+     "source": "spell_target_position ID 39813 (AzerothCore db_world)",
+     "label": "east group A6"
+    },
+    {
+     "map": 548,
+     "x": 424.91,
+     "y": -728.68,
+     "z": -7.14,
+     "o": 3.13,
+     "source": "spell_target_position ID 39814 (AzerothCore db_world)",
+     "label": "east group A7"
+    },
+    {
+     "map": 548,
+     "x": 425.05,
+     "y": -724.23,
+     "z": -7.14,
+     "o": 3.13,
+     "source": "spell_target_position ID 39815 (AzerothCore db_world)",
+     "label": "east group A8"
+    },
+    {
+     "map": 548,
+     "x": 425.13,
+     "y": -719.31,
+     "z": -7.14,
+     "o": 3.13,
+     "source": "spell_target_position ID 39816 (AzerothCore db_world)",
+     "label": "east group A9"
+    },
+    {
+     "map": 548,
+     "x": 424.36,
+     "y": -715.4,
+     "z": -7.14,
+     "o": 3.13,
+     "source": "spell_target_position ID 39817 (AzerothCore db_world)",
+     "label": "east group A10"
+    },
+    {
+     "map": 548,
+     "x": 321.05,
+     "y": -714.24,
+     "z": -13.15,
+     "o": 0.0,
+     "source": "spell_target_position ID 39818 (AzerothCore db_world)",
+     "label": "west group B6"
+    },
+    {
+     "map": 548,
+     "x": 321.05,
+     "y": -718.73,
+     "z": -13.15,
+     "o": 0.0,
+     "source": "spell_target_position ID 39819 (AzerothCore db_world)",
+     "label": "west group B7"
+    },
+    {
+     "map": 548,
+     "x": 321.05,
+     "y": -724.03,
+     "z": -13.15,
+     "o": 0.0,
+     "source": "spell_target_position ID 39820 (AzerothCore db_world)",
+     "label": "west group B8"
+    },
+    {
+     "map": 548,
+     "x": 321.05,
+     "y": -729.37,
+     "z": -13.15,
+     "o": 0.0,
+     "source": "spell_target_position ID 39821 (AzerothCore db_world)",
+     "label": "west group B9"
+    },
+    {
+     "map": 548,
+     "x": 321.05,
+     "y": -734.2,
+     "z": -13.15,
+     "o": 0.0,
+     "source": "spell_target_position ID 39822 (AzerothCore db_world)",
+     "label": "west group B10"
+    }
+   ],
+   "states": [],
+   "notes": "Spells 39813-39822 'Summon Murloc A6-A10 / B6-B10' (target DEST_DB, entry 21920 from wago SpellEffect MiscValue). The script loops 11 spells (boss_morogrim_tidewalker.cpp L116, SPELL_SUMMON_MURLOC1 + 0..10) but the 11th id 39823 is an unrelated spell ('OCW TOTE Whisper to Controller 02'), so 10 murlocs. Display: model idx 0 = 391 (alts 5243, 5293, 1773 in creature_template_model)."
+  }
+ ],
+ "SerpentshrineCavern:Vashj": [
+  {
+   "kind": "npc",
+   "id": 21958,
+   "name": "Enchanted Elemental",
+   "why": "Phase 2: walk from the foot of the stairs to Vashj; each one that reaches her buffs her (Surge). Slow/kill them on the way.",
+   "when": "phase 2 (70%): one every 2.5 s",
+   "display": 20076,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 105.067,
+     "y": -872.941,
+     "z": 22.737,
+     "o": 6.231,
+     "source": "creature.sql guid 153204 (OLDWorld Trigger 15384, 89.9 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 84.743,
+     "y": -853.508,
+     "z": 22.737,
+     "o": 1.466,
+     "source": "creature.sql guid 153205 (OLDWorld Trigger 15384, 88.0 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 64.336,
+     "y": -841.26,
+     "z": 22.737,
+     "o": 0.017,
+     "source": "creature.sql guid 153206 (OLDWorld Trigger 15384, 88.1 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 40.877,
+     "y": -834.864,
+     "z": 22.737,
+     "o": 3.875,
+     "source": "creature.sql guid 153207 (OLDWorld Trigger 15384, 88.2 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 17.078,
+     "y": -835.124,
+     "z": 22.737,
+     "o": 4.433,
+     "source": "creature.sql guid 153208 (OLDWorld Trigger 15384, 88.2 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -2.91,
+     "y": -840.206,
+     "z": 22.737,
+     "o": 5.009,
+     "source": "creature.sql guid 153209 (OLDWorld Trigger 15384, 88.5 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -50.914,
+     "y": -880.622,
+     "z": 22.737,
+     "o": 5.812,
+     "source": "creature.sql guid 153211 (OLDWorld Trigger 15384, 91.1 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -57.86,
+     "y": -905.553,
+     "z": 22.737,
+     "o": 6.091,
+     "source": "creature.sql guid 153212 (OLDWorld Trigger 15384, 89.5 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -61.12,
+     "y": -928.764,
+     "z": 22.737,
+     "o": 0.07,
+     "source": "creature.sql guid 153213 (OLDWorld Trigger 15384, 91.3 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -41.931,
+     "y": -977.386,
+     "z": 22.737,
+     "o": 6.126,
+     "source": "creature.sql guid 153215 (OLDWorld Trigger 15384, 90.5 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -23.506,
+     "y": -995.797,
+     "z": 22.737,
+     "o": 4.416,
+     "source": "creature.sql guid 153216 (OLDWorld Trigger 15384, 90.8 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -4.127,
+     "y": -1006.32,
+     "z": 22.737,
+     "o": 5.515,
+     "source": "creature.sql guid 153217 (OLDWorld Trigger 15384, 90.6 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 19.43,
+     "y": -1012.53,
+     "z": 22.737,
+     "o": 0.768,
+     "source": "creature.sql guid 153218 (OLDWorld Trigger 15384, 90.7 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 45.04,
+     "y": -1011.17,
+     "z": 22.737,
+     "o": 1.309,
+     "source": "creature.sql guid 153219 (OLDWorld Trigger 15384, 90.0 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 66.275,
+     "y": -1005.51,
+     "z": 22.737,
+     "o": 1.833,
+     "source": "creature.sql guid 153220 (OLDWorld Trigger 15384, 90.7 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 85.019,
+     "y": -993.275,
+     "z": 22.737,
+     "o": 6.161,
+     "source": "creature.sql guid 153222 (OLDWorld Trigger 15384, 89.7 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 101.522,
+     "y": -977.193,
+     "z": 22.737,
+     "o": 2.269,
+     "source": "creature.sql guid 153223 (OLDWorld Trigger 15384, 90.1 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 112.854,
+     "y": -957.347,
+     "z": 22.737,
+     "o": 2.583,
+     "source": "creature.sql guid 153224 (OLDWorld Trigger 15384, 89.9 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 118.098,
+     "y": -938.05,
+     "z": 22.737,
+     "o": 2.845,
+     "source": "creature.sql guid 153225 (OLDWorld Trigger 15384, 89.5 yd from Vashj)"
+    }
+   ],
+   "states": [],
+   "notes": "Spawn points = the 19 triggers at 60-100 yd (foot of the stairs, z 22.7). boss_lady_vashj.cpp spell_lady_vashj_summons::FilterTargets L339-356: picks one random OLDWorld Trigger (15384) 60-100 yd (2D) from Vashj, then that trigger casts the wave summon (HandleHit L358-380), which places the mob at a random spot within 5 yd of the trigger (spell_dbc 38019: target 72, radius index 8 = 5 yd). Then follows Vashj at walk speed (JustSummoned L121-125); Surge 38044 when in range (smart_scripts 21958 id 0)."
+  },
+  {
+   "kind": "npc",
+   "id": 22009,
+   "name": "Tainted Elemental",
+   "why": "Phase 2: kill it fast for the Tainted Core (item 31088) that is thrown up to deactivate a shield generator.",
+   "when": "phase 2: every 50 s (first 50 s after P2 starts)",
+   "display": 11172,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 105.067,
+     "y": -872.941,
+     "z": 22.737,
+     "o": 6.231,
+     "source": "creature.sql guid 153204 (OLDWorld Trigger 15384, 89.9 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 84.743,
+     "y": -853.508,
+     "z": 22.737,
+     "o": 1.466,
+     "source": "creature.sql guid 153205 (OLDWorld Trigger 15384, 88.0 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 64.336,
+     "y": -841.26,
+     "z": 22.737,
+     "o": 0.017,
+     "source": "creature.sql guid 153206 (OLDWorld Trigger 15384, 88.1 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 40.877,
+     "y": -834.864,
+     "z": 22.737,
+     "o": 3.875,
+     "source": "creature.sql guid 153207 (OLDWorld Trigger 15384, 88.2 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 17.078,
+     "y": -835.124,
+     "z": 22.737,
+     "o": 4.433,
+     "source": "creature.sql guid 153208 (OLDWorld Trigger 15384, 88.2 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -2.91,
+     "y": -840.206,
+     "z": 22.737,
+     "o": 5.009,
+     "source": "creature.sql guid 153209 (OLDWorld Trigger 15384, 88.5 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -50.914,
+     "y": -880.622,
+     "z": 22.737,
+     "o": 5.812,
+     "source": "creature.sql guid 153211 (OLDWorld Trigger 15384, 91.1 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -57.86,
+     "y": -905.553,
+     "z": 22.737,
+     "o": 6.091,
+     "source": "creature.sql guid 153212 (OLDWorld Trigger 15384, 89.5 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -61.12,
+     "y": -928.764,
+     "z": 22.737,
+     "o": 0.07,
+     "source": "creature.sql guid 153213 (OLDWorld Trigger 15384, 91.3 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -41.931,
+     "y": -977.386,
+     "z": 22.737,
+     "o": 6.126,
+     "source": "creature.sql guid 153215 (OLDWorld Trigger 15384, 90.5 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -23.506,
+     "y": -995.797,
+     "z": 22.737,
+     "o": 4.416,
+     "source": "creature.sql guid 153216 (OLDWorld Trigger 15384, 90.8 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -4.127,
+     "y": -1006.32,
+     "z": 22.737,
+     "o": 5.515,
+     "source": "creature.sql guid 153217 (OLDWorld Trigger 15384, 90.6 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 19.43,
+     "y": -1012.53,
+     "z": 22.737,
+     "o": 0.768,
+     "source": "creature.sql guid 153218 (OLDWorld Trigger 15384, 90.7 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 45.04,
+     "y": -1011.17,
+     "z": 22.737,
+     "o": 1.309,
+     "source": "creature.sql guid 153219 (OLDWorld Trigger 15384, 90.0 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 66.275,
+     "y": -1005.51,
+     "z": 22.737,
+     "o": 1.833,
+     "source": "creature.sql guid 153220 (OLDWorld Trigger 15384, 90.7 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 85.019,
+     "y": -993.275,
+     "z": 22.737,
+     "o": 6.161,
+     "source": "creature.sql guid 153222 (OLDWorld Trigger 15384, 89.7 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 101.522,
+     "y": -977.193,
+     "z": 22.737,
+     "o": 2.269,
+     "source": "creature.sql guid 153223 (OLDWorld Trigger 15384, 90.1 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 112.854,
+     "y": -957.347,
+     "z": 22.737,
+     "o": 2.583,
+     "source": "creature.sql guid 153224 (OLDWorld Trigger 15384, 89.9 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 118.098,
+     "y": -938.05,
+     "z": 22.737,
+     "o": 2.845,
+     "source": "creature.sql guid 153225 (OLDWorld Trigger 15384, 89.5 yd from Vashj)"
+    }
+   ],
+   "states": [],
+   "notes": "Same 19 foot-of-stairs triggers. boss_lady_vashj.cpp spell_lady_vashj_summons::FilterTargets L339-356: picks one random OLDWorld Trigger (15384) 60-100 yd (2D) from Vashj, then that trigger casts the wave summon (HandleHit L358-380), which places the mob at a random spot within 5 yd of the trigger (spell_dbc 38244: target 72, radius index 8 = 5 yd). Stands and casts Poison Bolt; despawns 15 s after spawning (smart_scripts 22009 ids 0-2)."
+  },
+  {
+   "kind": "npc",
+   "id": 22055,
+   "name": "Coilfang Elite",
+   "why": "Phase 2 elite melee add from the top of one of the 4 stair landings; walks to Vashj.",
+   "when": "phase 2: every 45 s (first 45 s after P2 starts)",
+   "display": 20772,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 43.329,
+     "y": -869.731,
+     "z": 41.18,
+     "o": 4.433,
+     "source": "creature.sql guid 153203 (OLDWorld Trigger 15384, 54.3 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -22.597,
+     "y": -900.382,
+     "z": 41.18,
+     "o": 5.882,
+     "source": "creature.sql guid 153210 (OLDWorld Trigger 15384, 57.0 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 13.781,
+     "y": -975.633,
+     "z": 41.18,
+     "o": 1.292,
+     "source": "creature.sql guid 153214 (OLDWorld Trigger 15384, 55.6 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 78.381,
+     "y": -950.659,
+     "z": 41.18,
+     "o": 2.618,
+     "source": "creature.sql guid 153221 (OLDWorld Trigger 15384, 56.0 yd from Vashj)"
+    }
+   ],
+   "states": [],
+   "notes": "Spawn points = the 4 triggers 25-60 yd from Vashj (top of the stairs, z 41.18). boss_lady_vashj.cpp spell_lady_vashj_summons::FilterTargets L339-356: picks one random OLDWorld Trigger (15384) 25-60 yd (2D) from Vashj, then that trigger casts the wave summon (HandleHit L358-380), which places the mob at a random spot within 5 yd of the trigger (spell_dbc 38247: target 72, radius index 8 = 5 yd). Moves to Vashj's position (JustSummoned default L131-132)."
+  },
+  {
+   "kind": "npc",
+   "id": 22056,
+   "name": "Coilfang Strider",
+   "why": "Phase 2 fear-aura add (Panic) from the top of a stair landing; tanked away from the raid.",
+   "when": "phase 2: every 60 s (first 60 s after P2 starts)",
+   "display": 18194,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 43.329,
+     "y": -869.731,
+     "z": 41.18,
+     "o": 4.433,
+     "source": "creature.sql guid 153203 (OLDWorld Trigger 15384, 54.3 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": -22.597,
+     "y": -900.382,
+     "z": 41.18,
+     "o": 5.882,
+     "source": "creature.sql guid 153210 (OLDWorld Trigger 15384, 57.0 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 13.781,
+     "y": -975.633,
+     "z": 41.18,
+     "o": 1.292,
+     "source": "creature.sql guid 153214 (OLDWorld Trigger 15384, 55.6 yd from Vashj)"
+    },
+    {
+     "map": 548,
+     "x": 78.381,
+     "y": -950.659,
+     "z": 41.18,
+     "o": 2.618,
+     "source": "creature.sql guid 153221 (OLDWorld Trigger 15384, 56.0 yd from Vashj)"
+    }
+   ],
+   "states": [],
+   "notes": "Same 4 top-of-stairs triggers. boss_lady_vashj.cpp spell_lady_vashj_summons::FilterTargets L339-356: picks one random OLDWorld Trigger (15384) 25-60 yd (2D) from Vashj, then that trigger casts the wave summon (HandleHit L358-380), which places the mob at a random spot within 5 yd of the trigger (spell_dbc 38242: target 72, radius index 8 = 5 yd). Permanent aura 38257 Panic Periodic (creature_template_addon 22056)."
+  },
+  {
+   "kind": "npc",
+   "id": 22140,
+   "name": "Toxic Sporebat",
+   "why": "Phase 3: flying bats that drop Toxic Spores puddles; the raid keeps moving away from the green clouds.",
+   "when": "phase 3: every 20 s, 1 s faster per bat down to every 4 s",
+   "display": 20828,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 29.41,
+     "y": -924.12,
+     "z": 72.985,
+     "o": 1.58,
+     "source": "spell_target_position ID 38489 (AzerothCore db_world)",
+     "label": "spore bat spawn 1"
+    },
+    {
+     "map": 548,
+     "x": -7.64,
+     "y": -939.99,
+     "z": 72.985,
+     "o": 0.36,
+     "source": "spell_target_position ID 38490 (AzerothCore db_world)",
+     "label": "spore bat spawn 2"
+    },
+    {
+     "map": 548,
+     "x": 19.94,
+     "y": -878.03,
+     "z": 72.985,
+     "o": 4.88,
+     "source": "spell_target_position ID 38492 (AzerothCore db_world)",
+     "label": "spore bat spawn 3"
+    },
+    {
+     "map": 548,
+     "x": 29.68,
+     "y": -923.58,
+     "z": 72.985,
+     "o": 6.0,
+     "source": "spell_target_position ID 38493 (AzerothCore db_world)",
+     "label": "spore bat spawn 4"
+    }
+   ],
+   "states": [],
+   "notes": "Spawn points from spell_target_position 38489/38490/38492/38493 (spell_dbc: summon 22140 at target 17 = DB position), picked at random by boss_lady_vashj.cpp spell_lady_vashj_summon_sporebat L289-303. All 4 spots are 30 yd above the platform (z 72.985); two are almost the room centre. After spawning each bat wanders randomly within 30 yd (JustSummoned L128-130). Aura 38571 Spore Drop (creature_template_addon 22140)."
+  },
+  {
+   "kind": "npc",
+   "id": 21212,
+   "name": "Lady Vashj",
+   "why": "Already on the starter page; added for her phase 2 shielded state.",
+   "when": "pull",
+   "display": 20748,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 548,
+     "x": 29.99,
+     "y": -922.409,
+     "z": 42.985,
+     "o": 1.396,
+     "source": "creature.sql guid 153195"
+    }
+   ],
+   "states": [
+    {
+     "name": "phase 1/3",
+     "look": "Free, melee/bow (Shoot, Multi-Shot, Shock Blast, Static Charge, Entangle).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_lady_vashj.cpp ScheduleSpells L136-151, phase 3 L199-214"
+    },
+    {
+     "name": "shielded (phase 2)",
+     "look": "At 70% walks back to her spawn point, is rooted there and gets Magic Barrier 38112 from the 4 generator triggers (beams from the generators to her). Ends when all 4 barriers are gone.",
+     "spell": 38112,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_lady_vashj.cpp ScheduleHealthCheckEvent(70) L85-91, MovementInform L164-218 (ROOT L169, ACTIVATE_SHIELD L171); triggers cast 38112 L118-120; target from conditions SourceType 13 entry 38112 -> creature 21212"
+    }
+   ],
+   "notes": "The 4 'World Trigger (Tiny)' 21987 (guids 153196-153199) sit ~2 yd from each shield generator; the script does not reference them (the barrier casters are triggers summoned at the generator positions, instance_serpent_shrine.cpp L173-185), so they were not added."
+  }
+ ],
+ "TempestKeep:Alar": [
+  {
+   "kind": "npc",
+   "id": 19514,
+   "name": "Al'ar",
+   "why": "Already on the starter page. Positions here are his scripted stops (one Al'ar at a time, not copies): phase 1 he hops between 4 platforms, sometimes rises to the centre for Flame Quills; phase 2 he is reborn on the floor in the middle.",
+   "when": "pull",
+   "display": 18945,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 335.638,
+     "y": 59.488,
+     "z": 17.932,
+     "o": 4.6,
+     "label": "platform 1",
+     "source": "boss_alar.cpp alarPoints[0] (L49-60); an OLDWorld Trigger sits on the same spot (creature.sql guid 158045)"
+    },
+    {
+     "map": 550,
+     "x": 388.751,
+     "y": 31.731,
+     "z": 20.264,
+     "o": 1.61,
+     "label": "platform 2",
+     "source": "boss_alar.cpp alarPoints[1] (L49-60); an OLDWorld Trigger sits on the same spot (creature.sql guid 158046)"
+    },
+    {
+     "map": 550,
+     "x": 388.791,
+     "y": -33.106,
+     "z": 20.264,
+     "o": 0.52,
+     "label": "platform 3",
+     "source": "boss_alar.cpp alarPoints[2] (L49-60); an OLDWorld Trigger sits on the same spot (creature.sql guid 158047)"
+    },
+    {
+     "map": 550,
+     "x": 332.723,
+     "y": -61.159,
+     "z": 17.979,
+     "o": 5.71,
+     "label": "platform 4",
+     "source": "boss_alar.cpp alarPoints[3] (L49-60); an OLDWorld Trigger sits on the same spot (creature.sql guid 158048)"
+    },
+    {
+     "map": 550,
+     "x": 258.959,
+     "y": -38.687,
+     "z": 20.263,
+     "o": 5.21,
+     "label": "pre-nerf platform 5 (unused: script cycles 0-3 only, L150)",
+     "source": "boss_alar.cpp alarPoints[4] (L49-60); an OLDWorld Trigger sits on the same spot (creature.sql guid 158049)"
+    },
+    {
+     "map": 550,
+     "x": 259.228,
+     "y": 35.879,
+     "z": 20.263,
+     "o": 4.81,
+     "label": "pre-nerf platform 6 (unused: script cycles 0-3 only, L150)",
+     "source": "boss_alar.cpp alarPoints[5] (L49-60); an OLDWorld Trigger sits on the same spot (creature.sql guid 158044)"
+    },
+    {
+     "map": 550,
+     "x": 332.0,
+     "y": 0.01,
+     "z": 43.0,
+     "o": 0.0,
+     "label": "quill / dive-bomb spot (hovering above the centre)",
+     "source": "boss_alar.cpp alarPoints[6] and [8] (POINT_QUILL / POINT_DIVE)"
+    },
+    {
+     "map": 550,
+     "x": 331.0,
+     "y": 0.01,
+     "z": -2.38,
+     "o": 0.0,
+     "label": "phase 2 centre (floor)",
+     "source": "boss_alar.cpp alarPoints[7] (POINT_MIDDLE, SetPosition L204)"
+    }
+   ],
+   "states": [
+    {
+     "name": "perched (phase 1)",
+     "look": "Sits on a platform for 30 s; Flame Buffet on the raid if nobody is in melee range.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_alar.cpp JustEngagedWith L129-157 (platform order 1-2-3-4, 30 s each; after a quill he resumes at platform 1 or 4), ScheduleMainSpellAttack L341-361",
+     "at": [
+      "platform 1",
+      "platform 2",
+      "platform 3",
+      "platform 4"
+     ]
+    },
+    {
+     "name": "flame quills",
+     "look": "Flies to the spot above the centre and fires 24 quills at fixed spots on the upper ring (35 yd blast each); the safe place is down on the floor.",
+     "spell": 34229,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_alar.cpp L134-141 (chance 20% x moves without quills), MovementInform POINT_QUILL L319-326, spell_alar_flame_quills L442-462",
+     "at": [
+      "quill / dive-bomb spot (hovering above the centre)"
+     ],
+     "targets": [
+      {
+       "x": 244.1,
+       "y": 49.915,
+       "z": 20.18,
+       "source": "spell_target_position ID 34269 (AzerothCore db_world)"
+      },
+      {
+       "x": 260.572,
+       "y": 67.399,
+       "z": 20.18,
+       "source": "spell_target_position ID 34270 (AzerothCore db_world)"
+      },
+      {
+       "x": 279.967,
+       "y": 83.433,
+       "z": 20.18,
+       "source": "spell_target_position ID 34271 (AzerothCore db_world)"
+      },
+      {
+       "x": 306.56,
+       "y": 92.027,
+       "z": 20.18,
+       "source": "spell_target_position ID 34272 (AzerothCore db_world)"
+      },
+      {
+       "x": 332.415,
+       "y": 86.661,
+       "z": 20.344,
+       "source": "spell_target_position ID 34273 (AzerothCore db_world)"
+      },
+      {
+       "x": 358.834,
+       "y": 90.569,
+       "z": 20.032,
+       "source": "spell_target_position ID 34274 (AzerothCore db_world)"
+      },
+      {
+       "x": 382.319,
+       "y": 83.052,
+       "z": 20.179,
+       "source": "spell_target_position ID 34275 (AzerothCore db_world)"
+      },
+      {
+       "x": 403.761,
+       "y": 69.517,
+       "z": 20.179,
+       "source": "spell_target_position ID 34276 (AzerothCore db_world)"
+      },
+      {
+       "x": 402.296,
+       "y": 44.315,
+       "z": 20.18,
+       "source": "spell_target_position ID 34277 (AzerothCore db_world)"
+      },
+      {
+       "x": 422.53,
+       "y": 26.955,
+       "z": 20.18,
+       "source": "spell_target_position ID 34278 (AzerothCore db_world)"
+      },
+      {
+       "x": 261.468,
+       "y": -73.692,
+       "z": 20.18,
+       "source": "spell_target_position ID 34279 (AzerothCore db_world)"
+      },
+      {
+       "x": 249.358,
+       "y": -52.799,
+       "z": 20.18,
+       "source": "spell_target_position ID 34280 (AzerothCore db_world)"
+      },
+      {
+       "x": 424.829,
+       "y": 1.015,
+       "z": 20.18,
+       "source": "spell_target_position ID 34281 (AzerothCore db_world)"
+      },
+      {
+       "x": 423.478,
+       "y": -23.965,
+       "z": 20.18,
+       "source": "spell_target_position ID 34282 (AzerothCore db_world)"
+      },
+      {
+       "x": 283.424,
+       "y": -85.952,
+       "z": 20.18,
+       "source": "spell_target_position ID 34283 (AzerothCore db_world)"
+      },
+      {
+       "x": 404.622,
+       "y": -42.14,
+       "z": 20.18,
+       "source": "spell_target_position ID 34284 (AzerothCore db_world)"
+      },
+      {
+       "x": 309.55,
+       "y": -89.363,
+       "z": 20.18,
+       "source": "spell_target_position ID 34285 (AzerothCore db_world)"
+      },
+      {
+       "x": 403.462,
+       "y": -67.833,
+       "z": 20.18,
+       "source": "spell_target_position ID 34286 (AzerothCore db_world)"
+      },
+      {
+       "x": 335.024,
+       "y": -83.21,
+       "z": 20.388,
+       "source": "spell_target_position ID 34287 (AzerothCore db_world)"
+      },
+      {
+       "x": 384.251,
+       "y": -84.371,
+       "z": 20.18,
+       "source": "spell_target_position ID 34288 (AzerothCore db_world)"
+      },
+      {
+       "x": 359.997,
+       "y": -92.704,
+       "z": 20.013,
+       "source": "spell_target_position ID 34289 (AzerothCore db_world)"
+      },
+      {
+       "x": 241.768,
+       "y": 24.828,
+       "z": 20.344,
+       "source": "spell_target_position ID 34314 (AzerothCore db_world)"
+      },
+      {
+       "x": 239.111,
+       "y": -1.591,
+       "z": 27.049,
+       "source": "spell_target_position ID 34315 (AzerothCore db_world)"
+      },
+      {
+       "x": 241.073,
+       "y": -27.085,
+       "z": 20.188,
+       "source": "spell_target_position ID 34316 (AzerothCore db_world)"
+      }
+     ],
+     "targetsNote": "Impact centres of the 24 Flame Quills missile spells (34269-34289, 34314-34316): wago SpellEffect target 17 (DB position) / radius 35 yd."
+    },
+    {
+     "name": "fake death",
+     "look": "At 0 HP in phase 1: Ember Blast, lies dead (stand state 7), vanishes 1 s later, reappears in the centre 12 s later.",
+     "spell": 34341,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_alar.cpp DamageTaken L189-226 (PretendToDie L198, SetVisible(false) L201)",
+     "standState": 7
+    },
+    {
+     "name": "rebirth (phase 2 start)",
+     "look": "Reborn on the floor in the centre (Rebirth 34342: 15 yd knockback burst).",
+     "spell": 34342,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_alar.cpp L206-211",
+     "at": [
+      "phase 2 centre (floor)"
+     ]
+    },
+    {
+     "name": "dive bomb",
+     "look": "Rises to the spot above the centre (Dive Bomb visual 35367), turns invisible (display 23377), crashes on a random player and is reborn there (Rebirth 35369), spawning 2 Embers.",
+     "spell": 35367,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_alar.cpp ScheduleAbilities L238-266, MovementInform POINT_DIVE L327-335, DoDiveBomb L281-305, spell_alar_dive_bomb L482-496",
+     "at": [
+      "quill / dive-bomb spot (hovering above the centre)"
+     ]
+    }
+   ],
+   "notes": "His pre-pull flight path is waypoint path 1580410 (creature_addon guid 158041), not added. 'World Invisible Trigger' 12999 (guid 158050, comment 'Al'ar Unknown Trigger') is not referenced by the script."
+  },
+  {
+   "kind": "npc",
+   "id": 19551,
+   "name": "Ember of Al'ar",
+   "why": "Adds that must be killed (Ember Blast on death damages Al'ar by 2% in phase 1); phase 1 they appear on the outer circle below the platform Al'ar is leaving.",
+   "when": "phase 1: one each time Al'ar leaves a platform (from the 2nd move after a quill); phase 2: 2 per Dive Bomb",
+   "display": 19682,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 335.665,
+     "y": 59.828,
+     "z": 0.0,
+     "o": 0.0,
+     "label": "ember when leaving platform 1",
+     "source": "boss_alar.cpp DeterminePhoenixPosition L384-410 applied to alarPoints[0] (60 yd from centre 331,0.01 toward the platform; z 0 as written in the script)"
+    },
+    {
+     "map": 550,
+     "x": 383.589,
+     "y": 28.896,
+     "z": 0.0,
+     "o": 0.0,
+     "label": "ember when leaving platform 2",
+     "source": "boss_alar.cpp DeterminePhoenixPosition L384-410 applied to alarPoints[1] (60 yd from centre 331,0.01 toward the platform; z 0 as written in the script)"
+    },
+    {
+     "map": 550,
+     "x": 383.059,
+     "y": -29.821,
+     "z": 0.0,
+     "o": 0.0,
+     "label": "ember when leaving platform 3",
+     "source": "boss_alar.cpp DeterminePhoenixPosition L384-410 applied to alarPoints[2] (60 yd from centre 331,0.01 toward the platform; z 0 as written in the script)"
+    },
+    {
+     "map": 550,
+     "x": 332.689,
+     "y": -59.966,
+     "z": 0.0,
+     "o": 0.0,
+     "label": "ember when leaving platform 4",
+     "source": "boss_alar.cpp DeterminePhoenixPosition L384-410 applied to alarPoints[3] (60 yd from centre 331,0.01 toward the platform; z 0 as written in the script)"
+    }
+   ],
+   "states": [],
+   "notes": "Phase 1 spots are computed with the script's own formula (60 yd circle around 331,0.01 in the direction of Al'ar's current position = the platform he is leaving). Phase 2 Dive Bomb embers use the same formula but toward a random player, so they have no fixed spot (DoDiveBomb L284-288). z is written as 0.0 in the script; the floor height there is not verified."
+  }
+ ],
+ "TempestKeep:VoidReaver": [],
+ "TempestKeep:Solarian": [
+  {
+   "kind": "npc",
+   "id": 18805,
+   "name": "High Astromancer Solarian",
+   "why": "Already on the starter page; added for split / beam / voidwalker states.",
+   "when": "pull",
+   "display": 18239,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 432.74,
+     "y": -373.645,
+     "z": 18.014,
+     "o": 1.396,
+     "source": "creature.sql guid 158179"
+    },
+    {
+     "map": 550,
+     "x": 432.74,
+     "y": -373.645,
+     "z": 18.014,
+     "o": 1.396,
+     "label": "split teleport point",
+     "source": "spell_target_position ID 33244 (Teleport Start Position, boss_astromancer.cpp L149)"
+    }
+   ],
+   "states": [
+    {
+     "name": "split",
+     "look": "Every ~90 s (first 52 s): teleports to the room centre, then turns invisible 3 s later while 3 portals open.",
+     "spell": 33244,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_astromancer.cpp L145-171 (teleport L149, SetModelVisible(false) L170)"
+    },
+    {
+     "name": "true beam",
+     "look": "7 s into the split she beams to the inner portal and moves there; she reappears on it at 23 s.",
+     "spell": 33365,
+     "beamTo": "Astromancer Solarian Spotlight (inner)",
+     "anim": null,
+     "source": "boss_astromancer.cpp L172-215 (DoCast(light, SPELL_TRUE_BEAM) L181, visible again L204-207)"
+    },
+    {
+     "name": "voidwalker",
+     "look": "At 20%: Solarian Transform 39117 into a huge voidwalker (creature 22290, display 18988); Void Bolt + Psychic Scream.",
+     "spell": 39117,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_astromancer.cpp ScheduleHealthCheckEvent(20) L78-94 (L93); transform target from SpellEffect 39117 MiscValue 22290"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 18928,
+   "name": "Astromancer Solarian Spotlight",
+   "why": "The 3 split portals: 1 on a 14 yd ring (Solarian returns there), 2 on a 28 yd ring (adds pour out). Random angles each split, fixed radii.",
+   "when": "each split (first 0:52, then every 87.5-91.2 s), lasts 25 s",
+   "display": 11686,
+   "scale": 1,
+   "positions": [],
+   "states": [],
+   "notes": "No fixed spot: angle = rand_norm()*2pi per portal. Use 'rings'. Invisible trigger (display 11686) with aura 25824 'Spotlight' (creature_template_addon 18928) as the visual.",
+   "rings": [
+    {
+     "x": 432.909,
+     "y": -373.424,
+     "z": 17.9608,
+     "r": 14.0,
+     "count": 1,
+     "label": "inner portal (Solarian reappears here)",
+     "source": "boss_astromancer.cpp CENTER_X/Y/Z + INNER_PORTAL_RADIUS L54-59, summon L156-159 (angle = rand_norm()*2pi)"
+    },
+    {
+     "x": 432.909,
+     "y": -373.424,
+     "z": 17.005,
+     "r": 28.0,
+     "count": 2,
+     "label": "outer portals (Agents, then Priests)",
+     "source": "boss_astromancer.cpp OUTER_PORTAL_RADIUS + PORTAL_Z L55-60, summon L160-163 (random angle each)"
+    }
+   ],
+   "aura": 25824
+  },
+  {
+   "kind": "npc",
+   "id": 18925,
+   "name": "Solarium Agent",
+   "why": "4 melee adds at each of the 3 portals (12 total) 7 s into the split.",
+   "when": "each split, +7 s",
+   "display": 19048,
+   "scale": 1,
+   "positions": [],
+   "states": [],
+   "notes": "Spawn = portal position +/- 3 yd in x and y (boss_astromancer.cpp L174-190, SummonCreature L187), so they follow the random portal angles (see Spotlight 'rings'). Display idx 0 = 19048 (alt 19049).",
+   "rings": [
+    {
+     "x": 432.909,
+     "y": -373.424,
+     "z": 17.9608,
+     "r": 14.0,
+     "count": 1,
+     "label": "inner portal (Solarian reappears here)",
+     "source": "boss_astromancer.cpp CENTER_X/Y/Z + INNER_PORTAL_RADIUS L54-59, summon L156-159 (angle = rand_norm()*2pi)"
+    },
+    {
+     "x": 432.909,
+     "y": -373.424,
+     "z": 17.005,
+     "r": 28.0,
+     "count": 2,
+     "label": "outer portals (Agents, then Priests)",
+     "source": "boss_astromancer.cpp OUTER_PORTAL_RADIUS + PORTAL_Z L55-60, summon L160-163 (random angle each)"
+    }
+   ]
+  },
+  {
+   "kind": "npc",
+   "id": 18806,
+   "name": "Solarium Priest",
+   "why": "1 healer add at each outer portal (2 total) 23 s into the split; heals Solarian, interrupt/kill.",
+   "when": "each split, +23 s",
+   "display": 19050,
+   "scale": 1,
+   "positions": [],
+   "states": [],
+   "notes": "Spawn = outer portal position +/- 3 yd (boss_astromancer.cpp L192-215, SummonCreature L210). Display idx 0 = 19050 (alts 19051, 19052).",
+   "rings": [
+    {
+     "x": 432.909,
+     "y": -373.424,
+     "z": 17.005,
+     "r": 28.0,
+     "count": 2,
+     "label": "outer portals (Agents, then Priests)",
+     "source": "boss_astromancer.cpp OUTER_PORTAL_RADIUS + PORTAL_Z L55-60, summon L160-163 (random angle each)"
+    }
+   ]
+  }
+ ],
+ "TempestKeep:Kaelthas": [
+  {
+   "kind": "npc",
+   "id": 21274,
+   "name": "Staff of Disintegration",
+   "why": "Phase 2 legendary weapon to kill before phase 3: caster (Frost Bolt 36990, Frost Nova 36989; smart_scripts 21274).",
+   "when": "phase 2 (3 s after Telonicus falls; they attack 6 s later)",
+   "display": 15880,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 794.5,
+     "y": 16.73,
+     "z": 48.72,
+     "o": 4.74,
+     "source": "spell_target_position ID 36958 (AzerothCore db_world)",
+     "label": "Summon Weapon A"
+    }
+   ],
+   "states": [],
+   "notes": "Spot from spell_target_position 36958; spell -> creature from wago SpellEffect MiscValue (build 2.5.4.44833). Display 15880 is Wowhead TBC Classic's model for this NPC (invisible body; the weapon shows as its equipped item 30392, creature_equip_template). AzerothCore's creature_template_model display 26085 does not exist in the 2.5.4 client CreatureDisplayInfo."
+  },
+  {
+   "kind": "npc",
+   "id": 21270,
+   "name": "Cosmic Infuser",
+   "why": "Phase 2 legendary weapon to kill before phase 3: healer (Holy Nova 36985, heals hurt allies 36983; smart_scripts 21270).",
+   "when": "phase 2 (3 s after Telonicus falls; they attack 6 s later)",
+   "display": 15880,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 785.54,
+     "y": 14.88,
+     "z": 48.72,
+     "o": 5.17,
+     "source": "spell_target_position ID 36959 (AzerothCore db_world)",
+     "label": "Summon Weapon B"
+    }
+   ],
+   "states": [],
+   "notes": "Spot from spell_target_position 36959; spell -> creature from wago SpellEffect MiscValue (build 2.5.4.44833). Display 15880 is Wowhead TBC Classic's model for this NPC (invisible body; the weapon shows as its equipped item 30387, creature_equip_template). AzerothCore's creature_template_model display 26080 does not exist in the 2.5.4 client CreatureDisplayInfo."
+  },
+  {
+   "kind": "npc",
+   "id": 21272,
+   "name": "Warp Slicer",
+   "why": "Phase 2 legendary weapon to kill before phase 3: melee (Rend 36991; smart_scripts 21272).",
+   "when": "phase 2 (3 s after Telonicus falls; they attack 6 s later)",
+   "display": 15880,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 780.41,
+     "y": 9.44,
+     "z": 48.72,
+     "o": 5.68,
+     "source": "spell_target_position ID 36960 (AzerothCore db_world)",
+     "label": "Summon Weapon C"
+    }
+   ],
+   "states": [],
+   "notes": "Spot from spell_target_position 36960; spell -> creature from wago SpellEffect MiscValue (build 2.5.4.44833). Display 15880 is Wowhead TBC Classic's model for this NPC (invisible body; the weapon shows as its equipped item 30393, creature_equip_template). AzerothCore's creature_template_model display 26086 does not exist in the 2.5.4 client CreatureDisplayInfo."
+  },
+  {
+   "kind": "npc",
+   "id": 21269,
+   "name": "Devastation",
+   "why": "Phase 2 legendary weapon to kill before phase 3: melee (Whirlwind 36981; smart_scripts 21269).",
+   "when": "phase 2 (3 s after Telonicus falls; they attack 6 s later)",
+   "display": 15880,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 778.43,
+     "y": -0.72,
+     "z": 48.72,
+     "o": 6.26,
+     "source": "spell_target_position ID 36961 (AzerothCore db_world)",
+     "label": "Summon Weapon D"
+    }
+   ],
+   "states": [],
+   "notes": "Spot from spell_target_position 36961; spell -> creature from wago SpellEffect MiscValue (build 2.5.4.44833). Display 15880 is Wowhead TBC Classic's model for this NPC (invisible body; the weapon shows as its equipped item 30388, creature_equip_template). AzerothCore's creature_template_model display 26081 does not exist in the 2.5.4 client CreatureDisplayInfo."
+  },
+  {
+   "kind": "npc",
+   "id": 21273,
+   "name": "Phaseshift Bulwark",
+   "why": "Phase 2 legendary weapon to kill before phase 3: shield (Shield Bash 36988 on casters; smart_scripts 21273).",
+   "when": "phase 2 (3 s after Telonicus falls; they attack 6 s later)",
+   "display": 15880,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 779.43,
+     "y": -9.06,
+     "z": 48.72,
+     "o": 0.42,
+     "source": "spell_target_position ID 36962 (AzerothCore db_world)",
+     "label": "Summon Weapon E"
+    }
+   ],
+   "states": [],
+   "notes": "Spot from spell_target_position 36962; spell -> creature from wago SpellEffect MiscValue (build 2.5.4.44833). Display 15880 is Wowhead TBC Classic's model for this NPC (invisible body; the weapon shows as its equipped item 30391, creature_equip_template). AzerothCore's creature_template_model display 26084 does not exist in the 2.5.4 client CreatureDisplayInfo."
+  },
+  {
+   "kind": "npc",
+   "id": 21271,
+   "name": "Infinity Blades",
+   "why": "Phase 2 legendary weapon to kill before phase 3: melee dagger pair (no scripted spells; Thrash aura 12787 from creature_template_addon).",
+   "when": "phase 2 (3 s after Telonicus falls; they attack 6 s later)",
+   "display": 15880,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 785.32,
+     "y": -16.17,
+     "z": 48.72,
+     "o": 1.04,
+     "source": "spell_target_position ID 36963 (AzerothCore db_world)",
+     "label": "Summon Weapon F"
+    }
+   ],
+   "states": [],
+   "notes": "Spot from spell_target_position 36963; spell -> creature from wago SpellEffect MiscValue (build 2.5.4.44833). Display 15880 is Wowhead TBC Classic's model for this NPC (invisible body; the weapon shows as its equipped item 30389, creature_equip_template). AzerothCore's creature_template_model display 26082 does not exist in the 2.5.4 client CreatureDisplayInfo."
+  },
+  {
+   "kind": "npc",
+   "id": 21268,
+   "name": "Netherstrand Longbow",
+   "why": "Phase 2 legendary weapon to kill before phase 3: ranged (Shot 36980, Multi-Shot 36979, Blink 36994; smart_scripts 21268).",
+   "when": "phase 2 (3 s after Telonicus falls; they attack 6 s later)",
+   "display": 15880,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 793.36,
+     "y": -17.96,
+     "z": 48.72,
+     "o": 1.42,
+     "source": "spell_target_position ID 36964 (AzerothCore db_world)",
+     "label": "Summon Weapon G"
+    }
+   ],
+   "states": [],
+   "notes": "Spot from spell_target_position 36964; spell -> creature from wago SpellEffect MiscValue (build 2.5.4.44833). Display 15880 is Wowhead TBC Classic's model for this NPC (invisible body; the weapon shows as its equipped item 30557, creature_equip_template). AzerothCore's creature_template_model display 26083 does not exist in the 2.5.4 client CreatureDisplayInfo."
+  },
+  {
+   "kind": "npc",
+   "id": 21362,
+   "name": "Phoenix",
+   "why": "Phase 4+ add that burns itself and the raid; when it dies it leaves an egg that must be killed within 15 s.",
+   "when": "phase 4 (first 50 s, then every 35-42 s) and phase 5 (first 50 s, then every 61-97 s)",
+   "display": 17765,
+   "scale": 1,
+   "positions": [],
+   "states": [
+    {
+     "name": "burning",
+     "look": "Phoenix with Burn 36720 (self-damaging fire aura).",
+     "spell": 36720,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts 2136200 id 5 (on spawn), 2136201 id 8 (after rebirth)"
+    },
+    {
+     "name": "reborn",
+     "look": "Rises from its egg with Rebirth 35369.",
+     "spell": 35369,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts 21364 id 0 -> 21362 id 7 -> script 2136201 id 3"
+    }
+   ],
+   "notes": "No fixed spot: spell 36723 summons it at a random point within 20 yd of Kael (wago SpellEffect 36723: target 73, radius index 9 = 20 yd); cast at boss_kaelthas.cpp L669 and L371."
+  },
+  {
+   "kind": "npc",
+   "id": 21364,
+   "name": "Phoenix Egg",
+   "why": "Left where a Phoenix dies; kill it within 15 s or the Phoenix is reborn at full health.",
+   "when": "where a Phoenix dies",
+   "display": 20245,
+   "scale": 1,
+   "positions": [],
+   "states": [],
+   "notes": "Summoned by the Phoenix at its own position at 0% HP (smart_scripts 21362 id 3); after 15 s it sets data on the Phoenix and despawns (21364 ids 0-1)."
+  },
+  {
+   "kind": "object",
+   "id": 184069,
+   "name": "Tempest Bridge Window",
+   "why": "The big window over Kael's room; it opens (shatters) during the 50% transition so phase 5 is fought under open space.",
+   "when": "pull (state flips at the 50% transition)",
+   "display": 7136,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 743.057,
+     "y": 4.634,
+     "z": 137.796,
+     "o": 3.142,
+     "source": "gameobject.sql guid 11154"
+    }
+   ],
+   "states": [
+    {
+     "name": "closed",
+     "look": "Window intact (GO state 1 = ready).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp Reset -> SetRoomState(GO_STATE_READY) L262; SetRoomState L236-246"
+    },
+    {
+     "name": "open",
+     "look": "Window broken open (GO state 0 = active), 17.5 s into the transition.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp ExecuteMiddleEvent EVENT_SCENE_7 L466-469"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "object",
+   "id": 184596,
+   "name": "Doodad_Kael_Explode_FX_Right01",
+   "why": "Right-side wall section that blows out during the 50% transition (same switch as the bridge window).",
+   "when": "pull (state flips at the 50% transition)",
+   "display": 7196,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 744.045,
+     "y": -44.635,
+     "z": 46.661,
+     "o": 3.142,
+     "source": "gameobject.sql guid 11158"
+    }
+   ],
+   "states": [
+    {
+     "name": "intact",
+     "look": "GO state 1 (ready).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp SetRoomState(GO_STATE_READY) L262 (GO_KAEL_STATUE_RIGHT)"
+    },
+    {
+     "name": "exploded",
+     "look": "GO state 0 (active), 17.5 s into the transition.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp SetRoomState(GO_STATE_ACTIVE) L468"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "object",
+   "id": 184597,
+   "name": "Doodad_Kael_Explode_FX_Left01",
+   "why": "Left-side wall section that blows out during the 50% transition.",
+   "when": "pull (state flips at the 50% transition)",
+   "display": 7197,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 744.045,
+     "y": 42.354,
+     "z": 46.661,
+     "o": 3.142,
+     "source": "gameobject.sql guid 11156"
+    }
+   ],
+   "states": [
+    {
+     "name": "intact",
+     "look": "GO state 1 (ready).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp SetRoomState(GO_STATE_READY) L262 (GO_KAEL_STATUE_LEFT)"
+    },
+    {
+     "name": "exploded",
+     "look": "GO state 0 (active), 17.5 s into the transition.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp SetRoomState(GO_STATE_ACTIVE) L468"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 19622,
+   "name": "Kael'thas Sunstrider",
+   "why": "Already on the starter page; added for his phase states. All his phase moves start and end at his spawn point.",
+   "when": "pull",
+   "display": 20023,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 795.408,
+     "y": -1.605,
+     "z": 48.812,
+     "o": 3.142,
+     "source": "creature.sql guid 158218",
+     "label": "throne / spawn point; P4 start, 50% transition and P5 all use this spot"
+    },
+    {
+     "map": 550,
+     "x": 795.408,
+     "y": -1.605,
+     "z": 75.0,
+     "o": 2.99,
+     "label": "50% transition: floating above the throne",
+     "source": "boss_kaelthas.cpp MoveTakeoff(POINT_AIR, x, y, 75.0) L437 (x,y = home after MovePoint(POINT_MIDDLE, home) L655)"
+    }
+   ],
+   "states": [
+    {
+     "name": "phases 1-3",
+     "look": "Stands at the throne, untargetable, while advisors and weapons fight.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp MoveInLineOfSight L273-288 (NON_ATTACKABLE | NOT_SELECTABLE | DISABLE_MOVE)"
+    },
+    {
+     "name": "phase 4",
+     "look": "Fights: Fireball, Flame Strike, Phoenix, Mind Control, Arcane Disruption.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp PhaseKaelExecute L636-695"
+    },
+    {
+     "name": "shock barrier",
+     "look": "Shield 36815 while casting 3 Pyroblasts (every ~50 s from 60 s).",
+     "spell": 36815,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp L681-694"
+    },
+    {
+     "name": "50% transition",
+     "look": "Walks to the throne, floats up to z 75 and grows (Grow 36184), drowned-float pose (36550), nether beams; windows blow out at 17.5 s; lands after ~36 s.",
+     "spell": 36091,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp ScheduleHealthCheckEvent(50) L647-657, ExecuteMiddleEvent L414-545 (Gaining Power 36091 L427, Netherbeam auras 36364/36370/36371 L445/L455/L464, Full Power 36187 L526, MoveLand L543; Floating Drowned 36550 in spell_kaelthas_kael_explodes L1168-1180)"
+    },
+    {
+     "name": "phase 5 gravity lapse",
+     "look": "Every 90 s (first 5 s after landing): Gravity Lapse 35941 floats the raid, Shock Barrier, 5 Nether Vapor clouds around him, Nether Beam every 4 s.",
+     "spell": 35941,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp MovementInform POINT_START_LAST_PHASE L336-412 (L377-385)"
+    }
+   ],
+   "notes": "Transition cosmetics not added: 6 beam triggers at triggersPos[] (boss_kaelthas.cpp L210-218) casting Netherbeam 36089/36090 at him (conditions -> 19622). Nether Vapor (21002) is summoned on a 6 yd ring around wherever Kael stands, z +7..+11 (spell_kaelthas_summon_nether_vapor L1106-1121), then wanders 20 yd: no fixed spot. Gravity Lapse teleports (35966-35990) use caster-relative DBC targets, not spell_target_position: no fixed spots. The 25 'World Trigger (Large AOI)' 22517 spawns in the room are not referenced by the script."
+  },
+  {
+   "kind": "npc",
+   "id": 20064,
+   "name": "Thaladred the Darkener",
+   "why": "Already on the starter page; added for the feign-death / resurrected states (1st advisor (fixates a random player)).",
+   "when": "pull",
+   "display": 20236,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 785.807,
+     "y": 19.486,
+     "z": 48.812,
+     "o": 3.979,
+     "source": "creature.sql guid 158219"
+    }
+   ],
+   "states": [
+    {
+     "name": "waiting",
+     "look": "Stands at his spot, not attackable, until Kael calls him.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp advisor_baseAI::JustRespawned L737-742 (NON_ATTACKABLE, passive) + IntroduceNewAdvisor L547-589"
+    },
+    {
+     "name": "fighting",
+     "look": "Active (phase 1, and again in phase 3).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp IntroduceNewAdvisor L578-588"
+    },
+    {
+     "name": "feign dead",
+     "look": "At 0 HP in phase 1 he does not die: lies dead (Permanent Feign Death 29266) until phase 3.",
+     "spell": 29266,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp advisor_baseAI::DamageTaken L746-762"
+    },
+    {
+     "name": "resurrected",
+     "look": "Phase 3: Kael's Resurrection 36450 stands him up at full health; attacks 6 s later.",
+     "spell": 36450,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp PhaseAllAdvisorsExecute L627, advisor_baseAI::SpellHit L764-787; conditions 13/3/36450 -> advisors"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 20060,
+   "name": "Lord Sanguinar",
+   "why": "Already on the starter page; added for the feign-death / resurrected states (2nd advisor (Bellowing Roar fear)).",
+   "when": "pull",
+   "display": 20178,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 785.782,
+     "y": -20.399,
+     "z": 48.812,
+     "o": 2.304,
+     "source": "creature.sql guid 158222"
+    }
+   ],
+   "states": [
+    {
+     "name": "waiting",
+     "look": "Stands at his spot, not attackable, until Kael calls him.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp advisor_baseAI::JustRespawned L737-742 (NON_ATTACKABLE, passive) + IntroduceNewAdvisor L547-589"
+    },
+    {
+     "name": "fighting",
+     "look": "Active (phase 1, and again in phase 3).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp IntroduceNewAdvisor L578-588"
+    },
+    {
+     "name": "feign dead",
+     "look": "At 0 HP in phase 1 he does not die: lies dead (Permanent Feign Death 29266) until phase 3.",
+     "spell": 29266,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp advisor_baseAI::DamageTaken L746-762"
+    },
+    {
+     "name": "resurrected",
+     "look": "Phase 3: Kael's Resurrection 36450 stands him up at full health; attacks 6 s later.",
+     "spell": 36450,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp PhaseAllAdvisorsExecute L627, advisor_baseAI::SpellHit L764-787; conditions 13/3/36450 -> advisors"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 20062,
+   "name": "Grand Astromancer Capernian",
+   "why": "Already on the starter page; added for the feign-death / resurrected states (3rd advisor (caster, Conflagration)).",
+   "when": "pull",
+   "display": 20237,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 792.408,
+     "y": -13.242,
+     "z": 48.812,
+     "o": 2.688,
+     "source": "creature.sql guid 158221"
+    }
+   ],
+   "states": [
+    {
+     "name": "waiting",
+     "look": "Stands at his spot, not attackable, until Kael calls him.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp advisor_baseAI::JustRespawned L737-742 (NON_ATTACKABLE, passive) + IntroduceNewAdvisor L547-589"
+    },
+    {
+     "name": "fighting",
+     "look": "Active (phase 1, and again in phase 3).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp IntroduceNewAdvisor L578-588"
+    },
+    {
+     "name": "feign dead",
+     "look": "At 0 HP in phase 1 he does not die: lies dead (Permanent Feign Death 29266) until phase 3.",
+     "spell": 29266,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp advisor_baseAI::DamageTaken L746-762"
+    },
+    {
+     "name": "resurrected",
+     "look": "Phase 3: Kael's Resurrection 36450 stands him up at full health; attacks 6 s later.",
+     "spell": 36450,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp PhaseAllAdvisorsExecute L627, advisor_baseAI::SpellHit L764-787; conditions 13/3/36450 -> advisors"
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "kind": "npc",
+   "id": 20063,
+   "name": "Master Engineer Telonicus",
+   "why": "Already on the starter page; added for the feign-death / resurrected states (4th advisor (bombs, Remote Toy)).",
+   "when": "pull",
+   "display": 20177,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 550,
+     "x": 792.725,
+     "y": 12.775,
+     "z": 48.812,
+     "o": 3.595,
+     "source": "creature.sql guid 158220"
+    }
+   ],
+   "states": [
+    {
+     "name": "waiting",
+     "look": "Stands at his spot, not attackable, until Kael calls him.",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp advisor_baseAI::JustRespawned L737-742 (NON_ATTACKABLE, passive) + IntroduceNewAdvisor L547-589"
+    },
+    {
+     "name": "fighting",
+     "look": "Active (phase 1, and again in phase 3).",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp IntroduceNewAdvisor L578-588"
+    },
+    {
+     "name": "feign dead",
+     "look": "At 0 HP in phase 1 he does not die: lies dead (Permanent Feign Death 29266) until phase 3.",
+     "spell": 29266,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp advisor_baseAI::DamageTaken L746-762"
+    },
+    {
+     "name": "resurrected",
+     "look": "Phase 3: Kael's Resurrection 36450 stands him up at full health; attacks 6 s later.",
+     "spell": 36450,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_kaelthas.cpp PhaseAllAdvisorsExecute L627, advisor_baseAI::SpellHit L764-787; conditions 13/3/36450 -> advisors"
+    }
+   ],
+   "notes": ""
+  }
+ ]
+}

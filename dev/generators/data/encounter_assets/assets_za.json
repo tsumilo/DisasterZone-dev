@@ -1,0 +1,1411 @@
+{
+ "ZulAman:Akilzon": [],
+ "ZulAman:Nalorakk": [
+  {
+   "kind": "npc",
+   "id": 23576,
+   "name": "Nalorakk",
+   "why": "Fight happens where his gauntlet run ends, not at his DB spawn; troll and bear form swap every 45 s / 30 s.",
+   "when": "pull",
+   "display": 21631,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": -80.072,
+     "y": 1295.78,
+     "z": 48.6,
+     "o": 1.54,
+     "source": "waypoint_data path 2357603 point 2 (MoveWaypoint(entry*100+3), boss_nalorakk.cpp line 179) + SetFacingTo(1.54f) line 182",
+     "role": "fight spot"
+    },
+    {
+     "map": 568,
+     "x": 16.962,
+     "y": 1414.6,
+     "z": 11.927,
+     "o": 6.2308,
+     "source": "creature.sql guid 86609",
+     "role": "DB spawn = first gauntlet stop, outside the fight's Z boundary 38-68"
+    }
+   ],
+   "states": [
+    {
+     "name": "troll",
+     "look": "troll form",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_nalorakk.cpp ShapeShift (lines 258-289)"
+    },
+    {
+     "name": "bear",
+     "look": "bear form (transform to 23759, display 21736)",
+     "spell": 42377,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_nalorakk.cpp DoCastSelf(SPELL_BEARFORM 42377) line 294; Spell 42377 eff0 aura 56 misc 23759; creature_template_model 23759"
+    }
+   ],
+   "notes": "Starter page probably uses guid 86609 (16.96, 1414.6, 11.93), which is the first trash-wave stop; instance_zulaman.cpp boundary for Nalorakk is ZRange 38-68 (line 92). Fight spot z is the waypoint value. No other fixed assets in this fight."
+  }
+ ],
+ "ZulAman:Janalai": [
+  {
+   "kind": "npc",
+   "id": 23817,
+   "name": "Dragonhawk Egg",
+   "why": "Egg clusters in the west and east side rooms; Hatchers hatch them, raid decides how many to let hatch / when to kill Hatchers; all left hatch at 35%.",
+   "when": "pull",
+   "display": 10056,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": -38.958,
+     "y": 1207.25,
+     "z": 18.795,
+     "o": 4.0666,
+     "source": "creature.sql guid 89228",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -39.536,
+     "y": 1213.3,
+     "z": 18.795,
+     "o": 5.585,
+     "source": "creature.sql guid 89301",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -38.576,
+     "y": 1218.68,
+     "z": 18.795,
+     "o": 4.9742,
+     "source": "creature.sql guid 89302",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -36.287,
+     "y": 1218.11,
+     "z": 18.795,
+     "o": 0.0349,
+     "source": "creature.sql guid 89316",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -39.727,
+     "y": 1216.09,
+     "z": 18.795,
+     "o": 5.585,
+     "source": "creature.sql guid 89317",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -39.364,
+     "y": 1209.73,
+     "z": 18.795,
+     "o": 0.5934,
+     "source": "creature.sql guid 89320",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -37.337,
+     "y": 1212.53,
+     "z": 18.795,
+     "o": 0.3142,
+     "source": "creature.sql guid 89321",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -36.44,
+     "y": 1209.93,
+     "z": 18.795,
+     "o": 0.3316,
+     "source": "creature.sql guid 89328",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -33.121,
+     "y": 1209.77,
+     "z": 18.795,
+     "o": 2.7751,
+     "source": "creature.sql guid 89343",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -28.085,
+     "y": 1214.22,
+     "z": 18.795,
+     "o": 3.3859,
+     "source": "creature.sql guid 89344",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -27.004,
+     "y": 1211.99,
+     "z": 18.795,
+     "o": 3.9444,
+     "source": "creature.sql guid 89345",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -29.865,
+     "y": 1211.38,
+     "z": 18.795,
+     "o": 2.9496,
+     "source": "creature.sql guid 89346",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -29.724,
+     "y": 1208.43,
+     "z": 18.795,
+     "o": 4.9393,
+     "source": "creature.sql guid 89347",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -34.059,
+     "y": 1207.23,
+     "z": 18.795,
+     "o": 4.6077,
+     "source": "creature.sql guid 89348",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -28.07,
+     "y": 1216.81,
+     "z": 18.795,
+     "o": 1.3963,
+     "source": "creature.sql guid 89349",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -30.43,
+     "y": 1216.39,
+     "z": 18.795,
+     "o": 4.9044,
+     "source": "creature.sql guid 89350",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -32.37,
+     "y": 1212.68,
+     "z": 18.795,
+     "o": 1.0472,
+     "source": "creature.sql guid 89351",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -32.078,
+     "y": 1218.55,
+     "z": 18.795,
+     "o": 5.6549,
+     "source": "creature.sql guid 89352",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -34.418,
+     "y": 1213.35,
+     "z": 18.795,
+     "o": 2.2689,
+     "source": "creature.sql guid 89353",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -32.762,
+     "y": 1215.33,
+     "z": 18.795,
+     "o": 2.81,
+     "source": "creature.sql guid 89354",
+     "side": "west"
+    },
+    {
+     "map": 568,
+     "x": -38.881,
+     "y": 1084.2,
+     "z": 18.795,
+     "o": 0.576,
+     "source": "creature.sql guid 89226",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -40.707,
+     "y": 1088.51,
+     "z": 18.795,
+     "o": 0.0175,
+     "source": "creature.sql guid 89227",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -38.28,
+     "y": 1088.14,
+     "z": 18.795,
+     "o": 1.2741,
+     "source": "creature.sql guid 89300",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -42.813,
+     "y": 1085.94,
+     "z": 18.795,
+     "o": 2.042,
+     "source": "creature.sql guid 89314",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -37.603,
+     "y": 1085.87,
+     "z": 18.795,
+     "o": 0.2967,
+     "source": "creature.sql guid 89315",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -39.796,
+     "y": 1081.47,
+     "z": 18.795,
+     "o": 2.7402,
+     "source": "creature.sql guid 89319",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -41.177,
+     "y": 1084.59,
+     "z": 18.795,
+     "o": 1.0647,
+     "source": "creature.sql guid 89323",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -40.001,
+     "y": 1090.55,
+     "z": 18.795,
+     "o": 1.117,
+     "source": "creature.sql guid 89332",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -33.664,
+     "y": 1087.02,
+     "z": 18.795,
+     "o": 0.9599,
+     "source": "creature.sql guid 89333",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -36.243,
+     "y": 1088.15,
+     "z": 18.795,
+     "o": 1.7279,
+     "source": "creature.sql guid 89334",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -31.039,
+     "y": 1088.33,
+     "z": 18.795,
+     "o": 2.7053,
+     "source": "creature.sql guid 89335",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -35.035,
+     "y": 1084.92,
+     "z": 18.795,
+     "o": 5.2185,
+     "source": "creature.sql guid 89336",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -28.42,
+     "y": 1082.09,
+     "z": 18.795,
+     "o": 4.0143,
+     "source": "creature.sql guid 89337",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -30.515,
+     "y": 1084.72,
+     "z": 18.795,
+     "o": 1.7977,
+     "source": "creature.sql guid 89338",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -34.057,
+     "y": 1082.02,
+     "z": 18.795,
+     "o": 2.6704,
+     "source": "creature.sql guid 89339",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -31.665,
+     "y": 1081.88,
+     "z": 18.795,
+     "o": 6.1785,
+     "source": "creature.sql guid 89340",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -33.593,
+     "y": 1090.16,
+     "z": 18.795,
+     "o": 5.1313,
+     "source": "creature.sql guid 89341",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -29.176,
+     "y": 1090.27,
+     "z": 18.795,
+     "o": 0.6807,
+     "source": "creature.sql guid 89342",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -26.575,
+     "y": 1084.44,
+     "z": 18.795,
+     "o": 2.7925,
+     "source": "creature.sql guid 89355",
+     "side": "east"
+    },
+    {
+     "map": 568,
+     "x": -27.205,
+     "y": 1087.54,
+     "z": 18.795,
+     "o": 1.7628,
+     "source": "creature.sql guid 89356",
+     "side": "east"
+    }
+   ],
+   "states": [
+    {
+     "name": "intact",
+     "look": "unhatched egg standing (model anim 0 Stand)",
+     "spell": null,
+     "beamTo": null,
+     "anim": 0,
+     "source": "creature.sql spawns (alive); boss_janalai.cpp Reset() HatchAllEggs(HATCH_RESET) respawns every egg (line 128, 256-257)"
+    },
+    {
+     "name": "hatched",
+     "look": "egg corpse: hatchling 23598 spawns on the egg and the egg dies (Death anim held; Dead 6 falls back to Death 1)",
+     "spell": 42493,
+     "beamTo": null,
+     "anim": 1,
+     "source": "smart_scripts 23817 id 0/1: on spellhit 42471 (Hatcher) or 43144 (Jan'alai Hatch All) cast 42493; Spell 42493 eff0 SUMMON 23598 at caster, eff1 INSTAKILL self (wago.tools SpellEffect 2.5.5); egg model FileDataID 123722 has sequences 0, 1, 157; AnimationData 6 Fallback=1"
+    }
+   ],
+   "notes": "20 west (y 1207-1219) + 20 east (y 1082-1091), all z 18.79 (WoW axes: +x north, +y west). Jan'alai only respawns eggs within 100 y of himself on reset (line 250). The hatchling (Amani Dragonhawk Hatchling 23598, display 17546) spawns at the egg spot, then runs toward the platform (JustSummoned, line 160-166)."
+  },
+  {
+   "kind": "npc",
+   "id": 23818,
+   "name": "Amani'shi Hatcher",
+   "why": "Runs up the ramp to an egg room and hatches eggs; raid kills or ignores them to control how many hatchlings spawn.",
+   "when": "10 s after pull, then every 90 s (one per side; two on the side with eggs left once a side is empty)",
+   "display": 22303,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": -87.46,
+     "y": 1170.09,
+     "z": 6.0,
+     "o": 0.0,
+     "source": "boss_janalai.cpp hatcherway[0][0] (line 91), SummonCreature line 203/208",
+     "side": "west-side spawn (y > 1150)"
+    },
+    {
+     "map": 568,
+     "x": -86.57,
+     "y": 1132.85,
+     "z": 6.0,
+     "o": 0.0,
+     "source": "boss_janalai.cpp hatcherway[1][0] (line 98), SummonCreature line 198/209",
+     "side": "east-side spawn (y < 1150)"
+    }
+   ],
+   "route": {
+    "west": [
+     {
+      "x": -87.46,
+      "y": 1170.09,
+      "z": 6.0,
+      "source": "boss_janalai.cpp hatcherway[0][0] (line 91)"
+     },
+     {
+      "x": -74.41,
+      "y": 1154.75,
+      "z": 6.0,
+      "source": "boss_janalai.cpp hatcherway[0][1] (line 92)"
+     },
+     {
+      "x": -52.74,
+      "y": 1153.32,
+      "z": 19.0,
+      "source": "boss_janalai.cpp hatcherway[0][2] (line 93)"
+     },
+     {
+      "x": -33.37,
+      "y": 1172.46,
+      "z": 19.0,
+      "source": "boss_janalai.cpp hatcherway[0][3] (line 94)"
+     },
+     {
+      "x": -33.09,
+      "y": 1203.87,
+      "z": 19.0,
+      "source": "boss_janalai.cpp hatcherway[0][4] (line 95)"
+     }
+    ],
+    "east": [
+     {
+      "x": -86.57,
+      "y": 1132.85,
+      "z": 6.0,
+      "source": "boss_janalai.cpp hatcherway[1][0] (line 98)"
+     },
+     {
+      "x": -73.94,
+      "y": 1146.0,
+      "z": 6.0,
+      "source": "boss_janalai.cpp hatcherway[1][1] (line 99)"
+     },
+     {
+      "x": -52.29,
+      "y": 1146.51,
+      "z": 19.0,
+      "source": "boss_janalai.cpp hatcherway[1][2] (line 100)"
+     },
+     {
+      "x": -33.57,
+      "y": 1125.72,
+      "z": 19.0,
+      "source": "boss_janalai.cpp hatcherway[1][3] (line 101)"
+     },
+     {
+      "x": -34.29,
+      "y": 1095.22,
+      "z": 19.0,
+      "source": "boss_janalai.cpp hatcherway[1][4] (line 102)"
+     }
+    ]
+   },
+   "states": [
+    {
+     "name": "running",
+     "look": "walking the waypoint route",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_janalai.cpp npc_janalai_hatcher MovementInform/MoveToNewWaypoint (lines 386-430)"
+    },
+    {
+     "name": "hatching",
+     "look": "standing at hatcherway[side][4], casting Hatch Eggs every 5 s (1 egg, then 2, 3 ...)",
+     "spell": 42471,
+     "beamTo": "Dragonhawk Egg",
+     "anim": null,
+     "source": "boss_janalai.cpp lines 388-399 (CastCustomSpell SPELL_HATCH_EGG_ALL 42471, MAX_TARGETS = _repeatCount)"
+    }
+   ],
+   "notes": "Second model 22304 (creature_template_model 23818 idx 1). Waypoint z values are the script literals (6 / 19), not ground-snapped. When its side is empty it walks to the other side (waypoints [3] then [4] of the other route, lines 406-409). Spell 42471 is eff0 DUMMY on eggs in a radius + eff1 SCRIPT (wago.tools SpellEffect), so no beam visual is sourced; beamTo only names its targets."
+  },
+  {
+   "kind": "npc",
+   "id": 23920,
+   "name": "Fire Wall (Fire Bomb trigger)",
+   "why": "Fire walls block the 4 platform exits during every Fire Bomb, trapping the raid on the bombed platform.",
+   "when": "each Fire Bomb: first at 30 s, then every 20-40 s (despawn 15 s, aura removed at the 11 s Boom)",
+   "display": 11686,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": -10.13,
+     "y": 1144.27,
+     "z": 19,
+     "o": 3.1415,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[0] (line 82) segment j=0 (y + 5*(j-1))",
+     "wall": "north (Jan'alai spawn side)"
+    },
+    {
+     "map": 568,
+     "x": -10.13,
+     "y": 1149.27,
+     "z": 19,
+     "o": 3.1415,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[0] (line 82) segment j=1 (y + 5*(j-1))",
+     "wall": "north (Jan'alai spawn side)"
+    },
+    {
+     "map": 568,
+     "x": -10.13,
+     "y": 1154.27,
+     "z": 19,
+     "o": 3.1415,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[0] (line 82) segment j=2 (y + 5*(j-1))",
+     "wall": "north (Jan'alai spawn side)"
+    },
+    {
+     "map": 568,
+     "x": -35.93,
+     "y": 1123.9,
+     "z": 19,
+     "o": 1.5708,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[1] (line 83) segment j=0 (x - 2 + 4*j)",
+     "wall": "east exit (to east egg room)"
+    },
+    {
+     "map": 568,
+     "x": -31.93,
+     "y": 1123.9,
+     "z": 19,
+     "o": 1.5708,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[1] (line 83) segment j=1 (x - 2 + 4*j)",
+     "wall": "east exit (to east egg room)"
+    },
+    {
+     "map": 568,
+     "x": -54.8,
+     "y": 1145.08,
+     "z": 19,
+     "o": 0.0,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[2] (line 84) segment j=0 (y + 5*(j-1))",
+     "wall": "south (top of the entrance ramps)"
+    },
+    {
+     "map": 568,
+     "x": -54.8,
+     "y": 1150.08,
+     "z": 19,
+     "o": 0.0,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[2] (line 84) segment j=1 (y + 5*(j-1))",
+     "wall": "south (top of the entrance ramps)"
+    },
+    {
+     "map": 568,
+     "x": -54.8,
+     "y": 1155.08,
+     "z": 19,
+     "o": 0.0,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[2] (line 84) segment j=2 (y + 5*(j-1))",
+     "wall": "south (top of the entrance ramps)"
+    },
+    {
+     "map": 568,
+     "x": -35.93,
+     "y": 1175.68,
+     "z": 19,
+     "o": 4.7123,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[3] (line 85) segment j=0 (x - 2 + 4*j)",
+     "wall": "west exit (to west egg room)"
+    },
+    {
+     "map": 568,
+     "x": -31.93,
+     "y": 1175.68,
+     "z": 19,
+     "o": 4.7123,
+     "source": "boss_janalai.cpp FireWall(): fireWallCoords[3] (line 85) segment j=1 (x - 2 + 4*j)",
+     "wall": "west exit (to west egg room)"
+    }
+   ],
+   "states": [
+    {
+     "name": "burning",
+     "look": "wall of fire",
+     "spell": 43113,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_janalai.cpp FireWall() wall->AI()->DoCastSelf(SPELL_FIRE_WALL 43113) line 281"
+    },
+    {
+     "name": "out",
+     "look": "aura removed (invisible trigger)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_janalai.cpp Boom() (lines 297-309) runs RemoveAllAuras on every NPC_FIRE_BOMB summon, which includes the wall segments, 11 s after the bomb cast (line 330)"
+    }
+   ],
+   "notes": "Invisible trigger models 169/11686 (creature_template_model 23920); the visual is aura 43113 (periodic trigger 43114). North and south walls are 3 segments 5 y apart along Y, east and west walls are 2 segments 4 y apart along X. 4 DB World Triggers (21252, guids 86474-86478) stand near the same 4 exits but no script uses them."
+  },
+  {
+   "kind": "npc",
+   "id": 23920,
+   "name": "Fire Bomb area",
+   "why": "Jan'alai throws 40 bombs onto random spots inside this fixed rectangle; raid must find gaps before they explode.",
+   "when": "each Fire Bomb (30 s, then every 20-40 s); explode 11 s after the cast",
+   "display": 11686,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": -33.93,
+     "y": 1149.27,
+     "z": 19.0,
+     "o": 0.0,
+     "source": "boss_janalai.cpp janalainPos (line 78): SpawnBombs() offsets from Jan'alai after SetPosition(janalainPos) (lines 316, 286-295)",
+     "role": "area centre"
+    }
+   ],
+   "area": {
+    "shape": "rect",
+    "xMin": -55.93,
+    "xMax": -11.93,
+    "yMin": 1124.27,
+    "yMax": 1174.27,
+    "z": 19.0,
+    "source": "boss_janalai.cpp area_dx=44, area_dy=51 (lines 75-76); dx = irand(-22,22), dy = irand(-25,25) whole yards around janalainPos (lines 291-293)"
+   },
+   "states": [
+    {
+     "name": "thrown",
+     "look": "bomb thrown from Jan'alai onto the spot",
+     "spell": 42628,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_janalai.cpp ThrowBombs() DoCast(bomb, SPELL_FIRE_BOMB_THROW 42628), 0.1 s apart (lines 339-357)"
+    },
+    {
+     "name": "lit",
+     "look": "bomb on the ground",
+     "spell": 42629,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts 23920 id 1: on spellhit 42628 cast 42629"
+    },
+    {
+     "name": "explode",
+     "look": "explosion",
+     "spell": 42630,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_janalai.cpp Boom() DoCastSelf(SPELL_FIRE_BOMB_DAMAGE 42630) + RemoveAllAuras (lines 297-309)"
+    }
+   ],
+   "notes": "Individual bomb spots are random each cast (40 per cast, MAX_BOMB_COUNT line 114); only the rectangle is fixed. Players outside a 22x28x28 box around Jan'alai are summoned in (spell 43096/43097, lines 457-469)."
+  },
+  {
+   "kind": "npc",
+   "id": 23578,
+   "name": "Jan'alai",
+   "why": "He jumps to the platform centre for every Fire Bomb and again at 35% (Hatch All), so the tank spot resets there.",
+   "when": "Fire Bomb and 35%",
+   "display": 21633,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": -33.93,
+     "y": 1149.27,
+     "z": 19.0,
+     "o": 0.0,
+     "source": "boss_janalai.cpp janalainPos (line 78), SetPosition in StartBombing (line 316) and the 35% event (line 136)",
+     "role": "bomb / hatch-all spot"
+    },
+    {
+     "map": 568,
+     "x": -18.642,
+     "y": 1150.46,
+     "z": 18.795,
+     "o": 3.194,
+     "source": "creature.sql guid 89322",
+     "role": "spawn (out of combat)"
+    }
+   ],
+   "states": [
+    {
+     "name": "bombing",
+     "look": "channeling at the centre while bombs land",
+     "spell": 42621,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_janalai.cpp StartBombing DoCastSelf(SPELL_FIRE_BOMB_CHANNEL 42621) line 318, removed after 11 s (line 335)"
+    },
+    {
+     "name": "hatch all",
+     "look": "casts Hatch All at the centre, every remaining egg hatches",
+     "spell": 43144,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_janalai.cpp ScheduleHealthCheckEvent(35) DoCastAOE(SPELL_HATCH_ALL) line 138"
+    }
+   ],
+   "notes": "Self-teleport spell 43098 targets (-34.316, 1149.64, 19.155) per spell_target_position (ID 43098), almost the same as janalainPos."
+  }
+ ],
+ "ZulAman:Halazzi": [
+  {
+   "kind": "npc",
+   "id": 23577,
+   "name": "Halazzi",
+   "why": "At 75/50/25% he splits into a troll plus the Spirit of the Lynx, then merges back.",
+   "when": "75%, 50%, 25%",
+   "display": 21632,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 370.257,
+     "y": 1135.74,
+     "z": 6.549,
+     "o": 4.7648,
+     "source": "creature.sql guid 86195"
+    }
+   ],
+   "states": [
+    {
+     "name": "merged",
+     "look": "Halazzi with the lynx (entry 23577, display 21632)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_halazzi.cpp Reset/EnterPhase(PHASE_LYNX) UpdateEntry(NPC_HALAZZI) (lines 93, 160); re-merge spells 43145/43271/43272 transform to 23577"
+    },
+    {
+     "name": "split",
+     "look": "troll only (entry 24144, display 22348); Spirit of the Lynx 24143 (display 20808) fights separately",
+     "spell": 43615,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_halazzi.cpp SpellHit SPELL_TRANSFORM_DUMMY 43615 -> UpdateEntry(24144) (lines 128-132); smart_scripts 24143 id 4 casts 43615 on summon"
+    }
+   ],
+   "notes": "Spirit of the Lynx is summoned by 43143 at a random spot (TARGET_DEST_DEST_RANDOM) and the Corrupted Lightning Totem (24224) at Halazzi, so neither has a fixed spot."
+  }
+ ],
+ "ZulAman:Malacrass": [
+  {
+   "kind": "npc",
+   "id": 24241,
+   "name": "Thurg",
+   "why": "One of Malacrass's 4 adds standing in a row with him; raid assigns kill order / CC per slot.",
+   "when": "pull (spawned on reset, attack with him)",
+   "display": 20017,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 128.484,
+     "y": 923.043,
+     "z": 33.973,
+     "o": 1.5882,
+     "source": "boss_hexlord.cpp AddPosition[0] (line 119)",
+     "slot": 1
+    }
+   ],
+   "states": [],
+   "notes": "Slot 1 holds either Thurg (24241) or Alyson Antille (24240), picked at random (urand(0,1)) on the first reset and kept for that instance (boss_hexlord.cpp AddEntrySets[0], lines 127, 255-270)."
+  },
+  {
+   "kind": "npc",
+   "id": 24240,
+   "name": "Alyson Antille",
+   "why": "One of Malacrass's 4 adds standing in a row with him; raid assigns kill order / CC per slot.",
+   "when": "pull (spawned on reset, attack with him)",
+   "display": 22230,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 128.484,
+     "y": 923.043,
+     "z": 33.973,
+     "o": 1.5882,
+     "source": "boss_hexlord.cpp AddPosition[0] (line 119)",
+     "slot": 1
+    }
+   ],
+   "states": [],
+   "notes": "Slot 1 holds either Alyson Antille (24240) or Thurg (24241), picked at random (urand(0,1)) on the first reset and kept for that instance (boss_hexlord.cpp AddEntrySets[0], lines 127, 255-270)."
+  },
+  {
+   "kind": "npc",
+   "id": 24243,
+   "name": "Lord Raadan",
+   "why": "One of Malacrass's 4 adds standing in a row with him; raid assigns kill order / CC per slot.",
+   "when": "pull (spawned on reset, attack with him)",
+   "display": 22327,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 122.605,
+     "y": 923.245,
+     "z": 33.973,
+     "o": 1.5708,
+     "source": "boss_hexlord.cpp AddPosition[1] (line 120)",
+     "slot": 2
+    }
+   ],
+   "states": [],
+   "notes": "Slot 2 holds either Lord Raadan (24243) or Slither (24242), picked at random (urand(0,1)) on the first reset and kept for that instance (boss_hexlord.cpp AddEntrySets[1], lines 128, 255-270)."
+  },
+  {
+   "kind": "npc",
+   "id": 24242,
+   "name": "Slither",
+   "why": "One of Malacrass's 4 adds standing in a row with him; raid assigns kill order / CC per slot.",
+   "when": "pull (spawned on reset, attack with him)",
+   "display": 14559,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 122.605,
+     "y": 923.245,
+     "z": 33.973,
+     "o": 1.5708,
+     "source": "boss_hexlord.cpp AddPosition[1] (line 120)",
+     "slot": 2
+    }
+   ],
+   "states": [],
+   "notes": "Slot 2 holds either Slither (24242) or Lord Raadan (24243), picked at random (urand(0,1)) on the first reset and kept for that instance (boss_hexlord.cpp AddEntrySets[1], lines 128, 255-270)."
+  },
+  {
+   "kind": "npc",
+   "id": 24244,
+   "name": "Gazakroth",
+   "why": "One of Malacrass's 4 adds standing in a row with him; raid assigns kill order / CC per slot.",
+   "when": "pull (spawned on reset, attack with him)",
+   "display": 19618,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 111.693,
+     "y": 923.153,
+     "z": 33.973,
+     "o": 1.5708,
+     "source": "boss_hexlord.cpp AddPosition[2] (line 121)",
+     "slot": 3
+    }
+   ],
+   "states": [],
+   "notes": "Slot 3 holds either Gazakroth (24244) or Fenstalker (24245), picked at random (urand(0,1)) on the first reset and kept for that instance (boss_hexlord.cpp AddEntrySets[2], lines 129, 255-270)."
+  },
+  {
+   "kind": "npc",
+   "id": 24245,
+   "name": "Fenstalker",
+   "why": "One of Malacrass's 4 adds standing in a row with him; raid assigns kill order / CC per slot.",
+   "when": "pull (spawned on reset, attack with him)",
+   "display": 22336,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 111.693,
+     "y": 923.153,
+     "z": 33.973,
+     "o": 1.5708,
+     "source": "boss_hexlord.cpp AddPosition[2] (line 121)",
+     "slot": 3
+    }
+   ],
+   "states": [],
+   "notes": "Slot 3 holds either Fenstalker (24245) or Gazakroth (24244), picked at random (urand(0,1)) on the first reset and kept for that instance (boss_hexlord.cpp AddEntrySets[2], lines 129, 255-270)."
+  },
+  {
+   "kind": "npc",
+   "id": 24246,
+   "name": "Darkheart",
+   "why": "One of Malacrass's 4 adds standing in a row with him; raid assigns kill order / CC per slot.",
+   "when": "pull (spawned on reset, attack with him)",
+   "display": 22335,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 105.403,
+     "y": 923.342,
+     "z": 33.973,
+     "o": 1.5533,
+     "source": "boss_hexlord.cpp AddPosition[3] (line 122)",
+     "slot": 4
+    }
+   ],
+   "states": [],
+   "notes": "Slot 4 holds either Darkheart (24246) or Koragg (24247), picked at random (urand(0,1)) on the first reset and kept for that instance (boss_hexlord.cpp AddEntrySets[3], lines 130, 255-270)."
+  },
+  {
+   "kind": "npc",
+   "id": 24247,
+   "name": "Koragg",
+   "why": "One of Malacrass's 4 adds standing in a row with him; raid assigns kill order / CC per slot.",
+   "when": "pull (spawned on reset, attack with him)",
+   "display": 22337,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 105.403,
+     "y": 923.342,
+     "z": 33.973,
+     "o": 1.5533,
+     "source": "boss_hexlord.cpp AddPosition[3] (line 122)",
+     "slot": 4
+    }
+   ],
+   "states": [],
+   "notes": "Slot 4 holds either Koragg (24247) or Darkheart (24246), picked at random (urand(0,1)) on the first reset and kept for that instance (boss_hexlord.cpp AddEntrySets[3], lines 130, 255-270)."
+  },
+  {
+   "kind": "npc",
+   "id": 24239,
+   "name": "Hex Lord Malacrass",
+   "why": "Spirit Bolts channel every 40 s, then Siphon Soul picks a player whose class abilities he copies.",
+   "when": "Spirit Bolts 30 s after pull, then every 40 s",
+   "display": 22332,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 117.363,
+     "y": 923.569,
+     "z": 33.973,
+     "o": 1.5882,
+     "source": "creature.sql guid 89357"
+    }
+   ],
+   "states": [
+    {
+     "name": "Spirit Bolts",
+     "look": "channel (periodic trigger 43382)",
+     "spell": 43383,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_hexlord.cpp DoCastSelf(SPELL_SPIRIT_BOLTS) line 285"
+    },
+    {
+     "name": "Siphon Soul",
+     "look": "beam from an invisible trigger on Malacrass (display 11686, follows him) to a random player within 70 y",
+     "spell": 43501,
+     "beamTo": "random player",
+     "anim": null,
+     "source": "boss_hexlord.cpp lines 294-303 (10 s after Spirit Bolts)"
+    }
+   ],
+   "notes": "Same DB spawn as the starter page; listed only for its states."
+  }
+ ],
+ "ZulAman:Zuljin": [
+  {
+   "kind": "npc",
+   "id": 23877,
+   "name": "Amani Lynx Spirit",
+   "why": "Fixed spirit at the arena edge; it drains into Zul'jin at 40% to give him the lynx form, telling the raid which phase comes next.",
+   "when": "pull (summoned on engage)",
+   "display": 21793,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 147.87,
+     "y": 706.51,
+     "z": 45.11,
+     "o": 3.04,
+     "source": "boss_zuljin.cpp SpiritInfo[0] (line 115)"
+    }
+   ],
+   "states": [
+    {
+     "name": "idle",
+     "look": "spirit with the Zul'Aman spirit effect",
+     "spell": 42466,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp SpawnAdds() CastSpell(SPELL_SPIRIT_AURA 42466) 1 s after summon (lines 297-301)"
+    },
+    {
+     "name": "draining",
+     "look": "channels Spirit Drain into Zul'jin while he stands at the centre and takes the lynx form",
+     "spell": 42542,
+     "beamTo": "Zul'jin",
+     "anim": null,
+     "source": "boss_zuljin.cpp MovementInform: spirit->CastSpell(me, SPELL_SPIRIT_DRAIN) (line 312); Transform[] order (lines 129-135); health checks lines 178/192/197/228"
+    },
+    {
+     "name": "dead",
+     "look": "lies dead (stand state dead) once the next form starts",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp lines 316-321: previous spirit CastStop + UNIT_FIELD_BYTES_1 = UNIT_STAND_STATE_DEAD"
+    }
+   ],
+   "notes": "Not attackable in practice (script never fights them). Display from creature_template_model; CreatureDisplayInfo gives the model its own 1.75-3x scale and alpha 160."
+  },
+  {
+   "kind": "npc",
+   "id": 23879,
+   "name": "Amani Dragonhawk Spirit",
+   "why": "Fixed spirit at the arena edge; it drains into Zul'jin at 20% to give him the dragonhawk form, telling the raid which phase comes next.",
+   "when": "pull (summoned on engage)",
+   "display": 21831,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 88.95,
+     "y": 705.49,
+     "z": 45.11,
+     "o": 6.11,
+     "source": "boss_zuljin.cpp SpiritInfo[1] (line 116)"
+    }
+   ],
+   "states": [
+    {
+     "name": "idle",
+     "look": "spirit with the Zul'Aman spirit effect",
+     "spell": 42466,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp SpawnAdds() CastSpell(SPELL_SPIRIT_AURA 42466) 1 s after summon (lines 297-301)"
+    },
+    {
+     "name": "draining",
+     "look": "channels Spirit Drain into Zul'jin while he stands at the centre and takes the dragonhawk form",
+     "spell": 42542,
+     "beamTo": "Zul'jin",
+     "anim": null,
+     "source": "boss_zuljin.cpp MovementInform: spirit->CastSpell(me, SPELL_SPIRIT_DRAIN) (line 312); Transform[] order (lines 129-135); health checks lines 178/192/197/228"
+    }
+   ],
+   "notes": "Not attackable in practice (script never fights them). Display from creature_template_model; CreatureDisplayInfo gives the model its own 1.75-3x scale and alpha 160. Last form: the script never sets this spirit dead."
+  },
+  {
+   "kind": "npc",
+   "id": 23878,
+   "name": "Amani Bear Spirit",
+   "why": "Fixed spirit at the arena edge; it drains into Zul'jin at 80% to give him the bear form, telling the raid which phase comes next.",
+   "when": "pull (summoned on engage)",
+   "display": 21830,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 137.23,
+     "y": 725.98,
+     "z": 45.11,
+     "o": 3.71,
+     "source": "boss_zuljin.cpp SpiritInfo[2] (line 117)"
+    }
+   ],
+   "states": [
+    {
+     "name": "idle",
+     "look": "spirit with the Zul'Aman spirit effect",
+     "spell": 42466,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp SpawnAdds() CastSpell(SPELL_SPIRIT_AURA 42466) 1 s after summon (lines 297-301)"
+    },
+    {
+     "name": "draining",
+     "look": "channels Spirit Drain into Zul'jin while he stands at the centre and takes the bear form",
+     "spell": 42542,
+     "beamTo": "Zul'jin",
+     "anim": null,
+     "source": "boss_zuljin.cpp MovementInform: spirit->CastSpell(me, SPELL_SPIRIT_DRAIN) (line 312); Transform[] order (lines 129-135); health checks lines 178/192/197/228"
+    },
+    {
+     "name": "dead",
+     "look": "lies dead (stand state dead) once the next form starts",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp lines 316-321: previous spirit CastStop + UNIT_FIELD_BYTES_1 = UNIT_STAND_STATE_DEAD"
+    }
+   ],
+   "notes": "Not attackable in practice (script never fights them). Display from creature_template_model; CreatureDisplayInfo gives the model its own 1.75-3x scale and alpha 160."
+  },
+  {
+   "kind": "npc",
+   "id": 23880,
+   "name": "Amani Eagle Spirit",
+   "why": "Fixed spirit at the arena edge; it drains into Zul'jin at 60% to give him the eagle form, telling the raid which phase comes next.",
+   "when": "pull (summoned on engage)",
+   "display": 22256,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 104.29,
+     "y": 726.43,
+     "z": 45.11,
+     "o": 5.43,
+     "source": "boss_zuljin.cpp SpiritInfo[3] (line 118)"
+    }
+   ],
+   "states": [
+    {
+     "name": "idle",
+     "look": "spirit with the Zul'Aman spirit effect",
+     "spell": 42466,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp SpawnAdds() CastSpell(SPELL_SPIRIT_AURA 42466) 1 s after summon (lines 297-301)"
+    },
+    {
+     "name": "draining",
+     "look": "channels Spirit Drain into Zul'jin while he stands at the centre and takes the eagle form",
+     "spell": 42542,
+     "beamTo": "Zul'jin",
+     "anim": null,
+     "source": "boss_zuljin.cpp MovementInform: spirit->CastSpell(me, SPELL_SPIRIT_DRAIN) (line 312); Transform[] order (lines 129-135); health checks lines 178/192/197/228"
+    },
+    {
+     "name": "dead",
+     "look": "lies dead (stand state dead) once the next form starts",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp lines 316-321: previous spirit CastStop + UNIT_FIELD_BYTES_1 = UNIT_STAND_STATE_DEAD"
+    }
+   ],
+   "notes": "Not attackable in practice (script never fights them). Display from creature_template_model; CreatureDisplayInfo gives the model its own 1.75-3x scale and alpha 160."
+  },
+  {
+   "kind": "npc",
+   "id": 23863,
+   "name": "Zul'jin",
+   "why": "At 80/60/40/20% he walks to the arena centre, gets drained by a spirit and changes form; in eagle form he stays at the centre the whole phase.",
+   "when": "each transition (80/60/40/20%) and all of eagle phase",
+   "display": 21899,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 120.149,
+     "y": 703.714,
+     "z": 45.111,
+     "o": 0.0,
+     "source": "boss_zuljin.cpp CenterPosition (line 105); MovePoint(POINT_CENTER) in EnterPhase (line 357)",
+     "role": "transition / eagle-phase spot"
+    },
+    {
+     "map": 568,
+     "x": 119.981,
+     "y": 674.245,
+     "z": 51.825,
+     "o": 1.4661,
+     "source": "creature.sql guid 89358",
+     "role": "spawn on his platform (out of combat)"
+    }
+   ],
+   "states": [
+    {
+     "name": "troll",
+     "look": "troll form with axe (virtual item 33975)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp Reset() line 144"
+    },
+    {
+     "name": "bear",
+     "look": "bear form (transform to 23759, display 21736)",
+     "spell": 42594,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp Transform[0] (line 131); Spell 42594 eff0 aura 56 misc 23759; creature_template_model 23759"
+    },
+    {
+     "name": "eagle",
+     "look": "eagle form at the centre, Energy Storm aura on the raid, 4 Feather Vortexes (random movers)",
+     "spell": 42606,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp Transform[1] (line 132), lines 329-335 (SetCombatMovement false, Energy Storm 43983, Summon Cyclone 43112); Spell 42606 aura 56 misc 23913 -> display 22257"
+    },
+    {
+     "name": "lynx",
+     "look": "lynx form (transform to 23914, display 21907)",
+     "spell": 42607,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp Transform[2] (line 133); Spell 42607 aura 56 misc 23914"
+    },
+    {
+     "name": "dragonhawk",
+     "look": "dragonhawk form (transform to 23912, display 21901); Columns of Fire on random players",
+     "spell": 42608,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_zuljin.cpp Transform[3] (line 134); Spell 42608 aura 56 misc 23912"
+    }
+   ],
+   "notes": "Feather Vortex (24136) and Column of Fire (24187) spawn on random players, so they are not placed."
+  },
+  {
+   "kind": "npc",
+   "id": 23889,
+   "name": "Amani'shi Savage",
+   "why": "8 Savages in two rows of 4 on the arena floor in front of Zul'jin, formation-linked to him: they pull with him.",
+   "when": "pull",
+   "display": 22322,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 568,
+     "x": 103.164,
+     "y": 688.263,
+     "z": 45.111,
+     "o": 1.5598,
+     "source": "creature.sql guid 10560"
+    },
+    {
+     "map": 568,
+     "x": 106.105,
+     "y": 688.231,
+     "z": 45.111,
+     "o": 1.5598,
+     "source": "creature.sql guid 11906"
+    },
+    {
+     "map": 568,
+     "x": 108.831,
+     "y": 688.201,
+     "z": 45.111,
+     "o": 1.5598,
+     "source": "creature.sql guid 12404"
+    },
+    {
+     "map": 568,
+     "x": 111.764,
+     "y": 688.095,
+     "z": 45.111,
+     "o": 1.5386,
+     "source": "creature.sql guid 12922"
+    },
+    {
+     "map": 568,
+     "x": 128.088,
+     "y": 688.424,
+     "z": 45.111,
+     "o": 1.546,
+     "source": "creature.sql guid 4915"
+    },
+    {
+     "map": 568,
+     "x": 131.498,
+     "y": 688.34,
+     "z": 45.111,
+     "o": 1.546,
+     "source": "creature.sql guid 9252"
+    },
+    {
+     "map": 568,
+     "x": 134.597,
+     "y": 688.33,
+     "z": 45.111,
+     "o": 1.5186,
+     "source": "creature.sql guid 12924"
+    },
+    {
+     "map": 568,
+     "x": 137.566,
+     "y": 688.175,
+     "z": 45.111,
+     "o": 1.5186,
+     "source": "creature.sql guid 12923"
+    }
+   ],
+   "states": [],
+   "notes": "creature_formations leader 89358 (Zul'jin), members 4915/9252/10560/11906/12404/12922/12923/12924, groupAI 27 (members assist leader + leader assists members + respawn on evade). boss_zuljin.cpp Reset() RespawnFormation and EnterEvadeMode despawn the group (lines 149-150, 248-261), added by AC PR #20900. Trash-type NPCs: drop them if the board leaves trash out. Display is random among 22322-22325 (creature_template_model 23889 idx 0-3)."
+  },
+  {
+   "kind": "object",
+   "id": 186859,
+   "name": "Doodad_ZulAman_FireDoor01 (Zul'jin fire wall)",
+   "why": "Fire wall that seals the arena entrance while Zul'jin is engaged; nobody gets in or out mid-fight.",
+   "when": "pull (closes while the encounter is IN_PROGRESS)",
+   "display": 7531,
+   "scale": 1.2,
+   "positions": [
+    {
+     "map": 568,
+     "x": 120.294,
+     "y": 732.008,
+     "z": 45.011,
+     "o": 1.5621,
+     "source": "gameobject.sql guid 361"
+    }
+   ],
+   "states": [
+    {
+     "name": "open",
+     "look": "no fire (GO state 0 ACTIVE, the DB spawn state)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "gameobject.sql guid 361 state 0; instance_zulaman.cpp doorData GO_ZULJIN_FIREWALL DOOR_TYPE_ROOM (line 51)"
+    },
+    {
+     "name": "closed",
+     "look": "fire wall up (GO state 1 READY) during the fight",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "instance_zulaman.cpp doorData line 51: AC DOOR_TYPE_ROOM is closed while the boss is IN_PROGRESS"
+    }
+   ],
+   "notes": "This is technically a room door (task said skip doors); kept only because the task asked about Zul'jin's fire. Drop it if doors stay out."
+  }
+ ],
+ "_meta": {
+  "scripts": "azerothcore-wotlk master @1b4717c9 (2026-10-05) src/server/scripts/EasternKingdoms/ZulAman/*.cpp",
+  "spawns": "C:/Users/emilo/CDLoot-dev/dev/art/rooms/creature.sql, gameobject.sql, gameobject_template.sql, creature_template_model.sql",
+  "db": "scratchpad db/ dumps (smart_scripts, creature_formations, waypoint_data, spell_target_position) from AC base",
+  "spells": "wago.tools SpellEffect build 2.5.5.65534",
+  "Akilzon": "Nothing fixed: Soaring Eagles (24858) spawn at random target +-10 y (boss_akilzon.cpp SummonEagles lines 200-229) and the Electrical Storm eye is on a random player."
+ }
+}

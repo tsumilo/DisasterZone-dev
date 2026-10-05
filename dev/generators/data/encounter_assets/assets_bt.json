@@ -1,0 +1,1411 @@
+{
+ "BlackTemple:Najentus": [
+  {
+   "kind": "object",
+   "id": 185584,
+   "name": "Naj'entus Spine",
+   "why": "Spine left at the impaled player; someone clicks it to get item 32408 and hurls it (39948) at Naj'entus to pop Tidal Shield",
+   "when": "every 20 s (first at 21 s): Impaling Spine on a random player",
+   "display": 7362,
+   "scale": 6,
+   "positions": [],
+   "states": [
+    {
+     "name": "in the floor",
+     "look": "spine object at the impaled player's feet (that player has Impaling Spine 39837)",
+     "spell": 39837,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_warlord_najentus.cpp:89-97; AC spell_dbc 39929 'Summon Naj'entus Spine': Effect 76 SUMMON_OBJECT_WILD misc 185584, target 1 (caster), DurationIndex 9 (= 30000 ms in SpellDuration.db2 2.5.6)"
+    },
+    {
+     "name": "picked up",
+     "look": "object gone (consumable, Data5=1); clicker gets item 32408 via Create Naj'entus Spine 39956; linked trap 185601 casts Remove Impaling Spine 39977 (10 yd) to free the impaled player",
+     "spell": 39956,
+     "beamTo": null,
+     "anim": null,
+     "source": "gameobject_template 185584 Data10=39956 Data12=185601; 185601 Data3=39977"
+    }
+   ],
+   "notes": "No fixed spot: summoned by spell 39929 that the impaled (random) player casts on themself (boss_warlord_najentus.cpp:94). Spine items are destroyed on reset/pull (40354, lines 156-175). Throw = Hurl Spine 39948 (spell_script_names spell_najentus_hurl_spine) removes Tidal Shield 39872 and casts Tidal Burst 39878 (lines 136-154)."
+  },
+  {
+   "kind": "npc",
+   "id": 22887,
+   "name": "High Warlord Naj'entus",
+   "why": "Tidal Shield bubble must be popped with a thrown spine",
+   "when": "pull",
+   "display": 21174,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 434.943,
+     "y": 739.254,
+     "z": 15.0699,
+     "o": 1.6057,
+     "source": "creature.sql guid 148062 (id 22887)"
+    }
+   ],
+   "states": [
+    {
+     "name": "normal",
+     "look": "no shield",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_warlord_najentus.cpp"
+    },
+    {
+     "name": "Tidal Shield",
+     "look": "water bubble; immune to all schools (aura 39, mask 127) and healing every 2 s; his other abilities are delayed 10 s",
+     "spell": 39872,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_warlord_najentus.cpp:99-103 (every 60 s); wago.tools SpellEffect build 2.5.6.69795 39872"
+    }
+   ],
+   "notes": "Starter already places him; added for the Tidal Shield state. Boundary RectangleBoundary(394.0,479.4,707.8,859.1) instance_black_temple.cpp:81. Berserk 26662 at 8 min (lines 74-77)."
+  }
+ ],
+ "BlackTemple:Supremus": [
+  {
+   "kind": "npc",
+   "id": 22898,
+   "name": "Supremus",
+   "why": "Phases swap every 60 s: tank phase (Hateful Strike) vs gaze phase (fixate, volcanoes)",
+   "when": "pull",
+   "display": 21145,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 702.141,
+     "y": 650.715,
+     "z": 75.0493,
+     "o": 1.501,
+     "source": "creature.sql guid 148145 (id 22898)"
+    }
+   ],
+   "states": [
+    {
+     "name": "Hateful Strike phase",
+     "look": "tankable; hits the highest-health target in melee range",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_supremus.cpp:96-114"
+    },
+    {
+     "name": "Gaze phase",
+     "look": "Snare Self (speed -70%), untauntable; fixates a random player every 10 s (charges if within 40 yd); Volcanic Eruption on random players every 10-18 s",
+     "spell": 41922,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_supremus.cpp:115-146 (SPELL_SNARE_SELF line 118); wago.tools SpellEffect build 2.5.6.69795 41922 aura 33 base -71 + die 1 = -70%"
+    }
+   ],
+   "notes": "Starter already places him; added for the phase states. Supremus Volcano (23085, display 21583) is NOT fixed: Volcanic Eruption 40276 summons it at a random player (target 53, wago.tools SpellEffect build 2.5.6.69795; boss_supremus.cpp:124). First phase after the pull is the tank phase (SchedulePhase(true), line 64). Evades if x<565, x>865, y<545 or y>1000 (lines 179-182). Berserk at 15 min."
+  }
+ ],
+ "BlackTemple:ShadeOfAkama": [
+  {
+   "kind": "npc",
+   "id": 23421,
+   "name": "Ashtongue Channeler",
+   "why": "Kill all six to free the Shade; each channel slows the Shade (one 40520 stack each)",
+   "when": "pull",
+   "display": 21594,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 463.186,
+     "y": 401.64,
+     "z": 118.621,
+     "o": 3.194,
+     "source": "creature.sql guid 148237 (id 23421)"
+    },
+    {
+     "map": 564,
+     "x": 457.763,
+     "y": 390.117,
+     "z": 118.621,
+     "o": 2.2515,
+     "source": "creature.sql guid 148238 (id 23421)"
+    },
+    {
+     "map": 564,
+     "x": 444.153,
+     "y": 389.214,
+     "z": 118.621,
+     "o": 1.0821,
+     "source": "creature.sql guid 148239 (id 23421)"
+    },
+    {
+     "map": 564,
+     "x": 438.279,
+     "y": 401.258,
+     "z": 118.621,
+     "o": 0.0175,
+     "source": "creature.sql guid 148240 (id 23421)"
+    },
+    {
+     "map": 564,
+     "x": 443.495,
+     "y": 413.973,
+     "z": 118.621,
+     "o": 5.1313,
+     "source": "creature.sql guid 148241 (id 23421)"
+    },
+    {
+     "map": 564,
+     "x": 456.694,
+     "y": 414.117,
+     "z": 118.621,
+     "o": 4.2586,
+     "source": "creature.sql guid 148242 (id 23421)"
+    }
+   ],
+   "states": [
+    {
+     "name": "channelling",
+     "look": "beam from the channeler to the Shade (Shade Soul Channel)",
+     "spell": 40401,
+     "beamTo": "Shade of Akama",
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:484-506 (recast every 3.6 s); conditions 13/40401 -> 22841; 40401 eff1 triggers 40520 (speed -31%)"
+    },
+    {
+     "name": "dead",
+     "look": "corpse, beam gone; aura removal drops one 40520 stack on the Shade",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:518-522"
+    }
+   ],
+   "notes": "Starter already places these 6; entry added only for the channelling/dead states. They become selectable when Akama starts the event (boss_shade_of_akama.cpp:153-157)."
+  },
+  {
+   "kind": "npc",
+   "id": 22841,
+   "name": "Shade of Akama",
+   "why": "Inert while channelled; once the slows are gone it walks to Akama and fights him",
+   "when": "pull",
+   "display": 21357,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 449.595,
+     "y": 401.194,
+     "z": 118.621,
+     "o": 0,
+     "source": "creature.sql guid 148236 (id 22841) - dormant spot"
+    },
+    {
+     "map": 564,
+     "x": 512.48773,
+     "y": 400.8283,
+     "z": 112.77704,
+     "o": null,
+     "source": "boss_shade_of_akama.cpp:96 ShadeEngage (MovePoint POINT_ENGAGE, line 170)"
+    }
+   ],
+   "states": [
+    {
+     "name": "dormant",
+     "look": "black-tinted (Vertex Shade Black 39833 from creature_template_addon), unselectable, held by channeler beams",
+     "spell": 39833,
+     "beamTo": null,
+     "anim": null,
+     "source": "creature_template_addon 22841 auras 39833; boss_shade_of_akama.cpp:110"
+    },
+    {
+     "name": "walking",
+     "look": "walks toward ShadeEngage, slowed by the remaining 40520 stacks",
+     "spell": 40520,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:165-172"
+    },
+    {
+     "name": "engaged",
+     "look": "selectable at ShadeEngage, fixated on Akama (threat 900000)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:176-203"
+    }
+   ],
+   "notes": "Starter already places the Shade; added for states and the engage spot. Boundary RectangleBoundary(406.8,564.0,327.9,473.5) instance_black_temple.cpp:83."
+  },
+  {
+   "kind": "npc",
+   "id": 23191,
+   "name": "Akama",
+   "why": "Starts the event (gossip), channels the Shade, then tanks it; all adds attack him",
+   "when": "pull",
+   "display": 21318,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 547.54,
+     "y": 400.188,
+     "z": 112.867,
+     "o": 3.1241,
+     "source": "creature.sql guid 148235 (id 23191) - waiting (stealthed)"
+    },
+    {
+     "map": 564,
+     "x": 517.4877,
+     "y": 400.79926,
+     "z": 112.77704,
+     "o": null,
+     "source": "boss_shade_of_akama.cpp:94 AkamaEngage (MovePoint after gossip, line 351)"
+    }
+   ],
+   "states": [
+    {
+     "name": "stealthed",
+     "look": "Stealth until a player talks to him",
+     "spell": 34189,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:233"
+    },
+    {
+     "name": "channelling",
+     "look": "at AkamaEngage: beam to the Shade (Akama Soul Channel, self-stun)",
+     "spell": 40447,
+     "beamTo": "Shade of Akama",
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:246-249; conditions 13/40447 -> 22841; wago.tools SpellEffect build 2.5.6.69795 40447 eff0 aura 12"
+    },
+    {
+     "name": "fighting",
+     "look": "melee with the Shade (Chain Lightning 39945, Destructive Poison 40874)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:188-196, 334-344"
+    }
+   ],
+   "notes": "Starter already places Akama; added for states and the engage spot. If Akama would die the generators despawn their adds and the Shade evades (boss_shade_of_akama.cpp:292-310)."
+  },
+  {
+   "kind": "npc",
+   "id": 23216,
+   "name": "Ashtongue Defender",
+   "why": "Melee add from the generator at y 469 (script's 'Right Side', y>400); attacks Akama",
+   "when": "from Akama's gossip: every 30-40 s (first after 2-5 s) until the Shade engages",
+   "display": 21595,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 499.304,
+     "y": 469.369,
+     "z": 112.867,
+     "o": 4.8869,
+     "source": "creature.sql guid 148233 (id 23210) - Creature Generator (Akama), 'Right Side' y>400"
+    }
+   ],
+   "states": [],
+   "notes": "Summoned with 40474 (Effect 28, target 18 DEST_CASTER = exactly on the generator, wago.tools SpellEffect build 2.5.6.69795). Side logic boss_shade_of_akama.cpp:417-431. Generators stop when the Shade reaches ShadeEngage (lines 184-186). Two display ids: 21595/21596."
+  },
+  {
+   "kind": "npc",
+   "id": 23215,
+   "name": "Ashtongue Sorcerer",
+   "why": "Caster add from the generator at y 332 ('Left Side', y<400); walks to 20 yd from the Shade and channels into it - kill it before it gets there",
+   "when": "from Akama's gossip: every 30-35 s (first after 2-5 s) until the Shade engages",
+   "display": 21402,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 499.063,
+     "y": 331.729,
+     "z": 112.867,
+     "o": 1.501,
+     "source": "creature.sql guid 148234 (id 23210) - Creature Generator (Akama), 'Left Side' y<400"
+    }
+   ],
+   "states": [
+    {
+     "name": "walking",
+     "look": "runs to a point 20 yd from the Shade on its own side",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:387-394"
+    },
+    {
+     "name": "channelling",
+     "look": "beam to the Shade (same spell as the channelers)",
+     "spell": 40401,
+     "beamTo": "Shade of Akama",
+     "anim": null,
+     "source": "boss_shade_of_akama.cpp:473-482; conditions 13/40401 -> 22841"
+    }
+   ],
+   "notes": "Spawned by 40476 (Effect 28, target 18 DEST_CASTER, wago.tools SpellEffect build 2.5.6.69795) exactly on generator guid 148234. Its channel point = Shade position + 20 yd toward the sorcerer (GetNearPoint), so not a fixed coordinate. Two display ids: 21402/21593."
+  },
+  {
+   "kind": "npc",
+   "id": 23523,
+   "name": "Ashtongue Elementalist",
+   "why": "Wave B caster (Lightning Bolt, Rain of Fire); attacks Akama",
+   "when": "from Akama's gossip: both generators, every 50-60 s (y 469 side first at 10 s, y 332 side first at 3 s)",
+   "display": 21607,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 499.304,
+     "y": 469.369,
+     "z": 112.867,
+     "o": 4.8869,
+     "source": "creature.sql guid 148233 (id 23210) - generator 'Right Side'"
+    },
+    {
+     "map": 564,
+     "x": 499.063,
+     "y": 331.729,
+     "z": 112.867,
+     "o": 1.501,
+     "source": "creature.sql guid 148234 (id 23210) - generator 'Left Side'"
+    }
+   ],
+   "states": [],
+   "notes": "Ashtongue Wave B 42035 eff0: 1 yd to the generator's LEFT (target 50), wago.tools SpellEffect build 2.5.6.69795; AC raises the distance to the generator's combat reach if smaller (Spell.cpp SelectImplicitCasterDestTargets). Positions given are the generators. Side logic boss_shade_of_akama.cpp:418-446."
+  },
+  {
+   "kind": "npc",
+   "id": 23318,
+   "name": "Ashtongue Rogue",
+   "why": "Wave B melee (Debilitating Poison, Eviscerate); attacks Akama",
+   "when": "from Akama's gossip: both generators, every 50-60 s",
+   "display": 21591,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 499.304,
+     "y": 469.369,
+     "z": 112.867,
+     "o": 4.8869,
+     "source": "creature.sql guid 148233 (id 23210) - generator 'Right Side'"
+    },
+    {
+     "map": 564,
+     "x": 499.063,
+     "y": 331.729,
+     "z": 112.867,
+     "o": 1.501,
+     "source": "creature.sql guid 148234 (id 23210) - generator 'Left Side'"
+    }
+   ],
+   "states": [],
+   "notes": "Ashtongue Wave B 42035 eff1: 1 yd to the generator's RIGHT (target 49), wago.tools SpellEffect build 2.5.6.69795. Positions given are the generators. Two display ids: 21591/21592."
+  },
+  {
+   "kind": "npc",
+   "id": 23524,
+   "name": "Ashtongue Spiritbinder",
+   "why": "Wave B healer (Chain Heal, Spirit Mend); attacks Akama",
+   "when": "from Akama's gossip: both generators, every 50-60 s",
+   "display": 21606,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 499.304,
+     "y": 469.369,
+     "z": 112.867,
+     "o": 4.8869,
+     "source": "creature.sql guid 148233 (id 23210) - generator 'Right Side'"
+    },
+    {
+     "map": 564,
+     "x": 499.063,
+     "y": 331.729,
+     "z": 112.867,
+     "o": 1.501,
+     "source": "creature.sql guid 148234 (id 23210) - generator 'Left Side'"
+    }
+   ],
+   "states": [],
+   "notes": "Ashtongue Wave B 42035 eff2: 1 yd in FRONT of the generator (target 47), wago.tools SpellEffect build 2.5.6.69795. Positions given are the generators."
+  }
+ ],
+ "BlackTemple:Teron": [],
+ "BlackTemple:Bloodboil": [
+  {
+   "kind": "npc",
+   "id": 22948,
+   "name": "Gurtogg Bloodboil",
+   "why": "Fel Rage every 90 s (first at 60 s): he fixates one player, who grows; his abilities switch versions",
+   "when": "pull",
+   "display": 21443,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 744.302,
+     "y": 277.077,
+     "z": 63.8392,
+     "o": 6.1261,
+     "source": "creature.sql guid 148408 (id 22948)"
+    }
+   ],
+   "states": [
+    {
+     "name": "normal",
+     "look": "tanked; Acidic Wound on the tank, Bloodboil on the 5 farthest players",
+     "spell": 40484,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_bloodboil.cpp:81-98"
+    },
+    {
+     "name": "Fel Rage",
+     "look": "Gurtogg enlarged +65% and +85% damage (Fel Rage self aura), taunted by the target; the target gets Fel Rage size +175% (46787) and a Fel Geyser",
+     "spell": 40594,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_bloodboil.cpp:100-126 (lines 105, 109); wago.tools SpellEffect build 2.5.6.69795 40594/46787"
+    }
+   ],
+   "notes": "Starter already places him; added for the Fel Rage state. Fel Geyser (40569) lands on the Fel Rage target, not a fixed spot. Leash: evades beyond 105 yd 2D from home (boss_bloodboil.cpp:162-165). Boundary RectangleBoundary(720.5,864.5,159.3,316.0) instance_black_temple.cpp:86."
+  }
+ ],
+ "BlackTemple:Reliquary": [
+  {
+   "kind": "npc",
+   "id": 22856,
+   "name": "Reliquary of the Lost",
+   "why": "The coffin the three essences rise from; wakes when a player is within 90 yd in front of it with line of sight",
+   "when": "pull",
+   "display": 21146,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 497.772,
+     "y": 184.166,
+     "z": 94.6049,
+     "o": 4.6775,
+     "source": "creature.sql guid 148523 (id 22856)"
+    }
+   ],
+   "states": [
+    {
+     "name": "dormant",
+     "look": "stand state 3 (SLEEP) until aggro",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_reliquary_of_souls.cpp:136-156"
+    },
+    {
+     "name": "standing",
+     "look": "stand state 0; during the soul phases between essences",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_reliquary_of_souls.cpp:150, 185-190"
+    },
+    {
+     "name": "submerged",
+     "look": "stand state 9 (SUBMERGED) while an essence is up",
+     "spell": null,
+     "beamTo": null,
+     "anim": 202,
+     "source": "boss_reliquary_of_souls.cpp:153,166,176; anim 202 = Emotes.db2 id 373 STATE_SUBMERGED AnimID (2.5.6.69795)"
+    }
+   ],
+   "notes": "Pull trigger: MoveInLineOfSight, 90 yd 2D, front cone pi/4, LoS (boss_reliquary_of_souls.cpp:142-156). Evades if no player within 80 yd (lines 247-250). Boundary RectangleBoundary(435.9,660.3,21.2,229.6) z 81.8-148.0 (instance_black_temple.cpp:87-88)."
+  },
+  {
+   "kind": "npc",
+   "id": 23419,
+   "name": "Essence of Desire",
+   "why": "Phase 2 essence (Aura of Desire, Rune Shield, Deaden, Spirit Shock): interrupt/dispel plan",
+   "when": "phase 2 (38 s after Suffering returns)",
+   "display": 21485,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 497.772,
+     "y": 184.166,
+     "z": 94.6049,
+     "o": 4.6775,
+     "source": "creature.sql guid 148523 (Reliquary of the Lost) - spawn spot"
+    }
+   ],
+   "states": [
+    {
+     "name": "normal",
+     "look": "no shield",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_reliquary_of_souls.cpp"
+    },
+    {
+     "name": "Rune Shield",
+     "look": "absorb shield (50000) every 15 s from 13 s",
+     "spell": 41431,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_reliquary_of_souls.cpp:437-439; wago.tools SpellEffect build 2.5.6.69795 41431"
+    }
+   ],
+   "notes": "Spawn = the Reliquary's position: 41493 is Effect 28 SUMMON with target 18 TARGET_DEST_CASTER (wago.tools SpellEffect build 2.5.6.69795; AC Spell.cpp keeps the caster position for DEST_CASTER). At 1 HP it walks back to this spot, faces pi/2 and is sucked back in (boss_reliquary_of_souls.cpp:382-407). Essence of Suffering (starter) uses the same spot via 41488."
+  },
+  {
+   "kind": "npc",
+   "id": 23420,
+   "name": "Essence of Anger",
+   "why": "Phase 3 essence: killing it ends the fight",
+   "when": "phase 3 (38 s after Desire returns)",
+   "display": 21484,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 497.772,
+     "y": 184.166,
+     "z": 94.6049,
+     "o": 4.6775,
+     "source": "creature.sql guid 148523 (Reliquary of the Lost) - spawn spot"
+    }
+   ],
+   "states": [],
+   "notes": "Spawn = the Reliquary's position (41496: Effect 28, target 18 DEST_CASTER, wago.tools SpellEffect build 2.5.6.69795). Seethe 41364 when its target changes (boss_reliquary_of_souls.cpp:517-526)."
+  },
+  {
+   "kind": "npc",
+   "id": 23469,
+   "name": "Enslaved Soul",
+   "why": "Adds between essences; each death casts Soul Release (41542): plan where to kill them",
+   "when": "8 s after Suffering returns and after Desire returns: 18 per transition (2, then 16 at 1.2 s steps)",
+   "display": 10771,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 476.56,
+     "y": 172.466,
+     "z": 94.0666,
+     "o": 1.5882,
+     "source": "creature.sql guid 148494 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 484.345,
+     "y": 182.766,
+     "z": 94.1311,
+     "o": 3.6128,
+     "source": "creature.sql guid 148495 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 495.97,
+     "y": 179.162,
+     "z": 94.5419,
+     "o": 5.9167,
+     "source": "creature.sql guid 148496 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 481.069,
+     "y": 162.22,
+     "z": 94.6341,
+     "o": 2.4958,
+     "source": "creature.sql guid 148497 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 460.148,
+     "y": 170.899,
+     "z": 94.8108,
+     "o": 0.3665,
+     "source": "creature.sql guid 148498 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 503.356,
+     "y": 185.707,
+     "z": 94.8152,
+     "o": 4.3633,
+     "source": "creature.sql guid 148499 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 461.949,
+     "y": 159.298,
+     "z": 94.8586,
+     "o": 1.9897,
+     "source": "creature.sql guid 148500 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 504.407,
+     "y": 169.985,
+     "z": 94.8646,
+     "o": 0.8901,
+     "source": "creature.sql guid 148501 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 451.745,
+     "y": 132.421,
+     "z": 94.9074,
+     "o": 3.5081,
+     "source": "creature.sql guid 148502 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 459.935,
+     "y": 129.27,
+     "z": 94.9083,
+     "o": 0.6981,
+     "source": "creature.sql guid 148503 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 502.419,
+     "y": 160.019,
+     "z": 94.927,
+     "o": 2.7227,
+     "source": "creature.sql guid 148504 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 508.261,
+     "y": 178.137,
+     "z": 94.9614,
+     "o": 5.5327,
+     "source": "creature.sql guid 148505 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 492.769,
+     "y": 154.373,
+     "z": 94.975,
+     "o": 4.3808,
+     "source": "creature.sql guid 148506 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 516.133,
+     "y": 203.28,
+     "z": 95.0077,
+     "o": 6.0039,
+     "source": "creature.sql guid 148507 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 461.495,
+     "y": 140.213,
+     "z": 95.0143,
+     "o": 3.6303,
+     "source": "creature.sql guid 148508 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 529.829,
+     "y": 198.808,
+     "z": 95.0381,
+     "o": 6.0214,
+     "source": "creature.sql guid 148509 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 483.466,
+     "y": 126.89,
+     "z": 95.0554,
+     "o": 2.4085,
+     "source": "creature.sql guid 148510 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 466.583,
+     "y": 146.914,
+     "z": 95.0705,
+     "o": 2.7925,
+     "source": "creature.sql guid 148511 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 474.851,
+     "y": 139.094,
+     "z": 95.076,
+     "o": 3.2289,
+     "source": "creature.sql guid 148512 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 513.851,
+     "y": 163.436,
+     "z": 95.1245,
+     "o": 3.3161,
+     "source": "creature.sql guid 148513 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 500.921,
+     "y": 139.513,
+     "z": 95.1419,
+     "o": 0.6807,
+     "source": "creature.sql guid 148514 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 489.906,
+     "y": 135.744,
+     "z": 95.1736,
+     "o": 5.7421,
+     "source": "creature.sql guid 148515 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 522.569,
+     "y": 193.079,
+     "z": 95.1927,
+     "o": 0.5585,
+     "source": "creature.sql guid 148516 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 511.309,
+     "y": 147.746,
+     "z": 95.203,
+     "o": 5.3232,
+     "source": "creature.sql guid 148517 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 523.471,
+     "y": 157.753,
+     "z": 95.233,
+     "o": 3.7525,
+     "source": "creature.sql guid 148518 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 524.086,
+     "y": 170.111,
+     "z": 95.2538,
+     "o": 2.8973,
+     "source": "creature.sql guid 148519 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 524.106,
+     "y": 182.833,
+     "z": 95.2615,
+     "o": 4.7648,
+     "source": "creature.sql guid 148520 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 531.461,
+     "y": 159.039,
+     "z": 95.288,
+     "o": 2.4784,
+     "source": "creature.sql guid 148521 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    },
+    {
+     "map": 564,
+     "x": 523.82,
+     "y": 145.375,
+     "z": 95.3434,
+     "o": 3.4732,
+     "source": "creature.sql guid 148522 (id 23472) - World Trigger (Large AOI, Not Immune PC/NPC) soul spawn point"
+    }
+   ],
+   "states": [
+    {
+     "name": "spawning",
+     "look": "blue beam from its spawn trigger onto the soul for 2 s",
+     "spell": 32840,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts 23469 ids 1-2 (Invoker Cast Beam (Blue) 32840, removed after 2 s)"
+    }
+   ],
+   "notes": "Each cast of 41537 (Effect 140 FORCE_CAST -> 41538, MAX_TARGETS 1) picks ONE random 23472 trigger (conditions 13/41537 -> 23472); 41538 summons 23469 on that trigger (Effect 28, target 18 DEST_CASTER) - wago.tools SpellEffect build 2.5.6.69795; boss_reliquary_of_souls.cpp:185-203. Souls therefore appear at a random subset of these 29 fixed points."
+  }
+ ],
+ "BlackTemple:Shahraz": [],
+ "BlackTemple:Council": [
+  {
+   "kind": "npc",
+   "id": 22952,
+   "name": "Veras Darkshadow",
+   "why": "Vanishes for ~29 s every 60 s (first at 10 s) and poisons a random player (Deadly Poison -> Envenom)",
+   "when": "pull",
+   "display": 21418,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 697.495,
+     "y": 310.651,
+     "z": 277.527,
+     "o": 3.1765,
+     "source": "creature.sql guid 148716 (id 22952)"
+    }
+   ],
+   "states": [
+    {
+     "name": "visible",
+     "look": "normal",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidari_council.cpp"
+    },
+    {
+     "name": "vanished",
+     "look": "stealthed (Vanish 41476: stealth/untargetable); comes back with Vanish 41479",
+     "spell": 41476,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidari_council.cpp:568-578; wago.tools SpellEffect build 2.5.6.69795 41476"
+    }
+   ],
+   "notes": "Starter already places Veras; added for the vanish state."
+  },
+  {
+   "kind": "npc",
+   "id": 22951,
+   "name": "Lady Malande",
+   "why": "Reflective Shield every 40 s (first at 10 s): stop damage on her or eat reflected damage",
+   "when": "pull",
+   "display": 21419,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 697.409,
+     "y": 299.377,
+     "z": 277.526,
+     "o": 3.0718,
+     "source": "creature.sql guid 148719 (id 22951)"
+    }
+   ],
+   "states": [
+    {
+     "name": "normal",
+     "look": "no shield",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidari_council.cpp"
+    },
+    {
+     "name": "Reflective Shield",
+     "look": "absorb shield (25000) that reflects half of what it absorbs (33619)",
+     "spell": 41475,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidari_council.cpp:521-526, 690-713; wago.tools SpellEffect build 2.5.6.69795 41475"
+    }
+   ],
+   "notes": "Starter already places Malande; added for the shield state. Second display id 21420."
+  },
+  {
+   "kind": "npc",
+   "id": 22950,
+   "name": "High Nethermancer Zerevor",
+   "why": "Dampen Magic buff on him (recast after dispel or expiry, 1 min cooldown): dispel/steal plan",
+   "when": "pull",
+   "display": 21417,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 700.792,
+     "y": 307.192,
+     "z": 277.526,
+     "o": 3.1416,
+     "source": "creature.sql guid 148717 (id 22950)"
+    }
+   ],
+   "states": [
+    {
+     "name": "Dampen Magic",
+     "look": "buffed (magic damage taken -75%, healing taken -500)",
+     "spell": 41478,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidari_council.cpp:381-387, 428-440, 454-481; wago.tools SpellEffect build 2.5.6.69795 41478"
+    },
+    {
+     "name": "dispelled",
+     "look": "no buff",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidari_council.cpp:428-440"
+    }
+   ],
+   "notes": "Starter already places Zerevor; added for the buff state."
+  }
+ ],
+ "BlackTemple:Illidan": [
+  {
+   "kind": "npc",
+   "id": 22917,
+   "name": "Illidan Stormrage",
+   "why": "Boss looks across phases",
+   "when": "pull",
+   "display": 21135,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 705.732,
+     "y": 304.988,
+     "z": 353.925,
+     "o": 0,
+     "source": "creature.sql guid 148736 (id 22917) - kneels here before the event"
+    }
+   ],
+   "states": [
+    {
+     "name": "kneeling",
+     "look": "stand state 8 (KNEEL), sheathed, immune until the intro ends (~43 s after Akama reaches him)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:210-216, 246-277"
+    },
+    {
+     "name": "ground (glaives)",
+     "look": "two Warglaives (equipment 1); phases 1, 3, 5",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:214, 446"
+    },
+    {
+     "name": "airborne (phase 2)",
+     "look": "hovering, unarmed after throwing the glaives; lift-off anim 192, landing anim 200",
+     "spell": null,
+     "beamTo": null,
+     "anim": 192,
+     "source": "boss_illidan.cpp:280-299, 421-431, 440-463; Emotes.db2 254 ONESHOT_LIFTOFF=192, 293 ONESHOT_LAND=200"
+    },
+    {
+     "name": "demon form",
+     "look": "transformed into creature 23195 'Illidan Demon Form' (display 21322) for 60 s, rooted; every 60 s while grounded in phases 3 and 5, and 15 s after each cage (Demon Transform 40511/40398/40510)",
+     "spell": 40506,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:333-351, 562-565, 568-592; wago.tools SpellEffect build 2.5.6.69795 40506 eff0 aura 56 misc 23195; creature_template_model 23195 -> 21322"
+    },
+    {
+     "name": "frenzy",
+     "look": "Frenzy every 100 s (first at 40 s) after Maiev arrives; removed when caged",
+     "spell": 40683,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:598-601, 368"
+    },
+    {
+     "name": "caged",
+     "look": "stunned in the Cage Trap: Caged 40695 + 8 Cage Trap Trigger beams (40704, 40707-40713) from triggers summoned around him (front 9, front-right 7, right 5, back-right 3, back 3, back-left 3, left 5, front-left 7 yd); demon form 15 s later",
+     "spell": 40695,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:365-375, 1711-1734; wago.tools SpellEffect build 2.5.6.69795 40696-40703 (targets 47/41/49/42/48/43/50/44); smart_scripts 23292-23299 cast Caged on reset"
+    }
+   ],
+   "notes": "Starter already places Illidan; added for states. Demon form and cage happen wherever he stands (no fixed spot). Phase triggers: 90% minion call (Akama leaves), 65% phase 2, 30% Maiev cutscene with Shadow Prison 40647 on players (boss_illidan.cpp:220-238). Boundary EllipseBoundary(694.8,309.0, 80x95) instance_black_temple.cpp:91. Berserk 45078 at 25 min. Beam targets of 40704-40713 are not in the conditions table (presumably Illidan; unverified)."
+  },
+  {
+   "kind": "npc",
+   "id": 22917,
+   "name": "Illidan Stormrage (phase 2 flight spots)",
+   "why": "Where Illidan hovers in phase 2: throws the glaives from the takeoff point, Eye Blasts, moves to a new hover spot 20 s after each Eye Blast, lands at the center",
+   "when": "phase 2 (65%)",
+   "display": 21135,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 727.6356,
+     "y": 305.62753,
+     "z": 359.1486,
+     "o": null,
+     "source": "boss_illidan.cpp:174 illidanTakeoffPoint (World Trigger guid 148726 at 727.875,305.365,360.083)"
+    },
+    {
+     "map": 564,
+     "x": 658.83,
+     "y": 265.1,
+     "z": 356.0,
+     "o": null,
+     "source": "boss_illidan.cpp:168 airHoverPos[0] (World Trigger guid 148731, same x,y at z 370.083)"
+    },
+    {
+     "map": 564,
+     "x": 706.22,
+     "y": 273.26,
+     "z": 356.0,
+     "o": null,
+     "source": "boss_illidan.cpp:169 airHoverPos[1] (World Trigger guid 148730, same x,y at z 370.083)"
+    },
+    {
+     "map": 564,
+     "x": 705.92,
+     "y": 337.14,
+     "z": 356.0,
+     "o": null,
+     "source": "boss_illidan.cpp:170 airHoverPos[2] (World Trigger guid 148729, same x,y at z 370.083)"
+    },
+    {
+     "map": 564,
+     "x": 656.86,
+     "y": 344.07,
+     "z": 356.0,
+     "o": null,
+     "source": "boss_illidan.cpp:171 airHoverPos[3] (World Trigger guid 148728, same x,y at z 370.083)"
+    },
+    {
+     "map": 564,
+     "x": 676.648,
+     "y": 304.76074,
+     "z": 354.18906,
+     "o": 6.2308,
+     "source": "boss_illidan.cpp:175 illidanLand (lands once no Flame of Azzinoth is left, lines 529-535)"
+    }
+   ],
+   "states": [
+    {
+     "name": "hovering",
+     "look": "airborne, unarmed, facing the room center (676.021,305.455 = roomCenter line 176 = World Trigger guid 148724); Fireball 40598 / Dark Barrage 40585",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:493-519"
+    },
+    {
+     "name": "Eye Blast",
+     "look": "beam from Illidan to the Illidan DB Target, which walks a fixed line",
+     "spell": 39908,
+     "beamTo": "Illidan DB Target",
+     "anim": null,
+     "source": "boss_illidan.cpp:502-519, 640-644"
+    }
+   ],
+   "notes": "Same creature as the boss; separate entry only to carry the fixed flight spots. The hover spot is random each time and never repeats twice in a row (CycleBeamPos, boss_illidan.cpp:687-694)."
+  },
+  {
+   "kind": "npc",
+   "id": 22996,
+   "name": "Blade of Azzinoth",
+   "why": "The two thrown Warglaives: each spawns a Flame of Azzinoth 5 yd away and tethers it; flames must stay within 30 yd of their blade",
+   "when": "phase 2 (65%), 1.2 s and 2.4 s after Illidan reaches the takeoff point",
+   "display": 21431,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 676.226,
+     "y": 325.231,
+     "z": 354.319,
+     "o": 3.1241,
+     "source": "creature.sql guid 148733 (id 23448) - Glaive Target (phaseMask 5), hit by Throw Glaive 39849 (first throw)"
+    },
+    {
+     "map": 564,
+     "x": 678.06,
+     "y": 285.22,
+     "z": 354.325,
+     "o": 3.2987,
+     "source": "creature.sql guid 148734 (id 23448) - Glaive Target (phaseMask 3), hit by Throw Glaive 39635 (second throw)"
+    }
+   ],
+   "states": [
+    {
+     "name": "landed",
+     "look": "glaive stuck in the floor (unselectable)",
+     "spell": 41466,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:1282-1298, 1473-1493; wago.tools SpellEffect build 2.5.6.69795 41466 Effect 28 summons 22996 with target 18 DEST_CASTER (on the Glaive Target)"
+    },
+    {
+     "name": "tethering its flame",
+     "look": "channel beam from the blade to its Flame of Azzinoth (Tear of Azzinoth Summon Channel); breaks into Uncaged Wrath if the flame is more than 30 yd away",
+     "spell": 39857,
+     "beamTo": "Flame of Azzinoth",
+     "anim": null,
+     "source": "boss_illidan.cpp:1300-1303, 1495-1521"
+    },
+    {
+     "name": "returning",
+     "look": "flies back to Illidan (Glaive Returns 39873), model swapped to invisible 11686, despawns after 2 s",
+     "spell": 39873,
+     "beamTo": "Illidan Stormrage",
+     "anim": null,
+     "source": "boss_illidan.cpp:1305-1319, 440-447; conditions 13/39873 -> 22917"
+    }
+   ],
+   "notes": "Exact landing spots = the two Glaive Target creatures (conditions 13/39635 and 13/39849 -> 23448 with phase-mask filters 2 and 4), same x,y as BladesPositions[] in boss_illidan.cpp:178-182. Flames charge players more than 25 yd from both spots (ChargeTargetSelector, lines 184-195)."
+  },
+  {
+   "kind": "npc",
+   "id": 22997,
+   "name": "Flame of Azzinoth",
+   "why": "Kill both to end phase 2; tank it within 30 yd of its blade or it gains Uncaged Wrath; Flame Blast leaves Blaze (23259) under its target",
+   "when": "phase 2 (65%), 2.7 s after each blade lands",
+   "display": 20431,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 676.226,
+     "y": 325.231,
+     "z": 354.319,
+     "o": 3.1241,
+     "source": "creature.sql guid 148733 (id 23448) - ANCHOR: flame appears 5 yd from this blade spot, random direction"
+    },
+    {
+     "map": 564,
+     "x": 678.06,
+     "y": 285.22,
+     "z": 354.325,
+     "o": 3.2987,
+     "source": "creature.sql guid 148734 (id 23448) - ANCHOR: flame appears 5 yd from this blade spot, random direction"
+    }
+   ],
+   "states": [
+    {
+     "name": "tethered",
+     "look": "beam from its blade (39857) while within 30 yd",
+     "spell": 39857,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:1495-1521"
+    },
+    {
+     "name": "Uncaged Wrath",
+     "look": "enraged (damage +500%, movement speed +200%) after being pulled more than 30 yd from its blade",
+     "spell": 39869,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:1509-1513; wago.tools SpellEffect build 2.5.6.69795 39869"
+    }
+   ],
+   "notes": "Spawn offset sourced, exact point not: Summon Tear of Azzinoth 39855 = Effect 28, target 73 TARGET_DEST_CASTER_RADIUS, radius 5 yd (wago.tools SpellEffect build 2.5.6.69795); AC Spell.cpp uses dist = radius with a random angle for target 73. Positions listed are the blade anchors, not the flame's actual spawn."
+  },
+  {
+   "kind": "npc",
+   "id": 23070,
+   "name": "Illidan DB Target",
+   "why": "Invisible Eye Blast target: spawns at a fixed start point and walks a fixed line toward its end point",
+   "when": "phase 2 (65%): 25-45 s after each flying segment starts",
+   "display": 18783,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 639.97,
+     "y": 301.63,
+     "z": 354.0,
+     "o": 0.0,
+     "source": "boss_illidan.cpp:155 eyeBeamPos[0] (line A start)"
+    },
+    {
+     "map": 564,
+     "x": 706.22,
+     "y": 273.26,
+     "z": 354.0,
+     "o": 0.0,
+     "source": "boss_illidan.cpp:160 eyeBeamPos[4] (line A end)"
+    },
+    {
+     "map": 564,
+     "x": 658.83,
+     "y": 265.1,
+     "z": 354.0,
+     "o": 0.0,
+     "source": "boss_illidan.cpp:156 eyeBeamPos[1] (line B start)"
+    },
+    {
+     "map": 564,
+     "x": 717.55,
+     "y": 328.33,
+     "z": 354.0,
+     "o": 0.0,
+     "source": "boss_illidan.cpp:161 eyeBeamPos[5] (line B end)"
+    },
+    {
+     "map": 564,
+     "x": 656.86,
+     "y": 344.07,
+     "z": 354.0,
+     "o": 0.0,
+     "source": "boss_illidan.cpp:157 eyeBeamPos[2] (line C start)"
+    },
+    {
+     "map": 564,
+     "x": 718.06,
+     "y": 286.08,
+     "z": 354.0,
+     "o": 0.0,
+     "source": "boss_illidan.cpp:162 eyeBeamPos[6] (line C end)"
+    },
+    {
+     "map": 564,
+     "x": 640.7,
+     "y": 310.47,
+     "z": 354.0,
+     "o": 0.0,
+     "source": "boss_illidan.cpp:158 eyeBeamPos[3] (line D start)"
+    },
+    {
+     "map": 564,
+     "x": 705.92,
+     "y": 337.14,
+     "z": 354.0,
+     "o": 0.0,
+     "source": "boss_illidan.cpp:163 eyeBeamPos[7] (line D end)"
+    }
+   ],
+   "states": [],
+   "notes": "Summoned at eyeBeamPos[i], moved to eyeBeamPos[i+4] (boss_illidan.cpp:507-509), i = current beamPosId (random 0-3). Invisible model (display 18783): draw the 4 start->end pairs as lines. Despawns after 30 s. Ground fire left along the line is not scripted in this file (not sourced)."
+  },
+  {
+   "kind": "npc",
+   "id": 23089,
+   "name": "Akama",
+   "why": "Tanks Illidan from the pull until 90%, then leaves the room to hold off Illidari Elites",
+   "when": "pull (leaves at 90%)",
+   "display": 21112,
+   "scale": 1,
+   "positions": [
+    {
+     "map": 564,
+     "x": 745.225,
+     "y": 304.946,
+     "z": 352.98593,
+     "o": null,
+     "source": "boss_illidan.cpp:741 FaceIllidan (walks here on gossip and sets home here: lines 792, 851-857)"
+    },
+    {
+     "map": 564,
+     "x": 748.521,
+     "y": 236.631,
+     "z": 353.079,
+     "o": 2.3737,
+     "source": "creature.sql guid 148735 (id 23089) - waits here before the gossip"
+    }
+   ],
+   "states": [
+    {
+     "name": "ready",
+     "look": "1H ready stance facing Illidan during the intro",
+     "spell": null,
+     "beamTo": null,
+     "anim": 26,
+     "source": "boss_illidan.cpp:875-878; Emotes.db2 333 STATE_READY1H AnimID 26"
+    },
+    {
+     "name": "fighting",
+     "look": "melee on Illidan (Chain Lightning 40536, Healing Potion 40535 under 20%)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:612-617, 1036-1046"
+    },
+    {
+     "name": "gone",
+     "look": "at 90% he evades back to FaceIllidan, then paths out (waypoint path 230894) to fight 10 Illidari Elites outside",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:220-225, 807-810, 990-1009, 978-985"
+    }
+   ],
+   "notes": "The Elite fight spots (IllidariMinionPos[10], boss_illidan.cpp:743-755, z ~309-311) are outside Illidan's room, so they are not listed."
+  },
+  {
+   "kind": "npc",
+   "id": 23197,
+   "name": "Maiev Shadowsong",
+   "why": "Arrives at 30%; drops a Cage Trap every 45 s (first 30 s after the cutscene)",
+   "when": "phase 4 (30%), ~11 s into the Shadow Prison cutscene",
+   "display": 21349,
+   "scale": 1,
+   "positions": [],
+   "states": [
+    {
+     "name": "fighting",
+     "look": "melee on Illidan (Throw Dagger 41152, Shadow Strike 40685)",
+     "spell": null,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:1183-1202"
+    },
+    {
+     "name": "Maiev Down",
+     "look": "stunned below 20% health (cannot die)",
+     "spell": 40409,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:1195-1201; wago.tools SpellEffect build 2.5.6.69795 40409 eff1 aura 12"
+    }
+   ],
+   "notes": "No fixed spot: Summon Maiev 40403 = Effect 28, target 73 TARGET_DEST_CASTER_RADIUS, radius 15 -> 15 yd from Illidan in a random direction (wago.tools SpellEffect build 2.5.6.69795; AC Spell.cpp). Before each trap Illidan casts Cage Trap 40693 on her: Effect 43 TELEPORT_UNITS to target 73 around Illidan, random direction; the 2.5.6 data has radius 40 yd only in the first target slot, so the exact distance AC uses was not verified."
+  },
+  {
+   "kind": "object",
+   "id": 185916,
+   "name": "Cage Trap",
+   "why": "Maiev drops it at her feet; tank Illidan onto it, then a player clicks it: Illidan within 4 yd is caged (~15 s), then turns demon",
+   "when": "after 30%: every 45 s (first 30 s after the Maiev cutscene)",
+   "display": 1247,
+   "scale": 3,
+   "positions": [],
+   "states": [
+    {
+     "name": "placed",
+     "look": "trap on the floor next to Maiev, with an invisible Cage Trap Disturb Trigger (23304)",
+     "spell": 40694,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:1204-1211; wago.tools SpellEffect build 2.5.6.69795 40694 eff0 Effect 76 GO 185916 + eff1 summon 23304, both target 18 DEST_CASTER"
+    },
+    {
+     "name": "armed (clicked)",
+     "look": "a player used the trap: the trigger casts Cage Trap 40761 every 200 ms for up to 20 s",
+     "spell": 40761,
+     "beamTo": null,
+     "anim": null,
+     "source": "smart_scripts gameobject 185916 (On Gossip Hello -> Set Data on 23304 within 5 yd); smart_scripts 23304 ids 0-2"
+    },
+    {
+     "name": "sprung",
+     "look": "Illidan within 4 yd 2D: Illidan caged (40760), trigger despawns, trap set to GO_JUST_DEACTIVATED",
+     "spell": 40760,
+     "beamTo": null,
+     "anim": null,
+     "source": "boss_illidan.cpp:1678-1703"
+    }
+   ],
+   "notes": "No fixed spot (wherever Maiev stands after the 40693 teleport). GO type 1 (button), Data2 = 20000 ms auto-close (gameobject_template)."
+  }
+ ]
+}

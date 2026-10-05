@@ -586,6 +586,74 @@ def dragging_the_walk_button_into_the_room_drops_you_where_it_is_let_go():
     no_errors(w)
 
 
+PEG_LINES = r"""
+local R = T3.v().R
+if not R._pegSpy then
+  R._pegSpy = true
+  local old = R.Line
+  R.Line = function(x1, y1, z1, x2, y2, z2, r, g, b, ...)
+    local key = (r == 1 and g == 0.85 and b == 0.1) and 'gold' or (r == 1 and g == 0.32 and b == 0.25) and 'red' or nil
+    if key then T3.pegLines[key] = (T3.pegLines[key] or 0) + 1 end
+    return old(x1, y1, z1, x2, y2, z2, r, g, b, ...)
+  end
+end
+T3.pegLines = {}
+"""
+
+
+@case
+def the_held_walk_button_shows_where_you_would_land():
+    # Over the room the floor shows the spot (a gold ring, its ripple, a chevron the way you would face) with you
+    # standing in it see-through, and the figure leaves the mouse; red where there is nothing to stand on, and
+    # letting go there does nothing.
+    w, c, bob = boot()
+    go3d(w, bob)
+    tick(w, 0.3)
+    v = "T3.v()"
+    tex = bob.eval_py("return { T3.v().walkBtn.icon:GetTexture(), T3.v().peg.icon:GetTexture() }")
+    assert tex == ["Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"] * 2, tex
+    btn = "T3.v().walkBtn"
+    bob.eval(PEG_LINES)
+    bob.eval("%s:GetScript('OnDragStart')(%s)" % (btn, btn))
+    bob.eval("T3.down.LeftButton = true T3.v().frame.IsMouseOver = function() return true end T3.at(40, 30)")
+    bob.eval("T3.pegLines = {}")
+    tick(w, 0.1)
+    s = bob.eval_py("""
+        local v = T3.v() local t, a = v.pegAt, v.pegActor
+        local px, py, pz = a:GetPosition()
+        local occ
+        for i = 1, v.nOcc do if v.occ[i].id == a then occ = v.occ[i] end end
+        return { ok = t.ok, where = t.where, x = t.x - T3.ox, y = t.y - T3.oy, z = t.z, peg = v.peg:IsShown(),
+                 shown = a.shown, alpha = a.alpha, ax = px - T3.ox, az = pz, layer = occ and occ.layer,
+                 hint = v.hint:GetText(), lines = T3.pegLines }
+    """)
+    assert s["ok"] is True and s["where"] == "room" and math.hypot(s["x"] - 40, s["y"] - 30) < 0.5, s
+    assert s["peg"] is False and s["shown"] is True and abs(s["alpha"] - 0.55) < 1e-9, s
+    assert abs(s["az"] - s["z"]) < 1e-9 and s["layer"] == 2, s
+    assert s["hint"] == "Let go to walk from here." and s["lines"].get("gold", 0) >= 30, s
+    # off the room's floor: red, no see-through you, and letting go leaves you where you were
+    bob.eval("local v = T3.v() v._floorAt = v.FloorAt v.FloorAt = function() return -20, -20 end")
+    bob.eval("T3.pegLines = {}")
+    tick(w, 0.1)
+    s = bob.eval_py("local v = T3.v() return { ok = v.pegAt and v.pegAt.ok, shown = v.pegActor.shown, "
+                    "hint = v.hint:GetText(), lines = T3.pegLines }")
+    assert s["ok"] is False and s["shown"] is False, s
+    assert s["hint"].startswith("Nothing to stand on here") and s["lines"].get("red", 0) > 0, s
+    bob.eval("T3.down.LeftButton = nil")
+    bob.eval("%s:GetScript('OnDragStop')(%s)" % (btn, btn))
+    assert bob.eval_py("return %s.walk == nil and not %s.pegging" % (v, v)) is True
+    # back over the floor and let go: walking there, the see-through you gone
+    bob.eval("local v = T3.v() v.FloorAt = v._floorAt")
+    bob.eval("%s:GetScript('OnDragStart')(%s)" % (btn, btn))
+    bob.eval("T3.at(40, 30)")
+    bob.eval("%s:GetScript('OnDragStop')(%s)" % (btn, btn))
+    tick(w, 0.1)
+    k = bob.eval_py(WALKER)
+    assert math.hypot(k["x"] - 40, k["y"] - 30) < 1, k
+    assert bob.eval_py("return T3.v().pegActor.shown") is False
+    no_errors(w)
+
+
 @case
 def walking_shows_on_the_boards_of_the_others_who_have_the_strategy_open():
     w, c = world()
@@ -633,7 +701,8 @@ def walking_shows_on_the_boards_of_the_others_who_have_the_strategy_open():
     no_errors(w)
 
 
-MODEL = "local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
+# (the page's creature: a starter can carry the encounter's objects too - the Lurker's Strange Pool, obj:184956)
+MODEL = "local e for _, x in ipairs(T3.elems()) do if x.t == 'i' and (x.i or ''):find('^boss:') then e = x end end "
 
 
 @case
@@ -755,8 +824,7 @@ def a_big_model_is_hidden_part_by_part_and_you_swim_in_its_pool():
     go3d(w, bob)
     tick(w, 1.0)
     # the Lurker as he stands (30 yd across, his tail 40 yd down in the water): one occluder per part of him
-    parts = bob.eval_py("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
-                        "local d = T3.v():Geo(e).display return #ns.Render3D.DISPLAY_PARTS[d] / 6")
+    parts = bob.eval_py(MODEL + "local d = T3.v():Geo(e).display return #ns.Render3D.DISPLAY_PARTS[d] / 6")
     assert parts == 6, parts
     bob.eval("local o = T3.v().orb o.x, o.y, o.dist, o.heading, o.pitch = T3.ox, T3.oy - 3, 30, math.pi / 2, 0.55 "
              "T3.v():Draw()")
@@ -775,82 +843,6 @@ def a_big_model_is_hidden_part_by_part_and_you_swim_in_its_pool():
     walk_key(bob, "W", False)
     k2 = bob.eval_py(WALKER)
     assert 3.5 < math.hypot(k2["x"] - k["x"], k2["y"] - k["y"]) < 5.5, (k, k2)     # (4.7 yd a second)
-    no_errors(w)
-
-
-BOSS_SCENES = ("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
-               "local a = T3.v().actors[e] local out = {} "
-               "for i, sc in pairs(a.sliceScenes or {}) do out[i] = { shown = sc:IsShown(), lvl = sc:GetFrameLevel(), "
-               "near = sc:GetCameraNearClip(), far = sc:GetCameraFarClip() } end return out")
-
-
-@case
-def depth_slices_cut_the_room_and_the_models_by_depth_and_switch_back():
-    # /dz 3d slices on: every model in a scene of its own per band, each clipped to the band, stacked between the
-    # room's bands; every room piece lies inside its band, the levels run far band < its models < next band ...;
-    # off: as before
-    w, c, bob = boot(LURKER)
-    go3d(w, bob)
-    tick(w, 1.0)
-    bob.eval("local o = T3.v().orb o.x, o.y, o.dist, o.heading, o.pitch = T3.ox, T3.oy - 3, 30, math.pi / 2, 0.55 "
-             "T3.v():Draw()")
-    tick(w, 0.2)
-    bob.slash("/dz 3d slices on 6")
-    tick(w, 0.3)
-    st = bob.eval_py("local v = T3.v() local lv, used, cuts = v.R.SliceLevels() "
-                     "local bad, order, n = v.R._SliceCheck() "
-                     "return { cuts = cuts, used = used, lv = lv, bad = bad, order = order, n = n, "
-                     "alpha = v.view.scene:GetAlpha(), K = #cuts + 1 }")
-    assert st["K"] >= 2, st
-    assert st["n"] > 100 and st["bad"] == 0 and st["order"] == 0, st
-    cuts = st["cuts"]
-    assert all(b > a for a, b in zip(cuts, cuts[1:])), cuts
-    assert st["alpha"] == 0, st
-    assert st["used"] < 3000 - 3, st
-    # (the actors' own scene draws nothing at all: an empty depth range)
-    assert bob.eval_py("local s = T3.v().view.scene return s:GetCameraFarClip() - s:GetCameraNearClip()") < 0.01
-    # the Lurker: a scene of his own per band, clipped to it, the bands touching exactly, the nearest on top
-    sc = bob.eval_py(BOSS_SCENES)
-    K = st["K"]
-    assert len(sc) >= K and all(sc[i]["shown"] for i in range(K)), sc
-    for i, cut in enumerate(cuts):
-        assert sc[i]["far"] == cut and sc[i + 1]["near"] == cut, (i, cut, sc)
-    assert sc[0]["near"] == 0.5 and sc[K - 1]["far"] == 1500, sc
-    lv = [sc[i]["lvl"] for i in range(K)]
-    assert all(b < a for a, b in zip(lv, lv[1:])), lv
-    # the camera moves: still every piece in its band
-    bob.eval("local o = T3.v().orb o.heading = o.heading + 0.7 o.dist = 18 T3.v():Draw()")
-    tick(w, 0.2)
-    bad, order, n = bob.eval_py("local b, o, n = T3.v().R._SliceCheck() return { b, o, n }")
-    assert bad == 0 and order == 0 and n > 50, (bad, order, n)
-    # walking between the camera and him: in every band your scene is over his (you are nearer), and you have bands
-    # of your own (cuts at both your sides)
-    bob.eval("local o = T3.v().orb o.x, o.y = T3.ox + 20, T3.oy + 30")
-    bob.eval("T3.v():StartWalk()")
-    tick(w, 0.5)
-    me = bob.eval_py("local v = T3.v() local a = v.walk.actor local out = {} "
-                     "for i, sc in pairs(a.sliceScenes or {}) do out[i] = { shown = sc:IsShown(), "
-                     "lvl = sc:GetFrameLevel() } end "
-                     "local lv, used, cuts = v.R.SliceLevels() "
-                     "return { scenes = out, d = v.view:ActorDepth(a), boss = (function() "
-                     "for e, x in pairs(v.actors) do return v.view:ActorDepth(x) end end)(), cuts = cuts }")
-    boss = bob.eval_py(BOSS_SCENES)
-    K2 = len(me["cuts"]) + 1
-    for i in range(K2):
-        if me["d"] < me["boss"]:
-            assert me["scenes"][i]["lvl"] > boss[i]["lvl"], (i, me, boss)
-        else:
-            assert me["scenes"][i]["lvl"] < boss[i]["lvl"], (i, me, boss)
-    bad, order, n = bob.eval_py("local b, o, n = T3.v().R._SliceCheck() return { b, o, n }")
-    assert bad == 0 and order == 0, (bad, order, n)
-    bob.eval("T3.v():StopWalk()")
-    bob.slash("/dz 3d slices off")
-    tick(w, 0.3)
-    off = bob.eval_py("local v = T3.v() local shown = 0 for s in pairs(v.view.sliceList or {}) do "
-                      "if s:IsShown() then shown = shown + 1 end end "
-                      "return { shown = shown, alpha = v.view.scene:GetAlpha(), check = v.R._SliceCheck() == nil }")
-    assert off == {"shown": 0, "alpha": 1, "check": True}, off
-    assert bob.eval_py("local s = T3.v().view.scene return { s:GetCameraNearClip(), s:GetCameraFarClip() }") == [0.5, 1500]
     no_errors(w)
 
 

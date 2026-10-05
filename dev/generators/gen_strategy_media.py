@@ -309,11 +309,29 @@ def ic_handle_size(d, k):
     d.polygon(_pts(k, [(58, 6), (58, 32), (32, 6)]), fill=255)
 
 
+def _limb(d, k, pts, w):
+    # a line through pts with round ends and joints
+    d.line(_pts(k, pts), fill=255, width=_w(k, w))
+    for x, y in pts:
+        d.ellipse(_pts(k, [(x - w / 2, y - w / 2), (x + w / 2, y + w / 2)]), fill=255)
+
+
+def ic_walk(d, k):
+    # the 3D view's walk button: a figure striding out over the ring it lands in (dragged into the room)
+    d.ellipse(_pts(k, [(8, 52), (56, 63)]), outline=255, width=_w(k, 3))
+    d.ellipse(_pts(k, [(30, 1), (42, 13)]), fill=255)                  # head
+    _limb(d, k, [(34, 19), (30, 34)], 9)                              # body
+    _limb(d, k, [(33, 22), (40, 29), (46, 27)], 5)                    # front arm
+    _limb(d, k, [(32, 22), (25, 29), (21, 35)], 5)                    # back arm
+    _limb(d, k, [(30, 35), (38, 44), (41, 55)], 6)                    # front leg
+    _limb(d, k, [(29, 35), (24, 45), (16, 52)], 6)                    # back leg
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
-              ic_export, ic_handle_turn, ic_handle_size]
+              ic_export, ic_handle_turn, ic_handle_size, ic_walk]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

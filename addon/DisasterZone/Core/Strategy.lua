@@ -164,11 +164,13 @@ local function IsOccId(s)
 end
 
 -- Icon keys: rt1..rt8 (raid marks), cls:<CLASS>, role:<role>, i:<file name under Interface\Icons>, sp:<spell id>,
--- it:<item id>, boss:<creature display id> (a boss portrait).
+-- it:<item id>, boss:<creature display id> (a boss portrait), obj:<game object entry> and npc:<NPC ID> (an
+-- encounter's assets, Core/StrategyObjects.lua).
 local function IsIconKey(s)
     if type(s) ~= "string" or #s > MAX_ICON then return false end
     if s:find("^rt[1-8]$") or s:find("^sp:%d%d?%d?%d?%d?%d?$") or s:find("^it:%d%d?%d?%d?%d?%d?$")
-        or s:find("^boss:%d%d?%d?%d?%d?%d?%d?$") then return true end
+        or s:find("^boss:%d%d?%d?%d?%d?%d?%d?$") or s:find("^obj:%d%d?%d?%d?%d?%d?$")
+        or s:find("^npc:%d%d?%d?%d?%d?%d?%d?$") then return true end
     local cls = s:match("^cls:(%u+)$")
     if cls then return ns.SPECS ~= nil and ns.SPECS[cls] ~= nil end
     local role = s:match("^role:(%l+)$")
@@ -393,6 +395,9 @@ local function CleanElement(e)
             if not IsInt(e.ms, 25, 400) then return nil end
             out.ms = e.ms
         end
+        -- an encounter asset's state (Data/EncounterObjects.lua; 1 = its first, kept as nil); dropped on any other
+        -- icon (one changed from an asset keeps the field until here)
+        if IsInt(e.st, 2, 4) and (out.i:find("^obj:") or out.i:find("^npc:")) then out.st = e.st end
     elseif t == "x" then
         if not out.l then return nil end
         -- the size: 1-3 (small / normal / large) or the font size itself (dragged at the corner)
