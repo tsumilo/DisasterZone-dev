@@ -3,7 +3,8 @@
 Covers: Home is the default tab (and the fallback when a tab goes away), the "Open on: tab used last" setting,
 empty states for a fresh raider, the greeting and the action chips (unanswered raid, empty BiS phase) that deep-link
 into their tab (nothing to do shows no chips), the next raid's banner with one-click sign-up, my answer's pill and
-its "can drop" line (picks of the raid's phase, filtered to its instance), the day's raids as pills, the calendar
+its "can drop" line (picks of the raid's phase, filtered to its instance), the week's raids taking turns on the
+banner (sliding on by themselves, held while the mouse is on it, picked by bar or arrow), the calendar
 (planned raids, weekly ones beyond the Raids tab's two weeks, logged raids, the raids coming up; a day's raids open
 in the Raids tab or the Raid log), recent loot (council: everyone's, raider: own), the readiness line in the
 banner's foot for the council (not for a raider), and the countdown ticker / demo mode without Lua errors.
@@ -88,7 +89,7 @@ def tip_lines(tip):
 def banner(c):
     """The banner of the next raid: its texts and which answer controls show (codes stripped; None = hidden)."""
     b = c.eval_py("""
-      local b = ns.Dashboard:GetPanel().banner
+      local b = ns.Dashboard:GetPanel().banner.face
       local function t(fs) if fs:IsVisible() and (fs:GetText() or "") ~= "" then return fs:GetText() end end
       return { title = t(b.title), meta = t(b.meta), meter = t(b.meter), meterTip = b.meterHit.tip,
                accept = b.accept:IsShown(), tentative = b.tentative:IsShown(), more = b.more:IsShown(),
@@ -108,15 +109,15 @@ def banner(c):
 
 def bis_line(c):
     """The banner's "picks that can drop here" line: (frame, [tooltip lines]) or (None, None) when hidden."""
-    tip = c.eval_py("local f = ns.Dashboard:GetPanel().banner.bis; if f:IsShown() then return f.tip or {} end")
+    tip = c.eval_py("local f = ns.Dashboard:GetPanel().banner.face.bis; if f:IsShown() then return f.tip or {} end")
     if tip is None:
         return None, None
-    return c.eval("return ns.Dashboard:GetPanel().banner.bis"), tip_lines(tip)
+    return c.eval("return ns.Dashboard:GetPanel().banner.face.bis"), tip_lines(tip)
 
 
 def answer_button(c, which):
     """The banner's answer control: "accept", "tentative", "more" or "pill" (my answer's pill)."""
-    return c.eval("return ns.Dashboard:GetPanel().banner[...]", which)
+    return c.eval("return ns.Dashboard:GetPanel().banner.face[...]", which)
 
 
 def loot_rows(c):
@@ -374,62 +375,80 @@ d.hour, d.min, d.sec = hour, 0, 0
 return time(d)"""
 
 
-def pills(c):
-    """Visible day pills of the banner: [text] (codes stripped)."""
-    out = c.eval_py("""
-      local out = {}
-      for _, b in ipairs(ns.Dashboard:GetPanel().banner.pills) do
-        if b:IsShown() then out[#out + 1] = b.text:GetText() end
-      end
-      return out""") or []
-    return [strip_codes(t) for t in out]
+def strip(c):
+    """The banner carousel's strip: { shown, n (bars shown), at (the shown raid's bar), anim (sliding) }."""
+    return c.eval_py("""
+      local b = ns.Dashboard:GetPanel().banner
+      local n = 0
+      for _, s in ipairs(b.bars) do if s:IsShown() then n = n + 1 end end
+      return { shown = b.strip:IsShown(), n = n, at = b.at, anim = b.anim ~= nil }""")
 
 
-def pill(c, text):
-    return c.eval("""
-      local s = ...
-      for _, b in ipairs(ns.Dashboard:GetPanel().banner.pills) do
-        if b:IsShown() and (b.text:GetText() or ""):find(s, 1, true) then return b end
-      end""", text)
+def strip_part(c, which, i=None):
+    """A bar of the strip (which = "bar", i = 1..n) or one of its arrows ("prev" / "next")."""
+    if which == "bar":
+        return c.eval("return ns.Dashboard:GetPanel().banner.bars[...]", i)
+    return c.eval("return ns.Dashboard:GetPanel().banner[...]", which)
 
 
 @case
-def several_raids_on_one_day_get_pills():
+def the_weeks_raids_take_turns_on_the_banner():
     w, c = rp.world()
     bob, lee = c["Bob"], c["Lee"]
     tid = rp.team(bob, "Main", ["Lee", "Rita"])
     kara = rp.create(bob, i="kara", t=bob.eval(AT_HOUR, 1, 19), tm=[tid], sz=10)
     gruul = rp.create(bob, i="gruul", t=bob.eval(AT_HOUR, 1, 22), tm=[tid], sz=25)
-    rp.create(bob, i="mag", t=bob.eval(AT_HOUR, 3, 20), tm=[tid], sz=25)
+    mag = rp.create(bob, i="mag", t=bob.eval(AT_HOUR, 3, 20), tm=[tid], sz=25)
+    rp.create(bob, i="ssc", t=bob.eval(AT_HOUR, 9, 20), tm=[tid], sz=25)
     w.tick(2)
     install_helpers(lee)
     open_home(lee)
+    s = strip(lee)
+    assert s["shown"] and s["n"] == 3 and s["at"] == 1, s
     assert banner(lee)["title"] == "Karazhan", "the soonest raid is shown first"
-    ps = pills(lee)
-    assert len(ps) == 2 and "19:00 Kara" in ps[0] and "22:00 Gruul" in ps[1], ps
-    assert all(p.startswith("! ") for p in ps), "unanswered raids are marked"
-    # the raid on another day is not a pill: it is in the calendar's Coming up list
+    # the raid after the week is not on the banner: it is in the calendar's Coming up list
     up = coming(lee)
-    assert len(up) == 1 and up[0].startswith("Magtheridon's Lair | "), up
-    # switch to Gruul and sign up for it only
-    lee.click(pill(lee, "Gruul"))
-    w.tick(0.3)
+    assert len(up) == 1 and up[0].startswith("Serpentshrine Cavern | "), up
+    # the next raid slides in by itself
+    w.tick(9)
+    s = strip(lee)
+    assert s["at"] == 2 and not s["anim"], s
     assert banner(lee)["title"] == "Gruul's Lair", banner(lee)
+    # ... but not while the mouse is on the banner
+    lee.eval("ns.Dashboard:GetPanel().banner.IsMouseOver = function() return true end")
+    w.tick(12)
+    assert strip(lee)["at"] == 2, strip(lee)
+    lee.eval("ns.Dashboard:GetPanel().banner.IsMouseOver = nil")
+    # a bar shows its raid; answering there keeps it shown
+    lee.click(strip_part(lee, "bar", 3))
+    w.tick(1)
+    assert banner(lee)["title"] == "Magtheridon's Lair", banner(lee)
     lee.click(answer_button(lee, "accept"))
     w.tick(1)
-    assert lee.eval_py("return ns.RaidPlan:GetMySignup(...)", gruul)["st"] == "A"
+    assert lee.eval_py("return ns.RaidPlan:GetMySignup(...)", mag)["st"] == "A"
     assert lee.eval_py("return ns.RaidPlan:GetMySignup(...)", kara) is None
-    ps = pills(lee)
-    assert ps[0].startswith("! ") and not ps[1].startswith("! "), ps
     b = banner(lee)
-    assert b["title"] == "Gruul's Lair" and b["pill"] == "Accepted", "the picked raid stays shown"
-    assert chip(lee, "Sign up: ") is not None, "Karazhan still needs an answer"
-    # the picked raid is cancelled: back to the soonest, and no pills for a single raid
+    assert b["title"] == "Magtheridon's Lair" and b["pill"] == "Accepted", b
+    # the arrows wrap around: after the last raid comes the first, before the first the last
+    lee.click(strip_part(lee, "next"))
+    w.tick(1)
+    assert strip(lee)["at"] == 1 and banner(lee)["title"] == "Karazhan", banner(lee)
+    lee.click(strip_part(lee, "prev"))
+    w.tick(1)
+    assert strip(lee)["at"] == 3 and banner(lee)["title"] == "Magtheridon's Lair", banner(lee)
+    # the shown raid is cancelled: back to the soonest
+    rp.call(bob, "CancelRaid", mag)
+    w.tick(2)
+    lee.eval("ns.Dashboard:Refresh()")
+    s = strip(lee)
+    assert banner(lee)["title"] == "Karazhan" and s["n"] == 2 and s["at"] == 1, (banner(lee), s)
+    # nothing left this week: the next raid alone, no strip
+    rp.call(bob, "CancelRaid", kara)
     rp.call(bob, "CancelRaid", gruul)
     w.tick(2)
     lee.eval("ns.Dashboard:Refresh()")
-    assert banner(lee)["title"] == "Karazhan", banner(lee)
-    assert pills(lee) == [], pills(lee)
+    assert banner(lee)["title"] == "Serpentshrine Cavern", banner(lee)
+    assert not strip(lee)["shown"], strip(lee)
     w.assert_no_errors()
 
 

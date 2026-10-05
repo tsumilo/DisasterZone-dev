@@ -333,7 +333,7 @@ def open_home(w, cl):
 
 def buttons_enabled(cl):
     """The banner's answer buttons (Accept, Tentative, more answers): shown and enabled."""
-    return cl.eval_py("local b = ns.Dashboard:GetPanel().banner; local out = {}; "
+    return cl.eval_py("local b = ns.Dashboard:GetPanel().banner.face; local out = {}; "
                       "for i, x in ipairs({ b.accept, b.tentative, b.more }) do "
                       "out[i] = x:IsShown() and x:IsEnabled() and true or false end; return out")
 
@@ -341,7 +341,7 @@ def buttons_enabled(cl):
 def my_answer(cl):
     """The banner's answer area: { pill (my answer), sub (the spec under it), why (why I can't answer) }."""
     a = cl.eval_py("""
-      local b = ns.Dashboard:GetPanel().banner
+      local b = ns.Dashboard:GetPanel().banner.face
       return { pill = b.pill:IsShown() and b.pill.text:GetText() or nil,
                sub = b.pill:IsShown() and b.pill.sub:IsShown() and b.pill.sub:GetText() or nil,
                why = b.why:IsShown() and b.why.fs:GetText() or nil }""") or {}
@@ -350,7 +350,7 @@ def my_answer(cl):
 
 def meter_tip(cl):
     """The answers' tooltip of the banner's meter (plain text)."""
-    return [strip_codes(t) for t in cl.eval_py("return ns.Dashboard:GetPanel().banner.meterHit.tip") or []]
+    return [strip_codes(t) for t in cl.eval_py("return ns.Dashboard:GetPanel().banner.face.meterHit.tip") or []]
 
 
 @case
@@ -390,10 +390,10 @@ def the_home_card_answers_like_the_raids_tab():
     assert buttons_enabled(lee) == [False] * 3, "answered: the pill changes the answer"
     # the council's readiness line counts the same (Rita only)
     open_home(w, bob)
-    assert "1 not answered" in strip_codes(bob.eval("return ns.Dashboard:GetPanel().banner.ready.fs:GetText()")), \
+    assert "1 not answered" in strip_codes(bob.eval("return ns.Dashboard:GetPanel().banner.face.ready.fs:GetText()")), \
         home_texts(bob)
     # Lee's click answers for the character his answer is for
-    lee.click(lee.eval("return ns.Dashboard:GetPanel().banner.pill"))
+    lee.click(lee.eval("return ns.Dashboard:GetPanel().banner.face.pill"))
     menu_pick(lee, "Tentative")
     w.tick(1)
     assert signups(rita, occ)[K("Lalt")]["st"] == "T" and K("Lee") not in signups(rita, occ)

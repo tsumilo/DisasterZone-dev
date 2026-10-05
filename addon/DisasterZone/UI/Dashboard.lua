@@ -2,10 +2,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Dashboard.lua", ...) then retur
 -- The "Home" tab: the page the main window opens on. Only what needs attention now, top to bottom:
 --   the greeting and a strip of action chips (unanswered raids, an empty BiS phase, players asking to join my run or a
 --     run that needs me, a newer DisasterZone, what's new, the BiS lock);
---   the next raid as a banner with its loading screen, like the Raids board: the date, who leads, the answers by role
---     and my answer in its corner; under it the raid's note, my BiS picks that can drop there and, for the council and
---     the raid organizers, what isn't ready yet. Several raids that day: pills to switch. While a raid session runs,
---     the raid in progress instead;
+--   the raids of the coming week as a banner carousel with their loading screens, like the Raids board: the date, who
+--     leads, the answers by role and my answer in its corner; under it the raid's note, my BiS picks that can drop
+--     there and, for the council and the raid organizers, what isn't ready yet. It slides to the next raid every few
+--     seconds (not while the mouse is on it); a strip of bars and two arrows pick one. While a raid session runs, the
+--     raid in progress instead;
 --   a month calendar of the planned and logged raids and the dungeon runs listed for later, the picked day's events
 --     and the raids coming up beside it;
 --   recent loot (the council: everyone's; a raider: their own).
@@ -21,6 +22,9 @@ local tsort, tconcat = table.sort, table.concat
 local HOUR, DAY = 3600, 86400
 local CURRENT_FOR = 6 * HOUR       -- a raid counts as "next" until this long after it started (Raids tab: same)
 local TICK = 30                     -- seconds between countdown refreshes while the tab is shown
+local WEEK_DAYS = 7                 -- the banner flips through the raids of today and the next 6 days
+local FLIP_EVERY = 8                -- seconds a raid stays on the banner before the next one slides in
+local FLIP_TIME = 0.6               -- the slide from one raid to the next
 
 -- One grid for the page (its content area is 790 x 548): PAD at the sides and the bottom, GAP between blocks.
 local PAGE_H = 548
@@ -89,7 +93,6 @@ local REASON = {
 }
 
 local panel
-local pickedOcc     -- the raid picked among several on the same day (nil = the soonest)
 local cal = {}      -- the calendar: y, m = the month shown, day = the picked day (yyyymmdd); nil = today's
 
 local function UI() return ns.UI end
@@ -867,7 +870,9 @@ local function createHello(p)
 end
 
 ---------------------------------------------------------------------------
--- The banner: the next raid (or the raid in progress, or nothing planned)
+-- The banner: the raids of the coming week, one at a time (or the raid in progress, or nothing planned). Two faces
+-- take turns inside a clipping frame: the next raid is drawn on the hidden one, which slides in as the other slides
+-- out.
 ---------------------------------------------------------------------------
 
 -- The raid's loading screen cropped for the banner (from the Raids board).
@@ -882,18 +887,6 @@ local function setArt(tex, inst, w, h, fw)
     else
         tex:Hide()
     end
-end
-
-local function newDayPill(parent)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(18)
-    UI():AddPillShape(b, 18)
-    b.text = text(b, 10, "GameFontHighlightSmall")
-    b.text:SetPoint("CENTER", 0, 0)
-    b:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end end)
-    b:SetScript("OnLeave", hideTip)
-    b:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
-    return b
 end
 
 -- My answer's pill (as on the Raids board): p:Set(kind, sub)
@@ -933,9 +926,11 @@ local function newAnswerPill(parent)
     return p
 end
 
--- Every answer (mine ticked) and the way to the raid's page: the banner's ... button and my answer's pill.
+-- Every answer (mine ticked) and the way to the raid's page: the banner's ... button and my answer's pill. The
+-- banner holds still while the menu is open.
+local openMenu
 local function answerMenu(owner, v, current)
-    UI():ContextMenu(owner, function(root)
+    openMenu = UI():ContextMenu(owner, function(root)
         root:CreateTitle(RP():GetRaidName(v))
         for _, st in ipairs(STATUS_ORDER) do
             local label = (current == st and ("|cff33ff33" .. STATUS[st].button .. " (yours)|r")) or STATUS[st].button
@@ -946,13 +941,13 @@ local function answerMenu(owner, v, current)
     end)
 end
 
-local function createBanner(p)
-    local b = CreateFrame("Button", nil, p)
-    b:SetPoint("TOPLEFT", PAD, -BANNER_Y)
+local fillFace, refreshBanner     -- (below: the faces' contents)
+
+-- One face of the banner (the banner's size, so its texts sit where the banner's would): the art, the texts, my
+-- answer and the foot. A click on it is the banner's.
+local function createFace(holder)
+    local b = CreateFrame("Frame", nil, holder.clip)
     b:SetSize(INNER_W, BANNER_H)
-    b:RegisterForClicks("LeftButtonUp")
-    flatBox(b, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.7 })
-    p.banner = b
     local ban = CreateFrame("Frame", nil, b)
     ban:SetPoint("TOPLEFT", 0, 0)
     ban:SetPoint("TOPRIGHT", 0, 0)
@@ -977,10 +972,9 @@ local function createBanner(p)
     b.shadeLeft:SetWidth(floor(INNER_W * 0.6))
     gradient(b.shadeLeft, "HORIZONTAL", INK, 0.8, 0)
 
-    -- the top row: what it is (and the day's raids as pills), the countdown
+    -- the top row: what it is (the carousel's strip is the banner's, over it), the countdown
     b.kick = text(ban, 10, "GameFontNormalSmall")
     b.kick:SetPoint("TOPLEFT", IN, -12)
-    b.pills = {}
     b.cd = CreateFrame("Frame", nil, ban)
     b.cd:SetHeight(19)
     b.cd:SetPoint("TOPRIGHT", -IN, -8)
@@ -1010,7 +1004,7 @@ local function createBanner(p)
     b.meterHit:SetPoint("BOTTOMRIGHT", b.meter, "BOTTOMRIGHT", 0, -2)
     b.meterHit:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_BOTTOM") end end)
     b.meterHit:SetScript("OnLeave", hideTip)
-    b.meterHit:SetScript("OnClick", function() b:Click() end)
+    b.meterHit:SetScript("OnClick", function() holder:Click() end)
     b.meta = text(ban, 11, "GameFontHighlightSmall")
     b.meta:SetTextColor(0.82, 0.82, 0.82)
     b.meta:SetPoint("BOTTOMLEFT", b.meter, "TOPLEFT", 0, 6)
@@ -1078,49 +1072,211 @@ local function createBanner(p)
     b.ready:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end end)
     b.ready:SetScript("OnLeave", hideTip)
     b.ready:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
-
-    b:SetScript("OnEnter", function(self) if self.onClick then UI():SetEdgeColor(self, 1, 0.82, 0, 0.55) end end)
-    b:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, EDGE[1], EDGE[2], EDGE[3], 0.7) end)
-    b:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+    return b
 end
 
--- The day's raids as pills beside the kicker (only when there are several); a click shows that raid.
-local function layoutDayPills(b, ctx, x)
-    local list = ctx.dayRaids
-    local show = not ctx.session and #list > 1
-    local n = 0
-    for i, v in ipairs(show and list or {}) do
-        local p = b.pills[i]
-        if not p then
-            p = newDayPill(b.ban)
-            b.pills[i] = p
+-- The carousel's strip (top left, over the faces): a bar per raid, the shown one long with the time to the next
+-- slide filling it in gold, and an arrow on each side. A bar or an arrow slides to that raid.
+local BAR_W, BAR_ON, BAR_GAP, BAR_H = 14, 32, 5, 2
+local STRIP_X = IN - 5               -- the left arrow's glyph lines up with the texts below
+
+local function stripArrow(holder, dir)
+    local a = CreateFrame("Button", nil, holder.strip)
+    a:SetSize(18, 18)
+    a.icon = a:CreateTexture(nil, "ARTWORK")
+    a.icon:SetSize(9, 9)
+    a.icon:SetPoint("CENTER")
+    chevron(a.icon, dir)
+    a.icon:SetVertexColor(0.80, 0.80, 0.80)
+    a:SetScript("OnClick", function() holder:Flip(holder.at + (dir == "left" and -1 or 1), dir == "left" and -1 or 1) end)
+    a:SetScript("OnEnter", function(self)
+        self.icon:SetVertexColor(1, 0.82, 0)
+        local list = holder.ctx and holder.ctx.slides or {}
+        local n = #list
+        local v = n > 0 and list[((holder.at or 1) - 1 + (dir == "left" and -1 or 1)) % n + 1]
+        if v then
+            showTip(self, { dir == "left" and "Previous raid" or "Next raid",
+                            RP():GetRaidName(v) .. grey(" · " .. shortDay(v.t) .. date(" %H:%M", v.t)) }, "ANCHOR_TOP")
         end
-        local marker = myMarker(v)
-        p.text:SetText((marker and (marker .. " ") or "") .. date("%H:%M", v.t) .. " " .. shortRaidName(v))
-        p:SetWidth(floor(strW(p.text) + 18))
-        local picked = v.id == ctx.raid.id
-        local edge = picked and { 0.72, 0.72, 0.76, 0.9 } or { 0.6, 0.6, 0.65, 0.5 }
-        local fill = picked and { 0.27, 0.27, 0.30, 0.95 } or { INK[1], INK[2], INK[3], 0.6 }
-        p:SetPillColors(fill, edge)
-        if picked then p.text:SetTextColor(1, 1, 1) else p.text:SetTextColor(0.80, 0.80, 0.80) end
-        p.tip = { RP():GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. whenText(v.t),
-                  grey(picked and "Shown here" or "Click to show this raid") }
-        p.onClick = function()
-            pickedOcc = v.id
-            Dashboard:Refresh()
+    end)
+    a:SetScript("OnLeave", function(self)
+        self.icon:SetVertexColor(0.80, 0.80, 0.80)
+        hideTip()
+    end)
+    return a
+end
+
+local function stripBar(holder, i)
+    local s = CreateFrame("Button", nil, holder.strip)
+    s:SetHeight(14)
+    s.track = s:CreateTexture(nil, "ARTWORK")
+    s.track:SetHeight(BAR_H)
+    s.track:SetPoint("LEFT", 0, 0)
+    s.track:SetPoint("RIGHT", 0, 0)
+    s.fill = s:CreateTexture(nil, "OVERLAY")
+    s.fill:SetHeight(BAR_H)
+    s.fill:SetPoint("LEFT", 0, 0)
+    s.fill:SetColorTexture(1, 0.82, 0, 0.95)
+    s:SetScript("OnClick", function() holder:Flip(i) end)
+    s:SetScript("OnEnter", function(self)
+        self.hot = true
+        holder:PaintStrip()
+        local v = holder.ctx and holder.ctx.slides[i]
+        if v then
+            local tip = { RP():GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. countdown(v.t) }
+            local marker = myMarker(v)
+            if marker then
+                local mine = RP():GetMySignup(v.id)
+                tip[#tip + 1] = marker .. " " .. (mine and (ANSWER_TEXT[mine.st] or "") or "Answer needed")
+            end
+            tip[#tip + 1] = grey(i == holder.at and "Shown now" or "Click to show this raid")
+            showTip(self, tip, "ANCHOR_TOP")
         end
-        p:ClearAllPoints()
-        if x + p:GetWidth() <= INNER_W - 140 then
-            p:SetPoint("LEFT", b.ban, "TOPLEFT", x, -17)
-            p:Show()
-            x = x + p:GetWidth() + 4
-            n = i
-        else
-            p:Hide()
-        end
+    end)
+    s:SetScript("OnLeave", function(self)
+        self.hot = nil
+        holder:PaintStrip()
+        hideTip()
+    end)
+    return s
+end
+
+-- easeInOutCubic: a slow start, a glide, a soft landing.
+local function ease(x)
+    if x < 0.5 then return 4 * x * x * x end
+    local y = 2 - 2 * x
+    return 1 - y * y * y / 2
+end
+
+local function createBanner(p)
+    local b = CreateFrame("Button", nil, p)
+    b:SetPoint("TOPLEFT", PAD, -BANNER_Y)
+    b:SetSize(INNER_W, BANNER_H)
+    b:RegisterForClicks("LeftButtonUp")
+    flatBox(b, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.7 })
+    p.banner = b
+    -- the faces slide inside the banner's 1px edges
+    b.clip = CreateFrame("Frame", nil, b)
+    b.clip:SetPoint("TOPLEFT", 1, -1)
+    b.clip:SetPoint("BOTTOMRIGHT", -1, 1)
+    b.clip:SetClipsChildren(true)
+    b.faces = { createFace(b), createFace(b) }
+    b.face = b.faces[1]
+    b.faces[2]:Hide()
+    b.at, b.hold = 1, 0
+
+    b.strip = CreateFrame("Frame", nil, b)
+    b.strip:SetFrameLevel(b:GetFrameLevel() + 20)
+    b.strip:SetHeight(18)
+    b.strip:SetPoint("LEFT", b, "TOPLEFT", STRIP_X, -17)
+    b.strip:Hide()
+    b.prev = stripArrow(b, "left")
+    b.prev:SetPoint("LEFT", 0, 0)
+    b.next = stripArrow(b, "right")
+    b.bars = {}
+
+    -- a face at x (0 = in place, -INNER_W = gone to the left)
+    function b:PlaceFace(f, x)
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", self.clip, "TOPLEFT", floor(x + 0.5) - 1, 1)
     end
-    for i = (show and #list or 0) + 1, #b.pills do b.pills[i]:Hide() end
-    return n
+
+    -- The bars: their widths (the shown one long; during a slide the old one shrinks as the new one grows) and the
+    -- gold fill of the time left on the shown raid.
+    function b:PaintStrip()
+        local n = self.ctx and #self.ctx.slides or 0
+        local a = self.anim
+        local e = a and ease(min(1, a.t / FLIP_TIME)) or 1
+        local x = 18 + 2
+        for i = 1, n do
+            local s = self.bars[i]
+            local on = (i == self.at and e) or (a and i == a.fromAt and (1 - e)) or 0
+            local w = floor(BAR_W + (BAR_ON - BAR_W) * on + 0.5)
+            s:SetWidth(w)
+            s:ClearAllPoints()
+            s:SetPoint("LEFT", self.strip, "LEFT", x, 0)
+            s.track:SetColorTexture(1, 1, 1, s.hot and 0.6 or (0.22 + 0.14 * on))
+            local f = (i == self.at and not a) and min(1, self.hold / FLIP_EVERY) or 0
+            s.fill:SetWidth(max(0.01, w * f))
+            s.fill:SetShown(f > 0)
+            x = x + w + BAR_GAP
+        end
+        self.next:ClearAllPoints()
+        self.next:SetPoint("LEFT", self.strip, "LEFT", x - BAR_GAP + 2, 0)
+        self.strip:SetWidth(x - BAR_GAP + 2 + 18)
+    end
+
+    -- only the shown bar's fill (between slides)
+    function b:PaintFill()
+        local s = self.bars[self.at]
+        if not s then return end
+        local f = min(1, self.hold / FLIP_EVERY)
+        s.fill:SetWidth(max(0.01, s:GetWidth() * f))
+        s.fill:SetShown(f > 0)
+    end
+
+    function b:LayoutStrip()
+        local n = self.ctx and #self.ctx.slides or 0
+        for i = #self.bars + 1, n do self.bars[i] = stripBar(self, i) end
+        for i, s in ipairs(self.bars) do s:SetShown(i <= n) end
+        self.strip:SetShown(n > 1)
+        if n > 1 then self:PaintStrip() end
+    end
+
+    -- Slides to raid `to` (wraps around); dir 1 = the new raid comes in from the right.
+    function b:Flip(to, dir)
+        local list = self.ctx and self.ctx.slides or {}
+        local n = #list
+        if self.anim or n < 2 then return end
+        to = (to - 1) % n + 1
+        if to == self.at then return end
+        dir = dir or (to > self.at and 1 or -1)
+        local from = self.face
+        local into = from == self.faces[1] and self.faces[2] or self.faces[1]
+        fillFace(into, self.ctx, list[to])
+        self:PlaceFace(into, dir * INNER_W)
+        into:SetAlpha(0.4)
+        into:Show()
+        self.anim = { from = from, into = into, dir = dir, t = 0, fromAt = self.at }
+        self.face, self.at, self.shownId, self.hold = into, to, list[to].id, 0
+        self:PaintStrip()
+    end
+
+    b:SetScript("OnUpdate", function(self, elapsed)
+        local a = self.anim
+        if a then
+            a.t = a.t + (elapsed or 0)
+            local e = ease(min(1, a.t / FLIP_TIME))
+            self:PlaceFace(a.from, -a.dir * INNER_W * e)
+            self:PlaceFace(a.into, a.dir * INNER_W * (1 - e))
+            a.from:SetAlpha(1 - 0.6 * e)
+            a.into:SetAlpha(0.4 + 0.6 * e)
+            if a.t >= FLIP_TIME then
+                a.from:Hide()
+                a.from:SetAlpha(1)
+                self:PlaceFace(a.from, 0)
+                self.anim = nil
+                -- a refresh that came during the slide
+                if self.stale then
+                    self.stale = nil
+                    refreshBanner(self, self.ctx)
+                end
+            end
+            self:PaintStrip()
+            return
+        end
+        if not self.strip:IsShown() then return end
+        -- the shown raid's time runs while nobody looks at it closely
+        local menu = openMenu and openMenu.IsShown and openMenu:IsShown()
+        if self:IsMouseOver() or menu then return end
+        self.hold = self.hold + (elapsed or 0)
+        if self.hold >= FLIP_EVERY then self:Flip(self.at + 1, 1) else self:PaintFill() end
+    end)
+    b:SetScript("OnEnter", function(self)
+        if self.face.onClick then UI():SetEdgeColor(self, 1, 0.82, 0, 0.55) end
+    end)
+    b:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, EDGE[1], EDGE[2], EDGE[3], 0.7) end)
+    b:SetScript("OnClick", function(self) if self.face.onClick then self.face.onClick() end end)
 end
 
 -- Places the foot's lines (note: 0..2 lines, f2 = the BiS / readiness line) and sizes the art part above it; the
@@ -1358,7 +1514,6 @@ local function fillRaid(b, ctx)
     b.art:SetDesaturated(false)
     b.art:SetAlpha(1)
     b.kick:SetText("")
-    layoutDayPills(b, ctx, IN)
     b.cd.fs:SetText(countdown(v.t))
     b.cd:SetWidth(floor(strW(b.cd.fs) + 18))
     b.cd:Show()
@@ -1483,16 +1638,47 @@ local function fillRaid(b, ctx)
     end
 end
 
-local function refreshBanner(b, ctx)
-    for _, p in ipairs(b.pills) do p:Hide() end
-    hideAnswer(b)
+-- A face shows the raid in progress, raid v, or nothing planned. The phase that matters for v is its own: a Phase 2
+-- raid's readiness asks for Phase 2 lists even while the guild phase is still 1.
+function fillFace(f, ctx, v)
+    hideAnswer(f)
     if ctx.session then
-        fillSession(b, ctx)
-    elseif ctx.raid then
-        fillRaid(b, ctx)
+        fillSession(f, ctx)
+    elseif v then
+        local rc = setmetatable({ raid = v }, { __index = ctx })
+        local target = itemRaidFor(v.i)
+        local phase, raidPhase = guildPhase(), target and tonumber(target.phase)
+        if raidPhase and raidPhase > phase then phase = min(raidPhase, ns.MAX_PHASE or 5) end
+        if phase ~= ctx.phase then rc.phase, rc.bis = phase, bisSummary(phase) end
+        fillRaid(f, rc)
     else
-        fillNone(b)
+        fillNone(f)
     end
+end
+
+-- Draws the shown raid again (the soonest when it is gone); a refresh during a slide waits for its end.
+function refreshBanner(b, ctx)
+    b.ctx = ctx
+    if b.anim then
+        b.stale = true
+        return
+    end
+    local list = ctx.slides
+    local at
+    for i, v in ipairs(list) do
+        if v.id == b.shownId then at = i end
+    end
+    if not at then b.hold = 0 end
+    b.at = at or 1
+    b.shownId = list[b.at] and list[b.at].id
+    fillFace(b.face, ctx, list[b.at])
+    b:PlaceFace(b.face, 0)
+    b.face:SetAlpha(1)
+    b.face:Show()
+    for _, f in ipairs(b.faces) do
+        if f ~= b.face then f:Hide() end
+    end
+    b:LayoutStrip()
     UI():SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], 0.7)
 end
 
@@ -1885,10 +2071,9 @@ local function refreshCalendar(card, ctx)
     local bottom = H - 10
     local width = CAL_W - AGENDA_X - 10
 
-    -- the raids coming up (not the banner's, not the picked day's): what the old Later raids card listed
+    -- the raids coming up (not the banner's week, not the picked day's): what the old Later raids card listed
     local onBanner = {}
-    for _, v in ipairs(ctx.dayRaids) do onBanner[v.id] = true end
-    if ctx.raid then onBanner[ctx.raid.id] = true end
+    for _, v in ipairs(ctx.slides) do onBanner[v.id] = true end
     local coming = {}
     for _, v in ipairs(ctx.raids) do
         if not onBanner[v.id] and dayKey(v.t) ~= picked then
@@ -2193,18 +2378,15 @@ local function buildContext()
         raids = raids,
         raid = raids[1],
         session = GR and GR.GetSession and GR:GetSession() or nil,
-        dayRaids = {},
+        slides = {},
     }
-    -- Several raids on the day of the next one: the banner shows pills to switch between them.
-    if raids[1] then
-        local day = date("%Y%m%d", raids[1].t)
+    -- The banner's raids: today's and the next 6 days' (none of those: the soonest alone); the raid in progress
+    -- instead while a session runs.
+    if not ctx.session then
         for _, v in ipairs(raids) do
-            if date("%Y%m%d", v.t) == day then ctx.dayRaids[#ctx.dayRaids + 1] = v end
+            if daysAway(v.t) < WEEK_DAYS then ctx.slides[#ctx.slides + 1] = v end
         end
-        for _, v in ipairs(ctx.dayRaids) do
-            if v.id == pickedOcc then ctx.raid = v end
-        end
-        if ctx.raid.id ~= pickedOcc then pickedOcc = nil end
+        if #ctx.slides == 0 then ctx.slides[1] = raids[1] end
     end
     -- The phase that matters is the raid's (the one I stand in, else the next): a Phase 2 raid needs the Phase 2 list
     -- even while the guild phase is still 1, and an older raid keeps the guild's current phase.

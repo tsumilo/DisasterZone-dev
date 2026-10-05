@@ -35,6 +35,7 @@ ns.CHANGELOG = {
               "My BiS: phases as tabs, your gear around the model, what's still to get under it.",
               "Home: a calmer calendar: today in gold, only the month's weeks, nothing cut off.",
               "Home: the line under the next raid only shows what's missing.",
+              "Home: the banner slides through this week's raids; the bars or arrows pick one.",
           } },
           { heading = "A new look everywhere", lines = {
               "The sync mark in the top bar turns while your list is shared, then draws a green check.",
