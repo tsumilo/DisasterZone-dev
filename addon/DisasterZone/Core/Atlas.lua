@@ -449,6 +449,52 @@ function Atlas:GetRewards(itemID)
     return out
 end
 
+---------------------------------------------------------------------------
+-- Crafts (the tooltip's Shift materials)
+---------------------------------------------------------------------------
+
+local craftOf          -- [createdItemID] = spellID (built on first use from ns.Data.AtlasCrafts)
+local crafts = {}      -- [spellID] = parsed craft, or false
+
+local function ParseCraft(spell)
+    local c = crafts[spell]
+    if c ~= nil then return c or nil end
+    local s = Data().AtlasCrafts and Data().AtlasCrafts[spell]
+    c = false
+    if type(s) == "string" then
+        local nums = {}
+        for n in s:gmatch("%d+") do nums[#nums + 1] = tonumber(n) end
+        if #nums >= 4 then
+            c = { spell = spell, item = nums[1], made = nums[2], reagents = {} }
+            for i = 3, #nums - 1, 2 do c.reagents[#c.reagents + 1] = { id = nums[i], count = nums[i + 1] } end
+        end
+    end
+    crafts[spell] = c
+    return c or nil
+end
+
+-- The craft that makes id (an item id, or -spellID of a craft spell; a recipe / pattern gives the craft it teaches):
+-- { spell, item (0: makes none), made (per craft), reagents = { { id, count }, ... } }, or nil. Do not modify.
+function Atlas:GetCraft(id)
+    id = tonumber(id)
+    if not id or id == 0 then return nil end
+    if id < 0 then return ParseCraft(-id) end
+    local data = Data()
+    if not craftOf then
+        craftOf = {}
+        for spell, s in pairs(data.AtlasCrafts or {}) do
+            local item = tonumber(strmatch(s, "^(%d+)"))
+            if item and item > 0 then craftOf[item] = spell end
+        end
+        -- items more than one craft makes: the generator's pick
+        for item, spell in pairs(data.AtlasCraftFor or {}) do craftOf[item] = spell end
+    end
+    if craftOf[id] then return ParseCraft(craftOf[id]) end
+    local taught = data.AtlasRecipes and data.AtlasRecipes[id]
+    if type(taught) == "number" and taught ~= 0 and taught ~= id then return self:GetCraft(taught) end
+    return nil
+end
+
 -- Does a page list anything my class can use (gear I can equip, or anything that isn't gear)? Instant data only, so
 -- the middle column can hide other classes' pages (a set, a class's arena gear) under Show: My class / a spec.
 function Atlas:PageUsable(page, heroic)

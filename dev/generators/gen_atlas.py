@@ -12,7 +12,8 @@ Reads (read-only) from the installed WoW AddOns folder:
   * AtlasLootClassic_Crafting/data-tbc.lua         -> every TBC profession table (rows are craft SPELL ids, except the
                                                       Item-type tables: raw gems, herbs, fish)
   * AtlasLootClassic/Data/Profession.lua           -> PROFESSION_DATA.CLASSIC + .BCC (BCC overrides, as AtlasLoot merges
-                                                      them on a TBC client): spell -> created item, required skill
+                                                      them on a TBC client): spell -> created item, required skill,
+                                                      reagents + counts, number made (the tooltip's Shift materials)
   * AtlasLootClassic/Data/Recipe.lua               -> RECIPE_DATA.CLASSIC + .BCC: recipe item -> craft spell
   * AtlasLootClassic_Factions/data-tbc.lua         -> per-faction tables (FactionID, ContentPhaseBC, standing sub-tables)
   * AtlasLootClassic_PvP/data-tbc.lua              -> honor / reputation / arena season tables, PvP mounts, world PvP
@@ -430,6 +431,39 @@ def load_professions_tbc():
     wr = version_table(S.P_PROFESSION, "PROFESSION_DATA", "WRATH")
     wrath_only = {sp for sp in wr.hash if sp not in out}
     return out, wrath_only, cmts
+
+
+def load_crafts_tbc(ctx):
+    """spellID -> (createdItem or 0, numberMade, [(reagent, count), ...], skill, version) for every craft AtlasLoot
+    knows on a TBC client (CLASSIC, then BCC overriding; rows are { created, prof, skill, low, high, {reagents},
+    {counts}, made? }). Rows without a reagent list or with lists of different lengths are skipped (reported)."""
+    out = {}
+    for ver in ("CLASSIC", "BCC"):
+        t = version_table(S.P_PROFESSION, "PROFESSION_DATA", ver)
+        for sp, v in t.hash.items():
+            a = v.array
+            if len(a) < 7 or not isinstance(a[5], LuaTable) or not isinstance(a[6], LuaTable):
+                ctx.skip("craft without a reagent list (Profession.lua)", f"{ver} {sp}")
+                continue
+            ids = [int_val(x) for x in a[5].array]
+            ns_ = [int_val(x) for x in a[6].array]
+            if len(ids) != len(ns_) or not ids or any(not i or i <= 0 for i in ids) or any(not n or n <= 0 for n in ns_):
+                ctx.skip("craft with a bad reagent list (Profession.lua)", f"{ver} {sp} {ids} {ns_}")
+                continue
+            made = int_val(a[7]) if len(a) > 7 else None
+            out[sp] = (int_val(a[0]) or 0, made if made and made > 0 else 1, list(zip(ids, ns_)),
+                       int_val(a[2]) or 0, ver)
+    return out
+
+
+def craft_for_items(crafts):
+    """createdItem -> spell for the items more than one craft makes (Large Prismatic Shard, Primal Fire, ...): a TBC
+    craft first, then the lowest required skill, then the lowest spell id. Items one craft makes need no entry."""
+    by_item = defaultdict(list)
+    for sp, (item, _, _, skill, ver) in crafts.items():
+        if item:
+            by_item[item].append((0 if ver == "BCC" else 1, skill, sp))
+    return OrderedDict((item, sorted(c)[0][2]) for item, c in sorted(by_item.items()) if len(c) > 1)
 
 
 def load_item_sets_tbc():
@@ -869,6 +903,11 @@ HEADER = """\
 -- ns.Data.AtlasRecipes = { [recipeItemID] = createdItemID or -spellID } for every recipe / pattern / plans / formula
 --   / design / schematic / manual the Atlas tab lists (ns.Data.Atlas and the raid / dungeon boss lists):
 --   Recipe.lua recipe -> spell, Profession.lua spell -> created item (-spellID when it creates none).
+-- ns.Data.AtlasCrafts = { [spellID] = "created,made,reagent,count,reagent,count,..." } for every craft on a TBC
+--   client (Profession.lua CLASSIC + BCC): the created item (0: none, an enchant), how many one craft makes, then
+--   each reagent and how many one craft needs. A string per craft (parsed when shown): far less memory than tables.
+-- ns.Data.AtlasCraftFor = { [createdItemID] = spellID } only for items more than one craft makes (TBC craft first,
+--   then the lowest skill). AtlasNames also names every reagent.
 """
 
 
@@ -879,7 +918,7 @@ def lua_item_line(e, names, indent):
     return f"{indent}{e}," + (f" -- {cmt(nm)}" if nm else "")
 
 
-def write_lua(path, tree, names, recipes):
+def write_lua(path, tree, names, recipes, crafts, craft_for):
     L = [FIRST_LINE, HEADER.rstrip("\n"), "local _, ns = ...", "ns.Data = ns.Data or {}", "",
          "-- Browse tree beyond raids / dungeons. categories -> sources -> pages -> items.", "ns.Data.Atlas = {"]
     for cat in tree:
@@ -921,6 +960,20 @@ def write_lua(path, tree, names, recipes):
     for r in sorted(recipes):
         v = recipes[r]
         L.append(f"  [{r}] = {v}, -- {cmt(names.get(r, '?'))} -> {cmt(names.get(v, '?'))}")
+    L.append("}")
+    L.append("")
+    L.append("-- Every craft's materials: [spellID] = \"created,made,reagent,count,...\" (created 0: makes no item).")
+    L.append("ns.Data.AtlasCrafts = {")
+    for sp in sorted(crafts):
+        item, made, reagents, _, _ = crafts[sp]
+        parts = [item, made] + [x for pair in reagents for x in pair]
+        L.append(f"  [{sp}] = \"{','.join(str(p) for p in parts)}\",")
+    L.append("}")
+    L.append("")
+    L.append("-- The craft shown for an item more than one craft makes.")
+    L.append("ns.Data.AtlasCraftFor = {")
+    for item, sp in craft_for.items():
+        L.append(f"  [{item}] = {sp}, -- {cmt(names.get(item, '?'))}")
     L.append("}")
     L.append("")
     L.append("-- English names for every id the browser can list: items (positive) and craft spells (negative).")
@@ -1065,6 +1118,25 @@ def validate_lua(path, expect_cats):  # noqa: C901
                 errs.append(f"AtlasRecipes[{k}] = {v!r} (not a non-zero id)")
             elif N[v] is None:
                 errs.append(f"AtlasRecipes[{k}] = {v} has no AtlasNames entry")
+    C, CF = ns.Data.AtlasCrafts, ns.Data.AtlasCraftFor
+    if C is None or CF is None:
+        errs.append("ns.Data.AtlasCrafts / AtlasCraftFor missing")
+    else:
+        unnamed = set()
+        for k, v in C.items():
+            counts["crafts"] += 1
+            nums = [int(x) for x in v.split(",")] if isinstance(v, str) and re.match(r"^\d+(,\d+)+$", v) else None
+            if not (isinstance(k, int) and k > 0) or not nums or len(nums) < 4 or len(nums) % 2 or nums[1] < 1 \
+                    or any(n <= 0 for n in nums[2:]):
+                errs.append(f"AtlasCrafts[{k!r}] = {v!r}: not created,made,reagent,count,...")
+                continue
+            unnamed.update(r for r in nums[2::2] if N[r] is None)
+        if unnamed:
+            errs.append(f"{len(unnamed)} reagents without AtlasNames entry: {sorted(unnamed)[:20]}")
+        for k, v in CF.items():
+            created = C[v] and int(C[v].split(",")[0])
+            if created != k:
+                errs.append(f"AtlasCraftFor[{k}] = {v}: that craft makes {created}")
     return errs, counts, lua, ns
 
 
@@ -1206,7 +1278,30 @@ def main():
                             if isinstance(e, int) and e in bad:
                                 ctx.skip("id without any name dropped from the tree", f"{cat['key']}/{src['key']}/{pg['key']} {e}")
 
-    size = write_lua(args.out, tree, names, recipes)
+    # ---- materials: every craft's reagents, named (a craft with a reagent nobody can name is not on this client:
+    # Season of Discovery rows in the CLASSIC table)
+    crafts = load_crafts_tbc(ctx)
+    reagent_src = Counter()
+    for sp in sorted(crafts):
+        for r, _ in crafts[sp][2]:
+            if r in names:
+                continue
+            if (Q.get(r) or {}).get("name"):
+                names[r] = Q[r]["name"]
+                reagent_src["Questie TBC item DB"] += 1
+            elif ctx.comment_names.get(r):
+                names[r] = ctx.comment_names[r]
+                reagent_src["AtlasLoot row comment"] += 1
+        missing = [r for r, _ in crafts[sp][2] if r not in names]
+        if missing:
+            ctx.skip("craft with a reagent without any name (not on a TBC client)", f"{sp} {missing}")
+            del crafts[sp]
+    craft_for = craft_for_items(crafts)
+    rep["crafts"] = len(crafts)
+    rep["reagent_name_sources"] = dict(reagent_src)
+    rep["craft_for"] = {str(k): v for k, v in craft_for.items()}
+
+    size = write_lua(args.out, tree, names, recipes, crafts, craft_for)
     errs, counts, lua, ns = validate_lua(args.out, [c["key"] for c in tree])
 
     # ---- report
@@ -1275,7 +1370,8 @@ def main():
     print(f"  validation: {counts.get('pages')} pages, {counts.get('items')} item rows, {counts.get('spells')} spell rows, "
           f"{counts.get('set_pages')} set pages, {counts.get('headers', 0)} headers, {counts.get('tree_unique_ids')} unique ids; "
           f"AtlasNames={counts.get('names')} (addon data ids {len(addon_ids)}); AtlasRecipes={counts.get('recipes')} "
-          f"(unmapped recipe items {len(rep['recipes_unmapped'])}); errors={len(errs)}")
+          f"(unmapped recipe items {len(rep['recipes_unmapped'])}); AtlasCrafts={counts.get('crafts')} "
+          f"(AtlasCraftFor {len(craft_for)}); errors={len(errs)}")
     for e in errs[:30]:
         print("   ERROR", e)
     print(f"  names: {dict(name_src)}; unnamed: {len(unnamed)}")
