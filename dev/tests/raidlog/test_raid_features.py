@@ -373,6 +373,13 @@ def a_crashed_leader_takes_the_settings_the_raid_last_heard():
         w.tick(0.1)
         for x in raiders:
             assert feats(x) == want, (x.name, feats(x))
+    # (the drop can queue a moment behind other guild traffic of a fresh login, e.g. the dungeon board's hello)
+    for _ in range(30):
+        if all(drops(x) == 1 for x in raiders):
+            break
+        w.tick(0.1)
+        for x in raiders:
+            assert feats(x) == want, (x.name, feats(x))
     assert all(drops(x) == 1 and plain(x) is True for x in raiders), [(drops(x), plain(x)) for x in raiders]
     w.tick(10)
     for x in c.values():

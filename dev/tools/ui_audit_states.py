@@ -136,11 +136,14 @@ def close_all(cl):
     cl.eval("""
       for _, name in ipairs({ 'DisasterZoneGuests', 'DisasterZoneRaidInvites', 'DisasterZoneRaidStart',
                               'DisasterZoneRaidLeaders', 'DisasterZoneRaidEditor', 'DisasterZoneAwardDialog',
-                              'DisasterZoneRaidLeader', 'DisasterZoneShareWindow', 'DisasterZoneImportExport' }) do
+                              'DisasterZoneRaidLeader', 'DisasterZoneShareWindow', 'DisasterZoneImportExport',
+                              'DisasterZoneRunToast' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
       if ns.Picker and ns.Picker.Close then pcall(ns.Picker.Close, ns.Picker) end
+      if ns.DungeonsUI and ns.DungeonsUI.GetSheetState and ns.DungeonsUI:GetSheetState() then ns.DungeonsUI:CloseSheet() end
+      if ns.DungeonRuns and ns.Demo and ns.Demo:IsEnabled() then ns.DungeonRuns:Unlist(true) end
       if ns.MainFrame and ns.MainFrame.Close then ns.MainFrame:Close() end
       if ns.DropPanel and ns.DropPanel.Hide then ns.DropPanel:Hide() end
       if ns.RollFrame and ns.RollFrame.frame then ns.RollFrame.frame:Hide() end
@@ -273,6 +276,10 @@ def st_start_window(w, c):
     return g
 
 
+# Gina up for a run as tank or healer, Lower City honored (its heroics need revered)
+DR_ME = ("__MOCK.factions[1011] = 5; ns.DungeonRuns:SetMyRole('tank', true); ns.DungeonRuns:SetMyRole('healer', true); "
+         "ns.DungeonRuns:SetMyRole('dps', false); ")
+
 STATES = [
     ("Home", opened("home")),
     ("Home - calendar day", opened("home", "local v = ns.RaidPlan:GetRaid(select(4, ...)); "
@@ -346,6 +353,19 @@ STATES = [
     ("Members - member card", opened("members", "ns.MembersUI:ShowMember('Vaenyria-Thunderstrike')")),
     ("Members - recipes", opened("members", "ns.MembersUI:SetMode('recipes')")),
     ("Games", opened("games")),
+    # the Dungeons tab (UI/DungeonsTab.lua) on demo mode's runs: up for a run as healer (the place that wants a healer
+    # glows), Lower City only honored (Shadow Labyrinth heroic blocked); my own run with two asking to join; the List
+    # a run sheet (a dungeon picked, and with a picked time); the ping; the empty board of a real guild
+    ("Dungeons - board", demo(DR_ME + "ns.DungeonRuns:SetUp(true)", "dungeons")),
+    ("Dungeons - your run", demo(DR_ME + "ns.DungeonRuns:List({ d = 'Botanica', h = true, role = 'healer' })",
+                                 "dungeons")),
+    ("Dungeons - list a run", demo(DR_ME + "ns.DungeonsUI:OpenSheet(); ns.DungeonsUI:SetSheet({ d = 'Botanica' })",
+                                   "dungeons")),
+    ("Dungeons - list a run - later", demo(DR_ME + "ns.DungeonsUI:OpenSheet(); ns.DungeonsUI:SetSheet({ "
+                                       "d = 'ShatteredHalls', when = 'later', day = 3, mins = 20 * 60 + 30, "
+                                       "no = 'Badge run, fast pulls' })", "dungeons")),
+    ("Dungeons - ping", demo(DR_ME + "ns.MainFrame:Close(); ns.DungeonsUI:OnPing('demo-1')")),
+    ("Dungeons - empty", opened("dungeons")),
     # the Share window (UI/ShareWindow.lua), dropped from the icon that opened it
     ("Share - raid", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                      "ns.ShareWindow:Open('raid:' .. (...), "

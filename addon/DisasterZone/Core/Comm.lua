@@ -23,12 +23,13 @@ end
 -- "live" (CDLl) carries the strategy boards' presence and live edits (Core/StrategyCollab.lua): small and frequent.
 -- "walk" (CDLw) carries where members walk in a strategy's 3D room (Core/StrategyCollab.lua): about once a second
 -- each, on a budget of its own so it never holds up the edits.
+-- "run" (CDLr) carries the guild's dungeon runs (Core/DungeonRuns.lua): who is up for a run, listings, join requests.
 local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm",
-    live = "CDLl", walk = "CDLw" }
+    live = "CDLl", walk = "CDLw", run = "CDLr" }
 local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL",
-    walk = "NORMAL" }
+    walk = "NORMAL", run = "NORMAL" }
 local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live",
-    CDLw = "walk" }
+    CDLw = "walk", CDLr = "run" }
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays; anyone:
                                  -- strategy boards, see AllowLarge)
@@ -177,8 +178,8 @@ local function CheckRoute(distribution, target)
     return false
 end
 
--- msg = table with string field t. class = "ctrl" | "data" | "alert" | "game" | "member" | "live" | "walk" (default
--- "ctrl").
+-- msg = table with string field t. class = "ctrl" | "data" | "alert" | "game" | "member" | "live" | "walk" | "run"
+-- (default "ctrl").
 function Comm:Send(msg, distribution, target, class)
     if not Available() or not ns.loggedIn then return false end
     if type(msg) ~= "table" or type(msg.t) ~= "string" then return false end
@@ -421,8 +422,10 @@ function Comm:OnCommReceived(prefix, text, distribution, sender)
                 -- A raid / party member of another guild (or I have none): group-scoped whispers (RT) now; any
                 -- other type waits like before, in case the roster is still loading or misses a new member.
                 Dispatch(prefix, text, distribution, senderKey, GROUP_WHISPER_TYPES, IsInGuild())
-            elseif IsInGuild() then
-                Hold(prefix, text, distribution, senderKey)   -- roster may not be loaded yet
+            elseif IsInGuild() and prefix ~= PREFIX.run then
+                -- roster may not be loaded yet. (The dungeon board's messages are not held: in a login wave they
+                -- would push the council's out of the hold buffer, and the board is learned again anyway.)
+                Hold(prefix, text, distribution, senderKey)
             end
             return
         end

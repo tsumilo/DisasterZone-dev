@@ -4,7 +4,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Dashboard.lua", ...) then retur
 -- (a "raid in progress" view while a raid session runs) and the BiS picks that can drop there, a calendar of the
 -- planned and logged raids (past, now and ahead), recent loot, and for the council / raid organizers a readiness
 -- check of the next raid (else the later raids). Every card links to the tab that holds the details. Read-only
--- apart from the sign-up buttons.
+-- apart from the sign-up buttons. Dungeon runs planned for later (Core/DungeonRuns.lua) are on the calendar too, and a
+-- run that needs me (while I'm up for one) or players asking to join my run get a chip.
 local addonName, ns = ...
 
 local Dashboard = ns:NewModule("Dashboard")
@@ -99,6 +100,32 @@ end
 
 local function openTab(key)
     if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open(key) end
+end
+
+local function DR() return ns.DungeonRuns end
+
+local function openRun(id)
+    if ns.DungeonsUI and ns.DungeonsUI.Focus then ns.DungeonsUI:Focus(id) else openTab("dungeons") end
+end
+
+-- "The Shattered Halls (H)".
+local function runName(run)
+    local d = DR() and DR():GetDungeon(run.d)
+    return (d and d.name or tostring(run.d)) .. (run.h and " (H)" or "")
+end
+
+-- A run's status on the calendar: mine, I'm in, else the places still open ("needs healer, 2 DPS" / "full").
+local function runState(run)
+    local R = DR()
+    if run.o == Me() then return "your run", "ffd100" end
+    if R:IsInRun(run) then return "you're in", "33ff33" end
+    local open, parts = R:GetOpenRoles(run), {}
+    for _, role in ipairs(R.ROLES) do
+        local n = open[role]
+        if n then parts[#parts + 1] = (n > 1 and (n .. " ") or "") .. (role == "dps" and "DPS" or role) end
+    end
+    if #parts == 0 then return "full", "8cb4ff" end
+    return "needs " .. tconcat(parts, ", "), "8cb4ff"
 end
 
 local function openRaid(occId)
@@ -455,6 +482,27 @@ local function collectActions(ctx)
         out[#out + 1] = { text = "Phase " .. ctx.phase .. ": " .. plural(empty, "empty slot"), kind = "info",
                           tip = { "Fill or disable the empty slots of your Phase " .. ctx.phase .. " list" },
                           onClick = function() openMyBiS(ctx.phase) end }
+    end
+    local R = DR()
+    local mine = R and R:GetMine()
+    local asking = mine and #R:GetRequests(mine.id) or 0
+    if asking > 0 then
+        out[#out + 1] = { text = plural(asking, "player") .. " asking to join", kind = "warn",
+                          tip = { "Your run: " .. runName(mine), "Accept or decline them on the Dungeons tab." },
+                          onClick = function() openRun(mine.id) end }
+    end
+    if R and not mine and R:IsUp() then
+        for _, run in ipairs(R:GetRuns()) do
+            local role = R:IsNow(run) and R:FitsMe(run)
+            if role and not R:GetBlocker(run.d, run.h) and not R:GetAsked(run.id) then
+                local id = run.id
+                out[#out + 1] = { text = shortName(run.o) .. " needs a " .. (role == "dps" and "DPS" or role) .. ": "
+                                      .. runName(run), kind = "info",
+                                  tip = { runName(run), "You're up for a run and this one needs you." },
+                                  onClick = function() openRun(id) end }
+                break
+            end
+        end
     end
     local newer = newerVersion()
     if newer then
@@ -900,6 +948,7 @@ end
 
 -- An event's status words and dot colour: my answer for a raid to come, how a logged one went (grey once over).
 local function eventState(ev)
+    if ev.run then return runState(ev.run) end
     local rec, v = ev.rec, ev.v
     if rec then return running(rec) and "in progress" or bossText(rec), running(rec) and "33ff33" or "999999" end
     if v.cancelled or v.t >= Now() - CURRENT_FOR then return answerState(v) end
@@ -932,6 +981,11 @@ local function calendarEvents(from, to)
     for _, rec in ipairs(logs) do
         if not (rec.pl and shown[rec.pl]) then add({ t = rec.start, rec = rec, name = rec.zone or "Raid" }) end
     end
+    -- dungeon runs listed for later
+    for _, run in ipairs(DR() and DR():GetRuns() or {}) do
+        local t = run.at or 0
+        if t > 0 and t >= from and t <= to then add({ t = t, run = run, name = runName(run) }) end
+    end
     for _, list in pairs(byDay) do
         tsort(list, function(a, b) return a.t < b.t end)
     end
@@ -940,6 +994,7 @@ end
 
 -- Where an event leads: a logged raid to the Raid log (its members), else the planned raid; nil = nowhere.
 local function eventClick(ev)
+    if ev.run then return function() openRun(ev.run.id) end end
     if ev.rec and seesRaidLog() then return function() openLog(ev.rec.id) end end
     if ev.v then return function() openRaid(ev.v.id) end end
     return nil
@@ -947,6 +1002,11 @@ end
 
 -- The agenda row's tooltip: when, the sign-ups or how it went, my answer, my loot, where a click leads.
 local function eventTip(ev)
+    if ev.run then
+        local tip = ns.DungeonsUI and ns.DungeonsUI.GetRunTip and ns.DungeonsUI:GetRunTip(ev.run) or { ev.name }
+        tip[#tip + 1] = grey("Click to open it in the Dungeons tab")
+        return tip
+    end
     local v, rec = ev.v, ev.rec
     local tip = { ev.name }
     if v then
@@ -1002,6 +1062,9 @@ end
 local function eventLines(ev)
     local label, color = eventState(ev)
     local when = date("%H:%M", ev.t)
+    if ev.run then
+        return ev.name, grey(when .. " · " .. shortName(ev.run.o) .. " · ") .. colorize(color, label)
+    end
     local name = ev.name
     if ev.v and ev.v.cancelled then name = grey(name) end
     local status = colorize(color, label)
@@ -1579,6 +1642,7 @@ function Dashboard:OnInit()
         "RAIDPLAN_CHANGED", "MYLIST_CHANGED", "MYLIST_COMMITTED", "OWNED_UPDATED", "LEDGER_UPDATED", "LIST_UPDATED",
         "LISTS_RESET", "CONFIG_UPDATED", "PEERS_UPDATED", "SYNC_STATUS", "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED",
         "GROUP_UPDATED", "ITEMINFO_READY", "DEMO_TOGGLED", "ROSTER_UPDATED", "RAIDLOG_CHANGED", "CHANGELOG_READ",
+        "DUNGEON_RUNS_UPDATED",
     }) do
         ns:On(msg, function() Dashboard:RequestRefresh() end)
     end

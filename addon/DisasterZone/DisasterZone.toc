@@ -69,6 +69,7 @@ Core\StrategyObjects.lua
 Core\StrategyLive.lua
 Core\StrategyPractice.lua
 Core\StrategyCollab.lua
+Core\DungeonRuns.lua
 Core\Loot.lua
 Core\Roll.lua
 Core\Loon.lua
@@ -169,6 +170,7 @@ UI\StrategyBoard.lua
 UI\StrategiesView.lua
 UI\StrategyReminder.lua
 UI\RaidsTab.lua
+UI\DungeonsTab.lua
 UI\Members.lua
 UI\SessionBar.lua
 UI\DropPanel.lua

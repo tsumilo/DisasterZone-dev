@@ -115,8 +115,32 @@ function RandomRoll(a, b)
   M.random_rolls = (M.random_rolls or 0) + 1
   if PY and PY.random_roll then PY.random_roll(tonumber(a) or 1, tonumber(b) or 100) end
 end
-function GetNumSavedInstances() return 0 end
-function GetSavedInstanceInfo() return nil end
+-- saved instances (raid info): tests set __MOCK.saved = { { name, id, reset, difficulty, locked, extended, mostSig,
+-- isRaid, maxPlayers, difficultyName, numEncounters, encounterProgress, extendDisabled, instanceId }, ... }
+M.saved = {}
+function GetNumSavedInstances() return #M.saved end
+function GetSavedInstanceInfo(i)
+  local s = M.saved[i]
+  if not s then return nil end
+  return unpack(s, 1, 14)
+end
+-- quests: tests set __MOCK.quests_on[id] = true (in the quest log) / __MOCK.quests_done[id] = true (done; dailies until
+-- the daily reset)
+M.quests_on, M.quests_done = {}, {}
+C_QuestLog = C_QuestLog or {}
+C_QuestLog.IsOnQuest = function(id) return M.quests_on[tonumber(id) or 0] == true end
+C_QuestLog.IsQuestFlaggedCompleted = function(id) return M.quests_done[tonumber(id) or 0] == true end
+-- reputations: tests set __MOCK.factions[id] = standingID (1 hated .. 8 exalted); any other faction is revered (7)
+M.factions = {}
+M.FACTION_NAMES = { [946] = "Honor Hold", [947] = "Thrallmar", [942] = "Cenarion Expedition", [1011] = "Lower City",
+  [935] = "The Sha'tar", [989] = "Keepers of Time", [1077] = "Shattered Sun Offensive" }
+function GetFactionInfoByID(id)
+  id = tonumber(id)
+  if not id then return nil end
+  local standing = M.factions[id] or 7
+  return M.FACTION_NAMES[id] or ("Faction " .. id), "", standing, 0, 21000, 0, false, false, false, false, false,
+    false, false, id
+end
 function RequestRaidInfo() end
 function GetMoney() return M.money or 0 end
 function GetCoinTextureString(copper)

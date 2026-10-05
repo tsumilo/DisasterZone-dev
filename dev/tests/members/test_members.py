@@ -466,7 +466,8 @@ def a_debug_role_sees_the_notes_ui_without_touching_the_real_notes():
     assert set_note(tsu, "Sam", "A test note.")["ok"] is True
     w.tick(120)
     assert note(tsu, "Sam") == "A test note."
-    assert not [e for e in w.addon_log[start:] if e["sender"] == tsu.full_name and e["chat_type"] == "WHISPER"]
+    assert not [e for e in w.addon_log[start:] if e["sender"] == tsu.full_name and e["chat_type"] == "WHISPER"
+                and e["prefix"] != "CDLr"]   # (CDLr: the dungeon board, Core/DungeonRuns.lua)
     assert note(gina, "Sam") == "The real note." and note(otto, "Sam") == "The real note."
     # a real officer editing meanwhile, and a login exchange: still nothing for the pretender
     assert set_note(otto, "Sam", "Edited by Otto.")["ok"] is True

@@ -236,6 +236,9 @@ local KNOWN_MESSAGES = {
     PROFESSIONS_UPDATED = true,   -- the guild's professions / recipes changed (Core/Professions.lua)
     -- who has a strategy open / what they have selected changed (Core/StrategyCollab.lua)
     STRATEGY_PRESENCE_CHANGED = true,
+    -- the guild's dungeon runs (Core/DungeonRuns.lua): anything on the board changed; (id) a run needs me while I'm
+    -- up for one; (id, key) somebody asks to join my run
+    DUNGEON_RUNS_UPDATED = true, DUNGEON_RUN_PING = true, DUNGEON_RUN_REQUEST = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)

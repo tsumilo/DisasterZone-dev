@@ -6,8 +6,18 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.1", date = "4 October 2026", title = "Ask to join locked raids, tidier loot panel",
+    { version = "1.3.1", date = "5 October 2026", title = "Dungeons tab, ask to join locked raids",
       sections = {
+          { heading = "Dungeons: the guild's own LFG", lines = {
+              "New Dungeons tab: list a 5-man run or join one, all inside the guild.",
+              "I'm up for a run: the guild sees you're free, and you get a ping when a run needs you.",
+              "Every run shows its open places; the one that wants your role glows. Join asks the leader.",
+              "Your run: Accept sends the invite. Guildies who are free and fit show up to invite.",
+              "Cards say what stops you (heroic key, lockout, level) or what drops your BiS there.",
+              "List a run: pick a dungeon, now or later, add a note; the preview is what the guild sees.",
+              "A star on a dungeon: online guildies with BiS there. DAILY: your daily quest for it.",
+              "Share your run in chat with the share icon; later runs show on the Home calendar.",
+          } },
           { heading = "Ask to join a locked raid", lines = {
               "Raids locked to a team are now listed for the whole guild, with their roster.",
               "Outside the team? Pick an answer to ask to join; your note goes with it.",

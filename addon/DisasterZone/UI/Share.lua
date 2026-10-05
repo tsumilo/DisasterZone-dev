@@ -10,9 +10,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Share.lua", ...) then return en
 -- EventRegistry "SetItemRef": a click opens the place, shift-click puts the link back into the chat box, right-click
 -- shares it on; hovering shows what it is (EventRegistry "ChatFrame.OnHyperlinkEnter").
 --
--- References: a page (home, mybis, council, loot, raids, teams, strategies, raidlog, members, recipes, games,
--- changelog, settings), raid:<occ>[:groups | :assign], team:<id>, strat:<id>, board:<occ>:<boss>, member:<name>,
--- recipe:<spell>, game:<id>, ver:<version>. UI/ShareWindow.lua is the window that sends one.
+-- References: a page (home, mybis, council, loot, raids, teams, strategies, raidlog, dungeons, members, recipes,
+-- games, changelog, settings), raid:<occ>[:groups | :assign], team:<id>, strat:<id>, board:<occ>:<boss>,
+-- member:<name>, recipe:<spell>, game:<id>, ver:<version>, run:<id> (a dungeon run, Core/DungeonRuns.lua).
+-- UI/ShareWindow.lua is the window that sends one.
 local addonName, ns = ...
 
 local Share = ns:NewModule("Share")
@@ -50,6 +51,7 @@ local PAGES = {
                    desc = "The strategy boards for every boss." },
     raidlog    = { label = "Raids: Raid log", tab = "raids", view = "log", desc = "The raids we ran and who came.",
                    closed = "The Raid log is for the Guild Master, the guild council and the raid leaders." },
+    dungeons   = { label = "Dungeons", tab = "dungeons", desc = "The guild's dungeon runs: list one or join one." },
     members    = { label = "Members", tab = "members", mode = "roster", desc = "The guild: characters, specs, gear." },
     recipes    = { label = "Members: Recipes", tab = "members", mode = "recipes",
                    desc = "Who in the guild can make what." },
@@ -226,6 +228,23 @@ KINDS.game = function(arg)
     return { label = def.name, icon = TexIcon(def.icon or ICON.games), known = true }
 end
 
+local function Runs() return ns.DungeonRuns end
+
+-- "The Shattered Halls (Heroic)", "now" / "Thu 9 Oct 20:00", the complex's icon.
+local function RunParts(run)
+    local d = Runs():GetDungeon(run.d)
+    local name = (d and d.name or tostring(run.d)) .. (run.h and " (Heroic)" or "")
+    local when = (run.at or 0) > GetServerTime() and When(run.at) or "now"
+    return name, when, d and d.complex and d.complex.icon
+end
+
+KINDS.run = function(arg)
+    local run = Runs() and Runs():GetRun(arg)
+    if not run then return { icon = TexIcon(ICON.raid) } end
+    local name, when, icon = RunParts(run)
+    return { label = name .. " · " .. when, icon = TexIcon(icon or ICON.raid), known = true }
+end
+
 KINDS.ver = function(arg)
     local e = ChangelogEntry(arg)
     return { label = "What's new in " .. arg, icon = TexIcon(ICON.version), known = e ~= nil }
@@ -263,6 +282,7 @@ end
 function Share:GameRef(id) return type(id) == "string" and ("game:" .. id) or nil end
 function Share:RecipeRef(spell) return tonumber(spell) and ("recipe:" .. tonumber(spell)) or nil end
 function Share:TeamRef(id) return type(id) == "string" and ("team:" .. id) or nil end
+function Share:RunRef(id) return type(id) == "string" and ("run:" .. id) or nil end
 
 ---------------------------------------------------------------------------
 -- Text: what goes out in chat; ChatLink: what a chat frame shows
@@ -397,6 +417,14 @@ OPEN.game = function(arg)
     return true
 end
 
+OPEN.run = function(arg)
+    if not OpenTab("dungeons") then return false end
+    if not (ns.DungeonsUI and ns.DungeonsUI:Focus(arg)) then
+        return false, "That run is over, or it hasn't reached you yet."
+    end
+    return true
+end
+
 OPEN.ver = function(arg)
     if not ChangelogEntry(arg) then
         OpenTab("changelog")
@@ -526,6 +554,26 @@ TIPS.game = function(tt, arg)
     if def.desc and def.desc ~= "" then tt:AddLine(def.desc, 1, 1, 1, true) end
 end
 
+TIPS.run = function(tt, arg)
+    local R = Runs()
+    local run = R:GetRun(arg)
+    local name, when = RunParts(run)
+    tt:AddLine(name, 1, 0.82, 0)
+    tt:AddLine("Dungeon run led by " .. Util().ShortName(run.o) .. " · " .. when, 1, 1, 1)
+    local open, parts = R:GetOpenRoles(run), {}
+    for _, role in ipairs(R.ROLES) do
+        local n = open[role]
+        if n then parts[#parts + 1] = (n > 1 and (n .. " ") or "") .. R.ROLE_LABEL[role] end
+    end
+    if #parts > 0 then
+        tt:AddLine("Looking for " .. tconcat(parts, ", "), 0.8, 0.8, 0.8)
+    else
+        tt:AddLine("The party is full", 0.8, 0.8, 0.8)
+    end
+    if R:IsInRun(run) then tt:AddLine("You're in", 0.2, 1, 0.6) end
+    if run.no then tt:AddLine(run.no, 1, 1, 1, true) end
+end
+
 TIPS.ver = function(tt, arg)
     local e = ChangelogEntry(arg)
     tt:AddLine("DisasterZone " .. arg, 1, 0.82, 0)
@@ -634,6 +682,9 @@ function Share:CurrentRef()
     elseif tab == "changelog" and ns.ChangelogUI then
         local v = ns.ChangelogUI:GetSelected()
         return (v and ChangelogEntry(v)) and ("ver:" .. v) or "changelog"
+    elseif tab == "dungeons" and ns.DungeonRuns then
+        local mine = ns.DungeonRuns:GetMine()
+        return mine and self:RunRef(mine.id) or "dungeons"
     elseif tab == "council" and ns.CouncilUI then
         return ns.CouncilUI:GetView() == "log" and "loot" or "council"
     end
