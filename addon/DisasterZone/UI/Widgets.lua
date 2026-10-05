@@ -676,6 +676,8 @@ UI.ICON_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
 UI.ICON_ROWS = 16
 UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, bank = 23, more = 24, notes = 25,
             crown = 26, import = 32, export = 33, knobTurn = 34, knobSize = 35, walk = 36 }
+-- (the strategy board's chrome: 37 a target (Practice), 38 a keyboard (Keyboard and mouse), 39 a plus (New strategy))
+UI.ICON.practice, UI.ICON.keys, UI.ICON.plus = 37, 38, 39
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }
@@ -740,6 +742,103 @@ function UI:CreateSleekMenuButton(parent, text, width, build, height)
     function b:SetDefaultText(t) self:SetText(t or "") end
     function b:Refresh() end
     function b:OpenMenu() UI:ContextMenu(self, build) end
+    return b
+end
+
+-- A dropdown that reads as text, not as a box: the value (an icon in front of it if wanted) and a small gold chevron
+-- after it (the strategy board's strategy switch and map, like the raid page's spec / character pickers). opts = {
+--   font (default "GameFontHighlight"), size (a font size), color { r, g, b } (the text; white while hovered),
+--   icon (a UI.ICON_ATLAS index or a texture), iconSize (12), iconAlpha (0.65), chevSize (10), height (18),
+--   build = function(root) (the menu), or options() -> { { text =, value = } }, selected(), select(value) (radios),
+--   display(value) -> text (optional), title, tip (a text, or function(tooltip) that fills it) }
+-- b:SetLabel(text) sets the text and fits the width; b:Refresh() shows selected(); b:OpenMenu(). b.fs, b.icon, b.chev.
+-- The caller anchors it (by its RIGHT for a link that ends at an edge).
+function UI:CreateLinkDropdown(parent, opts)
+    opts = opts or {}
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(opts.height or 18)
+    b.fs = b:CreateFontString(nil, "OVERLAY", opts.font or "GameFontHighlight")
+    b.fs:SetJustifyH("LEFT")
+    b.fs:SetWordWrap(false)
+    if opts.size then
+        local path, _, flags = b.fs:GetFont()
+        if path then b.fs:SetFont(path, opts.size, flags) end
+    end
+    local base = opts.color or { 1, 1, 1 }
+    local iconW = 0
+    if opts.icon then
+        local s = opts.iconSize or 12
+        b.icon = b:CreateTexture(nil, "ARTWORK")
+        b.icon:SetSize(s, s)
+        b.icon:SetPoint("LEFT", 0, 0)
+        if type(opts.icon) == "number" then
+            b.icon:SetTexture(UI.ICON_ATLAS)
+            b.icon:SetTexCoord(unpack(UI:IconCoords(opts.icon)))
+        else
+            b.icon:SetTexture(opts.icon)
+        end
+        b.icon:SetAlpha(opts.iconAlpha or 0.65)
+        iconW = s + 5
+    end
+    b.fs:SetPoint("LEFT", iconW, 0)
+    local cs = opts.chevSize or 10
+    b.chev = b:CreateTexture(nil, "ARTWORK")
+    b.chev:SetSize(cs, cs)
+    b.chev:SetTexture(UI.ICON_ATLAS)
+    b.chev:SetTexCoord(unpack(UI:IconCoords(UI.ICON.chevron)))
+    b.chev:SetPoint("LEFT", b.fs, "RIGHT", 4, -1)
+    local function paint(self)
+        if self.hovered then
+            self.fs:SetTextColor(1, 1, 1)
+            self.chev:SetVertexColor(1, 1, 1)
+        else
+            self.fs:SetTextColor(base[1], base[2], base[3])
+            self.chev:SetVertexColor(1, 0.82, 0)
+        end
+    end
+    function b:SetLabel(text)
+        self.fs:SetText(text or "")
+        self:SetWidth(floor(iconW + (self.fs:GetStringWidth() or 40) + 4 + cs + 0.5))
+    end
+    function b:Refresh()
+        if not opts.selected then return end
+        local sel, text = opts.selected(), nil
+        if opts.display and sel ~= nil then text = opts.display(sel) end
+        if not text and opts.options then
+            for _, o in ipairs(opts.options() or {}) do if o.value == sel then text = o.text end end
+        end
+        self:SetLabel(text or "|cff808080pick|r")
+    end
+    function b:OpenMenu()
+        if opts.build then return UI:ContextMenu(self, opts.build) end
+        return UI:ContextMenu(self, function(root)
+            for _, o in ipairs(opts.options and opts.options() or {}) do
+                root:CreateRadio(o.text, function(data) return opts.selected() == data end, function(data)
+                    opts.select(data)
+                    b:Refresh()
+                end, o.value)
+            end
+        end)
+    end
+    b:RegisterForClicks("LeftButtonUp")
+    b:SetScript("OnClick", function(self) self:OpenMenu() end)
+    b:SetScript("OnEnter", function(self)
+        self.hovered = true
+        paint(self)
+        if not (opts.title or opts.tip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        if opts.title then GameTooltip:AddLine(opts.title) end
+        if type(opts.tip) == "function" then opts.tip(GameTooltip)
+        elseif opts.tip then GameTooltip:AddLine(opts.tip, 1, 1, 1, true) end
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function(self)
+        self.hovered = false
+        paint(self)
+        GameTooltip:Hide()
+    end)
+    paint(b)
+    b:SetLabel("")
     return b
 end
 

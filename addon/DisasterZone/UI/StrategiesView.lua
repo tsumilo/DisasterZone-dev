@@ -348,7 +348,10 @@ local function moreEntries(d, anchor)
     end
     local s = d.s
     local out = {}
-    if S():CanBuild() then out[#out + 1] = { 17, "Copy", "Makes a copy that is yours.", function() copyStrategy(s) end } end
+    if S():CanBuild() then
+        out[#out + 1] = { 17, "Copy", "Makes a copy that is yours: change it, then pick it for your raids.",
+                          function() copyStrategy(s) end }
+    end
     out[#out + 1] = { 18, "Share", "Post a link in chat that opens it in DisasterZone (Shift: into your chat box).",
                       function() shareStrategy(s, anchor) end }
     if (s.ow or s.by) == ns.Util.PlayerKey() then
@@ -358,6 +361,15 @@ local function moreEntries(d, anchor)
     if S():CanDeleteStrategy(s.id) then
         out[#out + 1] = { UI().ICON.trash, "Delete", "Removes the strategy for everyone.", function() deleteStrategy(s) end,
                           true }
+    end
+    return out
+end
+
+-- The same entries for another place (the strategy board's ⋯ menu), without Share (the board has its own button).
+function View:StrategyMoreEntries(s)
+    local out = {}
+    for _, e in ipairs(moreEntries({ s = s })) do
+        if e[2] ~= "Share" then out[#out + 1] = e end
     end
     return out
 end

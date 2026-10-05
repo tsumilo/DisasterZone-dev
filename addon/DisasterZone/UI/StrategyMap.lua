@@ -514,29 +514,104 @@ function MapUI:MapName(mapID)
     return "Map " .. tostring(mapID)
 end
 
--- Adds a map picker: this raid's floors, the other TBC raids' maps, a map id, blank.
-function MapUI:BuildMapMenu(root, bossRef, current, onPick, prompt)
-    local mine = self:MapsFor(bossRef)
-    for _, m in ipairs(mine) do
-        root:CreateRadio(self:MapLabel(m), function() return current == m.id end, function() onPick(m.id) end)
+-- A page's map in a few words: a floor of the boss' own raid without the raid's name ("Gorefiend's Vigil"), any other
+-- map as MapName says it; "Blank (grid)" for none.
+function MapUI:MapShortName(mapID, bossRef)
+    if not mapID or mapID == 0 then return "Blank (grid)" end
+    local name = self:MapName(mapID)
+    local m = SHIPPED_BY_ID[mapID]
+    local raidKey = type(bossRef) == "string" and bossRef:match("^(%w+):") or nil
+    if m and raidKey and m.raid == raidKey then
+        local floorName = name:match("^.- %- (.+)$")
+        if floorName then return floorName end
     end
+    return name
+end
+
+-- Who is fought on a floor, in a word or two ("Teron", "Maiden, Opera"); the rare spawns of Karazhan's first floor
+-- are left out.
+local BOSS_SHORT = { Najentus = "Naj'entus", ShadeOfAkama = "Akama", OperaOz = "Opera", OperaWolf = "Opera",
+                     OperaRomulo = "Opera", Kiljaeden = "Kil'jaeden", Muru = "M'uru", EredarTwins = "Twins",
+                     Zuljin = "Zul'jin", Akilzon = "Akil'zon", Janalai = "Jan'alai", Kazrogal = "Kaz'rogal",
+                     VoidReaver = "Void Reaver", Kaelthas = "Kael'thas", Alar = "Al'ar" }
+local BOSS_SKIP = { Rokad = true, Shadikith = true, Hyakiss = true }
+local function floorBosses(m)
+    local out, seen = {}, {}
+    for _, key in ipairs(m and m.bosses or {}) do
+        local name = BOSS_SHORT[key] or key
+        if not BOSS_SKIP[key] and not seen[name] then
+            seen[name] = true
+            out[#out + 1] = name
+        end
+    end
+    if #out == 0 then return nil end
+    if #out <= 2 then return table.concat(out, ", ") end
+    return out[1] .. ", " .. out[2] .. " +" .. (#out - 2)
+end
+
+-- A floor's picture in a menu: the middle of its map's top half (Media/Maps/<file>_a), 24 x 16.
+local function mapThumb(m)
+    if not (m and m.file) then return "" end
+    return ("|TInterface\\AddOns\\DisasterZone\\Media\\Maps\\%s_a:16:24:0:0:1024:512:128:896:0:512|t  "):format(m.file)
+end
+
+-- Adds a map picker: this raid's floors (each with its picture and who is fought there), the other raids' maps (a
+-- submenu per raid), a map id, blank. opts (optional): { title = the menu's title, reset = fn (Reset zoom) }.
+function MapUI:BuildMapMenu(root, bossRef, current, onPick, prompt, opts)
+    opts = opts or {}
+    if opts.title then root:CreateTitle(opts.title) end
+    local raidKey = type(bossRef) == "string" and bossRef:match("^(%w+):") or nil
+    local function entry(parent, m, short, many)
+        local label = (m.shipped and short and raidKey) and self:MapShortName(m.id, raidKey .. ":x") or self:MapLabel(m)
+        local who = many and floorBosses(SHIPPED_BY_ID[m.id])
+        local text = mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and ("|cffffd100" .. label .. "|r") or label)
+            .. (who and ("  |cff8a8a8a" .. who .. "|r") or "")
+        return parent:CreateButton(text, function() onPick(m.id) end)
+    end
+    local mine = self:MapsFor(bossRef)
+    for _, m in ipairs(mine) do entry(root, m, true, #mine > 1) end
     if #mine == 0 then root:CreateTitle("No map of this raid found") end
-    local seen = {}
-    for _, m in ipairs(mine) do seen[m.id] = true end
+    root:CreateDivider()
+    -- the other raids, in the raids' order, each its own submenu when it has several floors
     local other = root:CreateButton("Other raids")
-    local any = false
+    local order, seenRaid = {}, {}
+    for _, m in ipairs(SHIPPED) do
+        if not seenRaid[m.raid] then
+            seenRaid[m.raid] = true
+            order[#order + 1] = m.raid
+        end
+    end
     for key in pairs(MAP_NAMES) do
-        for _, m in ipairs(self:MapsFor(key .. ":x")) do
-            if not seen[m.id] then
-                seen[m.id] = true
+        if not seenRaid[key] then
+            seenRaid[key] = true
+            order[#order + 1] = key
+        end
+    end
+    local any = false
+    for _, key in ipairs(order) do
+        if key ~= raidKey then
+            local list = self:MapsFor(key .. ":x")
+            if #list == 1 then
                 any = true
-                other:CreateRadio(self:MapLabel(m), function() return current == m.id end, function() onPick(m.id) end)
+                local m = list[1]
+                other:CreateButton(mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and ("|cffffd100" .. self:MapLabel(m)
+                    .. "|r") or self:MapLabel(m)), function() onPick(m.id) end)
+            elseif #list > 1 then
+                any = true
+                local raid = ns.ItemDB and ns.ItemDB.GetRaid and ns.ItemDB:GetRaid(key)
+                local sub = other:CreateButton(mapThumb(SHIPPED_BY_ID[list[1].id]) .. (raid and raid.name or key))
+                for _, m in ipairs(list) do
+                    local label = m.shipped and self:MapShortName(m.id, key .. ":x") or self:MapLabel(m)
+                    local who = floorBosses(SHIPPED_BY_ID[m.id])
+                    sub:CreateButton(mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and ("|cffffd100" .. label .. "|r")
+                        or label) .. (who and ("  |cff8a8a8a" .. who .. "|r") or ""), function() onPick(m.id) end)
+                end
             end
         end
     end
     if not any then other:CreateTitle("none") end
     if prompt then
-        root:CreateButton("Map ID...", function()
+        root:CreateButton("Map ID", function()
             prompt("Map ID (uiMapID of any map with art)", current and current > 0 and tostring(current) or "",
                 function(text)
                     local id = tonumber(text)
@@ -545,7 +620,12 @@ function MapUI:BuildMapMenu(root, bossRef, current, onPick, prompt)
                 end)
         end)
     end
-    root:CreateRadio("Blank (grid)", function() return not current or current == 0 end, function() onPick(0) end)
+    root:CreateButton((not current or current == 0) and "|cffffd100Blank (grid)|r" or "Blank (grid)",
+        function() onPick(0) end)
+    if opts.reset and ArtLayer(current) then
+        root:CreateDivider()
+        root:CreateButton(ns.UI:AtlasIconText(30, 12) .. "  Reset zoom", opts.reset)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -558,7 +638,7 @@ Canvas.__index = Canvas
 local TOOLS = {
     { key = "select", label = "Select", tip = "Click to select (Shift adds, drag on empty map for a box). Drag to move, Alt snaps. Shift-drag onto a table cell to link. Right-click for options." },
     { key = "pan", label = "Pan map", tip = "Drag to move the map; the mouse wheel zooms. Set the map first, then draw: drawings stay where they are when the map moves." },
-    { key = "circle", label = "Circle", tip = "Drag from the centre outwards to draw a circular zone." },
+    { key = "circle", label = "Circle zone", tip = "Drag from the centre outwards. A click makes one of the usual size." },
     { key = "rect", label = "Rectangle", tip = "Drag from one corner to the other to draw a zone." },
     { key = "arrow", label = "Arrow", tip = "Drag from start to end." },
     { key = "line", label = "Line", tip = "Drag from start to end." },
@@ -708,32 +788,27 @@ function Canvas:Changed()
     self:Render()
 end
 
--- What the mouse does in the room, per tool (the 3D view shows it).
+-- What the mouse does in the room, per tool (the 3D view shows it on the room's bottom left: the gesture in gold, what
+-- it does in white).
 local TIPS3D = {
-    select = "Click to select, drag to move it on the floor. Right-drag turns the view, the wheel zooms, middle-drag "
-        .. "moves it; double-click the floor to look there.",
-    pan = "Drag to move the view. Right-drag turns it, the wheel zooms.",
-    circle = "Drag on the floor from the centre outwards to draw a circular zone.",
-    rect = "Drag on the floor from one corner to the other to draw a zone.",
-    arrow = "Drag on the floor from start to end.",
-    line = "Drag on the floor from start to end.",
-    icon = "Click the floor where the icon goes, then pick it.",
-    text = "Click the floor where the text goes, then type it.",
+    select = { { "Right-drag", "turn" }, { "Wheel", "zoom" }, { "Middle-drag", "move" }, { "Double-click", "look there" } },
+    pan = { { "Drag", "move" }, { "Right-drag", "turn" }, { "Wheel", "zoom" } },
+    circle = { { "Drag", "a circle from its centre" }, { "Right-drag", "turn" }, { "Wheel", "zoom" } },
+    rect = { { "Drag", "a zone, corner to corner" }, { "Right-drag", "turn" }, { "Wheel", "zoom" } },
+    arrow = { { "Drag", "an arrow, start to end" }, { "Right-drag", "turn" }, { "Wheel", "zoom" } },
+    line = { { "Drag", "a line, start to end" }, { "Right-drag", "turn" }, { "Wheel", "zoom" } },
+    icon = { { "Click", "the floor for an icon" }, { "Right-drag", "turn" }, { "Wheel", "zoom" } },
+    text = { { "Click", "the floor for a text" }, { "Right-drag", "turn" }, { "Wheel", "zoom" } },
 }
-local READ3D = "Drag to move the view, right-drag to turn it, the wheel zooms; double-click the floor to look there."
+local READ3D = { { "Drag", "move" }, { "Right-drag", "turn" }, { "Wheel", "zoom" }, { "Double-click", "look there" } }
 
 function Canvas:UpdateHint()
     if self:Is3D() then
         self.v3:SetHint(self:Editable() and TIPS3D[self.tool] or READ3D)
         return
     end
-    if not self:Editable() then
-        self.hint:SetText("")
-        return
-    end
-    for _, t in ipairs(TOOLS) do
-        if t.key == self.tool then self.hint:SetText(t.tip) end
-    end
+    -- (on the map: what a tool does is its button's tooltip, not a line over the map)
+    self.hint:SetText("")
 end
 
 ---------------------------------------------------------------------------
@@ -2305,6 +2380,15 @@ function Canvas:BuildLinkMenu(root, current, onPick)
     end
 end
 
+-- A menu entry: an atlas icon (or the room of one, so the words line up), the words, a key in grey; red: Delete.
+local MENU_SPACER = "|TInterface\\Common\\spacer:12:12|t"
+local function menuEntry(icon, text, key, red)
+    local i = icon and (type(icon) == "string" and icon or ns.UI:AtlasIconText(icon, 12, red and { 1, 0.55, 0.55 } or nil))
+        or MENU_SPACER
+    return i .. "  " .. (red and ("|cffff8a8a" .. text .. "|r") or text) .. (key and ("  |cff8a8a8a" .. key .. "|r") or "")
+end
+MapUI.MenuEntry = menuEntry
+
 function Canvas:ElementMenu(e)
     local list = self:Selection()
     if #list == 0 then list = { e } end
@@ -2313,9 +2397,9 @@ function Canvas:ElementMenu(e)
     ns.UI:ContextMenu(self.frame, function(root)
         root:CreateTitle(many and (#list .. " selected" .. (e.g and " (group)" or "")) or (names[e.t] or "Element"))
         if not many and (e.t == "z" or e.t == "i" or e.t == "x") then
-            root:CreateButton(e.t == "x" and "Edit text..." or "Label...", function() editLabel(self, e) end)
+            root:CreateButton(menuEntry(16, e.t == "x" and "Edit text" or "Label"), function() editLabel(self, e) end)
         end
-        local col = root:CreateButton("Colour")
+        local col = root:CreateButton(menuEntry(nil, "Colour"))
         for i, c in ipairs(COLORS) do
             col:CreateRadio(MapUI:Swatch(i) .. " " .. c[4], function() return (e.c or (e.t == "z" and 1 or 9)) == i end,
                 function()
@@ -2328,7 +2412,7 @@ function Canvas:ElementMenu(e)
         local markable = {}
         for _, m in ipairs(list) do if m.t == "i" or m.t == "z" then markable[#markable + 1] = m end end
         if #markable > 0 then
-            local rm = root:CreateButton("Raid mark")
+            local rm = root:CreateButton(menuEntry(MapUI:IconString("rt8", 12), "Raid mark"))
             rm:CreateRadio("None", function() return e.rm == nil end, function()
                 for _, m in ipairs(markable) do m.rm = nil end
                 self:Changed()
@@ -2348,7 +2432,7 @@ function Canvas:ElementMenu(e)
             for _, m in ipairs(list) do
                 if m.t == "i" and SO().DefOf(m.i) == def then same[#same + 1] = m end
             end
-            local stm = root:CreateButton("State: " .. def.states[(SO().StateOf(e))].name)
+            local stm = root:CreateButton(menuEntry(nil, "State", def.states[(SO().StateOf(e))].name))
             for n, st in ipairs(def.states) do
                 stm:CreateRadio(st.name, function() return (SO().StateOf(e)) == n end, function()
                     for _, m in ipairs(same) do m.st = n > 1 and n or nil end
@@ -2356,11 +2440,21 @@ function Canvas:ElementMenu(e)
                 end)
             end
         end
-        local link = root:CreateButton(e.t == "s" and "Shows the player of" or "Link to assignment")
-        self:BuildLinkMenu(link, self:LinkOf(e), function(ref) self:LinkList(list, ref) end)
+        -- the link's value in grey: the job, the column or the table it shows (none)
+        local cur = self:LinkOf(e)
+        local curLabel
+        for _, sl in ipairs(cur and self.opts.slots and self.opts.slots() or {}) do
+            if sl.ref == cur then curLabel = sl.label end
+        end
+        for _, l in ipairs(cur and not curLabel and self.opts.links and self.opts.links() or {}) do
+            if l.ref == cur then curLabel = l.label end
+        end
+        local link = root:CreateButton(menuEntry(nil, e.t == "s" and "Shows the player of" or "Link to a job",
+            e.t ~= "s" and (curLabel or (cur and "?" or "none")) or nil))
+        self:BuildLinkMenu(link, cur, function(ref) self:LinkList(list, ref) end)
         if not many then
             if e.t == "z" then
-                local shape = root:CreateButton("Shape")
+                local shape = root:CreateButton(menuEntry(nil, "Shape"))
                 shape:CreateRadio("Circle", function() return e.s == "c" end, function() e.s = "c"; self:Changed() end)
                 shape:CreateRadio("Rectangle", function() return e.s == "r" end, function() e.s = "r"; self:Changed() end)
             elseif e.t == "a" then
@@ -2369,54 +2463,60 @@ function Canvas:ElementMenu(e)
                     self:Changed()
                 end)
             elseif e.t == "i" then
-                local ic = root:CreateButton("Icon")
+                local ic = root:CreateButton(menuEntry(nil, "Icon"))
                 MapUI:BuildIconMenu(ic, e.i, function(key, extra)
                     e.i, e.st = key, nil
                     if extra then e.ms = extra.ms end
                     self:Changed()
                 end, self.opts.prompt, self.opts.bossRef and self.opts.bossRef(), true)
-                local size = root:CreateButton("Size")
+                local size = root:CreateButton(menuEntry(nil, "Size"))
                 for _, z in ipairs({ { 20, "Small" }, { 32, "Medium" }, { 48, "Large" }, { 72, "Huge" }, { 96, "Largest" } }) do
                     size:CreateRadio(z[2], function() return (e.z or 32) == z[1] end, function() e.z = z[1]; self:Changed() end)
                 end
             elseif e.t == "x" then
-                local size = root:CreateButton("Size")
+                local size = root:CreateButton(menuEntry(nil, "Size"))
                 for i, label in ipairs({ "Small", "Normal", "Large" }) do
                     size:CreateRadio(label, function() return textSize(e) == TEXT_SIZES[i] end, function()
                         e.z = i
                         self:Changed()
                     end)
                 end
-                local align = root:CreateButton("Align")
+                local align = root:CreateButton(menuEntry(nil, "Align"))
                 for _, a in ipairs({ { "l", "Left" }, { "c", "Centre" }, { "r", "Right" } }) do
                     align:CreateRadio(a[2], function() return (e.j or "c") == a[1] end, function() self:SetTextAlign(a[1]) end)
                 end
                 if e.w then
-                    root:CreateButton("Fit the box to the text", function() e.w = nil; self:Changed() end)
+                    root:CreateButton(menuEntry(nil, "Fit the box to the text"), function() e.w = nil; self:Changed() end)
                 end
             end
         end
         root:CreateDivider()
         if many then
-            root:CreateButton("Group  |cff808080Ctrl+G|r", function() self:GroupSelection() end)
+            root:CreateButton(menuEntry(nil, "Group", "Ctrl+G"), function() self:GroupSelection() end)
         end
         local grouped = false
         for _, m in ipairs(list) do if m.g then grouped = true end end
-        if grouped then root:CreateButton("Ungroup  |cff808080Ctrl+Shift+G|r", function() self:UngroupSelection() end) end
-        root:CreateButton("Copy  |cff808080Ctrl+C|r", function() self:Copy() end)
-        root:CreateButton("Duplicate  |cff808080Ctrl+D|r", function() self:Duplicate() end)
-        root:CreateButton("Bring to front", function() self:Reorder(list, true) end)
-        root:CreateButton("Send to back", function() self:Reorder(list, false) end)
+        if grouped then
+            root:CreateButton(menuEntry(nil, "Ungroup", "Ctrl+Shift+G"), function() self:UngroupSelection() end)
+        end
+        root:CreateButton(menuEntry(17, "Copy", "Ctrl+C"), function() self:Copy() end)
+        root:CreateButton(menuEntry(nil, "Duplicate", "Ctrl+D"), function() self:Duplicate() end)
+        root:CreateButton(menuEntry(nil, "Bring to front"), function() self:Reorder(list, true) end)
+        root:CreateButton(menuEntry(nil, "Send to back"), function() self:Reorder(list, false) end)
         if not many and self:Room3D() then
             -- stand there in the room (an arrow: at its start, looking along it)
-            root:CreateButton(self:Is3D() and "View from here" or "View from here in 3D", function() self:ViewFrom3D(e) end)
+            root:CreateButton(menuEntry(15, self:Is3D() and "View from here" or "View from here in 3D"),
+                function() self:ViewFrom3D(e) end)
         end
         -- a boss / add model: back to facing the nearest player marker, back to its real size
         if not many and e.t == "i" and (e.f or e.ms) then
-            if e.f then root:CreateButton("Face the nearest player marker", function() e.f = nil self:Changed() end) end
-            if e.ms then root:CreateButton("Real size", function() e.ms = nil self:Changed() end) end
+            if e.f then
+                root:CreateButton(menuEntry(nil, "Face the nearest player marker"), function() e.f = nil self:Changed() end)
+            end
+            if e.ms then root:CreateButton(menuEntry(nil, "Real size"), function() e.ms = nil self:Changed() end) end
         end
-        root:CreateButton("|cffff6060Delete|r  |cff808080Del|r", function() self:RemoveList(list) end)
+        root:CreateDivider()
+        root:CreateButton(menuEntry(ns.UI.ICON.trash, "Delete", "Del", true), function() self:RemoveList(list) end)
     end)
 end
 
@@ -2429,7 +2529,7 @@ function Canvas:BackgroundMenu(x, y)
         MapUI:BuildIconMenu(ic, nil, function(key, extra)
             self:Place(MapUI:NewIcon(x, y, key, extra, ref))
         end, self.opts.prompt, ref, self:SpawnMenu())
-        root:CreateButton("Text...", function() self:TextAt(x, y) end)
+        root:CreateButton("Text", function() self:TextAt(x, y) end)
         root:CreateButton("Circle zone", function()
             self:Place({ t = "z", s = "c", x = x, y = y, w = 100, h = 100, c = self.color })
         end)

@@ -51,8 +51,8 @@ local NORTH = pi / 2                  -- the heading that shows the room as the 
 -- Walking in the room (your own character): the button's icon (Sprint), the hint, the keys (the client's defaults),
 -- the character's animations, how deep a swimmer's feet hang under the surface and where over the feet the camera
 -- looks (the client's 2.2 yd).
-local WALK_HINT = "Walking: WASD / arrows move, Q / E step aside, Space jumps, right-drag turns you, left-drag looks "
-    .. "round, the wheel zooms, Esc stops."
+local WALK_HINT = { { "WASD", "walk" }, { "Q / E", "step aside" }, { "Space", "jump" }, { "Right-drag", "turn" },
+                    { "Esc", "stop" } }
 -- The walk button held over the room: where you would land (a ring on the floor, a ripple going out from it, a
 -- chevron the way you would face, you see-through in it), red where there is nothing to stand on; the hints.
 local PEG_BAD = { 1, 0.32, 0.25 }
@@ -1710,7 +1710,12 @@ end, "the 3D strategy board's models (what the client says of them); centre <act
 -- 15 the eye, 36 walk (a figure striding over a ring).
 local HUD_ICONS = { rotL = 27, rotR = 28, top = 29, home = 30, map = 31, eye = 15, walk = 36 }
 local INSET_W = 200
-local EYE_HINT = "Standing here at eye height: right-drag looks around, the wheel steps back out."
+local EYE_HINT = { { "Right-drag", "look around" }, { "Wheel", "step back out" } }
+-- The camera buttons in groups (8 px between groups, 2 inside one), from the bar's right end: the small map | walk, my
+-- spot | from above, the whole room | turn right, turn left. A darker fill than the board's own buttons, so they read
+-- on any floor.
+local HUD_GROUP = { map = 1, walk = 2, eye = 2, top = 3, home = 3, rotR = 4, rotL = 4 }
+local HUD_FILL = { 0.055, 0.055, 0.067, 0.82 }
 
 function V:CreateHud()
     local hud = CreateFrame("Frame", nil, self.frame)
@@ -1719,9 +1724,21 @@ function V:CreateHud()
     self.hud = hud
     local btns = {}
     local function button(key, title, text, onClick)
-        local b = UI():CreateTipIconButton(hud, 22, HUD_ICONS[key], title, text, onClick)
-        btns[#btns + 1] = b
+        local b = UI():CreateTipIconButton(hud, 24, HUD_ICONS[key], title, text, onClick)
         b.key = key
+        -- (the darker fill while it is neither hovered nor lit)
+        local function dark(self)
+            if not self.active and not self.hovered then
+                self.bg:SetColorTexture(HUD_FILL[1], HUD_FILL[2], HUD_FILL[3], HUD_FILL[4])
+            end
+        end
+        local setActive = b.SetActive
+        function b:SetActive(on)
+            setActive(self, on)
+            dark(self)
+        end
+        b:HookScript("OnLeave", dark)
+        dark(b)
         return b
     end
     self.walkBtn = button("walk", "Walk in the room", "Drag this into the room (or onto the small map) and let go "
@@ -1756,21 +1773,20 @@ function V:CreateHud()
         .. "sees. Click it to look there.", function() self:ToggleInset() end)
     self.eyeBtn = button("eye", "My spot", "Stand where you are on this page, at eye height, looking at the boss. "
         .. "Click again for your next spot; wheel out to step back.", function() self:ViewMySpot() end)
-    button("home", "Whole room", "Back to the view of the whole room (Home).", function() self:Reset() end)
+    local homeBtn = button("home", "Whole room", "Back to the view of the whole room (Home).", function() self:Reset() end)
     self.topBtn = button("top", "From above", "Look straight down, north up, like the 2D map; click again to tilt back.",
         function() self:ToggleTop() end)
-    button("rotR", "Turn right", "Turn the view 45 degrees (E).", function() self:Rotate(-1) end)
-    button("rotL", "Turn left", "Turn the view 45 degrees (Q).", function() self:Rotate(1) end)
-    local prev
-    for _, b in ipairs(btns) do
-        if prev then b:SetPoint("RIGHT", prev, "LEFT", -2, 0) else b:SetPoint("TOPRIGHT", -6, -6) end
-        prev = b
-    end
+    local rotR = button("rotR", "Turn right", "Turn the view 45 degrees (E).", function() self:Rotate(-1) end)
+    local rotL = button("rotL", "Turn left", "Turn the view 45 degrees (Q).", function() self:Rotate(1) end)
+    -- from the bar's right end
+    btns = { self.mapBtn, self.walkBtn, self.eyeBtn, self.topBtn, homeBtn, rotR, rotL }
     self.hudBtns = btns
+    self:LayoutHud()
     -- the compass: an arrow pointing north as the camera sees it
     local comp = CreateFrame("Frame", nil, hud)
     comp:SetSize(30, 30)
-    comp:SetPoint("TOPLEFT", 8, -8)
+    -- (low enough that its N stays inside the view whichever way it points)
+    comp:SetPoint("TOPLEFT", 12, -18)
     comp.bg = comp:CreateTexture(nil, "BACKGROUND")
     comp.bg:SetAllPoints()
     comp.bg:SetTexture(MapUI().TEX.disc)
@@ -1786,12 +1802,16 @@ function V:CreateHud()
     -- the hint (what the mouse does), on a dark strip
     self.hintBg = hud:CreateTexture(nil, "BACKGROUND")
     self.hintBg:SetColorTexture(0, 0, 0, 0.5)
-    self.hint = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    self.hint:SetPoint("BOTTOMLEFT", 6, 5)
-    self.hint:SetPoint("RIGHT", hud, "RIGHT", -84, 0)          -- (the board's 2D / 3D switch is in that corner)
+    self.hint = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    do
+        local path, _, flags = self.hint:GetFont()
+        if path then self.hint:SetFont(path, 11, flags) end
+    end
+    self.hint:SetPoint("BOTTOMLEFT", 18, 14)
     self.hint:SetJustifyH("LEFT")
-    self.hintBg:SetPoint("TOPLEFT", self.hint, "TOPLEFT", -4, 3)
-    self.hintBg:SetPoint("BOTTOMRIGHT", self.hint, "BOTTOMRIGHT", 4, -3)
+    self.hint:SetWordWrap(false)
+    self.hintBg:SetPoint("TOPLEFT", self.hint, "TOPLEFT", -10, 6)
+    self.hintBg:SetPoint("BOTTOMRIGHT", self.hint, "BOTTOMRIGHT", 10, -5)
     -- the small map: a read-only copy of the 2D canvas (the same page), with the camera on it
     local inset = MapUI():CreateCanvas(hud, INSET_W, {
         editable = function() return false end,
@@ -1803,7 +1823,7 @@ function V:CreateHud()
         -- names everything on its plates)
         iconLabels = false,
     })
-    inset.frame:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -6, -34)
+    inset.frame:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -8, -40)
     inset.hint:Hide()
     UI():AddEdges(inset.frame)
     UI():SetEdgeColor(inset.frame, 0.5, 0.5, 0.55, 0.9)
@@ -1834,17 +1854,42 @@ function V:CreateHud()
     self.insetOn = true
 end
 
--- The hint the canvas gives for its tool (DrawHud shows another one while the camera stands on a spot).
+-- The hint the canvas gives for its tool (DrawHud shows another one while the camera stands on a spot): a sentence, or
+-- { { gesture, what it does } } drawn as "Right-drag turn    Wheel zoom", the gestures in gold.
 function V:SetHint(text)
     self.baseHint = text
     self:ShowHint(self.orb.dist < 3 and EYE_HINT or text)
 end
 
+local function hintText(h)
+    if type(h) ~= "table" then return h end
+    local parts = {}
+    for _, p in ipairs(h) do parts[#parts + 1] = "|cffffd100" .. p[1] .. "|r " .. p[2] end
+    return table.concat(parts, "     ")
+end
+
 function V:ShowHint(text)
     if self.hintShown == text then return end
     self.hintShown = text
+    text = hintText(text)
     self.hint:SetText(text or "")
     self.hintBg:SetShown(text ~= nil and text ~= "")
+end
+
+-- The camera buttons from the bar's right end, closed up round the hidden ones (8 px between groups).
+function V:LayoutHud()
+    local prev
+    for _, b in ipairs(self.hudBtns) do
+        if b:IsShown() then
+            b:ClearAllPoints()
+            if prev then
+                b:SetPoint("RIGHT", prev, "LEFT", HUD_GROUP[prev.key] ~= HUD_GROUP[b.key] and -8 or -2, 0)
+            else
+                b:SetPoint("TOPRIGHT", -8, -8)
+            end
+            prev = b
+        end
+    end
 end
 
 function V:ToggleInset()
@@ -1941,14 +1986,7 @@ function V:DrawHud()
     self.topBtn:SetActive(o.pitch >= PITCH_TOP - 0.05)
     self.mapBtn:SetActive(self.insetOn)
     -- the buttons close up when one is hidden
-    local prev
-    for _, b in ipairs(self.hudBtns) do
-        if b:IsShown() then
-            b:ClearAllPoints()
-            if prev then b:SetPoint("RIGHT", prev, "LEFT", -2, 0) else b:SetPoint("TOPRIGHT", -6, -6) end
-            prev = b
-        end
-    end
+    self:LayoutHud()
     self:DrawInset()
 end
 

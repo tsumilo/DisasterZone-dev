@@ -11,10 +11,19 @@ local BlocksUI = ns:NewModule("StrategyBlocksUI")
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tinsert, tremove = table.insert, table.remove
 
-local TITLE_H, HEAD_H, ROW_H, GAP = 20, 16, 18, 8
+-- The panel's look (the raid page's flat cards): a block is one card with its title row (the block's colour as a bar
+-- on that row only), its column titles in small gold and rows of 22 px over hairlines; GAP between cards.
+local TITLE_H, HEAD_H, ROW_H, GAP = 26, 18, 22, 8
+local FOOT_H, PAD_B = 22, 6           -- under the rows: + Row / + Column while editing, else a little room
+local INSET = 10                      -- the table inside its card
+local STRIP_H = 22                    -- a dispel table's line under the title
 local COL_WEIGHT = { p = 2, g = 2, x = 3 }
-local ORDER_W = 20
-local CARD_H = 36
+local ORDER_W = 22
+local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
+local CARD_EDGE = { 0.34, 0.34, 0.38, 0.35 }
+local ADD_BG, ADD_EDGE = { 0.10, 0.10, 0.12, 0.6 }, { 0.34, 0.34, 0.38, 0.45 }
+local ADD_BG_HOT, ADD_EDGE_HOT = { 0.18, 0.18, 0.21, 0.85 }, { 1, 0.82, 0, 0.8 }
+local SUG_H, TPL_H = 38, 28           -- Add a block: a suggestion from the map, a template
 
 local function S() return ns.Strategy end
 local function MapUI() return ns.StrategyMapUI end
@@ -22,27 +31,65 @@ local function UI() return ns.UI end
 
 local function grey(t) return "|cff808080" .. tostring(t) .. "|r" end
 
--- Block templates for "Add block".
+-- A text in the game's font at a size.
+local function newText(parent, font, size, layer)
+    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then
+        local path, _, flags = fs:GetFont()
+        if path then fs:SetFont(path, size, flags) end
+    end
+    return fs
+end
+
+local function setSize(fs, size)
+    local path, _, flags = fs:GetFont()
+    if path then fs:SetFont(path, size, flags) end
+end
+
+-- A fill and 1px edges (f.bg, f.edges).
+local function cardLook(f, bg, edge)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    UI():AddEdges(f, "BORDER")
+    UI():SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4])
+end
+
+-- A menu entry: an atlas icon (or the room of one, so the words line up), the words, a value in grey; red: Delete.
+local MENU_SPACER = "|TInterface\\Common\\spacer:12:12|t"
+local function menuEntry(icon, text, value, red)
+    local i = icon and UI():AtlasIconText(icon, 12, red and { 1, 0.55, 0.55 } or nil) or MENU_SPACER
+    return i .. "  " .. (red and ("|cffff8a8a" .. text .. "|r") or text) .. (value and ("  |cff8a8a8a" .. value .. "|r") or "")
+end
+
+-- The block templates of Add a block: the addon's own glyph (UI.ICON_ATLAS), the name, what it is for (its tooltip).
 BlocksUI.TEMPLATES = {
-    { label = "Players with targets", sub = "tank on boss, healer on tank",
+    { label = "Players with targets", icon = 5, sub = "Who takes what: a tank on the boss, a healer on a tank.",
       make = function() return { n = "Assignments", r = 4, c = { { t = "p", n = "Player" }, { t = "g", n = "Target" } } } end },
-    { label = "Rotation (ordered)", sub = "interrupts, misdirects",
+    { label = "Rotation", icon = 10, sub = "Players taking turns in order: interrupts, misdirects.",
       make = function() return { n = "Rotation", r = 3, c = { { t = "o" }, { t = "p", n = "Player" }, { t = "g", n = "Target" } } } end },
-    { label = "Groups / zones", sub = "players split into columns",
+    { label = "Groups / zones", icon = 4, sub = "Players split into columns, a group or a spot each.",
       make = function() return { n = "Zones", r = 5, c = { { t = "p", n = "Zone 1" }, { t = "p", n = "Zone 2" } } } end },
-    { label = "Pairs", sub = "innervates, Power Infusion: from -> to",
+    { label = "Pairs", icon = 6, sub = "From one player to another: Innervate, Power Infusion.",
       make = function() return { n = "Innervates", r = 3, c = { { t = "p", n = "From", f = "DRUID" }, { t = "p", n = "To" } } } end },
-    { label = "Single job", sub = "Bloodlust with a timing",
+    { label = "Single job", icon = 7, sub = "One job with its timing: Bloodlust.",
       make = function() return { n = "Bloodlust", r = 1, c = { { t = "p", n = "Player" }, { t = "x", n = "When" } } } end },
-    { label = "Dispel / decurse", sub = "curses, magic, poison, enrage",
+    { label = "Dispels", icon = 22, sub = "Who removes what: curses, magic, poison, enrage.",
       make = function() return { n = "Dispels", r = 3, tr = "dsp", dy = "m", i = "i:Spell_Holy_DispelMagic",
                                  c = { { t = "p", n = "Player", f = S().DispelFilter("m", false) } } } end },
-    { label = "Notes", sub = "text only",
+    { label = "Text only", icon = 8, sub = "A table of plain text.",
       make = function() return { n = "Notes", r = 3, c = { { t = "x" } } } end },
 }
 
 local COL_TYPE_NAME = { p = "Player slot", g = "Target", o = "Order #", x = "Text" }
 BlocksUI.COL_TYPE_NAME = COL_TYPE_NAME
+
+-- What a tracked table follows, in a word (the green tag on its title row, the block menu's Track in fight).
+local TRACK_TAG = { rot = "Interrupts", md = "Misdirects", bl = "Bloodlust", pi = "Power Infusion", iv = "Innervate",
+                    curse = "Curses", dsp = "Dispels" }
+BlocksUI.TRACK_TAG = TRACK_TAG
 
 ---------------------------------------------------------------------------
 -- Panel
@@ -51,9 +98,12 @@ BlocksUI.COL_TYPE_NAME = COL_TYPE_NAME
 local Panel = {}
 Panel.__index = Panel
 
+local createNotes
+
 -- opts: mode() -> "edit"|"fill"|"view"; page(); strat(); assigned(ref) -> key; memberInfo(key) -> { c, missing };
--- isDup(ref); onAssign(ref, key|nil); members() -> { {key, c, sp} }; onChange(); onHover(ref|nil); prompt(title, def, cb,
--- multiline, maxLen); slotName(ref) -> coloured player name or nil.
+-- isDup(ref); isMine(ref); raidBoard() (a raid's board: names, or a dash); onAssign(ref, key|nil); members() ->
+-- { {key, c, sp} }; onChange(); onHover(ref|nil); prompt(title, def, cb, multiline, maxLen); slotName(ref) -> coloured
+-- player name or nil; dragging() -> the player being dragged.
 function BlocksUI:Create(parent, opts)
     local self = setmetatable({}, Panel)
     self.opts = opts
@@ -64,71 +114,59 @@ function BlocksUI:Create(parent, opts)
     child:SetSize(10, 10)
     sf:SetScrollChild(child)
     self.child = child
-    self.notes = child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    self.notes:SetJustifyH("LEFT")
-    self.notes:SetJustifyV("TOP")
-    self.notesBtn = UI():CreateSleekButton(child, "Page notes...", 100, 22, function() self:EditNotes() end)
-    -- secondary: Save is the board's main action while editing
-    self.addBtn = UI():CreateSleekButton(child, "+ Add block", 110, 22, function(btn) self:AddMenu(btn) end)
-    self.empty = child:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    self.empty:SetJustifyH("LEFT")
-    -- editing an empty page: a heading, a line of help, and cards that add a block in one click
-    self.emptyTitle = child:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    self.emptyTitle:SetJustifyH("LEFT")
-    self.emptyTitle:SetText("Jobs on this page")
-    self.emptyText = child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    self.emptyText:SetJustifyH("LEFT")
-    self.emptyText:SetTextColor(0.7, 0.7, 0.7)
-    self.emptyText:SetText("Blocks are small tables of jobs: who tanks what, who kicks, who stands where. "
-        .. "They hold the job slots; the names go in when a raid is assigned.")
-    self.suggestHead = child:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    self.suggestHead:SetJustifyH("LEFT")
-    self.suggestHead:SetText("SUGGESTED FROM THE MAP")
-    self.templateHead = child:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    self.templateHead:SetJustifyH("LEFT")
+    -- an empty page: one quiet line (editing: what goes here; reading: that nothing does)
+    self.empty = newText(child, "GameFontHighlight", 11.5)
+    self.empty:SetWordWrap(true)
+    self.empty:SetJustifyV("TOP")
+    -- Add a block, under the tables while editing: the map's suggestions, then the templates and the page's notes
+    self.addHead = newText(child, "GameFontNormal", 10)
+    self.addHead:SetText("ADD A BLOCK")
     self.cards = {}
+    self.sugCards, self.tplCards = {}, {}
+    self.notesCard = createNotes(child, self)
     return self
 end
 
--- A clickable card: icon (optional), title, grey line under it.
-local function newCard(parent)
+-- A card of Add a block: a suggestion (its picture, a title and a grey line) or a template (a glyph and its name).
+local function newAddCard(parent, big)
     local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(CARD_H)
-    c.bg = c:CreateTexture(nil, "BACKGROUND")
-    c.bg:SetAllPoints()
-    UI():AddEdges(c)
+    c:SetHeight(big and SUG_H or TPL_H)
+    cardLook(c, ADD_BG, ADD_EDGE)
     c.icon = c:CreateTexture(nil, "ARTWORK")
-    c.icon:SetSize(24, 24)
-    c.icon:SetPoint("LEFT", 6, 0)
-    c.title = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    c.title:SetJustifyH("LEFT")
-    c.title:SetWordWrap(false)
-    c.sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    c.sub:SetJustifyH("LEFT")
-    c.sub:SetWordWrap(false)
-    local function paint(self)
-        local v = self.hovered and 0.19 or 0.1
-        self.bg:SetColorTexture(v, v, v + 0.02, 0.92)
-        if self.hovered then UI():SetEdgeColor(self, 1, 0.82, 0, 0.8) else UI():SetEdgeColor(self, 0.3, 0.3, 0.34, 0.9) end
+    c.icon:SetSize(big and 24 or 14, big and 24 or 14)
+    c.icon:SetPoint("LEFT", 10, 0)
+    c.title = newText(c, "GameFontHighlight", big and 12 or 11.5)
+    if big then
+        c.title:SetPoint("TOPLEFT", 43, -6)
+        c.sub = newText(c, "GameFontHighlight", 10.5)
+        c.sub:SetTextColor(0.62, 0.62, 0.62)
+        c.sub:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -3)
+    else
+        c.title:SetPoint("LEFT", 32, 0)
+        c.title:SetTextColor(0.9, 0.9, 0.9)
     end
-    c:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
-    c:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    local function paint(self)
+        local bg, edge = self.hovered and ADD_BG_HOT or ADD_BG, self.hovered and ADD_EDGE_HOT or ADD_EDGE
+        self.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+        UI():SetEdgeColor(self, edge[1], edge[2], edge[3], edge[4])
+    end
+    c:SetScript("OnEnter", function(self)
+        self.hovered = true
+        paint(self)
+        if self.tip then
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:AddLine(self.tipTitle or "")
+            GameTooltip:AddLine(self.tip, 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    c:SetScript("OnLeave", function(self)
+        self.hovered = false
+        paint(self)
+        GameTooltip:Hide()
+    end)
     c:RegisterForClicks("LeftButtonUp")
     c:SetScript("OnClick", function(self) if self.onPick then self.onPick() end end)
-    function c:Set(title, sub, iconKey)
-        self.title:SetText(title)
-        self.sub:SetText(sub or "")
-        self.icon:SetShown(iconKey ~= nil)
-        if iconKey then MapUI():SetIcon(self.icon, iconKey) end
-        local left = iconKey and 36 or 10
-        self.title:ClearAllPoints()
-        self.title:SetPoint("TOPLEFT", left, -5)
-        self.title:SetPoint("RIGHT", -8, 0)
-        self.sub:ClearAllPoints()
-        self.sub:SetPoint("TOPLEFT", self.title, "BOTTOMLEFT", 0, -2)
-        self.sub:SetPoint("RIGHT", -8, 0)
-        paint(self)
-    end
     return c
 end
 
@@ -166,12 +204,14 @@ function Panel:Suggestions(page)
         end
         local isBoss = g.label == bossName
         out[#out + 1] = {
-            title = isBoss and ("Tanks on " .. g.label) or (g.label .. (n > 1 and ("  x" .. n) or "")),
-            sub = n > 1 and ("%d rows, one per %s, linked on the map"):format(n, g.label)
-                or "1 row, linked to it on the map",
+            title = isBoss and ("Tanks on " .. g.label) or (g.label .. (n > 1 and ("  |cff9e9e9ex" .. n .. "|r") or "")),
+            sub = isBoss and ("One row, linked to " .. (n > 1 and "them" or "it") .. " on the map")
+                or (n > 1 and ("One row per " .. g.label:lower() .. ", linked to it on the map")
+                or "One row, linked to it on the map"),
             icon = g.icon,
             apply = function()
-                local k = { n = (isBoss and "Tanks" or g.label):sub(1, S().MAX_NAME_LEN), r = n,
+                -- (the table wears the creature's picture, as on the map)
+                local k = { n = (isBoss and "Tanks" or g.label):sub(1, S().MAX_NAME_LEN), r = n, i = g.icon,
                             c = { { t = "p", n = isBoss and "Tank" or "Player" }, { t = "g", n = "Target" } }, d = {} }
                 k.id = S():NewPartId(strat, "k")
                 for i, e in ipairs(list) do
@@ -187,73 +227,101 @@ function Panel:Suggestions(page)
     return out
 end
 
--- The empty page while editing. Returns the height used.
-function Panel:RenderEmpty(page, width, y)
+-- A block from a template onto the page (Add a block's cards; the tutorial).
+function Panel:AddTemplate(t, page)
+    page = page or self.opts.page()
+    if not page then return end
+    if #page.k >= S().MAX_BLOCKS then
+        ns:Print("A page holds at most %d blocks.", S().MAX_BLOCKS)
+        return
+    end
+    local k = t.make()
+    k.id = S():NewPartId(self.opts.strat(), "k")
+    tinsert(page.k, k)
+    self:Changed()
+end
+
+-- Add a block (editing, under the tables): the map's suggestions as cards with their picture, the templates in two
+-- columns and the page's notes as the eighth (while the page has none). Returns the height used.
+function Panel:RenderAddSection(page, width, y)
     local child = self.child
-    local used = 0
-    local function card()
-        used = used + 1
-        local c = self.cards[used]
+    self.cards = {}
+    local full = #page.k >= S().MAX_BLOCKS
+    self.addHead:ClearAllPoints()
+    self.addHead:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(y + 4))
+    self.addHead:Show()
+    y = y + 4 + 18
+    local sugg = full and {} or self:Suggestions(page)
+    for i, sg in ipairs(sugg) do
+        local c = self.sugCards[i]
         if not c then
-            c = newCard(child)
-            self.cards[used] = c
+            c = newAddCard(child, true)
+            self.sugCards[i] = c
         end
         c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
+        c:SetWidth(width)
+        MapUI():SetIcon(c.icon, sg.icon)
+        c.icon:Show()
+        c.title:SetText(sg.title)
+        c.sub:SetText(sg.sub)
+        c.onPick = sg.apply
+        c.tip, c.tipTitle = nil, nil
         c:Show()
-        return c
+        self.cards[#self.cards + 1] = c
+        y = y + SUG_H + 6
     end
-    self.emptyTitle:ClearAllPoints()
-    self.emptyTitle:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -(y + 4))
-    self.emptyTitle:Show()
-    y = y + 28
-    self.emptyText:ClearAllPoints()
-    self.emptyText:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
-    self.emptyText:SetWidth(width - 4)
-    self.emptyText:Show()
-    y = y + (self.emptyText:GetStringHeight() or 24) + 16
-    local sugg = self:Suggestions(page)
-    self.suggestHead:SetShown(#sugg > 0)
-    if #sugg > 0 then
-        self.suggestHead:ClearAllPoints()
-        self.suggestHead:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
-        y = y + 16
-        for _, sg in ipairs(sugg) do
-            local c = card()
-            c:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
-            c:SetWidth(width)
-            c:Set(sg.title, sg.sub, sg.icon)
-            c.onPick = sg.apply
-            y = y + CARD_H + 4
+    for i = #sugg + 1, #self.sugCards do self.sugCards[i]:Hide() end
+    if #sugg > 0 then y = y + 4 end
+    local cells = {}
+    if not full then
+        for _, t in ipairs(BlocksUI.TEMPLATES) do cells[#cells + 1] = { t.icon, t.label, t.sub, function() self:AddTemplate(t, page) end } end
+    end
+    if not page.no and not self.notesOpen then
+        cells[#cells + 1] = { 25, "Page notes", "Free text under the tables, for what doesn't fit one.",
+                              function() self:OpenNotes() end, notes = true }
+    end
+    local colW = floor((width - 8) / 2)
+    self.notesCell = nil
+    for i, cell in ipairs(cells) do
+        local c = self.tplCards[i]
+        if not c then
+            c = newAddCard(child, false)
+            self.tplCards[i] = c
         end
-        y = y + 12
-    end
-    self.templateHead:SetText(#sugg > 0 and "OR START FROM A TEMPLATE" or "START FROM A TEMPLATE")
-    self.templateHead:ClearAllPoints()
-    self.templateHead:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
-    self.templateHead:Show()
-    y = y + 16
-    local colW = floor((width - 6) / 2)
-    for i, t in ipairs(BlocksUI.TEMPLATES) do
-        local c = card()
         local col, row = (i - 1) % 2, floor((i - 1) / 2)
-        c:SetPoint("TOPLEFT", child, "TOPLEFT", col * (colW + 6), -(y + row * (CARD_H + 4)))
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", child, "TOPLEFT", col * (colW + 8), -(y + row * (TPL_H + 6)))
         c:SetWidth(colW)
-        c:Set(t.label, t.sub)
-        c.onPick = function()
-            local k = t.make()
-            k.id = S():NewPartId(self.opts.strat(), "k")
-            tinsert(page.k, k)
-            self:Changed()
-        end
+        c.icon:SetTexture(UI().ICON_ATLAS)
+        c.icon:SetTexCoord(unpack(UI():IconCoords(cell[1])))
+        c.icon:SetAlpha(0.7)
+        c.title:SetText(cell[2])
+        c.tipTitle, c.tip = cell[2], cell[3]
+        c.onPick = cell[4]
+        c:Show()
+        self.cards[#self.cards + 1] = c
+        if cell.notes then self.notesCell = c end
     end
-    y = y + math.ceil(#BlocksUI.TEMPLATES / 2) * (CARD_H + 4) + 10
-    for i = used + 1, #self.cards do self.cards[i]:Hide() end
+    for i = #cells + 1, #self.tplCards do self.tplCards[i]:Hide() end
+    y = y + ceil(#cells / 2) * (TPL_H + 6) - 6 + 8
+    -- (the tutorial points at the section's first card)
+    self.addBtn = self.cards[1] or self.addHead
     return y
+end
+
+function Panel:HideAddSection()
+    self.addHead:Hide()
+    self.notesCell = nil
+    for _, c in ipairs(self.sugCards) do c:Hide() end
+    for _, c in ipairs(self.tplCards) do c:Hide() end
+    self.cards = {}
+    self.addBtn = nil
 end
 
 function Panel:Width()
     local w = self.scroll:GetWidth() or 0
-    if w < 50 then w = self.width or 420 end
+    if w < 50 then w = self.width or 462 end
     return w
 end
 
@@ -263,34 +331,154 @@ function Panel:Changed()
     if self.opts.onChange then self.opts.onChange() end
 end
 
-function Panel:EditNotes()
-    local page = self.opts.page()
-    if not page then return end
-    self.opts.prompt("Page notes (shown under the blocks)", page.no or "", function(text)
-        text = ns.Util.Trim((text or ""):gsub("|", ""))
-        page.no = text ~= "" and text:sub(1, S().MAX_NOTES) or nil
-        self:Changed()
-    end, true, S().MAX_NOTES)
-end
+---------------------------------------------------------------------------
+-- The page's notes: a card at the end; editing, a click turns its text into a field (typed in place)
+---------------------------------------------------------------------------
 
-function Panel:AddMenu(owner)
-    local page = self.opts.page()
-    if not page then return end
-    if #page.k >= S().MAX_BLOCKS then
-        ns:Print("A page holds at most %d blocks.", S().MAX_BLOCKS)
-        return
+local NOTES_TOP = TITLE_H            -- the text under the title row
+local NOTES_PAD = 12
+
+createNotes = function(parent, panel)
+    local n = CreateFrame("Frame", nil, parent)
+    cardLook(n, CARD_BG, CARD_EDGE)
+    n.icon = n:CreateTexture(nil, "ARTWORK")
+    n.icon:SetSize(14, 14)
+    n.icon:SetPoint("TOPLEFT", NOTES_PAD, -6)
+    n.icon:SetTexture(UI().ICON_ATLAS)
+    n.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.notes)))
+    n.icon:SetAlpha(0.7)
+    n.title = newText(n, "GameFontHighlight", 12.5)
+    n.title:SetPoint("LEFT", n.icon, "RIGHT", 7, 0)
+    n.title:SetText("Notes")
+    n.text = newText(n, "GameFontHighlight", 12)
+    n.text:SetTextColor(0.86, 0.86, 0.86)
+    n.text:SetWordWrap(true)
+    n.text:SetJustifyV("TOP")
+    n.text:SetSpacing(3)
+    n.text:SetPoint("TOPLEFT", NOTES_PAD, -NOTES_TOP)
+    -- editing: a click on the text types in place
+    n.hit = CreateFrame("Button", nil, n)
+    n.hit:SetPoint("TOPLEFT", 0, -NOTES_TOP + 4)
+    n.hit:SetPoint("BOTTOMRIGHT")
+    n.hit:SetScript("OnClick", function() panel:OpenNotes() end)
+    n.hit:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Notes")
+        GameTooltip:AddLine("Click to type. Enter starts a new line; a click elsewhere keeps it, Esc goes back.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    n.hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- the field: a dark well with a gold edge while typing
+    n.well = CreateFrame("Frame", nil, n)
+    n.well:SetPoint("TOPLEFT", 8, -NOTES_TOP + 6)
+    n.well:SetPoint("BOTTOMRIGHT", -8, 8)
+    cardLook(n.well, { 0.04, 0.04, 0.05, 0.7 }, { 1, 0.82, 0, 0.75 })
+    n.well:Hide()
+    n.edit = CreateFrame("EditBox", nil, n)
+    n.edit:SetMultiLine(true)
+    n.edit:SetAutoFocus(false)
+    n.edit:SetFontObject("GameFontHighlight")
+    setSize(n.edit, 12)
+    n.edit:SetSpacing(3)
+    n.edit:SetMaxLetters(S().MAX_NOTES)
+    n.edit:SetPoint("TOPLEFT", NOTES_PAD, -NOTES_TOP)
+    n.edit:SetFrameLevel(n:GetFrameLevel() + 5)
+    n.edit:Hide()
+    -- (measures the text as it will wrap, so the card grows while typing)
+    n.measure = newText(n, "GameFontHighlight", 12)
+    n.measure:SetWordWrap(true)
+    n.measure:SetSpacing(3)
+    n.measure:SetAlpha(0)
+    n.measure:SetPoint("TOPLEFT", NOTES_PAD, -NOTES_TOP)
+    local function finish(keep)
+        if n.done then return end
+        n.done = true
+        local id, was = n.pageId, n.was
+        local text = keep and ns.Util.Trim((n.edit:GetText() or ""):gsub("|", "")) or nil
+        n.edit:ClearFocus()
+        n.edit:Hide()
+        n.well:Hide()
+        panel.notesOpen = nil
+        -- (by the page's id: a live board may have moved the pages while this was typed)
+        local p
+        for _, x in ipairs(panel.opts.strat() and panel.opts.strat().p or {}) do
+            if x.id == id then p = x end
+        end
+        if p and text and text ~= (was or "") and panel:Mode() == "edit" then
+            p.no = text ~= "" and text:sub(1, S().MAX_NOTES) or nil
+            panel:Changed()
+        else
+            panel:Render()
+        end
     end
-    UI():ContextMenu(owner, function(root)
-        root:CreateTitle("Add block")
-        for _, t in ipairs(BlocksUI.TEMPLATES) do
-            root:CreateButton(t.label .. "  " .. grey(t.sub), function()
-                local k = t.make()
-                k.id = S():NewPartId(self.opts.strat(), "k")
-                tinsert(page.k, k)
-                self:Changed()
-            end)
+    n.edit:SetScript("OnEscapePressed", function() finish(false) end)
+    n.edit:SetScript("OnEditFocusLost", function() finish(true) end)
+    n.edit:SetScript("OnTextChanged", function(self)
+        if n.done then return end
+        n.measure:SetText((self:GetText() or "") .. " ")
+        local h = max(17, ceil(n.measure:GetStringHeight() or 17))
+        if h ~= n.editH then
+            n.editH = h
+            panel:Render()
         end
     end)
+    n.edit:SetScript("OnEditFocusGained", function()
+        UI():SetEdgeColor(n.well, 1, 0.82, 0, 0.75)
+    end)
+    return n
+end
+
+-- Starts typing the open page's notes (the Page notes card, a click on the notes).
+function Panel:OpenNotes()
+    local page = self.opts.page()
+    if not page or self:Mode() ~= "edit" then return end
+    local n = self.notesCard
+    n.pageId, n.was, n.done = page.id, page.no, false
+    self.notesOpen = page.id
+    n.editH = nil
+    n.edit:Show()
+    n.well:Show()
+    n.edit:SetText(page.no or "")
+    self:Render()
+    n.edit:SetFocus()
+    n.edit:SetCursorPosition(#(page.no or ""))
+end
+
+-- The notes card at y (shown with notes, or while they are typed). Returns the height used.
+function Panel:RenderNotes(page, width, y)
+    local n = self.notesCard
+    local typing = self.notesOpen == page.id and n.edit:IsShown()
+    if not page.no and not typing then
+        n:Hide()
+        return 0
+    end
+    local textW = width - 2 * NOTES_PAD
+    n:ClearAllPoints()
+    n:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -y)
+    n:SetWidth(width)
+    n.text:SetWidth(textW)
+    n.measure:SetWidth(textW)
+    n.edit:SetWidth(textW)
+    local h
+    if typing then
+        -- (the field's text is the member's while they type: a refresh never sets it)
+        n.text:Hide()
+        if not n.editH then
+            n.measure:SetText((n.edit:GetText() or "") .. " ")
+            n.editH = max(17, ceil(n.measure:GetStringHeight() or 17))
+        end
+        n.edit:SetHeight(n.editH)
+        h = NOTES_TOP + n.editH + 14
+    else
+        n.text:SetText(page.no)
+        n.text:Show()
+        h = NOTES_TOP + ceil(n.text:GetStringHeight() or 14) + 10
+    end
+    n.hit:SetShown(self:Mode() == "edit" and not typing)
+    n:SetHeight(h)
+    n:Show()
+    return h
 end
 
 ---------------------------------------------------------------------------
@@ -312,7 +500,7 @@ end
 
 function Panel:ColumnMenu(root, page, k, ci)
     local col = k.c[ci]
-    root:CreateButton("Header...", function()
+    root:CreateButton(menuEntry(16, "Header"), function()
         self.opts.prompt("Column header", col.n or "", function(text)
             text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_HEADER)
             col.n = text ~= "" and text or nil
@@ -320,7 +508,7 @@ function Panel:ColumnMenu(root, page, k, ci)
         end)
     end)
     if col.t == "p" then
-        local fm = root:CreateButton("Who fits (" .. S():FilterText(col.f) .. ")")
+        local fm = root:CreateButton(menuEntry(nil, "Who fits", S():FilterText(col.f)))
         fm:CreateTitle("Roles")
         for _, r in ipairs(S().ROLES) do
             fm:CreateCheckbox(MapUI():IconString("role:" .. r, 12) .. " " .. MapUI().ROLE_NAME[r],
@@ -345,7 +533,7 @@ function Panel:ColumnMenu(root, page, k, ci)
         end
         fm:CreateButton("Anyone", function() col.f = nil; self:Changed() end)
     end
-    local ty = root:CreateButton("Type")
+    local ty = root:CreateButton(menuEntry(nil, "Type", COL_TYPE_NAME[col.t]))
     for _, t in ipairs({ "p", "g", "o", "x" }) do
         ty:CreateRadio(COL_TYPE_NAME[t], function() return col.t == t end, function()
             if col.t == t then return end
@@ -357,7 +545,7 @@ function Panel:ColumnMenu(root, page, k, ci)
         end)
     end
     if ci > 1 then
-        root:CreateButton("Move left", function()
+        root:CreateButton(menuEntry(nil, "Move left"), function()
             k.c[ci], k.c[ci - 1] = k.c[ci - 1], k.c[ci]
             for _, cells in pairs(k.d or {}) do cells[ci], cells[ci - 1] = cells[ci - 1], cells[ci] end
             self:Remap(k, function(r, c)
@@ -368,7 +556,8 @@ function Panel:ColumnMenu(root, page, k, ci)
         end)
     end
     if #k.c > 1 then
-        root:CreateButton("|cffff6060Delete column|r", function()
+        root:CreateDivider()
+        root:CreateButton(menuEntry(UI().ICON.trash, "Delete column", nil, true), function()
             tremove(k.c, ci)
             for row, cells in pairs(k.d or {}) do
                 local n = {}
@@ -485,7 +674,10 @@ function Panel:RowMenu(owner, k, row)
         root:CreateButton("Insert a row below", function() self:InsertRow(k, row + 1) end)
         if row > 1 then root:CreateButton("Move up", function() self:SwapRows(k, row, row - 1) end) end
         if row < k.r then root:CreateButton("Move down", function() self:SwapRows(k, row, row + 1) end) end
-        if k.r > 1 then root:CreateButton("|cffff6060Delete row|r", function() self:DeleteRow(k, row) end) end
+        if k.r > 1 then
+            root:CreateDivider()
+            root:CreateButton("|cffff8a8aDelete row|r", function() self:DeleteRow(k, row) end)
+        end
     end)
 end
 
@@ -571,7 +763,7 @@ function Panel:DispelMenu(root, k)
         return MapUI():IconString("sp:" .. id, 14) .. " " .. (GetSpellInfo(id) or ("Spell " .. id))
             .. (t and grey("  " .. S().DISPEL_NAME[t]) or "")
     end
-    local em = root:CreateButton("Effects to remove" .. (k.ds and (" (" .. #k.ds .. ")") or ""))
+    local em = root:CreateButton(menuEntry(nil, "Effects to remove", k.ds and tostring(#k.ds) or nil))
     local listed = {}
     local known = S():GetBossDispels(strat and strat.b)
     for _, t in ipairs(S().DISPEL_ORDER) do
@@ -589,7 +781,7 @@ function Panel:DispelMenu(root, k)
         end
     end
     if #known == 0 then em:CreateTitle(grey("No removable effects listed for this boss")) end
-    em:CreateButton("By spell ID...", function()
+    em:CreateButton("By spell ID", function()
         self.opts.prompt("Spell ID of the effect to remove (e.g. 43095 for Creeping Paralysis)", "", function(text)
             local id = tonumber(text)
             if id and id > 0 and id < 10000000 then
@@ -598,7 +790,7 @@ function Panel:DispelMenu(root, k)
             end
         end)
     end)
-    local tm = root:CreateButton("Type: " .. S().DISPEL_NAME[k.dy or "m"])
+    local tm = root:CreateButton(menuEntry(nil, "Type", S().DISPEL_NAME[k.dy or "m"]))
     for _, t in ipairs(S().DISPEL_ORDER) do
         tm:CreateRadio(S().DISPEL_NAME[t], function() return (k.dy or "m") == t end, function()
             k.dy = t
@@ -607,7 +799,7 @@ function Panel:DispelMenu(root, k)
         end)
     end
     if (k.dy or "m") == "m" then
-        local wm = root:CreateButton("Where: " .. (k.en and "on the enemy" or "on our raid"))
+        local wm = root:CreateButton(menuEntry(nil, "Where", k.en and "on the enemy" or "on our raid"))
         wm:CreateRadio("On our raid (dispel it off a player)", function() return not k.en end, function()
             k.en = nil
             ApplyDispelFilter(k)
@@ -624,18 +816,19 @@ end
 function Panel:BlockMenu(owner, page, k, index)
     UI():ContextMenu(owner, function(root)
         root:CreateTitle(k.n)
-        root:CreateButton("Rename...", function()
+        -- what it is
+        root:CreateButton(menuEntry(16, "Rename"), function()
             self.opts.prompt("Block title", k.n, function(text)
                 text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_NAME_LEN)
                 if text ~= "" then k.n = text; self:Changed() end
             end)
         end)
-        local ic = root:CreateButton("Icon")
+        local ic = root:CreateButton(menuEntry(nil, "Icon"))
         ic:CreateRadio("None", function() return k.i == nil end, function() k.i = nil; self:Changed() end)
         MapUI():BuildIconMenu(ic, k.i, function(key) k.i = key; self:Changed() end, self.opts.prompt,
             self.opts.strat() and self.opts.strat().b)
-        local col = root:CreateButton("Colour")
-        col:CreateRadio("Default (dark red)", function() return k.cl == nil end, function() k.cl = nil; self:Changed() end)
+        local col = root:CreateButton(menuEntry(nil, "Colour"))
+        col:CreateRadio("Default (gold)", function() return k.cl == nil end, function() k.cl = nil; self:Changed() end)
         for i, c in ipairs(MapUI().COLORS) do
             col:CreateRadio(MapUI():Swatch(i) .. " " .. c[4], function() return k.cl == i end,
                 function() k.cl = i; self:Changed() end)
@@ -644,45 +837,41 @@ function Panel:BlockMenu(owner, page, k, index)
         local Live = ns.StrategyLive
         if Live then
             local eff = S().TrackKind(k)
-            local trm = root:CreateButton("Track in fight" .. (eff and (": " .. Live.KIND_NAME[eff]) or ""))
+            local trm = root:CreateButton(menuEntry(nil, "Track in fight", eff and (TRACK_TAG[eff] or Live.KIND_NAME[eff])
+                or nil))
             trm:CreateRadio("Not tracked", function() return S().TrackKind(k) == nil end,
                 function() k.tr = nil; self:Changed() end)
             for _, kind in ipairs(Live.KIND_ORDER) do
-                trm:CreateRadio(Live.KIND_NAME[kind], function() return S().TrackKind(k) == kind end,
-                    function() k.tr = kind; self:Changed() end)
+                local radio = trm:CreateRadio(TRACK_TAG[kind] or Live.KIND_NAME[kind],
+                    function() return S().TrackKind(k) == kind end, function() k.tr = kind; self:Changed() end)
+                if radio and radio.SetTooltip then
+                    radio:SetTooltip(function(tt) tt:AddLine(Live.KIND_NAME[kind], 1, 0.82, 0) end)
+                end
             end
             if eff == "dsp" then self:DispelMenu(root, k) end
         end
-        local rows = root:CreateButton("Rows (" .. k.r .. ")")
-        rows:CreateButton("Add a row", function() self:InsertRow(k, k.r + 1) end)
-        if k.r > 1 then rows:CreateButton("Remove the last row", function() self:DeleteRow(k, k.r) end) end
+        -- its shape
+        root:CreateDivider()
+        local cols = root:CreateButton(menuEntry(nil, "Columns", tostring(#k.c)))
         if #k.c < S().MAX_COLS then
-            local add = root:CreateButton("Add column")
+            local add = cols:CreateButton("Add a column")
             for _, t in ipairs({ "p", "g", "o", "x" }) do
                 add:CreateButton(COL_TYPE_NAME[t], function() self:AddColumn(k, t) end)
             end
         end
         for ci, c in ipairs(k.c) do
-            local sub = root:CreateButton(("Column %d: %s"):format(ci, c.n or COL_TYPE_NAME[c.t]))
+            local sub = cols:CreateButton(("%d. %s"):format(ci, c.n or COL_TYPE_NAME[c.t]))
             self:ColumnMenu(sub, page, k, ci)
         end
+        local rows = root:CreateButton(menuEntry(nil, "Rows", tostring(k.r)))
+        rows:CreateButton("Add a row", function() self:InsertRow(k, k.r + 1) end)
+        if k.r > 1 then rows:CreateButton("Remove the last row", function() self:DeleteRow(k, k.r) end) end
+        -- where it is
         root:CreateDivider()
-        if index > 1 then
-            root:CreateButton("Move up", function()
-                page.k[index], page.k[index - 1] = page.k[index - 1], page.k[index]
-                self:Changed()
-            end)
-        end
-        if index < #page.k then
-            root:CreateButton("Move down", function()
-                page.k[index], page.k[index + 1] = page.k[index + 1], page.k[index]
-                self:Changed()
-            end)
-        end
-        root:CreateButton("Duplicate", function() self:CopyBlock(k, page, index + 1) end)
+        root:CreateButton(menuEntry(17, "Duplicate"), function() self:CopyBlock(k, page, index + 1) end)
         local strat = self.opts.strat()
         if strat and #strat.p > 1 then
-            local to = root:CreateButton("Copy to page")
+            local to = root:CreateButton(menuEntry(nil, "Copy to page"))
             for pi, p in ipairs(strat.p) do
                 if p ~= page then
                     to:CreateButton(("%d. %s"):format(pi, p.n or ""), function() self:CopyBlock(k, p) end)
@@ -695,7 +884,20 @@ function Panel:BlockMenu(owner, page, k, index)
                 self:Changed()
             end)
         end
-        root:CreateButton("|cffff6060Delete block|r", function()
+        if index > 1 then
+            root:CreateButton(menuEntry(nil, "Move up"), function()
+                page.k[index], page.k[index - 1] = page.k[index - 1], page.k[index]
+                self:Changed()
+            end)
+        end
+        if index < #page.k then
+            root:CreateButton(menuEntry(nil, "Move down"), function()
+                page.k[index], page.k[index + 1] = page.k[index + 1], page.k[index]
+                self:Changed()
+            end)
+        end
+        root:CreateDivider()
+        root:CreateButton(menuEntry(UI().ICON.trash, "Delete", nil, true), function()
             tremove(page.k, index)
             self:Changed()
         end)
@@ -764,13 +966,13 @@ function Panel:CellMenu(owner, k, row, ci)
     end
     UI():ContextMenu(owner, function(root)
         root:CreateTitle("Target")
-        root:CreateButton("Label...", function()
+        root:CreateButton(menuEntry(16, "Label"), function()
             self.opts.prompt("Label (e.g. a boss or a player's job)", cur.l or "", function(text)
                 text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_CELL)
                 put({ l = text ~= "" and text or false })
             end)
         end)
-        local ic = root:CreateButton("Icon")
+        local ic = root:CreateButton(menuEntry(nil, "Icon"))
         ic:CreateRadio("None", function() return cur.i == nil end, function() put({ i = false }) end)
         MapUI():BuildIconMenu(ic, cur.i, function(key) put({ i = key }) end, self.opts.prompt,
             self.opts.strat() and self.opts.strat().b)
@@ -804,12 +1006,12 @@ function Panel:CellMenu(owner, k, row, ci)
             for id in pairs(ns.StrategyLive and ns.StrategyLive.SPELLS.curse or {}) do curses[#curses + 1] = id end
             table.sort(curses, function(x, y) return (GetSpellInfo(x) or "") < (GetSpellInfo(y) or "") end)
             local pickedId = cur.a and cur.a[1]
-            local cm = root:CreateButton("Curse" .. (pickedId and (": " .. (GetSpellInfo(pickedId) or pickedId)) or ""))
+            local cm = root:CreateButton(menuEntry(nil, "Curse", pickedId and (GetSpellInfo(pickedId) or tostring(pickedId)) or nil))
             for _, id in ipairs(curses) do
                 cm:CreateRadio(MapUI():IconString("sp:" .. id, 14) .. " " .. (GetSpellInfo(id) or ("Spell " .. id)),
                     function() return pickedId == id end, function() putCurse(id) end)
             end
-            cm:CreateButton("By spell ID...", function()
+            cm:CreateButton("By spell ID", function()
                 self.opts.prompt("Spell ID of the curse", "", function(text)
                     local id = tonumber(text)
                     if id and id > 0 and id < 10000000 then putCurse(floor(id)) end
@@ -818,7 +1020,7 @@ function Panel:CellMenu(owner, k, row, ci)
             cm:CreateButton("None", function() put({ a = false }) end)
         end
         if not isCurse then
-            local ab = root:CreateButton("Abilities" .. (cur.a and (" (" .. #cur.a .. ")") or ""))
+            local ab = root:CreateButton(menuEntry(nil, "Abilities", cur.a and tostring(#cur.a) or nil))
             local listed = {}
             for _, c in ipairs(known and known.c or {}) do
                 listed[c.id] = true
@@ -843,7 +1045,7 @@ function Panel:CellMenu(owner, k, row, ci)
                 end
             end
             if not known then ab:CreateTitle(grey("No ability list for this boss")) end
-            ab:CreateButton("By spell ID...", function()
+            ab:CreateButton("By spell ID", function()
                 self.opts.prompt("Spell ID of the ability (e.g. 41472 for Divine Wrath)", "", function(text)
                     local id = tonumber(text)
                     if id and id > 0 and id < 10000000 then
@@ -854,9 +1056,9 @@ function Panel:CellMenu(owner, k, row, ci)
             end)
             local Live = ns.StrategyLive
             local cond = Live and Live.ParseCond(cur.w)
-            local wm = root:CreateButton("Only when" .. (cond and (": " .. Live:CondShort(cond)) or ""))
+            local wm = root:CreateButton(menuEntry(nil, "Only when", cond and Live:CondShort(cond) or nil))
             wm:CreateRadio("Any time", function() return cur.w == nil end, function() put({ w = false }) end)
-            local auras = wm:CreateButton("The boss has...")
+            local auras = wm:CreateButton("The boss has")
             local any = false
             for _, id in ipairs(known and known.a or {}) do
                 any = true
@@ -864,13 +1066,13 @@ function Panel:CellMenu(owner, k, row, ci)
                     function() return cur.w == ("a:" .. id) end, function() put({ w = "a:" .. id }) end)
             end
             if not any then auras:CreateTitle(grey("No buffs listed for this boss")) end
-            auras:CreateButton("By spell ID...", function()
+            auras:CreateButton("By spell ID", function()
                 self.opts.prompt("Spell ID of the buff on the boss (e.g. 41450 Blessing of Protection)", "", function(text)
                     local id = tonumber(text)
                     if id and id > 0 and id < 10000000 then put({ w = "a:" .. floor(id) }) end
                 end)
             end)
-            wm:CreateButton("Below health...", function()
+            wm:CreateButton("Below health", function()
                 self.opts.prompt("Health % of the boss (1-99), e.g. 30", "", function(text)
                     local v = tonumber(text)
                     if v and v >= 1 and v <= 99 then put({ w = "hp:" .. floor(v) }) end
@@ -878,7 +1080,7 @@ function Panel:CellMenu(owner, k, row, ci)
             end)
         end
         local shown = cur.s and self.opts.slotLabel and self.opts.slotLabel(cur.s)
-        local sl = root:CreateButton("Show a slot's player" .. (shown and (": " .. grey(shown)) or ""))
+        local sl = root:CreateButton(menuEntry(nil, "Show a slot's player", shown))
         sl:CreateRadio("None", function() return cur.s == nil end, function() put({ s = false }) end)
         local tables, byBlock = {}, {}
         for _, s in ipairs(S():GetSlots(self.opts.strat())) do
@@ -904,7 +1106,8 @@ function Panel:CellMenu(owner, k, row, ci)
                 sub:CreateRadio(label, function() return cur.s == s.ref end, function() put({ s = s.ref }) end)
             end
         end
-        root:CreateButton("|cffff6060Clear|r", function()
+        root:CreateDivider()
+        root:CreateButton(menuEntry(UI().ICON.trash, "Clear", nil, true), function()
             setCell(k, row, ci, nil)
             self:Changed()
         end)
@@ -938,7 +1141,7 @@ function Panel:SlotMenu(owner, ref, filter)
         end
         if cur then
             root:CreateDivider()
-            root:CreateButton("|cffff6060Clear|r", function() self.opts.onAssign(ref, nil) end)
+            root:CreateButton("|cffff8a8aClear|r", function() self.opts.onAssign(ref, nil) end)
         end
     end)
 end
@@ -978,6 +1181,13 @@ end
 -- Rendering
 ---------------------------------------------------------------------------
 
+-- A slot's rule as a role (its icon goes in front of "Tank", "Melee"): the rule when it is one role, else nil.
+local ROLE_ICON = { tank = "tank", healer = "healer", melee = "damager", ranged = "ranged", caster = "ranged" }
+local function roleOfFilter(f)
+    if not f or f == "" or f:find(",", 1, true) then return nil end
+    return ROLE_ICON[f]
+end
+
 local function cellTooltip(cell)
     local self = cell.panel
     if not self then return end
@@ -1000,30 +1210,42 @@ local function newCell(parent, panel)
     local c = CreateFrame("Button", nil, parent)
     c.panel = panel
     c:SetHeight(ROW_H)
-    c.bg = c:CreateTexture(nil, "BACKGROUND")
+    -- (layers: a row's tint (mine, twice), an empty slot's soft well, the light of a hovered link, the drop spot)
+    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 1)
     c.bg:SetAllPoints()
+    c.well = c:CreateTexture(nil, "BACKGROUND", nil, 2)
+    c.well:SetPoint("TOPLEFT", 0, -3)
+    c.well:SetPoint("BOTTOMRIGHT", -4, 3)
+    c.well:SetColorTexture(1, 1, 1, 0.035)
     c.lit = c:CreateTexture(nil, "BORDER")
     c.lit:SetAllPoints()
-    c.lit:SetColorTexture(1, 0.85, 0.1, 0.25)
+    c.lit:SetColorTexture(1, 0.82, 0, 0.16)
     c.lit:Hide()
+    UI():AddEdges(c, "OVERLAY")
+    UI():SetEdgeColor(c, 1, 0.82, 0, 0)
+    -- my row: a gold bar on the card's left edge
+    c.bar = c:CreateTexture(nil, "ARTWORK")
+    c.bar:SetSize(2, ROW_H - 6)
+    c.bar:SetPoint("LEFT", c, "LEFT", -INSET, 0)
+    c.bar:SetColorTexture(1, 0.82, 0, 1)
+    c.bar:Hide()
+    -- the hairline under the row
+    c.line = c:CreateTexture(nil, "BORDER")
+    c.line:SetPoint("BOTTOMLEFT")
+    c.line:SetPoint("BOTTOMRIGHT")
+    c.line:SetHeight(1)
+    c.line:SetColorTexture(1, 1, 1, 0.045)
     local hl = c:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.08)
+    hl:SetColorTexture(1, 1, 1, 0.06)
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(14, 14)
-    c.icon:SetPoint("LEFT", 3, 0)
-    c.fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    c.fs:SetJustifyH("LEFT")
-    c.fs:SetWordWrap(false)
-    -- a target cell's link to a slot: a pill at the right edge, never cut off (the label gives way instead)
-    c.pill = CreateFrame("Frame", nil, c)
-    c.pill:SetHeight(ROW_H - 4)
+    c.icon:SetPoint("LEFT", 2, 0)
+    c.fs = newText(c, "GameFontHighlight", 12)
+    -- a target cell's link to a slot: a pill at the right end, never cut off (the label gives way instead)
+    c.pill = UI():CreateTagPill(c, 15)
+    c.pill:SetBase(CARD_BG[1], CARD_BG[2], CARD_BG[3])
     c.pill:SetPoint("RIGHT", -2, 0)
-    c.pill.bg = c.pill:CreateTexture(nil, "BACKGROUND")
-    c.pill.bg:SetAllPoints()
-    c.pill.bg:SetColorTexture(0.2, 0.2, 0.24, 0.95)
-    c.pill.fs = c.pill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    c.pill.fs:SetPoint("CENTER")
     c.pill:Hide()
     function c:SetPill(text)
         if not text then
@@ -1031,8 +1253,7 @@ local function newCell(parent, panel)
             self.fs:SetPoint("RIGHT", -2, 0)
             return
         end
-        self.pill.fs:SetText(text)
-        self.pill:SetWidth((self.pill.fs:GetStringWidth() or 20) + 10)
+        self.pill:Set(text, "mute")
         self.pill:Show()
         self.fs:SetPoint("RIGHT", self.pill, "LEFT", -4, 0)
     end
@@ -1062,50 +1283,93 @@ local function newCell(parent, panel)
     return c
 end
 
+-- A quiet text link in a card's foot: a gold "+" and grey words ("+ Row", "+ Column").
+local function footLink(parent, text, chevron, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(FOOT_H)
+    b.fs = newText(b, "GameFontHighlight", 11)
+    b.fs:SetPoint("LEFT", 0, 0)
+    b.fs:SetText("|cffffd100+|r " .. text)
+    b.fs:SetTextColor(0.56, 0.56, 0.56)
+    local w = (b.fs:GetStringWidth() or 40)
+    if chevron then
+        b.chev = b:CreateTexture(nil, "ARTWORK")
+        b.chev:SetSize(9, 9)
+        b.chev:SetTexture(UI().ICON_ATLAS)
+        b.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
+        b.chev:SetVertexColor(0.8, 0.8, 0.8, 0.7)
+        b.chev:SetPoint("LEFT", b.fs, "RIGHT", 4, -1)
+        w = w + 4 + 9
+    end
+    b:SetWidth(floor(w + 0.5))
+    b:SetScript("OnEnter", function(self) self.fs:SetTextColor(1, 1, 1) end)
+    b:SetScript("OnLeave", function(self) self.fs:SetTextColor(0.56, 0.56, 0.56) end)
+    b:RegisterForClicks("LeftButtonUp")
+    b:SetScript("OnClick", onClick)
+    return b
+end
+
 local function newBlock(parent, panel)
     local b = CreateFrame("Frame", nil, parent)
+    cardLook(b, CARD_BG, CARD_EDGE)
+    -- the title row: the block's colour as a bar on its left, its icon and title, what it is tracked as, its menu
     b.title = CreateFrame("Button", nil, b)
     b.title:SetHeight(TITLE_H)
     b.title:SetPoint("TOPLEFT")
     b.title:SetPoint("TOPRIGHT")
-    -- a dark title bar with the block's colour as a strip on the left
-    b.title.bg = b.title:CreateTexture(nil, "BACKGROUND")
-    b.title.bg:SetAllPoints()
-    b.title.bg:SetColorTexture(0.14, 0.14, 0.16, 0.97)
-    b.title.accent = b.title:CreateTexture(nil, "BORDER")
+    b.title.accent = b.title:CreateTexture(nil, "ARTWORK")
     b.title.accent:SetPoint("TOPLEFT")
     b.title.accent:SetPoint("BOTTOMLEFT")
     b.title.accent:SetWidth(3)
     local hl = b.title:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.04)
+    hl:SetColorTexture(1, 1, 1, 0.03)
     b.title.icon = b.title:CreateTexture(nil, "ARTWORK")
     b.title.icon:SetSize(16, 16)
-    b.title.icon:SetPoint("LEFT", 8, 0)
-    b.title.fs = b.title:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    b.title.fs:SetJustifyH("LEFT")
-    b.title.fs:SetTextColor(1, 1, 1)
+    b.title.icon:SetPoint("LEFT", 12, 0)
+    b.title.fs = newText(b.title, "GameFontHighlight", 12.5)
+    b.tag = UI():CreateTagPill(b.title, 15)
+    b.tag:SetBase(CARD_BG[1], CARD_BG[2], CARD_BG[3])
+    b.tag:SetPoint("LEFT", b.title.fs, "RIGHT", 7, 0)
+    b.tag:Hide()
     b.title:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b.gear = CreateFrame("Button", nil, b.title)
-    b.gear:SetSize(14, 14)
-    b.gear:SetPoint("RIGHT", -5, 0)
+    b.gear:SetSize(20, 20)
+    b.gear:SetPoint("RIGHT", -6, 0)
+    b.gear.hl = b.gear:CreateTexture(nil, "BACKGROUND")
+    b.gear.hl:SetAllPoints()
+    b.gear.hl:SetColorTexture(1, 1, 1, 0.08)
+    b.gear.hl:Hide()
     b.gear.tex = b.gear:CreateTexture(nil, "ARTWORK")
-    b.gear.tex:SetAllPoints()
+    b.gear.tex:SetPoint("TOPLEFT", 2, -2)
+    b.gear.tex:SetPoint("BOTTOMRIGHT", -2, 2)
     b.gear.tex:SetTexture(UI().ICON_ATLAS)
-    b.gear.tex:SetTexCoord(unpack(UI():IconCoords(13)))
-    b.gear.tex:SetVertexColor(0.6, 0.6, 0.6)
-    b.gear:SetScript("OnEnter", function(self) self.tex:SetVertexColor(1, 0.82, 0) end)
-    b.gear:SetScript("OnLeave", function(self) self.tex:SetVertexColor(0.6, 0.6, 0.6) end)
+    b.gear.tex:SetTexCoord(unpack(UI():IconCoords(UI().ICON.more)))
+    b.gear.tex:SetAlpha(0.6)
+    b.gear:SetScript("OnEnter", function(self)
+        self.tex:SetAlpha(1)
+        self.hl:Show()
+    end)
+    b.gear:SetScript("OnLeave", function(self)
+        self.tex:SetAlpha(0.6)
+        self.hl:Hide()
+    end)
+    -- a dispel table's line: what it removes, under the title
     b.cells = {}
     b.heads = {}
-    b.body = b:CreateTexture(nil, "BACKGROUND")
-    b.body:SetPoint("TOPLEFT", 0, -TITLE_H)
-    b.body:SetPoint("BOTTOMRIGHT")
-    b.body:SetColorTexture(0.05, 0.05, 0.06, 0.9)
+    -- editing: the foot's links
+    b.addRow = footLink(b, "Row", false, function() panel:InsertRow(b.cdlK, b.cdlK.r + 1) end)
+    b.addCol = footLink(b, "Column", true, function(btn)
+        UI():ContextMenu(btn, function(root)
+            for _, t in ipairs({ "p", "g", "o", "x" }) do
+                root:CreateButton(COL_TYPE_NAME[t], function() panel:AddColumn(b.cdlK, t) end)
+            end
+        end)
+    end)
     return b
 end
 
--- Widths of a block's columns for the panel width.
+-- Widths of a block's columns for the table's width.
 local function colWidths(k, width)
     local fixed, weight = 0, 0
     for _, c in ipairs(k.c) do
@@ -1138,31 +1402,73 @@ function Panel:ShortSlot(ref, k, page)
     return text
 end
 
--- The text of a player slot.
+-- Who fits a slot, in grey, the role's icon in front ("Tank", "Melee", "Anyone").
+local function placeholder(f)
+    local role = roleOfFilter(f)
+    return (role and (UI():RoleIconText(role, 13) .. " ") or "") .. "|cff8a8a8a" .. S():FilterText(f) .. "|r"
+end
+
+-- The text of a player slot: who fits (editing, and a strategy read on its own), the player (a class circle in front)
+-- or, empty, who fits in a soft well (assigning) or a dash (a raid's board). -> text, info, classFile, well
 function Panel:SlotText(ref, col)
     local mode = self:Mode()
-    if mode == "edit" then return grey("(" .. S():FilterText(col.f) .. ")"), nil end
+    local raid = self.opts.raidBoard and self.opts.raidBoard()
+    if mode == "edit" or (mode == "view" and not raid) then return placeholder(col.f), nil end
     local key = self.opts.assigned(ref)
-    if not key then return mode == "fill" and grey("-  " .. S():FilterText(col.f)) or grey("-"), nil end
+    if not key then
+        if mode == "fill" then return placeholder(col.f), nil, nil, true end
+        return "|cff8a8a8a\226\128\148|r", nil
+    end
     local info = self.opts.memberInfo(key) or {}
     local name = UI():ColoredName(key, info.c)
     if info.missing then name = "|cffff5050" .. ns.Util.ShortName(key) .. "|r" end
-    return name, info
+    return name, info, info.c
 end
 
 function Panel:Render()
     local page = self.opts.page()
     local mode = self:Mode()
-    local width = self:Width() - 22
+    local width = self:Width()
+    local inner = width - 2 * INSET
     local y = 0
     local child = self.child
     child:SetWidth(width)
     for _, b in ipairs(self.blocks) do b:Hide() end
     if not page then
         child:SetHeight(10)
+        self.notesCard:Hide()
+        self:HideAddSection()
+        -- a raid's boss without any strategy (the header's switch makes one)
+        self.empty:SetShown(self.opts.strat() == nil)
+        self.empty:ClearAllPoints()
+        self.empty:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -6)
+        self.empty:SetWidth(width - 4)
+        self.empty:SetText("No strategy for this boss yet.")
+        self.empty:SetTextColor(0.54, 0.54, 0.54)
         return
     end
     self.cellByRef = {}
+    self.cellY = {}
+    local editing = mode == "edit"
+    local noBlocks = #(page.k or {}) == 0
+    -- an empty page: one quiet line (editing: what goes here, above Add a block; reading: that nothing does)
+    if noBlocks and (editing or not page.no) then
+        self.empty:ClearAllPoints()
+        self.empty:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -(editing and 2 or 6))
+        self.empty:SetWidth(width - 4)
+        if editing then
+            self.empty:SetText("Jobs for this page: who tanks what, who kicks, who stands where. Names go in when a "
+                .. "raid is assigned.")
+            self.empty:SetTextColor(0.66, 0.66, 0.66)
+        else
+            self.empty:SetText("No jobs on this page.")
+            self.empty:SetTextColor(0.54, 0.54, 0.54)
+        end
+        self.empty:Show()
+        y = (editing and 2 or 6) + ceil(self.empty:GetStringHeight() or 14) + (editing and 10 or 6)
+    else
+        self.empty:Hide()
+    end
     for index, k in ipairs(page.k or {}) do
         local b = self.blocks[index]
         if not b then
@@ -1172,7 +1478,7 @@ function Panel:Render()
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
         b:SetWidth(width)
-        -- title bar
+        -- the title row
         local r, g, bl = 1, 0.82, 0
         if k.cl then r, g, bl = MapUI():Color(k.cl) end
         b.title.accent:SetColorTexture(r, g, bl, 1)
@@ -1180,18 +1486,19 @@ function Panel:Render()
         if k.i then
             MapUI():SetIcon(b.title.icon, k.i)
             b.title.icon:Show()
-            b.title.fs:SetPoint("LEFT", b.title.icon, "RIGHT", 5, 0)
+            b.title.fs:SetPoint("LEFT", b.title.icon, "RIGHT", 7, 0)
         else
             b.title.icon:Hide()
-            b.title.fs:SetPoint("LEFT", 10, 0)
+            b.title.fs:SetPoint("LEFT", 12, 0)
         end
-        b.title.fs:SetPoint("RIGHT", -22, 0)
-        local trackName = S().TrackKind(k) and ns.StrategyLive and ns.StrategyLive.KIND_NAME[S().TrackKind(k)]
-        b.title.fs:SetText(k.n .. (trackName and ("  |cffb0ffb0(tracked: " .. trackName .. ")|r") or ""))
-        b.gear:SetShown(mode == "edit")
+        b.title.fs:SetText(k.n)
+        local kind = S().TrackKind(k)
+        b.tag:SetShown(kind ~= nil)
+        if kind then b.tag:Set(TRACK_TAG[kind] or kind, "ok") end
+        b.gear:SetShown(editing)
         b.gear:SetScript("OnClick", function(btn) self:BlockMenu(btn, page, k, index) end)
-        b.title:SetScript("OnClick", function(btn, button)
-            if mode == "edit" then self:BlockMenu(btn, page, k, index) end
+        b.title:SetScript("OnClick", function(btn)
+            if editing then self:BlockMenu(b.gear, page, k, index) end
         end)
         b.title:SetScript("OnEnter", function()
             if self.opts.onHover then self.opts.onHover(k.id) end
@@ -1201,13 +1508,11 @@ function Panel:Render()
         end)
         local by = TITLE_H
         b.blockId = k.id
-        -- column headers
-        local widths = colWidths(k, width)
-        local hasHead = mode == "edit"
+        local widths = colWidths(k, inner)
+        local hasHead = editing
         for _, c in ipairs(k.c) do if c.n then hasHead = true end end
-        for _, h in ipairs(b.heads) do h:Hide() end
         local used = 0
-        local function cell(x, cy, w, last)
+        local function cell(x, cy, w)
             used = used + 1
             local c = b.cells[used]
             if not c then
@@ -1215,34 +1520,45 @@ function Panel:Render()
                 b.cells[used] = c
             end
             c:ClearAllPoints()
-            c:SetPoint("TOPLEFT", b, "TOPLEFT", x, -cy)
-            -- a 1px gap between columns, none after the last
-            c:SetSize(max(1, last and w or w - 1), ROW_H)
-            c.bg:SetColorTexture(0.10, 0.10, 0.11, 0.9)
+            c:SetPoint("TOPLEFT", b, "TOPLEFT", INSET + x, -cy)
+            c:SetSize(max(1, w), ROW_H)
+            c.bg:SetColorTexture(0, 0, 0, 0)
+            c.well:Hide()
+            c.bar:Hide()
+            c.line:Show()
+            c.line:SetColorTexture(1, 1, 1, 0.045)
             c.icon:Hide()
             c.fs:ClearAllPoints()
-            c.fs:SetPoint("LEFT", 4, 0)
+            c.fs:SetPoint("LEFT", 2, 0)
             c.fs:SetPoint("RIGHT", -2, 0)
             c.fs:SetWordWrap(false)
+            c.fs:SetJustifyH("LEFT")
+            setSize(c.fs, 12)
+            c.fs:SetTextColor(1, 1, 1)
             c.lit:Hide()
+            UI():SetEdgeColor(c, 1, 0.82, 0, 0)
             c:SetPill(nil)
             c.slotRef, c.hoverRef, c.tip, c.onClick, c.rowMenu, c.headRef, c.blockId = nil, nil, nil, nil, nil, nil, nil
             c.targetInfo = nil
+            c.cdlY = y + cy
             c:Show()
             return c
         end
-        if S().TrackKind(k) == "dsp" then
+        if kind == "dsp" then
             -- a dispel table: what to remove, of which type and where, in a line under the title
-            local c = cell(0, by, width, true)
+            local c = cell(0, by, inner)
+            c:SetHeight(STRIP_H)
+            c.line:Hide()
+            setSize(c.fs, 11)
             local icons, tip = "", { "Remove: " .. DispelWhere(k) }
             for _, id in ipairs(k.ds or {}) do
-                icons = icons .. MapUI():IconString("sp:" .. id, 13) .. " "
+                icons = icons .. MapUI():IconString("sp:" .. id, 14) .. " "
                 tip[#tip + 1] = MapUI():IconString("sp:" .. id, 13) .. " " .. (GetSpellInfo(id) or ("Spell " .. id))
             end
             local first = k.ds and k.ds[1]
             local text = first and (icons .. (GetSpellInfo(first) or ("Spell " .. first))
                 .. (#k.ds > 1 and (" +" .. (#k.ds - 1)) or "") .. grey("  " .. DispelWhere(k)))
-                or grey(mode == "edit" and "click to pick the effect to remove" or ("any " .. DispelWhere(k)))
+                or grey(editing and "click to pick the effect to remove" or ("any " .. DispelWhere(k)))
             c.fs:SetText(text)
             local who = {}
             for _, cl in ipairs(S().DispelClasses(k.dy or "m", S().DispelSide(k.dy or "m", k.en))) do
@@ -1252,7 +1568,7 @@ function Panel:Render()
             tip[#tip + 1] = "Everyone in this table is told at once when it is up. Left empty, everyone who can remove it is."
             c.tip = tip
             c.blockId = k.id
-            if mode == "edit" then
+            if editing then
                 c.onClick = function(btn)
                     UI():ContextMenu(btn, function(root)
                         root:CreateTitle(k.n)
@@ -1260,20 +1576,23 @@ function Panel:Render()
                     end)
                 end
             end
-            by = by + ROW_H
+            by = by + STRIP_H
         end
         if hasHead then
             local x = 0
             for ci, col in ipairs(k.c) do
-                local c = cell(x, by, widths[ci], ci == #k.c)
+                local c = cell(x, by, widths[ci])
                 c:SetHeight(HEAD_H)
-                c.bg:SetColorTexture(0.08, 0.08, 0.09, 0.95)
+                c.line:SetColorTexture(1, 1, 1, 0.08)
+                setSize(c.fs, 10.5)
                 -- the order column is only ORDER_W wide: "#" (its name stays in the tooltip and menu)
-                local label = col.t == "o" and grey("#") or col.n or (mode == "edit" and grey(COL_TYPE_NAME[col.t]) or "")
-                c.fs:SetText("|cffffd100" .. label .. "|r")
+                local label = col.t == "o" and grey("#") or col.n or (editing and grey(COL_TYPE_NAME[col.t]) or "")
+                c.fs:SetText(label)
+                c.fs:SetTextColor(1, 0.82, 0, 0.9)
+                if col.t == "o" then c.fs:SetJustifyH("CENTER") end
                 c.hoverRef = k.id .. "." .. ci
                 c.headRef = c.hoverRef
-                if mode == "edit" then
+                if editing then
                     c.tip = { COL_TYPE_NAME[col.t], "Click to change this column. Drop a drawing here to link it to the column." }
                     c.onClick = function(btn)
                         UI():ContextMenu(btn, function(root)
@@ -1291,40 +1610,44 @@ function Panel:Render()
         for row = 1, k.r do
             local x = 0
             local rowH, rowFirst = ROW_H, used + 1
+            local mine = false
             for ci, col in ipairs(k.c) do
-                local c = cell(x, by, widths[ci], ci == #k.c)
+                local c = cell(x, by, widths[ci])
                 local v = k.d and k.d[row] and k.d[row][ci]
-                -- striped rows
-                if row % 2 == 0 then c.bg:SetColorTexture(0.13, 0.13, 0.14, 0.9) end
-                if mode == "edit" then c.rowMenu = function(btn) self:RowMenu(btn, k, row) end end
+                if editing then c.rowMenu = function(btn) self:RowMenu(btn, k, row) end end
                 if col.t == "o" then
+                    c.fs:SetJustifyH("CENTER")
                     if S().TrackKind(k) == "rot" and IsBackup(k, row) then
-                        c.fs:SetText("|cffb08cffB|r")
+                        setSize(c.fs, 10.5)
+                        c.fs:SetText("|cffc7a6ffB|r")
                         c.tip = { "Backup kicker", "Kicks only when no designated kicker's interrupt will be ready for the "
-                            .. "boss' next cast." .. (mode == "edit" and " Right-click the row to change." or "") }
+                            .. "boss' next cast." .. (editing and " Right-click the row to change." or "") }
                     else
-                        c.fs:SetText(grey(row))
+                        setSize(c.fs, 11)
+                        c.fs:SetText("|cff8a8a8a" .. row .. "|r")
                     end
                 elseif col.t == "x" then
                     -- a long text wraps: the row grows with it
                     c.fs:ClearAllPoints()
-                    c.fs:SetPoint("LEFT", 4, 0)
-                    c.fs:SetWidth(max(10, widths[ci] - 8))
+                    c.fs:SetPoint("LEFT", 2, 0)
+                    c.fs:SetWidth(max(10, widths[ci] - 6))
                     c.fs:SetWordWrap(true)
-                    c.fs:SetText(v or (mode == "edit" and grey("click to type") or ""))
+                    setSize(c.fs, 11.5)
+                    c.fs:SetTextColor(0.9, 0.9, 0.9)
+                    c.fs:SetText(v or (editing and grey("click to type") or ""))
                     rowH = max(rowH, ceil(c.fs:GetStringHeight() or 0) + 8)
-                    if mode == "edit" then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
+                    if editing then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
                 elseif col.t == "g" then
                     local text = v and v.l or ""
                     local linkTip
                     if v and v.s then
                         local name = self.opts.slotName and self.opts.slotName(v.s)
                         local slotLabel = self.opts.slotLabel and self.opts.slotLabel(v.s) or v.s
-                        if mode == "edit" or not name then
+                        if editing or not name then
                             -- the slot in short: "-> #2" in this block, "-> Tanks #2" from another one
-                            c:SetPill(grey("-> ") .. self:ShortSlot(v.s, k, page))
+                            c:SetPill("-> " .. self:ShortSlot(v.s, k, page))
                             linkTip = "Shows the player of " .. slotLabel ..
-                                (mode == "edit" and " here. Right-click > Clear removes it." or ".")
+                                (editing and " here. Right-click > Clear removes it." or ".")
                         else
                             c:SetPill(name)
                             linkTip = slotLabel
@@ -1335,8 +1658,8 @@ function Panel:Render()
                         MapUI():SetIcon(c.icon, v.i)
                         c.icon:Show()
                         c.fs:ClearAllPoints()
-                        c.fs:SetPoint("LEFT", c.icon, "RIGHT", 3, 0)
-                        c.fs:SetPoint("RIGHT", -2, 0)
+                        c.fs:SetPoint("LEFT", c.icon, "RIGHT", 6, 0)
+                        if c.pill:IsShown() then c.fs:SetPoint("RIGHT", c.pill, "LEFT", -4, 0) else c.fs:SetPoint("RIGHT", -2, 0) end
                     end
                     if v and v.a and S().TrackKind(k) == "curse" then
                         -- a curse row: the curse's icon, and its name when there's no label
@@ -1356,8 +1679,12 @@ function Panel:Render()
                             or ("the boss has " .. (GetSpellInfo(cond.id) or cond.id))) end
                         c.tip = tip
                     end
-                    if text == "" and mode == "edit" then
-                        text = grey(v and v.s and "drop an icon here" or "click to set, or drop an icon here")
+                    if text == "" and not c.icon:IsShown() and not c.pill:IsShown() then
+                        -- (editing: its tooltip says what goes here)
+                        text = editing and "|cff8a8a8aclick to set|r" or "|cff8a8a8a\226\128\148|r"
+                        if editing then setSize(c.fs, 11) end
+                        c.tip = c.tip or (editing and { "Target", "Click to type a label or pick an icon, or drop an "
+                            .. "icon from the map here." } or nil)
                     end
                     if linkTip then
                         c.tip = c.tip or { text ~= "" and v and v.l or "Target" }
@@ -1365,22 +1692,34 @@ function Panel:Render()
                     end
                     c.fs:SetText(text)
                     c.targetInfo = { k = k, row = row, col = ci }
-                    if mode == "edit" then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
+                    if editing then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
                 elseif col.t == "p" then
                     local ref = S().SlotRef(k.id, row, ci)
                     -- the slot's own rule, else the column's
                     local slotCol = { f = (type(v) == "table" and v.f) or col.f }
-                    local text, info = self:SlotText(ref, slotCol)
+                    local text, info, classFile, well = self:SlotText(ref, slotCol)
+                    if classFile then
+                        UI():ClassIcon(c.icon, classFile)
+                        c.fs:ClearAllPoints()
+                        c.fs:SetPoint("LEFT", c.icon, "RIGHT", 6, 0)
+                        c.fs:SetPoint("RIGHT", -2, 0)
+                    elseif not info then
+                        setSize(c.fs, 11)
+                    end
+                    c.well:SetShown(well and true or false)
+                    if well then
+                        c.fs:ClearAllPoints()
+                        c.fs:SetPoint("LEFT", 6, 0)
+                        c.fs:SetPoint("RIGHT", -6, 0)
+                    end
                     c.fs:SetText(text)
                     c.slotRef, c.hoverRef = ref, ref
-                    -- player slots: a faint blue cast on the stripe
-                    if row % 2 == 0 then c.bg:SetColorTexture(0.13, 0.13, 0.17, 0.95)
-                    else c.bg:SetColorTexture(0.10, 0.10, 0.14, 0.95) end
+                    if self.opts.isMine and self.opts.isMine(ref) then mine = true end
                     local tip = { self.opts.slotLabel and self.opts.slotLabel(ref) or ref, "Fits: " .. S():FilterText(slotCol.f) ..
                         (type(v) == "table" and v.f and "  (this slot only)" or "") }
                     if info and info.missing then tip[#tip + 1] = "|cffff5050Not signed up for this raid / not in the raid.|r" end
                     if self.opts.isDup and self.opts.isDup(ref) then
-                        c.bg:SetColorTexture(0.35, 0.18, 0.02, 0.95)
+                        c.bg:SetColorTexture(0.55, 0.28, 0.03, 0.45)
                         tip[#tip + 1] = "|cffff9933This player has another slot in this block.|r"
                     end
                     if mode == "fill" then
@@ -1391,93 +1730,74 @@ function Panel:Render()
                             elseif picked then self.opts.onAssign(ref, picked)
                             else self:SlotMenu(btn, ref, slotCol.f) end
                         end
-                    elseif mode == "edit" then
+                    elseif editing then
                         tip[#tip + 1] = "The raid leader fills this slot per raid. Click to set who fits this slot; drag it onto the map to show the player there; right-click for row options."
                         c.onClick = function(btn) self:SlotFilterMenu(btn, k, row, ci) end
                     end
                     c.tip = tip
                     self.cellByRef[ref] = self.cellByRef[ref] or {}
                     tinsert(self.cellByRef[ref], c)
+                    self.cellY[ref] = y + by
                 end
                 x = x + widths[ci]
             end
-            if rowH > ROW_H then
-                for i = rowFirst, used do b.cells[i]:SetHeight(rowH) end
+            for i = rowFirst, used do
+                local c = b.cells[i]
+                if rowH > ROW_H then c:SetHeight(rowH) end
+                -- (no hairline under the last row)
+                if row == k.r then c.line:Hide() end
+                -- my row (a raid's board): the gold tint and a bar on the card's edge
+                if mine then
+                    c.bg:SetColorTexture(1, 0.82, 0, 0.12)
+                    if i == rowFirst then c.bar:Show() end
+                end
             end
             by = by + rowH
         end
         for i = used + 1, #b.cells do b.cells[i]:Hide() end
-        -- editing: + row / + column under the table
-        if mode == "edit" then
-            if not b.addRow then
-                b.addRow = UI():CreateSleekButton(b, "+ row", 56, 18, function() self:InsertRow(b.cdlK, b.cdlK.r + 1) end)
-                b.addRow:GetFontString():SetFontObject("GameFontHighlightSmall")
-                b.addCol = UI():CreateSleekMenuButton(b, "+ column", 84, function(root)
-                    for _, t in ipairs({ "p", "g", "o", "x" }) do
-                        root:CreateButton(COL_TYPE_NAME[t], function() self:AddColumn(b.cdlK, t) end)
-                    end
-                end, 18)
-            end
+        -- editing: + Row and + Column as quiet links in the card's foot
+        if editing then
             b.cdlK = k
             b.addRow:ClearAllPoints()
-            b.addRow:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -(by + 3))
+            b.addRow:SetPoint("TOPLEFT", b, "TOPLEFT", 12, -by)
             b.addCol:ClearAllPoints()
-            b.addCol:SetPoint("LEFT", b.addRow, "RIGHT", 3, 0)
-            b.addRow:Show()
-            b.addCol:Show()
-            by = by + 22
-        elseif b.addRow then
+            b.addCol:SetPoint("LEFT", b.addRow, "RIGHT", 16, 0)
+            b.addRow:SetShown(k.r < S().MAX_ROWS)
+            b.addCol:SetShown(#k.c < S().MAX_COLS)
+            if not b.addRow:IsShown() then b.addCol:SetPoint("TOPLEFT", b, "TOPLEFT", 12, -by) end
+            by = by + FOOT_H
+        else
             b.addRow:Hide()
             b.addCol:Hide()
+            by = by + PAD_B
         end
         b:SetHeight(by)
         b:Show()
         y = y + by + GAP
     end
-    -- page notes
-    self.notes:ClearAllPoints()
-    self.notes:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
-    self.notes:SetWidth(width - 4)
-    if page.no then
-        self.notes:SetText("|cffffd100Notes|r\n" .. page.no)
-        self.notes:Show()
-        y = y + (self.notes:GetStringHeight() or 14) + GAP
-    else
-        self.notes:Hide()
-    end
-    local editing = mode == "edit"
-    local noBlocks = #(page.k or {}) == 0
-    local cardsShown = editing and noBlocks
-    self.addBtn:SetShown(editing and not noBlocks)
-    self.notesBtn:SetShown(editing)
-    self.empty:SetShown(not editing and noBlocks and not page.no)
-    self.empty:ClearAllPoints()
-    self.empty:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -y)
-    self.empty:SetWidth(width - 4)
-    self.empty:SetText("No assignments on this page.")
-    if not editing and noBlocks and not page.no then y = y + 30 end
-    if cardsShown then
-        y = self:RenderEmpty(page, width, y)
-    else
-        self.emptyTitle:Hide()
-        self.emptyText:Hide()
-        self.suggestHead:Hide()
-        self.templateHead:Hide()
-        for _, c in ipairs(self.cards) do c:Hide() end
-    end
+    -- the page's notes, then (editing) Add a block; the tutorial points at the notes card or the Page notes cell
+    local nh = self:RenderNotes(page, width, y)
+    if nh > 0 then y = y + nh + GAP end
     if editing then
-        self.notesBtn:ClearAllPoints()
-        if cardsShown then
-            self.notesBtn:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
-        else
-            self.addBtn:ClearAllPoints()
-            self.addBtn:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
-            self.notesBtn:SetPoint("LEFT", self.addBtn, "RIGHT", 6, 0)
-        end
-        y = y + 26
+        y = self:RenderAddSection(page, width, y)
+    else
+        self:HideAddSection()
     end
+    self.notesBtn = (editing and self.notesCell) or self.notesCard
     child:SetHeight(max(10, y))
     self:ApplyHighlight()
+end
+
+-- Scrolls the panel so a slot's row shows (a job of mine clicked in the dock).
+function Panel:ScrollTo(ref)
+    local y = self.cellY and self.cellY[ref]
+    if not y then return end
+    local sf = self.scroll
+    local range = sf:GetVerticalScrollRange() or 0
+    local h = sf:GetHeight() or 0
+    local cur = sf:GetVerticalScroll() or 0
+    if y >= cur and y + ROW_H <= cur + h then return end
+    sf:SetVerticalScroll(max(0, min(range, y - 40)))
 end
 
 function Panel:Highlight(ref)
@@ -1485,14 +1805,27 @@ function Panel:Highlight(ref)
     self:ApplyHighlight()
 end
 
+-- A player being dragged: the slot under the mouse lights as the drop spot.
+function Panel:SetDrop(ref)
+    if self.drop == ref then return end
+    self.drop = ref
+    self:ApplyHighlight()
+end
+
 function Panel:ApplyHighlight()
     for _, b in ipairs(self.blocks) do
-        for _, c in ipairs(b.cells) do c.lit:Hide() end
+        for _, c in ipairs(b.cells) do
+            c.lit:Hide()
+            UI():SetEdgeColor(c, 1, 0.82, 0, 0)
+        end
     end
-    if not self.lit or not self.cellByRef then return end
+    if not self.cellByRef then return end
     for ref, cells in pairs(self.cellByRef) do
-        if MapUI():RefsOverlap(self.lit, ref) then
-            for _, c in ipairs(cells) do c.lit:Show() end
+        local lit = self.lit and MapUI():RefsOverlap(self.lit, ref)
+        local drop = self.drop ~= nil and self.drop == ref
+        for _, c in ipairs(cells) do
+            c.lit:SetShown((lit or drop) and true or false)
+            if drop then UI():SetEdgeColor(c, 1, 0.82, 0, 0.85) end
         end
     end
 end

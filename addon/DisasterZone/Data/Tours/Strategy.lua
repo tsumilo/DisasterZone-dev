@@ -19,6 +19,7 @@ local function pg()
     return s.strat and s.strat.p[s.page] or nil
 end
 local function canvas() return W().canvas end
+local function glyph(i) return ns.UI:AtlasIconText(i, 12, i == 14 and { 1, 0.82, 0 } or nil) end
 local function tools() return W().tools end
 local function blocks() return W().blocks end
 
@@ -90,7 +91,15 @@ local function selectTool()
     B():RefreshTools()
 end
 
--- A block from the "+ Add block" template of that label, as the menu adds it.
+-- The card of Add a block (under the tables while editing) with that title, or nil.
+local function addCard(label)
+    for _, c in ipairs(blocks().cards or {}) do
+        if c:IsShown() and c.title and c.title:GetText() == label then return c end
+    end
+    return nil
+end
+
+-- A block from Add a block's template of that label, as its card adds it.
 local function addTemplate(label)
     local p = pg()
     if #p.k >= ns.Strategy.MAX_BLOCKS then return end
@@ -149,7 +158,7 @@ local basics = {
         title = "The map",
         anchor = function() return canvas().frame end,
         text = "The boss room, with the boss and his adds where they stand at the pull. Zones, arrows, icons and texts "
-            .. "go on top of it.\n\nThe switch in its corner shows the same page in the room itself, in 3D: that has a "
+            .. "go on top of it.\n\nThe switch under it shows the same page in the room itself, in 3D: that has a "
             .. "chapter of its own.",
     },
     {
@@ -193,15 +202,17 @@ local basics = {
         title = "Another floor",
         anchor = function() return W().mapBtn end,
         side = "left",
-        text = "Each page has its own map. This menu lists the floors of the raid; a right-click on the map has the "
-            .. "same list.",
+        text = "Each page has its own map. This link lists the floors of the raid, each with who is fought there; a "
+            .. "right-click on the map has the same list.",
     },
     {
         title = "Pages",
         anchor = function() return W().tabs[1], W().addPage end,
         side = "bottom",
-        text = "A fight with phases gets a page per phase, each with its own map and jobs. Right-click a tab to "
-            .. "rename, move or delete the page.",
+        text = function()
+            return "A fight with phases gets a page per phase, each with its own map and jobs. The " .. glyph(14)
+                .. " on the open tab renames, moves or deletes it."
+        end,
         hint = "Click + to add a page.",
         enter = function(ctx) ctx.n = #st().strat.p end,
         done = function(ctx) return #st().strat.p > ctx.n end,
@@ -300,19 +311,25 @@ local drawing = {
     },
     {
         title = "Undo",
-        anchor = function() return tools().undoBtn, tools().redoBtn end,
+        -- (undo shows once there is something to undo: before that, where it comes, after the colours)
+        anchor = function()
+            if not tools().undoBtn:IsShown() then return tools().swatches[#tools().swatches] end
+            return tools().undoBtn, tools().redoBtn
+        end,
         side = "top",
-        text = "Every change can be taken back, and brought back again: these buttons, or Ctrl+Z and Ctrl+Y.",
+        text = "Every change can be taken back, and brought back again: this button (redo comes beside it once "
+            .. "there is something to bring back), or Ctrl+Z and Ctrl+Y.",
         hint = "Undo your last change.",
         enter = function(ctx) ctx.i = st().histI or 0 end,
         done = function(ctx) return (st().histI or 0) < ctx.i end,
     },
     {
         title = "Keys and mouse",
-        anchor = function() return tools().helpBtn end,
-        side = "top",
-        text = "Hover the question mark for every shortcut: copy and paste, duplicate, group, nudge with the arrows, "
-            .. "and the camera in 3D.\n\nNext: the same page in the boss' room.",
+        anchor = function() return W().helpBtn end,
+        side = "bottom",
+        text = "? > Keyboard and mouse lists every shortcut: copy and paste, duplicate, group, nudge with the arrows, "
+            .. "and the camera in 3D. The tutorial's chapters are in that menu too.\n\nNext: the same page in the "
+            .. "boss' room.",
     },
 }
 
@@ -369,7 +386,7 @@ local room3d = {
         text = "Every raid boss has its room in 3D, as the game draws it, with the boss and its adds as their own "
             .. "models at their true size. It is the same page: what is on the map stands in the room, and what you draw in the room is "
             .. "on the map.",
-        hint = "Click 3D in the map's corner.",
+        hint = "Click 3D under the map's right corner.",
         done = in3D,
         ghost = function() return { from = { W().mode3d, 0.5, 0.5 } } end,
     },
@@ -503,10 +520,10 @@ local jobs = {
         side = "left",
         text = function()
             if #pg().k > 0 then
-                return "A block is a small table of jobs. + Add block under the tables starts another one from a template."
+                return "A block is a small table of jobs. Add a block, under the tables, starts another one."
             end
-            return "A block is a small table of jobs. The cards under \"Suggested from the map\" build one from the "
-                .. "creatures on the map: a row each, already linked to them. The templates below start empty."
+            return "A block is a small table of jobs. Under Add a block, the first cards build one from the creatures "
+                .. "on the map: a row each, already linked to them. The templates under them start empty."
         end,
         hint = "Click a card to add a block.",
         enter = function(ctx) ctx.n = #pg().k end,
@@ -585,31 +602,33 @@ local jobs = {
         title = "Shaping a block",
         anchor = function() return blocks().blocks[1] end,
         side = "left",
-        text = "Click the title bar to rename, colour, move, copy or delete the block, or to have it tracked in the "
-            .. "fight (an interrupt rotation, dispels). + row and + column grow it; a click on a column header "
-            .. "changes the column.",
+        text = function()
+            return "The title row (or its " .. glyph(24) .. " button) opens the block's menu: rename, colour, track it "
+                .. "in the fight (an interrupt rotation, dispels), copy, move or delete it. + Row and + Column grow "
+                .. "it; a click on a column title changes the column."
+        end,
     },
     {
         title = "Other kinds of tables",
-        anchor = function() return blocks().addBtn end,
+        anchor = function() return addCard("Players with targets") or blocks().addBtn end,
         side = "left",
-        text = "+ Add block has a template for the usual shapes: players with targets, an ordered rotation "
-            .. "(interrupts, misdirects), groups or zones, pairs (Innervate: from, to), a single job with a timing, "
-            .. "dispels, plain notes. Each is a starting point: columns and rows can be changed afterwards.",
+        text = "Add a block has a template for the usual shapes: players with targets, a rotation (interrupts, "
+            .. "misdirects), groups or zones, pairs (Innervate: from, to), a single job with a timing, dispels, plain "
+            .. "text. Each is a starting point: columns and rows can be changed afterwards.",
     },
     {
         title = "Page notes",
         anchor = function() return blocks().notesBtn end,
         side = "left",
-        text = "Free text under the tables, for what doesn't fit one.",
+        text = "Free text under the tables, for what doesn't fit one. Click it and type: it is written in place.",
     },
     {
         title = "Saving",
-        anchor = function() return W().saveBtn end,
+        anchor = function() return W().cancelBtn end,
         side = "bottom",
-        text = "On a real strategy, Save shares it with the guild. Until then your work is a private draft: it "
-            .. "survives closing the window, a reload and a logout.\n\nNext: the helpers that follow a table during "
-            .. "the fight.",
+        text = "On a real strategy, Save sits here and shares it with the guild; until then your work is a private "
+            .. "draft, tagged Unsaved: it survives closing the window, a reload and a logout. This practice board has "
+            .. "Close instead.\n\nNext: the helpers that follow a table during the fight.",
     },
 }
 
@@ -653,13 +672,10 @@ local helpers = {
     },
     {
         title = "A rotation",
-        anchor = function()
-            if blocks().addBtn:IsShown() then return blocks().addBtn end
-            return blocks().scroll
-        end,
+        anchor = function() return addCard("Rotation") or blocks().scroll end,
         side = "left",
         text = "An ordered table: the players take turns from the top.",
-        hint = "Add a block from the template \"Rotation (ordered)\".",
+        hint = "Click Rotation under Add a block.",
         enter = function(ctx) ctx.n = countBlocks(isRotation) end,
         done = function(ctx) return countBlocks(isRotation) > ctx.n end,
     },
@@ -673,10 +689,10 @@ local helpers = {
         text = "Tracking says what the table means. An interrupt rotation is followed through the combat log: "
             .. "everyone in it sees whose kick it is. Other kinds: misdirections, Bloodlust, Power Infusion, "
             .. "Innervate, curses, dispels.",
-        hint = "Click the block's title bar, then Track in fight > Interrupt rotation.",
+        hint = "Click the block's title row, then Track in fight > Interrupts.",
         enter = function(ctx)
             -- something to track: a rotation, when the step before was skipped
-            if not findBlock(isRotation) then addTemplate("Rotation (ordered)") end
+            if not findBlock(isRotation) then addTemplate("Rotation") end
             ctx.sig = trackSig()
         end,
         done = function(ctx) return trackSig() ~= ctx.sig end,
@@ -693,18 +709,24 @@ local helpers = {
     },
     {
         title = "Raid marks",
-        anchor = function() return W().autoMark end,
+        anchor = function() return W().moreBtn end,
         side = "bottom",
-        text = "Right-click a creature's portrait on the map > Raid mark to give it a skull or a cross. With Auto-mark "
-            .. "on, the raid leader's DisasterZone puts those marks on the mobs as their nameplates appear.",
+        text = function()
+            return "Right-click a creature's portrait on the map > Raid mark to give it a skull or a cross. With "
+                .. "Auto-mark on (in the " .. glyph(24) .. " menu here), the raid leader's DisasterZone puts those "
+                .. "marks on the mobs as their nameplates appear."
+        end,
     },
     {
         title = "Practice",
-        anchor = function() return W().practiceBtn end,
+        anchor = function() return W().moreBtn end,
         side = "bottom",
-        text = "Practice plays a minute of this fight for you alone, with demo players in the other slots: a quick "
-            .. "check that the tables you track go the way you meant, before a raid relies on them. Try it once the "
-            .. "tutorial is over.\n\nNext: putting a raid's players into the slots.",
+        text = function()
+            return "Practice, in the " .. glyph(24) .. " menu, plays a minute of this fight for you alone, with demo "
+                .. "players in the other slots: a quick check that the tables you track go the way you meant, before a "
+                .. "raid relies on them. Try it once the tutorial is over.\n\nNext: putting a raid's players into the "
+                .. "slots."
+        end,
     },
 }
 
@@ -842,14 +864,14 @@ local assigning = {
     {
         title = "This raid's players",
         anchor = function() return W().pool end,
-        side = "top",
-        text = "Everyone signed up for the raid, and whoever is in your raid group, sorted by role. The number "
-            .. "behind a name counts the jobs they have.",
+        side = "left",
+        text = "Everyone signed up for the raid, and whoever is in your raid group, by role. A player who has a job "
+            .. "fades; two jobs or more put the number on their circle. The map stays as it is.",
     },
     {
         title = "Putting a player in a slot",
         anchor = function() return W().pool, emptySlotCell() or slotCell() end,
-        side = "top",
+        side = "left",
         text = "Three ways: drag a player onto a slot; click the player, then the slot; or click the slot and pick "
             .. "from its list, where the players who fit come first.",
         hint = "Put a player in a slot.",
@@ -888,15 +910,17 @@ local assigning = {
     },
     {
         title = "From the last raid",
-        anchor = function() return W().pool.carryBtn, W().pool.clearBtn end,
+        -- (Carry over shows once an earlier raid used the strategy, Clear all once there are names)
+        anchor = function() return W().pool.carryBtn, W().pool.clearBtn, W().pool.suggestBtn end,
         side = "top",
-        text = "Carry over starts from the names of the last raid that used this strategy, so a farm boss takes a "
-            .. "few fixes instead of a full round. Clear all empties every slot.",
+        text = "On a raid's board, Carry over comes beside Suggest fill once an earlier raid used this strategy: it "
+            .. "starts from that raid's names, so a farm boss takes a few fixes instead of a full round. Clear all "
+            .. "empties every slot.",
     },
     {
         title = "A job for you",
         anchor = function() return W().pool, emptySlotCell() or slotCell() end,
-        side = "top",
+        side = "left",
         text = "The next chapter shows the plan the way a raider sees it, so take a job yourself.",
         hint = "Put yourself in a slot.",
         skip = function() return mine() end,
@@ -909,11 +933,11 @@ local assigning = {
     },
     {
         title = "Saving the names",
-        anchor = function() return W().saveBtn end,
+        anchor = function() return W().cancelBtn end,
         side = "bottom",
-        text = "Save shares the names with the raid; until then they are a draft of yours. On a real raid a Strategy "
-            .. "menu sits here too: it switches the raid to another strategy of the boss and keeps the names of the "
-            .. "slots both have.\n\nNext: the plan as a raider reads it.",
+        text = "On a real raid, Save sits here and shares the names with the raid; until then they are a draft of "
+            .. "yours. There the strategy's name in the header is a switch too: it puts the raid on another strategy "
+            .. "of the boss and keeps the names of the slots both have.\n\nNext: the plan as a raider reads it.",
     },
 }
 
@@ -929,9 +953,10 @@ local reading = {
     },
     {
         title = "Your jobs",
-        anchor = function() return W().view end,
+        anchor = function() return W().jobs end,
         side = "top",
-        text = "Everything you are assigned to on this board, across all its pages.",
+        text = "Everything you are assigned to on this board, across all its pages. A click goes to the page and "
+            .. "lights the row and its drawing.",
     },
     {
         title = "Where you stand",
@@ -980,11 +1005,13 @@ local reading = {
     },
     {
         title = "Try it before the raid",
-        anchor = function() return W().practiceBtn end,
+        anchor = function() return W().moreBtn end,
         side = "bottom",
-        text = "Practice plays a minute of the fight with your jobs: that panel, whose kick it is, marks on what you "
-            .. "target. Demo players take the other slots; stand at a target dummy and use your real spells.\n\n"
-            .. "Next: where strategies live, and building one together.",
+        text = function()
+            return "Practice, in the " .. glyph(24) .. " menu, plays a minute of the fight with your jobs: that panel, "
+                .. "whose kick it is, marks on what you target. Demo players take the other slots; stand at a target "
+                .. "dummy and use your real spells.\n\nNext: where strategies live, and building one together."
+        end,
     },
 }
 
@@ -1030,8 +1057,8 @@ local library = {
         anchor = function() return L().detail.newBtn end,
         side = "left",
         text = "New strategy starts a real one for the boss picked on the left. It opens with the boss' map and its "
-            .. "creatures in place, like the practice board did.\n\nThis tutorial stays under the ? beside it, "
-            .. "chapter by chapter.",
+            .. "creatures in place, like the practice board did.\n\nThis tutorial stays under the ? beside it, and "
+            .. "under the board's ?, chapter by chapter.",
     },
 }
 
@@ -1063,6 +1090,7 @@ local BUILD, RAID = "Building a strategy", "Running a raid"
 
 ns.Tour:Register("strategy", {
     title = "Strategy board",
+    menuGroups = { [BUILD] = "Tutorial: building a strategy", [RAID] = "Tutorial: running a raid" },
     offerTitle = "New to the strategy board?",
     offerText = "Take the guided tour on a practice board: building a strategy, the room in 3D, assigning a raid, "
         .. "reading a plan. Stop whenever you like; the chapters you finished are remembered. Nothing you do there is "

@@ -578,26 +578,34 @@ function Tour:Offer(id, anchor)
 end
 
 -- The chapters as a menu (the Tutorial button).
+-- The chapters of a tour into a menu (the tutorial's own menu, the strategy board's ? menu): grouped under grey
+-- titles (def.menuGroups can word a group for the menu), the finished ones marked done; End the tutorial while it runs.
+function Tour:BuildMenu(root, id)
+    local def = tours[id]
+    if not def then return end
+    local done = saved(id).done
+    local group
+    for i, ch in ipairs(def.chapters) do
+        if ch.group and ch.group ~= group then
+            group = ch.group
+            root:CreateTitle("|cff808080" .. (def.menuGroups and def.menuGroups[group] or group) .. "|r")
+        end
+        root:CreateButton(("%d. %s%s"):format(i, ch.title, done[ch.key] and "  |cff33ff99done|r" or ""), function()
+            Tour:Start(id, i)
+        end)
+    end
+    if run and run.id == id then
+        root:CreateDivider()
+        root:CreateButton("End the tutorial", function() Tour:Stop() end)
+    end
+end
+
 function Tour:Menu(owner, id)
     local def = tours[id]
     if not def then return end
     UI():ContextMenu(owner, function(root)
         root:CreateTitle((def.title or id) .. " tutorial")
-        local done = saved(id).done
-        local group
-        for i, ch in ipairs(def.chapters) do
-            if ch.group and ch.group ~= group then
-                group = ch.group
-                root:CreateTitle("|cff808080" .. group .. "|r")
-            end
-            root:CreateButton(("%d. %s%s"):format(i, ch.title, done[ch.key] and "  |cff33ff99done|r" or ""), function()
-                Tour:Start(id, i)
-            end)
-        end
-        if run and run.id == id then
-            root:CreateDivider()
-            root:CreateButton("End the tutorial", function() Tour:Stop() end)
-        end
+        Tour:BuildMenu(root, id)
     end)
 end
 
