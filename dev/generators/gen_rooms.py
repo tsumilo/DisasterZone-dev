@@ -13,7 +13,7 @@ Geometry in the box:
   * on maps with terrain the ADT height maps (MCVT; holes left out), textured with the game's own minimap tiles,
     kept TERRAIN_BAND yd over and under the boss (hills have no ceilings).
 A room over MAX_TRIS faces or MAX_NODES BSP nodes shrinks round the page's middle (the boss kept 15 yd inside) until it
-fits (the renderer's frame budget); as small as rooms get, its walls get lower, then the finest carving goes.
+fits (the renderer's frame budget); as small as rooms get, its walls get lower, then loose objects go, then the finest carving.
 The height grid (where drawings stand) is the highest floor up to FLOOR_UP yd over the boss', the ground's at any
 height; the first view looks at the middle of the floor within 10 yd of the boss' height.
 
@@ -28,7 +28,8 @@ Writes Render3D/Rooms/<Raid>_<Boss>.lua (data format 3: the version 2 tables of 
 deflated and printable-encoded for LibDeflate; Render3D/Rooms.lua unpacks a room when its 3D view opens) and
 Render3D/Rooms/Index.lua (per boss: its room, the map, the fit, the first view, the boss' spot), and lists the rooms
 in DisasterZone.toc (the lines between Render3D\\View.lua and Render3D\\Rooms.lua).
-Blizzard's files are cached in dev/art/rooms (git-ignored).
+Blizzard's files are read from the installed client (casc_local.py; the bytes cached per build in dev/art/casc/files),
+only a file it lacks from wago.tools (logged; cached in dev/art/rooms). Both caches are git-ignored.
 
 Run: luaenv\\Scripts\\python.exe generators\\gen_rooms.py [Raid:Boss ...] [--jobs N] [--index-only]
 """
@@ -49,12 +50,14 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 import wmo_tools as W  # noqa: E402
 import gen_trainer_heights as G  # noqa: E402
+import casc_local  # noqa: E402
 from patchlib import deflate_raw, encode_for_print  # noqa: E402
 
 ADDON = os.path.join(HERE, "..", "..", "addon", "DisasterZone")
 OUT_DIR = os.path.join(ADDON, "Render3D", "Rooms")
 CACHE = os.path.join(HERE, "..", "art", "rooms")
 WMO_CACHE = os.path.join(HERE, "..", "art", "wmo")
+LOCAL_CACHE = os.path.join(HERE, "..", "art", "casc", "files")   # (the installed client's files, per build)
 
 MAX_TRIS = 7000                 # faces per room at most (the board's 3D view: 327 cluster frames of 32 nodes)
 MAX_NODES = 2990                # BSP nodes at most (the 3D view's frames hold about 10 each; the self-check: 3000)
@@ -112,12 +115,64 @@ def _get(url, path):
     return path
 
 
+_LOCAL = []                     # [build] once the installed client was found, [None] when it was not
+_FELL_BACK = {}                 # file ID -> why the installed client could not give it
+
+
+def local_build():
+    """The installed client's build (casc_local), or None without one (every file then comes from wago.tools)."""
+    if not _LOCAL:
+        try:
+            casc_local.root()
+            _LOCAL.append(casc_local.build_name())
+        except (OSError, KeyError, ValueError, SystemExit) as ex:
+            print("no installed client to read (%s): every game file from wago.tools" % ex, flush=True)
+            _LOCAL.append(None)
+    return _LOCAL[0]
+
+
+def local_file(fdid):
+    """The installed client's own copy of a game file, cached as dev/art/casc/files/<build>/<fdid>.bin; None when
+    this build does not have it on disk (or has it encrypted)."""
+    build = local_build()
+    if not build:
+        return None
+    path = os.path.join(LOCAL_CACHE, build, "%d.bin" % fdid)
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+    try:
+        data = casc_local.read_fid(fdid)
+    except (KeyError, ValueError) as ex:
+        _FELL_BACK[fdid] = str(ex)[:80]
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    part = "%s.part%d" % (path, os.getpid())         # (parallel jobs read the same files)
+    with open(part, "wb") as fh:
+        fh.write(data)
+    try:
+        # (rename, not replace: on Windows replacing a copy another job has open fails, or fails its open)
+        os.rename(part, path)
+    except OSError:
+        os.remove(part)
+        if not os.path.exists(path):
+            raise
+    return path
+
+
 def casc(fdid, folder=CACHE):
+    """A game file by its ID -> a path: the installed client's copy, else (logged) wago.tools' download, which is
+    not tied to a build (101 of 290 WMO groups of the old downloads differed from the client's, ~9% fewer faces)."""
+    path = local_file(fdid)
+    if path:
+        return path
+    why = _FELL_BACK.get(fdid, "no installed client")
     for d in (WMO_CACHE, folder):
         for ext in (".wmo", ".bin", ".adt", ".wdt"):
             p = os.path.join(d, "%d%s" % (fdid, ext))
             if os.path.exists(p) and os.path.getsize(p) > 0:
+                print("file %d not in the installed client (%s): wago.tools' copy %s" % (fdid, why, p), flush=True)
                 return p
+    print("file %d not in the installed client (%s): downloading it from wago.tools" % (fdid, why), flush=True)
     return _get("https://wago.tools/api/casc/%d?download" % fdid, os.path.join(folder, "%d.bin" % fdid))
 
 
@@ -125,8 +180,13 @@ _FDIDS = None
 
 
 def fdid_of(filename):
-    """A file's ID by its path (wago.tools' file search), cached in dev/art/rooms/fdids.json; None when unknown."""
+    """A file's ID by its path: the installed client's own name table (casc_local), else wago.tools' file search,
+    cached in dev/art/rooms/fdids.json; None when unknown."""
     global _FDIDS
+    if local_build():
+        fid = casc_local.fdid_of(filename)
+        if fid is not None:
+            return fid
     path = os.path.join(CACHE, "fdids.json")
     if _FDIDS is None:
         _FDIDS = json.load(open(path)) if os.path.exists(path) else {}
@@ -477,6 +537,147 @@ def clip_faces(faces, box, zlo, zhi, zb):
     return out
 
 
+CLUTTER = 4.0                   # yd: as small as a room gets, loose objects up to this size across are left out
+MERGE_TOL = 0.3                 # yd: faces fused into one piece stay this close to the piece's plane
+
+
+def _affine(st, vals):
+    """a, b, c with a*s + b*t + c = val at the three points, or None (a sliver)."""
+    (s0, t0), (s1, t1), (s2, t2) = st
+    det = (s1 - s0) * (t2 - t0) - (s2 - s0) * (t1 - t0)
+    if abs(det) < 1e-9:
+        return None
+    v0, v1, v2 = vals
+    a = ((v1 - v0) * (t2 - t0) - (v2 - v0) * (t1 - t0)) / det
+    b = ((s1 - s0) * (v2 - v0) - (s2 - s0) * (v1 - v0)) / det
+    return a, b, v0 - a * s0 - b * t0
+
+
+def _fit(points):
+    """h = a*s + b*t + c through points (s, t, h) by least squares (numpy), or None."""
+    import numpy as np
+    A = np.array([(q[0], q[1], 1.0) for q in points])
+    h = np.array([q[2] for q in points])
+    try:
+        sol, *_ = np.linalg.lstsq(A, h, rcond=None)
+    except Exception:
+        return None
+    return tuple(float(c) for c in sol)
+
+
+def merge_faces(faces):
+    """Fewer, bigger faces for the same picture. Faces are seen along their normal's main axis (a floor from above,
+    a wall from the side): (s, t) = the other two world axes, h = that axis. Neighbours (a shared edge) of one
+    texture and one texture mapping (u, v an affine function of s, t, up to whole repeats) grow into a region while
+    every corner stays MERGE_TOL yd from the region's plane; a region is fused (the union of its outlines) and cut
+    into triangles again. Every corner of the outline keeps its own height, texture coordinates and light, so the
+    pieces round it meet it without cracks; the game's floors and walls are built of many small faces."""
+    import shapely
+    from shapely.geometry import Polygon
+    info = []
+    for f in faces:
+        key, pts, fl = f
+        n = G.normal(*[q[:3] for q in pts])
+        if not n:
+            info.append(None)
+            continue
+        ax = max(range(3), key=lambda i: abs(n[i]))
+        a_, b_ = [i for i in range(3) if i != ax]
+        st = [(q[a_], q[b_]) for q in pts]
+        mu, mv = _affine(st, [q[3] for q in pts]), _affine(st, [q[4] for q in pts])
+        if not mu or not mv:
+            info.append(None)
+            continue
+        mk = (key, fl, ax, n[ax] > 0, round(mu[0], 3), round(mu[1], 3), round((mu[2] % 1.0) * 100) % 100,
+              round(mv[0], 3), round(mv[1], 3), round((mv[2] % 1.0) * 100) % 100)
+        info.append((mk, ax, a_, b_, st, mu, mv))
+    # edges -> faces of the same class
+    def vk(q):
+        return (round(q[0], 2), round(q[1], 2), round(q[2], 2))
+    edge_faces = collections.defaultdict(list)
+    for k, f in enumerate(faces):
+        if info[k] is None:
+            continue
+        ks = [vk(q) for q in f[1]]
+        for e in range(3):
+            a, b = ks[e], ks[(e + 1) % 3]
+            edge_faces[(info[k][0], min(a, b), max(a, b))].append(k)
+    nbrs = collections.defaultdict(set)
+    for (mk, _, _), ks in edge_faces.items():
+        for x in ks:
+            for y in ks:
+                if x != y:
+                    nbrs[x].add(y)
+    done = [False] * len(faces)
+    out = []
+    for seed in range(len(faces)):
+        if done[seed]:
+            continue
+        done[seed] = True
+        if info[seed] is None:
+            out.append(faces[seed])
+            continue
+        mk, ax, a_, b_, _, mu, mv = info[seed]
+        region = [seed]
+        pts = [(q[a_], q[b_], q[ax]) for q in faces[seed][1]]
+        plane = _fit(pts)
+        frontier = list(nbrs[seed])
+        while frontier:
+            k = frontier.pop()
+            if done[k] or k in region:
+                continue
+            cand = [(q[a_], q[b_], q[ax]) for q in faces[k][1]]
+            if any(abs(plane[0] * c[0] + plane[1] * c[1] + plane[2] - c[2]) > MERGE_TOL for c in cand):
+                continue
+            trial = _fit(pts + cand) if len(region) % 16 == 0 else plane
+            if trial is None or any(abs(trial[0] * c[0] + trial[1] * c[1] + trial[2] - c[2]) > MERGE_TOL
+                                    for c in cand):
+                continue
+            region.append(k)
+            done[k] = True
+            pts += cand
+            plane = trial
+            frontier += [x for x in nbrs[k] if not done[x]]
+        if len(region) < 3:
+            out += [faces[k] for k in region]
+            for k in region[1:]:
+                done[k] = True
+            continue
+        # the corners as they are (height, light) by their (s, t)
+        corner = {}
+        for k in region:
+            for q in faces[k][1]:
+                corner[(round(q[a_], 3), round(q[b_], 3))] = q
+        try:
+            merged = shapely.union_all([Polygon(info[k][4]) for k in region if Polygon(info[k][4]).area > 1e-8])
+            tris = []
+            for poly in getattr(merged, "geoms", [merged]):
+                if poly.geom_type == "Polygon" and poly.area > 1e-6:
+                    tris += [list(t.exterior.coords)[:3] for t in shapely.constrained_delaunay_triangles(poly).geoms]
+        except Exception:
+            tris = None
+        if not tris or len(tris) >= len(region):
+            out += [faces[k] for k in region]
+            continue
+        n0 = G.normal(*[q[:3] for q in faces[seed][1]])
+        for tri in tris:
+            new = []
+            for s_, t_ in tri:
+                q = corner.get((round(s_, 3), round(t_, 3)))
+                w = [0.0, 0.0, 0.0]
+                w[a_], w[b_] = s_, t_
+                w[ax] = q[ax] if q else plane[0] * s_ + plane[1] * t_ + plane[2]
+                light = q[5] if q else faces[seed][1][0][5]
+                new.append((w[0], w[1], w[2], mu[0] * s_ + mu[1] * t_ + mu[2], mv[0] * s_ + mv[1] * t_ + mv[2], light))
+            nn = G.normal(*[q[:3] for q in new])
+            if not nn:
+                continue
+            if sum(nn[i] * n0[i] for i in range(3)) < 0:
+                new = [new[0], new[2], new[1]]
+            out.append((faces[seed][0], tuple(new), faces[seed][2]))
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # one encounter
 # ---------------------------------------------------------------------------------------------------------------
@@ -570,6 +771,19 @@ def safe_key(ref):
     return re.sub(r"[^A-Za-z0-9]", "_", ref)
 
 
+# The boss' floor height where the guesses pick the wrong level of a stacked building: Nightbane lands on the Master's
+# Terrace (91.5), but the chess pieces of the Gamesman's Hall (232) stand nearer his map spot.
+LEVEL = {"Karazhan:Nightbane": 91.5}
+# The box (world x0, y0, x1, y1) where the starter page frames more than the fight: the terrace disc (~53 yd round
+# its centre) instead of the page, whose middle is the tower beside it.
+BOX = {"Karazhan:Nightbane": (-11125.6 - 57, -1925.0 - 57, -11125.6 + 57, -1925.0 + 57)}
+# yd under the boss' floor a room keeps, where ROOM_DOWN would fill it with what is under a roof (the terrace sits on
+# top of the tower's rooms).
+DOWN = {"Karazhan:Nightbane": 4.0}
+# yd over it, likewise (the tower walls beside the terrace would leave room for only half of it).
+UP = {"Karazhan:Nightbane": 8.0}
+
+
 def plan(ref, starters, portraits, maps):
     """Where an encounter's room is: -> dict (or None without a starter page on a known map)."""
     raid = ref.split(":")[0]
@@ -618,6 +832,7 @@ def plan(ref, starters, portraits, maps):
                 ref_z = zs[len(zs) // 2]
     corners = [board_to_world(page, rect, x, y) for x, y in ((0, 0), (BW, 0), (0, BH), (BW, BH))]
     box = (min(c[0] for c in corners), min(c[1] for c in corners), max(c[0] for c in corners), max(c[1] for c in corners))
+    box = BOX.get(ref, box)
     name = (boss["n"] if boss else ref.split(":")[1])
     return dict(ref=ref, key=safe_key(ref), raid=raid, mapid=mapid, mapdir=mapdir, mapfile=mapfile, rect=rect,
                 page=page, box=box, portrait=(wx, wy), spot=spot, how=how, name=name, ref_z=ref_z)
@@ -647,7 +862,12 @@ def gather(p):
             elif n and n[2] >= SLIDE_COS:
                 coll.append((P, "walk" if n[2] >= WALK_COS else "slide", True))
     # the boss' floor
-    if p["spot"]:
+    if p["ref"] in LEVEL:
+        sx, sy = p["portrait"]
+        z0 = LEVEL[p["ref"]]
+        fl = [z for z in floors_at(raw, sx, sy) if abs(z - z0) < 8]
+        zb = min(fl, key=lambda z: abs(z - z0)) if fl else z0
+    elif p["spot"]:
         sx, sy, sz = p["spot"]
         fl = [z for z in floors_at(raw, sx, sy) if z <= sz + 1.5]
         zb = max(fl) if fl else sz
@@ -726,7 +946,8 @@ def build(p):
     """The room: its faces cut to the box (shrunk while it has more than MAX_TRIS faces or MAX_NODES BSP nodes)."""
     raw, spot, box, coll = gather(p)
     zb = spot[2]
-    up, down, fine = ROOM_UP, ROOM_DOWN, 0.0
+    clutter = 0.0
+    up, down, fine = UP.get(p["ref"], ROOM_UP), DOWN.get(p["ref"], ROOM_DOWN), 0.0
     centre = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
     while True:
         faces = clip_faces(raw, box, zb - down, zb + up, zb)
@@ -740,14 +961,59 @@ def build(p):
                 box = smaller
                 continue
             if up > 4:                               # as small as rooms get: lower walls (fewer pieces) instead
-                up, down = up - 3, max(8.0, down - 6)
+                up, down = up - 3, min(down, max(8.0, down - 6))
                 continue
-            if fine < 4.0:                           # then leave out the finest carving (never a floor)
+            if clutter < CLUTTER:                    # then leave out loose objects (never a wall's faces)
+                clutter = clutter * 2 if clutter else 0.5
+                raw = drop_clutter(raw, clutter)
+                continue
+            if fine < 4.0:                           # last: the finest carving (never a floor)
                 fine = fine * 2 if fine else 0.05
                 raw = [f for f in raw if not small(f, fine)]
                 continue
             raise SystemExit("%s: %d BSP nodes even at the smallest room" % (p["ref"], len(r["nodes"])))
         return r
+
+
+def drop_clutter(faces, size):
+    """The faces without the loose objects up to `size` yd across: an object = faces joined by shared corners; one
+    with a floor in it (a face turned up, over 1 sq yd) stays. A wall is one big piece, so it never loses faces."""
+    def vk(q):
+        return (round(q[0], 2), round(q[1], 2), round(q[2], 2))
+    parent = list(range(len(faces)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    owner = {}
+    for k, (_, pts, _) in enumerate(faces):
+        for q in pts:
+            j = owner.setdefault(vk(q), k)
+            if j != k:
+                a, b = find(j), find(k)
+                if a != b:
+                    parent[a] = b
+    lo, hi, floor_ = {}, {}, set()
+    for k, (_, pts, fl) in enumerate(faces):
+        r = find(k)
+        for q in pts:
+            l, h = lo.get(r), hi.get(r)
+            lo[r] = tuple(min(l[i], q[i]) for i in range(3)) if l else tuple(q[:3])
+            hi[r] = tuple(max(h[i], q[i]) for i in range(3)) if h else tuple(q[:3])
+        if fl == TERRAIN or not small(faces[k], 1.0):
+            a, b, c = (q[:3] for q in pts)
+            n = G.normal(a, b, c)
+            if fl == TERRAIN or (n and n[2] > 0.7):
+                floor_.add(r)
+    out = []
+    for k, f in enumerate(faces):
+        r = find(k)
+        if r not in floor_ and math.dist(lo[r], hi[r]) < size:
+            continue
+        out.append(f)
+    return out
 
 
 def small(face, limit):
@@ -944,8 +1210,8 @@ def display_parts(portraits):
     Stand animation's first frame, m2_tools.py) cut into up to 6 boxes where it has volume (k-means over the
     occupied cells of an 8-cell grid over its longest side; one box under 4 yd), for the 3D view's occlusion: each
     box is drawn over by the room pieces in front of it (UI/StrategyMap3D.lua). Models: CreatureDisplayInfo.ModelID
-    -> CreatureModelData.FileDataID (wago.tools, build 2.5.6.69795); cached in dev/art/rooms/parts.json (the .m2
-    files are not kept)."""
+    -> CreatureModelData.FileDataID (wago.tools, build 2.5.6.69795), the .m2 from the installed client (casc);
+    cached in dev/art/rooms/parts.json (an .m2 downloaded from wago.tools is not kept)."""
     import m2_tools
     cache_path = os.path.join(CACHE, "parts.json")
     cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
@@ -1132,6 +1398,7 @@ def main(argv):
     index_only = "--index-only" in argv
     argv = [a for a in argv if a != "--index-only"]
     os.makedirs(os.path.join(CACHE, "index"), exist_ok=True)
+    local_build()                               # (the client's tables read and cached once, before parallel jobs)
     starters, portraits, _ = addon_data()
     refs = argv or sorted(starters)
     if not index_only:

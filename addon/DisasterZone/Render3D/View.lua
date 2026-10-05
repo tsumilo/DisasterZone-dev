@@ -126,6 +126,10 @@ function View:ApplyCamera(yaw, pitch)
         pcall(sc2.SetCameraPosition, sc2, cam.x, cam.y, cam.z)
         pcall(sc2.SetCameraOrientationByYawPitchRoll, sc2, yaw, cam.pitchSign * pitch, 0)
     end
+    for s in pairs(self.sliceList or {}) do
+        pcall(s.SetCameraPosition, s, cam.x, cam.y, cam.z)
+        pcall(s.SetCameraOrientationByYawPitchRoll, s, yaw, cam.pitchSign * pitch, 0)
+    end
 end
 
 -- Puts the camera `dist` yards back from the room point (x, y, z), looking at it along the room heading `heading`
@@ -183,6 +187,7 @@ function View:NewActor(top)
     local ok, a = pcall(sc.CreateActor, sc, nil, "ModelSceneActorTemplate")
     if not ok or not a then ok, a = pcall(sc.CreateActor, sc) end
     if not ok or not a then return nil end
+    if top ~= "back" then self:Fan(a) end
     pcall(a.SetUseCenterForOrigin, a, false, false, false)
     if a.SetOnModelLoadedCallback then
         local default = self.anim
@@ -195,6 +200,199 @@ function View:NewActor(top)
         end)
     end
     return a
+end
+
+---------------------------------------------------------------------------
+-- Depth slices (Room.SetSlices): K more ModelScenes, each clipped to one band of depth and stacked between the room's
+-- bands; every actor of the scene and scene2 has a copy (a mirror) in each, and what is done to the actor is done to
+-- its mirrors (Fan). The actors' own scenes are then not shown (alpha 0: they still measure the camera).
+---------------------------------------------------------------------------
+
+local FAN = { "SetModelByCreatureDisplayID", "SetModelByUnit", "SetModelByFileID", "ClearModel",
+              "SetUseCenterForOrigin", "SetScale", "SetPosition", "SetYaw", "SetPitch", "SetRoll", "SetAlpha",
+              "SetShown", "Show", "Hide", "SetAnimation" }
+local MODEL_SET = { SetModelByCreatureDisplayID = true, SetModelByUnit = true, SetModelByFileID = true,
+                    ClearModel = true }
+
+-- The actor's calls go on to its mirrors too; the last of each is kept for a mirror made later.
+function View:Fan(a)
+    self.fanned = self.fanned or {}
+    self.fanned[#self.fanned + 1] = a
+    a.mirrors, a.last = {}, {}
+    for _, name in ipairs(FAN) do
+        local orig = a[name]
+        if orig then
+            a[name] = function(actor, ...)
+                if MODEL_SET[name] then
+                    actor.modelCall = { name, ... }
+                else
+                    actor.last[name] = { ... }
+                end
+                if name == "SetAnimation" then actor.anim = ... end
+                for _, m in pairs(actor.mirrors) do
+                    local f = m[name]
+                    if f then pcall(f, m, ...) end
+                end
+                return orig(actor, ...)
+            end
+        end
+    end
+end
+
+local REPLAY = { "SetUseCenterForOrigin", "SetScale", "SetPosition", "SetYaw", "SetPitch", "SetRoll", "SetAlpha",
+                 "SetShown", "SetAnimation" }
+
+-- A ModelScene for the slices (from the view's pool: made once, reused).
+function View:SliceScene()
+    self.scenePool = self.scenePool or {}
+    local s = table.remove(self.scenePool)
+    if not s then
+        local ok, sc = pcall(CreateFrame, "ModelScene", nil, self.parent)
+        if not (ok and sc and sc.CreateActor) then return nil end
+        sc:SetAllPoints()
+        self:SetupScene(sc)
+        s = sc
+    end
+    self.sliceList = self.sliceList or {}
+    self.sliceList[s] = true
+    if self.yaw then
+        local cam = self.cam
+        pcall(s.SetCameraPosition, s, cam.x, cam.y, cam.z)
+        pcall(s.SetCameraOrientationByYawPitchRoll, s, self.yaw, cam.pitchSign * self.pitch, 0)
+    end
+    return s
+end
+
+-- Actor a's mirror for band i, in a scene of its own (a.sliceScenes[i]): a model scene does not sort a small model in
+-- front of a big scaled one behind it (Brutallus, 30 yd further, was drawn over you), so every model has its own
+-- scenes and the view layers them by distance (SetSliceClips). Made with what was done to a so far.
+function View:Mirror(a, i)
+    local m = a.mirrors[i]
+    if m then return m end
+    a.sliceScenes = a.sliceScenes or {}
+    local sc = a.sliceScenes[i] or self:SliceScene()
+    if not sc then return nil end
+    a.sliceScenes[i] = sc
+    local ok, mm = pcall(sc.CreateActor, sc, nil, "ModelSceneActorTemplate")
+    if not ok or not mm then ok, mm = pcall(sc.CreateActor, sc) end
+    if not ok or not mm then return nil end
+    m = mm
+    a.mirrors[i] = m
+    local default = self.anim
+    if m.SetOnModelLoadedCallback then
+        pcall(m.SetOnModelLoadedCallback, m, function(actor)
+            pcall(actor.SetUseCenterForOrigin, actor, false, false, false)
+            -- (all copies start the animation again together, so the slices stay in step)
+            if a.SetAnimation then pcall(a.SetAnimation, a, a.anim or default) end
+        end)
+    end
+    local mc = a.modelCall
+    if mc and m[mc[1]] then pcall(m[mc[1]], m, unpack(mc, 2)) end
+    for _, name in ipairs(REPLAY) do
+        local args = a.last[name]
+        if args and m[name] then pcall(m[name], m, unpack(args)) end
+    end
+    if not a.last.SetShown and m.SetShown then pcall(m.SetShown, m, true) end
+    return m
+end
+
+-- Is the actor shown (as its own calls last said)?
+local function Shown(a)
+    local sh = a.last and a.last.SetShown
+    if sh then return sh[1] and true or false end
+    if a.last and a.last.Hide and not a.last.Show then return false end
+    return a.modelCall ~= nil
+end
+
+-- K bands (K < 2: none): the shown actors mirrored into scenes of their own for each band; the actors' own scenes draw
+-- nothing while they are on. -> K, and the number of shown actors (model scenes per band).
+function View:SetSlices(K)
+    K = (K and K > 1) and K or 0
+    local n = 0
+    for _, a in ipairs(self.fanned or {}) do
+        local on = K > 1 and Shown(a)
+        if on then n = n + 1 end
+        for i = 1, K do
+            if on then
+                local m = self:Mirror(a, i)
+                if m then pcall(m.SetShown, m, true) end
+            end
+            local sc = a.sliceScenes and a.sliceScenes[i]
+            if sc then sc:SetShown(on and true or false) end
+        end
+        for i, sc in pairs(a.sliceScenes or {}) do
+            if i > K then sc:Hide() end
+        end
+    end
+    local on = K > 1
+    if on ~= self.slicing then
+        self.slicing = on
+        -- (the actors' own scenes draw nothing while slicing: alpha 0, and - in case the client draws a model scene
+        -- whatever its alpha - clipped to an empty depth range; they still measure the camera)
+        for _, sc in ipairs({ self.scene, self.scene2 }) do
+            pcall(sc.SetAlpha, sc, on and 0 or 1)
+            if on then
+                pcall(sc.SetCameraNearClip, sc, 0.01)
+                pcall(sc.SetCameraFarClip, sc, 0.011)
+            else
+                pcall(sc.SetCameraNearClip, sc, self.near)
+                pcall(sc.SetCameraFarClip, sc, self.far)
+            end
+        end
+    end
+    return K, n
+end
+
+-- Particles (glows, flames) are not cut by a scene's clips: shown in every slice they add up K times (Brutallus went
+-- white). Each actor keeps them in the one slice that holds its middle (depth d, yd along the view axis), none in the
+-- others - when the client has SetParticleOverrideScale. -> whether it has.
+function View:SliceParticles(a, d, cuts)
+    local band = 1
+    while cuts[band] and d >= cuts[band] do band = band + 1 end
+    local any = false
+    for i, m in pairs(a.mirrors or {}) do
+        if m.SetParticleOverrideScale then
+            any = true
+            local want = (i == band) and 1 or 0
+            if m.particles ~= want then
+                m.particles = want
+                pcall(m.SetParticleOverrideScale, m, want)
+            end
+        end
+    end
+    return any
+end
+
+-- An actor's depth (yd along the view axis) from where its own calls put it (position times scale: scene units).
+function View:ActorDepth(a)
+    local p, sc = a.last and a.last.SetPosition, a.last and a.last.SetScale
+    if not p then return nil end
+    local s = sc and sc[1] or 1
+    local cam = self.cam
+    return (p[1] * s - cam.x) * cam.fx + (p[2] * s - cam.y) * cam.fy + (p[3] * s - cam.z) * cam.fz
+end
+
+-- The slices' clips (band i from cuts[i - 1] to cuts[i]; the nearest from the view's near clip, the farthest to its far
+-- clip) and levels: in band i the shown actors' scenes from levels[i] up, the farthest actor lowest.
+function View:SetSliceClips(cuts, levels)
+    local order = {}
+    for _, a in ipairs(self.fanned or {}) do
+        if a.sliceScenes and Shown(a) then
+            order[#order + 1] = a
+            a.sliceDepth = self:ActorDepth(a) or 0
+        end
+    end
+    table.sort(order, function(x, y) return x.sliceDepth > y.sliceDepth end)
+    for j, a in ipairs(order) do
+        for i, sc in pairs(a.sliceScenes) do
+            if sc:IsShown() and levels[i] then
+                pcall(sc.SetCameraNearClip, sc, (i == 1) and self.near or cuts[i - 1])
+                pcall(sc.SetCameraFarClip, sc, cuts[i] or self.far)
+                local lvl = levels[i] + j - 1
+                if sc:GetFrameLevel() ~= lvl then sc:SetFrameLevel(lvl) end
+            end
+        end
+    end
 end
 
 -- Where the client draws an actor's model sideways from its position, as room x, y to add to the position so the

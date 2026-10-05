@@ -18,8 +18,17 @@ ns.CHANGELOG = {
           { heading = "Loot council panel", lines = {
               "Once an item is awarded its rolls fold away; Show rolls at the top right opens them again.",
           } },
+          { heading = "Members", lines = {
+              "The roster lists online players first, then away, then offline; the highest level first.",
+              "A member's Characters card lists their raid teams: click one to open it in the Raids tab.",
+              "Hovering a member shows their team too.",
+          } },
           { heading = "Fixes", lines = {
               "Someone walking in the room no longer makes a boss vanish or shows up white and jittering.",
+              "Nightbane's 3D room is the Master's Terrace again, not the chess hall and tower rooms.",
+              "Walking in a 3D room moves like the Raid Trainer: smooth strafing, mouse look and steps.",
+              "Magtheridon no longer has squares cut out of him in the 3D room.",
+              "Bosses in 3D stand on their spot: the Lurker and others were several yards off their circle.",
           } },
       } },
     { version = "1.3.0", date = "4 October 2026", title = "Guests and a guest book, a raid blacklist, sign up with any character",

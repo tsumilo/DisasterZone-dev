@@ -35,8 +35,10 @@ local function UI() return ns.UI end
 -- room's cluster frames take room0 .. scene - 1 (more than the trainer's: Gorefiend's Vigil needs over 200), the
 -- copies over the models copy0 .. copy0 + 31, the plates plates + 1 .. plates + CHIP_LEVELS (the nearest highest);
 -- the camera buttons and the small map sit over all of it.
-local LV = { floor = 1, lines = 2, room0 = 3, scene = 330, copy0 = 331, scene2 = 370, copy2 = 371, plates = 373,
-             hud = 560 }
+-- (plates and hud sit far up: in depth slices, /dz 3d slices, the room's bands and the slice scenes take room0 ..
+-- plates - 1, up to K copies of every cluster frame)
+local LV = { floor = 1, lines = 2, room0 = 3, scene = 330, copy0 = 331, scene2 = 370, copy2 = 371, plates = 3000,
+             hud = 3200 }
 local CHIP_LEVELS = 180
 
 local EYE = 1.9                       -- yd: the eye over the floor, all the way in
@@ -142,6 +144,15 @@ end
 
 local function Clamp(v, lo, hi) return max(lo, min(hi, v)) end
 
+-- A critically damped spring, stepped implicitly (stable for any dt): position x, speed v towards target (as the
+-- Raid Trainer's camera, Games/Trainer/UI.lua).
+local function Spring(x, v, target, w, dt)
+    local f, hw2 = 1 + 2 * dt * w, dt * w * w
+    local det = 1 / (f + dt * hw2)
+    return (f * x + dt * v + dt * hw2 * target) * det, (v + hw2 * (target - x)) * det
+end
+local WALK_GRAVITY, WALK_SLOPE = 19.291103, math.tan(math.rad(50))
+
 -- The camera as self.orb says, handed to the scene. Walking: behind and over your character, looking where it
 -- faces (and wherever a left-drag swung it), pulled in where the room is in the way (Room.CameraDistance) and easing
 -- back out at 6 yd a second; self.orb follows it (the compass, the small map).
@@ -149,14 +160,28 @@ function V:Place()
     local wk = self.walk
     if wk then
         local k = wk.k
-        local pz = k.z + WALK_EYE - (k.swimming and SWIM_SINK or 0)
+        local now = GetTime()
+        local dt = wk.camT and min(0.25, now - wk.camT) or 0
+        wk.camT = now
+        -- the point the camera turns round rides over your feet, but a jump of the feet that walking does not make
+        -- (a step, a bump of the floor) goes into hoff, which a spring takes back to 0: the view eases over a few
+        -- frames instead of jolting (the trainer's camera); a jump over 2 yd, a fall or a long move snaps
+        local target = k.z + WALK_EYE - (k.swimming and SWIM_SINK or 0)
+        local moved2 = wk.camX and (k.x - wk.camX) ^ 2 + (k.y - wk.camY) ^ 2 or 0
+        local jump = wk.camTarget and target - wk.camTarget or 0
+        if dt <= 0 or not wk.camTarget or moved2 > 9 or (abs(jump) > 2 and not k.falling) then
+            wk.hoff, wk.hv = 0, 0
+        else
+            local walk = sqrt(moved2) * WALK_SLOPE + abs(k.vz or 0) * dt + WALK_GRAVITY * dt * dt + 0.02
+            if abs(jump) > walk then wk.hoff = (wk.hoff or 0) - jump end
+            wk.hoff, wk.hv = Spring(wk.hoff or 0, wk.hv or 0, 0, 12, dt)
+        end
+        wk.camTarget, wk.camX, wk.camY = target, k.x, k.y
+        local pz = target + (wk.hoff or 0)
         local heading = k.facing + wk.yawOff
         self.view:Orbit(k.x, k.y, pz, heading, wk.pitch, wk.dist)
         local R = self.R
         local allowed = (R and R.CameraDistance) and R.CameraDistance(k.x, k.y, pz, self.cam, wk.dist) or wk.dist
-        local now = GetTime()
-        local dt = wk.camT and min(0.25, now - wk.camT) or 0
-        wk.camT = now
         if not wk.cur or allowed < wk.cur then wk.cur = allowed else wk.cur = min(allowed, wk.cur + 6 * dt) end
         if wk.cur < wk.dist then self.view:Orbit(k.x, k.y, pz, heading, wk.pitch, wk.cur) end
         local o = self.orb
@@ -728,7 +753,12 @@ function V:DrawModels()
                             local o = occ[n] or {}
                             occ[n] = o
                             o.id, o.x, o.y = id, g.x + cf * cx - sf * cy, g.y + sf * cx + cf * cy
-                            o.z, o.h = g.z + z0 * s, (z1 - z0) * s
+                            -- a part that only dips under the floor starts on it (Magtheridon's feet reach 0.25 yd
+                            -- under his: the floor was then in front of his parts, copies cut squares out of him);
+                            -- deep ones stay (the Lurker rises 20 yd out of the water)
+                            local zb = z0 * s
+                            if zb < 0.05 and zb > -1.5 then zb = 0.05 end
+                            o.z, o.h = g.z + zb, max(0.1, z1 * s - zb)
                             o.w, o.rb, o.top, o.prio, o.group = 0, sqrt(hx * hx + hy * hy), (z1 - z0) * s, 1, e
                         end
                     end
@@ -1328,17 +1358,21 @@ end
 
 -- The middle of a model's box sideways (model units), which the client turns and places it by: the box the client
 -- itself gives once the model is loaded (Active: its pose now; Max: all its animations), else CreatureModelData's
--- (Render3D/Rooms/Index.lua DISPLAY_CENTRE); M3.centre picks the rule ("active" by default, /dz 3d centre).
+-- (Render3D/Rooms/Index.lua DISPLAY_CENTRE); M3.centre (/dz 3d centre) picks a rule for testing, else "off".
 function V:ModelCentre(a, display)
-    local mode = M3.centre or "max"
+    -- a creature stands on its model's own origin, as the game places a spawn (the client reports no centring: on
+    -- 2026-10-05 its boxes showed Kil'jaeden's max box centred on 0 - why "max" looked right for him - and the Lurker's
+    -- 8 yd off; shifting by the standing box put Kil'jaeden 29 yd off). The other rules stay for /dz 3d centre.
+    local mode = M3.centre or "off"
     if mode == "off" then return 0, 0 end
     if mode ~= "geo" and a and a.loadedOnce then
         if a.ctrMode ~= mode then
-            local fn = (mode == "max") and a.GetMaxBoundingBox or a.GetActiveBoundingBox
+            local use = mode
+            local fn = (use == "max") and a.GetMaxBoundingBox or a.GetActiveBoundingBox
             local ok, x0, y0, _, x1, y1 = false, nil, nil, nil, nil, nil
             if fn then ok, x0, y0, _, x1, y1 = pcall(fn, a) end
             if ok and type(x1) == "number" and type(y1) == "number" and x1 > x0 then
-                a.ctr, a.ctrMode = { (x0 + x1) / 2, (y0 + y1) / 2 }, mode
+                a.ctr, a.ctrMode, a.ctrUsed = { (x0 + x1) / 2, (y0 + y1) / 2 }, mode, use
             end
         end
         if a.ctr and a.ctrMode == mode then return a.ctr[1], a.ctr[2] end
@@ -1356,7 +1390,42 @@ function M3:Report()
         ns:Print("Open a strategy in 3D first.")
         return
     end
-    ns:Print("3D models (centring: %s):", M3.centre or "max")
+    ns:Print("3D models (centring: %s):", M3.centre or "off")
+    if v.sliced and v.R.SliceLevels then
+        -- depth slices: the cuts, each slice scene's clips and level, and where you and each model stand in depth
+        local lv, used, cuts = v.R.SliceLevels()
+        local cam = v.cam
+        local parts = {}
+        for i, c in ipairs(cuts) do parts[i] = string.format("%.2f", c) end
+        ns:Print("  slices: cuts %s; levels used %d; camera at %.1f %.1f %.1f looking %.2f %.2f %.2f",
+            table.concat(parts, " "), used or 0, cam.x, cam.y, cam.z, cam.fx, cam.fy, cam.fz)
+        for i = 1, #cuts + 1 do ns:Print("    band %d: model scenes from level %s", i, tostring(lv[i])) end
+        local function band(d)
+            local b = 1
+            while cuts[b] and d >= cuts[b] do b = b + 1 end
+            return b
+        end
+        local function line(name, a, x, y, z)
+            local d = (x - cam.x) * cam.fx + (v.view:SY(y) - cam.y) * cam.fy + (z - cam.z) * cam.fz
+            local shown, nm = {}, 0
+            for i, m in pairs(a and a.mirrors or {}) do
+                nm = nm + 1
+                local sc = a.sliceScenes and a.sliceScenes[i]
+                local okn, cn = pcall(sc.GetCameraNearClip, sc)
+                local okf, cf = pcall(sc.GetCameraFarClip, sc)
+                shown[#shown + 1] = string.format("%d:%s L%d %s-%s", i, (sc and sc:IsShown()) and "on" or "off",
+                    sc and sc:GetFrameLevel() or -1, okn and string.format("%.1f", cn) or "?",
+                    okf and string.format("%.1f", cf) or "?")
+            end
+            ns:Print("    %s: feet depth %.2f (band %d), %d mirrors %s", name, d, band(d), nm, table.concat(shown, " "))
+        end
+        for e, a in pairs(v.actors) do
+            local g = v:Geo(e)
+            line(MapUI():PortraitName(g.display, cv.opts.bossRef and cv.opts.bossRef()) or "model", a, g.x, g.y, g.z)
+        end
+        local wk = v.walk
+        if wk then line("you", wk.actor, wk.k.x, wk.k.y, wk.k.z) end
+    end
     for e, a in pairs(v.actors) do
         local g = v:Geo(e)
         local function box(fn)
@@ -1369,16 +1438,289 @@ function M3:Report()
         if a.IsUsingCenterForOrigin then okc, ux, uy, uz = pcall(a.IsUsingCenterForOrigin, a) end
         local cx, cy = v:ModelCentre(a, g.display)
         local geo = R3().DISPLAY_CENTRE and R3().DISPLAY_CENTRE[g.display]
-        ns:Print("  %s (display %s, scale %.2f, facing %d): centre %.2f %.2f; GeoBox centre %s; active %s; max %s; "
+        ns:Print("  %s (display %s, scale %.2f, facing %d): centre %.2f %.2f (%s); GeoBox centre %s; active %s; max %s; "
             .. "centred x y z: %s %s %s", MapUI():PortraitName(g.display, cv.opts.bossRef and cv.opts.bossRef())
             or "?", tostring(g.display), g.scale or 0, math.floor(math.deg(g.curFace or 0) % 360 + 0.5), cx, cy,
+            tostring(a.ctrUsed or "geo"),
             geo and string.format("%.2f %.2f", geo[1], geo[2]) or "-", box(a.GetActiveBoundingBox),
             box(a.GetMaxBoundingBox), tostring(okc and ux), tostring(okc and uy), tostring(okc and uz))
     end
 end
 
+-- /dz 3d slicetest [display]: can a model be cut by depth, per pixel, with two model scenes? One model in two
+-- scenes on top of each other, the same camera: the front one clipped to the near half of the depth (far clip at the
+-- model), the back one to the far half (near clip at the model). Near / Far / Both show the halves; "Both" must look
+-- like the whole model, without a seam or a gap, for depth slicing to work. The split moves with the slider.
+-- /dz 3d pairtest [display]: does a model scene depth-test its models against each other? Your own character 15 yd
+-- from the camera, a big creature 35 yd away right behind it, in ONE scene; "Swap" makes the creature first instead of
+-- you (creation order). If you are hidden behind the creature (in either order), the scene draws models one after
+-- another without a depth test between them.
+-- /dz 3d scenetest [display]: which of two model scenes is drawn on top - the one on the higher frame level, or the one
+-- made first / last? You in one scene (15 yd away), a big creature in another (35 yd away, behind you). Four setups:
+-- your scene made first or second, on the higher or the lower level. You should be in front where yours is higher.
+local stest
+local function SceneTest(display)
+    display = tonumber(display) or 20216
+    if not stest then
+        local f = CreateFrame("Frame", "DisasterZoneSceneTest", UIParent)
+        f:SetSize(520, 580)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("DIALOG")
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", f.StopMovingOrSizing)
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
+        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", 0, 0)
+        local info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        info:SetPoint("BOTTOMLEFT", 12, 40)
+        info:SetPoint("BOTTOMRIGHT", -12, 40)
+        info:SetJustifyH("LEFT")
+        stest = { f = f, info = info, n = 1, scenes = {} }
+        local SETUPS = { { meFirst = true, meHigh = true }, { meFirst = true, meHigh = false },
+                         { meFirst = false, meHigh = true }, { meFirst = false, meHigh = false } }
+        function stest.Build()
+            for _, sc in ipairs(stest.scenes) do sc:Hide() end
+            wipe(stest.scenes)
+            local cfg = SETUPS[stest.n]
+            local function scene(unit)
+                local sc = CreateFrame("ModelScene", nil, f)
+                sc:SetPoint("TOPLEFT", 10, -30)
+                sc:SetSize(500, 440)
+                pcall(sc.SetCameraFieldOfView, sc, 0.9)
+                pcall(sc.SetCameraNearClip, sc, 0.5)
+                pcall(sc.SetCameraFarClip, sc, 500)
+                pcall(sc.SetCameraPosition, sc, -15, 0, 1.5)
+                pcall(sc.SetCameraOrientationByYawPitchRoll, sc, 0, 0, 0)
+                local a = sc:CreateActor()
+                if unit then
+                    pcall(a.SetModelByUnit, a, "player")
+                    pcall(a.SetPosition, a, 0, 0, 0)
+                else
+                    pcall(a.SetModelByCreatureDisplayID, a, stest.display)
+                    pcall(a.SetPosition, a, 20, 0, -2)
+                end
+                pcall(a.SetUseCenterForOrigin, a, false, false, false)
+                pcall(a.SetYaw, a, math.pi)
+                stest.scenes[#stest.scenes + 1] = sc
+                return sc
+            end
+            local me, it
+            if cfg.meFirst then me = scene(true) it = scene(false) else it = scene(false) me = scene(true) end
+            local base = f:GetFrameLevel()
+            me:SetFrameLevel(base + (cfg.meHigh and 6 or 3))
+            it:SetFrameLevel(base + (cfg.meHigh and 3 or 6))
+            info:SetText(string.format("Setup %d of 4: your scene made %s, on the %s level. Are you in front of the "
+                .. "creature or hidden behind it? (Next: the next setup)", stest.n, cfg.meFirst and "FIRST" or "SECOND",
+                cfg.meHigh and "HIGHER" or "LOWER"))
+        end
+        local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        b:SetSize(90, 22)
+        b:SetPoint("BOTTOMLEFT", 10, 10)
+        b:SetText("Next")
+        b:SetScript("OnClick", function()
+            stest.n = stest.n % 4 + 1
+            stest.Build()
+        end)
+    end
+    stest.display = display
+    stest.n = 1
+    stest.Build()
+    stest.f:Show()
+end
+
+local pair
+local function PairTest(display)
+    display = tonumber(display) or 20216
+    if not pair then
+        local f = CreateFrame("Frame", "DisasterZonePairTest", UIParent)
+        f:SetSize(520, 560)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("DIALOG")
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", f.StopMovingOrSizing)
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
+        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", 0, 0)
+        local info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        info:SetPoint("BOTTOMLEFT", 12, 40)
+        info:SetPoint("BOTTOMRIGHT", -12, 40)
+        info:SetJustifyH("LEFT")
+        pair = { f = f, info = info, first = "player" }
+        function pair.Build()
+            if pair.sc then pair.sc:Hide() end
+            local sc = CreateFrame("ModelScene", nil, f)
+            sc:SetPoint("TOPLEFT", 10, -30)
+            sc:SetSize(500, 440)
+            sc:SetFrameLevel(f:GetFrameLevel() + 2)
+            pcall(sc.SetCameraFieldOfView, sc, 0.9)
+            pcall(sc.SetCameraNearClip, sc, 0.5)
+            pcall(sc.SetCameraFarClip, sc, 500)
+            pcall(sc.SetCameraPosition, sc, -15, 0, 1.5)
+            pcall(sc.SetCameraOrientationByYawPitchRoll, sc, 0, 0, 0)
+            pair.sc = sc
+            local function me()
+                local a = sc:CreateActor()
+                pcall(a.SetModelByUnit, a, "player")
+                pcall(a.SetUseCenterForOrigin, a, false, false, false)
+                pcall(a.SetPosition, a, 0, 0, 0)
+                pcall(a.SetYaw, a, math.pi)
+                return a
+            end
+            local function big()
+                local a = sc:CreateActor()
+                pcall(a.SetModelByCreatureDisplayID, a, pair.display)
+                pcall(a.SetUseCenterForOrigin, a, false, false, false)
+                pcall(a.SetPosition, a, 20, 0, -2)
+                pcall(a.SetYaw, a, math.pi)
+                return a
+            end
+            if pair.first == "player" then me() big() else big() me() end
+            info:SetText(string.format("You 15 yd away, display %d 35 yd away right behind you, one scene. Made first: %s. "
+                .. "Are you in front of it (correct) or hidden behind it?", pair.display, pair.first == "player" and "you"
+                or "the creature"))
+        end
+        local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        b:SetSize(90, 22)
+        b:SetPoint("BOTTOMLEFT", 10, 10)
+        b:SetText("Swap order")
+        b:SetScript("OnClick", function()
+            pair.first = (pair.first == "player") and "creature" or "player"
+            pair.Build()
+        end)
+    end
+    pair.display = display
+    pair.Build()
+    pair.f:Show()
+end
+
+local slice
+local function SliceTest(display)
+    display = tonumber(display) or 20216
+    if not slice then
+        local f = CreateFrame("Frame", "DisasterZoneSliceTest", UIParent, "BackdropTemplate")
+        f:SetSize(520, 600)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("DIALOG")
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", f.StopMovingOrSizing)
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
+        local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        title:SetPoint("TOP", 0, -8)
+        title:SetText("Depth slice test")
+        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", 0, 0)
+        slice = { f = f, scenes = {}, actors = {} }
+        for i = 1, 2 do
+            local sc = CreateFrame("ModelScene", nil, f)
+            sc:SetPoint("TOPLEFT", 10, -30)
+            sc:SetSize(500, 480)
+            sc:SetFrameLevel(f:GetFrameLevel() + (i == 1 and 3 or 2))   -- the near half in front
+            pcall(sc.SetCameraFieldOfView, sc, 0.9)
+            slice.scenes[i] = sc
+            slice.actors[i] = sc:CreateActor()
+        end
+        slice.info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        slice.info:SetPoint("BOTTOMLEFT", 12, 40)
+        slice.info:SetPoint("BOTTOMRIGHT", -12, 40)
+        slice.info:SetJustifyH("LEFT")
+        local modes = { "Near", "Far", "Both" }
+        for i, m in ipairs(modes) do
+            local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+            b:SetSize(70, 22)
+            b:SetPoint("BOTTOMLEFT", 10 + (i - 1) * 76, 10)
+            b:SetText(m)
+            b:SetScript("OnClick", function()
+                slice.scenes[1]:SetShown(m ~= "Far")
+                slice.scenes[2]:SetShown(m ~= "Near")
+            end)
+        end
+        local sl = CreateFrame("Slider", nil, f, "OptionsSliderTemplate")
+        sl:SetPoint("BOTTOMRIGHT", -20, 14)
+        sl:SetWidth(240)
+        sl:SetMinMaxValues(-15, 15)
+        sl:SetValueStep(0.5)
+        sl:SetValue(0)
+        sl:SetScript("OnValueChanged", function(_, v) slice.split = v slice.Apply() end)
+        slice.split, slice.yaw = 0, 0
+        f:SetScript("OnUpdate", function(_, el)
+            slice.yaw = slice.yaw + el * 0.4                -- the model turns slowly: the cut shows at every angle
+            for i = 1, 2 do pcall(slice.actors[i].SetYaw, slice.actors[i], slice.yaw) end
+        end)
+        function slice.Apply()
+            local D, H = 45, 6                              -- the camera 45 yd in front of the model, a little over it
+            local ok1 = pcall(slice.scenes[1].SetCameraNearClip, slice.scenes[1], 0.5)
+            local ok2 = pcall(slice.scenes[1].SetCameraFarClip, slice.scenes[1], D + slice.split)
+            local ok3 = pcall(slice.scenes[2].SetCameraNearClip, slice.scenes[2], D + slice.split)
+            local ok4 = pcall(slice.scenes[2].SetCameraFarClip, slice.scenes[2], 500)
+            for i = 1, 2 do
+                local sc = slice.scenes[i]
+                pcall(sc.SetCameraPosition, sc, -D, 0, H)
+                pcall(sc.SetCameraOrientationByYawPitchRoll, sc, 0, 0, 0)
+            end
+            slice.info:SetText(string.format("Display %d. Clip API: %s. Split %.1f yd from the model's origin (slider). "
+                .. "Near: in front of the split; Far: behind it; Both must be the whole model, no seam.",
+                slice.display or 0, (ok1 and ok2 and ok3 and ok4) and "yes" or "MISSING", slice.split))
+        end
+    end
+    slice.display = display
+    for i = 1, 2 do
+        local a = slice.actors[i]
+        pcall(a.ClearModel, a)
+        pcall(a.SetModelByCreatureDisplayID, a, display)
+        pcall(a.SetUseCenterForOrigin, a, false, false, false)
+        pcall(a.SetPosition, a, 0, 0, 0)
+        slice.scenes[i]:Show()
+    end
+    slice.Apply()
+    slice.f:Show()
+end
+
 ns:RegisterSlash("3d", function(rest)
     local cmd, arg = strsplit(" ", strtrim(rest or ""), 2)
+    if cmd == "slices" then
+        local on, k = strsplit(" ", arg or "")
+        if on == "on" or on == "off" then
+            M3.slices = on == "on" or nil
+            M3.sliceK = tonumber(k) or M3.sliceK
+            local cv = _G.DisasterZoneStrategyBoard and _G.DisasterZoneStrategyBoard.canvas
+            if cv and cv.v3 then cv.v3:Invalidate() end
+            ns:Print("3D depth slices: %s%s.", on, M3.slices and (" (" .. (M3.sliceK or 8) .. " bands)") or "")
+            local probe = cv and cv.v3 and cv.v3.view and cv.v3.view.probe
+            ns:Print("  Particles kept to one slice: %s.", (probe and probe.SetParticleOverrideScale) and "yes"
+                or "no (this client has no SetParticleOverrideScale: glows show in every slice)")
+        else
+            ns:Print("/dz 3d slices on [bands] | off - the models cut by depth between the room's bands instead of the "
+                .. "boxes and copies (testing).")
+        end
+        return
+    end
+    if cmd == "scenetest" then
+        SceneTest(arg)
+        return
+    end
+    if cmd == "pairtest" then
+        PairTest(arg)
+        return
+    end
+    if cmd == "slicetest" then
+        SliceTest(arg)
+        return
+    end
     if cmd == "centre" or cmd == "center" then
         if arg == "active" or arg == "max" or arg == "geo" or arg == "off" then
             M3.centre = arg
@@ -1389,7 +1731,7 @@ ns:RegisterSlash("3d", function(rest)
             end
             ns:Print("3D models are placed by: %s.", arg)
         else
-            ns:Print("/dz 3d centre active | max | geo | off - how the 3D view undoes the client's centring of a model.")
+            ns:Print("/dz 3d centre off | active | max | geo - how the 3D view undoes the client's centring of a model.")
         end
         return
     end
@@ -1647,6 +1989,68 @@ end
 -- A frame
 ---------------------------------------------------------------------------
 
+-- Where the depth slices are cut (yd along the view axis, ascending): at the near and the far side of every model
+-- (DrawModels' records grouped by model: the boxes round its parts), yours first, then the near sides, then the far
+-- ones; cuts left over spread through the models' own depths by their length. A model whose depths no other model
+-- shares gets bands of its own, so the layering by distance (View:SetSliceClips) is exact for it. Quantized to 1/4 yd
+-- (a still camera keeps its cuts).
+function V:SliceCuts(occ, n, K)
+    local cam, near = self.cam, (self.view.near or 0.5) + 0.25
+    local fx, fy, fz = cam.fx, cam.fy, cam.fz
+    local groups, list = {}, {}
+    for i = 1, n do
+        local o = occ[i]
+        local hz = (o.h or 0) / 2
+        local r = sqrt((o.rb or 0) ^ 2 + hz * hz)
+        local d = (o.x - cam.x) * fx + (self.view:SY(o.y) - cam.y) * fy + (o.z + hz - cam.z) * fz
+        local key = o.group or o.id or i
+        local g = groups[key]
+        if not g then
+            g = { lo = d - r, hi = d + r, mine = (o.prio == 2) }
+            groups[key] = g
+            list[#list + 1] = g
+        else
+            g.lo, g.hi = math.min(g.lo, d - r), max(g.hi, d + r)
+        end
+    end
+    local want = K - 1
+    local edges = {}
+    local function add(d, rank)
+        if d > near then edges[#edges + 1] = { d = floor(d * 4 + 0.5) / 4, rank = rank } end
+    end
+    for _, g in ipairs(list) do
+        add(g.lo, g.mine and 0 or 1)
+        add(g.hi, g.mine and 0 or 2)
+    end
+    table.sort(edges, function(a, b) if a.rank ~= b.rank then return a.rank < b.rank end return a.d < b.d end)
+    local cuts = {}
+    local function has(d)
+        for _, c in ipairs(cuts) do
+            if math.abs(c - d) < 0.25 then return true end
+        end
+    end
+    for _, e in ipairs(edges) do
+        if #cuts >= want then break end
+        if not has(e.d) then cuts[#cuts + 1] = e.d end
+    end
+    -- the rest through the models' depths, by length
+    local rest = want - #cuts
+    if rest > 0 then
+        local total = 0
+        for _, g in ipairs(list) do total = total + max(0, g.hi - max(g.lo, near)) end
+        for _, g in ipairs(list) do
+            local a, b = max(g.lo, near), g.hi
+            local k = (total > 0 and b > a) and floor(rest * (b - a) / total + 0.5) or 0
+            for j2 = 1, k do
+                local c = floor((a + (b - a) * j2 / (k + 1)) * 4 + 0.5) / 4
+                if #cuts < want and c > near and not has(c) then cuts[#cuts + 1] = c end
+            end
+        end
+    end
+    table.sort(cuts)
+    return cuts
+end
+
 function V:Draw()
     self.dirty = false
     local cv, R = self.canvas, self.R
@@ -1664,12 +2068,51 @@ function V:Draw()
     local remote = self:RemoteMarks()
     self.measured = ok and R.BeginFrame(self.cam) or false
     if self.measured then
-        R.SetOccluders(occ, n)
+        local slicing = M3.slices and R.SetSlices and self.view.SetSlices
+        if slicing then
+            -- depth slices: the models cut by depth in K scenes between the room's bands (no boxes, no copies)
+            if not self.sliced then
+                self.sliced = true
+                if R.HideCopies then R.HideCopies() end
+            end
+            local cuts = self:SliceCuts(occ, n, M3.sliceK or 8)
+            local K, models = self.view:SetSlices(#cuts + 1)
+            while #cuts > K - 1 do cuts[#cuts] = nil end
+            R.SetSlices(cuts, max(1, models))
+        elseif self.sliced then
+            self.sliced = false
+            R.SetSlices(nil)
+            self.view:SetSlices(0)
+        end
+        if not slicing then R.SetOccluders(occ, n) end
         R.DrawRoom()
         R.BeginLines()
         self:DrawLines(remote)
         R.EndLines()
-        R.DrawCopies()
+        if slicing then
+            local lv, _, cuts = R.SliceLevels()
+            self.view:SetSliceClips(cuts, lv)
+            -- each model's particles in the slice that holds its middle only
+            local cam = self.cam
+            local parts = 0
+            for e, act in pairs(self.actors) do
+                local g = self.geo[e]
+                if g and act.mirrors then
+                    local d = (g.x - cam.x) * cam.fx + (self.view:SY(g.y) - cam.y) * cam.fy
+                        + (g.z + (g.h or 2) / 2 - cam.z) * cam.fz
+                    if self.view:SliceParticles(act, d, cuts) then parts = parts + 1 end
+                end
+            end
+            local wk = self.walk
+            if wk and wk.actor and wk.actor.mirrors then
+                local k = wk.k
+                local d = (k.x - cam.x) * cam.fx + (self.view:SY(k.y) - cam.y) * cam.fy + (k.z + 1 - cam.z) * cam.fz
+                self.view:SliceParticles(wk.actor, d, cuts)
+            end
+            self.sliceParticles = parts > 0
+        else
+            R.DrawCopies()
+        end
     end
     self:DrawPlates(remote)
     self:DrawHud()
@@ -1717,10 +2160,13 @@ function V:OnUpdate(elapsed)
             elseif (d.kind == "look" or d.kind == "swing") and self.walk then
                 -- walking: the right button turns you (and the camera with you), the left one swings the camera
                 -- round you; both tilt it
+                -- (by how far the mouse went since the last frame, as the Raid Trainer turns you)
                 local wk = self.walk
-                if d.kind == "look" then wk.k.facing = d.facing - dx * 0.008 else wk.yawOff = d.yawOff - dx * 0.008 end
-                wk.pitch = Clamp(d.pitch - dy * 0.006, -0.6, 1.45)
-                moved = true
+                local mx, my = cx - (d.lastX or d.cx), cy - (d.lastY or d.cy)
+                d.lastX, d.lastY = cx, cy
+                if d.kind == "look" then wk.k.facing = wk.k.facing - mx * 0.006 else wk.yawOff = wk.yawOff - mx * 0.006 end
+                wk.pitch = Clamp(wk.pitch - my * 0.004, -0.6, 1.45)
+                if mx ~= 0 or my ~= 0 then moved = true end
             elseif d.kind == "pan" and d.moved then
                 -- the floor point under the mouse at the start stays under it
                 local sx, sy = self.view:Cursor()
@@ -2044,7 +2490,16 @@ function V:PlaceWalker()
     local wk = self.walk
     local a, k = wk.actor, wk.k
     if not a then return end
-    local f = k.facing + k.bodyTurn
+    -- a strafing body swings round over a moment, not in one frame (9 radians a second, as the Raid Trainer's)
+    local now = GetTime()
+    local want, have = k.bodyTurn or 0, wk.bodyTurn or 0
+    if have ~= want then
+        local step = 9 * (now - (wk.turnAt or now))
+        have = (want > have) and min(want, have + step) or max(want, have - step)
+        wk.bodyTurn = have
+    end
+    wk.turnAt = now
+    local f = k.facing + have
     local dx, dy = self.view:CentreShift(a, 1, f)
     pcall(a.SetPosition, a, k.x + dx, self.view:SY(k.y + dy), k.z - (k.swimming and SWIM_SINK or 0))
     pcall(a.SetYaw, a, self.cam.mirror * f)
@@ -2089,7 +2544,8 @@ function V:WalkStep(elapsed)
     end
     local moved = k.x ~= x or k.y ~= y or k.z ~= z or k.facing ~= f or k.falling
     self:PlaceWalker()
-    return moved or (wk.cur and wk.cur < wk.dist) or false
+    return moved or (wk.cur and wk.cur < wk.dist) or (wk.hoff ~= nil and abs(wk.hoff) > 0.01)
+        or (wk.bodyTurn or 0) ~= (k.bodyTurn or 0) or false
 end
 
 ---------------------------------------------------------------------------

@@ -516,13 +516,13 @@ def walking_starts_on_my_spot_and_the_mouse_turns_and_swings_the_camera():
     w.tick(0.05)
     bob.eval("T3.release('RightButton')")
     f1 = bob.eval_py(WALKER)["f"]
-    assert abs(f1 - (f0 - 50 * 0.008)) < 1e-6, (f0, f1)
+    assert abs(f1 - (f0 - 50 * 0.006)) < 1e-6, (f0, f1)
     bob.eval("T3.cursor(300, 200) T3.press('LeftButton')")
     bob.eval("T3.cursor(250, 200)")
     w.tick(0.05)
     bob.eval("T3.release('LeftButton')")
     assert abs(bob.eval_py(WALKER)["f"] - f1) < 1e-6
-    assert abs(bob.eval_py("return T3.v().walk.yawOff") - 50 * 0.008) < 1e-6
+    assert abs(bob.eval_py("return T3.v().walk.yawOff") - 50 * 0.006) < 1e-6
     # running brings the camera back behind you
     walk_key(bob, "W", True)
     tick(w, 1.5)
@@ -638,9 +638,9 @@ MODEL = "local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end 
 
 @case
 def a_model_stands_on_its_spot_however_it_turns():
-    # The client turns and places a creature by the middle of its box sideways, not by its origin: the actor goes
-    # that middle, turned by its facing, past the spot, so the origin is on it. The box is the client's own once the
-    # model has loaded (/dz 3d centre: active, max; geo = CreatureModelData's; off = none).
+    # A creature stands on its model's origin, as the game places a spawn: the actor goes on the spot itself (the
+    # client reports no centring). /dz 3d centre active / max / geo shift it by the middle of that box, turned by its
+    # facing, for testing.
     w, c, bob = boot(LURKER)
     go3d(w, bob)
     tick(w, 0.5)
@@ -671,15 +671,16 @@ def a_model_stands_on_its_spot_however_it_turns():
                  "table.insert(p.e, { t = 's', x = math.floor(bx + 0.5), y = math.floor(by + 0.5), r = 'x' }) T3.cv():Render()"
                  % (k * math.pi / 2))
         tick(w, 0.1)
-        check(k, lambda p: p["active"])
+        check(k, lambda p: (0, 0))
     # the other rules
-    for rule, centre in (("max", lambda p: p["max"]), ("geo", lambda p: p["geo"]), ("off", lambda p: (0, 0))):
+    for rule, centre in (("active", lambda p: p["active"]), ("max", lambda p: p["max"]), ("geo", lambda p: p["geo"]),
+                         ("off", lambda p: (0, 0))):
         bob.slash("/dz 3d centre " + rule)
         tick(w, 0.1)
         check(3, centre)
-    bob.slash("/dz 3d centre active")
+    bob.slash("/dz 3d centre off")
     bob.slash("/dz 3d")
-    assert any("3D models (centring: active)" in str(line) for line in bob.chat_frame[-6:]), bob.chat_frame[-6:]
+    assert any("3D models (centring: off)" in str(line) for line in bob.chat_frame[-6:]), bob.chat_frame[-6:]
     no_errors(w)
 
 
@@ -774,6 +775,82 @@ def a_big_model_is_hidden_part_by_part_and_you_swim_in_its_pool():
     walk_key(bob, "W", False)
     k2 = bob.eval_py(WALKER)
     assert 3.5 < math.hypot(k2["x"] - k["x"], k2["y"] - k["y"]) < 5.5, (k, k2)     # (4.7 yd a second)
+    no_errors(w)
+
+
+BOSS_SCENES = ("local e for _, x in ipairs(T3.elems()) do if x.t == 'i' then e = x end end "
+               "local a = T3.v().actors[e] local out = {} "
+               "for i, sc in pairs(a.sliceScenes or {}) do out[i] = { shown = sc:IsShown(), lvl = sc:GetFrameLevel(), "
+               "near = sc:GetCameraNearClip(), far = sc:GetCameraFarClip() } end return out")
+
+
+@case
+def depth_slices_cut_the_room_and_the_models_by_depth_and_switch_back():
+    # /dz 3d slices on: every model in a scene of its own per band, each clipped to the band, stacked between the
+    # room's bands; every room piece lies inside its band, the levels run far band < its models < next band ...;
+    # off: as before
+    w, c, bob = boot(LURKER)
+    go3d(w, bob)
+    tick(w, 1.0)
+    bob.eval("local o = T3.v().orb o.x, o.y, o.dist, o.heading, o.pitch = T3.ox, T3.oy - 3, 30, math.pi / 2, 0.55 "
+             "T3.v():Draw()")
+    tick(w, 0.2)
+    bob.slash("/dz 3d slices on 6")
+    tick(w, 0.3)
+    st = bob.eval_py("local v = T3.v() local lv, used, cuts = v.R.SliceLevels() "
+                     "local bad, order, n = v.R._SliceCheck() "
+                     "return { cuts = cuts, used = used, lv = lv, bad = bad, order = order, n = n, "
+                     "alpha = v.view.scene:GetAlpha(), K = #cuts + 1 }")
+    assert st["K"] >= 2, st
+    assert st["n"] > 100 and st["bad"] == 0 and st["order"] == 0, st
+    cuts = st["cuts"]
+    assert all(b > a for a, b in zip(cuts, cuts[1:])), cuts
+    assert st["alpha"] == 0, st
+    assert st["used"] < 3000 - 3, st
+    # (the actors' own scene draws nothing at all: an empty depth range)
+    assert bob.eval_py("local s = T3.v().view.scene return s:GetCameraFarClip() - s:GetCameraNearClip()") < 0.01
+    # the Lurker: a scene of his own per band, clipped to it, the bands touching exactly, the nearest on top
+    sc = bob.eval_py(BOSS_SCENES)
+    K = st["K"]
+    assert len(sc) >= K and all(sc[i]["shown"] for i in range(K)), sc
+    for i, cut in enumerate(cuts):
+        assert sc[i]["far"] == cut and sc[i + 1]["near"] == cut, (i, cut, sc)
+    assert sc[0]["near"] == 0.5 and sc[K - 1]["far"] == 1500, sc
+    lv = [sc[i]["lvl"] for i in range(K)]
+    assert all(b < a for a, b in zip(lv, lv[1:])), lv
+    # the camera moves: still every piece in its band
+    bob.eval("local o = T3.v().orb o.heading = o.heading + 0.7 o.dist = 18 T3.v():Draw()")
+    tick(w, 0.2)
+    bad, order, n = bob.eval_py("local b, o, n = T3.v().R._SliceCheck() return { b, o, n }")
+    assert bad == 0 and order == 0 and n > 50, (bad, order, n)
+    # walking between the camera and him: in every band your scene is over his (you are nearer), and you have bands
+    # of your own (cuts at both your sides)
+    bob.eval("local o = T3.v().orb o.x, o.y = T3.ox + 20, T3.oy + 30")
+    bob.eval("T3.v():StartWalk()")
+    tick(w, 0.5)
+    me = bob.eval_py("local v = T3.v() local a = v.walk.actor local out = {} "
+                     "for i, sc in pairs(a.sliceScenes or {}) do out[i] = { shown = sc:IsShown(), "
+                     "lvl = sc:GetFrameLevel() } end "
+                     "local lv, used, cuts = v.R.SliceLevels() "
+                     "return { scenes = out, d = v.view:ActorDepth(a), boss = (function() "
+                     "for e, x in pairs(v.actors) do return v.view:ActorDepth(x) end end)(), cuts = cuts }")
+    boss = bob.eval_py(BOSS_SCENES)
+    K2 = len(me["cuts"]) + 1
+    for i in range(K2):
+        if me["d"] < me["boss"]:
+            assert me["scenes"][i]["lvl"] > boss[i]["lvl"], (i, me, boss)
+        else:
+            assert me["scenes"][i]["lvl"] < boss[i]["lvl"], (i, me, boss)
+    bad, order, n = bob.eval_py("local b, o, n = T3.v().R._SliceCheck() return { b, o, n }")
+    assert bad == 0 and order == 0, (bad, order, n)
+    bob.eval("T3.v():StopWalk()")
+    bob.slash("/dz 3d slices off")
+    tick(w, 0.3)
+    off = bob.eval_py("local v = T3.v() local shown = 0 for s in pairs(v.view.sliceList or {}) do "
+                      "if s:IsShown() then shown = shown + 1 end end "
+                      "return { shown = shown, alpha = v.view.scene:GetAlpha(), check = v.R._SliceCheck() == nil }")
+    assert off == {"shown": 0, "alpha": 1, "check": True}, off
+    assert bob.eval_py("local s = T3.v().view.scene return { s:GetCameraNearClip(), s:GetCameraFarClip() }") == [0.5, 1500]
     no_errors(w)
 
 

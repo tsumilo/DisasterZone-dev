@@ -22,4 +22,5 @@ dist/
 dev/tf_e/*.log
 dev/releases/undone/
 dev/art/wmo/
+dev/art/casc/
 dev/art/rooms/

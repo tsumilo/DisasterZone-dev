@@ -1303,6 +1303,8 @@ define("ModelScene", "Frame", {
   GetCameraFieldOfView = function(self) return S(self).fov or 0.9 end,
   SetCameraNearClip = function(self, v) S(self).near = v end,
   SetCameraFarClip = function(self, v) S(self).far = v end,
+  GetCameraNearClip = function(self) return S(self).near or 0.2 end,
+  GetCameraFarClip = function(self) return S(self).far or 100 end,
   SetLightVisible = function(self, v) S(self).light = v end,
   SetLightDirection = function(self, x, y, z) end,
   SetLightAmbientColor = function(self, r, g, b) end,

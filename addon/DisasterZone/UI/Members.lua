@@ -37,6 +37,9 @@ local function gold(text) return "|cffffd100" .. tostring(text) .. "|r" end
 
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
+-- roster order: online, away / do not disturb, offline
+local STATUS_RANK = { online = 1, afk = 2, dnd = 2, offline = 3 }
+
 local function isOnline(key)
     local g = G()
     return (g and g:IsOnline(key)) and true or false
@@ -289,6 +292,31 @@ local function versionTooltip(btn)
     ns.UI:SetTextTooltip(btn, lines)
 end
 
+-- The raid teams of the player behind `key` (this character or another of theirs), sorted by name.
+local function teamsOf(key)
+    local RP = ns.RaidPlan
+    if not (RP and RP.GetTeams) then return {} end
+    local mine = { [key] = true }
+    for _, c in ipairs(P():GetOtherCharacters(key)) do mine[c] = true end
+    local out = {}
+    for _, t in ipairs(RP:GetTeams()) do
+        for _, m in ipairs(t.members) do
+            if mine[m] then out[#out + 1] = t break end
+        end
+    end
+    return out
+end
+
+-- The Raids tab's Teams view with that team selected.
+local function openTeam(id)
+    if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("raids") end
+    if not (ns.RaidsUI and ns.RaidsUI.SetView) then return end
+    ns.RaidsUI:SetView("teams")
+    if ns.RaidsUI:GetView() == "teams" and ns.RaidPlanUI and ns.RaidPlanUI.SelectTeam then
+        ns.RaidPlanUI:SelectTeam(id)
+    end
+end
+
 local function rosterTooltip(row)
     local d = row.__cdlData
     if not d or not d.key then return end
@@ -301,6 +329,12 @@ local function rosterTooltip(row)
     end
     local on = onlineCharacter(d.key)
     if on and on ~= d.key then lines[#lines + 1] = { "Playing " .. ns.UI:ColoredName(on) .. " now", 0.2, 1, 0.2 } end
+    local teams = teamsOf(d.key)
+    if #teams > 0 then
+        local names = {}
+        for _, t in ipairs(teams) do names[#names + 1] = t.name end
+        lines[#lines + 1] = { "Team: " .. table.concat(names, ", "), 1, 0.82, 0, wrap = true }
+    end
     for i, spec in ipairs(d.specs or {}) do
         lines[#lines + 1] = { (i == 1 and "Main spec: " or "Off spec: ") .. specText(d.classFile, spec), 1, 1, 1 }
     end
@@ -462,9 +496,12 @@ local function rosterRows()
             end
         end
     end
+    -- online, then away / busy, then offline; within each the highest level first, then by name
     local function byOnlineThenName(a, b)
-        local ao, bo = a.status ~= "offline", b.status ~= "offline"
-        if ao ~= bo then return ao end
+        local ar, br = STATUS_RANK[a.status] or 3, STATUS_RANK[b.status] or 3
+        if ar ~= br then return ar < br end
+        local al, bl = a.level or 0, b.level or 0
+        if al ~= bl then return al > bl end
         return a.lower < b.lower
     end
     local rows = {}
@@ -482,15 +519,18 @@ local function rosterRows()
             local main = prof:GetMain(d.key)
             local grp = byMain[main]
             if not grp then
-                grp = { alts = {}, lower = shortName(main):lower(), online = false }
+                grp = { alts = {}, lower = shortName(main):lower(), rank = 3, level = 0 }
                 byMain[main] = grp
                 groups[#groups + 1] = grp
             end
             if d.key == main then grp.main = d else grp.alts[#grp.alts + 1] = d end
-            if d.status ~= "offline" then grp.online = true end
+            -- the player's best status among their characters, and their highest level
+            grp.rank = math.min(grp.rank, STATUS_RANK[d.status] or 3)
+            grp.level = math.max(grp.level, d.level or 0)
         end
         table.sort(groups, function(a, b)
-            if a.online ~= b.online then return a.online end
+            if a.rank ~= b.rank then return a.rank < b.rank end
+            if a.level ~= b.level then return a.level > b.level end
             return a.lower < b.lower
         end)
         for _, grp in ipairs(groups) do
@@ -559,7 +599,7 @@ end
 ----------------------------------------------------------------------------
 
 local ROW_H = { prof = 46, group = 20, recipe = 20, head = 26, note = 40, crafter = 28, char = 24, main = 30, gear = 22,
-                source = 24 }
+                source = 24, team = 24 }
 -- a member's card: Characters / Professions / Equipment
 local CARDS = { { key = "chars", label = "Characters" }, { key = "profs", label = "Professions" },
                 { key = "gear", label = "Equipment" } }
@@ -657,6 +697,8 @@ local function detailWidgets(row)
             MembersUI:ShowMember(d.key, d.recipe and d.recipe.prof)
         elseif d.kind == "char" then
             MembersUI:ShowMember(d.key)
+        elseif d.kind == "team" then
+            openTeam(d.id)
         elseif d.kind == "gear" and d.item then
             ns.UI:HandleModifiedItemClick(d.item)
         end
@@ -699,7 +741,7 @@ local function initDetailRow(row, d)
     -- a character line has no Whisper button: its details may use the width
     w.info:SetPoint("RIGHT", kind == "crafter" and -84 or -8, 0)
     row.sel:Hide()
-    row.hl:SetAlpha((kind == "recipe" or isPerson or (isProf and d.canOpen) or (isGear and d.item)) and 0.4 or 0)
+    row.hl:SetAlpha((kind == "recipe" or kind == "team" or isPerson or (isProf and d.canOpen) or (isGear and d.item)) and 0.4 or 0)
 
     if isProf then
         local def = P():GetProfession(d.id)
@@ -775,6 +817,12 @@ local function initDetailRow(row, d)
             w.text:SetPoint("RIGHT", -8, 0)
             w.text:SetWordWrap(false)
             w.text:SetText(d.text)
+        elseif kind == "team" then
+            w.text:SetFontObject("GameFontHighlight")
+            w.text:SetPoint("LEFT", 26, 0)
+            w.text:SetPoint("RIGHT", -8, 0)
+            w.text:SetWordWrap(false)
+            w.text:SetText(d.text)
         elseif kind == "main" then
             w.text:SetFontObject("GameFontHighlightSmall")
             w.text:SetPoint("LEFT", 10, 0)
@@ -823,6 +871,15 @@ local function characterRows(key)
         end
     elseif #others == 0 then
         rows[#rows + 1] = { kind = "note", text = shortName(key) .. " has no other characters linked to this one." }
+    end
+    -- the player's raid teams (any of their characters): click one to open it in the Raids tab
+    local teams = teamsOf(key)
+    if #teams > 0 then
+        rows[#rows + 1] = { kind = "head", text = #teams == 1 and "Team" or ("Teams (%d)"):format(#teams) }
+        for _, t in ipairs(teams) do
+            rows[#rows + 1] = { kind = "team", id = t.id,
+                                text = t.name .. grey(("   %d members  ·  open in Raids"):format(#t.members)) }
+        end
     end
     return rows
 end
