@@ -414,6 +414,17 @@ function GetClassColor(classFile)
   return 1, 1, 1, "ffffffff"
 end
 function GetClassColorObj(classFile) return RAID_CLASS_COLORS[classFile] end
+-- Blizzard's SharedXML (the role icons: UI-LFG-ICON-ROLES is a 256x256 texture of 67x67 cells)
+function GetTexCoordsByGrid(xOffset, yOffset, textureWidth, textureHeight, gridWidth, gridHeight)
+  local w, h = gridWidth / textureWidth, gridHeight / textureHeight
+  return (xOffset - 1) * w, xOffset * w, (yOffset - 1) * h, yOffset * h
+end
+function GetTexCoordsForRole(role)
+  local grid = { GUIDE = { 1, 1 }, TANK = { 1, 2 }, HEALER = { 2, 1 }, DAMAGER = { 2, 2 } }
+  local g = grid[role]
+  if not g then error("Unknown role: " .. tostring(role), 2) end
+  return GetTexCoordsByGrid(g[1], g[2], 256, 256, 67, 67)
+end
 CLASS_ICON_TCOORDS = {
   WARRIOR = { 0, 0.25, 0, 0.25 }, MAGE = { 0.25, 0.49609375, 0, 0.25 }, ROGUE = { 0.49609375, 0.7421875, 0, 0.25 },
   DRUID = { 0.7421875, 0.98828125, 0, 0.25 }, HUNTER = { 0, 0.25, 0.25, 0.5 }, SHAMAN = { 0.25, 0.49609375, 0.25, 0.5 },

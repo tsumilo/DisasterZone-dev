@@ -79,6 +79,18 @@ def seed(w, c):
         signup(c[n], occ, "A", None, "might be 10 min late" if n == "Vaenyria" else None)
     signup(c["Frostweaver"], occ, "T")
     w.tick(2)
+    # the 25-player raid: members and guests answered (the Groups tab with five groups, a pool, the buffs)
+    for n, st, sp in (("Victhar", "A", 3), ("Moonwhisper", "A", 2), ("Lightbringer", "A", 2), ("Thunderhoofx", "A", 3),
+                      ("Frostweaver", "A", 1), ("Shadowmelder", "A", 2), ("Vaenyria", "T", 2), ("Grumpykat", "A", 3)):
+        signup(c[n], IDS["ssc"], st, sp)
+    for name, cls, sp in (("Ellesara", "PRIEST", 2), ("Damazzus", "PRIEST", 3), ("Lainatukka", "PALADIN", 1),
+                          ("Fazerblue", "MAGE", 1), ("Lucielen", "MAGE", 1), ("Valshares", "PRIEST", 3),
+                          ("Tsumil", "PALADIN", 3), ("Dyrma", "DRUID", 2), ("Rinsan", "WARLOCK", 3),
+                          ("Ciciocul", "DRUID", 2), ("Belgaegroot", "DRUID", 2), ("Shabooty", "HUNTER", 1)):
+        res = grumpy.eval_py("local ok, e = ns.RaidPlan:AddGuest(...); return { ok = ok, e = e }", IDS["ssc"], name,
+                             cls, sp)
+        assert res["ok"] is True, res
+    w.tick(2)
     # the raid's own leader ("led by" in the header), named by the GM
     res = gina.eval_py("local o, k = ...; local ok, e = ns.RaidPlan:EditRaid(o, { rl = k }); return { ok = ok, e = e }",
                        occ, K("Shadowmelder"))
@@ -137,7 +149,7 @@ def close_all(cl):
       for _, name in ipairs({ 'DisasterZoneGuests', 'DisasterZoneRaidInvites', 'DisasterZoneRaidStart',
                               'DisasterZoneRaidLeaders', 'DisasterZoneRaidEditor', 'DisasterZoneAwardDialog',
                               'DisasterZoneRaidLeader', 'DisasterZoneShareWindow', 'DisasterZoneImportExport',
-                              'DisasterZoneRunToast' }) do
+                              'DisasterZoneRunToast', 'DisasterZoneStrategyShare' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -193,6 +205,104 @@ def demo(fn_lua, key=None):
     return fn
 
 
+MB = {}
+MB_ENCHANTS = [("Enchant Bracer - Spellpower", 27917, None), ("Enchant Bracer - Major Healing", 27911, None),
+               ("Enchant Bracer - Brawn", 27899, None), ("Enchant Weapon - Soulfrost", 27982, None),
+               ("Enchant Weapon - Sunfire", 27981, None), ("Enchant Weapon - Major Healing", 34010, None),
+               ("Enchant Weapon - Mongoose", 27984, None), ("Enchant Chest - Exceptional Stats", 27960, None),
+               ("Enchant Boots - Boar's Speed", 34008, None), ("Enchant Cloak - Greater Agility", 34004, None),
+               ("Enchant Gloves - Major Spellpower", 33997, None), ("Enchant Ring - Healing Power", 27926, None)]
+
+
+def members_seed(w, c):
+    """The Members tab's guild, once: professions with recipes (Enchanting on Vaenyria's card), off specs, an offline
+    alt of Vaenyria (Vaelia), an officer note, someone away, an offline member without DisasterZone (Darkhollow).
+    Only the Members views look at it; the extra members are offline."""
+    if MB.get("done"):
+        return
+    MB["done"] = True
+    from mb_common import open_craft, open_tradeskill, ALCHEMY, TAILORING
+    every = list(c.values())
+
+    def names(cl):
+        for name, spell, _ in MB_ENCHANTS:
+            cl.eval("__MOCK.SPELL_NAMES[...] = select(2, ...)", spell, name)
+
+    skills = {
+        "Gina": [("Mining", 375, 375), ("Blacksmithing", 375, 375), ("Cooking", 300, 375)],
+        "Grumpykat": [("Tailoring", 375, 375), ("Enchanting", 360, 375)],
+        "Victhar": [("Blacksmithing", 375, 375), ("Mining", 375, 375)],
+        "Shadowmelder": [("Engineering", 375, 375), ("Mining", 350, 375)],
+        "Thunderhoofx": [("Jewelcrafting", 375, 375), ("Mining", 375, 375)],
+        "Moonwhisper": [("Leatherworking", 375, 375), ("Skinning", 375, 375)],
+        "Lightbringer": [("Alchemy", 375, 375), ("Herbalism", 375, 375), ("First Aid", 375, 375)],
+        "Frostweaver": [("Tailoring", 375, 375), ("Enchanting", 375, 375)],
+        "Vaenyria": [("Enchanting", 324, 375), ("Tailoring", 375, 375), ("Cooking", 375, 375), ("Fishing", 300, 375)],
+    }
+    for cl in every:
+        names(cl)
+    for name, s in skills.items():
+        set_skills(c[name], s)
+    # off specs (the secondary talents; the primary ones stay as the other views know them)
+    for name, pts in (("Gina", (5, 8, 48)), ("Lightbringer", (20, 41, 0)), ("Moonwhisper", (11, 0, 50)),
+                      ("Thunderhoofx", (0, 5, 56)), ("Victhar", (5, 15, 41)), ("Vaenyria", (5, 41, 15))):
+        c[name].eval("local a, b, cc = ...; __MOCK.talents2 = { a, b, cc }", *pts)
+        c[name].set_talents(c[name].talents)
+    w.tick(5)
+    open_craft(c["Vaenyria"], "Enchanting", MB_ENCHANTS, rank=324)
+    open_craft(c["Grumpykat"], "Enchanting", MB_ENCHANTS[:3] + MB_ENCHANTS[6:9], rank=360)
+    open_craft(c["Frostweaver"], "Enchanting", MB_ENCHANTS[1:3] + MB_ENCHANTS[6:], rank=375)
+    open_tradeskill(c["Lightbringer"], "Alchemy", ALCHEMY)
+    w.tick(2)
+    open_tradeskill(c["Vaenyria"], "Tailoring", TAILORING)
+    open_tradeskill(c["Frostweaver"], "Tailoring", TAILORING[:2])
+    # Vaenyria's alt: logs in once with DisasterZone, then Vaenyria names her main
+    alt = Client(w, "Vaelia", guild_rank=3, class_file="PRIEST", level=64)
+    alt.load_addon()
+    teach_names(alt)
+    names(alt)
+    set_skills(alt, [("Alchemy", 290, 375), ("Herbalism", 300, 375)])
+    w.tick(5)
+    open_tradeskill(alt, "Alchemy", ALCHEMY[:3], rank=290)
+    w.tick(200)
+    alt.logout()
+    w.tick(3)
+    c["Vaenyria"].eval("DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].own = true", K("Vaelia"))
+    c["Vaenyria"].eval("ns.Professions:SetMain(...)", K("Vaenyria"))
+    w.add_offline_member("Darkhollow", "MAGE", 3)
+    c["Grumpykat"].eval("ns.OfficerNotes:Set(...)", K("Vaenyria"),
+                        "Swapping to Marksmanship for SSC. Trial ends 12 Oct, Grumpy and Gina decide.")
+    c["Gina"].eval("__MOCK.roster_status = { ['Moonwhisper-Thunderstrike'] = 1 }; C_GuildInfo.GuildRoster()")
+    w.tick(5)
+    # the in-game report of 2026-10-05: a long rank (rank 4, nobody else has it), an older DisasterZone, no other
+    # characters but a raid team; and offline members without DisasterZone, so the roster scrolls
+    w.guild_ranks["Casual Disaster"] = ["Guild Master", "Officer", "Raider", "Member", "Unstable Spark"]
+    salty = Client(w, "Saltykim", guild_rank=4, class_file="DRUID")
+    salty.load_addon()
+    teach_names(salty)
+    names(salty)
+    set_skills(salty, [("Leatherworking", 342, 375), ("Skinning", 371, 375)])
+    MB["salty"] = salty
+    for i, (name, cls) in enumerate((("Brakka", "WARRIOR"), ("Elowen", "HUNTER"), ("Quillon", "DRUID"),
+                                     ("Rhosyn", "DRUID"), ("Caelith", "PALADIN"), ("Mirabel", "PRIEST"),
+                                     ("Nortok", "SHAMAN"), ("Orinel", "WARLOCK"))):
+        w.add_offline_member(name, cls, 3, level=70 if i % 3 else 68)
+    team(c["Grumpykat"], "T1: Cat Aggro", ["Saltykim", "Moonwhisper", "Gina"])
+    w.tick(200)
+
+
+def members_view(lua=None):
+    """A Members tab state on members_seed's guild; Shadowmelder and Saltykim run an older DisasterZone."""
+    base = opened("members", lua)
+
+    def fn(w, c):
+        members_seed(w, c)
+        c["Gina"].eval("for k, v in pairs({ ['Shadowmelder-Thunderstrike'] = '1.2.0', ['Saltykim-Thunderstrike'] = "
+                       "'1.3.0' }) do local p = ns.db.peers and ns.db.peers[k]; if p then p.v = v end end")
+        return base(w, c)
+    return fn
+
+
 def st_window(lua):
     def fn(w, c):
         g = c["Gina"]
@@ -226,10 +336,16 @@ def raid_with_session(w, c, features):
 DROPS = []
 
 
-def st_drop(features, roll=False, viewer="Gina"):
+def st_drop(features, roll=False, viewer="Gina", then=None, item_lua=None):
+    """then: None (the roll stays open), "closed" (End roll) or "awarded" (the suggested roller gets it).
+    item_lua: Lua returning the dropped item (default: the first P1 head)."""
     def fn(w, c):
         g = raid_with_session(w, c, features)
-        item = g.eval("return ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[1].itemID")
+        # a roll an earlier view left open would queue this one: end them
+        g.eval("for _, s in ipairs(ns.Roll:GetQueue() or {}) do if s.id then ns.Roll:End(s.id) end end; "
+               "local a = ns.Roll:GetActive(); if a then ns.Roll:End(a.id) end")
+        w.tick(1)
+        item = g.eval(item_lua or "return ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[1].itemID")
         DROPS.append(1)
         g.open_loot([(item, 4)], source_guid="Creature-0-1-2-3-15690-%06X" % len(DROPS))
         w.tick(2)
@@ -239,8 +355,38 @@ def st_drop(features, roll=False, viewer="Gina"):
             for n, v in (("Victhar", 87), ("Shadowmelder", 42), ("Pugsyhealer", 99), ("Darkstalkerr", 15)):
                 w.player_roll(c[n], v)
             w.tick(1)
+            if then in ("closed", "awarded"):
+                g.eval("local b = ns.DropPanel.blocks[1]; ns.DropPanel:EndRoll(b.rollSession)")
+                w.tick(1)
+            if then == "awarded":
+                g.eval("ns.DropPanel:Render(); ns.DropPanel:AwardSuggested(ns.DropPanel.blocks[1])")
+                w.tick(0.5)
+                for p in ("DISASTERZONE_CONFIRM_AWARD", "DISASTERZONE_GIVE_ITEM"):
+                    if p in g.popups():
+                        g.accept_popup(p)
+                w.tick(2)
             g.eval("ns.DropPanel:Render()")
+        # the mock's loot window fills the screen, so the panel (placed beside it) would sit off screen
+        g.eval("local f = ns.DropPanel.frame; if f then f:ClearAllPoints(); f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 40, -80) end")
         return c[viewer]
+    return fn
+
+
+def st_settings_in_raid(section):
+    """Settings on Gina's screen while Grumpykat leads the raid (his loot rules: 45 s rolls, rares, phase P2)."""
+    def fn(w, c):
+        g, grumpy = c["Gina"], c["Grumpykat"]
+        demo_off(w, c)
+        close_all(g)
+        for path, value in (("roll.duration", 45), ("qualityThreshold", 3), ("groupPhase", 2)):
+            grumpy.eval("ns.DB:SetSetting(...)", path, value)
+        w.make_raid([grumpy, g] + [c[n] for n in ("Victhar", "Shadowmelder", "Vaenyria", "Moonwhisper")],
+                    leader=grumpy)
+        w.tick(8)
+        tab(g, "settings")
+        w.tick(0.3)
+        g.eval("ns.SettingsUI:SelectSection(...)", section)
+        return g
     return fn
 
 
@@ -276,9 +422,52 @@ def st_start_window(w, c):
     return g
 
 
+def st_council_raid_leader(w, c):
+    """The Loot council view while Gina leads a raid: both cards editable."""
+    g = raid_with_session(w, c, None)
+    g.eval("ns.CouncilUI:RevertCouncil('guild')")
+    tab(g, "council")
+    w.tick(0.3)
+    g.eval("ns.CouncilUI:ShowCouncil()")
+    return g
+
+
+def st_council_roster_lock(w, c):
+    """The Council roster while Gina leads a raid with the loot council on: the filter row carries "Lock lists"."""
+    g = raid_with_session(w, c, {"loot": True, "rolls": True, "lock": False})
+    tab(g, "council")
+    w.tick(0.3)
+    g.eval("ns.CouncilUI:SetView('roster')")
+    return g
+
+
+def st_council_officer(w, c):
+    """Grumpykat (officer, on the guild council) looks at the Loot council view in Gina's raid: both cards
+    read-only (Gina saved a raid council with Victhar)."""
+    g, k = c["Gina"], c["Grumpykat"]
+    demo_off(w, c)
+    close_all(g)
+    close_all(k)
+    w.enter_instance("Karazhan", 532)
+    w.make_raid([g, k, c["Victhar"], c["Shadowmelder"]], leader=g)
+    w.tick(4)
+    g.eval("ns.CouncilUI:RevertCouncil('raid'); ns.CouncilUI:ToggleCouncilDraft('raid', ...); "
+           "ns.CouncilUI:SaveCouncil('raid')", K("Victhar"))
+    w.tick(3)
+    tab(k, "council")
+    w.tick(0.3)
+    k.eval("ns.CouncilUI:ShowCouncil()")
+    return k
+
+
 # Gina up for a run as tank or healer, Lower City honored (its heroics need revered)
 DR_ME = ("__MOCK.factions[1011] = 5; ns.DungeonRuns:SetMyRole('tank', true); ns.DungeonRuns:SetMyRole('healer', true); "
          "ns.DungeonRuns:SetMyRole('dps', false); ")
+
+# Gina's Pre-raid list (phase 0) from her guide's Pre-raid list
+SEED_PRE_RAID = ("local d = ns.BiS:GetData(); local spec = ns.BiS:GetSpec(); "
+                 "if spec == '' then spec = ns.SPECS[d.cl][1].label end; "
+                 "ns.BiS:ApplyTemplate(0, ns.Loon:GetTemplate(d.cl, spec, 0) or {}, true); ")
 
 STATES = [
     ("Home", opened("home")),
@@ -295,7 +484,20 @@ STATES = [
     ("My BiS - Import error", opened("mybis", "ns.ImportExport:Open('import'); "
                                                "ns.ImportExport:SetSource('{\"items\": [1, 2')")),
     ("My BiS - Export", opened("mybis", "ns.ImportExport:Open('export')")),
+    # the same paste into the Pre-raid list (phase 0: the longest phase label in the window)
+    ("My BiS - Import into Pre-raid", opened("mybis", "ns.ImportExport:Open('import'); "
+                                                       "ns.ImportExport:GetImportState().phase = 0; "
+                                                       "ns.ImportExport:SetSource([==[" + TMB_SAMPLE + "]==])")),
+    # the Pre-raid tab (phase 0), filled from Gina's guide's Pre-raid list
+    ("My BiS - Pre-raid", opened("mybis", SEED_PRE_RAID + "ns.MyBiS:SetPhase(0)")),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
+    # my marks on a heroic dungeon's items: Gina's Pre-raid list (its hands also in P2: "Pre-raid, P2")
+    ("Atlas - Pre-raid marks", opened("atlas", SEED_PRE_RAID + "local g = ns.BiS:GetSlot(0, 7); "
+                                               "if g then ns.BiS:SetSlot(2, 7, 'main', g) end; local page; "
+                                               "for _, d in ipairs(ns.Data.Dungeons) do if d.key == 'HellfireRamparts' then "
+                                               "for _, b in ipairs(d.bosses) do for _, id in ipairs(b.heroicItems or {}) do "
+                                               "if id == g then page = b.key end end end end end; "
+                                               "ns.AtlasUI:Select('dungeons', 'HellfireRamparts', page, true)")),
     ("Atlas - dungeon heroic", opened("atlas", "ns.AtlasUI:Select('dungeons', 'BlackMorass', nil, true)")),
     ("Atlas - reputation", opened("atlas", "ns.AtlasUI:Select('reputation', 'Shatar')")),
     ("Atlas - crafting", opened("atlas", "ns.AtlasUI:Select('crafting', 'Enchanting')")),
@@ -304,11 +506,22 @@ STATES = [
     ("Atlas - search", opened("atlas", "ns.AtlasUI:SetSearch('gladiator')")),
     ("Atlas - item menu", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen'); "
                                           "ns.AtlasUI:OpenMenu({ type = 'item', id = 28505 })")),
+    ("Atlas - hover add", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen'); "
+                                          "ns.AtlasUI:HoverItem(28477)")),
+    ("Atlas - badge vendor", opened("atlas", "ns.AtlasUI:Select('vendors', 'BadgeofJustice')")),
+    ("Atlas - arena vendor", opened("atlas", "ns.AtlasUI:Select('pvp', 'ArenaS2')")),
     ("Council - Loot Log", opened("council", "ns.CouncilUI:ShowLog()")),
+    ("Raids - Upcoming board", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:ShowBoard()")),
     ("Raids - Upcoming", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                           "ns.RaidPlanUI:SetDetailTab('signups')")),
     ("Raids - Upcoming - Groups", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                                   "ns.RaidPlanUI:SetDetailTab('groups')")),
+    ("Raids - Upcoming - SSC sign-ups", opened("raids", "ns.RaidsUI:SetView('upcoming'); "
+                                                         "ns.RaidPlanUI:SelectRaid(select(4, ...)); "
+                                                         "ns.RaidPlanUI:SetDetailTab('signups')")),
+    ("Raids - Upcoming - SSC groups", opened("raids", "ns.RaidsUI:SetView('upcoming'); "
+                                                       "ns.RaidPlanUI:SelectRaid(select(4, ...)); "
+                                                       "ns.RaidPlanUI:SetDetailTab('groups')")),
     ("Raids - Upcoming - Assignments", opened("raids", "ns.RaidsUI:SetView('upcoming'); "
                                                        "ns.RaidPlanUI:SelectRaid(...); "
                                                        "ns.RaidPlanUI:SetDetailTab('assign')")),
@@ -316,10 +529,24 @@ STATES = [
                                                        "ns.RaidPlanUI:OpenLeader(...)")),
     ("Raids - Teams", opened("raids", "ns.RaidsUI:SetView('teams'); ns.RaidPlanUI:SelectTeam(select(3, ...))")),
     ("Raids - Strategies", opened("raids", "ns.RaidsUI:SetView('strategies')")),
-    ("Raids - Strategies - share", opened("raids", "ns.RaidsUI:SetView('strategies'); "
-                                                   "ns.StrategiesUI:OpenShare(select(2, ...))")),
+    # (the Collaborators window of one of Gina's own strategies: only the owner opens it)
+    ("Raids - Strategies - share", opened("raids", "ns.RaidsUI:SetView('strategies'); local id; "
+                                                   "for _, s in ipairs(ns.Strategy:Find({ by = ns.Util.PlayerKey() })) "
+                                                   "do id = s.id end; ns.MainFrame:Close(); "
+                                                   "ns.StrategiesUI:OpenShare(id)")),
+    # a raid unfolded with one of its bosses picked
+    ("Raids - Strategies - boss", opened("raids", "ns.RaidsUI:SetView('strategies'); "
+                                                  "ns.StrategiesUI:SelectBoss('Karazhan:Attumen')")),
     ("Raids - Raid log - Raids", opened("raids", "ns.RaidsUI:SetMode('raids')")),
     ("Raids - Raid log - Players", opened("raids", "ns.RaidsUI:SetMode('players')")),
+    # the logged raid linked to the planned Karazhan: its sign-ups against who came (Thunderhoofx didn't)
+    ("Raids - Raid log - linked", opened("raids", "local r = ns.RaidLog:GetRaids()[1]; "
+                                                  "ns.RaidLog:SetPlanned(r.id, (...)); r.su = r.su or {}; "
+                                                  "for _, n in ipairs({ 'Victhar', 'Shadowmelder', 'Vaenyria', "
+                                                  "'Thunderhoofx', 'Moonwhisper', 'Lightbringer' }) do "
+                                                  "r.su[ns.Util.NormalizeName(n)] = 'A' end; "
+                                                  "r.su[ns.Util.NormalizeName('Frostweaver')] = 'T'; "
+                                                  "ns.RaidsUI:Select(r.id)")),
     ("Raids - New raid", st_window("ns.RaidPlanUI:OpenEditor()")),
     ("Raids - Edit raid", st_window("ns.RaidPlanUI:OpenEditor(...)")),
     ("Raids - Add players - members", st_window("ns.RaidPlanUI:OpenInvites(...)")),
@@ -349,9 +576,22 @@ STATES = [
     ("Council - Loot Log - award dialog", opened("council", "ns.CouncilUI:ShowLog(); ns.LootLogUI:OpenAwardDialog("
                                                "ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[1].itemID, "
                                                "'Shadowmelder-Thunderstrike', 'Karazhan:Prince')")),
-    ("Members - roster", opened("members")),
-    ("Members - member card", opened("members", "ns.MembersUI:ShowMember('Vaenyria-Thunderstrike')")),
-    ("Members - recipes", opened("members", "ns.MembersUI:SetMode('recipes')")),
+    ("Members - roster", members_view()),
+    ("Members - member card", members_view("ns.MembersUI:ShowMember('Vaenyria-Thunderstrike', 333)")),
+    ("Members - recipes", members_view("ns.MembersUI:SetMode('recipes')")),
+    # the card's other tabs, a profession filter (the rank in gold, highest first), a member without DisasterZone
+    ("Members - member card - characters", members_view("ns.MembersUI:ShowMember('Vaenyria-Thunderstrike'); "
+                                                         "ns.MembersUI:SetCard('chars')")),
+    ("Members - member card - equipment", members_view("ns.MembersUI:ShowMember('Vaenyria-Thunderstrike'); "
+                                                        "ns.MembersUI:SetCard('gear')")),
+    ("Members - roster - filter", members_view("ns.MembersUI:SetProfession(333); "
+                                                "ns.MembersUI:SelectMember('Frostweaver-Thunderstrike')")),
+    ("Members - no addon", members_view("ns.MembersUI:ShowMember('Darkhollow-Thunderstrike'); "
+                                         "ns.MembersUI:SetCard('profs')")),
+    ("Members - recipe card", members_view("ns.MembersUI:ShowRecipe(27917)")),
+    # a long rank and an older DisasterZone in the header, no linked characters but a raid team, a scrolling roster
+    ("Members - long rank, older version", members_view("ns.MembersUI:ShowMember('Saltykim-Thunderstrike'); "
+                                                         "ns.MembersUI:SetCard('chars')")),
     ("Games", opened("games")),
     # the Dungeons tab (UI/DungeonsTab.lua) on demo mode's runs: up for a run as healer (the place that wants a healer
     # glows), Lower City only honored (Shadow Labyrinth heroic blocked); my own run with two asking to join; the List
@@ -370,28 +610,97 @@ STATES = [
     ("Share - raid", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                      "ns.ShareWindow:Open('raid:' .. (...), "
                                      "ns.RaidsUI:GetPanel().upcoming.detail.shareBtn)")),
-    ("Share - member", opened("members", "ns.MembersUI:ShowMember('Vaenyria-Thunderstrike'); "
-                                         "ns.ShareWindow:Open('member:Vaenyria', ns.MembersUI:GetPanel().right.share)")),
+    ("Share - member", members_view("ns.MembersUI:ShowMember('Vaenyria-Thunderstrike'); "
+                                    "ns.ShareWindow:Open('member:Vaenyria', ns.MembersUI:GetPanel().right.share)")),
     ("Share - window alone", opened("raids", "ns.MainFrame:Close(); ns.ShareWindow:Open('raid:' .. (...)); "
                                              "ns.ShareWindow:GetWindow().msg:SetText('Sign-ups close Wednesday!')")),
-    ("Settings", opened("settings")),
+    # Settings (UI/Settings.lua): one section at a time, picked in the nav on the left
+    ("Settings", opened("settings", "ns.SettingsUI:SelectSection('alerts')")),
+    ("Settings - Group loot rules", opened("settings", "ns.SettingsUI:SelectSection('rules')")),
+    ("Settings - Rolls", opened("settings", "ns.SettingsUI:SelectSection('rolls')")),
+    ("Settings - Strategy boards", opened("settings", "ns.SettingsUI:SelectSection('strategy')")),
+    ("Settings - Tooltips", opened("settings", "ns.SettingsUI:SelectSection('tooltips')")),
+    ("Settings - Window", opened("settings", "ns.SettingsUI:SelectSection('window')")),
+    ("Settings - Loot Council", opened("settings", "ns.SettingsUI:SelectSection('council')")),
+    ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
+    ("Settings - About", opened("settings", "ns.SettingsUI:SelectSection('about')")),
     ("Changelog", opened("changelog")),
     ("Demo - Council - roster", demo("ns.CouncilUI:SetView('roster')", "council")),
     ("Demo - Council - items", demo("ns.CouncilUI:ShowBoss('Karazhan:Prince')", "council")),
     ("Demo - Council - member", demo("ns.CouncilUI:ShowMember('Aldrin-Thunderstrike')", "council")),
     ("Demo - Council - loot council", demo("ns.CouncilUI:ShowCouncil()", "council")),
     ("Demo - Council - loot log", demo("ns.CouncilUI:ShowLog()", "council")),
+    # the Council restyle (2026-10-05): a boss many want (chips on two lines, "+N"), the unfolded "nobody wants"
+    # items, a member page with awards, the guild card with unsaved edits, the raid card of a raid leader
+    ("Demo - Council - items busy", demo("ns.CouncilUI:ShowBoss('Karazhan:Aran')", "council")),
+    ("Demo - Council - items unfolded", demo(
+        "ns.CouncilUI:ShowBoss('Karazhan:Prince'); "
+        "for _, r in ipairs(DisasterZoneCouncilPanel.itemsView.list.box:GetFrames()) do "
+        "if r.cdlData and r.cdlData.type == 'fold' then r:GetScript('OnClick')(r, 'LeftButton') break end end",
+        "council")),
+    ("Council - member with awards", opened("council", "ns.CouncilUI:ShowMember('Shadowmelder-Thunderstrike')")),
+    ("Council - Loot council - unsaved", opened("council", "ns.CouncilUI:ShowCouncil(); "
+                                                           "ns.CouncilUI:ToggleCouncilDraft('guild', 'Victhar-Thunderstrike')")),
+    ("Council - Loot council - raid leader", st_council_raid_leader),
+    ("Council - roster - raid leader", st_council_roster_lock),
+    ("Council - Loot council - officer", st_council_officer),
     ("Demo - Raid log - Players", demo("ns.RaidsUI:SetMode('players')", "raids")),
+    # the selected logged raid's tabs (demo mode: raids with kills and awards)
+    ("Demo - Raid log - Raids", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('att')", "raids")),
+    ("Demo - Raid log - Bosses", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('boss')", "raids")),
+    ("Demo - Raid log - Awards", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('award')", "raids")),
     ("Demo - Start raid window", demo("ns.SessionBar:OpenStart()")),
     ("Demo - test drop panel", demo("ns.Loot:SimulateDrop()")),
+    # in Grumpykat's raid: the group loot rules are his (read-only values, "Set by"), the raid's council
+    ("Raid - Settings - Group loot rules (raider)", st_settings_in_raid("rules")),
+    ("Raid - Settings - Loot Council (raider)", st_settings_in_raid("council")),
     ("Raid - session bar", st_session_bar),
     ("Raid - drop panel (council)", st_drop({"loot": True, "rolls": True, "lock": False})),
     ("Raid - drop panel (council, rolling)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True)),
     ("Raid - roll popup (raider)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
                                            viewer="Shadowmelder")),
     ("Raid - drop panel (plain, rolling)", st_drop({"loot": False, "rolls": True, "lock": False}, roll=True)),
+    # the in-raid makeover's other drop panel states: rolls closed (Re-roll + Award to the suggested roller), the
+    # award made (folded rolls), the plain roll panel before its roll
+    ("Raid - drop panel (council, rolls closed)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
+                                                          then="closed")),
+    ("Raid - drop panel (council, awarded)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
+                                                     then="awarded")),
+    ("Raid - drop panel (plain)", st_drop({"loot": False, "rolls": True, "lock": False},
+                                          item_lua="return ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[2].itemID")),
+    # Gina's own P1 head (the longest head name) rolled: her popup's BiS pill
+    ("Raid - roll popup (BiS)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
+                                        item_lua="return (ns.BiS:GetSlot(1, 1))")),
     ("Raid - Start raid window", st_start_window),
     ("Raid - Raids tab - Upcoming (leader)", st_raids_in_raid("ns.RaidsUI:SetView('upcoming')")),
     ("Raid - Raid log - Players (leader)", st_raids_in_raid("ns.RaidsUI:SetView('log'); ns.RaidsUI:SetMode('players')")),
     ("Raid - Raid log - Raids (leader)", st_raids_in_raid("ns.RaidsUI:SetView('log'); ns.RaidsUI:SetMode('raids')")),
+    # last: its raids would show in every Raids view after it
+    ("Home - calendar busy", lambda w, c: st_home_busy(w, c)),
 ]
+
+
+def st_home_busy(w, c):
+    """Home with a busy calendar: two raids on one day (the picked one), a title too long for one line, a raid Gina
+    was taken off, more raids later (Coming up + "n more"), and the logged Karazhan raid in the past."""
+    g, k = c["Gina"], c["Grumpykat"]
+    demo_off(w, c)
+    close_all(g)
+    t0 = now(k)
+    a = create(k, i="mag", t=t0 + 5 * DAY, ti="Spark run - Maggy & Gruul")
+    b = create(k, i="ssc", t=t0 + 5 * DAY + 3600, ti="Spark run - SSC (continued)")
+    long = create(k, i="kara", t=t0 + 6 * DAY, ti="T3 Wrong note: Pushups at door")
+    create(k, i="kara", t=t0 + 6 * DAY + 1800, ti="T1 Cat Aggro: Karazhan")
+    create(k, i="tk", t=t0 + 13 * DAY, ti="TK first look")
+    create(k, i="gruul", t=t0 + 20 * DAY, ti="Gruul + Mag")
+    w.tick(2)
+    signup(g, a, "A")
+    signup(g, b, "T")
+    k.eval("ns.RaidPlan:DeclineSignup(...)", long, K("Gina"))
+    w.tick(3)
+    tab(g, "home")
+    w.tick(0.3)
+    g.eval("local v = ns.RaidPlan:GetRaid(...); local key = tonumber(date('%Y%m%d', v.t)); "
+           "for _, c in ipairs(ns.Dashboard:GetPanel().calCard.cells) do "
+           "if c.key == key then c:GetScript('OnClick')(c) end end", a)
+    return g

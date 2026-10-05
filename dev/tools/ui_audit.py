@@ -17,7 +17,7 @@ Findings per view (grouped by the line that created the region, worst example fi
   OVERLAP   two texts drawn on top of each other
   COVERED   text drawn under a button / edit box / dropdown it does not belong to
 
-Usage (from dev):  luaenv\\Scripts\\python.exe tools\\ui_audit.py [out_dir] [-k substring] [--no-png]
+Usage (from dev):  luaenv\\Scripts\\python.exe tools\\ui_audit.py [out_dir] [-k substring] [--no-png] [--look]
 Writes <out_dir>/report.md, report.json and one PNG per view (findings outlined in red, numbered as in the report).
 Default out_dir: tf_e/ui_audit.
 """
@@ -698,6 +698,28 @@ def audit(regs, uiparent):
                 findings.append({"kind": "OUTSIDE", "seq": s, "src": r["src"], "rect": vis, "over": worst,
                                  "text": label, "msg": "%.0f past the edge of %s" % (worst, regs[win]["name"] or
                                                                                    regs[win]["src"])})
+    # text inside a frame the game can't size (anchored by one corner with no width or height): the mock lays it out
+    # at 0 wide, the game draws none of it (Home's agenda rows, 2026-10-05)
+    def sizeless(a):
+        ra = regs[a]
+        if ra["kind"] in ("FontString", "Texture") or ra["all"] or not ra["points"] or ra["template"]:
+            return False
+        if ra["rowbox"] is not None or ra["scrollof"] is not None:
+            return False
+        return not lay.width_constrained(ra) or not lay.height_constrained(ra)
+    flagged = set()
+    for (s, r, rect, ink, clip) in texts:
+        for a in lay.ancestors(s):
+            if a == lay.ui or a in flagged:
+                break
+            if sizeless(a):
+                flagged.add(a)
+                ra = regs[a]
+                miss = "width" if not lay.width_constrained(ra) else "height"
+                findings.append({"kind": "NOSIZE", "seq": s, "src": ra["src"] or r["src"], "rect": rect,
+                                 "over": rect[2], "text": plain_text(r["text"]).strip()[:60],
+                                 "msg": "inside a %s with no %s: the game draws none of it" % (ra["kind"], miss)})
+                break
     # overlaps between texts of the same window
     by_win = {}
     for item in texts:
@@ -882,6 +904,7 @@ def main():
     args = sys.argv[1:]
     only = None
     png = True
+    look = False             # --look: draw textures, gradients and the game's font (tools/ui_look.py)
     out_dir = os.path.join(DEV, "tf_e", "ui_audit")
     while args:
         a = args.pop(0)
@@ -889,10 +912,16 @@ def main():
             only = args.pop(0)
         elif a == "--no-png":
             png = False
+        elif a == "--look":
+            look = True
         else:
             out_dir = a
     os.makedirs(out_dir, exist_ok=True)
-    w, c = build_world(PRELOAD + metrics_preload())
+    preload = PRELOAD + metrics_preload()
+    if look:
+        import ui_look
+        preload = preload + ui_look.PRELOAD          # (real item icons in the render)
+    w, c = build_world(preload)
     report, total = [], 0
     md = ["# DisasterZone UI audit", ""]
     for name, fn in STATES:
@@ -921,7 +950,12 @@ def main():
             md.append("%d. **%s** `%s` x%d: %s  \n   _%s_" % (i, f["kind"], f["src"], f["count"], f["msg"], f["text"]))
         md.append("")
         if png:
-            render(regs, lay, grouped, os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_-]+", "_", name) + ".png"))
+            out_png = os.path.join(out_dir, re.sub(r"[^A-Za-z0-9_-]+", "_", name) + ".png")
+            if look:
+                import ui_look
+                ui_look.render(regs, lay, grouped, out_png, ui_look.capture(viewer), sys.modules[__name__])
+            else:
+                render(regs, lay, grouped, out_png)
     # one list over all views: each (kind, creation site) once, with the views it shows in
     uniq = {}
     for rep in report:

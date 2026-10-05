@@ -755,12 +755,19 @@ local function to_text(v, method)
 end
 M.to_text = to_text
 
+-- The drawn length of a text: colour codes draw nothing (the game measures what it draws).
+local function drawnLen(t)
+  t = string.gsub(t or "", "|c%x%x%x%x%x%x%x%x", "")
+  t = string.gsub(t, "|r", "")
+  return #t
+end
+
 local FontStringMethods = {
   SetText = function(self, v) S(self).text = to_text(v, "SetText") end,
   GetText = function(self) return S(self).text end,
   SetFormattedText = function(self, fmt, ...) S(self).text = sformat(fmt, ...) end,
-  GetStringWidth = function(self) return #(S(self).text or "") * 6 end,
-  GetUnboundedStringWidth = function(self) return #(S(self).text or "") * 6 end,
+  GetStringWidth = function(self) return drawnLen(S(self).text) * 6 end,
+  GetUnboundedStringWidth = function(self) return drawnLen(S(self).text) * 6 end,
   GetStringHeight = function(self)
     local t = S(self).text or ""
     local _, n = sgsub(t, "\n", "")
@@ -836,7 +843,14 @@ define("TextureBase", "Region", {
   GetBlendMode = function(self) return S(self).blend or "BLEND" end,
   SetRotation = function(self, r) S(self).rotation = r end,
   GetRotation = function(self) return S(self).rotation or 0 end,
-  SetGradient = function() end,
+  -- (kept for tools/ui_look.py: orientation, min colour, max colour)
+  SetGradient = function(self, orient, c1, c2)
+    local function rgba(c)
+      if type(c) ~= "table" then return nil end
+      return { c.r or c[1] or 1, c.g or c[2] or 1, c.b or c[3] or 1, c.a or c[4] or 1 }
+    end
+    S(self).gradient = { orient, rgba(c1), rgba(c2) }
+  end,
   SetGradientAlpha = function() end,
   SetHorizTile = function() end,
   SetVertTile = function() end,
