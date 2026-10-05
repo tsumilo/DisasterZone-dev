@@ -46,7 +46,7 @@ def arrow(d, n):
 def sync(d, n):
     # the sync mark (UI/MainFrame.lua): two arrows chasing each other clockwise, symmetric under a half turn and
     # inside the inscribed circle, so it can spin on its own texture
-    c, r, w = n / 2, n * 0.29, n * 0.085
+    c, r, w = n / 2, n * 0.31, n * 0.09
     head, half = n * 0.17, n * 0.125
     for start in (196, 16):
         end = start + 122
@@ -61,8 +61,8 @@ def sync(d, n):
 
 def check(d, n):
     # the "shared" check (UI/MainFrame.lua): drawn left to right in game, so the short stroke comes first
-    pts = [(n * 0.20, n * 0.53), (n * 0.41, n * 0.73), (n * 0.80, n * 0.29)]
-    w = n * 0.11
+    pts = [(n * 0.13, n * 0.53), (n * 0.38, n * 0.78), (n * 0.87, n * 0.25)]
+    w = n * 0.125
     d.line(pts, fill=255, width=int(w), joint="curve")
     for x, y in (pts[0], pts[-1]):
         d.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=255)

@@ -85,7 +85,8 @@ local function BuildTabs()
     end
     if status then
         status:ClearAllPoints()
-        status:SetPoint("RIGHT", right, shareBtn and "LEFT" or "RIGHT", 0, 0)
+        -- (the mark on the icons' rhythm: its centre 32 left of the share icon's, like the icon tabs')
+        status:SetPoint("RIGHT", right, shareBtn and "LEFT" or "RIGHT", shareBtn and -10 or 0, 0)
     end
 end
 
@@ -291,7 +292,8 @@ local function UpdateStatus(instant)
     status.mark:SetShown(marked)
     SetMark(status.mark, marked and kind or nil, not instant)
     status.tip = ns.UI:SafeText(text or "")
-    local w = (status.text:GetStringWidth() or 0) + (marked and 20 or 0)
+    local tw = status.text:GetStringWidth() or 0
+    local w = (marked and MARK or 0) + (tw > 0 and (tw + (marked and 8 or 0)) or 0)
     status:SetWidth(math.max(1, w))
     status:SetShown(w > 0)
 end
@@ -302,7 +304,7 @@ local function CreateStatus()
     s.mark = CreateMark(s)
     s.mark:SetPoint("RIGHT", 0, 1)
     s.text = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    s.text:SetPoint("RIGHT", s.mark, "LEFT", -4, 0)
+    s.text:SetPoint("RIGHT", s.mark, "LEFT", -8, 0)
     s.text:SetJustifyH("RIGHT")
     s.text:SetWordWrap(false)
     s:EnableMouse(true)
