@@ -3,45 +3,53 @@
 All ModelScenes share one depth buffer, and that depth survives the opaque UI textures the room is painted with
 (dev/docs/DEPTH_RESEARCH.md, in-game facts of 2026-10-05). So a scene under the room's textures that holds models
 standing just behind every opaque room surface writes the room's depth: a boss in a scene over the room is then
-hidden per pixel wherever a room surface is in front of it, with no copies and no Lua work per frame. This
-generator places those models ("stand-ins") for one room and proves offline that they never hide anything the room
-does not hide.
+hidden per pixel wherever a room surface is in front of it. This generator places those models ("stand-ins": the
+client's unit cube) for one room and checks offline that they never hide anything the room does not hide.
 
-What it does, for a room key (Render3D/Rooms/<Key>.lua, decoded exactly as Render3D/Rooms.lua unpacks it, so the
-stand-ins match what the renderer draws):
-  1. regions   the opaque faces (blend D; ALPHAKEY and BLEND faces let models show through, so they get none)
-               grouped into planar regions: connected faces on one plane within 2 cm. v1 uses yaw-only rotations
-               (the client's yaw / pitch / roll order is not known yet), so only floors, ceilings and upright walls
-               get stand-ins; a region tilted up to FLOOR_TILT / WALL_TILT from those still does, with cubes kept
-               small enough that the wedge between the tilted face and the cube stays under TILT_GAP.
-  2. placement per region, squares in the region's plane (a grid of GRID yd aligned to the region's longest
-               edges), greedy from the largest that fits down to MIN_SIZE: every square lies inside the region's
-               outline (never past it: a cube's sides would hide models seen past the edge), its cube lies wholly
-               behind the face with its front MARGIN behind it, and it keeps BACK_GAP from every other room face
-               (exact triangle-box tests), so a cube never pokes out of the back of a thin wall or into a pillar.
-  3. repair    an offline z-buffer (numpy) renders, for many camera poses (orbits round the room and walking
-               poses inside it), the room's front-facing opaque faces and the stand-ins the runtime would show
-               (those whose surface faces the camera, dot(n, camera - centre) > 0). A stand-in nearer than the
-               drawn room, or where the room draws nothing at all, would hide a model the room does not hide
-               ("over-occlusion"): every cube seen doing that is cut into four half-size cubes (the halves that
-               still do are cut again; at MIN_SIZE they go) until no pose shows any.
-  4. report    over-occlusion (must be 0 after a 1-pixel erosion), coverage (opaque room pixels with a stand-in
-               within MARGIN + 2 cm behind them, and looser tolerances), stand-ins shown per pose, on the training
-               poses and on a separate set of random poses; a contact sheet PNG.
+For a room key (Render3D/Rooms/<Key>.lua, decoded as Render3D/Rooms.lua unpacks it, so the stand-ins follow exactly
+what the renderer draws):
+  1. regions   the opaque faces (blend D: ALPHAKEY and BLEND faces let models show through, so they get none)
+               grouped into planar regions: connected faces on one plane within 2 cm. v1 turns cubes about z only
+               (the client's yaw / pitch / roll order is not known yet), so floors, ceilings and upright walls get
+               stand-ins - within FLOOR_TILT / WALL_TILT of that, with cubes small enough that the wedge between the
+               tilted face and the cube stays under TILT_GAP - and sloped faces none.
+  2. exposure  columns of probe points behind every region (PROBE_STEP apart, from the cube's front down to the back
+               of a cube of each LEVELS size) are tested against the room's z-buffer from every training pose: a
+               point some pose sees past the room (nothing drawn in front of it, or something drawn behind it) may
+               not be inside a cube that pose would show. The edges where a region meets nothing (the room's outer
+               walls face away from a camera outside them; their tops end at the room's cut) let a camera see under
+               a floor or behind a wall, the more the deeper: cubes there are kept shallow, so small.
+  3. placement per region, squares in the region's plane (a GRID yd grid along its longest edges), greedy from the
+               largest that fits down to MIN_SIZE: every square lies inside the region's outline (a cube's sides
+               must not hide models seen past the edge), its cube wholly behind the face with its front MARGIN
+               behind it, MARGIN + its size away from any exposed probe, and BACK_GAP from every other room face
+               (exact triangle-box tests), so it never pokes out of the back of a thin wall or into a pillar.
+  4. repair    an offline z-buffer (numpy) renders every training pose at the check's size: the room's opaque faces
+               that face the camera, and the stand-ins the runtime would show (shown()). A stand-in nearer than the
+               drawn room, or where the room draws nothing at all, hides a model the room does not hide
+               ("over-occlusion"): one seen doing that (past the 1-pixel erosion) is cut into quarters, again
+               until the pose is clean (under MIN_SIZE it goes).
+  5. check     over-occlusion (must be 0 after a 1-pixel erosion), coverage (opaque room pixels with a stand-in
+               within MARGIN + EPS_UNDER behind them, and looser tolerances), stand-ins shown per pose, on the
+               training poses and on random poses the placement never saw; pictures (--sheet).
+Training poses (poses()): the board's orbit round the room and the boss at pitches 0.15 - 1.5 out to the farthest
+distance it allows, low orbits close by the floor's outer edge looking in, walking and eye-level poses.
 
-Writes addon Render3D/Standins/<Key>.lua (the data contract):
+Writes addon Render3D/Standins/<Key>.lua (the data contract; Render3D/Standins.lua reads it):
     ns.RoomStandins["<Key>"] = { version = 1, prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 } },
                                  n = <count>, stride = 12, data = { <numbers> } }
   12 numbers per stand-in: prim, x, y, z (the primitive's origin in room coordinates: yd, x east, y north, z over
   the boss' floor), yaw, pitch, roll (radians, SetYaw / SetPitch / SetRoll in room coordinates before any mirroring;
   v1 yaw only), scale (uniform: the primitive's size times scale is its size in yd), nx, ny, nz (the unit normal of
   the surface it stands behind, to the side it is seen from), face (the region's id, for debugging). Show a stand-in
-  only while dot(n, camera - origin) > 0. The primitive is spells/unitcube.m2 (FileDataID 167145): an opaque white
-  1 x 1 x 1 yd cube centred on its origin. Prims are a table so a flat square can join when one is found.
+  only while its surface faces the camera (shown(): the camera farther out along n than the cube reaches, plus the
+  near clip). The primitive is spells/unitcube.m2 (FileDataID 167145): an opaque white 1 yd cube centred on its
+  origin; PRIMS is a table so a flat square can join when one is found (a kind with no depth: its probe levels
+  would be its front alone).
 
 Run from dev/:  luaenv\\Scripts\\python.exe generators\\gen_standins.py [Key ...] [--fast] [--no-write] [--sheet]
-  (no key: MagtheridonsLair_Magtheridon). --fast: fewer and smaller poses (tests); --sheet: the contact sheet
-  dev/docs/img/standins_<short>.png.
+  [--json FILE] (no key: MagtheridonsLair_Magtheridon; about half an hour). --fast: fewer and smaller poses (the
+  tests); --sheet: dev/docs/img/standins_<boss>.png (room | stand-ins | errors on six poses) and _top.png.
 """
 import argparse
 import collections
@@ -83,10 +91,10 @@ BACK_GAP = 0.05           # every other room face stays at least this far from a
 EDGE_INSET = 0.01         # squares keep this far inside the region's outline (no edge shared to the last bit)
 GRID = 0.05               # the placement grid in the region's plane (coarser for very large regions)
 MAX_CELLS = 6_000_000     # cells per region grid at most
-MIN_SIZE = 0.1            # the smallest cube
+MIN_SIZE = 0.7            # the smallest cube
 MAX_SIZE = 8.0            # the largest cube
 SIZE_STEP = 0.8           # the size ladder: each step this much smaller
-MIN_GAIN = 0.25           # a cube must cover at least this share of new (uncovered) area
+MIN_GAIN = 0.6            # a cube must cover at least this share of new (uncovered) area
 PICKS = 20000             # candidates looked at per round of the greedy placement
 LEVELS = (0.3, 0.45, 0.7, 1.0, 1.5, 2.3, 3.4, 5.1, 8.0)   # cube sizes the exposure probes are laid out for
 PROBE_STEP = 0.2          # yd between exposure probe columns
@@ -105,6 +113,9 @@ AIR_H, AIR_RUN = 12.0, 60.0   # 'harmful' over-occlusion: the ray past the stand
 FOV, NEAR = 1.1, 0.5      # Render3D/View.lua's scenes
 EYE, WALK_EYE = 1.9, 2.2  # UI/StrategyMap3D.lua: the eye all the way in; the point the walking camera turns round
 PITCH_MIN, PITCH_TOP = 0.12, 1.5
+RULE = "guard"            # which stand-ins show (shown())
+POSES_CHECKED = 606        # training + random poses of a full run (the data file says so)
+KIND_CODES = {"floor": 0, "ceiling": 1, "wall": 2, "slope": 3, "other": 4}   # the check's breakdown
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -226,6 +237,9 @@ def planar_regions(room):
             math.degrees(math.asin(min(1.0, abs(nz))))
         regions.append(g)
     room.region_of = reg
+    # every face's kind for the check's breakdown: its region's (slope: left out), or 'other' (see-through, specks)
+    kinds = np.array([KIND_CODES.get(g.kind, KIND_CODES["slope"]) for g in regions] + [KIND_CODES["other"]])
+    room.face_kind = kinds[np.where(reg >= 0, reg, len(regions))]
     return regions
 
 
@@ -359,8 +373,8 @@ def _edge_heading(room, g):
     cnt = collections.Counter()
     for f in g.tris:
         for i in range(3):
-            p, q = room.V[room.T[f, i]], room.V[room.T[f, (i + 1) % 3]]
-            cnt[(min(room.T[f, i], room.T[f, (i + 1) % 3]), max(room.T[f, i], room.T[f, (i + 1) % 3]))] += 1
+            a, b = room.T[f, i], room.T[f, (i + 1) % 3]
+            cnt[(min(a, b), max(a, b))] += 1
     hist = np.zeros(90)
     for (i, j), c in cnt.items():
         if c != 1:
@@ -451,9 +465,9 @@ def level_of(g, s):
 # ---------------------------------------------------------------------------------------------------------------
 class Probes:
     """Columns of points behind the placed regions, PROBE_STEP apart in each region's grid (and that far round its
-    outline): per column its region (index into regs) and u, v; per column and depth (DEPTHS: the cube's front, then
-    the back of a cube of each LEVELS size) the room point P, the smallest n . camera for which such a cube would
-    show (the runtime's facing test, from the cube's centre), and whether a pose saw it (exposed)."""
+    outline): per column its region (index into regs) and u, v; per column and depth (the cube's front, then the
+    back of a cube of each LEVELS size) the room point P, the n . camera a cube there shows from (shown()) and
+    whether a pose saw it (exposed)."""
 
 
 def make_probes(room, regs):
@@ -480,8 +494,9 @@ def make_probes(room, regs):
         reg.append(np.full(len(U), ri))
         uu.append(U)
         vv.append(Vv)
-        # a cube of side L shows to cameras with n . C > n . centre = d + dlo - MARGIN - L / 2 (about)
-        thr.append(np.tile(g.d + g.dlo - MARGIN - np.maximum(depths, LEVELS[0]) / 2 - 0.01, (len(U), 1)))
+        # a cube shows to cameras farther out along n than it reaches: its front, MARGIN behind the face (shown()),
+        # whatever its size (a hair more, to be safe)
+        thr.append(np.full((len(U), len(depths)), g.d + g.dlo - MARGIN - 0.01))
     pr = Probes()
     pr.P = np.concatenate(P)
     pr.reg = np.concatenate(reg)
@@ -887,13 +902,22 @@ def standin_arrays(cubes):
             np.array([c.s for c in cubes]), np.array([c.n for c in cubes]))
 
 
-def shown(cam, arr):
-    """The runtime's rule: a stand-in shows while its surface faces the camera (dot(n, camera - origin) > 0) and it
-    is in view."""
+def shown(cam, arr, rule=RULE):
+    """Which stand-ins show: their surface faces the camera and they are in view. Rule 'reach' (Render3D/Standins.lua
+    today): the camera farther out along n than the stand-in reaches (the surface lies at least that far out, so a
+    camera less far is behind it). Rule 'guard' (this generator's default): farther out than that by the near clip
+    too - a camera nearer a surface than the near clip sees it clipped away and would see the stand-in behind it
+    with nothing drawn in front. Rule 'centre': the data contract's looser wording, dot(n, camera - origin) > 0,
+    which also shows a stand-in to a camera between its surface and its centre."""
     C, R, S, N = arr
     if not len(C):
         return np.zeros(0, bool)
-    facing = np.einsum("ij,ij->i", N, cam.C - C) > 0
+    out = 0.0
+    if rule in ("reach", "guard"):
+        out = S / 2 * np.abs(np.einsum("ij,ikj->ik", N, R)).sum(1)
+        if rule == "guard":
+            out = out + cam.near
+    facing = np.einsum("ij,ij->i", N, cam.C - C) > out
     return facing & cam.sees_sphere(C, S * math.sqrt(3) / 2)
 
 
@@ -964,10 +988,10 @@ def _over_air(room, cam, d, zs, zr, mask):
     return int(hit.sum())
 
 
-def measure(room, cam, arr, room_buf=None):
-    """One pose: the over-occlusion and coverage numbers, and the buffers for pictures."""
+def measure(room, cam, arr, room_buf=None, rule=None):
+    """One pose: the over-occlusion and coverage numbers, the stand-ins seen doing it, the buffers for pictures."""
     zr, fr = room_buf if room_buf is not None else render_room(room, cam)
-    show = shown(cam, arr)
+    show = shown(cam, arr, rule or RULE)
     zs, ids = render_standins(cam, arr, show)
     drawn = fr >= 0
     has = ids >= 0
@@ -977,7 +1001,8 @@ def measure(room, cam, arr, room_buf=None):
     d = cam.ray_dirs()
     cosn = np.zeros(zr.shape)
     cosn[drawn] = np.abs(np.einsum("ij,ij->i", d[drawn], room.N[fr[drawn]]))
-    gap = np.where(drawn & has, (zs - zr) * cosn, np.inf)
+    with np.errstate(invalid="ignore"):
+        gap = np.where(drawn & has, (zs - zr) * cosn, np.inf)
     res = dict(name=cam.name, drawn=int(drawn.sum()), over=int(over.sum()), over_eroded=int(over_e.sum()),
                shown=int(show.sum()),
                covered=int((drawn & (gap <= MARGIN + EPS_UNDER)).sum()),
@@ -985,6 +1010,15 @@ def measure(room, cam, arr, room_buf=None):
     for t in LOOSE:
         res["covered_%g" % t] = int((drawn & (gap <= t)).sum())
     res["over_air"] = _over_air(room, cam, d, zs, zr, over_e) if res["over_eroded"] else 0
+    # by the kind of face drawn (room.face_kind, when planar_regions has run): drawn, covered (strict), covered (any)
+    fk = getattr(room, "face_kind", None)
+    if fk is not None:
+        k = np.where(drawn, fk[np.maximum(fr, 0)], -1)
+        good = drawn & (gap <= MARGIN + EPS_UNDER)
+        anyc = drawn & has & (zs >= zr - EPS_OVER)
+        for name, code in KIND_CODES.items():
+            m = k == code
+            res["k_" + name] = (int(m.sum()), int((m & good).sum()), int((m & anyc).sum()))
     culprits = np.unique(ids[dilate(over_e) & over & has]) if res["over_eroded"] else np.zeros(0, np.int64)
     bufs = dict(zr=zr, fr=fr, zs=zs, ids=ids, over=over, over_e=over_e, gap=gap)
     return res, culprits, bufs
@@ -1160,8 +1194,11 @@ def split(c):
 def repair(room, cubes, cams, log=print, min_size=MIN_SIZE):
     """Pose by pose: every stand-in that hides something the room does not (after the 1-pixel erosion) is cut
     into quarters, again until the pose is clean; under min_size it goes. Quarters lie inside their cube and show
-    for no more cameras (their centre is nearer the face), so a pose made clean stays clean. -> cubes, counts."""
+    for no more cameras (their front is the cube's), so a pose made clean stays clean. -> cubes, counts, every
+    pose's last numbers, the index of the last pose that changed the set (numbers of the poses before it are of
+    an older set)."""
     counts = collections.Counter()
+    results, last = [], -1
     for pi, cam in enumerate(cams):
         rb = render_room(room, cam)
         rounds = 0
@@ -1181,18 +1218,20 @@ def repair(room, cubes, cams, log=print, min_size=MIN_SIZE):
                 else:
                     counts["removed"] += 1
             cubes = keep
+            last = pi
             if rounds > 40:
                 raise RuntimeError("repair does not converge at pose %s" % cam.name)
+        results.append(res)
         if rounds:
             counts["poses"] += 1
             log("  repair %3d/%d %-28s %d rounds, %d stand-ins" % (pi + 1, len(cams), cam.name, rounds, len(cubes)))
-    return cubes, counts
+    return cubes, counts, results, last
 
 
-def evaluate(room, cubes, cams):
+def evaluate(room, cubes, cams, rule=None):
     """Every pose's numbers (measure) -> list of dicts."""
     arr = standin_arrays(cubes)
-    return [measure(room, cam, arr)[0] for cam in cams]
+    return [measure(room, cam, arr, rule=rule)[0] for cam in cams]
 
 
 def summarize(results):
@@ -1211,6 +1250,10 @@ def summarize(results):
         s["coverage_%g" % t] = float(sum(r["covered_%g" % t] for r in results) / max(1.0, drawn.sum()))
     per = sorted((r["covered"] / r["drawn"] if r["drawn"] else 1.0, r["name"]) for r in results)
     s["worst"] = per[:5]
+    for name in KIND_CODES:
+        t = np.array([r.get("k_" + name, (0, 0, 0)) for r in results], float).sum(0)
+        s["kind_" + name] = (float(t[0] / max(1.0, drawn.sum())), float(t[1] / max(1.0, t[0])),
+                             float(t[2] / max(1.0, t[0])))
     return s
 
 
@@ -1263,16 +1306,21 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None):
         cubes += place_region(room, g, ri, index, pr, stats=stats)
     placed = len(cubes)
     log("%d stand-ins placed (%.0f s)" % (placed, time.time() - t0))
-    cubes, rc = repair(room, cubes, train, log=log)
+    cubes, rc, res_train, last = repair(room, cubes, train, log=log)
     log("repair: %d stand-ins (%d split, %d removed, %d poses needed it) (%.0f s)"
         % (len(cubes), rc["split"], rc["removed"], rc["poses"], time.time() - t0))
+    if last > 0:                                   # (the poses before the last change saw an older set)
+        res_train[:last] = evaluate(room, cubes, train[:last])
     rand = poses(room, view, spot, "random", W=W, H=H, seed=7)
     if fast:
         rand = rand[::6]
-    res_train = evaluate(room, cubes, train)
     res_rand = evaluate(room, cubes, rand)
+    # the same random poses under the runtime's rule as it is today (no near-plane guard): what changes is only
+    # cameras nearer a surface than the near clip
+    res_rand_reach = evaluate(room, cubes, rand, rule="reach")
     return dict(key=key, room=room, regions=regions, cubes=cubes, placed=placed, repair=dict(rc),
-                train=summarize(res_train), random=summarize(res_rand), res_train=res_train, res_rand=res_rand,
+                train=summarize(res_train), random=summarize(res_rand), random_reach=summarize(res_rand_reach),
+                res_train=res_train, res_rand=res_rand, res_rand_reach=res_rand_reach,
                 areas=region_areas(room, regions, cubes), stats=dict(stats), view=view, spot=spot,
                 seconds=time.time() - t0, size=(W, H), probes=pr)
 
@@ -1294,17 +1342,20 @@ def records(cubes):
     return out
 
 
-def lua_text(key, cubes):
+def lua_text(key, cubes=None, recs=None):
+    """The data file's text, from the cubes or from the records (records(); read_records() of a written file)."""
     rel = "Render3D/Standins/%s.lua" % key
-    recs = records(cubes)
+    recs = records(cubes) if recs is None else recs
     lines = [
         'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel),
-        "-- %s: the room's stand-ins, invisible unit cubes just behind its opaque floors and walls. A scene under" % key,
-        "-- the room's textures draws them; models in the scenes over it are then hidden per pixel wherever the room",
-        "-- is in front of them (all scenes share one depth buffer). Per stand-in 12 numbers: prim, x, y, z (the",
-        "-- prim's origin, room yards), yaw, pitch, roll (radians, room coordinates before mirroring), scale, nx, ny,",
-        "-- nz (the face's normal, to its seen side), face (its region). Show one only while dot(n, camera - origin)",
-        "-- > 0. AUTO-GENERATED by dev/generators/gen_standins.py; do not edit by hand.",
+        "-- %s: the room's stand-ins (Render3D/Standins.lua shows them): unit cubes just behind its" % key,
+        "-- opaque floors and walls, drawn in a scene under the room's textures; models in the scenes over it are then",
+        "-- hidden per pixel wherever the room is in front of them (all model scenes share one depth buffer). 12 numbers",
+        "-- per stand-in: prim, x, y, z (the prim's origin, room yards), yaw, pitch, roll (radians, room coordinates",
+        "-- before mirroring), scale, nx, ny, nz (its face's normal, to the side the face is seen from), face (the",
+        "-- face's region, for debugging). One matters only while its face faces the camera: the camera farther out",
+        "-- along n than the cube reaches (and than the near clip). Checked offline against the room's z-buffer from",
+        "-- %d poses. AUTO-GENERATED by dev/generators/gen_standins.py; do not edit by hand." % POSES_CHECKED,
         "local _, ns = ...",
         "ns.RoomStandins = ns.RoomStandins or {}",
         'ns.RoomStandins["%s"] = { version = 1, prims = { [1] = { fid = %d, kind = "%s", half = %s } },'
@@ -1312,17 +1363,26 @@ def lua_text(key, cubes):
         "  n = %d, stride = 12, data = {" % len(recs),
     ]
     for r in recs:
-        lines.append("    " + ", ".join([str(r[0]), _num(r[1], 3), _num(r[2], 3), _num(r[3], 3), _num(r[4], 5),
+        lines.append("    " + ", ".join([str(int(r[0])), _num(r[1], 3), _num(r[2], 3), _num(r[3], 3), _num(r[4], 5),
                                          _num(r[5], 5), _num(r[6], 5), _num(r[7], 3), _num(r[8], 4),
-                                         _num(r[9], 4), _num(r[10], 4), str(r[11])]) + ",")
+                                         _num(r[9], 4), _num(r[10], 4), str(int(r[11]))]) + ",")
     lines.append("} }")
     return "\n".join(lines) + "\n"
 
 
-def write_lua(key, cubes, out_dir=OUT_DIR):
+def read_records(path):
+    """The 12-number records of a written data file (Python side)."""
+    with open(path, "rb") as fh:
+        src = fh.read().decode("utf-8")
+    body = src.split("data = {", 1)[1].rsplit("} }", 1)[0]
+    nums = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?(?:e-?\d+)?", body)]
+    return [tuple(nums[i:i + 12]) for i in range(0, len(nums), 12)]
+
+
+def write_lua(key, cubes=None, out_dir=OUT_DIR, recs=None):
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, key + ".lua")
-    text = lua_text(key, cubes)
+    text = lua_text(key, cubes, recs)
     tmp = os.path.join(out_dir, "." + key + ".lua.tmp")
     with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
@@ -1410,6 +1470,47 @@ def contact_sheet(b, path, W=480, H=320):
     return path
 
 
+def top_view(b, path, S=8):
+    """The room from above: every region's outline (floors grey, walls blue, slopes left out dark red), the floor
+    stand-ins' squares (blue small .. orange big) and the walls' as ticks along them."""
+    from PIL import Image, ImageDraw
+    room = b["room"]
+    W, H = int(math.ceil(room.w * S)) + 2, int(math.ceil(room.h * S)) + 2
+
+    def px(p):
+        return (p[0] * S, (room.h - p[1]) * S)
+    img = Image.new("RGB", (W, H + 30), (18, 18, 18))
+    d = ImageDraw.Draw(img)
+    A = room.V[room.T]
+    for f in np.nonzero(room.opaque)[0]:
+        rg = b["regions"][room.region_of[f]] if room.region_of[f] >= 0 else None
+        col = {"floor": (70, 70, 70), "wall": (50, 70, 110), "ceiling": (70, 70, 70)}.get(
+            rg.kind if rg else "", (90, 35, 35))
+        if rg is not None and rg.kind == "floor" and room.N[f, 2] > 0:
+            d.polygon([px(q) for q in A[f]], fill=col)
+    for f in np.nonzero(room.opaque)[0]:
+        rg = b["regions"][room.region_of[f]]
+        if rg.kind != "floor":
+            col = (50, 70, 110) if rg.kind == "wall" else (110, 40, 40)
+            d.line([px(q) for q in A[f]] + [px(A[f][0])], fill=col, width=1)
+    for c in sorted(b["cubes"], key=lambda c: -c.s):
+        h = min(1.0, max(0.0, math.log2(c.s / MIN_SIZE) / 3.5))
+        col = (int(60 + 190 * h), int(200 - 60 * h), int(240 - 200 * h))
+        fr = c.region.frame
+        if c.region.kind == "floor":
+            pts = [(c.u0 + x) * fr.e1 + (c.v0 + y) * fr.e2 for x, y in ((0, 0), (c.s, 0), (c.s, c.s), (0, c.s))]
+            d.polygon([px(q) for q in pts], outline=col)
+        else:
+            a0 = c.u0 * fr.e1 + c.tf * fr.a
+            a1 = (c.u0 + c.s) * fr.e1 + c.tf * fr.a
+            d.line([px(a0), px(a1)], fill=col, width=2)
+    d.text((6, H + 8), "%s from above: floor stand-ins as squares, wall ones as ticks (blue %.1f yd .. orange %.0f yd); "
+                       "grey floors, blue walls, red: sloped faces left out" % (b["key"], MIN_SIZE, MAX_SIZE),
+           fill=(230, 230, 230))
+    img.save(path, optimize=True)
+    return path
+
+
 def report(b, size=None):
     a = b["areas"]
     cubes = b["cubes"]
@@ -1420,15 +1521,23 @@ def report(b, size=None):
              "  by kind %s; size yd min %.2f median %.2f max %.2f" % (dict(kinds), sizes.min(), np.median(sizes),
                                                                       sizes.max()),
              "  areas yd2: " + ", ".join("%s %.0f" % (k, v) for k, v in sorted(a.items()))]
-    for tag in ("train", "random"):
+    for tag, label in (("train", "train"), ("random", "random"), ("random_reach", "random, rule 'reach'")):
         s = b[tag]
-        lines.append("  %s poses %d (%dx%d): over-occlusion %d px eroded (%d raw); coverage %.1f%% within %.2f yd, "
-                     "%s, any %.1f%%; shown median %.0f p90 %.0f max %d"
-                     % (tag, s["poses"], b["size"][0], b["size"][1], s["over_eroded"], s["over_raw"],
-                        100 * s["coverage"], MARGIN + EPS_UNDER,
+        lines.append("  %s poses %d (%dx%d): over-occlusion %d px eroded (%d raw, %d where a model could be); "
+                     "coverage %.1f%% within %.2f yd, %s, any %.1f%%; shown median %.0f p90 %.0f max %d"
+                     % (label, s["poses"], b["size"][0], b["size"][1], s["over_eroded"], s["over_raw"],
+                        s["over_air"], 100 * s["coverage"], MARGIN + EPS_UNDER,
                         ", ".join("%.1f%% within %g" % (100 * s["coverage_%g" % t], t) for t in LOOSE),
                         100 * s["coverage_any"], s["shown_median"], s["shown_p90"], s["shown_max"]))
-        lines.append("    worst coverage: " + "; ".join("%s %.0f%%" % (n, 100 * c) for c, n in s["worst"]))
+        if tag != "random_reach":
+            lines.append("    worst coverage: " + "; ".join("%s %.0f%%" % (n, 100 * c) for c, n in s["worst"]))
+            lines.append("    by face drawn (share of pixels: covered strict / any): " + "; ".join(
+                "%s %.1f%%: %.1f%% / %.1f%%" % (k, 100 * s["kind_" + k][0], 100 * s["kind_" + k][1],
+                                               100 * s["kind_" + k][2]) for k in KIND_CODES if s["kind_" + k][0]))
+        bad = sorted(((r["over_eroded"], r["name"]) for r in b["res_" + tag.replace("random", "rand")]
+                      if r["over_eroded"]), reverse=True)[:5]
+        if bad:
+            lines.append("    over-occlusion at: " + "; ".join("%s %d px" % (n, v) for v, n in bad))
     if size is not None:
         lines.append("  file %d bytes" % size)
     return "\n".join(lines)
@@ -1453,7 +1562,9 @@ def main(argv=None):
         if args.sheet:
             short = key.split("_", 1)[-1].lower()
             print("wrote", contact_sheet(b, os.path.join(IMG_DIR, "standins_%s.png" % short)))
-        allres[key] = dict(train=b["train"], random=b["random"], areas=b["areas"], n=len(b["cubes"]),
+            print("wrote", top_view(b, os.path.join(IMG_DIR, "standins_%s_top.png" % short)))
+        allres[key] = dict(train=b["train"], random=b["random"], random_reach=b["random_reach"], areas=b["areas"],
+                           n=len(b["cubes"]),
                            placed=b["placed"], repair=b["repair"], size=size)
     if args.json:
         with open(args.json, "w") as fh:

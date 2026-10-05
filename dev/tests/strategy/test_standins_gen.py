@@ -150,9 +150,12 @@ def test_generator_runs_and_keeps_its_promises():
     rec = ns.RoomStandins[KEY]
     assert rec.n == len(b["cubes"]) and len(rec.data) == 12 * rec.n
     (C, R, S, N), a = arrays([rec.data[i + 1] for i in range(len(rec.data))])
-    got = sorted(np.round(np.c_[C, S], 2).tolist())
-    want = sorted(np.round([list(c.centre) + [c.s] for c in b["cubes"]], 2).tolist())
-    assert np.abs(np.array(got) - np.array(want)).max() <= 0.0051
+    want = np.array([list(c.centre) + [c.s] for c in b["cubes"]])
+    dist = np.linalg.norm(C[:, None, :] - want[None, :, :3], axis=2)       # (every written one: its placed twin)
+    twin = dist.argmin(1)
+    assert dist.min(1).max() < 0.002 and len(set(twin.tolist())) == len(want)
+    assert np.abs(S - want[twin, 3]).max() < 0.0011
+    assert np.abs(N - np.array([b["cubes"][k].n for k in twin])).max() < 1e-4
 
 
 @case
@@ -184,9 +187,11 @@ def test_shipped_file_has_the_contract_shape():
 def test_shipped_standins_lie_behind_their_faces_and_clear_of_the_room():
     _, rec = shipped()
     (C, R, S, N), a = arrays(rec["data"])
+    import shapely
     r = room()
     regions = {g.id: g for g in G.planar_regions(r)}
     index = G.FaceIndex(r)
+    ready = set()
     for i in range(len(C)):
         g = regions[int(a[i, 11])]
         assert g.kind in ("floor", "ceiling", "wall"), g.kind
@@ -194,8 +199,23 @@ def test_shipped_standins_lie_behind_their_faces_and_clear_of_the_room():
         corners = C[i] + (np.array([[x, y, z] for x in (-.5, .5) for y in (-.5, .5) for z in (-.5, .5)]) * S[i]) @ R[i]
         # wholly behind its face's plane, MARGIN or more (the corners' rounding to 1 mm aside)
         assert (corners @ g.n - (g.d + g.dlo)).max() <= -G.MARGIN + 2e-3, i
+        # never past the face's outline: its square, seen along the cube's axis out of the face, lies inside it
+        if g.id not in ready:
+            G.prepare_region(r, g)
+            g.zone = g.poly.buffer(0.003)
+            ready.add(g.id)
+        uv = np.c_[corners @ g.frame.e1, corners @ g.frame.e2]
+        assert shapely.contains_xy(g.zone, uv[:, 0], uv[:, 1]).all(), i
         # no room face inside it or within half the gap the generator keeps
         assert index.box_clear(C[i], R[i], np.full(3, S[i] / 2 + G.BACK_GAP / 2 - 0.003)), i
+
+
+@case
+def test_shipped_file_is_what_the_generator_writes():
+    # (its header current: the writer turns the file's own numbers back into the same text)
+    with open(SHIPPED, "rb") as fh:
+        src = fh.read().decode("utf-8")
+    assert G.lua_text(KEY, recs=G.read_records(SHIPPED)) == src
 
 
 @case
