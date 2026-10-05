@@ -411,6 +411,144 @@ def the_near_clip_guard_shows_nothing_behind_a_surface_nearer_than_the_near_clip
     no_errors(w)
 
 
+QUAD_PRIM = "{ fid = 653518, kind = 'quad', w = 48.9309, h = 32.9853, cx = -4.03583, cy = 0.86901, cz = 18.25718 }"
+
+
+def _ypr(yaw, pitch, roll):
+    """Rz(yaw) Ry(pitch) Rx(roll), Render3D/Probe.lua's AXIS turns (the client's order, roll first): columns = the
+    model's axes."""
+    cy, sy, cp, sp, cr, sr = (math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch), math.cos(roll),
+                              math.sin(roll))
+    rz = [[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]
+    ry = [[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]]
+    rx = [[1, 0, 0], [0, cr, -sr], [0, sr, cr]]
+
+    def mul(a, b):
+        return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    return mul(mul(rz, ry), rx)
+
+
+def _app(M, v):
+    return [sum(M[i][k] * v[k] for k in range(3)) for i in range(3)]
+
+
+@case
+def quads_are_read_with_their_turn_and_reach_and_only_known_aligned_ones_are_used():
+    """Version 2 data: a quad (653518) lies in its plane - its radius the half diagonal, its reach along its normal 0;
+    one whose front does not face along its normal (turned 0.6 degrees off, or facing away) is left out, as is a
+    quad of a file not on the allow-list (even the verified 1396283, which no data uses) and a kind the runtime does
+    not know; a cube turned by pitch and roll reaches exactly as far as its turned axes do; S.Turn is the client's
+    yaw-pitch-roll order; data of a later version is unreadable. A quad facing the camera before the model is shown,
+    a floor quad under the model's feet is not."""
+    w = World()
+    c = Client(w, "Bob", guild_rank=1, class_file="MAGE")
+    c.load_addon()
+    w.tick(1)
+    c.eval(SELECT)
+    r = c.eval_py(r"""
+        local T = T_SEL local S, row = T.S, T.row
+        local prims = { { fid = 167145, kind = 'cube', half = 0.5 }, """ + QUAD_PRIM + r""",
+                        { fid = 1396283, kind = 'quad', w = 63.83, h = 32.99, cx = -7.05, cy = 1.98, cz = 14.7 },
+                        { fid = 653518, kind = 'disc', w = 1, h = 1 } }
+        local L = {}
+        row(L, 2, 10, 0, 0, 0.04, -1, 0, 0, math.pi, 0, 0)            -- 1 a quad facing the camera, before the model
+        row(L, 2, 20, 0, -3, 0.2, 0, 0, 1, 0.3, -math.pi / 2, 0.2)     -- 2 a floor quad under the model (front up)
+        row(L, 2, 10, 0, 0, 0.04, -1, 0, 0, math.pi - 0.01, 0, 0)     -- 3 turned 0.6 degrees off its normal
+        row(L, 2, 10, 0, 0, 0.04, -1, 0, 0, 0, 0, 0)                  -- 4 facing away from its normal
+        row(L, 3, 10, 0, 0, 0.04, -1, 0, 0, math.pi, 0, 0)            -- 5 a quad file not on the allow-list
+        row(L, 4, 10, 0, 0, 0.04, -1, 0, 0, math.pi, 0, 0)            -- 6 a kind it does not know
+        row(L, 1, 10, 3, 0, 1, -0.6, 0.8, 0, 0.2, 0.3, 0.4)           -- 7 a cube turned by yaw, pitch and roll
+        local set = S.Prepare({ version = 2, prims = prims, n = #L / 12, stride = 12, data = L })
+        local rects = {}
+        local nm = S.ModelRects(T.occ, 1, T.cam, T.proj, rects)
+        local out = {}
+        local n = S.Select(set, T.cam, T.proj, rects, nm, 800, out, false)
+        local turns = {}
+        for _, a in ipairs({ { 0.3, 0.2, 0.1 }, { -2.5, 1.1, 2.9 }, { 1.0, -math.pi / 2, 0.4 } }) do
+          turns[#turns + 1] = { a, { S.Turn(a[1], a[2], a[3]) } }
+        end
+        local later = { S.Prepare({ version = 3, prims = prims, n = 1, stride = 12, data = { unpack(L, 1, 12) } }) }
+        return { R = set.R, E = set.E, usable = set.usable, unsafe = set.unsafe, n = n, out = out, turns = turns,
+                 later = later[2], brute = __BRUTE(set, T.cam, T.proj, rects, nm, false) }
+    """)
+    hw, hh = 48.9309 / 2 * 0.04, 32.9853 / 2 * 0.04
+    assert abs(r["R"][0] - math.hypot(hw, hh)) < 1e-9 and abs(r["E"][0]) < 1e-9, r
+    assert abs(r["R"][1] - math.hypot(hw * 5, hh * 5)) < 1e-9 and abs(r["E"][1]) < 1e-9, r
+    assert r["R"][2] is False and r["R"][3] is False and r["R"][4] is False and r["R"][5] is False, r
+    assert r["usable"] == 3 and r["unsafe"] == 1, r
+    # the turned cube: half x the sum over its turned axes of |n . axis|
+    M = _ypr(0.2, 0.3, 0.4)
+    n = [-0.6, 0.8, 0]
+    want = 0.5 * sum(abs(sum(n[i] * M[i][k] for i in range(3))) for k in range(3))
+    assert abs(r["E"][6] - want) < 1e-9 and abs(r["R"][6] - 0.5 * math.sqrt(3)) < 1e-9, (r["E"], want)
+    for a, cols in r["turns"]:
+        M = _ypr(*a)
+        got = [[cols[3 * k + i] for k in range(3)] for i in range(3)]      # (S.Turn gives the columns)
+        assert max(abs(got[i][j] - M[i][j]) for i in range(3) for j in range(3)) < 1e-12, (a, got, M)
+    assert r["later"] == "unreadable", r
+    assert r["n"] == 1 and r["out"] == [1] and r["brute"] == [1], r
+    no_errors(w)
+
+
+@case
+def a_tilted_quad_is_placed_exactly_on_its_rectangle_under_either_mirror():
+    """Ctl:Place of a quad turned by yaw, pitch and roll: the corners the client draws (its origin at the actor's
+    position times the scale, the model turned by the actor's yaw, pitch and roll in the client's order) are the
+    data's rectangle - with the scene's y mirrored, the mirrored rectangle exactly - and its front faces the
+    (mirrored) normal, so the one-sided quad shows to the cameras on its surface's side in the scene too."""
+    w, bob = board()
+    assert bob.slash("/dz 3d standins on")
+    tick(w, 0.2)
+    yaw, pitch, roll, s = 0.7, -0.4, 0.9, 0.05
+    r = bob.eval_py(r"""
+        local S = ns.Render3D.Standins
+        local yaw, pitch, roll, s = ...
+        local xx, xy, xz = S.Turn(yaw, pitch, roll)
+        local key = T3.v().room.key
+        local fl = ns.RoomFloors[key]
+        ns.RoomStandins[key] = { version = 2, n = 1, stride = 12, room = { size = fl.size },
+          prims = { { fid = 167145, kind = 'cube', half = 0.5 }, """ + QUAD_PRIM + r""" },
+          data = { 2, 12.5, -3.25, 4.75, yaw, pitch, roll, s, xx, xy, xz, 1 } }
+        T3.v():Draw()
+        local si = T3.v().standins
+        local m0, places = si.mirror, {}
+        for _, m in ipairs({ 1, -1 }) do
+          local a = si:NewActor()
+          si.mirror = m
+          si:Place(a, 1)
+          places[#places + 1] = { m = m, pos = a.pos, scale = a.scale, yaw = a.yaw, pitch = a.pitch or 0,
+                                  roll = a.roll or 0, fid = a.fileID }
+          a:SetShown(false)
+        end
+        si.mirror = m0
+        return { usable = si.set.usable, places = places }""", yaw, pitch, roll, s)
+    assert r["usable"] == 1, r
+    c = (-4.03583, 0.86901, 18.25718)
+    # (the model's corners as the prim's numbers put them: its middle plus or minus half its size)
+    model = [(c[0], c[1] + a * 48.9309 / 2, c[2] + b * 32.9853 / 2) for a in (-1, 1) for b in (-1, 1)]
+    R = _ypr(yaw, pitch, roll)
+    anchor = (12.5, -3.25, 4.75)
+    places = r["places"]
+    for got in places:
+        m = got["m"]
+        assert got["fid"] == 653518 and abs(got["scale"] - s) < 1e-12, got
+        Ra = _ypr(got["yaw"], got["pitch"], got["roll"])
+        drawn = sorted(tuple(got["pos"][i] * got["scale"] + v for i, v in enumerate(_app(Ra, [s * x for x in q])))
+                       for q in model)
+        want = sorted(tuple(v * (m if i == 1 else 1) for i, v in
+                            enumerate(a + b for a, b in zip(anchor, _app(R, [s * (x - cc) for x, cc in zip(q, c)]))))
+                      for q in model)
+        assert max(abs(p - q) for d_, w_ in zip(drawn, want) for p, q in zip(d_, w_)) < 1e-9, (m, drawn, want)
+        front = _app(Ra, [1, 0, 0])
+        n = _app(R, [1, 0, 0])
+        assert max(abs(front[i] - n[i] * (m if i == 1 else 1)) for i in range(3)) < 1e-12, (m, front, n)
+    # (unmirrored, the turn is the data's own; mirrored, yaw and roll turn the other way and pitch stays)
+    assert abs(places[0]["yaw"] - yaw) < 1e-12 and abs(places[1]["yaw"] + yaw) < 1e-12
+    assert places[1]["pitch"] == pitch and abs(places[1]["roll"] + roll) < 1e-12, places
+    bob.slash("/dz 3d standins off")
+    no_errors(w)
+
+
 @case
 def a_ball_off_the_middle_of_the_view_is_bounded_on_the_screen_exactly():
     """Perspective stretches a ball away from the view's middle by |v| / depth: a stand-in 63 degrees off the

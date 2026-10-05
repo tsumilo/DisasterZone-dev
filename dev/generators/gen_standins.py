@@ -3,70 +3,86 @@
 All ModelScenes share one depth buffer, and that depth survives the opaque UI textures the room is painted with
 (dev/docs/DEPTH_RESEARCH.md, in-game facts of 2026-10-05). So a scene under the room's textures that holds models
 standing just behind every opaque room surface writes the room's depth: a boss in a scene over the room is then
-hidden per pixel wherever a room surface is in front of it. This generator places those models ("stand-ins": the
-client's unit cube) for one room and checks offline that they never hide anything the room does not hide.
+hidden per pixel wherever a room surface is in front of it. This generator places those models ("stand-ins") for one
+room and checks offline that they never hide anything the room does not hide. Version 2: flat quads (the client's
+653518, a one-sided, unlit, opaque 48.93 x 32.99 menu quad; in game it filled its outline and cut a hole in a model
+from a lower scene, probe tiles 53, 54, 60) turned by yaw, pitch and roll in the client's order (Y.P.R, probe tile
+38: ypr_matrix()) lie in every opaque planar region - floors, walls and slopes alike -, and unit cubes (167145, v1's
+only primitive) fill gaps the quads leave where they fit by v1's rules.
 
 For a room key (Render3D/Rooms/<Key>.lua, decoded as Render3D/Rooms.lua unpacks it, so the stand-ins follow exactly
 what the renderer draws - including which side each face is drawn to, decided as Render3D/Room.lua decides it, by
 the plane of the BSP node the face is filed under: drawn()):
   1. regions   the opaque faces (blend D: ALPHAKEY and BLEND faces let models show through, so they get none)
-               grouped into planar regions: connected faces on one plane within 2 cm. v1 turns cubes about z only
-               (the client's yaw / pitch / roll order is not known yet), so floors, ceilings and upright walls get
-               stand-ins - within FLOOR_TILT / WALL_TILT of that, with cubes small enough that the wedge between the
-               tilted face and the cube stays under TILT_GAP - and sloped faces none.
-  2. exposure  columns of probe points behind every region (PROBE_STEP apart, from the cube's front down to the back
-               of a cube of each LEVELS size) are tested against the room's z-buffer from every training pose: a
-               point some pose sees past the room (nothing drawn in front of it, or something drawn behind it) may
-               not be inside a cube that pose would show. The edges where a region meets nothing (the room's outer
-               walls face away from a camera outside them; their tops end at the room's cut) let a camera see under
-               a floor or behind a wall, the more the deeper: cubes there are kept shallow, so small. The board
-               poses count a point only where a model could stand behind it (harmful_only).
+               grouped into planar regions: connected faces on one plane within 2 cm. Each gets a frame in its own
+               plane (its fitted normal; the grid along its outline's main heading, exactly: _edge_heading()), so a
+               stand-in lies flat behind it whatever its tilt.
+  2. exposure  columns of probe points behind every region (PROBE_STEP apart, from the stand-ins' front - the plane
+               a quad lies in - down to the back of a cube of each LEVELS size) are tested against the room's
+               z-buffer from every training pose: a point some pose sees past the room (nothing drawn in front of it,
+               or something drawn behind it) may not be inside a stand-in that pose would show. The edges where a
+               region meets nothing (the room's outer walls face away from a camera outside them; their tops end at
+               the room's cut) let a camera see under a floor or behind a wall. The board and stress poses count a
+               point only where a model could stand behind it (harmful_only).
   3. open edges whatever the poses saw: lines through points just under every region's outline, rising out of its
                back side past the edge in every direction, kept where the board's camera could stand along one with
                no face it draws in between (CamDomain: V:ClampOrb's whole range, under the floor a little too) and
-               where the line then runs through air a model can stand in before the room behind (open_lines). No
-               cube may touch one (cut_on_lines): a panel's open bottom, a lintel's underside, a wall's open top.
-  4. placement per region, squares in the region's plane (a GRID yd grid along its longest edges), greedy from the
-               largest that fits down to MIN_SIZE: every square lies inside the region's outline (a cube's sides
-               must not hide models seen past the edge), its cube wholly behind the face with its front MARGIN
-               behind it, MARGIN + its size away from any exposed probe, and BACK_GAP from every other room face
-               (exact triangle-box tests), so it never pokes out of the back of a thin wall or into a pillar.
+               where the line then runs through air a model can stand in before the room behind (open_lines): a
+               panel's open bottom, a lintel's underside, a wall's open top. No quad may lie where one crosses its
+               plane from the front (the placement keeps them LINE_TOL off: quad_crossings()), no cube may touch one
+               (cut_on_lines: whatever still does is cut).
+  4. placement per region on a GRID yd grid in its plane, greedy from the largest down: quads (each of the quad's
+               fixed shape, long side along either grid axis, scale QUAD_MAX_SCALE down to MIN_SCALE) lying in the
+               plane MARGIN behind the face - zero thick, so they go right up to the outline less EDGE_INSET -, then
+               cubes (MAX_SIZE down to MIN_SIZE) in the gaps they leave, their front in that plane. Every stand-in
+               lies inside the region's outline, away from any exposed probe (PROBE_STEP), and BACK_GAP from every
+               other room face (exact triangle-box tests: round it and behind it; in front only half that), so it
+               never pokes out of the back of a thin wall or into a pillar. Quads may overlap each other.
   5. repair    an offline z-buffer (numpy) renders every training pose at the check's size: the room's faces as the
-               renderer draws them, and the stand-ins the runtime would show (shown()). A stand-in nearer than the
-               drawn room, or where the room draws nothing at all, hides a model the room does not hide
-               ("over-occlusion"): one seen doing that (past the 1-pixel erosion; on the board poses only where a
-               model could be) is cut into quarters, again until the pose is clean (under MIN_SIZE it goes).
-  6. check     over-occlusion (after a 1-pixel erosion; 'harmful' where the ray past the stand-in runs through air
+               renderer draws them, and the stand-ins the runtime would show (shown()) as the client draws them (a
+               quad from its front only: one-sided). A stand-in nearer than the drawn room, or where the room draws
+               nothing at all, hides a model the room does not hide ("over-occlusion"): one seen doing that (past
+               the 1-pixel erosion; on the board and stress poses only where a model could be) is cut into quarters
+               (a quad's keep its shape), again until the pose is clean (under MIN_SCALE / MIN_SIZE it goes).
+  6. check     on the data as written (record_arrays(): rounded as the file has it, turned as the runtime turns it):
+               over-occlusion (after a 1-pixel erosion; 'harmful' where the ray past the stand-in runs through air
                a model can stand in), coverage (opaque room pixels with a stand-in within MARGIN + EPS_UNDER behind
-               them, and looser tolerances), stand-ins shown per pose, on the training poses, on random poses, on
-               held-out board poses over the board camera's whole range (board_poses(), another seed: what a user
-               can do) and on the poses a review found faults at (REVIEW_POSES); pictures (--sheet).
+               them, and looser tolerances, by the kind of face drawn), stand-ins shown per pose, on the training
+               poses, on random poses, on held-out board poses over the board camera's whole range (board_poses(),
+               another seed: what a user can do), on held-out stress poses (stress_poses(): by walls at eye level and
+               inside the near clip's guard, under floors, grazing floors) and on the poses a review found faults at
+               (REVIEW_POSES); pictures (--sheet).
 Training poses: poses() - the board's orbit round the room and the boss at pitches 0.15 - 1.5 out to the farthest
 distance it allows, low orbits close by the floor's outer edge looking in, walking and eye-level poses; nothing may
-be seen past the room - and board_poses() over the camera's whole range, where only harmful over-occlusion counts:
-low over the floor from outside the room a camera sees far under the floor past its cut edges, where nothing can
-stand, and keeping those clean too would strip the floors.
+be seen past the room - and board_poses() over the camera's whole range and stress_poses(), where only harmful
+over-occlusion counts: low over the floor from outside the room a camera sees far under the floor past its cut edges,
+where nothing can stand, and keeping those clean too would strip the floors.
 
-Writes addon Render3D/Standins/<Key>.lua (the data contract; Render3D/Standins.lua reads it):
-    ns.RoomStandins["<Key>"] = { version = 1, prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 } },
-                                 room = { size = <packed size>, verts = <count>, tris = <count> },
-                                 n = <count>, stride = 12, data = { <numbers> } }
-  12 numbers per stand-in: prim, x, y, z (the primitive's origin in room coordinates: yd, x east, y north, z over
-  the boss' floor), yaw, pitch, roll (radians, SetYaw / SetPitch / SetRoll in room coordinates before any mirroring;
-  v1 yaw only), scale (uniform: the primitive's size times scale is its size in yd), nx, ny, nz (the unit normal of
-  the surface it stands behind, to the side it is seen from), face (the region's id, for debugging). Show a stand-in
-  only while dot(n, camera - origin) > reach + near (shown(), rule 'guard'): reach = half x scale x the sum of |n . a|
-  over the cube's turned axes a, near = the near clip (0.5 yd). room: the room file it was made for
+Writes addon Render3D/Standins/<Key>.lua (the data contract, version 2; Render3D/Standins.lua reads it):
+    ns.RoomStandins["<Key>"] = { version = 2,
+        prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 },
+                  [2] = { fid = 653518, kind = "quad", w = 48.9309, h = 32.9853, cx = -4.03583, cy = 0.86901,
+                          cz = 18.25718 } },
+        room = { size = <packed size>, verts = <count>, tris = <count> }, n = <count>, stride = 12, data = { .. } }
+  12 numbers per stand-in: prim; x, y, z (its anchor in room coordinates - yd, x east, y north, z over the boss'
+  floor: a cube's centre, a quad's middle); yaw, pitch, roll (radians, room coordinates, i.e. the client's for a scene
+  mirror of +1: the turn R = Rz(yaw) Ry(pitch) Rx(roll), SetYaw / SetPitch / SetRoll as the client applies them, roll
+  first); scale (the actor's); nx, ny, nz (the unit normal of the surface it stands behind, to the side it is seen
+  from); face (the region's id, for debugging; a region's stand-ins come together). A prim's model point q stands at
+  anchor + scale R (q - c), c = (cx, cy, cz) its middle (a cube's is its origin): the runtime puts the model's origin
+  at anchor - scale R c. A cube is 2 half x scale yd a side; a quad is the w x h x scale rectangle in its model's y-z
+  plane, its front (model +x, R's first column) along n, drawn from the front only. Show a stand-in only while
+  dot(n, camera - anchor) > reach + near (shown(), rule 'guard'): reach = scale x the sum over its turned axes a of
+  its half extent along a x |n . a| (0 for a quad), near = the near clip (0.5 yd). room: the room file it was made for
   (ns.RoomFloors[key].size and the unpacked mesh's counts); data made for another build of the room hides the wrong
-  things. The primitive is spells/unitcube.m2 (FileDataID 167145): an opaque white 1 yd cube centred on its origin;
-  PRIMS is a table so a flat square can join when one is found (a kind with no depth: its probe levels would be its
-  front alone).
+  things. Version 1 (cubes turned about z, one prim) reads the same way.
 Known limit (the runtime's): a camera within the near clip of a room face sees that face clipped away and the
 stand-ins behind its neighbours through the hole (REVIEW_POSES 'air': under the floor or in solid room, harmless).
 
-Run from dev/:  luaenv\\Scripts\\python.exe generators\\gen_standins.py [Key ...] [--fast] [--no-write] [--sheet]
-  [--json FILE] (no key: MagtheridonsLair_Magtheridon; about an hour). --fast: fewer and smaller poses (the
-  tests); --sheet: dev/docs/img/standins_<boss>.png (room | stand-ins | errors on six poses) and _top.png.
+Run from dev/:  luaenv\\Scripts\\python.exe generators\\gen_standins.py [Key ...] [--fast] [--no-write] [--no-cubes]
+  [--sheet] [--json FILE] (no key: MagtheridonsLair_Magtheridon). --fast: fewer and smaller poses (the tests);
+  --no-cubes: quads alone; --sheet: dev/docs/img/standins_<boss>_v2.png (room | stand-ins | errors on six poses) and
+  _v2_top.png.
 """
 import argparse
 import collections
@@ -140,7 +156,7 @@ EYE, WALK_EYE = 1.9, 2.2  # UI/StrategyMap3D.lua: the eye all the way in; the po
 PITCH_MIN, PITCH_TOP = 0.12, 1.5
 PITCH_LOOKUP, DIST_MIN = -0.5, 0.3   # UI/StrategyMap3D.lua: the pitch allowed under 3 yd out; all the way in
 RULE = "guard"            # which stand-ins show (shown())
-POSES_CHECKED = 1517       # training, random, board and review poses of a full run (the data file says so)
+POSES_CHECKED = 1937      # training, random, board, stress and review poses of a full run (the data file says so)
 KIND_CODES = {"floor": 0, "ceiling": 1, "wall": 2, "slope": 3, "other": 4}   # the check's breakdown
 
 
@@ -546,6 +562,7 @@ def _edge_heading(room, g, r1, r2):
             a, b = room.T[f, i], room.T[f, (i + 1) % 3]
             cnt[(min(a, b), max(a, b))] += 1
     hist = np.zeros(90)
+    degs, lens = [], []
     for (i, j), c in cnt.items():
         if c != 1:
             continue                              # (inside the region: shared by two of its faces)
@@ -554,11 +571,22 @@ def _edge_heading(room, g, r1, r2):
         ln = math.hypot(dx, dy)
         if ln < 1e-6:
             continue
-        hist[int(math.degrees(math.atan2(dy, dx)) % 90) % 90] += ln
+        deg = math.degrees(math.atan2(dy, dx)) % 90
+        hist[int(round(deg)) % 90] += ln
+        degs.append(deg)
+        lens.append(ln)
     if hist.sum() <= 0:
         return 0.0
     sm = hist + 0.5 * (np.roll(hist, 1) + np.roll(hist, -1))
-    return math.radians(float(np.argmax(sm)))
+    peak = float(np.argmax(sm))
+    # then exactly: the length-weighted mean of the edges within 0.6 degree of it (a whole degree off a 40 yd edge
+    # would leave 0.7 yd of it uncovered)
+    off = (np.array(degs) - peak + 45) % 90 - 45
+    near = np.abs(off) <= 0.6
+    w = np.array(lens)[near]
+    if w.sum() <= 0:
+        return math.radians(peak)                 # (the smoothing's pick between two headings)
+    return math.radians(peak + float((off[near] * w).sum() / w.sum()))
 
 
 class Standin:
@@ -846,9 +874,11 @@ def quad_scales(g):
     return size_ladder(cap, MIN_SCALE) if cap >= MIN_SCALE else []
 
 
-def place_region(room, g, ri, index, pr=None, stats=None, cubes=True):
+def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None):
     """The stand-ins behind one prepared region: quads, largest first, then cubes where they leave room (cubes:
-    False leaves those out). -> list of Standin."""
+    False leaves those out). avoid: grid points (u, v) no quad may come within LINE_TOL of (quad_crossings(): where
+    the harmful lines past its open edges cross the quads' plane; quads placed round them fit flush, where quads cut
+    afterwards would leave a staircase). -> list of Standin."""
     import shapely
     from shapely.geometry import box as sbox
     fr, inner = g.frame, g.inner
@@ -870,6 +900,17 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True):
     # near the region's box; the exact triangle-box tests below have the last word)
     thick = _thickness(room, g, fr, index, us, vs, r, g.cap)
     blocked = blocked_masks(g, ri, pr, us, vs, r) if pr is not None else None
+    near_line = None
+    if avoid is not None and len(avoid):
+        near_line = np.zeros(cell_in.shape, bool)
+        i = np.floor((avoid[:, 0] - us[0]) / r).astype(int)
+        j = np.floor((avoid[:, 1] - vs[0]) / r).astype(int)
+        rad = int(math.ceil(LINE_TOL / r)) + 1
+        k = (i >= -rad) & (i < cell_in.shape[1] + rad) & (j >= -rad) & (j < cell_in.shape[0] + rad)
+        m = np.zeros((cell_in.shape[0] + 2 * rad, cell_in.shape[1] + 2 * rad), bool)
+        m[j[k] + rad, i[k] + rad] = True
+        near_line = window(m, 2 * rad + 1, np.maximum)
+        near_line = integral(near_line.astype(np.float64))
     inside_sum = integral(cell_in.astype(np.float64))
     covered = ~cell_in
     out = []
@@ -901,6 +942,8 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True):
             fit &= window(thick, kv, np.minimum, ku) >= MARGIN + BACK_GAP
             if blocked is not None:
                 fit &= box_sums(integral(blocked[0].astype(np.float64)), kv, ku) < 0.5
+            if near_line is not None:
+                fit &= box_sums(near_line, kv, ku) < 0.5
             if not fit.any():
                 continue
             got, rej = _greedy(covered, fit, kv, ku, max(1, int(du / r + 1e-9)), max(1, int(dv / r + 1e-9)),
@@ -1800,11 +1843,25 @@ class Caster:
         P = room.V[room.T]
         self.P0, self.E1, self.E2 = P[:, 0], P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]
 
-    def hits(self, O, D, tmax, chunk=64):
-        """Every opaque face met by O + t D, 1e-4 < t <= tmax -> ray indices, faces, t (flat arrays)."""
+    def hits(self, O, D, tmax, chunk=64, seg=6.0):
+        """Every opaque face met by O + t D, 1e-4 < t <= tmax -> ray indices, faces, t (flat arrays; a face met
+        right where two pieces of a ray join may come twice). Long rays are cut into pieces of seg yd, and the pieces
+        are taken in chunks by where they lie, so each chunk's box - the faces it is tested against - stays small (a
+        long slanted ray's own box holds a good share of the room)."""
+        O, D, tmax = np.asarray(O, float), np.asarray(D, float), np.asarray(tmax, float)
+        npc = np.maximum(1, np.ceil(tmax / seg).astype(np.int64))
+        rep = np.repeat(np.arange(len(O)), npc)
+        k = np.arange(len(rep)) - np.repeat(np.cumsum(npc) - npc, npc)
+        t0 = k * seg
+        t1 = np.minimum(t0 + seg, tmax[rep])
+        Op, Dp, Tm = O[rep] + D[rep] * t0[:, None], D[rep], t1 - t0
+        Tlo = np.where(k == 0, 1e-4, 0.0)
+        cell = np.floor((Op + Dp * (Tm / 2)[:, None]) / 4.0).astype(np.int64)
+        order = np.lexsort((cell[:, 2], cell[:, 1], cell[:, 0]))
         out_r, out_f, out_t = [], [], []
-        for c0 in range(0, len(O), chunk):
-            o, d, tm = O[c0:c0 + chunk], D[c0:c0 + chunk], tmax[c0:c0 + chunk]
+        for c0 in range(0, len(order), chunk):
+            sel = order[c0:c0 + chunk]
+            o, d, tm, tl = Op[sel], Dp[sel], Tm[sel], Tlo[sel]
             ends = o + d * tm[:, None]
             lo = np.minimum(o, ends).min(0) - 1e-3
             hi = np.maximum(o, ends).max(0) + 1e-3
@@ -1812,21 +1869,26 @@ class Caster:
             f = f[self.room.opaque[f]]
             if not len(f):
                 continue
-            e1, e2, p0 = self.E1[f], self.E2[f], self.P0[f]
-            p = np.cross(d[:, None, :], e2[None])
-            det = np.einsum("tj,rtj->rt", e1, p)
+            # (component by component: np.cross on (rays, faces, 3) arrays copies a lot)
+            e1x, e1y, e1z = (self.E1[f, q][None, :] for q in range(3))
+            e2x, e2y, e2z = (self.E2[f, q][None, :] for q in range(3))
+            dx, dy, dz = (d[:, q][:, None] for q in range(3))
+            px, py, pz = dy * e2z - dz * e2y, dz * e2x - dx * e2z, dx * e2y - dy * e2x
+            det = e1x * px + e1y * py + e1z * pz
             ok = np.abs(det) > 1e-12
             inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
-            s = o[:, None, :] - p0[None]
-            u = np.einsum("rtj,rtj->rt", s, p) * inv
-            q = np.cross(s, e1[None])
-            v = np.einsum("rj,rtj->rt", d, q) * inv
-            t = np.einsum("tj,rtj->rt", e2, q) * inv
-            hit = ok & (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9) & (t > 1e-4) & (t <= tm[:, None])
+            sx = o[:, 0][:, None] - self.P0[f, 0][None, :]
+            sy = o[:, 1][:, None] - self.P0[f, 1][None, :]
+            sz = o[:, 2][:, None] - self.P0[f, 2][None, :]
+            u = (sx * px + sy * py + sz * pz) * inv
+            qx, qy, qz = sy * e1z - sz * e1y, sz * e1x - sx * e1z, sx * e1y - sy * e1x
+            v = (dx * qx + dy * qy + dz * qz) * inv
+            t = (e2x * qx + e2y * qy + e2z * qz) * inv
+            hit = ok & (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9) & (t > tl[:, None]) & (t <= tm[:, None])
             r_, k_ = np.nonzero(hit)
-            out_r.append(r_ + c0)
+            out_r.append(rep[sel[r_]])
             out_f.append(f[k_])
-            out_t.append(t[r_, k_])
+            out_t.append(t[r_, k_] + t0[sel[r_]])
         if not out_r:
             z = np.zeros(0, np.int64)
             return z, z, np.zeros(0)
@@ -1916,10 +1978,11 @@ def _harmful(room, g, cast, dom, P, Wd, D, box, counts):
     return Pc + Wc * tc[:, None], Pc - Wc * last[:, None], Cv
 
 
-def open_lines(room, regs, index, dom, log=None, batch=4000):
-    """The harmful lines of sight past the regions' outlines (see above) -> dict of arrays: reg (index into regs),
-    P0 (where the line comes out of the face's plane, outside the outline), P1 (its last point in the air before
-    the first face the camera draws behind), C (a camera the board allows that sees along it); counts, seconds."""
+def open_lines(room, regs, index, dom, log=None, batch=4000, curtains=CURTAIN):
+    """The harmful lines of sight past the regions' outlines (see above), crossing under them at the depths
+    `curtains` -> dict of arrays: reg (index into regs), rid (the region's id), P0 (where the line comes out of the
+    face's plane, outside the outline), P1 (its last point in the air before the first face the camera draws
+    behind), C (a camera the board allows that sees along it); counts, seconds."""
     t0 = time.time()
     cast = Caster(room, index)
     hmin = float(np.nanmin(np.where(np.abs(room.heights) <= 3.0, room.heights, np.nan)))
@@ -1943,7 +2006,7 @@ def open_lines(room, regs, index, dom, log=None, batch=4000):
             Eq.append(np.repeat(((b - a) / ln)[None], nk, 0))
         Q, Mq, Eq = np.concatenate(Q), np.concatenate(Mq), np.concatenate(Eq)
         per = max(1, batch // len(kk))
-        for D in CURTAIN:
+        for D in curtains:
             for q0 in range(0, len(Q), per):
                 q = slice(q0, q0 + per)
                 p = Q[q] - EDGE_IN * Mq[q] - D * g.n
@@ -1952,15 +2015,51 @@ def open_lines(room, regs, index, dom, log=None, batch=4000):
                 got = _harmful(room, g, cast, dom, np.repeat(p, len(kk), 0), w.reshape(-1, 3), D, box, counts)
                 if got is not None:
                     res["reg"].append(np.full(len(got[0]), ri))
+                    res["rid"].append(np.full(len(got[0]), g.id))
                     for k, v in zip(("P0", "P1", "C"), got):
                         res[k].append(v)
         if log and (ri + 1) % 50 == 0:
             log("  open lines: %d/%d regions, %d lines, %d harmful (%.0f s)" % (
                 ri + 1, len(regs), counts["lines"], counts["harmful"], time.time() - t0))
     out = {k: np.concatenate(v) for k, v in res.items()} if res else \
-        dict(reg=np.zeros(0, np.int64), P0=np.zeros((0, 3)), P1=np.zeros((0, 3)), C=np.zeros((0, 3)))
+        dict(reg=np.zeros(0, np.int64), rid=np.zeros(0, np.int64), P0=np.zeros((0, 3)), P1=np.zeros((0, 3)),
+             C=np.zeros((0, 3)))
     out["counts"] = dict(counts)
     out["seconds"] = time.time() - t0
+    return out
+
+
+def merge_lines(a, b):
+    """Two open_lines results as one (reg dropped: it indexes each one's own region list; rid stays)."""
+    out = {k: np.concatenate([a[k], b[k]]) for k in ("rid", "P0", "P1", "C")}
+    out["counts"] = dict(collections.Counter(a["counts"]) + collections.Counter(b["counts"]))
+    out["seconds"] = a["seconds"] + b["seconds"]
+    return out
+
+
+def quad_crossings(lines, regs):
+    """Where each region's own harmful lines cross the plane its quads lie in (MARGIN behind its face) between
+    their ends: per region (index into regs) the points' grid u, v. A quad there would hide what the line's camera
+    sees past the open edge (on_lines' test), so the placement keeps quads LINE_TOL away from them."""
+    out = [np.zeros((0, 2)) for _ in regs]
+    if not len(lines["P0"]):
+        return out
+    pos = {g.id: i for i, g in enumerate(regs)}
+    for rid in np.unique(lines["rid"]):
+        if int(rid) not in pos:
+            continue
+        ri = pos[int(rid)]
+        g = regs[ri]
+        k = lines["rid"] == rid
+        P0, P1 = lines["P0"][k], lines["P1"][k]
+        tq = g.d + g.dlo - MARGIN
+        s0, s1 = P0 @ g.n - tq, P1 @ g.n - tq
+        x = (s0 >= 0) & (s1 <= 0) & (s0 - s1 > 1e-12)
+        if not x.any():
+            continue
+        f = s0[x] / (s0[x] - s1[x])
+        X = P0[x] + f[:, None] * (P1[x] - P0[x])
+        out[ri] = np.c_[X @ g.frame.e1, X @ g.frame.e2]
     return out
 
 
@@ -1988,10 +2087,11 @@ def _seg_box(P0, P1, centre, axes, half):
 
 
 def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=0.5):
-    """The stand-ins (a list, or standin_arrays() of one) a harmful line runs through (within tol of their sides and
-    back: a quad's back is its own plane) while the camera that sees along it shows them (rule 'reach': a hair looser
-    than shown()) -> set of indices. The stand-ins are filed by vox yd cells (each in the cells its box and one cell
-    round it touch), and every line is looked up there every step yd of its run through their box."""
+    """The stand-ins (a list, or standin_arrays() of one) a harmful line runs through (a cube: within tol of its sides
+    and back; a quad: crossing its plane from the front within tol of its rectangle) while the camera that sees along
+    it shows them (rule 'reach': a hair looser than shown()) -> set of indices. The stand-ins are filed by vox yd
+    cells (each in the cells its box and one cell round it touch), and every line is looked up there every step yd
+    of its run through their box."""
     arr = cubes if isinstance(cubes, tuple) else standin_arrays(cubes)
     C, R, H, N, K = arr
     if not len(lines["P0"]) or not len(C):
@@ -2056,7 +2156,24 @@ def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=0.5):
         line, cube = line[keep], cube[keep]
         if not len(line):
             continue
-        hit = _seg_box(P0[line], P1[line], Cb[cube], R[cube], half[cube])
+        hit = np.zeros(len(line), bool)
+        cb = K[cube] == KIND_CUBE
+        if cb.any():
+            hit[cb] = _seg_box(P0[line[cb]], P1[line[cb]], Cb[cube[cb]], R[cube[cb]], half[cube[cb]])
+        # a quad has no inside: a line hits it where it crosses its plane from the front within its rectangle
+        # (tol wider round it: the lines' spacing), not where it runs under it
+        qd = ~cb
+        if qd.any():
+            li, si = line[qd], cube[qd]
+            nq = R[si, 0]
+            s0 = np.einsum("ij,ij->i", P0[li] - C[si], nq)
+            s1 = np.einsum("ij,ij->i", P1[li] - C[si], nq)
+            x = (s0 >= 0) & (s1 <= 0) & (s0 - s1 > 1e-12)
+            f = np.where(x, s0 / np.where(x, s0 - s1, 1.0), 0.0)
+            X = P0[li] + f[:, None] * (P1[li] - P0[li]) - C[si]
+            a_ = np.abs(np.einsum("ij,ij->i", X, R[si, 1]))
+            b_ = np.abs(np.einsum("ij,ij->i", X, R[si, 2]))
+            hit[qd] = x & (a_ <= H[si, 1] + tol) & (b_ <= H[si, 2] + tol)
         bad[np.unique(cube[hit])] = True
     return set(np.nonzero(bad)[0].tolist())
 
@@ -2253,17 +2370,25 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
     t_exp = time.time() - t0
     log("%s: %d regions (%d get stand-ins), %d probes, %d seen by a pose (%.0f s)"
         % (key, len(regions), len(regs), len(pr.P), pr.exposed.sum(), time.time() - t0))
-    # the lines of sight past open edges any board camera has (whatever the poses saw)
-    lines = open_lines(room, regs, index, dom, log=log)
+    # the lines of sight past open edges any board camera has (whatever the poses saw): under every outline at the
+    # quads' depth first (the placement keeps quads off them); at the cubes' depths only where cubes were placed
+    lines = open_lines(room, regs, index, dom, log=log, curtains=CURTAIN[:1])
     log("open lines: %s (%.0f s)" % (lines["counts"], time.time() - t0))
+    cross = quad_crossings(lines, regs)
     t1 = time.time()
     sis = []
     for ri, g in enumerate(regs):
-        sis += place_region(room, g, ri, index, pr, stats=stats, cubes=cubes)
+        sis += place_region(room, g, ri, index, pr, stats=stats, cubes=cubes, avoid=cross[ri])
     placed = len(sis)
     placed_kinds = dict(collections.Counter(c.kind for c in sis))
     t_place = time.time() - t1
     log("%d stand-ins placed %s (%.0f s)" % (placed, placed_kinds, time.time() - t0))
+    with_cubes = [g for g in regs if any(c.kind == "cube" and c.region is g for c in sis)]
+    if with_cubes:
+        deep = open_lines(room, with_cubes, index, dom, log=log, curtains=CURTAIN[1:])
+        log("open lines at the cubes' depths, %d regions: %s (%.0f s)" % (len(with_cubes), deep["counts"],
+                                                                         time.time() - t0))
+        lines = merge_lines(lines, deep)
     t1 = time.time()
     sis, lc = cut_on_lines(lines, sis, log=log)
     sis, rc, res_train, last = repair(room, sis, train, log=log)
@@ -2311,7 +2436,8 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
                 res_rand_reach=res_rand_reach, res_board=res_board, res_stress=res_stress, res_review=res_review,
                 lines=lines, checked=checked, areas=region_areas(room, regions, sis), stats=dict(stats), view=view,
                 spot=spot, seconds=time.time() - t0, size=(W, H), probes=pr,
-                timings=dict(exposure=t_exp, lines=lines["seconds"], place=t_place, repair=t_repair, check=t_check))
+                timings=dict(exposure=t_exp, lines=lines["seconds"], place=t_place, repair=t_repair, check=t_check),
+                crossings=int(sum(len(c) for c in cross)))
 
 
 def _num(v, places):
@@ -2329,8 +2455,9 @@ def records(cubes):
         yaw, pitch, roll = standin_angles(c)
         prim = QUAD if c.kind == "quad" else CUBE
         scale = c.s if c.kind == "quad" else c.s / (2 * PRIMS[CUBE]["half"])
-        r = (prim, round(c.centre[0], 3), round(c.centre[1], 3), round(c.centre[2], 3), round(yaw, 6),
-             round(pitch, 6), round(roll, 6), round(scale, 6 if c.kind == "quad" else 3), round(c.n[0], 5),
+        # (1 mm, 1e-5 rad and a scale to 1e-5: a 49 yd quad's corner moves 0.3 mm at most - MARGIN is 50)
+        r = (prim, round(c.centre[0], 3), round(c.centre[1], 3), round(c.centre[2], 3), round(yaw, 5),
+             round(pitch, 5), round(roll, 5), round(scale, 5 if c.kind == "quad" else 3), round(c.n[0], 5),
              round(c.n[1], 5), round(c.n[2], 5), c.region.id)
         out.append(tuple(0.0 if (isinstance(x, float) and x == 0) else x for x in r))
     return out
@@ -2384,8 +2511,8 @@ def lua_text(key, cubes=None, recs=None, stamp=None):
     ]
     for r in recs:
         quad = int(r[0]) == QUAD
-        lines.append("    " + ", ".join([str(int(r[0])), _num(r[1], 3), _num(r[2], 3), _num(r[3], 3), _num(r[4], 6),
-                                         _num(r[5], 6), _num(r[6], 6), _num(r[7], 6 if quad else 3), _num(r[8], 5),
+        lines.append("    " + ", ".join([str(int(r[0])), _num(r[1], 3), _num(r[2], 3), _num(r[3], 3), _num(r[4], 5),
+                                         _num(r[5], 5), _num(r[6], 5), _num(r[7], 5 if quad else 3), _num(r[8], 5),
                                          _num(r[9], 5), _num(r[10], 5), str(int(r[11]))]) + ",")
     lines.append("} }")
     return "\n".join(lines) + "\n"
@@ -2553,9 +2680,9 @@ def report(b, size=None):
              % (b["key"], len(sis), kinds.get("quad", 0), kinds.get("cube", 0), b["placed"], b.get("placed_kinds"),
                 b["repair"], b["seconds"], {k: int(v) for k, v in b.get("timings", {}).items()}),
              "  by surface %s" % dict(sorted(by_kind.items())),
-             "  quad scale min %.3f median %.3f max %.3f (%.2f .. %.1f yd long); cube size min %.2f median %.2f max %.2f"
-             % (qs.min(), np.median(qs), qs.max(), qs.min() * QUAD_W, qs.max() * QUAD_W, cs.min(), np.median(cs),
-                cs.max()),
+             "  quad scale min %.3f median %.3f max %.3f (%.2f .. %.1f yd long); cube size min %.2f median %.2f "
+             "max %.2f" % (qs.min(), np.median(qs), qs.max(), qs.min() * QUAD_W, qs.max() * QUAD_W, cs.min(),
+                           np.median(cs), cs.max()),
              "  areas yd2: " + ", ".join("%s %.0f" % (k, v) for k, v in sorted(a.items()))]
     for k in ("floor", "wall", "slope", "ceiling"):
         if a.get(k):

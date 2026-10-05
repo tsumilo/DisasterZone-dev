@@ -2,20 +2,29 @@
 
 Covers: the room file decodes as Render3D/Rooms.lua unpacks it (its size, every face's plane and the side the
 renderer draws it to: its BSP node's plane, not its own winding); the offline z-buffer gives a face's exact depth per
-pixel and clips at the near plane; the triangle-box test; where the board's camera can stand; the generator runs end
-to end (fast settings, the largest regions) and what it makes keeps its promises on its own poses and on held-out
-board poses; the shipped file (Render3D/Standins/MagtheridonsLair_Magtheridon.lua) has the data contract's shape as
-Lua itself reads it (line 1 guard, version 1, prims, the room file it was made for, n, stride 12, 12 finite numbers
-per stand-in, yaw only, unit normals, sizes in range, a size under 300 KB), every stand-in lies behind its face (the
-side the face is seen from) and keeps clear of every room face, none lies on a line of sight past an open edge (the
-panels' and the lintel's undersides), and it hides nothing the room does not: over-occlusion 0 after the 1-pixel
-erosion on a few poses (the first view, a low orbit, the top view, inside, walking, eye level) and on the poses a
-review found faults at, and none where a model could be on a spread of board poses over the camera's whole range.
+pixel and clips at the near plane, and draws a quad stand-in from its front only (one-sided, as the client); the
+triangle-box test; the yaw-pitch-roll turn is Render3D/Probe.lua's own (its AXIS and Rot("ypr") run in Lua: the
+client's order, roll first, confirmed in game) and turns back into its angles, floors' and ceilings' quads (pitch
++-90) too, and a level floor's or an upright wall's cube turns about z alone; a quad's quarters lie in it and keep
+its shape down to the smallest actor scale; where the board's camera can stand (the board, stress and review poses
+stand there); the generator runs end to end (fast settings, the largest regions) and what it makes keeps its
+promises on its own poses and on held-out board and stress poses; the shipped file
+(Render3D/Standins/MagtheridonsLair_Magtheridon.lua) has the data contract's shape as Lua itself reads it (line 1
+guard, version 2, both prims - the quad's size and middle as the client's file has them -, the room file it was made
+for, n, stride 12, 12 finite numbers per stand-in, angles in range, unit normals, a quad's front along its normal,
+scales in range: no actor under 0.018, a size under 300 KB), stand-ins on floors, walls and slopes, every one lies
+behind its face (the side the face is seen from), inside its outline, and keeps clear of every room face, none lies on
+a line of sight past an open edge (the panels' and the lintel's undersides), and it hides nothing the room does not:
+over-occlusion 0 after the 1-pixel erosion on a few poses (the first view, a low orbit, the top view, inside, walking,
+eye level) and on the poses a review found faults at, and none where a model could be on a spread of board poses over
+the camera's whole range and of stress poses (by walls at eye level, under floors, grazing floors).
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_standins_gen.py [-k name]
 """
+import collections
 import math
 import os
+import re
 import sys
 import time
 import traceback
@@ -59,26 +68,18 @@ def shipped():
     rs = run(src, ns)
     rec = rs[KEY]
     data = [rec.data[i + 1] for i in range(len(rec.data))]
-    prim = rec.prims[1]
     room_ = dict(size=rec.room.size, verts=rec.room.verts, tris=rec.room.tris) if rec.room else None
-    return src, dict(version=rec.version, n=rec.n, stride=rec.stride, data=data, room=room_,
-                     prim=dict(fid=prim.fid, kind=prim.kind, half=prim.half), nprims=len(rec.prims))
+    prims = {k: {f: rec.prims[k][f] for f in ("fid", "kind", "half", "w", "h", "cx", "cy", "cz")
+                 if rec.prims[k][f] is not None} for k in rec.prims.keys()}
+    return src, dict(version=rec.version, n=rec.n, stride=rec.stride, data=data, room=room_, prims=prims,
+                     nprims=len(rec.prims))
 
 
 def arrays(data, stride=12):
-    """Stand-in arrays (centres, axes, sizes, normals) from the contract's numbers, as the runtime turns them:
-    a unit cube at x, y, z turned by yaw, size = 2 * half * scale."""
+    """Stand-in arrays from the contract's numbers, as the runtime places them (G.record_arrays: the anchor turned by
+    yaw, pitch, roll in the client's order; a cube 2 half x scale a side, a quad w x h x scale) and the numbers."""
     a = np.array(data, float).reshape(-1, stride)
-    C = a[:, 1:4]
-    yaw = a[:, 4]
-    c, s = np.cos(yaw), np.sin(yaw)
-    R = np.zeros((len(a), 3, 3))
-    R[:, 0, 0], R[:, 0, 1] = c, s
-    R[:, 1, 0], R[:, 1, 1] = -s, c
-    R[:, 2, 2] = 1.0
-    S = a[:, 7] * 2 * G.PRIMS[1]["half"]
-    N = a[:, 8:11]
-    return (C, R, S, N), a
+    return G.record_arrays(a), a
 
 
 @case
@@ -154,6 +155,105 @@ def test_triangle_box_overlap():
     assert not G.tri_box_overlap(np.zeros(3), axes, [1.0, 1, 1], edge)[0]
 
 
+PROBE = os.path.join(G.ADDON, "Render3D", "Probe.lua")
+
+
+def probe_rot():
+    """Render3D/Probe.lua's own rotation code (Mul, AXIS, Rot) run by Lua 5.1: the turns the in-game probe's tile 38
+    showed (red dots, 'Y.P.R', all signs +). -> f(order, yaw, pitch, roll) -> 3 x 3 rows."""
+    with open(PROBE, "rb") as fh:
+        src = fh.read().decode("utf-8")
+    parts = []
+    for pat in (r"local function Mul\(a, b\).*?\nend\n", r"local AXIS = \{.*?\n\}\n",
+                r"local function Rot\(order, ang\).*?\nend\n"):
+        m = re.search(pat, src, re.S)
+        assert m, pat
+        parts.append(m.group(0))
+    L = lua51.LuaRuntime(unpack_returned_tuples=True)
+    f = L.execute("local cos, sin = math.cos, math.sin\n" + "".join(parts) +
+                  "return function(order, y, p, r) local m = Rot(order, { y = y, p = p, r = r }) "
+                  "return m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9] end")
+
+    def rot(order, y, p, r):
+        return np.array(f(order, y, p, r), float).reshape(3, 3)
+    return rot
+
+
+@case
+def test_turn_is_the_probes_yaw_pitch_roll():
+    rot = probe_rot()
+    rng = np.random.default_rng(3)
+    for _ in range(200):
+        y, p, r = rng.uniform(-math.pi, math.pi), rng.uniform(-1.5, 1.5), rng.uniform(-math.pi, math.pi)
+        M = G.ypr_matrix(y, p, r)
+        assert np.abs(M - rot("ypr", y, p, r)).max() < 1e-12
+        assert np.abs(G.ypr_matrices([y], [p], [r])[0] - M).max() < 1e-12
+        # (another order is another turn: the order matters)
+        assert np.abs(M - rot("yrp", y, p, r)).max() > 1e-6
+        a = G.ypr_angles(M)
+        assert np.abs(G.ypr_matrix(*a) - M).max() < 1e-9
+    # straight up or down (a floor's or a ceiling's quad): yaw 0, the rest in roll
+    for M in (G.ypr_matrix(0.4, math.pi / 2, -1.1), G.ypr_matrix(-2.0, -math.pi / 2, 0.3)):
+        a = G.ypr_angles(M)
+        assert a[0] == 0 and abs(abs(a[1]) - math.pi / 2) < 1e-12 and np.abs(G.ypr_matrix(*a) - M).max() < 1e-9
+    # a cube under a level floor or behind an upright wall, its grid level, turns about z alone (as v1's did)
+    for h in (0.0, 0.7, 2.5, -1.9):
+        level = [math.cos(h), math.sin(h), 0.0]
+        for a, e1 in (([0.0, 0.0, 1.0], level), ([0.0, 0.0, -1.0], level), (level, [-level[1], level[0], 0.0]),
+                      (level, [0.0, 0.0, 1.0])):
+            a, e1 = np.array(a), np.array(e1)
+            c = G.Standin()
+            c.kind, c.axes = "cube", np.stack([e1, np.cross(a, e1), a])
+            y, p, rr = G.standin_angles(c)
+            M = G.ypr_matrix(y, p, rr)
+            # (the same cube: each of its axes along one of the frame's)
+            assert np.allclose(np.sort(np.abs(M.T @ c.axes.T), axis=1), [[0, 0, 1]] * 3, atol=1e-9)
+            assert abs(p) < 1e-9 and abs(rr) < 1e-9, (h, a, e1, p, rr)
+    # and a region's grid runs along its outline's main heading exactly: wall 87's 47 yd of edges run 1.4 degrees off
+    # level (its grid once ran on whole degrees, 0.6 off: 0.5 yd over that length)
+    r = room()
+    g = next(g for g in G.planar_regions(r) if g.id == 87)
+    assert g.kind == "wall" and G.prepare_region(r, g)
+    A, B, _ = G._outline(r, g)
+    ln = np.linalg.norm(B - A, axis=1)
+    k = int(np.argmax(ln))
+    e = (B[k] - A[k]) / ln[k]
+    assert ln[k] > 10 and min(abs(e @ g.frame.e1), abs(e @ g.frame.e2)) < math.sin(math.radians(0.05)), (ln[k], e)
+
+
+@case
+def test_quads_draw_from_their_front_only_and_split_into_quarters_of_their_shape():
+    r = room()
+    g = next(g for g in sorted(G.planar_regions(r), key=lambda g: -g.area) if g.kind == "floor")
+    assert G.prepare_region(r, g)
+    u, v = g.inner.representative_point().coords[0]
+    q = G.make_quad(g, u, v, 0.1, 1)
+    M = q.axes.T
+    assert np.allclose(M.T @ M, np.eye(3)) and abs(np.linalg.det(M) - 1) < 1e-9       # (a turn: the client's kind)
+    assert np.allclose(q.axes[0], g.n) and abs(q.centre @ g.n - (g.d + g.dlo - G.MARGIN)) < 1e-9
+    assert np.allclose(q.half, [0, G.QUAD_W * 0.05, G.QUAD_H * 0.05])
+    arr = G.standin_arrays([q])
+    assert np.allclose(G.reach(arr), 0)
+    # from in front (over the floor, looking down at it) it draws; from behind (under it, looking up) nothing
+    for side, want in ((1, True), (-1, False)):
+        cam = G.Camera(q.centre + side * 6.0 * g.n, 0.0, side * (math.pi / 2 - 1e-6), W=64, H=48)
+        z, ids = G.render_standins(cam, arr, show=np.array([True]))
+        assert (ids == 0).any() == want, side
+        if want:
+            # the quad's middle is 6 yd away along the view's centre line
+            assert abs(z[24, 32] - 6.0) < 0.05, z[24, 32]
+    # its quarters: half the scale, the same shape and plane, inside it; the smallest quarter is not cut again
+    parts = G.split(q)
+    assert len(parts) == 4 and all(abs(p.s - 0.05) < 1e-12 and p.ori == q.ori for p in parts)
+    for p in parts:
+        assert abs(p.centre @ g.n - q.centre @ g.n) < 1e-9
+        assert q.u0 - 1e-9 <= p.u0 and p.u0 + p.du <= q.u0 + q.du + 1e-9
+        assert q.v0 - 1e-9 <= p.v0 and p.v0 + p.dv <= q.v0 + q.dv + 1e-9
+    assert abs(sum(p.du * p.dv for p in parts) - q.du * q.dv) < 1e-9
+    small = G.make_quad(g, q.u0, q.v0, G.MIN_SCALE * 1.5, 0)
+    assert not G.can_split(small) and G.can_split(G.make_quad(g, q.u0, q.v0, G.MIN_SCALE * 2, 0))
+
+
 @case
 def test_where_the_board_camera_can_stand():
     r = room()
@@ -168,8 +268,15 @@ def test_where_the_board_camera_can_stand():
     assert 80 * math.tan(G.PITCH_MIN) - 0.5 < far <= 100 * math.tan(G.PITCH_MIN), far
     # the board poses stand there, and so do the review's
     cams = G.board_poses(r, view, seed=5, n_orbit=40, n_low=20, n_close=20, n_walk=8, W=64, H=48)
-    for cam in cams + G.review_poses(64, 48):
+    stress = G.stress_poses(r, view, seed=5, n_wall=30, n_under=15, n_graze=15, W=64, H=48, dom=dom)
+    assert len(stress) == 60
+    for cam in cams + stress + G.review_poses(64, 48):
         assert cam.C[2] >= float(dom.low(cam.C)) - 1e-6, (cam.name, cam.C)
+    # the stress poses are what they say: the 'under' ones under a floor
+    for c in stress:
+        if "under" in c.name:
+            h = G.floor_at(r, c.C[0], c.C[1])
+            assert not np.isfinite(h) or h > c.C[2] - 0.05, (c.name, c.C, h)
 
 
 @case
@@ -213,14 +320,23 @@ def test_generator_runs_and_keeps_its_promises():
     ns = L.table()
     L.eval("function(src, ns) assert(loadstring(src))('DisasterZone', ns) end")(text, ns)
     rec = ns.RoomStandins[KEY]
-    assert rec.n == len(b["cubes"]) and len(rec.data) == 12 * rec.n
-    (C, R, S, N), a = arrays([rec.data[i + 1] for i in range(len(rec.data))])
-    want = np.array([list(c.centre) + [c.s] for c in b["cubes"]])
-    dist = np.linalg.norm(C[:, None, :] - want[None, :, :3], axis=2)       # (every written one: its placed twin)
+    assert rec.version == 2 and rec.n == len(b["cubes"]) and len(rec.data) == 12 * rec.n
+    (C, R, H, N, K), a = arrays([rec.data[i + 1] for i in range(len(rec.data))])
+    sis = b["cubes"]
+    assert "quad" in {c.kind for c in sis}
+    want = np.array([c.centre for c in sis])
+    dist = np.linalg.norm(C[:, None, :] - want[None, :, :], axis=2)       # (every written one: its placed twin)
     twin = dist.argmin(1)
     assert dist.min(1).max() < 0.002 and len(set(twin.tolist())) == len(want)
-    assert np.abs(S - want[twin, 3]).max() < 0.0011
-    assert np.abs(N - np.array([b["cubes"][k].n for k in twin])).max() < 1e-4
+    # turned as placed (a cube up to its symmetries), as big, the same normal
+    for i, k in enumerate(twin):
+        c = sis[k]
+        assert np.abs(H[i] - c.half).max() < 0.0011, (H[i], c.half)
+        if c.kind == "quad":
+            assert np.abs(R[i] - c.axes).max() < 5e-5, (R[i], c.axes)
+        else:
+            assert np.allclose(np.sort(np.abs(R[i] @ c.axes.T), axis=1), [[0, 0, 1]] * 3, atol=5e-5)
+    assert np.abs(N - np.array([sis[k].n for k in twin])).max() < 1e-4
 
 
 @case
@@ -231,19 +347,31 @@ def test_shipped_file_has_the_contract_shape():
     assert first == 'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (
         rel, rel), first
     assert len(src.encode("utf-8")) < 300_000, len(src)
-    assert rec["version"] == 1 and rec["stride"] == 12 and rec["nprims"] == 1
-    assert rec["prim"] == dict(fid=167145, kind="cube", half=0.5), rec["prim"]
+    assert rec["version"] == 2 and rec["stride"] == 12 and rec["nprims"] == 2
+    assert rec["prims"][1] == dict(fid=167145, kind="cube", half=0.5), rec["prims"]
+    # the quad as the client's file has it (casc_local + m2_write read 653518: 4 vertices at x -4.0358, y -23.5964 ..
+    # 25.3344, z 1.7645 .. 34.7498)
+    q = rec["prims"][2]
+    assert q["fid"] == 653518 and q["kind"] == "quad", q
+    assert abs(q["w"] - 48.9309) < 1e-4 and abs(q["h"] - 32.9853) < 1e-4, q
+    assert abs(q["cx"] + 4.03583) < 1e-5 and abs(q["cy"] - 0.86901) < 1e-5 and abs(q["cz"] - 18.25718) < 1e-5, q
     # made for the room file shipped next to it (made for another build of the room it would hide the wrong things)
     assert rec["room"] == G.room_stamp(KEY, room()), (rec["room"], G.room_stamp(KEY, room()))
     n = rec["n"]
     assert n > 100 and len(rec["data"]) == 12 * n, (n, len(rec["data"]))
     a = np.array(rec["data"], float).reshape(-1, 12)
     assert np.isfinite(a).all()
-    assert (a[:, 0] == 1).all()                                       # the cube
-    assert (np.abs(a[:, 4]) <= math.pi + 1e-6).all()                  # yaw in -pi .. pi
-    assert (a[:, 5] == 0).all() and (a[:, 6] == 0).all()              # v1: yaw only
-    assert (a[:, 7] >= G.MIN_SIZE - 1e-6).all() and (a[:, 7] <= G.MAX_SIZE + 1e-6).all()
-    assert np.abs(np.linalg.norm(a[:, 8:11], axis=1) - 1).max() < 2e-4
+    quad, cube = a[:, 0] == 2, a[:, 0] == 1
+    assert (quad | cube).all() and quad.sum() > 100
+    assert (np.abs(a[:, 4]) <= math.pi + 1e-6).all() and (np.abs(a[:, 6]) <= math.pi + 1e-6).all()
+    assert (np.abs(a[:, 5]) <= math.pi / 2 + 1e-6).all()
+    # no actor under the scale that cut a hole in game (0.018); quads up to 49 x 33 yd, cubes 0.7 .. 2.3 yd
+    assert (a[quad, 7] >= G.MIN_SCALE - 1e-9).all() and (a[quad, 7] <= G.QUAD_MAX_SCALE + 1e-9).all()
+    assert (a[cube, 7] >= G.MIN_SIZE - 1e-6).all() and (a[cube, 7] <= G.MAX_SIZE + 1e-6).all()
+    assert np.abs(np.linalg.norm(a[:, 8:11], axis=1) - 1).max() < 2e-5
+    # a quad's front (its turned model x) lies along its normal (the runtime refuses one off by 0.1 degree)
+    M = G.ypr_matrices(a[quad, 4], a[quad, 5], a[quad, 6])
+    assert (np.einsum("ij,ij->i", M[:, :, 0], a[quad, 8:11]) > 0.9999985).all()
     assert (a[:, 11] >= 1).all() and (a[:, 11] == np.round(a[:, 11])).all()
     r = room()
     lo, hi = r.V.min(0) - G.MAX_SIZE, r.V.max(0) + G.MAX_SIZE
@@ -253,28 +381,33 @@ def test_shipped_file_has_the_contract_shape():
 @case
 def test_shipped_standins_lie_behind_their_faces_and_clear_of_the_room():
     _, rec = shipped()
-    (C, R, S, N), a = arrays(rec["data"])
+    (C, R, H, N, K), a = arrays(rec["data"])
     import shapely
     r = room()
     regions = {g.id: g for g in G.planar_regions(r)}
     index = G.FaceIndex(r)
     ready = set()
+    kinds = collections.Counter()
+    signs = np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)], float)
     for i in range(len(C)):
         g = regions[int(a[i, 11])]
-        assert g.kind in ("floor", "ceiling", "wall"), g.kind
-        assert abs(N[i] @ g.n - 1) < 1e-3                                  # the normal of the face it is behind
-        corners = C[i] + (np.array([[x, y, z] for x in (-.5, .5) for y in (-.5, .5) for z in (-.5, .5)]) * S[i]) @ R[i]
-        # wholly behind its face's plane, MARGIN or more (the corners' rounding to 1 mm aside)
+        kinds[g.kind] += 1
+        assert abs(N[i] @ g.n - 1) < 1e-4                                  # the normal of the face it is behind
+        corners = C[i] + (signs * H[i]) @ R[i]
+        # wholly behind its face's plane, MARGIN or more (the rounding to 1 mm aside)
         assert (corners @ g.n - (g.d + g.dlo)).max() <= -G.MARGIN + 2e-3, i
-        # never past the face's outline: its square, seen along the cube's axis out of the face, lies inside it
+        # never past the face's outline: its rectangle, seen along the face's normal, lies inside it
         if g.id not in ready:
             G.prepare_region(r, g)
             g.zone = g.poly.buffer(0.003)
             ready.add(g.id)
         uv = np.c_[corners @ g.frame.e1, corners @ g.frame.e2]
         assert shapely.contains_xy(g.zone, uv[:, 0], uv[:, 1]).all(), i
-        # no room face inside it or within half the gap the generator keeps
-        assert index.box_clear(C[i], R[i], np.full(3, S[i] / 2 + G.BACK_GAP / 2 - 0.003)), i
+        # no room face inside it or within half the gap the generator keeps (a quad: round it, and that far
+        # behind and in front of it - its own face lies MARGIN in front)
+        assert index.box_clear(C[i], R[i], H[i] + G.BACK_GAP / 2 - 0.003), i
+    # floors, walls and slopes all have some
+    assert kinds["floor"] > 50 and kinds["wall"] > 50 and kinds["slope"] > 50, kinds
 
 
 @case
@@ -324,7 +457,9 @@ def test_shipped_standins_on_board_poses():
     r = room()
     view, _ = G.room_view(KEY)
     bad = []
-    for cam in G.board_poses(r, view, W=960, H=640, tag="b", **G.BOARD_CHECK)[::12]:
+    cams = G.board_poses(r, view, W=960, H=640, tag="b", **G.BOARD_CHECK)[::12]
+    cams += G.stress_poses(r, view, W=960, H=640, tag="s", **G.STRESS_CHECK)[::7]
+    for cam in cams:
         res, _, _ = G.measure(r, cam, arr)
         if res["over_air"]:
             bad.append((cam.name, res["over_eroded"], res["over_air"]))

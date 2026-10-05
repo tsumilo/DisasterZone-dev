@@ -2,10 +2,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Standins.lua", ...) then 
 -- ns.Render3D.Standins: the stand-in depth mode of a 3D view (the strategy board's /dz 3d standins). The room is drawn
 -- as UI textures, which have no depth; the models stand in ModelScenes, which have. All of the client's model scenes
 -- share one depth buffer, and an opaque UI texture drawn between two of them leaves it as it is (seen in game
--- 2026-10-05). So plain cubes (Blizzard's spells/unitcube.m2) placed just behind the room's surfaces, in a scene under
--- the room and covered by an opaque backdrop (Render3D/View.lua View:StandinScene), are never seen but still hide
--- every model pixel that lies behind a surface of the room - exactly, per pixel, particles too - with no occluder
--- boxes and no copies.
+-- 2026-10-05). So plain models placed just behind the room's surfaces - flat one-sided quads lying in them (a stock
+-- menu quad) and cubes (Blizzard's spells/unitcube.m2) - in a scene under the room and covered by an opaque backdrop
+-- (Render3D/View.lua View:StandinScene), are never seen but still hide every model pixel that lies behind a surface of
+-- the room - exactly, per pixel, particles too - with no occluder boxes and no copies.
 --
 -- The stand-ins are made offline from the room's surfaces (Render3D/Standins/<RoomKey>.lua, data below). A room has
 -- thousands; the client keeps full speed with a few hundred to ~1500 (4000 paused cubes ran at 31-60 fps), so every
@@ -15,13 +15,18 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Standins.lua", ...) then 
 -- moves.
 --
 -- Data (ns.RoomStandins[roomKey], room coordinates as the room files: yd, x east, y north, z over the boss' floor):
---   { version = 1, prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 }, ... }, n = count, stride = 12,
---     data = { numbers; or strings of numbers and tables of them, read in order } }
--- one stand-in = prim index, x, y, z (the prim's origin), yaw, pitch, roll (radians, the client's SetYaw / SetPitch /
--- SetRoll in room coordinates), scale (uniform: the prim's size times it, in yd), nx, ny, nz (the unit normal of the
--- surface it stands behind, to the side the surface is seen from), face (the surface's id: a surface's stand-ins kept
--- together make the regions a redraw turns away whole). A stand-in lies wholly behind its surface, so it matters only
--- while that surface faces the camera.
+--   { version = 2, prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 },
+--                            [2] = { fid = 653518, kind = "quad", w = .., h = .., cx = .., cy = .., cz = .. } },
+--     room = { size = .. }, n = count, stride = 12, data = { numbers; or strings of numbers and tables of them } }
+-- one stand-in = prim index; x, y, z (its anchor: a cube's centre, a quad's middle); yaw, pitch, roll (radians, room
+-- coordinates: the turn R = Rz(yaw) Ry(pitch) Rx(roll), the order the client applies SetYaw, SetPitch and SetRoll in -
+-- roll turns the model first, Render3D/Probe.lua tiles 35-38); scale (the actor's: a cube is 2 half x scale yd a
+-- side, a quad w x h x scale); nx, ny, nz (the unit normal of the surface it stands behind, to the side the surface is
+-- seen from; a quad's front, R's first column, faces it); face (the surface's id: a surface's stand-ins kept together
+-- make the regions a redraw turns away whole). A prim's model point q stands at anchor + scale R (q - c), c = its
+-- middle in model units (cx, cy, cz; 0 for a cube). A quad is the w x h rectangle in its model's y-z plane, drawn from
+-- its front only (one-sided). A stand-in lies wholly behind its surface, so it matters only while that surface faces
+-- the camera. Version 1 data (cubes turned about z) reads the same.
 local _, ns = ...
 
 local R3 = ns.Render3D or {}
@@ -39,7 +44,13 @@ S.BUDGET = 800                   -- stand-ins shown at most (/dz 3d standins bud
 S.MAX_BUDGET = 4000
 -- The only model files a stand-in may load: ones seen loading by file ID in this client. Any other number can crash
 -- it, and a loose file from the addon's folder crashed it after a /reload (2026-10-05).
-local SAFE_FIDS = { [167145] = true }        -- spells/unitcube.m2: an opaque white 1 yd cube centred on its origin
+local SAFE_FIDS = {
+    [167145] = true,             -- spells/unitcube.m2: an opaque white 1 yd cube centred on its origin
+    -- interface/glues/models/ui_mainmenu_cata_lowbandwidth/UI_MainMenu_Cata_LowBandwidth.m2: a 48.93 x 32.99 quad at
+    -- model x = -4.04, one-sided (front +x), unlit, opaque; in game it fills its outline and, from a lower scene,
+    -- cut a model where it stood (probe tiles 53, 54, 60)
+    [653518] = true,
+}
 local SQRT3 = sqrt(3)
 -- Stand-ins in one region at most (a run of one surface in the data, S.Prepare): a long run is cut up so each piece's
 -- ball is small enough to leave the screen or a model's rectangle on its own.
@@ -47,6 +58,9 @@ local REGION_MAX = 32
 local RS = 12                    -- numbers per region in a prepared set's G
 -- A stand-in's normal must be a unit vector to this much: the near clip's guard (S.Select) counts along it in yd.
 local UNIT_TOL = 0.01
+-- A quad's front (its turned model x) must lie along its normal to this much (about 0.1 degree; the generator writes
+-- them exactly): leaning, a big quad would reach out in front of its surface.
+local QUAD_ALIGN = 0.9999985
 local EDGE = 2                   -- px round a model's rectangle
 local DEBUG_ALPHA = 0.5          -- the cubes in debug mode, drawn over the room: see-through, to see both
 
@@ -149,16 +163,35 @@ local function Regions(set)
     set.G, set.ng = G, ng
 end
 
--- A room's stand-ins ready to select from: the flat numbers and per stand-in its radius round its origin (R) and its
--- reach along its normal times the normal's length (E: its surface lies at least that far in front of its origin, so
--- a camera less far out than that is behind the surface), false for one that is never shown (a model file not known
--- to load, no size, a broken number, a normal that is not a unit vector), and the regions (Regions above). -> the
--- set, or nil and why ("none", "unreadable", "empty").
+-- A stand-in's turn (radians, room coordinates): R = Rz(yaw) Ry(pitch) Rx(roll), the order the client applies SetYaw,
+-- SetPitch and SetRoll in (roll turns the model first: probe tile 38, each turn the standard right-handed one about z,
+-- y and x: tiles 35-37). -> R's columns, where the model's x, y and z axes point: nine numbers, x's first.
+local function Turn(yaw, pitch, roll)
+    local cy, sy, cp, sp, cr, sr = cos(yaw), sin(yaw), cos(pitch), sin(pitch), cos(roll), sin(roll)
+    return cy * cp, sy * cp, -sp,
+        -sy * cr + cy * sp * sr, cy * cr + sy * sp * sr, cp * sr,
+        sy * sr + cy * sp * cr, -cy * sr + sy * sp * cr, cp * cr
+end
+S.Turn = Turn
+
+-- A quad prim's numbers: its size and middle (model units), all finite, the size above 0.
+local function QuadPrim(p)
+    return Finite(p.w) and Finite(p.h) and p.w > 0 and p.h > 0 and Finite(tonumber(p.cx) or 0)
+        and Finite(tonumber(p.cy) or 0) and Finite(tonumber(p.cz) or 0)
+end
+
+-- A room's stand-ins ready to select from: the flat numbers and per stand-in its radius round its anchor (R) and its
+-- reach along its normal (E: how far its turned box reaches out along the normal from the anchor - 0 for a quad lying
+-- in its plane; its surface lies at least that far in front of the anchor, so a camera less far out than that is
+-- behind the surface), false for one that is never shown (a model file not known to load, a kind it does not know, no
+-- size, a broken number, a normal that is not a unit vector, a quad whose front does not face along its normal), and
+-- the regions (Regions above). -> the set, or nil and why ("none", "unreadable": also data of a later version than
+-- this file knows, "empty").
 function S.Prepare(rec)
     if type(rec) ~= "table" then return nil, "none" end
     local d = Flat(rec.data)
     local stride = tonumber(rec.stride) or 12
-    if not d or stride < 12 then return nil, "unreadable" end
+    if not d or stride < 12 or (tonumber(rec.version) or 1) > 2 then return nil, "unreadable" end
     stride = floor(stride)
     local n = floor(#d / stride)
     if tonumber(rec.n) then n = min(n, floor(rec.n)) end
@@ -182,16 +215,21 @@ function S.Prepare(rec)
         end
         local nx, ny, nz = d[o + 9], d[o + 10], d[o + 11]
         local len = ok and sqrt(nx * nx + ny * ny + nz * nz) or 0
+        local r, e
         if ok and s > 0 and abs(len - 1) <= UNIT_TOL then
-            local h = (tonumber(p.half) or 0.5) * s
-            local r = h * SQRT3
-            local e = r * len
-            local yaw, pitch, roll = d[o + 5], d[o + 6], d[o + 7]
-            if (p.kind == nil or p.kind == "cube") and pitch == 0 and roll == 0 then
-                -- a cube turned about z: its reach along n is the sum over its three axes
-                local c, sn = cos(yaw), sin(yaw)
-                e = h * (abs(nx * c + ny * sn) + abs(ny * c - nx * sn) + abs(nz))
+            -- how far along n each turned axis runs: the reach is the half extents times these
+            local xx, xy, xz, yx, yy, yz, zx, zy, zz = Turn(d[o + 5], d[o + 6], d[o + 7])
+            local ax, ay, az = nx * xx + ny * xy + nz * xz, nx * yx + ny * yy + nz * yz, nx * zx + ny * zy + nz * zz
+            local kind = p.kind or "cube"
+            if kind == "cube" then
+                local h = (tonumber(p.half) or 0.5) * s
+                r, e = h * SQRT3, h * (abs(ax) + abs(ay) + abs(az))
+            elseif kind == "quad" and QuadPrim(p) and ax >= QUAD_ALIGN * len then
+                local hw, hh = p.w / 2 * s, p.h / 2 * s
+                r, e = sqrt(hw * hw + hh * hh), hw * abs(ay) + hh * abs(az)
             end
+        end
+        if r then
             R[i], E[i] = r, e
             usable = usable + 1
         else
@@ -582,12 +620,18 @@ function Ctl:NewActor()
 end
 
 -- An actor as stand-in i: its model, size, place and turn in the scene as the view places creatures (scene y = room
--- y times the mirror; the client multiplies the position by the scale). The y mirror turns a turn about z or x the
--- other way and keeps one about y: yaw and roll change sign, pitch stays, whatever order the client turns in.
+-- y times the mirror m; the client multiplies the position by the scale). The mirror F (y times m) is a reflection,
+-- not a turn: the room's stand-in F (anchor + s R (q - c)) is drawn by the actor turned by F R F - R with yaw and roll
+-- times m, pitch kept (F turns a turn about z or x the other way and keeps one about y, in any order) - with the
+-- prim's middle c reflected too: the model's origin goes to F (anchor - s R (cx, m cy, cz)). A cube, or a quad about
+-- its middle, is symmetric under that reflection of its model, so the actor covers exactly the reflected stand-in;
+-- and a quad's front (its model x, which the reflection keeps) turns to F n, the reflected normal - the side the
+-- reflected camera stands on - so the one-sided quad is drawn to the same cameras in the scene as in the room.
 function Ctl:Place(a, i)
     local set = self.set
     local d, o = set.d, (i - 1) * set.stride
-    local fid = set.prims[d[o + 1]].fid
+    local p = set.prims[d[o + 1]]
+    local fid = p.fid
     if a.sfid ~= fid then
         a.sfid = fid
         pcall(a.ClearModel, a)
@@ -602,7 +646,15 @@ function Ctl:Place(a, i)
         pcall(a.SetScale, a, s)
     end
     local m = self.mirror or 1
-    pcall(a.SetPosition, a, d[o + 2] / s, m * d[o + 3] / s, d[o + 4] / s)
+    local x, y, z = d[o + 2], d[o + 3], d[o + 4]
+    local cx, cy, cz = tonumber(p.cx) or 0, m * (tonumber(p.cy) or 0), tonumber(p.cz) or 0
+    if cx ~= 0 or cy ~= 0 or cz ~= 0 then
+        local xx, xy, xz, yx, yy, yz, zx, zy, zz = Turn(d[o + 5], d[o + 6], d[o + 7])
+        x = x - s * (cx * xx + cy * yx + cz * zx)
+        y = y - s * (cx * xy + cy * yy + cz * zy)
+        z = z - s * (cx * xz + cy * yz + cz * zz)
+    end
+    pcall(a.SetPosition, a, x / s, m * y / s, z / s)
     pcall(a.SetYaw, a, m * d[o + 5])
     local pitch, roll = d[o + 6], m * d[o + 7]
     if pitch ~= (a.spitch or 0) then
