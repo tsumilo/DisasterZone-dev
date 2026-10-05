@@ -511,5 +511,41 @@ def item_tooltips_name_the_crafters():
     w.assert_no_errors()
 
 
+@case
+def a_recipe_shows_its_materials_with_shift_and_the_wheel_sets_the_amount():
+    w, g, a, b = ui_world()
+    b.eval("ns.MembersUI:SetMode('recipes')")
+    b.eval("""
+      T_row = nil
+      ns.MembersUI:GetPanel().recipes.box:ForEachFrame(function(row)
+        local d = row.__cdlData
+        if d and d.r.spell == 28587 then T_row = row end
+      end)
+      T_row:GetScript("OnEnter")(T_row)""")
+
+    def left_lines():
+        return b.eval_py("""
+          local out = {}
+          for i = 1, GameTooltip:NumLines() do
+            out[#out + 1] = (_G["GameTooltipTextLeft" .. i]:GetText() or ""):gsub("|T[^|]*|t", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+          end
+          return out""")
+    side = "return DisasterZoneRecipeTooltip and DisasterZoneRecipeTooltip:IsShown() or false"
+    text = left_lines()
+    assert text[-1] == "Hold Shift: materials" and b.eval(side), text
+    b.set_modifiers(shift=True)
+    text = left_lines()
+    # Flask of Fortification's first reagent, by the data
+    first =b.eval_py("return ns.Atlas:GetCraft(-28587).reagents[1]")
+    name = b.eval("return ns.Atlas:GetShippedName(...)", first["id"])
+    assert "Materials" in text and any(name in x for x in text) and text[-1] == "Mouse wheel: change the amount", text
+    assert not b.eval(side), "the recipe's own tooltip at the side duplicates the materials"
+    b.eval("T_row:GetScript('OnMouseWheel')(T_row, 1)")
+    assert "Materials ×2" in left_lines(), left_lines()
+    b.set_modifiers(shift=False)
+    assert left_lines()[-1] == "Hold Shift: materials" and b.eval(side), left_lines()
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

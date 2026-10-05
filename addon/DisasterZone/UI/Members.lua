@@ -268,10 +268,12 @@ end
 local reagentTip
 local function showRecipeTooltip(owner, recipe)
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    local T = ns.Tooltip
     if recipe.item > 0 then
-        if ns.Tooltip then ns.Tooltip.skipCrafters = true end   -- the crafters are listed below
+        -- the crafters and the materials are listed below
+        if T then T.skipCrafters, T.noMats = true, true end
         GameTooltip:SetItemByID(recipe.item)
-        if ns.Tooltip then ns.Tooltip.skipCrafters = nil end
+        if T then T.skipCrafters, T.noMats = nil, nil end
     elseif not setRecipeSpell(GameTooltip, recipe.spell) then
         GameTooltip:AddLine(recipe.name, 1, 0.82, 0)
     end
@@ -284,8 +286,14 @@ local function showRecipeTooltip(owner, recipe)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(("Made by %d in the guild (%d online)"):format(#recipe.crafters, online), 1, 0.82, 0)
     GameTooltip:AddLine(table.concat(names, ", ") .. (more > 0 and grey(" +" .. more) or ""), 1, 1, 1, true)
+    -- Shift: the materials (Shift + mouse wheel: how many), in place of the recipe's tooltip at the side
+    local matsHint = T and T:AddMaterials(GameTooltip, -recipe.spell)
+    if matsHint then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(matsHint, 0.7, 0.7, 0.7)
+    end
     GameTooltip:Show()
-    if recipe.item > 0 then
+    if recipe.item > 0 and not (matsHint and IsShiftKeyDown()) then
         if not reagentTip then
             reagentTip = CreateFrame("GameTooltip", "DisasterZoneRecipeTooltip", UIParent, "GameTooltipTemplate")
         end
@@ -297,6 +305,8 @@ local function showRecipeTooltip(owner, recipe)
         else
             reagentTip:Hide()
         end
+    elseif reagentTip then
+        reagentTip:Hide()
     end
 end
 
@@ -692,11 +702,13 @@ local function initRecipeRow(row, d)
             if not r then return end
             if IsShiftKeyDown() then linkRecipe(r) else MembersUI:SelectRecipe(r.spell) end
         end)
-        row:SetScript("OnEnter", function(self)
+        local function onEnter(self)
             local r = self.__cdlData and self.__cdlData.r
             if r then showRecipeTooltip(self, r) end
-        end)
+        end
+        row:SetScript("OnEnter", onEnter)
         row:SetScript("OnLeave", hideRecipeTooltip)
+        if ns.Tooltip then ns.Tooltip:CraftRow(row, onEnter) end   -- Shift: materials, + mouse wheel: how many
     end
     local r = d.r
     row.icon:SetTexture(P():GetRecipeIcon(r))
@@ -887,6 +899,13 @@ local function detailWidgets(row)
         local d = self.__cdlData
         if d and d.kind ~= "recipe" then ns.UI:HideTooltip() else hideRecipeTooltip() end
     end)
+    -- Shift: a recipe's (or crafted gear's) materials, + mouse wheel: how many
+    if ns.Tooltip then
+        ns.Tooltip:CraftRow(row, function(self)
+            local d = self.__cdlData
+            if d and (d.kind == "recipe" or d.kind == "gear") then self:GetScript("OnEnter")(self) end
+        end)
+    end
 end
 
 -- A recipe's name under its group, without the group's words ("Enchant Bracer - Spellpower" under "Enchant Bracer").
@@ -1503,6 +1522,11 @@ local function createCard(p)
         end
     end)
     right.headHit:SetScript("OnLeave", hideRecipeTooltip)
+    if ns.Tooltip then
+        ns.Tooltip:CraftRow(right.headHit, function(self)
+            if state.mode == "recipes" then self:GetScript("OnEnter")(self) end
+        end)
+    end
     right.title = text(right, "GameFontNormalLarge", 18)
     right.title:SetPoint("TOPLEFT", 56, -5)
     right.dot = disc(right, "ARTWORK", 0, 7)

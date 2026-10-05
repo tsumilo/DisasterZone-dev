@@ -80,6 +80,10 @@ ns.CHANGELOG = {
               "Drag it into the room: a ring on the floor and a see-through you show where you will land.",
               "The ring turns red where there is nothing to stand on, and letting go there does nothing.",
           } },
+          { heading = "Crafting materials", lines = {
+              "Hold Shift over anything crafted: its materials, and how many you have in bags and bank.",
+              "In Atlas and Members, Shift + mouse wheel sets how many to make; the materials add up.",
+          } },
           { heading = "Members", lines = {
               "The roster lists online players first, then away, then offline; the highest level first.",
               "A member's Characters card lists their raid teams: click one to open it in the Raids tab.",

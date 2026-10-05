@@ -600,14 +600,20 @@ local function RowTooltip(row)
             tt:AddLine(" ")
             tt:AddLine(Atlas():LocationText(d.loc) or "", 0.7, 0.7, 0.7, true)
         end
-        if id > 0 and #Atlas():GetBiSTargets(id) > 0 then
-            tt:AddLine(" ")
-            tt:AddLine("Right-click: add to your BiS list", 0.55, 0.8, 1)
-        end
-        if d.loc and IsSearching() then tt:AddLine("Click: open its page", 0.55, 0.8, 1) end
+        -- a craft's materials (Shift held), then the hints
+        local matsHint = ns.Tooltip and ns.Tooltip:AddMaterials(tt, id)
+        local hints = {}
+        if id > 0 and #Atlas():GetBiSTargets(id) > 0 then hints[#hints + 1] = "Right-click: add to your BiS list" end
+        if d.loc and IsSearching() then hints[#hints + 1] = "Click: open its page" end
+        hints[#hints + 1] = matsHint
+        if #hints > 0 then tt:AddLine(" ") end
+        for _, h in ipairs(hints) do tt:AddLine(h, 0.55, 0.8, 1) end
     end
     if id > 0 then
+        local T = ns.Tooltip
+        if T then T.noMats = true end   -- the materials go under the row's own lines (extra)
         ns.UI:SetItemTooltip(row, id, extra)
+        if T then T.noMats = nil end
     else
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         if GameTooltip.SetSpellByID then
@@ -727,6 +733,8 @@ local function SetupItemRow(row)
         -- the cursor went onto the + (still over the row): stay hovered
         if not (self.plus:IsShown() and self:IsMouseOver()) then SetRowHover(self, false) end
     end)
+    -- Shift: a craft's materials; Shift + mouse wheel: how many to make
+    if ns.Tooltip and ns.Tooltip.CraftRow then ns.Tooltip:CraftRow(row, RowTooltip) end
 end
 
 local function InitItemRow(row, d)

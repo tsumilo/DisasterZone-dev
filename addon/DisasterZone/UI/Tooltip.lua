@@ -33,6 +33,11 @@ local FALLBACK_COLORS = {
 local cache, cacheSize = {}, 0
 local hooked = {}                               -- [tooltip] = true
 local truncated = setmetatable({}, { __mode = "k" })  -- [tooltip] = { entries, start, line } for Shift-expand
+local matsOn = setmetatable({}, { __mode = "k" })     -- [tooltip] = the line of its "Materials" header
+local mats = { n = 1 }                                -- the materials amount and the id it is for
+local MATS_MAX = 999
+-- the tooltips that get materials (not the comparison tooltips Shift also opens)
+local MATS_TOOLTIPS = { "GameTooltip", "ItemRefTooltip" }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -289,18 +294,31 @@ local function MaxNames()
     return max(1, min(40, floor(n)))
 end
 
+-- Does tt show a materials block now? (Its header line is checked: a tooltip can be re-set without a clear event.)
+local function HasMaterials(tt)
+    local line = matsOn[tt]
+    if not line then return false end
+    local name = tt.GetName and tt:GetName()
+    local fs = name and line <= tt:NumLines() and _G[name .. "TextLeft" .. line]
+    local text = fs and fs:GetText()
+    if text and text:find("^Materials") then return true end
+    matsOn[tt] = nil
+    return false
+end
+
 local function OnSetItem(tt)
     if not tt.GetItem then return end
     local _, link = tt:GetItem()
     if type(link) ~= "string" then return end
     local itemID = tonumber(link:match("item:(%d+)"))
     if not itemID or itemID <= 0 then return end
-    if HasMarker(tt) then return end   -- hooks can fire more than once per tooltip
+    if HasMarker(tt) or HasMaterials(tt) then return end   -- hooks can fire more than once per tooltip
     Tooltip:AddLines(tt, itemID)
 end
 
 local function OnCleared(tt)
     truncated[tt] = nil
+    matsOn[tt] = nil
 end
 
 -- Appends the DisasterZone lines for itemID to a tooltip. Returns true if anything was added.
@@ -338,8 +356,121 @@ function Tooltip:AddLines(tt, itemID)
         tt:AddLine(crafted, 1, 1, 1, true)
         added = true
     end
+    -- (an Atlas / Members row puts the materials under its own lines)
+    if not Tooltip.noMats and (tt == _G.GameTooltip or tt == _G.ItemRefTooltip) then
+        self:AddMaterials(tt, itemID)
+        if HasMaterials(tt) then added = true end
+    end
     if added then tt:Show() end
     return added
+end
+
+---------------------------------------------------------------------------
+-- Materials (Shift): what the craft making an item needs, times an amount the mouse wheel sets over a list row
+---------------------------------------------------------------------------
+local function ShiftDown()
+    return (_G.IsShiftKeyDown and _G.IsShiftKeyDown()) and true or false
+end
+
+local function ReagentText(id)
+    local icon = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)) or (_G.GetItemIcon and _G.GetItemIcon(id))
+    local name, quality
+    if C_Item and C_Item.GetItemInfo and (not C_Item.IsItemDataCachedByID or C_Item.IsItemDataCachedByID(id)) then
+        local _
+        name, _, quality = C_Item.GetItemInfo(id)
+    end
+    name = name or (ns.Atlas and ns.Atlas:GetShippedName(id)) or ("item " .. id)
+    local qc = quality and _G.ITEM_QUALITY_COLORS and _G.ITEM_QUALITY_COLORS[quality]
+    if qc and qc.hex then name = qc.hex .. name .. "|r" end
+    return (icon and ("|T" .. icon .. ":14:14:0:0:64:64:5:59:5:59|t ") or "") .. name
+end
+
+local function HaveCount(id)
+    local count = _G.GetItemCount or (C_Item and C_Item.GetItemCount)
+    return tonumber(count and count(id, true)) or 0   -- bags and bank
+end
+
+-- Adds the materials of the craft that makes id (an item id, or -spellID of a craft spell) to tt while Shift is
+-- held: each reagent with how many I have (bags and bank) and need for the amount. Returns the hint a list row shows
+-- ("Hold Shift: materials", then "Mouse wheel: change the amount"), or nil when no craft makes id.
+function Tooltip:AddMaterials(tt, id)
+    local craft = tt and ns.Atlas and ns.Atlas.GetCraft and ns.Atlas:GetCraft(id)
+    if not craft then return nil end
+    if mats.id ~= id then mats.id, mats.n = id, 1 end
+    if not ShiftDown() then return "Hold Shift: materials" end
+    local n = mats.n
+    tt:AddLine(" ")
+    tt:AddDoubleLine(n > 1 and ("Materials ×" .. n) or "Materials",
+        craft.made > 1 and ("makes " .. craft.made * n) or "", 1, 0.82, 0, GREY, GREY, GREY)
+    matsOn[tt] = tt:NumLines()
+    for _, r in ipairs(craft.reagents) do
+        local need, have = r.count * n, HaveCount(r.id)
+        local c = have >= need and Color("obtained") or { 0.8, 0.8, 0.8 }
+        tt:AddDoubleLine(ReagentText(r.id), have .. "/" .. need, 1, 1, 1, c[1], c[2], c[3])
+    end
+    -- a list row (Tooltip:CraftRow) takes the mouse wheel while its materials show
+    local owner = tt.GetOwner and tt:GetOwner()
+    if owner and owner.__dzCraftTip then owner:EnableMouseWheel(true) end
+    return "Mouse wheel: change the amount"
+end
+
+-- The amount the materials are shown for (1 until the mouse wheel changes it over a craft's row).
+function Tooltip:GetMaterialsAmount()
+    return mats.n
+end
+
+-- Turns the wheel for the nearest parent that scrolls (the list), as if the row had no wheel of its own.
+local function ForwardWheel(frame, delta)
+    local p = frame:GetParent()
+    while p do
+        local fn = p.GetScript and p:GetScript("OnMouseWheel")
+        if fn then return fn(p, delta) end
+        p = p:GetParent()
+    end
+end
+
+-- A list row whose tooltip (drawn by show(row)) can show a craft's materials: pressing or releasing Shift redraws
+-- it, and while the materials show (Shift held) the mouse wheel over the row changes the amount. The row takes the
+-- wheel only then, so otherwise the wheel scrolls the list as it always did.
+function Tooltip:CraftRow(row, show)
+    row.__dzCraftTip = show
+    row:SetScript("OnMouseWheel", function(self, delta)
+        if ShiftDown() and GameTooltip:IsShown() and GameTooltip:IsOwned(self) and HasMaterials(GameTooltip) then
+            local n = max(1, min(MATS_MAX, mats.n + (delta > 0 and 1 or -1)))
+            if n ~= mats.n then
+                mats.n = n
+                show(self)
+            end
+        else
+            self:EnableMouseWheel(false)
+            ForwardWheel(self, delta)
+        end
+    end)
+    row:EnableMouseWheel(false)
+    row:HookScript("OnLeave", function(self) self:EnableMouseWheel(false) end)
+end
+
+-- Shift went down or up: a list row's tooltip is redrawn (with or without the materials); any other item tooltip
+-- gets the materials added under it when Shift goes down.
+local function MaterialsShift(down)
+    local owner = GameTooltip:IsShown() and GameTooltip:GetOwner()
+    local redrawn = owner and owner.__dzCraftTip
+    if redrawn then
+        owner:EnableMouseWheel(false)   -- AddMaterials gives it back while the materials show
+        owner.__dzCraftTip(owner)
+    end
+    if not down then return end
+    for _, name in ipairs(MATS_TOOLTIPS) do
+        local tt = _G[name]
+        if tt and tt:IsShown() and tt.GetItem and not (redrawn and tt == GameTooltip) and not HasMaterials(tt) then
+            local _, link = tt:GetItem()
+            local id = type(link) == "string" and tonumber(link:match("item:(%d+)"))
+            if id then
+                Tooltip:AddMaterials(tt, id)
+                if HasMaterials(tt) then tt:Show() end
+            end
+        end
+    end
 end
 
 -- Shift pressed while a truncated tooltip is shown: turn the "+K more" line into the next name
@@ -404,8 +535,10 @@ function Tooltip:OnLogin()
         self:HookTooltip(_G[name])
     end
     ns:RegisterEvent("MODIFIER_STATE_CHANGED", function(_, key, down)
-        if (key == "LSHIFT" or key == "RSHIFT") and (down == 1 or down == true) then
-            ExpandTruncated()
+        if key == "LSHIFT" or key == "RSHIFT" then
+            down = down == 1 or down == true
+            MaterialsShift(down)
+            if down then ExpandTruncated() end
         end
     end)
 end
