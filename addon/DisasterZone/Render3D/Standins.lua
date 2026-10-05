@@ -535,8 +535,12 @@ function Ctl:Off()
 end
 
 -- cfg: budget (stand-ins at most), all (debug: every one facing the camera and in view, not only those over a
--- model), debug (the cubes drawn over the room, see-through), flag (SetAllowOverlappedModels on the stand-in scene:
--- a test of the client's unexplained flag, off unless asked).
+-- model), debug (the cubes drawn over the room, see-through), flag (SetAllowOverlappedModels on the stand-in scene,
+-- the caller's default on). The flag clears the whole screen's shared depth buffer just before a flagged scene draws,
+-- when it draws anything (solo probe tiles 21, 22, 44-46, 2026-10-05): on the lowest scene of the board it wipes
+-- the depth other addons' or Blizzard's model frames left earlier in the frame, and the stand-ins then write the
+-- room's. The creature scenes keep it off: they must test against that depth. In debug the scene draws over the
+-- creatures, where a clear would wipe their depth too, so the flag is off there.
 function Ctl:Configure(cfg)
     cfg = cfg or {}
     local budget = max(0, min(S.MAX_BUDGET, floor(tonumber(cfg.budget) or S.BUDGET)))
@@ -549,7 +553,7 @@ function Ctl:Configure(cfg)
         self.debug = debug
         for _, a in ipairs(self.pool) do self:Alpha(a) end
     end
-    local flag = cfg.flag and true or false
+    local flag = (cfg.flag and not debug) and true or false
     if flag ~= self.flag then
         self.flag = flag
         local sc = self.scene

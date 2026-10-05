@@ -1629,8 +1629,9 @@ end
 
 -- The stand-in depth mode's settings (V:SyncStandins), for this session only: on, debug (the cubes drawn over the
 -- room, see-through), all (debug: every one facing the camera, not only those over a model), flag (the client's
--- SetAllowOverlappedModels on the stand-in scene, untested), budget (stand-ins shown at most).
-M3.standins = { on = false, debug = false, all = false, flag = false, budget = 800 }
+-- SetAllowOverlappedModels on the stand-in scene: on by default, it wipes depth other model frames left on the screen
+-- before the stand-ins write theirs; off only to test), budget (stand-ins shown at most).
+M3.standins = { on = false, debug = false, all = false, flag = true, budget = 800 }
 
 -- /dz 3d standins [on | off | debug [on | off | all] | flag on | off | budget N]: changes a setting, then says what
 -- the stand-ins do in the open view.

@@ -21,7 +21,8 @@ keeps the box mode and says so once per turn-on; Kil'jaeden stands in the backdr
 for the creature scene in the mode and goes back without it, each actor back in its own scene's pool; Magtheridon's
 Lair turns on with its shipped stand-ins, all usable, and the board's selection matches the rules from a round of
 cameras; actors without SetPaused freeze with SetAnimation(0, 0, 0, 0); debug raises the scene
-over the room with see-through cubes (all: every one in view), the client's flag is called only when asked; walking,
+over the room with see-through cubes (all: every one in view), the client's depth-clearing flag is on for the stand-in
+scene alone (never a creature scene), off in debug and with 'flag off'; walking,
 your character stays in the second scene and the stand-ins between the camera and you are shown; no Lua errors.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_standins.py [-k name]
@@ -138,9 +139,11 @@ idx.SetAnimation = function(self, id, variation, speed, offset)
   if self.sfid and speed == 0 then self.frozen = true __SI.frozen = __SI.frozen + 1 end
   return __SI.setanim(self, id, variation, speed, offset)
 end
+__SI.flagScenes = {}
 __MOCK.Methods.ModelScene.SetAllowOverlappedModels = function(self, v)
   __SI.flagCalls = __SI.flagCalls + 1
   __SI.flag = v
+  __SI.flagScenes[self] = v
 end
 """
 
@@ -797,12 +800,20 @@ def magtheridons_lair_turns_on_with_its_shipped_stand_ins_and_shows_those_in_fro
 
 
 @case
-def debug_shows_the_cubes_over_the_room_and_the_flag_is_only_set_when_asked():
+def debug_shows_the_cubes_over_the_room_and_the_flag_is_on_in_the_depth_layer_only():
     w, bob = board()
     g = bob.eval_py("return T3.groups(10)")
     assert bob.slash("/dz 3d standins on")
-    assert bob.eval("return __SI.flagCalls") == 0                       # (the client's default, untouched)
+    # on by default on the stand-in scene (its draw clears the screen's depth first), never on the creature scenes
+    assert bob.eval_py("return { __SI.flagCalls, __SI.flag }") == [1, True]
+    scenes = bob.eval_py("""
+        local view = T3.v().view
+        return { main = __SI.flagScenes[view.scene] or false, two = view.scene2 and __SI.flagScenes[view.scene2] or false,
+                 si = __SI.flagScenes[view.sceneS] or false }""")
+    assert scenes == {"main": False, "two": False, "si": True}, scenes
+    # debug draws the scene over the creatures: the flag off there (a clear would wipe their depth)
     assert bob.slash("/dz 3d standins debug")
+    assert bob.eval_py("return { __SI.flagCalls, __SI.flag }") == [2, False]
     d = bob.eval_py("""
         local v = T3.v() local s = v.view.sceneS local n, a5 = 0, 0
         for _, a in pairs(v.standins.at) do n = n + 1 if a.alpha == 0.5 then a5 = a5 + 1 end end
@@ -818,10 +829,12 @@ def debug_shows_the_cubes_over_the_room_and_the_flag_is_only_set_when_asked():
         for _, a in pairs(v.standins.at) do if a.alpha == 1 then n = n + 1 end end
         return { level = v.view.sceneS:GetFrameLevel() - v.frame:GetFrameLevel(), n = n, all = #T3.shown() }""")
     assert d == {"level": 1, "n": 10, "all": 10}, d
-    assert bob.slash("/dz 3d standins flag on")
-    assert bob.eval_py("return { __SI.flagCalls, __SI.flag }") == [1, True]
+    # back in the depth layer: on again; 'flag off' is the opt-out for testing, 'flag on' undoes it
+    assert bob.eval_py("return { __SI.flagCalls, __SI.flag }") == [3, True]
     assert bob.slash("/dz 3d standins flag off")
-    assert bob.eval_py("return { __SI.flagCalls, __SI.flag }") == [2, False]
+    assert bob.eval_py("return { __SI.flagCalls, __SI.flag }") == [4, False]
+    assert bob.slash("/dz 3d standins flag on")
+    assert bob.eval_py("return { __SI.flagCalls, __SI.flag }") == [5, True]
     n0 = len(bob.chat_frame)
     bob.slash("/dz 3d standins")
     said = [str(x) for x in bob.chat_frame[n0:]]
