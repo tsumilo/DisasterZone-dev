@@ -1,6 +1,9 @@
 """Read-only reader for the installed client's CASC storage (C:/World of Warcraft/Data, product wow_anniversary): a game
-file by FileDataID, exactly as the user's client has it (the wago.tools downloads differ: 101 of 290 WMO groups had about
-9% fewer triangles). From the 2026-10-05 depth research; caches its tables under dev/art/casc, per build."""
+file by FileDataID, exactly as the user's client has it. The wago.tools downloads are not tied to one build, so they
+mixed builds: Karazhan's WMO root had 133 materials against the client's 135, shifted from the 30th on, so its groups'
+material numbers pointed at the wrong textures; Sunwell's root had 115 against 113. (The client's own groups are also
+cut into more triangles than the downloads, over the same area.) From the 2026-10-05 depth research; caches its tables
+under dev/art/casc, per build."""
 import os, struct, zlib, pickle
 
 BASE = r"C:\World of Warcraft"
@@ -234,10 +237,9 @@ def _read_root():
             for f, h in zip(fids, struct.unpack_from("<%dQ" % n, d, pos)):
                 hashes.setdefault(h, f)
             pos += 8 * n
-        if loc & 0x2 or loc == 0xFFFFFFFF or loc & 0x1FFFF == 0x1FFFF or True:
-            for f, c in zip(fids, ck):
-                if f not in out or (loc & 0x2):
-                    out[f] = c
+        for f, c in zip(fids, ck):                         # (every locale's block; enUS (0x2) wins a file it shares)
+            if f not in out or (loc & 0x2):
+                out[f] = c
     _save(out, os.path.join(CACHE, "root_%s.pickle" % build_name()))
     _save(hashes, os.path.join(CACHE, "names_%s.pickle" % build_name()))
     return out, hashes

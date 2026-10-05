@@ -54,6 +54,9 @@ DIST = os.path.join(REPO, "dist")
 PROTECTED = ("Core/Boot.lua", "Core/BuildInfo.lua", "Core/BootEnd.lua", "Core/Outbox.lua")
 TOOL_MANAGED = ("Core/BuildInfo.lua", "Core/Outbox.lua")      # rewritten per release: not part of the build id
 DOC_EXT = (".md", ".txt")
+# The loose-model probe (dev/generators/gen_probe.py): test files for one in-game session on the development copy.
+# Never part of a release or an update, so the tree walk below does not see them at all.
+DEV_ONLY = ("Media/Probe/",)
 GUARD_RE = re.compile(rb'^if DisasterZoneBoot and DisasterZoneBoot\.Run\("([^"]+)", \.\.\.\) then return end ?')
 
 
@@ -103,7 +106,9 @@ def all_files(addon_dir):
     for root, dirs, files in os.walk(addon_dir):
         dirs[:] = [d for d in dirs if d not in (".git", "__pycache__")]
         for f in files:
-            out.append(os.path.relpath(os.path.join(root, f), addon_dir).replace("\\", "/"))
+            rel = os.path.relpath(os.path.join(root, f), addon_dir).replace("\\", "/")
+            if not rel.startswith(DEV_ONLY):
+                out.append(rel)
     return sorted(out)
 
 

@@ -192,14 +192,6 @@ local MKR = { A = {}, S = {}, K = {}, C = {}, n = 0 }
 
 local floorCells, TRI                                              -- floor triangles by 4 yd square (FloorZ)
 
--- Depth slices (Room.SetSlices): the room cut into K bands of depth along the view axis at cuts[1..K-1] (yd, near to
--- far), each band's pieces in a copy of their cluster frame (band b, frame f: roomFrames[(b - 1) * nFrames + f]; band 1
--- = the frames themselves), stacked far band to near band with a level left after each band for that band's model
--- scene (the view's slice scenes, clipped to the same depths: the client cuts the models per pixel, so the room hides
--- them by depth without any boxes or copies). LB: each leaf's band; lv: the slice scenes' levels after a redraw.
-local SL = { on = false, K = 1, cuts = {}, LB = {}, lv = {}, seen = {}, st = 0, lists = {}, A = {}, B = {}, map = {},
-             next = 0 }
-
 ---------------------------------------------------------------------------
 -- Preparing a mesh (once per room)
 ---------------------------------------------------------------------------
@@ -787,7 +779,7 @@ local function Emit(q, tx)
         LR[q + 7], LR[q + 8]
     local k = QN[p]
     if not tx then
-        tx = Acquire(SL.on and SL.Frame(frameOf[k], SL.LB[q / 12 + 1]) or frameOf[k], QPOOL[p])
+        tx = Acquire(frameOf[k], QPOOL[p])
         live[key] = tx
         nLive = nLive + 1
         liveList[nLive] = tx
@@ -826,21 +818,19 @@ local function Emit(q, tx)
     LR[q + 11], LR[q + 12] = (x2 > x4) and x2 or x4, (y2 > y4) and y2 or y4
 end
 
--- The point where segment i -> j meets the plane D yd deep (default: the near plane; exactly: linear in the room and
--- in camera space).
-local function ClipPoint(i, j, D)
-    D = D or NEAR
+-- The point where segment i -> j meets the near plane (exactly: linear in the room and in camera space).
+local function ClipPoint(i, j)
     local di = PD[i]
-    local t = (D - di) / (PD[j] - di)
+    local t = (NEAR - di) / (PD[j] - di)
     nTmp = nTmp + 1
     local id = TMP0 + nTmp
     WX[id] = WX[i] + (WX[j] - WX[i]) * t
     WY[id] = WY[i] + (WY[j] - WY[i]) * t
     WZ[id] = WZ[i] + (WZ[j] - WZ[i]) * t
     local r, u = PR[i] + (PR[j] - PR[i]) * t, PU[i] + (PU[j] - PU[i]) * t
-    PR[id], PU[id], PD[id] = r, u, D
+    PR[id], PU[id], PD[id] = r, u, NEAR
     DU[id], DV[id] = DU[i] + (DU[j] - DU[i]) * t, DV[i] + (DV[j] - DV[i]) * t
-    PX[id], PY[id] = cx + (r * exx + u * eyx) / D, cy + (r * exy + u * eyy) / D
+    PX[id], PY[id] = cx + (r * exx + u * eyx) / NEAR, cy + (r * exy + u * eyy) / NEAR
     PS[id] = gen
     return id
 end
@@ -848,7 +838,7 @@ end
 -- A piece to draw (a leaf of the halvings): recorded in LR (8 numbers per leaf: prim, key, corners 3 or 4, the
 -- four corner points, clipped), drawn once the whole redraw is known to fit (Pass2). A redraw whose tau is still
 -- the controller's to move and that runs past the hard cap stops at once (aborted) and is done again coarser.
-function SL.Record(p, key, n, c1, c2, c3, c4, clipped, band)
+local function Leaf(p, key, n, c1, c2, c3, c4, clipped)
     local i = nLeaves + 1
     nLeaves = i
     if i > hardCap and redoOK then
@@ -858,73 +848,6 @@ function SL.Record(p, key, n, c1, c2, c3, c4, clipped, band)
     local o = i * 12 - 12
     LR[o + 1], LR[o + 2], LR[o + 3], LR[o + 4], LR[o + 5], LR[o + 6], LR[o + 7], LR[o + 8] =
         p, key, n, c1, c2, c3, c4, clipped
-    SL.LB[i] = band
-end
-
--- With depth slices: the piece cut at the cuts it crosses (Sutherland-Hodgman on each band's two planes), each part
--- recorded with its band; keys: + (band - 1) * 2^40 (band 1 keeps the piece's own key), + 2^46 for the second texture
--- of a part with 5 or 6 corners.
-SL.BANDK, SL.PARTK = 2 ^ 40, 2 ^ 46
-local function Leaf(p, key, n, c1, c2, c3, c4, clipped)
-    local Record = SL.Record
-    if not SL.on then return Record(p, key, n, c1, c2, c3, c4, clipped, 1) end
-    local cuts, K = SL.cuts, SL.K
-    local A = SL.A
-    A[1], A[2], A[3], A[4] = c1, c2, c3, c4
-    local bmin, bmax = K, 1
-    for i = 1, n do
-        local d, b = PD[A[i]], 1
-        while b < K and d >= cuts[b] do b = b + 1 end
-        if b < bmin then bmin = b end
-        if b > bmax then bmax = b end
-    end
-    if bmin == bmax then return SL.Record(p, key + (bmin - 1) * SL.BANDK, n, c1, c2, c3, c4, clipped, bmin) end
-    local P = SL.A
-    for band = bmin, bmax do
-        -- (A holds the piece; each band starts from it again)
-        local m = n
-        local src, dst = SL.src or {}, SL.dst or {}
-        SL.src, SL.dst = src, dst
-        for i = 1, n do src[i] = P[i] end
-        for pass = 1, 2 do
-            local D = (pass == 1) and (band > 1 and cuts[band - 1]) or (pass == 2 and band < K and cuts[band])
-            if D then
-                local k = 0
-                for i = 1, m do
-                    local a, b = src[i], src[(i < m) and (i + 1) or 1]
-                    local ain = (pass == 1) and PD[a] >= D or (pass == 2 and PD[a] <= D)
-                    local bin = (pass == 1) and PD[b] >= D or (pass == 2 and PD[b] <= D)
-                    if ain then
-                        k = k + 1
-                        dst[k] = a
-                    end
-                    if ain ~= bin then
-                        k = k + 1
-                        dst[k] = ClipPoint(a, b, D)
-                    end
-                end
-                m = k
-                src, dst = dst, src
-                if m < 3 then break end
-            end
-        end
-        if m >= 3 then
-            local kb = key + (band - 1) * SL.BANDK
-            if m == 3 then
-                SL.Record(p, kb, 3, src[1], src[2], src[3], src[3], true, band)
-            elseif m == 4 then
-                SL.Record(p, kb, 4, src[1], src[2], src[3], src[4], true, band)
-            else
-                SL.Record(p, kb, 4, src[1], src[2], src[3], src[4], true, band)
-                if m == 5 then
-                    SL.Record(p, kb + SL.PARTK, 3, src[1], src[4], src[5], src[5], true, band)
-                else
-                    SL.Record(p, kb + SL.PARTK, 4, src[1], src[4], src[5], src[6], true, band)
-                end
-            end
-        end
-        if aborted then return end
-    end
 end
 
 -- A piece that crosses the near plane, cut there (Sutherland-Hodgman, spec 5.8): 3 or 4 corners are one texture;
@@ -1336,7 +1259,6 @@ local function Pass2()
         gen = gen + 1                                                  -- (the morph depends on tau: prepare again)
     end
     redoOK = false
-    if SL.on then SL.Levels() end
     local g = gen
     for i = 1, nLeaves do                                              -- pieces drawn again keep their texture
         local tx = live[LR[i * 12 - 10]]
@@ -2965,125 +2887,6 @@ end
 -- Setup and control
 ---------------------------------------------------------------------------
 
----------------------------------------------------------------------------
--- Depth slices
----------------------------------------------------------------------------
-
--- Band b's copy of cluster frame f (band 1 is the frame itself): the next frame after the room's own, given out when
--- first needed (only the copies a redraw uses exist: a big room in 8 bands would otherwise make 2000+ frames at once -
--- "script ran too long" in game); SL.map forgets them when the room changes (Room.SetMesh).
-function SL.Frame(f, b)
-    if not b or b <= 1 then return f end
-    local key = (b - 1) * nFrames + f
-    local idx = SL.map[key]
-    if not idx then
-        SL.next = SL.next + 1
-        idx = SL.next
-        SL.map[key] = idx
-        if not roomFrames[idx] then RoomFrame(idx) end
-        roomFrames[idx].on = false
-    end
-    local fr = roomFrames[idx]
-    if not fr.on then
-        fr:Show()
-        fr.on = true
-    end
-    return idx
-end
-
--- The levels of a redraw's pieces (after Collect): far band to near band, in each the frames it uses in their order
--- (Pass1's fOrd), then a level for that band's model scene (SL.lv[b]). Levels run from room0 to under the plates;
--- past that (more frames than levels) the nearest bands' frames share the top level.
-function SL.Levels()
-    local K = SL.K
-    SL.st = SL.st + 1
-    local st, seen, lists = SL.st, SL.seen, SL.lists
-    for b = 1, K do
-        local l = lists[b]
-        if not l then
-            l = {}
-            lists[b] = l
-        end
-        for j = #l, 1, -1 do l[j] = nil end
-    end
-    for i = 1, nLeaves do
-        local b = SL.LB[i] or 1
-        local f = frameOf[QN[LR[i * 12 - 11]]]
-        local idx = (b - 1) * nFrames + f
-        if seen[idx] ~= st then
-            seen[idx] = st
-            local l = lists[b]
-            l[#l + 1] = f
-        end
-    end
-    local function byOrd(a, b) return fOrd[a] < fOrd[b] end
-    local L, top = V + LVt.room0, V + (LVt.plates or LVt.scene) - 1
-    for b = K, 1, -1 do
-        local l = lists[b]
-        table.sort(l, byOrd)
-        for j = 1, #l do
-            local fr = roomFrames[SL.Frame(l[j], b)]
-            local lvl = (L < top) and L or top
-            if fr.lvl ~= lvl then
-                fr:SetFrameLevel(lvl)
-                fr.lvl = lvl
-            end
-            L = L + 1
-        end
-        SL.lv[b] = (L < top) and L or top
-        L = L + (SL.M or 1)
-    end
-    SL.used = L - (V + LVt.room0)
-end
-
--- Room.SetSlices(cuts, M): draw in depth slices cut at these depths (yd along the view axis, ascending, all past the
--- near plane; K = #cuts + 1 bands), M levels for model scenes after each band (one per model: the view layers them by
--- distance), or nil / {} to go back to one band (the models in the one scene, the copies). Redraws when anything
--- changed. -> the number of bands.
-function Room.SetSlices(cuts, M)
-    local K = (type(cuts) == "table" and #cuts > 0) and (#cuts + 1) or 1
-    M = M or 1
-    local changed = (K > 1) ~= SL.on or K ~= SL.K or M ~= SL.M
-    SL.M = M
-    if not changed and K > 1 then
-        for i = 1, K - 1 do
-            if cuts[i] ~= SL.cuts[i] then changed = true break end
-        end
-    end
-    if not changed then return K end
-    for i = 1, K - 1 do SL.cuts[i] = cuts[i] end
-    for i = K, #SL.cuts do SL.cuts[i] = nil end
-    local was = SL.on
-    SL.on, SL.K = K > 1, K
-    if was and not SL.on then forceOrder = true end      -- (back to Pass1's levels)
-    dirty, camMoved = true, haveBasis
-    return K
-end
-
--- Tests: after a redraw in slices, how many pieces have a corner outside their band (1e-3 yd), and how many used band
--- frames sit out of order (not over the farther band's scene, or not under their own band's scene).
-function Room._SliceCheck()
-    if not SL.on then return nil end
-    local bad, order, n = 0, 0, 0
-    local cuts, K = SL.cuts, SL.K
-    for i = 1, nLeaves do
-        local o = i * 12 - 12
-        local b = SL.LB[i] or 1
-        local lo, hi = (b > 1) and cuts[b - 1] or -math.huge, (b < K) and cuts[b] or math.huge
-        for c = 1, LR[o + 3] do
-            local d = PD[LR[o + 3 + c]]
-            if d < lo - 1e-3 or d > hi + 1e-3 then bad = bad + 1 break end
-        end
-        local fr = roomFrames[SL.Frame(frameOf[QN[LR[o + 1]]], b)]
-        n = n + 1
-        if not (fr.lvl < SL.lv[b] and (b == K or fr.lvl >= SL.lv[b + 1] + (SL.M or 1))) then order = order + 1 end
-    end
-    return bad, order, n
-end
-
--- The slice scenes' levels after the last redraw (band 1 the nearest), how many levels the redraw used, the cuts.
-function Room.SliceLevels() return SL.lv, SL.used or 0, SL.cuts end
-
 -- view: the clipping frame everything hangs in; sc: its ModelScene; lv: frame levels above the view's own
 -- (lines, room0, scene, ...); near: the scene's near clip.
 function Room.Attach(v, sc, lv, near)
@@ -3140,8 +2943,6 @@ function Room.SetMesh(mesh)
     Room.Clear()
     curMesh = mesh
     meshOk = (view ~= nil and type(mesh) == "table") and Prepare(mesh) or false
-    wipe(SL.map)                                         -- (the band frames: given out again for this room)
-    SL.next = nFrames
     if not meshOk and mesh and not warned then
         warned = true
         if ns.Print then ns:Print("%s: this room has too many parts for the 3D renderer", Room.label) end

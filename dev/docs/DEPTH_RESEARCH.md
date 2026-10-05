@@ -245,7 +245,7 @@ Copies stay as the fallback, and also cover the few see-through room surfaces (a
 
 Two existing notes are now wrong and should be corrected: dev/docs/trainer_renderer_v2/findings.md:89 and the comment at View.lua:266-268.
 
-- [verified] ModelScenes and Model frames write into ONE shared depth buffer. It is not cleared per scene, per frame level, or by creation order. A model in a later-drawn scene is depth-tested against every model drawn earlier, as if all were seen by the same camera.: In-game SceneTest (UI/StrategyMap3D.lua:1462-1534): two scenes on levels base+3 and base+6, both with clips 0.5/500. The player stayed in front in all 4 order/level setups.
+- [verified] ModelScenes and Model frames write into ONE shared depth buffer. It is not cleared per scene, per frame level, or by creation order. A model in a later-drawn scene is depth-tested against every model drawn earlier, as if all were seen by the same camera.: In-game SceneTest (UI/StrategyMap3D.lua:1462-1534 at commit 5d873fa; removed since): two scenes on levels base+3 and base+6, both with clips 0.5/500. The player stayed in front in all 4 order/level setups.
 
 An independent addon author found the same with PlayerModel unit-frame portraits. Observation 2: if model A is below model B in frame space, A takes part in occluding B. Observation 3: the effect follows the shared camera space.
 
@@ -260,7 +260,7 @@ ModelSceneMixin.lua:11-12 calls SetAllowOverlappedModels(true) when self.allowOv
 
 The wiki says it was added in retail 11.2.5 (2025-10-07).
 
-How to confirm (T3): rerun SceneTest with the farther creature's scene on the higher level and SetAllowOverlappedModels(true). If the creature now covers the player, true means 'ignore earlier depth'. Also print GetAllowOverlappedModels() on a fresh scene.
+How to confirm (T3): probe panel 3 (`/dz 3d probe`, Render3D/Probe.lua) puts the farther creature's scene on the higher level with SetAllowOverlappedModels(true). If the creature now covers the player, true means 'ignore earlier depth'. Also print GetAllowOverlappedModels() on a fresh scene.
 
 Use: leave it false on the proxy and creature scenes. If it does act as a depth clear, it is also the tool that would make banded depth slicing correct. (https://raw.githubusercontent.com/Gethe/wow-ui-source/2.5.5/Interface/AddOns/Blizzard_APIDocumentationGenerated/FrameAPIModelSceneFrameDocumentation.lua (lines 36, 349); https://raw.githubusercontent.com/Gethe/wow-ui-source/classic_anniversary/Interface/AddOns/Blizzard_SharedXML/ModelSceneMixin.xml (lines 18-23) and ModelSceneMixin.lua (lines 11-13); https://warcraft.wiki.gg/wiki/API_ModelScene_SetAllowOverlappedModels)
 - [likely] Each scene stores depth relative to its own near/far clips, as a standard perspective projection does. Depth from scenes with different clips cannot be compared, which is why depth slicing failed. Every scheme that relies on cross-scene depth needs identical camera, FOV, near/far and viewport rectangle in all scenes.: With D3D-style depth z = f/(f-n)·(1-n/z):
@@ -268,9 +268,9 @@ Use: leave it false on the proxy and creature scenes. If it does act as a depth 
 - The player at 6.9 yd, in the scene clipped 5.5-8.25 and drawn later, gets 0.61, fails the test and is hidden. That is exactly what was seen.
 - With reversed depth the values are 0.59 and 0.39, with the same outcome.
 
-The SliceTest 'joins seamlessly' result (StrategyMap3D.lua:1607-1691) does not contradict this. Back faces are culled, so the far half of a roughly convex body adds few camera-facing pixels, and that test barely depended on cross-scene depth.
+The SliceTest 'joins seamlessly' result (StrategyMap3D.lua:1607-1691 at commit 5d873fa; removed since) does not contradict this. Back faces are culled, so the far half of a roughly convex body adds few camera-facing pixels, and that test barely depended on cross-scene depth.
 
-Project3DPointTo2D returns a third value, 'depth', in 2.5.5. T7: print it for a fixed point while changing the near/far clips to see the normalisation directly. (FrameAPIModelSceneFrameDocumentation.lua (2.5.5) lines 330-345; UI/StrategyMap3D.lua:1607-1691; Render3D/View.lua:377-396 (SetSliceClips))
+Project3DPointTo2D returns a third value, 'depth', in 2.5.5. T7 (probe panel 7): print it for a fixed point while changing the near/far clips to see the normalisation directly. (FrameAPIModelSceneFrameDocumentation.lua (2.5.5) lines 330-345; at commit 5d873fa, UI/StrategyMap3D.lua:1607-1691 and Render3D/View.lua:377-396 (SetSliceClips), both removed since)
 - [verified] UI textures are never depth-tested against models. A region on a higher frame level always paints over a ModelScene on a lower level. Inside one frame, ModelScene:SetDrawLayer and Model:SetModelDrawLayer place the model among that frame's own texture layers. Two items on the same level, layer and sublevel have no defined order.: In game, the copies method works: room copies at copy0 and above hide models in the scene at LV.scene (View.lua:21-22, StrategyMap3D.lua:40).
 
 Blizzard's TBC shop uses StoreCardDetail_SetLayerAboveModelScene to raise buttons above a card's model: self:SetFrameLevel(modelScene:GetFrameLevel()+1) at Blizzard_StoreUISecure.lua:4274-4279.
@@ -553,7 +553,7 @@ MODE B: partly.
 
 **fallback:** If no loose model loads AND depth does not survive UI drawn between scenes, there is no native path to correct room depth. In that case:
 
-1. If test 3 shows that SetAllowOverlappedModels(true) isolates each scene's depth, depth slicing (already built behind `/dz 3d slices`) becomes correct: same-scene sorting within a band, frame-level order between bands. Its error is bounded by band thickness, so it is not per-pixel exact.
+1. If test 3 shows that SetAllowOverlappedModels(true) isolates each scene's depth, depth slicing (built behind `/dz 3d slices` until it was removed; the code is in git at commit 5d873fa) becomes correct: same-scene sorting within a band, frame-level order between bands. Its error is bounded by band thickness, so it is not per-pixel exact.
 2. Otherwise keep today's box mode, but feed it better occluders built offline from the true skinned mesh:
    - per-bone convex hulls, measured at 0.05-0.28% wrong pixels against 3-10% today;
    - a pose frozen with SetAnimation(anim, 0, 0, t) so the hulls match what is drawn;
@@ -623,7 +623,7 @@ Also add a third scene with a big model in MEDIUM strata under the panel: does i
 - (ii) a skin-reuse packer for 189641 / skin 494450 that assigns room triangles and quads to the 1,700 free pieces and collapses the rest;
 - (iii) a full writer with its own .skin and many batches for A1.
 Add a strict validator that parses every file back (index ranges, bone and lookup sizes, box). Nothing unvalidated ships.
-- 3. Test kit: the Media/Test files from test 1 plus one dev command, `/dz 3d gputest`, in UI/StrategyMap3D.lua next to SceneTest. It has two tabs: Loose models, and Depth through UI (with the flag and cost buttons). Delete it once the decision is made.
+- 3. Test kit: the Media/Test files from test 1 plus one dev command, `/dz 3d gputest`. It has two tabs: Loose models, and Depth through UI (with the flag and cost buttons). Delete it once the decision is made. (Built as `/dz 3d probe` in Render3D/Probe.lua, with its files in Media/Probe; SceneTest is gone.)
 - 4. The user runs the session once (full restart first). Record the results in project memory and pick a mode: Mode A if test 1 passes; Mode B if test 1 fails and test 2 passes; otherwise the fallback.
 - 5A. gen_rooms emits per-instance region tiles (about 64 yd) as M2 files in scene coordinates: WMO groups, terrain, MLIQ and MH2O liquids, and static doodads skinned at Stand t=0 with m2_anim. It also emits a Lua manifest per encounter (paths, tile origins, expected boxes, animated-doodad placements, the floor-face set) plus the reduced Lua collision, walk and floor-grid data.
 - 6A. In View.lua, add View:LoadRoomModels(manifest): actors in the main scene (and floor tiles in P for the floor split), SetModelByPath(path, true), scale 1, verified on OnModelLoaded with a timeout. Report ready or failed, and never switch modes while files are still loading.
@@ -1066,7 +1066,7 @@ HONEST COST FINDING FOR B (my measurements):
 - Cell 4, loose M2 (Logs\Model.log afterwards). For each variant, print C_UIFileAsset.IsLooseFile/GetFileID, SetModelByPath's return value, IsLoaded, GetModelFileID and GetActiveBoundingBox: A, a 191087 copy scaled x3 with its real SFID; B, MD20 with sq_b00.skin (v274 and v264); C, MD21 without SFID plus sq_c00.skin; D, the Mod-blend invisible square in front of a creature in a lower scene with no texture between. PASS for D: an invisible cut-out in the creature.
 
 **build_plan:**
-- 0. Depth lab: DepthLab in UI/StrategyMap3D.lua next to SceneTest, and dev/generators/gen_m2_testfiles.py writing Media/Test/*.m2, .skin and .blp. Remove SliceTest and the slices mode once results are in.
+- 0. Depth lab: built as the probe, `/dz 3d probe` in Render3D/Probe.lua, with dev/generators/gen_probe.py writing Media/Probe/*.m2 and .skin. SceneTest, PairTest, SliceTest and the slices mode were removed after their results were recorded above (they remain in git at commit 5d873fa).
 - 1. Exact data: move the scratchpad's local CASC reader into dev/generators/casc_local.py and point gen_rooms.casc() at the user's install. Rebuild ONE room and compare renders before rebuilding all.
 - 2. One model scene with identical clips everywhere: the walker and remote walkers join the main scene; remove BACKDROP and scene0-for-creatures; turn View:Backdrop into the L0 depth scene plus the cover frame; re-level LV (L0 = 1, cover = 2, room0 from 4).
 - 3. Doodads: wmo_tools.read_doodads (MODS/MODN/MODD/MODI), ADT MDDF, crop to the room box, new room section; spawn actors in L3 with the calibrated Euler order; add M2 collision to the walk data later.

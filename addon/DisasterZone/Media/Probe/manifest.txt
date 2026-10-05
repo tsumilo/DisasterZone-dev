@@ -1,0 +1,89 @@
+DisasterZone loose-model probe (dev/generators/gen_probe.py; never shipped: release.py leaves Media/Probe out)
+Built from the installed client 2.5.6.69795. Load each with actor:SetModelByPath("Interface\AddOns\DisasterZone\Media\Probe\<file>").
+Positions in yards with SetUseCenterForOrigin(false, false, false): the model's origin on the actor position.
+Control: the stock cube, actor:SetModelByFileID(167145) (centred, 1 yd).
+
+Loading (a malformed loose file may crash the client, and a crash loses every result of that run):
+  - probe_copy, probe_box_md21, probe_checker and probe_depth in one run; /reload to save its results.
+  - Then probe_box_noskin and probe_box_md20, each alone (/dz 3d probe only noskin, only md20): no client
+    model loads that way (MD21 without SFID, non-chunked MD20), so either may be the one that crashes.
+  - Note GetCVar("forceLODCheck"). By default the client takes a model's LOD count from its ModelFileData
+    row (a loose file has none); with forceLODCheck on it scans the model's folder for skin files instead (the
+    setting's help text in the executable). If md21, noskin or md20 shows nothing, load it once more with
+    forceLODCheck 1, then set it back.
+
+probe_copy.m2
+  1922 bytes, sha256 adbbb9d9d39c6698
+  bounds x -0.5..0.5, y -0.5..0.5, z -0.5..0.5 yd, radius 0.866
+  MD21, version 274, chunks MD21,TXAC,LDV1,SFID,TXID
+  Byte-identical copy of spells/unitcube.m2 (FileDataID 167145): a grey-white cube, 1 x 1 x 1 yd, centred on the
+  actor position (-0.5..0.5 on every axis). Skin 492738 and texture 167204 by FileDataID. Control: does a loose
+  byte copy load at all? A cube here may still be the cached game cube (the client caches models by content key,
+  and these are the very same bytes): the proof that loose files are read is probe_box_md21.m2 filling its 3 x 1
+  x 2 frame (its bounding box and GetModelFileID).
+
+probe_box_md21.m2
+  1922 bytes, sha256 f8c8b6b48f854901
+  bounds x 0..3, y 0..1, z 0..2 yd, radius 1.871
+  MD21, version 274, chunks MD21,TXAC,LDV1,SFID,TXID
+  note: game skin 492738: submesh 0: sort radius 0.8660 below its farthest vertex 3.7417 (borrowed skin: used for sorting only)
+  The unit cube's file with its 24 vertices moved: a box 3 yd along +x, 1 yd along +y, 2 yd up (+z), bounds x
+  0..3, y 0..1, z 0..2, one corner exactly on the actor position (SetUseCenterForOrigin(false, false, false)).
+  Same SFID (skin 492738) and TXID (167204) as the cube. A 3 x 1 x 2 box proves the loose body was read (not the
+  cached game cube); its long side on +x and its height on +z show the axes and handedness. Showing nothing: see
+  forceLODCheck under Loading above.
+
+probe_box_noskin.m2
+  1910 bytes, sha256 010e19902962bcfb
+  bounds x 0..3, y 0..1, z 0..2 yd, radius 1.871
+  MD21, version 274, chunks MD21,TXAC,LDV1,TXID
+  The same box (x 0..3, y 0..1, z 0..2) without the SFID chunk. Its triangles exist only in
+  probe_box_noskin00.skin next to it: the box shows only if the client finds a loose skin by name for an MD21
+  model. Texture by TXID 167204. No client model loads this way: load it alone (see Loading above).
+
+probe_box_noskin00.skin
+  384 bytes, sha256 b2cc4d0d2e5bbf56
+  Skin of probe_box_noskin.m2: 24 vertices, 12 triangles, 1 submesh, 1 batch (Blizzard's unit cube skin 492738
+  with the submesh centre and radius of the box).
+
+probe_box_md20.m2
+  1888 bytes, sha256 67327cb6382a080d
+  bounds x 0..3, y 0..1, z 0..2 yd, radius 1.871
+  MD20 (not chunked), version 274, chunks none
+  The same box (x 0..3, y 0..1, z 0..2) as a legacy non-chunked MD20 file (version 274, no SFID/TXID/TXAC/LDV1
+  chunks); its texture is named 'SPELLS\WHITE1.BLP' (the client's root maps that name to 167204). Shows only if
+  the client loads a non-chunked model, finds probe_box_md2000.skin by name and the texture by name. No client
+  model loads this way: load it alone (see Loading above).
+
+probe_box_md2000.skin
+  384 bytes, sha256 b2cc4d0d2e5bbf56
+  Skin of probe_box_md20.m2 (the same bytes as probe_box_noskin00.skin).
+
+probe_checker.m2
+  84114 bytes, sha256 ca2d3c1fdc52a85c
+  bounds x 0..4, y 0..4, z 0..0 yd, radius 2.828
+  MD21, version 274, chunks MD21,TXAC,LDV1,SFID,TXID
+  note: game skin 496338: submesh 0: sort radius 4.1172 below its farthest vertex 5.7769 (borrowed skin: used for sorting only)
+  note: game skin 496338: shadow batches [(16, 2, 0, 0, 0, 65535, 0)], the client's rule gives [(16, 3, 0, 0, 0, 65535, 0)] (borrowed skin, made for its own model's materials)
+  A flat checkerboard 4 x 4 yd at z 0 (x 0..4, y 0..4): 8 x 8 cells of 0.5 yd, the cell at the actor position
+  filled and every other one after it (32 filled), each showing the whole texture of hellfiresupplies_01 (a 2 x 2
+  atlas of wooden crate sides; the quarter with a red emblem should sit in each cell's +x / -y quarter if texture
+  coordinate 0, 0 is the image's top left). Body: model 193019 with its 1736 vertices rewritten (32 of skin
+  496338's 434 separate quads laid on the cells, the rest collapsed onto the origin); two-sided; SFID 496338 and
+  TXID kept; collision removed. Proves our own geometry can be drawn through a Blizzard skin.
+
+probe_depth.m2
+  1922 bytes, sha256 e0260a6609092166
+  bounds x 0..4, y 0..4, z 0..0 yd, radius 2.828
+  MD21, version 274, chunks MD21,TXAC,LDV1,SFID,TXID
+  note: game skin 492738: submesh 0: sort radius 0.8660 below its farthest vertex 5.6569 (borrowed skin: used for sorting only)
+  note: game skin 492738: shadow batches [(16, 3, 0, 0, 0, 65535, 0)], the client's rule gives [] (borrowed skin, made for its own model's materials)
+  A 4 x 4 yd square at z 0 (x 0..4, y 0..4), unlit, unfogged (a scene's fog colour cannot tint through it), blend
+  Mod (frame colour x texel) over particles/white_64.blp (FileDataID 1097337: every texel exactly 255, 255, 255),
+  two-sided, depth test and depth write on. If it works it is INVISIBLE yet hides models drawn after it (in
+  scenes drawn later) behind it. Mod is a transparent blend: the client draws it after the opaque pass, so it
+  never hides an opaque model of its own scene, and which of two scenes draws first is not known: call depth
+  write broken only if no arrangement shows a hole (the square's scene below and above the cube's, created before
+  and after it). Keep it alone in its scene: its borrowed skin sorts it by the unit cube's sphere (centre 0, 0,
+  0, radius 0.866), wrongly against other transparent things such as particle glows. Built from the unit cube
+  (skin 492738 by SFID): one face moved, the other five collapsed onto the origin.
