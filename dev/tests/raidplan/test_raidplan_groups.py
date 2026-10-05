@@ -251,10 +251,10 @@ def teams_grid_moves_swaps_buffs_and_saves():
     tip = [strip_codes(l) for l, _ in tt_lines(bob)]
     bob.leave(wf)
     assert "Picked for this group: mostly melee." in tip, tip
-    # a faint line between seats: on seats 2-5, not above the first
-    rules = bob.eval_py("local out = {}; for s, ch in ipairs(%s.boxes[1].chips) do out[s] = ch.rule ~= nil end;"
+    # empty seats: a faint fill for who can drop a player there (no lines between the seats)
+    seats = bob.eval_py("local out = {}; for s, ch in ipairs(%s.boxes[2].chips) do out[s] = ch.seat:IsShown() end;"
                         " return out" % grid)
-    assert list(rules.values() if isinstance(rules, dict) else rules) == [False, True, True, True, True], rules
+    assert list(seats.values() if isinstance(seats, dict) else seats) == [True] * 5, seats
     # group 1 is full: dropping on the box is refused, dropping onto a member swaps
     n0 = len(bob.chat_frame)
     bob.eval("%s:Drop(..., 1)" % grid, K("Moon"))

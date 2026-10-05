@@ -643,7 +643,9 @@ PANEL = r"""
       for _, btn in ipairs(b.actionButtons) do
         if btn:IsShown() then btns[#btns + 1] = btn:GetText() or "?" end
       end
-      out.blocks[#out.blocks + 1] = { item = b.itemID, rows = rows, buttons = btns, count = b.count:GetText() or "",
+      local more = {}
+      for _, e in ipairs(DP:GetMoreActions(b)) do more[#more + 1] = e.label end
+      out.blocks[#out.blocks + 1] = { item = b.itemID, rows = rows, buttons = btns, more = more,
         none = b.none:IsShown() and b.none:GetText() or "" }
     end
   end
@@ -665,8 +667,8 @@ def the_plain_roll_panel():
     p = bob.eval_py(PANEL)
     assert p["shown"] and p["lock"] is False, p
     b = p["blocks"][0]
-    assert b["rows"] == [] and b["none"] == "Not rolled yet" and b["count"] == "", b
-    assert "Roll" in b["buttons"] and "Announce" in b["buttons"], b
+    assert b["rows"] == [] and b["none"] == "", b              # (1.3.1: no "Not rolled yet" line: Roll says it)
+    assert "Roll" in b["buttons"] and "Announce" in b["more"], b
     assert bob.eval("return ns.DropPanel:BuildAnnounceLine(...)", item).count("BiS") == 0
     bob.click(bob.eval("return ns.DropPanel.blocks[1].rollBtn"))
     w.tick(1)

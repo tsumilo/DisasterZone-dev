@@ -597,7 +597,8 @@ def right_click_adds_to_my_bis_best_and_alt():
     assert top[:2] == [c.eval("return ns.Atlas:GetName(...)", GAUNTLETS), "Add to my BiS list"], top
     assert "Try on" in top and "Link in chat" in top, top
     phases = [t for d, t in menu if d == 1]
-    assert phases[0].startswith("Phase 1") and "(now)" in phases[0], phases
+    assert phases[0] == "Pre-raid", phases
+    assert phases[1].startswith("Phase 1") and "(now)" in phases[1], phases
     assert "Phase 1 and later" in phases, phases
     pick(c, "Add to my BiS list", "Phase 1", "As best")
     assert slot(c, 1, 7) == [GAUNTLETS], slot(c, 1, 7)
@@ -610,6 +611,30 @@ def right_click_adds_to_my_bis_best_and_alt():
     row = c.eval("return T_atlas_itemrow(...)", GAUNTLETS)
     mark = strip_codes(c.eval("local r = ...; return r.mark:GetText()", row))
     assert "P1" in mark, mark
+    no_errors(w)
+
+
+@case
+def pre_raid_entry_and_marks():
+    w, c = setup()
+    menu_for(c, GAUNTLETS)
+    pick(c, "Add to my BiS list", "Pre-raid", "As best")
+    assert slot(c, 0, 7) == [GAUNTLETS] and slot(c, 1, 7) == [], (slot(c, 0, 7), slot(c, 1, 7))
+    marks = c.eval_py("local m = ns.Atlas:GetMyListMarks()[...] return m and m.main", GAUNTLETS)
+    assert marks == {0: True} or marks == [True] or (isinstance(marks, dict) and set(marks) == {0}), marks
+    # the row's mark names the Pre-raid list (before the raid phases)
+    c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
+    w.tick(0.2)
+    row = c.eval("return T_atlas_itemrow(...)", GAUNTLETS)
+    assert "Pre-raid" in strip_codes(c.eval("local r = ...; return r.mark:GetText()", row))
+    for p in (1, 2, 3):
+        c.eval("ns.BiS:SetSlot(..., 7, 'main', select(2, ...))", p, GAUNTLETS)
+    assert c.eval("return ns.Atlas:PhasesText(ns.Atlas:GetMyListMarks()[...].main)", GAUNTLETS) == "Pre-raid, P1-3"
+    assert c.eval("return ns.Atlas:PhasesText({ [0] = true })") == "Pre-raid"
+    assert c.eval("return ns.Atlas:PhasesText({ [2] = true, [4] = true })") == "P2, P4"
+    # the menu marks the Pre-raid entry as on the list
+    pre = [e[2] for e in menu_texts(menu_for(c, GAUNTLETS)) if e[0] == 1 and (e[2] or "").startswith("Pre-raid")]
+    assert len(pre) == 1 and "|T" in pre[0], pre      # (the check icon after the name)
     no_errors(w)
 
 
@@ -683,6 +708,47 @@ def off_spec_and_locked_lists():
     assert any("BiS lists are locked by Lee" in (t or "") for t in texts), texts
     assert not any(t and t.startswith("Add to") for t in texts), texts
     assert "Link in chat" in texts
+    no_errors(w)
+
+
+@case
+def hover_plus_adds_to_my_bis():
+    w, c = setup()
+    c.eval("ns.AtlasUI:Select('raids', 'Karazhan', 'Attumen')")
+    w.tick(0.2)
+
+    def plus_shown(item_id):
+        row = c.eval("return T_atlas_itemrow(...)", item_id)
+        assert row is not None, item_id
+        c.hover(row)
+        return row, c.eval("local r = ...; return r.plus:IsShown()", row)
+
+    row, shown = plus_shown(GAUNTLETS)
+    assert shown is True
+    # the + menu goes straight to the phases (no off spec), the right-click menu's choices
+    c.click(c.eval("local r = ...; return r.plus", row))
+    top = [t for d, t in flat(c.last_menu()) if d == 0]
+    assert top[0] == c.eval("return ns.Atlas:GetName(...)", GAUNTLETS) and top[1] == "Pre-raid", top
+    assert top[2].startswith("Phase 1"), top
+    pick(c, "Phase 1", "As best")
+    assert slot(c, 1, 7) == [GAUNTLETS], slot(c, 1, 7)
+    w.tick(0.3)
+    # nothing to add for what isn't gear (the page's mount / pattern), nor for gear my class can't use
+    ids = item_ids(c)
+    non_gear = c.eval_py("local o = {} for _, id in ipairs(...) do if #ns.ItemDB:GetSlotsForItem(id) == 0 then o[#o + 1] = id end end return o", ids)
+    assert non_gear and plus_shown(non_gear[0])[1] is False, non_gear
+    assert plus_shown(STEELHAWK)[1] is False
+    # the stars beside the boss count my picks there
+    star = c.eval("""local _, p = ns.AtlasUI:GetLists()
+      for _, r in ipairs(p.box:GetFrames()) do
+        local d = rawget(r, '__cdlData')
+        if d and d.page and d.page.key == 'Attumen' then return r.tag:GetText() end
+      end""")
+    assert strip_codes(star or "").strip() == "1", star
+    # locked lists: no + at all
+    c.eval("ns.BiS.IsLocked = function() return true, { by = 'Lee-Realm', at = 0 } end; ns.AtlasUI:RefreshItems()")
+    w.tick(0.2)
+    assert plus_shown(HARBINGER)[1] is False
     no_errors(w)
 
 

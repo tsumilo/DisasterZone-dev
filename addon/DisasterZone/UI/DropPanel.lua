@@ -5,9 +5,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/DropPanel.lua", ...) then retur
 -- so every popup closes (ADDENDUM C §23.2). The raid leader can lock / unlock the group's BiS lists from
 -- the footer, and candidates / roll rows of players who changed their list while locked carry a warning
 -- marker (ADDENDUM F §38). ADDENDUM G: council votes on roll rows (a vote column you click to vote), award
--- reasons ("Award to X as ▸", "Reason ▸"), and one-click DE / Bank buttons for the guild's disenchanter / bank.
+-- reasons ("Award to X as ▸", "Reason ▸"), and DE / Bank hand-outs to the guild's disenchanter / bank.
 -- 1.3: a raid that runs rolls without the loot council gets a plain roll panel (PlainMode): items, rolls and awards,
 -- no BiS candidates, badges, votes or lock button.
+-- 1.3.1 (the in-raid makeover): the boss on its raid's art; each item a flat card with the candidates (class circle,
+-- presence dot, BiS / Alt / OS pill), one action row (the roll button, then the one gold award: Award, or Award to
+-- the suggested roller) and a More menu for the occasional ones (Announce, Disenchant, Guild bank, award to someone
+-- else). The toast has the Dungeons tab's ping look.
 local addonName, ns = ...
 
 local DropPanel = ns:NewModule("DropPanel")
@@ -24,10 +28,26 @@ local ipairs, pairs, type, tonumber, tostring, pcall = ipairs, pairs, type, tonu
 -- Constants
 ---------------------------------------------------------------------------
 local PANEL_NAME = "DisasterZoneDropPanel"
-local PANEL_W, PANEL_MIN_H, PANEL_MAX_H = 430, 150, 520
-local HEADER_H, FOOTER_H, SCROLLBAR_W = 40, 30, 26
-local ITEM_HEAD_H, ROW_H, ACTION_H, BLOCK_GAP = 36, 18, 22, 8
-local ROLL_ROW_H = 20
+-- One grid (the makeover brief): PAD at the window's sides, GAP between blocks, CARD_PAD inside an item card. The
+-- window's content area is PANEL_W - 12 wide (BasicFrameTemplateWithInset); the scroll bar sits in the right PAD.
+local PANEL_W, PANEL_MIN_H, PANEL_MAX_H = 460, 170, 560
+-- (anchored to the window itself: the content area starts INSET_L / INSET_T in, as CreateWindow places it)
+local INSET_L, INSET_T, INSET_B = 6, 26, 6
+local CONTENT_W = PANEL_W - 2 * INSET_L
+local PAD, GAP, CARD_PAD = 10, 8, 12
+local CARD_W = CONTENT_W - 2 * PAD
+local BANNER_H = 46                         -- the boss banner (the raid's loading-screen art)
+local FOOTER_H = GAP + 22 + 8               -- Announce all / Roll all / the lock button
+local ICON_SIZE = 32
+local TEXT_X = CARD_PAD + ICON_SIZE + 10    -- the item's name, its rows and its actions line up here
+local ROW_W = CARD_W - TEXT_X - CARD_PAD
+local ITEM_HEAD_H = 10 + ICON_SIZE + 6      -- the rows start here
+local ROW_H, ACTION_H = 20, 22
+local ROLL_ROW_H = ROW_H
+local SLOT_W = 70                           -- the roll button's slot: Roll / End roll / Re-roll / Cancel
+local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
+local EDGE = { 0.34, 0.34, 0.38, 0.5 }
 local MAX_ROWS = 8
 local MAX_ROLL_ROWS = 10
 local ROLL_TICK = 0.5         -- countdown refresh while a roll of the shown drop is open
@@ -54,12 +74,12 @@ local FALLBACK_COLORS = {
     offspec  = { 0.72, 0.60, 0.92 },
 }
 
--- Row column layouts {x, width} (rows are ~384px wide at PANEL_W 430; the equipped icons sit
--- right-aligned in the last 34px). Spec needs ~70px for "Beast Mastery" / "Assassination".
-local NORMAL_COLS = { name = { 30, 76 }, spec = { 108, 74 }, badge = { 184, 48 }, status = { 234, 84 } }
--- Roll rows: "Shadowmelder" needs 71 px, "Marksmanship" 69, "[BiS] P3" 36, votes (check icon + "12") 28,
--- "Suggested" 50 (the §38 warning icon moved to the name column), roll text "100 x3" 41.
-local ROLL_COLS = { name = { 30, 76 }, spec = { 108, 70 }, badge = { 180, 38 }, votes = { 220, 30 }, tag = { 252, 56 } }
+-- Row columns {x, width} from the row's left edge (= TEXT_X in the card; rows are ROW_W = 362 px wide, the two
+-- "currently wearing" icons take the last 30). A class circle with a presence dot, the name ("Shadowmelder" ~78 px at
+-- 11 px needs 81), the spec ("Marksmanship" needs 74), the BiS / Alt / OS pill (up to "Alt P3"), then a status ("not in
+-- raid", "won 1") or, for a roll, a tag ("tie", "can't use"), the council's votes (a check and the count) and the roll.
+local COL = { name = { 20, 84 }, spec = { 108, 74 }, pill = 186, status = { 234, 94 }, tag = { 234, 50 },
+              votes = { 286, 18 }, roll = { 306, 24 } }
 local VOTE_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t"
 
 local SLOT_GROUP_FALLBACK = {
@@ -647,15 +667,15 @@ end
 local function RollStateText(session, stats, queuePos)
     if not session or queuePos then
         if queuePos and queuePos > 1 then
-            return Paint(format("Queued (#%d) - starts after the current roll", queuePos), "muted")
+            return Paint(format("Queued #%d  ·  starts after the current roll", queuePos), "muted")
         end
-        return Paint("Queued - starts after the current roll", "muted")
+        return Paint("Queued  ·  starts after the current roll", "muted")
     end
     stats = stats or {}
     local st = session.state
     if st == "open" then
         local left = RollTimeLeft(session)
-        local head = left > 0 and ("Rolling - " .. FormatLeft(left) .. " left") or "Rolling - closing..."
+        local head = left > 0 and ("Rolling  ·  " .. FormatLeft(left) .. " left") or "Rolling  ·  closing now"
         local t = Paint(head, "main") .. Paint(format("  ·  %d rolled, %d passed", stats.rolled or 0, stats.passed or 0), "muted")
         if (stats.votes or 0) > 0 then t = t .. Paint("  ·  " .. VotesText(stats.votes), "muted") end
         return t
@@ -802,7 +822,7 @@ function DropPanel:HandlePersonal(drop, items, soundPlayed)
             if m and (drop.test or not last or now - last > ALERT_DEDUPE) then
                 self.recentAlerts[id] = now
                 any = true
-                if wantToast then self:QueueToast(id, m, drop.test) end
+                if wantToast then self:QueueToast(id, m, drop.test, drop.b) end
                 if wantChat then self:PrintOwnDrop(id, m, drop.test, 0) end
             end
         end
@@ -836,22 +856,83 @@ end
 ---------------------------------------------------------------------------
 -- Council panel
 ---------------------------------------------------------------------------
+local function Sized(fs, size)
+    local path, _, flags = fs:GetFont()
+    if path then fs:SetFont(path, size, flags) end
+    return fs
+end
+
+local function Text(parent, font, size, layer)
+    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then Sized(fs, size) end
+    return fs
+end
+
+local function Gradient(tex, orient, r, g, b, a1, a2)
+    tex:SetColorTexture(1, 1, 1, 1)
+    local mk = _G.CreateColor
+    if tex.SetGradient and mk then tex:SetGradient(orient, mk(r, g, b, a1), mk(r, g, b, a2)) end
+end
+
+-- The atlas' down chevron turned left or right (the pager).
+local function Chevron(tex, dir)
+    local UI = ns.UI
+    local c = UI:IconCoords(UI.ICON.chevron)
+    local l, r, t, b = c[1], c[2], c[3], c[4]
+    tex:SetTexture(UI.ICON_ATLAS)
+    if dir == "left" then tex:SetTexCoord(l, b, r, b, l, t, r, t) else tex:SetTexCoord(r, t, l, t, r, b, l, b) end
+end
+
 local function PageButton(parent, dir, tip, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(24, 24)
-    local base = "Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-"
-    b:SetNormalTexture(base .. "Up")
-    b:SetPushedTexture(base .. "Down")
-    b:SetDisabledTexture(base .. "Disabled")
-    b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
-    b:SetScript("OnClick", onClick)
-    b:SetScript("OnEnter", function(self)
+    local b = ns.UI:CreateIconButton(parent, 20, nil, nil, onClick)
+    b.icon:ClearAllPoints()
+    b.icon:SetPoint("CENTER")
+    b.icon:SetSize(10, 10)
+    Chevron(b.icon, dir)
+    b:HookScript("OnEnter", function(self)
         _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
         _G.GameTooltip:AddLine(tip, 1, 1, 1)
         _G.GameTooltip:Show()
     end)
-    b:SetScript("OnLeave", HideTooltip)
+    b:HookScript("OnLeave", HideTooltip)
     return b
+end
+
+-- RaidPlan's instance key ("kara", "ssc") of a raid's instance ID: the banner's loading-screen art.
+local raidInstKeys
+local function RaidInstKey(instanceID)
+    instanceID = tonumber(instanceID)
+    if not instanceID then return nil end
+    if not raidInstKeys then
+        raidInstKeys = {}
+        local RP = ns.RaidPlan
+        for _, inst in ipairs((RP and RP.GetInstances and RP:GetInstances()) or {}) do
+            if inst.instID then raidInstKeys[tonumber(inst.instID)] = inst.key end
+        end
+    end
+    return raidInstKeys[instanceID]
+end
+
+-- The raid of a boss key (drop.b): its name, a dungeon flag and the art's instance key (nil for 5-mans / unknown).
+local function DropSource(bossKey)
+    if type(bossKey) ~= "string" or bossKey == "" or not (ns.ItemDB and ns.ItemDB.GetBossRef) then return nil end
+    return ns.ItemDB:GetBossRef(bossKey)
+end
+
+local function SetArt(tex, inst, w, h, fw)
+    local PlanUI = ns.RaidPlanUI
+    local file, l, r, t, b
+    if inst and PlanUI and PlanUI.RaidArt then file, l, r, t, b = PlanUI:RaidArt(inst, w, h, fw) end
+    if not file then
+        tex:Hide()
+        return false
+    end
+    tex:SetTexture(file)
+    tex:SetTexCoord(l, r, t, b)
+    tex:Show()
+    return true
 end
 
 local function AddButtonTooltip(btn, textFn)
@@ -877,45 +958,69 @@ function DropPanel:GetFrame()
     -- A manual drag turns an attached panel into a floating one (CreateWindow saves the position).
     f:HookScript("OnDragStop", function() DropPanel.attached = false end)
 
-    -- Header: boss / raid / time, and the history pager.
-    local nextBtn = PageButton(c, "Next", "Newer drop", function() DropPanel:Page(1) end)
-    nextBtn:SetPoint("TOPRIGHT", c, "TOPRIGHT", -4, -6)
-    local pageText = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    pageText:SetPoint("RIGHT", nextBtn, "LEFT", -2, 0)
-    local prevBtn = PageButton(c, "Prev", "Older drop", function() DropPanel:Page(-1) end)
-    prevBtn:SetPoint("RIGHT", pageText, "LEFT", -2, 0)
+    -- The banner: the boss on its raid's loading-screen art (a flat panel for 5-mans), the history pager on the right.
+    local ban = CreateFrame("Frame", nil, c)
+    ban:SetPoint("TOPLEFT", f, "TOPLEFT", INSET_L + PAD, -(INSET_T + PAD))
+    ban:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(INSET_L + PAD), -(INSET_T + PAD))
+    ban:SetHeight(BANNER_H)
+    ban.bg = ban:CreateTexture(nil, "BACKGROUND", nil, 0)
+    ban.bg:SetAllPoints()
+    ban.bg:SetColorTexture(0.08, 0.08, 0.095, 0.9)
+    ban.art = ban:CreateTexture(nil, "BACKGROUND", nil, 1)
+    ban.art:SetPoint("TOPLEFT", 1, -1)
+    ban.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    ban.art:Hide()
+    -- the text side stays dark enough to read, the far side shows the art
+    ban.shade = ban:CreateTexture(nil, "BACKGROUND", nil, 2)
+    ban.shade:SetPoint("TOPLEFT", 1, -1)
+    ban.shade:SetPoint("BOTTOMLEFT", 1, 1)
+    ban.shade:SetWidth(floor(CARD_W * 0.75))
+    Gradient(ban.shade, "HORIZONTAL", 0.035, 0.035, 0.043, 0.92, 0.25)
+    ban.shade:Hide()
+    UI:AddEdges(ban, "BORDER")
+    UI:SetEdgeColor(ban, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
+    self.banner = ban
+
+    local nextBtn = PageButton(ban, "right", "Newer drop", function() DropPanel:Page(1) end)
+    nextBtn:SetPoint("RIGHT", ban, "RIGHT", -CARD_PAD, 0)
+    local pageText = Text(ban, "GameFontHighlightSmall", 11)
+    pageText:SetJustifyH("CENTER")
+    pageText:SetWidth(60)
+    pageText:SetPoint("RIGHT", nextBtn, "LEFT", -4, 0)
+    local prevBtn = PageButton(ban, "left", "Older drop", function() DropPanel:Page(-1) end)
+    prevBtn:SetPoint("RIGHT", pageText, "LEFT", -4, 0)
     self.nextBtn, self.prevBtn, self.pageText = nextBtn, prevBtn, pageText
 
-    local title = c:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -6)
-    title:SetWidth(PANEL_W - 120)
-    title:SetJustifyH("LEFT")
-    title:SetWordWrap(false)
-    local sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
-    sub:SetWidth(PANEL_W - 120)
-    sub:SetJustifyH("LEFT")
-    sub:SetWordWrap(false)
+    local textW = CARD_W - CARD_PAD - (20 + 4 + 60 + 4 + 20) - CARD_PAD - 8
+    local title = Text(ban, "GameFontNormal", 15)
+    title:SetPoint("TOPLEFT", ban, "TOPLEFT", CARD_PAD, -8)
+    title:SetWidth(textW)
+    local sub = Text(ban, "GameFontHighlightSmall", 11)
+    sub:SetPoint("TOPLEFT", ban, "TOPLEFT", CARD_PAD, -27)
+    sub:SetWidth(textW)
+    sub:SetTextColor(0.75, 0.75, 0.75)
     self.title, self.sub = title, sub
 
-    -- Scrollable item blocks.
+    -- Scrollable item cards (the scroll bar sits in the right PAD).
+    local top = PAD + BANNER_H + GAP
     local scroll = UI:CreateScrollFrame(c, PANEL_NAME .. "Scroll")
-    scroll:SetPoint("TOPLEFT", c, "TOPLEFT", 4, -HEADER_H)
-    scroll:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -SCROLLBAR_W, FOOTER_H)
+    scroll:SetPoint("TOPLEFT", f, "TOPLEFT", INSET_L + PAD, -(INSET_T + top))
+    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -(INSET_L + PAD), INSET_B + FOOTER_H)
     scroll.scrollBarHideable = true
     local child = CreateFrame("Frame", nil, scroll)
-    child:SetSize(PANEL_W - 12 - 4 - SCROLLBAR_W, 1)
+    child:SetSize(CARD_W, 1)
     scroll:SetScrollChild(child)
     self.scroll, self.child = scroll, child
 
-    local empty = child:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    empty:SetPoint("TOPLEFT", child, "TOPLEFT", 8, -10)
+    local empty = Text(child, "GameFontDisable", 12)
+    empty:SetPoint("TOP", child, "TOP", 0, -16)
+    empty:SetJustifyH("CENTER")
     empty:SetText("No drop to show.")
     self.emptyText = empty
 
     -- Footer.
-    local announceAll = UI:CreateButton(c, "Announce all", 100, 22, function() DropPanel:AnnounceAll() end)
-    announceAll:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 6, 5)
+    local announceAll = UI:CreateButton(c, "Announce all", 96, 22, function() DropPanel:AnnounceAll() end)
+    announceAll:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", INSET_L + PAD, INSET_B + PAD)
     AddButtonTooltip(announceAll, function()
         if DropPanel.drop and DropPanel.drop.test then
             return "Simulated drop: the lines are only printed in your chat window."
@@ -923,8 +1028,8 @@ function DropPanel:GetFrame()
         if PlainMode(DropPanel.drop) then return "Link every item of this drop in raid chat." end
         return "Announce every item of this drop and who has it on their BiS list."
     end)
-    local rollAll = UI:CreateButton(c, "Roll all", 80, 22, function() DropPanel:RollAll() end)
-    rollAll:SetPoint("LEFT", announceAll, "RIGHT", 4, 0)
+    local rollAll = UI:CreateButton(c, "Roll all", 72, 22, function() DropPanel:RollAll() end)
+    rollAll:SetPoint("LEFT", announceAll, "RIGHT", 6, 0)
     AddButtonTooltip(rollAll, function()
         local text = "Roll every item of this drop, one after another (awarded items are skipped). "
             .. "Everyone in the " .. GroupWord() .. " gets a Roll / Pass popup for each item."
@@ -933,12 +1038,11 @@ function DropPanel:GetFrame()
     end)
     rollAll:Hide()
     self.rollAllBtn = rollAll
-    local close = UI:CreateButton(c, _G.CLOSE or "Close", 80, 22, function() f:Hide() end)
-    close:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -6, 5)
+    -- (no Close button: the window's own X closes it)
     -- §38: small "Lock lists" / "Unlock lists" button for the raid leader (the group's loot authority).
     if UI.CreateBiSLockButton then
-        local lock = UI:CreateBiSLockButton(c, 96, 22, { short = true })
-        lock:SetPoint("RIGHT", close, "LEFT", -4, 0)
+        local lock = UI:CreateBiSLockButton(c, 92, 22, { short = true })
+        lock:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -(INSET_L + PAD), INSET_B + PAD)
         self.lockBtn = lock
     end
 
@@ -1066,17 +1170,15 @@ function DropPanel:TickRolls()
 end
 
 function DropPanel:RenderHeader(drop)
-    local title, sub = "No drop selected", ""
+    local title, sub, inst = "No drop selected", "", nil
     if type(drop) == "table" then
-        local ref
-        if type(drop.b) == "string" and drop.b ~= "" and ns.ItemDB and ns.ItemDB.GetBossRef then
-            ref = ns.ItemDB:GetBossRef(drop.b)
-        end
+        local ref = DropSource(drop.b)
         local parts = {}
         if ref and ref.boss then
             title = ref.boss.name or "?"
             if ref.raid and ref.raid.name then
                 parts[#parts + 1] = ref.raid.name .. (ref.dungeon == true and " (5-man)" or "")
+                if ref.dungeon ~= true then inst = RaidInstKey(ref.raid.instanceID) end
             end
         else
             title = "Unknown source"
@@ -1084,28 +1186,37 @@ function DropPanel:RenderHeader(drop)
         local ts = tonumber(drop.ts)
         if ts and ts > 1000000000 and ts < 4000000000 then parts[#parts + 1] = _G.date("%H:%M", ts) end
         if type(drop.from) == "string" and not IsMe(drop.from) then
-            parts[#parts + 1] = "from " .. ShortName(drop.from)
+            parts[#parts + 1] = "looted by " .. ColoredName(drop.from)
         end
-        if drop.test then parts[#parts + 1] = Paint("simulated", "warn") end
-        sub = tconcat(parts, " · ")
+        if drop.test then
+            -- a simulated drop gets awards and rolls in demo mode only (the one line that says why there are none)
+            parts[#parts + 1] = Paint(FakeDropLocked(drop) and "simulated: awards need /dz demo" or "simulated", "warn")
+        end
+        sub = tconcat(parts, "  ·  ")
     end
     self.title:SetText(title)
     self.sub:SetText(sub)
+    local ban = self.banner
+    local art = SetArt(ban.art, inst, CARD_W - 2, BANNER_H - 2, 0.98)
+    ban.shade:SetShown(art)
 
+    -- The pager shows only when there is more than one drop; an arrow that leads nowhere is hidden (its place stays).
     local n = #History()
     local i = self.histIndex
-    if n == 0 then
+    local paged = n > 1 or (n == 1 and i == nil)
+    self.pageText:SetShown(paged)
+    if not paged then
         self.pageText:SetText("")
-        self.prevBtn:Disable()
-        self.nextBtn:Disable()
+        self.prevBtn:Hide()
+        self.nextBtn:Hide()
     else
-        local page = format("%s/%d", i and tostring(i) or "-", n)
+        local page = format("%s / %d", i and tostring(i) or "-", n)
         if (self.newDrops or 0) > 0 and i and i < n then
             page = "|cffff8000" .. page .. " new|r"   -- newer drops arrived while this one was being worked on
         end
         self.pageText:SetText(page)
-        if (i or (n + 1)) > 1 then self.prevBtn:Enable() else self.prevBtn:Disable() end
-        if i and i < n then self.nextBtn:Enable() else self.nextBtn:Disable() end
+        self.prevBtn:SetShown((i or (n + 1)) > 1)
+        self.nextBtn:SetShown(i ~= nil and i < n)
     end
 end
 
@@ -1113,13 +1224,7 @@ function DropPanel:Render()
     local f = self.frame
     if not f then return end
     local drop = self.drop
-
-    if not self.chrome then
-        local fh, ch = f:GetHeight(), self.content:GetHeight()
-        if fh and ch and ch > 0 and fh > ch and fh - ch < 90 then self.chrome = fh - ch end
-    end
-    local sw = self.scroll:GetWidth()
-    if sw and sw > 50 then self.child:SetWidth(sw) end
+    self.child:SetWidth(CARD_W)
 
     self:RenderHeader(drop)
 
@@ -1146,8 +1251,9 @@ function DropPanel:Render()
             b:SetHeight(h)
             b:Show()
             if b.rollSession and b.rollSession.state == "open" then anyOpen = true end
-            y = y + h + BLOCK_GAP
+            y = y + h + GAP
         end
+        if used > 0 then y = y - GAP end
     end
     for i = used + 1, #self.blocks do
         local b = self.blocks[i]
@@ -1155,7 +1261,7 @@ function DropPanel:Render()
         b:Hide()
     end
     self.emptyText:SetShown(used == 0)
-    if used == 0 then y = 40 end
+    if used == 0 then y = 48 end
     self.child:SetHeight(max(y, 1))
     if self.rollAllBtn then self.rollAllBtn:SetShown(canRoll and used > 0 and HasRoll("StartAll")) end
     if self.lockBtn and self.lockBtn.Refresh then
@@ -1167,8 +1273,12 @@ function DropPanel:Render()
     end
     self:UpdateRollTicker(anyOpen)
 
-    local height = (self.chrome or 32) + HEADER_H + FOOTER_H + y + 4
-    f:SetHeight(min(PANEL_MAX_H, max(PANEL_MIN_H, height)))
+    local height = INSET_T + INSET_B + PAD + BANNER_H + GAP + y + FOOTER_H
+    local panelH = min(PANEL_MAX_H, max(PANEL_MIN_H, height))
+    f:SetHeight(panelH)
+    -- everything fits: no scroll bar (its own hooks only run once the frame is laid out)
+    local bar = self.scroll.ScrollBar
+    if bar and y <= panelH - (INSET_T + INSET_B + PAD + BANNER_H + GAP + FOOTER_H) + 0.5 then bar:Hide() end
 end
 
 ---------------------------------------------------------------------------
@@ -1203,7 +1313,7 @@ local function RollCell(row, session)
         return t
     end
     if row.response == "pass" then return Paint("pass", "muted") end
-    if type(session) == "table" and session.state == "open" then return Paint("...", "muted") end
+    if type(session) == "table" and session.state == "open" then return "" end   -- still rolling (the row is dimmed)
     return Paint("no roll", "muted")
 end
 
@@ -1214,7 +1324,6 @@ local function VoteCell(row, canVote)
         local t = VOTE_ICON .. tostring(n)
         return row.myVote and Paint(t, "main") or ("|cffffffff" .. t .. "|r")
     end
-    if canVote and row.response ~= "pass" then return Paint("vote", "muted") end
     return ""
 end
 
@@ -1231,12 +1340,12 @@ local function RollTag(row, session)
         return Paint("Winner", "obtained")
     end
     if row.tie then return Paint("tie", "warn") end
-    if row.suggested then return Paint("Suggested", "main") end
+    -- (the suggested row is marked gold: no word for it)
     if row.cantUse then return Paint("can't use", "bad") end
     if row.wonCopy then return Paint("won a copy", "muted") end
     local won = tonumber(row.wonTonight) or 0
     if won > 0 then return Paint("won " .. won, "muted") end
-    if not PlainMode(nil, session) and LockChanged(row) then return Paint("changed", "warn") end
+    if not PlainMode(nil, session) and LockChanged(row) then return WarnIcon(10) .. " " .. Paint("changed", "warn") end
     return ""
 end
 
@@ -1425,19 +1534,14 @@ local function EquippedOnClick(self)
     if self.itemID and ns.UI and ns.UI.HandleModifiedItemClick then ns.UI:HandleModifiedItemClick(self.itemID) end
 end
 
-local function NewFS(parent, font, x, width)
+local function NewFS(parent, font, col, size)
     local fs = parent:CreateFontString(nil, "OVERLAY", font)
-    fs:SetPoint("LEFT", parent, "LEFT", x, 0)
-    if width then fs:SetWidth(width) end
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    return fs
-end
-
-local function Place(fs, parent, col)
-    fs:ClearAllPoints()
     fs:SetPoint("LEFT", parent, "LEFT", col[1], 0)
     fs:SetWidth(col[2])
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then Sized(fs, size) end
+    return fs
 end
 
 local function NewEquippedButton(r)
@@ -1454,45 +1558,70 @@ local function NewEquippedButton(r)
 end
 
 function DropPanel:NewRow(b)
+    local UI = ns.UI
     local r = CreateFrame("Button", nil, b)
     r:SetHeight(ROW_H)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    r.mark = r:CreateTexture(nil, "BACKGROUND")       -- suggested (gold) / winner (green) highlight
-    r.mark:SetAllPoints()
+    -- the suggested roller (gold) / the winner (green): a soft fill with a 2 px bar on its left, a little wider than
+    -- the row
+    r.mark = r:CreateTexture(nil, "BACKGROUND")
+    r.mark:SetPoint("TOPLEFT", r, "TOPLEFT", -6, 0)
+    r.mark:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 4, 0)
     r.mark:Hide()
+    r.markBar = r:CreateTexture(nil, "BORDER")
+    r.markBar:SetPoint("TOPLEFT", r.mark, "TOPLEFT", 0, 0)
+    r.markBar:SetPoint("BOTTOMLEFT", r.mark, "BOTTOMLEFT", 0, 0)
+    r.markBar:SetWidth(2)
+    r.markBar:Hide()
     local hl = r:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.06)
-    r.dot = r:CreateTexture(nil, "ARTWORK")
-    r.dot:SetSize(7, 7)
-    r.dot:SetPoint("LEFT", r, "LEFT", 4, 0)
+    hl:SetPoint("TOPLEFT", r, "TOPLEFT", -6, 0)
+    hl:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 4, 0)
+    hl:SetColorTexture(1, 1, 1, 0.05)
+    -- the class circle with a presence dot on it (in the raid green, online yellow, offline grey)
     r.cls = r:CreateTexture(nil, "ARTWORK")
-    r.cls:SetSize(12, 12)
-    r.cls:SetPoint("LEFT", r, "LEFT", 15, 0)
-    r.name = NewFS(r, "GameFontHighlightSmall", NORMAL_COLS.name[1], NORMAL_COLS.name[2])
-    r.spec = NewFS(r, "GameFontDisableSmall", NORMAL_COLS.spec[1], NORMAL_COLS.spec[2])
-    r.badge = NewFS(r, "GameFontHighlightSmall", NORMAL_COLS.badge[1], NORMAL_COLS.badge[2])
-    r.status = NewFS(r, "GameFontDisableSmall", NORMAL_COLS.status[1], NORMAL_COLS.status[2])
-    r.tag = NewFS(r, "GameFontNormalSmall", ROLL_COLS.tag[1], ROLL_COLS.tag[2])
+    r.cls:SetSize(15, 15)
+    r.cls:SetPoint("LEFT", r, "LEFT", 0, 0)
+    r.ring = r:CreateTexture(nil, "OVERLAY", nil, 1)
+    r.ring:SetTexture(DISC)
+    r.ring:SetSize(8, 8)
+    r.ring:SetVertexColor(0.06, 0.06, 0.07, 1)
+    r.ring:SetPoint("CENTER", r.cls, "BOTTOMRIGHT", -1, 2)
+    r.dot = r:CreateTexture(nil, "OVERLAY", nil, 2)
+    r.dot:SetTexture(DISC)
+    r.dot:SetSize(6, 6)
+    r.dot:SetPoint("CENTER", r.ring, "CENTER", 0, 0)
+    r.name = NewFS(r, "GameFontHighlightSmall", COL.name, 11)
+    r.spec = NewFS(r, "GameFontDisableSmall", COL.spec)
+    r.pill = UI:CreateTagPill(r, 16)
+    r.pill:SetPoint("LEFT", r, "LEFT", COL.pill, 0)
+    r.pill:Hide()
+    r.badge = r.pill.fs      -- the pill's text: "BiS", "Alt P2", "OS"
+    r.status = NewFS(r, "GameFontDisableSmall", COL.status)
+    r.tag = NewFS(r, "GameFontNormalSmall", COL.tag)
     -- ADDENDUM G: the vote column; clicking it votes for the row's player (or takes my vote back).
-    r.votes = NewFS(r, "GameFontHighlightSmall", ROLL_COLS.votes[1], ROLL_COLS.votes[2])
+    r.votes = NewFS(r, "GameFontHighlightSmall", COL.votes)
+    r.votes:SetJustifyH("RIGHT")
     r.voteBtn = CreateFrame("Button", nil, r)
-    r.voteBtn:SetPoint("LEFT", r, "LEFT", ROLL_COLS.votes[1] - 2, 0)
-    r.voteBtn:SetSize(ROLL_COLS.votes[2] + 2, ROLL_ROW_H)
+    r.voteBtn:SetPoint("LEFT", r, "LEFT", COL.votes[1] - 2, 0)
+    r.voteBtn:SetSize(COL.votes[2] + 4, ROW_H)
     r.voteBtn:SetScript("OnClick", function(btn) DropPanel:ToggleVote(btn:GetParent()) end)
     r.voteBtn:SetScript("OnEnter", function(btn) RowOnEnter(btn:GetParent()) end)
     r.voteBtn:SetScript("OnLeave", HideTooltip)
     r.voteBtn:Hide()
-    r.roll = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    r.roll:SetPoint("RIGHT", r, "RIGHT", -(2 * EQ_SIZE + 8), 0)
-    r.roll:SetWidth(42)
+    -- a dim check where I may vote and nobody has yet (the click votes)
+    r.voteHint = r:CreateTexture(nil, "ARTWORK")
+    r.voteHint:SetSize(11, 11)
+    r.voteHint:SetPoint("RIGHT", r, "LEFT", COL.votes[1] + COL.votes[2], 0)
+    r.voteHint:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+    r.voteHint:SetDesaturated(true)
+    r.voteHint:SetAlpha(0.35)
+    r.voteHint:Hide()
+    r.roll = NewFS(r, "NumberFontNormal", COL.roll, 13)
     r.roll:SetJustifyH("RIGHT")
-    r.roll:SetWordWrap(false)
-    r.moreText = NewFS(r, "GameFontDisableSmall", 30, 240)
-    r.layout = "normal"
+    r.moreText = NewFS(r, "GameFontDisableSmall", { COL.name[1], 200 }, 11)
     -- Two right-aligned "currently wearing" icons (paired slots show both, ADDENDUM A §18).
     r.eqs = { NewEquippedButton(r), NewEquippedButton(r) }
-    r.eqs[2]:SetPoint("RIGHT", r, "RIGHT", -2, 0)
+    r.eqs[2]:SetPoint("RIGHT", r, "RIGHT", 0, 0)
     r.eqs[1]:SetPoint("RIGHT", r.eqs[2], "LEFT", -2, 0)
     r.eq = r.eqs[2]   -- v0.1 field name (single icon); a lone item sits in the right-hand column
     r:SetScript("OnEnter", RowOnEnter)
@@ -1518,51 +1647,91 @@ local function SetEquipped(r, worn)
     end
 end
 
+local PRESENCE = { raid = { 0.24, 0.81, 0.36 }, online = { 0.91, 0.77, 0.23 }, offline = { 0.42, 0.42, 0.45 } }
+local function SetPresence(r, state)
+    local c = PRESENCE[state] or PRESENCE.offline
+    r.dot:SetVertexColor(c[1], c[2], c[3], 1)
+end
+
+local function SetPill(r, text, kind)
+    if text then
+        r.pill:Set(text, kind)
+        r.pill:Show()
+    else
+        r.pill.fs:SetText("")
+        r.pill:Hide()
+    end
+end
+
+-- "Alt" / "Alt P3" (a phase other than the one the council looks at).
+local function PillText(base, phase, vp)
+    local p = tonumber(phase)
+    if p and p ~= vp then return base .. " P" .. p end
+    return base
+end
+
+-- The pill of a BiS candidate (Store:GetWanters entry): text, kind.
+local function WanterPill(w, vp)
+    if w.os then return PillText("OS", w.phase, vp), "os" end           -- off-spec list (Addendum H)
+    if w.which == "alt" then return PillText("Alt", w.phase, vp), "alt" end
+    return PillText("BiS", w.phase, vp), "bis"
+end
+
+-- The pill of a roll result row (its tier), or nil: not on their list.
+local function RollPill(row, vp)
+    local tier = tonumber(row.tier) or 4
+    if tier == 3 then return PillText("OS", row.phase, vp), "os" end
+    if tier == 1 or tier == 2 then
+        if tier == 2 or row.which == "alt" then return PillText("Alt", row.phase, vp), "alt" end
+        return PillText("BiS", row.phase, vp), "bis"
+    end
+    if row.which and row.obtained then return "has it", "mute" end
+    return nil
+end
+
 -- mode: "normal" (BiS candidates), "roll" (roll results) or "more" ("+N more").
 local function SetRowMode(r, mode)
     local more, roll = mode == "more", mode == "roll"
-    r.dot:SetShown(not more)
     r.cls:SetShown(not more)
+    r.ring:SetShown(not more)
+    r.dot:SetShown(not more)
     r.name:SetShown(not more)
     r.spec:SetShown(not more)
-    r.badge:SetShown(not more)
+    r.pill:Hide()
     r.status:SetShown(mode == "normal")
+    r.status:SetText("")
     r.tag:SetShown(roll)
+    r.tag:SetText("")
     r.votes:SetShown(roll and IsCouncil())
+    r.voteHint:Hide()
     if not roll then
         r.voteBtn:Hide()
         r.canVote = nil
     end
     r.roll:SetShown(roll)
     r.moreText:SetShown(more)
-    if not more and r.layout ~= mode then
-        local cols = roll and ROLL_COLS or NORMAL_COLS
-        Place(r.name, r, cols.name)
-        Place(r.spec, r, cols.spec)
-        Place(r.badge, r, cols.badge)
-        if roll then Place(r.tag, r, cols.tag) else Place(r.status, r, cols.status) end
-        r.layout = mode
-    end
     if more then SetEquipped(r, {}) end
     r.mark:Hide()
+    r.markBar:Hide()
     r.rollRow = roll
-    r:SetHeight(roll and ROLL_ROW_H or ROW_H)
+    r:SetHeight(ROW_H)
+end
+
+local function Mark(r, cr, cg, cb)
+    r.mark:SetColorTexture(cr, cg, cb, 0.09)
+    r.markBar:SetColorTexture(cr, cg, cb, 0.9)
+    r.mark:Show()
+    r.markBar:Show()
 end
 
 local function FillRow(r, w, itemID, vp, itemSid)
     SetRowMode(r, "normal")
     r.data, r.itemID, r.more, r.moreKind, r.session, r.itemSid = w, itemID, nil, nil, nil, itemSid
-    if w.inRaid then
-        r.dot:SetColorTexture(0.25, 0.85, 0.3, 1)
-    elseif w.online then
-        r.dot:SetColorTexture(0.95, 0.8, 0.2, 1)
-    else
-        r.dot:SetColorTexture(0.45, 0.45, 0.45, 1)
-    end
+    SetPresence(r, w.inRaid and "raid" or (w.online and "online" or "offline"))
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, w.classFile) end
     r.name:SetText(ColoredName(w.key, w.classFile))
     r.spec:SetText(type(w.spec) == "string" and w.spec or "")
-    r.badge:SetText(BadgeText(w, vp))
+    SetPill(r, WanterPill(w, vp))
     local status = ""
     if w.cantUse then
         status = Paint("can't use", "bad")
@@ -1577,7 +1746,7 @@ local function FillRow(r, w, itemID, vp, itemSid)
     end
     r.status:SetText(status)
     SetEquipped(r, WornOfWanter(w, itemSid))
-    r:SetAlpha(w.inRaid and 1 or 0.6)
+    r:SetAlpha(w.inRaid and 1 or 0.55)
     return ROW_H
 end
 
@@ -1586,51 +1755,49 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     r.data, r.itemID, r.more, r.moreKind, r.session, r.itemSid = row, itemID, nil, nil, session, itemSid
     local inRaid = row.inRaid
     if inRaid == nil then inRaid = IsInMyGroup(row.key) end
-    if inRaid then
-        r.dot:SetColorTexture(0.25, 0.85, 0.3, 1)
-    else
-        r.dot:SetColorTexture(0.45, 0.45, 0.45, 1)
-    end
+    SetPresence(r, inRaid and "raid" or "offline")
     local classFile = row.classFile or ClassOf(row.key)
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, classFile) end
-    -- A plain roll (1.3): no BiS badge, no votes, no lock markers.
+    -- A plain roll (1.3): no BiS pill, no votes, no lock markers.
     local plain = PlainMode(nil, session)
-    -- §38 marker at the end of the name (the tag column only fits "Suggested")
     -- a pug: the name alone (the column is narrow), "guest" where their spec would be (we never have it)
     local guest = ns.UI and ns.UI.IsGuest and ns.UI:IsGuest(row.key)
-    local name = guest and ns.UI:ColoredName(row.key, classFile) or ColoredName(row.key, classFile)
-    r.name:SetText(name .. ((not plain and LockChanged(row)) and (" " .. WarnIcon(10)) or ""))
+    r.name:SetText(guest and ns.UI:ColoredName(row.key, classFile) or ColoredName(row.key, classFile))
     local spec = type(row.spec) == "string" and row.spec or ""
     r.spec:SetText((guest and spec == "") and "|cff66ccffguest|r" or spec)
-    r.badge:SetText(plain and "" or TierBadge(row, vp))
-    r.tag:SetText(RollTag(row, session))
+    if plain then SetPill(r, nil) else SetPill(r, RollPill(row, vp)) end
+    local tag = RollTag(row, session)
+    -- §38: changed their list while the lists were locked (the warning icon in front of the tag)
+    if not plain and LockChanged(row) and tag ~= "" and not tag:find("changed", 1, true) then
+        tag = WarnIcon(10) .. " " .. tag
+    end
+    r.tag:SetText(tag)
     local canVote = not plain and type(session) == "table" and HasRoll("CanVote") and CallRoll("CanVote", session.id)
         and inRaid and row.response ~= "pass" and true or false
     r.canVote = canVote
     r.votes:SetText(VoteCell(row, canVote))
     r.votes:SetShown(not plain and IsCouncil())
     r.voteBtn:SetShown(canVote)
+    r.voteHint:SetShown(canVote and (tonumber(row.votes) or 0) == 0)
     r.roll:SetText(RollCell(row, session))
     SetEquipped(r, WornOfRow(row, itemSid))
 
     local winner = type(session) == "table" and session.state == "awarded" and session.winner == row.key
     if winner then
-        r.mark:SetColorTexture(0.3, 0.9, 0.4, 0.16)
-        r.mark:Show()
+        Mark(r, 0.3, 0.9, 0.4)
     elseif row.suggested then
-        r.mark:SetColorTexture(1, 0.82, 0, 0.16)
-        r.mark:Show()
+        Mark(r, 1, 0.82, 0)
     end
     local alpha = 1
     if row.response == "pass" and not tonumber(row.roll) then
         alpha = 0.5
     elseif not tonumber(row.roll) then
-        alpha = 0.75
+        alpha = 0.7
     elseif not inRaid then
         alpha = 0.6
     end
     r:SetAlpha(alpha)
-    return ROLL_ROW_H
+    return ROW_H
 end
 
 local function FillMoreRow(r, rest, kind, session)
@@ -1641,71 +1808,68 @@ local function FillMoreRow(r, rest, kind, session)
     return ROW_H
 end
 
+-- A gold-text link ("Show rolls (3)" / "Hide"): white while hovered.
+local function NewLink(parent, onClick)
+    local l = CreateFrame("Button", nil, parent)
+    l:SetHeight(16)
+    l.label = Text(l, "GameFontNormalSmall", 11)
+    l.label:SetPoint("RIGHT", l, "RIGHT", 0, 0)
+    l:SetScript("OnClick", onClick)
+    l:SetScript("OnEnter", function(self) self.label:SetTextColor(1, 1, 1) end)
+    l:SetScript("OnLeave", function(self) self.label:SetTextColor(1, 0.82, 0) end)
+    function l:SetLabel(text)
+        self.label:SetText(text or "")
+        self:SetWidth((self.label:GetStringWidth() or 60) + 4)
+    end
+    return l
+end
+
+-- An item card: its icon, name and second line (the slot, the roll's state or who got it), the BiS candidates or the
+-- rolls, and one row of actions: the roll button (Roll / End roll / Re-roll / Cancel) and the gold award (Award, or
+-- Award to the suggested roller). Occasional actions sit in the card's More menu (top right).
 function DropPanel:NewBlock(parent)
     local UI = ns.UI
     local b = CreateFrame("Frame", nil, parent)
     b.rows = {}
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
+    UI:AddEdges(b, "BORDER")
+    UI:SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
 
-    b.button = UI:CreateItemButton(b, 32)
-    b.button:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+    b.button = UI:CreateItemButton(b, ICON_SIZE)
+    b.button:SetPoint("TOPLEFT", b, "TOPLEFT", CARD_PAD, -10)
 
-    b.count = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    b.count:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -3)
-    b.count:SetJustifyH("RIGHT")
+    b.moreBtn = UI:CreateTipIconButton(b, 20, UI.ICON.more, "More", nil, function(self) DropPanel:OpenMoreMenu(b, self) end)
+    b.moreBtn.icon:ClearAllPoints()
+    b.moreBtn.icon:SetPoint("TOPLEFT", 3, -3)
+    b.moreBtn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+    b.moreBtn:SetPoint("TOPRIGHT", b, "TOPRIGHT", -10, -8)
 
-    b.name = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    b.name:SetPoint("TOPLEFT", b, "TOPLEFT", 38, -2)
-    b.name:SetPoint("TOPRIGHT", b, "TOPRIGHT", -56, -2)
-    b.name:SetJustifyH("LEFT")
-    b.name:SetWordWrap(false)
+    b.name = Text(b, "GameFontHighlight", 13)
+    b.name:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -10)
+    b.name:SetWidth(CARD_W - TEXT_X - 10 - 20 - 8)
 
-    -- Second header line: item type, or the roll state in roll mode.
-    b.sub = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    b.sub:SetPoint("TOPLEFT", b, "TOPLEFT", 38, -19)
-    b.sub:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -19)
-    b.sub:SetJustifyH("LEFT")
-    b.sub:SetWordWrap(false)
+    -- Second line: the item type, the roll's state, or who got it (b.awarded).
+    b.sub = Text(b, "GameFontHighlightSmall", 11)
+    b.sub:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -28)
+    b.sub:SetTextColor(0.62, 0.62, 0.62)
+    b.awarded = Text(b, "GameFontHighlightSmall", 11)
+    b.awarded:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -28)
+    b.awarded:Hide()
 
-    b.none = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    b.none = Text(b, "GameFontDisableSmall", 11)
     b.none:SetText("Nobody has this on their BiS list")
 
-    -- Awarded items: show / hide the folded rolls (FillBlock).
-    b.fold = CreateFrame("Button", nil, b)
-    b.fold:SetHeight(14)
-    b.fold:SetPoint("TOPRIGHT", b, "TOPRIGHT", -2, -2)
-    b.fold.label = b.fold:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    b.fold.label:SetPoint("RIGHT", b.fold, "RIGHT", 0, 0)
-    b.fold:SetScript("OnClick", function() DropPanel:ToggleFold(b.itemID, b.copy) end)
-    b.fold:SetScript("OnEnter", function() b.fold.label:SetTextColor(1, 1, 1) end)
-    b.fold:SetScript("OnLeave", function() b.fold.label:SetTextColor(1, 0.82, 0) end)
+    -- Awarded items: show / hide the folded rolls (FillBlock), at the end of the second line.
+    b.fold = NewLink(b, function() DropPanel:ToggleFold(b.itemID, b.copy) end)
+    b.fold:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD, -26)
     b.fold:Hide()
 
-    b.announce = UI:CreateButton(b, "Announce", 74, 20, function() DropPanel:AnnounceItem(b.itemID) end)
-    AddButtonTooltip(b.announce, function()
-        if DropPanel.drop and DropPanel.drop.test then
-            return "Simulated drop: the line is only printed in your chat window."
-        end
-        if PlainMode(DropPanel.drop) then return "Link this item in raid chat." end
-        return "Announce this item and its BiS candidates in " .. GroupWord() .. " chat."
-    end)
-    b.award = UI:CreateButton(b, "Award...", 74, 20, function() DropPanel:OpenAwardMenu(b, b.award) end)
-    AddButtonTooltip(b.award, function()
-        if FakeDropLocked(DropPanel.drop) then
-            return "Simulated drop: awards are disabled so the loot log stays clean. Turn on demo mode to try them."
-        end
-        if DropPanel.drop and DropPanel.drop.test then
-            return "Demo mode: awards go to a temporary demo log that is never saved or sent."
-        end
-        local s = b.rollSession
-        if type(s) == "table" and (s.state == "open" or s.state == "closed") then
-            return "Award this item: closes its roll and everyone's Roll / Pass popup, "
-                .. "and records the award in the loot log."
-        end
-        if not IsCouncil() then return "Only loot council members can record awards in the loot log." end
-        return "Record who received this item in the loot log."
-    end)
-
-    b.rollBtn = UI:CreateButton(b, "Roll", 54, 20, function() DropPanel:StartRoll(b.itemID, b.copy) end)
+    local function slotButton(text, onClick)
+        return UI:CreateButton(b, text, SLOT_W, ACTION_H, onClick)
+    end
+    b.rollBtn = slotButton("Roll", function() DropPanel:StartRoll(b.itemID, b.copy) end)
     AddButtonTooltip(b.rollBtn, function()
         local text = "Start a roll: everyone in the " .. GroupWord() .. " gets a Roll / Pass popup (a normal /roll 1-100). "
             .. "DisasterZone suggests the winner: BiS main first, then BiS alt, then everyone else; "
@@ -1718,46 +1882,35 @@ function DropPanel:NewBlock(parent)
         if DemoEnabled() then text = text .. "\n\nDemo mode: fake raiders roll; nothing is sent." end
         return text
     end)
-    b.endRoll = UI:CreateButton(b, "End roll", 70, 20, function() DropPanel:EndRoll(b.rollSession) end)
+    b.endRoll = slotButton("End roll", function() DropPanel:EndRoll(b.rollSession) end)
     AddButtonTooltip(b.endRoll, function()
         return "Close the roll now. Rolls that arrive afterwards are ignored."
     end)
-    b.awardRoll = UI:CreateButton(b, "Award", 110, 20, function() DropPanel:AwardSuggested(b) end)
-    AddButtonTooltip(b.awardRoll, function() return DropPanel:AwardSuggestedTooltip(b) end)
-    b.reroll = UI:CreateButton(b, "Re-roll", 64, 20, function() DropPanel:ConfirmReroll(b) end)
+    b.reroll = slotButton("Re-roll", function() DropPanel:ConfirmReroll(b) end)
     AddButtonTooltip(b.reroll, function()
         return "Start a new roll for this item (for example after a tie or when nobody rolled). "
             .. "The rolls so far are discarded."
     end)
-    b.unqueue = UI:CreateButton(b, "Cancel roll", 86, 20, function() DropPanel:EndRoll(b.queuedSession) end)
+    b.unqueue = slotButton("Cancel", function() DropPanel:EndRoll(b.queuedSession) end)
     AddButtonTooltip(b.unqueue, function()
         return "Take this item out of the roll queue."
     end)
-    -- ADDENDUM G §41: one click to the guild's (or this raid's) disenchanter / guild bank character (icons: the
-    -- tooltip names the character).
-    local function targetIcon(kind, icon)
-        local btn = UI:CreateIconButton(b, 20, UI.ICON_ATLAS, UI:IconCoords(icon), function()
-            DropPanel:AwardToTarget(b, kind)
-        end)
-        btn.icon:ClearAllPoints()
-        btn.icon:SetPoint("TOPLEFT", 3, -3)
-        btn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-        AddButtonTooltip(btn, function() return DropPanel:TargetTooltip(kind) end)
-        return btn
-    end
-    b.deBtn = targetIcon("de", UI.ICON.disenchant)
-    b.bankBtn = targetIcon("bank", UI.ICON.bank)
-    b.actionButtons = { b.announce, b.award, b.rollBtn, b.endRoll, b.awardRoll, b.reroll, b.unqueue, b.deBtn, b.bankBtn }
-
-    b.awarded = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.awarded:SetJustifyH("LEFT")
-    b.awarded:SetWordWrap(false)
-
-    b.sep = b:CreateTexture(nil, "ARTWORK")
-    b.sep:SetColorTexture(1, 1, 1, 0.12)
-    b.sep:SetHeight(1)
-    b.sep:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, -BLOCK_GAP / 2)
-    b.sep:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 0, -BLOCK_GAP / 2)
+    b.award = UI:CreateButton(b, "Award", SLOT_W, ACTION_H, function() DropPanel:OpenAwardMenu(b, b.award) end)
+    AddButtonTooltip(b.award, function()
+        if DropPanel.drop and DropPanel.drop.test then
+            return "Demo mode: awards go to a temporary demo log that is never saved or sent."
+        end
+        local s = b.rollSession
+        if type(s) == "table" and (s.state == "open" or s.state == "closed") then
+            return "Award this item: closes its roll and everyone's Roll / Pass popup, "
+                .. "and records the award in the loot log."
+        end
+        return "Pick who receives this item: its BiS candidates first, then the rest of the " .. GroupWord()
+            .. ". The award goes in the loot log."
+    end)
+    b.awardRoll = UI:CreateButton(b, "Award", 110, ACTION_H, function() DropPanel:AwardSuggested(b) end)
+    AddButtonTooltip(b.awardRoll, function() return DropPanel:AwardSuggestedTooltip(b) end)
+    b.actionButtons = { b.rollBtn, b.endRoll, b.reroll, b.unqueue, b.award, b.awardRoll }
     return b
 end
 
@@ -1772,41 +1925,42 @@ end
 
 local function PlaceRow(r, b, y)
     r:ClearAllPoints()
-    r:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -y)
-    r:SetPoint("TOPRIGHT", b, "TOPRIGHT", 0, -y)
+    r:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -y)
+    r:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD, -y)
     r:Show()
 end
 
--- Shows `buttons` left to right on the action line (y) and puts the "Awarded to" text after them.
-local function LayoutActions(b, y, buttons, blockW)
+-- Shows `buttons` left to right on the action line (y), from the text column.
+local function LayoutActions(b, y, buttons)
     for _, btn in ipairs(b.actionButtons) do
         btn:Hide()
         btn:ClearAllPoints()
     end
-    local x = 36
+    local x = TEXT_X
     for _, btn in ipairs(buttons) do
         btn:SetPoint("TOPLEFT", b, "TOPLEFT", x, -y)
         btn:Show()
-        x = x + (btn:GetWidth() or 60) + 4
+        x = x + (btn:GetWidth() or SLOT_W) + 6
     end
-    if #buttons > 0 then x = x + 2 end
-    b.awarded:ClearAllPoints()
-    b.awarded:SetPoint("TOPLEFT", b, "TOPLEFT", x, -(y + 4))
-    b.awarded:SetWidth(max(60, (tonumber(blockW) or (PANEL_W - 46)) - x - 2))
 end
 
--- open: the roll is still open, so the click ends it for everyone first (the label says so).
-local function SetAwardRollButton(btn, row, open)
-    if row then
-        btn:SetText((open and "End roll & award to " or "Award to ") .. ShortName(row.key))
-        btn:Enable()
-    else
-        btn:SetText("Award")
-        btn:Disable()
-    end
+-- The gold award of a roll: "Award to <suggested roller>" (while the roll is open, the click also ends it).
+local function SetAwardRollButton(btn, row)
+    if not row then return end
+    btn:SetText("Award to " .. ShortName(row.key))
+    btn:Enable()
     local fs = btn.GetFontString and btn:GetFontString()
     local w = fs and tonumber(fs:GetStringWidth()) or 0
-    btn:SetWidth(min(open and 200 or 170, max(96, w + 24)))
+    btn:SetWidth(min(220, max(96, w + 24)))
+end
+
+-- The item name in the card: 13 px, smaller when a long name would not fit.
+local function FitName(fs, text, width)
+    for _, size in ipairs({ 13, 12, 11 }) do
+        Sized(fs, size)
+        fs:SetText(text)
+        if (fs:GetStringWidth() or 0) <= width then return end
+    end
 end
 
 -- Awarded items whose rolls were opened again (per item and copy, until the panel shows another drop).
@@ -1822,13 +1976,13 @@ function DropPanel:ToggleFold(itemID, copy)
     self:RequestRefresh(0)
 end
 
--- Paints one item block; returns its height. copy: which copy of itemID in the drop (1 = first).
+-- Paints one item card; returns its height. copy: which copy of itemID in the drop (1 = first).
 function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.itemID = itemID
     b.copy = copy
     b.awardEntry = award
     b.button:SetItem(itemID)
-    b.name:SetText(ItemText(itemID))
+    FitName(b.name, ItemText(itemID), CARD_W - TEXT_X - 10 - 20 - 8)
 
     local session, mode, queuePos = RollStateFor(itemID, drop, copy)
     local rolling = mode == "roll" and session ~= nil
@@ -1840,7 +1994,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.button:SetState(winnerKey and "awarded" or nil)
     local itemSid = FirstSlotOfItem(itemID)
 
-    -- Roll mode lists roll results; the Award... menu then fetches the wanters itself. The plain roll panel (1.3, no
+    -- Roll mode lists roll results; the Award menu then fetches the wanters itself. The plain roll panel (1.3, no
     -- loot council) lists no BiS candidates.
     local plain = PlainMode(drop, rolling and session or nil)
     local wanters = (not rolling) and (plain and {} or UniqueWanters(itemID, { includeObtained = false, list = "both" }))
@@ -1848,7 +2002,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.wanters = wanters
 
     local y, rowIdx, n = ITEM_HEAD_H, 0, 0
-    local noneText = plain and "Not rolled yet" or "Nobody has this on their BiS list"
+    local noneText = (not plain) and "Nobody has this on their BiS list" or nil
     if rolling then
         local results = {}
         local raw = CallRoll("GetResults", session.id)
@@ -1867,7 +2021,6 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             end
         end
         n = #results
-        b.count:SetText("")
         b.sub:SetText(RollStateText(session, b.rollStats))
         -- "+N more" only when it hides at least two rows.
         local limit = (n > MAX_ROLL_ROWS + 1) and MAX_ROLL_ROWS or n
@@ -1887,7 +2040,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             PlaceRow(r, b, y)
             y = y + h
         end
-        noneText = session.state == "open" and "Waiting for rolls..." or "Nobody rolled"
+        noneText = session.state == "open" and "Waiting for rolls" or "Nobody rolled"
         if session.state == "open" then
             -- While the roll is open, keep room for all rows (up to MAX_ROLL_ROWS + "+N more", at most the group
             -- size): incoming rolls must not move End roll / Award (or the panel) under the cursor.
@@ -1900,15 +2053,6 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     else
         b.reservedY = nil
         n = #wanters
-        local nOS = 0
-        for _, w in ipairs(wanters) do
-            if w.os then nOS = nOS + 1 end
-        end
-        local nMS = n - nOS
-        -- Addendum H: "3 want", plus the off-spec wanters listed after them ("3 want +2 OS").
-        local countText = nMS > 0 and (nMS .. " want") or ""
-        if nOS > 0 then countText = countText .. (countText ~= "" and " " or "") .. Paint("+" .. nOS .. " OS", "offspec") end
-        b.count:SetText(countText)
         if mode == "queued" then
             b.sub:SetText(RollStateText(nil, nil, queuePos or 1))
         else
@@ -1933,108 +2077,199 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         end
     end
     -- An awarded item folds its rolls / wanters away (they take a lot of room once it is dealt with); the
-    -- "Show rolls" toggle in the header opens them again.
+    -- "Show rolls" link on its second line opens them again.
     local folded = winnerKey ~= nil and n > 0 and not self:IsUnfolded(itemID, copy)
     if folded then
         rowIdx, y = 0, ITEM_HEAD_H
         b.reservedY = nil
     end
     if winnerKey and n > 0 then
-        b.count:SetText("")
-        b.fold.label:SetText(folded and format("Show %s (%d)", rolling and "rolls" or "list", n) or "Hide")
-        b.fold:SetWidth(b.fold.label:GetStringWidth() + 4)
+        b.fold:SetLabel(folded and format("Show %s (%d)", rolling and "rolls" or "list", n) or "Hide")
         b.fold:Show()
     else
         b.fold:Hide()
     end
     for i = rowIdx + 1, #b.rows do b.rows[i]:Hide() end
+    local anyRows = rowIdx > 0
 
-    if n == 0 or folded then
-        if folded then n = 0; noneText = "" end
+    -- Nothing to list: one quiet line (none for an awarded item or the plain panel's items).
+    if n == 0 and not winnerKey and noneText then
         b.none:SetText(noneText)
         b.none:ClearAllPoints()
-        b.none:SetPoint("TOPLEFT", b, "TOPLEFT", 38, -(y + 3))
+        b.none:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -(y + 4))
         b.none:Show()
         y = y + ROW_H
+        anyRows = true
     else
         b.none:Hide()
     end
-
     if b.reservedY and y < b.reservedY then y = b.reservedY end
-    -- Action line.
-    y = y + 3
+
+    -- The action row: the roll button's slot (Roll / End roll / Re-roll / Cancel), then the gold award. 1.3:
+    -- Roll:CanAward / CanEnd follow the roll's own rules (with the loot council on only the council awards; a plain
+    -- roll's master looter may too); whoever may start rolls may re-roll.
     local manage = canRoll or IsCouncil()
-    local buttons = {}
-    -- 1.3: Roll:CanAward / CanEnd follow the roll's own rules (with the loot council on only the council awards; a
-    -- plain roll's master looter may too); whoever may start rolls may re-roll.
     local canAward = rolling and RollAllows("CanAward", manage, session.id) or false
+    -- the council records awards in the log; an item with an open / closed roll can also be awarded by whoever may
+    -- award that roll (a plain roll's master looter), because the award then goes through the roll.
+    local rollAwardable = rolling and not winnerKey and (session.state == "open" or session.state == "closed")
+    local canAwardItem = IsCouncil() or (rollAwardable and canAward)
+    local locked = FakeDropLocked(drop)
+    local slot, gold
     if rolling then
         if not winnerKey then
             if session.state == "open" then
-                if RollAllows("CanEnd", manage, session.id) then buttons[#buttons + 1] = b.endRoll end
-                if canAward then buttons[#buttons + 1] = b.awardRoll end
-            elseif canAward then
-                buttons[#buttons + 1] = b.suggested and b.awardRoll or b.award
-                if b.suggested then buttons[#buttons + 1] = b.award end   -- someone else (e.g. a "+N more" row)
-                if canRoll then buttons[#buttons + 1] = b.reroll end
-            elseif canRoll then
-                buttons[#buttons + 1] = b.reroll
+                if RollAllows("CanEnd", manage, session.id) then slot = b.endRoll end
+                if canAward and b.suggested then gold = b.awardRoll end
+            else
+                if canRoll then slot = b.reroll end
+                if canAward then gold = b.suggested and b.awardRoll or b.award end
             end
-            SetAwardRollButton(b.awardRoll, b.suggested, session.state == "open")
+            SetAwardRollButton(b.awardRoll, b.suggested)
         end
-    else
-        buttons[1] = b.announce
-        buttons[2] = b.award
-        if mode == "normal" and canRoll and not winnerKey then
-            buttons[3] = b.rollBtn
+    elseif not winnerKey then
+        if mode == "normal" and canRoll then
+            slot = b.rollBtn
         elseif mode == "queued" and b.queuedSession and RollAllows("CanEnd", manage, b.queuedSession.id) then
-            buttons[3] = b.unqueue
+            slot = b.unqueue
         end
+        if canAwardItem and not locked then gold = b.award end
     end
-    -- Award...: the council records it in the log; an item with an open / closed roll can also be awarded
-    -- by whoever may award that roll (a plain roll's master looter), because the award then goes through the roll.
-    local rollAwardable = rolling and not winnerKey and (session.state == "open" or session.state == "closed")
-    local canAwardItem = IsCouncil() or (rollAwardable and canAward)
-    -- DE / Bank (ADDENDUM G §41): while nobody is picked (no roll, or a roll without a suggestion) and a target is
-    -- set; the Award... menu has them too. A rolled item goes through its roll (whoever may award it); an item without
-    -- a roll also for the master looter who can hand it out now (1.3: the council records it with its reason, LT).
-    if not winnerKey and not FakeDropLocked(drop) and (mode == "normal" or (rolling and not b.suggested))
+    b.award:Enable()
+    -- one gold button: the award (Roll on the plain roll panel, where the highest roll decides)
+    local primary = gold
+    if plain and not rolling and slot == b.rollBtn then primary = b.rollBtn end
+    for _, btn in ipairs(b.actionButtons) do btn:SetKind(btn == primary and "primary" or "secondary") end
+    local buttons = {}
+    if slot then buttons[#buttons + 1] = slot end
+    if gold then buttons[#buttons + 1] = gold end
+    if #buttons > 0 then
+        y = y + (anyRows and 8 or 0)
+        LayoutActions(b, y, buttons)
+        y = y + ACTION_H
+    else
+        LayoutActions(b, y, buttons)
+        if not anyRows then y = 10 + ICON_SIZE end
+    end
+
+    -- The More menu: Announce; Disenchant / Guild bank (ADDENDUM G §41) while nobody is picked (no roll, or a roll
+    -- without a suggestion) and a target is set (a rolled item goes through its roll; an item without one also for
+    -- the master looter who can hand it out now); the award menu when the gold button is not it (someone else, or the
+    -- recorded award's reason / void, or the fix of a loot-message conflict).
+    local more = { { key = "announce", icon = 18, label = "Announce" } }
+    if not winnerKey and not locked and (mode == "normal" or (rolling and not b.suggested))
         and (canAwardItem or (mode == "normal" and CanMasterLoot(itemID))) then
         for _, kind in ipairs({ "de", "bank" }) do
             local key = LootTarget(kind)
             if key then
-                local btn = kind == "de" and b.deBtn or b.bankBtn
-                buttons[#buttons + 1] = btn
-                if IsInMyGroup(key) then btn:Enable() else btn:Disable() end
+                local here = IsInMyGroup(key)
+                more[#more + 1] = { key = kind, icon = kind == "de" and 22 or 23, label = kind == "de" and "Disenchant" or "Guild bank",
+                    enabled = here, note = (not here) and ("not in " .. GroupWord()) or nil }
             end
         end
     end
-    if rolling and type(session.lootOther) == "string" and IsCouncil() and not buttons[1] then
-        buttons[1] = b.award   -- the fix of a loot-message conflict lives in the Award... menu
+    local conflict = rolling and type(session.lootOther) == "string" and IsCouncil()
+    if gold ~= b.award and not locked
+        and ((canAwardItem and not winnerKey) or (winnerKey and IsCouncil()) or conflict) then
+        more[#more + 1] = { key = "award", icon = 19, label = "Award", sub = true }
     end
-    if FakeDropLocked(drop) or not canAwardItem then b.award:Disable() else b.award:Enable() end
-    -- the block's main action is gold: the suggested award while rolling, else Award... (Roll when the loot
-    -- council is off for this raid)
-    local main = rolling and b.awardRoll or (plain and b.rollBtn or b.award)
-    for _, btn in ipairs({ b.award, b.rollBtn, b.awardRoll }) do btn:SetKind(btn == main and "primary" or "secondary") end
-    LayoutActions(b, y, buttons, self.child and self.child:GetWidth())
+    b.moreEntries = more
+    local words = {}
+    for i, e in ipairs(more) do words[i] = e.label end
+    b.moreBtn.tipText = tconcat(words, ", ")
+
+    -- Who got it, on the second line (the roll's state stays in b.sub for the ticker).
     if winnerKey then
         local t = Paint("Awarded to ", "obtained") .. ColoredName(winnerKey)
         local label = ReasonLabel(award and award.r or (rolling and session.reason) or nil)
         if label then t = t .. Paint(" · " .. label, "muted") end
-        if rolling and session.state == "awarded" and session.via == "loot" and session.winner == winnerKey then
-            t = t .. Paint(" (looted)", "muted")
+        if rolling and session.state == "awarded" and session.winner == winnerKey then
+            if session.via == "loot" then
+                t = t .. Paint(" (looted)", "muted")
+            elseif not session.given then
+                -- bag loot (Free for All): still in the looter's bags until they trade it
+                local holder = HolderOf(session)
+                if holder and holder ~= session.winner then
+                    t = t .. Paint(" · in ", "muted") .. ColoredName(holder) .. Paint("'s bags", "muted")
+                end
+            end
         end
-        if rolling and type(session.lootOther) == "string" then
-            -- The loot message named someone else (0.5): the Award... menu offers the fix.
+        if conflict then
+            -- The loot message named someone else (0.5): the More menu's Award offers the fix.
             t = t .. Paint(" · loot: ", "warn") .. ColoredName(session.lootOther)
         end
         b.awarded:SetText(t)
+        b.awarded:Show()
+        b.sub:Hide()
     else
         b.awarded:SetText("")
+        b.awarded:Hide()
+        b.sub:Show()
     end
-    b:SetAlpha((n == 0 and not winnerKey and not rolling and not plain) and 0.75 or 1)
-    return y + ACTION_H + 4
+    local lineW = CARD_W - TEXT_X - CARD_PAD - (b.fold:IsShown() and (b.fold:GetWidth() + 8) or 0)
+    b.sub:SetWidth(lineW)
+    b.awarded:SetWidth(lineW)
+    b:SetAlpha((n == 0 and not winnerKey and not rolling and not plain) and 0.8 or 1)
+    return y + 10
+end
+
+-- The More menu of a card (its entries were worked out by FillBlock).
+local MENU_GOLD = { 1, 0.82, 0 }
+function DropPanel:MoreTooltip(b, key)
+    if key == "announce" then
+        if DropPanel.drop and DropPanel.drop.test then return "Simulated drop: the line is only printed in your chat window." end
+        if PlainMode(DropPanel.drop) then return "Link this item in raid chat." end
+        return "Announce this item and its BiS candidates in " .. GroupWord() .. " chat."
+    elseif key == "de" or key == "bank" then
+        return self:TargetTooltip(key)
+    end
+    return "Award it to someone else, or change the recorded award (its reason, or void it)."
+end
+
+function DropPanel:GetMoreActions(b)
+    local out = {}
+    for i, e in ipairs(b and b.moreEntries or {}) do
+        out[i] = { key = e.key, label = e.label, enabled = e.enabled ~= false }
+    end
+    return out
+end
+
+function DropPanel:RunMoreAction(b, key)
+    if not b then return end
+    if key == "announce" then
+        self:AnnounceItem(b.itemID)
+    elseif key == "de" or key == "bank" then
+        self:AwardToTarget(b, key)
+    elseif key == "award" then
+        self:OpenAwardMenu(b, b.moreBtn)
+    end
+end
+
+function DropPanel:OpenMoreMenu(b, owner)
+    local UI = ns.UI
+    if not (b and UI and UI.ContextMenu) then return end
+    UI:ContextMenu(owner or b.moreBtn, function(root)
+        for _, e in ipairs(b.moreEntries or {}) do
+            local text = UI:AtlasIconText(e.icon, 14, MENU_GOLD) .. "  " .. e.label
+            if e.note then text = text .. Paint("  " .. e.note, "muted") end
+            local entry
+            if e.sub then
+                entry = root:CreateButton(text)
+                DropPanel:BuildAwardMenu(entry, b)
+            else
+                local key = e.key
+                entry = root:CreateButton(text, function() DropPanel:RunMoreAction(b, key) end)
+                if e.enabled == false and entry and entry.SetEnabled then entry:SetEnabled(false) end
+            end
+            if entry and entry.SetTooltip then
+                local key, label = e.key, e.label
+                entry:SetTooltip(function(tt)
+                    tt:AddLine(label, 1, 0.82, 0)
+                    tt:AddLine(DropPanel:MoreTooltip(b, key), 1, 1, 1, true)
+                end)
+            end
+        end
+    end)
 end
 
 ---------------------------------------------------------------------------
@@ -2570,8 +2805,14 @@ function DropPanel:AwardToTarget(b, kind)
 end
 
 function DropPanel:OpenAwardMenu(b, owner)
+    if not (b and b.itemID and type(self.drop) == "table" and ns.UI and ns.UI.ContextMenu) then return end
+    ns.UI:ContextMenu(owner, function(root) DropPanel:BuildAwardMenu(root, b) end)
+end
+
+-- The award menu of card b into `root` (a context menu, or the More menu's Award submenu).
+function DropPanel:BuildAwardMenu(root, b)
     local itemID, drop = b.itemID, self.drop
-    if not itemID or type(drop) ~= "table" or not (ns.UI and ns.UI.ContextMenu) then return end
+    if not itemID or type(drop) ~= "table" then return end
     local bossKey = type(drop.b) == "string" and drop.b or ""
     local copy = b.copy
     local vp = ViewPhase()
@@ -2584,7 +2825,7 @@ function DropPanel:OpenAwardMenu(b, owner)
     local function award(key, reason) DropPanel:Award(itemID, key, bossKey, copy, drop, nil, reason) end
     local inGroup = _G.IsInGroup and _G.IsInGroup()
     local awarded = type(awardEntry) == "table" and awardEntry.id and not awardEntry.vd
-    ns.UI:ContextMenu(owner, function(root)
+    do
         root:CreateTitle("Award " .. ItemName(itemID))
         -- ADDENDUM G: the reason of the recorded award can be changed (it decides whether it counts as loot won).
         if awarded and IsCouncil() and ns.Ledger and ns.Ledger.SetReason then
@@ -2673,51 +2914,63 @@ function DropPanel:OpenAwardMenu(b, owner)
             root:CreateButton("Void the award to " .. ShortName(awardEntry.w),
                 function() ns.Ledger:Void(id, true) end)
         end
-    end)
+    end
 end
 
 ---------------------------------------------------------------------------
 -- Personal toast
 ---------------------------------------------------------------------------
+-- The toast looks like the Dungeons tab's ping: a dark card with a gold edge, the drop's raid art on the left with
+-- the item on it, three lines (what it is to me, the item, where it goes) and a small X.
+local TOAST_W, TOAST_H, TOAST_ART = 380, 64, 88
+local TOAST_BG = { 0.043, 0.043, 0.051 }
+local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+
 function DropPanel:GetToast()
     if self.toast then return self.toast end
-    local t = CreateFrame("Button", "DisasterZoneToast", _G.UIParent, "BackdropTemplate")
-    t:SetSize(300, 56)
-    t:SetPoint("TOP", _G.UIParent, "TOP", 0, -160)
+    local UI = ns.UI
+    local t = CreateFrame("Button", "DisasterZoneToast", _G.UIParent)
+    t:SetSize(TOAST_W, TOAST_H)
+    t:SetPoint("TOP", _G.UIParent, "TOP", 0, -156)     -- (between the session bar and the roll popup)
     t:SetFrameStrata("DIALOG")
     t:SetClampedToScreen(true)
     t:Hide()
-    if t.SetBackdrop then
-        t:SetBackdrop({
-            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-            edgeFile = "Interface\\Buttons\\WHITE8X8",
-            edgeSize = 1,
-            insets = { left = 1, right = 1, top = 1, bottom = 1 },
-        })
-        t:SetBackdropColor(0, 0, 0, 0.92)
-        local c = Color("main")
-        t:SetBackdropBorderColor(c[1], c[2], c[3], 1)
-    end
+    t.bg = t:CreateTexture(nil, "BACKGROUND")
+    t.bg:SetAllPoints()
+    t.bg:SetColorTexture(TOAST_BG[1], TOAST_BG[2], TOAST_BG[3], 0.95)
+    UI:AddEdges(t, "BORDER")
+    t.art = t:CreateTexture(nil, "ARTWORK", nil, 0)
+    t.art:SetPoint("TOPLEFT", 1, -1)
+    t.art:SetSize(TOAST_ART, TOAST_H - 2)
+    t.fade = t:CreateTexture(nil, "ARTWORK", nil, 1)
+    t.fade:SetPoint("TOPRIGHT", t.art, "TOPRIGHT", 0, 0)
+    t.fade:SetPoint("BOTTOMRIGHT", t.art, "BOTTOMRIGHT", 0, 0)
+    t.fade:SetWidth(floor(TOAST_ART * 0.5))
+    Gradient(t.fade, "HORIZONTAL", TOAST_BG[1], TOAST_BG[2], TOAST_BG[3], 0, 1)
+    t.dim = t:CreateTexture(nil, "ARTWORK", nil, 2)
+    t.dim:SetAllPoints(t.art)
+    t.dim:SetColorTexture(0, 0, 0, 0.3)
 
-    t.icon = t:CreateTexture(nil, "ARTWORK")
-    t.icon:SetSize(36, 36)
-    t.icon:SetPoint("LEFT", t, "LEFT", 10, 0)
+    t.iconEdge = t:CreateTexture(nil, "ARTWORK", nil, 3)
+    t.iconEdge:SetSize(42, 42)
+    t.iconEdge:SetColorTexture(0, 0, 0, 1)
+    t.icon = t:CreateTexture(nil, "ARTWORK", nil, 4)
+    t.icon:SetSize(40, 40)
+    t.icon:SetPoint("CENTER", t.iconEdge, "CENTER", 0, 0)
     t.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
-    t.title = t:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    t.title:SetPoint("TOPLEFT", t, "TOPLEFT", 54, -10)
-    t.title:SetWidth(200)
-    t.title:SetJustifyH("LEFT")
-    t.title:SetWordWrap(false)
+    t.title = Text(t, "GameFontNormal", 13)
+    t.name = Text(t, "GameFontHighlight", 12)
+    t.text = Text(t, "GameFontHighlightSmall", 11)
+    t.text:SetTextColor(0.62, 0.62, 0.62)
 
-    t.text = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t.text:SetPoint("TOPLEFT", t, "TOPLEFT", 54, -30)
-    t.text:SetWidth(238)
-    t.text:SetJustifyH("LEFT")
-    t.text:SetWordWrap(false)
-
-    t.more = t:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    t.more:SetPoint("TOPRIGHT", t, "TOPRIGHT", -8, -10)
+    t.x = UI:CreateIconButton(t, 16, NO_TEX, nil, function() DropPanel:DismissToast() end)
+    t.x.bg:SetAlpha(0)
+    t.x.icon:SetDesaturated(true)
+    t.x:SetPoint("TOPRIGHT", t, "TOPRIGHT", -4, -4)
+    t.more = Text(t, "GameFontDisableSmall", 11)
+    t.more:SetJustifyH("RIGHT")
+    t.more:SetPoint("RIGHT", t.x, "LEFT", -4, 0)
 
     local ag = t:CreateAnimationGroup()
     local fade = ag:CreateAnimation("Alpha")
@@ -2782,9 +3035,10 @@ function DropPanel:ToastTimeout()
     end
 end
 
-function DropPanel:QueueToast(itemID, match, test)
+-- bossKey (optional): the drop's boss (drop.b), for the raid art on the left.
+function DropPanel:QueueToast(itemID, match, test, bossKey)
     if #self.toastQueue >= TOAST_QUEUE_MAX then return end
-    tinsert(self.toastQueue, { itemID = itemID, match = match, test = test })
+    tinsert(self.toastQueue, { itemID = itemID, match = match, test = test, b = bossKey })
     local t = self.toast
     if t and t:IsShown() then
         self:RefreshToastText()
@@ -2806,27 +3060,63 @@ function DropPanel:ShowNextToast()
     self:StartToastTimer(TOAST_HOLD)
 end
 
+-- A line that fits `width`: 11 px, else 10.
+local function FitLine(fs, text, width, size)
+    Sized(fs, size)
+    fs:SetText(text)
+    if (fs:GetStringWidth() or 0) > width then Sized(fs, size - 1) end
+end
+
 function DropPanel:RefreshToastText()
     local t = self.toast
     local e = t and t.entry
     if not e then return end
     local m = e.match or {}
+    local UI = ns.UI
+    -- the drop's raid art on the left with the item on it (5-mans and unknown drops: the item alone)
+    local ref = DropSource(e.b)
+    local inst = ref and ref.dungeon ~= true and ref.raid and RaidInstKey(ref.raid.instanceID) or nil
+    local art = SetArt(t.art, inst, TOAST_ART, TOAST_H - 2, 0.3)
+    t.fade:SetShown(art)
+    t.dim:SetShown(art)
+    local textX = art and (TOAST_ART + 12) or (14 + 42 + 12)
+    t.iconEdge:ClearAllPoints()
+    if art then
+        t.iconEdge:SetPoint("CENTER", t.art, "CENTER", 0, 0)
+    else
+        t.iconEdge:SetPoint("LEFT", t, "LEFT", 14, 0)
+    end
     t.icon:SetTexture(ItemIcon(e.itemID))
+    local edge = m.os and Color("offspec") or { 1, 0.82, 0 }
+    UI:SetEdgeColor(t, edge[1], edge[2], edge[3], 0.55)
+
     local title = STAR .. " On your BiS list!"
     if m.os then
         local sp = OffSpecLabel()
         title = Paint("On your off-spec list" .. (sp and (" (" .. sp .. ")") or ""), "offspec")
     end
     if e.test then title = title .. Paint(" (test)", "muted") end
-    t.title:SetText(title)
-    local shown = (m.via and m.wanted) or e.itemID
-    local which = (m.which == "alt") and "alt" or "main"
-    if m.via then which = which .. ", " .. ((ns.VIA_TEXT and ns.VIA_TEXT[m.via]) or "via token") end
-    -- The icon and its tooltip name the item; the line keeps what matters and fits (long names were cut off).
-    local via = (m.via and shown ~= e.itemID) and (ItemText(shown) .. " - ") or ""
-    t.text:SetText(format("%s%s · P%d (%s)", via, SlotLabel(m.sid), tonumber(m.phase) or 0, which))
     local queued = #self.toastQueue
     t.more:SetText(queued > 0 and ("+" .. queued) or "")
+    local textW = TOAST_W - textX - 12 - (queued > 0 and 40 or 20)
+    for _, fs in ipairs({ t.title, t.name, t.text }) do fs:SetWidth(textW) end
+    t.title:ClearAllPoints()
+    t.title:SetPoint("TOPLEFT", t, "TOPLEFT", textX, -10)
+    t.name:ClearAllPoints()
+    t.name:SetPoint("TOPLEFT", t, "TOPLEFT", textX, -27)
+    t.text:ClearAllPoints()
+    t.text:SetPoint("TOPLEFT", t, "TOPLEFT", textX, -43)
+    t.title:SetText(title)
+    FitLine(t.name, ItemText(e.itemID), textW, 12)
+    -- where it goes: "Head · P1", "(alt)" for an alt pick; a token / Sunmote names the piece it becomes
+    local shown = (m.via and m.wanted) or e.itemID
+    local paren = {}
+    if m.which == "alt" then paren[#paren + 1] = "alt" end
+    if m.via then paren[#paren + 1] = (ns.VIA_TEXT and ns.VIA_TEXT[m.via]) or "via token" end
+    local line = format("%s · P%d", SlotLabel(m.sid), tonumber(m.phase) or 0)
+    if m.via and shown ~= e.itemID then line = ItemText(shown) .. " · " .. line end
+    if #paren > 0 then line = line .. " (" .. tconcat(paren, ", ") .. ")" end
+    FitLine(t.text, line, textW, 11)
 end
 
 function DropPanel:FinishToast()

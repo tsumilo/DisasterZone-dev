@@ -454,7 +454,7 @@ def the_roster_marks_guests_and_managers_right_click():
     install_helpers(bob)
     assert bob.find_text("3/10 accepted", True, True) and bob.find_text("1 guest", True, True)
     cell = bob.eval(ROSTER_CELL, K("Pugsy"))
-    assert cell is not None and "(guest)" in strip_codes(bob.eval("return (...).fs:GetText()", cell))
+    assert cell is not None and bob.eval("return (...).tag:IsShown()", cell) is True        # the GUEST tag
     bob.hover(cell)
     lines = [strip_codes(l) for l, _ in tt_lines(bob)]
     bob.leave(cell)
@@ -471,7 +471,7 @@ def the_roster_marks_guests_and_managers_right_click():
     w.tick(2)
     assert K("Lee") not in signups(rita, occ)
     w.tick(0.5)
-    assert has_line(bob, "Declined", "(1)") and bob.find_text("1 declined", True, True)
+    assert has_line(bob, "Declined", "(1)")
     cell = bob.eval(ROSTER_CELL, K("Lee"))
     bob.hover(cell)
     lines = [strip_codes(l) for l, _ in tt_lines(bob)]
@@ -606,7 +606,9 @@ def the_list_filters_and_the_hover_tooltip():
     w.tick(0.3)
     assert list(rita.eval_py("return { ns.RaidPlanUI:GetFilter() }")) == ["all", "all"]
     assert listed(rita) == [kara, gruul, kara2]
-    # hover: the whole raid, nothing cut off
+    # hover a card on the board: the whole raid, nothing cut off
+    rita.eval("ns.RaidPlanUI:ShowBoard()")
+    w.tick(0.3)
     install_helpers(rita)
     row = rita.eval(RAID_ROW, kara)
     assert row is not None
@@ -643,7 +645,7 @@ def the_strip_answers_with_another_character():
     s = signups(bob, occ)
     assert list(s) == [K("Lalt")] and s[K("Lalt")]["c"] == "WARLOCK" and s[K("Lalt")]["sp"] == 3, s
     assert lee.eval("return %s.upcoming.statusBtns.A.chosen" % P) is True
-    assert strip_codes(lee.eval("return (...):GetText()", dd)) == "Lalt (Warlock)"
+    assert strip_codes(lee.eval("return (...).fs:GetText()", dd)) == "Lalt"
     # switching back moves the answer to the warrior
     lee.dropdown_menu(dd)
     lee.menu_select("Lee (Warrior)")

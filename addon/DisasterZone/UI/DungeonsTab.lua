@@ -35,9 +35,9 @@ local STAR_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"
 local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local STAR = "|T" .. STAR_TEX .. ":11:11:0:0|t"
 local ROLE_TOKEN = { tank = "TANK", healer = "HEALER", dps = "DAMAGER" }
-local ROLE_COORDS = {   -- GetTexCoordsForRole's, for a client without it
-    TANK = { 0, 19 / 64, 22 / 64, 41 / 64 }, HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 },
-    DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 },
+local ROLE_COORDS = {   -- GetTexCoordsForRole's (a 256x256 texture of 67x67 cells), for a client without it
+    TANK = { 0, 67 / 256, 67 / 256, 134 / 256 }, HEALER = { 67 / 256, 134 / 256, 0, 67 / 256 },
+    DAMAGER = { 67 / 256, 134 / 256, 67 / 256, 134 / 256 },
 }
 local ROLE_NAME = { tank = "tank", healer = "healer", dps = "DPS" }
 
@@ -94,8 +94,8 @@ end
 local function RoleIconText(role, size)
     local l, r, t, b = RoleCoords(role)
     size = size or 13
-    return ("|T%s:%d:%d:0:0:64:64:%d:%d:%d:%d|t"):format(ROLE_TEX, size, size, floor(l * 64 + 0.5),
-        floor(r * 64 + 0.5), floor(t * 64 + 0.5), floor(b * 64 + 0.5))
+    return ("|T%s:%d:%d:0:0:256:256:%d:%d:%d:%d|t"):format(ROLE_TEX, size, size, floor(l * 256 + 0.5),
+        floor(r * 256 + 0.5), floor(t * 256 + 0.5), floor(b * 256 + 0.5))
 end
 
 local function Disc(parent, layer, sub, size, c)

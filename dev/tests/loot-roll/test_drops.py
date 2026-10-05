@@ -70,7 +70,7 @@ def drop_reaches_everyone_once_with_panels_toasts_badges():
         assert "Token" in by[HELM_CHAMPION]["sub"], by[HELM_CHAMPION]["sub"]
         assert list(by[MINDBLADE]["names"]) == [] and "Nobody" in by[MINDBLADE]["none"], by[MINDBLADE]
         for b in blocks:
-            assert "Roll" in b["buttons"] and "Announce" in b["buttons"], (name, b["buttons"])
+            assert "Roll" in b["buttons"] and "Announce" in b["more"], (name, b["buttons"], b["more"])
     for name in ("Carol", "Dave", "Erin", "Frank", "Gina"):
         assert panel_blocks(r[name]) == [], "%s (raider) must not get the council panel" % name
         assert not r[name].eval("return DisasterZoneDropPanel ~= nil and DisasterZoneDropPanel:IsShown()")
@@ -120,7 +120,8 @@ def non_ml_council_opening_same_corpse_no_duplicate():
     assert msgs_of_type(w, "D", log0) == [], "no second D"
     for c in r.clients:
         assert len(drops_fired(c)) == 1 and len(drop_history(c)) == 1, (c.name, drops_fired(c))
-    assert r["Bob"].eval("return ns.DropPanel.pageText:GetText()") == "1/1"
+    # (one drop: no pager)
+    assert r["Bob"].eval("return ns.DropPanel.pageText:IsShown()") is False
     w.assert_no_errors()
 
 
@@ -235,7 +236,7 @@ def sunmote_upgrade_roll_popup_text():
     r["Alice"].eval("ns.DropPanel:StartRoll(...)", FALTERED_ROBES, 1)
     w.tick(1)
     bis = strip_codes(rollframe_state(r["Dave"])["bis"])
-    assert "Your P5 BiS (main) - Chest" in bis, bis
+    assert "BiS Chest · P5" in bis, bis
     assert "via token" not in bis, "roll popup calls the Sunmote upgrade a token: %r" % bis
     w.assert_no_errors()
 
@@ -414,7 +415,7 @@ def uncached_items_drop_panel_toast_and_chat():
     assert len(names) == 2 and "Ruby Drape" in strip_codes(names[0]) and "Fallen Champion" in strip_codes(names[1]), names
     t = toast_state(r["Bob"])
     # DisasterZone 0.5: the toast's icon / tooltip name the item; the line says slot, phase and pick (long names were cut)
-    assert t["shown"] and t["item"] == RUBY_DRAPE and strip_codes(t["text"]) == "Back · P1 (main)", t
+    assert t["shown"] and t["item"] == RUBY_DRAPE and strip_codes(t["text"]) == "Back · P1", t
     t = toast_state(r["Gina"])
     assert t["shown"] and "Cyclone Headdress" in strip_codes(t["text"]), t
     line = own_bis_lines(r["Bob"])

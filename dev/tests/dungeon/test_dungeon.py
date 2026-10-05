@@ -59,7 +59,7 @@ PARTY_BIS = {
     "Dave": [(1, SID_LEGS, "main", BREECHES)],
     "Bob": [(1, SID_LEGS, "alt", BREECHES), (1, SID_BACK, "main", RUBY_DRAPE)],
 }
-ENABLE_LABEL = "Enable dungeon mode (5-man parties)"
+ENABLE_LABEL = "Dungeon mode (5-man parties)"
 
 
 class FixedRng:
@@ -384,7 +384,7 @@ def party_roll_through_the_panel_awards_a_dungeon_ledger_entry():
     for n in NAMES:
         st = rollframe_state(p[n])
         assert st["shown"] and st["id"] == sid and st["rollShown"] and st["passShown"], (n, st)
-    assert "Your P1 BiS (main) - Head" in strip_codes(rollframe_state(p["Erin"])["bis"]), rollframe_state(p["Erin"])
+    assert "BiS Head · P1" in strip_codes(rollframe_state(p["Erin"])["bis"]), rollframe_state(p["Erin"])
     ann = [e for e in w.chat_log[chat0:] if "Roll for" in e["text"]]
     assert len(ann) == 1 and ann[0]["chat_type"] == "PARTY", ann
     # Erin (BiS) rolls low, Carol (no BiS) high, Dave passes; party members see each other's rolls

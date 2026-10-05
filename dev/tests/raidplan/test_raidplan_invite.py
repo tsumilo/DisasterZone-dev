@@ -133,7 +133,8 @@ def groups_tab_edit_save_and_read_only_for_members():
     open_groups(w, bob, occ)
     g = grid_groups(bob)
     assert g[0] == ["Cat", "Ena", "Rog", "Tank", "War"] and g[1] == ["Holly", "Hunt", "Lock", "Moon", "Pip"], g
-    assert bob.find_text("Starting layout", True, True)
+    # not saved yet (it follows the sign-ups): Save is there, plain; nothing to undo
+    assert bob.eval("local g = ns.RaidsUI:GetPanel().upcoming.detail.groups; return g.saveBtn:IsShown() and not g.undoBtn:IsShown()") is True
     # the starting layout follows sign-ups until saved
     signup(c["Sam"], occ, "A", 2)
     w.tick(2)
@@ -142,7 +143,7 @@ def groups_tab_edit_save_and_read_only_for_members():
     # swap Sam with War, save
     bob.eval("ns.RaidPlanUI:GetRaidGrid():Drop(..., 1, select(2, ...))", K("Sam"), K("War"))
     w.tick(0.3)
-    assert bob.find_text("Changed, not saved.", True, True)
+    assert bob.eval("local g = ns.RaidsUI:GetPanel().upcoming.detail.groups; return g.saveBtn:IsShown() and g.undoBtn:IsShown()") is True   # changed
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.groups.saveBtn"))
     w.tick(2)
     v = raid(rita, occ)
@@ -186,7 +187,7 @@ def invite_and_sort_builds_the_raid_from_nothing():
     said = [strip_codes(l) for l in printed_since(bob, n0)]
     assert any("Inviting and sorting 10 players" in l for l in said), said
     assert any("Groups sorted" in l for l in said), said
-    assert bob.find_text("1 offline (Lock)", False, True) or bob.find_text("offline (Lock)", False, True)
+    assert bob.find_text("1 offline", False, True)          # (who: in the Missing menu)
     # the late joiner: Lock logs in, the leader invites again, Lock is sorted automatically
     c["Lock"].login()
     w.tick(5)
@@ -232,7 +233,7 @@ def only_leader_or_assistant_and_never_in_combat():
     open_groups(w, bob, occ)
     bob.eval("ns.RaidPlanUI:InviteRaid()")
     assert any("raid leader or an assistant" in strip_codes(l) for l in printed_since(bob, n0))
-    assert not bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.groups.resortBtn:IsEnabled()")
+    assert not bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.groups.resortBtn:IsShown()")
     # promoted to assistant: allowed; in combat nothing moves until combat ends
     w.group["assistants"].append(bob)
     w._roster_changed_group()
@@ -293,7 +294,7 @@ def whole_groups_swap_in_the_raid_and_the_team_and_resort_follows():
     w.tick(0.3)
     after = grid_groups(bob)
     assert after[0] == before[1] and after[1] == before[0], (before, after)
-    assert bob.find_text("Changed, not saved.", True, True)
+    assert bob.eval("local g = ns.RaidsUI:GetPanel().upcoming.detail.groups; return g.saveBtn:IsShown() and g.undoBtn:IsShown()") is True   # changed
     # saving during the run moves the raid
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.groups.saveBtn"))
     w.tick(15)

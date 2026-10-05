@@ -55,8 +55,9 @@ def tile_btn(c, sid, which="main"):
 
 
 def card_texts(c):
-    return c.eval_py("""
-      return { T_card().title:GetText() }""")
+    """The centre's progress line, plain ("0 of 17 obtained")."""
+    return [strip_codes(t) for t in c.eval_py("""
+      return { T_card().count:GetText() }""")]
 
 
 def menu_labels(c):
@@ -113,12 +114,14 @@ def api_model_dx_shape_hash_and_picks_kept():
     assert c.eval("return ns.Util.Hash(ns.BiS:GetData())") == h1
     # all phases, then enable again: dx omitted when empty, same hash as before any disable
     assert c.eval("return ns.BiS:SetSlotDisabledAllPhases(1, true)") is True
-    assert [is_disabled(c, p, SID_HEAD) for p in range(1, 6)] == [True] * 5
+    # (every phase includes the Pre-raid list, phase 0: data.px)
+    assert [is_disabled(c, p, SID_HEAD) for p in range(0, 6)] == [True] * 6
     assert c.eval("return ns.BiS:SetSlotDisabledAllPhases(1, false)") is True
     assert dx_of(c) is None, dx_of(c)
+    assert c.eval("return ns.BiS:GetData().px") is None
     assert c.eval("return ns.Util.Hash(ns.BiS:GetData())") == h0, "enabling everything restores the old hash"
-    # invalid arguments are refused and change nothing
-    for code in ("ns.BiS:SetSlotDisabled(0, 1, true)", "ns.BiS:SetSlotDisabled(6, 1, true)",
+    # invalid arguments are refused and change nothing (phase 0 is the Pre-raid list)
+    for code in ("ns.BiS:SetSlotDisabled(-1, 1, true)", "ns.BiS:SetSlotDisabled(6, 1, true)",
                  "ns.BiS:SetSlotDisabled(1, 18, true)", "ns.BiS:SetSlotDisabled(1, 'x', true)",
                  "ns.BiS:SetSlotDisabledAllPhases(0, true)", "ns.BiS:SetSlotDisabledAllPhases(nil, true)"):
         assert c.eval("return " + code) is False, code
@@ -141,7 +144,7 @@ def my_bis_menu_greyed_tile_progress_and_enable():
         c.eval("local s, i = ...; ns.BiS:SetSlot(1, s, 'main', i)", sid, iid)
     w.tick(0.2)
     before = card_texts(c)
-    assert before[0].startswith("P1  ·  0 / 17 obtained"), before[0]
+    assert before[0].startswith("0 of 17 obtained"), before[0]
     c.click(tile_btn(c, SID_CHEST), "RightButton")
     labels = menu_labels(c)
     assert labels[-3:] == [None, "Disable slot (P1)", "Disable in all phases"], labels
@@ -153,21 +156,22 @@ def my_bis_menu_greyed_tile_progress_and_enable():
       local icon = t.main.icon
       return { t.line1:GetText(), t.line2:GetText(), T_doll():IsTileDisabled(5), t:GetAlpha(),
                icon:IsDesaturated() and 1 or 0, t.main.itemID or 0 }""")
-    assert "Disabled" in strip_codes(tile[0]) and "not needed" in strip_codes(tile[0]), tile
-    assert "pick kept" in strip_codes(tile[1]), tile
+    # quiet: the slot's name and "Not needed" (the kept pick's icon greyed; the tooltip says it is kept)
+    assert strip_codes(tile[0]) == "Chest" and strip_codes(tile[1]) == "Not needed", tile
     assert tile[2] is True and tile[3] < 1 and tile[4] == 1 and tile[5] == chest, tile
     # other tiles are untouched
     assert c.eval("return T_doll():IsTileDisabled(1)") is False
     assert "Disabled" not in strip_codes(c.eval("return T_tile(1).line1:GetText()"))
     # progress: x / 16, "· 1 disabled"; the chest is no longer "still needed"
     after = card_texts(c)
-    assert after[0].startswith("P1  ·  0 / 16 obtained"), after[0]
+    assert after[0].startswith("0 of 16 obtained"), after[0]
     prog = c.eval_py("local p = ns.MyBiS:GetProgress(1); return { p.filled, p.total, p.disabled, p.obtained }")
     assert prog == [2, 16, 1, 0], prog
     # the tile tooltip explains it
     c.eval("T_tile(5).main:GetScript('OnEnter')(T_tile(5).main)")
     tt = [strip_codes(l[0]) for l in tt_lines(c)]
     assert any("disabled" in l for l in tt) and "Click: Enable slot" in tt, tt
+    assert any("pick is kept" in l for l in tt), tt
     # a left click on a disabled tile offers "Enable slot" instead of the picker
     c.click(tile_btn(c, SID_CHEST))
     assert c.eval("return ns.Picker:IsOpen()") is False
@@ -185,7 +189,7 @@ def my_bis_menu_greyed_tile_progress_and_enable():
     c.click(c.eval("return T_button(T_mybis(), 'P2')"))
     w.tick(0.2)
     assert c.eval("return T_doll():IsTileDisabled(5)") is True
-    assert card_texts(c)[0].startswith("P2  ·  0 / 16 obtained"), card_texts(c)[0]
+    assert card_texts(c)[0].startswith("0 of 16 obtained"), card_texts(c)[0]
     c.click(tile_btn(c, SID_CHEST))
     assert "Enable in all phases" in menu_labels(c)
     c.menu_select("Enable in all phases")
@@ -195,7 +199,7 @@ def my_bis_menu_greyed_tile_progress_and_enable():
     c.click(c.eval("return T_button(T_mybis(), 'P1')"))
     w.tick(0.2)
     assert c.eval("return T_doll():IsTileDisabled(5)") is False
-    assert card_texts(c)[0].startswith("P1  ·  0 / 17 obtained"), card_texts(c)[0]
+    assert card_texts(c)[0].startswith("0 of 17 obtained"), card_texts(c)[0]
     assert c.eval("return T_tile(5).main.itemID") == chest and "Disabled" not in strip_codes(
         c.eval("return T_tile(5).line1:GetText()"))
     # an empty slot can be disabled too (and then counts as not needed)

@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from rp_common import world, K, DAY, now, team, create, raid, raids, signup, signups, call  # noqa: E402
-from _common import case, run_all  # noqa: E402
+from _common import case, run_all, strip_codes  # noqa: E402
 
 P = "ns.RaidsUI:GetPanel()"
 ED = "ns.RaidPlanUI:GetEditor()"
@@ -179,7 +179,11 @@ def the_raid_window_and_the_sign_up_strip():
     # the raid leader is not in it: the answers are off and the strip says why
     assert bob.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
     assert bob.find_text("you are not in this raid (Invite adds you)", True, True)
-    assert bob.find_text("not invited", True, True)
+    bob.eval("ns.RaidPlanUI:ShowBoard()")
+    w.tick(0.3)
+    assert bob.find_text("Not invited", True, True)                  # the card says it too
+    bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
+    w.tick(0.3)
     # a member who is not invited sees the raid and answers to ask to join
     open_tab(w, rita)
     rita.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
@@ -202,7 +206,7 @@ def the_raid_window_and_the_sign_up_strip():
     w.tick(2)
     assert raid(rita, occ)["lk"] is False and list(raid(rita, occ)["inv"]) == [K("Sam")]
     w.tick(1)
-    assert rita.find_text("Karazhan (10)", True, True)
+    assert rita.find_text("Karazhan", True, True) and rita.find_text("10-player", True, True)
     assert rita.eval("return ns.RaidPlanUI:GetSelectedRaid()") == occ
     assert rita.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is True
     w.assert_no_errors()
@@ -216,8 +220,10 @@ def the_invite_button_and_window():
     occ = create(bob, i="kara", t=now(bob) + DAY, tm=[tid], lk=True, pv=True)
     w.tick(2)
     win = "ns.RaidPlanUI:GetInviteWindow()"
-    # a raid planner outside the raid: the strip points at Invite
+    # a raid planner outside the raid: the banner points at Invite
     open_tab(w, bob)
+    bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
+    w.tick(0.3)
     assert bob.eval("return %s.upcoming.detail.inviteBtn:IsShown()" % P) is True
     assert bob.find_text("you are not in this raid (Invite adds you)", True, True)
     bob.click(bob.eval("return %s.upcoming.detail.inviteBtn" % P))
@@ -242,6 +248,8 @@ def the_invite_button_and_window():
     assert list(raid(lee, occ)["inv"]) == [K("Bob")] and rita.eval("return ns.RaidPlan:CanSee(...)", occ) is False
     # members have no Invite button and can't open the window
     open_tab(w, lee)
+    lee.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
+    w.tick(0.3)
     assert lee.eval("return %s.upcoming.detail.inviteBtn:IsShown()" % P) is False
     assert lee.eval("return ns.RaidPlanUI:OpenInvites(...)", occ) is False
     # the raid is deleted: the window closes
@@ -306,8 +314,11 @@ def requests_to_join_a_locked_raid():
     open_tab(w, bob)
     bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ3)
     w.tick(0.5)
-    assert bob.find_text("Requests to join (1)", True, True)
-    assert bob.find_text("1 request", True, True)
+    assert any("Requests to join (1)" in strip_codes(bob.eval("local o = ...; return o:GetText()", o) or "")
+               for o in bob.find_text("Requests to join", True, True))
+    bob.eval("ns.RaidPlanUI:ShowBoard()")
+    w.tick(0.3)
+    assert bob.find_text("1 request", True, True)                     # on the raid's card
     w.assert_no_errors()
 
 

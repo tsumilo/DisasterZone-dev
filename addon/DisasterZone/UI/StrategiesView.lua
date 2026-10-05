@@ -1,12 +1,13 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategiesView.lua", ...) then return end -- DisasterZone: UI/StrategiesView.lua
 -- Where the strategy boards live in the Raids tab (Addendum K):
---   Strategies view   - the library, for every guild member to explore and build in. A filter bar (free search, a
---                       guild member) over the raids and their bosses on the left (All raids / a raid / one boss) and
---                       the matching strategies on the right: Open for everyone, Edit for the owner, the
---                       collaborators, the GM and the guild council, Collaborators for the owner, Share (a link in
---                       chat) and Copy for everyone (the copy is yours), Delete for the owner, the GM and the guild
---                       council. My
---                       unsaved drafts sit on top (continue / discard; saving one makes it a strategy).
+--   Strategies view   - the library, for every guild member to explore and build in. A search and a guild member
+--                       filter on top; on the left the raids as strips of their loading screens (a raid without a
+--                       match fades, the open raid unfolds its bosses: All raids / a raid / one boss), on the right
+--                       the matching strategies as cards. A click on a card opens the board; Edit for the owner, the
+--                       collaborators, the GM and the guild council; the card's More menu: Copy (the copy is yours)
+--                       and Share (a link in chat) for everyone, Collaborators for the owner, Delete for the owner,
+--                       the GM and the guild council. My unsaved drafts sit on top (continue / discard; saving one
+--                       makes it a strategy). New strategy and the tutorial (?) sit on the Raids tab's view row.
 --   Assignments tab   - of a planned raid (Upcoming): its bosses, the strategy each uses and how many slots are
 --                       filled, with Open (everyone) and Assign. Who leads the raid (its own leader; a raid without
 --                       one: the raid leaders) and the GM pick each boss' strategy in the row's dropdown, saved at
@@ -15,17 +16,31 @@ local addonName, ns = ...
 
 local View = ns:NewModule("StrategiesUI")
 
-local tsort = table.sort
-local min, max, ceil = math.min, math.max, math.ceil
+local tsort, tconcat = table.sort, table.concat
+local min, max, ceil, floor = math.min, math.max, math.ceil, math.floor
 
-local LIST_W = 290
-local BOSS_ROW_H = 22
-local STRAT_ROW_H = 40
-local RAID_ROW_H = 46
+-- The library: the Raids tab's spacing grid (PAD at the page's sides, GAP between blocks).
+local PAD, GAP = 10, 8
+local INNER_W = 770                  -- the page inside its sides (the mock's anchored frames have no width)
+local TREE_W = 200                   -- the raids column
+local FILTER_H = 22                  -- the search / By row
+local ALL_H, STRIP_H, BOSS_H = 26, 30, 22
+local STRIP_GAP = 4                  -- under a raid's strip
+local CARD_H, CARD_GAP = 46, 6       -- a strategy: its card and the gap under it
+local THUMB_W = 64                   -- its raid's art
+local ACT = 24                       -- a card's icon buttons
+local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
+local DRAFT_BG = { 0.16, 0.115, 0.06, 0.94 }
+local MENU_GOLD, MENU_RED = { 1, 0.82, 0 }, { 1, 0.4, 0.35 }
+local PILL = {                       -- fill, edge (mixed with the card's fill), text
+    warn = { { 0.28, 0.18, 0.07, 1 }, { 0.58, 0.34, 0.09, 1 }, "ffb066" },
+    ok = { { 0.12, 0.18, 0.15, 1 }, { 0.23, 0.48, 0.3, 1 }, "9ff0b0" },
+}
+local ART_TOP = 0.29                 -- a loading screen's picture starts under the game's logo
+-- A planned raid's Assignments tab.
+local RAID_ROW_H = 52                -- a raid's boss row: a card 46 high and the gap under it
 local PICK_MIN, PICK_MAX = 110, 230  -- a raid's strategy dropdown: as wide as the name (32 characters fit)
 local TEXT_END = 160                 -- a raid's boss row: its texts end where Open / Assign start
-local FILTER_H = 28
-local ROW_BTN = 24
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
@@ -38,16 +53,109 @@ local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 local state = { raid = nil, boss = nil, text = "", by = nil }
 local lib, assign, shareWin
 
-local function addHighlight(row)
-    local hl = row:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-    hl:SetBlendMode("ADD")
-    hl:SetAlpha(0.5)
-end
-
 local function raidOf(ref)
     return type(ref) == "string" and ref:match("^(%w+):") or nil
+end
+
+local function newText(parent, font, size, layer)
+    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then
+        local path, _, flags = fs:GetFont()
+        if path then fs:SetFont(path, size, flags) end
+    end
+    return fs
+end
+
+local function gradient(tex, orient, r, g, b, a1, a2)
+    tex:SetColorTexture(1, 1, 1, 1)
+    if tex.SetGradient and CreateColor then tex:SetGradient(orient, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2)) end
+end
+
+-- The first of the texts that fits in `room` (the last one when none does): never cut off with "...".
+-- (measured without its colour codes: the game's width ignores them, the test harness's doesn't)
+local function fitText(fs, variants, room)
+    for i, text in ipairs(variants) do
+        fs:SetText((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
+        local fits = (fs:GetStringWidth() or 0) <= room
+        fs:SetText(text)
+        if i == #variants or fits then return text end
+    end
+end
+
+-- A small rounded tag after a name ("Draft", "shared with you"): p:Set(text, kind).
+local function newPill(parent)
+    local p = CreateFrame("Frame", nil, parent)
+    p:SetHeight(16)
+    UI():AddPillShape(p, 16)
+    p.fs = newText(p, "GameFontHighlightSmall", 10)
+    p.fs:SetPoint("CENTER", 0, 0)
+    function p:Set(text, kind)
+        local c = PILL[kind] or PILL.ok
+        self:SetPillColors(c[1], c[2])
+        self.fs:SetText("|cff" .. c[3] .. text .. "|r")
+        self:SetWidth(floor((self.fs:GetStringWidth() or 40) + 14 + 0.5))
+    end
+    return p
+end
+
+-- A raid's loading screen (UI/RaidPlanUI.lua has the crops): the raid plan's instance key of an ItemDB raid key.
+local INST_SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
+                     za = "ZA", swp = "Sunwell" }
+local instCache = {}
+local function instOf(raidKey)
+    if not raidKey then return "other" end
+    if instCache[raidKey] then return instCache[raidKey] end
+    local raid = ns.ItemDB and ns.ItemDB.GetRaid and ns.ItemDB:GetRaid(raidKey)
+    local id, out = raid and raid.instanceID, "other"
+    local RP = ns.RaidPlan
+    for _, inst in ipairs((id and RP and RP.GetInstances) and RP:GetInstances() or {}) do
+        if inst.instID == id then out = inst.key end
+    end
+    instCache[raidKey] = out
+    return out
+end
+
+local function setArt(tex, raidKey, w, h, fw, small)
+    local PlanUI = ns.RaidPlanUI
+    if not (PlanUI and PlanUI.RaidArt) then
+        tex:Hide()
+        return
+    end
+    local inst = instOf(raidKey)
+    local file, l, r, t, b = PlanUI:RaidArt(inst, w, h, fw)
+    -- (a small crop stays under the game's logo at the top of the screen)
+    if small and t < ART_TOP then t, b = ART_TOP, b + ART_TOP - t end
+    tex:SetTexture(file)
+    tex:SetTexCoord(l, r, t, b)
+    tex:Show()
+end
+
+-- A boss' name, then shorter forms for a narrow place: without its title ("Attumen", "Solarian"), its first name.
+local TITLES = { "High King ", "High Astromancer ", "High Warlord ", "Fathom%-Lord ", "Hex Lord ", "Doom Lord ",
+                 "Lady ", "Mother ", "Prince ", "Shade of " }
+local function bossVariants(name)
+    local out = { name }
+    local n = name:gsub("^The ", ""):gsub(" the .*$", "")
+    for _, t in ipairs(TITLES) do n = n:gsub("^" .. t, "") end
+    n = n:gsub(" of .*$", "")
+    if n ~= name then out[#out + 1] = n end
+    local first = n:match("^(%S+) ")
+    if first then out[#out + 1] = first end
+    return out
+end
+
+-- "21 Sep" this year, "21 Sep 2025" before.
+local function shortDate(t)
+    if date("%Y", t) == date("%Y") then return date("%d %b", t) end
+    return date("%d %b %Y", t)
+end
+
+-- " · 3 pages" (nothing for one page).
+local function pagesText(n)
+    n = tonumber(n) or 1
+    return n > 1 and (" · " .. n .. " pages") or ""
 end
 
 -- The filter as Strategy:Find takes it; `scoped` adds the raid / boss picked on the left.
@@ -77,196 +185,321 @@ local function draftShown(dr, scoped)
 end
 
 ---------------------------------------------------------------------------
--- Library (Strategies view)
+-- Library (Strategies view): the raids on the left
 ---------------------------------------------------------------------------
 
-local function initBossRow(row, d)
+-- "3", and my unsaved drafts as an orange "+1".
+local function countText(d)
+    local parts = {}
+    if d.count > 0 then parts[#parts + 1] = tostring(d.count) end
+    if (d.drafts or 0) > 0 then parts[#parts + 1] = "|cffff9933+" .. d.drafts .. "|r" end
+    return tconcat(parts, " ")
+end
+
+local function treeClick(self)
+    local d = self.__cdlData
+    if not d then return end
+    if d.ref then View:SelectBoss(d.ref)
+    elseif d.raid then View:SelectRaid(d.raid)
+    else View:SelectRaid(nil) end
+end
+
+-- (what the orange count means)
+local function treeTip(self)
+    local d = self.__cdlData
+    if not (d and (d.drafts or 0) > 0) then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(d.name)
+    if d.count > 0 then GameTooltip:AddLine(d.count == 1 and "1 strategy" or (d.count .. " strategies"), 1, 1, 1) end
+    GameTooltip:AddLine(("%d unsaved %s of yours"):format(d.drafts, d.drafts == 1 and "draft" or "drafts"), 1, 0.6, 0.2)
+    GameTooltip:Show()
+end
+
+-- One row of the left column: All raids, a raid (a strip of its loading screen) or a boss of the open raid.
+local function initTreeRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        addHighlight(row)
-        row.sel = row:CreateTexture(nil, "BACKGROUND")
-        row.sel:SetAllPoints()
-        row.sel:SetColorTexture(1, 0.82, 0, 0.12)
-        row.fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.fs:SetPoint("LEFT", 6, 0)
-        row.fs:SetJustifyH("LEFT")
-        row.n = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.n:SetPoint("RIGHT", -8, 0)
-        row:SetScript("OnClick", function(self)
-            local data = self.__cdlData
-            if not data then return end
-            if data.ref then View:SelectBoss(data.ref)
-            elseif data.raid then View:SelectRaid(data.raid)
-            else View:SelectRaid(nil) end
-        end)
+        local box = CreateFrame("Frame", nil, row)
+        box:SetPoint("TOPLEFT")
+        box:SetPoint("TOPRIGHT")
+        row.box = box
+        row.art = box:CreateTexture(nil, "BACKGROUND", nil, 0)
+        row.art:SetAllPoints()
+        row.shade = box:CreateTexture(nil, "BACKGROUND", nil, 1)
+        row.shade:SetAllPoints()
+        gradient(row.shade, "HORIZONTAL", 0.035, 0.035, 0.043, 0.9, 0.4)
+        -- the picked one: a soft gold fill and a gold mark on its left (a raid: a gold edge)
+        row.fill = box:CreateTexture(nil, "BACKGROUND", nil, 2)
+        row.fill:SetAllPoints()
+        row.fill:SetColorTexture(1, 0.82, 0, 0.1)
+        row.bar = box:CreateTexture(nil, "ARTWORK")
+        row.bar:SetPoint("TOPLEFT")
+        row.bar:SetPoint("BOTTOMLEFT")
+        row.bar:SetWidth(2)
+        row.bar:SetColorTexture(1, 0.82, 0, 0.9)
+        UI():AddEdges(box, "ARTWORK")
+        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
+        row.hl:SetAllPoints(box)
+        row.hl:SetColorTexture(1, 1, 1, 0.05)
+        row.fs = newText(box, "GameFontHighlight", 12)
+        row.n = newText(box, "GameFontHighlightSmall", 11)
+        row.n:SetJustifyH("RIGHT")
+        row.n:SetPoint("RIGHT", -10, 0)
+        row:SetScript("OnClick", treeClick)
+        row:SetScript("OnEnter", treeTip)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
-    local drafts = d.drafts or 0
-    local counts = (drafts > 0 and ("|cffff9933" .. drafts .. (drafts == 1 and " draft" or " drafts") .. "|r"
-        .. (d.count > 0 and "  " or "")) or "") .. (d.count > 0 and tostring(d.count) or "")
-    row.n:SetText(counts)
-    if d.ref then
-        row.fs:SetFontObject((d.count > 0 or drafts > 0) and "GameFontHighlight" or "GameFontDisable")
-        row.fs:SetText("   " .. d.name)
-        row.sel:SetShown(d.ref == state.boss)
+    local kind = d.ref and "boss" or (d.raid and "raid" or "all")
+    row.box:SetHeight(kind == "raid" and STRIP_H or (kind == "all" and ALL_H or BOSS_H))
+    local lit = d.count > 0 or (d.drafts or 0) > 0
+    row.n:SetText(countText(d))
+    local room = TREE_W - 20 - (lit and ((row.n:GetStringWidth() or 0) + 8) or 0)
+    row.fs:ClearAllPoints()
+    local picked
+    if kind == "raid" then
+        -- a raid without a match fades
+        setArt(row.art, d.raid, TREE_W, STRIP_H, 0.9)
+        row.art:SetDesaturated(not lit)
+        row.art:SetAlpha(lit and 1 or 0.4)
+        row.shade:Show()
+        row.fs:SetPoint("LEFT", 10, 0)
+        if lit then row.fs:SetTextColor(1, 0.82, 0) else row.fs:SetTextColor(0.6, 0.6, 0.6) end
+        fitText(row.fs, { d.name, d.short or d.name }, room)
+        row.fs:SetAlpha(lit and 1 or 0.75)
+        -- the picked raid: a gold edge; the open one (a boss of it picked): a faint one
+        local edge = (state.boss == nil and state.raid == d.raid) and 0.85 or (raidOf(state.boss) == d.raid and 0.3) or 0
+        UI():SetEdgeColor(row.box, 1, 0.82, 0, edge)
     else
-        -- "All raids" or a raid: picks everything under it
-        row.fs:SetFontObject("GameFontNormal")
-        row.fs:SetText(d.name)
-        row.sel:SetShown(state.boss == nil and state.raid == d.raid)
+        row.art:Hide()
+        row.shade:Hide()
+        UI():SetEdgeColor(row.box, 0, 0, 0, 0)
+        row.fs:SetAlpha(1)
+        if kind == "all" then
+            row.fs:SetPoint("LEFT", 10, 0)
+            row.fs:SetTextColor(1, 1, 1)
+            row.fs:SetText(d.name)
+            picked = state.boss == nil and state.raid == nil
+        else
+            row.fs:SetPoint("LEFT", 22, 0)
+            if lit then row.fs:SetTextColor(0.9, 0.9, 0.9) else row.fs:SetTextColor(0.5, 0.5, 0.5) end
+            fitText(row.fs, bossVariants(d.name), room - 12)
+            picked = state.boss == d.ref
+        end
     end
+    row.fill:SetShown(picked and true or false)
+    row.bar:SetShown(picked and true or false)
 end
 
--- A row's action as an icon (UI.ICON_ATLAS); what it does is in its tooltip (b.tipTitle, b.tipText).
-local function iconButton(row, icon, title, text, onClick)
-    local b = UI():CreateIconButton(row, ROW_BTN, UI().ICON_ATLAS, UI():IconCoords(icon), onClick)
-    b.tipTitle, b.tipText = title, text
-    b:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(self.tipTitle)
-        if self.tipText then GameTooltip:AddLine(self.tipText, 1, 1, 1, true) end
-        GameTooltip:Show()
-    end)
-    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    return b
+local function treeExtent(d)
+    if d.ref then return BOSS_H + (d.last and 6 or 0) end
+    if d.raid then return STRIP_H + STRIP_GAP end
+    return ALL_H + 6
 end
 
--- "  ·  A, B editing": the members changing a strategy right now (Core/StrategyCollab.lua).
+---------------------------------------------------------------------------
+-- Library: the strategies on the right
+---------------------------------------------------------------------------
+
+-- The members changing a strategy right now (Core/StrategyCollab.lua): "A, B editing" in green, or nil.
 local function editingText(id)
     local Collab = ns.StrategyCollab
     local names = {}
     for _, key in ipairs(Collab and Collab:GetEditors(id) or {}) do names[#names + 1] = shortName(key) end
-    if #names == 0 then return "" end
-    return "  ·  |cff33ff99" .. table.concat(names, ", ") .. " editing|r"
+    if #names == 0 then return nil end
+    return "|cff33ff99" .. tconcat(names, ", ") .. " editing|r"
 end
 
--- "21 Sep" this year, "21 Sep 2025" before.
-local function shortDate(t)
-    if date("%Y", t) == date("%Y") then return date("%d %b", t) end
-    return date("%d %b %Y", t)
+local function copyStrategy(s)
+    Board():Prompt("Name of your copy", (s.n .. " (copy)"):sub(1, S().MAX_NAME_LEN), function(text)
+        text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_NAME_LEN)
+        if text == "" then return end
+        local ok, id = S():CopyStrategy(s.id, text)
+        if ok then Board():OpenStrategy(id, "edit") else ns:Print("Could not copy it: %s", tostring(id)) end
+    end)
 end
 
--- " · 3 pages" (nothing for one page).
-local function pagesText(n)
-    n = tonumber(n) or 1
-    return n > 1 and (" · " .. n .. " pages") or ""
+local function deleteStrategy(s)
+    local owner = S():GetOwner(s.id)
+    local whose = (owner and not ns.Util.IsMe(owner)) and (" by " .. shortName(owner)) or ""
+    ns.RaidPlanUI:Confirm(("Delete the strategy \"%s\"%s for everyone?"):format(s.n, whose), function()
+        local ok, err = S():DeleteStrategy(s.id)
+        if not ok then ns:Print("Could not delete it: %s", tostring(err)) end
+    end)
+end
+
+local function discardDraft(draft)
+    ns.RaidPlanUI:Confirm(("Discard the draft \"%s\"? Its unsaved work is lost."):format(draft.n), function()
+        Board():DiscardDraft(draft.did)
+    end)
+end
+
+-- A link to the board for the chat (UI/Share.lua): the Share window, or with Shift straight into the chat box.
+local function shareStrategy(s, anchor)
+    local ref = ns.Share and ns.Share:StrategyRef(s.id)
+    if not ref then return end
+    if IsShiftKeyDown() then ns.Share:PutInChat(ref) elseif ns.ShareWindow then ns.ShareWindow:Open(ref, anchor) end
+end
+
+-- What a card's More menu holds for me: { icon, word, tooltip, fn, red }.
+local function moreEntries(d, anchor)
+    if d.draft then
+        return { { UI().ICON.trash, "Discard", "Throws the draft's unsaved work away.",
+                   function() discardDraft(d.draft) end, true } }
+    end
+    local s = d.s
+    local out = {}
+    if S():CanBuild() then out[#out + 1] = { 17, "Copy", "Makes a copy that is yours.", function() copyStrategy(s) end } end
+    out[#out + 1] = { 18, "Share", "Post a link in chat that opens it in DisasterZone (Shift: into your chat box).",
+                      function() shareStrategy(s, anchor) end }
+    if (s.ow or s.by) == ns.Util.PlayerKey() then
+        out[#out + 1] = { 19, "Collaborators", "Pick the guild members who build it with you.",
+                          function() View:OpenShare(s.id) end }
+    end
+    if S():CanDeleteStrategy(s.id) then
+        out[#out + 1] = { UI().ICON.trash, "Delete", "Removes the strategy for everyone.", function() deleteStrategy(s) end,
+                          true }
+    end
+    return out
+end
+
+local function openMore(btn)
+    local row = btn:GetParent():GetParent()
+    local d = row.__cdlData
+    if not d then return end
+    local entries = moreEntries(d, btn)
+    UI():ContextMenu(btn, function(root)
+        for _, e in ipairs(entries) do
+            if e[5] and #entries > 1 and root.CreateDivider then root:CreateDivider() end
+            local text = e[5] and ("|cffff8d80" .. e[2] .. "|r") or e[2]
+            local b = root:CreateButton(UI():AtlasIconText(e[1], 14, e[5] and MENU_RED or MENU_GOLD) .. "  " .. text, e[4])
+            if b and b.SetTooltip then
+                b:SetTooltip(function(tt)
+                    tt:AddLine(e[2], 1, 0.82, 0)
+                    tt:AddLine(e[3], 1, 1, 1, true)
+                end)
+            end
+        end
+    end)
+end
+
+-- The card's edge lights while the mouse is on it (or on one of its buttons).
+local function lightCard(row, on)
+    if on then UI():SetEdgeColor(row.card, 1, 0.82, 0, 0.5) else UI():SetEdgeColor(row.card, 0, 0, 0, 0) end
+end
+
+-- A card's icon button stays quiet (a grey icon, no box) until the mouse is on it.
+local function quietIcon(b)
+    local function quiet(self)
+        if self.hovered then return end
+        self.bg:SetColorTexture(0, 0, 0, 0)
+        UI():SetEdgeColor(self, 0, 0, 0, 0)
+        self.icon:SetVertexColor(0.72, 0.72, 0.72)
+    end
+    b:HookScript("OnLeave", quiet)
+    quiet(b)
 end
 
 local function initStratRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        addHighlight(row)
-        row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.l1:SetPoint("TOPLEFT", 8, -4)
-        row.l1:SetJustifyH("LEFT")
-        row.l1:SetWordWrap(false)
-        row.l2 = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.l2:SetPoint("TOPLEFT", 8, -21)
-        row.l2:SetJustifyH("LEFT")
-        row.l2:SetWordWrap(false)
-        -- a draft: an orange strip on the left
-        row.strip = row:CreateTexture(nil, "ARTWORK")
-        row.strip:SetPoint("TOPLEFT", 0, -3)
-        row.strip:SetPoint("BOTTOMLEFT", 0, 3)
-        row.strip:SetWidth(3)
-        row.strip:SetColorTexture(1, 0.6, 0.2, 1)
-        row.del = iconButton(row, 12, "Delete", "Removes the strategy for everyone.", function(self)
-            local s = self:GetParent().__cdlData
-            local draft = s and s.draft
-            if draft then
-                ns.RaidPlanUI:Confirm(("Discard the draft \"%s\"? Its unsaved work is lost."):format(draft.n), function()
-                    Board():DiscardDraft(draft.did)
-                end)
-                return
-            end
-            s = s and s.s
-            if not s then return end
-            local owner = S():GetOwner(s.id)
-            local whose = (owner and not ns.Util.IsMe(owner)) and (" by " .. shortName(owner)) or ""
-            ns.RaidPlanUI:Confirm(("Delete the strategy \"%s\"%s for everyone?"):format(s.n, whose), function()
-                local ok, err = S():DeleteStrategy(s.id)
-                if not ok then ns:Print("Could not delete it: %s", tostring(err)) end
-            end)
+        local card = CreateFrame("Frame", nil, row)
+        card:SetPoint("TOPLEFT")
+        card:SetPoint("TOPRIGHT")
+        card:SetHeight(CARD_H)
+        row.card = card
+        card.bg = card:CreateTexture(nil, "BACKGROUND")
+        card.bg:SetAllPoints()
+        UI():AddEdges(card, "OVERLAY")
+        lightCard(row, false)
+        row.art = card:CreateTexture(nil, "ARTWORK", nil, 0)
+        row.art:SetPoint("TOPLEFT")
+        row.art:SetSize(THUMB_W, CARD_H)
+        row.fade = card:CreateTexture(nil, "ARTWORK", nil, 1)
+        row.fade:SetPoint("TOPRIGHT", row.art, "TOPRIGHT")
+        row.fade:SetPoint("BOTTOMRIGHT", row.art, "BOTTOMRIGHT")
+        row.fade:SetWidth(22)
+        row.l1 = newText(card, "GameFontHighlight", 13)
+        row.l1:SetPoint("TOPLEFT", THUMB_W + 12, -8)
+        row.pill = newPill(card)
+        row.pill:SetPoint("LEFT", row.l1, "RIGHT", 8, 0)
+        row.l2 = newText(card, "GameFontHighlightSmall", 11)
+        row.l2:SetTextColor(0.62, 0.62, 0.62)
+        row.l2:SetPoint("TOPLEFT", THUMB_W + 12, -27)
+        row.more = UI():CreateTipIconButton(card, ACT, UI().ICON.more, "More", "", openMore)
+        row.more:SetPoint("RIGHT", card, "RIGHT", -11, 0)
+        row.edit = UI():CreateTipIconButton(card, ACT, 16, "Edit", "", function(self)
+            local data = self:GetParent():GetParent().__cdlData
+            if data and data.draft then Board():OpenDraft(data.draft.did)
+            elseif data and data.s then Board():OpenStrategy(data.s.id, "edit") end
         end)
-        row.collab = iconButton(row, 19, "Collaborators", "Pick the guild members who build it with you.",
-            function(self)
-                local s = self:GetParent().__cdlData
-                if s and s.s then View:OpenShare(s.s.id) end
-            end)
-        -- a link to the board for the chat (UI/Share.lua)
-        row.share = ns.Share:CreateButton(row, ROW_BTN, function(self)
-            local s = self:GetParent().__cdlData
-            return s and s.s and ns.Share:StrategyRef(s.s.id) or nil
-        end, "Share this strategy")
-        row.copy = iconButton(row, 17, "Copy", "Makes a copy that is yours.", function(self)
-            local s = self:GetParent().__cdlData
-            s = s and s.s
-            if not s then return end
-            Board():Prompt("Name of your copy", (s.n .. " (copy)"):sub(1, S().MAX_NAME_LEN), function(text)
-                text = ns.Util.Trim((text or ""):gsub("|", "")):sub(1, S().MAX_NAME_LEN)
-                if text == "" then return end
-                local ok, id = S():CopyStrategy(s.id, text)
-                if ok then Board():OpenStrategy(id, "edit") else ns:Print("Could not copy it: %s", tostring(id)) end
-            end)
-        end)
-        row.edit = iconButton(row, 16, "Edit", "Opens the strategy to change it.", function(self)
-            local s = self:GetParent().__cdlData
-            if s and s.draft then Board():OpenDraft(s.draft.did)
-            elseif s and s.s then Board():OpenStrategy(s.s.id, "edit") end
-        end)
-        row.open = iconButton(row, 15, "Open", "Opens the strategy to look at it.", function(self)
-            local s = self:GetParent().__cdlData
-            if s and s.s then Board():OpenStrategy(s.s.id) end
-        end)
+        row.edit:SetPoint("RIGHT", row.more, "LEFT", -4, 0)
+        for _, b in ipairs({ row.more, row.edit }) do
+            b:HookScript("OnEnter", function() lightCard(row, true) end)
+            b:HookScript("OnLeave", function() lightCard(row, row:IsMouseOver()) end)
+            quietIcon(b)
+        end
+        -- a click on the card opens the board to look at it (my draft: where I left it)
         row:SetScript("OnClick", function(self)
-            local s = self.__cdlData
-            if s and s.draft then Board():OpenDraft(s.draft.did)
-            elseif s and s.s then Board():OpenStrategy(s.s.id) end
+            local data = self.__cdlData
+            if data and data.draft then Board():OpenDraft(data.draft.did)
+            elseif data and data.s then Board():OpenStrategy(data.s.id) end
         end)
+        row:SetScript("OnEnter", function(self) lightCard(self, true) end)
+        row:SetScript("OnLeave", function(self) lightCard(self, false) end)
     end
-    local draft = d.draft
-    local s = d.s
-    row.strip:SetShown(draft ~= nil)
+    local draft, s = d.draft, d.s
+    local item = draft or s
+    local bg = draft and DRAFT_BG or CARD_BG
+    row.card.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    gradient(row.fade, "HORIZONTAL", bg[1], bg[2], bg[3], 0, 1)
+    setArt(row.art, raidOf(item.b), THUMB_W, CARD_H, 0.36, true)
+
+    -- what I can do: Edit (a draft: Continue) on the card, the rest in its More menu
+    local canEdit = draft ~= nil or S():CanEditStrategy(s.id)
+    row.edit:SetShown(canEdit)
     row.edit.tipTitle = draft and "Continue" or "Edit"
     row.edit.tipText = draft and "Opens the draft where you left it." or "Opens the strategy to change it."
-    row.del.tipTitle = draft and "Discard" or "Delete"
-    row.del.tipText = draft and "Throws the draft's unsaved work away." or "Removes the strategy for everyone."
-    -- the boss, unless the list is one boss'
-    local where = state.boss == nil and ("  " .. grey(S():GetBossName((draft or s).b))) or ""
-    local show
-    if draft then
-        -- my unsaved work: only I see it, saving it makes it a strategy (or updates the one it changes)
-        row.l1:SetText(draft.n .. "  |cffff9933Draft|r" .. where)
-        row.l2:SetText(("%s · last edited %s%s"):format(draft.id and "unsaved changes" or "not saved yet",
-            date("%d %b %H:%M", draft.at), pagesText(draft.pages)))
-        show = { del = true, edit = true }
-    else
-        local owner = s.ow or s.by
-        local me = ns.Util.PlayerKey()
-        local co = #(s.co or {})
-        local mine = S():CanEditStrategy(s.id)
-        row.l1:SetText(s.n .. where)
-        -- who, when, how big: what tells strategies apart at a glance (blocks and the full date are in the board)
-        row.l2:SetText(("by %s%s · %s%s%s"):format(owner == me and "you" or shortName(owner),
-            co > 0 and (" +" .. co) or "", shortDate(s.rev), pagesText(#s.p),
-            S():IsCollaborator(s.id) and " · |cff33ff99shared with you|r" or "") .. editingText(s.id))
-        show = { del = S():CanDeleteStrategy(s.id), collab = owner == me, share = true, copy = S():CanBuild(),
-                 edit = mine, open = true }
-    end
-    -- the buttons this member has, right to left; the texts end where they start
-    local prev, used = nil, 6
-    for _, k in ipairs({ "del", "collab", "share", "copy", "edit", "open" }) do
-        local b = row[k]
-        b:SetShown(show[k] and true or false)
-        if show[k] then
-            b:ClearAllPoints()
-            if prev then b:SetPoint("RIGHT", prev, "LEFT", -2, 0) else b:SetPoint("RIGHT", -6, 0) end
-            used = used + b:GetWidth() + 2
-            prev = b
+    local words = {}
+    for _, e in ipairs(moreEntries(d, row.more)) do words[#words + 1] = e[2] end
+    row.more.tipText = tconcat(words, ", ")
+
+    -- line 1: the name and its tag; line 2: the boss (unless the list is one boss'), who, when, how big, who edits now
+    row.l1:SetText(item.n)
+    local tag = draft and "Draft" or (S():IsCollaborator(s.id) and "shared with you") or nil
+    row.pill:SetShown(tag ~= nil)
+    if tag then row.pill:Set(tag, draft and "warn" or "ok") end
+    local boss = state.boss == nil and S():GetBossName(item.b) or nil
+    local function line(bossName, pages, when)
+        local parts = { bossName }
+        if draft then
+            parts[#parts + 1] = draft.id and "unsaved changes" or "not saved yet"
+            if when then parts[#parts + 1] = "edited " .. date("%d %b %H:%M", draft.at) end
+        else
+            local owner = s.ow or s.by
+            local co = #(s.co or {})
+            parts[#parts + 1] = "by " .. (owner == ns.Util.PlayerKey() and "you" or UI():ColoredName(owner))
+                .. (co > 0 and (" +" .. co) or "")
+            if when then parts[#parts + 1] = shortDate(s.rev) end
         end
+        local text = tconcat(parts, " · ") .. (pages and pagesText(draft and draft.pages or #s.p) or "")
+        local live = s and editingText(s.id)
+        return live and (text .. " · " .. live) or text
     end
-    row.l1:SetPoint("RIGHT", -(used + 6), 0)
-    row.l2:SetPoint("RIGHT", -(used + 6), 0)
+    local cardW = row:GetWidth() or 0
+    if cardW < 200 then cardW = INNER_W - TREE_W - GAP end
+    local room = cardW - THUMB_W - 12 - (11 + ACT + (canEdit and (4 + ACT) or 0) + 12)
+    -- (too long: the boss without its title, then without the pages, then without the date)
+    local short = boss and bossVariants(boss)[2] or boss
+    local variants = { line(boss, true, true) }
+    if short ~= boss then variants[#variants + 1] = line(short, true, true) end
+    variants[#variants + 1] = line(short, false, true)
+    variants[#variants + 1] = line(short, false, false)
+    fitText(row.l2, variants, room)
 end
+
+---------------------------------------------------------------------------
+-- Library: the filter row and New strategy
+---------------------------------------------------------------------------
 
 local function byOptions()
     local out = {
@@ -316,73 +549,92 @@ local function newStrategy(btn)
     end)
 end
 
+local HELP = "Everyone builds strategies here: a map with zones, arrows and icons, plus tables of jobs. You change your "
+    .. "own and the ones shared with you; Copy makes any strategy yours. For a raid, its leader fills in the names "
+    .. "(Raids > Upcoming > Assignments)."
+
 function View:CreateLibrary(parent)
     local f = CreateFrame("Frame", nil, parent)
     lib = f
-    f.search = UI():CreateSearchBox(f, LIST_W - 30, function(text)
+    -- the filter row: the search over the raids column, By over the strategies, Clear filters while filtering
+    f.search = UI():CreateSearchBox(f, TREE_W, function(text)
         text = ns.Util.Trim(text or "")
         if text == state.text then return end
         state.text = text
         View:RefreshLibrary()
-    end, "Search strategies...")
-    f.search:SetPoint("TOPLEFT", 8, -2)
-    f.byLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.byLabel:SetPoint("TOPLEFT", LIST_W + 12, -7)
-    f.byLabel:SetText("By")
-    f.by = UI():CreateDropdown(f, 190, byOptions, function() return state.by end, function(value)
+    end, "Search strategies")
+    f.search:SetPoint("TOPLEFT", PAD, 0)
+    f.by = UI():CreateDropdown(f, 170, byOptions, function() return state.by end, function(value)
         state.by = value
         View:RefreshLibrary()
     end)
-    f.by:SetPoint("LEFT", f.byLabel, "RIGHT", 6, 0)
+    f.by:SetPoint("TOPLEFT", PAD + TREE_W + GAP, 0)
+    -- ("By" inside the dropdown, in front of the pick)
+    local refreshBy = f.by.Refresh
+    function f.by:Refresh()
+        refreshBy(self)
+        self:SetText("|cff8c8c8cBy|r  " .. (self:GetText() or ""))
+    end
+    f.by:Refresh()
     f.clear = UI():CreateButton(f, "Clear filters", 96, 22, function() View:SetFilter({}) end)
-    f.clear:SetPoint("LEFT", f.by, "RIGHT", 8, 0)
-    f.found = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    f.found:SetPoint("LEFT", f.clear, "RIGHT", 10, 0)
+    f.clear:SetPoint("TOPRIGHT", -PAD, 0)
 
-    f.list = UI():CreateScrollList(f, BOSS_ROW_H, initBossRow)
-    f.list.frame:SetPoint("TOPLEFT", 0, -FILTER_H)
-    f.list.frame:SetPoint("BOTTOMLEFT", 0, 0)
-    f.list.frame:SetWidth(LIST_W)
+    -- the raids (the box keeps the column's width; its bar sits in the gap beside it)
+    f.list = UI():CreateScrollList(f, BOSS_H, initTreeRow, treeExtent)
+    f.list.frame:SetPoint("TOPLEFT", PAD, -(FILTER_H + GAP))
+    f.list.frame:SetPoint("BOTTOMLEFT", PAD, 0)
+    f.list.frame:SetWidth(TREE_W + 20)
+    if f.list.bar then
+        f.list.bar:ClearAllPoints()
+        f.list.bar:SetPoint("TOPLEFT", f.list.box, "TOPRIGHT", 1, 0)
+        f.list.bar:SetPoint("BOTTOMLEFT", f.list.box, "BOTTOMRIGHT", 1, 0)
+    end
 
+    -- the strategies (the scroll bar in the page's right margin)
     local d = CreateFrame("Frame", nil, f)
-    d:SetPoint("TOPLEFT", LIST_W + 10, -FILTER_H)
-    d:SetPoint("BOTTOMRIGHT", 0, 0)
+    d:SetPoint("TOPLEFT", PAD + TREE_W + GAP, -(FILTER_H + GAP))
+    d:SetPoint("BOTTOMRIGHT", -PAD, 0)
     f.detail = d
-    d.title = d:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    d.title:SetPoint("TOPLEFT", 2, -2)
-    d.title:SetJustifyH("LEFT")
-    d.sub = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    d.sub:SetPoint("TOPLEFT", 2, -24)
-    d.sub:SetPoint("RIGHT", -210, 0)
-    d.sub:SetJustifyH("LEFT")
-    d.sub:SetWordWrap(false)
+    d.list = UI():CreateScrollList(d, CARD_H + CARD_GAP, initStratRow)
+    d.list.frame:SetPoint("TOPLEFT", 0, 0)
+    d.list.frame:SetPoint("BOTTOMRIGHT", 20, 0)
+    if d.list.bar then
+        d.list.bar:ClearAllPoints()
+        d.list.bar:SetPoint("TOPLEFT", d.list.box, "TOPRIGHT", 4, 0)
+        d.list.bar:SetPoint("BOTTOMLEFT", d.list.box, "BOTTOMRIGHT", 4, 0)
+    end
+
+    -- the view's actions on the Raids tab's view row (30 above the library, like New raid): the tutorial behind a ?
+    -- (what this view is in its tooltip), New strategy
     d.newBtn = UI():CreateSleekButton(d, "New strategy", 110, 22, function(self) newStrategy(self) end, "primary")
-    d.newBtn:SetPoint("TOPRIGHT", -2, -2)
-    -- what this view is: in its help icon, not on the screen
-    d.help = UI():CreateTipIconButton(d, 22, 11, "Strategies",
-        "Everyone builds strategies here: a map with zones, arrows and icons, plus tables of jobs. You change your own "
-        .. "and the ones shared with you; Copy makes any strategy yours. For a raid, the raid leader fills in the "
-        .. "names (Raids > Upcoming > Assignments).")
-    d.help:SetPoint("LEFT", d.title, "RIGHT", 6, 0)
-    -- the guided tour of the strategy board (Data/Tours/Strategy.lua)
-    d.tourBtn = UI():CreateSleekButton(d, "Tutorial", 70, 22, function(self) ns.Tour:Menu(self, "strategy") end)
-    d.tourBtn:SetPoint("RIGHT", d.newBtn, "LEFT", -6, 0)
-    d.tourBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Tutorial")
-        GameTooltip:AddLine("A guided tour on a practice board: building a strategy, the room in 3D, assigning a "
-            .. "raid, reading a plan. Nothing you do there is saved or shared.", 1, 1, 1, true)
+    d.tourBtn = UI():CreateTipIconButton(d, 22, 11, "Strategies", HELP, function(self)
+        if S():CanBuild() then ns.Tour:Menu(self, "strategy") end
+    end)
+    d.tourBtn:HookScript("OnEnter", function()
+        if not S():CanBuild() then return end
+        GameTooltip:AddLine("Click for the tutorial: a guided tour on a practice board (building a strategy, the "
+            .. "room in 3D, assigning a raid). Nothing you do there is saved or shared.", 0.62, 0.62, 0.62, true)
         GameTooltip:Show()
     end)
-    d.tourBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    d.list = UI():CreateScrollList(d, STRAT_ROW_H, initStratRow)
-    d.list.frame:SetPoint("TOPLEFT", 0, -46)
-    d.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
     -- who is editing what right now: ask once the list is looked at
     f:HookScript("OnShow", function()
         if ns.StrategyCollab then ns.StrategyCollab:Query() end
     end)
     return f
+end
+
+-- New strategy and the ? at the top right of the Raids tab (left of Start / End raid while it shows).
+local function placeActions(d)
+    local p = lib:GetParent()
+    local session = p and p.sessionBtn and p.sessionBtn:IsShown() and p.sessionBtn or nil
+    local prev = session
+    for _, b in ipairs({ d.newBtn, d.tourBtn }) do
+        b:ClearAllPoints()
+        if b:IsShown() then
+            if prev then b:SetPoint("RIGHT", prev, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", lib, "TOPRIGHT", -PAD, 30) end
+            prev = b
+        end
+    end
 end
 
 function View:RefreshLibrary()
@@ -397,7 +649,8 @@ function View:RefreshLibrary()
     if not okBoss then state.boss = nil end
     if not okRaid then state.raid = nil end
 
-    -- the tree: how many strategies (and drafts of mine) pass the search / member filter under each row
+    -- the raids: how many strategies (and drafts of mine) pass the search / member filter under each; the raid picked
+    -- (or the picked boss') shows its bosses
     local counts, drafts = {}, {}
     local total, totalDrafts = 0, 0
     for _, s in ipairs(S():Find(findFilter(false))) do
@@ -411,28 +664,32 @@ function View:RefreshLibrary()
             totalDrafts = totalDrafts + 1
         end
     end
+    local open = state.raid or raidOf(state.boss)
     local rows = { { name = "All raids", count = total, drafts = totalDrafts } }
     for _, raid in ipairs(tree) do
-        local head = { raid = raid.key, name = raid.name, count = 0, drafts = 0 }
+        local head = { raid = raid.key, name = raid.name, short = INST_SHORT[instOf(raid.key)], count = 0, drafts = 0 }
         rows[#rows + 1] = head
+        local last
         for _, b in ipairs(raid.bosses) do
-            rows[#rows + 1] = { ref = b.ref, name = b.name, count = counts[b.ref] or 0, drafts = drafts[b.ref] or 0 }
             head.count = head.count + (counts[b.ref] or 0)
             head.drafts = head.drafts + (drafts[b.ref] or 0)
+            if open == raid.key then
+                last = { ref = b.ref, name = b.name, count = counts[b.ref] or 0, drafts = drafts[b.ref] or 0 }
+                rows[#rows + 1] = last
+            end
         end
+        if last then last.last = true end
     end
     lib.list:SetData(rows)
 
-    -- the filter bar
+    -- the filter row
     if lib.by.Refresh then lib.by:Refresh() end
     lib.clear:SetShown(filtered())
-    lib.found:SetShown(filtered())
-    lib.found:SetText(total .. (total == 1 and " strategy" or " strategies") .. " found")
 
     -- the strategies
     local d = lib.detail
     d.newBtn:SetShown(S():CanBuild())
-    d.tourBtn:SetShown(S():CanBuild())
+    placeActions(d)
     -- never looked at the tutorial: offer it (once per session, until it is started or turned down)
     if S():CanBuild() then ns.Tour:Offer("strategy", function() return d.tourBtn end) end
     local list = {}
@@ -440,20 +697,14 @@ function View:RefreshLibrary()
         if draftShown(dr, true) then list[#list + 1] = { draft = dr } end
     end
     for _, s in ipairs(S():Find(findFilter(true))) do list[#list + 1] = { s = s } end
-    local count = #list == 1 and "1 strategy" or (#list .. " strategies")
-    if state.boss then
-        d.title:SetText(S():GetBossName(state.boss))
-        d.sub:SetText(grey(S():GetRaidName(state.boss) .. "  ·  " .. count))
-    else
-        d.title:SetText(state.raid and S():GetRaidName(state.raid .. ":x") or "All raids")
-        d.sub:SetText(grey(count))
-    end
     if filtered() then
         d.list:SetEmptyText("No strategy matches the filters.")
     elseif state.boss then
-        d.list:SetEmptyText("No strategy for this boss yet.\nClick New strategy to build one.")
+        d.list:SetEmptyText("No strategy for this boss yet.")
+    elseif state.raid then
+        d.list:SetEmptyText("No strategy for this raid yet.")
     else
-        d.list:SetEmptyText("No strategies yet.\nClick New strategy to build the first one.")
+        d.list:SetEmptyText("No strategies yet.")
     end
     d.list:SetData(list)
 end
@@ -487,7 +738,7 @@ end
 -- The library's frame (nil until the Raids tab made it): the tutorial points at its controls.
 function View:GetLibrary() return lib end
 
--- The library's rows as shown (for tests): the tree rows and the strategy rows.
+-- The library's rows as shown (for tests): the raids column's rows and the strategy rows.
 function View:GetRows()
     return lib and lib.list:GetData() or {}, lib and lib.detail.list:GetData() or {}
 end
@@ -519,47 +770,78 @@ local function shareItems()
     return out
 end
 
+-- A collaborator: class circle, name, guild rank, and the bin that takes them off (quiet until hovered).
 local function initShareRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        row.fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.fs:SetPoint("LEFT", 6, 0)
-        row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.note:SetPoint("LEFT", 150, 0)
+        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
+        row.hl:SetAllPoints()
+        row.hl:SetColorTexture(1, 1, 1, 0.05)
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(16, 16)
+        row.icon:SetPoint("LEFT", 0, 0)
+        row.fs = newText(row, "GameFontHighlight", 12)
+        row.fs:SetPoint("LEFT", 22, 0)
+        row.note = newText(row, "GameFontHighlightSmall", 11)
+        row.note:SetTextColor(0.62, 0.62, 0.62)
+        row.note:SetPoint("LEFT", 170, 0)
         row.remove = UI():CreateRemoveButton(row, "No longer a collaborator")
-        row.remove:SetPoint("RIGHT", -4, 0)
+        row.remove:SetPoint("RIGHT", 0, 0)
         row.remove:SetScript("OnClick", function(self)
             local data = self:GetParent().__cdlData
             if data then View:ToggleCollaborator(data.key) end
         end)
+        quietIcon(row.remove)
     end
     local g = ns.Guild
+    UI():ClassIcon(row.icon, g and g.GetClass and g:GetClass(d.key))
     row.fs:SetText(UI():ColoredName(d.key))
-    row.note:SetText(g and g.GetRankName and g:GetRankName(d.key) or "")
+    local rank = g and g.GetRankName and g:GetRankName(d.key) or nil
+    row.note:SetText(rank or "not in the guild")
 end
+
+local SHARE_W = 340                  -- the window's content inside its sides
 
 local function createShare()
     local w = UI():CreateWindow("DisasterZoneStrategyShare", "Collaborators", 380, 380)
     shareWin = w
     local c = w.content
-    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    w.info:SetPoint("TOPLEFT", 10, -8)
-    w.info:SetPoint("RIGHT", -10, 0)
-    w.info:SetJustifyH("LEFT")
-    w.picker = UI():CreateSearchDropdown(c, 240, {
+    -- the strategy and its boss; what collaborators may do
+    w.name = newText(c, "GameFontHighlight", 14)
+    w.name:SetPoint("TOPLEFT", PAD, -10)
+    w.boss = newText(c, "GameFontHighlightSmall", 11)
+    w.boss:SetTextColor(0.62, 0.62, 0.62)
+    w.boss:SetPoint("BOTTOMLEFT", w.name, "BOTTOMRIGHT", 8, 1)
+    w.info = newText(c, "GameFontHighlightSmall", 11)
+    w.info:SetTextColor(0.62, 0.62, 0.62)
+    w.info:SetPoint("TOPLEFT", PAD, -32)
+    w.info:SetWidth(SHARE_W)
+    w.info:SetWordWrap(true)
+    w.info:SetText("The guild members you invite here can change this strategy with you. Only you invite and remove; "
+        .. "you, the GM and the guild council delete.")
+    w.picker = UI():CreateSearchDropdown(c, SHARE_W, {
         placeholder = "Invite guild members...",
         emptyText = "No matching guild members.",
         getItems = shareItems,
         isChecked = function(key) return shareSet()[key] and true or false end,
         onToggle = function(key) View:ToggleCollaborator(key) end,
     })
-    w.picker.frame:SetPoint("TOPLEFT", 6, -64)
-    w.status = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.status:SetPoint("TOPLEFT", 10, -92)
-    w.list = UI():CreateScrollList(c, 22, initShareRow)
-    w.list.frame:SetPoint("TOPLEFT", 4, -108)
-    w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
-    w.list:SetEmptyText("Nobody yet: only you, the GM and the guild council can change it.\nInvite guild members with the search box.")
+    local y = 32 + 3 * 13 + 12       -- (the explanation takes three lines)
+    w.picker.frame:SetPoint("TOPLEFT", PAD, -y)
+    -- the collaborators: how many of the most, then the list
+    y = y + 22 + 16
+    w.status = newText(c, "GameFontNormalSmall", 11)
+    w.status:SetPoint("TOPLEFT", PAD, -y)
+    w.line = c:CreateTexture(nil, "BORDER")
+    w.line:SetPoint("TOPLEFT", PAD, -(y + 18))
+    w.line:SetSize(SHARE_W, 1)
+    w.line:SetColorTexture(1, 1, 1, 0.08)
+    w.list = UI():CreateScrollList(c, 24, initShareRow)
+    w.list.frame:SetPoint("TOPLEFT", PAD, -(y + 22))
+    w.list.frame:SetPoint("BOTTOMLEFT", PAD, PAD)
+    w.list.frame:SetWidth(SHARE_W + 20)
+    w.list.emptyText:SetFontObject("GameFontDisableSmall")
+    w.list:SetEmptyText("Nobody yet: only you, the GM and the guild council can change it.")
     w:Hide()
     return w
 end
@@ -598,8 +880,8 @@ function View:RefreshShare()
         shareWin:Hide()
         return
     end
-    shareWin.info:SetText(("|cffffd100%s|r  %s\nThe guild members you invite here can change this strategy with you. "
-        .. "Only you invite and remove; you, the GM and the guild council delete."):format(s.n, grey(S():GetBossName(s.b))))
+    shareWin.name:SetText(s.n)
+    fitText(shareWin.boss, bossVariants(S():GetBossName(s.b)), SHARE_W - (shareWin.name:GetStringWidth() or 0) - 8)
     local rows = {}
     for _, key in ipairs(s.co or {}) do rows[#rows + 1] = { key = key } end
     tsort(rows, function(a, b) return shortName(a.key):lower() < shortName(b.key):lower() end)
@@ -639,12 +921,27 @@ end
 local function initRaidBossRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        addHighlight(row)
+        -- a flat card (the raid page's), lit a little under the mouse
+        row.card = row:CreateTexture(nil, "BACKGROUND")
+        row.card:SetPoint("TOPLEFT", 0, 0)
+        row.card:SetPoint("BOTTOMRIGHT", 0, RAID_ROW_H - 46)
+        row.card:SetColorTexture(0.08, 0.08, 0.095, 0.9)
+        for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
+                             { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+            local t = row:CreateTexture(nil, "BORDER")
+            t:SetPoint(e[1], row.card, e[1])
+            t:SetPoint(e[2], row.card, e[2])
+            if e[3] then t:SetHeight(1) else t:SetWidth(1) end
+            t:SetColorTexture(0.34, 0.34, 0.38, 0.5)
+        end
+        local hl = row:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints(row.card)
+        hl:SetColorTexture(1, 1, 1, 0.04)
         row.assign = UI():CreateButton(row, "Assign", 70, 20, function(self)
             local data = self:GetParent().__cdlData
             if data then Board():OpenRaid(data.occ, data.ref, "fill") end
         end)
-        row.assign:SetPoint("RIGHT", -6, 0)
+        row.assign:SetPoint("RIGHT", row.card, "RIGHT", -10, 0)
         row.open = UI():CreateButton(row, "Open", 70, 20, function(self)
             local data = self:GetParent().__cdlData
             if data then Board():OpenRaid(data.occ, data.ref) end
@@ -653,16 +950,16 @@ local function initRaidBossRow(row, d)
         -- strategy (a dropdown as wide as its name for who arranges the raid, the name for everyone else) and, for
         -- the arrangers, whether it still has to be picked
         row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.l1:SetPoint("TOPLEFT", 8, -5)
+        row.l1:SetPoint("TOPLEFT", 12, -7)
         row.l1:SetJustifyH("LEFT")
         row.l1:SetWordWrap(false)
         row.stat = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         row.stat:SetPoint("LEFT", row.l1, "RIGHT", 8, 0)
-        row.stat:SetPoint("RIGHT", row, "TOPRIGHT", -TEXT_END, -11)
+        row.stat:SetPoint("RIGHT", row, "TOPRIGHT", -TEXT_END, -13)
         row.stat:SetJustifyH("RIGHT")
         row.stat:SetWordWrap(false)
         row.pick = UI():CreateSleekMenuButton(row, "", PICK_MIN, function(root) pickMenu(row, root) end, 20)
-        row.pick:SetPoint("TOPLEFT", 6, -22)
+        row.pick:SetPoint("TOPLEFT", 10, -22)
         row.pick:HookScript("OnEnter", function(self)
             local data = row.__cdlData
             if not (data and data.s) then return end
@@ -725,13 +1022,13 @@ local function initRaidBossRow(row, d)
         row.l2:SetText((Board():FillDraft(d.occ, d.ref) and "|cffff9933unsaved names|r")
             or ((d.count > 1 and d.how ~= "picked") and "|cffff9933not picked yet|r") or "")
     else
-        row.l2:SetPoint("TOPLEFT", 8, -27)
+        row.l2:SetPoint("TOPLEFT", 12, -27)
         row.l2:SetText(s and ("|cffffffff" .. s.n .. "|r") or "No strategy for this boss yet")
     end
     row.l2:SetPoint("RIGHT", row, "TOPRIGHT", -TEXT_END, -32)
     row.assign:SetShown(arranger and s ~= nil)
     row.open:ClearAllPoints()
-    if arranger and s then row.open:SetPoint("RIGHT", row.assign, "LEFT", -4, 0) else row.open:SetPoint("RIGHT", -6, 0) end
+    if arranger and s then row.open:SetPoint("RIGHT", row.assign, "LEFT", -4, 0) else row.open:SetPoint("RIGHT", row.card, "RIGHT", -10, 0) end
     row.open:SetShown(s ~= nil or S():CanBuild())
 end
 
@@ -750,13 +1047,19 @@ end
 function View:CreateRaidAssignments(parent)
     local f = CreateFrame("Frame", nil, parent)
     assign = f
+    -- (the raid page puts the hint on its tab row; the cards fill the width, the scroll bar sits in the margin)
     f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.hint:SetPoint("TOPLEFT", 2, -2)
     f.hint:SetPoint("RIGHT", -2, 0)
     f.hint:SetJustifyH("LEFT")
     f.list = UI():CreateScrollList(f, RAID_ROW_H, initRaidBossRow)
-    f.list.frame:SetPoint("TOPLEFT", 0, -20)
-    f.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
+    f.list.frame:SetPoint("TOPLEFT", 0, 0)
+    f.list.frame:SetPoint("BOTTOMRIGHT", 20, 0)
+    if f.list.bar then
+        f.list.bar:ClearAllPoints()
+        f.list.bar:SetPoint("TOPLEFT", f.list.box, "TOPRIGHT", 4, 0)
+        f.list.bar:SetPoint("BOTTOMLEFT", f.list.box, "BOTTOMRIGHT", 4, 0)
+    end
     return f
 end
 

@@ -280,7 +280,8 @@ def install_probes(clients):
 
 
 def panel_blocks(client):
-    """Visible drop-panel blocks: [{item, names:[short names in row order], sub, awarded, buttons:[labels]}]."""
+    """Visible drop-panel blocks: [{item, names:[short names in row order], sub, awarded, buttons:[labels],
+    more:[the card's More menu entries: Announce, Disenchant, Guild bank, Award]}]."""
     return client.eval_py(r"""
         local DP = ns.DropPanel
         local out = {}
@@ -295,8 +296,11 @@ def panel_blocks(client):
             for _, btn in ipairs(b.actionButtons) do
               if btn:IsShown() then btns[#btns + 1] = btn:GetText() or "?" end
             end
+            local more = {}
+            for _, e in ipairs(DP.GetMoreActions and DP:GetMoreActions(b) or {}) do more[#more + 1] = e.label end
             out[#out + 1] = { item = b.itemID, copy = b.copy, names = names, sub = b.sub:GetText() or "",
-              awarded = b.awarded:GetText() or "", buttons = btns, none = b.none:IsShown() and b.none:GetText() or "" }
+              awarded = b.awarded:GetText() or "", buttons = btns, more = more,
+              none = b.none:IsShown() and b.none:GetText() or "" }
           end
         end
         return out""") or []
@@ -320,8 +324,10 @@ def rollframe_state(client):
         local RF = ns.RollFrame
         local f = RF.frame
         if not f then return { shown = false } end
+        -- bis: the pill ("BiS" / "Alt" / "OS") and the line after it ("Head · P1"), or "Not on your BiS list"
+        local pill = (f.bisPill and f.bisPill:IsShown()) and ((f.bisPill.fs:GetText() or "") .. " ") or ""
         return { shown = f:IsShown() and true or false, id = RF.sessionID,
-                 status = f.status:GetText() or "", bis = f.bis:GetText() or "", name = f.name:GetText() or "",
+                 status = f.status:GetText() or "", bis = pill .. (f.bis:GetText() or ""), name = f.name:GetText() or "",
                  rollShown = f.roll:IsShown() and true or false, passShown = f.pass:IsShown() and true or false }""")
 
 

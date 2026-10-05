@@ -11,17 +11,19 @@ local ROW_HEIGHT = 26
 local MAX_NOTE = 60
 local MAX_ITEM_ID = 200000
 local MENU_CHUNK = 25
-local ROW_HILIGHT = "Interface\\QuestFrame\\UI-QuestTitleHighlight"
+-- The Council page's grid (UI/Council.lua): 10 at the sides, the filter row under the view tabs, the column titles
+-- and the list under it; the list's scroll bar in the right margin.
+local PAD, FILTER_Y, HEAD_Y, HEAD_H = 10, -48, -68, 24
 
--- Column x offsets / widths inside a row (and the header above the list).
+-- Column x offsets / widths inside a row (and the header above the list); a row is 770 wide.
 local COL = {
-    date = { x = 6, w = 62 },
-    icon = { x = 72 },
-    item = { x = 98, w = 228 },      -- the longest raid item names (36 letters) fit
-    winner = { x = 330, w = 132 },   -- a 12-letter name with its (guest) mark fits
-    reason = { x = 466, w = 60 },    -- award reason (ADDENDUM G)
-    boss = { x = 530, w = 136 },
-    by = { x = 670, w = 96 },
+    date = { x = 6, w = 64 },
+    icon = { x = 74 },
+    item = { x = 100, w = 232 },     -- the longest raid item names (36 letters) fit
+    winner = { x = 338, w = 128 },   -- a 12-letter name with its (guest) mark fits
+    reason = { x = 470, w = 64 },    -- award reason (ADDENDUM G)
+    boss = { x = 538, w = 132 },
+    by = { x = 674, w = 90 },
 }
 
 local ITEM_HINT = "Shift-click, drag or type an item ID."
@@ -214,7 +216,7 @@ local function buildRows()
                 pre[#pre + 1] = id
             end
             if (state.showDungeon or not isDungeonEntry(e)) and entryMatches(e) then
-                rows[#rows + 1] = { entry = e, itemID = id, classFile = classOf(e.w) }
+                rows[#rows + 1] = { entry = e, itemID = id, classFile = classOf(e.w), index = #rows + 1 }
             end
         end
     end
@@ -318,13 +320,15 @@ end
 local function setupRow(row)
     row.cdlInit = true
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row.stripe = row:CreateTexture(nil, "BACKGROUND")
+    row.stripe:SetAllPoints()
+    row.stripe:SetColorTexture(1, 1, 1, 0.025)
     local hl = row:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetTexture(ns.TEX and ns.TEX.rowHilight or ROW_HILIGHT)
-    hl:SetBlendMode("ADD")
-    hl:SetAlpha(0.5)
+    hl:SetColorTexture(1, 1, 1, 0.05)
 
     row.date = newText(row, COL.date, "GameFontHighlightSmall")
+    row.date:SetTextColor(0.62, 0.62, 0.62)
     row.btn = ns.UI:CreateItemButton(row, 20)
     row.btn:SetPoint("LEFT", COL.icon.x, 0)
     row.btn.onTooltip = function(btn, tt)
@@ -348,6 +352,7 @@ local function initRow(row, d)
     if not row.cdlInit then setupRow(row) end
     local e = d.entry
     row.cdlEntry = e
+    row.stripe:SetShown((d.index or 0) % 2 == 0)
     row.date:SetText(formatDate(e.ts))
     row.btn:SetItem(d.itemID)
     row.btn:SetBadge(nil)
@@ -720,9 +725,14 @@ end
 ----------------------------------------------------------------------------
 
 local function createHeader(p)
-    local h = ns.UI:CreateColumnHeader(p, 18)
-    h:SetPoint("TOPLEFT", 0, -60)
-    h:SetPoint("TOPRIGHT", 0, -60)
+    local h = ns.UI:CreateColumnHeader(p, HEAD_H)
+    h:SetPoint("TOPLEFT", PAD, HEAD_Y)
+    h:SetPoint("TOPRIGHT", -PAD, HEAD_Y)
+    h.rule = h:CreateTexture(nil, "BORDER")
+    h.rule:SetPoint("BOTTOMLEFT", 0, 0)
+    h.rule:SetPoint("BOTTOMRIGHT", 0, 0)
+    h.rule:SetHeight(1)
+    h.rule:SetColorTexture(1, 1, 1, 0.08)
     local titles = {
         { COL.date, "Date" }, { COL.item, "Item" }, { COL.winner, "Winner" }, { COL.reason, "Reason" },
         { COL.boss, "Boss" }, { COL.by, "Recorded" },
@@ -741,11 +751,11 @@ function LootLogUI:CreatePanel(parent)
     p.dirty = true
 
     -- the Council's top row: the search in the Council search's place (hidden on this view)
-    p.search = UI:CreateSearchBox(p, 170, function(text)
+    p.search = UI:CreateSearchBox(p, 150, function(text)
         state.search = trim(text):lower()
         LootLogUI:Refresh(true)
     end)
-    p.search:SetPoint("RIGHT", p, "TOPRIGHT", -10, -16)
+    p.search:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, -6)
 
     -- the row under it: filters on the left, the count and Add award... on the right
     p.voidCB = UI:CreateCheckbox(p, "Show voided", function() return state.showVoid end, function(value)
@@ -756,7 +766,8 @@ function LootLogUI:CreatePanel(parent)
         end
         LootLogUI:Refresh(true)
     end)
-    p.voidCB:SetPoint("LEFT", p, "TOPLEFT", 8, -44)
+    p.voidCB:SetPoint("LEFT", p, "TOPLEFT", PAD - 4, FILTER_Y)
+    p.voidCB.tooltipText = "Also list the entries the council voided (greyed, right-click to restore)."
 
     p.dungeonCB = UI:CreateCheckbox(p, "Show dungeon loot", function() return state.showDungeon end, function(value)
         if type(value) == "boolean" then
@@ -766,32 +777,36 @@ function LootLogUI:CreatePanel(parent)
         end
         LootLogUI:Refresh(true)
     end)
-    p.dungeonCB:SetPoint("LEFT", p, "TOPLEFT", 128, -44)
+    p.dungeonCB:SetPoint("LEFT", p.voidCB.label, "RIGHT", 10, 0)
+    p.dungeonCB.tooltipText = "Awards recorded in 5-man dungeons while dungeon mode was on."
 
     p.addBtn = UI:CreateButton(p, "Add award...", 110, 22, function() LootLogUI:OpenAwardDialog() end)
-    p.addBtn:SetPoint("RIGHT", p, "TOPRIGHT", -10, -44)
+    p.addBtn:SetPoint("RIGHT", p, "TOPRIGHT", -PAD, FILTER_Y)
 
-    p.count = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    p.count = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     p.count:SetPoint("RIGHT", p.addBtn, "LEFT", -12, 0)
     p.count:SetJustifyH("RIGHT")
+    p.count:SetTextColor(0.62, 0.62, 0.62)
 
     p.header = createHeader(p)
 
     p.list = UI:CreateScrollList(p, ROW_HEIGHT, initRow)
     p.list.frame:ClearAllPoints()
-    p.list.frame:SetPoint("TOPLEFT", 0, -80)
-    p.list.frame:SetPoint("BOTTOMRIGHT", 0, 22)
+    p.list.frame:SetPoint("TOPLEFT", PAD, HEAD_Y - HEAD_H - 2)
+    p.list.frame:SetPoint("BOTTOMRIGHT", -PAD, PAD)
+    -- the rows take the whole width; the bar sits in the margin 4px right of them
+    p.list.box:ClearAllPoints()
+    p.list.box:SetPoint("TOPLEFT", p.list.frame, "TOPLEFT", 0, 0)
+    p.list.box:SetPoint("BOTTOMRIGHT", p.list.frame, "BOTTOMRIGHT", 0, 0)
+    if p.list.bar then
+        p.list.bar:ClearAllPoints()
+        p.list.bar:SetPoint("TOPLEFT", p.list.box, "TOPRIGHT", 4, 0)
+        p.list.bar:SetPoint("BOTTOMLEFT", p.list.box, "BOTTOMRIGHT", 4, 0)
+    end
 
     p.empty = p:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    p.empty:SetPoint("CENTER", p.list.frame, "CENTER", 0, 20)
-    p.empty:SetWidth(460)
-
-    p.hint = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.hint:SetPoint("BOTTOMLEFT", 8, 6)
-    p.hint:SetPoint("BOTTOMRIGHT", -8, 6)
-    p.hint:SetJustifyH("LEFT")
-    p.hint:SetText("Awards are logged automatically from loot messages in raid instances and shared with the council. Right-click an entry to void or restore it.")
-    p.hint:SetWordWrap(false)
+    p.empty:SetPoint("TOP", p.list.frame, "TOP", 0, -60)
+    p.empty:SetWidth(480)
 
     p:SetScript("OnShow", function(self)
         if self.dirty then LootLogUI:Refresh() end
@@ -825,11 +840,12 @@ function LootLogUI:Refresh(resetScroll)
     else
         panel.count:SetText(string.format("%d of %d awards", #rows, total))
     end
+    panel.count:SetShown(total > 0)
     if #rows > 0 then
         panel.empty:Hide()
     else
         if total == 0 then
-            panel.empty:SetText("No awards recorded yet.\nAwards are logged automatically from loot messages while you raid, or use Add award... to record one.")
+            panel.empty:SetText("No awards recorded yet.\nThey are logged from loot messages while you raid.")
         elseif state.search == "" and not state.showDungeon then
             panel.empty:SetText("No awards to show: dungeon loot is hidden.")
         else

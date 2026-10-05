@@ -244,14 +244,14 @@ def the_raid_leader_window_and_header():
         cl.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
         w.tick(0.3)
         shown = cl.eval_py("local d = %s; return { edit = d.editBtn:IsShown(), cancel = d.cancelBtn:IsShown(), "
-                           "invite = d.inviteBtn:IsShown(), leader = d.leaderBtn:IsShown(), sub = d.sub:GetText() }" % D)
+                           "invite = d.inviteBtn:IsShown(), leader = d.leaderBtn:IsShown(), sub = d.sub2:GetText() }" % D)
         shown["sub"] = strip_codes(shown["sub"])
         return shown
 
     # the guild council gets no crown and runs nothing; a raid leader on the list gets everything
     h = header(bob)
     assert not h["leader"] and not h["edit"] and not h["cancel"], h
-    assert "by Lee" in h["sub"] and "led by" not in h["sub"], h
+    assert "by Lee" in h["sub"] and "leads" not in h["sub"], h
     h = header(lee)
     assert h["edit"] and h["cancel"] and h["invite"] and h["leader"], h
     # Lee opens the window from the crown, picks Sam, saves
@@ -272,15 +272,13 @@ def the_raid_leader_window_and_header():
     assert raid(rita, occ)["rl"] == K("Sam")
     # the other raid leaders on the list still run it; the leader runs it without the crown
     h = header(rita)
-    assert "led by Sam" in h["sub"] and h["edit"] and h["leader"], h
+    assert "Sam leads" in h["sub"] and h["edit"] and h["leader"], h
     h = header(sam)
     assert h["edit"] and h["cancel"] and h["invite"] and not h["leader"], h
     h = header(bob)
     assert not h["edit"] and not h["cancel"] and not h["leader"], h
-    # the title ends where the shown icons start
-    right = sam.eval("local d = %s; for i = 1, d.title:GetNumPoints() do local p, _, _, x = d.title:GetPoint(i); "
-                     "if p == 'RIGHT' then return x end end" % D)
-    assert right == -(4 * 27 + 6), right   # share, cancel, edit, invite
+    # the icons sit in the banner's top row, the title below them (it never runs under them)
+    assert sam.eval("local d = %s; return d.shareBtn:GetParent() == d.hero and d.editBtn:GetParent() == d.hero" % D) is True
     # Sam opens the editor; the council is told why not
     sam.eval("ns.RaidPlanUI:OpenEditor(...)", occ)
     assert sam.eval("return ns.RaidPlanUI:GetEditor():IsShown()")

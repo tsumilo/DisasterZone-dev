@@ -1,33 +1,78 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyBiS.lua", ...) then return end -- DisasterZone UI/MyBiS.lua
--- ns.MyBiS: the "My BiS" tab - phase buttons, spec, copy / suggest tools, More (import / export / clear), the editable
--- paper doll and the progress card (what's obtained, which raids still have loot for you).
--- ADDENDUM F: slots can be disabled per phase from the tile menu (§36; left out of the progress card),
--- crafted / reputation / badge / PvP items get their own "Still needed from" lines (§37), and while the
--- group's raid leader locks the BiS lists a banner shows and the editing controls are disabled (§38).
--- ADDENDUM H: [Main spec] / [Off spec] buttons switch the whole tab (doll, spec, tools, card) between the two lists.
+-- ns.MyBiS: the "My BiS" tab. A top bar (the phases, Main spec / Off spec, the spec, Suggest, More: import, export,
+-- copy, clear), the editable paper doll (every slot says where its item comes from) and the centre: how much of the
+-- phase is obtained, the character wearing the picks, and what is still to get by source (hover a count for the items).
+-- ADDENDUM F: slots can be disabled per phase from the tile menu (§36; left out of the progress), crafted /
+-- reputation / badge / PvP items count under their own source (§37), and while the group's raid leader locks the BiS
+-- lists the top bar says so and only what still works is offered (§38).
+-- ADDENDUM H: [Main spec] / [Off spec] switch the whole tab (doll, spec, tools, centre) between the two lists.
+-- The first phase tab is the Pre-raid list (phase 0: dungeons, reputation, crafting, badges; only its owner sees it).
+-- My BiS reopens there when it was the last phase picked, else on the guild's phase.
+-- One spacing grid (the Raids and Dungeons tabs' too): PAD at the page's sides, GAP between blocks, every tile 48 high.
 local addonName, ns = ...
 
 local MyBiS = {}
 ns.MyBiS = MyBiS
 
+local floor, min, max = math.floor, math.min, math.max
+
 local NUM_SLOTS = 17
 local AUTO_SPEC = "__auto"
 local REMOVE_OS = "__removeos"
-local LOCK_BANNER_H = 40
-local FOOTER_TEXT = "Click a slot to choose  ·  Right-click for options  ·  Drag items from your bags onto a slot  ·  Shift-click to link"
-local FOOTER_LOCKED = "BiS lists are locked during the raid  ·  Obtained items still update  ·  Right-click a slot to mark it obtained"
 
--- "Still needed from" lines for the non-raid sources (§37), after the raids and the 5-man line.
-local KIND_LINES = {
-    { kind = "craft", label = "Crafted" },
-    { kind = "rep",   label = "Reputation" },
-    { kind = "badge", label = "Badges" },
-    { kind = "pvp",   label = "PvP" },
+local PAD, GAP = 10, 8
+local TOP_Y, BAR_H = -8, 24              -- the top bar
+local DOLL_Y = TOP_Y - BAR_H - GAP       -- the doll: 770 x 496 from here (UI/PaperDoll.lua "page" layout)
+local SEG_W, SEG_STAR_W = 34, 46         -- a phase button (with the guild phase's star)
+local LIST_W = 80                        -- Main spec / + Off spec
+local SPEC_W = 140
+local SUGGEST_W = 84
+local ROW_H, MAX_ROWS = 18, 4             -- the centre's still-to-get rows
+local LIST_COL_W = 172                    -- their width
+local BAR_W = 140
+
+local GOLD = { 1, 0.82, 0 }
+local RED = { 0.92, 0.38, 0.32 }
+local CELL_BG = { 0.08, 0.08, 0.095, 0.9 }
+local EDGE = { 0.34, 0.34, 0.38, 0.5 }
+
+-- Icons (file IDs from the installed client; Interface\Icons and Interface\LFGFrame).
+local ICON = {
+    badge = 135884,     -- Spell_Holy_ChampionsBond (Badge of Justice)
+    rep = 134411,       -- INV_Misc_Ribbon_01
+    pvp = 132486,       -- INV_BannerPVP_02
+    craft = 136241,     -- Trade_BlackSmithing
+    dungeon = 136334,   -- LFGIcon-Dungeon
+    raid = 136351,      -- LFGIcon-Raid
+    other = 134400,     -- INV_Misc_QuestionMark
+    copy = 17,          -- (UI.ICON_ATLAS index: two sheets)
+}
+local RAID_ICON = {
+    Karazhan = 136343, GruulsLair = 136337, MagtheridonsLair = 136340, SerpentshrineCavern = 136356,
+    TempestKeep = 136362, HyjalSummit = 136341, BlackTemple = 136328, ZulAman = 136367, SunwellPlateau = 136361,
+}
+-- the raid as a slot's line names it (else its own name), and as a count in the centre says it
+local RAID_NAME = { MagtheridonsLair = "Magtheridon", SerpentshrineCavern = "Serpentshrine", HyjalSummit = "Hyjal",
+                    SunwellPlateau = "Sunwell", WorldBosses = "World boss" }
+local RAID_SHORT = { Karazhan = "Kara", GruulsLair = "Gruul", MagtheridonsLair = "Mag", SerpentshrineCavern = "SSC",
+                     TempestKeep = "TK", HyjalSummit = "Hyjal", BlackTemple = "BT", ZulAman = "ZA",
+                     SunwellPlateau = "Sunwell", WorldBosses = "World" }
+local BADGE_ITEM = 29434                 -- Badge of Justice
+local STANDINGS = { "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted" }
+
+-- What is still to get, by source (the centre's counts), after the raids (by phase).
+local KIND_GROUP = {
+    dungeon = { key = "dungeon", label = "dungeons", name = "5-man dungeons", order = 100, icon = ICON.dungeon },
+    craft = { key = "craft", label = "crafted", name = "Crafted", order = 101, icon = ICON.craft },
+    rep = { key = "rep", label = "reputation", name = "Reputation", order = 102, icon = ICON.rep },
+    badge = { key = "badge", label = "badges", name = "Badge of Justice vendors", order = 103, icon = ICON.badge },
+    pvp = { key = "pvp", label = "PvP", name = "PvP", order = 104, icon = ICON.pvp },
+    other = { key = "other", label = "other", name = "Other sources", order = 105, icon = ICON.other },
 }
 
-local panel, doll, card, footer
+local panel, bar, doll, card
 local phaseButtons = {}
-local specDD, copyBtn, suggestBtn, clearBtn, msBtn, osBtn
+local specDD, suggestBtn, moreBtn, msBtn, osBtn, lockChip
 local selectedPhase, userPickedPhase
 local selectedList = "ms"   -- Addendum H: "ms" | "os" (session only)
 
@@ -37,11 +82,42 @@ local selectedList = "ms"   -- Addendum H: "ms" | "os" (session only)
 
 local function MaxPhase() return ns.MAX_PHASE or 5 end
 
+local PRE_RAID = ns.PRE_RAID or 0
+
+-- A list phase: Pre-raid (0) or a raid phase 1..5.
 local function ClampPhase(p)
     p = tonumber(p) or 1
-    if p < 1 then p = 1 end
+    if p < PRE_RAID then p = PRE_RAID end
     if p > MaxPhase() then p = MaxPhase() end
     return math.floor(p)
+end
+
+-- "Pre-raid" / "P2".
+local function PL(p)
+    if ns.PhaseLabel then return ns.PhaseLabel(p) end
+    return "P" .. tostring(p)
+end
+
+-- The list's phases, Pre-raid first.
+local function ListPhases()
+    return ns.LIST_PHASES or { 1, 2, 3, 4, 5 }
+end
+
+-- The phase strip, left to right: { phase, label, name }: Pre-raid (its own saved fields, not ph[0]), then P1..P5.
+local function PhaseEntries()
+    local out = {}
+    for _, p in ipairs(ListPhases()) do
+        local info = ns.PHASE_INFO and ns.PHASE_INFO[p]
+        out[#out + 1] = { phase = p, label = info and info.short or PL(p), name = info and info.name or ("Phase " .. p) }
+    end
+    return out
+end
+
+local function PhaseName(p)
+    for _, e in ipairs(PhaseEntries()) do
+        if e.phase == p then return e.name, e.label end
+    end
+    return "Phase " .. tostring(p), "P" .. tostring(p)
 end
 
 local function GuildPhase()
@@ -52,8 +128,38 @@ local function GuildPhase()
     return nil
 end
 
+-- The Pre-raid list was the last phase this character picked (db.mybisPreRaid[charKey], never synced): My BiS reopens
+-- there; any other pick goes back to following the guild phase.
+local function PreRaidKey()
+    local key = ns.loggedIn and ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey()
+    local db = ns.db
+    if not (key and db) then return nil, nil end
+    if type(db.mybisPreRaid) ~= "table" then db.mybisPreRaid = {} end
+    return db.mybisPreRaid, key
+end
+
+local function LeftOnPreRaid()
+    local t, key = PreRaidKey()
+    return (t and t[key] == true) and true or false
+end
+
+local function RememberPhase(p)
+    local t, key = PreRaidKey()
+    if t then t[key] = (p == PRE_RAID) or nil end
+end
+
+-- The phase My BiS opens on (and follows until the player picks one): the Pre-raid list when it was the last phase
+-- picked, else the guild's (or the group's) phase.
+local function OpeningPhase()
+    if LeftOnPreRaid() then
+        userPickedPhase = true
+        return PRE_RAID
+    end
+    return GuildPhase() or 1
+end
+
 local function CurrentPhase()
-    if not selectedPhase then selectedPhase = GuildPhase() or 1 end
+    if not selectedPhase then selectedPhase = OpeningPhase() end
     return selectedPhase
 end
 
@@ -87,6 +193,17 @@ local function PhaseItems(p)
     return ns.BiS:GetPhaseItems(p, ListArg()) or {}
 end
 
+-- The picks { [sid] = { main, alt } } of a phase of the shown list's data (a ns.ListView), Pre-raid included.
+local function PhaseSlots(data, phase)
+    if ns.ListPhase then return ns.ListPhase(data, phase) end
+    local t = type(data) == "table" and type(data.ph) == "table" and data.ph[phase]
+    return type(t) == "table" and t or nil
+end
+
+local function Grey(text) return "|cff9e9e9e" .. tostring(text) .. "|r" end
+local function Soft(text) return "|cffa8a8a8" .. tostring(text) .. "|r" end
+local function Green(text) return "|cff4fd36b" .. tostring(text) .. "|r" end
+
 -- "Prince Malchezaar" -> "Malchezaar", "The Curator" -> "Curator", "High King Maulgar" -> "Maulgar".
 local TITLE_WORDS = {
     ["The"] = true, ["High"] = true, ["King"] = true, ["Lady"] = true, ["Prince"] = true,
@@ -100,16 +217,6 @@ local function ShortBossName(name)
     return name
 end
 
--- The progress card's single "5-man dungeons" line (sorted after every raid).
-local DUNGEON_GROUP = { key = "Dungeons", name = "5-man dungeons", phase = 100 }
-
--- "The Black Morass" -> "Black Morass"
-local function DungeonShortName(dungeon)
-    local name = type(dungeon) == "table" and (dungeon.name or dungeon.key) or nil
-    if type(name) ~= "string" or name == "" then return "?" end
-    return (name:gsub("^The ", ""))
-end
-
 local function Debounce(key, sec, fn)
     if ns.Util and ns.Util.Debounce then
         ns.Util.Debounce(key, sec, fn)
@@ -118,10 +225,45 @@ local function Debounce(key, sec, fn)
     end
 end
 
+local function Sized(fs, size)
+    local path, _, flags = fs:GetFont()
+    if path and size then fs:SetFont(path, size, flags) end
+    return fs
+end
+
+local function Text(parent, font, size, layer)
+    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then Sized(fs, size) end
+    return fs
+end
+
+local function Flat(f, bg, edge)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    bg = bg or CELL_BG
+    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    ns.UI:AddEdges(f, "BORDER")
+    edge = edge or EDGE
+    ns.UI:SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4])
+end
+
+-- An icon inside text (the borders of the game's icons trimmed).
+local function IconText(tex, size)
+    size = size or 12
+    return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(tostring(tex), size, size)
+end
+
 -- §38: my list is locked by the group's raid leader (BiS:IsLocked). locked, { by, at } | nil.
 local function ListLocked()
     if ns.UI and ns.UI.IsMyListLocked then return ns.UI:IsMyListLocked() end
     return false, nil
+end
+
+local function LockLine()
+    local _, info = ListLocked()
+    return ns.UI:LockIcon(12) .. " |cffff9a4dLocked by " .. ns.UI:LockByText(info) .. "|r"
 end
 
 -- §36: the slot is disabled in that phase (BiS:IsSlotDisabled; else the own record's dx).
@@ -135,7 +277,7 @@ local function SlotDisabled(phase, sid)
 end
 
 local function DisabledInAllPhases(sid)
-    for p = 1, MaxPhase() do
+    for _, p in ipairs(ListPhases()) do
         if not SlotDisabled(p, sid) then return false end
     end
     return true
@@ -162,35 +304,234 @@ local function SetSlotDisabledAll(sid, disabled)
     return ns.BiS:SetSlotDisabledAllPhases(sid, disabled and true or false, ListArg())
 end
 
--- Primary source kind of an item: "raid" | "dungeon" | "craft" | "rep" | "badge" | "pvp" | nil (§37).
-local function SourceKind(itemID)
-    local ItemDB = ns.ItemDB
-    if not ItemDB then return nil end
-    if type(ItemDB.GetSourceKind) == "function" then
-        local k = ItemDB:GetSourceKind(itemID)
-        if k ~= nil then return k end
+---------------------------------------------------------------------------
+-- Where an item comes from (§37): the line under a slot's item, its tooltip, and the centre's group. Everything
+-- here is read locally: the item database, the guild's shared recipes (Members tab data), my badges and standing.
+---------------------------------------------------------------------------
+
+-- The entry ItemDB describes an item by: the first source, except that an arena piece reached only through a tier
+-- token's arena exchange is described by its own source (PvP).
+local function PrimarySource(itemID)
+    local sources = ns.ItemDB and ns.ItemDB.GetSources and ns.ItemDB:GetSources(itemID) or {}
+    local first = sources[1]
+    if first and first.via == "arena" then
+        for i = 2, #sources do
+            if sources[i].via ~= "arena" then return sources[i], sources end
+        end
     end
-    local sources = ItemDB.GetSources and ItemDB:GetSources(itemID)
-    local first = type(sources) == "table" and sources[1] or nil
-    if type(first) ~= "table" then return nil end
-    if type(first.kind) == "string" then return first.kind end
-    if type(first.ref) == "table" then return first.ref.dungeon == true and "dungeon" or "raid" end
+    return first, sources
+end
+
+local function SourceKindOf(src)
+    if type(src) ~= "table" then return nil end
+    if type(src.kind) == "string" then return src.kind end
+    if type(src.ref) == "table" then return src.ref.dungeon == true and "dungeon" or "raid" end
     return nil
 end
 
--- The group name of an item's first source of `kind` (profession, faction, vendor, season).
-local function SourceGroupName(itemID, kind)
-    local ItemDB = ns.ItemDB
-    local sources = ItemDB and ItemDB.GetSources and ItemDB:GetSources(itemID)
-    if type(sources) ~= "table" then return nil end
-    for _, e in ipairs(sources) do
-        if type(e) == "table" and e.kind == kind then
-            local g = e.group or e.craft or e.rep or e.badge or e.pvp
-            local name = e.groupName or (type(g) == "table" and g.name) or nil
-            if type(name) == "string" then return name end
-        end
+local function BadgeCount()
+    local n = GetItemCount and GetItemCount(BADGE_ITEM, true) or 0
+    return tonumber(n) or 0
+end
+
+local function StandingIndex(text)
+    for i, s in ipairs(STANDINGS) do
+        if s == text then return i end
     end
     return nil
+end
+
+local function StandingName(i)
+    local label = i and _G["FACTION_STANDING_LABEL" .. i]
+    return (type(label) == "string" and label ~= "") and label or (i and STANDINGS[i]) or "?"
+end
+
+-- My standing with a faction (1 hated .. 8 exalted), or nil when the client doesn't know it.
+local function MyStanding(factionID)
+    if not (factionID and GetFactionInfoByID) then return nil end
+    local _, _, standing = GetFactionInfoByID(factionID)
+    return tonumber(standing)
+end
+
+-- Guild members who shared a recipe that makes the item (Members tab data): me first, then who is online.
+local function Crafters(itemID)
+    local P = ns.Professions
+    local recipes = P and P.GetRecipesForItem and P:GetRecipesForItem(itemID)
+    local out, seen = {}, {}
+    for _, r in ipairs(recipes or {}) do
+        for _, key in ipairs(r.crafters or {}) do
+            if not seen[key] then
+                seen[key] = true
+                out[#out + 1] = key
+            end
+        end
+    end
+    local Util, G = ns.Util, ns.Guild
+    local function rank(key)
+        if Util and Util.IsMe and Util.IsMe(key) then return 0 end
+        if G and G.IsOnline and G:IsOnline(key) then return 1 end
+        return 2
+    end
+    table.sort(out, function(a, b)
+        local ra, rb = rank(a), rank(b)
+        if ra ~= rb then return ra < rb end
+        return a < b
+    end)
+    return out
+end
+
+local function CrafterName(key)
+    if ns.Util and ns.Util.IsMe and ns.Util.IsMe(key) then return "you" end
+    return (ns.Util and ns.Util.DisplayName and ns.Util.DisplayName(key)) or key
+end
+
+local function ProfessionIcon(name)
+    local P = ns.Professions
+    for _, def in ipairs(P and P.GetProfessions and P:GetProfessions() or {}) do
+        if def.name == name then return def.icon end
+    end
+    return ICON.craft
+end
+
+local function DungeonInfo(ref)
+    local key = ref and ref.raid and ref.raid.key
+    local info = key and ns.DungeonRuns and ns.DungeonRuns.GetDungeon and ns.DungeonRuns:GetDungeon(key)
+    local name = info and info.short or ((ref and ref.raid and ref.raid.name) or "?"):gsub("^The ", "")
+    local icon = info and info.complex and info.complex.icon or ICON.dungeon
+    return name, icon
+end
+
+local function RaidLabel(ref)
+    local raid = ref.raid or {}
+    return RAID_NAME[raid.key] or raid.name or raid.key or "?"
+end
+
+-- d = { kind, icon, text (the slot's line), short (when text is too wide), group = KIND_GROUP-like table,
+--       where (the item's line in the centre's tooltip) }
+local function Describe(itemID)
+    local src = PrimarySource(itemID)
+    local kind = SourceKindOf(src)
+    local d = { kind = kind or "other" }
+    if kind == "raid" then
+        local ref = src.ref
+        local raid = ref.raid or {}
+        local boss = ref.boss or {}
+        -- "Shade of Aran · Kara" (the raid by its short name), else "Aran · Kara" when that doesn't fit
+        local short = RAID_SHORT[raid.key] or RaidLabel(ref)
+        local prefix = (src.via == "token" or src.via == "arena") and "Token · " or (src.via == "upgrade" and "Sunmote · ") or ""
+        local zone = (boss.isTrash or raid.key == "WorldBosses") and "" or (" · " .. short)
+        d.icon = RAID_ICON[raid.key] or ICON.raid
+        if boss.isTrash then
+            d.text = prefix .. short .. " trash"
+            d.short = d.text
+        else
+            d.text = prefix .. (boss.name or "?") .. zone
+            d.short = prefix .. ShortBossName(boss.name or "?") .. zone
+        end
+        d.where = prefix .. (boss.isTrash and "trash" or ShortBossName(boss.name))
+        d.group = { key = "raid:" .. tostring(raid.key), label = RAID_SHORT[raid.key] or RaidLabel(ref),
+                    name = raid.name or RaidLabel(ref), order = (tonumber(raid.phase) or 9) * 10, icon = d.icon }
+    elseif kind == "dungeon" then
+        local name, icon = DungeonInfo(src.ref)
+        d.icon = icon
+        d.text = (src.heroic and "Heroic " or "") .. name
+        d.where = name .. (src.heroic and " (H)" or "")
+        d.group = KIND_GROUP.dungeon
+    elseif kind == "craft" then
+        local crafters = Crafters(itemID)
+        local prof = src.groupName or "Crafted"
+        d.icon = ProfessionIcon(prof)
+        if #crafters > 0 then
+            d.text = "Crafted · " .. CrafterName(crafters[1]) .. (#crafters > 1 and (" +" .. (#crafters - 1)) or "")
+            d.short = "Crafted · " .. CrafterName(crafters[1])
+            d.where = CrafterName(crafters[1])
+        else
+            d.text = prof .. (src.skill and (" " .. tostring(src.skill)) or "")
+            d.where = prof
+        end
+        d.crafters = crafters
+        d.group = KIND_GROUP.craft
+    elseif kind == "rep" then
+        local need = StandingIndex(src.standing)
+        local mine = MyStanding(src.factionID)
+        local standing = src.standing or "?"
+        if need and mine and mine >= need then standing = Green(standing) end
+        d.icon = ICON.rep
+        d.text = (src.groupName or "?") .. " · " .. standing
+        d.short = standing
+        d.where = (src.groupName or "?") .. " · " .. (src.standing or "?")
+        d.need, d.mine = need, mine
+        d.group = KIND_GROUP.rep
+    elseif kind == "badge" then
+        local have = BadgeCount()
+        local cost = tonumber(src.cost)
+        d.icon = ICON.badge
+        if cost then
+            local haveText = "you have " .. have
+            if have >= cost then haveText = Green(haveText) end
+            d.text = cost .. " badges · " .. haveText
+            d.short = cost .. " badges"
+            d.where = cost .. " badges"
+        else
+            d.text = src.groupName or "Badge vendor"
+            d.where = d.text
+        end
+        d.have, d.cost = have, cost
+        d.group = KIND_GROUP.badge
+    elseif kind == "pvp" then
+        local text = ns.ItemDB:FormatSource(src, true) or "PvP"
+        d.icon = ICON.pvp
+        d.text = text
+        d.where = text
+        d.group = KIND_GROUP.pvp
+    else
+        d.text = "Other source"
+        d.where = ""
+        d.group = KIND_GROUP.other
+    end
+    return d
+end
+
+-- ctx.source for the doll: the line under a pick that isn't obtained yet, fitted to the tile.
+-- (words only: every line with the same raid's icon was noise)
+local function SlotSourceText(itemID, _, fs, width)
+    local d = Describe(itemID)
+    local full = Soft(d.text)
+    if d.short and fs and width and fs.GetStringWidth then
+        fs:SetText(full)
+        if (tonumber(fs:GetStringWidth()) or 0) > width then return Soft(d.short) end
+    end
+    return full
+end
+
+-- ctx.sourceTip: every source (at most 4), then what is mine to know (badges, standing, the guild's crafters).
+local function SlotSourceTip(itemID, tt)
+    local ItemDB = ns.ItemDB
+    local sources = ItemDB and ItemDB.GetSources and ItemDB:GetSources(itemID) or {}
+    if #sources == 0 then
+        tt:AddLine("Not in DisasterZone's loot tables: a quest, vendor or world drop.", 0.7, 0.7, 0.7, true)
+        return
+    end
+    for i = 1, min(#sources, 4) do
+        tt:AddLine(ItemDB:FormatSource(sources[i], false) or "?", 0.8, 0.8, 0.8, true)
+    end
+    if #sources > 4 then tt:AddLine(("+%d more"):format(#sources - 4), 0.6, 0.6, 0.6) end
+    local d = Describe(itemID)
+    if d.kind == "badge" then
+        tt:AddLine(("You have %d Badges of Justice"):format(d.have or 0), 0.6, 0.6, 0.6)
+    elseif d.kind == "rep" and d.mine then
+        local src = PrimarySource(itemID)
+        tt:AddLine(("You are %s with %s"):format(StandingName(d.mine), src.groupName or "?"), 0.6, 0.6, 0.6, true)
+    elseif d.kind == "craft" then
+        if d.crafters and #d.crafters > 0 then
+            local names = {}
+            for i = 1, min(#d.crafters, 6) do names[i] = CrafterName(d.crafters[i]) end
+            local more = #d.crafters > 6 and (" +" .. (#d.crafters - 6)) or ""
+            tt:AddLine("Can craft it: " .. table.concat(names, ", ") .. more, 0.6, 0.6, 0.6, true)
+        else
+            tt:AddLine("Nobody in the guild has shared this recipe yet.", 0.6, 0.6, 0.6, true)
+        end
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -273,40 +614,34 @@ function MyBiS:ApplySuggestion(phase, overwrite, list)
     phase = ClampPhase(phase or CurrentPhase())
     local template = Loon:GetTemplate(MyClass(), spec, phase)
     if type(template) ~= "table" or next(template) == nil then
-        ns:Print("There is no suggested %s list for P%d.", spec, phase)
+        ns:Print("There is no suggested %s list for %s.", spec, PL(phase))
         return
     end
     -- false: refused (the lists were locked meanwhile, e.g. while the "Replace all" popup was open; §38)
     if BiS:ApplyTemplate(phase, template, overwrite and true or false, list) == false then return end
     if overwrite then
-        ns:Print("Replaced P%d with the suggested %s list.", phase, spec)
+        ns:Print("Replaced %s with the suggested %s list.", PL(phase), spec)
     else
-        ns:Print("Filled empty P%d slots from the suggested %s list.", phase, spec)
+        ns:Print("Filled empty %s slots from the suggested %s list.", PL(phase), spec)
     end
 end
 
--- A menu button that is greyed out while the lists are locked (the BiS editing APIs refuse then).
-local function EditButton(root, text, fn, locked)
-    local b = root:CreateButton(text, fn)
-    if locked and b and b.SetEnabled then b:SetEnabled(false) end
-    return b
-end
-
--- "Disable slot (P1)" / "Enable slot (P1)" and "Disable in all phases" / "Enable in all phases" (§36).
-local function AddDisableEntries(root, phase, sid, locked)
+-- "Disable slot (P1)" / "Enable slot (Pre-raid)" and "Disable in all phases" / "Enable in all phases" (§36).
+local function AddDisableEntries(root, phase, sid)
     if not CanDisableSlots() then return end
     if SlotDisabled(phase, sid) then
-        EditButton(root, ("Enable slot (P%d)"):format(phase), function() SetSlotDisabled(phase, sid, false) end, locked)
+        root:CreateButton(("Enable slot (%s)"):format(PL(phase)), function() SetSlotDisabled(phase, sid, false) end)
     else
-        EditButton(root, ("Disable slot (P%d)"):format(phase), function() SetSlotDisabled(phase, sid, true) end, locked)
+        root:CreateButton(("Disable slot (%s)"):format(PL(phase)), function() SetSlotDisabled(phase, sid, true) end)
     end
     if DisabledInAllPhases(sid) then
-        EditButton(root, "Enable in all phases", function() SetSlotDisabledAll(sid, false) end, locked)
+        root:CreateButton("Enable in all phases", function() SetSlotDisabledAll(sid, false) end)
     else
-        EditButton(root, "Disable in all phases", function() SetSlotDisabledAll(sid, true) end, locked)
+        root:CreateButton("Disable in all phases", function() SetSlotDisabledAll(sid, true) end)
     end
 end
 
+-- While the lists are locked (§38) a menu offers only what still works, under one line that says why.
 local function ShowSlotMenu(sid, tile)
     local BiS = ns.BiS
     if not BiS then return end
@@ -319,22 +654,30 @@ local function ShowSlotMenu(sid, tile)
     ns.UI:ContextMenu(tile, function(root)
         if disabled then
             -- A disabled slot only offers to enable it (its picks are kept).
-            root:CreateTitle(SlotLabel(sid) .. "  ·  P" .. phase .. suffix .. "  ·  disabled")
-            AddDisableEntries(root, phase, sid, locked)
-            if main or alt then
-                if root.CreateDivider then root:CreateDivider() end
-                EditButton(root, "Clear slot", function() BiS:ClearSlot(phase, sid, list) end, locked)
+            root:CreateTitle(SlotLabel(sid) .. "  ·  " .. PL(phase) .. suffix .. "  ·  disabled")
+            if locked then
+                root:CreateTitle(LockLine())
+            else
+                AddDisableEntries(root, phase, sid)
+                if main or alt then
+                    if root.CreateDivider then root:CreateDivider() end
+                    root:CreateButton("Clear slot", function() BiS:ClearSlot(phase, sid, list) end)
+                end
             end
             if main then
                 root:CreateButton("Link main in chat", function() ns.UI:LinkInChat(main) end)
             end
             return
         end
-        root:CreateTitle(SlotLabel(sid) .. "  ·  P" .. phase .. suffix)
-        EditButton(root, "Choose main...", function() OpenPicker(sid, "main", tile) end, locked)
-        EditButton(root, "Choose alt...", function() OpenPicker(sid, "alt", tile) end, locked)
-        if main or alt then
-            EditButton(root, "Swap main / alt", function() BiS:SwapMainAlt(phase, sid, list) end, locked)
+        root:CreateTitle(SlotLabel(sid) .. "  ·  " .. PL(phase) .. suffix)
+        if locked then
+            root:CreateTitle(LockLine())
+        else
+            root:CreateButton("Choose main...", function() OpenPicker(sid, "main", tile) end)
+            root:CreateButton("Choose alt...", function() OpenPicker(sid, "alt", tile) end)
+            if main or alt then
+                root:CreateButton("Swap main / alt", function() BiS:SwapMainAlt(phase, sid, list) end)
+            end
         end
         if main then
             -- Manual "obtained" marks still work while the lists are locked (§38).
@@ -347,15 +690,15 @@ local function ShowSlotMenu(sid, tile)
                 root:CreateTitle("Obtained: " .. (ns.UI.OBTAINED_LABELS[state] or state))
             end
         end
-        if main or alt then
-            EditButton(root, "Clear slot", function() BiS:ClearSlot(phase, sid, list) end, locked)
+        if (main or alt) and not locked then
+            root:CreateButton("Clear slot", function() BiS:ClearSlot(phase, sid, list) end)
         end
         if main then
             root:CreateButton("Link main in chat", function() ns.UI:LinkInChat(main) end)
         end
-        if CanDisableSlots() then
+        if CanDisableSlots() and not locked then
             if root.CreateDivider then root:CreateDivider() end
-            AddDisableEntries(root, phase, sid, locked)
+            AddDisableEntries(root, phase, sid)
         end
     end)
 end
@@ -373,7 +716,7 @@ local function OnSlotReceiveItem(sid, itemID, which)
     if not ns.BiS then return end
     local phase = CurrentPhase()
     if SlotDisabled(phase, sid) then
-        ns:Print("%s is disabled in P%d: enable the slot first (click it).", SlotLabel(sid), phase)
+        ns:Print("%s is disabled in %s: enable the slot first (click it).", SlotLabel(sid), PL(phase))
         return
     end
     ns.BiS:SetSlot(phase, sid, which == "alt" and "alt" or "main", itemID, ListArg())
@@ -381,7 +724,10 @@ end
 
 function MyBiS:SetPhase(p, byUser)
     p = ClampPhase(p)
-    if byUser then userPickedPhase = true end
+    if byUser then
+        userPickedPhase = true
+        RememberPhase(p)
+    end
     if p == selectedPhase and panel then
         self:Refresh()
         return
@@ -442,6 +788,16 @@ local function SelectedSpec()
     return ns.BiS and ns.BiS.GetSpec and ns.BiS:GetSpec(ListArg()) or nil
 end
 
+local function SpecIcon(label)
+    local class = MyClass()
+    local RC = ns.RaidComp
+    if not (label and RC and RC.SpecIcon and ns.SPECS and ns.SPECS[class]) then return nil end
+    for i, s in ipairs(ns.SPECS[class]) do
+        if s.label == label then return RC:SpecIcon(class, i) end
+    end
+    return nil
+end
+
 local function OnSpecSelected(value)
     local BiS = ns.BiS
     if not BiS then return end
@@ -464,19 +820,80 @@ local function OnSpecSelected(value)
     MyBiS:Refresh()
 end
 
+-- The spec dropdown (the flat dropdown with the spec's icon in front); while the lists are locked its menu only says
+-- why it can't change.
+local function SpecMenuOptions()
+    if ListLocked() then
+        return { { isTitle = true, text = LockLine() },
+                 { isTitle = true, text = "Your spec can't change until the lists are unlocked." } }
+    end
+    return SpecOptions()
+end
+
+local function CreateSpecDropdown(p)
+    local UI = ns.UI
+    local b = UI:CreateSleekDropdown(p, SPEC_W, SpecMenuOptions, SelectedSpec, OnSpecSelected)
+    b:SetHeight(BAR_H)
+    b.lead = b:CreateTexture(nil, "ARTWORK")
+    b.lead:SetSize(16, 16)
+    b.lead:SetPoint("LEFT", 5, 0)
+    b.lead:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b.defaultText = "Choose spec"
+    local fs = b:GetFontString()
+    fs:SetFontObject("GameFontHighlight")
+    function b:SetDefaultText(t)
+        self.defaultText = t or "-"
+        self:Refresh()
+    end
+    function b:Refresh()
+        local spec = SelectedSpec()
+        local known = false
+        for _, opt in ipairs(SpecOptions()) do
+            if opt.value == spec then known = true end
+        end
+        local icon = known and SpecIcon(spec) or nil
+        self:SetText(known and spec or self.defaultText)
+        self.lead:SetShown(icon ~= nil)
+        if icon then self.lead:SetTexture(icon) end
+        fs:ClearAllPoints()
+        fs:SetPoint("LEFT", icon and 27 or 8, 0)
+        fs:SetPoint("RIGHT", -20, 0)
+    end
+    b:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine(IsOffSpecView() and "Off-spec spec" or "Your spec", 1, 0.82, 0)
+        GameTooltip:AddLine("Suggest fills the list from this spec's guide; the council sees it next to your name.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    b:Refresh()
+    return b
+end
+
+-- The phases another phase can copy from: the raid phases, and the Pre-raid list into P1 (it comes first there: your
+-- Pre-raid gear is where P1 starts); the Pre-raid list copies from any raid phase.
+local function CopySources(phase)
+    local out = {}
+    for _, p in ipairs(ListPhases()) do
+        if p ~= phase and (p ~= PRE_RAID or phase == 1) then out[#out + 1] = p end
+    end
+    return out
+end
+
 local function BuildCopyMenu(root)
     local BiS = ns.BiS
     local phase = CurrentPhase()
     local list = ListArg()
-    root:CreateTitle("Copy into P" .. phase .. (list and " (off spec)" or ""))
+    root:CreateTitle("Copy into " .. PL(phase) .. (list and " (off spec)" or ""))
     local any = false
-    for p = 1, MaxPhase() do
-        if p ~= phase and #PhaseItems(p) > 0 then
+    for _, p in ipairs(CopySources(phase)) do
+        if #PhaseItems(p) > 0 then
             any = true
-            root:CreateButton(("Copy P%d (fill empty)"):format(p), function()
+            root:CreateButton(("Copy %s (fill empty)"):format(PL(p)), function()
                 if BiS then BiS:CopyPhase(p, phase, false, list) end
             end)
-            root:CreateButton(("Copy P%d (overwrite)"):format(p), function()
+            root:CreateButton(("Copy %s (overwrite)"):format(PL(p)), function()
                 if BiS then BiS:CopyPhase(p, phase, true, list) end
             end)
         end
@@ -487,10 +904,10 @@ local function BuildCopyMenu(root)
     if BiS and (list or HasOffSpec()) and #(BiS:GetPhaseItems(phase, other) or {}) > 0 then
         any = true
         if root.CreateDivider then root:CreateDivider() end
-        root:CreateButton(("Copy %s P%d (fill empty)"):format(otherName, phase), function()
+        root:CreateButton(("Copy %s %s (fill empty)"):format(otherName, PL(phase)), function()
             BiS:CopyPhase(phase, phase, false, list, other)
         end)
-        root:CreateButton(("Copy %s P%d (overwrite)"):format(otherName, phase), function()
+        root:CreateButton(("Copy %s %s (overwrite)"):format(otherName, PL(phase)), function()
             BiS:CopyPhase(phase, phase, true, list, other)
         end)
     end
@@ -511,189 +928,260 @@ local function BuildSuggestMenu(root)
         root:CreateTitle("Choose your spec first")
         return
     end
-    root:CreateButton(("Fill empty slots (%s P%d)"):format(spec, phase), function()
+    root:CreateButton(("Fill empty slots (%s %s)"):format(spec, PL(phase)), function()
         MyBiS:ApplySuggestion(phase, false)
     end)
     root:CreateButton("Replace all (confirm)", function()
         EnsurePopups()
-        StaticPopup_Show("DISASTERZONE_REPLACE_TEMPLATE", "P" .. phase .. (ListArg() and " (off spec)" or ""), spec,
+        StaticPopup_Show("DISASTERZONE_REPLACE_TEMPLATE", PL(phase) .. (ListArg() and " (off spec)" or ""), spec,
             { phase = phase, list = ListArg() })
     end)
 end
 
----------------------------------------------------------------------------
--- Progress card
----------------------------------------------------------------------------
-
--- §37: a crafted / rep / badge / PvP item still needed, grouped per kind ("Crafted (2)").
-local function AddKindItem(result, kind, itemID, sid)
-    local entry = result.kinds[kind]
-    if not entry then
-        entry = { kind = kind, count = 0, items = {}, groups = {}, groupOrder = {} }
-        result.kinds[kind] = entry
+-- More (...): lists from other sites in, my gear / BiS list out to WoWSims and Wowhead (UI/ImportExport.lua), copy
+-- from another phase or list, and clearing the phase (asked again in a popup). An icon and a word per entry; what it
+-- does is in its tooltip. While the lists are locked only Export is offered, under the line that says why.
+local function BuildMoreMenu(root)
+    local UI = ns.UI
+    local phase = CurrentPhase()
+    local locked = ListLocked()
+    local which = PL(phase) .. (ListArg() and " (off spec)" or "")
+    local function entry(icon, text, color, tip, fn)
+        local b = root:CreateButton(UI:AtlasIconText(icon, 14, color) .. "  " .. text, fn)
+        if b and b.SetTooltip then
+            b:SetTooltip(function(tooltip)
+                tooltip:AddLine(text, 1, 0.82, 0)
+                tooltip:AddLine(tip, 1, 1, 1, true)
+            end)
+        end
+        return b
     end
-    entry.count = entry.count + 1
-    local gname = SourceGroupName(itemID, kind) or "?"
-    if not entry.groups[gname] then
-        entry.groups[gname] = 0
-        entry.groupOrder[#entry.groupOrder + 1] = gname
+    local function openWindow(tab)
+        if ns.ImportExport then ns.ImportExport:Open(tab) end
     end
-    entry.groups[gname] = entry.groups[gname] + 1
-    local src = ns.ItemDB and ns.ItemDB.GetSourceText and ns.ItemDB:GetSourceText(itemID, true) or gname
-    entry.items[#entry.items + 1] = { itemID = itemID, boss = src, sid = sid }
+    if locked then
+        root:CreateTitle(LockLine())
+    else
+        entry(UI.ICON.import, "Import", GOLD, "Bring in a BiS list from That's My BiS, Sixty Upgrades, WoWSims, "
+            .. "a Wowhead gear planner link or item links. You see what changes first.", function() openWindow("import") end)
+    end
+    entry(UI.ICON.export, "Export", GOLD, "Your BiS list or the gear you wear, for WoWSims (wowsims.com/tbc) or "
+        .. "Wowhead's gear planner.", function() openWindow("export") end)
+    if locked then return end
+    local copy = entry(ICON.copy, "Copy", GOLD, "Fill " .. which .. " from another phase, or from your other list.")
+    if copy then BuildCopyMenu(copy) end
+    if root.CreateDivider then root:CreateDivider() end
+    entry(UI.ICON.trash, "Clear " .. which, RED, "Removes every pick in " .. which .. ". Asks first.", function()
+        if #PhaseItems(phase) == 0 then
+            ns:Print("%s has no picks to clear.", PL(phase))
+            return
+        end
+        EnsurePopups()
+        StaticPopup_Show("DISASTERZONE_CLEAR_PHASE", which, nil, { phase = phase, list = ListArg() })
+    end)
 end
 
+---------------------------------------------------------------------------
+-- Progress: what is obtained, and what is still to get by source
+---------------------------------------------------------------------------
+
 local function ComputeProgress(phase)
-    local BiS, ItemDB = ns.BiS, ns.ItemDB
-    local result = { filled = 0, obtained = 0, total = NUM_SLOTS, disabled = 0, raids = {}, other = 0,
-                     otherItems = {}, kinds = {} }
+    local BiS = ns.BiS
+    local result = { filled = 0, obtained = 0, total = NUM_SLOTS, disabled = 0, groups = {}, empty = 0,
+                     twoHand = false }
     local data = BiS and (BiS.GetListView and BiS:GetListView(ListArg()) or BiS:GetData())
     for sid = 1, NUM_SLOTS do
         if SlotDisabled(phase, sid) then result.disabled = result.disabled + 1 end
     end
     result.total = NUM_SLOTS - result.disabled
-    local ph = data and type(data.ph) == "table" and data.ph[phase]
-    if type(ph) ~= "table" then return result end
+    local ph = PhaseSlots(data, phase)
+    if type(ph) ~= "table" then
+        result.empty = result.total
+        return result
+    end
 
-    local byRaid = {}
+    local byKey = {}
     for sid = 1, NUM_SLOTS do
         local e = ph[sid]
         local main = type(e) == "table" and tonumber(e[1]) or nil
         if main and main > 0 and not SlotDisabled(phase, sid) then
             result.filled = result.filled + 1
-            local kind = SourceKind(main)
             if BiS:IsObtained(main) then
                 result.obtained = result.obtained + 1
-            elseif kind == "craft" or kind == "rep" or kind == "badge" or kind == "pvp" then
-                AddKindItem(result, kind, main, sid)
             else
-                local sources = ItemDB and ItemDB:GetSources(main)
-                local ref = type(sources) == "table" and sources[1] and sources[1].ref or nil
-                local raid, boss = ref and ref.raid, ref and ref.boss
-                if raid and boss then
-                    -- All 5-man dungeons share one line after the raids, counted per dungeon.
-                    local dungeon = ref.dungeon == true
-                    local group = dungeon and DUNGEON_GROUP or raid
-                    local entry = byRaid[group]
-                    if not entry then
-                        entry = { raid = group, count = 0, bosses = {}, bossOrder = {}, items = {}, dungeon = dungeon }
-                        byRaid[group] = entry
-                        result.raids[#result.raids + 1] = entry
-                    end
-                    entry.count = entry.count + 1
-                    local bname = boss.name or "?"
-                    if dungeon then bname = DungeonShortName(raid) end
-                    if not entry.bosses[bname] then
-                        entry.bosses[bname] = 0
-                        entry.bossOrder[#entry.bossOrder + 1] = bname
-                    end
-                    entry.bosses[bname] = entry.bosses[bname] + 1
-                    local itemBoss = dungeon and ((boss.name or "?") .. " (" .. bname .. ")") or bname
-                    entry.items[#entry.items + 1] = { itemID = main, boss = itemBoss, sid = sid }
-                else
-                    result.other = result.other + 1
-                    result.otherItems[#result.otherItems + 1] = { itemID = main, sid = sid }
+                local d = Describe(main)
+                local g = byKey[d.group.key]
+                if not g then
+                    g = { key = d.group.key, label = d.group.label, name = d.group.name, order = d.group.order,
+                          icon = d.group.icon, count = 0, items = {} }
+                    byKey[g.key] = g
+                    result.groups[#result.groups + 1] = g
                 end
+                g.count = g.count + 1
+                g.items[#g.items + 1] = { itemID = main, where = d.where, sid = sid }
             end
         end
     end
 
     -- a two-hander leaves the off hand intentionally empty (unless one of them is disabled anyway)
+    local ItemDB = ns.ItemDB
     local mh = type(ph[15]) == "table" and tonumber(ph[15][1]) or nil
     local oh = type(ph[16]) == "table" and tonumber(ph[16][1]) or nil
     if mh and mh > 0 and not (oh and oh > 0) and ItemDB and ItemDB:GetEquipLoc(mh) == "INVTYPE_2HWEAPON"
         and not SlotDisabled(phase, 15) and not SlotDisabled(phase, 16) then
         result.total = result.total - 1
+        result.twoHand = true
     end
+    result.empty = max(0, result.total - result.filled)
 
-    table.sort(result.raids, function(a, b)
-        local pa, pb = tonumber(a.raid.phase) or 99, tonumber(b.raid.phase) or 99
-        if pa ~= pb then return pa < pb end
-        return (a.raid.name or "") < (b.raid.name or "")
+    table.sort(result.groups, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        if a.count ~= b.count then return a.count > b.count end
+        return (a.name or "") < (b.name or "")
     end)
-    for _, entry in ipairs(result.raids) do
-        table.sort(entry.bossOrder, function(x, y)
-            if entry.bosses[x] ~= entry.bosses[y] then return entry.bosses[x] > entry.bosses[y] end
-            return x < y
-        end)
-    end
     return result
 end
 
--- §38: "BiS lists are locked" banner at the top of the card (shown while my list is locked).
-local function CreateLockBanner(c)
-    local UI = ns.UI
-    local b = CreateFrame("Frame", nil, c, "BackdropTemplate")
-    b:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -8)
-    b:SetPoint("TOPRIGHT", c, "TOPRIGHT", -8, -8)
-    b:SetHeight(LOCK_BANNER_H)
-    if b.SetBackdrop then
-        b:SetBackdrop({
-            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 12,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        b:SetBackdropColor(0.35, 0.10, 0.02, 0.85)
-        b:SetBackdropBorderColor(1, 0.55, 0.2, 0.9)
-    end
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(18, 18)
-    b.icon:SetPoint("LEFT", b, "LEFT", 8, 0)
-    b.icon:SetTexture(UI.ICON_LOCK or "Interface\\PetBattles\\PetBattle-LockIcon")
-    b.title = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    b.title:SetPoint("TOPLEFT", b, "TOPLEFT", 32, -6)
-    b.title:SetPoint("RIGHT", b, "RIGHT", -8, 0)
-    b.title:SetJustifyH("LEFT")
-    b.title:SetWordWrap(false)
-    b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.text:SetPoint("TOPLEFT", b.title, "BOTTOMLEFT", 0, -3)
-    b.text:SetPoint("RIGHT", b, "RIGHT", -8, 0)
-    b.text:SetJustifyH("LEFT")
-    b.text:SetWordWrap(false)
-    b.text:SetText("Obtained items still update.")
-    b:EnableMouse(true)
-    b:SetScript("OnEnter", function(self)
-        local _, info = ListLocked()
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine("BiS lists are locked", 1, 0.82, 0)
-        GameTooltip:AddLine(("%s locked every BiS list in the group for the raid. You can't change picks, "
-            .. "spec or disabled slots until they unlock the lists or the group disbands. Items you get "
-            .. "(and \"Mark obtained\") still update."):format(ns.UI:LockByText(info, true)), 1, 1, 1, true)
+---------------------------------------------------------------------------
+-- The centre: phase and progress, the model wearing the picks, what is still to get
+---------------------------------------------------------------------------
+
+local function RowTooltip(row)
+    local g = row.group
+    if not g then return end
+    GameTooltip:SetOwner(row, "ANCHOR_TOP")
+    if g.rest then
+        GameTooltip:AddLine("Also still to get", 1, 0.82, 0)
+        for _, x in ipairs(g.rest) do
+            GameTooltip:AddDoubleLine(x.name, tostring(x.count), 1, 1, 1, 0.7, 0.7, 0.7)
+        end
         GameTooltip:Show()
-    end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    b:Hide()
-    return b
+        return
+    end
+    GameTooltip:AddLine(g.name, 1, 0.82, 0)
+    for _, it in ipairs(g.items) do
+        local text = ns.UI:ItemText(it.itemID)
+        GameTooltip:AddDoubleLine(text, it.where or "", 1, 1, 1, 0.7, 0.7, 0.7)
+    end
+    GameTooltip:Show()
 end
 
--- The centre card: the player model wearing the phase's BiS picks. A slot that is empty, disabled or
--- holds something that can't be worn (a tier token) keeps the currently equipped item.
-local function CreateCard(parent)
+-- One row of what is still to get: the source's icon and name, the count on the right (its items on hover).
+local function CreateRow(parent)
+    local r = CreateFrame("Button", nil, parent)
+    r:SetSize(LIST_COL_W, ROW_H)
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.05)
+    r.icon = r:CreateTexture(nil, "ARTWORK")
+    r.icon:SetSize(14, 14)
+    r.icon:SetPoint("LEFT", 4, 0)
+    r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    r.name = Text(r, "GameFontHighlightSmall", 11)
+    r.name:SetTextColor(0.78, 0.78, 0.78)
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 7, 0)
+    r.count = Text(r, "GameFontHighlight", 12)
+    r.count:SetJustifyH("RIGHT")
+    r.count:SetPoint("RIGHT", -4, 0)
+    r:SetScript("OnEnter", RowTooltip)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return r
+end
+
+-- The progress line's tooltip: what the count leaves out.
+local function ProgressTooltip(owner)
+    local info = owner.info
+    if not info then return end
+    local name = PhaseName(owner.phase)
+    GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine((IsOffSpecView() and "Off spec  ·  " or "") .. name, 1, 0.82, 0)
+    GameTooltip:AddLine(("%d of %d slots obtained"):format(info.obtained, info.total), 1, 1, 1)
+    if info.empty > 0 then
+        GameTooltip:AddLine(info.empty == 1 and "1 slot has no pick yet" or (info.empty .. " slots have no pick yet"),
+            0.7, 0.7, 0.7)
+    end
+    if info.disabled > 0 then
+        GameTooltip:AddLine(info.disabled == 1 and "1 slot not needed" or (info.disabled .. " slots not needed"),
+            0.7, 0.7, 0.7)
+    end
+    if info.twoHand then GameTooltip:AddLine("Off hand not counted: a two-hander is picked", 0.7, 0.7, 0.7, true) end
+    GameTooltip:Show()
+end
+
+-- The centre (w x h, between the columns, above the ranged slot): how much is obtained and a slim bar; the character
+-- wearing the picks; what is still to get, by source. card.model, card.count, card.rows, card.lockBanner (§38).
+local function CreateCard(parent, w, h)
     local UI = ns.UI
-    local c = UI:CreatePanel(parent)
+    local c = CreateFrame("Frame", nil, parent)
     c:SetAllPoints(parent)
+    c.w, c.h = w, h
 
-    c.lockBanner = CreateLockBanner(c)
+    c.count = Text(c, "GameFontHighlight", 12)
+    c.count:SetJustifyH("CENTER")
+    c.count:SetPoint("TOP", c, "TOP", 0, -4)
+    c.title = c.count                       -- (older callers)
+    c.track = c:CreateTexture(nil, "ARTWORK")
+    c.track:SetSize(BAR_W, 3)
+    c.track:SetPoint("TOP", c.count, "BOTTOM", 0, -7)
+    c.track:SetColorTexture(1, 1, 1, 0.08)
+    c.fill = c:CreateTexture(nil, "ARTWORK", nil, 1)
+    c.fill:SetHeight(3)
+    c.fill:SetPoint("LEFT", c.track, "LEFT", 0, 0)
+    c.fill:SetColorTexture(1, 0.82, 0, 0.95)
+    c.progress = CreateFrame("Frame", nil, c)
+    c.progress:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
+    c.progress:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
+    c.progress:SetHeight(26)
+    c.progress:EnableMouse(true)
+    c.progress:SetScript("OnEnter", ProgressTooltip)
+    c.progress:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    c.title = UI:CreateLabel(c, "", "GameFontNormal")
-    c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 12, -12)
+    -- what is still to get, at the bottom: a few rows on one width, centred
+    local listH = 16 + (MAX_ROWS + 1) * ROW_H
+    c.listTop = h - listH
+    c.listHead = Text(c, "GameFontHighlightSmall", 10)
+    c.listHead:SetTextColor(0.55, 0.55, 0.55)
+    c.listHead:SetJustifyH("CENTER")
+    c.listHead:SetText("STILL TO GET")
+    c.rows = {}
+    for i = 1, MAX_ROWS + 1 do
+        c.rows[i] = CreateRow(c)
+        c.rows[i]:Hide()
+    end
+    -- instead of the rows: nothing picked yet / everything obtained
+    c.note1 = Text(c, "GameFontHighlight", 12)
+    c.note1:SetJustifyH("CENTER")
+    c.note1:SetWidth(w)
+    c.note2 = Text(c, "GameFontDisableSmall", 10)
+    c.note2:SetJustifyH("CENTER")
+    c.note2:SetWidth(w - 16)
+    c.note2:SetWordWrap(true)
+    if c.note2.SetMaxLines then c.note2:SetMaxLines(2) end
+    c.note2:SetPoint("TOP", c.note1, "BOTTOM", 0, -4)
 
     local m = UI:CreateBiSModel(c)
-    m:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", -8, -4)
-    m:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -4, 4)
+    m:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -30)
+    m:SetPoint("BOTTOMRIGHT", c, "TOPRIGHT", 0, -(c.listTop - 6))
     m:SetScript("OnShow", function() if c.phase then c:Dress(c.phase) end end)
+    m:HookScript("OnEnter", function(self)
+        if self.dragX then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("You in these picks", 1, 0.82, 0)
+        GameTooltip:AddLine("Drag to turn. Slots without a pick show what you wear.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    m:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    m:HookScript("OnMouseDown", function() GameTooltip:Hide() end)
     c.model = m
 
-    c.hint = UI:CreateLabel(c, "Drag to rotate", "GameFontDisableSmall")
-    c.hint:SetPoint("BOTTOM", c, "BOTTOM", 0, 8)
-
+    -- The model wears the phase's picks. A slot that is empty, disabled or holds something that can't be worn (a tier
+    -- token) keeps the currently equipped item.
     function c:Dress(phase)
         self.phase = phase
         if not self.model:IsVisible() then return end
         local BiS = ns.BiS
         local data = BiS and (BiS.GetListView and BiS:GetListView(ListArg()) or BiS:GetData())
-        local ph = data and type(data.ph) == "table" and data.ph[phase]
+        local ph = PhaseSlots(data, phase)
         self.model:DressBiS("player", function(sid)
             local e = type(ph) == "table" and ph[sid]
             local itemID = type(e) == "table" and tonumber(e[1]) or nil
@@ -704,27 +1192,86 @@ local function CreateCard(parent)
     return c
 end
 
--- §38: lock banner (the card's content moves below it) and the footer text.
-local function UpdateLockBanner()
-    if not card then return end
-    local locked, info = ListLocked()
-    card.lockBanner:SetShown(locked)
-    card.title:ClearAllPoints()
-    card.title:SetPoint("TOPLEFT", card, "TOPLEFT", 12, locked and -(12 + LOCK_BANNER_H + 2) or -12)
-    if locked then
-        card.lockBanner.title:SetText("BiS lists locked by " .. ns.UI:LockByText(info))
+-- The still-to-get rows (bottom-aligned above the ranged slot), at most MAX_ROWS sources and "N more" for the rest.
+local function ShowRows(groups)
+    local shown = {}
+    if #groups <= MAX_ROWS + 1 then
+        for i = 1, #groups do shown[i] = groups[i] end
+    else
+        for i = 1, MAX_ROWS do shown[i] = groups[i] end
+        local rest, count = {}, 0
+        for i = MAX_ROWS + 1, #groups do
+            rest[#rest + 1] = groups[i]
+            count = count + groups[i].count
+        end
+        shown[MAX_ROWS + 1] = { name = "Other sources", short = (#groups - MAX_ROWS) .. " more", count = count,
+                                icon = ICON.other, rest = rest }
     end
-    if footer then footer:SetText(locked and FOOTER_LOCKED or FOOTER_TEXT) end
+    local n = #shown
+    local x0 = floor((card.w - LIST_COL_W) / 2 + 0.5)
+    local top = card.h - n * ROW_H
+    card.listHead:ClearAllPoints()
+    card.listHead:SetPoint("BOTTOM", card, "TOP", 0, -(top - 6))
+    card.listHead:SetShown(n > 0)
+    for i, row in ipairs(card.rows) do
+        local g = shown[i]
+        row.group = g
+        if g then
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", card, "TOPLEFT", x0, -(top + (i - 1) * ROW_H))
+            row.icon:SetTexture(g.icon)
+            -- (a raid by its name, a kind of source by its label: Dungeons, Crafted, Reputation, Badges)
+            local raid = type(g.key) == "string" and g.key:find("^raid:")
+            row.name:SetText(g.short or (raid and g.name)
+                or (g.label and (g.label:sub(1, 1):upper() .. g.label:sub(2))) or g.name or "?")
+            row.count:SetText(tostring(g.count))
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
 end
 
 local function UpdateCard(phase)
     if not card then return end
-    UpdateLockBanner()
     local info = ComputeProgress(phase)
-    local short = (ns.PHASE_INFO and ns.PHASE_INFO[phase] and ns.PHASE_INFO[phase].short) or ("P" .. phase)
-    local label = ("%s  ·  %d / %d obtained"):format(short, info.obtained, info.total)
-    card.title:SetText(IsOffSpecView() and ns.UI:Colorize("Off spec  ·  " .. label, ns.COLORS and ns.COLORS.offspec)
-        or label)
+    -- (the phase and the list are the top bar's: the centre only says how far along)
+    card.count:SetText((IsOffSpecView() and (ns.UI:Colorize("Off spec", ns.COLORS and ns.COLORS.offspec)
+        .. "|cff9e9e9e  ·  |r") or "")
+        .. ("|cffffffff%d|r |cff9e9e9eof|r |cffffffff%d|r |cff9e9e9eobtained|r"):format(info.obtained, info.total))
+    -- nothing picked: no count (the note under the model says what to do)
+    card.count:SetShown(info.filled > 0)
+    card.track:SetShown(info.filled > 0)
+    local share = info.total > 0 and min(1, info.obtained / info.total) or 0
+    card.fill:SetWidth(max(1, floor(BAR_W * share + 0.5)))
+    card.fill:SetShown(share > 0)
+    card.progress.info, card.progress.phase = info, phase
+
+    local groups = info.groups
+    local locked = ListLocked()
+    card.note1:SetText("")
+    card.note2:SetText("")
+    card.note1:ClearAllPoints()
+    card.note1:SetPoint("TOP", card, "TOP", 0, -(card.h - 44))
+    if #groups > 0 then
+        ShowRows(groups)
+    else
+        ShowRows({})
+        local _, label = PhaseName(phase)
+        if info.filled == 0 then
+            card.note1:SetText("Nothing picked for " .. label .. " yet")
+            if not locked then
+                local loon = ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable()
+                card.note2:SetText(loon and "Click a slot to choose, or let Suggest fill the list."
+                    or "Click a slot to choose an item.")
+            end
+        else
+            card.note1:SetText(Green(info.filled == 1 and "Your pick is obtained" or "Every pick is obtained"))
+            if info.empty > 0 then
+                card.note2:SetText(info.empty == 1 and "1 slot has no pick yet" or (info.empty .. " slots have no pick yet"))
+            end
+        end
+    end
     card:Dress(phase)
 end
 
@@ -743,6 +1290,10 @@ local function PhaseButtonTooltip(button)
         if e.which == "alt" then alt = alt + 1 else main = main + 1 end
     end
     GameTooltip:AddLine(("%d main  ·  %d alt picks"):format(main, alt), 0.7, 0.7, 0.7)
+    if p == PRE_RAID then
+        GameTooltip:AddLine("Just for you: the council doesn't see this list and it raises no drop alerts.",
+            0.7, 0.7, 0.7, true)
+    end
     if GuildPhase() == p then
         -- GetGuildPhase() is the group's phase while the group's loot rules set one (Addendum E §32).
         local GR = ns.GroupRules
@@ -764,36 +1315,101 @@ local function PhaseButtonTooltip(button)
     GameTooltip:Show()
 end
 
+-- A label offset inside a sleek button (the phase buttons make room for the guild phase's star); the pressed look
+-- keeps it.
+local function SetLabelOffset(b, x)
+    local fs = b:GetFontString()
+    b.labelX = x
+    fs:ClearAllPoints()
+    fs:SetPoint("CENTER", x, 0)
+end
+
 local function UpdatePhaseButtons()
     local phase = CurrentPhase()
     local guildPhase = GuildPhase()
-    for p, b in ipairs(phaseButtons) do
-        if b.SetKind then b:SetKind(p == phase and "chosen" or "secondary") end   -- the shown phase lit
-        b.marker:SetShown(guildPhase == p)
+    for _, b in ipairs(phaseButtons) do
+        -- the shown phase underlined; the guild's (or the group's) phase with its star after the label
+        local marked = guildPhase == b.phase
+        local fs = b:GetFontString()
+        b.marker:SetShown(marked)
+        b:SetWidth(floor((tonumber(fs:GetStringWidth()) or 14) + 16 + (marked and 13 or 0) + 0.5))
+        fs:ClearAllPoints()
+        fs:SetPoint("CENTER", marked and -6 or 0, 1)
+        b:SetActive(b.phase == phase)
     end
+end
+
+-- Two or more sleek buttons as one segmented control: each next one overlaps the edge of the one before.
+local function Segment(buttons, first, anchor, x)
+    for i, b in ipairs(buttons) do
+        if i == 1 then
+            b:SetPoint("LEFT", anchor, first, x, 0)
+        else
+            b:SetPoint("LEFT", buttons[i - 1], "RIGHT", -1, 0)
+        end
+    end
+end
+
+local function CreateLockChip(p)
+    local UI = ns.UI
+    local chip = CreateFrame("Frame", nil, p)
+    chip:SetHeight(BAR_H)
+    Flat(chip, { 0.24, 0.10, 0.03, 0.9 }, { 1, 0.55, 0.2, 0.85 })
+    chip.icon = chip:CreateTexture(nil, "ARTWORK")
+    chip.icon:SetSize(14, 14)
+    chip.icon:SetPoint("LEFT", 7, 0)
+    chip.icon:SetTexture(UI.ICON_LOCK or "Interface\\PetBattles\\PetBattle-LockIcon")
+    chip.title = Text(chip, "GameFontHighlight", 12)
+    chip.title:SetTextColor(1, 0.8, 0.62)
+    chip.title:SetPoint("LEFT", chip.icon, "RIGHT", 5, 0)
+    chip:EnableMouse(true)
+    function chip:SetLock(info)
+        self.title:SetText("Locked by " .. UI:LockByText(info))
+        self:SetWidth(floor(7 + 14 + 5 + (tonumber(self.title:GetStringWidth()) or 60) + 10 + 0.5))
+    end
+    chip:SetScript("OnEnter", function(self)
+        local _, info = ListLocked()
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("BiS lists are locked", 1, 0.82, 0)
+        GameTooltip:AddLine(("%s locked every BiS list in the group for the raid. You can't change picks, "
+            .. "spec or disabled slots until they unlock the lists or the group disbands. Items you get "
+            .. "(and \"Mark obtained\" in a slot's right-click menu) still update."):format(UI:LockByText(info, true)),
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    chip:Hide()
+    return chip
 end
 
 local function CreateTopBar(p)
     local UI = ns.UI
-    for i = 1, MaxPhase() do
-        local b = UI:CreateButton(p, "P" .. i, 38, 22, function() MyBiS:SetPhase(i, true) end)
-        b:SetPoint("TOPLEFT", p, "TOPLEFT", 8 + (i - 1) * 41, -8)
-        b.phase = i
+    bar = CreateFrame("Frame", nil, p)
+    bar:SetPoint("TOPLEFT", p, "TOPLEFT", PAD, TOP_Y)
+    bar:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, TOP_Y)
+    bar:SetHeight(BAR_H)
+
+    -- the phases (from PhaseEntries: a Pre-raid entry would come first)
+    for i, e in ipairs(PhaseEntries()) do
+        local phase = e.phase
+        local b = UI:CreateUnderlineTab(bar, e.label, function() MyBiS:SetPhase(phase, true) end, "page")
+        b.phase, b.label = phase, e.label
         b.marker = b:CreateTexture(nil, "OVERLAY")
         b.marker:SetTexture(UI:Tex("star"))
-        b.marker:SetSize(11, 11)
-        b.marker:SetPoint("CENTER", b, "TOPRIGHT", -3, -2)
+        b.marker:SetSize(10, 10)
+        b.marker:SetPoint("LEFT", b:GetFontString(), "RIGHT", 3, 0)
         b.marker:Hide()
+        if i == 1 then b:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", -4, 0)
+        else b:SetPoint("LEFT", phaseButtons[i - 1], "RIGHT", 2, 0) end
         b:HookScript("OnEnter", PhaseButtonTooltip)
         b:HookScript("OnLeave", function() GameTooltip:Hide() end)
         phaseButtons[i] = b
     end
 
     -- Addendum H: which list the tab shows. The spec dropdown next to them belongs to that list.
-    msBtn = UI:CreateButton(p, "Main spec", 76, 22, function() MyBiS:SetList("ms") end)
-    msBtn:SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 10, 0)
-    osBtn = UI:CreateButton(p, "Off spec", 72, 22, function() MyBiS:SetList("os") end)
-    osBtn:SetPoint("LEFT", msBtn, "RIGHT", 2, 0)
+    msBtn = UI:CreateButton(bar, "Main spec", LIST_W, BAR_H, function() MyBiS:SetList("ms") end)
+    osBtn = UI:CreateButton(bar, "+ Off spec", LIST_W, BAR_H, function() MyBiS:SetList("os") end)
+    Segment({ msBtn, osBtn }, "RIGHT", phaseButtons[#phaseButtons], 16)
     for _, b in ipairs({ msBtn, osBtn }) do
         b:HookScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
@@ -811,64 +1427,31 @@ local function CreateTopBar(p)
         b:HookScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
-    specDD = UI:CreateDropdown(p, 128, SpecOptions, SelectedSpec, OnSpecSelected)
-    if specDD.SetDefaultText then specDD:SetDefaultText("Choose spec") end
-    specDD:SetPoint("LEFT", osBtn, "RIGHT", 6, 0)
+    specDD = CreateSpecDropdown(bar)
+    specDD:SetPoint("LEFT", osBtn, "RIGHT", 10, 0)
 
-    copyBtn = UI:CreateMenuButton(p, "Copy from", 96, BuildCopyMenu)
-    copyBtn:SetPoint("LEFT", specDD, "RIGHT", 6, 0)
-
-    suggestBtn = UI:CreateMenuButton(p, "Suggest", 80, BuildSuggestMenu)
-    suggestBtn:SetPoint("LEFT", copyBtn, "RIGHT", 4, 0)
-
-    -- "More": lists from other sites in, my gear / BiS list out to WoWSims and Wowhead (UI/ImportExport.lua), and
-    -- actions that can't be undone (asked again in a popup).
-    local function openWindow(tab)
-        if ns.ImportExport then ns.ImportExport:Open(tab) end
-    end
-    local function clearPhase()
-        local phase = CurrentPhase()
-        if #PhaseItems(phase) == 0 then
-            ns:Print("P%d has no picks to clear.", phase)
-            return
-        end
-        EnsurePopups()
-        StaticPopup_Show("DISASTERZONE_CLEAR_PHASE", "P" .. phase .. (ListArg() and " (off spec)" or ""), nil,
-            { phase = phase, list = ListArg() })
-    end
-    -- An icon and a word per entry; what it does is in its tooltip. Import and Clear are edits (greyed out while the
-    -- lists are locked, §38); Export always works.
-    local GOLD, RED, GREY = { 1, 0.82, 0 }, { 0.92, 0.38, 0.32 }, { 0.5, 0.5, 0.5 }
-    local function entry(root, icon, text, color, tip, fn, locked)
-        local b = EditButton(root, UI:AtlasIconText(icon, 14, locked and GREY or color) .. "  " .. text, fn, locked)
-        if b and b.SetTooltip then
-            b:SetTooltip(function(tooltip)
-                tooltip:AddLine(text, 1, 0.82, 0)
-                tooltip:AddLine(tip, 1, 1, 1, true)
-                if locked then tooltip:AddLine("BiS lists are locked during the raid.", 1, 0.35, 0.3, true) end
-            end)
-        end
-        return b
-    end
-    local function buildMore(root)
-        local phase = CurrentPhase()
-        local locked = ListLocked()
-        local which = "P" .. phase .. (ListArg() and " (off spec)" or "")
-        entry(root, UI.ICON.import, "Import", GOLD, "Bring in a BiS list from That's My BiS, Sixty Upgrades, WoWSims, "
-            .. "a Wowhead gear planner link or item links. You see what changes first.",
-            function() openWindow("import") end, locked)
-        entry(root, UI.ICON.export, "Export", GOLD, "Your BiS list or the gear you wear, for WoWSims "
-            .. "(wowsims.com/tbc) or Wowhead's gear planner.", function() openWindow("export") end, false)
-        if root.CreateDivider then root:CreateDivider() end
-        entry(root, UI.ICON.trash, "Clear " .. which, RED, "Removes every pick in " .. which .. ". Asks first.",
-            clearPhase, locked)
-    end
-    clearBtn = UI:CreateTipIconButton(p, 22, UI.ICON.more, "More", "Import a BiS list from another site, export "
-        .. "yours to WoWSims or Wowhead, or clear this phase's picks.", function(self)
-        UI:ContextMenu(self, buildMore)
+    moreBtn = UI:CreateTipIconButton(bar, BAR_H, UI.ICON.more, "More", "Import a BiS list from another site, export "
+        .. "yours to WoWSims or Wowhead, copy another phase or list, or clear this phase's picks.", function(self)
+        UI:ContextMenu(self, BuildMoreMenu)
     end)
-    clearBtn:SetPoint("TOPRIGHT", p, "TOPRIGHT", -8, -8)
-    p.moreBtn = clearBtn
+    moreBtn:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+    p.moreBtn = moreBtn
+
+    suggestBtn = UI:CreateSleekMenuButton(bar, "Suggest", SUGGEST_W, BuildSuggestMenu, BAR_H)
+    suggestBtn:GetFontString():SetFontObject("GameFontHighlight")
+    suggestBtn:SetPoint("RIGHT", moreBtn, "LEFT", -6, 0)
+    suggestBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("Suggest", 1, 0.82, 0)
+        GameTooltip:AddLine("Fill this phase from your spec's best-in-slot guide (shipped with DisasterZone).",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    suggestBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- §38: while my list is locked the chip takes Suggest's place
+    lockChip = CreateLockChip(bar)
+    lockChip:SetPoint("RIGHT", moreBtn, "LEFT", -6, 0)
 end
 
 ---------------------------------------------------------------------------
@@ -883,20 +1466,17 @@ function MyBiS:CreatePanel(parent)
     CreateTopBar(panel)
 
     local body = CreateFrame("Frame", nil, panel)
-    body:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -38)
-    body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 20)
+    body:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, DOLL_Y)
+    body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, 0)
 
     doll = ns.PaperDoll:Create(body, {
         readOnly = false,
+        layout = "page",
         onSlotClick = OnSlotClick,
         onSlotReceiveItem = OnSlotReceiveItem,
     })
-    card = CreateCard(doll.center)
-
-    footer = ns.UI:CreateLabel(panel, FOOTER_TEXT, "GameFontDisableSmall")
-    footer:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 10, 4)
-    footer:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -10, 4)
-    footer:SetJustifyH("CENTER")
+    card = CreateCard(doll.center, doll.centerWidth or 252, doll.centerHeight or 440)
+    card.lockBanner = lockChip
 
     panel:SetScript("OnShow", function(self)
         if self.dirty then MyBiS:Refresh() end
@@ -924,26 +1504,30 @@ function MyBiS:Refresh()
 
     local phase = CurrentPhase()
     UpdatePhaseButtons()
-    -- Addendum H: the list buttons (the shown one highlighted; "+ Off spec" until there is one).
+    -- Addendum H: the list buttons (the shown one chosen; "+ Off spec" until there is one).
     if msBtn and osBtn then
         local os = IsOffSpecView()
         msBtn:SetKind(os and "secondary" or "chosen")
         osBtn:SetKind(os and "chosen" or "secondary")
+        msBtn:SetFrameLevel(bar:GetFrameLevel() + (os and 1 or 3))
+        osBtn:SetFrameLevel(bar:GetFrameLevel() + (os and 3 or 1))
         osBtn:SetText(HasOffSpec() and "Off spec" or "+ Off spec")
     end
     if specDD and specDD.SetDefaultText then
-        specDD:SetDefaultText(IsOffSpecView() and "Off-spec spec" or "Choose spec")
+        specDD:SetDefaultText("Choose spec")
     end
-    if specDD and specDD.Refresh then specDD:Refresh() end
-    local loon = ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable()
-    suggestBtn:SetShown(loon and true or false)
 
-    -- §38: while the lists are locked every editing control is disabled (viewing phases still works).
-    local locked = ListLocked()
-    -- (More stays: its Export works while locked; Import and Clear are greyed out in its menu.)
-    for _, ctrl in ipairs({ specDD, copyBtn, suggestBtn }) do
-        if ctrl and ctrl.SetEnabled then ctrl:SetEnabled(not locked) end
+    -- §38: while the lists are locked the chip says so in Suggest's place, and the menus offer what still works.
+    local locked, info = ListLocked()
+    local loon = ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable()
+    suggestBtn:SetShown((loon and not locked) and true or false)
+    -- an empty phase: Suggest is the next step (the page's one gold button)
+    if suggestBtn.SetKind then
+        local info = ComputeProgress(phase)
+        suggestBtn:SetKind(info.filled == 0 and "primary" or "secondary")
     end
+    if locked then lockChip:SetLock(info) end
+    lockChip:SetShown(locked and true or false)
     if locked and ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
 
     local record = ns.ListRecordView(BiS:GetRecord(), ListArg())
@@ -952,14 +1536,25 @@ function MyBiS:Refresh()
         obtainedState = function(itemID) return BiS:GetObtainedState(itemID) end,
         showEquipped = true,
         isDisabled = function(sid) return SlotDisabled(phase, sid) end,
+        source = SlotSourceText,
+        sourceTip = SlotSourceTip,
     })
     UpdateCard(phase)
 end
 
--- DisasterZone extension (§36): the progress numbers of a phase as the card shows them (for tests / tooltips).
+-- DisasterZone extension (§36): the progress numbers of a phase as the centre shows them (for tests / tooltips).
 function MyBiS:GetProgress(phase)
     local info = ComputeProgress(ClampPhase(phase or CurrentPhase()))
     return { filled = info.filled, obtained = info.obtained, total = info.total, disabled = info.disabled }
+end
+
+-- What is still to get in a phase, by source as the centre counts it: { { label, name, count }, ... } (tests).
+function MyBiS:GetStillToGet(phase)
+    local out = {}
+    for _, g in ipairs(ComputeProgress(ClampPhase(phase or CurrentPhase())).groups) do
+        out[#out + 1] = { label = g.label, name = g.name, count = g.count }
+    end
+    return out
 end
 
 local function RequestRefresh()
@@ -983,11 +1578,12 @@ ns:On("MYLIST_CHANGED", RequestRefresh)
 ns:On("OWNED_UPDATED", RequestRefresh)
 ns:On("ITEMINFO_READY", RequestRefresh)
 ns:On("LISTS_RESET", RequestRefresh)
+ns:On("PROFESSIONS_UPDATED", RequestRefresh)   -- (who in the guild can craft a pick)
 ns:On("CONFIG_UPDATED", function()
-    -- follow the guild phase until the player picks one themselves
+    -- follow the guild phase until the player picks one themselves (or reopen on the Pre-raid list left last time)
     if not userPickedPhase then
-        local gp = GuildPhase()
-        if gp then selectedPhase = gp end
+        local p = LeftOnPreRaid() and OpeningPhase() or GuildPhase()
+        if p then selectedPhase = p end
     end
     RequestRefresh()
 end)

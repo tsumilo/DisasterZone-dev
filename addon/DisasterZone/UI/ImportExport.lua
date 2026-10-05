@@ -3,7 +3,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/ImportExport.lua", ...) then re
 -- Import: paste a list from That's My BiS, Sixty Upgrades, WoWSims, a Wowhead gear planner link or item links; the
 -- format is recognised as soon as it is pasted (Core/BiSImport.lua). It goes into the phase (and list) picked under
 -- the box; the preview lists every slot the import fills, or that Replace would empty, next to what is there now.
--- "Fill empty slots" and "Replace Px" write it; That's My BiS's received items can be marked obtained.
+-- "Fill empty slots" and "Replace Px" write it; That's My BiS's received items can be marked obtained. The phase can
+-- also be Pre-raid (phase 0).
 -- Export: my gear or a BiS phase for WoWSims (Import > Addon), a WoWSims Bulk list, or a Wowhead gear planner link
 -- (Core/BiSExport.lua), in a box that is selected for Ctrl+C.
 -- Big pastes (a guild's That's My BiS export can be hundreds of KB): the box shows only the start (SetMaxBytes) and
@@ -41,7 +42,8 @@ local function Imp() return ns.BiSImport end
 local function Exp() return ns.BiSExport end
 local function BiS() return ns.BiS end
 
-local function MaxPhase() return ns.MAX_PHASE or 5 end
+-- "Pre-raid" or "P<n>".
+local function PL(p) return ns.PhaseLabel and ns.PhaseLabel(p) or ("P" .. tostring(p)) end
 
 local function SlotLabel(sid)
     local s = ns.SLOTS and ns.SLOTS[sid]
@@ -276,7 +278,7 @@ local function InitPreviewRow(row, d)
         now = Tint("Same", GREY)
     elseif d.state == "disabled" then
         now = d.nowMain ~= 0 and ui:ItemText(d.nowMain) or Tint("Empty", GREY)
-        note = "Slot disabled in P" .. state.phase .. ": skipped"
+        note = "Slot disabled in " .. PL(state.phase) .. ": skipped"
     else
         now = d.nowMain ~= 0 and ui:ItemText(d.nowMain) or Tint("Empty", GREY)
         if d.state == "clear" then
@@ -291,9 +293,9 @@ end
 
 local function PhaseOptions()
     local out = {}
-    for p = 1, MaxPhase() do
+    for _, p in ipairs(ns.LIST_PHASES or { 1, 2, 3, 4, 5 }) do
         local info = ns.PHASE_INFO and ns.PHASE_INFO[p]
-        out[#out + 1] = { value = p, text = "P" .. p, tooltip = info and info.raids or nil }
+        out[#out + 1] = { value = p, text = PL(p), tooltip = info and info.raids or nil }
     end
     return out
 end
@@ -336,12 +338,12 @@ local function EnsurePopup()
     }
 end
 
--- The lists Replace changes, for the popup: "P2", "P2 (off spec)" or "P2 (main and off spec)".
+-- The lists Replace changes, for the popup: "P2", "P2 (off spec)" or "P2 (main and off spec)" ("Pre-raid ...").
 local function ReplaceTarget(plan)
     local ms, os = plan and plan.lists.ms, plan and plan.lists.os
-    if ms and os then return "P" .. state.phase .. " (main and off spec)" end
-    if os then return "P" .. state.phase .. " (off spec)" end
-    return "P" .. state.phase
+    if ms and os then return PL(state.phase) .. " (main and off spec)" end
+    if os then return PL(state.phase) .. " (off spec)" end
+    return PL(state.phase)
 end
 
 local function PhaseHasPicks(plan)
@@ -444,7 +446,7 @@ local function CreateImportPane(parent)
     p.charBtn:SetPoint("TOPLEFT", p, "TOPLEFT", 6, rowY)
     p.into = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     p.into:SetText("Into")
-    p.phaseDD = ui:CreateDropdown(p, 64, PhaseOptions, function() return state.phase end, function(v)
+    p.phaseDD = ui:CreateDropdown(p, 84, PhaseOptions, function() return state.phase end, function(v)
         state.phase = tonumber(v) or 1
         state.done = nil
         Win:RefreshImport()
@@ -503,11 +505,11 @@ local function CreateImportPane(parent)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             if self == p.fill then
                 GameTooltip:AddLine("Fill empty slots", 1, 0.82, 0)
-                GameTooltip:AddLine("Puts the import into the slots of P" .. state.phase .. " that have no main pick. "
+                GameTooltip:AddLine("Puts the import into the slots of " .. PL(state.phase) .. " that have no main pick. "
                     .. "Your other picks stay.", 1, 1, 1, true)
             else
-                GameTooltip:AddLine("Replace P" .. state.phase, 1, 0.82, 0)
-                GameTooltip:AddLine("Makes P" .. state.phase .. " exactly the imported list: slots it doesn't fill "
+                GameTooltip:AddLine("Replace " .. PL(state.phase), 1, 0.82, 0)
+                GameTooltip:AddLine("Makes " .. PL(state.phase) .. " exactly the imported list: slots it doesn't fill "
                     .. "are emptied (disabled slots stay as they are).", 1, 1, 1, true)
             end
             if self.count then GameTooltip:AddLine(Plural(self.count, "slot") .. " change.", 0.7, 0.7, 0.7) end
@@ -544,7 +546,7 @@ function Win:RefreshImport()
     p.listDD:SetShown(parsed ~= nil and not tmb)
     p.listDD:Refresh()
     p.osNote:SetShown(tmb and plan and plan.lists.os and true or false)
-    p.nowCol.label:SetText("Now in P" .. state.phase)
+    p.nowCol.label:SetText("Now in " .. PL(state.phase))
 
     local data, fill, replace = {}, 0, 0
     if plan then data, fill, replace = PreviewData(plan) end
@@ -571,7 +573,7 @@ function Win:RefreshImport()
     local locked = ListLocked()
     p.fill.count, p.replace.count = fill, replace
     p.fill:SetText(fill > 0 and ("Fill empty slots (" .. fill .. ")") or "Fill empty slots")
-    p.replace:SetText("Replace P" .. state.phase .. (replace > 0 and (" (" .. replace .. ")") or ""))
+    p.replace:SetText("Replace " .. PL(state.phase) .. (replace > 0 and (" (" .. replace .. ")") or ""))
     p.fill:SetEnabled(plan ~= nil and fill > 0 and not locked)
     p.replace:SetEnabled(plan ~= nil and replace > 0 and not locked)
 end
@@ -629,10 +631,10 @@ local function ExportText()
     if state.format == "bulk" then
         if not bis then return "", "A Bulk list holds BiS picks: choose BiS list above." end
         local text, n = exp:Bulk(state.exPhase, list)
-        if n == 0 then return "", "P" .. state.exPhase .. " has no picks yet." end
+        if n == 0 then return "", PL(state.exPhase) .. " has no picks yet." end
         return text, ("On wowsims.com/tbc open your spec's sim, then the Bulk tab > Import, and paste. It lists the "
-            .. "%s of P%d so the sim can rank them."):format(Plural(n, "main and alt pick", "main and alt picks"),
-            state.exPhase)
+            .. "%s of %s so the sim can rank them."):format(Plural(n, "main and alt pick", "main and alt picks"),
+            PL(state.exPhase))
     end
     local specs, kept = nil, 0
     if bis then specs, kept = exp:PhaseSpecs(state.exPhase, list) else specs = exp:EquippedSpecs() end
@@ -659,7 +661,7 @@ local function CreateExportPane(parent)
     p.gearBtn:SetPoint("LEFT", p.whatLabel, "RIGHT", 4, 0)
     p.bisBtn = ui:CreateButton(p, "BiS list", 80, 22, function() Win:SetExport("bis") end)
     p.bisBtn:SetPoint("LEFT", p.gearBtn, "RIGHT", 4, 0)
-    p.phaseDD = ui:CreateDropdown(p, 64, PhaseOptions, function() return state.exPhase end, function(v)
+    p.phaseDD = ui:CreateDropdown(p, 84, PhaseOptions, function() return state.exPhase end, function(v)
         state.exPhase = tonumber(v) or 1
         Win:RefreshExport()
     end)

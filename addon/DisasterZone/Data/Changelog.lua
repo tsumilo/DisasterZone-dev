@@ -18,6 +18,29 @@ ns.CHANGELOG = {
               "A star on a dungeon: online guildies with BiS there. DAILY: your daily quest for it.",
               "Share your run in chat with the share icon; later runs show on the Home calendar.",
           } },
+          { heading = "Raids, redesigned", lines = {
+              "Upcoming: every raid is a card with its loading screen; answer right on the card.",
+              "A raid's page: a banner with the facts and your answer, then its tabs.",
+              "Your spec, character and note sit under your answer; the raid's note under the banner.",
+              "Sign-ups: four role columns with spec icons; bench, absent and no response below.",
+              "Groups: the five parties side by side, their buffs at the bottom, the raid's on top.",
+              "Drag a player: their card follows the mouse and the spot it lands on lights up.",
+              "Strategies: raids as art strips, strategy cards with Edit and a More menu.",
+              "Raid log: raid cards, a banner, a Linked to picker, who came, and tabs.",
+          } },
+          { heading = "My BiS and Home", lines = {
+              "My BiS: a Pre-raid list before P1 (dungeons, reputation, crafting, badges), just for you.",
+              "My BiS: phases as tabs, your gear around the model, what's still to get under it.",
+              "Home: a calmer calendar: today in gold, only the month's weeks, nothing cut off.",
+              "Home: the line under the next raid only shows what's missing.",
+          } },
+          { heading = "A new look everywhere", lines = {
+              "Atlas: loading-screen banners, item icons and a star count of your BiS picks per boss.",
+              "Atlas: hover an item and click + to add it to your BiS list.",
+              "Settings: sections in a side menu; every option a switch or a dropdown, explained.",
+              "Council roster: every BiS pick shows its icon; filter by class and role with one click.",
+              "Council items: raids with their art, who wants what as name chips, unwanted items folded.",
+          } },
           { heading = "Ask to join a locked raid", lines = {
               "Raids locked to a team are now listed for the whole guild, with their roster.",
               "Outside the team? Pick an answer to ask to join; your note goes with it.",
@@ -27,6 +50,8 @@ ns.CHANGELOG = {
           } },
           { heading = "Loot council panel", lines = {
               "Once an item is awarded its rolls fold away; Show rolls at the top right opens them again.",
+              "Boss drop panel: item cards with BiS/Alt/OS tags, one gold Award, the rest in a menu.",
+              "Roll popup, BiS toast and raid bar restyled; raid options sit behind a gear icon.",
           } },
           { heading = "Strategy boards: encounter objects", lines = {
               "New strategies start with the fight's objects and helpers where the game puts them.",
@@ -49,6 +74,8 @@ ns.CHANGELOG = {
               "The roster lists online players first, then away, then offline; the highest level first.",
               "A member's Characters card lists their raid teams: click one to open it in the Raids tab.",
               "Hovering a member shows their team too.",
+              "A calmer roster with class circles, skill levels and a profession filter.",
+              "Member card: spec chips, the officer note under them, recipes fold out under professions.",
           } },
           { heading = "Fixes", lines = {
               "Someone walking in the room no longer makes a boss vanish or shows up white and jittering.",

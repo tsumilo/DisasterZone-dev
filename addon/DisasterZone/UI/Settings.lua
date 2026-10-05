@@ -1,8 +1,10 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Settings.lua", ...) then return end -- DisasterZone UI/Settings.lua
--- "Settings" tab (alerts, group loot rules, rolls, tooltips, minimap, view phase, demo, about), the read-only
--- Loot Council summary with an "Edit council…" shortcut to the picker (ADDENDUM E §30), the group-rules
--- status line (ADDENDUM D §27), the raid leader's "Lock BiS lists" control (ADDENDUM F §38) and a Blizzard
--- Settings entry (SPEC §12.10).
+-- "Settings" tab: the sections in a nav on the left (Alerts, Group loot rules, Rolls, Strategy boards, Tooltips,
+-- Window, Loot Council, Demo mode, About), one section at a time on the right. Every option is a row: its name, a
+-- one-line explanation and a switch (UI:CreateSwitch) or a dropdown. Group loot rules (ADDENDUM D §26/§27) that come
+-- from someone else show their values as plain text under "Set by X"; the raid leader's "Lock BiS lists"
+-- (ADDENDUM F §38); the read-only Loot Council summary with "Edit council..." (ADDENDUM E §30); a Blizzard Settings
+-- entry (SPEC §12.10).
 local addonName, ns = ...
 
 local SettingsUI = ns:NewModule("SettingsUI")
@@ -10,17 +12,37 @@ local SettingsUI = ns:NewModule("SettingsUI")
 local _G = _G
 local CreateFrame = CreateFrame
 local format = string.format
-local floor, ceil, max = math.floor, math.ceil, math.max
+local floor, max = math.floor, math.max
 local ipairs, type, tonumber, tostring = ipairs, type, tonumber, tostring
 
-local CHILD_W = 740
-local COL_W = 350
-local LEFT_X, RIGHT_X = 10, 384
-local ROW_CHECK, ROW_DROPDOWN = 26, 32
-local DD_X, DD_W = 150, 210
-local MEMBER_ROW_H = 16
-local ONLINE_DOT = { 0.25, 0.85, 0.30 }
-local OFFLINE_DOT = { 0.45, 0.45, 0.45 }
+-- The page is 790 x 548: PAD at its sides, the nav on the left, the open section in a scroll frame on the right
+-- (its bar in the right margin).
+local PAD = 10
+local PAGE_W, PAGE_H = 790, 548
+local TOP_Y = 8
+local NAV_W, NAV_H = 150, 28
+local BODY_X = PAD + NAV_W + 18                -- 178
+local BODY_W = PAGE_W - PAD - BODY_X           -- 602
+local BODY_H = PAGE_H - TOP_Y - PAD            -- 530
+local TITLE_H = 28                             -- a section's title (lines up with its nav item)
+local SUB_H = 18                               -- the line under a title (who sets the rules, my council seat)
+local ROW_H = 44
+local DD_W, SWITCH_W = 196, 34
+local TEXT_GAP = 16                            -- between a row's text and its control
+local MEMBER_COLS, MEMBER_ROW_H = 3, 20
+local GREY = { 0.62, 0.62, 0.62 }
+
+local SECTIONS = {
+    { key = "alerts", label = "Alerts" },
+    { key = "rules", label = "Group loot rules" },
+    { key = "rolls", label = "Rolls" },
+    { key = "strategy", label = "Strategy boards" },
+    { key = "tooltips", label = "Tooltips" },
+    { key = "window", label = "Window" },
+    { key = "council", label = "Loot Council" },
+    { key = "demo", label = "Demo mode" },
+    { key = "about", label = "About" },
+}
 
 local FALLBACK_COLORS = {
     obtained = { 0.30, 0.90, 0.40 },
@@ -36,6 +58,9 @@ local SOURCE_TEXT = {
     raid = "this raid's council",
 }
 
+-- The raids of a phase, short (a dropdown is 196 wide).
+local PHASE_RAIDS = { "Kara, Gruul, Mag", "SSC, TK", "Hyjal, BT", "ZA", "Sunwell" }
+
 ---------------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------------
@@ -48,6 +73,11 @@ local function Paint(text, key)
     local c = Color(key)
     return format("|cff%02x%02x%02x%s|r", floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5),
         floor(c[3] * 255 + 0.5), text)
+end
+
+local function Grey(text)
+    return format("|cff%02x%02x%02x%s|r", floor(GREY[1] * 255 + 0.5), floor(GREY[2] * 255 + 0.5),
+        floor(GREY[3] * 255 + 0.5), text)
 end
 
 local function Get(path, default)
@@ -77,7 +107,7 @@ local function Set(path, value)
     if ns.DB and ns.DB.SetSetting then ns.DB:SetSetting(path, value) end
 end
 
--- Checkbox setters may be called as setter(checked) or setter(button, checked).
+-- Switch setters may be called as setter(checked) or setter(button, checked).
 local function Bool(a, b)
     if type(a) == "table" then a = b end
     return a and true or false
@@ -177,8 +207,8 @@ local function MaxPhase()
 end
 
 local function PhaseLabel(p)
-    local info = ns.PHASE_INFO and ns.PHASE_INFO[p]
-    if info and info.raids then return format("P%d · %s", p, info.raids) end
+    local raids = PHASE_RAIDS[p]
+    if raids then return format("P%d · %s", p, raids) end
     return "P" .. p
 end
 
@@ -218,24 +248,16 @@ local function SetMinimapShown(shown)
     end
 end
 
--- Enables / disables a checkbox or dropdown created here and greys its label.
-local function SetControlEnabled(ctrl, on)
-    if not ctrl then return end
-    on = on and true or false
-    if ctrl.SetEnabled then ctrl:SetEnabled(on) end
-    local label = ctrl.cdlLabel or ctrl.label
-    if label and label.SetTextColor then
-        if on then label:SetTextColor(1, 1, 1) else label:SetTextColor(0.5, 0.5, 0.5) end
-    end
+local function ShowTip(owner, title, text)
+    local tt = _G.GameTooltip
+    tt:SetOwner(owner, "ANCHOR_TOP")
+    tt:AddLine(title, 1, 0.82, 0)
+    tt:AddLine(text, 1, 1, 1, true)
+    tt:Show()
 end
 
 local function AddTooltip(frame, title, text)
-    frame:HookScript("OnEnter", function(self)
-        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:AddLine(title, 1, 0.82, 0)
-        _G.GameTooltip:AddLine(text, 1, 1, 1, true)
-        _G.GameTooltip:Show()
-    end)
+    frame:HookScript("OnEnter", function(self) ShowTip(self, title, text) end)
     frame:HookScript("OnLeave", function() _G.GameTooltip:Hide() end)
 end
 
@@ -245,6 +267,7 @@ end
 function SettingsUI:OnInit()
     self.refreshers = {}
     self.ruleControls = {}
+    self.section = "alerts"
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("settings", "Settings", 4,
             function(parent) return SettingsUI:CreatePanel(parent) end,
@@ -303,80 +326,221 @@ function SettingsUI:RegisterBlizzardCategory()
 end
 
 ---------------------------------------------------------------------------
--- Panel construction
+-- Building blocks: the nav, a section, its rows
 ---------------------------------------------------------------------------
-function SettingsUI:NewColumn(parent, x, width)
-    return { parent = parent, x = x, w = width, y = -4 }
+
+-- A nav item: grey text; the open section's is gold with a gold bar on its left and a soft gold fill.
+local function NewNavItem(parent, text, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(NAV_W, NAV_H)
+    b.fill = b:CreateTexture(nil, "BACKGROUND")
+    b.fill:SetAllPoints()
+    b.bar = b:CreateTexture(nil, "ARTWORK")
+    b.bar:SetPoint("TOPLEFT")
+    b.bar:SetPoint("BOTTOMLEFT")
+    b.bar:SetWidth(2)
+    b.bar:SetColorTexture(1, 0.82, 0, 0.9)
+    b.text = NewFS(b, "GameFontHighlight", NAV_W - 16, false)
+    b.text:SetPoint("LEFT", b, "LEFT", 12, 0)
+    b.text:SetText(text)
+    local function paint(self)
+        if self.active then
+            self.fill:SetColorTexture(1, 0.82, 0, 0.08)
+            self.text:SetTextColor(1, 0.82, 0)
+        elseif self.hovered then
+            self.fill:SetColorTexture(1, 1, 1, 0.04)
+            self.text:SetTextColor(1, 1, 1)
+        else
+            self.fill:SetColorTexture(0, 0, 0, 0)
+            self.text:SetTextColor(0.74, 0.74, 0.74)
+        end
+        self.bar:SetShown(self.active and true or false)
+    end
+    function b:SetActive(on)
+        self.active = on and true or false
+        paint(self)
+    end
+    b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
+    b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    b:RegisterForClicks("LeftButtonUp")
+    b:SetScript("OnClick", onClick)
+    paint(b)
+    return b
 end
 
-function SettingsUI:Header(col, text)
-    col.y = col.y - 8
-    local fs = col.parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    fs:SetPoint("TOPLEFT", col.parent, "TOPLEFT", col.x, col.y)
-    fs:SetText(text)
-    local line = col.parent:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(1, 1, 1, 0.15)
-    line:SetHeight(1)
-    line:SetWidth(col.w)
-    line:SetPoint("TOPLEFT", col.parent, "TOPLEFT", col.x, col.y - 16)
-    col.y = col.y - 22
+-- A section: its title (gold, as big as the nav item is tall), rows from sec.y down.
+function SettingsUI:NewSection(def)
+    local sec = CreateFrame("Frame", nil, self.child)
+    sec:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, 0)
+    sec:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, 0)
+    sec:SetHeight(BODY_H)
+    sec.key = def.key
+    sec.rows = {}
+    sec.title = NewFS(sec, "GameFontNormalLarge", nil, false)
+    sec.title:SetPoint("LEFT", sec, "TOPLEFT", 0, -TITLE_H / 2)
+    sec.title:SetText(def.label)
+    sec.y = -TITLE_H
+    sec:Hide()
+    self.sections[def.key] = sec
+    return sec
+end
+
+-- The line under a section's title (who sets the rules, my council seat): white, its asides grey.
+function SettingsUI:Subtitle(sec)
+    local fs = NewFS(sec, "GameFontHighlightSmall", nil, false)
+    fs:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 1)
+    fs:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 1)
+    sec.y = sec.y - SUB_H
     return fs
 end
 
-function SettingsUI:Note(col, text)
-    local fs = NewFS(col.parent, "GameFontDisableSmall", col.w - 8, true)
-    fs:SetPoint("TOPLEFT", col.parent, "TOPLEFT", col.x + 4, col.y)
-    fs:SetText(text)
-    col.y = col.y - (TextHeight(fs) + 6)
-    return fs
+-- Ends a section: no rule under its last row; its height.
+function SettingsUI:EndSection(sec, extra)
+    local last = sec.rows[#sec.rows]
+    if last and last.line then last.line:Hide() end
+    sec.height = -sec.y + (extra or 0)
 end
 
-function SettingsUI:Check(col, label, getter, setter)
-    local cb = ns.UI:CreateCheckbox(col.parent, label, getter, setter)
-    cb:SetPoint("TOPLEFT", col.parent, "TOPLEFT", col.x, col.y)
-    col.y = col.y - ROW_CHECK
-    self.refreshers[#self.refreshers + 1] = cb
-    return cb
+-- Places a row's texts left of a control ctrlW wide: name on top, the explanation under it (or the name alone,
+-- centred).
+local function PlaceText(row, ctrlW)
+    local right = -(((ctrlW or 0) > 0) and (ctrlW + TEXT_GAP) or 0)
+    row.title:ClearAllPoints()
+    row.desc:ClearAllPoints()
+    if row.hasDesc then
+        row.title:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -8)
+        row.title:SetPoint("TOPRIGHT", row, "TOPRIGHT", right, -8)
+        row.desc:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -25)
+        row.desc:SetPoint("TOPRIGHT", row, "TOPRIGHT", right, -25)
+    else
+        row.title:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.title:SetPoint("RIGHT", row, "RIGHT", right, 0)
+    end
 end
 
-function SettingsUI:CheckSetting(col, label, path, default)
-    return self:Check(col, label,
+local function RowEnter(row)
+    local c = row.control
+    if c and c.SetHover and c:IsShown() and c:IsEnabled() then c:SetHover(true) end
+    if row.tip then ShowTip(row, row.tipTitle or row.title:GetText() or "", row.tip) end
+end
+
+local function RowLeave(row)
+    local c = row.control
+    if c and c.SetHover then c:SetHover(false) end
+    if row.tip then _G.GameTooltip:Hide() end
+end
+
+-- A row: the option's name (white) and a one-line explanation (grey) on the left, its control on the right, a faint
+-- rule under it. tip (optional): more about it on hover.
+function SettingsUI:Row(sec, title, desc, tip)
+    local row = CreateFrame("Button", nil, sec)
+    row:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y)
+    row:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y)
+    row:SetHeight(ROW_H)
+    row.title = NewFS(row, "GameFontHighlight", nil, false)
+    row.title:SetText(title or "")
+    row.desc = NewFS(row, "GameFontHighlightSmall", nil, false)
+    row.desc:SetTextColor(GREY[1], GREY[2], GREY[3])
+    row.desc:SetText(desc or "")
+    row.hasDesc = desc ~= nil
+    row.line = row:CreateTexture(nil, "BORDER")
+    row.line:SetColorTexture(1, 1, 1, 0.06)
+    row.line:SetHeight(1)
+    row.line:SetPoint("BOTTOMLEFT")
+    row.line:SetPoint("BOTTOMRIGHT")
+    row.tip = tip
+    row:SetScript("OnEnter", RowEnter)
+    row:SetScript("OnLeave", RowLeave)
+    sec.y = sec.y - ROW_H
+    sec.rows[#sec.rows + 1] = row
+    PlaceText(row, 0)
+    return row
+end
+
+-- The plain-text value shown instead of a control while the option is set by someone else.
+local function AddValueText(row)
+    row.value = NewFS(row, "GameFontHighlight", nil, false)
+    row.value:SetJustifyH("RIGHT")
+    row.value:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.value:Hide()
+end
+
+-- Shows a row's control, or (read-only) its value as text in its place. The control is disabled while read-only.
+local function SetReadOnly(row, readOnly, valueText)
+    local c = row.control
+    if not c then return end
+    readOnly = readOnly and true or false
+    if c.SetEnabled then c:SetEnabled(not readOnly) end
+    c:SetShown(not readOnly)
+    if row.value then
+        row.value:SetText(valueText or "")
+        row.value:SetShown(readOnly)
+    end
+    row.readOnly = readOnly
+end
+
+function SettingsUI:Switch(sec, title, desc, getter, setter, tip)
+    local row = self:Row(sec, title, desc, tip)
+    local sw = ns.UI:CreateSwitch(row, getter, setter)
+    sw:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    sw.label = row.title          -- the switch's name (what a click on the row toggles)
+    sw:HookScript("OnEnter", function() if row.tip then RowEnter(row) end end)
+    sw:HookScript("OnLeave", function() if row.tip then _G.GameTooltip:Hide() end end)
+    row.control = sw
+    AddValueText(row)
+    PlaceText(row, SWITCH_W)
+    row:SetScript("OnClick", function()
+        if sw:IsShown() and sw:IsEnabled() then sw:Click() end
+    end)
+    self.refreshers[#self.refreshers + 1] = sw
+    return sw, row
+end
+
+function SettingsUI:SwitchSetting(sec, title, desc, path, default, tip)
+    return self:Switch(sec, title, desc,
         function() return Get(path, default) and true or false end,
-        function(a, b) Set(path, Bool(a, b)) end)
+        function(a, b) Set(path, Bool(a, b)) end, tip)
 end
 
-function SettingsUI:Dropdown(col, label, getOptions, getSelected, onSelect)
-    local fs = NewFS(col.parent, "GameFontHighlightSmall", DD_X - 8, false)
-    fs:SetPoint("TOPLEFT", col.parent, "TOPLEFT", col.x + 4, col.y - 7)
-    fs:SetText(label)
-    local dd = ns.UI:CreateDropdown(col.parent, DD_W, getOptions, getSelected, onSelect)
-    dd:SetPoint("TOPLEFT", col.parent, "TOPLEFT", col.x + DD_X, col.y)
-    dd.cdlLabel = fs
-    col.y = col.y - ROW_DROPDOWN
+function SettingsUI:Dropdown(sec, title, desc, getOptions, getSelected, onSelect, tip)
+    local row = self:Row(sec, title, desc, tip)
+    local dd = ns.UI:CreateDropdown(row, DD_W, getOptions, getSelected, onSelect)
+    dd:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    dd.cdlLabel = row.title
+    if tip then
+        dd:HookScript("OnEnter", function() RowEnter(row) end)
+        dd:HookScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    end
+    row.control = dd
+    AddValueText(row)
+    PlaceText(row, DD_W)
     self.refreshers[#self.refreshers + 1] = dd
-    return dd
+    return dd, row
 end
 
-function SettingsUI:DropdownSetting(col, label, path, default, options)
-    return self:Dropdown(col, label,
+function SettingsUI:DropdownSetting(sec, title, desc, path, default, options, tip)
+    return self:Dropdown(sec, title, desc,
         function() return options end,
         function() return Get(path, default) end,
-        function(a, b) Set(path, Value(a, b)) end)
+        function(a, b) Set(path, Value(a, b)) end, tip)
 end
 
--- A group-rule dropdown (ADDENDUM D §26/§27): shows the value in effect, writes my own setting, and is
--- disabled while the rules come from the group's loot leader.
-function SettingsUI:RuleDropdown(col, label, path, default, options)
-    local dd = self:Dropdown(col, label,
+-- A group-rule dropdown (ADDENDUM D §26/§27): shows the value in effect, writes my own setting; read-only (its value
+-- as text) while the rules come from the group's loot leader.
+function SettingsUI:RuleDropdown(sec, title, desc, path, default, options, tip)
+    local dd, row = self:Dropdown(sec, title, desc,
         function() return options end,
         function() return Effective(path, default) end,
         function(a, b)
             if SettingsUI:GroupRulesEditable() then Set(path, Value(a, b)) end
-        end)
+        end, tip)
     self.ruleControls[#self.ruleControls + 1] = dd
-    return dd
+    return dd, row
 end
 
+---------------------------------------------------------------------------
+-- The panel
+---------------------------------------------------------------------------
 function SettingsUI:CreatePanel(parent)
     if self.panel then return self.panel end
     local panel = CreateFrame("Frame", nil, parent)
@@ -384,19 +548,41 @@ function SettingsUI:CreatePanel(parent)
     panel.dirty = true
     self.panel = panel
 
-    local scroll = ns.UI:CreateScrollFrame(panel, "DisasterZoneSettingsScroll")
-    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -4)
-    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, 4)
-    local child = CreateFrame("Frame", nil, scroll)
-    child:SetSize(CHILD_W, 600)
-    scroll:SetScrollChild(child)
-    scroll:HookScript("OnSizeChanged", function(_, w)
-        if w and w > 100 then child:SetWidth(w) end
-    end)
-    self.scroll, self.child = scroll, child
+    self.nav = {}
+    for i, def in ipairs(SECTIONS) do
+        local b = NewNavItem(panel, def.label, function() SettingsUI:SelectSection(def.key) end)
+        b:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, -(TOP_Y + (i - 1) * NAV_H))
+        self.nav[def.key] = b
+    end
+    local rule = panel:CreateTexture(nil, "BORDER")
+    rule:SetColorTexture(1, 1, 1, 0.08)
+    rule:SetWidth(1)
+    rule:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD + NAV_W, -TOP_Y)
+    rule:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PAD + NAV_W, PAD)
 
-    self:BuildLeft(child)
-    self:BuildCouncil(child)
+    local scroll = ns.UI:CreateScrollFrame(panel, "DisasterZoneSettingsScroll")
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", BODY_X, -TOP_Y)
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, PAD)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(BODY_W, BODY_H)
+    scroll:SetScrollChild(child)
+    self.scroll, self.child = scroll, child
+    -- the column's right edge is the page's minus PAD, whatever the page's real width (GetWidth is 0 until laid out)
+    scroll:HookScript("OnSizeChanged", function()
+        if SettingsUI:SyncWidth() then SettingsUI:RequestRefresh() end
+    end)
+
+    self.sections = {}
+    for _, def in ipairs(SECTIONS) do self:NewSection(def) end
+    self:BuildAlerts(self.sections.alerts)
+    self:BuildGroupRules(self.sections.rules)
+    self:BuildRolls(self.sections.rolls)
+    self:BuildStrategy(self.sections.strategy)
+    self:BuildTooltips(self.sections.tooltips)
+    self:BuildWindow(self.sections.window)
+    self:BuildCouncil(self.sections.council)
+    self:BuildDemo(self.sections.demo)
+    self:BuildAbout(self.sections.about)
 
     panel:SetScript("OnShow", function(p)
         if p.dirty then SettingsUI:Refresh() end
@@ -404,140 +590,135 @@ function SettingsUI:CreatePanel(parent)
     function panel:OnPanelShown()
         SettingsUI:Refresh()
     end
+    self:SelectSection(self.section or "alerts")
     self:Refresh()
     return panel
 end
 
-function SettingsUI:BuildLeft(parent)
-    local col = self:NewColumn(parent, LEFT_X, COL_W)
-
-    self:Header(col, "Alerts")
-    self:CheckSetting(col, "Boss drop panel (Loot Council)", "alerts.councilPanel", true)
-    self:CheckSetting(col, "\"On your BiS list!\" toast", "alerts.personalToast", true)
-    self:CheckSetting(col, "Play a sound with drop alerts", "alerts.sound", true)
-    self:CheckSetting(col, "Glow loot buttons for your BiS items", "alerts.glow", true)
-    self:CheckSetting(col, "Chat message when your BiS item drops", "alerts.chat", true)
-    self:CheckSetting(col, "BiS badges on the loot window", "alerts.lootBadges", true)
-    self:CheckSetting(col, "Alerts for off-spec list items", "alerts.offspec", true)
-    self:DropdownSetting(col, "Drop panel position", "dropPanelMode", "auto", {
-        { value = "auto", text = "Attach to loot window when open" },
-        { value = "floating", text = "Always floating" },
-    })
-    self:DropdownSetting(col, "Announce channel", "announceChannel", "RAID", {
-        { value = "RAID", text = "Raid" },
-        { value = "RAID_WARNING", text = "Raid Warning" },
-    })
-
-    self:BuildGroupRules(col, parent)
-
-    self:Header(col, "Rolls")
-    self:CheckSetting(col, "Announce rolls and winners in raid chat", "roll.announce", true)
-    self:CheckSetting(col, "Show the Roll / Pass popup", "roll.popup", true)
-    self:Note(col, "Everyone in the raid may roll. DisasterZone suggests the winner: BiS main first, then BiS alt, "
-        .. "then everyone else; the highest roll wins within each group. The council confirms. "
-        .. "Start rolls from the boss drop panel (Roll / Roll all) or with /dz roll [item].")
-
-    self:Header(col, "Strategy boards")
-    self:CheckSetting(col, "Auto-mark the planned mobs when I lead the raid", "strategy.autoMark", true)
-    self:CheckSetting(col, "Show my jobs when I'm near a planned boss", "strategy.reminder", true)
-    self:Note(col, "The marks are the raid mark badges on the board's boss portraits; enemy nameplates must be on "
-        .. "for the leader. /dz strat debug prints what the helpers see.")
-
-    self:Header(col, "Tooltips")
-    self:CheckSetting(col, "Show DisasterZone lines on item tooltips", "tooltip.enabled", true)
-    self:CheckSetting(col, "Council: list who wants the item", "tooltip.council", true)
-    local nameOptions = {}
-    for _, n in ipairs({ 3, 5, 8, 12 }) do nameOptions[#nameOptions + 1] = { value = n, text = tostring(n) } end
-    self:DropdownSetting(col, "Names shown", "tooltip.maxNames", 5, nameOptions)
-    self:Note(col, "Hold Shift over an item to show every name.")
-
-    self:Header(col, "Main window")
-    self:DropdownSetting(col, "Open on", "openOn", "home", {
-        { value = "home", text = "Home (dashboard)" },
-        { value = "last", text = "The tab used last" },
-    })
-
-    self:Header(col, "Minimap button")
-    self:Check(col, "Show the minimap button",
-        function() return not Get("minimap.hide", false) end,
-        function(a, b)
-            local shown = Bool(a, b)
-            Set("minimap.hide", not shown)
-            SetMinimapShown(shown)
-        end)
-
-    self:Header(col, "View phase")
-    self:Note(col, "The phase used by the Council views, tooltips and drop alerts.")
-    self:Dropdown(col, "Phase", ViewPhaseOptions,
-        function() return tonumber(Get("viewPhase", nil)) or 0 end,
-        function(a, b)
-            local v = tonumber(Value(a, b))
-            Set("viewPhase", (v and v >= 1 and v <= MaxPhase()) and v or nil)
-        end)
-
-    self:Header(col, "Demo mode")
-    self:Check(col, "Demo data (fake guild members & raid)",
-        function() return (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) and true or false end,
-        function(a, b)
-            if ns.Demo and ns.Demo.SetEnabled then ns.Demo:SetEnabled(Bool(a, b)) end
-        end)
-    self:Note(col, "Try the council views solo. Demo data is never saved or sent.")
-    local sim = ns.UI:CreateButton(parent, "Simulate a boss drop", 160, 22, function()
-        if ns.Loot and ns.Loot.SimulateDrop then ns.Loot:SimulateDrop() end
-    end)
-    Put(sim, parent, col.x + 4, col.y)
-    local recent = ns.UI:CreateButton(parent, "Recent drops", 120, 22, function()
-        if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
-    end)
-    recent:SetPoint("LEFT", sim, "RIGHT", 6, 0)
-    col.y = col.y - 30
-    local demoRoll = ns.UI:CreateButton(parent, "Demo a roll", 160, 22, function() SettingsUI:DemoRoll() end)
-    Put(demoRoll, parent, col.x + 4, col.y)
-    AddTooltip(demoRoll, "Demo a roll", "Turns on demo mode, simulates a boss drop and starts a roll on its first item: "
-        .. "you get the Roll / Pass popup and fake raiders roll in the drop panel. Nothing is sent.")
-    col.y = col.y - 28
-    self:Note(col, "In demo mode, click Roll on any item of the drop panel to watch a roll.")
-
-    self:Header(col, "About")
-    self.aboutText = NewFS(parent, "GameFontHighlightSmall", col.w - 8, true)
-    Put(self.aboutText, parent, col.x + 4, col.y)
-    col.y = col.y - 80
-    local syncBtn = ns.UI:CreateButton(parent, "Request sync", 120, 22, function()
-        if ns.Sync and ns.Sync.RequestSync then ns.Sync:RequestSync() end
-    end)
-    Put(syncBtn, parent, col.x + 4, col.y)
-    col.y = col.y - 30
-    self:CheckSetting(col, "Debug messages in chat", "debug", false)
-
-    self.leftHeight = -col.y + 10
+-- Opens one section (key as in SECTIONS); the others hide. The page keeps its size: only the scroll range follows.
+function SettingsUI:SelectSection(key)
+    if not (self.sections and self.sections[key]) then key = "alerts" end
+    self.section = key
+    if not self.sections then return end
+    for k, sec in pairs(self.sections) do sec:SetShown(k == key) end
+    for k, b in pairs(self.nav or {}) do b:SetActive(k == key) end
+    self:FitChild()
+    if self.scroll then self.scroll:SetVerticalScroll(0) end
 end
 
--- Group loot rules (ADDENDUM D §24-§27, ADDENDUM E §32): the loot leader of the group decides these for
--- everyone in it. A status line says whose values are in effect; the controls are read-only while the
--- rules come from someone else.
-function SettingsUI:BuildGroupRules(col, parent)
-    self:Header(col, "Group loot rules")
-    self.rulesStatus = NewFS(parent, "GameFontHighlightSmall", col.w - 8, true)
-    Put(self.rulesStatus, parent, col.x + 4, col.y)
-    col.y = col.y - 30
+function SettingsUI:GetSection()
+    return self.section
+end
 
-    -- ADDENDUM F §38: the raid leader locks / unlocks every BiS list in the group for the raid.
-    if ns.UI.CreateBiSLockButton then
-        self.lockBtn = ns.UI:CreateBiSLockButton(parent, 130, 22, { keepShown = true })
-        Put(self.lockBtn, parent, col.x + 4, col.y)
-        self.lockStatus = NewFS(parent, "GameFontHighlightSmall", col.w - 150, false)
-        self.lockStatus:SetPoint("LEFT", self.lockBtn, "RIGHT", 8, 0)
-        col.y = col.y - 30
+-- The section column's width: the scroll frame's, once it is laid out (BODY_W before).
+function SettingsUI:BodyWidth()
+    return self.bodyW or BODY_W
+end
+
+-- Takes over the scroll frame's real width; true when it changed.
+function SettingsUI:SyncWidth()
+    local w = self.scroll and tonumber(self.scroll:GetWidth())
+    if not w or w <= 100 then return false end
+    w = floor(w + 0.5)
+    if w == self.bodyW then return false end
+    self.bodyW = w
+    self.child:SetWidth(w)
+    return true
+end
+
+function SettingsUI:FitChild()
+    local sec = self.sections and self.sections[self.section]
+    if sec and self.child then
+        self.child:SetHeight(max(BODY_H, sec.height or 0))
+        sec:SetHeight(max(BODY_H, sec.height or 0))
     end
+end
+
+---------------------------------------------------------------------------
+-- The sections
+---------------------------------------------------------------------------
+function SettingsUI:BuildAlerts(sec)
+    sec.y = sec.y - 4
+    self:SwitchSetting(sec, "Boss drop panel", "Opens on boss drops for the Loot Council and the master looter.",
+        "alerts.councilPanel", true)
+    self:SwitchSetting(sec, "\"On your BiS list!\" toast", "A pop-up when something on your list drops.",
+        "alerts.personalToast", true)
+    self:SwitchSetting(sec, "Sound with drop alerts", "Plays with the toast and the drop panel.", "alerts.sound", true)
+    self:SwitchSetting(sec, "Glow on BiS loot buttons", "Your list's items glow in the loot window.",
+        "alerts.glow", true)
+    self:SwitchSetting(sec, "Chat message for BiS drops", "A line in your chat, for when the toast is missed.",
+        "alerts.chat", true)
+    self:SwitchSetting(sec, "BiS badges on the loot window",
+        "Marks your items; on the Loot Council also how many raiders need each one.", "alerts.lootBadges", true)
+    self:SwitchSetting(sec, "Off-spec items too", "The alerts above also fire for your off-spec list.",
+        "alerts.offspec", true)
+    self:DropdownSetting(sec, "Drop panel position", "Next to the loot window, or where you left it.",
+        "dropPanelMode", "auto", {
+            { value = "auto", text = "Attach to the loot window" },
+            { value = "floating", text = "Always floating" },
+        })
+    self:DropdownSetting(sec, "Announce channel", "Where awards and rolls are announced in a raid.",
+        "announceChannel", "RAID", {
+            { value = "RAID", text = "Raid" },
+            { value = "RAID_WARNING", text = "Raid Warning" },
+        }, "Raid Warning needs raid lead or assist; without them announcements go to Raid.")
+    self:EndSection(sec)
+end
+
+-- Group loot rules (ADDENDUM D §24-§27, ADDENDUM E §32): the loot leader of the group decides these for everyone in
+-- it. The line under the title says whose values are in effect; while they come from someone else every rule shows
+-- its value as text.
+local RULES_TIP = "The group's loot leader sets these for everyone in the group: in a raid the raid leader (else "
+    .. "the master looter); in a party the leader if on the Loot Council or if they turned dungeon mode on (else a "
+    .. "council member). Without one, your own values apply. /dz rules prints the rules in effect."
+
+function SettingsUI:BuildGroupRules(sec)
+    self.rulesLock = sec:CreateTexture(nil, "OVERLAY")
+    self.rulesLock:SetTexture(ns.UI.ICON_LOCK or "Interface\\PetBattles\\PetBattle-LockIcon")
+    self.rulesLock:SetSize(12, 12)
+    self.rulesLock:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 2)
+    self.rulesY = sec.y
+    self.rulesStatus = self:Subtitle(sec)
+    local hit = CreateFrame("Frame", nil, sec)
+    hit:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y + SUB_H)
+    hit:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y + SUB_H)
+    hit:SetHeight(SUB_H)
+    hit:EnableMouse(true)
+    hit:SetScript("OnEnter", function(f) ShowTip(f, "Group loot rules", RULES_TIP) end)
+    hit:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 
     local durations = {}
     for _, s in ipairs({ 15, 20, 30, 45, 60 }) do durations[#durations + 1] = { value = s, text = s .. " seconds" } end
-    self:RuleDropdown(col, "Roll duration", "roll.duration", 30, durations)
-    self:RuleDropdown(col, "Minimum quality", "qualityThreshold", 4, {
-        { value = 4, text = "Epic" },
-        { value = 3, text = "Rare" },
-    })
-    self.dungeonCheck = self:Check(col, "Enable dungeon mode (5-man parties)",
+    local _, r1 = self:RuleDropdown(sec, "Roll duration", "How long a roll stays open.", "roll.duration", 30, durations)
+    local _, r2 = self:RuleDropdown(sec, "Minimum quality", "Raid drops below it get no drop panel, alerts or rolls.",
+        "qualityThreshold", 4, {
+            { value = 4, text = "Epic" },
+            { value = 3, text = "Rare" },
+        })
+    local phaseDD, r3 = self:Dropdown(sec, "Raid phase", "The group's phase: council views, tooltips and alerts follow it.",
+        GroupPhaseOptions,
+        function() return SettingsUI:GroupPhaseSelected() end,
+        function(a, b)
+            if not SettingsUI:GroupPhaseEditable() then return end
+            local v = tonumber(Value(a, b))
+            Set("groupPhase", (v and v >= 1 and v <= MaxPhase()) and v or nil)
+        end,
+        "As the group's loot leader you send it with the loot rules: everyone's council views, tooltips and drop "
+        .. "alerts follow it (unless they picked their own view phase). \"Use guild phase\" keeps the Guild Master's.")
+    self.phaseRuleDD = phaseDD
+
+    -- ADDENDUM F §38: the raid leader locks / unlocks every BiS list in the group for the raid. The button is there
+    -- for whoever may use it; everyone else reads the state.
+    local lockRow = self:Row(sec, "BiS lists", "")
+    self.lockRow = lockRow
+    if ns.UI.CreateBiSLockButton then
+        self.lockBtn = ns.UI:CreateBiSLockButton(lockRow, 128, 22)
+        self.lockBtn:SetPoint("RIGHT", lockRow, "RIGHT", 0, 0)
+    end
+    self.lockStatus = lockRow.desc
+    PlaceText(lockRow, 128)
+
+    self.dungeonCheck, self.dungeonRow = self:Switch(sec, "Dungeon mode (5-man parties)", "",
         function() return Effective("dungeon.enabled", false) and true or false end,
         function(a, b)
             if SettingsUI:GroupRulesEditable() then
@@ -545,34 +726,128 @@ function SettingsUI:BuildGroupRules(col, parent)
             else
                 SettingsUI:RequestRefresh()
             end
-        end)
+        end,
+        "Boss drops and DisasterZone rolls work in a 5-man party like in a raid (also /dz dungeon on|off). "
+        .. "Dungeon awards are tagged (dungeon) in the loot log.")
     self.ruleControls[#self.ruleControls + 1] = self.dungeonCheck
-    self:RuleDropdown(col, "Dungeon min. quality", "dungeon.quality", 3, {
-        { value = 3, text = "Rare" },
-        { value = 4, text = "Epic" },
-    })
-    self.phaseRuleDD = self:Dropdown(col, "Raid phase", GroupPhaseOptions,
-        function() return SettingsUI:GroupPhaseSelected() end,
-        function(a, b)
-            if not SettingsUI:GroupPhaseEditable() then return end
-            local v = tonumber(Value(a, b))
-            Set("groupPhase", (v and v >= 1 and v <= MaxPhase()) and v or nil)
-        end)
-    AddTooltip(self.phaseRuleDD, "Raid phase",
-        "The phase your group is working on. As the group's loot leader you send it with the loot rules: "
-        .. "everyone's council views, tooltips and drop alerts follow it (unless they picked their own view phase). "
-        .. "\"Use guild phase\" keeps the Guild Master's phase.")
+    -- its line under the name is the live state ("Status: Active — enabled by Lee")
+    local drow = self.dungeonRow
+    drow.isSwitch = true
+    self.dungeonStatus = drow.desc
+    local _, r6 = self:RuleDropdown(sec, "Dungeon minimum quality", "Drops below it are skipped in 5-man dungeons.",
+        "dungeon.quality", 3, {
+            { value = 3, text = "Rare" },
+            { value = 4, text = "Epic" },
+        })
+    self.ruleRows = { r1, r2, drow, r6 }
+    self.phaseRow = r3
+    self:EndSection(sec)
+end
 
-    self.dungeonStatus = NewFS(parent, "GameFontHighlightSmall", col.w - 8, false)
-    Put(self.dungeonStatus, parent, col.x + 4, col.y)
-    col.y = col.y - 18
-    self:Note(col, "The group's loot leader sets these for everyone in the group: in a raid the raid leader "
-        .. "(else the master looter); in a party the leader if on the Loot Council or if they turned dungeon mode on "
-        .. "(else a council member). Without one, your own values apply. /dz rules shows the rules in effect.")
-    self:Note(col, "Lock BiS lists (also /dz lock and /dz unlock): nobody in the group can change their BiS "
-        .. "list until the loot leader unlocks them or the group disbands; obtained items still update.")
-    self:Note(col, "Dungeon mode: boss drops and DisasterZone rolls work in a 5-man party like in a raid "
-        .. "(also /dz dungeon on|off). Dungeon awards are tagged (dungeon) in the loot log.")
+function SettingsUI:BuildRolls(sec)
+    sec.y = sec.y - 4
+    self:SwitchSetting(sec, "Announce rolls and winners", "Roll starts and winners go to raid chat.",
+        "roll.announce", true)
+    self:SwitchSetting(sec, "Roll / Pass popup", "Pops up when a roll starts, so you can roll or pass.",
+        "roll.popup", true)
+    self:EndSection(sec)
+    local note = NewFS(sec, "GameFontHighlightSmall", nil, true)
+    note:SetTextColor(GREY[1], GREY[2], GREY[3])
+    note:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 14)
+    note:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 14)
+    note:SetText("Everyone in the raid may roll. BiS mains win first, then BiS alts, then everyone else; the "
+        .. "council confirms. Start a roll from the boss drop panel or with /dz roll [item].")
+    sec.height = -sec.y + 14 + 30
+end
+
+function SettingsUI:BuildStrategy(sec)
+    sec.y = sec.y - 4
+    self:SwitchSetting(sec, "Auto-mark the planned mobs",
+        "When you lead the raid, the board's raid marks go on the mobs. Needs enemy nameplates on.",
+        "strategy.autoMark", true,
+        "The marks are the raid mark badges on the board's boss portraits. /dz strat debug prints what the helpers see.")
+    self:SwitchSetting(sec, "Show my jobs near a planned boss",
+        "A reminder of your jobs when you get close to a boss with a picked strategy.", "strategy.reminder", true)
+    self:EndSection(sec)
+end
+
+function SettingsUI:BuildTooltips(sec)
+    sec.y = sec.y - 4
+    self:SwitchSetting(sec, "DisasterZone lines on item tooltips", "Whether an item is on your BiS list.",
+        "tooltip.enabled", true)
+    self:SwitchSetting(sec, "Who wants it (Loot Council)", "Council members see everyone who has the item on a list.",
+        "tooltip.council", true)
+    local nameOptions = {}
+    for _, n in ipairs({ 3, 5, 8, 12 }) do nameOptions[#nameOptions + 1] = { value = n, text = tostring(n) } end
+    self:DropdownSetting(sec, "Names shown", "Hold Shift over an item to see every name.", "tooltip.maxNames", 5,
+        nameOptions)
+    self:EndSection(sec)
+end
+
+function SettingsUI:BuildWindow(sec)
+    sec.y = sec.y - 4
+    self:DropdownSetting(sec, "Open on", "What the window shows when you open it.", "openOn", "home", {
+        { value = "home", text = "Home (dashboard)" },
+        { value = "last", text = "The tab used last" },
+    })
+    self:Dropdown(sec, "View phase", "The phase your council views, tooltips and drop alerts use.", ViewPhaseOptions,
+        function() return tonumber(Get("viewPhase", nil)) or 0 end,
+        function(a, b)
+            local v = tonumber(Value(a, b))
+            Set("viewPhase", (v and v >= 1 and v <= MaxPhase()) and v or nil)
+        end)
+    self:Switch(sec, "Minimap button", "Click opens this window, right-click Settings, Shift-click the boss drops.",
+        function() return not Get("minimap.hide", false) end,
+        function(a, b)
+            local shown = Bool(a, b)
+            Set("minimap.hide", not shown)
+            SetMinimapShown(shown)
+        end)
+    self:EndSection(sec)
+end
+
+function SettingsUI:BuildDemo(sec)
+    sec.y = sec.y - 4
+    self:Switch(sec, "Demo data", "Fake guild members and a raid to try the council views solo. Never saved or sent.",
+        function() return (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) and true or false end,
+        function(a, b)
+            if ns.Demo and ns.Demo.SetEnabled then ns.Demo:SetEnabled(Bool(a, b)) end
+        end)
+    self:EndSection(sec)
+    local y = sec.y - 16
+    local sim = ns.UI:CreateButton(sec, "Simulate a boss drop", nil, 22, function()
+        if ns.Loot and ns.Loot.SimulateDrop then ns.Loot:SimulateDrop() end
+    end)
+    Put(sim, sec, 0, y)
+    AddTooltip(sim, "Simulate a boss drop", "Opens the drop panel with a made-up boss drop. In demo mode, click Roll "
+        .. "on any of its items to watch a roll.")
+    local demoRoll = ns.UI:CreateButton(sec, "Demo a roll", nil, 22, function() SettingsUI:DemoRoll() end)
+    demoRoll:SetPoint("LEFT", sim, "RIGHT", 8, 0)
+    AddTooltip(demoRoll, "Demo a roll", "Turns on demo mode, simulates a boss drop and starts a roll on its first item: "
+        .. "you get the Roll / Pass popup and fake raiders roll in the drop panel. Nothing is sent.")
+    local recent = ns.UI:CreateButton(sec, "Recent drops", nil, 22, function()
+        if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
+    end)
+    recent:SetPoint("LEFT", demoRoll, "RIGHT", 8, 0)
+    AddTooltip(recent, "Recent drops", "The boss drops seen this session, in the drop panel.")
+    sec.height = -(y - 22) + 8
+end
+
+function SettingsUI:BuildAbout(sec)
+    sec.y = sec.y - 4
+    local vrow = self:Row(sec, "", "")
+    self.aboutText = vrow.title
+    self.aboutPeers = vrow.desc
+    local srow = self:Row(sec, "BiS list sharing", "")
+    self.aboutSync = srow.desc
+    local syncBtn = ns.UI:CreateButton(srow, "Request sync", 112, 22, function()
+        if ns.Sync and ns.Sync.RequestSync then ns.Sync:RequestSync() end
+    end)
+    syncBtn:SetPoint("RIGHT", srow, "RIGHT", 0, 0)
+    PlaceText(srow, 112)
+    self:SwitchSetting(sec, "Debug messages in chat", "Extra lines in your chat for tracking down problems.",
+        "debug", false)
+    self:EndSection(sec)
 end
 
 -- "Demo a roll": demo mode on, a simulated drop, and a local roll on its first item.
@@ -600,8 +875,8 @@ function SettingsUI:DemoRoll()
     end
 end
 
--- The dungeon mode checkbox: through the core's toggle when it has one (it also tells the party),
--- else the plain setting (the core reacts to SETTINGS_CHANGED "dungeon.enabled").
+-- The dungeon mode switch: through the core's toggle when it has one (it also tells the party), else the plain
+-- setting (the core reacts to SETTINGS_CHANGED "dungeon.enabled").
 function SettingsUI:SetDungeonMode(enabled)
     enabled = enabled and true or false
     local D = ns.Dungeon
@@ -617,7 +892,7 @@ function SettingsUI:SetDungeonMode(enabled)
     Set("dungeon.enabled", enabled)
 end
 
--- "Active — enabled by X" / "Inactive (not in a 5-man party)".
+-- "Status: Active — enabled by X" / "Status: Inactive (not in a 5-man party)".
 function SettingsUI:DungeonStatusText()
     if DungeonModeActive() then
         local who, extra = nil, ""
@@ -631,12 +906,12 @@ function SettingsUI:DungeonStatusText()
             local D = ns.Dungeon
             if not by and rulesStatus ~= "mine" and type(D) == "table" and type(D.CanTellParty) == "function" then
                 local ok, can = pcall(D.CanTellParty, D)
-                if ok and not can then extra = Paint(" (only for you)", "muted") end
+                if ok and not can then extra = Grey(" (only for you)") end
             end
         elseif by then
             who = IsMe(by) and "you" or ShortName(by)
         end
-        return "Status: " .. Paint(who and ("Active — enabled by " .. who) or "Active", "obtained") .. extra
+        return Grey("Status: ") .. Paint(who and ("Active — enabled by " .. who) or "Active", "obtained") .. extra
     end
     local reason
     if _G.IsInRaid and _G.IsInRaid() then
@@ -646,7 +921,7 @@ function SettingsUI:DungeonStatusText()
     else
         reason = "Inactive (not turned on for this party)"
     end
-    return "Status: " .. Paint(reason, "muted")
+    return Grey("Status: " .. reason)
 end
 
 function SettingsUI:RefreshDungeon()
@@ -698,44 +973,70 @@ function SettingsUI:GroupRulesStatusText()
     local status, from = self:GroupRulesStatus()
     if status == "remote" then
         return "Set by " .. (from and ColoredName(from) or "the group's loot leader") .. " for this group"
-            .. Paint(" (read-only while you are in this group)", "muted")
     elseif status == "mine" then
-        return Paint("You set these for your group", "obtained")
-            .. Paint(" (changes are sent to the group)", "muted")
+        return Paint("You set these for your group", "obtained") .. Grey(" (changes are sent to everyone in it)")
     end
     if InGroup() then
-        return "Your own settings" .. Paint(" (no loot leader with DisasterZone in this group)", "muted")
+        return "Your own settings" .. Grey(" (no loot leader with DisasterZone in this group)")
     end
-    return "Your own settings" .. Paint(" (not in a group)", "muted")
+    return "Your own settings" .. Grey(" (not in a group)")
 end
 
--- "BiS lists: unlocked" / "Locked by X (since 20:14)" next to the lock button (ADDENDUM F §38).
+-- The state of the group's BiS lists (ADDENDUM F §38), under "BiS lists".
 function SettingsUI:LockStatusText()
     local UI = ns.UI
     if not (UI and UI.GetBiSLock) then return "" end
     local locked, info = UI:GetBiSLock()
     if locked then
-        return UI:LockIcon(12) .. " " .. Paint("Locked by " .. UI:LockByText(info, true), "warn")
+        return Paint("Locked by " .. UI:LockByText(info, true), "warn")
+            .. Grey(": nobody can change their list until it is unlocked")
     end
-    if not (_G.IsInRaid and _G.IsInRaid()) then return "BiS lists: unlocked" .. Paint(" (raids only)", "muted") end
-    if UI.CanSetBiSLock and UI:CanSetBiSLock() then return "BiS lists: unlocked" end
+    if not (_G.IsInRaid and _G.IsInRaid()) then return "Unlocked" .. Grey(" (the raid leader can lock them in a raid)") end
+    if UI.CanSetBiSLock and UI:CanSetBiSLock() then
+        return "Unlocked" .. Grey(" (locking stops list changes until you unlock or the raid ends)")
+    end
     -- 1.3: the raid leader can't lock yet either: the lock needs a raid started with the loot council
     local GR = ns.GroupRules
     if GR and GR.IsAuthority and GR:IsAuthority() then
-        return "BiS lists: unlocked" .. Paint(" (needs a raid started with the loot council)", "muted")
+        return "Unlocked" .. Grey(" (locking needs a raid started with the loot council)")
     end
-    return "BiS lists: unlocked" .. Paint(" (raid leader only)", "muted")
+    return "Unlocked" .. Grey(" (raid leader only)")
+end
+
+local function DropdownText(dd)
+    if dd.Refresh then dd:Refresh() end
+    return dd:GetText() or ""
 end
 
 function SettingsUI:RefreshGroupRules()
-    if self.rulesStatus then self.rulesStatus:SetText(self:GroupRulesStatusText()) end
-    local editable = self:GroupRulesEditable()
-    for _, ctrl in ipairs(self.ruleControls or {}) do SetControlEnabled(ctrl, editable) end
-    SetControlEnabled(self.phaseRuleDD, self:GroupPhaseEditable())
+    local status = self:GroupRulesStatus()
+    local remote = status == "remote"
+    if self.rulesStatus then
+        self.rulesStatus:SetText(self:GroupRulesStatusText())
+        local sec, y = self.sections.rules, (self.rulesY or -TITLE_H) - 1
+        self.rulesStatus:ClearAllPoints()
+        self.rulesStatus:SetPoint("TOPLEFT", sec, "TOPLEFT", remote and 17 or 0, y)
+        self.rulesStatus:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, y)
+        self.rulesLock:SetShown(remote)
+    end
+    for _, row in ipairs(self.ruleRows or {}) do
+        local c = row.control
+        local text
+        if row.isSwitch then
+            text = Effective("dungeon.enabled", false) and "On" or "Off"
+        elseif c then
+            text = DropdownText(c)
+        end
+        SetReadOnly(row, remote, text)
+    end
+    if self.phaseRow then
+        SetReadOnly(self.phaseRow, not self:GroupPhaseEditable(), DropdownText(self.phaseRuleDD))
+    end
     if self.lockBtn and self.lockBtn.Refresh then self.lockBtn:Refresh() end
     if self.lockStatus then self.lockStatus:SetText(self:LockStatusText()) end
 end
 
+-- "Version 1.3.0 · protocol 1"; peers seen; how my BiS list is shared.
 function SettingsUI:RefreshAbout()
     local fs = self.aboutText
     if not fs then return end
@@ -743,15 +1044,19 @@ function SettingsUI:RefreshAbout()
     local peers = S and S.GetVersions and S:GetVersions()
     local online = S and S.GetOnlineCouncilPeers and S:GetOnlineCouncilPeers()
     local status = (S and S.GetStatusText and S:GetStatusText()) or ""
-    fs:SetText(format("Version %s · protocol %s\nPeers seen: %d · council online: %d\nSharing: %s\n%s",
-        tostring(ns.version or "?"), tostring(ns.PROTO or "?"),
-        type(peers) == "table" and #peers or 0, type(online) == "table" and #online or 0,
-        tostring(status),
-        Paint("Standalone: all libraries and the suggested BiS lists are built in.", "muted")))
+    status = tostring(status):gsub("\226\128\166$", ""):gsub("%.%.%.$", "")
+    local nPeers = type(peers) == "table" and #peers or 0
+    local nOnline = type(online) == "table" and #online or 0
+    fs:SetText(format("Version %s", tostring(ns.version or "?")) .. Grey(" · protocol " .. tostring(ns.PROTO or "?")))
+    if self.aboutPeers then
+        self.aboutPeers:SetText(format("%d %s with DisasterZone seen · %d council %s online", nPeers,
+            nPeers == 1 and "player" or "players", nOnline, nOnline == 1 and "member" or "members"))
+    end
+    if self.aboutSync then self.aboutSync:SetText(status ~= "" and status or "Not in a guild") end
 end
 
 ---------------------------------------------------------------------------
--- Loot Council section: read-only summary for everyone + "Edit council…" (ADDENDUM E §30)
+-- Loot Council section: read-only summary for everyone + "Edit council..." (ADDENDUM E §30)
 ---------------------------------------------------------------------------
 local function MemberOnEnter(self)
     if not self.key then return end
@@ -770,14 +1075,15 @@ local function MemberOnEnter(self)
     tt:Show()
 end
 
+-- A council member: class circle and class-coloured name; offline members are dimmed.
 local function NewMemberEntry(parent)
     local e = CreateFrame("Frame", nil, parent)
     e:SetHeight(MEMBER_ROW_H)
-    e.dot = e:CreateTexture(nil, "ARTWORK")
-    e.dot:SetSize(7, 7)
-    e.dot:SetPoint("LEFT", e, "LEFT", 0, 0)
-    e.text = NewFS(e, "GameFontHighlightSmall", nil, false)
-    e.text:SetPoint("LEFT", e, "LEFT", 11, 0)
+    e.icon = e:CreateTexture(nil, "ARTWORK")
+    e.icon:SetSize(16, 16)
+    e.icon:SetPoint("LEFT", e, "LEFT", 0, 0)
+    e.text = NewFS(e, "GameFontHighlight", nil, false)
+    e.text:SetPoint("LEFT", e, "LEFT", 22, 0)
     e.text:SetPoint("RIGHT", e, "RIGHT", 0, 0)
     e:EnableMouse(true)
     e:SetScript("OnEnter", MemberOnEnter)
@@ -785,9 +1091,9 @@ local function NewMemberEntry(parent)
     return e
 end
 
--- Lays out a 2-column grid of name entries from `pool`; returns the new y.
+-- Lays out a grid of name entries from `pool` (MEMBER_COLS columns); returns the new y.
 local function LayoutMembers(cs, pool, list, y)
-    local colW = floor(COL_W / 2)
+    local colW = floor(SettingsUI:BodyWidth() / MEMBER_COLS)
     for i, m in ipairs(list) do
         local e = pool[i]
         if not e then
@@ -795,44 +1101,43 @@ local function LayoutMembers(cs, pool, list, y)
             pool[i] = e
         end
         e.key, e.online, e.fixed = m.key, m.online and true or false, m.fixed
-        e:SetWidth(colW - 10)
-        Put(e, cs, ((i - 1) % 2) * colW + 8, y - floor((i - 1) / 2) * MEMBER_ROW_H)
-        local c = e.online and ONLINE_DOT or OFFLINE_DOT
-        e.dot:SetColorTexture(c[1], c[2], c[3], 1)
+        e:SetWidth(colW - 8)
+        Put(e, cs, ((i - 1) % MEMBER_COLS) * colW, y - floor((i - 1) / MEMBER_COLS) * MEMBER_ROW_H)
+        local cls = m.classFile or ClassOf(m.key)
+        if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(e.icon, cls) end
         local text = m.name or ColoredName(m.key)
         if m.fixed == "Guild Master" then
-            text = text .. Paint(" (GM)", "muted")
+            text = text .. Grey(" (GM)")
         elseif m.fixed then
-            text = text .. Paint(" (" .. m.fixed:lower() .. ")", "muted")
+            text = text .. Grey(" (" .. m.fixed:lower() .. ")")
         end
-        if not e.online then text = text .. Paint(" (offline)", "muted") end
         e.text:SetText(text)
+        e.icon:SetAlpha(e.online and 1 or 0.4)
+        e.text:SetAlpha(e.online and 1 or 0.45)
         e:Show()
     end
     for i = #list + 1, #pool do pool[i]:Hide() end
     if #list == 0 then return y end
-    return y - ceil(#list / 2) * MEMBER_ROW_H - 6
+    return y - (floor((#list - 1) / MEMBER_COLS) + 1) * MEMBER_ROW_H
 end
 
-function SettingsUI:BuildCouncil(parent)
-    local cs = CreateFrame("Frame", nil, parent)
-    cs:SetPoint("TOPLEFT", parent, "TOPLEFT", RIGHT_X, 0)
-    cs:SetSize(COL_W, 400)
+function SettingsUI:BuildCouncil(sec)
+    local cs = sec
     self.cs = cs
-
-    local col = { parent = cs, x = 0, w = COL_W, y = -4 }
-    self:Header(col, "Loot Council")
-    cs.top = col.y
-    cs.status = NewFS(cs, "GameFontHighlight", COL_W - 8, false)
-    cs.summary = NewFS(cs, "GameFontHighlightSmall", COL_W - 8, true)
+    cs.status = self:Subtitle(sec)
+    cs.top = sec.y - 6
+    cs.summary = NewFS(cs, "GameFontHighlight", BODY_W, true)
     cs.members = {}
-    cs.raidSummary = NewFS(cs, "GameFontHighlightSmall", COL_W - 8, true)
+    cs.raidSummary = NewFS(cs, "GameFontHighlight", BODY_W, true)
     cs.raidMembers = {}
-    cs.editBtn = ns.UI:CreateButton(cs, "Edit council\226\128\166", 130, 22, function() SettingsUI:OpenCouncilEditor() end)
+    cs.editBtn = ns.UI:CreateButton(cs, "Edit council", 116, 22, function() SettingsUI:OpenCouncilEditor() end)
+    cs.editBtn:SetPoint("RIGHT", cs, "TOPRIGHT", 0, -TITLE_H / 2)
     AddTooltip(cs.editBtn, "Edit council",
         "Opens the Loot Council picker (Council tab). The Guild Master picks the guild council; "
         .. "the raid leader picks extra council members for their raid.")
-    cs.info = NewFS(cs, "GameFontDisableSmall", COL_W - 8, true)
+    cs.info = NewFS(cs, "GameFontHighlightSmall", BODY_W, true)
+    cs.info:SetTextColor(GREY[1], GREY[2], GREY[3])
+    sec.height = BODY_H
 end
 
 -- What "Edit council…" opens for me: the lists of the Council tab's picker I can change, only while the Council tab
@@ -865,25 +1170,27 @@ function SettingsUI:RefreshCouncil()
     local cs = self.cs
     if not cs then return 0 end
     local y = cs.top
+    local w = self:BodyWidth()
+    cs.summary:SetWidth(w)
+    cs.raidSummary:SetWidth(w)
+    cs.info:SetWidth(w)
 
     local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
     local CU = ns.CouncilUI
     local sum = CU and CU.GetCouncilSummary and CU:GetCouncilSummary() or nil
     if demo and IsCouncil() then
-        cs.status:SetText(Paint("You are on the Loot Council.", "obtained") .. Paint(" (demo mode)", "muted"))
+        cs.status:SetText(Paint("You are on the Loot Council.", "obtained") .. Grey(" (demo mode)"))
     elseif IsCouncil() then
         local src = sum and SOURCE_TEXT[sum.mySource]
-        cs.status:SetText(Paint("You are on the Loot Council.", "obtained") .. (src and Paint(" · " .. src, "muted") or ""))
+        cs.status:SetText(Paint("You are on the Loot Council.", "obtained") .. (src and Grey(" · " .. src) or ""))
     else
-        cs.status:SetText(Paint("You are not on the Loot Council.", "muted"))
+        cs.status:SetText(Grey("You are not on the Loot Council."))
     end
-    Put(cs.status, cs, 4, y)
-    y = y - 20
 
     -- Guild council
     local guildList = {}
     if not sum then
-        cs.summary:SetText(Paint("The council summary is not available.", "muted"))
+        cs.summary:SetText(Grey("The council summary is not available."))
     elseif not sum.inGuild then
         cs.summary:SetText("You are not in a guild. The Loot Council needs a guild; your own BiS list "
             .. "and personal drop alerts work anyway.")
@@ -892,17 +1199,17 @@ function SettingsUI:RefreshCouncil()
         local g = sum.guild
         local text
         if g then
-            text = format("Guild council (set by %s %s · phase P%d):", ColoredName(g.by or sum.gm or "?"),
-                FormatAgo(g.rev), tonumber(g.phase) or 1)
+            text = "Guild council" .. Grey(format(" · set by %s %s · phase P%d", ShortName(g.by or sum.gm or "?"),
+                FormatAgo(g.rev), tonumber(g.phase) or 1))
         elseif sum.gm then
-            text = "Guild council: only the Guild Master so far (no list shared yet)."
+            text = "Guild council" .. Grey(" · only the Guild Master so far")
         else
-            text = "Guild council: waiting for the guild roster..."
+            text = "Guild council" .. Grey(" · waiting for the guild roster")
         end
         cs.summary:SetText(text)
     end
-    Put(cs.summary, cs, 4, y)
-    y = y - (TextHeight(cs.summary) + 6)
+    Put(cs.summary, cs, 0, y)
+    y = y - (TextHeight(cs.summary) + 8)
     y = LayoutMembers(cs, cs.members, guildList, y)
 
     -- This raid's council (only while in a raid)
@@ -911,31 +1218,29 @@ function SettingsUI:RefreshCouncil()
         raidList = sum.raidMembers or {}
         local leader = sum.raidLeader
         if sum.raidLeaderOutside and leader then
-            cs.raidSummary:SetText(format("This raid's council: %s leads it but is not in your guild, so is never "
-                .. "loot council.", ColoredName(leader)))
+            cs.raidSummary:SetText("This raid's council" .. Grey(format(": %s leads it but is not in your guild, so is "
+                .. "never loot council", ShortName(leader))))
         elseif sum.raidShared and leader then
-            cs.raidSummary:SetText(format("This raid's council (set by raid leader %s):", ColoredName(leader)))
+            cs.raidSummary:SetText("This raid's council" .. Grey(" · set by raid leader " .. ShortName(leader)))
         elseif leader then
-            cs.raidSummary:SetText(format("This raid's council: only the raid leader %s.", ColoredName(leader)))
+            cs.raidSummary:SetText("This raid's council" .. Grey(" · only the raid leader " .. ShortName(leader)))
         else
-            cs.raidSummary:SetText("This raid's council: waiting for the raid roster...")
+            cs.raidSummary:SetText("This raid's council" .. Grey(" · waiting for the raid roster"))
         end
-        Put(cs.raidSummary, cs, 4, y - 4)
+        y = y - 14
+        Put(cs.raidSummary, cs, 0, y)
         cs.raidSummary:Show()
-        y = y - (TextHeight(cs.raidSummary) + 10)
+        y = y - (TextHeight(cs.raidSummary) + 8)
     else
         cs.raidSummary:Hide()
     end
     y = LayoutMembers(cs, cs.raidMembers, raidList, y)
-    y = y - 6
 
     -- "Edit council…" for the Guild Master / raid leader, an explanation for everyone else (both follow what the
     -- button really opens: EditableCouncilParts).
     local parts = self:EditableCouncilParts()
     if #parts > 0 then
-        Put(cs.editBtn, cs, 4, y)
         cs.editBtn:Show()
-        y = y - 28
         cs.info:SetText("You can edit " .. table.concat(parts, " and ") .. ".")
     else
         cs.editBtn:Hide()
@@ -943,9 +1248,10 @@ function SettingsUI:RefreshCouncil()
             .. "guild members as council for their own raid, and while a raid runs the loot council its master looter "
             .. "is council too; they count only inside that raid. Players outside the guild are never loot council.")
     end
-    Put(cs.info, cs, 4, y)
+    y = y - 16
+    Put(cs.info, cs, 0, y)
     y = y - (TextHeight(cs.info) + 8)
-    cs:SetHeight(-y)
+    cs.height = -y
     return -y
 end
 
@@ -970,12 +1276,13 @@ function SettingsUI:Refresh()
     local p = self.panel
     if not p then return end
     p.dirty = false
+    self:SyncWidth()
     for _, w in ipairs(self.refreshers) do
         if w.Refresh then w:Refresh() end
     end
     self:RefreshGroupRules()
     self:RefreshAbout()
     self:RefreshDungeon()
-    local rightH = self:RefreshCouncil()
-    self.child:SetHeight(max(self.leftHeight or 0, (rightH or 0) + 4) + 16)
+    self:RefreshCouncil()
+    self:FitChild()
 end

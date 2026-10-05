@@ -14,7 +14,7 @@ TESTS = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(TESTS, "strategy"))
 
 from st_common import world, K, DAY, now, create, signup, team, COUNCIL  # noqa: E402
-from _common import case, run_all, printed_since, strip_codes, install_helpers, tt_lines, Client  # noqa: E402
+from _common import case, run_all, printed_since, strip_codes, install_helpers, tt_lines, Client, menu_pick  # noqa: E402
 
 LINK = "addon:DisasterZone:"
 
@@ -374,9 +374,12 @@ def share_icons_on_raids_members_strategies_boards_and_games():
     # the strategy library's rows and the board
     rita.eval("ns.MainFrame:Open('raids'); ns.RaidsUI:SetView('strategies')")
     w.tick(0.3)
-    got = rita.eval_py("local out; ns.RaidsUI:GetPanel().strategies.detail.list.box:ForEachFrame(function(row) "
-                       "local d = row.__cdlData; if d and d.s and d.s.n == 'Teron farm' and row.share:IsShown() then "
-                       "row.share:Click(); out = ns.ShareWindow:GetRef() end end); return out")
+    # (a card's Share sits in its More menu)
+    assert rita.eval("local out; ns.RaidsUI:GetPanel().strategies.detail.list.box:ForEachFrame(function(row) "
+                     "local d = row.__cdlData; if d and d.s and d.s.n == 'Teron farm' then row.more:Click(); "
+                     "out = true end end); return out") is True
+    menu_pick(rita, "Share")
+    got = rita.eval("return ns.ShareWindow:GetRef()")
     assert got == "strat:" + sid, got
     rita.eval("ns.ShareWindow:Close(); ns.StrategyBoard:OpenStrategy(...)", sid)
     w.tick(0.3)
@@ -403,6 +406,8 @@ def the_nav_share_links_what_the_page_shows():
     cur = lambda cl: cl.eval("return ns.Share:CurrentRef()")  # noqa: E731
     rita.slash("/dz raids")
     w.tick(0.5)
+    assert cur(rita) == "raids"                   # the board: the page; a raid's page: that raid
+    rita.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     assert cur(rita) == "raid:" + occ
     rita.eval("ns.RaidsUI:SetView('teams')")
     assert cur(rita) == "teams"

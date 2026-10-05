@@ -351,7 +351,7 @@ def b_plain_award_menu_goes_through_the_roll():
     sid = rolled(r, RUBY_DRAPE, ())                # nobody rolled: no suggestion, the plain Award... shows
     w.tick(0.3)
     blk = block_info(B, RUBY_DRAPE)
-    assert blk and "Award..." in blk["buttons"] and strip_codes(blk["sub"]).startswith("Rolls closed"), blk
+    assert blk and "Award" in blk["buttons"] and strip_codes(blk["sub"]).startswith("Rolls closed"), blk
     for n in ADDON_USERS:
         assert status(r[n]) == "Rolls closed", (n, status(r[n]))
     log0, chat0 = len(w.addon_log), len(w.chat_log)
@@ -500,7 +500,7 @@ def b4_non_council_master_looter_awards_through_the_roll():
     sid = rolled(r, RUBY_DRAPE, (), starter="Frank")
     w.tick(0.3)
     blk = block_info(F, RUBY_DRAPE)
-    assert blk and "Award..." in blk["buttons"], blk
+    assert blk and "Award" in blk["buttons"], blk
     assert F.eval("local b = ...; return b.award:IsEnabled() and true or false", block_of(F, RUBY_DRAPE)) is True
     log0 = len(w.addon_log)
     F.click(F.eval("local b = ...; return b.award", block_of(F, RUBY_DRAPE)))

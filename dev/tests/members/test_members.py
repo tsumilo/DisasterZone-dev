@@ -106,19 +106,19 @@ def the_roster_shows_online_state_and_level():
 
 
 def version_icon(cl, name):
-    """Hovers the version icon of a member's roster row; returns (texture, tooltip text)."""
+    """Hovers a member's roster row; returns the tooltip text (the DisasterZone they run is in it; the rows carry no
+    version mark of their own) and whether the row has a version mark."""
     return cl.eval_py("""
       local want = ...
       local out
       ns.MembersUI:GetPanel().roster.box:ForEachFrame(function(row)
         local d = row.__cdlData
         if d and d.key == want then
-          local b = row.version
-          b:GetScript("OnEnter")(b)
+          row:GetScript("OnEnter")(row)
           local lines = {}
           for i = 1, GameTooltip:NumLines() do lines[#lines + 1] = _G["GameTooltipTextLeft" .. i]:GetText() end
-          b:GetScript("OnLeave")(b)
-          out = { shown = b:IsShown(), tex = b.tex:GetTexture(), tip = table.concat(lines, " | ") }
+          row:GetScript("OnLeave")(row)
+          out = { mark = row.version ~= nil, tip = table.concat(lines, " | ") }
         end
       end)
       return out""", K(name))
@@ -142,21 +142,36 @@ def the_roster_shows_which_version_a_member_runs():
     w.tick(1)
     mine = b.eval("return ns.version")
     v = version_icon(b, "Bert")
-    assert v["shown"] and "ReadyCheck-Ready" in v["tex"] and ("DisasterZone " + mine) in v["tip"], v
+    assert not v["mark"] and ("DisasterZone " + mine) in v["tip"], v
     assert "same version as yours" in v["tip"] and "Last heard" not in v["tip"], v
     v = version_icon(b, "Alfa")
-    assert "ReadyCheck-Ready" in v["tex"] and ("DisasterZone " + mine) in v["tip"] and "Last heard" in v["tip"], v
+    assert ("DisasterZone " + mine) in v["tip"] and "Last heard" in v["tip"], v
     v = version_icon(b, "Zed")
-    assert "ReadyCheck-Waiting" in v["tex"] and "not seen" in v["tip"], v
+    assert "not seen" in v["tip"], v
     assert b.eval("return (ns.MembersUI:GetVersion(...))", K("Zed")) == "none"
     # Olaf's last message came from an older release, Nina's from a newer one
     b.eval("ns.db.peers[...].v = '0.9.0'", K("Olaf"))
     b.eval("ns.db.peers[...].v = '99.0.0'", K("Nina"))
     b.eval("ns.MembersUI:Refresh()")
     v = version_icon(b, "Olaf")
-    assert "ReadyCheck-NotReady" in v["tex"] and "DisasterZone 0.9.0" in v["tip"] and "Older than your" in v["tip"], v
+    assert "DisasterZone 0.9.0" in v["tip"] and "Older than your" in v["tip"], v
     v = version_icon(b, "Nina")
     assert "DisasterZone 99.0.0" in v["tip"] and "you are behind" in v["tip"], v
+    # a member's card names the DisasterZone they run when it is not mine: last on the meta line (dropped first when
+    # the line is too long), always in the header's tooltip
+    header = """
+      local right = ns.MembersUI:GetPanel().right
+      right.headHit:GetScript("OnEnter")(right.headHit)
+      local lines = {}
+      for i = 1, GameTooltip:NumLines() do lines[#lines + 1] = _G["GameTooltipTextLeft" .. i]:GetText() end
+      right.headHit:GetScript("OnLeave")(right.headHit)
+      return { meta = table.concat(right.metaParts, " | "), tip = table.concat(lines, " | ") }"""
+    b.eval("ns.MembersUI:SelectMember(...)", K("Olaf"))
+    h = b.eval_py(header)
+    assert h["meta"].endswith("0.9.0") and "DisasterZone 0.9.0" in h["tip"], h
+    b.eval("ns.MembersUI:SelectMember(...)", K("Alfa"))
+    h = b.eval_py(header)
+    assert mine not in h["meta"] and ("DisasterZone " + mine) in h["tip"], h
     w.assert_no_errors()
 
 
@@ -189,7 +204,7 @@ def specs_come_from_my_bis_and_else_from_the_talents():
     a.slash("/dz members")
     w.tick(1)
     a.eval("%s:SelectMember(...)" % UI, K("Gina"))
-    assert a.find_text("Retribution") and a.find_text("Protection") and a.find_text("Off ")
+    assert a.find_text("Retribution") and a.find_text("Protection") and a.find_text("off spec")
     # garbage in a record is refused whole
     for bad in ("ts = { 1, 2 }", "ms = 99", "os = 'x'"):
         b.eval('ns.Comm:Send({ t = "PFB", l = { { k = ..., v = GetServerTime(), p = {}, %s } } }, "GUILD", nil, "member")' % bad,

@@ -159,7 +159,11 @@ def the_raid_window_and_the_sign_up_strip():
     w.tick(0.5)
     assert tiny.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is False
     assert tiny.find_text("This raid is for level 70 characters.", True, True)
-    assert tiny.find_text("level 70 only", True, True)
+    tiny.eval("ns.RaidPlanUI:ShowBoard()")
+    w.tick(0.3)
+    assert tiny.find_text("Level 70 only", True, True)                 # the card says it too
+    tiny.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
+    w.tick(0.3)
     open_tab(w, lee)
     lee.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.5)

@@ -217,9 +217,11 @@ def several_drafts_wait_in_the_list_of_their_boss():
         local out = {}
         local function walk(f)
             for _, ch in ipairs({ f:GetChildren() }) do
-                if ch.l1 and ch.l2 and ch.edit and ch:IsVisible() then
+                if ch.l1 and ch.l2 and ch.edit and ch.more and ch:IsVisible() then
+                    -- (a card: Edit / Continue on it, the rest in its More menu, a draft's "Draft" tag)
                     out[#out + 1] = { l1 = ch.l1:GetText(), l2 = ch.l2:GetText(), edit = ch.edit.tipTitle,
-                        del = ch.del.tipTitle, open = ch.open:IsShown(), draft = ch.strip:IsShown() }
+                        more = ch.more.tipText,
+                        draft = ch.pill:IsShown() and (ch.pill.fs:GetText() or ""):find("Draft") ~= nil }
                 end
                 walk(ch)
             end
@@ -228,13 +230,13 @@ def several_drafts_wait_in_the_list_of_their_boss():
         return out
     """)
     rows = sorted(rows, key=lambda r: (not r["draft"], strip_codes(r["l1"])))
-    names = [strip_codes(r["l1"]) for r in rows]
+    names = [strip_codes(r["l1"]) + ("  Draft" if r["draft"] else "") for r in rows]
     assert names == ["25 farm  Draft", "Plan A  Draft", "Plan B  Draft", "25 farm"], names
-    assert rows[0]["edit"] == "Continue" and rows[0]["del"] == "Discard" and rows[0]["open"] is False, rows[0]
+    assert rows[0]["edit"] == "Continue" and rows[0]["more"] == "Discard", rows[0]
     assert "unsaved changes" in rows[0]["l2"] and "not saved yet" in rows[1]["l2"], rows[:2]
-    assert rows[3]["edit"] == "Edit" and rows[3]["del"] == "Delete" and rows[3]["draft"] is False, rows[3]
-    # the boss in the list on the left says so too
-    assert bob.find_text("3 drafts"), "the boss row shows its drafts"
+    assert rows[3]["edit"] == "Edit" and "Delete" in rows[3]["more"] and rows[3]["draft"] is False, rows[3]
+    # the boss in the list on the left says so too (its count, and the drafts as an orange "+3")
+    assert bob.find_text("1 |cffff9933+3|r"), "the boss row shows its drafts"
     # Continue on a draft's row opens it
     cont = bob.eval(r"""
         local function walk(f)
@@ -396,13 +398,13 @@ def a_builder_keeps_the_drafts_without_a_raid_role():
     bob.slash("/dz raids")
     bob.eval("ns.RaidsUI:SetView('strategies')")
     w.tick(1)
-    # the draft's row is there with its two icons (what they do is in their tooltips)
+    # the draft's card is there with its two icons, Continue and More (Discard) (what they do is in their tooltips)
     assert bob.eval(r"""
         local function walk(f)
             for _, ch in ipairs({ f:GetChildren() }) do
-                if ch.l1 and ch.edit and ch:IsVisible() and ch.strip:IsShown() then
-                    return ch.edit:IsShown() and ch.del:IsShown() and ch.edit.tipTitle == "Continue"
-                        and ch.del.tipTitle == "Discard"
+                if ch.l1 and ch.edit and ch.more and ch:IsVisible() and ch.pill:IsShown() then
+                    return ch.edit:IsShown() and ch.more:IsShown() and ch.edit.tipTitle == "Continue"
+                        and ch.more.tipText == "Discard"
                 end
                 local r = walk(ch)
                 if r ~= nil then return r end

@@ -110,9 +110,9 @@ def demo_roster_view_rows_footer_and_rows():
     assert pres == sorted(pres, key=lambda p: {"raid": 0, "online": 1, "offline": 2}[p]), pres
     assert pres.count("raid") == 11
     footer = strip_codes(c.eval("return DisasterZoneCouncilPanel.footer.text:GetText()"))
-    assert footer.startswith("19 members with lists · 11 in raid · "), footer
+    assert footer.startswith("19 lists · 11 in raid"), footer
     stale = sum(1 for r in rows if r[6] and (c.eval("return GetServerTime()") - r[6]) > 7 * 86400)
-    assert ("%d lists older than 7 days" % stale) in footer, (stale, footer)
+    assert stale and ("%d older than 7 days" % stale) in footer, (stale, footer)
     # row widgets show what the data says
     ui = c.eval_py("""
       local o = {}
@@ -135,19 +135,41 @@ def demo_roster_view_rows_footer_and_rows():
 @case
 def demo_filters_class_role_raid_hide_obtained_search():
     w, c = demo_council()
-    select_option(c, "DisasterZoneCouncilPanel.classDD", "Warrior")
+    # the class circles and role icons are toggles: none picked = everyone, several picked add up
+    def chip(kind, key):
+        c.click(c.eval("local k, x = ...; return DisasterZoneCouncilPanel[k][x]", kind, key))
+        w.tick(0.3)
+    chip("classChips", "WARRIOR")
     assert sorted(names(roster(c))) == ["Aldrin", "Brakka"], names(roster(c))
-    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.classDD:GetText()")) == "Warrior"
-    select_option(c, "DisasterZoneCouncilPanel.roleDD", "Tank")
+    chip("roleChips", "tank")
     assert names(roster(c)) == ["Aldrin"], names(roster(c))
-    select_option(c, "DisasterZoneCouncilPanel.classDD", "All classes")
+    chip("classChips", "WARRIOR")
     assert sorted(names(roster(c))) == ["Aldrin", "Rhosyn"], names(roster(c))
-    select_option(c, "DisasterZoneCouncilPanel.roleDD", "Healer")
+    chip("roleChips", "tank")
+    chip("roleChips", "healer")
     healers = names(roster(c))
     assert set(healers) == {"Alice", "Caelith", "Isolde", "Kaelyn", "Quillon"}, healers
-    select_option(c, "DisasterZoneCouncilPanel.roleDD", "All roles")
+    chip("roleChips", "tank")
+    assert set(names(roster(c))) == set(healers) | {"Aldrin", "Rhosyn"}, names(roster(c))
+    chip("roleChips", "tank")
+    chip("roleChips", "healer")
+    assert len(roster(c)) == 19
+    chip("classChips", "PALADIN")
+    paladins = set(names(roster(c)))
+    chip("classChips", "PALADIN")
+    chip("classChips", "MAGE")
+    mages = set(names(roster(c)))
+    chip("classChips", "PALADIN")
+    assert set(names(roster(c))) == paladins | mages and paladins and mages, (paladins, mages)
+    chip("classChips", "PALADIN")
+    chip("classChips", "MAGE")
+    # the damage chip: melee, casters and ranged together (Nortok: mage, Elowen: hunter, Grimtusk: rogue)
+    chip("roleChips", "dps")
+    dps = set(names(roster(c)))
+    assert {"Nortok", "Elowen", "Grimtusk"} <= dps and not dps & {"Aldrin", "Isolde"}, dps
+    chip("roleChips", "dps")
     # footer counts are totals, independent of the filters
-    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.footer.text:GetText()")).startswith("19 members")
+    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.footer.text:GetText()")).startswith("19 lists")
     # raid only
     c.click(c.eval("return DisasterZoneCouncilPanel.raidCB"))
     w.tick(0.3)
@@ -302,13 +324,24 @@ def demo_items_view_tree_rows_tooltip_and_menu():
     c.click(c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.itemsView.tree.box)[i]", ti + 1))
     w.tick(0.3)
     title = strip_codes(c.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
-    assert title.startswith("Prince Malchezaar · Karazhan"), title
+    assert title == "Prince Malchezaar", title
+    # only the raid of the chosen boss lists its bosses; the others are strips
+    raids = [t for t in c.eval_py("""
+      local o = {}
+      for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.tree.box)) do o[i] = { d.type, d.raidKey or '', d.open and 1 or 0 } end
+      return o""") if t[0] == "raid"]
+    assert [r[1] for r in raids if r[2]] == ["Karazhan"], raids
     items = c.eval_py("""
       local o = {}
-      for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.list.box)) do o[i] = { d.itemID, d.n, #d.wanters } end
+      for i, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.list.box)) do
+        o[i] = { d.itemID or 0, d.n, #d.wanters, d.type or 'item', d.items and #d.items or 0 }
+      end
       return o""")
-    claims = sum(i[1] for i in items)
-    assert ("%d items · %d claims" % (len(items), claims)) in title, (title, items)
+    # the items nobody wants fold into one line at the end
+    folds = [i for i in items if i[3] == "fold"]
+    items = [i for i in items if i[3] != "fold"]
+    assert all(i[1] > 0 for i in items), items
+    assert len(folds) == 1 and folds[0][4] > 0, folds
     assert [i[1] for i in items] == sorted([i[1] for i in items], reverse=True), items
     # the tree count equals the claims counted per member (one per member and item)
     assert target[2] >= max(i[1] for i in items)
@@ -318,8 +351,37 @@ def demo_items_view_tree_rows_tooltip_and_menu():
     c.hover(row)
     lines = [strip_codes(l[0]) for l in tt_lines(c)]
     assert any(l.startswith("DisasterZone · P1: %d wanting" % items[wanted][1]) for l in lines), lines
-    who = strip_codes(c.eval("local r = ...; return r.who:GetText()", row))
-    assert who and "Nobody" not in who, who
+    # who wants it: one chip per player (class circle, name); a chip opens that member
+    chips = c.eval_py("""
+      local r = ...
+      local o = {}
+      for _, ch in ipairs(rawget(r, 'chips') or {}) do if ch:IsShown() then o[#o + 1] = ch.name:GetText() end end
+      return o""", row) or []
+    assert len(chips) == items[wanted][1], (chips, items[wanted])
+    first = c.eval("local r = ...; return rawget(r, 'chips')[1]", row)
+    chip_key = c.eval("local ch = ...; return ch.entry.key", first)
+    c.click(first)
+    w.tick(0.3)
+    assert c.eval("return ns.CouncilUI:GetView()") == "member"
+    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.memberView.name:GetText()")) == chip_key.split("-")[0]
+    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.memberView.back.text:GetText()")) == "Items"
+    c.click(c.eval("return DisasterZoneCouncilPanel.memberView.back"))
+    w.tick(0.3)
+    assert c.eval("return ns.CouncilUI:GetView()") == "items"
+    row = c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.itemsView.list.box)[i]", wanted + 1)
+    # the fold opens the items nobody wants (and folds them again)
+    n_before = c.eval("return #T_data(DisasterZoneCouncilPanel.itemsView.list.box)")
+    fold = c.eval("""
+      for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.itemsView.list.box)) do
+        if rawget(r, 'cdlData') and r.cdlData.type == 'fold' then return r end
+      end""")
+    c.click(fold)
+    w.tick(0.3)
+    assert c.eval("return #T_data(DisasterZoneCouncilPanel.itemsView.list.box)") == n_before + folds[0][4]
+    c.eval("for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.itemsView.list.box)) do "
+           "if rawget(r, 'cdlData') and r.cdlData.type == 'fold' then r:GetScript('OnClick')(r, 'LeftButton') break end end")
+    w.tick(0.3)
+    assert c.eval("return #T_data(DisasterZoneCouncilPanel.itemsView.list.box)") == n_before
     # click -> menu
     c.click(row)
     menu = c.last_menu()
@@ -397,12 +459,13 @@ def demo_member_view_arrows_readonly_doll():
     # summary card
     summ = c.eval("return %s.centerParts.summary:GetText()" % mv)
     assert summ.startswith("P1: "), summ
-    assert c.eval("return %s.centerParts.lines[1]:GetText()" % mv).find("No awards recorded") >= 0
-    # the member's award shows up in the centre after an award
+    assert c.eval("return %s.centerParts.lines[1]:GetText()" % mv).find("None yet") >= 0
+    # the member's award shows up in the centre after an award: the item, then (grey) why / when
     c.eval("local k = ...; ns.Ledger:Award(ns.Store:Get(k).data.ph[1][2][1], k, '', 'test')", k)
     w.tick(0.5)
     line = strip_codes(c.eval("return %s.centerParts.lines[1]:GetText()" % mv))
-    assert "No awards" not in line and "ago" in line or "just now" in line, line
+    meta = strip_codes(c.eval("return %s.centerParts.metas[1]:GetText()" % mv))
+    assert "None yet" not in line and ("ago" in meta or "just now" in meta), (line, meta)
     # the model: a demo member isn't nearby -> a note instead of a model
     note = c.eval("return %s.centerParts.noModel:GetText()" % mv)
     assert "model shows when nearby" in note, note
@@ -448,7 +511,7 @@ def items_view_follows_the_phase_dropdown():
     c.click(c.eval("return T_button(DisasterZoneCouncilPanel, 'Items')"))
     w.tick(0.3)
     before = strip_codes(c.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
-    assert before.startswith("Attumen the Huntsman · Karazhan"), before
+    assert before == "Attumen the Huntsman", before
     select_option(c, "DisasterZoneCouncilPanel.phaseDD", "P3")
     sel = c.eval_py("""
       for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.itemsView.tree.box)) do
@@ -528,7 +591,7 @@ def real_cached_lists_roster_items_member():
     assert by_key["Mem02-Thunderstrike"][3] == "offline"
     assert by_key["Cou-Thunderstrike"][3] == "raid"
     footer = strip_codes(c.eval("return DisasterZoneCouncilPanel.footer.text:GetText()"))
-    assert footer == "7 members with lists · 3 in raid · 2 lists older than 7 days", footer
+    assert footer == "7 lists · 3 in raid · 2 older than 7 days", footer
     ages = c.eval_py("local o = {} for i, r in ipairs(T_rows(DisasterZoneCouncilPanel.rosterView.list.box)) do o[i] = { rawget(r,'cdlData').key, r.age:GetText() } end return o")
     assert dict(ages)["Mem04-Thunderstrike"] == "10d", ages
     # a list for someone outside the guild is refused; a newer rev replaces; LIST_UPDATED refreshes the view
@@ -583,7 +646,7 @@ def items_view_other_sources_node():
     c.click(c.eval("local i = ...; return T_rows(DisasterZoneCouncilPanel.itemsView.tree.box)[i]", idx + 1))
     w.tick(0.3)
     title = strip_codes(c.eval("return DisasterZoneCouncilPanel.itemsView.title:GetText()"))
-    assert title == "Other / no raid source  -  1 items · 1 claims", title
+    assert title == "Other / no raid source", title
     row = c.eval_py("local d = T_data(DisasterZoneCouncilPanel.itemsView.list.box)[1]; return { d.itemID, d.n }")
     assert row == [190003, 1], row
     src = strip_codes(c.eval("return T_rows(DisasterZoneCouncilPanel.itemsView.list.box)[1].source:GetText()"))
@@ -612,7 +675,7 @@ def request_sync_button_real_council():
     c.slash("/dz council")
     w.tick(0.5)
     n0 = len(w.addon_log)
-    btn = c.eval("return T_button(DisasterZoneCouncilPanel.footer, 'Request sync')")
+    btn = c.eval("return DisasterZoneCouncilPanel.footer.sync")   # (an icon; its tooltip says what it does)
     p0 = len(c.chat_frame)
     c.click(btn)
     w.tick(0.5)
@@ -635,7 +698,7 @@ def request_sync_buttons_do_not_claim_success_when_rate_limited():
     w, c, members = real_council_world(n_members=2)
     w.run_until(lambda: any(e["sender"] == c.full_name and e["chat_type"] == "GUILD" for e in w.addon_log), 40)
     problems = []
-    for where, expr in (("council footer", "T_button(DisasterZoneCouncilPanel.footer, 'Request sync')"),
+    for where, expr in (("council footer", "DisasterZoneCouncilPanel.footer.sync"),
                         ("settings", "T_button(ns.MainFrame:GetPanel('settings'), 'Request sync')")):
         c.slash("/dz council" if where == "council footer" else "/dz settings")
         w.tick(0.3)
@@ -651,6 +714,52 @@ def request_sync_buttons_do_not_claim_success_when_rate_limited():
     c.slash("/dz sync")
     assert any("please wait" in l for l in printed_since(c, p0)), printed_since(c, p0)
     assert not problems, " | ".join(problems)
+    no_errors(w)
+
+
+@case
+def items_view_chips_wrap_on_two_lines_then_count_the_rest():
+    # 20 members want the same head piece: its card shows class-circle chips on at most two lines, inside the card,
+    # and one "+N" chip for the rest (its tooltip names them); nothing is cut off with "...".
+    w, c, members = real_council_world(n_members=20)
+    item = c.eval("""
+      for _, cand in ipairs(ns.ItemDB:GetCandidates(1, { maxPhase = 1 })) do
+        local s = ns.ItemDB:GetSources(cand.itemID, 'raids')
+        if s and s[1] then return cand.itemID end
+      end""")
+    for i, m in enumerate(members):
+        ok = c.eval("local k, cl, s, id = ...; local d = T_make_list(cl, s, 1, 0, 0); d.ph[1][1] = { id, 0 }; "
+                    "return T_put(k, d, 7)", m.full_name, m.class_file, i, item)
+        assert ok is True, m.full_name
+    c.slash("/dz council")
+    c.eval("ns.CouncilUI:ShowItem(...)", item)
+    w.tick(0.5)
+    d = c.eval_py("""
+      local id = ...
+      for _, d in ipairs(T_data(DisasterZoneCouncilPanel.itemsView.list.box)) do
+        if d.itemID == id then
+          local o = { n = d.n, chips = {} }
+          for i, ch in ipairs(d.chips or {}) do o.chips[i] = { ch.x, ch.w, ch.line, ch.more or 0 } end
+          return o
+        end
+      end""", item)
+    assert d and d["n"] == 20, d
+    chips = d["chips"]
+    assert max(ch[2] for ch in chips) <= 2, chips                       # two lines at most
+    assert max(ch[0] + ch[1] for ch in chips) <= 500, chips             # inside the card (562 - 52 - 10)
+    more = [ch for ch in chips if ch[3] > 0]
+    named = [ch for ch in chips if ch[3] == 0]
+    assert len(more) == 1 and chips[-1][3] > 0, chips
+    assert len(named) + more[0][3] == 20, chips
+    row = c.eval("""
+      local id = ...
+      for _, r in ipairs(T_rows(DisasterZoneCouncilPanel.itemsView.list.box)) do
+        if rawget(r, 'cdlData') and r.cdlData.itemID == id then return r end
+      end""", item)
+    last = c.eval("local r, n = ...; return rawget(r, 'chips')[n]", row, len(chips))
+    assert strip_codes(c.eval("local ch = ...; return ch.name:GetText()", last)) == "+%d" % more[0][3]
+    c.hover(last)
+    assert len(tt_lines(c)) == more[0][3], tt_lines(c)
     no_errors(w)
 
 

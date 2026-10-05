@@ -1,11 +1,12 @@
 """The Home tab (UI/Dashboard.lua): the page the main window opens on.
 
 Covers: Home is the default tab (and the fallback when a tab goes away), the "Open on: tab used last" setting,
-empty states for a fresh raider, action chips (unanswered raid, empty BiS phase) that deep-link into their tab,
-the next-raid card with one-click sign-up and its "can drop" row (picks of the raid's phase, filtered to its
-instance), the calendar (planned raids, weekly ones beyond the Raids tab's two weeks, logged raids; a day's raids
-open in the Raids tab or the Raid log), recent loot (council: everyone's, raider: own), the council readiness card
-vs the raider's later-raids card, and the countdown ticker / demo mode without Lua errors.
+empty states for a fresh raider, the greeting and the action chips (unanswered raid, empty BiS phase) that deep-link
+into their tab (nothing to do shows no chips), the next raid's banner with one-click sign-up, my answer's pill and
+its "can drop" line (picks of the raid's phase, filtered to its instance), the day's raids as pills, the calendar
+(planned raids, weekly ones beyond the Raids tab's two weeks, logged raids, the raids coming up; a day's raids open
+in the Raids tab or the Raid log), recent loot (council: everyone's, raider: own), the readiness line in the
+banner's foot for the council (not for a raider), and the countdown ticker / demo mode without Lua errors.
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_dashboard.py [-k name]
 """
@@ -72,28 +73,81 @@ def chip(c, prefix):
       return nil""", prefix)
 
 
-def raid_row(c, needle):
-    """The Next raid card's visible row containing needle: (frame, [tooltip lines]) or (None, None)."""
-    found = c.eval_py("""
-      local s = ...
-      for i, r in ipairs(ns.Dashboard:GetPanel().raidCard.rows) do
-        if r:IsShown() and (r.left:GetText() or ""):find(s, 1, true) then return { i = i, tip = r.tip or {} } end
-      end""", needle)
-    if not found:
+def tip_lines(tip):
+    """A tooltip's lines as plain text (a line may be { text, r, g, b })."""
+    out = []
+    for t in tip or []:
+        if isinstance(t, (list, tuple)):
+            t = t[0] if t else ""
+        elif isinstance(t, dict):
+            t = t.get(1, "")
+        out.append(strip_codes(str(t)))
+    return out
+
+
+def banner(c):
+    """The banner of the next raid: its texts and which answer controls show (codes stripped; None = hidden)."""
+    b = c.eval_py("""
+      local b = ns.Dashboard:GetPanel().banner
+      local function t(fs) if fs:IsVisible() and (fs:GetText() or "") ~= "" then return fs:GetText() end end
+      return { title = t(b.title), meta = t(b.meta), meter = t(b.meter), meterTip = b.meterHit.tip,
+               accept = b.accept:IsShown(), tentative = b.tentative:IsShown(), more = b.more:IsShown(),
+               ask = b.ask:IsShown(), pill = b.pill:IsShown() and b.pill.text:GetText() or nil,
+               sub = b.pill:IsShown() and b.pill.sub:IsShown() and b.pill.sub:GetText() or nil,
+               why = b.why:IsShown() and b.why.fs:GetText() or nil,
+               ready = b.ready:IsShown() and b.ready.fs:GetText() or nil, readyTip = b.ready:IsShown() and b.ready.tip or nil,
+               bis = b.bis:IsShown() and b.bis.fs:GetText() or nil }""") or {}
+    for k in ("title", "meta", "meter", "pill", "sub", "why", "ready", "bis"):
+        b[k] = strip_codes(b.get(k))
+    for k in ("meterTip", "readyTip"):
+        b[k] = tip_lines(b.get(k))
+    for k in ("accept", "tentative", "more", "ask"):
+        b[k] = bool(b.get(k))
+    return b
+
+
+def bis_line(c):
+    """The banner's "picks that can drop here" line: (frame, [tooltip lines]) or (None, None) when hidden."""
+    tip = c.eval_py("local f = ns.Dashboard:GetPanel().banner.bis; if f:IsShown() then return f.tip or {} end")
+    if tip is None:
         return None, None
-    frame = c.eval("return ns.Dashboard:GetPanel().raidCard.rows[...]", found["i"])
-    return frame, [strip_codes(t) for t in found["tip"]]
+    return c.eval("return ns.Dashboard:GetPanel().banner.bis"), tip_lines(tip)
 
 
-def agenda(c):
-    """The calendar's rows for the picked day: ["line 1 | line 2"] (codes stripped)."""
+def answer_button(c, which):
+    """The banner's answer control: "accept", "tentative", "more" or "pill" (my answer's pill)."""
+    return c.eval("return ns.Dashboard:GetPanel().banner[...]", which)
+
+
+def loot_rows(c):
+    """The loot box's visible rows: ["item | who / why"] (codes stripped)."""
     out = c.eval_py("""
       local out = {}
-      for _, r in ipairs(ns.Dashboard:GetPanel().calCard.agenda) do
+      for _, r in ipairs(ns.Dashboard:GetPanel().lootCard.rows) do
         if r:IsShown() then out[#out + 1] = (r.l1:GetText() or "") .. " | " .. (r.l2:GetText() or "") end
       end
       return out""") or []
     return [strip_codes(t) for t in out]
+
+
+def _rows(c, pool):
+    out = c.eval_py("""
+      local out = {}
+      for _, r in ipairs(ns.Dashboard:GetPanel().calCard[...]) do
+        if r:IsShown() then out[#out + 1] = (r.l1:GetText() or "") .. " | " .. (r.l2:GetText() or "") end
+      end
+      return out""", pool) or []
+    return [strip_codes(t) for t in out]
+
+
+def agenda(c):
+    """The calendar's rows for the picked day: ["line 1 | line 2"] (codes stripped)."""
+    return _rows(c, "agenda")
+
+
+def coming(c):
+    """The calendar's "Coming up" rows (the raids after the banner's, not on the picked day)."""
+    return _rows(c, "coming")
 
 
 def agenda_row(c, needle):
@@ -107,11 +161,11 @@ def agenda_row(c, needle):
 
 
 def calendar(c):
-    """{ title, day (the agenda's day title), today (the Today link shown) }."""
+    """{ title, day (the agenda's day title), today (the Today link shown), prev / next (the month arrows shown) }."""
     return c.eval_py("""
       local cc = ns.Dashboard:GetPanel().calCard
       return { title = cc.title:GetText(), day = cc.dayTitle:GetText(), today = cc.todayBtn:IsShown(),
-               prev = cc.prevMonth:IsEnabled(), next = cc.nextMonth:IsEnabled() }""")
+               prev = cc.prevMonth:IsShown(), next = cc.nextMonth:IsShown() }""")
 
 
 def pick_day(c, t):
@@ -151,9 +205,10 @@ def home_is_the_default_tab_with_empty_states():
     assert cal["title"] == c.eval("return date('%B %Y', GetServerTime())"), cal
     assert agenda(c) == ["Nothing planned. | "], agenda(c)
     assert any("Nothing planned" in t for t in texts), texts
+    assert banner(c)["title"] == "Nothing planned", banner(c)
     assert any("No loot awarded to you yet." in t for t in texts), texts
-    assert any("Later raids" in t for t in texts), "a raider gets the later-raids card"
-    assert not any("Raid readiness" in t for t in texts), "readiness is for the council / organizers"
+    assert coming(c) == [] and not any("Coming up" in t for t in texts), "no raids to come: no Coming up list"
+    assert banner(c)["ready"] is None, "readiness is for the council / organizers"
     # the empty-phase chip opens My BiS on that phase
     ch = chip(c, "Pick your Phase 1 BiS")
     assert ch is not None, texts
@@ -168,23 +223,29 @@ def home_is_the_default_tab_with_empty_states():
     no_errors(w)
 
 
+def greeting(c):
+    """The greeting as read: "Good evening, " and the name (in its class colour) after it."""
+    return strip_codes(c.eval("local p = ns.Dashboard:GetPanel(); "
+                              "return (p.greeting:GetText() or '') .. (p.greetName:GetText() or '')"))
+
+
 @case
-def greeting_leads_the_strip_and_all_caught_up_when_nothing_is_left():
+def greeting_leads_the_strip_and_nothing_left_shows_no_chips():
     w, c = solo("Rai", guild_rank=3, tick=3)
     install_helpers(c)
     open_home(c)
     hour = c.eval("return tonumber(date('%H'))")
     part = "morning" if 5 <= hour < 12 else "afternoon" if 12 <= hour < 18 else "evening"
-    greet = strip_codes(c.eval("return ns.Dashboard:GetPanel().greeting:GetText()"))
-    assert greet == "Good %s, Rai" % part, greet
-    # something to do: the chips follow the greeting past the divider
+    assert greeting(c) == "Good %s, Rai" % part, greeting(c)
+    # something to do: the chips follow the greeting and the name
     assert chip(c, "Pick your Phase 1 BiS") is not None
     state = c.eval_py("""
       local p = ns.Dashboard:GetPanel()
       local _, _, _, x = p.chips[1]:GetPoint(1)
-      return { sep = p.greetSep:IsShown(), caught = p.allSet:IsShown(), x = x, w = p.greeting:GetStringWidth() }""")
-    assert state["sep"] and not state["caught"], state
-    assert state["x"] >= state["w"] + 20, state
+      return { caught = p.allSet:IsShown(), x = x,
+               w = p.greeting:GetStringWidth() + p.greetName:GetStringWidth() }""")
+    assert not state["caught"], state
+    assert state["x"] >= state["w"] + 10, state
     # one pick, the other slots off, the notes read: nothing left
     c.eval("""
       local class = select(2, UnitClass('player'))
@@ -196,8 +257,10 @@ def greeting_leads_the_strip_and_all_caught_up_when_nothing_is_left():
     p = "ns.Dashboard:GetPanel()"
     assert not any(c.eval("return %s.chips[...]:IsShown()" % p, i + 1)
                    for i in range(c.eval("return #%s.chips" % p))), panel_texts(c)
-    assert c.eval("return %s.allSet:IsShown() and not %s.greetSep:IsShown()" % (p, p))
-    assert has(c, "All caught up") and has(c, "Good %s, Rai" % part), panel_texts(c)
+    # nothing to do says itself: the greeting alone, no "All caught up" line, no "+N more"
+    assert not c.eval("return %s.allSet:IsShown() or %s.moreChips:IsShown()" % (p, p))
+    assert not has(c, "All caught up"), panel_texts(c)
+    assert greeting(c) == "Good %s, Rai" % part and has(c, "Good %s, " % part), panel_texts(c)
     no_errors(w)
 
 
@@ -245,27 +308,32 @@ def next_raid_card_signs_up_and_lists_what_can_drop():
     w.tick(1)
     open_home(lee)
     texts = panel_texts(lee)
-    assert any(t.startswith("Karazhan · ") for t in texts), texts
-    assert any("Your answer: none yet" in t for t in texts), texts
+    b = banner(lee)
+    assert b["title"] == "Karazhan" and b["meta"] == "10-player · Kara A", b
+    assert b["meter"] == "No answers yet", b
+    # no answer yet: the answer buttons, no pill
+    assert b["accept"] and b["tentative"] and b["more"] and b["pill"] is None, b
     kara_name = lee.eval("return ns.ItemDB:GetName(...)", kara_item)
     gruul_name = lee.eval("return ns.ItemDB:GetName(...)", gruul_item)
-    row, tip = raid_row(lee, "Your BiS: ")
+    row, tip = bis_line(lee)
     assert row is not None, texts
-    assert any("Your BiS: 1 pick can drop in Karazhan" in t for t in texts), texts
+    assert b["bis"] == "1 of your P1 picks can drop here", b
+    assert tip[0] == "Your Phase 1 BiS picks that can drop in Karazhan", tip
     assert any(kara_name in t for t in tip), (kara_name, tip)
     assert not any(gruul_name in t for t in tip), "a Gruul pick is not listed for a Karazhan raid"
     assert chip(lee, "Sign up: ") is not None, texts
-    assert any("2 invited, no response" in t for t in texts), texts
+    assert "2 invited, no response" in b["meterTip"], b["meterTip"]
     # one click signs up
-    lee.click(lee.eval("return ns.Dashboard:GetPanel().raidCard.buttons[1]"))
+    lee.click(answer_button(lee, "accept"))
     w.tick(1)
     assert lee.eval_py("return ns.RaidPlan:GetMySignup(...)", occ)["st"] == "A"
-    texts = panel_texts(lee)
-    assert any("Your answer: Accepted" in t for t in texts), texts
-    assert any("1 accepted" in t for t in texts), texts
+    b = banner(lee)
+    assert b["pill"] == "Accepted" and not b["accept"] and not b["tentative"], b
+    assert b["meter"].endswith("1 of 10"), b
+    assert any(t.startswith("1 accepted") for t in b["meterTip"]), b["meterTip"]
     assert chip(lee, "Sign up: ") is None, "the chip goes away once answered"
-    # the card's link opens the raid in the Raids tab
-    lee.click(lee.eval("return ns.Dashboard:GetPanel().raidCard.link"))
+    # the banner opens the raid in the Raids tab
+    lee.click(lee.eval("return ns.Dashboard:GetPanel().banner"))
     w.tick(0.5)
     assert selected(lee) == "raids"
     assert lee.eval("return ns.RaidPlanUI:GetSelectedRaid()") == occ
@@ -284,15 +352,17 @@ def council_gets_readiness_and_everyones_loot_raider_only_their_own():
     name = bob.eval("return ns.ItemDB:GetName(...)", item)
     open_home(bob)
     texts = panel_texts(bob)
-    assert any(t.startswith("Raid readiness · Karazhan") for t in texts), texts
-    assert any("1 invited, no response" in t for t in texts), texts
-    assert any("1 coming without a Phase 1 list" in t for t in texts), texts
+    # the readiness: a short line in the banner's foot, only what's missing (Lee has no list, Rita hasn't answered)
+    b = banner(bob)
+    assert b["ready"] == "1 without a P1 list · 1 not answered", b
+    tip = b["readyTip"]
+    assert tip[tip.index("1 without a P1 list") + 1] == "Lee", tip
+    assert tip[tip.index("1 not answered") + 1] == "Rita", tip
     assert any("Recent loot" in t for t in texts), texts
-    assert any(("Lee " + name) in t for t in texts), texts
+    assert ("%s | Lee · BiS" % name) in loot_rows(bob), loot_rows(bob)
     open_home(rita)
     texts = panel_texts(rita)
-    assert any("Later raids" in t for t in texts), texts
-    assert not any("Raid readiness" in t for t in texts), texts
+    assert banner(rita)["ready"] is None, "readiness is for the council / organizers"
     assert any("Your loot" in t for t in texts), texts
     assert not any(name in t for t in texts), "a raider doesn't see other players' loot"
     w.assert_no_errors()
@@ -305,10 +375,10 @@ return time(d)"""
 
 
 def pills(c):
-    """Visible day pills of the Next raid card: [text] (codes stripped)."""
+    """Visible day pills of the banner: [text] (codes stripped)."""
     out = c.eval_py("""
       local out = {}
-      for _, b in ipairs(ns.Dashboard:GetPanel().raidCard.pills) do
+      for _, b in ipairs(ns.Dashboard:GetPanel().banner.pills) do
         if b:IsShown() then out[#out + 1] = b.text:GetText() end
       end
       return out""") or []
@@ -318,7 +388,7 @@ def pills(c):
 def pill(c, text):
     return c.eval("""
       local s = ...
-      for _, b in ipairs(ns.Dashboard:GetPanel().raidCard.pills) do
+      for _, b in ipairs(ns.Dashboard:GetPanel().banner.pills) do
         if b:IsShown() and (b.text:GetText() or ""):find(s, 1, true) then return b end
       end""", text)
 
@@ -334,31 +404,31 @@ def several_raids_on_one_day_get_pills():
     w.tick(2)
     install_helpers(lee)
     open_home(lee)
-    texts = panel_texts(lee)
-    assert any(t.endswith("· 2 raids") for t in texts), texts
-    assert any(t.startswith("Karazhan · ") for t in texts), "the soonest raid is shown first"
+    assert banner(lee)["title"] == "Karazhan", "the soonest raid is shown first"
     ps = pills(lee)
     assert len(ps) == 2 and "19:00 Kara" in ps[0] and "22:00 Gruul" in ps[1], ps
     assert all(p.startswith("! ") for p in ps), "unanswered raids are marked"
-    # the raid on another day is not a pill: it is in the later-raids card
-    assert any("Magtheridon's Lair" in t for t in texts), texts
+    # the raid on another day is not a pill: it is in the calendar's Coming up list
+    up = coming(lee)
+    assert len(up) == 1 and up[0].startswith("Magtheridon's Lair | "), up
     # switch to Gruul and sign up for it only
     lee.click(pill(lee, "Gruul"))
     w.tick(0.3)
-    assert any(t.startswith("Gruul's Lair · ") for t in panel_texts(lee)), panel_texts(lee)
-    lee.click(lee.eval("return ns.Dashboard:GetPanel().raidCard.buttons[1]"))
+    assert banner(lee)["title"] == "Gruul's Lair", banner(lee)
+    lee.click(answer_button(lee, "accept"))
     w.tick(1)
     assert lee.eval_py("return ns.RaidPlan:GetMySignup(...)", gruul)["st"] == "A"
     assert lee.eval_py("return ns.RaidPlan:GetMySignup(...)", kara) is None
     ps = pills(lee)
     assert ps[0].startswith("! ") and not ps[1].startswith("! "), ps
-    assert any(t.startswith("Gruul's Lair · ") for t in panel_texts(lee)), "the picked raid stays shown"
+    b = banner(lee)
+    assert b["title"] == "Gruul's Lair" and b["pill"] == "Accepted", "the picked raid stays shown"
     assert chip(lee, "Sign up: ") is not None, "Karazhan still needs an answer"
     # the picked raid is cancelled: back to the soonest, and no pills for a single raid
     rp.call(bob, "CancelRaid", gruul)
     w.tick(2)
     lee.eval("ns.Dashboard:Refresh()")
-    assert any(t.startswith("Karazhan · ") for t in panel_texts(lee)), panel_texts(lee)
+    assert banner(lee)["title"] == "Karazhan", banner(lee)
     assert pills(lee) == [], pills(lee)
     w.assert_no_errors()
 
@@ -379,8 +449,9 @@ def bis_row_follows_the_raids_phase():
     lee.eval("ns.BiS:SetSlot(1, 7, 'main', ...)", kara_item)
     w.tick(1)
     open_home(lee)
-    row, tip = raid_row(lee, "Your BiS: ")
+    row, tip = bis_line(lee)
     assert row is not None, panel_texts(lee)
+    assert banner(lee)["bis"] == "1 of your P2 picks can drop here", banner(lee)
     assert tip[0] == "Your Phase 2 BiS picks that can drop in Serpentshrine Cavern", tip
     ssc_name = lee.eval("return ns.ItemDB:GetName(...)", ssc_item)
     assert any(ssc_name in t for t in tip), (ssc_name, tip)
@@ -414,12 +485,12 @@ def calendar_shows_planned_and_logged_raids_and_opens_them():
         cl.eval(LOGGED, "logged", 20)
     install_helpers(lee)
     open_home(lee)
-    # today has nothing: the next raid is offered, a click shows its day
-    assert agenda(lee)[0] == "Nothing planned. | ", agenda(lee)
-    nxt = agenda_row(lee, "Next: Karazhan")
-    assert nxt is not None, agenda(lee)
-    lee.click(nxt)
-    w.tick(0.3)
+    # today has nothing: the next raid is the banner's, the raids after it are coming up; a click on its day shows it
+    assert agenda(lee) == ["Nothing planned. | "], agenda(lee)
+    assert banner(lee)["title"] == "Karazhan", banner(lee)
+    up = coming(lee)
+    assert up and all(r.startswith("Serpentshrine Cavern | ") for r in up), up
+    pick_day(lee, rp.now(lee) + DAY)
     cal = calendar(lee)
     assert cal["day"].startswith("Tomorrow · ") and cal["today"], cal
     rows = agenda(lee)
@@ -469,17 +540,18 @@ def calendar_shows_planned_and_logged_raids_and_opens_them():
 def a_crowded_day_ends_with_how_many_more():
     w, c = rp.world()
     bob, lee = c["Bob"], c["Lee"]
-    for hour in range(12, 19):
+    # (the day's list has room for 7 rows: 9 raids leave 6 and a "+3 more" row)
+    for hour in range(12, 21):
         rp.create(bob, i="kara", t=bob.eval(AT_HOUR, 2, hour), sz=10)
     w.tick(2)
     install_helpers(lee)
     open_home(lee)
     pick_day(lee, lee.eval(AT_HOUR, 2, 12))
     rows = agenda(lee)
-    assert len(rows) == 5 and all(r.startswith("Karazhan | ") for r in rows[:4]), rows
-    assert rows[4] == "+3 more | ", rows
-    tip = lee.eval_py("return ns.Dashboard:GetPanel().calCard.agenda[5].tip")
-    assert tip[0] == "More that day" and len(tip) == 4 and tip[1].startswith("16:00 Karazhan"), tip
+    assert len(rows) == 7 and all(r.startswith("Karazhan | ") for r in rows[:6]), rows
+    assert rows[6] == "+3 more | ", rows
+    tip = lee.eval_py("return ns.Dashboard:GetPanel().calCard.agenda[7].tip")
+    assert tip[0] == "More that day" and len(tip) == 4 and tip[1].startswith("18:00 Karazhan"), tip
     w.assert_no_errors()
 
 

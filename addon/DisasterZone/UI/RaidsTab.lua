@@ -4,8 +4,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidsTab.lua", ...) then return
 --   Strategies - the strategy boards per boss (everyone looks and builds, each changes their own; Addendum K,
 --               UI/StrategiesView.lua)
 --   Raid log - council only (Addendum I §51), with two modes:
---     Raids   - the raid sessions (newest first) and, for the selected one, its boss timeline, attendance (with
---               bench marks, right-click to change) and the awards made during it.
+--     Raids   - the raid sessions (newest first) as cards with their raid's art and, for the selected one, a banner
+--               (when, how long, who started it, a bin to delete it), the planned raid it is linked to (a picker) and
+--               how its sign-ups turned out, then tabs: Attendance (bench marks, right-click to change), Bosses (the
+--               kills) and Awards (the items given during it).
 --     Players - attendance % / boss kills / items received per player over the last N raids.
 -- Start / End raid for the raid's authority sits in the toolbar. The Raid log is for raid log members (GM, guild
 -- council, raid leaders; Addendum J §62), its awarded items for the loot council only.
@@ -13,12 +15,68 @@ local addonName, ns = ...
 
 local RaidsUI = ns:NewModule("RaidsUI")
 
-local LIST_W = 290
-local RAID_ROW_H = 34
-local ROW_H = 20
-local RANGES = { 4, 8, 12, 0 }   -- 0 = all raids
+local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
+local tconcat = table.concat
 
-local state = { view = "upcoming", mode = "raids", selected = nil, range = 8, showGuests = false }
+-- The Raid log on the Raids tab's spacing grid (PAD at the page's sides, GAP between blocks).
+local PAD, GAP = 10, 8
+local INNER_W = 770                  -- the page inside its sides (the mock's anchored frames have no width)
+local LOG_W = 236                    -- the logged raids column
+local DETAIL_W = INNER_W - LOG_W - GAP
+local CARD_H, CARD_GAP = 46, 6       -- a logged raid: its card and the gap under it
+local THUMB_W = 62                   -- its raid's art
+local BAN_H = 88                     -- the selected raid's banner
+local LINK_H = 22                    -- the planned raid it is linked to, and how the sign-ups turned out
+local TABS_H = 24
+local HEAD_H = 18                    -- a table's column titles
+local ROW_H = 22
+local TOP = 36                       -- the views start under the Raids tab's view row
+local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
+local PICKED_BG = { 0.17, 0.15, 0.10, 0.94 }
+local EDGE = { 0.34, 0.34, 0.38, 0.5 }
+local RANGES = { 4, 8, 12, 0 }   -- 0 = all raids
+local ART_TOP = 0.29                 -- a loading screen's picture starts under the game's logo
+local INST_SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
+                     za = "ZA", swp = "Sunwell" }
+
+-- The tables, columns left to right: one (flex) takes the room the others leave, so the last column ends at the table's
+-- right edge; numbers are right-aligned (r), under a right-aligned title. icon: a class circle / an item's icon first.
+-- opt: a column shown only when the table needs it (somebody left early, somebody was offline at a kill).
+local COL_GAP = 16
+local TABLES = {
+    att = { { "Player", flex = true, icon = true }, { "Boss kills", w = 64, r = true }, { "Joined", w = 52, r = true },
+            { "Left", w = 52, r = true, opt = true } },
+    boss = { { "Time", w = 44 }, { "Boss", flex = true }, { "Raiders", w = 60, r = true },
+             { "Offline", w = 60, r = true, opt = true } },
+    award = { { "Item", flex = true, icon = true }, { "Winner", w = 120 }, { "Reason", w = 84 },
+              { "Time", w = 44, r = true } },
+    players = { { "Player", flex = true, icon = true }, { "Raids", w = 104, r = true },
+                { "Attendance", w = 112, r = true }, { "Boss kills", w = 70, r = true },
+                { "Items", w = 236, r = true, opt = true } },
+}
+
+-- Where a table's columns go in `width`: { [i] = { x, w, r, icon } } for the shown ones (show[i] for the opt ones).
+local function placeColumns(key, width, show)
+    local def = TABLES[key]
+    local fixed, n = 0, 0
+    for i, c in ipairs(def) do
+        if not c.opt or (show and show[i]) then
+            n = n + 1
+            if not c.flex then fixed = fixed + c.w end
+        end
+    end
+    local out, x = { key = key }, 0
+    for i, c in ipairs(def) do
+        if not c.opt or (show and show[i]) then
+            local w = c.flex and (width - fixed - COL_GAP * (n - 1)) or c.w
+            out[i] = { x = x, w = w, r = c.r, icon = c.icon, title = c[1] }
+            x = x + w + COL_GAP
+        end
+    end
+    return out
+end
+
+local state = { view = "upcoming", mode = "raids", selected = nil, range = 8, showGuests = false, tab = "att" }
 local panel
 
 ----------------------------------------------------------------------------
@@ -29,14 +87,29 @@ local function grey(text) return "|cff808080" .. tostring(text) .. "|r" end
 
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
+-- The name in its class colour. (Other lists mark a player from another realm "Name*"; the raid log's tables leave
+-- the mark out: the GUEST tag says they are outside the guild, the row's tooltip names the realm.)
 local function colored(key, classFile)
-    return ns.UI:ColoredName(key, classFile or (ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)))
-        .. ns.UI:GuestTag(key)
+    local text = ns.UI:ColoredName(key, classFile or (ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)))
+    return (text:gsub("%*|r$", "|r"))
 end
 
+-- "Darkstalkerr", and "from Pyrewood Village" for a player from another realm (tooltips).
+local function nameLines(tt, key)
+    tt:AddLine((shortName(key):match("^([^%-]+)") or shortName(key)))
+    local realm = ns.Util.RealmOf and ns.Util.RealmOf(key)
+    if realm then tt:AddLine("from " .. realm:gsub("(%l)(%u)", "%1 %2"), 1, 1, 1) end
+end
+
+local function classOf(key, classFile)
+    return classFile or (ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)) or nil
+end
+
+-- "3 h 17 min", "45 min".
 local function duration(sec)
-    sec = math.floor(math.max(0, sec or 0))
-    return ("%d:%02d"):format(math.floor(sec / 3600), math.floor(sec % 3600 / 60))
+    sec = floor(max(0, sec or 0))
+    local h, m = floor(sec / 3600), floor(sec % 3600 / 60)
+    return h > 0 and ("%d h %02d min"):format(h, m) or (m .. " min")
 end
 
 local function fmtTime(ts, fmt) return ts and date(fmt or "%H:%M", ts) or "-" end
@@ -47,6 +120,38 @@ local function rangeLabel(n) return n == 0 and "All raids" or ("Last " .. n .. "
 
 local function demoOn()
     return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false
+end
+
+local function newText(parent, font, size, layer)
+    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then
+        local path, _, flags = fs:GetFont()
+        if path then fs:SetFont(path, size, flags) end
+    end
+    return fs
+end
+
+local function setSize(fs, size)
+    local path, _, flags = fs:GetFont()
+    if path then fs:SetFont(path, size, flags) end
+end
+
+local function gradient(tex, orient, r, g, b, a1, a2)
+    tex:SetColorTexture(1, 1, 1, 1)
+    if tex.SetGradient and CreateColor then tex:SetGradient(orient, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2)) end
+end
+
+-- The first of the texts that fits in `room` (the last one when none does): never cut off with "...".
+-- (measured without its colour codes: the game's width ignores them, the test harness's doesn't)
+local function fitText(fs, variants, room)
+    for i, text in ipairs(variants) do
+        fs:SetText((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
+        local fits = (fs:GetStringWidth() or 0) <= room
+        fs:SetText(text)
+        if i == #variants or fits then return text end
+    end
 end
 
 -- The Raid log view (Addendum J §62): the GM, the guild council and the raid leaders list (not whoever happens to
@@ -62,66 +167,275 @@ local function seesItems()
     return (demoOn() or (G and G.IsGuildCouncil and G:IsGuildCouncil(ns.Util.PlayerKey()))) and true or false
 end
 
-local function raidSummary(rec)
+-- A logged raid's instance (the raid plan's key: its loading screen) and its name, full and short.
+local function instOf(rec)
+    local RP = ns.RaidPlan
+    for _, inst in ipairs(RP and RP.GetInstances and RP:GetInstances() or {}) do
+        if inst.instID and inst.instID == rec.instID then return inst.key end
+    end
+    return "other"
+end
+
+local function setArt(tex, rec, w, h, fw)
+    local PlanUI = ns.RaidPlanUI
+    if not (PlanUI and PlanUI.RaidArt) then
+        tex:Hide()
+        return
+    end
+    local file, l, r, t, b = PlanUI:RaidArt(instOf(rec), w, h, fw)
+    -- (a small crop stays under the game's logo at the top of the screen)
+    if h < 60 and t < ART_TOP then t, b = ART_TOP, b + ART_TOP - t end
+    tex:SetTexture(file)
+    tex:SetTexCoord(l, r, t, b)
+    tex:Show()
+end
+
+local function killsText(rec)
     local kills = #(rec.bosses or {})
     local total = RL():GetBossTotal(rec.instID)
-    local parts = {
-        duration((rec.stop or GetServerTime()) - (rec.start or 0)),
-        total and ("%d/%d bosses"):format(kills, total) or (kills .. " bosses"),
-        ns.Util.Count(rec.att or {}) .. " raiders",
-    }
-    if seesItems() then parts[#parts + 1] = #RL():GetAwards(rec) .. " items" end
-    return table.concat(parts, " · ")
-end
-
-local function raidTag(rec)
-    if not rec.stop then return " |cff33ff33(in progress)|r" end
-    if rec.autoEnded then return " " .. grey("(auto-ended)") end
-    return ""
+    return total and ("%d/%d bosses"):format(kills, total) or (kills == 1 and "1 boss" or (kills .. " bosses"))
 end
 
 ----------------------------------------------------------------------------
--- Raid list (left)
+-- Raid list (left): a card per logged raid
 ----------------------------------------------------------------------------
+
+local function lightCard(row, on)
+    local picked = row.cdlRec and row.cdlRec.id == state.selected
+    if picked then
+        ns.UI:SetEdgeColor(row.card, 1, 0.82, 0, 0.85)
+    elseif on then
+        ns.UI:SetEdgeColor(row.card, 1, 0.82, 0, 0.4)
+    else
+        ns.UI:SetEdgeColor(row.card, 0, 0, 0, 0)
+    end
+end
 
 local function initRaidRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        local hl = row:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints()
-        hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-        hl:SetBlendMode("ADD")
-        hl:SetAlpha(0.5)
-        row.sel = row:CreateTexture(nil, "BACKGROUND")
-        row.sel:SetAllPoints()
-        row.sel:SetColorTexture(1, 0.82, 0, 0.12)
-        row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.l1:SetPoint("TOPLEFT", 6, -3)
-        row.l1:SetPoint("RIGHT", -4, 0)
-        row.l1:SetJustifyH("LEFT")
-        row.l1:SetWordWrap(false)
-        row.l2 = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.l2:SetPoint("TOPLEFT", 6, -19)
-        row.l2:SetPoint("RIGHT", -4, 0)
-        row.l2:SetJustifyH("LEFT")
-        row.l2:SetWordWrap(false)
+        local card = CreateFrame("Frame", nil, row)
+        card:SetPoint("TOPLEFT")
+        card:SetPoint("TOPRIGHT")
+        card:SetHeight(CARD_H)
+        row.card = card
+        card.bg = card:CreateTexture(nil, "BACKGROUND")
+        card.bg:SetAllPoints()
+        ns.UI:AddEdges(card, "OVERLAY")
+        row.art = card:CreateTexture(nil, "ARTWORK", nil, 0)
+        row.art:SetPoint("TOPLEFT")
+        row.art:SetSize(THUMB_W, CARD_H)
+        row.fade = card:CreateTexture(nil, "ARTWORK", nil, 1)
+        row.fade:SetPoint("TOPRIGHT", row.art, "TOPRIGHT")
+        row.fade:SetPoint("BOTTOMRIGHT", row.art, "BOTTOMRIGHT")
+        row.fade:SetWidth(20)
+        row.l1 = newText(card, "GameFontHighlight", 13)
+        row.l1:SetPoint("TOPLEFT", THUMB_W + 10, -8)
+        row.tag = newText(card, "GameFontHighlightSmall", 10)
+        row.tag:SetPoint("LEFT", row.l1, "RIGHT", 6, 0)
+        row.l2 = newText(card, "GameFontHighlightSmall", 11)
+        row.l2:SetTextColor(0.62, 0.62, 0.62)
+        row.l2:SetPoint("TOPLEFT", THUMB_W + 10, -27)
+        row.time = newText(card, "GameFontHighlightSmall", 11)
+        row.time:SetTextColor(0.62, 0.62, 0.62)
+        row.time:SetJustifyH("RIGHT")
+        row.time:SetPoint("TOPRIGHT", -10, -10)
+        row.time:SetWidth(44)
         row:SetScript("OnClick", function(self)
             state.selected = self.cdlRec and self.cdlRec.id
             RaidsUI:Refresh()
         end)
+        row:SetScript("OnEnter", function(self) lightCard(self, true) end)
+        row:SetScript("OnLeave", function(self) lightCard(self, false) end)
     end
     local rec = d.rec
     row.cdlRec = rec
-    row.l1:SetText(fmtTime(rec.start, "%a %m/%d") .. "  " .. (rec.zone or grey("zone not seen")) .. raidTag(rec))
-    row.l2:SetText(raidSummary(rec))
-    row.sel:SetShown(rec.id == state.selected)
+    local picked = rec.id == state.selected
+    local bg = picked and PICKED_BG or CARD_BG
+    row.card.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    gradient(row.fade, "HORIZONTAL", bg[1], bg[2], bg[3], 0, 1)
+    lightCard(row, false)
+    setArt(row.art, rec, THUMB_W, CARD_H, 0.36)
+    -- a raid still going / ended when the group broke up
+    if not rec.stop then row.tag:SetText("|cff33ff33live|r")
+    elseif rec.autoEnded then row.tag:SetText(grey("auto-ended"))
+    else row.tag:SetText("") end
+    -- the start time, top right, when another raid was logged that day
+    row.time:SetText(d.sameDay and fmtTime(rec.start) or "")
+    local room = LOG_W - THUMB_W - 10 - 10 - (row.tag:GetText() ~= "" and ((row.tag:GetStringWidth() or 0) + 6) or 0)
+        - (d.sameDay and ((row.time:GetStringWidth() or 0) + 8) or 0)
+    local zone = rec.zone or "Raid"
+    fitText(row.l1, { zone, INST_SHORT[instOf(rec)] or zone }, room)
+    -- the day, the kills
+    local kills = killsText(rec)
+    local day = fmtTime(rec.start, "%a ") .. tonumber(fmtTime(rec.start, "%d")) .. fmtTime(rec.start, " %b")
+    fitText(row.l2, { day .. " · " .. kills, ((day .. " · " .. kills):gsub(" bosses?$", "")) }, LOG_W - THUMB_W - 20)
 end
 
 ----------------------------------------------------------------------------
--- Detail / players list (shared row type with columns)
+-- The tables (the selected raid's tabs, the Players view): rows without boxes, columns per TABLES
 ----------------------------------------------------------------------------
 
-local COLS = { 6, 150, 250, 330, 410 }
+-- A small rounded tag ("bench"): p:Set(text).
+local function newPill(parent)
+    local p = CreateFrame("Frame", nil, parent)
+    p:SetHeight(16)
+    ns.UI:AddPillShape(p, 16)
+    p:SetPillColors({ 0.2, 0.17, 0.07, 1 }, { 0.55, 0.45, 0.08, 1 })
+    p.fs = newText(p, "GameFontHighlightSmall", 10)
+    p.fs:SetPoint("CENTER", 0, 0)
+    function p:Set(text)
+        self.fs:SetText("|cffffd100" .. text .. "|r")
+        self:SetWidth(floor((self.fs:GetStringWidth() or 40) + 14 + 0.5))
+    end
+    return p
+end
+
+-- A cell's text in its column: 12, else 11, else 10, else two lines (never cut off).
+local function fitCell(fs, text, width)
+    fs:SetWordWrap(false)
+    fs:SetWidth(0)
+    fs:SetText(text or "")
+    for _, size in ipairs({ 12, 11, 10 }) do
+        setSize(fs, size)
+        if (fs:GetStringWidth() or 0) <= width then return end
+    end
+    fs:SetWidth(width)
+    fs:SetWordWrap(true)
+end
+
+local function rowClick(self, button)
+    if button == "RightButton" and self.cdlMenu then self.cdlMenu(self) end
+end
+
+local function rowEnter(self)
+    local d = self.__cdlData
+    if not d then return end
+    if d.itemID then
+        ns.UI:SetItemTooltip(self, d.itemID)
+    elseif d.tip then
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        d.tip(GameTooltip)
+        GameTooltip:Show()
+    end
+end
+
+local function initColRow(row, d)
+    if not row.cdlInit then
+        row.cdlInit = true
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
+        row.hl:SetAllPoints()
+        row.hl:SetColorTexture(1, 1, 1, 0.05)
+        row.line = row:CreateTexture(nil, "BACKGROUND")
+        row.line:SetPoint("BOTTOMLEFT")
+        row.line:SetPoint("BOTTOMRIGHT")
+        row.line:SetHeight(1)
+        row.line:SetColorTexture(1, 1, 1, 0.035)
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(16, 16)
+        row.icon:SetPoint("LEFT", 0, 0)
+        row.cols = {}
+        for i = 1, 5 do row.cols[i] = newText(row, "GameFontHighlight", 12) end
+        row.tag = newText(row, "GameFontHighlightSmall", 9)
+        row.tag:SetTextColor(0.4, 0.8, 1)
+        row.tag:SetText("GUEST")
+        row.pill = newPill(row)
+        row:SetScript("OnClick", rowClick)
+        row:SetScript("OnEnter", rowEnter)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+    local L = d.place
+    -- the icon column: a class circle or an item's icon before the name / item
+    row.icon:SetShown(false)
+    if d.class then
+        ns.UI:ClassIcon(row.icon, d.class)
+    elseif d.itemID and d.place.key == "award" then
+        local icon = ns.ItemDB and ns.ItemDB.GetIcon and ns.ItemDB:GetIcon(d.itemID)
+        row.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        row.icon:Show()
+    end
+    -- after the name: GUEST, a bench tag
+    row.tag:SetShown(d.guest and true or false)
+    if d.pill then row.pill:Set(d.pill) end
+    row.pill:SetShown(d.pill ~= nil)
+    local tags = (d.guest and ((row.tag:GetStringWidth() or 30) + 6) or 0) + (d.pill and (row.pill:GetWidth() + 8) or 0)
+    local first
+    for i, fs in ipairs(row.cols) do
+        local c = L[i]
+        local text = d.cols[i]
+        fs:SetShown(c ~= nil and text ~= nil and text ~= "")
+        if c and text and text ~= "" then
+            local indent = c.icon and 22 or 0
+            fs:ClearAllPoints()
+            if c.r then
+                fs:SetJustifyH("RIGHT")
+                fs:SetPoint("RIGHT", row, "LEFT", c.x + c.w, 0)
+            else
+                fs:SetJustifyH("LEFT")
+                fs:SetPoint("LEFT", c.x + indent, 0)
+            end
+            fitCell(fs, text, c.w - indent - (c.icon and tags or 0))
+            if c.r and not fs:CanWordWrap() then fs:SetWidth(c.w) end
+            if c.icon then
+                first = fs
+                row.icon:ClearAllPoints()
+                row.icon:SetPoint("LEFT", c.x, 0)
+            end
+        end
+    end
+    local prev = first
+    if d.guest and prev then
+        row.tag:ClearAllPoints()
+        row.tag:SetPoint("LEFT", prev, "RIGHT", 6, 0)
+        prev = row.tag
+    end
+    if d.pill and prev then
+        row.pill:ClearAllPoints()
+        row.pill:SetPoint("LEFT", prev, "RIGHT", 8, 0)
+    end
+    row.cdlMenu = d.menu
+end
+
+-- The column titles over a table (gold, a hairline under them).
+local function newHead(parent)
+    local h = CreateFrame("Frame", nil, parent)
+    h:SetHeight(HEAD_H)
+    h.line = h:CreateTexture(nil, "BACKGROUND")
+    h.line:SetPoint("BOTTOMLEFT")
+    h.line:SetPoint("BOTTOMRIGHT")
+    h.line:SetHeight(1)
+    h.line:SetColorTexture(1, 1, 1, 0.08)
+    h.cols = {}
+    for i = 1, 5 do
+        h.cols[i] = newText(h, "GameFontNormalSmall", 11)
+    end
+    -- (titles over numbers are right-aligned like them; a title over an icon column starts where the icon does)
+    function h:SetPlace(L)
+        for i, fs in ipairs(self.cols) do
+            local c = L[i]
+            fs:SetShown(c ~= nil)
+            if c then
+                fs:ClearAllPoints()
+                if c.r then
+                    fs:SetJustifyH("RIGHT")
+                    fs:SetPoint("RIGHT", self, "LEFT", c.x + c.w, 1)
+                else
+                    fs:SetJustifyH("LEFT")
+                    fs:SetPoint("LEFT", c.x, 1)
+                end
+                fs:SetText(c.title)
+                if c.r then fs:SetWidth(max(c.w, ceil(fs:GetStringWidth() or 0))) else fs:SetWidth(0) end
+            end
+        end
+    end
+    return h
+end
+
+----------------------------------------------------------------------------
+-- The selected raid: banner, link, tabs
+----------------------------------------------------------------------------
 
 local function benchMenu(row, rec, key, a)
     ns.UI:ContextMenu(row, function(root)
@@ -137,7 +451,7 @@ end
 -- Addendum J §61: link a logged raid to a planned raid (raid log members). The running session is relinked for the
 -- whole raid (GS: by the raid's authority, at the request of anyone else with the raid log; 1.3); any other record is
 -- changed here and reaches the raid planners through the raid log sync.
-local function planMenu(row, rec)
+local function planMenu(root, rec)
     local RP = ns.RaidPlan
     if not RP then return end
     local function set(occ)
@@ -149,146 +463,208 @@ local function planMenu(row, rec)
             RL():SetPlanned(rec.id, occ)
         end
     end
-    ns.UI:ContextMenu(row, function(root)
-        root:CreateTitle("Planned raid")
-        for _, v in ipairs(RP:GetRaids((rec.start or 0) - 2 * 86400, (rec.start or 0) + 2 * 86400)) do
-            local label = ("%s  %s"):format(date("%a %d %b %H:%M", v.t), RP:GetRaidName(v))
-            root:CreateRadio(label, function() return rec.pl == v.id end, function() set(v.id) end)
-        end
-        root:CreateRadio("Not linked", function() return rec.pl == nil end, function() set(nil) end)
-    end)
+    root:CreateTitle("Planned raid")
+    for _, v in ipairs(RP:GetRaids((rec.start or 0) - 2 * 86400, (rec.start or 0) + 2 * 86400)) do
+        local label = ("%s  %s"):format(date("%a %d %b %H:%M", v.t), RP:GetRaidName(v))
+        root:CreateRadio(label, function() return rec.pl == v.id end, function() set(v.id) end)
+    end
+    root:CreateRadio("Not linked", function() return rec.pl == nil end, function() set(nil) end)
 end
 
-local function planLines(rec)
+-- The link picker's text: "Linked to  <planned raid>", or that it isn't linked.
+local function linkText(rec)
     local RP = ns.RaidPlan
-    local out = {}
     local v = rec.pl and RP and RP:GetRaid(rec.pl)
-    if v then
-        out[1] = ("Planned raid: %s · %s"):format(RP:GetRaidName(v), date("%a %d %b %H:%M", v.t))
-    elseif rec.pl then
-        out[1] = "Planned raid: " .. grey("(no longer in the plan)")
-    else
-        out[1] = grey("Not linked to a planned raid (right-click to link)")
-    end
-    if rec.su then
-        local acc, came, noShow = 0, 0, {}
-        for key, st in pairs(rec.su) do
-            if st == "A" then
-                acc = acc + 1
-                if rec.att and rec.att[key] then came = came + 1 else noShow[#noShow + 1] = shortName(key) end
-            end
-        end
-        table.sort(noShow)
-        out[2] = ("Sign-ups: %d accepted, %d came"):format(acc, came)
-            .. (#noShow > 0 and ("  ·  |cffff8080no-show: " .. table.concat(noShow, ", ") .. "|r") or "")
-    end
-    return out
+    if v then return "|cff8c8c8cLinked to|r  " .. RP:GetRaidName(v), v end
+    if rec.pl then return "|cff8c8c8cLinked to|r  " .. grey("a raid no longer planned") end
+    return grey("Not linked to a planned raid")
 end
 
-local function initDetailRow(row, d)
-    if not row.cdlInit then
-        row.cdlInit = true
-        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        row.cols = {}
-        for i, x in ipairs(COLS) do
-            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            fs:SetPoint("LEFT", x, 0)
-            fs:SetWidth((COLS[i + 1] or (x + 200)) - x - 4)
-            fs:SetJustifyH("LEFT")
-            fs:SetWordWrap(false)
-            row.cols[i] = fs
+-- How the sign-ups turned out: "8 of 9 came · no-show A, B" (nil when the raid had no sign-ups), and the no-shows.
+local function signupCheck(rec)
+    if not rec.su then return nil end
+    local acc, came, noShow = 0, 0, {}
+    for key, st in pairs(rec.su) do
+        if st == "A" then
+            acc = acc + 1
+            if rec.att and rec.att[key] then came = came + 1 else noShow[#noShow + 1] = key end
         end
-        row:SetScript("OnClick", function(self, button)
-            if button == "RightButton" and self.cdlMenu then self.cdlMenu(self) end
-        end)
-        row:SetScript("OnEnter", function(self)
-            if self.cdlItem then ns.UI:SetItemTooltip(self, self.cdlItem) end
-        end)
-        row:SetScript("OnLeave", function() ns.UI:HideTooltip() end)
     end
-    for i, fs in ipairs(row.cols) do
-        fs:SetFontObject(d.header and "GameFontNormal" or (d.colHeader and "GameFontNormalSmall" or "GameFontHighlightSmall"))
-        fs:SetText(d.cols[i] or "")
-        if (d.header or d.wide) and i == 1 then fs:SetWidth(460) elseif i == 1 then fs:SetWidth(COLS[2] - COLS[1] - 4) end
-    end
-    row.cdlMenu = d.menu
-    row.cdlItem = d.itemID
+    if acc == 0 then return nil end
+    table.sort(noShow, function(a, b) return shortName(a):lower() < shortName(b):lower() end)
+    return acc, came, noShow
 end
 
+local DASH = "|cff5c5c5c-|r"        -- nothing to say in a cell: a dim dash
+
+-- The selected raid's open tab as rows, and where its columns go.
 local function detailRows(rec)
     local rows = {}
-    local function add(cols, opts)
-        local r = opts or {}
-        r.cols = cols
-        rows[#rows + 1] = r
+    if state.tab == "boss" then
+        -- (Offline only when somebody was offline at a kill)
+        local offs, anyOff = {}, false
+        for i, b in ipairs(rec.bosses or {}) do
+            local n = 0
+            for _ in pairs(b.off or {}) do n = n + 1 end
+            offs[i], anyOff = n, anyOff or n > 0
+        end
+        local place = placeColumns("boss", DETAIL_W, { [4] = anyOff })
+        for i, b in ipairs(rec.bosses or {}) do
+            rows[#rows + 1] = { place = place, cols = { grey(fmtTime(b.ts)), b.name or ("Encounter " .. tostring(b.enc)),
+                b.roster and tostring(#b.roster) or DASH, offs[i] > 0 and ("|cffff8080" .. offs[i] .. "|r") or DASH } }
+        end
+        return rows, place
+    elseif state.tab == "award" and seesItems() then
+        local place = placeColumns("award", DETAIL_W)
+        for _, e in ipairs(RL():GetAwards(rec)) do
+            rows[#rows + 1] = { place = place, itemID = e.i, cols = { ns.UI:ItemText(e.i), colored(e.w)
+                .. (ns.UI:IsGuest(e.w) and grey(" guest") or ""), ns.ReasonLabel and ns.ReasonLabel(e.r) or "",
+                e.vd and grey("void") or grey(fmtTime(e.ts)) } }
+        end
+        return rows, place
     end
-    local by = rec.by and shortName(rec.by) or "?"
-    add({ (rec.zone or "Raid") .. "  " .. grey(fmtTime(rec.start, "%Y-%m-%d")) .. raidTag(rec) }, { header = true })
-    local ended = rec.stop and (fmtTime(rec.stop) .. (rec.endedBy and (" by " .. shortName(rec.endedBy)) or
-        (rec.autoEnded and " (group disbanded)" or ""))) or "running"
-    add({ "Started " .. fmtTime(rec.start) .. " by " .. by .. "  ·  ended " .. ended }, { wide = true })
-    add({ raidSummary(rec) }, { wide = true })
-    for _, line in ipairs(planLines(rec)) do
-        add({ line }, { menu = function(row) planMenu(row, rec) end, wide = true })
-    end
-
-    add({ "Bosses" }, { header = true })
+    -- Attendance (Left only when somebody left before the end: a dash for who stayed)
     local nBoss = #(rec.bosses or {})
-    if nBoss == 0 then add({ grey("No boss kills logged.") }, { wide = true }) end
-    for _, b in ipairs(rec.bosses or {}) do
-        local off = 0
-        for _ in pairs(b.off or {}) do off = off + 1 end
-        -- one line: when, who, how many were there
-        local parts = { fmtTime(b.ts) .. "  " .. (b.name or ("Encounter " .. tostring(b.enc))) }
-        if b.roster then parts[#parts + 1] = grey(#b.roster .. " in raid") end
-        if off > 0 then parts[#parts + 1] = "|cffff8080" .. off .. " offline|r" end
-        add({ table.concat(parts, "  ·  ") }, { wide = true })
-    end
-
-    add({ "Attendance" }, { header = true })
-    add({ "Player", "Boss kills", "Joined", "Left", "" }, { colHeader = true })
     local keys = ns.Util.Keys(rec.att or {})
     table.sort(keys, function(a, b) return shortName(a):lower() < shortName(b):lower() end)
+    local function leftEarly(a) return a.j ~= nil and a.l ~= nil and a.l ~= rec.stop end
+    local anyLeft = false
+    for _, key in ipairs(keys) do anyLeft = anyLeft or leftEarly(rec.att[key]) end
+    local place = placeColumns("att", DETAIL_W, { [4] = anyLeft })
     for _, key in ipairs(keys) do
         local a = rec.att[key]
-        local note = a.b and "|cffffd100bench|r" or ""
-        local left = (a.j == nil and grey("-")) or ((a.l and a.l ~= rec.stop) and fmtTime(a.l)) or grey("end")
-        add({ colored(key, a.c), ("%d/%d"):format(tonumber(a.k) or 0, nBoss), a.j and fmtTime(a.j) or grey("-"),
-            left, note },
-            { menu = function(row) benchMenu(row, rec, key, a) end })
+        rows[#rows + 1] = { place = place, key = key, class = classOf(key, a.c), guest = ns.UI:IsGuest(key),
+            cols = { colored(key, a.c), ("%d/%d"):format(tonumber(a.k) or 0, nBoss), a.j and fmtTime(a.j) or DASH,
+                     leftEarly(a) and fmtTime(a.l) or DASH },
+            pill = a.b and "bench" or nil,
+            menu = function(row) benchMenu(row, rec, key, a) end,
+            tip = function(tt)
+                nameLines(tt, key)
+                tt:AddLine(a.b and "Right-click to remove the bench mark." or "Right-click to mark as bench / standby.",
+                    0.62, 0.62, 0.62)
+            end }
     end
-
-    if not seesItems() then return rows end
-    add({ "Awards" }, { header = true })
-    local awards = RL():GetAwards(rec)
-    if #awards == 0 then add({ grey("No awards during this raid.") }, { wide = true }) end
-    for _, e in ipairs(awards) do
-        add({ fmtTime(e.ts), ns.UI:ItemText(e.i), colored(e.w), ns.ReasonLabel and ns.ReasonLabel(e.r) or "",
-            e.vd and grey("void") or "" }, { itemID = e.i })
-    end
-    return rows
+    return rows, place
 end
 
 local function playerRows()
     local n = state.range ~= 0 and state.range or nil
     local stats, total = RL():GetPlayerStats(n)
-    local rows = { { cols = { "Player", "Raids", "Attendance", "Boss kills", "Items (last)" }, colHeader = true } }
+    -- (Items is loot council data: the column is left out for raid leaders)
+    local place = placeColumns("players", INNER_W, { [5] = seesItems() })
+    local rows = {}
     for _, s in ipairs(stats) do
         -- 1.3: players outside the guild have the guest book; they show here only on request
         if state.showGuests or not ns.UI:IsGuest(s.key) then
-            local last = s.lastItem and (s.items .. "  " .. ns.UI:ItemText(s.lastItem.i)) or tostring(s.items)
+            -- the last item, then how many (the counts line up at the right edge); none: a dim dash
+            local last = seesItems() and (s.lastItem and (ns.UI:ItemText(s.lastItem.i) .. "   " .. s.items)
+                or (s.items > 0 and tostring(s.items)) or DASH) or nil
             -- Addendum J §61: accepted raids they didn't come to (raids linked to a planned raid)
             local rel = RL().GetReliability and RL():GetReliability(s.key, n or 1000)
             local noShow = rel and (rel.accepted - rel.came) or 0
-            if not seesItems() then last = "" end
-            rows[#rows + 1] = { cols = { colored(s.key, s.class), ("%d/%d"):format(s.raids, total) ..
-                (s.bench > 0 and grey(" (" .. s.bench .. " bench)") or ""),
-                s.pct .. "%" .. (noShow > 0 and (" |cffff8080" .. noShow .. " no-show|r") or ""),
-                ("%d/%d"):format(s.kills, s.killTotal), last },
+            rows[#rows + 1] = { place = place, key = s.key, class = classOf(s.key, s.class),
+                guest = ns.UI:IsGuest(s.key),
+                cols = { colored(s.key, s.class), (s.bench > 0 and grey("(" .. s.bench .. " bench)  ") or "")
+                    .. ("%d/%d"):format(s.raids, total),
+                    (noShow > 0 and ("|cffff8080" .. noShow .. " no-show|r  ") or "") .. s.pct .. "%",
+                    ("%d/%d"):format(s.kills, s.killTotal), last },
                 itemID = seesItems() and s.lastItem and s.lastItem.i or nil }
         end
     end
-    return rows, total
+    return rows, total, place
+end
+
+-- The selected raid's banner: its art, the raid and whether it is still going, when / how long / who started it.
+local function fillBanner(p, rec)
+    local b = p.banner
+    setArt(b.art, rec, DETAIL_W, BAN_H, 0.98)
+    local tag
+    if not rec.stop then tag = { "in progress", 0.2, 1, 0.2 }
+    elseif rec.autoEnded then tag = { "auto-ended", 0.6, 0.6, 0.6 } end
+    b.tag:SetShown(tag ~= nil)
+    if tag then
+        b.tag.text:SetText(tag[1])
+        b.tag.text:SetTextColor(tag[2], tag[3], tag[4])
+        ns.UI:SetEdgeColor(b.tag, tag[2], tag[3], tag[4], 0.45)
+        b.tag:SetWidth((b.tag.text:GetStringWidth() or 40) + 18)
+    end
+    local room = DETAIL_W - 28 - (tag and (b.tag:GetWidth() + 12) or 0) - 40
+    b.title:SetWordWrap(false)
+    for _, size in ipairs({ 19, 17, 15 }) do
+        setSize(b.title, size)
+        b.title:SetText(rec.zone or "Raid")
+        if (b.title:GetStringWidth() or 0) <= room then break end
+    end
+    -- "Thursday 1 October · 19:45 – 23:02 · 3 h 17 min · started by X" (who ended it when someone else did)
+    local day = fmtTime(rec.start, "%A ") .. tonumber(fmtTime(rec.start, "%d")) .. fmtTime(rec.start, " %B")
+    local span = fmtTime(rec.start) .. " – " .. (rec.stop and fmtTime(rec.stop) or "now")
+    local parts = { day, span, duration((rec.stop or GetServerTime()) - (rec.start or 0)) }
+    local by = rec.by and shortName(rec.by)
+    if by then parts[#parts + 1] = "started by " .. colored(rec.by) end
+    if rec.stop and rec.endedBy and rec.endedBy ~= rec.by then
+        parts[#parts + 1] = "ended by " .. colored(rec.endedBy)
+    elseif rec.autoEnded then
+        parts[#parts + 1] = "ended when the group broke up"
+    end
+    local full = tconcat(parts, " · ")
+    fitText(b.meta, { full, (full:gsub(fmtTime(rec.start, "%A "), fmtTime(rec.start, "%a "))) }, DETAIL_W - 28)
+end
+
+local function fillLink(p, rec)
+    local text = linkText(rec)
+    local btn = p.linkBtn
+    btn:SetText(text)
+    local fs = btn:GetFontString()
+    fs:ClearAllPoints()
+    fs:SetPoint("LEFT", 8, 0)
+    local w = min(300, max(180, floor((fs:GetStringWidth() or 0) + 34 + 0.5)))
+    btn:SetWidth(w)
+    fs:SetPoint("RIGHT", -20, 0)
+    -- how the sign-ups turned out, at the right of the same row
+    local acc, came, noShow = signupCheck(rec)
+    local line = p.signupLine
+    line.noShow = noShow
+    line:SetShown(acc ~= nil)
+    if not acc then return end
+    local head = came == acc and ("|cff8fe39d%d of %d came|r"):format(came, acc) or ("%d of %d came"):format(came, acc)
+    local room = DETAIL_W - w - 16
+    local variants = { head }
+    if #noShow > 0 then
+        local names = {}
+        for _, key in ipairs(noShow) do names[#names + 1] = colored(key) end
+        variants = {}
+        for n = #names, 1, -1 do
+            local shown = { unpack(names, 1, n) }
+            variants[#variants + 1] = head .. grey(" · no-show ") .. tconcat(shown, ", ")
+                .. (n < #names and grey(" +" .. (#names - n)) or "")
+        end
+        variants[#variants + 1] = head .. grey(" · " .. #names .. " no-show")
+    end
+    fitText(line.fs, variants, room)
+    line.fs:SetWidth(room)
+    line:SetWidth(room)
+end
+
+local function fillTabs(p, rec)
+    local nAtt = ns.Util.Count(rec.att or {})
+    local kills = #(rec.bosses or {})
+    local total = RL():GetBossTotal(rec.instID)
+    p.tabAtt:SetLabel("Attendance  |cff8c8c8c" .. nAtt .. "|r")
+    p.tabBoss:SetLabel("Bosses  |cff8c8c8c" .. (total and (kills .. "/" .. total) or kills) .. "|r")
+    local items = seesItems()
+    p.tabAward:SetShown(items)
+    if items then p.tabAward:SetLabel("Awards  |cff8c8c8c" .. #RL():GetAwards(rec) .. "|r") end
+    if state.tab == "award" and not items then state.tab = "att" end
+    p.tabAtt:SetActive(state.tab == "att")
+    p.tabBoss:SetActive(state.tab == "boss")
+    p.tabAward:SetActive(state.tab == "award")
+    if state.tab == "boss" then
+        p.detail:SetEmptyText("No boss kills logged.")
+    elseif state.tab == "award" then
+        p.detail:SetEmptyText("No awards during this raid.")
+    else
+        p.detail:SetEmptyText("Nobody was logged in this raid.")
+    end
 end
 
 ----------------------------------------------------------------------------
@@ -323,12 +699,13 @@ local function updateToolbar(p)
     p.rangeBtn:SetText(rangeLabel(state.range))
     p.guestsToggle:SetShown(log and state.mode == "players")
     p.guestsToggle:SetKind(state.showGuests and "chosen" or "secondary")
-    -- the raid count, in the Raids list only (each player's "Raids" column already says how many raids count)
-    p.count:SetShown(log and state.mode == "raids")
     local GR = ns.GroupRules
     local auth = IsInRaid() and GR and GR:IsAuthority()
     p.sessionBtn:SetShown(auth and true or false)
     p.sessionBtn:SetText(GR and GR:GetSession() and "End raid" or "Start raid")
+    -- the Players view's filters at the right of the row (left of Start / End raid)
+    p.guestsToggle:ClearAllPoints()
+    if auth then p.guestsToggle:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else p.guestsToggle:SetPoint("TOPRIGHT", -10, -6) end
     local organizer = canOrganize()
     local RP = ns.RaidPlan
     p.guestsBtn:SetShown(state.view == "upcoming" and RP and RP.CanManageRoster and RP:CanManageRoster() or false)
@@ -338,13 +715,13 @@ local function updateToolbar(p)
     elseif auth then
         p.guestsBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)
     else
-        p.guestsBtn:SetPoint("TOPRIGHT", -8, -6)
+        p.guestsBtn:SetPoint("TOPRIGHT", -10, -6)
     end
     p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
     p.newTeamBtn:SetShown(canTeams() and state.view == "teams")
     for _, b in ipairs({ p.newRaidBtn, p.newTeamBtn }) do
         b:ClearAllPoints()
-        if auth then b:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", -8, -6) end
+        if auth then b:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", -10, -6) end
     end
     p.leadersBtn:SetShown(state.view == "teams")
     p.leadersBtn:ClearAllPoints()
@@ -353,8 +730,162 @@ local function updateToolbar(p)
     elseif auth then
         p.leadersBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)
     else
-        p.leadersBtn:SetPoint("TOPRIGHT", -8, -6)
+        p.leadersBtn:SetPoint("TOPRIGHT", -10, -6)
     end
+end
+
+-- The Raids view of the Raid log: the logged raids on the left, the selected one on the right.
+local function createLogRaids(p)
+    local UI = ns.UI
+    p.raidList = UI:CreateScrollList(p, CARD_H + CARD_GAP, initRaidRow)
+    p.raidList.frame:SetPoint("TOPLEFT", PAD, -TOP)
+    p.raidList.frame:SetPoint("BOTTOMLEFT", PAD, 4)
+    p.raidList.frame:SetWidth(LOG_W + 20)
+    -- (its bar in the gap beside the column)
+    p.raidList.bar:ClearAllPoints()
+    p.raidList.bar:SetPoint("TOPLEFT", p.raidList.box, "TOPRIGHT", 1, 0)
+    p.raidList.bar:SetPoint("BOTTOMLEFT", p.raidList.box, "BOTTOMRIGHT", 1, 0)
+    -- nothing logged yet: one line across the page instead of an empty column and an empty detail
+    p.logEmpty = p:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    p.logEmpty:SetPoint("TOP", 0, -TOP - 60)
+    p.logEmpty:SetText("No raids logged yet. The raid leader starts one with Start raid (or /dz raid start).")
+
+    local det = CreateFrame("Frame", nil, p)
+    det:SetPoint("TOPLEFT", PAD + LOG_W + GAP, -TOP)
+    det:SetPoint("BOTTOMRIGHT", -PAD, 4)
+    p.logDetail = det
+
+    -- the banner: the raid's art, its name (and whether it is still going) and its facts bottom left, the bin top right
+    local b = CreateFrame("Frame", nil, det)
+    b:SetPoint("TOPLEFT")
+    b:SetPoint("TOPRIGHT")
+    b:SetHeight(BAN_H)
+    p.banner = b
+    b.art = b:CreateTexture(nil, "BACKGROUND", nil, 0)
+    b.art:SetPoint("TOPLEFT", 1, -1)
+    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    b.shadeB = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.shadeB:SetAllPoints(b.art)
+    gradient(b.shadeB, "VERTICAL", 0.035, 0.035, 0.043, 0.92, 0.15)
+    b.shadeL = b:CreateTexture(nil, "BACKGROUND", nil, 2)
+    b.shadeL:SetPoint("TOPLEFT", b.art)
+    b.shadeL:SetPoint("BOTTOMLEFT", b.art)
+    b.shadeL:SetWidth(320)
+    gradient(b.shadeL, "HORIZONTAL", 0.035, 0.035, 0.043, 0.7, 0)
+    UI:AddEdges(b, "BORDER")
+    UI:SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], 0.7)
+    b.meta = newText(b, "GameFontHighlightSmall", 11)
+    b.meta:SetTextColor(0.86, 0.86, 0.86)
+    b.meta:SetPoint("BOTTOMLEFT", 14, 12)
+    b.title = newText(b, "GameFontHighlightLarge", 19)
+    b.title:SetPoint("BOTTOMLEFT", b.meta, "TOPLEFT", 0, 6)
+    b.tag = CreateFrame("Frame", nil, b)
+    b.tag:SetHeight(18)
+    b.tag:SetPoint("LEFT", b.title, "RIGHT", 12, 1)
+    b.tag.bg = b.tag:CreateTexture(nil, "BACKGROUND")
+    b.tag.bg:SetAllPoints()
+    b.tag.bg:SetColorTexture(0.035, 0.035, 0.043, 0.75)
+    UI:AddEdges(b.tag)
+    b.tag.text = newText(b.tag, "GameFontNormalSmall", 11)
+    b.tag.text:SetPoint("CENTER", 0, 0)
+    -- GM / guild council: delete the logged raid
+    p.deleteLogBtn = UI:CreateTipIconButton(b, 22, 12, "Delete this raid from the log",
+        "Removes the logged raid for every raid planner: its boss kills and attendance no longer count. Awards stay "
+        .. "in the Loot Log. This can't be undone.", function()
+        local rec = state.selected and RL():GetRaid(state.selected)
+        if not rec then return end
+        ns.RaidPlanUI:Confirm(("Delete the logged raid %s (%s)?\n\nIts boss kills and attendance are removed for "
+            .. "everyone. Awards stay in the Loot Log. This can't be undone."):format(rec.zone or "Raid",
+            fmtTime(rec.start, "%a %d %b")), function()
+            local ok, err = RL():Delete(rec.id)
+            if not ok then ns:Print("%s", err or "Could not delete the raid.") end
+        end)
+    end)
+    p.deleteLogBtn:SetPoint("TOPRIGHT", -10, -8)
+
+    -- the planned raid it is linked to (a picker), how its sign-ups turned out on the right
+    p.linkBtn = UI:CreateSleekMenuButton(det, "", 240, function(root)
+        local rec = state.selected and RL():GetRaid(state.selected)
+        if rec then planMenu(root, rec) end
+    end, LINK_H)
+    p.linkBtn:SetPoint("TOPLEFT", 0, -(BAN_H + GAP))
+    p.linkBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Planned raid")
+        GameTooltip:AddLine("The raid on the Upcoming board this one was: its sign-ups tell who came and who didn't. "
+            .. "Pick another to relink it.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    p.linkBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    local sl = CreateFrame("Frame", nil, det)
+    sl:SetHeight(LINK_H)
+    sl:SetPoint("TOPRIGHT", 0, -(BAN_H + GAP))
+    sl.fs = newText(sl, "GameFontHighlightSmall", 11)
+    sl.fs:SetJustifyH("RIGHT")
+    sl.fs:SetPoint("RIGHT", 0, 0)
+    sl:EnableMouse(true)
+    sl:SetScript("OnEnter", function(self)
+        if not (self.noShow and #self.noShow > 0) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Accepted but didn't come")
+        for _, key in ipairs(self.noShow) do GameTooltip:AddLine(colored(key)) end
+        GameTooltip:Show()
+    end)
+    sl:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    p.signupLine = sl
+
+    -- Attendance / Bosses / Awards
+    local tabs = CreateFrame("Frame", nil, det)
+    tabs:SetHeight(TABS_H)
+    tabs:SetPoint("TOPLEFT", 0, -(BAN_H + GAP + LINK_H + GAP))
+    tabs:SetPoint("TOPRIGHT", 0, -(BAN_H + GAP + LINK_H + GAP))
+    p.logTabs = tabs
+    local function tab(label, key)
+        return UI:CreateUnderlineTab(tabs, label, function()
+            state.tab = key
+            RaidsUI:Refresh()
+        end, "small")
+    end
+    p.tabAtt = tab("Attendance", "att")
+    p.tabAtt:SetPoint("BOTTOMLEFT", -4, 0)
+    p.tabBoss = tab("Bosses", "boss")
+    p.tabBoss:SetPoint("LEFT", p.tabAtt, "RIGHT", 4, 0)
+    p.tabAward = tab("Awards", "award")
+    p.tabAward:SetPoint("LEFT", p.tabBoss, "RIGHT", 4, 0)
+    tabs.line = tabs:CreateTexture(nil, "BORDER")
+    tabs.line:SetPoint("BOTTOMLEFT")
+    tabs.line:SetPoint("BOTTOMRIGHT")
+    tabs.line:SetHeight(1)
+    tabs.line:SetColorTexture(1, 1, 1, 0.1)
+
+    local top = BAN_H + GAP + LINK_H + GAP + TABS_H + GAP
+    p.logHead = newHead(det)
+    p.logHead:SetPoint("TOPLEFT", 0, -top)
+    p.logHead:SetPoint("TOPRIGHT", 0, -top)
+    p.detail = UI:CreateScrollList(det, ROW_H, initColRow)
+    p.detail.frame:SetPoint("TOPLEFT", 0, -(top + HEAD_H + 2))
+    p.detail.frame:SetPoint("BOTTOMRIGHT", 20, 0)
+    p.detail.bar:ClearAllPoints()
+    p.detail.bar:SetPoint("TOPLEFT", p.detail.box, "TOPRIGHT", 4, 0)
+    p.detail.bar:SetPoint("BOTTOMLEFT", p.detail.box, "BOTTOMRIGHT", 4, 0)
+end
+
+-- The Players view of the Raid log: one table over the page.
+local function createLogPlayers(p)
+    local f = CreateFrame("Frame", nil, p)
+    f:SetPoint("TOPLEFT", PAD, -TOP)
+    f:SetPoint("BOTTOMRIGHT", -PAD, 4)
+    p.playersView = f
+    p.playersHead = newHead(f)
+    p.playersHead:SetPoint("TOPLEFT")
+    p.playersHead:SetPoint("TOPRIGHT")
+    p.players = ns.UI:CreateScrollList(f, ROW_H, initColRow)
+    p.players.frame:SetPoint("TOPLEFT", 0, -(HEAD_H + 2))
+    p.players.frame:SetPoint("BOTTOMRIGHT", 20, 0)
+    p.players.bar:ClearAllPoints()
+    p.players.bar:SetPoint("TOPLEFT", p.players.box, "TOPRIGHT", 4, 0)
+    p.players.bar:SetPoint("BOTTOMLEFT", p.players.box, "BOTTOMRIGHT", 4, 0)
+    p.players:SetEmptyText("No raids logged yet.")
 end
 
 function RaidsUI:CreatePanel(parent)
@@ -366,7 +897,7 @@ function RaidsUI:CreatePanel(parent)
 
     -- the page's views (text tabs); the Raid log's own Raids / Players views are smaller tabs beside them
     p.upcomingBtn = UI:CreateUnderlineTab(p, "Upcoming", function() RaidsUI:SetView("upcoming") end)
-    p.upcomingBtn:SetPoint("TOPLEFT", 4, -6)
+    p.upcomingBtn:SetPoint("TOPLEFT", 6, -6)
     p.teamsBtn = UI:CreateUnderlineTab(p, "Teams", function() RaidsUI:SetView("teams") end)
     p.teamsBtn:SetPoint("LEFT", p.upcomingBtn, "RIGHT", 4, 0)
     p.stratBtn = UI:CreateUnderlineTab(p, "Strategies", function() RaidsUI:SetView("strategies") end)
@@ -383,17 +914,17 @@ function RaidsUI:CreatePanel(parent)
     p.playersBtn = UI:CreateUnderlineTab(p, "Players", function() state.mode = "players"; RaidsUI:Refresh() end,
         "small")
     p.playersBtn:SetPoint("LEFT", p.raidsBtn, "RIGHT", 2, 0)
-    p.rangeBtn = UI:CreateSleekMenuButton(p, rangeLabel(state.range), 100, function(root)
+    -- the Players view's filters, at the right of the row: how many raids count, and the guests (pugs)
+    p.rangeBtn = UI:CreateSleekMenuButton(p, rangeLabel(state.range), 110, function(root)
         for _, n in ipairs(RANGES) do
-            root:CreateButton(rangeLabel(n), function()
+            root:CreateRadio(rangeLabel(n), function() return state.range == n end, function()
                 state.range = n
                 RaidsUI:Refresh()
             end)
         end
     end)
-    p.rangeBtn:SetPoint("LEFT", p.playersBtn, "RIGHT", 8, 0)
     -- 1.3: players outside the guild (the guest book has them) are left out of the attendance list unless shown
-    -- (a switch: lit while they are shown; it stays clear of Start raid at the top right)
+    -- (a switch: lit while they are shown)
     local function guestsTip(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(state.showGuests and "Guests shown" or "Guests left out")
@@ -406,9 +937,10 @@ function RaidsUI:CreatePanel(parent)
         RaidsUI:Refresh()
         if GameTooltip:GetOwner() == self then guestsTip(self) end
     end)
-    p.guestsToggle:SetPoint("LEFT", p.rangeBtn, "RIGHT", 4, 0)
+    p.guestsToggle:SetPoint("TOPRIGHT", -10, -6)
     p.guestsToggle:HookScript("OnEnter", guestsTip)
     p.guestsToggle:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    p.rangeBtn:SetPoint("RIGHT", p.guestsToggle, "LEFT", -6, 0)
     p.sessionBtn = UI:CreateSleekButton(p, "Start raid", 88, 22, function()
         if ns.GroupRules:GetSession() then
             ns.SessionBar:ConfirmEnd()
@@ -416,9 +948,7 @@ function RaidsUI:CreatePanel(parent)
             ns.SessionBar:OpenStart()
         end
     end)
-    p.sessionBtn:SetPoint("TOPRIGHT", -8, -6)
-    p.count = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.count:SetPoint("LEFT", p.playersBtn, "RIGHT", 12, 0)
+    p.sessionBtn:SetPoint("TOPRIGHT", -10, -6)
     p.newRaidBtn = UI:CreateSleekButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end, "primary")
     p.newTeamBtn = UI:CreateSleekButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end, "primary")
     -- 1.3: the guest book (players outside the guild who raided with us) and the blacklist (players kept out of
@@ -446,41 +976,49 @@ function RaidsUI:CreatePanel(parent)
     p.strategies:SetPoint("TOPLEFT", 0, -36)
     p.strategies:SetPoint("BOTTOMRIGHT", 0, 4)
 
-    p.raidList = UI:CreateScrollList(p, RAID_ROW_H, initRaidRow)
-    p.raidList.frame:SetPoint("TOPLEFT", 0, -36)
-    p.raidList.frame:SetPoint("BOTTOMLEFT", 0, 4)
-    p.raidList.frame:SetWidth(LIST_W)
-    p.raidList:SetEmptyText("No raids logged yet.\nThe raid leader starts a session with Start raid (or /dz raid start).")
-
-    p.detail = UI:CreateScrollList(p, ROW_H, initDetailRow, function(d) return d.header and 26 or ROW_H end)
-    p.detail.frame:SetPoint("TOPLEFT", LIST_W + 8, -36)
-    p.detail.frame:SetPoint("BOTTOMRIGHT", 0, 4)
-
-    -- GM / guild council: delete the selected logged raid (a bin at the top right of its details)
-    p.deleteLogBtn = UI:CreateTipIconButton(p.detail.frame, 22, 12, "Delete this raid from the log",
-        "Removes the logged raid for every raid planner: its boss kills and attendance no longer count. Awards stay "
-        .. "in the Loot Log. This can't be undone.", function()
-        local rec = state.selected and RL():GetRaid(state.selected)
-        if not rec then return end
-        ns.RaidPlanUI:Confirm(("Delete the logged raid %s (%s)?\n\nIts boss kills and attendance are removed for "
-            .. "everyone. Awards stay in the Loot Log. This can't be undone."):format(rec.zone or "Raid",
-            fmtTime(rec.start, "%a %d %b")), function()
-            local ok, err = RL():Delete(rec.id)
-            if not ok then ns:Print("%s", err or "Could not delete the raid.") end
-        end)
-    end)
-    p.deleteLogBtn:SetPoint("TOPRIGHT", -26, -2)
-    p.deleteLogBtn:SetFrameLevel(p.detail.frame:GetFrameLevel() + 10)
-
-    p.players = UI:CreateScrollList(p, ROW_H, initDetailRow)
-    p.players.frame:SetPoint("TOPLEFT", 0, -36)
-    p.players.frame:SetPoint("BOTTOMRIGHT", 0, 4)
-    p.players:SetEmptyText("No raids logged yet.")
+    createLogRaids(p)
+    createLogPlayers(p)
 
     p:SetScript("OnShow", function() RaidsUI:Refresh() end)
     function p:OnPanelShown() RaidsUI:Refresh() end
     C_Timer.After(0, function() RaidsUI:Refresh() end)
     return p
+end
+
+local function refreshLogRaids(p)
+    local raids = RL():GetRaids()
+    local found = false
+    for _, rec in ipairs(raids) do
+        if rec.id == state.selected then found = true end
+    end
+    if not found then state.selected = raids[1] and raids[1].id or nil end
+    -- (a day with more than one logged raid: their cards say the time)
+    local perDay = {}
+    for _, rec in ipairs(raids) do
+        local day = fmtTime(rec.start, "%Y%m%d")
+        perDay[day] = (perDay[day] or 0) + 1
+    end
+    local rows = {}
+    for _, rec in ipairs(raids) do
+        rows[#rows + 1] = { rec = rec, sameDay = perDay[fmtTime(rec.start, "%Y%m%d")] > 1 }
+    end
+    p.raidList:SetData(rows)
+    local sel = state.selected and RL():GetRaid(state.selected)
+    p.logEmpty:SetShown(#raids == 0)
+    p.raidList.frame:SetShown(#raids > 0)
+    p.logDetail:SetShown(sel ~= nil)
+    if not sel then
+        p.deleteLogBtn:Hide()
+        p.detail:SetData({})
+        return
+    end
+    fillBanner(p, sel)
+    p.deleteLogBtn:SetShown(sel.stop ~= nil and RL():CanDelete())
+    fillLink(p, sel)
+    fillTabs(p, sel)
+    local rows, place = detailRows(sel)
+    p.logHead:SetPlace(place)
+    p.detail:SetData(rows)
 end
 
 function RaidsUI:Refresh()
@@ -492,30 +1030,20 @@ function RaidsUI:Refresh()
     panel.strategies:SetShown(state.view == "strategies")
     local raidsMode = state.mode == "raids"
     panel.raidList.frame:SetShown(log and raidsMode)
-    panel.detail.frame:SetShown(log and raidsMode)
-    panel.players.frame:SetShown(log and not raidsMode)
+    panel.logDetail:SetShown(log and raidsMode)
+    panel.logEmpty:SetShown(false)
+    panel.playersView:SetShown(log and not raidsMode)
     if state.view == "strategies" then
         ns.StrategiesUI:RefreshLibrary()
     elseif not log then
         ns.RaidPlanUI:Refresh()
     elseif raidsMode then
-        local raids = RL():GetRaids()
-        local found = false
-        for _, rec in ipairs(raids) do
-            if rec.id == state.selected then found = true end
-        end
-        if not found then state.selected = raids[1] and raids[1].id or nil end
-        local rows = {}
-        for _, rec in ipairs(raids) do rows[#rows + 1] = { rec = rec } end
-        panel.raidList:SetData(rows)
-        local sel = state.selected and RL():GetRaid(state.selected)
-        panel.detail:SetData(sel and detailRows(sel) or {})
-        panel.deleteLogBtn:SetShown(sel ~= nil and sel.stop ~= nil and RL():CanDelete())
-        panel.count:SetText(#raids == 1 and "1 raid" or (#raids .. " raids"))
+        refreshLogRaids(panel)
     else
-        local rows, total = playerRows()
-        panel.players:SetData(#rows > 1 and rows or {})
-        panel.count:SetText(total .. " logged")
+        local rows, _, place = playerRows()
+        panel.playersHead:SetPlace(place)
+        panel.playersHead:SetShown(#rows > 0)
+        panel.players:SetData(rows)
     end
 end
 
@@ -525,14 +1053,21 @@ end
 
 -- For tests / other modules: selects a logged raid (and the Raid log's Raids mode).
 function RaidsUI:Select(id)
-    state.view, state.mode, state.selected = "log", "raids", id
+    state.view, state.mode, state.selected, state.tab = "log", "raids", id, "att"
     self:Refresh()
 end
 
+-- For tests / other modules: the Raid log's Raids (on a raid's Attendance) or Players view.
 function RaidsUI:SetMode(mode, range)
-    state.view = "log"
+    state.view, state.tab = "log", "att"
     state.mode = mode == "players" and "players" or "raids"
     if range then state.range = range end
+    self:Refresh()
+end
+
+-- The selected logged raid's tab: "att" (Attendance) | "boss" (Bosses) | "award" (Awards).
+function RaidsUI:SetLogTab(tab)
+    state.tab = (tab == "boss" or tab == "award") and tab or "att"
     self:Refresh()
 end
 

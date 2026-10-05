@@ -414,8 +414,13 @@ def raids_tab_lists_raids_details_bench_and_players():
         bob.find_text(needle, True, True)) or []]
     assert any("Karazhan" in t for t in texts("Karazhan")), "raid row"
     assert texts("1/11 bosses"), "summary with the boss total"
+    assert texts("Attendance") and texts("Bosses") and texts("Awards"), "the raid's tabs"
+    assert not texts("Attumen the Huntsman"), "the kills are on the Bosses tab"
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().tabBoss"))
     assert texts("Attumen the Huntsman"), "boss timeline"
-    assert texts("Attendance") and texts("Awards"), "sections"
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().tabAward"))
+    assert texts("Rita"), "the award's winner"
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().tabAtt"))
     assert bob.eval("return ns.RaidLog:GetAwards(ns.RaidLog:GetRaid(...))[1].i", rid) == 28000
     # bench: a council member marks Sam (not in the log) as bench -> counts as attending
     bob.eval("ns.RaidLog:SetBench(...)", rid, K("Nora"), True)

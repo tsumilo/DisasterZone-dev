@@ -176,8 +176,11 @@ def end_raid_keeps_signups_marks_bench_and_counts_no_shows():
     w.tick(0.3)
     bob.eval("ns.RaidsUI:Select(...)", s["id"])
     w.tick(0.3)
-    assert bob.find_text("Planned raid: Karazhan", True, True)
-    assert bob.find_text("no-show: Lock", True, True)
+    # (the link is a picker under the raid's banner; how the sign-ups turned out sits beside it)
+    link = strip_codes(bob.eval("return ns.RaidsUI:GetPanel().linkBtn:GetText()"))
+    assert link == "Linked to  Karazhan", link
+    check = strip_codes(bob.eval("local l = ns.RaidsUI:GetPanel().signupLine; return l:IsShown() and l.fs:GetText()"))
+    assert "came" in check and "no-show Lock" in check, check
     # the council member's recording agrees (same link time, same bench mark)
     rg = rec(gina, s["id"])
     assert rg["pl"] == occ and rg["att"][K("Pip")]["b"] is True, rg
@@ -204,13 +207,7 @@ def council_relinks_a_logged_raid_and_the_other_council_member_gets_it():
     w.tick(0.3)
     bob.eval("ns.RaidsUI:Select(...)", s["id"])
     w.tick(0.3)
-    row = bob.eval("""
-      local found
-      ns.RaidsUI:GetPanel().detail.box:ForEachFrame(function(r)
-        if r.cols and (r.cols[1]:GetText() or ''):find('Planned raid', 1, true) then found = r end
-      end)
-      return found""")
-    bob.click(row, "RightButton")
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().linkBtn"))
     items = [e["text"] for e in bob.last_menu()["children"] if e.get("text")]
     assert "Not linked" in items and len(items) >= 4, items
     label = next(x for x in items if x.endswith("Karazhan") and x != items[1] and "Planned" not in x and x != items[0])

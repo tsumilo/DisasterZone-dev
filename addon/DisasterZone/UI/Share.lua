@@ -659,7 +659,9 @@ function Share:CurrentRef()
     if tab == "raids" and ns.RaidsUI then
         local view = ns.RaidsUI:GetView()
         if view == "upcoming" then
-            local occ = ns.RaidPlanUI and ns.RaidPlanUI:GetSelectedRaid()
+            -- a raid's page: that raid; the board: the page
+            local onPage = ns.RaidPlanUI and (not ns.RaidPlanUI.GetPage or ns.RaidPlanUI:GetPage() == "raid")
+            local occ = onPage and ns.RaidPlanUI:GetSelectedRaid()
             if occ and RP():GetRaid(occ) then return self:RaidRef(occ, ns.RaidPlanUI:GetDetailTab()) end
             return "raids"
         elseif view == "teams" then

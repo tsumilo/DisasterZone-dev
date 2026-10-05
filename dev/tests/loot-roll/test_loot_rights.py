@@ -244,13 +244,16 @@ def non_council_master_looter_de_is_recorded_with_its_reason():
     state = C.eval(r"""
         ns.DropPanel:Render()
         for _, b in ipairs(ns.DropPanel.blocks) do
-          if b:IsShown() and b.itemID == ... then return b.deBtn:IsShown() and b.deBtn:IsEnabled() end
+          if b:IsShown() and b.itemID == ... then
+            for _, e in ipairs(ns.DropPanel:GetMoreActions(b)) do if e.key == "de" then return e.enabled end end
+            return false
+          end
         end""", RUBY_DRAPE)
     assert state is True, "no DE button for the master looter"
     log0 = len(w.addon_log)
     C.eval(r"""
         for _, b in ipairs(ns.DropPanel.blocks) do
-          if b:IsShown() and b.itemID == ... then b.deBtn:Click() return end
+          if b:IsShown() and b.itemID == ... then ns.DropPanel:RunMoreAction(b, "de") return end
         end""", RUBY_DRAPE)
     w.tick(0.2)
     assert C.popups() == ["DISASTERZONE_GIVE_TARGET"], C.popups()

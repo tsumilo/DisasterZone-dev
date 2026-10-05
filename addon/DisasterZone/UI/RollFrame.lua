@@ -18,9 +18,18 @@ local ipairs, pairs, type, tonumber, tostring, pcall = ipairs, pairs, type, tonu
 -- Constants
 ---------------------------------------------------------------------------
 local FRAME_NAME = "DisasterZoneRollFrame"
-local FRAME_W, FRAME_H = 380, 96
-local DEFAULT_POINT, DEFAULT_Y = "TOP", -220
-local ICON_SIZE, WEAR_SIZE = 36, 16
+local FRAME_W, FRAME_H = 400, 82
+local DEFAULT_POINT, DEFAULT_Y = "TOP", -228   -- (under the BiS toast)
+local PAD = 14
+local ICON_SIZE, WEAR_SIZE = 40, 16
+local TEXT_X = PAD + ICON_SIZE + 12
+local ROLL_W, PASS_W, BTN_H = 60, 52, 24
+local MID_Y = 46                          -- the buttons' (and my answer's) middle, from the top: beside lines 2-3
+local STATUS_W = 126
+local NAME_W = FRAME_W - TEXT_X - 26       -- the item's name runs to the X
+local TEXT_W = FRAME_W - TEXT_X - PAD - ROLL_W - 6 - PASS_W - 12
+local BG = { 0.043, 0.043, 0.051 }
+local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local TICK = 0.1                 -- countdown bar refresh while a roll is open
 local FADE_AFTER_AWARD = 5       -- seconds the result stays before fading out
 local FADE_AFTER_CANCEL = 3
@@ -30,14 +39,7 @@ local RESUME_AFTER_LEAVE = 1     -- a fade held by the mouse resumes this long a
 local HOVER_POLL = 0.2           -- how often a held fade checks whether the mouse is still over it
 local RESPONDED_MAX = 100        -- remembered own responses (session ids), cleared beyond this
 
-local STAR = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:0|t"
-local BACKDROP = {
-    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
-    tile = true, tileSize = 32, edgeSize = 20,
-    insets = { left = 5, right = 5, top = 5, bottom = 5 },
-}
-local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
+local BAR_TEXTURE = "Interface\\Buttons\\WHITE8X8"
 
 local SLOT_GROUP_FALLBACK = {
     [11] = { 11, 12 }, [12] = { 11, 12 }, [13] = { 13, 14 }, [14] = { 13, 14 }, [15] = { 15, 16 }, [16] = { 15, 16 },
@@ -142,6 +144,29 @@ local function HideTooltip()
     _G.GameTooltip:Hide()
 end
 
+local function Sized(fs, size)
+    local path, _, flags = fs:GetFont()
+    if path then fs:SetFont(path, size, flags) end
+    return fs
+end
+
+local function Text(parent, font, size)
+    local fs = parent:CreateFontString(nil, "OVERLAY", font)
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then Sized(fs, size) end
+    return fs
+end
+
+-- The item's name: 13 px, smaller when a long name would not fit.
+local function FitName(fs, text, width)
+    for _, size in ipairs({ 13, 12, 11 }) do
+        Sized(fs, size)
+        fs:SetText(text)
+        if (fs:GetStringWidth() or 0) <= width then return end
+    end
+end
+
 -- Calls ns.Roll:<method>(...) if it exists. An error inside Roll is reported once per method and the
 -- popup keeps working (a broken popup must never block the raid).
 local reported = {}
@@ -180,25 +205,25 @@ local function OwnMatch(itemID)
     return first
 end
 
-local function OwnStatusText(itemID, m)
-    if not m then return Paint("Not on your BiS list", "muted") end
-    local phase = tonumber(m.phase) or 0
-    local text
+-- What the item is to me: the pill's text and kind (nil: not on my lists) and the line after it ("Head · P1").
+local function OwnStatus(m)
+    if not m then return nil, nil, "Not on your BiS list" end
+    local parts = { SlotLabel(m.sid), "P" .. tostring(tonumber(m.phase) or 0) }
+    local text, kind
     if m.os then
         -- Addendum H: only on my off-spec list.
+        text, kind = "OS", "os"
         local sp = ns.BiS.GetSpec and ns.BiS:GetSpec("os") or ""
-        text = Paint(format("Your P%d off-spec %s%s - %s", phase, m.which == "alt" and "alt" or "BiS",
-            sp ~= "" and (" (" .. sp .. ")") or "", SlotLabel(m.sid)), "offspec")
+        if sp ~= "" then parts[#parts + 1] = sp end
     elseif m.which == "alt" then
-        text = Paint(format("Your P%d alt - %s", phase, SlotLabel(m.sid)), "alt")
+        text, kind = "Alt", "alt"
     else
-        text = STAR .. " " .. Paint(format("Your P%d BiS (main) - %s", phase, SlotLabel(m.sid)), "main")
+        text, kind = "BiS", "bis"
     end
-    if m.via then
-        text = text .. Paint(" (" .. ((ns.VIA_TEXT and ns.VIA_TEXT[m.via]) or "via token") .. ")", "muted")
-    end
-    if m.obtained then text = text .. Paint(" - obtained", "obtained") end
-    return text
+    if m.via then parts[#parts + 1] = (ns.VIA_TEXT and ns.VIA_TEXT[m.via]) or "via token" end
+    local detail = table.concat(parts, " \194\183 ")
+    if m.obtained then detail = detail .. Paint(" \194\183 obtained", "obtained") end
+    return text, kind, detail
 end
 
 -- The slot group whose currently worn items the popup shows.
@@ -306,7 +331,9 @@ end
 function RollFrame:GetFrame()
     if self.frame then return self.frame end
     local UI = ns.UI
-    local f = CreateFrame("Frame", FRAME_NAME, _G.UIParent, "BackdropTemplate")
+    -- The look of the Dungeons tab's ping: a dark card with a gold edge. The item and what it is to me on the left,
+    -- Roll / Pass on the right (my result once I answered), the time left as a thin bar along the bottom.
+    local f = CreateFrame("Frame", FRAME_NAME, _G.UIParent)
     f:SetSize(FRAME_W, FRAME_H)
     f:SetFrameStrata("DIALOG")
     f:SetToplevel(true)
@@ -320,47 +347,47 @@ function RollFrame:GetFrame()
         SavePosition(frame)
     end)
     f:Hide()
-    if f.SetBackdrop then
-        f:SetBackdrop(BACKDROP)
-        f:SetBackdropColor(1, 1, 1, 1)
-        f:SetBackdropBorderColor(1, 1, 1, 1)
-    end
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    f.bg:SetColorTexture(BG[1], BG[2], BG[3], 0.95)
+    UI:AddEdges(f, "BORDER")
+    UI:SetEdgeColor(f, 1, 0.82, 0, 0.55)
     self.frame = f
     RestorePosition(f)
 
     f.item = UI:CreateItemButton(f, ICON_SIZE)
-    f.item:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -12)
+    f.item:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -14)
 
-    f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    f.close:SetSize(24, 24)
-    f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
-    f.close:SetScript("OnClick", function() RollFrame:Dismiss() end)
+    f.close = UI:CreateIconButton(f, 16, NO_TEX, nil, function() RollFrame:Dismiss() end)
+    f.close.bg:SetAlpha(0)
+    f.close.icon:SetDesaturated(true)
+    f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -4)
 
-    f.name = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.name:SetPoint("TOPLEFT", f, "TOPLEFT", 56, -12)
-    f.name:SetWidth(290)
-    f.name:SetJustifyH("LEFT")
-    f.name:SetWordWrap(false)
+    f.name = Text(f, "GameFontNormal", 13)
+    f.name:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -13)
+    f.name:SetWidth(NAME_W)
 
-    f.bis = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.bis:SetPoint("TOPLEFT", f, "TOPLEFT", 56, -30)
-    f.bis:SetWidth(300)
-    f.bis:SetJustifyH("LEFT")
-    f.bis:SetWordWrap(false)
+    -- what the item is to me: a BiS / Alt / OS pill and where it goes ("Head · P1"), or "Not on your BiS list"
+    f.bisPill = UI:CreateTagPill(f, 16)
+    f.bisPill:SetBase(BG[1], BG[2], BG[3])
+    f.bisPill:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -30)
+    f.bisPill:Hide()
+    f.bis = Text(f, "GameFontHighlightSmall", 11)
+    f.bis:SetTextColor(0.62, 0.62, 0.62)
 
-    f.wearLabel = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    f.wearLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 56, -52)
-    f.wearLabel:SetJustifyH("LEFT")
+    f.wearLabel = Text(f, "GameFontHighlightSmall", 11)
+    f.wearLabel:SetTextColor(0.62, 0.62, 0.62)
+    f.wearLabel:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -54)
     f.wearLabel:SetText("Wearing:")
     f.wear = { NewWearButton(f), NewWearButton(f) }
-    f.wear[1]:SetPoint("LEFT", f.wearLabel, "RIGHT", 4, 0)
+    f.wear[1]:SetPoint("LEFT", f.wearLabel, "RIGHT", 5, 0)
     f.wear[2]:SetPoint("LEFT", f.wear[1], "RIGHT", 3, 0)
 
-    f.pass = UI:CreateButton(f, _G.PASS or "Pass", 60, 22, function() RollFrame:DoPass() end)
-    f.pass:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, -44)
+    f.pass = UI:CreateButton(f, _G.PASS or "Pass", PASS_W, BTN_H, function() RollFrame:DoPass() end)
+    f.pass:SetPoint("RIGHT", f, "TOPRIGHT", -PAD, -MID_Y)
     ButtonTooltip(f.pass, "Pass on this item.")
-    f.roll = UI:CreateButton(f, "Roll", 64, 22, function() RollFrame:DoRoll() end)
-    f.roll:SetPoint("RIGHT", f.pass, "LEFT", -4, 0)
+    f.roll = UI:CreateSleekButton(f, "Roll", ROLL_W, BTN_H, function() RollFrame:DoRoll() end, "primary")
+    f.roll:SetPoint("RIGHT", f.pass, "LEFT", -6, 0)
     ButtonTooltip(f.roll, function()
         -- 1.3: a plain roll (the raid runs without the loot council): the highest roll, the master looter confirms
         local s = RollFrame:GetSession()
@@ -372,27 +399,31 @@ function RollFrame:GetFrame()
             .. "then BiS alt, then everyone else; the highest roll wins within each group. The council confirms."
     end)
 
-    f.status = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.status:SetPoint("RIGHT", f, "TOPRIGHT", -16, -55)
-    f.status:SetWidth(220)
+    -- my answer, where the buttons were (two lines at most)
+    f.status = Text(f, "GameFontNormal", 12)
+    f.status:SetPoint("RIGHT", f, "TOPRIGHT", -PAD, -MID_Y)
+    f.status:SetWidth(STATUS_W)
     f.status:SetJustifyH("RIGHT")
-    f.status:SetWordWrap(false)
+    f.status:SetWordWrap(true)
+    if f.status.SetMaxLines then f.status:SetMaxLines(2) end
 
+    -- the time left: a thin bar along the bottom edge and the seconds under the buttons
     local bar = CreateFrame("StatusBar", nil, f)
-    bar:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 12)
-    bar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -52, 12)
-    bar:SetHeight(10)
+    bar:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 1)
+    bar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+    bar:SetHeight(3)
     bar:SetStatusBarTexture(BAR_TEXTURE)
     bar:SetStatusBarColor(1, 0.82, 0)
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(1)
     bar.bg = bar:CreateTexture(nil, "BACKGROUND")
     bar.bg:SetAllPoints(bar)
-    bar.bg:SetColorTexture(0, 0, 0, 0.5)
+    bar.bg:SetColorTexture(1, 1, 1, 0.06)
     f.bar = bar
-    f.timeText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.timeText:SetPoint("LEFT", bar, "RIGHT", 6, 0)
-    f.timeText:SetJustifyH("LEFT")
+    f.timeText = Text(f, "GameFontHighlightSmall", 11)
+    f.timeText:SetTextColor(0.62, 0.62, 0.62)
+    f.timeText:SetJustifyH("RIGHT")
+    f.timeText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, -(MID_Y + BTN_H / 2 + 5))
 
     local ag = f:CreateAnimationGroup()
     local fade = ag:CreateAnimation("Alpha")
@@ -699,10 +730,23 @@ function RollFrame:RefreshItem()
     if not itemID then return end
     f.item:SetItem(itemID)
     f.item:SetState(nil)
-    f.name:SetText(ItemText(itemID))
+    FitName(f.name, ItemText(itemID), NAME_W)
 
     local m = OwnMatch(itemID)
-    f.bis:SetText(OwnStatusText(itemID, m))
+    local pill, kind, detail = OwnStatus(m)
+    f.bis:ClearAllPoints()
+    if pill then
+        f.bisPill:Set(pill, kind)
+        f.bisPill:Show()
+        f.bis:SetPoint("LEFT", f.bisPill, "RIGHT", 6, 0)
+        f.bis:SetWidth(max(40, TEXT_W - f.bisPill:GetWidth() - 6))
+    else
+        f.bisPill.fs:SetText("")
+        f.bisPill:Hide()
+        f.bis:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -32)
+        f.bis:SetWidth(TEXT_W)
+    end
+    f.bis:SetText(detail)
 
     local group = ItemSlotGroup(itemID, m)
     local getItem = _G.GetInventoryItemID
@@ -756,12 +800,15 @@ function RollFrame:UpdateTimer()
     f.bar:SetValue(max(0, min(duration, left)))
     if left <= 5 then
         f.bar:SetStatusBarColor(1, 0.3, 0.3)
+        f.timeText:SetTextColor(1, 0.4, 0.4)
     elseif left <= 10 then
         f.bar:SetStatusBarColor(1, 0.55, 0.2)
+        f.timeText:SetTextColor(1, 0.6, 0.3)
     else
         f.bar:SetStatusBarColor(1, 0.82, 0)
+        f.timeText:SetTextColor(0.62, 0.62, 0.62)
     end
-    f.timeText:SetText(left > 0 and FormatLeft(left) or "0:00")
+    f.timeText:SetText(left > 0 and (FormatLeft(left) .. " left") or "")
 end
 
 -- Own result: text, kind ("rolled" | "pass" | "pending"); nil when not responded yet.
@@ -826,10 +873,8 @@ function RollFrame:Refresh()
     elseif state == "closed" then
         self:StopTicker()
         self:SetButtonsShown(false)
-        f.bar:Show()
-        f.bar:SetMinMaxValues(0, 1)
-        f.bar:SetValue(0)
-        f.timeText:SetText("0:00")
+        f.bar:Hide()
+        f.timeText:SetText("")
         local own, kind = OwnResult(s, me, response)
         if own and kind ~= "pending" then
             f.status:SetText(own .. Paint(" - rolls closed", "muted"))

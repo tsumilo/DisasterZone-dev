@@ -22,7 +22,7 @@ sys.path.insert(0, HERE)
 
 from rp_common import World, Client, gm_pick, world as rp_world, set_raid_leaders, K, DAY, now, team, create, raid, \
     raids, signup, signups, call  # noqa: E402
-from _common import case, run_all, strip_codes, menu_texts  # noqa: E402
+from _common import case, run_all, strip_codes, menu_texts, menu_pick  # noqa: E402
 
 P = "ns.RaidsUI:GetPanel()"
 
@@ -332,8 +332,25 @@ def open_home(w, cl):
 
 
 def buttons_enabled(cl):
-    return cl.eval_py("local out = {}; for i, b in ipairs(ns.Dashboard:GetPanel().raidCard.buttons) do "
-                      "out[i] = b:IsShown() and b:IsEnabled() and true or false end; return out")
+    """The banner's answer buttons (Accept, Tentative, more answers): shown and enabled."""
+    return cl.eval_py("local b = ns.Dashboard:GetPanel().banner; local out = {}; "
+                      "for i, x in ipairs({ b.accept, b.tentative, b.more }) do "
+                      "out[i] = x:IsShown() and x:IsEnabled() and true or false end; return out")
+
+
+def my_answer(cl):
+    """The banner's answer area: { pill (my answer), sub (the spec under it), why (why I can't answer) }."""
+    a = cl.eval_py("""
+      local b = ns.Dashboard:GetPanel().banner
+      return { pill = b.pill:IsShown() and b.pill.text:GetText() or nil,
+               sub = b.pill:IsShown() and b.pill.sub:IsShown() and b.pill.sub:GetText() or nil,
+               why = b.why:IsShown() and b.why.fs:GetText() or nil }""") or {}
+    return {k: strip_codes(a.get(k)) for k in ("pill", "sub", "why")}
+
+
+def meter_tip(cl):
+    """The answers' tooltip of the banner's meter (plain text)."""
+    return [strip_codes(t) for t in cl.eval_py("return ns.Dashboard:GetPanel().banner.meterHit.tip") or []]
 
 
 @case
@@ -366,18 +383,26 @@ def the_home_card_answers_like_the_raids_tab():
     w.tick(3)
     open_home(w, lee)
     texts = home_texts(lee)
-    assert any("Your answer: Accepted" in t for t in texts), texts
-    assert any("1 invited, no response" in t for t in texts), texts          # Rita only
-    assert all(buttons_enabled(lee))
+    # his alt's answer is his: the pill with the alt's spec under it, not the answer buttons
+    a = my_answer(lee)
+    assert a["pill"] == "Accepted" and a["sub"] == "as Destruction" and a["why"] is None, (a, texts)
+    assert "1 invited, no response" in meter_tip(lee), meter_tip(lee)          # Rita only
+    assert buttons_enabled(lee) == [False] * 3, "answered: the pill changes the answer"
+    # the council's readiness line counts the same (Rita only)
+    open_home(w, bob)
+    assert "1 not answered" in strip_codes(bob.eval("return ns.Dashboard:GetPanel().banner.ready.fs:GetText()")), \
+        home_texts(bob)
     # Lee's click answers for the character his answer is for
-    lee.click(lee.eval("return ns.Dashboard:GetPanel().raidCard.buttons[2]"))
+    lee.click(lee.eval("return ns.Dashboard:GetPanel().banner.pill"))
+    menu_pick(lee, "Tentative")
     w.tick(1)
     assert signups(rita, occ)[K("Lalt")]["st"] == "T" and K("Lee") not in signups(rita, occ)
-    for cl, why in ((sam, "taken off this raid"), (c["Olaf"], "can't sign up")):
+    for cl, why in ((sam, "Taken off this raid"), (c["Olaf"], "Can't sign up")):
         open_home(w, cl)
         texts = home_texts(cl)
-        assert any(("Your answer: " + why) in t for t in texts), (cl.name, texts)
-        assert buttons_enabled(cl) == [False] * 4, cl.name
+        a = my_answer(cl)
+        assert a["why"] == why and a["pill"] is None, (cl.name, a, texts)
+        assert buttons_enabled(cl) == [False] * 3, cl.name
     w.assert_no_errors()
 
 

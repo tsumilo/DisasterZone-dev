@@ -39,7 +39,8 @@ local DEFAULT_SOURCES = { raids = true, dungeons = true, crafted = false, rep = 
 local KIND_SOURCE = { raid = "raids", dungeon = "dungeons", craft = "crafted", rep = "rep", badge = "badges", pvp = "pvp" }
 local KIND_HEADER = { craft = "Crafted", rep = "Reputation", badge = "Badge of Justice", pvp = "PvP" }
 
--- Phase filter (applies to every source that has a phase; items without one count as phase 1).
+-- Phase filter (applies to every source that has a phase; items without one count as phase 1). For the Pre-raid list
+-- (phase 0) it works as for P1.
 local PHASE_MODES = { "upto", "only", "all" }
 local PHASE_TEXT = {
     upto = function(p) return ("Up to P%d"):format(p) end,
@@ -60,6 +61,17 @@ local lastLockMessage = -100
 ---------------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------------
+
+-- The phase the filter uses: the list's phase, P1 for the Pre-raid list.
+local function FilterPhase()
+    return math.max(tonumber(state.phase) or 1, 1)
+end
+
+-- "Pre-raid" / "P2": the list being edited.
+local function PhaseText(p)
+    if ns.PhaseLabel then return ns.PhaseLabel(p) end
+    return "P" .. tostring(p)
+end
 
 local function MyClass()
     local data = ns.BiS and ns.BiS.GetData and ns.BiS:GetData()
@@ -215,9 +227,9 @@ end
 local function BuildFilter()
     local f = { includeTrash = true }
     if state.phaseMode == "upto" then
-        f.maxPhase = state.phase
+        f.maxPhase = FilterPhase()
     elseif state.phaseMode == "only" then
-        f.phase = state.phase
+        f.phase = FilterPhase()
     end
     local src = {}
     for _, key in ipairs(SOURCE_KEYS) do src[key] = Sources()[key] and true or false end
@@ -447,7 +459,7 @@ local function RowTooltip(row)
         end
         if src then tt:AddLine(src, 0.7, 0.7, 0.7, true) end
         local r, g, b = ns.UI:Color(state.which == "alt" and "alt" or "main")
-        tt:AddLine(("Click: set as %s for %s (P%d)"):format(state.which == "alt" and "alt" or "main BiS", SlotLabel(state.sid), state.phase), r, g, b)
+        tt:AddLine(("Click: set as %s for %s (%s)"):format(state.which == "alt" and "alt" or "main BiS", SlotLabel(state.sid), PhaseText(state.phase)), r, g, b)
     end)
 end
 
@@ -680,7 +692,7 @@ local function UpdateHeader()
     if not win then return end
     local whichText = state.which == "alt" and "Alt" or "Main"
     -- Addendum H: the off-spec list says so in the title.
-    win:SetWindowTitle(("Choose %s (%s)  ·  P%d%s"):format(SlotLabel(state.sid), whichText, state.phase,
+    win:SetWindowTitle(("Choose %s (%s)  ·  %s%s"):format(SlotLabel(state.sid), whichText, PhaseText(state.phase),
         state.list == "os" and "  ·  Off spec" or ""))
 end
 
@@ -709,7 +721,7 @@ end
 local function PhaseOptions()
     local opts = {}
     for _, mode in ipairs(PHASE_MODES) do
-        opts[#opts + 1] = { value = mode, text = PHASE_TEXT[mode](state.phase) }
+        opts[#opts + 1] = { value = mode, text = PHASE_TEXT[mode](FilterPhase()) }
     end
     return opts
 end

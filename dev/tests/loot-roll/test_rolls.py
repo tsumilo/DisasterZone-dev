@@ -105,8 +105,8 @@ def roll_basic_flow_raid_wide():
         st = rollframe_state(c)
         assert st["shown"] and st["id"] == sid and st["rollShown"] and st["passShown"], (n, st)
         assert "Ruby Drape" in strip_codes(st["name"]), st
-    assert "Your P1 BiS (main) - Back" in strip_codes(rollframe_state(r["Bob"])["bis"]), rollframe_state(r["Bob"])
-    assert "Your P1 alt - Back" in strip_codes(rollframe_state(r["Dave"])["bis"]), rollframe_state(r["Dave"])
+    assert "BiS Back · P1" in strip_codes(rollframe_state(r["Bob"])["bis"]), rollframe_state(r["Bob"])
+    assert "Alt Back · P1" in strip_codes(rollframe_state(r["Dave"])["bis"]), rollframe_state(r["Dave"])
     assert "Not on your BiS list" in strip_codes(rollframe_state(r["Carol"])["bis"])
 
     ann = [e for e in w.chat_log[chat0:] if "Roll for" in e["text"]]

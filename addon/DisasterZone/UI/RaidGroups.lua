@@ -1,8 +1,10 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidGroups.lua", ...) then return end -- DisasterZone: UI/RaidGroups.lua
 -- The group grid (Addendum J §59-§60): a raid-wide buff strip, group boxes (2 for 10-man, 5 for 25-man) with the party
--- buffs each group has, and a "Not in a group" pool. Members are chips (class icon, spec icon, name). Organizers move
--- them by dragging, or by clicking a chip and then a group (or another chip, to swap; or an empty slot, to take it);
--- right-click opens the caller's menu. Each player keeps a seat (1-5) in their group, so the order is the organizer's. Used by the Teams view (a team's layout) and, in step 4, by the raid group builder.
+-- buffs each group has in its header, and a "Not in a group" pool. Members are chips (class circle, name, role icon;
+-- the spec is in the tooltip). The boxes share the grid's width, three to a row. Organizers move them by dragging, or
+-- by clicking a chip and then a group (or another chip, to swap; or an empty slot, to take it); right-click opens the
+-- caller's menu. Each player keeps a seat (1-5) in their group, so the order is the organizer's. Used by the Teams
+-- view (a team's layout) and by a raid's Groups tab.
 local addonName, ns = ...
 
 local GroupsUI = ns:NewModule("RaidGroupsUI")
@@ -10,18 +12,32 @@ local GroupsUI = ns:NewModule("RaidGroupsUI")
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tsort, tconcat = table.sort, table.concat
 
-local BOX_W, CHIP_H, GAP = 154, 16, 6
+local BOX_W, CHIP_H, GAP = 154, 20, 6   -- BOX_W: the narrowest a box gets; boxes share the grid's width
 local COLS = 3
-local HEADER_H, BUFF_H = 16, 18
+local HEADER_H = 26
 local SLOTS = 5
-local BOX_H = HEADER_H + SLOTS * CHIP_H + BUFF_H + 6
-local STRIP_H = 22
+local BOX_H = HEADER_H + SLOTS * CHIP_H + 7
+local STRIP_H = 26
 local POOL_COLS = 3
+-- the row layout (opts.layout = "row", a raid's Groups tab): five columns, the party buffs in a footer
+local ROW_COLS, ROW_GAP = 5, 8
+local FOOTER_H = 24
+local ROW_BOX_H = HEADER_H + SLOTS * CHIP_H + FOOTER_H + 4
+local BUFF_ROW = 18                      -- a party buff icon and its gap
 
 local ghost          -- the frame following the cursor while dragging
 
 local function Comp() return ns.RaidComp end
 local function UI() return ns.UI end
+
+-- A flat panel: dark fill and 1px edges (the Dungeons tab's cards).
+local function flatPanel(f, a)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    f.bg:SetColorTexture(0.08, 0.08, 0.095, a or 0.92)
+    UI():AddEdges(f, "BORDER")
+    UI():SetEdgeColor(f, 0.34, 0.34, 0.38, 0.5)
+end
 
 local function iconText(path, size)
     return path and ("|T" .. path .. ":" .. (size or 12) .. "|t") or ""
@@ -84,27 +100,33 @@ local function createChip(parent, grid)
     chip:SetSize(BOX_W - 8, CHIP_H)
     chip.grid = grid
     chip.cls = chip:CreateTexture(nil, "ARTWORK")
-    chip.cls:SetSize(14, 14)
-    chip.cls:SetPoint("LEFT", 1, 0)
+    chip.cls:SetSize(16, 16)
+    chip.cls:SetPoint("LEFT", 2, 0)
     chip.spec = chip:CreateTexture(nil, "ARTWORK")
-    chip.spec:SetSize(14, 14)
-    chip.spec:SetPoint("LEFT", chip.cls, "RIGHT", 2, 0)
-    chip.fs = chip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    chip.fs:SetPoint("LEFT", chip.spec, "RIGHT", 4, 0)
-    chip.fs:SetPoint("RIGHT", -2, 0)
+    chip.spec:SetSize(13, 13)
+    chip.spec:SetPoint("RIGHT", -3, 0)
+    chip.spec:SetTexture(UI().ROLE_TEX)
+    chip.fs = chip:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    do
+        local path, _, flags = chip.fs:GetFont()
+        if path then chip.fs:SetFont(path, 12, flags) end
+    end
+    chip.fs:SetPoint("LEFT", chip.cls, "RIGHT", 6, 0)
+    chip.fs:SetPoint("RIGHT", chip.spec, "LEFT", -4, 0)
     chip.fs:SetJustifyH("LEFT")
     chip.fs:SetWordWrap(false)
     local hl = chip:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.12)
+    hl:SetColorTexture(1, 1, 1, 0.07)
     chip.picked = chip:CreateTexture(nil, "BACKGROUND")
     chip.picked:SetAllPoints()
-    chip.picked:SetColorTexture(1, 0.82, 0, 0.35)
+    chip.picked:SetColorTexture(1, 0.82, 0, 0.25)
     chip.picked:Hide()
-    -- an empty seat is a faint box (the group's "4/5" already counts them)
+    -- an empty seat is a faint fill, for who can drop a player there (the group's "4/5" already counts them)
     chip.seat = chip:CreateTexture(nil, "BACKGROUND")
-    chip.seat:SetAllPoints()
-    chip.seat:SetColorTexture(1, 1, 1, 0.04)
+    chip.seat:SetPoint("TOPLEFT", 0, -1)
+    chip.seat:SetPoint("BOTTOMRIGHT", 0, 1)
+    chip.seat:SetColorTexture(1, 1, 1, 0.035)
     chip.seat:Hide()
     chip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     chip:RegisterForDrag("LeftButton")
@@ -121,7 +143,7 @@ end
 local function setChip(chip, m)
     chip.member = m
     chip.key = m and m.key or nil
-    chip.seat:SetShown(m == nil and chip.slot ~= nil)
+    chip.seat:SetShown(m == nil and chip.slot ~= nil and chip.grid.opts.isEditable())
     if not m then
         chip.cls:Hide()
         chip.spec:Hide()
@@ -132,17 +154,14 @@ local function setChip(chip, m)
     end
     chip:EnableMouse(true)
     UI():ClassIcon(chip.cls, m.c)
-    local icon = Comp():SpecIcon(m.c, m.sp)
-    if icon then
-        chip.spec:SetTexture(icon)
-        chip.spec:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        chip.spec:SetAlpha(m.auto and 0.55 or 1)
+    -- the role (the spec is in the tooltip); a spec guessed from a BiS list or an old sign-up shows fainter
+    local role = Comp():RoleOf(m.c, m.sp)
+    if role then
+        chip.spec:SetTexCoord(UI():RoleCoords(role))
+        chip.spec:SetAlpha(m.auto and 0.5 or 1)
         chip.spec:Show()
     else
-        chip.spec:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-        chip.spec:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        chip.spec:SetAlpha(0.5)
-        chip.spec:Show()
+        chip.spec:Hide()
     end
     chip.fs:SetText(UI():ColoredName(m.key, m.c))
     chip.fs:SetAlpha(m.dim and 0.55 or 1)
@@ -207,53 +226,62 @@ Grid.__index = Grid
 --          onSwapGroups(a, b),
 --          isEditable() -> bool, onDrop(key, group|nil, targetKey|nil, seat|nil, shown), onMenu(root, key) (optional),
 --          (shown = every placed player's seat as drawn { [key] = 1..5 })
---          poolLabel = "Not in a group" }
+--          poolLabel = "Not in a group",
+--          stripParent = a frame for the raid-buff icons (no label; the grid starts with the groups),
+--          stripRoom() -> the width they may take there (optional),
+--          layout = "row" (optional: all groups side by side, the pool on their columns, the grid as tall as its
+--                   content; the default is three columns with a scrolling pool under them) }
 function GroupsUI:CreateGrid(parent, opts)
     local grid = setmetatable({ opts = opts, boxes = {}, picked = nil }, Grid)
     local f = CreateFrame("Frame", nil, parent)
     grid.frame = f
 
-    -- Raid-wide strip
-    f.stripLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.stripLabel:SetPoint("TOPLEFT", 2, -4)
-    f.stripLabel:SetText("Raid-wide")
+    -- Raid-wide strip: under a label on top of the grid, or (opts.stripParent) icons alone on the caller's row
+    local host = opts.stripParent or f
+    grid.top = opts.stripParent and 0 or (STRIP_H + 6)
+    if not opts.stripParent then
+        f.stripLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        f.stripLabel:SetPoint("TOPLEFT", 2, -7)
+        f.stripLabel:SetTextColor(0.62, 0.62, 0.62)
+        f.stripLabel:SetText("Raid buffs")
+    end
     grid.strip = {}
     for i = 1, 20 do
-        local b = createBuffIcon(f, 18)
-        if i == 1 then b:SetPoint("LEFT", f.stripLabel, "RIGHT", 6, 0) else b:SetPoint("LEFT", grid.strip[i - 1], "RIGHT", 2, 0) end
+        local b = createBuffIcon(host, 20)
+        if i > 1 then b:SetPoint("LEFT", grid.strip[i - 1], "RIGHT", 2, 0)
+        elseif f.stripLabel then b:SetPoint("LEFT", f.stripLabel, "RIGHT", 6, 0)
+        else b:SetPoint("LEFT", host, "LEFT", 0, 0) end
         b:Hide()
         grid.strip[i] = b
     end
 
     -- Group boxes (up to 8; 2 or 5 are shown)
     for g = 1, 8 do
-        local box = CreateFrame("Button", nil, f, "BackdropTemplate")
+        local box = CreateFrame("Button", nil, f)
         box:SetSize(BOX_W, BOX_H)
-        local col, row = (g - 1) % COLS, floor((g - 1) / COLS)
-        box:SetPoint("TOPLEFT", col * (BOX_W + GAP), -(STRIP_H + 4) - row * (BOX_H + GAP))
-        if box.SetBackdrop then
-            box:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12,
-                insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-            box:SetBackdropColor(0.08, 0.08, 0.08, 0.85)
-            box:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9)
-        end
+        flatPanel(box)
         box.group = g
-        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        box.title:SetPoint("TOPLEFT", 6, -4)
+        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        box.title:SetPoint("TOPLEFT", 8, -7)
         box.title:SetText("Group " .. g)
         box.countFs = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        box.countFs:SetPoint("TOPRIGHT", -6, -4)
+        box.countFs:SetPoint("TOPRIGHT", -8, -8)
+        box.rule = box:CreateTexture(nil, "BORDER")
+        box.rule:SetColorTexture(1, 1, 1, 0.07)
+        box.rule:SetHeight(1)
+        box.rule:SetPoint("TOPLEFT", 6, -HEADER_H + 2)
+        box.rule:SetPoint("TOPRIGHT", -6, -HEADER_H + 2)
         local swap = CreateFrame("Button", nil, box)
-        swap:SetSize(40, 14)
-        swap:SetPoint("RIGHT", box.countFs, "LEFT", -6, 0)
+        swap:SetSize(36, 14)
+        swap:SetPoint("LEFT", box.title, "RIGHT", 6, 0)
         swap.fs = swap:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         swap.fs:SetPoint("CENTER")
         local shl = swap:CreateTexture(nil, "HIGHLIGHT")
         shl:SetAllPoints()
-        shl:SetColorTexture(1, 1, 1, 0.15)
+        shl:SetColorTexture(1, 1, 1, 0)
         swap:SetScript("OnClick", function() grid:OnSwapClick(g) end)
         swap:SetScript("OnEnter", function(self)
+            if not grid.swapFrom then self.fs:SetText("|cffffd100swap|r") end
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             if grid.swapFrom == g then
                 GameTooltip:AddLine("Click another group to swap it with group " .. g .. ", or here to cancel.", 1, 1, 1, true)
@@ -265,30 +293,41 @@ function GroupsUI:CreateGrid(parent, opts)
             end
             GameTooltip:Show()
         end)
-        swap:SetScript("OnLeave", hideTooltip)
+        swap:SetScript("OnLeave", function(self)
+            if not grid.swapFrom then self.fs:SetText("|cff8c8c8cswap|r") end
+            hideTooltip()
+        end)
         box.swap = swap
         box.chips = {}
         for s = 1, SLOTS do
             local chip = createChip(box, grid)
             chip.slot = s
-            chip:SetPoint("TOPLEFT", 4, -HEADER_H - (s - 1) * CHIP_H)
-            if s > 1 then
-                -- a faint line between seats, so the players don't run together
-                chip.rule = chip:CreateTexture(nil, "BORDER")
-                chip.rule:SetPoint("TOPLEFT", 0, 0)
-                chip.rule:SetPoint("TOPRIGHT", 0, 0)
-                chip.rule:SetHeight(1)
-                chip.rule:SetColorTexture(1, 1, 1, 0.1)
-            end
+            chip:SetPoint("TOPLEFT", 6, -HEADER_H - 1 - (s - 1) * CHIP_H)
+            chip:SetPoint("RIGHT", box, "RIGHT", -6, 0)
+            chip:SetHeight(CHIP_H)
             box.chips[s] = chip
         end
         box.buffs = {}
+        -- what the party gets from its own members: right to left before the count, or (row layout) in the footer
         for i = 1, 9 do
-            local b = createBuffIcon(box, 15)
-            b:SetPoint("BOTTOMLEFT", 5 + (i - 1) * 16, 5)
+            local b = createBuffIcon(box, opts.layout == "row" and 16 or 14)
+            if opts.layout == "row" then
+                b:SetPoint("BOTTOMLEFT", 8 + (i - 1) * BUFF_ROW, 6)
+            elseif i == 1 then
+                b:SetPoint("RIGHT", box.countFs, "LEFT", -6, 0)
+            else
+                b:SetPoint("RIGHT", box.buffs[i - 1], "LEFT", -2, 0)
+            end
             b.missingText = "Not in this group."
             b:Hide()
             box.buffs[i] = b
+        end
+        if opts.layout == "row" then
+            box.footRule = box:CreateTexture(nil, "BORDER")
+            box.footRule:SetColorTexture(1, 1, 1, 0.05)
+            box.footRule:SetHeight(1)
+            box.footRule:SetPoint("BOTTOMLEFT", 6, FOOTER_H)
+            box.footRule:SetPoint("BOTTOMRIGHT", -6, FOOTER_H)
         end
         box:RegisterForClicks("LeftButtonUp")
         box:SetScript("OnClick", function(self) grid:OnGroupClick(self.group) end)
@@ -306,14 +345,23 @@ function GroupsUI:CreateGrid(parent, opts)
     -- Pool of members without a group
     local pool = CreateFrame("Button", nil, f)
     grid.pool = pool
+    flatPanel(pool, 0.6)
     pool:RegisterForClicks("LeftButtonUp")
     pool:SetScript("OnClick", function() grid:OnPoolClick() end)
-    pool.label = pool:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    pool.label:SetPoint("TOPLEFT", 2, -2)
-    pool.list = UI():CreateScrollList(pool, CHIP_H + 2, function(row, d) grid:InitPoolRow(row, d) end)
-    pool.list.frame:SetPoint("TOPLEFT", 0, -18)
-    pool.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
-    pool.list:SetEmptyText("")
+    pool.label = pool:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    pool.label:SetTextColor(0.62, 0.62, 0.62)
+    pool.label:SetPoint("TOPLEFT", 8, -7)
+    if opts.layout == "row" then
+        pool.chips = {}
+        pool.empty = pool:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        pool.empty:SetPoint("TOPLEFT", 8, -26)
+        pool.empty:SetText("Drop a player here to take them out of the groups.")
+    else
+        pool.list = UI():CreateScrollList(pool, CHIP_H + 2, function(row, d) grid:InitPoolRow(row, d) end)
+        pool.list.frame:SetPoint("TOPLEFT", 2, -22)
+        pool.list.frame:SetPoint("BOTTOMRIGHT", -2, 2)
+        pool.list:SetEmptyText("")
+    end
     return grid
 end
 
@@ -326,13 +374,16 @@ function Grid:InitPoolRow(row, d)
         row.chips = {}
         for i = 1, POOL_COLS do
             local chip = createChip(row, self)
-            chip:SetPoint("LEFT", (i - 1) * (BOX_W + GAP) + 4, 0)
             row.chips[i] = chip
         end
         row:SetScript("OnClick", function() self:OnPoolClick() end)
     end
+    local w = self.boxW or BOX_W
     for i, chip in ipairs(row.chips) do
         local m = d[i]
+        chip:ClearAllPoints()
+        chip:SetPoint("LEFT", (i - 1) * (w + GAP) + 6, 0)
+        chip:SetSize(w - 12, CHIP_H)
         chip:SetShown(m ~= nil)
         if m then setChip(chip, m) end
     end
@@ -348,6 +399,11 @@ end
 
 function Grid:Refresh()
     local members = self.opts.getMembers() or {}
+    if self.dragging then
+        local rest = {}
+        for _, m in ipairs(members) do if m.key ~= self.dragging then rest[#rest + 1] = m end end
+        members = rest
+    end
     local groups = self.opts.getGroups() or {}
     local seats = self.opts.getSeats and self.opts.getSeats() or {}
     self.shown, self.air = {}, {}
@@ -371,14 +427,35 @@ function Grid:Refresh()
 
     -- raid-wide strip: every member of the team / raid counts
     local cov = Comp():Coverage(members, "raid")
+    -- (on the caller's row: as large as the room left there allows, 20 down to 14)
+    local size = 20
+    local room = self.opts.stripRoom and self.opts.stripRoom()
+    if room then
+        while size > 14 and #cov * (size + 2) > room do size = size - 2 end
+    end
     for i, b in ipairs(self.strip) do
         local e = cov[i]
-        if e then setBuffIcon(b, e, #e.providers > 0) else b:Hide() end
+        b:SetSize(size, size)
+        if e and (not room or i * (size + 2) <= room + 2) then setBuffIcon(b, e, #e.providers > 0) else b:Hide() end
     end
 
+    local row_ = self.opts.layout == "row"
+    local cols, gap, boxH = row_ and ROW_COLS or COLS, row_ and ROW_GAP or GAP, row_ and ROW_BOX_H or BOX_H
+    local fw = self.frame:GetWidth() or 0
+    local bw = floor((fw - (cols - 1) * gap) / cols)
+    if fw < 100 then bw = BOX_W end
+    if not row_ then bw = max(BOX_W, bw) end
+    self.boxW = bw
+    -- (row layout: column i starts at x(i); the widths share the rounding, so the last ends on the frame's edge)
+    local function x(i) return row_ and fw >= 100 and floor(i * (fw + gap) / cols + 0.5) or i * (bw + gap) end
+    self.colX = x
     for g, box in ipairs(self.boxes) do
         local shown = g <= n
         box:SetShown(shown)
+        local col, row = (g - 1) % cols, floor((g - 1) / cols)
+        box:ClearAllPoints()
+        box:SetPoint("TOPLEFT", self.frame, "TOPLEFT", x(col), -self.top - row * (boxH + gap))
+        box:SetSize(x(col + 1) - gap - x(col), boxH)
         if shown then
             local list = byGroup[g]
             -- players sit in their seat; those without one (or whose seat is taken) fill the free seats by role
@@ -403,37 +480,83 @@ function Grid:Refresh()
             elseif self.swapFrom then
                 box.swap.fs:SetText("|cffffd100here|r")
             else
-                box.swap.fs:SetText("swap")
+                box.swap.fs:SetText("|cff8c8c8cswap|r")
             end
             self.air[g] = Comp():AirTotem(list)
             local present = {}
             for _, e in ipairs(Comp():Coverage(list, "party")) do
                 if #e.providers > 0 then present[#present + 1] = e end
             end
+            -- (the footer holds as many as its width does; the tooltip of each names who brings it)
+            local room = row_ and floor((bw - 16 + 2) / BUFF_ROW) or #box.buffs
             for i, b in ipairs(box.buffs) do
-                if present[i] then setBuffIcon(b, present[i], true) else b:Hide() end
+                if present[i] and i <= room then setBuffIcon(b, present[i], true) else b:Hide() end
             end
-            if box.SetBackdropBorderColor then
-                if self.swapFrom == g then box:SetBackdropBorderColor(0.2, 1, 0.2, 1)
-                elseif self.picked or self.swapFrom then box:SetBackdropBorderColor(1, 0.82, 0, 1)
-                else box:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9) end
-            end
+            if self.swapFrom == g then UI():SetEdgeColor(box, 0.2, 1, 0.2, 0.9)
+            elseif self.picked or self.swapFrom then UI():SetEdgeColor(box, 1, 0.82, 0, 0.75)
+            else UI():SetEdgeColor(box, 0.34, 0.34, 0.38, 0.5) end
         end
     end
 
+    tsort(pool, memberLess)
+    self.pool.label:SetText((self.opts.poolLabel or "Not in a group") .. " (" .. #pool .. ")")
+    if row_ then return self:LayoutPoolRow(pool, n, bw, boxH) end
     -- pool below the last row of boxes
     local rows = ceil(n / COLS)
     self.pool:ClearAllPoints()
-    self.pool:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -(STRIP_H + 4) - rows * (BOX_H + GAP))
+    self.pool:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -self.top - rows * (BOX_H + GAP))
     self.pool:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", 0, 0)
-    tsort(pool, memberLess)
-    self.pool.label:SetText((self.opts.poolLabel or "Not in a group") .. " (" .. #pool .. ")")
     local rowsData = {}
     for i = 1, #pool, POOL_COLS do
         rowsData[#rowsData + 1] = { pool[i], pool[i + 1], pool[i + 2] }
     end
     self.pool.list:SetData(rowsData)
 end
+
+-- The row layout's pool: beside the groups when they leave columns free (10 players: two groups, the pool in the
+-- other three), else under them across the width; its players on the groups' columns. The grid takes the height of
+-- what it shows (the page around it scrolls).
+function Grid:LayoutPoolRow(pool, n, bw, boxH)
+    local p = self.pool
+    local beside = n < ROW_COLS
+    local col0 = beside and n or 0
+    local pc = ROW_COLS - col0
+    local top = self.top + (beside and 0 or (ceil(n / ROW_COLS) * (boxH + ROW_GAP)))
+    local editable = self.opts.isEditable()
+    local rows = max(1, ceil(#pool / pc))
+    local h = 26 + rows * CHIP_H + 8
+    if beside then h = max(h, boxH) end
+    -- read-only and nobody outside the groups: nothing to show
+    local show = #pool > 0 or editable
+    p:SetShown(show)
+    p:ClearAllPoints()
+    local x = self.colX
+    p:SetPoint("TOPLEFT", self.frame, "TOPLEFT", x(col0), -top)
+    p:SetSize(x(ROW_COLS) - ROW_GAP - x(col0), h)
+    for i, m in ipairs(pool) do
+        local chip = p.chips[i]
+        if not chip then
+            chip = createChip(p, self)
+            p.chips[i] = chip
+        end
+        local c, r = (i - 1) % pc, floor((i - 1) / pc)
+        chip:ClearAllPoints()
+        chip:SetPoint("TOPLEFT", p, "TOPLEFT", x(col0 + c) - x(col0) + 6, -26 - r * CHIP_H)
+        chip:SetSize(x(col0 + c + 1) - ROW_GAP - x(col0 + c) - 12, CHIP_H)
+        chip:Show()
+        setChip(chip, m)
+    end
+    for i = #pool + 1, #p.chips do
+        p.chips[i]:Hide()
+        p.chips[i].member, p.chips[i].key = nil, nil
+    end
+    p.empty:SetShown(#pool == 0 and editable)
+    self.height = top + (show and h or 0)
+    self.frame:SetHeight(self.height)
+end
+
+-- How tall the grid's content is (row layout), for a scroll frame around it.
+function Grid:GetContentHeight() return self.height or 0 end
 
 ---------------------------------------------------------------------------
 -- Moving members
@@ -514,52 +637,162 @@ function Grid:OnPoolClick()
     if self.picked then self:Drop(self.picked, nil) end
 end
 
+-- The card under the cursor while a player is dragged: the chip itself, lifted (a gold edge and a shadow), held
+-- where it was grabbed.
 local function ensureGhost()
     if ghost then return ghost end
     ghost = CreateFrame("Frame", nil, UIParent)
-    ghost:SetSize(BOX_W - 8, CHIP_H)
+    ghost:SetSize(BOX_W - 12, CHIP_H)
     ghost:SetFrameStrata("TOOLTIP")
-    ghost.fs = ghost:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    ghost.fs:SetPoint("LEFT", 2, 0)
+    ghost.shadow = ghost:CreateTexture(nil, "BACKGROUND", nil, -1)
+    ghost.shadow:SetPoint("TOPLEFT", -3, 3)
+    ghost.shadow:SetPoint("BOTTOMRIGHT", 4, -4)
+    ghost.shadow:SetColorTexture(0, 0, 0, 0.45)
     ghost.bg = ghost:CreateTexture(nil, "BACKGROUND")
     ghost.bg:SetAllPoints()
-    ghost.bg:SetColorTexture(0, 0, 0, 0.7)
-    ghost:SetScript("OnUpdate", function(self)
-        local x, y = GetCursorPosition()
-        local s = UIParent:GetEffectiveScale()
-        self:ClearAllPoints()
-        self:SetPoint("LEFT", UIParent, "BOTTOMLEFT", x / s + 8, y / s)
-    end)
+    ghost.bg:SetColorTexture(0.14, 0.14, 0.16, 0.97)
+    UI():AddEdges(ghost, "BORDER")
+    UI():SetEdgeColor(ghost, 1, 0.82, 0, 0.85)
+    ghost.cls = ghost:CreateTexture(nil, "ARTWORK")
+    ghost.cls:SetSize(16, 16)
+    ghost.cls:SetPoint("LEFT", 4, 0)
+    ghost.role = ghost:CreateTexture(nil, "ARTWORK")
+    ghost.role:SetSize(13, 13)
+    ghost.role:SetPoint("RIGHT", -5, 0)
+    ghost.role:SetTexture(UI().ROLE_TEX)
+    ghost.fs = ghost:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    do
+        local path, _, flags = ghost.fs:GetFont()
+        if path then ghost.fs:SetFont(path, 12, flags) end
+    end
+    ghost.fs:SetPoint("LEFT", ghost.cls, "RIGHT", 6, 0)
+    ghost.fs:SetPoint("RIGHT", ghost.role, "LEFT", -4, 0)
+    ghost.fs:SetJustifyH("LEFT")
+    ghost.fs:SetWordWrap(false)
     ghost:Hide()
     return ghost
 end
 
-function Grid:BeginDrag(chip)
-    if not chip.key or not self.opts.isEditable() then return end
-    self.dragging = chip.key
-    local g = ensureGhost()
-    g.fs:SetText(UI():ColoredName(chip.key, chip.member and chip.member.c))
-    g:Show()
+local function cursorIn(frame)
+    local x, y = GetCursorPosition()
+    local s = frame:GetEffectiveScale()
+    return x / s, y / s
 end
 
--- Finds what the cursor is over: a chip in a group (swap), an empty seat, a group box, or the pool.
-function Grid:EndDrag()
+-- The spot a drop would land on: lit gold (an empty seat, a player to swap with, the pool), red on a full group.
+function Grid:ShowDropMarker(t)
+    local m = self.marker
+    if not m then
+        m = CreateFrame("Frame", nil, self.frame)
+        m.fill = m:CreateTexture(nil, "BACKGROUND")
+        m.fill:SetAllPoints()
+        UI():AddEdges(m, "BORDER")
+        m:EnableMouse(false)
+        self.marker = m
+    end
+    local over = t and (t.chip or t.box or (t.pool and self.pool))
+    if not over then
+        m:Hide()
+        return
+    end
+    m:ClearAllPoints()
+    m:SetAllPoints(over)
+    m:SetFrameLevel(over:GetFrameLevel() + 5)
+    if t.full then
+        m.fill:SetColorTexture(1, 0.25, 0.25, 0.06)
+        UI():SetEdgeColor(m, 1, 0.3, 0.3, 0.8)
+    else
+        m.fill:SetColorTexture(1, 0.82, 0, t.chip and 0.14 or 0.05)
+        UI():SetEdgeColor(m, 1, 0.82, 0, 0.85)
+    end
+    m:Show()
+end
+
+-- What the cursor is over while dragging: { g, box, chip (the seat or player lit), target (swap), seat, full } or
+-- { pool = true }, or nil.
+function Grid:DropTarget()
     local key = self.dragging
-    self.dragging = nil
-    if ghost then ghost:Hide() end
-    if not key then return end
     for g, box in ipairs(self.boxes) do
         if box:IsShown() and box:IsMouseOver() then
-            local target, seat
+            local t = { g = g, box = box }
             for _, chip in ipairs(box.chips) do
                 if chip:IsMouseOver() then
-                    if chip.key and chip.key ~= key then target = chip.key
-                    elseif not chip.key then seat = chip.slot end
+                    if chip.key and chip.key ~= key then t.target, t.chip = chip.key, chip
+                    elseif not chip.key then t.seat, t.chip = chip.slot, chip end
                 end
             end
-            self:Drop(key, g, target, seat)
-            return
+            if not t.chip then
+                -- the group itself: the first free seat, or full
+                for _, chip in ipairs(box.chips) do
+                    if not chip.key then
+                        t.chip, t.seat = chip, chip.slot
+                        break
+                    end
+                end
+                t.full = t.chip == nil
+            end
+            return t
         end
     end
-    if self.pool:IsMouseOver() then self:Drop(key, nil) end
+    if self.pool:IsShown() and self.pool:IsMouseOver() then return { pool = true } end
+    return nil
+end
+
+function Grid:BeginDrag(chip)
+    if not chip.key or not self.opts.isEditable() then return end
+    local m = chip.member
+    self.dragging = chip.key
+    self.picked = nil
+    local g = ensureGhost()
+    -- the same size and scale as the chip, held where it was grabbed
+    g:SetScale(chip:GetEffectiveScale() / UIParent:GetEffectiveScale())
+    g:SetSize(chip:GetWidth(), chip:GetHeight())
+    local cx, cy = cursorIn(g)
+    g.dx, g.dy = (chip:GetLeft() or cx) - cx, (chip:GetTop() or cy) - cy
+    UI():ClassIcon(g.cls, m and m.c)
+    g.fs:SetText(UI():ColoredName(chip.key, m and m.c))
+    local role = m and Comp():RoleOf(m.c, m.sp)
+    g.role:SetShown(role ~= nil)
+    if role then g.role:SetTexCoord(UI():RoleCoords(role)) end
+    local grid = self
+    g:SetScript("OnUpdate", function(f)
+        -- (a drop outside every frame, or a hidden source, ends the drag here)
+        if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then return grid:EndDrag() end
+        local x, y = cursorIn(f)
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + f.dx, y + f.dy)
+        local t = grid:DropTarget()
+        local sig = t and ((t.g or "p") .. ":" .. tostring(t.chip or t.box)) or ""
+        if sig ~= grid.dropSig then
+            grid.dropSig = sig
+            grid:ShowDropMarker(t)
+        end
+    end)
+    local x, y = cursorIn(g)
+    g:ClearAllPoints()
+    g:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + g.dx, y + g.dy)
+    g:Show()
+    if GameTooltip then GameTooltip:Hide() end
+    self:Refresh()
+end
+
+-- The drop: onto a player (swap), an empty seat, a group (its first free seat), the pool; anywhere else puts the
+-- player back.
+function Grid:EndDrag()
+    local key = self.dragging
+    if not key then return end
+    local t = self:DropTarget()
+    self.dragging, self.dropSig = nil, nil
+    if ghost then
+        ghost:SetScript("OnUpdate", nil)
+        ghost:Hide()
+    end
+    if self.marker then self.marker:Hide() end
+    if t and t.g then
+        self:Drop(key, t.g, t.target, t.seat)
+    elseif t and t.pool then
+        self:Drop(key, nil)
+    else
+        self:Refresh()
+    end
 end

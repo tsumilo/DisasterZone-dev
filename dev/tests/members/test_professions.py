@@ -376,7 +376,7 @@ def the_roster_lists_everyone_with_their_professions():
     # members with data first (online, by name; Bert has none), then the rest
     assert roster(b) == ["Alfa", "Bert", "Gina", "--", "Zed"], roster(b)
     assert b.eval("return ns.MembersUI:GetState().member") == K("Bert")      # me, on a first look
-    assert b.find_text("3 members") and b.find_text("11 recipes")
+    assert b.find_text("All professions")                     # the filter (no member / recipe counts)
     b.eval("ns.MembersUI:SelectMember(...)", K("Alfa"))
     d = detail(b)
     assert [(x["kind"], x.get("id")) for x in d] == [("prof", 171), ("prof", 333), ("prof", 185)], d   # the Professions card
@@ -398,7 +398,7 @@ def a_profession_icon_filters_and_sorts_by_skill():
     w, g, a, b = ui_world()
     b.eval("ns.MembersUI:SetProfession(171)")
     assert roster(b) == ["Alfa", "Gina"], roster(b)          # 375 before 320; nobody without the profession
-    assert b.find_text("2 members")
+    assert b.find_text("Alchemy")                             # the filter names it
     b.eval("ns.MembersUI:SetProfession(197)")
     assert roster(b) == ["Gina"]
     b.eval("ns.MembersUI:SetProfession(nil)")
@@ -420,7 +420,7 @@ def recipes_can_be_searched_and_show_their_crafters():
     assert recipes_listed(b) == ["Flask of Fortification", "Flask of Mighty Restoration"], recipes_listed(b)
     b.eval("ns.MembersUI:SelectRecipe(28587)")
     d = detail(b)
-    assert d[0]["kind"] == "head" and "Crafters (2)" in d[0]["text"], d
+    assert d[0]["kind"] == "head" and d[0]["text"] == "Crafters", d
     who = [(x["key"], x["whisper"]) for x in d if x["kind"] == "crafter"]
     assert who == [(K("Alfa"), True), (K("Gina"), True)], who                 # by skill: 375, 320
     assert b.find_text("Flask of Fortification") and b.find_text("Link in chat")
@@ -476,7 +476,7 @@ def my_own_unread_professions_get_a_hint():
     w.tick(1)
     d = detail(b)
     assert d[-1]["kind"] == "note" and "Open your Tailoring window" in d[-1]["text"], d
-    assert b.find_text("recipes not shared yet")
+    assert not b.find_text("recipes not shared yet")          # (the line under them says it, once)
     open_tradeskill(b, "Tailoring", TAILORING)
     w.tick(2)
     d = detail(b)

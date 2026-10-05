@@ -78,8 +78,9 @@ def candidate(c, sid, pred_lua="return true", phase=5, klass=None):
 
 
 def card_texts(c):
-    return c.eval_py("""
-      return { T_card().title:GetText() }""")
+    """The centre's progress line, plain ("1 of 17 obtained"; the phase is the top bar's)."""
+    return [strip_codes(t) for t in c.eval_py("""
+      return { T_card().count:GetText() }""")]
 
 
 def progress(c, phase=None):
@@ -106,12 +107,12 @@ def phase_buttons_select_phase_and_mark_guild_phase():
         w.tick(0.1)
         assert c.eval("return ns.MyBiS:GetPhase()") == p
         prog = card_texts(c)[0]
-        assert prog.startswith("P%d" % p), prog
+        assert prog.endswith("obtained"), prog
         states = c.eval_py("""
           local out = {}
           for p = 1, 5 do
             local b = T_button(T_mybis(), "P" .. p)
-            out[p] = { rawget(b, "kind") == "chosen" and 1 or 0, rawget(b, "marker"):IsShown() and 1 or 0 }
+            out[p] = { rawget(b, "active") and 1 or 0, rawget(b, "marker"):IsShown() and 1 or 0 }
           end
           return out""")
         assert [s[0] for s in states] == [1 if i == p else 0 for i in range(1, 6)], states
@@ -125,6 +126,105 @@ def phase_buttons_select_phase_and_mark_guild_phase():
     c.hover(c.eval("return T_button(T_mybis(), 'P4')"))
     lines = [strip_codes(l[0]) for l in c.eval_py("return T_ttlines()")]
     assert lines[0] == "Phase 4" and "Guild's current phase" in lines, lines
+    # the Pre-raid list is the first tab: never the guild's star, its own tooltip
+    pre = c.eval("return T_button(T_mybis(), 'Pre-raid')")
+    p1 = c.eval("return T_button(T_mybis(), 'P1')")
+    assert c.eval("local a, b = ...; return select(2, b:GetPoint(1)) == a", pre, p1) is True   # P1 follows it
+    c.click(pre)
+    w.tick(0.1)
+    assert c.eval("return ns.MyBiS:GetPhase()") == 0
+    assert c.eval("local b = ...; return rawget(b, 'active') and 1 or 0, rawget(b, 'marker'):IsShown()", pre) == (1, False)
+    c.hover(pre)
+    lines = [strip_codes(l[0]) for l in c.eval_py("return T_ttlines()")]
+    assert lines[0] == "Pre-raid" and "Dungeons · Reputation · Crafting · Badges" in lines, lines
+    assert any("council doesn't see this list" in l for l in lines), lines
+    no_errors(w)
+
+
+@case
+def pre_raid_tab_reopens_where_it_was_left():
+    """Decision 3: My BiS reopens on the Pre-raid list when that was the last phase picked, else on the guild's."""
+    w, c = setup(phase=2)
+    c.click(c.eval("return T_button(T_mybis(), 'Pre-raid')"))
+    w.tick(0.1)
+    c.relog()
+    w.tick(4)
+    install_helpers(c)
+    c.slash("/dz bis")
+    w.tick(0.3)
+    assert c.eval("return ns.MyBiS:GetPhase()") == 0
+    assert c.eval("return rawget(T_button(T_mybis(), 'Pre-raid'), 'active')") is True
+    # a later guild phase change doesn't move it
+    seed_guild_council(w, [], phase=3)
+    w.tick(1)
+    assert c.eval("return ns.MyBiS:GetPhase()") == 0
+    # another phase picked: the next session opens on the guild's phase again
+    c.click(c.eval("return T_button(T_mybis(), 'P4')"))
+    w.tick(0.1)
+    c.relog()
+    w.tick(4)
+    install_helpers(c)
+    c.slash("/dz bis")
+    w.tick(0.3)
+    assert c.eval("return ns.MyBiS:GetPhase()") == 3
+    no_errors(w)
+
+
+@case
+def pre_raid_tab_suggest_progress_copy_and_clear():
+    w, c = setup()
+    more = c.eval("return T_mybis().moreBtn")
+
+    def sub_menu(name):
+        c.click(more)
+        for e in c.last_menu()["children"]:
+            if strip_codes(e.get("text") or "").strip() == name:
+                return e
+        raise AssertionError("no %s entry" % name)
+
+    c.click(c.eval("return T_button(T_mybis(), 'Pre-raid')"))
+    w.tick(0.1)
+    assert strip_codes(c.eval("return T_card().note1:GetText()")) == "Nothing picked for Pre-raid yet"
+    # Suggest fills the Pre-raid list from the guide's Pre-raid list (P1 stays empty)
+    c.click(c.eval("return T_dropdown(T_mybis(), 'Suggest')"))
+    texts = [e[2] for e in menu_texts(c.last_menu())]
+    assert "Fill empty slots (Holy Pre-raid)" in texts, texts
+    c.menu_select("Fill empty slots (Holy Pre-raid)")
+    w.tick(0.2)
+    n = progress(c, 0)[0]
+    assert n >= 12 and progress(c, 1)[0] == 0, (progress(c, 0), progress(c, 1))
+    assert card_texts(c)[0].endswith("obtained"), card_texts(c)
+    head = c.eval("return (ns.BiS:GetSlot(0, 1))")
+    assert head and c.eval("return T_tile(1).main.itemID") == head
+    # the slot menu and the picker say Pre-raid
+    c.click(tile_btn(c, 1), "RightButton")
+    texts = [e[2] for e in menu_texts(c.last_menu())]
+    assert texts[0] == "Head  ·  Pre-raid" and "Disable slot (Pre-raid)" in texts, texts
+    c.click(tile_btn(c, 2))
+    assert c.eval_py("return {ns.Picker:IsOpen(), ns.Picker:GetState()}") == [True, 0, 2, "main"]
+    assert c.eval("return DisasterZonePicker.titleText:GetText()") == "Choose Neck (Main)  ·  Pre-raid"
+    c.eval("ns.Picker:Close()")
+    # on P1, Copy offers the Pre-raid list first; on P2 it doesn't
+    c.click(c.eval("return T_button(T_mybis(), 'P1')"))
+    texts = [e[2] for e in menu_texts(sub_menu("Copy"))]
+    assert texts[:3] == ["Copy into P1", "Copy Pre-raid (fill empty)", "Copy Pre-raid (overwrite)"], texts
+    c.menu_select("Copy Pre-raid (fill empty)")
+    w.tick(0.2)
+    assert c.eval("return (ns.BiS:GetSlot(1, 1))") == head
+    c.click(c.eval("return T_button(T_mybis(), 'P2')"))
+    texts = [e[2] for e in menu_texts(sub_menu("Copy"))]
+    assert "Copy Pre-raid (fill empty)" not in texts and "Copy P1 (fill empty)" in texts, texts
+    # on Pre-raid, Copy offers the raid phases
+    c.click(c.eval("return T_button(T_mybis(), 'Pre-raid')"))
+    texts = [e[2] for e in menu_texts(sub_menu("Copy"))]
+    assert texts[:2] == ["Copy into Pre-raid", "Copy P1 (fill empty)"], texts
+    # Clear Pre-raid asks, then empties only the Pre-raid list
+    c.click(more)
+    menu_pick(c, "Clear Pre-raid")
+    c.accept_popup("DISASTERZONE_CLEAR_PHASE")
+    w.tick(0.2)
+    assert progress(c, 0)[0] == 0 and progress(c, 1)[0] == n
+    assert c.eval("return ns.BiS:GetData().pr") is None
     no_errors(w)
 
 
@@ -360,7 +460,7 @@ def context_menu_swap_mark_clear_link():
     w.tick(0.2)
     assert c.eval("return ns.BiS:GetObtainedState(...)", ids[1]) == "manual"
     assert "Marked obtained" in tile_text(c, 5)[1]
-    assert card_texts(c)[0].startswith("P1  ·  1 / 17 obtained"), card_texts(c)[0]
+    assert card_texts(c)[0].startswith("1 of 17 obtained"), card_texts(c)[0]
     assert ids[1] in (c.eval_py("return ns.BiS:GetData().ob") or [])
     c.click(tile_btn(c, 5), "RightButton")
     assert "Mark not obtained" in [e[2] for e in menu_texts(c.last_menu())]
@@ -384,7 +484,7 @@ def context_menu_swap_mark_clear_link():
     c.menu_select("Clear slot")
     w.tick(0.2)
     assert c.eval_py("return {ns.BiS:GetSlot(1, 5)}") == []
-    assert "click to choose" in tile_text(c, 5)[0]
+    assert strip_codes(tile_text(c, 5)[0]) == "Chest"          # an empty slot: its name (a click chooses)
     # right-click on the ALT button opens the same menu
     c.eval("ns.BiS:SetSlot(1, 7, 'alt', ...)", c.eval("return ns.ItemDB:GetCandidates(7, {maxPhase=1, class='PALADIN', usableOnly=true})[1].itemID"))
     c.click(tile_btn(c, 7, "alt"), "RightButton")
@@ -403,23 +503,29 @@ def copy_phase_and_clear_phase():
     other_neck = c.eval("return ns.ItemDB:GetCandidates(2, {maxPhase=1, class='PALADIN', usableOnly=true})[3].itemID")
     c.click(c.eval("return T_button(T_mybis(), 'P2')"))
     c.eval("ns.BiS:SetSlot(2, 2, 'main', ...)", other_neck)
-    copy = c.eval("return T_dropdown(T_mybis(), 'Copy from')")
-    menu = c.dropdown_menu(copy)
-    texts = [e[2] for e in menu_texts(menu)]
+    # Copy lives in the More (...) menu
+    more = c.eval("return T_mybis().moreBtn")
+
+    def copy_menu():
+        c.click(more)
+        for e in c.last_menu()["children"]:
+            if strip_codes(e.get("text") or "").strip() == "Copy":
+                return e
+        raise AssertionError("no Copy entry")
+    texts = [e[2] for e in menu_texts(copy_menu())]
     assert texts == ["Copy into P2", "Copy P1 (fill empty)", "Copy P1 (overwrite)"], texts
     c.menu_select("Copy P1 (fill empty)")
     w.tick(0.2)
     assert c.eval("return ns.BiS:GetSlot(2, 1)") == ids[1]
     assert c.eval("return ns.BiS:GetSlot(2, 2)") == other_neck, "fill-empty overwrote a chosen slot"
     assert c.eval("return T_tile(1).main.itemID") == ids[1], "doll not refreshed after copy"
-    c.dropdown_menu(copy)
+    copy_menu()
     c.menu_select("Copy P1 (overwrite)")
     w.tick(0.2)
     assert c.eval("return ns.BiS:GetSlot(2, 2)") == ids[2]
     # phase with nothing elsewhere: explanatory title
     c.click(c.eval("return T_button(T_mybis(), 'P5')"))
-    menu = c.dropdown_menu(copy)
-    assert "Copy P1 (fill empty)" in [e[2] for e in menu_texts(menu)]
+    assert "Copy P1 (fill empty)" in [e[2] for e in menu_texts(copy_menu())]
     # clear phase: confirmation popup, then empty
     c.click(c.eval("return T_button(T_mybis(), 'P2')"))
     n0 = len(c.chat_frame)
@@ -543,7 +649,7 @@ def two_hander_locks_off_hand():
     assert oh_alpha < 1, oh_alpha
     assert "Two-hander in main hand" in strip_codes(tile_text(c, 16)[1])
     prog = card_texts(c)
-    assert "0 / 16 obtained" in prog[0] and progress(c)[:2] == [1, 16], prog
+    assert "0 of 16 obtained" in prog[0] and progress(c)[:2] == [1, 16], prog
     # still clickable: the off hand picker opens (a 2H + shield list is allowed but stays flagged)
     c.click(tile_btn(c, 16))
     assert c.eval_py("return {ns.Picker:GetState()}") == [1, 16, "main"]
@@ -559,14 +665,14 @@ def two_hander_locks_off_hand():
     w.tick(0.2)
     assert c.eval("return T_tile(16):GetAlpha()") == 1
     assert "Two-hander" not in strip_codes(tile_text(c, 16)[1] or "")
-    assert "/ 17 obtained" in card_texts(c)[0]
+    assert "of 17 obtained" in card_texts(c)[0]
     no_errors(w)
 
 
 @case
 def progress_card_model_wears_bis_picks():
     w, c = setup()
-    assert card_texts(c)[0] == "P1  ·  0 / 17 obtained", card_texts(c)
+    assert card_texts(c)[0] == "0 of 17 obtained", card_texts(c)
     # record what the model is dressed in (the mock's DressUpModel has no state for it)
     c.eval("""
       local m = T_card().model
@@ -594,7 +700,7 @@ def progress_card_model_wears_bis_picks():
         c.eval("local s, i = ...; ns.BiS:SetSlot(1, s, 'main', i)", sid, iid)
     c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", CRAFTED_HELM)
     w.tick(0.2)
-    assert card_texts(c)[0] == "P1  ·  0 / 17 obtained" and progress(c, 1)[0] == 4
+    assert card_texts(c)[0] == "0 of 17 obtained" and progress(c, 1)[0] == 4
     assert tried() == sorted([CRAFTED_HELM] + [k[1] for k in kara]), tried()
     # a disabled slot keeps the equipped item (its pick isn't tried on)
     c.eval("ns.BiS:SetSlotDisabled(1, 1, true)")
@@ -603,7 +709,7 @@ def progress_card_model_wears_bis_picks():
     # obtained items count in the title
     c.equip({2: kara[0][1]})
     w.tick(2)
-    assert card_texts(c)[0] == "P1  ·  1 / 16 obtained", card_texts(c)
+    assert card_texts(c)[0] == "1 of 16 obtained", card_texts(c)
     no_errors(w)
 
 
@@ -843,7 +949,7 @@ def the_shipped_lists_give_every_spec_a_template():
         local have = ns.Loon:GetSpecFunctions(class)
         for _, spec in ipairs(specs) do
           if not have[spec.label] then bad[#bad + 1] = class .. ' ' .. spec.label .. ': no guide' end
-          for phase = 1, 5 do
+          for phase = 0, 5 do   -- (0 = the Pre-raid list)
             local tpl = ns.Loon:GetTemplate(class, spec.label, phase)
             if not tpl then
               bad[#bad + 1] = class .. ' ' .. spec.label .. ' P' .. phase .. ': no template'
@@ -861,7 +967,7 @@ def the_shipped_lists_give_every_spec_a_template():
       end
       return { bad = bad, n = n }""")
     assert list(res["bad"] or []) == [], list(res["bad"])[:20]
-    assert res["n"] >= 27 * 5, res["n"]
+    assert res["n"] >= 27 * 6, res["n"]
     # a real fill: a Holy paladin's empty P1
     c.eval("ns.BiS:SetSpec('Holy')")
     c.eval("ns.MyBiS:ApplySuggestion(1, false)")

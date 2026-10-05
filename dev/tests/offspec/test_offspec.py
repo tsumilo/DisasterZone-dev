@@ -76,10 +76,21 @@ def data_shape_is_flat_and_main_list_untouched():
     assert d["ox"] == [{16: True}] and "dx" not in d, d
     assert C.eval("return ns.BiS:IsSlotDisabled(1, 16, 'os')") is True
     assert C.eval("return ns.BiS:IsSlotDisabled(1, 16)") is False
+    # the off spec's Pre-raid list: flat opr / opx, next to the main spec's pr / px
+    assert C.eval("return ns.BiS:SetSlot(0, 15, 'main', ..., 'os')", MINDBLADE) is True
+    assert C.eval("return ns.BiS:SetSlotDisabled(0, 16, true, 'os')") is True
+    assert C.eval_py("local d = ns.BiS:GetData() return { d.opr[15][1], d.opr[15][2], d.opx[16], d.pr == nil, "
+                     "d.px == nil }") == [MINDBLADE, 0, True, True, True]
+    assert C.eval("return ns.BiS:IsSlotDisabled(0, 16, 'os')") is True
+    assert C.eval("return ns.BiS:IsSlotDisabled(0, 16)") is False
+    assert C.eval("return ns.Store:ValidateData(ns.BiS:GetData())") is True
+    # an off spec with only a Pre-raid list is still an off spec
+    assert C.eval("local d = ns.Util.CopyTable(ns.BiS:GetData()) d.os, d.op, d.ox = nil, nil, nil "
+                  "return ns.HasOffSpec(d)") is True
     # removing the off spec restores the old shape
     assert C.eval("return ns.BiS:RemoveOffSpec()") is True
     d = data_of(C)
-    assert "os" not in d and "op" not in d and "ox" not in d, d
+    assert "os" not in d and "op" not in d and "ox" not in d and "opr" not in d and "opx" not in d, d
     r.w.assert_no_errors()
 
 
@@ -186,13 +197,12 @@ def drop_panel_shows_off_spec_after_main_spec():
     A.eval("ns.DropPanel:Render()")
     blk = [b for b in panel_blocks(A) if b["item"] == MINDBLADE][0]
     assert blk["names"] == [key("Dave"), key("Carol")], blk
-    count = strip_codes(A.eval("for _, b in ipairs(ns.DropPanel.blocks) do if b.itemID == ... then return b.count:GetText() end end", MINDBLADE))
-    assert count == "1 want +1 OS", count
+    # (1.3.1: no "1 want +1 OS" count: the rows show it; the row's pill says OS)
     badge = strip_codes(A.eval("""
         for _, b in ipairs(ns.DropPanel.blocks) do if b.itemID == ... then
           for _, row in ipairs(b.rows) do if row.data and row.data.key == ns.Util.NormalizeName('Carol') then return row.badge:GetText() end end
         end end""", MINDBLADE))
-    assert badge == "[OS]", badge
+    assert badge == "OS", badge
     line = A.eval("return ns.DropPanel:BuildAnnounceLine(...)", MINDBLADE)
     assert strip_codes(line).endswith("Alt: Dave; OS: Carol"), line
     r.w.assert_no_errors()
@@ -231,7 +241,7 @@ def my_bis_switch_picker_and_remove():
     C.eval("ns.MyBiS:SetList('os')")
     r.w.tick(0.2)
     assert C.eval("return ns.MyBiS:GetList()") == "os"
-    assert C.find_text("Off spec  ·  P"), "card title"
+    assert C.find_text("Off spec"), "card title"
     # the picker opened from the off-spec view writes the off-spec list
     C.eval("ns.Picker:Open(1, 15, 'main', nil, 'os')")
     assert "Off spec" in (C.eval("return DisasterZonePicker.TitleText and DisasterZonePicker.TitleText:GetText() or ''") or "")

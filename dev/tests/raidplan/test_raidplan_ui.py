@@ -56,9 +56,13 @@ def member_sees_upcoming_and_answers_from_the_strip():
     assert shown(rita, P + ".upcoming") and not shown(rita, P + ".logBtn")
     assert not shown(rita, P + ".newRaidBtn")
     assert rita.eval("return ns.RaidPlanUI:GetSelectedRaid()") == occ      # the raid to answer is picked
-    assert rita.find_text("Karazhan (10)", True, True)
+    assert rita.eval("return ns.RaidPlanUI:GetPage()") == "board"            # the board first; a card opens its page
+    rita.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
+    w.tick(0.3)
+    assert rita.find_text("Karazhan", True, True) and rita.find_text("10-player", True, True)
     assert rita.find_text("Bring pots", True, True)
-    assert rita.find_text("Pick an answer", True, True)
+    assert shown(rita, P + ".upcoming.statusBtns.A")
+    assert rita.eval("return ns.RaidsUI:GetPanel().upcoming.statusBtns.A.chosen") is False
     # pick Shadow first, then a note, then Accept: all three go out together
     rita.type_text(rita.eval("return ns.RaidsUI:GetPanel().upcoming.noteBox"), "late 10")
     dd = rita.dropdown_menu(rita.eval("return ns.RaidsUI:GetPanel().upcoming.specDD"))
@@ -105,7 +109,6 @@ def no_response_line_lists_invited_members_without_an_answer():
     w.tick(0.3)
     assert has_line(bob, "No response", "(2)")
     assert has_line(bob, "Bench", "(1)")
-    assert bob.find_text("2 no response", True, True)
     w.assert_no_errors()
 
 
@@ -263,11 +266,8 @@ GROUP_CHIP = """
   for _, box in ipairs(grid.boxes) do
     for _, chip in ipairs(box.chips) do if chip.key == key then return chip end end
   end
-  local found
-  grid.pool.list.box:ForEachFrame(function(row)
-    for _, chip in ipairs(row.chips or {}) do if chip:IsShown() and chip.key == key then found = chip end end
-  end)
-  return found"""
+  for _, chip in ipairs(grid.pool.chips or {}) do if chip:IsShown() and chip.key == key then return chip end end
+  return nil"""
 
 
 @case
@@ -400,6 +400,8 @@ def delete_removes_a_raid_for_everyone_after_confirming():
     assert [r["id"] for r in raids(rita)] == [sid + "#1"], raids(rita)
     # members don't get the button; a member who was offline doesn't bring the raids back
     open_tab(w, rita)
+    rita.eval("ns.RaidPlanUI:SelectRaid(...)", sid + "#1")
+    w.tick(0.3)
     assert not rita.eval("return ns.RaidsUI:GetPanel().upcoming.detail.cancelBtn:IsShown()")
     c["Lee"].logout()
     w.tick(1)

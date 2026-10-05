@@ -9,23 +9,26 @@ from _common import (case, run_all, toc_version, solo, no_errors, World, Client,
                      strip_codes, tt_lines, gm_pick, GUILD_INFO_SPY, guild_info_calls)
 
 CHECKS = [
-    ("Boss drop panel (Loot Council)", "alerts.councilPanel", False),
+    ("Boss drop panel", "alerts.councilPanel", False),
     ('"On your BiS list!" toast', "alerts.personalToast", False),
-    ("Play a sound with drop alerts", "alerts.sound", False),
-    ("Glow loot buttons for your BiS items", "alerts.glow", False),
-    ("Chat message when your BiS item drops", "alerts.chat", False),
+    ("Sound with drop alerts", "alerts.sound", False),
+    ("Glow on BiS loot buttons", "alerts.glow", False),
+    ("Chat message for BiS drops", "alerts.chat", False),
     ("BiS badges on the loot window", "alerts.lootBadges", False),
-    ("Announce rolls and winners in raid chat", "roll.announce", False),
-    ("Show the Roll / Pass popup", "roll.popup", False),
-    ("Show DisasterZone lines on item tooltips", "tooltip.enabled", False),
-    ("Council: list who wants the item", "tooltip.council", False),
+    ("Off-spec items too", "alerts.offspec", False),
+    ("Announce rolls and winners", "roll.announce", False),
+    ("Roll / Pass popup", "roll.popup", False),
+    ("Auto-mark the planned mobs", "strategy.autoMark", False),
+    ("Show my jobs near a planned boss", "strategy.reminder", False),
+    ("DisasterZone lines on item tooltips", "tooltip.enabled", False),
+    ("Who wants it (Loot Council)", "tooltip.council", False),
     ("Debug messages in chat", "debug", False),
 ]
 
 # first option text -> (setting path, [(option text, stored value)])
 DROPDOWNS = {
-    "Attach to loot window when open": ("dropPanelMode", [("Always floating", "floating"),
-                                                          ("Attach to loot window when open", "auto")]),
+    "Attach to the loot window": ("dropPanelMode", [("Always floating", "floating"),
+                                                    ("Attach to the loot window", "auto")]),
     "Epic": ("qualityThreshold", [("Rare", 3), ("Epic", 4)]),
     "Raid": ("announceChannel", [("Raid Warning", "RAID_WARNING"), ("Raid", "RAID")]),
     "15 seconds": ("roll.duration", [("15 seconds", 15), ("20 seconds", 20), ("45 seconds", 45),
@@ -47,6 +50,15 @@ end
 function T_dd_by_first(root, first)
   for _, e in ipairs(T_dropdowns(root)) do if e[2] == first then return e[1] end end
 end
+-- opens the Settings section that holds f (one section shows at a time), as a player would first
+function T_show_section_of(f)
+  local p = f
+  while p do
+    local k = rawget(p, "key")
+    if k and ns.SettingsUI.sections[k] == p then ns.SettingsUI:SelectSection(k); return k end
+    p = p:GetParent()
+  end
+end
 function T_last_popup_text()
   local log = __MOCK.popup_log
   return log and log[#log] and log[#log].text
@@ -66,7 +78,8 @@ def setting(c, path):
 
 def checkbox(c, label):
     cb = c.eval("return T_checkbox(T_settings(), ...)", label)
-    assert cb is not None, "no checkbox %r" % label
+    assert cb is not None, "no switch %r" % label
+    c.eval("T_show_section_of(...)", cb)
     return cb
 
 
@@ -106,7 +119,7 @@ def every_checkbox_writes_its_setting_and_follows_changes():
     w.tick(0.3)
     assert checked(c, cb) is False
     # persisted across relog
-    c.click(checkbox(c, "Play a sound with drop alerts"))
+    c.click(checkbox(c, "Sound with drop alerts"))
     c.relog()
     w.tick(2)
     assert c.eval("return DisasterZoneDB.settings.alerts.sound") is False
@@ -122,6 +135,7 @@ def every_dropdown_writes_its_setting():
         assert first in firsts, (first, firsts)
     for first, (path, options) in DROPDOWNS.items():
         dd = c.eval("return T_dd_by_first(T_settings(), ...)", first)
+        c.eval("T_show_section_of(...)", dd)
         for text, value in options:
             menu = c.dropdown_menu(dd)
             assert text in [e[2] for e in menu_texts(menu)], (text, menu_texts(menu))
@@ -133,6 +147,7 @@ def every_dropdown_writes_its_setting():
     # view phase: "Follow guild (P1)" = nil, P3 = 3
     vp = c.eval("return T_dd_by_first(T_settings(), 'Follow guild (P1)')")
     assert vp is not None, firsts
+    c.eval("T_show_section_of(...)", vp)
     menu = c.dropdown_menu(vp)
     texts = [e[2] for e in menu_texts(menu)]
     assert texts[0] == "Follow guild (P1)" and texts[3].startswith("P3 · "), texts
@@ -152,7 +167,7 @@ def minimap_toggle_hides_and_shows_the_button():
     btn = "LibDBIcon10_DisasterZone"
     assert c.frame(btn) is not None, "LibDBIcon button not created"
     assert c.eval("return LibDBIcon10_DisasterZone:IsShown()") is True
-    cb = checkbox(c, "Show the minimap button")
+    cb = checkbox(c, "Minimap button")
     assert checked(c, cb) is True
     c.click(cb)
     w.tick(0.2)
@@ -164,7 +179,7 @@ def minimap_toggle_hides_and_shows_the_button():
     install_helpers(c)
     c.eval(DD_LIST)
     open_settings(c)
-    cb = checkbox(c, "Show the minimap button")
+    cb = checkbox(c, "Minimap button")
     assert checked(c, cb) is False
     c.click(cb)
     w.tick(0.2)
@@ -189,7 +204,7 @@ def minimap_toggle_hides_and_shows_the_button():
 @case
 def demo_simulate_and_demo_roll_buttons():
     w, c = settings_client(guild_rank=3)
-    cb = checkbox(c, "Demo data (fake guild members & raid)")
+    cb = checkbox(c, "Demo data")
     c.click(cb)
     w.tick(0.3)
     assert c.eval("return ns.Demo:IsEnabled()") is True
@@ -257,7 +272,7 @@ def gm_edits_the_council_from_settings_and_everyone_follows():
     w, gm, rai, ann = gm_world()
     st = council_state(gm)
     assert strip_codes(st[0]) == "You are on the Loot Council. · Guild Master", st[0]
-    assert strip_codes(st[1]) == "Guild council: only the Guild Master so far (no list shared yet).", st[1]
+    assert strip_codes(st[1]) == "Guild council · only the Guild Master so far", st[1]
     assert st[2] == ["Gm-Thunderstrike"], st[2]
     assert st[3] == 1 and "the guild council (Guild Master)" in st[4], st
     # "Edit council..." opens the picker (Council tab > Loot Council)
@@ -290,7 +305,7 @@ def gm_edits_the_council_from_settings_and_everyone_follows():
     for c in (gm, rai, ann):
         open_settings(c)
         st = council_state(c)
-        assert strip_codes(st[1]) == "Guild council (set by Gm just now · phase P3):", (c.full_name, st[1])
+        assert strip_codes(st[1]) == "Guild council · set by Gm just now · phase P3", (c.full_name, st[1])
         assert st[2] == ["Gm-Thunderstrike", "Bob-Thunderstrike", "Rai-Thunderstrike"], (c.full_name, st[2])
         assert c.eval("return ns.Guild:GetGuildPhase()") == 3
     assert strip_codes(council_state(rai)[0]) == "You are on the Loot Council. · guild council list"
@@ -330,7 +345,7 @@ def non_gm_sees_read_only_council_section():
     for c in (rai, ann):
         open_settings(c)
         st = council_state(c)
-        assert strip_codes(st[1]) == "Guild council (set by Gm just now · phase P2):", st[1]
+        assert strip_codes(st[1]) == "Guild council · set by Gm just now · phase P2", st[1]
         assert st[2] == ["Gm-Thunderstrike", "Rai-Thunderstrike"], st[2]
         assert st[3] == 0, "only the Guild Master / a raid leader gets Edit council..."
         assert st[4].startswith("The Guild Master picks the guild council in DisasterZone."), st[4]

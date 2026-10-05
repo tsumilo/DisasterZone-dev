@@ -106,12 +106,20 @@ end
 ---------------------------------------------------------------------------
 -- Line builders (cached per itemID)
 ---------------------------------------------------------------------------
+-- "P2", or "Pre-raid" for phase 0.
+local function PhaseText(p)
+    if ns.PhaseLabel then return ns.PhaseLabel(p) end
+    return "P" .. tostring(p)
+end
+
 local function BuildOwn(itemID)
     if not (ns.BiS and ns.BiS.MatchItem) then return nil end
-    local matches = ns.BiS:MatchItem(itemID)
+    -- My Pre-raid list counts here (and only here: loot alerts and the roll popup stay on the raid phases).
+    local matches = ns.BiS:MatchItem(itemID, { preRaid = true })
     if type(matches) ~= "table" or type(matches[1]) ~= "table" then return nil end
     local m = matches[1]
     local phase = tonumber(m.phase) or 0
+    local label = PhaseText(phase)
     local text
     local anyOS = false
     for _, x in ipairs(matches) do
@@ -120,12 +128,14 @@ local function BuildOwn(itemID)
     if m.os then
         -- Only on my off-spec list (Addendum H; MatchItem lists main-spec matches first).
         local sp = ns.BiS.GetSpec and ns.BiS:GetSpec("os") or ""
-        text = MARK .. " " .. Paint(format("Your P%d off-spec %s%s - %s", phase, m.which == "alt" and "alt" or "BiS",
+        text = MARK .. " " .. Paint(format("Your %s off-spec %s%s - %s", label, m.which == "alt" and "alt" or "BiS",
             sp ~= "" and (" (" .. sp .. ")") or "", SlotLabel(m.sid)), "offspec")
     elseif m.which == "alt" then
-        text = MARK .. " " .. Paint(format("Your P%d alt - %s", phase, SlotLabel(m.sid)), "alt")
+        text = MARK .. " " .. Paint(format("Your %s alt - %s", label, SlotLabel(m.sid)), "alt")
+    elseif phase == 0 then
+        text = MARK .. " " .. STAR .. " " .. Paint(format("Your %s BiS - %s", label, SlotLabel(m.sid)), "main")
     else
-        text = MARK .. " " .. STAR .. " " .. Paint(format("Your P%d BiS (main) - %s", phase, SlotLabel(m.sid)), "main")
+        text = MARK .. " " .. STAR .. " " .. Paint(format("Your %s BiS (main) - %s", label, SlotLabel(m.sid)), "main")
     end
     if m.via then
         local via = VIA_TEXT[m.via] or "via token"
@@ -143,7 +153,7 @@ local function BuildOwn(itemID)
         local p = type(x) == "table" and (x.os and true or false) == (m.os and true or false) and tonumber(x.phase)
         if p and not seen[p] then
             seen[p] = true
-            extra[#extra + 1] = "P" .. p
+            extra[#extra + 1] = PhaseText(p)
         end
     end
     if #extra > 0 then text = text .. Paint("  also " .. tconcat(extra, ", "), "muted") end

@@ -637,7 +637,7 @@ def searchable_dropdown_filters_toggles_saves_reverts_and_clears():
     gm.click(gm.eval("return %s.save" % sec))
     w.tick(1)
     assert any("Guild council saved and shared" in l for l in printed_since(gm, p0)), printed_since(gm, p0)
-    assert strip_codes(gm.eval("return %s.status:GetText()" % sec)).startswith("Shared just now · 2 members · phase P2")
+    assert strip_codes(gm.eval("return %s.status:GetText()" % sec)).startswith("Shared just now")
     assert gm.eval("return %s.save:IsEnabled()" % sec) is False
     assert sorted(guild_list(rai)["members"]) == [K("Carl"), K("Rai")] and guild_list(rai)["phase"] == 2
     # Revert discards a draft change; the row "x" removes from the draft
@@ -725,7 +725,7 @@ def raid_leader_picker_lists_raid_members_first():
     ann.click(ann.eval("return T_sec('raid').save"))
     w.tick(1)
     st = strip_codes(ann.eval("return T_sec('raid').status:GetText()"))
-    assert st.startswith("Shared with this raid · 1 member"), st
+    assert st.startswith("Shared with this raid"), st
     assert council(rai, "Rai") is True and council(c["Zed"], "Rai") is False
     no_errors(w)
 

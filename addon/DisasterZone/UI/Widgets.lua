@@ -220,6 +220,29 @@ function UI:GuestTag(key)
     return self:IsGuest(key) and " |cff66ccff(guest)|r" or ""
 end
 
+-- The LFG role icons: tank, healer, anything else = damage. Interface\LFGFrame\UI-LFG-ICON-ROLES is 256x256 with
+-- 67x67 cells on this client (GetTexCoordsForRole's grid, used when the client has it).
+UI.ROLE_TEX = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
+local ROLE_TOKEN = { tank = "TANK", healer = "HEALER", TANK = "TANK", HEALER = "HEALER" }
+local ROLE_CELL = { TANK = { 0, 1 }, HEALER = { 1, 0 }, DAMAGER = { 1, 1 } }
+function UI:RoleCoords(role)
+    local token = ROLE_TOKEN[role] or "DAMAGER"
+    if GetTexCoordsForRole then
+        local l, r, t, b = GetTexCoordsForRole(token)
+        if l then return l, r, t, b end
+    end
+    local c, k = ROLE_CELL[token], 67 / 256
+    return c[1] * k, (c[1] + 1) * k, c[2] * k, (c[2] + 1) * k
+end
+
+-- A role icon inside text.
+function UI:RoleIconText(role, size)
+    local l, r, t, b = self:RoleCoords(role)
+    size = size or 13
+    local function px(v) return math.floor(v * 256 + 0.5) end
+    return ("|T%s:%d:%d:0:0:256:256:%d:%d:%d:%d|t"):format(UI.ROLE_TEX, size, size, px(l), px(r), px(t), px(b))
+end
+
 function UI:ClassIcon(texture, classFile)
     if not texture then return end
     local coords = classFile and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]
@@ -806,6 +829,148 @@ function UI:CreatePill(parent)
         self.bg:SetColorTexture(color[1], color[2], color[3], 0.35)
     end
     return p
+end
+
+-- A rounded pill look for frame f, h high (a 1px edge and a fill, drawn from half discs and a bar that don't overlap,
+-- so a see-through fill stays even): f:SetPillColors(fill, edge) with { r, g, b, a } each. The caller sizes f (its
+-- height = h) and puts its own texts / icons on it.
+function UI:AddPillShape(f, h)
+    local disc = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+    local function part(sub, inset)
+        local l = f:CreateTexture(nil, "BACKGROUND", nil, sub)
+        l:SetTexture(disc)
+        l:SetTexCoord(0, 0.5, 0, 1)
+        l:SetSize(h / 2 - inset, h - 2 * inset)
+        l:SetPoint("LEFT", inset, 0)
+        local r = f:CreateTexture(nil, "BACKGROUND", nil, sub)
+        r:SetTexture(disc)
+        r:SetTexCoord(0.5, 1, 0, 1)
+        r:SetSize(h / 2 - inset, h - 2 * inset)
+        r:SetPoint("RIGHT", -inset, 0)
+        local m = f:CreateTexture(nil, "BACKGROUND", nil, sub)
+        m:SetColorTexture(1, 1, 1, 1)
+        m:SetPoint("TOPLEFT", f, "TOPLEFT", h / 2, -inset)
+        m:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -h / 2, inset)
+        return { l, r, m }
+    end
+    f.pillEdge = part(1, 0)
+    f.pillFill = part(2, 1)
+    function f:SetPillColors(fill, edge)
+        for _, t in ipairs(self.pillFill) do t:SetVertexColor(fill[1], fill[2], fill[3], fill[4] or 1) end
+        for _, t in ipairs(self.pillEdge) do t:SetVertexColor(edge[1], edge[2], edge[3], edge[4] or 1) end
+    end
+end
+
+-- A small rounded tag in a row or a bar: "BiS", "Alt P2", "OS", "BiS locked". A tinted fill, a 1px edge and text in
+-- the tag's colour. p:Set(text, kind, icon): kind = "bis" | "alt" | "os" | "ok" | "warn" | "mute" (default); icon
+-- (optional) = a texture path in front of the text. It sizes itself to its text. The fill is mixed with the colour
+-- it sits on (p:SetBase(r, g, b), default the flat card fill) so the edge never shows through it.
+UI.TAG_LOOK = {
+    bis  = { text = { 1, 0.82, 0 },       tint = { 1, 0.82, 0 },       edge = { 1, 0.82, 0, 0.5 } },
+    alt  = { text = { 0.56, 0.78, 1 },    tint = { 0.31, 0.63, 1 },    edge = { 0.43, 0.71, 1, 0.5 } },
+    os   = { text = { 0.79, 0.65, 1 },    tint = { 0.63, 0.43, 1 },    edge = { 0.67, 0.51, 1, 0.5 } },
+    ok   = { text = { 0.62, 0.94, 0.69 }, tint = { 0.24, 0.71, 0.35 }, edge = { 0.35, 0.86, 0.47, 0.5 } },
+    warn = { text = { 1, 0.69, 0.40 },    tint = { 1, 0.55, 0.10 },    edge = { 1, 0.55, 0.10, 0.55 } },
+    mute = { text = { 0.72, 0.72, 0.72 }, tint = { 1, 1, 1 },          edge = { 1, 1, 1, 0.2 } },
+}
+function UI:CreateTagPill(parent, h)
+    h = h or 16
+    local p = CreateFrame("Frame", nil, parent)
+    p:SetSize(30, h)
+    UI:AddPillShape(p, h)
+    p.base = { 0.10, 0.10, 0.12 }
+    p.icon = p:CreateTexture(nil, "ARTWORK")
+    p.icon:SetSize(h - 6, h - 6)
+    p.icon:SetPoint("LEFT", 6, 0)
+    p.icon:Hide()
+    p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.fs:SetWordWrap(false)
+    function p:SetBase(r, g, b) self.base = { r, g, b } end
+    function p:Set(text, kind, icon)
+        local look = UI.TAG_LOOK[kind] or UI.TAG_LOOK.mute
+        local a, base, t = 0.12, self.base, look.tint
+        self:SetPillColors({ base[1] + (t[1] - base[1]) * a, base[2] + (t[2] - base[2]) * a,
+            base[3] + (t[3] - base[3]) * a, 1 }, look.edge)
+        self.fs:SetText(text or "")
+        self.fs:SetTextColor(look.text[1], look.text[2], look.text[3])
+        local x = 7
+        if icon then
+            self.icon:SetTexture(icon)
+            self.icon:Show()
+            x = 6 + (h - 6) + 3
+        else
+            self.icon:Hide()
+        end
+        self.fs:ClearAllPoints()
+        self.fs:SetPoint("LEFT", x, 0)
+        self:SetWidth(floor(x + (self.fs:GetStringWidth() or 16) + 7 + 0.5))
+    end
+    return p
+end
+
+-- An on / off switch, the look of the Dungeons tab's "I'm up for a run": a 34x18 pill with a knob, green with the knob
+-- on the right while on. It is a CheckButton: a click flips it and calls setter(checked); s:Refresh() reads getter();
+-- s:SetChecked(on) / s:SetOn(on) set it from code and repaint, s:IsOn() reads it. label (optional): a text to its right
+-- that is part of the click area (s.label); a caller that draws its own text for it may point s.label at that.
+-- s:SetHover(on) gives it the hover look while the mouse is over something else that clicks it (a settings row).
+local SWITCH_DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+local SWITCH_LOOK = {
+    on  = { fill = { 0.11, 0.47, 0.20, 0.95 }, edge = { 0.35, 0.86, 0.47, 0.8 }, hover = { 0.55, 1, 0.66, 1 },
+            knob = { 0.92, 1, 0.94, 1 } },
+    off = { fill = { 0.16, 0.16, 0.18, 0.95 }, edge = { 0.34, 0.34, 0.38, 0.9 }, hover = { 0.62, 0.62, 0.68, 1 },
+            knob = { 0.54, 0.54, 0.56, 1 } },
+}
+function UI:CreateSwitch(parent, getter, setter, label)
+    local s = CreateFrame("CheckButton", nil, parent)
+    s:SetSize(34, 18)
+    UI:AddPillShape(s, 18)
+    s.knob = s:CreateTexture(nil, "ARTWORK")
+    s.knob:SetTexture(SWITCH_DISC)
+    s.knob:SetSize(12, 12)
+    local function paint(self)
+        local on = self:GetChecked() and true or false
+        local look = SWITCH_LOOK[on and "on" or "off"]
+        local enabled = self:IsEnabled()
+        self:SetPillColors(look.fill, (enabled and (self.hovered or self.rowHovered)) and look.hover or look.edge)
+        self.knob:SetVertexColor(look.knob[1], look.knob[2], look.knob[3], look.knob[4])
+        self.knob:ClearAllPoints()
+        if on then self.knob:SetPoint("RIGHT", -3, 0) else self.knob:SetPoint("LEFT", 3, 0) end
+        self:SetAlpha(enabled and 1 or 0.45)
+    end
+    local setChecked = s.SetChecked
+    function s:SetChecked(on)
+        setChecked(self, on and true or false)
+        paint(self)
+    end
+    function s:SetOn(on) self:SetChecked(on) end
+    function s:IsOn() return self:GetChecked() and true or false end
+    function s:Refresh()
+        if getter then self:SetChecked(getter()) else paint(self) end
+    end
+    function s:SetHover(on)
+        self.rowHovered = on and true or false
+        paint(self)
+    end
+    if label then
+        s.label = s:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        s.label:SetPoint("LEFT", s, "RIGHT", 9, 0)
+        s.label:SetJustifyH("LEFT")
+        s.label:SetWordWrap(false)
+        s.label:SetText(label)
+        s:SetHitRectInsets(-2, -((s.label:GetStringWidth() or 0) + 11), -3, -3)
+    else
+        s:SetHitRectInsets(-4, -4, -4, -4)
+    end
+    s:SetScript("OnClick", function(self)
+        paint(self)
+        if setter then setter(self:GetChecked() and true or false) end
+    end)
+    s:SetScript("OnEnable", paint)
+    s:SetScript("OnDisable", paint)
+    s:HookScript("OnEnter", function(self) self.hovered = true; paint(self) end)
+    s:HookScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    s:Refresh()
+    return s
 end
 
 function UI:CreatePanel(parent)

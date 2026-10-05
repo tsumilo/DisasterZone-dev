@@ -469,25 +469,30 @@ def raid_leader_target_overrides_guild():
     w.assert_no_errors()
 
 
+MORE_KEY = {"deBtn": "de", "bankBtn": "bank"}     # (1.3.1: the card's More menu entries)
+
+
 def block_button(c, item, field):
     return c.eval(r"""
-        local item, field = ...
+        local item, key = ...
         ns.DropPanel:Render()
         for _, b in ipairs(ns.DropPanel.blocks) do
           if b:IsShown() and b.itemID == item then
-            local btn = b[field]
-            return btn:IsShown() and (btn:IsEnabled() and "on" or "off") or "hidden"
+            for _, e in ipairs(ns.DropPanel:GetMoreActions(b)) do
+              if e.key == key then return e.enabled and "on" or "off" end
+            end
+            return "hidden"
           end
         end
-        return "noblock" """, item, field)
+        return "noblock" """, item, MORE_KEY[field])
 
 
 def click_block_button(c, item, field):
     c.eval(r"""
-        local item, field = ...
+        local item, key = ...
         for _, b in ipairs(ns.DropPanel.blocks) do
-          if b:IsShown() and b.itemID == item then b[field]:Click() return end
-        end""", item, field)
+          if b:IsShown() and b.itemID == item then ns.DropPanel:RunMoreAction(b, key) return end
+        end""", item, MORE_KEY[field])
 
 
 @R.case

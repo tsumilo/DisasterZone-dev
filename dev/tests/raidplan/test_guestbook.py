@@ -422,8 +422,9 @@ def guests_are_left_out_of_the_players_list():
     w.tick(0.5)
 
     def names():
+        # (the column titles sit above the list; a guest's row has the GUEST tag)
         rows = bob.eval_py("return %s.players:GetData()" % P) or []
-        return [strip_codes(r["cols"][0]) for r in rows[1:]]
+        return [strip_codes(r["cols"][0]) + (" (guest)" if r.get("guest") else "") for r in rows]
     assert "Pug (guest)" not in names() and "Bob" in names(), names()
     bob.click(bob.eval("return %s.guestsToggle" % P))
     w.tick(0.5)

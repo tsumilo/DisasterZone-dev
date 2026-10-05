@@ -1,11 +1,16 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Dashboard.lua", ...) then return end -- DisasterZone: UI/Dashboard.lua
--- The "Home" tab: the page the main window opens on. Only what needs attention now: a greeting and a strip of action
--- chips (unanswered raids, an empty BiS phase, a newer DisasterZone, the raid lock), the next raid with one-click sign-up
--- (a "raid in progress" view while a raid session runs) and the BiS picks that can drop there, a calendar of the
--- planned and logged raids (past, now and ahead), recent loot, and for the council / raid organizers a readiness
--- check of the next raid (else the later raids). Every card links to the tab that holds the details. Read-only
--- apart from the sign-up buttons. Dungeon runs planned for later (Core/DungeonRuns.lua) are on the calendar too, and a
--- run that needs me (while I'm up for one) or players asking to join my run get a chip.
+-- The "Home" tab: the page the main window opens on. Only what needs attention now, top to bottom:
+--   the greeting and a strip of action chips (unanswered raids, an empty BiS phase, players asking to join my run or a
+--     run that needs me, a newer DisasterZone, what's new, the BiS lock);
+--   the next raid as a banner with its loading screen, like the Raids board: the date, who leads, the answers by role
+--     and my answer in its corner; under it the raid's note, my BiS picks that can drop there and, for the council and
+--     the raid organizers, what isn't ready yet. Several raids that day: pills to switch. While a raid session runs,
+--     the raid in progress instead;
+--   a month calendar of the planned and logged raids and the dungeon runs listed for later, the picked day's events
+--     and the raids coming up beside it;
+--   recent loot (the council: everyone's; a raider: their own).
+-- Every block opens the tab with the details. Read-only apart from the answer buttons. The online count is in the
+-- sync icon's tooltip (UI/MainFrame.lua).
 local addonName, ns = ...
 
 local Dashboard = ns:NewModule("Dashboard")
@@ -15,29 +20,72 @@ local tsort, tconcat = table.sort, table.concat
 
 local HOUR, DAY = 3600, 86400
 local CURRENT_FOR = 6 * HOUR       -- a raid counts as "next" until this long after it started (Raids tab: same)
-local ROW_H = 17
-local CARD_H = 232
-local CHIP_H = 22
-local MAX_CHIPS = 4
 local TICK = 30                     -- seconds between countdown refreshes while the tab is shown
 
+-- One grid for the page (its content area is 790 x 548): PAD at the sides and the bottom, GAP between blocks.
+local PAGE_H = 548
+local PAD, GAP = 10, 8
+local INNER_W = 790 - 2 * PAD                    -- 770
+local HELLO_Y, HELLO_H = 6, 26
+local BANNER_Y = HELLO_Y + HELLO_H + GAP         -- 40
+local BANNER_H, FOOT_H = 164, 46                 -- the banner never changes height; its foot is part of it
+local LOWER_Y = BANNER_Y + BANNER_H + GAP        -- 212
+local LOWER_H = PAGE_H - LOWER_Y - PAD           -- 326: the calendar and the loot reach the page's bottom
+local CAL_W = 470
+local LOOT_W = INNER_W - CAL_W - GAP             -- 292
+local HEAD_H = 28                                -- a box's title row
+local IN = 12                                    -- the padding inside the banner
+local DATE_W = 64                                -- the banner's date column; its texts start at DATE_W + 13
+local CELL_W, CELL_H = 29, 44                    -- a calendar day (at most: the month's weeks share the height)
+local GRID_X, GRID_Y = 10, HEAD_H + 8 + 16       -- the first week (under the weekday letters)
+local RULE_X = GRID_X + 7 * CELL_W + 10          -- 223: the line between the month and the day's list
+local AGENDA_X = RULE_X + 12                     -- 235
+local DISC, DISC_Y = 24, 15                      -- today's / the picked day's disc, its centre under the cell's top
+local DISC_TEX = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+local THUMB_W, THUMB_H = 46, 32
+local ROW_GAP = 6
+local LOOT_ROW_H = 36
+local CHIP_H = 22
+local MAX_DOTS = 3
+local CAL_BACK = 365 * DAY          -- the raid log keeps raids a year
+local CAL_AHEAD = 180 * DAY         -- raids are planned at most 180 days ahead
+
+local PANEL_BG = { 0.08, 0.08, 0.095, 0.9 }
+local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
+local EDGE = { 0.34, 0.34, 0.38, 0.5 }
+local INK = { 0.035, 0.035, 0.043 }              -- the banner's shades
+
 local STATUS = {
-    A = { label = "Accepted", button = "Accept", color = "33ff33" },
-    T = { label = "Tentative", button = "Tentative", color = "ffd100" },
+    A = { label = "Accepted", button = "Accept", color = "4fd36b" },
+    T = { label = "Tentative", button = "Tentative", color = "ffd84a" },
     B = { label = "Bench", button = "Bench", color = "99bbff" },
-    X = { label = "Absent", button = "Absent", color = "ff5555" },
+    X = { label = "Absent", button = "Absent", color = "ff6b5e" },
 }
 local STATUS_ORDER = { "A", "T", "B", "X" }
-local ROLE_SHORT = { tank = "T", healer = "H", melee = "M", ranged = "R" }
-local ROLE_ORDER = { "tank", "healer", "melee", "ranged" }
+-- the dots and the status words of the calendar
+local C_NEED, C_OPEN, C_PAST, C_RUN, C_LOCK = "ff8c1a", "d8d8d8", "8a8a8e", "66b8ff", "8a8a90"
 
 local SHORT_NAME = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
                      za = "ZA", swp = "SWP" }
-local MAX_PILLS = 4
 local PILL_ICON = {
     A = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12|t",
     T = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:12|t",
     X = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:12|t",
+}
+-- my answer as the Raids board's pill shows it: fill r, g, b, edge alpha, edge r, g, b, text
+local ANSWER_PILL = {
+    A = { 0.16, 0.43, 0.22, 0.35, 0.35, 0.86, 0.47, "b7f5c3" }, T = { 0.47, 0.39, 0.08, 0.35, 1, 0.82, 0, "ffe680" },
+    B = { 0.20, 0.27, 0.45, 0.35, 0.6, 0.73, 1, "c4d6ff" }, X = { 0.45, 0.10, 0.10, 0.35, 1, 0.33, 0.33, "ffb0b0" },
+    R = { 0.47, 0.39, 0.08, 0.35, 1, 0.82, 0, "ffe680" },
+}
+local ANSWER_TEXT = { A = "Accepted", T = "Tentative", B = "Bench", X = "Absent", R = "Asked to join" }
+local ANSWER_ICON = { A = "Interface\\RaidFrame\\ReadyCheck-Ready", T = "Interface\\RaidFrame\\ReadyCheck-Waiting",
+                      X = "Interface\\RaidFrame\\ReadyCheck-NotReady" }
+local HEROIC_ICON = "|TInterface\\LFGFrame\\UI-LFG-ICON-HEROIC:14:11:0:0:32:32:0:16:0:20|t"
+
+local REASON = {
+    bis = { "BiS", "ffd100" }, alt = { "Alt", "8fc8ff" }, up = { "Upgrade", "e0e0e0" }, os = { "Offspec", "c9a6ff" },
+    de = { "Disenchanted", "9e9e9e" }, bank = { "Guild bank", "9e9e9e" },
 }
 
 local panel
@@ -46,10 +94,11 @@ local cal = {}      -- the calendar: y, m = the month shown, day = the picked da
 
 local function UI() return ns.UI end
 local function RP() return ns.RaidPlan end
+local function DR() return ns.DungeonRuns end
 local function Now() return GetServerTime() end
 local function Me() return ns.Util.PlayerKey() end
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
-local function grey(text) return "|cff808080" .. tostring(text) .. "|r" end
+local function grey(text) return "|cff9e9e9e" .. tostring(text) .. "|r" end
 local function colorize(hex, text) return "|cff" .. hex .. tostring(text) .. "|r" end
 
 local function hexRGB(hex)
@@ -66,7 +115,8 @@ local function isDemo()
     return (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) and true or false
 end
 
--- Raid organizers (GM, raid leaders) and group editors see the readiness card too, without the BiS-list line.
+-- Raid organizers (GM, raid leaders) and group editors see the readiness of the next raid too, without the BiS-list
+-- line (that one is the council's).
 local function canSeeReadiness()
     if isCouncil() then return true end
     local rp = RP()
@@ -94,6 +144,134 @@ local function whenText(t)
     return "started " .. duration(-diff) .. " ago"
 end
 
+local function dayKey(t) return tonumber(date("%Y%m%d", t)) end
+-- Noon of a day (noon keeps DST shifts from moving the day); y-m-d may be out of range (time() normalises it).
+local function noon(y, m, d) return time({ year = y, month = m, day = d, hour = 12, min = 0, sec = 0 }) end
+local function midnight(y, m, d) return time({ year = y, month = m, day = d, hour = 0, min = 0, sec = 0 }) end
+local function dayOf(t)
+    local d = date("*t", t)
+    return d.year, d.month, d.day
+end
+local function keyDate(key) return floor(key / 10000), floor(key / 100) % 100, key % 100 end
+-- Calendar days from today to t (0 = today, 1 = tomorrow, -1 = yesterday).
+local function daysAway(t)
+    return floor((noon(dayOf(t)) - noon(dayOf(Now()))) / DAY + 0.5)
+end
+
+-- The banner's countdown: "in 3 days", "tomorrow", "in 3h 10m", "in 12 min", "started 20m ago".
+local function countdown(t)
+    local diff = t - Now()
+    if diff <= -60 then return "started " .. duration(-diff) .. " ago" end
+    if diff < 60 then return "starting now" end
+    if diff < HOUR then return "in " .. floor(diff / 60) .. " min" end
+    local days = daysAway(t)
+    if days <= 0 then return "in " .. duration(diff) end
+    if days == 1 then return "tomorrow" end
+    return "in " .. days .. " days"
+end
+
+-- "Sun 11", the short day of an upcoming event.
+local function shortDay(t) return date("%a ", t) .. tonumber(date("%d", t)) end
+
+-- When a loot award was: "5m ago" / "3h ago" today, the weekday this week, else "12 Oct".
+local function agoText(ts)
+    ts = tonumber(ts) or 0
+    local diff = Now() - ts
+    if diff < DAY then return ns.Util.FormatAgo(ts) end
+    if diff < 6 * DAY then return date("%a", ts) end
+    return tonumber(date("%d", ts)) .. date(" %b", ts)
+end
+
+---------------------------------------------------------------------------
+-- Small widgets
+---------------------------------------------------------------------------
+
+local function text(parent, size, font, layer)
+    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then
+        local path, _, flags = fs:GetFont()
+        if path then fs:SetFont(path, size, flags) end
+    end
+    return fs
+end
+
+local function setSize(fs, size)
+    local path, _, flags = fs:GetFont()
+    if path then fs:SetFont(path, size, flags) end
+end
+
+-- The width of a text on one line, whatever the width of its region.
+local function strW(fs)
+    return (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 0
+end
+
+local function gradient(tex, orient, c, a1, a2)
+    tex:SetColorTexture(1, 1, 1, 1)
+    if tex.SetGradient and CreateColor then tex:SetGradient(orient, CreateColor(c[1], c[2], c[3], a1), CreateColor(c[1], c[2], c[3], a2)) end
+end
+
+-- A flat box: dark fill, 1px edges.
+local function flatBox(f, bg, edge)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    bg = bg or PANEL_BG
+    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    UI():AddEdges(f, "BORDER")
+    edge = edge or EDGE
+    UI():SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4])
+end
+
+-- The atlas chevron (it points down) turned to point "left" or "right".
+local function chevron(tex, dir)
+    local c = UI():IconCoords(UI().ICON.chevron)
+    local l, r, t, b = c[1], c[2], c[3], c[4]
+    tex:SetTexture(UI().ICON_ATLAS)
+    if dir == "left" then tex:SetTexCoord(l, b, r, b, l, t, r, t) else tex:SetTexCoord(r, t, l, t, r, b, l, b) end
+end
+
+local function hideTip() GameTooltip:Hide() end
+
+local function showTip(owner, lines, anchor)
+    if type(lines) == "function" then lines = lines() end
+    if lines then UI():SetTextTooltip(owner, lines, anchor) end
+end
+
+-- A text link with a chevron ("Loot log >"): grey, gold on hover.
+local function newLink(parent, label, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(18)
+    b.fs = text(b, 11, "GameFontHighlightSmall")
+    b.fs:SetPoint("LEFT", 0, 0)
+    b.chev = b:CreateTexture(nil, "ARTWORK")
+    b.chev:SetSize(9, 9)
+    b.chev:SetPoint("LEFT", b.fs, "RIGHT", 3, 0)
+    chevron(b.chev, "right")
+    local function paint(self, on)
+        local c = on and { 1, 0.82, 0 } or { 0.74, 0.74, 0.74 }
+        self.fs:SetTextColor(c[1], c[2], c[3])
+        self.chev:SetVertexColor(c[1], c[2], c[3])
+    end
+    function b:SetLabel(t)
+        self.fs:SetText(t or "")
+        self:SetWidth(floor(strW(self.fs) + (self.chev:IsShown() and 12 or 0)))
+    end
+    b:SetScript("OnEnter", function(self)
+        paint(self, true)
+        if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end
+    end)
+    b:SetScript("OnLeave", function(self)
+        paint(self, false)
+        hideTip()
+    end)
+    b:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+    b.onClick = onClick
+    b:SetLabel(label)
+    paint(b, false)
+    return b
+end
+
 ---------------------------------------------------------------------------
 -- Navigation
 ---------------------------------------------------------------------------
@@ -102,36 +280,20 @@ local function openTab(key)
     if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open(key) end
 end
 
-local function DR() return ns.DungeonRuns end
-
 local function openRun(id)
     if ns.DungeonsUI and ns.DungeonsUI.Focus then ns.DungeonsUI:Focus(id) else openTab("dungeons") end
-end
-
--- "The Shattered Halls (H)".
-local function runName(run)
-    local d = DR() and DR():GetDungeon(run.d)
-    return (d and d.name or tostring(run.d)) .. (run.h and " (H)" or "")
-end
-
--- A run's status on the calendar: mine, I'm in, else the places still open ("needs healer, 2 DPS" / "full").
-local function runState(run)
-    local R = DR()
-    if run.o == Me() then return "your run", "ffd100" end
-    if R:IsInRun(run) then return "you're in", "33ff33" end
-    local open, parts = R:GetOpenRoles(run), {}
-    for _, role in ipairs(R.ROLES) do
-        local n = open[role]
-        if n then parts[#parts + 1] = (n > 1 and (n .. " ") or "") .. (role == "dps" and "DPS" or role) end
-    end
-    if #parts == 0 then return "full", "8cb4ff" end
-    return "needs " .. tconcat(parts, ", "), "8cb4ff"
 end
 
 local function openRaid(occId)
     openTab("raids")
     if ns.RaidsUI and ns.RaidsUI.SetView then ns.RaidsUI:SetView("upcoming") end
-    if occId and ns.RaidPlanUI and ns.RaidPlanUI.SelectRaid then ns.RaidPlanUI:SelectRaid(occId) end
+    local PUI = ns.RaidPlanUI
+    if not PUI then return end
+    if occId and PUI.SelectRaid then
+        PUI:SelectRaid(occId)
+    elseif PUI.ShowBoard then
+        PUI:ShowBoard()
+    end
 end
 
 local function openMyBiS(phase)
@@ -150,20 +312,36 @@ local function seesRaidLog()
     return (isDemo() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember())) and true or false
 end
 
+-- My answer to a raid, as the Raids board answers it (the character my answer is for, its spec).
+local function answer(occId, st)
+    local PUI = ns.RaidPlanUI
+    if PUI and PUI.Answer then PUI:Answer(st, occId) end
+end
+
 ---------------------------------------------------------------------------
 -- Data
 ---------------------------------------------------------------------------
 
--- The next raid (the soonest one not cancelled that started at most 6 hours ago), or nil.
+-- The raids from now on (and the ones that started at most 6 hours ago), not cancelled, soonest first.
 local function nextRaids()
     local out = {}
     local rp = RP()
     if not (rp and rp.GetRaids) then return out end
-    local now = Now()
-    for _, v in ipairs(rp:GetRaids(now - CURRENT_FOR)) do
+    for _, v in ipairs(rp:GetRaids(Now() - CURRENT_FOR)) do
         if not v.cancelled then out[#out + 1] = v end
     end
     return out
+end
+
+-- The planned instance key of a map id ("kara"), or nil.
+local function instKeyOf(instID)
+    instID = tonumber(instID)
+    local rp = RP()
+    if not (instID and rp and rp.GetInstances) then return nil end
+    for _, inst in ipairs(rp:GetInstances()) do
+        if inst.instID == instID then return inst.key end
+    end
+    return nil
 end
 
 -- The planned instance of a raid view -> ItemDB raid (by map id), or nil.
@@ -177,13 +355,18 @@ local function itemRaidFor(instKey)
     return nil
 end
 
--- The ItemDB raid I am standing in (raid instances only), or nil.
-local function currentItemRaid()
-    if not (IsInInstance and GetInstanceInfo and ns.ItemDB) then return nil end
+-- The map id of the raid instance I am standing in, or nil.
+local function currentInstID()
+    if not (IsInInstance and GetInstanceInfo) then return nil end
     local inInstance, kind = IsInInstance()
     if not inInstance or kind ~= "raid" then return nil end
-    local instID = select(8, GetInstanceInfo())
-    instID = tonumber(instID)
+    return tonumber((select(8, GetInstanceInfo())))
+end
+
+-- The ItemDB raid I am standing in (raid instances only), or nil.
+local function currentItemRaid()
+    local instID = currentInstID()
+    if not (instID and ns.ItemDB) then return nil end
     for _, raid in ipairs(ns.ItemDB:GetRaids()) do
         if raid.instanceID == instID then return raid end
     end
@@ -246,9 +429,9 @@ local function dropsIn(missing, raid)
     return out
 end
 
--- The raid card's BiS row: how many of my missing picks can drop in `raid` (an ItemDB raid), each item and its boss
--- in the tooltip, a click opens My BiS on the raid's phase. nil when none can (or no raid is known).
-local function bisDropRow(raid)
+-- How many of my missing picks can drop in `raid` (an ItemDB raid): { text, tip, onClick } for the banner's foot (each
+-- item and its boss in the tooltip, a click opens My BiS on the raid's phase), or nil when none can.
+local function bisDrops(raid)
     if not raid then return nil end
     local phase = guildPhase()
     local raidPhase = tonumber(raid.phase)
@@ -265,8 +448,9 @@ local function bisDropRow(raid)
             .. grey(" - " .. d.boss .. (d.via == "token" and " (token)" or ""))
     end
     tip[#tip + 1] = grey("Click to open My BiS")
-    return { text = grey("Your BiS: ") .. plural(#drops, "pick") .. " can drop in " .. raid.name, tip = tip,
-             onClick = function() openMyBiS(phase) end }
+    return { text = (#drops == 1 and "1 of your P%d picks can drop here" or (#drops .. " of your P%d picks can drop here"))
+                        :format(phase),
+             tip = tip, onClick = function() openMyBiS(phase) end }
 end
 
 -- The highest DisasterZone version seen on a guild member in the last 14 days, when it is newer than mine.
@@ -284,325 +468,29 @@ local function newerVersion()
     return best
 end
 
----------------------------------------------------------------------------
--- Widgets: cards with a pool of rows
----------------------------------------------------------------------------
-
-local function Row_OnEnter(self)
-    if self.itemID then
-        UI():SetItemTooltip(self, self.itemID)
-    elseif self.tip then
-        UI():SetTextTooltip(self, self.tip)
-    end
+-- The spec of a sign-up -> tank / healer / melee / ranged (casters count as ranged), nil without a spec.
+local function roleOf(s)
+    local specs = s and s.c and ns.SPECS and ns.SPECS[s.c]
+    local spec = specs and s.sp and specs[s.sp]
+    if not spec then return nil end
+    return spec.role == "caster" and "ranged" or spec.role
 end
 
-local function Row_OnLeave() GameTooltip:Hide() end
-
-local function Row_OnClick(self)
-    if self.itemID and UI():HandleModifiedItemClick(self.itemID) then return end
-    if self.onClick then self.onClick() end
-end
-
-local function newRow(card)
-    local r = CreateFrame("Button", nil, card)
-    r:SetHeight(ROW_H)
-    r.icon = r:CreateTexture(nil, "ARTWORK")
-    r.icon:SetSize(14, 14)
-    r.icon:SetPoint("LEFT", r, "LEFT", 0, 0)
-    r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    r.right = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.right:SetPoint("RIGHT", r, "RIGHT", 0, 0)
-    r.right:SetJustifyH("RIGHT")
-    r.right:SetWordWrap(false)
-    r.left = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.left:SetJustifyH("LEFT")
-    r.left:SetWordWrap(false)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.08)
-    r:SetScript("OnEnter", Row_OnEnter)
-    r:SetScript("OnLeave", Row_OnLeave)
-    r:SetScript("OnClick", Row_OnClick)
-    return r
-end
-
-local CardMethods = {}
-
--- rows: { { text, right, itemID, icon, tip, onClick, indent, tall } } (a string = a plain text row). tall: the
--- text may take two lines (a note), the row is twice as high.
-function CardMethods:SetRows(rows, startY)
-    local y = startY or -28
-    local avail = floor((self:GetHeight() + y - (self.buttonsShown and 34 or 8)) / ROW_H)
-    for _, d in ipairs(rows) do
-        if type(d) == "table" and d.tall then avail = avail - 1 end
-    end
-    local n = #rows
-    if n > avail and avail > 0 then
-        local extra = n - avail + 1
-        local shown = {}
-        for i = 1, avail - 1 do shown[i] = rows[i] end
-        local hidden = {}
-        for i = avail, n do
-            local r = rows[i]
-            hidden[#hidden + 1] = type(r) == "table" and (r.plain or r.text) or r
-        end
-        shown[avail] = { text = grey("+" .. extra .. " more"), tip = hidden, onClick = self.onOpen }
-        rows = shown
-        n = avail
-    end
-    for i = 1, max(n, #self.rows) do
-        local d = rows[i]
-        local r = self.rows[i]
-        if d then
-            if not r then
-                r = newRow(self)
-                self.rows[i] = r
-            end
-            if type(d) == "string" then d = { text = d } end
-            local indent = d.indent or 0
-            r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", self, "TOPLEFT", 10 + indent, y)
-            r:SetPoint("TOPRIGHT", self, "TOPRIGHT", -10, y)
-            r:SetHeight(d.tall and 2 * ROW_H or ROW_H)
-            r.left:SetWordWrap(d.tall and true or false)
-            if r.left.SetMaxLines then r.left:SetMaxLines(d.tall and 2 or 1) end
-            y = y - (d.tall and 2 or 1) * ROW_H
-            local iconTex = d.icon
-            if d.itemID and not iconTex and ns.ItemDB then iconTex = ns.ItemDB:GetIcon(d.itemID) end
-            r.left:ClearAllPoints()
-            if iconTex then
-                r.icon:SetTexture(iconTex)
-                r.icon:Show()
-                r.left:SetPoint("LEFT", r.icon, "RIGHT", 4, 0)
-            else
-                r.icon:Hide()
-                r.left:SetPoint("LEFT", r, "LEFT", 0, 0)
-            end
-            r.left:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
-            r.left:SetText(UI():SafeText(d.text or ""))
-            r.right:SetText(UI():SafeText(d.right or ""))
-            r.itemID, r.tip, r.onClick = d.itemID, d.tip, d.onClick
-            r:EnableMouse((d.itemID or d.tip or d.onClick) and true or false)
-            r:Show()
-        elseif r then
-            r:Hide()
-            r.itemID, r.tip, r.onClick = nil, nil, nil
-        end
-    end
-    self.rowsEndY = y
-end
-
-function CardMethods:SetTitle(text, big)
-    self.title:SetText(UI():SafeText(text or ""))
-    self.big:SetText(UI():SafeText(big or ""))
-    self.big:SetShown(big ~= nil and big ~= "")
-end
-
-local function createCard(parent, openLabel, onOpen)
-    local card = UI():CreatePanel(parent)
-    card:SetHeight(CARD_H)
-    card.rows = {}
-    card.onOpen = onOpen
-    for k, fn in pairs(CardMethods) do card[k] = fn end
-    card.title = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    card.title:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -9)
-    card.title:SetPoint("RIGHT", card, "RIGHT", -70, 0)
-    card.title:SetJustifyH("LEFT")
-    card.title:SetWordWrap(false)
-    card.big = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    card.big:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -27)
-    card.big:SetPoint("RIGHT", card, "RIGHT", -10, 0)
-    card.big:SetJustifyH("LEFT")
-    card.big:SetWordWrap(false)
-    if openLabel then
-        local link = CreateFrame("Button", nil, card)
-        link:SetSize(64, 16)
-        link:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, -8)
-        link.text = link:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        link.text:SetPoint("RIGHT", link, "RIGHT", 0, 0)
-        link.text:SetJustifyH("RIGHT")
-        link.text:SetText(openLabel .. " >")
-        link:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 1, 1) end)
-        link:SetScript("OnLeave", function(self) self.text:SetTextColor(1, 0.82, 0) end)
-        link:SetScript("OnClick", function() if card.onOpen then card.onOpen() end end)
-        card.link = link
-    end
-    return card
-end
-
----------------------------------------------------------------------------
--- Action chips
----------------------------------------------------------------------------
-
-local CHIP_COLORS = {
-    warn = { 1.00, 0.55, 0.20 },
-    bad  = { 1.00, 0.30, 0.30 },
-    info = { 0.41, 0.80, 0.94 },
-    ok   = { 0.30, 0.90, 0.40 },
-}
-
-local function newChip(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(CHIP_H)
-    c.bg = c:CreateTexture(nil, "BACKGROUND")
-    c.bg:SetAllPoints()
-    UI():AddEdges(c)
-    local hl = c:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.08)
-    c.text = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    c.text:SetPoint("CENTER", c, "CENTER", 0, 0)
-    c.text:SetWordWrap(false)
-    c:SetScript("OnEnter", function(self)
-        if self.tip then UI():SetTextTooltip(self, self.tip) end
-    end)
-    c:SetScript("OnLeave", Row_OnLeave)
-    c:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
-    return c
-end
-
--- The actions that need me now: { text, kind = warn|bad|info, tip = { lines }, onClick }.
-local function collectActions(ctx)
-    local out = {}
-    local rp = RP()
-    for _, v in ipairs(rp and rp.GetUnanswered and rp:GetUnanswered(7) or {}) do
-        out[#out + 1] = {
-            text = "Sign up: " .. date("%a", v.t) .. " " .. rp:GetRaidName(v), kind = "warn",
-            tip = { "You're invited and haven't answered", date("%a %d %b %H:%M", v.t) .. " · " .. whenText(v.t) },
-            onClick = function() openRaid(v.id) end,
-        }
-    end
-    local s = ctx.bis
-    if s.filled == 0 then
-        out[#out + 1] = { text = "Pick your Phase " .. ctx.phase .. " BiS", kind = "warn",
-                          tip = { "Your Phase " .. ctx.phase .. " list is empty", "The council can't see what you need." },
-                          onClick = function() openMyBiS(ctx.phase) end }
-    elseif s.filled < s.total then
-        local empty = s.total - s.filled
-        out[#out + 1] = { text = "Phase " .. ctx.phase .. ": " .. plural(empty, "empty slot"), kind = "info",
-                          tip = { "Fill or disable the empty slots of your Phase " .. ctx.phase .. " list" },
-                          onClick = function() openMyBiS(ctx.phase) end }
-    end
-    local R = DR()
-    local mine = R and R:GetMine()
-    local asking = mine and #R:GetRequests(mine.id) or 0
-    if asking > 0 then
-        out[#out + 1] = { text = plural(asking, "player") .. " asking to join", kind = "warn",
-                          tip = { "Your run: " .. runName(mine), "Accept or decline them on the Dungeons tab." },
-                          onClick = function() openRun(mine.id) end }
-    end
-    if R and not mine and R:IsUp() then
-        for _, run in ipairs(R:GetRuns()) do
-            local role = R:IsNow(run) and R:FitsMe(run)
-            if role and not R:GetBlocker(run.d, run.h) and not R:GetAsked(run.id) then
-                local id = run.id
-                out[#out + 1] = { text = shortName(run.o) .. " needs a " .. (role == "dps" and "DPS" or role) .. ": "
-                                      .. runName(run), kind = "info",
-                                  tip = { runName(run), "You're up for a run and this one needs you." },
-                                  onClick = function() openRun(id) end }
-                break
-            end
-        end
-    end
-    local newer = newerVersion()
-    if newer then
-        out[#out + 1] = { text = "Update DisasterZone (" .. newer .. ")", kind = "bad",
-                          tip = { "A guild member runs DisasterZone " .. newer, "You run " .. tostring(ns.version) } }
-    end
-    local unread = ns.ChangelogUI and ns.ChangelogUI.GetUnread and ns.ChangelogUI:GetUnread()
-    if unread then
-        out[#out + 1] = { text = "What's new in " .. unread.version, kind = "info",
-                          tip = { "DisasterZone " .. unread.version .. ": " .. (unread.title or ""), "Open the Changelog" },
-                          onClick = function() ns.ChangelogUI:Open(unread.version) end }
-    end
-    local BiS = ns.BiS
-    local locked, info = false, nil
-    if BiS and BiS.IsLocked then locked, info = BiS:IsLocked() end
-    if locked then
-        local by = type(info) == "table" and info.by and shortName(info.by) or nil
-        out[#out + 1] = { text = UI():LockIcon(12) .. " BiS lists locked", kind = "info",
-                          tip = { "BiS lists are locked for this raid" .. (by and (" by " .. by) or ""),
-                                  "Changes wait until the raid leader unlocks them." } }
-    end
-    return out
-end
-
--- "Good evening, Name" by the player's own clock, the name in its class colour.
-local function greetingText()
-    local hour = tonumber(date("%H")) or 12
-    local part = (hour >= 5 and hour < 12) and "morning" or (hour >= 12 and hour < 18) and "afternoon" or "evening"
-    local _, classFile = UnitClass("player")
-    return "Good " .. part .. ", |c" .. ns.Util.ClassColorHex(classFile) .. (UnitName("player") or "") .. "|r"
-end
-
--- The greeting always leads the strip; the chips follow it past a thin divider, else "All caught up" sits right.
-local function layoutChips(chips)
-    local list = chips.list or {}
-    panel.greeting:SetText(UI():SafeText(greetingText()))
-    local x = floor(4 + (panel.greeting:GetStringWidth() or 0) + 21)
-    panel.greetSep:SetShown(#list > 0)
-    local width = panel.actions:GetWidth()
-    if not width or width < 50 then width = 760 end
-    local shown = 0
-    for i, a in ipairs(list) do
-        local c = panel.chips[i]
-        if not c then
-            c = newChip(panel.actions)
-            panel.chips[i] = c
-        end
-        c.text:SetText(UI():SafeText(a.text))
-        local w = floor((c.text:GetStringWidth() or 80) + 22)
-        local col = CHIP_COLORS[a.kind] or CHIP_COLORS.info
-        c.bg:SetColorTexture(col[1] * 0.22, col[2] * 0.22, col[3] * 0.22, 0.9)
-        UI():SetEdgeColor(c, col[1], col[2], col[3], 0.8)
-        c.text:SetTextColor(min(1, col[1] + 0.3), min(1, col[2] + 0.3), min(1, col[3] + 0.3))
-        c.tip, c.onClick = a.tip, a.onClick
-        c:SetWidth(w)
-        c:ClearAllPoints()
-        if shown < MAX_CHIPS and x + w <= width then
-            c:SetPoint("LEFT", panel.actions, "LEFT", x, 0)
-            c:Show()
-            x = x + w + 6
-            shown = shown + 1
-        else
-            c:Hide()
-        end
-    end
-    for i = #list + 1, #panel.chips do panel.chips[i]:Hide() end
-    local hidden = #list - shown
-    if hidden > 0 then
-        local lines = {}
-        for i = shown + 1, #list do lines[#lines + 1] = list[i].text end
-        panel.moreChips:SetText("+" .. hidden .. " more")
-        panel.moreChips.tip = lines
-        panel.moreChips:ClearAllPoints()
-        panel.moreChips:SetPoint("LEFT", panel.actions, "LEFT", x, 0)
-        panel.moreChips:Show()
-    else
-        panel.moreChips:Hide()
-    end
-    panel.allSet:SetShown(#list == 0)
-end
-
----------------------------------------------------------------------------
--- Cards
----------------------------------------------------------------------------
-
+-- A raid's answers: the sign-ups, counts by answer, the accepted by role (nospec = without a spec), and the invited
+-- members still to answer, as the Raids tab counts them (a player who answered with another of their characters has
+-- answered; declined and blacklisted players are not waited for).
 local function signupCounts(v)
     local rp = RP()
     local ups = rp:GetSignups(v.id)
     local counts = { A = 0, T = 0, B = 0, X = 0 }
-    local roles = { tank = 0, healer = 0, melee = 0, ranged = 0 }
-    local RC = ns.RaidComp
+    local roles = { tank = 0, healer = 0, melee = 0, ranged = 0, nospec = 0 }
     for _, s in pairs(ups) do
         if counts[s.st] then counts[s.st] = counts[s.st] + 1 end
-        if s.st == "A" and RC and RC.RoleOf and s.c and s.sp then
-            local role = RC:RoleOf(s.c, s.sp)
-            if roles[role] then roles[role] = roles[role] + 1 end
+        if s.st == "A" then
+            local role = roleOf(s) or "nospec"
+            roles[role] = roles[role] + 1
         end
     end
-    -- the invited members still to answer, as the Raids tab counts them: a player who answered with another of their
-    -- characters has answered; declined and blacklisted players are not waited for
     local noAnswer = {}
     local inv = rp:GetInvited(v)
     if inv then
@@ -622,295 +510,1010 @@ local function myChar(v)
     return RP():GetMySignupCharacter(v.id) or Me()
 end
 
--- Why I can't answer the raid: a few words for the card, and the Raids tab's sentence for the tooltip; nil when I can.
-local function blockText(v)
-    if v.cancelled then return "cancelled", "This raid was cancelled." end
-    local block = RP():GetSignupBlock(v, myChar(v))
-    if block == "blacklist" then return "can't sign up", "You can't sign up for raids. Contact an officer."
-    elseif block == "declined" then return "taken off this raid", "You were taken off this raid."
-    elseif block == "lock" and RP():GetMyRequest(v.id) then
-        return "request sent", "You asked to join; a raid leader will approve it on the Raids tab."
-    elseif block == "lock" and RP():CanRequest(v, myChar(v)) then
-        return "ask to join", "Locked to its teams: answer on the Raids tab to ask to join."
-    elseif block == "lock" then return "private, not invited", "Private: ask a raid leader for an invite."
-    elseif block == "level" then
-        return ("level %d only"):format(v.ml or 0), ("This raid is for level %d characters."):format(v.ml or 0)
+-- My answer to a raid, as the Raids board shows it: kind ("A" | "T" | "B" | "X" | "R" asked to join | "N" no answer
+-- yet), the block reason, whether I can answer, whether I can ask to join, my sign-up.
+local function myState(v)
+    local rp = RP()
+    local char = myChar(v)
+    local mine = rp:GetMySignup(v.id)
+    local block = rp:GetSignupBlock(v, char)
+    local canAsk = block == "lock" and rp:CanRequest(v, char)
+    if mine then return mine.st, block, true, canAsk, mine end
+    if canAsk and rp:GetMyRequest(v.id) then return "R", block, true, canAsk, nil end
+    return "N", block, block == nil or canAsk, canAsk, nil
+end
+
+-- Why I can't answer: a few words (the banner), a sentence (its tooltip); nil when I can.
+local function blockWords(v, block)
+    if block == "blacklist" then return "Can't sign up", "You can't sign up for raids. Contact an officer." end
+    if block == "declined" then return "Taken off this raid", "You were taken off this raid." end
+    if block == "level" then
+        return ("Level %d only"):format(v.ml or 0), ("This raid is for level %d characters."):format(v.ml or 0)
+    end
+    if block == "lock" then
+        if RP():CanManageRaid(v) then
+            return "Not invited", (v.pv and "Private" or "Locked") .. ": you are not in this raid (Add players adds you)."
+        end
+        return v.pv and "Private" or "Locked to its teams", "Ask a raid leader for an invite."
     end
     return nil
 end
 
-local function answer(v, st)
+-- My answer to a planned raid in words and colour (the calendar, the tooltips).
+local function answerState(v)
+    if v.cancelled then return "Cancelled", C_PAST end
     local rp = RP()
-    local spec
     local mine = rp:GetMySignup(v.id)
-    local char = myChar(v)
-    if not (mine and mine.sp) and not rp:GetLastSpec(char) and ns.Util.IsMe(char) then
-        -- first sign-up ever: use my BiS list's spec, like the Raids tab does
-        local label = ns.BiS and ns.BiS.GetSpec and ns.BiS:GetSpec() or ""
-        local _, classFile = UnitClass("player")
-        for i, sp in ipairs(ns.SPECS[classFile] or {}) do
-            if sp.label == label then spec = i end
-        end
-    end
-    local ok, err = rp:SignUp(v.id, st, spec, nil, char)
-    if not ok then ns:Print(err or "Could not save your answer.") end
+    if mine and STATUS[mine.st] then return STATUS[mine.st].label, STATUS[mine.st].color end
+    if v.t < Now() - CURRENT_FOR then return "No answer", C_PAST end
+    local kind, block = myState(v)
+    if kind == "R" then return "Asked to join", "ffd100" end
+    local words = blockWords(v, block)
+    if words and block == "lock" and rp:CanRequest(v, myChar(v)) then words = "Ask to join" end
+    if words then return words, C_LOCK end
+    local inv = rp:GetInvited(v)
+    if inv and inv[Me() or ""] then return "Answer needed", C_NEED end
+    return "Open", C_OPEN
 end
 
--- "Kara", "SSC", a custom title (cut to 12 characters).
+-- "Kara", "SSC", or a short custom title (a chip has little room).
 local function shortRaidName(v)
-    if v.ti then return #v.ti > 12 and (v.ti:sub(1, 11) .. "...") or v.ti end
+    if v.ti and #v.ti <= 14 then return v.ti end
     return SHORT_NAME[v.i] or RP():GetRaidName(v)
 end
 
--- My answer as a pill / row marker: a ready-check icon, "!" when I'm invited and haven't answered.
+-- My answer as a pill marker: a ready-check icon, "!" when I'm invited and haven't answered.
 local function myMarker(v)
     local rp = RP()
     local mine = rp:GetMySignup(v.id)
     if mine then return PILL_ICON[mine.st] or colorize(STATUS.B.color, "B") end
     local inv = rp:GetInvited(v)
-    if inv and inv[Me() or ""] then return colorize("ff9933", "!") end
+    if inv and inv[Me() or ""] then return colorize(C_NEED, "!") end
     return nil
 end
 
-local function newPill(card)
-    local b = CreateFrame("Button", nil, card, "BackdropTemplate")
+-- "Main team, Alt team" (nil for a raid open to everyone).
+local function teamsText(v)
+    local names = {}
+    for _, id in ipairs(v.tm or {}) do
+        local t = RP():GetTeam(id)
+        if t then names[#names + 1] = t.name end
+    end
+    return #names > 0 and tconcat(names, ", ") or nil
+end
+
+-- The next raid's readiness, for the council and the organizers: { { text, title, names } } (only what needs
+-- attention), and how many players are coming.
+local function readiness(v, ctx)
+    local ups, _, _, noAnswer = signupCounts(v)
+    local coming = {}
+    for key, s in pairs(ups) do
+        if s.st == "A" or s.st == "T" then coming[#coming + 1] = key end
+    end
+    tsort(coming)
+    local items = {}
+    local function add(list, fmt, title)
+        if #list > 0 then items[#items + 1] = { text = fmt:format(#list), title = title, names = list } end
+    end
+    if isCouncil() then
+        local Store = ns.Store
+        local empty = {}
+        for _, key in ipairs(coming) do
+            local filled
+            if ns.Util.IsMe(key) then
+                filled = ctx.bis.filled
+            else
+                local sum = Store and Store.Get and Store:Get(key) and Store:GetPlayerSummary(key, ctx.phase)
+                filled = sum and sum.filled or 0
+            end
+            if filled == 0 then empty[#empty + 1] = key end
+        end
+        add(empty, "%d without a P" .. ctx.phase .. " list", "No BiS picks for Phase " .. ctx.phase)
+    end
+    local Sync = ns.Sync
+    local noAddon, oldAddon = {}, {}
+    for _, key in ipairs(coming) do
+        local p = Sync and Sync.GetPeer and Sync:GetPeer(key)
+        if not p or not p.v then
+            noAddon[#noAddon + 1] = key
+        elseif ns.Util.CompareVersions(p.v, ns.version) < 0 then
+            oldAddon[#oldAddon + 1] = key
+        end
+    end
+    add(noAddon, "%d without DisasterZone", "DisasterZone never seen on")
+    add(oldAddon, "%d on an older version", "Older than your " .. tostring(ns.version))
+    if RP():GetInvited(v) then add(noAnswer, "%d not answered", "No response yet") end
+    local flags = ns.Store and ns.Store.GetLockFlags and ns.Store:GetLockFlags() or {}
+    local flagged = {}
+    for key in pairs(flags) do flagged[#flagged + 1] = key end
+    tsort(flagged)
+    add(flagged, "%d edited while locked", "Changed their list while locked")
+    return items, #coming
+end
+
+local function namesLine(list)
+    local names = {}
+    for i, key in ipairs(list) do
+        if i > 15 then
+            names[#names + 1] = "+" .. (#list - 15) .. " more"
+            break
+        end
+        names[#names + 1] = shortName(key)
+    end
+    return tconcat(names, ", ")
+end
+
+---------------------------------------------------------------------------
+-- The greeting and the action chips
+---------------------------------------------------------------------------
+
+local CHIP_STYLE = {
+    plain = { edge = { 0.43, 0.43, 0.47, 0.6 }, text = { 0.91, 0.91, 0.91 } },
+    warn  = { edge = { 1, 0.55, 0.10, 0.7 }, text = { 1, 0.82, 0.65 } },
+    info  = { edge = { 0.40, 0.72, 1, 0.55 }, text = { 0.81, 0.91, 1 } },
+    bad   = { edge = { 0.89, 0.36, 0.31, 0.85 }, text = { 1, 0.82, 0.78 } },
+}
+
+local function paintChip(c)
+    local hover = c.hovered and c.onClick
+    local f = hover and { 0.18, 0.18, 0.21, 0.95 } or CARD_BG
+    local s = CHIP_STYLE[c.kind] or CHIP_STYLE.plain
+    c:SetPillColors(f, s.edge)
+end
+
+local function newChip(parent)
+    local c = CreateFrame("Button", nil, parent)
+    c:SetHeight(CHIP_H)
+    UI():AddPillShape(c, CHIP_H)
+    c.icon = c:CreateTexture(nil, "ARTWORK")
+    c.icon:SetSize(13, 13)
+    c.icon:SetPoint("LEFT", 7, 0)
+    c.text = text(c, 11, "GameFontHighlightSmall")
+    c:SetScript("OnEnter", function(self)
+        self.hovered = true
+        paintChip(self)
+        if self.tip then showTip(self, self.tip, "ANCHOR_BOTTOM") end
+    end)
+    c:SetScript("OnLeave", function(self)
+        self.hovered = false
+        paintChip(self)
+        hideTip()
+    end)
+    c:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+    return c
+end
+
+local function fillChip(c, a)
+    c.kind, c.tip, c.onClick = a.kind or "plain", a.tip, a.onClick
+    local s = CHIP_STYLE[c.kind] or CHIP_STYLE.plain
+    local ic = a.icon
+    c.icon:SetShown(ic ~= nil)
+    c.text:ClearAllPoints()
+    if ic then
+        c.icon:SetTexture(ic.tex)
+        if ic.coords then c.icon:SetTexCoord(ic.coords[1], ic.coords[2], ic.coords[3], ic.coords[4])
+        else c.icon:SetTexCoord(0, 1, 0, 1) end
+        c.icon:SetDesaturated(ic.desat and true or false)
+        c.text:SetPoint("LEFT", c.icon, "RIGHT", 5, 0)
+    else
+        c.text:SetPoint("LEFT", 10, 0)
+    end
+    c.text:SetText(a.text)
+    c.text:SetTextColor(s.text[1], s.text[2], s.text[3])
+    c:SetWidth(floor((ic and (7 + 13 + 5) or 10) + strW(c.text) + 10))
+    paintChip(c)
+end
+
+local function roleIcon(role)
+    local l, r, t, b = UI():RoleCoords(role)
+    return { tex = UI().ROLE_TEX, coords = { l, r, t, b } }
+end
+
+-- The actions that need me now: { text, kind = warn | info | bad | plain, icon, tip = { lines }, onClick }.
+local function collectActions(ctx)
+    local out = {}
+    local rp = RP()
+    for _, v in ipairs(rp and rp.GetUnanswered and rp:GetUnanswered(7) or {}) do
+        out[#out + 1] = {
+            text = "Sign up: " .. date("%a", v.t) .. " " .. shortRaidName(v), kind = "warn",
+            icon = { tex = "Interface\\RaidFrame\\ReadyCheck-Ready", desat = true },
+            tip = { rp:GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. whenText(v.t),
+                    "You're invited and haven't answered." },
+            onClick = function() openRaid(v.id) end,
+        }
+    end
+    local s = ctx.bis
+    local star = { tex = UI():Tex("star") }
+    if s.filled == 0 then
+        out[#out + 1] = { text = "Pick your Phase " .. ctx.phase .. " BiS", kind = "warn", icon = star,
+                          tip = { "Your Phase " .. ctx.phase .. " list is empty", "The council can't see what you need." },
+                          onClick = function() openMyBiS(ctx.phase) end }
+    elseif s.filled < s.total then
+        local empty = s.total - s.filled
+        out[#out + 1] = { text = "Phase " .. ctx.phase .. ": " .. plural(empty, "empty slot"), kind = "info", icon = star,
+                          tip = { "Fill or disable the empty slots of your Phase " .. ctx.phase .. " list" },
+                          onClick = function() openMyBiS(ctx.phase) end }
+    end
+    local R = DR()
+    local mine = R and R:GetMine()
+    local asking = mine and R:GetRequests(mine.id) or {}
+    if #asking > 0 then
+        local first = asking[1]
+        local d = R:GetDungeon(mine.d)
+        local name = (d and d.name or tostring(mine.d)) .. (mine.h and " (Heroic)" or "")
+        local tip = { "Your run: " .. name }
+        for _, r in ipairs(asking) do tip[#tip + 1] = UI():ColoredName(r.key) .. grey(" wants to join") end
+        tip[#tip + 1] = grey("Accept or decline them on the Dungeons tab.")
+        out[#out + 1] = { text = #asking == 1 and (shortName(first.key) .. " wants to join your run")
+                                  or (#asking .. " want to join your run"),
+                          icon = first.r and roleIcon(first.r) or nil, tip = tip,
+                          onClick = function() openRun(mine.id) end }
+    end
+    if R and not mine and R:IsUp() then
+        for _, run in ipairs(R:GetRuns()) do
+            local role = R:IsNow(run) and R:FitsMe(run)
+            if role and not R:GetBlocker(run.d, run.h) and not R:GetAsked(run.id) then
+                local id = run.id
+                local d = R:GetDungeon(run.d)
+                local name = (d and d.name or tostring(run.d)) .. (run.h and " (H)" or "")
+                out[#out + 1] = { text = shortName(run.o) .. " needs a " .. (role == "dps" and "DPS" or role) .. ": " .. name,
+                                  kind = "info", icon = roleIcon(role),
+                                  tip = { name, "You're up for a run and this one needs you." },
+                                  onClick = function() openRun(id) end }
+                break
+            end
+        end
+    end
+    local newer = newerVersion()
+    if newer then
+        out[#out + 1] = { text = "Update DisasterZone (" .. newer .. ")", kind = "bad", icon = { tex = UI().ICON_WARN },
+                          tip = { "A guild member runs DisasterZone " .. newer, "You run " .. tostring(ns.version) } }
+    end
+    local unread = ns.ChangelogUI and ns.ChangelogUI.GetUnread and ns.ChangelogUI:GetUnread()
+    if unread then
+        out[#out + 1] = { text = "What's new in " .. unread.version, kind = "info",
+                          icon = { tex = UI().ICON_ATLAS, coords = UI():IconCoords(UI().ICON.notes) },
+                          tip = { "DisasterZone " .. unread.version .. ": " .. (unread.title or ""), "Open the Changelog" },
+                          onClick = function() ns.ChangelogUI:Open(unread.version) end }
+    end
+    local BiS = ns.BiS
+    local locked, info = false, nil
+    if BiS and BiS.IsLocked then locked, info = BiS:IsLocked() end
+    if locked then
+        local by = type(info) == "table" and info.by and shortName(info.by) or nil
+        out[#out + 1] = { text = "BiS lists locked", icon = { tex = UI().ICON_LOCK },
+                          tip = { "BiS lists are locked for this raid" .. (by and (" by " .. by) or ""),
+                                  "Changes wait until the raid leader unlocks them." } }
+    end
+    return out
+end
+
+-- "Good evening, " by the player's own clock; the name follows in its class colour.
+local function greetingText()
+    local hour = tonumber(date("%H")) or 12
+    local part = (hour >= 5 and hour < 12) and "morning" or (hour >= 12 and hour < 18) and "afternoon" or "evening"
+    return "Good " .. part .. ", "
+end
+
+-- The greeting leads the strip; the chips follow it, else "All caught up" sits right.
+local function layoutChips(list)
+    panel.greeting:SetText(greetingText())
+    local _, classFile = UnitClass("player")
+    panel.greetName:SetText(UnitName("player") or "")
+    panel.greetName:SetTextColor(UI():ClassColor(classFile))
+    local x = floor(strW(panel.greeting) + strW(panel.greetName) + 14)
+    local shown = 0
+    for i, a in ipairs(list) do
+        local c = panel.chips[i]
+        if not c then
+            c = newChip(panel.hello)
+            panel.chips[i] = c
+        end
+        fillChip(c, a)
+        local w = c:GetWidth()
+        -- room for "+N more" after it, unless it is the last one
+        local room = INNER_W - ((i < #list) and 64 or 0)
+        c:ClearAllPoints()
+        if shown == i - 1 and x + w <= room then
+            c:SetPoint("LEFT", panel.hello, "LEFT", x, 0)
+            c:Show()
+            x = x + w + 6
+            shown = i
+        else
+            c:Hide()
+        end
+    end
+    for i = #list + 1, #panel.chips do panel.chips[i]:Hide() end
+    local hidden = #list - shown
+    if hidden > 0 then
+        local lines = { "More to do" }
+        for i = shown + 1, #list do lines[#lines + 1] = list[i].text end
+        panel.moreChips:SetLabel("+" .. hidden .. " more")
+        panel.moreChips.tip = lines
+        panel.moreChips:ClearAllPoints()
+        panel.moreChips:SetPoint("LEFT", panel.hello, "LEFT", x + 2, 0)
+        panel.moreChips:Show()
+    else
+        panel.moreChips:Hide()
+    end
+    panel.allSet:SetShown(false)          -- (nothing to do says itself: no line for it)
+end
+
+local function createHello(p)
+    local h = CreateFrame("Frame", nil, p)
+    h:SetPoint("TOPLEFT", PAD, -HELLO_Y)
+    h:SetSize(INNER_W, HELLO_H)
+    p.hello = h
+    p.greeting = text(h, 14, "GameFontHighlight")
+    p.greeting:SetTextColor(0.91, 0.91, 0.91)
+    p.greeting:SetPoint("LEFT", 0, 0)
+    p.greetName = text(h, 14, "GameFontHighlight")
+    p.greetName:SetPoint("LEFT", p.greeting, "RIGHT", 0, 0)
+    p.allSet = CreateFrame("Frame", nil, h)
+    p.allSet:SetSize(110, 18)
+    p.allSet:SetPoint("RIGHT", 0, 0)
+    p.allSet.icon = p.allSet:CreateTexture(nil, "ARTWORK")
+    p.allSet.icon:SetSize(13, 13)
+    p.allSet.icon:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+    p.allSet.fs = text(p.allSet, 11, "GameFontHighlightSmall")
+    p.allSet.fs:SetTextColor(0.62, 0.62, 0.62)
+    p.allSet.fs:SetPoint("RIGHT", 0, 0)
+    p.allSet.fs:SetText("All caught up")
+    p.allSet.icon:SetPoint("RIGHT", p.allSet.fs, "LEFT", -5, 0)
+    p.moreChips = newLink(h, "+1 more")
+    p.moreChips.chev:Hide()
+    p.moreChips:Hide()
+    p.chips = {}
+end
+
+---------------------------------------------------------------------------
+-- The banner: the next raid (or the raid in progress, or nothing planned)
+---------------------------------------------------------------------------
+
+-- The raid's loading screen cropped for the banner (from the Raids board).
+local function setArt(tex, inst, w, h, fw)
+    local PUI = ns.RaidPlanUI
+    local file, l, r, t, b
+    if PUI and PUI.RaidArt then file, l, r, t, b = PUI:RaidArt(inst or "other", w, h, fw) end
+    if file then
+        tex:SetTexture(file)
+        tex:SetTexCoord(l, r, t, b)
+        tex:Show()
+    else
+        tex:Hide()
+    end
+end
+
+local function newDayPill(parent)
+    local b = CreateFrame("Button", nil, parent)
     b:SetHeight(18)
-    b:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 8,
-        insets = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
-    b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.text:SetPoint("CENTER", b, "CENTER", 0, 0)
-    b.text:SetWordWrap(false)
-    b:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip) end end)
-    b:SetScript("OnLeave", Row_OnLeave)
+    UI():AddPillShape(b, 18)
+    b.text = text(b, 10, "GameFontHighlightSmall")
+    b.text:SetPoint("CENTER", 0, 0)
+    b:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end end)
+    b:SetScript("OnLeave", hideTip)
     b:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
     return b
 end
 
--- The pill row of a day with several raids (hidden otherwise). Returns where the card's rows start.
-local function refreshPills(card, ctx)
-    local list = ctx.session and {} or ctx.dayRaids
-    local show = #list > 1
-    local x, y = 10, -48
+-- My answer's pill (as on the Raids board): p:Set(kind, sub)
+local function newAnswerPill(parent)
+    local p = CreateFrame("Button", nil, parent)
+    p:SetHeight(24)
+    UI():AddPillShape(p, 24)
+    p.icon = p:CreateTexture(nil, "ARTWORK")
+    p.icon:SetSize(14, 14)
+    p.icon:SetPoint("LEFT", 8, 0)
+    p.text = text(p, 12, "GameFontHighlight")
+    p.sub = text(parent, 11, "GameFontHighlightSmall")
+    p.sub:SetTextColor(0.62, 0.62, 0.62)
+    p.sub:SetJustifyH("RIGHT")
+    p.sub:SetPoint("TOPRIGHT", p, "BOTTOMRIGHT", -4, -3)
+    function p:Set(kind, sub)
+        local c = ANSWER_PILL[kind] or ANSWER_PILL.R
+        self:SetPillColors({ c[1], c[2], c[3], 0.95 }, { c[5], c[6], c[7], c[4] + 0.3 })
+        self.text:SetText("|cff" .. c[8] .. (ANSWER_TEXT[kind] or "") .. "|r")
+        local icon = ANSWER_ICON[kind]
+        self.icon:SetShown(icon ~= nil)
+        self.text:ClearAllPoints()
+        if icon then
+            self.icon:SetTexture(icon)
+            self.text:SetPoint("LEFT", self.icon, "RIGHT", 5, 0)
+        else
+            self.text:SetPoint("LEFT", 11, 0)
+        end
+        self:SetWidth(floor((icon and (8 + 14 + 5) or 11) + strW(self.text) + 11))
+        self.sub:SetText(sub or "")
+        self.sub:SetShown(sub ~= nil)
+    end
+    function p:SetPillShown(on)
+        self:SetShown(on)
+        if not on then self.sub:Hide() end
+    end
+    return p
+end
+
+-- Every answer (mine ticked) and the way to the raid's page: the banner's ... button and my answer's pill.
+local function answerMenu(owner, v, current)
+    UI():ContextMenu(owner, function(root)
+        root:CreateTitle(RP():GetRaidName(v))
+        for _, st in ipairs(STATUS_ORDER) do
+            local label = (current == st and ("|cff33ff33" .. STATUS[st].button .. " (yours)|r")) or STATUS[st].button
+            root:CreateButton(label, function() answer(v.id, st) end)
+        end
+        if root.CreateDivider then root:CreateDivider() end
+        root:CreateButton("Open the raid", function() openRaid(v.id) end)
+    end)
+end
+
+local function createBanner(p)
+    local b = CreateFrame("Button", nil, p)
+    b:SetPoint("TOPLEFT", PAD, -BANNER_Y)
+    b:SetSize(INNER_W, BANNER_H)
+    b:RegisterForClicks("LeftButtonUp")
+    flatBox(b, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.7 })
+    p.banner = b
+    local ban = CreateFrame("Frame", nil, b)
+    ban:SetPoint("TOPLEFT", 0, 0)
+    ban:SetPoint("TOPRIGHT", 0, 0)
+    ban:SetHeight(BANNER_H - FOOT_H)
+    b.ban = ban
+    -- the art (inside the banner's 1px edges), shaded so the texts read on any loading screen
+    b.art = ban:CreateTexture(nil, "BACKGROUND", nil, 0)
+    b.art:SetPoint("TOPLEFT", 1, -1)
+    b.art:SetPoint("BOTTOMRIGHT", -1, 0)
+    b.shadeLow = ban:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.shadeLow:SetPoint("BOTTOMLEFT", b.art)
+    b.shadeLow:SetPoint("BOTTOMRIGHT", b.art)
+    gradient(b.shadeLow, "VERTICAL", INK, 0.95, 0.5)
+    b.shadeHigh = ban:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.shadeHigh:SetPoint("TOPLEFT", b.art)
+    b.shadeHigh:SetPoint("TOPRIGHT", b.art)
+    b.shadeHigh:SetPoint("BOTTOM", b.shadeLow, "TOP")
+    gradient(b.shadeHigh, "VERTICAL", INK, 0.5, 0.15)
+    b.shadeLeft = ban:CreateTexture(nil, "BACKGROUND", nil, 2)
+    b.shadeLeft:SetPoint("TOPLEFT", b.art)
+    b.shadeLeft:SetPoint("BOTTOMLEFT", b.art)
+    b.shadeLeft:SetWidth(floor(INNER_W * 0.6))
+    gradient(b.shadeLeft, "HORIZONTAL", INK, 0.8, 0)
+
+    -- the top row: what it is (and the day's raids as pills), the countdown
+    b.kick = text(ban, 10, "GameFontNormalSmall")
+    b.kick:SetPoint("TOPLEFT", IN, -12)
+    b.pills = {}
+    b.cd = CreateFrame("Frame", nil, ban)
+    b.cd:SetHeight(19)
+    b.cd:SetPoint("TOPRIGHT", -IN, -8)
+    UI():AddPillShape(b.cd, 19)
+    b.cd:SetPillColors({ INK[1], INK[2], INK[3], 0.6 }, { 1, 0.82, 0, 0.35 })
+    b.cd.fs = text(b.cd, 11, "GameFontNormalSmall")
+    b.cd.fs:SetPoint("CENTER", 0, 0)
+
+    -- the date column, then the raid: title, who / what, the answers by role
+    b.tm = text(ban, 11, "GameFontHighlightSmall")
+    b.tm:SetTextColor(0.81, 0.81, 0.81)
+    b.tm:SetJustifyH("CENTER")
+    b.tm:SetPoint("BOTTOM", ban, "BOTTOMLEFT", DATE_W / 2, IN)
+    b.dn = text(ban, 26, "GameFontHighlightLarge")
+    b.dn:SetJustifyH("CENTER")
+    b.dn:SetPoint("BOTTOM", b.tm, "TOP", 0, 0)
+    b.wd = text(ban, 10, "GameFontNormalSmall")
+    b.wd:SetJustifyH("CENTER")
+    b.wd:SetPoint("BOTTOM", b.dn, "TOP", 0, 1)
+    b.div = ban:CreateTexture(nil, "ARTWORK")
+    b.div:SetColorTexture(1, 1, 1, 0.14)
+    b.div:SetSize(1, 54)
+    b.div:SetPoint("BOTTOMLEFT", DATE_W, IN)
+    b.meter = text(ban, 11, "GameFontHighlightSmall")
+    b.meterHit = CreateFrame("Button", nil, ban)
+    b.meterHit:SetPoint("TOPLEFT", b.meter, "TOPLEFT", 0, 2)
+    b.meterHit:SetPoint("BOTTOMRIGHT", b.meter, "BOTTOMRIGHT", 0, -2)
+    b.meterHit:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_BOTTOM") end end)
+    b.meterHit:SetScript("OnLeave", hideTip)
+    b.meterHit:SetScript("OnClick", function() b:Click() end)
+    b.meta = text(ban, 11, "GameFontHighlightSmall")
+    b.meta:SetTextColor(0.82, 0.82, 0.82)
+    b.meta:SetPoint("BOTTOMLEFT", b.meter, "TOPLEFT", 0, 6)
+    b.title = text(ban, 17, "GameFontHighlightLarge")
+    b.title:SetPoint("BOTTOMLEFT", b.meta, "TOPLEFT", 0, 4)
+
+    -- my answer, bottom right: Accept / Tentative / ..., my answer's pill, Ask to join, or why I can't
+    b.more = UI():CreateTipIconButton(ban, 26, UI().ICON.more, "More answers", "Bench or Absent, or open the raid.")
+    b.more:SetPoint("BOTTOMRIGHT", -IN, IN)
+    b.tentative = UI():CreateSleekButton(ban, STATUS.T.button, 80, 26, nil)
+    b.tentative:SetPoint("RIGHT", b.more, "LEFT", -4, 0)
+    b.accept = UI():CreateSleekButton(ban, STATUS.A.button, 70, 26, nil, "primary")
+    b.accept:SetPoint("RIGHT", b.tentative, "LEFT", -4, 0)
+    b.ask = UI():CreateSleekButton(ban, "Ask to join", 100, 26, nil, "primary")
+    b.ask:SetPoint("BOTTOMRIGHT", -IN, IN)
+    b.action = UI():CreateSleekButton(ban, "", 100, 26, nil)
+    b.action:SetPoint("BOTTOMRIGHT", -IN, IN)
+    b.pill = newAnswerPill(ban)
+    b.why = CreateFrame("Frame", nil, ban)
+    b.why:SetHeight(18)
+    b.why:SetPoint("BOTTOMRIGHT", -IN, IN + 4)
+    b.why.fs = text(b.why, 12, "GameFontHighlight")
+    b.why.fs:SetTextColor(0.74, 0.74, 0.74)
+    b.why.fs:SetPoint("RIGHT", 0, 0)
+    b.why:EnableMouse(true)
+    b.why:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end end)
+    b.why:SetScript("OnLeave", hideTip)
+
+    -- the foot: the raid's note; my BiS picks that drop there (left), the readiness or the lock (right)
+    b.footLine = b:CreateTexture(nil, "ARTWORK")
+    b.footLine:SetColorTexture(1, 1, 1, 0.06)
+    b.footLine:SetHeight(1)
+    b.note = text(b, 11, "GameFontHighlightSmall")
+    b.note:SetTextColor(0.74, 0.74, 0.74)
+    b.bis = CreateFrame("Button", nil, b)
+    b.bis:SetHeight(16)
+    b.bis.star = b.bis:CreateTexture(nil, "ARTWORK")
+    b.bis.star:SetSize(12, 12)
+    b.bis.star:SetPoint("LEFT", 0, 0)
+    b.bis.star:SetTexture(UI():Tex("star"))
+    b.bis.fs = text(b.bis, 11, "GameFontNormalSmall")
+    b.bis.fs:SetPoint("LEFT", b.bis.star, "RIGHT", 5, 0)
+    b.bis.chev = b.bis:CreateTexture(nil, "ARTWORK")
+    b.bis.chev:SetSize(9, 9)
+    b.bis.chev:SetPoint("LEFT", b.bis.fs, "RIGHT", 4, 0)
+    chevron(b.bis.chev, "right")
+    b.bis.chev:SetVertexColor(1, 0.82, 0)
+    b.bis:SetScript("OnEnter", function(self)
+        self.fs:SetTextColor(1, 1, 1)
+        if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end
+    end)
+    b.bis:SetScript("OnLeave", function(self)
+        self.fs:SetTextColor(1, 0.82, 0)
+        hideTip()
+    end)
+    b.bis:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+    b.ready = CreateFrame("Button", nil, b)
+    b.ready:SetHeight(16)
+    b.ready.fs = text(b.ready, 11, "GameFontHighlightSmall")
+    b.ready.fs:SetJustifyH("RIGHT")
+    b.ready.fs:SetPoint("RIGHT", 0, 0)
+    b.ready.icon = b.ready:CreateTexture(nil, "ARTWORK")
+    b.ready.icon:SetSize(13, 13)
+    b.ready.icon:SetPoint("RIGHT", b.ready.fs, "LEFT", -5, 0)
+    b.ready:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end end)
+    b.ready:SetScript("OnLeave", hideTip)
+    b.ready:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+
+    b:SetScript("OnEnter", function(self) if self.onClick then UI():SetEdgeColor(self, 1, 0.82, 0, 0.55) end end)
+    b:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, EDGE[1], EDGE[2], EDGE[3], 0.7) end)
+    b:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+end
+
+-- The day's raids as pills beside the kicker (only when there are several); a click shows that raid.
+local function layoutDayPills(b, ctx, x)
+    local list = ctx.dayRaids
+    local show = not ctx.session and #list > 1
     local n = 0
     for i, v in ipairs(show and list or {}) do
-        local b = card.pills[i]
-        if not b then
-            b = newPill(card)
-            card.pills[i] = b
+        local p = b.pills[i]
+        if not p then
+            p = newDayPill(b.ban)
+            b.pills[i] = p
         end
-        if i > MAX_PILLS then
-            b:Hide()
-        else
+        local marker = myMarker(v)
+        p.text:SetText((marker and (marker .. " ") or "") .. date("%H:%M", v.t) .. " " .. shortRaidName(v))
+        p:SetWidth(floor(strW(p.text) + 18))
+        local picked = v.id == ctx.raid.id
+        local edge = picked and { 0.72, 0.72, 0.76, 0.9 } or { 0.6, 0.6, 0.65, 0.5 }
+        local fill = picked and { 0.27, 0.27, 0.30, 0.95 } or { INK[1], INK[2], INK[3], 0.6 }
+        p:SetPillColors(fill, edge)
+        if picked then p.text:SetTextColor(1, 1, 1) else p.text:SetTextColor(0.80, 0.80, 0.80) end
+        p.tip = { RP():GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. whenText(v.t),
+                  grey(picked and "Shown here" or "Click to show this raid") }
+        p.onClick = function()
+            pickedOcc = v.id
+            Dashboard:Refresh()
+        end
+        p:ClearAllPoints()
+        if x + p:GetWidth() <= INNER_W - 140 then
+            p:SetPoint("LEFT", b.ban, "TOPLEFT", x, -17)
+            p:Show()
+            x = x + p:GetWidth() + 4
             n = i
-            local marker = myMarker(v)
-            b.text:SetText(UI():SafeText((marker and (marker .. " ") or "") .. date("%H:%M", v.t) .. " " .. shortRaidName(v)))
-            b:SetWidth(floor((b.text:GetStringWidth() or 60) + 16))
-            local picked = v.id == ctx.raid.id
-            if picked then
-                b:SetBackdropColor(1, 0.5, 0, 0.35)
-                b:SetBackdropBorderColor(1, 0.5, 0, 1)
-            else
-                b:SetBackdropColor(0, 0, 0, 0.5)
-                b:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
-            end
-            b.tip = { RP():GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. whenText(v.t),
-                      picked and "Shown below" or "Click to show this raid" }
-            b.onClick = function()
-                pickedOcc = v.id
-                Dashboard:Refresh()
-            end
-            b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", card, "TOPLEFT", x, y)
-            b:Show()
-            x = x + b:GetWidth() + 4
+        else
+            p:Hide()
         end
     end
-    for i = (show and #list or 0) + 1, #card.pills do card.pills[i]:Hide() end
-    if show and #list > MAX_PILLS then
-        local more = card.pills[MAX_PILLS + 1]
-        more.text:SetText("+" .. (#list - MAX_PILLS))
-        more:SetWidth(30)
-        more:SetBackdropColor(0, 0, 0, 0.5)
-        more:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
-        more.tip = { "More raids that day", "Open the Raids tab to see them all" }
-        more.onClick = function() openRaid(nil) end
-        more:ClearAllPoints()
-        more:SetPoint("TOPLEFT", card, "TOPLEFT", x, y)
-        more:Show()
-    end
-    return (show and n > 0) and -70 or -50
+    for i = (show and #list or 0) + 1, #b.pills do b.pills[i]:Hide() end
+    return n
 end
 
-local function refreshRaidCard(card, ctx)
-    local v = ctx.raid
-    local session = ctx.session
-    local rows = {}
-    for _, b in ipairs(card.buttons) do b:Hide() end
-    card.buttonsShown = false
-    local rowsY = refreshPills(card, ctx)
-    if session then
-        local rp = RP()
-        local planned = session.rp and rp and rp.GetRaid and rp:GetRaid(session.rp) or nil
-        card.onOpen = function() openTab(isCouncil() and "loot" or "raids") end
-        card.link.text:SetText((isCouncil() and "Loot log" or "Raids") .. " >")
-        card:SetTitle("Raid in progress", planned and rp:GetRaidName(planned) or (GetInstanceInfo and GetInstanceInfo()) or "Raid")
-        if session.at then rows[#rows + 1] = "Started " .. duration(Now() - session.at) .. " ago" end
-        if session.by then rows[#rows + 1] = "Raid leader: " .. UI():ColoredName(session.by) end
-        local L = ns.Ledger
-        if L and L.GetVisibleEntries then
-            local n, mine = 0, 0
-            for _, e in ipairs(L:GetVisibleEntries()) do
-                if e.rid == session.id then
-                    n = n + 1
-                    if e.w == Me() then mine = mine + 1 end
-                end
-            end
-            rows[#rows + 1] = plural(n, "item") .. " awarded this raid" .. (mine > 0 and (" · " .. mine .. " to you") or "")
-        end
-        local Lock = UI().GetBiSLock and UI():GetBiSLock()
-        if Lock then rows[#rows + 1] = UI():LockIcon(12) .. " BiS lists locked" end
-        rows[#rows + 1] = bisDropRow(currentItemRaid() or (planned and itemRaidFor(planned.i)))
-        local today = date("%Y%m%d", Now())
-        for _, o in ipairs(ctx.raids) do
-            if o.t > Now() and date("%Y%m%d", o.t) == today and not (planned and planned.id == o.id) then
-                local marker = myMarker(o)
-                rows[#rows + 1] = { text = "Later today: " .. date("%H:%M", o.t) .. " " .. rp:GetRaidName(o)
-                                        .. (marker and ("  " .. marker) or ""),
-                                    onClick = function() openRaid(o.id) end }
-            end
-        end
-        card:SetRows(rows, -50)
+-- Places the foot's lines (note: 0..2 lines, f2 = the BiS / readiness line) and sizes the art part above it; the
+-- banner keeps its height either way.
+local function layoutFoot(b, noteLines, hasF2)
+    local lines = noteLines + (hasF2 and 1 or 0)
+    local footH = lines == 0 and 0 or max(FOOT_H, 16 + lines * 14 + (lines - 1) * 4)
+    local banH = BANNER_H - footH
+    b.ban:SetHeight(banH)
+    b.shadeLow:SetHeight(floor((banH - 1) * 0.62))
+    b.footLine:SetShown(footH > 0)
+    b.footLine:ClearAllPoints()
+    b.footLine:SetPoint("TOPLEFT", 1, -banH)
+    b.footLine:SetPoint("TOPRIGHT", -1, -banH)
+    -- the lines, centred in the foot
+    local used = lines > 0 and (noteLines * 14 + (hasF2 and 14 or 0) + (lines - 1) * 4) or 0
+    local y = banH + floor((footH - used) / 2)
+    b.note:ClearAllPoints()
+    b.note:SetPoint("TOPLEFT", IN, -y)
+    b.note:SetPoint("TOPRIGHT", -IN, -y)
+    if noteLines > 0 then y = y + noteLines * 14 + 4 end
+    b.bis:ClearAllPoints()
+    b.bis:SetPoint("LEFT", b, "TOPLEFT", IN, -(y + 7))
+    b.ready:ClearAllPoints()
+    b.ready:SetPoint("RIGHT", b, "TOPRIGHT", -IN, -(y + 7))
+    return banH
+end
+
+-- The note line: one line at 11, else at 10, else two lines (a note is at most 120 characters).
+local function fitNote(b, note)
+    local fs = b.note
+    fs:SetText('"' .. note .. '"')
+    if fs.SetMaxLines then fs:SetMaxLines(1) end
+    for _, size in ipairs({ 11, 10 }) do
+        setSize(fs, size)
+        fs:SetWordWrap(false)
+        if strW(fs) <= INNER_W - 2 * IN then return 1 end
+    end
+    fs:SetWordWrap(true)
+    if fs.SetMaxLines then fs:SetMaxLines(2) end
+    return 2
+end
+
+-- The texts' left edge: beside the date column, or at the banner's padding without one.
+local function placeTexts(b, withDate)
+    for _, fs in ipairs({ b.wd, b.dn, b.tm, b.div }) do fs:SetShown(withDate) end
+    b.meter:ClearAllPoints()
+    b.meter:SetPoint("BOTTOMLEFT", withDate and (DATE_W + 13) or IN, IN + 1)
+end
+
+-- Fits the title / meta / meter beside the answer area (aw = its width).
+local function textWidth(b, withDate, aw)
+    local w = INNER_W - (withDate and (DATE_W + 13) or IN) - IN - aw - 16
+    for _, fs in ipairs({ b.title, b.meta, b.meter }) do fs:SetWidth(w) end
+    return w
+end
+
+local function hideAnswer(b)
+    for _, w in ipairs({ b.accept, b.tentative, b.more, b.ask, b.action, b.why }) do w:Hide() end
+    b.pill:SetPillShown(false)
+end
+
+-- The foot's right side: the readiness of the next raid (organizers), what's missing first.
+local function fillReadiness(b, v, ctx, room)
+    local items, coming = readiness(v, ctx)
+    local r = b.ready
+    local tip = { "Is the raid ready?" }
+    if #items == 0 then
+        -- ready: nothing to say
+        r:Hide()
         return
-    end
-    card.link.text:SetText("Raids >")
-    if not v then
-        card.onOpen = function() openRaid(nil) end
-        local planner = RP() and RP().CanOrganize and RP():CanOrganize()
-        card:SetTitle("Next raid", "Nothing planned")
-        card:SetRows({ grey(planner and "Plan one in the Raids tab." or "The Guild Master and the raid leaders plan raids."),
-                       { text = colorize("ffd100", "Open the Raids tab"), onClick = function() openRaid(nil) end } }, -50)
-        return
-    end
-    card.onOpen = function() openRaid(v.id) end
-    local rp = RP()
-    local title = "Next raid"
-    if #ctx.dayRaids > 1 then
-        local today = date("%Y%m%d", Now()) == date("%Y%m%d", v.t)
-        title = (today and "Today" or date("%A", v.t)) .. " · " .. #ctx.dayRaids .. " raids"
-    end
-    card:SetTitle(title, rp:GetRaidName(v) .. " · " .. date("%a %H:%M", v.t))
-    local sub = { whenText(v.t), date("%a %d %b", v.t), (v.sz or 25) .. "-player" }
-    local teams = {}
-    for _, id in ipairs(v.tm or {}) do
-        local t = rp:GetTeam(id)
-        if t then teams[#teams + 1] = t.name end
-    end
-    if #teams > 0 then sub[#sub + 1] = tconcat(teams, ", ") end
-    rows[#rows + 1] = grey(tconcat(sub, " · "))
-    local ups, counts, roles, noAnswer = signupCounts(v)
-    local parts = { colorize(STATUS.A.color, counts.A .. " accepted") }
-    if counts.T > 0 then parts[#parts + 1] = colorize(STATUS.T.color, counts.T .. " tentative") end
-    if counts.B > 0 then parts[#parts + 1] = colorize(STATUS.B.color, counts.B .. " bench") end
-    if counts.X > 0 then parts[#parts + 1] = colorize(STATUS.X.color, counts.X .. " absent") end
-    rows[#rows + 1] = tconcat(parts, " · ")
-    if counts.A > 0 then
-        -- the roles that are there, and how many accepted without a spec (their role is not known)
-        local rp2, known = {}, 0
-        for _, role in ipairs(ROLE_ORDER) do
-            if roles[role] > 0 then rp2[#rp2 + 1] = roles[role] .. ROLE_SHORT[role] end
-            known = known + roles[role]
-        end
-        if counts.A > known then
-            rp2[#rp2 + 1] = colorize("ff9933", (counts.A - known) .. " without a spec")
-        end
-        rows[#rows + 1] = { text = grey("Roles: ") .. tconcat(rp2, "  "),
-                            tip = { "Accepted by role", "T tank · H healer · M melee · R ranged" } }
-    end
-    if #noAnswer > 0 then
-        local names = {}
-        for i, key in ipairs(noAnswer) do
-            if i > 15 then names[#names + 1] = "..." break end
-            names[#names + 1] = shortName(key)
-        end
-        rows[#rows + 1] = { text = colorize("ff9933", #noAnswer .. " invited, no response"),
-                            tip = { "No response yet", tconcat(names, ", ") } }
-    end
-    if v.no and v.no ~= "" then
-        rows[#rows + 1] = { text = grey("\"" .. v.no .. "\""), tall = true, tip = { "Note", v.no } }
-    end
-    -- my BiS picks that can drop there, when the row fits above my answer and the buttons
-    local bisRow = bisDropRow(itemRaidFor(v.i))
-    if bisRow then
-        local units = 2
-        for _, r in ipairs(rows) do units = units + ((type(r) == "table" and r.tall) and 2 or 1) end
-        if units <= floor((CARD_H + rowsY - 34) / ROW_H) then rows[#rows + 1] = bisRow end
-    end
-    -- my player's answer, also one given with another of my characters
-    local mine = rp:GetMySignup(v.id)
-    local blocked, why = blockText(v)
-    if mine and STATUS[mine.st] then
-        rows[#rows + 1] = "Your answer: " .. colorize(STATUS[mine.st].color, STATUS[mine.st].label)
-    elseif blocked then
-        rows[#rows + 1] = { text = "Your answer: " .. colorize("ff5555", blocked), tip = { "You can't answer", why } }
     else
-        rows[#rows + 1] = "Your answer: " .. colorize("ff9933", "none yet")
+        r.icon:SetTexture(UI().ICON_WARN)
+        local shown = items[1].text
+        local n = 1
+        for i = 2, #items do
+            local cand = shown .. " · " .. items[i].text
+            local rest = #items - i
+            r.fs:SetText(cand .. (rest > 0 and (" · +" .. rest .. " more") or ""))
+            if strW(r.fs) > room - 18 then break end
+            shown, n = cand, i
+        end
+        local rest = #items - n
+        r.fs:SetText(shown .. (rest > 0 and (" · +" .. rest .. " more") or ""))
+        r.fs:SetTextColor(0.80, 0.80, 0.80)          -- (the warning icon says it; the words stay calm)
+        for _, it in ipairs(items) do
+            tip[#tip + 1] = { it.text, 1, 0.55, 0.1 }
+            tip[#tip + 1] = namesLine(it.names)
+        end
     end
-    local open = v.t >= Now() - CURRENT_FOR
-    card.buttonsShown = open
-    for i, st in ipairs(STATUS_ORDER) do
-        local b = card.buttons[i]
-        b:SetShown(open)
-        b:SetEnabled(blocked == nil)
-        b.occ = v
-        -- my answer in its colour (as on the Raids tab's sign-up strip)
-        if mine and mine.st == st then b:SetTint(hexRGB(STATUS[st].color)) else b:SetTint(nil) end
+    tip[#tip + 1] = grey("Click to open the raid's sign-ups")
+    r.tip = tip
+    r.onClick = function() openRaid(v.id) end
+    r:SetWidth(floor(strW(r.fs) + 18))
+    r:Show()
+end
+
+local function fillBisLine(b, drops)
+    local f = b.bis
+    if not drops then
+        f:Hide()
+        return 0
     end
-    card:SetRows(rows, rowsY)
-    -- the answer buttons right under "Your answer" (not at the card's bottom, with a gap above them)
-    local first = card.buttons[1]
-    first:ClearAllPoints()
-    first:SetPoint("TOPLEFT", card, "TOPLEFT", 10, (card.rowsEndY or rowsY) - 6)
+    f.fs:SetText(drops.text)
+    f.fs:SetTextColor(1, 0.82, 0)
+    f.tip, f.onClick = drops.tip, drops.onClick
+    local w = floor(12 + 5 + strW(f.fs) + 4 + 9)
+    f:SetWidth(w)
+    f:Show()
+    return w
+end
+
+local function fillNone(b)
+    local planner = RP() and RP().CanOrganize and RP():CanOrganize()
+    setArt(b.art, "other", INNER_W - 2, BANNER_H - 1, 1)
+    b.art:SetDesaturated(true)
+    b.art:SetAlpha(0.6)
+    b.kick:SetText("")
+    b.cd:Hide()
+    placeTexts(b, false)
+    b.title:SetText("Nothing planned")
+    b.meta:SetText(planner and "Plan the next one: it shows here for everyone."
+                   or "The Guild Master and the raid leaders plan raids.")
+    b.meter:SetText("")
+    b.meterHit.tip = nil
+    local aw = 0
+    if planner then
+        b.action:SetText("Plan a raid")
+        b.action:SetKind("primary")
+        b.action:SetWidth(100)
+        b.action:SetScript("OnClick", function()
+            openRaid(nil)
+            if ns.RaidPlanUI and ns.RaidPlanUI.OpenEditor then ns.RaidPlanUI:OpenEditor() end
+        end)
+        b.action:Show()
+        aw = 100
+    end
+    textWidth(b, false, aw)
+    b.onClick = nil
+    b.note:SetText("")
+    b.bis:Hide()
+    b.ready:Hide()
+    layoutFoot(b, 0, false)
+end
+
+local function fillSession(b, ctx)
+    local s = ctx.session
+    local rp = RP()
+    local planned = s.rp and rp and rp.GetRaid and rp:GetRaid(s.rp) or nil
+    local instID = currentInstID()
+    local inst = planned and planned.i or instKeyOf(instID)
+    b.art:SetDesaturated(false)
+    b.art:SetAlpha(1)
+    b.kick:SetText(colorize("8fe39d", "RAID IN PROGRESS"))
+    local at = tonumber(s.at)
+    b.cd.fs:SetText(at and ("started " .. duration(Now() - at) .. " ago") or "in progress")
+    b.cd:SetWidth(floor(strW(b.cd.fs) + 18))
+    b.cd:Show()
+    placeTexts(b, at ~= nil)
+    if at then
+        b.wd:SetText(date("%a", at):upper())
+        b.dn:SetText(tonumber(date("%d", at)))
+        b.tm:SetText(date("%H:%M", at))
+    end
+    local zone = GetInstanceInfo and (GetInstanceInfo()) or nil
+    b.title:SetText(planned and rp:GetRaidName(planned) or zone or "Raid")
+    -- who leads it, the loot handed out so far (mine too)
+    local parts = {}
+    if s.by then parts[#parts + 1] = UI():ColoredName(s.by) .. " leads" end
+    local L = ns.Ledger
+    if L and L.GetVisibleEntries then
+        local n, mine = 0, 0
+        for _, e in ipairs(L:GetVisibleEntries()) do
+            if e.rid == s.id then
+                n = n + 1
+                if e.w == Me() then mine = mine + 1 end
+            end
+        end
+        parts[#parts + 1] = plural(n, "item") .. " awarded" .. (mine > 0 and (" · " .. mine .. " to you") or "")
+    end
+    b.meta:SetText(tconcat(parts, " · "))
+    -- the bosses down so far
+    local RL = ns.RaidLog
+    local rec = RL and RL.GetCurrentID and RL.GetRaid and RL:GetRaid(RL:GetCurrentID() or s.id)
+    local kills = rec and #(rec.bosses or {}) or nil
+    local total = RL and RL.GetBossTotal and RL:GetBossTotal(instID or (rec and rec.instID))
+    local down = kills and (total and ("%d of %d bosses down"):format(kills, total)
+                            or ((kills == 1 and "1 boss" or (kills .. " bosses")) .. " down"))
+    b.meter:SetText(down or "")
+    b.meterHit.tip = nil
+    hideAnswer(b)
+    local aw = 0
+    local council = isCouncil()
+    if council then
+        b.action:SetText("Loot log")
+        b.action:SetKind("secondary")
+        b.action:SetWidth(90)
+        b.action:SetScript("OnClick", function() openTab("loot") end)
+        b.action:Show()
+        aw = 90
+    end
+    textWidth(b, at ~= nil, aw)
+    b.onClick = function() if planned then openRaid(planned.id) else openRaid(nil) end end
+    -- the foot: what of my list can drop here; the BiS lock
+    b.note:SetText("")
+    local bisW = fillBisLine(b, bisDrops(currentItemRaid() or (planned and itemRaidFor(planned.i))))
+    local Lock = UI().GetBiSLock and UI():GetBiSLock()
+    if Lock then
+        b.ready.icon:SetTexture(UI().ICON_LOCK)
+        b.ready.fs:SetText("BiS lists locked")
+        b.ready.fs:SetTextColor(0.74, 0.74, 0.74)
+        b.ready.tip = { "BiS lists are locked for this raid", "Changes wait until the raid leader unlocks them." }
+        b.ready.onClick = nil
+        b.ready:SetWidth(floor(strW(b.ready.fs) + 18))
+        b.ready:Show()
+    else
+        b.ready:Hide()
+    end
+    local banH = layoutFoot(b, 0, bisW > 0 or Lock ~= nil)
+    setArt(b.art, inst, INNER_W - 2, banH - 1, 1)
+end
+
+local function fillRaid(b, ctx)
+    local v = ctx.raid
+    local rp = RP()
+    local note = v.no and v.no ~= "" and v.no or nil
+    local readyFor = canSeeReadiness()
+    local drops = bisDrops(itemRaidFor(v.i))
+    local hasF2 = drops ~= nil or readyFor
+    -- the foot first (the art's height depends on it)
+    local noteLines = note and fitNote(b, note) or 0
+    if not note then b.note:SetText("") end
+    local banH = layoutFoot(b, noteLines, hasF2)
+    setArt(b.art, v.i, INNER_W - 2, banH - 1, 1)
+    b.art:SetDesaturated(false)
+    b.art:SetAlpha(1)
+    b.kick:SetText("")
+    layoutDayPills(b, ctx, IN)
+    b.cd.fs:SetText(countdown(v.t))
+    b.cd:SetWidth(floor(strW(b.cd.fs) + 18))
+    b.cd:Show()
+    placeTexts(b, true)
+    b.wd:SetText(date("%a", v.t):upper())
+    b.dn:SetText(tonumber(date("%d", v.t)))
+    b.tm:SetText(date("%H:%M", v.t))
+    b.title:SetText(rp:GetRaidName(v))
+
+    -- my answer
+    hideAnswer(b)
+    local kind, block, canAnswer, canAsk, mine = myState(v)
+    local id = v.id
+    local aw
+    if STATUS[kind] or kind == "R" then
+        local sub
+        if kind == "R" then
+            sub = "a raid leader approves"
+        elseif mine and mine.sp and mine.c and ns.SPECS[mine.c] and ns.SPECS[mine.c][mine.sp] then
+            sub = "as " .. ns.SPECS[mine.c][mine.sp].label
+        end
+        b.pill:Set(kind, sub)
+        b.pill:ClearAllPoints()
+        b.pill:SetPoint("BOTTOMRIGHT", -IN, sub and (IN + 14) or (IN + 1))
+        b.pill:SetPillShown(true)
+        b.pill:SetScript("OnClick", function(self) answerMenu(self, v, kind) end)
+        b.pill:SetScript("OnEnter", function(self)
+            showTip(self, { "Your answer", "Click to change it." }, "ANCHOR_TOP")
+        end)
+        b.pill:SetScript("OnLeave", hideTip)
+        aw = max(b.pill:GetWidth(), sub and (strW(b.pill.sub) + 4) or 0)
+    elseif canAsk then
+        b.ask:SetScript("OnClick", function() answer(id, "A") end)
+        b.ask:SetScript("OnEnter", function(self)
+            showTip(self, { "Ask to join", "Locked to its teams: whoever runs it approves or declines." }, "ANCHOR_TOP")
+        end)
+        b.ask:SetScript("OnLeave", hideTip)
+        b.ask:Show()
+        aw = b.ask:GetWidth()
+    elseif canAnswer then
+        b.accept:SetScript("OnClick", function() answer(id, "A") end)
+        b.tentative:SetScript("OnClick", function() answer(id, "T") end)
+        b.more:SetScript("OnClick", function(self) answerMenu(self, v, nil) end)
+        b.accept:Show()
+        b.tentative:Show()
+        b.more:Show()
+        aw = b.accept:GetWidth() + b.tentative:GetWidth() + b.more:GetWidth() + 8
+    else
+        local words, why = blockWords(v, block)
+        b.why.fs:SetText(words or "")
+        b.why.tip = why and { "You can't answer", why } or nil
+        b.why:SetWidth(floor(strW(b.why.fs) + 2))
+        b.why:SetShown(words ~= nil)
+        aw = words and b.why:GetWidth() or 0
+    end
+    local tw = textWidth(b, true, aw)
+
+    -- who / what: the instance (under a custom title), size, who leads, the teams; for who runs it, the requests
+    local parts = {}
+    local inst = rp:GetInstance(v.i)
+    if v.ti and inst then parts[#parts + 1] = { inst.name, 9 } end
+    parts[#parts + 1] = { (v.sz or 25) .. "-player", 3 }
+    if v.rl then parts[#parts + 1] = { UI():ColoredName(v.rl) .. " leads", 8 } end
+    local teams = teamsText(v)
+    if teams then parts[#parts + 1] = { teams, 5 } end
+    if v.weekly then parts[#parts + 1] = { "weekly", 2 } end
+    local nReq = (v.lk and rp:CanManageRaid(v)) and #rp:GetRequests(v.id) or 0
+    if nReq > 0 then parts[#parts + 1] = { colorize("ffd100", plural(nReq, "request")), 10 } end
+    local function metaText()
+        local out = {}
+        for _, p in ipairs(parts) do out[#out + 1] = p[1] end
+        return tconcat(out, " · ")
+    end
+    b.meta:SetText(metaText())
+    while #parts > 1 and strW(b.meta) > tw do
+        local low, at = 99, nil
+        for i, p in ipairs(parts) do
+            if p[2] < low then low, at = p[2], i end
+        end
+        table.remove(parts, at)
+        b.meta:SetText(metaText())
+    end
+
+    -- the accepted by role and how full it is (the tooltip has every answer and who hasn't answered)
+    local _, counts, roles, noAnswer = signupCounts(v)
+    local size = v.sz or 25
+    if counts.A == 0 and counts.T == 0 then
+        b.meter:SetText(grey("No answers yet"))
+    else
+        local function ri(role) return UI():RoleIconText(role, 13) end
+        local total = ("%d of %d"):format(counts.A, size)
+        b.meter:SetText(("%s %d    %s %d    %s %d      %s"):format(ri("tank"), roles.tank, ri("healer"), roles.healer,
+            ri("dps"), roles.melee + roles.ranged + roles.nospec,
+            (counts.A >= size and colorize("8fe39d", total) or grey(total))
+            .. (counts.T > 0 and grey(" · " .. counts.T .. " tentative") or "")))
+    end
+    local tip = { "Answers" }
+    local roleParts = {}
+    for _, r in ipairs({ { "tank", "tank" }, { "healer", "healer" }, { "melee", "melee" }, { "ranged", "ranged" } }) do
+        if roles[r[1]] > 0 then roleParts[#roleParts + 1] = plural(roles[r[1]], r[2]) end
+    end
+    tip[#tip + 1] = colorize(STATUS.A.color, counts.A .. " accepted") .. (#roleParts > 0 and grey(": " .. tconcat(roleParts, ", ")) or "")
+    if roles.nospec > 0 then tip[#tip + 1] = colorize(C_NEED, roles.nospec .. " accepted without a spec") end
+    local others = {}
+    for _, st in ipairs({ "T", "B", "X" }) do
+        if counts[st] > 0 then others[#others + 1] = colorize(STATUS[st].color, counts[st] .. " " .. STATUS[st].label:lower()) end
+    end
+    if #others > 0 then tip[#tip + 1] = tconcat(others, grey(" · ")) end
+    if #noAnswer > 0 then
+        tip[#tip + 1] = colorize(C_NEED, #noAnswer .. " invited, no response")
+        tip[#tip + 1] = namesLine(noAnswer)
+    end
+    b.meterHit.tip = tip
+    b.onClick = function() openRaid(id) end
+
+    -- the foot's second line: my BiS picks (left), the readiness (right, organizers)
+    local bisW = fillBisLine(b, drops)
+    if readyFor then
+        fillReadiness(b, v, ctx, INNER_W - 2 * IN - (bisW > 0 and (bisW + 24) or 0))
+    else
+        b.ready:Hide()
+    end
+end
+
+local function refreshBanner(b, ctx)
+    for _, p in ipairs(b.pills) do p:Hide() end
+    hideAnswer(b)
+    if ctx.session then
+        fillSession(b, ctx)
+    elseif ctx.raid then
+        fillRaid(b, ctx)
+    else
+        fillNone(b)
+    end
+    UI():SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], 0.7)
 end
 
 ---------------------------------------------------------------------------
--- Calendar: a month (Monday first) with a dot per raid on its day, and the picked day's raids beside it. Planned
--- raids (the Raids tab keeps them 15 days after they start; weekly ones show every week ahead) and the raid log's
--- raids (kept a year; a member has the ones they were in). A raid opens in the Raids tab: planned ones in Upcoming,
--- logged ones in the Raid log for its members.
+-- Calendar: a month (Monday first) with a dot per event on its day; beside it the picked day's events and the raids
+-- coming up. Planned raids (the Raids tab keeps them 15 days after they start; weekly ones show every week ahead),
+-- the raid log's raids (kept a year; a member has the ones they were in) and dungeon runs listed for later. A raid
+-- opens in the Raids tab: planned ones in Upcoming, logged ones in the Raid log for its members.
 ---------------------------------------------------------------------------
 
-local CAL_W, CAL_H = 28, 25         -- a day cell
-local CAL_X, CAL_TOP = 10, -44      -- the first week row (under the month and the weekday letters)
-local AGENDA_X = 2 * CAL_X + 7 * CAL_W + 4
-local AGENDA_ROW_H = 32
-local CAL_BACK = 365 * DAY          -- the raid log keeps raids a year
-local CAL_AHEAD = 180 * DAY         -- raids are planned at most 180 days ahead
-local MAX_DOTS = 3
 local WEEKDAYS = { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" }
-
-local function dayKey(t) return tonumber(date("%Y%m%d", t)) end
--- Noon of a day (noon keeps DST shifts from moving the day); y-m-d may be out of range (time() normalises it).
-local function noon(y, m, d) return time({ year = y, month = m, day = d, hour = 12, min = 0, sec = 0 }) end
-local function midnight(y, m, d) return time({ year = y, month = m, day = d, hour = 0, min = 0, sec = 0 }) end
-local function dayOf(t)
-    local d = date("*t", t)
-    return d.year, d.month, d.day
-end
-local function keyDate(key) return floor(key / 10000), floor(key / 100) % 100, key % 100 end
 
 -- "Today · Sat 4 Oct", "Wednesday 8 Oct".
 local function dayTitle(key)
     local y, m, d = keyDate(key)
     local t = noon(y, m, d)
     local short = date("%a ", t) .. d .. date(" %b", t)
-    local today = dayKey(Now())
-    if key == today then return "Today · " .. short end
-    if key == dayKey(noon(dayOf(Now())) + DAY) then return "Tomorrow · " .. short end
-    if key == dayKey(noon(dayOf(Now())) - DAY) then return "Yesterday · " .. short end
+    local away = daysAway(t)
+    if away == 0 then return "Today · " .. short end
+    if away == 1 then return "Tomorrow · " .. short end
+    if away == -1 then return "Yesterday · " .. short end
     return date("%A ", t) .. d .. date(" %b", t)
 end
 
@@ -932,31 +1535,36 @@ local function bossText(rec)
     return kills == 1 and "1 boss" or (kills .. " bosses")
 end
 
--- My answer to a planned raid: words, colour.
-local function answerState(v)
-    if v.cancelled then return "Cancelled", "808080" end
-    local rp = RP()
-    local mine = rp:GetMySignup(v.id)
-    if mine and STATUS[mine.st] then return STATUS[mine.st].label, STATUS[mine.st].color end
-    if v.t < Now() - CURRENT_FOR then return "No answer", "808080" end
-    local blocked = blockText(v)
-    if blocked then return blocked, "808080" end
-    local inv = rp:GetInvited(v)
-    if inv and inv[Me() or ""] then return "Answer needed", "ff9933" end
-    return "Open", "ffffff"
+-- A dungeon run's status: mine, I'm in, else the places still open ("needs healer, 2 DPS" / "full").
+local function runState(run)
+    local R = DR()
+    if run.o == Me() then return "your run", "ffd100" end
+    if R:IsInRun(run) then return "you're in", STATUS.A.color end
+    local open, parts = R:GetOpenRoles(run), {}
+    for _, role in ipairs(R.ROLES) do
+        local n = open[role]
+        if n then parts[#parts + 1] = (n > 1 and (n .. " ") or "") .. (role == "dps" and "DPS" or role) end
+    end
+    if #parts == 0 then return "full", C_RUN end
+    return "needs " .. tconcat(parts, ", "), C_RUN
+end
+
+local function runName(run)
+    local d = DR() and DR():GetDungeon(run.d)
+    return d and d.name or tostring(run.d)
 end
 
 -- An event's status words and dot colour: my answer for a raid to come, how a logged one went (grey once over).
 local function eventState(ev)
     if ev.run then return runState(ev.run) end
     local rec, v = ev.rec, ev.v
-    if rec then return running(rec) and "in progress" or bossText(rec), running(rec) and "33ff33" or "999999" end
+    if rec then return running(rec) and "in progress" or bossText(rec), running(rec) and STATUS.A.color or C_PAST end
     if v.cancelled or v.t >= Now() - CURRENT_FOR then return answerState(v) end
-    return (answerState(v)), "999999"
+    return (answerState(v)), C_PAST
 end
 
--- The raids of [from, to] by day: { [yyyymmdd] = { { t, name, v = planned raid, rec = raid log record } } }, each
--- day by start time. A logged raid linked to a planned one on the calendar is one event.
+-- The events of [from, to] by day: { [yyyymmdd] = { { t, name, v = planned raid, rec = raid log record, run } } },
+-- each day by start time. A logged raid linked to a planned one on the calendar is one event.
 local function calendarEvents(from, to)
     local byDay = {}
     local function add(ev)
@@ -981,7 +1589,6 @@ local function calendarEvents(from, to)
     for _, rec in ipairs(logs) do
         if not (rec.pl and shown[rec.pl]) then add({ t = rec.start, rec = rec, name = rec.zone or "Raid" }) end
     end
-    -- dungeon runs listed for later
     for _, run in ipairs(DR() and DR():GetRuns() or {}) do
         local t = run.at or 0
         if t > 0 and t >= from and t <= to then add({ t = t, run = run, name = runName(run) }) end
@@ -1000,7 +1607,7 @@ local function eventClick(ev)
     return nil
 end
 
--- The agenda row's tooltip: when, the sign-ups or how it went, my answer, my loot, where a click leads.
+-- An event's tooltip: when, the sign-ups or how it went, my answer, my loot, where a click leads.
 local function eventTip(ev)
     if ev.run then
         local tip = ns.DungeonsUI and ns.DungeonsUI.GetRunTip and ns.DungeonsUI:GetRunTip(ev.run) or { ev.name }
@@ -1014,10 +1621,8 @@ local function eventTip(ev)
         if v.t >= Now() - CURRENT_FOR and not v.cancelled then when = when .. " · " .. whenText(v.t) end
         tip[#tip + 1] = when
         local sub = { (v.sz or 25) .. "-player" }
-        for _, id in ipairs(v.tm or {}) do
-            local team = RP():GetTeam(id)
-            if team then sub[#sub + 1] = team.name end
-        end
+        local teams = teamsText(v)
+        if teams then sub[#sub + 1] = teams end
         if v.weekly then sub[#sub + 1] = "weekly" end
         tip[#tip + 1] = grey(tconcat(sub, " · "))
         if v.cancelled then
@@ -1044,9 +1649,9 @@ local function eventTip(ev)
         end
         if #mine > 0 then
             tip[#tip + 1] = "Your loot:"
-            for i, text in ipairs(mine) do
+            for i, t in ipairs(mine) do
                 if i > 8 then tip[#tip + 1] = grey("+" .. (#mine - 8) .. " more") break end
-                tip[#tip + 1] = "  " .. text
+                tip[#tip + 1] = "  " .. t
             end
         end
     end
@@ -1058,12 +1663,30 @@ local function eventTip(ev)
     return tip
 end
 
--- The agenda row's two lines: the raid, then its time and status.
-local function eventLines(ev)
-    local label, color = eventState(ev)
-    local when = date("%H:%M", ev.t)
+-- The art of an event's place: { file, l, r, t, b } for a w x h thumbnail.
+local function eventArt(ev, w, h)
     if ev.run then
-        return ev.name, grey(when .. " · " .. shortName(ev.run.o) .. " · ") .. colorize(color, label)
+        local file, l, r, t, b = DR():GetArt(ev.run.d, w, h)
+        if file then return file, l, r, t, b end
+        return nil
+    end
+    local inst = ev.v and ev.v.i or (ev.rec and instKeyOf(ev.rec.instID)) or "other"
+    local PUI = ns.RaidPlanUI
+    if PUI and PUI.RaidArt then return PUI:RaidArt(inst, w, h, 0.5) end
+    return nil
+end
+
+-- An agenda row's two lines: the event (a heroic run with its skull), then when and its status.
+local SHORT_STATE = { ["Taken off this raid"] = "Taken off", ["Locked to its teams"] = "Locked" }
+
+local function eventLines(ev, withDay)
+    local label, color = eventState(ev)
+    label = SHORT_STATE[label] or label
+    local when = date("%H:%M", ev.t)
+    if withDay then when = shortDay(ev.t) .. " · " .. when end
+    if ev.run then
+        return ev.name .. (ev.run.h and (" " .. HEROIC_ICON) or ""),
+               grey(when .. " · " .. shortName(ev.run.o) .. " · ") .. colorize(color, label)
     end
     local name = ev.name
     if ev.v and ev.v.cancelled then name = grey(name) end
@@ -1074,83 +1697,84 @@ local function eventLines(ev)
     return name, grey(when .. " · ") .. status
 end
 
+local function Row_OnEnter(self)
+    if self.itemID then
+        UI():SetItemTooltip(self, self.itemID)
+    elseif self.tip then
+        showTip(self, self.tip)
+    end
+end
+
+local function Row_OnClick(self)
+    if self.itemID and UI():HandleModifiedItemClick(self.itemID) then return end
+    if self.onClick then self.onClick() end
+end
+
 local function newAgendaRow(card)
     local r = CreateFrame("Button", nil, card)
-    r:SetHeight(AGENDA_ROW_H - 2)
-    r.bar = r:CreateTexture(nil, "ARTWORK")
-    r.bar:SetWidth(3)
-    r.bar:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -3)
-    r.bar:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 3)
-    r.l1 = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.l1:SetPoint("TOPLEFT", r, "TOPLEFT", 9, -3)
-    r.l1:SetPoint("TOPRIGHT", r, "TOPRIGHT", -2, -3)
-    r.l1:SetJustifyH("LEFT")
-    r.l2 = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.l2:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 9, 4)
-    r.l2:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -2, 4)
-    r.l2:SetJustifyH("LEFT")
-    r.l2:SetWordWrap(false)
+    r:SetHeight(THUMB_H)
+    r.thumb = r:CreateTexture(nil, "ARTWORK", nil, 0)
+    r.thumb:SetSize(THUMB_W, THUMB_H)
+    r.thumb:SetPoint("LEFT", 0, 0)
+    r.fade = r:CreateTexture(nil, "ARTWORK", nil, 1)
+    r.fade:SetPoint("TOPRIGHT", r.thumb, "TOPRIGHT")
+    r.fade:SetPoint("BOTTOMRIGHT", r.thumb, "BOTTOMRIGHT")
+    r.fade:SetWidth(floor(THUMB_W * 0.45))
+    gradient(r.fade, "HORIZONTAL", PANEL_BG, 0, 1)
+    r.l1 = text(r, 12, "GameFontHighlight")
+    r.l2 = text(r, 11, "GameFontHighlightSmall")
     r.hl = r:CreateTexture(nil, "HIGHLIGHT")
     r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.08)
+    r.hl:SetColorTexture(1, 1, 1, 0.06)
     r:SetScript("OnEnter", Row_OnEnter)
-    r:SetScript("OnLeave", Row_OnLeave)
+    r:SetScript("OnLeave", hideTip)
     r:SetScript("OnClick", Row_OnClick)
     return r
 end
 
--- The picked day's raids: { { l1, l2, plain, color, tip, onClick } }; a raid name too long for one line takes two,
--- and when the rest doesn't fit, the last row says how many more there are.
-local function setAgenda(card, items)
-    local width = card:GetWidth() or 0
-    if width < 300 then width = 388 end
-    local textW = width - AGENDA_X - 8 - 11
-    local tallH = AGENDA_ROW_H - 2 + 11
-    local y, bottom = -30, -(CARD_H - 4)
-    local used = 0
-    -- the row's texts; returns its height
-    local function fill(r, d)
-        r.l1:SetWordWrap(false)
-        r.l1:SetText(UI():SafeText(d.l1 or ""))
-        local tall = (r.l1:GetStringWidth() or 0) > textW
-        r.l1:SetWordWrap(tall)
-        if r.l1.SetMaxLines then r.l1:SetMaxLines(tall and 2 or 1) end
-        r.l2:SetText(UI():SafeText(d.l2 or ""))
-        return tall and tallH or (AGENDA_ROW_H - 2)
-    end
-    for i, d in ipairs(items) do
-        local r = card.agenda[i]
-        if not r then
-            r = newAgendaRow(card)
-            card.agenda[i] = r
+-- Sets a text that may take a second line (never "..."); true when it does. The wrap is set before the text: the
+-- game keeps the layout it made when the text was set.
+local function setLines(fs, s, width)
+    fs:SetWidth(width)
+    fs:SetWordWrap(true)
+    if fs.SetMaxLines then fs:SetMaxLines(2) end
+    fs:SetText(s or "")
+    return strW(fs) > width
+end
+
+-- Fills an agenda row: { l1, l2, ev (its art), tip, onClick, past }; returns its height. A line too long for the row
+-- takes two (the row grows).
+local function fillAgendaRow(r, d, width)
+    local thumb = d.ev and true or false
+    local x = thumb and (THUMB_W + 8) or 0
+    local textW = width - x
+    r.thumb:SetShown(thumb)
+    r.fade:SetShown(thumb)
+    if thumb then
+        local file, l, rr, t, b = eventArt(d.ev, THUMB_W, THUMB_H)
+        if file then
+            r.thumb:SetTexture(file)
+            r.thumb:SetTexCoord(l, rr, t, b)
+        else
+            r.thumb:SetColorTexture(0.15, 0.15, 0.17, 1)
         end
-        local h = fill(r, d)
-        local rest = #items - i
-        if rest > 0 and y - h - 2 - tallH < bottom then
-            -- no room for another row after this one: this one says what else the day has
-            local names = { "More that day" }
-            for j = i, #items do names[#names + 1] = items[j].plain or "" end
-            d = { l1 = grey("+" .. (rest + 1) .. " more"), tip = names }
-            h = fill(r, d)
-        end
-        r:SetHeight(h)
-        r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", card, "TOPLEFT", AGENDA_X, y)
-        r:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, y)
-        r.bar:SetShown(d.color ~= nil)
-        if d.color then r.bar:SetColorTexture(hexRGB(d.color)) end
-        r.tip, r.onClick = d.tip, d.onClick
-        r:EnableMouse((d.tip or d.onClick) and true or false)
-        r:Show()
-        y = y - h - 2
-        used = i
-        if d ~= items[i] then break end
+        r.thumb:SetDesaturated(d.past and true or false)
+        r.thumb:SetAlpha(d.past and 0.6 or 1)
     end
-    for j = used + 1, #card.agenda do
-        local r = card.agenda[j]
-        r:Hide()
-        r.tip, r.onClick = nil, nil
-    end
+    local tall = setLines(r.l1, d.l1, textW)
+    local tall2 = setLines(r.l2, d.l2, textW)
+    local hasL2 = (d.l2 or "") ~= ""
+    local textH = (tall and 30 or 15) + (hasL2 and (tall2 and 28 or 14) or 0)
+    local h = max(thumb and THUMB_H or 15, textH)
+    -- (a size of its own: a frame anchored by one corner has none, and the game draws nothing of it)
+    r:SetSize(width, h)
+    r.l1:ClearAllPoints()
+    r.l1:SetPoint("TOPLEFT", x, -floor((h - textH) / 2))
+    r.l2:ClearAllPoints()
+    r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -1)
+    r.tip, r.onClick = d.tip, d.onClick
+    r:EnableMouse((d.tip or d.onClick) and true or false)
+    return h
 end
 
 local function showDay(key)
@@ -1159,37 +1783,93 @@ local function showDay(key)
     Dashboard:Refresh()
 end
 
-local function refreshCalendarCard(card, ctx)
+-- The rows of a list (rows: the pool; items: what to show) from y down to at most `bottom`; when the rest doesn't fit,
+-- the last row says how many more there are (more = fn(rest) -> its row). Returns the y under the last row shown.
+local function layoutRows(card, pool, items, y, bottom, width, more)
+    local used = 0
+    for i, d in ipairs(items) do
+        local r = pool[i]
+        if not r then
+            r = newAgendaRow(card)
+            pool[i] = r
+        end
+        local h = fillAgendaRow(r, d, width)
+        local last = false
+        if i < #items and more and y + h + ROW_GAP + THUMB_H > bottom then
+            -- no room for another row after this one: this one says what else there is
+            h = fillAgendaRow(r, more(i), width)
+            last = true
+        end
+        if y + h > bottom then break end
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", card, "TOPLEFT", AGENDA_X, -y)
+        r:Show()
+        y = y + h + ROW_GAP
+        used = i
+        if last then break end
+    end
+    for j = used + 1, #pool do
+        local r = pool[j]
+        r:Hide()
+        r.tip, r.onClick = nil, nil
+    end
+    return y, used
+end
+
+local function refreshCalendar(card, ctx)
     local now = Now()
     local today = dayKey(now)
     local ty, tm = dayOf(now)
     local y, m = cal.y or ty, cal.m or tm
     local picked = cal.day or today
-    card:SetTitle(date("%B %Y", noon(y, m, 1)))
+    card.title:SetText(date("%B %Y", noon(y, m, 1)))
     -- the 6 weeks around the month, Monday first
     local lead = (date("*t", noon(y, m, 1)).wday + 5) % 7
     local from = midnight(y, m, 1 - lead)
     local to = midnight(y, m, 1 - lead + 42) - 1
     local byDay = calendarEvents(from, to)
+    local H = card:GetHeight()
+    if not H or H < 100 then H = LOWER_H end
+    -- only the month's weeks, sharing the height (at most CELL_H each)
+    local days = tonumber(date("%d", midnight(y, m + 1, 1) - 1))
+    local weeks = math.ceil((lead + days) / 7)
+    local rowH = min(CELL_H, floor((H - GRID_Y - 10) / weeks))
+    local pr, pg, pb = hexRGB(C_PAST)
     for i, c in ipairs(card.cells) do
+        local row = floor((i - 1) / 7)
+        c:ClearAllPoints()
+        c:SetSize(CELL_W, rowH)
+        c:SetPoint("TOPLEFT", GRID_X + ((i - 1) % 7) * CELL_W, -(GRID_Y + row * rowH))
+        c:SetShown(row < weeks)
         local cy, cm, cd = dayOf(noon(y, m, i - lead))
         local key = cy * 10000 + cm * 100 + cd
         c.key = key
         c.num:SetText(cd)
         local inMonth = cm == m
-        local shade = inMonth and 1 or 0.4
-        c.num:SetTextColor(shade, shade, shade)
-        c.sel:SetShown(key == picked)
-        UI():SetEdgeColor(c, 1, 0.82, 0, key == today and 0.9 or 0)
+        -- today: a gold disc; the picked day: a soft one
+        if key == today then
+            c.disc:SetVertexColor(1, 0.82, 0, 1)
+            c.num:SetTextColor(0.09, 0.07, 0.02)
+            c.num:SetShadowOffset(0, 0)
+        else
+            c.disc:SetVertexColor(1, 1, 1, 0.14)
+            local shade = (key == picked and 1) or (inMonth and 0.86) or 0.3
+            c.num:SetTextColor(shade, shade, shade)
+            c.num:SetShadowOffset(1, -1)
+        end
+        c.disc:SetShown(key == today or key == picked)
         local list = byDay[key] or {}
         local n = min(#list, MAX_DOTS)
         for j, dot in ipairs(c.dots) do
             if j <= n then
-                local _, color = eventState(list[j])
-                local r, g, b = hexRGB(color)
-                dot:SetColorTexture(r, g, b, inMonth and 1 or 0.5)
+                if inMonth then
+                    local _, color = eventState(list[j])
+                    dot:SetVertexColor(hexRGB(color))
+                else
+                    dot:SetVertexColor(pr, pg, pb, 0.6)
+                end
                 dot:ClearAllPoints()
-                dot:SetPoint("BOTTOM", c, "BOTTOM", (j - (n + 1) / 2) * 6, 3)
+                dot:SetPoint("CENTER", c, "TOP", (j - (n + 1) / 2) * 7, -(DISC_Y + DISC / 2 + 5))
                 dot:Show()
             else
                 dot:Hide()
@@ -1198,43 +1878,223 @@ local function refreshCalendarCard(card, ctx)
         c.events = list
     end
     -- the arrows stop where there is nothing to show: a year back, 180 days ahead
-    card.prevMonth:SetEnabled(midnight(y, m, 1) - 1 >= now - CAL_BACK)
-    card.nextMonth:SetEnabled(midnight(y, m + 1, 1) <= now + CAL_AHEAD)
+    card.prevMonth:SetShown(midnight(y, m, 1) - 1 >= now - CAL_BACK)
+    card.nextMonth:SetShown(midnight(y, m + 1, 1) <= now + CAL_AHEAD)
     card.todayBtn:SetShown(picked ~= today or y ~= ty or m ~= tm)
+
+    local bottom = H - 10
+    local width = CAL_W - AGENDA_X - 10
+
+    -- the raids coming up (not the banner's, not the picked day's): what the old Later raids card listed
+    local onBanner = {}
+    for _, v in ipairs(ctx.dayRaids) do onBanner[v.id] = true end
+    if ctx.raid then onBanner[ctx.raid.id] = true end
+    local coming = {}
+    for _, v in ipairs(ctx.raids) do
+        if not onBanner[v.id] and dayKey(v.t) ~= picked then
+            local ev = { t = v.t, v = v, name = RP():GetRaidName(v) }
+            local l1, l2 = eventLines(ev, true)
+            coming[#coming + 1] = { l1 = l1, l2 = l2, ev = ev, tip = eventTip(ev), onClick = eventClick(ev),
+                                    plain = shortDay(v.t) .. date(" %H:%M ", v.t) .. ev.name }
+        end
+    end
+
     -- the picked day
     card.dayTitle:SetText(dayTitle(picked))
     local items = {}
     for _, ev in ipairs(byDay[picked] or {}) do
         local l1, l2 = eventLines(ev)
-        local _, color = eventState(ev)
-        items[#items + 1] = { l1 = l1, l2 = l2, plain = date("%H:%M ", ev.t) .. ev.name, color = color,
+        local past = ev.t < now - CURRENT_FOR and not (ev.rec and running(ev.rec))
+        items[#items + 1] = { l1 = l1, l2 = l2, ev = ev, past = past, plain = date("%H:%M ", ev.t) .. ev.name,
                               tip = eventTip(ev), onClick = eventClick(ev) }
     end
     if #items == 0 then
-        local py, pm, pd = keyDate(picked)
-        local dayEnd = midnight(py, pm, pd + 1)
         items[1] = { l1 = grey(picked < today and "No raids that day." or "Nothing planned.") }
-        for _, v in ipairs(ctx.raids) do
-            if v.t >= dayEnd then
-                local key = dayKey(v.t)
-                items[2] = { l1 = grey("Next: ") .. RP():GetRaidName(v),
-                             l2 = grey(date("%a ", v.t) .. tonumber(date("%d", v.t)) .. date(" %b %H:%M", v.t)),
-                             tip = { "Next raid", RP():GetRaidName(v), date("%A %d %B %H:%M", v.t) .. " · " .. whenText(v.t),
-                                     grey("Click to show that day") },
-                             onClick = function() showDay(key) end }
-                break
-            end
-        end
     end
-    setAgenda(card, items)
+    -- the day's rows leave room for the coming-up title and one raid under it
+    local dayBottom = bottom - (#coming > 0 and (8 + 14 + 6 + THUMB_H) or 0)
+    local yy = layoutRows(card, card.agenda, items, GRID_Y + 2, dayBottom, width, function(i)
+        local names = { "More that day" }
+        for j = i, #items do names[#names + 1] = items[j].plain or "" end
+        return { l1 = grey("+" .. (#items - i + 1) .. " more"), tip = names }
+    end)
+
+    -- what's coming (a link to the rest on its title's row when they don't all fit)
+    card.comingTitle:SetShown(#coming > 0)
+    local titleY = yy - ROW_GAP + 10
+    if #coming > 0 then
+        card.comingTitle:ClearAllPoints()
+        card.comingTitle:SetPoint("TOPLEFT", AGENDA_X, -titleY)
+        yy = titleY + 14 + 6
+    end
+    local _, usedComing = layoutRows(card, card.coming, coming, yy, bottom, width, nil)
+    local hidden = #coming - usedComing
+    if #coming > 0 and hidden > 0 then
+        local lines = { "Also coming" }
+        for i = usedComing + 1, #coming do lines[#lines + 1] = coming[i].plain end
+        lines[#lines + 1] = grey("Click to open the Raids tab")
+        card.comingMore:SetLabel(hidden .. " more")
+        card.comingMore.tip = lines
+        card.comingMore:ClearAllPoints()
+        card.comingMore:SetPoint("RIGHT", card, "TOPRIGHT", -10, -(titleY + 6))
+        card.comingMore:Show()
+    else
+        card.comingMore:Hide()
+    end
 end
 
-local REASON_SHORT = { bis = "BiS", alt = "Alt", up = "Upgrade", os = "Offspec", de = "DE", bank = "Bank" }
+local function createCalendar(p)
+    local cc = CreateFrame("Frame", nil, p)
+    cc:SetPoint("TOPLEFT", PAD, -LOWER_Y)
+    cc:SetPoint("BOTTOMLEFT", PAD, PAD)
+    cc:SetWidth(CAL_W)
+    flatBox(cc)
+    p.calCard = cc
+    cc.agenda, cc.coming = {}, {}
+    cc.title = text(cc, 13, "GameFontNormal")
+    cc.title:SetPoint("LEFT", cc, "TOPLEFT", 10, -HEAD_H / 2)
+    local rule = cc:CreateTexture(nil, "ARTWORK")
+    rule:SetColorTexture(1, 1, 1, 0.07)
+    rule:SetHeight(1)
+    rule:SetPoint("TOPLEFT", 1, -HEAD_H)
+    rule:SetPoint("TOPRIGHT", -1, -HEAD_H)
+    -- the months: flat chevrons, gold on hover
+    local function arrow(dir, delta)
+        local b = CreateFrame("Button", nil, cc)
+        b:SetSize(20, 20)
+        b.icon = b:CreateTexture(nil, "ARTWORK")
+        b.icon:SetSize(10, 10)
+        b.icon:SetPoint("CENTER")
+        chevron(b.icon, dir)
+        b.icon:SetVertexColor(0.74, 0.74, 0.74)
+        b:SetScript("OnClick", function()
+            local ty, tm = dayOf(Now())
+            local t = date("*t", noon(cal.y or ty, (cal.m or tm) + delta, 1))
+            cal.y, cal.m = t.year, t.month
+            Dashboard:Refresh()
+        end)
+        b:SetScript("OnEnter", function(self)
+            self.icon:SetVertexColor(1, 0.82, 0)
+            showTip(self, { delta < 0 and "Previous month" or "Next month" }, "ANCHOR_TOP")
+        end)
+        b:SetScript("OnLeave", function(self)
+            self.icon:SetVertexColor(0.74, 0.74, 0.74)
+            hideTip()
+        end)
+        return b
+    end
+    cc.nextMonth = arrow("right", 1)
+    cc.nextMonth:SetPoint("RIGHT", cc, "TOPRIGHT", -6, -HEAD_H / 2)
+    cc.prevMonth = arrow("left", -1)
+    cc.prevMonth:SetPoint("RIGHT", cc, "TOPRIGHT", -6 - 20 - 2, -HEAD_H / 2)
+    cc.todayBtn = newLink(cc, "Today", function()
+        cal = {}
+        Dashboard:Refresh()
+    end)
+    cc.todayBtn.chev:Hide()
+    cc.todayBtn:SetPoint("RIGHT", cc, "TOPRIGHT", -6 - 42 - 10, -HEAD_H / 2)
+    local line = cc:CreateTexture(nil, "ARTWORK")
+    line:SetColorTexture(1, 1, 1, 0.06)
+    line:SetWidth(1)
+    line:SetPoint("TOPLEFT", RULE_X, -(HEAD_H + 10))
+    line:SetPoint("BOTTOMLEFT", RULE_X, 10)
+    for i, letter in ipairs(WEEKDAYS) do
+        local fs = text(cc, 10, "GameFontHighlightSmall")
+        fs:SetTextColor(0.5, 0.5, 0.5)
+        fs:SetPoint("TOPLEFT", GRID_X + (i - 1) * CELL_W, -(HEAD_H + 8))
+        fs:SetWidth(CELL_W)
+        fs:SetJustifyH("CENTER")
+        fs:SetText(letter)
+    end
+    cc.cells = {}
+    for i = 1, 42 do
+        -- (placed and sized by refreshCalendar: the month's weeks share the height)
+        local c = CreateFrame("Button", nil, cc)
+        c:SetSize(CELL_W, CELL_H)
+        c:SetPoint("TOPLEFT", GRID_X + ((i - 1) % 7) * CELL_W, -(GRID_Y + floor((i - 1) / 7) * CELL_H))
+        c.disc = c:CreateTexture(nil, "BACKGROUND")
+        c.disc:SetTexture(DISC_TEX)
+        c.disc:SetSize(DISC, DISC)
+        c.disc:SetPoint("CENTER", c, "TOP", 0, -DISC_Y)
+        local hl = c:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetTexture(DISC_TEX)
+        hl:SetSize(DISC, DISC)
+        hl:SetPoint("CENTER", c, "TOP", 0, -DISC_Y)
+        hl:SetVertexColor(1, 1, 1, 0.08)
+        c.num = text(c, 12, "GameFontHighlight")
+        c.num:SetJustifyH("CENTER")
+        c.num:SetShadowOffset(1, -1)
+        c.num:SetPoint("CENTER", c, "TOP", 0, -DISC_Y)
+        c.dots = {}
+        for j = 1, MAX_DOTS do
+            local dot = c:CreateTexture(nil, "OVERLAY")
+            dot:SetTexture(DISC_TEX)
+            dot:SetSize(4, 4)
+            dot:Hide()
+            c.dots[j] = dot
+        end
+        c:SetScript("OnClick", function(self) if self.key then showDay(self.key) end end)
+        c:SetScript("OnEnter", function(self)
+            if not (self.events and #self.events > 0) then return end
+            local lines = { dayTitle(self.key) }
+            for _, ev in ipairs(self.events) do
+                local label, color = eventState(ev)
+                lines[#lines + 1] = date("%H:%M ", ev.t) .. ev.name .. " · " .. colorize(color, label)
+            end
+            showTip(self, lines)
+        end)
+        c:SetScript("OnLeave", hideTip)
+        cc.cells[i] = c
+    end
+    cc.dayTitle = text(cc, 12, "GameFontHighlight")
+    cc.dayTitle:SetPoint("TOPLEFT", AGENDA_X, -(HEAD_H + 7))
+    cc.comingTitle = text(cc, 11, "GameFontHighlightSmall")
+    cc.comingTitle:SetTextColor(0.62, 0.62, 0.62)
+    cc.comingTitle:SetText("Coming up")
+    cc.comingMore = newLink(cc, "1 more", function() openRaid(nil) end)
+end
 
-local function refreshLootCard(card, ctx)
+---------------------------------------------------------------------------
+-- Loot: the newest awards (the council: everyone's, with the way to the Loot log; a raider: their own)
+---------------------------------------------------------------------------
+
+local function newLootRow(card)
+    local r = CreateFrame("Button", nil, card)
+    r:SetHeight(LOOT_ROW_H)
+    r.iconFrame = CreateFrame("Frame", nil, r)
+    r.iconFrame:SetSize(26, 26)
+    r.iconFrame:SetPoint("LEFT", 10, 0)
+    r.icon = r.iconFrame:CreateTexture(nil, "ARTWORK")
+    r.icon:SetAllPoints()
+    r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    UI():AddEdges(r.iconFrame, "OVERLAY")
+    r.l1 = text(r, 12, "GameFontHighlight")
+    r.l1:SetPoint("TOPLEFT", 10 + 26 + 9, -4)
+    r.l1:SetPoint("RIGHT", -10, 0)
+    r.l2 = text(r, 11, "GameFontHighlightSmall")
+    r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -2)
+    r.ago = text(r, 11, "GameFontHighlightSmall")
+    r.ago:SetTextColor(0.62, 0.62, 0.62)
+    r.ago:SetJustifyH("RIGHT")
+    r.ago:SetPoint("TOPRIGHT", r.l1, "BOTTOMRIGHT", 0, -2)
+    r.l2:SetPoint("RIGHT", r.ago, "LEFT", -6, 0)
+    r.rule = r:CreateTexture(nil, "ARTWORK")
+    r.rule:SetColorTexture(1, 1, 1, 0.045)
+    r.rule:SetHeight(1)
+    r.rule:SetPoint("BOTTOMLEFT", 1, 0)
+    r.rule:SetPoint("BOTTOMRIGHT", -1, 0)
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.06)
+    r:SetScript("OnEnter", Row_OnEnter)
+    r:SetScript("OnLeave", hideTip)
+    r:SetScript("OnClick", Row_OnClick)
+    return r
+end
+
+local function refreshLoot(card)
     local L = ns.Ledger
     local council = isCouncil() or isDemo()
-    card.onOpen = council and function() openTab("loot") end or nil
     card.link:SetShown(council)
     local entries = {}
     if L then
@@ -1244,145 +2104,81 @@ local function refreshLootCard(card, ctx)
             entries = L:GetEntries({ player = Me() })
         end
     end
-    card:SetTitle(council and "Recent loot" or "Your loot")
-    local rows = {}
-    for i, e in ipairs(entries) do
-        if i > 12 then break end
-        local who = council and (UI():ColoredName(e.w) .. " ") or ""
-        local reason = e.r and REASON_SHORT[e.r] or nil
-        local right = (reason and (reason .. " · ") or "") .. ns.Util.FormatAgo(e.ts)
-        local text = UI():ItemText(e.i)
-        if council and e.w == Me() then who = colorize("33ff33", "You ") end
-        rows[#rows + 1] = { text = who .. text, right = grey(right), itemID = e.i,
-                            plain = shortName(e.w) .. ": " .. (ns.ItemDB:GetName(e.i) or "?") }
-    end
-    if #rows == 0 then
-        rows[1] = grey(council and "No awards recorded yet." or "No loot awarded to you yet.")
-    end
-    card:SetRows(rows, -28)
-end
-
--- Council / organizers: is the next raid ready?
-local function refreshReadinessCard(card, ctx)
-    local v = ctx.raid
-    card.onOpen = function() openRaid(v and v.id) end
-    local rp = RP()
-    if not v then
-        card:SetTitle("Raid readiness")
-        card:SetRows({ grey("No raid planned.") }, -28)
-        return
-    end
-    card:SetTitle("Raid readiness · " .. rp:GetRaidName(v) .. " " .. date("%a", v.t))
-    local ups, counts, _, noAnswer = signupCounts(v)
-    local coming = {}
-    for key, s in pairs(ups) do
-        if s.st == "A" or s.st == "T" then coming[#coming + 1] = key end
-    end
-    tsort(coming)
-    -- only what needs attention; one "all set" line when nothing does
-    local rows = {}
-    local function line(list, badText, tipTitle)
-        if #list == 0 then return end
-        local names = {}
-        for i, key in ipairs(list) do
-            if i > 15 then names[#names + 1] = "..." break end
-            names[#names + 1] = shortName(key)
-        end
-        rows[#rows + 1] = { text = colorize("ff9933", badText:format(#list)), tip = { tipTitle, tconcat(names, ", ") } }
-    end
-    if isCouncil() then
-        local Store, BiS = ns.Store, ns.BiS
-        local empty = {}
-        for _, key in ipairs(coming) do
-            local filled
-            if ns.Util.IsMe(key) then
-                filled = ctx.bis.filled
-            else
-                local sum = Store and Store.Get and Store:Get(key) and Store:GetPlayerSummary(key, ctx.phase)
-                filled = sum and sum.filled or 0
+    card.title:SetText(council and "Recent loot" or "Your loot")
+    local H = card:GetHeight()
+    if not H or H < 100 then H = LOWER_H end
+    local fit = floor((H - HEAD_H - 1) / LOOT_ROW_H)
+    local n = min(#entries, fit)
+    for i = 1, max(n, #card.rows) do
+        local r = card.rows[i]
+        local e = entries[i]
+        if i <= n and e then
+            if not r then
+                r = newLootRow(card)
+                card.rows[i] = r
             end
-            if filled == 0 then empty[#empty + 1] = key end
-        end
-        line(empty, "%d coming without a Phase " .. ctx.phase .. " list", "No BiS picks for Phase " .. ctx.phase)
-    end
-    local Sync = ns.Sync
-    local noAddon, oldAddon = {}, {}
-    for _, key in ipairs(coming) do
-        local p = Sync and Sync.GetPeer and Sync:GetPeer(key)
-        if not p or not p.v then
-            noAddon[#noAddon + 1] = key
-        elseif ns.Util.CompareVersions(p.v, ns.version) < 0 then
-            oldAddon[#oldAddon + 1] = key
-        end
-    end
-    line(noAddon, "%d coming, DisasterZone never seen", "DisasterZone not seen on")
-    line(oldAddon, "%d coming on an older DisasterZone", "Older than your " .. tostring(ns.version))
-    if rp:GetInvited(v) then
-        line(noAnswer, "%d invited, no response", "No response yet")
-    end
-    local flags = ns.Store and ns.Store.GetLockFlags and ns.Store:GetLockFlags() or {}
-    local flagged = {}
-    for key in pairs(flags) do flagged[#flagged + 1] = key end
-    tsort(flagged)
-    if #flagged > 0 then
-        line(flagged, "%d BiS edits during the lock", "Changed their list while locked")
-    end
-    local size = v.sz or 25
-    if counts.A < size then
-        rows[#rows + 1] = colorize("ff9933", ("%d of %d spots filled"):format(counts.A, size))
-    end
-    if #rows == 0 then
-        rows[1] = colorize("33ff33", "All set: " .. plural(#coming, "player") .. " coming, nothing missing")
-    end
-    card:SetRows(rows, -28)
-end
-
--- Raiders: the raids after the next one.
-local function refreshLaterCard(card, ctx)
-    card.onOpen = function() openRaid(nil) end
-    card:SetTitle("Later raids")
-    local rows = {}
-    local rp = RP()
-    local onCard = {}
-    for _, v in ipairs(ctx.dayRaids) do onCard[v.id] = true end
-    if ctx.raid then onCard[ctx.raid.id] = true end
-    for _, v in ipairs(ctx.raids) do
-        if not onCard[v.id] then
-            local mine = rp:GetMySignup(v.id)
-            local right
-            if mine and STATUS[mine.st] then
-                right = colorize(STATUS[mine.st].color, STATUS[mine.st].label)
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", 0, -(HEAD_H + 1 + (i - 1) * LOOT_ROW_H))
+            r:SetPoint("TOPRIGHT", 0, -(HEAD_H + 1 + (i - 1) * LOOT_ROW_H))
+            local icon = ns.ItemDB and ns.ItemDB:GetIcon(e.i)
+            r.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            local q = ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(e.i)
+            local qr, qg, qb = UI():QualityColor(q)
+            UI():SetEdgeColor(r.iconFrame, qr, qg, qb, q and 0.85 or 0.4)
+            r.l1:SetText(UI():ItemText(e.i))
+            setSize(r.l1, 12)
+            if strW(r.l1) > LOOT_W - 45 - 10 then setSize(r.l1, 11) end
+            -- who (the council) or where from (my own), and why; a disenchant / bank award says only that
+            local reason = e.r and REASON[e.r]
+            local why = reason and colorize(reason[2], reason[1]) or nil
+            local l2
+            if reason and (e.r == "de" or e.r == "bank") then
+                l2 = why
+            elseif council then
+                l2 = ((e.w == Me()) and colorize(STATUS.A.color, "You") or UI():ColoredName(e.w))
+                    .. (why and (grey(" · ") .. why) or "")
             else
-                local inv = rp:GetInvited(v)
-                local block = rp:GetSignupBlock(v)
-                right = (block == "blacklist" and grey("blocked")) or (block == "declined" and grey("declined"))
-                    or (rp:GetMyRequest(v.id) and colorize("ffd100", "requested"))
-                    or (block == "lock" and rp:CanRequest(v) and grey("ask to join"))
-                    or ((inv and inv[Me() or ""]) and colorize("ff9933", "no answer"))
-                    or grey(block == nil and "open" or (block == "level" and ("level " .. v.ml .. " only") or "not invited"))
+                local ref = ns.ItemDB and ns.ItemDB.GetBossRef and ns.ItemDB:GetBossRef(e.b)
+                local boss = ref and ref.boss and (ref.boss.isTrash and "Trash" or ref.boss.name)
+                local parts = {}
+                if why then parts[#parts + 1] = why end
+                if boss then parts[#parts + 1] = grey(boss) end
+                l2 = tconcat(parts, grey(" · "))
             end
-            rows[#rows + 1] = { text = date("%a %d %b %H:%M", v.t) .. "  " .. rp:GetRaidName(v), right = right,
-                                onClick = function() openRaid(v.id) end }
+            r.l2:SetText(l2 or "")
+            r.ago:SetText(agoText(e.ts))
+            r.rule:SetShown(i < n)
+            r.itemID = e.i
+            r:Show()
+        elseif r then
+            r:Hide()
+            r.itemID = nil
         end
     end
-    if #rows == 0 then rows[1] = grey("Nothing else planned in the next two weeks.") end
-    card:SetRows(rows, -28)
+    card.empty:SetShown(n == 0)
+    card.empty:SetText(council and "No awards recorded yet." or "No loot awarded to you yet.")
 end
 
-local function refreshFooter(ctx)
-    local Sync = ns.Sync
-    panel.footerLeft:SetText("")   -- (the sync status is in the window's title bar)
-    local online = 0
-    for _, e in ipairs(Sync and Sync.GetVersions and Sync:GetVersions() or {}) do
-        if e.online then online = online + 1 end
-    end
-    local G = ns.Guild
-    local members = G and G.GetCouncilMembers and G:GetCouncilMembers() or {}
-    local councilOnline = #(Sync and Sync.GetOnlineCouncilPeers and Sync:GetOnlineCouncilPeers() or {})
-    if isCouncil() then councilOnline = councilOnline + 1 end
-    local parts = { plural(online, "player") .. " online with DisasterZone" }
-    if #members > 0 then parts[#parts + 1] = ("council online %d/%d"):format(min(councilOnline, #members), #members) end
-    panel.footerRight:SetText(tconcat(parts, " · "))
+local function createLoot(p)
+    local lc = CreateFrame("Frame", nil, p)
+    lc:SetPoint("TOPRIGHT", -PAD, -LOWER_Y)
+    lc:SetPoint("BOTTOMRIGHT", -PAD, PAD)
+    lc:SetWidth(LOOT_W)
+    flatBox(lc)
+    p.lootCard = lc
+    lc.rows = {}
+    lc.title = text(lc, 13, "GameFontNormal")
+    lc.title:SetPoint("LEFT", lc, "TOPLEFT", 10, -HEAD_H / 2)
+    local rule = lc:CreateTexture(nil, "ARTWORK")
+    rule:SetColorTexture(1, 1, 1, 0.07)
+    rule:SetHeight(1)
+    rule:SetPoint("TOPLEFT", 1, -HEAD_H)
+    rule:SetPoint("TOPRIGHT", -1, -HEAD_H)
+    lc.link = newLink(lc, "Loot log", function() openTab("loot") end)
+    lc.link:SetPoint("RIGHT", lc, "TOPRIGHT", -10, -HEAD_H / 2)
+    lc.empty = text(lc, 12, "GameFontHighlight")
+    lc.empty:SetTextColor(0.55, 0.55, 0.55)
+    lc.empty:SetPoint("TOPLEFT", 10, -(HEAD_H + 12))
 end
 
 ---------------------------------------------------------------------------
@@ -1399,7 +2195,7 @@ local function buildContext()
         session = GR and GR.GetSession and GR:GetSession() or nil,
         dayRaids = {},
     }
-    -- Several raids on the day of the next one: the card shows pills to switch between them.
+    -- Several raids on the day of the next one: the banner shows pills to switch between them.
     if raids[1] then
         local day = date("%Y%m%d", raids[1].t)
         for _, v in ipairs(raids) do
@@ -1427,16 +2223,10 @@ function Dashboard:Refresh()
     panel.dirty = false
     panel.elapsed = 0
     local ctx = buildContext()
-    panel.chipData.list = collectActions(ctx)
-    layoutChips(panel.chipData)
-    refreshRaidCard(panel.raidCard, ctx)
-    refreshCalendarCard(panel.calCard, ctx)
-    refreshLootCard(panel.lootCard, ctx)
-    local ready = canSeeReadiness()
-    panel.readyCard:SetShown(ready)
-    panel.laterCard:SetShown(not ready)
-    if ready then refreshReadinessCard(panel.readyCard, ctx) else refreshLaterCard(panel.laterCard, ctx) end
-    refreshFooter(ctx)
+    layoutChips(collectActions(ctx))
+    refreshBanner(panel.banner, ctx)
+    refreshCalendar(panel.calCard, ctx)
+    refreshLoot(panel.lootCard)
 end
 
 function Dashboard:RequestRefresh()
@@ -1453,171 +2243,12 @@ function Dashboard:CreatePanel(parent)
     local p = CreateFrame("Frame", nil, parent)
     p:SetAllPoints(parent)
     panel = p
-    p.chips, p.chipData, p.elapsed, p.dirty = {}, {}, 0, true
-
-    p.actions = CreateFrame("Frame", nil, p)
-    p.actions:SetPoint("TOPLEFT", p, "TOPLEFT", 6, -6)
-    p.actions:SetPoint("TOPRIGHT", p, "TOPRIGHT", -6, -6)
-    p.actions:SetHeight(CHIP_H)
-    p.greeting = p.actions:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    p.greeting:SetPoint("LEFT", p.actions, "LEFT", 4, 0)
-    p.greeting:SetWordWrap(false)
-    p.greetSep = p.actions:CreateTexture(nil, "ARTWORK")
-    p.greetSep:SetSize(1, 14)
-    p.greetSep:SetPoint("LEFT", p.greeting, "RIGHT", 10, 0)
-    p.greetSep:SetColorTexture(1, 1, 1, 0.15)
-    p.allSet = p.actions:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.allSet:SetPoint("RIGHT", p.actions, "RIGHT", -4, 0)
-    p.allSet:SetText(UI():SafeText("|cff5fa05f\226\156\147|r All caught up"))
-    p.moreChips = CreateFrame("Button", nil, p.actions)
-    p.moreChips:SetSize(60, CHIP_H)
-    p.moreChips.text = p.moreChips:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.moreChips.text:SetPoint("LEFT", p.moreChips, "LEFT", 2, 0)
-    p.moreChips.SetText = function(self, t) self.text:SetText(t) end
-    p.moreChips:SetScript("OnEnter", function(self) UI():SetTextTooltip(self, self.tip or {}) end)
-    p.moreChips:SetScript("OnLeave", Row_OnLeave)
-    p.moreChips:Hide()
-
-    local top = -(CHIP_H + 12)
-    p.raidCard = createCard(p, "Raids")
-    p.raidCard:SetPoint("TOPLEFT", p, "TOPLEFT", 4, top)
-    p.raidCard:SetPoint("RIGHT", p, "CENTER", -3, 0)
-    p.raidCard.buttons = {}
-    p.raidCard.pills = {}
-    local prev
-    for i, st in ipairs(STATUS_ORDER) do
-        local b = UI():CreateButton(p.raidCard, STATUS[st].button, 82, 22, function(self)
-            if self.occ then answer(self.occ, st) end
-        end)
-        if prev then
-            b:SetPoint("LEFT", prev, "RIGHT", 4, 0)
-        else
-            b:SetPoint("BOTTOMLEFT", p.raidCard, "BOTTOMLEFT", 10, 9)
-        end
-        b:Hide()
-        p.raidCard.buttons[i] = b
-        prev = b
-    end
-
-    local cc = createCard(p)
-    p.calCard = cc
-    cc:SetPoint("TOPLEFT", p, "TOP", 3, top)
-    cc:SetPoint("RIGHT", p, "RIGHT", -4, 0)
-    cc.agenda = {}
-    local function arrow(dir, delta)
-        local b = CreateFrame("Button", nil, cc)
-        b:SetSize(20, 20)
-        b:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Up")
-        b:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Down")
-        b:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. dir .. "Page-Disabled")
-        b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
-        b:SetScript("OnClick", function()
-            local ty, tm = dayOf(Now())
-            local t = date("*t", noon(cal.y or ty, (cal.m or tm) + delta, 1))
-            cal.y, cal.m = t.year, t.month
-            Dashboard:Refresh()
-        end)
-        b:SetScript("OnEnter", function(self)
-            UI():SetTextTooltip(self, { delta < 0 and "Previous month" or "Next month" })
-        end)
-        b:SetScript("OnLeave", Row_OnLeave)
-        return b
-    end
-    local gridRight = CAL_X + 7 * CAL_W
-    cc.nextMonth = arrow("Next", 1)
-    cc.nextMonth:SetPoint("TOPRIGHT", cc, "TOPLEFT", gridRight + 2, -5)
-    cc.prevMonth = arrow("Prev", -1)
-    cc.prevMonth:SetPoint("RIGHT", cc.nextMonth, "LEFT", 2, 0)
-    cc.todayBtn = CreateFrame("Button", nil, cc)
-    cc.todayBtn:SetSize(36, 16)
-    cc.todayBtn:SetPoint("RIGHT", cc.prevMonth, "LEFT", -2, 0)
-    cc.todayBtn.text = cc.todayBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    cc.todayBtn.text:SetPoint("RIGHT", cc.todayBtn, "RIGHT", 0, 0)
-    cc.todayBtn.text:SetText("Today")
-    cc.todayBtn:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 1, 1) end)
-    cc.todayBtn:SetScript("OnLeave", function(self) self.text:SetTextColor(1, 0.82, 0) end)
-    cc.todayBtn:SetScript("OnClick", function()
-        cal = {}
-        Dashboard:Refresh()
-    end)
-    cc.title:SetPoint("RIGHT", cc.todayBtn, "LEFT", -4, 0)
-    for i, letter in ipairs(WEEKDAYS) do
-        local fs = cc:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        fs:SetPoint("TOPLEFT", cc, "TOPLEFT", CAL_X + (i - 1) * CAL_W, -29)
-        fs:SetWidth(CAL_W)
-        fs:SetJustifyH("CENTER")
-        fs:SetText(letter)
-    end
-    cc.cells = {}
-    for i = 1, 42 do
-        local c = CreateFrame("Button", nil, cc)
-        c:SetSize(CAL_W - 2, CAL_H - 2)
-        c:SetPoint("TOPLEFT", cc, "TOPLEFT", CAL_X + ((i - 1) % 7) * CAL_W + 1, CAL_TOP - floor((i - 1) / 7) * CAL_H)
-        c.sel = c:CreateTexture(nil, "BACKGROUND")
-        c.sel:SetAllPoints()
-        c.sel:SetColorTexture(1, 0.82, 0, 0.22)
-        UI():AddEdges(c)
-        local hl = c:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints()
-        hl:SetColorTexture(1, 1, 1, 0.1)
-        c.num = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        c.num:SetPoint("TOP", c, "TOP", 0, -3)
-        c.dots = {}
-        for j = 1, MAX_DOTS do
-            local dot = c:CreateTexture(nil, "OVERLAY")
-            dot:SetSize(4, 4)
-            dot:Hide()
-            c.dots[j] = dot
-        end
-        c:SetScript("OnClick", function(self) if self.key then showDay(self.key) end end)
-        c:SetScript("OnEnter", function(self)
-            if not (self.events and #self.events > 0) then return end
-            local lines = { dayTitle(self.key) }
-            for _, ev in ipairs(self.events) do
-                local label, color = eventState(ev)
-                lines[#lines + 1] = date("%H:%M ", ev.t) .. ev.name .. " · " .. colorize(color, label)
-            end
-            UI():SetTextTooltip(self, lines)
-        end)
-        c:SetScript("OnLeave", Row_OnLeave)
-        cc.cells[i] = c
-    end
-    local sep = cc:CreateTexture(nil, "ARTWORK")
-    sep:SetWidth(1)
-    sep:SetPoint("TOPLEFT", cc, "TOPLEFT", AGENDA_X - 7, -8)
-    sep:SetPoint("BOTTOMLEFT", cc, "BOTTOMLEFT", AGENDA_X - 7, 8)
-    sep:SetColorTexture(1, 1, 1, 0.08)
-    cc.dayTitle = cc:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    cc.dayTitle:SetPoint("TOPLEFT", cc, "TOPLEFT", AGENDA_X, -9)
-    cc.dayTitle:SetPoint("RIGHT", cc, "RIGHT", -10, 0)
-    cc.dayTitle:SetJustifyH("LEFT")
-    cc.dayTitle:SetWordWrap(false)
-
-    local footerH = 18
-    local function lowerCard(label, left)
-        local c = createCard(p, label)
-        if left then
-            c:SetPoint("TOPLEFT", p.raidCard, "BOTTOMLEFT", 0, -6)
-            c:SetPoint("RIGHT", p, "CENTER", -3, 0)
-        else
-            c:SetPoint("TOPLEFT", p.calCard, "BOTTOMLEFT", 0, -6)
-            c:SetPoint("RIGHT", p, "RIGHT", -4, 0)
-        end
-        c:SetPoint("BOTTOM", p, "BOTTOM", 0, footerH + 6)
-        return c
-    end
-    p.lootCard = lowerCard("Loot log", true)
-    p.readyCard = lowerCard("Raids", false)
-    p.laterCard = lowerCard("Raids", false)
-
-    p.footerLeft = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.footerLeft:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 8, 6)
-    p.footerLeft:SetJustifyH("LEFT")
-    p.footerRight = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.footerRight:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -8, 6)
-    p.footerRight:SetJustifyH("RIGHT")
-
-    -- card heights depend on the content frame; the lower row stretches, so its rows need a real height
+    p.elapsed, p.dirty = 0, true
+    createHello(p)
+    createBanner(p)
+    createCalendar(p)
+    createLoot(p)
+    -- the lower boxes stretch to the page's bottom: their rows need the real height
     p:SetScript("OnSizeChanged", function() Dashboard:RequestRefresh() end)
     p:SetScript("OnShow", function(self)
         if self.dirty then Dashboard:RequestRefresh() end

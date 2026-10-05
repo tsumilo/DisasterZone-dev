@@ -170,7 +170,7 @@ def plain_award_menu_goes_through_the_roll_one_ledger_entry():
     A.eval(LEDGER_SPY)
     sid = closed_session(r, rolls=())            # nobody rolled: no suggestion, the plain "Award..." shows
     blk = block_of(A, RUBY_DRAPE)
-    assert blk and "Award..." in blk["buttons"], blk
+    assert blk and "Award" in blk["buttons"], blk
     log0 = len(w.addon_log)
     # the real menu: Award... -> "Dave  [Alt]"
     b = A.eval("for _, b in ipairs(ns.DropPanel.blocks) do if b.itemID == %d then return b end end" % RUBY_DRAPE)
@@ -385,7 +385,7 @@ def settings_dungeon_section_toggle_quality_and_live_status():
     w.make_party([A, B], leader=A)
     w.tick(1)
     assert status(B) == "Status: Inactive (not turned on for this party)", status(B)
-    cb = A.eval("return T_checkbox(T_settings(), 'Enable dungeon mode (5-man parties)')")
+    cb = A.eval("return T_checkbox(T_settings(), 'Dungeon mode (5-man parties)')")
     assert cb is not None
     A.click(cb)
     w.tick(2)

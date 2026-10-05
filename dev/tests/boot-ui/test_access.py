@@ -61,6 +61,7 @@ def not_in_guild_only_personal_tabs():
     c.slash("/dz settings")
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "settings"
+    c.eval("ns.SettingsUI:SelectSection('council')")      # (one Settings section shows at a time)
     assert c.find_text("You are not in a guild", True, True), "settings should explain the guildless state"
     # the title has no guild suffix
     assert c.eval("return DisasterZoneMainFrame.titleText:GetText()") == "DisasterZone"

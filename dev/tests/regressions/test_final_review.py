@@ -1022,7 +1022,7 @@ def open_roll_button_says_it_ends_the_roll_and_the_panel_does_not_grow():
         w.tick(0.3)
     assert A.eval("return ns.DropPanel.frame:GetHeight()") == h0, "the panel grew with every roll"
     btns = block_of(A, RUBY_DRAPE)["buttons"]
-    assert any(b.startswith("End roll & award to ") for b in btns), btns
+    assert any(b.startswith("Award to ") for b in btns), btns     # (1.3.1: the click still ends the roll first)
     w.assert_no_errors()
 
 
@@ -1050,8 +1050,8 @@ def more_rows_of_a_roll_can_be_awarded():
     menu = A.last_menu()
     items = [ch["text"] for ch in menu["children"] if ch.get("kind") != "title"]
     assert items and all(strip_codes(t).startswith("Award to ") for t in items), items
-    btns = block_of(A, MINDBLADE)["buttons"]
-    assert "Award..." in btns, btns
+    more = block_of(A, MINDBLADE)["more"]
+    assert "Award" in more, more                  # (1.3.1: someone else: the card's More menu)
     w.assert_no_errors()
 
 
