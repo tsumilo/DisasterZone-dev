@@ -37,6 +37,7 @@ ns.CHANGELOG = {
               "Home: the line under the next raid only shows what's missing.",
           } },
           { heading = "A new look everywhere", lines = {
+              "The sync mark in the top bar turns while your list is shared, then draws a green check.",
               "Atlas: loading-screen banners, item icons and a star count of your BiS picks per boss.",
               "Atlas: hover an item and click + to add it to your BiS list.",
               "Settings: sections in a side menu; every option a switch or a dropdown, explained.",

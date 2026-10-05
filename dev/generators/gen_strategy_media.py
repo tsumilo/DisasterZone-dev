@@ -3,6 +3,8 @@
 disc.tga  - a white filled circle with a soft edge (zones, tinted by vertex colour)
 ring.tga  - a white circle outline (zone borders)
 arrow.tga - a white arrowhead pointing up (arrow ends, rotated in game)
+sync.tga  - the top bar's sync mark: two arrows chasing clockwise (spun in game)
+check.tga - the top bar's "shared" check (drawn on left to right in game)
 The shapes are 128x128 32-bit TGA (power of two, straight alpha), drawn 4x oversampled for smooth edges.
 tools.tga - the addon's icons (UI.ICON_ATLAS): a 256x1024 grid of 4x16 cells of 64px, white on transparent (tinted
             in game), in the order of TOOL_ICONS below (UI:IconCoords(index); UI.ICON names the shared ones).
@@ -39,6 +41,31 @@ def ring(d, n):
 
 def arrow(d, n):
     d.polygon([(n * 0.5, n * 0.06), (n * 0.92, n * 0.94), (n * 0.5, n * 0.74), (n * 0.08, n * 0.94)], fill=255)
+
+
+def sync(d, n):
+    # the sync mark (UI/MainFrame.lua): two arrows chasing each other clockwise, symmetric under a half turn and
+    # inside the inscribed circle, so it can spin on its own texture
+    c, r, w = n / 2, n * 0.29, n * 0.085
+    head, half = n * 0.17, n * 0.125
+    for start in (196, 16):
+        end = start + 122
+        d.arc([c - r, c - r, c + r, c + r], start, end, fill=255, width=int(w))
+        a = math.radians(end - 3)                  # the head's base sits on the stroke's end
+        bx, by = c + r * math.cos(a), c + r * math.sin(a)
+        nx, ny = math.cos(a), math.sin(a)          # outward
+        tx, ty = -math.sin(a), math.cos(a)         # clockwise (screen y down)
+        d.polygon([(bx + tx * head, by + ty * head), (bx + nx * half, by + ny * half),
+                   (bx - nx * half, by - ny * half)], fill=255)
+
+
+def check(d, n):
+    # the "shared" check (UI/MainFrame.lua): drawn left to right in game, so the short stroke comes first
+    pts = [(n * 0.20, n * 0.53), (n * 0.41, n * 0.73), (n * 0.80, n * 0.29)]
+    w = n * 0.11
+    d.line(pts, fill=255, width=int(w), joint="curve")
+    for x, y in (pts[0], pts[-1]):
+        d.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=255)
 
 
 # --- toolbar icons, drawn in a 64-unit box scaled by k ---
@@ -350,7 +377,7 @@ def tool_atlas():
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
-    for name, fn in (("disc", disc), ("ring", ring), ("arrow", arrow)):
+    for name, fn in (("disc", disc), ("ring", ring), ("arrow", arrow), ("sync", sync), ("check", check)):
         shape(fn).save(os.path.join(OUT, name + ".tga"))
         print("wrote", name)
     tool_atlas().save(os.path.join(OUT, "tools.tga"))

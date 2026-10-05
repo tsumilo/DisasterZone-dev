@@ -126,15 +126,159 @@ local function UpdateTitle()
     end
 end
 
--- The sync status at the right of the strip: a small icon (shared / sending / not shared) with the full text in its
--- tooltip; words only when something needs a look (not shared, demo mode).
-local STATUS_ICONS = {
-    ok   = "Interface\\RaidFrame\\ReadyCheck-Ready",
-    busy = "Interface\\RaidFrame\\ReadyCheck-Waiting",
-    warn = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew",
-}
+-- The sync status at the right of the strip: a mark with the full text in its tooltip; words only when something
+-- needs a look (not shared, demo mode). The mark: arrows turning while the list is being shared, coming to rest and
+-- giving way to a check that draws itself as it turns from the sync colour to green once it is shared; the arrows at
+-- rest in orange when nobody can receive it.
+local MARK_TEX = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\"
+local MARK = 16
+local C_SYNC, C_OK, C_WARN = { 0.42, 0.74, 1 }, { 0.33, 0.86, 0.42 }, { 1, 0.55, 0.1 }
+local TURN = 1.1          -- seconds the arrows take for a turn
+local MIN_TURN = 0.9      -- a share shows at least this long (no flicker)
+local FADE = 0.18         -- the arrows fade in / out
+local DRAW = 0.34         -- the check draws itself
+local TINT = 0.5          -- the check turns green
+local SPEED = 2 * math.pi / TURN
 
-local function UpdateStatus()
+local function clamp01(x) return x < 0 and 0 or (x > 1 and 1 or x) end
+local function easeOut(t) return 1 - (1 - t) ^ 3 end
+local function easeInOut(t) return t < 0.5 and 4 * t ^ 3 or 1 - (2 - 2 * t) ^ 3 / 2 end
+local function mix(a, b, t) return a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t end
+
+local function Turn(m, angle)
+    m.angle = angle
+    if m.arrows.SetRotation then m.arrows:SetRotation(-angle) end      -- clockwise
+end
+
+-- The check drawn up to p (0..1), left to right.
+local function DrawCheck(m, p)
+    if p <= 0 then
+        m.check:Hide()
+        return
+    end
+    m.check:SetWidth(MARK * p)
+    m.check:SetTexCoord(0, p, 0, 1)
+    m.check:Show()
+end
+
+local MarkUpdate
+
+-- Shows kind ("busy", "ok", "warn", nil) at once: the window opening, a hidden window, nothing to animate from.
+local function Settle(m, kind)
+    m:SetScript("OnUpdate", nil)
+    m.phase, m.fadeIn = nil, nil
+    Turn(m, 0)
+    m.arrows:SetAlpha(1)
+    m.check:SetAlpha(1)
+    m.arrows:SetShown(kind == "busy" or kind == "warn")
+    m.arrows:SetVertexColor(unpack(kind == "warn" and C_WARN or C_SYNC))
+    if kind == "ok" then
+        DrawCheck(m, 1)
+        m.check:SetVertexColor(unpack(C_OK))
+    else
+        m.check:Hide()
+    end
+    if kind == "busy" then
+        m.phase, m.since = "turn", GetTime()
+        m:SetScript("OnUpdate", MarkUpdate)
+    end
+end
+
+MarkUpdate = function(m, elapsed)
+    local now = GetTime()
+    if m.phase == "turn" then
+        Turn(m, m.angle + (elapsed or 0) * SPEED)
+        if m.want ~= "busy" and now - m.since >= MIN_TURN then
+            -- slow down evenly to rest on a half turn (the arrows look the same every half turn)
+            local rest = math.ceil((m.angle + 0.8) / math.pi) * math.pi
+            m.phase, m.t0, m.a0, m.rest = "stop", now, m.angle, rest
+            m.stopFor = 2 * (rest - m.angle) / SPEED
+        end
+    elseif m.phase == "stop" then
+        local p = clamp01((now - m.t0) / m.stopFor)
+        Turn(m, m.a0 + (m.rest - m.a0) * (1 - (1 - p) * (1 - p)))
+        if p >= 1 then
+            Turn(m, 0)
+            if m.want == "ok" then
+                m.phase, m.t0 = "draw", now
+                m.check:SetAlpha(1)
+            elseif m.want == "warn" then
+                m.phase, m.t0 = "warn", now
+            else
+                Settle(m, m.want)
+                return
+            end
+        end
+    end
+    -- the arrows coming in (over a check, or from nothing)
+    if m.fadeIn then
+        local p = clamp01((now - m.fadeIn) / FADE)
+        m.arrows:SetAlpha(p)
+        m.check:SetAlpha(1 - p)
+        if p >= 1 then
+            m.fadeIn = nil
+            m.check:Hide()
+            m.check:SetAlpha(1)
+        end
+    end
+    if m.phase == "draw" then
+        local t = now - m.t0
+        m.arrows:SetAlpha(1 - clamp01(t / FADE))
+        DrawCheck(m, easeOut(clamp01((t - 0.06) / DRAW)))
+        m.check:SetVertexColor(mix(C_SYNC, C_OK, easeInOut(clamp01((t - 0.12) / TINT))))
+        if t >= 0.12 + TINT then Settle(m, "ok") end
+    elseif m.phase == "warn" then
+        local p = clamp01((now - m.t0) / 0.3)
+        m.arrows:SetVertexColor(mix(C_SYNC, C_WARN, p))
+        if p >= 1 then Settle(m, "warn") end
+    end
+end
+
+-- Moves the mark to kind. animate: false shows it at once.
+local function SetMark(m, kind, animate)
+    local was = m.want
+    m.want = kind
+    if not animate or not m:IsVisible() then
+        Settle(m, kind)
+        return
+    end
+    if kind == was then return end
+    if kind == "busy" then
+        m.arrows:SetVertexColor(unpack(C_SYNC))
+        m.arrows:Show()
+        if m.phase == "stop" then
+            m.since = GetTime()                       -- (another share: keep turning)
+        elseif m.phase ~= "turn" then
+            m.arrows:SetAlpha(0)
+            m.fadeIn, m.since = GetTime(), GetTime()
+            Turn(m, 0)
+        end
+        m.phase = "turn"
+        m:SetScript("OnUpdate", MarkUpdate)
+    elseif (kind == "ok" or kind == "warn") and (m.phase == "turn" or m.phase == "stop") then
+        return                                        -- (the turning arrows come to rest first)
+    else
+        Settle(m, kind)
+    end
+end
+
+local function CreateMark(parent)
+    local m = CreateFrame("Frame", nil, parent)
+    m:SetSize(MARK, MARK)
+    m.arrows = m:CreateTexture(nil, "ARTWORK")
+    m.arrows:SetTexture(MARK_TEX .. "sync")
+    m.arrows:SetAllPoints()
+    m.check = m:CreateTexture(nil, "ARTWORK")
+    m.check:SetTexture(MARK_TEX .. "check")
+    m.check:SetPoint("LEFT", m, "LEFT", 0, 0)
+    m.check:SetSize(MARK, MARK)
+    m.angle = 0
+    Settle(m, nil)
+    return m
+end
+
+-- instant: the window just opened (no animation into the state it is in).
+local function UpdateStatus(instant)
     if not frame or not status then return end
     local kind, text = "none", ""
     if ns.Sync and ns.Sync.GetStatus then kind, text = ns.Sync:GetStatus() end
@@ -143,10 +287,11 @@ local function UpdateStatus()
     if demo then words[#words + 1] = "|cffff8000Demo mode|r" end
     if kind == "warn" then words[#words + 1] = "|cffff8000Not shared yet|r" end
     status.text:SetText(table.concat(words, "  ·  "))
-    status.icon:SetShown(STATUS_ICONS[kind] ~= nil)
-    if STATUS_ICONS[kind] then status.icon:SetTexture(STATUS_ICONS[kind]) end
+    local marked = kind == "ok" or kind == "busy" or kind == "warn"
+    status.mark:SetShown(marked)
+    SetMark(status.mark, marked and kind or nil, not instant)
     status.tip = ns.UI:SafeText(text or "")
-    local w = (status.text:GetStringWidth() or 0) + (status.icon:IsShown() and 18 or 0)
+    local w = (status.text:GetStringWidth() or 0) + (marked and 20 or 0)
     status:SetWidth(math.max(1, w))
     status:SetShown(w > 0)
 end
@@ -154,11 +299,10 @@ end
 local function CreateStatus()
     local s = CreateFrame("Frame", nil, frame)
     s:SetHeight(18)
-    s.icon = s:CreateTexture(nil, "ARTWORK")
-    s.icon:SetSize(14, 14)
-    s.icon:SetPoint("RIGHT", 0, 0)
+    s.mark = CreateMark(s)
+    s.mark:SetPoint("RIGHT", 0, 1)
     s.text = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    s.text:SetPoint("RIGHT", s.icon, "LEFT", -4, 0)
+    s.text:SetPoint("RIGHT", s.mark, "LEFT", -4, 0)
     s.text:SetJustifyH("RIGHT")
     s.text:SetWordWrap(false)
     s:EnableMouse(true)
@@ -224,7 +368,7 @@ local function EnsureFrame()
     frame:HookScript("OnShow", function()
         if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_OPEN then PlaySound(SOUNDKIT.IG_CHARACTER_INFO_OPEN) end
         UpdateTitle()
-        UpdateStatus()
+        UpdateStatus(true)
         MainFrame:RefreshTabs()
     end)
     frame:HookScript("OnHide", function()
@@ -373,8 +517,8 @@ end
 -- Messages & slash commands
 ---------------------------------------------------------------------------
 
-ns:On("SYNC_STATUS", UpdateStatus)
-ns:On("PEERS_UPDATED", UpdateStatus)
+ns:On("SYNC_STATUS", function() UpdateStatus() end)
+ns:On("PEERS_UPDATED", function() UpdateStatus() end)
 ns:On("ROSTER_UPDATED", UpdateTitle)
 ns:On("CONFIG_UPDATED", function()
     UpdateTitle()
