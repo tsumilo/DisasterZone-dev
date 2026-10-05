@@ -316,6 +316,7 @@ end
 local function cellTooltip(cell)
     local d = cell.cdlCell
     if not d then return end
+    if d.open then return PlanUI:OpenSlotTooltip(cell) end   -- (an open slot of the team's comp)
     local s = d.s
     GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
     GameTooltip:AddLine(colored(d.key, classOf(d.key, s)))
@@ -805,7 +806,12 @@ local COLS = {
 }
 
 local function cellRowClick(self, button)
-    -- (a request opens with either button; the rest of the roster with the right one)
+    -- (an open slot of the team's comp: Add players; a request opens with either button; the rest of the roster
+    -- with the right one)
+    if self.cdlCell and self.cdlCell.open then
+        if button == "LeftButton" then PlanUI:OpenSlotClick(self.cdlCell) end
+        return
+    end
     if button == "RightButton" or (self.cdlCell and self.cdlCell.request) then rosterMenu(self) end
 end
 
@@ -849,6 +855,47 @@ end
 
 local function fillCellRow(b, cell, chip)
     b.cdlCell = cell
+    -- an open slot of the team's comp (1.3.1): a gold ring with the class faint inside, the spec's name in gold
+    if cell.open then
+        if not b.ring then
+            b.ring = b:CreateTexture(nil, "ARTWORK", nil, -2)
+            b.ring:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+            b.ring:SetVertexColor(1, 0.82, 0)
+            b.ring:SetSize(18, 18)
+            b.ring:SetPoint("CENTER", b, "LEFT", 8, 0)
+            b.ringIn = b:CreateTexture(nil, "ARTWORK", nil, -1)
+            b.ringIn:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+            b.ringIn:SetVertexColor(PANEL_BG[1], PANEL_BG[2], PANEL_BG[3])
+            b.ringIn:SetSize(16, 16)
+            b.ringIn:SetPoint("CENTER", b.ring, "CENTER", 0, 0)
+        end
+        b.ring:Show()
+        b.ringIn:Show()
+        b.icon:ClearAllPoints()
+        b.icon:SetSize(12, 12)
+        b.icon:SetPoint("CENTER", b.ring, "CENTER", 0, 0)
+        UI():ClassIcon(b.icon, cell.c)
+        b.icon:SetAlpha(0.35)
+        b.fs:SetText(colorize("ffd100", cell.name or "?"))
+        b.tag:Hide()
+        b.maybe:Hide()
+        local icon = ns.RaidComp:SpecIcon(cell.c, cell.sp)
+        b.spec:SetShown(icon ~= nil)
+        if icon then b.spec:SetTexture(icon) end
+        b.spec:SetAlpha(0.35)
+        b:SetAlpha(1)
+        b:Show()
+        return
+    end
+    if b.ring then
+        b.ring:Hide()
+        b.ringIn:Hide()
+        b.icon:ClearAllPoints()
+        b.icon:SetSize(16, 16)
+        b.icon:SetPoint("LEFT", chip and 3 or 0, 0)
+    end
+    b.icon:SetAlpha(1)
+    b.spec:SetAlpha(1)
     local s = cell.s
     local cls = classOf(cell.key, s)
     UI():ClassIcon(b.icon, cls)
@@ -903,6 +950,19 @@ local function rosterModel(v)
         local cells = {}
         for _, key in ipairs(list) do cells[#cells + 1] = cell(key) end
         model.cols[i] = { label = col.label, role = col.key, count = accepted, more = #list - accepted, cells = cells }
+    end
+    -- 1.3.1: the open slots of the team's target comp, gold at the end of each role column (the counts stay the
+    -- answers); a raid that is over has none
+    local open = v.t >= Now() - 6 * 3600 and RP():GetRaidOpenSlots(v) or nil
+    if open then
+        local colOf = { tank = 1, healer = 2, melee = 3, ranged = 4 }
+        for _, sl in ipairs(open.slots or {}) do
+            local col = model.cols[colOf[sl.role] or 0]
+            if col then
+                col.cells[#col.cells + 1] = { open = true, c = sl.c, sp = sl.sp, name = sl.name, occ = v.id,
+                                              team = open.teamName }
+            end
+        end
     end
     local function box(label, color, keys, less, dim)
         if #keys == 0 then return end
@@ -1580,6 +1640,10 @@ local function createRaidGroups(d)
         poolLabel = "Not in a group",
         stripParent = g.buffs,
         stripRoom = function() return g.stripRoom end,
+        buffStates = function(placed)
+            local v = selectedRaid()
+            return v and RP():GetRaidBuffStates(v, placed) or ns.RaidComp:BuffStates(placed, {})
+        end,
     })
     g.scroll:SetScrollChild(g.grid.frame)
 end
@@ -2431,18 +2495,22 @@ function TV.myKey(members)
     return found
 end
 
--- Has the draft changed from the saved team? (A new team has: it isn't saved.)
-function TV.dirty()
-    local dr = state.draft
-    if not dr then return false end
-    if not dr.id then return true end
-    local t = RP():GetTeam(dr.id)
+-- Does the draft differ from team t (its name as typed, members, size, specs, groups, seats, comp)?
+function TV.differs(dr, t)
     if not t then return true end
     if t.name ~= ns.Util.Trim(teamsView.nameBox:GetText() or "") then return true end
     local set = {}
     for _, key in ipairs(t.members) do set[key] = true end
     return not (TV.sameMap(dr.members, set) and dr.sz == t.size and TV.sameMap(dr.s, t.specs)
-        and TV.sameMap(dr.grp, t.groups) and TV.sameMap(dr.gs, t.seats))
+        and TV.sameMap(dr.grp, t.groups) and TV.sameMap(dr.gs, t.seats) and ns.RaidComp:SameComp(dr.cp, t.comp))
+end
+
+-- Has the draft changed from the saved team? (A new team has: it isn't saved.)
+function TV.dirty()
+    local dr = state.draft
+    if not dr then return false end
+    if not dr.id then return true end
+    return TV.differs(dr, RP():GetTeam(dr.id))
 end
 
 -- Would leaving the draft lose something? (An untouched new team loses nothing.)
@@ -2451,7 +2519,7 @@ function TV.unsaved()
     if not dr or not teamsView or not RP():CanManageTeams() then return false end
     if not dr.id then
         local name = ns.Util.Trim(teamsView.nameBox:GetText() or "")
-        return next(dr.members) ~= nil or (name ~= "" and name ~= TV.NEW_NAME)
+        return next(dr.members) ~= nil or next(dr.cp or {}) ~= nil or (name ~= "" and name ~= TV.NEW_NAME)
     end
     return TV.dirty()
 end
@@ -2482,8 +2550,8 @@ function TV.copyName(name)
     return name
 end
 
--- Opens team `id` as the draft (nil: an empty new team); `copy` (a team) makes a new draft with its members, specs
--- and groups.
+-- Opens team `id` as the draft (nil: an empty new team); `copy` (a team) makes a new draft with its members, specs,
+-- groups and target comp.
 function TV.load(id, copy)
     local t = copy or (id and RP():GetTeam(id))
     local members = {}
@@ -2493,6 +2561,8 @@ function TV.load(id, copy)
         name = copy and TV.copyName(copy.name) or (t and t.name or TV.NEW_NAME),
         members = members, sz = t and t.size or 25,
         s = copyMap(t and t.specs), grp = copyMap(t and t.groups), gs = copyMap(t and t.seats),
+        cp = ns.RaidComp:CopyComp(t and t.comp) or {},
+        base = (t and not copy) and t or nil,     -- (the saved version it started from: a newer one replaces it)
     }
     if teamsView then teamsView.nameBox:SetText(state.draft.name) end
 end
@@ -2818,7 +2888,19 @@ end
 function PlanUI:SetDraftSize(size)
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
-    dr.sz = size == 10 and 10 or 25
+    size = size == 10 and 10 or 25
+    -- a target comp bigger than the new size: offer to start it again from the preset of that size
+    local slots = ns.RaidComp:CompSize(dr.cp)
+    if slots > size then
+        local preset = ns.RaidComp:GetPresets(size)[1]
+        StaticPopup_Show("DISASTERZONE_TEAM_COMP_SIZE", ("The target comp has %d slots, more than the team's %d.\n\n"
+            .. "Start it again from %s?"):format(slots, size, preset and preset.name or "nothing"), nil, { fn = function()
+                dr.cp = preset and preset.cp or {}
+                PlanUI:SetDraftSize(size)
+            end })
+        return false
+    end
+    dr.sz = size
     local n = ns.RaidComp:GroupCount(dr.sz)
     for key, g in pairs(dr.grp) do
         if g > n then dr.grp[key], dr.gs[key] = nil, nil end
@@ -2888,7 +2970,7 @@ function PlanUI:SaveTeam()
     local dr = state.draft
     if not dr then return false end
     local ok, res = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members,
-        { size = dr.sz, specs = dr.s, groups = dr.grp, seats = dr.gs })
+        { size = dr.sz, specs = dr.s, groups = dr.grp, seats = dr.gs, comp = dr.cp or false })
     if not ok then
         Print(res or "Could not save the team.")
         return false
@@ -3242,12 +3324,15 @@ function PlanUI:CreateTeams(parent)
 
     local colW = TV.COL2 - 12 - 12
     local l1, l2, l3 = CreateFrame("Frame", nil, card), CreateFrame("Frame", nil, card), CreateFrame("Frame", nil, card)
+    local lN = CreateFrame("Frame", nil, card)
     l1:SetSize(colW, 24)
     l1.gapBelow = 8
     l2:SetSize(colW, 16)
+    lN:SetSize(colW, 16)
+    lN:Hide()
     l3:SetSize(colW, 14)
-    card.l1, card.l2, card.l3 = l1, l2, l3
-    card.rows = { l1, l2, l3 }
+    card.l1, card.l2, card.l3, card.lN = l1, l2, l3, lN
+    card.rows = { l1, l2, lN, l3 }
 
     -- line 1: the name (a field for organizers, growing with the name) and the size (a 10-man | 25-man toggle)
     card.title = textOf(l1, "GameFontHighlightLarge", 16)
@@ -3315,6 +3400,11 @@ function PlanUI:CreateTeams(parent)
     end
     card.roles = roles
     card.count = textOf(l2, "GameFontHighlightSmall", 11)
+    -- with a target comp: a meter instead of the counts, and Needs (the open slots) under it
+    card.meter = TV.createMeter(l2)
+    card.meter:SetPoint("LEFT", l2, "LEFT", 0, 0)
+    card.meter:Hide()
+    TV.createNeeds(lN)
 
     -- line 3: where I play in it (members on the team), who changed it last
     local you = CreateFrame("Button", nil, l3)
@@ -3348,8 +3438,8 @@ function PlanUI:CreateTeams(parent)
     right.label = textOf(right, "GameFontNormalSmall", 10)
     right.label:SetPoint("LEFT", right, "TOPLEFT", 0, -11)
     right.label:SetText("NEXT RAIDS")
-    d.moreBtn = UI():CreateTipIconButton(right, 22, UI().ICON.more, "Team actions", "Copy, Clear groups or Delete.",
-        function(self) TV.moreMenu(self) end)
+    d.moreBtn = UI():CreateTipIconButton(right, 22, UI().ICON.more, "Team actions",
+        "Copy, Clear groups, LF message or Delete.", function(self) TV.moreMenu(self) end)
     d.moreBtn:SetPoint("TOPRIGHT", 0, 0)
     right.extra = CreateFrame("Button", nil, right)
     right.extra:SetHeight(22)
@@ -3390,6 +3480,13 @@ function PlanUI:CreateTeams(parent)
         end,
     })
     t.picker.frame:SetPoint("TOPLEFT", tool, "TOPLEFT", 0, 0)
+    -- (its list is a top-level frame like a menu, drawn over the page; the window's scale is taken on when it opens)
+    t.picker.panel:SetParent(UIParent)
+    local pickerOpen = t.picker.Open
+    function t.picker:Open(...)
+        self.panel:SetScale((self.frame:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1))
+        return pickerOpen(self, ...)
+    end
     d.autoBtn = UI():CreateSleekButton(tool, "Auto-fill", 70, 22, function() PlanUI:AutoFillDraft() end)
     d.autoBtn:SetPoint("LEFT", t.picker.frame, "RIGHT", GAP, 0)
     tipButton(d.autoBtn, "Auto-fill groups", "A starting layout: tanks, melee groups with a shaman each, casters, "
@@ -3440,9 +3537,12 @@ function PlanUI:CreateTeams(parent)
         end,
         stripParent = d.buffs,
         stripRoom = function() return d.stripRoom end,
+        buffStates = function(placed) return TV.groupStates(placed) end,
     })
     t.grid.frame:SetWidth(TV.W)
     d.scroll:SetScrollChild(t.grid.frame)
+    -- the target comp: the Groups | Comp tabs, the Comp view
+    TV.createComp(t, d)
 
     -- no teams yet: one card that says what a team is for (organizers: its New team is the only one)
     local e = CreateFrame("Frame", nil, t)
@@ -3489,6 +3589,7 @@ function PlanUI:CreateTeams(parent)
 
     -- leaving with unsaved changes another way (another tab, the window closed): ask now, Cancel comes back here
     t:SetScript("OnHide", function()
+        if t.detail.steps then t.detail.steps:Hide() end
         if not TV.unsaved() then return end
         StaticPopup_Show("DISASTERZONE_TEAM_UNSAVED", TV.draftName(), nil, { stay = function()
             if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("raids") end
@@ -3498,7 +3599,8 @@ function PlanUI:CreateTeams(parent)
     return t
 end
 
--- The team's ... menu (organizers, a saved team): Copy, Clear groups (when there are groups), Delete.
+-- The team's ... menu (organizers, a saved team): Copy, Clear groups (when there are groups), LF message (open
+-- slots), Delete.
 function TV.moreMenu(owner)
     local dr = state.draft
     if not dr or not dr.id then return end
@@ -3519,6 +3621,14 @@ function TV.moreMenu(owner)
             tip(root:CreateButton(UI():AtlasIconText(9, 14, { 0.9, 0.9, 0.9 }) .. "  Clear groups",
                 function() PlanUI:ClearDraftGroups() end),
                 "Clear groups", "Everyone back to Not in a group. Save keeps it, Undo brings the groups back.")
+        end
+        -- (only while the comp has open slots)
+        local lf = RP():GetLFMessage(dr)
+        if lf then
+            tip(root:CreateButton(UI():AtlasIconText(19, 14, { 0.9, 0.9, 0.9 }) .. "  LF message",
+                function() TV.openChat(lf) end),
+                "LF message", "Puts a line asking for the open slots in your chat box, with the team's next raid. Pick "
+                .. "the channel and press Enter.")
         end
         if root.CreateDivider then root:CreateDivider() end
         root:CreateButton(UI():AtlasIconText(UI().ICON.trash, 14, { 1, 0.55, 0.55 }) .. "  |cffff8a8aDelete|r",
@@ -3557,8 +3667,16 @@ function TV.fillCard(dr, organizer)
         if (card.title:GetStringWidth() or 0) > TV.COL2 - 24 - 80 then setSize(card.title, 13) end
         card.size:SetText(dr.sz .. "-player")
     end
-    -- line 2
-    card.roles:SetShown(n > 0)
+    -- line 2: the players by role, or with a target comp its meter; Needs under it (the open slots)
+    local m = TV.cur and TV.cur.match or nil
+    card.meter:SetShown(m ~= nil)
+    card.count:SetShown(m == nil)
+    card.lN:SetShown(m ~= nil and #m.open > 0)
+    if m then
+        TV.fillMeter(card.meter, m)
+        if #m.open > 0 then TV.fillNeeds(card.lN, m.open) end
+    end
+    card.roles:SetShown(n > 0 and m == nil)
     card.roles:Set(TV.roleCounts(list))
     card.count:ClearAllPoints()
     if n > 0 then
@@ -3615,7 +3733,7 @@ function TV.fillCard(dr, organizer)
     card.art:SetShown(v ~= nil)
     card.fade:SetShown(v ~= nil)
     if v then
-        local file, l, r, tt, b = artCoords(v.i, 470, TV.CARD_H - 2, 0.62)
+        local file, l, r, tt, b = artCoords(v.i, 470, floor(card:GetHeight() - 2 + 0.5), 0.62)
         card.art:SetTexture(file)
         card.art:SetTexCoord(l, r, tt, b)
     end
@@ -3660,7 +3778,15 @@ function PlanUI:RefreshTeams()
         local found = false
         for _, tm in ipairs(teams) do if tm.id == state.team then found = true end end
         if not found then state.team = TV.defaultTeam(teams) end
-        if not state.draft or state.draft.id ~= state.team then TV.load(state.team) end
+        if not state.draft or state.draft.id ~= state.team then
+            TV.load(state.team)
+        elseif state.draft.base then
+            -- the team changed elsewhere (sync): an untouched draft takes the new version, edits in progress stay
+            local saved = RP():GetTeam(state.team)
+            if saved and saved.rev ~= state.draft.base.rev and not TV.differs(state.draft, state.draft.base) then
+                TV.load(state.team)
+            end
+        end
     end
     local dr = (state.team or state.newTeam) and state.draft or nil
     -- the Raids toolbar's New team stands only next to teams: a team saved or deleted here (or synced in) updates it
@@ -3678,6 +3804,7 @@ function PlanUI:RefreshTeams()
     d:SetShown(dr ~= nil)
     t.empty:SetShown(dr == nil)
     if not dr then
+        d.steps:Hide()
         local e = t.empty
         e.newBtn:SetShown(organizer)
         e.who:SetShown(not organizer)
@@ -3688,7 +3815,20 @@ function PlanUI:RefreshTeams()
         return
     end
 
-    -- top to bottom: chips, card, tool row (organizers), the grid's bar, the grid
+    -- the target comp: who fills which slot (nil without one), the strip's states
+    local m = TV.match(dr)
+    TV.cur = { match = m }
+    TV.states = m and TV.compStates(dr) or nil
+    -- the Groups | Comp tabs: organizers always, members once the team has a comp
+    local showTabs = organizer or m ~= nil
+    if not showTabs then state.teamTab = "groups" end
+    local tab = state.teamTab == "comp" and "comp" or "groups"
+    d.views:SetShown(showTabs)
+    d.tabGroups:SetActive(tab == "groups")
+    d.tabComp:SetActive(tab == "comp")
+    d.tabComp:SetLabel(m and ("Comp  " .. colorize("9e9e9e", m.filled .. "/" .. m.total)) or "Comp")
+
+    -- top to bottom: chips, card, the tabs, then Groups (tool row, the grid's bar, the grid) or Comp
     local y = TV.layoutChips(teams)
     TV.fillCard(dr, organizer)
     t.card:ClearAllPoints()
@@ -3699,6 +3839,23 @@ function PlanUI:RefreshTeams()
         d.views:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
         y = y + d.views:GetHeight() + GAP
     end
+    local groups = tab == "groups"
+    d.bar:SetShown(groups)
+    d.scroll:SetShown(groups)
+    if not groups then
+        d.compEmpty:Hide()
+        self:RefreshTeamButtons()
+        TV.layoutComp(y, organizer, dr, m)
+        TV.fillSteps()
+        if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Close() end
+        return
+    end
+    d.startBtn:Hide()
+    d.compStrip:Hide()
+    d.compBar:Hide()
+    d.compScroll:Hide()
+    d.compEmpty:Hide()
+    d.steps:Hide()
     d.tool:SetShown(organizer)
     t.picker.frame:SetShown(organizer)
     d.autoBtn:SetShown(organizer and next(dr.members) ~= nil)
@@ -3719,6 +3876,1010 @@ function PlanUI:RefreshTeams()
     t.grid:Refresh()
     if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Refresh(true) end
 end
+
+---------------------------------------------------------------------------
+-- Teams view: the target comp (1.3.1; Core/RaidComp.lua has the API contract). The card's meter and Needs, the
+-- Groups | Comp tabs, the Comp view (a column of slots per role, the bench, the steppers, Start from), the raid-buff
+-- strip's three states, the open slots in a raid's Sign-ups and the LF message. The comp is part of the team's draft
+-- (dr.cp): one Save for groups and comp, and the unsaved guard covers both.
+---------------------------------------------------------------------------
+
+TV.ROLE_LABEL = { tank = "Tanks", healer = "Healers", melee = "Melee", ranged = "Ranged" }
+TV.ROLE_ICON = { tank = "tank", healer = "healer", melee = "dps", ranged = "dps" }
+-- the empty Comp card's picture: a meter with some slots open
+TV.MINI_COMP = { tank = { "WARRIOR", "PALADIN", false }, healer = { "PALADIN", "PRIEST", "SHAMAN", "SHAMAN", false, false },
+                 melee = { "ROGUE", "SHAMAN", "WARRIOR", false }, ranged = { "MAGE", "WARLOCK", "PRIEST", false, false } }
+
+-- A class circle in text.
+function TV.classIconText(c, size)
+    local tc = c and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[c]
+    if not tc then return "" end
+    size = size or 14
+    local function px(v) return floor(v * 256 + 0.5) end
+    return ("|TInterface\\TargetingFrame\\UI-Classes-Circles:%d:%d:0:0:256:256:%d:%d:%d:%d|t"):format(size, size,
+        px(tc[1]), px(tc[2]), px(tc[3]), px(tc[4]))
+end
+
+-- A spec's icon in text.
+function TV.specIconText(c, sp, size)
+    local icon = ns.RaidComp:SpecIcon(c, sp)
+    if not icon then return "" end
+    size = size or 14
+    return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(icon, size, size)
+end
+
+-- The draft's comp, or nil when it has no slot.
+function TV.comp(dr)
+    dr = dr or state.draft
+    return (dr and type(dr.cp) == "table" and next(dr.cp)) and dr.cp or nil
+end
+
+-- Who fills which slot of the draft's comp (RaidPlan:MatchTeam), or nil without a comp.
+function TV.match(dr)
+    dr = dr or state.draft
+    if not TV.comp(dr) then return nil end
+    return RP():MatchTeam(dr)
+end
+
+-- "a" / "an"
+function TV.article(word)
+    return tostring(word or ""):match("^[AEIOUaeiou]") and "an" or "a"
+end
+
+-- The strip of the Comp view: lit = whose slot is filled, planned = the open slots, off = not in the comp.
+function TV.compStates(dr)
+    local out = RP():GetTeamBuffStates(dr)
+    for _, e in ipairs(out) do
+        if e.state == "off" then
+            local names = {}
+            for i, b in ipairs(e.bringers or {}) do
+                if i <= 3 then names[#names + 1] = TV.article(b.name) .. " " .. tostring(b.name) end
+            end
+            e.offText = #names > 0 and ("Not in the comp: " .. tconcat(names, " or ") .. " brings it.") or nil
+        end
+    end
+    return out
+end
+
+-- The strip of the Groups view: lit = who sits in the groups, planned = the comp's open slots.
+function TV.groupStates(placed)
+    local dr = state.draft
+    local open = TV.comp(dr) and (RP():GetTeamOpenSlots(dr)) or {}
+    local out = ns.RaidComp:BuffStates(placed, open)
+    for _, e in ipairs(out) do
+        if e.state == "off" then e.offText = "Nobody in the groups brings it." end
+    end
+    return out
+end
+
+-- Who could fill an open slot of the team (the Needs line, the Comp view): the bench, alts, the guild, other teams
+-- (RaidPlan:CanFill), three a group at most.
+function TV.canFillTooltip(owner, c, sp, anchor)
+    local dr = state.draft
+    if not dr then return end
+    GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+    GameTooltip:AddLine(TV.specIconText(c, sp, 16) .. " " .. tostring(ns.RaidComp:SlotName(c, sp) or "?"), 1, 1, 1)
+    local brings = {}
+    for _, e in ipairs(TV.states or {}) do
+        if e.state == "planned" then
+            for _, sl in ipairs(e.slots or {}) do
+                if sl.c == c and sl.sp == sp then brings[#brings + 1] = e.buff.name end
+            end
+        end
+    end
+    GameTooltip:AddLine("Open" .. (#brings > 0 and (" · brings " .. tconcat(brings, ", ")) or ""), 0.62, 0.62, 0.62, true)
+    local cf = RP():CanFill(dr, c, sp)
+    local any = false
+    for _, grp in ipairs({ { "On the bench", cf.bench }, { "Alts of the team", cf.alts }, { "In the guild", cf.guild },
+                           { "In other teams", cf.teams } }) do
+        local list = grp[2] or {}
+        if #list > 0 then
+            any = true
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(grp[1], 1, 0.82, 0)
+            for i = 1, min(3, #list) do
+                local e = list[i]
+                local right = {}
+                if e.other then right[#right + 1] = e.sp and ns.RaidComp:SpecLabel(e.c, e.sp) or "spec unknown" end
+                if e.of then right[#right + 1] = TV.isMine(e.of) and "your alt" or (shortName(e.of) .. "'s alt") end
+                if e.team then right[#right + 1] = e.team end
+                GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), tconcat(right, " · "),
+                    1, 1, 1, 0.62, 0.62, 0.62)
+            end
+            if #list > 3 then GameTooltip:AddLine(("+%d more"):format(#list - 3), 0.5, 0.5, 0.5) end
+        end
+    end
+    if not any then GameTooltip:AddLine("Nobody in the guild plays it yet.", 0.6, 0.6, 0.6, true) end
+    GameTooltip:Show()
+end
+
+---------------------------------------------------------------------------
+-- The card: the meter (a square per slot) and Needs (the open slots by spec)
+---------------------------------------------------------------------------
+
+function TV.createMeter(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(200, 16)
+    f.icons, f.sq = {}, {}
+    for i, role in ipairs({ "tank", "healer", "dps" }) do
+        local ic = f:CreateTexture(nil, "ARTWORK")
+        ic:SetSize(14, 14)
+        ic:SetTexture(UI().ROLE_TEX)
+        ic:SetTexCoord(UI():RoleCoords(role))
+        f.icons[i] = ic
+    end
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", TV.meterTooltip)
+    f:SetScript("OnLeave", hideTooltip)
+    return f
+end
+
+-- Square i of a meter: an 8 px square, the class colour of who fills the slot; open = a thin gold square.
+function TV.square(f, i)
+    local s = f.sq[i]
+    if not s then
+        s = { o = f:CreateTexture(nil, "ARTWORK", nil, 1), i = f:CreateTexture(nil, "ARTWORK", nil, 2) }
+        s.o:SetSize(8, 8)
+        s.i:SetSize(6, 6)
+        s.i:SetPoint("CENTER", s.o, "CENTER", 0, 0)
+        s.i:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], 1)
+        f.sq[i] = s
+    end
+    return s
+end
+
+-- m: a MatchComp result (or the picture's { columns = { role = { slot } } }). Tanks, healers, then damage (melee, a
+-- small gap, ranged); a role without slots is left out.
+function TV.fillMeter(f, m)
+    f.match = m
+    local x, n = 0, 0
+    for gi, roles in ipairs({ { "tank" }, { "healer" }, { "melee", "ranged" } }) do
+        local count = 0
+        for _, role in ipairs(roles) do count = count + #(m.columns[role] or {}) end
+        local ic = f.icons[gi]
+        ic:SetShown(count > 0)
+        if count > 0 then
+            if x > 0 then x = x + 12 end
+            ic:ClearAllPoints()
+            ic:SetPoint("LEFT", f, "LEFT", x, 0)
+            x = x + 14 + 6
+            for ri, role in ipairs(roles) do
+                local col = m.columns[role] or {}
+                if ri > 1 and #col > 0 and #(m.columns[roles[1]] or {}) > 0 then x = x + 4 end
+                -- (who fills first, the open slots after them)
+                local order = {}
+                for _, slot in ipairs(col) do if slot.member then order[#order + 1] = slot end end
+                for _, slot in ipairs(col) do if not slot.member then order[#order + 1] = slot end end
+                for _, slot in ipairs(order) do
+                    n = n + 1
+                    local s = TV.square(f, n)
+                    s.o:ClearAllPoints()
+                    s.o:SetPoint("LEFT", f, "LEFT", x, 0)
+                    local who = slot.member and (slot.member.c or slot.c)
+                    if who then
+                        local r, g, b = UI():ClassColor(who)
+                        s.o:SetColorTexture(r, g, b, 1)
+                        s.i:Hide()
+                    else
+                        s.o:SetColorTexture(1, 0.82, 0, 0.9)
+                        s.i:Show()
+                    end
+                    s.o:Show()
+                    x = x + 10
+                end
+            end
+            x = x - 2
+        end
+    end
+    for i = n + 1, #f.sq do
+        f.sq[i].o:Hide()
+        f.sq[i].i:Hide()
+    end
+    f:SetWidth(max(1, x))
+end
+
+function TV.meterTooltip(self)
+    local m = self.match
+    if not m or not m.total then return end
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:AddLine("Target comp")
+    for _, role in ipairs(ns.RaidComp.COLUMNS) do
+        local col = m.columns[role] or {}
+        if #col > 0 then
+            local f = 0
+            for _, sl in ipairs(col) do if sl.member then f = f + 1 end end
+            local full = f == #col
+            GameTooltip:AddDoubleLine(TV.ROLE_LABEL[role], f .. "/" .. #col, 1, 1, 1, full and 0.56 or 1,
+                full and 0.89 or 1, full and 0.62 or 1)
+        end
+    end
+    GameTooltip:AddLine(("%d of %d slots filled"):format(m.filled, m.total), 0.6, 0.6, 0.6)
+    GameTooltip:Show()
+end
+
+-- Needs: the open slots by spec, in comp order ("×2" when a spec is open twice); past the width "+n more".
+function TV.createNeeds(row)
+    row.label = textOf(row, "GameFontNormalSmall", 10)
+    row.label:SetPoint("LEFT", row, "LEFT", 0, 0)
+    row.label:SetText("NEEDS")
+    row.btns = {}
+    row.more = CreateFrame("Button", nil, row)
+    row.more:SetHeight(16)
+    row.more.fs = textOf(row.more, "GameFontHighlightSmall", 11)
+    row.more.fs:SetTextColor(0.62, 0.62, 0.62)
+    row.more.fs:SetPoint("LEFT", 0, 0)
+    row.more:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+        GameTooltip:AddLine("Also open")
+        for _, o in ipairs(self.rest or {}) do
+            GameTooltip:AddLine(TV.specIconText(o.c, o.sp, 14) .. " " .. o.name .. (o.n > 1 and (" ×" .. o.n) or ""), 1, 1, 1)
+        end
+        GameTooltip:Show()
+    end)
+    row.more:SetScript("OnLeave", hideTooltip)
+end
+
+function TV.newNeed(row)
+    local b = CreateFrame("Button", nil, row)
+    b:SetHeight(16)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetPoint("TOPLEFT", -3, 2)
+    b.hl:SetPoint("BOTTOMRIGHT", 3, -2)
+    b.hl:SetColorTexture(1, 1, 1, 0.08)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(16, 16)
+    b.icon:SetPoint("LEFT", 0, 0)
+    b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b.fs = textOf(b, "GameFontHighlight", 12)
+    b.fs:SetPoint("LEFT", b.icon, "RIGHT", 4, 0)
+    b:SetScript("OnEnter", function(self) TV.canFillTooltip(self, self.open.c, self.open.sp, "ANCHOR_BOTTOMRIGHT") end)
+    b:SetScript("OnLeave", hideTooltip)
+    return b
+end
+
+function TV.fillNeeds(row, open)
+    local W = TV.COL2 - 24
+    local x = (row.label:GetStringWidth() or 40) + 10
+    local shown = #open
+    for i, o in ipairs(open) do
+        local b = row.btns[i] or TV.newNeed(row)
+        row.btns[i] = b
+        b.open = o
+        b.icon:SetTexture(ns.RaidComp:SpecIcon(o.c, o.sp))
+        b.fs:SetText(o.name .. (o.n > 1 and grey(" ×" .. o.n) or ""))
+        local w = floor(16 + 4 + (b.fs:GetStringWidth() or 60) + 0.5)
+        -- (the next one must leave room for "+n more" when more follow)
+        local reserve = i < #open and 64 or 0
+        if i > 1 and x + w > W - reserve then
+            shown = i - 1
+            break
+        end
+        b:SetWidth(w)
+        b:ClearAllPoints()
+        b:SetPoint("LEFT", row, "LEFT", x, 0)
+        b:Show()
+        x = x + w + 12
+    end
+    for i = shown + 1, #row.btns do row.btns[i]:Hide() end
+    local rest = {}
+    for i = shown + 1, #open do rest[#rest + 1] = open[i] end
+    row.more.rest = rest
+    row.more:SetShown(#rest > 0)
+    if #rest > 0 then
+        row.more.fs:SetText(("+%d more"):format(#rest))
+        row.more:SetWidth(floor((row.more.fs:GetStringWidth() or 50) + 0.5))
+        row.more:ClearAllPoints()
+        row.more:SetPoint("LEFT", row, "LEFT", x, 0)
+    end
+end
+
+---------------------------------------------------------------------------
+-- The Comp view: tabs, Start from, the columns, the bench, the steppers, the empty card
+---------------------------------------------------------------------------
+
+function TV.setTab(key)
+    state.teamTab = key == "comp" and "comp" or "groups"
+    if teamsView then teamsView.detail.steps:Hide() end
+    PlanUI:RefreshTeams()
+end
+
+-- A "+" or "-" drawn on a small sleek button.
+function TV.glyph(b, plus)
+    local h = b:CreateTexture(nil, "OVERLAY")
+    h:SetSize(8, 2)
+    h:SetPoint("CENTER", 0, 0)
+    h:SetColorTexture(0.9, 0.9, 0.9, 1)
+    if plus then
+        local v = b:CreateTexture(nil, "OVERLAY")
+        v:SetSize(2, 8)
+        v:SetPoint("CENTER", 0, 0)
+        v:SetColorTexture(0.9, 0.9, 0.9, 1)
+    end
+    b:SetScript("OnMouseDown", nil)
+    b:SetScript("OnMouseUp", nil)
+end
+
+-- Start from: "Standard 25  3 tanks · 6 healers · 7 melee · 9 ranged".
+function TV.startSub(s)
+    if s.kind == "team" then return ("a slot for each member's spec (%d)"):format(ns.RaidComp:CompSize(s.cp)) end
+    if s.kind == "copy" then return ("its %d slots"):format(ns.RaidComp:CompSize(s.cp)) end
+    local rc = ns.RaidComp:RoleCounts(s.cp)
+    return ("%d tanks · %d healers · %d melee · %d ranged"):format(rc.tank, rc.healer, rc.melee, rc.ranged)
+end
+
+function TV.startName(s)
+    return s.kind == "copy" and (s.name .. "'s comp") or s.name
+end
+
+function TV.startFrom(s)
+    local dr = state.draft
+    if not dr or not RP():CanManageTeams() then return end
+    dr.cp = ns.RaidComp:CopyComp(s.cp) or {}
+    PlanUI:RefreshTeams()
+end
+
+function TV.startMenu(root)
+    local dr = state.draft
+    if not dr then return end
+    root:CreateTitle("Start from")
+    for _, s in ipairs(RP():GetCompStarts(dr)) do
+        root:CreateButton(TV.startName(s) .. "  " .. colorize("9e9e9e", TV.startSub(s)), function() TV.startFrom(s) end)
+    end
+    if TV.comp(dr) then
+        if root.CreateDivider then root:CreateDivider() end
+        root:CreateButton("No comp", function()
+            dr.cp = {}
+            PlanUI:RefreshTeams()
+        end)
+    end
+end
+
+-- A slot of a column: who fills it (class circle, name, spec icon), or open (a gold ring with the class faint
+-- inside, the spec's name in gold).
+function TV.newSlotRow(col)
+    local b = CreateFrame("Button", nil, col)
+    b:SetHeight(COL_ROW_H)
+    b:RegisterForClicks("LeftButtonUp")
+    b.me = b:CreateTexture(nil, "BACKGROUND")
+    b.me:SetAllPoints()
+    b.me:SetColorTexture(1, 0.82, 0, 0.12)
+    b.meBar = b:CreateTexture(nil, "BORDER")
+    b.meBar:SetPoint("TOPLEFT", b, "TOPLEFT", -4, -2)
+    b.meBar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", -4, 2)
+    b.meBar:SetWidth(2)
+    b.meBar:SetColorTexture(1, 0.82, 0, 1)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(1, 1, 1, 0.06)
+    b.ring = b:CreateTexture(nil, "ARTWORK", nil, -2)
+    b.ring:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    b.ring:SetVertexColor(1, 0.82, 0)
+    b.ring:SetSize(18, 18)
+    b.ring:SetPoint("CENTER", b, "LEFT", 8, 0)
+    b.ringIn = b:CreateTexture(nil, "ARTWORK", nil, -1)
+    b.ringIn:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    b.ringIn:SetVertexColor(PANEL_BG[1], PANEL_BG[2], PANEL_BG[3])
+    b.ringIn:SetSize(16, 16)
+    b.ringIn:SetPoint("CENTER", b.ring, "CENTER", 0, 0)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.fs = textOf(b, "GameFontHighlight", 12)
+    b.fs:SetPoint("LEFT", b, "LEFT", 22, 0)
+    b.spec = b:CreateTexture(nil, "ARTWORK")
+    b.spec:SetSize(14, 14)
+    b.spec:SetPoint("RIGHT", -1, 0)
+    b.spec:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b:SetScript("OnEnter", TV.slotTooltip)
+    b:SetScript("OnLeave", hideTooltip)
+    b:SetScript("OnClick", function(self)
+        if RP():CanManageTeams() and self.role then TV.openSteps(self.role, self) end
+    end)
+    return b
+end
+
+function TV.fillSlotRow(b, slot, organizer, mine)
+    b.slot, b.role = slot, slot.role
+    local m = slot.member
+    local open = m == nil
+    b.ring:SetShown(open)
+    b.ringIn:SetShown(open)
+    b.icon:ClearAllPoints()
+    if open then
+        b.icon:SetSize(12, 12)
+        b.icon:SetPoint("CENTER", b.ring, "CENTER", 0, 0)
+    else
+        b.icon:SetSize(16, 16)
+        b.icon:SetPoint("LEFT", b, "LEFT", 0, 0)
+    end
+    UI():ClassIcon(b.icon, (m and m.c) or slot.c)
+    b.icon:SetAlpha(open and 0.35 or 1)
+    b.fs:SetText(open and colorize("ffd100", slot.name) or colored(m.key, m.c))
+    local icon = ns.RaidComp:SpecIcon(slot.c, slot.sp)
+    b.spec:SetShown(icon ~= nil)
+    if icon then b.spec:SetTexture(icon) end
+    b.spec:SetAlpha(open and 0.35 or 1)
+    b.me:SetShown(mine == true)
+    b.meBar:SetShown(mine == true)
+    b:Show()
+end
+
+function TV.slotTooltip(self)
+    local slot = self.slot
+    if not slot then return end
+    local organizer = RP():CanManageTeams()
+    if not slot.member then
+        TV.canFillTooltip(self, slot.c, slot.sp)
+    else
+        local m = slot.member
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(colored(m.key, m.c) .. (TV.isMine(m.key) and " |cff9e9e9e(you)|r" or ""))
+        GameTooltip:AddLine(slot.name, 1, 1, 1)
+        local src = m.source == "team" and "Spec set in the team" or m.source == "bis" and "Spec from their BiS list"
+            or m.source == "signup" and "Spec from their last sign-up" or nil
+        if src then GameTooltip:AddLine(src, 0.6, 0.6, 0.6) end
+    end
+    if organizer then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Click to change this column's slots.", 0.6, 0.6, 0.6, true)
+    end
+    GameTooltip:Show()
+end
+
+-- A bench chip: class circle, name, spec icon (the Sign-ups' boxes look).
+function TV.newBenchChip(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(CHIP_H)
+    b:RegisterForClicks("LeftButtonUp")
+    panel(b, CARD_BG, { 0.34, 0.34, 0.38, 0.6 })
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(1, 1, 1, 0.06)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(16, 16)
+    b.icon:SetPoint("LEFT", 3, 0)
+    b.fs = textOf(b, "GameFontHighlight", 12)
+    b.fs:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
+    b.spec = b:CreateTexture(nil, "ARTWORK")
+    b.spec:SetSize(14, 14)
+    b.spec:SetPoint("RIGHT", -5, 0)
+    b.spec:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b:SetScript("OnEnter", function(self)
+        local m = self.member
+        if not m then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(colored(m.key, m.c) .. (TV.isMine(m.key) and " |cff9e9e9e(you)|r" or ""))
+        local label = m.sp and ns.RaidComp:SlotName(m.c, m.sp)
+        GameTooltip:AddLine(label or ((ns.RaidComp:ClassName(m.c) or "") .. " · spec unknown"), 1, 1, 1)
+        GameTooltip:AddLine("On the team, beyond the comp.", 0.6, 0.6, 0.6)
+        if RP():CanManageTeams() then GameTooltip:AddLine("Click to add a slot or change the spec.", 0.6, 0.6, 0.6) end
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", hideTooltip)
+    b:SetScript("OnClick", function(self) TV.benchMenu(self) end)
+    return b
+end
+
+-- A bench chip clicked (organizers): a slot for their spec, or the spec they play in this team.
+function TV.benchMenu(chip)
+    local m, dr = chip.member, state.draft
+    if not m or not dr or not RP():CanManageTeams() then return end
+    local key = m.key
+    UI():ContextMenu(chip, function(root)
+        local label = m.sp and ns.RaidComp:SlotName(m.c, m.sp)
+        root:CreateTitle(shortName(key) .. (label and (" " .. colorize("9e9e9e", label)) or ""))
+        if label and ns.RaidComp:CompSize(dr.cp) < dr.sz then
+            root:CreateButton("Add " .. TV.article(label) .. " " .. label .. " slot", function()
+                ns.RaidComp:SetCount(dr.cp, m.c, m.sp, ns.RaidComp:GetCount(dr.cp, m.c, m.sp) + 1)
+                PlanUI:RefreshTeams()
+            end)
+        end
+        local sub = root:CreateButton("Spec in this team")
+        sub:CreateRadio("Automatic", function() return dr.s[key] == nil end, function() PlanUI:SetDraftSpec(key, nil) end)
+        for i, spec in ipairs(m.c and ns.SPECS[m.c] or {}) do
+            sub:CreateRadio(spec.label, function() return dr.s[key] == i end, function() PlanUI:SetDraftSpec(key, i) end)
+        end
+    end)
+end
+
+-- The steppers: every spec of a role with − n +, one click per slot; + hides once the comp is as big as the team.
+function TV.createSteps(d)
+    -- (a top-level frame like a menu: the window's scale is taken on when it opens)
+    local p = CreateFrame("Frame", nil, UIParent)
+    p:SetFrameStrata("FULLSCREEN_DIALOG")
+    p:SetToplevel(true)
+    p:SetClampedToScreen(true)
+    p:EnableMouse(true)
+    p:SetSize(252, 100)
+    p.bg = p:CreateTexture(nil, "BACKGROUND")
+    p.bg:SetAllPoints()
+    p.bg:SetColorTexture(0.06, 0.06, 0.07, 1)
+    UI():AddEdges(p, "BORDER")
+    UI():SetEdgeColor(p, 0.45, 0.45, 0.5, 1)
+    p.role = p:CreateTexture(nil, "ARTWORK")
+    p.role:SetSize(14, 14)
+    p.role:SetTexture(UI().ROLE_TEX)
+    p.role:SetPoint("TOPLEFT", 10, -9)
+    p.title = textOf(p, "GameFontNormal", 12)
+    p.title:SetPoint("LEFT", p.role, "RIGHT", 6, 0)
+    p.rows = {}
+    p.line = p:CreateTexture(nil, "BORDER")
+    p.line:SetColorTexture(1, 1, 1, 0.08)
+    p.line:SetHeight(1)
+    p.line:SetPoint("BOTTOMLEFT", 8, 28)
+    p.line:SetPoint("BOTTOMRIGHT", -8, 28)
+    p.foot = textOf(p, "GameFontHighlightSmall", 11)
+    p.foot:SetPoint("BOTTOMLEFT", 10, 9)
+    p:Hide()
+    -- a click anywhere else closes it
+    p:SetScript("OnShow", function(self)
+        if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("GLOBAL_MOUSE_DOWN") then
+            self:RegisterEvent("GLOBAL_MOUSE_DOWN")
+        end
+    end)
+    p:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
+    p:SetScript("OnEvent", function(self)
+        if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then self:Hide() end
+    end)
+    d.steps = p
+end
+
+function TV.newStepRow(p)
+    local r = CreateFrame("Frame", nil, p)
+    r:SetSize(236, 22)
+    r.icon = r:CreateTexture(nil, "ARTWORK")
+    r.icon:SetSize(16, 16)
+    r.icon:SetPoint("LEFT", 2, 0)
+    r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    r.fs = textOf(r, "GameFontHighlight", 12)
+    r.fs:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+    local function step(delta)
+        local dr = state.draft
+        if not dr or not RP():CanManageTeams() then return end
+        local n = ns.RaidComp:GetCount(dr.cp, r.c, r.sp) + delta
+        if delta > 0 and ns.RaidComp:CompSize(dr.cp) >= dr.sz then return end
+        ns.RaidComp:SetCount(dr.cp, r.c, r.sp, n)
+        PlanUI:RefreshTeams()
+    end
+    r.plus = UI():CreateSleekButton(r, "", 18, 18, function() step(1) end)
+    r.plus:SetPoint("RIGHT", r, "RIGHT", 0, 0)
+    TV.glyph(r.plus, true)
+    r.n = textOf(r, "GameFontHighlight", 12)
+    r.n:SetJustifyH("CENTER")
+    r.n:SetWidth(18)
+    r.n:SetPoint("RIGHT", r.plus, "LEFT", -4, 0)
+    r.minus = UI():CreateSleekButton(r, "", 18, 18, function() step(-1) end)
+    r.minus:SetPoint("RIGHT", r.n, "LEFT", -4, 0)
+    TV.glyph(r.minus, false)
+    return r
+end
+
+function TV.openSteps(role, owner)
+    local p = teamsView and teamsView.detail.steps
+    if not p or not RP():CanManageTeams() then return end
+    if p:IsShown() and p.roleKey == role and p.owner == owner then
+        p:Hide()
+        return
+    end
+    p.roleKey, p.owner, p.draft = role, owner, state.draft
+    p:SetScale((owner:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1))
+    p:ClearAllPoints()
+    p:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", -10, -2)
+    p:Show()
+    TV.fillSteps()
+end
+
+function TV.fillSteps()
+    local p = teamsView and teamsView.detail.steps
+    local dr = state.draft
+    if not p or not p:IsShown() then return end
+    -- (another team, Undo or Save opened another draft: the panel was for the old one)
+    if not dr or p.draft ~= dr then return p:Hide() end
+    local role = p.roleKey
+    p.role:SetTexCoord(UI():RoleCoords(TV.ROLE_ICON[role]))
+    p.title:SetText(TV.ROLE_LABEL[role])
+    local specs = {}
+    for _, c in ipairs(ns.CLASSES) do
+        for sp = 1, #ns.SPECS[c] do
+            if ns.RaidComp:RoleOf(c, sp) == role then specs[#specs + 1] = { c = c, sp = sp } end
+        end
+    end
+    local total = ns.RaidComp:CompSize(dr.cp)
+    local full = total >= dr.sz
+    for i, s in ipairs(specs) do
+        local r = p.rows[i] or TV.newStepRow(p)
+        p.rows[i] = r
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -30 - (i - 1) * 22)
+        r.c, r.sp = s.c, s.sp
+        local n = ns.RaidComp:GetCount(dr.cp, s.c, s.sp)
+        r.icon:SetTexture(ns.RaidComp:SpecIcon(s.c, s.sp))
+        if r.icon.SetDesaturated then r.icon:SetDesaturated(n == 0) end
+        r.icon:SetAlpha(n == 0 and 0.5 or 1)
+        local name = ns.RaidComp:SlotName(s.c, s.sp) or "?"
+        r.fs:SetText(n == 0 and grey(name) or name)
+        r.n:SetText(n == 0 and grey(n) or n)
+        r.minus:SetShown(n > 0)
+        r.plus:SetShown(not full)
+        r:Show()
+    end
+    for i = #specs + 1, #p.rows do p.rows[i]:Hide() end
+    p.foot:SetText(colorize("ffffff", total) .. colorize("9e9e9e", (" of %d slots"):format(dr.sz)
+        .. (full and " · take one out to add another" or "")))
+    p:SetHeight(30 + #specs * 22 + 8 + 28)
+end
+
+-- The frames of the comp (CreateTeams calls it): the tabs, Start from and the strip in the tool row, the members'
+-- strip row, the columns, the bench, the steppers, the empty card.
+function TV.createComp(t, d)
+    local v = d.views
+    local function tab(label, key)
+        local b = UI():CreateUnderlineTab(v, label, function() TV.setTab(key) end, "small")
+        b.key = key
+        return b
+    end
+    d.tabGroups = tab("Groups", "groups")
+    d.tabGroups:SetPoint("BOTTOMLEFT", -4, 0)
+    tipButton(d.tabGroups, "Groups", "Raids that invite this team start from these groups.")
+    d.tabComp = tab("Comp", "comp")
+    d.tabComp:SetPoint("LEFT", d.tabGroups, "RIGHT", 4, 0)
+    tipButton(d.tabComp, "Target comp", "The specs this team should bring. Its open slots show on the team card and "
+        .. "in the Sign-ups of raids that invite the team.")
+    d.tabLine = v:CreateTexture(nil, "BORDER")
+    d.tabLine:SetPoint("BOTTOMLEFT", 0, 0)
+    d.tabLine:SetPoint("BOTTOMRIGHT", 0, 0)
+    d.tabLine:SetHeight(1)
+    d.tabLine:SetColorTexture(1, 1, 1, 0.1)
+
+    d.startBtn = UI():CreateSleekMenuButton(d.tool, "Start from", 104, function(root) TV.startMenu(root) end)
+    d.startBtn:SetPoint("TOPLEFT", d.tool, "TOPLEFT", 0, 0)
+    tipButton(d.startBtn, "Start from", "Begins the comp again: a preset, the team as it is, or another team's comp.")
+
+    -- the comp's raid buffs: in the tool row (organizers) or a row of their own (members)
+    d.compBar = CreateFrame("Frame", nil, d)
+    d.compBar:SetSize(TV.W, TV.BAR_H)
+    d.compStrip = CreateFrame("Frame", nil, d)
+    d.compStrip:SetSize(1, 22)
+    d.compStrip.icons = {}
+    for i = 1, 20 do
+        local b = ns.RaidGroupsUI:CreateBuffIcon(d.compStrip, 20)
+        if i == 1 then b:SetPoint("LEFT", d.compStrip, "LEFT", 0, 0)
+        else b:SetPoint("LEFT", d.compStrip.icons[i - 1], "RIGHT", 2, 0) end
+        b:Hide()
+        d.compStrip.icons[i] = b
+    end
+
+    d.compScroll = UI():CreateScrollFrame(d)
+    local cc = CreateFrame("Frame", nil, d.compScroll)
+    cc:SetSize(TV.W, 10)
+    d.compScroll:SetScrollChild(cc)
+    d.compContent = cc
+    d.cols = {}
+    for i, role in ipairs(ns.RaidComp.COLUMNS) do
+        local col = CreateFrame("Frame", nil, cc)
+        panel(col)
+        col.roleKey = role
+        col.role = col:CreateTexture(nil, "ARTWORK")
+        col.role:SetTexture(UI().ROLE_TEX)
+        col.role:SetTexCoord(UI():RoleCoords(TV.ROLE_ICON[role]))
+        col.role:SetSize(16, 16)
+        col.role:SetPoint("TOPLEFT", 9, -6)
+        col.title = textOf(col, "GameFontNormal", 12)
+        col.title:SetPoint("LEFT", col.role, "RIGHT", 6, 0)
+        col.title:SetText(TV.ROLE_LABEL[role])
+        col.add = UI():CreateSleekButton(col, "", 18, 18, function(self) TV.openSteps(role, self) end)
+        col.add:SetPoint("TOPRIGHT", col, "TOPRIGHT", -8, -5)
+        TV.glyph(col.add, true)
+        tipButton(col.add, TV.ROLE_LABEL[role], "How many of each spec the comp wants.")
+        col.count = textOf(col, "GameFontHighlight", 12)
+        col.count:SetJustifyH("RIGHT")
+        col.rule = col:CreateTexture(nil, "BORDER")
+        col.rule:SetColorTexture(1, 1, 1, 0.07)
+        col.rule:SetHeight(1)
+        col.rule:SetPoint("TOPLEFT", 8, -COL_HEAD_H)
+        col.rule:SetPoint("TOPRIGHT", -8, -COL_HEAD_H)
+        col.none = textOf(col, "GameFontDisableSmall", 10)
+        col.none:SetPoint("TOPLEFT", 10, -COL_HEAD_H - 8)
+        col.none:SetText("No slots")
+        col.rows = {}
+        d.cols[i] = col
+    end
+    local bench = CreateFrame("Frame", nil, cc)
+    panel(bench)
+    bench.label = CreateFrame("Button", nil, bench)
+    bench.label:SetHeight(CHIP_H)
+    bench.label:SetPoint("TOPLEFT", bench, "TOPLEFT", 12, -8)
+    bench.label.fs = textOf(bench.label, "GameFontHighlight", 12)
+    bench.label.fs:SetPoint("LEFT", 0, 0)
+    bench.label:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Bench")
+        GameTooltip:AddLine("On the team, beyond the comp: more players of a spec than its slots, or a spec the comp "
+            .. "doesn't have.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    bench.label:SetScript("OnLeave", hideTooltip)
+    bench.chips = {}
+    d.bench = bench
+
+    TV.createSteps(d)
+
+    -- no comp yet (organizers): one card, three ways to start
+    local e = CreateFrame("Frame", nil, d)
+    e:SetSize(560, 230)
+    panel(e, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.6 })
+    d.compEmpty = e
+    e.meter = TV.createMeter(e)
+    e.meter:EnableMouse(false)
+    e.meter:SetPoint("TOP", e, "TOP", 0, -24)
+    local pic = { columns = {} }
+    for role, list in pairs(TV.MINI_COMP) do
+        pic.columns[role] = {}
+        for i, c in ipairs(list) do pic.columns[role][i] = { member = c and { c = c } or nil } end
+    end
+    TV.fillMeter(e.meter, pic)
+    e.meter.match = nil
+    e.title = textOf(e, "GameFontHighlightLarge", 16)
+    e.title:SetJustifyH("CENTER")
+    e.title:SetPoint("TOP", e, "TOP", 0, -60)
+    e.title:SetText("No target comp yet")
+    e.body = e:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    setSize(e.body, 12)
+    e.body:SetTextColor(0.62, 0.62, 0.62)
+    e.body:SetWidth(500)
+    e.body:SetJustifyH("CENTER")
+    e.body:SetSpacing(3)
+    e.body:SetPoint("TOP", e.title, "BOTTOM", 0, -10)
+    e.body:SetText("Draft the specs this team should bring. The spots still open show on the team card, and in the "
+        .. "Sign-ups of raids that invite the team.")
+    e.from = textOf(e, "GameFontHighlightSmall", 11)
+    e.from:SetTextColor(0.62, 0.62, 0.62)
+    e.from:SetJustifyH("CENTER")
+    e.from:SetPoint("TOP", e.body, "BOTTOM", 0, -18)
+    e.from:SetText("Start from")
+    e.tiles = {}
+    for i = 1, 3 do
+        local b = UI():CreateSleekButton(e, "", 164, 46, function(self) if self.start then TV.startFrom(self.start) end end)
+        b:SetScript("OnMouseDown", nil)
+        b:SetScript("OnMouseUp", nil)
+        b.t1 = textOf(b, "GameFontHighlight", 13)
+        b.t1:SetJustifyH("CENTER")
+        b.t1:SetPoint("TOP", b, "TOP", 0, -9)
+        b.t2 = textOf(b, "GameFontHighlightSmall", 10)
+        b.t2:SetTextColor(0.62, 0.62, 0.62)
+        b.t2:SetJustifyH("CENTER")
+        b.t2:SetPoint("TOP", b.t1, "BOTTOM", 0, -4)
+        e.tiles[i] = b
+    end
+end
+
+-- The empty card's tiles: the preset, the team as it is, another team's comp (three at most, centred).
+function TV.fillCompEmpty(dr)
+    local e = teamsView.detail.compEmpty
+    local starts = RP():GetCompStarts(dr)
+    local n = min(3, #starts)
+    local x0 = floor((560 - (n * 164 + (n - 1) * 8)) / 2 + 0.5)
+    for i, b in ipairs(e.tiles) do
+        local s = starts[i]
+        b.start = s
+        b:SetShown(s ~= nil and i <= 3)
+        if s then
+            b.t1:SetText(TV.startName(s))
+            local sub
+            if s.kind == "preset" then
+                local rc = ns.RaidComp:RoleCounts(s.cp)
+                sub = ("%d tanks · %d healers · %d dps"):format(rc.tank, rc.healer, rc.melee + rc.ranged)
+            elseif s.kind == "team" then
+                sub = "a slot for each member's spec"
+            else
+                sub = "copy it, then adjust"
+            end
+            b.t2:SetText(sub)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", e.from, "BOTTOM", -280 + x0 + (i - 1) * 172, -8)
+        end
+    end
+    e.from:SetShown(n > 0)
+    local bodyH = e.body:GetStringHeight() or 0
+    if bodyH < 20 then bodyH = 34 end
+    e:SetHeight(floor(60 + (e.title:GetStringHeight() or 20) + 10 + bodyH + 18 + 14 + 8 + 46 + 24 + 0.5))
+end
+
+-- The columns (a slot per row, in comp order) and the bench under them.
+function TV.fillCompView(m, organizer)
+    local d = teamsView.detail
+    local dr = state.draft
+    local cc = d.compContent
+    local W = TV.W
+    local colW = floor((W - 3 * GAP) / 4)
+    local full = ns.RaidComp:CompSize(dr.cp) >= dr.sz
+    local depth = 0
+    for i, col in ipairs(d.cols) do
+        local role = col.roleKey
+        local slots = m.columns[role] or {}
+        col:ClearAllPoints()
+        col:SetPoint("TOPLEFT", cc, "TOPLEFT", (i - 1) * (colW + GAP), 0)
+        col:SetWidth(i == #d.cols and (W - 3 * (colW + GAP)) or colW)
+        local filled = 0
+        for j, slot in ipairs(slots) do
+            local r = col.rows[j] or TV.newSlotRow(col)
+            col.rows[j] = r
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", col, "TOPLEFT", 9, -COL_HEAD_H - 4 - (j - 1) * COL_ROW_H)
+            r:SetPoint("TOPRIGHT", col, "TOPRIGHT", -9, -COL_HEAD_H - 4 - (j - 1) * COL_ROW_H)
+            local mine = not organizer and slot.member ~= nil and TV.isMine(slot.member.key)
+            TV.fillSlotRow(r, slot, organizer, mine)
+            if slot.member then filled = filled + 1 end
+        end
+        for j = #slots + 1, #col.rows do
+            col.rows[j]:Hide()
+            col.rows[j].slot = nil
+        end
+        col.none:SetShown(#slots == 0)
+        col.add:SetShown(organizer and not full)
+        col.count:ClearAllPoints()
+        if col.add:IsShown() then col.count:SetPoint("RIGHT", col.add, "LEFT", -8, 0)
+        else col.count:SetPoint("RIGHT", col, "TOPRIGHT", -10, -14) end
+        if #slots == 0 then
+            col.count:SetText("")
+        elseif filled == #slots then
+            col.count:SetText(colorize("8fe39d", filled .. "/" .. #slots))
+        else
+            col.count:SetText(filled .. colorize("9e9e9e", "/" .. #slots))
+        end
+        depth = max(depth, #slots)
+    end
+    local colH = COL_HEAD_H + 4 + max(1, depth) * COL_ROW_H + 8
+    for _, col in ipairs(d.cols) do col:SetHeight(colH) end
+    -- the bench: who no slot takes, as chips with their spec
+    local bench = d.bench
+    local list = m.bench or {}
+    bench:SetShown(#list > 0)
+    local h = 0
+    if #list > 0 then
+        bench.label.fs:SetText("Bench" .. colorize("9e9e9e", " (" .. #list .. ")"))
+        bench.label:SetWidth(floor((bench.label.fs:GetStringWidth() or 60) + 0.5))
+        local x0 = 12 + bench.label:GetWidth() + 14
+        local cx, cy = x0, -8
+        for j, mem in ipairs(list) do
+            local chip = bench.chips[j] or TV.newBenchChip(bench)
+            bench.chips[j] = chip
+            chip.member = mem
+            UI():ClassIcon(chip.icon, mem.c)
+            chip.fs:SetText(colored(mem.key, mem.c))
+            local icon = ns.RaidComp:SpecIcon(mem.c, mem.sp)
+            chip.spec:SetShown(icon ~= nil)
+            if icon then chip.spec:SetTexture(icon) end
+            local w = floor(3 + 16 + 6 + (chip.fs:GetStringWidth() or 60) + (icon and (8 + 14 + 5) or 9) + 0.5)
+            chip:SetWidth(w)
+            if cx + w > W - 12 and cx > x0 then cx, cy = x0, cy - (CHIP_H + CHIP_GAP) end
+            chip:ClearAllPoints()
+            chip:SetPoint("TOPLEFT", bench, "TOPLEFT", cx, cy)
+            chip:Show()
+            cx = cx + w + CHIP_GAP
+        end
+        for j = #list + 1, #bench.chips do bench.chips[j]:Hide() end
+        h = -cy + CHIP_H + 8
+        bench:ClearAllPoints()
+        bench:SetPoint("TOPLEFT", cc, "TOPLEFT", 0, -(colH + GAP))
+        bench:SetSize(W, h)
+    end
+    cc:SetWidth(W)
+    cc:SetHeight(colH + (h > 0 and (GAP + h) or 0))
+end
+
+-- The Comp tab below the tabs: the row on top (organizers: Start from, the strip, Undo / Save; members: the
+-- strip), then the columns and the bench, or (no comp yet, organizers) the empty card. Returns nothing.
+function TV.layoutComp(y, organizer, dr, m)
+    local t, d = teamsView, teamsView.detail
+    local dirty = organizer and TV.dirty()
+    local toolShown = organizer and (m ~= nil or dirty)
+    d.tool:SetShown(toolShown)
+    t.picker.frame:Hide()
+    d.autoBtn:Hide()
+    d.startBtn:SetShown(organizer and m ~= nil)
+    d.compBar:SetShown(not organizer and m ~= nil)
+    d.compStrip:SetShown(m ~= nil)
+    if toolShown then
+        d.tool:ClearAllPoints()
+        d.tool:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+        y = y + TV.TOOL_H + GAP
+    end
+    if m then
+        local room
+        d.compStrip:ClearAllPoints()
+        if organizer then
+            d.compStrip:SetPoint("LEFT", d.startBtn, "RIGHT", 12, 0)
+            local right = 0
+            if d.saveBtn:IsShown() then
+                right = d.saveBtn:GetWidth() + 4 + d.revertBtn:GetWidth() + 12 + (d.status:GetStringWidth() or 110) + 16
+            end
+            room = TV.W - d.startBtn:GetWidth() - 12 - right
+        else
+            d.compBar:ClearAllPoints()
+            d.compBar:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+            d.compStrip:SetPoint("LEFT", d.compBar, "LEFT", 2, 0)
+            y = y + TV.BAR_H + 6
+            room = TV.W - 4
+        end
+        local states = TV.states or {}
+        local size = 20
+        while size > 14 and #states * (size + 2) > room do size = size - 2 end
+        for i, b in ipairs(d.compStrip.icons) do
+            local e = states[i]
+            b:SetSize(size, size)
+            if e and i * (size + 2) <= room + 2 then ns.RaidGroupsUI:SetBuffIcon(b, e) else b:Hide() end
+        end
+    end
+    d.compEmpty:SetShown(organizer and m == nil)
+    d.compScroll:SetShown(m ~= nil)
+    if not m then
+        if organizer then
+            TV.fillCompEmpty(dr)
+            d.compEmpty:ClearAllPoints()
+            d.compEmpty:SetPoint("TOP", d, "TOP", 0, -(y + 6))
+        end
+        return
+    end
+    d.compScroll:ClearAllPoints()
+    d.compScroll:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+    d.compScroll:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -PAD, 0)
+    TV.fillCompView(m, organizer)
+end
+
+-- The LF message: the line in the chat box, ready to send in the channel the player picks (never sent by us).
+function TV.openChat(line)
+    local util = ChatFrameUtil
+    local open = (util and util.OpenChat) or ChatFrame_OpenChat
+    if open and line then open(line) end
+end
+
+---------------------------------------------------------------------------
+-- A raid's Sign-ups: the open slots of the team's comp (GetRaidOpenSlots), gold at the end of each role column
+---------------------------------------------------------------------------
+
+function PlanUI:OpenSlotTooltip(row)
+    local cell = row.cdlCell
+    if not cell then return end
+    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(TV.specIconText(cell.c, cell.sp, 16) .. " " .. tostring(cell.name or "?"), 1, 1, 1)
+    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", 0.62, 0.62, 0.62)
+    local cf = RP():RaidCanFill(cell.occ, cell.c, cell.sp)
+    local any = false
+    for _, grp in ipairs({ { "Not answered yet", cf.unanswered, "on the team" }, { "In the guild", cf.guild } }) do
+        local list = grp[2] or {}
+        if #list > 0 then
+            any = true
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(grp[1], 1, 0.82, 0)
+            for i = 1, min(3, #list) do
+                local e = list[i]
+                local right = grp[3] or (e.st == "B" and "on the bench") or ""
+                GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), right,
+                    1, 1, 1, 0.62, 0.62, 0.62)
+            end
+            if #list > 3 then GameTooltip:AddLine(("+%d more"):format(#list - 3), 0.5, 0.5, 0.5) end
+        end
+    end
+    if not any then GameTooltip:AddLine("Nobody else in the guild plays it yet.", 0.6, 0.6, 0.6, true) end
+    if RP():CanManageRaid(cell.occ) or RP():CanManageRoster(cell.occ) then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Click to add a player or a guest.", 0.6, 0.6, 0.6)
+    end
+    GameTooltip:Show()
+end
+
+-- Who runs the raid: Add players, with the slot's class and spec ready for a guest.
+function PlanUI:OpenSlotClick(cell)
+    if not cell or not (RP():CanManageRaid(cell.occ) or RP():CanManageRoster(cell.occ)) then return end
+    self:OpenInvites(cell.occ, { c = cell.c, sp = cell.sp })
+end
+
+-- For tests and the audit: the Teams view's "groups" | "comp" tab.
+function PlanUI:SetTeamTab(key) TV.setTab(key) end
+
+function PlanUI:GetTeamTab() return state.teamTab == "comp" and "comp" or "groups" end
+
+-- For tests: the steppers panel (role column `role` opened from its +), or nil.
+function PlanUI:GetCompSteps() return teamsView and teamsView.detail.steps end
 
 ---------------------------------------------------------------------------
 -- New / Edit raid window
@@ -4386,7 +5547,7 @@ local function canAddPlayers(occId)
 end
 
 -- Opens the Add players window of a raid: invites for who runs it, guests for them and the officers.
-function PlanUI:OpenInvites(occId)
+function PlanUI:OpenInvites(occId, opts)
     if not RP():GetRaid(occId) then return false end
     if not canAddPlayers(occId) then
         Print(RP():GetRaidLeader(occId) and "Only this raid's leader, the Guild Master, the raid leaders and officers can add players to it."
@@ -4397,6 +5558,8 @@ function PlanUI:OpenInvites(occId)
     inviteWin.occ = occId
     inviteWin.err:SetText("")
     inviteWin.mode = RP():CanManageRaid(occId) and "member" or "guest"
+    -- (from an open slot of the team's comp: its class and spec ready for a guest)
+    if type(opts) == "table" and opts.c then inviteWin.cls, inviteWin.sp = opts.c, opts.sp end
     inviteWin:Show()
     inviteWin:Raise()
     self:RefreshInvites()
@@ -4677,6 +5840,18 @@ function PlanUI:OnInit()
             whileDead = true,
             hideOnEscape = true,
             noCancelOnEscape = true,
+            preferredIndex = 3,
+        }
+        StaticPopupDialogs["DISASTERZONE_TEAM_COMP_SIZE"] = {
+            text = "%s",
+            button1 = YES or "Yes",
+            button2 = CANCEL or "Cancel",
+            OnAccept = function(_, data)
+                if type(data) == "table" and data.fn then data.fn() end
+            end,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
             preferredIndex = 3,
         }
         StaticPopupDialogs["DISASTERZONE_TEAM_DELETE"] = {

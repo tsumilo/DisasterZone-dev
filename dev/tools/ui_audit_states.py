@@ -770,13 +770,26 @@ def teams_seed(w, c):
     w.tick(3)
 
 
-def teams_view(viewer="Gina", lua=None, no_teams=False, party=False):
+def teams_comp(w, c, on):
+    """The main team's target comp: Standard 25 (on) or none."""
+    k = c["Grumpykat"]
+    has = k.eval("return ns.RaidPlan:GetTeamComp(...) ~= nil", IDS["team"])
+    if has == on:
+        return
+    res = k.eval_py("local id, on = ...; local cp = on and ns.RaidComp:GetPreset('std25').cp or false; "
+                    "local ok, r = ns.RaidPlan:SetTeamComp(id, cp); return { ok = ok, r = r }", IDS["team"], on)
+    assert res["ok"] is True, res
+    w.tick(2)
+
+
+def teams_view(viewer="Gina", lua=None, no_teams=False, party=False, comp=False, view="groups"):
     """Raids > Teams on `viewer`'s screen after the seed; lua runs on the open view (... = main team, Kara B).
     no_teams: the view as a guild without teams shows it (GetTeams answers nothing on that client); party: Gina in a
-    party with Vaenyria and Dornak (Add several)."""
+    party with Vaenyria and Dornak (Add several); comp: the main team has a target comp; view: "groups" | "comp"."""
     def fn(w, c):
         teams_seed(w, c)
         demo_off(w, c)
+        teams_comp(w, c, comp)
         if w.group:
             w.disband()
             w.tick(0.5)
@@ -797,6 +810,8 @@ def teams_view(viewer="Gina", lua=None, no_teams=False, party=False):
         v.eval("ns.RaidsUI:SetView('teams')")
         if not no_teams:
             v.eval("ns.RaidPlanUI:SelectTeam(...)", IDS["team"])
+        if v.eval("return ns.RaidPlanUI.SetTeamTab ~= nil"):
+            v.eval("ns.RaidPlanUI:SetTeamTab(...)", view)
         w.tick(0.3)
         if lua:
             v.eval(lua, IDS["team"], TEAMS.get("kara"))
@@ -805,7 +820,28 @@ def teams_view(viewer="Gina", lua=None, no_teams=False, party=False):
     return fn
 
 
-STATES += [
+def teams_raid(tab_key, comp=True):
+    """The main team's Serpentshrine raid (it invites the team) on Gina's screen: its Sign-ups or Groups tab."""
+    def fn(w, c):
+        teams_seed(w, c)
+        demo_off(w, c)
+        teams_comp(w, c, comp)
+        g = c["Gina"]
+        g.eval("if ns.RaidPlanUI.DiscardDraft then ns.RaidPlanUI:DiscardDraft() end")
+        close_all(g)
+        g.eval("StaticPopup_HideAll()")
+        tab(g, "raids")
+        w.tick(0.3)
+        g.eval("ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); ns.RaidPlanUI:SetDetailTab(select(2, ...))",
+               TEAMS["ssc"], tab_key)
+        w.tick(0.3)
+        return g
+    return fn
+
+
+# (before "Home - calendar busy": it stays last)
+_HOME = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
+STATES[_HOME:_HOME] = [
     ("Raids - Teams (member)", teams_view("Lightbringer")),
     ("Raids - Teams - organizer", teams_view()),
     # Faelar into group 4, Quillon out of group 3: changed, not saved
@@ -817,6 +853,17 @@ STATES += [
     ("Raids - Teams - new team", teams_view(lua="ns.RaidPlanUI:NewTeam()")),
     ("Raids - Teams - no teams (organizer)", teams_view(no_teams=True)),
     ("Raids - Teams - no teams (member)", teams_view("Lightbringer", no_teams=True)),
-    # (last: back to the saved teams for whatever runs after)
     ("Raids - Teams - member, not on the team", teams_view("Lightbringer", lua="ns.RaidPlanUI:SelectTeam(select(2, ...))")),
+    # the target comp (Standard 25 on the main team): the card's meter and Needs, the Comp view, the steppers, the
+    # empty card, the members' read-only view, the open slots of a raid that invites the team, its Groups strip
+    ("Raids - Teams - comp card (member)", teams_view("Lightbringer", comp=True)),
+    ("Raids - Teams - comp groups", teams_view(comp=True)),
+    ("Raids - Teams - comp", teams_view(comp=True, view="comp")),
+    ("Raids - Teams - comp steppers", teams_view(comp=True, view="comp", lua=(
+        "local d = ns.RaidsUI:GetPanel().teams.detail; local a = d.cols[2].add; a:GetScript('OnClick')(a, 'LeftButton'); "
+        "local r = ns.RaidPlanUI:GetCompSteps().rows[1]; r.minus:GetScript('OnClick')(r.minus, 'LeftButton')"))),
+    ("Raids - Teams - comp empty", teams_view(view="comp")),
+    ("Raids - Teams - comp (member)", teams_view("Lightbringer", comp=True, view="comp")),
+    ("Raids - Upcoming - SSC sign-ups (comp)", teams_raid("signups")),
+    ("Raids - Upcoming - SSC groups (comp)", teams_raid("groups")),
 ]

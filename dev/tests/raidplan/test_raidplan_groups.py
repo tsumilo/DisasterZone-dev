@@ -224,8 +224,8 @@ def teams_grid_moves_swaps_buffs_and_saves():
     w.tick(0.3)
     st = grid_state(bob)
     assert set(st["groups"]) == {1, 2} and all(v == [] for v in st["groups"].values()), st
-    assert "fortitude" in st["strip"] and "sunder" in st["strip"] and "motw" in st["strip"], st["strip"]
-    assert "arcaneint" not in st["strip"], st["strip"]            # no mage on the team
+    # the raid-wide strip lights what the players in the groups bring (nobody is placed yet)
+    assert st["strip"] == [], st["strip"]
     # click a member, then a group
     grid = "ns.RaidPlanUI:GetTeamGrid()"
     bob.eval("%s:Pick(...)" % grid, K("Ena"))
@@ -236,6 +236,8 @@ def teams_grid_moves_swaps_buffs_and_saves():
     w.tick(0.3)
     st = grid_state(bob)
     assert short(st["groups"][1]) == ["Ena", "Holly", "Lee", "Sam", "Tank"], st
+    assert "sunder" in st["strip"] and "fortitude" not in st["strip"] and "motw" not in st["strip"], st["strip"]
+    assert "arcaneint" not in st["strip"], st["strip"]            # no mage on the team
     assert {"heroism", "windfury", "unleashedrage", "battleshout", "paladinaura"} <= set(st["buffs"][1]), st["buffs"]
     assert "moonkin" not in st["buffs"][1]
     assert "wrathofair" not in st["buffs"][1], st["buffs"]     # a melee group: its shaman's air totem is Windfury

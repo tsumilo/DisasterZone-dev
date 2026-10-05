@@ -229,6 +229,15 @@ end
 -- Buff icons
 ---------------------------------------------------------------------------
 
+-- "the Survival Hunter slot" / "the Survival Hunter and Arms Warrior slots" (gold names)
+local function slotWords(slots)
+    local names = {}
+    for i, sl in ipairs(slots or {}) do names[i] = "|cffffd100" .. tostring(sl.name) .. "|r" end
+    if #names == 0 then return nil end
+    if #names == 1 then return "the " .. names[1] .. " slot is" end
+    return "the " .. tconcat(names, ", ", 1, #names - 1) .. " and " .. names[#names] .. " slots are"
+end
+
 local function buffTooltip(btn)
     local e = btn.entry
     if not e then return end
@@ -239,8 +248,11 @@ local function buffTooltip(btn)
         local names = {}
         for _, key in ipairs(e.providers) do names[#names + 1] = UI():ColoredName(key) end
         GameTooltip:AddLine("From: " .. tconcat(names, ", "), 0.85, 0.85, 0.85, true)
+    elseif e.state == "planned" and slotWords(e.slots) then
+        -- (a target comp plans it: its slot is open)
+        GameTooltip:AddLine("Planned: " .. slotWords(e.slots) .. " open.", 1, 1, 1, true)
     else
-        GameTooltip:AddLine(btn.missingText or "Nobody brings this.", 1, 0.4, 0.4, true)
+        GameTooltip:AddLine(e.offText or btn.missingText or "Nobody brings this.", 1, 0.4, 0.4, true)
     end
     if e.note then GameTooltip:AddLine(e.note, 0.6, 0.6, 0.6, true) end
     GameTooltip:Show()
@@ -254,16 +266,25 @@ local function createBuffIcon(parent, size)
     b.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
     b.count:SetPoint("BOTTOMRIGHT", 2, -1)
+    -- planned (a target comp's open slot would bring it): a gold outline
+    UI():AddEdges(b, "OVERLAY")
+    UI():SetEdgeColor(b, 1, 0.82, 0, 0.9)
+    for _, e in ipairs(b.edges) do e:Hide() end
     b:SetScript("OnEnter", buffTooltip)
     b:SetScript("OnLeave", hideTooltip)
     return b
 end
 
+-- entry.state (RaidComp:BuffStates): "have" lit, "planned" dimmed with a gold outline, "off" faded; without a state
+-- `lit` says it.
 local function setBuffIcon(b, entry, lit)
     b.entry = entry
+    if entry.state then lit = entry.state == "have" end
+    local planned = entry.state == "planned"
     b.tex:SetTexture(Comp():BuffIcon(entry.buff))
-    if b.tex.SetDesaturated then b.tex:SetDesaturated(not lit) end
-    b.tex:SetAlpha(lit and 1 or 0.35)
+    if b.tex.SetDesaturated then b.tex:SetDesaturated(not lit and not planned) end
+    b.tex:SetAlpha((lit and 1) or (planned and 0.5) or 0.35)
+    for _, e in ipairs(b.edges or {}) do e:SetShown(planned) end
     b.count:SetText(entry.buff.count and #entry.providers > 1 and #entry.providers or "")
     b:Show()
 end
@@ -289,7 +310,9 @@ Grid.__index = Grid
 --                   content; the default is three columns with a scrolling pool under them),
 --          isMe(key) -> bool (optional: my own chip is lit gold in a read-only grid),
 --          onRoleClick(key, button) (optional: editors click a chip's role icon, e.g. to pick the spec),
---          poolEmpty() -> text (optional: the empty pool's line for editors) }
+--          poolEmpty() -> text (optional: the empty pool's line for editors),
+--          buffStates(placed, members) -> the strip's entries (optional, RaidComp:BuffStates' shape: lit / planned /
+--                   off; placed = the members in the shown groups) }
 function GroupsUI:CreateGrid(parent, opts)
     local grid = setmetatable({ opts = opts, boxes = {}, picked = nil }, Grid)
     local f = CreateFrame("Frame", nil, parent)
@@ -486,8 +509,18 @@ function Grid:Refresh()
         if not found or not self.opts.isEditable() then self.picked = nil end
     end
 
-    -- raid-wide strip: every member of the team / raid counts
-    local cov = Comp():Coverage(members, "raid")
+    -- raid-wide strip: every member of the team / raid counts, or (opts.buffStates) what the caller makes of who
+    -- sits in the groups (RaidComp:BuffStates: lit / planned / off)
+    local cov
+    if self.opts.buffStates then
+        local placed = {}
+        for g = 1, n do
+            for _, m in ipairs(byGroup[g]) do placed[#placed + 1] = m end
+        end
+        cov = self.opts.buffStates(placed, members) or {}
+    else
+        cov = Comp():Coverage(members, "raid")
+    end
     -- (on the caller's row: as large as the room left there allows, 20 down to 14)
     local size = 20
     local room = self.opts.stripRoom and self.opts.stripRoom()
@@ -497,7 +530,7 @@ function Grid:Refresh()
     for i, b in ipairs(self.strip) do
         local e = cov[i]
         b:SetSize(size, size)
-        if e and (not room or i * (size + 2) <= room + 2) then setBuffIcon(b, e, #e.providers > 0) else b:Hide() end
+        if e and (not room or i * (size + 2) <= room + 2) then setBuffIcon(b, e, #(e.providers or {}) > 0) else b:Hide() end
     end
 
     local row_ = self.opts.layout == "row"
@@ -859,3 +892,9 @@ function Grid:EndDrag()
         self:Refresh()
     end
 end
+
+-- A raid-buff icon for a strip outside the grid (the Teams page's Comp view): GroupsUI:SetBuffIcon(b, entry) fills it
+-- from a RaidComp:BuffStates entry (lit / planned / off, with its tooltip).
+function GroupsUI:CreateBuffIcon(parent, size) return createBuffIcon(parent, size or 20) end
+
+function GroupsUI:SetBuffIcon(b, entry) setBuffIcon(b, entry, #(entry.providers or {}) > 0) end
