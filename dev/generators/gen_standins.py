@@ -44,8 +44,8 @@ the plane of the BSP node the face is filed under: drawn()):
                nothing at all, hides a model the room does not hide ("over-occlusion"): one seen doing that (past
                the 1-pixel erosion; on the board and stress poses only where a model could be) is cut into quarters
                (a quad's keep its shape), again until the pose is clean (under MIN_SCALE / MIN_SIZE it goes).
-  6. check     on the data as written (record_arrays(): rounded as the file has it, turned as the runtime turns it):
-               over-occlusion (after a 1-pixel erosion; 'harmful' where the ray past the stand-in runs through air
+  6. check     (the held-out poses on the data as written - record_arrays(): rounded as the file has it, turned as
+               the runtime turns it) over-occlusion (after a 1-pixel erosion; 'harmful' where the ray past the stand-in runs through air
                a model can stand in), coverage (opaque room pixels with a stand-in within MARGIN + EPS_UNDER behind
                them, and looser tolerances, by the kind of face drawn), stand-ins shown per pose, on the training
                poses, on random poses, on held-out board poses over the board camera's whole range (board_poses(),
@@ -876,9 +876,9 @@ def quad_scales(g):
 
 def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None):
     """The stand-ins behind one prepared region: quads, largest first, then cubes where they leave room (cubes:
-    False leaves those out). avoid: grid points (u, v) no quad may come within LINE_TOL of (quad_crossings(): where
-    the harmful lines past its open edges cross the quads' plane; quads placed round them fit flush, where quads cut
-    afterwards would leave a staircase). -> list of Standin."""
+    False leaves those out). avoid: grid points (u, v) no stand-in may come within LINE_TOL of (quad_crossings():
+    where the harmful lines past open edges cross the plane the stand-ins' fronts lie in; placed round them they fit
+    flush, where cut afterwards they would leave a staircase). -> list of Standin."""
     import shapely
     from shapely.geometry import box as sbox
     fr, inner = g.frame, g.inner
@@ -962,6 +962,9 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None
             fit &= window(thick, k, np.minimum) >= s_eff + MARGIN + BACK_GAP
             if blocked is not None:
                 fit &= box_sums(integral(blocked[1 + level_of(g, s_eff)].astype(np.float64)), k) < 0.5
+            if near_line is not None:
+                # (where a line crosses the front plane it runs through a cube's front too: such a cube is cut)
+                fit &= box_sums(near_line, k) < 0.5
             if not fit.any():
                 continue
 
@@ -2126,14 +2129,15 @@ def _plane_cross(lines, line, centre, normal):
 def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=2.0):
     """The stand-ins (a list, or standin_arrays() of one) a harmful line runs through (a cube: within tol of its sides
     and back; a quad: crossing its plane from the front within tol of its rectangle) while the camera that sees along
-    it shows them (rule 'reach': a hair looser than shown()) -> set of indices (_line_candidates() finds the pairs to
-    test)."""
+    it shows them (a cube: rule 'reach', a hair looser than shown(); a quad: the near clip's guard less 2 cm - a
+    camera nearer its plane never sees it, and the cameras farther out along the line are not known to see along
+    it) -> set of indices (_line_candidates() finds the pairs to test)."""
     arr = cubes if isinstance(cubes, tuple) else standin_arrays(cubes)
     C, R, H, N, K = arr
     if not len(lines["P0"]) or not len(C):
         return set()
     P0, P1, Cam = lines["P0"], lines["P1"], lines["C"]
-    out_n = reach(arr)
+    out_n = np.where(K == KIND_QUAD, NEAR - 0.02, reach(arr))
     # a cube's box tested: tol wider round the sides and the back, but its front where it is (MARGIN behind the face:
     # a line ending in the air just in front of the face must not catch it)
     along = np.einsum("ikj,ij->ik", R, N)
@@ -2168,9 +2172,9 @@ def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=2.0):
 
 def quad_crossings(lines, regs, tol=LINE_TOL):
     """Where the harmful lines - any region's - cross the plane each region's quads lie in (MARGIN behind its face)
-    from the front, within its outline's box and tol round it, while their camera stands in front of that plane: per
-    region (index into regs) the points' grid u, v. A quad there would hide what the line's camera sees past an open
-    edge (on_lines' test), so the placement keeps quads tol away from them."""
+    from the front, within its outline's box and tol round it, while their camera stands far enough out of that
+    plane to see a quad there (on_lines' rule): per region (index into regs) the points' grid u, v. A quad there
+    would hide what the line's camera sees past an open edge, so the placement keeps quads tol away from them."""
     out = [np.zeros((0, 2)) for _ in regs]
     if not len(lines["P0"]) or not regs:
         return out
@@ -2191,7 +2195,7 @@ def quad_crossings(lines, regs, tol=LINE_TOL):
         X = X - C[ri]
         a_, b_ = np.einsum("ij,ij->i", X, E1[ri]), np.einsum("ij,ij->i", X, E2[ri])
         k = x & (np.abs(a_) <= B[ri, 0] + tol) & (np.abs(b_) <= B[ri, 1] + tol) & \
-            (np.einsum("ij,ij->i", lines["C"][line] - C[ri], Nn[ri]) > 0)
+            (np.einsum("ij,ij->i", lines["C"][line] - C[ri], Nn[ri]) > NEAR - 0.02)
         for r_ in np.unique(ri[k]):
             m = k & (ri == r_)
             got[int(r_)].append(np.c_[a_[m], b_[m]] + np.array([C[r_] @ E1[r_], C[r_] @ E2[r_]]))
@@ -2423,13 +2427,19 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
     log("repair: %d stand-ins (%d split, %d removed, %d poses needed it; board poses %d, %d, %d; stress poses %d, %d, "
         "%d) (%.0f s)" % (len(sis), rc["split"], rc["removed"], rc["poses"], bc["split"], bc["removed"], bc["poses"],
                           sc["split"], sc["removed"], sc["poses"], time.time() - t0))
-    # every number from here on is of the data as written (rounded as the file has it, turned as the runtime turns
-    # it); the training poses again (the poses before each set's last change saw an older set)
+    # the held-out numbers are of the data as written (rounded as the file has it, turned as the runtime turns it);
+    # the training poses' again where a later change made them stale (the poses before a set's last change, and
+    # every pose of a set before one that changed it)
     t1 = time.time()
     arr = record_arrays(records(sis))
-    res_train = evaluate(room, arr, train)
-    res_btrain = evaluate(room, arr, btrain)
-    res_strain = evaluate(room, arr, strain)
+    if last > 0 or blast >= 0 or slast >= 0:
+        res_train = evaluate(room, arr, train)
+    if slast >= 0:
+        res_btrain = evaluate(room, arr, btrain)
+    elif blast > 0:
+        res_btrain[:blast] = evaluate(room, arr, btrain[:blast])
+    if slast > 0:
+        res_strain[:slast] = evaluate(room, arr, strain[:slast])
     rand = poses(room, view, spot, "random", W=W, H=H, seed=7)
     board = board_poses(room, view, W=W, H=H, tag="b", **BOARD_CHECK)
     stress = stress_poses(room, view, W=W, H=H, tag="s", dom=dom, **STRESS_CHECK)
