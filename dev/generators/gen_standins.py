@@ -2037,32 +2037,6 @@ def merge_lines(a, b):
     return out
 
 
-def quad_crossings(lines, regs):
-    """Where each region's own harmful lines cross the plane its quads lie in (MARGIN behind its face) between
-    their ends: per region (index into regs) the points' grid u, v. A quad there would hide what the line's camera
-    sees past the open edge (on_lines' test), so the placement keeps quads LINE_TOL away from them."""
-    out = [np.zeros((0, 2)) for _ in regs]
-    if not len(lines["P0"]):
-        return out
-    pos = {g.id: i for i, g in enumerate(regs)}
-    for rid in np.unique(lines["rid"]):
-        if int(rid) not in pos:
-            continue
-        ri = pos[int(rid)]
-        g = regs[ri]
-        k = lines["rid"] == rid
-        P0, P1 = lines["P0"][k], lines["P1"][k]
-        tq = g.d + g.dlo - MARGIN
-        s0, s1 = P0 @ g.n - tq, P1 @ g.n - tq
-        x = (s0 >= 0) & (s1 <= 0) & (s0 - s1 > 1e-12)
-        if not x.any():
-            continue
-        f = s0[x] / (s0[x] - s1[x])
-        X = P0[x] + f[:, None] * (P1[x] - P0[x])
-        out[ri] = np.c_[X @ g.frame.e1, X @ g.frame.e2]
-    return out
-
-
 def _seg_box(P0, P1, centre, axes, half):
     """Do the segments P0 -> P1 (n, 3) touch the boxes (centre (n, 3) or (3,), rows of axes (n, 3, 3) or (3, 3),
     half sizes (n, 3) or (3,))? (slab test)"""
@@ -2086,23 +2060,18 @@ def _seg_box(P0, P1, centre, axes, half):
     return t0 <= t1
 
 
-def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=0.5):
-    """The stand-ins (a list, or standin_arrays() of one) a harmful line runs through (a cube: within tol of its sides
-    and back; a quad: crossing its plane from the front within tol of its rectangle) while the camera that sees along
-    it shows them (rule 'reach': a hair looser than shown()) -> set of indices. The stand-ins are filed by vox yd
-    cells (each in the cells its box and one cell round it touch), and every line is looked up there every step yd
-    of its run through their box."""
-    arr = cubes if isinstance(cubes, tuple) else standin_arrays(cubes)
-    C, R, H, N, K = arr
-    if not len(lines["P0"]) or not len(C):
-        return set()
-    ext = np.linalg.norm(H, axis=1) + tol
+def _line_candidates(lines, C, ext, vox=2.0, step=2.0, chunk=20000):
+    """The (line, thing) pairs to test, chunk by chunk: things (centres C, ball radii ext) are filed by vox yd cells
+    (each in the cells its ball and one cell round it touch), and every line's segment P0 -> P1 is looked up there
+    every step yd of its run through their box (a step of up to two cells cannot pass a thing by: some look-up lands
+    within half a step of where the segment meets its ball, so in the cell ring round it). Yields line indices and
+    thing indices (unique pairs)."""
     lo_all, hi_all = (C - ext[:, None]).min(0) - vox, (C + ext[:, None]).max(0) + vox
     dims = np.floor((hi_all - lo_all) / vox).astype(np.int64) + 1
 
     def key(v):
         return (v[..., 0] * dims[1] + v[..., 1]) * dims[2] + v[..., 2]
-    # the cell table (sorted keys, each with its cubes)
+    # the cell table (sorted keys, each with its things)
     ks, cs = [], []
     for i in range(len(C)):
         a = np.floor((C[i] - ext[i] - lo_all) / vox).astype(np.int64) - 1
@@ -2116,24 +2085,14 @@ def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=0.5):
     ks, cs = ks[o], cs[o]
     tk, start = np.unique(ks, return_index=True)
     stop = np.append(start[1:], len(ks))
-    P0, P1, Cam = lines["P0"], lines["P1"], lines["C"]
+    P0, P1 = lines["P0"], lines["P1"]
     Dv = P1 - P0
     ta, tb = _slab(P0, Dv, lo_all, hi_all)
     ta, tb = np.maximum(ta, 0.0), np.minimum(tb, 1.0)
     live = np.nonzero(tb > ta)[0]
     ln = np.linalg.norm(Dv, axis=1)
-    out_n = reach(arr)
-    # the box tested: tol wider round the sides and the back, but its front where it is (MARGIN behind the face: a
-    # line ending in the air just in front of the face must not catch it)
-    along = np.einsum("ikj,ij->ik", R, N)
-    kf = np.argmax(np.abs(along), axis=1)
-    rows = np.arange(len(C))
-    half = H + tol
-    half[rows, kf] -= tol / 2
-    Cb = C - (tol / 2) * np.sign(along[rows, kf])[:, None] * R[rows, kf]
-    bad = np.zeros(len(C), bool)
-    for c0 in range(0, len(live), 20000):
-        li = live[c0:c0 + 20000]
+    for c0 in range(0, len(live), chunk):
+        li = live[c0:c0 + chunk]
         n_s = np.ceil((tb[li] - ta[li]) * ln[li] / step).astype(np.int64) + 1
         rep = np.repeat(li, n_s)
         k = np.arange(len(rep)) - np.repeat(np.cumsum(n_s) - n_s, n_s)
@@ -2149,33 +2108,96 @@ def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=0.5):
         cnt = stop[pos] - start[pos]
         line = np.repeat(kl[:, 1], cnt)
         j = np.repeat(start[pos], cnt) + (np.arange(cnt.sum()) - np.repeat(np.cumsum(cnt) - cnt, cnt))
-        cube = cs[j]
-        pr = np.unique(line * len(C) + cube)
-        line, cube = pr // len(C), pr % len(C)
-        keep = ~bad[cube] & (np.einsum("ij,ij->i", Cam[line] - C[cube], N[cube]) > out_n[cube])
-        line, cube = line[keep], cube[keep]
+        pr = np.unique(line * len(C) + cs[j])
+        yield pr // len(C), pr % len(C)
+
+
+def _plane_cross(lines, line, centre, normal):
+    """Where each line's segment P0 -> P1 crosses the plane through centre (normal: its front) from the front:
+    -> crosses (bool), the point (n, 3)."""
+    P0, P1 = lines["P0"][line], lines["P1"][line]
+    s0 = np.einsum("ij,ij->i", P0 - centre, normal)
+    s1 = np.einsum("ij,ij->i", P1 - centre, normal)
+    x = (s0 >= 0) & (s1 <= 0) & (s0 - s1 > 1e-12)
+    f = np.where(x, s0 / np.where(x, s0 - s1, 1.0), 0.0)
+    return x, P0 + f[:, None] * (P1 - P0)
+
+
+def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=2.0):
+    """The stand-ins (a list, or standin_arrays() of one) a harmful line runs through (a cube: within tol of its sides
+    and back; a quad: crossing its plane from the front within tol of its rectangle) while the camera that sees along
+    it shows them (rule 'reach': a hair looser than shown()) -> set of indices (_line_candidates() finds the pairs to
+    test)."""
+    arr = cubes if isinstance(cubes, tuple) else standin_arrays(cubes)
+    C, R, H, N, K = arr
+    if not len(lines["P0"]) or not len(C):
+        return set()
+    P0, P1, Cam = lines["P0"], lines["P1"], lines["C"]
+    out_n = reach(arr)
+    # a cube's box tested: tol wider round the sides and the back, but its front where it is (MARGIN behind the face:
+    # a line ending in the air just in front of the face must not catch it)
+    along = np.einsum("ikj,ij->ik", R, N)
+    kf = np.argmax(np.abs(along), axis=1)
+    rows = np.arange(len(C))
+    half = H + tol
+    half[rows, kf] -= tol / 2
+    Cb = C - (tol / 2) * np.sign(along[rows, kf])[:, None] * R[rows, kf]
+    bad = np.zeros(len(C), bool)
+    for line, si in _line_candidates(lines, C, np.linalg.norm(H, axis=1) + tol, vox, step):
+        keep = ~bad[si] & (np.einsum("ij,ij->i", Cam[line] - C[si], N[si]) > out_n[si])
+        line, si = line[keep], si[keep]
         if not len(line):
             continue
         hit = np.zeros(len(line), bool)
-        cb = K[cube] == KIND_CUBE
+        cb = K[si] == KIND_CUBE
         if cb.any():
-            hit[cb] = _seg_box(P0[line[cb]], P1[line[cb]], Cb[cube[cb]], R[cube[cb]], half[cube[cb]])
+            hit[cb] = _seg_box(P0[line[cb]], P1[line[cb]], Cb[si[cb]], R[si[cb]], half[si[cb]])
         # a quad has no inside: a line hits it where it crosses its plane from the front within its rectangle
         # (tol wider round it: the lines' spacing), not where it runs under it
         qd = ~cb
         if qd.any():
-            li, si = line[qd], cube[qd]
-            nq = R[si, 0]
-            s0 = np.einsum("ij,ij->i", P0[li] - C[si], nq)
-            s1 = np.einsum("ij,ij->i", P1[li] - C[si], nq)
-            x = (s0 >= 0) & (s1 <= 0) & (s0 - s1 > 1e-12)
-            f = np.where(x, s0 / np.where(x, s0 - s1, 1.0), 0.0)
-            X = P0[li] + f[:, None] * (P1[li] - P0[li]) - C[si]
-            a_ = np.abs(np.einsum("ij,ij->i", X, R[si, 1]))
-            b_ = np.abs(np.einsum("ij,ij->i", X, R[si, 2]))
-            hit[qd] = x & (a_ <= H[si, 1] + tol) & (b_ <= H[si, 2] + tol)
-        bad[np.unique(cube[hit])] = True
+            lq, sq = line[qd], si[qd]
+            x, X = _plane_cross(lines, lq, C[sq], R[sq, 0])
+            X = X - C[sq]
+            a_ = np.abs(np.einsum("ij,ij->i", X, R[sq, 1]))
+            b_ = np.abs(np.einsum("ij,ij->i", X, R[sq, 2]))
+            hit[qd] = x & (a_ <= H[sq, 1] + tol) & (b_ <= H[sq, 2] + tol)
+        bad[np.unique(si[hit])] = True
     return set(np.nonzero(bad)[0].tolist())
+
+
+def quad_crossings(lines, regs, tol=LINE_TOL):
+    """Where the harmful lines - any region's - cross the plane each region's quads lie in (MARGIN behind its face)
+    from the front, within its outline's box and tol round it, while their camera stands in front of that plane: per
+    region (index into regs) the points' grid u, v. A quad there would hide what the line's camera sees past an open
+    edge (on_lines' test), so the placement keeps quads tol away from them."""
+    out = [np.zeros((0, 2)) for _ in regs]
+    if not len(lines["P0"]) or not regs:
+        return out
+    C, Nn, E1, E2, B = [], [], [], [], []
+    for g in regs:
+        fr = g.frame
+        u0, v0, u1, v1 = g.inner.bounds
+        tq = g.d + g.dlo - MARGIN
+        C.append(((u0 + u1) / 2) * fr.e1 + ((v0 + v1) / 2) * fr.e2 + tq * fr.a)
+        Nn.append(fr.a)
+        E1.append(fr.e1)
+        E2.append(fr.e2)
+        B.append(((u1 - u0) / 2, (v1 - v0) / 2))
+    C, Nn, E1, E2, B = (np.array(x) for x in (C, Nn, E1, E2, B))
+    got = collections.defaultdict(list)
+    for line, ri in _line_candidates(lines, C, np.hypot(B[:, 0], B[:, 1]) + tol):
+        x, X = _plane_cross(lines, line, C[ri], Nn[ri])
+        X = X - C[ri]
+        a_, b_ = np.einsum("ij,ij->i", X, E1[ri]), np.einsum("ij,ij->i", X, E2[ri])
+        k = x & (np.abs(a_) <= B[ri, 0] + tol) & (np.abs(b_) <= B[ri, 1] + tol) & \
+            (np.einsum("ij,ij->i", lines["C"][line] - C[ri], Nn[ri]) > 0)
+        for r_ in np.unique(ri[k]):
+            m = k & (ri == r_)
+            got[int(r_)].append(np.c_[a_[m], b_[m]] + np.array([C[r_] @ E1[r_], C[r_] @ E2[r_]]))
+    for r_, v in got.items():
+        out[r_] = np.concatenate(v)
+    return out
 
 
 def cut_on_lines(lines, cubes, log=None):

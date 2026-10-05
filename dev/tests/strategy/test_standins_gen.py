@@ -297,7 +297,13 @@ def test_open_lines_see_the_panels_and_no_shipped_standin_lies_on_one():
         assert abs(lines["P0"][i] @ g.n - g.d) < 0.2
     _, rec = shipped()
     arr, _ = arrays(rec["data"])
-    assert not G.on_lines(lines, arr)
+    # no quad where a line under the outline at the quads' depth crosses its plane (the generator's rule; the deeper
+    # lines cross it farther out still), no cube on any line
+    first = G.open_lines(r, regs, G.FaceIndex(r), G.CamDomain(r, view), curtains=G.CURTAIN[:1])
+    assert len(first["P0"]) and len(first["P0"]) < len(lines["P0"])
+    assert not G.on_lines(first, arr)
+    cube = arr[4] == G.KIND_CUBE
+    assert not G.on_lines(lines, tuple(x[cube] for x in arr))
 
 
 @case
@@ -307,8 +313,11 @@ def test_generator_runs_and_keeps_its_promises():
     assert b["cubes"], logs
     assert b["train"]["over_eroded"] == 0, b["train"]
     assert b["train"]["coverage_any"] > 0.2, b["train"]
-    # the board poses: placed against (harm only) and held out
+    # the board and stress poses: placed against (harm only) and held out
     assert b["btrain"]["over_air"] == 0 and b["board"]["over_air"] == 0, (b["btrain"], b["board"])
+    assert b["strain"]["over_air"] == 0 and b["stress"]["over_air"] == 0, (b["strain"], b["stress"])
+    # the quads keep off the open edges' lines as placed: the cut finds next to nothing of theirs
+    assert b["repair"].get("lines_split", 0) + b["repair"].get("lines_removed", 0) < 0.1 * b["placed"], b["repair"]
     for r_ in b["res_review"]:
         assert r_["over_air"] == 0 and (r_["need"] == "air" or r_["over_eroded"] == 0), r_
     assert b["lines"]["counts"]["lines"] > 0
