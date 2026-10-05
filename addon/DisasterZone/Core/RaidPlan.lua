@@ -570,6 +570,12 @@ local function CleanTeam(r, now)
         end
     end
     out.gs = CleanSeats(r.gs, out.grp)
+    -- 1.3.1: the team's target comp (Core/RaidComp.lua): a bad one refuses the record, as a bad s does
+    if r.cp ~= nil then
+        local cp = ns.RaidComp:CleanComp(r.cp, out.sz or 25)
+        if not cp then return nil end
+        out.cp = cp
+    end
     return out
 end
 
@@ -755,7 +761,21 @@ local function MergeRecord(root, kind, rec, via)
     local store = root[kind]
     local cur = store[rec.id]
     if cur then
-        if not Newer(rec, cur) then return false end
+        -- A client before 1.3.1 drops a team's target comp (cp) from the copy it passes on: of two copies of a
+        -- version that differ only by it, the one with it wins (whatever their hashes), and one without never
+        -- replaces mine. (Two edits in the same second that differ elsewhere still go by the hash.)
+        local compTie = false
+        if kind == "T" and rec.rev == cur.rev and (rec.cp == nil) ~= (cur.cp == nil) then
+            local a, b = {}, {}
+            for k, v in pairs(rec) do if k ~= "cp" then a[k] = v end end
+            for k, v in pairs(cur) do if k ~= "cp" then b[k] = v end end
+            compTie = Util.Hash(a) == Util.Hash(b)
+        end
+        if compTie then
+            if not rec.cp then return false end
+        elseif not Newer(rec, cur) then
+            return false
+        end
         -- A client before 1.3 drops the guests and the declined / removed answers from the copy it passes on: the
         -- same version of a raid without them never replaces mine.
         if kind == "E" and rec.rev == cur.rev and (cur.gu or cur.rj or cur.rm or cur.gx)
@@ -1313,7 +1333,8 @@ function RaidPlan:GetTeam(id)
     local t = root and type(id) == "string" and root.T[id]
     if not t or t.del or not Trusted(root, "T", t) then return nil end
     return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, size = t.sz or 25,
-             specs = CopyMap(t.s) or {}, groups = CopyMap(t.grp) or {}, seats = CopyMap(t.gs) or {} }
+             specs = CopyMap(t.s) or {}, groups = CopyMap(t.grp) or {}, seats = CopyMap(t.gs) or {},
+             comp = ns.RaidComp:CopyComp(t.cp) }
 end
 
 -- The spec a member plays (§59): the team's pick, else their latest sign-up's, else their BiS list's (mine, or a
@@ -2039,6 +2060,348 @@ function RaidPlan:GetMyCharacters()
 end
 
 ---------------------------------------------------------------------------
+-- Target comp (1.3.1): a team's wanted specs (cp on the team record, written with the team by the GM and the guild
+-- council), who fills them, who could, and the open slots of the raids that invite the team. The comp itself and the
+-- pure functions are in Core/RaidComp.lua, with the API contract for the UI. Only methods here (this file's main
+-- chunk is close to Lua's 200 locals): everything is computed on each client from the same data, sorted by fixed
+-- keys; nothing is left to chance.
+---------------------------------------------------------------------------
+
+-- A team for the comp functions: an id (the saved team), a GetTeam table, or the Teams page's draft ({ id, members =
+-- set or array, s | specs, grp | groups, sz | size, cp | comp }). Returns { id, name, members = sorted keys, specs,
+-- groups, size, comp } or nil.
+function RaidPlan:ResolveTeam(team)
+    if type(team) == "string" then team = self:GetTeam(team) end
+    if type(team) ~= "table" then return nil end
+    local members, seen = {}, {}
+    for k, v in pairs(type(team.members) == "table" and team.members or {}) do
+        local key = (type(k) == "string" and v and k) or (type(v) == "string" and v) or nil
+        if key and not seen[key] then
+            seen[key] = true
+            members[#members + 1] = key
+        end
+    end
+    tsort(members)
+    local size = team.size or team.sz
+    local comp = team.comp
+    if comp == nil then comp = team.cp end
+    return {
+        id = team.id, name = team.name or team.n, members = members,
+        specs = (type(team.specs) == "table" and team.specs) or (type(team.s) == "table" and team.s) or {},
+        groups = (type(team.groups) == "table" and team.groups) or (type(team.grp) == "table" and team.grp) or {},
+        size = SIZES[size] and size or 25,
+        comp = ns.RaidComp:CleanComp(comp) or nil,
+    }
+end
+
+-- The team's members with the spec each plays in it (the team's pick, else the latest sign-up's, else the BiS
+-- list's: GetMemberSpec), sorted by key: { key, c, sp, source, seated = placed in one of its groups }.
+function RaidPlan:GetTeamMembers(team)
+    local t = self:ResolveTeam(team)
+    local out = {}
+    for _, key in ipairs(t and t.members or {}) do
+        local sp, c, source = self:GetMemberSpec(key, t)
+        out[#out + 1] = { key = key, c = c, sp = sp, source = source, seated = t.groups[key] ~= nil }
+    end
+    return out
+end
+
+-- The team's saved comp (a copy), or nil.
+function RaidPlan:GetTeamComp(id)
+    local t = self:GetTeam(id)
+    return t and t.comp or nil
+end
+
+-- Saves only the team's comp (cp; false or nil clears it). The GM and the guild council. Returns ok, idOrErr.
+function RaidPlan:SetTeamComp(id, cp)
+    if not CanTeams(Util.PlayerKey()) then return false, REFUSED.teams end
+    local root = Root(false)
+    local t = root and type(id) == "string" and root.T[id]
+    if not t or t.del or not Trusted(root, "T", t) then return false, "unknown team" end
+    return self:SaveTeam(id, t.n, t.m, { comp = cp or false })
+end
+
+-- "The team as it is": a slot for each member's spec (members without a known spec left out, at most the team's
+-- size). Returns cp, slots, or nil.
+function RaidPlan:CompFromTeam(team)
+    local t = self:ResolveTeam(team)
+    if not t then return nil end
+    return ns.RaidComp:CompFromMembers(self:GetTeamMembers(t), t.size)
+end
+
+-- The "Start from" choices of a team (an id or the draft): the preset of its size, the team as it is (when a member's
+-- spec is known), and the comps of the other teams of the same size (by name). { { key, kind, name, size, cp,
+-- teamId }, ... }; every cp is a copy.
+function RaidPlan:GetCompStarts(team)
+    local out = {}
+    local t = self:ResolveTeam(team)
+    if not t then return out end
+    for _, p in ipairs(ns.RaidComp:GetPresets(t.size)) do
+        out[#out + 1] = { key = p.key, kind = "preset", name = p.name, size = p.size, cp = p.cp }
+    end
+    local own = self:CompFromTeam(t)
+    if own then out[#out + 1] = { key = "team", kind = "team", name = "The team as it is", size = t.size, cp = own } end
+    for _, o in ipairs(self:GetTeams()) do
+        if o.id ~= t.id and o.comp and o.size == t.size then
+            out[#out + 1] = { key = "copy:" .. o.id, kind = "copy", name = o.name, size = o.size, cp = o.comp,
+                              teamId = o.id }
+        end
+    end
+    return out
+end
+
+-- Who fills which slot of the team's comp, the bench and the open slots (RaidComp:MatchComp), or nil without a comp.
+function RaidPlan:MatchTeam(team)
+    local t = self:ResolveTeam(team)
+    if not (t and t.comp) then return nil end
+    return ns.RaidComp:MatchComp(t.comp, self:GetTeamMembers(t))
+end
+
+-- The open slots of the team's comp: { { c, sp, role, name, n }, ... } in comp order, and how many ({}, 0 without one).
+function RaidPlan:GetTeamOpenSlots(team)
+    local m = self:MatchTeam(team)
+    if not m then return {}, 0 end
+    return m.open, m.openCount
+end
+
+-- The guild's level-70 members by the spec they play (their latest sign-up, else their BiS list: GetMemberSpec):
+-- { bySpec = { ["CLASS:sp"] = { key, ... } (sorted) }, byKey = { [key] = { c, sp, src } } }. Built once and kept
+-- until the plans, the roster or a BiS list change (OnInit) or 30 seconds pass: a hover reads it, it doesn't scan
+-- the guild.
+function RaidPlan:GetSpecIndex()
+    local idx = self.specIndexCache
+    if idx and GetTime() - idx.at < 30 then return idx end
+    idx = { at = GetTime(), bySpec = {}, byKey = {} }
+    local G = Guild()
+    for _, key in ipairs(G and G.GetMembers and G:GetMembers() or {}) do
+        if (LevelOf(key) or 0) >= MAX_LEVEL then
+            local sp, c, src = self:GetMemberSpec(key)
+            if type(c) == "string" and IsInt(sp, 1, SpecCount(c)) then
+                idx.byKey[key] = { c = c, sp = sp, src = src }
+                local k = c .. ":" .. sp
+                local list = idx.bySpec[k] or {}
+                list[#list + 1] = key
+                idx.bySpec[k] = list
+            end
+        end
+    end
+    self.specIndexCache = idx
+    return idx
+end
+
+-- Who could fill an open slot (class c, spec sp) of the team's comp, in four groups (the agreed order):
+--   bench  the team's members no slot takes: that spec, then the class in another spec (other = true)
+--   alts   the members' other characters (each vouches for the other) at level 70, not on this team: the same rule;
+--          of = the member
+--   guild  the rest of the guild at level 70, on no team and no alt of this one, playing that spec (latest sign-up,
+--          else BiS list); not blacklisted
+--   teams  members of the other teams who play that spec there (team = its name, teamId)
+-- A player shows once (the first group). Each list: that spec first, online first, then by key.
+function RaidPlan:CanFill(team, c, sp)
+    local out = { bench = {}, alts = {}, guild = {}, teams = {} }
+    local t = self:ResolveTeam(team)
+    if not t or not IsInt(sp, 1, SpecCount(c)) then return out end
+    local G = Guild()
+    local taken = {}
+    local function add(list, key, kc, ksp, extra)
+        taken[key] = true
+        local e = { key = key, c = kc, sp = ksp, other = ksp ~= sp,
+                    online = (G and G.IsOnline and G:IsOnline(key)) and true or false }
+        for k, v in pairs(extra or {}) do e[k] = v end
+        list[#list + 1] = e
+    end
+    for _, key in ipairs(t.members) do taken[key] = true end
+    -- 1. the bench
+    local m = t.comp and ns.RaidComp:MatchComp(t.comp, self:GetTeamMembers(t))
+    for _, b in ipairs(m and m.bench or {}) do
+        if b.c == c then add(out.bench, b.key, b.c, b.sp) end
+    end
+    -- 2. alts of the team's members
+    local altOf = {}
+    for _, key in ipairs(t.members) do
+        for _, alt in ipairs(Linked(key)) do
+            if not taken[alt] and not altOf[alt] then
+                altOf[alt] = key
+                local asp, ac = self:GetMemberSpec(alt)
+                if ac == c and (LevelOf(alt) or 0) >= MAX_LEVEL then add(out.alts, alt, ac, asp, { of = key }) end
+            end
+        end
+    end
+    -- 3. the rest of the guild
+    local teams = self:GetTeams()
+    local onTeam = {}
+    for _, o in ipairs(teams) do
+        if o.id ~= t.id then
+            for _, key in ipairs(o.members) do onTeam[key] = true end
+        end
+    end
+    for _, key in ipairs(self:GetSpecIndex().bySpec[c .. ":" .. sp] or {}) do
+        if not taken[key] and not altOf[key] and not onTeam[key] and not self:IsBlacklisted(key) then
+            add(out.guild, key, c, sp)
+        end
+    end
+    -- 4. the other teams
+    for _, o in ipairs(teams) do
+        if o.id ~= t.id then
+            for _, key in ipairs(o.members) do
+                if not taken[key] then
+                    local osp, oc = self:GetMemberSpec(key, o)
+                    if oc == c and osp == sp then add(out.teams, key, c, sp, { team = o.name, teamId = o.id }) end
+                end
+            end
+        end
+    end
+    local function order(a, b)
+        if a.other ~= b.other then return not a.other end
+        if a.online ~= b.online then return a.online end
+        return a.key < b.key
+    end
+    for _, list in pairs(out) do tsort(list, order) end
+    return out
+end
+
+-- The team whose comp a raid (a view or an id) uses for its open slots: the first of its teams (in its order) with a
+-- comp and the raid's size, or nil.
+function RaidPlan:GetRaidCompTeam(occId)
+    local v = AsView(occId)
+    if not v then return nil end
+    for _, id in ipairs(v.tm or {}) do
+        local t = self:GetTeam(id)
+        if t and t.comp and t.size == v.sz then return t end
+    end
+    return nil
+end
+
+-- The open slots of a planned raid (a view or an id) that invites a team with a comp: what the comp asks minus the
+-- Accepted and Tentative answers of each spec (the answer's spec, else the one the team gives the member; guests by
+-- their class and spec; Accepted fill first). A team member who hasn't answered leaves their slot open. nil when no
+-- team of the raid has a comp of its size, or the raid is cancelled. See RaidComp.lua for the shape.
+function RaidPlan:GetRaidOpenSlots(occId)
+    local v = AsView(occId)
+    if not v or v.cancelled then return nil end
+    local t = self:GetRaidCompTeam(v)
+    if not t then return nil end
+    local members = {}
+    for key, s in pairs(self:GetSignups(v.id)) do
+        if s.st == "A" or s.st == "T" then
+            local sp, c = s.sp, s.c
+            if not sp and not s.guest then
+                local sp2, c2 = self:GetMemberSpec(key, t)
+                sp, c = sp2, c or c2
+            end
+            members[#members + 1] = { key = key, c = c, sp = sp, st = s.st, guest = s.guest, seated = s.st == "A" }
+        end
+    end
+    tsort(members, function(a, b) return a.key < b.key end)
+    local m = ns.RaidComp:MatchComp(t.comp, members)
+    local slots = {}
+    for _, o in ipairs(m.open) do
+        for _ = 1, o.n do slots[#slots + 1] = { c = o.c, sp = o.sp, role = o.role, name = o.name } end
+    end
+    return { teamId = t.id, teamName = t.name, size = v.sz, wanted = m.total, filled = m.filled,
+             openCount = m.openCount, open = m.open, slots = slots, match = m }
+end
+
+-- Who could fill an open slot of a raid (its tooltip): { unanswered = the comp team's members of that spec who
+-- haven't answered, guild = level-70 guild members of that spec (spec index) outside that team who haven't answered
+-- or answered Bench (st = "B") }. Blacklisted and declined players are left out. Each: online first, then by key.
+function RaidPlan:RaidCanFill(occId, c, sp)
+    local out = { unanswered = {}, guild = {} }
+    local v = AsView(occId)
+    local t = v and self:GetRaidCompTeam(v)
+    if not t or not IsInt(sp, 1, SpecCount(c)) then return out end
+    local G = Guild()
+    local signups = self:GetSignups(v.id)
+    local function online(key) return (G and G.IsOnline and G:IsOnline(key)) and true or false end
+    local function blocked(key)
+        local b = self:GetSignupBlock(v, key)
+        return b == "blacklist" or b == "declined"
+    end
+    local mine = {}
+    for _, key in ipairs(t.members) do
+        mine[key] = true
+        if not InSet(signups, key) and not blocked(key) then
+            local msp, mc = self:GetMemberSpec(key, t)
+            if mc == c and msp == sp then
+                out.unanswered[#out.unanswered + 1] = { key = key, c = c, sp = sp, online = online(key) }
+            end
+        end
+    end
+    for _, key in ipairs(self:GetSpecIndex().bySpec[c .. ":" .. sp] or {}) do
+        if not mine[key] then
+            local hit = InSet(signups, key)
+            local st = hit and signups[hit].st or nil
+            if (st == nil or st == "B") and not blocked(key) and LevelOk(v, key) then
+                out.guild[#out.guild + 1] = { key = key, c = c, sp = sp, online = online(key), st = st }
+            end
+        end
+    end
+    local function order(a, b)
+        if a.online ~= b.online then return a.online end
+        return a.key < b.key
+    end
+    tsort(out.unanswered, order)
+    tsort(out.guild, order)
+    return out
+end
+
+-- The raid-buff strip of a team (RaidComp:BuffStates): lit = whose slot is filled, planned = the open slots. Without
+-- a comp: the members, nothing planned.
+function RaidPlan:GetTeamBuffStates(team)
+    local Comp = ns.RaidComp
+    local m = self:MatchTeam(team)
+    if not m then return Comp:BuffStates(self:GetTeamMembers(team), {}) end
+    local have = {}
+    for _, s in ipairs(m.slots) do
+        if s.member then have[#have + 1] = s.member end
+    end
+    return Comp:BuffStates(have, m.open)
+end
+
+-- The raid-buff strip of a raid: lit = `have` (the Groups tab: who is in the groups; default: the Accepted and
+-- Tentative answers, as they fill the comp), planned = the raid's open slots (GetRaidOpenSlots).
+function RaidPlan:GetRaidBuffStates(occId, have)
+    local Comp = ns.RaidComp
+    local v = AsView(occId)
+    if not v then return Comp:BuffStates({}, {}) end
+    if type(have) ~= "table" then
+        have = {}
+        for _, m in ipairs(self:GetLayoutMembers(v)) do
+            if m.st == "A" or m.st == "T" then have[#have + 1] = m end
+        end
+    end
+    local open = self:GetRaidOpenSlots(v)
+    return Comp:BuffStates(have, open and open.open or {})
+end
+
+-- The team's next raid: the first raid that invites it, not cancelled, that starts later or started at most 6 hours
+-- ago (as the Teams page lists them). A view, or nil.
+function RaidPlan:GetTeamNextRaid(teamId)
+    if type(teamId) ~= "string" then return nil end
+    for _, v in ipairs(self:GetRaids(Now() - 6 * 3600)) do
+        if not v.cancelled then
+            for _, id in ipairs(v.tm or {}) do
+                if id == teamId then return v end
+            end
+        end
+    end
+    return nil
+end
+
+-- The LF line for the team's open slots (an id or the draft): "<Guild> LF Holy Paladin, Survival Hunter · SSC Sun
+-- 20:00 · /w me" (the next raid's short name, day and time), at most 255 bytes; nil without open slots.
+function RaidPlan:GetLFMessage(team)
+    local t = self:ResolveTeam(team)
+    if not t then return nil end
+    local open = self:GetTeamOpenSlots(t)
+    if #open == 0 then return nil end
+    local v = t.id and self:GetTeamNextRaid(t.id)
+    local when = v and (ns.RaidComp:ShortRaidName(v) .. " " .. date("%a %H:%M", v.t)) or nil
+    local G = Guild()
+    return ns.RaidComp:LFLine(G and G.GetGuildName and G:GetGuildName() or nil, open, when)
+end
+
+---------------------------------------------------------------------------
 -- Public API: writing (organizers)
 ---------------------------------------------------------------------------
 
@@ -2104,6 +2467,8 @@ end
 
 -- members: a set { [key] = true } or an array of keys. id = nil creates a team. opts (optional): { size = 10|25,
 -- specs = { [key] = spec index }, groups = { [key] = 1..8 }, seats = { [key] = 1..5 } } (nil keeps the team's current ones). Returns ok, idOrErr.
+-- opts.comp: the target comp (Core/RaidComp.lua; nil keeps it, false clears it); refused when it has more slots
+-- than the team's size.
 function RaidPlan:SaveTeam(id, name, members, opts)
     local root, err = RequireOrganizer("teams")
     if not root then return false, err end
@@ -2130,6 +2495,20 @@ function RaidPlan:SaveTeam(id, name, members, opts)
     if rec.sz ~= nil and not SIZES[rec.sz] then return false, "Team size must be 10 or 25." end
     if rec.s and not next(rec.s) then rec.s = nil end
     if rec.grp and not next(rec.grp) then rec.grp = nil end
+    local Comp = ns.RaidComp
+    if opts.comp == false then
+        rec.cp = nil
+    elseif opts.comp ~= nil then
+        local cp = Comp:CleanComp(opts.comp, 1000)
+        if cp == false then return false, "That target comp is not valid." end
+        rec.cp = cp
+    else
+        rec.cp = cur and cur.cp or nil
+    end
+    local slots = rec.cp and Comp:CompSize(rec.cp) or 0
+    if slots > (rec.sz or 25) then
+        return false, ("The target comp has %d slots, more than the team's %d."):format(slots, rec.sz or 25)
+    end
     local ok, e = Commit(root, "T", rec)
     if not ok then return false, e end
     return true, id
@@ -2791,6 +3170,12 @@ function RaidPlan:OnInit()
     ns:On("ACCOUNTS_UPDATED", Changed)
     -- Who may write what changed: versions refused for now, and records to write again (RestampPass).
     for _, msg in ipairs({ "CONFIG_UPDATED", "ACCOUNTS_UPDATED", "ROSTER_UPDATED" }) do ns:On(msg, RolesChanged) end
+    -- The target comp's spec index (GetSpecIndex) is built again after a change of the plans, the roster, the
+    -- accounts or a BiS list.
+    for _, msg in ipairs({ "RAIDPLAN_CHANGED", "ROSTER_UPDATED", "ACCOUNTS_UPDATED", "LIST_UPDATED",
+                           "MYLIST_CHANGED" }) do
+        ns:On(msg, function() RaidPlan.specIndexCache = nil end)
+    end
 end
 
 function RaidPlan:OnLogin()

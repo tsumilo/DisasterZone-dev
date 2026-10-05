@@ -283,3 +283,453 @@ function RaidComp:GroupCount(size)
 end
 
 RaidComp.GROUP_SIZE = GROUP_SIZE
+
+---------------------------------------------------------------------------
+-- Target comp (1.3.1): the specs a team wants, matched with who it has. Every slot names a spec (class + spec
+-- index of ns.SPECS; Feral (Cat) and Feral (Bear) are DRUID 2 and 3). A comp is stored as counts per spec:
+--   cp = { PALADIN = { 2, 1, 1 }, DRUID = { 1, 1, 1, 1 }, ... }   (trailing zeros trimmed, classes without a slot
+--   left out; about 110 bytes for a full 25)
+-- on the team record (Core/RaidPlan.lua, field cp of T) and synced with it. The presets are bundled data, never
+-- synced: "Start from" copies their counts, so changing a preset later changes no team. Who fills which slot, the
+-- bench, the open slots and who could fill one are computed on each client from the same data, sorted by fixed keys
+-- (never left to chance).
+--
+-- API contract for the UI (the Teams page and the raid page):
+--   Shapes
+--     cp      { [CLASS] = { n1, n2, n3[, n4] } }: slots per spec index (0..25 each, at most the team's size in all)
+--     member  { key, c = classFile|nil, sp = spec index|nil, seated = true: fills first (in a group / Accepted),
+--               source = "team"|"signup"|"bis"|nil }
+--     slot    { c, sp, role = "tank"|"healer"|"melee"|"ranged", name = "Holy Paladin", key = who fills it|nil,
+--               member = that member|nil }
+--     open    { c, sp, role, name, n = open slots of that spec }, in comp order
+--     team    a team id, a GetTeam table, or the Teams page's draft { id, members = set|array, s|specs, grp|groups,
+--             sz|size, cp|comp }
+--     cand    a can-fill candidate { key, c, sp|nil, online, other = true: the class in another (or unknown) spec,
+--             of = the team member it is an alt of (alts), team / teamId (other teams), st = "B" (raid: on the bench) }
+--   Comp order: the columns tank, healer, melee, ranged; in each, classes in ns.CLASSES order, then spec index.
+--   RaidComp (pure)
+--     RaidComp.COLUMNS / RaidComp.PRESETS      { "tank", "healer", "melee", "ranged" } / the bundled presets
+--     RaidComp:GetPresets([size])              { { key = "std25"|"kara10", name, size, cp }, ... } (copies)
+--     RaidComp:GetPreset(key)                  one preset (a copy) or nil
+--     RaidComp:CleanComp(cp[, maxTotal])       canonical copy, total; nil = no comp (nil, or no slot); false =
+--                                              invalid (unknown class or spec, count not 0..25, total > maxTotal)
+--     RaidComp:CopyComp(cp)                    canonical copy (nil for nil)
+--     RaidComp:SameComp(a, b)                  same counts (nil and {} are the same)
+--     RaidComp:CompSize(cp) / GetCount(cp, c, sp) / RoleCounts(cp)   slots in all / of one spec / per column
+--     RaidComp:SetCount(cp, c, sp, n)          sets one spec's slots (0..25; 0 takes it out) in place, cp a table
+--                                              (a draft starts from {}); returns cp
+--     RaidComp:SlotName(c, sp) / ClassName(c)  "Holy Paladin", "Feral Druid (Bear)" / "Paladin"
+--     RaidComp:CompSlots(cp)                   every slot in comp order { c, sp, role, name }
+--     RaidComp:MatchComp(cp, members)          { columns = { tank = { slot, ... }, healer, melee, ranged },
+--                                              slots = { slot, ... }, bench = { member, ... }, open = { open, ... },
+--                                              filled, total, openCount }. A member fills a slot of their own spec
+--                                              only; per spec seated first, then by key. Bench = the members no slot
+--                                              takes (not an error), by column then key, unknown spec last.
+--     RaidComp:OpenSlots(cp, members)          open list, number of open slots
+--     RaidComp:CompFromMembers(members, size)  "the team as it is": a slot per member's spec (members without one
+--                                              left out; seated first, then by key, at most `size`); nil when none
+--     RaidComp:BuffStates(have, planned)       the raid-buff strip, in BUFFS order (scope "raid"): { key, buff,
+--                                              state = "have"|"planned"|"off", providers = { key, ... },
+--                                              slots = { { c, sp, name }, ... } (open slots that would bring it),
+--                                              count = #providers, bringers = { { c, sp|nil, name }, ... } }.
+--                                              have = members who are there; planned = open slots ({ c, sp }).
+--     RaidComp:ShortRaidName(v)                "SSC", "Kara", ... (a raid view; Other: its title)
+--     RaidComp:LFLine(guild, open, when)       "<Guild> LF Holy Paladin ×2, Survival Hunter · SSC Sun 20:00 · /w me"
+--                                              (at most 255 bytes: the last specs become "+n more"); nil without open
+--   RaidPlan (Core/RaidPlan.lua, section "Target comp")
+--     GetTeam(id).comp                         the saved comp (a copy) or nil
+--     SaveTeam(id, name, members, { ..., comp = cp|false })   nil keeps the comp, false (or a comp without a
+--                                              slot) clears it; refused when it has more slots than the team's size
+--                                              (a 25 -> 10 change: start again from Kara 10)
+--     SetTeamComp(id, cp|false) / GetTeamComp(id)   save only the comp (GM + guild council) / a copy or nil
+--     GetCompStarts(team)                      the "Start from" tiles: { { key, kind = "preset"|"team"|"copy",
+--                                              name, size, cp, teamId (copy) }, ... }: the preset of the team's size,
+--                                              the team as it is (when a member's spec is known), other teams' comps
+--                                              of the same size (by name)
+--     ResolveTeam(team)                        { id, name, members (sorted), specs, groups, size, comp } or nil
+--     GetTeamMembers(team)                     { member, ... } by key (spec as the Teams page decides:
+--                                              GetMemberSpec(key, team))
+--     CompFromTeam(team)                       the team as it is (cp) or nil
+--     MatchTeam(team)                          MatchComp of the team's comp and members; nil without a comp
+--     GetTeamOpenSlots(team)                   open list, count ({}, 0 without a comp)
+--     CanFill(team, c, sp)                     { bench = { cand }, alts = { cand }, guild = { cand }, teams = { cand } }:
+--                                              the team's bench, alts of its members (level 70), the rest of the
+--                                              guild (level 70, on no team, spec from sign-ups / BiS list), members
+--                                              of other teams (that spec there). bench and alts also list the class
+--                                              in another spec (other = true); guild and teams that spec only. A
+--                                              player shows once. Each list: that spec first, online first, by key.
+--     GetSpecIndex()                           { bySpec = { ["CLASS:sp"] = { key, ... } }, byKey = { [key] =
+--                                              { c, sp, src } } }: level-70 guild members (cached, dropped on changes)
+--     GetRaidCompTeam(occ)                     the team whose comp a raid uses: its first team (tm order) with a comp
+--                                              and the raid's size; nil = no open slots
+--     GetRaidOpenSlots(occ)                    nil, or { teamId, teamName, size, wanted, filled, openCount,
+--                                              open = { open, ... }, slots = { { c, sp, role, name }, ... } (one per
+--                                              open slot, comp order), match }: what the comp asks minus the
+--                                              Accepted and Tentative answers of each spec (guests count by their
+--                                              class and spec; Accepted fill first). Nil for a cancelled raid.
+--     RaidCanFill(occ, c, sp)                  { unanswered = { cand }, guild = { cand } }: team members of that
+--                                              spec who haven't answered, then level-70 guild members of that spec
+--                                              who haven't answered (or are on the bench: st = "B")
+--     GetTeamBuffStates(team)                  BuffStates(filled slots, open slots); without a comp: the members
+--     GetRaidBuffStates(occ[, have])           BuffStates(have, default Accepted + Tentative; its open slots)
+--     GetTeamNextRaid(teamId)                  the team's next raid (a view; not cancelled, started < 6 h ago) or nil
+--     GetLFMessage(team)                       the LF line for the open slots and the next raid, or nil without open
+--                                              slots. The UI puts it in the chat box (ChatFrame_OpenChat); no sending.
+---------------------------------------------------------------------------
+
+local floor, min, max, tonumber, tostring, tconcat = math.floor, math.min, math.max, tonumber, tostring, table.concat
+
+local COLUMNS = { "tank", "healer", "melee", "ranged" }
+local COLUMN_INDEX = { tank = 1, healer = 2, melee = 3, ranged = 4 }
+local MAX_COUNT = 25                -- slots of one spec
+local MAX_COMP = 25                 -- slots of a comp (the largest team)
+local LF_MAX = 255                  -- a chat line (bytes)
+
+-- The bundled presets (user decision 2026-10-05). Spec indexes of ns.SPECS.
+local PRESETS = {
+    { key = "std25", name = "Standard 25", size = 25, cp = {
+        WARRIOR = { 0, 1, 1 },          -- Fury, Protection
+        PALADIN = { 2, 1, 1 },          -- Holy x2, Protection, Retribution
+        HUNTER = { 0, 1, 1 },           -- Marksmanship, Survival
+        ROGUE = { 0, 2 },               -- Combat x2
+        PRIEST = { 0, 1, 1 },           -- Holy, Shadow
+        SHAMAN = { 1, 2, 2 },           -- Elemental, Enhancement x2, Restoration x2
+        MAGE = { 1, 1 },                -- Arcane, Fire
+        WARLOCK = { 1, 0, 1 },          -- Affliction, Destruction
+        DRUID = { 1, 1, 1, 1 },         -- Balance, Feral (Cat), Feral (Bear), Restoration
+    } },
+    { key = "kara10", name = "Kara 10", size = 10, cp = {
+        WARRIOR = { 0, 0, 1 },          -- Protection
+        PALADIN = { 1, 1 },             -- Holy, Protection
+        HUNTER = { 0, 1 },              -- Marksmanship
+        ROGUE = { 0, 1 },               -- Combat
+        PRIEST = { 0, 1 },              -- Holy
+        SHAMAN = { 0, 1 },              -- Enhancement
+        MAGE = { 0, 1 },                -- Fire
+        WARLOCK = { 0, 0, 1 },          -- Destruction
+        DRUID = { 0, 0, 0, 1 },         -- Restoration
+    } },
+}
+
+local RAID_SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
+                     za = "ZA", swp = "SWP" }
+
+RaidComp.COLUMNS = COLUMNS
+RaidComp.PRESETS = PRESETS
+RaidComp.MAX_COUNT = MAX_COUNT
+
+-- The column of a spec (tank / healer / melee / ranged), or nil for an unknown class or spec.
+local function Role(classFile, sp)
+    local specs = type(classFile) == "string" and ns.SPECS[classFile]
+    local spec = specs and type(sp) == "number" and specs[sp]
+    if not spec then return nil end
+    return spec.role == "caster" and "ranged" or spec.role
+end
+
+local function ClassName(classFile)
+    return type(classFile) == "string" and (ns.CLASS_NAMES and ns.CLASS_NAMES[classFile] or classFile) or nil
+end
+
+-- "Holy Paladin", "Feral Druid (Bear)"; the class name alone without a known spec.
+local function SlotName(classFile, sp)
+    local cls = ClassName(classFile)
+    local label = type(sp) == "number" and SpecLabel(classFile, sp)
+    if not cls or not label then return cls end
+    local form = label:match("^Feral %((.+)%)$")
+    if form then return "Feral " .. cls .. " (" .. form .. ")" end
+    return label .. " " .. cls
+end
+
+local function SpecIndex(classFile, label)
+    for i, spec in ipairs(ns.SPECS[classFile] or {}) do
+        if spec.label == label then return i end
+    end
+    return nil
+end
+
+-- Slots of one spec in a comp (0 for anything unknown).
+local function Count(cp, classFile, sp)
+    local counts = type(cp) == "table" and cp[classFile]
+    local n = type(counts) == "table" and counts[sp]
+    return type(n) == "number" and n or 0
+end
+
+-- A comp in its stored form, built from any comp of known classes: holes 0, trailing zeros trimmed, classes without a
+-- slot left out (a new table).
+local function Canon(cp)
+    local out = {}
+    for _, c in ipairs(ns.CLASSES) do
+        local last = 0
+        for sp = 1, #ns.SPECS[c] do
+            if Count(cp, c, sp) > 0 then last = sp end
+        end
+        if last > 0 then
+            local arr = {}
+            for sp = 1, last do arr[sp] = Count(cp, c, sp) end
+            out[c] = arr
+        end
+    end
+    return out
+end
+
+local function IsCount(n)
+    return type(n) == "number" and n == floor(n) and n >= 0 and n <= MAX_COUNT
+end
+
+-- An untrusted comp (the network, the UI) -> its canonical copy and total; nil when there is none (nil, or not one
+-- slot); false when invalid: not a table, an unknown class or spec index, a count that is not 0..25, or more slots in
+-- all than maxTotal (default 25).
+local function CleanComp(cp, maxTotal)
+    if cp == nil then return nil end
+    if type(cp) ~= "table" then return false end
+    local total = 0
+    for c, counts in pairs(cp) do
+        local specs = type(c) == "string" and ns.SPECS[c]
+        if not specs or type(counts) ~= "table" then return false end
+        for sp, n in pairs(counts) do
+            if type(sp) ~= "number" or sp ~= floor(sp) or sp < 1 or sp > #specs or not IsCount(n) then return false end
+            total = total + n
+        end
+    end
+    if total > (tonumber(maxTotal) or MAX_COMP) then return false end
+    if total == 0 then return nil end
+    return Canon(cp), total
+end
+
+-- fn(classFile, sp, role, n) for every spec with slots, in comp order.
+local function EachSpec(cp, fn)
+    if type(cp) ~= "table" then return end
+    for _, role in ipairs(COLUMNS) do
+        for _, c in ipairs(ns.CLASSES) do
+            for sp = 1, #ns.SPECS[c] do
+                local n = min(floor(Count(cp, c, sp)), MAX_COUNT)
+                if n > 0 and Role(c, sp) == role then fn(c, sp, role, n) end
+            end
+        end
+    end
+end
+
+-- Who takes a slot first: seated (in a group; for a raid: Accepted), then by key.
+local function SeatedFirst(a, b)
+    local sa, sb = a.seated and 1 or 0, b.seated and 1 or 0
+    if sa ~= sb then return sa > sb end
+    return a.key < b.key
+end
+
+-- members -> those with a key, each key once (the first), in the order given.
+local function UniqueMembers(members)
+    local out, seen = {}, {}
+    for _, m in ipairs(type(members) == "table" and members or {}) do
+        if type(m) == "table" and type(m.key) == "string" and not seen[m.key] then
+            seen[m.key] = true
+            out[#out + 1] = m
+        end
+    end
+    return out
+end
+
+function RaidComp:GetPresets(size)
+    local out = {}
+    for _, p in ipairs(PRESETS) do
+        if size == nil or p.size == size then
+            out[#out + 1] = { key = p.key, name = p.name, size = p.size, cp = Canon(p.cp) }
+        end
+    end
+    return out
+end
+
+function RaidComp:GetPreset(key)
+    for _, p in ipairs(PRESETS) do
+        if p.key == key then return { key = p.key, name = p.name, size = p.size, cp = Canon(p.cp) } end
+    end
+    return nil
+end
+
+function RaidComp:CleanComp(cp, maxTotal)
+    return CleanComp(cp, maxTotal)
+end
+
+function RaidComp:CopyComp(cp)
+    if type(cp) ~= "table" then return nil end
+    return Canon(cp)
+end
+
+function RaidComp:SameComp(a, b)
+    for _, c in ipairs(ns.CLASSES) do
+        for sp = 1, #ns.SPECS[c] do
+            if Count(a, c, sp) ~= Count(b, c, sp) then return false end
+        end
+    end
+    return true
+end
+
+function RaidComp:CompSize(cp)
+    local n = 0
+    EachSpec(cp, function(_, _, _, k) n = n + k end)
+    return n
+end
+
+function RaidComp:GetCount(cp, classFile, sp)
+    return Count(cp, classFile, sp)
+end
+
+function RaidComp:RoleCounts(cp)
+    local out = { tank = 0, healer = 0, melee = 0, ranged = 0 }
+    EachSpec(cp, function(_, _, role, n) out[role] = out[role] + n end)
+    return out
+end
+
+-- Sets the slots of one spec (0 takes it out) in place, keeping the stored form. Returns cp.
+function RaidComp:SetCount(cp, classFile, sp, n)
+    if type(cp) ~= "table" or not Role(classFile, sp) then return cp end
+    n = max(0, min(MAX_COUNT, floor(tonumber(n) or 0)))
+    local canon = Canon(cp)
+    canon[classFile] = canon[classFile] or {}
+    canon[classFile][sp] = n
+    canon = Canon(canon)
+    for k in pairs(cp) do cp[k] = nil end
+    for k, v in pairs(canon) do cp[k] = v end
+    return cp
+end
+
+function RaidComp:SlotName(classFile, sp)
+    return SlotName(classFile, sp)
+end
+
+function RaidComp:ClassName(classFile)
+    return ClassName(classFile)
+end
+
+function RaidComp:CompSlots(cp)
+    local out = {}
+    EachSpec(cp, function(c, sp, role, n)
+        for _ = 1, n do out[#out + 1] = { c = c, sp = sp, role = role, name = SlotName(c, sp) } end
+    end)
+    return out
+end
+
+function RaidComp:MatchComp(cp, members)
+    local res = { columns = {}, slots = {}, bench = {}, open = {}, filled = 0, total = 0, openCount = 0 }
+    for _, role in ipairs(COLUMNS) do res.columns[role] = {} end
+    local list = UniqueMembers(members)
+    local bySpec = {}
+    for _, m in ipairs(list) do
+        if Role(m.c, m.sp) then
+            local k = m.c .. ":" .. m.sp
+            bySpec[k] = bySpec[k] or {}
+            bySpec[k][#bySpec[k] + 1] = m
+        end
+    end
+    for _, l in pairs(bySpec) do tsort(l, SeatedFirst) end
+    local used = {}
+    EachSpec(cp, function(c, sp, role, n)
+        local cand = bySpec[c .. ":" .. sp] or {}
+        local name = SlotName(c, sp)
+        local open = 0
+        for i = 1, n do
+            local m = cand[i]
+            local slot = { c = c, sp = sp, role = role, name = name, key = m and m.key or nil, member = m }
+            local col = res.columns[role]
+            col[#col + 1] = slot
+            res.slots[#res.slots + 1] = slot
+            res.total = res.total + 1
+            if m then
+                used[m.key] = true
+                res.filled = res.filled + 1
+            else
+                open = open + 1
+            end
+        end
+        if open > 0 then res.open[#res.open + 1] = { c = c, sp = sp, role = role, name = name, n = open } end
+    end)
+    res.openCount = res.total - res.filled
+    for _, m in ipairs(list) do
+        if not used[m.key] then res.bench[#res.bench + 1] = m end
+    end
+    tsort(res.bench, function(a, b)
+        local ra, rb = COLUMN_INDEX[Role(a.c, a.sp) or ""] or 5, COLUMN_INDEX[Role(b.c, b.sp) or ""] or 5
+        if ra ~= rb then return ra < rb end
+        return a.key < b.key
+    end)
+    return res
+end
+
+function RaidComp:OpenSlots(cp, members)
+    local m = self:MatchComp(cp, members)
+    return m.open, m.openCount
+end
+
+function RaidComp:CompFromMembers(members, size)
+    local list = {}
+    for _, m in ipairs(UniqueMembers(members)) do
+        if Role(m.c, m.sp) then list[#list + 1] = m end
+    end
+    tsort(list, SeatedFirst)
+    local cap = (size == 10 or size == 25) and size or MAX_COMP
+    local cp, n = {}, 0
+    for _, m in ipairs(list) do
+        if n >= cap then break end
+        cp[m.c] = cp[m.c] or {}
+        cp[m.c][m.sp] = (cp[m.c][m.sp] or 0) + 1
+        n = n + 1
+    end
+    if n == 0 then return nil end
+    return Canon(cp), n
+end
+
+function RaidComp:BuffStates(have, planned)
+    local out = {}
+    for _, b in ipairs(BUFFS) do
+        if b.scope == "raid" then
+            local providers, slots, seen = {}, {}, {}
+            for _, m in ipairs(type(have) == "table" and have or {}) do
+                if type(m) == "table" and type(m.key) == "string" and Provides(b, m.c, m.sp) then
+                    providers[#providers + 1] = m.key
+                end
+            end
+            tsort(providers)
+            for _, s in ipairs(type(planned) == "table" and planned or {}) do
+                if type(s) == "table" and Role(s.c, s.sp) and Provides(b, s.c, s.sp) then
+                    local k = s.c .. ":" .. s.sp
+                    if not seen[k] then
+                        seen[k] = true
+                        slots[#slots + 1] = { c = s.c, sp = s.sp, name = SlotName(s.c, s.sp) }
+                    end
+                end
+            end
+            local bringers = {}
+            for _, p in ipairs(b.p) do
+                local sp = p[2] and SpecIndex(p[1], p[2]) or nil
+                bringers[#bringers + 1] = { c = p[1], sp = sp, name = sp and SlotName(p[1], sp) or ClassName(p[1]) }
+            end
+            local state = (#providers > 0 and "have") or (#slots > 0 and "planned") or "off"
+            out[#out + 1] = { key = b.key, buff = b, state = state, providers = providers, slots = slots,
+                              count = #providers, bringers = bringers }
+        end
+    end
+    return out
+end
+
+function RaidComp:ShortRaidName(v)
+    if type(v) ~= "table" then return nil end
+    return RAID_SHORT[v.i] or v.ti or "Raid"
+end
+
+function RaidComp:LFLine(guild, open, when)
+    if type(open) ~= "table" or #open == 0 then return nil end
+    local head = (type(guild) == "string" and guild ~= "" and ("<" .. guild .. "> ") or "") .. "LF "
+    local tail = (type(when) == "string" and when ~= "" and (" · " .. when) or "") .. " · /w me"
+    local parts = {}
+    for i, o in ipairs(open) do
+        local n = tonumber(o.n) or 1
+        parts[i] = tostring(o.name or SlotName(o.c, o.sp) or "?") .. (n > 1 and (" ×" .. n) or "")
+    end
+    for keep = #parts, 1, -1 do
+        local list = {}
+        for i = 1, keep do list[i] = parts[i] end
+        if keep < #parts then list[#list + 1] = "+" .. (#parts - keep) .. " more" end
+        local line = head .. tconcat(list, ", ") .. tail
+        if #line <= LF_MAX then return line end
+    end
+    return ("LF " .. parts[1]):sub(1, LF_MAX)
+end
