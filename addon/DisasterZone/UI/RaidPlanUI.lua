@@ -12,8 +12,6 @@ local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tsort, tconcat = table.sort, table.concat
 
 local DAY = 86400
-local LIST_W = 290                  -- the Teams view's team list
-local RAID_ROW_H = 36
 local EDITOR_DAYS = 60
 local MAX_LEVEL = 70                -- a new raid asks for this level unless "Allow characters below level 70" is ticked
 
@@ -2373,63 +2371,68 @@ end
 function PlanUI:GetDetailTab() return state.detailTab end
 
 ---------------------------------------------------------------------------
--- Teams view (§58-§59): the team list, and for the selected team a draft (name, members, size, each member's spec,
--- group layout) shown in the group grid. Organizers edit the draft and Save; everyone else sees it read-only.
+-- Teams view (§58-§59): a chip per team (the open one lit, a gold dot on mine), the open team's card (name and size,
+-- the players by role, where I play, who changed it last, the raids that invite it), for organizers a tool row (Add
+-- members, Auto-fill; "Changed, not saved", Undo and Save once something changed) and the group grid in the raid
+-- page's row layout. The open team is a draft (name, members, size, each member's spec, group layout): organizers
+-- edit it and Save, everyone else sees it read-only. Unsaved changes are never dropped silently: another team, New
+-- team, Copy, another Raids view or closing the window ask Save / Discard / Cancel (TV.guard). One spacing grid with
+-- the raid pages: PAD at the sides (770 inside), GAP between blocks, 12 inside the card.
 ---------------------------------------------------------------------------
 
-local function initTeamRow(row, d)
-    if not row.cdlInit then
-        row.cdlInit = true
-        local hl = row:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints()
-        hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-        hl:SetBlendMode("ADD")
-        hl:SetAlpha(0.5)
-        row.sel = row:CreateTexture(nil, "BACKGROUND")
-        row.sel:SetAllPoints()
-        row.sel:SetColorTexture(1, 0.82, 0, 0.12)
-        -- two lines, like the raid list: the name, then size and members
-        row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.l1:SetPoint("TOPLEFT", 8, -4)
-        row.l1:SetPoint("RIGHT", -6, 0)
-        row.l1:SetJustifyH("LEFT")
-        row.l1:SetWordWrap(false)
-        row.l2 = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.l2:SetPoint("TOPLEFT", 8, -20)
-        row.l2:SetPoint("RIGHT", -6, 0)
-        row.l2:SetJustifyH("LEFT")
-        row.l2:SetWordWrap(false)
-        row:SetScript("OnClick", function(self)
-            local data = self.__cdlData
-            if data then PlanUI:SelectTeam(data.id) end
-        end)
-    end
-    row.sel:SetShown(d.id == state.team)
-    row.l1:SetText(d.name)
-    row.l2:SetText(("%d-man · %d members"):format(d.size or 25, #d.members))
-end
+local TV = {                -- the Teams view's sizes and helpers (one local: this file is near Lua's 200 locals)
+    W = 770,                -- the width inside PAD (the Raids views are 790 wide; GetWidth is 0 before a layout)
+    CHIP_H = 22, CARD_H = 88, TOOL_H = 22, BAR_H = 26,
+    COL2 = 400,             -- the card's right column (the raids that invite the team): x, and its width 358
+    COL2_W = 358,
+    NAME_MIN = 140, NAME_MAX = 250,
+    MAX = 40,               -- members a team holds (RaidPlan's MAX_TEAM_MEMBERS)
+    NEW_NAME = "New team",
+    SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
+              za = "ZA", swp = "Sunwell" },
+    -- the empty card's picture: five groups of class circles
+    MINI = { { "WARRIOR", "PALADIN", "DRUID", "SHAMAN", "ROGUE" }, { "ROGUE", "DRUID", "SHAMAN", "PALADIN", "WARRIOR" },
+             { "WARLOCK", "PRIEST", "SHAMAN", "DRUID", "MAGE" }, { "MAGE", "MAGE", "HUNTER", "HUNTER", "WARLOCK" },
+             { "PALADIN", "PRIEST", "SHAMAN", "PRIEST", "DRUID" } },
+}
 
-local function pickerItems()
-    local G = ns.Guild
-    local out = {}
-    for _, key in ipairs(G and G.GetMembers and G:GetMembers() or {}) do
-        out[#out + 1] = {
-            key = key, text = shortName(key), classFile = G:GetClass(key), note = G:GetRankName(key),
-            dim = not G:IsOnline(key),
-        }
-    end
-    tsort(out, function(a, b) return nameLess(a.key, b.key) end)
-    return out
-end
-
-local function sameMap(a, b)
+function TV.sameMap(a, b)
     a, b = a or {}, b or {}
     for k, v in pairs(a) do if b[k] ~= v then return false end end
     for k, v in pairs(b) do if a[k] ~= v then return false end end
     return true
 end
 
-local function draftDirty()
+local function copyMap(m)
+    local out = {}
+    for k, v in pairs(m or {}) do out[k] = v end
+    return out
+end
+
+-- Is the key me, or another character of my account (Guild:SameAccount)?
+function TV.isMine(key)
+    if isMe(key) then return true end
+    local G, me = ns.Guild, ns.Util.PlayerKey()
+    return (me and G and G.SameAccount and G:SameAccount(me, key)) and true or false
+end
+
+-- My character among the members (an array or a set { [key] = true }), or nil.
+function TV.myKey(members)
+    if members[1] ~= nil then
+        for _, key in ipairs(members) do if isMe(key) then return key end end
+        for _, key in ipairs(members) do if TV.isMine(key) then return key end end
+        return nil
+    end
+    local found
+    for key in pairs(members) do
+        if isMe(key) then return key end
+        if not found and TV.isMine(key) then found = key end
+    end
+    return found
+end
+
+-- Has the draft changed from the saved team? (A new team has: it isn't saved.)
+function TV.dirty()
     local dr = state.draft
     if not dr then return false end
     if not dr.id then return true end
@@ -2438,23 +2441,64 @@ local function draftDirty()
     if t.name ~= ns.Util.Trim(teamsView.nameBox:GetText() or "") then return true end
     local set = {}
     for _, key in ipairs(t.members) do set[key] = true end
-    return not (sameMap(dr.members, set) and dr.sz == t.size and sameMap(dr.s, t.specs) and sameMap(dr.grp, t.groups)
-        and sameMap(dr.gs, t.seats))
+    return not (TV.sameMap(dr.members, set) and dr.sz == t.size and TV.sameMap(dr.s, t.specs)
+        and TV.sameMap(dr.grp, t.groups) and TV.sameMap(dr.gs, t.seats))
 end
 
-local function loadDraft(id)
-    local t = id and RP():GetTeam(id)
+-- Would leaving the draft lose something? (An untouched new team loses nothing.)
+function TV.unsaved()
+    local dr = state.draft
+    if not dr or not teamsView or not RP():CanManageTeams() then return false end
+    if not dr.id then
+        local name = ns.Util.Trim(teamsView.nameBox:GetText() or "")
+        return next(dr.members) ~= nil or (name ~= "" and name ~= TV.NEW_NAME)
+    end
+    return TV.dirty()
+end
+
+-- name, cut to n bytes without splitting a character (team names are at most 32).
+function TV.cut(name, n)
+    if #name <= n then return name end
+    local s = name:sub(1, n)
+    local i = #s
+    while i > 0 and s:byte(i) >= 128 and s:byte(i) < 192 do i = i - 1 end
+    if i > 0 and s:byte(i) >= 192 then
+        local b = s:byte(i)
+        local need = (b >= 240 and 4) or (b >= 224 and 3) or 2
+        if #s - i + 1 < need then s = s:sub(1, i - 1) end
+    end
+    return (s:gsub("%s+$", ""))
+end
+
+-- "Kara A" -> "Kara A 2" (the first number no team has yet).
+function TV.copyName(name)
+    local taken = {}
+    for _, t in ipairs(RP():GetTeams()) do taken[t.name:lower()] = true end
+    for n = 2, 99 do
+        local suffix = " " .. n
+        local out = TV.cut(name, 32 - #suffix) .. suffix
+        if not taken[out:lower()] then return out end
+    end
+    return name
+end
+
+-- Opens team `id` as the draft (nil: an empty new team); `copy` (a team) makes a new draft with its members, specs
+-- and groups.
+function TV.load(id, copy)
+    local t = copy or (id and RP():GetTeam(id))
     local members = {}
     if t then for _, key in ipairs(t.members) do members[key] = true end end
     state.draft = {
-        id = t and t.id or nil, name = t and t.name or "New team", members = members, sz = t and t.size or 25,
-        s = t and t.specs or {}, grp = t and t.groups or {}, gs = t and t.seats or {},
+        id = (t and not copy) and t.id or nil,
+        name = copy and TV.copyName(copy.name) or (t and t.name or TV.NEW_NAME),
+        members = members, sz = t and t.size or 25,
+        s = copyMap(t and t.specs), grp = copyMap(t and t.groups), gs = copyMap(t and t.seats),
     }
     if teamsView then teamsView.nameBox:SetText(state.draft.name) end
 end
 
 -- The draft's members for the grid: { key, c, sp, auto, source }.
-local function draftMembers()
+function TV.members()
     local dr = state.draft
     local out = {}
     if not dr then return out end
@@ -2465,15 +2509,302 @@ local function draftMembers()
     return out
 end
 
+function TV.count(set)
+    local n = 0
+    for _ in pairs(set or {}) do n = n + 1 end
+    return n
+end
+
+-- Tanks, healers and damage among the members (a member without a known spec isn't counted).
+function TV.roleCounts(list)
+    local n = { tank = 0, healer = 0, dps = 0 }
+    for _, m in ipairs(list) do
+        local role = ns.RaidComp:RoleOf(m.c, m.sp)
+        if role == "tank" or role == "healer" then n[role] = n[role] + 1 elseif role then n.dps = n.dps + 1 end
+    end
+    return n
+end
+
+-- "Changed by Caelith, 2 days ago" / "changed by you, today 18:40" (grey, the name in its class colour).
+function TV.changed(t, lower)
+    if not t or not t.rev then return nil end
+    local when = relDay(t.rev)
+    if when == "today" or when:find("^in ") then when = "today " .. fmtTime(t.rev)
+    elseif Now() - t.rev > 14 * DAY then when = shortDay(t.rev) end
+    local who = (not t.by or isMe(t.by)) and grey("you") or colored(t.by)
+    return grey(lower and "changed by " or "Changed by ") .. who .. grey(", " .. when)
+end
+
+-- Upcoming raids that invite a team, soonest first.
+function TV.raids(id)
+    local out = {}
+    for _, v in ipairs(RP():GetRaids(Now() - 6 * 3600)) do
+        if not v.cancelled then
+            for _, tid in ipairs(v.tm or {}) do
+                if tid == id then out[#out + 1] = v break end
+            end
+        end
+    end
+    tsort(out, function(a, b) return a.t < b.t end)
+    return out
+end
+
+-- "+n more" on the card's raids: every raid that invites the team, one per line.
+function TV.raidsTooltip(self)
+    local raids = self.raids
+    if not raids or #raids == 0 then return end
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Invited to")
+    for _, v in ipairs(raids) do
+        GameTooltip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, 0.7, 0.7, 0.7)
+    end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Click a raid to open it.", 0.6, 0.6, 0.6)
+    GameTooltip:Show()
+end
+
+-- Is the member key (or another character of that player) in the set?
+function TV.inSet(set, key)
+    if set[key] then return true end
+    local G = ns.Guild
+    for _, m in ipairs(G and G.GetLinkedCharacters and G:GetLinkedCharacters(key) or {}) do
+        if set[m] then return true end
+    end
+    return false
+end
+
+-- How many of the team accepted the raid.
+function TV.accepted(v, team)
+    local set = {}
+    for _, key in ipairs(team.members) do set[key] = true end
+    local n = 0
+    for key, s in pairs(RP():GetSignups(v.id)) do
+        if s.st == "A" and not s.guest and TV.inSet(set, key) then n = n + 1 end
+    end
+    return n
+end
+
+-- "Sun 12"
+function TV.day(t) return ("%s %d"):format(date("%a", t), tonumber(date("%d", t))) end
+
+-- Add several: the guild members in my raid group (or party) who aren't on the team.
+function TV.groupKeys()
+    local dr = state.draft
+    local G = ns.Guild
+    local out, seen = {}, {}
+    local function add(name)
+        local key = type(name) == "string" and name ~= "" and ns.Util.NormalizeName(name) or nil
+        if key and not seen[key] and not dr.members[key] and G and G.IsInGuild and G:IsInGuild(key) then
+            seen[key] = true
+            out[#out + 1] = key
+        end
+    end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() or 0 do add((GetRaidRosterInfo(i))) end
+    elseif IsInGroup() then
+        add(ns.Util.PlayerKey())
+        for i = 1, 4 do
+            local name, realm = UnitName("party" .. i)
+            if name then add(realm and realm ~= "" and (name .. "-" .. realm) or name) end
+        end
+    end
+    tsort(out)
+    return out
+end
+
+-- Add several: who accepted the raid but isn't on the team (guild members; a player whose other character is on
+-- the team is in already).
+function TV.acceptedKeys(v)
+    local dr = state.draft
+    local G = ns.Guild
+    local out = {}
+    for key, s in pairs(RP():GetSignups(v.id)) do
+        if s.st == "A" and not s.guest and not TV.inSet(dr.members, key) and G and G.IsInGuild and G:IsInGuild(key) then
+            out[#out + 1] = key
+        end
+    end
+    tsort(out)
+    return out
+end
+
+-- The Add members list: Add several on top (only what adds someone), then the guild with each one's role and the
+-- other teams they're in (else their rank); offline players greyed, or left out with Online only.
+function TV.pickerItems()
+    local G = ns.Guild
+    local dr = state.draft
+    local out = {}
+    if not dr or not G then return out end
+    local others = {}
+    for _, t in ipairs(RP():GetTeams()) do
+        if t.id ~= dr.id then
+            for _, key in ipairs(t.members) do others[key] = others[key] and (others[key] .. ", " .. t.name) or t.name end
+        end
+    end
+    local acts = {}
+    local group = TV.groupKeys()
+    if #group > 0 then
+        acts[#acts + 1] = { key = "@group", text = IsInRaid() and "Everyone in my raid group" or "Everyone in my party",
+                            note = #group .. " new", tip = "Adds the guild members in your group who aren't on the team.",
+                            action = function() PlanUI:AddDraftMembers(TV.groupKeys()) end }
+    end
+    local v, acc = nil, {}
+    for _, raid in ipairs(dr.id and TV.raids(dr.id) or {}) do
+        acc = TV.acceptedKeys(raid)
+        if #acc > 0 then
+            v = raid
+            break
+        end
+    end
+    if v then
+        acts[#acts + 1] = { key = "@accepted", text = "Accepted for " .. TV.day(v.t) .. " " .. RP():GetRaidName(v),
+                            note = #acc .. " new", tip = "Adds who accepted this raid of the team but isn't on the team.",
+                            action = function() PlanUI:AddDraftMembers(TV.acceptedKeys(v)) end }
+    end
+    if #acts > 0 then
+        out[#out + 1] = { header = "ADD SEVERAL" }
+        for _, a in ipairs(acts) do out[#out + 1] = a end
+        out[#out + 1] = { header = "GUILD MEMBERS" }
+    end
+    local list = {}
+    for _, key in ipairs(G.GetMembers and G:GetMembers() or {}) do
+        local online = G:IsOnline(key)
+        if online or not state.pickOnline or dr.members[key] then
+            local sp, c, source = RP():GetMemberSpec(key, { specs = dr.s })
+            local cls = c or G:GetClass(key)
+            list[#list + 1] = { key = key, text = shortName(key), classFile = cls, note = others[key] or G:GetRankName(key),
+                                dim = not online, role = ns.RaidComp:RoleOf(cls, sp), roleFaint = source == "bis" }
+        end
+    end
+    tsort(list, function(a, b) return nameLess(a.key, b.key) end)
+    for _, e in ipairs(list) do out[#out + 1] = e end
+    return out
+end
+
+-- The role icon's menu: the spec this player plays in the team (Automatic says what it picked and from where).
+function TV.specMenu(root, key)
+    local dr = state.draft
+    if not dr or not dr.members[key] then return end
+    local _, c = RP():GetMemberSpec(key, { specs = dr.s })
+    root:CreateTitle(shortName(key))
+    local asp, ac, asrc = RP():GetMemberSpec(key)
+    local label = asp and ns.RaidComp:SpecLabel(ac, asp)
+    local auto = "Automatic"
+    if label then
+        auto = auto .. colorize("9e9e9e", " · " .. label .. ", from " .. (asrc == "bis" and "the BiS list" or "the last sign-up"))
+    end
+    root:CreateRadio(auto, function() return dr.s[key] == nil end, function() PlanUI:SetDraftSpec(key, nil) end)
+    for i, spec in ipairs(c and ns.SPECS[c] or {}) do
+        root:CreateRadio(spec.label, function() return dr.s[key] == i end, function() PlanUI:SetDraftSpec(key, i) end)
+    end
+end
+
+-- The right-click menu: spec, moves, out of the groups, off the team.
+function TV.memberMenu(root, key)
+    local dr = state.draft
+    if not dr then return end
+    local _, c = RP():GetMemberSpec(key, { specs = dr.s })
+    root:CreateTitle(shortName(key))
+    root:CreateRadio("Spec: automatic", function() return dr.s[key] == nil end, function() PlanUI:SetDraftSpec(key, nil) end)
+    for i, spec in ipairs(c and ns.SPECS[c] or {}) do
+        root:CreateRadio("Spec: " .. spec.label, function() return dr.s[key] == i end, function() PlanUI:SetDraftSpec(key, i) end)
+    end
+    if root.CreateDivider then root:CreateDivider() end
+    for g = 1, ns.RaidComp:GroupCount(dr.sz) do
+        root:CreateButton("Move to group " .. g, function()
+            PlanUI:MoveDraftMember(key, g)
+            PlanUI:RefreshTeams()
+        end)
+    end
+    root:CreateButton("Take out of the groups", function()
+        PlanUI:MoveDraftMember(key, nil)
+        PlanUI:RefreshTeams()
+    end)
+    if root.CreateDivider then root:CreateDivider() end
+    root:CreateButton("Remove from the team", function() PlanUI:ToggleDraftMember(key) end)
+end
+
+-- The draft's name as typed (for the popups).
+function TV.draftName()
+    local name = ns.Util.Trim(teamsView and teamsView.nameBox:GetText() or "")
+    return name ~= "" and name or TV.NEW_NAME
+end
+
+-- Runs fn now, or, with unsaved changes, after Save or Discard in a popup (Cancel stays on the team).
+function TV.guard(fn)
+    if not TV.unsaved() then return fn() end
+    StaticPopup_Show("DISASTERZONE_TEAM_UNSAVED", TV.draftName(), nil, { fn = fn })
+end
+
+-- Delete, in words from the real data: which raids invite the team and what a raid locked to its teams loses.
+function TV.deleteText(team)
+    local lines = { ("Delete the team %s?"):format(colorize("ffd100", team.name)) }
+    local raids = TV.raids(team.id)
+    if #raids == 0 then
+        lines[#lines + 1] = "\nNo planned raid invites it."
+        return tconcat(lines, "\n")
+    end
+    local names = {}
+    for i = 1, min(2, #raids) do names[i] = TV.day(raids[i].t) .. " " .. RP():GetRaidName(raids[i]) end
+    local list = #raids == 1 and names[1] or #raids == 2 and (names[1] .. " and " .. names[2])
+        or (names[1] .. ", " .. names[2] .. (" and %d more"):format(#raids - 2))
+    lines[#lines + 1] = ("\n%s invite%s it: its %d players are no longer invited through it."):format(list,
+        #raids == 1 and "s" or "", #team.members)
+    for _, v in ipairs(raids) do
+        if v.lk then
+            -- who is still in through the raid's other teams and its extra invites
+            local keep = {}
+            for _, id in ipairs(v.tm or {}) do
+                local o = id ~= team.id and RP():GetTeam(id)
+                for _, key in ipairs(o and o.members or {}) do keep[key] = true end
+            end
+            for _, key in ipairs(v.inv or {}) do keep[key] = true end
+            local lose, answers = {}, 0
+            for _, key in ipairs(team.members) do if not keep[key] then lose[key] = true end end
+            if next(lose) then
+                for key, s in pairs(RP():GetSignups(v.id)) do
+                    if not s.guest and TV.inSet(lose, key) then answers = answers + 1 end
+                end
+                lines[#lines + 1] = colorize("ffd100", answers > 0
+                    and ("%s is locked to its teams: %d %s from this team stop counting."):format(TV.day(v.t), answers,
+                        answers == 1 and "answer" or "answers")
+                    or ("%s is locked to its teams: this team's players can't sign up any more."):format(TV.day(v.t)))
+            end
+        end
+    end
+    return tconcat(lines, "\n")
+end
+
 function PlanUI:ToggleDraftMember(key)
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
     if dr.members[key] then
         dr.members[key], dr.s[key], dr.grp[key], dr.gs[key] = nil, nil, nil, nil
+    elseif TV.count(dr.members) >= TV.MAX then
+        Print("A team holds at most %d members.", TV.MAX)
+        return
     else
         dr.members[key] = true
     end
     self:RefreshTeams()
+end
+
+-- Add several: adds the keys (up to the team limit). Returns how many joined.
+function PlanUI:AddDraftMembers(keys)
+    local dr = state.draft
+    if not dr or not RP():CanManageTeams() then return 0 end
+    local n, added = TV.count(dr.members), 0
+    for _, key in ipairs(keys or {}) do
+        if not dr.members[key] then
+            if n >= TV.MAX then
+                Print("A team holds at most %d members.", TV.MAX)
+                break
+            end
+            dr.members[key] = true
+            n, added = n + 1, added + 1
+        end
+    end
+    self:RefreshTeams()
+    return added
 end
 
 -- sp = spec index, or nil for automatic (latest sign-up / BiS list).
@@ -2513,42 +2844,44 @@ end
 function PlanUI:AutoFillDraft()
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
-    dr.grp, dr.gs = ns.RaidComp:AutoFill(draftMembers(), dr.sz), {}
+    dr.grp, dr.gs = ns.RaidComp:AutoFill(TV.members(), dr.sz), {}
     self:RefreshTeams()
 end
 
-local function memberMenu(root, key)
+-- ... > Clear groups: everyone back to Not in a group (Save keeps it).
+function PlanUI:ClearDraftGroups()
     local dr = state.draft
-    if not dr then return end
-    local sp, c = RP():GetMemberSpec(key, { specs = dr.s })
-    root:CreateTitle(shortName(key))
-    root:CreateRadio("Spec: automatic", function() return dr.s[key] == nil end, function() PlanUI:SetDraftSpec(key, nil) end)
-    for i, spec in ipairs(c and ns.SPECS[c] or {}) do
-        root:CreateRadio("Spec: " .. spec.label, function() return dr.s[key] == i end, function() PlanUI:SetDraftSpec(key, i) end)
-    end
-    if root.CreateDivider then root:CreateDivider() end
-    for g = 1, ns.RaidComp:GroupCount(dr.sz) do
-        root:CreateButton("Move to group " .. g, function()
-            PlanUI:MoveDraftMember(key, g)
-            PlanUI:RefreshTeams()
-        end)
-    end
-    root:CreateButton("Take out of the groups", function()
-        PlanUI:MoveDraftMember(key, nil)
-        PlanUI:RefreshTeams()
-    end)
-    if root.CreateDivider then root:CreateDivider() end
-    root:CreateButton("Remove from the team", function() PlanUI:ToggleDraftMember(key) end)
+    if not dr or not RP():CanManageTeams() then return end
+    dr.grp, dr.gs = {}, {}
+    self:RefreshTeams()
 end
 
 function PlanUI:NewTeam()
-    state.team, state.newTeam = nil, true
-    loadDraft(nil)
-    self:RefreshTeams()
-    if teamsView and teamsView.nameBox:IsVisible() then
-        teamsView.nameBox:SetFocus()
-        teamsView.nameBox:HighlightText()
-    end
+    if not RP():CanManageTeams() then return end
+    TV.guard(function()
+        state.team, state.newTeam = nil, true
+        TV.load(nil)
+        PlanUI:RefreshTeams()
+        if teamsView and teamsView.nameBox:IsVisible() then
+            teamsView.nameBox:SetFocus()
+            teamsView.nameBox:HighlightText()
+        end
+    end)
+end
+
+-- ... > Copy: a new team with the team's members, specs and groups ("Kara A 2"), saved with Save.
+function PlanUI:CopyTeam(id)
+    local team = id and RP():GetTeam(id)
+    if not team or not RP():CanManageTeams() then return end
+    TV.guard(function()
+        state.team, state.newTeam = nil, true
+        TV.load(nil, team)
+        PlanUI:RefreshTeams()
+        if teamsView and teamsView.nameBox:IsVisible() then
+            teamsView.nameBox:SetFocus()
+            teamsView.nameBox:HighlightText()
+        end
+    end)
 end
 
 function PlanUI:SaveTeam()
@@ -2561,16 +2894,55 @@ function PlanUI:SaveTeam()
         return false
     end
     state.team, state.newTeam = res, nil
-    loadDraft(res)
+    TV.load(res)
     self:RefreshTeams()
     return true
 end
 
-function PlanUI:SelectTeam(id)
-    state.team, state.newTeam = id, nil
-    loadDraft(id)
+-- Undo (back to the saved team) or, for a new team, Cancel (the draft is dropped).
+function PlanUI:RevertTeam()
+    if state.newTeam then
+        state.newTeam, state.draft = nil, nil
+    else
+        TV.load(state.team)
+    end
     self:RefreshTeams()
 end
+
+-- Drops the unsaved changes (the popups' Discard).
+function PlanUI:DiscardDraft()
+    if teamsView and teamsView.nameBox:HasFocus() then teamsView.nameBox:ClearFocus() end
+    state.newTeam, state.draft = nil, nil
+    self:RefreshTeams()
+end
+
+function PlanUI:SelectTeam(id)
+    TV.guard(function()
+        state.team, state.newTeam = id, nil
+        TV.load(id)
+        PlanUI:RefreshTeams()
+    end)
+end
+
+-- ... > Delete: asks with what it changes, then deletes the team for everyone.
+function PlanUI:DeleteTeam()
+    local team = state.team and RP():GetTeam(state.team)
+    if not team or not RP():CanManageTeams() then return end
+    StaticPopup_Show("DISASTERZONE_TEAM_DELETE", TV.deleteText(team), nil, { fn = function()
+        local ok, err = RP():DeleteTeam(team.id)
+        if not ok then
+            Print(err or "Could not delete the team.")
+            return
+        end
+        state.team, state.draft, state.newTeam = nil, nil, nil
+        PlanUI:RefreshTeams()
+    end })
+end
+
+-- For RaidsTab (leaving the view) and tests: run fn, or ask first while the team has unsaved changes.
+function PlanUI:GuardDraft(fn) return TV.guard(fn) end
+
+function PlanUI:HasUnsavedTeam() return TV.unsaved() end
 
 function PlanUI:GetSelectedTeam() return state.team end
 
@@ -2578,127 +2950,477 @@ function PlanUI:GetTeamGrid() return teamsView and teamsView.grid end
 
 function PlanUI:GetDraft() return state.draft end
 
--- Upcoming raids that invite a team, soonest first.
-local function teamRaids(id)
-    local out = {}
-    for _, v in ipairs(RP():GetRaids(Now() - 6 * 3600)) do
-        if not v.cancelled then
-            for _, tid in ipairs(v.tm or {}) do
-                if tid == id then out[#out + 1] = v break end
+-- For tests: the Delete popup's text for the open team.
+function PlanUI:GetTeamDeleteText()
+    local team = state.team and RP():GetTeam(state.team)
+    return team and TV.deleteText(team) or nil
+end
+
+---------------------------------------------------------------------------
+-- Teams view: the frames
+---------------------------------------------------------------------------
+
+-- A team chip: [gold dot (mine)] name [size]. The press offset of sleek buttons is left out (the text is laid out).
+function TV.newChip(parent)
+    local c = UI():CreateSleekButton(parent, "", 60, TV.CHIP_H, function(self)
+        local e = self.entry
+        if e and not e.new then PlanUI:SelectTeam(e.id) end
+    end)
+    c:SetScript("OnMouseDown", nil)
+    c:SetScript("OnMouseUp", nil)
+    c.dot = c:CreateTexture(nil, "ARTWORK")
+    c.dot:SetSize(6, 6)
+    c.dot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    c.dot:SetVertexColor(1, 0.82, 0)
+    c.name = textOf(c, "GameFontHighlight", 12)
+    c.size = textOf(c, "GameFontHighlightSmall", 10)
+    c.size:SetTextColor(0.62, 0.62, 0.62)
+    c:HookScript("OnEnter", function(self)
+        if self.entry and self.entry.mine then
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+            GameTooltip:AddLine(self.entry.name)
+            GameTooltip:AddLine("You're on this team.", 1, 0.82, 0)
+            GameTooltip:Show()
+        end
+    end)
+    c:HookScript("OnLeave", hideTooltip)
+    return c
+end
+
+function TV.fillChip(c, e, chosen)
+    c.entry = e
+    c:SetKind(chosen and "chosen" or "secondary")
+    c.dot:SetShown(e.mine and true or false)
+    c.name:SetText(e.name)
+    c.size:SetText(e.size and tostring(e.size) or "")
+    c.size:SetShown(e.size ~= nil)
+    local x = 10
+    c.dot:ClearAllPoints()
+    if e.mine then
+        c.dot:SetPoint("LEFT", c, "LEFT", x, 0)
+        x = x + 6 + 7
+    end
+    c.name:ClearAllPoints()
+    c.name:SetPoint("LEFT", c, "LEFT", x, 0)
+    x = x + (c.name:GetStringWidth() or 40)
+    c.size:ClearAllPoints()
+    if e.size then
+        c.size:SetPoint("LEFT", c.name, "RIGHT", 7, 0)
+        x = x + 7 + (c.size:GetStringWidth() or 12)
+    end
+    c:SetWidth(floor(x + 10 + 0.5))
+end
+
+-- The chips: one per team (and the new draft), only with two or more. What doesn't fit 770 px goes into a "+n"
+-- menu; the open team always keeps its chip. Returns the height they take (with the GAP under them), or 0.
+function TV.layoutChips(teams)
+    local t = teamsView
+    local list = {}
+    -- (the teams I'm on first, then the others; by name within each)
+    for pass = 1, 2 do
+        for _, tm in ipairs(teams) do
+            local mine = TV.myKey(tm.members) ~= nil
+            if mine == (pass == 1) then
+                list[#list + 1] = { id = tm.id, name = tm.name, size = tm.size, mine = mine }
             end
         end
     end
-    tsort(out, function(a, b) return a.t < b.t end)
-    return out
+    if state.newTeam then list[#list + 1] = { new = true, name = TV.NEW_NAME } end
+    for _, c in ipairs(t.chips) do c:Hide() end
+    t.chipMore:Hide()
+    if #list < 2 then return 0 end
+    local sel = #list
+    for i, e in ipairs(list) do
+        if (e.new and state.newTeam) or (not e.new and not state.newTeam and e.id == state.team) then sel = i end
+    end
+    local total = 0
+    for i, e in ipairs(list) do
+        local c = t.chips[i]
+        if not c then
+            c = TV.newChip(t.detail)
+            t.chips[i] = c
+        end
+        TV.fillChip(c, e, i == sel)
+        e.w = c:GetWidth()
+        total = total + e.w + (i > 1 and 6 or 0)
+    end
+    local shown = {}
+    local rest = {}
+    if total <= TV.W then
+        for i in ipairs(list) do shown[i] = true end
+    else
+        -- the open chip first, then the others in order while they fit beside "+n"
+        local limit, used = TV.W - 52 - 6, list[sel].w
+        shown[sel] = true
+        for i, e in ipairs(list) do
+            if i ~= sel and used + 6 + e.w <= limit then
+                shown[i] = true
+                used = used + 6 + e.w
+            end
+        end
+        for i, e in ipairs(list) do if not shown[i] then rest[#rest + 1] = e end end
+    end
+    local x = 0
+    for i, c in ipairs(t.chips) do
+        if shown[i] then
+            c:ClearAllPoints()
+            c:SetPoint("TOPLEFT", t.detail, "TOPLEFT", PAD + x, 0)
+            c:Show()
+            x = x + c:GetWidth() + 6
+        end
+    end
+    if #rest > 0 then
+        t.chipMore.rest = rest
+        t.chipMore:SetText("+" .. #rest)
+        t.chipMore:ClearAllPoints()
+        t.chipMore:SetPoint("TOPLEFT", t.detail, "TOPLEFT", PAD + x, 0)
+        t.chipMore:Show()
+    end
+    return TV.CHIP_H + 8
 end
 
--- The team header's raid line: every upcoming raid that invites the team, one per tooltip line.
-local function teamRaidsTooltip(self)
-    local raids = self.raids
-    if not raids or #raids == 0 then return end
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Invited to")
-    for _, v in ipairs(raids) do
-        GameTooltip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, 0.7, 0.7, 0.7)
+-- A raid on the card: its loading screen as a thumb, the day, its name (shorter forms when long, never cut), the
+-- lock; my answer (members) or how many of the team accepted (organizers). A click opens the raid.
+function TV.newRaidRow(parent)
+    local r = CreateFrame("Button", nil, parent)
+    r:SetHeight(22)
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.06)
+    r.th = CreateFrame("Frame", nil, r)
+    r.th:SetSize(36, 22)
+    r.th:SetPoint("LEFT", 0, 0)
+    r.th.tex = r.th:CreateTexture(nil, "ARTWORK")
+    r.th.tex:SetPoint("TOPLEFT", 1, -1)
+    r.th.tex:SetPoint("BOTTOMRIGHT", -1, 1)
+    UI():AddEdges(r.th, "BORDER")
+    UI():SetEdgeColor(r.th, EDGE[1], EDGE[2], EDGE[3], 0.7)
+    r.day = textOf(r, "GameFontNormalSmall", 10)
+    r.day:SetPoint("LEFT", r.th, "RIGHT", 7, 0)
+    r.name = textOf(r, "GameFontHighlight", 12)
+    r.name:SetPoint("LEFT", r.th, "RIGHT", 7 + 42, 0)
+    r.lock = r:CreateTexture(nil, "ARTWORK")
+    r.lock:SetSize(12, 12)
+    r.lock:SetTexture(UI().ICON_LOCK)
+    r.lock:SetPoint("LEFT", r.name, "RIGHT", 5, 0)
+    r.status = textOf(r, "GameFontHighlightSmall", 11)
+    r.status:SetJustifyH("RIGHT")
+    r.status:SetPoint("RIGHT", r, "RIGHT", 0, 0)
+    r.icon = r:CreateTexture(nil, "ARTWORK")
+    r.icon:SetSize(12, 12)
+    r.icon:SetPoint("RIGHT", r.status, "LEFT", -4, 0)
+    r:SetScript("OnEnter", function(self)
+        raidRowTooltip(self)
+        GameTooltip:AddLine("Its groups start from this team's groups.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", hideTooltip)
+    r:SetScript("OnClick", function(self)
+        local v = self.__cdlData and self.__cdlData.v
+        if not v then return end
+        TV.guard(function()
+            ns.RaidsUI:SetView("upcoming")
+            PlanUI:SelectRaid(v.id)
+        end)
+    end)
+    return r
+end
+
+TV.ANSWER = { A = { "8fe39d", "Interface\\RaidFrame\\ReadyCheck-Ready" },
+                      T = { "ffd100", "Interface\\RaidFrame\\ReadyCheck-Waiting" }, B = { "99bbff" },
+                      X = { "ff5555", "Interface\\RaidFrame\\ReadyCheck-NotReady" }, R = { "ffd100" } }
+
+function TV.fillRaidRow(r, v, team, organizer)
+    r.__cdlData = { v = v }
+    local file, l, rr, t, b = artCoords(v.i, 36, 22, 0.30)
+    r.th.tex:SetTexture(file)
+    r.th.tex:SetTexCoord(l, rr, t, b)
+    r.day:SetText(TV.day(v.t):upper())
+    r.lock:SetShown(RP():IsLocked(v))
+    -- the answer (members) / the team's acceptances (organizers)
+    local icon
+    if organizer then
+        r.status:SetText(colorize("ffffff", TV.accepted(v, team)) .. colorize("c4c4c4", (" of %d accepted"):format(#team.members)))
+    else
+        local kind, block, canAnswer = myState(v)
+        local look = TV.ANSWER[kind]
+        if look then
+            r.status:SetText(colorize(look[1], PILL_TEXT[kind]))
+            icon = look[2]
+        elseif kind == "N" and canAnswer then
+            r.status:SetText(colorize("ffd100", "Answer"))
+        else
+            r.status:SetText(grey(blockWords(v, block, false) or ""))
+        end
     end
-    GameTooltip:Show()
+    r.icon:SetShown(icon ~= nil)
+    if icon then r.icon:SetTexture(icon) end
+    -- the name: the raid's title, else shorter forms, so it never runs under the answer
+    local room = TV.COL2_W - 36 - 7 - 42 - (r.lock:IsShown() and 17 or 0) - (r.status:GetStringWidth() or 90)
+        - (icon and 16 or 0) - 10
+    local inst = RP():GetInstance(v.i)
+    for _, text in ipairs({ RP():GetRaidName(v), inst and inst.name, TV.SHORT[v.i] }) do
+        if text then
+            r.name:SetText(text)
+            if (r.name:GetStringWidth() or 0) <= room then break end
+        end
+    end
+    r:Show()
+end
+
+-- The card's left column, stacked: line 1 (name, size), line 2 (players by role), line 3 (me, who changed it).
+-- Rows that hold nothing fold away; the card grows if a row is added (a team's target comp adds one).
+function TV.layoutCard()
+    local card = teamsView.card
+    local y, last = 12, 0
+    for _, row in ipairs(card.rows) do
+        if row:IsShown() then
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -y)
+            last = y + row:GetHeight()
+            y = last + (row.gapBelow or 4)
+        end
+    end
+    card:SetHeight(max(TV.CARD_H, last + 10))
+end
+
+-- The name field grows with the name (140-250 px); a name too long for that drops to a smaller font, never cut.
+function TV.fitName()
+    local nb = teamsView.nameBox
+    local m = nb.measure
+    local text = nb:GetText() or ""
+    local inset = nb:HasFocus() and 10 or 24
+    for _, size in ipairs({ 15, 13, 11 }) do
+        setSize(m, size)
+        m:SetText(text)
+        local w = (m:GetStringWidth() or 0) + 6 + inset + 2
+        if w <= TV.NAME_MAX or size == 11 then
+            local path, _, flags = nb:GetFont()
+            if path and nb.fontSize ~= size then
+                nb:SetFont(path, size, flags)
+                nb.fontSize = size
+            end
+            nb:SetWidth(floor(min(TV.NAME_MAX, max(TV.NAME_MIN, w)) + 0.5))
+            return
+        end
+    end
 end
 
 function PlanUI:CreateTeams(parent)
     local t = CreateFrame("Frame", nil, parent)
     teamsView = t
-
-    t.list = UI():CreateScrollList(t, RAID_ROW_H, initTeamRow)
-    t.list.frame:SetPoint("TOPLEFT", 0, 0)
-    t.list.frame:SetPoint("BOTTOMLEFT", 0, 0)
-    t.list.frame:SetWidth(LIST_W)
-
+    -- everything of a team (hidden while there is none)
     local d = CreateFrame("Frame", nil, t)
-    d:SetPoint("TOPLEFT", LIST_W + 10, 0)
-    d:SetPoint("BOTTOMRIGHT", 0, 0)
+    d:SetAllPoints()
     t.detail = d
 
-    d.empty = d:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    d.empty:SetPoint("TOP", 0, -60)
-    d.empty:SetWidth(360)
+    -- the team chips (made on demand) and "+n" for the teams that don't fit
+    t.chips = {}
+    t.chipMore = UI():CreateSleekMenuButton(d, "", 52, function(root)
+        for _, e in ipairs(t.chipMore.rest or {}) do
+            root:CreateButton((e.mine and colorize("ffd100", "• ") or "") .. e.name, function()
+                if not e.new then PlanUI:SelectTeam(e.id) end
+            end)
+        end
+    end, TV.CHIP_H)
 
-    -- Row 1, the team: its name (a field for organizers, a title for everyone else), size and member count; Undo /
-    -- Save and the Delete icon on the right.
-    t.nameBox = UI():CreateSleekEditBox(d, 150, 24, "GameFontHighlightLarge")
-    t.nameBox:SetTextInsets(6, 20, 0, 0)
+    -- the team card: the next raid's loading screen behind its right part
+    local card = CreateFrame("Frame", nil, d)
+    card:SetSize(TV.W, TV.CARD_H)
+    panel(card, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.6 })
+    t.card = card
+    card.art = card:CreateTexture(nil, "BACKGROUND", nil, 2)
+    card.art:SetPoint("TOPRIGHT", -1, -1)
+    card.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    card.art:SetWidth(470)
+    card.art:SetVertexColor(0.52, 0.52, 0.52)
+    card.fade = card:CreateTexture(nil, "BACKGROUND", nil, 3)
+    card.fade:SetPoint("TOPLEFT", card.art, "TOPLEFT", 0, 0)
+    card.fade:SetPoint("BOTTOMLEFT", card.art, "BOTTOMLEFT", 0, 0)
+    card.fade:SetWidth(250)
+    gradient(card.fade, "HORIZONTAL", CARD_BG[1], CARD_BG[2], CARD_BG[3], 1, 0)
+
+    local colW = TV.COL2 - 12 - 12
+    local l1, l2, l3 = CreateFrame("Frame", nil, card), CreateFrame("Frame", nil, card), CreateFrame("Frame", nil, card)
+    l1:SetSize(colW, 24)
+    l1.gapBelow = 8
+    l2:SetSize(colW, 16)
+    l3:SetSize(colW, 14)
+    card.l1, card.l2, card.l3 = l1, l2, l3
+    card.rows = { l1, l2, l3 }
+
+    -- line 1: the name (a field for organizers, growing with the name) and the size (a 10-man | 25-man toggle)
+    card.title = textOf(l1, "GameFontHighlightLarge", 16)
+    card.title:SetPoint("LEFT", l1, "LEFT", 0, 0)
+    card.size = textOf(l1, "GameFontHighlightSmall", 11)
+    card.size:SetTextColor(0.62, 0.62, 0.62)
+    card.size:SetPoint("LEFT", card.title, "RIGHT", 8, -1)
+    t.nameBox = UI():CreateSleekEditBox(l1, TV.NAME_MIN, 24, "GameFontHighlightLarge")
+    t.nameBox:SetTextInsets(6, 24, 0, 0)
     t.nameBox:SetMaxLetters(32)
-    t.nameBox:SetPoint("TOPLEFT", 0, 0)
-    t.nameBox:SetScript("OnTextChanged", function() PlanUI:RefreshTeamButtons() end)
+    t.nameBox:SetPoint("LEFT", l1, "LEFT", 0, 0)
+    t.nameBox.measure = textOf(l1, "GameFontHighlightLarge", 15)
+    t.nameBox.measure:SetPoint("LEFT", l1, "LEFT", 0, 0)
+    t.nameBox.measure:Hide()
     t.nameBox.pencil = t.nameBox:CreateTexture(nil, "ARTWORK")
     t.nameBox.pencil:SetSize(12, 12)
-    t.nameBox.pencil:SetPoint("RIGHT", -5, 0)
+    t.nameBox.pencil:SetPoint("RIGHT", -6, 0)
     t.nameBox.pencil:SetTexture(UI().ICON_ATLAS)
     t.nameBox.pencil:SetTexCoord(unpack(UI():IconCoords(16)))
     t.nameBox.pencil:SetVertexColor(0.55, 0.55, 0.55)
-    t.nameBox:HookScript("OnEditFocusGained", function(self) self.pencil:Hide() end)
-    t.nameBox:HookScript("OnEditFocusLost", function(self) self.pencil:Show() end)
-    d.title = d:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    d.title:SetPoint("LEFT", d, "TOPLEFT", 2, -12)
-
-    t.sizeDD = UI():CreateSleekDropdown(d, 80, function()
-        return { { value = 10, text = "10-man" }, { value = 25, text = "25-man" } }
-    end, function() return state.draft and state.draft.sz or 25 end, function(v) PlanUI:SetDraftSize(v) end)
-    t.sizeDD:SetPoint("LEFT", t.nameBox, "RIGHT", 6, 0)
-
-    d.deleteBtn = UI():CreateTipIconButton(d, 22, 12, "Delete team", "Removes the team for everyone. Raids that "
-        .. "invited it stay planned.", function()
-        local team = state.team and RP():GetTeam(state.team)
-        if not team then return end
-        PlanUI:Confirm(("Delete the team %s?"):format(team.name), function()
-            local ok, err = RP():DeleteTeam(team.id)
-            if not ok then Print(err or "Could not delete the team.") end
-            state.team, state.draft, state.newTeam = nil, nil, nil
-            PlanUI:RefreshTeams()
-        end)
+    t.nameBox:SetScript("OnTextChanged", function()
+        TV.fitName()
+        PlanUI:RefreshTeamButtons()
     end)
-    d.deleteBtn:SetPoint("RIGHT", d, "TOPRIGHT", -2, -12)
-    d.saveBtn = UI():CreateSleekButton(d, "Save", 60, 22, function() PlanUI:SaveTeam() end, "primary")
-    d.revertBtn = UI():CreateSleekButton(d, "Undo", 54, 22, function() PlanUI:SelectTeam(state.team) end)
-    d.revertBtn:SetPoint("RIGHT", d.saveBtn, "LEFT", -3, 0)
+    t.nameBox:HookScript("OnEditFocusGained", function(self)
+        self.pencil:Hide()
+        self:SetTextInsets(6, 10, 0, 0)
+        TV.fitName()
+    end)
+    t.nameBox:HookScript("OnEditFocusLost", function(self)
+        self.pencil:Show()
+        self:SetTextInsets(6, 24, 0, 0)
+        TV.fitName()
+    end)
+    t.size10 = UI():CreateSleekButton(l1, "10-man", 56, 22, function() PlanUI:SetDraftSize(10) end)
+    t.size25 = UI():CreateSleekButton(l1, "25-man", 56, 22, function() PlanUI:SetDraftSize(25) end)
+    t.size10:SetPoint("LEFT", t.nameBox, "RIGHT", 8, 0)
+    t.size25:SetPoint("LEFT", t.size10, "RIGHT", -1, 0)
+    setSize(t.size10:GetFontString(), 11)
+    setSize(t.size25:GetFontString(), 11)
 
-    -- "14 members · not saved": after the size (organizers) or the title, cut short before the buttons
-    d.count = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    d.count:SetTextColor(0.6, 0.6, 0.6)
-    d.count:SetJustifyH("LEFT")
-    d.count:SetWordWrap(false)
+    -- line 2: the players by role (their own element: a target comp turns them into meters) and how many
+    local roles = CreateFrame("Frame", nil, l2)
+    roles:SetSize(150, 16)
+    roles:SetPoint("LEFT", l2, "LEFT", 0, 0)
+    roles.items = {}
+    for i, role in ipairs({ "tank", "healer", "dps" }) do
+        local it = { icon = roles:CreateTexture(nil, "ARTWORK"), fs = textOf(roles, "GameFontHighlight", 12) }
+        it.icon:SetSize(14, 14)
+        it.icon:SetTexture(UI().ROLE_TEX)
+        it.icon:SetTexCoord(UI():RoleCoords(role))
+        it.fs:SetPoint("LEFT", it.icon, "RIGHT", 4, 0)
+        it.role = role
+        roles.items[i] = it
+    end
+    function roles:Set(n)
+        local x = 0
+        for _, it in ipairs(self.items) do
+            it.icon:ClearAllPoints()
+            it.icon:SetPoint("LEFT", self, "LEFT", x, 0)
+            it.fs:SetText(n[it.role] or 0)
+            x = x + 14 + 4 + (it.fs:GetStringWidth() or 8) + 14
+        end
+        self:SetWidth(max(1, floor(x - 14 + 0.5)))
+    end
+    card.roles = roles
+    card.count = textOf(l2, "GameFontHighlightSmall", 11)
 
-    -- Row 2, editing: add members, Auto-fill; the raids that invite the team on the right
-    t.picker = UI():CreateSearchDropdown(d, 236, {
-        placeholder = "Add guild members...",
+    -- line 3: where I play in it (members on the team), who changed it last
+    local you = CreateFrame("Button", nil, l3)
+    you:SetHeight(14)
+    you:SetPoint("LEFT", l3, "LEFT", 0, 0)
+    you.dot = you:CreateTexture(nil, "ARTWORK")
+    you.dot:SetSize(6, 6)
+    you.dot:SetPoint("LEFT", 0, 0)
+    you.dot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    you.dot:SetVertexColor(1, 0.82, 0)
+    you.fs = textOf(you, "GameFontHighlightSmall", 11)
+    you.fs:SetTextColor(0.91, 0.91, 0.91)
+    you.fs:SetPoint("LEFT", you.dot, "RIGHT", 6, 0)
+    you:SetScript("OnEnter", function(self)
+        if not self.tip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        for i, line in ipairs(self.tip) do
+            if i == 1 then GameTooltip:AddLine(line) else GameTooltip:AddLine(line, 1, 1, 1, true) end
+        end
+        GameTooltip:Show()
+    end)
+    you:SetScript("OnLeave", hideTooltip)
+    card.you = you
+    card.changed = textOf(l3, "GameFontHighlightSmall", 11)
+
+    -- the right column: the raids that invite the team (or what a team is for), the team's ... menu
+    local right = CreateFrame("Frame", nil, card)
+    right:SetPoint("TOPLEFT", TV.COL2, -8)
+    right:SetPoint("BOTTOMRIGHT", -12, 8)
+    card.right = right
+    right.label = textOf(right, "GameFontNormalSmall", 10)
+    right.label:SetPoint("LEFT", right, "TOPLEFT", 0, -11)
+    right.label:SetText("NEXT RAIDS")
+    d.moreBtn = UI():CreateTipIconButton(right, 22, UI().ICON.more, "Team actions", "Copy, Clear groups or Delete.",
+        function(self) TV.moreMenu(self) end)
+    d.moreBtn:SetPoint("TOPRIGHT", 0, 0)
+    right.extra = CreateFrame("Button", nil, right)
+    right.extra:SetHeight(22)
+    right.extra.fs = textOf(right.extra, "GameFontHighlightSmall", 11)
+    right.extra.fs:SetTextColor(0.62, 0.62, 0.62)
+    right.extra.fs:SetPoint("RIGHT", 0, 0)
+    right.extra:SetScript("OnEnter", TV.raidsTooltip)
+    right.extra:SetScript("OnLeave", hideTooltip)
+    right.rows = {}
+    for i = 1, 2 do
+        local r = TV.newRaidRow(right)
+        r:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -26 - (i - 1) * 24)
+        r:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, -26 - (i - 1) * 24)
+        right.rows[i] = r
+    end
+    right.note = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    setSize(right.note, 11)
+    right.note:SetWidth(TV.COL2_W)
+    right.note:SetJustifyH("LEFT")
+    right.note:SetJustifyV("TOP")
+    right.note:SetSpacing(3)
+
+    -- the tool row (organizers): Add members and Auto-fill; "Changed, not saved", Undo and Save once something changed
+    local tool = CreateFrame("Frame", nil, d)
+    tool:SetSize(TV.W, TV.TOOL_H)
+    d.tool = tool
+    t.picker = UI():CreateSearchDropdown(tool, 236, {
+        placeholder = "Add members",
         emptyText = "No matching guild members.",
-        getItems = pickerItems,
+        panelWidth = 320,
+        getItems = TV.pickerItems,
         isChecked = function(key) return state.draft and state.draft.members[key] and true or false end,
         onToggle = function(key) PlanUI:ToggleDraftMember(key) end,
+        toggle = { label = "Online only", get = function() return state.pickOnline and true or false end,
+                   set = function(on) state.pickOnline = on end },
+        footerText = function()
+            return colorize("ffffff", TV.count(state.draft and state.draft.members)) .. (" of %d in the team"):format(TV.MAX)
+        end,
     })
-    t.picker.frame:SetPoint("TOPLEFT", 0, -30)
-    d.autoBtn = UI():CreateSleekButton(d, "Auto-fill", 72, 22, function() PlanUI:AutoFillDraft() end)
-    d.autoBtn:SetPoint("LEFT", t.picker.frame, "RIGHT", 10, 0)
+    t.picker.frame:SetPoint("TOPLEFT", tool, "TOPLEFT", 0, 0)
+    d.autoBtn = UI():CreateSleekButton(tool, "Auto-fill", 70, 22, function() PlanUI:AutoFillDraft() end)
+    d.autoBtn:SetPoint("LEFT", t.picker.frame, "RIGHT", GAP, 0)
     tipButton(d.autoBtn, "Auto-fill groups", "A starting layout: tanks, melee groups with a shaman each, casters, "
         .. "healers. Adjust it by dragging, then Save.")
+    d.saveBtn = UI():CreateSleekButton(tool, "Save", 56, 22, function() PlanUI:SaveTeam() end, "primary")
+    d.saveBtn:SetPoint("TOPRIGHT", tool, "TOPRIGHT", 0, 0)
+    d.revertBtn = UI():CreateSleekButton(tool, "Undo", 56, 22, function() PlanUI:RevertTeam() end)
+    d.revertBtn:SetPoint("RIGHT", d.saveBtn, "LEFT", -4, 0)
+    d.status = textOf(tool, "GameFontHighlightSmall", 11)
+    d.status:SetTextColor(1, 0.6, 0.2)
+    d.status:SetPoint("RIGHT", d.revertBtn, "LEFT", -12, 0)
 
-    d.raids = CreateFrame("Frame", nil, d)
-    d.raids:SetHeight(22)
-    d.raids:EnableMouse(true)
-    d.raids:SetScript("OnEnter", teamRaidsTooltip)
-    d.raids:SetScript("OnLeave", hideTooltip)
-    d.raids.fs = d.raids:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    d.raids.fs:SetAllPoints()
-    d.raids.fs:SetWordWrap(false)
+    -- (the Groups | Comp underline tabs of a team's target comp go here, between the card and the tool row; while
+    -- d.views is hidden the rows below sit right under the card)
+    d.views = CreateFrame("Frame", nil, d)
+    d.views:SetSize(TV.W, 24)
+    d.views:Hide()
 
-    d.rule = d:CreateTexture(nil, "BORDER")
-    d.rule:SetPoint("TOPLEFT", 0, -58)
-    d.rule:SetPoint("TOPRIGHT", 0, -58)
-    d.rule:SetHeight(1)
-    d.rule:SetColorTexture(1, 1, 1, 0.08)
+    -- the grid's bar: the raid buffs alone (no label, no caption: less is more)
+    local bar = CreateFrame("Frame", nil, d)
+    bar:SetSize(TV.W, TV.BAR_H)
+    d.bar = bar
+    d.buffs = CreateFrame("Frame", nil, bar)
+    d.buffs:SetPoint("LEFT", bar, "LEFT", 2, 0)
+    d.buffs:SetSize(1, 22)
 
-    t.grid = ns.RaidGroupsUI:CreateGrid(d, {
+    d.scroll = UI():CreateScrollFrame(d)
+    t.grid = ns.RaidGroupsUI:CreateGrid(d.scroll, {
+        layout = "row",
         getSize = function() return state.draft and state.draft.sz or 25 end,
-        getMembers = draftMembers,
+        getMembers = TV.members,
         getGroups = function() return state.draft and state.draft.grp or {} end,
         getSeats = function() return state.draft and state.draft.gs or {} end,
         isEditable = function() return RP():CanManageTeams() end,
@@ -2707,101 +3429,295 @@ function PlanUI:CreateTeams(parent)
             PlanUI:RequestRefresh()
         end,
         onSwapGroups = function(a, b) PlanUI:SwapDraftGroups(a, b) end,
-        onMenu = memberMenu,
+        onMenu = TV.memberMenu,
+        onRoleClick = function(key, btn) UI():ContextMenu(btn, function(root) TV.specMenu(root, key) end) end,
+        isMe = TV.isMine,
         poolLabel = "Not in a group",
+        poolEmpty = function()
+            local dr = state.draft
+            return (dr and not next(dr.members)) and "Add members with the search above: they land here, then drag "
+                .. "them into groups." or nil
+        end,
+        stripParent = d.buffs,
+        stripRoom = function() return d.stripRoom end,
     })
-    t.grid.frame:SetPoint("TOPLEFT", 0, -62)
-    t.grid.frame:SetPoint("BOTTOMRIGHT", 0, 0)
+    t.grid.frame:SetWidth(TV.W)
+    d.scroll:SetScrollChild(t.grid.frame)
+
+    -- no teams yet: one card that says what a team is for (organizers: its New team is the only one)
+    local e = CreateFrame("Frame", nil, t)
+    e:SetSize(490, 227)
+    e:SetPoint("TOP", t, "TOP", 0, -70)
+    panel(e, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.6 })
+    t.empty = e
+    for g, classes in ipairs(TV.MINI) do
+        local m = CreateFrame("Frame", nil, e)
+        m:SetSize(74, 42)
+        m:SetPoint("TOPLEFT", e, "TOPLEFT", 44 + (g - 1) * 82, -22)
+        panel(m)
+        m:SetAlpha(0.6)
+        m.title = textOf(m, "GameFontNormalSmall", 10)
+        m.title:SetPoint("TOP", m, "TOP", 0, -8)
+        m.title:SetText("Group " .. g)
+        for i, cls in ipairs(classes) do
+            local dot = m:CreateTexture(nil, "ARTWORK")
+            dot:SetSize(10, 10)
+            dot:SetPoint("BOTTOMLEFT", m, "BOTTOMLEFT", 8 + (i - 1) * 12, 8)
+            UI():ClassIcon(dot, cls)
+        end
+    end
+    e.title = textOf(e, "GameFontHighlightLarge", 16)
+    e.title:SetJustifyH("CENTER")
+    e.title:SetPoint("TOP", e, "TOP", 0, -82)
+    e.title:SetText("No teams yet")
+    e.body = e:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    setSize(e.body, 12)
+    e.body:SetTextColor(0.62, 0.62, 0.62)
+    e.body:SetWidth(438)
+    e.body:SetJustifyH("CENTER")
+    e.body:SetSpacing(3)
+    e.body:SetPoint("TOP", e.title, "BOTTOM", 0, -8)
+    e.body:SetText("A team is the list of players who raid together: who plays which spec and who goes in which "
+        .. "group. Raids can be opened to a team, and the raid's groups then start from the team's layout.")
+    e.who = textOf(e, "GameFontHighlight", 12)
+    e.who:SetJustifyH("CENTER")
+    e.who:SetTextColor(0.85, 0.85, 0.85)
+    e.who:SetPoint("TOP", e.body, "BOTTOM", 0, -12)
+    e.who:SetText("Teams are made by the Guild Master and the guild council.")
+    e.newBtn = UI():CreateSleekButton(e, "New team", 110, 26, function() PlanUI:NewTeam() end, "primary")
+    e.newBtn:SetPoint("TOP", e.body, "BOTTOM", 0, -16)
+
+    -- leaving with unsaved changes another way (another tab, the window closed): ask now, Cancel comes back here
+    t:SetScript("OnHide", function()
+        if not TV.unsaved() then return end
+        StaticPopup_Show("DISASTERZONE_TEAM_UNSAVED", TV.draftName(), nil, { stay = function()
+            if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("raids") end
+            if ns.RaidsUI and ns.RaidsUI.SetView then ns.RaidsUI:SetView("teams") end
+        end })
+    end)
     return t
+end
+
+-- The team's ... menu (organizers, a saved team): Copy, Clear groups (when there are groups), Delete.
+function TV.moreMenu(owner)
+    local dr = state.draft
+    if not dr or not dr.id then return end
+    local id = dr.id
+    UI():ContextMenu(owner, function(root)
+        local function tip(b, title, text)
+            if b and b.SetTooltip then
+                b:SetTooltip(function(tt)
+                    tt:AddLine(title)
+                    tt:AddLine(text, 1, 1, 1, true)
+                end)
+            end
+        end
+        tip(root:CreateButton(UI():AtlasIconText(17, 14, { 0.9, 0.9, 0.9 }) .. "  Copy", function() PlanUI:CopyTeam(id) end),
+            "Copy", "A new team with the same members, specs and groups, e.g. Kara A into Kara B. It is saved when you "
+            .. "click Save.")
+        if next(dr.grp) then
+            tip(root:CreateButton(UI():AtlasIconText(9, 14, { 0.9, 0.9, 0.9 }) .. "  Clear groups",
+                function() PlanUI:ClearDraftGroups() end),
+                "Clear groups", "Everyone back to Not in a group. Save keeps it, Undo brings the groups back.")
+        end
+        if root.CreateDivider then root:CreateDivider() end
+        root:CreateButton(UI():AtlasIconText(UI().ICON.trash, 14, { 1, 0.55, 0.55 }) .. "  |cffff8a8aDelete|r",
+            function() PlanUI:DeleteTeam() end)
+    end)
+end
+
+-- The first team I'm on, else the first.
+function TV.defaultTeam(teams)
+    for _, tm in ipairs(teams) do
+        if TV.myKey(tm.members) then return tm.id end
+    end
+    return teams[1] and teams[1].id or nil
+end
+
+-- Line 1-3 of the card and its right column.
+function TV.fillCard(dr, organizer)
+    local t = teamsView
+    local card = t.card
+    local saved = dr.id and RP():GetTeam(dr.id) or nil
+    local list = TV.members()
+    local n = TV.count(dr.members)
+    -- line 1
+    t.nameBox:SetShown(organizer)
+    t.size10:SetShown(organizer)
+    t.size25:SetShown(organizer)
+    card.title:SetShown(not organizer)
+    card.size:SetShown(not organizer)
+    if organizer then
+        TV.fitName()
+        t.size10:SetKind(dr.sz == 10 and "chosen" or "secondary")
+        t.size25:SetKind(dr.sz == 25 and "chosen" or "secondary")
+    else
+        card.title:SetText(dr.name)
+        setSize(card.title, 16)
+        if (card.title:GetStringWidth() or 0) > TV.COL2 - 24 - 80 then setSize(card.title, 13) end
+        card.size:SetText(dr.sz .. "-player")
+    end
+    -- line 2
+    card.roles:SetShown(n > 0)
+    card.roles:Set(TV.roleCounts(list))
+    card.count:ClearAllPoints()
+    if n > 0 then
+        card.count:SetPoint("LEFT", card.roles, "RIGHT", 14, 0)
+        card.count:SetText(grey("· " .. (n == 1 and "1 member" or (n .. " members"))))
+    else
+        card.count:SetPoint("LEFT", card.l2, "LEFT", 0, 0)
+        card.count:SetText(grey("No members yet"))
+    end
+    -- line 3: "You: Group 5 · Holy" (members on the team), who changed it last
+    local mine = not organizer and TV.myKey(dr.members) or nil
+    local you = card.you
+    you:SetShown(mine ~= nil)
+    you.tip = nil
+    if mine then
+        local g = dr.grp[mine]
+        local where = (g and g <= ns.RaidComp:GroupCount(dr.sz)) and ("Group " .. g) or "not in a group"
+        local sp, c, source = RP():GetMemberSpec(mine, { specs = dr.s })
+        local label = sp and ns.RaidComp:SpecLabel(c, sp)
+        you.fs:SetText("You: " .. where .. (label and (" · " .. label) or ""))
+        you:SetWidth(floor(6 + 6 + (you.fs:GetStringWidth() or 100) + 0.5))
+        if label then
+            you.tip = { "Your spec in this team: " .. label,
+                        source == "team" and "Set by the team's organizers."
+                            or source == "bis" and "From your BiS list: signing up as another spec changes it."
+                            or "From your last sign-up: signing up as another spec changes it." }
+        end
+    end
+    local changed = saved and TV.changed(saved, mine ~= nil) or nil
+    card.changed:ClearAllPoints()
+    if mine then card.changed:SetPoint("LEFT", you.fs, "RIGHT", 6, 0) else card.changed:SetPoint("LEFT", card.l3, "LEFT", 0, 0) end
+    card.changed:SetText(changed and ((mine and grey("· ") or "") .. changed) or "")
+    card.l3:SetShown(mine ~= nil or changed ~= nil)
+    TV.layoutCard()
+
+    -- the right column
+    local right = card.right
+    local raids = saved and TV.raids(saved.id) or {}
+    t.detail.moreBtn:SetShown(organizer and saved ~= nil)
+    right.label:SetShown(#raids > 0)
+    for i, r in ipairs(right.rows) do
+        if raids[i] then TV.fillRaidRow(r, raids[i], saved, organizer) else r:Hide() end
+    end
+    right.extra.raids = raids
+    right.extra:SetShown(#raids > 2)
+    if #raids > 2 then
+        right.extra.fs:SetText(("+%d more"):format(#raids - 2))
+        right.extra:SetWidth(floor((right.extra.fs:GetStringWidth() or 50) + 0.5))
+        right.extra:ClearAllPoints()
+        if t.detail.moreBtn:IsShown() then right.extra:SetPoint("RIGHT", t.detail.moreBtn, "LEFT", -10, 0)
+        else right.extra:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, 0) end
+    end
+    local v = raids[1]
+    card.art:SetShown(v ~= nil)
+    card.fade:SetShown(v ~= nil)
+    if v then
+        local file, l, r, tt, b = artCoords(v.i, 470, TV.CARD_H - 2, 0.62)
+        card.art:SetTexture(file)
+        card.art:SetTexCoord(l, r, tt, b)
+    end
+    if not saved then
+        right.note:SetText(colorize("9e9e9e", "Once it is saved, raid leaders can invite it when they plan a raid, and "
+            .. "its groups become the raid's starting groups."))
+    elseif #raids == 0 then
+        right.note:SetText(colorize("d0d0d0", "No raid invites this team yet.") .. "\n" .. colorize("9e9e9e",
+            "Raid leaders pick it when they plan a raid" .. (organizer and " (New raid › Teams)." or ".")))
+    end
+    right.note:SetShown(not saved or #raids == 0)
+    -- (centred in the column: its height is the card's less 16)
+    local noteH = right.note:GetStringHeight() or 0
+    if noteH < 10 then noteH = 30 end
+    right.note:ClearAllPoints()
+    right.note:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -floor((card:GetHeight() - 16 - noteH) / 2 + 0.5))
 end
 
 function PlanUI:RefreshTeamButtons()
     if not teamsView then return end
     local d = teamsView.detail
     local organizer = RP():CanManageTeams()
-    local has = state.draft ~= nil and (state.team ~= nil or state.newTeam)
-    local dirty = organizer and draftDirty()
-    local saved = has and state.draft.id ~= nil
-    d.saveBtn:SetShown(organizer and has)
-    d.saveBtn:SetEnabled(dirty and true or false)
-    -- Save sits at the right edge until the team exists and has a Delete icon
-    d.saveBtn:ClearAllPoints()
-    if organizer and saved then
-        d.saveBtn:SetPoint("RIGHT", d.deleteBtn, "LEFT", -8, 0)
-    else
-        d.saveBtn:SetPoint("RIGHT", d, "TOPRIGHT", -2, -12)
-    end
-    d.revertBtn:SetShown(organizer and saved)
-    d.revertBtn:SetEnabled(dirty and true or false)
-
-    -- the member count follows the size (organizers) or the title and stops short of the buttons
-    d.count:SetShown(has)
-    if not has then return end
-    local n = 0
-    for _ in pairs(state.draft.members) do n = n + 1 end
-    d.count:SetText((n == 1 and "1 member" or ("%d members"):format(n))
-        .. (dirty and colorize("ff9933", " · not saved") or ""))
-    d.count:ClearAllPoints()
-    d.count:SetPoint("LEFT", organizer and teamsView.sizeDD or d.title, "RIGHT", 10, 0)
-    local stop = (organizer and saved and d.revertBtn) or (organizer and d.saveBtn) or nil
-    if stop then d.count:SetPoint("RIGHT", stop, "LEFT", -8, 0) else d.count:SetPoint("RIGHT", d, "TOPRIGHT", -2, -12) end
+    local dr = state.draft
+    local dirty = organizer and dr ~= nil and TV.dirty()
+    local new = dr ~= nil and dr.id == nil
+    -- (only while something changed: nothing greyed out)
+    d.saveBtn:SetShown(dirty)
+    d.revertBtn:SetShown(dirty)
+    d.status:SetShown(dirty)
+    d.revertBtn:SetText(new and "Cancel" or "Undo")
+    d.revertBtn:SetWidth(new and 64 or 56)
+    d.status:SetText(new and "New team, not saved" or "Changed, not saved")
 end
 
 function PlanUI:RefreshTeams()
     if not teamsView or not teamsView:IsVisible() then return end
+    local t, d = teamsView, teamsView.detail
     local teams = RP():GetTeams()
     local organizer = RP():CanManageTeams()
     if not (state.newTeam and organizer) then
         state.newTeam = nil
         local found = false
         for _, tm in ipairs(teams) do if tm.id == state.team then found = true end end
-        if not found then state.team = teams[1] and teams[1].id or nil end
-        if not state.draft or state.draft.id ~= state.team then loadDraft(state.team) end
+        if not found then state.team = TV.defaultTeam(teams) end
+        if not state.draft or state.draft.id ~= state.team then TV.load(state.team) end
     end
-    teamsView.list:SetEmptyText(organizer and "No teams yet.\nClick New team to make one." or "No teams yet.")
-    teamsView.list:SetData(teams)
-
-    local d = teamsView.detail
     local dr = (state.team or state.newTeam) and state.draft or nil
-    local has = dr ~= nil
-    teamsView.nameBox:SetShown(has and organizer)
-    d.title:SetShown(has and not organizer)
-    teamsView.picker.frame:SetShown(has and organizer)
-    teamsView.sizeDD:SetShown(has and organizer)
-    d.autoBtn:SetShown(has and organizer)
-    d.deleteBtn:SetShown(has and organizer and dr.id ~= nil)
-    d.raids:SetShown(has and dr.id ~= nil)
-    d.rule:SetShown(has)
-    teamsView.grid.frame:SetShown(has)
-    d.empty:SetShown(not has)
-    d.empty:SetText(organizer and "Make a team with New team, then pick it when you plan a raid."
-        or "Teams are made by the Guild Master and the guild council.")
-    if has then d.title:SetText(dr.name .. grey(("  %d-man"):format(dr.sz or 25))) end
-    self:RefreshTeamButtons()
-    if not has then return end
-    if teamsView.sizeDD.Refresh then teamsView.sizeDD:Refresh() end
-    -- "2 raids · Next Sun 5 Oct  Karazhan": the count first, so a long raid name is what gets cut; the tooltip
-    -- lists them all. Organizers have it after Auto-fill, everyone else on its own row.
-    local raids = dr.id and teamRaids(dr.id) or {}
-    d.raids.raids = raids
-    d.raids:ClearAllPoints()
+    -- the Raids toolbar's New team stands only next to teams: a team saved or deleted here (or synced in) updates it
+    -- (asked once per change, so a toolbar that differs can't keep refreshing)
+    local rp = ns.RaidsUI and ns.RaidsUI.GetPanel and ns.RaidsUI:GetPanel()
+    local want = organizer and #teams > 0
+    if rp and rp.newTeamBtn and rp.newTeamBtn:IsShown() ~= want then
+        if TV.askedToolbar ~= want then
+            TV.askedToolbar = want
+            ns.RaidsUI:RequestRefresh()
+        end
+    else
+        TV.askedToolbar = nil
+    end
+    d:SetShown(dr ~= nil)
+    t.empty:SetShown(dr == nil)
+    if not dr then
+        local e = t.empty
+        e.newBtn:SetShown(organizer)
+        e.who:SetShown(not organizer)
+        local bodyH = e.body:GetStringHeight() or 0
+        if bodyH < 20 then bodyH = 51 end
+        e:SetHeight(floor(82 + (e.title:GetStringHeight() or 20) + 8 + bodyH
+            + (organizer and (16 + 26) or (12 + (e.who:GetStringHeight() or 16))) + 24 + 0.5))
+        return
+    end
+
+    -- top to bottom: chips, card, tool row (organizers), the grid's bar, the grid
+    local y = TV.layoutChips(teams)
+    TV.fillCard(dr, organizer)
+    t.card:ClearAllPoints()
+    t.card:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+    y = y + t.card:GetHeight() + GAP
+    if d.views:IsShown() then
+        d.views:ClearAllPoints()
+        d.views:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+        y = y + d.views:GetHeight() + GAP
+    end
+    d.tool:SetShown(organizer)
+    t.picker.frame:SetShown(organizer)
+    d.autoBtn:SetShown(organizer and next(dr.members) ~= nil)
     if organizer then
-        d.raids:SetPoint("TOPLEFT", d.autoBtn, "TOPRIGHT", 12, 0)
-        d.raids.fs:SetJustifyH("RIGHT")
-    else
-        d.raids:SetPoint("TOPLEFT", 2, -30)
-        d.raids.fs:SetJustifyH("LEFT")
+        d.tool:ClearAllPoints()
+        d.tool:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+        y = y + TV.TOOL_H + GAP
     end
-    d.raids:SetPoint("TOPRIGHT", d, "TOPRIGHT", -2, -30)
-    if #raids == 0 then
-        d.raids.fs:SetText(grey("No upcoming raids"))
-    else
-        local v = raids[1]
-        d.raids.fs:SetText((#raids > 1 and grey(("%d raids · "):format(#raids)) or "") .. colorize("ffd100", "Next ")
-            .. shortDay(v.t) .. "  " .. RP():GetRaidName(v))
-    end
-    teamsView.grid:Refresh()
-    if teamsView.picker.IsOpen and teamsView.picker:IsOpen() then teamsView.picker:RefreshRows() end
+    self:RefreshTeamButtons()
+    d.bar:ClearAllPoints()
+    d.bar:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+    y = y + TV.BAR_H + 6
+    d.stripRoom = TV.W - 4
+    d.scroll:ClearAllPoints()
+    d.scroll:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+    d.scroll:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -PAD, 0)
+    t.grid.frame:SetWidth(TV.W)
+    t.grid:Refresh()
+    if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Refresh(true) end
 end
 
 ---------------------------------------------------------------------------
@@ -3731,6 +4647,42 @@ function PlanUI:OnInit()
             text = "%s",
             button1 = YES or "Yes",
             button2 = NO or "No",
+            OnAccept = function(_, data)
+                if type(data) == "table" and data.fn then data.fn() end
+            end,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+        -- Teams: unsaved changes when leaving the team (Save / Discard / Cancel; Escape = Cancel), and Delete with
+        -- what it changes
+        StaticPopupDialogs["DISASTERZONE_TEAM_UNSAVED"] = {
+            text = "|cffffd100%s|r has changes that aren't saved.",
+            button1 = "Save",
+            button2 = "Discard",
+            button3 = CANCEL or "Cancel",
+            OnAccept = function(_, data)
+                if PlanUI:SaveTeam() and type(data) == "table" and data.fn then data.fn() end
+            end,
+            OnCancel = function(_, data, reason)
+                if reason ~= "clicked" then return end
+                PlanUI:DiscardDraft()
+                if type(data) == "table" and data.fn then data.fn() end
+            end,
+            OnAlt = function(_, data)
+                if type(data) == "table" and data.stay then data.stay() end
+            end,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            noCancelOnEscape = true,
+            preferredIndex = 3,
+        }
+        StaticPopupDialogs["DISASTERZONE_TEAM_DELETE"] = {
+            text = "%s",
+            button1 = DELETE or "Delete",
+            button2 = CANCEL or "Cancel",
             OnAccept = function(_, data)
                 if type(data) == "table" and data.fn then data.fn() end
             end,

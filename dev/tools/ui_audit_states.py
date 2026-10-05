@@ -704,3 +704,119 @@ def st_home_busy(w, c):
            "for _, c in ipairs(ns.Dashboard:GetPanel().calCard.cells) do "
            "if c.key == key then c:GetScript('OnClick')(c) end end", a)
     return g
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Raids > Teams (the makeover, dev/art/casc/teams_mockup): a 25-player main team with specs and groups, an alt team
+# and a 10-man team, raids that invite the main team. Last in the list: the extra guild members and raids would show
+# in every view after them.
+# ---------------------------------------------------------------------------------------------------------------
+TEAMS = {}
+# name, class, spec index (None: automatic), group (None: not in a group); online members keep their class
+TEAMS_MAIN = (("Victhar", "WARRIOR", 3, 1), ("Caelith", "PALADIN", 2, 1), ("Moonwhisper", "DRUID", 3, 1),
+              ("Brakka", "WARRIOR", 2, 1), ("Lorvane", "SHAMAN", 2, 1), ("Shadowmelder", "ROGUE", 2, 2),
+              ("Vexis", "ROGUE", 2, 2), ("Rhosyn", "DRUID", 2, 2), ("Stormfist", "SHAMAN", 2, 2),
+              ("Sunniva", "PALADIN", 3, 2), ("Grumpykat", "WARLOCK", 3, 3), ("Morrigan", "WARLOCK", 1, 3),
+              ("Nyxa", "PRIEST", 3, 3), ("Ashka", "SHAMAN", 1, 3), ("Quillon", "DRUID", 1, 3),
+              ("Frostweaver", "MAGE", 3, 4), ("Kaelwyn", "MAGE", 1, 4), ("Embera", "MAGE", 2, 4),
+              ("Faelar", "HUNTER", 2, 4), ("Gina", "PALADIN", 1, 5), ("Lightbringer", "PRIEST", None, 5),
+              ("Thunderhoofx", "SHAMAN", 3, 5), ("Isolde", "PRIEST", 1, 5), ("Kaelyn", "SHAMAN", 3, None),
+              ("Rowanne", "DRUID", 4, None))
+TEAMS_KARA = (("Caelith", 2, 1), ("Brakka", 2, 1), ("Rhosyn", 2, 1), ("Stormfist", 2, 1), ("Vexis", 2, 1),
+              ("Gina", 1, 2), ("Rowanne", None, 2), ("Embera", 2, 2), ("Ashka", 1, 2), ("Morrigan", 1, 2),
+              ("Dornak", 3, None), ("Elowen", 2, None))
+TEAMS_EXTRA = (("Caelith", "PALADIN"), ("Dornak", "WARRIOR"), ("Isolde", "PRIEST"), ("Kaelyn", "SHAMAN"),
+               ("Rowanne", "DRUID"), ("Elowen", "PRIEST"), ("Brakka", "WARRIOR"), ("Lorvane", "SHAMAN"),
+               ("Vexis", "ROGUE"), ("Rhosyn", "DRUID"), ("Stormfist", "SHAMAN"), ("Sunniva", "PALADIN"),
+               ("Morrigan", "WARLOCK"), ("Nyxa", "PRIEST"), ("Ashka", "SHAMAN"), ("Quillon", "DRUID"),
+               ("Kaelwyn", "MAGE"), ("Embera", "MAGE"), ("Faelar", "HUNTER"))
+
+SAVE_TEAM = ("local id, n, m, sz, s, g = ...; local ok, r = ns.RaidPlan:SaveTeam(id, n, m, { size = sz, specs = s, "
+             "groups = g }); return { ok = ok, r = r }")
+
+
+def teams_seed(w, c):
+    if TEAMS.get("done"):
+        return
+    TEAMS["done"] = True
+    k = c["Grumpykat"]
+    for name, cls in TEAMS_EXTRA:
+        w.add_offline_member(name, class_file=cls, rank=3)
+    w.tick(3)
+    main = [K(n) for n, _, _, _ in TEAMS_MAIN]
+    specs = {K(n): sp for n, _, sp, _ in TEAMS_MAIN if sp}
+    groups = {K(n): g for n, _, _, g in TEAMS_MAIN if g}
+    res = k.eval_py(SAVE_TEAM, IDS["team"], "Main team (Thu + Sun nights)", main, 25, specs, groups)
+    assert res["ok"] is True, res
+    alt = [K(n) for n in ("Vaenyria", "Dornak", "Elowen", "Kaelyn", "Faelar", "Isolde", "Nyxa", "Brakka")]
+    res = k.eval_py(SAVE_TEAM, None, "Alt team", alt, 25, {}, {})
+    assert res["ok"] is True, res
+    kara = [K(n) for n, _, _ in TEAMS_KARA]
+    res = k.eval_py(SAVE_TEAM, None, "Kara B", kara, 10, {K(n): sp for n, sp, _ in TEAMS_KARA if sp},
+                    {K(n): g for n, _, g in TEAMS_KARA if g})
+    assert res["ok"] is True, res
+    TEAMS["kara"] = res["r"]
+    w.tick(2)
+    t0 = now(k)
+    TEAMS["ssc"] = create(k, i="ssc", t=t0 + 2 * DAY, tm=[IDS["team"]], lk=True)
+    TEAMS["mag"] = create(k, i="mag", t=t0 + 5 * DAY, tm=[IDS["team"]])
+    create(k, i="gruul", t=t0 + 12 * DAY, tm=[IDS["team"]])
+    w.tick(2)
+    for n, sp in (("Lightbringer", 2), ("Victhar", 3), ("Shadowmelder", 2), ("Thunderhoofx", 3), ("Moonwhisper", 3),
+                  ("Frostweaver", 3), ("Grumpykat", 3), ("Gina", 1), ("Vaenyria", 2)):
+        signup(c[n], TEAMS["ssc"], "A", sp)
+    for n, st in (("Victhar", "A"), ("Gina", "A"), ("Grumpykat", "T"), ("Vaenyria", "A")):
+        signup(c[n], TEAMS["mag"], st)
+    w.tick(3)
+
+
+def teams_view(viewer="Gina", lua=None, no_teams=False, party=False):
+    """Raids > Teams on `viewer`'s screen after the seed; lua runs on the open view (... = main team, Kara B).
+    no_teams: the view as a guild without teams shows it (GetTeams answers nothing on that client); party: Gina in a
+    party with Vaenyria and Dornak (Add several)."""
+    def fn(w, c):
+        teams_seed(w, c)
+        demo_off(w, c)
+        if w.group:
+            w.disband()
+            w.tick(0.5)
+        if party:
+            w.make_party([c["Gina"], c["Vaenyria"]], extra_members=("Dornak",))
+            w.tick(0.5)
+        for cl in (c["Gina"], c["Lightbringer"]):
+            # back to the saved teams and no popups from the state before
+            cl.eval("local RP = ns.RaidPlan; if RP.__GetTeams then RP.GetTeams, RP.__GetTeams = RP.__GetTeams, nil end; "
+                    "if ns.RaidPlanUI.DiscardDraft then ns.RaidPlanUI:DiscardDraft() end")
+            close_all(cl)
+            cl.eval("StaticPopup_HideAll()")
+        v = c[viewer]
+        if no_teams:
+            v.eval("local RP = ns.RaidPlan; RP.__GetTeams = RP.GetTeams; RP.GetTeams = function() return {} end")
+        tab(v, "raids")
+        w.tick(0.3)
+        v.eval("ns.RaidsUI:SetView('teams')")
+        if not no_teams:
+            v.eval("ns.RaidPlanUI:SelectTeam(...)", IDS["team"])
+        w.tick(0.3)
+        if lua:
+            v.eval(lua, IDS["team"], TEAMS.get("kara"))
+            w.tick(0.3)
+        return v
+    return fn
+
+
+STATES += [
+    ("Raids - Teams (member)", teams_view("Lightbringer")),
+    ("Raids - Teams - organizer", teams_view()),
+    # Faelar into group 4, Quillon out of group 3: changed, not saved
+    ("Raids - Teams - organizer dirty", teams_view(lua="local g = ns.RaidPlanUI:GetTeamGrid(); "
+                                                     "g:Drop('Faelar-Thunderstrike', nil); g:Drop('Quillon-Thunderstrike', nil); "
+                                                     "g:Drop('Faelar-Thunderstrike', 4)")),
+    ("Raids - Teams - add members", teams_view(lua="ns.RaidsUI:GetPanel().teams.picker:Open()", party=True)),
+    ("Raids - Teams - 10-man", teams_view(lua="ns.RaidPlanUI:SelectTeam(select(2, ...))")),
+    ("Raids - Teams - new team", teams_view(lua="ns.RaidPlanUI:NewTeam()")),
+    ("Raids - Teams - no teams (organizer)", teams_view(no_teams=True)),
+    ("Raids - Teams - no teams (member)", teams_view("Lightbringer", no_teams=True)),
+    # (last: back to the saved teams for whatever runs after)
+    ("Raids - Teams - member, not on the team", teams_view("Lightbringer", lua="ns.RaidPlanUI:SelectTeam(select(2, ...))")),
+]

@@ -718,14 +718,15 @@ local function updateToolbar(p)
         p.guestsBtn:SetPoint("TOPRIGHT", -10, -6)
     end
     p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
-    p.newTeamBtn:SetShown(canTeams() and state.view == "teams")
+    -- (no teams yet: the Teams view's empty card has the New team button)
+    p.newTeamBtn:SetShown(canTeams() and state.view == "teams" and RP ~= nil and #RP:GetTeams() > 0)
     for _, b in ipairs({ p.newRaidBtn, p.newTeamBtn }) do
         b:ClearAllPoints()
         if auth then b:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", -10, -6) end
     end
     p.leadersBtn:SetShown(state.view == "teams")
     p.leadersBtn:ClearAllPoints()
-    if canTeams() then
+    if p.newTeamBtn:IsShown() then
         p.leadersBtn:SetPoint("RIGHT", p.newTeamBtn, "LEFT", -6, 0)
     elseif auth then
         p.leadersBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)
@@ -950,7 +951,7 @@ function RaidsUI:CreatePanel(parent)
     end)
     p.sessionBtn:SetPoint("TOPRIGHT", -10, -6)
     p.newRaidBtn = UI:CreateSleekButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end, "primary")
-    p.newTeamBtn = UI:CreateSleekButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end, "primary")
+    p.newTeamBtn = UI:CreateSleekButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end)
     -- 1.3: the guest book (players outside the guild who raided with us) and the blacklist (players kept out of
     -- every raid), for the GM, officers and the raid leaders
     p.guestsBtn = UI:CreateSleekButton(p, "Guests", 70, 22, function() ns.GuestBookUI:Open() end)
@@ -963,7 +964,8 @@ function RaidsUI:CreatePanel(parent)
     end)
     p.guestsBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     -- Addendum J §62: who the raid leaders are (everyone can look; the GM edits)
-    p.leadersBtn = UI:CreateSleekButton(p, "Raid leaders", 96, 22, function() ns.RaidLeadersUI:Open() end)
+    p.leadersBtn = UI:CreateTipIconButton(p, 22, UI.ICON.crown, "Raid leaders", "Who plans and leads raids. "
+        .. "Everyone can look; officers and the Guild Master change the list.", function() ns.RaidLeadersUI:Open() end)
 
     local PlanUI = ns.RaidPlanUI
     p.upcoming = PlanUI:CreateUpcoming(p)
@@ -1074,6 +1076,13 @@ end
 -- "upcoming" | "teams" | "strategies" | "log" (the log is council only).
 function RaidsUI:SetView(view)
     if view ~= "teams" and view ~= "log" and view ~= "strategies" then view = "upcoming" end
+    -- leaving Teams with unsaved changes asks first (Save / Discard / Cancel)
+    if state.view == "teams" and view ~= "teams" and panel and panel:IsVisible() and ns.RaidPlanUI.GuardDraft then
+        return ns.RaidPlanUI:GuardDraft(function()
+            state.view = view
+            RaidsUI:Refresh()
+        end)
+    end
     state.view = view
     self:Refresh()
 end

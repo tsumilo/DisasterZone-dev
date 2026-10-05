@@ -212,7 +212,7 @@ def teams_grid_moves_swaps_buffs_and_saves():
     bob.slash("/dz raids")
     w.tick(0.5)
     bob.eval("ns.RaidsUI:SetView('teams')")
-    bob.click(bob.eval("return ns.RaidsUI:GetPanel().newTeamBtn"))
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().teams.empty.newBtn"))     # (no teams yet: the empty card's)
     w.tick(0.2)
     bob.eval("ns.RaidsUI:GetPanel().teams.nameBox:SetText('Kara A')")
     for n in ("Lee", "Rita", "Sam", "Ena", "Moon", "Holly", "Tank"):
@@ -331,7 +331,7 @@ def members_keep_the_seat_they_are_dropped_on():
     bob.slash("/dz raids")
     w.tick(0.5)
     bob.eval("ns.RaidsUI:SetView('teams')")
-    bob.click(bob.eval("return ns.RaidsUI:GetPanel().newTeamBtn"))
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().teams.empty.newBtn"))     # (no teams yet: the empty card's)
     w.tick(0.2)
     bob.eval("ns.RaidsUI:GetPanel().teams.nameBox:SetText('Seats')")
     for n in ("Lee", "Rita", "Sam", "Holly"):

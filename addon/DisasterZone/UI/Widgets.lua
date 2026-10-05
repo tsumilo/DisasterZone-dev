@@ -1643,7 +1643,11 @@ end
 --   getItems    = function() -> array of entries (required). An entry is
 --                 { key=, text= (plain name; searched), classFile=, note= (grey, right side),
 --                   dim= (offline look), fixed= (text; shown checked, cannot be toggled), search= (extra
---                   searchable text) } or a section header { header = "text" }.
+--                   searchable text), role= ("tank" | "healer" | anything else = damage: a role icon at the row's
+--                   end; roleFaint= true draws it faint) } or a section header { header = "text" }, or an action
+--                   row { key= (unique), text=, note= (right side), action = function(entry), tip= (tooltip text) }:
+--                   a gold "+" instead of the box, listed only while nothing is typed, run by a click.
+--   footerText  = function() -> the footer's right text (optional; default "n matches")
 --   isChecked   = function(key, entry) -> bool
 --   onToggle    = function(key, entry)      (the rows are repainted afterwards)
 --   onTooltip   = function(tooltip, entry)  (optional extra tooltip lines)
@@ -1771,6 +1775,10 @@ function UI:CreateSearchDropdown(parent, width, opts)
     local function RowClick(row)
         local e = row.cdlEntry
         if not e or e.header then return end
+        if e.action then
+            sd:ToggleEntry(e)
+            return
+        end
         for i, m in ipairs(sd.matches) do
             if m == e then sd.active = i break end
         end
@@ -1781,6 +1789,13 @@ function UI:CreateSearchDropdown(parent, width, opts)
     local function RowEnter(row)
         local e = row.cdlEntry
         if not e or e.header then return end
+        if e.action then
+            GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(e.text or "")
+            if e.tip then GameTooltip:AddLine(e.tip, 1, 1, 1, true) end
+            GameTooltip:Show()
+            return
+        end
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         GameTooltip:AddLine(UI:ColoredName(e.key, e.classFile))
         if e.note and e.note ~= "" then GameTooltip:AddLine(e.note, 0.8, 0.8, 0.8) end
@@ -1834,6 +1849,16 @@ function UI:CreateSearchDropdown(parent, width, opts)
         row.header:SetPoint("LEFT", row, "LEFT", 4, 0)
         row.header:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         row.header:SetJustifyH("LEFT")
+        -- an action row's gold "+" (in the box's place) and a member's role icon at the row's end
+        row.plus = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        row.plus:SetPoint("CENTER", row.box, "CENTER", 0, 0)
+        row.plus:SetText("+")
+        row.plus:Hide()
+        row.role = row:CreateTexture(nil, "ARTWORK")
+        row.role:SetSize(12, 12)
+        row.role:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.role:SetTexture(UI.ROLE_TEX)
+        row.role:Hide()
         row:SetScript("OnClick", RowClick)
         row:SetScript("OnEnter", RowEnter)
         row:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1842,6 +1867,14 @@ function UI:CreateSearchDropdown(parent, width, opts)
     local function InitRow(row, e)
         if not row.cdlSD then SetupRow(row) end
         row.cdlEntry = e
+        row.plus:Hide()
+        row.role:Hide()
+        -- (rows are reused: the name and the note go back to their usual places)
+        row.note:ClearAllPoints()
+        row.note:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.name:ClearAllPoints()
+        row.name:SetPoint("LEFT", row, "LEFT", 40, 0)
+        row.name:SetPoint("RIGHT", row.note, "LEFT", -6, 0)
         if e.header then
             row.header:SetText(e.header)
             row.header:Show()
@@ -1857,6 +1890,27 @@ function UI:CreateSearchDropdown(parent, width, opts)
         end
         row.header:Hide()
         row.hl:SetAlpha(0.45)
+        if e.action then
+            row.box:Hide()
+            row.boxIn:Hide()
+            row.check:Hide()
+            row.icon:Hide()
+            row.plus:Show()
+            row.name:ClearAllPoints()
+            row.name:SetPoint("LEFT", row, "LEFT", 22, 0)
+            row.name:SetPoint("RIGHT", row.note, "LEFT", -6, 0)
+            row.name:SetText("|cffffffff" .. (e.text or "") .. "|r")
+            row.note:SetText("|cffbdbdbd" .. (e.note or "") .. "|r")
+            row.activeTex:Hide()
+            return
+        end
+        if e.role then
+            row.role:SetTexCoord(UI:RoleCoords(e.role))
+            row.role:SetAlpha((e.roleFaint or e.dim) and 0.45 or 1)
+            row.role:Show()
+            row.note:ClearAllPoints()
+            row.note:SetPoint("RIGHT", row.role, "LEFT", -6, 0)
+        end
         row.box:Show()
         row.boxIn:Show()
         row.check:SetShown(RowChecked(e))
@@ -1926,7 +1980,11 @@ function UI:CreateSearchDropdown(parent, width, opts)
         list.box:SetPoint("BOTTOMRIGHT", list.frame, "BOTTOMRIGHT", scroll and -20 or 0, 0)
         empty:SetShown(n == 0)
         local m = #sd.matches
-        footer.count:SetText(n == 0 and "" or (m == 1 and "1 match" or (m .. " matches")))
+        if opts.footerText then
+            footer.count:SetText(opts.footerText() or "")
+        else
+            footer.count:SetText(n == 0 and "" or (m == 1 and "1 match" or (m .. " matches")))
+        end
         panel:SetHeight(SD_PAD + listH + 4 + SD_FOOTER_H + 6)
     end
 
@@ -1940,6 +1998,15 @@ function UI:CreateSearchDropdown(parent, width, opts)
             if type(e) == "table" then
                 if e.header then
                     header = e
+                elseif e.action then
+                    -- (shortcuts while nothing is typed; a click runs them, the keys leave them alone)
+                    if q == "" then
+                        if header then
+                            shown[#shown + 1] = header
+                            header = nil
+                        end
+                        shown[#shown + 1] = e
+                    end
                 elseif e.key ~= nil then
                     local hay = ((e.text or ShortName(e.key)) .. " " .. (e.search or "")):lower()
                     if q == "" or hay:find(q, 1, true) then
@@ -2000,6 +2067,11 @@ function UI:CreateSearchDropdown(parent, width, opts)
     -- Toggles one entry through opts.onToggle (fixed entries and headers are ignored).
     function sd:ToggleEntry(e)
         if type(e) ~= "table" or e.header or e.fixed or not self.enabled then return false end
+        if e.action then
+            e.action(e)
+            if panel:IsShown() then self:Refresh(true) end
+            return true
+        end
         if opts.onToggle then opts.onToggle(e.key, e) end
         self:RefreshRows()
         return true

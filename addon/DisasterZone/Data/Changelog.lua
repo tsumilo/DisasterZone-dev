@@ -27,6 +27,8 @@ ns.CHANGELOG = {
               "Drag a player: their card follows the mouse and the spot it lands on lights up.",
               "Strategies: raids as art strips, strategy cards with Edit and a More menu.",
               "Raid log: raid cards, a banner, a Linked to picker, who came, and tabs.",
+              "Teams redone: team chips, a team card with its next raids, the raid page's groups.",
+              "Teams ask before unsaved changes are lost; Copy, Clear groups, Add several, spec by icon.",
           } },
           { heading = "My BiS and Home", lines = {
               "My BiS: a Pre-raid list before P1 (dungeons, reputation, crafting, badges), just for you.",

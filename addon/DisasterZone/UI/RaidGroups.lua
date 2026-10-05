@@ -52,19 +52,22 @@ local function hideTooltip() GameTooltip:Hide() end
 local function chipTooltip(chip)
     local m = chip.member
     if not m then return end
+    local grid = chip.grid
+    local mine = grid and grid.opts.isMe and grid.opts.isMe(m.key)
     GameTooltip:SetOwner(chip, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(UI():ColoredName(m.key, m.c))
+    GameTooltip:AddLine(UI():ColoredName(m.key, m.c) .. (mine and " |cff9e9e9e(you)|r" or ""))
     local label = Comp():SpecLabel(m.c, m.sp)
     local cls = m.c and ns.CLASS_NAMES[m.c] or ""
     if label then
         GameTooltip:AddLine(label .. " " .. cls, 1, 1, 1)
-        if m.auto then GameTooltip:AddLine(m.source == "bis" and "Spec from their BiS list" or "Spec from their last sign-up",
-            0.6, 0.6, 0.6) end
+        local whose = mine and "your" or "their"
+        if m.auto then GameTooltip:AddLine(m.source == "bis" and ("Spec from " .. whose .. " BiS list")
+            or ("Spec from " .. whose .. " last sign-up"), 0.6, 0.6, 0.6) end
     else
         GameTooltip:AddLine(cls .. " · spec unknown", 1, 1, 1)
     end
     -- in a group, a shaman lists only the air totem that group gets
-    local grid, g = chip.grid, chip:GetParent().group
+    local g = chip:GetParent().group
     local air = g and grid and grid.air and grid.air[g]
     local brings = {}
     for _, b in ipairs(Comp().BUFFS) do
@@ -80,6 +83,9 @@ local function chipTooltip(chip)
     for _, line in ipairs(m.info or {}) do GameTooltip:AddLine(line, 0.75, 0.75, 0.75, true) end
     if grid and grid.opts.isEditable() then
         GameTooltip:AddLine(" ")
+        if grid.opts.onRoleClick and m.c then
+            GameTooltip:AddLine("Click the role icon to set the spec.", 0.6, 0.6, 0.6, true)
+        end
         GameTooltip:AddLine("Drag to a group, onto a player to swap places or onto an empty slot to take it (or click it, "
             .. "then the spot). Right-click for more.", 0.6, 0.6, 0.6, true)
     end
@@ -128,6 +134,47 @@ local function createChip(parent, grid)
     chip.seat:SetPoint("BOTTOMRIGHT", 0, 1)
     chip.seat:SetColorTexture(1, 1, 1, 0.035)
     chip.seat:Hide()
+    -- my own chip in a read-only grid (opts.isMe): a gold wash and a 2px gold bar in the box's margin
+    chip.me = chip:CreateTexture(nil, "BACKGROUND")
+    chip.me:SetAllPoints()
+    chip.me:SetColorTexture(1, 0.82, 0, 0.12)
+    chip.me:Hide()
+    chip.meBar = chip:CreateTexture(nil, "BORDER")
+    chip.meBar:SetPoint("TOPLEFT", chip, "TOPLEFT", -4, -2)
+    chip.meBar:SetPoint("BOTTOMLEFT", chip, "BOTTOMLEFT", -4, 2)
+    chip.meBar:SetWidth(2)
+    chip.meBar:SetColorTexture(1, 0.82, 0, 1)
+    chip.meBar:Hide()
+    -- (opts.onRoleClick) the role icon is a small button of its own: a click picks the spec
+    local rb = CreateFrame("Button", nil, chip)
+    rb:SetSize(19, 18)
+    rb:SetPoint("CENTER", chip.spec, "CENTER", 0, 0)
+    rb.hl = rb:CreateTexture(nil, "BACKGROUND")
+    rb.hl:SetAllPoints()
+    rb.hl:SetColorTexture(1, 1, 1, 0.12)
+    UI():AddEdges(rb, "BORDER")
+    UI():SetEdgeColor(rb, 1, 0.82, 0, 0.6)
+    local function lit(on)
+        rb.hl:SetShown(on)
+        for _, e in ipairs(rb.edges) do e:SetShown(on) end
+    end
+    lit(false)
+    -- (no spec known yet: a grey "?" where the role icon goes)
+    rb.unknown = rb:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    rb.unknown:SetPoint("CENTER", 0, 0)
+    rb.unknown:SetText("?")
+    rb:RegisterForClicks("LeftButtonUp")
+    rb:RegisterForDrag("LeftButton")
+    rb:SetScript("OnEnter", function() lit(true); chipTooltip(chip) end)
+    rb:SetScript("OnLeave", function() lit(false); hideTooltip() end)
+    rb:SetScript("OnClick", function()
+        local g = chip.grid
+        if chip.key and g.opts.onRoleClick and g.opts.isEditable() then g.opts.onRoleClick(chip.key, rb) end
+    end)
+    rb:SetScript("OnDragStart", function() chip.grid:BeginDrag(chip) end)
+    rb:SetScript("OnDragStop", function() chip.grid:EndDrag(chip) end)
+    rb:Hide()
+    chip.roleBtn = rb
     chip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     chip:RegisterForDrag("LeftButton")
     chip:SetScript("OnEnter", function(self)
@@ -143,13 +190,19 @@ end
 local function setChip(chip, m)
     chip.member = m
     chip.key = m and m.key or nil
-    chip.seat:SetShown(m == nil and chip.slot ~= nil and chip.grid.opts.isEditable())
+    local opts = chip.grid.opts
+    local editable = opts.isEditable()
+    chip.seat:SetShown(m == nil and chip.slot ~= nil and editable)
+    local mine = m ~= nil and not editable and opts.isMe ~= nil and opts.isMe(m.key) and true or false
+    chip.me:SetShown(mine)
+    chip.meBar:SetShown(mine)
     if not m then
         chip.cls:Hide()
         chip.spec:Hide()
+        chip.roleBtn:Hide()
         chip.fs:SetText("")
         chip.picked:Hide()
-        chip:EnableMouse(chip.slot ~= nil and chip.grid.opts.isEditable())
+        chip:EnableMouse(chip.slot ~= nil and editable)
         return
     end
     chip:EnableMouse(true)
@@ -163,6 +216,9 @@ local function setChip(chip, m)
     else
         chip.spec:Hide()
     end
+    local rb = chip.roleBtn
+    rb:SetShown(editable and opts.onRoleClick ~= nil and m.c ~= nil)
+    rb.unknown:SetShown(role == nil)
     chip.fs:SetText(UI():ColoredName(m.key, m.c))
     chip.fs:SetAlpha(m.dim and 0.55 or 1)
     chip.cls:SetAlpha(m.dim and 0.55 or 1)
@@ -230,7 +286,10 @@ Grid.__index = Grid
 --          stripParent = a frame for the raid-buff icons (no label; the grid starts with the groups),
 --          stripRoom() -> the width they may take there (optional),
 --          layout = "row" (optional: all groups side by side, the pool on their columns, the grid as tall as its
---                   content; the default is three columns with a scrolling pool under them) }
+--                   content; the default is three columns with a scrolling pool under them),
+--          isMe(key) -> bool (optional: my own chip is lit gold in a read-only grid),
+--          onRoleClick(key, button) (optional: editors click a chip's role icon, e.g. to pick the spec),
+--          poolEmpty() -> text (optional: the empty pool's line for editors) }
 function GroupsUI:CreateGrid(parent, opts)
     local grid = setmetatable({ opts = opts, boxes = {}, picked = nil }, Grid)
     local f = CreateFrame("Frame", nil, parent)
@@ -273,7 +332,7 @@ function GroupsUI:CreateGrid(parent, opts)
         box.rule:SetPoint("TOPRIGHT", -6, -HEADER_H + 2)
         local swap = CreateFrame("Button", nil, box)
         swap:SetSize(36, 14)
-        swap:SetPoint("LEFT", box.title, "RIGHT", 6, 0)
+        swap:SetPoint("LEFT", box.title, "RIGHT", 8, 0)
         swap.fs = swap:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         swap.fs:SetPoint("CENTER")
         local shl = swap:CreateTexture(nil, "HIGHLIGHT")
@@ -351,10 +410,12 @@ function GroupsUI:CreateGrid(parent, opts)
     pool.label = pool:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     pool.label:SetTextColor(0.62, 0.62, 0.62)
     pool.label:SetPoint("TOPLEFT", 8, -7)
+    pool.label:SetJustifyH("LEFT")
     if opts.layout == "row" then
         pool.chips = {}
         pool.empty = pool:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         pool.empty:SetPoint("TOPLEFT", 8, -26)
+        pool.empty:SetJustifyH("LEFT")
         pool.empty:SetText("Drop a player here to take them out of the groups.")
     else
         pool.list = UI():CreateScrollList(pool, CHIP_H + 2, function(row, d) grid:InitPoolRow(row, d) end)
@@ -473,8 +534,9 @@ function Grid:Refresh()
             end
             for s, chip in ipairs(box.chips) do setChip(chip, bySeat[s]) end
             box.countFs:SetText(#list .. "/" .. SLOTS)
+            -- (a group without players has nothing to swap; while a swap is picked every group takes it)
             local canSwap = self.opts.isEditable() and self.opts.onSwapGroups ~= nil
-            box.swap:SetShown(canSwap)
+            box.swap:SetShown(canSwap and (#list > 0 or self.swapFrom ~= nil))
             if self.swapFrom == g then
                 box.swap.fs:SetText("|cff33ff33cancel|r")
             elseif self.swapFrom then
@@ -550,6 +612,7 @@ function Grid:LayoutPoolRow(pool, n, bw, boxH)
         p.chips[i]:Hide()
         p.chips[i].member, p.chips[i].key = nil, nil
     end
+    p.empty:SetText(self.opts.poolEmpty and self.opts.poolEmpty() or "Drop a player here to take them out of the groups.")
     p.empty:SetShown(#pool == 0 and editable)
     self.height = top + (show and h or 0)
     self.frame:SetHeight(self.height)

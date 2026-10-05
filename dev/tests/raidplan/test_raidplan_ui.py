@@ -195,8 +195,10 @@ def teams_view_builds_a_team_members_read_only():
     w, c = world()
     bob, rita = c["Bob"], c["Rita"]
     open_tab(w, bob, "teams")
-    assert bob.find_text("Make a team with New team", True, True)
-    bob.click(bob.eval("return ns.RaidsUI:GetPanel().newTeamBtn"))
+    # no teams yet: one card says what a team is for, its New team is the only one (the toolbar's is hidden)
+    assert bob.find_text("No teams yet", True, True)
+    assert not shown(bob, "ns.RaidsUI:GetPanel().newTeamBtn")
+    bob.click(bob.eval("return ns.RaidsUI:GetPanel().teams.empty.newBtn"))
     w.tick(0.2)
     tv = "ns.RaidsUI:GetPanel().teams"
     bob.eval("%s.nameBox:SetText('Gruul team')" % tv)
@@ -205,12 +207,14 @@ def teams_view_builds_a_team_members_read_only():
     bob.eval("ns.RaidPlanUI:ToggleDraftMember(...)", K("Lee"))       # and removed again
     w.tick(0.3)
     assert bob.find_text("not saved", True, True)
-    assert bob.eval("return %s.detail.saveBtn:IsEnabled()" % tv) is True
+    assert shown(bob, "%s.detail.saveBtn" % tv) and bob.eval("return %s.detail.saveBtn:IsEnabled()" % tv) is True
     bob.click(bob.eval("return %s.detail.saveBtn" % tv))
     w.tick(2)
     tms = rita.eval_py("return ns.RaidPlan:GetTeams()")
     assert len(tms) == 1 and tms[0]["name"] == "Gruul team" and tms[0]["members"] == [K("Rita"), K("Sam")], tms
-    assert bob.eval("return %s.detail.saveBtn:IsEnabled()" % tv) is False
+    # saved: Undo / Save leave (nothing greyed out), the toolbar's New team is back
+    assert not shown(bob, "%s.detail.saveBtn" % tv) and not shown(bob, "%s.detail.revertBtn" % tv)
+    assert shown(bob, "ns.RaidsUI:GetPanel().newTeamBtn")
     open_tab(w, rita, "teams")
     assert rita.find_text("Gruul team", True, True)
     assert not shown(rita, "%s.detail.saveBtn" % tv) and not shown(rita, "%s.picker.frame" % tv)
