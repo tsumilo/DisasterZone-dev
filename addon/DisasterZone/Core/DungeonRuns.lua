@@ -401,6 +401,10 @@ end
 local myNeeds = { n = {}, h = {} }   -- [dkey] = { itemID, ... } (main picks first)
 local savedUntil = {}                -- [dkey] = server time a heroic lockout ends
 
+-- My not-obtained picks of the view phase and of the Pre-raid list (both specs) that drop in a dungeon. Hint order:
+-- the view phase's mains, its alts, then the Pre-raid mains and alts; the off spec after all of them in the same
+-- order. A Pre-raid pick stops counting once I hold the view phase's main pick of that slot (I'm past it), and
+-- when that slot is disabled in the view phase (it needs nothing this phase).
 local function ComputeNeeds()
     BuildData()
     local out = { n = {}, h = {} }
@@ -408,16 +412,26 @@ local function ComputeNeeds()
     if not BiS or not BiS.GetPhaseItems then return out end
     local g = G()
     local phase = (g and g.GetViewPhase and g:GetViewPhase()) or 1
+    local preRaid = ns.PRE_RAID or 0
+    local function Obtained(id) return (BiS.IsObtained and BiS:IsObtained(id)) and true or false end
     local wanted, order = {}, {}
     local lists = { false }
     if BiS.HasOffSpec and BiS:HasOffSpec() then lists[2] = "os" end
-    for _, list in ipairs(lists) do
-        for _, pick in ipairs(BiS:GetPhaseItems(phase, list or nil)) do
-            local id = pick.itemID
-            if id and not pick.disabled and not wanted[id] and not (BiS.IsObtained and BiS:IsObtained(id)) then
-                wanted[id] = true
-                local rank = (list and 2 or 0) + (pick.which == "main" and 0 or 1)
-                order[#order + 1] = { id = id, rank = rank, sid = pick.sid }
+    for li, list in ipairs(lists) do
+        local L = list or nil
+        for pass, p in ipairs({ phase, preRaid }) do
+            for _, pick in ipairs(BiS:GetPhaseItems(p, L)) do
+                local id = pick.itemID
+                local skip = pick.disabled or wanted[id] or Obtained(id)
+                if not skip and p == preRaid then
+                    local main = BiS.GetSlot and BiS:GetSlot(phase, pick.sid, L)
+                    skip = (main and Obtained(main)) or (BiS.IsSlotDisabled and BiS:IsSlotDisabled(phase, pick.sid, L))
+                end
+                if id and not skip then
+                    wanted[id] = true
+                    local rank = (li - 1) * 4 + (pass - 1) * 2 + (pick.which == "main" and 0 or 1)
+                    order[#order + 1] = { id = id, rank = rank, sid = pick.sid }
+                end
             end
         end
     end

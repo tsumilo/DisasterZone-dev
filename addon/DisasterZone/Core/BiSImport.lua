@@ -440,7 +440,8 @@ end
 -- Plan: fit the items into the slots
 ---------------------------------------------------------------------------
 
--- Every item on the bundled BiS lists of a spec (all phases): which tier set a token means for that spec.
+-- Every item on the bundled BiS lists of a spec (all phases, Pre-raid included): which tier set a token means for
+-- that spec.
 local specItemsCache = {}
 local function SpecItems(class, spec)
     if type(spec) ~= "string" or spec == "" then return nil end
@@ -449,7 +450,7 @@ local function SpecItems(class, spec)
     local loon, set = ns.Loon, false
     if loon and loon.IsAvailable and loon:IsAvailable() then
         set = {}
-        for phase = 1, ns.MAX_PHASE or 5 do
+        for _, phase in ipairs(ns.LIST_PHASES or { 1, 2, 3, 4, 5 }) do
             for _, e in pairs(loon:GetTemplate(class, spec, phase) or {}) do
                 if type(e) == "table" then
                     for _, id in ipairs(e) do set[tonumber(id) or 0] = true end

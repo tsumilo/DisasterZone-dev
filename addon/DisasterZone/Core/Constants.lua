@@ -122,15 +122,55 @@ ns.DOLL_BOTTOM = { 15, 16, 17 }
 -- Phases (§4.2)
 ---------------------------------------------------------------------------
 
+-- ns.PHASES are the raid phases (view phase, group phase, Settings, the council). My BiS lists also have a
+-- Pre-raid list (phase 0, ns.PRE_RAID): dungeons, reputation, crafting and badges. It is stored apart from the raid
+-- phases (data.pr / data.px, off spec data.opr / data.opx: released validators only accept ph / dx phases 1..5) and
+-- only its owner sees it (tooltips, My BiS, Atlas marks, the Dungeons tab); the council never does.
 ns.PHASES = { 1, 2, 3, 4, 5 }
 ns.MAX_PHASE = 5
+ns.PRE_RAID = 0
+ns.LIST_PHASES = { 0, 1, 2, 3, 4, 5 }   -- the phases of a My BiS list: Pre-raid, then the raid phases
 ns.PHASE_INFO = {
+    [0] = { short = "Pre-raid", name = "Pre-raid", raids = "Dungeons · Reputation · Crafting · Badges" },
     [1] = { short = "P1", name = "Phase 1", raids = "Karazhan · Gruul · Magtheridon" },
     [2] = { short = "P2", name = "Phase 2", raids = "Serpentshrine · Tempest Keep" },
     [3] = { short = "P3", name = "Phase 3", raids = "Hyjal · Black Temple" },
     [4] = { short = "P4", name = "Phase 4", raids = "Zul'Aman" },
     [5] = { short = "P5", name = "Phase 5", raids = "Sunwell Plateau" },
 }
+
+-- "Pre-raid" for phase 0, else "P<n>".
+function ns.PhaseLabel(p)
+    if p == 0 then return "Pre-raid" end
+    return "P" .. tostring(p)
+end
+
+-- The picks { [sid] = { main, alt } } of one phase of a ListData table (nil when it has none). p: 0 (Pre-raid) or
+-- 1..5; list "os" = the off-spec list (data may also be a ns.ListView, whose fields already are that list's).
+function ns.ListPhase(data, p, list)
+    if type(data) ~= "table" then return nil end
+    local t
+    if p == 0 then
+        t = (list == "os") and data.opr or data.pr
+    else
+        local ph = (list == "os") and data.op or data.ph
+        t = type(ph) == "table" and ph[p] or nil
+    end
+    return type(t) == "table" and t or nil
+end
+
+-- The disabled slots { [sid] = true } of one phase of a ListData table (nil when none); same arguments.
+function ns.ListDisabled(data, p, list)
+    if type(data) ~= "table" then return nil end
+    local t
+    if p == 0 then
+        t = (list == "os") and data.opx or data.px
+    else
+        local dx = (list == "os") and data.ox or data.dx
+        t = type(dx) == "table" and dx[p] or nil
+    end
+    return type(t) == "table" and t or nil
+end
 
 ---------------------------------------------------------------------------
 -- Classes, specs, roles (§4.3)
@@ -295,21 +335,23 @@ function ns.ReasonForTier(tier)
 end
 
 ---------------------------------------------------------------------------
--- Off-spec lists (Addendum H): data.os = label, data.op = phases, data.ox = disabled slots
+-- Off-spec lists (Addendum H): data.os = label, data.op = phases, data.ox = disabled slots (Pre-raid: opr / opx)
 ---------------------------------------------------------------------------
 
 -- The list data has an off spec.
 function ns.HasOffSpec(data)
-    return type(data) == "table" and (data.os ~= nil or data.op ~= nil or data.ox ~= nil) or false
+    return type(data) == "table" and (data.os ~= nil or data.op ~= nil or data.ox ~= nil or data.opr ~= nil
+        or data.opx ~= nil) or false
 end
 
--- A read-only view of one list of a ListData table, shaped like ListData ({ v, cl, sp, ph, dx, ob, eq }): list "os"
--- = the off-spec picks with the shared obtained / equipped state; anything else = data itself.
+-- A read-only view of one list of a ListData table, shaped like ListData ({ v, cl, sp, ph, dx, pr, px, ob, eq }):
+-- list "os" = the off-spec picks with the shared obtained / equipped state; anything else = data itself.
 function ns.ListView(data, list)
     if type(data) ~= "table" or list ~= "os" then return data end
     return {
         v = data.v, cl = data.cl, sp = type(data.os) == "string" and data.os or "",
         ph = type(data.op) == "table" and data.op or {}, dx = type(data.ox) == "table" and data.ox or nil,
+        pr = type(data.opr) == "table" and data.opr or nil, px = type(data.opx) == "table" and data.opx or nil,
         ob = data.ob, eq = data.eq, offSpec = true,
     }
 end

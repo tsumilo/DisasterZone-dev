@@ -5,8 +5,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Atlas.lua", ...) then return 
 -- for search (ns.Data.AtlasNames, English, so search works before the client has seen an item), where an item can be
 -- found, and the BiS targets of an item (a tier token resolves to my class's pieces) for "add to my BiS list".
 --
--- Tree: categories { key, name, sources = { { key, name, phase?, kind, pages = { { key, name, items, heroicItems?,
--- x? } } } } }. Item entries: positive = itemID, negative = -spellID (a craft that makes no item, e.g. an enchant),
+-- Tree: categories { key, name, sources = { { key, name, phase?, kind, size?, instanceID? (raids), pages = { { key,
+-- name, items, heroicItems?, x? } } } } }. Item entries: positive = itemID, negative = -spellID (a craft that makes no item, e.g. an enchant),
 -- string = a section header inside a page (the Sets pages). Sources / pages of the other faction are left out.
 local addonName, ns = ...
 
@@ -70,7 +70,7 @@ local function BuildRaids()
     local cat = { key = "raids", name = "Raids", sources = {} }
     for _, raid in ipairs(Data().Raids or {}) do
         local src = { key = raid.key, name = raid.name, phase = tonumber(raid.phase), kind = "raid", size = raid.size,
-                      pages = {} }
+                      instanceID = tonumber(raid.instanceID), pages = {} }
         for _, boss in ipairs(raid.bosses or {}) do
             if NonEmpty(boss.items) then
                 src.pages[#src.pages + 1] = { key = boss.key, name = boss.name, items = boss.items }
@@ -669,8 +669,8 @@ function Atlas:AddToBiS(itemID, sid, which, phase, list, later)
     return done
 end
 
--- itemID -> { main = { [phase] = true }, alt = { ... }, os = { ... } }: where my lists have each item. Tokens count
--- when a piece they give is listed.
+-- itemID -> { main = { [phase] = true }, alt = { ... }, os = { ... } }: where my lists have each item, the Pre-raid
+-- list as phase 0. Tokens count when a piece they give is listed.
 function Atlas:GetMyListMarks()
     local marks = {}
     local BiS = ns.BiS
@@ -687,7 +687,7 @@ function Atlas:GetMyListMarks()
     local lists = { { nil, false } }
     if BiS.HasOffSpec and BiS:HasOffSpec() then lists[2] = { "os", true } end
     for _, l in ipairs(lists) do
-        for p = 1, ns.MAX_PHASE or 5 do
+        for _, p in ipairs(ns.LIST_PHASES or { 1, 2, 3, 4, 5 }) do
             for _, pick in ipairs(BiS:GetPhaseItems(p, l[1]) or {}) do
                 local kind = l[2] and "os" or pick.which
                 mark(pick.itemID, kind, p)
@@ -713,14 +713,16 @@ function Atlas:GetMyListMarks()
     return marks
 end
 
--- "P2", "P2-5", "P1, P3" for a { [phase] = true } set.
+-- "P2", "P2-5", "P1, P3", "Pre-raid, P1-3" for a { [phase] = true } set (0 = the Pre-raid list).
 function Atlas:PhasesText(set)
     if type(set) ~= "table" then return "" end
     local list = {}
-    for p in pairs(set) do list[#list + 1] = p end
+    for p in pairs(set) do
+        if p ~= 0 then list[#list + 1] = p end
+    end
     table.sort(list)
-    if #list == 0 then return "" end
     local runs, i = {}, 1
+    if set[0] then runs[1] = ns.PhaseLabel and ns.PhaseLabel(0) or "Pre-raid" end
     while i <= #list do
         local j = i
         while j < #list and list[j + 1] == list[j] + 1 do j = j + 1 end

@@ -250,10 +250,10 @@ local function CopyTemplate(tpl)
     return out
 end
 
--- Returns { [sid] = {mainID, altID} } (0 = empty) for a spec and phase 1..5, or nil.
+-- Returns { [sid] = {mainID, altID} } (0 = empty) for a spec and phase 0..5 (0 = the guide's Pre-raid list), or nil.
 function Loon:GetTemplate(classFile, specLabel, phase)
     phase = tonumber(phase)
-    if not phase or phase < 1 or phase > (ns.MAX_PHASE or 5) or phase ~= math.floor(phase) then return nil end
+    if not phase or phase < 0 or phase > (ns.MAX_PHASE or 5) or phase ~= math.floor(phase) then return nil end
     local lists = Lists()
     local guide = GUIDES[classFile] and GUIDES[classFile][specLabel]
     local byPhase = lists and guide and lists[guide]

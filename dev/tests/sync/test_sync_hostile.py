@@ -224,6 +224,10 @@ MALFORMED_RAW = [
     ("CDLd", '__enc({ t = "L", r = 5, ts = 1, h = "00000000", d = (function() local d = { v = 1 } local cur = d for i = 1, 60 do cur.x = {} cur = cur.x end return d end)() })', "WHISPER"),
     ("CDLd", '__enc({ t = "L", r = 5, ts = 1, h = "00000000", d = { v = 1, ob = (function() local o = {} for i = 1, 5000 do o[i] = i end return o end)() } })', "WHISPER"),
     ("CDLd", '__enc({ t = "L", r = 2^53, ts = 1, h = "x", d = { v = 1 } })', "WHISPER"),
+    # malformed Pre-raid fields (pr / px / opr / opx), also with a hash that matches the data
+    ("CDLd", '__enc({ t = "L", r = 5, ts = 1, h = "00000000", d = { v = 1, pr = { [0] = { 1, 2 } }, px = "x", opr = { [1] = { {} } } } })', "WHISPER"),
+    ("CDLd", '(function() local d = { v = 1, cl = "ROGUE", sp = "", ph = {}, ob = {}, eq = {}, pr = { [99] = { 1, 0 } }, px = { [1] = 5 } } return __enc({ t = "L", r = 50, ts = 1, h = ns.Util.Hash(d), d = d }) end)()', "WHISPER"),
+    ("CDLd", '(function() local d = { v = 1, cl = "PALADIN", sp = "", ph = {}, ob = {}, eq = {}, opr = { [1] = { 1, 0, 3 } }, opx = { [2] = false } } return __enc({ t = "R", e = { { o = "Raider-Thunderstrike", r = 60, ts = 1, h = ns.Util.Hash(d), d = d } } }) end)()', "WHISPER"),
     ("CDLd", '__enc({ t = "L" })', "WHISPER"),
     ("CDLd", '__enc({ t = "R", e = "x" })', "WHISPER"),
     ("CDLd", '__enc({ t = "R", e = { 1, 2, { o = 5 }, { o = "Raider-Thunderstrike", r = "x" }, { o = "Raider-Thunderstrike", r = 5, h = "1", d = { v = "bad" } }, { o = "|cff", r = 1 } } })', "WHISPER"),

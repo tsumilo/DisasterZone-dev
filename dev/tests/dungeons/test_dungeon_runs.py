@@ -300,6 +300,84 @@ def what_stops_me_and_what_drops_my_bis():
     w.assert_no_errors()
 
 
+PICK_DUNGEON_LUA = r"""
+  local cls = ...
+  for _, d in ipairs(ns.Data.Dungeons) do
+    local n, ids = {}, {}
+    for _, boss in ipairs(d.bosses or {}) do
+      for _, id in ipairs(boss.items or {}) do
+        if not n[id] then n[id] = true ids[#ids + 1] = id end
+      end
+    end
+    table.sort(ids)
+    local bySid, sids = {}, {}
+    for _, id in ipairs(ids) do
+      if not ns.ItemDB:IsToken(id) then
+        for _, sid in ipairs(ns.ItemDB:GetSlotsForItem(id) or {}) do
+          if sid < 15 and not bySid[sid] and ns.ItemDB:IsUsableBy(id, cls, sid) then
+            bySid[sid] = id
+            sids[#sids + 1] = sid
+            break
+          end
+        end
+      end
+    end
+    if #sids >= 5 then
+      local out = { key = d.key, sids = {}, items = {}, other = {} }
+      for i = 1, 5 do
+        local sid = sids[i]
+        out.sids[i], out.items[i] = sid, bySid[sid]
+        for _, r in ipairs(ns.ItemDB:GetCandidates(sid, { class = cls, usableOnly = true })) do
+          if not n[r.itemID] and not ns.ItemDB:IsToken(r.itemID) then out.other[i] = r.itemID break end
+        end
+      end
+      return out
+    end
+  end
+"""
+
+
+@case
+def pre_raid_picks_count_and_stop_once_the_phase_pick_is_mine():
+    w, c = five()
+    a, b = c["Alfa"], c["Bert"]
+    p = a.eval_py(PICK_DUNGEON_LUA, "PRIEST")
+    assert p and all(p["other"]), p
+    d, s, it, ot = p["key"], p["sids"], p["items"], p["other"]
+
+    def drops():
+        a.eval("ns.DungeonRuns:ComputeNeeds()")
+        return a.eval_py("return ns.DungeonRuns:GetMyBiSDrops(...)", d, False) or []
+
+    def setp(phase, sid, which, item, lst=None):
+        assert a.eval("return ns.BiS:SetSlot(...)", phase, sid, which, item, lst) is True, (phase, sid, which, item)
+
+    assert b.eval_py("return (ns.DungeonRuns:GetNeeders(..., false))", d) == 0
+    # a Pre-raid pick alone: my hint, and the guild's count (nn)
+    setp(0, s[0], "main", it[0])
+    w.tick(5)
+    assert drops() == [it[0]]
+    assert b.eval_py("local n, who = ns.DungeonRuns:GetNeeders(..., false); return who", d) == [K(a)]
+    # order: this phase's mains, its alts, the Pre-raid mains, its alts, then the off spec
+    setp(1, s[1], "main", it[1])
+    setp(1, s[2], "main", ot[2])
+    setp(1, s[2], "alt", it[2])
+    setp(0, s[3], "main", ot[3])
+    setp(0, s[3], "alt", it[3])
+    assert a.eval("return ns.BiS:AddOffSpec('Shadow')") is True
+    setp(1, s[4], "main", it[4], "os")
+    assert drops() == [it[1], it[2], it[0], it[3], it[4]], drops()
+    # a Pre-raid pick stops counting once I hold that slot's pick of the phase I raid in ...
+    setp(1, s[0], "main", ot[0])
+    assert drops() == [it[1], it[2], it[0], it[3], it[4]]
+    a.eval("ns.BiS:SetManualObtained(..., true)", ot[0])
+    assert drops() == [it[1], it[2], it[3], it[4]], drops()
+    # ... and when that slot needs nothing in that phase (disabled)
+    assert a.eval("return ns.BiS:SetSlotDisabled(1, ...)", s[3], True) is True
+    assert drops() == [it[1], it[2], it[4]], drops()
+    w.assert_no_errors()
+
+
 @case
 def todays_daily_is_shared_and_mine_follows_my_quest_log():
     w, c = five()

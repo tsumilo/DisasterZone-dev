@@ -143,22 +143,28 @@ def every_edit_api_refuses_while_obtained_items_still_sync():
     w, c = world()
     rita, bob, lee = c["Rita"], c["Bob"], c["Lee"]
     head, chest, ring = cand(rita, 1), cand(rita, 5), cand(rita, 11)
-    lr.seed_bis(rita, [(1, 1, "main", head), (1, 5, "main", chest), (1, 1, "alt", cand(rita, 1, 2))])
+    lr.seed_bis(rita, [(1, 1, "main", head), (1, 5, "main", chest), (1, 1, "alt", cand(rita, 1, 2)),
+                       (0, 1, "main", head)])
     raid(w, c)
     w.tick(10)
     assert bob.eval("return ns.Store:GetCached(...) ~= nil", K("Rita"))
     lee.slash("/dz lock")
     w.tick(2)
-    h0 = rita.eval("return ns.Util.Hash({ ph = ns.BiS:GetData().ph, dx = ns.BiS:GetData().dx, sp = ns.BiS:GetData().sp })")
+    picks = "local d = ns.BiS:GetData() return ns.Util.Hash({ ph = d.ph, dx = d.dx, sp = d.sp, pr = d.pr, px = d.px })"
+    h0 = rita.eval(picks)
     n0 = len(rita.chat_frame)
     calls = ["ns.BiS:SetSlot(1, 2, 'main', %d)" % cand(rita, 2), "ns.BiS:SetSlot(1, 1, 'main', nil)",
              "ns.BiS:ClearSlot(1, 1)", "ns.BiS:SwapMainAlt(1, 1)", "ns.BiS:CopyPhase(1, 2, true)",
              "ns.BiS:CopyPhase(1, 2, false)", "ns.BiS:ApplyTemplate(2, { [11] = { %d } }, false)" % ring,
              "ns.BiS:ClearPhase(1)", "ns.BiS:SetSpec('Shadow')", "ns.BiS:SetSpec(nil)",
-             "ns.BiS:SetSlotDisabled(1, 1, true)", "ns.BiS:SetSlotDisabledAllPhases(1, true)"]
+             "ns.BiS:SetSlotDisabled(1, 1, true)", "ns.BiS:SetSlotDisabledAllPhases(1, true)",
+             # the Pre-raid list is frozen too
+             "ns.BiS:SetSlot(0, 2, 'main', %d)" % cand(rita, 2), "ns.BiS:CopyPhase(1, 0, false)",
+             "ns.BiS:CopyPhase(0, 1, true)", "ns.BiS:ApplyTemplate(0, { [11] = { %d } }, false)" % ring,
+             "ns.BiS:ClearPhase(0)", "ns.BiS:SetSlotDisabled(0, 1, true)", "ns.BiS:SetSlot(0, 1, 'main', %d, 'os')" % head]
     for code in calls:
         assert rita.eval("return " + code) is False, code
-    h1 = rita.eval("return ns.Util.Hash({ ph = ns.BiS:GetData().ph, dx = ns.BiS:GetData().dx, sp = ns.BiS:GetData().sp })")
+    h1 = rita.eval(picks)
     assert h1 == h0, "a refused call changed the list"
     assert rita.eval("return ns.BiS:IsDirty()") is False
     lines = said(rita, n0, "BiS lists are locked by Lee during the raid.")
@@ -204,16 +210,17 @@ def my_bis_banner_disabled_controls_and_picker_refusal():
     w.tick(2)
     assert rita.eval("return ns.Picker:IsOpen()") is False, "the picker stayed open when the lock started"
     assert rita.eval("return T_card().lockBanner:IsShown()") is True
-    assert "locked by Lee" in strip_codes(rita.eval("return T_card().lockBanner.title:GetText()"))
+    assert "locked by lee" in strip_codes(rita.eval("return T_card().lockBanner.title:GetText()")).lower()
     # the picker won't open (click, API)
     rita.click(tile_btn(rita, 2))
     assert rita.eval("return ns.Picker:IsOpen()") is False
     assert rita.eval("return ns.Picker:Open(1, 2, 'main')") is False
-    # tile menu: editing entries greyed, Mark obtained / Link still enabled
+    # tile menu: only what still works (no greyed entries), under one line that says why
     rita.click(tile_btn(rita, 1), "RightButton")
-    menu = {e[2]: e[3] for e in menu_texts(rita.last_menu()) if e[2]}
+    menu = {strip_codes(e[2]).strip(): e[3] for e in menu_texts(rita.last_menu()) if e[2]}
     for label in ("Choose main...", "Choose alt...", "Clear slot", "Disable slot (P1)", "Disable in all phases"):
-        assert menu.get(label) is False, (label, menu)
+        assert label not in menu, (label, menu)
+    assert "Locked by Lee" in menu, menu
     assert menu.get("Mark obtained") is True and menu.get("Link main in chat") is True, menu
     # tooltips mention the lock
     rita.eval("T_tile(3).main:GetScript('OnEnter')(T_tile(3).main)")
@@ -225,8 +232,8 @@ def my_bis_banner_disabled_controls_and_picker_refusal():
     # toolbar: More stays usable for Export; its Import and Clear phase are greyed out
     assert rita.eval("return T_mybis().moreBtn:IsEnabled()") in (True, 1)
     rita.click(rita.eval("return T_mybis().moreBtn"))
-    more = menu_labels(rita)
-    assert more.get("Import") is False and more.get("Clear P1") is False, more
+    more = {strip_codes(e[2]).strip(): e[3] for e in menu_texts(rita.last_menu()) if e[2]}
+    assert "Import" not in more and "Clear P1" not in more, more          # only what still works
     assert more.get("Export") is True, more
     # unlock: banner gone, controls back, the picker opens
     lee.eval("ns.GroupRules:SetLocked(false)")
@@ -299,6 +306,29 @@ def forged_edit_is_flagged_on_council_clients_and_views():
       end
       return o""")
     assert [x for x in st if x[0] == K("Rita") and "AlertNew" in x[1]], st
+    w.assert_no_errors()
+
+
+@case
+def pre_raid_change_during_the_lock_is_not_flagged():
+    """The council never sees the Pre-raid list, and the lock's picks hash leaves it out (so 1.3.0 and newer council
+    clients agree): a list that arrives during the lock with only Pre-raid changes is accepted and not flagged."""
+    w, c = world()
+    rita, bob, lee = c["Rita"], c["Bob"], c["Lee"]
+    lr.seed_bis(rita, [(1, 1, "main", cand(rita, 1)), (0, 2, "main", cand(rita, 2))])
+    raid(w, c)
+    w.tick(10)
+    lee.slash("/dz lock")
+    w.tick(FLAG_GAP)
+    n0 = len(bob.chat_frame)
+    rev0 = bob.eval("return ns.Store:GetCached(...).rev", K("Rita"))
+    forge(rita, "d.pr = { [2] = { %d, 0 }, [3] = { %d, 0 } }; d.px = { [4] = true }" % (cand(rita, 2, 2), cand(rita, 3)))
+    w.tick(10)
+    rec = bob.eval_py("local r = ns.Store:GetCached(...) return { r.rev, r.data.pr[3][1] }", K("Rita"))
+    assert rec[0] > rev0 and rec[1] == cand(rita, 3), rec
+    for n in ("Bob", "Gina", "Lee"):
+        assert flag(c[n], "Rita") is None, n
+    assert not said(bob, n0, "changed their BiS list"), printed_since(bob, n0)
     w.assert_no_errors()
 
 
@@ -512,8 +542,7 @@ def only_the_authority_can_lock_forged_party_and_malformed_gs():
         w.tick(0.3)
     assert lee.eval("return ns.SettingsUI.lockBtn:IsShown() and ns.SettingsUI.lockBtn:IsEnabled()") in (True, 1)
     assert lee.eval("return ns.SettingsUI.lockBtn:GetText()") == "Lock BiS lists"
-    assert rita.eval("return ns.SettingsUI.lockBtn:IsShown()") is True
-    assert rita.eval("return ns.SettingsUI.lockBtn:IsEnabled()") in (False, 0)
+    assert rita.eval("return ns.SettingsUI.lockBtn:IsShown()") is False, "no disabled button: the line says why"
     assert "raid leader only" in strip_codes(rita.eval("return ns.SettingsUI:LockStatusText()"))
     bob.slash("/dz council")
     lee.slash("/dz council")

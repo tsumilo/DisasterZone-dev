@@ -202,20 +202,35 @@ local function ValidString(s)
     return s == nil or (type(s) == "string" and #s <= MAX_STRING and not s:find("[%c|]"))
 end
 
+-- One phase's picks { [sid] = { main, alt } } (a phase of ph / op, or the Pre-raid pr / opr). Returns ok, err.
+local function ValidSlots(slots)
+    for sid, pair in pairs(slots) do
+        if not IsInt(sid, 1, NumSlots()) or type(pair) ~= "table" then return false, "bad slot" end
+        for k, id in pairs(pair) do
+            if (k ~= 1 and k ~= 2) or not IsInt(id, 0, MAX_ITEM_ID) then
+                return false, "bad slot item"
+            end
+        end
+    end
+    return true
+end
+
 -- A phases table (ph, or the off spec's op): { [phase] = { [sid] = { main, alt } } }. Returns ok, err.
 local function ValidPhases(ph)
     if ph == nil then return true end
     if type(ph) ~= "table" then return false, "bad phases" end
     for phase, slots in pairs(ph) do
         if not IsInt(phase, 1, MaxPhase()) or type(slots) ~= "table" then return false, "bad phase" end
-        for sid, pair in pairs(slots) do
-            if not IsInt(sid, 1, NumSlots()) or type(pair) ~= "table" then return false, "bad slot" end
-            for k, id in pairs(pair) do
-                if (k ~= 1 and k ~= 2) or not IsInt(id, 0, MAX_ITEM_ID) then
-                    return false, "bad slot item"
-                end
-            end
-        end
+        local ok, err = ValidSlots(slots)
+        if not ok then return false, err end
+    end
+    return true
+end
+
+-- One phase's disabled slots { [sid] = true } (a phase of dx / ox, or the Pre-raid px / opx). Returns ok, err.
+local function ValidDisabledSlots(slots)
+    for sid, v in pairs(slots) do
+        if not IsInt(sid, 1, NumSlots()) or v ~= true then return false, "bad disabled slot" end
     end
     return true
 end
@@ -226,9 +241,24 @@ local function ValidDisabled(dx)
     if type(dx) ~= "table" then return false, "bad disabled slots" end
     for phase, slots in pairs(dx) do
         if not IsInt(phase, 1, MaxPhase()) or type(slots) ~= "table" then return false, "bad disabled phase" end
-        for sid, v in pairs(slots) do
-            if not IsInt(sid, 1, NumSlots()) or v ~= true then return false, "bad disabled slot" end
-        end
+        local ok, err = ValidDisabledSlots(slots)
+        if not ok then return false, err end
+    end
+    return true
+end
+
+-- The Pre-raid list (pr / px, off spec opr / opx): flat, one phase's picks / disabled slots. Released clients' validators
+-- ignore these keys (and store, relay and restore them untouched: the hash covers them). Returns ok, err.
+local function ValidPreRaid(pr, px)
+    if pr ~= nil then
+        if type(pr) ~= "table" then return false, "bad picks" end
+        local ok, err = ValidSlots(pr)
+        if not ok then return false, err end
+    end
+    if px ~= nil then
+        if type(px) ~= "table" then return false, "bad disabled slots" end
+        local ok, err = ValidDisabledSlots(px)
+        if not ok then return false, err end
     end
     return true
 end
@@ -249,6 +279,12 @@ function Store:ValidateData(data)
     if not ok then return false, "off spec: " .. err end
     ok, err = ValidDisabled(data.ox)
     if not ok then return false, "off spec: " .. err end
+
+    -- Pre-raid (phase 0): flat pr / px, off spec opr / opx (DisasterZone 1.3.1).
+    ok, err = ValidPreRaid(data.pr, data.px)
+    if not ok then return false, "pre-raid: " .. err end
+    ok, err = ValidPreRaid(data.opr, data.opx)
+    if not ok then return false, "off spec pre-raid: " .. err end
 
     local ob = data.ob
     if ob ~= nil then
@@ -277,13 +313,19 @@ function Store:ValidateData(data)
 end
 
 -- Addendum F §36: the slot is disabled in that record's list. record = a record ({data=}), a list's data
--- table, or a player key. list (Addendum H): "os" = the off-spec list.
+-- table, or a player key. list (Addendum H): "os" = the off-spec list. phase 0 = the Pre-raid list (px / opx).
 function Store:IsSlotDisabled(record, phase, sid, list)
     if type(record) == "string" then record = Store:Get(record) end
     if type(record) ~= "table" then return false end
     local data = type(record.data) == "table" and record.data or record
-    local dx = (list == "os") and data.ox or data.dx
-    local p = type(dx) == "table" and dx[tonumber(phase) or 0]
+    phase = tonumber(phase)
+    local p
+    if phase == 0 then
+        p = (list == "os") and data.opx or data.px
+    else
+        local dx = (list == "os") and data.ox or data.dx
+        p = type(dx) == "table" and phase and dx[phase]
+    end
     return (type(p) == "table" and p[tonumber(sid) or 0] == true) and true or false
 end
 

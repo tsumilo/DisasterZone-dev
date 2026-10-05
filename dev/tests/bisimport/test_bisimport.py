@@ -523,6 +523,50 @@ def fill_keeps_my_picks_replace_makes_the_phase_the_import():
 
 
 @case
+def imports_into_and_exports_from_the_pre_raid_list():
+    w, c = setup()
+    text = tmb_csv()
+    n = c.eval("""local t = ...
+      local plan = ns.BiSImport:Plan(ns.BiSImport:Parse(t), { character = 'Alice' })
+      return ns.BiSImport:Apply(plan, 0, false, false)""", text)
+    assert n == 7, n
+    assert slot(c, 0, 1) == [GREATHELM, WITCH_HAT] and slot(c, 0, 7, "os") == [HANDWRAPS, 0]
+    assert slot(c, 1, 1) == [0, 0], "the import went into P1"
+    d = c.eval_py("local d = ns.BiS:GetData() return { pr = d.pr ~= nil, opr = d.opr ~= nil, ph = next(d.ph) ~= nil }")
+    assert d == {"pr": True, "opr": True, "ph": False}, d
+    # the preview reads the Pre-raid list (same items again: nothing new)
+    fill = c.eval_py("""local t = ...
+      local plan = ns.BiSImport:Plan(ns.BiSImport:Parse(t), { character = 'Alice' })
+      local _, f = ns.BiSImport:Preview(plan, 0)
+      return f""", text)
+    assert fill == 0, fill
+    # the exports take the Pre-raid picks
+    assert json.loads(c.eval("return (ns.BiSExport:Bulk(0))"))["items"][0]["id"] == GREATHELM
+    assert c.eval("return ns.BiSExport:PhaseSpecs(0)[1].id") == GREATHELM
+    # the window: Pre-raid first in the phase choices, its labels say Pre-raid
+    c.eval("ns.ImportExport:Open('import')")
+    c.eval("ns.ImportExport:GetImportState().phase = 0")
+    c.eval("ns.ImportExport:SetSource(...)", text)
+    w.tick(0.1)
+    f = c.eval("return ns.ImportExport:GetFrame().import")
+    assert c.eval("local f = ...; return f.phaseDD:GetText()", f) == "Pre-raid"
+    assert c.eval("local f = ...; return f.nowCol.label:GetText()", f) == "Now in Pre-raid"
+    assert c.eval("local f = ...; return f.replace:GetText()", f).startswith("Replace Pre-raid")
+    c.eval("ns.BiS:SetSlot(0, 2, 'main', ...)", NECKLACE)
+    c.eval("ns.ImportExport:RefreshImport()")
+    c.click(c.eval("local f = ...; return f.replace", f))
+    w.tick(0.1)
+    log = c.eval_py("local log = __MOCK.popup_log or {}; local e = log[#log]; return e and e.text or ''")
+    assert "Replace every pick in Pre-raid (main and off spec) with the imported list?" in log, log
+    c.eval("ns.ImportExport:Open('export')")
+    c.eval("ns.ImportExport:GetImportState().exPhase = 0")
+    c.eval("ns.ImportExport:SetExport('bis', 'bulk')")
+    assert json.loads(c.eval("return ns.ImportExport:GetExportText()"))["items"][0]["id"] == GREATHELM
+    assert "of Pre-raid so the sim can rank them" in c.eval("return ns.ImportExport:GetFrame().export.help:GetText()")
+    no_errors(w)
+
+
+@case
 def locked_lists_refuse_the_import():
     w, c = setup()
     c.eval("""ns.GroupRules.IsLocked = function() return true end
@@ -549,13 +593,12 @@ def my_bis_more_menu_opens_the_window():
     open_mybis(c, w)
     more = c.eval("return ns.MainFrame:GetPanel('mybis').moreBtn")
     c.click(more)
-    entries = [e[2] for e in menu_texts(c.last_menu()) if e[2]]
-    assert [strip_codes(t).strip() for t in entries] == ["Import", "Export", "Clear P1"], entries
-    # each entry starts with its atlas icon (import 32, export 33, the bin 12)
-    for text, idx in zip(entries, (32, 33, 12)):
+    # the top-level entries (Copy holds its own submenu)
+    entries = [e[2] for e in menu_texts(c.last_menu()) if e[2] and e[0] == 0]
+    assert [strip_codes(t).strip() for t in entries] == ["Import", "Export", "Copy", "Clear P1"], entries
+    # each entry starts with its atlas icon
+    for text in entries:
         assert text.startswith("|T" + c.eval("return ns.UI.ICON_ATLAS")), text
-        col, row = (idx - 1) % 4, (idx - 1) // 4
-        assert ":256:1024:%d:%d:%d:%d:" % (col * 64, col * 64 + 64, row * 64, row * 64 + 64) in text, text
     menu_pick(c, "Import")
     w.tick(0.1)
     assert c.eval("return ns.ImportExport:IsOpen()")

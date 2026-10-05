@@ -647,6 +647,37 @@ def phase_filter_applies_to_every_source():
 
 
 @case
+def pre_raid_list_filters_like_p1():
+    w, c = setup()
+    open_picker(c, 5)
+    set_sources(c, crafted=True, badges=True, pvp=True, rep=True)
+    p1 = sorted(r[2] for r in items(c))
+    c.eval("ns.Picker:Close()")
+    c.click(c.eval("return T_button(T_mybis(), 'Pre-raid')"))
+    open_picker(c, 5)
+    assert c.eval_py("return {ns.Picker:GetState()}")[0] == 0
+    assert c.eval("return DisasterZonePicker.titleText:GetText()") == "Choose Chest (Main)  ·  Pre-raid"
+    # the same items as on P1 (up to P1), and the filter's choices name P1
+    assert sorted(r[2] for r in items(c)) == p1
+    c.dropdown_menu(phase_dd(c))
+    labels = [e[2] for e in menu_texts(c.last_menu())]
+    assert labels == ["Up to P1", "Only P1", "All phases"], labels
+    c.menu_select("Only P1")
+    only1 = items(c)
+    assert only1 and all(r[7] == 1 for r in only1), sorted({(r[3], r[7]) for r in only1})
+    # a click puts the item into the Pre-raid list
+    item = only1[0][2]
+    c.eval("""local id = ...
+      for _, r in ipairs(T_rows(T_box(DisasterZonePicker))) do
+        local d = rawget(r, '__cdlData')
+        if d and d.type == 'item' and d.itemID == id then r:Click() return end
+      end""", item)
+    w.tick(0.1)
+    assert c.eval("return (ns.BiS:GetSlot(0, 5))") == item and c.eval("return (ns.BiS:GetSlot(1, 5))") is None
+    no_errors(w)
+
+
+@case
 def items_without_a_phase_count_as_p1_and_bad_data_is_skipped():
     w, c = solo("Alice", tick=2)
     w.define_item(190123, "Test Badge Helm", 4, "INVTYPE_HEAD", 4, 4, ilvl=115)

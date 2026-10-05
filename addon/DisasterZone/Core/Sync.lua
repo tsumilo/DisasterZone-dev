@@ -190,19 +190,28 @@ local function LedgerSync(sender, digest)
     end
 end
 
-local function HasAnyPicks(data)
-    local ph = type(data) == "table" and data.ph
-    if type(ph) ~= "table" then return false end
-    for _, slots in pairs(ph) do
-        if type(slots) == "table" then
-            for _, pair in pairs(slots) do
-                if type(pair) == "table" and ((tonumber(pair[1]) or 0) > 0 or (tonumber(pair[2]) or 0) > 0) then
-                    return true
-                end
-            end
+local function SlotsHavePicks(slots)
+    if type(slots) ~= "table" then return false end
+    for _, pair in pairs(slots) do
+        if type(pair) == "table" and ((tonumber(pair[1]) or 0) > 0 or (tonumber(pair[2]) or 0) > 0) then
+            return true
         end
     end
     return false
+end
+
+-- Any pick on my lists: every raid phase of both specs (ph / op) and the Pre-raid lists (pr / opr). A list with
+-- picks only there is not a fresh install, so a newer council copy asks before it replaces it.
+local function HasAnyPicks(data)
+    if type(data) ~= "table" then return false end
+    for _, ph in ipairs({ data.ph or false, data.op or false }) do
+        if type(ph) == "table" then
+            for _, slots in pairs(ph) do
+                if SlotsHavePicks(slots) then return true end
+            end
+        end
+    end
+    return SlotsHavePicks(data.pr) or SlotsHavePicks(data.opr)
 end
 
 -- Snapshot of my committed list in wire shape {r, ts, h, d}, or nil if there is nothing to send.
