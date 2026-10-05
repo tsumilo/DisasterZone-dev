@@ -1,13 +1,16 @@
 """The stand-in generator (dev/generators/gen_standins.py) and the stand-ins it ships for Magtheridon's room.
 
 Covers: the room file decodes as Render3D/Rooms.lua unpacks it (its size, every face's plane and the side the
-renderer draws it to); the offline z-buffer gives a face's exact depth per pixel and clips at the near plane; the
-triangle-box test; the generator runs end to end (fast settings, the largest regions) and what it makes keeps its
-promises on its own poses; the shipped file (Render3D/Standins/MagtheridonsLair_Magtheridon.lua) has the data
-contract's shape as Lua itself reads it (line 1 guard, version 1, prims, n, stride 12, 12 finite numbers per
-stand-in, yaw only, unit normals, sizes in range, a size under 300 KB), every stand-in lies behind its face (the
-side the face is seen from) and keeps clear of every room face, and on a few poses (the first view, a low orbit, the
-top view, inside, walking, eye level) it hides nothing the room does not: over-occlusion 0 after the 1-pixel erosion.
+renderer draws it to: its BSP node's plane, not its own winding); the offline z-buffer gives a face's exact depth per
+pixel and clips at the near plane; the triangle-box test; where the board's camera can stand; the generator runs end
+to end (fast settings, the largest regions) and what it makes keeps its promises on its own poses and on held-out
+board poses; the shipped file (Render3D/Standins/MagtheridonsLair_Magtheridon.lua) has the data contract's shape as
+Lua itself reads it (line 1 guard, version 1, prims, the room file it was made for, n, stride 12, 12 finite numbers
+per stand-in, yaw only, unit normals, sizes in range, a size under 300 KB), every stand-in lies behind its face (the
+side the face is seen from) and keeps clear of every room face, none lies on a line of sight past an open edge (the
+panels' and the lintel's undersides), and it hides nothing the room does not: over-occlusion 0 after the 1-pixel
+erosion on a few poses (the first view, a low orbit, the top view, inside, walking, eye level) and on the poses a
+review found faults at, and none where a model could be on a spread of board poses over the camera's whole range.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_standins_gen.py [-k name]
 """
@@ -57,7 +60,8 @@ def shipped():
     rec = rs[KEY]
     data = [rec.data[i + 1] for i in range(len(rec.data))]
     prim = rec.prims[1]
-    return src, dict(version=rec.version, n=rec.n, stride=rec.stride, data=data,
+    room_ = dict(size=rec.room.size, verts=rec.room.verts, tris=rec.room.tris) if rec.room else None
+    return src, dict(version=rec.version, n=rec.n, stride=rec.stride, data=data, room=room_,
                      prim=dict(fid=prim.fid, kind=prim.kind, half=prim.half), nprims=len(rec.prims))
 
 
@@ -86,13 +90,30 @@ def test_room_decodes_as_the_renderer_draws_it():
     assert r.V.shape[1] == 3 and len(r.T) == len(r.blend) and r.T.min() == 0 and r.T.max() < len(r.V)
     assert set(r.blend) <= {"D", "A", "B"}
     assert np.allclose(np.linalg.norm(r.N[r.area > 1e-9], axis=1), 1.0)
-    # every face's plane holds its corners, and the side it is drawn to is its winding's (Room.lua's QO): a camera
-    # 1 yd out along N sees the face, one 1 yd behind does not
+    # every face's plane holds its corners; the side it is drawn to is Render3D/Room.lua's: its BSP node's plane
+    # times QO (+1 / -1 its prim's winding against that plane), which leans the winding's way: a camera 1 yd out
+    # along it sees the face, one 1 yd behind does not
     P = r.V[r.T]
     assert np.abs(np.einsum("ij,ikj->ik", r.N, P) - r.d[:, None]).max() < 1e-6
+    assert (r.node_of >= 0).all() and set(np.unique(r.QO).tolist()) <= {-1, 0, 1}
+    F = r.QO[:, None] * r.NP
+    o = r.opaque
+    assert (np.einsum("ij,ij->i", F[o], r.N[o]) > 0).all()
     k = int(np.argmax(r.area))
     ctr = P[k].mean(0)
-    assert r.N[k] @ (ctr + r.N[k]) - r.d[k] > 0 and r.N[k] @ (ctr - r.N[k]) - r.d[k] < 0
+    assert G.drawn(r, ctr + F[k])[k] and not G.drawn(r, ctr - F[k])[k]
+    # ... but many lean off it (slivers by up to ~90 degrees): there a camera in front of the face's own plane can
+    # be behind its node's, and the renderer does not draw it
+    cos = np.einsum("ij,ij->i", F, r.N)
+    assert (o & (cos < math.cos(math.radians(0.5)))).sum() > 1000
+    k = int(np.argmin(np.where(o & (r.area > 1e-3), cos, 2.0)))
+    a = math.acos(min(1.0, cos[k]))
+    assert a > math.radians(20), math.degrees(a)
+    ctr = P[k].mean(0)
+    w = (r.N[k] - cos[k] * F[k]) / math.sin(a)
+    q = r.QO[k] * (r.NP[k] @ ctr + r.NPd[k])
+    cam = ctr + (2 * (abs(q) + 0.05) / math.tan(a) + 0.1) * w - (q + 0.05) * F[k]
+    assert r.N[k] @ cam - r.d[k] > 0 and not G.drawn(r, cam)[k]
     # the boss' floor is at height 0 under the boss
     view, spot = G.room_view(KEY)
     assert abs(G.floor_at(r, spot[0], spot[1])) < 0.5
@@ -134,12 +155,56 @@ def test_triangle_box_overlap():
 
 
 @case
+def test_where_the_board_camera_can_stand():
+    r = room()
+    view, _ = G.room_view(KEY)
+    dom = G.CamDomain(r, view)
+    # over the boss' floor: down to 0.63 yd under it (pitch -0.5 under 3 yd out, the point looked at lifted less)
+    low = float(dom.low(np.array([view[0], view[1], 0.0])))
+    assert -0.75 < low < -0.6, low
+    # 100 yd past the box the point looked at stays in (the room and 30 yd round it): pitch 0.12 at least, 12 yd up
+    # (the grid's bound is a little lower, never higher: it takes 80 yd's)
+    far = float(dom.low(np.array([r.w + 130.0, view[1], 0.0])))
+    assert 80 * math.tan(G.PITCH_MIN) - 0.5 < far <= 100 * math.tan(G.PITCH_MIN), far
+    # the board poses stand there, and so do the review's
+    cams = G.board_poses(r, view, seed=5, n_orbit=40, n_low=20, n_close=20, n_walk=8, W=64, H=48)
+    for cam in cams + G.review_poses(64, 48):
+        assert cam.C[2] >= float(dom.low(cam.C)) - 1e-6, (cam.name, cam.C)
+
+
+@case
+def test_open_lines_see_the_panels_and_no_shipped_standin_lies_on_one():
+    # the hanging panels (regions 165, 164) and the lintel over the passage (29): open below, air behind; a low
+    # camera in front sees up under them (the review's b-close86, b-close104, the lintel cameras)
+    r = room()
+    view, _ = G.room_view(KEY)
+    regs = [g for g in G.planar_regions(r) if g.id in (165, 164, 29, 11) and G.prepare_region(r, g)]
+    assert len(regs) == 4
+    lines = G.open_lines(r, regs, G.FaceIndex(r), G.CamDomain(r, view))
+    per = {regs[i].id for i in np.unique(lines["reg"])}
+    assert {165, 164, 29} <= per, (per, lines["counts"])
+    # every line's camera stands out in front of its face, and the line comes out of the face's plane
+    for i in range(0, len(lines["reg"]), 997):
+        g = regs[lines["reg"][i]]
+        assert lines["C"][i] @ g.n - (g.d + g.dlo) >= G.HGUARD - 1e-6
+        assert abs(lines["P0"][i] @ g.n - g.d) < 0.2
+    _, rec = shipped()
+    arr, _ = arrays(rec["data"])
+    assert not G.on_lines(lines, arr)
+
+
+@case
 def test_generator_runs_and_keeps_its_promises():
     logs = []
     b = G.build(KEY, fast=True, limit=6, log=logs.append)
     assert b["cubes"], logs
     assert b["train"]["over_eroded"] == 0, b["train"]
     assert b["train"]["coverage_any"] > 0.2, b["train"]
+    # the board poses: placed against (harm only) and held out
+    assert b["btrain"]["over_air"] == 0 and b["board"]["over_air"] == 0, (b["btrain"], b["board"])
+    for r_ in b["res_review"]:
+        assert r_["over_air"] == 0 and (r_["need"] == "air" or r_["over_eroded"] == 0), r_
+    assert b["lines"]["counts"]["lines"] > 0
     text = G.lua_text(KEY, b["cubes"])
     assert text.startswith('if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Standins/%s.lua", ...) then '
                            'return end -- DisasterZone Render3D/Standins/%s.lua\n' % (KEY, KEY))
@@ -168,6 +233,8 @@ def test_shipped_file_has_the_contract_shape():
     assert len(src.encode("utf-8")) < 300_000, len(src)
     assert rec["version"] == 1 and rec["stride"] == 12 and rec["nprims"] == 1
     assert rec["prim"] == dict(fid=167145, kind="cube", half=0.5), rec["prim"]
+    # made for the room file shipped next to it (made for another build of the room it would hide the wrong things)
+    assert rec["room"] == G.room_stamp(KEY, room()), (rec["room"], G.room_stamp(KEY, room()))
     n = rec["n"]
     assert n > 100 and len(rec["data"]) == 12 * n, (n, len(rec["data"]))
     a = np.array(rec["data"], float).reshape(-1, 12)
@@ -230,6 +297,37 @@ def test_shipped_standins_hide_nothing_the_room_does_not():
         if res["over_eroded"]:
             bad.append((cam.name, res["over_eroded"]))
         assert res["drawn"] > 0
+    assert not bad, bad
+
+
+@case
+def test_shipped_standins_on_the_review_poses():
+    # the poses a review of the first shipped set found over-occlusion at, by the runtime's rule with the near clip
+    # (shown()): none at all, or - where the camera stands within the near clip of a face (the runtime's known
+    # limit) or looks under the floor past its cut edge - none where a model could be
+    _, rec = shipped()
+    arr, _ = arrays(rec["data"])
+    r = room()
+    bad = []
+    for cam in G.review_poses(960, 640):
+        res, _, _ = G.measure(r, cam, arr)
+        if res["over_air"] or (cam.need == "all" and res["over_eroded"]):
+            bad.append((cam.name, res["over_eroded"], res["over_air"]))
+    assert not bad, bad
+
+
+@case
+def test_shipped_standins_on_board_poses():
+    # a spread of the generator's held-out board poses (every 12th): nothing hidden where a model could be
+    _, rec = shipped()
+    arr, _ = arrays(rec["data"])
+    r = room()
+    view, _ = G.room_view(KEY)
+    bad = []
+    for cam in G.board_poses(r, view, W=960, H=640, tag="b", **G.BOARD_CHECK)[::12]:
+        res, _, _ = G.measure(r, cam, arr)
+        if res["over_air"]:
+            bad.append((cam.name, res["over_eroded"], res["over_air"]))
     assert not bad, bad
 
 

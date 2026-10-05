@@ -19,9 +19,12 @@ on every page and outside the window, the measuring scene too), the other captio
 the bar under the page, each page remembering its tile; the flag tiles flag exactly the scenes their captions name
 (lower, upper, both, an empty middle scene, one with a cube aside, one only a corner square); the alpha page tests
 each alpha in a lower scene and in your own; tile 14 keeps its teal frame (left half) between the scenes inside the
-clipping frame and tile 42 outside it; tile 38 frames every candidate corner and outlines one order at a time; the
-flat-model page shows each stand-in candidate turned about one axis with its outline and records the client's box;
-and every FileDataID the probe hands SetModelByFileID is an M2 file of the installed client.
+clipping frame and tile 42 outside it; tile 38 frames every candidate corner and outlines one order at a time, its
+dots on its own scene, every wrong order missing a visible corner by about 40 px in the tile's own view; the
+flat-model page is built only when its tab is opened (the run loads none of its stock models), shows each stand-in
+candidate turned about one axis with its outline (52 from below), the stand-ins with 59's control at 51's scale, and
+records the client's box 2 and 6 s after it was built; and every FileDataID the probe hands SetModelByFileID is an M2
+file of the installed client, each candidate passing find_flat_prims.py but the two controls.
 
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_probe.py [-k name]
 """
@@ -520,12 +523,12 @@ def every_page_builds_and_the_cost_buttons_record_their_numbers():
         w.tick(0.2)
         counts[i] = c.eval("return #ns.Render3D.Probe.pages[...].tiles", i)
         assert c.eval("return ns.Render3D.Probe.pages[...]:IsShown()", i) is True
-    assert counts == {1: 8, 2: 12, 3: 12, 4: 8, 5: 9, 6: 10, 7: 0}, counts
+    assert counts == {1: 8, 2: 12, 3: 12, 4: 8, 5: 9, 6: 11, 7: 0}, counts
     assert res_errors(c) == [], res_errors(c)
-    # the tiles are numbered 1-60 without gaps but 41 (the cost page); round 2's numbers kept their meaning
+    # the tiles are numbered 1-61 without gaps but 41 (the cost page); round 2's numbers kept their meaning
     nums = c.eval_py("local out = {} for _, pg in ipairs(ns.Render3D.Probe.pages) do "
                      "for _, t in ipairs(pg.tiles) do out[#out + 1] = t.n end end return out")
-    assert sorted(nums) == [n for n in range(1, 61) if n != 41], nums
+    assert sorted(nums) == [n for n in range(1, 62) if n != 41], nums
     # page 1: the loose table in two columns
     cols = c.eval_py("local out = {} for i, col in ipairs(ns.Render3D.Probe.looseCols) do "
                      "out[i] = col.fs:GetText() end return out")
@@ -632,7 +635,8 @@ def the_flag_and_alpha_pages_open_in_solo_and_show_one_tiles_scenes_only():
     c.eval(P + ".SetPage(2)")
     w.tick(0.2)
     on2 = c.eval_py(shown)
-    assert sorted(set(on2)) == [0] + [n for n in range(1, 61) if n != 41] and on2.count(18) == 2, on2
+    # (not page 6's 51-61: that page is built only when its tab is opened)
+    assert sorted(set(on2)) == [0] + [n for n in range(1, 51) if n != 41] and on2.count(18) == 2, on2
     assert c.eval(outer) is True
     assert c.eval("return %s.label:GetText()" % bar) == "All 12 tiles shown"
     c.eval(P + ".SetPage(3)")
@@ -738,15 +742,26 @@ def the_flat_model_page_shows_each_candidate_turned_about_one_axis_with_its_outl
     w, c = boot()
     c.slash("/dz 3d probe safe")
     w.tick(7)
+    # the run itself never builds page 6: its stock models load only when its tab is opened (a crash there is pinned
+    # on that page, and the other pages stay usable)
+    assert c.eval("return ns.Render3D.Probe.pages[6].built") is None
+    asked = c.eval_py("local out = {} for k in pairs(__PROBE_FIDS) do out[#out + 1] = k end return out") or []
+    assert {int(k) for k in asked} == {CUBE}, asked
+    assert "prims" not in state(c)["results"], state(c)["results"].get("prims")
     c.eval("ns.Render3D.Probe.SetPage(6)")
     w.tick(0.6)
     tiles = c.eval_py("local out = {} for _, t in ipairs(ns.Render3D.Probe.pages[6].tiles) do "
                       "out[#out + 1] = { t.n, t.wired or 0, t.dots and t.dots[1] and t.dots[1]:IsShown() or false } "
                       "end return out")
-    assert [t[0] for t in tiles] == list(range(51, 61)), tiles
+    assert [t[0] for t in tiles] == list(range(51, 62)), tiles
     # the outline: 4 lines for a flat model, 12 for a box, 4 for the stand-ins' quads; the red origin dot
-    assert [t[1] for t in tiles] == [4, 4, 4, 4, 4, 4, 12, 12, 4, 4], tiles
+    assert [t[1] for t in tiles] == [4, 4, 4, 4, 4, 4, 12, 12, 4, 4, 4], tiles
     assert all(t[2] for t in tiles[:8]), tiles
+    # 51 sees the downward-winding quad from above (the two-sided check), 52 from below: its front, so its
+    # header-box answer does not hang on the two-sided flag
+    cams = c.eval_py("local out = {} for i = 1, 2 do out[i] = ns.Render3D.Probe.pages[6].tiles[i].scenes[1].probeCam "
+                     "end return out")
+    assert cams[0][2] > cams[0][5] and cams[1][2] < cams[1][5], cams
     # each candidate by its file ID, scaled so its longest side is 2.4 yd, SetYaw(30 deg) only
     boxes = {198111: 109.1222, 198110: 109.1222, 653518: 48.9308, 1396283: 63.8288, 200893: 1.6827,
              219357: 2.7778, 203154: 3.9398}
@@ -758,18 +773,22 @@ def the_flat_model_page_shows_each_candidate_turned_about_one_axis_with_its_outl
         assert loaded == fid and abs(scale - 2.4 / boxes[fid]) < 1e-4, (key, fid, loaded, scale)
         assert abs(yaw - math.radians(30)) < 1e-9 and pitch == 0, (key, yaw, pitch)
     # the stand-ins: 198111 stood up by SetPitch(90 deg), 653518 turned by SetYaw(180 deg), in the lower scene
-    turns = c.eval_py("local out = {} for i = 9, 10 do local t = ns.Render3D.Probe.pages[6].tiles[i] "
+    turns = c.eval_py("local out = {} for i = 9, 11 do local t = ns.Render3D.Probe.pages[6].tiles[i] "
                       "out[#out + 1] = t.data:GetText() end return out")
-    # (sized to you: 0.45 of your 1.7 yd seen at 0.68 of the way to you, over the turned quad's height; the scale shown)
+    # (sized to you: 0.45 of your 1.7 yd seen at 0.68 of the way to you, over the turned quad's height; the scale
+    # shown; 61, the control for 59, at 51's scale instead)
     s59, s60 = 0.45 * ME_HEIGHT * 0.68 / 89.6895, 0.45 * ME_HEIGHT * 0.68 / 32.9853
     assert turns == ["198111: SetPitch 90, scale %.4f" % s59,
-                     "653518: SetYaw 180, scale %.4f" % s60], turns
+                     "653518: SetYaw 180, scale %.4f" % s60,
+                     "198111: SetPitch 90, scale %.4f" % (2.4 / 109.1222)], turns
     st = c.eval_py("local out = {} for _, a in ipairs(__MOCK.mock_actors) do "
                    "if a.fileID == 198111 and a.pitch then out[#out + 1] = a.pitch end "
                    "if a.fileID == 653518 and a.yaw and math.abs(a.yaw - math.pi) < 1e-9 then out[#out + 1] = -1 end "
                    "end return out")
-    assert sorted(st) == [-1, math.pi / 2], st
-    # what the client said of each (2 s and 6 s after the start), for the summary and the saved results
+    assert sorted(st) == [-1, math.pi / 2, math.pi / 2], st
+    # what the client said of each (2 s and 6 s after the page was built), for the summary and the saved results
+    assert "prims" not in state(c)["results"]
+    w.tick(6)
     res = state(c)["results"]
     assert sorted(res["prims"]) == [str(n) for n in range(51, 59)], res["prims"]
     assert res["prims"]["53"]["fid"] == 653518 and res["prims"]["53"]["loaded"] is False, res["prims"]["53"]
@@ -805,18 +824,88 @@ def every_file_id_the_probe_loads_is_a_model_file_of_the_installed_client():
     for fid in sorted(asked):
         data = casc_local.read_fid(fid)
         assert data[:4] in (b"MD21", b"MD20"), (fid, data[:4])
-    # each candidate still passes find_flat_prims.py (198110 is the header-box control: only that refused), and the
-    # mesh box page 6 draws its outline from is the scanner's
+    # each candidate still passes find_flat_prims.py (but the two controls: 198110's header box, 200893's projected
+    # texture batch), and the mesh box page 6 draws its outline from is the scanner's
     import find_flat_prims
     boxes = {int(f): [float(x) for x in b.split(",")]
              for f, b in re.findall(r"fid = (\d+), box = \{([^}]*)\}", src)}
     for fid in sorted(PRIM_FIDS):
         r = find_flat_prims.analyse(fid)
-        want = ["header box off the mesh by 17.059"] if fid == 198110 else []
+        want = {198110: ["header box off the mesh by 17.059"],
+                200893: ["projected texture batch (flags 0x14)"]}.get(fid, [])
         assert r.get("kind") in ("flat", "box") and r["why"] == want, (fid, r["why"])
+        # (tile 56's text: of page 6's candidates only G_Blanket's batch differs - the projected flag, and the
+        # alpha key's shader 0x10)
+        batch = (["0x14"], ["0x10"]) if fid == 200893 else (["0x10"], ["0x0"])
+        assert (r["batchFlags"], r["shaders"]) == batch, (fid, r["batchFlags"], r["shaders"])
         if fid in boxes:
             assert max(abs(a - b) for a, b in zip(boxes[fid], r["mesh"])) < 1e-3, (fid, boxes[fid], r["mesh"])
     assert len(boxes) == len(PRIM_FIDS) - 1, sorted(boxes)          # (198110 shares 198111's box)
+    no_errors(w)
+
+
+@case
+def tile_38s_orders_miss_a_visible_corner_by_40_px_in_its_own_view():
+    # whichever order is the true one, every wrong order has no dot within about 40 px of some visible corner of the
+    # true cube - measured on the dots as drawn, with the tile's own perspective camera (Probe.lua's TURN; the first
+    # pick only kept its margin seen from far away)
+    w, c = boot()
+    c.slash("/dz 3d probe safe")
+    w.tick(7)
+    c.eval("ns.Render3D.Probe.SetPage(5)")
+    w.tick(0.6)
+    # (the mock does not size a frame from two anchors: the tile's area and scene get the layout's size, 454 x 276,
+    # and the tile draws again - Fit backs the camera off with the mock's pinhole projection, a horizontal lens)
+    got = c.eval_py("local t = ns.Render3D.Probe.pages[5].tiles[7] local sc = t.scenes[1] "
+                    "t.area:SetWidth(t.f:GetWidth()) sc:SetSize(t.f:GetWidth(), t.area:GetHeight()) t.draw() "
+                    "local out = { n = t.n, cam = sc.probeCam, dist = sc.probeDist, w = sc:GetWidth(), "
+                    "h = sc:GetHeight(), dots = {}, own = 0 } for i, d in ipairs(t.dots) do "
+                    "local _, rel, _, x, y = d:GetPoint(1) out.dots[i] = { x, y } "
+                    "if rel == sc then out.own = out.own + 1 end end return out")
+    assert got["n"] == 38 and (got["w"], got["h"]) == (454, 276), got
+    # every dot on tile 38's own scene (BuildParticles once reused that local for tile 40), inside it, the camera
+    # backed off past the first guess
+    assert got["own"] == 48, got["own"]
+    assert all(0 < x < got["w"] and 0 < y < got["h"] for x, y in got["dots"]), got["dots"]
+    assert got["dist"] > 6.5, got["dist"]
+    src = open(os.path.join(harness.ADDON_DIR, "Render3D", "Probe.lua"), encoding="utf-8").read()
+    body = re.search(r"local TURN = \{([^}]*)\}", src).group(1)
+    ang = {k: math.radians(float(v)) for k, v in re.findall(r"(\w) = (\d+)", body)}
+
+    def axis(k, a):
+        co, si = math.cos(a), math.sin(a)
+        return {"y": [[co, -si, 0], [si, co, 0], [0, 0, 1]], "p": [[co, 0, si], [0, 1, 0], [-si, 0, co]],
+                "r": [[1, 0, 0], [0, co, -si], [0, si, co]]}[k]
+
+    def mul(a, b):
+        return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+    def apply(m, v):
+        return [sum(m[i][k] * v[k] for k in range(3)) for i in range(3)]
+
+    orders = ["ypr", "yrp", "pyr", "pry", "ryp", "rpy"]                 # (Probe.lua's ORDERS, in its order)
+    corners = [[1 if i % 2 else -1, 1 if (i // 2) % 2 else -1, 1 if i // 4 else -1] for i in range(8)]
+    cam = got["cam"][:3]
+    dots = got["dots"]
+    assert len(dots) == 48, len(dots)
+    worst = None
+    for k, true in enumerate(orders):
+        m = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        for ch in true:
+            m = mul(m, axis(ch, ang[ch]))
+        # the true cube's visible corners: those of a face turned towards the camera (a 2 yd cube: centre = normal)
+        seen = set()
+        for ax in range(3):
+            for sd in (-1, 1):
+                n = apply(m, [sd if i == ax else 0 for i in range(3)])
+                if sum(n[i] * (cam[i] - n[i]) for i in range(3)) > 0:
+                    seen |= {j for j, cc in enumerate(corners) if cc[ax] == sd}
+        for kw in range(len(orders)):
+            if kw == k:
+                continue
+            gap = max(min(math.dist(dots[k * 8 + j], dots[kw * 8 + q]) for q in range(8)) for j in seen)
+            worst = gap if worst is None else min(worst, gap)
+    assert worst >= 38, worst
     no_errors(w)
 
 

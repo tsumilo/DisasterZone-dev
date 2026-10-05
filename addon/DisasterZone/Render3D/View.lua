@@ -108,7 +108,8 @@ function View:Backdrop()
 end
 
 -- The stand-in scene (Render3D/Standins.lua), made when first asked for: a ModelScene under everything else of the
--- view (lv.standin, default the view's own level) for cubes standing just behind the room's surfaces, and an opaque
+-- view (lv.standin, default the view's own level; the strategy board gives it one of its own under lv.floor, so it
+-- is never level with the floor frame) for cubes standing just behind the room's surfaces, and an opaque
 -- backdrop in the view's background colour at the bottom of the floor frame, over the scene and under every room
 -- piece. All of the client's ModelScenes share one depth buffer, and an opaque UI texture drawn between two scenes
 -- leaves it as it is (seen in game 2026-10-05): the cubes are never seen, yet every model of the scenes above is cut

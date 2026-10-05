@@ -8,7 +8,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Probe.lua", ...) then ret
 -- Round 3 (2026-10-05): every scene shares one depth buffer, and a scene with SetAllowOverlappedModels(true) seemed to
 -- clear it for the other tiles of its page. So the flag and alpha pages start in solo: the bar under the page steps
 -- through their tiles and only the chosen tile's scenes are shown (every other scene of the probe hidden). Page 6
--- shows the stock models dev/generators/find_flat_prims.py found as flat or box stand-ins.
+-- shows the stock models dev/generators/find_flat_prims.py found as flat or box stand-ins; it is built (its models
+-- loaded) only when its tab is opened, so a crash there is pinned on that page and every other page stays usable.
 --
 -- The crash guard: a malformed loose .m2 may crash the client, and saved variables reach the disk only on a reload or
 -- a logout. "/dz 3d probe" saves probe3d.pending = "armed" and reloads; that reload (PLAYER_ENTERING_WORLD says it is
@@ -80,8 +81,9 @@ local ORIGIN = { 0, 0, 0 }
 -- opaque (one alpha-keyed for comparison), depth test and write on, no billboard or moving bone, header box on the
 -- mesh, 4 vertices (flat) or one box. Each ID was read from the installed client and starts with 'MD21': an ID that is
 -- not a model can crash the client in SetModelByFileID (WoWUIBugs #67), so only IDs from that report go here (the
--- probe's test checks them against the client's files). box = the drawn mesh in model units (min x, y, z, max x, y, z;
--- a flat one has no thickness on one axis).
+-- probe's test checks them against the client's files). Two are kept as controls although the scan refuses them:
+-- 198110 (its header box) and 200893 (a projected-texture batch, refused since it was picked). box = the drawn mesh
+-- in model units (min x, y, z, max x, y, z; a flat one has no thickness on one axis).
 local ROOF = { fid = 198111, box = { -44.8464, -54.5491, 17.0593, 44.8431, 54.5731, 17.0593 } }   -- two-sided
 local ROOF_HDR = { fid = 198110, box = ROOF.box }          -- the same quad, its header box reaching down to z 0
 local CATA = { fid = 653518, box = { -4.0358, -23.5964, 1.7645, -4.0358, 25.3344, 34.7498 } }  -- one-sided, faces +x
@@ -602,10 +604,13 @@ end
 -- "ypr" = yaw(pitch(roll(v))): roll turns the model first.
 local ORDERS = { { "ypr", RED, "Y.P.R" }, { "yrp", GREEN, "Y.R.P" }, { "pyr", BLUE, "P.Y.R" },
                  { "pry", YELLOW, "P.R.Y" }, { "ryp", CYAN, "R.Y.P" }, { "rpy", PINK, "R.P.Y" } }
--- Tile 38's turn, in degrees. Picked offline (all signs +, as tiles 35-37 showed): for any wrong order there is a
--- visible corner of the true cube with none of that order's dots within 0.62 yd of it on screen (2 yd cube, the
--- tile's view), against 0.26 yd for round 2's 30 / 20 / 35. Larger turns differ more between orders.
-local TURN = { y = 50, p = 40, r = 35 }
+-- Tile 38's turn, in degrees. Picked offline (all signs +, as tiles 35-37 showed) in the tile's own perspective view
+-- (the camera Fit places: 4.7 yd away if the client's field of view of 0.9 is vertical, 7.4 yd if horizontal; 2 yd
+-- cube, 454 x 276 area): whichever order is the true one, for any wrong order there is a visible corner of the true
+-- cube with none of that order's dots within 0.65 yd (about 41 px) of it on screen. The first pick, 50 / 40 / 35, kept
+-- its 0.62 yd only seen from far away (no perspective): in the tile's view Y.P.R and Y.R.P came within 0.41 yd
+-- (25 px). Round 2's 30 / 20 / 35: 0.28 yd.
+local TURN = { y = 30, p = 60, r = 65 }
 
 local function Rot(order, ang)
     local m = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
@@ -775,8 +780,14 @@ function P.CheckLoose(tag)
         end
     end
     P.RefreshLooseTable()
-    -- page 6's stand-in candidates: loaded or not, and the client's own box for each (does it match the mesh, or the
-    -- header box? 198110's header box reaches 17 units below its quad)
+end
+
+-- Page 6's stand-in candidates: loaded or not, and the client's own box for each (does it match the mesh, or the
+-- header box? 198110's header box reaches 17 units below its quad). Asked 2 and 6 s after the page was built: it is
+-- built only when its tab is opened, often long after the run's own checks.
+function P.CheckPrims()
+    local res = P.res
+    if not res then return end
     res.prims = res.prims or {}
     for _, h in ipairs(P.prims or {}) do
         local a, rec = h.a, { fid = h.fid }
@@ -792,6 +803,7 @@ function P.CheckLoose(tag)
         h.t.data:SetText(format("%d: loaded %s; client box %s", h.fid, Txt(rec.loaded),
             rec.activeBad and ("not finite: " .. rec.activeBad) or BoxText(rec.active)))
     end
+    if P.dataText then P.dataText:SetText(tconcat(P.SummaryLines(res), "\n")) end
 end
 
 -- Whether the client's model path is the one asked for (it may answer in another case or with /).
@@ -1254,7 +1266,7 @@ local function BuildParticles(pg)
     -- 38: all three; one colour per order (or one order at a time, with its outline), with the signs the user sets
     -- (all + by default: tiles 35-37 showed each turn is +). Round 2 framed it too close for the client's lens and
     -- turned it too little: the camera is now fitted to every candidate corner (Fit), the turn picked so the orders
-    -- differ by 0.6 yd or more at some visible corner.
+    -- differ by 0.65 yd or more at some visible corner in this view (see TURN).
     t = Tile(pg, 38, 3, 2, format("Yaw %d, pitch %d, roll %d deg (signs + as in 35-37). Which colour's dots sit on "
         .. "ALL the cube's corners? ", TURN.y, TURN.p, TURN.r)
         .. "|cffff4040red|r Y.P.R, |cff40ff4dgreen|r Y.R.P, |cff598cffblue|r P.Y.R, |cffffd91ayellow|r P.R.Y, "
@@ -1264,8 +1276,10 @@ local function BuildParticles(pg)
         .. "(Y.P.R = yaw of pitch of roll: roll turns the model first). Name the colour whose dots sit on every "
         .. "visible corner; the Orders button shows one order at a time with its outline, the Signs button the other "
         .. "sign sets (all + is what tiles 35-37 showed)."
-    sc = Scene(big, 1)
-    local a = Cube(sc, 0, 0, 0, 2)
+    -- (its own local: BuildParticles reuses `sc` for tiles 39 and 40 below, and draw runs later - with the
+    -- shared one it fitted tile 40's camera and pinned these dots to tile 40's scene)
+    local bsc = Scene(big, 1)
+    local a = Cube(bsc, 0, 0, 0, 2)
     if a then
         pcall(a.SetYaw, a, rad(TURN.y))
         pcall(a.SetPitch, a, rad(TURN.p))
@@ -1281,9 +1295,9 @@ local function BuildParticles(pg)
             for _, c in ipairs(CORNERS2) do every[#every + 1] = Apply(m, c) end
         end
     end
-    Fit(sc, every, 0, 0, 0, 215, 30, 0.82)
+    Fit(bsc, every, 0, 0, 0, 215, 30, 0.82)
     big.draw = function()
-        Fit(sc, every, 0, 0, 0, 215, 30, 0.82)
+        Fit(bsc, every, 0, 0, 0, 215, 30, 0.82)
         local sy, sp, sr = Signs(P.signs)
         local ang = { y = sy * rad(TURN.y), p = sp * rad(TURN.p), r = sr * rad(TURN.r) }
         local i = 0
@@ -1294,14 +1308,14 @@ local function BuildParticles(pg)
                 i = i + 1
                 k8[j] = Apply(m, c)
                 if P.order == 0 or P.order == k then
-                    Dot(big, i, sc, k8[j], o[2], P.order == k and 6 or 4)
+                    Dot(big, i, bsc, k8[j], o[2], P.order == k and 6 or 4)
                 else
                     HideDot(big, i)
                 end
             end
             -- the chosen order's outline: whether its edges run along the cube's is easier to see than 8 dots
             if P.order == k then
-                for e, ed in ipairs(EDGES) do Seg(big, e, sc, k8[ed[1]], k8[ed[2]], o[2]) end
+                for e, ed in ipairs(EDGES) do Seg(big, e, bsc, k8[ed[1]], k8[ed[2]], o[2]) end
             end
         end
         if P.order == 0 then
@@ -1353,16 +1367,22 @@ end
 -- 6: stand-in candidates (flat models and boxes from find_flat_prims.py)
 ---------------------------------------------------------------------------
 
+-- The actor scale that makes a candidate's longest side PRIM_SPAN yd.
+local function SpanScale(prim)
+    local b = prim.box
+    return PRIM_SPAN / max(b[4] - b[1], b[5] - b[2], b[6] - b[3])
+end
+
 -- 51-58: one candidate alone, turned about one axis only (axis, deg), scaled so its longest side is PRIM_SPAN yd, its
 -- origin (the red dot) on the scene's origin, the yellow outline where its mesh must be drawn; the camera at azimuth
--- az and elevation el (degrees, where it stands seen from the model). CheckLoose puts the client's own box for it in
--- the data line.
+-- az and elevation el (degrees, where it stands seen from the model; below 0 = from below). CheckPrims puts the
+-- client's own box for it in the data line.
 local function PrimTile(pg, n, col, row, prim, axis, deg, az, el, caption, long)
     local t = Tile(pg, n, col, row, caption)
     t.long = long
     local sc = Scene(t, 1)
     local b = prim.box
-    local s = PRIM_SPAN / max(b[4] - b[1], b[5] - b[2], b[6] - b[3])
+    local s = SpanScale(prim)
     local m = Turn(axis, deg)
     local a = Actor(sc)
     if a then
@@ -1386,10 +1406,11 @@ local function PrimTile(pg, n, col, row, prim, axis, deg, az, el, caption, long)
     return t
 end
 
--- 59, 60: a candidate as a stand-in: in a lower scene on the line from the camera to your middle, turned (one axis)
+-- 59-61: a candidate as a stand-in: in a lower scene on the line from the camera to your middle, turned (one axis)
 -- to face the camera, covering the left half of you; an opaque teal texture over it; your scene on top (as tile 13
--- with the cube). Sized to your height once your model has loaded, as MeCube does.
-local function StandInTile(pg, n, col, row, prim, axis, deg, caption, long)
+-- with the cube). Sized to your height once your model has loaded, as MeCube does, or at the actor scale `fixed`
+-- (61: the scale tile 51 draws the quad with, far above the tiny one the sizing gives these big quads).
+local function StandInTile(pg, n, col, row, prim, axis, deg, caption, long, fixed)
     local t = Tile(pg, n, col, row, caption)
     t.long = long
     local A = Scene(t, 2)
@@ -1413,11 +1434,11 @@ local function StandInTile(pg, n, col, row, prim, axis, deg, caption, long)
         pcall(a.SetModelByFileID, a, prim.fid)
         pcall(a[SETTER[axis]], a, rad(deg))
     end
-    -- its middle on the camera's line to your middle, 0.45 of your height tall, its right edge on your middle line
-    -- (+y is the screen's left, looking along +x)
+    -- its middle on the camera's line to your middle, 0.45 of your height tall (at a fixed scale: as tall as that
+    -- makes it), its right edge on your middle line (+y is the screen's left, looking along +x)
     local function Lay(h, foot)
         local u = (ME_CUBE_X - ME_CAM[1]) / -ME_CAM[1]
-        local s = 0.45 * h * u / max(hi[3] - lo[3], 1e-3)
+        local s = fixed or 0.45 * h * u / max(hi[3] - lo[3], 1e-3)
         local zc = ME_CAM[3] + u * (foot + 0.55 * h - ME_CAM[3])
         t.s, t.pos = s, { ME_CUBE_X - s * (lo[1] + hi[1]) / 2, -s * lo[2], zc - s * (lo[3] + hi[3]) / 2 }
         if a then Place(a, t.pos[1], t.pos[2], t.pos[3], s) end
@@ -1445,13 +1466,15 @@ local function BuildFlat(pg)
         .. "Fills the yellow frame = usable as a flat stand-in.", "198111: 4 vertices, 2 triangles in the plane z = "
         .. "17.06 (model units), 89.7 x 109.1 units, opaque, material flag 0x4 (two-sided), header box = the mesh, "
         .. "no billboard or moving bone. Shrunk to 2.4 yd, SetYaw(30 deg); its faces wind downwards, so seeing it "
-        .. "from above also shows the two-sided flag works. Filling the outline (the red dot, its origin, under its "
-        .. "middle) = it loads and draws exactly where the maths puts it.")
-    PrimTile(pg, 52, 2, 1, ROOF_HDR, "y", 30, 240, 40, "198110: the same quad, header box down to its origin. In the "
-        .. "frame = box ignored; shifted = centred on the box.", "198110 has 198111's mesh but its "
-        .. "header (Geo) box runs from z 0 to the quad. With SetUseCenterForOrigin(false, false, false) the quad "
-        .. "should sit in the frame exactly as in 51. Shifted (down, or sideways) = the client still places file "
-        .. "models by their header box: then only candidates whose header box equals the mesh are safe.")
+        .. "from above also shows the two-sided flag works (52 sees the same quad from below). Filling the outline "
+        .. "(the red dot, its origin, under its middle) = it loads and draws exactly where the maths puts it.")
+    -- (from below: the side its faces wind towards, so the header-box answer does not hang on the two-sided flag)
+    PrimTile(pg, 52, 2, 1, ROOF_HDR, "y", 30, 240, -40, "198110: 51's quad seen from below (its front), header box "
+        .. "to z 0. In the frame = box ignored; shifted = placed by it.", "198110 has 198111's mesh but its header "
+        .. "(Geo) box runs from z 0 to the quad. Seen from below, the side its faces wind towards, so it draws even "
+        .. "if the client ignores the two-sided flag 51 relies on. With SetUseCenterForOrigin(false, false, false) "
+        .. "the quad should sit in the frame. Shifted = the client still places file models by their header box: "
+        .. "then only candidates whose header box equals the mesh are safe. Empty = not loaded (data line).")
     PrimTile(pg, 53, 3, 1, CATA, "y", 30, 65, 15, "653518, a Cata menu quad: one-sided, front view. Fills the "
         .. "frame = usable as a flat stand-in.", "653518 (interface/glues/models/ui_mainmenu_cata_lowbandwidth/"
         .. "UI_MainMenu_Cata_LowBandwidth.m2): 4 vertices in the plane x = -4.04, 48.9 x "
@@ -1466,10 +1489,12 @@ local function BuildFlat(pg)
         .. "UI_MainMenu_Legion_LowBandwidth.m2): 4 vertices in the plane x = -7.05, 63.8 x "
         .. "33.0 units (a wider shape than 653518), front faces +x, opaque, unlit, one-sided, header box = the mesh. "
         .. "SetYaw(30 deg), seen from in front.")
-    PrimTile(pg, 56, 2, 2, BLANKET, "y", 30, 240, 45, "200893 G_Blanket: an alpha-keyed quad. Fills the frame = "
-        .. "usable as a flat stand-in; holes = its see-through texels.", "200893 world/goober/G_Blanket.m2: 4 "
-        .. "vertices in the plane z = 0.048, 1.21 x 1.68 units, front faces +z, one-sided, alpha key: its texture's "
-        .. "see-through texels draw nothing and write no depth. For comparison with the opaque quads.")
+    PrimTile(pg, 56, 2, 2, BLANKET, "y", 30, 240, 45, "200893 G_Blanket (control): alpha key + projected flag. "
+        .. "Fills the frame = a plain quad; holes = see-through texels.", "200893 world/goober/G_Blanket.m2: 4 "
+        .. "vertices in the plane z = 0.048, 1.21 x 1.68 units, front faces +z, one-sided, alpha key: its see-through "
+        .. "texels draw nothing and write no depth. Unlike the other candidates its batch also has flag 0x4 "
+        .. "('projected texture' on wowdev, as on spell ground effects; find_flat_prims.py now refuses it) and the "
+        .. "alpha-key shader 0x10: an odd result (shifted, smeared, no depth) may come from that flag, not the key.")
     PrimTile(pg, 57, 3, 2, SCALE100, "y", 30, 215, 30, "219357 world/scale/100x100.m2: a 2.78 yd box on its "
         .. "origin. Fills the frame = usable as a box stand-in.", "219357 world/scale/100x100.m2 (one of the scale "
         .. "boxes 50x50 .. 1000x1000): 12 triangles, opaque, one-sided, its base on the origin (z 0 .. 2.78), x and y "
@@ -1482,11 +1507,21 @@ local function BuildFlat(pg)
         .. "A rectangular hole in you = it hides you.", "The two-sided quad 198111 stood up by SetPitch(90 deg) to "
         .. "face the camera, in a scene under an opaque teal texture; you in a scene over it. A hole in you the "
         .. "shape of the yellow outline (teal showing through) = a flat stand-in writes depth and hides a model "
-        .. "behind a room surface per pixel: one actor per wall instead of many cubes.")
+        .. "behind a room surface per pixel: one actor per wall instead of many cubes. No hole while 61 has one = "
+        .. "the client clamps or drops the tiny actor scale (the data line, about 0.006), not a quad failure.")
     StandInTile(pg, 60, 2, 3, CATA, "y", 180, "As 59 with 653518 (one-sided, turned to face the camera): a "
         .. "rectangular hole in you = it hides you per pixel.", "As 59 with the one-sided quad 653518, SetYaw(180 "
         .. "deg) so its front faces the camera. A hole in you the shape of the outline = it writes depth. No hole "
         .. "while 59 has one = its unlit material or its facing stops it.")
+    StandInTile(pg, 61, 3, 3, ROOF, "p", 90, "Control for 59: that quad at 51's scale, over your whole left half. "
+        .. "Hole here but not in 59 = 59's tiny scale fails.", "198111 as in 59 but at the actor scale "
+        .. "tile 51 draws it with (about 0.022: its longest side 2.4 yd), so it is about 2 yd tall and covers your "
+        .. "whole left half. Teal over your left half here while 59 has no hole = the client clamps or drops the "
+        .. "very small scale 59 needs (about 0.006, its data line), not a flat stand-in failure; no hole in either "
+        .. "= the quad writes no depth from a lower scene.", SpanScale(ROOF))
+    -- (what the client says of 51-58, 2 and 6 s after the page was built: see CheckPrims)
+    C_Timer.After(2, function() Step("prims 2 s", P.CheckPrims) end)
+    C_Timer.After(6, function() Step("prims 6 s", P.CheckPrims) end)
 end
 
 ---------------------------------------------------------------------------
@@ -1618,14 +1653,16 @@ local function BuildCost(pg)
     data:SetText(tconcat(P.SummaryLines(P.res), "\n"))
 end
 
--- key, tab text, builder; solo: the page opens showing one tile at a time.
+-- key, tab text, builder; solo: the page opens showing one tile at a time; lazy: built only when its tab is opened,
+-- never by the run itself (page 6's stock models: should one of them crash the client, the crash is then pinned on
+-- opening that page, and every later run still shows the other pages).
 local PAGES = {
     { key = "loose", name = "1 Loose files", build = BuildLoose },
     { key = "depth", name = "2 Depth", build = BuildDepth },
     { key = "flag", name = "3 Flag (solo)", build = BuildFlags, solo = true },
     { key = "alpha", name = "4 Alpha (solo)", build = BuildAlpha, solo = true },
     { key = "turns", name = "5 Particles & turns", build = BuildParticles },
-    { key = "flat", name = "6 Flat models", build = BuildFlat },
+    { key = "flat", name = "6 Flat models", build = BuildFlat, lazy = true },
     { key = "cost", name = "7 Cost & data", build = BuildCost },
 }
 for i, def in ipairs(PAGES) do PAGE_OF[def.key] = i end
@@ -1834,7 +1871,8 @@ function P.PrintCrash()
     local c = type(st.crash) == "table" and st.crash or {}
     local when = (type(date) == "function" and tonumber(c.armedAt)) and date("%H:%M", c.armedAt) or "?"
     ns:Print("the 3D probe armed at %s never finished: the game most likely crashed or closed while it loaded a "
-        .. "loose model file or made a test frame%s. Nothing loose is loaded again by itself.", when,
+        .. "loose model file or made a test frame%s (or, if page 6 was opened, one of its stock models). Nothing "
+        .. "loose is loaded again by itself.", when,
         c.only and (" (only " .. c.only .. ")") or "")
     ns:Print("  /dz 3d probe - every test but the loose files; /dz 3d probe only <%s> confirm - one file (or the "
         .. "frames) per run, finds the one that crashes; /dz 3d probe reset - clear this notice, keep the results.",
@@ -2119,12 +2157,15 @@ function P.Start(mode, only)
     Step("other scenes", CloseOtherScenes)
     Step("methods", P.DumpMethods, res)
     Step("window", P.Show, 1)
-    -- every page now, inside the guarded run (page 3's frame-buffer tiles are the least known), then back to page 1
+    -- every page now, inside the guarded run (page 3's frame-buffer tiles are the least known), then back to page 1;
+    -- not the lazy page 6: its models load only when its tab is opened, so a crash right then points at them
     Step("pages", function()
-        for i = #PAGES, 1, -1 do P.SetPage(i) end
+        for i = #PAGES, 1, -1 do
+            if not PAGES[i].lazy then P.SetPage(i) end
+        end
     end)
     ns:Print("3D probe running (%s): its window has seven pages (3 and 4 show one tile at a time: Prev / Next under "
-        .. "the page); the measured results follow in a few seconds.",
+        .. "the page; 6 loads its stock models only when opened); the measured results follow in a few seconds.",
         mode == "safe" and "safe: no loose files" or (only and ("only " .. OnlyName(only)) or "all loose files"))
     C_Timer.After(0.3, function() Step("measure", P.Measure, res) end)
     C_Timer.After(2, function() Step("loose 2 s", P.CheckLoose, "2s") end)

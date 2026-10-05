@@ -142,6 +142,8 @@ Render3D\Rooms\ZulAman_Zuljin.lua
 Render3D\Rooms\Index.lua
 Render3D\Rooms.lua
 Render3D\Probe.lua
+Render3D\Standins.lua
+Render3D\Standins\MagtheridonsLair_Magtheridon.lua
 
 # UI
 UI\Widgets.lua

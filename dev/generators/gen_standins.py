@@ -7,7 +7,8 @@ hidden per pixel wherever a room surface is in front of it. This generator place
 client's unit cube) for one room and checks offline that they never hide anything the room does not hide.
 
 For a room key (Render3D/Rooms/<Key>.lua, decoded as Render3D/Rooms.lua unpacks it, so the stand-ins follow exactly
-what the renderer draws):
+what the renderer draws - including which side each face is drawn to, decided as Render3D/Room.lua decides it, by
+the plane of the BSP node the face is filed under: drawn()):
   1. regions   the opaque faces (blend D: ALPHAKEY and BLEND faces let models show through, so they get none)
                grouped into planar regions: connected faces on one plane within 2 cm. v1 turns cubes about z only
                (the client's yaw / pitch / roll order is not known yet), so floors, ceilings and upright walls get
@@ -18,37 +19,53 @@ what the renderer draws):
                point some pose sees past the room (nothing drawn in front of it, or something drawn behind it) may
                not be inside a cube that pose would show. The edges where a region meets nothing (the room's outer
                walls face away from a camera outside them; their tops end at the room's cut) let a camera see under
-               a floor or behind a wall, the more the deeper: cubes there are kept shallow, so small.
-  3. placement per region, squares in the region's plane (a GRID yd grid along its longest edges), greedy from the
+               a floor or behind a wall, the more the deeper: cubes there are kept shallow, so small. The board
+               poses count a point only where a model could stand behind it (harmful_only).
+  3. open edges whatever the poses saw: lines through points just under every region's outline, rising out of its
+               back side past the edge in every direction, kept where the board's camera could stand along one with
+               no face it draws in between (CamDomain: V:ClampOrb's whole range, under the floor a little too) and
+               where the line then runs through air a model can stand in before the room behind (open_lines). No
+               cube may touch one (cut_on_lines): a panel's open bottom, a lintel's underside, a wall's open top.
+  4. placement per region, squares in the region's plane (a GRID yd grid along its longest edges), greedy from the
                largest that fits down to MIN_SIZE: every square lies inside the region's outline (a cube's sides
                must not hide models seen past the edge), its cube wholly behind the face with its front MARGIN
                behind it, MARGIN + its size away from any exposed probe, and BACK_GAP from every other room face
                (exact triangle-box tests), so it never pokes out of the back of a thin wall or into a pillar.
-  4. repair    an offline z-buffer (numpy) renders every training pose at the check's size: the room's opaque faces
-               that face the camera, and the stand-ins the runtime would show (shown()). A stand-in nearer than the
+  5. repair    an offline z-buffer (numpy) renders every training pose at the check's size: the room's faces as the
+               renderer draws them, and the stand-ins the runtime would show (shown()). A stand-in nearer than the
                drawn room, or where the room draws nothing at all, hides a model the room does not hide
-               ("over-occlusion"): one seen doing that (past the 1-pixel erosion) is cut into quarters, again
-               until the pose is clean (under MIN_SIZE it goes).
-  5. check     over-occlusion (must be 0 after a 1-pixel erosion), coverage (opaque room pixels with a stand-in
-               within MARGIN + EPS_UNDER behind them, and looser tolerances), stand-ins shown per pose, on the
-               training poses and on random poses the placement never saw; pictures (--sheet).
-Training poses (poses()): the board's orbit round the room and the boss at pitches 0.15 - 1.5 out to the farthest
-distance it allows, low orbits close by the floor's outer edge looking in, walking and eye-level poses.
+               ("over-occlusion"): one seen doing that (past the 1-pixel erosion; on the board poses only where a
+               model could be) is cut into quarters, again until the pose is clean (under MIN_SIZE it goes).
+  6. check     over-occlusion (after a 1-pixel erosion; 'harmful' where the ray past the stand-in runs through air
+               a model can stand in), coverage (opaque room pixels with a stand-in within MARGIN + EPS_UNDER behind
+               them, and looser tolerances), stand-ins shown per pose, on the training poses, on random poses, on
+               held-out board poses over the board camera's whole range (board_poses(), another seed: what a user
+               can do) and on the poses a review found faults at (REVIEW_POSES); pictures (--sheet).
+Training poses: poses() - the board's orbit round the room and the boss at pitches 0.15 - 1.5 out to the farthest
+distance it allows, low orbits close by the floor's outer edge looking in, walking and eye-level poses; nothing may
+be seen past the room - and board_poses() over the camera's whole range, where only harmful over-occlusion counts:
+low over the floor from outside the room a camera sees far under the floor past its cut edges, where nothing can
+stand, and keeping those clean too would strip the floors.
 
 Writes addon Render3D/Standins/<Key>.lua (the data contract; Render3D/Standins.lua reads it):
     ns.RoomStandins["<Key>"] = { version = 1, prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 } },
+                                 room = { size = <packed size>, verts = <count>, tris = <count> },
                                  n = <count>, stride = 12, data = { <numbers> } }
   12 numbers per stand-in: prim, x, y, z (the primitive's origin in room coordinates: yd, x east, y north, z over
   the boss' floor), yaw, pitch, roll (radians, SetYaw / SetPitch / SetRoll in room coordinates before any mirroring;
   v1 yaw only), scale (uniform: the primitive's size times scale is its size in yd), nx, ny, nz (the unit normal of
   the surface it stands behind, to the side it is seen from), face (the region's id, for debugging). Show a stand-in
-  only while its surface faces the camera (shown(): the camera farther out along n than the cube reaches, plus the
-  near clip). The primitive is spells/unitcube.m2 (FileDataID 167145): an opaque white 1 yd cube centred on its
-  origin; PRIMS is a table so a flat square can join when one is found (a kind with no depth: its probe levels
-  would be its front alone).
+  only while dot(n, camera - origin) > reach + near (shown(), rule 'guard'): reach = half x scale x the sum of |n . a|
+  over the cube's turned axes a, near = the near clip (0.5 yd). room: the room file it was made for
+  (ns.RoomFloors[key].size and the unpacked mesh's counts); data made for another build of the room hides the wrong
+  things. The primitive is spells/unitcube.m2 (FileDataID 167145): an opaque white 1 yd cube centred on its origin;
+  PRIMS is a table so a flat square can join when one is found (a kind with no depth: its probe levels would be its
+  front alone).
+Known limit (the runtime's): a camera within the near clip of a room face sees that face clipped away and the
+stand-ins behind its neighbours through the hole (REVIEW_POSES 'air': under the floor or in solid room, harmless).
 
 Run from dev/:  luaenv\\Scripts\\python.exe generators\\gen_standins.py [Key ...] [--fast] [--no-write] [--sheet]
-  [--json FILE] (no key: MagtheridonsLair_Magtheridon; about half an hour). --fast: fewer and smaller poses (the
+  [--json FILE] (no key: MagtheridonsLair_Magtheridon; about an hour). --fast: fewer and smaller poses (the
   tests); --sheet: dev/docs/img/standins_<boss>.png (room | stand-ins | errors on six poses) and _top.png.
 """
 import argparse
@@ -110,11 +127,13 @@ EPS_UNDER = 0.02          # coverage: a stand-in within MARGIN + this (along the
 LOOSE = (0.25, 1.0)       # looser coverage tolerances reported too (yd behind the face)
 AIR_H, AIR_RUN = 12.0, 60.0   # 'harmful' over-occlusion: the ray past the stand-in meets the air a model could
                               # stand in (this high over the boss' floor), looked for this far
+AIR_STEP = 0.5                # yd between the air tests along a ray
 FOV, NEAR = 1.1, 0.5      # Render3D/View.lua's scenes
 EYE, WALK_EYE = 1.9, 2.2  # UI/StrategyMap3D.lua: the eye all the way in; the point the walking camera turns round
 PITCH_MIN, PITCH_TOP = 0.12, 1.5
+PITCH_LOOKUP, DIST_MIN = -0.5, 0.3   # UI/StrategyMap3D.lua: the pitch allowed under 3 yd out; all the way in
 RULE = "guard"            # which stand-ins show (shown())
-POSES_CHECKED = 606        # training + random poses of a full run (the data file says so)
+POSES_CHECKED = 1517       # training, random, board and review poses of a full run (the data file says so)
 KIND_CODES = {"floor": 0, "ceiling": 1, "wall": 2, "slope": 3, "other": 4}   # the check's breakdown
 
 
@@ -122,9 +141,65 @@ KIND_CODES = {"floor": 0, "ceiling": 1, "wall": 2, "slope": 3, "other": 4}   # t
 # The room as the renderer draws it: the shipped format 3 file decoded (Render3D/Rooms.lua's Unpack)
 # ---------------------------------------------------------------------------------------------------------------
 class Room:
-    """V (n, 3) vertices, T (m, 3) triangles (0-based), blend per triangle ('D', 'A', 'B'), N unit normals (the
-    renderer draws a face only to cameras on its N side), d plane offsets (N . x = d), area; heights: the height
-    grid (rows south to north, nan = no floor), cell yd per cell."""
+    """V (n, 3) vertices, T (m, 3) triangles (0-based), blend per triangle ('D', 'A', 'B'), N unit normals of each
+    triangle's own winding, d plane offsets (N . x = d), area; heights: the height grid (rows south to north, nan =
+    no floor), cell yd per cell. Which faces a camera sees is decided as Render3D/Room.lua decides it, by the BSP
+    node each triangle is filed under: NP / NPd its node's plane (NP . x + NPd = the side), QO +1 / -1 / 0 its prim's
+    winding against that plane (drawn(): the camera on side QO, by more than EPS_SIDE). size, nverts, ntris: the
+    room file's stamp (the stand-in data records it)."""
+
+
+EPS_SIDE = 1e-4           # Render3D/Room.lua: a node seen exactly edge-on draws nothing
+
+
+def _walks(t3, q, p):
+    """Does triangle t3 (three vertex numbers) walk the edge q -> p? (Room.lua's Walks)"""
+    a, b, c = t3
+    return (a == q and b == p) or (b == q and c == p) or (c == q and a == p)
+
+
+def _prim_orientation(V, tris1, nodes, pair):
+    """Room.lua's PreparePrims: every triangle's node (0-based) and QO, the sign of its prim's winding against the
+    node's plane normal. A triangle and its quad mate (pair, 1-based, filed under the same node and sharing an edge
+    walked the other way) are one prim, oriented by the first of the two."""
+    n = len(tris1)
+    node_of = -np.ones(n, np.int64)
+    qo = np.zeros(n, np.int64)
+    solo = np.zeros(n + 1, bool)
+    for k in range(len(nodes)):
+        first, cnt = int(nodes[k, 6]), int(nodes[k, 7])
+        last = first + cnt - 1
+        nrm = nodes[k, :3]
+        for i in range(first, last + 1):
+            node_of[i - 1] = k
+            j = int(pair[i - 1]) if len(pair) else 0
+            if j != 0 and (j < first or j > last or int(pair[j - 1]) != i or solo[i]):
+                j = 0
+            if j != 0 and j < i:
+                continue                                  # (in the prim of its mate, oriented there)
+            a, b, c = (int(x) for x in tris1[i - 1, :3])
+            mate = 0
+            if j > i:
+                tj = tuple(int(x) for x in tris1[j - 1, :3])
+                if _walks(tj, b, a) or _walks(tj, a, c) or _walks(tj, c, b):
+                    mate = j
+                else:
+                    solo[j] = True                        # (no shared edge after all: both alone)
+            # (turning a, b, c round to put the shared edge first keeps the winding: QO is the triangle's own)
+            A, B, C = V[a - 1], V[b - 1], V[c - 1]
+            dot = float(np.cross(B - A, C - A) @ nrm)
+            o = 1 if dot > 1e-9 else (-1 if dot < -1e-9 else 0)
+            qo[i - 1] = o
+            if mate:
+                qo[mate - 1] = o
+    return node_of, qo
+
+
+def drawn(room, C):
+    """The faces Render3D/Room.lua draws to a camera at C: opaque, and C on its node plane's side QO (by more than
+    EPS_SIDE)."""
+    s = room.NP @ np.asarray(C, float) + room.NPd
+    return room.opaque & (room.QO * s > EPS_SIDE)
 
 
 def load_room(key, path=None):
@@ -144,6 +219,7 @@ def load_room(key, path=None):
         raise ValueError("%s: %d sections" % (path, len(parts)))
     r = Room()
     r.key, r.path = key, path
+    r.size = int(head.group(8))
     r.w, r.h, r.cell = int(head.group(2)), int(head.group(3)), int(head.group(4))
     base, step, alphabet = float(head.group(5)), float(head.group(6)), head.group(7)
     idx = {c: i for i, c in enumerate(alphabet)}
@@ -162,7 +238,18 @@ def load_room(key, path=None):
     r.area = 0.5 * ln
     r.N = n / np.maximum(ln, 1e-12)[:, None]
     r.d = np.einsum("ij,ij->i", r.N, A)
-    r.opaque = (r.blend == "D") & (r.area > 1e-9)
+    r.nverts, r.ntris = len(r.V), len(r.T)
+    # the side each face is drawn to, as the renderer decides it (its BSP node's plane, not its own winding: a
+    # sliver filed under a node can lean far off that plane)
+    nodes = np.array(parts[5].split(), dtype=float).reshape(-1, 8)
+    pair = np.array(parts[6].split(), dtype=np.int64)
+    r.node_of, r.QO = _prim_orientation(r.V, t, nodes, pair)
+    if (r.node_of < 0).any():
+        raise ValueError("%s: %d triangles under no BSP node" % (path, int((r.node_of < 0).sum())))
+    r.NP, r.NPd = nodes[r.node_of, :3], nodes[r.node_of, 3]
+    # opaque: drawn with blending off (ALPHAKEY and BLEND faces let models show through) and drawn at all (QO 0:
+    # never)
+    r.opaque = (r.blend == "D") & (r.area > 1e-9) & (r.QO != 0)
     r.lo, r.hi = r.V.min(0), r.V.max(0)
     return r
 
@@ -237,6 +324,7 @@ def planar_regions(room):
             math.degrees(math.asin(min(1.0, abs(nz))))
         regions.append(g)
     room.region_of = reg
+    room.Tm = T                                   # (the triangles' corners as merged vertices: outlines)
     # every face's kind for the check's breakdown: its region's (slope: left out), or 'other' (see-through, specks)
     kinds = np.array([KIND_CODES.get(g.kind, KIND_CODES["slope"]) for g in regions] + [KIND_CODES["other"]])
     room.face_kind = kinds[np.where(reg >= 0, reg, len(regions))]
@@ -494,9 +582,9 @@ def make_probes(room, regs):
         reg.append(np.full(len(U), ri))
         uu.append(U)
         vv.append(Vv)
-        # a cube shows to cameras farther out along n than it reaches: its front, MARGIN behind the face (shown()),
-        # whatever its size (a hair more, to be safe)
-        thr.append(np.full((len(U), len(depths)), g.d + g.dlo - MARGIN - 0.01))
+        # a cube shows to cameras farther out along n than it reaches (its front's highest corner lies MARGIN behind
+        # the face, whatever its size) and, by the guard rule, than the near clip (shown(); a hair less, to be safe)
+        thr.append(np.full((len(U), len(depths)), g.d + g.dlo - MARGIN + (NEAR if RULE == "guard" else 0.0) - 0.01))
     pr = Probes()
     pr.P = np.concatenate(P)
     pr.reg = np.concatenate(reg)
@@ -507,18 +595,20 @@ def make_probes(room, regs):
     return pr
 
 
-def expose(room, pr, cams, val_F=None, log=None):
+def expose(room, pr, cams, val_F=None, log=None, harmful_only=False):
     """Marks the probes some camera sees past the room: in view, shown by the facing rule, and the room face
     drawn at its pixel (the pixel's centre, as the check samples) not in front of it along the probe's own ray
     (that face's plane: far off, at a grazing angle, a pixel's centre and the probe can lie yards apart on it).
     The check forgives slivers its 1-pixel erosion removes, so neither does this: a probe counts only when the run
     of seen points down its column (from the last hidden one) is TOL_PX or more long on a screen of focal length
-    val_F (the check's; default this camera's)."""
+    val_F (the check's; default this camera's). harmful_only: only where the ray on past the probe runs through
+    air a model can stand in before the room drawn there (a cube there would hide one; seen under a floor it hides
+    nothing)."""
     nc, nl = pr.P.shape[:2]
     flatP = pr.P.reshape(-1, 3)
     for ci, cam in enumerate(cams):
         scale = (val_F or cam.F) / cam.F
-        _, fb = render_room(room, cam)
+        zb, fb = render_room(room, cam)
         facing = (np.einsum("ij,j->i", pr.n, cam.C)[:, None] > pr.thr)
         seen = np.zeros(nc * nl, bool)
         sxy = np.zeros((nc * nl, 2))
@@ -553,7 +643,17 @@ def expose(room, pr, cams, val_F=None, log=None):
         S = sxy.reshape(nc, nl, 2)
         rows = np.arange(nc)[:, None]
         run = np.linalg.norm(S - S[rows, start], axis=2) * scale
-        pr.exposed |= seen & (run >= TOL_PX)
+        got = (seen & (run >= TOL_PX)).reshape(-1)
+        if harmful_only:
+            # then only those a model could be behind (as the check erodes first, then asks where a model could
+            # be), asked of the points no pose has marked yet
+            vis = np.nonzero(~hid)[0]
+            vis = vis[got[idx[vis]] & ~pr.exposed.reshape(-1)[idx[vis]]]
+            got[:] = False
+            if len(vis):
+                zr = zb[sy[vis].astype(int), sx[vis].astype(int)]
+                got[idx[vis]] = _air_beyond(room, cam.C, d[vis] / dist[vis][:, None], dist[vis], zr)
+        pr.exposed |= got.reshape(nc, nl)
         if log and (ci + 1) % 100 == 0:
             log("  exposure %d/%d poses: %.1f%% of probes seen" % (ci + 1, len(cams), 100 * pr.exposed.mean()))
     return pr
@@ -887,10 +987,10 @@ for _ax in range(3):
 
 
 def render_room(room, cam):
-    """The room as the renderer draws it, opaque faces only: (distance, face id) per pixel."""
+    """The room as the renderer draws it, opaque faces only: (distance, face id) per pixel. The faces drawn are
+    Render3D/Room.lua's (drawn(): by each face's BSP node plane, not its own winding)."""
     A = room.V[room.T]
-    front = room.opaque & (room.N @ cam.C - room.d > 0)
-    f = np.nonzero(front)[0]
+    f = np.nonzero(drawn(room, cam.C))[0]
     return raster(cam, cam.to_cam(A[f]), f)
 
 
@@ -967,12 +1067,40 @@ def dilate(m):
     return e
 
 
-def _over_air(room, cam, d, zs, zr, mask):
+def _air_box(room):
+    """The box any air a model can stand in lies in (_air): the height grid, from 0.1 yd over its lowest floor near
+    the boss' up to AIR_H over the highest."""
+    if getattr(room, "air_box", None) is None:
+        hs = np.where(np.abs(room.heights) <= 3.0, room.heights, np.nan)
+        room.air_box = (np.array([0.0, 0.0, float(np.nanmin(hs)) + 0.1]),
+                        np.array([room.heights.shape[1] * room.cell, room.heights.shape[0] * room.cell,
+                                  float(np.nanmax(hs)) + AIR_H]))
+    return room.air_box
+
+
+def _air_beyond(room, C, u, t0, t1, step=AIR_STEP):
+    """Do the rays C + u t (u unit, (n, 3)) run through the air a model can stand in (_air) somewhere between t0
+    and t1 (at most AIR_RUN past t0)? Sampled every step inside the box that air lies in. -> (n,) bool"""
+    lo, hi = _air_box(room)
+    ta, tb = _slab(np.broadcast_to(np.asarray(C, float), u.shape), u, lo, hi)
+    ta = np.maximum(ta, t0)
+    tb = np.minimum(np.minimum(tb, t1), t0 + AIR_RUN)
+    out = np.zeros(len(u), bool)
+    live = np.nonzero(tb > ta)[0]
+    ns = int(math.ceil(AIR_RUN / step))
+    for c0 in range(0, len(live), 20000):
+        k = live[c0:c0 + 20000]
+        t = ta[k][:, None] + (np.arange(ns) + 0.5)[None] * step
+        out[k] = (_air(room, C + u[k][:, None, :] * t[:, :, None]) & (t < tb[k][:, None])).any(1)
+    return out
+
+
+def _over_air(room, cam, d, zs, zr, mask, as_mask=False):
     """How many of the masked pixels could hide a model: the ray past the stand-in (up to the room, or AIR_RUN yd)
-    runs through the air over the boss' floor (up to AIR_H over the height grid's floor)."""
+    runs through the air over the boss' floor (up to AIR_H over the height grid's floor). as_mask: those pixels."""
     jj, ii = np.nonzero(mask)
     if not len(jj):
-        return 0
+        return np.zeros(mask.shape, bool) if as_mask else 0
     t0 = zs[jj, ii]
     t1 = np.minimum(zr[jj, ii], t0 + AIR_RUN)
     hit = np.zeros(len(jj), bool)
@@ -985,11 +1113,16 @@ def _over_air(room, cam, d, zs, zr, mask):
         h[ok] = room.heights[cj[ok], ci[ok]]
         with np.errstate(invalid="ignore"):
             hit |= np.isfinite(h) & (np.abs(h) <= 3.0) & (X[:, 2] >= h + 0.1) & (X[:, 2] <= h + AIR_H)
+    if as_mask:
+        out = np.zeros(mask.shape, bool)
+        out[jj[hit], ii[hit]] = True
+        return out
     return int(hit.sum())
 
 
-def measure(room, cam, arr, room_buf=None, rule=None):
-    """One pose: the over-occlusion and coverage numbers, the stand-ins seen doing it, the buffers for pictures."""
+def measure(room, cam, arr, room_buf=None, rule=None, harm=False):
+    """One pose: the over-occlusion and coverage numbers, the stand-ins seen doing it (harm: only where a model could
+    be hidden), the buffers for pictures."""
     zr, fr = room_buf if room_buf is not None else render_room(room, cam)
     show = shown(cam, arr, rule or RULE)
     zs, ids = render_standins(cam, arr, show)
@@ -1009,7 +1142,8 @@ def measure(room, cam, arr, room_buf=None, rule=None):
                covered_any=int((drawn & has & (zs >= zr - EPS_OVER)).sum()))
     for t in LOOSE:
         res["covered_%g" % t] = int((drawn & (gap <= t)).sum())
-    res["over_air"] = _over_air(room, cam, d, zs, zr, over_e) if res["over_eroded"] else 0
+    air_e = _over_air(room, cam, d, zs, zr, over_e, as_mask=True) if res["over_eroded"] else np.zeros_like(over_e)
+    res["over_air"] = int(air_e.sum())
     # by the kind of face drawn (room.face_kind, when planar_regions has run): drawn, covered (strict), covered (any)
     fk = getattr(room, "face_kind", None)
     if fk is not None:
@@ -1019,7 +1153,8 @@ def measure(room, cam, arr, room_buf=None, rule=None):
         for name, code in KIND_CODES.items():
             m = k == code
             res["k_" + name] = (int(m.sum()), int((m & good).sum()), int((m & anyc).sum()))
-    culprits = np.unique(ids[dilate(over_e) & over & has]) if res["over_eroded"] else np.zeros(0, np.int64)
+    worst = air_e if harm else over_e
+    culprits = np.unique(ids[dilate(worst) & over & has]) if worst.any() else np.zeros(0, np.int64)
     bufs = dict(zr=zr, fr=fr, zs=zs, ids=ids, over=over, over_e=over_e, gap=gap)
     return res, culprits, bufs
 
@@ -1110,19 +1245,7 @@ def poses(room, view, spot, kind="train", W=480, H=320, seed=1):
 
     def add_walk(x, y, z, h, p, dist, name):
         tgt = np.array([x, y, z + WALK_EYE])
-        cp = math.cos(p)
-        f = np.array([cp * math.cos(h), cp * math.sin(h), -math.sin(p)])
-        r = np.array([math.sin(h), -math.cos(h), 0.0])
-        u = np.cross(r, f)
-        best = None
-        for (a, b) in ((0, 0), (0.35, 0.25), (0.35, -0.25), (-0.35, 0.25), (-0.35, -0.25)):
-            dd = -f * dist + a * r + b * u
-            ln = np.linalg.norm(dd)
-            t = _ray_hit(room, tgt, dd / ln, ln)
-            if t is not None:
-                best = t / ln if best is None else min(best, t / ln)
-        allowed = dist if best is None else min(dist, max(0.8, best * dist - 0.6))
-        out.append(orbit(tgt, h, p, allowed, W=W, H=H, name=name))
+        out.append(orbit(tgt, h, p, _walk_allowed(room, tgt, h, p, dist), W=W, H=H, name=name))
 
     if kind == "train":
         heads = [k * math.pi / 6 + 0.13 for k in range(12)]
@@ -1161,6 +1284,532 @@ def poses(room, view, spot, kind="train", W=480, H=320, seed=1):
     return out
 
 
+def height_fn(room, x, y):
+    """Render3D/Rooms.lua's HeightFn: the height grid smooth between cell centres, the edge value outside, at a
+    hole's edge the floor next to it (0 where there is none at all)."""
+    hs, size = room.heights, room.cell
+    rows, cols = hs.shape
+    fx, fy = x / size - 0.5, y / size - 0.5
+    i, j = math.floor(fx), math.floor(fy)
+    tx, ty = fx - i, fy - j
+
+    def cell(ii, jj):
+        v = hs[max(0, min(rows - 1, jj)), max(0, min(cols - 1, ii))]
+        return float(v) if np.isfinite(v) else None
+    a, b, c, d = cell(i, j), cell(i + 1, j), cell(i, j + 1), cell(i + 1, j + 1)
+    anyv = next((v for v in (a, b, c, d) if v is not None), 0.0)
+    a, b, c, d = [anyv if v is None else v for v in (a, b, c, d)]
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
+
+
+def lift(dist):
+    """UI/StrategyMap3D.lua's Lift: the point looked at rides EYE over the floor all the way in, on it from 5 yd."""
+    return EYE * max(0.0, min(1.0, (5 - dist) / (5 - DIST_MIN)))
+
+
+def board_poses(room, view, seed, n_orbit=0, n_low=0, n_close=0, n_walk=0, W=480, H=320, tag="b"):
+    """Poses the strategy board's camera can take, drawn over its whole range (UI/StrategyMap3D.lua V:ClampOrb and
+    V:Place): orbits round any point of the room and 30 yd round it (V:Limits), 0.3 yd to the farthest it allows,
+    pitch -0.5 (under 3 yd) or 0.12 up to 1.5, the point looked at Lift over the floor; low orbits (pitch 0.12 -
+    0.45, what a board user mostly drags to); close looks all the way in (under 3 yd, pitch -0.5 - 0.6); walking
+    poses over a character on any floor (pitch -0.6 - 1.45, 1.5 - 40 yd back, pulled in where the room is in the
+    way as Room.CameraDistance does). Unlike poses(), nothing here follows the room's views: a check on these is a
+    check on what a user can do."""
+    rng = np.random.default_rng(seed)
+    far = view[2] * 2.2
+    out = []
+
+    def target(xlo, xhi, ylo, yhi, dist):
+        x, y = rng.uniform(xlo, xhi), rng.uniform(ylo, yhi)
+        return (x, y, height_fn(room, x, y) + lift(dist))
+    for k in range(n_orbit):
+        d = math.exp(rng.uniform(math.log(DIST_MIN), math.log(far)))
+        t = target(-30, room.w + 30, -30, room.h + 30, d)
+        p = rng.uniform(PITCH_LOOKUP if d < 3 else PITCH_MIN, PITCH_TOP)
+        out.append(orbit(t, rng.uniform(0, 2 * math.pi), p, d, W=W, H=H, name="%s-orbit%d" % (tag, k)))
+    for k in range(n_low):
+        d = math.exp(rng.uniform(math.log(3.0), math.log(far)))
+        t = target(-30, room.w + 30, -30, room.h + 30, d)
+        out.append(orbit(t, rng.uniform(0, 2 * math.pi), rng.uniform(PITCH_MIN, 0.45), d, W=W, H=H,
+                         name="%s-low%d" % (tag, k)))
+    for k in range(n_close):
+        d = rng.uniform(DIST_MIN, 2.999)
+        t = target(0, room.w, 0, room.h, d)
+        out.append(orbit(t, rng.uniform(0, 2 * math.pi), rng.uniform(PITCH_LOOKUP, 0.6), d, W=W, H=H,
+                         name="%s-close%d" % (tag, k)))
+    if n_walk:
+        fl = np.nonzero(room.opaque & (room.N[:, 2] > 0.95) & (room.area > 0.3))[0]
+        prob = room.area[fl] / room.area[fl].sum()
+        for k in range(n_walk):
+            f = fl[rng.choice(len(fl), p=prob)]
+            a_, b_ = rng.uniform(), rng.uniform()
+            if a_ + b_ > 1:
+                a_, b_ = 1 - a_, 1 - b_
+            P = room.V[room.T[f]]
+            piv = P[0] + a_ * (P[1] - P[0]) + b_ * (P[2] - P[0]) + np.array([0.0, 0.0, WALK_EYE])
+            h, p = rng.uniform(0, 2 * math.pi), rng.uniform(-0.6, 1.45)
+            want = math.exp(rng.uniform(math.log(1.5), math.log(40.0)))
+            out.append(orbit(piv, h, p, _walk_allowed(room, piv, h, p, want), W=W, H=H, name="%s-walk%d" % (tag, k)))
+    return out
+
+
+def _walk_allowed(room, piv, h, p, want):
+    """How far back the walking camera may stand (Room.CameraDistance's way): five rays from the point it turns
+    round, back past its corners; the nearest room face less 0.6 yd, at least 0.8."""
+    cp = math.cos(p)
+    f = np.array([cp * math.cos(h), cp * math.sin(h), -math.sin(p)])
+    r = np.array([math.sin(h), -math.cos(h), 0.0])
+    u = np.cross(r, f)
+    best = None
+    for (a, b) in ((0, 0), (0.35, 0.25), (0.35, -0.25), (-0.35, 0.25), (-0.35, -0.25)):
+        dd = -f * want + a * r + b * u
+        ln = np.linalg.norm(dd)
+        t = _ray_hit(room, piv, dd / ln, ln)
+        if t is not None:
+            best = t / ln if best is None else min(best, t / ln)
+    return want if best is None else min(want, max(0.8, best * want - 0.6))
+
+
+# Poses a review of the shipped stand-ins found over-occlusion at (2026-10-05), kept as a regression set: name,
+# what the numbers are ('orbit': target, heading, pitch, distance; 'eye': the camera itself, heading, pitch), and
+# whether only harmful over-occlusion must be 0 ('air': the camera stands within the near clip of a room face, which
+# the runtime clips away so stand-ins behind its neighbours show through - over solid room or under the floor; or it
+# looks low past the floor's cut edge, far under the floor, where nothing can stand: the board poses' rule).
+REVIEW_POSES = (
+    ("b-close86 (panel from below)", "orbit", (27.26, 54.463, 1.15), 4.936, -0.32, 2.156, "all"),
+    ("b-orbit48 (panel from below)", "orbit", (28.314, 17.953, 1.772), 2.2844, -0.1917, 0.616, "all"),
+    ("panel, near a wall", "eye", (22.267, 50.54, 0.634), 3.883, -0.156, None, "all"),
+    ("b-close104 (mirror panel)", "orbit", (109.273, 25.976, 1.741), 0.6862, -0.1089, 0.693, "all"),
+    ("lintel from below", "eye", (102.03, 11.89, 0.08), 4.281, 0.105, None, "all"),
+    ("lintel, far orbit", "orbit", (38.33, 9.56, 0.0), 3.689, 0.463, 186.0, "all"),
+    ("b-low121 (floor edge)", "orbit", (108.099, 83.921, 0.0), 3.8566, 0.1937, 6.073, "air"),
+    ("b-orbit189 (floor edge)", "orbit", (117.012, 51.451, 0.0), 3.7223, 0.149, 7.298, "air"),
+    ("b-walk8 (pulled in 0.8 yd)", "eye", (103.93759551, 70.04963556, 1.92517999), 2.77803603, -0.35014524, None,
+     "all"),
+    ("floor6 (on a ledge top)", "orbit", (71.51, 5.41, 0.02), 0.049, 0.198, 5.43, "air"),
+    ("lookup3 (near a ledge)", "orbit", (77.71, 9.09, 1.15), 2.569, -0.425, 2.78, "air"),
+)
+
+
+def review_poses(W=960, H=640):
+    """REVIEW_POSES as cameras (each with .need: 'all' or 'air')."""
+    out = []
+    for (name, kind, pos, h, p, dist, need) in REVIEW_POSES:
+        cam = orbit(pos, h, p, dist, W=W, H=H, name=name) if kind == "orbit" else \
+            Camera(pos, h, p, W=W, H=H, name=name)
+        cam.need = need
+        out.append(cam)
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Open edges: the lines of sight past a region's outline that any camera the board allows could look along
+# ---------------------------------------------------------------------------------------------------------------
+# A stand-in shows to every camera in front of its face, and a camera low over the face sees past the face's free
+# edges (a panel's open bottom, a lintel's underside, the floor's cut edges) into the space behind it, where the
+# cubes are. Poses only sample that; here the lines themselves are drawn from the geometry: through points just
+# under every outline edge, in every direction that rises out of the face's back side past the edge, and kept when
+# the board's camera could stand somewhere along it with no room face it would draw in between (a face within the
+# near clip of the camera does not count: the runtime clips it away). Such a line continued behind the edge is a
+# ray some camera sees along; where it then runs through the air a model can stand in before it meets a face that
+# camera draws, a cube on it would hide models the room does not ("harmful"), and no cube may touch it. Lines that
+# run only under the floor or out of the room are left to the poses (repair): they hide nothing a model can be in.
+EDGE_STEP = 0.3                        # yd between samples along an outline
+EDGE_IN = 0.02                         # the lines cross this far inside the outline, under the face
+CURTAIN = (MARGIN + 0.01, 0.8, 3.0)   # yd behind the face the lines cross under the outline
+KAPPAS = tuple(0.01 * 1.3 ** k for k in range(27))         # a line's slope: yd deeper per yd it runs inward
+LAMBDAS = (-6.0, -3.0, -1.5, -0.7, 0.0, 0.7, 1.5, 3.0, 6.0)  # and how far it runs along the edge per yd inward
+LINE_TOL = 0.15                        # yd: a cube this close to a line counts as on it (the lines' spacing)
+HGUARD = NEAR - MARGIN - 0.02          # the least a camera a stand-in shows to stands out of its face (shown())
+# a face nearer the camera than this, along the line, may be clipped away by the near plane (seen at the corner of
+# a 3:2 view, where the clip plane is nearest)
+CLIP = NEAR / math.cos(math.atan(math.tan(FOV / 2) * math.sqrt(1 + 1.5 ** 2)))
+CAM_T = tuple(0.05 * 1.15 ** k for k in range(68))        # yd along a line where a camera is looked for (.05 - 650)
+
+
+class CamDomain:
+    """Where the board's camera can stand: zmin(x, y), the lowest it can be over a map point. Orbiting (V:ClampOrb):
+    the point looked at anywhere in the room and 30 yd round it, Lift over the floor (HeightFn), the camera dist back
+    at pitch -0.5 (under 3 yd) or 0.12 and more: 0.63 yd under the floor of a point 2.6 yd away at the lowest, or
+    r tan 0.12 over the floor of one r yd away. Walking cameras stay inside the room, over those. A 1 yd grid out to
+    the farthest the camera may stand. under: how far under the floor the close cameras may go (the board: 0.65)."""
+
+    def __init__(self, room, view, under=0.65):
+        far = view[2] * 2.2
+        pad = int(math.ceil(30 + far))
+        self.x0, self.y0 = -pad, -pad
+        nx, ny = int(math.ceil(room.w)) + 2 * pad + 1, int(math.ceil(room.h)) + 2 * pad + 1
+        # the floor under every point the camera can look at (+inf where it may not look)
+        xs = self.x0 + np.arange(nx) + 0.5
+        ys = self.y0 + np.arange(ny) + 0.5
+        G = np.full((ny, nx), np.inf)
+        ii = np.nonzero((xs >= -30) & (xs <= room.w + 30))[0]
+        jj = np.nonzero((ys >= -30) & (ys <= room.h + 30))[0]
+        for j in jj:
+            for i in ii:
+                G[j, i] = height_fn(room, xs[i], ys[j])
+        # the lowest camera over the floor of a point r yd away: under 3 yd out at pitch -0.5 down to -0.63 (r 2.6);
+        # from 3 yd at pitch 0.12, Lift(dist) + r tan(0.12): 0.87 at r 4, 0.6 at r 5, then growing. Every window
+        # (a square of half side r) takes the lowest over the distances it adds to the one before (0.6 at r 4 - 5,
+        # then the inner distance's), so the domain is never too small
+        best = np.full((ny, nx), np.inf)
+        radii = (5, 7, 10, 14, 20, 28, 40, 56, 80, 112, 160, 224, pad)
+        steps = [(3, -under), (4, 0.85), (5, 0.6)] + [(r, r0 * math.tan(PITCH_MIN)) for r0, r in
+                                                      zip(radii, radii[1:])]
+        for r, off in steps:
+            k = 2 * r + 1
+            m = window(np.pad(G, r, constant_values=np.inf), k, np.minimum)
+            best = np.minimum(best, m + off)
+        self.zmin = best - 0.05                      # (FloorZ: the floor triangle nearest the grid's height)
+
+    def low(self, P):
+        """The lowest a camera can stand over each point's map position (+inf where it cannot stand at all)."""
+        i = np.floor(P[..., 0] - self.x0).astype(np.int64)
+        j = np.floor(P[..., 1] - self.y0).astype(np.int64)
+        ok = (i >= 0) & (i < self.zmin.shape[1]) & (j >= 0) & (j < self.zmin.shape[0])
+        out = np.full(P.shape[:-1], np.inf)
+        out[ok] = self.zmin[j[ok], i[ok]]
+        return out
+
+
+def _outline(room, g):
+    """A region's outline: its edges that only one of its faces has (holes too) -> A, B (k, 3) the ends, M (k, 3) the
+    unit direction in the face's plane pointing out of the region."""
+    cnt = collections.Counter()
+    own = {}
+    Tm = room.Tm
+    for f in g.tris:
+        for i in range(3):
+            a, b = Tm[f, i], Tm[f, (i + 1) % 3]
+            key = (min(a, b), max(a, b))
+            cnt[key] += 1
+            own[key] = (f, i)
+    A, B, M = [], [], []
+    for key, c in cnt.items():
+        if c != 1:
+            continue
+        f, i = own[key]
+        P = room.V[room.T[f]]
+        a, b, other = P[i], P[(i + 1) % 3], P[(i + 2) % 3]
+        e = b - a
+        ln = np.linalg.norm(e)
+        if ln < 1e-4:
+            continue
+        m = np.cross(e / ln, g.n)
+        m /= max(np.linalg.norm(m), 1e-12)
+        if m @ (other - a) > 0:
+            m = -m
+        A.append(a)
+        B.append(b)
+        M.append(m)
+    if not A:
+        return np.zeros((0, 3)), np.zeros((0, 3)), np.zeros((0, 3))
+    return np.array(A), np.array(B), np.array(M)
+
+
+def _air(room, X):
+    """Points (..., 3) in the air a model can stand in: over a floor of the height grid within 3 yd of the boss'
+    floor, 0.1 to AIR_H yd up (as _over_air)."""
+    ci = np.floor(X[..., 0] / room.cell).astype(np.int64)
+    cj = np.floor(X[..., 1] / room.cell).astype(np.int64)
+    ok = (ci >= 0) & (ci < room.heights.shape[1]) & (cj >= 0) & (cj < room.heights.shape[0])
+    h = np.full(X.shape[:-1], np.nan)
+    h[ok] = room.heights[cj[ok], ci[ok]]
+    with np.errstate(invalid="ignore"):
+        return np.isfinite(h) & (np.abs(h) <= 3.0) & (X[..., 2] >= h + 0.1) & (X[..., 2] <= h + AIR_H)
+
+
+class Caster:
+    """Rays against the room's opaque faces (Moller-Trumbore, numpy), the faces a batch of rays could meet picked by
+    its bounding box from a FaceIndex."""
+
+    def __init__(self, room, index):
+        self.room, self.index = room, index
+        P = room.V[room.T]
+        self.P0, self.E1, self.E2 = P[:, 0], P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]
+
+    def hits(self, O, D, tmax, chunk=64):
+        """Every opaque face met by O + t D, 1e-4 < t <= tmax -> ray indices, faces, t (flat arrays)."""
+        out_r, out_f, out_t = [], [], []
+        for c0 in range(0, len(O), chunk):
+            o, d, tm = O[c0:c0 + chunk], D[c0:c0 + chunk], tmax[c0:c0 + chunk]
+            ends = o + d * tm[:, None]
+            lo = np.minimum(o, ends).min(0) - 1e-3
+            hi = np.maximum(o, ends).max(0) + 1e-3
+            f = self.index.near(lo, hi)
+            f = f[self.room.opaque[f]]
+            if not len(f):
+                continue
+            e1, e2, p0 = self.E1[f], self.E2[f], self.P0[f]
+            p = np.cross(d[:, None, :], e2[None])
+            det = np.einsum("tj,rtj->rt", e1, p)
+            ok = np.abs(det) > 1e-12
+            inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+            s = o[:, None, :] - p0[None]
+            u = np.einsum("rtj,rtj->rt", s, p) * inv
+            q = np.cross(s, e1[None])
+            v = np.einsum("rj,rtj->rt", d, q) * inv
+            t = np.einsum("tj,rtj->rt", e2, q) * inv
+            hit = ok & (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9) & (t > 1e-4) & (t <= tm[:, None])
+            r_, k_ = np.nonzero(hit)
+            out_r.append(r_ + c0)
+            out_f.append(f[k_])
+            out_t.append(t[r_, k_])
+        if not out_r:
+            z = np.zeros(0, np.int64)
+            return z, z, np.zeros(0)
+        return np.concatenate(out_r), np.concatenate(out_f), np.concatenate(out_t)
+
+
+def _slab(P, Dv, lo, hi):
+    """Where the rays P + t Dv (n, 3) run inside the box lo .. hi: t from, t to (from > to: never)."""
+    ta, tb = np.full(len(P), -np.inf), np.full(len(P), np.inf)
+    for k in range(3):
+        d = Dv[:, k]
+        par = np.abs(d) < 1e-12
+        with np.errstate(divide="ignore", invalid="ignore"):
+            u = (lo[k] - P[:, k]) / d
+            v = (hi[k] - P[:, k]) / d
+        out = par & ((P[:, k] < lo[k]) | (P[:, k] > hi[k]))
+        ta = np.where(par, np.where(out, np.inf, ta), np.maximum(ta, np.minimum(u, v)))
+        tb = np.where(par, np.where(out, -np.inf, tb), np.minimum(tb, np.maximum(u, v)))
+    return ta, tb
+
+
+def _harmful(room, g, cast, dom, P, Wd, D, box, counts):
+    """One batch of lines through P (behind g's outline, D yd under its face) rising along Wd (unit) out of its
+    back side: the harmful ones (open edges, above) -> P0, P1, C (as open_lines)."""
+    n = g.n
+    counts["lines"] += len(P)
+    # 1. air somewhere behind: the back ray's run through the box of the height grid's air, every AIR_STEP
+    ta, tb = _slab(P, -Wd, box[0], box[1])
+    ta, tb = np.maximum(ta, 0.0), np.minimum(tb, AIR_RUN)
+    cand = np.nonzero(tb > ta)[0]
+    if not len(cand):
+        return None
+    ns = int(math.ceil(AIR_RUN / AIR_STEP))
+    s = ta[cand][:, None] + (np.arange(ns) + 0.5)[None] * AIR_STEP
+    a = _air(room, P[cand][:, None, :] - Wd[cand][:, None, :] * s[:, :, None]) & (s <= tb[cand][:, None])
+    any_ = a.any(1)
+    cand, s, a = cand[any_], s[any_], a[any_]
+    counts["air"] += len(cand)
+    if not len(cand):
+        return None
+    # 2. the first place along the line a camera could stand: the board lets it stand there, and it stands out of
+    # the face as far as a camera any stand-in shows to
+    Pc, Wc = P[cand], Wd[cand]
+    cam_t = np.array(CAM_T)
+    X = Pc[:, None, :] + Wc[:, None, :] * cam_t[None, :, None]
+    ok = (X[:, :, 2] >= dom.low(X)) & (X @ n - (g.d + g.dlo) >= HGUARD)
+    has = ok.any(1)
+    Pc, Wc, s, a = Pc[has], Wc[has], s[has], a[has]
+    tv = cam_t[np.argmax(ok[has], axis=1)]
+    counts["camera"] += len(Pc)
+    if not len(Pc):
+        return None
+    Cv = Pc + Wc * tv[:, None]
+    # 3. open: no face that camera draws between it and the line's start, past the near clip (farther cameras
+    # along the line only have more faces in between)
+    tmax = tv - CLIP
+    blocked = np.zeros(len(Pc), bool)
+    sel = np.nonzero(tmax > 1e-4)[0]
+    if len(sel):
+        r_, f_, _ = cast.hits(Pc[sel], Wc[sel], tmax[sel])
+        if len(r_):
+            sv = np.einsum("ij,ij->i", room.NP[f_], Cv[sel][r_]) + room.NPd[f_]
+            dr = room.QO[f_] * sv > EPS_SIDE
+            blocked[sel[np.unique(r_[dr])]] = True
+    keep = ~blocked
+    Pc, Wc, Cv, s, a = Pc[keep], Wc[keep], Cv[keep], s[keep], a[keep]
+    counts["open"] += len(Pc)
+    if not len(Pc):
+        return None
+    # 4. what that camera sees behind: the first face it draws along the line on from the start. Harmful when air
+    # comes before it; a cube on the line matters only where air lies behind the point the line enters it, so the
+    # line is kept up to its last air before that face
+    last_any = np.where(a, s, -np.inf).max(1)
+    r_, f_, t_ = cast.hits(Pc, -Wc, last_any + AIR_STEP)
+    back = np.full(len(Pc), np.inf)
+    if len(r_):
+        sv = np.einsum("ij,ij->i", room.NP[f_], Cv[r_]) + room.NPd[f_]
+        dr = room.QO[f_] * sv > EPS_SIDE
+        np.minimum.at(back, r_[dr], t_[dr])
+    last = np.where(a & (s + AIR_STEP / 2 < back[:, None]), s + AIR_STEP / 2, -np.inf).max(1)
+    harm = np.isfinite(last)
+    counts["harmful"] += int(harm.sum())
+    if not harm.any():
+        return None
+    Pc, Wc, Cv, last = Pc[harm], Wc[harm], Cv[harm], last[harm]
+    tc = D / np.maximum(Wc @ n, 1e-9)                    # (where it comes out of the face's plane)
+    return Pc + Wc * tc[:, None], Pc - Wc * last[:, None], Cv
+
+
+def open_lines(room, regs, index, dom, log=None, batch=4000):
+    """The harmful lines of sight past the regions' outlines (see above) -> dict of arrays: reg (index into regs),
+    P0 (where the line comes out of the face's plane, outside the outline), P1 (its last point in the air before
+    the first face the camera draws behind), C (a camera the board allows that sees along it); counts, seconds."""
+    t0 = time.time()
+    cast = Caster(room, index)
+    hmin = float(np.nanmin(np.where(np.abs(room.heights) <= 3.0, room.heights, np.nan)))
+    box = (np.array([0.0, 0.0, hmin + 0.1]),
+           np.array([room.heights.shape[1] * room.cell, room.heights.shape[0] * room.cell, 3.0 + AIR_H]))
+    kk, ll = np.meshgrid(np.array(KAPPAS), np.array(LAMBDAS), indexing="ij")
+    kk, ll = kk.reshape(-1), ll.reshape(-1)
+    res = collections.defaultdict(list)
+    counts = collections.Counter()
+    for ri, g in enumerate(regs):
+        A, B, M = _outline(room, g)
+        if not len(A):
+            continue
+        Q, Mq, Eq = [], [], []
+        for a, b, m in zip(A, B, M):
+            ln = np.linalg.norm(b - a)
+            nk = max(1, int(math.ceil(ln / EDGE_STEP)))
+            f = (np.arange(nk) + 0.5) / nk
+            Q.append(a + f[:, None] * (b - a))
+            Mq.append(np.repeat(m[None], nk, 0))
+            Eq.append(np.repeat(((b - a) / ln)[None], nk, 0))
+        Q, Mq, Eq = np.concatenate(Q), np.concatenate(Mq), np.concatenate(Eq)
+        per = max(1, batch // len(kk))
+        for D in CURTAIN:
+            for q0 in range(0, len(Q), per):
+                q = slice(q0, q0 + per)
+                p = Q[q] - EDGE_IN * Mq[q] - D * g.n
+                w = Mq[q][:, None, :] + ll[None, :, None] * Eq[q][:, None, :] + kk[None, :, None] * g.n
+                w /= np.linalg.norm(w, axis=2)[:, :, None]
+                got = _harmful(room, g, cast, dom, np.repeat(p, len(kk), 0), w.reshape(-1, 3), D, box, counts)
+                if got is not None:
+                    res["reg"].append(np.full(len(got[0]), ri))
+                    for k, v in zip(("P0", "P1", "C"), got):
+                        res[k].append(v)
+        if log and (ri + 1) % 50 == 0:
+            log("  open lines: %d/%d regions, %d lines, %d harmful (%.0f s)" % (
+                ri + 1, len(regs), counts["lines"], counts["harmful"], time.time() - t0))
+    out = {k: np.concatenate(v) for k, v in res.items()} if res else \
+        dict(reg=np.zeros(0, np.int64), P0=np.zeros((0, 3)), P1=np.zeros((0, 3)), C=np.zeros((0, 3)))
+    out["counts"] = dict(counts)
+    out["seconds"] = time.time() - t0
+    return out
+
+
+def _seg_box(P0, P1, centre, axes, half):
+    """Do the segments P0 -> P1 (n, 3) touch the boxes (centre (n, 3) or (3,), rows of axes (n, 3, 3) or (3, 3),
+    half sizes (n, 3) or (3,))? (slab test)"""
+    centre, axes, half = np.asarray(centre, float), np.asarray(axes, float), np.asarray(half, float)
+    if axes.ndim == 2:
+        a, b = (P0 - centre) @ axes.T, (P1 - centre) @ axes.T
+    else:
+        a = np.einsum("nkj,nj->nk", axes, P0 - centre)
+        b = np.einsum("nkj,nj->nk", axes, P1 - centre)
+    h = np.broadcast_to(half, a.shape)
+    d = b - a
+    t0, t1 = np.zeros(len(a)), np.ones(len(a))
+    for k in range(3):
+        par = np.abs(d[:, k]) < 1e-12
+        with np.errstate(divide="ignore", invalid="ignore"):
+            u = (-h[:, k] - a[:, k]) / d[:, k]
+            v = (h[:, k] - a[:, k]) / d[:, k]
+        inside = np.abs(a[:, k]) <= h[:, k]
+        t0 = np.maximum(t0, np.where(par, np.where(inside, -np.inf, np.inf), np.minimum(u, v)))
+        t1 = np.minimum(t1, np.where(par, np.where(inside, np.inf, -np.inf), np.maximum(u, v)))
+    return t0 <= t1
+
+
+def on_lines(lines, cubes, tol=LINE_TOL, vox=2.0, step=0.5):
+    """The cubes (a list, or standin_arrays() of one) a harmful line runs through (within tol of their sides and back)
+    while the camera that sees along it shows them (rule 'reach': a hair looser than shown()) -> set of indices. The
+    cubes are filed by vox yd cells (each in the cells its box and one cell round it touch), and every line is looked
+    up there every step yd of its run through their box."""
+    C, R, S, N = cubes if isinstance(cubes, tuple) else standin_arrays(cubes)
+    if not len(lines["P0"]) or not len(C):
+        return set()
+    ext = S * math.sqrt(3) / 2 + tol
+    lo_all, hi_all = (C - ext[:, None]).min(0) - vox, (C + ext[:, None]).max(0) + vox
+    dims = np.floor((hi_all - lo_all) / vox).astype(np.int64) + 1
+
+    def key(v):
+        return (v[..., 0] * dims[1] + v[..., 1]) * dims[2] + v[..., 2]
+    # the cell table (sorted keys, each with its cubes)
+    ks, cs = [], []
+    for i in range(len(C)):
+        a = np.floor((C[i] - ext[i] - lo_all) / vox).astype(np.int64) - 1
+        b = np.floor((C[i] + ext[i] - lo_all) / vox).astype(np.int64) + 1
+        a, b = np.maximum(a, 0), np.minimum(b, dims - 1)
+        g = np.stack(np.meshgrid(*[np.arange(a[k], b[k] + 1) for k in range(3)], indexing="ij"), -1).reshape(-1, 3)
+        ks.append(key(g))
+        cs.append(np.full(len(g), i))
+    ks, cs = np.concatenate(ks), np.concatenate(cs)
+    o = np.argsort(ks, kind="stable")
+    ks, cs = ks[o], cs[o]
+    tk, start = np.unique(ks, return_index=True)
+    stop = np.append(start[1:], len(ks))
+    P0, P1, Cam = lines["P0"], lines["P1"], lines["C"]
+    Dv = P1 - P0
+    ta, tb = _slab(P0, Dv, lo_all, hi_all)
+    ta, tb = np.maximum(ta, 0.0), np.minimum(tb, 1.0)
+    live = np.nonzero(tb > ta)[0]
+    ln = np.linalg.norm(Dv, axis=1)
+    reach = S / 2 * np.abs(np.einsum("ij,ikj->ik", N, R)).sum(1)
+    # the box tested: tol wider round the sides and the back, but its front where it is (MARGIN behind the face: a
+    # line ending in the air just in front of the face must not catch it)
+    along = np.einsum("ikj,ij->ik", R, N)
+    kf = np.argmax(np.abs(along), axis=1)
+    rows = np.arange(len(C))
+    half = np.repeat((S / 2 + tol)[:, None], 3, 1)
+    half[rows, kf] -= tol / 2
+    Cb = C - (tol / 2) * np.sign(along[rows, kf])[:, None] * R[rows, kf]
+    bad = np.zeros(len(C), bool)
+    for c0 in range(0, len(live), 20000):
+        li = live[c0:c0 + 20000]
+        n_s = np.ceil((tb[li] - ta[li]) * ln[li] / step).astype(np.int64) + 1
+        rep = np.repeat(li, n_s)
+        k = np.arange(len(rep)) - np.repeat(np.cumsum(n_s) - n_s, n_s)
+        f = ta[rep] + (tb[rep] - ta[rep]) * k / np.maximum(np.repeat(n_s, n_s) - 1, 1)
+        X = P0[rep] + Dv[rep] * f[:, None]
+        kv = key(np.clip(np.floor((X - lo_all) / vox).astype(np.int64), 0, dims - 1))
+        kl = np.unique(np.stack([kv, rep], 1), axis=0)
+        pos = np.searchsorted(tk, kl[:, 0])
+        hit = (pos < len(tk)) & (tk[np.minimum(pos, len(tk) - 1)] == kl[:, 0])
+        kl, pos = kl[hit], pos[hit]
+        if not len(kl):
+            continue
+        cnt = stop[pos] - start[pos]
+        line = np.repeat(kl[:, 1], cnt)
+        j = np.repeat(start[pos], cnt) + (np.arange(cnt.sum()) - np.repeat(np.cumsum(cnt) - cnt, cnt))
+        cube = cs[j]
+        pr = np.unique(line * len(C) + cube)
+        line, cube = pr // len(C), pr % len(C)
+        keep = ~bad[cube] & (np.einsum("ij,ij->i", Cam[line] - C[cube], N[cube]) > reach[cube])
+        line, cube = line[keep], cube[keep]
+        if not len(line):
+            continue
+        hit = _seg_box(P0[line], P1[line], Cb[cube], R[cube], half[cube])
+        bad[np.unique(cube[hit])] = True
+    return set(np.nonzero(bad)[0].tolist())
+
+
+def cut_on_lines(lines, cubes, min_size=MIN_SIZE, log=None):
+    """Every cube a harmful line runs through is cut into quarters, and those again until none is (under min_size
+    it goes); only the new quarters are looked at again. -> cubes, counts."""
+    counts = collections.Counter()
+    out, todo = [], list(cubes)
+    while todo:
+        bad = on_lines(lines, todo)
+        nxt = []
+        for i, c in enumerate(todo):
+            if i not in bad:
+                out.append(c)
+            elif c.s / 2 >= min_size - 1e-9:
+                nxt += split(c)
+                counts["split"] += 1
+            else:
+                counts["removed"] += 1
+        todo = nxt
+    if log:
+        log("open lines: %d stand-ins cut, %d removed" % (counts["split"], counts["removed"]))
+    return out, counts
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # The whole run: place, repair against the poses, report, write
 # ---------------------------------------------------------------------------------------------------------------
@@ -1191,12 +1840,12 @@ def split(c):
     return out
 
 
-def repair(room, cubes, cams, log=print, min_size=MIN_SIZE):
-    """Pose by pose: every stand-in that hides something the room does not (after the 1-pixel erosion) is cut
-    into quarters, again until the pose is clean; under min_size it goes. Quarters lie inside their cube and show
-    for no more cameras (their front is the cube's), so a pose made clean stays clean. -> cubes, counts, every
-    pose's last numbers, the index of the last pose that changed the set (numbers of the poses before it are of
-    an older set)."""
+def repair(room, cubes, cams, log=print, min_size=MIN_SIZE, harm=False):
+    """Pose by pose: every stand-in that hides something the room does not (after the 1-pixel erosion; harm: only
+    where a model could be) is cut into quarters, again until the pose is clean; under min_size it goes. Quarters
+    lie inside their cube and show for no more cameras (their front is the cube's), so a pose made clean stays
+    clean. -> cubes, counts, every pose's last numbers, the index of the last pose that changed the set (numbers of
+    the poses before it are of an older set)."""
     counts = collections.Counter()
     results, last = [], -1
     for pi, cam in enumerate(cams):
@@ -1204,7 +1853,7 @@ def repair(room, cubes, cams, log=print, min_size=MIN_SIZE):
         rounds = 0
         while True:
             arr = standin_arrays(cubes)
-            res, culprits, _ = measure(room, cam, arr, rb)
+            res, culprits, _ = measure(room, cam, arr, rb, harm=harm)
             if not len(culprits):
                 break
             rounds += 1
@@ -1279,6 +1928,11 @@ def region_areas(room, regions, cubes):
     return a
 
 
+# the board poses (board_poses()) placed against and checked on: orbits, low orbits, close looks, walking
+BOARD_TRAIN = dict(seed=11, n_orbit=240, n_low=160, n_close=120, n_walk=80)
+BOARD_CHECK = dict(seed=23, n_orbit=120, n_low=80, n_close=60, n_walk=40)
+
+
 def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None):
     """The whole run for one room. fast: fewer and smaller poses (tests); limit: only the largest regions."""
     t0 = time.time()
@@ -1293,34 +1947,63 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None):
     if W is None:
         W, H = (320, 214) if fast else (960, 640)
     EW, EH = (240, 160) if fast else (480, 320)
+    # the training poses: the room's own views (nothing seen past the room at all) and the board camera's whole
+    # range (nothing seen past the room where a model could be: low over the floor from outside the room, a camera
+    # sees far under the floor past its cut edges, where nothing can stand)
     train = poses(room, view, spot, "train", W=W, H=H)
     train_e = poses(room, view, spot, "train", W=EW, H=EH)
+    btrain = board_poses(room, view, W=W, H=H, tag="t", **BOARD_TRAIN)
+    btrain_e = board_poses(room, view, W=EW, H=EH, tag="t", **BOARD_TRAIN)
     if fast:
-        train, train_e = train[::7], train_e[::7]
+        train, train_e, btrain, btrain_e = train[::7], train_e[::7], btrain[::7], btrain_e[::7]
     pr = make_probes(room, regs)
     expose(room, pr, train_e, val_F=(H / 2.0) / math.tan(FOV / 2.0), log=log)
+    expose(room, pr, btrain_e, val_F=(H / 2.0) / math.tan(FOV / 2.0), log=log, harmful_only=True)
     log("%s: %d regions (%d get stand-ins), %d probes, %d seen by a pose (%.0f s)"
         % (key, len(regions), len(regs), len(pr.P), pr.exposed.sum(), time.time() - t0))
+    # the lines of sight past open edges any board camera has (whatever the poses saw)
+    lines = open_lines(room, regs, index, CamDomain(room, view), log=log)
+    log("open lines: %s (%.0f s)" % (lines["counts"], time.time() - t0))
     cubes = []
     for ri, g in enumerate(regs):
         cubes += place_region(room, g, ri, index, pr, stats=stats)
     placed = len(cubes)
     log("%d stand-ins placed (%.0f s)" % (placed, time.time() - t0))
+    cubes, lc = cut_on_lines(lines, cubes, log=log)
     cubes, rc, res_train, last = repair(room, cubes, train, log=log)
-    log("repair: %d stand-ins (%d split, %d removed, %d poses needed it) (%.0f s)"
-        % (len(cubes), rc["split"], rc["removed"], rc["poses"], time.time() - t0))
-    if last > 0:                                   # (the poses before the last change saw an older set)
-        res_train[:last] = evaluate(room, cubes, train[:last])
+    cubes, bc, res_btrain, blast = repair(room, cubes, btrain, log=log, harm=True)
+    rc.update({"lines_" + k: v for k, v in lc.items()})
+    rc.update({"board_" + k: v for k, v in bc.items()})
+    log("repair: %d stand-ins (%d split, %d removed, %d poses needed it; board poses %d, %d, %d) (%.0f s)"
+        % (len(cubes), rc["split"], rc["removed"], rc["poses"], bc["split"], bc["removed"], bc["poses"],
+           time.time() - t0))
+    if last > 0 or blast >= 0:                     # (the poses before the last change saw an older set)
+        res_train = evaluate(room, cubes, train)
+    if blast > 0:
+        res_btrain[:blast] = evaluate(room, cubes, btrain[:blast])
     rand = poses(room, view, spot, "random", W=W, H=H, seed=7)
+    board = board_poses(room, view, W=W, H=H, tag="b", **BOARD_CHECK)
+    review = review_poses(W, H)
     if fast:
-        rand = rand[::6]
+        rand, board, review = rand[::6], board[::10], review[::3]
     res_rand = evaluate(room, cubes, rand)
-    # the same random poses under the runtime's rule as it is today (no near-plane guard): what changes is only
-    # cameras nearer a surface than the near clip
+    # the same random poses under the runtime's rule as it was (no near clip in it): what changes is only cameras
+    # nearer a surface than the near clip
     res_rand_reach = evaluate(room, cubes, rand, rule="reach")
+    # poses the placement never saw, over the board camera's whole range, and the review's
+    res_board = evaluate(room, cubes, board)
+    res_review = evaluate(room, cubes, review)
+    for r, cam in zip(res_review, review):
+        r["need"] = cam.need
+    checked = len(train) + len(btrain) + len(rand) + len(board) + len(review)
+    if not fast and not limit and checked != POSES_CHECKED:
+        log("note: %d poses checked, POSES_CHECKED says %d (the data file's header)" % (checked, POSES_CHECKED))
     return dict(key=key, room=room, regions=regions, cubes=cubes, placed=placed, repair=dict(rc),
-                train=summarize(res_train), random=summarize(res_rand), random_reach=summarize(res_rand_reach),
-                res_train=res_train, res_rand=res_rand, res_rand_reach=res_rand_reach,
+                train=summarize(res_train), btrain=summarize(res_btrain), random=summarize(res_rand),
+                random_reach=summarize(res_rand_reach), board=summarize(res_board), review=summarize(res_review),
+                res_train=res_train, res_btrain=res_btrain, res_rand=res_rand, res_rand_reach=res_rand_reach,
+                res_board=res_board,
+                res_review=res_review, lines=lines, checked=checked,
                 areas=region_areas(room, regions, cubes), stats=dict(stats), view=view, spot=spot,
                 seconds=time.time() - t0, size=(W, H), probes=pr)
 
@@ -1342,10 +2025,19 @@ def records(cubes):
     return out
 
 
-def lua_text(key, cubes=None, recs=None):
-    """The data file's text, from the cubes or from the records (records(); read_records() of a written file)."""
+def room_stamp(key, room=None):
+    """What the stand-ins were made from: the room file's packed size (ns.RoomFloors[key].size, the runtime has
+    it) and its vertex and triangle counts."""
+    room = room or load_room(key)
+    return dict(size=room.size, verts=room.nverts, tris=room.ntris)
+
+
+def lua_text(key, cubes=None, recs=None, stamp=None):
+    """The data file's text, from the cubes or from the records (records(); read_records() of a written file);
+    stamp: room_stamp() (read from the room file when not given)."""
     rel = "Render3D/Standins/%s.lua" % key
     recs = records(cubes) if recs is None else recs
+    stamp = stamp or room_stamp(key)
     lines = [
         'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel),
         "-- %s: the room's stand-ins (Render3D/Standins.lua shows them): unit cubes just behind its" % key,
@@ -1353,13 +2045,18 @@ def lua_text(key, cubes=None, recs=None):
         "-- hidden per pixel wherever the room is in front of them (all model scenes share one depth buffer). 12 numbers",
         "-- per stand-in: prim, x, y, z (the prim's origin, room yards), yaw, pitch, roll (radians, room coordinates",
         "-- before mirroring), scale, nx, ny, nz (its face's normal, to the side the face is seen from), face (the",
-        "-- face's region, for debugging). One matters only while its face faces the camera: the camera farther out",
-        "-- along n than the cube reaches (and than the near clip). Checked offline against the room's z-buffer from",
-        "-- %d poses. AUTO-GENERATED by dev/generators/gen_standins.py; do not edit by hand." % POSES_CHECKED,
+        "-- face's region, for debugging). Show one only while dot(n, camera - origin) > reach + near: reach = the",
+        "-- prim's half size x scale x (|n.a1| + |n.a2| + |n.a3|) over its turned axes a1..a3 (how far it reaches out",
+        "-- along n from its origin), near = the view's near clip (0.5 yd); nearer than that, its face may be clipped",
+        "-- away while the cube is not. room: the room file these were made for (its packed size, vertices and",
+        "-- triangles); made for another build of the room they hide the wrong things. Checked offline against the",
+        "-- room's z-buffer from %d poses. AUTO-GENERATED by dev/generators/gen_standins.py; do not edit by hand."
+        % POSES_CHECKED,
         "local _, ns = ...",
         "ns.RoomStandins = ns.RoomStandins or {}",
         'ns.RoomStandins["%s"] = { version = 1, prims = { [1] = { fid = %d, kind = "%s", half = %s } },'
         % (key, PRIMS[CUBE]["fid"], PRIMS[CUBE]["kind"], _num(PRIMS[CUBE]["half"], 3)),
+        "  room = { size = %d, verts = %d, tris = %d }," % (stamp["size"], stamp["verts"], stamp["tris"]),
         "  n = %d, stride = 12, data = {" % len(recs),
     ]
     for r in recs:
@@ -1379,10 +2076,10 @@ def read_records(path):
     return [tuple(nums[i:i + 12]) for i in range(0, len(nums), 12)]
 
 
-def write_lua(key, cubes=None, out_dir=OUT_DIR, recs=None):
+def write_lua(key, cubes=None, out_dir=OUT_DIR, recs=None, stamp=None):
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, key + ".lua")
-    text = lua_text(key, cubes, recs)
+    text = lua_text(key, cubes, recs, stamp)
     tmp = os.path.join(out_dir, "." + key + ".lua.tmp")
     with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
@@ -1521,7 +2218,13 @@ def report(b, size=None):
              "  by kind %s; size yd min %.2f median %.2f max %.2f" % (dict(kinds), sizes.min(), np.median(sizes),
                                                                       sizes.max()),
              "  areas yd2: " + ", ".join("%s %.0f" % (k, v) for k, v in sorted(a.items()))]
-    for tag, label in (("train", "train"), ("random", "random"), ("random_reach", "random, rule 'reach'")):
+    if "lines" in b:
+        lines.append("  open lines (any board camera, past open edges): %s, %.0f s" % (b["lines"]["counts"],
+                                                                                   b["lines"]["seconds"]))
+    for tag, label in (("train", "train"), ("btrain", "board train (harm only)"), ("random", "random"),
+                       ("random_reach", "random, rule 'reach'"), ("board", "board (held out)"), ("review", "review")):
+        if tag not in b:
+            continue
         s = b[tag]
         lines.append("  %s poses %d (%dx%d): over-occlusion %d px eroded (%d raw, %d where a model could be); "
                      "coverage %.1f%% within %.2f yd, %s, any %.1f%%; shown median %.0f p90 %.0f max %d"
@@ -1538,6 +2241,9 @@ def report(b, size=None):
                       if r["over_eroded"]), reverse=True)[:5]
         if bad:
             lines.append("    over-occlusion at: " + "; ".join("%s %d px" % (n, v) for v, n in bad))
+    for r in b.get("res_review", ()):
+        lines.append("    review %-30s over-occlusion %6d px eroded, %5d where a model could be (must be 0: %s)"
+                     % (r["name"], r["over_eroded"], r["over_air"], "both" if r["need"] == "all" else "the latter"))
     if size is not None:
         lines.append("  file %d bytes" % size)
     return "\n".join(lines)
@@ -1556,7 +2262,7 @@ def main(argv=None):
         b = build(key, fast=args.fast)
         size = None
         if not args.no_write:
-            path, size = write_lua(key, b["cubes"])
+            path, size = write_lua(key, b["cubes"], stamp=room_stamp(key, b["room"]))
             print("wrote", path)
         print(report(b, size))
         if args.sheet:
@@ -1564,7 +2270,7 @@ def main(argv=None):
             print("wrote", contact_sheet(b, os.path.join(IMG_DIR, "standins_%s.png" % short)))
             print("wrote", top_view(b, os.path.join(IMG_DIR, "standins_%s_top.png" % short)))
         allres[key] = dict(train=b["train"], random=b["random"], random_reach=b["random_reach"], areas=b["areas"],
-                           n=len(b["cubes"]),
+                           board=b["board"], review=b["review"], lines=b["lines"]["counts"], n=len(b["cubes"]),
                            placed=b["placed"], repair=b["repair"], size=size)
     if args.json:
         with open(args.json, "w") as fh:

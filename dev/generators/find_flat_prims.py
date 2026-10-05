@@ -11,12 +11,14 @@ instead of a thin box. This scans every model of the installed build (casc_local
   box    8 distinct corners of an axis-aligned box, every face covered (like 167145)
 
 and for both: opaque materials only (blend 0, or 1 = alpha key, noted), depth test and write on (no material flag
-0x8 / 0x10), no billboard bone (flags 0x8, 0x10, 0x20, 0x40), no bone that moves a vertex (no key frames, no constant
-non-identity transform), no colour or transparency below 1, no particles / ribbons, texture by file (type 0).
+0x8 / 0x10), no batch flag 0x4 / 0x20 ("projected texture" on wowdev: how it draws is unknown), no billboard bone
+(flags 0x8, 0x10, 0x20, 0x40), no bone that moves a vertex (no key frames, no constant non-identity transform), no
+colour or transparency below 1, no particles / ribbons, texture by file (type 0).
 
 For each it reports the FileDataID, the path (found by the root's name hash from the model's internal name and a list
 of known folders, else '?'), the size, the plane's normal as a local axis and the side its front faces look at,
-one- or two-sided (material flag 0x4, or both windings in the mesh), and why the others were refused (counts).
+one- or two-sided (material flag 0x4, or both windings in the mesh), its batches' flags and shader IDs (shown, not
+judged, but for the projected flags), and why the others were refused (counts).
 
 Only models whose first bytes read 'MD21' / 'MD20' in this build are ever listed: SetModelByFileID with any other file
 ID can crash the client (WoWUIBugs #67), so Probe.lua may only use IDs from this report.
@@ -25,7 +27,9 @@ Run: luaenv\\Scripts\\python.exe generators\\find_flat_prims.py [--json out.json
      (--all lists every model that passed, not only the best; --fid explains the verdict on given IDs)
 The first run peeks at every file of the build (two or three minutes) and caches the model list under dev/art/casc.
 
-Found on 2.5.6.69795 (2026-10-05; Render3D/Probe.lua page 6 shows them in game): 24 flat models and 29 boxes pass.
+Found on 2.5.6.69795 (2026-10-05; Render3D/Probe.lua page 6 shows them in game): 23 flat models and 29 boxes pass
+(24 flat before the projected-batch rule refused 200893 G_Blanket; every other projected batch of the build is a spell
+ground effect, refused for its blend anyway).
 Opaque flat ones: 198111 DNRDeadMinesCaveRoof (two-sided, 89.7 x 109.1, plane z = 17.06), 653518 / 1067658 /
 1396283 the low-bandwidth menu quads (one-sided, unlit, facing +x); the rest are alpha-keyed rugs and mats. Boxes:
 167145 spells/UnitCube.m2, the world/scale/<n>x<n>.m2 cubes (one-sided, base on the origin), 166046
@@ -54,6 +58,11 @@ AREA_TOL = 0.01              # covered area against the outline's, relative
 MAX_VERTS = 2048             # (a stand-in is a handful of triangles; a big grid would only cost)
 MAX_BYTES = 512 * 1024
 BILLBOARD = 0x8 | 0x10 | 0x20 | 0x40
+# Batch (texture unit) flags wowdev names "projected texture" (0x4, and 0x20 with a question mark); in this build
+# they sit on spell ground effects (auras, shouts) and on 200893 G_Blanket. How the client draws such a batch - and
+# whether it writes depth where the mesh is - is not known, so it is refused: G_Blanket (flags 0x14) passed before
+# this rule and stays on the probe's page 6 as a comparison only.
+PROJECTED = 0x4 | 0x20
 BLEND = W.BLEND_NAMES
 
 # Folders tried for a model's internal name (plus every folder named in the dev kit's own text files).
@@ -254,10 +263,14 @@ def analyse(fid, data=None):
     _, ocol = m.arr("colors")
     ncol = m.arr("colors")[0]
     tris, used_mats, tex_types, two_sided, drawn = [], set(), set(), False, set()
+    batch_flags, shaders = set(), set()
     for bt in skin.batches:
         if bt.section >= len(skin.sections):
             why.append("batch section out of range")
             continue
+        # (kept for the report: the opaque candidates have flags 0x10 and shader 0, the alpha-keyed ones shader 0x10)
+        batch_flags.add(bt.flags)
+        shaders.add(bt.shader_id)
         s = skin.sections[bt.section]
         start = s.index_start + (s.level << 16)
         if bt.section not in drawn:             # (a section drawn by two batches - two texture layers - once)
@@ -282,6 +295,11 @@ def analyse(fid, data=None):
             vals, _ = _track_values(md, ocol + 40 * bt.color + 20, "<h", 2)
             if any(v[0] < 32700 for v in vals):
                 why.append("colour alpha below 1")
+    rep["batchFlags"] = ["0x%x" % f for f in sorted(batch_flags)]
+    rep["shaders"] = ["0x%x" % s for s in sorted(shaders)]
+    projected = [f for f in sorted(batch_flags) if f & PROJECTED]
+    if projected:
+        why.append("projected texture batch (flags %s)" % " ".join("0x%x" % f for f in projected))
     if not tris:
         why.append("no drawn triangles")
         return rep
@@ -488,6 +506,12 @@ def score(r):
     return s
 
 
+def _batch_text(r):
+    """The batches' flags and shader IDs as one short phrase for the listing."""
+    return "batch flags %s shader %s" % (" ".join(r.get("batchFlags", [])) or "-",
+                                         " ".join(r.get("shaders", [])) or "-")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", help="write the report here")
@@ -533,15 +557,16 @@ def main():
         if r["kind"] == "flat":
             o = r["outline"]
             print("  flat %8d %-55s %s grid %s, %s x %s yd in %s (plane %s = %.3f), normal %s, front %s, %s%s, "
-                  "header box off %.4f, %s" % (r["fid"], r["path"], r["name"], r["grid"], r["size"][0], r["size"][1],
-                                                o["axes"], r["normal"][1], o["at"], r["normal"], r["front"],
-                                                "two-sided" if r["twoSided"] else "one-sided",
-                                                ", alpha key" if r.get("alphaKey") else "", r["headerOff"],
-                                                " ".join(r["materials"])))
+                  "header box off %.4f, %s, %s" % (r["fid"], r["path"], r["name"], r["grid"], r["size"][0],
+                                                    r["size"][1], o["axes"], r["normal"][1], o["at"], r["normal"],
+                                                    r["front"], "two-sided" if r["twoSided"] else "one-sided",
+                                                    ", alpha key" if r.get("alphaKey") else "", r["headerOff"],
+                                                    " ".join(r["materials"]), _batch_text(r)))
         else:
-            print("  box  %8d %-55s %s %s yd, mesh %s, %s, header box off %.4f, %s" % (
+            print("  box  %8d %-55s %s %s yd, mesh %s, %s, header box off %.4f, %s, %s" % (
                 r["fid"], r["path"], r["name"], r["size"], r["mesh"],
-                "two-sided" if r["twoSided"] else "one-sided", r["headerOff"], " ".join(r["materials"])))
+                "two-sided" if r["twoSided"] else "one-sided", r["headerOff"], " ".join(r["materials"]),
+                _batch_text(r)))
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump({"build": C.build_name(), "flat": flats, "box": boxes, "refused": refused}, fh, indent=1)

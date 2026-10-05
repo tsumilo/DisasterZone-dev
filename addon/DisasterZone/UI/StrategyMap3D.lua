@@ -35,9 +35,11 @@ local function SO() return ns.StrategyObjects end
 -- Frame levels above the 3D frame's own (Render3D/View.lua puts the room, the scene and the plate frame there): the
 -- room's cluster frames take room0 .. scene - 1 (more than the trainer's: Gorefiend's Vigil needs over 200), the
 -- copies over the models copy0 .. copy0 + 31, the plates plates + 1 .. plates + CHIP_LEVELS (the nearest highest);
--- the camera buttons and the small map sit over all of it.
-local LV = { floor = 1, lines = 2, room0 = 3, scene = 330, copy0 = 331, scene2 = 370, copy2 = 371, plates = 373,
-             hud = 560 }
+-- the camera buttons and the small map sit over all of it. The stand-in scene (Render3D/View.lua View:StandinScene)
+-- sits under the floor frame and its opaque backdrop at a level of its own, not the 3D frame's: a client that keeps
+-- a child over its parent would put it level with the floor frame, in no set order with the backdrop.
+local LV = { standin = 1, floor = 2, lines = 3, room0 = 4, scene = 330, copy0 = 331, scene2 = 370, copy2 = 371,
+             plates = 373, hud = 560 }
 local CHIP_LEVELS = 180
 
 local EYE = 1.9                       -- yd: the eye over the floor, all the way in
@@ -677,11 +679,9 @@ function V:Actor(e, back)
     local a = self.actors[e]
     if a and (a.back or false) == back then return a end
     if a then self:ReleaseActor(e, a) end
+    -- (made before choosing: else `back and nil or actorPool` took a creature-scene actor for the backdrop)
+    if back and not self.backPool then self.backPool = {} end
     local pool = back and self.backPool or self.actorPool
-    if back and not pool then
-        pool = {}
-        self.backPool = pool
-    end
     a = table.remove(pool) or self.view:NewActor(back and "back" or nil)
     if not a then return nil end
     a.back = back
@@ -745,6 +745,7 @@ function V:DrawObject(e, g, occ, n)
             occ[n] = o
             o.id, o.x, o.y, o.z, o.h = id, g.x + cf * cx - sf * cy, g.y + sf * cx + cf * cy, zb, zt - zb
             o.w, o.rb, o.top, o.prio, o.group, o.layer = 0, sqrt(hx * hx + hy * hy), zt - zb, 1, e, nil
+            o.sink = zb - (z + z0 * s)        -- (cut off under the floor: the stand-ins still hide it there)
         end
     end
     return n
@@ -956,6 +957,7 @@ function V:DrawModels()
                             if zb < 0.05 and zb > -1.5 then zb = 0.05 end
                             o.z, o.h = g.z + zb, max(0.1, z1 * s - zb)
                             o.w, o.rb, o.top, o.prio, o.group = 0, sqrt(hx * hx + hy * hy), (z1 - z0) * s, 1, e
+                            o.sink = zb - z0 * s      -- (cut off under the floor: the stand-ins still hide it there)
                         end
                     end
                 else
@@ -2009,10 +2011,11 @@ function V:Draw()
         R.BeginLines()
         self:DrawLines(remote)
         R.EndLines()
-        -- (stand-ins: the models' records only pick which of them can matter; the copies stay off, so DrawCopies
-        -- only hides any left over and stops the renderer's clock)
-        if si then si:Update(occ, n, R.Project) end
+        -- (stand-ins: the copies stay off, so DrawCopies only hides any left over and stops the renderer's clock;
+        -- the models' records then pick which stand-ins can matter, outside that clock: their time is not the
+        -- room's, which lowers its detail when a redraw runs long)
         R.DrawCopies()
+        if si then si:Update(occ, n, R.Project) end
     end
     self:DrawPlates(remote)
     self:DrawHud()

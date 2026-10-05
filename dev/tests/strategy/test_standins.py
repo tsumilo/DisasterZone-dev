@@ -1,20 +1,26 @@
 """The stand-in depth mode of the strategy board's 3D view (Render3D/Standins.lua, /dz 3d standins), on the real addon.
 
 Covers: a room's data read flat whether it comes as one table of numbers or as strings and tables of them (a broken
-number makes it unreadable, a non-finite value or an unknown model file leaves that stand-in out); each stand-in's
-radius and reach along its normal (a cube turned about z reaches further along a slanted normal); which stand-ins a
-redraw shows: their surface facing the camera (the camera farther out along the normal than the stand-in reaches, so
-not inside its slab), in front of the near plane and on the screen, and over a model's rectangle and nearer than its
-farthest corner (or every one in view with 'all'), the biggest on the screen first up to the budget; a model through
-the near plane covers the whole view. On the board: the mode is off by default and then makes nothing (no scene, the
-copies on); 'on' makes the stand-in scene at the bottom of the view with its opaque backdrop over it in the floor frame,
+number makes it unreadable, a non-finite value, a normal that is not a unit vector or an unknown model file leaves that
+stand-in out); each stand-in's radius and reach along its normal (a cube turned about z reaches further along a slanted
+normal); which stand-ins a redraw shows: their surface facing the camera (the camera farther out along the normal than
+the stand-in reaches and than the near clip: a surface 0.3 yd before the camera shows nothing behind it), in front of
+the near plane and on the screen (a ball off the view's middle bounded exactly), and over a model's rectangle, nearer
+than its farthest corner and with some of the model's box behind its surface's plane - the floor under a model's feet
+only when the model sinks into it (or every one in view with 'all'), the biggest on the screen first up to the budget;
+a model through the near plane covers the whole view; the regions (runs of one surface) never change what is chosen,
+checked against the rules one stand-in at a time on the shipped Magtheridon data from random cameras. On the board:
+the mode is off by default and then makes nothing (no scene, the copies on); 'on' makes the stand-in scene under the
+floor frame (a level of its own) with its opaque backdrop over it in the floor frame,
 on the same camera, lens and clips as the creature scene, turns the room's copies off and shows exactly the stand-ins
 between the camera and the boss (model file 167145, paused, placed as the creatures are: mirrored y, position divided
 by the scale, yaw and roll turned with the mirror, pitch kept); a redraw with nothing changed or a camera move that
 keeps the selection places nothing again, a smaller budget hides the smallest and a bigger one places only those
 that come back; 'off' hides it all and the box mode is what it was; a room without stand-ins (or unreadable ones)
-keeps the box mode and says so once per turn-on; Kil'jaeden leaves the backdrop scene for the creature scene in the
-mode and goes back without it; actors without SetPaused freeze with SetAnimation(0, 0, 0, 0); debug raises the scene
+keeps the box mode and says so once per turn-on; Kil'jaeden stands in the backdrop scene in the box mode, leaves it
+for the creature scene in the mode and goes back without it, each actor back in its own scene's pool; Magtheridon's
+Lair turns on with its shipped stand-ins, all usable, and the board's selection matches the rules from a round of
+cameras; actors without SetPaused freeze with SetAnimation(0, 0, 0, 0); debug raises the scene
 over the room with see-through cubes (all: every one in view), the client's flag is called only when asked; walking,
 your character stays in the second scene and the stand-ins between the camera and you are shown; no Lua errors.
 
@@ -35,7 +41,9 @@ import harness  # noqa: E402
 harness.LOAD_ROOMS = True                      # (the board's rooms)
 
 STANDINS = "Render3D/Standins.lua"
-# Until the coordinator adds the TOC line, the suite loads the stand-ins where they will sit: after the probe.
+MAG_DATA = "Render3D/Standins/MagtheridonsLair_Magtheridon.lua"
+# Until the coordinator adds the TOC lines, the suite loads the stand-ins where they will sit: after the probe, the
+# shipped room data right after them.
 _parse_toc = harness.parse_toc
 
 
@@ -47,6 +55,9 @@ def _toc_with_standins(addon_dir, addon_name=harness.ADDON_NAME):
                 i = files.index(anchor) + 1
                 files = files[:i] + [STANDINS] + files[i:]
                 break
+    if MAG_DATA not in files and STANDINS in files:
+        i = files.index(STANDINS) + 1
+        files = files[:i] + [MAG_DATA] + files[i:]
     return headers, files
 
 
@@ -54,7 +65,59 @@ harness.parse_toc = _toc_with_standins
 
 TERON = "BlackTemple:Teron"
 KJ = "SunwellPlateau:Kiljaeden"
+MAG = "MagtheridonsLair:Magtheridon"
 CUBE = 167145
+
+# The selection's rules one stand-in at a time, with no regions (S.Select must choose exactly these: its regions
+# only skip work). Loaded with the helpers and the pure-selection setup.
+BRUTE = r"""
+function __BRUTE(set, cam, proj, models, nm, all)
+  local d, st, R, E = set.d, set.stride, set.R, set.E
+  local huge, out = math.huge, {}
+  for i = 1, set.n do
+    local r = R[i]
+    if r then
+      local o = (i - 1) * st
+      local px, py, pz = d[o + 2], d[o + 3], d[o + 4]
+      local nx, ny, nz = d[o + 9], d[o + 10], d[o + 11]
+      local vx, vy, vz = cam.x - px, cam.y - py, cam.z - pz
+      local dep = -(vx * cam.fx + vy * cam.fy + vz * cam.fz)
+      if vx * nx + vy * ny + vz * nz > E[i] + cam.near and dep + r > cam.near then
+        local nearest, x0, y0, x1, y1 = dep - r
+        if dep - r <= cam.near then
+          nearest, x0, y0, x1, y1 = cam.near, -huge, -huge, huge, huge
+        else
+          local sx, sy = proj(px, py, pz)
+          if sx then
+            local rp = cam.k * r * math.sqrt(vx * vx + vy * vy + vz * vz) / (dep * (dep - r))
+            x0, y0, x1, y1 = sx - rp, sy - rp, sx + rp, sy + rp
+          end
+        end
+        if x0 and x1 >= 0 and x0 <= cam.w and y1 >= 0 and y0 <= cam.h then
+          local hit = all
+          local pe = nx * px + ny * py + nz * pz + E[i]
+          for m = 1, nm do
+            local M = models[m]
+            local lo = nx * M.bx + ny * M.by - M.br * (math.abs(nx) + math.abs(ny)) + math.min(nz * M.bz0, nz * M.bz1)
+            if nearest < M.far and x1 >= M.x0 and x0 <= M.x1 and y1 >= M.y0 and y0 <= M.y1 and lo <= pe then
+              hit = true
+            end
+          end
+          if hit then out[#out + 1] = i end
+        end
+      end
+    end
+  end
+  return out
+end
+function __SAME(a, n, b)
+  local s = {}
+  for j = 1, n do s[a[j]] = true end
+  if n ~= #b then return false end
+  for _, i in ipairs(b) do if not s[i] then return false end end
+  return true
+end
+"""
 
 # The mock's actors have no SetPaused / SetPitch / SetRoll and its scenes no SetAllowOverlappedModels (2.5.6 has them):
 # a spy adds them and counts what the stand-ins do (actors of the stand-ins carry sfid once given their model).
@@ -123,8 +186,11 @@ function T3.put(list, E, T, t, o)
   return n / 12 + 1
 end
 function T3.data(list, key)
+  key = key or T3.v().room.key
   ns.RoomStandins = ns.RoomStandins or {}
-  ns.RoomStandins[key or T3.v().room.key] = { version = 1, n = #list / 12, stride = 12, data = list,
+  -- (stamped with the room build it stands in, as the generator does: other data is refused as stale)
+  local fl = ns.RoomFloors and ns.RoomFloors[key]
+  ns.RoomStandins[key] = { version = 1, n = #list / 12, stride = 12, data = list, room = { size = fl and fl.size },
     prims = { { fid = 167145, kind = 'cube', half = 0.5 }, { fid = 12345, kind = 'cube', half = 0.5 } } }
 end
 -- the groups: A between the eye and the target (shown), B far past it, C turned away, D behind the camera, E far to
@@ -180,6 +246,7 @@ def board(boss=TERON, pause=True):
     bob.eval("__SI_PAUSE = %s" % ("true" if pause else "false"))
     bob.eval(SPY)
     bob.eval(HELPERS)
+    bob.eval(BRUTE)
     bob.eval("ns.StrategyBoard:NewStrategy(...)", boss)
     w.tick(0.2)
     assert bob.eval("return T3.cv():Set3D(true, false)") is True
@@ -223,7 +290,21 @@ local prims = { { fid = 167145, kind = 'cube', half = 0.5 }, { fid = 999, kind =
 T_SEL = { S = S, cam = cam, proj = proj, row = row, prims = prims }
 -- one model: a box round (20, 0, 0) 2 yd wide and high
 T_SEL.occ = { { x = 20, y = 0, z = -1, h = 2, top = 2, rb = 1, w = 0 } }
-"""
+-- a pinhole camera at (x, y, z) looking along yaw / pitch (radians, pitch up), the view w x h, k px per yd at depth 1
+function T_SEL.look(x, y, z, yaw, pitch, w, h, k)
+  local fx, fy, fz = math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), math.sin(pitch)
+  local rx, ry = math.sin(yaw), -math.cos(yaw)
+  local ux, uy, uz = ry * fz, -rx * fz, rx * fy - ry * fx
+  local c = { x = x, y = y, z = z, fx = fx, fy = fy, fz = fz, near = 0.5, w = w, h = h, k = k }
+  local function proj(px, py, pz)
+    local vx, vy, vz = px - x, py - y, pz - z
+    local dd = vx * fx + vy * fy + vz * fz
+    if dd <= 1e-6 then return nil end
+    return w / 2 + k * (vx * rx + vy * ry) / dd, h / 2 + k * (vx * ux + vy * uy + vz * uz) / dd, dd
+  end
+  return c, proj
+end
+""" + BRUTE
 
 
 @case
@@ -242,33 +323,172 @@ def a_redraw_shows_only_the_stand_ins_that_face_the_camera_lie_in_view_and_in_fr
         row(L, 1, 10, 5, 0, 0.4, -1, 0, 0)          -- 4 in view, beside the model's rectangle
         row(L, 1, -5, 0, 0, 0.4, 1, 0, 0)           -- 5 facing, but behind the camera
         row(L, 1, 10, 100, 0, 0.4, -1, 0, 0)        -- 6 facing, off the screen
-        row(L, 1, 0.6, 0, 0, 1, -1, 0, 0)           -- 7 through the near plane: anywhere on the screen
+        row(L, 1, 1.05, 0, 0, 1, -1, 0, 0)          -- 7 through the near plane: anywhere on the screen
         row(L, 1, 0.3, 0, 0, 1, -1, 0, 0)           -- 8 the camera inside its slab: behind its surface
         row(L, 2, 10, 0, 0, 0.4, -1, 0, 0)          -- 9 an unknown model file
         row(L, 1, 10, 0, 0, 0, -1, 0, 0)            -- 10 no size
         row(L, 1, 10, -100, 0, 1, -1, 0, 0, math.pi / 4)  -- 11 turned 45 degrees about z (off the screen)
-        local set = S.Prepare({ version = 1, prims = T.prims, n = 11, stride = 12, data = L })
+        row(L, 1, 10, 0, -4, 4, 0, 0, 1)            -- 12 a floor under the model (top 1 yd under its feet)
+        row(L, 1, 0.8, 0, 0, 1, -1, 0, 0)           -- 13 its surface 0.3 yd before the camera: in the near clip
+        row(L, 1, 10, 0, 0, 0.4, -1, 0, 0.5)        -- 14 a normal that is not a unit vector
+        local set = S.Prepare({ version = 1, prims = T.prims, n = 14, stride = 12, data = L })
         local rects = {}
         local nm = S.ModelRects(T.occ, 1, T.cam, T.proj, rects)
         local out, st = {}, {}
         local n = S.Select(set, T.cam, T.proj, rects, nm, 800, out, false, st)
-        local all = {}
-        local na = S.Select(set, T.cam, T.proj, rects, nm, 800, all, true)
-        return { n = n, out = out, st = st, na = na, all = all, usable = set.usable, unsafe = set.unsafe,
+        local all, sta = {}, {}
+        local na = S.Select(set, T.cam, T.proj, rects, nm, 800, all, true, sta)
+        -- the model reaching 0.5 yd under its record's feet (a part the board starts on the floor): the floor
+        -- under it now hides that much of it
+        local sunk = { { x = 20, y = 0, z = -1, h = 2, top = 2, rb = 1, w = 0, sink = 1.5 } }
+        local r2 = {}
+        local nm2 = S.ModelRects(sunk, 1, T.cam, T.proj, r2)
+        local o2 = {}
+        local n2 = S.Select(set, T.cam, T.proj, r2, nm2, 800, o2, false)
+        return { n = n, out = out, st = st, na = na, all = all, sta = sta, usable = set.usable, unsafe = set.unsafe,
                  R1 = set.R[1], E1 = set.E[1], E8 = set.E[8], E11 = set.E[11], R9 = set.R[9], R10 = set.R[10],
-                 nm = nm, rect = rects[1] }
+                 R14 = set.R[14], nm = nm, rect = rects[1], n2 = n2, o2 = o2, sunkBox = r2[1],
+                 brute = __BRUTE(set, T.cam, T.proj, rects, nm, false), bruteAll = __BRUTE(set, T.cam, T.proj, rects, nm, true) }
     """)
     assert r["nm"] == 1 and 270 < r["rect"]["x0"] < 290 and 310 < r["rect"]["x1"] < 330, r["rect"]
     assert abs(r["rect"]["far"] - 21) < 1e-6, r["rect"]
-    assert r["usable"] == 9 and r["unsafe"] == 1, r                 # (9: unknown file, 10: no size)
-    assert r["R9"] is False and r["R10"] is False, r
+    assert (r["rect"]["bx"], r["rect"]["by"], r["rect"]["br"], r["rect"]["bz0"], r["rect"]["bz1"]) == (20, 0, 1, -1, 1)
+    assert r["usable"] == 11 and r["unsafe"] == 1, r                # (9: unknown file, 10: no size, 14: normal)
+    assert r["R9"] is False and r["R10"] is False and r["R14"] is False, r
     assert abs(r["R1"] - 0.2 * math.sqrt(3)) < 1e-9 and abs(r["E1"] - 0.2) < 1e-9, r
     assert abs(r["E8"] - 0.5) < 1e-9, r
     assert abs(r["E11"] - 0.5 * math.sqrt(2)) < 1e-9, r             # (a cube turned 45 degrees reaches its corner)
-    # only 1 (in front of the model) and 7 (through the near plane) are shown; 'all' adds 3 and 4 (in view)
+    # only 1 (in front of the model) and 7 (through the near plane) are shown: not the floor under the model's
+    # feet (12: the model wholly in front of its plane) nor 13 (the near clip takes its surface away); 'all' adds
+    # 3, 4 and 12 (in view)
     assert r["n"] == 2 and sorted(r["out"]) == [1, 7], r
-    assert r["st"]["facing"] == 7 and r["st"]["inView"] == 4 and r["st"]["relevant"] == 2, r["st"]
-    assert r["na"] == 4 and sorted(r["all"]) == [1, 3, 4, 7], r
+    # (each row is a region of its own: only 1 and 7 are looked at one by one, the rest go as regions)
+    assert r["st"] == {"regions": 2, "examined": 2, "facing": 2, "inView": 2, "relevant": 2}, r["st"]
+    assert r["na"] == 5 and sorted(r["all"]) == [1, 3, 4, 7, 12], r
+    assert sorted(r["brute"]) == [1, 7] and sorted(r["bruteAll"]) == [1, 3, 4, 7, 12], r
+    # sunk 1.5 yd: its box reaches past the floor's top (1 yd under its feet): 12 too
+    assert r["sunkBox"]["bz0"] == -2.5 and r["n2"] == 3 and sorted(r["o2"]) == [1, 7, 12], r
+    no_errors(w)
+
+
+@case
+def the_near_clip_guard_shows_nothing_behind_a_surface_nearer_than_the_near_clip():
+    """A wall of stand-ins (surface at x = d, normal towards the camera) between the camera and a model: with the
+    camera 0.3 yd before the surface the client clips the surface away, so none may show; from 1.2 yd they do."""
+    w = World()
+    c = Client(w, "Bob", guild_rank=1, class_file="MAGE")
+    c.load_addon()
+    w.tick(1)
+    c.eval(SELECT)
+    r = c.eval_py(r"""
+        local T = T_SEL local S, row = T.S, T.row
+        local L = {}
+        for y = -3, 3 do
+          for z = -2, 2 do row(L, 1, 0.3 + 0.25, y * 0.5, z * 0.5, 0.5, -1, 0, 0) end   -- surface at x = 0.3
+        end
+        local set = S.Prepare({ version = 1, prims = T.prims, n = #L / 12, stride = 12, data = L })
+        local res = {}
+        for _, back in ipairs({ 0, 0.1, 0.15, 0.9 }) do
+          local cam = { x = -back, y = 0, z = 0, fx = 1, fy = 0, fz = 0, near = 0.5, w = 600, h = 400, k = 300 }
+          local function proj(x, y, z)
+            local dx = x + back
+            if dx <= 1e-6 then return nil end
+            return 300 - 300 * y / dx, 200 + 300 * z / dx, dx
+          end
+          local rects, out = {}, {}
+          local nm = S.ModelRects(T.occ, 1, cam, proj, rects)
+          res[#res + 1] = { S.Select(set, cam, proj, rects, nm, 800, out, false),
+                            S.Select(set, cam, proj, rects, nm, 800, {}, true), #__BRUTE(set, cam, proj, rects, nm, false) }
+        end
+        return { n = set.n, res = res }
+    """)
+    # 0.3, 0.4 and 0.45 yd before the surface: nothing, even with 'all'; 1.2 yd: those over the model
+    assert r["res"][0] == [0, 0, 0] and r["res"][1] == [0, 0, 0] and r["res"][2] == [0, 0, 0], r
+    assert r["res"][3][0] > 0 and r["res"][3][0] == r["res"][3][2] and r["res"][3][1] == r["n"], r
+    no_errors(w)
+
+
+@case
+def a_ball_off_the_middle_of_the_view_is_bounded_on_the_screen_exactly():
+    """Perspective stretches a ball away from the view's middle by |v| / depth: a stand-in 63 degrees off the
+    middle reaches 167 px out on the screen, not the 94 px a fixed 1.25 pad gave, and hides the model there."""
+    w = World()
+    c = Client(w, "Bob", guild_rank=1, class_file="MAGE")
+    c.load_addon()
+    w.tick(1)
+    c.eval(SELECT)
+    r = c.eval_py(r"""
+        local T = T_SEL local S, row = T.S, T.row
+        local L = {}
+        local D = math.sqrt(500)
+        row(L, 1, 10, -20, 0, 2 / (0.5 * math.sqrt(3)), -10 / D, 20 / D, 0)   -- radius 2 yd, toward the camera
+        local set = S.Prepare({ version = 1, prims = T.prims, n = 1, stride = 12, data = L })
+        local cam = { x = 0, y = 0, z = 0, fx = 1, fy = 0, fz = 0, near = 0.5, w = 2000, h = 400, k = 300 }
+        local function proj(x, y, z)
+          if x <= 1e-6 then return nil end
+          return 1000 - 300 * y / x, 200 + 300 * z / x, x
+        end
+        -- a model 25 yd out on the line at tan 2.5 (x 1750 on the screen): the ball's edge is at tan 2.546 (1764)
+        local models = { { x0 = 1740, x1 = 1760, y0 = 190, y1 = 210, far = 26, bx = 25, by = -62.5, br = 1, bz0 = -1,
+                           bz1 = 1, bh = 1.8 } }
+        local out = {}
+        return { n = S.Select(set, cam, proj, models, 1, 800, out, false), brute = #__BRUTE(set, cam, proj, models, 1, false) }
+    """)
+    assert r == {"n": 1, "brute": 1}, r
+    no_errors(w)
+
+
+@case
+def regions_never_change_what_is_chosen_on_the_shipped_magtheridon_data():
+    """S.Select (whole regions turned away first) against the same rules one stand-in at a time, from random
+    cameras round and inside Magtheridon's Lair with random models (some sunk, some through the near plane)."""
+    w = World()
+    c = Client(w, "Bob", guild_rank=1, class_file="MAGE")
+    c.load_addon()
+    w.tick(1)
+    c.eval(SELECT)
+    r = c.eval_py(r"""
+        local T = T_SEL local S = T.S
+        local set = S.Load('MagtheridonsLair_Magtheridon')
+        if not set then return { none = true } end
+        local seed = 12345
+        local function rnd() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+        local x0, y0, z0, x1, y1, z1 = math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge
+        for i = 1, set.n do
+          local o = (i - 1) * set.stride
+          x0, y0, z0 = math.min(x0, set.d[o + 2]), math.min(y0, set.d[o + 3]), math.min(z0, set.d[o + 4])
+          x1, y1, z1 = math.max(x1, set.d[o + 2]), math.max(y1, set.d[o + 3]), math.max(z1, set.d[o + 4])
+        end
+        local bad, total, shown, poses, cut = {}, 0, 0, 120, 0
+        for p = 1, poses do
+          local cx, cy = x0 + rnd() * (x1 - x0), y0 + rnd() * (y1 - y0)
+          local cz = (p % 3 == 0) and (z0 + rnd() * (z1 - z0 + 5)) or (2 + rnd() * 40)
+          local cam, proj = T.look(cx, cy, cz, rnd() * 2 * math.pi, -1.4 + rnd() * 1.8, 800 + rnd() * 600, 500, 400 + rnd() * 400)
+          local occ = {}
+          for m = 1, 1 + math.floor(rnd() * 6) do
+            local ox, oy = x0 + rnd() * (x1 - x0), y0 + rnd() * (y1 - y0)
+            if m == 1 and p % 4 == 0 then ox, oy = cx + cam.fx * 0.4, cy + cam.fy * 0.4 end   -- through the near plane
+            occ[m] = { x = ox, y = oy, z = rnd() * 0.3, h = 1 + rnd() * 12, rb = 0.3 + rnd() * 6, w = 0,
+                       sink = (rnd() < 0.3) and rnd() * 1.5 or nil }
+          end
+          local rects, out, st = {}, {}, {}
+          local nm = S.ModelRects(occ, #occ, cam, proj, rects)
+          for i = 1, nm do if rects[i].x0 == -math.huge then cut = cut + 1 end end
+          for _, all in ipairs({ false, true }) do
+            local n = S.Select(set, cam, proj, rects, nm, 100000, out, all, st)
+            local b = __BRUTE(set, cam, proj, rects, nm, all)
+            if not __SAME(out, n, b) then bad[#bad + 1] = { p = p, all = all, n = n, brute = #b } end
+            if not all then total, shown = total + st.examined, shown + n end
+          end
+        end
+        return { bad = bad, n = set.n, usable = set.usable, unsafe = set.unsafe, ng = set.ng, examined = total / poses,
+                 shown = shown / poses, cut = cut }
+    """)
+    assert not r.get("none"), "the shipped Magtheridon stand-ins did not load"
+    assert r["usable"] == r["n"] and r["unsafe"] == 0 and r["n"] > 1000, r
+    assert r["bad"] == [], r["bad"][:5]
+    # (the regions skip work: far fewer looked at one by one than there are; models through the near plane met)
+    assert r["examined"] < 0.5 * r["n"] and r["shown"] > 0 and r["cut"] > 0, r
     no_errors(w)
 
 
@@ -378,7 +598,8 @@ def on_the_board_the_mode_turns_on_and_off_and_the_box_mode_stays_as_it_was():
                    and a.camYPR[1] == b.camYPR[1] and a.camYPR[2] == b.camYPR[2],
                  lens = a.fov == b.fov and a.near == b.near and a.far == b.far,
                  copies = v.R.Stats().copies, copyActors = v.R.Stats().copyActors, opt = v.R.opts.copies }""")
-    assert lay["level"] == 0 and lay["shown"] is True and lay["floor"] == 1 and lay["room0"] >= 3, lay
+    # (the board gives it a level of its own, under the floor frame: never level with it)
+    assert lay["level"] == 1 and lay["shown"] is True and lay["floor"] == 2 and lay["room0"] >= 4, lay
     assert lay["bgShown"] is True and lay["bgParent"] is True and lay["layer"] == "BACKGROUND" and lay["sub"] == -8, lay
     assert lay["cam"] is True and lay["lens"] is True, lay
     assert lay["copies"] == 0 and lay["copyActors"] == 0 and lay["opt"] is False, lay
@@ -435,6 +656,31 @@ def on_the_board_the_mode_turns_on_and_off_and_the_box_mode_stays_as_it_was():
 
 
 @case
+def stand_ins_made_for_another_build_of_the_room_are_refused_as_stale():
+    # a room file made again (another payload size) may have moved a surface: its old stand-ins are not used
+    w = World()
+    c = Client(w, "Bob", guild_rank=1, class_file="MAGE")
+    c.load_addon()
+    w.tick(1)
+    c.eval(SELECT)
+    r = c.eval_py(r"""
+        local S = T_SEL.S
+        local key = 'MagtheridonsLair_Magtheridon'
+        local rec = ns.RoomStandins[key]
+        local ok1 = S.Load(key) ~= nil
+        local size = rec.room.size
+        rec.room.size = size + 1
+        local set2, why2 = S.Load(key)
+        rec.room = nil
+        local set3, why3 = S.Load(key)
+        rec.room = { size = size }
+        return { ok1 = ok1, why2 = why2, why3 = why3, set2 = set2 ~= nil, set3 = set3 ~= nil, ok4 = S.Load(key) ~= nil }
+    """)
+    assert r == {"ok1": True, "why2": "stale", "why3": "stale", "set2": False, "set3": False, "ok4": True}, r
+    no_errors(w)
+
+
+@case
 def a_room_without_stand_ins_keeps_the_box_mode_and_says_so_once():
     w, bob = board()
     before = box_state(bob)
@@ -471,8 +717,13 @@ def kiljaeden_leaves_the_backdrop_for_the_creature_scene_with_stand_ins():
     # (a client without actor SetPaused: the stand-ins freeze as Blizzard does, SetAnimation(0, 0, 0, 0))
     w, bob = board(KJ, pause=False)
     bob.eval("function T3.kj() for e, a in pairs(T3.v().actors) do if a.display == 23200 then return a, e end end end")
-    # (box mode: marked for the backdrop; which scene its actor comes from is the box mode's own business)
-    assert bob.eval("local a = T3.kj() return a.back") is True
+    # box mode: in the backdrop scene under the whole room, with no occluder (V:Actor once handed him the creature
+    # scene's actor, drawn over all of the room)
+    box = bob.eval_py("local a, e = T3.kj() local v = T3.v() local n = 0 "
+                      "for i = 1, v.nOcc do local o = v.occ[i] if o.id == e or o.group == e then n = n + 1 end end "
+                      "return { back = a.back, inBack = v.view.scene0 and T3.inScene(v.view.scene0, a) or false, "
+                      "inMain = T3.inScene(v.view.scene, a), occ = n, pool = v.backPool ~= nil }")
+    assert box == {"back": True, "inBack": True, "inMain": False, "occ": 0, "pool": True}, box
     bob.eval("T3.groups(5)")
     assert bob.slash("/dz 3d standins on")
     tick(w, 0.5)
@@ -487,8 +738,61 @@ def kiljaeden_leaves_the_backdrop_for_the_creature_scene_with_stand_ins():
     tick(w, 0.3)
     r = bob.eval_py("local a, e = T3.kj() local v = T3.v() local n = 0 "
                     "for i = 1, v.nOcc do local o = v.occ[i] if o.id == e or o.group == e then n = n + 1 end end "
-                    "return { back = a.back, occ = n }")
-    assert r == {"back": True, "occ": 0}, r
+                    "return { back = a.back, occ = n, inBack = T3.inScene(v.view.scene0, a), "
+                    "inMain = T3.inScene(v.view.scene, a), shown = a.shown }")
+    assert r == {"back": True, "occ": 0, "inBack": True, "inMain": False, "shown": True}, r
+    # the creature-scene actor he had in the mode went back to its own pool, not the backdrop's
+    pools = bob.eval_py("local v = T3.v() local m, b = 0, 0 "
+                        "for _, a in ipairs(v.actorPool) do if T3.inScene(v.view.scene, a) then m = m + 1 end end "
+                        "for _, a in ipairs(v.backPool) do if T3.inScene(v.view.scene0, a) then b = b + 1 end end "
+                        "return { m = m, nm = #v.actorPool, b = b, nb = #v.backPool }")
+    assert pools["m"] == pools["nm"] and pools["b"] == pools["nb"] and pools["nm"] >= 1, pools
+    no_errors(w)
+
+
+@case
+def magtheridons_lair_turns_on_with_its_shipped_stand_ins_and_shows_those_in_front_of_him():
+    """The generated data file (Render3D/Standins/MagtheridonsLair_Magtheridon.lua) through the runtime: every
+    stand-in usable, the mode on with no complaint, stand-ins shown over the boss, and from a round of cameras the
+    board's own selection is exactly the rules' (regions only skip work; his feet's sink in the parts' records)."""
+    w, bob = board(MAG)
+    prep = bob.eval_py("""
+        local set = ns.Render3D.Standins.Load('MagtheridonsLair_Magtheridon')
+        local rec = ns.RoomStandins and ns.RoomStandins.MagtheridonsLair_Magtheridon
+        return { ok = set ~= nil, n = set and set.n, usable = set and set.usable, unsafe = set and set.unsafe,
+                 ng = set and set.ng, recN = rec and rec.n, key = T3.v().room.key }""")
+    assert prep["ok"] and prep["key"] == "MagtheridonsLair_Magtheridon", prep
+    assert prep["n"] == prep["recN"] and prep["n"] > 1000 and prep["usable"] == prep["n"] and prep["unsafe"] == 0, prep
+    n0 = len(bob.chat_frame)
+    assert bob.slash("/dz 3d standins on")
+    tick(w, 0.3)
+    assert chat_since(bob, n0, "No 3D stand-ins") == []
+    st = bob.eval_py("return T3.v().standins:Stats()")
+    assert st["key"] == "MagtheridonsLair_Magtheridon" and st["shown"] > 0 and st["shown"] == st["relevant"], st
+    assert st["examined"] < st["total"] / 2, st                       # (whole regions turned away)
+    r = bob.eval_py("""
+        local v = T3.v() local si = v.standins local S = ns.Render3D.Standins local o = v.orb
+        local h0, p0, d0 = o.heading, o.pitch, o.dist
+        local bad, shown, sunk = {}, 0, 0
+        for i = 1, v.nOcc do if (v.occ[i].sink or 0) > 0 then sunk = sunk + 1 end end
+        for p = 0, 11 do
+          o.heading, o.pitch, o.dist = h0 + p * 0.55, 0.25 + (p % 4) * 0.3, 15 + (p % 3) * 20
+          v:Draw()
+          local cam, rects = si.cam, {}
+          local nm = S.ModelRects(v.occ, v.nOcc, cam, v.R.Project, rects)
+          local b = __BRUTE(si.set, cam, v.R.Project, rects, nm, false)
+          local cnt = 0
+          for _ in pairs(si.at) do cnt = cnt + 1 end
+          local sel = {}
+          for i in pairs(si.at) do sel[#sel + 1] = i end
+          if not __SAME(sel, cnt, b) then bad[#bad + 1] = { p = p, shown = cnt, brute = #b } end
+          shown = shown + cnt
+        end
+        o.heading, o.pitch, o.dist = h0, p0, d0
+        v:Draw()
+        return { bad = bad, shown = shown, sunk = sunk }""")
+    assert r["bad"] == [] and r["shown"] > 0 and r["sunk"] > 0, r
+    bob.slash("/dz 3d standins off")
     no_errors(w)
 
 
@@ -513,7 +817,7 @@ def debug_shows_the_cubes_over_the_room_and_the_flag_is_only_set_when_asked():
         local v = T3.v() local n = 0
         for _, a in pairs(v.standins.at) do if a.alpha == 1 then n = n + 1 end end
         return { level = v.view.sceneS:GetFrameLevel() - v.frame:GetFrameLevel(), n = n, all = #T3.shown() }""")
-    assert d == {"level": 0, "n": 10, "all": 10}, d
+    assert d == {"level": 1, "n": 10, "all": 10}, d
     assert bob.slash("/dz 3d standins flag on")
     assert bob.eval_py("return { __SI.flagCalls, __SI.flag }") == [1, True]
     assert bob.slash("/dz 3d standins flag off")
