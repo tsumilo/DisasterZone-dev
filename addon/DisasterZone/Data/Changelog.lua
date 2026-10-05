@@ -31,6 +31,7 @@ ns.CHANGELOG = {
               "Teams ask before unsaved changes are lost; Copy, Clear groups, Add several, spec by icon.",
               "Teams draft a target comp: open spots show on the team card and in raid Sign-ups.",
               "Comp tab: start from a preset, steppers per role, bench, LF message for the chat box.",
+              "Ranged players have their own role icon, a bow, so melee and ranged read apart.",
           } },
           { heading = "My BiS and Home", lines = {
               "My BiS: a Pre-raid list before P1 (dungeons, reputation, crafting, badges), just for you.",

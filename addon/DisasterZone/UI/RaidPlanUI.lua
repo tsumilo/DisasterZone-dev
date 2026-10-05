@@ -1052,7 +1052,7 @@ local function refreshRoster(d, v, width)
         -- (the last column takes the rounding, so the right edges line up with the banner's)
         col:SetPoint("TOPLEFT", r.content, "TOPLEFT", (i - 1) * (colW + GAP), 0)
         col:SetWidth(i == #r.cols and (width - 3 * (colW + GAP)) or colW)
-        col.role:SetTexCoord(UI():RoleCoords(m.role))
+        UI():SetRoleIcon(col.role, m.role)
         col.title:SetText(m.label)
         col.count:SetText(m.count .. (m.more > 0 and grey(" +" .. m.more) or ""))
         for j, cell in ipairs(m.cells) do
@@ -3885,7 +3885,7 @@ end
 ---------------------------------------------------------------------------
 
 TV.ROLE_LABEL = { tank = "Tanks", healer = "Healers", melee = "Melee", ranged = "Ranged" }
-TV.ROLE_ICON = { tank = "tank", healer = "healer", melee = "dps", ranged = "dps" }
+TV.ROLE_ICON = { tank = "tank", healer = "healer", melee = "dps", ranged = "ranged" }
 -- the empty Comp card's picture: a meter with some slots open
 TV.MINI_COMP = { tank = { "WARRIOR", "PALADIN", false }, healer = { "PALADIN", "PRIEST", "SHAMAN", "SHAMAN", false, false },
                  melee = { "ROGUE", "SHAMAN", "WARRIOR", false }, ranged = { "MAGE", "WARLOCK", "PRIEST", false, false } }
@@ -4001,11 +4001,10 @@ function TV.createMeter(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(200, 16)
     f.icons, f.sq = {}, {}
-    for i, role in ipairs({ "tank", "healer", "dps" }) do
+    for i, role in ipairs({ "tank", "healer", "dps", "ranged" }) do
         local ic = f:CreateTexture(nil, "ARTWORK")
         ic:SetSize(14, 14)
-        ic:SetTexture(UI().ROLE_TEX)
-        ic:SetTexCoord(UI():RoleCoords(role))
+        UI():SetRoleIcon(ic, role)
         f.icons[i] = ic
     end
     f:EnableMouse(true)
@@ -4028,12 +4027,12 @@ function TV.square(f, i)
     return s
 end
 
--- m: a MatchComp result (or the picture's { columns = { role = { slot } } }). Tanks, healers, then damage (melee, a
--- small gap, ranged); a role without slots is left out.
+-- m: a MatchComp result (or the picture's { columns = { role = { slot } } }). Tanks, healers, melee, ranged, each
+-- behind its icon; a role without slots is left out.
 function TV.fillMeter(f, m)
     f.match = m
     local x, n = 0, 0
-    for gi, roles in ipairs({ { "tank" }, { "healer" }, { "melee", "ranged" } }) do
+    for gi, roles in ipairs({ { "tank" }, { "healer" }, { "melee" }, { "ranged" } }) do
         local count = 0
         for _, role in ipairs(roles) do count = count + #(m.columns[role] or {}) end
         local ic = f.icons[gi]
@@ -4474,7 +4473,7 @@ function TV.fillSteps()
     -- (another team, Undo or Save opened another draft: the panel was for the old one)
     if not dr or p.draft ~= dr then return p:Hide() end
     local role = p.roleKey
-    p.role:SetTexCoord(UI():RoleCoords(TV.ROLE_ICON[role]))
+    UI():SetRoleIcon(p.role, TV.ROLE_ICON[role])
     p.title:SetText(TV.ROLE_LABEL[role])
     local specs = {}
     for _, c in ipairs(ns.CLASSES) do
@@ -4558,8 +4557,7 @@ function TV.createComp(t, d)
         panel(col)
         col.roleKey = role
         col.role = col:CreateTexture(nil, "ARTWORK")
-        col.role:SetTexture(UI().ROLE_TEX)
-        col.role:SetTexCoord(UI():RoleCoords(TV.ROLE_ICON[role]))
+        UI():SetRoleIcon(col.role, TV.ROLE_ICON[role])
         col.role:SetSize(16, 16)
         col.role:SetPoint("TOPLEFT", 9, -6)
         col.title = textOf(col, "GameFontNormal", 12)

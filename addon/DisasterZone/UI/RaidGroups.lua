@@ -210,7 +210,7 @@ local function setChip(chip, m)
     -- the role (the spec is in the tooltip); a spec guessed from a BiS list or an old sign-up shows fainter
     local role = Comp():RoleOf(m.c, m.sp)
     if role then
-        chip.spec:SetTexCoord(UI():RoleCoords(role))
+        UI():SetRoleIcon(chip.spec, role)
         chip.spec:SetAlpha(m.auto and 0.5 or 1)
         chip.spec:Show()
     else
@@ -849,7 +849,7 @@ function Grid:BeginDrag(chip)
     g.fs:SetText(UI():ColoredName(chip.key, m and m.c))
     local role = m and Comp():RoleOf(m.c, m.sp)
     g.role:SetShown(role ~= nil)
-    if role then g.role:SetTexCoord(UI():RoleCoords(role)) end
+    if role then UI():SetRoleIcon(g.role, role) end
     local grid = self
     g:SetScript("OnUpdate", function(f)
         -- (a drop outside every frame, or a hidden source, ends the drag here)

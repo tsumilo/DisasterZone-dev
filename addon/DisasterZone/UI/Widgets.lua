@@ -235,8 +235,25 @@ function UI:RoleCoords(role)
     return c[1] * k, (c[1] + 1) * k, c[2] * k, (c[2] + 1) * k
 end
 
+-- The ranged role (the game has none): the damage icon's disc with a bow and arrow (dev/generators/gen_ranged_role.py).
+-- Melee keeps the damage icon's sword; casters count as ranged.
+UI.RANGED_TEX = "Interface\\AddOns\\DisasterZone\\Media\\Roles\\ranged"
+local RANGED_ROLE = { ranged = true, caster = true }
+
+-- Points a texture at a role's icon: tank, healer, ranged (casters too), anything else the damage icon.
+function UI:SetRoleIcon(tex, role)
+    if RANGED_ROLE[role] then
+        tex:SetTexture(UI.RANGED_TEX)
+        tex:SetTexCoord(0, 1, 0, 1)
+    else
+        tex:SetTexture(UI.ROLE_TEX)
+        tex:SetTexCoord(self:RoleCoords(role))
+    end
+end
+
 -- A role icon inside text.
 function UI:RoleIconText(role, size)
+    if RANGED_ROLE[role] then return ("|T%s:%d:%d|t"):format(UI.RANGED_TEX, size or 13, size or 13) end
     local l, r, t, b = self:RoleCoords(role)
     size = size or 13
     local function px(v) return math.floor(v * 256 + 0.5) end
