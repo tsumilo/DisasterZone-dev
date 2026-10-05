@@ -28,7 +28,8 @@ View.__index = View
 -- added), room (a renderer from R3.NewRoom; nil makes one, false none), label (the renderer's name in messages),
 -- lv (frame levels, default R3.LV; with lv.scene2 a second ModelScene there, over the first one's copies: what
 -- stands nearest - the strategy board's walking character - with its own copies at lv.copy2), near (the scene's near
--- clip, 0.5), fov (1.1), far (500), anim (the animation a loaded model plays when its actor has none set, 0 = stand).
+-- clip, 0.5), fov (1.1), far (500), anim (the animation a loaded model plays when its actor has none set, 0 = stand),
+-- bg (r, g, b: the view's background, for the stand-in scene's backdrop; the strategy board's by default).
 -- -> the view, or nil when the client has no ModelScene that can show creatures (the caller falls back to something
 -- flat).
 function R3.NewView(parent, opts)
@@ -37,7 +38,7 @@ function R3.NewView(parent, opts)
     local ok, sc = pcall(CreateFrame, "ModelScene", nil, parent)
     if not ok or not sc or not sc.CreateActor or not sc.Project3DPointTo2D then return nil end
     local v = setmetatable({ parent = parent, scene = sc, lv = opts.lv or R3.LV, near = opts.near or 0.5,
-                             cam = opts.cam or {}, anim = opts.anim or 0 }, View)
+                             cam = opts.cam or {}, anim = opts.anim or 0, bg = opts.bg }, View)
     local cam = v.cam
     cam.mirror, cam.pitchSign = cam.mirror or 1, cam.pitchSign or 1
     cam.x, cam.y, cam.z = cam.x or 0, cam.y or 0, cam.z or 0
@@ -106,6 +107,51 @@ function View:Backdrop()
     return self.scene0 or nil
 end
 
+-- The stand-in scene (Render3D/Standins.lua), made when first asked for: a ModelScene under everything else of the
+-- view (lv.standin, default the view's own level) for cubes standing just behind the room's surfaces, and an opaque
+-- backdrop in the view's background colour at the bottom of the floor frame, over the scene and under every room
+-- piece. All of the client's ModelScenes share one depth buffer, and an opaque UI texture drawn between two scenes
+-- leaves it as it is (seen in game 2026-10-05): the cubes are never seen, yet every model of the scenes above is cut
+-- per pixel where a surface of the room stands in front of it. Same lens and camera as the other scenes: the client
+-- keeps each scene's depth in its own near / far range, so only identical clips compare. -> the scene, or nil when
+-- the client makes none.
+function View:StandinScene()
+    if self.sceneS == nil then
+        local ok, s = pcall(CreateFrame, "ModelScene", nil, self.parent)
+        if ok and s and s.CreateActor then
+            s:SetAllPoints()
+            self:SetupScene(s)
+            local bg = self.floorFrame:CreateTexture(nil, "BACKGROUND", nil, -8)
+            bg:SetAllPoints()
+            local c = self.bg or { 0.03, 0.03, 0.05 }
+            bg:SetColorTexture(c[1], c[2], c[3], 1)
+            self.sceneS, self.standinBg = s, bg
+            self:StandinLayer(false)
+            if self.yaw then self:ApplyCamera(self.yaw, self.pitch) end
+        else
+            self.sceneS = false
+        end
+    end
+    return self.sceneS or nil
+end
+
+-- Where the stand-in scene draws: "depth" at the bottom under its backdrop (unseen, its depth kept), "debug" over the
+-- room and the models (lv.standinDebug, else just under the plates: to see the cubes), false hidden with its
+-- backdrop. Asked again every redraw: a parent that was moved up or down moves the view's frames.
+function View:StandinLayer(mode)
+    local s = self.sceneS
+    if not s then return end
+    local lv = self.lv
+    local want = self.parent:GetFrameLevel()
+        + ((mode == "debug") and (lv.standinDebug or (lv.plates - 1)) or (lv.standin or 0))
+    if s:GetFrameLevel() ~= want then s:SetFrameLevel(want) end
+    if self.standinMode ~= mode then
+        self.standinMode = mode
+        s:SetShown(mode and true or false)
+        self.standinBg:SetShown(mode and true or false)
+    end
+end
+
 -- Room y -> scene y.
 function View:SY(y) return self.cam.mirror * y end
 
@@ -125,6 +171,11 @@ function View:ApplyCamera(yaw, pitch)
     if sc2 then
         pcall(sc2.SetCameraPosition, sc2, cam.x, cam.y, cam.z)
         pcall(sc2.SetCameraOrientationByYawPitchRoll, sc2, yaw, cam.pitchSign * pitch, 0)
+    end
+    local scS = self.sceneS
+    if scS then
+        pcall(scS.SetCameraPosition, scS, cam.x, cam.y, cam.z)
+        pcall(scS.SetCameraOrientationByYawPitchRoll, scS, yaw, cam.pitchSign * pitch, 0)
     end
 end
 

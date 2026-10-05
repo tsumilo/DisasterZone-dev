@@ -14,10 +14,20 @@ or infinite, even when the client answers with one; every page builds (the depth
 table in two columns, the cube before you sized to your model, the frame-buffer tiles), the rotation tile's Signs and
 Orders buttons turn, and a cost button records its numbers with plain actors; unused, the probe makes nothing.
 
+Round 3: the flag and alpha pages open in solo - only one tile's scenes shown (every other scene of the probe hidden,
+on every page and outside the window, the measuring scene too), the other captions greyed, Prev / Next / All tiles in
+the bar under the page, each page remembering its tile; the flag tiles flag exactly the scenes their captions name
+(lower, upper, both, an empty middle scene, one with a cube aside, one only a corner square); the alpha page tests
+each alpha in a lower scene and in your own; tile 14 keeps its teal frame (left half) between the scenes inside the
+clipping frame and tile 42 outside it; tile 38 frames every candidate corner and outlines one order at a time; the
+flat-model page shows each stand-in candidate turned about one axis with its outline and records the client's box;
+and every FileDataID the probe hands SetModelByFileID is an M2 file of the installed client.
+
 Run: luaenv\\Scripts\\python.exe tests\\strategy\\test_probe.py [-k name]
 """
 import math
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -64,8 +74,25 @@ idx.SetModelByPath = function(self, path)
 end
 idx.GetModelPath = function(self) return self.probePath end
 idx.SetModelByUnit = function(self, unit) return self:SetModelByCreatureDisplayID(10001) end
+-- every file ID asked for, and the turns the mock's actors lack
+__PROBE_FIDS = {}
+local byFile = idx.SetModelByFileID
+idx.SetModelByFileID = function(self, id, ...)
+  __PROBE_FIDS[id] = (__PROBE_FIDS[id] or 0) + 1
+  return byFile(self, id, ...)
+end
+idx.SetPitch = function(self, v) self.pitch = v end
+idx.SetRoll = function(self, v) self.roll = v end
+-- the scenes flagged with SetAllowOverlappedModels(true)
+__PROBE_FLAGS = setmetatable({}, { __mode = "k" })
+local msm = __MOCK.Methods.ModelScene
+msm.SetAllowOverlappedModels = function(self, v) __PROBE_FLAGS[self] = v and true or false end
+msm.GetAllowOverlappedModels = function(self) return __PROBE_FLAGS[self] or false end
 """
 ME_HEIGHT = 1.7
+# The stand-in candidates of page 6 (find_flat_prims.py) and Blizzard's unit cube: all the probe may load by file ID.
+PRIM_FIDS = {198111, 198110, 653518, 1396283, 200893, 219357, 203154}
+CUBE = 167145
 
 # A client that answers with NaN and infinities: md21's box, the checker's file id, every projection depth. Its model
 # paths come back in lower case with forward slashes.
@@ -98,6 +125,10 @@ def boot(spy=SPY):
 
 def state(c):
     return c.eval_py("return DisasterZoneDB.probe3d")
+
+
+def res_errors(c):
+    return state(c)["results"]["errors"]
 
 
 def paths(c):
@@ -426,7 +457,10 @@ def an_error_in_a_page_build_is_reported_with_its_stack_and_the_run_still_finish
     assert st["history"][-1]["errors"] >= 1
     # BugSack gets the stack where it happened (the tile builder), not only the step that caught it
     errs = [e for e in w.errors() if "a broken tile" in e]
-    assert errs and "Tile" in errs[0], errs
+    assert errs and any("in function 'Tile'" in e for e in errs), errs
+    # (the solo bar's buttons fail the same way: the window still opened)
+    assert any(e.startswith("bar: ") for e in res["errors"]), res["errors"]
+    assert c.eval("return DisasterZoneProbe3D:IsShown()") is True
     no_errors(w, allow=("probe test: a broken tile",))
 
 
@@ -481,16 +515,17 @@ def every_page_builds_and_the_cost_buttons_record_their_numbers():
     c.slash("/dz 3d probe safe")
     w.tick(7)
     counts = {}
-    for i in range(1, 6):
+    for i in range(1, 8):
         c.eval("ns.Render3D.Probe.SetPage(...)", i)
         w.tick(0.2)
         counts[i] = c.eval("return #ns.Render3D.Probe.pages[...].tiles", i)
         assert c.eval("return ns.Render3D.Probe.pages[...]:IsShown()", i) is True
-    assert counts == {1: 8, 2: 11, 3: 12, 4: 9, 5: 0}, counts
-    # the tiles are numbered 1-40 without gaps (41 is the cost page)
+    assert counts == {1: 8, 2: 12, 3: 12, 4: 8, 5: 9, 6: 10, 7: 0}, counts
+    assert res_errors(c) == [], res_errors(c)
+    # the tiles are numbered 1-60 without gaps but 41 (the cost page); round 2's numbers kept their meaning
     nums = c.eval_py("local out = {} for _, pg in ipairs(ns.Render3D.Probe.pages) do "
                      "for _, t in ipairs(pg.tiles) do out[#out + 1] = t.n end end return out")
-    assert sorted(nums) == list(range(1, 41)), nums
+    assert sorted(nums) == [n for n in range(1, 61) if n != 41], nums
     # page 1: the loose table in two columns
     cols = c.eval_py("local out = {} for i, col in ipairs(ns.Render3D.Probe.looseCols) do "
                      "out[i] = col.fs:GetText() end return out")
@@ -500,22 +535,29 @@ def every_page_builds_and_the_cost_buttons_record_their_numbers():
     pos = c.eval_py("local a = ns.Render3D.Probe.depthTiles[1].cube local s = a:GetScale() "
                     "local x, y, z = a:GetPosition() return { x * s, y * s, z * s, s }")
     assert abs(pos[3] - 8) < 1e-6 and abs(pos[1] - 6) < 1e-6, pos
-    # pages 2 and 3: the cube before you is sized to your model once it has loaded (17 tiles with you and a cube)
+    # pages 2-4: the cube before you is sized to your model once it has loaded (26 tiles with you and a cube)
     sized = c.eval("local n = 0 for _, a in ipairs(__MOCK.mock_actors) do "
                    "if a.fileID == 167145 and math.abs((a.scale or 1) - 0.25 * ...) < 1e-6 then n = n + 1 end end "
                    "return n", ME_HEIGHT)
-    assert sized == 17, sized
+    assert sized == 26, sized
     # tiles 30, 31: the frame buffer frames
     fb = c.eval_py("local pg = ns.Render3D.Probe.pages[3] return { pg.tiles[11].n, pg.tiles[11].data:GetText(), "
                    "pg.tiles[12].n }")
     assert fb[0] == 30 and fb[2] == 31 and "SetIsFrameBuffer ok" in fb[1], fb
     assert state(c)["results"]["frameBuffer"]["SetIsFrameBuffer"] == "ok"
     # the rotation tile's dots: 6 orders x 8 corners, its Signs and Orders buttons turn
-    t38 = "ns.Render3D.Probe.pages[4].tiles[7]"
+    t38 = "ns.Render3D.Probe.pages[5].tiles[7]"
     assert c.eval("return %s.n" % t38) == 38
     assert c.eval("return #%s.dots" % t38) == 48
     shown = "local n = 0 for _, d in ipairs(%s.dots) do if d:IsShown() then n = n + 1 end end return n" % t38
-    assert c.eval(shown) == 48
+    lines = "local n = 0 for _, l in ipairs(%s.lines or {}) do if l:IsShown() then n = n + 1 end end return n" % t38
+    assert c.eval(shown) == 48 and c.eval(lines) == 0
+    # (the camera fitted to every candidate corner: each dot inside the scene, the camera farther than round 2's 4.5)
+    inside = c.eval_py("local t = %s local sc = t.scenes[1] local w, h = sc:GetWidth(), sc:GetHeight() "
+                       "local out = { dist = sc.probeDist, w = w, h = h, out = 0 } "
+                       "for _, d in ipairs(t.dots) do local _, _, _, x, y = d:GetPoint(1) "
+                       "if x < 0 or x > w or y < 0 or y > h then out.out = out.out + 1 end end return out" % t38)
+    assert inside["out"] == 0 and inside["dist"] > 4.5, inside
     assert c.eval("return ns.Render3D.Probe.signs") == 1
     c.click(c.eval("return %s.signs" % t38))
     assert c.eval("return ns.Render3D.Probe.signs") == 2
@@ -524,27 +566,257 @@ def every_page_builds_and_the_cost_buttons_record_their_numbers():
     c.click(c.eval("return %s.order" % t38))
     assert c.eval("return ns.Render3D.Probe.order") == 1
     assert c.eval("return %s.order:GetText()" % t38) == "Order Y.P.R"
-    assert c.eval(shown) == 8
+    assert c.eval(shown) == 8 and c.eval(lines) == 12                # (one order: its dots and its outline)
     for _ in range(6):
         c.click(c.eval("return %s.order" % t38))
-    assert c.eval("return ns.Render3D.Probe.order") == 0 and c.eval(shown) == 48
+    assert c.eval("return ns.Render3D.Probe.order") == 0 and c.eval(shown) == 48 and c.eval(lines) == 0
     # the cost page: 250 cubes, then their numbers
-    c.eval("ns.Render3D.Probe.SetPage(5)")
+    c.eval("ns.Render3D.Probe.SetPage(7)")
     w.tick(0.1)
     n0 = len(c.chat_frame)
-    b = c.eval("return T_button(ns.Render3D.Probe.pages[5], '250 cubes')")
+    b = c.eval("return T_button(ns.Render3D.Probe.pages[7], '250 cubes')")
     assert b is not None
     c.click(b)
     w.tick(4)
     cost = state(c)["results"]["cost"]["250"]
     assert cost["n"] == 250 and cost["made"] == 250 and cost["fpsAfter"] == 60, cost
-    assert c.eval("return #ns.Render3D.Probe.pages[5].pool") == 250
+    assert c.eval("return #ns.Render3D.Probe.pages[7].pool") == 250
     # (plain actors: no template, so no Lua OnUpdate of their own in the numbers)
-    assert c.eval("local n = 0 for _, a in ipairs(ns.Render3D.Probe.pages[5].pool) do "
+    assert c.eval("local n = 0 for _, a in ipairs(ns.Render3D.Probe.pages[7].pool) do "
                   "if a.template then n = n + 1 end end return n") == 0
     assert any("250 paused cubes" in x for x in chat_since(c, n0))
     # fewer again reuses the actors
-    c.click(c.eval("return T_button(ns.Render3D.Probe.pages[5], 'Clear')"))
+    c.click(c.eval("return T_button(ns.Render3D.Probe.pages[7], 'Clear')"))
+    no_errors(w)
+
+
+@case
+def the_flag_and_alpha_pages_open_in_solo_and_show_one_tiles_scenes_only():
+    w, c = boot()
+    c.slash("/dz 3d probe safe")
+    w.tick(7)
+    P = "ns.Render3D.Probe"
+    # every scene shown: the tile numbers of the shown scenes (0: the measuring scene), and the scene outside the
+    # window (tile 18, MEDIUM strata under UIParent)
+    shown = ("local out = {} for _, sc in ipairs(%s.scenes) do if sc:IsShown() then local t = sc.probeTile "
+             "out[#out + 1] = t and t.n or 0 end end table.sort(out) return out" % P)
+    outer = "for _, sc in ipairs(%s.scenes) do if sc.probeOuter then return sc:IsShown() end end" % P
+    bar = P + ".bar"
+    # page 1 has no solo: all its scenes, the measuring scene and nothing hidden
+    assert c.eval("return %s.solo[1]" % P) is False
+    assert c.eval("return %s.measure:IsShown()" % P) is True
+    c.eval(P + ".SetPage(3)")
+    w.tick(0.6)
+    assert c.eval("return %s.solo[3]" % P) == 1 and c.eval("return %s.solo[4]" % P) == 1
+    assert c.eval_py(shown) == [20, 20], c.eval_py(shown)                # tile 20's two scenes, nothing else at all
+    assert c.eval(outer) is False and c.eval("return %s.measure:IsShown()" % P) is False
+    caps = c.eval_py("local out = {} for i, t in ipairs(%s.pages[3].tiles) do local r = t.cap:GetTextColor() "
+                     "out[i] = r end return out" % P)
+    assert caps[0] == 1 and all(abs(x - 0.4) < 1e-6 for x in caps[1:]), caps
+    assert c.eval("return %s.label:GetText()" % bar) == "Solo: tile 20 (1 of 12)"
+    assert c.eval("return %s.text:GetText()" % bar).startswith("20. Flag off on both scenes")
+    assert c.eval("return %s.mode:GetText()" % bar) == "All tiles"
+    # Next, Prev (wrapping round)
+    c.click(c.eval("return %s.next" % bar))
+    assert c.eval_py(shown) == [21, 21] and c.eval("return %s.solo[3]" % P) == 2
+    for _ in range(2):
+        c.click(c.eval("return %s.prev" % bar))
+    assert c.eval_py(shown) == [31, 31], c.eval_py(shown)
+    assert c.eval("return %s.label:GetText()" % bar) == "Solo: tile 31 (12 of 12)"
+    # the three-scene tiles show their three scenes
+    for _ in range(7):
+        c.click(c.eval("return %s.prev" % bar))
+    assert c.eval_py(shown) == [43, 43, 43], c.eval_py(shown)
+    # another page without solo: every scene shown again (hidden pages' scenes too, by their own flag; 0 = the
+    # measuring and cost scenes), the outer one with its page; the remembered tile on return
+    c.eval(P + ".SetPage(2)")
+    w.tick(0.2)
+    on2 = c.eval_py(shown)
+    assert sorted(set(on2)) == [0] + [n for n in range(1, 61) if n != 41] and on2.count(18) == 2, on2
+    assert c.eval(outer) is True
+    assert c.eval("return %s.label:GetText()" % bar) == "All 12 tiles shown"
+    c.eval(P + ".SetPage(3)")
+    w.tick(0.2)
+    assert c.eval_py(shown) == [43, 43, 43] and c.eval(outer) is False
+    # All tiles: page 3 draws at once (every probe scene shown again), Solo: back at the same tile
+    c.click(c.eval("return %s.mode" % bar))
+    assert c.eval("return %s.solo[3]" % P) is False and c.eval("return %s.mode:GetText()" % bar) == "Solo"
+    assert len(c.eval_py(shown)) == c.eval("return #%s.scenes" % P) - 1        # (all but tile 18's: page 2 is hidden)
+    assert c.eval("local r = %s.pages[3].tiles[2].cap:GetTextColor() return r" % P) == 1
+    c.click(c.eval("return %s.mode" % bar))
+    assert c.eval_py(shown) == [43, 43, 43]
+    # the alpha page starts in solo at its first tile, the lower-scene alpha 1 control
+    c.eval(P + ".SetPage(4)")
+    w.tick(0.2)
+    assert c.eval_py(shown) == [26, 26] and c.eval("return %s.label:GetText()" % bar) == "Solo: tile 26 (1 of 8)"
+    # the cost page has no tiles: no stepper, the status stays
+    c.eval(P + ".SetPage(7)")
+    w.tick(0.1)
+    assert c.eval("return %s.prev:IsShown()" % bar) is False
+    assert "done - screenshot each page" in c.eval("return %s.status:GetText()" % P)
+    no_errors(w)
+
+
+@case
+def the_flag_tiles_flag_exactly_the_scenes_their_captions_name():
+    w, c = boot()
+    c.slash("/dz 3d probe safe")
+    w.tick(7)
+    c.eval("ns.Render3D.Probe.SetPage(3)")
+    w.tick(0.2)
+    got = c.eval_py("local out = {} for _, t in ipairs(ns.Render3D.Probe.pages[3].tiles) do local f = {} "
+                    "for j, sc in ipairs(t.scenes or {}) do f[j] = __PROBE_FLAGS[sc] and true or false end "
+                    "out[#out + 1] = { t.n, f } end return out")
+    got = {n: f for n, f in got}
+    F, T = False, True
+    want = {20: [F, F], 21: [F, T], 22: [T, F], 23: [T, T],              # lower / upper (you) scene
+            43: [F, F, F], 44: [F, T, F], 45: [F, T, F], 46: [F, T, F],  # cube, middle, you
+            24: [F, F], 25: [T, T], 30: [F, F], 31: [F, F]}
+    assert got == want, got
+    # the middle scenes: 43 / 44 empty, 45 a small cube aside, 46 only a 30 px square in the corner
+    small = c.eval_py("local out = {} for _, a in ipairs(__MOCK.mock_actors) do "
+                      "if a.fileID == 167145 and (a.scale == 0.35 or a.scale == 0.9) then out[#out + 1] = a.scale end "
+                      "end table.sort(out) return out")
+    assert small == [0.35, 0.9], small
+    corner = c.eval_py("local t = ns.Render3D.Probe.pages[3].tiles[8] local m = t.scenes[2] "
+                       "return { t.n, m:GetWidth(), m:GetHeight(), (m:GetPoint(1)) }")
+    assert corner == [46, 30, 30, "BOTTOMRIGHT"], corner
+    # what the flag answered right after it was set (the getter), kept for the summary
+    assert state(c)["results"]["overlapSet"] is True
+    # the captions say what each outcome means
+    caps = c.eval_py("local out = {} for _, t in ipairs(ns.Render3D.Probe.pages[3].tiles) do "
+                     "out[t.n] = t.caption .. ' ' .. (t.long or '') end return out")
+    assert "clears before drawing" in caps[21] and "own buffer" in caps[21] and "no effect" in caps[21]
+    assert "clears before drawing" in caps[22] and "own buffer" in caps[22]
+    assert "even empty" in caps[44] and "whole rectangle" in caps[45] and "covers the screen" in caps[46]
+    no_errors(w)
+
+
+@case
+def the_alpha_page_tests_each_alpha_in_a_lower_scene_and_in_your_own():
+    w, c = boot()
+    c.slash("/dz 3d probe safe")
+    w.tick(7)
+    c.eval("ns.Render3D.Probe.SetPage(4)")
+    w.tick(0.2)
+    tiles = c.eval_py("local out = {} for _, t in ipairs(ns.Render3D.Probe.pages[4].tiles) do "
+                      "out[#out + 1] = { t.n, #t.scenes, t.data:GetText() } end return out")
+    assert [t[0] for t in tiles] == [26, 27, 28, 29, 47, 48, 49, 50], tiles
+    assert [t[1] for t in tiles] == [2, 2, 2, 2, 1, 1, 1, 1], tiles
+    assert tiles[2][2] == "actor alpha 0.01, lower scene" and tiles[6][2] == "actor alpha 0.01, one scene", tiles
+    # every alpha twice (lower scene, one scene), on the cube sized to you
+    alphas = c.eval_py("local out = {} for _, a in ipairs(__MOCK.mock_actors) do "
+                       "if a.fileID == 167145 and a.alpha then out[#out + 1] = a.alpha end end table.sort(out) "
+                       "return out")
+    assert alphas == [0, 0, 0.01, 0.01, 0.5, 0.5, 1, 1], alphas
+    no_errors(w)
+
+
+@case
+def tile_14_keeps_its_teal_frame_between_the_scenes_inside_the_clipping_frame_and_42_outside_it():
+    w, c = boot()
+    c.slash("/dz 3d probe safe")
+    w.tick(7)
+    c.eval("ns.Render3D.Probe.SetPage(2)")
+    w.tick(0.2)
+    for idx, n, inside in ((6, 14, True), (12, 42, False)):
+        r = c.eval_py("local t = ns.Render3D.Probe.pages[2].tiles[...] local A, B = t.scenes[1], t.scenes[2] "
+                      "return { n = t.n, clips = t.holder:DoesClipChildren(), "
+                      "aIn = A:GetParent() == t.holder, bIn = B:GetParent() == t.holder, "
+                      "coverIn = t.cover:GetParent() == t.holder, coverArea = t.cover:GetParent() == t.area, "
+                      "a = A:GetFrameLevel(), c = t.cover:GetFrameLevel(), b = B:GetFrameLevel(), "
+                      "cw = t.cover:GetWidth(), w = t.area:GetWidth() }", idx)
+        assert r["n"] == n and r["clips"] is True and r["aIn"] and r["bIn"], r
+        assert r["a"] < r["c"] < r["b"], r                                   # (the teal between the two scenes)
+        assert r["coverIn"] is inside and r["coverArea"] is (not inside), r
+        assert abs(r["cw"] - r["w"] / 2) < 1e-6, r                           # (the left half only)
+    no_errors(w)
+
+
+@case
+def the_flat_model_page_shows_each_candidate_turned_about_one_axis_with_its_outline():
+    w, c = boot()
+    c.slash("/dz 3d probe safe")
+    w.tick(7)
+    c.eval("ns.Render3D.Probe.SetPage(6)")
+    w.tick(0.6)
+    tiles = c.eval_py("local out = {} for _, t in ipairs(ns.Render3D.Probe.pages[6].tiles) do "
+                      "out[#out + 1] = { t.n, t.wired or 0, t.dots and t.dots[1] and t.dots[1]:IsShown() or false } "
+                      "end return out")
+    assert [t[0] for t in tiles] == list(range(51, 61)), tiles
+    # the outline: 4 lines for a flat model, 12 for a box, 4 for the stand-ins' quads; the red origin dot
+    assert [t[1] for t in tiles] == [4, 4, 4, 4, 4, 4, 12, 12, 4, 4], tiles
+    assert all(t[2] for t in tiles[:8]), tiles
+    # each candidate by its file ID, scaled so its longest side is 2.4 yd, SetYaw(30 deg) only
+    boxes = {198111: 109.1222, 198110: 109.1222, 653518: 48.9308, 1396283: 63.8288, 200893: 1.6827,
+             219357: 2.7778, 203154: 3.9398}
+    acts = c.eval_py("local out = {} for _, h in ipairs(ns.Render3D.Probe.prims) do "
+                     "out[#out + 1] = { h.key, h.fid, h.a.fileID, h.a:GetScale(), h.a.yaw or 0, h.a.pitch or 0 } end "
+                     "return out")
+    assert [a[0] for a in acts] == [str(n) for n in range(51, 59)], acts
+    for key, fid, loaded, scale, yaw, pitch in acts:
+        assert loaded == fid and abs(scale - 2.4 / boxes[fid]) < 1e-4, (key, fid, loaded, scale)
+        assert abs(yaw - math.radians(30)) < 1e-9 and pitch == 0, (key, yaw, pitch)
+    # the stand-ins: 198111 stood up by SetPitch(90 deg), 653518 turned by SetYaw(180 deg), in the lower scene
+    turns = c.eval_py("local out = {} for i = 9, 10 do local t = ns.Render3D.Probe.pages[6].tiles[i] "
+                      "out[#out + 1] = t.data:GetText() end return out")
+    # (sized to you: 0.45 of your 1.7 yd seen at 0.68 of the way to you, over the turned quad's height; the scale shown)
+    s59, s60 = 0.45 * ME_HEIGHT * 0.68 / 89.6895, 0.45 * ME_HEIGHT * 0.68 / 32.9853
+    assert turns == ["198111: SetPitch 90, scale %.4f" % s59,
+                     "653518: SetYaw 180, scale %.4f" % s60], turns
+    st = c.eval_py("local out = {} for _, a in ipairs(__MOCK.mock_actors) do "
+                   "if a.fileID == 198111 and a.pitch then out[#out + 1] = a.pitch end "
+                   "if a.fileID == 653518 and a.yaw and math.abs(a.yaw - math.pi) < 1e-9 then out[#out + 1] = -1 end "
+                   "end return out")
+    assert sorted(st) == [-1, math.pi / 2], st
+    # what the client said of each (2 s and 6 s after the start), for the summary and the saved results
+    res = state(c)["results"]
+    assert sorted(res["prims"]) == [str(n) for n in range(51, 59)], res["prims"]
+    assert res["prims"]["53"]["fid"] == 653518 and res["prims"]["53"]["loaded"] is False, res["prims"]["53"]
+    assert c.eval("return ns.Render3D.Probe.pages[6].tiles[1].data:GetText()").startswith("198111: loaded false")
+    assert any(line.startswith("Stand-in candidates (page 6 tiles): 51 (198111)") for line in
+               c.eval_py("return ns.Render3D.Probe.SummaryLines(ns.Render3D.Probe.res)"))
+    no_errors(w)
+
+
+@case
+def every_file_id_the_probe_loads_is_a_model_file_of_the_installed_client():
+    # SetModelByFileID with an ID that is not a model can crash the client (WoWUIBugs #67): the probe may only use
+    # Blizzard's unit cube and find_flat_prims.py's candidates, each an M2 of the installed build
+    w, c = boot()
+    c.slash("/dz 3d probe safe")
+    w.tick(7)
+    for i in range(1, 8):
+        c.eval("ns.Render3D.Probe.SetPage(...)", i)
+        w.tick(0.1)
+    asked = {int(k) for k in (c.eval_py("local out = {} for k in pairs(__PROBE_FIDS) do out[#out + 1] = k end "
+                                        "return out") or [])}
+    assert asked == PRIM_FIDS | {CUBE}, sorted(asked)
+    src = open(os.path.join(harness.ADDON_DIR, "Render3D", "Probe.lua"), encoding="utf-8").read()
+    named = {int(x) for x in re.findall(r"fid = (\d+)", src)} | {int(x) for x in re.findall(r"CUBE = (\d+)", src)}
+    assert named == PRIM_FIDS | {CUBE}, sorted(named)
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "generators"))
+        import casc_local
+        casc_local.root()
+    except Exception as e:                       # (no installed client here: the IDs were checked when picked)
+        print("    (installed client not readable, file check skipped: %s)" % e)
+        return
+    for fid in sorted(asked):
+        data = casc_local.read_fid(fid)
+        assert data[:4] in (b"MD21", b"MD20"), (fid, data[:4])
+    # each candidate still passes find_flat_prims.py (198110 is the header-box control: only that refused), and the
+    # mesh box page 6 draws its outline from is the scanner's
+    import find_flat_prims
+    boxes = {int(f): [float(x) for x in b.split(",")]
+             for f, b in re.findall(r"fid = (\d+), box = \{([^}]*)\}", src)}
+    for fid in sorted(PRIM_FIDS):
+        r = find_flat_prims.analyse(fid)
+        want = ["header box off the mesh by 17.059"] if fid == 198110 else []
+        assert r.get("kind") in ("flat", "box") and r["why"] == want, (fid, r["why"])
+        if fid in boxes:
+            assert max(abs(a - b) for a, b in zip(boxes[fid], r["mesh"])) < 1e-3, (fid, boxes[fid], r["mesh"])
+    assert len(boxes) == len(PRIM_FIDS) - 1, sorted(boxes)          # (198110 shares 198111's box)
     no_errors(w)
 
 

@@ -5,6 +5,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Probe.lua", ...) then ret
 -- experiment whose caption says what should show - the user screenshots every page - while what can be measured goes
 -- to DisasterZoneDB.probe3d.results, with a short summary in the chat.
 --
+-- Round 3 (2026-10-05): every scene shares one depth buffer, and a scene with SetAllowOverlappedModels(true) seemed to
+-- clear it for the other tiles of its page. So the flag and alpha pages start in solo: the bar under the page steps
+-- through their tiles and only the chosen tile's scenes are shown (every other scene of the probe hidden). Page 6
+-- shows the stock models dev/generators/find_flat_prims.py found as flat or box stand-ins.
+--
 -- The crash guard: a malformed loose .m2 may crash the client, and saved variables reach the disk only on a reload or
 -- a logout. "/dz 3d probe" saves probe3d.pending = "armed" and reloads; that reload (PLAYER_ENTERING_WORLD says it is
 -- one) runs the probe with pending = "running" in memory only - the disk keeps "armed" - and clears the flag when the
@@ -71,17 +76,36 @@ end
 local CUBE_BOX = { -0.5, -0.5, -0.5, 0.5, 0.5, 0.5 }
 local ORIGIN = { 0, 0, 0 }
 
+-- Stand-in candidates (page 6): stock models that passed dev/generators/find_flat_prims.py on build 2.5.6.69795 -
+-- opaque (one alpha-keyed for comparison), depth test and write on, no billboard or moving bone, header box on the
+-- mesh, 4 vertices (flat) or one box. Each ID was read from the installed client and starts with 'MD21': an ID that is
+-- not a model can crash the client in SetModelByFileID (WoWUIBugs #67), so only IDs from that report go here (the
+-- probe's test checks them against the client's files). box = the drawn mesh in model units (min x, y, z, max x, y, z;
+-- a flat one has no thickness on one axis).
+local ROOF = { fid = 198111, box = { -44.8464, -54.5491, 17.0593, 44.8431, 54.5731, 17.0593 } }   -- two-sided
+local ROOF_HDR = { fid = 198110, box = ROOF.box }          -- the same quad, its header box reaching down to z 0
+local CATA = { fid = 653518, box = { -4.0358, -23.5964, 1.7645, -4.0358, 25.3344, 34.7498 } }  -- one-sided, faces +x
+local LEGION = { fid = 1396283, box = { -7.0473, -29.9331, -1.789, -7.0473, 33.8957, 31.1963 } }   -- faces +x
+local BLANKET = { fid = 200893, box = { -0.5851, -0.8307, 0.048, 0.6258, 0.852, 0.048 } }    -- alpha key, faces +z
+local SCALE100 = { fid = 219357, box = { -1.3889, -1.3889, 0, 1.3889, 1.3889, 2.7778 } }      -- one-sided box
+local ELEVATOR = { fid = 203154, box = { -1.9699, -1.9699, -0.3058, 1.9699, 1.9699, 0.3058 } }   -- a slab
+local PRIM_SPAN = 2.4                                       -- yd: a candidate's longest side in its tile
+
 local YELLOW, RED, GREEN, BLUE = { 1, 0.85, 0.1 }, { 1, 0.25, 0.25 }, { 0.25, 1, 0.3 }, { 0.35, 0.55, 1 }
 local CYAN, PINK, TEAL = { 0.2, 0.95, 0.95 }, { 1, 0.4, 0.95 }, { 0.16, 0.34, 0.38 }
 
--- Tile grid: 4 columns, 3 rows a page; a tile is its scene area, a caption under it and a grey line of values.
+-- Tile grid: 4 columns, 3 rows a page; a tile is its scene area, a caption under it and a grey line of values. Under
+-- the page: the solo bar (one tile at a time, with the chosen tile's full explanation) and the status line.
 local TW, GAP, SCENE_H, CAP_H, DATA_H = 222, 10, 108, 40, 12
 local ROW_H = SCENE_H + CAP_H + DATA_H + 8
-local WIN_W, WIN_H = 4 * TW + 3 * GAP + 40, 3 * ROW_H + 80
+local BAR_H = 66                  -- (three lines of explanation under the buttons)
+local WIN_W, WIN_H = 4 * TW + 3 * GAP + 40, 3 * ROW_H + 80 + BAR_H
 
 P.pitchSign = 1               -- Blizzard's orbit camera: a positive pitch looks down (checked again by Calibrate)
-P.signs = 1                   -- tile 38's sign set (Signs)
+P.signs = 1                   -- tile 38's sign set (Signs; 1 = all +, what tiles 35-37 showed in game)
 P.order = 0                   -- tile 38's rotation order shown (0 = all of ORDERS)
+P.solo = {}                   -- page -> the tile shown alone (its index on the page), or false: every tile
+local PAGE_OF = {}            -- page key -> its index (filled with PAGES)
 
 ---------------------------------------------------------------------------
 -- Saved state (DisasterZoneDB.probe3d)
@@ -226,6 +250,10 @@ local function Scene(t, lvl, parent)
     pcall(sc.SetLightAmbientColor, sc, 0.7, 0.7, 0.75)
     pcall(sc.SetLightDiffuseColor, sc, 0.85, 0.85, 0.85)
     P.scenes[#P.scenes + 1] = sc
+    -- (whose scene it is: solo shows one tile's scenes and hides every other scene of the probe)
+    sc.probeTile = t
+    t.scenes = t.scenes or {}
+    t.scenes[#t.scenes + 1] = sc
     return sc
 end
 
@@ -395,7 +423,11 @@ local function Tile(pg, n, col, row, caption, cs, rs)
     data:SetHeight(DATA_H)
     data:SetJustifyH("LEFT")
     data:SetWordWrap(false)
-    local t = { f = f, area = area, bg = bg, cap = cap, data = data, n = n, level = area:GetFrameLevel() }
+    -- (the colours set here, not left to the fonts: solo greys the other tiles' captions and gives these back)
+    cap:SetTextColor(1, 1, 1)
+    data:SetTextColor(0.5, 0.5, 0.5)
+    local t = { f = f, area = area, bg = bg, cap = cap, data = data, n = n, level = area:GetFrameLevel(),
+                caption = caption }
     pg.tiles[#pg.tiles + 1] = t
     return t
 end
@@ -481,6 +513,37 @@ local function FrameBox(sc, b, pitch)
     Orbit(sc, cx, cy, cz, 35, pitch or 30, 4 * r)
 end
 
+-- The camera on (tx, ty, tz) from azimuth az and elevation el (degrees: where it stands, seen from the point), backed
+-- off until every point of pts lies within `fill` of the scene's half width and half height, measured with the
+-- client's own projection (whether its field of view is horizontal or vertical: tile 38 of round 2 assumed one and
+-- showed only part of its dots). Before the scene is laid out it keeps a first guess; t.draw calls it again.
+local function Fit(sc, pts, tx, ty, tz, az, el, fill)
+    if not sc then return end
+    local r = 0.3
+    for _, p in ipairs(pts) do
+        r = max(r, sqrt((p[1] - tx) ^ 2 + (p[2] - ty) ^ 2 + (p[3] - tz) ^ 2))
+    end
+    local dist = sc.probeDist or 3.5 * r
+    local w, h = sc:GetWidth() or 0, sc:GetHeight() or 0
+    for _ = 1, 6 do
+        Orbit(sc, tx, ty, tz, az + 180, el, dist)
+        if w <= 0 or h <= 0 then break end
+        local worst = 0
+        for _, p in ipairs(pts) do
+            local x, y = Proj(sc, p[1], p[2], p[3])
+            if not x then
+                worst = nil                             -- (not measurable now: keep the camera where it is)
+                break
+            end
+            worst = max(worst, abs(x - w / 2) / (w / 2), abs(y - h / 2) / (h / 2))
+        end
+        local k = worst and worst / (fill or 0.8) or 0
+        if k <= 0 or abs(k - 1) < 0.02 then break end
+        dist = max(dist * k, r + 2 * NEAR)
+    end
+    sc.probeDist = dist
+end
+
 ---------------------------------------------------------------------------
 -- Rotations (tiles 35-38): candidate meanings of the actor's yaw, pitch and roll, right-handed, z up
 ---------------------------------------------------------------------------
@@ -504,12 +567,45 @@ local AXIS = {
     p = function(a) local c, s = cos(a), sin(a) return { c, 0, s, 0, 1, 0, -s, 0, c } end,   -- pitch: about +y
     r = function(a) local c, s = cos(a), sin(a) return { 1, 0, 0, 0, c, -s, 0, s, c } end,   -- roll: about +x
 }
+local SETTER = { y = "SetYaw", p = "SetPitch", r = "SetRoll" }
+
+-- One turn about one axis (deg degrees), as SetYaw / SetPitch / SetRoll alone do: tiles 35-37 showed each is the
+-- standard right-handed turn about z, y and x. Page 6 turns its models about one axis only, so the still unknown
+-- order of a combined turn cannot misplace them.
+local function Turn(axis, deg)
+    if not axis then return nil end
+    return AXIS[axis](rad(deg))
+end
+
+-- p (model units) as the client should draw it: turned by m (nil: not turned), scaled by s, moved to pos.
+local function Xf(m, s, pos, p)
+    local v = { p[1] * s, p[2] * s, p[3] * s }
+    if m then v = Apply(m, v) end
+    return { v[1] + pos[1], v[2] + pos[2], v[3] + pos[3] }
+end
+
+-- The lines of tile t along box b's edges placed by (m, s, pos); a flat box gives its outline only (each edge once).
+local function WireXf(t, sc, b, m, s, pos, c)
+    local k = Corners(b)
+    local seen, i = {}, 0
+    for _, e in ipairs(EDGES) do
+        local p, q = k[e[1]], k[e[2]]
+        local key = format("%.4f %.4f %.4f %.4f %.4f %.4f", p[1], p[2], p[3], q[1], q[2], q[3])
+        if abs(p[1] - q[1]) + abs(p[2] - q[2]) + abs(p[3] - q[3]) > 1e-6 and not seen[key] then
+            seen[key] = true
+            i = i + 1
+            Seg(t, i, sc, Xf(m, s, pos, p), Xf(m, s, pos, q), c)
+        end
+    end
+    t.wired = i
+end
 -- "ypr" = yaw(pitch(roll(v))): roll turns the model first.
 local ORDERS = { { "ypr", RED, "Y.P.R" }, { "yrp", GREEN, "Y.R.P" }, { "pyr", BLUE, "P.Y.R" },
                  { "pry", YELLOW, "P.R.Y" }, { "ryp", CYAN, "R.Y.P" }, { "rpy", PINK, "R.P.Y" } }
--- Tile 38's turn, in degrees. Picked offline over every order and sign set of a 2 yd cube: the closest two of the 48
--- candidate corner sets lie 0.25 yd apart (about 11 px in the tile; 30/20/10 gave 0.085 yd, 3 px, under a dot).
-local TURN = { y = 30, p = 20, r = 35 }
+-- Tile 38's turn, in degrees. Picked offline (all signs +, as tiles 35-37 showed): for any wrong order there is a
+-- visible corner of the true cube with none of that order's dots within 0.62 yd of it on screen (2 yd cube, the
+-- tile's view), against 0.26 yd for round 2's 30 / 20 / 35. Larger turns differ more between orders.
+local TURN = { y = 50, p = 40, r = 35 }
 
 local function Rot(order, ang)
     local m = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
@@ -675,10 +771,27 @@ function P.CheckLoose(tag)
         local span = abs(b[4] - b[1]) + abs(b[5] - b[2]) + abs(b[6] - b[3])
         if span > 0.5 and span < 100 then
             for _, d in ipairs(P.depthTiles) do DepthLayout(d.scenes, d.cube, b) end
-            if P.page == 1 then P.Redraw() end
+            if P.page == PAGE_OF.loose then P.Redraw() end
         end
     end
     P.RefreshLooseTable()
+    -- page 6's stand-in candidates: loaded or not, and the client's own box for each (does it match the mesh, or the
+    -- header box? 198110's header box reaches 17 units below its quad)
+    res.prims = res.prims or {}
+    for _, h in ipairs(P.prims or {}) do
+        local a, rec = h.a, { fid = h.fid }
+        if a then
+            local ok, v = pcall(a.IsLoaded, a)
+            if ok then rec.loaded = v and true or false else rec.loaded = Answer(ok, v) end
+            rec.modelFileID = Answer(pcall(a.GetModelFileID, a))
+            rec.active, rec.activeBad = BoxOf(a, "GetActiveBoundingBox")
+        else
+            rec.loaded = "no actor"
+        end
+        res.prims[h.key] = rec
+        h.t.data:SetText(format("%d: loaded %s; client box %s", h.fid, Txt(rec.loaded),
+            rec.activeBad and ("not finite: " .. rec.activeBad) or BoxText(rec.active)))
+    end
 end
 
 -- Whether the client's model path is the one asked for (it may answer in another case or with /).
@@ -816,13 +929,18 @@ local function MeCube(A, B, alpha)
     return cube
 end
 
--- 13-19: the cube's scene, something drawn over the same pixels, then your scene. kind: plain (a colour texture),
--- clip (all of it in a clipping frame), DISABLE / ALPHAKEY / BLEND (a file texture in that blend mode), strata (the
--- cube's scene in MEDIUM strata under the window), none (control).
-local function Sandwich(pg, n, col, row, kind, caption)
+-- 13-19, 42: the cube's scene, something drawn over the same pixels, then your scene. kind: plain (a colour texture),
+-- clip / clipout (both scenes in a clipping frame like the board's, the teal over the LEFT half only so the right
+-- half shows whether the scenes draw in there at all: clip keeps the teal in a frame of its own inside the clipping
+-- frame, at a level between the scenes; clipout puts that frame outside it, a sibling at the same level),
+-- DISABLE / ALPHAKEY / BLEND (a file texture in that blend mode), strata (the cube's scene in MEDIUM strata under the
+-- window), none (control). long: the solo bar's full explanation.
+local function Sandwich(pg, n, col, row, kind, caption, long)
     local t = Tile(pg, n, col, row, caption)
+    t.long = long
     local holder = t.area
-    if kind == "clip" then
+    local clip = kind == "clip" or kind == "clipout"
+    if clip then
         holder = CreateFrame("Frame", nil, t.area)
         holder:SetAllPoints(t.area)
         holder:SetFrameLevel(t.level + 1)
@@ -833,27 +951,35 @@ local function Sandwich(pg, n, col, row, kind, caption)
         A = Scene(t, 1, UIParent)
         if A then
             A:SetFrameStrata("MEDIUM")
-            -- (not a child of the window: shown and hidden with the page)
-            pg:HookScript("OnShow", function() A:Show() end)
+            -- (not a child of the window: shown with the page when solo allows it, hidden with it)
+            A.probeOuter = pg
+            pg:HookScript("OnShow", function() P.ApplySolo() end)
             pg:HookScript("OnHide", function() A:Hide() end)
         end
     else
         A = Scene(t, 2, holder)
     end
     if kind ~= "none" and kind ~= "strata" then
-        local cover = CreateFrame("Frame", nil, holder)
-        cover:SetAllPoints(t.area)
+        local cover = CreateFrame("Frame", nil, kind == "clipout" and t.area or holder)
         cover:SetFrameLevel(t.level + 3)
+        if clip then
+            cover:SetPoint("TOPLEFT", t.area, "TOPLEFT")
+            cover:SetPoint("BOTTOMRIGHT", t.area, "BOTTOM")
+        else
+            cover:SetAllPoints(t.area)
+        end
         local tex = cover:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints()
-        if kind == "plain" or kind == "clip" then
+        if kind == "plain" or clip then
             tex:SetColorTexture(TEAL[1], TEAL[2], TEAL[3], 1)
         else
             tex:SetTexture(WHITE)
             tex:SetVertexColor(TEAL[1], TEAL[2], TEAL[3], 1)
             pcall(tex.SetBlendMode, tex, kind)
         end
+        t.cover = cover
     end
+    t.holder = holder
     MeCube(A, Scene(t, 5, holder))
 end
 
@@ -883,18 +1009,28 @@ local function BuildDepth(pg)
     end
     Sandwich(pg, 13, 1, 2, "plain", "Cube scene, an opaque texture, then your scene: a cube-shaped HOLE in you = depth "
         .. "survives textures.")
-    Sandwich(pg, 14, 2, 2, "clip", "As 13 inside a clipping frame (like the board's): a hole = clipping keeps depth.")
+    Sandwich(pg, 14, 2, 2, "clip", "As 13 in a clipping frame (like the board's), teal on the LEFT half only: a hole "
+        .. "there = clipping keeps depth.", "Both scenes and the teal's own frame (between them) inside a "
+        .. "SetClipsChildren frame. Left half: a cube-shaped teal hole in you = depth survives in a clipping frame. "
+        .. "Right half (no teal): the cube in front of you = the scenes draw there; nothing at all on both halves = "
+        .. "model scenes do not draw like this inside a clipping frame (round 2's blank tile).")
     Sandwich(pg, 15, 3, 2, "DISABLE", "As 13 with a file texture, blend DISABLE: a hole = depth survives it.")
     Sandwich(pg, 16, 4, 2, "ALPHAKEY", "As 13 with a file texture, blend ALPHAKEY: a hole = depth survives it.")
     Sandwich(pg, 17, 1, 3, "BLEND", "As 13 with a file texture, blend BLEND: a hole = depth survives it.")
     Sandwich(pg, 18, 2, 3, "strata", "Cube scene in MEDIUM strata under this window: a hole = depth crosses strata "
         .. "(UI models elsewhere cut holes).")
     Sandwich(pg, 19, 3, 3, "none", "Control for 13-18, no texture: the cube in front of you.")
+    Sandwich(pg, 42, 4, 3, "clipout", "As 14 with the teal frame outside the clipping frame (level between the "
+        .. "scenes): a hole on the left = levels interleave.", "The two scenes inside the clipping frame, the "
+        .. "teal (left half) in a sibling frame outside it at a level between them. A hole in you on the left = frame "
+        .. "levels interleave across the clipping frame as anywhere else. Teal over all of you on the left = the "
+        .. "clipping frame and its children draw as one block at its own level.")
 end
 
 -- 24, 25: Brutallus in two scenes cut at his middle by their clips, the far half under the near half.
-local function SliceTile(pg, n, col, flag, caption)
-    local t = Tile(pg, n, col, 2, caption)
+local function SliceTile(pg, n, col, row, flag, caption, long)
+    local t = Tile(pg, n, col, row, caption)
+    t.long = long
     local F, N = Scene(t, 1), Scene(t, 3)
     local c = { -12, -3, 4, 2.5, 0, 2.3 }
     local d = sqrt((c[4] - c[1]) ^ 2 + (c[5] - c[2]) ^ 2 + (c[6] - c[3]) ^ 2)
@@ -911,38 +1047,92 @@ local function SliceTile(pg, n, col, flag, caption)
     t.data:SetText(format("cut %.1f yd from the camera", d))
 end
 
--- 3: SetAllowOverlappedModels and see-through actors as depth writers.
+-- 43-46: three scenes with the same camera and clips - the cube's, a middle one, yours. mid: "empty" (no actor), "side"
+-- (a small cube to your right, clear of you and of the big cube), "corner" (the middle scene only a small square in
+-- the tile's corner, a small cube in it so it surely draws); flag: the middle scene flagged.
+local function ThreeTile(pg, n, col, row, mid, flag, caption, long)
+    local t = Tile(pg, n, col, row, caption)
+    t.long = long
+    local A, M, B = Scene(t, 1), Scene(t, 3), Scene(t, 5)
+    if M then
+        if mid == "corner" then
+            M:ClearAllPoints()
+            M:SetPoint("BOTTOMRIGHT", t.area, "BOTTOMRIGHT", -3, 3)
+            M:SetSize(30, 30)
+        end
+        LookAt(M, unpack(ME_CAM))
+        if mid == "side" then
+            Cube(M, -1, -1.25, 0.35, 0.35)
+        elseif mid == "corner" then
+            Cube(M, -1, 0, 1.1, 0.9)
+        end
+        if flag then SetFlag(M) end
+    end
+    MeCube(A, B)
+    t.data:SetText(format("middle scene: %s, flag %s", mid == "empty" and "empty" or (mid == "side"
+        and "a small cube aside" or "a corner square"), flag and "on" or "off"))
+end
+
+-- 3 (solo): SetAllowOverlappedModels, the flag. Round 2 drew these tiles in one frame and a flagged scene seemed to
+-- clear the depth the tiles drawn after it needed, so this page starts in solo: one tile's scenes at a time. Every
+-- tile but the slices: a cube in a lower scene in front of you in an upper one, same camera and clips. Read 21 and 22
+-- together: 21 you over the cube + 22 the cube in front = the flag clears the shared depth before its scene draws;
+-- both you over the cube = a flagged scene keeps a depth buffer of its own; both the cube in front = no effect.
 local function BuildFlags(pg)
     local FLAGS = {
-        { 20, nil, nil, "Cube (lower scene) before you (upper scene), flag off: the cube in front = scenes share "
-            .. "depth." },
-        { 21, nil, true, "SetAllowOverlappedModels on for your scene: you drawn over the cube = the flag isolates "
-            .. "depth." },
-        { 22, true, nil, "Flag on for the cube's scene only: you drawn over the cube = it isolates depth." },
-        { 23, true, true, "Flag on for both scenes: you drawn over the cube = it isolates depth." },
+        { 20, nil, nil, "Flag off on both (control): the cube in front of you, a cube-shaped hole in you = scenes "
+            .. "share depth.", "Flag off on both scenes: the lower scene's cube writes depth and your scene is tested "
+            .. "against it - the cube in front of you, a cube-shaped hole in you. Every flag tile compares with this." },
+        { 21, nil, true, "Flag on YOUR (upper) scene only. You over the cube = clears before drawing (or own buffer); "
+            .. "cube in front = no effect.", "SetAllowOverlappedModels(true) on the scene drawn last. You drawn whole "
+            .. "over the cube = the flagged scene ignores the depth drawn before it: it clears the shared depth "
+            .. "before drawing, or draws with a depth buffer of its own (22 tells which). The cube in front = the "
+            .. "flag has no effect here." },
+        { 22, true, nil, "Flag on the CUBE's (lower) scene only. Cube in front = clears before drawing (or no "
+            .. "effect); you over it = own buffer.", "The flag on the scene drawn first. The cube still in front of "
+            .. "you = its depth reaches the scenes after it: with 21 showing you over the cube, the flag clears "
+            .. "depth BEFORE its own scene draws. You over the cube = a flagged scene's depth never reaches later "
+            .. "scenes: it has its own buffer (or clears after drawing)." },
+        { 23, true, true, "Flag on both scenes. You over the cube = clears or own buffer (21 and 22 tell which); cube "
+            .. "in front = no effect.", "Both scenes flagged. You over the cube should agree with 21 (the upper "
+            .. "flagged scene ignores what was drawn before it). The cube in front = no effect: then 21 and 22 show "
+            .. "the cube in front too." },
     }
     for i, f in ipairs(FLAGS) do
         local t = Tile(pg, f[1], i, 1, f[4])
+        t.long = f[5]
         local A, B = Scene(t, 1), Scene(t, 3)
         if f[2] and A then SetFlag(A) end
         if f[3] and B then SetFlag(B) end
         MeCube(A, B)
         t.data:SetText(format("flag: cube scene %s, your scene %s", f[2] and "on" or "off", f[3] and "on" or "off"))
     end
-    SliceTile(pg, 24, 1, false, "Brutallus cut in two scenes at his middle by their clips, flag off: broken = slicing "
-        .. "fails (known).")
-    SliceTile(pg, 25, 2, true, "As 24 with the flag on both scenes: one whole Brutallus, no seam = slicing works with "
-        .. "the flag.")
-    local ALPHA = {
-        { 26, 3, 2, 1, "Cube alpha 1 (lower scene) before you: the cube in front (control)." },
-        { 27, 4, 2, 0.5, "Cube alpha 0.5: a faint cube with none of you behind it = see-through actors write depth." },
-        { 28, 1, 3, 0.01, "Cube alpha 0.01 (invisible): a cube-shaped HOLE in you = an invisible actor writes depth." },
-        { 29, 2, 3, 0, "Cube alpha 0: a hole = alpha 0 still writes depth; you whole = it is not drawn at all." },
-    }
-    for _, f in ipairs(ALPHA) do
-        local t = Tile(pg, f[1], f[2], f[3], f[5])
-        MeCube(Scene(t, 1), Scene(t, 3), f[4])
-    end
+    ThreeTile(pg, 43, 1, 2, "empty", false, "Three scenes: cube, an EMPTY middle scene (flag off), you: the cube in "
+        .. "front of you (control for 44-46).", "Control for 44-46: three scenes with the same camera and clips - "
+        .. "the cube's (lowest), an empty one, yours (top). The cube in front of you, a cube-shaped hole in you.")
+    ThreeTile(pg, 44, 2, 2, "empty", true, "As 43, the empty middle scene flagged: you over the cube = a flagged "
+        .. "scene clears depth even empty; cube in front = no.", "The middle scene holds nothing and has "
+        .. "SetAllowOverlappedModels(true). You drawn over the cube = a flagged scene clears the shared depth when it "
+        .. "draws, even with nothing in it (one empty flagged scene could reset depth between two groups of scenes). "
+        .. "The cube in front = an empty flagged scene does nothing (45 has one with a model in it).")
+    ThreeTile(pg, 45, 3, 2, "side", true, "As 44 with a small cube far to the side in the flagged scene: you over "
+        .. "the big cube = it clears its whole rectangle.", "The flagged middle scene holds a small cube to your "
+        .. "right, clear of you and of the big cube. You over the big cube = the flagged scene clears depth over its "
+        .. "whole rectangle, not only where it draws. The big cube in front = it clears its own pixels only, or "
+        .. "nothing (compare 21).")
+    ThreeTile(pg, 46, 4, 2, "corner", true, "As 45, the flagged scene only a small square in the corner: you over the "
+        .. "big cube = its clear covers the screen.", "The flagged middle scene is only a small square in this "
+        .. "tile's bottom right corner (the small cube in it shows that it draws). You over the big cube = its clear "
+        .. "covers the whole screen, not just its rectangle: a flagged scene anywhere then wipes the depth every "
+        .. "scene drawn before it left for the scenes drawn after it (what round 2's page 3 looked like).")
+    SliceTile(pg, 24, 1, 3, false, "Brutallus cut in two scenes at his middle by their clips, flag off: broken = "
+        .. "slicing fails (known).", "The far half in the lower scene (its near clip at the cut), the near half in "
+        .. "the upper one (its far clip at the cut). Each scene stores depth in its own clip range, so the two halves' "
+        .. "depths do not compare: a broken Brutallus (known since the slice test).")
+    SliceTile(pg, 25, 2, 3, true, "As 24 with the flag on both scenes: one whole Brutallus, no seam = slicing by clips "
+        .. "works with the flag.", "As 24, both scenes flagged. If a flagged scene clears depth before it draws, the "
+        .. "near half draws over the far half whatever their stored depths: one whole Brutallus, no seam. Broken as "
+        .. "24 = the flag does not clear between these two scenes.")
     -- 30, 31: the other untried way to isolate a scene's depth - a frame drawn to its own frame buffer first, then
     -- composited (SetIsFrameBuffer; it needs flattened render layers). As tile 20 otherwise.
     local BUFFER = {
@@ -980,6 +1170,44 @@ local function BuildFlags(pg)
     end
 end
 
+-- 4 (solo): actor alpha and depth. Row 1: the cube in a lower scene, so it surely draws before you - a hole in you =
+-- it writes depth. Row 2: the cube and you in one scene, the cube made first; a client that draws see-through actors
+-- after the opaque ones shows you whole there whatever it writes, so row 1 decides and row 2 tells the order.
+local function BuildAlpha(pg)
+    local ALPHA = {
+        { 26, 1, 1, 1, false, "Cube alpha 1 in a lower scene before you: the cube in front, a hole in you (control)." },
+        { 27, 2, 1, 0.5, false, "Cube alpha 0.5, lower scene: a faint cube and a cube-shaped hole in you = a "
+            .. "see-through actor writes depth." },
+        { 28, 3, 1, 0.01, false, "Cube alpha 0.01 (invisible), lower scene: a cube-shaped HOLE in you = an invisible "
+            .. "actor writes depth." },
+        { 29, 4, 1, 0, false, "Cube alpha 0, lower scene: a hole = alpha 0 still writes depth; you whole = it is not "
+            .. "drawn at all." },
+        { 47, 1, 2, 1, true, "Cube alpha 1 and you in ONE scene, the cube made first: the cube in front (control)." },
+        { 48, 2, 2, 0.5, true, "As 47, cube alpha 0.5: a hole in you behind the faint cube = it writes depth before "
+            .. "you draw." },
+        { 49, 3, 2, 0.01, true, "As 47, cube alpha 0.01: a hole = it writes depth; you whole = drawn after you or no "
+            .. "depth (see 28)." },
+        { 50, 4, 2, 0, true, "As 47, cube alpha 0: a hole = it still writes depth; you whole = it is not drawn at all." },
+    }
+    for _, f in ipairs(ALPHA) do
+        local t = Tile(pg, f[1], f[2], f[3], f[6])
+        if f[5] then
+            local sc = Scene(t, 1)
+            MeCube(sc, sc, f[4])
+            t.long = format("The cube (alpha %s) and you in one scene, the cube's actor made first. A cube-shaped "
+                .. "hole in you = it wrote depth before you were drawn. You whole behind it = the client draws "
+                .. "see-through actors after the opaque ones (or it writes no depth): tile %d, the same cube in a "
+                .. "lower scene, says which.", tostring(f[4]), f[1] - 21)
+        else
+            MeCube(Scene(t, 1), Scene(t, 3), f[4])
+            t.long = format("The cube (actor alpha %s) in a lower scene, you in the upper one, same camera and clips: "
+                .. "the cube's scene draws first. A cube-shaped hole in you = an actor at this alpha writes depth "
+                .. "(an invisible one would make a stand-in that needs no texture over it).", tostring(f[4]))
+        end
+        t.data:SetText(format("actor alpha %s, %s", tostring(f[4]), f[5] and "one scene" or "lower scene"))
+    end
+end
+
 -- 35-37: one turn each; green dots = the corners turned by +30 degrees about that axis, red = by -30.
 local function RotTile(pg, n, col, row, axis, setter, caption)
     local t = Tile(pg, n, col, row, caption)
@@ -997,10 +1225,10 @@ local function RotTile(pg, n, col, row, axis, setter, caption)
             end
         end
     end
-    t.data:SetText("green: +30 deg about the axis, red: -30 deg")
+    t.data:SetText("green: +30 deg about the axis, red: -30")
 end
 
--- 4: particles against depth, the rotation order, frozen poses.
+-- 5: particles against depth, the rotation order, frozen poses.
 local function BuildParticles(pg)
     local BC = { -13, 0, 3, 0.5, 0, 2.5 }
     local t = Tile(pg, 32, 1, 1, "Big cube before Brutallus, one scene: his glows hidden behind it = particles are "
@@ -1023,31 +1251,61 @@ local function BuildParticles(pg)
     RotTile(pg, 35, 4, 1, "y", "SetYaw", "Cube SetYaw(30 deg): do the green or the red dots sit on its corners?")
     RotTile(pg, 36, 1, 2, "p", "SetPitch", "Cube SetPitch(30 deg): green or red dots on its corners?")
     RotTile(pg, 37, 2, 2, "r", "SetRoll", "Cube SetRoll(30 deg): green or red dots on its corners?")
-    -- 38: all three; one colour per order (or one order at a time), with the signs the user sets. The camera is as
-    -- close as the turned cube allows and the dots small: neighbouring orders' corners lie about 11 px apart.
-    t = Tile(pg, 38, 3, 2, format("Yaw %d, pitch %d, roll %d deg. Which colour's dots sit on the corners? ", TURN.y,
-        TURN.p, TURN.r)
+    -- 38: all three; one colour per order (or one order at a time, with its outline), with the signs the user sets
+    -- (all + by default: tiles 35-37 showed each turn is +). Round 2 framed it too close for the client's lens and
+    -- turned it too little: the camera is now fitted to every candidate corner (Fit), the turn picked so the orders
+    -- differ by 0.6 yd or more at some visible corner.
+    t = Tile(pg, 38, 3, 2, format("Yaw %d, pitch %d, roll %d deg (signs + as in 35-37). Which colour's dots sit on "
+        .. "ALL the cube's corners? ", TURN.y, TURN.p, TURN.r)
         .. "|cffff4040red|r Y.P.R, |cff40ff4dgreen|r Y.R.P, |cff598cffblue|r P.Y.R, |cffffd91ayellow|r P.R.Y, "
-        .. "|cff33f2f2cyan|r R.Y.P, |cffff66f2pink|r R.P.Y (outer to inner). Set Signs first, as 35-37 showed.", 2, 2)
+        .. "|cff33f2f2cyan|r R.Y.P, |cffff66f2pink|r R.P.Y (outer to inner).", 2, 2)
     local big = t
+    big.long = "The cube turned by SetYaw, SetPitch and SetRoll together. Each colour is one order of applying them "
+        .. "(Y.P.R = yaw of pitch of roll: roll turns the model first). Name the colour whose dots sit on every "
+        .. "visible corner; the Orders button shows one order at a time with its outline, the Signs button the other "
+        .. "sign sets (all + is what tiles 35-37 showed)."
     sc = Scene(big, 1)
-    Orbit(sc, 0, 0, 0, 35, 30, 4.5)
     local a = Cube(sc, 0, 0, 0, 2)
     if a then
         pcall(a.SetYaw, a, rad(TURN.y))
         pcall(a.SetPitch, a, rad(TURN.p))
         pcall(a.SetRoll, a, rad(TURN.r))
     end
+    -- (the camera frames every corner of every order and sign set: it stays put while the buttons change the dots)
+    local every = {}
+    for si = 1, 8 do
+        local sy, sp, sr = Signs(si)
+        local ang = { y = sy * rad(TURN.y), p = sp * rad(TURN.p), r = sr * rad(TURN.r) }
+        for _, o in ipairs(ORDERS) do
+            local m = Rot(o[1], ang)
+            for _, c in ipairs(CORNERS2) do every[#every + 1] = Apply(m, c) end
+        end
+    end
+    Fit(sc, every, 0, 0, 0, 215, 30, 0.82)
     big.draw = function()
+        Fit(sc, every, 0, 0, 0, 215, 30, 0.82)
         local sy, sp, sr = Signs(P.signs)
         local ang = { y = sy * rad(TURN.y), p = sp * rad(TURN.p), r = sr * rad(TURN.r) }
         local i = 0
         for k, o in ipairs(ORDERS) do
             local m = Rot(o[1], ang)
-            for _, c in ipairs(CORNERS2) do
+            local k8 = {}
+            for j, c in ipairs(CORNERS2) do
                 i = i + 1
-                if P.order == 0 or P.order == k then Dot(big, i, sc, Apply(m, c), o[2], 3) else HideDot(big, i) end
+                k8[j] = Apply(m, c)
+                if P.order == 0 or P.order == k then
+                    Dot(big, i, sc, k8[j], o[2], P.order == k and 6 or 4)
+                else
+                    HideDot(big, i)
+                end
             end
+            -- the chosen order's outline: whether its edges run along the cube's is easier to see than 8 dots
+            if P.order == k then
+                for e, ed in ipairs(EDGES) do Seg(big, e, sc, k8[ed[1]], k8[ed[2]], o[2]) end
+            end
+        end
+        if P.order == 0 then
+            for _, l in ipairs(big.lines or {}) do l:Hide() end
         end
         big.data:SetText(SignsText(P.signs) .. " (green / red in 35-37 = + / -); " .. OrderButtonText(P.order))
     end
@@ -1092,7 +1350,147 @@ local function BuildParticles(pg)
 end
 
 ---------------------------------------------------------------------------
--- 5: cost, and every automatic result
+-- 6: stand-in candidates (flat models and boxes from find_flat_prims.py)
+---------------------------------------------------------------------------
+
+-- 51-58: one candidate alone, turned about one axis only (axis, deg), scaled so its longest side is PRIM_SPAN yd, its
+-- origin (the red dot) on the scene's origin, the yellow outline where its mesh must be drawn; the camera at azimuth
+-- az and elevation el (degrees, where it stands seen from the model). CheckLoose puts the client's own box for it in
+-- the data line.
+local function PrimTile(pg, n, col, row, prim, axis, deg, az, el, caption, long)
+    local t = Tile(pg, n, col, row, caption)
+    t.long = long
+    local sc = Scene(t, 1)
+    local b = prim.box
+    local s = PRIM_SPAN / max(b[4] - b[1], b[5] - b[2], b[6] - b[3])
+    local m = Turn(axis, deg)
+    local a = Actor(sc)
+    if a then
+        pcall(a.SetModelByFileID, a, prim.fid)
+        Place(a, 0, 0, 0, s)
+        if axis then pcall(a[SETTER[axis]], a, rad(deg)) end
+    end
+    local pts = { ORIGIN }
+    for _, c in ipairs(Corners(b)) do pts[#pts + 1] = Xf(m, s, ORIGIN, c) end
+    local mid = Xf(m, s, ORIGIN, { (b[1] + b[4]) / 2, (b[2] + b[5]) / 2, (b[3] + b[6]) / 2 })
+    Fit(sc, pts, mid[1], mid[2], mid[3], az, el, 0.75)
+    t.draw = function()
+        Fit(sc, pts, mid[1], mid[2], mid[3], az, el, 0.75)
+        WireXf(t, sc, b, m, s, ORIGIN, YELLOW)
+        Dot(t, 1, sc, ORIGIN, RED)
+    end
+    P.prims = P.prims or {}
+    P.prims[#P.prims + 1] = { key = tostring(n), fid = prim.fid, a = a, t = t }
+    t.data:SetText(format("file %d at scale %.4f, %s", prim.fid, s, axis and (SETTER[axis] .. " " .. deg .. " deg")
+        or "not turned"))
+    return t
+end
+
+-- 59, 60: a candidate as a stand-in: in a lower scene on the line from the camera to your middle, turned (one axis)
+-- to face the camera, covering the left half of you; an opaque teal texture over it; your scene on top (as tile 13
+-- with the cube). Sized to your height once your model has loaded, as MeCube does.
+local function StandInTile(pg, n, col, row, prim, axis, deg, caption, long)
+    local t = Tile(pg, n, col, row, caption)
+    t.long = long
+    local A = Scene(t, 2)
+    local cover = CreateFrame("Frame", nil, t.area)
+    cover:SetAllPoints(t.area)
+    cover:SetFrameLevel(t.level + 3)
+    local tex = cover:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints()
+    tex:SetColorTexture(TEAL[1], TEAL[2], TEAL[3], 1)
+    local B = Scene(t, 5)
+    LookAt(A, unpack(ME_CAM))
+    LookAt(B, unpack(ME_CAM))
+    local m, b = Turn(axis, deg), prim.box
+    local lo, hi = { HUGE, HUGE, HUGE }, { -HUGE, -HUGE, -HUGE }     -- (the turned mesh's box, model units)
+    for _, c in ipairs(Corners(b)) do
+        local v = Xf(m, 1, ORIGIN, c)
+        for k = 1, 3 do lo[k], hi[k] = min(lo[k], v[k]), max(hi[k], v[k]) end
+    end
+    local a = Actor(A)
+    if a then
+        pcall(a.SetModelByFileID, a, prim.fid)
+        pcall(a[SETTER[axis]], a, rad(deg))
+    end
+    -- its middle on the camera's line to your middle, 0.45 of your height tall, its right edge on your middle line
+    -- (+y is the screen's left, looking along +x)
+    local function Lay(h, foot)
+        local u = (ME_CUBE_X - ME_CAM[1]) / -ME_CAM[1]
+        local s = 0.45 * h * u / max(hi[3] - lo[3], 1e-3)
+        local zc = ME_CAM[3] + u * (foot + 0.55 * h - ME_CAM[3])
+        t.s, t.pos = s, { ME_CUBE_X - s * (lo[1] + hi[1]) / 2, -s * lo[2], zc - s * (lo[3] + hi[3]) / 2 }
+        if a then Place(a, t.pos[1], t.pos[2], t.pos[3], s) end
+        -- (the scale shown: these big quads shrink to under 0.01, should the client clamp an actor's scale)
+        t.data:SetText(format("%d: %s %d, scale %.4f", prim.fid, SETTER[axis], deg, s))
+    end
+    Lay(1.8, 0)
+    local me = Me(B, 0, 0, 0, PI)
+    if me then
+        me.probeOnLoad = function(mm)
+            local bb = BoxOf(mm, "GetActiveBoundingBox")
+            if not (bb and #bb == 6) then return end
+            local h = bb[6] - bb[3]
+            if h < 0.3 or h > 8 then return end
+            Lay(h, bb[3])
+            if t.draw and P.page == PAGE_OF.flat then pcall(t.draw) end
+        end
+        if me.probeLoadedAt then pcall(me.probeOnLoad, me) end
+    end
+    t.draw = function() WireXf(t, B, b, m, t.s, t.pos, YELLOW) end
+end
+
+local function BuildFlat(pg)
+    PrimTile(pg, 51, 1, 1, ROOF, "y", 30, 240, 40, "198111 DNRDeadMinesCaveRoof: a 4-vertex quad, two-sided, yaw 30. "
+        .. "Fills the yellow frame = usable as a flat stand-in.", "198111: 4 vertices, 2 triangles in the plane z = "
+        .. "17.06 (model units), 89.7 x 109.1 units, opaque, material flag 0x4 (two-sided), header box = the mesh, "
+        .. "no billboard or moving bone. Shrunk to 2.4 yd, SetYaw(30 deg); its faces wind downwards, so seeing it "
+        .. "from above also shows the two-sided flag works. Filling the outline (the red dot, its origin, under its "
+        .. "middle) = it loads and draws exactly where the maths puts it.")
+    PrimTile(pg, 52, 2, 1, ROOF_HDR, "y", 30, 240, 40, "198110: the same quad, header box down to its origin. In the "
+        .. "frame = box ignored; shifted = centred on the box.", "198110 has 198111's mesh but its "
+        .. "header (Geo) box runs from z 0 to the quad. With SetUseCenterForOrigin(false, false, false) the quad "
+        .. "should sit in the frame exactly as in 51. Shifted (down, or sideways) = the client still places file "
+        .. "models by their header box: then only candidates whose header box equals the mesh are safe.")
+    PrimTile(pg, 53, 3, 1, CATA, "y", 30, 65, 15, "653518, a Cata menu quad: one-sided, front view. Fills the "
+        .. "frame = usable as a flat stand-in.", "653518 (interface/glues/models/ui_mainmenu_cata_lowbandwidth/"
+        .. "UI_MainMenu_Cata_LowBandwidth.m2): 4 vertices in the plane x = -4.04, 48.9 x "
+        .. "33.0 units, front faces +x, opaque, unlit (flag 0x1), one-sided; header box = the mesh. SetYaw(30 deg), "
+        .. "seen from in front. Filling the outline = usable as a one-sided flat stand-in (54 checks its back).")
+    PrimTile(pg, 54, 4, 1, CATA, "y", 30, 245, 15, "653518 from behind: an empty frame = one-sided (back faces "
+        .. "culled); drawn = both of its sides draw.", "The same quad as 53 seen from behind. Nothing in the outline "
+        .. "= its back faces are culled, as a one-sided stand-in needs (it then hides nothing seen from behind a "
+        .. "wall). Drawn = the client draws both sides of it.")
+    PrimTile(pg, 55, 1, 2, LEGION, "y", 30, 65, 15, "1396283, a Legion menu quad: one-sided, wider. Fills the "
+        .. "frame = usable as a flat stand-in.", "1396283 (interface/glues/models/ui_mainmenu_legion/"
+        .. "UI_MainMenu_Legion_LowBandwidth.m2): 4 vertices in the plane x = -7.05, 63.8 x "
+        .. "33.0 units (a wider shape than 653518), front faces +x, opaque, unlit, one-sided, header box = the mesh. "
+        .. "SetYaw(30 deg), seen from in front.")
+    PrimTile(pg, 56, 2, 2, BLANKET, "y", 30, 240, 45, "200893 G_Blanket: an alpha-keyed quad. Fills the frame = "
+        .. "usable as a flat stand-in; holes = its see-through texels.", "200893 world/goober/G_Blanket.m2: 4 "
+        .. "vertices in the plane z = 0.048, 1.21 x 1.68 units, front faces +z, one-sided, alpha key: its texture's "
+        .. "see-through texels draw nothing and write no depth. For comparison with the opaque quads.")
+    PrimTile(pg, 57, 3, 2, SCALE100, "y", 30, 215, 30, "219357 world/scale/100x100.m2: a 2.78 yd box on its "
+        .. "origin. Fills the frame = usable as a box stand-in.", "219357 world/scale/100x100.m2 (one of the scale "
+        .. "boxes 50x50 .. 1000x1000): 12 triangles, opaque, one-sided, its base on the origin (z 0 .. 2.78), x and y "
+        .. "centred. Another clean box besides the unit cube 167145.")
+    PrimTile(pg, 58, 4, 2, ELEVATOR, "y", 30, 215, 35, "203154 IronforgeHouseElevator: a 3.94 x 3.94 x 0.61 yd slab. "
+        .. "Fills the frame = usable as a floor stand-in.", "203154 world/khazmodan/ironforge/passivedoodads/"
+        .. "elevators/IronforgeHouseElevator.m2: a box of 12 triangles, 3.94 x 3.94 x 0.61 units centred on its "
+        .. "origin, opaque, one-sided. A thick square plate: a floor or a wall stand-in with some depth.")
+    StandInTile(pg, 59, 1, 3, ROOF, "p", 90, "198111 as a stand-in: lower scene, before you, teal texture between. "
+        .. "A rectangular hole in you = it hides you.", "The two-sided quad 198111 stood up by SetPitch(90 deg) to "
+        .. "face the camera, in a scene under an opaque teal texture; you in a scene over it. A hole in you the "
+        .. "shape of the yellow outline (teal showing through) = a flat stand-in writes depth and hides a model "
+        .. "behind a room surface per pixel: one actor per wall instead of many cubes.")
+    StandInTile(pg, 60, 2, 3, CATA, "y", 180, "As 59 with 653518 (one-sided, turned to face the camera): a "
+        .. "rectangular hole in you = it hides you per pixel.", "As 59 with the one-sided quad 653518, SetYaw(180 "
+        .. "deg) so its front faces the camera. A hole in you the shape of the outline = it writes depth. No hole "
+        .. "while 59 has one = its unlit material or its facing stops it.")
+end
+
+---------------------------------------------------------------------------
+-- 7: cost, and every automatic result
 ---------------------------------------------------------------------------
 
 local COST_W, COST_H = 560, 300
@@ -1220,13 +1618,17 @@ local function BuildCost(pg)
     data:SetText(tconcat(P.SummaryLines(P.res), "\n"))
 end
 
+-- key, tab text, builder; solo: the page opens showing one tile at a time.
 local PAGES = {
-    { "1 Loose files", BuildLoose },
-    { "2 Depth", BuildDepth },
-    { "3 Flag & alpha", BuildFlags },
-    { "4 Particles & rotation", BuildParticles },
-    { "5 Cost & data", BuildCost },
+    { key = "loose", name = "1 Loose files", build = BuildLoose },
+    { key = "depth", name = "2 Depth", build = BuildDepth },
+    { key = "flag", name = "3 Flag (solo)", build = BuildFlags, solo = true },
+    { key = "alpha", name = "4 Alpha (solo)", build = BuildAlpha, solo = true },
+    { key = "turns", name = "5 Particles & turns", build = BuildParticles },
+    { key = "flat", name = "6 Flat models", build = BuildFlat },
+    { key = "cost", name = "7 Cost & data", build = BuildCost },
 }
+for i, def in ipairs(PAGES) do PAGE_OF[def.key] = i end
 
 ---------------------------------------------------------------------------
 -- Automatic measurements
@@ -1407,6 +1809,17 @@ function P.SummaryLines(res)
         if c then cost[#cost + 1] = CostLine(c) end
     end
     if #cost > 0 then L[#L + 1] = "Cost: " .. tconcat(cost, "; ") .. "." end
+    -- page 6: each candidate loaded or not (its tile number first; the client's boxes are in the saved results)
+    local keys = {}
+    for k in pairs(res.prims or {}) do keys[#keys + 1] = k end
+    tsort(keys, function(a, b) return (tonumber(a) or 0) < (tonumber(b) or 0) end)
+    local prims = {}
+    for _, k in ipairs(keys) do
+        local r = res.prims[k]
+        prims[#prims + 1] = format("%s (%s) %s", k, tostring(r.fid), r.loaded == true and "loaded"
+            or ("not loaded: " .. tostring(r.loaded)))
+    end
+    if #prims > 0 then L[#L + 1] = "Stand-in candidates (page 6 tiles): " .. tconcat(prims, ", ") .. "." end
     return L
 end
 
@@ -1432,11 +1845,107 @@ end
 -- Window
 ---------------------------------------------------------------------------
 
+-- The open page's overlays (in solo the shown tile's only: the others' lines and dots hidden with their scenes).
 function P.Redraw()
     local pg = P.pages and P.pages[P.page]
     if not pg then return end
+    local only = P.SoloTile()
     for _, t in ipairs(pg.tiles) do
-        if t.draw then Step("draw " .. t.n, t.draw) end
+        local on = not only or t == only
+        if t.draw and on then Step("draw " .. t.n, t.draw) end
+        if t.ov then t.ov:SetShown(on) end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Solo: one tile's scenes at a time
+---------------------------------------------------------------------------
+
+-- The tile shown alone on the open page, or nil (every tile shown).
+function P.SoloTile()
+    local pg = P.pages and P.pages[P.page]
+    local k = pg and P.solo[P.page]
+    return k and pg.tiles[k] or nil
+end
+
+-- With a solo tile, only its scenes are shown: every other scene of the probe is hidden, on every page and outside
+-- the window (tile 18's), as is the empty measuring scene - nothing else draws into the shared depth buffer that
+-- frame. The other tiles' captions are greyed, the solo tile's edge gold. Without one, every scene is shown again (one
+-- outside the window only while its page is visible).
+function P.ApplySolo()
+    local only = P.SoloTile()
+    for _, sc in ipairs(P.scenes or {}) do
+        local show = not only or sc.probeTile == only
+        if sc.probeOuter then show = show and sc.probeOuter:IsVisible() end
+        sc:SetShown(show and true or false)
+    end
+    local UI = ns.UI
+    local pg = P.pages and P.pages[P.page]
+    for _, t in ipairs(pg and pg.tiles or {}) do
+        local on = not only or t == only
+        local c = on and 1 or 0.4
+        t.cap:SetTextColor(c, c, c)
+        c = on and 0.5 or 0.3
+        t.data:SetTextColor(c, c, c)
+        if t.signs then t.signs:SetShown(on) end            -- (tile 38's buttons)
+        if t.order then t.order:SetShown(on) end
+        if UI and UI.SetEdgeColor and t.area.edges then
+            if only and on then
+                UI:SetEdgeColor(t.area, 1, 0.82, 0, 1)
+            else
+                UI:SetEdgeColor(t.area, 0.32, 0.32, 0.36, 1)
+            end
+        end
+    end
+    P.RefreshBar()
+    P.Redraw()
+end
+
+-- Prev / Next: the solo tile d tiles on (turning solo on at the first or last tile).
+function P.SoloStep(d)
+    local pg = P.pages and P.pages[P.page]
+    if not (pg and #pg.tiles > 0) then return end
+    local k = P.solo[P.page]
+    if k then
+        k = (k - 1 + d) % #pg.tiles + 1
+    else
+        k = d > 0 and 1 or #pg.tiles
+    end
+    P.solo[P.page] = k
+    P.ApplySolo()
+end
+
+-- Solo on (at the tile it was on) or off (every tile).
+function P.SoloToggle()
+    local pg = P.pages and P.pages[P.page]
+    if not (pg and #pg.tiles > 0) then return end
+    P.soloLast = P.soloLast or {}
+    if P.solo[P.page] then
+        P.soloLast[P.page] = P.solo[P.page]
+        P.solo[P.page] = false
+    else
+        P.solo[P.page] = P.soloLast[P.page] or 1
+    end
+    P.ApplySolo()
+end
+
+function P.RefreshBar()
+    local b = P.bar
+    if not b then return end
+    local pg = P.pages and P.pages[P.page]
+    local n = pg and #pg.tiles or 0
+    for _, w in ipairs({ b.prev, b.next, b.mode, b.label, b.text }) do w:SetShown(n > 0) end
+    if n == 0 then return end
+    local k = P.solo[P.page]
+    local t = k and pg.tiles[k]
+    b.mode:SetText(t and "All tiles" or "Solo")
+    if t then
+        b.label:SetText(format("Solo: tile %d (%d of %d)", t.n, k, n))
+        b.text:SetText(t.n .. ". " .. (t.long or t.caption or ""))
+    else
+        b.label:SetText(format("All %d tiles shown", n))
+        b.text:SetText("Every tile of this page draws at once. Solo (or Prev / Next) shows one tile's scenes alone: "
+            .. "every model scene shares one depth buffer, so only then can no other tile draw into it.")
     end
 end
 
@@ -1466,18 +1975,55 @@ function P.SetPage(i)
     for j, pg in ipairs(P.pages) do
         if j == i and not pg.built then
             pg.built = true
-            Step("page " .. j, PAGES[j][2], pg)
+            if P.solo[j] == nil then P.solo[j] = PAGES[j].solo and 1 or false end
+            Step("page " .. j, PAGES[j].build, pg)
         end
         pg:SetShown(j == i)
         P.tabs[j]:SetActive(j == i)
     end
-    if i == 5 and P.dataText then
+    if i == PAGE_OF.cost and P.dataText then
         P.dataText:SetText(tconcat(P.SummaryLines(P.res), "\n"))
     end
+    Step("solo", P.ApplySolo)
     -- (the overlays once the page is laid out, and again later: a scene sized by its anchors only knows its size
     -- after the client has laid it out)
     C_Timer.After(0.05, function() if P.page == i then P.Redraw() end end)
     C_Timer.After(0.5, function() if P.page == i then P.Redraw() end end)
+end
+
+-- Under the page: the solo bar - Prev / Next / Solo-or-all, which tile, the status on the right; then the solo
+-- tile's full explanation (the captions are short). Its own step: the window works without it.
+local function BuildBar(content)
+    local UI = ns.UI
+    local bar = CreateFrame("Frame", nil, content)
+    bar:SetPoint("TOPLEFT", 6, -(34 + 3 * ROW_H + 2))
+    bar:SetPoint("TOPRIGHT", -6, -(34 + 3 * ROW_H + 2))
+    bar:SetHeight(BAR_H - 4)
+    local prev = UI:CreateSleekButton(bar, "< Prev", 64, 20, function() P.SoloStep(-1) end)
+    prev:SetPoint("TOPLEFT", 0, 0)
+    local nxt = UI:CreateSleekButton(bar, "Next >", 64, 20, function() P.SoloStep(1) end)
+    nxt:SetPoint("LEFT", prev, "RIGHT", 4, 0)
+    local mode = UI:CreateSleekButton(bar, "All tiles", 80, 20, function() P.SoloToggle() end)
+    mode:SetPoint("LEFT", nxt, "RIGHT", 4, 0)
+    local label = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("LEFT", mode, "RIGHT", 10, 0)
+    label:SetSize(170, 20)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+    local status = bar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    status:SetPoint("LEFT", label, "RIGHT", 6, 0)
+    status:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+    status:SetHeight(20)
+    status:SetJustifyH("RIGHT")
+    status:SetWordWrap(false)
+    local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -4)
+    text:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+    text:SetHeight(BAR_H - 30)
+    text:SetJustifyH("LEFT")
+    text:SetJustifyV("TOP")
+    P.bar = { frame = bar, prev = prev, next = nxt, mode = mode, label = label, text = text }
+    P.status = status
 end
 
 function P.Show(page)
@@ -1495,7 +2041,7 @@ function P.Show(page)
         P.tabs, P.pages = {}, {}
         local x = 2
         for i, def in ipairs(PAGES) do
-            local tab = UI:CreateUnderlineTab(content, def[1], function() P.SetPage(i) end, "page")
+            local tab = UI:CreateUnderlineTab(content, def.name, function() P.SetPage(i) end, "page")
             tab:SetPoint("TOPLEFT", x, -2)
             x = x + tab:GetWidth() + 4
             P.tabs[i] = tab
@@ -1506,12 +2052,7 @@ function P.Show(page)
             pg.tiles = {}
             P.pages[i] = pg
         end
-        local status = content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        status:SetPoint("TOPLEFT", x + 8, -8)
-        status:SetPoint("TOPRIGHT", -6, -8)
-        status:SetJustifyH("RIGHT")
-        status:SetWordWrap(false)
-        P.status = status
+        Step("bar", BuildBar, content)
         -- a small empty scene for the projection measurements (it draws nothing)
         local ok, m = pcall(CreateFrame, "ModelScene", nil, content)
         if ok and m then
@@ -1582,7 +2123,8 @@ function P.Start(mode, only)
     Step("pages", function()
         for i = #PAGES, 1, -1 do P.SetPage(i) end
     end)
-    ns:Print("3D probe running (%s): its window has five pages; the measured results follow in a few seconds.",
+    ns:Print("3D probe running (%s): its window has seven pages (3 and 4 show one tile at a time: Prev / Next under "
+        .. "the page); the measured results follow in a few seconds.",
         mode == "safe" and "safe: no loose files" or (only and ("only " .. OnlyName(only)) or "all loose files"))
     C_Timer.After(0.3, function() Step("measure", P.Measure, res) end)
     C_Timer.After(2, function() Step("loose 2 s", P.CheckLoose, "2s") end)

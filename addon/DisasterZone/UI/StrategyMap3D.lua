@@ -668,6 +668,9 @@ end
 
 -- Creatures drawn in the view's backdrop, under the whole room (Render3D/View.lua View:Backdrop): too big for the
 -- room to be sorted against them piece by piece. Kil'jaeden: 130 yd long, leaning in over the Sunwell's edge.
+-- (Not in stand-in mode: there the room's stand-ins hide him per pixel where a surface is in front of him, and he
+-- shows over the rest, his hands over the edge too, where the backdrop put all of the room over him. The backdrop
+-- scene would also sit at the floor frame's level, under the stand-ins' opaque backdrop.)
 local BACKDROP = { [23200] = true }
 
 function V:Actor(e, back)
@@ -847,7 +850,7 @@ function V:DrawModels()
     for _, e in ipairs(self.canvas.page and self.canvas.page.e or {}) do
         local g = e.t == "i" and self:Geo(e)
         if g and g.display then
-            local back = BACKDROP[g.display] and self.view:Backdrop() and true or false
+            local back = BACKDROP[g.display] and not self.standins and self.view:Backdrop() and true or false
             local a = self:Actor(e, back)
             if a then
                 seen[e] = true
@@ -1622,6 +1625,49 @@ function M3:Report()
     end
 end
 
+-- The stand-in depth mode's settings (V:SyncStandins), for this session only: on, debug (the cubes drawn over the
+-- room, see-through), all (debug: every one facing the camera, not only those over a model), flag (the client's
+-- SetAllowOverlappedModels on the stand-in scene, untested), budget (stand-ins shown at most).
+M3.standins = { on = false, debug = false, all = false, flag = false, budget = 800 }
+
+-- /dz 3d standins [on | off | debug [on | off | all] | flag on | off | budget N]: changes a setting, then says what
+-- the stand-ins do in the open view.
+function M3:StandinsSlash(arg)
+    local cfg = M3.standins
+    local S = R3() and R3().Standins
+    if not S then
+        ns:Print("The 3D stand-ins are not loaded yet: restart the game client after the update.")
+        return
+    end
+    local what, val = strsplit(" ", strtrim(arg or ""), 2)
+    what, val = (what or ""):lower(), (val or ""):lower()
+    if what == "on" or what == "off" then
+        cfg.on = what == "on"
+    elseif what == "debug" and (val == "" or val == "on" or val == "off" or val == "all") then
+        if val == "" then cfg.debug = not cfg.debug else cfg.debug = val ~= "off" end
+        cfg.all = cfg.debug and val == "all"
+    elseif what == "flag" and (val == "on" or val == "off") then
+        cfg.flag = val == "on"
+    elseif what == "budget" and tonumber(val) then
+        cfg.budget = max(0, min(S.MAX_BUDGET or 4000, floor(tonumber(val))))
+    elseif what ~= "" then
+        ns:Print("/dz 3d standins on | off | debug [on | off | all] | flag on | off | budget <n> - the stand-in depth "
+            .. "mode (cubes behind the room's surfaces hide the models per pixel; off: the box mode).")
+        return
+    end
+    local cv = _G.DisasterZoneStrategyBoard and _G.DisasterZoneStrategyBoard.canvas
+    local v = cv and cv.v3
+    if v and v.on then v:Draw() end
+    ns:Print("3D stand-ins: %s%s%s, budget %d, flag %s.", cfg.on and "on" or "off (box mode)",
+        cfg.debug and ", debug" or "", cfg.all and " (all)" or "", cfg.budget, cfg.flag and "on" or "off")
+    local si = v and v.on and v.standins
+    if si then
+        local st = si:Stats()
+        ns:Print("  %s: %d stand-ins (%d usable), %d facing, %d in view, %d over a model, %d shown; %d actors.",
+            st.key, st.total, st.usable, st.facing, st.inView, st.relevant, st.shown, st.actors)
+    end
+end
+
 ns:RegisterSlash("3d", function(rest)
     local cmd, arg = strsplit(" ", strtrim(rest or ""), 2)
     if cmd == "centre" or cmd == "center" then
@@ -1644,9 +1690,14 @@ ns:RegisterSlash("3d", function(rest)
         if probe then probe.Slash(arg) else ns:Print("the 3D probe is not loaded.") end
         return
     end
+    if cmd == "standins" then
+        M3:StandinsSlash(arg)
+        return
+    end
     M3:Report()
 end, "the 3D strategy board's models (what the client says of them); centre <active|max|geo|off>; "
-    .. "probe [safe/only <key>/results/reset/clear] - the render probe")
+    .. "probe [safe/only <key>/results/reset/clear] - the render probe; standins [on/off/debug/flag/budget] - the "
+    .. "stand-in depth mode")
 
 ---------------------------------------------------------------------------
 -- The camera buttons, the compass, the small map, the hint
@@ -1902,12 +1953,46 @@ end
 -- A frame
 ---------------------------------------------------------------------------
 
+-- The stand-in depth mode (/dz 3d standins, Render3D/Standins.lua), for testing in game; off by default, the box
+-- mode: occluder boxes and the copies hide the models where the room is in front of them. On, and when the room has
+-- stand-ins, cubes just behind the room's surfaces in a scene under the room do it per pixel (the client's shared
+-- depth buffer): no occluders, no copies (the room's copies option off; set back with the box mode). Your walking
+-- character stays in the second scene: same clips, so the same depth. A room without stand-ins keeps the box mode,
+-- said once. -> the view's stand-ins in use, or nil.
+function V:SyncStandins()
+    local cfg, S = M3.standins, R3().Standins
+    local key = cfg.on and S and self.on and self.room and self.room.key or nil
+    local ctl = self.view.standinCtl or (key and S.For(self.view)) or nil
+    local use, why = nil, nil
+    if key and ctl then
+        local ok
+        ok, why = ctl:Use(key)
+        if ok then use = ctl end
+    elseif ctl and ctl.key then
+        ctl:Off()
+    end
+    if use then
+        use:Configure(cfg)
+        self.standinsNoted = nil
+    elseif key and self.standinsNoted ~= key then
+        self.standinsNoted = key
+        ns:Print("No 3D stand-ins for this room (%s: %s): the box mode stays.", key, why or "no scene for them")
+    elseif not key then
+        self.standinsNoted = nil
+    end
+    self.standins = use
+    local R = self.R
+    if R and R.opts and (R.opts.copies ~= false) ~= (use == nil) then R.SetOpts({ copies = use == nil }) end
+    return use
+end
+
 function V:Draw()
     self.dirty = false
     local cv, R = self.canvas, self.R
     if not (cv.page and self.room) then return end
     local fl = R3().Floor(self.room)
     local ok = fl and R.SetMesh(fl.mesh)
+    local si = self:SyncStandins()
     if not self.calibrated then
         local o = self.orb
         local z = self:Ground(o.x, o.y) + Lift(o.dist)
@@ -1919,11 +2004,14 @@ function V:Draw()
     local remote = self:RemoteMarks()
     self.measured = ok and R.BeginFrame(self.cam) or false
     if self.measured then
-        R.SetOccluders(occ, n)
+        if not si then R.SetOccluders(occ, n) end
         R.DrawRoom()
         R.BeginLines()
         self:DrawLines(remote)
         R.EndLines()
+        -- (stand-ins: the models' records only pick which of them can matter; the copies stay off, so DrawCopies
+        -- only hides any left over and stops the renderer's clock)
+        if si then si:Update(occ, n, R.Project) end
         R.DrawCopies()
     end
     self:DrawPlates(remote)
