@@ -354,11 +354,35 @@ def ic_walk(d, k):
     _limb(d, k, [(29, 35), (24, 45), (16, 52)], 6)                    # back leg
 
 
+# (the strategy board's chrome, 2026-10-06; every new cell keeps 4 units clear of its edges, so the cells around it
+# come out byte for byte as before)
+def ic_target(d, k):
+    # Practice: a target, two rings and four ticks
+    for r in (22, 10):
+        d.ellipse(_pts(k, [(32 - r - 3, 32 - r - 3), (32 + r + 3, 32 + r + 3)]), outline=255, width=_w(k, 6))
+    for a, b in (((32, 4), (32, 16)), ((32, 48), (32, 60)), ((4, 32), (16, 32)), ((48, 32), (60, 32))):
+        d.line(_pts(k, [a, b]), fill=255, width=_w(k, 6))
+
+
+def ic_keys(d, k):
+    # Keyboard and mouse: a keyboard, a row of keys and the space bar
+    d.rounded_rectangle(_pts(k, [(4, 14), (60, 50)]), radius=6 * k, outline=255, width=_w(k, 5))
+    for x0, x1 in ((13, 20), (24, 31), (35, 42), (46, 52)):
+        d.rectangle(_pts(k, [(x0, 22), (x1, 29)]), fill=255)
+    d.rectangle(_pts(k, [(18, 35), (46, 42)]), fill=255)
+
+
+def ic_plus(d, k):
+    # New strategy: a plus
+    d.rectangle(_pts(k, [(28, 8), (36, 56)]), fill=255)
+    d.rectangle(_pts(k, [(8, 28), (56, 36)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
-              ic_export, ic_handle_turn, ic_handle_size, ic_walk]
+              ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

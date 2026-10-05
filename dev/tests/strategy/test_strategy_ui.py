@@ -23,7 +23,7 @@ W = "_G.DisasterZoneStrategyBoard"
 HELPERS = r"""
 function T_menu_prefix(prefix)
   local found
-  local function strip(s) return (s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "") end
+  local function strip(s) return ((s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("^%s+", "")) end
   local function walk(d)
     for _, c in ipairs(d.children) do
       if found then return end
@@ -35,6 +35,12 @@ function T_menu_prefix(prefix)
   walk(__MOCK.last_menu)
   if not found then error("no menu entry starting with " .. prefix) end
   return __MOCK.menu_select(found.text, found.parent)
+end
+-- A card of Add a block (under the tables while editing) by its title.
+function T_card(title)
+  for _, c in ipairs(_G.DisasterZoneStrategyBoard.blocks.cards) do
+    if c:IsShown() and c.title:GetText() == title then return c end
+  end
 end
 function T_cell(ref)
   for _, b in ipairs(_G.DisasterZoneStrategyBoard.blocks.blocks) do
@@ -106,7 +112,8 @@ def author_builds_a_strategy_in_the_board():
     tiles = bob.eval_py("local out = {}; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then "
                         "out[#out + 1] = t:GetTexture() end end; return out" % W)
     assert tiles == [r"Interface\AddOns\DisasterZone\Media\Maps\BT06_a", r"Interface\AddOns\DisasterZone\Media\Maps\BT06_b"], tiles
-    assert bob.find_text("Black Temple - Chamber of Command", True, True)
+    # (the map link names the floor without its raid)
+    assert bob.find_text("Chamber of Command", True, True)
     # it starts from the Council's starter: the room framed, the four council members where they stand
     st = bob.eval_py("local p = ns.StrategyBoard:GetState().strat.p[1]; local out = { vz = p.vz, i = {} }; "
                      "for _, e in ipairs(p.e) do out.i[#out.i + 1] = e.i end; return out")
@@ -117,9 +124,8 @@ def author_builds_a_strategy_in_the_board():
     bob.eval("local p = ns.StrategyBoard:GetState().strat.p[1]; p.m = 339; ns.StrategyBoard:Refresh()")
     assert bob.eval("local n = 0; for _, t in ipairs(%s.canvas.tiles) do if t:IsShown() then n = n + 1 end end; return n" % W) == 12
     bob.eval("local p = ns.StrategyBoard:GetState().strat.p[1]; p.m = ...; ns.StrategyBoard:Refresh()", m)
-    # a block from a template
-    bob.click(bob.eval("return %s.blocks.addBtn" % W))
-    bob.eval("T_menu_prefix('Players with targets')")
+    # a block from a template: Add a block's card, under the tables
+    bob.click(bob.eval("return T_card('Players with targets')"))
     w.tick(0.2)
     k = bob.eval_py("return ns.StrategyBoard:GetState().strat.p[1].k[1]")
     assert k["n"] == "Assignments" and k["r"] == 4 and [x["t"] for x in k["c"]] == ["p", "g"], k
@@ -201,11 +207,14 @@ def raid_leader_fills_and_raiders_see_their_jobs():
     # the member's tab counts it
     rita.eval("ns.RaidPlanUI:RefreshUpcoming()")
     assert rita.find_text("5/10 filled", True, True)
-    # Hana opens the board: her jobs, and the slot token shows the tank's name
+    # Hana opens the board: her jobs as chips in the dock (a misdirect, the first zone), and the slot token shows the
+    # tank's name
     hana.eval("ns.StrategyBoard:OpenRaid(...)", occ, BOSS)
     w.tick(0.3)
-    mine = strip_codes(hana.eval("return %s.view.mine:GetText()" % W))
-    assert "Misdirects" in mine and "Zones · #1 · Zone 1" in mine, mine
+    mine = [strip_codes(t) for t in hana.eval_py("local out = {}; for _, c in ipairs(%s.jobs.chips) do if c:IsShown() "
+                                                 "then out[#out + 1] = c.fs:GetText() end end; return out" % W)]
+    assert any(t.startswith("Misdirects") for t in mine) and "Zone 1" in mine, mine
+    assert shown(hana, W + ".jobs")
     tank = strip_codes(hana.eval("return ns.StrategyBoard:SlotTokenText('tk.1.1')"))
     assert tank in ("Lee", "Gina"), tank
     assert not shown(hana, W + ".fillBtn") and not shown(hana, W + ".editBtn")
@@ -248,8 +257,10 @@ def unsaved_changes_are_guarded():
     bob.eval("ns.StrategyBoard:OpenStrategy(...)", sid)
     st = board(bob)
     assert st["name"] == "Changed" and st["dirty"] and st["mode"] == "edit", st
-    # Cancel drops it
+    # Discard drops it, once asked
     bob.click(bob.eval("return %s.cancelBtn" % W))
+    assert board(bob)["dirty"] is True
+    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
     st = board(bob)
     assert st["name"] == "25 farm" and not st["dirty"] and st["mode"] == "view", st
     w.assert_no_errors()

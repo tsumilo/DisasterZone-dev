@@ -238,9 +238,8 @@ def the_editor():
     bob.load_addon()
     w.tick(3)
     bob.eval("ns.StrategyBoard:NewStrategy('ZulAman:Halazzi', 'dispels')")
-    # the template: a Magic table for our raid, priests / paladins / warlocks fit
-    bob.eval("%s:AddMenu(UIParent)" % B)
-    pick_in_menu(bob, "Dispel / decurse  curses, magic, poison, enrage")
+    # the template (Add a block's Dispels card): a Magic table for our raid, priests / paladins / warlocks fit
+    bob.eval("for _, c in ipairs(%s.cards) do if c:IsShown() and c.title:GetText() == 'Dispels' then c:Click() end end" % B)
     K1 = "local p = ns.StrategyBoard:GetState().strat.p[1]; local k = p.k[#p.k]; "
     k = bob.eval_py(K1 + "return { tr = k.tr, dy = k.dy, en = k.en, f = k.c[1].f, ds = k.ds }")
     assert k == {"tr": "dsp", "dy": "m", "f": "PRIEST,PALADIN,WARLOCK"}, k
@@ -253,7 +252,7 @@ def the_editor():
     # the gear menu offers the boss' removable effects with their type; Frenzy is an enrage on the enemy
     bob.eval(K1 + "%s:BlockMenu(UIParent, p, k, #p.k)" % B)
     texts = [strip_codes(t[2]).strip() for t in menu_texts(bob.last_menu()) if t[2]]
-    assert "Effects to remove" in texts and "Type: Magic" in texts and "Where: on our raid" in texts, texts
+    assert "Effects to remove" in texts and "Type  Magic" in texts and "Where  on our raid" in texts, texts
     assert "Spell 43139  Enrage (on the enemy)" in texts, texts
     pick_in_menu(bob, "Spell 43139  Enrage (on the enemy)")
     k = bob.eval_py(K1 + "return { dy = k.dy, en = k.en, f = k.c[1].f, ds = k.ds }")
@@ -262,7 +261,7 @@ def the_editor():
     assert strip() == "Spell 43139  Enrage, on the enemy", strip()
     # an effect by id that no list knows keeps the table's type; a known one of another type starts the table over
     bob.eval(K1 + "%s:BlockMenu(UIParent, p, k, #p.k)" % B)
-    pick_in_menu(bob, "By spell ID...")
+    pick_in_menu(bob, "By spell ID")
     bob.type_text(bob.eval("return _G.DisasterZoneStrategyPrompt.edit"), "99999", enter=True)
     w.tick(0.3)
     k = bob.eval_py(K1 + "return { dy = k.dy, en = k.en, ds = k.ds }")
@@ -270,7 +269,7 @@ def the_editor():
     assert k["dy"] == "e" and ds == [43139, 99999], k
     assert strip() == "Spell 43139 +1  Enrage, on the enemy", strip()
     bob.eval(K1 + "%s:BlockMenu(UIParent, p, k, #p.k)" % B)
-    pick_in_menu(bob, "By spell ID...")
+    pick_in_menu(bob, "By spell ID")
     bob.type_text(bob.eval("return _G.DisasterZoneStrategyPrompt.edit"), "31972", enter=True)     # Grip of the Legion
     w.tick(0.3)
     k = bob.eval_py(K1 + "return { dy = k.dy, en = k.en, f = k.c[1].f, ds = k.ds }")
@@ -306,7 +305,7 @@ def type_and_where():
     assert menu("Curse") == {"dy": "c", "f": "MAGE,DRUID"}
     bob.eval(K1 + "%s:BlockMenu(UIParent, p, k, 1)" % B)
     texts = [strip_codes(t[2]).strip() for t in menu_texts(bob.last_menu()) if t[2]]
-    assert "Type: Curse" in texts and not any(t.startswith("Where") for t in texts), texts
+    assert "Type  Curse" in texts and not any(t.startswith("Where") for t in texts), texts
     # Pyrogenics (DBM: for the purgers) makes it a Magic table on the enemy in one click
     k = menu("Spell 45230  Magic (on the enemy)")
     ds = list(k["ds"].values()) if isinstance(k["ds"], dict) else k["ds"]
@@ -317,9 +316,10 @@ def type_and_where():
     k = bob.eval_py("local k = ns.Strategy:GetStrategies('SunwellPlateau:EredarTwins')[1].p[1].k[1]; "
                     "return { tr = k.tr, dy = k.dy, en = k.en, n = #k.ds }")
     assert k == {"tr": "dsp", "dy": "m", "en": True, "n": 1}, k
-    # "Track in fight" lists it, and the title says so
+    # "Track in fight" lists it, and the title row says so (a green tag after the title)
     title = strip_codes(bob.eval("return %s.blocks[1].title.fs:GetText()" % B))
-    assert title == "Dispels  (tracked: Dispels (remove))", title
+    tag = bob.eval("local t = %s.blocks[1].tag; return t:IsShown() and t.fs:GetText()" % B)
+    assert title == "Dispels" and tag == "Dispels", (title, tag)
     w.assert_no_errors()
 
 

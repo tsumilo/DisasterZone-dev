@@ -124,7 +124,13 @@ def cancel_and_dropping_the_changes_forget_the_draft():
     w, c, bob, sid = setup()
     place(bob, 600)
     assert ndrafts(bob) == 1
+    # Discard asks first; keeping on editing keeps the draft
     bob.click(bob.eval("return %s.cancelBtn" % W))
+    assert ndrafts(bob) == 1
+    bob.cancel_popup("DISASTERZONE_STRAT_DISCARD")
+    assert ndrafts(bob) == 1
+    bob.click(bob.eval("return %s.cancelBtn" % W))
+    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
     assert ndrafts(bob) == 0
     bob.relog()
     w.tick(1)
@@ -345,11 +351,13 @@ def long_texts_fit_and_reach_the_guild():
     two = bob.eval("return T_last()._h") / bob.eval("local e = T_last(); e = %s.strat.p[1].e; return e[#e - 1]._h" % ST)
     assert abs(two - 2) < 0.01, two
     bob.eval("local e = %s.strat.p[1].e; table.remove(e); %s:MarkDirty(true)" % (ST, B))
-    # a name prompt is back to the short limit
+    # the name is typed in place, in the header, at its own limit; Esc goes back
     bob.eval(B + ":RenameStrategy()")
-    assert bob.eval("return %s.edit:IsVisible() and not %s.scroll:IsShown() and %s.edit:GetMaxLetters()" % (P, P, P)) == 64
-    assert bob.eval("return %s.edit:HasFocus()" % P) is True
-    bob.eval("_G.DisasterZoneStrategyPrompt:Hide()")
+    T = W + ".titleEdit"
+    assert bob.eval("return %s:IsVisible() and %s:HasFocus() and %s:GetMaxLetters()" % (T, T, T)) == 32
+    assert bob.eval("return %s:GetText()" % T) == bob.eval("return %s.strat.n" % ST)
+    bob.press_escape(bob.eval("return %s" % T))
+    assert bob.eval("return %s:IsShown()" % T) is False
     # page notes: 1000 characters
     notes = ("Line of notes. " * 60).strip()
     assert 400 < len(notes) <= 1000

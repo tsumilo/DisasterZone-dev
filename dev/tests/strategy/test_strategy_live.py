@@ -180,9 +180,10 @@ def marking_switches():
     see(w, bob, "Gathios", npcs=npcs)
     assert w.marks == {}
     bob.eval("ns.DB:SetSetting('strategy.autoMark', true)")
-    # the strategy's own switch (the board's Auto-mark checkbox while editing)
+    # the strategy's own switch (Auto-mark in the board's More menu while editing)
     bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
-    bob.click(bob.eval("return _G.DisasterZoneStrategyBoard.autoMark"))
+    bob.click(bob.eval("return _G.DisasterZoneStrategyBoard.moreBtn"))
+    bob.menu_select("Auto-mark")
     bob.eval("ns.StrategyBoard:Save()")
     w.tick(2)
     assert strategies(bob, BOSS)[0].get("am") is False
@@ -572,7 +573,11 @@ def practice_solo_at_a_target_dummy():
     open_full_starter(bob, BOSS)
     bob.eval("ns.StrategyBoard:Save()")
     w.tick(1)
-    bob.click(bob.eval("return _G.DisasterZoneStrategyBoard.practiceBtn"))
+    bob.click(bob.eval("return _G.DisasterZoneStrategyBoard.moreBtn"))
+    bob.eval("""local function find(d) for _, ch in ipairs(d.children) do
+          local t = (ch.text or ''):gsub('|T.-|t', ''):gsub('^%s+', '')
+          if t == 'Practice' then return ch end; local r = find(ch); if r then return r end end end
+        local ch = assert(find(__MOCK.last_menu)); __MOCK.menu_select(ch.text, ch.parent)""")
     w.tick(0.3)
     d = lines(bob)
     assert "PRACTICE" in strip_codes(bob.eval("return ns.StrategyReminder:Lines().sub")), d

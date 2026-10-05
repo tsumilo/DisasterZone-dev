@@ -259,8 +259,8 @@ def the_2d_map_greys_a_switched_off_generator_and_draws_its_beam():
 def the_state_menu_switches_every_selected_generator():
     w, c, bob = boot()
     bob.eval("local cv = T.cv() local g = T.find('obj:185051') cv:Select(g) cv:ElementMenu(g)")
-    texts = [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]
-    assert "State: Active" in texts and "Inactive" in texts, texts
+    texts = [strip_codes(t[2]).strip() for t in menu_texts(bob.last_menu()) if t[2]]
+    assert "State  Active" in texts and "Inactive" in texts, texts
     bob.eval("T.menu('Inactive')")
     assert bob.eval_py("return T.find('obj:185051').st") == 2
     assert bob.eval_py("return T.find('obj:185052').st") is None

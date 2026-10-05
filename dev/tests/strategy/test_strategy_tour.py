@@ -184,8 +184,9 @@ def closing_the_board_ends_the_tour():
     tick(w, bob)
     assert state(bob) is None
     assert bob.eval("return _G.DisasterZoneTour:IsShown()") is False
-    # Cancel closes the practice board too
+    # Close (the practice board's, where Discard would be) closes it too, without asking
     start(w, bob)
+    assert bob.eval("return %s.cancelBtn:GetText()" % W) == "Close"
     bob.click(bob.eval("return %s.cancelBtn" % W))
     w.tick(0.2)
     assert bob.eval("return %s:IsShown()" % B) is False
@@ -359,8 +360,9 @@ def the_steps_notice_the_real_actions():
     assert bob.eval("return %s.mode" % ST) == "view"
     names = bob.eval_py("return T_names()")
     assert names["n"] == names["slots"] and names["mine"] >= 1, names
-    jobs = bob.eval("return %s.view.mine:GetText()" % W)
-    assert "Your jobs" in jobs and "none on this board" not in jobs, jobs
+    # (my jobs as chips in the dock)
+    assert bob.eval("return %s.jobs:IsShown() and %s.jobs.label:GetText()" % (W, W)) == "YOUR JOBS"
+    assert bob.eval("return %s.jobs.chips[1] ~= nil and %s.jobs.chips[1]:IsShown()" % (W, W)) is True
     for _ in range(4):
         nxt()
     assert state(bob)["title"] == "Phases"       # two pages (the basics added one): the tabs are shown
@@ -411,8 +413,10 @@ def a_later_chapter_started_on_its_own_brings_its_board():
     assert bob.eval("return %s.mode" % ST) == "fill"
     assert bob.eval("return %s.stratDD:IsShown()" % W) is False
     bob.click(bob.eval("return %s.pool.suggestBtn" % W))
+    # the practice board has no Save (Close instead); asked anyway, it says why
+    assert bob.eval("return %s.saveBtn:IsShown()" % W) is False
     n0 = len(bob.chat_frame)
-    bob.click(bob.eval("return %s.saveBtn" % W))
+    bob.eval(B + ":Save()")
     assert any("practice board" in p for p in bob.chat_frame[n0:]), bob.chat_frame[n0:]
     bob.click(bob.eval("return %s.cancelBtn" % W))
     w.tick(0.2)
@@ -581,7 +585,10 @@ def the_3d_chapter_runs_in_the_boss_room():
     assert did(w, bob)["title"] == "View from here"
     # the drawing's menu: stand on it
     bob.eval("T_canvas():ElementMenu(T_canvas():GetSelected())")
-    bob.menu_select("View from here")
+    bob.eval("""local function find(d) for _, ch in ipairs(d.children) do
+          local t = (ch.text or ''):gsub('|T.-|t', ''):gsub('^%s+', '')
+          if t == 'View from here' then return ch end; local r = find(ch); if r then return r end end end
+        local ch = assert(find(__MOCK.last_menu)); __MOCK.menu_select(ch.text, ch.parent)""")
     s = did(w, bob)
     assert (s["title"], s["done"]) == ("View from here", True), s       # (it stays: look round from there)
     assert bob.eval("return _G.DisasterZoneTourBox.next:GetText()") == "Next"

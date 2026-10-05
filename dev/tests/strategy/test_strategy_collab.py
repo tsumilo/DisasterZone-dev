@@ -66,7 +66,13 @@ def state(cl):
 
 
 def sub(cl):
-    return strip_codes(cl.eval("return %s.sub:GetText()" % W) or "")
+    """Who else is here, in words: the header's Live tooltip (Board:PresenceText)."""
+    return strip_codes(cl.eval("return %s:PresenceText()" % B) or "")
+
+
+def tag(cl):
+    """The header's state tag (Unsaved, Newer version by ..., ...), or ""."""
+    return strip_codes(cl.eval("local t = %s.stateTag; return t:IsShown() and t.fs:GetText() or ''" % W) or "")
 
 
 def xs(cl):
@@ -330,12 +336,12 @@ def saving_over_someone_elses_version_asks_first():
     # her draft says so, and Save asks before it replaces Sam's version
     assert rita.eval("return %s:OpenDraft()" % B) is True
     w.tick(3)
-    assert "Sam saved a newer version" in sub(rita), sub(rita)
+    assert tag(rita) == "Newer version by Sam", tag(rita)
     rita.click(rita.eval("return %s.saveBtn" % W))
-    assert CONFIRM in rita.popups()
+    assert "DISASTERZONE_STRAT_NEWER" in rita.popups()
     assert rita.eval_py("return ns.Strategy:GetStrategy(...)", sid)["by"] == K("Sam")
     assert state(rita)["mode"] == "edit"
-    rita.accept_popup(CONFIRM)
+    rita.accept_popup("DISASTERZONE_STRAT_NEWER")
     w.tick(2)
     saved = sam.eval_py("return ns.Strategy:GetStrategy(...)", sid)
     assert saved["by"] == K("Rita") and any(e["x"] == 640 for e in saved["p"][0]["e"]), saved["by"]

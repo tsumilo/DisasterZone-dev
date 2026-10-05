@@ -148,7 +148,7 @@ def editor_menus():
     bob.eval("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); %s:CellMenu(UIParent, k, 1, 3)" % B)
     texts = [strip_codes(t[2]).strip() for t in menu_texts(bob.last_menu()) if t[2]]
     assert "Circle of Healing (interrupt)  ~14 s" in texts and "Empowered Smite" in texts, texts
-    assert "Blessing of Protection" in texts and "Below health..." in texts, texts
+    assert "Blessing of Protection" in texts and "Below health" in texts, texts
     # untick Divine Wrath, tick Empowered Smite; only when Blessing of Spell Warding
     for label in ("Divine Wrath (interrupt)", "Empowered Smite"):
         bob.eval("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'mi'); %s:CellMenu(UIParent, k, 1, 3)" % B)
@@ -191,7 +191,7 @@ def curses_by_spell_id():
     bob.eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", sid)
     bob.eval("local k = ns.Strategy:FindBlock(ns.StrategyBoard:GetState().strat, 'cu'); %s:CellMenu(UIParent, k, 1, 2)" % B)
     texts = [strip_codes(t[2]).strip() for t in menu_texts(bob.last_menu()) if t[2]]
-    assert "Curse: Curse of Tongues" in texts and "Curse of the Elements" in texts and "Curse of Doom" in texts, texts
+    assert "Curse  Curse of Tongues" in texts and "Curse of the Elements" in texts and "Curse of Doom" in texts, texts
     assert not any(t.startswith("Abilities") or t.startswith("Only when") for t in texts), texts
     bob.eval("""local function find(d) for _, ch in ipairs(d.children) do
           local t = (ch.text or ''):gsub('|T.-|t', ''):gsub('^%s+', '')

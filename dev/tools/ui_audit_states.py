@@ -315,6 +315,62 @@ def st_window(lua):
     return fn
 
 
+def st_board(lua, viewer="Gina", before=None, after=None, tick=0.3):
+    """The strategy board on its own: the main window closed after it opened (the renderer ignores strata and would
+    draw the Raids tab through the board). before(w, c) runs first (other clients), after(w, c) once it is open."""
+    def fn(w, c):
+        g = c[viewer]
+        demo_off(w, c)
+        for x in c.values():
+            close_all(x)
+        if before:
+            before(w, c)
+        tab(g, "raids")
+        w.tick(0.3)
+        g.eval("local W = _G.DisasterZoneStrategyBoard; if W and W.canvas then W.canvas:Set3D(false, false) end")
+        g.eval(lua, *[IDS.get(k) for k in ("occ", "strat", "team", "ssc")])
+        w.tick(tick)
+        if after:
+            after(w, c)
+        g.eval("if ns.MainFrame and ns.MainFrame.Close then ns.MainFrame:Close() end")
+        return g
+    return fn
+
+
+# a new strategy (qdwq) on Teron's starter with the first table its map suggests (the mockup's Magtheridon starter
+# has creatures whose names overlap on the map, which the audit would report)
+ST_QDWQ = ("ns.StrategyBoard:NewStrategy('BlackTemple:Teron', 'qdwq'); "
+           "local W = _G.DisasterZoneStrategyBoard; local p = ns.StrategyBoard:GetState().strat.p[1]; "
+           "local sg = W.blocks:Suggestions(p)[1]; if sg then sg.apply() end; ")
+# a raid's board with names: Gina assigns the SSC night's Lurker (25 players with the guests; Suggest fill)
+ST_FILL = ("ns.StrategyBoard:OpenRaid(select(4, ...), 'SerpentshrineCavern:Lurker', 'fill'); ns.StrategyBoard:Suggest(); ")
+
+
+def st_assigned(w, c):
+    # Gina's names for the SSC night's Lurker, saved: Shadowmelder in a zone
+    g = c["Gina"]
+    g.eval(ST_FILL + "local s = ns.StrategyBoard:GetState(); s.assign['zn.1.1'] = ns.Util.NormalizeName('Shadowmelder'); "
+           "s.assign['zn.2.2'] = ns.Util.NormalizeName('Frostweaver'); ns.StrategyBoard:MarkDirty(true); "
+           "ns.StrategyBoard:Save(); ns.StrategyBoard:Close()", *[IDS.get(k) for k in ("occ", "strat", "team", "ssc")])
+    w.tick(3)
+
+
+def st_live_peers(w, c):
+    # Victhar and Shadowmelder edit the Lurker strategy with Gina (one live board); Victhar is on its second page
+    for n in ("Victhar", "Shadowmelder"):
+        c[n].eval("ns.StrategyBoard:OpenStrategy(..., 'edit')", IDS["strat"])
+        w.tick(4)
+
+
+def st_live_after(w, c):
+    w.tick(4)
+    v = c["Victhar"]
+    v.eval("local s = ns.StrategyBoard:GetState(); s.page = 2; ns.StrategyBoard:Refresh()")
+    w.tick(3)
+    c["Gina"].eval("local s = ns.StrategyBoard:GetState(); s.strat.p[1].e[1].x = 330; ns.StrategyBoard:MarkDirty(true)")
+    w.tick(2)
+
+
 def raid_with_session(w, c, features):
     g = c["Gina"]
     demo_off(w, c)
@@ -556,17 +612,61 @@ STATES = [
     ("Raids - Guests - guest book", st_window("ns.GuestBookUI:Open('book')")),
     ("Raids - Guests - blacklist", st_window("ns.GuestBookUI:Open('black')")),
     ("Raids - Raid leaders", st_window("ns.RaidLeadersUI:Open()")),
-    ("Raids - Strategy board", st_window("ns.StrategyBoard:OpenStrategy(select(2, ...))")),
-    ("Raids - Strategy board - edit", st_window("ns.StrategyBoard:OpenStrategy(select(2, ...), 'edit')")),
-    # a boss with a room: the 2D / 3D switch on the map, and the page in 3D (UI/StrategyMap3D.lua)
-    ("Raids - Strategy board - Teron 2D", st_window("ns.StrategyBoard:NewStrategy('BlackTemple:Teron')")),
-    ("Raids - Strategy board - Teron 3D", st_window("ns.StrategyBoard:NewStrategy('BlackTemple:Teron'); "
-                                                    "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
+    ("Raids - Strategy board", st_board("ns.StrategyBoard:OpenStrategy(select(2, ...))")),
+    ("Raids - Strategy board - edit", st_board("ns.StrategyBoard:OpenStrategy(select(2, ...), 'edit')")),
+    # the strategy board's chrome (2026-10-06): the user's Magtheridon board while editing (unsaved), just saved, with
+    # a selection (undo and redo, the selection's controls), three pages, a page without tables (Add a block with the
+    # map's suggestions), the keys card, near the drawings limit; someone else's strategy read by a member (In raids);
+    # a raid's board while assigning (the players on the panel) and as a raider reads it (your jobs); three editors on
+    # one live board; the tutorial's practice board
+    ("Raids - Strategy board - edit dirty", st_board(ST_QDWQ)),
+    ("Raids - Strategy board - saved", st_board(ST_QDWQ + "ns.StrategyBoard:Save()")),
+    ("Raids - Strategy board - selection", st_board(
+        ST_QDWQ + "local B = ns.StrategyBoard; local st = B:GetState(); local W = _G.DisasterZoneStrategyBoard; "
+        "local p = st.strat.p[1]; p.e[1].x = p.e[1].x + 10; B:MarkDirty(true); B:Undo(); "
+        "for _, e in ipairs(B:GetState().strat.p[1].e) do if e.t == 'i' and e.l then W.canvas:Select(e); break end end; "
+        "B:RefreshTools()")),
+    ("Raids - Strategy board - pages", st_board(
+        ST_QDWQ + "local B = ns.StrategyBoard; local st = B:GetState(); B:AddPage(); st.strat.p[2].n = 'Collapse'; "
+        "B:AddPage(); st.strat.p[3].n = 'Adds'; local p = st.strat.p[2]; "
+        "local k = { id = ns.Strategy:NewPartId(st.strat, 'k'), n = 'Debris', r = 5, cl = 3, i = 'i:Spell_Fire_SelfDestruct', "
+        "c = { { t = 'p', n = 'Player' }, { t = 'g', n = 'Stands at' } }, d = {} }; "
+        "for i = 1, 5 do k.d[i] = { [2] = { l = 'Debris ' .. i } }; p.e[#p.e + 1] = { t = 'z', s = 'c', "
+        "x = 300 + (i % 3) * 180, y = 200 + math.floor(i / 3) * 200, w = 90, h = 90, c = 3, l = 'Debris ' .. i } end; "
+        "p.k[1] = k; st.page = 2; B:MarkDirty(true)")),
+    ("Raids - Strategy board - empty page", st_board(
+        "ns.StrategyBoard:NewStrategy('BlackTemple:Teron', 'qdwq'); local B = ns.StrategyBoard; "
+        "local st = B:GetState(); local p1 = st.strat.p[1]; local apply; "
+        "for _, s in ipairs(_G.DisasterZoneStrategyBoard.blocks:Suggestions(p1)) do "
+        "apply = apply or s.apply end; apply(); B:AddPage(); st.strat.p[2].n = 'Collapse'; "
+        "local c = ns.Util.CopyTable(p1); c.id = ns.Strategy:NewPartId(st.strat, 'p'); c.n = 'Phase 2'; c.k = {}; "
+        "for _, e in ipairs(c.e) do e.ln = nil end; st.strat.p[3] = c; st.page = 3; B:MarkDirty(true)")),
+    ("Raids - Strategy board - keys", st_board(ST_QDWQ + "ns.StrategyBoard:ShowKeys()")),
+    ("Raids - Strategy board - near limit", st_board(
+        ST_QDWQ + "local st = ns.StrategyBoard:GetState(); local p = st.strat.p[1]; local n = 76 - #p.e; "
+        "for i = 1, n do p.e[#p.e + 1] = { t = 'i', x = 60 + (i % 12) * 70, y = 560 + math.floor(i / 12) * 14, "
+        "i = 'rt' .. (i % 8 + 1), z = 14 } end; ns.StrategyBoard:MarkDirty(true)")),
+    ("Raids - Strategy board - view only", st_board(
+        "local s = ns.Strategy:GetStrategies('SerpentshrineCavern:Leotheras')[1]; ns.StrategyBoard:OpenStrategy(s.id)",
+        viewer="Shadowmelder")),
+    ("Raids - Strategy board - fill", st_board(ST_FILL)),
+    ("Raids - Strategy board - raid view", st_board(
+        "ns.StrategyBoard:OpenRaid(select(4, ...), 'SerpentshrineCavern:Lurker')", viewer="Shadowmelder",
+        before=st_assigned)),
+    ("Raids - Strategy board - live", st_board(
+        "ns.StrategyBoard:OpenStrategy(select(2, ...), 'edit')", before=st_live_peers, after=st_live_after)),
+    # (in the room: on the map the five council members' names overlap where they stand together)
+    ("Raids - Strategy board - practice board", st_board("ns.StrategyBoard:OpenSandbox('GruulsLair:Maulgar'); "
+                                                       "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
+    # a boss with a room: the 2D / 3D switch under the map, and the page in 3D (UI/StrategyMap3D.lua)
+    ("Raids - Strategy board - Teron 2D", st_board("ns.StrategyBoard:NewStrategy('BlackTemple:Teron')")),
+    ("Raids - Strategy board - Teron 3D", st_board("ns.StrategyBoard:NewStrategy('BlackTemple:Teron'); "
+                                                   "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
     # Lady Vashj's Shield Generators (Data/EncounterObjects.lua): their models, beams and her barrier; then the walk
     # button held over the floor beside her (the landing ring and you see-through in it)
-    ("Raids - Strategy board - Vashj 3D", st_window("ns.StrategyBoard:NewStrategy('SerpentshrineCavern:Vashj'); "
-                                                    "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
-    ("Raids - Strategy board - Vashj 3D walk drop", st_window(
+    ("Raids - Strategy board - Vashj 3D", st_board("ns.StrategyBoard:NewStrategy('SerpentshrineCavern:Vashj'); "
+                                                   "_G.DisasterZoneStrategyBoard.canvas:Set3D(true, false)")),
+    ("Raids - Strategy board - Vashj 3D walk drop", st_board(
         "ns.StrategyBoard:NewStrategy('SerpentshrineCavern:Vashj'); local cv = _G.DisasterZoneStrategyBoard.canvas; "
         "cv:Set3D(true, false); local v = cv.v3; v:Draw(); local s = ns.Render3D.RoomForBoss('SerpentshrineCavern:Vashj')"
         ".spot; local sx, sy = v.R.Project(s.x + 10, s.y - 6, v:Ground(s.x + 10, s.y - 6)); "

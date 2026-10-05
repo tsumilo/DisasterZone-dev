@@ -119,8 +119,10 @@ def keyboard_delete_undo_redo_copy_paste():
     assert elems(bob) == []
     key(bob, "Z", ctrl=True)
     assert len(elems(bob)) == n0 + 2
-    # view mode: no keyboard
+    # view mode: no keyboard (Discard asks first)
     bob.click(bob.eval("return %s.cancelBtn" % W))
+    assert bob.eval("return %s:IsKeyboardEnabled()" % W) is True
+    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
     assert bob.eval("return %s:IsKeyboardEnabled()" % W) is False
     w.assert_no_errors()
 
@@ -244,7 +246,7 @@ def rows_keep_links_and_cells_drop_on_the_map():
 @case
 def undo_while_assigning():
     w, c, bob, sid = setup()
-    bob.click(bob.eval("return %s.cancelBtn" % W))
+    bob.click(bob.eval("return %s.doneBtn" % W))
     occ = create(bob, i="bt", t=now(bob) + DAY)
     w.tick(1)
     signup(c["Lee"], occ, "A", 3)
@@ -358,19 +360,25 @@ def duplicate_a_block_and_copy_it_to_another_page():
 
 @case
 def empty_page_cards_and_link_pills():
-    """A new strategy for Magtheridon: the empty jobs panel suggests a block per labelled kind on the map (the five
-    channelers as one block of 5 rows, numbered clockwise, each row linked to its icon; the five Manticron Cubes, who
-    clicks which), and template cards; a target cell that shows a slot's player has the link as a pill, in short."""
+    """A new strategy for Magtheridon: Add a block (under the tables while editing) suggests a block per labelled
+    kind on the map (the five channelers as one block of 5 rows, numbered clockwise, each row linked to its icon; the
+    five Manticron Cubes, who clicks which), then the templates and the page's notes; a target cell that shows a slot's
+    player has the link as a pill, in short."""
     w, c, bob, sid = setup()
-    bob.click(bob.eval("return %s.cancelBtn" % W))
+    bob.click(bob.eval("return %s.doneBtn" % W))
     bob.eval("ns.StrategyBoard:NewStrategy('MagtheridonsLair:Magtheridon', 'Cubes')")
     w.tick(0.2)
     blocks = W + ".blocks"
-    cards = bob.eval_py("local out = {}; for _, cd in ipairs(%s.cards) do if cd:IsShown() then "
-                        "out[#out + 1] = cd.title:GetText() end end; return out" % blocks)
-    assert cards[0] == "Tanks on Magtheridon" and cards[1] == "Hellfire Channeler  x5", cards
-    assert cards[2] == "Cube  x5" and len(cards) == 3 + 7, cards        # + the templates
-    assert bob.eval("return %s.addBtn:IsShown()" % blocks) is False
+
+    def cards():
+        return [strip_codes(t) for t in bob.eval_py("local out = {}; for _, cd in ipairs(%s.cards) do if cd:IsShown() "
+                                                    "then out[#out + 1] = cd.title:GetText() end end; return out" % blocks)]
+    got = cards()
+    assert got[0] == "Tanks on Magtheridon" and got[1] == "Hellfire Channeler  x5", got
+    assert got[2] == "Cube  x5" and len(got) == 3 + 7 + 1, got        # + the templates and the page's notes
+    assert bob.eval("return %s.addBtn == %s.cards[1]" % (blocks, blocks)) is True
+    # an empty page says what goes there, in one line over Add a block
+    assert bob.find_text("Jobs for this page", True, True)
     bob.click(bob.eval("return %s.cards[2]" % blocks))
     st = "ns.StrategyBoard:GetState().strat"
     k = bob.eval_py("local k = %s.p[1].k[1]; return { n = k.n, r = k.r, l1 = k.d[1][2].l, l5 = k.d[5][2].l, "
@@ -379,9 +387,11 @@ def empty_page_cards_and_link_pills():
     assert k["n"] == "Hellfire Channeler" and k["r"] == 5 and k["l1"] == "Hellfire Channeler 1"         and k["l5"] == "Hellfire Channeler 5" and k["i"] == "npc:17256", k
     links = sorted(e["ln"] for e in elems(bob) if e.get("ln"))
     assert len(links) == 5 and links[0].endswith(".1.1") and all(l.startswith(k and "k") for l in links), links
-    # the cards give way to the block; + Add block is back
-    assert bob.eval("return %s.cards[1]:IsShown()" % blocks) is False
-    assert bob.eval("return %s.addBtn:IsShown()" % blocks) is True
+    # the block is made; its suggestion is gone, the others stay under the tables, the block wears its picture
+    got = cards()
+    assert "Hellfire Channeler  x5" not in got and got[0] == "Tanks on Magtheridon" and got[1] == "Cube  x5", got
+    assert not bob.find_text("Jobs for this page", True, True)
+    assert bob.eval("return %s.p[1].k[1].i" % st) == "npc:17256"
     # a target cell showing another row's player: the link is a short pill ("-> #2"), the label stays
     bob.eval("local k = %s.p[1].k[1]; k.d[1][2].s = k.id .. '.2.1'; ns.StrategyBoard:MarkDirty(true)" % st)
     cell = bob.eval("for _, b in ipairs(%s.blocks) do for _, x in ipairs(b.cells) do "

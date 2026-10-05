@@ -180,11 +180,23 @@ def the_switch_is_there_for_a_boss_with_a_room():
     w.tick(0.2)
     assert bob.eval("return %s.mode3d:IsShown() and %s.mode3d:IsEnabled()" % (W, W)) is True
     assert bob.eval("return %s.mode2d.kind" % W) == "chosen"
-    # a page on another map: greyed out, saying which map the room is on
+    # a page on another map: 3D stays (never greyed out); its tooltip says which map the room is on, and a click
+    # asks to put the page on it, then opens the room
     bob.eval("T3.page().m = 0 ns.StrategyBoard:Refresh()")
-    assert bob.eval("return %s.mode3d:IsShown()" % W) is True
-    assert bob.eval("return %s.mode3d:IsEnabled()" % W) is False
+    assert bob.eval("return %s.mode3d:IsShown() and %s.mode3d:IsEnabled()" % (W, W)) is True
     assert "Teron Gorefiend's room" in bob.eval("return %s.mode3d.tip" % W)
+    bob.click(bob.eval("return %s.mode3d" % W))
+    assert "DISASTERZONE_STRAT_MAP3D" in bob.popups() and bob.eval("return T3.cv():Is3D()") is False
+    bob.cancel_popup("DISASTERZONE_STRAT_MAP3D")
+    assert bob.eval("return T3.page().m") == 0
+    bob.click(bob.eval("return %s.mode3d" % W))
+    bob.accept_popup("DISASTERZONE_STRAT_MAP3D")
+    assert bob.eval("return T3.page().m") != 0 and bob.eval("return T3.cv():Is3D()") is True
+    bob.eval("T3.cv():Set3D(false, false)")
+    # reading, the click does nothing but say why
+    bob.eval("T3.page().m = 0 local st = ns.StrategyBoard:GetState() st.mode = 'view' ns.StrategyBoard:Refresh()")
+    bob.click(bob.eval("return %s.mode3d" % W))
+    assert "DISASTERZONE_STRAT_MAP3D" not in bob.popups() and bob.eval("return T3.cv():Is3D()") is False
     no_errors(w)
 
 
@@ -357,7 +369,7 @@ def view_from_here_and_my_spot():
     assert math.hypot(o["x"] - 30, o["y"] - 60) < 1 and o["dist"] < 0.5, o
     # the element menu offers it too
     bob.eval("T3.cv():ElementMenu(T3.elems()[#T3.elems() - 1])")
-    texts = [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]
+    texts = [strip_codes(t[2]).strip() for t in menu_texts(bob.last_menu()) if t[2]]
     assert "View from here" in texts, texts
     no_errors(w)
 
@@ -795,7 +807,7 @@ def a_model_turns_and_sizes_with_its_knobs_and_keeps_it():
     assert bob.eval_py("return ns.Strategy._CleanElement({ t = 'i', x = 10, y = 10, i = 'boss:21254', ms = 10 })") is None
     # the menu takes either back
     bob.eval(MODEL + "T3.cv():ElementMenu(e)")
-    texts = [strip_codes(t[2]) for t in menu_texts(bob.last_menu()) if t[2]]
+    texts = [strip_codes(t[2]).strip() for t in menu_texts(bob.last_menu()) if t[2]]
     assert "Face the nearest player marker" in texts and "Real size" in texts, texts
     bob.eval(MODEL + "e.f, e.ms = nil, nil T3.cv():Changed()")
     tick(w, 0.1)
@@ -853,7 +865,7 @@ def reading_a_board_the_camera_moves_with_a_left_drag():
     bob.eval("local st = ns.StrategyBoard:GetState() st.mode = 'view' ns.StrategyBoard:Refresh()")
     tick(w, 0.2)
     assert bob.eval("return T3.cv():Editable()") is False
-    assert "Drag to move the view" in bob.eval_py("return T3.state().hint")
+    assert "Drag move" in strip_codes(bob.eval_py("return T3.state().hint"))
     p0 = bob.eval_py("return T3.state().orb")
     bob.eval("T3.cursor(350, 233) T3.press('LeftButton')")
     bob.eval("T3.cursor(350, 290)")
