@@ -46,9 +46,16 @@ local function InParty(key)
     return (Util.group and Util.group[key]) and true or false
 end
 
--- A whisper or a comment as one plain line: no escape codes, no line breaks, at most TEXT_MAX characters; nil if empty.
+-- A whisper or a comment as one plain line: links keep their [name], colours / textures / escape codes go, no line
+-- breaks, at most TEXT_MAX characters; nil if empty.
 local function Clean(text)
     if type(text) ~= "string" then return nil end
+    text = strgsub(text, "|c%x%x%x%x%x%x%x%x", "")
+    text = strgsub(text, "|r", "")
+    text = strgsub(text, "|H.-|h(.-)|h", "%1")
+    text = strgsub(text, "|[TA].-|[ta]", "")
+    text = strgsub(text, "|K.-|k", "?")
+    text = strgsub(text, "|n", " ")
     text = strgsub(strgsub(text, "|", ""), "[\r\n]+", " ")
     text = Util.Trim(text)
     if #text > TEXT_MAX then text = strsub(text, 1, TEXT_MAX) end
@@ -452,10 +459,39 @@ local function CheckPrompt()
     ns:Fire("GROUP_FINDER_PROMPT", run.id)
 end
 
+local lastRun   -- my run as it was last seen ({ id, d, h }): what a listing left behind was for
+
+-- A run of mine that ended by itself (party full, time up, a raid) but that I listed here: the listing stays up (only
+-- a click takes it down), so pugs keep coming. Once the client had a moment to delist it on its own, ask once.
+local function CheckLeftover(old)
+    Util.After(2, function()
+        if R():GetMine() or not listedRuns[old.id] then return end
+        local L = C_LFGList
+        if not (L and L.HasActiveEntryInfo and L.HasActiveEntryInfo()) then
+            listedRuns[old.id] = nil
+            return
+        end
+        if IsInGroup() and not UnitIsGroupLeader("player") then return end   -- the party's listing isn't mine now
+        ns:Fire("GROUP_FINDER_LEFTOVER", old)
+    end)
+end
+
+-- Takes down the listing my ended run (old = { id, d, h }) left behind. A click only.
+function GF:RemoveLeftover(old)
+    if old then listedRuns[old.id] = nil end
+    local L = C_LFGList
+    if L and L.HasActiveEntryInfo and L.HasActiveEntryInfo() and L.RemoveListing then L.RemoveListing() end
+    Changed()
+end
+
 -- Forgets what belonged to a run that is no longer mine.
 local function CheckRun()
     local run = R() and R():GetMine()
     if not run then
+        if lastRun and not DemoOn() then
+            CheckLeftover(lastRun)
+        end
+        lastRun = nil
         if next(found) or next(whispers) or next(hidden) or next(invited) or entry.run or demo.listed then
             wipe(found)
             wipe(whispers)
@@ -466,6 +502,7 @@ local function CheckRun()
         end
         return
     end
+    lastRun = { id = run.id, d = run.d, h = run.h }
     if search.run and search.run ~= run.id then
         wipe(found)
         search.run = nil
@@ -507,6 +544,13 @@ function GF:OnInit()
     ns:RegisterEvent("CHAT_MSG_WHISPER", OnWhisper)
     ns:On("DUNGEON_RUNS_UPDATED", CheckRun)
     ns:On("GROUP_UPDATED", Changed)
+    -- my invite didn't reach a pug (they said no, are in a group, or went offline): Invite again
+    ns:On("PARTY_INVITE_FAILED", function(key)
+        if invited[key] then
+            invited[key] = nil
+            Changed()
+        end
+    end)
     ns:On("DEMO_TOGGLED", function()
         demo = {}
         Changed()

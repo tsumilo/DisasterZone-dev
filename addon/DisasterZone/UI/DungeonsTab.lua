@@ -434,6 +434,9 @@ local function HintFor(run)
     if a and a.st == "declined" then return grey(shortName(run.o) .. " said not this time") end
     local block = R():GetBlocker(run.d, run.h)
     if block then return orange(UI():LockIcon(12) .. " " .. block) end
+    if R():IsGrouped() and not R():IsInRun(run) and R():FitsMe(run) then
+        return grey("You're in a group: leave it to join")
+    end
     local drops = R():GetMyBiSDrops(run.d, run.h)
     if #drops > 0 then
         local more = #drops > 1 and grey(" +" .. (#drops - 1)) or ""
@@ -616,8 +619,12 @@ local function FillEye(eye, run)
     eye:SetLooking(forRun)
     if forRun then
         local mins = since and max(1, floor((Now() - since) / 60))
+        local n = #GF:GetCandidates(run)
         eye.tipLines = { "In the Group Finder" .. (mins and grey(" · " .. mins .. " min") or ""),
             "Listed as " .. where .. ". Players looking for it there, and anyone who whispers you, show up on your run.",
+            -- (only PUG_ROWS fit under the run: setting some aside shows the next ones)
+            n > PUG_ROWS and gold(n .. " players found: the first " .. PUG_ROWS .. " show under your run. Set some "
+                .. "aside to see the others.") or nil,
             grey("Click to take it out. It stays on the guild's board.") }
     else
         eye.tipLines = { "Group Finder", "Lists your run in Blizzard's Group Finder as " .. where .. ". Players looking "
@@ -915,7 +922,7 @@ local function FillCard(c, run, opts)
             c.btn.onClick = nil
             c.btn.tip = { "You're invited", "Accept the party invite to join." }
             c.btn:Show()
-        elseif fits and not blocked and not (a and a.st == "declined") then
+        elseif fits and not blocked and not (a and a.st == "declined") and not R():IsGrouped() then
             c.btn:SetText("Join")
             c.btn:SetKind("primary")
             c.btn:SetTint(nil)
@@ -923,7 +930,8 @@ local function FillCard(c, run, opts)
                 local ok, why = R():Join(run.id)
                 if not ok and why then ns:Print("%s", why) end
             end
-            c.btn.tip = { "Join", "Asks " .. shortName(run.o) .. " to take you as " .. ROLE_NAME[fits] .. "." }
+            c.btn.tip = { "Join", "Asks " .. shortName(run.o) .. " to take you as " .. ROLE_NAME[fits] .. ".",
+                R():GetMine() and orange("Your own run comes off the board when you join.") or nil }
             c.btn:Show()
         end
         if c.btn:IsShown() then
@@ -1360,7 +1368,8 @@ function DungeonsUI:RequestRefresh()
     if panel and panel:IsVisible() then
         ns.Util.Debounce("dungeons-ui", 0.1, function() DungeonsUI:Refresh() end)
     end
-    if toast and toast:IsShown() and toast.run and toast.mode ~= "invite" then
+    -- a ping or a request goes with its run (an invite, or the Group Finder's word on an ended run, doesn't)
+    if toast and toast:IsShown() and toast.run and toast.mode == nil then
         local run = R():GetRun(toast.run)
         if not run then toast:Hide() end
     end
@@ -1371,9 +1380,9 @@ end
 function DungeonsUI:Focus(id)
     if ns.MainFrame then ns.MainFrame:Open("dungeons") end
     if state.sheet then self:CloseSheet() end
-    local run = R():GetRun(id)
+    local run = R():GetRun(id)   -- (a run whose lead passed is found by its old id: focus the run as it is now)
     if not run then return false end
-    state.focus, state.focusUntil, state.focusY = id, GetTime() + 2.5, nil
+    state.focus, state.focusUntil, state.focusY = run.id, GetTime() + 2.5, nil
     self:Refresh()
     if panel and state.focusY then
         local range = panel.scroll:GetVerticalScrollRange() or 0
@@ -2093,17 +2102,23 @@ end
 function DungeonsUI:SubmitSheet()
     local s = state.sheet
     if not s or not s.d then return end
+    local GF = ns.GroupFinder
+    local before = R():GetMine()
+    local wasListed = GF and before and select(2, GF:GetListing(before)) or false
     local run, why = R():List({ d = s.d, h = s.h, at = SheetTime(s), no = s.no, role = s.role, gf = s.gf })
     if not run then
         s.err = why
         self:RefreshSheet()
         return
     end
-    -- a run for now goes into the Group Finder with this very click (the client lists only inside one)
-    local GF = ns.GroupFinder
-    if s.gf and GF and R():IsNow(run) and not select(2, GF:GetListing(run)) then
+    -- the Group Finder follows the run, with this very click (the client lists only inside one): a run for now that
+    -- was listed, or is meant to be, is listed as its dungeon (switched when that changed); one moved to later
+    -- comes out
+    if GF and R():IsNow(run) and (s.gf or wasListed) and not select(2, GF:GetListing(run)) then
         local ok, gfWhy = GF:List(run)
         if not ok and gfWhy then ns:Print("%s", gfWhy) end
+    elseif GF and wasListed and not R():IsNow(run) then
+        GF:Unlist()
     end
     self:CloseSheet()
 end
@@ -2298,6 +2313,15 @@ function DungeonsUI:OnFinderPrompt(id)
         end)
 end
 
+-- My run ended by itself (full, time up, a raid) but its Group Finder listing is still up: one click takes it down.
+-- old = { id, d, h } (the run is gone).
+function DungeonsUI:OnFinderLeftover(old)
+    local GF = ns.GroupFinder
+    if not GF or not old or not R():GetDungeon(old.d) then return end
+    ShowToast(old, grey("Your run is over, but it's"), grey("still in the Group Finder."), "Remove",
+        function() GF:RemoveLeftover(old) end, "finder")
+end
+
 -- For the harness / UI audit.
 function DungeonsUI:GetPanel() return panel end
 function DungeonsUI:GetToast() return toast end
@@ -2323,4 +2347,5 @@ function DungeonsUI:OnInit()
     ns:On("DUNGEON_RUN_INVITE", function(id, from) DungeonsUI:OnInvite(id, from) end)
     ns:On("DUNGEON_RUN_INVITE_GONE", function() DungeonsUI:OnInviteGone() end)
     ns:On("GROUP_FINDER_PROMPT", function(id) DungeonsUI:OnFinderPrompt(id) end)
+    ns:On("GROUP_FINDER_LEFTOVER", function(old) DungeonsUI:OnFinderLeftover(old) end)
 end
