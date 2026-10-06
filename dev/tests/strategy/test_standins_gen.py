@@ -12,7 +12,7 @@ promises on its own poses and on held-out board and stress poses; the shipped fi
 (Render3D/Standins/MagtheridonsLair_Magtheridon.lua) has the data contract's shape as Lua itself reads it (line 1
 guard, version 2, both prims - the quad's size and middle as the client's file has them -, the room file it was made
 for, n, stride 12, 12 finite numbers per stand-in, angles in range, unit normals, a quad's front along its normal,
-scales in range: no actor under 0.018, a size under 400 KB), stand-ins on floors, walls and slopes, every one lies
+scales in range: no actor under 0.018, a size under 300 KB), stand-ins on floors, walls and slopes, every one lies
 behind its face (the side the face is seen from), inside its outline, and keeps clear of every room face, none lies on
 a line of sight past an open edge (the panels' and the lintel's undersides), and it hides nothing the room does not:
 over-occlusion 0 after the 1-pixel erosion on a few poses (the first view, a low orbit, the top view, inside, walking,
@@ -355,8 +355,7 @@ def test_shipped_file_has_the_contract_shape():
     first = src.split("\n", 1)[0]
     assert first == 'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (
         rel, rel), first
-    # (v1's 2864 cubes took 204 KB; v2's quads, turned three ways with a finer scale, about 97 bytes each)
-    assert len(src.encode("utf-8")) < 400_000, len(src)
+    assert len(src.encode("utf-8")) < 300_000, len(src)
     assert rec["version"] == 2 and rec["stride"] == 12 and rec["nprims"] == 2
     assert rec["prims"][1] == dict(fid=167145, kind="cube", half=0.5), rec["prims"]
     # the quad as the client's file has it (casc_local + m2_write read 653518: 4 vertices at x -4.0358, y -23.5964 ..
@@ -374,14 +373,16 @@ def test_shipped_file_has_the_contract_shape():
     quad, cube = a[:, 0] == 2, a[:, 0] == 1
     assert (quad | cube).all() and quad.sum() > 100
     assert (np.abs(a[:, 4]) <= math.pi + 1e-6).all() and (np.abs(a[:, 6]) <= math.pi + 1e-6).all()
-    assert (np.abs(a[:, 5]) <= math.pi / 2 + 1e-6).all()
+    assert (np.abs(a[:, 5]) <= math.pi / 2 + 1e-5).all()                # (+-pi/2 written as 1.5708)
     # no actor under the scale that cut a hole in game (0.018); quads up to 49 x 33 yd, cubes 0.7 .. 2.3 yd
     assert (a[quad, 7] >= G.MIN_SCALE - 1e-9).all() and (a[quad, 7] <= G.QUAD_MAX_SCALE + 1e-9).all()
     assert (a[cube, 7] >= G.MIN_SIZE - 1e-6).all() and (a[cube, 7] <= G.MAX_SIZE + 1e-6).all()
     assert np.abs(np.linalg.norm(a[:, 8:11], axis=1) - 1).max() < 2e-5
-    # a quad's front (its turned model x) lies along its normal (the runtime refuses one off by 0.1 degree)
+    # a quad's front (its turned model x) lies along its normal (the runtime refuses one off by 0.1 degree; the
+    # normal as written is a unit vector to 1e-5)
     M = G.ypr_matrices(a[quad, 4], a[quad, 5], a[quad, 6])
-    assert (np.einsum("ij,ij->i", M[:, :, 0], a[quad, 8:11]) > 0.9999985).all()
+    n = a[quad, 8:11] / np.linalg.norm(a[quad, 8:11], axis=1)[:, None]
+    assert (np.einsum("ij,ij->i", M[:, :, 0], n) > 0.9999985).all()
     assert (a[:, 11] >= 1).all() and (a[:, 11] == np.round(a[:, 11])).all()
     r = room()
     lo, hi = r.V.min(0) - G.MAX_SIZE, r.V.max(0) + G.MAX_SIZE
