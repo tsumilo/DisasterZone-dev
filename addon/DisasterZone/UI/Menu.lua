@@ -386,13 +386,16 @@ local function Layout(f, desc, minW)
         h = h + r.h
         local x = (k == "title") and TEXT_X or textX
         r.fs:SetFontObject(k == "title" and "GameFontNormalSmall" or "GameFontHighlightSmall")
+        -- the text's own width first, held by its left edge only (in game GetStringWidth stops at the width a
+        -- text was given, so a row as narrow as the last menu's would cut it); then it spans the row
         r.fs:ClearAllPoints()
         r.fs:SetPoint("LEFT", r, "LEFT", x, 0)
-        if r.hasKids then r.fs:SetPoint("RIGHT", r.arrow, "LEFT", -4, 0) else r.fs:SetPoint("RIGHT", r, "RIGHT", -6, 0) end
         r.fs:SetText((k == "divider" or k == "spacer") and "" or (d.text or ""))
+        local tw = r.fs.GetUnboundedStringWidth and r.fs:GetUnboundedStringWidth() or nil
+        tw = tw or r.fs:GetStringWidth() or 0
+        if r.hasKids then r.fs:SetPoint("RIGHT", r.arrow, "LEFT", -4, 0) else r.fs:SetPoint("RIGHT", r, "RIGHT", -6, 0) end
         r.line:SetShown(k == "divider")
         r.arrow:SetShown(r.hasKids)
-        local tw = r.fs:GetStringWidth() or 0
         if tw > 0 then
             w = max(w, x + tw + (r.hasKids and (SUB_W + 4) or 0) + 8 + 2 * PAD)
         end
