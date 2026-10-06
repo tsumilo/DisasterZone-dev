@@ -25,12 +25,14 @@ end
 -- each, on a budget of its own so it never holds up the edits.
 -- "run" (CDLr) carries the guild's dungeon runs (Core/DungeonRuns.lua): who is up for a run, listings, join requests.
 -- "event" (CDLe) carries live events (Core/EventLive.lua): the host's state of the run, duel reports, answers.
+-- "eventmsg" (CDLf) carries what a live event's host tells players (EVM: banners, tracker lines, sounds): a budget
+-- of its own, so a banner never waits behind a big state of the run.
 local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm",
-    live = "CDLl", walk = "CDLw", run = "CDLr", event = "CDLe" }
+    live = "CDLl", walk = "CDLw", run = "CDLr", event = "CDLe", eventmsg = "CDLf" }
 local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL",
-    walk = "NORMAL", run = "NORMAL", event = "NORMAL" }
+    walk = "NORMAL", run = "NORMAL", event = "NORMAL", eventmsg = "ALERT" }
 local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live",
-    CDLw = "walk", CDLr = "run", CDLe = "event" }
+    CDLw = "walk", CDLr = "run", CDLe = "event", CDLf = "eventmsg" }
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays; anyone:
                                  -- strategy boards, see AllowLarge)

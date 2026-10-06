@@ -97,7 +97,7 @@ def results(c, occ):
 
 
 def event_msgs(w, since, sender=None):
-    return [e for e in w.addon_log[since:] if e["prefix"] == "CDLe" and (sender is None or e["sender"] == K(sender))]
+    return [e for e in w.addon_log[since:] if e["prefix"] in ("CDLe", "CDLf") and (sender is None or e["sender"] == K(sender))]
 
 
 # ------------------------------------------------------------------------------------------------------------------

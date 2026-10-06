@@ -137,7 +137,7 @@ def moments(c, occ):
 
 
 def event_msgs(w, since, sender=None):
-    return [e for e in w.addon_log[since:] if e["prefix"] == "CDLe" and (sender is None or e["sender"] == K(sender))]
+    return [e for e in w.addon_log[since:] if e["prefix"] in ("CDLe", "CDLf") and (sender is None or e["sender"] == K(sender))]
 
 
 def cleu_kill(c, creature="Hogger", src=None, dst="Creature-0-1-2-3-448-000001"):
@@ -494,6 +494,8 @@ def messages_reach_only_the_players_named():
     w.tick(2)
     sent = event_msgs(w, a1, "Gina")
     assert len(sent) == 1 and sent[0]["chat_type"] == "GUILD", sent
+    # (on a budget of their own: a banner never waits behind a big state of the run)
+    assert sent[0]["prefix"] == "CDLf", sent[0]["prefix"]
     for n in names:
         assert (("EVENT_TELL", occ, "Everyone") in got(by[n])) == (n != "Watcher"), (n, got(by[n]))
     assert by["Eve"].eval_py("return ns.EventLive:MyFeed(...)[1].text", occ) == "Everyone"

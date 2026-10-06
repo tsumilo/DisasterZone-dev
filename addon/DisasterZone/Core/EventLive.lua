@@ -88,10 +88,11 @@ local function WireKey(s)
     return Util.NormalizeName(s)
 end
 
-local function Send(msg, dist, target)
+-- class: "event" (the run, facts), "eventmsg" (EVM: what the host tells players; a budget of its own, see Comm.lua)
+local function Send(msg, dist, target, class)
     if DemoOn() then return false end
     local Comm = ns.Comm
-    return (Comm and Comm.Send and Comm:Send(msg, dist, target, "event")) and true or false
+    return (Comm and Comm.Send and Comm:Send(msg, dist, target, class or "event")) and true or false
 end
 
 local function Fire(occId)
@@ -308,7 +309,7 @@ local function FlushEvm()
     while evmQueue[1] and #evmSent < EVM_PER_SEC do
         local e = tremove(evmQueue, 1)
         evmSent[#evmSent + 1] = now
-        if not DemoOn() then Send(e.msg, e.dist, e.target) end
+        if not DemoOn() then Send(e.msg, e.dist, e.target, "eventmsg") end
     end
     if evmQueue[1] and not evmFlushing then
         evmFlushing = true
