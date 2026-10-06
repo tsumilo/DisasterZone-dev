@@ -692,10 +692,76 @@ end
 -- Reading (the board, the tracker, the tab)
 ---------------------------------------------------------------------------
 
+-- Demo mode's live cup (odemo1): the Friday duel cup 40 minutes in, round 1 played, two quarterfinals on, me next.
+local demoLive
+local function DemoLive()
+    if demoLive then return demoLive end
+    local Ev = Events()
+    local o = Ev and Ev:GetOcc("odemo1")
+    local D = ns.Demo
+    if not (o and D and D.GetMembers) then return nil end
+    local names = {}
+    for _, k in ipairs(D:GetMembers()) do
+        if #names >= 15 then break end
+        names[#names + 1] = k
+    end
+    local me = Me() or "Me-Realm"
+    tinsert(names, 3, me)
+    local clock = Now() - 40 * 60
+    local def = B().Copy(o.def)
+    def.blocks.b2.set.seed = "order"
+    local run = E():New(def, { id = "odemo1", host = Ev:HostOf(o), signups = names, now = function() return clock end,
+        nameOf = DisplayName })
+    run:Start()
+    local function playRound(r, upsets)
+        for guard = 1, 40 do
+            local bk = run:MainBracket()
+            if not bk or bk.r ~= r then return end
+            local m
+            for _, mid in ipairs(bk.rounds[r]) do
+                if bk.m[mid].st == "play" then m = bk.m[mid]; break end
+            end
+            if not m then return end
+            local w, l = m.a, m.b
+            if upsets[m.i] then w, l = l, w end
+            run:Duel(w, l, true)
+            clock = clock + 50
+            run:Duel(w, l, true)
+            clock = clock + 70
+            run:Tick()
+        end
+    end
+    playRound(1, { [6] = true })
+    -- the quarterfinals: the first done (2-1), the second one game in
+    local bk = run:MainBracket()
+    if bk and bk.r == 2 then
+        local q1, q2 = bk.m[bk.rounds[2][1]], bk.m[bk.rounds[2][2]]
+        run:Duel(q1.a, q1.b, true); clock = clock + 60
+        run:Duel(q1.b, q1.a, true); clock = clock + 60
+        run:Duel(q1.a, q1.b, true); clock = clock + 40
+        run:Tick()
+        if q2.st == "play" then run:Duel(q2.b, q2.a, true) end
+        q2 = bk.m[bk.rounds[2][2]]
+        q2.t = Now() - 102
+    end
+    run.st.moments = {
+        { at = Now() - 9 * 60, text = "Upset: seed 11 " .. DisplayName(names[11]) .. " knocked out seed 6 " .. DisplayName(names[6]),
+          i = "Interface\\Icons\\INV_Misc_Head_Dragon_01" },
+        { at = Now() - 22 * 60, text = "You won in 0:48, the fastest duel tonight", i = "Interface\\Icons\\Ability_Rogue_Sprint" },
+        { at = Now() - 4 * 60, text = DisplayName(names[9]) .. " took a game off " .. DisplayName(names[1]),
+          i = "Interface\\Icons\\Ability_Warrior_Challange" },
+    }
+    run.st.watch = 23
+    run.st.seq = 120
+    demoLive = run.st
+    return demoLive
+end
+
 function Live:GetState(occId)
     local h = hosting[occId]
     if h then return h.run.st end
     if practice and occId == "practice" then return practice.run.st end
+    if DemoOn() and occId == "odemo1" then return DemoLive() end
     local s = seen[occId]
     return s and s.st or nil
 end
@@ -912,7 +978,10 @@ function Live:OnInit()
         if Comm.AllowLarge then Comm:AllowLarge("EVS", "event") end
     end
     ns:RegisterEvent("CHAT_MSG_SYSTEM", OnSystem)
-    ns:On("DEMO_TOGGLED", function() Fire("demo") end)
+    ns:On("DEMO_TOGGLED", function()
+        demoLive = nil
+        Fire("demo")
+    end)
 end
 
 -- (harness / debugging)

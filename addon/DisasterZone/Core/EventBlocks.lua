@@ -19,8 +19,8 @@ local addonName, ns = ...
 local B = ns:NewModule("EventBlocks")
 
 local type, pairs, ipairs, tostring, tonumber, next = type, pairs, ipairs, tostring, tonumber, next
-local tinsert, tconcat, tsort = table.insert, table.concat, table.sort
-local strformat, floor = string.format, math.floor
+local tinsert, tremove, tconcat, tsort = table.insert, table.remove, table.concat, table.sort
+local strformat, floor, max = string.format, math.floor, math.max
 
 ---------------------------------------------------------------------------
 -- Categories (the palette's circles) and their colours: fill (bottom), fill (top), edge
@@ -832,5 +832,125 @@ function B:MaxSeasonGrant(d)
 end
 
 B.SEASON_CAP = 100   -- one grant of more than this is refused by the review check
+
+---------------------------------------------------------------------------
+-- What changed between two revisions (the review)
+---------------------------------------------------------------------------
+
+-- A piece's own words and blanks (not what follows it or sits inside it): its signature for the diff.
+local function Sig(p)
+    local parts = { p.k }
+    for i = 1, 8 do
+        local a = p.a and p.a[i]
+        if type(a) == "table" then
+            if a.k then parts[#parts + 1] = "(" .. Sig(a) .. ")"
+            elseif a.j then
+                local j = {}
+                for _, x in ipairs(a.j) do j[#j + 1] = type(x) == "table" and ("(" .. Sig(x) .. ")") or tostring(x) end
+                parts[#parts + 1] = "[" .. tconcat(j) .. "]"
+            end
+        elseif a ~= nil then
+            parts[#parts + 1] = tostring(a)
+        else
+            parts[#parts + 1] = "_"
+        end
+    end
+    return tconcat(parts, "|")
+end
+
+-- The stack pieces of a script in order (a C piece's insides after it).
+local function Flatten(p, out)
+    out = out or {}
+    while p do
+        out[#out + 1] = p
+        if p.c1 then Flatten(p.c1, out) end
+        if p.c2 then Flatten(p.c2, out) end
+        p = p.n
+    end
+    return out
+end
+
+-- The changes from `old` to `new`: { { kind = "add" | "del" | "chg", stage = name, piece = piece | nil, text } ... }
+-- and how many pieces are the same.
+function B:Diff(old, new)
+    local out, same = {}, 0
+    if not (old and new) then return out, 0 end
+    local function stageOf(d, sid) return self:StageName(d, sid) end
+    local byId = {}
+    for _, s in ipairs(old.scripts or {}) do byId[s.id] = s end
+    local seen = {}
+    for _, s in ipairs(new.scripts or {}) do
+        local o = byId[s.id]
+        seen[s.id] = true
+        local a, b = o and Flatten(o.top) or {}, Flatten(s.top)
+        -- longest common subsequence of the two scripts' piece signatures
+        local n, m = #a, #b
+        local L = {}
+        for i = 0, n do L[i] = {}; for j = 0, m do L[i][j] = 0 end end
+        for i = n - 1, 0, -1 do
+            for j = m - 1, 0, -1 do
+                if Sig(a[i + 1]) == Sig(b[j + 1]) then L[i][j] = L[i + 1][j + 1] + 1
+                else L[i][j] = max(L[i + 1][j], L[i][j + 1]) end
+            end
+        end
+        local i, j = 0, 0
+        local pendDel = {}
+        while i < n or j < m do
+            if i < n and j < m and Sig(a[i + 1]) == Sig(b[j + 1]) then
+                same = same + 1
+                i, j = i + 1, j + 1
+            elseif j < m and (i >= n or L[i][j + 1] >= L[i + 1][j]) then
+                -- an added piece right where one was dropped is a change of that piece
+                local d = tremove(pendDel, 1)
+                out[#out + 1] = { kind = d and (d.k == b[j + 1].k and "chg" or "add") or "add", stage = stageOf(new, s.st),
+                    piece = b[j + 1], old = d }
+                if d and d.k ~= b[j + 1].k then
+                    out[#out + 1] = { kind = "del", stage = stageOf(old, o.st), piece = d }
+                end
+                j = j + 1
+            else
+                pendDel[#pendDel + 1] = a[i + 1]
+                i = i + 1
+            end
+        end
+        for _, d in ipairs(pendDel) do out[#out + 1] = { kind = "del", stage = stageOf(old, o and o.st or s.st), piece = d } end
+    end
+    for _, s in ipairs(old.scripts or {}) do
+        if not seen[s.id] then
+            for _, p in ipairs(Flatten(s.top)) do out[#out + 1] = { kind = "del", stage = stageOf(old, s.st), piece = p } end
+        end
+    end
+    -- smart blocks' settings, badges
+    for bid, b in pairs(new.blocks or {}) do
+        local o = old.blocks and old.blocks[bid]
+        local sm = self.SMART[b.kind]
+        if not o then
+            out[#out + 1] = { kind = "add", stage = stageOf(new, b.stage), text = "New smart block: " .. (sm and sm.label or b.kind) }
+        else
+            for _, opt in ipairs(sm and sm.settings or {}) do
+                local x, y = self:SmartSetting(o, opt.key), self:SmartSetting(b, opt.key)
+                if x ~= y then
+                    out[#out + 1] = { kind = "chg", stage = stageOf(new, b.stage), text = (sm.label .. ": " .. string.lower(opt.label)
+                        .. " " .. settingLabel(b.kind, opt.key, x) .. " → " .. settingLabel(b.kind, opt.key, y)) }
+                end
+            end
+        end
+    end
+    for bid, b in pairs(old.blocks or {}) do
+        if not (new.blocks and new.blocks[bid]) then
+            local sm = self.SMART[b.kind]
+            out[#out + 1] = { kind = "del", stage = stageOf(old, b.stage), text = "Smart block: " .. (sm and sm.label or b.kind) }
+        end
+    end
+    for id, bd in pairs(new.badges or {}) do
+        local o = old.badges and old.badges[id]
+        if not o then
+            out[#out + 1] = { kind = "add", text = "New badge: " .. (bd.n or "?"), badge = bd }
+        elseif o.n ~= bd.n or o.i ~= bd.i or o.f ~= bd.f or o.ti ~= bd.ti then
+            out[#out + 1] = { kind = "chg", text = "Badge: " .. (bd.n or "?"), badge = bd }
+        end
+    end
+    return out, same
+end
 
 function B:OnInit() end

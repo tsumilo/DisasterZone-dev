@@ -828,6 +828,18 @@ function Events:SaveResult(occId, run, hosts)
     return Commit("R", rec)
 end
 
+-- How often a library event ran (results of calendar events made from it), and when last.
+function Events:RunCount(defId)
+    local n, last = 0, nil
+    for _, r in ipairs(self:GetResults()) do
+        if r.dk == defId and not r.cancel then
+            n = n + 1
+            if not last or r.at > last then last = r.at end
+        end
+    end
+    return n, last
+end
+
 function Events:DeleteResult(id)
     if not self:CanModerate(Me()) then return false end
     return Commit("R", { id = id, by = Me(), del = true })

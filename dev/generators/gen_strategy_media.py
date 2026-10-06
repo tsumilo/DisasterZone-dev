@@ -452,13 +452,74 @@ def ic_team(d, k):
     d.rectangle(_pts(k, [(0, 57), (64, 64)]), fill=0)
 
 
+# (the events, art pack 4: 47 play, 48 pause, 49 skip ahead, 50 flag, 51 trophy, 52 lock, 53 infinity (Always), 54 a
+# bracket; each keeps 4 units clear of its cell's edges)
+def ic_play(d, k):
+    # play (Practice): a triangle pointing right
+    d.polygon(_pts(k, [(16, 8), (54, 32), (16, 56)]), fill=255)
+
+
+def ic_pause(d, k):
+    # pause: two bars
+    d.rounded_rectangle(_pts(k, [(14, 8), (27, 56)]), radius=_w(k, 2), fill=255)
+    d.rounded_rectangle(_pts(k, [(37, 8), (50, 56)]), radius=_w(k, 2), fill=255)
+
+
+def ic_skip(d, k):
+    # skip ahead (a practice run's next timer): a triangle and a bar
+    d.polygon(_pts(k, [(8, 8), (42, 32), (8, 56)]), fill=255)
+    d.rounded_rectangle(_pts(k, [(46, 8), (56, 56)]), radius=_w(k, 2), fill=255)
+
+
+def ic_flag(d, k):
+    # a flag on a pole (a stage)
+    d.rounded_rectangle(_pts(k, [(10, 6), (16, 58)]), radius=_w(k, 2), fill=255)
+    d.polygon(_pts(k, [(16, 8), (56, 8), (46, 21), (56, 34), (16, 34)]), fill=255)
+
+
+def ic_trophy(d, k):
+    # a trophy: a cup with handles on a stem and a base
+    d.pieslice(_pts(k, [(16, -6), (48, 40)]), 0, 180, fill=255)
+    d.rectangle(_pts(k, [(16, 6), (48, 17)]), fill=255)
+    for box in ([(5, 8), (21, 30)], [(43, 8), (59, 30)]):
+        d.ellipse(_pts(k, box), outline=255, width=_w(k, 5))
+    d.rectangle(_pts(k, [(28, 38), (36, 49)]), fill=255)
+    d.rounded_rectangle(_pts(k, [(18, 49), (46, 58)]), radius=_w(k, 2), fill=255)
+
+
+def ic_lock(d, k):
+    # a padlock (a smart block's own pieces)
+    d.arc(_pts(k, [(17, 6), (47, 40)]), 180, 360, fill=255, width=_w(k, 7))
+    d.line(_pts(k, [(20, 22), (20, 28)]), fill=255, width=_w(k, 7))
+    d.line(_pts(k, [(44, 22), (44, 28)]), fill=255, width=_w(k, 7))
+    d.rounded_rectangle(_pts(k, [(10, 28), (54, 58)]), radius=_w(k, 5), fill=255)
+    d.ellipse(_pts(k, [(28, 37), (36, 45)]), fill=0)
+    d.rectangle(_pts(k, [(30, 42), (34, 51)]), fill=0)
+
+
+def ic_infinity(d, k):
+    # infinity (the Always stage): two loops
+    for box in ([(5, 18), (33, 46)], [(31, 18), (59, 46)]):
+        d.ellipse(_pts(k, box), outline=255, width=_w(k, 6))
+
+
+def ic_bracket(d, k):
+    # a bracket: four lines meeting in two, then one
+    w = _w(k, 5)
+    for y0, y1, ym in ((10, 26, 18), (38, 54, 46)):
+        d.line(_pts(k, [(6, y0), (22, y0), (22, y1), (6, y1)]), fill=255, width=w, joint="curve")
+        d.line(_pts(k, [(22, ym), (36, ym)]), fill=255, width=w)
+    d.line(_pts(k, [(36, 18), (36, 46)]), fill=255, width=w)
+    d.line(_pts(k, [(36, 32), (58, 32)]), fill=255, width=w)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
               ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
               ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris, ic_calendar,
-              ic_team]
+              ic_team, ic_play, ic_pause, ic_skip, ic_flag, ic_trophy, ic_lock, ic_infinity, ic_bracket]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

@@ -182,6 +182,12 @@ UI\StrategiesView.lua
 UI\StrategyReminder.lua
 UI\RaidsTab.lua
 UI\DungeonsTab.lua
+UI\EventWidgets.lua
+UI\EventPieces.lua
+UI\EventBuilder.lua
+UI\EventsTab.lua
+UI\EventBoard.lua
+UI\EventTracker.lua
 UI\Members.lua
 UI\SessionBar.lua
 UI\DropPanel.lua

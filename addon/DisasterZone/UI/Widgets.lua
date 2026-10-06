@@ -524,16 +524,32 @@ end
 --   can't undo        "danger": red
 ---------------------------------------------------------------------------
 
+-- Each look: top / bottom = the fill (lighter at the top), edge, text; hoverTop / hoverBottom / hoverEdge / hoverText
+-- while the mouse is over it; shine = the 1px light along the inside of the top edge (r, g, b, a); sheen = how bright
+-- the light that sweeps across it on hover is. bg / hover = the fill as one flat colour (frames that paint
+-- themselves from this table).
 local SLEEK = {
-    primary   = { bg = { 0.42, 0.30, 0.04, 0.95 }, hover = { 0.55, 0.40, 0.06, 1 }, edge = { 1, 0.82, 0, 0.9 },
-                  text = { 1, 0.95, 0.8 } },
-    secondary = { bg = { 0.10, 0.10, 0.12, 0.92 }, hover = { 0.18, 0.18, 0.21, 0.95 }, edge = { 0.34, 0.34, 0.38, 0.9 },
-                  text = { 0.88, 0.88, 0.88 } },
-    danger    = { bg = { 0.30, 0.06, 0.06, 0.92 }, hover = { 0.45, 0.09, 0.09, 0.95 }, edge = { 0.75, 0.25, 0.25, 0.9 },
-                  text = { 1, 0.85, 0.85 } },
-    chosen    = { bg = { 0.27, 0.27, 0.30, 0.95 }, hover = { 0.32, 0.32, 0.36, 0.95 }, edge = { 0.72, 0.72, 0.76, 0.9 },
-                  text = { 1, 1, 1 } },
+    primary   = { top = { 0.52, 0.375, 0.07, 0.97 }, bottom = { 0.30, 0.205, 0.03, 0.97 },
+                  hoverTop = { 0.65, 0.48, 0.10, 1 }, hoverBottom = { 0.41, 0.29, 0.05, 1 },
+                  edge = { 0.80, 0.62, 0.17, 0.85 }, hoverEdge = { 1, 0.84, 0.32, 1 },
+                  text = { 1, 0.93, 0.76 }, hoverText = { 1, 0.98, 0.9 }, shine = { 1, 0.86, 0.45, 0.32 }, sheen = 0.24 },
+    secondary = { top = { 0.135, 0.135, 0.155, 0.94 }, bottom = { 0.08, 0.08, 0.095, 0.94 },
+                  hoverTop = { 0.21, 0.21, 0.235, 0.96 }, hoverBottom = { 0.13, 0.13, 0.15, 0.96 },
+                  edge = { 0.29, 0.29, 0.33, 0.85 }, hoverEdge = { 0.52, 0.52, 0.58, 0.95 },
+                  text = { 0.86, 0.86, 0.86 }, hoverText = { 1, 1, 1 }, shine = { 1, 1, 1, 0.07 }, sheen = 0.10 },
+    danger    = { top = { 0.40, 0.085, 0.085, 0.95 }, bottom = { 0.23, 0.045, 0.045, 0.95 },
+                  hoverTop = { 0.52, 0.115, 0.115, 0.97 }, hoverBottom = { 0.33, 0.065, 0.065, 0.97 },
+                  edge = { 0.72, 0.24, 0.24, 0.85 }, hoverEdge = { 0.96, 0.38, 0.38, 0.95 },
+                  text = { 1, 0.86, 0.86 }, hoverText = { 1, 0.95, 0.95 }, shine = { 1, 0.62, 0.62, 0.12 }, sheen = 0.14 },
+    chosen    = { top = { 0.30, 0.30, 0.335, 0.96 }, bottom = { 0.205, 0.205, 0.235, 0.96 },
+                  hoverTop = { 0.35, 0.35, 0.39, 0.97 }, hoverBottom = { 0.245, 0.245, 0.28, 0.97 },
+                  edge = { 0.62, 0.62, 0.68, 0.85 }, hoverEdge = { 0.78, 0.78, 0.84, 0.95 },
+                  text = { 1, 1, 1 }, hoverText = { 1, 1, 1 }, shine = { 1, 1, 1, 0.13 }, sheen = 0.10 },
 }
+for _, s in pairs(SLEEK) do
+    local function mid(a, b) return { (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, (a[3] + b[3]) / 2, (a[4] + b[4]) / 2 } end
+    s.bg, s.hover = mid(s.top, s.bottom), mid(s.hoverTop, s.hoverBottom)
+end
 SLEEK.active = SLEEK.chosen   -- the older name of "chosen"
 UI.SLEEK = SLEEK
 local LIT_EDGE = { 1, 0.82, 0, 0.75 }   -- a field being typed in / a dropdown while its list is open
@@ -656,24 +672,270 @@ function UI:SetChevronUp(tex, up)
     if up then tex:SetTexCoord(l, b, l, t, r, b, r, t) else tex:SetTexCoord(l, r, t, b) end
 end
 
--- A 1px border of four textures around frame f: f.edges, recoloured by UI:SetEdgeColor(f, r, g, b, a).
-function UI:AddEdges(f, layer)
+-- A 1px border of four textures around frame f: f.edges, recoloured by UI:SetEdgeColor(f, r, g, b, a). soft = true
+-- leaves the four corner pixels open (with a fill inside the edges the corners read as slightly rounded).
+function UI:AddEdges(f, layer, soft)
     f.edges = {}
-    local function edge(p1, p2, horiz)
+    local o = soft and 1 or 0
+    local function edge(p1, x1, y1, p2, x2, y2, horiz)
         local t = f:CreateTexture(nil, layer or "BORDER")
-        t:SetPoint(p1)
-        t:SetPoint(p2)
+        t:SetPoint(p1, x1, y1)
+        t:SetPoint(p2, x2, y2)
         if horiz then t:SetHeight(1) else t:SetWidth(1) end
         f.edges[#f.edges + 1] = t
     end
-    edge("TOPLEFT", "TOPRIGHT", true)
-    edge("BOTTOMLEFT", "BOTTOMRIGHT", true)
-    edge("TOPLEFT", "BOTTOMLEFT", false)
-    edge("TOPRIGHT", "BOTTOMRIGHT", false)
+    edge("TOPLEFT", o, 0, "TOPRIGHT", -o, 0, true)
+    edge("BOTTOMLEFT", o, 0, "BOTTOMRIGHT", -o, 0, true)
+    edge("TOPLEFT", 0, -o, "BOTTOMLEFT", 0, o, false)
+    edge("TOPRIGHT", 0, -o, "BOTTOMRIGHT", 0, o, false)
 end
 
 function UI:SetEdgeColor(f, r, g, b, a)
     for _, t in ipairs(f.edges or {}) do t:SetColorTexture(r, g, b, a or 1) end
+end
+
+---------------------------------------------------------------------------
+-- The buttons' finish and motion (sleek, icon and dropdown buttons): a fill that is lighter at the top, a 1px light
+-- along the inside of the top edge, 1px edges with open corners. A change of look (hover, press, a new kind, its menu
+-- opening, enabled or not) eases in over about 0.15 s instead of jumping; the mouse coming over a button sends a soft
+-- light across it once; a click flashes it. Text and icon colours still change at once (callers recolour them in
+-- their own OnEnter), only the textures the skin owns move.
+---------------------------------------------------------------------------
+
+local SKIN_TAU = 0.045      -- seconds: the ease (95% of the way after three of these)
+local SHEEN_TIME = 0.5      -- seconds: the light's way across
+local NV = 13               -- a look: fill top rgba, fill bottom rgba, edge rgba, shine alpha
+local easing = {}           -- skinned frame -> its look state, while it is on its way to its target
+local skinDriver = CreateFrame("Frame")
+local gradA = CreateColor and CreateColor(0, 0, 0, 0)   -- (reused: SetGradient copies the values)
+local gradB = CreateColor and CreateColor(0, 0, 0, 0)
+
+local function Gradient(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
+    if gradA and tex.SetGradient then
+        gradA:SetRGBA(r1, g1, b1, a1)
+        gradB:SetRGBA(r2, g2, b2, a2)
+        tex:SetGradient(orient, gradA, gradB)
+    else
+        tex:SetColorTexture((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
+    end
+end
+
+local function ApplyLook(f, v)
+    Gradient(f.bg, "VERTICAL", v[5], v[6], v[7], v[8], v[1], v[2], v[3], v[4])   -- (bottom colour first)
+    UI:SetEdgeColor(f, v[9], v[10], v[11], v[12])
+    f.shine:SetAlpha(v[13])
+end
+
+-- One half of the sweeping light: from x0 (alpha a0) to x1 (a1), cut to the inside of the edges (0..w).
+local function SheenPart(f, tex, x0, x1, a0, a1, w, c)
+    local l, r = math.max(0, x0), math.min(w, x1)
+    if r - l < 0.5 then
+        tex:Hide()
+        return
+    end
+    local span = x1 - x0
+    tex:ClearAllPoints()
+    tex:SetPoint("TOPLEFT", f, "TOPLEFT", 1 + l, -1)
+    tex:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1 + l, 1)
+    tex:SetWidth(r - l)
+    Gradient(tex, "HORIZONTAL", c[1], c[2], c[3], a0 + (a1 - a0) * (l - x0) / span,
+        c[1], c[2], c[3], a0 + (a1 - a0) * (r - x0) / span)
+    tex:Show()
+end
+
+local function PlaceSheen(f, s)
+    local w = (f:GetWidth() or 0) - 2
+    local t = s.sweep
+    if not t or w < 8 then
+        s.sheen1:Hide()
+        s.sheen2:Hide()
+        return
+    end
+    local e = t * t * (3 - 2 * t)
+    local bw = math.max(16, math.min(72, w * 0.5))
+    local c = -bw / 2 + (w + bw) * e
+    SheenPart(f, s.sheen1, c - bw / 2, c, 0, s.sheenA, w, s.sheenC)
+    SheenPart(f, s.sheen2, c, c + bw / 2, s.sheenA, 0, w, s.sheenC)
+end
+
+local function StepSkins(self, elapsed)
+    elapsed = elapsed or 0
+    local k = 1 - math.exp(-elapsed / SKIN_TAU)
+    local busy = false
+    for f, s in pairs(easing) do
+        local cur, tgt, settled = s.cur, s.tgt, true
+        local shown = f:IsVisible()
+        for i = 1, NV do
+            local d = tgt[i] - cur[i]
+            if shown and (d > 0.004 or d < -0.004) then
+                cur[i] = cur[i] + d * k
+                settled = false
+            else
+                cur[i] = tgt[i]
+            end
+        end
+        ApplyLook(f, cur)
+        if s.sweep then
+            s.sweep = shown and s.sweep + elapsed / SHEEN_TIME or 1
+            if s.sweep >= 1 then s.sweep = nil else settled = false end
+            PlaceSheen(f, s)
+        end
+        if settled then easing[f] = nil else busy = true end
+    end
+    if not busy then self:SetScript("OnUpdate", nil) end
+end
+
+local function Ease(f)
+    easing[f] = f.cdlLook
+    skinDriver:SetScript("OnUpdate", StepSkins)
+end
+
+-- Gives button b the finish: b.bg (the fill, inside the edges), b.edges (open corners), b.shine (the light inside the
+-- top edge). Its look is set by SetLook.
+local function Skin(b)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetPoint("TOPLEFT", 1, -1)
+    b.bg:SetPoint("BOTTOMRIGHT", -1, 1)
+    b.bg:SetColorTexture(1, 1, 1, 1)
+    UI:AddEdges(b, nil, true)
+    b.shine = b:CreateTexture(nil, "BORDER", nil, 1)
+    b.shine:SetPoint("TOPLEFT", 1, -1)
+    b.shine:SetPoint("TOPRIGHT", -1, -1)
+    b.shine:SetHeight(1)
+    b.shine:SetColorTexture(1, 1, 1, 1)
+    b.cdlLook = { cur = {}, tgt = {} }
+end
+
+-- Moves b to look v (NV numbers; shine = the shine's r, g, b): eased, or at once while b is hidden, the first time,
+-- or with instant.
+local function SetLook(b, v, shine, instant)
+    local s = b.cdlLook
+    for i = 1, NV do s.tgt[i] = v[i] end
+    b.shine:SetColorTexture(shine[1], shine[2], shine[3], 1)
+    if instant or not s.painted or not b:IsVisible() then
+        s.painted = true
+        for i = 1, NV do s.cur[i] = v[i] end
+        ApplyLook(b, s.cur)
+    else
+        Ease(b)
+    end
+end
+
+-- The look of style s (a SLEEK entry) as SetLook takes it: hot = hovered (or its menu is down), pressed, off =
+-- disabled; edge / top / bottom replace the style's own.
+local look = {}
+local function LookOf(s, hot, pressed, off, edge, top, bottom)
+    top = top or (hot and s.hoverTop or s.top)
+    bottom = bottom or (hot and s.hoverBottom or s.bottom)
+    edge = edge or (hot and s.hoverEdge or s.edge)
+    local p = pressed and 0.78 or 1
+    for i = 1, 3 do
+        look[i], look[4 + i] = top[i] * p, bottom[i] * p
+    end
+    look[4], look[8] = top[4], bottom[4]
+    look[9], look[10], look[11], look[12] = edge[1], edge[2], edge[3], off and edge[4] * 0.4 or edge[4]
+    look[13] = (off or pressed) and 0 or s.shine[4] * (hot and 1.4 or 1)
+    return look
+end
+
+-- The light sweeping across b once (strength a, colour c); a sweep under way runs on.
+local function Sweep(b, a, c)
+    local s = b.cdlLook
+    if s.sweep or not b:IsVisible() then return end
+    if not s.sheen1 then
+        for i = 1, 2 do
+            local t = b:CreateTexture(nil, "ARTWORK", nil, -1)
+            t:SetColorTexture(1, 1, 1, 1)
+            t:SetBlendMode("ADD")
+            t:Hide()
+            s["sheen" .. i] = t
+        end
+    end
+    s.sweep, s.sheenA, s.sheenC = 0, a, c
+    Ease(b)
+end
+
+-- A click: the fill flashes lighter and eases back.
+local function Flash(b)
+    local s = b.cdlLook
+    if not (s and s.painted) or not b:IsVisible() then return end
+    local c = s.cur
+    for _, i in ipairs({ 1, 2, 3, 5, 6, 7 }) do c[i] = c[i] + (1 - c[i]) * 0.16 end
+    c[13] = math.min(1, c[13] + 0.3)
+    ApplyLook(b, c)
+    Ease(b)
+end
+
+-- The press look while the mouse button is down on b (the text moves down 1px when it is centred and nudge is set);
+-- letting go over it flashes it.
+local function Press(b, down, nudge)
+    if down and not b:IsEnabled() then return end
+    local was = b.pressed
+    b.pressed = down or nil
+    local fs = nudge and b:GetFontString()
+    if fs and fs:GetNumPoints() == 1 then
+        local p, rel, rp, x, y = fs:GetPoint(1)
+        if p == "CENTER" then
+            if down and not fs.cdlNudged then
+                fs.cdlNudged = true
+                fs:SetPoint(p, rel or b, rp or p, x or 0, (y or 0) - 1)
+            elseif not down and fs.cdlNudged then
+                fs.cdlNudged = nil
+                fs:SetPoint(p, rel or b, rp or p, x or 0, (y or 0) + 1)
+            end
+        end
+    end
+    if b.cdlPaint then b:cdlPaint() end
+    if was and not down and b:IsEnabled() and (not b.IsMouseOver or b:IsMouseOver()) then Flash(b) end
+end
+
+-- The scripts a skinned button keeps whatever the caller sets: hover (OnEnter / OnLeave), press (OnMouseDown /
+-- OnMouseUp), enabled. A caller's own handler runs after the look is updated; nil leaves only the look (no text
+-- nudge: a caller that takes the press scripts over places its text itself).
+local function KeepLookScripts(b, onEnter)
+    local setScript = b.SetScript
+    local function hover(f, on)
+        f.hovered = on
+        f:cdlPaint()
+        if on and f:IsEnabled() and onEnter then onEnter(f) end
+    end
+    function b:SetScript(name, fn)
+        if fn ~= nil and type(fn) ~= "function" then return setScript(self, name, fn) end
+        if name == "OnEnter" or name == "OnLeave" then
+            local on = name == "OnEnter"
+            return setScript(self, name, function(f, ...)
+                hover(f, on)
+                if fn then return fn(f, ...) end
+            end)
+        elseif name == "OnMouseDown" or name == "OnMouseUp" then
+            local down = name == "OnMouseDown"
+            return setScript(self, name, function(f, ...)
+                Press(f, down, false)
+                if fn then return fn(f, ...) end
+            end)
+        end
+        return setScript(self, name, fn)
+    end
+    setScript(b, "OnEnter", function(f) hover(f, true) end)
+    setScript(b, "OnLeave", function(f) hover(f, false) end)
+    setScript(b, "OnMouseDown", function(f) Press(f, true, true) end)
+    setScript(b, "OnMouseUp", function(f) Press(f, false, true) end)
+    setScript(b, "OnEnable", function(f) f:cdlPaint() end)
+    setScript(b, "OnDisable", function(f)
+        f.pressed = nil
+        f:cdlPaint()
+    end)
+end
+
+-- Paints frame f (any frame with a bg texture and edges, e.g. a toggle a page draws itself) in a SLEEK look by name,
+-- hovered or not; it gets the finish (gradient fill, edge alpha) without the motion.
+function UI:PaintSleek(f, kind, hovered, edgeAlpha)
+    local s = SLEEK[kind] or SLEEK.secondary
+    local top, bottom = hovered and s.hoverTop or s.top, hovered and s.hoverBottom or s.bottom
+    if f.bg.SetGradient and gradA then f.bg:SetColorTexture(1, 1, 1, 1) end
+    Gradient(f.bg, "VERTICAL", bottom[1], bottom[2], bottom[3], bottom[4], top[1], top[2], top[3], top[4])
+    local e = hovered and s.hoverEdge or s.edge
+    UI:SetEdgeColor(f, e[1], e[2], e[3], edgeAlpha or e[4])
 end
 
 -- A flat button. kind = "primary" | "secondary" (default) | "danger" | "chosen" ("active" is the same as "chosen");
@@ -819,6 +1081,9 @@ UI.ICON.bag, UI.ICON.bagAdd, UI.ICON.whisper = 40, 41, 42
 UI.ICON.finder, UI.ICON.finderIris, UI.ICON.eye = 43, 44, 15
 -- (art pack 4 too: 45 a calendar, the New raid sheet's calendar button; 46 a team, three people)
 UI.ICON.calendar, UI.ICON.team = 45, 46
+-- (the events, art pack 4: 47 play, 48 pause, 49 skip ahead, 50 flag, 51 trophy, 52 lock, 53 infinity, 54 a bracket)
+UI.ICON.play, UI.ICON.pause, UI.ICON.skip, UI.ICON.flag = 47, 48, 49, 50
+UI.ICON.trophy, UI.ICON.lock, UI.ICON.infinity, UI.ICON.bracket = 51, 52, 53, 54
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }
