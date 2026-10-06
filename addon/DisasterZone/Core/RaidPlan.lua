@@ -63,6 +63,14 @@ local SIGNUP_CLOSE = 6 * 3600       -- sign-ups close this long after the raid s
 
 local MAX_TEAMS = 20
 local MAX_TEAM_MEMBERS = 40
+-- 1.3.2: a team's lineups and their waitlists (section "Lineups and waitlists"); one table, the main chunk is near
+-- Lua's 200 locals
+local Lineup = {
+    MAX = 10,               -- lineups per team
+    ID_LEN = 6,             -- a lineup's id
+    MAX_WAIT = 25,          -- players on one lineup's waitlist
+    MAX_STORED = 60,        -- waitlist entries kept per lineup, with the taken-off ones (pruned after 30 days)
+}
 local MAX_SERIES = 12
 local MAX_EVENTS = 60
 local MAX_SIGNUPS = 60              -- per occurrence
@@ -346,7 +354,7 @@ local function Root(create)
         r = {}
         db.raidplan[g] = r
     end
-    for _, k in ipairs({ "T", "S", "E", "U", "OK" }) do
+    for _, k in ipairs({ "T", "S", "E", "U", "W", "OK" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
     end
     -- 1.3: trust marks name the version's writer too (TrustKey); a mark of before is moved to the version stored
@@ -467,6 +475,114 @@ local function CleanSeats(gs, grp)
     return next(out) and out or nil
 end
 
+-- 1.3.2: a team's lineups (L): { { id, n = name|nil, sz = 10|25, s = specs, grp, gs, cp }, ... }, at most
+-- Lineup.MAX, the first one first (what a raid uses when it names none of that size). Only the roster's members (set)
+-- keep a spec or a group. Returns the clean list, nil for none, false when invalid (the record is refused, as a team
+-- with a bad comp is).
+function Lineup.CleanList(L, set)
+    if L == nil then return nil end
+    if type(L) ~= "table" then return false end
+    local out, seen = {}, {}
+    for i = 1, Lineup.MAX + 1 do
+        local l = L[i]
+        if l == nil then break end
+        if i > Lineup.MAX or type(l) ~= "table" or not IsId(l.id) or #l.id > Lineup.ID_LEN or seen[l.id]
+            or not SIZES[l.sz] then
+            return false
+        end
+        seen[l.id] = true
+        local e = { id = l.id, sz = l.sz }
+        if l.n ~= nil then
+            e.n = CleanText(l.n, MAX_NAME_LEN)
+            if not e.n then return false end
+        end
+        if l.s ~= nil then
+            if type(l.s) ~= "table" then return false end
+            for key, sp in pairs(l.s) do
+                local k = WireKey(key)
+                if not k or not IsInt(sp, 1, 4) then return false end
+                if set[k] then
+                    e.s = e.s or {}
+                    e.s[k] = sp
+                end
+            end
+        end
+        local grp = CleanGroups(l.grp)
+        if grp == false then return false end
+        for k, g in pairs(grp or {}) do
+            if set[k] then
+                e.grp = e.grp or {}
+                e.grp[k] = g
+            end
+        end
+        e.gs = CleanSeats(l.gs, e.grp)
+        if l.cp ~= nil then
+            local cp = ns.RaidComp:CleanComp(l.cp, l.sz)
+            if not cp then return false end
+            e.cp = cp
+        end
+        out[#out + 1] = e
+    end
+    return #out > 0 and out or nil
+end
+
+-- A newer team version from a client before 1.3.2 (MergeRecord): my lineups, the first one taking that version's
+-- sz / s / grp / gs / cp, each keeping only its new roster's specs and groups. A new list, or nil.
+function Lineup.CarryOver(L, rec)
+    local set = {}
+    for _, k in ipairs(rec.m or {}) do set[k] = true end
+    local list = {}
+    for i, l in ipairs(L) do
+        local c = { id = l.id, n = l.n, sz = l.sz, s = l.s, grp = l.grp, gs = l.gs, cp = l.cp }
+        if i == 1 then c.sz, c.s, c.grp, c.gs, c.cp = rec.sz or 25, rec.s, rec.grp, rec.gs, rec.cp end
+        list[i] = c
+    end
+    return Lineup.CleanList(list, set) or nil
+end
+
+-- A stored team's lineups: its L, or (a team saved before 1.3.2) one lineup "1" made of sz / s / grp / gs / cp.
+function Lineup.Of(t)
+    if type(t.L) == "table" and t.L[1] then return t.L end
+    return { { id = "1", sz = t.sz or 25, s = t.s, grp = t.grp, gs = t.gs, cp = t.cp } }
+end
+
+-- A raid's lineup of each team (tl): { [team id] = lineup id }. nil = none given, false = invalid.
+function Lineup.CleanChoice(tl)
+    if tl == nil then return nil end
+    if type(tl) ~= "table" then return false end
+    local out, n = {}, 0
+    for id, ln in pairs(tl) do
+        n = n + 1
+        if n > MAX_TEAMS_PER_RAID or not IsId(id) or not IsId(ln) or #ln > Lineup.ID_LEN then return false end
+        out[id] = ln
+    end
+    return out
+end
+
+-- A waitlist entry { rev, by, at = when they joined, o = their place when moved (else at), sp = the spec they'd
+-- play } or a taken-off one { rev, by, x = true }. nil when invalid.
+function Lineup.CleanWait(e, now)
+    if type(e) ~= "table" or not IsInt(e.rev, 1, now + FUTURE_SLACK) then return nil end
+    local by = WireKey(e.by)
+    if not by then return nil end
+    local out = { rev = e.rev, by = by }
+    if e.x == true then
+        out.x = true
+        return out
+    end
+    if not IsInt(e.at, 1, e.rev) then return nil end
+    out.at = e.at
+    if e.o ~= nil then
+        if not IsInt(e.o, 0, MAX_STAMP) then return nil end
+        out.o = e.o
+    end
+    if e.sp ~= nil then
+        if not IsInt(e.sp, 1, 4) then return nil end
+        out.sp = e.sp
+    end
+    return out
+end
+
 -- gu: guests { [key] = { c = classFile, sp = spec index, at = when added } }. nil = none, false = invalid.
 local function CleanGuests(gu)
     if gu == nil then return nil end
@@ -576,6 +692,13 @@ local function CleanTeam(r, now)
         if not cp then return nil end
         out.cp = cp
     end
+    -- 1.3.2: the lineups (Lineup.CleanList). The first one is mirrored on sz / s / grp / gs / cp, which is all a
+    -- client before 1.3.2 knows of the team.
+    if r.L ~= nil then
+        local L = Lineup.CleanList(r.L, set)
+        if L == false then return nil end
+        out.L = L
+    end
     return out
 end
 
@@ -597,6 +720,10 @@ local function CleanRaidFields(out, r, now, partial, minT)
     local tm = CleanTeamIds(r.tm)
     if tm == false then return false end
     out.tm = tm
+    -- 1.3.2: the lineup it uses of each team (default: the team's first of the raid's size); an override says {}
+    local tl = Lineup.CleanChoice(r.tl)
+    if tl == false then return false end
+    if tl and (next(tl) or partial) then out.tl = tl end
     -- locked to its teams and extra invites; an override says false / {} to undo what its series says
     if r.lk ~= nil then
         if type(r.lk) ~= "boolean" then return false end
@@ -761,20 +888,27 @@ local function MergeRecord(root, kind, rec, via)
     local store = root[kind]
     local cur = store[rec.id]
     if cur then
-        -- A client before 1.3.1 drops a team's target comp (cp) from the copy it passes on: of two copies of a
-        -- version that differ only by it, the one with it wins (whatever their hashes), and one without never
-        -- replaces mine. (Two edits in the same second that differ elsewhere still go by the hash.)
-        local compTie = false
-        if kind == "T" and rec.rev == cur.rev and (rec.cp == nil) ~= (cur.cp == nil) then
-            local a, b = {}, {}
-            for k, v in pairs(rec) do if k ~= "cp" then a[k] = v end end
-            for k, v in pairs(cur) do if k ~= "cp" then b[k] = v end end
-            compTie = Util.Hash(a) == Util.Hash(b)
+        -- A client before 1.3.1 drops a team's target comp (cp) from the copy it passes on, one before 1.3.2 its
+        -- lineups (L): of two copies of a version that differ only by those, the one with more of them wins
+        -- (whatever their hashes), and one with fewer never replaces mine. (Two edits in the same second that differ
+        -- elsewhere still go by the hash.)
+        local tie
+        if kind == "T" and rec.rev == cur.rev then
+            local na = (rec.cp and 1 or 0) + (rec.L and 1 or 0)
+            local nb = (cur.cp and 1 or 0) + (cur.L and 1 or 0)
+            if na ~= nb then
+                local a, b = {}, {}
+                for k, v in pairs(rec) do if k ~= "cp" and k ~= "L" then a[k] = v end end
+                for k, v in pairs(cur) do if k ~= "cp" and k ~= "L" then b[k] = v end end
+                if Util.Hash(a) == Util.Hash(b) then tie = na > nb end
+            end
         end
-        if compTie then
-            if not rec.cp then return false end
-        elseif not Newer(rec, cur) then
-            return false
+        if tie == false then return false end
+        if tie == nil and not Newer(rec, cur) then return false end
+        -- A newer version of a team from a client before 1.3.2 (no L) changed the team as it knows it: the roster and
+        -- the first lineup (sz / s / grp / gs / cp). The other lineups are carried over from mine.
+        if kind == "T" and not rec.del and rec.L == nil and type(cur.L) == "table" and rec.rev > cur.rev then
+            rec.L = Lineup.CarryOver(cur.L, rec)
         end
         -- A client before 1.3 drops the guests and the declined / removed answers from the copy it passes on: the
         -- same version of a raid without them never replaces mine.
@@ -782,8 +916,9 @@ local function MergeRecord(root, kind, rec, via)
             and not (rec.gu or rec.rj or rec.rm or rec.gx) then
             return false
         end
-        -- nor without the raid's leader (1.3)
+        -- nor without the raid's leader (1.3), or the lineups it uses (1.3.2)
         if rec.rev == cur.rev and cur.rl ~= nil and rec.rl == nil then return false end
+        if kind ~= "T" and rec.rev == cur.rev and cur.tl ~= nil and rec.tl == nil then return false end
         if Trusted(root, kind, cur) then
             if kind ~= "T" and not SameCrown(cur, rec) and not CanAssignLeader(rec.by) and not CanAssignLeader(via) then
                 -- named while I was away, or made up: a planner's copy tells
@@ -840,11 +975,80 @@ local function MergeSignup(root, occId, key, s)
     return true
 end
 
+-- 1.3.2: a waitlist entry (clean) of player `key` on lineup ln of team tid (root.W[tid][ln][key]); newer rev wins.
+function Lineup.MergeWait(root, tid, ln, key, e)
+    if not IsId(tid) or not IsId(ln) or #ln > Lineup.ID_LEN then return false end
+    local t = root.T[tid]
+    if t and t.del then return false end
+    local team = root.W[tid]
+    if not team then
+        if CountTable(root.W) >= MAX_TEAMS * 2 then return false end
+        team = {}
+        root.W[tid] = team
+    end
+    local list = team[ln]
+    if not list then
+        if CountTable(team) >= Lineup.MAX * 2 then return false end
+        list = {}
+        team[ln] = list
+    end
+    local cur = list[key]
+    if cur then
+        if not Newer(e, cur) then return false end
+    elseif CountTable(list) >= Lineup.MAX_STORED then
+        return false
+    end
+    list[key] = e
+    return true
+end
+
+-- A team's waitlists as relayed (RPG w): { [lineup id] = { [player] = entry } }. Returns true when one changed.
+function Lineup.MergeAll(tid, w)
+    local root = Root(true)
+    if not root then return false end
+    local now, changed, nl = Now(), false, 0
+    for ln, list in pairs(w) do
+        nl = nl + 1
+        if nl > Lineup.MAX * 2 then break end
+        if type(ln) == "string" and type(list) == "table" then
+            local n = 0
+            for key, e in pairs(list) do
+                n = n + 1
+                if n > Lineup.MAX_STORED then break end
+                local k = WireKey(key)
+                local c = k and Lineup.CleanWait(e, now)
+                if c and Lineup.MergeWait(root, tid, ln, k, c) then changed = true end
+            end
+        end
+    end
+    return changed
+end
+
+-- RTW { l = { { tm = team id, ln = lineup id, k = player, e = entry }, ... } } on GUILD: live waitlist entries. Each
+-- player writes their own (joining, leaving); the GM and the guild council anyone's (taking off, moving up or down).
+function Lineup.OnLive(sender, msg, dist)
+    if dist ~= "GUILD" or type(msg.l) ~= "table" then return end
+    local root = Root(true)
+    if not root then return end
+    local now, changed = Now(), false
+    for i = 1, MAX_RPS_ENTRIES do
+        local x = msg.l[i]
+        if x == nil then break end
+        local k = type(x) == "table" and WireKey(x.k)
+        local e = k and Lineup.CleanWait(x.e, now)
+        if e and e.by == sender and (k == sender or CanTeams(sender)) and type(x.ln) == "string"
+            and Lineup.MergeWait(root, x.tm, x.ln, k, e) then
+            changed = true
+        end
+    end
+    if changed then Changed() end
+end
+
 ---------------------------------------------------------------------------
 -- Occurrences (the resolved view the UI reads)
 ---------------------------------------------------------------------------
 
-local RAID_FIELDS = { "t", "i", "sz", "tm", "ti", "no", "lk", "pv", "inv", "ml", "rl", "rlb" }
+local RAID_FIELDS = { "t", "i", "sz", "tm", "tl", "ti", "no", "lk", "pv", "inv", "ml", "rl", "rlb" }
 
 -- The view's leader: a leader named by the GM or a raid leader on the list, else none (rl, rlb = nil).
 local function ViewLeader(v)
@@ -876,7 +1080,7 @@ end
 -- The view of a visible one-off event.
 local function ViewEvent(e)
     return ViewLeader({
-        id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, ti = e.ti, no = e.no,
+        id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, tl = CopyMap(e.tl), ti = e.ti, no = e.no,
         lk = e.lk and true or false, pv = e.pv and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
         gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm), gx = CopyMap(e.gx), rl = e.rl, rlb = e.rlb,
@@ -898,7 +1102,7 @@ local function ViewOccurrence(root, s, k)
         local val = s[f]
         if o and o[f] ~= nil then val = o[f] end
         if f == "t" and not (o and o.t) then val = SeriesTime(s, k) end
-        v[f] = type(val) == "table" and CopyList(val) or val
+        v[f] = type(val) == "table" and (f == "tl" and CopyMap(val) or CopyList(val)) or val
     end
     v.tm = v.tm or {}
     v.lk = v.lk and true or false
@@ -948,7 +1152,11 @@ local function ItemHash(root, item)
     local kind, id = item:match("^(%u):(.+)$")
     if kind == "T" or kind == "S" then
         local rec = root[kind][id]
-        return rec and Util.Hash(rec):sub(1, 6) or nil
+        if not rec then return nil end
+        -- (a team's waitlists travel with it: a new item kind would make clients before 1.3.2 drop the whole digest)
+        local w = kind == "T" and root.W[id]
+        if w and next(w) then return Util.Hash({ rec, w }):sub(1, 6) end
+        return Util.Hash(rec):sub(1, 6)
     elseif kind == "O" then
         local e, u = root.E[id], root.U[id]
         if not e and not (u and next(u)) then return nil end
@@ -1017,7 +1225,7 @@ local function SendItem(root, item, target)
     local kind, id = item:match("^(%u):(.+)$")
     local msg
     if kind == "T" and root.T[id] then
-        msg = { t = "RPG", T = root.T[id] }
+        msg = { t = "RPG", T = root.T[id], w = root.W[id] }
     elseif kind == "S" and root.S[id] then
         msg = { t = "RPG", S = root.S[id] }
     elseif kind == "O" and IsOccId(id) and (root.E[id] or root.U[id]) then
@@ -1095,6 +1303,10 @@ local function OnGive(sender, msg, dist)
     local changed = false
     if msg.T ~= nil then
         changed = StoreRecord("T", msg.T, sender)
+        -- (1.3.2) its waitlists: { [lineup id] = { [player] = entry } }, taken at their word like relayed sign-ups
+        if type(msg.w) == "table" and type(msg.T) == "table" and IsId(msg.T.id) and Lineup.MergeAll(msg.T.id, msg.w) then
+            changed = true
+        end
     elseif msg.S ~= nil then
         changed = StoreRecord("S", msg.S, sender)
     elseif IsOccId(msg.o) then
@@ -1328,13 +1540,44 @@ function RaidPlan:GetTeams()
     return out
 end
 
+-- A visible team: { id, name, members = { key, ... }, by, rev, lineups = { { id, name|nil, size, specs, groups,
+-- seats, comp|nil }, ... } } (copies). size / specs / groups / seats / comp: its first lineup's, as before 1.3.2.
 function RaidPlan:GetTeam(id)
     local root = Root(false)
     local t = root and type(id) == "string" and root.T[id]
     if not t or t.del or not Trusted(root, "T", t) then return nil end
-    return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, size = t.sz or 25,
-             specs = CopyMap(t.s) or {}, groups = CopyMap(t.grp) or {}, seats = CopyMap(t.gs) or {},
-             comp = ns.RaidComp:CopyComp(t.cp) }
+    local lineups = {}
+    for i, l in ipairs(Lineup.Of(t)) do
+        lineups[i] = { id = l.id, name = l.n, size = l.sz, specs = CopyMap(l.s) or {}, groups = CopyMap(l.grp) or {},
+                       seats = CopyMap(l.gs) or {}, comp = ns.RaidComp:CopyComp(l.cp) }
+    end
+    local first = lineups[1]
+    return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, lineups = lineups,
+             size = first.size, specs = CopyMap(first.specs), groups = CopyMap(first.groups),
+             seats = CopyMap(first.seats), comp = ns.RaidComp:CopyComp(first.comp) }
+end
+
+-- A team's lineup (a GetTeam lineup) by id, or its first one when ln is nil.
+function RaidPlan:FindLineup(team, ln)
+    if type(team) == "string" then team = self:GetTeam(team) end
+    local list = type(team) == "table" and team.lineups or {}
+    if ln == nil then return list[1] end
+    for _, l in ipairs(list) do
+        if l.id == ln then return l end
+    end
+    return nil
+end
+
+-- "Kara A", or a lineup without a name: "25-man" ("25-man 2" for the team's second unnamed 25).
+function RaidPlan:LineupName(team, l)
+    if type(l) ~= "table" then return nil end
+    if l.name then return l.name end
+    local n = 0
+    for _, o in ipairs(type(team) == "table" and team.lineups or {}) do
+        if not o.name and o.size == l.size then n = n + 1 end
+        if o.id == l.id then break end
+    end
+    return l.size .. "-man" .. (n > 1 and (" " .. n) or "")
 end
 
 -- The spec a member plays (§59): the team's pick, else their latest sign-up's, else their BiS list's (mine, or a
@@ -1919,7 +2162,8 @@ function RaidPlan:GetLayoutMembers(occId)
     return out
 end
 
--- §60: the starting layout of a raid that has no saved one: its teams' layouts, adjusted to who accepted.
+-- §60: the starting layout of a raid that has no saved one: its teams' layouts (1.3.2: the lineup of each team for the
+-- raid, GetRaidLineup), adjusted to who accepted.
 --  1. accepted team members keep their seat (first team first);
 --  2. a seat whose team member didn't accept is open for an accepted player of the same role;
 --  3. other accepted players join a group of their role with room; Tentative / Bench and whoever doesn't fit stay out.
@@ -1935,10 +2179,11 @@ function RaidPlan:BuildLayout(occId)
     for _, m in ipairs(self:GetLayoutMembers(v)) do
         if m.st == "A" then accepted[#accepted + 1] = m end
     end
+    -- (each team's lineup for this raid, GetRaidLineup: its groups, seats and specs)
     local teams = {}
     for _, id in ipairs(v.tm or {}) do
-        local t = self:GetTeam(id)
-        if t and next(t.groups) then teams[#teams + 1] = t end
+        local l = self:GetRaidLineup(v, id)
+        if l and next(l.groups) then teams[#teams + 1] = l end
     end
     if #teams == 0 then return Comp:AutoFill(accepted, v.sz) end
 
@@ -2067,12 +2312,25 @@ end
 -- keys; nothing is left to chance.
 ---------------------------------------------------------------------------
 
--- A team for the comp functions: an id (the saved team), a GetTeam table, or the Teams page's draft ({ id, members =
--- set or array, s | specs, grp | groups, sz | size, cp | comp }). Returns { id, name, members = sorted keys, specs,
--- groups, size, comp } or nil.
+-- A team's lineup for the comp functions (1.3.2: a comp, groups and specs belong to a lineup): an id (the saved team's
+-- first lineup), { id = team id, ln = lineup id } (a saved team's lineup), a GetTeam table (its lineup ln, else its
+-- first), or the Teams page's draft of one lineup ({ id, ln, members = set or array, s | specs, grp | groups, sz |
+-- size, cp | comp }). Returns { id, ln, lineupName, name, members = sorted keys (the roster), specs, groups, size,
+-- comp } or nil (an unknown team or lineup).
 function RaidPlan:ResolveTeam(team)
+    if type(team) == "table" and team.members == nil and type(team.id) == "string" then
+        local ln = team.ln
+        team = self:GetTeam(team.id)
+        if team then team.ln = ln end
+    end
     if type(team) == "string" then team = self:GetTeam(team) end
     if type(team) ~= "table" then return nil end
+    if type(team.lineups) == "table" then
+        local l = self:FindLineup(team, team.ln)
+        if not l then return nil end
+        team = { id = team.id, ln = l.id, lineupName = self:LineupName(team, l), name = team.name,
+                 members = team.members, specs = l.specs, groups = l.groups, size = l.size, comp = l.comp }
+    end
     local members, seen = {}, {}
     for k, v in pairs(type(team.members) == "table" and team.members or {}) do
         local key = (type(k) == "string" and v and k) or (type(v) == "string" and v) or nil
@@ -2086,7 +2344,8 @@ function RaidPlan:ResolveTeam(team)
     local comp = team.comp
     if comp == nil then comp = team.cp end
     return {
-        id = team.id, name = team.name or team.n, members = members,
+        id = team.id, ln = type(team.ln) == "string" and team.ln or nil, lineupName = team.lineupName,
+        name = team.name or team.n, members = members,
         specs = (type(team.specs) == "table" and team.specs) or (type(team.s) == "table" and team.s) or {},
         groups = (type(team.groups) == "table" and team.groups) or (type(team.grp) == "table" and team.grp) or {},
         size = SIZES[size] and size or 25,
@@ -2094,9 +2353,9 @@ function RaidPlan:ResolveTeam(team)
     }
 end
 
--- The team's members with the spec each plays in it (the team's pick, else the latest sign-up's, else the BiS
--- list's: GetMemberSpec), sorted by key: { key, c, sp, source, seated = placed in one of its groups }. A member in no
--- group is benched: on the team, but not counted for its comp, its slots or its raid buffs.
+-- The roster with the spec each plays in the lineup (the lineup's pick, else the latest sign-up's, else the BiS
+-- list's: GetMemberSpec), sorted by key: { key, c, sp, source, seated = placed in one of the lineup's groups }. A
+-- member in no group is unassigned: on the roster, but not counted for the lineup's comp, slots or raid buffs.
 function RaidPlan:GetTeamMembers(team)
     local t = self:ResolveTeam(team)
     local out = {}
@@ -2110,28 +2369,30 @@ function RaidPlan:GetTeamMembers(team)
     return out
 end
 
--- The team's members in a group (GetTeamMembers' seated ones), and the benched ones (in no group).
+-- The roster members in one of the lineup's groups (GetTeamMembers' seated ones), and the unassigned ones (in none).
 function RaidPlan:GetTeamPlaced(team)
-    local placed, benched = {}, {}
+    local placed, unassigned = {}, {}
     for _, m in ipairs(self:GetTeamMembers(team)) do
-        if m.seated then placed[#placed + 1] = m else benched[#benched + 1] = m end
+        if m.seated then placed[#placed + 1] = m else unassigned[#unassigned + 1] = m end
     end
-    return placed, benched
+    return placed, unassigned
 end
 
--- The team's saved comp (a copy), or nil.
-function RaidPlan:GetTeamComp(id)
-    local t = self:GetTeam(id)
-    return t and t.comp or nil
+-- A lineup's saved comp (a copy; ln nil: the first lineup's), or nil.
+function RaidPlan:GetTeamComp(id, ln)
+    local l = self:FindLineup(id, ln)
+    return l and l.comp or nil
 end
 
--- Saves only the team's comp (cp; false or nil clears it). The GM and the guild council. Returns ok, idOrErr.
-function RaidPlan:SetTeamComp(id, cp)
+-- Saves only a lineup's comp (cp; false or nil clears it; ln nil: the first lineup). The GM and the guild council.
+-- Returns ok, idOrErr.
+function RaidPlan:SetTeamComp(id, cp, ln)
     if not CanTeams(Util.PlayerKey()) then return false, REFUSED.teams end
     local root = Root(false)
     local t = root and type(id) == "string" and root.T[id]
     if not t or t.del or not Trusted(root, "T", t) then return false, "unknown team" end
-    return self:SaveTeam(id, t.n, t.m, { comp = cp or false })
+    if ln ~= nil and not self:FindLineup(id, ln) then return false, "unknown lineup" end
+    return self:SaveTeam(id, t.n, t.m, { comp = cp or false, ln = ln })
 end
 
 -- "The team as it is": a slot for the spec of each member in a group (benched members and members without a known
@@ -2142,9 +2403,9 @@ function RaidPlan:CompFromTeam(team)
     return ns.RaidComp:CompFromMembers((self:GetTeamPlaced(t)), t.size)
 end
 
--- The "Start from" choices of a team (an id or the draft): the preset of its size, the team as it is (when a member's
--- spec is known), and the comps of the other teams of the same size (by name). { { key, kind, name, size, cp,
--- teamId }, ... }; every cp is a copy.
+-- The "Start from" choices of a lineup (any ResolveTeam form): the preset of its size, the team as it is (its groups,
+-- when a spec there is known), and the comps of the other lineups of the same size, this team's first, then the
+-- other teams' (by name). { { key, kind, name, size, cp, teamId, ln }, ... }; every cp is a copy.
 function RaidPlan:GetCompStarts(team)
     local out = {}
     local t = self:ResolveTeam(team)
@@ -2154,24 +2415,35 @@ function RaidPlan:GetCompStarts(team)
     end
     local own = self:CompFromTeam(t)
     if own then out[#out + 1] = { key = "team", kind = "team", name = "The team as it is", size = t.size, cp = own } end
-    for _, o in ipairs(self:GetTeams()) do
-        if o.id ~= t.id and o.comp and o.size == t.size then
-            out[#out + 1] = { key = "copy:" .. o.id, kind = "copy", name = o.name, size = o.size, cp = o.comp,
-                              teamId = o.id }
+    local teams = self:GetTeams()
+    for pass = 1, 2 do
+        for _, o in ipairs(teams) do
+            if (o.id == t.id) == (pass == 1) then
+                for _, l in ipairs(o.lineups) do
+                    if l.comp and l.size == t.size and not (o.id == t.id and l.id == t.ln) then
+                        local name = self:LineupName(o, l)
+                        if o.id ~= t.id then name = #o.lineups > 1 and (o.name .. " · " .. name) or o.name end
+                        out[#out + 1] = { key = "copy:" .. o.id .. ":" .. l.id, kind = "copy", name = name,
+                                          size = l.size, cp = l.comp, teamId = o.id, ln = l.id }
+                    end
+                end
+            end
         end
     end
     return out
 end
 
--- Who fills which slot of the team's comp, the bench and the open slots (RaidComp:MatchComp), or nil without a comp.
--- Only the members in a group fill slots (bench = those in a group no slot takes); benched = the members in no group
--- (by column, then key, unknown spec last, like bench).
+-- Who fills which slot of the lineup's comp, the bench and the open slots (RaidComp:MatchComp), or nil without a comp.
+-- Only the roster members in one of its groups fill slots (bench = those in a group no slot takes). Never counted:
+-- unassigned = the roster members in none of its groups (by column, then key, unknown spec last, like bench), and
+-- waitlist = its waitlist (GetWaitlist, first in line first).
 function RaidPlan:MatchTeam(team)
     local t = self:ResolveTeam(team)
     if not (t and t.comp) then return nil end
-    local placed, benched = self:GetTeamPlaced(t)
+    local placed, unassigned = self:GetTeamPlaced(t)
     local m = ns.RaidComp:MatchComp(t.comp, placed)
-    m.benched = ns.RaidComp:MatchComp({}, benched).bench
+    m.unassigned = ns.RaidComp:MatchComp({}, unassigned).bench
+    m.waitlist = self:GetWaitlist(t)
     return m
 end
 
@@ -2207,17 +2479,20 @@ function RaidPlan:GetSpecIndex()
     return idx
 end
 
--- Who could fill an open slot (class c, spec sp) of the team's comp, in five groups (the agreed order):
---   bench  the team's benched members (in no group): that spec, then the class in another spec (other = true)
---   extra  the team's members in a group no slot takes, of that class (another spec: they could switch)
---   alts   the members' other characters (each vouches for the other) at level 70, not on this team: the same rule
---          as bench; of = the member
---   guild  the rest of the guild at level 70, on no team and no alt of this one, playing that spec (latest sign-up,
---          else BiS list); not blacklisted
---   teams  members of the other teams who play that spec there (team = its name, teamId)
--- A player shows once (the first group). Each list: that spec first, online first, then by key.
+-- Who could fill an open slot (class c, spec sp) of a lineup's comp, in six groups (the agreed order):
+--   unassigned  the roster members in none of the lineup's groups: that spec, then the class in another spec
+--               (other = true)
+--   waitlist    the lineup's waitlist: the same rule; n = their place in line
+--   extra       the roster members in a group no slot takes, of that class (another spec: they could switch)
+--   alts        the roster members' other characters (each vouches for the other) at level 70, not on the roster:
+--               the same rule as unassigned; of = the member
+--   guild       the rest of the guild at level 70, on no roster, no waitlist of this lineup and no alt of the roster,
+--               playing that spec (latest sign-up, else BiS list); not blacklisted
+--   teams       members of the other teams who play that spec in one of their lineups (team = its name, teamId)
+-- A player shows once (the first group). Each list: that spec first, then online first (the waitlist: its order),
+-- then by key.
 function RaidPlan:CanFill(team, c, sp)
-    local out = { bench = {}, extra = {}, alts = {}, guild = {}, teams = {} }
+    local out = { unassigned = {}, waitlist = {}, extra = {}, alts = {}, guild = {}, teams = {} }
     local t = self:ResolveTeam(team)
     if not t or not IsInt(sp, 1, SpecCount(c)) then return out end
     local G = Guild()
@@ -2230,15 +2505,20 @@ function RaidPlan:CanFill(team, c, sp)
         list[#list + 1] = e
     end
     for _, key in ipairs(t.members) do taken[key] = true end
-    -- 1. the benched members, 2. those in a group beyond the comp
+    -- 1. unassigned, 2. the waitlist, 3. in a group beyond the comp
     local m = t.comp and self:MatchTeam(t)
-    for _, b in ipairs(m and m.benched or {}) do
-        if b.c == c then add(out.bench, b.key, b.c, b.sp) end
+    local _, unassigned = self:GetTeamPlaced(t)
+    for _, b in ipairs(unassigned) do
+        if b.c == c then add(out.unassigned, b.key, b.c, b.sp) end
+    end
+    for _, b in ipairs(self:GetWaitlist(t)) do
+        taken[b.key] = true
+        if b.c == c then add(out.waitlist, b.key, b.c, b.sp, { n = b.n }) end
     end
     for _, b in ipairs(m and m.bench or {}) do
         if b.c == c then add(out.extra, b.key, b.c, b.sp) end
     end
-    -- 3. alts of the team's members
+    -- 4. alts of the roster
     local altOf = {}
     for _, key in ipairs(t.members) do
         for _, alt in ipairs(Linked(key)) do
@@ -2249,7 +2529,7 @@ function RaidPlan:CanFill(team, c, sp)
             end
         end
     end
-    -- 4. the rest of the guild
+    -- 5. the rest of the guild
     local teams = self:GetTeams()
     local onTeam = {}
     for _, o in ipairs(teams) do
@@ -2262,19 +2542,25 @@ function RaidPlan:CanFill(team, c, sp)
             add(out.guild, key, c, sp)
         end
     end
-    -- 5. the other teams
+    -- 6. the other teams (the spec they play in any of their lineups)
     for _, o in ipairs(teams) do
         if o.id ~= t.id then
             for _, key in ipairs(o.members) do
                 if not taken[key] then
-                    local osp, oc = self:GetMemberSpec(key, o)
-                    if oc == c and osp == sp then add(out.teams, key, c, sp, { team = o.name, teamId = o.id }) end
+                    for _, l in ipairs(o.lineups) do
+                        local osp, oc = self:GetMemberSpec(key, l)
+                        if oc == c and osp == sp then
+                            add(out.teams, key, c, sp, { team = o.name, teamId = o.id })
+                            break
+                        end
+                    end
                 end
             end
         end
     end
     local function order(a, b)
         if a.other ~= b.other then return not a.other end
+        if a.n and b.n then return a.n < b.n end
         if a.online ~= b.online then return a.online end
         return a.key < b.key
     end
@@ -2282,14 +2568,33 @@ function RaidPlan:CanFill(team, c, sp)
     return out
 end
 
--- The team whose comp a raid (a view or an id) uses for its open slots: the first of its teams (in its order) with a
--- comp and the raid's size, or nil.
+-- The lineup a raid (a view or an id) uses of one of its teams: the one it names (tl) when that is of the raid's size,
+-- else the team's first of that size. Returns the lineup (a GetTeam lineup) and the team, or nil.
+function RaidPlan:GetRaidLineup(occId, teamId)
+    local v = AsView(occId)
+    local t = v and self:GetTeam(teamId)
+    if not t then return nil end
+    local want = v.tl and v.tl[teamId]
+    local first
+    for _, l in ipairs(t.lineups) do
+        if l.size == v.sz then
+            if l.id == want then return l, t end
+            first = first or l
+        end
+    end
+    if not first then return nil end
+    return first, t
+end
+
+-- The lineup whose comp a raid (a view or an id) uses for its open slots: of its teams (in its order), the first
+-- whose lineup for the raid (GetRaidLineup) has a comp. ResolveTeam's shape (id = the team's, ln, name, members =
+-- the roster, comp), or nil.
 function RaidPlan:GetRaidCompTeam(occId)
     local v = AsView(occId)
     if not v then return nil end
     for _, id in ipairs(v.tm or {}) do
-        local t = self:GetTeam(id)
-        if t and t.comp and t.size == v.sz then return t end
+        local l = self:GetRaidLineup(v, id)
+        if l and l.comp then return self:ResolveTeam({ id = id, ln = l.id }) end
     end
     return nil
 end
@@ -2320,8 +2625,8 @@ function RaidPlan:GetRaidOpenSlots(occId)
     for _, o in ipairs(m.open) do
         for _ = 1, o.n do slots[#slots + 1] = { c = o.c, sp = o.sp, role = o.role, name = o.name } end
     end
-    return { teamId = t.id, teamName = t.name, size = v.sz, wanted = m.total, filled = m.filled,
-             openCount = m.openCount, open = m.open, slots = slots, match = m }
+    return { teamId = t.id, teamName = t.name, ln = t.ln, lineupName = t.lineupName, size = v.sz, wanted = m.total,
+             filled = m.filled, openCount = m.openCount, open = m.open, slots = slots, match = m }
 end
 
 -- Who could fill an open slot of a raid (its tooltip): { unanswered = the comp team's members of that spec who
@@ -2367,8 +2672,9 @@ function RaidPlan:RaidCanFill(occId, c, sp)
     return out
 end
 
--- The raid-buff strip of a team (RaidComp:BuffStates): lit = whose slot is filled, planned = the open slots. Without
--- a comp: the members in a group, nothing planned (benched members bring nothing).
+-- The raid-buff strip of a lineup (RaidComp:BuffStates): lit = whose slot is filled, planned = the open slots.
+-- Without a comp: the roster members in its groups, nothing planned (unassigned and waitlisted players bring
+-- nothing).
 function RaidPlan:GetTeamBuffStates(team)
     local Comp = ns.RaidComp
     local m = self:MatchTeam(team)
@@ -2397,27 +2703,31 @@ function RaidPlan:GetRaidBuffStates(occId, have)
 end
 
 -- The team's next raid: the first raid that invites it, not cancelled, that starts later or started at most 6 hours
--- ago (as the Teams page lists them). A view, or nil.
-function RaidPlan:GetTeamNextRaid(teamId)
+-- ago (as the Teams page lists them); with ln, the first that uses that lineup (GetRaidLineup). A view, or nil.
+function RaidPlan:GetTeamNextRaid(teamId, ln)
     if type(teamId) ~= "string" then return nil end
     for _, v in ipairs(self:GetRaids(Now() - 6 * 3600)) do
         if not v.cancelled then
             for _, id in ipairs(v.tm or {}) do
-                if id == teamId then return v end
+                if id == teamId then
+                    local l = ln and self:GetRaidLineup(v, id)
+                    if not ln or (l and l.id == ln) then return v end
+                end
             end
         end
     end
     return nil
 end
 
--- The LF line for the team's open slots (an id or the draft): "<Guild> LF Holy Paladin, Survival Hunter · SSC Sun
--- 20:00 · /w me" (the next raid's short name, day and time), at most 255 bytes; nil without open slots.
+-- The LF line for a lineup's open slots (any ResolveTeam form): "<Guild> LF Holy Paladin, Survival Hunter · SSC Sun
+-- 20:00 · /w me" (the next raid of that lineup: short name, day and time), at most 255 bytes; nil without open
+-- slots.
 function RaidPlan:GetLFMessage(team)
     local t = self:ResolveTeam(team)
     if not t then return nil end
     local open = self:GetTeamOpenSlots(t)
     if #open == 0 then return nil end
-    local v = t.id and self:GetTeamNextRaid(t.id)
+    local v = t.id and self:GetTeamNextRaid(t.id, t.ln)
     local when = v and (ns.RaidComp:ShortRaidName(v) .. " " .. date("%a %H:%M", v.t)) or nil
     local G = Guild()
     return ns.RaidComp:LFLine(G and G.GetGuildName and G:GetGuildName() or nil, open, when)
@@ -2487,10 +2797,14 @@ local function Commit(root, kind, rec)
     return true
 end
 
--- members: a set { [key] = true } or an array of keys. id = nil creates a team. opts (optional): { size = 10|25,
--- specs = { [key] = spec index }, groups = { [key] = 1..8 }, seats = { [key] = 1..5 } } (nil keeps the team's current ones). Returns ok, idOrErr.
--- opts.comp: the target comp (Core/RaidComp.lua; nil keeps it, false clears it); refused when it has more slots
--- than the team's size.
+-- members: a set { [key] = true } or an array of keys (the roster). id = nil creates a team. opts (optional):
+--   lineups = { { id = lineup id|nil (a new one), name = text|nil, size = 10|25, specs = { [key] = spec index },
+--               groups = { [key] = 1..8 }, seats = { [key] = 1..5 }, comp = cp|nil }, ... }: every lineup, in order
+--               (1.3.2; at most 10, at least one)
+--   or, for one lineup (ln = its id, default the first; a new team gets one): size = 10|25, specs, groups, seats,
+--   comp (Core/RaidComp.lua; false clears it): nil keeps the lineup's current ones.
+-- A comp with more slots than its lineup's size is refused. Roster members who were on a waitlist of the team are
+-- taken off it. Returns ok, idOrErr.
 function RaidPlan:SaveTeam(id, name, members, opts)
     local root, err = RequireOrganizer("teams")
     if not root then return false, err end
@@ -2509,30 +2823,75 @@ function RaidPlan:SaveTeam(id, name, members, opts)
     if id and not cur then return false, "unknown team" end
     id = id or NewId()
     opts = type(opts) == "table" and opts or {}
-    local rec = { id = id, rev = NextRev(cur), by = Util.PlayerKey(), n = name, m = list }
-    rec.sz = opts.size or (cur and cur.sz) or nil
-    rec.s = opts.specs or (cur and cur.s) or nil
-    rec.grp = opts.groups or (cur and cur.grp) or nil
-    rec.gs = opts.seats or (not opts.groups and cur and cur.gs) or nil
-    if rec.sz ~= nil and not SIZES[rec.sz] then return false, "Team size must be 10 or 25." end
-    if rec.s and not next(rec.s) then rec.s = nil end
-    if rec.grp and not next(rec.grp) then rec.grp = nil end
     local Comp = ns.RaidComp
-    if opts.comp == false then
-        rec.cp = nil
-    elseif opts.comp ~= nil then
-        local cp = Comp:CleanComp(opts.comp, 1000)
-        if cp == false then return false, "That target comp is not valid." end
-        rec.cp = cp
+    local lineups = {}
+    if type(opts.lineups) == "table" then
+        for i, l in ipairs(opts.lineups) do
+            if type(l) ~= "table" then return false, "invalid lineup" end
+            lineups[i] = { id = l.id, n = l.name, sz = l.size, s = l.specs, grp = l.groups, gs = l.seats,
+                           cp = l.comp or nil }
+        end
     else
-        rec.cp = cur and cur.cp or nil
+        for i, l in ipairs(cur and Lineup.Of(cur) or { { id = "1", sz = 25 } }) do
+            lineups[i] = { id = l.id, n = l.n, sz = l.sz, s = l.s, grp = l.grp, gs = l.gs, cp = l.cp }
+        end
+        local l = lineups[1]
+        for _, x in ipairs(lineups) do
+            if x.id == opts.ln then l = x end
+        end
+        if opts.ln ~= nil and l.id ~= opts.ln then return false, "unknown lineup" end
+        l.sz = opts.size or l.sz
+        l.s = opts.specs or l.s
+        if opts.groups then l.grp, l.gs = opts.groups, opts.seats
+        elseif opts.seats then l.gs = opts.seats end
+        if opts.comp == false then l.cp = nil elseif opts.comp ~= nil then l.cp = opts.comp end
     end
-    local slots = rec.cp and Comp:CompSize(rec.cp) or 0
-    if slots > (rec.sz or 25) then
-        return false, ("The target comp has %d slots, more than the team's %d."):format(slots, rec.sz or 25)
+    if #lineups == 0 then return false, "A team has at least one lineup." end
+    if #lineups > Lineup.MAX then return false, "A team has at most " .. Lineup.MAX .. " lineups." end
+    -- new lineups get an id no lineup of the team has had in a while (its waitlist would come back with it)
+    local used = {}
+    for _, l in ipairs(lineups) do if l.id then used[l.id] = true end end
+    for ln in pairs(root.W[id] or {}) do used[ln] = true end
+    for i, l in ipairs(lineups) do
+        if l.id == nil then
+            local n = 0
+            repeat
+                n = n + 1
+                l.id = Util.Hash({ id, Now(), i, n, GetTime() }):sub(1, 5)
+            until not used[l.id] and IsId(l.id)
+            used[l.id] = true
+        end
+        if not SIZES[l.sz] then return false, "Team size must be 10 or 25." end
+        if l.s and not next(l.s) then l.s = nil end
+        if l.grp and not next(l.grp) then l.grp, l.gs = nil, nil end
+        if l.cp ~= nil then
+            local cp = Comp:CleanComp(l.cp, 1000)
+            if cp == false then return false, "That target comp is not valid." end
+            l.cp = cp
+        end
+        local slots = l.cp and Comp:CompSize(l.cp) or 0
+        if slots > l.sz then
+            return false, ("The target comp%s has %d slots, more than the team's %d."):format(
+                l.n and (" of " .. l.n) or "", slots, l.sz)
+        end
     end
+    -- the first lineup is mirrored on the fields a client before 1.3.2 reads
+    local first = lineups[1]
+    local rec = { id = id, rev = NextRev(cur), by = Util.PlayerKey(), n = name, m = list, L = lineups,
+                  sz = first.sz, s = first.s, grp = first.grp, gs = first.gs, cp = first.cp }
     local ok, e = Commit(root, "T", rec)
     if not ok then return false, e end
+    -- who joined the roster leaves the team's waitlists
+    local onRoster = {}
+    for _, key in ipairs(list) do onRoster[key] = true end
+    local gone = {}
+    for ln, entries in pairs(root.W[id] or {}) do
+        for key, x in pairs(entries) do
+            if not x.x and onRoster[key] then gone[#gone + 1] = { ln = ln, k = key } end
+        end
+    end
+    tsort(gone, function(a, b) return a.ln .. ":" .. a.k < b.ln .. ":" .. b.k end)
+    Lineup.Write(root, id, gone, function() return { x = true } end)
     return true, id
 end
 
@@ -3184,6 +3543,7 @@ function RaidPlan:OnInit()
         Comm:Register("RPK", OnClaim)
         Comm:Register("RPW", OnWant)
         Comm:Register("RPG", OnGive)
+        Comm:Register("RTW", Lineup.OnLive)
     end
     ns:RegisterSlash("plan", SlashPlan, "list the planned raids and your sign-ups")
     -- The council list decides what is shown: repaint when it changes.
