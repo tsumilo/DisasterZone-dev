@@ -364,7 +364,8 @@ def contract_shape(path, key, r):
     assert first == 'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (
         rel, rel), first
     assert len(src.encode("utf-8")) < 400_000, (key, len(src))
-    assert max(len(x) for x in src.split("\n")) <= 205, key           # (the pieces 200 characters, the comments 120)
+    lines = src.split("\n")
+    assert all(len(x) <= 120 for x in lines if x.startswith("--")), key        # (the comments the code's width)
     assert rec["version"] == 3 and rec["stride"] == 12 and rec["nprims"] == 2 and not rec["plain"], key
     assert rec["pieces"] and all(len(p) <= G.PIECE for p in rec["pieces"][:-1]), key
     assert rec["size"] == G.read_file(path)["size"], key
@@ -390,8 +391,9 @@ def contract_shape(path, key, r):
     # no actor under the scale that cut a hole in game (0.018) - nor under the room's own smallest quad -; quads up to
     # 49 x 33 yd, cubes 0.7 .. 2.3 yd
     small = G.ROOM_SETTINGS.get(key, {}).get("min_scale", G.MIN_SCALE)
+    cube_min = G.ROOM_SETTINGS.get(key, {}).get("min_size", G.MIN_SIZE)
     assert small >= 0.018 and (a[quad, 7] >= small - 1e-9).all() and (a[quad, 7] <= G.QUAD_MAX_SCALE + 1e-9).all()
-    assert (a[cube, 7] >= G.MIN_SIZE - 1e-6).all() and (a[cube, 7] <= G.MAX_SIZE + 1e-6).all()
+    assert cube_min >= 0.7 and (a[cube, 7] >= cube_min - 1e-6).all() and (a[cube, 7] <= G.MAX_SIZE + 1e-6).all()
     assert np.abs(np.linalg.norm(a[:, 8:11], axis=1) - 1).max() < 2e-5
     # a quad's front (its turned model x) lies along its normal (the runtime refuses one off by 0.1 degree; the
     # normal as written is a unit vector to 1e-5)

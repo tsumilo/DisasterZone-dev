@@ -321,7 +321,6 @@ function S.Load(key)
     while #RECENT > KEEP do CACHE[tremove(RECENT, 1)] = nil end
     return set, rec
 end
-S.KEEP = KEEP
 
 -- Is a room's data unpacked and prepared now (its set among the last KEEP)? (tests, debugging)
 function S.Prepared(key)

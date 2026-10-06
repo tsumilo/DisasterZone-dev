@@ -181,9 +181,26 @@ PIECE = 200               # characters per packed piece (as the room files)
 # the exposure probes' spacing - their count is the run's time and memory (Magtheridon: 0.4 M columns at 0.2 yd; the
 # largest rooms would have 5.5 M); a probe seen keeps stand-ins this far off, so coarser probes keep them a little
 # farther from what poses see, and the repair and the check catch what lies between. min_scale: the smallest quad
-# (never under MIN_SCALE's 0.018) - the count, and the file's size, goes with the outlines' length over it; the
-# smallest quads fill the corners of small and slanted faces, so a larger one leaves more of those uncovered.
-ROOM_SETTINGS = {}
+# (never under MIN_SCALE's 0.018) and min_size: the smallest cube (never under MIN_SIZE's 0.7 yd) - the count, and the
+# file's size, goes with the outlines' length over the smallest pieces (raising the quads' alone, cubes fill in for
+# them: Azgalor's terrain 32 k either way); they fill the corners of small and slanted faces, so larger ones leave
+# more of those uncovered.
+# Probes about 1 M columns at most (the rooms of 2 - 5.5 M at 0.2 yd); the four rooms whose placement alone packed to
+# 336 - 529 KB at the defaults (Archimonde 21.9 k, Lurker 25.1 k, Vashj 43.9 k, Azgalor 32.5 k stand-ins) larger
+# smallest pieces, for files well under 400 KB (Azgalor at 0.035 / 1.2 yd: 17.6 k, 327 KB, its faces' area covered
+# 91 % against 94 %).
+ROOM_SETTINGS = {
+    "BlackTemple_Bloodboil": dict(probe_step=0.45),
+    "HyjalSummit_Anetheron": dict(probe_step=0.3),
+    "HyjalSummit_Archimonde": dict(probe_step=0.45, min_scale=0.025, min_size=0.9),
+    "HyjalSummit_Azgalor": dict(probe_step=0.45, min_scale=0.045, min_size=1.4),
+    "HyjalSummit_Kazrogal": dict(probe_step=0.3),
+    "SerpentshrineCavern_Hydross": dict(probe_step=0.45),
+    "SerpentshrineCavern_Lurker": dict(probe_step=0.45, min_scale=0.025, min_size=0.9),
+    "SerpentshrineCavern_Vashj": dict(probe_step=0.45, min_scale=0.04, min_size=1.3),
+    "SunwellPlateau_Felmyst": dict(probe_step=0.3),
+    "TempestKeep_Kaelthas": dict(probe_step=0.3),
+}
 
 # Rooms that are one room (their room files decode to the same payload, the same view): the first key's data file is
 # made once and sets the table for the others too (write_lua checks they are still the same room). A key whose boss
@@ -198,15 +215,15 @@ _DEFAULTS = {}
 def configure(key):
     """Applies ROOM_SETTINGS[key] over the defaults (module settings, as every function reads them) -> the settings
     that differ from the defaults (the data file names them)."""
-    names = {"probe_step": "PROBE_STEP", "min_scale": "MIN_SCALE"}
+    names = {"probe_step": "PROBE_STEP", "min_scale": "MIN_SCALE", "min_size": "MIN_SIZE"}
     g = globals()
     for n in names.values():
         _DEFAULTS.setdefault(n, g[n])
         g[n] = _DEFAULTS[n]
     out = {}
     for k, v in ROOM_SETTINGS.get(key, {}).items():
-        if k == "min_scale" and v < _DEFAULTS["MIN_SCALE"]:
-            raise ValueError("%s: min_scale %g is under the scale proven in game (%g)" % (key, v, _DEFAULTS["MIN_SCALE"]))
+        if k in ("min_scale", "min_size") and v < _DEFAULTS[names[k]]:
+            raise ValueError("%s: %s %g is under the size proven in game (%g)" % (key, k, v, _DEFAULTS[names[k]]))
         g[names[k]] = v
         out[k] = v
     return out
@@ -815,7 +832,6 @@ def expose(room, pr, cams, val_F=None, log=None, harmful_only=False):
     is no wider than that drop looks). harmful_only: only where the ray on past the probe runs through air a model
     can stand in before the room drawn there (a stand-in there would hide one; seen under a floor it hides
     nothing)."""
-    nl = pr.P.shape[1]
     for ci, cam in enumerate(cams):
         scale = (val_F or cam.F) / cam.F
         if log and (ci + 1) % 100 == 0:
@@ -827,66 +843,81 @@ def expose(room, pr, cams, val_F=None, log=None, harmful_only=False):
         cols = np.nonzero(live[pr.reg])[0]
         if not len(cols):
             continue
-        nc = len(cols)
-        Pc, nrm = pr.P[cols], pr.n[cols]
-        flatP = Pc.reshape(-1, 3)
         zb, fb = render_room(room, cam)
-        facing = (np.einsum("ij,j->i", nrm, cam.C)[:, None] > pr.thr[cols])
-        seen = np.zeros(nc * nl, bool)
-        sxy = np.zeros((nc * nl, 2))
-        idx = np.nonzero(facing.reshape(-1))[0]
-        q = cam.to_cam(flatP[idx])
-        front = q[:, 2] > cam.near
-        idx, q = idx[front], q[front]
-        sx = cam.cx + cam.F * q[:, 0] / q[:, 2]
-        sy = cam.cy - cam.F * q[:, 1] / q[:, 2]
-        sxy[idx, 0], sxy[idx, 1] = sx, sy
-        inv = (sx >= 0) & (sx < cam.W) & (sy >= 0) & (sy < cam.H)
-        idx, sx, sy = idx[inv], sx[inv], sy[inv]
-        f = fb[sy.astype(int), sx.astype(int)]
-        d = flatP[idx] - cam.C
-        dist = np.linalg.norm(d, axis=1)
-        hid = np.zeros(len(idx), bool)
-        k = f >= 0
-        if k.any():
-            Nf, df = room.N[f[k]], room.d[f[k]]
-            den = np.einsum("ij,ij->i", Nf, d[k]) / dist[k]
-            with np.errstate(divide="ignore", invalid="ignore"):
-                zp = (df - Nf @ cam.C) / den
-            hid[k] = np.isfinite(zp) & (zp > 0) & (zp < dist[k] - EPS_OVER)
-        seen[idx[~hid]] = True
-        seen = seen.reshape(nc, nl)
-        if not seen.any():
-            continue
-        # the run of seen points down each column, from the last hidden one above it (or the front)
-        lev = np.arange(nl)[None, :]
-        last_hidden = np.maximum.accumulate(np.where(seen, -1, lev), axis=1)
-        start = np.maximum(last_hidden, 0)
-        S = sxy.reshape(nc, nl, 2)
-        rows = np.arange(nc)[:, None]
-        run = np.linalg.norm(S - S[rows, start], axis=2) * scale
-        # a front point: the drop from the face above it (the face point nearer than the near clip: no bound)
-        c0 = np.nonzero(seen[:, 0])[0]
-        if len(c0):
-            qf = cam.to_cam(Pc[c0, 0] + MARGIN * nrm[c0])
-            ok0 = qf[:, 2] > cam.near
-            r0 = np.full(len(c0), np.inf)
-            fx = cam.cx + cam.F * qf[ok0, 0] / qf[ok0, 2]
-            fy = cam.cy - cam.F * qf[ok0, 1] / qf[ok0, 2]
-            r0[ok0] = np.hypot(fx - S[c0[ok0], 0, 0], fy - S[c0[ok0], 0, 1]) * scale
-            run[c0, 0] = r0
-        got = (seen & (run >= TOL_PX)).reshape(-1)
-        if harmful_only:
-            # then only those a model could be behind (as the check erodes first, then asks where a model could
-            # be), asked of the points no pose has marked yet
-            vis = np.nonzero(~hid)[0]
-            vis = vis[got[idx[vis]] & ~pr.exposed[cols].reshape(-1)[idx[vis]]]
-            got[:] = False
-            if len(vis):
-                zr = zb[sy[vis].astype(int), sx[vis].astype(int)]
-                got[idx[vis]] = _air_beyond(room, cam.C, d[vis] / dist[vis][:, None], dist[vis], zr)
-        pr.exposed[cols] |= got.reshape(nc, nl)
+        # (in pieces of columns: each column is decided on its own, and a piece's arrays stay in the cache - a
+        # large room's million columns at once spent most of the time moving memory; a run of columns is a view)
+        for a in range(0, len(cols), EXPOSE_PIECE):
+            cc = cols[a:a + EXPOSE_PIECE]
+            if cc[-1] - cc[0] == len(cc) - 1:
+                cc = slice(int(cc[0]), int(cc[-1]) + 1)
+            _expose_piece(room, pr, cam, cc, zb, fb, scale, harmful_only)
     return pr
+
+
+EXPOSE_PIECE = 40000      # probe columns per piece (expose())
+
+
+def _expose_piece(room, pr, cam, cols, zb, fb, scale, harmful_only):
+    """expose() for one pose and some of the live columns (cols: indices or a slice), the room drawn (zb, fb)."""
+    nl = pr.P.shape[1]
+    Pc, nrm = pr.P[cols], pr.n[cols]
+    nc = len(Pc)
+    flatP = Pc.reshape(-1, 3)
+    facing = (np.einsum("ij,j->i", nrm, cam.C)[:, None] > pr.thr[cols])
+    seen = np.zeros(nc * nl, bool)
+    sxy = np.zeros((nc * nl, 2))
+    idx = np.nonzero(facing.reshape(-1))[0]
+    q = cam.to_cam(flatP[idx])
+    front = q[:, 2] > cam.near
+    idx, q = idx[front], q[front]
+    sx = cam.cx + cam.F * q[:, 0] / q[:, 2]
+    sy = cam.cy - cam.F * q[:, 1] / q[:, 2]
+    sxy[idx, 0], sxy[idx, 1] = sx, sy
+    inv = (sx >= 0) & (sx < cam.W) & (sy >= 0) & (sy < cam.H)
+    idx, sx, sy = idx[inv], sx[inv], sy[inv]
+    f = fb[sy.astype(int), sx.astype(int)]
+    d = flatP[idx] - cam.C
+    dist = np.linalg.norm(d, axis=1)
+    hid = np.zeros(len(idx), bool)
+    k = f >= 0
+    if k.any():
+        Nf, df = room.N[f[k]], room.d[f[k]]
+        den = np.einsum("ij,ij->i", Nf, d[k]) / dist[k]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            zp = (df - Nf @ cam.C) / den
+        hid[k] = np.isfinite(zp) & (zp > 0) & (zp < dist[k] - EPS_OVER)
+    seen[idx[~hid]] = True
+    seen = seen.reshape(nc, nl)
+    if not seen.any():
+        return
+    # the run of seen points down each column, from the last hidden one above it (or the front)
+    lev = np.arange(nl)[None, :]
+    last_hidden = np.maximum.accumulate(np.where(seen, -1, lev), axis=1)
+    start = np.maximum(last_hidden, 0)
+    S = sxy.reshape(nc, nl, 2)
+    rows = np.arange(nc)[:, None]
+    run = np.linalg.norm(S - S[rows, start], axis=2) * scale
+    # a front point: the drop from the face above it (the face point nearer than the near clip: no bound)
+    c0 = np.nonzero(seen[:, 0])[0]
+    if len(c0):
+        qf = cam.to_cam(Pc[c0, 0] + MARGIN * nrm[c0])
+        ok0 = qf[:, 2] > cam.near
+        r0 = np.full(len(c0), np.inf)
+        fx = cam.cx + cam.F * qf[ok0, 0] / qf[ok0, 2]
+        fy = cam.cy - cam.F * qf[ok0, 1] / qf[ok0, 2]
+        r0[ok0] = np.hypot(fx - S[c0[ok0], 0, 0], fy - S[c0[ok0], 0, 1]) * scale
+        run[c0, 0] = r0
+    got = (seen & (run >= TOL_PX)).reshape(-1)
+    if harmful_only:
+        # then only those a model could be behind (as the check erodes first, then asks where a model could
+        # be), asked of the points no pose has marked yet
+        vis = np.nonzero(~hid)[0]
+        vis = vis[got[idx[vis]] & ~pr.exposed[cols].reshape(-1)[idx[vis]]]
+        got[:] = False
+        if len(vis):
+            zr = zb[sy[vis].astype(int), sx[vis].astype(int)]
+            got[idx[vis]] = _air_beyond(room, cam.C, d[vis] / dist[vis][:, None], dist[vis], zr)
+    pr.exposed[cols] |= got.reshape(nc, nl)
 
 
 def blocked_masks(g, ri, pr, us, vs, r):
@@ -907,6 +938,13 @@ def blocked_masks(g, ri, pr, us, vs, r):
         m = window(np.pad(m, rad, constant_values=False), 2 * rad + 1, np.maximum)
         out.append(m)
     return out
+
+
+def _gains(covered, fit, kv, ku):
+    """Could _greedy place anything at this footprint (some fitting cell still gains enough)? Gains only fall as
+    stand-ins are placed, so where this says no, no round would take one: the costlier tests are skipped."""
+    gain = box_sums(integral((~covered).astype(np.float64)), kv, ku)
+    return bool((fit & (gain >= max(1.0, MIN_GAIN * kv * ku))).any())
 
 
 def _greedy(covered, fit, kv, ku, fv, fu, try_at):
@@ -995,6 +1033,7 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None
         near_line = window(m, 2 * rad + 1, np.maximum)
         near_line = integral(near_line.astype(np.float64))
     inside_sum = integral(cell_in.astype(np.float64))
+    blocked_sum = [integral(m.astype(np.float64)) for m in blocked] if blocked is not None else None
     covered = ~cell_in
     out = []
     rejected = 0
@@ -1022,9 +1061,11 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None
             if ku > cell_in.shape[1] or kv > cell_in.shape[0]:
                 continue
             fit = box_sums(inside_sum, kv, ku) >= kv * ku - 0.5
+            if not fit.any() or not _gains(covered, fit, kv, ku):
+                continue
             fit &= window(thick, kv, np.minimum, ku) >= MARGIN + BACK_GAP
             if blocked is not None:
-                fit &= box_sums(integral(blocked[0].astype(np.float64)), kv, ku) < 0.5
+                fit &= box_sums(blocked_sum[0], kv, ku) < 0.5
             if near_line is not None:
                 fit &= box_sums(near_line, kv, ku) < 0.5
             if not fit.any():
@@ -1043,9 +1084,11 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None
             if s_eff < MIN_SIZE - 1e-9:
                 continue
             fit = box_sums(inside_sum, k) >= k * k - 0.5
+            if not fit.any() or not _gains(covered, fit, k, k):
+                continue
             fit &= window(thick, k, np.minimum) >= s_eff + MARGIN + BACK_GAP
             if blocked is not None:
-                fit &= box_sums(integral(blocked[1 + level_of(g, s_eff)].astype(np.float64)), k) < 0.5
+                fit &= box_sums(blocked_sum[1 + level_of(g, s_eff)], k) < 0.5
             if near_line is not None:
                 # (where a line crosses the front plane it runs through a cube's front too: such a cube is cut)
                 fit &= box_sums(near_line, k) < 0.5
@@ -1984,11 +2027,13 @@ class Caster:
         P = room.V[room.T]
         self.P0, self.E1, self.E2 = P[:, 0], P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]
 
-    def hits(self, O, D, tmax, chunk=64, seg=6.0):
+    def hits(self, O, D, tmax, chunk=64, seg=6.0, cams=None):
         """Every opaque face met by O + t D, 1e-4 < t <= tmax -> ray indices, faces, t (flat arrays; a face met
         right where two pieces of a ray join may come twice). Long rays are cut into pieces of seg yd, and the pieces
         are taken in chunks by where they lie, so each chunk's box - the faces it is tested against - stays small (a
-        long slanted ray's own box holds a good share of the room)."""
+        long slanted ray's own box holds a good share of the room). cams (one point per ray): only faces drawn to
+        some camera of a chunk are tested in it - the caller keeps the hits on faces drawn to the ray's own camera, a
+        subset of these."""
         O, D, tmax = np.asarray(O, float), np.asarray(D, float), np.asarray(tmax, float)
         npc = np.maximum(1, np.ceil(tmax / seg).astype(np.int64))
         rep = np.repeat(np.arange(len(O)), npc)
@@ -2008,6 +2053,10 @@ class Caster:
             hi = np.maximum(o, ends).max(0) + 1e-3
             f = self.index.near(lo, hi)
             f = f[self.room.opaque[f]]
+            if cams is not None and len(f):
+                C = cams[rep[sel]]
+                s = self.room.NP[f] @ C.T + self.room.NPd[f][:, None]
+                f = f[((self.room.QO[f][:, None] * s) > EPS_SIDE - 1e-9).any(1)]     # (a hair loose)
             if not len(f):
                 continue
             # (component by component: np.cross on (rays, faces, 3) arrays copies a lot)
@@ -2089,7 +2138,7 @@ def _harmful(room, g, cast, dom, P, Wd, D, box, counts):
     blocked = np.zeros(len(Pc), bool)
     sel = np.nonzero(tmax > 1e-4)[0]
     if len(sel):
-        r_, f_, _ = cast.hits(Pc[sel], Wc[sel], tmax[sel])
+        r_, f_, _ = cast.hits(Pc[sel], Wc[sel], tmax[sel], cams=Cv[sel])
         if len(r_):
             sv = np.einsum("ij,ij->i", room.NP[f_], Cv[sel][r_]) + room.NPd[f_]
             dr = room.QO[f_] * sv > EPS_SIDE
@@ -2103,7 +2152,7 @@ def _harmful(room, g, cast, dom, P, Wd, D, box, counts):
     # comes before it; a cube on the line matters only where air lies behind the point the line enters it, so the
     # line is kept up to its last air before that face
     last_any = np.where(a, s, -np.inf).max(1)
-    r_, f_, t_ = cast.hits(Pc, -Wc, last_any + AIR_STEP)
+    r_, f_, t_ = cast.hits(Pc, -Wc, last_any + AIR_STEP, cams=Cv)
     back = np.full(len(Pc), np.inf)
     if len(r_):
         sv = np.einsum("ij,ij->i", room.NP[f_], Cv[r_]) + room.NPd[f_]
@@ -2718,6 +2767,7 @@ def lua_text(key, cubes=None, recs=None, stamp=None, checked=None, settings=None
     if settings:
         made = " A large room: made with %s." % " and ".join(
             {"min_scale": "a smallest quad of scale %g" % settings.get("min_scale", 0),
+             "min_size": "a smallest cube of %g yd" % settings.get("min_size", 0),
              "probe_step": "the exposure probes %g yd apart" % settings.get("probe_step", 0)}[k]
             for k in sorted(settings))
     also = (" It is also the data of %s: the same room." % ", ".join(same)) if same else ""
