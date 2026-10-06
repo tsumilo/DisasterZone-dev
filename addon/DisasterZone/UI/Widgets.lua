@@ -765,7 +765,7 @@ local function StepSkins(self, elapsed)
     for f, s in pairs(easing) do
         local cur, tgt, settled = s.cur, s.tgt, true
         local shown = f:IsVisible()
-        for i = 1, NV do
+        for i = 1, s.n do
             local d = tgt[i] - cur[i]
             if shown and (d > 0.004 or d < -0.004) then
                 cur[i] = cur[i] + d * k
@@ -774,7 +774,7 @@ local function StepSkins(self, elapsed)
                 cur[i] = tgt[i]
             end
         end
-        ApplyLook(f, cur)
+        s.apply(f, cur)
         if s.sweep then
             s.sweep = shown and s.sweep + elapsed / SHEEN_TIME or 1
             if s.sweep >= 1 then s.sweep = nil else settled = false end
@@ -790,6 +790,25 @@ local function Ease(f)
     skinDriver:SetScript("OnUpdate", StepSkins)
 end
 
+-- Moves f's look (f.cdlLook = { n, apply(f, v), cur, tgt }) to v: eased, or at once while f is hidden, the first
+-- time, or with instant.
+local function EaseTo(f, v, instant)
+    local s = f.cdlLook
+    local tgt, cur, same = s.tgt, s.cur, true
+    for i = 1, s.n do
+        tgt[i] = v[i]
+        local d = v[i] - (cur[i] or 0)
+        if d > 0.004 or d < -0.004 then same = false end
+    end
+    if instant or not s.painted or not f:IsVisible() then
+        s.painted = true
+        for i = 1, s.n do cur[i] = v[i] end
+        s.apply(f, cur)
+    elseif not same then
+        Ease(f)
+    end
+end
+
 -- Gives button b the finish: b.bg (the fill, inside the edges), b.edges (open corners), b.shine (the light inside the
 -- top edge). Its look is set by SetLook.
 local function Skin(b)
@@ -803,22 +822,13 @@ local function Skin(b)
     b.shine:SetPoint("TOPRIGHT", -1, -1)
     b.shine:SetHeight(1)
     b.shine:SetColorTexture(1, 1, 1, 1)
-    b.cdlLook = { cur = {}, tgt = {} }
+    b.cdlLook = { n = NV, apply = ApplyLook, cur = {}, tgt = {} }
 end
 
--- Moves b to look v (NV numbers; shine = the shine's r, g, b): eased, or at once while b is hidden, the first time,
--- or with instant.
+-- Moves b to look v (NV numbers; shine = the shine's r, g, b).
 local function SetLook(b, v, shine, instant)
-    local s = b.cdlLook
-    for i = 1, NV do s.tgt[i] = v[i] end
     b.shine:SetColorTexture(shine[1], shine[2], shine[3], 1)
-    if instant or not s.painted or not b:IsVisible() then
-        s.painted = true
-        for i = 1, NV do s.cur[i] = v[i] end
-        ApplyLook(b, s.cur)
-    else
-        Ease(b)
-    end
+    EaseTo(b, v, instant)
 end
 
 -- The look of style s (a SLEEK entry) as SetLook takes it: hot = hovered (or its menu is down), pressed, off =
@@ -942,65 +952,57 @@ end
 -- b:SetKind(kind) restyles it.
 -- b:SetTint(r, g, b) paints it in that colour instead (a chosen answer); b:SetTint(nil) goes back to its kind.
 -- b:SetLit(on): gold edges while the menu it opened is down (UI:ContextMenu sets it).
+-- Changes of look ease in; hovering sweeps a light across it, a click flashes it (the skin above).
 function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
     local b = CreateFrame("Button", nil, parent)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    UI:AddEdges(b)
+    Skin(b)
     local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     fs:SetPoint("CENTER", 0, 0)
     b:SetFontString(fs)
     b:SetText(text or "")
     b:SetSize(width or ((fs:GetStringWidth() or 40) + 24), height or 22)
-    local function paint(self)
-        local enabled = self:IsEnabled()
+    local function style(self)
         -- a disabled button is plain grey whatever its kind (a Save with nothing to save is not gold)
-        local s = enabled and (SLEEK[self.kind] or SLEEK.secondary) or SLEEK.secondary
-        local c = (enabled and self.hovered) and s.hover or s.bg
-        local e, t = s.edge, s.text
+        return self:IsEnabled() and (SLEEK[self.kind] or SLEEK.secondary) or SLEEK.secondary
+    end
+    function b:cdlPaint(instant)
+        local enabled = self:IsEnabled()
+        local s = style(self)
+        local hot = enabled and (self.hovered or self.lit)
+        local t = hot and s.hoverText or s.text
         local tint = self.tint
+        local v, shine
         if tint then
-            local k = (enabled and self.hovered) and 0.4 or 0.3
-            c = { tint[1] * k, tint[2] * k, tint[3] * k, 0.95 }
-            e = { tint[1], tint[2], tint[3], 0.9 }
-            t = tint
+            local k = hot and 0.46 or 0.36
+            v = LookOf(s, hot, enabled and self.pressed, not enabled,
+                { tint[1], tint[2], tint[3], hot and 1 or 0.85 },
+                { tint[1] * k, tint[2] * k, tint[3] * k, 0.95 },
+                { tint[1] * k * 0.62, tint[2] * k * 0.62, tint[3] * k * 0.62, 0.95 })
+            t, shine = tint, tint
+        else
+            v = LookOf(s, hot, enabled and self.pressed, not enabled, (self.lit and enabled) and LIT_EDGE or nil)
+            shine = s.shine
         end
-        if self.lit and enabled and not tint then e = LIT_EDGE end
-        self.bg:SetColorTexture(c[1], c[2], c[3], c[4])
-        UI:SetEdgeColor(self, e[1], e[2], e[3], enabled and e[4] or e[4] * 0.4)
+        SetLook(self, v, shine, instant)
         if enabled then fs:SetTextColor(t[1], t[2], t[3]) else fs:SetTextColor(0.45, 0.45, 0.45) end
     end
     function b:SetKind(k)
         self.kind = k or "secondary"
-        paint(self)
+        self:cdlPaint()
     end
     function b:SetTint(r, g, bl)
         self.tint = r and { r, g, bl } or nil
-        paint(self)
+        self:cdlPaint()
     end
     function b:SetLit(on)
         self.lit = on and true or nil
-        paint(self)
+        self:cdlPaint()
     end
-    b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
-    b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
-    -- a caller's own OnEnter / OnLeave (a tooltip) keeps the hover look
-    local setScript = b.SetScript
-    function b:SetScript(name, fn)
-        if (name == "OnEnter" or name == "OnLeave") and type(fn) == "function" then
-            local hover = name == "OnEnter"
-            return setScript(self, name, function(f, ...)
-                f.hovered = hover
-                paint(f)
-                return fn(f, ...)
-            end)
-        end
-        return setScript(self, name, fn)
-    end
-    b:SetScript("OnEnable", paint)
-    b:SetScript("OnDisable", paint)
-    b:SetScript("OnMouseDown", function(self) if self:IsEnabled() then fs:SetPoint("CENTER", 1, -1) end end)
-    b:SetScript("OnMouseUp", function() fs:SetPoint("CENTER", 0, 0) end)
+    -- a caller's own OnEnter / OnLeave (a tooltip) or press scripts keep the look
+    KeepLookScripts(b, function(self)
+        local s = style(self)
+        Sweep(self, self.tint and 0.16 or s.sheen, self.tint or s.shine)
+    end)
     b:RegisterForClicks("LeftButtonUp")
     if onClick then b:SetScript("OnClick", function(self, mouseButton) onClick(self, mouseButton) end) end
     b:SetKind(kind)
@@ -1008,54 +1010,48 @@ function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
 end
 
 -- A square icon button for toolbars: texture + texcoords (l, r, t, b). b:SetActive(on) marks the current tool (the
--- "chosen" look).
+-- "chosen" look). The same finish and motion as the sleek buttons.
 function UI:CreateIconButton(parent, size, texture, coords, onClick)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(size, size)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    UI:AddEdges(b)
+    Skin(b)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetPoint("TOPLEFT", 5, -5)
     b.icon:SetPoint("BOTTOMRIGHT", -5, 5)
     b.icon:SetTexture(texture)
     if coords then b.icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4]) end
-    local function paint(self)
+    function b:cdlPaint(instant)
         local enabled = self:IsEnabled()
-        if self.active then
-            local s = SLEEK.chosen
-            local c = (enabled and self.hovered) and s.hover or s.bg
-            self.bg:SetColorTexture(c[1], c[2], c[3], c[4])
-            UI:SetEdgeColor(self, s.edge[1], s.edge[2], s.edge[3], s.edge[4])
+        local s = self.active and SLEEK.chosen or SLEEK.secondary
+        local hot = enabled and self.hovered
+        -- its menu is down: gold edges and icon
+        local lit = self.lit and enabled
+        SetLook(self, LookOf(s, hot or lit, enabled and self.pressed, not enabled, lit and LIT_EDGE or nil), s.shine,
+            instant)
+        if lit then
+            self.icon:SetVertexColor(1, 0.82, 0)
+        elseif self.active then
             self.icon:SetVertexColor(1, 1, 1)
         else
-            local v = (enabled and self.hovered) and 0.2 or 0.1
-            self.bg:SetColorTexture(v, v, v + 0.02, 0.92)
-            UI:SetEdgeColor(self, 0.34, 0.34, 0.38, enabled and 0.9 or 0.35)
-            local ic = enabled and (self.hovered and 1 or 0.82) or 0.35
+            local ic = enabled and (hot and 1 or 0.82) or 0.35
             self.icon:SetVertexColor(ic, ic, ic)
-        end
-        -- its menu is down: gold edges and icon
-        if self.lit and enabled then
-            UI:SetEdgeColor(self, LIT_EDGE[1], LIT_EDGE[2], LIT_EDGE[3], LIT_EDGE[4])
-            self.icon:SetVertexColor(1, 0.82, 0)
         end
     end
     function b:SetActive(on)
         self.active = on and true or false
-        paint(self)
+        self:cdlPaint()
     end
     function b:SetLit(on)
         self.lit = on and true or nil
-        paint(self)
+        self:cdlPaint()
     end
-    b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
-    b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
-    b:SetScript("OnEnable", paint)
-    b:SetScript("OnDisable", paint)
+    KeepLookScripts(b, function(self)
+        local s = self.active and SLEEK.chosen or SLEEK.secondary
+        Sweep(self, s.sheen * 1.3, s.shine)
+    end)
     b:RegisterForClicks("LeftButtonUp")
     if onClick then b:SetScript("OnClick", function(self, mouseButton) onClick(self, mouseButton) end) end
-    paint(b)
+    b:cdlPaint()
     return b
 end
 
@@ -1308,8 +1304,11 @@ function UI:CreateSleekEditBox(parent, width, height, fontObject)
     return eb
 end
 
--- A grey hint inside an edit box while it is empty ("Note for the organizers..."). Hooks the box's scripts, so call
--- it after the caller's own SetScript calls.
+-- A grey hint inside an edit box while it is empty ("Note for the organizers..."). It hooks OnTextChanged, and a
+-- later SetScript("OnTextChanged") of the caller (which drops every hook) hooks it again: the hint never sits under
+-- typed text (the badge designer, 2026-10-06).
+local function HintOnTextChanged(self) self.cdlHint:SetShown((self:GetText() or "") == "") end
+
 function UI:SetEditPlaceholder(eb, text, fontObject)
     if not eb.cdlHint then
         local hint = eb:CreateFontString(nil, "ARTWORK", fontObject or "GameFontDisableSmall")
@@ -1318,7 +1317,12 @@ function UI:SetEditPlaceholder(eb, text, fontObject)
         hint:SetJustifyH("LEFT")
         hint:SetWordWrap(false)
         eb.cdlHint = hint
-        eb:HookScript("OnTextChanged", function(self) self.cdlHint:SetShown((self:GetText() or "") == "") end)
+        eb:HookScript("OnTextChanged", HintOnTextChanged)
+        local setScript = eb.SetScript
+        eb.SetScript = function(self, name, fn, ...)
+            setScript(self, name, fn, ...)
+            if name == "OnTextChanged" then self:HookScript("OnTextChanged", HintOnTextChanged) end
+        end
     end
     eb.cdlHint:SetText(text or "")
     eb.cdlHint:SetShown((eb:GetText() or "") == "")
@@ -1332,6 +1336,42 @@ local TAB_SIZES = {
     page  = { font = "GameFontHighlight", height = 22, pad = 16 },
     small = { font = "GameFontHighlightSmall", height = 18, pad = 12 },
 }
+-- The tabs' motion (text tabs and the main window's icon tabs): the open tab's underline grows out from the middle and
+-- the one it replaces shrinks back into it; hovering a closed tab shows a short faint line; colours ease.
+-- A tab's look: line width (0..1 of the tab), line rgba, label rgb (b.cdlTab(b, r, g, b) colours its text or icon).
+local tabLook = {}
+local function ApplyTab(b, v)
+    local w = ((b:GetWidth() or 0) - 8) * v[1]
+    if w < 1 or v[5] < 0.02 then
+        b.line:Hide()
+    else
+        b.line:SetWidth(w)
+        b.line:SetColorTexture(v[2], v[3], v[4], v[5])
+        b.line:Show()
+    end
+    b:cdlTab(v[6], v[7], v[8])
+end
+
+local function TabLine(b)
+    b.line = b:CreateTexture(nil, "ARTWORK")
+    b.line:SetPoint("BOTTOM", 0, 0)
+    b.line:SetHeight(2)
+    b.line:Hide()
+    b.cdlLook = { n = 8, apply = ApplyTab, cur = {}, tgt = {} }
+end
+
+local function PaintTab(b, instant)
+    local v = tabLook
+    if b.active then
+        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 1, 1, 0.82, 0, 0.9, 1, 0.82, 0
+    elseif b.hovered then
+        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 0.4, 1, 1, 1, 0.28, 1, 1, 1
+    else
+        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 0, 1, 0.82, 0, 0, 0.62, 0.62, 0.62
+    end
+    EaseTo(b, v, instant)
+end
+
 function UI:CreateUnderlineTab(parent, text, onClick, size)
     local s = TAB_SIZES[size or "page"] or TAB_SIZES.page
     local font = s.font
@@ -1342,34 +1382,22 @@ function UI:CreateUnderlineTab(parent, text, onClick, size)
     b:SetFontString(fs)
     b:SetText(text or "")
     b:SetSize((fs:GetStringWidth() or 40) + s.pad, s.height)
+    TabLine(b)
+    function b:cdlTab(r, g, bl) fs:SetTextColor(r, g, bl) end
     function b:SetLabel(t)
         self:SetText(t or "")
         self:SetWidth((fs:GetStringWidth() or 40) + s.pad)
-    end
-    b.line = b:CreateTexture(nil, "ARTWORK")
-    b.line:SetPoint("BOTTOMLEFT", 4, 0)
-    b.line:SetPoint("BOTTOMRIGHT", -4, 0)
-    b.line:SetHeight(2)
-    b.line:SetColorTexture(1, 0.82, 0, 0.9)
-    local function paint(self)
-        self.line:SetShown(self.active and true or false)
-        if self.active then
-            fs:SetTextColor(1, 0.82, 0)
-        elseif self.hovered then
-            fs:SetTextColor(1, 1, 1)
-        else
-            fs:SetTextColor(0.62, 0.62, 0.62)
-        end
+        if self.cdlLook.painted then ApplyTab(self, self.cdlLook.cur) end   -- (the line fits the new width)
     end
     function b:SetActive(on)
         self.active = on and true or false
-        paint(self)
+        PaintTab(self)
     end
-    b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
-    b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    b:SetScript("OnEnter", function(self) self.hovered = true; PaintTab(self) end)
+    b:SetScript("OnLeave", function(self) self.hovered = false; PaintTab(self) end)
     b:RegisterForClicks("LeftButtonUp")
     if onClick then b:SetScript("OnClick", function(self, mouseButton) onClick(self, mouseButton) end) end
-    paint(b)
+    PaintTab(b)
     return b
 end
 
@@ -2975,21 +3003,9 @@ local function CreateNavIcon(parent, def, onClick)
     b.icon:SetPoint("CENTER", 0, 1)
     b.icon:SetTexture(UI.ICON_ATLAS)
     b.icon:SetTexCoord(unpack(UI:IconCoords(def.icon)))
-    b.line = b:CreateTexture(nil, "ARTWORK")
-    b.line:SetPoint("BOTTOMLEFT", 4, 0)
-    b.line:SetPoint("BOTTOMRIGHT", -4, 0)
-    b.line:SetHeight(2)
-    b.line:SetColorTexture(1, 0.82, 0, 0.9)
-    local function paint(self)
-        self.line:SetShown(self.active and true or false)
-        if self.active then
-            self.icon:SetVertexColor(1, 0.82, 0)
-        elseif self.hovered then
-            self.icon:SetVertexColor(1, 1, 1)
-        else
-            self.icon:SetVertexColor(0.62, 0.62, 0.62)
-        end
-    end
+    TabLine(b)
+    function b:cdlTab(r, g, bl) self.icon:SetVertexColor(r, g, bl) end
+    local paint = PaintTab
     function b:SetActive(on)
         self.active = on and true or false
         paint(self)

@@ -2709,8 +2709,10 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
                                      for t, r in zip(("random", "board", "stress"), rd["res"])})))
 
 
-REVIEW_ROUNDS = 3         # review rounds at most (build()): held-out poses that found harm join the repair
-REVIEW_SEEDS = ((8, 29, 41), (9, 31, 43), (10, 47, 53))   # each round's fresh random, board and stress seeds
+REVIEW_ROUNDS = 6         # review rounds at most (build()): held-out poses that found harm join the repair (a
+                          # first held-out set found some in 3 of the first 8 rooms: 6 rounds rarely all do)
+REVIEW_SEEDS = ((8, 29, 41), (9, 31, 43), (10, 47, 53), (12, 59, 61), (13, 67, 71), (14, 73, 79))   # each round's
+                          # fresh random, board and stress seeds
 
 
 # the pose sets a room's data must hide nothing harmful on (random_reach is the rule without the near clip's guard,
