@@ -48,7 +48,7 @@ def it_opens_every_stage_of_the_starter():
         c.eval("ns.EventBuilder:SelectStage(...)", st)
         w.tick(0.2)
     n = c.eval("local S, ui = ns.EventBuilder:GetState(); local n = 0; for _ in pairs(ui.scripts) do n = n + 1 end; return n")
-    assert n == 3, n          # Always: match starts, match ends, bracket done
+    assert n == 4, n          # Always: final is set, match ends, goes offline, Matches done
     assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.status.fs:GetText()") == "Every piece is set"
     w.assert_no_errors()
 
@@ -57,7 +57,7 @@ def it_opens_every_stage_of_the_starter():
 def the_picker_fills_a_blank():
     w, c = one()
     open_starter(c, "*")
-    # empty the whisper's player, then pick "both players" for it in the picker
+    # empty the "show"'s players (under "when Matches final is set"), then pick "both players" for it in the picker
     c.eval("""
         local S = ns.EventBuilder:GetState()
         local s
@@ -65,7 +65,7 @@ def the_picker_fills_a_blank():
         s.top.n.a[1] = nil
         ns.EventBuilder:Refresh()
         local B = ns.EventBlocks
-        ns.EventBuilder:OpenPicker(s, s.top.n, 1, B.PIECES['ch.wh'].args[1], UIParent)""")
+        ns.EventBuilder:OpenPicker(s, s.top.n, 1, B.PIECES['ch.show'].args[1], UIParent)""")
     status = c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.status.fs:GetText()")
     assert "needs" in status, status
     rows = c.eval_py("local S, ui = ns.EventBuilder:GetState(); local out = {}; for _, r in ipairs(ui.picker.rows) do "
@@ -95,36 +95,36 @@ def a_dragged_piece_snaps_under_a_hat():
     open_starter(c, "*")
     c.eval(MOUSE)
     before = script_of(c, "c3")
-    assert before["n"] == "ch.wh"
-    # a "say" from the palette, dropped just under "when Bracket match starts" (x 20, y 22: its body ends at 22 + 42)
+    assert before["n"] == "ch.show"
+    # a "tell" from the palette, dropped just under "when Matches final is set" (x 20, y 22: its body ends at 22 + 42)
     c.eval("""
         MOUSE_DOWN = true
         MOUSE_X, MOUSE_Y = 0, 0
-        ns.EventBuilder:PressNew(ns.EventBlocks:New('ch.say'))
+        ns.EventBuilder:PressNew(ns.EventBlocks:New('ch.tell'))
         MOUSE_X, MOUSE_Y = 20 + 12 + 4, 22 + 42 + 12 + 3
         ns.EventBuilder:OnCanvasUpdate()
         ns.EventBuilder:OnCanvasUpdate()""")
     assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.ghost:IsShown()")
     c.eval("MOUSE_DOWN = false; ns.EventBuilder:OnCanvasUpdate()")
     after = script_of(c, "c3")
-    assert after["n"] == "ch.say" and after["nn"] == "ch.wh", after
+    assert after["n"] == "ch.tell" and after["nn"] == "ch.show", after
     # dropped far from everything: a script of its own
     c.eval("""
         MOUSE_DOWN = true
         MOUSE_X, MOUSE_Y = 0, 0
-        ns.EventBuilder:PressNew(ns.EventBlocks:New('ev.duel'))
+        ns.EventBuilder:PressNew(ns.EventBlocks:New('ev.happen'))
         MOUSE_X, MOUSE_Y = 600, 450
         ns.EventBuilder:OnCanvasUpdate()
         MOUSE_DOWN = false
         ns.EventBuilder:OnCanvasUpdate()""")
     n = c.eval("local S = ns.EventBuilder:GetState(); local n = 0; for _, s in ipairs(S.def.scripts) do "
                "if s.st == '*' then n = n + 1 end end; return n")
-    assert n == 4, n
+    assert n == 5, n
     # undo takes the last one back, redo puts it again
     c.eval("ns.EventBuilder:Undo()")
     n2 = c.eval("local S = ns.EventBuilder:GetState(); local n = 0; for _, s in ipairs(S.def.scripts) do "
                 "if s.st == '*' then n = n + 1 end end; return n")
-    assert n2 == 3, n2
+    assert n2 == 4, n2
     c.eval("ns.EventBuilder:Redo()")
     w.assert_no_errors()
 
@@ -134,20 +134,20 @@ def a_value_drops_into_a_blank_that_takes_it():
     w, c = one()
     open_starter(c, "*")
     c.eval(MOUSE)
-    # the whisper's "both players" blank: find where it is, drop "the host" on it
+    # the "show"'s players blank: find where it is, drop "the host" on it
     pos = c.eval_py("""
         local S, ui = ns.EventBuilder:GetState()
         for s, f in pairs(ui.scripts) do
           if s.id == 'c3' then
             for _, bl in ipairs(f.blanks) do
-              if bl.piece.k == 'ch.wh' and bl.slot == 1 then
+              if bl.piece.k == 'ch.show' and bl.slot == 1 then
                 local x, y = ns.EventPieces:Abs(bl.frame)
                 return { s.x + x + 8, s.y + y + 6 }
               end
             end
             -- the blank holds a value piece: its frame
             for p, pf in pairs(f.at) do
-              if p.k == 'ctx' and p.a[1] == 'both' then
+              if p.k == 'pl.tagged' then   -- ("players with tag Entrants")
                 local x, y = ns.EventPieces:Abs(pf)
                 return { s.x + x + 8, s.y + y + 6, 'value' }
               end
@@ -163,7 +163,7 @@ def a_value_drops_into_a_blank_that_takes_it():
         for s, f in pairs(ui.scripts) do
           if s.id == 'c3' then
             for _, bl in ipairs(f.blanks) do
-              if bl.piece.k == 'ch.wh' and bl.slot == 1 then
+              if bl.piece.k == 'ch.show' and bl.slot == 1 then
                 local x, y = ns.EventPieces:Abs(bl.frame)
                 return { s.x + x + 8, s.y + y + 6 }
               end
@@ -325,7 +325,8 @@ def zoom_steps_ease_and_keep_the_point_under_the_cursor():
     after = c.eval_py(under)
     # the same content point is still under the cursor that moved with it
     assert abs(after[0] - before[0]) < 0.5 and abs(after[1] - before[1]) < 0.5, (before, after)
-    # zoom to fit shows everything inside the canvas
+    # zoom to fit shows everything inside the canvas (the rebuilt starter's Always stage is wider than the canvas: it
+    # fits below 100%, so the scripts' edges are read in the canvas' own scale)
     c.eval("ns.EventBuilder:ZoomToFit()")
     w.tick(0.5)
     inside = c.eval_py("""
@@ -333,10 +334,12 @@ def zoom_steps_ease_and_keep_the_point_under_the_cursor():
         local l, t, r, b = ui.cv:GetLeft(), ui.cv:GetTop(), ui.cv:GetRight(), ui.cv:GetBottom()
         local out = {}
         for s, f in pairs(ui.scripts) do
-          out[#out + 1] = f:GetLeft() >= l - 0.5 and f:GetRight() <= r + 0.5 and f:GetTop() <= t + 0.5 and f:GetBottom() >= b - 0.5
+          local k = f:GetEffectiveScale() / ui.cv:GetEffectiveScale()
+          out[#out + 1] = f:GetLeft() * k >= l - 0.5 and f:GetRight() * k <= r + 0.5 and f:GetTop() * k <= t + 0.5
+            and f:GetBottom() * k >= b - 0.5
         end
-        return out""")
-    assert inside and all(inside), inside
+        return { out, S.view.z < 1 }""")
+    assert inside and all(inside[0]) and len(inside[0]) == 4 and inside[1], inside
     c.eval("__MOCK.real_geometry = nil")
     w.assert_no_errors()
 

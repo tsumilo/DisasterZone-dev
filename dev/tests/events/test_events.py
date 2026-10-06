@@ -2,10 +2,11 @@
 library / calendar / results / season and live runs between clients.
 
 Covers: the starter event has no problems and reads in plain words; single elimination seeds and byes; round robin;
-a whole live duel cup between five clients from real duel messages (whispers, guild lines, the board on a watcher,
-results and season points on everyone); the loser's word counts alone; a winner's alone waits and then asks both;
-a dispute goes to the host; the host goes offline and an entrant takes over; review: ranked for one revision only,
-an edit takes it back, only reviewers decide; someone else's event can't be edited; practice runs with dummies.
+a whole live duel cup between five clients from real duel messages (match cards, moments, the one guild post, the
+board on a watcher, results and season points on everyone); the loser's word counts alone; a winner's alone waits and
+then asks both; a dispute goes to the host; the host goes offline and an entrant takes over; review: ranked for one
+revision only, an edit takes it back, only reviewers decide; someone else's event can't be edited; practice runs with
+dummies.
 Run: luaenv\\Scripts\\python.exe tests\\events\\test_events.py [-k name]   (from dev)"""
 import os
 import sys
@@ -86,7 +87,7 @@ def starter_has_no_problems_and_reads_in_plain_words():
     n = c.eval("""
         local B = ns.EventBlocks
         local d = B:Starter()
-        d.scripts[1].top.n.a[1] = nil   -- the whisper's player
+        d.scripts[1].top.n.a[1] = nil   -- the player told they're in
         return #B:Problems(d)""")
     assert n == 1, n
     w.assert_no_errors()
@@ -183,9 +184,15 @@ def a_live_duel_cup_between_five_clients():
     w.tick(5)
     st = host_state(cs[-1], occ)
     assert st and st["phase"] == "live" and st["stage"] == "s2" and st["n"] == 5, st
-    # the matches tell their players
-    whispers = [e for e in w.chat_log if e["chat_type"] == "WHISPER"]
-    assert any("You're up vs" in e["text"] for e in whispers), whispers
+    # the matches tell their players: each one's match card on their own client (the addon says it, no whispers)
+    by = {c.name: c for c in cs}
+    ms = playing(host, occ)
+    assert ms, ms
+    for a, b, mid in ms:
+        for n in (a, b):
+            m = by[n].eval_py("local m = ns.EventLive:MyMatch(...); return m and { m.id, m.st }", occ)
+            assert m == [mid, "play"], (n, m)
+    assert not [e for e in w.chat_log if e["chat_type"] == "WHISPER"], w.chat_log
     # play it out: the lower name wins every duel
     for guard in range(60):
         st = host_state(host, occ)
@@ -202,9 +209,12 @@ def a_live_duel_cup_between_five_clients():
     st = host_state(host, occ)
     assert st["phase"] == "done", st
     w.tick(10)
+    # every match is a moment on the board (the watcher has them), the champion the event's one guild chat post
+    moments = cs[-1].eval_py("local out = {}; for _, m in ipairs(ns.EventLive:GetState(...).moments) do "
+                             "out[#out + 1] = m.text end; return out", occ) or []
+    assert len([t for t in moments if " beats " in t]) == 5, moments
     guild_lines = [e["text"] for e in w.chat_log if e["chat_type"] == "GUILD"]
-    assert any("beats" in t for t in guild_lines), guild_lines
-    assert any(t.startswith("GG! Bert wins") for t in guild_lines), guild_lines
+    assert [t for t in guild_lines if "duel cup" in t or " beats " in t] == ["Bert wins the Friday duel cup!"], guild_lines
     # the result reached everyone (the watcher too); it was not ranked: no points, no badges
     for c in cs:
         r = c.eval_py("local r = ns.Events:GetResult(...); return r and { r.champ, r.second, r.n, r.ranked or false } or nil", occ)

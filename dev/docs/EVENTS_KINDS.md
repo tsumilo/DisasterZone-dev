@@ -200,6 +200,20 @@ event's definitions plus "+ New ...".
   reads them); `out.changed()` as part 1.
 - Matches setting `win` = "duel" | "pieces" (with "pieces", `Duel` doesn't count for matches).
 
+**Settled by the mockups (sections 17-25, 2026-10-06)**
+- Score stacks read for one player or many (part 1's form): "add {n} {score} to {players}", "set {score} of
+  {players} to {value}"; the value stays "{player}'s {score}" (one player). (The mockups' "add 1 to toucher's Finds"
+  breaks with "both players": the "players's" problem.)
+- New general hat: "when the lead in {score} changes" (gives player: the new leader). Score chases, races.
+- Matches gives: "is done" -> champion, second, third; "final is set" -> player 1, player 2.
+- A tag in a players blank is the value "players with tag {tag}", drawn as the tag's chip (colour dot + name).
+- The touch hat's "how" is a dropdown at its end ("... touches one of {Hiders} by a click").
+- Pieces longer than the palette column (about 185 px) take two lines in the palette, one on the canvas.
+- The tracker also shows a walked list's progress ("Route 3 of 8" + a bar); a pointed place draws its ring on the
+  minimap; "tell" lines newest first.
+- Definition editors are popovers next to their palette row (name first, "N pieces use it", bin, Save); the
+  Questions list opens as a wide sheet.
+
 **EventLive (Core/EventLive.lua) + EventSensors (Core/EventSensors.lua, new)**
 - Sensors run on an entrant's client while one of their events is live (`B:Senses` of its def) and send facts with
   `Live:SendFact(occ, fact)` (EVF to the host). The host's `OnFact` calls the run inputs above.
@@ -215,6 +229,152 @@ event's definitions plus "+ New ...".
   `PracticeAnswer(key, aid, value)`, `PracticePress(key, label)`; dummies answer asks after a few seconds by themselves.
 - Events.lua's `CleanDef` keeps the new definitions (tags, scores, places, lists, asks) with their limits (names 24,
   question 120, answers 6 x 40, items 40 a list, places 24 an event).
+
+**Settled by the live build (EventSensors / EventLive / Events, 2026-10-07; the gaps the contract left)**
+- `B.HAPPEN` keys: `duel` ("wins a duel"), `lose`, `kill`, `loot`, `fish`, `die`, `mount`, `dismount`, `move`, `stop`,
+  `off`, `on`, `ready`, `emote`. An entrant's client senses only `kill loot fish die mount dismount move stop emote`
+  (`EventSensors.SENSED`); the host refuses an `h` fact for any other `what` (a client can't claim a duel win,
+  readiness or presence: duels stay with the duel reports, off / on / ready with SetOnline / SetReady). Practice's
+  "Make something happen" (`PracticeHappen`) may pass any of the 14.
+- EVF facts (each carries `at`, the sender's server time): `h { what, other, item (id), name (item name), count,
+  creature, emote (token, e.g. "POINT") }`, `place { pid, in }`, `touch { whom, how, near, emote }`, `radar { whom }`,
+  `pos { map, x, y, cont, wx, wy, z, sz, fl, sw, cb, mt, mv, dd, items = { [item] = n }, gold }` (any of them: what
+  changed), `ans { aid, v }`, `press { label }`, and `b { f = { fact ... } }` (the facts of one moment together, 8 at
+  most, each counted). A fishing catch is also an item looted (`fish` and `loot` both, when the def senses both).
+- Rates: a client sends its facts a frame after they happen (one message for those of one moment), 6 messages at once
+  and then 1 a second (an addon prefix carries about that: 10 at once, then 1 a second), at most 24 waiting (a newer
+  `pos` joins the waiting one). The host takes 16 facts at once from an entrant, then 4 a second, from entrants only,
+  for what the def uses (`B:Senses`), WHISPER only.
+- `pos` parts by the def's senses: the position (map, x, y and the world cont, wx, wy) only while it uses distances
+  (`pos`): every 5 s when I moved 2 yd, after 20 yd (2.5 s apart at least), every 30 s anyway; zone / subzone for
+  `zone` (or with a position); all six flags for `flags`; `mt` / `mv` / `dd` once for a def whose happenings keep them
+  (mount, move, die); item counts every 2 s for `items`, gold gained (copper since the event began for me, kept in
+  `db.eventMoney` across a /reload) for `gold`. Each part when it changes, and all of it again for a new host (a
+  takeover or handover: those parts are host-only and never in a state). The host strips what the def doesn't use.
+- Places: a client sends a place's change (in / out, 2 yd of slack before "out"), `in` for the places it is in as
+  sensing starts (never a first `out`), and those `in` again to a new host. Inside = within `r` yards (default 30) of
+  `map/x/y` in world yards (`EventSensors.World`, an affine map -> world fit from three C_Map points), or, for a place
+  without coordinates, the subzone `sz` (else the zone `z`). Entering an instance sends `out` for every place it was in;
+  places and positions stay off there.
+- Touches: a click = the target changed while the mouse was over them in the world (not on a unit frame: a raid frame
+  click is radar), or the mouse went down (GLOBAL_MOUSE_DOWN) over the player who is my target already; near =
+  `CheckInteractDistance(unit, 3)`. Emotes: the token from hooking `DoEmote` (and `C_ChatInfo.PerformEmote` where it
+  exists), confirmed by its CHAT_MSG_TEXT_EMOTE echo; without the hook, English "You <verb> at <name>." Only near
+  touches reach the run: `run:Touch(who, whom, how, emote)` (a /point is how = "point", and how = "emote" with "POINT"
+  too). The same touch again within 2 s, or radar on the same player within 5 s, is one.
+- EVM on the wire: `{ t = "EVM", o = occId, to = "all" | {keys} | nil, k = "show" | "tell" | "sound" | "plates", text,
+  off, at }`: GUILD for every entrant online (`to = "all"`) or for 4+ players (`to` = their keys), else a whisper each
+  (`to` = nil: the receiver), 4 a second at most (it shares the event prefix with the states: a line can take a few
+  seconds while a big state goes out). Taken only from the host the receiver knows; one that comes before the state
+  naming its sender (a run's first messages, a takeover's) waits 10 s for it. `show` and `sound` older than 20 s are
+  dropped. `sound` = a `B.SOUNDS` key: the receiving client plays it (SOUNDKIT, else the fallback id), then fires
+  `EVENT_SOUND` (the UI doesn't play it again). `plates`: `off = true` hides friendly nameplates (the CVar
+  `nameplateShowFriends`, its old value in `db.eventPlates`), `false` puts them back; while hidden they're hidden again
+  if the player turns them on; back by themselves when the event ends or I'm not in it, at logout (hidden again after a
+  /reload while it runs), and at the next login if a crash left them hidden; never changed in combat (at its end).
+- Guild posts: the host's client only, one every 10 s, 20 an event (`st.gpost = { n, at }` in the state, so a host who
+  takes over goes on counting; the engine counts `st.gp` too), 3 waiting at most (past that the oldest waiting one goes),
+  never in demo mode or practice. Part 1's say / whisper adapters are gone: the engine has no chat but this.
+- Me-API: `MyAsks(occ)` -> `{ {id, n, q, kind, choices, players (kind player: who may be picked), votes, self, secret,
+  ends, at, seq, answered, mine} }` (the open asks put to me, oldest first; `answered` once I answered, `mine` my answer);
+  `AnswerAsk2(occ, aid, v)` refuses (false) an answer the run wouldn't take (the engine's CheckAnswer: myself without
+  `self`, a choice it hasn't, 11 ...) and a second one; v = a key (or up to `votes` keys), a choice's text, text (120
+  bytes), true / false, a number 1-10. `MyButtons(occ)` -> labels (sorted); `Press(occ, label)` false for a button I
+  haven't. `MyTags(occ)` -> `{ {id, n, c, shown} }` (mine shown to me: all / self; the host also sees its "host" ones).
+  `MyScores(occ)` -> `{ {sid, n, place, name, fmt, high, board} }` (every score of the def in `B:Defs` order; `place` as
+  the run ranks them, among who has the score, ties alike, nil without one; `n` 0 for a higher-wins score I have none
+  of). `MyPoint(occ)` -> `pid, yards, bearing` (relative to where I face, counterclockwise: 0 ahead, pi/2 to my left;
+  just pid where positions are unknown, e.g. instances). `MyFeed(occ)` -> `{ {at, text} }` (the tell lines to me, newest
+  first, 20). `MyLiveEvents()` -> `{ [occId] = state }` (the live events I'm an entrant of). Distances for the UI:
+  `ns.EventSensors.Yards(a, b)`, `.Bearing(a, b)` (0 = north, counterclockwise), `.World(map, x, y)`, `:MyPos()`,
+  `.Facing()`; `PlatesHidden()`.
+- Practice: `PracticeHappen / PracticePlace / PracticeTouch(who, whom, how, emote) / PracticeRadar / PracticePos /
+  PracticeAnswer / PracticePress`; dummies answer every ask put to them 2-6 s later (faster at a higher speed): a
+  player they may pick (votes: as many), a choice, yes or no, 1-10, a quiz question's first answer 6 times in 10. The
+  run logs every message itself (EVENT_PRACTICE_LOG); a message for me also fires EVENT_SHOW / TELL / SOUND for
+  "practice"; nothing changes in my game (no nameplates) and nothing is sent.
+- CleanDef keeps the definitions: names 24; a question 120; choices and answers 6 of 40; tags / scores / lists / asks
+  `LIMITS.defs` (24) each, places 24; list items 40 a list and 80 in all the event's lists (`LIMITS.allItems`, else
+  `Events.ALL_ITEMS`: the editors should stop there, `B:NewDefinition` doesn't count items); tag colours / shown, score
+  fmt, list kind, ask kind checked against EventBlocks' lists. A def with every definition at its limit (realistic
+  words, the starter's pieces besides) is about 13 KB on the wire (the cap is 21.6 KB); all of it random letters is too
+  big: SaveDef refuses it and says so. Such a def takes ~50 s to reach every member (one part a second).
+- `B:Migrate` runs on every def that comes in: at the end of CleanDef (so every received D / O record, and RankedNow's
+  hash, see a migrated def), once at login on every stored one (`Events:MigrateStored`: D, O copies, a reviewer's
+  ranked snapshots, every guild), on demo mode's defs, and in E:Restore.
+- Results (R) also keep `scores = { {id, n, high, fmt, v = { [key] = n }} }` (8 at most, the board's first, then the
+  others; B:Defs order) and `tags = { {id, n, c, shown, k = { keys }} }` (8), 40 players each; a result too big for one
+  message drops tags, then the last scores. Both only when the event had them (older records hash as they did).
+- Demo data: the library's "Hide and seek in Shattrath" (mine, in review) is the hide and seek example in Shattrath;
+  the calendar has a fishing derby (odemo4, 2 days, 9 sign-ups) and a trivia night (odemo5); `rdemo3` is last week's
+  derby with its Fish table.
+
+**Settled by the core build (EventBlocks / EventEngine, 2026-10-07; what the UI builds on)**
+- Category keys: `ev sg lo pl pt pc as ch tm wo sm` (as the mockups: `pt` is Scores, `ch` Messages, `pc` Places, `as`
+  Ask). `B.CAT_DEFS = { pl = "tags", pt = "scores", pc = "places", lo = "lists", as = "asks" }`: the definitions a
+  category lists above its pieces (variables stay in Logic). Smart block kind `bracket` keeps its key; its label is
+  "Matches", its new setting `win` = "duel" | "pieces" (Won by: A duel / The pieces).
+- Piece keys kept where the words and blanks didn't change (no migration needed): `pt.add` "add {n} {score} to
+  {players}", `pt.set` "set {score} of {players} to {n}", `pt.get` "{player}'s {score}", `pt.badge` (args badge,
+  players: "give {players} the badge {badge}" - the words may put blanks in any order), `ch.moment`, `pl.top` (its
+  blank 2 is a `score` now). Season points is the score id `B.SEASON` ("Season points"), the tag Entrants the id
+  `B.ENTRANTS` ("entrants"); both built in (`B.BUILTIN`), never stored in a def.
+- New keys: Events `ev.happen` (blank 1 `what`, blank 2 `filter`); Logic `lo.vset` (was `pt.vset`), lists `lo.lfor
+  lo.litem lo.lrand lo.lcount lo.lnext lo.lmine lo.lpos lo.lend`, `lo.match`; Players `pl.tagged pl.howmany pl.has pl.tag
+  pl.untag pl.split pl.touch pl.radar pl.gettag pl.notag`; Scores `pt.place pt.total pt.reach pt.lead`; Places `pc.enter
+  pc.leave pc.in pc.yards pc.near pc.sub pc.zone pc.warm pc.point pc.unpoint`; Ask `as.ask as.askq as.close as.answer
+  as.top as.count as.on as.closed as.give as.take as.press`; Messages `ch.show ch.tell ch.sound ch.guild`; Timers
+  `tm.since tm.show`; World `wo.is wo.items wo.gold wo.plates`. Kept, off the palette (`hide`): `pl.count`, `wo.zone`
+  (part 1's roster zone check). Gone (Migrate turns them into the new ones): `ch.say ch.wh ch.rw ev.duel ev.off ev.on
+  ev.ready pt.vset`.
+- Value types added to the list above: `where` (a place or a player: "yards from", "warmer or colder"; `place` itself
+  takes places only: "point to", "is in"), `state` (World's mounted / flying / swimming / dead / in combat / moving,
+  `B.STATES`), `since` ("stage" or a timer's name), `filter` (a second blank whose type is its choice's: `B:ArgType(p,
+  i)` -> "creature" / "item" / "emote" or nil = not shown; `B.HAPPEN[i].filter`, `B.TOUCH[i].filter`). A blank with
+  `opt = true` may stay empty, meaning any (the place of "enters" / "leaves", the players of "touches" / "targets",
+  every filter). `B:Fits(t, "any")` is true for any blank but yes / no (variables, answers, list items fit anywhere);
+  `B:TakesPieces` adds `place` and `where`.
+- What a hat gives: `B:Gives(p)` (use it, not `PIECES[k].gives`: "happen" gives by its choice). New CTX names: `other,
+  creature, item, count, emote, toucher, touched, who, whom, place`; `answer` is of type any; `runnerup` reads
+  "second"; "final is set" gives `player1, player2, both` (part 1's finalist1 / 2 are migrated). A list item is a text,
+  a place's id, or a question `{ ql = list id, qi = n, q = its words, pts }` (never its answers): as text it reads as
+  its words, as a number its points, in "matches" its answers.
+- Definitions API: `B:Defs(d, kind [, own])` (built-in ones first, flagged `builtin`, unless `own`; then the event's
+  by name), `B:Definition(d, kind, id)`, `B:DefinitionName`, `B:NewDefinition(d, kind, fields)` -> "tg1", "sc1", "pc1",
+  "ls1", "ak1" (defaults: tag c blue / shown all; score high, fmt num, board; place r 30; list kind text; ask kind
+  player, from entrants, votes 1, self false, time 60, secret false; nil past 24 a kind), `B:RemoveDefinition`,
+  `B:DefinitionUses(d, kind, id)` ("N pieces use it"), `B:FormatScore(d, sid, n)` (time m:ss, gold 1g 20s, number),
+  `B.TAG_COLORS` / `B:TagColor(c)`, `B.TAG_SHOWN`, `B.SCORE_FMT`, `B.ASK_KINDS`, `B.LIST_KINDS`, `B.EMOTES`,
+  `B.SOUNDS = { {key, words, SOUNDKIT name, fallback id} }`, `B.LIMITS`, `B:Labels(d)` (the button labels used),
+  `B:Words(d, p)` / `B:BlankWords(d, p, i)` (a piece's words with its picked blanks filled in).
+- `B:Kinds(d)` is part 1's (smart block kinds); `B:Kinds(d, true)` adds the definitions it has ("tags", "scores",
+  "places", "lists", "asks"), named by `B:KindLabel(k)` (so the current library chips, which read `SMART[k].label`, keep
+  working until the UI moves to KindLabel).
+- `B:Senses(d)` also has `zone` (zone / subzone pieces), `flags` (flying / swimming / in combat / dead), `items = {
+  [item] = true }` (`wo.items`), `gold` (`wo.gold`); "happen" there never lists duel / lose / off / on / ready.
+- `B:Migrate(d)` returns true when it changed something; it also turns part 1's stat names into score definitions
+  (by name; "Season points" stays) and renames a migrated hat's values (a duel's winner / loser -> player / other).
+  EventBlocks' checks (Problems, Describe, Diff, Kinds, MaxSeasonGrant, Senses) call it on what they're given, so a def
+  with nothing old is never touched; stored records should be migrated when they enter (CleanDef) and once at load, so
+  every client hashes the same.
+- `B:Examples()` -> the 8 in the "Start from" order (duel, hide, infect, race, fish, tmog, quiz, redlight); `B:Example(key)`
+  -> one def. The race and red light keep their sign-up open until the host closes it (players gather at the start,
+  pointed there); the others close it when the event starts.
+- Run inputs: `Touch` / `Radar` take `whom` = an entrant or the host; `Pos` keeps `cont, wx, wy` when sent and merges a
+  fact that carries only some fields; `AskAnswer(aid, key, v)`: the asked players only (the host too when asked), one
+  answer each (the first stands), a choice in any case, text up to 120 bytes, a number 1 to 10 (whole), votes > 1 kept as
+  a players list `{ list = true, ... }`. Answer and close hats run before the script that asked goes on.
+- Run helpers for the live layer: `run:Snapshot()` leaves out the host-only parts (`pos, inplace, warm, flags`) and a
+  secret open ask's answers (shown as `true`); `run:Snapshot(true)` is all of it (the host's own /reload save);
+  `run:Shift(sec)` after a pause (timers, waits, "every", asks' ends, "seconds since"); `E:Reader(def, st)` reads a
+  snapshot (GetScore, PlaceBy, Ranked, Tagged ...) without running it; `E:TagsOf / ScoresOf / AsksFor / ButtonsOf /
+  PointOf`. Optional `out.asked(aid, qa)` when an ask opens (practice dummies). State also has `inplace[pid][key]`,
+  `warm`, `flags[key]` (host only), `plates[key]` (put back at the end: `out.plates(keys, false)`), `tstart[timer]`,
+  `stageAt`, `lead[sid]`, `qaSeq`, `gp` (the engine's own count: at most 20 guild posts a run, none sent in practice).
+- `run:Result()` also gives `scores`, `tags`, and, for an event with no Matches block, its placings from the first
+  score on the board (by name; `res.by` = that score). `pl.top` and every ranking count only who has the score.
+- Distances: the engine uses `ns.EventSensors.World` (the same map -> world as the clients) and E:New's
+  `opts.worldPos(map, x, y)` in tests; "yards from" reads 9999 when a position isn't known.
 
 ## UI to mock up (sections 17+, replacing the first drafts where the pieces changed)
 

@@ -232,11 +232,11 @@ def typed_numbers_and_text_are_kept_as_the_library_keeps_them():
     # text: no "|" codes, at most 200 bytes, the same as the library keeps
     c.eval("""
         local S = ns.EventBuilder:GetState()
-        local p = ns.EventBlocks:New('ch.say')
-        local s = { id = 'zz', st = '*', x = 400, y = 400, top = { k = 'ev.duel', a = {}, n = p } }
+        local p = ns.EventBlocks:New('ch.guild')
+        local s = { id = 'zz', st = '*', x = 400, y = 400, top = { k = 'ev.happen', a = { 'duel' }, n = p } }
         table.insert(S.def.scripts, s)
         ns.EventBuilder:Refresh()
-        ns.EventBuilder:OpenPicker(s, p, 1, ns.EventBlocks.PIECES['ch.say'].args[1], UIParent)
+        ns.EventBuilder:OpenPicker(s, p, 1, ns.EventBlocks.PIECES['ch.guild'].args[1], UIParent)
         ns.EventBuilder:PickTyped('hi |cffff0000red|r ' .. string.rep('x', 300))
         ns.EventBuilder:Save()""")
     mine = c.eval("local S = ns.EventBuilder:GetState(); for _, x in ipairs(S.def.scripts) do "
@@ -429,7 +429,7 @@ def a_search_that_finds_nothing_says_so():
     for q in ("zzz", "(", "%"):
         c.eval("local S = ns.EventBuilder:GetState(); S.search = ...; ns.EventBuilder:RenderPalette()", q)
         assert c.eval(shown), q
-    c.eval("local S = ns.EventBuilder:GetState(); S.search = 'say'; ns.EventBuilder:RenderPalette()")
+    c.eval("local S = ns.EventBuilder:GetState(); S.search = 'show'; ns.EventBuilder:RenderPalette()")
     assert not c.eval(shown)
     w.assert_no_errors()
 
@@ -459,7 +459,7 @@ def dropping_on_the_palette_takes_it_away():
     c.eval("""
         MOUSE_DOWN = true
         MOUSE_X, MOUSE_Y = 0, 0
-        ns.EventBuilder:PressNew(ns.EventBlocks:New('ch.say'))
+        ns.EventBuilder:PressNew(ns.EventBlocks:New('ch.tell'))
         MOUSE_X, MOUSE_Y = -100, 100
         ns.EventBuilder:OnCanvasUpdate()
         MOUSE_DOWN = false

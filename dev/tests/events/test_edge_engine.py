@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from _common import World, Client, case, run_all  # noqa: E402
 
 # T.mk(def, n, opts): a run of n players P1..Pn (sign-up order = seed order), a fake clock (T.clock), and everything
-# it says in T.said / T.wh / T.ann, its log in T.logs.
+# it says: guild chat posts in T.said ({ "GUILD", text }), "tell" lines in T.wh ({ key, text } a player), "show"
+# banners in T.ann; its log in T.logs.
 HELPERS = r"""
 T = {}
 function T.mk(def, n, opts)
@@ -30,9 +31,9 @@ function T.mk(def, n, opts)
   T.clock = 1000
   T.said, T.wh, T.ann, T.logs = {}, {}, {}, {}
   T.out = {
-    say = function(ch, text) T.said[#T.said + 1] = { ch, text } end,
-    whisper = function(k, text) T.wh[#T.wh + 1] = { k, text } end,
-    announce = function(text) T.ann[#T.ann + 1] = text end,
+    guild = function(text) T.said[#T.said + 1] = { "GUILD", text } end,
+    tell = function(keys, text) for _, k in ipairs(keys) do T.wh[#T.wh + 1] = { k, text } end end,
+    show = function(keys, text) T.ann[#T.ann + 1] = text end,
     log = function(kind, text) T.logs[#T.logs + 1] = kind .. ": " .. tostring(text) end,
   }
   T.run = ns.EventEngine:New(def, { id = "x", host = opts.host or names[1], signups = opts.signups or names, out = T.out,
@@ -387,8 +388,8 @@ def sign_up_joins_once_until_full_or_closed():
     assert out["e"] == ["P1", "P3", "P4", "P5"] and out["stage"] == "s2", out
     # going offline and coming back: once each, entrants only
     out = c.eval_py("""
-        local d = T.bare(S(N("ev.off"), N("ch.say", J("off ", C("player")), "GUILD")))
-        d.scripts[2] = { id = "b", st = "*", top = S(N("ev.on"), N("ch.say", J("on ", C("player")), "GUILD")) }
+        local d = T.bare(S(N("ev.happen", "off"), N("ch.guild", J("off ", C("player")))))
+        d.scripts[2] = { id = "b", st = "*", top = S(N("ev.happen", "on"), N("ch.guild", J("on ", C("player")))) }
         local run = T.mk(d, 2)
         run:Start()
         run:SetOnline(T.names[2], false); run:SetOnline(T.names[2], false)
@@ -573,14 +574,14 @@ def a_restore_survives_a_state_with_missing_parts():
 def values_unset_or_of_the_wrong_kind_say_nothing():
     w, c = one()
     out = c.eval_py("""
-        local each = N("lo.each", N("su.list", "zz")); each.c1 = N("ch.say", "each", "GUILD")
+        local each = N("lo.each", N("su.list", "zz")); each.c1 = N("ch.guild", "each")
         local d = T.bare(S(N("ev.start"),
-          N("ch.say", J("a", V("nope"), "b", N("bk.champ", "b9"), "c", C("winner"), "d"), "GUILD"),
-          N("pt.vset", "x", 7),
+          N("ch.guild", J("a", V("nope"), "b", N("bk.champ", "b9"), "c", C("winner"), "d")),
+          N("lo.vset", "x", 7),
           N("pt.badge", "champ", V("x")),
-          N("ch.wh", V("x"), "hi"),
+          N("ch.tell", V("x"), "hi"),
           N("pt.add", 5, "Wins", V("nope")),
-          N("ch.say", J("x=", V("x"), " seed=", N("pl.seed", -3)), "GUILD"),
+          N("ch.guild", J("x=", V("x"), " seed=", N("pl.seed", -3))),
           each))
         d.vars = { { n = "x", t = "player" } }
         d.badges = { champ = { n = "C" } }
@@ -604,7 +605,7 @@ def a_script_that_waits_may_loop_long_and_endless_ones_stop():
     out = c.eval_py("""
         local inner = N("lo.rep", 30); inner.c1 = N("tm.wait", 0)
         local outer = N("lo.rep", 100); outer.c1 = inner
-        local run = T.mk(T.bare(S(N("ev.start"), outer, N("ch.say", "done", "GUILD"))), 2)
+        local run = T.mk(T.bare(S(N("ev.start"), outer, N("ch.guild", "done"))), 2)
         run:Start()
         T.adv(3200)
         return { #T.said, T.errors() }""")
@@ -612,7 +613,7 @@ def a_script_that_waits_may_loop_long_and_endless_ones_stop():
     # no wait: stopped after STEP_LIMIT pieces (the rest of the script never runs)
     out = c.eval_py("""
         local a = N("lo.rep", 100); local b = N("lo.rep", 100); b.c1 = N("pt.add", 1, "Wins", N("pl.host")); a.c1 = b
-        local run = T.mk(T.bare(S(N("ev.start"), a, N("ch.say", "after", "GUILD"))), 2)
+        local run = T.mk(T.bare(S(N("ev.start"), a, N("ch.guild", "after"))), 2)
         run:Start()
         return { #T.said, #T.errors(), run:GetStat("Wins", run.st.host) < 2000 }""")
     assert out == [0, 1, True], out
@@ -624,7 +625,7 @@ def a_script_that_waits_may_loop_long_and_endless_ones_stop():
     assert out == ["live", 1, 0], out
     # too many scripts at once: the rest are skipped
     out = c.eval_py("""
-        local run = T.mk(T.bare(S(N("ev.duel"), N("tm.wait", 100))), 2)
+        local run = T.mk(T.bare(S(N("ev.happen", "duel"), N("tm.wait", 100))), 2)
         run:Start()
         for i = 1, 70 do run:Duel(T.names[1], T.names[2]) end
         local n = 0 for _ in pairs(run.threads) do n = n + 1 end
@@ -640,7 +641,7 @@ def a_script_that_waits_may_loop_long_and_endless_ones_stop():
     assert out == [64, 0], out
     # ending while scripts wait: they never come back; going to a stage that's gone does nothing
     out = c.eval_py("""
-        local d = T.bare(S(N("ev.start"), N("tm.wait", 30), N("ch.say", "late", "GUILD")))
+        local d = T.bare(S(N("ev.start"), N("tm.wait", 30), N("ch.guild", "late")))
         d.scripts[2] = { id = "b", st = "s1", top = S(N("ev.start"), N("tm.wait", 5), N("sg.end")) }
         d.scripts[3] = { id = "c", st = "s1", top = S(N("ev.start"), N("sg.go", "zz")) }
         local run = T.mk(d, 2)
@@ -657,7 +658,7 @@ def waits_stand_still_while_the_host_pauses():
     # was: an answer (or a duel) during a pause woke scripts whose wait ran out in the pause
     w, c = one()
     out = c.eval_py("""
-        local run = T.mk(T.bare(S(N("ev.start"), N("tm.wait", 10), N("ch.say", "go", "GUILD"))), 2)
+        local run = T.mk(T.bare(S(N("ev.start"), N("tm.wait", 10), N("ch.guild", "go"))), 2)
         run:Start()
         run.st.paused = T.clock
         T.clock = T.clock + 30
@@ -673,17 +674,20 @@ def waits_stand_still_while_the_host_pauses():
 @case
 def chat_text_is_cleaned_cut_between_letters_and_said_in_known_channels():
     # was: "|" codes and line breaks went to chat as typed, long text was cut mid-letter by the sender, any channel went
+    # (part 1's "say in {channel}" is "post in guild chat" now, or "show" for Raid / Party / Say: its old pieces are
+    # turned into those when the event is loaded, so a channel it never knew still only reaches guild chat)
     w, c = one()
     out = c.eval_py("""
         local long = string.rep("a", 249) .. string.rep("\\195\\169", 10)
         local d = T.bare(S(N("ev.start"),
-          N("ch.say", "a|cffff0000red|r\\nline2", "GUILD"),
-          N("ch.say", long, "GUILD"),
-          N("ch.say", "loud", "YELL"),
-          N("ch.say", "secret", "OFFICER"),
-          N("ch.say", "|\\n", "GUILD"),
-          N("ch.wh", N("pl.host"), "hi|r\\nthere"),
-          N("ch.rw", "warn|cff\\n"),
+          N("ch.guild", "a|cffff0000red|r\\nline2"),
+          N("ch.guild", long),
+          { k = "ch.say", a = { "loud", "YELL" } },
+          { k = "ch.say", a = { "secret", "OFFICER" } },
+          { k = "ch.say", a = { "in the raid", "RAID" } },
+          N("ch.guild", "|\\n"),
+          N("ch.tell", N("pl.host"), "hi|r\\nthere"),
+          N("ch.show", N("pl.all"), "warn|cff\\n"),
           N("ch.moment", string.rep("\\195\\169", 150)),
           N("sg.cancel", "why|r\\n" .. string.rep("b", 100))))
         local run = T.mk(d, 2)
@@ -691,11 +695,11 @@ def chat_text_is_cleaned_cut_between_letters_and_said_in_known_channels():
         local said = {}
         for _, s in ipairs(T.said) do said[#said + 1] = s[1] .. ":" .. (#s[2] > 40 and #s[2] or s[2]) end
         local mom = run.st.moments[1].text
-        return { said = said, wh = T.wh[1][2], ann = T.ann[1], mom = #mom, momTail = mom:byte(#mom),
+        return { said = said, wh = T.wh[1][2], ann = T.ann, mom = #mom, momTail = mom:byte(#mom),
           reason = #run.st.reason, phase = run.st.phase }""")
     # 249 a + "é": 251 bytes, the cut goes before the é (never half of it)
     assert out["said"] == ["GUILD:acffff0000redr line2", "GUILD:249", "GUILD:loud", "GUILD:secret"], out
-    assert out["wh"] == "hir there" and out["ann"] == "warncff ", out
+    assert out["wh"] == "hir there" and out["ann"] == ["in the raid", "warncff "], out
     assert out["mom"] == 200 and out["momTail"] == 0xA9, out
     assert out["reason"] == 80 and out["phase"] == "cancelled", out
     w.assert_no_errors()
@@ -715,7 +719,7 @@ def numbers_stay_finite_and_a_season_grant_is_held_to_the_cap():
           N("pt.add", -5000, B.SEASON, "P2-Thunderstrike"),
           N("pt.set", B.SEASON, N("pl.rand"), 5000),
           N("pt.add", 2.5, "Points", N("pl.host")),
-          N("ch.say", J("w=", N("pt.get", N("pl.host"), "Wins"), " l=", N("pt.get", N("pl.host"), "Laps")), "GUILD")))
+          N("ch.guild", J("w=", N("pt.get", N("pl.host"), "Wins"), " l=", N("pt.get", N("pl.host"), "Laps")))))
         local run = T.mk(d, 2)
         run:Start()
         local res = run:Result()
@@ -775,13 +779,13 @@ def the_checks_see_newer_pieces_and_board_pieces_inside_a_smart_block():
         local B = ns.EventBlocks
         local function texts(d) local o = {} for _, p in ipairs(B:Problems(d)) do o[#o + 1] = (p.script or "-") .. ": " .. p.text end return o end
         local r = {}
-        local d = B:Starter(); d.scripts[#d.scripts + 1] = { id = "n1", st = "s1", top = { k = "ev.newhat", a = {}, n = N("ch.say", "x", "GUILD") } }
+        local d = B:Starter(); d.scripts[#d.scripts + 1] = { id = "n1", st = "s1", top = { k = "ev.newhat", a = {}, n = N("ch.guild", "x") } }
         r.newHat = texts(d)
         d = B:Starter(); d.scripts[1].top.n.n = { k = "zz.new", a = {} }
         r.newPiece = texts(d)
         d = B:Starter(); d.blocks.b2.inner = B:BracketInner()
         r.ownCopy = texts(d)
-        table.insert(d.blocks.b2.inner, { id = "i9", st = "*", top = S(N("ev.start"), N("ch.say", "x", "GUILD")) })
+        table.insert(d.blocks.b2.inner, { id = "i9", st = "*", top = S(N("ev.start"), N("ch.guild", "x")) })
         r.boardHat = texts(d)
         -- (and it really never runs there)
         local run = T.mk(d, 4)
@@ -793,7 +797,7 @@ def the_checks_see_newer_pieces_and_board_pieces_inside_a_smart_block():
         r.innerOutside = texts(d)
         d = B:Starter(); d.blocks.b2.stage = "gone"
         d.scripts[#d.scripts + 1] = { id = "e1", st = "s1" }
-        d.scripts[#d.scripts + 1] = { id = "e2", st = "s1", top = N("ch.say", "x", "GUILD") }
+        d.scripts[#d.scripts + 1] = { id = "e2", st = "s1", top = N("ch.guild", "x") }
         r.goneAndEmpty = texts(d)
         return r""")
     assert out["newHat"] == ["n1: This piece is from a newer version of DisasterZone."], out
@@ -801,7 +805,7 @@ def the_checks_see_newer_pieces_and_board_pieces_inside_a_smart_block():
     assert out["ownCopy"] == [], out
     assert out["boardHat"] == ["b2/i9: This piece only works outside the smart block."] and out["ran"] is False, out
     assert out["innerOutside"] == ["c1: This piece only works inside its smart block."], out
-    assert out["goneAndEmpty"] == ["-: Bracket's stage is gone."], out
+    assert out["goneAndEmpty"] == ["-: The stage of Matches is gone."], out
     w.assert_no_errors()
 
 
@@ -832,7 +836,7 @@ def the_diff_shows_stages_taken_out_badges_and_moved_scripts():
     assert out["gone"] == ["del|Finals|Stage taken out"], out
     assert out["order"] == ["chg|nil|The stages are in a new order"], out
     assert out["moved"] == ["chg|Always|Moved here from Sign-up: when someone joins Sign-up"], out
-    assert out["none"] == [0, 39], out
+    assert out["none"] == [0, 38], out
     w.assert_no_errors()
 
 

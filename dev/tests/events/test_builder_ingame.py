@@ -75,7 +75,7 @@ def escape_mid_drag_cancels_it_and_puts_a_cut_piece_back():
     w, c = one()
     open_starter(c, "*")
     c.eval(MOUSE)
-    # the whisper under "when a match starts" (c3): pull it out of its script
+    # the "show" under "when Matches final is set" (c3): pull it out of its script
     c.eval("""
         local S, ui = ns.EventBuilder:GetState()
         local s
@@ -94,10 +94,10 @@ def escape_mid_drag_cancels_it_and_puts_a_cut_piece_back():
     assert c.eval("return ns.EventBuilder:IsShown()")
     assert c.eval("local S = ns.EventBuilder:GetState(); return S.drag == nil")
     assert c.eval("local S = ns.EventBuilder:GetState(); for _, x in ipairs(S.def.scripts) do "
-                  "if x.id == 'c3' then return x.top.n and x.top.n.k end end") == "ch.wh"
+                  "if x.id == 'c3' then return x.top.n and x.top.n.k end end") == "ch.show"
     c.eval("MOUSE_DOWN = false; ns.EventBuilder:OnCanvasUpdate()")
     shown, n = c.eval_py(COUNT)
-    assert shown == n == 3, (shown, n)
+    assert shown == n == 4, (shown, n)
     w.assert_no_errors()
 
 
@@ -107,9 +107,9 @@ def a_redraw_clears_drawings_nothing_owns():
     open_starter(c, "*")
     c.eval("local S, ui = ns.EventBuilder:GetState(); "
            "T_stray = ns.EventPieces:DrawScript(ui.content, ns.EventBlocks:New('lo.or'), { static = true })")
-    assert c.eval_py(COUNT) == [4, 3]
+    assert c.eval_py(COUNT) == [5, 4]
     c.eval("ns.EventBuilder:Refresh()")
-    assert c.eval_py(COUNT) == [3, 3]
+    assert c.eval_py(COUNT) == [4, 4]
     # (released once: the pool holds it once)
     c.eval("ns.EventPieces:Release(T_stray); ns.EventPieces:Release(T_stray)")
     a = c.eval("local f1 = ns.EventPieces:DrawScript(UIParent, ns.EventBlocks:New('lo.or'), { static = true }); "
