@@ -728,12 +728,44 @@ local function initRecipeRow(row, d)
         row:SetScript("OnLeave", hideRecipeTooltip)
         -- Shift: materials, + mouse wheel: how many, + click / right-click: break down / back up
         if ns.Tooltip then ns.Tooltip:CraftRow(row, onEnter) end
+        -- hover: a bag (in place of the crafter count) that puts the craft on my Atlas shopping list
+        local function craftId()
+            local r = row.__cdlData and row.__cdlData.r
+            return r and (r.item > 0 and r.item or -r.spell)
+        end
+        local function shopHover(on)
+            local id = craftId()
+            local show = on and id ~= nil and ns.AtlasShopUI ~= nil and ns.Shop:CanAdd(id)
+            row.shop:SetShown(show)
+            row.count:SetShown(not show)
+        end
+        row.shop = ns.UI:CreateIconButton(row, 18, ns.UI.ICON_ATLAS, ns.UI:IconCoords(ns.UI.ICON.bagAdd), function(self)
+            local id = craftId()
+            if id and ns.AtlasShopUI:AddCraft(id) then ns.AtlasShopUI:AddTooltip(self, id) end
+        end)
+        row.shop:SetPoint("RIGHT", -6, 0)
+        row.shop:Hide()
+        row.shop:HookScript("OnEnter", function(self)
+            shopHover(true)
+            local id = craftId()
+            if id then ns.AtlasShopUI:AddTooltip(self, id) end
+        end)
+        row.shop:HookScript("OnLeave", function()
+            GameTooltip:Hide()
+            if not row:IsMouseOver() then shopHover(false) end
+        end)
+        row:HookScript("OnEnter", function() shopHover(true) end)
+        row:HookScript("OnLeave", function() if not row:IsMouseOver() then shopHover(false) end end)
     end
     local r = d.r
     row.icon:SetTexture(P():GetRecipeIcon(r))
     local n = #r.crafters
     -- a recipe only one member knows is worth noticing
     row.count:SetText(n == 1 and gold("1 crafter") or ("|cff8a8a8e%d crafters|r"):format(n))
+    if not row:IsMouseOver() then
+        row.shop:Hide()
+        row.count:Show()
+    end
     row.name:SetText(r.name)
     local room = ROWS_W - 32 - 16 - (row.count:GetStringWidth() or 50)
     sized(row.name, 12)

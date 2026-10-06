@@ -234,6 +234,7 @@ local KNOWN_MESSAGES = {
     BINGO_UPDATED = true,   -- Council Bingo (Games/Bingo): game started / square marked / game ended
     OFFICER_NOTES_UPDATED = true,   -- (key | nil) an officer note, or my access to them, changed
     PROFESSIONS_UPDATED = true,   -- the guild's professions / recipes changed (Core/Professions.lua)
+    SHOP_UPDATED = true,          -- my Atlas shopping list changed (Core/ShoppingList.lua)
     -- who has a strategy open / what they have selected changed (Core/StrategyCollab.lua)
     STRATEGY_PRESENCE_CHANGED = true,
     -- the guild's dungeon runs (Core/DungeonRuns.lua): anything on the board changed; (id) a run needs me while I'm

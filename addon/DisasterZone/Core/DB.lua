@@ -71,6 +71,7 @@ local DEFAULTS = {
     strategyDraft = {},-- [charKey] = { [draftId] = unsaved work on the strategy board } (UI/StrategyBoard.lua),
                        -- never synced
     tours = {},        -- [tourId] = { seen = true, done = { [chapterKey] = true } } (UI/Tour.lua), never synced
+    shopping = {},     -- [charKey] = { { id, n, d }, ... } the Atlas shopping list (Core/ShoppingList.lua), never synced
     prof = {},         -- [guildKey] ={ [charKey] = professions and recipes } (Core/Professions.lua)
     games = {},        -- [gameId] = per-game saved data (Games/Hub.lua): best, plays, ...
     dropHistory = {},  -- array of recent drops (§10.2), newest last, max 40, pruned > 24h

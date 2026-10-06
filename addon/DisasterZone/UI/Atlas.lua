@@ -42,6 +42,7 @@ local BAR_SPACE = 10                              -- a scroll bar inside its col
 local PLUS = 22                                   -- the hover button that adds an item to my BiS list
 local MAX_SHOWN = 300                             -- search results drawn at most (Found in narrows them down)
 local DOT = "  ·  "
+local SHOP = "shop"                               -- state.cat of the shopping list (UI/AtlasShop.lua)
 local CLASS_WEAPON, CLASS_ARMOR = 2, 4            -- Enum.ItemClass
 local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
 local EDGE = { 0.34, 0.34, 0.38, 0.5 }
@@ -72,7 +73,7 @@ local wantCache = {}     -- [itemID] = number of members who want it (council on
 local layCache = {}      -- [row data] = its layout (per refresh of the item list)
 local listLocked = false -- my BiS lists are locked (no + buttons)
 local rowW = { src = LEFT_W, page = MID_W, item = RIGHT_W }   -- the rows' widths (less while a list scrolls)
-local SelectSource, ShowItemMenu, ShowAddMenu, SearchResults   -- forward declarations
+local SelectSource, ShowItemMenu, ShowAddMenu, SearchResults, AddToShop, ShopButtonTooltip   -- forward declarations
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -389,11 +390,51 @@ local function ClearSearch()
     state.search = ""
 end
 
+-- The shopping list at the top of the left column: a bag, its name like a category's, how many crafts are on it
+-- (quiet while it's empty).
+local function InitShopRow(row)
+    if not row.bag then
+        row.bag = row:CreateTexture(nil, "ARTWORK")
+        row.bag:SetSize(14, 14)
+        row.bag:SetPoint("LEFT", row, "LEFT", IN, 0)
+        row.bag:SetTexture(ns.UI.ICON_ATLAS)
+        row.bag:SetTexCoord(unpack(ns.UI:IconCoords(ns.UI.ICON.bag)))
+    end
+    local n = ns.Shop and ns.Shop:Count() or 0
+    local on = not IsSearching() and state.cat == SHOP
+    row.bag:Show()
+    row.chev:Hide()
+    SetFontSize(row.label, "GameFontNormal", 12)
+    row.label:SetWordWrap(false)
+    row.label:SetPoint("LEFT", row, "LEFT", IN + 20, 0)
+    row.label:SetWidth(rowW.src - IN - 20 - SRC_R - TAG_W)
+    row.label:SetText("Shopping list")
+    row.tag:ClearAllPoints()
+    row.tag:SetPoint("RIGHT", row, "RIGHT", -SRC_R, 0)
+    row.tag:SetWidth(TAG_W + 6)
+    row.tag:SetText(n > 0 and ("|cffcfcfcf" .. n .. "|r") or "")
+    row.sel:SetShown(on)
+    row.selBar:SetShown(on)
+    if n > 0 or on then
+        row.label:SetTextColor(1, 0.82, 0)
+        row.bag:SetVertexColor(on and 1 or 0.9, on and 0.82 or 0.9, on and 0 or 0.9)
+    else
+        row.label:SetTextColor(0.55, 0.55, 0.58)
+        row.bag:SetVertexColor(0.55, 0.55, 0.58)
+    end
+    row:SetScript("OnClick", function()
+        ClearSearch()
+        AtlasUI:OpenShop()
+    end)
+end
+
 local function InitSourceRow(row, d)
     if not row.cdl then SetupListRow(row) end
     local w = rowW.src
     local cat = d.type == "cat"
     row.label:ClearAllPoints()
+    if row.bag then row.bag:Hide() end
+    if d.type == "shop" then return InitShopRow(row) end
     row.chev:SetShown(cat)
     row.chev:ClearAllPoints()
     row.chev:SetPoint("RIGHT", row, "RIGHT", -SRC_R, 0)
@@ -482,6 +523,7 @@ end
 
 local function SourceExtent(d)
     if d.type == "cat" then return ROW_CAT end
+    if d.type == "shop" then return ROW_CAT end
     local w = rowW.src - SRC_X - SRC_R - (PhaseTag(d.src) and TAG_W or 0)
     return TextWidth(d.src.name, "GameFontHighlight", 11) > w and ROW_TWO or ROW_SRC
 end
@@ -514,12 +556,32 @@ local function MarksText(id)
     return table.concat(parts, " ")
 end
 
--- The right of an item row, at most two lines: the cost / skill, my marks, the council's "N want".
+-- Puts a craft on my shopping list (UI/AtlasShop.lua: with the amount / breakdown set with Shift).
+function AddToShop(id)
+    if ns.AtlasShopUI then ns.AtlasShopUI:AddCraft(id) end
+end
+
+-- The bag button's tooltip: who can make the craft for me, what a click adds.
+function ShopButtonTooltip(btn, row)
+    local d = row.__cdlData
+    if ns.AtlasShopUI and d and d.type == "item" then ns.AtlasShopUI:AddTooltip(btn, d.id) end
+end
+
+-- The bag on a craft row's right: on my shopping list, and how many.
+local function ShopMark(id)
+    local n = ns.Shop and ns.Shop:GetAmount(id)
+    if not n then return "" end
+    return ns.UI:AtlasIconText(ns.UI.ICON.bag, 10, { 0.85, 0.85, 0.85 }) .. " |cffd8d8d8" .. n .. "|r"
+end
+
+-- The right of an item row, at most two lines: the cost / skill, my marks, the council's "N want", my shopping list.
 local function RightLines(d)
     local id = d.id
     local lines = {}
     if d.x then lines[#lines + 1] = "|cffe0e0e0" .. d.x .. "|r" end
     local mine = MarksText(id)
+    local bag = ShopMark(id)
+    if bag ~= "" then mine = mine ~= "" and (mine .. "  " .. bag) or bag end
     if mine ~= "" then lines[#lines + 1] = mine end
     if IsCouncil() and id > 0 then
         local n = Wanted(id)
@@ -572,7 +634,9 @@ local function Layout(d)
     for _, l in ipairs(lay.lines) do rw = max(rw, CodedWidth(l, "GameFontHighlightSmall", 10)) end
     lay.rightW = rw > 0 and (ceil(rw) + 2) or 0
     lay.canAdd = CanAdd(id)
-    lay.textW = rowW.item - lay.textX - IN - (lay.canAdd and (PLUS + 8) or 0) - (rw > 0 and (lay.rightW + 10) or 0)
+    lay.canShop = ns.Shop ~= nil and ns.Shop:CanAdd(id)
+    lay.textW = rowW.item - lay.textX - IN - (lay.canAdd and (PLUS + 8) or 0) - (lay.canShop and (PLUS + 6) or 0)
+        - (rw > 0 and (lay.rightW + 10) or 0)
     lay.sub = SubText(d)
     lay.nameLines = CodedWidth(NameText(id), "GameFontHighlight", 12) > lay.textW and 2 or 1
     lay.subLines = (lay.sub == "" and 0) or (TextWidth(lay.sub, "GameFontDisableSmall", 10) > lay.textW and 2) or 1
@@ -657,14 +721,19 @@ local function OnItemClick(row, mouseButton)
     if d.loc and IsSearching() then AtlasUI:GoTo(d.loc) end
 end
 
--- Hovering an item row shows its + button (when it can add) and moves the marks left of it.
+-- Hovering an item row shows its + button (when it can add to my BiS list) and its bag (a craft: add it to my
+-- shopping list), and moves the marks left of them.
 local function SetRowHover(row, on)
     local lay = row.lay
     local item = lay and lay.textX ~= nil
     row.hover:SetShown(on and item or false)
     local plus = on and item and lay.canAdd or false
+    local shop = on and item and lay.canShop or false
     row.plus:SetShown(plus)
-    local x = plus and -(IN + PLUS + 8) or -IN
+    row.shop:SetShown(shop)
+    row.shop:ClearAllPoints()
+    row.shop:SetPoint("RIGHT", row, "RIGHT", plus and -(IN + PLUS + 6) or -IN, 0)
+    local x = -IN - (plus and (PLUS + 8) or 0) - (shop and (PLUS + (plus and 6 or 8)) or 0)
     local two = item and #lay.lines > 1
     row.mark:ClearAllPoints()
     row.mark:SetPoint("RIGHT", row, "RIGHT", x, two and 7 or 0)
@@ -734,6 +803,22 @@ local function SetupItemRow(row)
     end)
     plus:Hide()
     row.plus = plus
+
+    -- the bag (hover, a craft): add it to my shopping list
+    local shop = UI:CreateIconButton(row, PLUS, UI.ICON_ATLAS, UI:IconCoords(UI.ICON.bagAdd), function()
+        local d = row.__cdlData
+        if d and d.type == "item" then AddToShop(d.id) end
+    end)
+    shop:HookScript("OnEnter", function(self)
+        SetRowHover(row, true)
+        ShopButtonTooltip(self, row)
+    end)
+    shop:HookScript("OnLeave", function()
+        GameTooltip:Hide()
+        if not row:IsMouseOver() then SetRowHover(row, false) end
+    end)
+    shop:Hide()
+    row.shop = shop
 
     row:SetScript("OnClick", OnItemClick)
     row:SetScript("OnEnter", function(self)
@@ -928,6 +1013,9 @@ function ShowItemMenu(row, d)
     local A = Atlas()
     ns.UI:ContextMenu(row, function(root)
         root:CreateTitle(A:GetName(id) or "?")
+        if ns.Shop and ns.Shop:CanAdd(id) then
+            root:CreateButton("Add to shopping list", function() AddToShop(id) end)
+        end
         if id > 0 then
             local targets = A:GetBiSTargets(id)
             if #targets > 0 then
@@ -1012,7 +1100,7 @@ end
 
 function AtlasUI:RefreshSources()
     if not srcList then return end
-    local rows = {}
+    local rows = { { type = "shop" } }
     for _, cat in ipairs(Atlas():GetCategories()) do
         local open = state.expanded == cat.key
         rows[#rows + 1] = { type = "cat", cat = cat, expanded = open }
@@ -1149,10 +1237,26 @@ local function PlacePageList(top)
     return ColH() - top
 end
 
+-- The shopping list takes the middle and right columns (UI/AtlasShop.lua) while it's the place picked on the left
+-- and nothing is searched.
+local function ShowingShop()
+    return state.cat == SHOP and not IsSearching() and ns.AtlasShopUI ~= nil
+end
+
 function AtlasUI:RefreshPages()
     if not pageList then return end
     local A = Atlas()
     RefreshMarks()
+    if ShowingShop() then
+        banner:Hide()
+        midHead:Hide()
+        diffNormal:Hide()
+        diffHeroic:Hide()
+        pageList.frame:Hide()
+        ns.AtlasShopUI:Show()
+        return
+    end
+    if ns.AtlasShopUI then ns.AtlasShopUI:Hide() end
     if IsSearching() then
         local res = SearchResults()
         local rows = {}
@@ -1273,6 +1377,13 @@ end
 
 function AtlasUI:RefreshItems(resetScroll)
     if not itemList then return end
+    if ShowingShop() then
+        itemHead:Hide()
+        itemList.frame:Hide()
+        ns.AtlasShopUI:Refresh(resetScroll)
+        return
+    end
+    itemList.frame:Show()
     local A = Atlas()
     RefreshMarks()
     wantCache = {}
@@ -1411,6 +1522,17 @@ function AtlasUI:GoTo(loc)
             break
         end
     end
+end
+
+-- Opens the shopping list (groupId: "all" (default), "you", "nobody", "bop" or a member's key).
+function AtlasUI:OpenShop(groupId)
+    state.cat, state.src, state.page = SHOP, nil, nil
+    state.selected = nil
+    if ns.AtlasShopUI and groupId then ns.AtlasShopUI:GetState().group = groupId end
+    if not panel then return end
+    self:RefreshSources()
+    self:RefreshPages()
+    self:RefreshItems(true)
 end
 
 -- Opens the Atlas tab at an item (e.g. from a chat command): its first location.
@@ -1569,6 +1691,13 @@ function AtlasUI:CreatePanel(parent)
     itemList.frame:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
     PlaceBox(itemList, true, "margin")
 
+    -- the shopping list: the other two columns while it's picked
+    if ns.AtlasShopUI then
+        ns.AtlasShopUI:Create({ NewText = NewText, TextWidth = TextWidth, CodedWidth = CodedWidth,
+                                CreateHead = CreateHead, FillHead = FillHead, NameText = NameText, HEAD_H = HEAD_H },
+            mid, right)
+    end
+
     panel:SetScript("OnShow", function(self)
         if self.dirty then AtlasUI:Refresh() end
     end)
@@ -1681,3 +1810,9 @@ end)
 ns:On("CONFIG_UPDATED", RequestItems)
 ns:On("BIS_LOCK_CHANGED", RequestItems)
 ns:On("ITEMINFO_READY", ItemInfoReady)
+-- my shopping list changed: its count on the left, the bag marks on the rows
+ns:On("SHOP_UPDATED", function()
+    if not panel then return end
+    if srcList then srcList:Refresh() end
+    RequestItems()
+end)

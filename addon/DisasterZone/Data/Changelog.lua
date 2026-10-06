@@ -86,6 +86,13 @@ ns.CHANGELOG = {
               "Shift + click breaks them down a step (bolts into cloth); Shift + right-click goes back.",
               "Atlas: Spellcloth, Shadowcloth and Primal Mooncloth are items again, with their icons.",
           } },
+          { heading = "Atlas: shopping list", lines = {
+              "Hover a craft in the Atlas or Members and click its bag; Shift sets how many first.",
+              "Your list sits at the top of the Atlas, grouped by who makes it: most of it first.",
+              "Materials add up with what's in your bags and bank; the missing ones come first.",
+              "Pick a crafter for their part of the list; Whisper types the ask with the links.",
+              "With Auctionator, one line says what the missing materials cost at the auction house.",
+          } },
           { heading = "Members", lines = {
               "The roster lists online players first, then away, then offline; the highest level first.",
               "A member's Characters card lists their raid teams: click one to open it in the Raids tab.",

@@ -74,6 +74,7 @@ Core\Loot.lua
 Core\Roll.lua
 Core\Loon.lua
 Core\Atlas.lua
+Core\ShoppingList.lua
 Core\Codec.lua
 Core\BiSImport.lua
 Core\BiSExport.lua
@@ -159,6 +160,7 @@ UI\MyBiS.lua
 UI\ImportExport.lua
 UI\Picker.lua
 UI\Atlas.lua
+UI\AtlasShop.lua
 UI\Council.lua
 UI\LootLog.lua
 UI\RaidGroups.lua

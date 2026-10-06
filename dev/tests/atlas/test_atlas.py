@@ -136,9 +136,9 @@ def tab_sits_after_my_bis_and_opens_on_the_guild_phase_raid():
     assert st[0] == "raids" and st[1] == first_p2, st
     first_boss = c.eval("local k = ...; for _, r in ipairs(ns.Data.Raids) do if r.key == k then return r.bosses[1].key end end", first_p2)
     assert st[2] == first_boss, st
-    # left: Raids folded open with its raids; middle: the raid's bosses; right: the boss's items
+    # left: the shopping list on top, Raids folded open with its raids; middle: the raid's bosses; right: the items
     src = rows(c, "src")
-    assert src[0][:2] == ["cat", "raids"] and src[0][2] == 1, src[:3]
+    assert src[0][0] == "shop" and src[1][:2] == ["cat", "raids"] and src[1][2] == 1, src[:3]
     assert any(r[0] == "src" and r[1] == first_p2 for r in src), src
     pages = rows(c, "page")
     n_bosses = c.eval("local k = ...; for _, r in ipairs(ns.Data.Raids) do if r.key == k then return #r.bosses end end", first_p2)
@@ -585,7 +585,9 @@ def craft_spells_render_and_only_link():
     c.hover(row)
     assert tt_lines(c), "no tooltip for a craft spell"
     texts = [t for _, t in flat(menu_for(c, spells[0]))]
-    assert "Link in chat" in texts and not any(t and t.startswith("Add to") for t in texts), texts
+    # (no BiS list entries for a spell; it can go on the shopping list)
+    assert "Link in chat" in texts and "Add to shopping list" in texts, texts
+    assert not any(t and t.startswith("Add to") and t != "Add to shopping list" for t in texts), texts
     no_errors(w)
 
 

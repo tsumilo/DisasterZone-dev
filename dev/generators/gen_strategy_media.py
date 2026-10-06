@@ -378,11 +378,38 @@ def ic_plus(d, k):
     d.rectangle(_pts(k, [(8, 28), (56, 36)]), fill=255)
 
 
+def _bag(d, k):
+    # a shopping bag: an outlined body, narrower at the bottom, and a handle over it
+    d.line(_pts(k, [(10, 22), (54, 22), (50, 58), (14, 58), (10, 22)]), fill=255, width=_w(k, 6), joint="curve")
+    d.arc(_pts(k, [(21, 6), (43, 32)]), 180, 360, fill=255, width=_w(k, 6))
+    d.line(_pts(k, [(21, 19), (21, 30)]), fill=255, width=_w(k, 6))
+    d.line(_pts(k, [(43, 19), (43, 30)]), fill=255, width=_w(k, 6))
+
+
+def ic_bag(d, k):
+    # the shopping list (Atlas)
+    _bag(d, k)
+
+
+def ic_bag_add(d, k):
+    # add to the shopping list: the bag with a plus inside
+    _bag(d, k)
+    d.rectangle(_pts(k, [(29, 31), (35, 51)]), fill=255)
+    d.rectangle(_pts(k, [(22, 38), (42, 44)]), fill=255)
+
+
+def ic_whisper(d, k):
+    # whisper: a speech bubble with its tail at the bottom left
+    d.rounded_rectangle(_pts(k, [(6, 8), (58, 44)]), radius=_w(k, 9), fill=255)
+    d.polygon(_pts(k, [(14, 40), (30, 40), (12, 58)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
-              ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus]
+              ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
+              ic_bag, ic_bag_add, ic_whisper]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

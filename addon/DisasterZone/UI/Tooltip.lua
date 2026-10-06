@@ -431,6 +431,12 @@ function Tooltip:GetMaterialsAmount()
     return mats.n, mats.level or 0
 end
 
+-- The amount and breakdown last set for id with Shift (nil when the materials last shown were another craft's).
+function Tooltip:GetMaterialsState(id)
+    if mats.id == nil or mats.id ~= tonumber(id) then return nil end
+    return mats.n, mats.level or 0
+end
+
 -- Turns the wheel for the nearest parent that scrolls (the list), as if the row had no wheel of its own.
 local function ForwardWheel(frame, delta)
     local p = frame:GetParent()

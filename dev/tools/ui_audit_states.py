@@ -303,6 +303,32 @@ def members_view(lua=None):
     return fn
 
 
+# Gina's shopping list on members_seed's guild: Lightbringer's Alchemy makes the most (three), Vaenyria's Tailoring and
+# Enchanting the next, an Imbued Netherweave Bag nobody knows, a Spellstrike Hood that binds when picked up. Bags hold
+# a few materials; a stand-in Auctionator prices some. (The mock binds every item on pickup: the list's are BoE here.)
+SHOP_SEED = r"""
+for _, id in ipairs({ 21841, 22851, 22832, 22831, 21843 }) do local r = __MOCK.item_rec(id); if r then r.bind = 2 end end
+ns.Shop:Clear()
+ns.Shop:Add(22851, 5); ns.Shop:Add(22832, 10); ns.Shop:Add(22831, 5); ns.Shop:Add(21841, 2, 1); ns.Shop:Add(-27984)
+ns.Shop:Add(21843); ns.Shop:Add(24266)
+Auctionator = { API = { v1 = { GetAuctionPriceByItemID = function(_, id)
+  return ({ [22794] = 420000, [22793] = 61000, [22790] = 92000, [22789] = 38000, [22786] = 41000, [22445] = 18000,
+            [22449] = 255000, [22450] = 480000, [22446] = 66000, [21877] = 9000 })[id] end } } }
+"""
+
+
+def shop_view(lua=None, bags=None):
+    """The Atlas's shopping list (Everything, or lua after it opened) on members_seed's guild."""
+    def fn(w, c):
+        members_seed(w, c)
+        g = c["Gina"]
+        g.eval(SHOP_SEED)
+        g.set_bags(bags or {(0, 1): (22794, 5), (0, 2): (21877, 20), (0, 3): (22786, 35), (0, 4): (22445, 9),
+                            (0, 5): (14341, 2)})
+        return opened("atlas", "ns.AtlasUI:OpenShop('all'); " + (lua or ""))(w, c)
+    return fn
+
+
 def st_window(lua):
     def fn(w, c):
         g = c["Gina"]
@@ -566,6 +592,11 @@ STATES = [
                                           "ns.AtlasUI:HoverItem(28477)")),
     ("Atlas - badge vendor", opened("atlas", "ns.AtlasUI:Select('vendors', 'BadgeofJustice')")),
     ("Atlas - arena vendor", opened("atlas", "ns.AtlasUI:Select('pvp', 'ArenaS2')")),
+    ("Atlas - shopping list", shop_view()),
+    ("Atlas - shopping list crafter", shop_view("ns.AtlasShopUI:Select('Lightbringer-Thunderstrike')")),
+    ("Atlas - shopping list empty", shop_view("ns.Shop:Clear()")),
+    ("Atlas - shopping list add", shop_view("ns.AtlasUI:Select('crafting', 'Tailoring', 'Bag'); "
+                                            "ns.AtlasUI:HoverItem(21841)")),
     ("Council - Loot Log", opened("council", "ns.CouncilUI:ShowLog()")),
     ("Raids - Upcoming board", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:ShowBoard()")),
     ("Raids - Upcoming", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "

@@ -678,6 +678,8 @@ UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, ba
             crown = 26, import = 32, export = 33, knobTurn = 34, knobSize = 35, walk = 36 }
 -- (the strategy board's chrome: 37 a target (Practice), 38 a keyboard (Keyboard and mouse), 39 a plus (New strategy))
 UI.ICON.practice, UI.ICON.keys, UI.ICON.plus = 37, 38, 39
+-- (the Atlas shopping list: 40 a bag, 41 a bag with a plus (add to it), 42 a speech bubble (whisper))
+UI.ICON.bag, UI.ICON.bagAdd, UI.ICON.whisper = 40, 41, 42
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }
