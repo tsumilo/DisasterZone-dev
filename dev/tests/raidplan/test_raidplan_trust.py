@@ -297,13 +297,13 @@ def officers_see_locked_raids_and_can_add_their_guests():
     w.tick(2)
     assert occ in [v["id"] for v in raids(olaf)] and olaf.eval("return ns.RaidPlan:CanSee(...)", occ)
     assert occ not in [v["id"] for v in raids(una)]
-    # the guest book's "Add as a guest to" lists it
+    # the guest book's "Add to a raid" lists it (their class first: the book doesn't know it)
     res = olaf.eval_py("local ok, k = ns.GuestBook:SetNote('Pugzor', 'tank'); return { ok = ok, k = k }")
     assert res["ok"] is True, res
     w.tick(1)
     olaf.eval("ns.GuestBookUI:OpenEntryMenu(UIParent, ns.GuestBook:GetEntry(...))", K("Pugzor"))
-    texts = [strip_codes(t[2] or "") for t in menu_texts(olaf.last_menu())]
-    assert "Add as a guest to" in texts and any("Karazhan" in t for t in texts), texts
+    texts = [strip_codes(t[2] or "").strip() for t in menu_texts(olaf.last_menu())]
+    assert "Add to a raid" in texts and "Their class" in texts and any("Karazhan" in t for t in texts), texts
     w.assert_no_errors()
 
 

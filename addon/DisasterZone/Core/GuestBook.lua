@@ -8,7 +8,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GuestBook.lua", ...) then ret
 --     has not raided with us yet. db.guestNotes[guildKey] = { rev, by, l = { [key] = { n = note, rc = true, c, sp,
 --     by, at } } }, shared whole like the blacklist: GNL on GUILD (or WHISPER as an answer), accepted only from a
 --     roster manager, the newer rev wins. HELLO carries my rev (gnr); a manager answers an older one, and a member
---     asks (GNQ) a manager who holds a newer one. (Clients before 1.3.2 ignore c / s on the wire.)
+--     asks (GNQ) a manager who holds a newer one. (Clients before 1.3.2 ignore c / s / x on the wire.)
+--   Removed (1.3.2): a player taken out of the book by hand ({ x = when } instead of a note) is left out of it until
+--     something new happens with them after that moment (a raid, a missed raid, a guest seat, an item).
 --   Specs (local): the class and spec last seen for a guest (db.guestSpecs[guildKey]), learned from guest seats and
 --     from a class set by hand, so a pug added again (or automatically) keeps their spec.
 -- In a group:
@@ -211,7 +213,11 @@ local function CleanNotes(l)
                 entry.sp = e.s
             end
         end
-        if entry.n or entry.rc or entry.c then out[k] = entry end
+        if e.x ~= nil then
+            if not IsInt(e.x, 1, MAX_STAMP) then return nil end
+            entry.x = e.x
+        end
+        if entry.n or entry.rc or entry.c or entry.x then out[k] = entry end
     end
     return out
 end
@@ -223,7 +229,7 @@ local function WireNotes(rec)
     local l = {}
     for i, k in ipairs(keys) do
         local e = rec.l[k]
-        l[i] = { k = k, n = e.n, rc = e.rc and 1 or nil, c = e.c, s = e.c and e.sp or nil, b = e.by, a = e.at }
+        l[i] = { k = k, n = e.n, rc = e.rc and 1 or nil, c = e.c, s = e.c and e.sp or nil, x = e.x, b = e.by, a = e.at }
     end
     return l
 end
@@ -322,7 +328,7 @@ function GuestBook:SetNote(name, note, recruit, classFile, sp)
         c, spec = classFile, sp
     end
     if not n and not rc and not c then
-        if not cur then return true, key end
+        if not cur or cur.x then return true, key end   -- (nothing to clear on a player taken out of the book)
         rec.l[key] = nil
     else
         if not cur and CountTable(rec.l) >= MAX_NOTES then
@@ -335,6 +341,27 @@ function GuestBook:SetNote(name, note, recruit, classFile, sp)
                        at = kept and cur.at or Now() }
     end
     if c and classFile ~= nil then LearnSpec(key, c, spec, Now()) end
+    rec.rev = max(Now(), rec.rev + 1)
+    rec.by = Util.PlayerKey()
+    SendNotes()
+    Changed()
+    return true, key
+end
+
+-- Takes a player out of the guest book (1.3.2): their note, Recruit mark and class go, and the book leaves them out
+-- until something new happens with them (a raid, a guest seat, an item). Roster managers only. Returns ok, keyOrErr.
+function GuestBook:Remove(name)
+    if not AmManager() then
+        return false, "Only the Guild Master, officers and the raid leaders keep the guest book."
+    end
+    local rec = NotesRec(true)
+    if not rec then return false, "Your guild is not known yet; try again in a moment." end
+    local key = WireKey(type(name) == "string" and Util.Trim(name) or name)
+    if not key then return false, "That is not a player name." end
+    if not rec.l[key] and CountTable(rec.l) >= MAX_NOTES then
+        return false, "The guest book keeps notes on at most " .. MAX_NOTES .. " players."
+    end
+    rec.l[key] = { x = Now(), by = Util.PlayerKey(), at = Now() }
     rec.rev = max(Now(), rec.rev + 1)
     rec.by = Util.PlayerKey()
     SendNotes()
@@ -434,6 +461,11 @@ local function Build()
         end
         return e
     end
+    -- (the last thing that happened with a player: a player taken out of the book comes back after it)
+    local function Touch(e, t)
+        t = tonumber(t)
+        if t and (not e.act or t > e.act) then e.act = t end
+    end
     local RL = ns.RaidLog
     for _, rec in ipairs(RL and RL.GetRaids and RL:GetRaids() or {}) do
         local at = tonumber(rec.start) or 0
@@ -441,6 +473,7 @@ local function Build()
         for key, a in pairs(type(rec.att) == "table" and rec.att or {}) do
             if IsOutsider(key) then
                 local e = E(key)
+                Touch(e, at)
                 e.raids = e.raids + 1
                 e.recIds[rec.id or ""] = true
                 local k = type(a) == "table" and tonumber(a.k) or 0
@@ -458,6 +491,7 @@ local function Build()
         for key, st in pairs(type(rec.su) == "table" and rec.su or {}) do
             if st == "A" and not (rec.att and rec.att[key]) and IsOutsider(key) then
                 local e = E(key)
+                Touch(e, at)
                 e.noShows = e.noShows + 1
                 e.zones[#e.zones + 1] = { id = rec.id, at = at, zone = rec.zone, inst = inst, noShow = true }
             end
@@ -471,6 +505,7 @@ local function Build()
             for key, g in pairs(type(v.gu) == "table" and v.gu or {}) do
                 if IsOutsider(key) and type(g) == "table" then
                     local e = E(key)
+                    Touch(e, g.at)
                     e.c = e.c or g.c
                     if v.t >= now - NEXT_RAID_SLACK and (not e.next or v.t < e.next.t) then
                         e.next = { id = v.id, t = v.t, name = R:GetRaidName(v),
@@ -487,6 +522,7 @@ local function Build()
             local r = ns.AWARD_REASON and it.r and ns.AWARD_REASON[it.r]
             if not r or r.counts then
                 local e = E(it.w)
+                Touch(e, it.ts)
                 e.items = e.items + 1
                 if #e.itemList < 20 then e.itemList[#e.itemList + 1] = it end
             end
@@ -499,6 +535,15 @@ local function Build()
             local e = E(key)
             e.note, e.recruit, e.noteBy, e.noteAt = n.n, n.rc and true or false, n.by, n.at
             e.setC, e.setSp = n.c, n.sp
+            e.removedAt = n.x
+        end
+    end
+    -- players taken out of the book by hand, with nothing new since
+    for i = #list, 1, -1 do
+        local e = list[i]
+        if e.removedAt and (e.act or 0) <= e.removedAt then
+            by[e.key] = nil
+            table.remove(list, i)
         end
     end
     local specs = SpecsRec(false)

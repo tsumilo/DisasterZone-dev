@@ -446,6 +446,40 @@ def a_guest_who_did_not_come_shows_the_raid_they_missed():
 
 
 @case
+def removing_a_player_from_the_book():
+    w, c = world()
+    bob, olaf, rita = c["Bob"], c["Olaf"], c["Rita"]
+    occ = kara_now(w, c)
+    assert call(bob, "AddGuest", occ, "Pug", "WARLOCK")["ok"] is True
+    assert bob.eval_py("local ok = ns.GuestBook:SetNote('Pug', 'solid healer', true); return { ok = ok }")["ok"] is True
+    w.tick(3)
+    assert entry(olaf, K("Pug"))["note"] == "solid healer"
+    # Remove (the row's menu, then yes): gone for every organizer, note and mark with it
+    bob.slash("/dz raids")
+    w.tick(0.3)
+    assert bob.eval("return ns.GuestBookUI:OpenGuest(...)", K("Pug")) is True
+    bob.eval("ns.GuestBookUI:OpenEntryMenu(UIParent, ns.GuestBook:GetEntry(...))", K("Pug"))
+    menu_pick(bob, "Remove")
+    bob.accept_popup("DISASTERZONE_PLAN_CONFIRM")
+    w.tick(3)
+    assert entry(bob, K("Pug")) is None and entry(olaf, K("Pug")) is None
+    keys = "local o = {}; for _, d in ipairs(ns.GuestBookUI:GetWindow().list:GetData()) do o[#o + 1] = d.key end; return o"
+    assert K("Pug") not in (bob.eval_py(keys) or [])
+    assert bob.eval("return ns.GuestBook:Summary(...)", K("Pug")) is None
+    # something new with them (a guest seat on another raid) brings them back, without the old note
+    w.tick(2)
+    later = create(bob, i="gruul", t=now(bob) + 3 * DAY)
+    w.tick(2)
+    assert call(bob, "AddGuest", later, "Pug", "WARLOCK")["ok"] is True
+    w.tick(3)
+    e = entry(olaf, K("Pug"))
+    assert e and e.get("note") is None and e["recruit"] is False, e
+    # only the organizers keep the book
+    assert rita.eval_py("local ok, e = ns.GuestBook:Remove('Pug'); return { ok = ok, e = e }")["ok"] is False
+    w.assert_no_errors()
+
+
+@case
 def known_players_in_the_add_players_window():
     w, c = world()
     bob, pug, rita = c["Bob"], c["Pug"], c["Rita"]

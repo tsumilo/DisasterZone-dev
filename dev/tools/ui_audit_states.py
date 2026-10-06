@@ -666,8 +666,13 @@ STATES = [
     ("Raids - Add players - guest", st_window("ns.RaidPlanUI:OpenInvites(...); "
                                               "ns.RaidPlanUI:GetInviteWindow().mode = 'guest'; "
                                               "ns.RaidPlanUI:RefreshInvites()")),
-    ("Raids - Guests - guest book", st_window("ns.GuestBookUI:Open('book')")),
-    ("Raids - Guests - blacklist", st_window("ns.GuestBookUI:Open('black')")),
+    ("Raids - Guests - guest book", opened("raids", "ns.GuestBookUI:Open('book')")),
+    ("Raids - Guests - a guest", opened("raids", "ns.GuestBookUI:OpenGuest('Pugsyhealer')")),
+    ("Raids - Guests - blacklist", opened("raids", "ns.GuestBookUI:Open('black')")),
+    ("Raids - Guests - add a player", opened("raids", "ns.GuestBookUI:OpenGuest('Shadowfang'); "
+                                         "ns.GuestBookUI:GetWindow().form.noteBox:SetText('Geared resto druid, wants a "
+                                         "Thu + Sun guild')")),
+    ("Raids - Guests - blacklist a player", opened("raids", "ns.GuestBookUI:OpenBlacklist('Grimbold')")),
     ("Raids - Raid leaders", st_window("ns.RaidLeadersUI:Open()")),
     ("Raids - Strategy board", st_board("ns.StrategyBoard:OpenStrategy(select(2, ...))")),
     ("Raids - Strategy board - edit", st_board("ns.StrategyBoard:OpenStrategy(select(2, ...), 'edit')")),

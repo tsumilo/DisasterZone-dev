@@ -376,6 +376,19 @@ local function clearNote(key)
     if not ok then Print("%s", tostring(err)) end
 end
 
+-- Takes a player out of the book (after a yes): their note, mark and class go; they come back if they raid with us
+-- again.
+function GuestUI:ConfirmRemove(key)
+    local function remove()
+        local ok, err = GB():Remove(key)
+        if not ok then Print("%s", tostring(err)) end
+    end
+    local PlanUI = ns.RaidPlanUI
+    if not (PlanUI and PlanUI.Confirm) then return remove() end
+    PlanUI:Confirm(("Remove %s from the guest book?\n\nTheir note and Recruit mark are deleted for every organizer. "
+        .. "They come back if they raid with you again."):format(shortName(key)), remove)
+end
+
 -- The class submenus (More > Class): the class, then its spec.
 local function classMenu(root, key, e)
     local cur, curSp = classOf(key, e)
@@ -418,6 +431,9 @@ function GuestUI:OpenEntryMenu(owner, e)
         end
         root:CreateButton(iconText(UI().ICON.whisper) .. "  Whisper", function() whisper(key) end)
         root:CreateDivider()
+        if entry and not inGuild(key) then
+            root:CreateButton(iconText(UI().ICON.trash) .. "  Remove", function() GuestUI:ConfirmRemove(key) end)
+        end
         if bl then
             root:CreateButton(blockText(14) .. "  Take off the blacklist", function() GuestUI:Unblacklist(bl.key) end)
         else
@@ -438,10 +454,16 @@ local function moreMenu(owner)
                 root:CreateButton(iconText(UI().ICON.trash) .. "  Clear note", function() clearNote(key) end)
             end
             root:CreateDivider()
+            root:CreateButton(iconText(UI().ICON.trash) .. "  Remove", function() GuestUI:ConfirmRemove(key) end)
             root:CreateButton(blockText(14) .. "  |cffff8d80Blacklist|r", function() GuestUI:OpenBlacklist(key) end)
         elseif kind == "black" then
             root:CreateButton(iconText(16) .. "  Reason", function() GuestUI:EditNote(key) end)
-            if e then classMenu(root, key, e) end
+            if e then
+                classMenu(root, key, e)
+                root:CreateDivider()
+                root:CreateButton(iconText(UI().ICON.trash) .. "  Remove from the book",
+                    function() GuestUI:ConfirmRemove(key) end)
+            end
         end
     end)
 end
@@ -453,7 +475,7 @@ end
 local function rowLine(d)
     local e, bl = d.e, d.bl
     if d.add == "add" then return { "Not in the guest book yet" } end
-    if d.add == "black" then return { "Then why: only the organizers see it", "Then why" } end
+    if d.add == "black" then return { "Not on the blacklist yet" } end
     if state.filter == "black" and bl then
         local when = bl.at and date("%d %b", bl.at) or nil
         if not e and inGuild(d.key) then
@@ -716,7 +738,7 @@ local function createBanner(dc)
     b.sub:SetTextColor(0.82, 0.82, 0.82)
     b.sub:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -4)
 
-    b.moreBtn = UI():CreateTipIconButton(b, 22, UI().ICON.more, "More", "Class, the note, the blacklist.",
+    b.moreBtn = UI():CreateTipIconButton(b, 22, UI().ICON.more, "More", "Class, the note, remove from the book, the blacklist.",
         function(self) moreMenu(self) end)
     b.moreBtn:SetPoint("TOPRIGHT", -12, -12)
     b.whisperBtn = UI():CreateTipIconButton(b, 22, UI().ICON.whisper, "Whisper", nil, function()
@@ -1171,7 +1193,9 @@ local function fillBanner(kind, key, e, bl)
         if (b.name:GetStringWidth() or 0) <= nameRoom then break end
     end
     b.pill:SetShown(kind == "black")
-    fitText(b.sub, subText(kind, key, e, c, sp), DETAIL_W - 70 - 70)
+    local subs = subText(kind, key, e, c, sp)
+    for i, text in ipairs(subs) do subs[i] = (text:gsub("^%l", string.upper)) end
+    fitText(b.sub, subs, DETAIL_W - 70 - 70)
     b.whisperBtn:SetShown(true)
     b.moreBtn:SetShown(kind == "guest" or kind == "black")
     b.whisperBtn:ClearAllPoints()
@@ -1429,8 +1453,10 @@ local function fillProfile()
     fillForm(kind, key)
 end
 
--- Picks a row: key + kind (nil, "add", "black"); focus = put the cursor in the fresh profile's field.
-function GuestUI:Select(key, kind, focus)
+-- Picks a row: key + kind (nil, "add", "black"); focus = put the cursor in the fresh profile's field; reveal = scroll
+-- the list to it (picked from elsewhere).
+function GuestUI:Select(key, kind, focus, reveal)
+    if reveal then state.reveal = true end
     if state.sel ~= key or state.selKind ~= kind then
         state.editing = nil
         if view then view.form.err:SetText("") end
@@ -1514,7 +1540,7 @@ function GuestUI:SaveFresh()
     view.search:SetText("")
     view.search:ClearFocus()
     if state.filter == "recruits" and not d.recruit then state.filter = "all" end
-    state.sel, state.selKind = key, nil
+    state.sel, state.selKind, state.reveal = key, nil, true
     self:Refresh()
     return true
 end
@@ -1539,6 +1565,17 @@ function GuestUI:Refresh()
     view.list:SetEmptyText(empty or "")
     view.list:SetData(rows)
     view.list.box:ForEachFrame(paintRow)
+    -- a player opened from elsewhere (a menu, a link): their row in sight
+    if state.reveal then
+        state.reveal = nil
+        local box = view.list.box
+        for i, d in ipairs(rows) do
+            if isPicked(d) and box.ScrollToElementDataIndex then
+                box:ScrollToElementDataIndex(i, ScrollBoxConstants and ScrollBoxConstants.AlignCenter)
+                break
+            end
+        end
+    end
     fillProfile()
 end
 
@@ -1585,11 +1622,11 @@ function GuestUI:OpenGuest(key)
     if GB():GetEntry(key) then
         if state.filter == "recruits" and not GB():GetEntry(key).recruit then state.filter = "all" end
         setSearch("")
-        self:Select(key, nil)
+        self:Select(key, nil, false, true)
     else
         state.filter = "all"
         setSearch(shortName(key))
-        self:Select(key, "add", true)
+        self:Select(key, "add", true, true)
     end
     return true
 end
@@ -1603,11 +1640,11 @@ function GuestUI:OpenBlacklist(key)
     local bl = RP():GetBlacklistEntry(key)
     if bl then
         setSearch("")
-        self:Select(bl.key, nil)
+        self:Select(bl.key, nil, false, true)
     else
         view.form.reasonBox:SetText("")
         setSearch(shortName(key))
-        self:Select(key, "black", true)
+        self:Select(key, "black", true, true)
     end
     return true
 end
@@ -1629,7 +1666,7 @@ function GuestUI:AddBlacklist(name, reason)
     view.form.reasonBox:ClearFocus()
     setSearch("")
     state.filter = "black"
-    state.sel, state.selKind = keyOrErr, nil
+    state.sel, state.selKind, state.reveal = keyOrErr, nil, true
     self:Refresh()
     return true
 end
@@ -1659,7 +1696,7 @@ function GuestUI:EditNote(name)
     local bl = RP():GetBlacklistEntry(key)
     if bl then state.filter = "black" elseif state.filter ~= "all" then state.filter = "all" end
     setSearch("")
-    self:Select(bl and bl.key or key, nil)
+    self:Select(bl and bl.key or key, nil, false, true)
     self:StartEdit()
     return true
 end
