@@ -240,6 +240,11 @@ local KNOWN_MESSAGES = {
     -- the guild's dungeon runs (Core/DungeonRuns.lua): anything on the board changed; (id) a run needs me while I'm
     -- up for one; (id, key) somebody asks to join my run
     DUNGEON_RUNS_UPDATED = true, DUNGEON_RUN_PING = true, DUNGEON_RUN_REQUEST = true,
+    -- events (Core/Events.lua, Core/EventLive.lua): the library / calendar / results / season changed; (occId) a live
+    -- event's state changed; (occId, text) a raid warning piece for me; (occId, seconds) a countdown for me; the
+    -- builder's practice run changed / logged a line / ran a script (scriptId, blockId)
+    EVENTS_UPDATED = true, EVENT_LIVE_UPDATED = true, EVENT_ANNOUNCE = true, EVENT_COUNTDOWN = true,
+    EVENT_PRACTICE_UPDATED = true, EVENT_PRACTICE_LOG = true, EVENT_PRACTICE_RAN = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)

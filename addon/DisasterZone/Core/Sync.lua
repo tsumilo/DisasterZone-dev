@@ -431,6 +431,9 @@ function Sync:SendHello(force)
     -- Addendum K: the hash of my strategy boards and raid assignments (older clients ignore it).
     local Strategy = ns.Strategy
     if Strategy and Strategy.GetDigestHash then msg.sd = Strategy:GetDigestHash() end
+    -- 1.3.2: the hash of the guild's events (library, calendar, results, season; Core/Events.lua)
+    local Events = ns.Events
+    if Events and Events.GetDigestHash then msg.ed = Events:GetDigestHash() end
     return Send(msg, "GUILD", nil, "ctrl")
 end
 
@@ -754,6 +757,8 @@ local function OnHello(sender, msg, dist)
     if GuestBook and GuestBook.OnNotesRevSeen then GuestBook:OnNotesRevSeen(sender, msg.gnr) end
     local Strategy = ns.Strategy
     if Strategy and Strategy.OnHelloDigest then Strategy:OnHelloDigest(sender, msg.sd) end
+    local Events = ns.Events
+    if Events and Events.OnHelloDigest then Events:OnHelloDigest(sender, msg.ed) end
     local G = ns.Guild
     if G and G.OnRaidLeadersRevSeen then G:OnRaidLeadersRevSeen(sender, msg.rlr) end
     if G and G.OnAccountsSeen then G:OnAccountsSeen(sender, msg.av) end

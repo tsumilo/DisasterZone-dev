@@ -8,11 +8,16 @@ client's order, roll first, confirmed in game) and turns back into its angles, f
 +-90) too, and a level floor's or an upright wall's cube turns about z alone; a quad's quarters lie in it and keep
 its shape down to the smallest actor scale; where the board's camera can stand (the board, stress and review poses
 stand there); the generator runs end to end (fast settings, the largest regions) and what it makes keeps its
-promises on its own poses and on held-out board and stress poses; the shipped file
-(Render3D/Standins/MagtheridonsLair_Magtheridon.lua) has the data contract's shape as Lua itself reads it (line 1
-guard, version 2, both prims - the quad's size and middle as the client's file has them -, the room file it was made
-for, n, stride 12, 12 finite numbers per stand-in, angles in range, unit normals, a quad's front along its normal,
-scales in range: no actor under 0.018, a size under 300 KB), stand-ins on floors, walls and slopes, every one lies
+promises on its own poses and on held-out board and stress poses, a held-out pose that finds harm brings a review
+round (it joins the repair, fresh held-out poses are checked); the packed text round-trips and the TOC helper rewrites
+only the block of data files after Render3D\\Standins.lua, the file's line ends kept; the rooms' water is an opaque
+floor that gets stand-ins under its surface; every shipped file (Render3D/Standins/*.lua) has the data contract's
+shape as Lua itself reads it (line 1 guard, version 3 - packed, unpacked as LibDeflate does -, both prims - the
+quad's size and middle as the client's file has them -, the room file it was made for and the rooms it also serves
+the same room, n, stride 12, 12 finite numbers per stand-in, angles in range, unit normals, a quad's front along its
+normal, scales in range: no actor under 0.018 or the room's own smallest, a size under 400 KB), is what the generator
+writes and is listed in the TOC, and packed a file keeps a sixth or less of the Lua memory the plain table did; for
+Magtheridon's Lair: stand-ins on floors, walls and slopes, every one lies
 behind its face (the side the face is seen from), inside its outline, and keeps clear of every room face, none lies on
 a line of sight past an open edge (the panels' and the lintel's undersides), and it hides nothing the room does not:
 over-occlusion 0 after the 1-pixel erosion on a few poses (the first view, a low orbit, the top view, inside, walking,
@@ -313,8 +318,24 @@ def test_open_lines_see_the_panels_and_no_shipped_standin_lies_on_one():
 @case
 def test_generator_runs_and_keeps_its_promises():
     logs = []
-    b = G.build(KEY, fast=True, limit=6, log=logs.append)
+    # (the first look at the random poses is told its first pose found harm: a review round must follow - that pose
+    # joins the repair, fresh held-out poses are checked - and the room still ships clean)
+    orig, told = G.evaluate, []
+
+    def evaluate(room_, cubes, cams, rule=None):
+        res = orig(room_, cubes, cams, rule)
+        if cams and cams[0].name.startswith("rand ") and rule is None and not told:
+            told.append(cams[0].name)
+            res[0]["over_air"] = max(res[0]["over_air"], 3)
+        return res
+    G.evaluate = evaluate
+    try:
+        b = G.build(KEY, fast=True, limit=6, log=logs.append)
+    finally:
+        G.evaluate = orig
     assert b["cubes"], logs
+    assert [r["reviewed"] for r in b["rounds"]] == [told], b["rounds"]
+    assert {"random1", "board1", "stress1"} <= set(b["harm"]) and b["rounds"][0]["board"]["poses"] > 0, b["harm"]
     assert b["train"]["over_eroded"] == 0, b["train"]
     assert b["train"]["coverage_any"] > 0.2, b["train"]
     # the board and stress poses: placed against (harm only) and held out

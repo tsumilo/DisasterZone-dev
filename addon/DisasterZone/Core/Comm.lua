@@ -24,12 +24,13 @@ end
 -- "walk" (CDLw) carries where members walk in a strategy's 3D room (Core/StrategyCollab.lua): about once a second
 -- each, on a budget of its own so it never holds up the edits.
 -- "run" (CDLr) carries the guild's dungeon runs (Core/DungeonRuns.lua): who is up for a run, listings, join requests.
+-- "event" (CDLe) carries live events (Core/EventLive.lua): the host's state of the run, duel reports, answers.
 local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm",
-    live = "CDLl", walk = "CDLw", run = "CDLr" }
+    live = "CDLl", walk = "CDLw", run = "CDLr", event = "CDLe" }
 local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL",
-    walk = "NORMAL", run = "NORMAL" }
+    walk = "NORMAL", run = "NORMAL", event = "NORMAL" }
 local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live",
-    CDLw = "walk", CDLr = "run" }
+    CDLw = "walk", CDLr = "run", CDLe = "event" }
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays; anyone:
                                  -- strategy boards, see AllowLarge)

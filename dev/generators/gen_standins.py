@@ -2649,8 +2649,42 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
     res_review = evaluate(room, arr, review)
     for r, cam in zip(res_review, review):
         r["need"] = cam.need
+    # review rounds: held-out poses that found harmful over-occlusion join the repair (as Magtheridon's review poses
+    # did), and fresh held-out sets - other seeds, the same kinds and counts - must then find none; every set is
+    # checked again on the data as it is then (cut stand-ins only ever hide less, but the numbers would be stale)
+    rounds, held = [], [(rand, res_rand), (board, res_board), (stress, res_stress)]
+    for rnd in range(REVIEW_ROUNDS):
+        bad = [c for cams, res in held for c, r in zip(cams, res) if r["over_air"]]
+        if not bad:
+            break
+        log("review round %d: %d held-out poses found harmful over-occlusion: %s" % (
+            rnd + 1, len(bad), ", ".join(c.name for c in bad[:8])))
+        sis, vc, _, _ = repair(room, sis, bad, log=log, harm=True)
+        rc.update({"review%d_%s" % (rnd + 1, k): v for k, v in vc.items()})
+        arr = record_arrays(records(sis))
+        s0, s1, s2 = REVIEW_SEEDS[rnd]
+        fresh = (poses(room, view, spot, "random", W=W, H=H, seed=s0),
+                 board_poses(room, view, W=W, H=H, tag="b%d" % (rnd + 1), **dict(BOARD_CHECK, seed=s1)),
+                 stress_poses(room, view, W=W, H=H, tag="s%d" % (rnd + 1), dom=dom, **dict(STRESS_CHECK, seed=s2)))
+        if fast:
+            fresh = tuple(f[::8] for f in fresh)
+        rounds.append(dict(round=rnd + 1, reviewed=[c.name for c in bad], cams=fresh))
+        held = [(cams, evaluate(room, arr, cams)) for cams, _ in held] + [(f, evaluate(room, arr, f)) for f in fresh]
+    if rounds:
+        res_rand, res_board, res_stress = (held[0][1], held[1][1], held[2][1])
+        res_train, res_btrain, res_strain = (evaluate(room, arr, train), evaluate(room, arr, btrain),
+                                             evaluate(room, arr, strain))
+        res_rand_reach = evaluate(room, arr, rand, rule="reach")
+        res_review = evaluate(room, arr, review)
+        for r, cam in zip(res_review, review):
+            r["need"] = cam.need
+        k = 3
+        for rd in rounds:
+            rd["res"] = [held[k][1], held[k + 1][1], held[k + 2][1]]
+            k += 3
     t_check = time.time() - t1
-    checked = len(train) + len(btrain) + len(strain) + len(rand) + len(board) + len(stress) + len(review)
+    checked = len(train) + len(btrain) + len(strain) + len(rand) + len(board) + len(stress) + len(review) + sum(
+        len(f) for rd in rounds for f in rd["cams"])
     if not fast and not limit and key == DEFAULT_KEY and checked != POSES_CHECKED:
         log("note: %d poses checked, POSES_CHECKED says %d" % (checked, POSES_CHECKED))
     return dict(key=key, room=room, regions=regions, cubes=sis, placed=placed, placed_kinds=placed_kinds,
@@ -2664,9 +2698,19 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
                 spot=spot, seconds=time.time() - t0, size=(W, H), probes=pr,
                 timings=dict(exposure=t_exp, lines=lines["seconds"], place=t_place, repair=t_repair, check=t_check),
                 crossings=int(sum(len(c) for c in cross)), settings=settings,
-                harm=harmful({t: r for t, r in (("train", res_train), ("btrain", res_btrain), ("strain", res_strain),
-                                                ("random", res_rand), ("board", res_board), ("stress", res_stress),
-                                                ("review", res_review))}))
+                rounds=[dict(round=rd["round"], reviewed=rd["reviewed"],
+                             **{t: summarize(r) for t, r in zip(("random", "board", "stress"), rd["res"])})
+                        for rd in rounds],
+                harm=harmful(dict({t: r for t, r in (("train", res_train), ("btrain", res_btrain),
+                                                     ("strain", res_strain), ("random", res_rand),
+                                                     ("board", res_board), ("stress", res_stress),
+                                                     ("review", res_review))},
+                                  **{"%s%d" % (t, rd["round"]): r for rd in rounds
+                                     for t, r in zip(("random", "board", "stress"), rd["res"])})))
+
+
+REVIEW_ROUNDS = 3         # review rounds at most (build()): held-out poses that found harm join the repair
+REVIEW_SEEDS = ((8, 29, 41), (9, 31, 43), (10, 47, 53))   # each round's fresh random, board and stress seeds
 
 
 # the pose sets a room's data must hide nothing harmful on (random_reach is the rule without the near clip's guard,
@@ -3145,6 +3189,11 @@ def report(b, size=None):
     for r in b.get("res_review", ()):
         lines.append("    review %-30s over-occlusion %6d px eroded, %5d where a model could be (must be 0: %s)"
                      % (r["name"], r["over_eroded"], r["over_air"], "both" if r["need"] == "all" else "the latter"))
+    for rd in b.get("rounds", ()):
+        lines.append("  review round %d: %d held-out poses joined the repair (%s); fresh poses: %s" % (
+            rd["round"], len(rd["reviewed"]), ", ".join(rd["reviewed"][:6]), "; ".join(
+                "%s %d, harmful %d px, coverage %.1f%%" % (t, rd[t]["poses"], rd[t]["over_air"], 100 * rd[t]["coverage"])
+                for t in ("random", "board", "stress"))))
     if "harm" in b:
         lines.append("  harmful over-occlusion (must be 0 to ship) %s; settings %s" % (b["harm"], b.get("settings")))
     if size is not None:
@@ -3197,7 +3246,7 @@ def main(argv=None):
                            n=len(b["cubes"]), kinds=dict(collections.Counter(c.kind for c in b["cubes"])),
                            placed=b["placed"], repair=b["repair"], size=size, timings=b.get("timings"),
                            seconds=b["seconds"], harm=b["harm"], settings=b["settings"], checked=b["checked"],
-                           memory=mem, written=size is not None,
+                           memory=mem, written=size is not None, rounds=b.get("rounds"),
                            worst={t: sorted(((r["over_air"], r["over_eroded"], r["name"])
                                              for r in b["res_" + t.replace("random", "rand")]), reverse=True)[:5]
                                   for t, _ in POSE_SETS})
