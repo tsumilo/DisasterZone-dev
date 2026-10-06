@@ -1532,7 +1532,7 @@ end
 -- at actor scale s (nil: its longest side PRIM_SPAN yd), origin on the scene's origin; the yellow outline where the
 -- maths puts its mesh, the camera at azimuth az / elevation el. Outline and model apart = the client does not turn or
 -- scale it as the stand-ins assume at that setting.
-local function PoseTile(pg, n, col, row, prim, yaw, pitch, roll, s, az, el, caption, long)
+local function PoseTile(pg, n, col, row, prim, yaw, pitch, roll, s, az, el, caption, long, pivot)
     local t = Tile(pg, n, col, row, caption)
     t.long = long
     local sc = Scene(t, 1)
@@ -1540,23 +1540,38 @@ local function PoseTile(pg, n, col, row, prim, yaw, pitch, roll, s, az, el, capt
     s = s or SpanScale(prim)
     local m = Rot("ypr", { y = rad(yaw), p = rad(pitch), r = rad(roll) })
     local a = Actor(sc)
+    -- pivot: 71-78 showed the client turns a model about the middle of its box, not its origin; placed for that
+    -- (position = minus the box's middle: the middle at the origin, unmoved by the turn), the outline (the mesh turned
+    -- about that middle) must be filled
+    local c = { (b[1] + b[4]) / 2, (b[2] + b[5]) / 2, (b[3] + b[6]) / 2 }
+    local pos = ORIGIN
+    if pivot then
+        local rc = Xf(m, s, ORIGIN, c)
+        pos = { -rc[1], -rc[2], -rc[3] }
+    end
     if a then
         pcall(a.SetModelByFileID, a, prim.fid)
-        Place(a, 0, 0, 0, s)
+        if pivot then
+            pcall(a.SetScale, a, s)
+            pcall(a.SetPosition, a, -c[1], -c[2], -c[3])
+        else
+            Place(a, 0, 0, 0, s)
+        end
         pcall(a.SetYaw, a, rad(yaw))
         pcall(a.SetPitch, a, rad(pitch))
         pcall(a.SetRoll, a, rad(roll))
     end
     local pts = { ORIGIN }
-    for _, c in ipairs(Corners(b)) do pts[#pts + 1] = Xf(m, s, ORIGIN, c) end
-    local mid = Xf(m, s, ORIGIN, { (b[1] + b[4]) / 2, (b[2] + b[5]) / 2, (b[3] + b[6]) / 2 })
+    for _, k in ipairs(Corners(b)) do pts[#pts + 1] = Xf(m, s, pos, k) end
+    local mid = Xf(m, s, pos, c)
     Fit(sc, pts, mid[1], mid[2], mid[3], az, el, 0.75)
     t.draw = function()
         Fit(sc, pts, mid[1], mid[2], mid[3], az, el, 0.75)
-        WireXf(t, sc, b, m, s, ORIGIN, YELLOW)
+        WireXf(t, sc, b, m, s, pos, YELLOW)
         Dot(t, 1, sc, ORIGIN, RED)
     end
-    t.data:SetText(format("%d: yaw %d, pitch %d, roll %d, scale %.3f", prim.fid, yaw, pitch, roll, s))
+    t.data:SetText(format("%d: yaw %d, pitch %d, roll %d, scale %.3f%s", prim.fid, yaw, pitch, roll, s,
+        pivot and ", by its middle" or ""))
     return t
 end
 
@@ -1582,6 +1597,16 @@ local function BuildTilted(pg)
         .. F, "Only the scale is big here. Wrong here = the scale itself is the problem, not the turn.")
     PoseTile(pg, 78, 4, 2, CATA, 0, 90, 0, 0.3, 200, -45, "78. Pitch +90: a ceiling quad facing down, seen from "
         .. "below. " .. F, "The front then faces down; seen from below it must fill the outline.")
+    -- 79-82: placed for a turn about the box's middle (what 71-78 showed): these must all fill their outlines
+    local G = "Placed by its middle (the client turns models about their box middle). Must fill the outline."
+    PoseTile(pg, 79, 1, 3, CATA, 0, -90, 0, 0.3, 200, 45, "79. As 72, placed by its middle. " .. G, "72's floor "
+        .. "quad placed for a turn about its box's middle: the red dot is its middle now.", true)
+    PoseTile(pg, 80, 2, 3, CATA, 30, -90, 40, 0.3, 200, 45, "80. As 76 (yaw 30, pitch -90, roll 40), placed by "
+        .. "its middle. " .. G, "76's turn placed for a turn about the box's middle.", true)
+    PoseTile(pg, 81, 3, 3, CATA, 30, 0, 0, 0.3, 65, 15, "81. Yaw 30 only, scale 0.3 (a wall), placed by its "
+        .. "middle. " .. G, "Wall stand-ins turn by yaw only; their middle is 4 units off the origin sideways.", true)
+    PoseTile(pg, 82, 4, 3, CATA, 0, -60, 0, 0.3, 200, 30, "82. As 74 (pitch -60, a slope), placed by its middle. "
+        .. G, "74's slope quad placed for a turn about the box's middle.", true)
 end
 
 ---------------------------------------------------------------------------

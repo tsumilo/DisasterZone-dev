@@ -636,9 +636,10 @@ end
 -- An actor as stand-in i: its model, size, place and turn in the scene as the view places creatures (scene y = room
 -- y times the mirror m; the client multiplies the position by the scale). The mirror F (y times m) is a reflection,
 -- not a turn: the room's stand-in F (anchor + s R (q - c)) is drawn by the actor turned by F R F - R with yaw and roll
--- times m, pitch kept (F turns a turn about z or x the other way and keeps one about y, in any order) - with the
--- prim's middle c reflected too: the model's origin goes to F (anchor - s R (cx, m cy, cz)). A cube, or a quad about
--- its middle, is symmetric under that reflection of its model, so the actor covers exactly the reflected stand-in;
+-- times m, pitch kept (F turns a turn about z or x the other way and keeps one about y, in any order). The client
+-- turns the model about its box's middle c, so the actor draws s P + s c + s R' (q - c): its position P is F anchor / s
+-- less c. A cube, or a quad about its middle, is symmetric under that reflection of its model, so the actor covers
+-- exactly the reflected stand-in;
 -- and a quad's front (its model x, which the reflection keeps) turns to F n, the reflected normal - the side the
 -- reflected camera stands on - so the one-sided quad is drawn to the same cameras in the scene as in the room.
 function Ctl:Place(a, i)
@@ -661,14 +662,13 @@ function Ctl:Place(a, i)
     end
     local m = self.mirror or 1
     local x, y, z = d[o + 2], d[o + 3], d[o + 4]
-    local cx, cy, cz = tonumber(p.cx) or 0, m * (tonumber(p.cy) or 0), tonumber(p.cz) or 0
-    if cx ~= 0 or cy ~= 0 or cz ~= 0 then
-        local xx, xy, xz, yx, yy, yz, zx, zy, zz = Turn(d[o + 5], d[o + 6], d[o + 7])
-        x = x - s * (cx * xx + cy * yx + cz * zx)
-        y = y - s * (cx * xy + cy * yy + cz * zy)
-        z = z - s * (cx * xz + cy * yz + cz * zz)
-    end
-    pcall(a.SetPosition, a, x / s, m * y / s, z / s)
+    -- (the client turns a model about the middle of its box, not about its origin - probe page 8, 2026-10-06: quads
+    -- turned flat about the origin floated yards off; "Illidan circled his ring as he turned" long before - so the
+    -- actor's position is the anchor less that middle, in the model's own units: the turn then leaves the middle on
+    -- the anchor. The middle is the prim's c (a quad's box is its mesh; a cube's is 0). Under the mirror the anchor
+    -- is reflected and c is not: the client turns the model about its own middle.)
+    local cx, cy, cz = tonumber(p.cx) or 0, tonumber(p.cy) or 0, tonumber(p.cz) or 0
+    pcall(a.SetPosition, a, x / s - cx, m * y / s - cy, z / s - cz)
     pcall(a.SetYaw, a, m * d[o + 5])
     local pitch, roll = d[o + 6], m * d[o + 7]
     if pitch ~= (a.spitch or 0) then

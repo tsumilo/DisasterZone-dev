@@ -501,8 +501,9 @@ def quads_are_read_with_their_turn_and_reach_and_only_known_aligned_ones_are_use
 
 @case
 def a_tilted_quad_is_placed_exactly_on_its_rectangle_under_either_mirror():
-    """Ctl:Place of a quad turned by yaw, pitch and roll: the corners the client draws (its origin at the actor's
-    position times the scale, the model turned by the actor's yaw, pitch and roll in the client's order) are the
+    """Ctl:Place of a quad turned by yaw, pitch and roll: the corners the client draws (the actor's position times the
+    scale, the model turned by the actor's yaw, pitch and roll in the client's order ABOUT THE MIDDLE OF ITS BOX - probe
+    page 8 in game, 2026-10-06: turned about the origin, floor quads floated yards off) are the
     data's rectangle - with the scene's y mirrored, the mirrored rectangle exactly - and its front faces the
     (mirrored) normal, so the one-sided quad shows to the cameras on its surface's side in the scene too."""
     w, bob = board()
@@ -542,7 +543,8 @@ def a_tilted_quad_is_placed_exactly_on_its_rectangle_under_either_mirror():
         m = got["m"]
         assert got["fid"] == 653518 and abs(got["scale"] - s) < 1e-12, got
         Ra = _ypr(got["yaw"], got["pitch"], got["roll"])
-        drawn = sorted(tuple(got["pos"][i] * got["scale"] + v for i, v in enumerate(_app(Ra, [s * x for x in q])))
+        drawn = sorted(tuple(got["pos"][i] * got["scale"] + s * c[i] + v
+                             for i, v in enumerate(_app(Ra, [s * (x - cc) for x, cc in zip(q, c)])))
                        for q in model)
         want = sorted(tuple(v * (m if i == 1 else 1) for i, v in
                             enumerate(a + b for a, b in zip(anchor, _app(R, [s * (x - cc) for x, cc in zip(q, c)]))))
