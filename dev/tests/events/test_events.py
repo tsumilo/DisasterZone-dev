@@ -300,7 +300,7 @@ def the_losers_word_counts_alone_and_a_winners_waits():
     assert ask and ask[1] == "Who won game 2?", ask
     # they agree: the game counts (and the match, best of 3: 2-0)
     for n in (a, b):
-        by[n].eval("ns.EventLive:AnswerAsk(..., ...)", occ, ask[0], "%s-Thunderstrike" % a)
+        by[n].eval("ns.EventLive:AnswerAsk(...)", occ, ask[0], "%s-Thunderstrike" % a)
     w.tick(3)
     st = host.eval_py("""
         local st = ns.EventLive:GetState(...)
@@ -328,12 +328,12 @@ def a_dispute_goes_to_the_host():
     by[a].fire("CHAT_MSG_SYSTEM", "%s has defeated %s in a duel" % (a, b))
     w.tick(12)
     ask = by[a].eval_py("local a = ns.EventLive:MyAsk(...); return a and a.id", occ)
-    by[a].eval("ns.EventLive:AnswerAsk(..., ...)", occ, ask, "%s-Thunderstrike" % a)
-    by[b].eval("ns.EventLive:AnswerAsk(..., ...)", occ, ask, "%s-Thunderstrike" % b)
+    by[a].eval("ns.EventLive:AnswerAsk(...)", occ, ask, "%s-Thunderstrike" % a)
+    by[b].eval("ns.EventLive:AnswerAsk(...)", occ, ask, "%s-Thunderstrike" % b)
     w.tick(3)
     hask = host.eval_py("local a = ns.EventLive:MyAsk(...); return a and { a.id, a.claims ~= nil } or nil", occ)
     assert hask and hask[1] is True, hask
-    host.eval("ns.EventLive:HostAnswer(..., ...)", occ, hask[0], "%s-Thunderstrike" % b)
+    host.eval("ns.EventLive:HostAnswer(...)", occ, hask[0], "%s-Thunderstrike" % b)
     w.tick(3)
     wins = host.eval_py("""
         local st = ns.EventLive:GetState(...)
