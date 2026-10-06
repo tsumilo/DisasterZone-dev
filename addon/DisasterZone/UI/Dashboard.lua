@@ -7,8 +7,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Dashboard.lua", ...) then retur
 --     there and, for the council and the raid organizers, what isn't ready yet. It slides to the next raid every few
 --     seconds (not while the mouse is on it); a strip of bars and two arrows pick one. While a raid session runs, the
 --     raid in progress instead;
---   a month calendar of the planned and logged raids and the dungeon runs listed for later, the picked day's events
---     and the raids coming up beside it;
+--   a month calendar of the planned and logged raids, the dungeon runs listed for later and the guild's own events
+--     (the Events tab, purple dots), the picked day's events and the raids coming up beside it;
 --   recent loot (the council: everyone's; a raider: their own).
 -- Every block opens the tab with the details. Read-only apart from the answer buttons. The online count is in the
 -- sync icon's tooltip (UI/MainFrame.lua).
@@ -68,6 +68,7 @@ local STATUS = {
 local STATUS_ORDER = { "A", "T", "B", "X" }
 -- the dots and the status words of the calendar
 local C_NEED, C_OPEN, C_PAST, C_RUN, C_LOCK = "ff8c1a", "d8d8d8", "8a8a8e", "66b8ff", "8a8a90"
+local C_EVENT = "b98cff"           -- the guild's own events (the Events tab)
 
 local SHORT_NAME = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
                      za = "ZA", swp = "SWP" }
@@ -98,6 +99,7 @@ local cal = {}      -- the calendar: y, m = the month shown, day = the picked da
 local function UI() return ns.UI end
 local function RP() return ns.RaidPlan end
 local function DR() return ns.DungeonRuns end
+local function EV() return ns.Events end
 local function Now() return GetServerTime() end
 local function Me() return ns.Util.PlayerKey() end
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
@@ -285,6 +287,10 @@ end
 
 local function openRun(id)
     if ns.DungeonsUI and ns.DungeonsUI.Focus then ns.DungeonsUI:Focus(id) else openTab("dungeons") end
+end
+
+local function openEvent(occId)
+    if ns.EventsUI and ns.EventsUI.OpenEvent then ns.EventsUI:OpenEvent(occId) else openTab("events") end
 end
 
 local function openRaid(occId)
@@ -1768,9 +1774,27 @@ local function runName(run)
     return d and d.name or tostring(run.d)
 end
 
+-- A guild event's status (Events tab): live, my sign-up, who won once over.
+local function occState(o)
+    local E = EV()
+    local st = E:OccState(o)
+    if st == "live" then return "live now", STATUS.A.color end
+    if st == "cancelled" then return "cancelled", C_PAST end
+    if st == "done" then
+        local r = E:GetResult(o.id)
+        return (r and r.champ) and ("won by " .. shortName(r.champ)) or "over", C_PAST
+    end
+    if st == "missed" then return "didn't run", C_PAST end
+    if E:IsSignedUp(o.id) then return "you're signed up", C_EVENT end
+    local closes = E:ClosesAt(o)
+    if closes and closes <= Now() then return "sign-ups closed", C_EVENT end
+    return plural(#E:GetSignups(o.id), "sign-up"), C_EVENT
+end
+
 -- An event's status words and dot colour: my answer for a raid to come, how a logged one went (grey once over).
 local function eventState(ev)
     if ev.run then return runState(ev.run) end
+    if ev.occ then return occState(ev.occ) end
     local rec, v = ev.rec, ev.v
     if rec then return running(rec) and "in progress" or bossText(rec), running(rec) and STATUS.A.color or C_PAST end
     if v.cancelled or v.t >= Now() - CURRENT_FOR then return answerState(v) end
@@ -1807,6 +1831,9 @@ local function calendarEvents(from, to)
         local t = run.at or 0
         if t > 0 and t >= from and t <= to then add({ t = t, run = run, name = runName(run) }) end
     end
+    for _, o in ipairs(EV() and EV():GetOccurrences(from, to) or {}) do
+        if o.at and o.def then add({ t = o.at, occ = o, name = o.def.name or "Event" }) end
+    end
     for _, list in pairs(byDay) do
         tsort(list, function(a, b) return a.t < b.t end)
     end
@@ -1816,6 +1843,7 @@ end
 -- Where an event leads: a logged raid to the Raid log (its members), else the planned raid; nil = nowhere.
 local function eventClick(ev)
     if ev.run then return function() openRun(ev.run.id) end end
+    if ev.occ then return function() openEvent(ev.occ.id) end end
     if ev.rec and seesRaidLog() then return function() openLog(ev.rec.id) end end
     if ev.v then return function() openRaid(ev.v.id) end end
     return nil
@@ -1826,6 +1854,22 @@ local function eventTip(ev)
     if ev.run then
         local tip = ns.DungeonsUI and ns.DungeonsUI.GetRunTip and ns.DungeonsUI:GetRunTip(ev.run) or { ev.name }
         tip[#tip + 1] = grey("Click to open it in the Dungeons tab")
+        return tip
+    end
+    if ev.occ then
+        local o, E = ev.occ, EV()
+        local tip = { ev.name }
+        local when = date("%A %d %B %H:%M", o.at)
+        if o.at >= Now() then when = when .. " · " .. whenText(o.at) end
+        tip[#tip + 1] = when
+        local sub = { "hosted by " .. shortName(E:HostOf(o) or "?") }
+        if o.where and o.where ~= "" then sub[#sub + 1] = o.where end
+        if o.ranked then sub[#sub + 1] = "ranked" end
+        tip[#tip + 1] = grey(tconcat(sub, " · "))
+        local label, color = occState(o)
+        tip[#tip + 1] = colorize(color, label)
+        if o.note and o.note ~= "" then tip[#tip + 1] = grey("\"" .. o.note .. "\"") end
+        tip[#tip + 1] = grey("Click to open it in the Events tab")
         return tip
     end
     local v, rec = ev.v, ev.rec
@@ -1884,6 +1928,11 @@ local function eventArt(ev, w, h)
         if file then return file, l, r, t, b end
         return nil
     end
+    if ev.occ then
+        -- (not "return EventUI and EventUI:ArtCoords(...)": "and" keeps only the first value, the file)
+        if not ns.EventUI then return nil end
+        return ns.EventUI:ArtCoords(ev.occ.def.art, w, h)
+    end
     local inst = ev.v and ev.v.i or (ev.rec and instKeyOf(ev.rec.instID)) or "other"
     local PUI = ns.RaidPlanUI
     if PUI and PUI.RaidArt then return PUI:RaidArt(inst, w, h, 0.5) end
@@ -1901,6 +1950,11 @@ local function eventLines(ev, withDay)
     if ev.run then
         return ev.name .. (ev.run.h and (" " .. HEROIC_ICON) or ""),
                grey(when .. " · " .. shortName(ev.run.o) .. " · ") .. colorize(color, label)
+    end
+    if ev.occ then
+        local host = shortName(EV():HostOf(ev.occ) or "?")
+        return label == "cancelled" and grey(ev.name) or ev.name,
+               grey(when .. " · " .. host .. " · ") .. colorize(color, label)
     end
     local name = ev.name
     if ev.v and ev.v.cancelled then name = grey(name) end
@@ -2122,7 +2176,7 @@ local function refreshCalendar(card, ctx)
                               tip = eventTip(ev), onClick = eventClick(ev) }
     end
     if #items == 0 then
-        items[1] = { l1 = grey(picked < today and "No raids that day." or "Nothing planned.") }
+        items[1] = { l1 = grey(picked < today and "Nothing that day." or "Nothing planned.") }
     end
     -- the day's rows leave room for the coming-up title and one raid under it
     local dayBottom = bottom - (#coming > 0 and (8 + 14 + 6 + THUMB_H) or 0)
@@ -2483,7 +2537,7 @@ function Dashboard:OnInit()
         "RAIDPLAN_CHANGED", "MYLIST_CHANGED", "MYLIST_COMMITTED", "OWNED_UPDATED", "LEDGER_UPDATED", "LIST_UPDATED",
         "LISTS_RESET", "CONFIG_UPDATED", "PEERS_UPDATED", "SYNC_STATUS", "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED",
         "GROUP_UPDATED", "ITEMINFO_READY", "DEMO_TOGGLED", "ROSTER_UPDATED", "RAIDLOG_CHANGED", "CHANGELOG_READ",
-        "DUNGEON_RUNS_UPDATED",
+        "DUNGEON_RUNS_UPDATED", "EVENTS_UPDATED",
     }) do
         ns:On(msg, function() Dashboard:RequestRefresh() end)
     end

@@ -1,6 +1,5335 @@
-if DisasterZoneBoot and DisasterZoneBoot.Run("UI/EventsTab.lua", ...) then return end -- DisasterZone: UI/EventsTab.lua (being built)
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/EventsTab.lua", ...) then return end -- DisasterZone: the Events tab.
+-- The Events tab (dev/docs/EVENTS.md; mockup shots 0-2 and 11-14): the guild's own events, built from pieces.
+--   Upcoming: the banner (what is live, else what is next) with its stages and the one thing to do; the week's
+--     events and the last results below it; my season on the right.
+--   An event's page (a click on a row or the banner): the event in plain words stage by stage, its rewards and its
+--     entrants; Join / Leave, the host's Start, Edit and Cancel. Once it is over the page is its results: the
+--     podium, the awards, the night's moments, the last four and its numbers.
+--   Library: every event the guild saved, as cards; hovering one shows Host / Copy / Edit / Share.
+--   Season: the standings with titles and badges, my season and the ranked events that paid out.
+--   Review (GM, officers, guild council): what waits for a decision and, piece by piece, what changed.
+--
+-- What other modules call:
+--   EventsUI:Open(view)                  the tab on a view: "upcoming" (default) | "library" | "season" | "review"
+--   EventsUI:OpenEvent(occId)            the tab on a calendar event's page (its results once it is over)
+--   EventsUI:Refresh(), EventsUI:GetPanel()
+--   EventsUI:OpenSchedule(defId [, occId])         the sheet that puts a library event on the calendar (with occId: a
+--                                                  calendar event of mine moved to a new time / place)
+--   EventsUI:OpenSubmit(defId)                     the Send for review sheet (the checks, a note for the reviewers)
+--   EventsUI:OpenBadgeDesigner(def, badgeId, onSave)   the badge designer; Save calls onSave(badgeId, { n, i, f, ti })
+--                                                  (badgeId: the one edited, or a new free id) and the caller saves
+-- The sheets are dialogs of their own (strata DIALOG, over the main window or the builder, Escape closes them).
+-- Test / audit hooks at the end of the file (GetState, SetLibraryHover, SelectReview, GetSheet, ...).
 local addonName, ns = ...
 
-local M = ns:NewModule("EventsUI")
+local EventsUI = ns:NewModule("EventsUI")
 
-function M:OnInit() end
+local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
+local tinsert, tsort, tconcat = table.insert, table.sort, table.concat
+local type, pairs, ipairs, tostring, tonumber = type, pairs, ipairs, tostring, tonumber
+
+local DAY = 86400
+local PAD, GAP = 10, 8
+local PAGE_W, PAGE_H = 790, 548
+local NUM_FONT = "Fonts\\ARIALN.TTF"
+local WHITE = "Interface\\Buttons\\WHITE8X8"
+local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+local CHECK = "Interface\\Buttons\\UI-CheckBox-Check"
+local READY = "Interface\\RAIDFRAME\\ReadyCheck-Ready"
+local NOTREADY = "Interface\\RAIDFRAME\\ReadyCheck-NotReady"
+local STAR = "Interface\\COMMON\\ReputationStar"
+local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
+local WARN = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
+
+local C = {
+    gold = { 1, 0.82, 0 }, white = { 1, 1, 1 }, text = { 0.88, 0.88, 0.88 }, grey = { 0.62, 0.62, 0.62 },
+    dim = { 0.44, 0.44, 0.46 }, meta = { 0.82, 0.82, 0.82 }, desc = { 0.74, 0.74, 0.74 }, soft = { 0.81, 0.81, 0.81 },
+    blue = { 0.4, 0.72, 1 }, pts = { 1, 0.88, 0.54 }, green = { 0.44, 0.88, 0.54 }, red = { 1, 0.54, 0.48 },
+    orange = { 1, 0.55, 0.1 }, open = { 0.34, 0.34, 0.36 }, kick = { 1, 0.82, 0 },
+}
+local CARD = { 0.10, 0.10, 0.12, 0.92 }
+local BOX = { 0.078, 0.078, 0.094, 0.92 }
+local PEDGE = { 0.34, 0.34, 0.38, 0.45 }
+
+local panel
+local state = { view = "upcoming", occ = nil, lib = "guild", q = "", hover = nil, review = nil, scroll = {} }
+
+local function UI() return ns.UI end
+local function EUI() return ns.EventUI end
+local function Ev() return ns.Events end
+local function Live() return ns.EventLive end
+local function B() return ns.EventBlocks end
+local function Now() return (GetServerTime and GetServerTime()) or time() end
+local function Me() return ns.Util.PlayerKey() end
+local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
+local function IsMe(key) return type(key) == "string" and ns.Util.IsMe(key) or false end
+
+local function Hex(c, s)
+    return ("|cff%02x%02x%02x%s|r"):format(floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5), floor(c[3] * 255 + 0.5),
+        tostring(s))
+end
+local function grey(s) return Hex(C.grey, s) end
+local function Tip(owner, lines, anchor)
+    UI():SetTextTooltip(owner, lines, anchor or "ANCHOR_TOP")
+end
+local function HideTip() GameTooltip:Hide() end
+local function Name(key) return EUI():Name(key) end
+
+---------------------------------------------------------------------------
+-- Small pieces: texts, fills, edges, gradients, glyphs, buttons, faces, chips
+---------------------------------------------------------------------------
+
+local H = {}
+
+-- The page's width / height (the mock's anchored frames have none: the window's page then).
+function H.W()
+    local w = panel and panel:GetWidth() or 0
+    if not w or w < 300 then w = PAGE_W end
+    return floor(w)
+end
+function H.Hgt()
+    local h = panel and panel:GetHeight() or 0
+    if not h or h < 300 then h = PAGE_H end
+    return floor(h)
+end
+
+local function Sized(fs, size, path)
+    local p, _, flags = fs:GetFont()
+    fs:SetFont(path or p or "Fonts\\FRIZQT__.TTF", size, flags or "")
+    return fs
+end
+H.Sized = Sized
+
+-- A one-line text (left, no wrap). num: the narrow number font.
+local function Text(parent, size, color, num, layer)
+    local fs = parent:CreateFontString(nil, layer or "OVERLAY", "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    Sized(fs, size or 12, num and NUM_FONT or nil)
+    local c = color or C.white
+    fs:SetTextColor(c[1], c[2], c[3], c[4] or 1)
+    return fs
+end
+H.Text = Text
+
+local function Color(fs, c) fs:SetTextColor(c[1], c[2], c[3], c[4] or 1) end
+
+-- A wrapped text w wide: sets it and returns its height (the client's own, at least what the text's width says).
+local function Wrap(fs, text, w, size)
+    fs:SetWordWrap(true)
+    fs:SetJustifyV("TOP")
+    fs:SetWidth(w)
+    fs:SetText(text or "")
+    local real = fs:GetStringHeight() or 0
+    local uw = (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 0
+    local lines = max(1, ceil(uw / max(1, w)))
+    local h = ceil(max(real, lines * ((size or 12) + 3)))
+    fs:SetHeight(h)
+    return h
+end
+H.Wrap = Wrap
+
+local function SW(fs) return fs:GetStringWidth() or 0 end
+
+-- A text's width for fitting decisions: the client's, at least what its letters at its size need (a mock without
+-- fonts measures every size alike).
+local function TextW(fs)
+    local _, size = fs:GetFont()
+    local plain = (fs:GetText() or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "WW")
+    return max(SW(fs), #plain * (tonumber(size) or 12) * 0.56)
+end
+H.TextW = TextW
+
+-- A text's whole width on one line, also when it was given a width (GetStringWidth stops there on this client).
+local function NatW(fs) return EUI():TextWidth(fs) end
+
+-- A text that has to fit in w: at the first size that fits (sizes: a number or a list, largest first), else on two
+-- lines at the last one (wrap = false: nil then). Its width is set every time (a reused text may have wrapped before;
+-- nothing is cut with "..."). Returns the width its words take, its height and its lines.
+local function FitText(fs, text, w, sizes, wrap)
+    if type(sizes) ~= "table" then sizes = { sizes or 12 } end
+    w = max(10, floor(w))
+    fs:SetWordWrap(false)
+    fs:SetJustifyV("MIDDLE")
+    fs:SetWidth(w)
+    for _, s in ipairs(sizes) do
+        Sized(fs, s)
+        fs:SetText(text or "")
+        local tw = NatW(fs)
+        if tw <= w + 0.5 then
+            fs:SetHeight(s + 3)
+            return ceil(tw), s + 3, 1
+        end
+    end
+    if wrap == false then return nil end
+    local s = sizes[#sizes]
+    Sized(fs, s)
+    return w, Wrap(fs, text, w, s), 2
+end
+H.NatW, H.FitText = NatW, FitText
+
+local function Fill(f, c, layer, sub)
+    local t = f:CreateTexture(nil, layer or "BACKGROUND", nil, sub)
+    t:SetAllPoints()
+    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
+    return t
+end
+
+local function Edges(f, c, layer)
+    UI():AddEdges(f, layer or "BORDER")
+    UI():SetEdgeColor(f, c[1], c[2], c[3], c[4] or 1)
+end
+
+-- A two-colour gradient: a = left / bottom, b = right / top ({ r, g, b, a }).
+local function Grad(tex, orient, a, b)
+    tex:SetTexture(WHITE)
+    if tex.SetGradient and CreateColor then
+        tex:SetGradient(orient, CreateColor(a[1], a[2], a[3], a[4] or 1), CreateColor(b[1], b[2], b[3], b[4] or 1))
+    else
+        tex:SetColorTexture(b[1], b[2], b[3], b[4] or 1)
+    end
+end
+H.Grad = Grad
+
+local function Line(parent, c, layer)
+    local t = parent:CreateTexture(nil, layer or "ARTWORK")
+    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
+    return t
+end
+
+local function Disc(parent, size, c, layer, sub)
+    local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sub)
+    t:SetTexture(DISC)
+    t:SetSize(size, size)
+    t:SetVertexColor(c[1], c[2], c[3], c[4] or 1)
+    return t
+end
+
+-- The rules' glyphs (EventBlocks:Describe): atlas icons, the reputation star for ranks.
+local GLYPH = { group = "team", clock = "calendar", swords = "bracket", trophy = "trophy", eyeo = "eye" }
+function H.Glyph(tex, g, c)
+    c = c or { 1, 1, 1 }
+    if g == "rank" or g == "star" then
+        tex:SetTexture(STAR)
+        tex:SetTexCoord(0, 0.5, 0, 0.5)
+        tex:SetVertexColor(1, 1, 1, c[4] or 1)
+        return
+    end
+    local key = GLYPH[g] or g
+    local idx = type(key) == "number" and key or UI().ICON[key] or UI().ICON.calendar
+    EUI():Glyph(tex, idx, c[1], c[2], c[3], c[4] or 1)
+end
+
+-- An icon texture (an event's icon) with its 1px dark edge and an outer light (gold for a banner's).
+function H.Icon(parent, size, edge)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.outer = Fill(f, { 0, 0, 0, 1 }, "BACKGROUND")
+    f.outer:ClearAllPoints()
+    f.outer:SetPoint("TOPLEFT", -1, 1)
+    f.outer:SetPoint("BOTTOMRIGHT", 1, -1)
+    if edge then
+        f.ring = Fill(f, edge, "BACKGROUND", -1)
+        f.ring:ClearAllPoints()
+        f.ring:SetPoint("TOPLEFT", -2, 2)
+        f.ring:SetPoint("BOTTOMRIGHT", 2, -2)
+    end
+    f.tex = f:CreateTexture(nil, "ARTWORK")
+    f.tex:SetAllPoints()
+    f.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    function f:Set(path) self.tex:SetTexture(path or QUESTION) end
+    return f
+end
+
+-- A class circle (the guild's round class icons) with a dark ring; f:Set(key), f:SetEmpty() (an open seat).
+function H.Face(parent, size)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.ring = Disc(f, size + 2, { 0, 0, 0, 1 }, "BACKGROUND", 1)
+    f.ring:SetPoint("CENTER")
+    f.hole = Disc(f, size, CARD, "BACKGROUND", 2)
+    f.hole:SetPoint("CENTER")
+    f.tex = f:CreateTexture(nil, "ARTWORK")
+    f.tex:SetAllPoints()
+    function f:Set(key, dim)
+        self.key = key
+        self.ring:SetVertexColor(0, 0, 0, 1)
+        self.ring:SetSize(size + 2, size + 2)
+        self.hole:Hide()
+        EUI():SetClass(self.tex, key)
+        self.tex:SetDesaturated(dim and true or false)
+        self.tex:SetAlpha(dim and 0.55 or 1)
+        self:Show()
+    end
+    function f:SetEmpty()
+        self.key = nil
+        self.tex:Hide()
+        self.ring:SetVertexColor(1, 1, 1, 0.16)
+        self.ring:SetSize(size, size)
+        self.hole:SetSize(size - 2, size - 2)
+        self.hole:Show()
+        self:Show()
+    end
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", function(self)
+        if not self.key or self.noTip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(EUI():Name(self.key, true))
+        local title = Ev():GetTitle(self.key)
+        if title then GameTooltip:AddLine(title, 1, 0.82, 0) end
+        local rank = Ev():RankOf(self.key)
+        if rank then GameTooltip:AddLine("Season rank #" .. rank, 0.62, 0.62, 0.62) end
+        GameTooltip:Show()
+    end)
+    f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return f
+end
+
+-- A flat button, optionally with an atlas glyph (UI.ICON key / index) or a texture before its text.
+function H.Button(parent, text, w, h, kind, onClick, glyph)
+    local b = UI():CreateSleekButton(parent, text, w, h, onClick, kind)
+    local fs = b:GetFontString()
+    if (h or 22) <= 22 then Sized(fs, 11) end
+    if glyph then
+        b.glyph = b:CreateTexture(nil, "OVERLAY")
+        b.glyph:SetSize(12, 12)
+        H.SetButtonGlyph(b, glyph)
+    end
+    return b
+end
+
+function H.SetButtonGlyph(b, glyph)
+    if not b.glyph then return end
+    local fs = b:GetFontString()
+    if not glyph then
+        b.glyph:Hide()
+        fs:ClearAllPoints()
+        fs:SetPoint("CENTER", 0, 0)
+        return
+    end
+    if type(glyph) == "string" and glyph:find("\\") then
+        b.glyph:SetTexture(glyph)
+        b.glyph:SetTexCoord(0, 1, 0, 1)
+        b.glyph:SetVertexColor(1, 1, 1, 1)
+    else
+        H.Glyph(b.glyph, glyph, { 0.92, 0.92, 0.92, 0.9 })
+    end
+    b.glyph:Show()
+    fs:ClearAllPoints()
+    fs:SetPoint("CENTER", 8, 0)
+    b.glyph:ClearAllPoints()
+    b.glyph:SetPoint("RIGHT", fs, "LEFT", -6, 0)
+end
+
+-- Sizes a button to its text (and glyph): at least minW.
+function H.Fit(b, minW, pad)
+    local w = SW(b:GetFontString()) + (pad or 26) + ((b.glyph and b.glyph:IsShown()) and 18 or 0)
+    b:SetWidth(max(minW or 0, ceil(w)))
+    return b:GetWidth()
+end
+
+-- The icon buttons at the right of a banner / a card.
+function H.IconButton(parent, size, icon, title, text, onClick)
+    return UI():CreateTipIconButton(parent, size, UI().ICON[icon] or icon, title, text, onClick)
+end
+
+-- A rounded chip on a banner: an optional glyph / face, a text. c:Set(text, glyph, edge), c:SetFace(key).
+function H.Chip(parent, h)
+    h = h or 22
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetSize(60, h)
+    UI():AddPillShape(c, h)
+    c:SetPillColors({ 0.04, 0.04, 0.05, 0.78 }, { 1, 1, 1, 0.2 })
+    c.glyph = c:CreateTexture(nil, "ARTWORK")
+    c.glyph:SetSize(12, 12)
+    c.glyph:SetPoint("LEFT", 8, 0)
+    c.face = H.Face(c, 14)
+    c.face:SetPoint("LEFT", 6, 0)
+    c.face:Hide()
+    c.fs = Text(c, 11, { 0.91, 0.91, 0.91 })
+    c:EnableMouse(true)
+    c:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+    c:SetScript("OnLeave", HideTip)
+    function c:Set(text, glyph, edge, color)
+        self.face:Hide()
+        local x = 10
+        if glyph then
+            if type(glyph) == "string" and glyph:find("\\") then
+                self.glyph:SetTexture(glyph)
+                self.glyph:SetTexCoord(0, 1, 0, 1)
+                self.glyph:SetVertexColor(1, 1, 1, 1)
+            else
+                H.Glyph(self.glyph, glyph, { 0.85, 0.85, 0.85, 0.85 })
+            end
+            self.glyph:Show()
+            x = 8 + 12 + 6
+        else
+            self.glyph:Hide()
+        end
+        self.fs:SetText(text or "")
+        Color(self.fs, color or { 0.91, 0.91, 0.91 })
+        self.fs:ClearAllPoints()
+        self.fs:SetPoint("LEFT", x, 0)
+        self:SetPillColors({ 0.04, 0.04, 0.05, 0.78 }, edge or { 1, 1, 1, 0.2 })
+        self:SetWidth(ceil(x + SW(self.fs) + 11))
+        self:Show()
+    end
+    function c:SetFace(key)
+        self.glyph:Hide()
+        self.face:Set(key)
+        self.fs:ClearAllPoints()
+        self.fs:SetPoint("LEFT", 6 + 14 + 6, 0)
+        self:SetWidth(ceil(26 + SW(self.fs) + 11))
+    end
+    c:Hide()
+    return c
+end
+
+-- A small rounded chip with an icon (a smart block on a library card).
+function H.Mini(parent)
+    local p = UI():CreateTagPill(parent, 17)
+    p:SetBase(CARD[1], CARD[2], CARD[3])
+    return p
+end
+
+-- A pill (Live, Ranked, In review ...) over dark art.
+function H.Pill(parent, h)
+    local p = EUI():CreatePill(parent, h or 16)
+    if p.SetBase then p:SetBase(0.05, 0.05, 0.06) end
+    return p
+end
+
+-- A section header: gold title, an optional grey text at the right, a hairline under it.
+function H.Sect(parent)
+    local s = CreateFrame("Frame", nil, parent)
+    s:SetSize(100, 24)
+    s.t = Text(s, 12, C.gold)
+    s.t:SetPoint("BOTTOMLEFT", 2, 7)
+    s.r = Text(s, 11, C.grey)
+    s.r:SetJustifyH("RIGHT")
+    s.r:SetPoint("BOTTOMRIGHT", -2, 7)
+    s.line = Line(s, { 1, 1, 1, 0.08 })
+    s.line:SetHeight(1)
+    s.line:SetPoint("BOTTOMLEFT")
+    s.line:SetPoint("BOTTOMRIGHT")
+    function s:Set(t, r)
+        self.t:SetText(t or "")
+        self.r:SetText(r or "")
+        self.r:SetShown(r ~= nil and r ~= "")
+        self:Show()
+    end
+    return s
+end
+
+-- A link-like text button at the right of a header ("All >"): text and a right chevron.
+function H.Link(parent, text, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b.fs = Text(b, 11, C.grey)
+    b.fs:SetPoint("LEFT", 0, 0)
+    b.chev = b:CreateTexture(nil, "ARTWORK")
+    b.chev:SetSize(10, 10)
+    UI():SetChevron(b.chev, true)
+    b.chev:SetVertexColor(0.62, 0.62, 0.62)
+    function b:SetLabel(t)
+        self.fs:SetText(t or "")
+        self.chev:ClearAllPoints()
+        self.chev:SetPoint("LEFT", self.fs, "RIGHT", 3, 0)
+        self:SetSize(ceil(SW(self.fs) + 15), 16)
+    end
+    b:SetScript("OnEnter", function(self) Color(self.fs, C.white); self.chev:SetVertexColor(1, 1, 1) end)
+    b:SetScript("OnLeave", function(self) Color(self.fs, C.grey); self.chev:SetVertexColor(0.62, 0.62, 0.62) end)
+    b:SetScript("OnClick", onClick)
+    b:SetLabel(text)
+    return b
+end
+
+-- A panel box (the Season card's): a dark fill and a soft edge; b.head = a 28 high header (gold title, right text).
+function H.Box(parent, head)
+    local b = CreateFrame("Frame", nil, parent)
+    Fill(b, BOX)
+    Edges(b, PEDGE)
+    if head then
+        b.ht = Text(b, 13, C.gold)
+        b.ht:SetPoint("TOPLEFT", 10, -8)
+        b.hr = Text(b, 11, { 0.74, 0.74, 0.74 })
+        b.hr:SetJustifyH("RIGHT")
+        b.hr:SetPoint("TOPRIGHT", -10, -9)
+        b.hline = Line(b, { 1, 1, 1, 0.07 })
+        b.hline:SetHeight(1)
+        b.hline:SetPoint("TOPLEFT", 1, -28)
+        b.hline:SetPoint("TOPRIGHT", -1, -28)
+    end
+    return b
+end
+
+-- A badge (EventUI) whose icon is `size` across (its metal ring adds about an eighth each side).
+function H.Badge(parent, size)
+    return EUI():CreateBadge(parent, size)
+end
+
+-- The i-th frame of a list, made on first use.
+local function Pool(list, i, make)
+    local f = list[i]
+    if not f then
+        f = make()
+        list[i] = f
+    end
+    return f
+end
+local function HideFrom(list, i)
+    for j = i, #list do list[j]:Hide() end
+end
+H.Pool, H.HideFrom = Pool, HideFrom
+
+-- A More menu: entries { icon (UI.ICON key / index), text, tip, fn, color, danger }.
+function H.Menu(owner, entries, title)
+    local Ui = UI()
+    Ui:ContextMenu(owner, function(root)
+        if title and root.CreateTitle then root:CreateTitle(title) end
+        for _, e in ipairs(entries) do
+            if e.divider then
+                if root.CreateDivider then root:CreateDivider() end
+            else
+                local icon = type(e.icon) == "number" and e.icon or Ui.ICON[e.icon] or Ui.ICON.more
+                local color = e.color or (e.danger and { 1, 0.4, 0.35 }) or C.gold
+                local b = root:CreateButton(Ui:AtlasIconText(icon, 14, color) .. "  " .. e.text, e.fn)
+                if b and b.SetTooltip and e.tip then
+                    b:SetTooltip(function(tt)
+                        tt:AddLine(e.text, 1, 0.82, 0)
+                        tt:AddLine(e.tip, 1, 1, 1, true)
+                    end)
+                end
+            end
+        end
+    end)
+end
+
+H.Tip = Tip
+
+---------------------------------------------------------------------------
+-- Words and numbers about events
+---------------------------------------------------------------------------
+
+local W = {}
+
+function W.Ord(n)
+    n = tonumber(n) or 0
+    local s = (n % 100 >= 11 and n % 100 <= 13) and "th" or ({ "st", "nd", "rd" })[n % 10] or "th"
+    return n .. s
+end
+
+function W.Clock(t) return t and date("%H:%M", t) or "" end
+-- Noon of t's day (a day on from noon is the next day, also when the clocks change).
+function W.Noon(t)
+    local x = date("*t", t)
+    return time({ year = x.year, month = x.month, day = x.day, hour = 12 })
+end
+function W.Day(t) return t and (date("%a ", t) .. date("%d %b", t)) or "" end
+
+-- "Today", "Tomorrow", "Sat" (this week) or "Sat 10 Oct".
+function W.DayWord(t)
+    local now = Now()
+    if date("%Y%m%d", t) == date("%Y%m%d", now) then return "Today" end
+    if date("%Y%m%d", t) == date("%Y%m%d", now + DAY) then return "Tomorrow" end
+    if t > now and t - now < 6 * DAY then return date("%a", t) end
+    return W.Day(t)
+end
+
+-- "2 h 12 min", "48 min".
+function W.Span(sec)
+    sec = max(0, floor(tonumber(sec) or 0))
+    local h, m = floor(sec / 3600), floor((sec % 3600) / 60)
+    if h > 0 then return h .. " h " .. m .. " min" end
+    return max(1, m) .. " min"
+end
+
+function W.MinSec(sec)
+    sec = max(0, floor(tonumber(sec) or 0))
+    return ("%d:%02d"):format(floor(sec / 60), sec % 60)
+end
+
+function W.Has(def, kind) return def ~= nil and #B():BlocksOf(def, kind) > 0 end
+
+-- Who takes part: duelists in a bracket, players otherwise.
+function W.Noun(def, n)
+    local duel = W.Has(def, "bracket")
+    if n == 1 then return duel and "duelist" or "player" end
+    return duel and "duelists" or "players"
+end
+
+function W.Spots(def)
+    for _, bid in ipairs(B():BlocksOf(def, "signup")) do
+        return tonumber(B():SmartSetting(def.blocks[bid], "spots"))
+    end
+    return nil
+end
+
+function W.Bracket(def)
+    local bid = B():BlocksOf(def, "bracket")[1]
+    return bid and def.blocks[bid] or nil
+end
+
+-- The kind of event in one word (the rows' second line): its last smart block's label.
+function W.Kind(def)
+    local kinds = def and B():Kinds(def) or {}
+    local k = kinds[#kinds]
+    return k and B().SMART[k] and B().SMART[k].label or "Event"
+end
+
+-- How the bracket seeds ("seeded by season rank"), or nil.
+function W.SeedText(def)
+    local b = W.Bracket(def)
+    if not b then return nil end
+    local seed = B():SmartSetting(b, "seed")
+    if seed == "season" then return "seeded by season rank" end
+    if seed == "random" then return "seeded at random" end
+    return "seeded in sign-up order"
+end
+
+-- A calendar event's entrants: the bracket's seeds or the run's entrants once it runs, else the sign-ups (in the
+-- order the bracket will seed them). Returns keys, the run's state.
+function W.Entrants(o)
+    local L = Live()
+    local st = L and L:GetState(o.id)
+    if st then
+        local bk = ns.EventEngine and ns.EventEngine:BracketOf(o.def, st)
+        if bk and bk.seeds and #bk.seeds > 0 then return bk.seeds, st end
+        if st.entrants and #st.entrants > 0 then return st.entrants, st end
+        for _, b in pairs(st.blocks or {}) do
+            if b.kind == "signup" and b.list then return b.list, st end
+        end
+    end
+    local list = {}
+    for i, k in ipairs(Ev():GetSignups(o.id)) do list[i] = k end
+    local b = W.Bracket(o.def)
+    if b and B():SmartSetting(b, "seed") == "season" then
+        local order = {}
+        for i, k in ipairs(list) do order[k] = i end
+        tsort(list, function(x, y)
+            local rx, ry = Ev():RankOf(x), Ev():RankOf(y)
+            if rx and ry and rx ~= ry then return rx < ry end
+            if rx and not ry then return true end
+            if ry and not rx then return false end
+            return order[x] < order[y]
+        end)
+    end
+    return list, st
+end
+
+-- Before it starts, the stage line shows its sign-up as the open stage: a stand-in state for the progress line.
+function W.OpenSignup(def)
+    local bid = B():BlocksOf(def, "signup")[1]
+    return bid and { stage = def.blocks[bid].stage, phase = "planned" } or nil
+end
+
+-- Before it starts: can I still join? false + why: "closed" (its sign-up closes before the start, and that time
+-- passed) or "full". (A sign-up that closes at the start stays open while the host is late: the run takes who is in.)
+function W.CanJoin(o)
+    local closes = Ev():ClosesAt(o)
+    if closes and closes < o.at and closes <= Now() then return false, "closed" end
+    local spots = W.Spots(o.def)
+    if spots and #Ev():GetSignups(o.id) >= spots then return false, "full" end
+    return true
+end
+
+-- The rewards an event gives, from its pieces: { { id, b = badge, label = "1st" | "Biggest upset" ..., pts } } in
+-- placing order, and the season points a match won adds (the bracket's "match ends" scripts).
+local TARGET_LABEL = { ["bk.champ"] = "1st", ["bk.second"] = "2nd", ["bk.third"] = "3rd", ["pl.host"] = "the host" }
+local TARGET_ORDER = { ["bk.champ"] = 1, ["bk.second"] = 2, ["bk.third"] = 3 }
+
+local function TargetSig(v)
+    if type(v) ~= "table" then return tostring(v) end
+    if v.k then return v.k .. "|" .. tostring(v.a and v.a[1]) .. "|" .. tostring(v.a and v.a[2]) end
+    return "?"
+end
+
+local function TargetLabel(v)
+    if type(v) ~= "table" or not v.k then return "" end
+    if TARGET_LABEL[v.k] then return TARGET_LABEL[v.k] end
+    if v.k == "var" then return tostring(v.a and v.a[1] or "") end
+    if v.k == "ctx" then
+        local c = B().CTX[v.a and v.a[1]]
+        return c and c.label or ""
+    end
+    local pd = B().PIECES[v.k]
+    return pd and (pd.text or ""):gsub("{%d}", ""):gsub("^%s+", ""):gsub("%s+$", "") or ""
+end
+
+function W.Rewards(def)
+    local list, byBadge, pts, matchPts = {}, {}, {}, 0
+    if type(def) ~= "table" then return list, 0 end
+    local SEASON = B().SEASON
+    local function scan(top, hat)
+        B():Walk(top, function(p)
+            if p.k == "pt.badge" and type(p.a[1]) == "string" then
+                local id = p.a[1]
+                if def.badges and def.badges[id] and not byBadge[id] then
+                    byBadge[id] = { id = id, b = def.badges[id], sig = TargetSig(p.a[2]), label = TargetLabel(p.a[2]),
+                        order = (type(p.a[2]) == "table" and TARGET_ORDER[p.a[2].k]) or 9 }
+                    list[#list + 1] = byBadge[id]
+                end
+            elseif p.k == "pt.add" and p.a[2] == SEASON and type(p.a[1]) == "number" then
+                local sig = TargetSig(p.a[3])
+                if hat == "bk.end" and sig:find("^ctx|winner") then
+                    matchPts = matchPts + p.a[1]
+                else
+                    pts[sig] = (pts[sig] or 0) + p.a[1]
+                end
+            end
+        end)
+    end
+    for _, s in ipairs(def.scripts or {}) do scan(s.top, s.top and s.top.k) end
+    for _, r in ipairs(list) do r.pts = pts[r.sig] end
+    -- badges no piece gives (designed, not placed yet) still show
+    for _, x in ipairs(B():BadgeList(def)) do
+        if not byBadge[x.id] then list[#list + 1] = { id = x.id, b = x.b, label = "", order = 10 } end
+    end
+    tsort(list, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return (a.b.n or "") < (b.b.n or "")
+    end)
+    return list, matchPts
+end
+
+-- The reward of a badge given in a result (matched by name), for its points.
+function W.RewardOf(def, badgeName)
+    for _, r in ipairs((W.Rewards(def))) do
+        if r.b.n == badgeName then return r end
+    end
+    return nil
+end
+
+-- How many pieces an event has (every script, every smart block's own).
+function W.PieceCount(def)
+    local n = 0
+    for _ in pairs(def and def.blocks or {}) do n = n + 1 end
+    for _, s in ipairs(def and def.scripts or {}) do n = n + B():Count(s.top) end
+    for _, b in pairs(def and def.blocks or {}) do
+        for _, s in ipairs(b.inner or {}) do n = n + B():Count(s.top) end
+    end
+    return n
+end
+
+-- The season points one piece hands out (distinct, largest first): "50 / 30 / 20 / 10".
+function W.Grants(def)
+    local seen, list = {}, {}
+    for _, s in ipairs(def and def.scripts or {}) do
+        B():Walk(s.top, function(p)
+            if p.k == "pt.add" and p.a[2] == B().SEASON and type(p.a[1]) == "number" and not seen[p.a[1]] then
+                seen[p.a[1]] = true
+                list[#list + 1] = p.a[1]
+            end
+        end)
+    end
+    tsort(list, function(a, b) return a > b end)
+    return list
+end
+
+-- My place in a result: "you won", "you placed 2nd", "you played" or nil.
+function W.MyPlace(r)
+    local me = Me()
+    if r.champ == me then return "you won", 1 end
+    if r.second == me then return "you placed 2nd", 2 end
+    if r.third == me then return "you placed 3rd", 3 end
+    if r.points and r.points[me] then return "you played", nil end
+    return nil
+end
+
+-- The banner's kicker of a live run: "ROUND 2 OF 4 · QUARTERFINALS", else the stage.
+function W.Kicker(def, st)
+    local E = ns.EventEngine
+    local bk = E and st and E:BracketOf(def, st)
+    if bk and not bk.done and bk.r and bk.r > 0 then
+        local rn = EUI():RoundName(bk, bk.r)
+        local base = "ROUND " .. bk.r .. " OF " .. (bk.last or "?")
+        if rn == "ROUND " .. bk.r then return base end
+        return base .. " · " .. rn
+    end
+    local s = st and B():Stage(def, st.stage)
+    return s and string.upper(s.name or "") or "LIVE"
+end
+
+-- A demo result as the mockups show it (the core's demo results leave the night's details out): made-up moments,
+-- the last four and the numbers, kept on the demo record (demo mode only, never sent).
+function W.DemoDress(r)
+    if not (DemoOn() and r and not r.dressed) then return r end
+    r.dressed = true
+    -- (the demo's results are of its Friday duel cup)
+    if not r.dk then
+        for _, d in ipairs(Ev():GetDefs()) do
+            if d.name == r.name then r.dk = d.id end
+        end
+    end
+    local D = ns.Demo
+    local names = D and D.GetMembers and D:GetMembers() or {}
+    local others = {}
+    for _, k in ipairs(names) do
+        if k ~= r.champ and k ~= r.second and k ~= r.third then others[#others + 1] = k end
+    end
+    local a, b = others[1] or r.champ, others[2] or r.second
+    if #r.last4 == 0 and r.champ and r.second then
+        r.last4 = {
+            { a = r.champ, b = a, wa = 2, wb = 1, win = r.champ, r = 3, sa = 1, sb = 4 },
+            { a = r.third or b, b = r.second, wa = 1, wb = 2, win = r.second, r = 3, sa = 3, sb = 2 },
+            { a = r.champ, b = r.second, wa = 3, wb = 2, win = r.champ, r = 4, sa = 1, sb = 2, final = true },
+            { a = r.third or b, b = a, wa = 2, wb = 1, win = r.third or b, r = 4, sa = 3, sb = 4, bronze = true },
+        }
+    end
+    if #r.moments == 0 then
+        local L = Live()
+        local function dn(k)
+            if IsMe(k) then return "you" end
+            return L and L.DisplayName and L.DisplayName(k) or tostring(k)
+        end
+        r.moments = {
+            { at = r.t1 - 480, text = dn(r.champ) .. " came back from 1-2 in the final", i = "Interface\\Icons\\Ability_DualWield" },
+            { at = r.at + 1860, text = "Seed 11 " .. dn(others[3] or a) .. " knocked out seed 6",
+              i = "Interface\\Icons\\INV_Misc_Head_Dragon_01" },
+            { at = r.at + 1080, text = "Fastest duel: " .. dn(r.second) .. ", 0:48", i = "Interface\\Icons\\Ability_Rogue_Sprint" },
+            { at = r.at + 3120, text = "One dispute, settled by the host", i = "Interface\\Icons\\Spell_Holy_SealOfValor" },
+        }
+    end
+    r.nums = r.nums or {}
+    r.nums.watch = r.nums.watch or 23
+    if not next(r.mw or {}) then
+        r.mw = { [r.champ or ""] = 4, [r.second or ""] = 3, [r.third or ""] = 2 }
+    end
+    return r
+end
+
+-- Every demo result dressed (once): the library's run counts and the rows see them as the pages do.
+function W.DressAll()
+    if not DemoOn() then return end
+    for _, r in ipairs(Ev():GetResults()) do W.DemoDress(r) end
+end
+
+-- The event a result was of (its calendar event's copy, else the library's).
+function W.DefOfResult(r)
+    local o = Ev():GetOcc(r.id)
+    return (o and o.def) or (r.dk and Ev():GetDef(r.dk)) or nil
+end
+
+---------------------------------------------------------------------------
+-- Actions (shared by the views)
+---------------------------------------------------------------------------
+
+local A = {}
+
+function A.Watch(occId)
+    local Board = ns.EventBoard
+    if Board and Board.Open then
+        Board:Open(occId)
+    else
+        ns:Print("the live board isn't available in this version.")
+    end
+end
+
+function A.Join(occId, on)
+    -- (what the button showed may be old: it filled up or its sign-up closed since)
+    local o = Ev():GetOcc(occId)
+    if on and o and Ev():OccState(o) == "planned" and not Ev():IsSignedUp(occId) then
+        local can, why = W.CanJoin(o)
+        if not can then
+            ns:Print(why == "full" and "%s is full." or "the sign-up for %s has closed.", o.def.name or "that event")
+            EventsUI:RequestRefresh()
+            return
+        end
+    end
+    local ok, why = Ev():SignUp(occId, on)
+    if not ok then ns:Print("%s", why or "that event is gone from the calendar.") end
+    EventsUI:RequestRefresh()
+end
+
+function A.Builder(def)
+    local EB = ns.EventBuilder
+    if not (EB and EB.Open) then
+        ns:Print("the event builder isn't available in this version.")
+        return
+    end
+    EB:Open(def)
+end
+
+-- (the builder opened on nothing starts a new event)
+function A.NewEvent() A.Builder(nil) end
+
+function A.Copy(d)
+    local copy = Ev():CopyDef(d)
+    if copy then A.Builder(copy) end
+end
+
+-- The share reference of a calendar event / a library event, when the share links know events.
+function A.OccRef(occId)
+    local S = ns.Share
+    local ref = S and S.EventRef and occId and S:EventRef(occId)
+    return ref and S:Describe(ref) and ref or nil
+end
+function A.DefRef(defId)
+    local S = ns.Share
+    local ref = S and S.EventDefRef and defId and S:EventDefRef(defId)
+    return ref and S:Describe(ref) and ref or nil
+end
+
+-- A share icon button (nil when the share links can't carry events).
+function A.ShareButton(parent, size, getRef, title)
+    local S = ns.Share
+    if not (S and S.CreateButton and (S.EventRef or S.EventDefRef)) then return nil end
+    return S:CreateButton(parent, size, getRef, title)
+end
+
+-- May I remove anyone's events, calendar events, results and review rows (the GM, officers, the guild council)?
+function W.CanRemove()
+    local E = Ev()
+    if E.CanRemove then return E:CanRemove(Me()) end
+    return E:CanModerate(Me())
+end
+
+-- Can a calendar event be taken off the calendar (by me)? Not while it runs, nor once it ran (its results go then).
+function W.CanRemoveOcc(o)
+    local st = o and Ev():OccState(o)
+    return o ~= nil and Ev():CanManageOcc(o) and st ~= "live" and st ~= "done"
+end
+
+-- Takes a calendar event off the calendar for everyone (asked first). Cancel is the other way: it stays, as cancelled.
+function A.RemoveOcc(occId)
+    local o = Ev():GetOcc(occId)
+    if not W.CanRemoveOcc(o) then return false end
+    local name = o.def.name or "the event"
+    return EventsUI:Confirm({ title = "Remove " .. name .. "?", text = "It comes off the calendar for everyone, with "
+        .. "its sign-ups. (Cancel keeps it listed as cancelled.)", yes = "Remove", danger = true, fn = function()
+            if Ev():DeleteOcc(occId) then ns:Print("%s is off the calendar.", name) end
+            EventsUI:RequestRefresh()
+        end })
+end
+
+-- Removes a past event's results for everyone (asked first), and its calendar entry: without its results it would
+-- show as not run yet.
+function A.RemoveResult(id)
+    local r = Ev():GetResult(id)
+    if not (r and W.CanRemove()) then return false end
+    local name = r.name or "the event"
+    return EventsUI:Confirm({ title = "Remove " .. name .. "?", text = "Its results go for everyone, with the season "
+        .. "points and badges they gave.", yes = "Remove", danger = true, fn = function()
+            if Ev():DeleteResult(id) then
+                if Ev():GetOcc(id) then Ev():DeleteOcc(id) end
+                ns:Print("%s is removed.", name)
+                if state.occ == id then state.occ = nil end
+            end
+            EventsUI:RequestRefresh()
+        end })
+end
+
+-- Removes a library event for everyone (mine, or the GM / officers / guild council), asked first.
+function A.RemoveDef(d)
+    if not (d and (Ev():IsMine(d) or W.CanRemove())) then return false end
+    local name = d.name or "the event"
+    return EventsUI:Confirm({ title = "Remove " .. name .. "?", text = "Removes it from the guild's library for "
+        .. "everyone. Calendar events made from it stay.", yes = "Remove", danger = true, fn = function()
+            if Ev():DeleteDef(d.id) then ns:Print("%s is out of the library.", name) end
+            EventsUI:RequestRefresh()
+        end })
+end
+
+-- Takes an event off the review's Waiting list without deciding (asked first); its creator can send it in again.
+function A.DismissReview(d)
+    if not (d and W.CanRemove() and Ev().DismissReview) then return false end
+    local name = d.name or "the event"
+    return EventsUI:Confirm({ title = "Remove " .. name .. "?", text = "It comes off the Waiting list without a "
+        .. "decision. Its creator can send it in again.", yes = "Remove", danger = true, fn = function()
+            Ev():DismissReview(d.id)
+            EventsUI:RequestRefresh()
+        end })
+end
+
+-- Clears an event from the review's Decided list (nothing to ask: the decision stays in force).
+function A.HideDecision(d)
+    if not (d and W.CanRemove() and Ev().HideDecision) then return false end
+    local ok = Ev():HideDecision(d.id)
+    EventsUI:RequestRefresh()
+    return ok
+end
+
+-- The More menu of a calendar event (the banner's, the page's).
+function A.OccMenu(owner, o)
+    local entries = {}
+    local page = state.occ == o.id
+    if not page then
+        entries[#entries + 1] = { icon = "eye", text = "Details", tip = "Opens the event's page: how it runs, its rewards "
+            .. "and who's in.", fn = function() EventsUI:OpenEvent(o.id) end }
+    end
+    local d = o.def
+    entries[#entries + 1] = { icon = "notes", text = "Pieces", tip = "Shows how the event is built, piece by piece, in "
+        .. "the builder.", fn = function() A.Builder(Ev():GetDef(o.dk) or d) end }
+    local st = Ev():OccState(o)
+    if Ev():HostOf(o) == Me() and (st == "planned" or st == "missed") then
+        entries[#entries + 1] = { icon = "calendar", text = "Edit", tip = "Moves it to another time or place, or changes "
+            .. "the note.", fn = function() EventsUI:OpenSchedule(o.dk, o.id) end }
+    end
+    if Ev():CanManageOcc(o) and (st == "planned" or st == "missed") then
+        entries[#entries + 1] = { divider = true }
+        entries[#entries + 1] = { icon = "flag", text = "Cancel", danger = true, tip = "Calls it off: it stays on the "
+            .. "calendar as cancelled, so those who signed up see it, and why.", fn = function() EventsUI:ConfirmCancel(o.id) end }
+    end
+    if W.CanRemoveOcc(o) then
+        if not (entries[#entries] and entries[#entries].danger) then entries[#entries + 1] = { divider = true } end
+        entries[#entries + 1] = { icon = "trash", text = "Remove", danger = true, tip = "Takes it off the calendar for "
+            .. "everyone.", fn = function() A.RemoveOcc(o.id) end }
+    end
+    H.Menu(owner, entries)
+end
+
+---------------------------------------------------------------------------
+-- The banner (Upcoming's hero, an event's page, its results)
+---------------------------------------------------------------------------
+
+function H.NewBanner(parent, height)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(height)
+    b.bh = height
+    b.art = b:CreateTexture(nil, "BACKGROUND")
+    b.art:SetPoint("TOPLEFT", 1, -1)
+    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    EUI():AddShade(b)
+    Edges(b, PEDGE, "ARTWORK")
+    -- the top row: the back link / the Live pill and the kicker; share and More at the right
+    b.back = CreateFrame("Button", nil, b)
+    b.back:SetSize(70, 18)
+    b.back:SetPoint("TOPLEFT", 12, -9)
+    b.back.chev = b.back:CreateTexture(nil, "ARTWORK")
+    b.back.chev:SetSize(10, 10)
+    b.back.chev:SetPoint("LEFT", 0, 0)
+    UI():SetChevron(b.back.chev, false)
+    b.back.chev:SetVertexColor(0.85, 0.85, 0.85)
+    b.back.fs = Text(b.back, 12, { 0.85, 0.85, 0.85 })
+    b.back.fs:SetPoint("LEFT", 14, 0)
+    b.back.fs:SetText("Events")
+    b.back:SetScript("OnEnter", function(self) Color(self.fs, C.white); self.chev:SetVertexColor(1, 1, 1) end)
+    b.back:SetScript("OnLeave", function(self)
+        Color(self.fs, { 0.85, 0.85, 0.85 })
+        self.chev:SetVertexColor(0.85, 0.85, 0.85)
+    end)
+    b.back:SetScript("OnClick", function() EventsUI:Back() end)
+    b.live = H.Pill(b, 16)
+    b.live:SetPoint("TOPLEFT", 14, -12)
+    b.live:SetKind("Live", "live")
+    b.kick = Text(b, 11, C.kick)
+    b.more = H.IconButton(b, 22, "more", "More", "What else you can do with this event.", nil)
+    b.more:SetPoint("TOPRIGHT", -12, -9)
+    b.share = A.ShareButton(b, 22, function() return b.ref end, "Share this event")
+    if b.share then b.share:SetPoint("RIGHT", b.more, "LEFT", -6, 0) end
+    b.shareText = H.Button(b, "Share results", nil, 22, "secondary", function(self)
+        local ref = b.ref
+        if not ref then return end
+        if IsShiftKeyDown() and ns.Share and ns.Share.PutInChat then
+            ns.Share:PutInChat(ref)
+        elseif ns.ShareWindow and ns.ShareWindow.Open then
+            ns.ShareWindow:Open(ref, self)
+        end
+    end, 18)
+    b.shareText:HookScript("OnEnter", function(self)
+        Tip(self, { "Share results", "Posts a link to these results in chat: the podium, the awards, the night.",
+            grey("Shift-click: into your chat box") })
+    end)
+    b.shareText:HookScript("OnLeave", HideTip)
+    b.shareText:Hide()
+    -- the middle: the icon, the title with its pills, the meta line
+    b.icon = H.Icon(b, 44, { 1, 0.82, 0, 0.55 })
+    b.icon:SetPoint("TOPLEFT", 14, -40)
+    b.title = Text(b, 22, C.white)
+    b.title:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 12, -2)
+    b.pills = { H.Pill(b, 16), H.Pill(b, 16) }
+    b.meta = Text(b, 11, { 0.82, 0.82, 0.82 })
+    b.meta:SetPoint("BOTTOMLEFT", b.icon, "BOTTOMRIGHT", 12, 4)
+    -- the bottom row: the stages (or the entrants' meter), a chip, the buttons
+    b.prog = EUI():CreateProgress(b)
+    b.prog:SetPoint("BOTTOMLEFT", 14, 18)
+    b.meter = CreateFrame("Frame", nil, b)
+    b.meter:SetSize(300, 22)
+    b.meter:SetPoint("BOTTOMLEFT", 14, 14)
+    b.meter.faces = {}
+    b.meter.fs = Text(b.meter, 11, { 0.85, 0.85, 0.85 })
+    b.meter.track = b.meter:CreateTexture(nil, "ARTWORK")
+    b.meter.track:SetColorTexture(1, 1, 1, 0.12)
+    b.meter.track:SetSize(120, 4)
+    b.meter.fill = b.meter:CreateTexture(nil, "ARTWORK", nil, 1)
+    b.meter.fill:SetHeight(4)
+    Grad(b.meter.fill, "HORIZONTAL", { 0.18, 0.6, 0.3, 1 }, { 0.44, 0.88, 0.54, 1 })
+    b.meter:Hide()
+    b.btn = H.Button(b, "", 78, 26, "primary")
+    b.btn:SetPoint("BOTTOMRIGHT", -12, 12)
+    b.btn.glyph = b.btn:CreateTexture(nil, "OVERLAY")
+    b.btn.glyph:SetSize(12, 12)
+    b.btn2 = H.Button(b, "", 70, 26, "secondary")
+    b.btn2.glyph = b.btn2:CreateTexture(nil, "OVERLAY")
+    b.btn2.glyph:SetSize(12, 12)
+    b.chip = H.Chip(b, 22)
+    b.note = Text(b, 11, C.grey)
+    b.note:SetJustifyH("RIGHT")
+    -- why it was called off (at the bottom right, on two lines when it is long: H.BannerWhy)
+    b.why = Text(b, 11, C.grey)
+    b.why:SetJustifyH("RIGHT")
+    b.why:Hide()
+    return b
+end
+
+-- The banner's art, icon, title (+ pills) and meta. pills: { { text, kind } ... }. The name takes the room the pills
+-- leave (a smaller size when it is long; never cut).
+function H.BannerHead(b, w, art, icon, name, pills, meta, cy)
+    EUI():SetArt(b.art, art, w - 2, b.bh - 2, 0.55, cy or 0.62, 0.98)
+    b.icon:Set(icon)
+    local pw = 0
+    for i, p in ipairs(b.pills) do
+        local d = pills and pills[i]
+        if d then
+            p:SetKind(d[1], d[2])
+            p:Show()
+            pw = pw + 10 + p:GetWidth()
+        else
+            p:Hide()
+        end
+    end
+    local tw = FitText(b.title, name or "", w - 70 - 12 - pw, { 22, 19, 16 })
+    local prev
+    for _, p in ipairs(b.pills) do
+        if p:IsShown() then
+            p:ClearAllPoints()
+            if prev then p:SetPoint("LEFT", prev, "RIGHT", 10, 0) else p:SetPoint("LEFT", b.title, "LEFT", tw + 10, 0) end
+            prev = p
+        end
+    end
+    FitText(b.meta, meta or "", w - 70 - 12, { 11, 10 })
+end
+
+-- The stage line of a banner (it gives up its names when the bottom row's right side leaves it short: H.BannerRight).
+function H.SetProg(b, def, st, sub, done)
+    b.progArgs = { def, st, sub, done }
+    b.prog:SetMaxWidth(nil)
+    b.prog:Set(def, st, sub, done)
+    b.prog:Show()
+end
+
+-- Why it was called off, at the bottom right (two lines when long); nil hides it.
+function H.BannerWhy(b, text, maxW)
+    if not text or text == "" then
+        b.why:Hide()
+        return
+    end
+    local _, _, lines = FitText(b.why, text, maxW, 11)
+    b.whyLines = lines
+    b.why:Show()
+end
+
+-- A banner button: text, kind, glyph (atlas key / texture) and its click (minW: the narrowest it gets, 70).
+function H.BannerButton(btn, text, kind, glyph, fn, minW)
+    if not text then
+        btn:Hide()
+        return
+    end
+    btn:SetText(text)
+    btn:SetKind(kind)
+    H.SetButtonGlyph(btn, glyph)
+    H.Fit(btn, minW or 70, minW and 28 or 30)
+    btn:SetScript("OnClick", fn)
+    btn:Show()
+end
+
+-- Lays out the bottom row's right side: [why] [note] [chip] [btn2] [btn]; the stage line at the left gets the room
+-- they leave (w: the banner's width).
+function H.BannerRight(b, w)
+    local anchor = b
+    local first = true
+    local used = 0
+    local function place(f)
+        f:ClearAllPoints()
+        if first then
+            f:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -12, 12)
+            first = false
+        elseif f == b.chip or f == b.note or f == b.why then
+            f:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+        else
+            f:SetPoint("RIGHT", anchor, "LEFT", -6, 0)
+        end
+        anchor = f
+    end
+    for _, f in ipairs({ b.btn, b.btn2, b.chip, b.note, b.why }) do
+        if f:IsShown() then
+            used = used + ((f == b.note) and NatW(f) or f:GetWidth()) + 8
+            if (f == b.note or f == b.why) and first then
+                f:ClearAllPoints()
+                f:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -14, (f == b.why and b.whyLines == 2) and 12 or 19)
+                first, anchor = false, f
+            else
+                place(f)
+            end
+        end
+    end
+    if b.prog:IsShown() and b.progArgs then
+        local a = b.progArgs
+        b.prog:SetMaxWidth(max(60, (w or (H.W() - 2 * PAD)) - 14 - 12 - used - 16))
+        b.prog:Set(a[1], a[2], a[3], a[4])
+    end
+end
+
+-- The top row's right side: [Share results] [share] [more].
+function H.BannerIcons(b, showMore, ref, shareResults)
+    b.ref = ref
+    b.more:SetShown(showMore)
+    local anchor = showMore and b.more or nil
+    local function after(f)
+        f:ClearAllPoints()
+        if anchor then f:SetPoint("RIGHT", anchor, "LEFT", -6, 0) else f:SetPoint("TOPRIGHT", b, "TOPRIGHT", -12, -9) end
+        anchor = f
+    end
+    if shareResults and ref then
+        if b.share then b.share:Hide() end
+        H.Fit(b.shareText, 60, 24)
+        b.shareText:Show()
+        after(b.shareText)
+    else
+        b.shareText:Hide()
+        if b.share then
+            b.share:SetShown(ref ~= nil)
+            if ref then after(b.share) end
+        end
+    end
+end
+
+-- The entrants' meter: up to six faces, "12 of 16 duelists", a bar.
+function H.BannerMeter(b, keys, spots, noun)
+    local m = b.meter
+    local x = 0
+    local n = #keys
+    for i = 1, 6 do
+        local f = Pool(m.faces, i, function()
+            local face = H.Face(m, 18)
+            face.ring:SetSize(21, 21)
+            return face
+        end)
+        if keys[i] then
+            f:Set(keys[i])
+            f.ring:SetVertexColor(0.07, 0.07, 0.086, 1)
+            f.ring:SetSize(21, 21)
+            f:ClearAllPoints()
+            f:SetPoint("LEFT", m, "LEFT", x, 0)
+            f:SetFrameLevel(m:GetFrameLevel() + 7 - i)
+            f:Show()
+            x = x + 13
+        else
+            f:Hide()
+        end
+    end
+    if n > 0 then x = x + 5 + 8 end
+    m.fs:SetText((spots and (n .. " of " .. spots) or tostring(n)) .. " " .. noun)
+    m.fs:ClearAllPoints()
+    m.fs:SetPoint("LEFT", m, "LEFT", x, 0)
+    m.track:ClearAllPoints()
+    m.track:SetPoint("LEFT", m.fs, "RIGHT", 8, 0)
+    local frac = spots and spots > 0 and min(1, n / spots) or 0
+    m.track:SetShown(spots ~= nil)
+    m.fill:ClearAllPoints()
+    m.fill:SetPoint("LEFT", m.track, "LEFT", 0, 0)
+    m.fill:SetWidth(max(0.5, 120 * frac))
+    m.fill:SetShown(spots ~= nil and frac > 0)
+    m:Show()
+end
+
+---------------------------------------------------------------------------
+-- Upcoming (shot 0): the banner, the week, my season
+---------------------------------------------------------------------------
+
+local Up = {}
+local HERO_Y, HERO_H, LIST_Y, SEASON_W = 44, 156, 210, 254
+local ROW_H, ROW_TX = 50, 134   -- (ROW_TX: where a row's words start, right of its art)
+
+function Up.Create(p)
+    local v = CreateFrame("Frame", nil, p)
+    v:SetAllPoints(p)
+    v.hero = H.NewBanner(v, HERO_H)
+    v.hero:SetPoint("TOPLEFT", PAD, -HERO_Y)
+    v.hero:SetPoint("TOPRIGHT", -PAD, -HERO_Y)
+    v.hero.back:Hide()
+    v.hero:SetScript("OnClick", function(self) if self.occId then EventsUI:OpenEvent(self.occId) end end)
+    v.hero.more:SetScript("OnClick", function(self)
+        local o = v.hero.occId and Ev():GetOcc(v.hero.occId)
+        if o then A.OccMenu(self, o) end
+    end)
+    v.scroll = UI():CreateScrollFrame(v)
+    v.scroll:SetPoint("TOPLEFT", PAD, -LIST_Y)
+    v.scroll:SetPoint("BOTTOMLEFT", PAD, 10)
+    v.content = CreateFrame("Frame", nil, v.scroll)
+    v.content:SetSize(400, 10)
+    v.scroll:SetScrollChild(v.content)
+    v.heads, v.rows = {}, {}
+    v.empty = Text(v.content, 11, C.grey)
+    v.empty:SetPoint("TOPLEFT", 2, -34)
+    v.card = Up.CreateSeason(v)
+    return v
+end
+
+function Up.NewRow(parent)
+    local r = CreateFrame("Button", nil, parent)
+    r:SetHeight(ROW_H)
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.03)
+    r.line = Line(r, { 1, 1, 1, 0.045 })
+    r.line:SetHeight(1)
+    r.line:SetPoint("BOTTOMLEFT")
+    r.line:SetPoint("BOTTOMRIGHT")
+    r.wd = Text(r, 10, C.gold)
+    r.wd:SetJustifyH("CENTER")
+    r.wd:SetPoint("TOP", r, "TOPLEFT", 23, -10)
+    r.dn = Text(r, 18, C.white, true)
+    r.dn:SetJustifyH("CENTER")
+    r.dn:SetPoint("TOP", r.wd, "BOTTOM", 0, -1)
+    r.art = CreateFrame("Frame", nil, r)
+    r.art:SetSize(64, 38)
+    r.art:SetPoint("LEFT", 56, 0)
+    r.art.outer = Fill(r.art, { 0, 0, 0, 1 }, "BACKGROUND")
+    r.art.outer:ClearAllPoints()
+    r.art.outer:SetPoint("TOPLEFT", -1, 1)
+    r.art.outer:SetPoint("BOTTOMRIGHT", 1, -1)
+    r.art.tex = r.art:CreateTexture(nil, "ARTWORK")
+    r.art.tex:SetAllPoints()
+    Edges(r.art, { 1, 1, 1, 0.08 }, "OVERLAY")
+    r.icon = H.Icon(r, 20)
+    r.icon:SetPoint("BOTTOMLEFT", r.art, "BOTTOMLEFT", -6, -5)
+    r.icon:SetFrameLevel(r.art:GetFrameLevel() + 2)
+    r.l1 = Text(r, 12, C.white)
+    r.l1:SetPoint("BOTTOMLEFT", r.art, "RIGHT", 14, 1)
+    r.pill = H.Pill(r, 16)
+    r.pill:SetPoint("LEFT", r.l1, "RIGHT", 7, 0)
+    r.l2 = Text(r, 11, C.grey)
+    r.l2:SetPoint("TOPLEFT", r.art, "RIGHT", 14, -3)
+    r.btn = H.Button(r, "Join", 60, 26, "secondary")
+    r.btn.glyph = r.btn:CreateTexture(nil, "OVERLAY")
+    r.btn.glyph:SetSize(12, 12)
+    r.btn:SetPoint("RIGHT", -6, 0)
+    r.btn:HookScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+    r.btn:HookScript("OnLeave", HideTip)
+    r.when = Text(r, 11, C.grey)
+    r.when:SetJustifyH("RIGHT")
+    r.when:SetPoint("RIGHT", -8, 0)
+    r:SetScript("OnClick", function(self) if self.occId then EventsUI:OpenEvent(self.occId) end end)
+    -- the bin, on hover, for who may take it off (r.remove; its tooltip: r.del.tipText)
+    r.del = UI():CreateRemoveButton(r, "Remove")
+    r.del:Hide()
+    r.del:SetScript("OnClick", function() if r.remove then r.remove() end end)
+    r.del:HookScript("OnLeave", function() if not r:IsMouseOver() then r.del:Hide() end end)
+    r:SetScript("OnEnter", function(self) if self.remove then self.del:Show() end end)
+    r:SetScript("OnLeave", function(self) if not self:IsMouseOver() then self.del:Hide() end end)
+    return r
+end
+
+-- The row's name in the room its action (and the Ranked pill) leave: a point smaller, else two lines (the second line
+-- then goes under them). r.cw: the row's width.
+function Up.RowName(r, name)
+    local right = r.btn:IsShown() and (r.btn:GetWidth() + 6) or (r.when:IsShown() and (NatW(r.when) + 8)) or 0
+    -- (the bin's place, left of the action, is kept free whether it shows or not)
+    r.del:ClearAllPoints()
+    r.del:SetPoint("RIGHT", r, "RIGHT", -(right + 4), 0)
+    if not r.remove then r.del:Hide() end
+    if r.remove then right = right + 4 + 18 end
+    local pw = r.pill:IsShown() and (r.pill:GetWidth() + 7) or 0
+    local room = (r.cw or 400) - ROW_TX - right - 10 - pw
+    local tw, _, lines = FitText(r.l1, name, room, { 12, 11 })
+    r.l1:ClearAllPoints()
+    r.l2:ClearAllPoints()
+    if lines == 1 then
+        r.l1:SetPoint("BOTTOMLEFT", r.art, "RIGHT", 14, 1)
+        r.l2:SetPoint("TOPLEFT", r.art, "RIGHT", 14, -3)
+    else
+        r.l1:SetPoint("TOPLEFT", r, "TOPLEFT", ROW_TX, -3)
+        r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -2)
+    end
+    r.pill:ClearAllPoints()
+    r.pill:SetPoint("LEFT", r.l1, "LEFT", tw + 7, 0)
+end
+
+-- A calendar event's row: when, the art, its name, what it is / how full / when / who hosts, one action.
+function Up.FillOcc(r, o)
+    local d = o.def
+    r.occId = o.id
+    r.wd:SetText(string.upper(date("%a", o.at)))
+    r.dn:SetText(date("%d", o.at))
+    EUI():SetArt(r.art.tex, d.art, 64, 38, nil, nil, 0.6)
+    r.icon:Set(d.icon)
+    Color(r.l1, C.white)
+    r.pill:SetShown(o.ranked and true or false)
+    if o.ranked then r.pill:SetKind("Ranked", "rank") end
+    local spots = W.Spots(d)
+    local n = #Ev():GetSignups(o.id)
+    local st = Ev():OccState(o)
+    local parts = { W.Kind(d), spots and (n .. " of " .. spots) or (n .. " " .. W.Noun(d, n)), W.Clock(o.at),
+        Name(Ev():HostOf(o)) }
+    if st == "live" then
+        local keys = W.Entrants(o)
+        parts[2] = #keys .. " " .. W.Noun(d, #keys)
+    end
+    r.l2:SetText(tconcat(parts, grey(" · ")))
+    Color(r.l2, C.grey)
+    r.btn:Hide()
+    r.when:Hide()
+    r.remove = W.CanRemoveOcc(o) and function() A.RemoveOcc(o.id) end or nil
+    r.del.tipText = "Takes it off the calendar for everyone."
+    local signed = Ev():IsSignedUp(o.id)
+    r.btn:SetHeight(26)
+    r.btn.tip = nil
+    if st == "live" then
+        H.BannerButton(r.btn, "Watch", "secondary", "eye", function() A.Watch(o.id) end, 56)
+    elseif st == "cancelled" then
+        r.when:SetText("Cancelled")
+        r.when:Show()
+    elseif signed then
+        H.BannerButton(r.btn, "Joined", "chosen", CHECK, function() A.Join(o.id, false) end, 56)
+        r.btn.glyph:SetSize(14, 14)
+        r.btn.tip = { "You're in", "Click to leave." }
+    else
+        local can, why = W.CanJoin(o)
+        if can then
+            H.BannerButton(r.btn, "Join", "secondary", nil, function() A.Join(o.id, true) end, 56)
+            r.btn.tip = nil
+        else
+            r.when:SetText(why == "full" and "Full" or "Sign-up closed")
+            r.when:Show()
+        end
+    end
+    Up.RowName(r, d.name or "Event")
+end
+
+-- A past event's row: its winner, my place, how many took part; Results.
+function Up.FillResult(r, res)
+    r.occId = res.id
+    r.wd:SetText(string.upper(date("%a", res.at)))
+    r.dn:SetText(date("%d", res.at))
+    EUI():SetArt(r.art.tex, res.art, 64, 38, nil, nil, 0.6)
+    r.icon:Set(res.icon)
+    Color(r.l1, { 0.81, 0.81, 0.81 })
+    r.pill:Hide()
+    local parts = {}
+    if res.cancel then
+        parts[1] = "Cancelled"
+    elseif res.champ then
+        parts[1] = "Won by " .. Name(res.champ)
+    end
+    local mine = W.MyPlace(res)
+    if mine then parts[#parts + 1] = mine end
+    if (res.n or 0) > 0 then parts[#parts + 1] = res.n .. " " .. W.Noun(W.DefOfResult(res), res.n) end
+    r.l2:SetText(tconcat(parts, grey(" · ")))
+    Color(r.l2, C.grey)
+    r.when:Hide()
+    r.remove = W.CanRemove() and function() A.RemoveResult(res.id) end or nil
+    r.del.tipText = "Removes its results for everyone, with the season points and badges they gave."
+    H.BannerButton(r.btn, "Results", "secondary", nil, function() EventsUI:OpenEvent(res.id) end, 56)
+    r.btn:SetHeight(22)
+    r.btn.tip = nil
+    Up.RowName(r, res.name or "Event")
+end
+
+-- The banner: what is live, else the next event, else the last result.
+function Up.PickHero()
+    local L = Live()
+    for _, id in ipairs(L and L:GetLiveList() or {}) do
+        local o = Ev():GetOcc(id)
+        if o and Ev():OccState(o) == "live" then return o, "live" end
+    end
+    local now = Now()
+    for _, o in ipairs(Ev():GetOccurrences(now - 6 * 3600, now + 30 * DAY)) do
+        if Ev():OccState(o) == "planned" then return o, "planned" end
+    end
+    local r = Ev():GetResults(now - 7 * DAY, now + 60)[1]
+    if r then return r, "done" end
+    return nil, "empty"
+end
+
+function Up.FillHero(v, w)
+    local b = v.hero
+    local x, kind = Up.PickHero()
+    b.occId = nil
+    b.chip:Hide()
+    b.btn2:Hide()
+    b.note:Hide()
+    b.why:Hide()
+    b.meter:Hide()
+    local me = Me()
+    if kind == "empty" then
+        H.BannerHead(b, w, "nagrand", "Interface\\Icons\\Ability_DualWield", "Nothing on the calendar", nil,
+            "Pick an event in the Library and host it, or build one of your own.")
+        b.live:Hide()
+        b.kick:Hide()
+        b.prog:Hide()
+        H.BannerIcons(b, false, nil)
+        H.BannerButton(b.btn, "Library", "primary", nil, function() EventsUI:SetView("library") end)
+        H.BannerRight(b, w)
+        return nil
+    end
+    if kind == "done" then
+        local r = W.DemoDress(x)
+        local o = Ev():GetOcc(r.id)
+        b.occId = r.id
+        local meta = {}
+        if r.champ then meta[#meta + 1] = "Won by " .. Name(r.champ) end
+        meta[#meta + 1] = (r.n or 0) .. " " .. W.Noun(W.DefOfResult(r), r.n)
+        if r.hosts and r.hosts[1] then meta[#meta + 1] = "hosted by " .. Name(r.hosts[1]) end
+        H.BannerHead(b, w, r.art, r.icon, r.name, { { r.cancel and "Cancelled" or ("Ended " .. W.Clock(r.t1)), "ended" } },
+            tconcat(meta, " · "))
+        b.live:Hide()
+        b.kick:SetText(string.upper(W.DayWord(r.at)))
+        b.kick:ClearAllPoints()
+        b.kick:SetPoint("TOPLEFT", 14, -14)
+        b.kick:Show()
+        if o then
+            H.SetProg(b, o.def, nil, nil, true)
+        else
+            b.prog:Hide()
+        end
+        H.BannerIcons(b, false, A.OccRef(r.id))
+        H.BannerButton(b.btn, "Results", "primary", nil, function() EventsUI:OpenEvent(r.id) end)
+        H.BannerRight(b, w)
+        return r.id
+    end
+    local o = x
+    local d = o.def
+    b.occId = o.id
+    local pills = o.ranked and { { "Ranked", "rank" } } or nil
+    local host = Ev():HostOf(o)
+    local where = o.where and o.where ~= "" and o.where or nil
+    if kind == "live" then
+        local keys, st = W.Entrants(o)
+        local meta = { #keys .. " " .. W.Noun(d, #keys) }
+        if where then meta[#meta + 1] = where end
+        meta[#meta + 1] = "hosted by " .. Name(host)
+        H.BannerHead(b, w, d.art, d.icon, d.name, pills, tconcat(meta, " · "), 0.66)
+        b.live:Show()
+        b.kick:SetText(W.Kicker(d, st))
+        b.kick:ClearAllPoints()
+        b.kick:SetPoint("LEFT", b.live, "RIGHT", 8, 0)
+        b.kick:Show()
+        H.SetProg(b, d, st, EUI():StageSub(d, st))
+        -- my match: who I meet and when
+        local m = Live():MyMatch(o.id)
+        if m then
+            local opp = (m.a == me) and m.b or m.a
+            local words = m.st == "play" and "You're on now" or "You're up next"
+            if opp then words = words .. ", vs " .. Name(opp) end
+            b.chip:Set(words, nil, { 0.4, 0.72, 1, 0.75 }, { 0.84, 0.92, 1 })
+            if opp then b.chip:SetFace(opp) end
+            b.chip:Show()
+        end
+        H.BannerButton(b.btn, "Watch", "primary", "eye", function() A.Watch(o.id) end)
+    else
+        local spots = W.Spots(d)
+        local n = #Ev():GetSignups(o.id)
+        local meta = { (spots and (n .. " of " .. spots) or tostring(n)) .. " " .. W.Noun(d, spots or n) }
+        if where then meta[#meta + 1] = where end
+        meta[#meta + 1] = "hosted by " .. Name(host)
+        H.BannerHead(b, w, d.art, d.icon, d.name, pills, tconcat(meta, " · "), 0.66)
+        b.live:Hide()
+        b.kick:SetText(string.upper(W.DayWord(o.at) .. " " .. W.Clock(o.at) .. " · " .. EUI():Relative(o.at)))
+        b.kick:ClearAllPoints()
+        b.kick:SetPoint("TOPLEFT", 14, -14)
+        b.kick:Show()
+        local can, why = W.CanJoin(o)
+        local open = W.OpenSignup(d)
+        H.SetProg(b, d, open, (open and can) and "open" or nil)
+        local closes = Ev():ClosesAt(o)
+        if closes and closes > Now() then
+            b.chip:Set("Sign-up closes " .. (W.DayWord(closes) == "Today" and "" or (W.DayWord(closes) .. " "))
+                .. W.Clock(closes), "clock")
+        end
+        if Ev():IsSignedUp(o.id) then
+            H.BannerButton(b.btn, "Joined", "chosen", CHECK, function() A.Join(o.id, false) end)
+            b.btn.glyph:SetSize(14, 14)
+        elseif not can then
+            b.btn:Hide()
+            b.note:SetText(why == "full" and "Full" or "Sign-up closed")
+            b.note:Show()
+        else
+            H.BannerButton(b.btn, "Join", "primary", nil, function() A.Join(o.id, true) end)
+        end
+    end
+    H.BannerIcons(b, true, A.OccRef(o.id))
+    H.BannerRight(b, w)
+    return o.id
+end
+
+-- The week below the banner: this week, later, the last results.
+function Up.FillList(v, heroId, listW)
+    local now = Now()
+    local planned, later = {}, {}
+    for _, o in ipairs(Ev():GetOccurrences(now - 6 * 3600, now + 30 * DAY)) do
+        local st = Ev():OccState(o)
+        if o.id ~= heroId and (st == "planned" or st == "live" or st == "cancelled") then
+            if o.at < now + 7 * DAY then planned[#planned + 1] = o else later[#later + 1] = o end
+        end
+    end
+    local recent, older = {}, {}
+    for _, r in ipairs(Ev():GetResults(now - 30 * DAY, now + 60)) do
+        if r.id ~= heroId then
+            if r.at >= now - 8 * DAY then recent[#recent + 1] = r elseif #older < 3 then older[#older + 1] = r end
+        end
+    end
+    -- the rows' height first: is there a scroll bar?
+    local n = #planned + #later + #recent + #older
+    local heads = (#planned > 0 and 1 or 0) + (#later > 0 and 1 or 0) + (#recent > 0 and 1 or 0) + (#older > 0 and 1 or 0)
+    local total = n * ROW_H + heads * 28 + (heads > 1 and (heads - 1) * 8 or 0)
+    local avail = H.Hgt() - LIST_Y - 10
+    local cw = total > avail and (listW - 12) or listW
+    v.scroll:SetWidth(cw)
+    v.content:SetWidth(cw)
+    local y, hi, ri = 0, 0, 0
+    local function head(text)
+        hi = hi + 1
+        local s = Pool(v.heads, hi, function() return H.Sect(v.content) end)
+        s:SetWidth(cw)
+        s:ClearAllPoints()
+        s:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -(y + (hi > 1 and 8 or 0)))
+        s:Set(text)
+        y = y + 24 + 4 + (hi > 1 and 8 or 0)
+    end
+    local function row(fill, x)
+        ri = ri + 1
+        local r = Pool(v.rows, ri, function() return Up.NewRow(v.content) end)
+        r:SetWidth(cw)
+        r.cw = cw
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -y)
+        fill(r, x)
+        r:Show()
+        y = y + ROW_H
+    end
+    if #planned > 0 then
+        head("This week")
+        for _, o in ipairs(planned) do row(Up.FillOcc, o) end
+    end
+    if #later > 0 then
+        head("Later")
+        for _, o in ipairs(later) do row(Up.FillOcc, o) end
+    end
+    if #recent > 0 then
+        head("Last week")
+        for _, r in ipairs(recent) do row(Up.FillResult, r) end
+    end
+    if #older > 0 then
+        head("Earlier")
+        for _, r in ipairs(older) do row(Up.FillResult, r) end
+    end
+    HideFrom(v.heads, hi + 1)
+    HideFrom(v.rows, ri + 1)
+    if n == 0 then
+        local s = Pool(v.heads, 1, function() return H.Sect(v.content) end)
+        s:SetWidth(cw)
+        s:ClearAllPoints()
+        s:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, 0)
+        s:Set("This week")
+        v.empty:SetText("Nothing else on the calendar this week.")
+        v.empty:Show()
+        y = 60
+    else
+        v.empty:Hide()
+    end
+    v.content:SetHeight(max(1, y))
+end
+
+-- My season (the card at the right): rank, points, who is just above, badges, the top five.
+function Up.CreateSeason(v)
+    local s = H.Box(v, true)
+    s:SetPoint("TOPRIGHT", -PAD, -LIST_Y)
+    s:SetPoint("BOTTOMRIGHT", -PAD, 10)
+    s:SetWidth(SEASON_W)
+    s.rk = Text(s, 30, C.white, true)
+    s.rk:SetPoint("TOPLEFT", 24, -42)
+    s.hash = Text(s, 16, C.grey, true)
+    s.hash:SetPoint("BOTTOMRIGHT", s.rk, "BOTTOMLEFT", -1, 3)
+    s.hash:SetText("#")
+    s.pt = Text(s, 13, C.white)
+    s.pt:SetPoint("TOPLEFT", s.rk, "TOPRIGHT", 12, -3)
+    s.pt2 = Text(s, 11, C.grey)
+    s.pt2:SetPoint("TOPLEFT", s.pt, "BOTTOMLEFT", 0, -3)
+    s.track = s:CreateTexture(nil, "ARTWORK")
+    s.track:SetColorTexture(1, 1, 1, 0.08)
+    s.track:SetPoint("TOPLEFT", 12, -86)
+    s.track:SetSize(SEASON_W - 24, 4)
+    s.fill = s:CreateTexture(nil, "ARTWORK", nil, 1)
+    s.fill:SetPoint("TOPLEFT", s.track, "TOPLEFT")
+    s.fill:SetHeight(4)
+    Grad(s.fill, "HORIZONTAL", { 0.72, 0.54, 0.06, 1 }, { 1, 0.82, 0, 1 })
+    s.badges = {}
+    s.bcount = Text(s, 11, C.grey)
+    s.sect = H.Sect(s)
+    s.sect:SetPoint("TOPLEFT", 10, -128)
+    s.sect:SetPoint("TOPRIGHT", -10, -128)
+    s.all = H.Link(s.sect, "All", function() EventsUI:SetView("season") end)
+    s.all:SetPoint("BOTTOMRIGHT", s.sect, "BOTTOMRIGHT", -2, 5)
+    s.rows = {}
+    for i = 1, 5 do
+        local r = CreateFrame("Frame", nil, s)
+        r:SetSize(SEASON_W - 12, 26)
+        r:SetPoint("TOPLEFT", 6, -156 - (i - 1) * 26)
+        r.bg = Fill(r, { 0.4, 0.72, 1, 0.08 })
+        r.bar = Line(r, { 0.4, 0.72, 1, 1 })
+        r.bar:SetPoint("TOPLEFT")
+        r.bar:SetPoint("BOTTOMLEFT")
+        r.bar:SetWidth(2)
+        r.p = Text(r, 13, C.grey, true)
+        r.p:SetJustifyH("RIGHT")
+        r.p:SetPoint("RIGHT", r, "LEFT", 22, 0)
+        r.face = H.Face(r, 18)
+        r.face:SetPoint("LEFT", 30, 0)
+        r.n = Text(r, 12, C.white)
+        r.n:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
+        r.v = Text(r, 13, { 0.91, 0.91, 0.91 }, true)
+        r.v:SetJustifyH("RIGHT")
+        r.v:SetPoint("RIGHT", -6, 0)
+        s.rows[i] = r
+    end
+    s.none = Text(s, 11, C.grey)
+    s.none:SetPoint("TOPLEFT", 12, -160)
+    return s
+end
+
+-- The rank I hold, the one above me (or below when I lead): row, above, below.
+function W.MyStanding(rows)
+    local me = Me()
+    for i, r in ipairs(rows) do
+        if r.key == me then return r, rows[i - 1], rows[i + 1] end
+    end
+    return nil
+end
+
+-- "12 behind Bert" / "5 ahead of Bert" / "tied with Bert" (the same points).
+function W.Gap(mine, other, ahead)
+    if not other then return nil end
+    if other.pts == mine.pts then return "tied with " .. Name(other.key) end
+    if ahead then return (mine.pts - other.pts) .. " ahead of " .. Name(other.key) end
+    return (other.pts - mine.pts) .. " behind " .. Name(other.key)
+end
+
+function Up.FillSeason(s)
+    local season = Ev():GetSeason()
+    local left = max(0, ceil((season.to - Now()) / DAY))
+    s.hr:SetText(left == 1 and "1 day left" or (left .. " days left"))
+    -- (a long season name: smaller; the days left go when it still doesn't fit: the Season page says them)
+    local room = SEASON_W - 20
+    s.hr:Show()
+    if not FitText(s.ht, season.n or "Season", room - NatW(s.hr) - 10, { 13, 12, 11 }, false) then
+        s.hr:Hide()
+        FitText(s.ht, season.n or "Season", room, { 13, 12, 11 })
+    end
+    local rows = Ev():Standings(season)
+    local mine, above, below = W.MyStanding(rows)
+    if mine then
+        s.rk:SetText(mine.rank)
+        s.pt:SetText(mine.pts .. (mine.pts == 1 and " point" or " points"))
+        if above then
+            s.pt2:SetText(W.Gap(mine, above))
+        elseif below then
+            s.pt2:SetText(W.Gap(mine, below, true))
+        else
+            s.pt2:SetText("the only one on the board")
+        end
+        local frac = above and above.pts > 0 and min(1, mine.pts / above.pts) or 1
+        s.fill:SetWidth(max(1, (SEASON_W - 24) * frac))
+        s.fill:Show()
+    else
+        s.rk:SetText("-")
+        s.pt:SetText("No points yet")
+        s.pt2:SetText("Ranked events give season points")
+        s.fill:Hide()
+    end
+    local badges = Ev():BadgesOf(Me())
+    local x = 12
+    for i = 1, 5 do
+        local bd = Pool(s.badges, i, function() return H.Badge(s, 19) end)
+        if badges[i] then
+            bd:SetBadge(badges[i])
+            bd:ClearAllPoints()
+            bd:SetPoint("TOPLEFT", s, "TOPLEFT", x, -98)
+            x = x + bd:GetWidth() + 6
+        else
+            bd:Hide()
+        end
+    end
+    s.bcount:ClearAllPoints()
+    s.bcount:SetPoint("TOPLEFT", s, "TOPLEFT", #badges > 0 and (x + 2) or 12, -106)
+    s.bcount:SetText(#badges == 0 and "No badges yet" or (#badges == 1 and "1 badge" or (#badges .. " badges")))
+    s.sect:Set("Standings")
+    -- the top five, me in it (in the fifth place when I'm further down)
+    local list = {}
+    for i = 1, min(5, #rows) do list[i] = rows[i] end
+    if mine and mine.rank > 5 then list[5] = mine end
+    for i, r in ipairs(s.rows) do
+        local x2 = list[i]
+        if x2 then
+            local isMe = x2.key == Me()
+            r.bg:SetShown(isMe)
+            r.bar:SetShown(isMe)
+            r.p:SetText(x2.rank)
+            r.face:Set(x2.key)
+            r.n:SetText(Name(x2.key))
+            r.v:SetText(x2.pts)
+            r:Show()
+        else
+            r:Hide()
+        end
+    end
+    s.none:SetShown(#rows == 0)
+    s.none:SetText("No ranked event has paid out yet.")
+end
+
+function Up.Fill(v)
+    local w = H.W() - 2 * PAD
+    local heroId = Up.FillHero(v, w)
+    Up.FillList(v, heroId, w - SEASON_W - GAP)
+    Up.FillSeason(v.card)
+end
+
+---------------------------------------------------------------------------
+-- An event's page (shot 1): how it runs, its rewards, who's in
+---------------------------------------------------------------------------
+
+local Pg = {}
+local BAN_Y, BAN_H, BODY_Y, RIGHT_W, COL_GAP = 10, 150, 168, 286, 16
+
+function Pg.Create(p)
+    local v = CreateFrame("Frame", nil, p)
+    v:SetAllPoints(p)
+    v.ban = H.NewBanner(v, BAN_H)
+    v.ban:SetPoint("TOPLEFT", PAD, -BAN_Y)
+    v.ban:SetPoint("TOPRIGHT", -PAD, -BAN_Y)
+    v.ban.live:Hide()
+    v.ban.kick:Hide()
+    v.ban:EnableMouse(false)
+    v.ban.more:SetScript("OnClick", function(self)
+        local o = state.occ and Ev():GetOcc(state.occ)
+        if v.mode == "results" then
+            Pg.ResultsMenu(self, state.occ)
+        elseif o then
+            A.OccMenu(self, o)
+        end
+    end)
+    v.scroll = UI():CreateScrollFrame(v)
+    v.scroll:SetPoint("TOPLEFT", PAD, -BODY_Y)
+    v.scroll:SetPoint("BOTTOMLEFT", PAD, 10)
+    v.content = CreateFrame("Frame", nil, v.scroll)
+    v.content:SetSize(700, 10)
+    v.scroll:SetScrollChild(v.content)
+    v.lsect = H.Sect(v.content)
+    v.stages = {}
+    v.rsect = H.Sect(v.content)
+    v.rewards = {}
+    v.esect = H.Sect(v.content)
+    v.ents = {}
+    v.res = Pg.CreateResults(v)
+    return v
+end
+
+-- A rule of a stage ("best of 3", "5 min no-show"): a small flat chip with its glyph.
+function Pg.NewRule(parent)
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetHeight(18)
+    Fill(c, { 1, 1, 1, 0.035 })
+    Edges(c, { 1, 1, 1, 0.1 })
+    c.glyph = c:CreateTexture(nil, "ARTWORK")
+    c.glyph:SetSize(11, 11)
+    c.glyph:SetPoint("LEFT", 7, 0)
+    c.fs = Text(c, 11, { 0.82, 0.82, 0.82 })
+    c.fs:SetPoint("LEFT", 23, 0)
+    function c:Set(g, t)
+        H.Glyph(self.glyph, g, { 1, 1, 1, 0.8 })
+        self.fs:SetText(t or "")
+        self:SetWidth(ceil(23 + SW(self.fs) + 8))
+    end
+    return c
+end
+
+function Pg.NewStage(parent)
+    local r = CreateFrame("Frame", nil, parent)
+    r:SetSize(400, 60)
+    r.glow = Disc(r, 33, { 1, 0.82, 0, 0.18 }, "BACKGROUND", 0)
+    r.glow:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
+    r.ring = Disc(r, 23, { 0.44, 0.44, 0.46, 1 }, "BACKGROUND", 1)
+    r.ring:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
+    r.hole = Disc(r, 21, { 0.07, 0.07, 0.08, 1 }, "BACKGROUND", 2)
+    r.hole:SetPoint("CENTER", r.ring, "CENTER")
+    r.nb = Text(r, 12, { 0.91, 0.91, 0.91 })
+    r.nb:SetJustifyH("CENTER")
+    r.nb:SetPoint("CENTER", r.ring, "CENTER", 0, 0)
+    r.check = r:CreateTexture(nil, "ARTWORK")
+    r.check:SetSize(14, 14)
+    r.check:SetPoint("CENTER", r.ring, "CENTER")
+    r.check:SetTexture(CHECK)
+    r.check:SetVertexColor(0.45, 0.9, 0.55)
+    r.vline = Line(r, { 1, 1, 1, 0.12 }, "BACKGROUND")
+    r.vline:SetWidth(1)
+    r.t1 = Text(r, 13, C.white)
+    r.t1:SetPoint("TOPLEFT", 35, -9)
+    r.when = Text(r, 11, C.grey)
+    r.when:SetJustifyH("RIGHT")
+    r.when:SetPoint("TOPRIGHT", 0, -11)
+    r.t2 = Text(r, 11, { 0.74, 0.74, 0.74 })
+    r.t2:SetPoint("TOPLEFT", 35, -28)
+    r.rules = {}
+    return r
+end
+
+-- Fills a stage row (w wide): number, name, when, the plain words and the rules; returns its height.
+function Pg.FillStage(r, i, s, w, how, when, last)
+    r:SetWidth(w)
+    r.nb:SetText(i)
+    r.t1:SetText(s.name or "")
+    r.when:SetText(when or "")
+    r.glow:SetShown(how == "now")
+    if how == "now" then
+        r.ring:SetVertexColor(1, 0.82, 0, 1)
+        r.hole:Hide()
+        r.nb:SetTextColor(0.16, 0.11, 0)
+        r.nb:SetShadowColor(0, 0, 0, 0)
+        r.nb:Show()
+        r.check:Hide()
+    elseif how == "done" then
+        r.ring:SetVertexColor(0.35, 0.86, 0.47, 0.9)
+        r.hole:SetVertexColor(0.06, 0.14, 0.08, 1)
+        r.hole:Show()
+        r.nb:Hide()
+        r.check:Show()
+    else
+        r.ring:SetVertexColor(0.44, 0.44, 0.46, 1)
+        r.hole:SetVertexColor(0.07, 0.07, 0.08, 1)
+        r.hole:Show()
+        r.nb:SetTextColor(0.91, 0.91, 0.91)
+        r.nb:SetShadowColor(0, 0, 0, 1)
+        r.nb:Show()
+        r.check:Hide()
+    end
+    local th = 0
+    if s.text and s.text ~= "" then
+        th = Wrap(r.t2, s.text, w - 35, 11)
+        r.t2:Show()
+    else
+        r.t2:SetText("")
+        r.t2:Hide()
+    end
+    local y = 28 + th + (th > 0 and 5 or 2)
+    local x, ri, rows = 35, 0, 0
+    for _, rule in ipairs(s.rules or {}) do
+        ri = ri + 1
+        local c = Pool(r.rules, ri, function() return Pg.NewRule(r) end)
+        c:Set(rule.g, rule.t)
+        local cw = c:GetWidth()
+        if x > 35 and x + cw > w then
+            x = 35
+            rows = rows + 1
+        end
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", r, "TOPLEFT", x, -(y + rows * 22))
+        c:Show()
+        x = x + cw + 4
+    end
+    HideFrom(r.rules, ri + 1)
+    local h = ri > 0 and (y + (rows + 1) * 22 - 4 + 9) or (28 + th + (th > 0 and 9 or 4))
+    r:SetHeight(h)
+    r.vline:ClearAllPoints()
+    r.vline:SetPoint("TOP", r, "TOPLEFT", 12, -31)
+    r.vline:SetPoint("BOTTOM", r, "BOTTOMLEFT", 12, -8)
+    r.vline:SetShown(not last)
+    return h
+end
+
+function Pg.NewReward(parent)
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetSize(90, 120)
+    c.big = H.Badge(c, 42)
+    c.big:SetPoint("TOP", 0, -6)
+    c.small = H.Badge(c, 36)
+    c.small:SetPoint("TOP", 0, -6)
+    c.place = Text(c, 10, C.grey)
+    c.place:SetJustifyH("CENTER")
+    c.n = Text(c, 12, C.white)
+    c.n:SetJustifyH("CENTER")
+    c.s = Text(c, 11, { 0.88, 0.77, 0.42 })
+    c.s:SetJustifyH("CENTER")
+    return c
+end
+
+-- A reward: its badge, where it goes ("1ST", "BIGGEST UPSET"), its name, its points and title. Returns its height.
+function Pg.FillReward(c, rw, d, cellW, cols)
+    local four = cols > 3
+    local badge, other = four and c.small or c.big, four and c.big or c.small
+    other:Hide()
+    badge:SetBadge({ n = rw.b.n, i = rw.b.i, f = rw.b.f, ti = rw.b.ti, ev = d.name })
+    c.place:SetText(string.upper(rw.label ~= "" and rw.label or "badge"))
+    c.place:ClearAllPoints()
+    c.place:SetPoint("TOP", badge, "BOTTOM", 0, -7)
+    Sized(c.n, four and 11 or 12)
+    local nh = Wrap(c.n, rw.b.n or "Badge", cellW - 6, four and 11 or 12)
+    c.n:ClearAllPoints()
+    c.n:SetPoint("TOP", c.place, "BOTTOM", 0, -3)
+    local sub = rw.pts and ("+" .. rw.pts) or nil
+    if rw.b.ti and rw.b.ti ~= "" then sub = sub and (sub .. (four and ", title" or " and a title")) or "a title" end
+    c.s:SetText(sub or "")
+    c.s:ClearAllPoints()
+    c.s:SetPoint("TOP", c.n, "TOP", 0, -nh - 1)
+    c.s:SetShown(sub ~= nil)
+    return 6 + badge:GetHeight() + 7 + 12 + 3 + nh + (sub and 15 or 0) + 8
+end
+
+function Pg.NewEntrant(parent)
+    local e = CreateFrame("Frame", nil, parent)
+    e:SetSize(138, 24)
+    e.face = H.Face(e, 17)
+    e.face:SetPoint("LEFT", 0, 0)
+    e.n = Text(e, 11, C.white)
+    e.n:SetPoint("LEFT", e.face, "RIGHT", 7, 0)
+    e.sd = Text(e, 11, C.dim, true)
+    e.sd:SetJustifyH("RIGHT")
+    e.sd:SetPoint("RIGHT", 0, 0)
+    return e
+end
+
+-- What each stage's "when" says: sign-up open / its close, the start, "after ..."; live: done / now / next.
+function Pg.StageWhen(o, desc, st)
+    local out, how = {}, {}
+    local d = o.def
+    local closes = Ev():ClosesAt(o)
+    local cur
+    if st then
+        local _, i = B():Stage(d, st.stage)
+        cur = i
+    end
+    local bracketStage
+    for _, bid in ipairs(B():BlocksOf(d, "bracket")) do bracketStage = bracketStage or d.blocks[bid].stage end
+    local signupStage
+    for _, bid in ipairs(B():BlocksOf(d, "signup")) do signupStage = signupStage or d.blocks[bid].stage end
+    local started = false
+    -- (called off or its time long gone: nothing is open; a sign-up that closed before the start says so)
+    local occState = Ev():OccState(o)
+    local over = occState == "cancelled" or occState == "missed"
+    local _, why = W.CanJoin(o)
+    local closed = why == "closed"
+    for i, s in ipairs(desc) do
+        if over and not st then
+            how[i] = "next"
+            if s.id == signupStage then
+                out[i] = ""
+            elseif not started and (s.id == bracketStage or i == 1 or (i == 2 and not bracketStage)) then
+                started = true
+                out[i] = W.DayWord(o.at) .. " " .. W.Clock(o.at)
+            else
+                out[i] = desc[i - 1] and ("after " .. string.lower(desc[i - 1].name or "")) or ""
+            end
+        elseif closed and not st and s.id == signupStage then
+            how[i], out[i] = "done", "closed " .. W.Clock(closes)
+        elseif st then
+            if cur and i < cur then
+                how[i], out[i] = "done", "done"
+            elseif cur and i == cur then
+                how[i] = "now"
+                local sub = EUI():StageSub(d, st)
+                out[i] = "now" .. (sub and (" · " .. sub) or "")
+            else
+                how[i], out[i] = "next", (cur and i == cur + 1) and "next" or "later"
+            end
+        else
+            if s.id == signupStage then
+                how[i] = "now"
+                out[i] = "Open now" .. (closes and (" · closes " .. W.DayWord(closes) .. " " .. W.Clock(closes)) or "")
+            elseif not started and (s.id == bracketStage or i == 1 or (i == 2 and not bracketStage)) then
+                started = true
+                how[i], out[i] = "next", W.DayWord(o.at) .. " " .. W.Clock(o.at)
+            else
+                how[i] = "next"
+                out[i] = desc[i - 1] and ("after " .. string.lower(desc[i - 1].name or "")) or ""
+            end
+        end
+    end
+    return out, how
+end
+
+-- The page's body for a calendar event (not over): the stages left, the rewards and the entrants right.
+function Pg.FillBody(v, o, keys, st)
+    local d = o.def
+    local W0 = H.W() - 2 * PAD
+    local desc = B():Describe(d, { closesAt = Ev():ClosesAt(o) })
+    -- the right column first: its height decides the scroll bar
+    local rewards = W.Rewards(d)
+    local spots = W.Spots(d)
+    -- (open seats only while one can still take them)
+    local occState = Ev():OccState(o)
+    local seats = #keys
+    if (occState == "planned" and W.CanJoin(o)) or (occState == "live" and Pg.LiveSignupOpen(st)) then
+        seats = max(#keys, spots or 0)
+    end
+    local nr = #rewards
+    local cols = nr <= 3 and 3 or 4
+    -- the rewards' cells first (their words wrap): the rows' heights
+    local cellW = floor(RIGHT_W / cols)
+    local rowH, cellH = {}, {}
+    for i = 1, max(nr, #v.rewards) do
+        local c = Pool(v.rewards, i, function() return Pg.NewReward(v.content) end)
+        local rw = rewards[i]
+        if rw then
+            local row = floor((i - 1) / cols) + 1
+            cellH[i] = Pg.FillReward(c, rw, d, cellW, cols)
+            rowH[row] = max(rowH[row] or 0, cellH[i])
+        else
+            c:Hide()
+        end
+    end
+    local rh = 0
+    for _, h in ipairs(rowH) do rh = rh + h end
+    if nr == 0 then rh = 26 end
+    local entH = ceil(seats / 2) * 24
+    local rightH = 28 + rh + 8 + 28 + max(24, entH)
+    local avail = H.Hgt() - BODY_Y - 10
+    -- the left column's height needs its width: measure with the full width first
+    local lw = W0 - RIGHT_W - COL_GAP
+    local cw = W0
+    local function layoutLeft(width)
+        v.lsect:ClearAllPoints()
+        v.lsect:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, 0)
+        v.lsect:SetWidth(width)
+        v.lsect:Set("How it runs")
+        local when, how = Pg.StageWhen(o, desc, st)
+        local y = 28
+        for i, s in ipairs(desc) do
+            local r = Pool(v.stages, i, function() return Pg.NewStage(v.content) end)
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -y)
+            local h = Pg.FillStage(r, i, s, width, how[i], when[i], i == #desc)
+            r:Show()
+            y = y + h
+        end
+        HideFrom(v.stages, #desc + 1)
+        return y
+    end
+    local leftH = layoutLeft(lw)
+    if max(leftH, rightH) > avail then
+        cw = W0 - 12
+        lw = cw - RIGHT_W - COL_GAP
+        leftH = layoutLeft(lw)
+    end
+    v.scroll:SetWidth(cw)
+    v.content:SetWidth(cw)
+    -- rewards
+    local rx = cw - RIGHT_W
+    v.rsect:ClearAllPoints()
+    v.rsect:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx, 0)
+    v.rsect:SetWidth(RIGHT_W)
+    v.rsect:Set("Rewards", (#rewards > 0 and not o.ranked) and "if it were ranked" or nil)
+    -- (a short row of rewards sits in the middle of the column)
+    local ry = 28
+    for i = 1, nr do
+        local c = v.rewards[i]
+        local col, row = (i - 1) % cols, floor((i - 1) / cols) + 1
+        local inRow = min(cols, nr - (row - 1) * cols)
+        local x0 = floor((RIGHT_W - inRow * cellW) / 2)
+        c:SetSize(cellW, rowH[row])
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx + x0 + col * cellW, -ry)
+        c:Show()
+        if col == cols - 1 or i == nr then ry = ry + rowH[row] end
+    end
+    v.noRewards = v.noRewards or Text(v.content, 11, C.grey)
+    v.noRewards:SetShown(nr == 0)
+    v.noRewards:ClearAllPoints()
+    v.noRewards:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx + 2, -32)
+    v.noRewards:SetText("No badges: it's for the fun of it.")
+    -- entrants
+    local ey = 28 + rh + 8
+    v.esect:ClearAllPoints()
+    v.esect:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx, -ey)
+    v.esect:SetWidth(RIGHT_W)
+    local noun = W.Noun(d, 2)
+    v.esect:Set(noun:sub(1, 1):upper() .. noun:sub(2), W.SeedText(d))
+    local colW = floor((RIGHT_W - 10) / 2)
+    for i = 1, max(seats, #v.ents) do
+        local e = Pool(v.ents, i, function() return Pg.NewEntrant(v.content) end)
+        if i <= seats then
+            local col, row = (i - 1) % 2, floor((i - 1) / 2)
+            e:SetWidth(colW)
+            e:ClearAllPoints()
+            e:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx + col * (colW + 10), -(ey + 28 + row * 24))
+            local k = keys[i]
+            if k then
+                e.face:Set(k)
+                e.n:SetText(Name(k))
+                e.sd:SetText("#" .. i)
+                e.sd:Show()
+            else
+                e.face:SetEmpty()
+                e.n:SetText(Hex(C.open, "Open seat"))
+                e.sd:Hide()
+            end
+            e:Show()
+        else
+            e:Hide()
+        end
+    end
+    if seats == 0 then
+        v.noEnt = v.noEnt or Text(v.content, 11, C.grey)
+        v.noEnt:ClearAllPoints()
+        v.noEnt:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx + 2, -(ey + 32))
+        v.noEnt:SetText(occState == "planned" and "Nobody yet." or "Nobody signed up.")
+        v.noEnt:Show()
+    elseif v.noEnt then
+        v.noEnt:Hide()
+    end
+    v.content:SetHeight(max(leftH, rightH) + 4)
+end
+
+-- The banner of a calendar event's page.
+function Pg.FillBanner(v, o, keys, st)
+    local b = v.ban
+    local d = o.def
+    local w = H.W() - 2 * PAD
+    local occState = Ev():OccState(o)
+    local host = Ev():HostOf(o)
+    local me = Me()
+    local pills = {}
+    if occState == "live" then pills[#pills + 1] = { "Live", "live" } end
+    if occState == "cancelled" then pills[#pills + 1] = { "Cancelled", "mute" } end
+    if o.ranked then pills[#pills + 1] = { "Ranked", "rank" } end
+    local meta = {}
+    local where = o.where and o.where ~= "" and o.where or nil
+    if occState == "live" then
+        meta[1] = "Started " .. EUI():Relative(st and st.t0 or o.at)
+    elseif occState == "cancelled" then
+        -- (why: at the bottom right, it may be long)
+        meta[1] = W.Day(o.at) .. " · " .. W.Clock(o.at)
+    else
+        meta[1] = W.Day(o.at)
+        meta[2] = W.Clock(o.at)
+    end
+    if where then meta[#meta + 1] = where end
+    meta[#meta + 1] = "hosted by " .. Name(host)
+    local k = o.ranked and Ev():GetReview(o.dk)
+    if k and k.ok then meta[#meta + 1] = "reviewed by " .. Name(k.by) end
+    H.BannerHead(b, w, d.art, d.icon, d.name, pills, tconcat(meta, " · "), 0.58)
+    b.back:Show()
+    H.BannerIcons(b, true, A.OccRef(o.id))
+    b.chip:Hide()
+    b.note:Hide()
+    b.why:Hide()
+    b.btn:Hide()
+    b.btn2:Hide()
+    local spots = W.Spots(d)
+    if occState == "live" then
+        b.meter:Hide()
+        H.SetProg(b, d, st, EUI():StageSub(d, st))
+    else
+        b.prog:Hide()
+        H.BannerMeter(b, keys, spots, W.Noun(d, spots or #keys))
+    end
+    local signed = Ev():IsSignedUp(o.id)
+    local full = spots and #Ev():GetSignups(o.id) >= spots
+    if occState == "live" then
+        H.BannerButton(b.btn, "Watch", "primary", "eye", function() A.Watch(o.id) end)
+        if Pg.LiveSignupOpen(st) and not signed and not full then
+            H.BannerButton(b.btn2, "Join", "secondary", nil, function() A.Join(o.id, true) end)
+        end
+    elseif occState == "planned" then
+        local closes = Ev():ClosesAt(o)
+        if closes and closes > Now() then
+            b.chip:Set("Sign-up closes " .. (W.DayWord(closes) == "Today" and "" or (W.DayWord(closes) .. " "))
+                .. W.Clock(closes), "clock")
+        end
+        b.chip.tip = nil
+        local starting = false
+        if host == me then
+            local ok, why = Live():CanStart(o.id)
+            if ok then
+                H.BannerButton(b.btn, "Start", "primary", "play", function() Pg.Start(o.id) end)
+                starting = true
+            elseif why and why:find("pieces") then
+                b.chip:Set("Fix it in the builder", WARN, { 1, 0.55, 0.1, 0.6 }, { 1, 0.78, 0.55 })
+                b.chip.tip = { "It can't start yet", why }
+            end
+        end
+        -- Start is the host's main action; everyone else's is Join (or Leave, once in)
+        local target = starting and b.btn2 or b.btn
+        local can, why = W.CanJoin(o)
+        if signed then
+            H.BannerButton(target, "Leave", "secondary", nil, function() A.Join(o.id, false) end)
+        elseif why == "full" then
+            b.note:SetText("Full: " .. spots .. " of " .. spots)
+            b.note:Show()
+        elseif not can then
+            b.note:SetText("Sign-up closed")
+            b.note:Show()
+        else
+            H.BannerButton(target, "Join", starting and "secondary" or "primary", nil, function() A.Join(o.id, true) end)
+        end
+    elseif occState == "missed" then
+        b.note:SetText("It didn't run")
+        b.note:Show()
+    elseif occState == "cancelled" and o.cancel ~= "Cancelled" then
+        H.BannerWhy(b, o.cancel, w - 14 - 330 - 24)
+    end
+    H.BannerRight(b, w)
+end
+
+-- Is a live run's sign-up still open (one its host closes)?
+function Pg.LiveSignupOpen(st)
+    for _, blk in pairs(st and st.blocks or {}) do
+        if blk.kind == "signup" and blk.open then return true end
+    end
+    return false
+end
+
+function Pg.Start(occId)
+    local ok, why = Live():Start(occId)
+    if not ok then
+        if why then ns:Print("%s", why) end
+        return
+    end
+    A.Watch(occId)
+    EventsUI:RequestRefresh()
+end
+
+function Pg.Fill(v)
+    local id = state.occ
+    local o = id and Ev():GetOcc(id)
+    local r = id and Ev():GetResult(id)
+    if r or (o and Ev():OccState(o) == "done") then
+        v.mode = "results"
+        -- (the scroll bar is the page's, not the scroll frame's: it goes too)
+        v.scroll:Hide()
+        v.scroll.ScrollBar:Hide()
+        v.res:Show()
+        Pg.FillResults(v, W.DemoDress(r), o)
+        return true
+    end
+    if not o then return false end
+    v.mode = "event"
+    v.res:Hide()
+    v.scroll:Show()
+    local keys, st = W.Entrants(o)
+    Pg.FillBanner(v, o, keys, st)
+    Pg.FillBody(v, o, keys, st)
+    v.scroll.ScrollBar:Update()
+    return true
+end
+
+---------------------------------------------------------------------------
+-- Results (shot 11): the podium, the awards, the night
+---------------------------------------------------------------------------
+
+local POD_H, AW_W, RECAP_Y = 196, 296, 208
+local PED = { { "p2", 44, 46, { 0.86, 0.89, 0.95 } }, { "p1", 58, 72, { 1, 0.82, 0 } }, { "p3", 40, 30, { 0.86, 0.56, 0.32 } } }
+
+function Pg.CreateResults(v)
+    local f = CreateFrame("Frame", nil, v)
+    f:SetPoint("TOPLEFT", PAD, -BODY_Y)
+    f:SetPoint("BOTTOMRIGHT", -PAD, 10)
+    f.stand = CreateFrame("Frame", nil, f)
+    f.stand:SetPoint("TOPLEFT", 0, 0)
+    f.stand:SetHeight(POD_H)
+    f.peds = {}
+    for i, def in ipairs(PED) do
+        local p = CreateFrame("Frame", nil, f.stand)
+        p:SetSize(112, POD_H - 6)
+        p.blk = CreateFrame("Frame", nil, p)
+        p.blk:SetSize(112, def[3])
+        p.blk:SetPoint("BOTTOM", 0, 0)
+        p.blk.fill = p.blk:CreateTexture(nil, "BACKGROUND")
+        p.blk.fill:SetAllPoints()
+        local c = def[4]
+        Grad(p.blk.fill, "VERTICAL", { c[1], c[2], c[3], 0.03 }, { c[1], c[2], c[3], i == 2 and 0.22 or 0.19 })
+        p.blk.top = Line(p.blk, { c[1], c[2], c[3], 0.75 })
+        p.blk.top:SetHeight(1)
+        p.blk.top:SetPoint("TOPLEFT")
+        p.blk.top:SetPoint("TOPRIGHT")
+        p.blk.n = Text(p.blk, 22, i == 2 and { 1, 0.88, 0.54 } or { 1, 1, 1, 0.85 }, true)
+        p.blk.n:SetJustifyH("CENTER")
+        p.blk.n:SetPoint("TOP", 0, -8)
+        p.blk.n:SetText(i == 2 and "1" or (i == 1 and "2" or "3"))
+        p.sb = Text(p, 11, C.grey)
+        p.sb:SetJustifyH("CENTER")
+        p.sb:SetPoint("BOTTOM", p.blk, "TOP", 0, 8)
+        p.nm = Text(p, 13, C.white)
+        p.nm:SetJustifyH("CENTER")
+        p.nm:SetPoint("BOTTOM", p.sb, "TOP", 0, 2)
+        p.face = H.Face(p, def[2])
+        p.face:SetPoint("BOTTOM", p.nm, "TOP", 0, 8)
+        p.face.ring:SetSize(def[2] + 4, def[2] + 4)
+        if i == 2 then
+            p.glows = {}
+            for g = 1, 3 do
+                local t = Disc(p.face, def[2] + 6 + g * 7, { 1, 0.82, 0, 0.16 - g * 0.04 }, "BACKGROUND", -g)
+                t:SetPoint("CENTER")
+                p.glows[g] = t
+            end
+            p.gold = Disc(p.face, def[2] + 6, { 1, 0.82, 0, 0.92 }, "BACKGROUND", 0)
+            p.gold:SetPoint("CENTER")
+        end
+        f.peds[i] = p
+    end
+    f.aw = CreateFrame("Frame", nil, f)
+    f.aw:SetPoint("TOPRIGHT", 0, 0)
+    f.aw:SetSize(AW_W, POD_H)
+    f.awSect = H.Sect(f.aw)
+    f.awSect:SetPoint("TOPLEFT")
+    f.awSect:SetPoint("TOPRIGHT")
+    f.awards = {}
+    -- the night: moments, the last four, the numbers
+    f.mom = CreateFrame("Frame", nil, f)
+    f.mom:SetPoint("TOPLEFT", 0, -RECAP_Y)
+    f.mom:SetHeight(170)
+    f.momSect = H.Sect(f.mom)
+    f.momSect:SetPoint("TOPLEFT")
+    f.momSect:SetPoint("TOPRIGHT")
+    f.moments = {}
+    f.l4 = CreateFrame("Frame", nil, f)
+    f.l4:SetSize(300, 170)
+    f.l4Sect = H.Sect(f.l4)
+    f.l4Sect:SetPoint("TOPLEFT")
+    f.l4Sect:SetPoint("TOPRIGHT")
+    f.l4.full = H.Link(f.l4Sect, "Full bracket", function() if state.occ then A.Watch(state.occ) end end)
+    f.l4.full:SetPoint("BOTTOMRIGHT", f.l4Sect, "BOTTOMRIGHT", -2, 5)
+    f.l4.box = CreateFrame("Frame", nil, f.l4)
+    f.l4.box:SetPoint("TOPLEFT", 0, -34)
+    f.l4.box:SetSize(300, 124)
+    f.l4.matches = {}
+    f.l4.lines = {}
+    for i = 1, 6 do
+        f.l4.lines[i] = Line(f.l4.box, { 1, 1, 1, 0.34 })
+    end
+    f.num = CreateFrame("Frame", nil, f)
+    f.num:SetSize(150, 170)
+    f.numSect = H.Sect(f.num)
+    f.numSect:SetPoint("TOPLEFT")
+    f.numSect:SetPoint("TOPRIGHT")
+    f.nums = {}
+    return f
+end
+
+function Pg.NewAward(parent)
+    local r = CreateFrame("Frame", nil, parent)
+    r:SetSize(AW_W, 44)
+    r.line = Line(r, { 1, 1, 1, 0.05 })
+    r.line:SetHeight(1)
+    r.line:SetPoint("BOTTOMLEFT")
+    r.line:SetPoint("BOTTOMRIGHT")
+    r.badge = H.Badge(r, 30)
+    r.badge:SetPoint("LEFT", -1, 0)
+    r.face = H.Face(r, 30)
+    r.face:SetPoint("LEFT", 4, 0)
+    r.l1 = Text(r, 12, C.white)
+    r.l1:SetPoint("BOTTOMLEFT", r, "LEFT", 50, 1)
+    r.l2 = Text(r, 11, C.grey)
+    r.l2:SetPoint("TOPLEFT", r, "LEFT", 50, -2)
+    r.pts = Text(r, 14, C.pts, true)
+    r.pts:SetJustifyH("RIGHT")
+    r.pts:SetPoint("RIGHT", -2, 0)
+    return r
+end
+
+function Pg.NewMoment(parent)
+    local m = CreateFrame("Frame", nil, parent)
+    m:SetSize(200, 30)
+    m.icon = m:CreateTexture(nil, "ARTWORK")
+    m.icon:SetSize(16, 16)
+    m.icon:SetPoint("TOPLEFT", 0, 0)
+    m.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    m.fs = Text(m, 11, { 0.82, 0.82, 0.82 })
+    m.fs:SetPoint("TOPLEFT", 24, 0)
+    m.t2 = Text(m, 10, C.dim)
+    return m
+end
+
+-- A match box of the last four: two players (seed, face, name, games won), the winner lit.
+local MATCH_W = 136
+function Pg.NewMatch(parent)
+    local m = CreateFrame("Frame", nil, parent)
+    m:SetSize(MATCH_W, 39)
+    Fill(m, { 0.086, 0.086, 0.106, 0.96 })
+    Edges(m, { 0.34, 0.34, 0.38, 0.6 })
+    m.sep = Line(m, { 1, 1, 1, 0.06 })
+    m.sep:SetHeight(1)
+    m.sep:SetPoint("LEFT", 1, 0)
+    m.sep:SetPoint("RIGHT", -1, 0)
+    m.p = {}
+    for i = 1, 2 do
+        local p = CreateFrame("Frame", nil, m)
+        p:SetSize(MATCH_W, 19)
+        p:SetPoint("TOPLEFT", 0, -(i - 1) * 20)
+        p.sd = Text(p, 10, { 0.37, 0.37, 0.4 }, true)
+        p.sd:SetJustifyH("RIGHT")
+        p.sd:SetPoint("RIGHT", p, "LEFT", 15, 0)
+        p.face = H.Face(p, 13)
+        p.face:SetPoint("LEFT", 19, 0)
+        p.n = Text(p, 11, C.grey)
+        p.n:SetPoint("LEFT", p.face, "RIGHT", 5, 0)
+        p.sc = Text(p, 12, { 0.47, 0.47, 0.49 }, true)
+        p.sc:SetJustifyH("RIGHT")
+        p.sc:SetPoint("RIGHT", -6, 0)
+        m.p[i] = p
+    end
+    function m:Set(x)
+        for i = 1, 2 do
+            local p = self.p[i]
+            local key = i == 1 and x.a or x.b
+            local won = key and key == x.win
+            p.sd:SetText(i == 1 and (x.sa or "") or (x.sb or ""))
+            p.n:ClearAllPoints()
+            p.n:SetPoint("LEFT", p.face, "RIGHT", 5, 0)
+            if key then
+                p.face:Set(key, not won)
+                p.face.noTip = false
+                -- (a long name: a size or two smaller between the face and the score; else in the face's place)
+                local text = IsMe(key) and Hex(won and { 0.62, 0.82, 1 } or { 0.45, 0.6, 0.75 }, "You")
+                    or Hex(won and C.white or C.grey, EUI():Plain(key))
+                if not FitText(p.n, text, MATCH_W - 37 - 18, { 11, 10, 9 }, false) then
+                    p.face:Hide()
+                    p.n:ClearAllPoints()
+                    p.n:SetPoint("LEFT", p, "LEFT", 19, 0)
+                    FitText(p.n, text, MATCH_W - 19 - 18, { 10, 9 })
+                end
+            else
+                p.face:SetEmpty()
+                FitText(p.n, Hex({ 0.31, 0.31, 0.33 }, "-"), MATCH_W - 37 - 18, 11)
+            end
+            p.sc:SetText(i == 1 and (x.wa or 0) or (x.wb or 0))
+            Color(p.sc, won and C.white or { 0.47, 0.47, 0.49 })
+        end
+        self:Show()
+    end
+    return m
+end
+
+-- The line under a placing on the podium: "won the final 3-2", "lost the final 2-3", "won the bronze 2-1".
+function W.PodiumLine(r, key, place)
+    for _, m in ipairs(r.last4 or {}) do
+        if (m.final and (place == 1 or place == 2)) or (m.bronze and place == 3) then
+            if m.a == key or m.b == key then
+                local mine, theirs = (m.a == key) and m.wa or m.wb, (m.a == key) and m.wb or m.wa
+                return (m.win == key and "won the " or "lost the ") .. (m.bronze and "bronze " or "final ") .. mine .. "-" .. theirs
+            end
+        end
+    end
+    return place == 1 and "champion" or (place == 2 and "runner-up" or "third place")
+end
+
+-- An award's second line: the title it gives, how the final went, whom the bronze was won against.
+function W.AwardLine(r, a, reward)
+    if a.ti and a.ti ~= "" then return "and the title \"" .. a.ti .. "\"" end
+    for _, m in ipairs(r.last4 or {}) do
+        if (m.a == a.p or m.b == a.p) and (m.final or m.bronze) then
+            local mine, theirs = (m.a == a.p) and m.wa or m.wb, (m.a == a.p) and m.wb or m.wa
+            local other = (m.a == a.p) and m.b or m.a
+            if m.final then
+                return (m.win == a.p and "won " or "lost ") .. mine .. "-" .. theirs .. " in the final"
+            end
+            if m.win == a.p then return "beat " .. EUI():Plain(other) .. " for bronze" end
+        end
+    end
+    if reward and reward.label and reward.label ~= "" and not reward.label:find("^%d") then
+        return string.lower(reward.label)
+    end
+    return ""
+end
+
+function Pg.ResultsMenu(owner, occId)
+    local entries = {}
+    if Live() and Live():GetState(occId) then
+        entries[#entries + 1] = { icon = "bracket", text = "Board", tip = "Opens the live board on the final bracket.",
+            fn = function() A.Watch(occId) end }
+    end
+    if W.CanRemove() then
+        entries[#entries + 1] = { icon = "trash", text = "Remove", danger = true, tip = "Removes these results for "
+            .. "everyone, with the season points and badges they gave.", fn = function() A.RemoveResult(occId) end }
+    end
+    if #entries > 0 then H.Menu(owner, entries) end
+end
+
+function Pg.FillResults(v, r, o)
+    local f = v.res
+    local b = v.ban
+    local w = H.W() - 2 * PAD
+    local def = (o and o.def) or W.DefOfResult(r)
+    local host = (r.hosts and r.hosts[1]) or r.by
+    local meta = { W.Day(r.at) }
+    if (r.n or 0) > 0 then meta[#meta + 1] = r.n .. " " .. W.Noun(def, r.n) end
+    if r.t1 and r.t1 > r.at then meta[#meta + 1] = W.Span(r.t1 - r.at) end
+    meta[#meta + 1] = "hosted by " .. Name(host)
+    local pills = { { r.cancel and "Cancelled" or ("Ended " .. W.Clock(r.t1 or r.at)), "ended" } }
+    H.BannerHead(b, w, r.art, r.icon, r.name, pills, tconcat(meta, " · "), 0.6)
+    b.back:Show()
+    local canMore = (Live() and Live():GetState(r.id)) or W.CanRemove()
+    H.BannerIcons(b, canMore and true or false, A.OccRef(r.id), true)
+    b.chip:Hide()
+    b.note:Hide()
+    b.btn:Hide()
+    b.btn2:Hide()
+    b.meter:Hide()
+    if def then
+        H.SetProg(b, def, nil, nil, true)
+    else
+        b.prog:Hide()
+    end
+    -- why it was called off (the pill already says it was)
+    H.BannerWhy(b, r.cancel ~= "Cancelled" and r.cancel or nil, floor(w * 0.45))
+    H.BannerRight(b, w)
+    -- the podium
+    local standW = w - AW_W - COL_GAP
+    f.stand:SetWidth(standW)
+    local placed = { r.second, r.champ, r.third }
+    local placeOf = { 2, 1, 3 }
+    local x0 = floor((standW - (3 * 112 + 2 * 14)) / 2)
+    for i, p in ipairs(f.peds) do
+        local key = placed[i]
+        p:ClearAllPoints()
+        p:SetPoint("BOTTOMLEFT", f.stand, "BOTTOMLEFT", x0 + (i - 1) * 126, 6)
+        if key then
+            p.face:Set(key)
+            p.nm:SetText(Name(key))
+            p.sb:SetText(W.PodiumLine(r, key, placeOf[i]))
+            p:Show()
+        else
+            p:Hide()
+        end
+    end
+    -- awards
+    local rewards, matchPts = W.Rewards(def)
+    local rows = {}
+    if r.ranked then
+        for _, a in ipairs(r.badges or {}) do
+            local rw
+            for _, x in ipairs(rewards) do
+                if x.b.n == a.n then rw = x end
+            end
+            rows[#rows + 1] = { badge = a, key = a.p, title = a.n, l2 = W.AwardLine(r, a, rw), pts = rw and rw.pts }
+        end
+    end
+    if #rows == 0 then
+        for i, key in ipairs({ r.champ, r.second, r.third }) do
+            if key then
+                rows[#rows + 1] = { key = key, title = ({ "Champion", "Runner-up", "Third place" })[i],
+                    l2 = W.PodiumLine(r, key, i) }
+            end
+        end
+    end
+    local right
+    if not r.ranked then
+        right = "not ranked"
+    elseif matchPts > 0 then
+        right = "plus " .. matchPts .. " a match won"
+    end
+    f.awSect:Set("Awards", right)
+    for i = 1, max(#rows, #f.awards) do
+        local a = Pool(f.awards, i, function() return Pg.NewAward(f.aw) end)
+        local x = rows[i]
+        if x and i <= 4 then
+            a:ClearAllPoints()
+            a:SetPoint("TOPLEFT", f.aw, "TOPLEFT", 0, -(28 + (i - 1) * 44))
+            if x.badge then
+                a.badge:SetBadge(x.badge)
+                a.face:Hide()
+            else
+                a.badge:Hide()
+                a.face:Set(x.key)
+            end
+            a.pts:SetText(x.pts and ("+" .. x.pts) or "")
+            -- (a long badge name: smaller, else two lines over the second)
+            local room = AW_W - 50 - (x.pts and (NatW(a.pts) + 10) or 4)
+            local _, _, lines = FitText(a.l1, x.title .. grey(" · ") .. Name(x.key), room, { 12, 11 })
+            a.l1:ClearAllPoints()
+            a.l2:ClearAllPoints()
+            if lines == 1 then
+                a.l1:SetPoint("BOTTOMLEFT", a, "LEFT", 50, 1)
+                a.l2:SetPoint("TOPLEFT", a, "LEFT", 50, -2)
+            else
+                a.l1:SetPoint("TOPLEFT", a, "TOPLEFT", 50, -2)
+                a.l2:SetPoint("TOPLEFT", a.l1, "BOTTOMLEFT", 0, -1)
+            end
+            a.l2:SetText(x.l2 or "")
+            a:Show()
+        else
+            a:Hide()
+        end
+    end
+    -- the night: moments, the last four, the numbers (each only when the result has it)
+    local moments = {}
+    for _, m in ipairs(r.moments or {}) do moments[#moments + 1] = m end
+    tsort(moments, function(a, c) return (a.at or 0) > (c.at or 0) end)
+    local semis, final = {}, nil
+    for _, m in ipairs(r.last4 or {}) do
+        if m.final then final = m elseif not m.bronze then semis[#semis + 1] = m end
+    end
+    local hasL4 = final ~= nil or #semis > 0
+    local nums = {}
+    local n = r.nums or {}
+    if n.matches then nums[#nums + 1] = { "Matches", n.matches } end
+    if n.duels then nums[#nums + 1] = { "Duels", n.duels } end
+    if n.longest and n.longest > 0 then nums[#nums + 1] = { "Longest duel", W.MinSec(n.longest) } end
+    if n.watch and n.watch > 0 then nums[#nums + 1] = { "Watching, at most", n.watch } end
+    local numW, l4W = #nums > 0 and 150 or 0, hasL4 and 300 or 0
+    local momW = w - numW - l4W - (numW > 0 and COL_GAP or 0) - (l4W > 0 and COL_GAP or 0)
+    f.mom:SetWidth(momW)
+    f.mom:SetShown(#moments > 0)
+    f.momSect:Set("Moments")
+    local my = 30
+    for i = 1, max(#moments, #f.moments) do
+        local m = Pool(f.moments, i, function() return Pg.NewMoment(f.mom) end)
+        local x = moments[i]
+        if x and i <= 4 then
+            m:SetWidth(momW)
+            m:ClearAllPoints()
+            m:SetPoint("TOPLEFT", f.mom, "TOPLEFT", 0, -my)
+            m.icon:SetTexture(x.i or "Interface\\Icons\\INV_Misc_Note_01")
+            local th = Wrap(m.fs, x.text or "", momW - 24, 11)
+            m.t2:ClearAllPoints()
+            m.t2:SetPoint("TOPLEFT", m.fs, "TOPLEFT", 0, -th)
+            m.t2:SetText(x.at and W.Clock(x.at) or "")
+            m:SetHeight(th + 12)
+            m:Show()
+            my = my + th + 12 + 8
+        else
+            m:Hide()
+        end
+    end
+    -- the last four
+    f.l4:ClearAllPoints()
+    f.l4:SetPoint("TOPLEFT", f, "TOPLEFT", momW + COL_GAP, -RECAP_Y)
+    f.l4:SetShown(hasL4)
+    f.l4Sect:Set("The last four")
+    f.l4.full:SetShown(Live() and Live():GetState(r.id) ~= nil)
+    local spots = { { 0, 6 }, { 0, 70 }, { 164, 38 } }
+    local list = { semis[1], semis[2], final }
+    for i = 1, 3 do
+        local m = Pool(f.l4.matches, i, function() return Pg.NewMatch(f.l4.box) end)
+        if list[i] then
+            m:ClearAllPoints()
+            m:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", spots[i][1], -spots[i][2])
+            m:Set(list[i])
+        else
+            m:Hide()
+        end
+    end
+    -- the connectors: each semi's middle to the final's
+    local L = f.l4.lines
+    local function hline(t, x1, x2, y)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", x1, -y)
+        t:SetSize(x2 - x1, 1)
+        t:Show()
+    end
+    local function vline(t, x, y1, y2)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", x, -y1)
+        t:SetSize(1, y2 - y1)
+        t:Show()
+    end
+    for _, t in ipairs(L) do t:Hide() end
+    if final and #semis > 0 then
+        local x1, x2 = MATCH_W, MATCH_W + floor((164 - MATCH_W) / 2)
+        if semis[1] then hline(L[1], x1, x2, 25); vline(L[2], x2, 25, 58) end
+        if semis[2] then hline(L[3], x1, x2, 89); vline(L[4], x2, 57, 90) end
+        hline(L[5], x2, 164, 57)
+    end
+    -- the numbers
+    f.num:ClearAllPoints()
+    f.num:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -RECAP_Y)
+    f.num:SetShown(#nums > 0)
+    f.numSect:Set("Night in numbers")
+    for i = 1, max(#nums, #f.nums) do
+        local row = Pool(f.nums, i, function()
+            local x = CreateFrame("Frame", nil, f.num)
+            x:SetSize(150, 22)
+            x.l = Text(x, 11, { 0.85, 0.85, 0.85 })
+            x.l:SetPoint("LEFT", 0, 0)
+            x.v = Text(x, 13, C.white, true)
+            x.v:SetJustifyH("RIGHT")
+            x.v:SetPoint("RIGHT", -2, 0)
+            return x
+        end)
+        local x = nums[i]
+        if x then
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", f.num, "TOPLEFT", 0, -(30 + (i - 1) * 28))
+            row.l:SetText(x[1])
+            row.v:SetText(x[2])
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Library (shot 2): the guild's events as cards
+---------------------------------------------------------------------------
+
+local Lib = {}
+local LIB_BAR_Y, GRID_Y, CARD_H = 44, 80, 146
+local FILTERS = { { key = "guild", label = "Guild" }, { key = "mine", label = "Mine" }, { key = "ranked", label = "Ranked" } }
+
+function Lib.Create(p)
+    local v = CreateFrame("Frame", nil, p)
+    v:SetAllPoints(p)
+    v.search = UI():CreateSearchBox(v, 220, function(text)
+        state.q = text or ""
+        EventsUI:Refresh()
+    end, "Search events")
+    v.search:SetHeight(24)
+    v.search:SetPoint("TOPLEFT", PAD, -(LIB_BAR_Y + 1))
+    v.filters = {}
+    local prev
+    for _, fdef in ipairs(FILTERS) do
+        local key = fdef.key
+        local t = UI():CreateUnderlineTab(v, fdef.label, function()
+            state.lib = key
+            EventsUI:Refresh()
+        end)
+        if prev then t:SetPoint("LEFT", prev, "RIGHT", 4, 0) else t:SetPoint("LEFT", v.search, "RIGHT", 16, 0) end
+        t.label = fdef.label
+        v.filters[key] = t
+        prev = t
+    end
+    v.new = H.Button(v, "New event", nil, 26, "primary", A.NewEvent, "plus")
+    H.Fit(v.new, 100, 30)
+    v.new:SetPoint("TOPRIGHT", -PAD, -LIB_BAR_Y)
+    v.scroll = UI():CreateScrollFrame(v)
+    v.scroll:SetPoint("TOPLEFT", PAD, -GRID_Y)
+    v.scroll:SetPoint("BOTTOMLEFT", PAD, 10)
+    v.content = CreateFrame("Frame", nil, v.scroll)
+    v.content:SetSize(700, 10)
+    v.scroll:SetScrollChild(v.content)
+    v.cards = {}
+    v.empty = Text(v, 13, C.grey)
+    v.empty:SetPoint("TOP", v, "TOP", 0, -150)
+    v.empty:SetJustifyH("CENTER")
+    return v
+end
+
+local function CardHover(c, on)
+    c.hovered = on or nil
+    local hot = on or state.hover == (c.def and c.def.id)
+    UI():SetEdgeColor(c, hot and 1 or 0.34, hot and 0.82 or 0.34, hot and 0 or 0.38, hot and 0.55 or 0.55)
+    for _, m in ipairs(c.minis) do m:SetShown(not hot and m.used) end
+    c.acts:SetShown(hot and true or false)
+end
+
+local function CardLeave(c)
+    if c:IsMouseOver() then return end
+    CardHover(c, false)
+end
+
+function Lib.NewCard(parent)
+    local c = CreateFrame("Button", nil, parent)
+    c:SetSize(250, CARD_H)
+    Fill(c, CARD)
+    Edges(c, { 0.34, 0.34, 0.38, 0.55 })
+    c.artF = CreateFrame("Frame", nil, c)
+    c.artF:SetPoint("TOPLEFT", 1, -1)
+    c.artF:SetPoint("TOPRIGHT", -1, -1)
+    c.artF:SetHeight(64)
+    c.art = c.artF:CreateTexture(nil, "BACKGROUND")
+    c.art:SetAllPoints()
+    EUI():AddShade(c.artF, "card")
+    c.pill = H.Pill(c.artF, 16)
+    c.pill:SetPoint("TOPRIGHT", -8, -8)
+    c.icon = H.Icon(c, 32, { 1, 1, 1, 0.12 })
+    c.icon:SetPoint("TOPLEFT", 10, -44)
+    c.icon:SetFrameLevel(c.artF:GetFrameLevel() + 3)
+    c.n = Text(c, 13, C.white)
+    c.n:SetPoint("TOPLEFT", 10, -80)
+    c.a = Text(c, 11, C.grey)
+    c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -4)
+    c.minis = {}
+    for i = 1, 3 do
+        c.minis[i] = H.Mini(c)
+        c.minis[i]:Hide()
+    end
+    c.acts = CreateFrame("Frame", nil, c)
+    c.acts:SetSize(186, 22)
+    c.acts:SetPoint("BOTTOMRIGHT", -8, 8)
+    c.acts:SetFrameLevel(c:GetFrameLevel() + 4)
+    c.share = A.ShareButton(c.acts, 22, function() return c.def and A.DefRef(c.def.id) end, "Share this event")
+    c.edit = H.IconButton(c.acts, 22, 16, "Edit", "Opens it in the builder to change it.", function()
+        if c.def then A.Builder(c.def) end
+    end)
+    c.copy = H.IconButton(c.acts, 22, 17, "Copy", "Makes your own copy of it to change.", function()
+        if c.def then A.Copy(c.def) end
+    end)
+    c.host = H.Button(c.acts, "Host", 50, 22, "secondary", function()
+        if c.def then EventsUI:OpenSchedule(c.def.id) end
+    end)
+    c.del = H.IconButton(c.acts, 22, "trash", "Remove", "Removes it from the guild's library for everyone. Calendar "
+        .. "events made from it stay.", function() if c.def then A.RemoveDef(c.def) end end)
+    for _, b in ipairs({ c.share, c.edit, c.copy, c.host, c.del }) do
+        if b then b:HookScript("OnLeave", function() CardLeave(c) end) end
+    end
+    c.acts:Hide()
+    c:SetScript("OnEnter", function(self) CardHover(self, true) end)
+    c:SetScript("OnLeave", function(self) CardLeave(self) end)
+    c:SetScript("OnClick", function(self) if self.def then A.Builder(self.def) end end)
+    return c
+end
+
+function Lib.FillCard(c, d, w)
+    c.def = d
+    c:SetSize(w, CARD_H)
+    EUI():SetArt(c.art, d.art, w - 2, 64, nil, nil, 0.7)
+    local text, kind = EUI():ReviewPill(Ev():ReviewState(d))
+    c.pill:SetShown(text ~= nil)
+    if text then c.pill:SetKind(text, kind) end
+    c.icon:Set(d.icon)
+    -- the name: smaller when it is long, else two lines (from the icon's foot, the creator's line close under them)
+    local _, _, lines = FitText(c.n, d.name or "Event", w - 20, { 13, 12, 11, 10 })
+    c.n:ClearAllPoints()
+    c.a:ClearAllPoints()
+    if lines == 1 then
+        c.n:SetPoint("TOPLEFT", 10, -80)
+        c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -4)
+    else
+        c.n:SetPoint("TOPLEFT", 10, -76)
+        c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -1)
+    end
+    local n = Ev():RunCount(d.id)
+    local ran = n == 0 and "not run yet" or (n == 1 and "ran once" or (n == 2 and "ran twice" or ("ran " .. n .. " times")))
+    c.a:SetText(Name(d.by) .. grey(" · " .. ran))
+    -- what kind of event it is: its smart blocks
+    local x = 10
+    for i, m in ipairs(c.minis) do
+        local k = B():Kinds(d)[i]
+        local sm = k and B().SMART[k]
+        if sm then
+            m:Set(sm.label, "mute", sm.icon)
+            m:ClearAllPoints()
+            m:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", x, 10)
+            m.used = true
+            x = x + m:GetWidth() + 4
+        else
+            m.used = nil
+        end
+    end
+    -- the actions on hover: Host, Copy, Edit (mine), Share
+    local anchor
+    local function place(b, on)
+        if not b then return end
+        b:SetShown(on)
+        if not on then return end
+        b:ClearAllPoints()
+        if anchor then b:SetPoint("RIGHT", anchor, "LEFT", -4, 0) else b:SetPoint("RIGHT", c.acts, "RIGHT", 0, 0) end
+        anchor = b
+    end
+    place(c.del, Ev():IsMine(d) or W.CanRemove())
+    place(c.share, A.DefRef(d.id) ~= nil)
+    place(c.edit, Ev():IsMine(d))
+    place(c.copy, true)
+    place(c.host, true)
+    CardHover(c, c.hovered)
+    c:Show()
+end
+
+function Lib.List()
+    local q = state.q and ns.Util.Trim(state.q):lower() or ""
+    local all, mine, ranked = {}, 0, 0
+    local runs = {}
+    for _, d in ipairs(Ev():GetDefs()) do
+        local isMine = Ev():IsMine(d)
+        local isRanked = Ev():ReviewState(d) == "ranked"
+        if isMine then mine = mine + 1 end
+        if isRanked then ranked = ranked + 1 end
+        local ok = state.lib == "guild" or (state.lib == "mine" and isMine) or (state.lib == "ranked" and isRanked)
+        if ok and q ~= "" then
+            local by = EUI():Plain(d.by):lower()
+            ok = (d.name or ""):lower():find(q, 1, true) ~= nil or by:find(q, 1, true) ~= nil
+        end
+        if ok then
+            all[#all + 1] = d
+            runs[d.id] = Ev():RunCount(d.id)
+        end
+    end
+    -- the ones the guild runs most first
+    tsort(all, function(a, b)
+        if runs[a.id] ~= runs[b.id] then return runs[a.id] > runs[b.id] end
+        return (a.name or "") < (b.name or "")
+    end)
+    return all, #Ev():GetDefs(), mine, ranked
+end
+
+function Lib.Fill(v)
+    local list, nGuild, nMine, nRanked = Lib.List()
+    local counts = { guild = nGuild, mine = nMine, ranked = nRanked }
+    for key, t in pairs(v.filters) do
+        t:SetLabel(t.label .. "  |cff7a7a7e" .. counts[key] .. "|r")
+        t:SetActive(state.lib == key)
+    end
+    local W0 = H.W() - 2 * PAD
+    local rows = ceil(#list / 3)
+    local need = rows * CARD_H + max(0, rows - 1) * GAP
+    local avail = H.Hgt() - GRID_Y - 10
+    local cw = need > avail and (W0 - 12) or W0
+    v.scroll:SetWidth(cw)
+    v.content:SetWidth(cw)
+    local w = floor((cw - 2 * GAP) / 3)
+    for i, d in ipairs(list) do
+        local c = Pool(v.cards, i, function() return Lib.NewCard(v.content) end)
+        local col, row = (i - 1) % 3, floor((i - 1) / 3)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", v.content, "TOPLEFT", col * (w + GAP), -row * (CARD_H + GAP))
+        Lib.FillCard(c, d, col == 2 and (cw - 2 * (w + GAP)) or w)
+    end
+    HideFrom(v.cards, #list + 1)
+    v.content:SetHeight(max(1, need))
+    v.empty:SetShown(#list == 0)
+    if #list == 0 then
+        v.empty:SetText((state.q or "") ~= "" and "No event matches that." or (state.lib == "mine"
+            and "You haven't built an event yet: New event starts one." or (state.lib == "ranked"
+            and "No event is ranked yet." or "The guild has no events yet: New event starts one.")))
+    end
+end
+
+---------------------------------------------------------------------------
+-- Season (shot 12): standings, my season, the ranked events that paid out
+---------------------------------------------------------------------------
+
+local Sea = {}
+local SIDE_W, SHEAD_H, TROW_H = 236, 86, 31
+-- the table's columns: x (from the row's left), width, justify
+local COL = { rk = { 8, 34 }, pl = { 42, 146 }, ev = { 188, 54 }, wins = { 242, 54 }, bd = { 296, 118 }, pts = { 414, 66 },
+              tr = { 480, 34 } }
+local TABLE_W = 522
+-- (the number columns hang from the row's right edge: a scroll bar takes the room from the players' column)
+local function FromRight(key) return COL[key][1] + COL[key][2] - TABLE_W end
+
+function Sea.Create(p)
+    local v = CreateFrame("Frame", nil, p)
+    v:SetAllPoints(p)
+    v.main = CreateFrame("Frame", nil, v)
+    v.main:SetPoint("TOPLEFT", PAD, -44)
+    v.main:SetPoint("BOTTOMLEFT", PAD, 10)
+    v.main:SetWidth(522)
+    -- the header: the season over the arena's art
+    local hd = CreateFrame("Frame", nil, v.main)
+    hd:SetPoint("TOPLEFT")
+    hd:SetPoint("TOPRIGHT")
+    hd:SetHeight(SHEAD_H)
+    hd.art = hd:CreateTexture(nil, "BACKGROUND")
+    hd.art:SetPoint("TOPLEFT", 1, -1)
+    hd.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    hd.shade = hd:CreateTexture(nil, "BORDER")
+    hd.shade:SetAllPoints()
+    Grad(hd.shade, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.95 }, { 0.035, 0.035, 0.043, 0.3 })
+    Edges(hd, PEDGE, "ARTWORK")
+    hd.t = Text(hd, 19, C.white)
+    hd.t:SetPoint("BOTTOMLEFT", hd, "LEFT", 14, 2)
+    hd.t2 = Text(hd, 11, { 0.81, 0.81, 0.81 })
+    hd.t2:SetPoint("TOPLEFT", hd, "LEFT", 14, -5)
+    hd.stats = {}
+    for i = 1, 3 do
+        local s = CreateFrame("Frame", nil, hd)
+        s:SetSize(70, 40)
+        s.b = Text(s, 20, C.white, true)
+        s.b:SetJustifyH("LEFT")
+        s.b:SetPoint("TOPLEFT", 0, 0)
+        s.l = Text(s, 11, { 0.66, 0.66, 0.68 })
+        s.l:SetPoint("TOPLEFT", s.b, "BOTTOMLEFT", 0, -2)
+        hd.stats[i] = s
+    end
+    hd.more = H.IconButton(hd, 22, "more", "The season", "Rename it, or set its first and last day.", function(self)
+        H.Menu(self, { { icon = "calendar", text = "Season", tip = "Renames the season or sets its first and last "
+            .. "day. Only ranked events between them count.", fn = function() EventsUI:OpenSeasonSheet() end } })
+    end)
+    hd.more:SetPoint("TOPRIGHT", -8, -8)
+    v.head = hd
+    -- the table
+    v.th = CreateFrame("Frame", nil, v.main)
+    v.th:SetPoint("TOPLEFT", 0, -(SHEAD_H + 8))
+    v.th:SetSize(TABLE_W, 24)
+    v.th.line = Line(v.th, { 1, 1, 1, 0.09 })
+    v.th.line:SetHeight(1)
+    v.th.line:SetPoint("BOTTOMLEFT")
+    v.th.line:SetPoint("BOTTOMRIGHT")
+    v.th.cols = {}
+    for key, label in pairs({ rk = "#", pl = "Player", ev = "Events", wins = "Wins", bd = "Badges", pts = "Points" }) do
+        local fs = Text(v.th, 11, C.grey)
+        local col = COL[key]
+        if key == "rk" or key == "pl" then
+            fs:SetPoint("LEFT", v.th, "LEFT", col[1], 0)
+        else
+            fs:SetJustifyH("RIGHT")
+            fs:SetPoint("RIGHT", v.th, "RIGHT", FromRight(key) - (key == "bd" and 2 or 0), 0)
+        end
+        fs:SetText(label)
+        v.th.cols[key] = fs
+    end
+    v.scroll = UI():CreateScrollFrame(v.main)
+    v.scroll:SetPoint("TOPLEFT", 0, -(SHEAD_H + 8 + 24))
+    v.scroll:SetPoint("BOTTOMLEFT", 0, 0)
+    v.content = CreateFrame("Frame", nil, v.scroll)
+    v.content:SetSize(522, 10)
+    v.scroll:SetScrollChild(v.content)
+    v.rows = {}
+    v.none = Text(v.main, 11, C.grey)
+    v.none:SetPoint("TOPLEFT", 8, -(SHEAD_H + 8 + 24 + 14))
+    -- the side: me, the ranked events
+    v.side = CreateFrame("Frame", nil, v)
+    v.side:SetPoint("TOPRIGHT", -PAD, -44)
+    v.side:SetPoint("BOTTOMRIGHT", -PAD, 10)
+    v.side:SetWidth(SIDE_W)
+    v.you = H.Box(v.side, true)
+    v.you:SetPoint("TOPLEFT")
+    v.you:SetPoint("TOPRIGHT")
+    v.you:SetHeight(128)
+    v.you.ht:SetText("You")
+    v.you.hr:Hide()
+    v.you.title = CreateFrame("Button", nil, v.you)
+    v.you.title:SetHeight(18)
+    v.you.title:SetPoint("TOPRIGHT", -8, -5)
+    v.you.title.fs = Text(v.you.title, 11, { 0.74, 0.74, 0.74 })
+    v.you.title.fs:SetJustifyH("RIGHT")
+    v.you.title.fs:SetPoint("RIGHT", -14, 0)
+    v.you.title.chev = v.you.title:CreateTexture(nil, "ARTWORK")
+    v.you.title.chev:SetSize(10, 10)
+    v.you.title.chev:SetPoint("RIGHT", 0, 0)
+    v.you.title.chev:SetTexture(UI().ICON_ATLAS)
+    UI():SetChevronUp(v.you.title.chev, false)
+    v.you.title.chev:SetVertexColor(1, 0.82, 0)
+    v.you.title:SetScript("OnClick", function(self) Sea.TitleMenu(self) end)
+    v.you.title:SetScript("OnEnter", function(self)
+        Tip(self, { "Your title", "Shown after your name on tooltips and in DisasterZone. Your badges gave you these." })
+    end)
+    v.you.title:SetScript("OnLeave", HideTip)
+    v.you.rk = Text(v.you, 30, C.white, true)
+    v.you.rk:SetPoint("TOPLEFT", 24, -42)
+    v.you.hash = Text(v.you, 16, C.grey, true)
+    v.you.hash:SetPoint("BOTTOMRIGHT", v.you.rk, "BOTTOMLEFT", -1, 3)
+    v.you.hash:SetText("#")
+    v.you.pt = Text(v.you, 13, C.white)
+    v.you.pt:SetPoint("TOPLEFT", v.you.rk, "TOPRIGHT", 12, -2)
+    v.you.pt2 = Text(v.you, 11, C.grey)
+    v.you.badges = {}
+    v.ev = H.Box(v.side, true)
+    v.ev:SetPoint("TOPLEFT", v.you, "BOTTOMLEFT", 0, -GAP)
+    v.ev:SetPoint("BOTTOMRIGHT")
+    v.ev.ht:SetText("Ranked events")
+    v.ev.hr:Hide()
+    v.ev.rows = {}
+    v.ev.foot = Text(v.ev, 11, C.grey)
+    v.ev.none = Text(v.ev, 11, C.grey)
+    v.ev.none:SetPoint("TOPLEFT", 10, -40)
+    return v
+end
+
+function Sea.NewRow(parent)
+    local r = CreateFrame("Frame", nil, parent)
+    r:SetSize(522, TROW_H)
+    r.bg = Fill(r, { 0.4, 0.72, 1, 0.08 })
+    r.bar = Line(r, { 0.4, 0.72, 1, 1 })
+    r.bar:SetPoint("TOPLEFT")
+    r.bar:SetPoint("BOTTOMLEFT")
+    r.bar:SetWidth(2)
+    r.line = Line(r, { 1, 1, 1, 0.035 })
+    r.line:SetHeight(1)
+    r.line:SetPoint("BOTTOMLEFT")
+    r.line:SetPoint("BOTTOMRIGHT")
+    r.rk = Text(r, 14, { 0.85, 0.85, 0.85 }, true)
+    r.rk:SetPoint("LEFT", COL.rk[1], 0)
+    r.face = H.Face(r, 20)
+    r.face:SetPoint("LEFT", COL.pl[1], 0)
+    r.n = Text(r, 12, C.white)
+    r.n:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
+    r.ti = Text(r, 11, { 0.55, 0.55, 0.58 })
+    r.ti:SetPoint("LEFT", r.n, "RIGHT", 7, 0)
+    local function num(key, size, c)
+        local fs = Text(r, size, c, true)
+        fs:SetJustifyH("RIGHT")
+        fs:SetPoint("RIGHT", r, "RIGHT", FromRight(key), 0)
+        return fs
+    end
+    r.ev = num("ev", 13, { 0.85, 0.85, 0.85 })
+    r.wins = num("wins", 13, { 0.85, 0.85, 0.85 })
+    r.pts = num("pts", 14, C.white)
+    r.badges = {}
+    for i = 1, 3 do
+        r.badges[i] = H.Badge(r, 13)
+        r.badges[i]:SetPoint("RIGHT", r, "RIGHT", FromRight("bd") - 2 - (i - 1) * 25, 0)
+    end
+    r.trI = r:CreateTexture(nil, "ARTWORK")
+    r.trI:SetSize(9, 9)
+    r.trI:SetTexture(UI().ICON_ATLAS)
+    r.tr = Text(r, 11, C.dim)
+    r.tr:SetJustifyH("RIGHT")
+    r.tr:SetPoint("RIGHT", r, "RIGHT", FromRight("tr"), 0)
+    r.trI:SetPoint("RIGHT", r.tr, "LEFT", -1, 0)
+    return r
+end
+
+-- Who moved since the season's last ranked event: [key] = places up (+) or down (-).
+function Sea.Trends(season, rows)
+    local latest
+    for _, r in ipairs(Ev():GetResults(season.from, season.to)) do
+        if r.ranked and not r.cancel then latest = r; break end
+    end
+    if not latest then return {} end
+    local before = Ev():Standings({ n = season.n, from = season.from, to = latest.at - 1 })
+    local prev = {}
+    for _, x in ipairs(before) do prev[x.key] = x.rank end
+    local out = {}
+    for _, x in ipairs(rows) do
+        if prev[x.key] then out[x.key] = prev[x.key] - x.rank end
+    end
+    return out
+end
+
+function Sea.TitleMenu(owner)
+    local me = Me()
+    local titles = Ev():TitlesOf(me)
+    local cur = Ev():GetTitle(me)
+    UI():ContextMenu(owner, function(root)
+        if root.CreateTitle then root:CreateTitle("Your title") end
+        for _, ti in ipairs(titles) do
+            root:CreateRadio(ti, function() return cur == ti end, function()
+                Ev():SetTitle(ti)
+                EventsUI:RequestRefresh()
+            end)
+        end
+        root:CreateRadio("No title", function() return cur == nil end, function()
+            Ev():SetTitle("")
+            EventsUI:RequestRefresh()
+        end)
+    end)
+end
+
+function Sea.Fill(v)
+    local W0 = H.W() - 2 * PAD
+    local mw = W0 - SIDE_W - 12
+    v.main:SetWidth(mw)
+    local season = Ev():GetSeason()
+    local rows = Ev():Standings(season)
+    local results = {}
+    for _, r in ipairs(Ev():GetResults(season.from, season.to)) do
+        if r.ranked and not r.cancel then results[#results + 1] = r end
+    end
+    -- the header
+    local hd = v.head
+    EUI():SetArt(hd.art, "blades", mw - 2, SHEAD_H - 2, nil, 0.62, 0.9)
+    hd.t2:SetText(date("%d %b", season.from):gsub("^0", "") .. " - " .. date("%d %b", season.to):gsub("^0", "")
+        .. " · ranked events only")
+    local left = max(0, ceil((season.to - Now()) / DAY))
+    local stats = { { left, left == 1 and "day left" or "days left" }, { #results, #results == 1 and "ranked event" or
+        "ranked events" }, { #rows, #rows == 1 and "player" or "players" } }
+    local canSet = Ev():CanModerate(Me())
+    hd.more:SetShown(canSet)
+    local x = mw - 14 - (canSet and 28 or 0)
+    for i = 3, 1, -1 do
+        local s = hd.stats[i]
+        s.b:SetText(stats[i][1])
+        s.l:SetText(stats[i][2])
+        local sw = max(SW(s.b), SW(s.l))
+        s:SetWidth(ceil(sw) + 2)
+        s:ClearAllPoints()
+        s:SetPoint("RIGHT", hd, "LEFT", x, -4)
+        x = x - (ceil(sw) + 2) - 22
+    end
+    -- the season's name in the room the numbers leave (smaller, else two lines)
+    FitText(hd.t, season.n or "Season", x + 22 - 14 - 12, { 19, 16 })
+    -- the table
+    local trends = Sea.Trends(season, rows)
+    local need = #rows * TROW_H
+    local avail = H.Hgt() - 44 - 10 - (SHEAD_H + 8 + 24)
+    local cw = need > avail and (mw - 12) or mw
+    v.scroll:SetWidth(cw)
+    v.content:SetWidth(cw)
+    v.th:SetWidth(cw)
+    for i, x2 in ipairs(rows) do
+        local r = Pool(v.rows, i, function() return Sea.NewRow(v.content) end)
+        r:SetWidth(cw)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -(i - 1) * TROW_H)
+        local isMe = x2.key == Me()
+        r.bg:SetShown(isMe)
+        r.bar:SetShown(isMe)
+        r.rk:SetText(x2.rank)
+        Color(r.rk, x2.rank <= 3 and C.gold or { 0.85, 0.85, 0.85 })
+        r.face:Set(x2.key)
+        r.n:SetText(Name(x2.key))
+        local ti = Ev():GetTitle(x2.key)
+        r.ti:SetText(ti or "")
+        r.ti:SetShown(ti ~= nil and TextW(r.n) + TextW(r.ti) + 36 <= COL.pl[2] - (TABLE_W - cw))
+        r.ev:SetText(x2.events)
+        r.wins:SetText(x2.wins)
+        r.pts:SetText(x2.pts)
+        for j, bd in ipairs(r.badges) do
+            -- the newest on the right
+            local badge = x2.badges[j]
+            if badge then bd:SetBadge(badge) else bd:Hide() end
+        end
+        local t = trends[x2.key]
+        if t and t ~= 0 then
+            r.tr:SetText(tostring(t > 0 and t or -t))
+            Color(r.tr, t > 0 and C.green or C.red)
+            r.trI:Show()
+            UI():SetChevronUp(r.trI, t > 0)
+            local c = t > 0 and C.green or C.red
+            r.trI:SetVertexColor(c[1], c[2], c[3])
+        else
+            r.tr:SetText("–")
+            Color(r.tr, C.dim)
+            r.trI:Hide()
+        end
+        r:Show()
+    end
+    HideFrom(v.rows, #rows + 1)
+    v.content:SetHeight(max(1, need))
+    v.none:SetShown(#rows == 0)
+    v.none:SetText("No ranked event has paid out this season yet.")
+    -- me
+    local you = v.you
+    local mine, above, below = W.MyStanding(rows)
+    local titles = Ev():TitlesOf(Me())
+    you.title:SetShown(#titles > 0)
+    local cur = Ev():GetTitle(Me())
+    you.title.fs:SetText(cur or "No title")
+    you.title:SetWidth(ceil(SW(you.title.fs) + 16))
+    if mine then
+        you.rk:SetText(mine.rank)
+        you.pt:SetText(mine.pts .. (mine.pts == 1 and " point" or " points"))
+        local parts = {}
+        parts[#parts + 1] = W.Gap(mine, above)
+        parts[#parts + 1] = W.Gap(mine, below, true)
+        you.pt2Text = #parts > 0 and tconcat(parts, ", ") or "the only one on the board"
+    else
+        you.rk:SetText("-")
+        you.pt:SetText("No points yet")
+        you.pt2Text = "A ranked event puts you on the board."
+    end
+    you.pt2:ClearAllPoints()
+    you.pt2:SetPoint("TOPLEFT", you.pt, "BOTTOMLEFT", 0, -3)
+    Wrap(you.pt2, you.pt2Text, SIDE_W - 90, 11)
+    local badges = Ev():BadgesOf(Me())
+    local bx = 12
+    for i = 1, 6 do
+        local bd = Pool(you.badges, i, function() return H.Badge(you, 19) end)
+        if badges[i] then
+            bd:SetBadge(badges[i])
+            bd:ClearAllPoints()
+            bd:SetPoint("BOTTOMLEFT", you, "BOTTOMLEFT", bx, 10)
+            bx = bx + bd:GetWidth() + 6
+        else
+            bd:Hide()
+        end
+    end
+    you:SetHeight(#badges > 0 and 128 or 96)
+    -- the ranked events, newest first
+    local ev = v.ev
+    local maxRows = floor((H.Hgt() - 44 - 10 - you:GetHeight() - GAP - 28 - 50) / 44)
+    for i = 1, max(#results, #ev.rows) do
+        local row = Pool(ev.rows, i, function() return Sea.NewEventRow(ev) end)
+        local r = results[i]
+        if r and i <= maxRows then
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", ev, "TOPLEFT", 1, -(32 + (i - 1) * 44))
+            Sea.FillEventRow(row, r)
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+    ev.none:SetShown(#results == 0)
+    ev.none:SetText("None this season yet.")
+    ev.foot:ClearAllPoints()
+    ev.foot:SetPoint("BOTTOMLEFT", ev, "BOTTOMLEFT", 10, 10)
+    Wrap(ev.foot, "Only ranked events count: placings, badges and matches won, as each event's pieces say.",
+        SIDE_W - 20, 11)
+end
+
+function Sea.NewEventRow(parent)
+    local r = CreateFrame("Button", nil, parent)
+    r:SetSize(SIDE_W - 2, 44)
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.03)
+    r.art = CreateFrame("Frame", nil, r)
+    r.art:SetSize(46, 30)
+    r.art:SetPoint("LEFT", 9, 0)
+    r.art.outer = Fill(r.art, { 0, 0, 0, 1 }, "BACKGROUND")
+    r.art.outer:ClearAllPoints()
+    r.art.outer:SetPoint("TOPLEFT", -1, 1)
+    r.art.outer:SetPoint("BOTTOMRIGHT", 1, -1)
+    r.art.tex = r.art:CreateTexture(nil, "ARTWORK")
+    r.art.tex:SetAllPoints()
+    r.n = Text(r, 12, C.white)
+    r.n:SetPoint("BOTTOMLEFT", r.art, "RIGHT", 9, 1)
+    r.l2 = Text(r, 11, C.grey)
+    r.l2:SetPoint("TOPLEFT", r.art, "RIGHT", 9, -2)
+    r.p = Text(r, 13, C.pts, true)
+    r.p:SetJustifyH("RIGHT")
+    r.p:SetPoint("RIGHT", -10, 0)
+    r:SetScript("OnClick", function(self) if self.id then EventsUI:OpenEvent(self.id) end end)
+    return r
+end
+
+function Sea.FillEventRow(row, r)
+    row.id = r.id
+    EUI():SetArt(row.art.tex, r.art, 46, 30, nil, nil, 0.6)
+    local me = Me()
+    local place = r.champ == me and "you won" or (r.second == me and "2nd" or (r.third == me and "3rd"
+        or (r.points[me] and "played" or "not in it")))
+    row.l2:SetText(date("%a ", r.at) .. date("%d %b", r.at) .. " · " .. place)
+    local p = r.points[me]
+    row.p:SetText(p and ("+" .. p) or "-")
+    Color(row.p, p and C.pts or C.dim)
+    -- the name left of my points: smaller, else two lines (the date line under them)
+    local _, _, lines = FitText(row.n, r.name or "Event", SIDE_W - 2 - 64 - NatW(row.p) - 10 - 8, { 12, 11 })
+    row.n:ClearAllPoints()
+    row.l2:ClearAllPoints()
+    if lines == 1 then
+        row.n:SetPoint("BOTTOMLEFT", row.art, "RIGHT", 9, 1)
+        row.l2:SetPoint("TOPLEFT", row.art, "RIGHT", 9, -2)
+    else
+        row.n:SetPoint("TOPLEFT", row, "TOPLEFT", 64, -2)
+        row.l2:SetPoint("TOPLEFT", row.n, "BOTTOMLEFT", 0, -1)
+    end
+end
+
+---------------------------------------------------------------------------
+-- Review (shot 14): what waits for a decision, and what changed
+---------------------------------------------------------------------------
+
+local Rv = {}
+local QL_W, QROW_H, RVCOL_W, DIFF_MAX = 240, 46, 250, 4
+local DIFF_LOOK = { add = { 0.35, 0.86, 0.47 }, del = { 0.89, 0.36, 0.31 }, chg = { 1, 0.82, 0 } }
+
+-- A piece in words, its blanks filled ("best of 3 ...", "give badge Giant slayer to Biggest upset").
+function W.PieceText(p, def, depth)
+    local pd = p and B().PIECES[p.k]
+    if not pd then return p and tostring(p.k) or "" end
+    depth = depth or 0
+    local function value(v, a)
+        if v == nil then return "___" end
+        if type(v) == "table" then
+            if v.k then return depth < 3 and W.PieceText(v, def, depth + 1) or "..." end
+            if type(v.j) == "table" then
+                local out = {}
+                for _, x in ipairs(v.j) do
+                    out[#out + 1] = type(x) == "table" and W.PieceText(x, def, depth + 1) or tostring(x)
+                end
+                return "\"" .. tconcat(out) .. "\""
+            end
+            return "?"
+        end
+        local t = a and a.t
+        if t == "block" then return B():BlockLabel(def, v) end
+        if t == "stage" then return B():StageName(def, v) end
+        if t == "badge" then
+            local bd = def and def.badges and def.badges[v]
+            return bd and bd.n or tostring(v)
+        end
+        if t == "dur" then return B():DurationText(v) end
+        if t == "ctxname" then
+            local c = B().CTX[v]
+            return c and c.label or tostring(v)
+        end
+        if t == "channel" then
+            for _, ch in ipairs(B().CHANNELS) do if ch[1] == v then return ch[2] end end
+        end
+        if t == "text" then return "\"" .. tostring(v) .. "\"" end
+        return tostring(v)
+    end
+    return ((pd.text or ""):gsub("{(%d)}", function(n)
+        n = tonumber(n)
+        return value(p.a and p.a[n], pd.args and pd.args[n])
+    end))
+end
+
+function Rv.Create(p)
+    local v = CreateFrame("Frame", nil, p)
+    v:SetAllPoints(p)
+    v.ql = CreateFrame("Frame", nil, v)
+    v.ql:SetPoint("TOPLEFT", PAD, -44)
+    v.ql:SetPoint("BOTTOMLEFT", PAD, 10)
+    v.ql:SetWidth(QL_W)
+    v.wsect = H.Sect(v.ql)
+    v.dsect = H.Sect(v.ql)
+    v.qrows = {}
+    v.qnone = Text(v.ql, 11, C.grey)
+    v.qd = CreateFrame("Frame", nil, v)
+    v.qd:SetPoint("TOPLEFT", PAD + QL_W + GAP, -44)
+    v.qd:SetPoint("BOTTOMRIGHT", -PAD, 10)
+    -- the picked event's header: its art, name, who sent it; the eye, Send back, Mark ranked
+    local hd = CreateFrame("Frame", nil, v.qd)
+    hd:SetPoint("TOPLEFT")
+    hd:SetPoint("TOPRIGHT")
+    hd:SetHeight(70)
+    hd.art = hd:CreateTexture(nil, "BACKGROUND")
+    hd.art:SetPoint("TOPLEFT", 1, -1)
+    hd.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    hd.shade = hd:CreateTexture(nil, "BORDER")
+    hd.shade:SetAllPoints()
+    Grad(hd.shade, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.95 }, { 0.035, 0.035, 0.043, 0.35 })
+    Edges(hd, PEDGE, "ARTWORK")
+    hd.icon = H.Icon(hd, 38)
+    hd.icon:SetPoint("LEFT", 12, 0)
+    hd.t = Text(hd, 15, C.white)
+    hd.t:SetPoint("BOTTOMLEFT", hd.icon, "RIGHT", 11, 1)
+    hd.pill = H.Pill(hd, 16)
+    hd.pill:SetPoint("LEFT", hd.t, "RIGHT", 8, 0)
+    hd.t2 = Text(hd, 11, { 0.81, 0.81, 0.81 })
+    hd.t2:SetPoint("TOPLEFT", hd.icon, "RIGHT", 11, -4)
+    hd.rank = H.Button(hd, "Mark ranked", nil, 26, "primary", function() Rv.Decide(v, true) end)
+    H.Fit(hd.rank, 90, 30)
+    hd.rank:SetPoint("RIGHT", -12, 0)
+    hd.back = H.Button(hd, "Send back", nil, 26, "secondary", function() Rv.Decide(v, false) end)
+    H.Fit(hd.back, 80, 30)
+    hd.back:SetPoint("RIGHT", hd.rank, "LEFT", -6, 0)
+    hd.eye = H.IconButton(hd, 26, "eye", "Look inside", "Opens it in the builder, read only: every piece, every "
+        .. "stage.", function() if v.def then A.Builder(v.def) end end)
+    v.head = hd
+    -- what changed since the ranked version, piece by piece
+    v.csect = H.Sect(v.qd)
+    v.csect:SetPoint("TOPLEFT", 0, -78)
+    v.csect:SetPoint("TOPRIGHT", 0, -78)
+    v.dscroll = UI():CreateScrollFrame(v.qd)
+    v.dscroll:SetPoint("TOPLEFT", 0, -106)
+    v.dcontent = CreateFrame("Frame", nil, v.dscroll)
+    v.dcontent:SetSize(400, 10)
+    v.dscroll:SetScrollChild(v.dcontent)
+    v.diffs = {}
+    -- below: the note, my reply; the rewards, the checks, the last decision
+    v.left = CreateFrame("Frame", nil, v.qd)
+    v.left:SetHeight(200)
+    v.nsect = H.Sect(v.left)
+    v.nsect:SetPoint("TOPLEFT")
+    v.nsect:SetPoint("TOPRIGHT")
+    v.note = CreateFrame("Frame", nil, v.left)
+    v.note:SetPoint("TOPLEFT", 0, -28)
+    v.note:SetPoint("TOPRIGHT", 0, -28)
+    Fill(v.note, { 1, 1, 1, 0.035 })
+    v.note.bar = Line(v.note, { 1, 0.82, 0, 0.6 })
+    v.note.bar:SetPoint("TOPLEFT")
+    v.note.bar:SetPoint("BOTTOMLEFT")
+    v.note.bar:SetWidth(2)
+    v.note.fs = Text(v.note, 11, { 0.93, 0.93, 0.93 })
+    v.note.fs:SetPoint("TOPLEFT", 10, -7)
+    v.rsect = H.Sect(v.left)
+    v.reply = UI():CreateSleekEditBox(v.left, 200, 26, "GameFontHighlightSmall")
+    v.reply:SetMaxLetters(200)
+    v.reply:SetScript("OnTextChanged", function(self)
+        if (self:GetText() or "") ~= "" and v.rsect.r:IsShown() then v.rsect.r:Hide() end
+    end)
+    UI():SetEditPlaceholder(v.reply, "Say why if you send it back")
+    v.right = CreateFrame("Frame", nil, v.qd)
+    v.right:SetSize(RVCOL_W, 200)
+    v.gsect = H.Sect(v.right)
+    v.gsect:SetPoint("TOPLEFT")
+    v.gsect:SetPoint("TOPRIGHT")
+    v.gives = {}
+    v.checks = CreateFrame("Frame", nil, v.right)
+    v.checks:SetSize(RVCOL_W, 22)
+    v.checks.icon = v.checks:CreateTexture(nil, "ARTWORK")
+    v.checks.icon:SetSize(13, 13)
+    v.checks.icon:SetPoint("LEFT", 2, 0)
+    v.checks.fs = Text(v.checks, 12, { 0.85, 0.85, 0.85 })
+    v.checks.fs:SetPoint("LEFT", 22, 0)
+    v.checks.r = Text(v.checks, 11, C.grey)
+    v.checks.r:SetJustifyH("RIGHT")
+    v.checks.r:SetPoint("RIGHT", 0, 0)
+    v.lsect = H.Sect(v.right)
+    v.last = Text(v.right, 11, { 0.85, 0.85, 0.85 })
+    v.lastR = Text(v.right, 11, C.grey)
+    v.lastR:SetJustifyH("RIGHT")
+    v.lastNote = Text(v.right, 11, C.grey)
+    v.empty = Text(v.qd, 13, C.grey)
+    v.empty:SetPoint("TOP", v.qd, "TOP", 0, -120)
+    v.empty:SetJustifyH("CENTER")
+    return v
+end
+
+function Rv.NewQRow(parent)
+    local r = CreateFrame("Button", nil, parent)
+    r:SetSize(QL_W, QROW_H)
+    r.sel = Fill(r, { 1, 0.82, 0, 0.10 })
+    r.bar = Line(r, { 1, 0.82, 0, 1 })
+    r.bar:SetPoint("TOPLEFT")
+    r.bar:SetPoint("BOTTOMLEFT")
+    r.bar:SetWidth(3)
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.03)
+    r.icon = H.Icon(r, 28)
+    r.icon:SetPoint("LEFT", 10, 0)
+    r.l1 = Text(r, 12, C.white)
+    r.l1:SetPoint("BOTTOMLEFT", r.icon, "RIGHT", 9, 1)
+    r.l2 = Text(r, 11, C.grey)
+    r.l2:SetPoint("TOPLEFT", r.icon, "RIGHT", 9, -2)
+    r.mark = r:CreateTexture(nil, "ARTWORK")
+    r.mark:SetSize(14, 14)
+    r.mark:SetPoint("RIGHT", -10, 0)
+    r:SetScript("OnClick", function(self)
+        state.review = self.id
+        EventsUI:Refresh()
+    end)
+    -- the bin, on hover, where the mark is (r.remove; its tooltip: r.del.tipText)
+    r.del = UI():CreateRemoveButton(r, "Remove")
+    r.del:SetPoint("RIGHT", -8, 0)
+    r.del:Hide()
+    r.del:SetScript("OnClick", function() if r.remove then r.remove() end end)
+    local function leave()
+        if r:IsMouseOver() then return end
+        r.del:Hide()
+        r.mark:SetShown(r.hasMark and true or false)
+    end
+    r.del:HookScript("OnLeave", leave)
+    r:SetScript("OnEnter", function(self)
+        if not self.remove then return end
+        self.del:Show()
+        self.mark:Hide()
+    end)
+    r:SetScript("OnLeave", leave)
+    return r
+end
+
+-- "18:02" today, "Thu" this week, "02 Oct" before.
+function W.Ago(t)
+    if not t then return "" end
+    local now = Now()
+    if date("%Y%m%d", t) == date("%Y%m%d", now) then return W.Clock(t) end
+    if now - t < 6 * DAY then return date("%a", t) end
+    return date("%d %b", t)
+end
+
+-- Is it new (never ranked) or changed since it was?
+function W.NewOrChanged(d)
+    local k = Ev():GetReview(d.id)
+    return (k and k.ok) and "changed" or "new"
+end
+
+function Rv.NewDiff(parent)
+    local r = CreateFrame("Frame", nil, parent)
+    r:SetSize(400, 34)
+    r.bg = Fill(r, { 1, 1, 1, 0.05 })
+    r.bar = Line(r, { 1, 1, 1, 1 })
+    r.bar:SetPoint("TOPLEFT")
+    r.bar:SetPoint("BOTTOMLEFT")
+    r.bar:SetWidth(2)
+    r.stage = Text(r, 10, C.grey)
+    r.stage:SetPoint("LEFT", 9, 0)
+    r.fs = Text(r, 11, C.white)
+    r.fs:SetPoint("LEFT", 62, 0)
+    r:EnableMouse(true)
+    r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+    r:SetScript("OnLeave", HideTip)
+    return r
+end
+
+-- A change's stage label ("Bracket", "Badges").
+function W.DiffStage(ch) return ch.stage or (ch.badge and "Badges") or "" end
+
+-- One change: its colour bar, the stage (in a column colX wide), the piece drawn (or its words, wrapped). Returns
+-- the row's height.
+function Rv.FillDiff(r, ch, def, w, colX)
+    local EP = ns.EventPieces
+    if r.pf and EP and EP.Release then EP:Release(r.pf) end
+    r.pf = nil
+    colX = colX or 62
+    r:SetWidth(w)
+    local c = DIFF_LOOK[ch.kind] or DIFF_LOOK.chg
+    r.bg:SetColorTexture(c[1], c[2], c[3], ch.kind == "chg" and 0.05 or 0.07)
+    r.bar:SetColorTexture(c[1], c[2], c[3], 0.8)
+    local _, sh = FitText(r.stage, W.DiffStage(ch), colX - 19, 10)
+    local h = max(34, sh + 10)
+    r.tip = nil
+    local room = w - colX - 8
+    if ch.piece and EP and EP.Draw then
+        local p = ch.piece
+        if p.c1 or p.c2 then
+            -- a C piece: its own row, without what it holds
+            local q = {}
+            for k, x in pairs(p) do q[k] = x end
+            q.c1, q.c2 = nil, nil
+            p = q
+        end
+        local ok, f = pcall(EP.Draw, EP, r, p, { static = true, scale = 0.85, def = def })
+        if ok and f then
+            -- (a long piece: drawn smaller to fit the row; too small to read: its words instead)
+            local pw = f.w or f:GetWidth() or 0
+            local sc = 0.85
+            if pw * sc > room then sc = room / max(1, pw) end
+            if sc >= 0.6 then
+                r.pf = f
+                f:SetScale(sc)
+                f:ClearAllPoints()
+                f:SetPoint("LEFT", r, "LEFT", colX / sc, 0)
+                h = max(h, ceil((f:GetHeight() or 24) * sc) + 8)
+                r.fs:Hide()
+            elseif EP.Release then
+                EP:Release(f)
+            end
+        end
+    end
+    if not r.pf then
+        local text = ch.text or (ch.piece and W.PieceText(ch.piece, def)) or ""
+        r.fs:ClearAllPoints()
+        r.fs:SetPoint("LEFT", r, "LEFT", colX, 0)
+        h = max(h, Wrap(r.fs, (text:gsub("→", "to")), room, 11) + 16)
+        r.fs:Show()
+    end
+    if ch.kind == "chg" and ch.old then r.tip = { "Changed", "Was: " .. W.PieceText(ch.old, def) } end
+    if ch.kind == "del" and ch.piece then r.tip = { "Taken out", W.PieceText(ch.piece, def) } end
+    r:SetHeight(h)
+    r:Show()
+    return h
+end
+
+-- The changes to show: the diff from the ranked snapshot, or (new) the stages in plain words.
+function Rv.Changes(d)
+    local snap = Ev():RankedSnapshot(d.id)
+    local rs = Ev():ReviewState(d)
+    if snap and rs ~= "ranked" then
+        local changes, same = B():Diff(snap, d)
+        local order = {}
+        for i, ch in ipairs(changes) do order[ch] = i end
+        tsort(changes, function(a, c)
+            local ta, tc = a.piece == nil, c.piece == nil
+            if ta ~= tc then return ta end
+            return order[a] < order[c]
+        end)
+        return changes, ("What changed since it was ranked"), (same .. (same == 1 and " other piece is" or
+            " other pieces are") .. " the same"), snap
+    end
+    local out = {}
+    for _, s in ipairs(B():Describe(d)) do
+        out[#out + 1] = { kind = "add", stage = s.name, text = (s.text ~= "" and s.text) or "(nothing in it yet)" }
+    end
+    local label = (rs == "review" or rs == "draft") and (W.NewOrChanged(d) == "changed" and "Changed since it was ranked"
+        or "New event") or "How it runs"
+    local n = W.PieceCount(d)
+    return out, label, n .. (n == 1 and " piece" or " pieces"), snap
+end
+
+-- The four checks: practice run, blanks, chat, season cap. Returns passed, total, practice time (or false).
+function W.Checks(d)
+    local EB = ns.EventBuilder
+    local practiced = false
+    if EB and EB.WasPracticed then
+        local ok, at = EB:WasPracticed(d.id, d.rev)
+        practiced = ok and (tonumber(at) or true) or false
+    end
+    local blanks = #B():Problems(d) == 0
+    local cap = B():MaxSeasonGrant(d) <= B().SEASON_CAP
+    local n = 1 + (practiced and 1 or 0) + (blanks and 1 or 0) + (cap and 1 or 0)
+    return n, 4, practiced, blanks, cap
+end
+
+function Rv.Decide(v, ok)
+    local d = v.def
+    if not d then return end
+    local note = ns.Util.Trim(v.reply:GetText() or "")
+    if not ok and note == "" then
+        v.rsect.r:SetText(Hex(C.orange, "say why first"))
+        v.rsect.r:Show()
+        v.reply:SetFocus()
+        return
+    end
+    if Ev():Review(d.id, ok, note ~= "" and note or nil) then
+        v.reply:SetText("")
+        v.reply:ClearFocus()
+        state.review = nil
+        ns:Print(ok and "%s is ranked now." or "%s went back to its creator.", d.name or "The event")
+    end
+    EventsUI:RequestRefresh()
+end
+
+function Rv.Fill(v)
+    local W0 = H.W() - 2 * PAD
+    local qw = W0 - QL_W - GAP
+    local queue = Ev():GetReviewQueue()
+    local decided = Ev():GetDecided(4)
+    -- the pick: kept while it is listed, else the first waiting / decided
+    local listed = {}
+    for _, d in ipairs(queue) do listed[d.id] = true end
+    for _, x in ipairs(decided) do listed[x.d.id] = true end
+    if not (state.review and listed[state.review]) then
+        state.review = (queue[1] and queue[1].id) or (decided[1] and decided[1].d.id) or nil
+    end
+    -- the lists
+    v.wsect:ClearAllPoints()
+    v.wsect:SetPoint("TOPLEFT", v.ql, "TOPLEFT", 0, 0)
+    v.wsect:SetWidth(QL_W)
+    v.wsect:Set("Waiting", tostring(#queue))
+    local y, ri = 28, 0
+    local function qrow(d, l2, mark, markColor, remove, tip)
+        ri = ri + 1
+        local r = Pool(v.qrows, ri, function() return Rv.NewQRow(v.ql) end)
+        r.id = d.id
+        r.remove, r.hasMark = remove, mark ~= nil
+        r.del.tipText = tip
+        r.del:Hide()
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", v.ql, "TOPLEFT", 0, -y)
+        r.icon:Set(d.icon)
+        -- the name: smaller when long, else on two lines (the row grows)
+        local _, _, lines = FitText(r.l1, d.name or "Event", QL_W - 47 - ((mark or remove) and 26 or 6), { 12, 11 })
+        local rh = lines == 1 and QROW_H or (QROW_H + 14)
+        r:SetHeight(rh)
+        r.l1:ClearAllPoints()
+        r.l2:ClearAllPoints()
+        if lines == 1 then
+            r.l1:SetPoint("BOTTOMLEFT", r.icon, "RIGHT", 9, 1)
+            r.l2:SetPoint("TOPLEFT", r.icon, "RIGHT", 9, -2)
+        else
+            r.l1:SetPoint("TOPLEFT", r, "TOPLEFT", 47, -6)
+            r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -2)
+        end
+        r.l2:SetText(l2)
+        local on = state.review == d.id
+        r.sel:SetShown(on)
+        r.bar:SetShown(on)
+        if mark then
+            r.mark:SetTexture(mark)
+            r.mark:SetDesaturated(markColor ~= nil)
+            if markColor then r.mark:SetVertexColor(markColor[1], markColor[2], markColor[3]) else r.mark:SetVertexColor(1, 1, 1) end
+            r.mark:Show()
+        else
+            r.mark:Hide()
+        end
+        r:Show()
+        y = y + rh
+    end
+    local canRemove = W.CanRemove()
+    for _, d in ipairs(queue) do
+        qrow(d, W.NewOrChanged(d) .. grey(" · ") .. Name(d.by) .. grey(" · " .. W.Ago(d.review and d.review.at)), nil, nil,
+            (canRemove and Ev().DismissReview) and function() A.DismissReview(d) end or nil,
+            "Takes it off the list without deciding: it can be sent in again.")
+    end
+    v.qnone:ClearAllPoints()
+    v.qnone:SetPoint("TOPLEFT", v.ql, "TOPLEFT", 2, -(y + 6))
+    v.qnone:SetText("Nothing waits for a decision.")
+    v.qnone:SetShown(#queue == 0)
+    if #queue == 0 then y = y + 28 end
+    if #decided > 0 then
+        y = y + 10
+        v.dsect:ClearAllPoints()
+        v.dsect:SetPoint("TOPLEFT", v.ql, "TOPLEFT", 0, -y)
+        v.dsect:SetWidth(QL_W)
+        v.dsect:Set("Decided")
+        y = y + 28
+        for _, x in ipairs(decided) do
+            local words = x.k.ok and "ranked by " or "sent back by "
+            qrow(x.d, grey(words) .. Name(x.k.by) .. (x.k.ok and grey(" · " .. W.Ago(x.k.rev)) or ""),
+                x.k.ok and CHECK or NOTREADY, (not x.k.ok) and { 0.7, 0.7, 0.7 } or nil,
+                (canRemove and Ev().HideDecision) and function() A.HideDecision(x.d) end or nil,
+                "Clears it from this list. The decision stays: a ranked event stays ranked.")
+        end
+    else
+        v.dsect:Hide()
+    end
+    HideFrom(v.qrows, ri + 1)
+    -- the picked one
+    local d = state.review and Ev():GetDef(state.review)
+    v.def = d
+    local showDetail = d ~= nil
+    for _, f in ipairs({ v.head, v.csect, v.dscroll, v.left, v.right }) do f:SetShown(showDetail) end
+    v.empty:SetShown(not showDetail)
+    v.empty:SetText("Nothing to review.\nEvents sent in for review show up here.")
+    -- (the diff list's scroll bar and its "nothing changed" are the view's: they go with it)
+    if v.nochange then v.nochange:SetShown(false) end
+    v.dscroll.ScrollBar:Hide()
+    -- a reply typed for another event is not this one's
+    if v.replyFor ~= (d and d.id) then
+        v.reply:SetText("")
+        v.replyFor = d and d.id
+    end
+    if not d then return end
+    local rs = Ev():ReviewState(d)
+    local waiting = rs == "review"
+    local hd = v.head
+    EUI():SetArt(hd.art, d.art, qw - 2, 68, nil, 0.6, 0.9)
+    hd.icon:Set(d.icon)
+    if waiting then
+        hd.pill:SetKind(W.NewOrChanged(d), "warn")
+    else
+        local text, kind = EUI():ReviewPill(rs)
+        hd.pill:SetKind(text or "Draft", kind or "draft")
+    end
+    -- the name and its pill fit between the icon and the buttons: a smaller size, else the pill under it (and the
+    -- name, when it still doesn't fit, on two lines)
+    local acts = waiting and (26 + 6 + hd.back:GetWidth() + 6 + hd.rank:GetWidth()) or 26
+    local room = qw - 12 - 38 - 11 - acts - 12 - 10
+    hd.pill:ClearAllPoints()
+    hd.t2:ClearAllPoints()
+    local tw = FitText(hd.t, d.name or "Event", room - 8 - hd.pill:GetWidth(), { 15, 13 }, false)
+    if tw then
+        hd.pill:SetPoint("LEFT", hd.t, "LEFT", tw + 8, 0)
+        hd.t2:SetPoint("TOPLEFT", hd.icon, "RIGHT", 11, -4)
+    else
+        FitText(hd.t, d.name or "Event", room, 13)
+        hd.pill:SetPoint("TOPLEFT", hd.icon, "RIGHT", 11, -3)
+        hd.t2:SetPoint("LEFT", hd.pill, "RIGHT", 7, 0)
+    end
+    local sentAt = d.review and d.review.at or d.at
+    local when = date("%Y%m%d", sentAt or 0) == date("%Y%m%d", Now()) and ("today " .. W.Clock(sentAt))
+        or (W.Day(sentAt) .. " " .. W.Clock(sentAt))
+    hd.t2:SetText("From " .. Name(d.by) .. grey(" · " .. when))
+    hd.rank:SetShown(waiting)
+    hd.back:SetShown(waiting)
+    hd.eye:ClearAllPoints()
+    if waiting then hd.eye:SetPoint("RIGHT", hd.back, "LEFT", -6, 0) else hd.eye:SetPoint("RIGHT", -12, 0) end
+    -- the changes
+    local changes, label, right, snap = Rv.Changes(d)
+    v.csect:Set(label, right)
+    local cw = qw
+    local dy = 0
+    local heights = {}
+    -- one stage column for every row: as wide as its longest word (two lines past 110)
+    v.meas = v.meas or Text(v.qd, 10, C.grey)
+    v.meas:Hide()
+    local colX = 62
+    for _, ch in ipairs(changes) do
+        v.meas:SetText(W.DiffStage(ch))
+        colX = max(colX, min(9 + 110 + 10, 9 + ceil(NatW(v.meas)) + 10))
+    end
+    for i, ch in ipairs(changes) do
+        local r = Pool(v.diffs, i, function() return Rv.NewDiff(v.dcontent) end)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", v.dcontent, "TOPLEFT", 0, -dy)
+        heights[i] = Rv.FillDiff(r, ch, d, cw, colX)
+        dy = dy + heights[i] + 3
+    end
+    for i = #changes + 1, #v.diffs do
+        local r = v.diffs[i]
+        if r.pf and ns.EventPieces and ns.EventPieces.Release then ns.EventPieces:Release(r.pf) end
+        r.pf = nil
+        r:Hide()
+    end
+    if #changes == 0 then dy = 0 end
+    -- the rows shown at once: what leaves the columns under them their room (the rest scroll)
+    local nGive = min(4, #W.Rewards(d))
+    local k = Ev():GetReview(d.id)
+    local rightH = 28 + max(1, nGive) * 28 + 6 + 22 + (k and (10 + 28 + 22 + (k.note and 18 or 0)) or 0)
+    local leftH = 28 + 46 + 10 + (waiting and 56 or 0)
+    local room = (H.Hgt() - 44 - 10) - 106 - 8 - max(rightH, leftH)
+    local shownH, shown = 0, 0
+    for i = 1, min(#changes, DIFF_MAX) do
+        if i > 1 and shownH + heights[i] + 3 > room then break end
+        shownH = shownH + heights[i] + 3
+        shown = i
+    end
+    local scrolls = #changes > shown
+    if scrolls then
+        cw = qw - 12
+        dy = 0
+        for i, ch in ipairs(changes) do
+            local r = v.diffs[i]
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", v.dcontent, "TOPLEFT", 0, -dy)
+            heights[i] = Rv.FillDiff(r, ch, d, cw, colX)
+            dy = dy + heights[i] + 3
+        end
+    end
+    v.dscroll:SetSize(cw, max(1, shownH))
+    v.dcontent:SetSize(cw, max(1, dy))
+    v.dscroll.ScrollBar:Update()
+    v.nochange = v.nochange or Text(v.qd, 11, C.grey)
+    v.nochange:ClearAllPoints()
+    v.nochange:SetPoint("TOPLEFT", v.qd, "TOPLEFT", 2, -110)
+    v.nochange:SetText("Nothing changed in its pieces.")
+    v.nochange:SetShown(#changes == 0)
+    -- the columns under them
+    local top = 106 + (#changes == 0 and 24 or shownH) + 8
+    local lw = qw - RVCOL_W - 12
+    v.left:ClearAllPoints()
+    v.left:SetPoint("TOPLEFT", v.qd, "TOPLEFT", 0, -top)
+    v.left:SetWidth(lw)
+    v.right:ClearAllPoints()
+    v.right:SetPoint("TOPRIGHT", v.qd, "TOPRIGHT", 0, -top)
+    local note = d.review and d.review.note
+    local from = IsMe(d.by) and "Your note" or ("Note from " .. EUI():Plain(d.by))
+    v.nsect:Set(from)
+    v.nsect:SetShown(waiting or note ~= nil)
+    local nh = 0
+    if waiting or note then
+        nh = Wrap(v.note.fs, note or Hex(C.grey, "No note."), lw - 20, 11) + 14
+        v.note:SetHeight(nh)
+        v.note:Show()
+    else
+        v.note:Hide()
+    end
+    local ry = 28 + nh + 10
+    v.rsect:ClearAllPoints()
+    v.rsect:SetPoint("TOPLEFT", v.left, "TOPLEFT", 0, -ry)
+    v.rsect:SetWidth(lw)
+    v.rsect:Set("Your reply")
+    v.rsect.r:Hide()
+    v.reply:ClearAllPoints()
+    v.reply:SetPoint("TOPLEFT", v.left, "TOPLEFT", 0, -(ry + 28))
+    v.reply:SetWidth(lw)
+    v.rsect:SetShown(waiting)
+    v.reply:SetShown(waiting)
+    -- what it gives
+    v.gsect:Set("Rewards it gives")
+    local rewards = W.Rewards(d)
+    -- (new: not in the ranked version; a first review: all of them) the new ones first: they are what is asked
+    local function isNew(rw)
+        return waiting and ((snap and not (snap.badges and snap.badges[rw.id])) or
+            (not snap and W.NewOrChanged(d) == "new")) or false
+    end
+    if snap then
+        local order = {}
+        for i, rw in ipairs(rewards) do order[rw] = i end
+        tsort(rewards, function(a, c)
+            local na, nc = isNew(a), isNew(c)
+            if na ~= nc then return na end
+            return order[a] < order[c]
+        end)
+    end
+    local gy = 28
+    for i = 1, max(#rewards, #v.gives) do
+        local g = Pool(v.gives, i, function()
+            local x = CreateFrame("Frame", nil, v.right)
+            x:SetSize(RVCOL_W, 28)
+            x.badge = H.Badge(x, 18)
+            x.badge:SetPoint("LEFT", 0, 0)
+            x.n = Text(x, 12, C.white)
+            x.n:SetPoint("LEFT", 32, 0)
+            x.pill = H.Pill(x, 16)
+            x.pill:SetPoint("LEFT", x.n, "RIGHT", 6, 0)
+            x.r = Text(x, 11, C.grey)
+            x.r:SetJustifyH("RIGHT")
+            x.r:SetPoint("RIGHT", 0, 0)
+            return x
+        end)
+        local rw = rewards[i]
+        if rw and i <= 4 then
+            g:ClearAllPoints()
+            g:SetPoint("TOPLEFT", v.right, "TOPLEFT", 0, -gy)
+            g.badge:SetBadge({ n = rw.b.n, i = rw.b.i, f = rw.b.f, ti = rw.b.ti, ev = d.name })
+            local new = isNew(rw)
+            g.pill:SetShown(new)
+            if new then g.pill:SetKind("new", "warn") end
+            local r = {}
+            if rw.pts then r[#r + 1] = "+" .. rw.pts end
+            if rw.b.ti and rw.b.ti ~= "" then r[#r + 1] = "title" end
+            g.r:SetText(tconcat(r, " · "))
+            -- the name in the room the pill and the points leave: smaller, else two lines (the row grows)
+            local rtw = #r > 0 and (NatW(g.r) + 8) or 0
+            local room = RVCOL_W - 32 - rtw - (new and (g.pill:GetWidth() + 6) or 0)
+            local tw, nh = FitText(g.n, rw.b.n or "Badge", room, { 12, 11 })
+            g.pill:ClearAllPoints()
+            g.pill:SetPoint("LEFT", g.n, "LEFT", tw + 6, 0)
+            local gh = max(28, nh + 6)
+            g:SetHeight(gh)
+            g:Show()
+            gy = gy + gh
+        else
+            g:Hide()
+        end
+    end
+    if #rewards == 0 then
+        v.noGive = v.noGive or Text(v.right, 11, C.grey)
+        v.noGive:ClearAllPoints()
+        v.noGive:SetPoint("TOPLEFT", v.right, "TOPLEFT", 2, -32)
+        v.noGive:SetText("No badges.")
+        v.noGive:Show()
+        gy = gy + 22
+    elseif v.noGive then
+        v.noGive:Hide()
+    end
+    local passed, total, practiced = W.Checks(d)
+    v.checks:ClearAllPoints()
+    v.checks:SetPoint("TOPLEFT", v.right, "TOPLEFT", 0, -(gy + 6))
+    v.checks.icon:SetTexture(passed == total and READY or WARN)
+    v.checks.fs:SetText(passed == total and ("All " .. total .. " checks passed") or (passed .. " of " .. total
+        .. " checks passed"))
+    if practiced then
+        v.checks.r:SetText(type(practiced) == "number" and ("practice run " .. W.Ago(practiced)) or "practice run")
+        Color(v.checks.r, C.grey)
+    else
+        v.checks.r:SetText("no practice run")
+        Color(v.checks.r, C.orange)
+    end
+    -- the last decision on it
+    local k = Ev():GetReview(d.id)
+    local ly = gy + 6 + 22 + 10
+    v.lsect:SetShown(k ~= nil)
+    v.last:SetShown(k ~= nil)
+    v.lastR:SetShown(k ~= nil)
+    v.lastNote:SetShown(k ~= nil and k.note ~= nil)
+    if k then
+        v.lsect:ClearAllPoints()
+        v.lsect:SetPoint("TOPLEFT", v.right, "TOPLEFT", 0, -ly)
+        v.lsect:SetWidth(RVCOL_W)
+        v.lsect:Set("Last decision")
+        v.last:ClearAllPoints()
+        v.last:SetPoint("TOPLEFT", v.right, "TOPLEFT", 0, -(ly + 32))
+        v.last:SetText((k.ok and "Ranked by " or "Sent back by ") .. Name(k.by))
+        v.lastR:ClearAllPoints()
+        v.lastR:SetPoint("TOPRIGHT", v.right, "TOPRIGHT", 0, -(ly + 32))
+        v.lastR:SetText(W.Ago(k.rev))
+        if k.note then
+            v.lastNote:ClearAllPoints()
+            v.lastNote:SetPoint("TOPLEFT", v.right, "TOPLEFT", 0, -(ly + 50))
+            Wrap(v.lastNote, "\"" .. k.note .. "\"", RVCOL_W, 11)
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Sheets: dialogs of their own over the main window or the builder (the mockup's sheet look)
+---------------------------------------------------------------------------
+
+local Sh = {}
+local sheets = {}
+local STRATA_RANK = { BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5, FULLSCREEN = 6, FULLSCREEN_DIALOG = 7,
+    TOOLTIP = 8 }
+
+-- The window a sheet opens over: the builder when it is open, else the main window (nil: the screen).
+function Sh.Owner()
+    local EB = ns.EventBuilder
+    local cands = { _G.DisasterZoneEventBuilder or false, EB and EB.frame or false, EB and EB.win or false,
+        EB and EB.window or false, _G.DisasterZoneMainFrame or false }
+    for i = 1, #cands do
+        local f = cands[i]
+        if type(f) == "table" and f.IsShown and f:IsShown() then return f end
+    end
+    return nil
+end
+
+local function CloseX(parent, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(20, 20)
+    b.lines = {}
+    for i = 1, 2 do
+        local l = b:CreateLine(nil, "ARTWORK")
+        l:SetThickness(1.5)
+        l:SetColorTexture(0.66, 0.66, 0.68, 1)
+        b.lines[i] = l
+    end
+    b.lines[1]:SetStartPoint("CENTER", -5, 5)
+    b.lines[1]:SetEndPoint("CENTER", 5, -5)
+    b.lines[2]:SetStartPoint("CENTER", -5, -5)
+    b.lines[2]:SetEndPoint("CENTER", 5, 5)
+    b:SetScript("OnEnter", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(1, 1, 1, 1) end end)
+    b:SetScript("OnLeave", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(0.66, 0.66, 0.68, 1) end end)
+    b:SetScript("OnClick", onClick)
+    return b
+end
+
+function Sh.New(key, name, w, h)
+    local dim = CreateFrame("Frame", nil, UIParent)
+    dim:SetFrameStrata("DIALOG")
+    dim:SetFrameLevel(3000)
+    dim:EnableMouse(true)
+    dim.bg = Fill(dim, { 0, 0, 0, 0.6 })
+    dim:Hide()
+    local f = CreateFrame("Frame", name, UIParent)
+    f:SetSize(w, h)
+    f:SetFrameStrata("DIALOG")
+    -- (high in its strata from the start, so everything made in it is too: the builder's pieces climb high)
+    f:SetFrameLevel(3010)
+    f:SetToplevel(true)
+    f:SetClampedToScreen(true)
+    f:EnableMouse(true)
+    f.key, f.dim, f.sw, f.sh = key, dim, w, h
+    f.shadow = Fill(f, { 0, 0, 0, 1 }, "BACKGROUND", -8)
+    f.shadow:ClearAllPoints()
+    f.shadow:SetPoint("TOPLEFT", -1, 1)
+    f.shadow:SetPoint("BOTTOMRIGHT", 1, -1)
+    f.bg = f:CreateTexture(nil, "BACKGROUND", nil, -7)
+    f.bg:SetAllPoints()
+    Grad(f.bg, "VERTICAL", { 0.078, 0.078, 0.094, 1 }, { 0.11, 0.11, 0.13, 1 })
+    Edges(f, { 0.47, 0.47, 0.51, 0.75 })
+    f.title = Text(f, 14, C.gold)
+    f.title:SetPoint("TOPLEFT", 12, -13)
+    f.tpill = H.Pill(f, 16)
+    f.tpill:SetPoint("LEFT", f.title, "RIGHT", 9, 0)
+    f.tpill:Hide()
+    f.x = CloseX(f, function() f:Close() end)
+    f.x:SetPoint("TOPRIGHT", -9, -10)
+    f.hline = Line(f, { 1, 1, 1, 0.07 })
+    f.hline:SetHeight(1)
+    f.hline:SetPoint("TOPLEFT", 1, -40)
+    f.hline:SetPoint("TOPRIGHT", -1, -40)
+    f.fline = Line(f, { 1, 1, 1, 0.07 })
+    f.fline:SetHeight(1)
+    f.fline:SetPoint("BOTTOMLEFT", 1, 46)
+    f.fline:SetPoint("BOTTOMRIGHT", -1, 46)
+    f.foot = Text(f, 11, C.grey)
+    f.foot:SetPoint("BOTTOMLEFT", 12, 17)
+    f.footIcon = f:CreateTexture(nil, "ARTWORK")
+    f.footIcon:SetSize(14, 14)
+    f.footIcon:SetPoint("BOTTOMLEFT", 12, 16)
+    f.footIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    f.footIcon:Hide()
+    f.ok = H.Button(f, "Save", 110, 26, "primary")
+    f.ok:SetPoint("BOTTOMRIGHT", -12, 10)
+    f.cancel = H.Button(f, "Cancel", 80, 26, "secondary", function() f:Close() end)
+    f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
+    f.err = Text(f, 11, C.orange)
+    f.err:SetJustifyH("RIGHT")
+    f.err:SetPoint("RIGHT", f.cancel, "LEFT", -10, 0)
+    f.err:Hide()
+    f:Hide()
+    -- Escape closes the sheet (the key goes no further); other keys go on to the game
+    f:SetScript("OnKeyDown", function(self, k)
+        if k == "ESCAPE" then
+            if not InCombatLockdown() then self:SetPropagateKeyboardInput(false) end
+            self:Close()
+        elseif not InCombatLockdown() then
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+    f:SetScript("OnShow", function(self)
+        if not InCombatLockdown() then
+            self:EnableKeyboard(true)
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+    f:SetScript("OnHide", function(self)
+        if not InCombatLockdown() then self:EnableKeyboard(false) end
+        self.dim:Hide()
+        for _, eb in ipairs(self.fields or {}) do eb:ClearFocus() end
+        if self.onClose then self.onClose() end
+    end)
+    function f:Close() self:Hide() end
+    function f:Error(text)
+        self.err:SetText(text or "")
+        self.err:SetShown(text ~= nil)
+    end
+    -- shows it over the window it belongs to (dimmed under it)
+    function f:Open()
+        local owner = Sh.Owner()
+        -- over a window above the dialogs (none of ours is): its strata
+        local strata = "DIALOG"
+        if owner and (STRATA_RANK[owner:GetFrameStrata()] or 0) > STRATA_RANK.DIALOG then strata = owner:GetFrameStrata() end
+        if self:GetFrameStrata() ~= strata then
+            self.dim:SetFrameStrata(strata)
+            self:SetFrameStrata(strata)
+        end
+        self:ClearAllPoints()
+        if owner then
+            self:SetPoint("CENTER", owner, "CENTER", 0, 0)
+            self.dim:ClearAllPoints()
+            self.dim:SetAllPoints(owner)
+            self.dim:Show()
+        else
+            self:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+            self.dim:Hide()
+        end
+        self:Error(nil)
+        self:Show()
+        self:Raise()
+    end
+    sheets[key] = f
+    return f
+end
+
+-- A form label (grey) at the sheet's left.
+local function FormLabel(parent, text, x, y)
+    local fs = Text(parent, 11, C.grey)
+    fs:SetPoint("TOPLEFT", x, y)
+    fs:SetText(text)
+    return fs
+end
+
+local function Field(f, w, h, maxLetters, hint)
+    local eb = UI():CreateSleekEditBox(f, w, h or 26, "GameFontHighlightSmall")
+    if maxLetters then eb:SetMaxLetters(maxLetters) end
+    f.fields = f.fields or {}
+    f.fields[#f.fields + 1] = eb
+    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    if hint then UI():SetEditPlaceholder(eb, hint) end
+    return eb
+end
+
+-- A flat stepper (the Dungeons tab's "Later" picker): a value between two gold chevrons; they and the wheel step it.
+local function Chevron(parent, dir)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(22, 22)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(1, 1, 1, 0.07)
+    b.lines = {}
+    for i = 1, 2 do
+        local l = b:CreateLine(nil, "ARTWORK")
+        l:SetThickness(2)
+        l:SetColorTexture(1, 0.82, 0, 1)
+        b.lines[i] = l
+    end
+    local x = dir < 0 and 3 or -3
+    b.lines[1]:SetStartPoint("CENTER", x, 5)
+    b.lines[1]:SetEndPoint("CENTER", -x, 0)
+    b.lines[2]:SetStartPoint("CENTER", -x, 0)
+    b.lines[2]:SetEndPoint("CENTER", x, -5)
+    function b:SetOn(on)
+        self.on = on
+        for _, l in ipairs(self.lines) do l:SetAlpha(on and 1 or 0.25) end
+    end
+    return b
+end
+
+function H.Stepper(parent, width, onStep, tip)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(width, 26)
+    Fill(f, { 0.10, 0.10, 0.12, 0.92 })
+    Edges(f, { 0.34, 0.34, 0.38, 0.9 })
+    f.text = Text(f, 12, C.white)
+    f.text:SetJustifyH("CENTER")
+    f.text:SetPoint("CENTER", 0, 0)
+    f.prev = Chevron(f, -1)
+    f.prev:SetPoint("LEFT", 2, 0)
+    f.prev:SetScript("OnClick", function(self) if self.on then onStep(-1) end end)
+    f.next = Chevron(f, 1)
+    f.next:SetPoint("RIGHT", -2, 0)
+    f.next:SetScript("OnClick", function(self) if self.on then onStep(1) end end)
+    f:EnableMouse(true)
+    f:EnableMouseWheel(true)
+    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
+    f:SetScript("OnEnter", function(self)
+        UI():SetEdgeColor(self, 1, 0.82, 0, 0.6)
+        if tip then Tip(self, tip) end
+    end)
+    f:SetScript("OnLeave", function(self)
+        UI():SetEdgeColor(self, 0.34, 0.34, 0.38, 0.9)
+        HideTip()
+    end)
+    function f:Set(text, canPrev, canNext)
+        self.text:SetText(text)
+        self.prev:SetOn(canPrev)
+        self.next:SetOn(canNext)
+    end
+    return f
+end
+
+-- Day / time (the local clock): day 0 = today.
+local DAYS_AHEAD = 13
+local function NowMinutes()
+    local t = date("*t", Now())
+    return t.hour * 60 + t.min
+end
+local function MinMinutes(day)
+    if day > 0 then return 0 end
+    return ceil((NowMinutes() + 15) / 15) * 15
+end
+local function DayTime(day, mins)
+    local t = date("*t", Now())
+    return time({ year = t.year, month = t.month, day = t.day + day, hour = floor(mins / 60), min = mins % 60, sec = 0 })
+end
+local function DayOf(at)
+    local t, n = date("*t", at), date("*t", Now())
+    return floor((time({ year = t.year, month = t.month, day = t.day, hour = 12 })
+        - time({ year = n.year, month = n.month, day = n.day, hour = 12 })) / DAY + 0.5), t.hour * 60 + t.min
+end
+local function ClampWhen(s)
+    -- (s.maxDay: a calendar event moved from further out than DAYS_AHEAD keeps its day)
+    s.day = min(max(s.day or 0, 0), s.maxDay or DAYS_AHEAD)
+    if MinMinutes(s.day) >= 24 * 60 then s.day = s.day + 1 end
+    s.mins = min(max(s.mins or 0, MinMinutes(s.day)), 24 * 60 - 15)
+end
+local function DayText(day)
+    if day == 0 then return "Today" end
+    if day == 1 then return "Tomorrow" end
+    local t = DayTime(day, 12 * 60)
+    return date("%a ", t) .. tonumber(date("%d", t)) .. date(" %b", t)
+end
+
+-- The event strip at the top of a sheet: art, icon, name + pill, a second line.
+local function SheetStrip(f, y, w)
+    local s = CreateFrame("Frame", nil, f)
+    s:SetPoint("TOPLEFT", 12, y)
+    s:SetSize(w, 56)
+    s.art = s:CreateTexture(nil, "BACKGROUND")
+    s.art:SetPoint("TOPLEFT", 1, -1)
+    s.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    s.shade = s:CreateTexture(nil, "BORDER")
+    s.shade:SetAllPoints()
+    Grad(s.shade, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.95 }, { 0.035, 0.035, 0.043, 0.35 })
+    Edges(s, PEDGE, "ARTWORK")
+    s.icon = H.Icon(s, 32)
+    s.icon:SetPoint("LEFT", 12, 0)
+    s.n = Text(s, 13, C.white)
+    s.n:SetPoint("BOTTOMLEFT", s.icon, "RIGHT", 10, 1)
+    s.pill = H.Pill(s, 16)
+    s.pill:SetPoint("LEFT", s.n, "RIGHT", 8, 0)
+    s.l2 = Text(s, 11, { 0.78, 0.78, 0.78 })
+    s.l2:SetPoint("TOPLEFT", s.icon, "RIGHT", 10, -3)
+    function s:Set(d)
+        EUI():SetArt(self.art, d.art, w - 2, 54, nil, 0.6, 0.9)
+        self.icon:Set(d.icon)
+        local text, kind = EUI():ReviewPill(Ev():ReviewState(d))
+        self.pill:SetShown(text ~= nil)
+        if text then self.pill:SetKind(text, kind) end
+        local tw = FitText(self.n, d.name or "Event", w - 54 - 12 - (text and (self.pill:GetWidth() + 8) or 0),
+            { 13, 12, 11 })
+        self.pill:ClearAllPoints()
+        self.pill:SetPoint("LEFT", self.n, "LEFT", tw + 8, 0)
+        local parts = {}
+        for _, k in ipairs(B():Kinds(d)) do parts[#parts + 1] = B().SMART[k].label end
+        local spots = W.Spots(d)
+        if spots then parts[#parts + 1] = spots .. " spots" end
+        local n = #(d.stages or {})
+        parts[#parts + 1] = n .. (n == 1 and " stage" or " stages")
+        self.l2:SetText(tconcat(parts, " · "))
+    end
+    return s
+end
+
+-- Host it: the day, the time, where, a note --------------------------------
+
+function Sh.Schedule()
+    if sheets.schedule then return sheets.schedule end
+    local f = Sh.New("schedule", "DisasterZoneEventSchedule", 460, 330)
+    f.strip = SheetStrip(f, -52, 436)
+    local LX, FX = 12, 76
+    FormLabel(f, "When", LX, -128)
+    local tip = { "Pick the time", "Click the arrows or scroll. Your clock: everybody sees it in theirs." }
+    f.day = H.Stepper(f, 160, function(dir)
+        local s = f.s
+        s.day = (s.day or 0) + dir
+        ClampWhen(s)
+        Sh.RefreshSchedule()
+    end, tip)
+    f.day:SetPoint("TOPLEFT", FX, -121)
+    f.time = H.Stepper(f, 96, function(dir)
+        local s = f.s
+        s.mins = (s.mins or 0) + dir * 15
+        ClampWhen(s)
+        Sh.RefreshSchedule()
+    end, tip)
+    f.time:SetPoint("LEFT", f.day, "RIGHT", 6, 0)
+    FormLabel(f, "Where", LX, -162)
+    f.where = Field(f, 372, 26, 48, "Ring of Trials, Nagrand")
+    f.where:SetPoint("TOPLEFT", FX, -155)
+    FormLabel(f, "Note", LX, -196)
+    f.note = Field(f, 372, 26, 200, "Optional, e.g. \"bring a flask\"")
+    f.note:SetPoint("TOPLEFT", FX, -189)
+    f.info = CreateFrame("Frame", nil, f)
+    f.info:SetPoint("TOPLEFT", FX, -226)
+    f.info:SetSize(372, 32)
+    f.info.glyph = f.info:CreateTexture(nil, "ARTWORK")
+    f.info.glyph:SetSize(12, 12)
+    f.info.glyph:SetPoint("TOPLEFT", 0, -1)
+    f.info.fs = Text(f.info, 11, C.grey)
+    f.info.fs:SetPoint("TOPLEFT", 18, 0)
+    f.foot:SetText("Everyone sees it on Upcoming")
+    f.ok:SetScript("OnClick", function() Sh.SubmitSchedule() end)
+    return f
+end
+
+function Sh.RefreshSchedule()
+    local f = sheets.schedule
+    local s = f and f.s
+    if not s then return end
+    ClampWhen(s)
+    local minDay = MinMinutes(0) >= 24 * 60 and 1 or 0
+    f.day:Set(DayText(s.day), s.day > minDay, s.day < (s.maxDay or DAYS_AHEAD))
+    f.time:Set(("%02d:%02d"):format(floor(s.mins / 60), s.mins % 60), s.mins > MinMinutes(s.day), s.mins < 24 * 60 - 15)
+    -- when its sign-up closes, from its Sign-up block
+    local d = s.def
+    local at = DayTime(s.day, s.mins)
+    local closes
+    for _, bid in ipairs(B():BlocksOf(d, "signup")) do
+        closes = closes or B():SmartSetting(d.blocks[bid], "closes")
+    end
+    local text
+    if closes == "early" then
+        text = "Sign-up closes 15 min before it starts, at " .. W.Clock(at - 900) .. "."
+    elseif closes == "start" then
+        text = "Sign-up closes when it starts. You're in it too: leave on its page if you only host."
+    elseif closes == "host" then
+        text = "Sign-up stays open until you close it, while it runs."
+    else
+        text = "It has no sign-up: whoever is there when you start it plays."
+    end
+    if s.occ then text = "Everyone who signed up stays in. " .. text:gsub(" You're in it too.*$", "") end
+    H.Glyph(f.info.glyph, "clock", { 0.62, 0.62, 0.62, 0.85 })
+    Wrap(f.info.fs, text, 354, 11)
+end
+
+function Sh.SubmitSchedule()
+    local f = sheets.schedule
+    local s = f and f.s
+    if not s then return false end
+    -- (the sheet may have stood open a while: a time that passed since moves to the first one left, and says so)
+    local before = (s.day or 0) * 1440 + (s.mins or 0)
+    ClampWhen(s)
+    if s.day * 1440 + s.mins ~= before then
+        Sh.RefreshSchedule()
+        f:Error("That time has passed: moved to " .. ("%02d:%02d"):format(floor(s.mins / 60), s.mins % 60) .. ".")
+        return false
+    end
+    local at = DayTime(s.day, s.mins)
+    local where = ns.Util.Trim(f.where:GetText() or "")
+    local note = ns.Util.Trim(f.note:GetText() or "")
+    where = where ~= "" and where or nil
+    note = note ~= "" and note or nil
+    if s.occ then
+        -- (it may have changed while the sheet was open: removed, called off, started)
+        local o = Ev():GetOcc(s.occ)
+        local st = o and Ev():OccState(o)
+        local why = (not o and "It's gone from the calendar.") or (st == "cancelled" and "It was cancelled.")
+            or (st == "live" and "It's running: it can't move now.") or (st == "done" and "It's over.")
+            or (Ev():HostOf(o) ~= Me() and "Only its host can move it.") or nil
+        if why or not Ev():EditOcc(s.occ, at, where, note) then
+            f:Error(why or "Only its host can move it.")
+            return false
+        end
+        f:Close()
+        EventsUI:RequestRefresh()
+        return s.occ
+    end
+    local d = Ev():GetDef(s.defId)
+    if not d then
+        f:Error("It's gone from the library.")
+        return false
+    end
+    -- (it couldn't start: the builder's Host says the same)
+    if #B():Problems(d) > 0 then
+        f:Error("Some of its pieces need fixing first: open it in the builder.")
+        return false
+    end
+    local occ = Ev():Schedule(s.defId, at, { where = where, note = note })
+    if not occ then
+        f:Error("The calendar is full right now.")
+        return false
+    end
+    f:Close()
+    ns:Print("%s is on the calendar: %s %s.", s.def.name or "The event", DayText(s.day), W.Clock(at))
+    if ns.MainFrame and ns.MainFrame:IsShown() and ns.MainFrame:GetSelectedTab() == "events" then
+        EventsUI:OpenEvent(occ)
+    end
+    return occ
+end
+
+function EventsUI:OpenSchedule(defId, occId)
+    local o = occId and Ev():GetOcc(occId)
+    local d = (o and o.def) or Ev():GetDef(defId)
+    if not d then
+        ns:Print("save the event first: only events in the library can be hosted.")
+        return false
+    end
+    local f = Sh.Schedule()
+    local s = { defId = defId or (o and o.dk), occ = o and o.id or nil, def = d }
+    if o then
+        s.day, s.mins = DayOf(o.at)
+        s.mins = s.mins - s.mins % 15
+        s.maxDay = max(DAYS_AHEAD, s.day)
+    else
+        -- the first suggestion: 20:00 today, or tomorrow when that is too close
+        s.day, s.mins = 0, 20 * 60
+        if MinMinutes(0) > 20 * 60 then s.day = 1 end
+    end
+    f.s = s
+    f.title:SetText(o and "Move your event" or "Host an event")
+    f.ok:SetText(o and "Save" or "Put it on the calendar")
+    H.Fit(f.ok, 110, 30)
+    f.strip:Set(d)
+    f.where:SetText(o and o.where or "")
+    f.note:SetText(o and o.note or "")
+    f:Open()
+    Sh.RefreshSchedule()
+    return true
+end
+
+-- Send for review: the checks and a note ------------------------------------
+
+function Sh.Submit()
+    if sheets.submit then return sheets.submit end
+    local f = Sh.New("submit", "DisasterZoneEventSubmit", 560, 332)
+    f.title:SetText("Send for review")
+    f.icon = H.Icon(f, 32)
+    f.icon:SetPoint("TOPLEFT", 14, -52)
+    f.n = Text(f, 13, C.white)
+    f.n:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 10, -2)
+    f.l2 = Text(f, 11, C.grey)
+    f.l2:SetPoint("TOPLEFT", f.n, "BOTTOMLEFT", 0, -4)
+    f.csect = H.Sect(f)
+    f.csect:SetPoint("TOPLEFT", 14, -92)
+    f.csect:SetPoint("TOPRIGHT", -14, -92)
+    f.csect:Set("Checks")
+    f.rows = {}
+    for i = 1, 4 do
+        local r = CreateFrame("Frame", nil, f)
+        r:SetHeight(22)
+        r:SetPoint("TOPLEFT", 14, -(120 + (i - 1) * 22))
+        r:SetPoint("TOPRIGHT", -14, -(120 + (i - 1) * 22))
+        r.icon = r:CreateTexture(nil, "ARTWORK")
+        r.icon:SetSize(13, 13)
+        r.icon:SetPoint("LEFT", 2, 0)
+        r.fs = Text(r, 12, { 0.85, 0.85, 0.85 })
+        r.fs:SetPoint("LEFT", 24, 0)
+        r.r = Text(r, 11, C.grey)
+        r.r:SetJustifyH("RIGHT")
+        r.r:SetPoint("RIGHT", 0, 0)
+        f.rows[i] = r
+    end
+    f.nsect = H.Sect(f)
+    f.nsect:SetPoint("TOPLEFT", 14, -214)
+    f.nsect:SetPoint("TOPRIGHT", -14, -214)
+    f.nsect:Set("Note for the reviewers")
+    f.note = Field(f, 532, 26, 200, "What's new, what to look at")
+    f.note:SetPoint("TOPLEFT", 14, -244)
+    f.foot:SetText("Goes to the GM, officers and the guild council")
+    f.ok:SetText("Send for review")
+    H.Fit(f.ok, 110, 30)
+    f.ok:SetScript("OnClick", function() Sh.SubmitReview() end)
+    return f
+end
+
+function Sh.SubmitReview()
+    local f = sheets.submit
+    local d = f and f.def and Ev():GetDef(f.def.id)
+    if not d then
+        f:Error("Save the event in the builder first.")
+        return false
+    end
+    if Ev():ReviewState(d) == "ranked" then
+        f:Error("It's ranked already.")
+        return false
+    end
+    if #B():Problems(d) > 0 then
+        f:Error("Fix the pieces marked in the builder first.")
+        return false
+    end
+    if B():MaxSeasonGrant(d) > B().SEASON_CAP then
+        f:Error("One piece gives more than " .. B().SEASON_CAP .. " season points.")
+        return false
+    end
+    local note = ns.Util.Trim(f.note:GetText() or "")
+    if not Ev():SubmitForReview(d.id, note ~= "" and note or nil) then
+        f:Error("Only its creator sends it in.")
+        return false
+    end
+    f:Close()
+    ns:Print("%s went to the reviewers.", d.name or "The event")
+    EventsUI:RequestRefresh()
+    return true
+end
+
+function EventsUI:OpenSubmit(defId)
+    local d = Ev():GetDef(defId)
+    if not d then
+        ns:Print("save the event first, then send it in.")
+        return false
+    end
+    local f = Sh.Submit()
+    f.def = d
+    f.icon:Set(d.icon)
+    f.n:SetText(d.name or "Event")
+    local snap = Ev():RankedSnapshot(d.id)
+    local nb, newB, titles = 0, 0, 0
+    for id, bd in pairs(d.badges or {}) do
+        nb = nb + 1
+        if snap and not (snap.badges and snap.badges[id]) then newB = newB + 1 end
+        if bd.ti and bd.ti ~= "" then titles = titles + 1 end
+    end
+    local stages, pieces = #(d.stages or {}), W.PieceCount(d)
+    local parts = { stages .. (stages == 1 and " stage" or " stages"), pieces .. (pieces == 1 and " piece" or " pieces"),
+        nb == 0 and "no badges" or (nb .. (nb == 1 and " badge" or " badges") .. ((snap and newB > 0) and (" (" .. newB
+        .. " new)") or "")) }
+    if titles > 0 then parts[#parts + 1] = titles .. (titles == 1 and " title" or " titles") end
+    f.l2:SetText(tconcat(parts, " · "))
+    local _, _, practiced, blanks, cap = W.Checks(d)
+    local probs = #B():Problems(d)
+    local grants = W.Grants(d)
+    local rows = {
+        { practiced and true or false, practiced and ("Practice run went through all " .. stages .. " stages")
+            or "No practice run of this version yet", practiced and (type(practiced) == "number" and W.Ago(practiced)
+            or "") or "start one in the builder" },
+        { blanks, blanks and "Every blank is filled" or (probs .. (probs == 1 and " piece needs" or " pieces need")
+            .. " fixing"), blanks and "" or "marked in the builder" },
+        { true, "Chat stays under the limit", "8 lines a minute at most" },
+        { cap, cap and "Points stay under the season cap" or "A piece gives too many season points",
+            #grants > 0 and tconcat(grants, " / ", 1, min(#grants, 5)) or "no season points" },
+    }
+    for i, r in ipairs(f.rows) do
+        local x = rows[i]
+        r.icon:SetTexture(x[1] and READY or WARN)
+        r.fs:SetText(x[2])
+        Color(r.fs, x[1] and { 0.85, 0.85, 0.85 } or { 1, 0.78, 0.55 })
+        r.r:SetText(x[3] or "")
+    end
+    f.note:SetText(d.review and d.review.note or "")
+    f:Open()
+    return true
+end
+
+-- The badge designer --------------------------------------------------------
+
+-- Icons to pick from: weapons and duels, shields, crowns and medals, banners, mounts, fishing, pirates, dragons...
+-- (the words after each help the search).
+local BADGE_ICONS = {
+    { "Ability_Warrior_Challange", "duel sword challenge" }, { "Ability_DualWield", "duel swords" },
+    { "INV_Sword_39", "sword blade" }, { "INV_Sword_27", "sword blade" }, { "INV_Sword_04", "sword blade" },
+    { "Ability_Parry", "parry sword duel" }, { "Ability_Warrior_Riposte", "riposte sword duel" },
+    { "INV_Axe_09", "axe weapon" }, { "INV_Weapon_Bow_07", "bow weapon hunt" }, { "INV_Staff_13", "staff weapon" },
+    { "INV_Shield_06", "shield" }, { "INV_Gauntlets_04", "fist gauntlet brawl" }, { "INV_Helmet_66", "helm" },
+    { "INV_Crown_01", "crown king queen" }, { "INV_Crown_02", "crown king queen" },
+    { "INV_Jewelry_TrinketPVP_01", "medal pvp trinket" }, { "INV_Jewelry_TrinketPVP_02", "medal pvp trinket" },
+    { "INV_Jewelry_Talisman_07", "medal talisman" }, { "INV_Misc_Coin_01", "coin gold" },
+    { "INV_BannerPVP_01", "banner flag" }, { "INV_BannerPVP_02", "banner flag" }, { "INV_Banner_03", "banner flag" },
+    { "Achievement_Arena_2v2_7", "arena pvp" }, { "Spell_Holy_SealOfValor", "holy valor" },
+    { "Spell_Holy_Heroism", "hero holy" }, { "Spell_Holy_ChampionsGrace", "champion holy" },
+    { "Ability_Warrior_BattleShout", "shout battle" }, { "Ability_Warrior_RallyingCry", "rally cry" },
+    { "Ability_Mount_RidingHorse", "mount horse race ride" }, { "Ability_Mount_WhiteTiger", "mount tiger race ride" },
+    { "Ability_Mount_JungleTiger", "mount tiger race ride" }, { "Ability_Mount_Raptor", "mount raptor race ride" },
+    { "Ability_Mount_Gryphon_01", "mount gryphon flying race" }, { "Ability_Mount_NightmareHorse", "mount horse race" },
+    { "Trade_Fishing", "fishing fish" }, { "INV_Misc_Fish_02", "fish fishing" }, { "INV_Misc_Fish_14", "fish fishing" },
+    { "INV_Misc_Bandana_03", "pirate bandana" }, { "INV_Misc_Spyglass_02", "pirate spyglass" },
+    { "INV_Misc_Map_01", "pirate treasure map hunt" }, { "INV_Misc_Bomb_01", "bomb" },
+    { "INV_Misc_Head_Dragon_01", "dragon upset" }, { "INV_Misc_MonsterHead_02", "monster head" },
+    { "INV_Misc_Bone_ElfSkull_01", "skull bone" }, { "Ability_Rogue_Sprint", "sprint race fast run" },
+    { "Ability_Stealth", "stealth hide seek" }, { "INV_Misc_Gift_01", "gift prize" },
+    { "INV_Misc_Ticket_Darkmoon_01", "ticket fair darkmoon" },
+}
+local ICON_COLS, ICON_SIZE, ICON_GAP = 8, 30, 4
+
+function Sh.Badge()
+    if sheets.badge then return sheets.badge end
+    local f = Sh.New("badge", "DisasterZoneBadgeDesigner", 600, 506)
+    f.tpill:SetKind("needs review", "warn")
+    -- the preview: the badge big, its name and title, how it reads on a player's tooltip
+    local pv = CreateFrame("Frame", nil, f)
+    pv:SetPoint("TOPLEFT", 1, -41)
+    pv:SetPoint("BOTTOMLEFT", 1, 47)
+    pv:SetWidth(236)
+    -- a soft gold light from the top, strongest behind the badge (kept inside the panel)
+    pv.light = pv:CreateTexture(nil, "BACKGROUND", nil, 0)
+    pv.light:SetPoint("TOPLEFT")
+    pv.light:SetPoint("TOPRIGHT")
+    pv.light:SetHeight(260)
+    Grad(pv.light, "VERTICAL", { 1, 0.82, 0, 0 }, { 1, 0.82, 0, 0.05 })
+    pv.glows = {}
+    for i, size in ipairs({ 140, 118, 100 }) do
+        local t = Disc(pv, size, { 1, 0.82, 0, 0.045 }, "BACKGROUND", i)
+        t:SetPoint("CENTER", pv, "TOP", 0, -70)
+        pv.glows[i] = t
+    end
+    pv.line = Line(f, { 1, 1, 1, 0.06 })
+    pv.line:SetWidth(1)
+    pv.line:SetPoint("TOPLEFT", pv, "TOPRIGHT", 0, 0)
+    pv.line:SetPoint("BOTTOMLEFT", pv, "BOTTOMRIGHT", 0, 0)
+    pv.badge = H.Badge(pv, 72)
+    pv.badge:SetPoint("TOP", 0, -24)
+    pv.badge.noTip = true
+    pv.n = Text(pv, 15, C.white)
+    pv.n:SetJustifyH("CENTER")
+    pv.n:SetPoint("TOP", pv.badge, "BOTTOM", 0, -14)
+    pv.ti = Text(pv, 11, C.gold)
+    pv.ti:SetJustifyH("CENTER")
+    pv.ti:SetPoint("TOP", pv.n, "BOTTOM", 0, -5)
+    local tt = CreateFrame("Frame", nil, pv)
+    tt:SetSize(196, 92)
+    tt:SetPoint("TOP", pv.badge, "BOTTOM", 0, -64)
+    Fill(tt, { 0.03, 0.03, 0.047, 0.96 })
+    Edges(tt, { 0.59, 0.59, 0.67, 0.85 })
+    tt.l1 = Text(tt, 12, C.white)
+    tt.l1:SetPoint("TOPLEFT", 10, -9)
+    tt.l2 = Text(tt, 12, { 0.66, 0.66, 0.66 })
+    tt.l2:SetPoint("TOPLEFT", tt.l1, "BOTTOMLEFT", 0, -3)
+    tt.sep = Line(tt, { 1, 1, 1, 0.12 })
+    tt.sep:SetHeight(1)
+    tt.sep:SetPoint("TOPLEFT", 10, -45)
+    tt.sep:SetPoint("TOPRIGHT", -10, -45)
+    tt.l3 = Text(tt, 12, C.gold)
+    tt.l3:SetPoint("TOPLEFT", 10, -53)
+    tt.l4 = Text(tt, 11, { 0.66, 0.66, 0.66 })
+    tt.l4:SetPoint("TOPLEFT", tt.l3, "BOTTOMLEFT", 0, -3)
+    pv.tt = tt
+    f.pv = pv
+    -- the form
+    local FX, LX = 236 + 16 + 62, 236 + 16
+    local FW = 600 - FX - 16
+    FormLabel(f, "Name", LX, -62)
+    f.name = Field(f, FW, 26, 32, "What it's for")
+    f.name:SetPoint("TOPLEFT", FX, -55)
+    f.name:SetScript("OnTextChanged", function(self)
+        if f.s then f.s.n = self:GetText() end
+        Sh.RefreshBadge()
+    end)
+    FormLabel(f, "Icon", LX, -99)
+    f.search = UI():CreateSearchBox(f, FW, function(text)
+        if f.s then f.s.q = text end
+        Sh.RefreshBadge()
+    end, "Search icons: sword, mount, fish ...")
+    f.search:SetHeight(24)
+    f.search:SetPoint("TOPLEFT", FX, -93)
+    f.search:SetWidth(FW)
+    f.cells = {}
+    f.gridY = -127
+    f.gridX = FX
+    f.frameLabel = FormLabel(f, "Frame", LX, -350)
+    f.swatches = {}
+    for i, fr in ipairs(B().FRAMES) do
+        local key = fr[1]
+        local sw = CreateFrame("Button", nil, f)
+        sw:SetSize(31, 31)
+        sw:SetPoint("TOPLEFT", FX + (i - 1) * 38, -341)
+        sw.sel = Disc(sw, 33, { 1, 0.82, 0, 0.9 }, "BACKGROUND", 1)
+        sw.sel:SetPoint("CENTER")
+        sw.hole = Disc(sw, 31, { 0.09, 0.09, 0.11, 1 }, "BACKGROUND", 2)
+        sw.hole:SetPoint("CENTER")
+        sw.badge = H.Badge(sw, 19)
+        sw.badge:SetPoint("CENTER")
+        sw.badge:EnableMouse(false)
+        sw:SetScript("OnClick", function()
+            if f.s then f.s.f = key end
+            Sh.RefreshBadge()
+        end)
+        sw:SetScript("OnEnter", function(self) Tip(self, { fr[2] .. " frame" }) end)
+        sw:SetScript("OnLeave", HideTip)
+        sw.key = key
+        f.swatches[i] = sw
+    end
+    FormLabel(f, "Title", LX, -393)
+    f.tiSwitch = UI():CreateSwitch(f, function() return f.s and f.s.tiOn end, function(on)
+        if f.s then f.s.tiOn = on end
+        if on and ns.Util.Trim(f.title2:GetText() or "") == "" then f.title2:SetFocus() end
+        Sh.RefreshBadge()
+    end)
+    f.tiSwitch:SetPoint("TOPLEFT", FX, -390)
+    f.title2 = Field(f, FW - 46, 26, 24, "the Duelist")
+    f.title2:SetPoint("TOPLEFT", FX + 46, -386)
+    f.title2:SetScript("OnTextChanged", function(self)
+        if f.s then f.s.ti = self:GetText() end
+        Sh.RefreshBadge()
+    end)
+    f.hint = Text(f, 11, C.grey)
+    f.hint:SetPoint("TOPLEFT", FX, -420)
+    Wrap(f.hint, "Shown after the name on tooltips. Players pick the one they show on the Season page.", FW, 11)
+    f.footIcon:Show()
+    f.foot:ClearAllPoints()
+    f.foot:SetPoint("LEFT", f.footIcon, "RIGHT", 7, 0)
+    f.ok:SetText("Save badge")
+    H.Fit(f.ok, 100, 30)
+    f.ok:SetScript("OnClick", function() Sh.SaveBadge() end)
+    return f
+end
+
+-- The icons the search keeps (the badge's own icon first when it is not one of them).
+function Sh.BadgeIcons(s)
+    local q = ns.Util.Trim(s.q or ""):lower()
+    local out, seen = {}, {}
+    local function add(path)
+        if not seen[path:lower()] then
+            seen[path:lower()] = true
+            out[#out + 1] = path
+        end
+    end
+    if s.i and q == "" then add(s.i) end
+    for _, x in ipairs(BADGE_ICONS) do
+        local path = "Interface\\Icons\\" .. x[1]
+        if q == "" or (x[1] .. " " .. x[2]):lower():find(q, 1, true) then add(path) end
+    end
+    return out
+end
+
+-- A badge's name / title as the guild stores it (no colour or texture codes, no line breaks), trimmed.
+function W.CleanText(t)
+    return (ns.Util.Trim(((t or ""):gsub("[%c|]", ""))))
+end
+
+function Sh.RefreshBadge()
+    local f = sheets.badge
+    local s = f and f.s
+    if not s then return end
+    local bd = { n = W.CleanText(s.n), i = s.i, f = s.f, ti = s.tiOn and W.CleanText(s.ti) or nil }
+    local pv = f.pv
+    pv.badge:SetBadge({ n = bd.n, i = bd.i, f = bd.f })
+    local _, nh = FitText(pv.n, bd.n ~= "" and bd.n or Hex(C.dim, "Badge name"), 220, { 15, 13 })
+    pv.ti:SetText((bd.ti and bd.ti ~= "") and ("\"" .. bd.ti .. "\"") or "")
+    local me = Me()
+    local who = EUI():Plain(me)
+    pv.tt.l1:SetText(who .. ((bd.ti and bd.ti ~= "") and (" " .. Hex(C.gold, bd.ti)) or ""))
+    local race = UnitRace and UnitRace("player") or ""
+    local cls = UnitClass and UnitClass("player") or ""
+    pv.tt.l2:SetText(("Level %d %s %s"):format(UnitLevel and UnitLevel("player") or 70, race or "", cls or ""))
+    pv.tt.l3:SetText(bd.n ~= "" and bd.n or "Badge name")
+    pv.tt.l4:SetText((s.def and s.def.name or "Event") .. " · " .. date("%d %b", Now()))
+    -- (the tooltip as the game draws one: as wide as its longest line, up to the panel's; a longer line wraps)
+    local tt = pv.tt
+    local need = 176
+    for _, fs in ipairs({ tt.l1, tt.l2, tt.l3, tt.l4 }) do need = max(need, ceil(NatW(fs))) end
+    local inner = min(196, need)
+    tt:SetWidth(inner + 20)
+    tt:ClearAllPoints()
+    tt:SetPoint("TOP", pv.badge, "BOTTOM", 0, -(14 + nh + 32))
+    local y = 9
+    for i, fs in ipairs({ tt.l1, tt.l2, tt.l3, tt.l4 }) do
+        local _, h = FitText(fs, fs:GetText(), inner, i == 4 and 11 or 12)
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", tt, "TOPLEFT", 10, -y)
+        y = y + h + 3
+        if i == 2 then
+            tt.sep:ClearAllPoints()
+            tt.sep:SetPoint("TOPLEFT", tt, "TOPLEFT", 10, -y)
+            tt.sep:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -10, -y)
+            y = y + 8
+        end
+    end
+    tt:SetHeight(y + 4)
+    -- the icons
+    local icons = Sh.BadgeIcons(s)
+    for i = 1, max(#icons, #f.cells) do
+        local c = Pool(f.cells, i, function()
+            local b = CreateFrame("Button", nil, f)
+            b:SetSize(ICON_SIZE, ICON_SIZE)
+            b.sel = Fill(b, { 1, 0.82, 0, 1 }, "BACKGROUND")
+            b.sel:ClearAllPoints()
+            b.sel:SetPoint("TOPLEFT", -2, 2)
+            b.sel:SetPoint("BOTTOMRIGHT", 2, -2)
+            b.edge = Fill(b, { 0, 0, 0, 1 }, "BACKGROUND", 1)
+            b.edge:ClearAllPoints()
+            b.edge:SetPoint("TOPLEFT", -1, 1)
+            b.edge:SetPoint("BOTTOMRIGHT", 1, -1)
+            b.tex = b:CreateTexture(nil, "ARTWORK")
+            b.tex:SetAllPoints()
+            b.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+            b.hl:SetAllPoints()
+            b.hl:SetColorTexture(1, 1, 1, 0.15)
+            b:SetScript("OnClick", function(self)
+                if f.s then f.s.i = self.path end
+                Sh.RefreshBadge()
+            end)
+            return b
+        end)
+        local path = icons[i]
+        if path and i <= ICON_COLS * 6 then
+            local col, row = (i - 1) % ICON_COLS, floor((i - 1) / ICON_COLS)
+            c:ClearAllPoints()
+            c:SetPoint("TOPLEFT", f, "TOPLEFT", f.gridX + col * (ICON_SIZE + ICON_GAP), f.gridY - row * (ICON_SIZE + ICON_GAP))
+            c.path = path
+            c.tex:SetTexture(path)
+            c.sel:SetShown(s.i and path:lower() == s.i:lower())
+            c:Show()
+        else
+            c:Hide()
+        end
+    end
+    f.noIcon = f.noIcon or Text(f, 11, C.grey)
+    f.noIcon:ClearAllPoints()
+    f.noIcon:SetPoint("TOPLEFT", f, "TOPLEFT", f.gridX + 2, f.gridY - 6)
+    f.noIcon:SetText("No icon matches that word.")
+    f.noIcon:SetShown(#icons == 0)
+    for _, sw in ipairs(f.swatches) do
+        sw.badge:SetBadge({ i = s.i, f = sw.key })
+        sw.badge.noTip = true
+        sw.sel:SetShown(s.f == sw.key)
+    end
+    f.tiSwitch:SetOn(s.tiOn and true or false)
+    f.title2:SetAlpha(s.tiOn and 1 or 0.45)
+end
+
+function Sh.SaveBadge()
+    local f = sheets.badge
+    local s = f and f.s
+    if not s then return false end
+    local n = W.CleanText(s.n)
+    if n == "" then
+        f:Error("Give it a name.")
+        f.name:SetFocus()
+        return false
+    end
+    -- (two badges of one event by the same name: the results and the standings couldn't tell them apart)
+    for id, other in pairs(s.def and s.def.badges or {}) do
+        if id ~= s.id and W.CleanText(other.n):lower() == n:lower() then
+            f:Error("Another badge of this event has that name.")
+            f.name:SetFocus()
+            return false
+        end
+    end
+    local ti = s.tiOn and W.CleanText(s.ti) or ""
+    local id = s.id
+    if not id then
+        local used = s.def and s.def.badges or {}
+        local i = 1
+        while used["b" .. i] do i = i + 1 end
+        id = "b" .. i
+    end
+    local out = { n = n, i = s.i or QUESTION, f = s.f or "gold", ti = ti ~= "" and ti or nil }
+    local cb = s.onSave
+    f.s = nil
+    f:Close()
+    if cb then cb(id, out) end
+    return id, out
+end
+
+function EventsUI:OpenBadgeDesigner(def, badgeId, onSave)
+    local f = Sh.Badge()
+    local cur = def and def.badges and badgeId and def.badges[badgeId]
+    f.s = { def = def, id = cur and badgeId or nil, n = cur and cur.n or "", i = cur and cur.i or
+        "Interface\\Icons\\Ability_Warrior_Challange", f = cur and cur.f or "gold", ti = cur and cur.ti or "",
+        tiOn = cur and cur.ti and cur.ti ~= "" or false, q = "", onSave = onSave }
+    f.title:SetText(cur and "Edit badge" or "New badge")
+    f.tpill:Show()
+    f.name:SetText(f.s.n)
+    f.title2:SetText(f.s.ti or "")
+    f.search:SetText("")
+    f.footIcon:SetTexture(def and def.icon or QUESTION)
+    f.foot:SetText("Given by " .. (def and def.name or "this event"))
+    f:Open()
+    Sh.RefreshBadge()
+    if not cur then f.name:SetFocus() end
+    return true
+end
+
+-- The season (officers): its name, first and last day --------------------
+
+function Sh.Season()
+    if sheets.season then return sheets.season end
+    local f = Sh.New("season", "DisasterZoneEventSeason", 420, 244)
+    f.title:SetText("The season")
+    local LX, FX = 14, 76
+    FormLabel(f, "Name", LX, -62)
+    f.name = Field(f, 330, 26, 32, "Season 1")
+    f.name:SetPoint("TOPLEFT", FX, -55)
+    local tip = { "Pick the day", "Click the arrows or scroll." }
+    FormLabel(f, "From", LX, -100)
+    f.from = H.Stepper(f, 160, function(dir)
+        f.s.from = W.Noon(f.s.from + dir * DAY)
+        if f.s.from > f.s.to - DAY then f.s.from = f.s.to - DAY end
+        Sh.RefreshSeason()
+    end, tip)
+    f.from:SetPoint("TOPLEFT", FX, -93)
+    FormLabel(f, "To", LX, -134)
+    f.to = H.Stepper(f, 160, function(dir)
+        f.s.to = W.Noon(f.s.to + dir * DAY)
+        if f.s.to < f.s.from + DAY then f.s.to = f.s.from + DAY end
+        Sh.RefreshSeason()
+    end, tip)
+    f.to:SetPoint("TOPLEFT", FX, -127)
+    f.info = Text(f, 11, C.grey)
+    f.info:SetPoint("TOPLEFT", FX, -166)
+    f.foot:SetText("Ranked events in it count")
+    f.ok:SetText("Save")
+    f.ok:SetScript("OnClick", function()
+        local s = f.s
+        local name = ns.Util.Trim(f.name:GetText() or "")
+        if name == "" then
+            f:Error("Give it a name.")
+            return
+        end
+        local from = time({ year = tonumber(date("%Y", s.from)), month = tonumber(date("%m", s.from)),
+            day = tonumber(date("%d", s.from)), hour = 0 })
+        local to = time({ year = tonumber(date("%Y", s.to)), month = tonumber(date("%m", s.to)),
+            day = tonumber(date("%d", s.to)), hour = 23, min = 59, sec = 59 })
+        -- (the standings only ever show the season today is in: one that isn't wouldn't show)
+        if from > Now() or to < Now() then
+            f:Error("Pick days that take in today.")
+            return
+        end
+        if Ev():SetSeason(name, from, to) then
+            f:Close()
+            EventsUI:RequestRefresh()
+        else
+            f:Error("Only the GM and officers set the season.")
+        end
+    end)
+    return f
+end
+
+function Sh.RefreshSeason()
+    local f = sheets.season
+    local s = f and f.s
+    if not s then return end
+    f.from:Set(date("%a %d %b %Y", s.from), true, true)
+    f.to:Set(date("%a %d %b %Y", s.to), true, true)
+    local days = floor((W.Noon(s.to) - W.Noon(s.from)) / DAY + 0.5) + 1
+    f.info:SetText(days .. " days")
+end
+
+function EventsUI:OpenSeasonSheet()
+    if not Ev():CanModerate(Me()) then
+        ns:Print("only the GM and officers set the season.")
+        return false
+    end
+    local season = Ev():GetSeason()
+    local f = Sh.Season()
+    f.s = { from = W.Noon(season.from), to = W.Noon(season.to) }
+    f.name:SetText(season.n or "")
+    f:Open()
+    Sh.RefreshSeason()
+    return true
+end
+
+-- A confirm (Cancel an event, Delete results): title, text, an optional reason, the button --------
+
+function Sh.Confirm()
+    if sheets.confirm then return sheets.confirm end
+    local f = Sh.New("confirm", "DisasterZoneEventConfirm", 420, 200)
+    f.text = Text(f, 12, { 0.88, 0.88, 0.88 })
+    f.text:SetPoint("TOPLEFT", 14, -56)
+    f.reasonLabel = FormLabel(f, "Why", 14, -112)
+    f.reason = Field(f, 344, 26, 80, "Not enough players")
+    f.reason:SetPoint("TOPLEFT", 62, -105)
+    f.cancel:SetText("Keep it")
+    f.ok:SetScript("OnClick", function()
+        local o = f.opts
+        f:Close()
+        if o and o.fn then o.fn(ns.Util.Trim(f.reason:GetText() or "")) end
+    end)
+    return f
+end
+
+-- opts = { title, text, yes, danger, reason (a placeholder: asks why), fn(reason) }.
+function EventsUI:Confirm(opts)
+    local f = Sh.Confirm()
+    f.opts = opts
+    FitText(f.title, opts.title or "Sure?", 420 - 12 - 34, { 14, 13, 12 })
+    Wrap(f.text, opts.text or "", 392, 12)
+    f.reason:SetText("")
+    f.reason:SetShown(opts.reason ~= nil)
+    f.reasonLabel:SetShown(opts.reason ~= nil)
+    if opts.reason then UI():SetEditPlaceholder(f.reason, opts.reason) end
+    f.ok:SetText(opts.yes or "OK")
+    f.ok:SetKind(opts.danger and "danger" or "primary")
+    H.Fit(f.ok, 100, 30)
+    f.foot:SetText("")
+    f:Open()
+    return true
+end
+
+function EventsUI:ConfirmCancel(occId)
+    local o = Ev():GetOcc(occId)
+    if not o then return false end
+    return self:Confirm({ title = "Cancel " .. (o.def.name or "the event") .. "?", text = "It comes off the calendar for "
+        .. "everyone. Those who signed up see it was cancelled, and why.", yes = "Cancel event", danger = true,
+        reason = "Not enough players", fn = function(reason)
+            -- (it may have started or ended while the sheet was open: a run isn't cancelled from here)
+            local cur = Ev():GetOcc(occId)
+            local st = cur and Ev():OccState(cur)
+            if st ~= "planned" and st ~= "missed" then
+                if st == "live" then ns:Print("%s has started: it can't be cancelled now.", o.def.name or "The event") end
+                EventsUI:RequestRefresh()
+                return
+            end
+            if Ev():CancelOcc(occId, reason ~= "" and reason or nil) then
+                ns:Print("%s is cancelled.", o.def.name or "The event")
+            end
+            EventsUI:RequestRefresh()
+        end })
+end
+
+---------------------------------------------------------------------------
+-- The panel: the views' tabs, Refresh, what other modules call
+---------------------------------------------------------------------------
+
+local VIEWS = { "upcoming", "library", "season", "review" }
+local VIEW_LABEL = { upcoming = "Upcoming", library = "Library", season = "Season", review = "Review" }
+local MAKE = { upcoming = Up.Create, library = Lib.Create, season = Sea.Create, review = Rv.Create, event = Pg.Create }
+local FILL = { upcoming = Up.Fill, library = Lib.Fill, season = Sea.Fill, review = Rv.Fill }
+
+-- The Review tab's count of events waiting: an orange bubble inside the tab, after its word.
+local function ReviewCount(t, n)
+    local fs = t:GetFontString()
+    if n > 0 then
+        t.cnt.fs:SetText(n)
+        local cw = max(15, ceil(SW(t.cnt.fs) + 9))
+        t.cnt:SetWidth(cw)
+        fs:ClearAllPoints()
+        fs:SetPoint("LEFT", 8, 1)
+        t.cnt:ClearAllPoints()
+        t.cnt:SetPoint("LEFT", fs, "RIGHT", 6, -1)
+        t.cnt:Show()
+        t:SetWidth(ceil(8 + SW(fs) + 6 + cw + 8))
+    else
+        fs:ClearAllPoints()
+        fs:SetPoint("CENTER", 0, 1)
+        t.cnt:Hide()
+        t:SetWidth(ceil(SW(fs) + 16))
+    end
+    -- (the underline follows the new width)
+    if t.cdlLook and t.cdlLook.painted and t.cdlLook.apply then t.cdlLook.apply(t, t.cdlLook.cur) end
+end
+
+function EventsUI:CreatePanel(parent)
+    if panel then return panel end
+    local p = CreateFrame("Frame", "DisasterZoneEventsPanel", parent)
+    p:SetAllPoints(parent)
+    panel = p
+    p.tabs, p.views = {}, {}
+    local prev
+    for _, view in ipairs(VIEWS) do
+        local t = UI():CreateUnderlineTab(p, VIEW_LABEL[view], function() EventsUI:SetView(view) end)
+        if prev then t:SetPoint("LEFT", prev, "RIGHT", 4, 0) else t:SetPoint("TOPLEFT", 6, -6) end
+        p.tabs[view] = t
+        prev = t
+    end
+    local rt = p.tabs.review
+    rt.cnt = CreateFrame("Frame", nil, rt)
+    rt.cnt:SetSize(15, 15)
+    UI():AddPillShape(rt.cnt, 15)
+    rt.cnt:SetPillColors({ 1, 0.55, 0.1, 1 }, { 1, 0.62, 0.2, 1 })
+    rt.cnt.fs = Text(rt.cnt, 11, { 0.16, 0.11, 0 }, true)
+    rt.cnt.fs:SetShadowColor(0, 0, 0, 0)
+    rt.cnt.fs:SetJustifyH("CENTER")
+    rt.cnt.fs:SetPoint("CENTER", 0, 0)
+    rt.cnt:Hide()
+    rt:HookScript("OnEnter", function(self)
+        local n = #Ev():GetReviewQueue()
+        Tip(self, { "Review", n > 0 and (n .. (n == 1 and " event waits" or " events wait") .. " for a decision: ranked "
+            .. "or sent back.") or "Events members send in for review show up here." }, "ANCHOR_BOTTOM")
+    end)
+    rt:HookScript("OnLeave", HideTip)
+    p.newBtn = H.Button(p, "New event", nil, 22, "secondary", A.NewEvent, "plus")
+    H.Fit(p.newBtn, 90, 26)
+    p.newBtn:SetPoint("TOPRIGHT", -PAD, -8)
+    p.newBtn:HookScript("OnEnter", function(self)
+        Tip(self, { "New event", "Opens the builder on an empty event: drag pieces in, practice it, save it." },
+            "ANCHOR_BOTTOM")
+    end)
+    p.newBtn:HookScript("OnLeave", HideTip)
+    p:SetScript("OnShow", function() EventsUI:Refresh() end)
+    p.OnPanelShown = function() EventsUI:Refresh() end
+    p.elapsed = 0
+    p:SetScript("OnUpdate", function(self, dt)
+        self.elapsed = self.elapsed + dt
+        if self.elapsed >= 30 then
+            self.elapsed = 0
+            EventsUI:Refresh()
+        end
+    end)
+    return p
+end
+
+local function ViewFrame(key)
+    local v = panel.views[key]
+    if not v then
+        v = MAKE[key](panel)
+        panel.views[key] = v
+    end
+    return v
+end
+
+function EventsUI:Refresh()
+    if not panel or not panel:IsVisible() then return end
+    W.DressAll()
+    local reviewer = Ev():AmIReviewer()
+    if state.view == "review" and not reviewer then state.view = "upcoming" end
+    local onPage = state.occ ~= nil
+    for view, t in pairs(panel.tabs) do
+        t:SetShown(not onPage and (view ~= "review" or reviewer))
+        t:SetActive(state.view == view)
+    end
+    if reviewer and not onPage then ReviewCount(panel.tabs.review, #Ev():GetReviewQueue()) end
+    panel.newBtn:SetShown(not onPage and state.view == "upcoming")
+    local key = onPage and "event" or state.view
+    for k, v in pairs(panel.views) do
+        if k ~= key then v:Hide() end
+    end
+    local v = ViewFrame(key)
+    v:Show()
+    if onPage then
+        if not Pg.Fill(v) then
+            -- (the event is gone: back to the view it was opened from)
+            state.occ = nil
+            return self:Refresh()
+        end
+        return
+    end
+    FILL[key](v)
+end
+
+local refreshDue   -- (a refresh waits: the latest it runs)
+function EventsUI:RequestRefresh(delay)
+    if panel and panel:IsVisible() then
+        -- (each request pushes the wait back, but no further than a second after the first one)
+        local now = GetTime()
+        refreshDue = refreshDue or (now + 1)
+        ns.Util.Debounce("events-ui", min(delay or 0.15, max(0, refreshDue - now)), function()
+            refreshDue = nil
+            EventsUI:Refresh()
+        end)
+    end
+end
+
+-- "upcoming" | "library" | "season" | "review" (reviewers): the tab's view (the event page closes).
+function EventsUI:SetView(view)
+    if view ~= "library" and view ~= "season" and view ~= "review" then view = "upcoming" end
+    state.view = view
+    state.occ = nil
+    self:Refresh()
+end
+
+function EventsUI:GetView() return state.occ and "event" or state.view end
+
+-- The event page's back link.
+function EventsUI:Back()
+    state.occ = nil
+    self:Refresh()
+end
+
+-- Opens the Events tab (on a view).
+function EventsUI:Open(view)
+    state.occ = nil
+    if view then
+        state.view = (view == "library" or view == "season" or view == "review") and view or "upcoming"
+    end
+    if ns.MainFrame then ns.MainFrame:Open("events") end
+    self:Refresh()
+    return panel ~= nil and panel:IsVisible()
+end
+
+-- Opens a calendar event's page (its results once it is over).
+function EventsUI:OpenEvent(occId)
+    if type(occId) ~= "string" then return false end
+    if not (Ev():GetOcc(occId) or Ev():GetResult(occId)) then
+        ns:Print("that event isn't on the calendar any more.")
+        return false
+    end
+    state.occ = occId
+    if ns.MainFrame then ns.MainFrame:Open("events") end
+    self:Refresh()
+    return panel ~= nil and panel:IsVisible() and state.occ == occId
+end
+
+function EventsUI:GetPanel() return panel end
+
+-- For the test harness and the UI audit.
+function EventsUI:GetState() return state end
+function EventsUI:GetViewFrame(key) return panel and panel.views[key] end
+function EventsUI:GetSheet(key) return sheets[key] end
+function EventsUI:CloseSheets()
+    for _, f in pairs(sheets) do f:Hide() end
+end
+function EventsUI:SetLibraryHover(defId)
+    state.hover = defId
+    self:Refresh()
+end
+function EventsUI:SelectReview(defId)
+    state.review = defId
+    self:Refresh()
+end
+function EventsUI:SetSchedule(fields)
+    local f = sheets.schedule
+    if not (f and f.s) then return false end
+    for k, x in pairs(fields or {}) do
+        if k == "where" then f.where:SetText(x)
+        elseif k == "note" then f.note:SetText(x)
+        else f.s[k] = x end
+    end
+    Sh.RefreshSchedule()
+    return true
+end
+function EventsUI:SubmitSchedule() return Sh.SubmitSchedule() end
+function EventsUI:SubmitReview() return Sh.SubmitReview() end
+function EventsUI:SetBadge(fields)
+    local f = sheets.badge
+    if not (f and f.s) then return false end
+    for k, x in pairs(fields or {}) do
+        f.s[k] = x
+        if k == "n" then f.name:SetText(x) elseif k == "ti" then f.title2:SetText(x) elseif k == "q" then f.search:SetText(x) end
+    end
+    Sh.RefreshBadge()
+    return true
+end
+function EventsUI:SaveBadge() return Sh.SaveBadge() end
+
+function EventsUI:OnInit()
+    if ns.MainFrame and ns.MainFrame.RegisterTab then
+        ns.MainFrame:RegisterTab("events", "Events", 3.57,
+            function(parent) return EventsUI:CreatePanel(parent) end,
+            function() return (IsInGuild() or (ns.Demo and ns.Demo:IsEnabled())) and true or false end)
+    end
+    local function refresh() EventsUI:RequestRefresh() end
+    for _, msg in ipairs({ "EVENTS_UPDATED", "DEMO_TOGGLED", "CONFIG_UPDATED", "ROSTER_UPDATED" }) do
+        ns:On(msg, refresh)
+    end
+    -- a live run changes every few seconds: a slower refresh
+    ns:On("EVENT_LIVE_UPDATED", function() EventsUI:RequestRefresh(0.4) end)
+end

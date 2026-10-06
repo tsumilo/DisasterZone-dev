@@ -1,6 +1,7 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Tooltip.lua", ...) then return end -- DisasterZone UI/Tooltip.lua
 -- Adds DisasterZone lines to item tooltips: your own BiS status for everyone and, for the Loot Council,
 -- who wants the item (SPEC §12.9). Uses HookScript("OnTooltipSetItem"); TooltipDataProcessor is retail-only.
+-- Player tooltips get the player's title and season from the guild's events (Core/Events.lua).
 local addonName, ns = ...
 
 local Tooltip = ns:NewModule("Tooltip")
@@ -563,6 +564,32 @@ function Tooltip:Invalidate()
     ClearCache()
 end
 
+-- A player's title from the guild's events and their season (rank, badges), under their name.
+function Tooltip:AddEventLines(tt, key)
+    local E = ns.Events
+    if not (E and key) then return false end
+    local title = E:GetTitle(key)
+    local badges = #E:BadgesOf(key)
+    local rank = E:RankOf(key)
+    if not title and badges == 0 and not rank then return false end
+    if title then tt:AddLine(title, 1, 0.82, 0) end
+    local parts = {}
+    local season = E:GetSeason()
+    if rank then parts[#parts + 1] = ("#%d in %s"):format(rank, season and season.n or "the season") end
+    if badges > 0 then parts[#parts + 1] = badges == 1 and "1 badge" or (badges .. " badges") end
+    if #parts > 0 then tt:AddLine(MARK .. " events: " .. tconcat(parts, " · "), GREY, GREY, GREY) end
+    return true
+end
+
+local function OnSetUnit(tt)
+    if not (tt and tt.GetUnit) then return end
+    local _, unit = tt:GetUnit()
+    if not unit or not (UnitIsPlayer and UnitIsPlayer(unit)) then return end
+    local key = ns.Util.UnitKey and ns.Util.UnitKey(unit)
+    local ok, added = pcall(Tooltip.AddEventLines, Tooltip, tt, key)
+    if ok and added then tt:Show() end
+end
+
 ---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
@@ -579,6 +606,7 @@ function Tooltip:OnLogin()
     for _, name in ipairs(TOOLTIPS) do
         self:HookTooltip(_G[name])
     end
+    if GameTooltip and GameTooltip.HookScript then GameTooltip:HookScript("OnTooltipSetUnit", OnSetUnit) end
     ns:RegisterEvent("MODIFIER_STATE_CHANGED", function(_, key, down)
         if key == "LSHIFT" or key == "RSHIFT" then
             down = down == 1 or down == true

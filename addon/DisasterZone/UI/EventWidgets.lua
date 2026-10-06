@@ -72,9 +72,9 @@ end
 
 -- Points tex at an event's art (EventBlocks.ART key) cropped for a w x h box: cx, cy = the middle of the crop (0..1
 -- of the square texture, which the game shows at 4:3), fw = how much of its width (default 0.9).
-function EUI:SetArt(tex, key, w, h, cx, cy, fw)
+-- The art's file and the crop for a w x h picture: path, left, right, top, bottom.
+function EUI:ArtCoords(key, w, h, cx, cy, fw)
     local path = B() and B():ArtPath(key) or "Interface\\Glues\\LoadingScreens\\LoadScreenNagrandArenaBattlegrounds"
-    tex:SetTexture(path)
     w, h = max(1, w or 100), max(1, h or 50)
     cx, cy, fw = cx or 0.5, cy or 0.62, fw or 0.9
     local top = 0.21                       -- the logo's band
@@ -85,7 +85,13 @@ function EUI:SetArt(tex, key, w, h, cx, cy, fw)
     end
     local l = min(max(cx - fw / 2, 0), 1 - fw)
     local t = min(max(cy - fh / 2, top), 1 - fh)
-    tex:SetTexCoord(l, l + fw, t, t + fh)
+    return path, l, l + fw, t, t + fh
+end
+
+function EUI:SetArt(tex, key, w, h, cx, cy, fw)
+    local path, l, r, t, b = self:ArtCoords(key, w, h, cx, cy, fw)
+    tex:SetTexture(path)
+    tex:SetTexCoord(l, r, t, b)
 end
 
 local function Gradient(tex, orient, r, g, b, a1, a2)
@@ -158,11 +164,13 @@ function EUI:Plain(key)
     return Util().ShortName(key)
 end
 
--- A class circle texture for a player (hidden for nobody).
+-- A class circle texture for a player (a dark disc for someone whose class isn't known).
 function EUI:SetClass(tex, key)
     local cls = self:ClassOf(key)
     if cls then
         UI():ClassIcon(tex, cls)
+        -- (a reused circle may have drawn an unknown player's dark disc before)
+        tex:SetVertexColor(1, 1, 1, 1)
         tex:SetDesaturated(false)
         tex:SetAlpha(1)
     else
@@ -229,16 +237,28 @@ end
 ---------------------------------------------------------------------------
 
 -- p:Set(def, st [, sub]): st = a run's state (or nil: nothing started; a done event shows all done); sub = the text
--- after the current stage ("quarterfinals").
+-- after the current stage ("quarterfinals"). p:SetMaxWidth(w): what doesn't fit in w goes, in this order: the sub
+-- text, the names of the other stages, the sub text again, the current stage's name (the rings alone).
 function EUI:CreateProgress(parent)
     local p = CreateFrame("Frame", nil, parent)
     p:SetSize(10, 14)
     p.items = {}
+    function p:SetMaxWidth(w) self.maxW = w end
     function p:Set(def, st, sub, done)
+        local maxW = self.maxW or math.huge
+        if self:Lay(def, st, sub, done, "all") <= maxW then return end
+        if sub and self:Lay(def, st, nil, done, "all") <= maxW then return end
+        if self:Lay(def, st, sub, done, "now") <= maxW then return end
+        if sub and self:Lay(def, st, nil, done, "now") <= maxW then return end
+        self:Lay(def, st, nil, done, "none")
+    end
+    -- names: "all" | "now" (the current stage's only) | "none". Returns the width.
+    function p:Lay(def, st, sub, done, names)
         local stages = def and def.stages or {}
         local _, cur = B():Stage(def, st and st.stage)
         local over = done or (st and (st.phase == "done" or st.phase == "cancelled"))
         local x = 0
+        local prevNamed = true
         for i, s in ipairs(stages) do
             local it = self.items[i]
             if not it then
@@ -257,14 +277,17 @@ function EUI:CreateProgress(parent)
                 self.items[i] = it
             end
             local state = over and "done" or (cur and (i < cur and "done" or (i == cur and "now" or "next")) or "next")
+            local named = names == "all" or (names == "now" and state == "now")
             if i > 1 then
+                -- (a shorter line between two rings without names)
+                local pad = (prevNamed or named) and 7 or 4
                 it.line:ClearAllPoints()
-                it.line:SetPoint("LEFT", self, "LEFT", x + 7, 0)
-                it.line:SetWidth(26)
+                it.line:SetPoint("LEFT", self, "LEFT", x + pad, 0)
+                it.line:SetWidth((prevNamed or named) and 26 or 12)
                 local prevDone = over or (cur and i - 1 < cur)
                 if prevDone then it.line:SetColorTexture(0.35, 0.86, 0.47, 0.55) else it.line:SetColorTexture(1, 1, 1, 0.18) end
                 it.line:Show()
-                x = x + 40
+                x = x + ((prevNamed or named) and 40 or 20)
             else
                 it.line:Hide()
             end
@@ -302,15 +325,28 @@ function EUI:CreateProgress(parent)
             it.fs:ClearAllPoints()
             it.fs:SetPoint("LEFT", self, "LEFT", x + 18, 0)
             for _, t in ipairs({ it.dot, it.ring, it.fs }) do t:Show() end
-            x = x + 18 + (it.fs:GetStringWidth() or 40)
+            if named then
+                x = x + 18 + EUI:TextWidth(it.fs)
+            else
+                it.fs:Hide()
+                x = x + 12
+            end
+            prevNamed = named
         end
         for i = #stages + 1, #self.items do
             local it = self.items[i]
             for _, t in ipairs({ it.line, it.dot, it.ring, it.check, it.fs }) do t:Hide() end
         end
         self:SetWidth(max(10, x))
+        return x
     end
     return p
+end
+
+-- A text's whole width on one line (GetStringWidth stops at a width the string was given on this client).
+function EUI:TextWidth(fs)
+    if fs.GetUnboundedStringWidth then return fs:GetUnboundedStringWidth() or 0 end
+    return fs:GetStringWidth() or 0
 end
 
 -- What a live run's current stage is doing: "quarterfinals", "round 2 of 4", "signing up" (or nil).
@@ -355,16 +391,20 @@ end
 
 function EUI:Day(t) return date("%a %d %b", t) end
 
--- "in 3 h", "in 2 days", "now", "2 h ago".
+-- "in 3 h", "in 2 days", "in 1 day", "now", "2 h ago". (Rounded up to the next unit: no "60 min", "24 h".)
 function EUI:Relative(t)
     local now = (GetServerTime and GetServerTime()) or time()
     local d = t - now
     local a = math.abs(d)
+    if a < 90 then return "now" end
     local s
-    if a < 90 then return "now"
-    elseif a < 3600 then s = floor(a / 60 + 0.5) .. " min"
-    elseif a < 86400 then s = floor(a / 3600 + 0.5) .. " h"
-    else s = floor(a / 86400 + 0.5) .. " days" end
+    local m, h = floor(a / 60 + 0.5), floor(a / 3600 + 0.5)
+    if m < 60 then s = m .. " min"
+    elseif h < 24 then s = h .. " h"
+    else
+        local n = floor(a / 86400 + 0.5)
+        s = n .. (n == 1 and " day" or " days")
+    end
     return d > 0 and ("in " .. s) or (s .. " ago")
 end
 

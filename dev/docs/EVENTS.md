@@ -54,7 +54,13 @@ Events (`ns.Events`):
 - Results: `GetResult(id)`, `GetResults(from, to)`, `DeleteResult(id)` (moderators).
 - Season: `GetSeason()` -> {n, from, to}, `SetSeason(n, from, to)` (GM / officers), `Standings()` -> { {key, pts, events, wins,
   badges = {...}, rank} }, `RankOf(key)`, `BadgesOf(key)`, `TitlesOf(key)`, `GetTitle(key)`, `SetTitle(ti)`.
-- Roles: `CanModerate(key)` (GM / officers), `CanReview(key)` (GM / officers / guild council).
+- Roles: `CanModerate(key)` (GM / officers: the season), `CanReview(key)` (GM / officers / guild council),
+  `CanRemove(key)` (= CanReview: they remove anyone's calendar event, library entry or result).
+- Removing (2026-10-06, the user: "as a GM / Officer / Guild Council be able to remove upcoming events from the list,
+  remove entries in the library, and remove decisions / waiting from the review list"): `DeleteOcc(id)` (host or
+  CanRemove), `DeleteDef(id)` (owner or CanRemove; calendar events made from it keep their copy), `DeleteResult(id)`
+  (CanRemove), `DismissReview(defId)` (reviewers: off Waiting without a decision, K `x = rev`; it can be sent in
+  again), `HideDecision(defId)` (reviewers: off Decided, K `hide = true`; the decision stays: ranked stays ranked).
 
 EventLive (`ns.EventLive`):
 - Reading: `GetState(occId)`, `GetDef(occId)`, `GetHost(occId)`, `IsLive(occId)`, `GetLiveList()`, `MyMatch(occId [, key])`
@@ -95,6 +101,39 @@ my Hide and seek in review, Ring of Blood night), calendar events (`odemo1` star
 sign-ups, `odemo3` in 5 days), two results, standings. `EventLive:IsLive("odemo1")` is true in demo mode but it has no state:
 the UI's demo view of a live event must build a state itself (e.g. by running a practice-like engine run on demo names);
 keep any such fake state in the UI module, never send it.
+
+## Engine rules settled by the edge-case pass (2026-10-06)
+
+- Asks carry `b` (the bracket id); a match decided by any means drops its asks, and the script waiting on one stops.
+  A restored run (reload, takeover) drops open asks: the match goes on, the host can decide it.
+- A bracket of 0 or 1 players fires "is done" at once, with no champion (a one-player ranked event earns nothing).
+- Leaving after the sign-up closed takes the player out: their match is a walkover for the opponent (`m.wo`), later
+  ones too, and they leave `entrants` (no hosting, no prizes).
+- A match needs two known players to be played or decided.
+- The step limit counts the pieces run between two waits (a long script that waits is fine; an endless one stops).
+- Chat text from pieces is cleaned (`EventEngine.Clean(s, n)`: no `|`, no control characters, cut between letters:
+  250 bytes for chat, 200 for moments, 80 for a cancel reason); chat goes to Guild / Raid / Party / Say only.
+- Numbers stay finite (NaN reads 0, clamped to +-1e9); season points added or set at run time are held to the cap.
+- Smart block settings are checked against their kind (`SmartSetting`): a wrong value reads as the default.
+- While the host pauses, waits stand still; only answers wake a script.
+
+## Data and live rules settled by the edge-case pass (2026-10-06)
+
+- Trust: a live state (EVS) is taken from the host I know (its own, or a handover), or from an entrant taking over once
+  that host went quiet / offline; two takers: the newer state wins; "practice" and unknown events are refused. A live
+  edit may mark ranked only when the review matches the current revision and content hash; a result needs a known
+  calendar event and is ranked only if that is; the host's own result beats a taker's.
+- The host's /reload resumes the run (`db.eventHosting`, saved at PLAYER_LOGOUT, resumed within 40 s).
+- EVQ is answered by marking the state dirty: one GUILD state serves every watcher; a state waits while the event
+  channel has a backlog (20 s valve).
+- Second return values (a plain sentence): `SignUp` (cancelled, over, closed, full, below 70), `AddPlayer`, `HandOver`.
+- Helpers: `GetOcc(id, real)`, `OccRemoved(id)`, `Needs70(def)`. `DeleteResult` also removes the occurrence.
+- Standings rank ties alike (1, 2, 2, 4). Sign-ups are pruned 7 days after the start; R tombstones kept; K and review
+  snapshots pruned with their event.
+- A live event can't be moved; cancelling or removing it stops the run (cancelled: a result marked cancelled).
+- Invites skip the group and offline players, need lead / assist, turn into a raid past 5; whispers over the rate wait.
+- An event with no Sign-up block takes the host's group members who have the addon.
+- Demo mode: no sends, no takeovers, `CanStart` refuses.
 
 ## Rules (the user's, from the memory notes)
 

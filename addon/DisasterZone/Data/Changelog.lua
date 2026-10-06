@@ -6,8 +6,28 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.2", date = "6 October 2026", title = "Dungeons: one invite pop-up, the Group Finder",
+    { version = "1.3.2", date = "6 October 2026", title = "Events you build; Dungeons in the Group Finder",
       sections = {
+          { heading = "Events", lines = {
+              "A new tab, Events: the guild's own events, like duel cups, races, hunts and contests.",
+              "Build one in the event builder: snap pieces together like a puzzle, no code.",
+              "Stages run along the top (Sign-up, Bracket, Finals, Prizes); Always runs in each of them.",
+              "Smart blocks do the big jobs: Sign-up, and Bracket (elimination or round robin, best of).",
+              "Open a smart block to see the pieces it's made of; make your own copy to change it.",
+              "Click a blank to pick what fits there, or drag a piece into it.",
+              "Practice first: your event runs with 16 dummies, and nothing is sent or saved.",
+              "Duels count by themselves: the game says who won, and nobody has to click a thing.",
+              "If the two players disagree, the event asks them, then the host decides.",
+              "Host it on a day and a place: it shows on the Home calendar with a purple dot.",
+              "The live board shows the bracket, who's playing and what happened; the host gets controls.",
+              "If the host goes offline, another player with DisasterZone takes over the event.",
+              "Under the minimap: when you're up, who you face, and a Ready button.",
+              "Ranked events count for the season: points, badges and titles.",
+              "The GM, officers and guild council rank events; send yours in for a review.",
+              "They can also remove any event from the calendar or the library, and clear the review lists.",
+              "Your title shows on your tooltip, with your place in the season.",
+              "Share an event in chat: the link opens its page, or the event in the builder.",
+          } },
           { heading = "Dungeons", lines = {
               "A run's leader invites you: one pop-up, the run's own, no longer under Blizzard's.",
               "Asked to join and the leader accepts? You join straight away: your Join was the answer.",

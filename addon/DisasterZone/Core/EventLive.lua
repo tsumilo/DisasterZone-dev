@@ -3,16 +3,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/EventLive.lua", ...) then ret
 -- clients see their duels end and tell the host; everyone can watch. The builder's practice run lives here too.
 --
 -- Wire (class "event", CDLe):
---   EVS { o, h, s = state, c = hosts } GUILD: the run's state (after a change, at most every 2 s), or WHISPER: an answer
---         to EVQ. h is the host; a state naming someone else as host hands the run over (that client goes on with it).
---   EVH { o, h, q = seq } GUILD every 10 s: the host is there (anyone behind asks with EVQ).
---   EVQ { o } WHISPER to the host: send me the state.
+--   EVS { o, h, s = state, c = hosts } GUILD: the run's state (after a change, at most every 2 s and one at a time:
+--         a newer one waits until the last one is out). h is the host; a state naming someone else as host hands
+--         the run over (that client goes on with it). Only the host I know sends it (or hands it on), or an entrant
+--         taking over once that host went quiet; anyone else's is not listened to.
+--   EVH { o, h, q = seq } GUILD every 10 s: the host is there (q: the last state sent; anyone behind asks with EVQ).
+--   EVQ { o } WHISPER to the host: send me the state (it goes out with the next state on GUILD, for all who asked).
 --   EVF { o, k, ... } WHISPER to the host: a fact. k = "duel" { w, l } (only the two duelists report; the loser's word
 --         counts at once, the winner's once the loser says the same or after 10 s as "not agreed", which makes the
 --         Bracket ask both players), "ready", "answer" { a = ask id, v = player }, "join" / "leave", "watch".
 -- The host gone (no EVS / EVH for 50 s and offline, or 90 s whatever): the entrants still online take over in name
 -- order, each waiting its turn; the first one sends the state with itself as host and goes on from there (scripts that
--- were waiting are lost, everything else carries on: timers, matches, stats).
+-- were waiting are lost, everything else carries on: timers, matches, stats). The host's own /reload: its runs are
+-- kept at logout and go on after it (db.eventHosting, read and cleared at login).
 local addonName, ns = ...
 
 local Live = ns:NewModule("EventLive")
@@ -30,7 +33,12 @@ local GONE_ANYWAY = 90
 local TAKEOVER_STEP = 6       -- seconds between one entrant's turn to take over and the next one's
 local DUEL_WAIT = 10          -- a winner's report waits this long for the loser's
 local CHAT_PER_MIN = 8        -- lines an event says in chat a minute (the rest are dropped)
-local WHISPER_PER_MIN = 30
+local WHISPER_PER_MIN = 30    -- (the rest wait their turn)
+local WHISPER_QUEUE = 120
+local GONE_FOR_GOOD = 600     -- a run nobody hosts any more (its host gone, no entrant took over) is forgotten then
+local QUIET_SLACK = 10        -- an entrant taking over heard the host last about when I did (give or take this)
+local MAX_CHAIN = 8           -- hosts a state names (the first one and the last ones)
+local FROM_ME_AHEAD = 5       -- changes an entrant who took my run over can be past my own state
 
 local hosting = {}            -- [occId] = { run, occ, hosts, sendAt, dirty, pending, recent, watchers, lastBeat }
 local seen = {}               -- [occId] = { st, h, c, at (GetTime), def }
@@ -39,6 +47,9 @@ local practice                -- { run, def, clock, dummies, off }
 local ticker
 local chatLog = {}            -- GetTime() of the event's recent chat lines
 local whisperLog = {}
+local whisperQueue = {}       -- { {key, text} } over the whisper rate, sent as it allows
+local inviteQueue = {}        -- keys a run asked to invite and not invited yet
+local invitedAt = {}          -- [key] = GetTime() their invite went out
 
 local function Now() return (GetServerTime and GetServerTime()) or time() end
 local function Me() return Util.PlayerKey() end
@@ -113,11 +124,69 @@ local function ZoneOf(key)
     return zoneCache[key]
 end
 
+local function IsOnline(key)
+    if Util.IsMe(key) then return true end
+    local G = ns.Guild
+    return G and G.IsOnline and G:IsOnline(key, true) or false
+end
+
+local function Whisper(key, text)
+    if SendChatMessage then pcall(SendChatMessage, text, "WHISPER", nil, Util.ShortName(key)) end
+end
+
+-- Whispers that waited for the rate (every tick).
+local function FlushWhispers()
+    while whisperQueue[1] and not DemoOn() and Allowed(whisperLog, WHISPER_PER_MIN) do
+        local w = tremove(whisperQueue, 1)
+        Whisper(w[1], w[2])
+    end
+end
+
+-- The invites a run asked for: not who is in my group already or offline, only while I lead my group (or assist in
+-- a raid) or have none; a party about to go past five turns into a raid first, and the rest go out once it is one.
+local function FlushInvites()
+    if not inviteQueue[1] or DemoOn() then return end
+    local grouped, raid = IsInGroup and IsInGroup(), IsInRaid and IsInRaid()
+    local leader = UnitIsGroupLeader and UnitIsGroupLeader("player")
+    if grouped and not (leader or (raid and UnitIsGroupAssistant and UnitIsGroupAssistant("player"))) then
+        inviteQueue = {}
+        return
+    end
+    -- (an invite that went out holds a place until they're in, or for a minute)
+    local pending = 0
+    for k, t in pairs(invitedAt) do
+        if GroupUnitOf(k) or GetTime() - t > 60 then invitedAt[k] = nil else pending = pending + 1 end
+    end
+    local keys = {}
+    for _, k in ipairs(inviteQueue) do
+        if not Util.IsMe(k) and not GroupUnitOf(k) and not invitedAt[k] and IsOnline(k) then keys[#keys + 1] = k end
+    end
+    local size = max(1, grouped and GetNumGroupMembers and GetNumGroupMembers() or 1) + pending
+    if not raid and grouped and size + #keys > 5 and leader then
+        local convert = ConvertToRaid
+        if convert then pcall(convert) end
+        inviteQueue = keys
+        return
+    end
+    local room = (raid and 40 or 5) - size
+    local fn = (C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit
+    inviteQueue = {}
+    for i, k in ipairs(keys) do
+        if i <= room then
+            invitedAt[k] = GetTime()
+            if fn then pcall(fn, Util.ShortName(k)) end
+        else
+            inviteQueue[#inviteQueue + 1] = k
+        end
+    end
+end
+
 local function HostOut(occId)
     return {
+        -- (demo mode: nothing reaches the world)
         say = function(ch, text)
             text = strsub(tostring(text or ""), 1, 250)
-            if not Allowed(chatLog, CHAT_PER_MIN) then return end
+            if DemoOn() or not Allowed(chatLog, CHAT_PER_MIN) then return end
             if (ch == "RAID" and not (IsInRaid and IsInRaid())) or (ch == "PARTY" and not (IsInGroup and IsInGroup())) then
                 return
             end
@@ -130,26 +199,27 @@ local function HostOut(occId)
                 ns:Print("%s", text)
                 return
             end
-            if not Allowed(whisperLog, WHISPER_PER_MIN) then return end
-            if SendChatMessage then pcall(SendChatMessage, text, "WHISPER", nil, Util.ShortName(key)) end
+            if DemoOn() then return end
+            if whisperQueue[1] or not Allowed(whisperLog, WHISPER_PER_MIN) then
+                if #whisperQueue < WHISPER_QUEUE then whisperQueue[#whisperQueue + 1] = { key, text } end
+                return
+            end
+            Whisper(key, text)
         end,
         invite = function(keys)
             for _, k in ipairs(keys or {}) do
-                if not Util.IsMe(k) then
-                    local fn = (C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit
-                    if fn then pcall(fn, Util.ShortName(k)) end
+                if type(k) == "string" and not Contains(inviteQueue, k) and #inviteQueue < 40 then
+                    inviteQueue[#inviteQueue + 1] = k
                 end
             end
+            FlushInvites()
         end,
         mark = function(key, n)
+            if DemoOn() then return end
             local unit = GroupUnitOf(key)
             if unit and SetRaidTarget then pcall(SetRaidTarget, unit, n) end
         end,
-        isOnline = function(key)
-            if Util.IsMe(key) then return true end
-            local G = ns.Guild
-            return G and G.IsOnline and G:IsOnline(key, true) or false
-        end,
+        isOnline = IsOnline,
         zoneOf = ZoneOf,
         changed = function() Live:Dirty(occId) end,
         ended = function(run) Live:Ended(occId, run) end,
@@ -168,6 +238,7 @@ end
 function Live:IsHosting(occId) return hosting[occId] ~= nil and hosting[occId].run.st.phase == "live" end
 
 function Live:CanStart(occId)
+    if DemoOn() then return false, "Demo mode is on: nothing runs for real." end
     local o = Events():GetOcc(occId)
     if not o or Events():HostOf(o) ~= Me() then return false, "Only the host starts their event." end
     local state = Events():OccState(o)
@@ -185,11 +256,44 @@ local function NewHost(occId, o, run, hosts)
     EnsureTicker()
 end
 
+-- A player may be in this run: level 70 when its Sign-up asks for it (a level the roster doesn't know counts as fine).
+local function LevelOK(def, key)
+    if Util.IsMe(key) or not Events():Needs70(def) then return true end
+    local G = ns.Guild
+    local m = G and G.GetMember and G:GetMember(key, true)
+    return not (m and tonumber(m.level) and tonumber(m.level) < 70)
+end
+
 function Live:Start(occId)
     local ok, why = self:CanStart(occId)
     if not ok then return false, why end
     local o = Events():GetOcc(occId)
-    local run = E():New(o.def, { id = occId, host = Me(), signups = Events():GetSignups(occId), out = HostOut(occId),
+    local signups = {}
+    for _, k in ipairs(Events():GetSignups(occId)) do
+        if LevelOK(o.def, k) then signups[#signups + 1] = k end
+    end
+    -- an event with no Sign-up: who pressed Join, and whoever is in my group as I start it (guild members online
+    -- with the addon)
+    local entrants
+    if #B():BlocksOf(o.def, "signup") == 0 then
+        entrants = {}
+        for _, k in ipairs(signups) do entrants[#entrants + 1] = k end
+        if not Contains(entrants, Me()) then tinsert(entrants, 1, Me()) end
+        local G, Sync, group = ns.Guild, ns.Sync, {}
+        local n = GetNumGroupMembers and GetNumGroupMembers() or 0
+        local raid = IsInRaid and IsInRaid()
+        for i = 1, n do
+            local name, realm = UnitName(raid and ("raid" .. i) or ("party" .. i))
+            local key = name and Util.NormalizeName((realm and realm ~= "") and (name .. "-" .. realm) or name)
+            if key and not Contains(entrants, key) and G and G:IsInGuild(key, true) and IsOnline(key)
+                and Sync and Sync.GetPeer and Sync:GetPeer(key) and LevelOK(o.def, key) then
+                group[#group + 1] = key
+            end
+        end
+        tsort(group)
+        for _, k in ipairs(group) do entrants[#entrants + 1] = k end
+    end
+    local run = E():New(o.def, { id = occId, host = Me(), signups = signups, entrants = entrants, out = HostOut(occId),
         rankOf = function(k) return Events():RankOf(k) end, nameOf = DisplayName })
     NewHost(occId, o, run, { Me() })
     run:Start()
@@ -200,7 +304,8 @@ end
 
 -- My client goes on with a run from its state (I took over, or it was handed to me).
 local function Resume(occId, st, chain)
-    local o = Events():GetOcc(occId)
+    -- (demo mode: I couldn't tell anyone, so I don't)
+    local o = not DemoOn() and Events():GetOcc(occId, true)
     if not o then return false end
     local run = E():Restore(o.def, st, { out = HostOut(occId), rankOf = function(k) return Events():RankOf(k) end,
         nameOf = DisplayName })
@@ -208,6 +313,7 @@ local function Resume(occId, st, chain)
     local hosts = {}
     for _, h in ipairs(chain or {}) do hosts[#hosts + 1] = h end
     if hosts[#hosts] ~= Me() then hosts[#hosts + 1] = Me() end
+    while #hosts > MAX_CHAIN do tremove(hosts, 2) end
     NewHost(occId, o, run, hosts)
     seen[occId] = nil
     run:Changed()
@@ -230,29 +336,38 @@ function Live:SendState(occId, now)
     local h = hosting[occId]
     if not h then return end
     if not now and GetTime() - h.sendAt < SEND_GAP then return end
+    -- the last state is still on its way out (the server lets about one 250-byte part a second through): this one
+    -- waits and goes out with whatever changes meanwhile, so the queue never holds more than one (a safety valve
+    -- after 20 s, in case the count of what's queued is off)
+    local Comm = ns.Comm
+    if not now and Comm and Comm.Backlog and Comm:Backlog("event") > 0 and GetTime() - h.sendAt < 20 then return end
     h.sendAt = GetTime()
-    h.dirty = false
     h.lastBeat = GetTime()
-    Send({ t = "EVS", o = occId, h = h.run.st.host, s = h.run:Snapshot(), c = h.hosts }, "GUILD")
+    h.sentSeq = h.run.st.seq
+    -- (not sent, e.g. the guild not there yet right after a /reload: again soon)
+    h.dirty = not Send({ t = "EVS", o = occId, h = h.run.st.host, s = h.run:Snapshot(), c = h.hosts }, "GUILD")
 end
 
 function Live:Ended(occId, run)
     local h = hosting[occId]
     if not h then return end
     self:SendState(occId, true)
-    if Events().SaveResult then Events():SaveResult(occId, run, h.hosts) end
+    -- (an event taken off the calendar while it ran keeps no result)
+    if Events().SaveResult and not h.gone then Events():SaveResult(occId, run, h.hosts) end
     Fire(occId)
 end
 
--- Hands the run to another member (they go on with it; I become a watcher).
+-- Hands the run to another member who is online (they go on with it; I become a watcher).
 function Live:HandOver(occId, key)
     local h = hosting[occId]
     key = WireKey(key)
     if not h or not key or key == Me() then return false end
+    if not IsOnline(key) then return false, "They're offline." end
     h.run.st.host = key
     local chain = {}
     for _, x in ipairs(h.hosts) do chain[#chain + 1] = x end
     chain[#chain + 1] = key
+    while #chain > MAX_CHAIN do tremove(chain, 2) end
     Send({ t = "EVS", o = occId, h = key, s = h.run:Snapshot(), c = chain }, "GUILD")
     seen[occId] = { st = h.run:Snapshot(), h = key, c = chain, at = GetTime() }
     hosting[occId] = nil
@@ -273,8 +388,13 @@ function Live:SetPaused(occId, paused)
     if paused and not run.st.paused then
         run.st.paused = Now()
     elseif not paused and run.st.paused then
+        -- the time stood still: timers, waiting scripts and "every" pieces end that much later
         local shift = Now() - run.st.paused
         for _, t in ipairs(run.st.timers) do t.at = t.at + shift end
+        for th in pairs(run.threads) do
+            if th.wait and th.wait.at then th.wait.at = th.wait.at + shift end
+        end
+        for id, at in pairs(run.st.everyAt or {}) do run.st.everyAt[id] = at + shift end
         run.st.paused = nil
     end
     run:Changed()
@@ -311,11 +431,18 @@ function Live:HostAnswer(occId, askId, winner)
     return true
 end
 
+-- Returns ok, and why not (words for the host): a player joins only while a Sign-up is open.
 function Live:AddPlayer(occId, key)
     local run = HostRun(occId)
     key = WireKey(key)
     if not run or not key then return false end
-    return run:Join(key)
+    if Contains(run.st.entrants, key) then return false, "They're in it already." end
+    if not LevelOK(run.def, key) then return false, "This one is for level 70 characters." end
+    if run:Join(key) then return true end
+    for _, bid in ipairs(B():BlocksOf(run.def, "signup")) do
+        if run:SignupState(bid).open then return false, "The sign-up is full." end
+    end
+    return false, "Sign-ups are closed: the bracket is set."
 end
 
 function Live:RemovePlayer(occId, key)
@@ -403,12 +530,12 @@ local function OnFact(sender, msg, dist)
         local w, l = WireKey(msg.w), WireKey(msg.l)
         if w and l and w ~= l then OnDuelReport(h, sender, w, l, msg.at) end
     elseif k == "ready" then
-        run:SetReady(sender)
+        if Contains(run.st.entrants, sender) then run:SetReady(sender) end
     elseif k == "answer" then
         local a = tonumber(msg.a)
         if a then run:Answer(a, sender, WireKey(msg.v)) end
     elseif k == "join" then
-        run:Join(sender)
+        if LevelOK(run.def, sender) then run:Join(sender) end
     elseif k == "leave" then
         run:Leave(sender)
     elseif k == "watch" then
@@ -432,8 +559,19 @@ end
 function Live:Ready(occId) return Tell(occId, { k = "ready" }) end
 function Live:AnswerAsk(occId, askId, v) return Tell(occId, { k = "answer", a = askId, v = v }) end
 
--- Events:SignUp calls this: joining (or leaving) while the event runs tells the host.
+-- Events:SignUp calls this: joining (or leaving) while the event runs tells the host. On the host, Events calls it
+-- for a member's sign-up heard from the guild (they may not know yet who hosts it).
 function Live:OnSignUp(occId, key, on)
+    local h = hosting[occId]
+    if h and not Util.IsMe(key) then
+        if h.run.st.phase ~= "live" then return end
+        if not on then
+            h.run:Leave(key)
+        elseif LevelOK(h.run.def, key) then
+            h.run:Join(key)
+        end
+        return
+    end
     if not self:IsLive(occId) or not Util.IsMe(key) then return end
     Tell(occId, { k = on and "join" or "leave" })
 end
@@ -455,31 +593,80 @@ local function CleanState(s)
     return s
 end
 
+-- The chain of hosts a state names: keys, the first one and the last ones.
+local function Chain(c)
+    local out = {}
+    if type(c) ~= "table" then return out end
+    for i = 1, min(#c, 40) do
+        local k = WireKey(c[i])
+        if k then out[#out + 1] = k end
+    end
+    while #out > MAX_CHAIN do tremove(out, 2) end
+    return out
+end
+
+-- May this state come from its sender, and how: "host" (the host I know: its state, or it hands the run on),
+-- "takeover" (an entrant goes on with it once that host went quiet, or the first I hear of the run), "race" (two
+-- entrants took over from the same host at once: the newer state wins), "fromme" (someone went on with the run I
+-- host: my states didn't reach them), or nil: anyone else (a stale or made-up state) is not listened to.
+local function HowSent(occId, o, sender, host, chain)
+    local mine, cur = hosting[occId], seen[occId]
+    local known = (mine and Me()) or (cur and cur.h) or nil
+    local first = Events():HostOf(o)
+    local last, before = chain[#chain], chain[#chain - 1]
+    if known and sender == known then
+        if host == sender or (last == host and before == sender) then return "host" end
+        return nil
+    end
+    if host ~= sender or last ~= sender then
+        -- the first I hear of it is a handover: from the one handing it on, in a chain from the event's host
+        if not known and last == host and before == sender and chain[1] == first then return "host" end
+        return nil
+    end
+    if not known then return (sender == first or chain[1] == first) and "takeover" or nil end
+    local st = mine and mine.run.st or cur.st
+    if not (Contains(st.entrants, sender) or sender == first) then return nil end
+    local knownChain = mine and mine.hosts or cur.c or {}
+    if before and before == knownChain[#knownChain - 1] then return "race" end
+    if mine then return before == Me() and "fromme" or nil end
+    if GetTime() - cur.at >= GONE_SILENT - QUIET_SLACK or not IsOnline(known) then return "takeover" end
+    return nil
+end
+
 local function OnState(sender, msg, dist)
-    local occId = type(msg.o) == "string" and #msg.o <= 40 and msg.o
+    local occId = type(msg.o) == "string" and #msg.o <= 40 and msg.o ~= "practice" and msg.o
     if not occId then return end
     local st = CleanState(msg.s)
     if not st then return end
     local host = WireKey(msg.h)
-    local o = Events():GetOcc(occId)
-    -- from the host it names, or from the host before (a handover)
-    local chain = type(msg.c) == "table" and msg.c or {}
-    if sender ~= host and sender ~= chain[#chain - 1] and not (o and Events():HostOf(o) == sender) then return end
+    -- (a calendar event I know: the real one, also in demo mode; one taken off the calendar is over for me)
+    local o = Events():GetOcc(occId, true)
+    if not o and seen[occId] and Events():OccRemoved(occId) then
+        seen[occId] = nil
+        Fire(occId)
+    end
+    if not host or not o then return end
+    local chain = Chain(msg.c)
+    local how = HowSent(occId, o, sender, host, chain)
+    if not how then return end
     local mine = hosting[occId]
     if mine then
         if host == Me() then return end
-        -- someone else hosts it now (they took over while I was gone, or a race of two takeovers)
-        if StateNewer(st, host, mine.run.st, Me()) then
-            hosting[occId] = nil
-            ns:Print("%s hosts %s now.", DisplayName(host), o and o.def.name or "the event")
-        else
-            Live:SendState(occId, true)
+        -- someone else hosts it now (they took over while I was gone, or a race of two takeovers). One who went on
+        -- from my last state they heard is at most a few changes past mine: a state far ahead of mine is made up.
+        if (how == "race" and not StateNewer(st, host, mine.run.st, Me()))
+            or (how == "fromme" and st.seq > mine.run.st.seq + FROM_ME_AHEAD) then
+            -- mine goes out again (soon, not once per state of theirs)
+            mine.dirty = true
+            Live:SendState(occId)
             return
         end
+        hosting[occId] = nil
+        ns:Print("%s hosts %s now.", DisplayName(host), o.def.name or "the event")
     end
     local cur = seen[occId]
-    if cur and cur.st and not StateNewer(st, host, cur.st, cur.h) and host == cur.h then
-        cur.at = GetTime()
+    if cur and cur.st and (host == cur.h or how == "race") and not StateNewer(st, host, cur.st, cur.h) then
+        if host == cur.h then cur.at = GetTime() end
         return
     end
     seen[occId] = { st = st, h = host, c = chain, at = GetTime() }
@@ -510,13 +697,15 @@ local function OnBeat(sender, msg, dist)
     end
 end
 
+-- Answered with the next state on GUILD: one state for all who asked, however many open the board at once (a
+-- whisper each would queue a whole state per member behind the next one).
 local function OnQuery(sender, msg, dist)
     if dist ~= "WHISPER" then return end
     local occId = type(msg.o) == "string" and msg.o
     local h = occId and hosting[occId]
-    if not h or not ns.Comm:RateLimit("EVQa:" .. sender, 5) then return end
+    if not h then return end
     h.watchers[sender] = GetTime()
-    Send({ t = "EVS", o = occId, h = h.run.st.host, s = h.run:Snapshot(), c = h.hosts }, "WHISPER", sender)
+    h.dirty = true
 end
 
 -- Big text on my screen when the run says so (raid warning pieces, countdowns), once each.
@@ -597,20 +786,39 @@ function Live:ParseDuel(text)
     return nil
 end
 
+-- The runs going on that I know of: { [occId] = state } (the ones I host and the ones I hear of).
+local function LiveStates()
+    local out = {}
+    for occId, s in pairs(seen) do
+        if s.st and s.st.phase == "live" and not hosting[occId] then out[occId] = s.st end
+    end
+    for occId, h in pairs(hosting) do
+        if h.run.st.phase == "live" then out[occId] = h.run.st end
+    end
+    return out
+end
+
 local function OnSystem(_, text)
     local w, l = Live:ParseDuel(text)
     if not w then return end
     local me = Me()
     if w ~= me and l ~= me then return end
     local at = Now()
-    for occId, s in pairs(seen) do
-        if s.st and s.st.phase == "live" and Contains(s.st.entrants, me) then
-            Tell(occId, { k = "duel", w = w, l = l, at = at })
+    -- the live events I'm in; in two at once, a duel that is my match in one of them is that one's only
+    local other = w == me and l or w
+    local mineIn, matched = {}, {}
+    for occId, st in pairs(LiveStates()) do
+        if Contains(st.entrants, me) then
+            mineIn[#mineIn + 1] = occId
+            local m = Live:MyMatch(occId)
+            if m and (m.a == other or m.b == other) then matched[#matched + 1] = occId end
         end
     end
-    for occId, h in pairs(hosting) do
-        if h.run.st.phase == "live" and Contains(h.run.st.entrants, me) then
+    for _, occId in ipairs(#matched > 0 and matched or mineIn) do
+        if hosting[occId] then
             OnFact(me, { t = "EVF", o = occId, k = "duel", w = w, l = l, at = at }, "WHISPER")
+        else
+            Tell(occId, { k = "duel", w = w, l = l, at = at })
         end
     end
     if practice then Live:PracticeDuel(w, l) end
@@ -639,12 +847,27 @@ function Live:Tick()
                 run.st.watchMax = max(run.st.watchMax or 0, n)
                 h.dirty = true
             end
+            -- entrants going offline and coming back (the run's "when an entrant goes offline" pieces)
+            local moved = false
+            for _, k in ipairs(run.st.entrants) do
+                local on = IsOnline(k)
+                if on == (run.st.off[k] and true or false) then
+                    run:SetOnline(k, on)
+                    moved = true
+                end
+            end
+            if moved then run:Changed() end
         end
-        if h.dirty then
-            self:SendState(occId)
-        elseif GetTime() - h.lastBeat >= HEARTBEAT and run.st.phase == "live" then
+        if h.dirty then self:SendState(occId) end
+        -- (the beat names the last state sent: who has it isn't behind, even while a newer one waits to go out)
+        if GetTime() - h.lastBeat >= HEARTBEAT and run.st.phase == "live" then
             h.lastBeat = GetTime()
-            Send({ t = "EVH", o = occId, h = run.st.host, q = run.st.seq }, "GUILD")
+            Send({ t = "EVH", o = occId, h = run.st.host, q = h.sentSeq or run.st.seq }, "GUILD")
+        end
+        -- a run that ended is forgotten after 10 minutes, like the ones I watched (its result stays)
+        if run.st.phase ~= "live" then
+            h.endedAt = h.endedAt or GetTime()
+            if GetTime() - h.endedAt > 600 then hosting[occId] = nil end
         end
     end
     for occId, s in pairs(seen) do
@@ -655,9 +878,20 @@ function Live:Tick()
                 s.watchSent = GetTime()
                 Tell(occId, { k = "watch" })
             end
+            -- nobody hosts it any more (its host gone, no entrant took over), or it was taken off the calendar: it
+            -- isn't live for me
+            if seen[occId] and (GetTime() - s.at > GONE_FOR_GOOD or Events():OccRemoved(occId)) then
+                seen[occId] = nil
+                Fire(occId)
+            end
         elseif s.st.phase ~= "live" and GetTime() - s.at > 600 then
             seen[occId] = nil
         end
+    end
+    FlushWhispers()
+    if inviteQueue[1] and GetTime() - (self.invitedAt or 0) > 5 then
+        self.invitedAt = GetTime()
+        FlushInvites()
     end
     if practice then
         any = true
@@ -670,21 +904,23 @@ function Live:Tick()
 end
 
 function Live:CheckTakeover(occId, s)
+    -- (demo mode: I couldn't tell anyone I took over)
+    if DemoOn() then return end
     local silent = GetTime() - s.at
     if silent < GONE_SILENT then return end
-    local G = ns.Guild
-    local online = G and G.IsOnline and G:IsOnline(s.h, true)
-    if online and silent < GONE_ANYWAY then return end
+    -- quiet but online: they wait longer; either way one after the other, not all at once
+    local wait = IsOnline(s.h) and GONE_ANYWAY or GONE_SILENT
+    if silent < wait then return end
     local me = Me()
     if not Contains(s.st.entrants, me) then return end
     -- my turn: the online entrants (but the old host) in name order, one step each
     local list = {}
     for _, k in ipairs(s.st.entrants) do
-        if k ~= s.h and (k == me or (G and G.IsOnline and G:IsOnline(k, true))) then list[#list + 1] = k end
+        if k ~= s.h and IsOnline(k) then list[#list + 1] = k end
     end
     tsort(list)
     local turn = Contains(list, me) or 1
-    if silent < GONE_SILENT + (turn - 1) * TAKEOVER_STEP then return end
+    if silent < wait + (turn - 1) * TAKEOVER_STEP then return end
     Resume(occId, s.st, s.c)
 end
 
@@ -968,6 +1204,51 @@ function Live:PracticeNow() return PracticeNow() end
 -- Lifecycle
 ---------------------------------------------------------------------------
 
+-- My event cancelled, or taken off the calendar, while I run it: the run stops (one taken off keeps no result).
+local function CheckHostedOccs()
+    for occId, h in pairs(hosting) do
+        if h.run.st.phase == "live" then
+            local o = Events():GetOcc(occId, true)
+            if not o and Events():OccRemoved(occId) then
+                h.gone = true
+                h.run:Cancel("Taken off the calendar")
+            elseif o and o.cancel then
+                h.run:Cancel(o.cancel)
+            end
+        end
+    end
+end
+
+-- The host's /reload (or a quick relog): the runs I host are kept at logout and go on after it, when that was soon
+-- enough that no entrant took over yet (they wait GONE_SILENT at least; this leaves them a margin).
+local RESTORE_WITHIN = GONE_SILENT - QUIET_SLACK
+
+local function SaveHosted()
+    local db = ns.db
+    if not db then return end
+    local keep
+    for occId, h in pairs(hosting) do
+        if h.run.st.phase == "live" then
+            keep = keep or {}
+            keep[occId] = { me = Me(), st = h.run:Snapshot(), c = h.hosts, at = Now() }
+        end
+    end
+    db.eventHosting = keep
+end
+
+local function RestoreHosted()
+    local db = ns.db
+    local list = db and db.eventHosting
+    if type(list) ~= "table" then return end
+    db.eventHosting = nil
+    for occId, e in pairs(list) do
+        if type(e) == "table" and e.me == Me() and type(e.st) == "table" and e.st.phase == "live"
+            and (tonumber(e.at) or 0) > Now() - RESTORE_WITHIN and not hosting[occId] and not seen[occId] then
+            Resume(occId, e.st, type(e.c) == "table" and e.c or nil)
+        end
+    end
+end
+
 function Live:OnInit()
     local Comm = ns.Comm
     if Comm and Comm.Register then
@@ -978,10 +1259,18 @@ function Live:OnInit()
         if Comm.AllowLarge then Comm:AllowLarge("EVS", "event") end
     end
     ns:RegisterEvent("CHAT_MSG_SYSTEM", OnSystem)
+    ns:RegisterEvent("GROUP_ROSTER_UPDATE", function() FlushInvites() end)
+    ns:RegisterEvent("PLAYER_LOGOUT", SaveHosted)
+    ns:On("EVENTS_UPDATED", CheckHostedOccs)
     ns:On("DEMO_TOGGLED", function()
         demoLive = nil
         Fire("demo")
     end)
+end
+
+function Live:OnLogin()
+    -- (a moment for the guild to be there: the state goes to it at once)
+    Util.After(3, RestoreHosted)
 end
 
 -- (harness / debugging)

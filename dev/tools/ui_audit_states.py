@@ -91,7 +91,12 @@ def seed(w, c):
                              cls, sp)
         assert res["ok"] is True, res
     w.tick(2)
-    # the raid's own leader ("led by" in the header), named by the GM
+    # the raid's own leader ("led by" in the header), named by the GM (once the raid reached her: the sync can take
+    # a few seconds more while the guild's other data goes out)
+    for _ in range(10):
+        if gina.eval("return ns.RaidPlan:GetRaid(...) ~= nil", occ):
+            break
+        w.tick(1)
     res = gina.eval_py("local o, k = ...; local ok, e = ns.RaidPlan:EditRaid(o, { rl = k }); return { ok = ok, e = e }",
                        occ, K("Shadowmelder"))
     assert res["ok"] is True, res
@@ -149,10 +154,21 @@ def close_all(cl):
       for _, name in ipairs({ 'DisasterZoneGuests', 'DisasterZoneRaidInvites', 'DisasterZoneRaidStart',
                               'DisasterZoneRaidLeaders', 'DisasterZoneRaidEditor', 'DisasterZoneAwardDialog',
                               'DisasterZoneRaidLeader', 'DisasterZoneShareWindow', 'DisasterZoneImportExport',
-                              'DisasterZoneRunToast', 'DisasterZoneStrategyShare' }) do
+                              'DisasterZoneRunToast', 'DisasterZoneStrategyShare',
+                              'DisasterZoneEventSchedule', 'DisasterZoneEventSubmit', 'DisasterZoneBadgeDesigner',
+                              'DisasterZoneEventSeason', 'DisasterZoneEventConfirm' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
+      if ns.EventBuilder and ns.EventBuilder.StopPractice then pcall(ns.EventBuilder.StopPractice, ns.EventBuilder) end
+      for _, name in ipairs({ 'DisasterZoneEventBuilder', 'DisasterZoneEventPicker', 'DisasterZoneEventAskName' }) do
+        local f = _G[name]; if f and f.Hide then f:Hide() end
+      end
+      for _, name in ipairs({ 'DisasterZoneEventBoard', 'DisasterZoneEventTracker', 'DisasterZoneEventMatchCard',
+                              'DisasterZoneEventToast', 'DisasterZoneEventAsk', 'DisasterZoneEventWait',
+                              'DisasterZoneEventCountdown', 'DisasterZoneEventWarning' }) do
+        local f = _G[name]; if f and f.Hide then f:Hide() end
+      end
       if ns.Picker and ns.Picker.Close then pcall(ns.Picker.Close, ns.Picker) end
       if ns.DungeonsUI and ns.DungeonsUI.GetSheetState and ns.DungeonsUI:GetSheetState() then ns.DungeonsUI:CloseSheet() end
       if ns.RaidPlanUI and ns.RaidPlanUI.CloseEditor then ns.RaidPlanUI:CloseEditor() end
@@ -779,6 +795,20 @@ STATES = [
     ("Dungeons - listing left behind", demo(DR_ME + "ns.MainFrame:Close(); "
                                             "ns.DungeonsUI:OnFinderLeftover({ id = 'x', d = 'Botanica', h = true })")),
     ("Dungeons - empty", opened("dungeons")),
+    # the Events tab (UI/EventsTab.lua) on demo mode's events: the live cup on the banner, the week and my season; a
+    # planned event's page; last week's results; the library with a card hovered; the season; the review of my own
+    # event; the sheets other modules open (host it, send it for review, the badge designer)
+    ("Events - upcoming", demo("ns.EventsUI:Open('upcoming')", "events")),
+    ("Events - event page", demo("ns.EventsUI:OpenEvent('odemo2')", "events")),
+    ("Events - results", demo("ns.EventsUI:OpenEvent('rdemo1')", "events")),
+    ("Events - library", demo("ns.EventsUI:Open('library'); ns.EventsUI:SetLibraryHover('edemo1')", "events")),
+    ("Events - season", demo("ns.EventsUI:Open('season')", "events")),
+    ("Events - review", demo("ns.EventsUI:Open('review'); ns.EventsUI:SelectReview('edemo3')", "events")),
+    ("Events - schedule sheet", demo("ns.EventsUI:Open('library'); ns.EventsUI:OpenSchedule('edemo1'); "
+                                     "ns.EventsUI:SetSchedule({ where = 'Ring of Trials, Nagrand' })", "events")),
+    ("Events - submit", demo("ns.EventsUI:Open('library'); ns.EventsUI:OpenSubmit('edemo3')", "events")),
+    ("Events - badge designer", demo("ns.EventsUI:Open('library'); ns.EventsUI:OpenBadgeDesigner("
+                                     "ns.Events:GetDef('edemo1'), 'champ', function() end)", "events")),
     # the Share window (UI/ShareWindow.lua), dropped from the icon that opened it
     ("Share - raid", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                      "ns.ShareWindow:Open('raid:' .. (...), "
@@ -1060,4 +1090,211 @@ STATES[_HOME:_HOME] = [
     ("Raids - Teams - waitlist (not on the roster)", teams_view("Vaenyria")),
     ("Raids - Upcoming - SSC sign-ups (comp)", teams_raid("signups")),
     ("Raids - Upcoming - SSC groups (comp)", teams_raid("groups")),
+]
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Events: the live board, the host's board, the tracker, the match card, the result prompts (UI/EventBoard.lua,
+# UI/EventTracker.lua; dev/art/casc/events_mockup shots 7-10). The board: demo mode's live cup on Gina's screen.
+# The rest: Grumpykat hosts the starter cup with seven members (Gina stays out of it: her screen is the other
+# views'), and the states play it on one after the other (a dispute, a match starting, a game counted, an ask).
+# ---------------------------------------------------------------------------------------------------------------
+EV = {}
+EV_PLAYERS = ("Victhar", "Shadowmelder", "Vaenyria", "Thunderhoofx", "Moonwhisper", "Lightbringer", "Frostweaver")
+
+
+def ev_duel(w, c, winner, loser, only=None):
+    """The duelists' clients see the duel end (only: just that one's)."""
+    text = "%s has defeated %s in a duel" % (winner, loser)
+    for n in ([only] if only else (winner, loser)):
+        c[n].fire("CHAT_MSG_SYSTEM", text)
+    w.tick(1)
+
+
+def ev_matches(k, occ):
+    """The host's current round: [(a, b, state)] with short names."""
+    return k.eval_py("""
+        local st = ns.EventLive:GetState(...)
+        local bk = ns.EventEngine:BracketOf(ns.EventLive:GetDef(...), st)
+        local out = {}
+        for _, mid in ipairs(bk and bk.rounds[bk.r] or {}) do
+          local m = bk.m[mid]
+          out[#out + 1] = { (tostring(m.a):gsub('%-.*', '')), (tostring(m.b):gsub('%-.*', '')), m.st }
+        end
+        return out""", occ) or []
+
+
+def ev_seed(w, c):
+    """Grumpykat's cup, started; who plays whom read from the draw (EV: host's opponent, the disputed pair, the
+    first waiting pair)."""
+    if EV.get("occ"):
+        return EV["occ"]
+    k = c["Grumpykat"]
+    occ = k.eval_py("local d = ns.Events:NewDef(true); assert(ns.Events:SaveDef(d)); "
+                    "return ns.Events:Schedule(d.id, GetServerTime() + 30, { where = 'Ring of Trials, Nagrand' })")
+    w.tick(3)
+    for n in EV_PLAYERS:
+        c[n].eval("ns.Events:SignUp(..., true)", occ)
+    w.tick(3)
+    res = k.eval_py("return { ns.EventLive:Start(...) }", occ)
+    assert res[0] is True, res
+    w.tick(3)
+    EV["occ"] = occ
+    ms = ev_matches(k, occ)
+    play = [m for m in ms if m[2] == "play"]
+    mine = [m for m in play if "Grumpykat" in m[:2]]
+    other = [m for m in play if "Grumpykat" not in m[:2]]
+    waiting = [m for m in ms if m[2] == "wait"]
+    assert mine and other and waiting, ms
+    EV["kopp"] = mine[0][1] if mine[0][0] == "Grumpykat" else mine[0][0]
+    EV["disp"] = other[0][:2]
+    EV["next"] = waiting[0][:2]
+    return occ
+
+
+def ev_board_host(w, c):
+    """Grumpykat's board: his match 1-0, a dispute (both players of the other match say they won game 1)."""
+    occ = ev_seed(w, c)
+    k = c["Grumpykat"]
+    a, b = EV["disp"]
+    if not EV.get("disputed"):
+        EV["disputed"] = True
+        ev_duel(w, c, "Grumpykat", EV["kopp"])
+        ev_duel(w, c, a, b, only=a)
+        w.tick(12)
+        ask = c[a].eval_py("local a = ns.EventLive:MyAsk(...); return a and a.id", occ)
+        if ask:
+            c[a].eval("ns.EventLive:AnswerAsk(...)", occ, ask, K(a))
+            c[b].eval("ns.EventLive:AnswerAsk(...)", occ, ask, K(b))
+        w.tick(3)
+    close_all(k)
+    k.eval("ns.EventBoard:Open(...)", occ)
+    return k
+
+
+def ev_tracker(w, c):
+    """The tracker of a player whose quarterfinal waits for the ones being played."""
+    occ = ev_seed(w, c)
+    v = c[EV["next"][0]]
+    close_all(v)
+    v.eval("ns.EventTracker:Refresh()")
+    return v
+
+
+def ev_match_card(w, c):
+    """Grumpykat settles the dispute (game 1 to its first player) and takes his match 2-0: the waiting quarterfinal
+    starts (its first player's card, the raid warning)."""
+    occ = ev_seed(w, c)
+    k = c["Grumpykat"]
+    p1, p2 = EV["next"]
+    v = c[p1]
+    if not EV.get("started"):
+        EV["started"] = True
+        ask = k.eval_py("local a = ns.EventLive:MyAsk(...); return a and a.id", occ)
+        if ask:
+            k.eval("ns.EventLive:HostAnswer(...)", occ, ask, K(EV["disp"][0]))
+        ev_duel(w, c, "Grumpykat", EV["kopp"])
+        w.tick(3)
+        k.eval("ns.EventBoard:Close()")
+    close_all(v)
+    v.eval("""
+        local T, L = ns.EventTracker, ns.EventLive
+        local occ, text = ...
+        T:Refresh()
+        local m, bk, st = L:MyMatch(occ)
+        if m and m.st == 'play' then T:ShowMatchCard(occ, st, L:GetDef(occ), bk, m) end
+        -- the raid warning as the addon draws it where the game has no raid warning frame
+        local add = RaidNotice_AddMessage
+        RaidNotice_AddMessage = nil
+        T:Announce(text)
+        RaidNotice_AddMessage = add""", occ, "Quarterfinal: %s vs %s" % (p1, p2))
+    return v
+
+
+def ev_prompts(w, c):
+    """The disputed match's first player (1-0 up, the host's call): only the opponent's game saw game 2, so both are
+    asked; with the toast of game 1 and the wait card for the look (the three prompts stacked)."""
+    occ = ev_seed(w, c)
+    a, b = EV["disp"]
+    va = c[a]
+    if not EV.get("asked"):
+        EV["asked"] = True
+        ev_duel(w, c, b, a, only=b)
+        w.tick(12)
+    close_all(va)
+    va.eval("""
+        local T, L = ns.EventTracker, ns.EventLive
+        local occ = ...
+        T:Refresh()
+        local m, bk, st = L:MyMatch(occ)
+        if m then
+          T:ShowWait(occ, st, bk, m)
+          T:ShowGameToast(occ, bk, m, true, 'host')
+        end""", occ)
+    return va
+
+def ev_builder(lua, by=None):
+    """The event builder on Gina's screen with a fresh Friday duel cup (saved; `by`: someone else's, read-only), then
+    `lua` (... = the event's id)."""
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        def_id = g.eval("local d = ns.Events:NewDef(true); local by = ...; if by then d.by = by; d.name = 'Duel cup' "
+                        "else ns.Events:SaveDef(d) end; T_EV_DEF = d; return d.id", by and K(by))
+        g.eval("ns.EventBuilder:Open(ns.Events:GetDef(...) or T_EV_DEF, { stage = 's2' })", def_id)
+        w.tick(0.3)
+        if lua:
+            g.eval(lua, def_id)
+            w.tick(0.5)
+        return g
+    return fn
+
+
+# the canvas' blank the whisper of "when a match starts" asks for (emptied first), and the picker on it
+EV_PICKER = """
+    ns.EventBuilder:SelectStage('*')
+    local S, ui = ns.EventBuilder:GetState()
+    local s
+    for _, x in ipairs(S.def.scripts) do if x.id == 'c3' then s = x end end
+    s.top.n.a[1] = nil
+    ns.EventBuilder:Refresh()
+    local f = ui.scripts[s]
+    local anchor
+    for _, bl in ipairs(f.blanks) do if bl.piece.k == 'ch.wh' and bl.slot == 1 then anchor = bl.frame end end
+    ns.EventBuilder:OpenPicker(s, s.top.n, 1, ns.EventBlocks.PIECES['ch.wh'].args[1], anchor)"""
+
+EV_PRACTICE = """
+    ns.EventBuilder:SelectStage('s1')
+    ns.EventBuilder:StartPractice()
+    for i = 1, 3 do ns.EventLive:PracticeSkip() end
+    local run = ns.EventLive:GetPractice()
+    local bk = run:MainBracket()
+    local n = 0
+    for _, mid in ipairs(bk.rounds[bk.r] or {}) do
+      local m = bk.m[mid]
+      if m.st == 'play' and n < 3 then n = n + 1; ns.EventLive:PracticeDuel(m.a, m.b) end
+    end
+    ns.EventLive:PracticeOffline(run.st.entrants[5], true)
+    ns.EventBuilder:Refresh()"""
+
+# (before "Home - calendar busy": it stays last)
+_HOME_EV = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
+STATES[_HOME_EV:_HOME_EV] = [
+    ("Events - board", demo("ns.EventBoard:Open('odemo1')")),
+    ("Events - board host", ev_board_host),
+    ("Events - tracker", ev_tracker),
+    ("Events - match card", ev_match_card),
+    ("Events - prompts", ev_prompts),
+    ("Events - builder", ev_builder(None)),
+    ("Events - builder always", ev_builder("ns.EventBuilder:SelectStage('*')")),
+    ("Events - builder picker", ev_builder(EV_PICKER)),
+    ("Events - builder inside", ev_builder("ns.EventBuilder:OpenInside('b2')")),
+    ("Events - builder practice", ev_builder(EV_PRACTICE)),
+    ("Events - builder read-only", ev_builder(None, by="Victhar")),
+    ("Events - builder empty stage", ev_builder("ns.EventBuilder:AddStage(); local S, ui = "
+                                                "ns.EventBuilder:GetState(); ui.ask.field:SetText('Bonus round'); "
+                                                "ui.ask:Done()")),
+    ("Events - builder zoomed out", ev_builder("ns.EventBuilder:SelectStage('*'); "
+                                               "ns.EventBuilder:ZoomTo(0.67, nil, nil, true)")),
 ]

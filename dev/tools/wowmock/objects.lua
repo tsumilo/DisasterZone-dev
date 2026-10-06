@@ -577,9 +577,11 @@ local function track_onupdate(self, st)
 end
 
 local Frame = define("Frame", "Region", {
+  -- like the game: SetScript replaces the handler and every HookScript hook on it (hooks wrap the handler)
   SetScript = function(self, name, fn)
     local st = set_script(self, name, fn, "SetScript")
     st.scripts[name] = fn
+    st.hooks[name] = nil
     if name == "OnUpdate" and fn then track_onupdate(self, st) end
   end,
   GetScript = function(self, name) return S(self).scripts[name] end,
@@ -855,7 +857,16 @@ define("TextureBase", "Region", {
   SetAtlas = function(self, atlas, useSize) local st = S(self); st.atlas = atlas; return true end,
   GetAtlas = function(self) return S(self).atlas end,
   SetColorTexture = function(self, r, g, b, a) local st = S(self); st.color = { r, g, b, a or 1 }; st.texture = "Color" end,
-  SetTexCoord = function(self, ...) S(self).texcoord = { ... } end,
+  -- like the game: 4 numbers (left, right, top, bottom) or 8 (the corners), else a usage error
+  SetTexCoord = function(self, ...)
+    local n = select("#", ...)
+    local ok = n == 4 or n == 8
+    for i = 1, n do if type((select(i, ...))) ~= "number" then ok = false end end
+    if not ok then
+      error("Usage: " .. obj_label(self) .. ":SetTexCoord(minX, maxX, minY, maxY) or SetTexCoord(ULx, ULy, LLx, LLy, URx, URy, LRx, LRy)", 2)
+    end
+    S(self).texcoord = { ... }
+  end,
   GetTexCoord = function(self)
     local c = S(self).texcoord
     if c and #c == 4 then return c[1], c[3], c[1], c[4], c[2], c[3], c[2], c[4] end
@@ -1406,6 +1417,7 @@ local AnimScriptMethods = {
   SetScript = function(self, name, fn)
     local st = set_script(self, name, fn, "SetScript")
     st.scripts[name] = fn
+    st.hooks[name] = nil
   end,
   GetScript = function(self, name) return S(self).scripts[name] end,
   HookScript = function(self, name, fn)

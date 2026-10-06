@@ -20,7 +20,7 @@ local B = ns:NewModule("EventBlocks")
 
 local type, pairs, ipairs, tostring, tonumber, next = type, pairs, ipairs, tostring, tonumber, next
 local tinsert, tremove, tconcat, tsort = table.insert, table.remove, table.concat, table.sort
-local strformat, floor, max = string.format, math.floor, math.max
+local strformat, floor, max, min = string.format, math.floor, math.max, math.min
 
 ---------------------------------------------------------------------------
 -- Categories (the palette's circles) and their colours: fill (bottom), fill (top), edge
@@ -133,14 +133,31 @@ function B:SmartDefaults(kind)
     return out
 end
 
+-- A block's setting (its default when unset). A value of the wrong kind or out of range (an event from the wire: any
+-- number, yes / no or short text gets through) reads as the default, a number as the nearest it may be.
 function B:SmartSetting(block, key)
     local v = block and block.set and block.set[key]
-    if v ~= nil then return v end
     local s = block and self.SMART[block.kind]
+    local opt
     for _, o in ipairs(s and s.settings or {}) do
-        if o.key == key then return o.d end
+        if o.key == key then opt = o end
     end
-    return nil
+    if not opt then return v end
+    if v == nil then return opt.d end
+    if opt.kind == "bool" then
+        if type(v) == "boolean" then return v end
+    elseif opt.kind == "num" then
+        if type(v) == "number" and v == v then return floor(min(opt.max or v, max(opt.min or v, v))) end
+    elseif opt.kind == "dur" then
+        if type(v) == "number" and v > 0 and v <= 3600 then return v end
+    elseif opt.kind == "choice" then
+        for _, c in ipairs(opt.choices or {}) do
+            if c[1] == v then return v end
+        end
+    else
+        return v
+    end
+    return opt.d
 end
 
 ---------------------------------------------------------------------------
@@ -166,7 +183,7 @@ local SU = { t = "block", kind = "signup" }
 def("ev.start", { cat = "ev", shape = "hat", text = "when this stage starts", args = {}, gives = {} })
 def("ev.duel", { cat = "ev", shape = "hat", text = "when a duel ends", args = {}, gives = { "winner", "loser" } })
 def("ev.off", { cat = "ev", shape = "hat", text = "when an entrant goes offline", args = {}, gives = { "player" } })
-def("ev.on", { cat = "ev", shape = "hat", text = "when an entrant comes back online", args = {}, gives = { "player" } })
+def("ev.on", { cat = "ev", shape = "hat", text = "when an entrant comes back", args = {}, gives = { "player" } })
 def("ev.ready", { cat = "ev", shape = "hat", text = "when an entrant is ready", args = {}, gives = { "player" } })
 def("ev.timer", { cat = "ev", shape = "hat", text = "when timer {1} runs out", args = { { t = "timer", d = "timer" } },
     gives = { "player" } })
@@ -201,6 +218,7 @@ def("lo.not", { cat = "lo", shape = "bool", text = "not {1}", args = { { t = "bo
 def("lo.gt", { cat = "lo", shape = "bool", text = "{1} > {2}", args = { { t = "num" }, { t = "num", d = 0 } } })
 def("lo.lt", { cat = "lo", shape = "bool", text = "{1} < {2}", args = { { t = "num" }, { t = "num", d = 4 } } })
 def("lo.eq", { cat = "lo", shape = "bool", text = "{1} = {2}", args = { { t = "any" }, { t = "any" } } })
+def("lo.set", { cat = "lo", shape = "bool", text = "{1} is set", args = { { t = "any" } } })
 def("lo.add", { cat = "lo", shape = "value", vt = "num", text = "{1} + {2}", args = { { t = "num", d = 1 }, { t = "num", d = 1 } } })
 def("lo.sub", { cat = "lo", shape = "value", vt = "num", text = "{1} - {2}", args = { { t = "num", d = 1 }, { t = "num", d = 1 } } })
 def("lo.rand", { cat = "lo", shape = "value", vt = "num", text = "pick random {1} to {2}",
@@ -297,7 +315,7 @@ B.PALETTE = {
     ev = { "ev.start", "ev.duel", "ev.off", "ev.on", "ev.ready", "ev.timer", "ev.every" },
     sg = { "sg.go", "sg.next", "sg.end", "sg.cancel" },
     lo = { "lo.if", "lo.ifelse", "lo.rep", "lo.each", "lo.stop", "lo.and", "lo.or", "lo.not", "lo.gt", "lo.lt", "lo.eq",
-           "lo.add", "lo.sub", "lo.rand" },
+           "lo.set", "lo.add", "lo.sub", "lo.rand" },
     pl = { "pl.host", "pl.all", "pl.rand", "pl.count", "pl.seed", "pl.online", "pl.ready", "pl.notready", "pl.is", "pl.in",
            "pl.top" },
     pt = { "pt.add", "pt.set", "pt.get", "pt.vset", "pt.badge", "pl.below" },
@@ -493,17 +511,17 @@ function B:Starter()
         },
         blocks = {
             b1 = { kind = "signup", stage = "s1", x = 20, y = 20, set = { spots = 16, closes = "start", lvl70 = true } },
-            b2 = { kind = "bracket", stage = "s2", x = 362, y = 22, set = { fmt = "single", bo = 3, fbo = 5, seed = "season",
+            b2 = { kind = "bracket", stage = "s2", x = 20, y = 22, set = { fmt = "single", bo = 3, fbo = 5, seed = "season",
                    noshow = 300, atonce = 2, bronze = true } },
         },
         notes = {},
     }
     local BRK = "b2"
     d.scripts = {
-        { id = "c1", st = "s1", x = 362, y = 20, top = B:Stack(
+        { id = "c1", st = "s1", x = 370, y = 20, top = B:Stack(
             N("su.join", "b1"),
             N("ch.wh", C("player"), J("You're in the Friday duel cup. Seeds are set when sign-up closes."))) },
-        { id = "c2", st = "s1", x = 362, y = 140, top = B:Stack(
+        { id = "c2", st = "s1", x = 370, y = 150, top = B:Stack(
             N("su.close", "b1"),
             IfElse(N("lo.lt", N("su.count", "b1"), 4),
                 N("sg.cancel", "Not enough duelists"),
@@ -519,14 +537,14 @@ function B:Starter()
                 N("ch.rw", J("Upset! ", C("winner"), " knocks out ", C("loser"))),
                 N("ch.moment", J("Upset: ", C("winner"), " knocked out ", C("loser"))),
                 N("pt.vset", "Biggest upset", C("winner")))) },
-        { id = "c5", st = "s2", x = 362, y = 300, top = B:Stack(
+        { id = "c5", st = "s2", x = 370, y = 190, top = B:Stack(
             N("bk.final", BRK),
             N("sg.go", "s3")) },
         { id = "c6", st = "s3", x = 20, y = 22, top = B:Stack(
             N("ev.start"),
             N("ch.rw", J("Final: ", N("bk.fin1", BRK), " vs ", N("bk.fin2", BRK))),
             N("tm.count", 10, N("pl.all"))) },
-        { id = "c7", st = "*", x = 362, y = 22, top = B:Stack(
+        { id = "c7", st = "*", x = 520, y = 22, top = B:Stack(
             N("bk.done", BRK),
             N("sg.go", "s4")) },
         { id = "c8", st = "s4", x = 20, y = 22, top = B:Stack(
@@ -538,19 +556,19 @@ function B:Starter()
             N("pt.badge", "third", N("bk.third", BRK)),
             N("pt.add", 20, B.SEASON, N("bk.third", BRK)),
             -- the Giant slayer: only when there was an upset
-            If(N("lo.not", N("lo.eq", V("Biggest upset"), "")),
+            If(N("lo.set", V("Biggest upset")),
                 N("pt.badge", "upset", V("Biggest upset")),
                 N("pt.add", 10, B.SEASON, V("Biggest upset"))),
             N("ch.say", J("GG! ", N("bk.champ", BRK), " wins the Friday duel cup"), "GUILD"),
             N("sg.end")) },
-        { id = "c9", st = "s1", x = 20, y = 300, top = B:Stack(
+        { id = "c9", st = "s1", x = 20, y = 210, top = B:Stack(
             N("ev.start"),
             N("ch.say", J("Sign-up for the Friday duel cup is open: 16 spots"), "GUILD")) },
     }
     -- everyone who plays gets 5 when the bracket starts
     local each = N("lo.each", N("pl.all"))
     each.c1 = N("pt.add", 5, B.SEASON, C("each"))
-    tinsert(d.scripts, { id = "c10", st = "s2", x = 362, y = 140, top = B:Stack(N("ev.start"), each) })
+    tinsert(d.scripts, { id = "c10", st = "s2", x = 370, y = 22, top = B:Stack(N("ev.start"), each) })
     return d
 end
 
@@ -634,12 +652,35 @@ end
 -- Checks
 ---------------------------------------------------------------------------
 
--- The values a script's hat gives (and loops / asks inside it add). scope[name] = true.
-function B:Scope(top)
+-- The values a script's hat gives (and loops / asks inside it add). scope[name] = true. A timer carries what the
+-- script that started it knew, so "when timer X runs out" also knows what every script starting X knows (list = the
+-- scripts beside it: the event's, or a smart block's own).
+function B:Scope(top, list)
     local scope = {}
     local d = top and P[top.k]
     if d and d.shape == "hat" then
         for _, g in ipairs(d.gives or {}) do scope[g] = true end
+    end
+    if top and top.k == "ev.timer" and list then
+        local name = top.a and top.a[1]
+        local common
+        for _, s in ipairs(list) do
+            local hd = s.top and s.top ~= top and P[s.top.k]
+            if hd and hd.shape == "hat" then
+                self:Walk(s.top, function(p)
+                    if (p.k == "tm.start" or p.k == "tm.startp") and p.a and p.a[2] == name then
+                        local here = {}
+                        for _, g in ipairs(hd.gives or {}) do here[g] = true end
+                        if common then
+                            for g in pairs(common) do if not here[g] then common[g] = nil end end
+                        else
+                            common = here
+                        end
+                    end
+                end)
+            end
+        end
+        for g in pairs(common or {}) do scope[g] = true end
     end
     return scope
 end
@@ -655,8 +696,8 @@ function B:Problems(d, opts)
     local function add(sid, p, slot, text) out[#out + 1] = { script = sid, piece = p, slot = slot, text = text } end
     local stagesById = {}
     for _, s in ipairs(d.stages or {}) do stagesById[s.id] = true end
-    local function check(sid, top, inner)
-        local scope = self:Scope(top)
+    local function check(sid, top, inner, list)
+        local scope = self:Scope(top, list)
         self:Walk(top, function(p)
             local pd = P[p.k]
             if not pd then add(sid, p, nil, "This piece is from a newer version of DisasterZone."); return end
@@ -692,15 +733,29 @@ function B:Problems(d, opts)
             end
         end)
     end
+    -- a script's top piece from a newer version: it may be a "when" piece this version can't run
+    local function newer(sid, top)
+        if type(top) == "table" and top.k and not P[top.k] then
+            add(sid, top, nil, "This piece is from a newer version of DisasterZone.")
+        end
+    end
     for _, s in ipairs(d.scripts or {}) do
         local hd = s.top and P[s.top.k]
-        if hd and hd.shape == "hat" then check(s.id, s.top, nil) end
+        if hd and hd.shape == "hat" then check(s.id, s.top, nil, d.scripts) end
+        newer(s.id, s.top)
         if s.st ~= "*" and not stagesById[s.st] then add(s.id, s.top, nil, "This script's stage is gone.") end
     end
     for bid, b in pairs(d.blocks or {}) do
         for _, s in ipairs(b.inner or {}) do
             local hd = s.top and P[s.top.k]
-            if hd and hd.shape == "hat" then check(bid .. "/" .. s.id, s.top, b.kind) end
+            if hd and hd.shape == "hat" then
+                check(bid .. "/" .. s.id, s.top, b.kind, b.inner)
+                -- inside, only the block's own "when" pieces (and timers) ever run
+                if hd.inner ~= b.kind and s.top.k ~= "ev.timer" and s.top.k ~= "ev.every" then
+                    add(bid .. "/" .. s.id, s.top, nil, "This piece only works outside the smart block.")
+                end
+            end
+            newer(bid .. "/" .. s.id, s.top)
         end
         if not stagesById[b.stage] then add(nil, nil, nil, (self:BlockLabel(d, bid)) .. "'s stage is gone.") end
     end
@@ -819,19 +874,27 @@ function B:BadgeList(d)
 end
 
 -- Season points an event can hand one player at most (the review's check): the biggest "add n Season points" sum on
--- any one path is hard to know, so this adds every season grant of the event's ends (Prizes-like stages) and the
--- largest per-match grant. Good enough to spot a typo of 5000.
+-- any one path is hard to know, so this is the largest typed grant (add or set, taken or given, the smart blocks' own
+-- pieces too). Good enough to spot a typo of 5000. A grant worked out while the event runs (a value piece) is held to
+-- SEASON_CAP by the engine.
 function B:MaxSeasonGrant(d)
     local top = 0
-    for _, s in ipairs(d and d.scripts or {}) do
-        self:Walk(s.top, function(p)
-            if p.k == "pt.add" and p.a[2] == self.SEASON and type(p.a[1]) == "number" and p.a[1] > top then top = p.a[1] end
-        end)
+    local function walk(list)
+        for _, s in ipairs(list or {}) do
+            self:Walk(s.top, function(p)
+                local n
+                if p.k == "pt.add" and p.a and p.a[2] == self.SEASON then n = p.a[1]
+                elseif p.k == "pt.set" and p.a and p.a[1] == self.SEASON then n = p.a[3] end
+                if type(n) == "number" and math.abs(n) > top then top = math.abs(n) end
+            end)
+        end
     end
+    walk(d and d.scripts)
+    for _, b in pairs(d and d.blocks or {}) do walk(b.inner) end
     return top
 end
 
-B.SEASON_CAP = 100   -- one grant of more than this is refused by the review check
+B.SEASON_CAP = 100   -- one grant of more than this is refused by the review check (and held to it in a run)
 
 ---------------------------------------------------------------------------
 -- What changed between two revisions (the review)
@@ -858,6 +921,18 @@ local function Sig(p)
     return tconcat(parts, "|")
 end
 
+-- A piece's words with its typed blanks filled in ("when Bracket match starts"): a change the diff can't draw.
+local function Words(d, p)
+    local pd = type(p) == "table" and P[p.k]
+    if not pd then return "?" end
+    return (pd.text:gsub("{(%d)}", function(i)
+        local v = p.a and p.a[tonumber(i)]
+        if type(v) == "string" and d.blocks and d.blocks[v] then return B:BlockLabel(d, v) end
+        if type(v) == "string" or type(v) == "number" then return tostring(v) end
+        return "..."
+    end))
+end
+
 -- The stack pieces of a script in order (a C piece's insides after it).
 local function Flatten(p, out)
     out = out or {}
@@ -882,6 +957,11 @@ function B:Diff(old, new)
     for _, s in ipairs(new.scripts or {}) do
         local o = byId[s.id]
         seen[s.id] = true
+        if o and (o.st or "*") ~= (s.st or "*") then
+            -- the same pieces, run in another stage
+            out[#out + 1] = { kind = "chg", stage = stageOf(new, s.st), text = "Moved here from " .. stageOf(old, o.st) .. ": "
+                .. Words(new, s.top) }
+        end
         local a, b = o and Flatten(o.top) or {}, Flatten(s.top)
         -- longest common subsequence of the two scripts' piece signatures
         local n, m = #a, #b
@@ -950,6 +1030,35 @@ function B:Diff(old, new)
             out[#out + 1] = { kind = "chg", text = "Badge: " .. (bd.n or "?"), badge = bd }
         end
     end
+    for id, bd in pairs(old.badges or {}) do
+        if not (new.badges and new.badges[id]) then
+            out[#out + 1] = { kind = "del", text = "Badge taken out: " .. (bd.n or "?"), badge = bd }
+        end
+    end
+    -- stages: new, taken out, renamed, in another order (the event goes through them in order)
+    local was, kept = {}, {}
+    for _, s in ipairs(old.stages or {}) do was[s.id] = s end
+    for _, s in ipairs(new.stages or {}) do
+        local o = was[s.id]
+        if not o then
+            out[#out + 1] = { kind = "add", stage = s.name, text = "New stage" }
+        else
+            kept[#kept + 1] = s.id
+            if o.name ~= s.name then
+                out[#out + 1] = { kind = "chg", stage = s.name, text = "Stage renamed (was " .. tostring(o.name) .. ")" }
+            end
+        end
+    end
+    local k = 0
+    for _, s in ipairs(old.stages or {}) do
+        if not self:Stage(new, s.id) then
+            out[#out + 1] = { kind = "del", stage = s.name, text = "Stage taken out" }
+        else
+            k = k + 1
+            if kept[k] ~= s.id then kept.moved = true end
+        end
+    end
+    if kept.moved then out[#out + 1] = { kind = "chg", text = "The stages are in a new order" } end
     return out, same
 end
 

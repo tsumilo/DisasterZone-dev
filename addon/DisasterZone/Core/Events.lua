@@ -1,12 +1,15 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Events.lua", ...) then return end -- DisasterZone: the guild's events (the Events tab's data).
 -- Everything about events that is stored and synced guild-wide (the live run itself: Core/EventLive.lua):
 --   D  the library: events members built (Core/EventBlocks.lua's defs). Only their creator edits one; the creator or
---      the GM / an officer deletes it. A copy is a new event with its own creator.
+--      the GM / an officer / the guild council removes it. A copy is a new event with its own creator.
 --   K  reviews: the GM, an officer or the guild council marks an event ranked (or sends it back) for one revision of
---      it; an edit makes a new revision, which is not ranked until reviewed again.
---   O  events on the calendar: an event (a copy of its def as it was) at a time, hosted by who put it there.
+--      it; an edit makes a new revision, which is not ranked until reviewed again. They may also take an event out
+--      of the waiting list without deciding (x), or clear a decision from the decided list (hide; it stays in force).
+--   O  events on the calendar: an event (a copy of its def as it was) at a time, hosted by who put it there; the
+--      host or the GM / an officer / the guild council cancels or removes it.
 --   J  sign-ups: one per member and calendar event, written by the member.
---   R  results: what a finished event decided (placings, badges, season points, moments), written by its host.
+--   R  results: what a finished event decided (placings, badges, season points, moments), written by its host;
+--      the GM / an officer / the guild council removes one.
 --   C  the season (name, first and last day): the GM or an officer.
 --   T  titles: the title each member shows (one of the titles their badges gave them).
 -- Badges and season points count only from ranked events. Sync works like the strategy library (Core/Strategy.lua):
@@ -25,7 +28,8 @@ local strformat, strsub = string.format, string.sub
 local DAY = 86400
 local KINDS = { D = true, K = true, O = true, J = true, R = true, C = true, T = true }
 local TOMBSTONE_KEEP = 30 * DAY
-local OCC_KEEP = 60 * DAY          -- calendar events (and their sign-ups) are kept this long after their day
+local OCC_KEEP = 60 * DAY          -- calendar events are kept this long after their day
+local SIGNUP_KEEP = 7 * DAY        -- and their sign-ups this long after the start (the run took them then)
 local RESULT_KEEP = 400 * DAY
 local MAX_DEFS = 200
 local MAX_OWN = 30
@@ -33,6 +37,7 @@ local MAX_OCC = 120
 local MAX_DIGEST_ITEMS = 1200
 local MAX_ID_LEN = 40
 local MAX_KEY_LEN = 48
+local MAX_ITEM_LEN = MAX_ID_LEN + MAX_KEY_LEN + 3   -- a digest item: "J:" .. occId .. "/" .. key
 local MAX_NAME = 40
 local MAX_TEXT = 200
 local MAX_PIECES = 600               -- in one event (every script, every smart block's own)
@@ -67,6 +72,18 @@ end
 
 local function IsId(s)
     return type(s) == "string" and #s > 0 and #s <= MAX_ID_LEN and s:find("^[%w%-%/_]+$") ~= nil
+end
+
+-- A record's id: an id, or (sign-ups, titles) one holding a member's key, which may hold any letter (accented ones)
+-- and be long.
+local function IsRecordId(kind, s)
+    if kind == "J" then
+        local occ = type(s) == "string" and #s <= MAX_ITEM_LEN - 2 and s:match("^(.+)/[^/]+$")
+        return occ and IsId(occ) or false
+    elseif kind == "T" then
+        return WireKey(s) ~= nil
+    end
+    return IsId(s)
 end
 
 local function Me() return Util.PlayerKey() end
@@ -131,7 +148,7 @@ end
 -- Roles
 ---------------------------------------------------------------------------
 
--- The GM and the officers: they delete anyone's event, cancel anyone's calendar event, set the season.
+-- The GM and the officers: they set the season.
 function Events:CanModerate(key)
     local G = Guild()
     if type(key) ~= "string" or not G then return false end
@@ -149,15 +166,35 @@ end
 
 function Events:AmIReviewer() return self:CanReview(Me()) end
 
+-- The same people remove anyone's records: library events, calendar events (cancel or remove), results, and
+-- events from the review lists.
+function Events:CanRemove(key) return self:CanReview(key) end
+
 ---------------------------------------------------------------------------
 -- Cleaning what arrives (and what is saved): known shapes, bounded sizes
 ---------------------------------------------------------------------------
 
+local function Cut(s, maxLen)
+    maxLen = maxLen or MAX_TEXT
+    if #s > maxLen then
+        -- cut between letters, never inside one (in UTF-8 the bytes 0x80-0xBF go on with the letter before)
+        local cut = maxLen
+        while cut > 0 and (s:byte(cut + 1) or 0) >= 0x80 and s:byte(cut + 1) < 0xC0 do cut = cut - 1 end
+        s = strsub(s, 1, cut)
+    end
+    return s
+end
+
 local function Str(s, maxLen)
     if type(s) ~= "string" then return nil end
-    s = s:gsub("[%c|]", "")
-    if #s > (maxLen or MAX_TEXT) then s = strsub(s, 1, maxLen or MAX_TEXT) end
-    return s
+    return Cut((s:gsub("[%c|]", "")), maxLen)
+end
+
+-- Text of several lines (the builder's notes): its line breaks stay.
+local function Lines(s, maxLen)
+    if type(s) ~= "string" then return nil end
+    s = s:gsub("\r\n?", "\n"):gsub("[%z\1-\9\11-\31\127|]", "")
+    return Cut(s, maxLen)
 end
 
 local function Int(n, lo, hi)
@@ -285,9 +322,9 @@ function Events:CleanDef(d)
     out.notes = {}
     for i = 1, min(type(d.notes) == "table" and #d.notes or 0, 20) do
         local n = d.notes[i]
-        if type(n) == "table" and Str(n.text) then
+        if type(n) == "table" and Lines(n.text) then
             out.notes[#out.notes + 1] = { st = Str(n.st, 12) or "*", x = Int(n.x, -4000, 4000) or 0, y = Int(n.y, -4000, 4000) or 0,
-                text = Str(n.text) }
+                text = Lines(n.text) }
         end
     end
     if type(d.review) == "table" and Int(d.review.rev, 0) then
@@ -297,7 +334,7 @@ function Events:CleanDef(d)
 end
 
 local function CleanRecord(kind, r)
-    if type(r) ~= "table" or not IsId(r.id) then return nil end
+    if type(r) ~= "table" or not IsRecordId(kind, r.id) then return nil end
     local by = WireKey(r.by)
     if not by then return nil end
     local rev = Int(r.rev, 0)
@@ -307,7 +344,9 @@ local function CleanRecord(kind, r)
         if d then d.rev = rev end
         return d
     elseif kind == "K" then
-        return { id = r.id, by = by, rev = rev, dr = Int(r.dr, 0) or 0, ok = r.ok and true or false, note = Str(r.note) }
+        -- x: a revision taken out of the waiting list (undecided); hide: cleared from the decided list
+        return { id = r.id, by = by, rev = rev, dr = Int(r.dr, 0) or 0, ok = r.ok and true or false, note = Str(r.note),
+            x = Int(r.x, 0), hide = r.hide and true or nil }
     elseif kind == "O" then
         if r.del then return { id = r.id, by = by, rev = rev, del = true, h = WireKey(r.h) } end
         local d = type(r.def) == "table" and Events:CleanDef(r.def)
@@ -316,8 +355,8 @@ local function CleanRecord(kind, r)
             at = Int(r.at, 0) or 0, where = Str(r.where, 48), note = Str(r.note), ranked = r.ranked and true or nil,
             cancel = r.cancel and (Str(r.cancel, 80) or "Cancelled") or nil }
     elseif kind == "J" then
-        local occ, who = r.id:match("^(.+)/(.+)$")
-        if not occ or WireKey(who) ~= by then return nil end
+        local occ, who = r.id:match("^(.+)/([^/]+)$")
+        if not occ or who ~= by then return nil end
         return { id = r.id, by = by, rev = rev, o = occ, on = r.on and true or false, at = Int(r.at, 0) or rev }
     elseif kind == "R" then
         if r.del then return { id = r.id, by = by, rev = rev, del = true } end
@@ -369,7 +408,7 @@ local function CleanRecord(kind, r)
         return { id = "season", by = by, rev = rev, n = Str(r.n, 32) or "Season", from = Int(r.from, 0) or 0,
             to = Int(r.to, 0) or 0 }
     elseif kind == "T" then
-        if WireKey(r.id) ~= by then return nil end
+        if r.id ~= by then return nil end
         return { id = r.id, by = by, rev = rev, ti = Str(r.ti, 24) }
     end
     return nil
@@ -394,12 +433,22 @@ local function CountLive(t, owner)
     return n
 end
 
-local function Merge(root, kind, rec)
+-- A calendar event made ranked right now (a live edit): it must be a copy of a library event whose current revision a
+-- reviewer ranked, as it is. (A relayed one is taken at its word: the review may have moved on since.)
+local function RankedNow(root, rec)
+    local k, d = rec.dk and root.K[rec.dk], rec.dk and root.D[rec.dk]
+    if not (k and k.ok and k.dr == rec.dr and d and not d.del and d.rev == rec.dr) then return false end
+    local def = Events:CleanDef(d)
+    return def ~= nil and Util.Hash(def) == Util.Hash(rec.def)
+end
+
+-- live: a live edit (EVU, or my own), checked against what is true now; else a record relayed from someone's store.
+local function Merge(root, kind, rec, live)
     local t = root[kind]
     local cur = t[rec.id]
     if kind == "D" then
-        if cur and not cur.del and cur.by ~= rec.by and not (rec.del and Events:CanModerate(rec.by)) then
-            return false   -- only its creator edits it; a moderator may delete it
+        if cur and not cur.del and cur.by ~= rec.by and not (rec.del and Events:CanRemove(rec.by)) then
+            return false   -- only its creator edits it; the GM, an officer or the guild council may remove it
         end
         if cur and cur.del and not rec.del then return false end   -- a deletion wins
         if not cur and not rec.del then
@@ -410,30 +459,44 @@ local function Merge(root, kind, rec)
         if not Events:CanReview(rec.by) then return false end
         if cur and not Newer(rec, cur) then return false end
     elseif kind == "O" then
-        -- h is its host (who put it on the calendar), by its last writer: the host, or a moderator cancelling it
+        -- h is its host (who put it on the calendar), by its last writer: the host, or the GM / an officer / the guild
+        -- council cancelling or removing it
         if cur and not cur.del then
             local host = cur.h or cur.by
             if rec.h and rec.h ~= host then return false end
-            if rec.by ~= host and not ((rec.del or rec.cancel) and Events:CanModerate(rec.by)) then return false end
+            if rec.by ~= host and not ((rec.del or rec.cancel) and Events:CanRemove(rec.by)) then return false end
         elseif not cur and not rec.del and rec.h ~= rec.by then
             return false
         end
         if cur and cur.del and not rec.del then return false end
         if not cur and not rec.del and CountLive(t) >= MAX_OCC then return false end
         if cur and not Newer(rec, cur) and not (rec.del and not cur.del) then return false end
+        -- ranked only by a review (an edit of one that was ranked keeps it, for the same revision)
+        if live and rec.ranked and not rec.del and not (cur and not cur.del and cur.ranked and cur.dr == rec.dr)
+            and not RankedNow(root, rec) then
+            return false
+        end
     elseif kind == "R" then
+        local occ = root.O[rec.id]
+        local host = occ and (occ.h or occ.by)
         if rec.del then
-            if not (Events:CanModerate(rec.by) or (cur and cur.by == rec.by)) then return false end
+            if not (Events:CanRemove(rec.by) or (cur and cur.by == rec.by)) then return false end
         else
-            local occ = root.O[rec.id]
-            local host = occ and (occ.h or occ.by)
-            -- the event's host writes its result; a host who took over names the chain from the first host
-            if occ and not occ.del and rec.by ~= host then
+            -- a result is of a calendar event this client knows (unless it is older than the calendar keeps them)
+            if not occ and (rec.at or 0) > Now() - OCC_KEEP + DAY then return false end
+            -- the event's host writes its result; a host who took over names the chain from the first host, and
+            -- never writes over the host's own
+            if host and rec.by ~= host then
                 if not (rec.hosts[1] == host and rec.hosts[#rec.hosts] == rec.by) then return false end
+                if cur and not cur.del and cur.by == host then return false end
             end
+            -- ranked only when its calendar event was
+            if rec.ranked and occ and not occ.del and not occ.ranked then return false end
         end
         if cur and cur.del and not rec.del then return false end
-        if cur and not Newer(rec, cur) and not (rec.del and not cur.del) then return false end
+        -- (the host's own result replaces a taker's, whatever their revisions)
+        local hostOwn = host and not rec.del and rec.by == host and cur and not cur.del and cur.by ~= host
+        if cur and not hostOwn and not Newer(rec, cur) and not (rec.del and not cur.del) then return false end
     elseif kind == "C" then
         if not Events:CanModerate(rec.by) then return false end
         if cur and not Newer(rec, cur) then return false end
@@ -444,24 +507,29 @@ local function Merge(root, kind, rec)
     return true
 end
 
-local function StoreRecord(kind, r)
+local function StoreRecord(kind, r, live)
     if not KINDS[kind] then return false end
     local root = Root(true)
     if not root then return false end
     local rec = CleanRecord(kind, r)
     if not rec then return false end
-    return Merge(root, kind, rec)
+    return Merge(root, kind, rec, live), rec
 end
 
 -- My own change: stored (merged like anyone's), then sent to the guild.
 local function Commit(kind, rec)
+    rec.by = rec.by or Me()
     if DemoOn() then
+        -- demo mode: its own data changes (with a revision, like a real one), nothing is stored or sent
         local st = State()
-        st[kind][rec.id] = rec
+        rec.rev = NextRev(st[kind][rec.id])
+        if kind == "D" and type(rec.review) == "table" and rec.review.rev == true then rec.review.rev = rec.rev end
+        local clean = CleanRecord(kind, rec)
+        if not clean then return false end
+        st[kind][rec.id] = clean
         Changed()
         return true
     end
-    rec.by = rec.by or Me()
     rec.rev = NextRev(Root(true) and Root(true)[kind][rec.id])
     -- a review asked for "this revision": the one this commit makes
     if kind == "D" and type(rec.review) == "table" and rec.review.rev == true then rec.review.rev = rec.rev end
@@ -472,7 +540,7 @@ local function Commit(kind, rec)
         ns:Print("this event is too big to share with the guild: take some pieces out.")
         return false
     end
-    if not Merge(Root(true), kind, clean) then return false end
+    if not Merge(Root(true), kind, clean, true) then return false end
     Send({ t = "EVU", k = kind, r = clean }, "GUILD", nil, "data")
     Changed()
     return true
@@ -546,7 +614,7 @@ end
 
 function Events:DeleteDef(id)
     local d = self:GetDef(id)
-    if not d or not (d.by == Me() or self:CanModerate(Me())) then return false end
+    if not d or not (d.by == Me() or self:CanRemove(Me())) then return false end
     return Commit("D", { id = id, by = Me(), name = d.name, del = true })
 end
 
@@ -557,11 +625,12 @@ function Events:GetReview(defId)
 end
 
 -- "ranked" (this revision was marked ranked), "review" (sent in, waiting), "back" (sent back for this revision),
--- "changed" (ranked before, edited since), "draft".
+-- "changed" (ranked before, edited since), "draft" (also: a reviewer took this revision out of the waiting list).
 function Events:ReviewState(d)
     if not d then return "draft" end
     local k = self:GetReview(d.id)
     if k and k.dr == d.rev then return k.ok and "ranked" or "back" end
+    if k and k.x == d.rev then return "draft" end
     if d.review and d.review.rev == d.rev then return "review" end
     if k and k.ok then return "changed" end
     return "draft"
@@ -586,6 +655,26 @@ function Events:Review(id, ok, note)
     return Commit("K", { id = id, by = Me(), dr = d.rev, ok = ok and true or false, note = Str(note) })
 end
 
+-- A reviewer takes an event out of the waiting list without deciding (its creator may send it in again: that makes a
+-- new revision). The review it had stays as it was (an older ranked one too).
+function Events:DismissReview(defId)
+    local d = self:GetDef(defId)
+    if not d or not self:CanRemove(Me()) or self:ReviewState(d) ~= "review" then return false end
+    local rec = Copy(self:GetReview(defId) or {})
+    rec.id, rec.by, rec.x, rec.rev = defId, Me(), d.rev, nil
+    rec.dr, rec.ok = rec.dr or 0, rec.ok or false
+    return Commit("K", rec)
+end
+
+-- A reviewer clears a decision from the decided list; it stays in force (a ranked event stays ranked).
+function Events:HideDecision(defId)
+    local k = self:GetReview(defId)
+    if not k or not self:CanRemove(Me()) or k.hide then return false end
+    local rec = Copy(k)
+    rec.by, rec.hide, rec.rev = Me(), true, nil
+    return Commit("K", rec)
+end
+
 -- Events sent in and not decided for their current revision (the Review view), oldest first.
 function Events:GetReviewQueue()
     local out = {}
@@ -596,13 +685,14 @@ function Events:GetReviewQueue()
     return out
 end
 
--- Recent decisions (the Review view's second list), newest first.
+-- Recent decisions (the Review view's second list), newest first: not the ones cleared from it, nor an event only
+-- taken out of the waiting list.
 function Events:GetDecided(limit)
     local st = State()
     local out = {}
     for id, k in pairs(st and st.K or {}) do
         local d = self:GetDef(id)
-        if d then out[#out + 1] = { d = d, k = k } end
+        if d and not k.hide and (k.dr or 0) > 0 then out[#out + 1] = { d = d, k = k } end
     end
     tsort(out, function(a, b) return a.k.rev > b.k.rev end)
     while #out > (limit or 6) do tremove(out) end
@@ -646,11 +736,19 @@ function Events:Schedule(defId, at, opts)
     return nil
 end
 
-function Events:GetOcc(id)
-    local st = State()
+-- real: the saved one, even in demo mode (live events go on underneath it).
+function Events:GetOcc(id, real)
+    local st = real and Root(false) or State()
     local o = st and st.O[id]
     if o and not o.del then return o end
     return nil
+end
+
+-- The calendar event was taken off the calendar (its removal is known here).
+function Events:OccRemoved(id)
+    local root = Root(false)
+    local o = root and root.O[id]
+    return o and o.del or false
 end
 
 -- Calendar events from..to (start times), soonest first; cancelled ones too (they say so).
@@ -670,7 +768,7 @@ end
 function Events:HostOf(o) return o and (o.h or o.by) or nil end
 
 function Events:CanManageOcc(o)
-    return o ~= nil and (self:HostOf(o) == Me() or self:CanModerate(Me()))
+    return o ~= nil and (self:HostOf(o) == Me() or self:CanRemove(Me()))
 end
 
 function Events:CancelOcc(id, reason)
@@ -689,10 +787,12 @@ function Events:DeleteOcc(id)
     return Commit("O", { id = id, by = Me(), h = self:HostOf(o), del = true })
 end
 
--- The host moves their event (a new time / place / note).
+-- The host moves their event (a new time / place / note); not while it runs, nor once it ran.
 function Events:EditOcc(id, at, where, note)
     local o = self:GetOcc(id)
     if not o or self:HostOf(o) ~= Me() then return false end
+    local state = self:OccState(o)
+    if state == "live" or state == "done" then return false end
     local rec = Copy(o)
     rec.by = Me()
     rec.at = floor(tonumber(at) or o.at)
@@ -701,9 +801,35 @@ function Events:EditOcc(id, at, where, note)
     return Commit("O", rec)
 end
 
+-- A Sign-up block of the event takes level 70 characters only.
+function Events:Needs70(def)
+    for _, bid in ipairs(B():BlocksOf(def, "signup")) do
+        if B():SmartSetting(def.blocks[bid], "lvl70") then return true end
+    end
+    return false
+end
+
+-- Returns ok, and why not (words for the player).
 function Events:SignUp(occId, on)
     local o = self:GetOcc(occId)
-    if not o then return false end
+    if not o then return false, "That event is gone from the calendar." end
+    if on then
+        local state = self:OccState(o)
+        if state == "cancelled" then return false, "That event was cancelled." end
+        if state == "done" then return false, "That event is over." end
+        if self:Needs70(o.def) and UnitLevel and (UnitLevel("player") or 0) < 70 then
+            return false, "This one is for level 70 characters."
+        end
+        -- a sign-up that closes before the start (15 minutes early) stays closed from then on, and a full one is full
+        -- (while the event runs, its host's run decides)
+        if state ~= "live" and not self:IsSignedUp(occId) then
+            local closes = self:ClosesAt(o)
+            if closes and closes < o.at and Now() >= closes then return false, "Sign-up is closed." end
+            local first = B():BlocksOf(o.def, "signup")[1]
+            local spots = first and B():SmartSetting(o.def.blocks[first], "spots")
+            if spots and #self:GetSignups(occId) >= spots then return false, "It's full." end
+        end
+    end
     local me = Me()
     local id = occId .. "/" .. me
     local st = State()
@@ -787,9 +913,15 @@ function Events:SaveResult(occId, run, hosts)
     local st = run.st
     local res = run:Result()
     local d = run.def
+    -- the chain of hosts as a result keeps it (6): the first one and the last ones
+    local chain = {}
+    hosts = hosts or { Me() }
+    for i, k in ipairs(hosts) do
+        if i == 1 or i > #hosts - 5 then chain[#chain + 1] = k end
+    end
     local rec = { id = occId, by = Me(), name = d.name, icon = d.icon, art = d.art, at = st.t0 or Now(), t1 = st.t1 or Now(),
         ranked = (o and o.ranked) or nil, dk = o and o.dk, n = #st.entrants, champ = res.champ, second = res.second,
-        third = res.third, points = {}, badges = {}, moments = {}, last4 = {}, hosts = hosts or { Me() }, nums = {},
+        third = res.third, points = {}, badges = {}, moments = {}, last4 = {}, hosts = chain, nums = {},
         cancel = st.phase == "cancelled" and (st.reason or "Cancelled") or nil }
     if rec.ranked then
         for k, n in pairs(res.points) do rec.points[k] = n end
@@ -840,9 +972,12 @@ function Events:RunCount(defId)
     return n, last
 end
 
+-- Removes a result, and its calendar event with it (or it would read "planned" again).
 function Events:DeleteResult(id)
-    if not self:CanModerate(Me()) then return false end
-    return Commit("R", { id = id, by = Me(), del = true })
+    if not self:CanRemove(Me()) then return false end
+    if not Commit("R", { id = id, by = Me(), del = true }) then return false end
+    if self:GetOcc(id) then self:DeleteOcc(id) end
+    return true
 end
 
 ---------------------------------------------------------------------------
@@ -916,7 +1051,9 @@ function Events:Standings(season)
         return a.key < b.key
     end)
     for i, r in ipairs(rows) do
-        r.rank = i
+        -- the same points and match wins: the same rank (1, 2, 2, 4)
+        local prev = rows[i - 1]
+        r.rank = (prev and prev.pts == r.pts and prev.wins == r.wins) and prev.rank or i
         tsort(r.badges, function(a, b) return a.at > b.at end)
     end
     return rows
@@ -983,11 +1120,15 @@ function Events:GetDigest()
     local out = {}
     local root = Root(false)
     if not root then return out end
-    local items = {}
+    local items, signups = {}, {}
     for kind in pairs(KINDS) do
-        for id in pairs(root[kind]) do items[#items + 1] = kind .. ":" .. id end
+        local list = kind == "J" and signups or items
+        for id in pairs(root[kind]) do list[#list + 1] = kind .. ":" .. id end
     end
+    -- past the cap, sign-ups (the most, and the least lasting) are left out first
     tsort(items)
+    tsort(signups)
+    for _, item in ipairs(signups) do items[#items + 1] = item end
     for i = 1, min(#items, MAX_DIGEST_ITEMS) do
         local kind, id = items[i]:match("^(%u):(.+)$")
         out[items[i]] = Util.Hash(root[kind][id]):sub(1, 6)
@@ -1015,10 +1156,15 @@ end
 local function OnUpdate(sender, msg, dist)
     if dist ~= "GUILD" or type(msg.r) ~= "table" or WireKey(msg.r.by) ~= sender then return end
     if not KINDS[msg.k] then return end
-    if StoreRecord(msg.k, msg.r) then
+    local ok, rec = StoreRecord(msg.k, msg.r, true)
+    if ok then
         if msg.k == "K" then
             local d = Events:GetDef(msg.r.id)
-            if d and msg.r.ok and Events:AmIReviewer() then KeepSnapshot(d) end
+            -- (a decision for the revision it is now; a dismissal or a cleared decision keeps the old copy)
+            if d and rec.ok and rec.dr == d.rev and Events:AmIReviewer() then KeepSnapshot(d) end
+        elseif msg.k == "J" and ns.EventLive and ns.EventLive.OnSignUp then
+            -- a sign-up while I run that event: the run hears it (its member may not know I host it yet)
+            ns.EventLive:OnSignUp(rec.o, rec.by, rec.on)
         end
         Events.rankCache = nil
         Changed()
@@ -1041,7 +1187,7 @@ local function OnWant(sender, msg, dist)
     for i = 1, MAX_DIGEST_ITEMS do
         local item = msg.w[i]
         if item == nil then break end
-        if type(item) == "string" and #item <= MAX_ID_LEN + 2 then SendItem(root, item, sender) end
+        if type(item) == "string" and #item <= MAX_ITEM_LEN then SendItem(root, item, sender) end
     end
 end
 
@@ -1051,7 +1197,7 @@ local function CleanDigest(d)
     for item, h in pairs(d) do
         n = n + 1
         if n > MAX_DIGEST_ITEMS then return nil end
-        if type(item) ~= "string" or #item > MAX_ID_LEN + 2 or not item:find("^%u:") then return nil end
+        if type(item) ~= "string" or #item > MAX_ITEM_LEN or not item:find("^%u:") then return nil end
         if type(h) ~= "string" or #h > 8 then return nil end
         out[item] = h
     end
@@ -1125,14 +1271,27 @@ function Events:Prune(now)
     for kind in pairs(KINDS) do
         for id, r in pairs(root[kind]) do
             local drop = false
-            if r.del and r.rev < now - TOMBSTONE_KEEP then drop = true end
+            -- (a deleted result is remembered as long as results are kept: a member back from a long break must not
+            -- bring it back)
+            if r.del and r.rev < now - (kind == "R" and RESULT_KEEP or TOMBSTONE_KEEP) then drop = true end
             if kind == "O" and not r.del and (r.at or 0) < now - OCC_KEEP then drop = true end
-            if kind == "R" and (r.at or 0) < now - RESULT_KEEP then drop = true end
+            if kind == "R" and not r.del and (r.at or 0) < now - RESULT_KEEP then drop = true end
             if drop then root[kind][id] = nil; changed = true end
         end
     end
     for id, j in pairs(root.J) do
-        if not root.O[j.o] then root.J[id] = nil; changed = true end
+        local o = root.O[j.o]
+        if not o or (not o.del and (o.at or 0) < now - SIGNUP_KEEP) then root.J[id] = nil; changed = true end
+    end
+    -- reviews of events gone from the library (and the ranked copies a reviewer kept of them)
+    for id in pairs(root.K) do
+        if not root.D[id] then root.K[id] = nil; changed = true end
+    end
+    local db, g = ns.db, GuildKey()
+    local snaps = db and db.eventSnaps and g and db.eventSnaps[g]
+    for id in pairs(snaps or {}) do
+        local d = root.D[id]
+        if not d or d.del then snaps[id] = nil end
     end
     if changed then Changed() end
 end

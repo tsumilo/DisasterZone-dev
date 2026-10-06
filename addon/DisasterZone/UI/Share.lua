@@ -10,9 +10,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Share.lua", ...) then return en
 -- EventRegistry "SetItemRef": a click opens the place, shift-click puts the link back into the chat box, right-click
 -- shares it on; hovering shows what it is (EventRegistry "ChatFrame.OnHyperlinkEnter").
 --
--- References: a page (home, mybis, council, loot, raids, teams, strategies, raidlog, dungeons, members, recipes,
--- games, changelog, settings), raid:<occ>[:groups | :assign], team:<id>, strat:<id>, board:<occ>:<boss>,
--- member:<name>, recipe:<spell>, game:<id>, ver:<version>, run:<id> (a dungeon run, Core/DungeonRuns.lua).
+-- References: a page (home, mybis, council, loot, raids, teams, strategies, raidlog, dungeons, events, season,
+-- members, recipes, games, changelog, settings), raid:<occ>[:groups | :assign], team:<id>, strat:<id>,
+-- board:<occ>:<boss>, member:<name>, recipe:<spell>, game:<id>, ver:<version>, run:<id> (a dungeon run,
+-- Core/DungeonRuns.lua), event:<occ> (a calendar event or its results), edef:<id> (an event of the library).
 -- UI/ShareWindow.lua is the window that sends one.
 local addonName, ns = ...
 
@@ -34,6 +35,7 @@ local ICON = {
     team    = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
     board   = "Interface\\Icons\\INV_Misc_Map_01",
     games   = "Interface\\Icons\\INV_Misc_Dice_01",
+    events  = "Interface\\Icons\\Ability_DualWield",
     version = "Interface\\Icons\\INV_Misc_Note_01",
 }
 
@@ -52,6 +54,10 @@ local PAGES = {
     raidlog    = { label = "Raids: Raid log", tab = "raids", view = "log", desc = "The raids we ran and who came.",
                    closed = "The Raid log is for the Guild Master, the guild council and the raid leaders." },
     dungeons   = { label = "Dungeons", tab = "dungeons", desc = "The guild's dungeon runs: list one or join one." },
+    events     = { label = "Events", tab = "events", icon = ICON.events,
+                   desc = "The guild's own events: duel cups, races, contests. Sign up or build one." },
+    season     = { label = "Events: Season", tab = "events", eventsView = "season", icon = ICON.events,
+                   desc = "The season's standings, badges and titles." },
     members    = { label = "Members", tab = "members", mode = "roster", desc = "The guild: characters, specs, gear." },
     recipes    = { label = "Members: Recipes", tab = "members", mode = "recipes",
                    desc = "Who in the guild can make what." },
@@ -250,6 +256,31 @@ KINDS.ver = function(arg)
     return { label = "What's new in " .. arg, icon = TexIcon(ICON.version), known = e ~= nil }
 end
 
+local function Ev() return ns.Events end
+
+-- A calendar event: its occurrence, else its results (once the occurrence is gone). -> o, r
+local function EventOf(occId)
+    local E = Ev()
+    if not E then return nil end
+    return E:GetOcc(occId), E:GetResult(occId)
+end
+
+KINDS.event = function(arg)
+    local o, r = EventOf(arg)
+    local d = o and o.def
+    if not d and not r then return { icon = TexIcon(ICON.events) } end
+    local name = d and d.name or r.name
+    local when = (o and o.at) or (r and r.at)
+    local label = name .. (r and " · results" or (when and (" · " .. When(when)) or ""))
+    return { label = label, icon = TexIcon((d and d.icon) or (r and r.icon) or ICON.events), known = true }
+end
+
+KINDS.edef = function(arg)
+    local d = Ev() and Ev():GetDef(arg)
+    if not d then return { icon = TexIcon(ICON.events) } end
+    return { label = "Event: " .. (d.name or "?"), icon = TexIcon(d.icon or ICON.events), known = true }
+end
+
 function Share:Describe(ref)
     local kind, arg = SplitRef(ref)
     if not kind then return nil end
@@ -283,6 +314,8 @@ function Share:GameRef(id) return type(id) == "string" and ("game:" .. id) or ni
 function Share:RecipeRef(spell) return tonumber(spell) and ("recipe:" .. tonumber(spell)) or nil end
 function Share:TeamRef(id) return type(id) == "string" and ("team:" .. id) or nil end
 function Share:RunRef(id) return type(id) == "string" and ("run:" .. id) or nil end
+function Share:EventRef(occId) return type(occId) == "string" and ("event:" .. occId) or nil end
+function Share:EventDefRef(id) return type(id) == "string" and ("edef:" .. id) or nil end
 
 ---------------------------------------------------------------------------
 -- Text: what goes out in chat; ChatLink: what a chat frame shows
@@ -425,6 +458,28 @@ OPEN.run = function(arg)
     return true
 end
 
+OPEN.event = function(arg)
+    local UIx = ns.EventsUI
+    if not UIx then return false end
+    local o, r = EventOf(arg)
+    if not (o or r) then
+        UIx:Open("upcoming")
+        return false, "That event isn't here: it hasn't reached you yet, or it was deleted."
+    end
+    return UIx:OpenEvent(arg)
+end
+
+OPEN.edef = function(arg)
+    local d = Ev() and Ev():GetDef(arg)
+    if not d then
+        if ns.EventsUI then ns.EventsUI:Open("library") end
+        return false, "That event isn't in the guild's library: it hasn't reached you yet, or it was deleted."
+    end
+    if not ns.EventBuilder then return false end
+    ns.EventBuilder:Open(d)
+    return ns.EventBuilder:IsShown()
+end
+
 OPEN.ver = function(arg)
     if not ChangelogEntry(arg) then
         OpenTab("changelog")
@@ -443,6 +498,10 @@ function Share:Open(ref)
         ok = OpenTab(page.tab)
         if ok and page.view then ok = OpenRaids(page.view) end
         if ok and page.mode then ns.MembersUI:SetMode(page.mode) end
+        if ok and page.eventsView then
+            ns.EventsUI:SetView(page.eventsView)
+            ok = ns.EventsUI:GetView() == page.eventsView
+        end
         if ok and page.councilView then
             ns.CouncilUI:SetView(page.councilView)
             ok = ns.CouncilUI:GetView() == page.councilView
@@ -574,6 +633,44 @@ TIPS.run = function(tt, arg)
     if run.no then tt:AddLine(run.no, 1, 1, 1, true) end
 end
 
+TIPS.event = function(tt, arg)
+    local o, r = EventOf(arg)
+    local E = Ev()
+    local d = o and o.def
+    tt:AddLine((d and d.name) or r.name, 1, 0.82, 0)
+    if (o and o.ranked) or (r and r.ranked) then tt:AddLine("Ranked: counts for the season", 1, 0.82, 0.35) end
+    if o then
+        tt:AddLine(date("%A %d %B · %H:%M", o.at) .. (o.where and o.where ~= "" and (" · " .. o.where) or ""), 1, 1, 1)
+        tt:AddLine("Hosted by " .. Util().ShortName(E:HostOf(o) or "?"), 0.8, 0.8, 0.8)
+    end
+    local st = o and E:OccState(o)
+    if r and not r.cancel then
+        if r.champ then tt:AddLine("Won by " .. Util().ShortName(r.champ), 0.2, 1, 0.6) end
+        tt:AddLine(("%d entrants"):format(r.n or 0), 0.8, 0.8, 0.8)
+    elseif st == "live" then
+        tt:AddLine("Live now", 0.2, 1, 0.6)
+    elseif st == "cancelled" or (r and r.cancel) then
+        tt:AddLine("Cancelled", 1, 0.33, 0.33)
+    elseif o then
+        local n = #E:GetSignups(o.id)
+        tt:AddLine(("%d signed up"):format(n), 0.8, 0.8, 0.8)
+        if E:IsSignedUp(o.id) then tt:AddLine("You're signed up", 0.2, 1, 0.6) end
+    end
+    if o and o.note and o.note ~= "" then tt:AddLine(o.note, 1, 1, 1, true) end
+end
+
+TIPS.edef = function(tt, arg)
+    local E = Ev()
+    local d = E:GetDef(arg)
+    tt:AddLine(d.name, 1, 0.82, 0)
+    local runs = E:RunCount(d.id)
+    local parts = { "Built by " .. Util().ShortName(d.by or "?") }
+    if E:IsRanked(d) then parts[#parts + 1] = "ranked" end
+    if (runs or 0) > 0 then parts[#parts + 1] = runs == 1 and "run once" or ("run " .. runs .. " times") end
+    tt:AddLine(tconcat(parts, " · "), 0.8, 0.8, 0.8)
+    tt:AddLine("Opens it in the event builder: see its pieces, practise it, host it.", 1, 1, 1, true)
+end
+
 TIPS.ver = function(tt, arg)
     local e = ChangelogEntry(arg)
     tt:AddLine("DisasterZone " .. arg, 1, 0.82, 0)
@@ -689,6 +786,14 @@ function Share:CurrentRef()
         return mine and self:RunRef(mine.id) or "dungeons"
     elseif tab == "council" and ns.CouncilUI then
         return ns.CouncilUI:GetView() == "log" and "loot" or "council"
+    elseif tab == "events" and ns.EventsUI then
+        local view = ns.EventsUI:GetView()
+        local st = ns.EventsUI.GetState and ns.EventsUI:GetState() or {}
+        if view == "event" and st.occ then
+            local o, r = EventOf(st.occ)
+            if o or r then return self:EventRef(st.occ) end
+        end
+        return view == "season" and "season" or "events"
     end
     return PAGES[tab] and tab or nil
 end

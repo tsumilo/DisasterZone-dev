@@ -141,8 +141,24 @@ def ring():
     return img
 
 
+def grid():
+    """The builder canvas' dots: one soft white dot in a 16 x 16 tile (tiled in game with REPEAT, a tile every 22px).
+    Faint on purpose (2026-10-06, the user: "too obstructive"): a dot peaks at about 14% white."""
+    n = 16 * OS
+    a = Image.new("L", (n, n), 0)
+    d = ImageDraw.Draw(a)
+    r = 0.8 * OS
+    d.ellipse([n / 2 - r, n / 2 - r, n / 2 + r, n / 2 + r], fill=255)
+    a = a.resize((16, 16), Image.LANCZOS).point(lambda v: int(v * 0.17))
+    img = Image.new("RGBA", (16, 16), (255, 255, 255, 0))
+    img.putalpha(a)
+    return img
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
+    grid().save(os.path.join(OUT, "grid.tga"))
+    print("wrote grid")
     pieces().save(os.path.join(OUT, "pieces.tga"))
     print("wrote pieces")
     ring().save(os.path.join(OUT, "ring.tga"))

@@ -85,6 +85,20 @@ end
 -- else (timers, matches, stats, the stage) goes on.
 function E:Restore(def, st, opts)
     opts = opts or {}
+    -- a state from another client: every part it must have (a broken one would stop the run each second)
+    for _, k in ipairs({ "entrants", "signups", "ready", "off", "vars", "stats", "timers", "blocks", "moments", "awards",
+                         "asks", "everyAt" }) do
+        if type(st[k]) ~= "table" then st[k] = {} end
+    end
+    if type(st.seq) ~= "number" then st.seq = 0 end
+    if type(st.askSeq) ~= "number" then st.askSeq = 0 end
+    if type(st.rng) ~= "number" then st.rng = SeedFrom(tostring(st.id or "run")) end
+    for i = #st.timers, 1, -1 do
+        local t = st.timers[i]
+        if type(t) ~= "table" or type(t.n) ~= "string" or type(t.at) ~= "number" then tremove(st.timers, i) end
+    end
+    -- the scripts waiting for answers are gone, and with them their questions (they'd be on screens for good)
+    for id in pairs(st.asks) do st.asks[id] = nil end
     local run = setmetatable({}, Run)
     run.def = Copy(def)
     run.st = st
@@ -197,10 +211,34 @@ function Run:IsPerson(v)
     return IsPlayer(self, v) and v:find("^[^%s%d][^%s]*%-%a") ~= nil
 end
 
+-- A number from anything. Never NaN or endless (1e308 + 1e308): they show as "nan" / "inf" and break sorting.
 local function Num(v)
-    if type(v) == "number" then return v end
     if type(v) == "boolean" then return v and 1 or 0 end
-    return tonumber(v) or 0
+    v = tonumber(v) or 0
+    if v ~= v then return 0 end
+    return max(-1e9, min(1e9, v))
+end
+
+-- Text for chat and screens: no escape codes ("|" starts colours, links and textures) or line breaks, at most
+-- `limit` bytes (a chat line takes 255), cut between two letters (a UTF-8 letter is never split).
+local function Clean(text, limit)
+    text = tostring(text or ""):gsub("%c", " "):gsub("|", "")
+    if #text > limit then
+        local cut = limit
+        while cut > 0 and (text:byte(cut + 1) or 0) >= 0x80 and text:byte(cut + 1) < 0xC0 do cut = cut - 1 end
+        text = text:sub(1, cut)
+    end
+    return text
+end
+E.Clean = Clean
+local CHAT_LEN, MOMENT_LEN, REASON_LEN = 250, 200, 80   -- (a moment / a reason as the result keeps it)
+
+-- The channels "say" may use (the builder's choices): anything else says it in guild.
+local function Channel(ch)
+    for _, c in ipairs(B().CHANNELS) do
+        if c[1] == ch then return ch end
+    end
+    return "GUILD"
 end
 
 local function Same(a, b)
@@ -347,6 +385,13 @@ function Run:Leave(key)
         local i = Contains(self.st.entrants, key)
         if i then tremove(self.st.entrants, i) end
     end
+    -- after the sign-up closed (or with none): out of the event, their match now lost, later ones walkovers
+    if not left and Contains(self.st.entrants, key) then
+        self:BracketOut(key)
+        tremove(self.st.entrants, Contains(self.st.entrants, key))
+        self:Log("block", self:Name(key) .. " left the event")
+        left = true
+    end
     if left then self:Pump() end
     return left
 end
@@ -411,9 +456,10 @@ function Run:BracketCreate(bid)
     self.st.blocks[bid] = bk
     local n = #seeds
     if n < 2 then
+        -- nothing to play (and nobody won: one player alone is no champion); its "is done" scripts go on with the event
         bk.done = true
-        bk.champ = seeds[1]
         self:Log("block", "Bracket: not enough players")
+        self:Fire("bk.done", {}, bid)
         return bk
     end
     if bk.fmt == "robin" then
@@ -484,7 +530,9 @@ end
 -- A finished (or bye) match's players go to the matches they feed.
 function Run:BracketPropagate(bid, m)
     local bk = self:Bracket(bid)
-    local loser = (m.win == m.a) and m.b or m.a
+    -- (not "win == a and b or a": a bye's empty side is false, which would make its winner the loser too)
+    local loser
+    if m.win == m.a then loser = m.b else loser = m.a end
     for _, x in pairs(bk.m) do
         if x.fa == m.id then x.a = m.win or false end
         if x.fb == m.id then x.b = m.win or false end
@@ -563,7 +611,7 @@ function Run:BracketSchedule(bid)
 end
 
 function Run:BracketPlay(bid, m)
-    if m.st ~= "wait" then return end
+    if m.st ~= "wait" or not (m.a and m.b) then return end   -- (both players known: not a match still being fed)
     m.st = "play"
     m.t = self.now()
     -- ready is per match: Ready on the tracker, or a duel between the two
@@ -594,13 +642,20 @@ function Run:BracketGameWin(bid, m, key)
 end
 
 function Run:BracketFinish(bid, m, key, walkover)
-    if m.st == "done" or m.st == "bye" then return end
+    if m.st == "done" or m.st == "bye" or not (m.a and m.b) then return end
     if key ~= m.a and key ~= m.b then return end
     m.st = "done"
     m.win = key
     m.wo = walkover and true or nil
     m.te = self.now()
     self:StopMatchTimers(bid, m.id)
+    -- its open questions (who won) go at once; the scripts asking them stop when they wake
+    for id, a in pairs(self.st.asks) do
+        if a.match == m.id and a.b == bid then
+            a.done = true
+            self.st.asks[id] = nil
+        end
+    end
     local loser = key == m.a and m.b or m.a
     local mine, theirs = (key == m.a) and m.wa or m.wb, (key == m.a) and m.wb or m.wa
     self:BracketPropagate(bid, m)
@@ -666,7 +721,7 @@ function Run:BracketClose(bid)
             local m = bk.m[mid]
             if m.final then
                 bk.champ = m.win
-                bk.second = (m.win == m.a) and m.b or m.a
+                if m.win == m.a then bk.second = m.b or nil else bk.second = m.a or nil end
             elseif m.bronze then
                 bk.third = m.win
             end
@@ -691,8 +746,6 @@ end
 -- A duel between two entrants (agree: both their games saw it, or only the loser's said so).
 function Run:Duel(winner, loser, agree)
     if self.st.phase ~= "live" or type(winner) ~= "string" or type(loser) ~= "string" then return end
-    self.st.ready[winner] = true
-    self.st.ready[loser] = true
     self:Fire("ev.duel", { winner = winner, loser = loser })
     for _, bid in ipairs(B():BlocksOf(self.def, "bracket")) do
         local bk = self:Bracket(bid)
@@ -705,6 +758,9 @@ function Run:Duel(winner, loser, agree)
             end
         end
     end
+    -- both are here (set after a match this duel started: its start clears ready)
+    self.st.ready[winner] = true
+    self.st.ready[loser] = true
     self:Pump()
 end
 
@@ -890,6 +946,9 @@ function Run:Spawn(s, ctx, bid)
     end
     local th = { s = s, ctx = CtxCopy(ctx), block = s.block or bid, steps = 0 }
     th.ctx._timer, th.ctx._block = nil, nil
+    -- the values a script last ran with (the builder's practice run shows them in its pieces)
+    self.lastCtx = self.lastCtx or {}
+    self.lastCtx[(s.block and (s.block .. "/") or "") .. s.id] = th.ctx
     th.co = cocreate(function() self:Exec(th, s.top.n) end)
     self.threads[th] = true
     self:Log("script", (B().PIECES[s.top.k].text:gsub("{%d}", "...")), { script = s.id, block = s.block })
@@ -934,14 +993,16 @@ function Run:Pump()
     end
 end
 
--- Wakes scripts whose wait is over (and those waiting for answers).
+-- Wakes scripts whose wait is over (and those waiting for answers). While the host pauses, time stands still: only
+-- answers wake a script.
 function Run:Resume()
     local now = self.now()
+    local paused = self.st.paused
     local list = {}
     for th in pairs(self.threads) do
         local w = th.wait
         if w then
-            local due = (w.at and now >= w.at) or (w.cond and w.cond())
+            local due = (w.at and not paused and now >= w.at) or (w.cond and w.cond())
             if due then list[#list + 1] = th end
         end
     end
@@ -987,6 +1048,7 @@ end
 local function Wait(th, w)
     th.wait = w
     coyield()
+    th.steps = 0   -- STEP_LIMIT counts the pieces run since the last wait
 end
 
 ---------------------------------------------------------------------------
@@ -1143,6 +1205,11 @@ VALUE["lo.not"] = function(run, th, p) return not Bool(run, th, arg(p, 1)) end
 VALUE["lo.gt"] = function(run, th, p) return Num(Eval(run, th, arg(p, 1))) > Num(Eval(run, th, arg(p, 2))) end
 VALUE["lo.lt"] = function(run, th, p) return Num(Eval(run, th, arg(p, 1))) < Num(Eval(run, th, arg(p, 2))) end
 VALUE["lo.eq"] = function(run, th, p) return Same(Eval(run, th, arg(p, 1)), Eval(run, th, arg(p, 2))) end
+VALUE["lo.set"] = function(run, th, p)
+    local v = Eval(run, th, arg(p, 1))
+    if type(v) == "table" and v.list then return #v > 0 end
+    return v ~= nil and v ~= "" and v ~= false
+end
 VALUE["lo.add"] = function(run, th, p) return Num(Eval(run, th, arg(p, 1))) + Num(Eval(run, th, arg(p, 2))) end
 VALUE["lo.sub"] = function(run, th, p) return Num(Eval(run, th, arg(p, 1))) - Num(Eval(run, th, arg(p, 2))) end
 VALUE["lo.rand"] = function(run, th, p)
@@ -1245,7 +1312,7 @@ DO["sg.go"] = function(run, th, p) run:GoStage(arg(p, 1)); return "stop" end
 DO["sg.next"] = function(run) run:Queue(function() run:NextStage() end); return "stop" end
 DO["sg.end"] = function(run) run:Queue(function() run:End() end); return "stop" end
 DO["sg.cancel"] = function(run, th, p)
-    local why = TextOf(run, th, arg(p, 1))
+    local why = Clean(TextOf(run, th, arg(p, 1)), REASON_LEN)
     run:Queue(function() run:Cancel(why) end)
     return "stop"
 end
@@ -1276,12 +1343,21 @@ DO["lo.each"] = function(run, th, p)
     th.ctx.each = saved
 end
 
+-- One grant of season points is at most SEASON_CAP either way (the review checks typed numbers; this holds the
+-- worked-out ones too).
+local function Grant(stat, n)
+    if stat ~= B().SEASON then return n end
+    local cap = B().SEASON_CAP
+    return max(-cap, min(cap, n))
+end
+
 DO["pt.add"] = function(run, th, p)
     local n = Num(Eval(run, th, arg(p, 1)))
     local stat = Eval(run, th, arg(p, 2))
+    n = Grant(stat, n)
     for _, k in ipairs(Players(run, th, arg(p, 3))) do
         run:AddStat(stat, k, n)
-        run:Log("points", strformat("%s %s%d %s", run:Name(k), n >= 0 and "+" or "", n, tostring(stat)))
+        run:Log("points", strformat("%s %s%s %s", run:Name(k), n >= 0 and "+" or "", run:Text(n), tostring(stat)))
     end
 end
 DO["pt.set"] = function(run, th, p)
@@ -1290,7 +1366,7 @@ DO["pt.set"] = function(run, th, p)
     if not (k and type(stat) == "string") then return end
     local s = run.st.stats[stat]
     if not s then s = {}; run.st.stats[stat] = s end
-    s[k] = Num(Eval(run, th, arg(p, 3)))
+    s[k] = Grant(stat, Num(Eval(run, th, arg(p, 3))))
 end
 DO["pt.vset"] = function(run, th, p)
     local name = arg(p, 1)
@@ -1315,10 +1391,17 @@ DO["pt.badge"] = function(run, th, p)
     end
 end
 
+-- What a text blank says, ready for chat ("" when there is nothing to say).
+local function Said(run, th, v, limit)
+    local text = Clean(TextOf(run, th, v), limit)
+    if not text:find("%S") then return "" end
+    return text
+end
+
 DO["ch.say"] = function(run, th, p)
-    local text = TextOf(run, th, arg(p, 1))
+    local text = Said(run, th, arg(p, 1), CHAT_LEN)
     if text == "" then return end
-    local ch = arg(p, 2) or "GUILD"
+    local ch = Channel(arg(p, 2))
     run:Log("say", text, { channel = ch })
     Out(run, "say", ch, text)
 end
@@ -1330,7 +1413,7 @@ DO["ch.wh"] = function(run, th, p)
         if th.ctx.player1 and th.ctx.player2 then
             th.ctx.opponent = (k == th.ctx.player1) and th.ctx.player2 or th.ctx.player1
         end
-        local text = TextOf(run, th, arg(p, 2))
+        local text = Said(run, th, arg(p, 2), CHAT_LEN)
         if text ~= "" then
             run:Log("whisper", run:Name(k) .. ": " .. text, { to = k })
             Out(run, "whisper", k, text)
@@ -1339,7 +1422,7 @@ DO["ch.wh"] = function(run, th, p)
     th.ctx.opponent = saved
 end
 DO["ch.rw"] = function(run, th, p)
-    local text = TextOf(run, th, arg(p, 1))
+    local text = Said(run, th, arg(p, 1), CHAT_LEN)
     if text == "" then return end
     run.st.annSeq = (run.st.annSeq or 0) + 1
     run.st.ann = { s = run.st.annSeq, text = text, at = run.now() }
@@ -1347,7 +1430,7 @@ DO["ch.rw"] = function(run, th, p)
     Out(run, "announce", text)
 end
 DO["ch.moment"] = function(run, th, p)
-    local text = TextOf(run, th, arg(p, 1))
+    local text = Said(run, th, arg(p, 1), MOMENT_LEN)
     if text ~= "" then run:Moment(text) end
 end
 
@@ -1431,17 +1514,19 @@ DO["bk.close"] = function(run, th)
 end
 DO["bk.ask"] = function(run, th, p)
     local to = Players(run, th, arg(p, 1))
-    local _, m = MatchOfThread(run, th)
+    local bid, m = MatchOfThread(run, th)
     if #to == 0 or not m then return end
+    if m.st ~= "play" then return "stop" end   -- decided meanwhile (the host's call, a walkover): nothing to ask
     run.st.askSeq = run.st.askSeq + 1
     local id = run.st.askSeq
-    local a = { id = id, to = to, opts = { m.a, m.b }, ans = {}, at = run.now(), match = m.id, g = m.g + 1,
+    local a = { id = id, to = to, opts = { m.a, m.b }, ans = {}, at = run.now(), match = m.id, b = bid, g = m.g + 1,
         q = "Who won game " .. (m.g + 1) .. "?", claims = th.lastClaims }
     run.st.asks[id] = a
     run:Log("ask", "Asks " .. run:Text(List(to)) .. ": " .. a.q)
     run:Changed()
     Out(run, "ask", a)
     Wait(th, { at = run.now() + ASK_SECONDS, cond = function()
+        if m.st ~= "play" then return true end
         for _, k in ipairs(a.to) do
             if a.ans[k] == nil then return false end
         end
@@ -1449,6 +1534,11 @@ DO["bk.ask"] = function(run, th, p)
     end })
     a.done = true
     run.st.asks[id] = nil
+    -- the match ended while it waited: the question is gone (not passed on to the host)
+    if m.st ~= "play" then
+        run:Changed()
+        return "stop"
+    end
     th.lastClaims = Copy(a.ans)   -- (an ask to the host after this one shows what the players said)
     -- the answers: all the same (and someone answered) = agreed
     local first, agree = nil, true
