@@ -56,7 +56,7 @@ local SQRT3 = sqrt(3)
 -- ball is small enough to leave the screen or a model's rectangle on its own.
 local REGION_MAX = 32
 local RS = 12                    -- numbers per region in a prepared set's G
--- A stand-in's normal must be a unit vector to this much: the near clip's guard (S.Select) counts along it in yd.
+-- A stand-in's normal must be a unit vector to this much: the near clip's guard (S.Guard) counts along it in yd.
 local UNIT_TOL = 0.01
 -- A quad's front (its turned model x) must lie along its normal to this much (about 0.1 degree; the generator writes
 -- them exactly): leaning, a big quad would reach out in front of its surface.
@@ -325,6 +325,18 @@ function S.ModelRects(occ, n, cam, proj, out)
     return m
 end
 
+-- The near clip's guard (yd): how far out of a surface the camera must stand for none of the surface in view to lie
+-- nearer than the near plane - the distance to the near plane's farthest corner, near x sqrt(1 + tx^2 + ty^2), tx and
+-- ty the view's half width and height at a depth of 1 (cam: near, w, h and k as S.Select's). The near clip alone was
+-- not enough: 0.5 - 0.75 yd from a wall, the view's corners cut the wall away while its stand-ins still hid the
+-- models seen through the hole (gen_standins.py's stress poses, 2026-10-06).
+function S.Guard(cam)
+    local k = cam.k or 0
+    if not (k > 0) then return cam.near end
+    local tx, ty = (cam.w or 0) / (2 * k), (cam.h or 0) / (2 * k)
+    return cam.near * sqrt(1 + tx * tx + ty * ty)
+end
+
 local SIZE = {}                  -- stand-in -> its radius on the screen this redraw (the budget's order)
 local LIVE = {}                  -- the models a region can hide some of (S.Select; refilled per region)
 local function Bigger(a, b)
@@ -334,8 +346,9 @@ local function Bigger(a, b)
 end
 
 -- The stand-ins to show, into out[1 .. count]: their surface faces the camera - the camera farther out along the
--- normal than the stand-in reaches, and farther than the near clip too: a nearer surface is clipped away while the
--- stand-in behind it still cuts the models -, some of them lies past the near plane and on the screen, and - unless
+-- normal than the stand-in reaches, and farther than the near clip's guard too (Guard: the near plane's farthest
+-- corner; a surface nearer than that can be clipped away at the view's edge while the stand-in behind it is not, and
+-- would cut the models there) -, some of them lies past the near plane and on the screen, and - unless
 -- `all` - it can hide some of a model: over its rectangle, some of it nearer than the model's farthest corner, and
 -- some corner of the model's box behind its surface's plane (seen from a camera in front of a surface, a point in
 -- front of its plane is never behind it: the floor under a model's feet hides none of it). Over the budget the
@@ -348,6 +361,7 @@ function S.Select(set, cam, proj, models, nm, budget, out, all, st)
     local d, stride, R, E, G = set.d, set.stride, set.R, set.E, set.G
     local ex, ey, ez, fx, fy, fz = cam.x, cam.y, cam.z, cam.fx, cam.fy, cam.fz
     local near, w, h, k = cam.near, cam.w, cam.h, cam.k
+    local guard = S.Guard(cam)
     -- the farthest corner of any model: nothing past it can hide anything
     local ufar = -huge
     for m = 1, nm do
@@ -363,9 +377,9 @@ function S.Select(set, cam, proj, models, nm, budget, out, all, st)
         local dep = qx * fx + qy * fy + qz * fz
         local gnear = dep - rad
         local nl, lfar = 0, -huge
-        -- facing: none when the camera is the near clip or less out from each of their surfaces (lo: the one
-        -- farthest back, less the normals' stray)
-        local keep = Nx * ex + Ny * ey + Nz * ez - G[g + 12] + eps * (dist + rad) > near
+        -- facing: none when the camera is the guard or less out from each of their surfaces (lo: the one farthest
+        -- back, less the normals' stray)
+        local keep = Nx * ex + Ny * ey + Nz * ez - G[g + 12] + eps * (dist + rad) > guard
             and dep + rad > near and (all or gnear < ufar)
         if keep then
             -- their ball on the screen, anywhere when it reaches through the near plane (the bound below holds off
@@ -413,7 +427,7 @@ function S.Select(set, cam, proj, models, nm, budget, out, all, st)
                     local px, py, pz = d[o + 2], d[o + 3], d[o + 4]
                     local nx, ny, nz = d[o + 9], d[o + 10], d[o + 11]
                     local vx, vy, vz = ex - px, ey - py, ez - pz
-                    if vx * nx + vy * ny + vz * nz > E[i] + near then
+                    if vx * nx + vy * ny + vz * nz > E[i] + guard then
                         facing = facing + 1
                         local sdep = -(vx * fx + vy * fy + vz * fz)
                         if sdep + r > near then

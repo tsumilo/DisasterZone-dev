@@ -72,8 +72,10 @@ Writes addon Render3D/Standins/<Key>.lua (the data contract, version 2; Render3D
   anchor + scale R (q - c), c = (cx, cy, cz) its middle (a cube's is its origin): the runtime puts the model's origin
   at anchor - scale R c. A cube is 2 half x scale yd a side; a quad is the w x h x scale rectangle in its model's y-z
   plane, its front (model +x, R's first column) along n, drawn from the front only. Show a stand-in only while
-  dot(n, camera - anchor) > reach + near (shown(), rule 'guard'): reach = scale x the sum over its turned axes a of
-  its half extent along a x |n . a| (0 for a quad), near = the near clip (0.5 yd). room: the room file it was made for
+  dot(n, camera - anchor) > reach + guard (shown(), rule 'guard'): reach = scale x the sum over its turned axes a of
+  its half extent along a x |n . a| (0 for a quad), guard = near x sqrt(1 + tx^2 + ty^2) - the near clip (0.5 yd) out
+  to the near plane's farthest corner, tx and ty the view's half width and height at a depth of 1 (0.75 yd for the
+  board's 3:2 view). room: the room file it was made for
   (ns.RoomFloors[key].size and the unpacked mesh's counts); data made for another build of the room hides the wrong
   things. Version 1 (cubes turned about z, one prim) reads the same way.
 Known limit (the runtime's): a camera within the near clip of a room face sees that face clipped away and the
@@ -718,7 +720,8 @@ def make_probes(room, regs):
         uu.append(U)
         vv.append(Vv)
         # a stand-in shows to cameras farther out along n than it reaches (its front lies MARGIN behind the face,
-        # whatever its size) and, by the guard rule, than the near clip (shown(); a hair less, to be safe)
+        # whatever its size) and, by the guard rule, than the near clip's guard (shown(); the near clip alone, and a
+        # hair less: the guard is never less, whatever the view's shape)
         thr.append(np.full((len(U), len(depths)), g.d + g.dlo - MARGIN + (NEAR if RULE == "guard" else 0.0) - 0.01))
     pr = Probes()
     pr.P = np.concatenate(P)
@@ -1055,6 +1058,8 @@ class Camera:
         self.F = (H / 2.0) / math.tan(fov / 2.0)
         self.cx, self.cy = W / 2.0, H / 2.0
         self.heading, self.pitch, self.name = heading, pitch, name
+        # the near clip's guard (Render3D/Standins.lua S.Guard): the distance to the near plane's farthest corner
+        self.guard = near * math.sqrt(1 + (W / 2.0 / self.F) ** 2 + (H / 2.0 / self.F) ** 2)
 
     def to_cam(self, P):
         d = np.asarray(P, float) - self.C
@@ -1255,10 +1260,11 @@ def reach(arr):
 def shown(cam, arr, rule=RULE):
     """Which stand-ins show: their surface faces the camera and they are in view. Rule 'reach': the camera farther
     out along n than the stand-in reaches (the surface lies at least that far out, so a camera less far is behind
-    it). Rule 'guard' (Render3D/Standins.lua's and this generator's): farther out than that by the near clip too - a
-    camera nearer a surface than the near clip sees it clipped away and would see the stand-in behind it with
-    nothing drawn in front. Rule 'centre': dot(n, camera - anchor) > 0, which also shows a cube to a camera between
-    its surface and its centre."""
+    it). Rule 'guard' (Render3D/Standins.lua's and this generator's): farther out than that by the near clip's guard
+    too (Camera.guard: the distance to the near plane's farthest corner, 0.75 yd for a 3:2 view) - a camera nearer a
+    surface than that may see it clipped away at the view's edge and the stand-in behind it with nothing drawn in
+    front (v1's guard, the near clip alone, let walls 0.5 - 0.75 yd away do that: the stress poses). Rule 'centre':
+    dot(n, camera - anchor) > 0, which also shows a cube to a camera between its surface and its centre."""
     C, R, H, N, K = arr
     if not len(C):
         return np.zeros(0, bool)
@@ -1266,7 +1272,7 @@ def shown(cam, arr, rule=RULE):
     if rule in ("reach", "guard"):
         out = reach(arr)
         if rule == "guard":
-            out = out + cam.near
+            out = out + cam.guard
     facing = np.einsum("ij,ij->i", N, cam.C - C) > out
     return facing & cam.sees_sphere(C, np.linalg.norm(H, axis=1))
 
@@ -1738,7 +1744,8 @@ CURTAIN = (MARGIN + 0.01, 0.8, 2.0)   # yd behind the face the lines cross under
 KAPPAS = tuple(0.01 * 1.3 ** k for k in range(27))         # a line's slope: yd deeper per yd it runs inward
 LAMBDAS = (-6.0, -3.0, -1.5, -0.7, 0.0, 0.7, 1.5, 3.0, 6.0)  # and how far it runs along the edge per yd inward
 LINE_TOL = 0.15                        # yd: a stand-in this close to a line counts as on it (the lines' spacing)
-HGUARD = NEAR - MARGIN - 0.02          # the least a camera a stand-in shows to stands out of its face (shown())
+HGUARD = NEAR - MARGIN - 0.02          # the least a camera a stand-in shows to stands out of its face (shown(): the
+                                       # near clip's guard is never less than the near clip, whatever the view)
 # a face nearer the camera than this, along the line, may be clipped away by the near plane (seen at the corner of
 # a 3:2 view, where the clip plane is nearest)
 CLIP = NEAR / math.cos(math.atan(math.tan(FOV / 2) * math.sqrt(1 + 1.5 ** 2)))
@@ -2528,11 +2535,12 @@ def lua_text(key, cubes=None, recs=None, stamp=None):
         "-- (the face's region, for debugging). A prim's model point q stands at (x, y, z) + scale R (q - c), c = the",
         "-- prim's middle (cx, cy, cz; a cube's is its origin): its origin goes to (x, y, z) - scale R c. A quad is the",
         "-- prim's w x h rectangle in its y-z plane, drawn from its front only; a cube is 2 half x scale a side. Show",
-        "-- one only while dot(n, camera - (x, y, z)) > reach + near: reach = scale x the sum over its turned axes a",
-        "-- of its half extent along a x |n.a| (0 for a quad), near = the view's near clip (0.5 yd); nearer than that,",
-        "-- its face may be clipped away while the stand-in is not. room: the room file these were made for (its",
-        "-- packed size, vertices and triangles); made for another build of the room they hide the wrong things.",
-        "-- Checked offline against the room's z-buffer from %d poses. AUTO-GENERATED by" % POSES_CHECKED,
+        "-- one only while dot(n, camera - (x, y, z)) > reach + guard: reach = scale x the sum over its turned axes a",
+        "-- of its half extent along a x |n.a| (0 for a quad), guard = the distance to the near plane's farthest",
+        "-- corner (near clip 0.5 yd x sqrt(1 + tx^2 + ty^2), tx, ty: the view's half width and height at depth 1);",
+        "-- nearer than that, its face may be clipped away while the stand-in is not. room: the room file these were",
+        "-- made for (its packed size, vertices and triangles); made for another build of the room they hide the wrong",
+        "-- things. Checked offline against the room's z-buffer from %d poses. AUTO-GENERATED by" % POSES_CHECKED,
         "-- dev/generators/gen_standins.py; do not edit by hand.",
         "local _, ns = ...",
         "ns.RoomStandins = ns.RoomStandins or {}",

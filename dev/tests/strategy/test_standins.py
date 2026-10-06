@@ -4,7 +4,8 @@ Covers: a room's data read flat whether it comes as one table of numbers or as s
 number makes it unreadable, a non-finite value, a normal that is not a unit vector or an unknown model file leaves that
 stand-in out); each stand-in's radius and reach along its normal (a cube turned about z reaches further along a slanted
 normal); which stand-ins a redraw shows: their surface facing the camera (the camera farther out along the normal than
-the stand-in reaches and than the near clip: a surface 0.3 yd before the camera shows nothing behind it), in front of
+the stand-in reaches and than the near plane's farthest corner: a surface 0.3 or 0.6 yd before the camera shows
+nothing behind it), in front of
 the near plane and on the screen (a ball off the view's middle bounded exactly), and over a model's rectangle, nearer
 than its farthest corner and with some of the model's box behind its surface's plane - the floor under a model's feet
 only when the model sinks into it (or every one in view with 'all'), the biggest on the screen first up to the budget;
@@ -75,6 +76,9 @@ BRUTE = r"""
 function __BRUTE(set, cam, proj, models, nm, all)
   local d, st, R, E = set.d, set.stride, set.R, set.E
   local huge, out = math.huge, {}
+  -- the near clip's guard: out to the near plane's farthest corner
+  local tx, ty = cam.w / (2 * cam.k), cam.h / (2 * cam.k)
+  local guard = cam.near * math.sqrt(1 + tx * tx + ty * ty)
   for i = 1, set.n do
     local r = R[i]
     if r then
@@ -83,7 +87,7 @@ function __BRUTE(set, cam, proj, models, nm, all)
       local nx, ny, nz = d[o + 9], d[o + 10], d[o + 11]
       local vx, vy, vz = cam.x - px, cam.y - py, cam.z - pz
       local dep = -(vx * cam.fx + vy * cam.fy + vz * cam.fz)
-      if vx * nx + vy * ny + vz * nz > E[i] + cam.near and dep + r > cam.near then
+      if vx * nx + vy * ny + vz * nz > E[i] + guard and dep + r > cam.near then
         local nearest, x0, y0, x1, y1 = dep - r
         if dep - r <= cam.near then
           nearest, x0, y0, x1, y1 = cam.near, -huge, -huge, huge, huge
@@ -326,7 +330,8 @@ def a_redraw_shows_only_the_stand_ins_that_face_the_camera_lie_in_view_and_in_fr
         row(L, 1, 10, 5, 0, 0.4, -1, 0, 0)          -- 4 in view, beside the model's rectangle
         row(L, 1, -5, 0, 0, 0.4, 1, 0, 0)           -- 5 facing, but behind the camera
         row(L, 1, 10, 100, 0, 0.4, -1, 0, 0)        -- 6 facing, off the screen
-        row(L, 1, 1.05, 0, 0, 1, -1, 0, 0)          -- 7 through the near plane: anywhere on the screen
+        row(L, 1, 1.32, 0, 0, 1, -1, 0, 0)          -- 7 through the near plane: anywhere on the screen (its surface
+                                                    --   0.82 yd out, past the guard: 0.78 yd in this 3:2 view)
         row(L, 1, 0.3, 0, 0, 1, -1, 0, 0)           -- 8 the camera inside its slab: behind its surface
         row(L, 2, 10, 0, 0, 0.4, -1, 0, 0)          -- 9 an unknown model file
         row(L, 1, 10, 0, 0, 0, -1, 0, 0)            -- 10 no size
@@ -377,7 +382,9 @@ def a_redraw_shows_only_the_stand_ins_that_face_the_camera_lie_in_view_and_in_fr
 @case
 def the_near_clip_guard_shows_nothing_behind_a_surface_nearer_than_the_near_clip():
     """A wall of stand-ins (surface at x = d, normal towards the camera) between the camera and a model: with the
-    camera 0.3 yd before the surface the client clips the surface away, so none may show; from 1.2 yd they do."""
+    camera 0.3 yd before the surface the client clips the surface away, so none may show; 0.6 yd before it - past
+    the near clip, but nearer than the near plane's corners (0.78 yd in this 3:2 view) - the view's corners may
+    clip it, so none either; from 1.2 yd they do."""
     w = World()
     c = Client(w, "Bob", guild_rank=1, class_file="MAGE")
     c.load_addon()
@@ -391,7 +398,7 @@ def the_near_clip_guard_shows_nothing_behind_a_surface_nearer_than_the_near_clip
         end
         local set = S.Prepare({ version = 1, prims = T.prims, n = #L / 12, stride = 12, data = L })
         local res = {}
-        for _, back in ipairs({ 0, 0.1, 0.15, 0.9 }) do
+        for _, back in ipairs({ 0, 0.1, 0.15, 0.3, 0.9 }) do
           local cam = { x = -back, y = 0, z = 0, fx = 1, fy = 0, fz = 0, near = 0.5, w = 600, h = 400, k = 300 }
           local function proj(x, y, z)
             local dx = x + back
@@ -403,11 +410,13 @@ def the_near_clip_guard_shows_nothing_behind_a_surface_nearer_than_the_near_clip
           res[#res + 1] = { S.Select(set, cam, proj, rects, nm, 800, out, false),
                             S.Select(set, cam, proj, rects, nm, 800, {}, true), #__BRUTE(set, cam, proj, rects, nm, false) }
         end
-        return { n = set.n, res = res }
+        return { n = set.n, res = res, guard = S.Guard({ near = 0.5, w = 600, h = 400, k = 300 }) }
     """)
-    # 0.3, 0.4 and 0.45 yd before the surface: nothing, even with 'all'; 1.2 yd: those over the model
-    assert r["res"][0] == [0, 0, 0] and r["res"][1] == [0, 0, 0] and r["res"][2] == [0, 0, 0], r
-    assert r["res"][3][0] > 0 and r["res"][3][0] == r["res"][3][2] and r["res"][3][1] == r["n"], r
+    assert abs(r["guard"] - 0.5 * math.sqrt(1 + 1 + (2 / 3) ** 2)) < 1e-12, r
+    # 0.3, 0.4, 0.45 and 0.6 yd before the surface: nothing, even with 'all'; 1.2 yd: those over the model
+    for k in range(4):
+        assert r["res"][k] == [0, 0, 0], (k, r)
+    assert r["res"][4][0] > 0 and r["res"][4][0] == r["res"][4][2] and r["res"][4][1] == r["n"], r
     no_errors(w)
 
 

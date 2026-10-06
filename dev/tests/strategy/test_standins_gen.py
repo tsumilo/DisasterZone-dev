@@ -12,7 +12,7 @@ promises on its own poses and on held-out board and stress poses; the shipped fi
 (Render3D/Standins/MagtheridonsLair_Magtheridon.lua) has the data contract's shape as Lua itself reads it (line 1
 guard, version 2, both prims - the quad's size and middle as the client's file has them -, the room file it was made
 for, n, stride 12, 12 finite numbers per stand-in, angles in range, unit normals, a quad's front along its normal,
-scales in range: no actor under 0.018, a size under 300 KB), stand-ins on floors, walls and slopes, every one lies
+scales in range: no actor under 0.018, a size under 400 KB), stand-ins on floors, walls and slopes, every one lies
 behind its face (the side the face is seen from), inside its outline, and keeps clear of every room face, none lies on
 a line of sight past an open edge (the panels' and the lintel's undersides), and it hides nothing the room does not:
 over-occlusion 0 after the 1-pixel erosion on a few poses (the first view, a low orbit, the top view, inside, walking,
@@ -355,7 +355,8 @@ def test_shipped_file_has_the_contract_shape():
     first = src.split("\n", 1)[0]
     assert first == 'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (
         rel, rel), first
-    assert len(src.encode("utf-8")) < 300_000, len(src)
+    # (v1's 2864 cubes took 204 KB; v2's quads, turned three ways with a finer scale, about 97 bytes each)
+    assert len(src.encode("utf-8")) < 400_000, len(src)
     assert rec["version"] == 2 and rec["stride"] == 12 and rec["nprims"] == 2
     assert rec["prims"][1] == dict(fid=167145, kind="cube", half=0.5), rec["prims"]
     # the quad as the client's file has it (casc_local + m2_write read 653518: 4 vertices at x -4.0358, y -23.5964 ..
