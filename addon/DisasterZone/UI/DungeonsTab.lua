@@ -4,7 +4,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/DungeonsTab.lua", ...) then ret
 -- one of my roles glows. Join asks the leader. My own run sits on top with the players asking to join and the
 -- members up for a run who fit. "List a run" opens a sheet: the dungeons by complex, when, a note, my role and a
 -- preview that is exactly the card the guild will see. A small pop-up pings me when a run needs me while I'm up for
--- one, and the leader when somebody asks to join.
+-- one, and the leader when somebody asks to join; a run's party invite is a pop-up too. The eye on my run lists it
+-- in Blizzard's Group Finder (it looks around while listed) and the players from outside the guild show up under it.
 local addonName, ns = ...
 
 local DungeonsUI = ns:NewModule("DungeonsUI")
@@ -450,7 +451,6 @@ local function HideReqRows(c)
     for _, r in ipairs(c.reqs) do r:Hide() end
     for _, r in ipairs(c.free) do r:Hide() end
     for _, r in ipairs(c.pugs or {}) do r:Hide() end
-    if c.finder then c.finder:Hide() end
 end
 
 -- A request row on my own card: class, name, spec, "BiS here", Accept, decline.
@@ -536,12 +536,16 @@ local function FillChip(f, e)
 end
 
 ---------------------------------------------------------------------------
--- My run in the Group Finder (Core/GroupFinder.lua): the listing's row, then the players from outside the guild who
--- could fill it (whispers first, then solo players listed for the dungeon)
+-- My run in the Group Finder (Core/GroupFinder.lua): the eye between Share and More lists it there or takes it out
+-- (its iris looks left and right while listed, like Blizzard's LFG eye); the players from outside the guild who
+-- could fill it show up under the run (whispers first, then solo players listed for the dungeon)
 ---------------------------------------------------------------------------
 
 local PUG_ROWS = 5
-local REFRESH_TEX = "Interface\\Buttons\\UI-RefreshButton"
+-- the iris's glance: { time (s), where (-1 left .. 1 right) }, eased between, one look around per EYE_TURN seconds
+local EYE_KEYS = { { 0, 0 }, { 0.7, 0 }, { 1.0, -1 }, { 1.8, -1 }, { 2.2, 1 }, { 3.0, 1 }, { 3.4, 0 }, { 4.2, 0 } }
+local EYE_TURN = 4.2
+local EYE_REACH = 10 / 64   -- how far the iris travels, as a share of the icon's width (the generator's 10 units)
 
 local function GFm() return ns.GroupFinder end
 
@@ -551,34 +555,84 @@ local function HookTip(b, lines)
     b:HookScript("OnLeave", HideTip)
 end
 
-local function NewFinderRow(c)
-    local r = CreateFrame("Frame", nil, c)
-    r:SetHeight(REQ_H)
-    r.line = r:CreateTexture(nil, "BORDER")
-    r.line:SetColorTexture(1, 1, 1, 0.07)
-    r.line:SetHeight(1)
-    r.line:SetPoint("TOPLEFT")
-    r.line:SetPoint("TOPRIGHT")
-    r.label = Text(r, "GameFontHighlightSmall", 11)
-    r.label:SetTextColor(0.62, 0.62, 0.62)
-    r.label:SetPoint("LEFT", 0, 0)
-    r.label:SetText("Group Finder")
-    r.status = Text(r, "GameFontHighlightSmall", 11)
-    r.status:SetPoint("LEFT", r.label, "RIGHT", 10, 0)
-    local function click(self) if self.onClick then self.onClick() end end
-    r.list = NewButton(r, "List", 56, 22, "secondary", click)
-    r.list:SetPoint("RIGHT", 0, 0)
-    HookTip(r.list, nil)
-    r.off = UI():CreateTipIconButton(r, 22, UI().ICON.trash, "Take it out",
-        "Takes your run out of the Group Finder. It stays on the guild's board.", click)
-    r.off:SetPoint("RIGHT", 0, 0)
-    r.note = UI():CreateTipIconButton(r, 22, UI().ICON.notes, "Write a note",
-        "Opens Blizzard's Group Finder on your listing. Only you can type its note: addons aren't allowed to.", click)
-    r.note:SetPoint("RIGHT", r.off, "LEFT", -4, 0)
-    r.find = UI():CreateIconButton(r, 22, REFRESH_TEX, nil, click)
-    r.find:SetPoint("RIGHT", r.note, "LEFT", -4, 0)
-    HookTip(r.find, { "Look again", "Searches the Group Finder again for players who want this dungeon." })
-    return r
+local function EyeAt(t)
+    t = t % EYE_TURN
+    for i = 2, #EYE_KEYS do
+        local a, b = EYE_KEYS[i - 1], EYE_KEYS[i]
+        if t <= b[1] then
+            local f = (t - a[1]) / (b[1] - a[1])
+            f = f * f * (3 - 2 * f)
+            return a[2] + (b[2] - a[2]) * f
+        end
+    end
+    return 0
+end
+
+-- The eye: art pack 4 draws it in two parts (lids, iris); an older art pack shows the plain eye, still.
+local function NewEye(parent)
+    local Ui = UI()
+    local split = ns:HasAssets(4)
+    local b = Ui:CreateIconButton(parent, 26, Ui.ICON_ATLAS, Ui:IconCoords(split and Ui.ICON.finder or Ui.ICON.eye),
+        function(self) if self.onClick then self.onClick() end end)
+    if split then
+        b.iris = b:CreateTexture(nil, "OVERLAY")
+        b.iris:SetTexture(Ui.ICON_ATLAS)
+        local c = Ui:IconCoords(Ui.ICON.finderIris)
+        b.iris:SetTexCoord(c[1], c[2], c[3], c[4])
+    end
+    -- (the icon fills the button but 5 px on each side: its width is known before any layout)
+    function b:PlaceIris()
+        local iris = self.iris
+        if not iris then return end
+        local x = self.looking and EyeAt(self.t or 0) * EYE_REACH * max(1, (self:GetWidth() or 26) - 10) or 0
+        iris:ClearAllPoints()
+        iris:SetPoint("TOPLEFT", self.icon, "TOPLEFT", x, 0)
+        iris:SetPoint("BOTTOMRIGHT", self.icon, "BOTTOMRIGHT", x, 0)
+        iris:SetVertexColor(self.icon:GetVertexColor())
+    end
+    local function look(self, dt)
+        self.t = (self.t or 0) + dt
+        self:PlaceIris()
+    end
+    -- listed: the button looks chosen and the iris looks around
+    function b:SetLooking(on)
+        self.looking = on and true or false
+        self:SetActive(self.looking)
+        if self.iris then self:SetScript("OnUpdate", self.looking and look or nil) end
+        self:PlaceIris()
+    end
+    b:HookScript("OnEnter", function(self) self:PlaceIris() end)
+    b:HookScript("OnLeave", function(self) self:PlaceIris() end)
+    HookTip(b, nil)
+    return b
+end
+
+-- The eye on my run's card: what it says and what a click does.
+local function FillEye(eye, run)
+    local GF = GFm()
+    local listed, forRun, since = GF:GetListing(run)
+    local d = R():GetDungeon(run.d)
+    local where = (d and d.name or run.d) .. (run.h and " (Heroic)" or "")
+    eye:SetLooking(forRun)
+    if forRun then
+        local mins = since and max(1, floor((Now() - since) / 60))
+        eye.tipLines = { "In the Group Finder" .. (mins and grey(" · " .. mins .. " min") or ""),
+            "Listed as " .. where .. ". Players looking for it there, and anyone who whispers you, show up on your run.",
+            grey("Click to take it out. It stays on the guild's board.") }
+    else
+        eye.tipLines = { "Group Finder", "Lists your run in Blizzard's Group Finder as " .. where .. ". Players looking "
+            .. "for it there, and anyone who whispers you, show up on your run.",
+            listed and grey("Your group is listed there for another dungeon: this switches it.") or nil }
+    end
+    eye.onClick = function()
+        if select(2, GF:GetListing(run)) then
+            GF:Unlist()
+        else
+            local ok, why = GF:List(run)
+            if not ok and why then ns:Print("%s", why) end
+        end
+        HideTip()
+    end
 end
 
 -- A player from outside the guild: class, name, level and roles, what they whispered or wrote, Invite, whisper, set
@@ -652,59 +706,14 @@ local function PugTip(e)
     return lines
 end
 
--- The Group Finder rows of my run from y down (x = the rows' left edge); returns the y under them.
+-- The Group Finder players of my run from y down (x = the rows' left edge), while it is listed there; returns the y
+-- under them.
 local function FillFinder(c, run, x, y, w)
     local GF = GFm()
     c.pugs = c.pugs or {}
     for _, r in ipairs(c.pugs) do r:Hide() end
-    if c.finder then c.finder:Hide() end
-    if not (GF and GF:IsAvailable() and R():IsNow(run)) then return y end
-    local f = c.finder or NewFinderRow(c)
-    c.finder = f
-    f:ClearAllPoints()
-    f:SetPoint("TOPLEFT", c, "TOPLEFT", x, y)
-    f:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, y)
-    local listed, forRun, since = GF:GetListing(run)
-    local cands = forRun and GF:GetCandidates(run) or {}
-    local d = R():GetDungeon(run.d)
-    local where = (d and d.name or run.d) .. (run.h and " (Heroic)" or "")
-    f.list:Hide()
-    f.off:Hide()
-    f.note:Hide()
-    f.find:Hide()
-    if forRun then
-        local text = "|cff4fd16bListed|r"
-        if since then text = text .. grey(" · " .. max(1, floor((Now() - since) / 60)) .. " min") end
-        if GF:IsSearching() then
-            text = text .. grey(" · looking")
-        elseif #cands == 0 then
-            text = text .. grey(" · nobody there yet")
-        elseif #cands > PUG_ROWS then
-            text = text .. grey(" · " .. #cands .. " players")
-        end
-        f.status:SetText(text)
-        f.off.onClick = function() GF:Unlist() end
-        f.note.onClick = function()
-            if not GF:OpenBlizzard() then ns:Print("Blizzard's Group Finder didn't open.") end
-        end
-        f.find.onClick = function() GF:Search(run) end
-        f.off:Show()
-        f.note:Show()
-        f.find:Show()
-    else
-        f.status:SetText(listed and orange("Listed for another dungeon") or grey("Not listed"))
-        f.list:SetText(listed and "Switch" or "List")
-        f.list.tipLines = { listed and "Switch the listing" or "List in the Group Finder",
-            "Puts your run in Blizzard's Group Finder as " .. where .. ". Players looking for a group there show up "
-            .. "here, and so does anyone who whispers you." }
-        f.list.onClick = function()
-            local ok, why = GF:List(run)
-            if not ok and why then ns:Print("%s", why) end
-        end
-        f.list:Show()
-    end
-    f:Show()
-    y = y - REQ_H
+    if not (GF and GF:IsAvailable() and R():IsNow(run)) or not select(2, GF:GetListing(run)) then return y end
+    local cands = GF:GetCandidates(run)
     local canInvite = R():CanInvite()
     for i = 1, min(#cands, PUG_ROWS) do
         local e = cands[i]
@@ -851,15 +860,30 @@ local function FillCard(c, run, opts)
     c.btn:Hide()
     c.more:Hide()
     if c.share then c.share:Hide() end
+    if c.eye then
+        c.eye:SetLooking(false)
+        c.eye:Hide()
+    end
     c.runId = run.id
     if mine then
         c.more:ClearAllPoints()
         c.more:SetPoint("RIGHT", c, "TOPRIGHT", -12, -CARD_H / 2)
         c.more:SetScript("OnClick", function(self) DungeonsUI:OpenMineMenu(self) end)
         c.more:Show()
+        -- Share, the Group Finder eye (a run happening now), More
+        local left = c.more
+        local GF = GFm()
+        if not compact and GF and GF:IsAvailable() and R():IsNow(run) then
+            c.eye = c.eye or NewEye(c)
+            c.eye:ClearAllPoints()
+            c.eye:SetPoint("RIGHT", c.more, "LEFT", -4, 0)
+            FillEye(c.eye, run)
+            c.eye:Show()
+            left = c.eye
+        end
         if c.share then
             c.share:ClearAllPoints()
-            c.share:SetPoint("RIGHT", c.more, "LEFT", -4, 0)
+            c.share:SetPoint("RIGHT", left, "LEFT", -4, 0)
             c.share:Show()
         end
     elseif not compact and not R():IsInRun(run) then
@@ -1364,7 +1388,7 @@ function DungeonsUI:GetRunTip(run)
     return CardTip(run)()
 end
 
--- My run's More menu: Edit, Post in LookingForGroup, Unlist.
+-- My run's More menu: Edit, Post in LookingForGroup, (listed in the Group Finder:) Look again, Note, Unlist.
 function DungeonsUI:OpenMineMenu(owner)
     local Ui = UI()
     Ui:ContextMenu(owner, function(root)
@@ -1384,10 +1408,19 @@ function DungeonsUI:OpenMineMenu(owner)
                 local ok, why = R():PostToChannel()
                 if not ok and why then ns:Print("%s", why) end
             end)
+        -- listed in the Group Finder (the eye on the card): search again, and the note only the player can type
+        local GF, mine = ns.GroupFinder, R():GetMine()
+        if GF and mine and select(2, GF:GetListing(mine)) then
+            entry(Ui.ICON.eye, "Look again", "Searches the Group Finder again for players who want this dungeon.",
+                function() GF:Search(mine) end)
+            entry(Ui.ICON.notes, "Note", "Opens Blizzard's Group Finder on your listing to write its note. Only you "
+                .. "can type it: addons aren't allowed to.", function()
+                    if not GF:OpenBlizzard() then ns:Print("Blizzard's Group Finder didn't open.") end
+                end)
+        end
         if root.CreateDivider then root:CreateDivider() end
         entry(Ui.ICON.trash, "Unlist", "Takes your run off the board, and out of the Group Finder.", function()
             -- (a click: the Group Finder takes listings down only inside one)
-            local GF, mine = ns.GroupFinder, R():GetMine()
             if GF and mine and select(2, GF:GetListing(mine)) then GF:Unlist() end
             R():Unlist()
         end, { 1, 0.4, 0.35 })

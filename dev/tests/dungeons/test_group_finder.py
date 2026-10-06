@@ -97,6 +97,16 @@ def cands(cl):
                       " end; return out") or []
 
 
+def menu_pick(cl, word):
+    """Opens my run's More menu and picks the entry whose text has `word`."""
+    cl.eval("ns.DungeonsUI:OpenMineMenu(" + my_card(cl) + ".more)")
+    texts = cl.eval_py("local out = {}; for _, e in ipairs(__MOCK.menu_export().children) do "
+                       "out[#out + 1] = e.text or '' end; return out")
+    hits = [x for x in texts if word in x]
+    assert hits, (word, texts)
+    cl.menu_select(hits[0])
+
+
 def open_tab(w, cl):
     cl.eval("ns.MainFrame:Open('dungeons')")
     w.tick(0.5)
@@ -245,20 +255,28 @@ def the_group_finder_lists_and_searches_only_inside_a_click():
     assert errs and "ADDON_ACTION_BLOCKED" in errs[0] and "CreateListing" in errs[0], errs
     w.clear_errors()
     assert g.eval_py("return (ns.GroupFinder:GetListing(ns.DungeonRuns:GetMine()))") is False
-    # the run card's Group Finder row: List
+    # the eye on the run card (between Share and More): not listed, still
     g.eval(RESULTS)
     open_tab(w, g)
-    row = my_card(g) + ".finder"
-    assert g.eval_py("local f = " + row + "; return f:IsShown() and f.list:IsShown() and f.list:GetText()") == "List"
-    assert "Not listed" in g.eval_py("return " + row + ".status:GetText()")
-    g.click(g.eval("return " + row + ".list"))
+    eye = my_card(g) + ".eye"
+    assert g.eval_py("local e = " + eye + "; return e:IsShown() and not e.looking") is True
+    assert g.eval_py("local c = " + my_card(g) + "; local _, rel = c.share:GetPoint(1); return rel == c.eye") is True
+    assert g.eval_py("return " + eye + ".tipLines[1]") == "Group Finder"
+    g.click(g.eval("return " + eye))
     w.tick(1)
     log = lfg_log(g)
     assert [e["fn"] for e in log] == ["CreateListing", "Search"], log
     assert log[0]["a"] == BOTANICA_H and log[1]["a"] == BOTANICA_H and log[0]["comment"] == "", log
     listed = g.eval_py("local a, b = ns.GroupFinder:GetListing(ns.DungeonRuns:GetMine()); return { a, b }")
     assert listed == [True, True], listed
-    assert "Listed" in g.eval_py("return " + row + ".status:GetText()")
+    # listed: the eye looks around (its iris moves) and says so
+    assert g.eval_py("return " + eye + ".looking") is True
+    assert "In the Group Finder" in g.eval_py("return " + eye + ".tipLines[1]")
+    xs = []
+    for _ in range(4):
+        w.tick(0.6)
+        xs.append(round(g.eval_py("local _, _, _, x = " + eye + ".iris:GetPoint(1); return x"), 2))
+    assert len(set(xs)) > 1, xs
     # the candidates: solo players for heroic Botanica whose roles fit (the healer place is Gina's), level 70
     got = cands(g)
     assert [x["key"].split("-")[0] for x in got] == ["Shieldwall", "Stabby"], got
@@ -266,9 +284,9 @@ def the_group_finder_lists_and_searches_only_inside_a_click():
     shown = g.eval_py("local out = {}; for _, r in ipairs(" + my_card(g) + ".pugs) do if r:IsShown() then "
                       "out[#out + 1] = r.name:GetText() end end; return out")
     assert len(shown) == 2 and "Shieldwall" in shown[0], shown
-    # Look again searches again (a click)
+    # Look again (the More menu) searches again
     g.eval("__MOCK.lfg_log = {}")
-    g.click(g.eval("return " + row + ".find"))
+    menu_pick(g, "Look again")
     w.tick(1)
     assert [e["fn"] for e in lfg_log(g)] == ["Search"], lfg_log(g)
     # a player who delists leaves; one set aside too
@@ -278,7 +296,13 @@ def the_group_finder_lists_and_searches_only_inside_a_click():
     g.eval("ns.GroupFinder:Dismiss(...)", "Shieldwall-" + g.realm)
     w.tick(0.5)
     assert cands(g) == []
-    assert "nobody there yet" in g.eval_py("return " + row + ".status:GetText()")
+    # the eye again: out of the Group Finder, the eye still and no players under the run
+    g.eval("__MOCK.lfg_log = {}")
+    g.click(g.eval("return " + eye))
+    w.tick(1)
+    assert [e["fn"] for e in lfg_log(g)] == ["RemoveListing"], lfg_log(g)
+    assert g.eval_py("return " + eye + ".looking") is False
+    assert g.eval_py("return ns.DungeonRuns:GetMine() ~= nil") is True
     w.assert_no_errors()
 
 
@@ -295,7 +319,7 @@ def whispers_while_listed_are_candidates_and_an_invited_pug_takes_the_open_role(
     g.eval("__MOCK.lfg_set_results({ { name = 'Tankard', class = 'WARRIOR', level = 70, roles = { tank = true }, "
            "activityIDs = { 1212 } } })")
     open_tab(w, g)
-    g.click(g.eval("return " + my_card(g) + ".finder.list"))
+    g.click(g.eval("return " + my_card(g) + ".eye"))
     w.tick(1)
     pz.eval("SendChatMessage('resto sham lf botanica, inv pls', 'WHISPER', nil, 'Gina')")
     c["Alfa"].eval("SendChatMessage('guildie whisper', 'WHISPER', nil, 'Gina')")
@@ -323,13 +347,10 @@ def unlist_takes_the_group_finder_listing_down():
     list_run(g, "Mechanar", True, "healer")
     w.tick(3)
     open_tab(w, g)
-    g.click(g.eval("return " + my_card(g) + ".finder.list"))
+    g.click(g.eval("return " + my_card(g) + ".eye"))
     w.tick(1)
     assert g.eval_py("return __MOCK.lfg_entry ~= nil") is True
-    g.eval("ns.DungeonsUI:OpenMineMenu(" + my_card(g) + ".more)")
-    texts = g.eval_py("local out = {}; for _, e in ipairs(__MOCK.menu_export().children) do "
-                      "out[#out + 1] = e.text or '' end; return out")
-    g.menu_select([x for x in texts if "Unlist" in x][0])
+    menu_pick(g, "Unlist")
     w.tick(1)
     assert g.eval_py("return __MOCK.lfg_entry == nil") is True
     assert g.eval_py("return ns.DungeonRuns:GetMine()") is None
@@ -383,7 +404,7 @@ def demo_mode_shows_made_up_pugs_and_calls_nothing():
     w.tick(1)
     g.eval("ns.DungeonRuns:List({ d = 'Botanica', h = true, role = 'healer' })")
     open_tab(w, g)
-    g.click(g.eval("return " + my_card(g) + ".finder.list"))
+    g.click(g.eval("return " + my_card(g) + ".eye"))
     w.tick(1)
     assert lfg_log(g) == []
     got = cands(g)

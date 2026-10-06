@@ -680,6 +680,9 @@ UI.ICON = { trash = 12, gear = 13, chevron = 14, games = 21, disenchant = 22, ba
 UI.ICON.practice, UI.ICON.keys, UI.ICON.plus = 37, 38, 39
 -- (the Atlas shopping list: 40 a bag, 41 a bag with a plus (add to it), 42 a speech bubble (whisper))
 UI.ICON.bag, UI.ICON.bagAdd, UI.ICON.whisper = 40, 41, 42
+-- (the Group Finder, art pack 4: 43 an eye's lids, 44 its iris, drawn over the lids and moved while listed; check
+-- ns:HasAssets(4) first, else UI.ICON.eye)
+UI.ICON.finder, UI.ICON.finderIris, UI.ICON.eye = 43, 44, 15
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }

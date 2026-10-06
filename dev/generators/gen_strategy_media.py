@@ -404,12 +404,30 @@ def ic_whisper(d, k):
     d.polygon(_pts(k, [(14, 40), (30, 40), (12, 58)]), fill=255)
 
 
+def _almond():
+    # the lids of an eye: two arcs meeting at the corners (2.6, 32) and (61.4, 32), 15..49 tall
+    upper = [(32 + 34 * math.cos(math.radians(a)), 49 + 34 * math.sin(math.radians(a))) for a in range(210, 331, 3)]
+    lower = [(32 + 34 * math.cos(math.radians(a)), 15 + 34 * math.sin(math.radians(a))) for a in range(30, 151, 3)]
+    return upper + lower
+
+
+def ic_finder_eye(d, k):
+    # the Group Finder (Blizzard's LFG eye, flat): the lids only; its iris is the next cell, moved in game
+    pts = _pts(k, _almond())
+    d.line(pts + [pts[0]], fill=255, width=_w(k, 5), joint="curve")
+
+
+def ic_finder_iris(d, k):
+    # the Group Finder eye's iris: drawn over the lids, it looks left and right (up to 10 units) while listed
+    d.ellipse(_pts(k, [(22, 22), (42, 42)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
               ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
-              ic_bag, ic_bag_add, ic_whisper]
+              ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 
