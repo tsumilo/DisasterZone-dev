@@ -601,11 +601,17 @@ local function RowTooltip(row)
             tt:AddLine(Atlas():LocationText(d.loc) or "", 0.7, 0.7, 0.7, true)
         end
         -- a craft's materials (Shift held), then the hints
-        local matsHint = ns.Tooltip and ns.Tooltip:AddMaterials(tt, id)
+        local matsHint, stepHint
+        if ns.Tooltip then matsHint, stepHint = ns.Tooltip:AddMaterials(tt, id) end
         local hints = {}
-        if id > 0 and #Atlas():GetBiSTargets(id) > 0 then hints[#hints + 1] = "Right-click: add to your BiS list" end
-        if d.loc and IsSearching() then hints[#hints + 1] = "Click: open its page" end
+        -- (while the materials show, clicks break them down instead)
+        local clicksTaken = matsHint ~= nil and IsShiftKeyDown()
+        if id > 0 and #Atlas():GetBiSTargets(id) > 0 and not clicksTaken then
+            hints[#hints + 1] = "Right-click: add to your BiS list"
+        end
+        if d.loc and IsSearching() and not clicksTaken then hints[#hints + 1] = "Click: open its page" end
         hints[#hints + 1] = matsHint
+        hints[#hints + 1] = stepHint
         if #hints > 0 then tt:AddLine(" ") end
         for _, h in ipairs(hints) do tt:AddLine(h, 0.55, 0.8, 1) end
     end
@@ -733,8 +739,8 @@ local function SetupItemRow(row)
         -- the cursor went onto the + (still over the row): stay hovered
         if not (self.plus:IsShown() and self:IsMouseOver()) then SetRowHover(self, false) end
     end)
-    -- Shift: a craft's materials; Shift + mouse wheel: how many to make
-    if ns.Tooltip and ns.Tooltip.CraftRow then ns.Tooltip:CraftRow(row, RowTooltip) end
+    -- Shift: a craft's materials; Shift + mouse wheel: how many to make; Shift + click / right-click: break down
+    if ns.Tooltip and ns.Tooltip.CraftRow then ns.Tooltip:CraftRow(row, RowTooltip, true) end
 end
 
 local function InitItemRow(row, d)

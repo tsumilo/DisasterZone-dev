@@ -134,7 +134,7 @@ def an_atlas_craft_row_takes_the_amount_from_the_mouse_wheel():
     assert not c.eval(wheel, row), "without Shift the wheel belongs to the list"
     c.set_modifiers(shift=True)
     ls = lefts(c)
-    assert "Materials" in ls and ls[-1] == "Mouse wheel: change the amount", ls
+    assert "Materials" in ls and ls[-2] == "Mouse wheel: change the amount", ls
     assert c.eval(wheel, row)
     assert ls.index("Skill 340") < ls.index("Materials"), ls       # under the row's own lines
     assert right_of(c, "Bolt of Imbued Netherweave") == "0/4"
@@ -142,10 +142,10 @@ def an_atlas_craft_row_takes_the_amount_from_the_mouse_wheel():
     c.eval("T_wheel(...)", row, 1)
     assert "Materials ×3" in lefts(c), lefts(c)
     assert right_of(c, "Bolt of Imbued Netherweave") == "0/12" and right_of(c, "Netherweb Spider Silk") == "0/6"
-    assert c.eval("return ns.Tooltip:GetMaterialsAmount()") == 3
+    assert c.eval("return (ns.Tooltip:GetMaterialsAmount())") == 3
     for _ in range(5):
         c.eval("T_wheel(...)", row, -1)
-    assert "Materials" in lefts(c) and c.eval("return ns.Tooltip:GetMaterialsAmount()") == 1
+    assert "Materials" in lefts(c) and c.eval("return (ns.Tooltip:GetMaterialsAmount())") == 1
     c.eval("T_wheel(...)", row, 1)
     # releasing Shift hides the block; the amount stays for this craft
     c.set_modifiers(shift=False)
@@ -164,13 +164,93 @@ def an_atlas_craft_row_takes_the_amount_from_the_mouse_wheel():
     c.eval("""local row = ...; T_fw = nil
       row:GetParent():SetScript("OnMouseWheel", function(_, d) T_fw = d end)""", row)
     c.eval("T_wheel(...)", row, -1)
-    assert c.eval("return T_fw") == -1 and c.eval("return ns.Tooltip:GetMaterialsAmount()") == 2
+    assert c.eval("return T_fw") == -1 and c.eval("return (ns.Tooltip:GetMaterialsAmount())") == 2
     # another craft starts at 1
     c.leave(row)
     other = atlas_row(w, c, 21841)       # Netherweave Bag
     c.set_modifiers(shift=True)
     c.hover(other)
-    assert "Materials" in lefts(c) and c.eval("return ns.Tooltip:GetMaterialsAmount()") == 1, lefts(c)
+    assert "Materials" in lefts(c) and c.eval("return (ns.Tooltip:GetMaterialsAmount())") == 1, lefts(c)
+    no_errors(w)
+
+
+def mats_lines(c):
+    """[(left, right)] of the materials block: the header first."""
+    ls = lines(c)
+    i = next(k for k, (l, _) in enumerate(ls) if l.startswith("Materials"))
+    out = [ls[i]]
+    for l, r in ls[i + 1:]:
+        if not r or "/" not in r:
+            break
+        out.append((l, r))
+    return out
+
+
+def materials(c, item_id, crafts, depth):
+    """Atlas:GetMaterials as [[(id, count), ...], depth reached, one more step possible]."""
+    got = c.eval_py("""local list, level, deeper = ns.Atlas:GetMaterials(...)
+      local o = {} for k, e in ipairs(list) do o[k] = { e.id, e.count } end return { o, level, deeper }""",
+                    item_id, crafts, depth)
+    return [[tuple(x) for x in got[0]], got[1], got[2]]
+
+
+@case
+def breaking_materials_down_follows_crafts_but_not_transmutes():
+    w, c = setup()
+    assert materials(c, BAG, 1, 0) == [[(BOLT, 4), (SILK, 2), (ESSENCE, 1)], 0, True]
+    # a step: the imbued bolts become 3 Bolt of Netherweave + 2 Arcane Dust each, in their place
+    got = materials(c, BAG, 2, 1)
+    assert got == [[(21840, 24), (22445, 16), (SILK, 4), (ESSENCE, 2)], 1, True], got
+    # two steps: the bolts become cloth; Arcane Dust stays (disenchanted, not made from an Arcane Crystal); the end
+    got = materials(c, BAG, 2, 5)
+    assert got == [[(21877, 144), (22445, 16), (SILK, 4), (ESSENCE, 2)], 2, False], got
+    # Primal Might: the primals are only transmuted from each other, so nothing breaks down
+    got = materials(c, 23571, 1, 3)
+    assert len(got[0]) == 5 and got[1:] == [0, False], got
+    no_errors(w)
+
+
+@case
+def shift_click_breaks_down_right_click_goes_back_and_releasing_shift_starts_over():
+    w, c = setup()
+    row = atlas_row(w, c, BAG)
+    c.hover(row)
+    c.set_modifiers(shift=True)
+    assert lefts(c)[-2:] == ["Mouse wheel: change the amount", "Click: break down"], lefts(c)[-3:]
+    c.click(row)
+    m = mats_lines(c)
+    assert m[0][0] == "Materials · broken down once", m
+    assert [l for l, _ in m[1:]] == ["Bolt of Netherweave", "Arcane Dust", "Netherweb Spider Silk",
+                                     "Greater Planar Essence"], m
+    assert dict(m[1:])["Bolt of Netherweave"] == "0/12" and dict(m[1:])["Arcane Dust"] == "0/8", m
+    assert lefts(c)[-1] == "Click: break down · Right-click: back up", lefts(c)[-3:]
+    # the amount keeps the step
+    c.eval("T_wheel(...)", row, 1)
+    m = mats_lines(c)
+    assert m[0][0] == "Materials ×2 · broken down once" and dict(m[1:])["Bolt of Netherweave"] == "0/24", m
+    c.click(row)
+    m = mats_lines(c)
+    assert m[0][0] == "Materials ×2 · broken down twice" and dict(m[1:])["Netherweave Cloth"] == "0/144", m
+    assert lefts(c)[-1] == "Right-click: back up", lefts(c)[-3:]
+    # nothing left to break down: a click changes nothing (and links nothing)
+    c.click(row)
+    assert mats_lines(c)[0][0] == "Materials ×2 · broken down twice"
+    assert c.eval("return (ns.Tooltip:GetMaterialsAmount())") == 2
+    c.click(row, "RightButton")
+    assert mats_lines(c)[0][0] == "Materials ×2 · broken down once"
+    c.click(row, "RightButton")
+    c.click(row, "RightButton")   # at the top: stays, and no item menu while the materials show
+    assert mats_lines(c)[0][0] == "Materials ×2" and not c.eval("return __MOCK.last_menu ~= nil"), mats_lines(c)[0]
+    # releasing Shift starts over (the amount stays)
+    c.click(row)
+    c.set_modifiers(shift=False)
+    assert lefts(c)[-1] == "Hold Shift: materials"
+    c.set_modifiers(shift=True)
+    assert mats_lines(c)[0][0] == "Materials ×2", mats_lines(c)[0]
+    # without Shift a right-click opens the item menu as before
+    c.set_modifiers(shift=False)
+    c.click(row, "RightButton")
+    assert c.eval("return __MOCK.last_menu ~= nil")
     no_errors(w)
 
 

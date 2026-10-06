@@ -473,26 +473,95 @@ local function ParseCraft(spell)
     return c or nil
 end
 
+local function CraftOf(itemID)
+    if not craftOf then
+        craftOf = {}
+        for spell, s in pairs(Data().AtlasCrafts or {}) do
+            local item = tonumber(strmatch(s, "^(%d+)"))
+            if item and item > 0 then craftOf[item] = spell end
+        end
+        -- items more than one craft makes: the generator's pick
+        for item, spell in pairs(Data().AtlasCraftFor or {}) do craftOf[item] = spell end
+    end
+    return craftOf[itemID]
+end
+
 -- The craft that makes id (an item id, or -spellID of a craft spell; a recipe / pattern gives the craft it teaches):
 -- { spell, item (0: makes none), made (per craft), reagents = { { id, count }, ... } }, or nil. Do not modify.
 function Atlas:GetCraft(id)
     id = tonumber(id)
     if not id or id == 0 then return nil end
     if id < 0 then return ParseCraft(-id) end
-    local data = Data()
-    if not craftOf then
-        craftOf = {}
-        for spell, s in pairs(data.AtlasCrafts or {}) do
-            local item = tonumber(strmatch(s, "^(%d+)"))
-            if item and item > 0 then craftOf[item] = spell end
-        end
-        -- items more than one craft makes: the generator's pick
-        for item, spell in pairs(data.AtlasCraftFor or {}) do craftOf[item] = spell end
-    end
-    if craftOf[id] then return ParseCraft(craftOf[id]) end
-    local taught = data.AtlasRecipes and data.AtlasRecipes[id]
+    local spell = CraftOf(id)
+    if spell then return ParseCraft(spell) end
+    local taught = Data().AtlasRecipes and Data().AtlasRecipes[id]
     if type(taught) == "number" and taught ~= 0 and taught ~= id then return self:GetCraft(taught) end
     return nil
+end
+
+-- One breakdown step: every material another craft makes (not a conversion such as a transmute, and not back into
+-- something it was made from) is replaced by that craft's reagents, enough crafts to cover it; the rest stays.
+-- Entries keep their order (a material's reagents take its place) and merge by id. Returns the list and whether
+-- anything was broken down.
+local function BreakDownStep(list)
+    local out, at, changed = {}, {}, false
+    local conversions = Data().AtlasConversions or {}
+    local function add(id, count, up)
+        local e = out[at[id] or 0]
+        if e then
+            e.count = e.count + count
+            for k in pairs(up) do e.up[k] = true end
+        else
+            local copy = {}
+            for k in pairs(up) do copy[k] = true end
+            out[#out + 1] = { id = id, count = count, up = copy }
+            at[id] = #out
+        end
+    end
+    for _, e in ipairs(list) do
+        local spell = CraftOf(e.id)
+        local craft = spell and not conversions[spell] and ParseCraft(spell)
+        if craft then
+            for _, r in ipairs(craft.reagents) do
+                if r.id == e.id or e.up[r.id] then craft = nil break end
+            end
+        end
+        if craft then
+            local runs = math.ceil(e.count / craft.made)
+            local up = { [e.id] = true }
+            for k in pairs(e.up) do up[k] = true end
+            for _, r in ipairs(craft.reagents) do add(r.id, r.count * runs, up) end
+            changed = true
+        else
+            add(e.id, e.count, e.up)
+        end
+    end
+    return out, changed
+end
+
+-- The materials for `crafts` crafts of what makes id (see GetCraft), broken down `depth` steps (each step: the
+-- materials other crafts make become their materials). Returns { { id, count }, ... }, the depth reached (a smaller
+-- depth when nothing breaks down further), and whether one more step would change the list; nil when no craft
+-- makes id.
+function Atlas:GetMaterials(id, crafts, depth)
+    local craft = self:GetCraft(id)
+    if not craft then return nil end
+    crafts = math.max(1, math.floor(tonumber(crafts) or 1))
+    depth = math.max(0, math.floor(tonumber(depth) or 0))
+    local list = {}
+    for _, r in ipairs(craft.reagents) do
+        list[#list + 1] = { id = r.id, count = r.count * crafts, up = craft.item > 0 and { [craft.item] = true } or {} }
+    end
+    local level = 0
+    while true do
+        local nextList, changed = BreakDownStep(list)
+        if not changed or level == depth then
+            local out = {}
+            for i, e in ipairs(list) do out[i] = { id = e.id, count = e.count } end
+            return out, level, changed
+        end
+        list, level = nextList, level + 1
+    end
 end
 
 -- Does a page list anything my class can use (gear I can equip, or anything that isn't gear)? Instant data only, so

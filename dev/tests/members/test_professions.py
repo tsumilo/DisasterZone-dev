@@ -547,5 +547,47 @@ def a_recipe_shows_its_materials_with_shift_and_the_wheel_sets_the_amount():
     w.assert_no_errors()
 
 
+@case
+def shift_click_on_a_recipe_breaks_its_materials_down_instead_of_linking():
+    w, g, a, b = ui_world()
+    b.eval("ns.MembersUI:SetMode('recipes')")
+    b.eval("""
+      T_row = nil
+      ns.MembersUI:GetPanel().recipes.box:ForEachFrame(function(row)
+        local d = row.__cdlData
+        if d and d.r.spell == 26746 then T_row = row end     -- Netherweave Bag: 4 Bolt of Netherweave, 1 Rune Thread
+      end)
+      T_row:GetScript("OnEnter")(T_row)
+      T_links = 0
+      local orig = ChatEdit_InsertLink
+      ChatEdit_InsertLink = function(...) T_links = T_links + 1 return orig and orig(...) end
+      if ChatFrameUtil then
+        local o2 = ChatFrameUtil.InsertLink
+        ChatFrameUtil.InsertLink = function(...) T_links = T_links + 1 return o2 and o2(...) end
+      end""")
+
+    def text():
+        return " | ".join(b.eval_py("""
+          local out = {}
+          for i = 1, GameTooltip:NumLines() do
+            out[#out + 1] = (_G["GameTooltipTextLeft" .. i]:GetText() or ""):gsub("|T[^|]*|t", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+          end
+          return out"""))
+    before = b.eval("return ns.MembersUI:GetState().recipe")
+    b.set_modifiers(shift=True)
+    assert "Bolt of Netherweave" in text() and "Click: break down" in text(), text()
+    b.click(b.eval("return T_row"))
+    assert "Materials · broken down once" in text() and "Netherweave Cloth" in text() \
+        and "Bolt of Netherweave" not in text(), text()
+    assert b.eval("return T_links") == 0, "a Shift + click over the materials must not link the recipe"
+    b.click(b.eval("return T_row"), "RightButton")
+    assert "broken down" not in text() and "Bolt of Netherweave" in text(), text()
+    # a right-click without Shift does nothing here (the row only took right clicks for the materials)
+    b.set_modifiers(shift=False)
+    b.click(b.eval("return T_row"), "RightButton")
+    assert b.eval("return ns.MembersUI:GetState().recipe") == before
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

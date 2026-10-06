@@ -34,7 +34,7 @@ local cache, cacheSize = {}, 0
 local hooked = {}                               -- [tooltip] = true
 local truncated = setmetatable({}, { __mode = "k" })  -- [tooltip] = { entries, start, line } for Shift-expand
 local matsOn = setmetatable({}, { __mode = "k" })     -- [tooltip] = the line of its "Materials" header
-local mats = { n = 1 }                                -- the materials amount and the id it is for
+local mats = { n = 1, level = 0 }                     -- the id shown, its amount and breakdown steps
 local MATS_MAX = 999
 -- the tooltips that get materials (not the comparison tooltips Shift also opens)
 local MATS_TOOLTIPS = { "GameTooltip", "ItemRefTooltip" }
@@ -390,33 +390,45 @@ local function HaveCount(id)
     return tonumber(count and count(id, true)) or 0   -- bags and bank
 end
 
+local BROKEN_DOWN = { "broken down once", "broken down twice" }
+
 -- Adds the materials of the craft that makes id (an item id, or -spellID of a craft spell) to tt while Shift is
--- held: each reagent with how many I have (bags and bank) and need for the amount. Returns the hint a list row shows
--- ("Hold Shift: materials", then "Mouse wheel: change the amount"), or nil when no craft makes id.
+-- held: each material with how many I have (bags and bank) and need for the amount, broken down as many steps as
+-- clicked (Tooltip:CraftRow). Returns the hint lines a list row shows ("Hold Shift: materials"; with Shift: "Mouse
+-- wheel: change the amount" and, when there is a step to take, "Click: break down · Right-click: back up"), or nil
+-- when no craft makes id.
 function Tooltip:AddMaterials(tt, id)
-    local craft = tt and ns.Atlas and ns.Atlas.GetCraft and ns.Atlas:GetCraft(id)
+    local A = ns.Atlas
+    local craft = tt and A and A.GetCraft and A:GetCraft(id)
     if not craft then return nil end
-    if mats.id ~= id then mats.id, mats.n = id, 1 end
+    if mats.id ~= id then mats.id, mats.n, mats.level = id, 1, 0 end
     if not ShiftDown() then return "Hold Shift: materials" end
     local n = mats.n
+    local list, level, deeper = A:GetMaterials(id, n, mats.level)
+    mats.level, mats.deeper = level, deeper
+    local head = n > 1 and ("Materials ×" .. n) or "Materials"
+    if level > 0 then head = head .. " · " .. (BROKEN_DOWN[level] or ("broken down " .. level .. " times")) end
     tt:AddLine(" ")
-    tt:AddDoubleLine(n > 1 and ("Materials ×" .. n) or "Materials",
-        craft.made > 1 and ("makes " .. craft.made * n) or "", 1, 0.82, 0, GREY, GREY, GREY)
+    tt:AddDoubleLine(head, craft.made > 1 and ("makes " .. craft.made * n) or "", 1, 0.82, 0, GREY, GREY, GREY)
     matsOn[tt] = tt:NumLines()
-    for _, r in ipairs(craft.reagents) do
-        local need, have = r.count * n, HaveCount(r.id)
+    for _, r in ipairs(list) do
+        local need, have = r.count, HaveCount(r.id)
         local c = have >= need and Color("obtained") or { 0.8, 0.8, 0.8 }
         tt:AddDoubleLine(ReagentText(r.id), have .. "/" .. need, 1, 1, 1, c[1], c[2], c[3])
     end
     -- a list row (Tooltip:CraftRow) takes the mouse wheel while its materials show
     local owner = tt.GetOwner and tt:GetOwner()
     if owner and owner.__dzCraftTip then owner:EnableMouseWheel(true) end
-    return "Mouse wheel: change the amount"
+    local steps = {}
+    if deeper then steps[#steps + 1] = "Click: break down" end
+    if level > 0 then steps[#steps + 1] = "Right-click: back up" end
+    return "Mouse wheel: change the amount", #steps > 0 and tconcat(steps, " · ") or nil
 end
 
--- The amount the materials are shown for (1 until the mouse wheel changes it over a craft's row).
+-- The amount the materials are shown for (1 until the mouse wheel changes it over a craft's row) and how many steps
+-- they are broken down.
 function Tooltip:GetMaterialsAmount()
-    return mats.n
+    return mats.n, mats.level or 0
 end
 
 -- Turns the wheel for the nearest parent that scrolls (the list), as if the row had no wheel of its own.
@@ -429,13 +441,39 @@ local function ForwardWheel(frame, delta)
     end
 end
 
+local function ShowsMaterials(row)
+    return ShiftDown() and GameTooltip:IsShown() and GameTooltip:IsOwned(row) and HasMaterials(GameTooltip)
+end
+
 -- A list row whose tooltip (drawn by show(row)) can show a craft's materials: pressing or releasing Shift redraws
--- it, and while the materials show (Shift held) the mouse wheel over the row changes the amount. The row takes the
--- wheel only then, so otherwise the wheel scrolls the list as it always did.
-function Tooltip:CraftRow(row, show)
+-- it, and while the materials show (Shift held) the mouse wheel over the row changes the amount, a click breaks the
+-- materials down a step and a right-click goes back up one (releasing Shift starts over). The row takes the wheel
+-- only then, so otherwise the wheel scrolls the list as it always did; other clicks do what they did.
+-- rightClicks: the row already takes right clicks (else it is registered for them, and they do nothing else).
+function Tooltip:CraftRow(row, show, rightClicks)
     row.__dzCraftTip = show
+    if row.HasScript and row:HasScript("OnClick") then
+        local onClick = row:GetScript("OnClick")
+        if not rightClicks then row:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+        row:SetScript("OnClick", function(self, button, ...)
+            if ShowsMaterials(self) then
+                if button == "RightButton" then
+                    if mats.level > 0 then
+                        mats.level = mats.level - 1
+                        show(self)
+                    end
+                elseif mats.deeper then
+                    mats.level = mats.level + 1
+                    show(self)
+                end
+                return
+            end
+            if button == "RightButton" and not rightClicks then return end
+            if onClick then return onClick(self, button, ...) end
+        end)
+    end
     row:SetScript("OnMouseWheel", function(self, delta)
-        if ShiftDown() and GameTooltip:IsShown() and GameTooltip:IsOwned(self) and HasMaterials(GameTooltip) then
+        if ShowsMaterials(self) then
             local n = max(1, min(MATS_MAX, mats.n + (delta > 0 and 1 or -1)))
             if n ~= mats.n then
                 mats.n = n
@@ -451,8 +489,9 @@ function Tooltip:CraftRow(row, show)
 end
 
 -- Shift went down or up: a list row's tooltip is redrawn (with or without the materials); any other item tooltip
--- gets the materials added under it when Shift goes down.
+-- gets the materials added under it when Shift goes down. Releasing Shift undoes the breakdown.
 local function MaterialsShift(down)
+    if not down then mats.level = 0 end
     local owner = GameTooltip:IsShown() and GameTooltip:GetOwner()
     local redrawn = owner and owner.__dzCraftTip
     if redrawn then

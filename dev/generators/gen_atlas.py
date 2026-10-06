@@ -434,7 +434,7 @@ def load_professions_tbc():
 
 
 def load_crafts_tbc(ctx):
-    """spellID -> (createdItem or 0, numberMade, [(reagent, count), ...], skill, version) for every craft AtlasLoot
+    """spellID -> (createdItem or 0, numberMade, [(reagent, count), ...], skill, version, profession) for every craft AtlasLoot
     knows on a TBC client (CLASSIC, then BCC overriding; rows are { created, prof, skill, low, high, {reagents},
     {counts}, made? }). Rows without a reagent list or with lists of different lengths are skipped (reported)."""
     out = {}
@@ -452,18 +452,50 @@ def load_crafts_tbc(ctx):
                 continue
             made = int_val(a[7]) if len(a) > 7 else None
             out[sp] = (int_val(a[0]) or 0, made if made and made > 0 else 1, list(zip(ids, ns_)),
-                       int_val(a[2]) or 0, ver)
+                       int_val(a[2]) or 0, ver, int_val(a[1]) or 0)
     return out
 
 
-def craft_for_items(crafts):
-    """createdItem -> spell for the items more than one craft makes (Large Prismatic Shard, Primal Fire, ...): a TBC
-    craft first, then the lowest required skill, then the lowest spell id. Items one craft makes need no entry."""
+# Disenchanted materials whose only crafts are Classic leftovers (Arcane Dust from an Arcane Crystal, Small Prismatic
+# Shard from a Nexus Crystal): a breakdown would point players at the wrong source, so it stops at them.
+NO_BREAKDOWN_ITEMS = {22445: "Arcane Dust", 22448: "Small Prismatic Shard"}
+
+
+def conversions(crafts):
+    """The crafts a materials breakdown never goes through: crafts that only turn one material into another on a loop
+    (one kind of reagent, no more of it than the craft makes, and the reagent can itself be crafted from the result:
+    transmutes Primal Air -> Primal Fire -> Primal Earth -> ..., the Large -> Small Prismatic Shard shatter), and every
+    craft of NO_BREAKDOWN_ITEMS. Gem cuts, cooking and smelting are one-to-one too but no loop: they stay."""
+    makes = defaultdict(list)
+    for sp, c in crafts.items():
+        if c[0]:
+            makes[c[0]].append(sp)
+
+    def reaches(start, target):
+        seen, stack = set(), [start]
+        while stack:
+            i = stack.pop()
+            if i == target:
+                return True
+            if i not in seen:
+                seen.add(i)
+                for sp in makes.get(i, ()):
+                    stack.extend(r for r, _ in crafts[sp][2])
+        return False
+    return {sp for sp, (item, made, reagents, _, _, _) in crafts.items()
+            if item in NO_BREAKDOWN_ITEMS or (item and len(reagents) == 1 and reagents[0][1] <= made
+                                              and reaches(reagents[0][0], item))}
+
+
+def craft_for_items(crafts, conv):
+    """createdItem -> spell for the items more than one craft makes (Large Prismatic Shard, Primal Fire, ...): a real
+    craft before a conversion, a TBC craft first, then the lowest required skill, then the lowest spell id. Items one
+    craft makes need no entry."""
     by_item = defaultdict(list)
-    for sp, (item, _, _, skill, ver) in crafts.items():
+    for sp, (item, _, _, skill, ver, _) in crafts.items():
         if item:
-            by_item[item].append((0 if ver == "BCC" else 1, skill, sp))
-    return OrderedDict((item, sorted(c)[0][2]) for item, c in sorted(by_item.items()) if len(c) > 1)
+            by_item[item].append((sp in conv, 0 if ver == "BCC" else 1, skill, sp))
+    return OrderedDict((item, sorted(c)[0][3]) for item, c in sorted(by_item.items()) if len(c) > 1)
 
 
 def load_item_sets_tbc():
@@ -906,8 +938,11 @@ HEADER = """\
 -- ns.Data.AtlasCrafts = { [spellID] = "created,made,reagent,count,reagent,count,..." } for every craft on a TBC
 --   client (Profession.lua CLASSIC + BCC): the created item (0: none, an enchant), how many one craft makes, then
 --   each reagent and how many one craft needs. A string per craft (parsed when shown): far less memory than tables.
--- ns.Data.AtlasCraftFor = { [createdItemID] = spellID } only for items more than one craft makes (TBC craft first,
---   then the lowest skill). AtlasNames also names every reagent.
+-- ns.Data.AtlasCraftFor = { [createdItemID] = spellID } only for items more than one craft makes (a real craft before
+--   a conversion, a TBC craft first, then the lowest skill). AtlasNames also names every reagent.
+-- ns.Data.AtlasConversions = { [spellID] = true } crafts that breaking materials down (Shift + click in a tooltip)
+--   never goes through: one-material conversions on a loop (transmutes, the Prismatic Shard shatter) and the Classic
+--   crafts of disenchanted materials (Arcane Dust, Small Prismatic Shard).
 """
 
 
@@ -918,7 +953,7 @@ def lua_item_line(e, names, indent):
     return f"{indent}{e}," + (f" -- {cmt(nm)}" if nm else "")
 
 
-def write_lua(path, tree, names, recipes, crafts, craft_for):
+def write_lua(path, tree, names, recipes, crafts, craft_for, conv):
     L = [FIRST_LINE, HEADER.rstrip("\n"), "local _, ns = ...", "ns.Data = ns.Data or {}", "",
          "-- Browse tree beyond raids / dungeons. categories -> sources -> pages -> items.", "ns.Data.Atlas = {"]
     for cat in tree:
@@ -965,7 +1000,7 @@ def write_lua(path, tree, names, recipes, crafts, craft_for):
     L.append("-- Every craft's materials: [spellID] = \"created,made,reagent,count,...\" (created 0: makes no item).")
     L.append("ns.Data.AtlasCrafts = {")
     for sp in sorted(crafts):
-        item, made, reagents, _, _ = crafts[sp]
+        item, made, reagents = crafts[sp][:3]
         parts = [item, made] + [x for pair in reagents for x in pair]
         L.append(f"  [{sp}] = \"{','.join(str(p) for p in parts)}\",")
     L.append("}")
@@ -974,6 +1009,12 @@ def write_lua(path, tree, names, recipes, crafts, craft_for):
     L.append("ns.Data.AtlasCraftFor = {")
     for item, sp in craft_for.items():
         L.append(f"  [{item}] = {sp}, -- {cmt(names.get(item, '?'))}")
+    L.append("}")
+    L.append("")
+    L.append("-- Crafts a materials breakdown never goes through (transmutes, shatters, disenchanted materials).")
+    L.append("ns.Data.AtlasConversions = {")
+    for sp in sorted(conv):
+        L.append(f"  [{sp}] = true, -- {cmt(names.get(crafts[sp][0], '?'))} from {cmt(names.get(crafts[sp][2][0][0], '?'))}")
     L.append("}")
     L.append("")
     L.append("-- English names for every id the browser can list: items (positive) and craft spells (negative).")
@@ -1137,6 +1178,14 @@ def validate_lua(path, expect_cats):  # noqa: C901
             created = C[v] and int(C[v].split(",")[0])
             if created != k:
                 errs.append(f"AtlasCraftFor[{k}] = {v}: that craft makes {created}")
+        CV = ns.Data.AtlasConversions
+        if CV is None:
+            errs.append("ns.Data.AtlasConversions missing")
+        else:
+            for k, v in CV.items():
+                counts["conversions"] += 1
+                if v is not True or C[k] is None:
+                    errs.append(f"AtlasConversions[{k!r}] = {v!r}: not a craft")
     return errs, counts, lua, ns
 
 
@@ -1296,12 +1345,14 @@ def main():
         if missing:
             ctx.skip("craft with a reagent without any name (not on a TBC client)", f"{sp} {missing}")
             del crafts[sp]
-    craft_for = craft_for_items(crafts)
+    conv = conversions(crafts)
+    craft_for = craft_for_items(crafts, conv)
     rep["crafts"] = len(crafts)
     rep["reagent_name_sources"] = dict(reagent_src)
     rep["craft_for"] = {str(k): v for k, v in craft_for.items()}
 
-    size = write_lua(args.out, tree, names, recipes, crafts, craft_for)
+    rep["conversions"] = len(conv)
+    size = write_lua(args.out, tree, names, recipes, crafts, craft_for, conv)
     errs, counts, lua, ns = validate_lua(args.out, [c["key"] for c in tree])
 
     # ---- report

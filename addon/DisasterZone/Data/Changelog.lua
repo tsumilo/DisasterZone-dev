@@ -83,6 +83,7 @@ ns.CHANGELOG = {
           { heading = "Crafting materials", lines = {
               "Hold Shift over anything crafted: its materials, and how many you have in bags and bank.",
               "In Atlas and Members, Shift + mouse wheel sets how many to make; the materials add up.",
+              "Shift + click breaks them down a step (bolts into cloth); Shift + right-click goes back.",
           } },
           { heading = "Members", lines = {
               "The roster lists online players first, then away, then offline; the highest level first.",

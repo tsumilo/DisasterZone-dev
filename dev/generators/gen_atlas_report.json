@@ -213,8 +213,9 @@
   "22452": 28568,
   "234288": 1213709
  },
+ "conversions": 21,
  "output": "C:\\Users\\emilo\\CDLoot-dev\\addon\\DisasterZone\\Data\\Atlas.lua",
- "bytes": 619234,
+ "bytes": 620880,
  "validation_errors": [],
  "validation_counts": {
   "pages": 527,
@@ -226,7 +227,8 @@
   "names": 5543,
   "tree_unique_ids": 3471,
   "recipes": 394,
-  "crafts": 2383
+  "crafts": 2383,
+  "conversions": 21
  },
  "addon_data_ids": 3748,
  "atlas_names": 5543,
@@ -1574,7 +1576,7 @@
    }
   ],
   "file": {
-   "bytes": 619234,
+   "bytes": 620880,
    "atlas_names": 5543
   }
  }

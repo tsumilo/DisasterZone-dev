@@ -52,8 +52,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Atlas.lua", ...) then return 
 -- ns.Data.AtlasCrafts = { [spellID] = "created,made,reagent,count,reagent,count,..." } for every craft on a TBC
 --   client (Profession.lua CLASSIC + BCC): the created item (0: none, an enchant), how many one craft makes, then
 --   each reagent and how many one craft needs. A string per craft (parsed when shown): far less memory than tables.
--- ns.Data.AtlasCraftFor = { [createdItemID] = spellID } only for items more than one craft makes (TBC craft first,
---   then the lowest skill). AtlasNames also names every reagent.
+-- ns.Data.AtlasCraftFor = { [createdItemID] = spellID } only for items more than one craft makes (a real craft before
+--   a conversion, a TBC craft first, then the lowest skill). AtlasNames also names every reagent.
+-- ns.Data.AtlasConversions = { [spellID] = true } crafts that breaking materials down (Shift + click in a tooltip)
+--   never goes through: one-material conversions on a loop (transmutes, the Prismatic Shard shatter) and the Classic
+--   crafts of disenchanted materials (Arcane Dust, Small Prismatic Shard).
 local _, ns = ...
 ns.Data = ns.Data or {}
 
@@ -8523,6 +8526,31 @@ ns.Data.AtlasCraftFor = {
   [22449] = 28022, -- Large Prismatic Shard
   [22452] = 28568, -- Primal Earth
   [234288] = 1213709, -- ?
+}
+
+-- Crafts a materials breakdown never goes through (transmutes, shatters, disenchanted materials).
+ns.Data.AtlasConversions = {
+  [17559] = true, -- Essence of Fire from Essence of Air
+  [17560] = true, -- Essence of Earth from Essence of Fire
+  [17561] = true, -- Essence of Water from Essence of Earth
+  [17562] = true, -- Essence of Air from Essence of Water
+  [17563] = true, -- Essence of Water from Essence of Undeath
+  [17564] = true, -- Essence of Undeath from Essence of Water
+  [17565] = true, -- Essence of Earth from Living Essence
+  [17566] = true, -- Living Essence from Essence of Earth
+  [28021] = true, -- Arcane Dust from Arcane Crystal
+  [28566] = true, -- Primal Fire from Primal Air
+  [28567] = true, -- Primal Water from Primal Earth
+  [28568] = true, -- Primal Earth from Primal Fire
+  [28569] = true, -- Primal Air from Primal Water
+  [28580] = true, -- Primal Water from Primal Shadow
+  [28581] = true, -- Primal Shadow from Primal Water
+  [28582] = true, -- Primal Fire from Primal Mana
+  [28583] = true, -- Primal Mana from Primal Fire
+  [28584] = true, -- Primal Earth from Primal Life
+  [28585] = true, -- Primal Life from Primal Earth
+  [42613] = true, -- Small Prismatic Shard from Nexus Crystal
+  [42615] = true, -- Small Prismatic Shard from Large Prismatic Shard
 }
 
 -- English names for every id the browser can list: items (positive) and craft spells (negative).

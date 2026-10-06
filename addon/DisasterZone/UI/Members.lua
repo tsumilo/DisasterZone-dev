@@ -264,6 +264,27 @@ local function setRecipeSpell(tt, spell)
     return false
 end
 
+-- A craft's materials on tt while Shift is held (UI/Tooltip.lua), then the hints. Returns the first hint (nil: no
+-- craft makes id).
+local function addMaterials(tt, id)
+    if not ns.Tooltip then return nil end
+    local matsHint, stepHint = ns.Tooltip:AddMaterials(tt, id)
+    if matsHint then
+        tt:AddLine(" ")
+        tt:AddLine(matsHint, 0.7, 0.7, 0.7)
+        if stepHint then tt:AddLine(stepHint, 0.7, 0.7, 0.7) end
+    end
+    return matsHint
+end
+
+-- Worn gear: the item's tooltip, a crafted piece's materials under it.
+local function showGearTooltip(owner, item)
+    local T = ns.Tooltip
+    if T then T.noMats = true end
+    ns.UI:SetItemTooltip(owner, item, function(tt) addMaterials(tt, item) end)
+    if T then T.noMats = nil end
+end
+
 -- The item (or enchant) tooltip, the reagents next to it for an item, and who makes it.
 local reagentTip
 local function showRecipeTooltip(owner, recipe)
@@ -286,12 +307,9 @@ local function showRecipeTooltip(owner, recipe)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(("Made by %d in the guild (%d online)"):format(#recipe.crafters, online), 1, 0.82, 0)
     GameTooltip:AddLine(table.concat(names, ", ") .. (more > 0 and grey(" +" .. more) or ""), 1, 1, 1, true)
-    -- Shift: the materials (Shift + mouse wheel: how many), in place of the recipe's tooltip at the side
-    local matsHint = T and T:AddMaterials(GameTooltip, -recipe.spell)
-    if matsHint then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(matsHint, 0.7, 0.7, 0.7)
-    end
+    -- Shift: the materials (Shift + mouse wheel: how many, Shift + clicks: break down), in place of the recipe's
+    -- tooltip at the side
+    local matsHint = addMaterials(GameTooltip, -recipe.spell)
     GameTooltip:Show()
     if recipe.item > 0 and not (matsHint and IsShiftKeyDown()) then
         if not reagentTip then
@@ -708,7 +726,8 @@ local function initRecipeRow(row, d)
         end
         row:SetScript("OnEnter", onEnter)
         row:SetScript("OnLeave", hideRecipeTooltip)
-        if ns.Tooltip then ns.Tooltip:CraftRow(row, onEnter) end   -- Shift: materials, + mouse wheel: how many
+        -- Shift: materials, + mouse wheel: how many, + click / right-click: break down / back up
+        if ns.Tooltip then ns.Tooltip:CraftRow(row, onEnter) end
     end
     local r = d.r
     row.icon:SetTexture(P():GetRecipeIcon(r))
@@ -885,7 +904,7 @@ local function detailWidgets(row)
         local d = self.__cdlData
         if not d then return end
         if d.kind == "recipe" then showRecipeTooltip(self, d.r) end
-        if d.kind == "gear" and d.item then ns.UI:SetItemTooltip(self, d.item) end
+        if d.kind == "gear" and d.item then showGearTooltip(self, d.item) end
         if d.kind == "crafter" or d.kind == "char" then
             ns.UI:SetTextTooltip(self, { ns.UI:ColoredName(d.key, d.classFile),
                 { d.kind == "crafter" and "Click to see everything they can make." or "Click to open their card.",
@@ -899,7 +918,7 @@ local function detailWidgets(row)
         local d = self.__cdlData
         if d and d.kind ~= "recipe" then ns.UI:HideTooltip() else hideRecipeTooltip() end
     end)
-    -- Shift: a recipe's (or crafted gear's) materials, + mouse wheel: how many
+    -- Shift: a recipe's (or crafted gear's) materials, + mouse wheel: how many, + clicks: break down / back up
     if ns.Tooltip then
         ns.Tooltip:CraftRow(row, function(self)
             local d = self.__cdlData
