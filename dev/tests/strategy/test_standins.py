@@ -1,6 +1,10 @@
 """The stand-in depth mode of the strategy board's 3D view (Render3D/Standins.lua, /dz 3d standins), on the real addon.
 
-Covers: a room's data read flat whether it comes as one table of numbers or as strings and tables of them (a broken
+Covers: version 3 data (packed text) unpacked to exactly the numbers version 2 holds, and only when a room's stand-ins
+are first used - at login every room's data is loaded and none unpacked, the last two rooms used stay unpacked, rooms
+that are one room share one unpacked set -, broken packing (a piece changed, another size or count, a piece that is not
+text, a later version) unreadable; a room's data read flat whether it comes as one table of numbers or as strings and
+tables of them (a broken
 number makes it unreadable, a non-finite value, a normal that is not a unit vector or an unknown model file leaves that
 stand-in out); each stand-in's radius and reach along its normal (a cube turned about z reaches further along a slanted
 normal); which stand-ins a redraw shows: their surface facing the camera (the camera farther out along the normal than
@@ -39,6 +43,9 @@ import st_common  # noqa: E402,F401  (sets the suites' paths)
 from _common import case, run_all, no_errors, World, Client  # noqa: E402
 from rp_common import gm_pick, set_raid_leaders  # noqa: E402
 import harness  # noqa: E402
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "generators"))
+import gen_standins as G  # noqa: E402  (the data files' writer: packed text for version 3 cases)
 
 harness.LOAD_ROOMS = True                      # (the board's rooms)
 
@@ -476,7 +483,7 @@ def quads_are_read_with_their_turn_and_reach_and_only_known_aligned_ones_are_use
         for _, a in ipairs({ { 0.3, 0.2, 0.1 }, { -2.5, 1.1, 2.9 }, { 1.0, -math.pi / 2, 0.4 } }) do
           turns[#turns + 1] = { a, { S.Turn(a[1], a[2], a[3]) } }
         end
-        local later = { S.Prepare({ version = 3, prims = prims, n = 1, stride = 12, data = { unpack(L, 1, 12) } }) }
+        local later = { S.Prepare({ version = 4, prims = prims, n = 1, stride = 12, data = { unpack(L, 1, 12) } }) }
         return { R = set.R, E = set.E, usable = set.usable, unsafe = set.unsafe, n = n, out = out, turns = turns,
                  later = later[2], brute = __BRUTE(set, T.cam, T.proj, rects, nm, false) }
     """)
@@ -706,6 +713,138 @@ def the_data_reads_the_same_in_chunks_and_a_broken_number_makes_it_unreadable():
     assert r["same"] is True and r["plain"] is True and r["n"] == 2, r   # (a table of numbers is used as it is)
     assert r["bad"] == "unreadable" and r["none"] == "none" and r["empty"] == "empty", r
     assert r["inf1"] is False and r["inf2"] is True and r["plainN"] == 2, r
+    no_errors(w)
+
+
+def _packed(recs, piece=G.PIECE):
+    """The version 3 packing of records (as gen_standins.py writes it): the pieces and the text's size."""
+    raw = G.pack_text(recs).encode("ascii")
+    enc = G.encode_for_print(G.deflate_raw(raw))
+    return [enc[i:i + piece] for i in range(0, len(enc), piece)], len(raw)
+
+
+@case
+def version_3_data_unpacks_to_the_numbers_version_2_holds_and_broken_packing_is_unreadable():
+    w = World()
+    c = Client(w, "Bob", guild_rank=1, class_file="MAGE")
+    c.load_addon()
+    w.tick(1)
+    c.eval(SELECT)
+    # (numbers as the files round them; the tilted quad's normal its front, R's first column)
+    front = [round(_ypr(-2.35619, -0.5, 1.25)[i][0], 5) for i in range(3)]
+    recs = [(1, 10, 0, 0, 0, 0, 0, 0.4, -1, 0, 0, 7), (1, 12.125, -1, 0.5, 0.2, 0, 0, 0.5, -1, 0, 0, 8),
+            (2, -3.5, 7.25, 1.001, -2.35619, -0.5, 1.25, 0.018, front[0], front[1], front[2], 9),
+            (2, 40.245, 77.382, -0.065, 0, -1.5708, 1.69397, 0.02252, 0, 0, 1, 9)]
+    pieces, size = _packed(recs, piece=7)                        # (small pieces: several of them)
+    flat = [x for r in recs for x in r]
+    r = c.eval_py(r"""
+        local S = T_SEL.S
+        local pieces, size, flat = ...
+        local prims = { { fid = 167145, kind = 'cube', half = 0.5 }, """ + QUAD_PRIM + r""" }
+        local function v3(o)
+          local rec = { version = 3, prims = prims, n = 4, stride = 12, size = size, packed = pieces }
+          for k, v in pairs(o or {}) do rec[k] = v end
+          return S.Prepare(rec)
+        end
+        local a = v3()
+        local b = S.Prepare({ version = 2, prims = prims, n = 4, stride = 12, data = flat })
+        local same = a ~= nil and b ~= nil and #a.d == #b.d and #a.d == 48
+        for i = 1, a and #a.d or 0 do if a.d[i] ~= b.d[i] then same = false end end
+        local function why(o) return select(2, v3(o)) end
+        local changed = {}
+        for i = 1, #pieces do changed[i] = pieces[i] end
+        changed[1] = (changed[1]:sub(1, 1) == 'a' and 'b' or 'a') .. changed[1]:sub(2)
+        return { same = same, usable = a and a.usable, R3 = a and a.R[3], E1 = a and a.E[1], pieces = #pieces,
+                 size = why({ size = size + 1 }), n5 = why({ n = 5 }), n3 = why({ n = 3 }),
+                 piece = why({ packed = changed }), notText = why({ packed = { pieces[1], 7 } }),
+                 none = why({ packed = 'x' }), stride = why({ stride = 13 }), later = why({ version = 4 }) }
+    """, pieces, size, flat)
+    assert r["same"] is True and r["pieces"] > 3, r
+    # (the tilted quad: its front along its normal, so usable; the cube's reach as version 2's)
+    assert r["usable"] == 4 and r["R3"] and abs(r["E1"] - 0.2) < 1e-9, r
+    for k in ("size", "n5", "n3", "piece", "notText", "none", "stride", "later"):
+        assert r[k] == "unreadable", (k, r)
+    no_errors(w)
+
+
+@case
+def every_rooms_data_loads_at_login_and_is_unpacked_only_when_first_used():
+    """At login every data file of the TOC has run (each room's table holds its packed text, nothing unpacked); the
+    first S.Load of a room unpacks it (LibDeflate once) and prepares it, the next ones reuse it; the last two rooms used
+    stay prepared, an older one is let go and unpacked again when it comes back; rooms that are one room share one set;
+    every shipped room's set is usable whole and matches what the generator wrote."""
+    w = World()
+    c = Client(w, "Bob", guild_rank=1, class_file="MAGE")
+    c.load_addon()
+    w.tick(1)
+    c.eval(SELECT)
+    keys = sorted(f[:-4] for f in os.listdir(G.OUT_DIR) if f.endswith(".lua") and not f.startswith("."))
+    r = c.eval_py(r"""
+        local S = T_SEL.S
+        local LD = LibStub('LibDeflate')
+        local calls = 0
+        local orig = LD.DecompressDeflate
+        LD.DecompressDeflate = function(self, ...) calls = calls + 1 return orig(self, ...) end
+        local keys = ...
+        local out = { loaded = {}, prepared = 0, plain = 0, sets = {} }
+        for k, rec in pairs(ns.RoomStandins or {}) do
+          out.loaded[#out.loaded + 1] = k
+          if S.Prepared(k) then out.prepared = out.prepared + 1 end
+          if rec.data ~= nil then out.plain = out.plain + 1 end
+        end
+        table.sort(out.loaded)
+        -- every shipped room through S.Load: one unpack each (rooms that are one room: one between them; S.Load
+        -- keeps two, so a room shares the set of the one loaded just before it)
+        local recs = {}
+        for _, k in ipairs(out.loaded) do
+          local c0 = calls
+          local set, why = S.Load(k)
+          local rec = ns.RoomStandins[k]
+          out.sets[k] = { n = set and set.n, usable = set and set.usable, unsafe = set and set.unsafe,
+                          why = (not set) and why or nil, unpacks = calls - c0, shared = recs[rec] }
+          recs[rec] = recs[rec] or k
+        end
+        -- made-up rooms A, B, C (D: the same room as A): the last two used stay prepared, an older one is let go
+        local pieces, size = select(2, ...)
+        local prims = { { fid = 167145, kind = 'cube', half = 0.5 } }
+        for i, k in ipairs({ 'T_A', 'T_B', 'T_C' }) do
+          ns.RoomFloors[k] = { size = 1000 + i }
+          ns.RoomStandins[k] = { version = 3, prims = prims, n = 1, stride = 12, size = size, packed = pieces,
+                                 room = { size = 1000 + i } }
+        end
+        ns.RoomFloors.T_D = { size = 1001 }
+        ns.RoomStandins.T_D = ns.RoomStandins.T_A
+        local steps = {}
+        local function load(k)
+          local c0 = calls
+          local set = S.Load(k)
+          steps[#steps + 1] = { k, calls - c0, S.Prepared('T_A'), S.Prepared('T_B'), S.Prepared('T_C') }
+          return set
+        end
+        local a = load('T_A') load('T_A') local d = load('T_D') load('T_B') load('T_C') load('T_A')
+        out.steps, out.sharedSet = steps, a == d
+        LD.DecompressDeflate = orig
+        return out
+    """, keys, *_packed([(1, 10, 0, 0, 0, 0, 0, 0.4, -1, 0, 0, 7)]))
+    loaded = r["loaded"]
+    # every data file ran (each sets its own key and those of its SAME_ROOM), none unpacked, none a plain table
+    want = sorted(set(keys) | {k for f in keys for k in G.SAME_ROOM.get(f, ())})
+    assert loaded == want, (loaded, want)
+    assert r["prepared"] == 0 and r["plain"] == 0, r
+    for k in loaded:
+        s = r["sets"][k]
+        f = G.read_file(os.path.join(G.OUT_DIR, G.data_key(k) + ".lua"))
+        assert s.get("why") is None, (k, s)
+        assert s["n"] == len(f["recs"]) and s["usable"] == s["n"] and s["unsafe"] == 0, (k, s)
+        if G.data_key(k) == k:
+            assert s["unpacks"] == 1 and not s.get("shared"), (k, s)
+        else:
+            assert s["unpacks"] == 0 and s["shared"] == G.data_key(k), (k, s)
+    # [key, unpacks, A, B, C prepared]: A unpacked once, again and as D (the same room) not; B, C: A let go, then back
+    assert r["steps"] == [["T_A", 1, True, False, False], ["T_A", 0, True, False, False],
+                          ["T_D", 0, True, False, False], ["T_B", 1, True, True, False],
+                          ["T_C", 1, False, True, True], ["T_A", 1, True, False, True]], r["steps"]
+    assert r["sharedSet"] is True
     no_errors(w)
 
 

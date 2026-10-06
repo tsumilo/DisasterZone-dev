@@ -57,22 +57,26 @@ def room():
     return _ROOM[0]
 
 
-def shipped():
-    """The shipped file run by Lua 5.1 as the client runs it (the addon's name and namespace as its varargs)."""
-    with open(SHIPPED, "rb") as fh:
+def shipped(path=SHIPPED, key=KEY):
+    """A shipped file run by Lua 5.1 as the client runs it (the addon's name and namespace as its varargs): its table's
+    fields, the keys it sets (each to that table), and its numbers - the packed text unpacked as Render3D/Standins.lua
+    unpacks it (patchlib's EncodeForPrint and raw deflate are LibDeflate's, byte for byte)."""
+    with open(path, "rb") as fh:
         src = fh.read().decode("utf-8")
     L = lua51.LuaRuntime(unpack_returned_tuples=True)
     ns = L.table()
     run = L.eval("function(src, ns) local f = assert(loadstring(src, '=standins')); f('DisasterZone', ns) "
                  "return ns.RoomStandins end")
     rs = run(src, ns)
-    rec = rs[KEY]
-    data = [rec.data[i + 1] for i in range(len(rec.data))]
+    rec = rs[key]
+    keys = sorted(k for k in rs.keys() if rs[k] == rec)
     room_ = dict(size=rec.room.size, verts=rec.room.verts, tris=rec.room.tris) if rec.room else None
     prims = {k: {f: rec.prims[k][f] for f in ("fid", "kind", "half", "w", "h", "cx", "cy", "cz")
                  if rec.prims[k][f] is not None} for k in rec.prims.keys()}
+    pieces = [rec.packed[i + 1] for i in range(len(rec.packed))] if rec.packed else []
+    data = [x for r in G.read_file(path)["recs"] for x in r]
     return src, dict(version=rec.version, n=rec.n, stride=rec.stride, data=data, room=room_, prims=prims,
-                     nprims=len(rec.prims))
+                     nprims=len(rec.prims), size=rec.size, pieces=pieces, plain=rec.data is not None, keys=keys)
 
 
 def arrays(data, stride=12):
@@ -321,16 +325,20 @@ def test_generator_runs_and_keeps_its_promises():
     for r_ in b["res_review"]:
         assert r_["over_air"] == 0 and (r_["need"] == "air" or r_["over_eroded"] == 0), r_
     assert b["lines"]["counts"]["lines"] > 0
-    text = G.lua_text(KEY, b["cubes"])
+    # (nothing harmful on any pose set: it would be written)
+    assert b["harm"]["total"] == 0, b["harm"]
+    text = G.lua_text(KEY, b["cubes"], checked=b["checked"])
     assert text.startswith('if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Standins/%s.lua", ...) then '
                            'return end -- DisasterZone Render3D/Standins/%s.lua\n' % (KEY, KEY))
     # what it writes reads back as what it placed
-    L = lua51.LuaRuntime()
-    ns = L.table()
-    L.eval("function(src, ns) assert(loadstring(src))('DisasterZone', ns) end")(text, ns)
-    rec = ns.RoomStandins[KEY]
-    assert rec.version == 2 and rec.n == len(b["cubes"]) and len(rec.data) == 12 * rec.n
-    (C, R, H, N, K), a = arrays([rec.data[i + 1] for i in range(len(rec.data))])
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, KEY + ".lua")
+        with open(path, "wb") as fh:
+            fh.write(text.encode("utf-8"))
+        _, rec = shipped(path)
+    assert rec["version"] == 3 and not rec["plain"] and rec["n"] == len(b["cubes"]) and len(rec["data"]) == 12 * rec["n"]
+    (C, R, H, N, K), a = arrays(rec["data"])
     sis = b["cubes"]
     assert "quad" in {c.kind for c in sis}
     want = np.array([c.centre for c in sis])
@@ -348,15 +356,20 @@ def test_generator_runs_and_keeps_its_promises():
     assert np.abs(N - np.array([sis[k].n for k in twin])).max() < 1e-4
 
 
-@case
-def test_shipped_file_has_the_contract_shape():
-    src, rec = shipped()
-    rel = "Render3D/Standins/%s.lua" % KEY
+def contract_shape(path, key, r):
+    """One shipped data file has the data contract's shape as Lua reads it (r: its room)."""
+    src, rec = shipped(path, key)
+    rel = "Render3D/Standins/%s.lua" % key
     first = src.split("\n", 1)[0]
     assert first == 'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (
         rel, rel), first
-    assert len(src.encode("utf-8")) < 300_000, len(src)
-    assert rec["version"] == 2 and rec["stride"] == 12 and rec["nprims"] == 2
+    assert len(src.encode("utf-8")) < 400_000, (key, len(src))
+    assert max(len(x) for x in src.split("\n")) <= 205, key           # (the pieces 200 characters, the comments 120)
+    assert rec["version"] == 3 and rec["stride"] == 12 and rec["nprims"] == 2 and not rec["plain"], key
+    assert rec["pieces"] and all(len(p) <= G.PIECE for p in rec["pieces"][:-1]), key
+    assert rec["size"] == G.read_file(path)["size"], key
+    # it sets its own key and those of its SAME_ROOM, each to the one table
+    assert rec["keys"] == sorted((key,) + tuple(G.SAME_ROOM.get(key, ()))), (key, rec["keys"])
     assert rec["prims"][1] == dict(fid=167145, kind="cube", half=0.5), rec["prims"]
     # the quad as the client's file has it (casc_local + m2_write read 653518: 4 vertices at x -4.0358, y -23.5964 ..
     # 25.3344, z 1.7645 .. 34.7498)
@@ -365,28 +378,151 @@ def test_shipped_file_has_the_contract_shape():
     assert abs(q["w"] - 48.9309) < 1e-4 and abs(q["h"] - 32.9853) < 1e-4, q
     assert abs(q["cx"] + 4.03583) < 1e-5 and abs(q["cy"] - 0.86901) < 1e-5 and abs(q["cz"] - 18.25718) < 1e-5, q
     # made for the room file shipped next to it (made for another build of the room it would hide the wrong things)
-    assert rec["room"] == G.room_stamp(KEY, room()), (rec["room"], G.room_stamp(KEY, room()))
+    assert rec["room"] == G.room_stamp(key, r), (key, rec["room"], G.room_stamp(key, r))
     n = rec["n"]
-    assert n > 100 and len(rec["data"]) == 12 * n, (n, len(rec["data"]))
+    assert n > 100 and len(rec["data"]) == 12 * n, (key, n, len(rec["data"]))
     a = np.array(rec["data"], float).reshape(-1, 12)
     assert np.isfinite(a).all()
     quad, cube = a[:, 0] == 2, a[:, 0] == 1
-    assert (quad | cube).all() and quad.sum() > 100
+    assert (quad | cube).all() and quad.sum() > 100, key
     assert (np.abs(a[:, 4]) <= math.pi + 1e-6).all() and (np.abs(a[:, 6]) <= math.pi + 1e-6).all()
     assert (np.abs(a[:, 5]) <= math.pi / 2 + 1e-5).all()                # (+-pi/2 written as 1.5708)
-    # no actor under the scale that cut a hole in game (0.018); quads up to 49 x 33 yd, cubes 0.7 .. 2.3 yd
-    assert (a[quad, 7] >= G.MIN_SCALE - 1e-9).all() and (a[quad, 7] <= G.QUAD_MAX_SCALE + 1e-9).all()
+    # no actor under the scale that cut a hole in game (0.018) - nor under the room's own smallest quad -; quads up to
+    # 49 x 33 yd, cubes 0.7 .. 2.3 yd
+    small = G.ROOM_SETTINGS.get(key, {}).get("min_scale", G.MIN_SCALE)
+    assert small >= 0.018 and (a[quad, 7] >= small - 1e-9).all() and (a[quad, 7] <= G.QUAD_MAX_SCALE + 1e-9).all()
     assert (a[cube, 7] >= G.MIN_SIZE - 1e-6).all() and (a[cube, 7] <= G.MAX_SIZE + 1e-6).all()
     assert np.abs(np.linalg.norm(a[:, 8:11], axis=1) - 1).max() < 2e-5
     # a quad's front (its turned model x) lies along its normal (the runtime refuses one off by 0.1 degree; the
     # normal as written is a unit vector to 1e-5)
     M = G.ypr_matrices(a[quad, 4], a[quad, 5], a[quad, 6])
-    n = a[quad, 8:11] / np.linalg.norm(a[quad, 8:11], axis=1)[:, None]
-    assert (np.einsum("ij,ij->i", M[:, :, 0], n) > 0.9999985).all()
+    nq = a[quad, 8:11] / np.linalg.norm(a[quad, 8:11], axis=1)[:, None]
+    assert (np.einsum("ij,ij->i", M[:, :, 0], nq) > 0.9999985).all(), key
     assert (a[:, 11] >= 1).all() and (a[:, 11] == np.round(a[:, 11])).all()
-    r = room()
     lo, hi = r.V.min(0) - G.MAX_SIZE, r.V.max(0) + G.MAX_SIZE
-    assert ((a[:, 1:4] >= lo) & (a[:, 1:4] <= hi)).all()
+    assert ((a[:, 1:4] >= lo) & (a[:, 1:4] <= hi)).all(), key
+    return src, rec
+
+
+@case
+def test_shipped_file_has_the_contract_shape():
+    contract_shape(SHIPPED, KEY, room())
+
+
+def data_keys():
+    """The keys of the shipped data files (Render3D/Standins/<Key>.lua)."""
+    return sorted(f[:-4] for f in os.listdir(G.OUT_DIR) if f.endswith(".lua") and not f.startswith("."))
+
+
+@case
+def test_every_shipped_data_file_has_the_contract_shape_and_the_toc_loads_it():
+    """Every data file: the contract's shape, made for the room file shipped next to it, the rooms it also serves the
+    same room (their room files unpack to the same payload); the TOC lists exactly these, sorted, right after
+    Render3D\\Standins.lua; and packed, a file keeps a sixth or less of the Lua memory the plain table did."""
+    keys = data_keys()
+    assert KEY in keys, keys
+    for key in keys:
+        r = G.load_room(key)
+        _, rec = contract_shape(os.path.join(G.OUT_DIR, key + ".lua"), key, r)
+        for other in G.SAME_ROOM.get(key, ()):
+            assert G._payload(other) == G._payload(key), (key, other)
+            assert G.room_stamp(other) == rec["room"], (key, other)
+        assert key not in {k for v in G.SAME_ROOM.values() for k in v}, key      # (no file of its own)
+    with open(G.TOC, "rb") as fh:
+        lines = fh.read().decode("utf-8").splitlines()
+    i = lines.index("Render3D\\Standins.lua")
+    block = ["Render3D\\Standins\\%s.lua" % k for k in keys]
+    assert lines[i + 1:i + 1 + len(block)] == block, lines[i + 1:i + 2 + len(block)]
+    assert not lines[i + 1 + len(block)].startswith("Render3D\\Standins\\")
+    assert sum(1 for s in lines if s.startswith("Render3D\\Standins\\")) == len(block)
+    # (Magtheridon's Lair, measured by Lua 5.1 itself: the file's memory once run, against the version 2 table)
+    f = G.read_file(SHIPPED)
+    with open(SHIPPED, "rb") as fh:
+        packed = G.lua_memory(fh.read().decode("utf-8"))
+    plain = G.lua_memory(G.lua_text_v2(KEY, f["recs"], f["stamp"]))
+    assert packed < plain / 6 and plain > 500_000, (packed, plain)
+
+
+@case
+def test_packed_text_round_trips_and_the_toc_block_is_all_that_changes():
+    recs = [(2, 40.245, 77.382, -0.065, -3.003, -1.57069, 1.69397, 0.02252, -0.0001, -0.00001, 1, 1),
+            (1, -0.0004, 1e-7, 12.5, 0.0, 0.0, 0.0, 1.6, 0.0, 0.0, -1.0, 12)]
+    text = G.pack_text(recs)
+    # 12 lines, line k the k-th numbers; written as the files round them (-0.0004 to 3 places: 0)
+    assert text.split("\n") == ["2 1", "40.245 0", "77.382 0", "-0.065 12.5", "-3.003 0", "-1.57069 0",
+                                "1.69397 0", "0.02252 1.6", "-0.0001 0", "-0.00001 0", "1 -1", "1 12"], text
+    back = G.unpack_text(text, 2)
+    assert back[0] == recs[0] and back[1] == (1, 0, 0, 12.5, 0, 0, 0, 1.6, 0, 0, -1, 12), back
+    try:
+        G.unpack_text(text, 3)
+        raise AssertionError("3 stand-ins read from 2")
+    except ValueError:
+        pass
+    # the TOC helper: only the block after Render3D\Standins.lua changes, the file's own line ends kept
+    import tempfile
+    for eol in ("\n", "\r\n"):
+        with tempfile.TemporaryDirectory() as tmp:
+            toc = os.path.join(tmp, "x.toc")
+            before = ["## Title: x", "Render3D\\Rooms.lua", "Render3D\\Standins.lua", "Render3D\\Standins\\Old.lua",
+                      "Render3D\\Standins\\B.lua", "UI\\After.lua", ""]
+            with open(toc, "wb") as fh:
+                fh.write(eol.join(before).encode("utf-8"))
+            assert G.write_toc(["C", "A"], toc=toc) == ["Render3D\\Standins\\A.lua", "Render3D\\Standins\\C.lua"]
+            with open(toc, "rb") as fh:
+                after = fh.read().decode("utf-8")
+            assert after == eol.join(before[:3] + ["Render3D\\Standins\\A.lua", "Render3D\\Standins\\C.lua"]
+                                     + before[5:]), after
+
+
+@case
+def test_water_is_an_opaque_floor_that_gets_stand_ins():
+    """The rooms' water (fast_a.1.blp, 219885) is drawn opaque, from above (gen_rooms.py LIQUID_TEX, Room.lua TINT):
+    the generator takes its faces as opaque floors, and where a room with a pool has shipped data, quads lie under its
+    surface - what stands in the pool is hidden under the water."""
+    for key in ("SerpentshrineCavern_Lurker", "BlackTemple_Najentus", "SerpentshrineCavern_Hydross",
+                "SerpentshrineCavern_Morogrim", "SerpentshrineCavern_Vashj", "BlackTemple_Bloodboil"):
+        r = G.load_room(key)
+        mat = water_faces(r)
+        assert mat.any(), key
+        assert r.opaque[mat].all() and (r.QO[mat] == 1).all() and (r.N[mat, 2] > 0.999).all(), key
+        regions = G.planar_regions(r)
+        ids = set(int(x) for x in r.region_of[mat])
+        assert all(regions[i].kind == "floor" for i in ids), key
+        path = os.path.join(G.OUT_DIR, key + ".lua")
+        if not os.path.exists(path):
+            continue
+        a = np.array(G.read_records(path), float)
+        # quads of the water's regions: the share of its area under them
+        from shapely.geometry import Polygon, box
+        from shapely.ops import unary_union
+        got, area = 0.0, 0.0
+        for i in ids:
+            g = regions[i]
+            assert G.prepare_region(r, g)
+            mine = a[(a[:, 11] == g.id) & (a[:, 0] == G.QUAD)]
+            assert (mine[:, 3] < g.d - G.MARGIN + 0.002).all(), key            # (under the surface)
+            rects = []
+            for row in mine:
+                M = G.ypr_matrix(row[4], row[5], row[6])
+                c = row[1:4]
+                hw, hh = G.QUAD_W / 2 * row[7], G.QUAD_H / 2 * row[7]
+                pts = [c + s1 * hw * M[:, 1] + s2 * hh * M[:, 2] for s1, s2 in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+                rects.append(Polygon([(p @ g.frame.e1, p @ g.frame.e2) for p in pts]))
+            got += unary_union(rects).intersection(g.poly).area if rects else 0.0
+            area += g.poly.area
+        assert got > 0.5 * area, (key, got, area)
+
+
+def water_faces(r):
+    """The room's faces drawn with the water texture (219885)."""
+    with open(r.path, "rb") as fh:
+        src = fh.read().decode("utf-8")
+    pieces = re.findall(r'^\s*"([^"]*)",\s*$', src, re.M)
+    from patchlib import decode_for_print, inflate_raw
+    parts = inflate_raw(decode_for_print("".join(pieces))).decode("ascii").split("|")
+    t = np.array(parts[4].split(), dtype=np.int64).reshape(-1, 4)
+    tex = np.array(r.textures)[t[:, 3] - 1]
+    return tex == 219885
 
 
 @case
@@ -423,10 +559,15 @@ def test_shipped_standins_lie_behind_their_faces_and_clear_of_the_room():
 
 @case
 def test_shipped_file_is_what_the_generator_writes():
-    # (its header current: the writer turns the file's own numbers back into the same text)
-    with open(SHIPPED, "rb") as fh:
-        src = fh.read().decode("utf-8")
-    assert G.lua_text(KEY, recs=G.read_records(SHIPPED)) == src
+    # (every file's header current: the writer turns the file's own numbers - and the poses it says were checked -
+    # back into the same text)
+    for key in data_keys():
+        path = os.path.join(G.OUT_DIR, key + ".lua")
+        with open(path, "rb") as fh:
+            src = fh.read().decode("utf-8")
+        f = G.read_file(path)
+        assert f["key"] == key and f["same"] == list(G.SAME_ROOM.get(key, ())), (key, f["same"])
+        assert G.lua_text(key, recs=f["recs"], stamp=f["stamp"], checked=f["checked"]) == src, key
 
 
 @case

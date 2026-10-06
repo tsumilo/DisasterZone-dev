@@ -58,12 +58,19 @@ be seen past the room - and board_poses() over the camera's whole range and stre
 over-occlusion counts: low over the floor from outside the room a camera sees far under the floor past its cut edges,
 where nothing can stand, and keeping those clean too would strip the floors.
 
-Writes addon Render3D/Standins/<Key>.lua (the data contract, version 2; Render3D/Standins.lua reads it):
-    ns.RoomStandins["<Key>"] = { version = 2,
+Writes addon Render3D/Standins/<Key>.lua (the data contract, version 3; Render3D/Standins.lua reads it):
+    ns.RoomStandins["<Key>"] = { version = 3,
         prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 },
                   [2] = { fid = 653518, kind = "quad", w = 48.9309, h = 32.9853, cx = -4.03583, cy = 0.86901,
                           cz = 18.25718 } },
-        room = { size = <packed size>, verts = <count>, tris = <count> }, n = <count>, stride = 12, data = { .. } }
+        room = { size = <packed size>, verts = <count>, tris = <count> }, n = <count>, stride = 12,
+        size = <text bytes>, packed = { "<200 characters>", .. } }
+  packed: the numbers below as text, deflated (raw) and encoded for print (LibDeflate, as the room files: format 3),
+  in pieces; the text is 12 lines, line k the k-th number of every stand-in in order (a column of like numbers
+  deflates smaller than rows of them), size its length. Version 2 had the same numbers as a plain table, data = { .. }
+  (rows of 12): about 650 KB of Lua memory per room from login on, where the packed text is a sixth of that and is
+  only unpacked when the room's stand-ins are first used. Rooms whose files are the same room (SAME_ROOM) share one
+  data file: it sets the table for each of their keys.
   12 numbers per stand-in: prim; x, y, z (its anchor in room coordinates - yd, x east, y north, z over the boss'
   floor: a cube's centre, a quad's middle); yaw, pitch, roll (radians, room coordinates, i.e. the client's for a scene
   mirror of +1: the turn R = Rz(yaw) Ry(pitch) Rx(roll), SetYaw / SetPitch / SetRoll as the client applies them, roll
@@ -77,14 +84,20 @@ Writes addon Render3D/Standins/<Key>.lua (the data contract, version 2; Render3D
   to the near plane's farthest corner, tx and ty the view's half width and height at a depth of 1 (0.75 yd for the
   board's 3:2 view). room: the room file it was made for
   (ns.RoomFloors[key].size and the unpacked mesh's counts); data made for another build of the room hides the wrong
-  things. Version 1 (cubes turned about z, one prim) reads the same way.
+  things. Version 1 (cubes turned about z, one prim) and version 2 read the same way.
 Known limit (the runtime's): a camera within the near clip of a room face sees that face clipped away and the
 stand-ins behind its neighbours through the hole (REVIEW_POSES 'air': under the floor or in solid room, harmless).
+Water: the renderer draws the rooms' water (fast_a.1.blp, 219885) opaque, blending off (gen_rooms.py LIQUID_TEX,
+Render3D/Room.lua TINT), drawn from above only: its faces are opaque floors here like any other, so what stands in a
+pool (the Lurker rising out of his) is hidden under the water's surface.
+Large rooms: ROOM_SETTINGS raises the probes' spacing (time and memory go with the probes' count) and the smallest
+quad (the stand-ins' count, the file's size, goes with the outlines' length over the smallest quad) for one room.
 
 Run from dev/:  luaenv\\Scripts\\python.exe generators\\gen_standins.py [Key ...] [--fast] [--no-write] [--no-cubes]
-  [--sheet] [--json FILE] (no key: MagtheridonsLair_Magtheridon). --fast: fewer and smaller poses (the tests);
-  --no-cubes: quads alone; --sheet: dev/docs/img/standins_<boss>_v2.png (room | stand-ins | errors on six poses) and
-  _v2_top.png.
+  [--sheet] [--json FILE] [--toc] [--check] (no key: MagtheridonsLair_Magtheridon). --fast: fewer and smaller poses
+  (the tests); --no-cubes: quads alone; --sheet: dev/docs/img/standins_<boss>_v2.png (room | stand-ins | errors on six
+  poses) and _v2_top.png; --toc: only rewrite the TOC's block of data files (write_toc); --check: generate nothing,
+  check the shipped data of each key (its own or the one it shares) on that key's poses (check_shipped).
 """
 import argparse
 import collections
@@ -102,7 +115,7 @@ for _p in (HERE, os.path.join(HERE, "..", "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from patchlib import decode_for_print, inflate_raw  # noqa: E402
+from patchlib import decode_for_print, deflate_raw, encode_for_print, inflate_raw  # noqa: E402
 
 ADDON = os.path.normpath(os.path.join(HERE, "..", "..", "addon", "DisasterZone"))
 ROOMS_DIR = os.path.join(ADDON, "Render3D", "Rooms")
@@ -158,8 +171,53 @@ EYE, WALK_EYE = 1.9, 2.2  # UI/StrategyMap3D.lua: the eye all the way in; the po
 PITCH_MIN, PITCH_TOP = 0.12, 1.5
 PITCH_LOOKUP, DIST_MIN = -0.5, 0.3   # UI/StrategyMap3D.lua: the pitch allowed under 3 yd out; all the way in
 RULE = "guard"            # which stand-ins show (shown())
-POSES_CHECKED = 1937      # training, random, board, stress and review poses of a full run (the data file says so)
+POSES_CHECKED = 1937      # training, random, board, stress and review poses of Magtheridon's full run (the data
+                          # file says how many its room's run checked)
 KIND_CODES = {"floor": 0, "ceiling": 1, "wall": 2, "slope": 3, "other": 4}   # the check's breakdown
+DATA_VERSION = 3          # the data file's version (packed); the runtime reads 1 - 3
+PIECE = 200               # characters per packed piece (as the room files)
+
+# Per-room settings over the defaults above, for the large rooms (build() applies them: configure()). probe_step:
+# the exposure probes' spacing - their count is the run's time and memory (Magtheridon: 0.4 M columns at 0.2 yd; the
+# largest rooms would have 5.5 M); a probe seen keeps stand-ins this far off, so coarser probes keep them a little
+# farther from what poses see, and the repair and the check catch what lies between. min_scale: the smallest quad
+# (never under MIN_SCALE's 0.018) - the count, and the file's size, goes with the outlines' length over it; the
+# smallest quads fill the corners of small and slanted faces, so a larger one leaves more of those uncovered.
+ROOM_SETTINGS = {}
+
+# Rooms that are one room (their room files decode to the same payload, the same view): the first key's data file is
+# made once and sets the table for the others too (write_lua checks they are still the same room). A key whose boss
+# spot differs (Romulo's: the training poses' boss orbits) is checked on its own poses (check_shipped).
+SAME_ROOM = {
+    "Karazhan_Hyakiss": ("Karazhan_Rokad", "Karazhan_Shadikith"),
+    "Karazhan_OperaOz": ("Karazhan_OperaRomulo", "Karazhan_OperaWolf"),
+}
+_DEFAULTS = {}
+
+
+def configure(key):
+    """Applies ROOM_SETTINGS[key] over the defaults (module settings, as every function reads them) -> the settings
+    that differ from the defaults (the data file names them)."""
+    names = {"probe_step": "PROBE_STEP", "min_scale": "MIN_SCALE"}
+    g = globals()
+    for n in names.values():
+        _DEFAULTS.setdefault(n, g[n])
+        g[n] = _DEFAULTS[n]
+    out = {}
+    for k, v in ROOM_SETTINGS.get(key, {}).items():
+        if k == "min_scale" and v < _DEFAULTS["MIN_SCALE"]:
+            raise ValueError("%s: min_scale %g is under the scale proven in game (%g)" % (key, v, _DEFAULTS["MIN_SCALE"]))
+        g[names[k]] = v
+        out[k] = v
+    return out
+
+
+def data_key(key):
+    """The key whose data file holds key's stand-ins (itself, or the first of its SAME_ROOM group)."""
+    for k, others in SAME_ROOM.items():
+        if key in others:
+            return k
+    return key
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -730,6 +788,19 @@ def make_probes(room, regs):
     pr.thr = np.concatenate(thr)
     pr.n = np.array([g.n for g in regs])[pr.reg]
     pr.exposed = np.zeros(pr.P.shape[:2], bool)
+    # per region (index into regs): its normal, its probes' threshold and a ball round all its probes - expose()
+    # turns a whole region away with them (no probes: never looked at)
+    pr.rn = np.array([g.n for g in regs])
+    pr.rthr = np.full(len(regs), np.inf)
+    pr.rc, pr.rrad = np.zeros((len(regs), 3)), np.zeros(len(regs))
+    starts = np.r_[0, np.nonzero(np.diff(pr.reg))[0] + 1]
+    for a, b in zip(starts, np.r_[starts[1:], len(pr.reg)]):
+        ri = int(pr.reg[a])
+        X = pr.P[a:b].reshape(-1, 3)
+        lo, hi = X.min(0), X.max(0)
+        pr.rc[ri] = (lo + hi) / 2
+        pr.rrad[ri] = float(np.linalg.norm(X - pr.rc[ri], axis=1).max())
+        pr.rthr[ri] = float(pr.thr[a:b].min())
     return pr
 
 
@@ -744,12 +815,23 @@ def expose(room, pr, cams, val_F=None, log=None, harmful_only=False):
     is no wider than that drop looks). harmful_only: only where the ray on past the probe runs through air a model
     can stand in before the room drawn there (a stand-in there would hide one; seen under a floor it hides
     nothing)."""
-    nc, nl = pr.P.shape[:2]
-    flatP = pr.P.reshape(-1, 3)
+    nl = pr.P.shape[1]
     for ci, cam in enumerate(cams):
         scale = (val_F or cam.F) / cam.F
+        if log and (ci + 1) % 100 == 0:
+            log("  exposure %d/%d poses: %.1f%% of probes seen" % (ci + 1, len(cams), 100 * pr.exposed.mean()))
+        # (whole regions first, by the tests below on their normal and threshold and a ball round their probes, a
+        # hair loose: one turned away from the camera or out of view has no probe seen; the rest are looked at one
+        # by one, as before - in a large room most of it is behind or beside a camera)
+        live = (pr.rn @ cam.C > pr.rthr - 1e-6) & cam.sees_sphere(pr.rc, pr.rrad + 1e-6)
+        cols = np.nonzero(live[pr.reg])[0]
+        if not len(cols):
+            continue
+        nc = len(cols)
+        Pc, nrm = pr.P[cols], pr.n[cols]
+        flatP = Pc.reshape(-1, 3)
         zb, fb = render_room(room, cam)
-        facing = (np.einsum("ij,j->i", pr.n, cam.C)[:, None] > pr.thr)
+        facing = (np.einsum("ij,j->i", nrm, cam.C)[:, None] > pr.thr[cols])
         seen = np.zeros(nc * nl, bool)
         sxy = np.zeros((nc * nl, 2))
         idx = np.nonzero(facing.reshape(-1))[0]
@@ -786,7 +868,7 @@ def expose(room, pr, cams, val_F=None, log=None, harmful_only=False):
         # a front point: the drop from the face above it (the face point nearer than the near clip: no bound)
         c0 = np.nonzero(seen[:, 0])[0]
         if len(c0):
-            qf = cam.to_cam(pr.P[c0, 0] + MARGIN * pr.n[c0])
+            qf = cam.to_cam(Pc[c0, 0] + MARGIN * nrm[c0])
             ok0 = qf[:, 2] > cam.near
             r0 = np.full(len(c0), np.inf)
             fx = cam.cx + cam.F * qf[ok0, 0] / qf[ok0, 2]
@@ -798,14 +880,12 @@ def expose(room, pr, cams, val_F=None, log=None, harmful_only=False):
             # then only those a model could be behind (as the check erodes first, then asks where a model could
             # be), asked of the points no pose has marked yet
             vis = np.nonzero(~hid)[0]
-            vis = vis[got[idx[vis]] & ~pr.exposed.reshape(-1)[idx[vis]]]
+            vis = vis[got[idx[vis]] & ~pr.exposed[cols].reshape(-1)[idx[vis]]]
             got[:] = False
             if len(vis):
                 zr = zb[sy[vis].astype(int), sx[vis].astype(int)]
                 got[idx[vis]] = _air_beyond(room, cam.C, d[vis] / dist[vis][:, None], dist[vis], zr)
-        pr.exposed |= got.reshape(nc, nl)
-        if log and (ci + 1) % 100 == 0:
-            log("  exposure %d/%d poses: %.1f%% of probes seen" % (ci + 1, len(cams), 100 * pr.exposed.mean()))
+        pr.exposed[cols] |= got.reshape(nc, nl)
     return pr
 
 
@@ -1011,21 +1091,14 @@ def _thickness(room, g, fr, index, us, vs, r, cap):
     na, n1, n2 = g.n @ fr.a, g.n @ fr.e1, g.n @ fr.e2
     step = 0.7 * r
     P = room.V[room.T[f]]
-    for k0 in range(0, len(f), 256):
-        Q = P[k0:k0 + 256]
-        pts = []
-        for t in Q:
-            e1, e2 = t[1] - t[0], t[2] - t[0]
-            m1 = max(1, int(math.ceil(np.linalg.norm(e1) / step)))
-            m2 = max(1, int(math.ceil(np.linalg.norm(e2) / step)))
-            m = max(m1, m2)
-            if m > 4000:
-                m = 4000
-            a_, b_ = np.meshgrid(np.arange(m + 1), np.arange(m + 1))
-            keep = a_ + b_ <= m
-            a_, b_ = a_[keep] / m, b_[keep] / m
-            pts.append(t[0] + a_[:, None] * e1 + b_[:, None] * e2)
-        X = np.concatenate(pts)
+    # only the samples the tests below can keep are made: over the grid and a cell round it, and between MARGIN / 2
+    # and depth behind the face (behind = d / na - X . w) - a face next to a small region (terrain's neighbouring
+    # triangles) lies mostly outside its box, and sampling all of it was most of the placement's time
+    w = (n1 * fr.e1 + n2 * fr.e2) / na + fr.a
+    keep = (np.stack([fr.e1, fr.e2, w]),
+            np.array([us[0] - r, vs[0] - r, g.d / na - depth]),
+            np.array([us[0] + (nu + 1) * r, vs[0] + (nv + 1) * r, g.d / na - MARGIN * 0.5]))
+    for X in _sample_batches(P, step, keep=keep):
         u, v, t = X @ fr.e1, X @ fr.e2, X @ fr.a
         t_surf = (g.d - n1 * u - n2 * v) / na
         behind = t_surf - t
@@ -1043,6 +1116,62 @@ def _thickness(room, g, fr, index, us, vs, r, cap):
                 okk = (ii >= 0) & (ii < nu) & (jj >= 0) & (jj < nv)
                 np.minimum.at(thick, (jj[okk], ii[okk]), b[okk])
     return thick
+
+
+def _sample_batches(P, step, cap=4000, batch=1_000_000, keep=None):
+    """Points on the triangles P (n, 3, 3), each on its edges' lattice every step or less (at most cap steps a side),
+    in batches of about batch points: a large region's box takes in the large faces round it (a pool's floor under
+    its water), whose lattices at a fine grid's step run to millions of points each. keep: (A, lo, hi) - only the
+    lattice points X with lo <= A X <= hi (rows of A: linear functions of a point; a hair loose: the caller's own
+    tests have the last word) are made, so every point the caller would keep of the whole lattice comes, the same
+    numbers, and few others."""
+    out, cnt = [], 0
+    for t in P:
+        e1, e2 = t[1] - t[0], t[2] - t[0]
+        m = max(1, int(math.ceil(np.linalg.norm(e1) / step)), int(math.ceil(np.linalg.norm(e2) / step)))
+        m = min(m, cap)
+        b = np.arange(m + 1)
+        a0, a1 = np.zeros(m + 1), (m - b).astype(float)
+        if keep is not None:
+            # along a row b of the lattice each function is c0 + a ca + b cb: the run of a it allows, per row
+            A, lo, hi = keep
+            c0, ca, cb = A @ t[0], (A @ e1) / m, (A @ e2) / m
+            for k in range(len(A)):
+                eps = 1e-6 * (1.0 + abs(lo[k]) + abs(hi[k]))
+                base = c0[k] + b * cb[k]
+                if abs(ca[k]) < 1e-12:
+                    out_ = (base < lo[k] - eps) | (base > hi[k] + eps)
+                    a0[out_] = np.inf
+                    continue
+                x1, x2 = (lo[k] - eps - base) / ca[k], (hi[k] + eps - base) / ca[k]
+                a0 = np.maximum(a0, np.minimum(x1, x2))
+                a1 = np.minimum(a1, np.maximum(x1, x2))
+        with np.errstate(invalid="ignore"):
+            i0 = np.where(np.isfinite(a0), np.ceil(a0 - 1e-9), 0).astype(np.int64)
+            i1 = np.where(np.isfinite(a0), np.floor(a1 + 1e-9), -1).astype(np.int64)
+        cnt_row = np.maximum(0, i1 - i0 + 1)
+        rows = np.nonzero(cnt_row)[0]
+        if not len(rows):
+            continue
+        # the kept points, row by row, in pieces of about batch
+        csum = np.cumsum(cnt_row[rows])
+        start = 0
+        while start < len(rows):
+            stop = int(np.searchsorted(csum, (csum[start - 1] if start else 0) + batch, side="right"))
+            stop = max(stop, start + 1)
+            rr = rows[start:stop]
+            n_r = cnt_row[rr]
+            b_ = np.repeat(rr, n_r)
+            a_ = np.repeat(i0[rr], n_r) + (np.arange(int(n_r.sum())) - np.repeat(np.cumsum(n_r) - n_r, n_r))
+            a_, b_ = a_ / m, b_ / m
+            out.append(t[0] + a_[:, None] * e1 + b_[:, None] * e2)
+            cnt += len(a_)
+            if cnt >= batch:
+                yield np.concatenate(out)
+                out, cnt = [], 0
+            start = stop
+    if out:
+        yield np.concatenate(out)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -1698,7 +1827,8 @@ def stress_poses(room, view, seed, n_wall=0, n_under=0, n_graze=0, W=480, H=320,
 # what the numbers are ('orbit': target, heading, pitch, distance; 'eye': the camera itself, heading, pitch), and
 # whether only harmful over-occlusion must be 0 ('air': the camera stands within the near clip of a room face, which
 # the runtime clips away so stand-ins behind its neighbours show through - over solid room or under the floor; or it
-# looks low past the floor's cut edge, far under the floor, where nothing can stand: the board poses' rule).
+# looks low past the floor's cut edge, far under the floor, where nothing can stand: the board poses' rule). Room
+# coordinates of Magtheridon's Lair: another room has none of its own (review_poses()).
 REVIEW_POSES = (
     ("b-close86 (panel from below)", "orbit", (27.26, 54.463, 1.15), 4.936, -0.32, 2.156, "all"),
     ("b-orbit48 (panel from below)", "orbit", (28.314, 17.953, 1.772), 2.2844, -0.1917, 0.616, "all"),
@@ -1715,10 +1845,10 @@ REVIEW_POSES = (
 )
 
 
-def review_poses(W=960, H=640):
-    """REVIEW_POSES as cameras (each with .need: 'all' or 'air')."""
+def review_poses(W=960, H=640, key=DEFAULT_KEY):
+    """REVIEW_POSES as cameras (each with .need: 'all' or 'air'): Magtheridon's Lair's; none for another room."""
     out = []
-    for (name, kind, pos, h, p, dist, need) in REVIEW_POSES:
+    for (name, kind, pos, h, p, dist, need) in (REVIEW_POSES if key == DEFAULT_KEY else ()):
         cam = orbit(pos, h, p, dist, W=W, H=H, name=name) if kind == "orbit" else \
             Camera(pos, h, p, W=W, H=H, name=name)
         cam.need = need
@@ -2312,6 +2442,11 @@ def evaluate(room, cubes, cams, rule=None):
 
 
 def summarize(results):
+    if not results:                               # (a room with no review poses)
+        z = (0.0, 0.0, 0.0)
+        return dict({"kind_" + k: z for k in KIND_CODES}, poses=0, over_eroded=0, over_raw=0, over_air=0,
+                    coverage=0.0, coverage_any=0.0, shown_median=0.0, shown_p90=0.0, shown_max=0, worst=[],
+                    **{"coverage_%g" % t: 0.0 for t in LOOSE})
     drawn = np.array([r["drawn"] for r in results], float)
     cov = np.array([r["covered"] for r in results], float)
     s = dict(poses=len(results),
@@ -2371,8 +2506,9 @@ STRESS_CHECK = dict(seed=37, n_wall=70, n_under=30, n_graze=40)
 
 def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cubes=True):
     """The whole run for one room. fast: fewer and smaller poses (tests); limit: only the largest regions; cubes:
-    False places quads alone."""
+    False places quads alone. The room's ROOM_SETTINGS apply (configure()) until the next build."""
     t0 = time.time()
+    settings = configure(key)
     room = load_room(key)
     view, spot = room_view(key)
     regions = planar_regions(room)
@@ -2451,7 +2587,7 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
     rand = poses(room, view, spot, "random", W=W, H=H, seed=7)
     board = board_poses(room, view, W=W, H=H, tag="b", **BOARD_CHECK)
     stress = stress_poses(room, view, W=W, H=H, tag="s", dom=dom, **STRESS_CHECK)
-    review = review_poses(W, H)
+    review = review_poses(W, H, key)
     if fast:
         rand, board, stress, review = rand[::6], board[::10], stress[::10], review[::3]
     res_rand = evaluate(room, arr, rand)
@@ -2465,8 +2601,8 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
         r["need"] = cam.need
     t_check = time.time() - t1
     checked = len(train) + len(btrain) + len(strain) + len(rand) + len(board) + len(stress) + len(review)
-    if not fast and not limit and checked != POSES_CHECKED:
-        log("note: %d poses checked, POSES_CHECKED says %d (the data file's header)" % (checked, POSES_CHECKED))
+    if not fast and not limit and key == DEFAULT_KEY and checked != POSES_CHECKED:
+        log("note: %d poses checked, POSES_CHECKED says %d" % (checked, POSES_CHECKED))
     return dict(key=key, room=room, regions=regions, cubes=sis, placed=placed, placed_kinds=placed_kinds,
                 repair=dict(rc), arr=arr,
                 train=summarize(res_train), btrain=summarize(res_btrain), strain=summarize(res_strain),
@@ -2477,7 +2613,26 @@ def build(key=DEFAULT_KEY, fast=False, log=print, W=None, H=None, limit=None, cu
                 lines=lines, checked=checked, areas=region_areas(room, regions, sis), stats=dict(stats), view=view,
                 spot=spot, seconds=time.time() - t0, size=(W, H), probes=pr,
                 timings=dict(exposure=t_exp, lines=lines["seconds"], place=t_place, repair=t_repair, check=t_check),
-                crossings=int(sum(len(c) for c in cross)))
+                crossings=int(sum(len(c) for c in cross)), settings=settings,
+                harm=harmful({t: r for t, r in (("train", res_train), ("btrain", res_btrain), ("strain", res_strain),
+                                                ("random", res_rand), ("board", res_board), ("stress", res_stress),
+                                                ("review", res_review))}))
+
+
+# the pose sets a room's data must hide nothing harmful on (random_reach is the rule without the near clip's guard,
+# which the runtime does not use: reported, not counted)
+GATE_SETS = ("train", "btrain", "strain", "random", "board", "stress", "review")
+
+
+def harmful(sets):
+    """Harmful over-occlusion over pose sets ({tag: measure() results}): pixels where a stand-in hides a model the
+    room does not (after the 1-pixel erosion) - every such pixel where a pose needs it ('need' 'all': the review's),
+    else those where a model could be. -> {tag: px}, with 'total'. A room ships only when the total is 0."""
+    out = {}
+    for tag, res in sets.items():
+        out[tag] = int(sum(r["over_eroded"] if r.get("need") == "all" else r["over_air"] for r in res))
+    out["total"] = sum(out.values())
+    return out
 
 
 def _num(v, places):
@@ -2518,65 +2673,248 @@ def _prims_text():
                                                _num(q["c"][1], 5), _num(q["c"][2], 5)))
 
 
-def lua_text(key, cubes=None, recs=None, stamp=None):
-    """The data file's text, from the stand-ins or from the records (records(); read_records() of a written file);
-    stamp: room_stamp() (read from the room file when not given)."""
+def _row_texts(r):
+    """One record's 12 numbers as the files write them (the rounding records() did)."""
+    quad = int(r[0]) == QUAD
+    return [str(int(r[0])), _num(r[1], 3), _num(r[2], 3), _num(r[3], 3), _num(r[4], 5), _num(r[5], 5), _num(r[6], 5),
+            _num(r[7], 5 if quad else 3), _num(r[8], 5), _num(r[9], 5), _num(r[10], 5), str(int(r[11]))]
+
+
+def pack_text(recs):
+    """The text the data file packs: 12 lines, line k the k-th number of every stand-in in order (a line of like
+    numbers - the normals of one surface, its heights - deflates smaller than rows of all twelve)."""
+    rows = [_row_texts(r) for r in recs]
+    return "\n".join(" ".join(row[k] for row in rows) for k in range(12))
+
+
+def unpack_text(text, n):
+    """pack_text's records back (as floats), n stand-ins."""
+    nums = [float(x) for x in text.split()]
+    if len(nums) != 12 * n:
+        raise ValueError("packed text: %d numbers for %d stand-ins" % (len(nums), n))
+    return [tuple(nums[k * n + i] for k in range(12)) for i in range(n)]
+
+
+def _comment(text, width=117):
+    """A paragraph as '-- ' comment lines of at most width + 3 characters."""
+    import textwrap
+    return ["-- " + s for s in textwrap.wrap(text, width, break_long_words=False, break_on_hyphens=False)]
+
+
+def lua_text(key, cubes=None, recs=None, stamp=None, checked=None, settings=None, same=None):
+    """The data file's text (version 3: the numbers packed), from the stand-ins or from the records (records();
+    read_file() of a written file). stamp: room_stamp() (read from the room file when not given); checked: how many
+    poses the run checked (default: Magtheridon's POSES_CHECKED); settings: the ROOM_SETTINGS it was made with
+    (default the room's); same: the keys of the same room it serves too (default SAME_ROOM's)."""
     rel = "Render3D/Standins/%s.lua" % key
     recs = records(cubes) if recs is None else recs
     stamp = stamp or room_stamp(key)
-    lines = [
-        'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel),
-        "-- %s: the room's stand-ins (Render3D/Standins.lua shows them): one-sided quads lying just behind" % key,
-        "-- its opaque floors, walls and slopes, and cubes in the gaps they leave, drawn in a scene under the room's",
-        "-- textures; models in the scenes over it are then hidden per pixel wherever the room is in front of them (all",
-        "-- model scenes share one depth buffer). Version 2. 12 numbers per stand-in: prim; x, y, z (room yards: a",
-        "-- quad's middle, a cube's centre); yaw, pitch, roll (radians, room coordinates: the turn R = Rz(yaw) Ry(pitch)",
-        "-- Rx(roll) - SetYaw, SetPitch, SetRoll as the client applies them, roll first); scale (the actor's); nx, ny, nz",
-        "-- (its face's normal, to the side the face is seen from; a quad's front, R's first column, faces it); face",
-        "-- (the face's region, for debugging). A prim's model point q stands at (x, y, z) + scale R (q - c), c = the",
-        "-- prim's middle (cx, cy, cz; a cube's is its origin): its origin goes to (x, y, z) - scale R c. A quad is the",
-        "-- prim's w x h rectangle in its y-z plane, drawn from its front only; a cube is 2 half x scale a side. Show",
-        "-- one only while dot(n, camera - (x, y, z)) > reach + guard: reach = scale x the sum over its turned axes a",
-        "-- of its half extent along a x |n.a| (0 for a quad), guard = the distance to the near plane's farthest",
-        "-- corner (near clip 0.5 yd x sqrt(1 + tx^2 + ty^2), tx, ty: the view's half width and height at depth 1);",
-        "-- nearer than that, its face may be clipped away while the stand-in is not. room: the room file these were",
-        "-- made for (its packed size, vertices and triangles); made for another build of the room they hide the wrong",
-        "-- things. Checked offline against the room's z-buffer from %d poses. AUTO-GENERATED by" % POSES_CHECKED,
-        "-- dev/generators/gen_standins.py; do not edit by hand.",
+    checked = POSES_CHECKED if checked is None else checked
+    settings = ROOM_SETTINGS.get(key, {}) if settings is None else settings
+    same = tuple(SAME_ROOM.get(key, ())) if same is None else tuple(same)
+    raw = pack_text(recs).encode("ascii")
+    enc = encode_for_print(deflate_raw(raw))
+    made = ""
+    if settings:
+        made = " A large room: made with %s." % " and ".join(
+            {"min_scale": "a smallest quad of scale %g" % settings.get("min_scale", 0),
+             "probe_step": "the exposure probes %g yd apart" % settings.get("probe_step", 0)}[k]
+            for k in sorted(settings))
+    also = (" It is also the data of %s: the same room." % ", ".join(same)) if same else ""
+    head = (
+        "%s: the room's stand-ins (Render3D/Standins.lua shows them): one-sided quads lying just behind its opaque "
+        "floors, walls, slopes and water, and cubes in the gaps they leave, drawn in a scene under the room's "
+        "textures; models in the scenes over it are then hidden per pixel wherever the room is in front of them (all "
+        "model scenes share one depth buffer). Version 3. 12 numbers per stand-in: prim; x, y, z (room yards: a "
+        "quad's middle, a cube's centre); yaw, pitch, roll (radians, room coordinates: the turn R = Rz(yaw) Ry(pitch) "
+        "Rx(roll) - SetYaw, SetPitch, SetRoll as the client applies them, roll first); scale (the actor's); nx, ny, nz "
+        "(its face's normal, to the side the face is seen from; a quad's front, R's first column, faces it); face "
+        "(the face's region, for debugging). A prim's model point q stands at (x, y, z) + scale R (q - c), c = the "
+        "prim's middle (cx, cy, cz; a cube's is its origin): its origin goes to (x, y, z) - scale R c. A quad is the "
+        "prim's w x h rectangle in its y-z plane, drawn from its front only; a cube is 2 half x scale a side. Show "
+        "one only while dot(n, camera - (x, y, z)) > reach + guard: reach = scale x the sum over its turned axes a of "
+        "its half extent along a x |n.a| (0 for a quad), guard = the distance to the near plane's farthest corner "
+        "(near clip 0.5 yd x sqrt(1 + tx^2 + ty^2), tx, ty: the view's half width and height at depth 1); nearer than "
+        "that, its face may be clipped away while the stand-in is not. packed: the numbers as text - 12 lines, line k "
+        "the k-th number of every stand-in in order -, deflated and encoded for print (LibDeflate), in pieces; size: "
+        "the text's length. Render3D/Standins.lua unpacks it when the room's stand-ins are first used: until then "
+        "the packed text is all a room's stand-ins keep in memory. room: the room file these were made for (its "
+        "packed size, vertices and triangles); made for another build of the room they hide the wrong things. "
+        "Checked offline against the room's z-buffer from %d poses.%s%s AUTO-GENERATED by "
+        "dev/generators/gen_standins.py; do not edit by hand." % (key, checked, made, also))
+    lines = ['if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel)]
+    lines += _comment(head)
+    lines += [
         "local _, ns = ...",
         "ns.RoomStandins = ns.RoomStandins or {}",
-        'ns.RoomStandins["%s"] = { version = 2,' % key,
+        'ns.RoomStandins["%s"] = { version = %d,' % (key, DATA_VERSION),
         "  " + _prims_text(),
         "  room = { size = %d, verts = %d, tris = %d }," % (stamp["size"], stamp["verts"], stamp["tris"]),
-        "  n = %d, stride = 12, data = {" % len(recs),
+        "  n = %d, stride = 12, size = %d, packed = {" % (len(recs), len(raw)),
     ]
-    for r in recs:
-        quad = int(r[0]) == QUAD
-        lines.append("    " + ", ".join([str(int(r[0])), _num(r[1], 3), _num(r[2], 3), _num(r[3], 3), _num(r[4], 5),
-                                         _num(r[5], 5), _num(r[6], 5), _num(r[7], 5 if quad else 3), _num(r[8], 5),
-                                         _num(r[9], 5), _num(r[10], 5), str(int(r[11]))]) + ",")
+    for i in range(0, len(enc), PIECE):
+        lines.append('    "%s",' % enc[i:i + PIECE])
+    lines.append("} }")
+    for k in same:
+        lines.append('ns.RoomStandins["%s"] = ns.RoomStandins["%s"]' % (k, key))
+    return "\n".join(lines) + "\n"
+
+
+def lua_text_v2(key, recs, stamp):
+    """The version 2 file's body for the same records (a plain table of numbers): what the packing saves is measured
+    against it (lua_memory()), and the runtime still reads it."""
+    lines = ["local _, ns = ...", "ns.RoomStandins = ns.RoomStandins or {}",
+             'ns.RoomStandins["%s"] = { version = 2,' % key, "  " + _prims_text(),
+             "  room = { size = %d, verts = %d, tris = %d }," % (stamp["size"], stamp["verts"], stamp["tris"]),
+             "  n = %d, stride = 12, data = {" % len(recs)]
+    lines += ["    " + ", ".join(_row_texts(r)) + "," for r in recs]
     lines.append("} }")
     return "\n".join(lines) + "\n"
 
 
-def read_records(path):
-    """The 12-number records of a written data file (Python side)."""
+def read_file(path):
+    """A written data file (Python side) -> dict: version, key, recs (the 12-number records), stamp (its room), checked
+    (the poses its header says), same (the other keys it sets), size (the packed text's length; version 3)."""
     with open(path, "rb") as fh:
         src = fh.read().decode("utf-8")
-    body = src.split("data = {", 1)[1].rsplit("} }", 1)[0]
-    nums = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?(?:e-?\d+)?", body)]
-    return [tuple(nums[i:i + 12]) for i in range(0, len(nums), 12)]
+    m = re.search(r'ns\.RoomStandins\["([^"]+)"\] = \{ version = (\d+),', src)
+    if not m:
+        raise ValueError("%s: no stand-in data" % path)
+    out = dict(key=m.group(1), version=int(m.group(2)))
+    st = re.search(r"room = \{ size = (\d+), verts = (\d+), tris = (\d+) \}", src)
+    out["stamp"] = dict(size=int(st.group(1)), verts=int(st.group(2)), tris=int(st.group(3))) if st else None
+    ck = re.search(r"z-buffer from (\d+)\s+(?:-- )?poses", src)
+    out["checked"] = int(ck.group(1)) if ck else None
+    out["same"] = re.findall(r'^ns\.RoomStandins\["([^"]+)"\] = ns\.RoomStandins\["%s"\]$' % re.escape(out["key"]),
+                             src, re.M)
+    if out["version"] >= 3:
+        hd = re.search(r"n = (\d+), stride = 12, size = (\d+), packed = \{", src)
+        n, size = int(hd.group(1)), int(hd.group(2))
+        body = src[hd.end():].split("} }", 1)[0]
+        raw = inflate_raw(decode_for_print("".join(re.findall(r'"([^"]*)"', body))))
+        if len(raw) != size:
+            raise ValueError("%s: unpacked %d bytes, the file says %d" % (path, len(raw), size))
+        out["recs"], out["size"] = unpack_text(raw.decode("ascii"), n), size
+    else:
+        body = src.split("data = {", 1)[1].rsplit("} }", 1)[0]
+        nums = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?(?:e-?\d+)?", body)]
+        out["recs"] = [tuple(nums[i:i + 12]) for i in range(0, len(nums), 12)]
+    return out
 
 
-def write_lua(key, cubes=None, out_dir=OUT_DIR, recs=None, stamp=None):
+def read_records(path):
+    """The 12-number records of a written data file (Python side; either version)."""
+    return read_file(path)["recs"]
+
+
+def _payload(key):
+    """A room file's unpacked payload (bytes): two rooms are one when theirs are equal."""
+    with open(os.path.join(ROOMS_DIR, key + ".lua"), "rb") as fh:
+        src = fh.read().decode("utf-8")
+    return inflate_raw(decode_for_print("".join(re.findall(r'^\s*"([^"]*)",\s*$', src, re.M))))
+
+
+def write_lua(key, cubes=None, out_dir=OUT_DIR, recs=None, stamp=None, checked=None, settings=None):
+    """Writes the room's data file (lua_text), and the SAME_ROOM keys' tables in it once their room files are seen
+    to be the same room. -> its path, its size in bytes."""
+    same = tuple(SAME_ROOM.get(key, ()))
+    if same:
+        mine = _payload(key)
+        for k in same:
+            if _payload(k) != mine:
+                raise ValueError("%s is no longer the same room as %s: make its own data (SAME_ROOM)" % (k, key))
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, key + ".lua")
-    text = lua_text(key, cubes, recs, stamp)
+    text = lua_text(key, cubes, recs, stamp, checked, settings, same)
     tmp = os.path.join(out_dir, "." + key + ".lua.tmp")
-    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
+    with open(tmp, "wb") as fh:
+        fh.write(text.encode("utf-8"))
     os.replace(tmp, path)
     return path, len(text.encode("utf-8"))
+
+
+TOC = os.path.join(ADDON, "DisasterZone.toc")
+TOC_ANCHOR = "Render3D\\Standins.lua"
+
+
+def write_toc(keys=None, toc=TOC):
+    """The TOC loads every data file right after Render3D\\Standins.lua: the block of Render3D\\Standins\\*.lua lines
+    there is rewritten, nothing else (another session edits the TOC too: read just before, written at once, the
+    file's own line ends kept). keys: the data files (default: every <Key>.lua in OUT_DIR), sorted. -> the block."""
+    if keys is None:
+        keys = [f[:-4] for f in os.listdir(OUT_DIR) if f.endswith(".lua") and not f.startswith(".")]
+    with open(toc, "rb") as fh:
+        text = fh.read().decode("utf-8")
+    eol = "\r\n" if "\r\n" in text else "\n"
+    lines = text.split(eol)
+    i = lines.index(TOC_ANCHOR)
+    j = i + 1
+    while j < len(lines) and lines[j].startswith("Render3D\\Standins\\"):
+        j += 1
+    others = [s for s in lines[:i] + lines[j:] if s.startswith("Render3D\\Standins\\")]
+    if others:
+        raise ValueError("data files listed away from %s: %s" % (TOC_ANCHOR, others))
+    block = ["Render3D\\Standins\\%s.lua" % k for k in sorted(keys)]
+    lines[i + 1:j] = block
+    tmp = toc + ".tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(eol.join(lines).encode("utf-8"))
+    os.replace(tmp, toc)
+    return block
+
+
+def lua_memory(src):
+    """The Lua memory (bytes) a data file's text keeps once run, as Lua 5.1 counts it (collectgarbage after full
+    collections, before and after; the chunk itself is let go, as the client lets it go after loading): what it costs
+    from login on. lupa's Lua 5.1 is 64-bit, as the client: 16 bytes a table slot, 24 + length a string."""
+    from lupa import lua51
+    L = lua51.LuaRuntime()
+    f = L.eval("function(src) local ns = {} collectgarbage('collect') collectgarbage('collect') "
+               "local before = collectgarbage('count') local chunk = assert(loadstring(src)) chunk('DisasterZone', ns) "
+               "chunk = nil collectgarbage('collect') collectgarbage('collect') "
+               "return (collectgarbage('count') - before) * 1024 end")
+    return float(f(src))
+
+
+def check_shipped(key, fast=False, log=print):
+    """The shipped data a key uses (its own file, or the one SAME_ROOM shares) checked on that key's poses - all of a
+    full run's sets (training, board and stress training, random, board, stress, review) as build() checks them -
+    for a key whose data was made for another (the boss spot moves the training poses' boss orbits). -> dict: per set
+    its summary, its harmful over-occlusion (harmful()) and its worst poses; their total ('harm')."""
+    path = os.path.join(OUT_DIR, data_key(key) + ".lua")
+    f = read_file(path)
+    room = load_room(key)
+    if f["stamp"] != room_stamp(key, room):
+        raise ValueError("%s: %s was made for another build of the room" % (key, path))
+    view, spot = room_view(key)
+    planar_regions(room)                                    # (the kinds of faces for the breakdown)
+    arr = record_arrays(f["recs"])
+    W, H = (320, 214) if fast else (960, 640)
+    dom = CamDomain(room, view)
+    sets = dict(train=poses(room, view, spot, "train", W=W, H=H),
+                btrain=board_poses(room, view, W=W, H=H, tag="t", **BOARD_TRAIN),
+                strain=stress_poses(room, view, W=W, H=H, tag="t", dom=dom, **STRESS_TRAIN),
+                random=poses(room, view, spot, "random", W=W, H=H, seed=7),
+                board=board_poses(room, view, W=W, H=H, tag="b", **BOARD_CHECK),
+                stress=stress_poses(room, view, W=W, H=H, tag="s", dom=dom, **STRESS_CHECK),
+                review=review_poses(W, H, key))
+    out, harm = {}, 0
+    for tag, cams in sets.items():
+        if fast:
+            cams = cams[::9]
+        res = evaluate(room, arr, cams)
+        for r_, cam in zip(res, cams):
+            r_["need"] = getattr(cam, "need", None)
+        h = harmful({tag: res})[tag]
+        harm += h
+        out[tag] = dict(summary=summarize(res), harm=h,
+                        worst=sorted(((r_["over_air"], r_["over_eroded"], r_["name"]) for r_ in res),
+                                     reverse=True)[:5])
+        log("  %s %-7s %4d poses: harmful %d, coverage %.1f%%" % (key, tag, len(cams), h,
+                                                                 100 * out[tag]["summary"]["coverage"]))
+    out["harm"] = harm
+    out["n"] = len(f["recs"])
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -2756,6 +3094,8 @@ def report(b, size=None):
     for r in b.get("res_review", ()):
         lines.append("    review %-30s over-occlusion %6d px eroded, %5d where a model could be (must be 0: %s)"
                      % (r["name"], r["over_eroded"], r["over_air"], "both" if r["need"] == "all" else "the latter"))
+    if "harm" in b:
+        lines.append("  harmful over-occlusion (must be 0 to ship) %s; settings %s" % (b["harm"], b.get("settings")))
     if size is not None:
         lines.append("  file %d bytes" % size)
     return "\n".join(lines)
@@ -2769,14 +3109,34 @@ def main(argv=None):
     ap.add_argument("--no-cubes", action="store_true", help="quads alone")
     ap.add_argument("--sheet", action="store_true", help="write dev/docs/img/standins_<short>_v2.png and _v2_top.png")
     ap.add_argument("--json", help="write the numbers here")
+    ap.add_argument("--toc", action="store_true", help="only rewrite the TOC's block of data files")
+    ap.add_argument("--check", action="store_true", help="check the shipped data of each key on its own poses")
     args = ap.parse_args(argv)
+    if args.toc:
+        for line in write_toc():
+            print(line)
+        return {}
     allres = {}
+    if args.check:
+        for key in args.keys:
+            allres[key] = check_shipped(key, fast=args.fast)
+            print("%s: %d stand-ins, harmful over-occlusion %d" % (key, allres[key]["n"], allres[key]["harm"]))
+        if args.json:
+            with open(args.json, "w") as fh:
+                json.dump(allres, fh, indent=1, default=float)
+        return allres
     for key in args.keys:
         b = build(key, fast=args.fast, cubes=not args.no_cubes)
-        size = None
-        if not args.no_write:
-            path, size = write_lua(key, b["cubes"], stamp=room_stamp(key, b["room"]))
+        size = mem = None
+        # (a room whose stand-ins hide anything harmful on any pose set is not shipped: its old file, if any, stays)
+        if not args.no_write and b["harm"]["total"] == 0 and b["cubes"]:
+            path, size = write_lua(key, b["cubes"], stamp=room_stamp(key, b["room"]), checked=b["checked"],
+                                   settings=b["settings"])
+            with open(path, "rb") as fh:
+                mem = lua_memory(fh.read().decode("utf-8"))
             print("wrote", path)
+        elif not args.no_write:
+            print("NOT WRITTEN: %s: harmful over-occlusion %s" % (key, b["harm"]))
         print(report(b, size))
         if args.sheet:
             short = key.split("_", 1)[-1].lower()
@@ -2785,7 +3145,8 @@ def main(argv=None):
         allres[key] = dict({t: b[t] for t, _ in POSE_SETS}, areas=b["areas"], lines=b["lines"]["counts"],
                            n=len(b["cubes"]), kinds=dict(collections.Counter(c.kind for c in b["cubes"])),
                            placed=b["placed"], repair=b["repair"], size=size, timings=b.get("timings"),
-                           seconds=b["seconds"],
+                           seconds=b["seconds"], harm=b["harm"], settings=b["settings"], checked=b["checked"],
+                           memory=mem, written=size is not None,
                            worst={t: sorted(((r["over_air"], r["over_eroded"], r["name"])
                                              for r in b["res_" + t.replace("random", "rand")]), reverse=True)[:5]
                                   for t, _ in POSE_SETS})

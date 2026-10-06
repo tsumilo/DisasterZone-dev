@@ -15,9 +15,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Standins.lua", ...) then 
 -- moves.
 --
 -- Data (ns.RoomStandins[roomKey], room coordinates as the room files: yd, x east, y north, z over the boss' floor):
---   { version = 2, prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 },
+--   { version = 3, prims = { [1] = { fid = 167145, kind = "cube", half = 0.5 },
 --                            [2] = { fid = 653518, kind = "quad", w = .., h = .., cx = .., cy = .., cz = .. } },
---     room = { size = .. }, n = count, stride = 12, data = { numbers; or strings of numbers and tables of them } }
+--     room = { size = .. }, n = count, stride = 12, size = text bytes, packed = { pieces of text } }
+-- Version 3 keeps the numbers packed (dev/generators/gen_standins.py: 12 lines of text - line k the k-th number of
+-- every stand-in -, raw deflate, LibDeflate's EncodeForPrint, in pieces, as the room files pack their meshes): a
+-- room's data costs only that text from login on, a sixth or less of the plain table (Magtheridon's Lair: 65 KB of
+-- Lua memory against 580 KB), and is unpacked when its stand-ins are first used (S.Load). Versions 1 and 2 hold the
+-- numbers themselves: data = { numbers; or strings of numbers and tables of them }.
 -- one stand-in = prim index; x, y, z (its anchor: a cube's centre, a quad's middle); yaw, pitch, roll (radians, room
 -- coordinates: the turn R = Rz(yaw) Ry(pitch) Rx(roll), the order the client applies SetYaw, SetPitch and SetRoll in -
 -- roll turns the model first, Render3D/Probe.lua tiles 35-38); scale (the actor's: a cube is 2 half x scale yd a
@@ -108,6 +113,44 @@ local function Flat(data)
     return out
 end
 
+-- The numbers of a version 3 room's data, flat: its packed text unpacked (LibDeflate, as Render3D/Rooms.lua unpacks
+-- the rooms) and its columns - line k the k-th number of every stand-in - laid out in rows of 12, as versions 1 and 2
+-- hold them. -> nil when anything does not read: no LibDeflate, a piece that is not text, another length than size,
+-- a word that is not a number, another count than 12 n.
+local function Unpack(rec)
+    local LD = LibStub and LibStub("LibDeflate", true)
+    local packed, n = rec.packed, tonumber(rec.n)
+    if not (LD and type(packed) == "table" and n and n >= 1 and n == floor(n)) then return nil end
+    for i = 1, #packed do
+        if type(packed[i]) ~= "string" then return nil end
+    end
+    local raw = LD:DecodeForPrint(table.concat(packed))
+    local text = raw and LD:DecompressDeflate(raw)
+    if type(text) ~= "string" or #text ~= tonumber(rec.size) then return nil end
+    -- the 12 lines read side by side, a number from each per stand-in: the rows come out in order (a table filled in
+    -- order keeps its numbers in its array part), with no copy of all the numbers in between
+    local words, at = {}, 1
+    for k = 1, 12 do
+        local e = text:find("\n", at, true) or #text + 1
+        words[k] = text:sub(at, e - 1):gmatch("%S+")
+        at = e + 1
+    end
+    if at <= #text then return nil end                  -- (more than 12 lines)
+    local out, j = {}, 0
+    for _ = 1, n do
+        for k = 1, 12 do
+            local x = tonumber(words[k]() or "")
+            if not x then return nil end
+            j = j + 1
+            out[j] = x
+        end
+    end
+    for k = 1, 12 do
+        if words[k]() then return nil end               -- (a line longer than n numbers)
+    end
+    return out
+end
+
 -- The regions of a prepared set into set.G (RS numbers each) and set.ng: runs of usable stand-ins with one face id
 -- (the data keeps a surface's stand-ins together; a run is cut at REGION_MAX). Each: first and last stand-in, the
 -- mean normal N (unit, or 0 when they cancel), a ball (centre, radius) holding every stand-in's ball, eps (how far
@@ -185,13 +228,16 @@ end
 -- in its plane; its surface lies at least that far in front of the anchor, so a camera less far out than that is
 -- behind the surface), false for one that is never shown (a model file not known to load, a kind it does not know, no
 -- size, a broken number, a normal that is not a unit vector, a quad whose front does not face along its normal), and
--- the regions (Regions above). -> the set, or nil and why ("none", "unreadable": also data of a later version than
--- this file knows, "empty").
+-- the regions (Regions above). Version 3 data is unpacked here (Unpack). -> the set, or nil and why ("none",
+-- "unreadable": also data of a later version than this file knows, "empty").
 function S.Prepare(rec)
     if type(rec) ~= "table" then return nil, "none" end
-    local d = Flat(rec.data)
+    local version = tonumber(rec.version) or 1
     local stride = tonumber(rec.stride) or 12
-    if not d or stride < 12 or (tonumber(rec.version) or 1) > 2 then return nil, "unreadable" end
+    if version > 3 or (version == 3 and stride ~= 12) then return nil, "unreadable" end
+    local d
+    if version == 3 then d = Unpack(rec) else d = Flat(rec.data) end
+    if not d or stride < 12 then return nil, "unreadable" end
     stride = floor(stride)
     local n = floor(#d / stride)
     if tonumber(rec.n) then n = min(n, floor(rec.n)) end
@@ -245,10 +291,14 @@ end
 -- The data of a room, as loaded (nil without).
 local function Rec(key) return ns.RoomStandins and key and ns.RoomStandins[key] or nil end
 
--- The prepared set of a room (ns.RoomStandins[key]), made once per data table while it is in use (Ctl:Off lets it
--- go: ns.RoomStandins keeps every room's data, so a weak key alone would keep a set for every room visited). -> the
--- set and the data, or nil and why.
-local CACHE = setmetatable({}, { __mode = "k" })
+-- The prepared set of a room (ns.RoomStandins[key]), made once per data table: rooms that are one room share their
+-- data table, and so their set. The last KEEP rooms used stay prepared - turning the mode off and on, or going back
+-- to the room just left, unpacks nothing again (the largest room takes a few hundred ms) - and older ones are let go:
+-- ns.RoomStandins keeps every room's packed data, and a set for every room visited would bring back the memory the
+-- packing saves. Data that cannot be used keeps why (it never changes). -> the set and the data, or nil and why.
+local CACHE = setmetatable({}, { __mode = "k" })     -- data table -> its set, or why it has none
+local RECENT = {}                                    -- data tables with a set, the most recently used last
+local KEEP = 2
 function S.Load(key)
     local rec = Rec(key)
     if type(rec) ~= "table" then return nil, "none" end
@@ -264,7 +314,19 @@ function S.Load(key)
     end
     local set = CACHE[rec]
     if type(set) ~= "table" then return nil, set end
+    for i = #RECENT, 1, -1 do
+        if RECENT[i] == rec then tremove(RECENT, i) end
+    end
+    RECENT[#RECENT + 1] = rec
+    while #RECENT > KEEP do CACHE[tremove(RECENT, 1)] = nil end
     return set, rec
+end
+S.KEEP = KEEP
+
+-- Is a room's data unpacked and prepared now (its set among the last KEEP)? (tests, debugging)
+function S.Prepared(key)
+    local rec = Rec(key)
+    return rec ~= nil and type(CACHE[rec]) == "table"
 end
 
 ---------------------------------------------------------------------------
@@ -579,8 +641,7 @@ function Ctl:Off()
         any = true
     end
     if any then self:HideFree() end                -- (only actors with a stand-in are ever shown)
-    -- (the room's prepared set goes too: made again, in a few ms, when the mode or the room comes back)
-    if self.rec then CACHE[self.rec] = nil end
+    -- (the room's prepared set stays among S.Load's last KEEP: back on, nothing is unpacked again)
     self.key, self.set, self.rec, self.sig.n = nil, nil, nil, nil
     self.stats.shown = 0
     self.view:StandinLayer(false)
