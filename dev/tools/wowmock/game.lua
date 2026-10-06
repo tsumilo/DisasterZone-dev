@@ -99,8 +99,9 @@ function GetScreenHeight() return 1080 end
 function GetPhysicalScreenSize() return 1920, 1080 end
 function GetScreenDPIScale() return 1 end
 function GetCursorPosition() return 960, 540 end
-function GetMouseFocus() return nil end
-function GetMouseFoci() return {} end
+-- the frame under the mouse (M.click_player sets WorldFrame, or a unit frame for a click on a raid frame)
+function GetMouseFocus() return M.mouse_focus end
+function GetMouseFoci() return { M.mouse_focus } end
 function IsMouseButtonDown() return false end
 function GetAddOnCPUUsage() return 0 end
 function GetAddOnMemoryUsage() return 0 end
@@ -110,7 +111,31 @@ function RequestTimePlayed() end
 function Screenshot() end
 function ReloadUI() M.reload_requested = true end
 function Logout() M.logout_requested = true end
-function DoEmote() end
+-- DoEmote(token [, target [, hold]]): the server echoes my emote as CHAT_MSG_TEXT_EMOTE ("You point at Bert."),
+-- at the named player, else at my target (a player or NPC), else at nobody. English texts for a few tokens.
+local EMOTE_TEXTS = {
+  POINT = { "You point over yonder.", "You point at %s." }, WAVE = { "You wave.", "You wave at %s." },
+  BOW = { "You bow down graciously.", "You bow before %s." }, HUG = { "You need a hug!", "You hug %s." },
+  CHEER = { "You cheer!", "You cheer at %s." }, DANCE = { "You burst into dance.", "You dance with %s." },
+  LAUGH = { "You laugh.", "You laugh at %s." }, SALUTE = { "You stand at attention and salute.", "You salute %s with respect." },
+  THANK = { "You thank everyone around you.", "You thank %s." }, KISS = { "You blow a kiss into the wind.", "You blow a kiss to %s." },
+}
+M.emotes = {}   -- every DoEmote call: { token, target }
+function DoEmote(token, target, hold)
+  if type(token) ~= "string" then error("Usage: DoEmote(emote [, target [, hold]])", 2) end
+  token = supper(token)
+  M.emotes[#M.emotes + 1] = { token, target }
+  local who = (type(target) == "string" and target ~= "") and target or nil
+  if not who and UnitExists("target") then who = UnitName("target") end
+  local t = EMOTE_TEXTS[token] or { "You " .. slower(token) .. ".", "You " .. slower(token) .. " at %s." }
+  local text = who and sformat(t[2], who) or t[1]
+  local m = M.W.self
+  M.after(0.1, function()
+    M.line_id = (M.line_id or 0) + 1
+    M.fire("CHAT_MSG_TEXT_EMOTE", text, m.full, "", "", m.name, "", 0, 0, "", 0, M.line_id, m.guid or "", 0, false, false,
+      false, false)
+  end, "DoEmote")
+end
 function RandomRoll(a, b)
   M.random_rolls = (M.random_rolls or 0) + 1
   if PY and PY.random_roll then PY.random_roll(tonumber(a) or 1, tonumber(b) or 100) end
@@ -306,15 +331,30 @@ C_Spell = {
 M.cvars = { nameplateShowEnemies = "1", autoLootDefault = "0", lootUnderMouse = "0", Sound_EnableSFX = "1", Sound_EnableAllSound = "1",
   scriptErrors = "1", taintLog = "0", chatStyle = "classic", portal = "EU", textLocale = "enUS", audioLocale = "enUS",
   useUiScale = "0", uiScale = "1", showToastWindow = "1", autoSelfCast = "1", nameplateShowEnemies = "1",
-  UberTooltips = "1", alwaysCompareItems = "0", colorblindMode = "0", profanityFilter = "0" }
+  UberTooltips = "1", alwaysCompareItems = "0", colorblindMode = "0", profanityFilter = "0", nameplateShowFriends = "0",
+  nameplateShowAll = "0" }
+local CVAR_DEFAULTS = { nameplateShowFriends = "0", nameplateShowEnemies = "1", nameplateShowAll = "0" }
 function GetCVar(name)
   local v = M.cvars[name]
   if v == nil then M.warn("GetCVar('" .. tostring(name) .. "') unknown to the mock (returns nil)") end
   return v
 end
 function GetCVarBool(name) local v = M.cvars[name]; return v == "1" or v == "true" end
-function GetCVarDefault(name) return M.cvars[name] end
-function SetCVar(name, v) M.cvars[name] = tostring(v); return true end
+function GetCVarDefault(name) return CVAR_DEFAULTS[name] or M.cvars[name] end
+-- (name, value): kept as a string (a boolean as "1" / "0"). Nameplate CVars can't change in combat (the client
+-- refuses it, like a protected action): nothing changes and the call returns false.
+M.cvar_blocked = {}
+function SetCVar(name, v)
+  if type(name) ~= "string" then error("Usage: SetCVar(name, value)", 2) end
+  if M.combat and sfind(name, "^nameplate") then
+    M.cvar_blocked[#M.cvar_blocked + 1] = name
+    M.warn("SetCVar('" .. name .. "') in combat: blocked like the client does")
+    return false
+  end
+  if type(v) == "boolean" then v = v and "1" or "0" end
+  M.cvars[name] = tostring(v)
+  return true
+end
 function RegisterCVar(name, v) if M.cvars[name] == nil then M.cvars[name] = tostring(v or "") end end
 C_CVar = { GetCVar = GetCVar, GetCVarBool = GetCVarBool, SetCVar = SetCVar, GetCVarDefault = GetCVarDefault, RegisterCVar = RegisterCVar }
 
@@ -529,6 +569,8 @@ function M.unit_rec(unit)
   -- enemy NPCs (world.spawn_npc): nameplate tokens, an NPC target, the mouseover
   if u == "target" and M.target_npc then return M.npcs[M.target_npc] end
   if u == "mouseover" and M.mouseover_npc then return M.npcs[M.mouseover_npc] end
+  -- a player under the mouse (M.set_mouseover / M.click_player)
+  if u == "mouseover" and M.mouseover then return M.unit_by_name(M.mouseover, true) end
   if smatch(u, "^nameplate%d+$") then
     local guid = M.nameplates[u]
     return guid and M.npcs[guid] or nil
@@ -602,7 +644,20 @@ function UnitIsAFK() return false end
 function UnitIsDND() return false end
 function UnitIsVisible(unit) return unit_rec(unit) ~= nil end
 function UnitInRange(unit) return unit_rec(unit) ~= nil, true end
-function CheckInteractDistance(unit) return unit_rec(unit) ~= nil end
+-- (unit, distIndex): 1 inspect 28 yd, 2 trade 11.11 yd, 3 duel 9.9 yd, 4 follow 28 yd. With both positions known
+-- (World.set_position) it measures them; else any unit that exists counts as close (the older tests' world).
+local INTERACT_YARDS = { 28, 11.11, 9.9, 28 }
+function CheckInteractDistance(unit, index)
+  local m = unit_rec(unit)
+  if not m then return false end
+  local range = INTERACT_YARDS[tonumber(index) or 0]
+  if not range then error("Usage: CheckInteractDistance(unit, distIndex)", 2) end
+  if m.pos or me().pos then
+    local d = M.yards_between(me(), m)
+    return d ~= nil and d <= range
+  end
+  return true
+end
 function UnitIsEnemy() return false end
 function UnitIsFriend(a, b) return true end
 function UnitCanAttack(a, b) local m = unit_rec(b); return m ~= nil and m.npc == true end
@@ -843,9 +898,88 @@ function GetDifficultyInfo(id)
 end
 function GetRealZoneText() local inst = M.W.instance; return inst and inst.name or (M.W.zone or "Shattrath City") end
 function GetZoneText() return GetRealZoneText() end
-function GetSubZoneText() return "" end
-function GetMinimapZoneText() return GetRealZoneText() end
+-- (a client's subzone: World.set_position(c, ..., subzone=...); "" in the open with none, and in instances)
+function GetSubZoneText() local s = me() and me().subzone; return (not M.W.instance and type(s) == "string") and s or "" end
+function GetMinimapZoneText()
+  local s = GetSubZoneText()
+  if s ~= "" then return s end
+  return GetRealZoneText()
+end
 function GetZonePVPInfo() return "sanctuary" end
+
+-- Vector2D (SharedXMLBase/Vector2D.lua): C_Map takes and returns these.
+Vector2DMixin = {}
+function Vector2DMixin:GetXY() return self.x, self.y end
+function Vector2DMixin:SetXY(x, y) self.x, self.y = x, y end
+function Vector2DMixin:Clone() return CreateVector2D(self.x, self.y) end
+function Vector2DMixin:IsEqualTo(o) return self.x == o.x and self.y == o.y end
+function Vector2DMixin:GetLength() return math.sqrt(self.x * self.x + self.y * self.y) end
+function CreateVector2D(x, y)
+  local v = setmetatable({}, { __index = Vector2DMixin })
+  v.x, v.y = x, y
+  return v
+end
+
+-- Outland's open-world zones (uiMapIDs of the Classic TBC client) with a world rectangle each, as C_Map lays them out:
+-- a map position (0..1, x east, y south) is the world point (top - y * h, left - x * w): the world vector's x grows to
+-- the north and its y to the west (HereBeDragons reads GetWorldPosFromMapPos(...):GetXY() as top, left). Continent 530.
+M.outdoor_maps = {
+  [1945] = { name = "Outland", cont = 530, left = 12996.04, top = 5135.42, w = 17464.58, h = 11643.06, mapType = 2, parent = 946 },
+  [1944] = { name = "Hellfire Peninsula", cont = 530, left = 5539.58, top = 1481.25, w = 5164.58, h = 3443.75 },
+  [1946] = { name = "Zangarmarsh", cont = 530, left = 9475.0, top = 1935.42, w = 5027.08, h = 3352.08 },
+  [1948] = { name = "Shadowmoon Valley", cont = 530, left = 4225.0, top = -1364.58, w = 5500.0, h = 3666.67 },
+  [1949] = { name = "Blade's Edge Mountains", cont = 530, left = 8845.83, top = 3420.83, w = 5425.0, h = 3616.67 },
+  [1951] = { name = "Nagrand", cont = 530, left = 10150.0, top = -1483.33, w = 5525.0, h = 3683.33 },
+  [1952] = { name = "Terokkar Forest", cont = 530, left = 7083.33, top = -1608.33, w = 5400.0, h = 3600.0 },
+  [1953] = { name = "Netherstorm", cont = 530, left = 7512.5, top = 5341.67, w = 5574.99, h = 3716.67 },
+  [1955] = { name = "Shattrath City", cont = 530, left = 6135.42, top = -1031.25, w = 1306.25, h = 870.83 },
+}
+for id, m in pairs(M.outdoor_maps) do
+  m.mapType = m.mapType or 3
+  m.parent = m.parent or 1945
+end
+local function map_to_world(id, x, y)
+  local m = M.outdoor_maps[id]
+  if not m or type(x) ~= "number" or type(y) ~= "number" then return nil end
+  return m.cont, m.top - y * m.h, m.left - x * m.w
+end
+local function world_to_map(id, cont, wx, wy)
+  local m = M.outdoor_maps[id]
+  if not m or m.cont ~= cont then return nil end
+  return (m.left - wy) / m.w, (m.top - wx) / m.h
+end
+M.map_to_world, M.world_to_map = map_to_world, world_to_map
+-- Where a unit stands (World.set_position): cont, world x, world y; nil when nobody set it, or in an instance.
+local function unit_world(m)
+  local p = m and m.pos
+  if not p or M.W.instance then return nil end
+  return map_to_world(p.map, p.x, p.y)
+end
+M.unit_world = unit_world
+-- the yards between two unit records (nil: either one has no position, or other continents)
+function M.yards_between(a, b)
+  local c1, x1, y1 = unit_world(a)
+  local c2, x2, y2 = unit_world(b)
+  if not c1 or not c2 or c1 ~= c2 then return nil end
+  return math.sqrt((x1 - x2) ^ 2 + (y1 - y2) ^ 2)
+end
+
+-- Facing (radians, 0 = north, counterclockwise) and movement of the player (tests set __MOCK.facing / speed /
+-- mounted / flying / swimming). Position APIs are restricted in instances: GetPlayerFacing and C_Map return nil there.
+M.facing, M.speed = 0, 0
+function GetPlayerFacing()
+  if M.W.instance then return nil end
+  return M.facing or 0
+end
+function GetUnitSpeed(unit)
+  if not unit_rec(unit) then return 0, 0, 0, 0 end
+  local cur = slower(unit) == "player" and (M.speed or 0) or 0
+  return cur, 7, 7, 4.722222
+end
+function IsMounted() return M.mounted == true end
+function IsFlying() return M.flying == true end
+function IsSwimming() return M.swimming == true end
+function IsFalling() return M.falling == true end
 -- A few instance floors with map art (Enum.UIMapType.Dungeon = 4), as the strategy boards read them: 3 floors of
 -- Black Temple in one map group, 1002 x 668 layers of 256px tiles (4 x 3 = 12 file ids each).
 M.dungeon_maps = {
@@ -854,13 +988,49 @@ M.dungeon_maps = {
   [341] = { name = "Black Temple", floor = "Chamber of Command", group = 1 },
 }
 C_Map = {
-  GetBestMapForUnit = function(unit) if unit_rec(unit) then return M.W.instance and M.W.instance.uiMapID or 1955 end end,
+  GetBestMapForUnit = function(unit)
+    local m = unit_rec(unit)
+    if not m then return nil end
+    if M.W.instance then return M.W.instance.uiMapID or 1955 end
+    return (m.pos and M.outdoor_maps[m.pos.map]) and m.pos.map or 1955
+  end,
   GetMapInfo = function(id)
     local d = M.dungeon_maps[id]
     if d then return { mapID = id, name = d.name, mapType = 4, parentMapID = 1946, flags = 0 } end
+    local o = M.outdoor_maps[id]
+    if o then return { mapID = id, name = o.name, mapType = o.mapType, parentMapID = o.parent, flags = 0 } end
     return { mapID = id, name = GetRealZoneText(), mapType = 3, parentMapID = 0 }
   end,
-  GetPlayerMapPosition = function() return nil end,
+  -- (uiMapID, unit) -> Vector2D (0..1 on that map, may fall outside it on the same continent) or nil: nobody set
+  -- where the unit stands, another continent, or in an instance (restricted there).
+  GetPlayerMapPosition = function(id, unit)
+    local cont, wx, wy = unit_world(unit_rec(unit))
+    if not cont then return nil end
+    local x, y = world_to_map(tonumber(id), cont, wx, wy)
+    if not x then return nil end
+    return CreateVector2D(x, y)
+  end,
+  -- (uiMapID, Vector2D) -> continentID, Vector2D in world coordinates (yards)
+  GetWorldPosFromMapPos = function(id, pos)
+    if type(pos) ~= "table" or not pos.GetXY then error("Usage: C_Map.GetWorldPosFromMapPos(uiMapID, mapPosition)", 2) end
+    local x, y = pos:GetXY()
+    local cont, wx, wy = map_to_world(tonumber(id), x, y)
+    if not cont then return nil end
+    return cont, CreateVector2D(wx, wy)
+  end,
+  -- (continentID, Vector2D [, overrideUiMapID]) -> uiMapID, Vector2D
+  GetMapPosFromWorldPos = function(cont, pos, override)
+    if type(pos) ~= "table" or not pos.GetXY then error("Usage: C_Map.GetMapPosFromWorldPos(continentID, worldPosition [, overrideUiMapID])", 2) end
+    local wx, wy = pos:GetXY()
+    local ids = {}
+    if override then ids[1] = override else for id in pairs(M.outdoor_maps) do ids[#ids + 1] = id end end
+    table.sort(ids, function(a, b) return M.outdoor_maps[a] and M.outdoor_maps[b] and M.outdoor_maps[a].w < M.outdoor_maps[b].w end)
+    for _, id in ipairs(ids) do
+      local x, y = world_to_map(id, cont, wx, wy)
+      if x and (override or (x >= 0 and x <= 1 and y >= 0 and y <= 1)) then return id, CreateVector2D(x, y) end
+    end
+    return nil
+  end,
   GetMapGroupID = function(id) local d = M.dungeon_maps[id]; return d and d.group or nil end,
   GetMapGroupMembersInfo = function(gid)
     local out = {}
@@ -1595,7 +1765,8 @@ end
 function CloseLoot() M.close_loot() end
 function ConfirmLootSlot() end
 function ConfirmLootRoll() end
-function IsFishingLoot() return false end
+-- the open loot window came from fishing (M.fish_loot opens one)
+function IsFishingLoot() return M.fishing_loot == true end
 local function ml_candidates()
   local g = M.W.group
   local out = {}

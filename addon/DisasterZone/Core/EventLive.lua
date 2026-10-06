@@ -12,6 +12,17 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/EventLive.lua", ...) then ret
 --   EVF { o, k, ... } WHISPER to the host: a fact. k = "duel" { w, l } (only the two duelists report; the loser's word
 --         counts at once, the winner's once the loser says the same or after 10 s as "not agreed", which makes the
 --         Bracket ask both players), "ready", "answer" { a = ask id, v = player }, "join" / "leave", "watch".
+--         What an entrant's game sees (Core/EventSensors.lua, only what the def uses; each with `at`): "h" { what,
+--         other, item, name, count, creature, emote }, "place" { pid, in }, "touch" { whom, how, near, emote },
+--         "radar" { whom }, "pos" { map, x, y, cont, wx, wy, z, sz, flags, items, gold: what changed }; and the
+--         player's own: "ans" { aid, v } (an answer to an ask), "press" { label } (a button); "b" { f = facts } (those
+--         of one moment in one message). Sent a frame later, 6 messages at once then 1 a second. The host takes them
+--         from entrants only, for what the def uses, 16 at once then 4 a second each; "pos" stays on the host (never
+--         in a state that goes out).
+--   EVM { o, to, k, text, off, at } from the host: k = "show" (a banner), "tell" (a tracker line), "sound", "plates"
+--         (off: hide friendly nameplates / show them again). GUILD with to = "all" (every entrant) or to = keys (4 or
+--         more), else WHISPER to each (at most 4 a second). Taken only from the host I know.
+-- A run's "post in guild chat" is the host's: once every 10 s at most and 20 an event, never in demo mode or practice.
 -- The host gone (no EVS / EVH for 50 s and offline, or 90 s whatever): the entrants still online take over in name
 -- order, each waiting its turn; the first one sends the state with itself as host and goes on from there (scripts that
 -- were waiting are lost, everything else carries on: timers, matches, stats). The host's own /reload: its runs are
@@ -32,24 +43,38 @@ local GONE_SILENT = 50        -- the host is gone after this long without a word
 local GONE_ANYWAY = 90
 local TAKEOVER_STEP = 6       -- seconds between one entrant's turn to take over and the next one's
 local DUEL_WAIT = 10          -- a winner's report waits this long for the loser's
-local CHAT_PER_MIN = 8        -- lines an event says in chat a minute (the rest are dropped)
-local WHISPER_PER_MIN = 30    -- (the rest wait their turn)
-local WHISPER_QUEUE = 120
 local GONE_FOR_GOOD = 600     -- a run nobody hosts any more (its host gone, no entrant took over) is forgotten then
 local QUIET_SLACK = 10        -- an entrant taking over heard the host last about when I did (give or take this)
 local MAX_CHAIN = 8           -- hosts a state names (the first one and the last ones)
 local FROM_ME_AHEAD = 5       -- changes an entrant who took my run over can be past my own state
+local FACT_SEND_BURST = 6     -- messages of facts I send at once, then FACT_SEND_RATE a second (an addon prefix
+local FACT_SEND_RATE = 1      -- carries about that: 10 at once, then 1 a second); what waits goes in one message
+local FACT_BATCH = 8          -- facts in one message at most
+local FACT_QUEUE = 24         -- facts waiting (past that the oldest position goes, else the oldest)
+local FACT_PER_SEC = 4        -- facts the host takes from one entrant a second ...
+local FACT_HOST_BURST = 16    -- ... after a burst of this many (a pull of a dozen kills)
+local EVM_PER_SEC = 4         -- the host's messages to players a second (the rest wait)
+local EVM_QUEUE = 80
+local EVM_STALE = 20          -- a banner or a sound older than this is dropped (a tell line still goes in the feed)
+local FEED_MAX = 20           -- "tell" lines kept for the tracker
+local GUILD_GAP = 10          -- a run's guild posts: one every 10 s at most ...
+local GUILD_MAX = 20          -- ... and 20 an event
+local GUILD_WAIT = 3          -- (posts waiting their turn; past that the oldest waiting one is dropped)
+local TEXT_LEN = 250
 
 local hosting = {}            -- [occId] = { run, occ, hosts, sendAt, dirty, pending, recent, watchers, lastBeat }
 local seen = {}               -- [occId] = { st, h, c, at (GetTime), def }
 local shownAnn, shownCd = {}, {}
 local practice                -- { run, def, clock, dummies, off }
 local ticker
-local chatLog = {}            -- GetTime() of the event's recent chat lines
-local whisperLog = {}
-local whisperQueue = {}       -- { {key, text} } over the whisper rate, sent as it allows
 local inviteQueue = {}        -- keys a run asked to invite and not invited yet
 local invitedAt = {}          -- [key] = GetTime() their invite went out
+local factQueue = {}          -- { {occId, msg} } my facts over the rate
+local factTokens, factAt, factFlushing = FACT_SEND_BURST, 0, false
+local pendingEvm = {}         -- [occId] = { {sender, msg, dist, at} } messages that came before the state they need
+local evmQueue, evmSent, evmFlushing = {}, {}, false   -- the host's EVM over the rate; GetTime() of the last second's
+local feeds = {}              -- [occId] = { {at, text} } "tell" lines to me, newest first
+local myAnswers = {}          -- [occId] = { [aid .. "@" .. at] = value } my answers to asks (a secret one's too)
 
 local function Now() return (GetServerTime and GetServerTime()) or time() end
 local function Me() return Util.PlayerKey() end
@@ -85,17 +110,58 @@ local function DisplayName(key)
 end
 Live.DisplayName = DisplayName
 
----------------------------------------------------------------------------
--- What the world sees of a run (chat, whispers, invites, marks)
----------------------------------------------------------------------------
-
-local function Allowed(log, perMin)
-    local now = GetTime()
-    while log[1] and now - log[1] > 60 do tremove(log, 1) end
-    if #log >= perMin then return false end
-    log[#log + 1] = now
-    return true
+-- Text a player reads: no escape codes or control characters, at most n bytes, cut between letters.
+local function Text(s, n)
+    if type(s) ~= "string" then return nil end
+    s = s:gsub("%c", " "):gsub("|", "")
+    n = n or TEXT_LEN
+    if #s > n then
+        local cut = n
+        while cut > 0 and (s:byte(cut + 1) or 0) >= 0x80 and s:byte(cut + 1) < 0xC0 do cut = cut - 1 end
+        s = strsub(s, 1, cut)
+    end
+    return s
 end
+
+local function IsId(s) return type(s) == "string" and #s > 0 and #s <= 40 and s:find("^[%w%-%/_]+$") ~= nil end
+local function Token(s) return type(s) == "string" and #s <= 24 and s:find("^[%u%d_]+$") and s or nil end
+
+local function Int(n, lo, hi)
+    n = tonumber(n)
+    if not n or n ~= n then return nil end
+    return max(lo, min(hi, floor(n)))
+end
+
+-- An entrant of the run, or its host.
+local function InRun(st, key)
+    return type(key) == "string" and (st.host == key or Contains(st.entrants, key) ~= nil)
+end
+
+local function Sensors() return ns.EventSensors end
+
+-- World yards of a map point, for the run (EventSensors' map cache): continent, x, y.
+local function WorldPos(map, x, y)
+    local S = Sensors()
+    if S and S.World then return S.World(map, x, y) end
+    return nil
+end
+
+-- What the def's entrants sense (EventBlocks:Senses, as EventSensors reads it), or nil.
+local function SensesOf(def)
+    local S = Sensors()
+    return type(def) == "table" and S and S.SensesOf and S.SensesOf(def) or nil
+end
+
+-- A run's state as it goes out (EVS, a handover, my /reload): all of it but where the players are.
+local function Outgoing(run)
+    local s = run:Snapshot()
+    s.pos = nil
+    return s
+end
+
+---------------------------------------------------------------------------
+-- What the world sees of a run (invites, marks; the players' messages and guild posts below)
+---------------------------------------------------------------------------
 
 local function GroupUnitOf(key)
     local short = Util.ShortName(key)
@@ -128,18 +194,6 @@ local function IsOnline(key)
     if Util.IsMe(key) then return true end
     local G = ns.Guild
     return G and G.IsOnline and G:IsOnline(key, true) or false
-end
-
-local function Whisper(key, text)
-    if SendChatMessage then pcall(SendChatMessage, text, "WHISPER", nil, Util.ShortName(key)) end
-end
-
--- Whispers that waited for the rate (every tick).
-local function FlushWhispers()
-    while whisperQueue[1] and not DemoOn() and Allowed(whisperLog, WHISPER_PER_MIN) do
-        local w = tremove(whisperQueue, 1)
-        Whisper(w[1], w[2])
-    end
 end
 
 -- The invites a run asked for: not who is in my group already or offline, only while I lead my group (or assist in
@@ -183,29 +237,7 @@ end
 
 local function HostOut(occId)
     return {
-        -- (demo mode: nothing reaches the world)
-        say = function(ch, text)
-            text = strsub(tostring(text or ""), 1, 250)
-            if DemoOn() or not Allowed(chatLog, CHAT_PER_MIN) then return end
-            if (ch == "RAID" and not (IsInRaid and IsInRaid())) or (ch == "PARTY" and not (IsInGroup and IsInGroup())) then
-                return
-            end
-            if ch == "GUILD" and not (IsInGuild and IsInGuild()) then return end
-            if SendChatMessage then pcall(SendChatMessage, text, ch) end
-        end,
-        whisper = function(key, text)
-            text = strsub(tostring(text or ""), 1, 250)
-            if Util.IsMe(key) then
-                ns:Print("%s", text)
-                return
-            end
-            if DemoOn() then return end
-            if whisperQueue[1] or not Allowed(whisperLog, WHISPER_PER_MIN) then
-                if #whisperQueue < WHISPER_QUEUE then whisperQueue[#whisperQueue + 1] = { key, text } end
-                return
-            end
-            Whisper(key, text)
-        end,
+        -- (demo mode: nothing reaches the world; part 1's chat lines and whispers are the addon's own messages now)
         invite = function(keys)
             for _, k in ipairs(keys or {}) do
                 if type(k) == "string" and not Contains(inviteQueue, k) and #inviteQueue < 40 then
@@ -219,11 +251,197 @@ local function HostOut(occId)
             local unit = GroupUnitOf(key)
             if unit and SetRaidTarget then pcall(SetRaidTarget, unit, n) end
         end,
+        -- the addon tells the players itself (EVM): a banner, a tracker line, a sound, their friendly nameplates
+        show = function(keys, text) Live:Deliver(occId, "show", keys, Text(tostring(text or ""))) end,
+        tell = function(keys, text) Live:Deliver(occId, "tell", keys, Text(tostring(text or ""))) end,
+        sound = function(keys, sound) Live:Deliver(occId, "sound", keys, Text(tostring(sound or ""), 32)) end,
+        plates = function(keys, off) Live:Deliver(occId, "plates", keys, nil, off and true or false) end,
+        guild = function(text) Live:GuildPost(occId, text) end,
         isOnline = IsOnline,
         zoneOf = ZoneOf,
         changed = function() Live:Dirty(occId) end,
         ended = function(run) Live:Ended(occId, run) end,
     }
+end
+
+---------------------------------------------------------------------------
+-- The addon tells the players (EVM): banners, tracker lines, sounds, nameplates; the run's guild posts
+---------------------------------------------------------------------------
+
+local EVM_KINDS = { show = true, tell = true, sound = true, plates = true }
+
+-- A sound by its EventBlocks.SOUNDS key: { key, words, SOUNDKIT name, its id where the client lacks the name }.
+local function PlaySoundKey(key)
+    local Bk = B()
+    local s = Bk and type(Bk.SOUND_BY) == "table" and Bk.SOUND_BY[key]
+    if type(s) ~= "table" then return false end
+    local kit = (type(SOUNDKIT) == "table" and type(s[3]) == "string" and SOUNDKIT[s[3]]) or tonumber(s[4])
+    if kit and PlaySound then pcall(PlaySound, kit, "Master") end
+    return true
+end
+
+-- A message for me (from the host, or my own run's for me).
+local function Receive(occId, k, text, off)
+    if k == "show" then
+        if text and text ~= "" then ns:Fire("EVENT_SHOW", occId, text) end
+    elseif k == "tell" then
+        if not text or text == "" then return end
+        local feed = feeds[occId] or {}
+        feeds[occId] = feed
+        tinsert(feed, 1, { at = Now(), text = text })
+        while #feed > FEED_MAX do tremove(feed) end
+        ns:Fire("EVENT_TELL", occId, text)
+    elseif k == "sound" then
+        if text and text ~= "" then
+            PlaySoundKey(text)
+            ns:Fire("EVENT_SOUND", occId, text)
+        end
+    elseif k == "plates" then
+        local S = Sensors()
+        if S and S.SetPlates then S:SetPlates(occId, off) end
+    end
+end
+
+local function FlushEvm()
+    local now = GetTime()
+    while evmSent[1] and now - evmSent[1] >= 1 do tremove(evmSent, 1) end
+    while evmQueue[1] and #evmSent < EVM_PER_SEC do
+        local e = tremove(evmQueue, 1)
+        evmSent[#evmSent + 1] = now
+        if not DemoOn() then Send(e.msg, e.dist, e.target) end
+    end
+    if evmQueue[1] and not evmFlushing then
+        evmFlushing = true
+        Util.After(0.25, function()
+            evmFlushing = false
+            FlushEvm()
+        end)
+    end
+end
+
+local function QueueEvm(msg, dist, target)
+    if #evmQueue >= EVM_QUEUE then tremove(evmQueue, 1) end
+    evmQueue[#evmQueue + 1] = { msg = msg, dist = dist, target = target }
+    FlushEvm()
+end
+
+-- The host's run tells players something (keys: a list, a key, or "all" = every entrant). One GUILD message for
+-- every entrant online or for 4+ players, else a whisper each; mine straight to me.
+function Live:Deliver(occId, k, keys, text, off)
+    local h = hosting[occId]
+    if not h or DemoOn() or not EVM_KINDS[k] then return false end
+    local st = h.run.st
+    if keys == "all" then keys = st.entrants end
+    if type(keys) == "string" then keys = { keys } end
+    local me, list, named = Me(), {}, {}
+    for _, key in ipairs(type(keys) == "table" and keys or {}) do
+        key = WireKey(key)
+        if key and not named[key] then
+            named[key] = true
+            list[#list + 1] = key
+        end
+    end
+    local others, all = {}, true
+    for _, key in ipairs(list) do
+        if key == me then
+            Receive(occId, k, text, off)
+        elseif IsOnline(key) then
+            others[#others + 1] = key
+            if not Contains(st.entrants, key) then all = false end
+        end
+    end
+    if #others == 0 then return true end
+    for _, key in ipairs(st.entrants) do
+        if key ~= me and not named[key] and IsOnline(key) then all = false; break end
+    end
+    local function msg(to) return { t = "EVM", o = occId, to = to, k = k, text = text, off = off, at = Now() } end
+    if all and #others >= 2 then
+        QueueEvm(msg("all"), "GUILD")
+    elseif #others >= 4 then
+        QueueEvm(msg(others), "GUILD")
+    else
+        for _, key in ipairs(others) do QueueEvm(msg(nil), "WHISPER", key) end
+    end
+    return true
+end
+
+-- EVM from the host I know (its state, or the handover); for me when it names me or every entrant (I am one).
+local function OnMessage(sender, msg, dist)
+    if dist ~= "GUILD" and dist ~= "WHISPER" then return end
+    local occId = type(msg.o) == "string" and #msg.o <= 40 and msg.o ~= "practice" and msg.o
+    if not occId or sender == Me() or not EVM_KINDS[msg.k] then return end
+    local s = seen[occId]
+    if not s or s.h ~= sender then
+        -- before the state that says who hosts it (the run's first messages, a takeover's): it may wait a moment
+        local list = pendingEvm[occId] or {}
+        pendingEvm[occId] = list
+        while #list >= 12 or (list[1] and GetTime() - list[1][4] > 10) do tremove(list, 1) end
+        list[#list + 1] = { sender, msg, dist, GetTime() }
+        return
+    end
+    if not s.st or s.st.phase ~= "live" then return end
+    local me = Me()
+    if dist == "GUILD" then
+        if msg.to == "all" then
+            if not Contains(s.st.entrants, me) then return end
+        elseif type(msg.to) == "table" then
+            local mine = false
+            for i = 1, min(#msg.to, 40) do
+                if WireKey(msg.to[i]) == me then mine = true; break end
+            end
+            if not mine then return end
+        else
+            return
+        end
+    end
+    local at = tonumber(msg.at) or Now()
+    if (msg.k == "show" or msg.k == "sound") and Now() - at > EVM_STALE then return end
+    Receive(occId, msg.k, Text(msg.text, msg.k == "sound" and 32 or TEXT_LEN), msg.off == true)
+end
+
+-- The messages that came before the state naming their sender as host: heard again once it came (the rest stay
+-- out: their sender isn't the host).
+local function ReplayEvm(occId)
+    local list = pendingEvm[occId]
+    if not list then return end
+    pendingEvm[occId] = nil
+    for _, e in ipairs(list) do
+        if GetTime() - e[4] <= 10 and seen[occId] and seen[occId].h == e[1] then OnMessage(e[1], e[2], e[3]) end
+    end
+end
+
+-- The run's "post in guild chat": the host's client only, one every GUILD_GAP s and GUILD_MAX an event (counted in
+-- the run's state, so a host who takes over goes on counting); never in demo mode (practice has its own out).
+local function FlushGuild(h)
+    local q = h.guildQ
+    if not q or not q[1] or DemoOn() then return end
+    local g = h.run.st.gpost
+    if type(g) ~= "table" then
+        g = { n = 0, at = 0 }
+        h.run.st.gpost = g
+    end
+    if (tonumber(g.n) or 0) >= GUILD_MAX then
+        h.guildQ = nil
+        return
+    end
+    if Now() - (tonumber(g.at) or 0) < GUILD_GAP then return end
+    local text = tremove(q, 1)
+    g.n, g.at = (tonumber(g.n) or 0) + 1, Now()
+    if IsInGuild and IsInGuild() and SendChatMessage then pcall(SendChatMessage, text, "GUILD") end
+    h.run:Changed()   -- (the count goes out with the next state)
+end
+
+function Live:GuildPost(occId, text)
+    local h = hosting[occId]
+    text = Text(type(text) == "string" and text or tostring(text or ""))
+    if not h or DemoOn() or not text or text == "" then return false end
+    local g = type(h.run.st.gpost) == "table" and h.run.st.gpost or { n = 0 }
+    h.guildQ = h.guildQ or {}
+    if (tonumber(g.n) or 0) + #h.guildQ >= GUILD_MAX then return false end
+    if #h.guildQ >= GUILD_WAIT then tremove(h.guildQ, 1) end
+    h.guildQ[#h.guildQ + 1] = text
+    FlushGuild(h)
+    return true
 end
 
 ---------------------------------------------------------------------------
@@ -294,7 +512,7 @@ function Live:Start(occId)
         for _, k in ipairs(group) do entrants[#entrants + 1] = k end
     end
     local run = E():New(o.def, { id = occId, host = Me(), signups = signups, entrants = entrants, out = HostOut(occId),
-        rankOf = function(k) return Events():RankOf(k) end, nameOf = DisplayName })
+        rankOf = function(k) return Events():RankOf(k) end, nameOf = DisplayName, worldPos = WorldPos })
     NewHost(occId, o, run, { Me() })
     run:Start()
     self:SendState(occId, true)
@@ -308,7 +526,7 @@ local function Resume(occId, st, chain)
     local o = not DemoOn() and Events():GetOcc(occId, true)
     if not o then return false end
     local run = E():Restore(o.def, st, { out = HostOut(occId), rankOf = function(k) return Events():RankOf(k) end,
-        nameOf = DisplayName })
+        nameOf = DisplayName, worldPos = WorldPos })
     run.st.host = Me()
     local hosts = {}
     for _, h in ipairs(chain or {}) do hosts[#hosts + 1] = h end
@@ -345,7 +563,7 @@ function Live:SendState(occId, now)
     h.lastBeat = GetTime()
     h.sentSeq = h.run.st.seq
     -- (not sent, e.g. the guild not there yet right after a /reload: again soon)
-    h.dirty = not Send({ t = "EVS", o = occId, h = h.run.st.host, s = h.run:Snapshot(), c = h.hosts }, "GUILD")
+    h.dirty = not Send({ t = "EVS", o = occId, h = h.run.st.host, s = Outgoing(h.run), c = h.hosts }, "GUILD")
 end
 
 function Live:Ended(occId, run)
@@ -368,8 +586,8 @@ function Live:HandOver(occId, key)
     for _, x in ipairs(h.hosts) do chain[#chain + 1] = x end
     chain[#chain + 1] = key
     while #chain > MAX_CHAIN do tremove(chain, 2) end
-    Send({ t = "EVS", o = occId, h = key, s = h.run:Snapshot(), c = chain }, "GUILD")
-    seen[occId] = { st = h.run:Snapshot(), h = key, c = chain, at = GetTime() }
+    Send({ t = "EVS", o = occId, h = key, s = Outgoing(h.run), c = chain }, "GUILD")
+    seen[occId] = { st = Outgoing(h.run), h = key, c = chain, at = GetTime() }
     hosting[occId] = nil
     Fire(occId)
     return true
@@ -390,11 +608,15 @@ function Live:SetPaused(occId, paused)
     elseif not paused and run.st.paused then
         -- the time stood still: timers, waiting scripts and "every" pieces end that much later
         local shift = Now() - run.st.paused
-        for _, t in ipairs(run.st.timers) do t.at = t.at + shift end
-        for th in pairs(run.threads) do
-            if th.wait and th.wait.at then th.wait.at = th.wait.at + shift end
+        if run.Shift then
+            run:Shift(shift)   -- (asks, "seconds since" and the stage's clock too)
+        else
+            for _, t in ipairs(run.st.timers) do t.at = t.at + shift end
+            for th in pairs(run.threads) do
+                if th.wait and th.wait.at then th.wait.at = th.wait.at + shift end
+            end
+            for id, at in pairs(run.st.everyAt or {}) do run.st.everyAt[id] = at + shift end
         end
-        for id, at in pairs(run.st.everyAt or {}) do run.st.everyAt[id] = at + shift end
         run.st.paused = nil
     end
     run:Changed()
@@ -519,6 +741,132 @@ local function OnDuelReport(h, sender, w, l, at)
     ApplyDuel(h, key, p, p.w == w)
 end
 
+-- What an entrant's game says it saw (EventSensors) and what the player did (an answer, a button): taken from
+-- entrants only, for what the def uses, at most FACT_PER_SEC a second each (a burst of FACT_HOST_BURST).
+local SENSED = { kill = true, loot = true, fish = true, die = true, mount = true, dismount = true, move = true, stop = true,
+    emote = true }
+local TOUCH_HOW = { click = true, point = true, emote = true }
+local NEW_FACTS = { h = true, place = true, touch = true, radar = true, pos = true, ans = true, press = true }
+
+local function FactAllowed(h, sender)
+    h.rates = h.rates or {}
+    local r, now = h.rates[sender], GetTime()
+    if not r then
+        r = { n = FACT_HOST_BURST, at = now }
+        h.rates[sender] = r
+    end
+    r.n = min(FACT_HOST_BURST, r.n + (now - r.at) * FACT_PER_SEC)
+    r.at = now
+    if r.n < 1 then return false end
+    r.n = r.n - 1
+    return true
+end
+
+-- An answer as it may reach the run: a key / text (120 bytes), a number, yes / no, or up to three keys (votes).
+local function AnswerValue(v, inner)
+    local t = type(v)
+    if t == "boolean" then return v end
+    if t == "number" then
+        if v ~= v then return nil end
+        return max(-1e9, min(1e9, v))
+    end
+    if t == "string" then return Text(v, 120) end
+    if t == "table" and not inner then
+        local out = {}
+        for i = 1, min(#v, 3) do
+            local x = AnswerValue(v[i], true)
+            if type(x) == "string" and x ~= "" then out[#out + 1] = x end
+        end
+        return #out > 0 and out or nil
+    end
+    return nil
+end
+
+local POS_FLAGS = { "fl", "sw", "cb", "mt", "mv", "dd" }   -- flying, swimming, in combat, mounted, moving, dead
+
+local function Finite(v, lim)
+    v = tonumber(v)
+    return v and v == v and v > -lim and v < lim and v or nil
+end
+
+-- A "pos" fact as the run takes it (EventEngine Run:Pos): only the parts the def uses (s = its senses; nil: all, the
+-- practice panel's): a position (map, x, y; cont, wx, wy), zone / subzone, flags, item counts, gold gained.
+local function CleanPos(msg, s)
+    local pos, any = {}, false
+    if not s or s.pos then
+        local map, x, y = tonumber(msg.map), Finite(msg.x, 2), Finite(msg.y, 2)
+        if map and x and y and map == floor(map) and map > 0 and map < 1e6 and x >= -1 and y >= -1 then
+            pos.map, pos.x, pos.y = map, x, y
+            local wx, wy, cont = Finite(msg.wx, 1e6), Finite(msg.wy, 1e6), tonumber(msg.cont)
+            if wx and wy and cont and cont == floor(cont) then pos.wx, pos.wy, pos.cont = wx, wy, cont end
+            any = true
+        end
+    end
+    if not s or s.pos or s.zone then
+        if msg.z ~= nil then pos.z = Text(msg.z, 48) or ""; any = true end
+        if msg.sz ~= nil then pos.sz = Text(msg.sz, 48) or ""; any = true end
+    end
+    -- (flags: all of them for a def asking "is ..."; mounted / moving / dead also for one whose happenings keep them)
+    local h = s and s.happen or {}
+    local flagOK = { mt = h.mount or h.dismount, mv = h.move or h.stop, dd = h.die }
+    for _, f in ipairs(POS_FLAGS) do
+        if msg[f] ~= nil and (not s or s.flags or flagOK[f]) then pos[f] = msg[f] == true; any = true end
+    end
+    if type(msg.items) == "table" and (not s or next(s.items)) then
+        local items, n = {}, 0
+        for item in pairs(s and s.items or msg.items) do
+            local c = Int(msg.items[tostring(item)], 0, 1e6)
+            if c and n < 24 then items[tostring(item)] = c; n = n + 1 end
+        end
+        if n > 0 then pos.items = items; any = true end
+    end
+    if (not s or s.gold) and msg.gold ~= nil then
+        local g = Int(msg.gold, -1e10, 1e10)
+        if g then pos.gold = g; any = true end
+    end
+    return any and pos or nil
+end
+
+local function OnNewFact(h, sender, msg)
+    local run, k = h.run, msg.k
+    if not Contains(run.st.entrants, sender) then return end
+    local s = SensesOf(run.def)
+    if not s or not FactAllowed(h, sender) then return end
+    if k == "h" then
+        local what = msg.what
+        if not (type(what) == "string" and SENSED[what] and s.happen[what]) then return end
+        local item = tonumber(msg.item)
+        local data = { other = WireKey(msg.other), item = item and Int(item, 1, 1e7) or Text(msg.item, 64),
+            name = Text(msg.name, 64), count = Int(msg.count, 1, 10000), creature = Text(msg.creature, 64),
+            emote = Token(msg.emote) }
+        if data.other == sender then data.other = nil end
+        if run.Happen then run:Happen(sender, what, data) end
+    elseif k == "place" then
+        local pid = IsId(msg.pid) and msg.pid
+        if not (pid and s.places[pid]) then return end
+        if run.Place then run:Place(sender, pid, msg["in"] and true or false) end
+    elseif k == "touch" then
+        local how, whom = msg.how, WireKey(msg.whom)
+        if not (TOUCH_HOW[how] and s.touch[how]) or not whom or whom == sender or not InRun(run.st, whom) then return end
+        -- (only up close counts: "clicks / points at / ... up close")
+        if msg.near ~= true then return end
+        if run.Touch then run:Touch(sender, whom, how, how == "emote" and Token(msg.emote) or nil) end
+    elseif k == "radar" then
+        local whom = WireKey(msg.whom)
+        if not s.radar or not whom or whom == sender or not InRun(run.st, whom) then return end
+        if run.Radar then run:Radar(sender, whom) end
+    elseif k == "pos" then
+        local pos = CleanPos(msg, s)
+        if pos and run.Pos then run:Pos(sender, pos) end
+    elseif k == "ans" then
+        local aid, v = IsId(msg.aid) and msg.aid, AnswerValue(msg.v)
+        if s.asks and aid and v ~= nil and run.AskAnswer then run:AskAnswer(aid, sender, v) end
+    elseif k == "press" then
+        local label = Text(msg.label, 32)
+        if s.buttons and label and label ~= "" and run.Press then run:Press(sender, label) end
+    end
+end
+
 local function OnFact(sender, msg, dist)
     if dist ~= "WHISPER" and sender ~= Me() then return end
     local occId = type(msg.o) == "string" and msg.o
@@ -526,7 +874,16 @@ local function OnFact(sender, msg, dist)
     if not h or h.run.st.phase ~= "live" then return end
     local run = h.run
     local k = msg.k
-    if k == "duel" then
+    if NEW_FACTS[k] then
+        OnNewFact(h, sender, msg)
+    elseif k == "b" then
+        -- facts of one moment together (each one counted)
+        for i = 1, min(type(msg.f) == "table" and #msg.f or 0, FACT_BATCH) do
+            local f = msg.f[i]
+            if type(f) == "table" and NEW_FACTS[f.k] then OnNewFact(h, sender, f) end
+            if h.run.st.phase ~= "live" then break end
+        end
+    elseif k == "duel" then
         local w, l = WireKey(msg.w), WireKey(msg.l)
         if w and l and w ~= l then OnDuelReport(h, sender, w, l, msg.at) end
     elseif k == "ready" then
@@ -558,6 +915,70 @@ end
 
 function Live:Ready(occId) return Tell(occId, { k = "ready" }) end
 function Live:AnswerAsk(occId, askId, v) return Tell(occId, { k = "answer", a = askId, v = v }) end
+
+-- My facts go out a moment after they happen (those of one moment in one message), as the rate allows.
+local function FactToken()
+    local now = GetTime()
+    factTokens = min(FACT_SEND_BURST, factTokens + (now - factAt) * FACT_SEND_RATE)
+    factAt = now
+    if factTokens < 1 then return false end
+    factTokens = factTokens - 1
+    return true
+end
+
+local FlushFacts
+local function LaterFacts(sec)
+    if factFlushing then return end
+    factFlushing = true
+    Util.After(sec, function()
+        factFlushing = false
+        FlushFacts()
+    end)
+end
+
+FlushFacts = function()
+    while factQueue[1] and FactToken() do
+        local occId = factQueue[1][1]
+        -- what waits for that event goes together (FACT_BATCH at most)
+        local batch, i = {}, 1
+        while factQueue[i] and #batch < FACT_BATCH do
+            if factQueue[i][1] == occId then batch[#batch + 1] = tremove(factQueue, i)[2] else i = i + 1 end
+        end
+        if not DemoOn() then
+            if #batch == 1 then Tell(occId, batch[1]) else Tell(occId, { k = "b", f = batch }) end
+        end
+    end
+    if factQueue[1] then LaterFacts(0.3) end
+end
+
+-- A fact of mine for the host of a live event I'm in (EventSensors, my answers, my buttons): fact = { k, ... }.
+function Live:SendFact(occId, fact)
+    if DemoOn() or type(fact) ~= "table" or not NEW_FACTS[fact.k] or occId == "practice" then return false end
+    local st = (hosting[occId] and hosting[occId].run.st) or (seen[occId] and seen[occId].st)
+    if not st or st.phase ~= "live" or not Contains(st.entrants, Me()) then return false end
+    local msg = {}
+    for k, v in pairs(fact) do msg[k] = v end
+    msg.at = Now()
+    if msg.k == "pos" then
+        -- a newer position joins the one waiting (its parts win; the waiting one's other parts stay)
+        for _, f in ipairs(factQueue) do
+            if f[1] == occId and f[2].k == "pos" then
+                for k, v in pairs(msg) do f[2][k] = v end
+                return true
+            end
+        end
+    end
+    if #factQueue >= FACT_QUEUE then
+        local drop = 1
+        for i, f in ipairs(factQueue) do
+            if f[2].k == "pos" then drop = i; break end
+        end
+        tremove(factQueue, drop)
+    end
+    factQueue[#factQueue + 1] = { occId, msg }
+    LaterFacts(0)
+    return true
+end
 
 -- Events:SignUp calls this: joining (or leaving) while the event runs tells the host. On the host, Events calls it
 -- for a member's sign-up heard from the guild (they may not know yet who hosts it).
@@ -677,6 +1098,7 @@ local function OnState(sender, msg, dist)
     Live:NoteAnnouncements(occId, st)
     EnsureTicker()
     Fire(occId)
+    ReplayEvm(occId)
 end
 
 local function OnBeat(sender, msg, dist)
@@ -798,6 +1220,18 @@ local function LiveStates()
     return out
 end
 
+-- The live events I'm an entrant of: { [occId] = state } (not practice, nothing in demo mode). EventSensors watches
+-- for these.
+function Live:MyLiveEvents()
+    local out = {}
+    if DemoOn() then return out end
+    local me = Me()
+    for occId, st in pairs(LiveStates()) do
+        if Contains(st.entrants, me) then out[occId] = st end
+    end
+    return out
+end
+
 local function OnSystem(_, text)
     local w, l = Live:ParseDuel(text)
     if not w then return end
@@ -859,6 +1293,7 @@ function Live:Tick()
             if moved then run:Changed() end
         end
         if h.dirty then self:SendState(occId) end
+        FlushGuild(h)
         -- (the beat names the last state sent: who has it isn't behind, even while a newer one waits to go out)
         if GetTime() - h.lastBeat >= HEARTBEAT and run.st.phase == "live" then
             h.lastBeat = GetTime()
@@ -888,7 +1323,6 @@ function Live:Tick()
             seen[occId] = nil
         end
     end
-    FlushWhispers()
     if inviteQueue[1] and GetTime() - (self.invitedAt or 0) > 5 then
         self.invitedAt = GetTime()
         FlushInvites()
@@ -1065,6 +1499,211 @@ function Live:Unwatch() self.watching = nil end
 function Live:IsHostOf(occId) return hosting[occId] ~= nil end
 
 ---------------------------------------------------------------------------
+-- Me: what the tracker and the prompts show of a run (asks, buttons, tags, scores, the arrow, the feed)
+---------------------------------------------------------------------------
+
+-- An ask's / a button's players: a set { [key] = true } (or a list).
+local function Has(set, key)
+    if type(set) ~= "table" then return false end
+    return set[key] == true or Contains(set, key) ~= nil
+end
+
+local function SetKeys(set)
+    local out = {}
+    if type(set) ~= "table" then return out end
+    for k, v in pairs(set) do
+        if type(k) == "string" and v then out[#out + 1] = k
+        elseif type(k) == "number" and type(v) == "string" then out[#out + 1] = v end
+    end
+    tsort(out)
+    return out
+end
+
+-- A def's definitions of one kind (tags, scores, places, lists, asks) in the builder's order: { {id, d} }.
+local function DefsOf(def, kind)
+    local out, seenId = {}, {}
+    local all = type(def) == "table" and type(def[kind]) == "table" and def[kind] or {}
+    local Bk = B()
+    if Bk and Bk.Defs then
+        local ok, list = pcall(Bk.Defs, Bk, def, kind)
+        for _, e in ipairs(ok and type(list) == "table" and list or {}) do
+            local id = type(e) == "table" and (e.id or e[1]) or e
+            if id ~= nil and type(all[id]) == "table" and not seenId[id] then
+                seenId[id] = true
+                out[#out + 1] = { id = id, d = all[id] }
+            end
+        end
+    end
+    local rest = {}
+    for id, d in pairs(all) do
+        if type(d) == "table" and not seenId[id] then rest[#rest + 1] = { id = id, d = d } end
+    end
+    tsort(rest, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    for _, e in ipairs(rest) do out[#out + 1] = e end
+    return out
+end
+Live._DefsOf = DefsOf
+
+-- Who may be picked in a "player" ask: the entrants, or the entrants with its tag (from); me only when it says so.
+local function AskPlayers(st, a, me)
+    local from = type(a) == "table" and a.from
+    local out = {}
+    local set = type(from) == "string" and from ~= "" and from ~= "entrants" and type(st.tags) == "table" and st.tags[from]
+    for _, k in ipairs(st.entrants or {}) do
+        if (not set or Has(set, k)) and (k ~= me or (a and a.self)) then out[#out + 1] = k end
+    end
+    return out
+end
+
+local function AnswerKey(aid, q) return tostring(aid) .. "@" .. tostring(type(q) == "table" and q.at or 0) end
+
+-- The asks open for me, oldest first: { {id, n, q, kind, choices, players, votes, self, secret, ends, at, answered,
+-- mine} }.
+function Live:MyAsks(occId)
+    local st, def = self:GetState(occId), self:GetDef(occId)
+    local out = {}
+    if type(st) ~= "table" or type(def) ~= "table" or type(st.qa) ~= "table" then return out end
+    local me = Me()
+    local mine = myAnswers[occId] or {}
+    for aid, q in pairs(st.qa) do
+        if type(q) == "table" and q.open and Has(q.who, me) then
+            local a = type(def.asks) == "table" and type(def.asks[aid]) == "table" and def.asks[aid] or {}
+            local kind = a.kind or q.kind or "choice"
+            local ans = type(q.ans) == "table" and q.ans[me] or nil
+            local sent = mine[AnswerKey(aid, q)]
+            out[#out + 1] = { id = aid, n = a.n, q = q.q or a.q, kind = kind, choices = q.choices or a.choices,
+                players = kind == "player" and AskPlayers(st, a, me) or nil, votes = max(1, min(3, tonumber(a.votes) or 1)),
+                self = a.self and true or false, secret = a.secret and true or false, ends = q.ends, at = q.at,
+                seq = q.id, answered = ans ~= nil or sent ~= nil, mine = sent ~= nil and sent or ans }
+        end
+    end
+    tsort(out, function(x, y)
+        if (x.seq or 0) ~= (y.seq or 0) then return (x.seq or 0) < (y.seq or 0) end
+        return tostring(x.id) < tostring(y.id)
+    end)
+    return out
+end
+
+-- The buttons the run gave me: labels, sorted.
+function Live:MyButtons(occId)
+    local st = self:GetState(occId)
+    local out, me = {}, Me()
+    for label, who in pairs(type(st) == "table" and type(st.buttons) == "table" and st.buttons or {}) do
+        if type(label) == "string" and Has(who, me) then out[#out + 1] = label end
+    end
+    tsort(out)
+    return out
+end
+
+-- The tags I have that are shown to me: { {id, n, c, shown} } (a tag shown to the host only: just the host's).
+function Live:MyTags(occId)
+    local st, def = self:GetState(occId), self:GetDef(occId)
+    local out, me = {}, Me()
+    if type(st) ~= "table" or type(st.tags) ~= "table" then return out end
+    for _, e in ipairs(DefsOf(def, "tags")) do
+        local shown = e.d.shown or "all"
+        if Has(st.tags[e.id], me) and (shown ~= "host" or st.host == me) then
+            out[#out + 1] = { id = e.id, n = e.d.n, c = e.d.c, shown = shown }
+        end
+    end
+    return out
+end
+
+-- A player's place by a score among the players who have it (ties alike: 1, 2, 2, 4), nil without one (the run's
+-- rule; this one for a client without the engine's reader).
+local function PlaceBy(st, rows, key, high)
+    local v = tonumber(rows[key])
+    if v == nil then return nil end
+    local place = 1
+    for k, x in pairs(rows) do
+        x = tonumber(x)
+        if k ~= key and x and ((high and x > v) or (not high and x < v)) then place = place + 1 end
+    end
+    return place
+end
+Live._PlaceBy = PlaceBy
+
+-- My scores: { {sid, n, place, name, fmt, high, board} } in the builder's order.
+function Live:MyScores(occId)
+    local st, def = self:GetState(occId), self:GetDef(occId)
+    local out, me = {}, Me()
+    if type(st) ~= "table" or type(def) ~= "table" then return out end
+    local Eng = E()
+    local reader = Eng and Eng.Reader and Eng:Reader(def, st)
+    for _, e in ipairs(DefsOf(def, "scores")) do
+        local rows = type(st.scores) == "table" and type(st.scores[e.id]) == "table" and st.scores[e.id] or {}
+        local high = e.d.high ~= false
+        local n = tonumber(rows[me])
+        -- (placed as the run places them: among the players who have that score)
+        local place
+        if reader then
+            place = reader:PlaceBy(e.id, me)
+            if not place or place <= 0 then place = nil end
+        elseif n ~= nil then
+            place = PlaceBy(st, rows, me, high)
+        end
+        out[#out + 1] = { sid = e.id, n = n or (high and 0 or nil), place = place, name = e.d.n,
+            fmt = e.d.fmt or "num", high = high, board = e.d.board and true or false }
+    end
+    return out
+end
+
+-- The place the run points me to: pid, yards, bearing (radians from where I face, counterclockwise: 0 ahead, pi/2
+-- to my left); yards / bearing nil where positions are unknown (instances).
+function Live:MyPoint(occId)
+    local st, def = self:GetState(occId), self:GetDef(occId)
+    local pid = type(st) == "table" and type(st.point) == "table" and st.point[Me()] or nil
+    if pid == nil then return nil end
+    local place = type(def) == "table" and type(def.places) == "table" and def.places[pid]
+    local S = Sensors()
+    if type(place) ~= "table" or not S then return pid end
+    local me = S:MyPos()
+    if not me then return pid end
+    local yards = S.Yards(me, place)
+    local to, facing = S.Bearing(me, place), S.Facing()
+    return pid, yards, (to and facing) and ((to - facing) % (2 * math.pi)) or nil
+end
+
+-- The run's "tell" lines to me, newest first: { {at, text} }.
+function Live:MyFeed(occId)
+    local out = {}
+    for i, e in ipairs(feeds[occId] or {}) do out[i] = { at = e.at, text = e.text } end
+    return out
+end
+
+-- I press a button the run gave me.
+function Live:Press(occId, label)
+    if type(label) ~= "string" or not Contains(self:MyButtons(occId), label) then return false end
+    return self:SendFact(occId, { k = "press", label = label })
+end
+
+-- My answer to an ask (one each): a key (or up to `votes` keys), a choice's text, text, true / false or a number.
+function Live:AnswerAsk2(occId, aid, value)
+    local v = AnswerValue(value)
+    local st, def = self:GetState(occId), self:GetDef(occId)
+    local q = type(st) == "table" and type(st.qa) == "table" and st.qa[aid]
+    if v == nil or type(q) ~= "table" or not q.open or not Has(q.who, Me()) then return false end
+    -- an answer the run takes (a player it may pick, one of the choices, 1-10 ...): else it would be lost
+    local ad = type(def) == "table" and type(def.asks) == "table" and def.asks[aid]
+    if type(ad) ~= "table" then return false end
+    local Eng = E()
+    if Eng and Eng.Reader then
+        local reader = Eng:Reader(def, st)
+        if reader.CheckAnswer and reader:CheckAnswer(ad, Me(), v) == nil then return false end
+    end
+    local mine = myAnswers[occId] or {}
+    myAnswers[occId] = mine
+    local key = AnswerKey(aid, q)
+    if mine[key] ~= nil or (type(q.ans) == "table" and q.ans[Me()] ~= nil) then return false end
+    local ok = self:SendFact(occId, { k = "ans", aid = aid, v = v })
+    if ok then
+        mine[key] = v
+        Fire(occId)
+    end
+    return ok
+end
+
+---------------------------------------------------------------------------
 -- Practice runs (the builder): the real engine, dummies for players, nothing sent
 ---------------------------------------------------------------------------
 
@@ -1090,18 +1729,35 @@ local function Rebase()
     p.base = GetTime()
 end
 
+-- A practice run's message: the run logs every one itself (the practice log); one for me also shows on my screen.
+-- (Practice changes nothing in my game: no nameplates.)
+local function PracticeSays(kind, keys, text, off)
+    if not practice or kind == "plates" then return end
+    if keys == "all" then keys = practice.run and practice.run.st.entrants or {} end
+    if type(keys) == "string" then keys = { keys } end
+    if Contains(type(keys) == "table" and keys or {}, Me()) then Receive("practice", kind, text, off) end
+end
+
 function Live:StartPractice(def, count)
     self:StopPractice()
+    feeds.practice = nil
     count = max(2, min(32, tonumber(count) or 16))
     local dummies = {}
     for i = 1, count do dummies[i] = "Dummy" .. i .. "-Practice" end
-    practice = { def = def, dummies = dummies, off = {}, virt = Now(), base = GetTime(), speed = 1, paused = false, log = {} }
+    practice = { def = def, dummies = dummies, off = {}, virt = Now(), base = GetTime(), speed = 1, paused = false, log = {},
+        dummyAsked = {}, dummyAnswers = {} }
     local out = {
         log = function(kind, text) ns:Fire("EVENT_PRACTICE_LOG", kind, text) end,
         ran = function(sid, block) ns:Fire("EVENT_PRACTICE_RAN", sid, block) end,
         changed = function() ns:Fire("EVENT_PRACTICE_UPDATED") end,
         ended = function() ns:Fire("EVENT_PRACTICE_UPDATED") end,
         isOnline = function(k) return not practice or not practice.off[k] end,
+        -- the addon's messages: in the log, and mine on my screen (nothing reaches the world)
+        show = function(keys, text) PracticeSays("show", keys, Text(tostring(text or ""))) end,
+        tell = function(keys, text) PracticeSays("tell", keys, Text(tostring(text or ""))) end,
+        sound = function(keys, sound) PracticeSays("sound", keys, Text(tostring(sound or ""), 32)) end,
+        plates = function(keys, off) PracticeSays("plates", keys, nil, off and true or false) end,
+        guild = function() end,   -- (the run doesn't post in practice; it logs the line)
         -- dummies answer at once with what really happened; the host (me) answers on the board
         ask = function(a)
             if not practice then return end
@@ -1115,7 +1771,7 @@ function Live:StartPractice(def, count)
         end,
     }
     practice.run = E():New(def, { id = "practice", host = Me(), signups = dummies, out = out, practice = true,
-        now = PracticeNow, nameOf = DisplayName })
+        now = PracticeNow, nameOf = DisplayName, worldPos = WorldPos })
     practice.run:Start()
     EnsureTicker()
     ns:Fire("EVENT_PRACTICE_UPDATED")
@@ -1142,7 +1798,113 @@ function Live:PracticeTick()
             end
         end
     end
-    if not p.paused then p.run:Tick() end
+    if not p.paused then
+        self:PracticeDummiesAnswer()
+        p.run:Tick()
+    end
+end
+
+-- A dummy's answer to an ask: someone it may pick, a choice, yes or no, 1-10, or for a quiz question its first right
+-- answer more often than not.
+local function DummyAnswer(run, aid, q, key)
+    local a = type(run.def.asks) == "table" and type(run.def.asks[aid]) == "table" and run.def.asks[aid] or {}
+    local kind = a.kind or q.kind or "choice"
+    if kind == "player" then
+        local pool = AskPlayers(run.st, a, key)
+        if #pool == 0 then return nil end
+        local votes = max(1, min(3, tonumber(a.votes) or 1))
+        if votes == 1 then return pool[math.random(#pool)] end
+        local picks = {}
+        for _ = 1, min(votes, #pool) do picks[#picks + 1] = tremove(pool, math.random(#pool)) end
+        return picks
+    elseif kind == "yesno" then
+        return math.random(2) == 1
+    elseif kind == "number" then
+        return math.random(1, 10)
+    elseif kind == "text" then
+        -- (a quiz question's answers: its list item's)
+        local item = type(q.item) == "table" and q.item
+        local l = item and type(run.def.lists) == "table" and run.def.lists[item.ql]
+        local it = type(l) == "table" and type(l.items) == "table" and l.items[item.qi]
+        local right = type(it) == "table" and type(it.a) == "table" and it.a[1]
+        if type(right) == "string" and math.random(10) <= 6 then return right end
+        return "No idea"
+    end
+    local choices = type(q.choices) == "table" and q.choices or a.choices
+    if type(choices) == "table" and #choices > 0 then return choices[math.random(#choices)] end
+    return nil
+end
+
+-- Dummies answer the asks put to them, a few seconds later (faster at a higher practice speed).
+function Live:PracticeDummiesAnswer()
+    local p = practice
+    local run = p and p.run
+    if not run or not run.AskAnswer or type(run.st.qa) ~= "table" then return end
+    for aid, q in pairs(run.st.qa) do
+        if type(q) == "table" and q.open then
+            for _, k in ipairs(SetKeys(q.who)) do
+                local tag = AnswerKey(aid, q) .. "@" .. k
+                if k:find("%-Practice$") and not (type(q.ans) == "table" and q.ans[k] ~= nil) and not p.dummyAsked[tag] then
+                    p.dummyAsked[tag] = true
+                    tinsert(p.dummyAnswers, { aid = aid, k = k, v = DummyAnswer(run, aid, q, k),
+                        at = GetTime() + (2 + math.random() * 4) / max(0.25, p.speed or 1) })
+                end
+            end
+        end
+    end
+    for i = #p.dummyAnswers, 1, -1 do
+        local d = p.dummyAnswers[i]
+        if GetTime() >= d.at then
+            tremove(p.dummyAnswers, i)
+            if d.v ~= nil then run:AskAnswer(d.aid, d.k, d.v) end
+        end
+    end
+end
+
+-- The practice inputs (the dummies panel): something happens to a dummy, it goes in or out of a place, touches or
+-- targets someone, stands somewhere, answers, presses a button.
+local function PracticeRun(fn)
+    local run = practice and practice.run
+    return run and type(run[fn]) == "function" and run or nil
+end
+
+function Live:PracticeHappen(key, what, data)
+    local run = PracticeRun("Happen")
+    if run then run:Happen(key, what, type(data) == "table" and data or {}) end
+end
+
+function Live:PracticePlace(key, pid, inside)
+    local run = PracticeRun("Place")
+    if run then run:Place(key, pid, inside and true or false) end
+end
+
+function Live:PracticeTouch(who, whom, how, emote)
+    local run = PracticeRun("Touch")
+    if run then run:Touch(who, whom, how or "click", emote) end
+end
+
+function Live:PracticeRadar(who, whom)
+    local run = PracticeRun("Radar")
+    if run then run:Radar(who, whom) end
+end
+
+function Live:PracticePos(key, pos)
+    local run = PracticeRun("Pos")
+    if run and type(pos) == "table" then
+        local clean = CleanPos(pos)
+        if clean then run:Pos(key, clean) end
+    end
+end
+
+function Live:PracticeAnswer(key, aid, value)
+    local run = PracticeRun("AskAnswer")
+    local v = AnswerValue(value)
+    if run and v ~= nil then run:AskAnswer(aid, key, v) end
+end
+
+function Live:PracticePress(key, label)
+    local run = PracticeRun("Press")
+    if run and type(label) == "string" then run:Press(key, label) end
 end
 
 -- A dummy duel: agree = both games saw it (the default); false makes the Bracket ask the players.
@@ -1230,7 +1992,7 @@ local function SaveHosted()
     for occId, h in pairs(hosting) do
         if h.run.st.phase == "live" then
             keep = keep or {}
-            keep[occId] = { me = Me(), st = h.run:Snapshot(), c = h.hosts, at = Now() }
+            keep[occId] = { me = Me(), st = h.run:Snapshot(true), c = h.hosts, at = Now() }   -- (all of it: my own disk)
         end
     end
     db.eventHosting = keep
@@ -1256,6 +2018,7 @@ function Live:OnInit()
         Comm:Register("EVH", OnBeat)
         Comm:Register("EVQ", OnQuery)
         Comm:Register("EVF", OnFact)
+        Comm:Register("EVM", OnMessage)
         if Comm.AllowLarge then Comm:AllowLarge("EVS", "event") end
     end
     ns:RegisterEvent("CHAT_MSG_SYSTEM", OnSystem)

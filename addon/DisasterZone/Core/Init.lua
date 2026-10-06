@@ -245,6 +245,9 @@ local KNOWN_MESSAGES = {
     -- builder's practice run changed / logged a line / ran a script (scriptId, blockId)
     EVENTS_UPDATED = true, EVENT_LIVE_UPDATED = true, EVENT_ANNOUNCE = true, EVENT_COUNTDOWN = true,
     EVENT_PRACTICE_UPDATED = true, EVENT_PRACTICE_LOG = true, EVENT_PRACTICE_RAN = true,
+    -- (occId, text) a banner for me / a tracker line for me (Live:MyFeed keeps them); (occId, soundKey) a sound for me
+    -- (EventLive played it already)
+    EVENT_SHOW = true, EVENT_TELL = true, EVENT_SOUND = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)

@@ -732,6 +732,16 @@ class World:
         m.dead, m.ghost = bool(dead) and not ghost, bool(ghost)
         self._sync()
 
+    def set_position(self, who, map_id=None, x=None, y=None, subzone=None):
+        """Where a member stands in the open world: uiMapID (wowmock M.outdoor_maps, e.g. 1951 Nagrand) and 0..1 map
+        coordinates (x east, y south), plus the subzone (GetSubZoneText). Every client sees it: C_Map for the player,
+        CheckInteractDistance between two players. map_id=None: nowhere known (as before)."""
+        m = self._member(who)
+        m.pos = None if map_id is None else {"map": int(map_id), "x": float(x), "y": float(y)}
+        if subzone is not None or map_id is None:
+            m.subzone = subzone
+        self._sync()
+
     def encounter(self, encounter_id, name, success=True, difficulty_id=None, group_size=None, clients=None):
         """Fire ENCOUNTER_START, then ENCOUNTER_END (+ BOSS_KILL on success) on the given/grouped clients."""
         targets = clients if clients is not None else (
@@ -915,6 +925,7 @@ class World:
             "public_note": notes.get("public", ""), "officer_note": notes.get("officer", ""),
             "zone": self.instance["name"] if in_inst else self.zone,
             "dead": bool(getattr(m, "dead", False)), "ghost": bool(getattr(m, "ghost", False)),
+            "pos": getattr(m, "pos", None), "subzone": getattr(m, "subzone", None),
         }
 
     def _state_for(self, c):

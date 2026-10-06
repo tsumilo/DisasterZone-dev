@@ -35,7 +35,8 @@ for e in ([[ADDON_LOADED VARIABLES_LOADED PLAYER_LOGIN PLAYER_LOGOUT PLAYER_ENTE
   PLAYER_TALENT_UPDATE ACTIVE_TALENT_GROUP_CHANGED UNIT_NAME_UPDATE READY_CHECK_CONFIRM UNIT_CONNECTION
   READY_CHECK READY_CHECK_FINISHED PARTY_INVITE_REQUEST PARTY_INVITE_CANCEL LFG_LIST_ACTIVE_ENTRY_UPDATE
   LFG_LIST_SEARCH_RESULTS_RECEIVED LFG_LIST_SEARCH_RESULT_UPDATED LFG_LIST_SEARCH_FAILED LFG_LIST_ENTRY_EXPIRED_TIMEOUT
-  LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS LFG_LIST_ENTRY_CREATION_FAILED LFG_LIST_AVAILABILITY_UPDATE]]):gmatch("%S+") do
+  LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS LFG_LIST_ENTRY_CREATION_FAILED LFG_LIST_AVAILABILITY_UPDATE
+  GLOBAL_MOUSE_DOWN GLOBAL_MOUSE_UP CHAT_MSG_TEXT_EMOTE PLAYER_DEAD]]):gmatch("%S+") do
   M.known_events[e] = true
 end
 load_module("objects.lua")
@@ -179,6 +180,43 @@ end
 function M.set_target(name)
   M.target = name
   M.fire("PLAYER_TARGET_CHANGED")
+end
+
+-- A player under the mouse (nil: nobody): "mouseover" is that player, the mouse focus the world (or `focus`).
+function M.set_mouseover(name, focus)
+  M.mouseover = name
+  M.mouse_focus = name and (focus or WorldFrame) or nil
+  if name then M.fire("UPDATE_MOUSEOVER_UNIT") end
+end
+-- A click on a player: the mouse is over them (focus: the frame clicked, default the world; a raid frame's unit
+-- button sets "mouseover" too), GLOBAL_MOUSE_DOWN, then the target changes (PLAYER_TARGET_CHANGED only when it is
+-- someone else: clicking my target again changes nothing), GLOBAL_MOUSE_UP.
+function M.click_player(name, focus, button)
+  button = button or "LeftButton"
+  M.set_mouseover(name, focus)
+  M.fire("GLOBAL_MOUSE_DOWN", button)
+  if M.target ~= name then M.set_target(name) end
+  M.fire("GLOBAL_MOUSE_UP", button)
+end
+-- A target that isn't a click (a /target macro, a keybind): nothing under the mouse.
+function M.target_player(name)
+  M.set_mouseover(nil)
+  M.set_target(name)
+end
+-- A loot window from fishing (fishing = false: any other loot window): LOOT_OPENED, with IsFishingLoot() true while
+-- it is open, the items' "You receive loot" lines, LOOT_CLOSED. items = { {itemID, count} }
+function M.fish_loot(items, fishing)
+  M.fishing_loot = fishing ~= false
+  M.fire("LOOT_OPENED", true, false)
+  local m = M.W.self
+  for _, it in ipairs(items or {}) do
+    local link = M.item_link(it[1]) or ("|cffffffff|Hitem:" .. it[1] .. "::::::::70:::::|h[Item " .. it[1] .. "]|h|r")
+    local count = it[2] or 1
+    local text = count > 1 and string.format(LOOT_ITEM_SELF_MULTIPLE, link, count) or string.format(LOOT_ITEM_SELF, link)
+    M.fire("CHAT_MSG_LOOT", text, m.full, "", "", m.name, "", 0, 0, "", 0, 0, m.guid or "", 0, false, false, false, false)
+  end
+  M.fishing_loot = false
+  M.fire("LOOT_CLOSED")
 end
 
 function M.set_cursor_item(id)

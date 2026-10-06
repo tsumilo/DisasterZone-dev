@@ -48,6 +48,9 @@ local ROUND_WINDOW = 20
 local DELAY_REVIEWER = { 0.5, 2.5 }
 local DELAY_MEMBER = { 3, 8 }
 local SIZE_HEADROOM = 0.1
+local RESULT_SCORES = 8              -- a result keeps the tables of this many scores ...
+local RESULT_TAGS = 8                -- ... and this many tags,
+local RESULT_KEYS = 40               -- ... of this many players each (a Sign-up takes 40 at most)
 
 local roundSeen, answeredAt = {}, -1000
 local idCounter = 0
@@ -250,6 +253,103 @@ CleanPiece = function(p, budget, depth)
     return out
 end
 
+local function Num(n, lo, hi)
+    n = tonumber(n)
+    if not n or n ~= n then return nil end
+    if lo and n < lo then n = lo end
+    if hi and n > hi then n = hi end
+    return n
+end
+
+local function OneOf(v, choices, default)
+    for _, c in ipairs(choices) do
+        if (type(c) == "table" and c[1] or c) == v then return v end
+    end
+    return default
+end
+
+-- An event's definitions (tags, scores, places, lists, asks: EVENTS_KINDS.md), each kind at most LIMITS.defs (places
+-- LIMITS.places), the lowest ids first; names 24, a question 120, answers / choices 6 of 40, items 40 a list.
+local DEF_TEXT = 120
+local ALL_ITEMS = 80   -- list items in all an event's lists (B.LIMITS.allItems when EventBlocks says)
+Events.ALL_ITEMS = ALL_ITEMS
+local function CleanDefinitions(d, out)
+    local Bk = B()
+    local L = Bk.LIMITS or {}
+    local NAME, PER = L.name or 24, L.defs or 24
+    local function kind(name, limit, clean)
+        local t = type(d[name]) == "table" and d[name] or nil
+        if not t then return end
+        local ids = {}
+        for id, x in pairs(t) do
+            if IsId(id) and type(x) == "table" then ids[#ids + 1] = id end
+        end
+        tsort(ids)
+        local res, n = {}, 0
+        for i = 1, min(#ids, limit) do
+            local x = clean(t[ids[i]], ids[i])
+            if x then
+                res[ids[i]] = x
+                n = n + 1
+            end
+        end
+        if n > 0 then out[name] = res end
+    end
+    local function texts(list, count, len)
+        local res = {}
+        for i = 1, min(type(list) == "table" and #list or 0, count) do
+            local s = Str(list[i], len)
+            if s and s ~= "" then res[#res + 1] = s end
+        end
+        return res
+    end
+    kind("tags", PER, function(x, id)
+        return { n = Str(x.n, NAME) or id, c = (Bk.TAG_COLOR and Bk.TAG_COLOR[x.c]) and x.c or "blue",
+            shown = OneOf(x.shown, Bk.TAG_SHOWN or { "all", "self", "host" }, "all") }
+    end)
+    kind("scores", PER, function(x, id)
+        return { n = Str(x.n, NAME) or id, high = x.high ~= false, fmt = OneOf(x.fmt, Bk.SCORE_FMT or { "num" }, "num"),
+            board = x.board and true or false, cap = Num(x.cap, -1e9, 1e9) }
+    end)
+    kind("places", L.places or 24, function(x, id)
+        local p = { n = Str(x.n, NAME) or id, map = Int(x.map, 1, 1e6), x = Num(x.x, 0, 1), y = Num(x.y, 0, 1),
+            r = Num(x.r, 1, 5000) or 30, z = Str(x.z, 48), sz = Str(x.sz, 48) }
+        if not (p.map and p.x and p.y) then p.map, p.x, p.y = nil, nil, nil end
+        return p
+    end)
+    -- (list items: 40 a list and LIMITS.allItems in all the event's lists, so that a def with every definition filled
+    -- in still goes to the guild in one message)
+    local itemsLeft = L.allItems or ALL_ITEMS
+    kind("lists", PER, function(x, id)
+        local l = { n = Str(x.n, NAME) or id, kind = OneOf(x.kind, Bk.LIST_KINDS or { "text" }, "text"), items = {} }
+        local count = min(type(x.items) == "table" and #x.items or 0, L.items or 40, itemsLeft)
+        itemsLeft = itemsLeft - count
+        for i = 1, count do
+            local it = x.items[i]
+            if l.kind == "question" then
+                if type(it) == "table" and Str(it.q, L.question or DEF_TEXT) then
+                    l.items[#l.items + 1] = { q = Str(it.q, L.question or DEF_TEXT),
+                        a = texts(it.a, L.answers or 6, L.answer or 40), pts = Num(it.pts, -1000, 1000) }
+                end
+            elseif l.kind == "place" then
+                if IsId(it) then l.items[#l.items + 1] = it end
+            else
+                local s = Str(it, DEF_TEXT)
+                if s and s ~= "" then l.items[#l.items + 1] = s end
+            end
+        end
+        return l
+    end)
+    kind("asks", PER, function(x, id)
+        local from = x.from
+        if from ~= "entrants" and not IsId(from) then from = "entrants" end
+        return { n = Str(x.n, NAME) or id, q = Str(x.q, L.question or DEF_TEXT),
+            kind = OneOf(x.kind, Bk.ASK_KINDS or { "player" }, "player"),
+            choices = texts(x.choices, L.choices or 6, L.choice or 40), from = from, votes = Int(x.votes, 1, 3) or 1,
+            self = x.self and true or false, time = Int(x.time, 5, 3600) or 60, secret = x.secret and true or false }
+    end)
+end
+
 local function CleanScripts(list, budget)
     local out = {}
     if type(list) ~= "table" then return out end
@@ -327,9 +427,13 @@ function Events:CleanDef(d)
                 text = Lines(n.text) }
         end
     end
+    CleanDefinitions(d, out)
     if type(d.review) == "table" and Int(d.review.rev, 0) then
         out.review = { rev = Int(d.review.rev, 0), at = Int(d.review.at, 0) or 0, note = Str(d.review.note) }
     end
+    -- part 1's pieces as part 2's (an event made before, another member's older copy): in place, once
+    local Bk = B()
+    if Bk.Migrate then pcall(Bk.Migrate, Bk, out) end
     return out
 end
 
@@ -401,6 +505,46 @@ local function CleanRecord(kind, r)
         for k, v in pairs(type(r.mw) == "table" and r.mw or {}) do
             local key = WireKey(k)
             if key and tonumber(v) then out.mw[key] = Int(v, 0, 99) end
+        end
+        -- the scores' tables and who had each tag at the end (only when the event had them)
+        local function keysOf(t)
+            local list = {}
+            for k in pairs(type(t) == "table" and t or {}) do
+                if type(k) == "string" and WireKey(k) then list[#list + 1] = k end
+            end
+            tsort(list)
+            return list
+        end
+        if type(r.scores) == "table" and #r.scores > 0 then
+            out.scores = {}
+            for i = 1, min(#r.scores, RESULT_SCORES) do
+                local s = r.scores[i]
+                if type(s) == "table" and IsId(s.id) then
+                    local v = {}
+                    for j, k in ipairs(keysOf(s.v)) do
+                        if j > RESULT_KEYS then break end
+                        local n = Num(s.v[k], -1e9, 1e9)
+                        if n then v[WireKey(k)] = n end
+                    end
+                    out.scores[#out.scores + 1] = { id = s.id, n = Str(s.n, 24) or s.id, high = s.high ~= false,
+                        fmt = (s.fmt == "time" or s.fmt == "gold") and s.fmt or "num", v = v }
+                end
+            end
+        end
+        if type(r.tags) == "table" and #r.tags > 0 then
+            out.tags = {}
+            for i = 1, min(#r.tags, RESULT_TAGS) do
+                local t = r.tags[i]
+                if type(t) == "table" and IsId(t.id) then
+                    local keys = {}
+                    for j = 1, min(type(t.k) == "table" and #t.k or 0, RESULT_KEYS) do
+                        local key = WireKey(t.k[j])
+                        if key then keys[#keys + 1] = key end
+                    end
+                    out.tags[#out.tags + 1] = { id = t.id, n = Str(t.n, 24) or t.id, c = Str(t.c, 12),
+                        shown = (t.shown == "self" or t.shown == "host") and t.shown or "all", k = keys }
+                end
+            end
         end
         return out
     elseif kind == "C" then
@@ -957,7 +1101,61 @@ function Events:SaveResult(occId, run, hosts)
             for _, mid in ipairs(last) do add(bk.m[mid]) end
         end
     end
+    self:ResultTables(rec, d, st)
     return Commit("R", rec)
+end
+
+-- A result's score tables (the scores on the board first) and tags: who had what at the end. Trimmed (tags first,
+-- then the last scores) until the result fits a message to the guild.
+function Events:ResultTables(rec, d, st)
+    local Bk = B()
+    local defs = Bk.Defs and Bk:Defs(d, "scores", true) or {}
+    local board, rest = {}, {}
+    for _, e in ipairs(defs) do tinsert(e.board and board or rest, e) end
+    for _, e in ipairs(rest) do board[#board + 1] = e end
+    local scores = {}
+    for _, e in ipairs(board) do
+        if #scores >= RESULT_SCORES then break end
+        local rows, v = type(st.scores) == "table" and st.scores[e.id], {}
+        for k, n in pairs(type(rows) == "table" and rows or {}) do
+            if type(k) == "string" and tonumber(n) then v[k] = tonumber(n) end
+        end
+        scores[#scores + 1] = { id = e.id, n = e.n, high = e.high ~= false, fmt = e.fmt, v = v }
+    end
+    local tags = {}
+    for _, e in ipairs(Bk.Defs and Bk:Defs(d, "tags", true) or {}) do
+        if #tags >= RESULT_TAGS then break end
+        local set, keys = type(st.tags) == "table" and st.tags[e.id], {}
+        for k, on in pairs(type(set) == "table" and set or {}) do
+            if type(k) == "string" and on then keys[#keys + 1] = k end
+        end
+        tsort(keys)
+        tags[#tags + 1] = { id = e.id, n = e.n, c = e.c, shown = e.shown, k = keys }
+    end
+    rec.scores = #scores > 0 and scores or nil
+    rec.tags = #tags > 0 and tags or nil
+    local Comm = ns.Comm
+    if not (Comm and Comm.Fits) then return rec end
+    local function fits()
+        local probe = CleanRecord("R", (function()
+            local r = Copy(rec)
+            r.rev = Now()
+            return r
+        end)())
+        return probe == nil or Comm:Fits({ t = "EVU", k = "R", r = probe }, SIZE_HEADROOM)
+    end
+    while not fits() do
+        if rec.tags then
+            tremove(rec.tags)
+            if #rec.tags == 0 then rec.tags = nil end
+        elseif rec.scores then
+            tremove(rec.scores)
+            if #rec.scores == 0 then rec.scores = nil end
+        else
+            break
+        end
+    end
+    return rec
 end
 
 -- How often a library event ran (results of calendar events made from it), and when last.
@@ -1324,8 +1522,20 @@ function Events:BuildDemo()
     lib("edemo2", "2v2 arena cup", "Interface\\Icons\\Achievement_Arena_2v2_7", "blades", pick(1), { "signup", "bracket" },
         now - 6 * DAY)
     demo.K.edemo2 = { id = "edemo2", by = pick(2), rev = now - 5 * DAY, dr = now - 6 * DAY, ok = true }
-    local mine = lib("edemo3", "Hide and seek in Shattrath", "Interface\\Icons\\Ability_Stealth", "eots", me, { "signup" },
-        now - 1 * DAY)
+    -- mine, in review: the hide and seek example (tags, a touch, a play area, a Hint button), played in Shattrath
+    local mine = B():Example("hide")
+    if mine then
+        mine.name = "Hide and seek in Shattrath"
+        if type(mine.places) == "table" and mine.places.pc1 then
+            mine.places.pc1 = { n = "Play area", map = 1955, x = 0.52, y = 0.46, r = 250, z = "Shattrath City",
+                sz = "Terrace of Light" }
+        end
+        mine.id, mine.by, mine.rev, mine.at = "edemo3", me, now - 1 * DAY, now - 1 * DAY
+        demo.D.edemo3 = mine
+    else
+        mine = lib("edemo3", "Hide and seek in Shattrath", "Interface\\Icons\\Ability_Stealth", "eots", me, { "signup" },
+            now - 1 * DAY)
+    end
     mine.review = { rev = mine.rev, at = now - 1 * DAY, note = "Seekers get 5 minutes per round." }
     lib("edemo4", "Ring of Blood night", "Interface\\Icons\\Ability_Warrior_Challange", "ruins", pick(3),
         { "signup", "bracket" }, now - 9 * DAY)
@@ -1360,6 +1570,46 @@ function Events:BuildDemo()
     res("rdemo2", now - 14 * DAY, pick(3), pick(2), me, pts2)
     demo.O.rdemo1 = { id = "rdemo1", by = pick(1), h = pick(1), rev = now - 8 * DAY, def = Copy(starter), dk = starter.id,
         at = now - 7 * DAY, ranked = true }
+    -- the new kinds on the calendar: a fishing derby in two days (with sign-ups) and a trivia night later in the week,
+    -- copies of the examples (not in the library); and the derby of ten days ago, its Fish table in the result
+    local fish, quiz = B():Example("fish"), B():Example("quiz")
+    if fish then
+        fish.id, fish.by, fish.rev = "edemo5", pick(4), now - 12 * DAY
+        occ("odemo4", fish, now + 2 * DAY + 1800, pick(4), nil)
+        demo.O.odemo4.dk, demo.O.odemo4.where = nil, "Booty Bay docks"
+        for i = 1, math.min(9, #names) do
+            local k = names[#names - i + 1]
+            demo.J["odemo4/" .. k] = { id = "odemo4/" .. k, by = k, rev = now, o = "odemo4", on = true, at = now - i * 900 }
+        end
+        local rows, ptsF = {}, {}
+        for i = 1, math.min(9, #names) do
+            rows[names[i + 1] or me] = 31 - i * 3
+            ptsF[names[i + 1] or me] = (i <= 3 and ({ 30, 20, 10 })[i] or 0) + 5
+        end
+        rows[me], ptsF[me] = 12, 5
+        local at = now - 10 * DAY
+        demo.R.rdemo3 = { id = "rdemo3", by = pick(4), rev = at + 2400, name = "Fishing derby", icon = fish.icon, art = fish.art,
+            at = at, t1 = at + 2200, ranked = true, n = 10, points = ptsF,
+            badges = { { p = pick(2), n = "Angler of the night", i = "Interface\\Icons\\Trade_Fishing", f = "gold", ti = "the Angler" },
+                { p = pick(3), n = "Runner-up", i = "Interface\\Icons\\INV_Fishingpole_02", f = "silver" },
+                { p = pick(4), n = "Third place", i = "Interface\\Icons\\INV_Misc_Fish_37", f = "bronze" } },
+            moments = { { at = at + 900, text = Util.ShortName(pick(6)) .. " fished up Mr. Pinchy" },
+                { at = at + 1500, text = Util.ShortName(pick(2)) .. " leads with 21 fish" } },
+            last4 = {}, hosts = { pick(4) }, nums = {}, mw = {},
+            scores = { { id = "sc1", n = "Fish", high = true, fmt = "num", v = rows } } }
+        demo.O.rdemo3 = { id = "rdemo3", by = pick(4), h = pick(4), rev = at - DAY, def = Copy(fish), at = at, ranked = true }
+    end
+    if quiz then
+        quiz.id, quiz.by, quiz.rev = "edemo6", pick(5), now - 2 * DAY
+        occ("odemo5", quiz, now + 4 * DAY + 7200, pick(5), nil)
+        demo.O.odemo5.dk, demo.O.odemo5.where = nil, "Scryer's Tier, Shattrath"
+    end
+    -- (the examples are part 2's already; a def made another way is brought up to them)
+    local Bk = B()
+    if Bk.Migrate then
+        for _, d in pairs(demo.D) do pcall(Bk.Migrate, Bk, d) end
+        for _, o in pairs(demo.O) do pcall(Bk.Migrate, Bk, o.def) end
+    end
     return demo
 end
 
@@ -1386,10 +1636,33 @@ function Events:OnInit()
     ns:On("CONFIG_UPDATED", function() Events.rankCache = nil; Changed() end)
 end
 
+-- Every stored event (the library's, the calendar's copies, a reviewer's ranked copies) in part 2's pieces, once.
+function Events:MigrateStored()
+    local db, Bk = ns.db, B()
+    if not (db and Bk and Bk.Migrate) then return end
+    local function migrate(d)
+        if type(d) == "table" and not d.del then pcall(Bk.Migrate, Bk, d) end
+    end
+    for _, root in pairs(type(db.events) == "table" and db.events or {}) do
+        for _, d in pairs(type(root) == "table" and type(root.D) == "table" and root.D or {}) do migrate(d) end
+        for _, o in pairs(type(root) == "table" and type(root.O) == "table" and root.O or {}) do
+            if type(o) == "table" then migrate(o.def) end
+        end
+    end
+    for _, snaps in pairs(type(db.eventSnaps) == "table" and db.eventSnaps or {}) do
+        for _, d in pairs(type(snaps) == "table" and snaps or {}) do migrate(d) end
+    end
+end
+
 function Events:OnLogin()
+    self:MigrateStored()
     local function Daily()
         Events:Prune()
         Util.After(DAY / 4, Daily)
     end
-    Util.RandomDelay(20, 40, Daily)
+    -- First prune 20-40 s after the login, spread per character. Not drawn from math.random: every module shares
+    -- that sequence (the test harness seeds it per client), and a draw at every login, events or not, would shift the
+    -- delay each other module picks (Patch.lua and Guild.lua's OwnJitter keep their own jitter for the same reason).
+    local n = Util.Adler32((Util.PlayerKey() or "?") .. "events-prune" .. tostring(Now()))
+    Util.After(20 + (n % 1000) / 50, Daily)
 end

@@ -259,7 +259,8 @@ event's definitions plus "+ New ...".
 - Touches: a click = the target changed while the mouse was over them in the world (not on a unit frame: a raid frame
   click is radar), or the mouse went down (GLOBAL_MOUSE_DOWN) over the player who is my target already; near =
   `CheckInteractDistance(unit, 3)`. Emotes: the token from hooking `DoEmote` (and `C_ChatInfo.PerformEmote` where it
-  exists), confirmed by its CHAT_MSG_TEXT_EMOTE echo; without the hook, English "You <verb> at <name>." Only near
+  exists; its target: a name as typed, first letter made capital, else my target), confirmed by its CHAT_MSG_TEXT_EMOTE
+  echo; without the hook, English "You <verb> at <name>." Only near
   touches reach the run: `run:Touch(who, whom, how, emote)` (a /point is how = "point", and how = "emote" with "POINT"
   too). The same touch again within 2 s, or radar on the same player within 5 s, is one.
 - EVM on the wire: `{ t = "EVM", o = occId, to = "all" | {keys} | nil, k = "show" | "tell" | "sound" | "plates", text,

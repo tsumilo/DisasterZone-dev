@@ -4,7 +4,7 @@ Each case shows one edge that was wrong (or checks one that was fine) between mo
 states, accented and long names, deleted results coming back, removing by the GM / officers / guild council,
 dismissing and clearing reviews, sign-ups that closed, live events cancelled, moved or taken off the calendar, the
 host's /reload, a quiet host taken over by one entrant, states queued behind each other, many watchers, two live events
-at once, pauses, offline entrants, invites, whispers over the rate, demo mode, retention and the digest's cap.
+at once, pauses, offline entrants, invites, tells over the rate, demo mode, retention and the digest's cap.
 Run: luaenv\\Scripts\\python.exe tests\\events\\test_edge_live.py [-k name]   (from dev)"""
 import os
 import sys
@@ -788,28 +788,44 @@ def invites_from_no_group_fill_a_party_then_a_raid():
 
 
 @case
-def whispers_over_the_rate_wait_their_turn():
-    w, cs = guild(["Gina"], tick=5)
+def whispers_are_the_addons_tells_now_and_wait_their_turn():
+    # part 1's whisper piece (an event made before part 2) is the addon's "tell" now: a line in the tracker, no chat
+    # whisper; one GUILD message for every entrant online, one each for a few (at most 4 a second); offline sign-ups
+    # get nothing
+    w, cs = guild(FIVE)
     g = cs[0]
     occ = g.eval("""
         local d = ns.EventBlocks:Blank('Whispers')
-        d.scripts = { { id = 'sw', st = '*', x = 0, y = 0, top = { k = 'ev.start', a = {},
-          n = { k = 'ch.wh', a = { { k = 'pl.all', a = {} }, 'Hello there' } } } } }
+        d.scripts = {
+          { id = 'sw', st = '*', x = 0, y = 0, top = { k = 'ev.start', a = {},
+            n = { k = 'ch.wh', a = { { k = 'pl.all', a = {} }, 'Hello there' } } } },
+          { id = 'sx', st = '*', x = 0, y = 200, top = { k = 'ev.start', a = {},
+            n = { k = 'lo.each', a = { { k = 'pl.all', a = {} } },
+                  c1 = { k = 'ch.wh', a = { { k = 'ctx', a = { 'each' } }, 'Just you' } } } } } }
         assert(ns.Events:SaveDef(d))
         local occ = ns.Events:Schedule(d.id, GetServerTime() + 10)
         local root = ns.db.events[ns.Guild:GetGuildKey()]
-        for i = 1, 40 do
+        for i = 1, 3 do
           local k = 'P' .. i .. '-Thunderstrike'
           root.J[occ .. '/' .. k] = { id = occ .. '/' .. k, by = k, rev = 1, o = occ, on = true, at = GetServerTime() + i }
         end
         return occ""")
-    n0 = len(w.chat_log)
+    w.tick(3)
+    for c in cs[1:]:
+        assert c.eval("return (ns.Events:SignUp(..., true))", occ), c.name
+    w.tick(3)
+    n0, a0 = len(w.chat_log), len(w.addon_log)
     assert g.eval("return (ns.EventLive:Start(...))", occ)
-    w.tick(5)
-    first = len([x for x in w.chat_log[n0:] if x["chat_type"] == "WHISPER"])
-    w.tick(70)
-    allw = len([x for x in w.chat_log[n0:] if x["chat_type"] == "WHISPER"])
-    assert first == 30 and allw == 40, (first, allw)
+    w.tick(0.5)
+    first = [e for e in event_msgs(w, a0, "Gina") if e["chat_type"] == "WHISPER"]
+    w.tick(30)
+    assert not [x for x in w.chat_log[n0:] if x["chat_type"] == "WHISPER"], w.chat_log[n0:]
+    for c in cs:
+        feed = c.eval_py("local out = {}; for _, e in ipairs(ns.EventLive:MyFeed(...)) do out[#out + 1] = e.text end; "
+                         "return out", occ)
+        assert sorted(feed) == ["Hello there", "Just you"], (c.name, feed)
+    whispers = [e for e in event_msgs(w, a0, "Gina") if e["chat_type"] == "WHISPER"]
+    assert sorted(e["target"] for e in whispers) == ["Bert", "Cora", "Dain", "Eve"] and len(first) <= 4, (first, whispers)
     w.assert_no_errors()
 
 
