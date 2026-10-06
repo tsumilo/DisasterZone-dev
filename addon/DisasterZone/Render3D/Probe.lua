@@ -1525,6 +1525,66 @@ local function BuildFlat(pg)
 end
 
 ---------------------------------------------------------------------------
+-- 8: the stand-in quad turned flat and drawn big (stand-ins v2 drew floor quads floating over the floor in game)
+---------------------------------------------------------------------------
+
+-- 71-78: one model turned by yaw, pitch and roll (degrees, all three set as the stand-ins set them: Y.P.R, tile 38)
+-- at actor scale s (nil: its longest side PRIM_SPAN yd), origin on the scene's origin; the yellow outline where the
+-- maths puts its mesh, the camera at azimuth az / elevation el. Outline and model apart = the client does not turn or
+-- scale it as the stand-ins assume at that setting.
+local function PoseTile(pg, n, col, row, prim, yaw, pitch, roll, s, az, el, caption, long)
+    local t = Tile(pg, n, col, row, caption)
+    t.long = long
+    local sc = Scene(t, 1)
+    local b = prim.box
+    s = s or SpanScale(prim)
+    local m = Rot("ypr", { y = rad(yaw), p = rad(pitch), r = rad(roll) })
+    local a = Actor(sc)
+    if a then
+        pcall(a.SetModelByFileID, a, prim.fid)
+        Place(a, 0, 0, 0, s)
+        pcall(a.SetYaw, a, rad(yaw))
+        pcall(a.SetPitch, a, rad(pitch))
+        pcall(a.SetRoll, a, rad(roll))
+    end
+    local pts = { ORIGIN }
+    for _, c in ipairs(Corners(b)) do pts[#pts + 1] = Xf(m, s, ORIGIN, c) end
+    local mid = Xf(m, s, ORIGIN, { (b[1] + b[4]) / 2, (b[2] + b[5]) / 2, (b[3] + b[6]) / 2 })
+    Fit(sc, pts, mid[1], mid[2], mid[3], az, el, 0.75)
+    t.draw = function()
+        Fit(sc, pts, mid[1], mid[2], mid[3], az, el, 0.75)
+        WireXf(t, sc, b, m, s, ORIGIN, YELLOW)
+        Dot(t, 1, sc, ORIGIN, RED)
+    end
+    t.data:SetText(format("%d: yaw %d, pitch %d, roll %d, scale %.3f", prim.fid, yaw, pitch, roll, s))
+    return t
+end
+
+local function BuildTilted(pg)
+    local F = "Fills the yellow outline = drawn where the stand-ins assume. Tilted, shifted or another size = not."
+    PoseTile(pg, 71, 1, 1, CATA, 0, -90, 0, nil, 200, 45, "71. 653518 laid flat as a floor quad (pitch -90), "
+        .. "small. " .. F, "The stand-ins lay this one-sided quad flat on floors with SetPitch(-90 deg): its front "
+        .. "(+x) then faces up. Seen from above. In the outline = pitch -90 works at a small scale.")
+    PoseTile(pg, 72, 2, 1, CATA, 0, -90, 0, 0.3, 200, 45, "72. As 71 at scale 0.3 (15 x 10 yd), like a big floor "
+        .. "stand-in. " .. F, "Floor stand-ins reach scale 0.64. Tilted or lifted here but not in 71 = the client "
+        .. "turns or scales big actors differently (the floating floor quads).")
+    PoseTile(pg, 73, 3, 1, CATA, 0, -85, 0, 0.3, 200, 45, "73. As 72 at pitch -85: tilted 5 deg, one long edge "
+        .. "higher. Compare with 72.", "Should look visibly tilted: one long edge about 0.9 yd above the other. If 72 "
+        .. "looks like this, the client stops pitch short of 90 degrees.")
+    PoseTile(pg, 74, 4, 1, CATA, 0, -60, 0, 0.3, 200, 30, "74. Pitch -60 at scale 0.3 (a slope stand-in). " .. F,
+        "A sloped quad as on ramps: big pitch but not 90.")
+    PoseTile(pg, 75, 1, 2, CATA, 30, -90, 0, 0.3, 200, 45, "75. Floor quad with yaw 30 (pitch -90), scale 0.3, as "
+        .. "most floor stand-ins are turned. " .. F, "Yaw and pitch -90 together: at pitch 90 yaw and roll turn about "
+        .. "the same axis, a case the client might handle differently.")
+    PoseTile(pg, 76, 2, 2, CATA, 30, -90, 40, 0.3, 200, 45, "76. As 75 with roll 40 too. " .. F, "Yaw 30, pitch -90, "
+        .. "roll 40: at pitch 90 the roll adds to the yaw (gimbal lock); the outline assumes Y.P.R exactly.")
+    PoseTile(pg, 77, 3, 2, CATA, 0, 0, 0, 0.5, 70, 10, "77. Not turned, scale 0.5 (24 x 16 yd): a big wall stand-in. "
+        .. F, "Only the scale is big here. Wrong here = the scale itself is the problem, not the turn.")
+    PoseTile(pg, 78, 4, 2, CATA, 0, 90, 0, 0.3, 200, -45, "78. Pitch +90: a ceiling quad facing down, seen from "
+        .. "below. " .. F, "The front then faces down; seen from below it must fill the outline.")
+end
+
+---------------------------------------------------------------------------
 -- 7: cost, and every automatic result
 ---------------------------------------------------------------------------
 
@@ -1664,6 +1724,7 @@ local PAGES = {
     { key = "turns", name = "5 Particles & turns", build = BuildParticles },
     { key = "flat", name = "6 Flat models", build = BuildFlat, lazy = true },
     { key = "cost", name = "7 Cost & data", build = BuildCost },
+    { key = "tilted", name = "8 Tilted & big", build = BuildTilted, lazy = true },
 }
 for i, def in ipairs(PAGES) do PAGE_OF[def.key] = i end
 
