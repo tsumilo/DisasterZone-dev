@@ -2095,15 +2095,28 @@ function RaidPlan:ResolveTeam(team)
 end
 
 -- The team's members with the spec each plays in it (the team's pick, else the latest sign-up's, else the BiS
--- list's: GetMemberSpec), sorted by key: { key, c, sp, source, seated = placed in one of its groups }.
+-- list's: GetMemberSpec), sorted by key: { key, c, sp, source, seated = placed in one of its groups }. A member in no
+-- group is benched: on the team, but not counted for its comp, its slots or its raid buffs.
 function RaidPlan:GetTeamMembers(team)
     local t = self:ResolveTeam(team)
     local out = {}
+    local nGroups = t and ns.RaidComp:GroupCount(t.size) or 0
     for _, key in ipairs(t and t.members or {}) do
         local sp, c, source = self:GetMemberSpec(key, t)
-        out[#out + 1] = { key = key, c = c, sp = sp, source = source, seated = t.groups[key] ~= nil }
+        local g = t.groups[key]
+        out[#out + 1] = { key = key, c = c, sp = sp, source = source,
+                          seated = (type(g) == "number" and g >= 1 and g <= nGroups) or nil }
     end
     return out
+end
+
+-- The team's members in a group (GetTeamMembers' seated ones), and the benched ones (in no group).
+function RaidPlan:GetTeamPlaced(team)
+    local placed, benched = {}, {}
+    for _, m in ipairs(self:GetTeamMembers(team)) do
+        if m.seated then placed[#placed + 1] = m else benched[#benched + 1] = m end
+    end
+    return placed, benched
 end
 
 -- The team's saved comp (a copy), or nil.
@@ -2121,12 +2134,12 @@ function RaidPlan:SetTeamComp(id, cp)
     return self:SaveTeam(id, t.n, t.m, { comp = cp or false })
 end
 
--- "The team as it is": a slot for each member's spec (members without a known spec left out, at most the team's
--- size). Returns cp, slots, or nil.
+-- "The team as it is": a slot for the spec of each member in a group (benched members and members without a known
+-- spec left out, at most the team's size). Returns cp, slots, or nil.
 function RaidPlan:CompFromTeam(team)
     local t = self:ResolveTeam(team)
     if not t then return nil end
-    return ns.RaidComp:CompFromMembers(self:GetTeamMembers(t), t.size)
+    return ns.RaidComp:CompFromMembers((self:GetTeamPlaced(t)), t.size)
 end
 
 -- The "Start from" choices of a team (an id or the draft): the preset of its size, the team as it is (when a member's
@@ -2151,10 +2164,15 @@ function RaidPlan:GetCompStarts(team)
 end
 
 -- Who fills which slot of the team's comp, the bench and the open slots (RaidComp:MatchComp), or nil without a comp.
+-- Only the members in a group fill slots (bench = those in a group no slot takes); benched = the members in no group
+-- (by column, then key, unknown spec last, like bench).
 function RaidPlan:MatchTeam(team)
     local t = self:ResolveTeam(team)
     if not (t and t.comp) then return nil end
-    return ns.RaidComp:MatchComp(t.comp, self:GetTeamMembers(t))
+    local placed, benched = self:GetTeamPlaced(t)
+    local m = ns.RaidComp:MatchComp(t.comp, placed)
+    m.benched = ns.RaidComp:MatchComp({}, benched).bench
+    return m
 end
 
 -- The open slots of the team's comp: { { c, sp, role, name, n }, ... } in comp order, and how many ({}, 0 without one).
@@ -2189,16 +2207,17 @@ function RaidPlan:GetSpecIndex()
     return idx
 end
 
--- Who could fill an open slot (class c, spec sp) of the team's comp, in four groups (the agreed order):
---   bench  the team's members no slot takes: that spec, then the class in another spec (other = true)
---   alts   the members' other characters (each vouches for the other) at level 70, not on this team: the same rule;
---          of = the member
+-- Who could fill an open slot (class c, spec sp) of the team's comp, in five groups (the agreed order):
+--   bench  the team's benched members (in no group): that spec, then the class in another spec (other = true)
+--   extra  the team's members in a group no slot takes, of that class (another spec: they could switch)
+--   alts   the members' other characters (each vouches for the other) at level 70, not on this team: the same rule
+--          as bench; of = the member
 --   guild  the rest of the guild at level 70, on no team and no alt of this one, playing that spec (latest sign-up,
 --          else BiS list); not blacklisted
 --   teams  members of the other teams who play that spec there (team = its name, teamId)
 -- A player shows once (the first group). Each list: that spec first, online first, then by key.
 function RaidPlan:CanFill(team, c, sp)
-    local out = { bench = {}, alts = {}, guild = {}, teams = {} }
+    local out = { bench = {}, extra = {}, alts = {}, guild = {}, teams = {} }
     local t = self:ResolveTeam(team)
     if not t or not IsInt(sp, 1, SpecCount(c)) then return out end
     local G = Guild()
@@ -2211,12 +2230,15 @@ function RaidPlan:CanFill(team, c, sp)
         list[#list + 1] = e
     end
     for _, key in ipairs(t.members) do taken[key] = true end
-    -- 1. the bench
-    local m = t.comp and ns.RaidComp:MatchComp(t.comp, self:GetTeamMembers(t))
-    for _, b in ipairs(m and m.bench or {}) do
+    -- 1. the benched members, 2. those in a group beyond the comp
+    local m = t.comp and self:MatchTeam(t)
+    for _, b in ipairs(m and m.benched or {}) do
         if b.c == c then add(out.bench, b.key, b.c, b.sp) end
     end
-    -- 2. alts of the team's members
+    for _, b in ipairs(m and m.bench or {}) do
+        if b.c == c then add(out.extra, b.key, b.c, b.sp) end
+    end
+    -- 3. alts of the team's members
     local altOf = {}
     for _, key in ipairs(t.members) do
         for _, alt in ipairs(Linked(key)) do
@@ -2227,7 +2249,7 @@ function RaidPlan:CanFill(team, c, sp)
             end
         end
     end
-    -- 3. the rest of the guild
+    -- 4. the rest of the guild
     local teams = self:GetTeams()
     local onTeam = {}
     for _, o in ipairs(teams) do
@@ -2240,7 +2262,7 @@ function RaidPlan:CanFill(team, c, sp)
             add(out.guild, key, c, sp)
         end
     end
-    -- 4. the other teams
+    -- 5. the other teams
     for _, o in ipairs(teams) do
         if o.id ~= t.id then
             for _, key in ipairs(o.members) do
@@ -2346,11 +2368,11 @@ function RaidPlan:RaidCanFill(occId, c, sp)
 end
 
 -- The raid-buff strip of a team (RaidComp:BuffStates): lit = whose slot is filled, planned = the open slots. Without
--- a comp: the members, nothing planned.
+-- a comp: the members in a group, nothing planned (benched members bring nothing).
 function RaidPlan:GetTeamBuffStates(team)
     local Comp = ns.RaidComp
     local m = self:MatchTeam(team)
-    if not m then return Comp:BuffStates(self:GetTeamMembers(team), {}) end
+    if not m then return Comp:BuffStates((self:GetTeamPlaced(team)), {}) end
     local have = {}
     for _, s in ipairs(m.slots) do
         if s.member then have[#have + 1] = s.member end

@@ -2585,6 +2585,12 @@ function TV.count(set)
     return n
 end
 
+-- Is the draft's member in one of its groups (not benched)?
+function TV.inGroup(dr, key)
+    local g = dr and dr.grp[key]
+    return type(g) == "number" and g >= 1 and g <= ns.RaidComp:GroupCount(dr.sz)
+end
+
 -- Tanks, healers and damage among the members (a member without a known spec isn't counted).
 function TV.roleCounts(list)
     local n = { tank = 0, healer = 0, dps = 0 }
@@ -2768,7 +2774,7 @@ function TV.specMenu(root, key)
     end
 end
 
--- The right-click menu: spec, moves, out of the groups, off the team.
+-- The right-click menu: spec, moves, benched, off the team.
 function TV.memberMenu(root, key)
     local dr = state.draft
     if not dr then return end
@@ -2785,10 +2791,12 @@ function TV.memberMenu(root, key)
             PlanUI:RefreshTeams()
         end)
     end
-    root:CreateButton("Take out of the groups", function()
-        PlanUI:MoveDraftMember(key, nil)
-        PlanUI:RefreshTeams()
-    end)
+    if dr.grp[key] then
+        root:CreateButton("Bench", function()
+            PlanUI:MoveDraftMember(key, nil)
+            PlanUI:RefreshTeams()
+        end)
+    end
     if root.CreateDivider then root:CreateDivider() end
     root:CreateButton("Remove from the team", function() PlanUI:ToggleDraftMember(key) end)
 end
@@ -2930,7 +2938,7 @@ function PlanUI:AutoFillDraft()
     self:RefreshTeams()
 end
 
--- ... > Clear groups: everyone back to Not in a group (Save keeps it).
+-- ... > Clear groups: everyone to Benched (Save keeps it).
 function PlanUI:ClearDraftGroups()
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
@@ -3529,11 +3537,12 @@ function PlanUI:CreateTeams(parent)
         onMenu = TV.memberMenu,
         onRoleClick = function(key, btn) UI():ContextMenu(btn, function(root) TV.specMenu(root, key) end) end,
         isMe = TV.isMine,
-        poolLabel = "Not in a group",
+        -- (benched: on the team, in no group; they don't count for the comp, its slots or the raid buffs)
+        poolLabel = "Benched",
         poolEmpty = function()
             local dr = state.draft
             return (dr and not next(dr.members)) and "Add members with the search above: they land here, then drag "
-                .. "them into groups." or nil
+                .. "them into groups." or "Drop a player here to bench them."
         end,
         stripParent = d.buffs,
         stripRoom = function() return d.stripRoom end,
@@ -3620,7 +3629,7 @@ function TV.moreMenu(owner)
         if next(dr.grp) then
             tip(root:CreateButton(UI():AtlasIconText(9, 14, { 0.9, 0.9, 0.9 }) .. "  Clear groups",
                 function() PlanUI:ClearDraftGroups() end),
-                "Clear groups", "Everyone back to Not in a group. Save keeps it, Undo brings the groups back.")
+                "Clear groups", "Everyone to Benched. Save keeps it, Undo brings the groups back.")
         end
         -- (only while the comp has open slots)
         local lf = RP():GetLFMessage(dr)
@@ -3676,12 +3685,21 @@ function TV.fillCard(dr, organizer)
         TV.fillMeter(card.meter, m)
         if #m.open > 0 then TV.fillNeeds(card.lN, m.open) end
     end
-    card.roles:SetShown(n > 0 and m == nil)
-    card.roles:Set(TV.roleCounts(list))
+    -- (the roles count the members in a group: benched ones don't count)
+    local placed = {}
+    for _, mem in ipairs(list) do
+        if TV.inGroup(dr, mem.key) then placed[#placed + 1] = mem end
+    end
+    local benched = n - #placed
+    card.roles:SetShown(#placed > 0 and m == nil)
+    card.roles:Set(TV.roleCounts(placed))
     card.count:ClearAllPoints()
-    if n > 0 then
+    if #placed > 0 then
         card.count:SetPoint("LEFT", card.roles, "RIGHT", 14, 0)
-        card.count:SetText(grey("· " .. (n == 1 and "1 member" or (n .. " members"))))
+        card.count:SetText(grey("· " .. #placed .. " in groups" .. (benched > 0 and (" · " .. benched .. " benched") or "")))
+    elseif n > 0 then
+        card.count:SetPoint("LEFT", card.l2, "LEFT", 0, 0)
+        card.count:SetText(grey((n == 1 and "1 member" or (n .. " members")) .. " · all benched"))
     else
         card.count:SetPoint("LEFT", card.l2, "LEFT", 0, 0)
         card.count:SetText(grey("No members yet"))
@@ -3692,8 +3710,7 @@ function TV.fillCard(dr, organizer)
     you:SetShown(mine ~= nil)
     you.tip = nil
     if mine then
-        local g = dr.grp[mine]
-        local where = (g and g <= ns.RaidComp:GroupCount(dr.sz)) and ("Group " .. g) or "not in a group"
+        local where = TV.inGroup(dr, mine) and ("Group " .. dr.grp[mine]) or "Benched"
         local sp, c, source = RP():GetMemberSpec(mine, { specs = dr.s })
         local label = sp and ns.RaidComp:SpecLabel(c, sp)
         you.fs:SetText("You: " .. where .. (label and (" · " .. label) or ""))
@@ -3952,8 +3969,8 @@ function TV.groupStates(placed)
     return out
 end
 
--- Who could fill an open slot of the team (the Needs line, the Comp view): the bench, alts, the guild, other teams
--- (RaidPlan:CanFill), three a group at most.
+-- Who could fill an open slot of the team (the Needs line, the Comp view): benched members, members in a group beyond
+-- the comp, alts, the guild, other teams (RaidPlan:CanFill), three a group at most.
 function TV.canFillTooltip(owner, c, sp, anchor)
     local dr = state.draft
     if not dr then return end
@@ -3970,8 +3987,8 @@ function TV.canFillTooltip(owner, c, sp, anchor)
     GameTooltip:AddLine("Open" .. (#brings > 0 and (" · brings " .. tconcat(brings, ", ")) or ""), 0.62, 0.62, 0.62, true)
     local cf = RP():CanFill(dr, c, sp)
     local any = false
-    for _, grp in ipairs({ { "On the bench", cf.bench }, { "Alts of the team", cf.alts }, { "In the guild", cf.guild },
-                           { "In other teams", cf.teams } }) do
+    for _, grp in ipairs({ { "Benched", cf.bench }, { "In the groups, beyond the comp", cf.extra },
+                           { "Alts of the team", cf.alts }, { "In the guild", cf.guild }, { "In other teams", cf.teams } }) do
         local list = grp[2] or {}
         if #list > 0 then
             any = true
@@ -4200,7 +4217,7 @@ end
 
 -- Start from: "Standard 25  3 tanks · 6 healers · 7 melee · 9 ranged".
 function TV.startSub(s)
-    if s.kind == "team" then return ("a slot for each member's spec (%d)"):format(ns.RaidComp:CompSize(s.cp)) end
+    if s.kind == "team" then return ("a slot per spec in the groups (%d)"):format(ns.RaidComp:CompSize(s.cp)) end
     if s.kind == "copy" then return ("its %d slots"):format(ns.RaidComp:CompSize(s.cp)) end
     local rc = ns.RaidComp:RoleCounts(s.cp)
     return ("%d tanks · %d healers · %d melee · %d ranged"):format(rc.tank, rc.healer, rc.melee, rc.ranged)
@@ -4323,7 +4340,8 @@ function TV.slotTooltip(self)
     GameTooltip:Show()
 end
 
--- A bench chip: class circle, name, spec icon (the Sign-ups' boxes look).
+-- A chip under the comp's columns (benched, or beyond the comp): class circle, name, spec icon (the Sign-ups' boxes
+-- look).
 function TV.newBenchChip(parent)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(CHIP_H)
@@ -4348,8 +4366,12 @@ function TV.newBenchChip(parent)
         GameTooltip:AddLine(colored(m.key, m.c) .. (TV.isMine(m.key) and " |cff9e9e9e(you)|r" or ""))
         local label = m.sp and ns.RaidComp:SlotName(m.c, m.sp)
         GameTooltip:AddLine(label or ((ns.RaidComp:ClassName(m.c) or "") .. " · spec unknown"), 1, 1, 1)
-        GameTooltip:AddLine("On the team, beyond the comp.", 0.6, 0.6, 0.6)
-        if RP():CanManageTeams() then GameTooltip:AddLine("Click to add a slot or change the spec.", 0.6, 0.6, 0.6) end
+        GameTooltip:AddLine(self.benched and "Benched: in no group, so not in the comp." or "In a group, beyond the comp.",
+            0.6, 0.6, 0.6)
+        if RP():CanManageTeams() then
+            GameTooltip:AddLine(self.benched and "Click to put them in a group or change the spec."
+                or "Click to add a slot or change the spec.", 0.6, 0.6, 0.6)
+        end
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", hideTooltip)
@@ -4357,7 +4379,8 @@ function TV.newBenchChip(parent)
     return b
 end
 
--- A bench chip clicked (organizers): a slot for their spec, or the spec they play in this team.
+-- A chip under the columns clicked (organizers): benched, a group to put them in; beyond the comp, a slot for their
+-- spec; both, the spec they play in this team.
 function TV.benchMenu(chip)
     local m, dr = chip.member, state.draft
     if not m or not dr or not RP():CanManageTeams() then return end
@@ -4365,7 +4388,14 @@ function TV.benchMenu(chip)
     UI():ContextMenu(chip, function(root)
         local label = m.sp and ns.RaidComp:SlotName(m.c, m.sp)
         root:CreateTitle(shortName(key) .. (label and (" " .. colorize("9e9e9e", label)) or ""))
-        if label and ns.RaidComp:CompSize(dr.cp) < dr.sz then
+        if chip.benched then
+            for g = 1, ns.RaidComp:GroupCount(dr.sz) do
+                root:CreateButton("Move to group " .. g, function()
+                    PlanUI:MoveDraftMember(key, g)
+                    PlanUI:RefreshTeams()
+                end)
+            end
+        elseif label and ns.RaidComp:CompSize(dr.cp) < dr.sz then
             root:CreateButton("Add " .. TV.article(label) .. " " .. label .. " slot", function()
                 ns.RaidComp:SetCount(dr.cp, m.c, m.sp, ns.RaidComp:GetCount(dr.cp, m.c, m.sp) + 1)
                 PlanUI:RefreshTeams()
@@ -4580,23 +4610,31 @@ function TV.createComp(t, d)
         col.rows = {}
         d.cols[i] = col
     end
-    local bench = CreateFrame("Frame", nil, cc)
-    panel(bench)
-    bench.label = CreateFrame("Button", nil, bench)
-    bench.label:SetHeight(CHIP_H)
-    bench.label:SetPoint("TOPLEFT", bench, "TOPLEFT", 12, -8)
-    bench.label.fs = textOf(bench.label, "GameFontHighlight", 12)
-    bench.label.fs:SetPoint("LEFT", 0, 0)
-    bench.label:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Bench")
-        GameTooltip:AddLine("On the team, beyond the comp: more players of a spec than its slots, or a spec the comp "
-            .. "doesn't have.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    bench.label:SetScript("OnLeave", hideTooltip)
-    bench.chips = {}
-    d.bench = bench
+    -- under the columns: who fills no slot, benched (in no group) and beyond the comp (in a group, no slot)
+    local function chipPanel(label, tip)
+        local p = CreateFrame("Frame", nil, cc)
+        panel(p)
+        p.title = label
+        p.label = CreateFrame("Button", nil, p)
+        p.label:SetHeight(CHIP_H)
+        p.label:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -8)
+        p.label.fs = textOf(p.label, "GameFontHighlight", 12)
+        p.label.fs:SetPoint("LEFT", 0, 0)
+        p.label:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(label)
+            GameTooltip:AddLine(tip, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        p.label:SetScript("OnLeave", hideTooltip)
+        p.chips = {}
+        p:Hide()
+        return p
+    end
+    d.benched = chipPanel("Benched", "On the team, in no group: they don't count for the comp. Drag them into a "
+        .. "group on the Groups tab to fill a slot.")
+    d.bench = chipPanel("Beyond the comp", "In a group, but no slot takes them: more players of a spec than its "
+        .. "slots, or a spec the comp doesn't have.")
 
     TV.createSteps(d)
 
@@ -4666,7 +4704,7 @@ function TV.fillCompEmpty(dr)
                 local rc = ns.RaidComp:RoleCounts(s.cp)
                 sub = ("%d tanks · %d healers · %d dps"):format(rc.tank, rc.healer, rc.melee + rc.ranged)
             elseif s.kind == "team" then
-                sub = "a slot for each member's spec"
+                sub = "a slot per spec in the groups"
             else
                 sub = "copy it, then adjust"
             end
@@ -4727,41 +4765,55 @@ function TV.fillCompView(m, organizer)
     end
     local colH = COL_HEAD_H + 4 + max(1, depth) * COL_ROW_H + 8
     for _, col in ipairs(d.cols) do col:SetHeight(colH) end
-    -- the bench: who no slot takes, as chips with their spec
-    local bench = d.bench
-    local list = m.bench or {}
-    bench:SetShown(#list > 0)
-    local h = 0
-    if #list > 0 then
-        bench.label.fs:SetText("Bench" .. colorize("9e9e9e", " (" .. #list .. ")"))
-        bench.label:SetWidth(floor((bench.label.fs:GetStringWidth() or 60) + 0.5))
-        local x0 = 12 + bench.label:GetWidth() + 14
-        local cx, cy = x0, -8
-        for j, mem in ipairs(list) do
-            local chip = bench.chips[j] or TV.newBenchChip(bench)
-            bench.chips[j] = chip
-            chip.member = mem
-            UI():ClassIcon(chip.icon, mem.c)
-            chip.fs:SetText(colored(mem.key, mem.c))
-            local icon = ns.RaidComp:SpecIcon(mem.c, mem.sp)
-            chip.spec:SetShown(icon ~= nil)
-            if icon then chip.spec:SetTexture(icon) end
-            local w = floor(3 + 16 + 6 + (chip.fs:GetStringWidth() or 60) + (icon and (8 + 14 + 5) or 9) + 0.5)
-            chip:SetWidth(w)
-            if cx + w > W - 12 and cx > x0 then cx, cy = x0, cy - (CHIP_H + CHIP_GAP) end
-            chip:ClearAllPoints()
-            chip:SetPoint("TOPLEFT", bench, "TOPLEFT", cx, cy)
-            chip:Show()
-            cx = cx + w + CHIP_GAP
+    -- under the columns, who no slot takes, as chips with their spec: benched, then beyond the comp
+    local y = colH
+    local panels = { { d.benched, m.benched or {}, true }, { d.bench, m.bench or {}, false } }
+    -- (both panels' chips start at the same x, past the longer label)
+    local labelW = 0
+    for _, e in ipairs(panels) do
+        local p, list = e[1], e[2]
+        p.label.fs:SetText(p.title .. colorize("9e9e9e", " (" .. #list .. ")"))
+        p.label:SetWidth(floor((p.label.fs:GetStringWidth() or 60) + 0.5))
+        if #list > 0 then labelW = max(labelW, p.label:GetWidth()) end
+    end
+    for _, e in ipairs(panels) do
+        local p, list = e[1], e[2]
+        p:SetShown(#list > 0)
+        if #list > 0 then
+            y = y + GAP + TV.fillChipPanel(p, list, e[3], y + GAP, 12 + labelW + 14)
         end
-        for j = #list + 1, #bench.chips do bench.chips[j]:Hide() end
-        h = -cy + CHIP_H + 8
-        bench:ClearAllPoints()
-        bench:SetPoint("TOPLEFT", cc, "TOPLEFT", 0, -(colH + GAP))
-        bench:SetSize(W, h)
     end
     cc:SetWidth(W)
-    cc:SetHeight(colH + (h > 0 and (GAP + h) or 0))
+    cc:SetHeight(y)
+end
+
+-- One panel of chips under the columns (benched or beyond the comp) at y, its chips from x0; returns its height.
+function TV.fillChipPanel(p, list, benched, y, x0)
+    local W = TV.W
+    local cx, cy = x0, -8
+    for j, mem in ipairs(list) do
+        local chip = p.chips[j] or TV.newBenchChip(p)
+        p.chips[j] = chip
+        chip.member, chip.benched = mem, benched
+        UI():ClassIcon(chip.icon, mem.c)
+        chip.fs:SetText(colored(mem.key, mem.c))
+        local icon = ns.RaidComp:SpecIcon(mem.c, mem.sp)
+        chip.spec:SetShown(icon ~= nil)
+        if icon then chip.spec:SetTexture(icon) end
+        local w = floor(3 + 16 + 6 + (chip.fs:GetStringWidth() or 60) + (icon and (8 + 14 + 5) or 9) + 0.5)
+        chip:SetWidth(w)
+        if cx + w > W - 12 and cx > x0 then cx, cy = x0, cy - (CHIP_H + CHIP_GAP) end
+        chip:ClearAllPoints()
+        chip:SetPoint("TOPLEFT", p, "TOPLEFT", cx, cy)
+        chip:Show()
+        cx = cx + w + CHIP_GAP
+    end
+    for j = #list + 1, #p.chips do p.chips[j]:Hide() end
+    local h = -cy + CHIP_H + 8
+    p:ClearAllPoints()
+    p:SetPoint("TOPLEFT", teamsView.detail.compContent, "TOPLEFT", 0, -y)
+    p:SetSize(W, h)
+    return h
 end
 
 -- The Comp tab below the tabs: the row on top (organizers: Start from, the strip, Undo / Save; members: the

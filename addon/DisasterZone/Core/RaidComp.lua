@@ -348,16 +348,21 @@ RaidComp.GROUP_SIZE = GROUP_SIZE
 --                                              of the same size (by name)
 --     ResolveTeam(team)                        { id, name, members (sorted), specs, groups, size, comp } or nil
 --     GetTeamMembers(team)                     { member, ... } by key (spec as the Teams page decides:
---                                              GetMemberSpec(key, team))
---     CompFromTeam(team)                       the team as it is (cp) or nil
---     MatchTeam(team)                          MatchComp of the team's comp and members; nil without a comp
+--                                              GetMemberSpec(key, team)); seated = in one of the team's groups
+--     GetTeamPlaced(team)                      placed, benched: the members in a group / in none. Benched members
+--                                              (the Teams page's "Benched") never count: no slot, no raid buff, not
+--                                              in "the team as it is"
+--     CompFromTeam(team)                       the team as it is (cp, from the members in a group) or nil
+--     MatchTeam(team)                          MatchComp of the team's comp and its members in a group, plus
+--                                              benched = { member, ... } (in no group; bench order); nil without a comp
 --     GetTeamOpenSlots(team)                   open list, count ({}, 0 without a comp)
---     CanFill(team, c, sp)                     { bench = { cand }, alts = { cand }, guild = { cand }, teams = { cand } }:
---                                              the team's bench, alts of its members (level 70), the rest of the
---                                              guild (level 70, on no team, spec from sign-ups / BiS list), members
---                                              of other teams (that spec there). bench and alts also list the class
---                                              in another spec (other = true); guild and teams that spec only. A
---                                              player shows once. Each list: that spec first, online first, by key.
+--     CanFill(team, c, sp)                     { bench, extra, alts, guild, teams = { cand, ... } }: the team's
+--                                              benched members, its members in a group beyond the comp (that class),
+--                                              alts of its members (level 70), the rest of the guild (level 70, on no
+--                                              team, spec from sign-ups / BiS list), members of other teams (that spec
+--                                              there). bench and alts also list the class in another spec (other =
+--                                              true); guild and teams that spec only. A player shows once. Each list:
+--                                              that spec first, online first, by key.
 --     GetSpecIndex()                           { bySpec = { ["CLASS:sp"] = { key, ... } }, byKey = { [key] =
 --                                              { c, sp, src } } }: level-70 guild members (cached, dropped on changes)
 --     GetRaidCompTeam(occ)                     the team whose comp a raid uses: its first team (tm order) with a comp
@@ -370,7 +375,8 @@ RaidComp.GROUP_SIZE = GROUP_SIZE
 --     RaidCanFill(occ, c, sp)                  { unanswered = { cand }, guild = { cand } }: team members of that
 --                                              spec who haven't answered, then level-70 guild members of that spec
 --                                              who haven't answered (or are on the bench: st = "B")
---     GetTeamBuffStates(team)                  BuffStates(filled slots, open slots); without a comp: the members
+--     GetTeamBuffStates(team)                  BuffStates(filled slots, open slots); without a comp: the members in a
+--                                              group
 --     GetRaidBuffStates(occ[, have])           BuffStates(have, default Accepted + Tentative; its open slots)
 --     GetTeamNextRaid(teamId)                  the team's next raid (a view; not cancelled, started < 6 h ago) or nil
 --     GetLFMessage(team)                       the LF line for the open slots and the next raid, or nil without open
