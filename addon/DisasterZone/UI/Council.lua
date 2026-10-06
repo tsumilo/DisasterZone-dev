@@ -3237,10 +3237,7 @@ local function roleChip(parent, info)
     function b:Paint()
         local any = next(state.roles) ~= nil
         local on = state.roles[info.key] and true or false
-        local s = on and ns.UI.SLEEK.chosen or ns.UI.SLEEK.secondary
-        local c = self.hovered and s.hover or s.bg
-        self.bg:SetColorTexture(c[1], c[2], c[3], c[4])
-        ns.UI:SetEdgeColor(self, s.edge[1], s.edge[2], s.edge[3], on and s.edge[4] or 0.6)
+        ns.UI:PaintSleek(self, on and "chosen" or "secondary", self.hovered, not on and 0.6 or nil)
         local faded = any and not on and not self.hovered
         V.desaturate(self.icon, faded)
         self.icon:SetAlpha(faded and 0.4 or 1)

@@ -1103,9 +1103,7 @@ local function NewRoleChip(parent, role, onClick)
     b.role = role
     function b:SetOn(on)
         self.on = on and true or false
-        local s = UI().SLEEK[self.on and "chosen" or "secondary"]
-        self.bg:SetColorTexture(s.bg[1], s.bg[2], s.bg[3], s.bg[4])
-        UI():SetEdgeColor(self, s.edge[1], s.edge[2], s.edge[3], s.edge[4])
+        UI():PaintSleek(self, self.on and "chosen" or "secondary", false)
         self.icon:SetDesaturated(not self.on)
         self.icon:SetAlpha(self.on and 1 or 0.3)
     end
