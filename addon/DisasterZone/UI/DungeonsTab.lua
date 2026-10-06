@@ -1119,29 +1119,9 @@ local function NewRoleChip(parent, role, onClick)
     return b
 end
 
--- The on / off switch: a pill with a knob.
+-- The on / off switch (the shared, animated one): a click asks onClick, s:SetOn(on) shows the answer.
 local function NewSwitch(parent, onClick)
-    local s = CreateFrame("Button", nil, parent)
-    s:SetSize(34, 18)
-    AddPill(s, 18)
-    s.knob = Disc(s, "ARTWORK", 0, 12, { 0.54, 0.54, 0.56, 1 })
-    function s:SetOn(on)
-        self.on = on and true or false
-        if self.on then
-            self:SetPillColors({ 0.11, 0.47, 0.20, 0.95 }, { 0.35, 0.86, 0.47, 0.8 })
-            self.knob:SetVertexColor(0.92, 1, 0.94, 1)
-            self.knob:ClearAllPoints()
-            self.knob:SetPoint("RIGHT", -3, 0)
-        else
-            self:SetPillColors({ 0.16, 0.16, 0.18, 0.95 }, { 0.34, 0.34, 0.38, 0.9 })
-            self.knob:SetVertexColor(0.54, 0.54, 0.56, 1)
-            self.knob:ClearAllPoints()
-            self.knob:SetPoint("LEFT", 3, 0)
-        end
-    end
-    s:SetScript("OnClick", function() onClick() end)
-    s:SetOn(false)
-    return s
+    return UI():CreateSwitch(parent, nil, function() onClick() end)
 end
 
 local function UpTip(owner)
@@ -1167,8 +1147,8 @@ local function CreateTop(p)
     p.top = top
     top.switch = NewSwitch(top, function() R():SetUp(not R():IsUp()) end)
     top.switch:SetPoint("LEFT", 0, 0)
-    top.switch:SetScript("OnEnter", UpTip)
-    top.switch:SetScript("OnLeave", HideTip)
+    top.switch:HookScript("OnEnter", UpTip)
+    top.switch:HookScript("OnLeave", HideTip)
     top.label = CreateFrame("Button", nil, top)
     top.label.text = Text(top.label, "GameFontHighlight", 13)
     top.label.text:SetPoint("LEFT")

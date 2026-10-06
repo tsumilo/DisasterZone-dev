@@ -126,6 +126,56 @@ def every_checkbox_writes_its_setting_and_follows_changes():
     no_errors(w)
 
 
+SWITCH_GEO = """local s = ...
+return { kl = s.kl, kr = s.kr, mix = s.mix, press = s.press, ring = s.ringT ~= nil,
+         moving = s:GetScript('OnUpdate') ~= nil, on = s:GetChecked() and true or false }"""
+
+
+@case
+def switches_slide_settle_and_squeeze():
+    w, c = settings_client(guild_rank=3)
+    cb = checkbox(c, "Debug messages in chat")
+    geo = lambda: c.eval_py(SWITCH_GEO, cb)
+    g = geo()
+    assert g["on"] is False and g["kl"] == 3 and g["kr"] == 15 and g["mix"] == 0 and not g["moving"], g
+    # a click: the knob slides right, its front edge ahead (it stretches), the green comes in, a ring goes out
+    c.click(cb)
+    g = geo()
+    assert g["on"] is True and g["moving"] and g["ring"] and g["kl"] == 3, g
+    w.tick(0.12, step=0.02)
+    g = geo()
+    assert 3 < g["kl"] < 19 and g["kr"] - g["kl"] > 13 and 0 < g["mix"] < 1, g
+    w.tick(0.6, step=0.02)
+    g = geo()
+    assert g["kl"] == 19 and g["kr"] == 31 and g["mix"] == 1 and not g["ring"] and not g["moving"], g
+    # back off: no ring, the knob home on the left, grey again
+    c.click(cb)
+    w.tick(0.05, step=0.02)
+    assert geo()["ring"] is False and geo()["moving"]
+    w.tick(0.6, step=0.02)
+    g = geo()
+    assert g["on"] is False and g["kl"] == 3 and g["kr"] == 15 and g["mix"] == 0 and not g["moving"], g
+    # a held button squeezes the knob; letting go eases it back
+    c.eval("__MOCK.call_script(..., 'OnMouseDown', 'LeftButton')", cb)
+    w.tick(0.2, step=0.02)
+    assert geo()["press"] == 1
+    c.eval("__MOCK.call_script(..., 'OnMouseUp', 'LeftButton')", cb)
+    w.tick(0.2, step=0.02)
+    g = geo()
+    assert g["press"] == 0 and not g["moving"] and g["on"] is False, g
+    # a change from code while it is on screen moves too (the slash command, after the debounced refresh)
+    c.slash("/dz debug")
+    w.tick(0.9, step=0.02)
+    g = geo()
+    assert g["on"] is True and g["kl"] == 19 and g["mix"] == 1 and not g["moving"], g
+    # ... and off screen it is set at once
+    c.eval("ns.MainFrame:Close()")
+    c.eval("local s = ...; s:SetChecked(false)", cb)
+    g = geo()
+    assert g["kl"] == 3 and g["mix"] == 0 and not g["moving"], g
+    no_errors(w)
+
+
 @case
 def every_dropdown_writes_its_setting():
     w, c = settings_client(guild_rank=3)

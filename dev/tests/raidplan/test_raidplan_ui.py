@@ -323,12 +323,18 @@ def the_editor_date_picker_is_a_month_calendar():
     bob.eval("ns.RaidPlanUI:OpenEditor()")
     dp = "ns.RaidPlanUI:GetEditor().datePicker"
     tomorrow = bob.eval_py("local d = date('*t', GetServerTime() + 86400); return { d.year, d.month, d.day }")
-    # (the month tile beside the date strip: the picked day's month)
-    label = bob.eval("return %s.month:GetText()" % dp)
-    assert label == bob.eval("local y, m, d = ...; return date('%b', time({ year = y, month = m, day = d, hour = 12 })):upper()",
-                             *tomorrow), label
+    # (the calendar button beside the date strip: the calendar icon, no text)
+    assert bob.eval("return %s.icon ~= nil and %s.icon:IsShown() and %s:GetText()" % (dp, dp, dp)) == ""
+    assert bob.eval("return %s.month" % dp) is None
     bob.click(bob.eval("return %s" % dp))
     assert bob.eval("return %s.popup:IsShown()" % dp) is True
+    # it drops in under the button (centred), the button and its icon gold while it is down
+    assert bob.eval("return %s.popup:GetAlpha()" % dp) < 1
+    bob.world.tick(0.3, step=0.02)
+    drop = bob.eval_py("local b = %s; local p = b.popup; local pt, rel, rp, x, y = p:GetPoint(1); "
+                       "local r, g = b.icon:GetVertexColor(); "
+                       "return { pt, rp, x, y, p:GetAlpha(), b.tint ~= nil, r > g }" % dp)
+    assert drop == ["TOP", "BOTTOM", 0, -4, 1, True, True], drop
     info = bob.eval_py("""
       local b = %s; local p = b.popup; local now = date('*t', GetServerTime()); local out = { cells = {} }
       out.title = p.title:GetText(); out.prev = p.prev:IsEnabled(); out.next = p.next:IsEnabled()

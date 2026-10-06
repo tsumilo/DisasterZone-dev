@@ -4,8 +4,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidSheet.lua", ...) then retur
 --   the raids as loading-screen tiles: several can be picked, the order they are clicked in is the night's order
 --     (Gruul, then Magtheridon); the size follows them (the larger one: Karazhan + Gruul is a 25; "Other" is a 25), an
 --     edited raid keeps its own until its raids change
---   When: a week of day cells (a dot on days with a raid), arrows a week back / on, a month tile that opens the
---     calendar for later days; the time as a stepper (15 minutes a step, the mouse wheel too); Every week (new raids)
+--   When: a week of day cells (a dot on days with a raid), arrows a week back / on, a calendar button that drops the
+--     month calendar for later days; the time as a stepper (15 minutes a step, the mouse wheel too); Every week (new
+--     raids)
 --   Who: a card per team (per lineup of the raid's size when it has several) with how many it invites, the search
 --     for players outside the teams, and the players invited as pills (x takes one off)
 --   Sign-ups: Everyone | Teams + invited | Private; Level 70 only beside it
@@ -106,30 +107,9 @@ local function flatCell(f)
     return f
 end
 
--- The atlas chevron (it points down) turned left or right.
-local function chevron(tex, right)
-    local c = UI():IconCoords(UI().ICON.chevron)
-    local l, r, t, b = c[1], c[2], c[3], c[4]
-    tex:SetTexture(UI().ICON_ATLAS)
-    if right then tex:SetTexCoord(l, t, r, t, l, b, r, b) else tex:SetTexCoord(l, b, r, b, l, t, r, t) end
-end
-
 -- A small arrow button (the date strip's, the time stepper's).
 local function arrowButton(parent, right, w, h, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(w, h)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(12, 12)
-    b.icon:SetPoint("CENTER")
-    chevron(b.icon, right)
-    b.icon:SetVertexColor(0.75, 0.75, 0.78)
-    local hl = b:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.06)
-    b:SetScript("OnClick", onClick)
-    b:SetScript("OnEnable", function(self) self.icon:SetAlpha(1) end)
-    b:SetScript("OnDisable", function(self) self.icon:SetAlpha(0.25) end)
-    return b
+    return UI():CreateArrowButton(parent, right, w, h, onClick)
 end
 
 ---------------------------------------------------------------------------
@@ -678,7 +658,7 @@ function S.create()
     sh.nextWeek = arrowButton(sh.whenRow, true, 18, DAY_H, function() S.moveStrip(DAYS) end)
     sh.nextWeek:SetPoint("LEFT", sh.days[DAYS], "RIGHT", 2, 0)
     tipOn(sh.nextWeek, { "A week on" })
-    -- (the month tile is the date picker's own button: its calendar opens under it)
+    -- (the calendar button is the date picker's own button: its calendar drops under it)
     sh.datePicker = UI():CreateDatePicker(sh.whenRow, {
         get = function() return sh.f.y, sh.f.m, sh.f.d end,
         set = function(y, m, d)
@@ -699,25 +679,57 @@ function S.create()
             return lines and tconcat(lines, "\n") or nil
         end,
         width = 44,
+        center = true,
     })
     local dp = sh.datePicker
     dp:SetSize(44, DAY_H)
     dp:SetPoint("LEFT", sh.nextWeek, "RIGHT", 6, 0)
-    dp.month = text(dp, "GameFontNormalSmall", 10)
-    dp.month:SetJustifyH("CENTER")
-    dp.month:SetPoint("TOP", 0, -8)
-    dp.chev = dp:CreateTexture(nil, "OVERLAY")
-    dp.chev:SetSize(10, 10)
-    dp.chev:SetPoint("TOP", dp.month, "BOTTOM", 0, -4)
-    dp.chev:SetTexture(UI().ICON_ATLAS)
-    dp.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
-    dp.chev:SetVertexColor(0.75, 0.75, 0.78)
+    if ns:HasAssets(4) then
+        -- a calendar icon: grey, white under the mouse, gold (and the button gold) while the calendar is down
+        dp.icon = dp:CreateTexture(nil, "OVERLAY")
+        dp.icon:SetSize(20, 20)
+        dp.icon:SetPoint("CENTER", 0, 0)
+        dp.icon:SetTexture(UI().ICON_ATLAS)
+        dp.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.calendar)))
+    else
+        -- (an older art set has no calendar icon: the month and a chevron)
+        dp.month = text(dp, "GameFontNormalSmall", 10)
+        dp.month:SetJustifyH("CENTER")
+        dp.month:SetPoint("TOP", 0, -8)
+        dp.chev = dp:CreateTexture(nil, "OVERLAY")
+        dp.chev:SetSize(10, 10)
+        dp.chev:SetPoint("TOP", dp.month, "BOTTOM", 0, -4)
+        dp.chev:SetTexture(UI().ICON_ATLAS)
+        dp.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
+        dp.chev:SetVertexColor(0.75, 0.75, 0.78)
+    end
+    local function paintIcon(self)
+        if not self.icon then return end
+        if self.popup:IsShown() then self.icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
+        elseif self.hovered then self.icon:SetVertexColor(1, 1, 1)
+        else self.icon:SetVertexColor(0.78, 0.78, 0.82) end
+    end
+    function dp:OnCalendarShown(open)
+        self:SetTint(open and GOLD[1] or nil, GOLD[2], GOLD[3])
+        paintIcon(self)
+    end
+    dp:HookScript("OnEnter", paintIcon)
+    dp:HookScript("OnLeave", paintIcon)
+    dp:HookScript("OnMouseDown", function(self)
+        if self.icon and self:IsEnabled() then self.icon:SetPoint("CENTER", 1, -1) end
+    end)
+    dp:HookScript("OnMouseUp", function(self)
+        if self.icon then self.icon:SetPoint("CENTER", 0, 0) end
+    end)
     local dpRefresh = dp.Refresh
     function dp:Refresh()
         dpRefresh(self)
         self:SetText("")
         local f = sh.f
-        if f.y then self.month:SetText(date("%b", time({ year = f.y, month = f.m, day = f.d, hour = 12 })):upper()) end
+        if self.month and f.y then
+            self.month:SetText(date("%b", time({ year = f.y, month = f.m, day = f.d, hour = 12 })):upper())
+        end
+        paintIcon(self)
     end
     tipOn(dp, { "Calendar", ("A day further out (up to %d days ahead); a dot marks the days with a raid."):format(
         EDITOR_DAYS) })

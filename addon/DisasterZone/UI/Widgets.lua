@@ -683,6 +683,8 @@ UI.ICON.bag, UI.ICON.bagAdd, UI.ICON.whisper = 40, 41, 42
 -- (the Group Finder, art pack 4: 43 an eye's lids, 44 its iris, drawn over the lids and moved while listed; check
 -- ns:HasAssets(4) first, else UI.ICON.eye)
 UI.ICON.finder, UI.ICON.finderIris, UI.ICON.eye = 43, 44, 15
+-- (art pack 4 too: 45 a calendar, the New raid sheet's calendar button)
+UI.ICON.calendar = 45
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }
@@ -696,6 +698,33 @@ function UI:AtlasIconText(i, size, color)
     local function byte(v) return math.floor((tonumber(v) or 1) * 255 + 0.5) end
     return ("|T%s:%d:%d:0:0:256:%d:%d:%d:%d:%d:%d:%d:%d|t"):format(UI.ICON_ATLAS, size, size, 64 * UI.ICON_ROWS,
         col * 64, (col + 1) * 64, row * 64, (row + 1) * 64, byte(c[1]), byte(c[2]), byte(c[3]))
+end
+
+-- The atlas chevron (it points down) on a texture, turned to point left (right = false) or right.
+function UI:SetChevron(tex, right)
+    local c = UI:IconCoords(UI.ICON.chevron)
+    local l, r, t, b = c[1], c[2], c[3], c[4]
+    tex:SetTexture(UI.ICON_ATLAS)
+    if right then tex:SetTexCoord(l, t, r, t, l, b, r, b) else tex:SetTexCoord(l, b, r, b, l, t, r, t) end
+end
+
+-- A small flat arrow (a chevron, no frame): back / on in a strip, a stepper or a calendar. b.icon is the chevron;
+-- disabled it fades.
+function UI:CreateArrowButton(parent, right, w, h, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(w, h)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(12, 12)
+    b.icon:SetPoint("CENTER")
+    UI:SetChevron(b.icon, right)
+    b.icon:SetVertexColor(0.75, 0.75, 0.78)
+    local hl = b:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 1, 0.06)
+    b:SetScript("OnClick", onClick)
+    b:SetScript("OnEnable", function(self) self.icon:SetAlpha(1) end)
+    b:SetScript("OnDisable", function(self) self.icon:SetAlpha(0.25) end)
+    return b
 end
 
 -- An icon button (UI.ICON_ATLAS index) that says what it does in a tooltip: title, then text.
@@ -1034,43 +1063,196 @@ end
 -- s:SetChecked(on) / s:SetOn(on) set it from code and repaint, s:IsOn() reads it. label (optional): a text to its right
 -- that is part of the click area (s.label); a caller that draws its own text for it may point s.label at that.
 -- s:SetHover(on) gives it the hover look while the mouse is over something else that clicks it (a settings row).
+-- It moves: the knob slides over with its front edge a little ahead (it stretches and settles round again), the
+-- green follows it along the track, a soft ring goes out when it comes on, and a held mouse button squeezes the
+-- knob toward the other side. A change from code while it is on screen moves the same way; one made in the frame it
+-- appears (a page filling its fields as it opens) is set at once.
 local SWITCH_DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SWITCH_LOOK = {
-    on  = { fill = { 0.11, 0.47, 0.20, 0.95 }, edge = { 0.35, 0.86, 0.47, 0.8 }, hover = { 0.55, 1, 0.66, 1 },
-            knob = { 0.92, 1, 0.94, 1 } },
+    on  = { fill = { 0.11, 0.47, 0.20, 0.95 }, edge = { 0.30, 0.71, 0.39, 1 }, hover = { 0.55, 1, 0.66, 1 },
+            knob = { 0.92, 1, 0.94, 1 }, ring = { 0.35, 0.86, 0.47 } },
     off = { fill = { 0.16, 0.16, 0.18, 0.95 }, edge = { 0.34, 0.34, 0.38, 0.9 }, hover = { 0.62, 0.62, 0.68, 1 },
             knob = { 0.54, 0.54, 0.56, 1 } },
 }
+local SWITCH_W, SWITCH_H, KNOB, KNOB_IN = 34, 18, 12, 3
+local SWITCH_SLIDE, SWITCH_RING, SWITCH_PRESS = 0.26, 0.55, 0.09     -- seconds
+local SWITCH_LEAD = 0.12                                             -- how far the front edge runs ahead (of 1)
+local SWITCH_SQUEEZE, SWITCH_RING_OUT = 4, 6                         -- px
+
+local function EaseInOut(t)
+    if t <= 0 then return 0 elseif t >= 1 then return 1 end
+    if t < 0.5 then return 4 * t * t * t end
+    t = 2 - 2 * t
+    return 1 - t * t * t / 2
+end
+
+local function EaseOut(t)
+    if t <= 0 then return 0 elseif t >= 1 then return 1 end
+    t = 1 - t
+    return 1 - t * t * t
+end
+
+-- A pill painted with three textures on f that can be moved and stretched every frame: p:Lay(left, right, h, y)
+-- (px from f's left edge; y up from its middle), p:SetColor(r, g, b, a), p:SetShown(on).
+local function NewPillPaint(f, layer, sub)
+    local p = {}
+    for i = 1, 3 do
+        local t = f:CreateTexture(nil, layer, nil, sub)
+        if i < 3 then
+            t:SetTexture(SWITCH_DISC)
+            t:SetTexCoord(i == 1 and 0 or 0.5, i == 1 and 0.5 or 1, 0, 1)
+        else
+            t:SetColorTexture(1, 1, 1, 1)
+        end
+        p[i] = t
+    end
+    function p:Lay(l, r, h, y)
+        y = y or 0
+        if r - l < h then r = l + h end
+        local half = h / 2
+        local a, b, m = self[1], self[2], self[3]
+        a:SetSize(half, h)
+        a:ClearAllPoints()
+        a:SetPoint("LEFT", f, "LEFT", l, y)
+        b:SetSize(half, h)
+        b:ClearAllPoints()
+        b:SetPoint("RIGHT", f, "LEFT", r, y)
+        m:ClearAllPoints()
+        m:SetPoint("TOPLEFT", f, "LEFT", l + half, y + half)
+        m:SetPoint("BOTTOMRIGHT", f, "LEFT", r - half, y - half)
+        m:SetShown(r - l > h + 0.01)
+    end
+    function p:SetColor(r, g, b, a)
+        for i = 1, 3 do self[i]:SetVertexColor(r, g, b, a or 1) end
+    end
+    function p:SetShown(on)
+        for i = 1, 2 do self[i]:SetShown(on) end
+        if not on then self[3]:Hide() end
+    end
+    return p
+end
+
+local function Mix(a, b, t, i) return a[i] + (b[i] - a[i]) * t end
+
+-- The switch as it is this frame: s.kl / s.kr = the knob's edges, s.mix = 0 (off) .. 1 (on) for the colours,
+-- s.press = 0 .. 1 (a held button), s.ringT = seconds into the ring.
+local function DrawSwitch(s)
+    local off, on = SWITCH_LOOK.off, SWITCH_LOOK.on
+    local enabled = s:IsEnabled()
+    local hov = enabled and (s.hovered or s.rowHovered)
+    local c = s.mix
+    s:SetPillColors(off.fill, hov and off.hover or off.edge)
+    local l, r = s.kl, s.kr
+    local sq = s.press * SWITCH_SQUEEZE
+    if (l + r) / 2 < SWITCH_W / 2 then r = r + sq else l = l - sq end
+    -- the green: from the track's left end to just past the knob, faded in with the colour
+    local gr = math.max(SWITCH_H, r + KNOB_IN)
+    local ge = hov and on.hover or on.edge
+    s.greenEdge:Lay(0, gr, SWITCH_H)
+    s.greenEdge:SetColor(ge[1], ge[2], ge[3], ge[4] * c)
+    s.greenFill:Lay(1, gr - 1, SWITCH_H - 2)
+    s.greenFill:SetColor(on.fill[1], on.fill[2], on.fill[3], on.fill[4] * c)
+    local shown = c > 0.001
+    s.greenEdge:SetShown(shown)
+    s.greenFill:SetShown(shown)
+    s.knobShadow:Lay(l - 0.5, r + 0.5, KNOB + 1, -1)
+    s.knobShadow:SetColor(0, 0, 0, 0.35)
+    s.knobPaint:Lay(l, r, KNOB)
+    s.knobPaint:SetColor(Mix(off.knob, on.knob, c, 1), Mix(off.knob, on.knob, c, 2), Mix(off.knob, on.knob, c, 3), 1)
+    if s.ringT then
+        local g = s.ringT / SWITCH_RING
+        local out = SWITCH_RING_OUT * EaseOut(g)
+        s.ring:Lay(-out, SWITCH_W + out, SWITCH_H + 2 * out)
+        s.ring:SetColor(on.ring[1], on.ring[2], on.ring[3], 0.42 * (1 - g) * (1 - g))
+        s.ring:SetShown(true)
+    else
+        s.ring:SetShown(false)
+    end
+    s:SetAlpha(enabled and 1 or 0.45)
+end
+
+local function StepSwitch(s, elapsed)
+    local busy = false
+    local a = s.anim
+    if a then
+        a.t = a.t + (elapsed or 0)
+        local u = math.min(1, a.t / SWITCH_SLIDE)
+        local lead = EaseInOut(u / (1 - SWITCH_LEAD))
+        local trail = EaseInOut((u - SWITCH_LEAD) / (1 - SWITCH_LEAD))
+        if a.right then
+            s.kl, s.kr = a.fl + (a.tl - a.fl) * trail, a.fr + (a.tr - a.fr) * lead
+        else
+            s.kl, s.kr = a.fl + (a.tl - a.fl) * lead, a.fr + (a.tr - a.fr) * trail
+        end
+        s.mix = a.fm + (a.tm - a.fm) * EaseOut(u)
+        if u >= 1 then s.anim = nil else busy = true end
+    end
+    if s.press ~= s.pressTo then
+        local step = (elapsed or 0) / SWITCH_PRESS
+        if s.press < s.pressTo then s.press = math.min(s.pressTo, s.press + step)
+        else s.press = math.max(s.pressTo, s.press - step) end
+        busy = busy or s.press ~= s.pressTo
+    end
+    if s.ringT then
+        s.ringT = s.ringT + (elapsed or 0)
+        if s.ringT >= SWITCH_RING then s.ringT = nil else busy = true end
+    end
+    DrawSwitch(s)
+    if not busy then s:SetScript("OnUpdate", nil) end
+end
+
+-- Moves the knob to on / off: slid from where it is now (a squeeze included), or (animate false) set at once.
+local function GoSwitch(s, on, animate)
+    s.target = on
+    local tl = on and (SWITCH_W - KNOB_IN - KNOB) or KNOB_IN
+    if not animate then
+        s.anim, s.ringT, s.press, s.pressTo = nil, nil, 0, 0
+        s.kl, s.kr, s.mix = tl, tl + KNOB, on and 1 or 0
+        s:SetScript("OnUpdate", nil)
+        DrawSwitch(s)
+        return
+    end
+    local l, r = s.kl, s.kr
+    local sq = s.press * SWITCH_SQUEEZE
+    if (l + r) / 2 < SWITCH_W / 2 then r = r + sq else l = l - sq end
+    s.press, s.pressTo = 0, 0
+    s.anim = { t = 0, right = on, fl = l, fr = r, tl = tl, tr = tl + KNOB, fm = s.mix, tm = on and 1 or 0 }
+    if on then s.ringT = 0 end
+    s:SetScript("OnUpdate", StepSwitch)
+    DrawSwitch(s)
+end
+
 function UI:CreateSwitch(parent, getter, setter, label)
     local s = CreateFrame("CheckButton", nil, parent)
-    s:SetSize(34, 18)
-    UI:AddPillShape(s, 18)
-    s.knob = s:CreateTexture(nil, "ARTWORK")
-    s.knob:SetTexture(SWITCH_DISC)
-    s.knob:SetSize(12, 12)
-    local function paint(self)
-        local on = self:GetChecked() and true or false
-        local look = SWITCH_LOOK[on and "on" or "off"]
-        local enabled = self:IsEnabled()
-        self:SetPillColors(look.fill, (enabled and (self.hovered or self.rowHovered)) and look.hover or look.edge)
-        self.knob:SetVertexColor(look.knob[1], look.knob[2], look.knob[3], look.knob[4])
-        self.knob:ClearAllPoints()
-        if on then self.knob:SetPoint("RIGHT", -3, 0) else self.knob:SetPoint("LEFT", 3, 0) end
-        self:SetAlpha(enabled and 1 or 0.45)
-    end
+    s:SetSize(SWITCH_W, SWITCH_H)
+    UI:AddPillShape(s, SWITCH_H)
+    s.ring = NewPillPaint(s, "BACKGROUND", -1)
+    s.greenEdge = NewPillPaint(s, "BACKGROUND", 3)
+    s.greenFill = NewPillPaint(s, "BACKGROUND", 4)
+    s.knobShadow = NewPillPaint(s, "ARTWORK", 0)
+    s.knobPaint = NewPillPaint(s, "ARTWORK", 1)
+    s.press, s.pressTo, s.mix = 0, 0, 0
+    s.kl, s.kr = KNOB_IN, KNOB_IN + KNOB
+    s.shownAt = GetTime()
     local setChecked = s.SetChecked
     function s:SetChecked(on)
-        setChecked(self, on and true or false)
-        paint(self)
+        on = on and true or false
+        setChecked(self, on)
+        if on ~= self.target then
+            -- (on screen since an earlier frame: it moves)
+            GoSwitch(self, on, self.target ~= nil and self:IsVisible() and GetTime() > (self.shownAt or 0))
+        else
+            DrawSwitch(self)
+        end
     end
     function s:SetOn(on) self:SetChecked(on) end
     function s:IsOn() return self:GetChecked() and true or false end
     function s:Refresh()
-        if getter then self:SetChecked(getter()) else paint(self) end
+        if getter then self:SetChecked(getter()) else self:SetChecked(self:GetChecked()) end
     end
     function s:SetHover(on)
         self.rowHovered = on and true or false
-        paint(self)
+        DrawSwitch(self)
     end
     if label then
         s.label = s:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -1083,13 +1265,34 @@ function UI:CreateSwitch(parent, getter, setter, label)
         s:SetHitRectInsets(-4, -4, -4, -4)
     end
     s:SetScript("OnClick", function(self)
-        paint(self)
-        if setter then setter(self:GetChecked() and true or false) end
+        local on = self:GetChecked() and true or false
+        GoSwitch(self, on, self:IsVisible())
+        if setter then setter(on) end
     end)
-    s:SetScript("OnEnable", paint)
-    s:SetScript("OnDisable", paint)
-    s:HookScript("OnEnter", function(self) self.hovered = true; paint(self) end)
-    s:HookScript("OnLeave", function(self) self.hovered = false; paint(self) end)
+    s:SetScript("OnEnable", DrawSwitch)
+    s:SetScript("OnDisable", function(self)
+        self.pressTo = 0
+        DrawSwitch(self)
+    end)
+    s:HookScript("OnEnter", function(self) self.hovered = true; DrawSwitch(self) end)
+    s:HookScript("OnLeave", function(self)
+        self.hovered = false
+        DrawSwitch(self)
+    end)
+    -- a held button squeezes the knob toward the other side
+    s:HookScript("OnMouseDown", function(self, button)
+        if button ~= "LeftButton" or not self:IsEnabled() then return end
+        self.pressTo = 1
+        self:SetScript("OnUpdate", StepSwitch)
+    end)
+    s:HookScript("OnMouseUp", function(self)
+        self.pressTo = 0
+        if self.press > 0 then self:SetScript("OnUpdate", StepSwitch) end
+    end)
+    s:HookScript("OnShow", function(self) self.shownAt = GetTime() end)
+    s:HookScript("OnHide", function(self)
+        if self.target ~= nil then GoSwitch(self, self.target, false) end
+    end)
     s:Refresh()
     return s
 end

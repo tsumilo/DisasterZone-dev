@@ -422,12 +422,25 @@ def ic_finder_iris(d, k):
     d.ellipse(_pts(k, [(22, 22), (42, 42)]), fill=255)
 
 
+def ic_calendar(d, k):
+    # a calendar (the New raid sheet's calendar button): a page with a solid header, two binder rings standing
+    # above it (a thin gap around each), and two rows of days
+    d.rounded_rectangle(_pts(k, [(6, 11), (58, 58)]), radius=_w(k, 8), fill=255)
+    d.rounded_rectangle(_pts(k, [(11, 27), (53, 53)]), radius=_w(k, 3), fill=0)
+    for x in (21, 43):
+        d.rounded_rectangle(_pts(k, [(x - 6, 2), (x + 6, 21)]), radius=_w(k, 6), fill=0)
+        d.rounded_rectangle(_pts(k, [(x - 3, 5), (x + 3, 18)]), radius=_w(k, 3), fill=255)
+    for y in (31, 42):
+        for x in (16, 28, 41):
+            d.rectangle(_pts(k, [(x, y), (x + 7, y + 7)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
               ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
-              ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris]
+              ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris, ic_calendar]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 
