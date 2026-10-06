@@ -949,7 +949,8 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None
                 fit &= box_sums(near_line, kv, ku) < 0.5
             if not fit.any():
                 continue
-            got, rej = _greedy(covered, fit, kv, ku, max(1, int(du / r + 1e-9)), max(1, int(dv / r + 1e-9)),
+            # (what it surely covers: whole cells, rows along v, columns along u)
+            got, rej = _greedy(covered, fit, kv, ku, max(1, int(dv / r + 1e-9)), max(1, int(du / r + 1e-9)),
                                try_at)
             out += got
             rejected += rej
