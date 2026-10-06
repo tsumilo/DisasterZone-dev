@@ -109,6 +109,10 @@ EXTRA_KNOWN = {
     "IsFishingLoot",                                                     # classic_anniversary Blizzard LootFrame.lua:319
     "ConvertToRaid",                                                     # party -> raid (since 1.x; Attune.lua:5400 calls it)
     "BaseScrollBoxEvents",                                               # classic_anniversary SharedXML Scroll/ScrollBox.lua:2
+    # party invites and the Group Finder (classic_anniversary 2.5.6.69795, checked 2026-10-06):
+    "StaticPopup_FindVisible",                                           # Blizzard_StaticPopup/StaticPopup.lua:126
+    "WillAcceptInviteRemoveQueues",                                      # Blizzard_UIParent/TBC/UIParent.lua:451
+    "LFGParentFrame", "ShowLFGParentFrame", "ToggleLFGParentFrame",      # Blizzard_LFGVanilla_ParentFrame.lua:4,49,61
 }
 EXTRA_KNOWN_FIELDS = {
     "C_ChatInfo": {"SendAddonMessageLogged", "SendAddonMessage", "RegisterAddonMessagePrefix",
@@ -118,6 +122,19 @@ EXTRA_KNOWN_FIELDS = {
     "C_Map": {"GetMapArtLayers", "GetMapArtLayerTextures"},
     # classic_anniversary SharedXML Scroll/ScrollBox.lua (ScrollBoxConstants table)
     "ScrollBoxConstants": {"NoScrollInterpolation"},
+    # classic_anniversary Blizzard_APIDocumentationGenerated/LFGListInfoDocumentation.lua, Blizzard_LFGVanilla_*.lua
+    "C_LFGList": {"GetSearchResultInfo", "GetSearchResultPlayerInfo", "GetSearchResults", "Search", "CreateListing",
+                  "UpdateListing", "RemoveListing", "HasActiveEntryInfo", "GetActiveEntryInfo", "GetActivityInfoTable",
+                  "GetAvailableActivities", "GetAvailableCategories", "ClearCreationTextFields"},
+    "C_LFGInfo": {"CanPlayerUsePremadeGroup"},                       # Blizzard_LFGVanilla_ParentFrame.lua:65
+}
+# Hand-verified client events no reference addon registers (same rule as EXTRA_KNOWN: source line or doc file).
+EXTRA_KNOWN_EVENTS = {
+    "PARTY_INVITE_CANCEL",                                           # Blizzard_UIParent/TBC/UIParent.lua:455
+    # LFGListInfoDocumentation.lua (classic_anniversary 2.5.6.69795)
+    "LFG_LIST_SEARCH_RESULTS_RECEIVED", "LFG_LIST_SEARCH_FAILED", "LFG_LIST_SEARCH_RESULT_UPDATED",
+    "LFG_LIST_ACTIVE_ENTRY_UPDATE", "LFG_LIST_ENTRY_EXPIRED_TIMEOUT", "LFG_LIST_ENTRY_CREATION_FAILED",
+    "LFG_LIST_AVAILABILITY_UPDATE",
 }
 # Globals owned by addons in the TOC's OptionalDeps: reported as INFO (must be nil-guarded), not as unknown.
 OPTIONAL_DEP_PREFIXES = {"LoonBestInSlot": ("LBIS", "LoonBestInSlot")}
@@ -372,7 +389,7 @@ def check_files(files, known, report, check_events=True):
             text = src.decode("utf-8", "replace")
             for m in EVENT_RE.finditer(text):
                 ev = m.group(1)
-                if ev in MOCK_EVENTS or kevents.get(ev, 0) >= 1:
+                if ev in MOCK_EVENTS or ev in EXTRA_KNOWN_EVENTS or kevents.get(ev, 0) >= 1:
                     continue
                 line = text.count("\n", 0, m.start()) + 1
                 report.add(r, line, "WARN", "event", ev,

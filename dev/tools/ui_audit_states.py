@@ -736,6 +736,15 @@ STATES = [
                                        "d = 'ShatteredHalls', when = 'later', day = 3, mins = 20 * 60 + 30, "
                                        "no = 'Badge run, fast pulls' })", "dungeons")),
     ("Dungeons - ping", demo(DR_ME + "ns.MainFrame:Close(); ns.DungeonsUI:OnPing('demo-1')")),
+    # my run in the Group Finder (made-up pugs in demo mode), the sheet's Group Finder switch, a run's invite pop-up
+    ("Dungeons - your run in the Group Finder", demo(DR_ME + "ns.DungeonRuns:List({ d = 'Botanica', h = true, "
+                                                     "role = 'healer' }); ns.GroupFinder:List(); "
+                                                     "ns.DungeonsUI:Refresh()", "dungeons")),
+    ("Dungeons - list a run - Group Finder", demo(DR_ME + "ns.DungeonsUI:OpenSheet(); ns.DungeonsUI:SetSheet({ "
+                                                  "d = 'Steamvault', when = 'later', day = 1, mins = 21 * 60, "
+                                                  "gf = true })", "dungeons")),
+    ("Dungeons - invite", demo(DR_ME + "ns.MainFrame:Close(); "
+                               "ns.DungeonsUI:OnInvite('demo-1', ns.DungeonRuns:GetRun('demo-1').o)")),
     ("Dungeons - empty", opened("dungeons")),
     # the Share window (UI/ShareWindow.lua), dropped from the icon that opened it
     ("Share - raid", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "

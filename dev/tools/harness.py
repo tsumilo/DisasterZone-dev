@@ -255,6 +255,7 @@ class World:
         self.guild_texts = {}
         self.auto_accept_invites = True   # invited online clients accept after `latency` (InviteUnit)
         self.invite_log = []              # {time, by, target, result}
+        self.pending_invites = {}         # id(target client) -> (invite_log entry, accept) while auto_accept is off
         self.group = None
         self.instance = None
         self.instance_members = set()
@@ -547,6 +548,8 @@ class World:
 
     # InviteUnit from client `by` (like WoW: the leader, or a raid assistant, or someone not in a group). The target
     # accepts after `latency` when auto_accept_invites is on; a full party or an offline / grouped target refuses.
+    # With auto_accept_invites off the invite waits: the target's client gets PARTY_INVITE_REQUEST (UIParent shows
+    # Blizzard's pop-up) and its AcceptGroup / DeclineGroup answers it (accept_group / decline_group).
     def invite(self, by, name):
         target = self.find_client(str(name).split("-")[0])
         entry = {"time": round(self.now, 3), "by": by.full_name, "target": str(name), "result": None}
@@ -561,9 +564,6 @@ class World:
             return
         if g and any(m is target for m in g["members"]):
             entry["result"] = "already in group"
-            return
-        if not self.auto_accept_invites:
-            entry["result"] = "pending"
             return
 
         def accept():
@@ -596,7 +596,55 @@ class World:
                 gg["subgroups"][id(target)] = sub
             entry["result"] = "joined"
             self._roster_changed_group()
-        self._enqueue(self.latency, None, "call", accept)
+        if self.auto_accept_invites:
+            self._enqueue(self.latency, None, "call", accept)
+            return
+        entry["result"] = "pending"
+        self.pending_invites[id(target)] = (entry, accept)
+        shown = by.name if by.realm == target.realm else by.full_name
+
+        def ask():
+            if self.pending_invites.get(id(target), (None,))[0] is entry and target.runtime is not None:
+                target.fire("PARTY_INVITE_REQUEST", shown, False, False, False, by.realm != target.realm, False,
+                            by.guid)
+        self._enqueue(self.latency, None, "call", ask)
+
+    # AcceptGroup / DeclineGroup from client `c`: answers the invite waiting for it (auto_accept_invites off).
+    def accept_group(self, c):
+        pending = self.pending_invites.pop(id(c), None)
+        if pending:
+            self._enqueue(self.latency, None, "call", pending[1])
+
+    def decline_group(self, c):
+        pending = self.pending_invites.pop(id(c), None)
+        if pending:
+            entry = pending[0]
+            entry["result"] = "declined"
+            by = self.find_client(entry["by"].split("-")[0])
+            if by is not None:
+                self._enqueue(self.latency, by, "system", "%s declines your group invitation." % c.name)
+
+    # PromoteToLeader from client `by` (the leader): the named member leads now. Like WoW, the roster stays the same
+    # (members see GROUP_ROSTER_UPDATE with the same names) and everyone gets PARTY_LEADER_CHANGED.
+    def promote(self, by, name):
+        g = self.group
+        if not g or g["leader"] is not by:
+            return
+        base = str(name).split("-")[0]
+        target = next((m for m in g["members"] if m.name == base), None)
+        if target is None or target is by:
+            return
+        self.set_leader(target)
+
+    def set_leader(self, member):
+        """The group's lead passes to `member` (a client in the group): PARTY_LEADER_CHANGED + GROUP_ROSTER_UPDATE."""
+        g = self.group
+        g["leader"] = self._member(member)
+        g["assistants"] = [a for a in g["assistants"] if a is not g["leader"]]
+        self._sync()
+        for c in self._group_clients(g["members"]):
+            c._fire("PARTY_LEADER_CHANGED")
+            c._fire("GROUP_ROSTER_UPDATE")
 
     # UninviteUnit from client `by` (like WoW: the leader, or a raid assistant): the member leaves the group at once.
     def uninvite(self, by, name):
@@ -1111,6 +1159,9 @@ class Client:
             "random_roll": self._py_random_roll,
             "set_raid_target": lambda guid, idx: self.world.set_raid_target(self, guid, idx),
             "invite": lambda name: self.world.invite(self, name),
+            "accept_group": lambda: self.world.accept_group(self),
+            "promote": lambda name: self.world.promote(self, name),
+            "decline_group": lambda: self.world.decline_group(self),
             "uninvite": lambda name: self.world.uninvite(self, name),
             "convert_to_raid": lambda: self.world.convert_to_raid(self),
             "set_raid_subgroup": lambda i, g: self.world.set_raid_subgroup(self, i, g),

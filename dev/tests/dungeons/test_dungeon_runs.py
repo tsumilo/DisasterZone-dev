@@ -489,5 +489,112 @@ def malformed_messages_are_ignored():
     w.assert_no_errors()
 
 
+
+def mine(cl):
+    return cl.eval_py("local r = ns.DungeonRuns:GetMine(); return r and { id = r.id, d = r.d, h = r.h and true or false, "
+                      "pv = r.pv, o = r.o } or nil")
+
+
+@case
+def passing_the_lead_passes_the_run_with_its_requests():
+    w, c = five()
+    g, b, cara, dora = c["Gina"], c["Bert"], c["Cara"], c["Dora"]
+    roles(b, "tank")
+    roles(cara, "dps")
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    assert b.eval_py("return ns.DungeonRuns:Join(...)", rid) is True
+    w.tick(2)
+    g.eval("ns.DungeonRuns:Accept(...)", rid, K(b))
+    w.tick(4)
+    assert cara.eval_py("return ns.DungeonRuns:Join(...)", rid) is True
+    w.tick(2)
+    assert g.eval_py("return #ns.DungeonRuns:GetRequests(...)", rid) == 1
+    # Gina passes the lead to Bert: the run is Bert's now (a new id naming the old one), same dungeon and party
+    g.eval("PromoteToLeader('Bert')")
+    w.tick(4)
+    assert mine(g) is None
+    m = mine(b)
+    assert m and m["o"] == K(b) and m["d"] == "Botanica" and m["h"] is True and m["pv"] == rid, m
+    new = m["id"]
+    assert any("You lead the run now" in line for line in b.chat_frame), b.chat_frame
+    assert any("Bert leads your run now" in line for line in g.chat_frame), g.chat_frame
+    # everyone's board swapped the two runs: one run, Bert's, Gina still its healer
+    for cl in (dora, cara, g):
+        rs = runs(cl)
+        assert [r["id"] for r in rs] == [new], (cl.name, rs)
+        assert slots(cl, new) == [K(b) + ":tank", K(g) + ":healer", "open:dps", "open:dps", "open:dps"],             slots(cl, new)
+    # Cara's question went to Bert, and still stands on her side
+    assert cara.eval_py("return ns.DungeonRuns:GetAsked(...).st", new) == "asked"
+    req = b.eval_py("local r = ns.DungeonRuns:GetRequests(...)[1]; return r and { key = r.key, r = r.r }", new)
+    assert req == {"key": K(cara), "r": "dps"}, req
+    # Bert accepts her: the invite goes out from the new leader
+    assert b.eval_py("return ns.DungeonRuns:Accept(...)", new, K(cara)) is True
+    w.tick(4)
+    assert any(e["by"] == K(b) and e["target"].startswith("Cara") and e["result"] == "joined" for e in w.invite_log),         w.invite_log
+    assert slots(dora, new)[2] == K(cara) + ":dps", slots(dora, new)
+    w.assert_no_errors()
+
+
+@case
+def a_new_leader_without_disasterzone_or_from_outside_the_guild_ends_the_run():
+    w = World()
+    g = Client(w, "Gina", class_file="PALADIN", guild_rank=0)
+    b = Client(w, "Bert", class_file="WARRIOR")          # in the guild, no DisasterZone
+    d = Client(w, "Dora", class_file="ROGUE")
+    p = Client(w, "Pugzug", class_file="SHAMAN", guild=None)
+    for x in (g, d, p):
+        x.load_addon()
+    w.tick(HELLO)
+    rid = list_run(g, "Mechanar", True, "healer")
+    w.tick(3)
+    w.make_party([g, b], leader=g)
+    w.tick(3)
+    assert [r["id"] for r in runs(d)] == [rid]
+    g.eval("PromoteToLeader('Bert')")
+    w.tick(5)
+    assert mine(g) is not None                # waiting for Bert's DisasterZone
+    w.tick(8)
+    assert mine(g) is None
+    assert runs(d) == []
+    assert any("has no DisasterZone" in line for line in g.chat_frame), g.chat_frame
+    # a pug who gets the lead: the run ends at once
+    w.disband()
+    w.tick(2)
+    rid = list_run(g, "Arcatraz", True, "healer")
+    w.tick(2)
+    w.make_party([g, p], leader=g)
+    w.tick(3)
+    g.eval("PromoteToLeader('Pugzug')")
+    w.tick(2)
+    assert mine(g) is None
+    assert any("isn't in the guild" in line for line in g.chat_frame), g.chat_frame
+    w.assert_no_errors()
+
+
+@case
+def the_lead_passing_while_the_leader_is_offline_still_passes_the_run():
+    w, c = five()
+    g, b, dora = c["Gina"], c["Bert"], c["Dora"]
+    rid = list_run(g, "Steamvault", True, "healer")
+    w.tick(3)
+    w.make_party([g, b], leader=g)
+    w.tick(4)
+    g.logout()
+    w.set_leader(b)
+    w.tick(4)
+    m = mine(b)
+    assert m and m["pv"] == rid, m
+    assert [r["id"] for r in runs(dora)] == [m["id"]], runs(dora)
+    # Gina comes back: her client still had the old run as hers; it learns Bert's took its place
+    g.login()
+    w.tick(60)
+    assert mine(g) is None
+    assert [r["id"] for r in runs(g)] == [m["id"]], runs(g)
+    assert not any("off the board" in line for line in g.chat_frame), g.chat_frame
+    assert mine(b)["id"] == m["id"]
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

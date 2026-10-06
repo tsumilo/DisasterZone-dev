@@ -786,7 +786,12 @@ function SetRaidSubgroup(index, sub) if PY and PY.set_raid_subgroup then PY.set_
 function SwapRaidSubgroup(a, b) if PY and PY.swap_raid_subgroup then PY.swap_raid_subgroup(a, b) end end
 function UninviteUnit(name) if PY and PY.uninvite and type(name) == "string" then PY.uninvite(name) end end
 function LeaveParty() end
-function PromoteToLeader() end
+-- PromoteToLeader(unit or name): the party / raid leader hands the lead over (world.promote).
+function PromoteToLeader(who)
+  if type(who) ~= "string" or not (PY and PY.promote) then return end
+  local name = UnitExists(who) and GetUnitName(who, true) or who
+  if type(name) == "string" and name ~= "" then PY.promote(name) end
+end
 function PromoteToAssistant() end
 function SetEveryoneIsAssistant() end
 local function loot_method_info()
@@ -1923,3 +1928,213 @@ TOOLTIP_DEFAULT_COLOR = { r = 1, g = 1, b = 1 }
 TOOLTIP_DEFAULT_BACKGROUND_COLOR = { r = 0.09, g = 0.09, b = 0.19 }
 SPELL_FAILED_NOT_READY = "Not yet recovered"
 ERR_NOT_IN_COMBAT = "You can't do that while in combat"
+
+---------------------------------------------------------------------------------------------------
+-- Party invites (classic_anniversary): AcceptGroup / DeclineGroup answer the invite the world gave this client
+-- (world.invite with auto_accept_invites off fires PARTY_INVITE_REQUEST here). UIParent's pop-up is ported from
+-- Blizzard_UIParent/TBC/UIParent.lua and Blizzard_StaticPopup_Game/GameDialogDefs.lua: its OnHide declines an invite
+-- it did not accept itself.
+---------------------------------------------------------------------------------------------------
+function AcceptGroup() if PY and PY.accept_group then PY.accept_group() end end
+function DeclineGroup() if PY and PY.decline_group then PY.decline_group() end end
+function WillAcceptInviteRemoveQueues() return M.invite_removes_queues and true or false end
+INVITATION = "%s invites you to a group."
+INVITATION_XREALM = "%s invites you to a cross-realm group."
+ACCEPTING_INVITE_WILL_REMOVE_QUEUE = "Accepting this invite will remove you from all queues."
+StaticPopupDialogs["PARTY_INVITE"] = {
+  text = "%s", button1 = ACCEPT, button2 = DECLINE,
+  OnShow = function(dialog) dialog.inviteAccepted = nil end,
+  OnAccept = function(dialog) AcceptGroup(); dialog.inviteAccepted = 1 end,
+  OnCancel = function() DeclineGroup() end,
+  OnHide = function(dialog)
+    if not dialog.inviteAccepted then
+      DeclineGroup()
+      dialog:Hide()
+    end
+  end,
+  timeout = 60, whileDead = 1, hideOnEscape = 1,
+}
+do
+  -- UIParent registers its events before any addon loads, so its handler runs first
+  local f = CreateFrame("Frame")
+  f:RegisterEvent("PARTY_INVITE_REQUEST")
+  f:RegisterEvent("PARTY_INVITE_CANCEL")
+  f:SetScript("OnEvent", function(_, event, name, tank, healer, damage, isXRealm)
+    if event == "PARTY_INVITE_REQUEST" then
+      local text = sformat(isXRealm and INVITATION_XREALM or INVITATION, tostring(name))
+      if WillAcceptInviteRemoveQueues() then text = text .. "\n\n" .. ACCEPTING_INVITE_WILL_REMOVE_QUEUE end
+      StaticPopup_Show("PARTY_INVITE", text)
+    else
+      StaticPopup_Hide("PARTY_INVITE")
+    end
+  end)
+end
+
+---------------------------------------------------------------------------------------------------
+-- Group Finder (C_LFGList, classic_anniversary vanilla style) as one client sees it: the activities (TBC 5-mans
+-- normal + heroic, two raids), this client's listing, and the search results tests set with M.lfg_set_results.
+-- CreateListing, UpdateListing, RemoveListing and Search need a hardware event (mock.lua M.in_hw: a click, a key, a
+-- menu pick): outside one they are blocked like WoW (ADDON_ACTION_BLOCKED, recorded as an error) and do nothing.
+-- The comment box is Blizzard's: CreateListing posts M.lfg_comment (what the player typed there last);
+-- ClearCreationTextFields empties it. Activity ids are made up (the real ones are the client's).
+---------------------------------------------------------------------------------------------------
+Enum.PremadeGroupFinderStyle = Enum.PremadeGroupFinderStyle or { Disabled = 0, Retail = 1, Vanilla = 2 }
+local LFG_DUNGEONS = {   -- full name, instance map id: activity 1100 + i (normal), 1200 + i (heroic)
+  { "Hellfire Ramparts", 543 }, { "The Blood Furnace", 542 }, { "The Shattered Halls", 540 },
+  { "The Slave Pens", 547 }, { "The Underbog", 546 }, { "The Steamvault", 545 }, { "Mana-Tombs", 557 },
+  { "Auchenai Crypts", 558 }, { "Sethekk Halls", 556 }, { "Shadow Labyrinth", 555 }, { "The Mechanar", 554 },
+  { "The Botanica", 553 }, { "The Arcatraz", 552 }, { "Old Hillsbrad Foothills", 560 }, { "The Black Morass", 269 },
+  { "Magisters' Terrace", 585 },
+}
+local function lfg_activity(name, cat, map, size, heroic, order)
+  return { fullName = name, shortName = "", categoryID = cat, groupFinderActivityGroupID = cat * 10,
+    ilvlSuggestion = 0, filters = 0, minLevel = heroic and 70 or 60, minLevelSuggestion = heroic and 70 or 60,
+    maxLevelSuggestion = 70, maxNumPlayers = size, displayType = 1, orderIndex = order, useHonorLevel = false,
+    showQuickJoinToast = false, isMythicPlusActivity = false, isRatedPvpActivity = false,
+    isCurrentRaidActivity = size > 5, isPvpActivity = false, isMythicActivity = false, allowCrossFaction = false,
+    isHeroicActivity = heroic, isNormalActivity = not heroic, mapID = map, difficultyID = heroic and 2 or 1,
+    redirectedDifficultyID = 0, useDungeonRoleExpectations = size == 5 }
+end
+M.lfg_activities = {}
+for i, d in ipairs(LFG_DUNGEONS) do
+  M.lfg_activities[1100 + i] = lfg_activity(d[1], 2, d[2], 5, false, i)
+  M.lfg_activities[1200 + i] = lfg_activity(d[1] .. " (Heroic)", 2, d[2], 5, true, 100 + i)
+end
+M.lfg_activities[1301] = lfg_activity("Karazhan", 114, 532, 10, false, 1)
+M.lfg_activities[1302] = lfg_activity("Gruul's Lair", 114, 565, 25, false, 2)
+M.lfg_entry = nil        -- my listing: { activityIDs, comment, ... }
+M.lfg_comment = ""       -- Blizzard's comment box
+M.lfg_results = {}       -- [resultID] = { name, class, level, roles, comment, area, activityIDs, numMembers, ... }
+M.lfg_result_order = {}
+M.lfg_shown = {}         -- the result ids of my last search
+M.lfg_log = {}           -- { fn = "CreateListing" | "UpdateListing" | "RemoveListing" | "Search", ... }
+
+local function lfg_copy(t)
+  local o = {}
+  for k, v in pairs(t) do o[k] = type(v) == "table" and lfg_copy(v) or v end
+  return o
+end
+
+local function need_hw(name)
+  if (M.hw_depth or 0) > 0 then return true end
+  M.record_error("ADDON_ACTION_BLOCKED: an addon called the protected function '" .. name
+    .. "()' outside a hardware event (WoW blocks it and does nothing)", name)
+  return false
+end
+
+local function lfg_entry_changed() C_Timer.After(0, function() M.fire("LFG_LIST_ACTIVE_ENTRY_UPDATE") end) end
+
+C_LFGList = {
+  GetAvailableCategories = function() return { 2, 114 } end,
+  GetAvailableActivities = function(categoryID, groupID, filter)
+    local out = {}
+    for id, a in pairs(M.lfg_activities) do
+      if categoryID == nil or a.categoryID == categoryID then out[#out + 1] = id end
+    end
+    tsort(out)
+    return out
+  end,
+  GetActivityInfoTable = function(activityID)
+    local a = M.lfg_activities[activityID]
+    return a and lfg_copy(a) or nil
+  end,
+  RequestAvailableActivities = function() end,
+  GetPremadeGroupFinderStyle = function() return Enum.PremadeGroupFinderStyle.Vanilla end,
+  IsPremadeGroupFinderEnabled = function() return true end,
+  HasActiveEntryInfo = function() return M.lfg_entry ~= nil end,
+  GetActiveEntryInfo = function() return M.lfg_entry and lfg_copy(M.lfg_entry) or nil end,
+  ClearCreationTextFields = function() M.lfg_comment = "" end,
+  CopyActiveEntryInfoToCreationFields = function() if M.lfg_entry then M.lfg_comment = M.lfg_entry.comment end end,
+  CreateListing = function(data)
+    if not need_hw("C_LFGList.CreateListing") then return false end
+    if M.lfg_entry or type(data) ~= "table" then return false end
+    M.lfg_entry = { activityIDs = lfg_copy(data.activityIDs or {}), comment = M.lfg_comment or "", name = "",
+      voiceChat = "", requiredItemLevel = 0, requiredHonorLevel = 0, duration = 1800, autoAccept = false,
+      privateGroup = false, isCrossFactionListing = false, newPlayerFriendly = data.newPlayerFriendly and true or false,
+      playstyle = 0, generalPlaystyle = 0, requiredDungeonScore = 0, requiredPvpRating = 0 }
+    M.lfg_log[#M.lfg_log + 1] = { fn = "CreateListing", activityIDs = lfg_copy(data.activityIDs or {}),
+      comment = M.lfg_entry.comment }
+    lfg_entry_changed()
+    return true
+  end,
+  UpdateListing = function(data)
+    if not need_hw("C_LFGList.UpdateListing") then return false end
+    if not M.lfg_entry or type(data) ~= "table" then return false end
+    M.lfg_entry.activityIDs = lfg_copy(data.activityIDs or {})
+    M.lfg_log[#M.lfg_log + 1] = { fn = "UpdateListing", activityIDs = lfg_copy(data.activityIDs or {}) }
+    lfg_entry_changed()
+    return true
+  end,
+  RemoveListing = function()
+    if not need_hw("C_LFGList.RemoveListing") then return end
+    if not M.lfg_entry then return end
+    M.lfg_entry = nil
+    M.lfg_log[#M.lfg_log + 1] = { fn = "RemoveListing" }
+    lfg_entry_changed()
+  end,
+  Search = function(categoryID, filter, preferredFilters, languageFilter, crossFaction, advancedFilter, activityIDs)
+    if not need_hw("C_LFGList.Search") then return end
+    local want = {}
+    for _, id in ipairs(type(activityIDs) == "table" and activityIDs or {}) do want[id] = true end
+    M.lfg_log[#M.lfg_log + 1] = { fn = "Search", categoryID = categoryID, activityIDs = lfg_copy(activityIDs or {}) }
+    C_Timer.After(0.2, function()
+      M.lfg_shown = {}
+      for _, rid in ipairs(M.lfg_result_order) do
+        local r = M.lfg_results[rid]
+        local ok = next(want) == nil
+        for _, a in ipairs(r.activityIDs) do if want[a] then ok = true end end
+        if ok then M.lfg_shown[#M.lfg_shown + 1] = rid end
+      end
+      M.fire("LFG_LIST_SEARCH_RESULTS_RECEIVED")
+    end)
+  end,
+  GetSearchResults = function()
+    local out = {}
+    for i, rid in ipairs(M.lfg_shown) do out[i] = rid end
+    return #out, out
+  end,
+  GetSearchResultInfo = function(rid)
+    local r = M.lfg_results[rid]
+    if not r then return nil end
+    return { searchResultID = rid, activityIDs = lfg_copy(r.activityIDs), leaderName = r.name, name = "",
+      comment = r.comment or "", voiceChat = "", requiredItemLevel = 0, requiredHonorLevel = 0, hasSelf = false,
+      numMembers = r.numMembers or 1, numBNetFriends = 0, numCharFriends = 0, numGuildMates = 0,
+      isDelisted = r.delisted and true or false, autoAccept = false, isWarMode = false, age = r.age or 60,
+      questID = nil, crossFactionListing = false, newPlayerFriendly = false }
+  end,
+  GetSearchResultPlayerInfo = function(rid, memberIndex)
+    local r = M.lfg_results[rid]
+    if not r or memberIndex ~= 1 then return nil end
+    local roles = r.roles or {}
+    return { name = r.name, level = r.level or 70, areaName = r.area or "Shattrath City",
+      className = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[r.class] or r.class,
+      classFilename = r.class, specName = nil, assignedRole = "NONE",
+      lfgRoles = { tank = roles.tank and true or false, healer = roles.healer and true or false,
+                   dps = roles.dps and true or false },
+      isLeader = true, isLeaver = false }
+  end,
+}
+C_LFGInfo = C_LFGInfo or {}
+C_LFGInfo.CanPlayerUsePremadeGroup = function() return M.lfg_usable ~= false end
+
+-- Tests: what other players have listed (the results of my next search). list = { { name = "Pug" or "Pug-Realm",
+-- class, level, roles = { tank, healer, dps }, comment, area, activityIDs, numMembers, age } }.
+function M.lfg_set_results(list)
+  M.lfg_results, M.lfg_result_order = {}, {}
+  for i, r in ipairs(list) do
+    local rid = 500 + i
+    M.lfg_results[rid] = { name = r.name, class = r.class, level = r.level, roles = r.roles or {}, comment = r.comment,
+      area = r.area, activityIDs = r.activityIDs or {}, numMembers = r.numMembers or 1, age = r.age }
+    M.lfg_result_order[i] = rid
+  end
+end
+
+-- Tests: a player in my results takes their listing down (the client tells the addon about that result).
+function M.lfg_delist(name)
+  for rid, r in pairs(M.lfg_results) do
+    if r.name == name then
+      r.delisted = true
+      M.fire("LFG_LIST_SEARCH_RESULT_UPDATED", rid)
+    end
+  end
+end

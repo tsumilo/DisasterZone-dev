@@ -25,7 +25,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/DungeonRuns.lua", ...) then r
 --   DRJ { id, r, b = 1 (BiS here) }   WHISPER to the owner: may I join as r?
 --   DRC { id }                     WHISPER to the owner: never mind
 --   DRA { id, ok = 1 | 0 }         WHISPER to the asker: invited / not this time
--- A run is the owner's: only the owner changes it (a newer rv wins). Somebody who logs in gets the whole board from one
+--   DRH { id, q = { { key, r, b } }, gf = 1 }   WHISPER to my party's new leader: the run is yours (the players
+--                                  asking to join, and whether it was in the Group Finder)
+-- A run is the owner's: only the owner changes it (a newer rv wins). The run goes with the party's lead: the new
+-- leader lists it again as theirs, a new id naming the old one (pv), and every client swaps the two (asks follow). Somebody who logs in gets the whole board from one
 -- member (DRS), runs of offline owners included; the owner's own profile (ids) clears the runs it no longer has.
 -- Members known to run DisasterZone are remembered (db.runs[guildKey].known) so that a login asks just one of them.
 --
@@ -66,6 +69,9 @@ local LATER_GRACE = 3600           -- a run for later stays this long past its s
 local AHEAD_MAX = 7 * 86400        -- runs are listed at most a week ahead
 local OWNER_GONE = 120             -- a "now" run whose owner went offline this long ago leaves the board
 local REQUEST_TTL = 20 * 60
+local AUTO_ACCEPT_FOR = 10 * 60    -- the party invite of a run I asked to join this recently is accepted for me
+local INVITE_FOR = 60              -- a party invite the addon answers runs out like Blizzard's pop-up (StaticPopupTimeoutSec)
+local HANDOFF_WAIT = 10            -- after passing the lead: how long the new leader's DisasterZone has to take the run
 local PEER_TTL = 15 * 60           -- a profile not heard of again (and its owner offline) is forgotten
 local TICK = 20
 local NO_GUILD = "~"
@@ -232,6 +238,9 @@ local peers = {}                   -- [key] = { roles = { role = true }, up, nn 
 local requests = {}                -- (owner) [id] = { [key] = { r = role, b = true|nil, at, st = "asked"|"invited" } }
 local asked = {}                   -- (asker) [id] = { st = "asked" | "invited" | "declined", r = role, at }
 local pinged = {}                  -- [id] = true: the toast for this run was shown
+local guestRoles = {}              -- (owner) [key] = the role a player from outside the guild was invited as
+local invite                       -- (me) the party invite the addon answers itself: { run = id, from = key, n }
+local handoff                      -- (old owner) my run waiting for the new leader to take it: { id, to = key, n }
 local demo                         -- demo mode's state (built on first use, never saved)
 
 local function Bucket(create)
@@ -366,6 +375,7 @@ local function RoleOf(key, id)
     end
     local req = id and Requests()[id] and Requests()[id][key]
     if req and ROLE_INDEX[req.r] then return req.r end
+    if guestRoles[key] then return guestRoles[key] end
     local peer = Peers()[key]
     if peer and peer.roles then
         local only, n = nil, 0
@@ -599,7 +609,7 @@ local function WireRun(run, relay)
     for _, x in ipairs(run.s or {}) do s[#s + 1] = { x.k, ROLE_INDEX[x.r] or 3 } end
     local d = DUNGEON[run.d]
     return { t = "DRL", id = run.id, d = d and d.i, h = run.h and 1 or nil, at = run.at or 0, c = run.c, no = run.no,
-             s = s, rv = run.rv, o = relay and run.o or nil }
+             s = s, rv = run.rv, o = relay and run.o or nil, pv = run.pv }
 end
 
 local function MyRun()
@@ -681,9 +691,12 @@ local function ParseRun(msg, sender)
         seen[k] = true
         s[#s + 1] = { k = k, r = r }
     end
+    local pv = (type(msg.pv) == "string" and #msg.pv <= 64 and msg.pv ~= msg.id) and msg.pv or nil
     return { id = msg.id, o = owner, d = ORDER[msg.d], h = (msg.h == 1) or nil, at = msg.at or 0, c = msg.c,
-             no = type(msg.no) == "string" and TrimNote(msg.no) or nil, s = s, rv = msg.rv }
+             no = type(msg.no) == "string" and TrimNote(msg.no) or nil, s = s, rv = msg.rv, pv = pv }
 end
+
+local Renamed   -- forward
 
 local function StoreRun(run)
     local st = State()
@@ -694,6 +707,7 @@ local function StoreRun(run)
     if Expired(run) then return false end
     local fresh = cur == nil
     st.list[run.id] = run
+    if run.pv then Renamed(run) end
     Changed()
     MaybePing(run, fresh)
     return true
@@ -707,6 +721,26 @@ local function DropRun(id, quiet)
     st.gone[id] = Now() + max(NOW_TTL, ((run.at or 0) > 0 and (run.at + LATER_GRACE - Now()) or 0))
     Requests()[id] = nil
     if not quiet then Changed() end
+end
+
+-- A run that took over another one (its party's lead passed: run.pv = the old id). The old run leaves the board when
+-- its owner is in the new party (nobody else can end a run that way); my question and my ping follow the run.
+Renamed = function(run)
+    local pv = run.pv
+    local old = State().list[pv]
+    if old and old.o ~= run.o and InRun(run, old.o) then
+        if old.o == Me() then
+            handoff = nil
+            ns:Print("%s leads your run now.", Util.ShortName(run.o) or run.o)
+        end
+        DropRun(pv, true)
+    end
+    local asked = Asked()
+    if asked[pv] then
+        asked[run.id] = asked[run.id] or asked[pv]
+        asked[pv] = nil
+    end
+    if pinged[pv] then pinged[run.id] = true end
 end
 
 -- Members known to run DisasterZone (kept between sessions): whom to ask for the board when I log in.
@@ -947,16 +981,23 @@ end
 -- My run and the group
 ---------------------------------------------------------------------------
 
+local HandOff   -- forward
+
 -- My run's party from my group: me, then the members (with the role each asked for / plays).
 local function SyncMyParty()
     if DemoOn() then return end
     local run = MyRun()
     if not run then return end
-    -- in somebody else's group, or a raid: my run is over
-    if IsInRaid() or (IsInGroup() and not UnitIsGroupLeader("player")) then
+    -- a raid: my run is over; somebody else leads my group: the run goes with the lead (or ends)
+    if IsInRaid() then
         Runs:Unlist(true)
         return
     end
+    if IsInGroup() and not UnitIsGroupLeader("player") then
+        HandOff(run)
+        return
+    end
+    handoff = nil
     local s = { { k = Me(), r = RoleOf(Me()) } }
     local keys = {}
     for key in pairs(Util.group or {}) do
@@ -994,6 +1035,148 @@ local function SyncMyParty()
     BroadcastRun(run)
 end
 
+---------------------------------------------------------------------------
+-- Passing the lead: the run goes with it
+---------------------------------------------------------------------------
+
+-- My party's leader (not me), or nil.
+local function GroupLeader()
+    if not IsInGroup() or IsInRaid() then return nil end
+    for i = 1, PARTY_SIZE - 1 do
+        local unit = "party" .. i
+        if UnitExists(unit) and UnitIsGroupLeader(unit) then
+            local name, realm = UnitName(unit)
+            if type(name) == "string" and name ~= "" and name ~= UNKNOWNOBJECT then
+                return Util.NormalizeName((type(realm) == "string" and realm ~= "") and (name .. "-" .. realm) or name)
+            end
+        end
+    end
+    return nil
+end
+
+-- (owner) Somebody else leads my group now. A member of my run's party who got the lead: their DisasterZone takes
+-- the run (DRH tells it who asked to join); no answer in HANDOFF_WAIT (no DisasterZone), or a leader from outside
+-- the guild: the run ends. A leader from outside my run (I joined another group): the run ends.
+HandOff = function(run)
+    local to = GroupLeader()
+    if not to then return end   -- the roster isn't in yet: the next update decides
+    if not InRun(run, to) then
+        handoff = nil
+        Runs:Unlist(true)
+        return
+    end
+    if not InGuild(to) then
+        handoff = nil
+        ns:Print("%s leads your group now and isn't in the guild: your run is off the board.",
+            Util.ShortName(to) or to)
+        Runs:Unlist(true)
+        return
+    end
+    if handoff and handoff.id == run.id and handoff.to == to then return end
+    local n = ((handoff and handoff.n) or 0) + 1
+    handoff = { id = run.id, to = to, n = n }
+    local q = {}
+    for key, r in pairs(Requests()[run.id] or {}) do
+        if Now() - (r.at or 0) < REQUEST_TTL then q[#q + 1] = { key, ROLE_INDEX[r.r] or 3, r.b and 1 or nil } end
+    end
+    local GF = ns.GroupFinder
+    local gf = (run.gf or (GF and GF.HasListed and GF:HasListed(run.id))) and 1 or nil
+    Send({ t = "DRH", id = run.id, q = q, gf = gf }, "WHISPER", to)
+    Changed()
+    Util.After(HANDOFF_WAIT, function()
+        if not (handoff and handoff.n == n) then return end
+        handoff = nil
+        local mine = MyRun()
+        if mine and mine.id == run.id then
+            ns:Print("%s leads your group now but has no DisasterZone: your run is off the board.",
+                Util.ShortName(to) or to)
+            Runs:Unlist(true)
+        end
+    end)
+end
+
+-- (new owner) The players who asked the old leader to join: now they ask me.
+local function TakeRequests(run, q)
+    if type(q) ~= "table" then return end
+    local reqs = Requests()
+    reqs[run.id] = reqs[run.id] or {}
+    for _, e in ipairs(q) do
+        local key = type(e) == "table" and type(e[1]) == "string" and Util.NormalizeName(e[1])
+        if key and IsInt(e[2], 1, 3) and not Util.IsMe(key) and not InRun(run, key) and not reqs[run.id][key] then
+            reqs[run.id][key] = { r = ROLES[e[2]], b = (e[3] == 1) or nil, at = Now(), st = "asked" }
+        end
+    end
+end
+
+-- (new leader) Takes over a run of my party whose owner no longer leads it: a run of mine (my id) that names the old
+-- one, same dungeon, time, note and places. Returns the run, or nil when it isn't mine to take.
+local function Adopt(old, q, gf)
+    if DemoOn() or not old or old.o == Me() or Expired(old) then return nil end
+    local mine = MyRun()
+    if mine then
+        if mine.pv ~= old.id then return nil end
+        TakeRequests(mine, q)
+        if gf then mine.gf = true end
+        Changed()
+        return mine
+    end
+    if IsInRaid() or not (IsInGroup() and UnitIsGroupLeader("player")) or not InRun(old, Me()) then return nil end
+    local now = Now()
+    local p = Prefs()
+    local s = {}
+    for i, x in ipairs(old.s or {}) do
+        s[i] = { k = x.k, r = x.r }
+        if Util.IsMe(x.k) and ROLE_INDEX[x.r] then p.role = x.r end   -- I keep the role I had in it
+    end
+    local run = { id = (Me() or "?") .. ":" .. now, o = Me(), d = old.d, h = old.h, at = old.at or 0, c = old.c or now,
+                  no = old.no, s = s, rv = 1, pv = old.id, gf = gf and true or nil }
+    State().list[run.id] = run
+    State().gone[run.id] = nil
+    DropRun(old.id, true)
+    TakeRequests(run, q)
+    p.up = 0
+    SyncMyParty()
+    BroadcastRun(run)
+    SendProfile()
+    Changed()
+    local d = DUNGEON[run.d]
+    ns:Print("You lead the run now: %s%s.", d and d.name or run.d, run.h and " (Heroic)" or "")
+    return run
+end
+
+-- The lead of my group changed (or the roster did): pass my run on, or take over the run of the group I now lead.
+local function CheckLead()
+    if DemoOn() then return end
+    if MyRun() then
+        SyncMyParty()
+        return
+    end
+    if not IsInGroup() or IsInRaid() or not UnitIsGroupLeader("player") then return end
+    for _, run in pairs(State().list) do
+        if run.o ~= Me() and not Expired(run) and Util.group and Util.group[run.o] and InRun(run, Me()) then
+            Adopt(run)
+            return
+        end
+    end
+end
+
+local function OnHandoff(sender, msg)
+    if type(msg.id) ~= "string" then return end
+    local mine = MyRun()
+    if mine and mine.pv == msg.id then
+        -- I took the run over already (my side saw the lead change first, or the old leader was offline and is
+        -- back): the requests and the Group Finder follow, and the old leader gets my run (it names theirs)
+        TakeRequests(mine, msg.q)
+        if msg.gf == 1 then mine.gf = true end
+        Send(WireRun(mine), "WHISPER", sender)
+        Changed()
+        return
+    end
+    local old = State().list[msg.id]
+    if not old or old.o ~= sender then return end
+    Adopt(old, msg.q, msg.gf == 1)
+end
+
 local function UpdateUp()
     local p = Prefs()
     if (p.up or 0) <= 0 then return end
@@ -1022,6 +1205,79 @@ MaybePing = function(run, fresh)
     if (run.at or 0) > Now() + 3600 then return end   -- a run for tomorrow is no reason to ping now
     pinged[run.id] = true
     ns:Fire("DUNGEON_RUN_PING", run.id)
+end
+
+---------------------------------------------------------------------------
+-- Party invites from a run's leader: answered by the addon instead of Blizzard's pop-up
+---------------------------------------------------------------------------
+
+-- The server's invite is the only way into a party; Blizzard's pop-up is just a window over it. For an invite from
+-- the leader of a listed run, the addon answers it: accepted for me when I asked to join that run a moment ago (my
+-- Join was the answer), else asked in the run's own pop-up (Core fires DUNGEON_RUN_INVITE). Any other invite keeps
+-- Blizzard's pop-up, and so does one whose acceptance would cost me a queue (Blizzard's text says so).
+
+-- Closes Blizzard's PARTY_INVITE pop-up without declining: its OnHide declines an invite it did not accept itself
+-- (classic_anniversary GameDialogDefs), so it is marked as answered first (as Leatrix Plus does).
+local function HideBlizzardInvite()
+    local dialog = StaticPopup_FindVisible and StaticPopup_FindVisible("PARTY_INVITE")
+    if not dialog then return end
+    dialog.inviteAccepted = 1
+    if StaticPopup_Hide then StaticPopup_Hide("PARTY_INVITE") end
+end
+
+local function RunLedBy(key)
+    for _, run in pairs(State().list) do
+        if run.o == key and not Expired(run) then return run end
+    end
+    return nil
+end
+
+local function EndInvite()
+    if not invite then return end
+    invite = nil
+    Changed()
+    ns:Fire("DUNGEON_RUN_INVITE_GONE")
+end
+
+local function AnswerInvite(yes)
+    if not invite then return false end
+    invite = nil
+    HideBlizzardInvite()
+    if yes then
+        if AcceptGroup then AcceptGroup() end
+    elseif DeclineGroup then
+        DeclineGroup()
+    end
+    Changed()
+    ns:Fire("DUNGEON_RUN_INVITE_GONE")
+    return true
+end
+
+local function OnPartyInvite(_, name)
+    if DemoOn() then return end
+    local from = type(name) == "string" and Util.NormalizeName(name)
+    local run = from and RunLedBy(from)
+    if not run or InRun(run, Me()) then return end
+    if WillAcceptInviteRemoveQueues and WillAcceptInviteRemoveQueues() then return end
+    local n = ((invite and invite.n) or 0) + 1
+    invite = { run = run.id, from = from, n = n }
+    -- UIParent shows its pop-up for the same event (before or after this handler): close it now and next frame
+    HideBlizzardInvite()
+    Util.After(0, HideBlizzardInvite)
+    local a = Asked()[run.id]
+    if a and (a.st == "asked" or a.st == "invited") and Now() - (a.at or 0) <= AUTO_ACCEPT_FOR then
+        local d = DUNGEON[run.d]
+        ns:Print("Joining %s's run: %s%s.", Util.ShortName(from) or from, d and d.name or run.d,
+            run.h and " (Heroic)" or "")
+        AnswerInvite(true)
+        return
+    end
+    Changed()
+    ns:Fire("DUNGEON_RUN_INVITE", run.id, from)
+    -- like Blizzard's pop-up: an invite nobody answers is declined when it runs out
+    Util.After(INVITE_FOR, function()
+        if invite and invite.n == n then AnswerInvite(false) end
+    end)
 end
 
 ---------------------------------------------------------------------------
@@ -1116,6 +1372,19 @@ end
 function Runs:GetDungeon(key)
     BuildData()
     return DUNGEON[key]
+end
+
+-- The dungeon of an instance map id (GetInstanceInfo, a Group Finder activity's mapID), or nil.
+function Runs:GetDungeonByMap(mapID)
+    BuildData()
+    return BY_INSTANCE[tonumber(mapID) or -1]
+end
+
+-- Every dungeon key, in wire order.
+function Runs:GetDungeonKeys()
+    local out = {}
+    for i, key in ipairs(ORDER) do out[i] = key end
+    return out
 end
 
 -- The loading screen and tex coords (left, right, top, bottom) that show a dungeon in a w x h frame; fw = the share
@@ -1370,6 +1639,20 @@ end
 -- My question to this run: { st = "asked" | "invited" | "declined", r, at } or nil.
 function Runs:GetAsked(id) return Asked()[id] end
 
+-- The party invite the addon holds for me (Blizzard's pop-up closed): { run = id, from = key } or nil.
+function Runs:GetInvite()
+    return invite and { run = invite.run, from = invite.from } or nil
+end
+
+-- Accepts (yes) or declines the invite the addon holds. Returns false when there is none.
+function Runs:AnswerInvite(yes) return AnswerInvite(yes) end
+
+-- (owner) The role somebody from outside the guild was invited as: their place in my run once they join.
+function Runs:SetGuestRole(key, role)
+    if type(key) ~= "string" then return end
+    guestRoles[key] = ROLE_INDEX[role] and role or nil
+end
+
 -- The players asking to join my run, oldest first: { { key, r, b, at, st } }.
 function Runs:GetRequests(id)
     local out = {}
@@ -1383,7 +1666,8 @@ function Runs:GetRequests(id)
 end
 
 -- Lists my run (replacing the one I had). opts = { d = dungeon key, h = heroic, at = server time | 0 (now),
--- no = note, role = the role I go as }. Returns the run, or nil and why.
+-- no = note, role = the role I go as, gf = list it in the Group Finder too (mine only, never sent) }. Returns the
+-- run, or nil and why.
 function Runs:List(opts)
     if type(opts) ~= "table" or not DUNGEON[opts.d] then return nil, "Pick a dungeon." end
     local at = tonumber(opts.at) or 0
@@ -1402,6 +1686,7 @@ function Runs:List(opts)
         id = old and old.id or ((Me() or "?") .. ":" .. now),
         o = Me(), d = opts.d, h = opts.h and true or nil, at = floor(at), c = old and old.c or now,
         no = TrimNote(opts.no), s = old and old.s or {}, rv = old and ((old.rv or 0) + 1) or 1,
+        gf = opts.gf and true or nil,
     }
     if run.no == "" then run.no = nil end
     if old and old.at == 0 and run.at > 0 then run.c = now end
@@ -1427,6 +1712,7 @@ function Runs:Unlist(quiet)
     local run = MyRun()
     if not run then return false end
     DropRun(run.id)
+    wipe(guestRoles)
     if not DemoOn() then
         Send({ t = "DRX", id = run.id }, "GUILD")
         SendProfile()
@@ -1469,6 +1755,9 @@ local function CanInvite()
     if IsInRaid() then return false end
     return not IsInGroup() or UnitIsGroupLeader("player")
 end
+
+-- Can I invite to my party (not in a group, or its leader)?
+function Runs:CanInvite() return CanInvite() end
 
 -- (owner) Invites somebody who asked; the invite goes out right away.
 function Runs:Accept(id, key)
@@ -1626,14 +1915,25 @@ function Runs:OnInit()
         Comm:Register("DRJ", OnJoin)
         Comm:Register("DRC", OnCancel)
         Comm:Register("DRA", OnAnswer)
+        Comm:Register("DRH", OnHandoff)
     end
     for _, msg in ipairs({ "MYLIST_CHANGED", "OWNED_UPDATED", "LISTS_RESET", "CONFIG_UPDATED" }) do
         ns:On(msg, RefreshNeeds)
     end
+    ns:RegisterEvent("PARTY_INVITE_REQUEST", OnPartyInvite)
+    ns:RegisterEvent("PARTY_INVITE_CANCEL", EndInvite)
     ns:On("GROUP_UPDATED", function()
+        if invite and IsInGroup() then EndInvite() end
         Util.Debounce("dungeon-runs-group", 0.5, function()
-            SyncMyParty()
+            CheckLead()
             UpdateUp()
+            Changed()
+        end)
+    end)
+    -- the lead can pass without the roster changing (no GROUP_UPDATED): after Util's group cache caught up (0.3 s)
+    ns:RegisterEvent("PARTY_LEADER_CHANGED", function()
+        Util.Debounce("dungeon-runs-lead", 0.8, function()
+            CheckLead()
             Changed()
         end)
     end)

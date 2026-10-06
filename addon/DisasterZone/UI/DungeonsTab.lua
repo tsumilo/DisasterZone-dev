@@ -449,6 +449,8 @@ end
 local function HideReqRows(c)
     for _, r in ipairs(c.reqs) do r:Hide() end
     for _, r in ipairs(c.free) do r:Hide() end
+    for _, r in ipairs(c.pugs or {}) do r:Hide() end
+    if c.finder then c.finder:Hide() end
 end
 
 -- A request row on my own card: class, name, spec, "BiS here", Accept, decline.
@@ -533,6 +535,230 @@ local function FillChip(f, e)
     f.tip = { UI():ColoredName(e.key, e.class), "Up for a run: " .. tconcat(words, ", "), grey("Click to whisper") }
 end
 
+---------------------------------------------------------------------------
+-- My run in the Group Finder (Core/GroupFinder.lua): the listing's row, then the players from outside the guild who
+-- could fill it (whispers first, then solo players listed for the dungeon)
+---------------------------------------------------------------------------
+
+local PUG_ROWS = 5
+local REFRESH_TEX = "Interface\\Buttons\\UI-RefreshButton"
+
+local function GFm() return ns.GroupFinder end
+
+local function HookTip(b, lines)
+    b.tipLines = lines
+    b:HookScript("OnEnter", function(self) if self.tipLines then Tip(self, self.tipLines, "ANCHOR_TOP") end end)
+    b:HookScript("OnLeave", HideTip)
+end
+
+local function NewFinderRow(c)
+    local r = CreateFrame("Frame", nil, c)
+    r:SetHeight(REQ_H)
+    r.line = r:CreateTexture(nil, "BORDER")
+    r.line:SetColorTexture(1, 1, 1, 0.07)
+    r.line:SetHeight(1)
+    r.line:SetPoint("TOPLEFT")
+    r.line:SetPoint("TOPRIGHT")
+    r.label = Text(r, "GameFontHighlightSmall", 11)
+    r.label:SetTextColor(0.62, 0.62, 0.62)
+    r.label:SetPoint("LEFT", 0, 0)
+    r.label:SetText("Group Finder")
+    r.status = Text(r, "GameFontHighlightSmall", 11)
+    r.status:SetPoint("LEFT", r.label, "RIGHT", 10, 0)
+    local function click(self) if self.onClick then self.onClick() end end
+    r.list = NewButton(r, "List", 56, 22, "secondary", click)
+    r.list:SetPoint("RIGHT", 0, 0)
+    HookTip(r.list, nil)
+    r.off = UI():CreateTipIconButton(r, 22, UI().ICON.trash, "Take it out",
+        "Takes your run out of the Group Finder. It stays on the guild's board.", click)
+    r.off:SetPoint("RIGHT", 0, 0)
+    r.note = UI():CreateTipIconButton(r, 22, UI().ICON.notes, "Write a note",
+        "Opens Blizzard's Group Finder on your listing. Only you can type its note: addons aren't allowed to.", click)
+    r.note:SetPoint("RIGHT", r.off, "LEFT", -4, 0)
+    r.find = UI():CreateIconButton(r, 22, REFRESH_TEX, nil, click)
+    r.find:SetPoint("RIGHT", r.note, "LEFT", -4, 0)
+    HookTip(r.find, { "Look again", "Searches the Group Finder again for players who want this dungeon." })
+    return r
+end
+
+-- A player from outside the guild: class, name, level and roles, what they whispered or wrote, Invite, whisper, set
+-- aside. The row's tooltip has all of it.
+local function NewPugRow(c)
+    local r = CreateFrame("Button", nil, c)
+    r:SetHeight(REQ_H)
+    r.line = r:CreateTexture(nil, "BORDER")
+    r.line:SetColorTexture(1, 1, 1, 0.07)
+    r.line:SetHeight(1)
+    r.line:SetPoint("TOPLEFT")
+    r.line:SetPoint("TOPRIGHT")
+    r.icon = r:CreateTexture(nil, "ARTWORK")
+    r.icon:SetSize(22, 22)
+    r.icon:SetPoint("LEFT", 0, 0)
+    r.name = Text(r, "GameFontHighlight", 12)
+    r.name:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
+    r.info = Text(r, "GameFontHighlightSmall", 11)
+    r.info:SetPoint("LEFT", r.name, "RIGHT", 7, 0)
+    r.info:SetTextColor(0.62, 0.62, 0.62)
+    r.text = Text(r, "GameFontHighlightSmall", 11)
+    r.text:SetPoint("LEFT", r.info, "RIGHT", 8, 0)
+    r.text:SetTextColor(0.78, 0.78, 0.78)
+    r.no = UI():CreateIconButton(r, 22, NO_TEX, nil, function(self) if self.onClick then self.onClick() end end)
+    r.no.icon:ClearAllPoints()
+    r.no.icon:SetPoint("TOPLEFT", 4, -4)
+    r.no.icon:SetPoint("BOTTOMRIGHT", -4, 4)
+    r.no:SetPoint("RIGHT", 0, 0)
+    HookTip(r.no, { "Not this one", "Sets them aside for this run." })
+    r.say = UI():CreateTipIconButton(r, 22, UI().ICON.whisper, "Whisper", "Starts a whisper to them in the chat box.",
+        function(self) if self.onClick then self.onClick() end end)
+    r.say:SetPoint("RIGHT", r.no, "LEFT", -4, 0)
+    r.yes = NewButton(r, "Invite", 62, 22, "secondary", function(self) if self.onClick then self.onClick() end end)
+    r.yes:SetPoint("RIGHT", r.say, "LEFT", -5, 0)
+    r.state = Text(r, "GameFontHighlightSmall", 11)
+    r.state:SetPoint("RIGHT", r.say, "LEFT", -10, 0)
+    r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
+    r:SetScript("OnLeave", HideTip)
+    r:SetScript("OnClick", function(self) if self.key then GFm():Whisper(self.key) end end)
+    return r
+end
+
+-- The words of a whisper or note that fit in `width` (whole words, "..." when cut); full = it all fitted.
+local function FitWords(fs, text, width)
+    fs:SetText(text)
+    if (fs:GetStringWidth() or 0) <= width then return true end
+    local words = {}
+    for w in text:gmatch("%S+") do words[#words + 1] = w end
+    for n = #words - 1, 1, -1 do
+        fs:SetText(tconcat(words, " ", 1, n) .. "...")
+        if (fs:GetStringWidth() or 0) <= width then return false end
+    end
+    fs:SetText("")
+    return false
+end
+
+local function PugTip(e)
+    local lines = { UI():ColoredName(e.key, e.class) }
+    local roles = {}
+    for _, role in ipairs(R().ROLES) do
+        if e.roles and e.roles[role] then roles[#roles + 1] = R().ROLE_LABEL[role] end
+    end
+    local bits = {}
+    if e.level then bits[#bits + 1] = "Level " .. e.level end
+    if e.area then bits[#bits + 1] = e.area end
+    if #bits > 0 then lines[#lines + 1] = tconcat(bits, " · ") end
+    if #roles > 0 then lines[#lines + 1] = "Listed as " .. tconcat(roles, ", ") end
+    if e.text then lines[#lines + 1] = (e.whispered and "Whispered you: " or "Their note: ") .. "\"" .. e.text .. "\"" end
+    if e.role and not e.invited then lines[#lines + 1] = grey("Invite takes them as " .. ROLE_NAME[e.role] .. ".") end
+    lines[#lines + 1] = grey("Click to whisper")
+    return lines
+end
+
+-- The Group Finder rows of my run from y down (x = the rows' left edge); returns the y under them.
+local function FillFinder(c, run, x, y, w)
+    local GF = GFm()
+    c.pugs = c.pugs or {}
+    for _, r in ipairs(c.pugs) do r:Hide() end
+    if c.finder then c.finder:Hide() end
+    if not (GF and GF:IsAvailable() and R():IsNow(run)) then return y end
+    local f = c.finder or NewFinderRow(c)
+    c.finder = f
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", c, "TOPLEFT", x, y)
+    f:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, y)
+    local listed, forRun, since = GF:GetListing(run)
+    local cands = forRun and GF:GetCandidates(run) or {}
+    local d = R():GetDungeon(run.d)
+    local where = (d and d.name or run.d) .. (run.h and " (Heroic)" or "")
+    f.list:Hide()
+    f.off:Hide()
+    f.note:Hide()
+    f.find:Hide()
+    if forRun then
+        local text = "|cff4fd16bListed|r"
+        if since then text = text .. grey(" · " .. max(1, floor((Now() - since) / 60)) .. " min") end
+        if GF:IsSearching() then
+            text = text .. grey(" · looking")
+        elseif #cands == 0 then
+            text = text .. grey(" · nobody there yet")
+        elseif #cands > PUG_ROWS then
+            text = text .. grey(" · " .. #cands .. " players")
+        end
+        f.status:SetText(text)
+        f.off.onClick = function() GF:Unlist() end
+        f.note.onClick = function()
+            if not GF:OpenBlizzard() then ns:Print("Blizzard's Group Finder didn't open.") end
+        end
+        f.find.onClick = function() GF:Search(run) end
+        f.off:Show()
+        f.note:Show()
+        f.find:Show()
+    else
+        f.status:SetText(listed and orange("Listed for another dungeon") or grey("Not listed"))
+        f.list:SetText(listed and "Switch" or "List")
+        f.list.tipLines = { listed and "Switch the listing" or "List in the Group Finder",
+            "Puts your run in Blizzard's Group Finder as " .. where .. ". Players looking for a group there show up "
+            .. "here, and so does anyone who whispers you." }
+        f.list.onClick = function()
+            local ok, why = GF:List(run)
+            if not ok and why then ns:Print("%s", why) end
+        end
+        f.list:Show()
+    end
+    f:Show()
+    y = y - REQ_H
+    local canInvite = R():CanInvite()
+    for i = 1, min(#cands, PUG_ROWS) do
+        local e = cands[i]
+        local r = c.pugs[i] or NewPugRow(c)
+        c.pugs[i] = r
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", c, "TOPLEFT", x, y)
+        r:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, y)
+        r.key = e.key
+        if e.class then UI():ClassIcon(r.icon, e.class) else r.icon:Hide() end
+        r.name:SetText(UI():ColoredName(e.key, e.class))
+        local icons = {}
+        for _, role in ipairs(R().ROLES) do
+            if e.roles[role] then icons[#icons + 1] = RoleIconText(role, 12) end
+        end
+        local info = tconcat(icons, "")
+        if e.level then info = info .. (info ~= "" and " " or "") .. e.level end
+        r.info:SetText(info)
+        local key = e.key
+        local rightW = 22 + 4 + 22 + 5 + 62
+        if e.invited then
+            r.yes:Hide()
+            r.state:SetText(grey("Invited"))
+            r.state:Show()
+            rightW = 22 + 4 + 22 + 10 + (r.state:GetStringWidth() or 40)
+        else
+            r.state:Hide()
+            r.yes:Show()
+            r.yes:SetEnabled(canInvite)
+            r.yes.onClick = function()
+                local ok, why = GF:Invite(key)
+                if not ok and why then ns:Print("%s", why) end
+            end
+        end
+        r.say.onClick = function() GF:Whisper(key) end
+        r.no.onClick = function() GF:Dismiss(key) end
+        local left = 22 + 8 + (r.name:GetStringWidth() or 60) + 7 + (r.info:GetStringWidth() or 0) + 8
+        local room = (w - x - 12) - left - rightW - 10
+        local quote = e.text and ((e.whispered and (UI():AtlasIconText(UI().ICON.whisper, 11, GOLD) .. " ") or "")
+            .. "\"" .. e.text .. "\"") or nil
+        if quote and room > 40 then
+            r.text:SetWidth(room)
+            FitWords(r.text, quote, room)
+            r.text:Show()
+        else
+            r.text:Hide()
+        end
+        r.tip = PugTip(e)
+        r:Show()
+        y = y - REQ_H
+    end
+    return y
+end
+
 -- Fills a card. opts = { width, mine = my own run (requests + free members), compact = the sheet's preview }.
 -- Returns the card's height.
 local function FillCard(c, run, opts)
@@ -591,7 +817,8 @@ local function FillCard(c, run, opts)
     local full, short = DungeonName(run)
     FitText(c.t1, full, short, textW - (run.no and 20 or 0), compact and 14 or 15)
     c.t1:SetTextColor(dim and 0.55 or 1, dim and 0.55 or 1, dim and 0.55 or 1)
-    local leader = run.o == Me() and not compact and "" or (UI():ColoredName(run.o) .. grey(" · "))
+    -- no leader on my own card, nor in the sheet's narrow preview (it's me; "Tomorrow 21:00" needs the room)
+    local leader = run.o == Me() and "" or (UI():ColoredName(run.o) .. grey(" · "))
     c.t2:SetText(leader .. grey(WhenText(run)))
     c.t2:SetAlpha(dim and 0.55 or 1)
     local hint, itemID, items
@@ -637,9 +864,20 @@ local function FillCard(c, run, opts)
         end
     elseif not compact and not R():IsInRun(run) then
         local a = R():GetAsked(run.id)
+        local inv = R():GetInvite()
+        local tinted = false
         c.btn:ClearAllPoints()
         c.btn:SetPoint("RIGHT", c, "TOPRIGHT", -12, -CARD_H / 2)
-        if a and a.st == "asked" then
+        if inv and inv.run == run.id then
+            c.btn:SetText("Accept")
+            c.btn:SetKind("primary")
+            c.btn:SetTint(0.3, 0.9, 0.4)
+            tinted = true
+            c.btn.onClick = function() R():AnswerInvite(true) end
+            c.btn.tip = { UI():ColoredName(inv.from) .. grey(" invites you"), "Click to join the party. The cross on "
+                .. "the pop-up declines." }
+            c.btn:Show()
+        elseif a and a.st == "asked" then
             c.btn:SetText("Asked")
             c.btn:SetKind("chosen")
             c.btn.onClick = function() R():CancelJoin(run.id) end
@@ -649,6 +887,7 @@ local function FillCard(c, run, opts)
             c.btn:SetText("Invited")
             c.btn:SetKind("chosen")
             c.btn:SetTint(0.3, 0.9, 0.4)
+            tinted = true
             c.btn.onClick = nil
             c.btn.tip = { "You're invited", "Accept the party invite to join." }
             c.btn:Show()
@@ -664,7 +903,7 @@ local function FillCard(c, run, opts)
             c.btn:Show()
         end
         if c.btn:IsShown() then
-            if not (a and a.st == "invited") then c.btn:SetTint(nil) end
+            if not tinted then c.btn:SetTint(nil) end
             c.btn:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
             c.btn:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
             c.btn:SetScript("OnLeave", HideTip)
@@ -779,7 +1018,8 @@ local function FillCard(c, run, opts)
             r:Show()
             y = y - REQ_H
         end
-        h = -y + ((#reqs > 0 or #fitting > 0) and 8 or 0)
+        y = FillFinder(c, run, x, y, w)
+        h = -y + ((y < -CARD_H + 2) and 8 or 0)
         if h < CARD_H then h = CARD_H end
     end
     c:SetHeight(h)
@@ -1096,7 +1336,7 @@ function DungeonsUI:RequestRefresh()
     if panel and panel:IsVisible() then
         ns.Util.Debounce("dungeons-ui", 0.1, function() DungeonsUI:Refresh() end)
     end
-    if toast and toast:IsShown() and toast.run then
+    if toast and toast:IsShown() and toast.run and toast.mode ~= "invite" then
         local run = R():GetRun(toast.run)
         if not run then toast:Hide() end
     end
@@ -1145,7 +1385,12 @@ function DungeonsUI:OpenMineMenu(owner)
                 if not ok and why then ns:Print("%s", why) end
             end)
         if root.CreateDivider then root:CreateDivider() end
-        entry(Ui.ICON.trash, "Unlist", "Takes your run off the board.", function() R():Unlist() end, { 1, 0.4, 0.35 })
+        entry(Ui.ICON.trash, "Unlist", "Takes your run off the board, and out of the Group Finder.", function()
+            -- (a click: the Group Finder takes listings down only inside one)
+            local GF, mine = ns.GroupFinder, R():GetMine()
+            if GF and mine and select(2, GF:GetListing(mine)) then GF:Unlist() end
+            R():Unlist()
+        end, { 1, 0.4, 0.35 })
     end)
 end
 
@@ -1544,6 +1789,32 @@ local function CreateSheet(p)
             Tip(self, { R().ROLE_LABEL[role], "The role you play in this run." }, "ANCHOR_TOP")
         end)
     end
+    -- the Group Finder too (a run for now: listed with the same click; for later: a pop-up when it starts)
+    sh.gfRow = CreateFrame("Frame", nil, form)
+    sh.gfRow:SetSize(FORM_LABEL_W + FORM_W, 24)
+    sh.gfRow:SetPoint("TOPLEFT", sh.roleRow, "BOTTOMLEFT", 0, -9)
+    sh.gfLabel = FormLabel(sh.gfRow, "Pugs")
+    sh.gfLabel:SetPoint("LEFT", 0, 0)
+    local function flip()
+        state.sheet.gf = not state.sheet.gf
+        DungeonsUI:RefreshSheet()
+    end
+    local function gfTip(self)
+        Tip(self, { "Group Finder", "Also puts your run in Blizzard's Group Finder, for players outside the guild. "
+            .. "Whoever looks for this dungeon there, or whispers you, shows up on your run.",
+            grey("A run for later: you get a pop-up when it starts.") }, "ANCHOR_TOP")
+    end
+    sh.gf = NewSwitch(sh.gfRow, flip)
+    sh.gf:SetPoint("LEFT", FORM_LABEL_W, 0)
+    sh.gf:SetScript("OnEnter", gfTip)
+    sh.gf:SetScript("OnLeave", HideTip)
+    sh.gfText = CreateFrame("Button", nil, sh.gfRow)
+    sh.gfText.text = Text(sh.gfText, "GameFontHighlightSmall", 12)
+    sh.gfText.text:SetPoint("LEFT")
+    sh.gfText:SetPoint("LEFT", sh.gf, "RIGHT", 8, 0)
+    sh.gfText:SetScript("OnClick", flip)
+    sh.gfText:SetScript("OnEnter", gfTip)
+    sh.gfText:SetScript("OnLeave", HideTip)
 
     -- the preview and the button
     sh.previewLabel = FormLabel(sh, "Preview")
@@ -1711,6 +1982,12 @@ function DungeonsUI:RefreshSheet()
         b:Show()
         x = x + 28
     end
+    local GF = ns.GroupFinder
+    sh.gfRow:SetShown(GF ~= nil and GF:IsAvailable())
+    sh.gf:SetOn(s.gf)
+    sh.gfText.text:SetText(later and "List it in the Group Finder when it starts" or "Also list it in the Group Finder")
+    sh.gfText.text:SetTextColor(s.gf and 1 or 0.62, s.gf and 1 or 0.62, s.gf and 1 or 0.62)
+    sh.gfText:SetSize((sh.gfText.text:GetStringWidth() or 200) + 2, 20)
 
     local px = PAD + FORM_LABEL_W + FORM_W + 24
     sh.previewW = width - PAD - px
@@ -1740,7 +2017,7 @@ function DungeonsUI:OpenSheet(edit)
     local level = UnitLevel and tonumber(UnitLevel("player")) or 70
     local s = { h = level >= 70, when = "now", role = R():GetGoAs(), edit = edit and mine ~= nil or nil }
     if s.edit then
-        s.d, s.h, s.no = mine.d, mine.h and true or false, mine.no
+        s.d, s.h, s.no, s.gf = mine.d, mine.h and true or false, mine.no, mine.gf
         if (mine.at or 0) > Now() then
             local t, n = date("*t", mine.at), date("*t", Now())
             s.when = "later"
@@ -1783,11 +2060,17 @@ end
 function DungeonsUI:SubmitSheet()
     local s = state.sheet
     if not s or not s.d then return end
-    local run, why = R():List({ d = s.d, h = s.h, at = SheetTime(s), no = s.no, role = s.role })
+    local run, why = R():List({ d = s.d, h = s.h, at = SheetTime(s), no = s.no, role = s.role, gf = s.gf })
     if not run then
         s.err = why
         self:RefreshSheet()
         return
+    end
+    -- a run for now goes into the Group Finder with this very click (the client lists only inside one)
+    local GF = ns.GroupFinder
+    if s.gf and GF and R():IsNow(run) and not select(2, GF:GetListing(run)) then
+        local ok, gfWhy = GF:List(run)
+        if not ok and gfWhy then ns:Print("%s", gfWhy) end
     end
     self:CloseSheet()
 end
@@ -1829,15 +2112,24 @@ local function CreateToast()
     t.t3:SetPoint("TOPLEFT", t.t2, "BOTTOMLEFT", 0, -3)
     t.btn = NewButton(t, "Join", 70, 26, "primary")
     t.btn:SetPoint("RIGHT", -14, 0)
-    t.x = UI():CreateIconButton(t, 16, NO_TEX, nil, function() t:Hide() end)
+    -- the cross: closes the pop-up; on a party invite it declines (the invite is the pop-up's whole point)
+    t.x = UI():CreateIconButton(t, 16, NO_TEX, nil, function()
+        if t.mode == "invite" then R():AnswerInvite(false) end
+        t:Hide()
+    end)
     t.x.bg:SetAlpha(0)
     t.x.icon:SetDesaturated(true)
     t.x:SetPoint("TOPRIGHT", -3, -3)
+    t.x:SetScript("OnEnter", function(self)
+        if t.mode == "invite" then Tip(self, { "Decline", "Says no to the party invite." }, "ANCHOR_TOP") end
+    end)
+    t.x:SetScript("OnLeave", HideTip)
     t:SetScript("OnClick", function()
         if ns.MainFrame then ns.MainFrame:Open("dungeons") end
-        t:Hide()
+        if t.mode ~= "invite" then t:Hide() end
     end)
     t:SetScript("OnUpdate", function(self, dt)
+        if self.mode == "invite" then return end   -- an invite stays until it is answered or runs out
         self.left = (self.left or TOAST_FOR) - dt
         if self.left <= 0 then self:Hide() end
     end)
@@ -1850,9 +2142,16 @@ local function Chime()
     if PlaySound and SOUNDKIT and SOUNDKIT.IG_PLAYER_INVITE then PlaySound(SOUNDKIT.IG_PLAYER_INVITE) end
 end
 
-local function ShowToast(run, l2, l3, btnText, onClick)
+-- mode: "invite" (a party invite: no countdown, the cross declines, no chime: Blizzard's invite sound already played)
+local function ShowToast(run, l2, l3, btnText, onClick, mode)
+    -- a party invite waiting for its answer is never pushed out by a ping
+    if mode ~= "invite" and toast and toast:IsShown() and toast.mode == "invite" then
+        Chime()
+        return
+    end
     toast = toast or CreateToast()
     local t = toast
+    t.mode = mode
     local file, l, r, tt, b = R():GetArt(run.d, TOAST_ART, TOAST_H - 2)
     t.art:SetSize(TOAST_ART, TOAST_H - 2)
     if file then
@@ -1892,7 +2191,7 @@ local function ShowToast(run, l2, l3, btnText, onClick)
     t.run = run.id
     t.left = TOAST_FOR
     t:Show()
-    Chime()
+    if mode ~= "invite" then Chime() end
 end
 
 -- True while the Dungeons tab is on screen: the board itself shows what a pop-up would say.
@@ -1930,6 +2229,42 @@ function DungeonsUI:OnRequest(id, key)
     ShowToast(run, UI():ColoredName(key) .. grey(" wants to join"), l3, "Accept", function() R():Accept(id, key) end)
 end
 
+-- A run's leader invites me (Blizzard's pop-up closed by Core): this pop-up is the invite, even over the board.
+function DungeonsUI:OnInvite(id, from)
+    local run = R():GetRun(id)
+    if not run then return end
+    local a = R():GetAsked(id)
+    local role = (a and a.r) or R():FitsMe(run)
+    local l3 = role and (RoleIconText(role, 12) .. " " .. grey("as " .. R().ROLE_LABEL[role])) or nil
+    ShowToast(run, UI():ColoredName(from) .. grey(" invites you"), l3, "Accept", function() R():AnswerInvite(true) end,
+        "invite")
+    if panel and panel:IsVisible() then self:RequestRefresh() end
+end
+
+function DungeonsUI:OnInviteGone()
+    if toast and toast:IsShown() and toast.mode == "invite" then toast:Hide() end
+    self:RequestRefresh()
+end
+
+-- My run is meant for the Group Finder but isn't listed there (a run for later that started, or one I took over
+-- with the lead: Blizzard delists a party whose leader changes): one click lists it.
+function DungeonsUI:OnFinderPrompt(id)
+    local run = R():GetRun(id)
+    local GF = ns.GroupFinder
+    if not run or not GF then return end
+    local parts = {}
+    local open = R():GetOpenRoles(run)
+    for _, role in ipairs(R().ROLES) do
+        local n = open[role]
+        if n then parts[#parts + 1] = (n > 1 and (n .. " ") or "") .. R().ROLE_LABEL[role] end
+    end
+    ShowToast(run, tconcat(parts, ", ") .. grey(" open in your run"),
+        grey("List it in the Group Finder for pugs?"), "List", function()
+            local ok, why = GF:List(run)
+            if not ok and why then ns:Print("%s", why) end
+        end)
+end
+
 -- For the harness / UI audit.
 function DungeonsUI:GetPanel() return panel end
 function DungeonsUI:GetToast() return toast end
@@ -1947,9 +2282,12 @@ function DungeonsUI:OnInit()
     end
     local function refresh() DungeonsUI:RequestRefresh() end
     for _, msg in ipairs({ "DUNGEON_RUNS_UPDATED", "ROSTER_UPDATED", "GROUP_UPDATED", "ITEMINFO_READY",
-                           "DEMO_TOGGLED", "PROFESSIONS_UPDATED" }) do
+                           "DEMO_TOGGLED", "PROFESSIONS_UPDATED", "GROUP_FINDER_UPDATED" }) do
         ns:On(msg, refresh)
     end
     ns:On("DUNGEON_RUN_PING", function(id) DungeonsUI:OnPing(id) end)
     ns:On("DUNGEON_RUN_REQUEST", function(id, key) DungeonsUI:OnRequest(id, key) end)
+    ns:On("DUNGEON_RUN_INVITE", function(id, from) DungeonsUI:OnInvite(id, from) end)
+    ns:On("DUNGEON_RUN_INVITE_GONE", function() DungeonsUI:OnInviteGone() end)
+    ns:On("GROUP_FINDER_PROMPT", function(id) DungeonsUI:OnFinderPrompt(id) end)
 end

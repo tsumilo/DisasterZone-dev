@@ -33,7 +33,11 @@ for e in ([[ADDON_LOADED VARIABLES_LOADED PLAYER_LOGIN PLAYER_LOGOUT PLAYER_ENTE
   UPDATE_INSTANCE_INFO SPELLS_CHANGED INSPECT_READY OPEN_MASTER_LOOT_LIST UPDATE_MASTER_LOOT_LIST CONFIRM_LOOT_ROLL
   LOOT_ROLLS_COMPLETE LOOT_BIND_CONFIRM CONFIRM_DISENCHANT_ROLL LOOT_ITEM_AVAILABLE CHARACTER_POINTS_CHANGED
   PLAYER_TALENT_UPDATE ACTIVE_TALENT_GROUP_CHANGED UNIT_NAME_UPDATE READY_CHECK_CONFIRM UNIT_CONNECTION
-  READY_CHECK READY_CHECK_FINISHED]]):gmatch("%S+") do M.known_events[e] = true end
+  READY_CHECK READY_CHECK_FINISHED PARTY_INVITE_REQUEST PARTY_INVITE_CANCEL LFG_LIST_ACTIVE_ENTRY_UPDATE
+  LFG_LIST_SEARCH_RESULTS_RECEIVED LFG_LIST_SEARCH_RESULT_UPDATED LFG_LIST_SEARCH_FAILED LFG_LIST_ENTRY_EXPIRED_TIMEOUT
+  LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS LFG_LIST_ENTRY_CREATION_FAILED LFG_LIST_AVAILABILITY_UPDATE]]):gmatch("%S+") do
+  M.known_events[e] = true
+end
 load_module("objects.lua")
 load_module("ui.lua")
 load_module("game.lua")
@@ -191,15 +195,29 @@ local function need_obj(f, what)
 end
 M.need_obj = need_obj
 
+-- Hardware events: a click, a key press or a menu pick runs inside one (M.hw_depth > 0), like WoW's "hardware event"
+-- restriction (C_LFGList.CreateListing, Search, ...: game.lua need_hw).
+M.hw_depth = 0
+local function in_hw(fn, ...)
+  M.hw_depth = M.hw_depth + 1
+  local res = { pcall(fn, ...) }
+  M.hw_depth = M.hw_depth - 1
+  if not res[1] then error(res[2], 0) end
+  return unpack(res, 2, table.maxn(res))
+end
+M.in_hw = in_hw
+
 function M.click(f, button)
   f = need_obj(f, "click")
   if not M.is_visible(f) then M.warn("click on hidden frame " .. M.obj_label(f) .. " (a user could not click it)") end
-  if f.Click and M.OBJ[f].kind ~= "Frame" then
-    f:Click(button or "LeftButton")
-  else
-    M.call_script(f, "OnMouseDown", button or "LeftButton")
-    M.call_script(f, "OnMouseUp", button or "LeftButton", true)
-  end
+  in_hw(function()
+    if f.Click and M.OBJ[f].kind ~= "Frame" then
+      f:Click(button or "LeftButton")
+    else
+      M.call_script(f, "OnMouseDown", button or "LeftButton")
+      M.call_script(f, "OnMouseUp", button or "LeftButton", true)
+    end
+  end)
 end
 function M.hover(f) f = need_obj(f, "hover"); M.call_script(f, "OnEnter", true) end
 function M.leave(f) f = need_obj(f, "leave"); M.call_script(f, "OnLeave", true) end
@@ -214,9 +232,9 @@ function M.type_text(eb, text, enter)
   st.text = t
   st.cursor = #t
   M.call_script(eb, "OnTextChanged", true)
-  if enter then M.call_script(eb, "OnEnterPressed") end
+  if enter then in_hw(M.call_script, eb, "OnEnterPressed") end
 end
-function M.press_enter(eb) eb = need_obj(eb, "press_enter"); M.call_script(eb, "OnEnterPressed") end
+function M.press_enter(eb) eb = need_obj(eb, "press_enter"); in_hw(M.call_script, eb, "OnEnterPressed") end
 function M.press_escape(eb) eb = need_obj(eb, "press_escape"); M.call_script(eb, "OnEscapePressed") end
 
 function M.slash(line)
@@ -280,10 +298,10 @@ function M.menu_select(text, d)
   walk(d)
   if not found then error("menu_select: no menu entry with text '" .. tostring(text) .. "'", 2) end
   if found.kind == "button" and found.callback then
-    local ok, r = safecall("menu button '" .. tostring(text) .. "'", found.callback, found.data, { buttonName = "LeftButton", context = 2 }, nil)
+    local ok, r = in_hw(safecall, "menu button '" .. tostring(text) .. "'", found.callback, found.data, { buttonName = "LeftButton", context = 2 }, nil)
     return r
   elseif (found.kind == "checkbox" or found.kind == "radio") and found.setSelected then
-    local ok, r = safecall("menu " .. found.kind .. " '" .. tostring(text) .. "'", found.setSelected, found.data, { buttonName = "LeftButton", context = 2 }, nil)
+    local ok, r = in_hw(safecall, "menu " .. found.kind .. " '" .. tostring(text) .. "'", found.setSelected, found.data, { buttonName = "LeftButton", context = 2 }, nil)
     return r
   end
   M.warn("menu_select: entry '" .. tostring(text) .. "' has no callback")
