@@ -271,12 +271,14 @@ local function NewSlot(parent, size)
     s:EnableMouse(true)
     s:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
     s:SetScript("OnLeave", HideTip)
+    s:SetScript("OnMouseUp", function(self) if self.onPick then self.onPick(self) end end)   -- (my run: the role)
     return s
 end
 
 -- d = { key, role, class, you } or { empty = true, role }; wants = this empty place wants me.
 local function FillSlot(s, d, wants, dim)
     s:SetAlpha(dim and 0.42 or 1)
+    s.onPick = nil
     if d.empty then
         s.class:Hide()
         s.badge:Hide()
@@ -535,7 +537,10 @@ local function FillChip(f, e)
     f.roles:SetText(tconcat(icons, ""))
     f:SetWidth(floor(2 + 20 + 6 + (f.name:GetStringWidth() or 40) + 4 + (f.roles:GetStringWidth() or 0) + 9))
     f.key = e.key
-    f.tip = { UI():ColoredName(e.key, e.class), "Up for a run: " .. tconcat(words, ", "), grey("Click to whisper") }
+    f.tip = { UI():ColoredName(e.key, e.class), "Up for a run: " .. tconcat(words, ", "),
+              e.grouped and orange("In a group right now: an invite can't reach them.") or grey("Click to whisper"),
+              e.grouped and grey("Click to whisper") or nil }
+    f:SetAlpha(e.grouped and 0.55 or 1)
 end
 
 ---------------------------------------------------------------------------
@@ -620,12 +625,15 @@ local function FillEye(eye, run)
     if forRun then
         local mins = since and max(1, floor((Now() - since) / 60))
         local n = #GF:GetCandidates(run)
-        eye.tipLines = { "In the Group Finder" .. (mins and grey(" · " .. mins .. " min") or ""),
-            "Listed as " .. where .. ". Players looking for it there, and anyone who whispers you, show up on your run.",
-            -- (only PUG_ROWS fit under the run: setting some aside shows the next ones)
-            n > PUG_ROWS and gold(n .. " players found: the first " .. PUG_ROWS .. " show under your run. Set some "
-                .. "aside to see the others.") or nil,
-            grey("Click to take it out. It stays on the guild's board.") }
+        local lines = { "In the Group Finder" .. (mins and grey(" · " .. mins .. " min") or ""),
+            "Listed as " .. where .. ". Players looking for it there, and anyone who whispers you, show up on your run." }
+        -- (only PUG_ROWS fit under the run: setting some aside shows the next ones)
+        if n > PUG_ROWS then
+            lines[#lines + 1] = gold(n .. " players found: the first " .. PUG_ROWS .. " show under your run. Set some "
+                .. "aside to see the others.")
+        end
+        lines[#lines + 1] = grey("Click to take it out. It stays on the guild's board.")
+        eye.tipLines = lines
     else
         eye.tipLines = { "Group Finder", "Lists your run in Blizzard's Group Finder as " .. where .. ". Players looking "
             .. "for it there, and anyone who whispers you, show up on your run.",
@@ -821,6 +829,12 @@ local function FillCard(c, run, opts)
         if d then
             local wants = d.empty and fits == d.role and not blocked and not compact
             FillSlot(s, d, wants, dim)
+            -- my run: a click on somebody's place sets the role they play (a pug who whispered me is DPS until then)
+            if mine and not compact and not d.empty then
+                local key = d.key
+                s.onPick = function(self) DungeonsUI:OpenRoleMenu(self, key) end
+                s.tip[#s.tip + 1] = grey("Click to change the role")
+            end
             s:Show()
         else
             s:Hide()
@@ -1000,7 +1014,7 @@ local function FillCard(c, run, opts)
                 r.label:SetTextColor(0.62, 0.62, 0.62)
                 r.label:SetPoint("LEFT", 0, 0)
                 r.label:SetText("Up for a run")
-                r.chips, r.invites = {}, {}
+                r.chips, r.invites, r.busy = {}, {}, {}
                 c.free[1] = r
             end
             r:ClearAllPoints()
@@ -1010,41 +1024,54 @@ local function FillCard(c, run, opts)
             local room = w - x - 12
             for i = 1, max(#r.chips, #fitting) do
                 local e = fitting[i]
-                local chip, inv = r.chips[i], r.invites[i]
+                local chip, inv, busy = r.chips[i], r.invites[i], r.busy[i]
                 if e then
                     if not chip then
                         chip = NewChip(r)
                         inv = NewButton(r, "Invite", 56, 22, "secondary")
-                        r.chips[i], r.invites[i] = chip, inv
+                        busy = Text(r, "GameFontHighlightSmall", 11)
+                        busy:SetText(grey("In a group"))
+                        r.chips[i], r.invites[i], r.busy[i] = chip, inv, busy
                     end
                     FillChip(chip, e)
-                    local need = chip:GetWidth() + 4 + 56 + 10
+                    -- in a group: no invite reaches them, so no Invite (they show as busy)
+                    local need = chip:GetWidth() + 4 + (e.grouped and (busy:GetStringWidth() or 60) + 2 or 56) + 10
                     if cx + need <= room then
                         chip:ClearAllPoints()
                         chip:SetPoint("LEFT", r, "LEFT", cx, 0)
-                        inv:ClearAllPoints()
-                        inv:SetPoint("LEFT", chip, "RIGHT", 4, 0)
                         local key = e.key
-                        local done = state.invited[key]
-                        inv:SetText(done and "Invited" or "Invite")
-                        inv:SetEnabled(not done)
-                        inv:SetScript("OnClick", function()
-                            if R():InviteFree(key) then
-                                state.invited[key] = true
-                                DungeonsUI:Refresh()
-                            end
-                        end)
+                        if e.grouped then
+                            inv:Hide()
+                            busy:ClearAllPoints()
+                            busy:SetPoint("LEFT", chip, "RIGHT", 6, 0)
+                            busy:Show()
+                        else
+                            busy:Hide()
+                            inv:ClearAllPoints()
+                            inv:SetPoint("LEFT", chip, "RIGHT", 4, 0)
+                            local done = state.invited[key]
+                            inv:SetText(done and "Invited" or "Invite")
+                            inv:SetEnabled(not done)
+                            inv:SetScript("OnClick", function()
+                                if R():InviteFree(key) then
+                                    state.invited[key] = true
+                                    DungeonsUI:Refresh()
+                                end
+                            end)
+                            inv:Show()
+                        end
                         chip:SetScript("OnClick", nil)
                         chip:Show()
-                        inv:Show()
                         cx = cx + need
                     else
                         chip:Hide()
                         inv:Hide()
+                        busy:Hide()
                     end
                 elseif chip then
                     chip:Hide()
                     inv:Hide()
+                    busy:Hide()
                 end
             end
             r:Show()
@@ -1395,6 +1422,30 @@ end
 -- What a run's card tooltip says (the Home calendar uses it too).
 function DungeonsUI:GetRunTip(run)
     return CardTip(run)()
+end
+
+-- The role somebody plays in my run: Tank / Healer / DPS (the ones their class plays).
+function DungeonsUI:OpenRoleMenu(owner, key)
+    local run = R():GetMine()
+    if not run then return end
+    local current
+    for _, x in ipairs(run.s or {}) do
+        if x.k == key then current = x.r end
+    end
+    local classFile = R():GetClass(key)
+    for _, s in ipairs(R():GetSlots(run)) do
+        if s.key == key then classFile = s.class or classFile end
+    end
+    UI():ContextMenu(owner, function(root)
+        if root.CreateTitle then root:CreateTitle(UI():ColoredName(key, classFile)) end
+        for _, role in ipairs(R().ROLES) do
+            if R():CanPlayRole(classFile, role) then
+                root:CreateRadio(RoleIconText(role, 14) .. "  " .. R().ROLE_LABEL[role],
+                    function() return current == role end,
+                    function() R():SetPartyRole(key, role) end)
+            end
+        end
+    end)
 end
 
 -- My run's More menu: Edit, Post in LookingForGroup, (listed in the Group Finder:) Look again, Note, Unlist.
@@ -2348,4 +2399,11 @@ function DungeonsUI:OnInit()
     ns:On("DUNGEON_RUN_INVITE_GONE", function() DungeonsUI:OnInviteGone() end)
     ns:On("GROUP_FINDER_PROMPT", function(id) DungeonsUI:OnFinderPrompt(id) end)
     ns:On("GROUP_FINDER_LEFTOVER", function(old) DungeonsUI:OnFinderLeftover(old) end)
+    -- an invite of mine that went nowhere (declined, in a group, offline): Invite again
+    ns:On("PARTY_INVITE_FAILED", function(key)
+        if state.invited[key] then
+            state.invited[key] = nil
+            DungeonsUI:RequestRefresh()
+        end
+    end)
 end

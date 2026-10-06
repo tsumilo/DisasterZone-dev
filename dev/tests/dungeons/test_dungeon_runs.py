@@ -596,5 +596,237 @@ def the_lead_passing_while_the_leader_is_offline_still_passes_the_run():
     w.assert_no_errors()
 
 
+
+def toast(cl):
+    return cl.eval_py("local t = ns.DungeonsUI:GetToast(); if not (t and t:IsShown()) then return nil end; "
+                      "return { run = t.run, mode = t.mode, btn = t.btn:GetText() }")
+
+
+def asked(cl, rid):
+    return cl.eval_py("local a = ns.DungeonRuns:GetAsked(...); return a and a.st", rid)
+
+
+def req_state(cl, rid, key):
+    return cl.eval_py("for _, r in ipairs(ns.DungeonRuns:GetRequests(...)) do if r.key == select(2, ...) then "
+                      "return r.st end end; return nil", rid, key)
+
+
+def card_btn(cl, i=1):
+    return cl.eval_py("local c = ns.DungeonsUI:GetPanel().cards[...]; return c.btn:IsShown() and c.btn:GetText() "
+                      "or false", i)
+
+
+@case
+def saying_no_to_the_run_invite_takes_back_the_ask():
+    w, c = five()
+    w.auto_accept_invites = False
+    g, b = c["Gina"], c["Bert"]
+    roles(b, "tank")
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    b.eval("ns.DungeonRuns:Join(...)", rid)
+    w.tick(2)
+    b.eval("ns.DungeonRuns:GetAsked(...).at = GetServerTime() - 11 * 60", rid)   # an old ask: the pop-up asks
+    g.eval("ns.DungeonRuns:Accept(...)", rid, K(b))
+    w.tick(1)
+    assert toast(b)["mode"] == "invite"
+    b.click(b.eval("return ns.DungeonsUI:GetToast().x"))
+    w.tick(3)
+    assert w.invite_log[-1]["result"] == "declined"
+    # both sides forget the ask: Gina's list is empty, Bert's card offers Join again
+    assert g.eval_py("return #ns.DungeonRuns:GetRequests(...)", rid) == 0
+    assert asked(b, rid) is None
+    b.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(0.5)
+    assert card_btn(b) == "Join"
+    w.assert_no_errors()
+
+
+@case
+def an_invite_that_goes_nowhere_puts_the_player_back_to_asking():
+    w, c = five()
+    w.auto_accept_invites = False
+    g, b = c["Gina"], c["Bert"]
+    roles(b, "tank")
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    b.eval("ns.DungeonRuns:Join(...)", rid)
+    w.tick(2)
+    # Bert's acceptance would cost him a queue: Blizzard's pop-up stays, and he declines it there
+    b.eval("__MOCK.invite_removes_queues = true")
+    g.eval("ns.DungeonRuns:Accept(...)", rid, K(b))
+    w.tick(1)
+    assert req_state(g, rid, K(b)) == "invited" and asked(b, rid) == "invited"
+    b.eval("DeclineGroup()")
+    w.tick(2)
+    # Gina's row is back to Accept (the invite went nowhere); Bert asks again once an invite would have run out
+    assert req_state(g, rid, K(b)) == "asked"
+    w.tick(70)
+    assert asked(b, rid) == "asked"
+    # an invite that can't reach its player (offline) also puts them back
+    b.logout()
+    g.eval("ns.DungeonRuns:Accept(...)", rid, K(b))
+    w.tick(2)
+    assert req_state(g, rid, K(b)) == "asked"
+    w.assert_no_errors()
+
+
+@case
+def in_a_group_no_join_no_ping_and_leaders_see_in_a_group():
+    w, c = five()
+    g, b, cara = c["Gina"], c["Bert"], c["Cara"]
+    roles(b, "tank")
+    b.eval("ns.DungeonRuns:SetUp(true)")
+    w.make_party([cara, b], leader=cara)   # Bert is questing with Cara
+    w.tick(4)
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    # no ping for Bert, and Join says why it can't work
+    assert toast(b) is None
+    ok = b.eval_py("return ns.DungeonRuns:Join(...)", rid)
+    assert ok[0] is False and "Leave your group" in ok[1], ok
+    b.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(0.5)
+    assert card_btn(b) is False
+    assert "in a group" in b.eval_py("return ns.DungeonsUI:GetPanel().cards[1].t3:GetText()")
+    # Gina's run: Bert shows as up but in a group, without Invite
+    g.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(0.5)
+    row = g.eval_py("local r = ns.DungeonsUI:GetPanel().cards[1].free[1]; return r and r:IsShown() and "
+                    "{ busy = r.busy[1]:IsShown(), invite = r.invites[1]:IsShown() }")
+    assert row == {"busy": True, "invite": False}, row
+    assert g.eval_py("return ns.DungeonRuns:InviteFree(...)", K(b)) is False
+    w.assert_no_errors()
+
+
+@case
+def joining_another_run_ends_my_own_with_a_word():
+    w, c = five()
+    g, b = c["Gina"], c["Bert"]
+    roles(b, "tank")
+    rid = list_run(g, "Botanica", True, "healer")
+    list_run(b, "Mechanar", True, "tank")
+    w.tick(3)
+    b.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(0.5)
+    tip = b.eval_py("local c = ns.DungeonsUI:GetPanel().cards[2]; return c.btn.tip")
+    assert any("Your own run comes off the board" in str(x) for x in tip), tip
+    b.eval("ns.DungeonRuns:Join(...)", rid)
+    w.tick(2)
+    g.eval("ns.DungeonRuns:Accept(...)", rid, K(b))
+    w.tick(4)
+    assert b.eval_py("return ns.DungeonRuns:GetMine()") is None
+    assert any("You joined Gina's group: your run is off the board" in l for l in b.chat_frame), b.chat_frame
+    w.assert_no_errors()
+
+
+@case
+def asks_are_forgotten_on_both_sides_and_a_no_may_ask_again_later():
+    w, c = five()
+    g, b, cara = c["Gina"], c["Bert"], c["Cara"]
+    roles(b, "tank")
+    roles(cara, "dps")
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    b.eval("ns.DungeonRuns:Join(...)", rid)
+    cara.eval("ns.DungeonRuns:Join(...)", rid)
+    w.tick(2)
+    g.eval("ns.DungeonRuns:Decline(...)", rid, K(cara))
+    w.tick(2)
+    assert asked(cara, rid) == "declined"
+    # 11 minutes: Cara may ask again; 21: Bert's ask is gone on both sides
+    w.tick(11 * 60, step=1)
+    assert asked(cara, rid) is None
+    assert cara.eval_py("return ns.DungeonRuns:Join(...)", rid) is True
+    w.tick(10 * 60, step=1)
+    assert asked(b, rid) is None
+    assert req_state(g, rid, K(b)) is None
+    w.assert_no_errors()
+
+
+@case
+def requests_to_join_come_from_the_guild_only():
+    w = World()
+    g = Client(w, "Gina", class_file="PALADIN", guild_rank=0)
+    p = Client(w, "Pugzug", class_file="SHAMAN", guild=None)
+    for x in (g, p):
+        x.load_addon()
+    w.tick(HELLO)
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    p.eval("ns.Comm:Send({ t = 'DRJ', id = ..., r = 3 }, 'WHISPER', 'Gina', 'run')", rid)
+    w.tick(2)
+    assert g.eval_py("return #ns.DungeonRuns:GetRequests(...)", rid) == 0
+    w.assert_no_errors()
+
+
+@case
+def the_leader_leaving_leaves_the_run_with_the_party():
+    w, c = five()
+    g, b, cara, dora = c["Gina"], c["Bert"], c["Cara"], c["Dora"]
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    w.make_party([g, b, cara], leader=g)
+    w.tick(4)
+    # Gina leaves; Bert leads the rest
+    grp = w.group
+    grp["members"] = [m for m in grp["members"] if m is not g]
+    grp["leader"] = b
+    w._sync()
+    for x in (g, b, cara):
+        x._fire("GROUP_ROSTER_UPDATE")
+        x._fire("PARTY_LEADER_CHANGED")
+    w.tick(4)
+    m = mine(b)
+    assert m and m["pv"] == rid, m
+    assert mine(g) is None
+    rs = runs(dora)
+    assert [r["id"] for r in rs] == [m["id"]] and len(rs[0]["s"]) == 2, rs
+    # a share link to the old run finds the new one
+    assert dora.eval_py("return ns.DungeonRuns:GetRun(...).id", rid) == m["id"]
+    assert dora.eval_py("return ns.DungeonsUI:Focus(...)", rid) is True
+    # Gina's profile went out without the old run (clients from before runs followed the lead drop it with that)
+    ids = dora.eval_py("local p = ns.DungeonRuns:GetPeer(...); local out = {}; for id in pairs(p.ids or {}) do "
+                       "out[#out + 1] = id end; return out", K(g))
+    assert rid not in (ids or []), ids
+    w.assert_no_errors()
+
+
+@case
+def a_pugs_class_and_my_pick_of_roles_go_with_the_party():
+    w = World()
+    g = Client(w, "Gina", class_file="PALADIN", guild_rank=0)
+    d = Client(w, "Dora", class_file="ROGUE")
+    t = Client(w, "Tankard", class_file="WARRIOR", guild=None)
+    for x in (g, d, t):
+        x.load_addon()
+    w.tick(HELLO)
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    w.make_party([g, t], leader=g)
+    w.tick(4)
+    assert slots(d, rid)[2] == K(t) + ":dps", slots(d, rid)
+    cls = d.eval_py("for _, x in ipairs(ns.DungeonRuns:GetSlots(ns.DungeonRuns:GetRun(...))) do "
+                    "if x.key == select(2, ...) then return x.class end end", rid, K(t))
+    assert cls == "WARRIOR", cls
+    # Gina makes him the tank: a click on his place, Tank
+    g.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(0.5)
+    idx = g.eval_py("local c = ns.DungeonsUI:GetPanel().cards[1]; for i, s in ipairs(c.slots) do "
+                    "if s:IsShown() and s.onPick and s.tip and tostring(s.tip[1]):find('Tankard') then return i end end")
+    assert idx, "no place for Tankard"
+    g.eval("local s = ns.DungeonsUI:GetPanel().cards[1].slots[...]; s.onPick(s)", idx)
+    texts = g.eval_py("local out = {}; for _, e in ipairs(__MOCK.menu_export().children) do "
+                      "out[#out + 1] = e.text or '' end; return out")
+    assert not any("Healer" in x for x in texts), texts           # a warrior doesn't heal
+    g.menu_select([x for x in texts if x.endswith("Tank")][0])
+    w.tick(3)
+    assert slots(d, rid)[0] == K(t) + ":tank", slots(d, rid)
+    # the party changes, his role stays
+    w.tick(2)
+    assert slots(g, rid)[0] == K(t) + ":tank", slots(g, rid)
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

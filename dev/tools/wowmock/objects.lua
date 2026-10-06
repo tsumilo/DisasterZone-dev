@@ -755,10 +755,17 @@ local function to_text(v, method)
 end
 M.to_text = to_text
 
--- The drawn length of a text: colour codes draw nothing (the game measures what it draws).
+-- The drawn length of a text: colour codes draw nothing, a link draws its [name], an inline texture
+-- (|Tpath:height:width...|t) is as wide as its size (0 = the line, 12 px) (the game measures what it draws).
 local function drawnLen(t)
   t = string.gsub(t or "", "|c%x%x%x%x%x%x%x%x", "")
   t = string.gsub(t, "|r", "")
+  t = string.gsub(t, "|H.-|h(.-)|h", "%1")
+  t = string.gsub(t, "|T[^:|]*:?(%d*):?(%d*)[^|]*|t", function(h, w)
+    local px = tonumber(w ~= "" and w or h) or 0
+    if px == 0 then px = 12 end
+    return string.rep("x", math.ceil(px / 6))
+  end)
   return #t
 end
 

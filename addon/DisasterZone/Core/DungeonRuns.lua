@@ -1630,6 +1630,9 @@ end
 
 function Runs:GetClass(key) return ClassOf(key) end
 
+-- Can that class play the role? (An unknown class: any.)
+function Runs:CanPlayRole(classFile, role) return CanPlay(classFile, role) end
+
 -- The roles my class can play, in order.
 function Runs:GetPlayableRoles()
     local classFile = ClassOf(Me() or "")

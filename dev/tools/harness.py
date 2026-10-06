@@ -564,6 +564,9 @@ class World:
             return
         if g and any(m is target for m in g["members"]):
             entry["result"] = "already in group"
+            if not any(m is by for m in g["members"]):
+                # (in somebody else's group: WoW tells the inviter, ERR_ALREADY_IN_GROUP_S)
+                self._enqueue(self.latency, by, "system", "%s is already in a group." % target.name)
             return
 
         def accept():

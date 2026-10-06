@@ -745,6 +745,8 @@ STATES = [
                                                   "gf = true })", "dungeons")),
     ("Dungeons - invite", demo(DR_ME + "ns.MainFrame:Close(); "
                                "ns.DungeonsUI:OnInvite('demo-1', ns.DungeonRuns:GetRun('demo-1').o)")),
+    ("Dungeons - listing left behind", demo(DR_ME + "ns.MainFrame:Close(); "
+                                            "ns.DungeonsUI:OnFinderLeftover({ id = 'x', d = 'Botanica', h = true })")),
     ("Dungeons - empty", opened("dungeons")),
     # the Share window (UI/ShareWindow.lua), dropped from the icon that opened it
     ("Share - raid", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "

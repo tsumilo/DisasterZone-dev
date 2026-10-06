@@ -417,5 +417,111 @@ def demo_mode_shows_made_up_pugs_and_calls_nothing():
     w.assert_no_errors()
 
 
+
+def listed(w, g, d="Botanica"):
+    """Gina lists d (heroic) and puts it in the Group Finder with the eye."""
+    rid = list_run(g, d, True, "healer")
+    w.tick(3)
+    open_tab(w, g)
+    g.click(g.eval("return " + my_card(g) + ".eye"))
+    w.tick(1)
+    return rid
+
+
+@case
+def whispers_with_links_keep_the_name():
+    w, c = five(pugs=[("Pugzug", "SHAMAN")])
+    g, pz = c["Gina"], c["Pugzug"]
+    listed(w, g)
+    link = "|cffa335ee|Hitem:28583::::::::70:::::|h[Big Hammer]|h|r"
+    pz.eval("SendChatMessage(..., 'WHISPER', nil, 'Gina')", "heal here, have " + link + " lol")
+    w.tick(1)
+    assert [x["text"] for x in cands(g)] == ["heal here, have [Big Hammer] lol"], cands(g)
+    w.assert_no_errors()
+
+
+@case
+def a_pug_who_says_no_can_be_invited_again():
+    w, c = five(pugs=[("Tankard", "WARRIOR")])
+    w.auto_accept_invites = False
+    g, tk = c["Gina"], c["Tankard"]
+    g.eval("__MOCK.lfg_set_results({ { name = 'Tankard', class = 'WARRIOR', level = 70, roles = { tank = true }, "
+           "activityIDs = { 1212 } } })")
+    listed(w, g)
+    g.click(g.eval("return " + my_card(g) + ".pugs[1].yes"))
+    w.tick(1)
+    assert cands(g)[0]["inv"] is True
+    tk.eval("DeclineGroup()")
+    w.tick(2)
+    assert cands(g)[0]["inv"] is False, cands(g)
+    assert g.eval_py("local r = " + my_card(g) + ".pugs[1]; return r.yes:IsShown()") is True
+    w.assert_no_errors()
+
+
+@case
+def a_run_that_ends_by_itself_asks_to_take_its_listing_down():
+    w, c = five()
+    g = c["Gina"]
+    listed(w, g)
+    w.make_party([g, c["Alfa"], c["Bert"], c["Cara"], c["Dora"]], leader=g)   # full: off the board
+    w.tick(4)
+    assert g.eval_py("return ns.DungeonRuns:GetMine()") is None
+    t = toast(g)
+    assert t and t["btn"] == "Remove" and t["mode"] == "finder", t
+    g.eval("__MOCK.lfg_log = {}")
+    g.click(g.eval("return ns.DungeonsUI:GetToast().btn"))
+    w.tick(1)
+    assert [e["fn"] for e in lfg_log(g)] == ["RemoveListing"], lfg_log(g)
+    # Unlist by hand (a click that takes the listing down too): no such pop-up
+    w.disband()
+    w.tick(2)
+    listed(w, g, "Mechanar")
+    menu_pick(g, "Unlist")
+    w.tick(4)
+    assert toast(g) is None or toast(g)["btn"] != "Remove"
+    w.assert_no_errors()
+
+
+@case
+def editing_a_listed_run_keeps_the_group_finder_in_step():
+    w, c = five()
+    g = c["Gina"]
+    listed(w, g)
+    # another dungeon: the listing switches with the Save click
+    g.eval("__MOCK.lfg_log = {}")
+    g.eval("ns.DungeonsUI:OpenSheet(true); ns.DungeonsUI:SetSheet({ d = 'Mechanar' })")
+    g.click(g.eval("return ns.DungeonsUI:GetPanel().sheet.go"))
+    w.tick(1)
+    log = lfg_log(g)
+    assert log and log[0]["fn"] == "UpdateListing" and log[0]["a"] == MECHANAR_H, log
+    # moved to later: out of the Group Finder
+    g.eval("__MOCK.lfg_log = {}")
+    g.eval("ns.DungeonsUI:OpenSheet(true); ns.DungeonsUI:SetSheet({ when = 'later', day = 1, mins = 20 * 60 })")
+    g.click(g.eval("return ns.DungeonsUI:GetPanel().sheet.go"))
+    w.tick(1)
+    assert [e["fn"] for e in lfg_log(g)] == ["RemoveListing"], lfg_log(g)
+    assert g.eval_py("return " + my_card(g) + ".eye:IsShown()") is False
+    w.assert_no_errors()
+
+
+@case
+def more_players_than_rows_says_so_on_the_eye():
+    w, c = five()
+    g = c["Gina"]
+    g.eval("""local list = {}
+      for i, n in ipairs({ 'Aa', 'Bb', 'Cc', 'Dd', 'Ee', 'Ff', 'Gg' }) do
+        list[i] = { name = 'Pug' .. n, class = 'MAGE', level = 70, roles = { dps = true }, activityIDs = { 1212 } }
+      end
+      __MOCK.lfg_set_results(list)""")
+    listed(w, g)
+    assert len(cands(g)) == 7
+    shown = g.eval_py("local n = 0; for _, r in ipairs(" + my_card(g) + ".pugs) do if r:IsShown() then n = n + 1 "
+                      "end end; return n")
+    assert shown == 5, shown
+    tip = g.eval_py("return " + my_card(g) + ".eye.tipLines")
+    assert any("7 players found" in str(x) for x in tip), tip
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()
