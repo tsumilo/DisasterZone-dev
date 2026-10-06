@@ -1,14 +1,16 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GuestBook.lua", ...) then return end -- DisasterZone: Core/GuestBook.lua
 -- Guest book (1.3): the players outside the guild who raid with us, for the roster managers (the GM, officers and
 -- the raid leaders) and for recruiting.
---   History (derived; nothing new on the wire): the raid log (raids, boss kills, no-shows of a linked raid's guests),
---     the Loot Log (items received; loot council only) and the planned raids' guest seats (upcoming raids).
---   Notes (shared): per player a short note and a Recruit mark. db.guestNotes[guildKey] = { rev, by, l = { [key] =
---     { n = note, rc = true, by, at } } }, shared whole like the blacklist: GNL on GUILD (or WHISPER as an answer),
---     accepted only from a roster manager, the newer rev wins. HELLO carries my rev (gnr); a manager answers an
---     older one, and a member asks (GNQ) a manager who holds a newer one.
---   Specs (local): the class and spec last seen for a guest (db.guestSpecs[guildKey]), learned from guest seats, so a
---     pug added again (or automatically) keeps their spec.
+--   History (derived; nothing new on the wire): the raid log (raids, boss kills, no-shows of a linked raid's guests,
+--     each with its raid), the Loot Log (items received; loot council only) and the planned raids' guest seats
+--     (upcoming raids).
+--   Notes (shared): per player a short note, a Recruit mark and (1.3.2) a class / spec set by hand for a player who
+--     has not raided with us yet. db.guestNotes[guildKey] = { rev, by, l = { [key] = { n = note, rc = true, c, sp,
+--     by, at } } }, shared whole like the blacklist: GNL on GUILD (or WHISPER as an answer), accepted only from a
+--     roster manager, the newer rev wins. HELLO carries my rev (gnr); a manager answers an older one, and a member
+--     asks (GNQ) a manager who holds a newer one. (Clients before 1.3.2 ignore c / s on the wire.)
+--   Specs (local): the class and spec last seen for a guest (db.guestSpecs[guildKey]), learned from guest seats and
+--     from a class set by hand, so a pug added again (or automatically) keeps their spec.
 -- In a group:
 --   A player outside the guild who joins a raid that is a planned raid (Invite & sort ran for it, the raid session is
 --   linked to it, or the players in it signed up for it; a started raid session is not needed) becomes a guest of
@@ -39,7 +41,7 @@ local GNL_REPLY_LIMIT = 30
 local SCAN_DELAY = 1               -- the group is looked at this long after its last change
 local AUTO_KEEP = 2 * 86400        -- players added automatically are remembered this long per raid
 local INVITE_WARN_AGAIN = 10       -- one warning per invited name in this window
-local ZONES_KEPT = 10              -- raids listed per guest (newest first)
+local ZONES_KEPT = 12              -- raids listed per guest (newest first; no-shows too)
 local NEXT_RAID_SLACK = 6 * 3600   -- a raid that started this long ago still counts as the guest's next raid
 local FALLBACK_WAIT = 8            -- seconds per writer before me who may add the pugs (GuestWriterTurn)
 
@@ -165,7 +167,16 @@ local function NotesRec(create)
     return rec
 end
 
--- An untrusted list { { k, n, rc, b, a }, ... } -> { [key] = { n, rc, by, at } }, or nil.
+-- A class file the game knows, and a spec index of that class (or nil).
+local function ValidClass(c)
+    return type(c) == "string" and ns.SPECS and ns.SPECS[c] ~= nil
+end
+
+local function ValidSpec(c, sp)
+    return ValidClass(c) and IsInt(sp, 1, 9) and ns.SPECS[c][sp] ~= nil
+end
+
+-- An untrusted list { { k, n, rc, c, s, b, a }, ... } -> { [key] = { n, rc, c, sp, by, at } }, or nil.
 local function CleanNotes(l)
     if type(l) ~= "table" then return nil end
     local out = {}
@@ -192,7 +203,15 @@ local function CleanNotes(l)
             if not IsInt(e.a, 1, MAX_STAMP) then return nil end
             entry.at = e.a
         end
-        if entry.n or entry.rc then out[k] = entry end
+        if e.c ~= nil then
+            if not ValidClass(e.c) then return nil end
+            entry.c = e.c
+            if e.s ~= nil then
+                if not ValidSpec(e.c, e.s) then return nil end
+                entry.sp = e.s
+            end
+        end
+        if entry.n or entry.rc or entry.c then out[k] = entry end
     end
     return out
 end
@@ -204,7 +223,7 @@ local function WireNotes(rec)
     local l = {}
     for i, k in ipairs(keys) do
         local e = rec.l[k]
-        l[i] = { k = k, n = e.n, rc = e.rc and 1 or nil, b = e.by, a = e.at }
+        l[i] = { k = k, n = e.n, rc = e.rc and 1 or nil, c = e.c, s = e.c and e.sp or nil, b = e.by, a = e.at }
     end
     return l
 end
@@ -256,17 +275,20 @@ function GuestBook:OnNotesRevSeen(sender, gnr)
     end
 end
 
--- { note, recruit, by, at } of a player, or nil.
+-- { note, recruit, c, sp, by, at } of a player, or nil.
 function GuestBook:GetNote(key)
     local rec = NotesRec(false)
     local e = rec and type(key) == "string" and rec.l[key]
     if type(e) ~= "table" then return nil end
-    return { note = e.n, recruit = e.rc and true or false, by = e.by, at = e.at }
+    return { note = e.n, recruit = e.rc and true or false, c = e.c, sp = e.sp, by = e.by, at = e.at }
 end
 
--- Sets the note of a player outside the guild (false / "" clears it, nil keeps it) and / or the Recruit mark (nil
--- keeps it). Roster managers only. Returns ok, keyOrErr.
-function GuestBook:SetNote(name, note, recruit)
+local LearnSpec   -- (the spec memory, below)
+
+-- Sets the note of a player outside the guild (false / "" clears it, nil keeps it), the Recruit mark (nil keeps it)
+-- and / or (1.3.2) their class and spec set by hand (classFile nil keeps both, false clears both; sp needs a class).
+-- Roster managers only. Returns ok, keyOrErr.
+function GuestBook:SetNote(name, note, recruit, classFile, sp)
     if not AmManager() then
         return false, "Only the Guild Master, officers and the raid leaders keep the guest book."
     end
@@ -291,16 +313,28 @@ function GuestBook:SetNote(name, note, recruit)
     end
     local rc = cur and cur.rc or nil
     if recruit ~= nil then rc = recruit and true or nil end
-    if not n and not rc then
+    local c, spec = cur and cur.c or nil, cur and cur.sp or nil
+    if classFile == false then
+        c, spec = nil, nil
+    elseif classFile ~= nil then
+        if not ValidClass(classFile) then return false, "Pick a class." end
+        if sp ~= nil and not ValidSpec(classFile, sp) then return false, "invalid spec" end
+        c, spec = classFile, sp
+    end
+    if not n and not rc and not c then
         if not cur then return true, key end
         rec.l[key] = nil
     else
         if not cur and CountTable(rec.l) >= MAX_NOTES then
             return false, "The guest book keeps notes on at most " .. MAX_NOTES .. " players."
         end
-        if cur and cur.n == n and cur.rc == rc then return true, key end
-        rec.l[key] = { n = n, rc = rc, by = Util.PlayerKey(), at = Now() }
+        if cur and cur.n == n and cur.rc == rc and cur.c == c and cur.sp == spec then return true, key end
+        -- (who wrote the note and when stay with the note while only the mark or the class changes)
+        local kept = cur and n and cur.n == n
+        rec.l[key] = { n = n, rc = rc, c = c, sp = spec, by = kept and cur.by or Util.PlayerKey(),
+                       at = kept and cur.at or Now() }
     end
+    if c and classFile ~= nil then LearnSpec(key, c, spec, Now()) end
     rec.rev = max(Now(), rec.rev + 1)
     rec.by = Util.PlayerKey()
     SendNotes()
@@ -329,7 +363,7 @@ local function SpecsRec(create)
     return t
 end
 
-local function LearnSpec(key, classFile, sp, at)
+function LearnSpec(key, classFile, sp, at)
     if type(key) ~= "string" or type(classFile) ~= "string" or not (ns.SPECS and ns.SPECS[classFile]) then return end
     if sp ~= nil and not (IsInt(sp, 1, 9) and ns.SPECS[classFile][sp]) then sp = nil end
     local t = SpecsRec(true)
@@ -379,6 +413,15 @@ end
 -- History (derived)
 ---------------------------------------------------------------------------
 
+-- A logged raid's instance (the raid plan's key: its loading screen), or nil.
+local function InstOf(rec)
+    local R = RP()
+    for _, inst in ipairs(R and R.GetInstances and R:GetInstances() or {}) do
+        if inst.instID and inst.instID == rec.instID then return inst.key end
+    end
+    return nil
+end
+
 local function Build()
     local by, list = {}, {}
     if not GuildReady() then return { by = by, list = list } end
@@ -394,6 +437,7 @@ local function Build()
     local RL = ns.RaidLog
     for _, rec in ipairs(RL and RL.GetRaids and RL:GetRaids() or {}) do
         local at = tonumber(rec.start) or 0
+        local inst = InstOf(rec)
         for key, a in pairs(type(rec.att) == "table" and rec.att or {}) do
             if IsOutsider(key) then
                 local e = E(key)
@@ -407,14 +451,15 @@ local function Build()
                 end
                 if not e.first or at < e.first then e.first = at end
                 if not e.c and type(a) == "table" and type(a.c) == "string" then e.c = a.c end
-                e.zones[#e.zones + 1] = { id = rec.id, at = at, zone = rec.zone, kills = k, bosses = #(rec.bosses or {}),
-                                          bench = type(a) == "table" and a.b and true or nil }
+                e.zones[#e.zones + 1] = { id = rec.id, at = at, zone = rec.zone, inst = inst, kills = k,
+                                          bosses = #(rec.bosses or {}), bench = type(a) == "table" and a.b and true or nil }
             end
         end
         for key, st in pairs(type(rec.su) == "table" and rec.su or {}) do
             if st == "A" and not (rec.att and rec.att[key]) and IsOutsider(key) then
                 local e = E(key)
                 e.noShows = e.noShows + 1
+                e.zones[#e.zones + 1] = { id = rec.id, at = at, zone = rec.zone, inst = inst, noShow = true }
             end
         end
     end
@@ -428,7 +473,8 @@ local function Build()
                     local e = E(key)
                     e.c = e.c or g.c
                     if v.t >= now - NEXT_RAID_SLACK and (not e.next or v.t < e.next.t) then
-                        e.next = { id = v.id, t = v.t, name = R:GetRaidName(v) }
+                        e.next = { id = v.id, t = v.t, name = R:GetRaidName(v),
+                                   inst = R.GetRaidInstances and R:GetRaidInstances(v)[1] or v.i }
                     end
                 end
             end
@@ -452,6 +498,7 @@ local function Build()
         if type(n) == "table" and IsOutsider(key) then
             local e = E(key)
             e.note, e.recruit, e.noteBy, e.noteAt = n.n, n.rc and true or false, n.by, n.at
+            e.setC, e.setSp = n.c, n.sp
         end
     end
     local specs = SpecsRec(false)
@@ -460,6 +507,11 @@ local function Build()
         if type(s) == "table" then
             if not e.c then e.c = s.c end
             if s.c == e.c then e.sp = s.sp end
+        end
+        -- (a class set by hand: for a player the raids have not shown yet)
+        if e.setC and (not e.c or e.c == e.setC) then
+            e.c = e.setC
+            if e.setSp then e.sp = e.setSp end
         end
         local bl = R and R.GetBlacklistEntry and R:GetBlacklistEntry(e.key)
         e.blacklisted = bl and true or false
@@ -482,8 +534,10 @@ local function Index()
 end
 
 -- Everyone outside the guild the guest book knows, newest first: { key, c, sp, raids, kills, first, last, zones (newest
--- first: { at, zone, kills, bosses, bench }), noShows, items, itemList, next = { id, t, name }, note, recruit,
--- noteBy, noteAt, blacklisted, blacklist = { key, reason, by, at }, seen }. Stored tables: treat them as read-only.
+-- first: { id, at, zone, inst, kills, bosses, bench } for a raid they came to, { id, at, zone, inst, noShow = true }
+-- for one they signed up for and missed), noShows, items, itemList, next = { id, t, name, inst }, note, recruit,
+-- noteBy, noteAt, setC / setSp (the class / spec set by hand), blacklisted, blacklist = { key, reason, by, at },
+-- seen }. Stored tables: treat them as read-only.
 function GuestBook:GetEntries()
     return Index().list
 end
@@ -502,7 +556,7 @@ function GuestBook:Summary(key, excludeId)
     if raids > 0 then
         local last
         for _, z in ipairs(e.zones) do
-            if z.id ~= excludeId and (not last or z.at > last) then last = z.at end
+            if not z.noShow and z.id ~= excludeId and (not last or z.at > last) then last = z.at end
         end
         parts[#parts + 1] = (raids == 1 and "1 raid with us" or (raids .. " raids with us"))
             .. ((last and last > 0) and (" (last " .. date("%d %b", last) .. ")") or "")

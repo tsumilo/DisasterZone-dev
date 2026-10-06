@@ -791,7 +791,9 @@ local function fillRaidCard(c, v, width)
     local lineW = width - ART_W - DATE_W - 4 - ANS_W
     for _, keep in ipairs({ false, 2, 1, 0 }) do
         c.t2:SetText(line(keep or nil))
-        if (c.t2:GetStringWidth() or 0) <= lineW then break end
+        -- (the unbounded width: GetStringWidth stops at the width the line was given)
+        local tw = c.t2.GetUnboundedStringWidth and c.t2:GetUnboundedStringWidth() or c.t2:GetStringWidth()
+        if (tw or 0) <= lineW then break end
     end
     -- the accepted by role and how full it is (no targets: the raid has none), or that nobody answered yet
     local rc, tentative = roleCounts(v)

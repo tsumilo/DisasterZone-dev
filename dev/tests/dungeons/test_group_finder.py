@@ -365,7 +365,7 @@ def the_sheet_lists_in_the_group_finder_with_the_same_click():
     g.eval("ns.DungeonsUI:OpenSheet(); ns.DungeonsUI:SetSheet({ d = 'Botanica', h = true, gf = true })")
     w.tick(0.3)
     sheet = "ns.DungeonsUI:GetPanel().sheet"
-    assert g.eval_py("return " + sheet + ".gfRow:IsShown() and " + sheet + ".gf.on") is True
+    assert g.eval_py("return " + sheet + ".gfRow:IsShown() and " + sheet + ".gf:IsOn()") is True
     assert g.eval_py("return " + sheet + ".gfText.text:GetText()") == "Also list it in the Group Finder"
     g.click(g.eval("return " + sheet + ".go"))
     w.tick(1)

@@ -91,7 +91,8 @@ Water: the renderer draws the rooms' water (fast_a.1.blp, 219885) opaque, blendi
 Render3D/Room.lua TINT), drawn from above only: its faces are opaque floors here like any other, so what stands in a
 pool (the Lurker rising out of his) is hidden under the water's surface.
 Large rooms: ROOM_SETTINGS raises the probes' spacing (time and memory go with the probes' count) and the smallest
-quad (the stand-ins' count, the file's size, goes with the outlines' length over the smallest quad) for one room.
+quad and cube (the stand-ins' count, the file's size, goes with the outlines' length over the smallest pieces) for one
+room.
 
 Run from dev/:  luaenv\\Scripts\\python.exe generators\\gen_standins.py [Key ...] [--fast] [--no-write] [--no-cubes]
   [--sheet] [--json FILE] [--toc] [--check] (no key: MagtheridonsLair_Magtheridon). --fast: fewer and smaller poses

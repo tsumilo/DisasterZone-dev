@@ -1154,7 +1154,8 @@ function S.refreshFooter()
     -- (many teams: as many named as fit the line)
     for _, keep in ipairs({ false, 2, 1, 0 }) do
         sh.who:SetText((S.whoLine(keep or nil)))
-        if (sh.who:GetStringWidth() or 0) <= (sh.who:GetWidth() or 0) then break end
+        local tw = sh.who.GetUnboundedStringWidth and sh.who:GetUnboundedStringWidth() or sh.who:GetStringWidth()
+        if (tw or 0) <= (sh.who:GetWidth() or 0) then break end
     end
     sh.who:SetShown(sh.errText == nil)
 end
