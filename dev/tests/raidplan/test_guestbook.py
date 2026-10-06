@@ -7,7 +7,8 @@ planned raid, no guest); a blacklisted player who joins (the leader's popup remo
 a line, nobody adds them) and inviting one (a warning at once); the notes and Recruit marks (organizers only, shared,
 reaching an organizer who was offline, checked input); the history from the raid log (raids, a join line with it the
 next time); the player tooltip (the blacklist for everyone when outside the guild, guild members and reasons only for
-organizers; the guest line); the Guests window (the book, its filter and menu, the note popup, the Blacklist tab); the
+organizers; the guest line); the Raids tab's Guests view (the list, its filters and menu, the profile, the note in
+place, Add to a raid, adding a player with a class, the Blacklist filter); a no-show kept with its raid; the
 Add players window's known players; the player right-click menus; guests left out of the Raid log's Players list.
 
 Run: luaenv\\Scripts\\python.exe tests\\raidplan\\test_guestbook.py [-k name]
@@ -19,7 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from rp_common import World, Client, gm_pick, set_raid_leaders, K, DAY, now, create, signup, signups, call  # noqa: E402
-from _common import case, run_all, strip_codes, install_helpers, tt_lines, printed_since, menu_texts  # noqa: E402
+from _common import case, run_all, strip_codes, install_helpers, tt_lines, printed_since, menu_texts, menu_pick, \
+    menu_labels  # noqa: E402
 
 P = "ns.RaidsUI:GetPanel()"
 
@@ -292,14 +294,15 @@ def the_player_tooltip():
 
 
 @case
-def the_guests_window():
+def the_guests_view():
     w, c = world()
-    bob, rita, pug, lee = c["Bob"], c["Rita"], c["Pug"], c["Lee"]
+    bob, rita, pug, lee, olaf = c["Bob"], c["Rita"], c["Pug"], c["Lee"], c["Olaf"]
     occ = kara_now(w, c)
     w.make_raid([bob, lee, rita, c["Sam"], pug], leader=bob)
     w.tick(6)
     later = create(bob, i="gruul", t=now(bob) + 3 * DAY)
     w.tick(2)
+    # a view of the Raids tab, for the organizers only
     bob.slash("/dz raids")
     w.tick(0.5)
     assert bob.eval("return %s.guestsBtn:IsShown()" % P) is True
@@ -309,46 +312,136 @@ def the_guests_window():
     assert lee.eval("return ns.GuestBookUI:Open()") is False
     bob.click(bob.eval("return %s.guestsBtn" % P))
     w.tick(0.5)
-    B = "ns.GuestBookUI:GetBookPage()"
-    assert bob.eval("return %s:IsVisible()" % B) is True
-    rows = bob.eval_py("local o = {}; for _, e in ipairs(%s.list:GetData()) do o[#o + 1] = e.key end; return o" % B)
-    assert rows == [K("Pug")], rows
-    # the row's Status column: their next guest seat (the raid's name is in the tooltip)
+    assert bob.eval("return ns.RaidsUI:GetView()") == "guests"
+    V = "ns.GuestBookUI:GetWindow()"
+    assert bob.eval("return %s:IsVisible()" % V) is True
+    keys = "local o = {}; for _, d in ipairs(%s.list:GetData()) do o[#o + 1] = d.key end; return o" % V
+    assert bob.eval_py(keys) == [K("Pug")]
+    # the row says their next guest seat (they joined the raid's group: a guest of it), the profile is theirs
     seat = bob.eval("return date('%a %d %b', ns.GuestBook:GetEntry(...).next.t)", K("Pug"))
     assert bob.find_text("Guest " + seat, True, True)
-    # the row's menu: recruit, a note, add to a raid
-    bob.eval("ns.GuestBookUI:OpenEntryMenu(UIParent, ns.GuestBook:GetEntry(...))", K("Pug"))
-    texts = [strip_codes(t[2] or "") for t in menu_texts(bob.last_menu())]
-    for t in ("Add as a guest to", "Mark as recruit", "Add a note...", "Blacklist...", "Whisper"):
-        assert any(t in x for x in texts), (t, texts)
-    bob.menu_select("Mark as recruit")
+    assert bob.eval("return ns.GuestBookUI:GetSelected()") == K("Pug")
+    assert bob.find_text("Destruction Warlock", True, True) or bob.find_text("Warlock", True, True)
+    # Recruit on the banner: a toggle
+    bob.click(bob.eval("return %s.banner.recruitBtn" % V))
     w.tick(1)
     assert note(rita, K("Pug"))["recruit"] is True
+    assert bob.eval("return %s.banner.recruitBtn.kind" % V) == "chosen"
+    # the row's menu: icon + one word
+    bob.eval("ns.GuestBookUI:OpenEntryMenu(UIParent, ns.GuestBook:GetEntry(...))", K("Pug"))
+    labels = menu_labels(bob)
+    for t in ("Add to a raid", "Not a recruit", "Note", "Whisper", "Blacklist"):
+        assert t in labels, (t, labels)
+    bob.eval("ns.UI:CloseMenus()")
+    # the note in place: a field where the line was; Enter saves, Escape restores
     bob.eval("ns.GuestBookUI:EditNote('Pug')")
-    bob.accept_popup("DISASTERZONE_GUEST_NOTE", "plays every reset")
+    box = "%s.note.box" % V
+    assert bob.eval("return %s:IsShown()" % box) is True
+    bob.type_text(bob.eval("return " + box), "plays every reset", True)
     w.tick(1)
     assert note(rita, K("Pug"))["note"] == "plays every reset"
-    assert bob.eval("return ns.GuestBookUI:AddToRaid(...)", K("Pug"), later) is True
+    assert bob.eval("return %s:IsShown()" % box) is False
+    assert bob.find_text("plays every reset", True, True)
+    bob.eval("ns.GuestBookUI:StartEdit()")
+    bob.type_text(bob.eval("return " + box), "oops")
+    bob.press_escape(bob.eval("return " + box))
+    w.tick(1)
+    assert note(bob, K("Pug"))["note"] == "plays every reset"
+    # Add to a raid: the next two weeks, a check where they have a seat; picking one adds them
+    bob.click(bob.eval("return %s.banner.raidBtn" % V))
+    menu = bob.last_menu()
+    entries = [(strip_codes(e.get("text") or ""), e.get("selected")) for e in menu["children"]]
+    assert any("Karazhan" in t and sel for t, sel in entries), entries
+    gruul = [t for t, sel in entries if "Gruul" in t]
+    assert gruul and not any(sel for t, sel in entries if "Gruul" in t), entries
+    menu_pick(bob, gruul[0].strip())
     w.tick(2)
     assert guests(rita, later)[K("Pug")]["c"] == "WARLOCK"
-    # the filter: recruits only, and a name
-    bob.click(bob.eval("return %s.recruits" % B))
+    bob.eval("ns.UI:CloseMenus()")
+    # the filters: Recruits, and a name
+    bob.click(bob.eval("return %s.recruitsTab" % V))
     w.tick(0.5)
-    assert len(bob.eval_py("return %s.list:GetData()" % B) or []) == 1
-    bob.type_text(bob.eval("return %s.search" % B), "zzz")
+    assert bob.eval_py(keys) == [K("Pug")]
+    bob.type_text(bob.eval("return %s.search" % V), "zz9")              # (not a character name: nothing to add)
     w.tick(0.5)
-    assert len(bob.eval_py("return %s.list:GetData()" % B) or []) == 0
-    # a player who has not raided with us: a note adds them to the book
-    bob.eval("ns.GuestBookUI:EditNote('Newbie')")
-    bob.accept_popup("DISASTERZONE_GUEST_NOTE", "met in trade chat")
-    w.tick(1)
-    assert entry(bob, K("Newbie"))["note"] == "met in trade chat"
-    # the Blacklist tab
-    bob.click(bob.eval("return ns.GuestBookUI:GetWindow().blackTab"))
+    assert bob.eval_py(keys) == []
+    assert bob.find_text("Nobody by that name.", True, True)
+    # a player who hasn't raided with us: the search box offers to add them; a note, the class (+ spec), Add
+    bob.click(bob.eval("return %s.bookTab" % V))
+    bob.type_text(bob.eval("return %s.search" % V), "Newbie")
+    w.tick(0.5)
+    rows = bob.eval_py("local o = {}; for _, d in ipairs(%s.list:GetData()) do o[#o + 1] = { d.key, d.add } end; "
+                       "return o" % V)
+    assert rows == [[K("Newbie"), "add"]], rows
+    assert bob.find_text("Add Newbie", True, True)
+    bob.eval("ns.GuestBookUI:Select(..., 'add', true)", K("Newbie"))
+    form = "%s.form" % V
+    assert bob.eval("return %s.noteBox:HasFocus()" % form) is True
+    bob.click(bob.eval("for _, b in ipairs(%s.classBtns) do if b.cls == 'DRUID' then return b end end" % form))
+    bob.eval("%s.specDD:OpenMenu()" % form)
+    bob.menu_select("Restoration")
+    assert bob.find_text("Restoration Druid", True, True)
+    bob.type_text(bob.eval("return %s.noteBox" % form), "met in trade chat", True)
+    w.tick(2)
+    resto = bob.eval("for i, s in ipairs(ns.SPECS.DRUID) do if s.label == 'Restoration' then return i end end")
+    e = entry(bob, K("Newbie"))
+    assert e["note"] == "met in trade chat" and e["c"] == "DRUID" and e["sp"] == resto, e
+    assert bob.eval("return ns.GuestBookUI:GetSelected()") == K("Newbie")
+    assert bob.eval("return %s.search:GetText()" % V) == ""
+    # (the class is shared with the other organizers, and a raid seat takes it)
+    e = entry(olaf, K("Newbie"))
+    assert e and e["c"] == "DRUID" and e["sp"] == resto, e
+    assert bob.eval("return ns.GuestBookUI:AddToRaid(...)", K("Newbie"), later) is True
+    w.tick(2)
+    g = guests(rita, later)[K("Newbie")]
+    assert g["c"] == "DRUID" and g["sp"] == resto, g
+    # Add with nothing filled in says what it needs
+    bob.type_text(bob.eval("return %s.search" % V), "Quietone")
+    w.tick(0.5)
+    bob.eval("ns.GuestBookUI:Select(..., 'add', true)", K("Quietone"))
+    assert bob.eval("return ns.GuestBookUI:SaveFresh()") is False
+    assert bob.find_text("Write a note, mark them as a recruit or pick their class.", True, True)
+    # a guild member typed in: not a guest
+    bob.type_text(bob.eval("return %s.search" % V), "Lee")
+    w.tick(0.5)
+    assert bob.eval_py(keys) == [] and bob.find_text("Lee is in the guild.", True, True)
+    # the Blacklist filter
+    bob.type_text(bob.eval("return %s.search" % V), "")
+    bob.click(bob.eval("return %s.blackTab" % V))
     w.tick(0.3)
-    assert bob.eval("return ns.RaidPlanUI:GetBlacklistWindow():IsVisible()") is True
-    assert bob.eval("return %s:IsVisible()" % B) is False
+    assert bob.eval("return ns.GuestBookUI:GetFilter()") == "black"
+    assert bob.find_text("Nobody is blacklisted.", True, True)
     assert occ
+    w.assert_no_errors()
+
+
+@case
+def a_guest_who_did_not_come_shows_the_raid_they_missed():
+    w, c = world()
+    bob, rita, pug = c["Bob"], c["Rita"], c["Pug"]
+    occ = kara_now(w, c)
+    assert call(bob, "AddGuest", occ, "Pug", "WARLOCK")["ok"] is True
+    w.tick(2)
+    w.enter_instance("Karazhan", 532)
+    inside = [bob, c["Lee"], rita, c["Sam"]]
+    w.make_raid(inside, leader=bob)
+    w.tick(6)
+    assert bob.eval("return (ns.GroupRules:SetSession(true, nil, { loot = false, rolls = false, lock = false }))") is True
+    w.tick(3)
+    w.encounter(652, "Attumen the Huntsman", clients=inside)
+    w.tick(3)
+    assert bob.eval("return ns.RaidLog:End()") is True
+    w.tick(3)
+    e = entry(bob, K("Pug"))
+    assert e and e["raids"] == 0 and e["noShows"] == 1, e
+    z = bob.eval_py("local z = ns.GuestBook:GetEntry(...).zones[1]; return { noShow = z.noShow, zone = z.zone, "
+                    "inst = z.inst }", K("Pug"))
+    assert z == {"noShow": True, "zone": "Karazhan", "inst": "kara"}, z
+    # the profile lists it with a No-show tag; the summary's "last raid" ignores it
+    assert bob.eval("return ns.GuestBookUI:OpenGuest(...)", K("Pug")) is True
+    w.tick(0.5)
+    assert bob.find_text("No-show", True, True)
+    assert "raid with us" not in (bob.eval("return ns.GuestBook:Summary(...)", K("Pug")) or "")
     w.assert_no_errors()
 
 

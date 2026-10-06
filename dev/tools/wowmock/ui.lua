@@ -712,6 +712,48 @@ do
     S(self).owner = nil
   end
 end
+-- With M.real_geometry (the renders, tests/boot-ui/test_menus.py) Show lays the tooltip out at its owner as WoW does:
+-- on the anchor type's side, sized by its lines (6 px a character, wrapped at 300, 14 px a line, 10 px padding).
+-- ANCHOR_NONE / CURSOR / PRESERVE keep the caller's points.
+do
+  local SIDE = {
+    ANCHOR_TOP = { "BOTTOM", "TOP" }, ANCHOR_BOTTOM = { "TOP", "BOTTOM" },
+    ANCHOR_RIGHT = { "BOTTOMLEFT", "TOPRIGHT" }, ANCHOR_LEFT = { "BOTTOMRIGHT", "TOPLEFT" },
+    ANCHOR_TOPRIGHT = { "BOTTOMRIGHT", "TOPRIGHT" }, ANCHOR_TOPLEFT = { "BOTTOMLEFT", "TOPLEFT" },
+    ANCHOR_BOTTOMRIGHT = { "TOPLEFT", "BOTTOMRIGHT" }, ANCHOR_BOTTOMLEFT = { "TOPRIGHT", "BOTTOMLEFT" },
+  }
+  local function layout(self, st)
+    local side = SIDE[st.anchor or ""]
+    if not (M.real_geometry and st.owner and side) then return end
+    local w, rows = 0, 0
+    for i = 1, st.nlines do
+      local l = st.lines[i]
+      local lw = l.left and l.left:GetStringWidth() or 0
+      if l.right then lw = lw + 20 + l.right:GetStringWidth() end
+      w = math.max(w, math.min(lw, 300))
+      rows = rows + math.max(1, math.ceil(lw / 300))
+    end
+    self:ClearAllPoints()
+    self:SetPoint(side[1], st.owner, side[2], st.ax or 0, st.ay or 0)
+    self:SetSize(w + 20, rows * 14 + 10)
+  end
+  local base_show, base_owner, base_type = Methods.GameTooltip.Show, Methods.GameTooltip.SetOwner,
+    Methods.GameTooltip.SetAnchorType
+  Methods.GameTooltip.Show = function(self)
+    layout(self, S(self))
+    base_show(self)
+  end
+  Methods.GameTooltip.SetOwner = function(self, owner, anchor, x, y)
+    base_owner(self, owner, anchor, x, y)
+    local st = S(self)
+    st.ax, st.ay = x, y
+  end
+  Methods.GameTooltip.SetAnchorType = function(self, anchor, x, y)
+    base_type(self, anchor)
+    local st = S(self)
+    st.ax, st.ay = x, y
+  end
+end
 
 ---------------------------------------------------------------------------------------------------
 -- Pools

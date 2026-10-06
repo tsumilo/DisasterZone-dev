@@ -3,6 +3,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidsTab.lua", ...) then return
 --   Teams    - the raid teams (everyone can look; organizers edit; UI/RaidPlanUI.lua)
 --   Strategies - the strategy boards per boss (everyone looks and builds, each changes their own; Addendum K,
 --               UI/StrategiesView.lua)
+--   Guests   - the guest book and the raid blacklist (the GM, officers and the raid leaders; UI/GuestBook.lua)
 --   Raid log - council only (Addendum I §51), with two modes:
 --     Raids   - the raid sessions (newest first) as cards with their raid's art and, for the selected one, a banner
 --               (when, how long, who started it, a bin to delete it), the planned raid it is linked to (a picker) and
@@ -681,13 +682,23 @@ local function canTeams()
     return RP and RP.CanManageTeams and RP:CanManageTeams() or false
 end
 
+local function canRoster()
+    local RP = ns.RaidPlan
+    return RP and RP.CanManageRoster and RP:CanManageRoster() or false
+end
+
 local function updateToolbar(p)
     if state.view == "log" and not isCouncil() then state.view = "upcoming" end
+    if state.view == "guests" and not canRoster() then state.view = "upcoming" end
     local log = state.view == "log"
     -- the current view's tab is the lit one
     p.upcomingBtn:SetActive(state.view == "upcoming")
     p.teamsBtn:SetActive(state.view == "teams")
     p.stratBtn:SetActive(state.view == "strategies")
+    p.guestsBtn:SetShown(canRoster())
+    p.guestsBtn:SetActive(state.view == "guests")
+    p.logBtn:ClearAllPoints()
+    p.logBtn:SetPoint("LEFT", p.guestsBtn:IsShown() and p.guestsBtn or p.stratBtn, "RIGHT", 4, 0)
     p.logBtn:SetShown(isCouncil())
     p.logBtn:SetActive(log)
     p.logSep:SetShown(log)
@@ -708,15 +719,6 @@ local function updateToolbar(p)
     if auth then p.guestsToggle:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else p.guestsToggle:SetPoint("TOPRIGHT", -10, -6) end
     local organizer = canOrganize()
     local RP = ns.RaidPlan
-    p.guestsBtn:SetShown(state.view == "upcoming" and RP and RP.CanManageRoster and RP:CanManageRoster() or false)
-    p.guestsBtn:ClearAllPoints()
-    if organizer then
-        p.guestsBtn:SetPoint("RIGHT", p.newRaidBtn, "LEFT", -6, 0)
-    elseif auth then
-        p.guestsBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0)
-    else
-        p.guestsBtn:SetPoint("TOPRIGHT", -10, -6)
-    end
     p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
     -- (no teams yet: the Teams view's empty card has the New team button)
     p.newTeamBtn:SetShown(canTeams() and state.view == "teams" and RP ~= nil and #RP:GetTeams() > 0)
@@ -903,8 +905,12 @@ function RaidsUI:CreatePanel(parent)
     p.teamsBtn:SetPoint("LEFT", p.upcomingBtn, "RIGHT", 4, 0)
     p.stratBtn = UI:CreateUnderlineTab(p, "Strategies", function() RaidsUI:SetView("strategies") end)
     p.stratBtn:SetPoint("LEFT", p.teamsBtn, "RIGHT", 4, 0)
+    -- 1.3.2: the guest book and the blacklist (players kept out of every raid), for the GM, officers and the raid
+    -- leaders
+    p.guestsBtn = UI:CreateUnderlineTab(p, "Guests", function() RaidsUI:SetView("guests") end)
+    p.guestsBtn:SetPoint("LEFT", p.stratBtn, "RIGHT", 4, 0)
     p.logBtn = UI:CreateUnderlineTab(p, "Raid log", function() RaidsUI:SetView("log") end)
-    p.logBtn:SetPoint("LEFT", p.stratBtn, "RIGHT", 4, 0)
+    p.logBtn:SetPoint("LEFT", p.guestsBtn, "RIGHT", 4, 0)
 
     p.logSep = p:CreateTexture(nil, "ARTWORK")
     p.logSep:SetColorTexture(1, 1, 1, 0.15)
@@ -952,17 +958,6 @@ function RaidsUI:CreatePanel(parent)
     p.sessionBtn:SetPoint("TOPRIGHT", -10, -6)
     p.newRaidBtn = UI:CreateSleekButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end, "primary")
     p.newTeamBtn = UI:CreateSleekButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end)
-    -- 1.3: the guest book (players outside the guild who raided with us) and the blacklist (players kept out of
-    -- every raid), for the GM, officers and the raid leaders
-    p.guestsBtn = UI:CreateSleekButton(p, "Guests", 70, 22, function() ns.GuestBookUI:Open() end)
-    p.guestsBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Guests")
-        GameTooltip:AddLine("The guest book (players outside the guild who raided with us: their raids, a note, "
-            .. "recruits) and the raid blacklist.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    p.guestsBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     -- Addendum J §62: who the raid leaders are (everyone can look; the GM edits)
     p.leadersBtn = UI:CreateTipIconButton(p, 22, UI.ICON.crown, "Raid leaders", "Who plans and leads raids. "
         .. "Everyone can look; officers and the Guild Master change the list.", function() ns.RaidLeadersUI:Open() end)
@@ -977,6 +972,9 @@ function RaidsUI:CreatePanel(parent)
     p.strategies = ns.StrategiesUI:CreateLibrary(p)
     p.strategies:SetPoint("TOPLEFT", 0, -36)
     p.strategies:SetPoint("BOTTOMRIGHT", 0, 4)
+    p.guests = ns.GuestBookUI:CreateView(p)
+    p.guests:SetPoint("TOPLEFT", 0, -36)
+    p.guests:SetPoint("BOTTOMRIGHT", 0, 4)
 
     createLogRaids(p)
     createLogPlayers(p)
@@ -1032,6 +1030,7 @@ function RaidsUI:Refresh()
     panel.upcoming:SetShown(state.view == "upcoming")
     panel.teams:SetShown(state.view == "teams")
     panel.strategies:SetShown(state.view == "strategies")
+    panel.guests:SetShown(state.view == "guests")
     local raidsMode = state.mode == "raids"
     panel.raidList.frame:SetShown(log and raidsMode)
     panel.logDetail:SetShown(log and raidsMode)
@@ -1039,6 +1038,8 @@ function RaidsUI:Refresh()
     panel.playersView:SetShown(log and not raidsMode)
     if state.view == "strategies" then
         ns.StrategiesUI:RefreshLibrary()
+    elseif state.view == "guests" then
+        ns.GuestBookUI:Refresh()
     elseif not log then
         ns.RaidPlanUI:Refresh()
     elseif raidsMode then
@@ -1075,9 +1076,9 @@ function RaidsUI:SetLogTab(tab)
     self:Refresh()
 end
 
--- "upcoming" | "teams" | "strategies" | "log" (the log is council only).
+-- "upcoming" | "teams" | "strategies" | "guests" (roster managers) | "log" (the log is council only).
 function RaidsUI:SetView(view)
-    if view ~= "teams" and view ~= "log" and view ~= "strategies" then view = "upcoming" end
+    if view ~= "teams" and view ~= "log" and view ~= "strategies" and view ~= "guests" then view = "upcoming" end
     -- leaving Teams with unsaved changes asks first (Save / Discard / Cancel)
     if state.view == "teams" and view ~= "teams" and panel and panel:IsVisible() and ns.RaidPlanUI.GuardDraft then
         return ns.RaidPlanUI:GuardDraft(function()

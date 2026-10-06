@@ -65,6 +65,7 @@ ns.CHANGELOG = {
               "A dropdown's list opens right under it, and the dropdown lights up gold while it's open.",
               "Check boxes and choices look like the invite list's; titles are gold, lines are thin.",
               "Click the dropdown again, click elsewhere or press Escape to close it.",
+              "Tooltips no longer cover an open menu: they move to a free side, or hide if there is none.",
           } },
       } },
     { version = "1.3.1", date = "6 October 2026", title = "Dungeons tab, ask to join locked raids",

@@ -10,6 +10,8 @@ the New raid calendar and the invite search, and drops in the same way (UI:DropI
 - scroll mode caps the height: a thumb, the wheel scrolls, rows out of view take no clicks
 - queued dividers only show between entries; an empty menu shows nothing
 - the search dropdown's list and the comp steps drop in the same way, from the shared panel look
+- tooltips stay off what dropped in: the dropdown's own tooltip goes above it as its menu drops, a neighbour's moves
+  to a free side or hides, a row's moves off its submenu; tooltips away from menus are left alone
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_menus.py
 """
@@ -268,6 +270,107 @@ def the_search_list_drops_in_like_a_menu():
     assert c.eval("return T_up(T_sd.arrow.icon)") is True       # (the chevron up while open)
     c.eval("T_sd:Close()")
     assert c.eval("return T_up(T_sd.arrow.icon)") is False
+    no_errors(w)
+
+
+TIPS = r"""
+-- do two frames' screen rects overlap (more than the 1px the addon allows)?
+function T_cover(a, b)
+  local function r(f) local s = f:GetEffectiveScale() return f:GetLeft() * s, f:GetBottom() * s, f:GetRight() * s, f:GetTop() * s end
+  local al, ab, ar, at = r(a)
+  local bl, bb, br, bt = r(b)
+  return al < br - 1 and ar > bl + 1 and ab < bt - 1 and at > bb + 1
+end
+function T_tip(owner, anchor)
+  owner:HookScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, anchor)
+    GameTooltip:AddLine("Suggest", 1, 0.82, 0)
+    GameTooltip:AddLine("Fill this phase from your spec's best-in-slot guide (shipped with DisasterZone).", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  owner:HookScript("OnLeave", function() GameTooltip:Hide() end)
+end
+T_sug = ns.UI:CreateSleekMenuButton(T_host, "Suggest", 120, function(root)
+  root:CreateButton('Suggest', function() end)
+  root:CreateButton('Fill empty slots (rest unchanged)', function() end)
+  root:CreateButton('Replace all (confirm)', function() end)
+end, 24)
+T_sug:SetPoint("TOPLEFT", 260, -20)
+T_tip(T_sug, "ANCHOR_BOTTOM")
+"""
+
+
+@case
+def a_dropdowns_own_tooltip_moves_above_it_when_its_menu_drops():
+    w, c = client()
+    c.eval(TIPS)
+    c.hover(c.eval("return T_sug"))
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_BOTTOM"]
+    c.click(c.eval("return T_sug"))
+    # (the tooltip was there first: it moves as the menu opens, and stays clear once it has landed)
+    assert c.eval("return ns.UI:GetOpenMenu() ~= nil") is True
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_TOP"]
+    w.tick(0.3, step=0.02)
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_TOP"]
+    assert c.eval("return T_cover(GameTooltip, T_frames()[1])") is False
+    # it comes back below the button once the menu is gone
+    c.eval("ns.UI:CloseMenus()")
+    c.leave(c.eval("return T_sug"))
+    c.hover(c.eval("return T_sug"))
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_BOTTOM"]
+    no_errors(w)
+
+
+@case
+def a_neighbours_tooltip_moves_off_an_open_menu_or_hides_with_no_side_free():
+    w, c = client()
+    c.eval(TIPS)
+    c.click(c.eval("return T_sug"))
+    w.tick(0.3, step=0.02)
+    menu = "T_frames()[1]"
+    # a button beside the menu whose tooltip hangs below it, over the menu: it goes above
+    c.eval("T_nb = CreateFrame('Button', nil, T_host); T_nb:SetSize(40, 20)"
+           "T_nb:SetPoint('TOPRIGHT', " + menu + ", 'TOPLEFT', 30, 22); T_tip(T_nb, 'ANCHOR_BOTTOM')")
+    c.hover(c.eval("return T_nb"))
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_TOP"]
+    assert c.eval("return T_cover(GameTooltip, " + menu + ")") is False
+    c.leave(c.eval("return T_nb"))
+    # one far from the menu is left where its button put it
+    c.eval("T_far = CreateFrame('Button', nil, T_host); T_far:SetSize(40, 20)"
+           "T_far:SetPoint('BOTTOMLEFT', 10, 10); T_tip(T_far, 'ANCHOR_RIGHT')")
+    c.hover(c.eval("return T_far"))
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_RIGHT"]
+    c.leave(c.eval("return T_far"))
+    # a tooltip placed by hand on the menu has no side to go to: it hides
+    c.eval("GameTooltip:SetOwner(T_far, 'ANCHOR_NONE'); GameTooltip:ClearAllPoints()"
+           "GameTooltip:SetPoint('TOPLEFT', " + menu + ", 'TOPLEFT', 4, -4)"
+           "GameTooltip:SetSize(200, 40); GameTooltip:AddLine('Over the menu'); GameTooltip:Show()")
+    assert c.eval("return GameTooltip:IsShown()") is False
+    assert c.eval("return ns.UI:GetOpenMenu() ~= nil") is True     # (the menu itself is untouched)
+    no_errors(w)
+
+
+@case
+def a_rows_tooltip_moves_off_its_submenu():
+    w, c = client()
+    c.eval(TIPS)
+    c.eval(SUBMENU.replace("local sub = root:CreateButton('Size')",
+                           "local sub = root:CreateButton('Size')\n"
+                           "  sub:SetTitleAndTextTooltip('Size', 'How many players the lineup holds.')\n"
+                           "  root:CreateButton('Notes', function() end):SetTitleAndTextTooltip('Notes', 'A plain row.')"))
+    w.tick(0.3, step=0.02)
+    # a plain row keeps its tooltip on the right
+    c.hover(c.eval("return T_row(1, 'Notes')"))
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_RIGHT"]
+    c.leave(c.eval("return T_row(1, 'Notes')"))
+    # the submenu opens on the right: the row's tooltip goes to the row's left, clear of the submenu (it may touch its
+    # own menu's edge, as row tooltips do on the right)
+    c.hover(c.eval("return T_row(1, 'Size')"))
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_LEFT"]
+    w.tick(0.3, step=0.02)
+    assert c.eval_py("return { GameTooltip:IsShown(), GameTooltip:GetAnchorType() }") == [True, "ANCHOR_LEFT"]
+    assert c.eval("return T_cover(GameTooltip, T_frames()[2])") is False
+    assert c.eval("return GameTooltip:GetRight() <= T_row(1, 'Size'):GetLeft() + 1") is True
     no_errors(w)
 
 

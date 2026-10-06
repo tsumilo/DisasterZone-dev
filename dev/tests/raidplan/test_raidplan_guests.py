@@ -546,11 +546,13 @@ def the_guests_and_blacklist_windows():
     bob.eval("ns.RaidPlanUI:RemoveGuest(...)", K("Pugsy"))
     w.tick(2)
     assert rita.eval_py("return ns.RaidPlan:GetGuests(...)", occ) == {}
-    # Blacklist: from the toolbar, or from a roster right-click with the name filled in
+    # Blacklist: from Raids > Guests, or from a roster right-click: that player's page with the reason field
     bob.click(bob.eval(ROSTER_CELL, K("Lee")), "RightButton")
     bob.menu_select("Blacklist...")
     B = "ns.RaidPlanUI:GetBlacklistWindow()"
-    assert shown(bob, B) and bob.eval("return %s.nameBox:GetText()" % B) == "Lee"
+    assert shown(bob, B) and bob.eval("return ns.RaidsUI:GetView()") == "guests"
+    assert bob.eval_py("return { ns.GuestBookUI:GetSelected() }") == [K("Lee"), "black"]
+    assert bob.eval("return %s.reasonBox:HasFocus()" % B) is True
     bob.type_text(bob.eval("return %s.reasonBox" % B), "left without a word", True)
     w.tick(3)
     e = rita.eval_py("return ns.RaidPlan:GetBlacklistEntry(...)", K("Lee"))

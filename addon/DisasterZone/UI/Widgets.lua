@@ -554,6 +554,69 @@ local function DropEase(t)
     return 1 - t * t * t
 end
 
+-- Tooltips stay off what dropped in: a tooltip that covers an open drop it does not belong to (the dropdown's own
+-- tooltip, a neighbour's, a menu row's over its submenu) moves to another side of its owner, the opposite one
+-- first, or hides when every side covers one. Checked when the tooltip shows and when a drop opens or lands.
+local drops = setmetatable({}, { __mode = "k" })   -- every frame that ever dropped in; the visible ones count
+local TIP_SIDES = { "ANCHOR_TOP", "ANCHOR_BOTTOM", "ANCHOR_RIGHT", "ANCHOR_LEFT" }
+local TIP_SIDE = { ANCHOR_TOP = 1, ANCHOR_TOPLEFT = 1, ANCHOR_TOPRIGHT = 1, ANCHOR_BOTTOM = 2, ANCHOR_BOTTOMLEFT = 2,
+    ANCHOR_BOTTOMRIGHT = 2, ANCHOR_RIGHT = 3, ANCHOR_LEFT = 4 }
+local TIP_TRY = { { 2, 3, 4 }, { 1, 3, 4 }, { 4, 1, 2 }, { 3, 1, 2 } }
+
+-- left, bottom, right, top in screen pixels, or nil for a frame with no size (yet)
+local function ScreenRect(f)
+    local l, b, r, t = f:GetLeft(), f:GetBottom(), f:GetRight(), f:GetTop()
+    if not (l and b and r and t) or r - l <= 0 or t - b <= 0 then return nil end
+    local s = f:GetEffectiveScale() or 1
+    return l * s, b * s, r * s, t * s
+end
+
+local function Within(f, panel)
+    while f do
+        if f == panel then return true end
+        f = f:GetParent()
+    end
+    return false
+end
+
+local function CoversADrop(tt, owner)
+    local l, b, r, t = ScreenRect(tt)
+    if not l then return false end
+    for f in pairs(drops) do
+        if f:IsVisible() and not Within(owner, f) then
+            local fl, fb, fr, ft = ScreenRect(f)
+            if fl and l < fr - 1 and r > fl + 1 and b < ft - 1 and t > fb + 1 then return true end
+        end
+    end
+    return false
+end
+
+local fitting = false
+local function FitTooltip(tt)
+    if fitting or not next(drops) or not tt:IsShown() then return end
+    local owner = tt:GetOwner()
+    if not CoversADrop(tt, owner) then return end
+    fitting = true
+    local side = owner and tt.GetAnchorType and tt.SetAnchorType and TIP_SIDE[tt:GetAnchorType()]
+    if side then
+        for _, i in ipairs(TIP_TRY[side]) do
+            tt:SetAnchorType(TIP_SIDES[i])
+            tt:Show()   -- lays it out at that side
+            if not CoversADrop(tt, owner) then
+                fitting = false
+                return
+            end
+        end
+    end
+    fitting = false
+    tt:Hide()
+end
+
+if GameTooltip then
+    hooksecurefunc(GameTooltip, "Show", FitTooltip)
+    GameTooltip:HookScript("OnShow", FitTooltip)   -- (Set* calls show it without Show)
+end
+
 local function StepDrops(self, elapsed)
     local busy = false
     for f, d in pairs(dropping) do
@@ -561,7 +624,12 @@ local function StepDrops(self, elapsed)
         local e = f:IsShown() and DropEase(math.min(1, d.t / UI.DROP_TIME)) or 1
         f:SetAlpha(e)
         d.place(d.dx * (1 - e), d.dy * (1 - e))
-        if e >= 1 then dropping[f] = nil else busy = true end
+        if e >= 1 then
+            dropping[f] = nil
+            if GameTooltip then FitTooltip(GameTooltip) end
+        else
+            busy = true
+        end
     end
     if not busy then self:SetScript("OnUpdate", nil) end
 end
@@ -572,9 +640,11 @@ end
 function UI:DropIn(f, place, dx, dy)
     local d = { t = 0, place = place, dx = dx or 0, dy = dy or UI.DROP_FALL }
     dropping[f] = d
+    drops[f] = true
     f:SetAlpha(0)
     place(d.dx, d.dy)
     dropDriver:SetScript("OnUpdate", StepDrops)
+    if GameTooltip then FitTooltip(GameTooltip) end
 end
 
 function UI:IsDropping(f) return dropping[f] ~= nil end
