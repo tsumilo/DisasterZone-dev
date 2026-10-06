@@ -144,6 +144,13 @@ def one_week_of_a_weekly_raid_differs():
     w.assert_no_errors()
 
 
+def lst_keys(cl):
+    """The invited players shown as pills in the raid sheet."""
+    v = cl.eval_py("local out = {}; for _, p in ipairs(ns.RaidPlanUI:GetEditor().pills) do if p:IsShown() then "
+                   "out[#out + 1] = p.key end end; return out")
+    return list(v.values()) if isinstance(v, dict) else list(v or [])
+
+
 def open_tab(w, cl):
     cl.slash("/dz raids")
     w.tick(0.5)
@@ -158,9 +165,10 @@ def the_raid_window_and_the_sign_up_strip():
     open_tab(w, bob)
     # a new raid: locked needs a team or an invite
     bob.eval("ns.RaidPlanUI:OpenEditor()")
-    assert bob.eval("return %s.f.lk" % ED) is False and bob.eval("return %s.lockCB:GetChecked()" % ED) is False
-    bob.click(bob.eval("return %s.lockCB" % ED))
-    assert bob.eval("return %s.f.lk" % ED) is True
+    # (Sign-ups: Everyone | Teams + invited | Private)
+    assert bob.eval("return %s.f.lk" % ED) is False and bob.eval("return %s.access[1].kind" % ED) == "chosen"
+    bob.click(bob.eval("return %s.access[2]" % ED))
+    assert bob.eval("return %s.f.lk" % ED) is True and bob.eval("return %s.access[2].kind" % ED) == "chosen"
     bob.click(bob.eval("return %s.saveBtn" % ED))
     assert "needs a team" in bob.eval("return %s.err:GetText()" % ED)
     # the invite picker: team members are in already, others are ticked
@@ -169,7 +177,7 @@ def the_raid_window_and_the_sign_up_strip():
     assert items[K("Lee")].get("fixed") == "Kara A" and not items[K("Sam")].get("fixed"), items
     bob.eval("local key = ...; local sd = %s.invPicker; for _, e in ipairs(sd:GetShown()) do "
              "if e.key == key then sd:ToggleEntry(e) end end" % ED, K("Sam"))
-    assert bob.find_text("1 invited: Sam", True, True)
+    assert lst_keys(bob) == [K("Sam")]                              # (an invited player: a pill)
     bob.click(bob.eval("return %s.saveBtn" % ED))
     w.tick(2)
     occ = bob.eval("return ns.RaidPlanUI:GetSelectedRaid()")
@@ -199,9 +207,9 @@ def the_raid_window_and_the_sign_up_strip():
     assert list(signups(bob, occ)) == [K("Sam")]
     # editing shows the lock and the invites; unticking the lock opens the raid
     bob.eval("ns.RaidPlanUI:OpenEditor(...)", occ)
-    assert bob.eval("return %s.f.lk" % ED) is True and bob.eval("return %s.lockCB:GetChecked()" % ED) is True
+    assert bob.eval("return %s.f.lk" % ED) is True and bob.eval("return %s.f.access" % ED) == "locked"
     assert bob.eval("return %s.f.inv[...]" % ED, K("Sam")) is True
-    bob.click(bob.eval("return %s.lockCB" % ED))
+    bob.click(bob.eval("return %s.access[1]" % ED))
     bob.click(bob.eval("return %s.saveBtn" % ED))
     w.tick(2)
     assert raid(rita, occ)["lk"] is False and list(raid(rita, occ)["inv"]) == [K("Sam")]

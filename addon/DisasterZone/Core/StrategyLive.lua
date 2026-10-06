@@ -1106,7 +1106,7 @@ function Live:Check()
     local v = occ and RP and RP:GetRaid(occ)
     P("  Raid session linked to a planned raid: %s", v and ("|cff33ff66" .. RP:GetRaidName(v) .. " " .. date("%a %d %b %H:%M", v.t) .. "|r") or "|cffff5050no|r (no reminders or raid marks until it is)")
     if not v then return end   -- (1.3: no planned raid linked, no plan)
-    local bosses = S():GetBosses(v.i) or {}
+    local bosses = S():GetRaidBosses(v) or {}
     local any = false
     for _, b in ipairs(bosses) do
         local c = Build(b.ref)

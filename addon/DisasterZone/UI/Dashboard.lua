@@ -347,9 +347,23 @@ local function instKeyOf(instID)
     return nil
 end
 
--- The planned instance of a raid view -> ItemDB raid (by map id), or nil.
+-- The planned instance of a raid view -> ItemDB raid (by map id), or nil. A raid view (a table) -> the ItemDB raids
+-- of all its instances, in the night's order (1.3.2: a raid can hold several, e.g. Gruul + Mag), with the highest
+-- phase among them as list.phase (an empty list: none known).
 local function itemRaidFor(instKey)
     local rp, ItemDB = RP(), ns.ItemDB
+    if type(instKey) == "table" then
+        local out = {}
+        for _, key in ipairs(rp and rp.GetRaidInstances and rp:GetRaidInstances(instKey) or { instKey.i }) do
+            local raid = itemRaidFor(key)
+            if raid then
+                out[#out + 1] = raid
+                local ph = tonumber(raid.phase)
+                if ph and ph > (out.phase or 0) then out.phase = ph end
+            end
+        end
+        return out
+    end
     local inst = rp and rp.GetInstance and rp:GetInstance(instKey)
     if not (inst and inst.instID and ItemDB) then return nil end
     for _, raid in ipairs(ItemDB:GetRaids()) do
@@ -432,16 +446,25 @@ local function dropsIn(missing, raid)
     return out
 end
 
--- How many of my missing picks can drop in `raid` (an ItemDB raid): { text, tip, onClick } for the banner's foot (each
--- item and its boss in the tooltip, a click opens My BiS on the raid's phase), or nil when none can.
+-- How many of my missing picks can drop in `raid` (an ItemDB raid, or a list of them: a night of several, itemRaidFor
+-- of a view): { text, tip, onClick } for the banner's foot (each item and its boss in the tooltip, a click opens My
+-- BiS on the raid's phase), or nil when none can.
 local function bisDrops(raid)
     if not raid then return nil end
+    local list = raid.bosses and { raid } or raid
+    if #list == 0 then return nil end
     local phase = guildPhase()
-    local raidPhase = tonumber(raid.phase)
-    if raidPhase and raidPhase > phase then phase = min(raidPhase, ns.MAX_PHASE or 5) end
-    local drops = dropsIn(bisSummary(phase).missing, raid)
+    local raidPhase = 0
+    for _, r in ipairs(list) do raidPhase = max(raidPhase, tonumber(r.phase) or 0) end
+    if raidPhase > phase then phase = min(raidPhase, ns.MAX_PHASE or 5) end
+    local missing = bisSummary(phase).missing
+    local drops, names = {}, {}
+    for _, r in ipairs(list) do
+        names[#names + 1] = r.name
+        for _, d in ipairs(dropsIn(missing, r)) do drops[#drops + 1] = d end
+    end
     if #drops == 0 then return nil end
-    local tip = { "Your Phase " .. phase .. " BiS picks that can drop in " .. raid.name }
+    local tip = { "Your Phase " .. phase .. " BiS picks that can drop in " .. tconcat(names, " or ") }
     for i, d in ipairs(drops) do
         if i > 15 then
             tip[#tip + 1] = grey("+" .. (#drops - 15) .. " more")
@@ -562,6 +585,7 @@ end
 -- "Kara", "SSC", or a short custom title (a chip has little room).
 local function shortRaidName(v)
     if v.ti and #v.ti <= 14 then return v.ti end
+    if type(v.ix) == "table" and v.ix[1] then return ns.RaidComp:ShortRaidName(v) end
     return SHORT_NAME[v.i] or RP():GetRaidName(v)
 end
 
@@ -1462,7 +1486,7 @@ local function fillSession(b, ctx)
     local RL = ns.RaidLog
     local rec = RL and RL.GetCurrentID and RL.GetRaid and RL:GetRaid(RL:GetCurrentID() or s.id)
     local kills = rec and #(rec.bosses or {}) or nil
-    local total = RL and RL.GetBossTotal and RL:GetBossTotal(instID or (rec and rec.instID))
+    local total = RL and RL.GetBossTotal and RL:GetRecordBossTotal(rec, instID)
     local down = kills and (total and ("%d of %d bosses down"):format(kills, total)
                             or ((kills == 1 and "1 boss" or (kills .. " bosses")) .. " down"))
     b.meter:SetText(down or "")
@@ -1482,7 +1506,7 @@ local function fillSession(b, ctx)
     b.onClick = function() if planned then openRaid(planned.id) else openRaid(nil) end end
     -- the foot: what of my list can drop here; the BiS lock
     b.note:SetText("")
-    local bisW = fillBisLine(b, bisDrops(currentItemRaid() or (planned and itemRaidFor(planned.i))))
+    local bisW = fillBisLine(b, bisDrops(currentItemRaid() or (planned and itemRaidFor(planned))))
     local Lock = UI().GetBiSLock and UI():GetBiSLock()
     if Lock then
         b.ready.icon:SetTexture(UI().ICON_LOCK)
@@ -1504,7 +1528,7 @@ local function fillRaid(b, ctx)
     local rp = RP()
     local note = v.no and v.no ~= "" and v.no or nil
     local readyFor = canSeeReadiness()
-    local drops = bisDrops(itemRaidFor(v.i))
+    local drops = bisDrops(itemRaidFor(v))
     local hasF2 = drops ~= nil or readyFor
     -- the foot first (the art's height depends on it)
     local noteLines = note and fitNote(b, note) or 0
@@ -1573,8 +1597,12 @@ local function fillRaid(b, ctx)
 
     -- who / what: the instance (under a custom title), size, who leads, the teams; for who runs it, the requests
     local parts = {}
-    local inst = rp:GetInstance(v.i)
-    if v.ti and inst then parts[#parts + 1] = { inst.name, 9 } end
+    local names = {}
+    for _, key in ipairs(rp:GetRaidInstances(v)) do
+        local inst = rp:GetInstance(key)
+        if inst and key ~= "other" then names[#names + 1] = inst.name end
+    end
+    if (v.ti or #names > 1) and #names > 0 then parts[#parts + 1] = { tconcat(names, " + "), 9 } end
     parts[#parts + 1] = { (v.sz or 25) .. "-player", 3 }
     if v.rl then parts[#parts + 1] = { UI():ColoredName(v.rl) .. " leads", 8 } end
     local teams = teamsText(v)
@@ -1646,8 +1674,8 @@ function fillFace(f, ctx, v)
         fillSession(f, ctx)
     elseif v then
         local rc = setmetatable({ raid = v }, { __index = ctx })
-        local target = itemRaidFor(v.i)
-        local phase, raidPhase = guildPhase(), target and tonumber(target.phase)
+        local target = itemRaidFor(v)
+        local phase, raidPhase = guildPhase(), target.phase
         if raidPhase and raidPhase > phase then phase = min(raidPhase, ns.MAX_PHASE or 5) end
         if phase ~= ctx.phase then rc.phase, rc.bis = phase, bisSummary(phase) end
         fillRaid(f, rc)
@@ -1716,7 +1744,7 @@ end
 local function bossText(rec)
     local kills = #(rec.bosses or {})
     local RL = ns.RaidLog
-    local total = RL and RL.GetBossTotal and RL:GetBossTotal(rec.instID)
+    local total = RL and RL.GetBossTotal and RL:GetRecordBossTotal(rec)
     if total then return ("%d/%d bosses"):format(kills, total) end
     return kills == 1 and "1 boss" or (kills .. " bosses")
 end
@@ -2390,8 +2418,8 @@ local function buildContext()
     end
     -- The phase that matters is the raid's (the one I stand in, else the next): a Phase 2 raid needs the Phase 2 list
     -- even while the guild phase is still 1, and an older raid keeps the guild's current phase.
-    local target = currentItemRaid() or (ctx.raid and itemRaidFor(ctx.raid.i))
-    local raidPhase = target and tonumber(target.phase) or nil
+    local here = currentItemRaid()
+    local raidPhase = (here and tonumber(here.phase)) or (ctx.raid and itemRaidFor(ctx.raid).phase) or nil
     if raidPhase and raidPhase > ctx.phase then ctx.phase = min(raidPhase, ns.MAX_PHASE or 5) end
     ctx.bis = bisSummary(ctx.phase)
     return ctx

@@ -12,8 +12,6 @@ local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tsort, tconcat = table.sort, table.concat
 
 local DAY = 86400
-local EDITOR_DAYS = 60
-local MAX_LEVEL = 70                -- a new raid asks for this level unless "Allow characters below level 70" is ticked
 
 local STATUS_ORDER = { "A", "T", "B", "X" }
 local STATUS = {
@@ -26,7 +24,7 @@ local STATUS = {
 -- pendingChar: the character of mine picked to answer with, before the answer is sent
 local state = { selected = nil, team = nil, draft = nil, pendingSpec = nil, pendingNote = nil, pendingChar = nil,
                 detailTab = "signups", filterRaid = "all", filterWhen = "all" }
-local upcoming, teamsView, editor
+local upcoming, teamsView
 
 local function RP() return ns.RaidPlan end
 local function UI() return ns.UI end
@@ -175,6 +173,19 @@ local function myStatusText(v)
 end
 
 -- Hovering a raid in the list: everything about it, in full (the row cuts long names and lines off).
+-- The names of a raid's instances, joined ("Gruul's Lair + Magtheridon's Lair"); short = the short forms ("Gruul +
+-- Mag"); nil for a raid of "Other" alone.
+local function instNames(v, short)
+    local list = RP():GetRaidInstances(v)
+    if short then return #list > 0 and ns.RaidComp:ShortInstanceNames(list) or nil end
+    local names = {}
+    for _, key in ipairs(list) do
+        local inst = RP():GetInstance(key)
+        if inst and key ~= "other" then names[#names + 1] = inst.name end
+    end
+    return #names > 0 and tconcat(names, " + ") or nil
+end
+
 local function raidRowTooltip(row)
     local d = row.__cdlData
     local v = d and d.v
@@ -182,8 +193,8 @@ local function raidRowTooltip(row)
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:AddLine(raidTitle(v) .. (v.cancelled and "  |cffff5555CANCELLED|r" or ""))
     GameTooltip:AddLine(date("%A %d %B", v.t) .. " · " .. fmtTime(v.t) .. (v.weekly and " · weekly" or ""), 1, 1, 1)
-    local inst = RP():GetInstance(v.i)
-    if v.ti and inst then GameTooltip:AddLine(inst.name, 0.8, 0.8, 0.8) end
+    local names = instNames(v)
+    if (v.ti or #RP():GetRaidInstances(v) > 1) and names then GameTooltip:AddLine(names, 0.8, 0.8, 0.8, true) end
     GameTooltip:AddLine("For: " .. teamNames(v), 0.8, 0.8, 0.8, true)
     if v.ml then GameTooltip:AddLine(("Level %d characters only"):format(v.ml), 0.8, 0.8, 0.8) end
     local c = counts(v.id)
@@ -225,7 +236,14 @@ end
 
 -- Does the raid pass the list's filters (which raid, and when)?
 local function passesFilter(v, now, ws)
-    if state.filterRaid ~= "all" and v.i ~= state.filterRaid then return false end
+    if state.filterRaid ~= "all" then
+        -- (a raid of several instances shows under each of them)
+        local hit = false
+        for _, key in ipairs(RP():GetRaidInstances(v)) do
+            if key == state.filterRaid then hit = true end
+        end
+        if not hit then return false end
+    end
     local when = state.filterWhen
     if when == "today" then
         local d = date("*t", now)
@@ -637,14 +655,26 @@ local function newRaidCard(parent)
     c.art = c:CreateTexture(nil, "ARTWORK", nil, 0)
     c.art:SetPoint("TOPLEFT", 1, -1)
     c.art:SetSize(ART_W, CARD_H - 2)
+    -- (a raid of several instances: its second loading screen beside the first, a thin line between them)
+    c.art2 = c:CreateTexture(nil, "ARTWORK", nil, 0)
+    c.art2:SetPoint("TOPLEFT", c.art, "TOPRIGHT", 0, 0)
+    c.art2:SetHeight(CARD_H - 2)
+    c.art2:Hide()
+    c.artLine = c:CreateTexture(nil, "ARTWORK", nil, 1)
+    c.artLine:SetColorTexture(0, 0, 0, 0.6)
+    c.artLine:SetWidth(2)
+    c.artLine:SetPoint("TOPLEFT", c.art2, "TOPLEFT", -1, 0)
+    c.artLine:SetPoint("BOTTOMLEFT", c.art2, "BOTTOMLEFT", -1, 0)
+    c.artLine:Hide()
     c.fade = c:CreateTexture(nil, "ARTWORK", nil, 2)
-    c.fade:SetPoint("TOPRIGHT", c.art, "TOPRIGHT")
-    c.fade:SetPoint("BOTTOMRIGHT", c.art, "BOTTOMRIGHT")
+    -- (the fade and the shade cover the whole art box: one loading screen, or two side by side)
+    c.fade:SetPoint("TOPRIGHT", c, "TOPLEFT", 1 + ART_W, -1)
+    c.fade:SetPoint("BOTTOMRIGHT", c, "BOTTOMLEFT", 1 + ART_W, 1)
     c.fade:SetWidth(floor(ART_W * 0.45))
     gradient(c.fade, "HORIZONTAL", CARD_BG[1], CARD_BG[2], CARD_BG[3], 0, 1)
     c.shade = c:CreateTexture(nil, "ARTWORK", nil, 1)
-    c.shade:SetPoint("BOTTOMLEFT", c.art, "BOTTOMLEFT")
-    c.shade:SetPoint("BOTTOMRIGHT", c.art, "BOTTOMRIGHT")
+    c.shade:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 1, 1)
+    c.shade:SetPoint("BOTTOMRIGHT", c, "BOTTOMLEFT", 1 + ART_W, 1)
     c.shade:SetHeight(30)
     gradient(c.shade, "VERTICAL", 0, 0, 0, 0.8, 0)
     c.inst = textOf(c, "GameFontNormalSmall", 10)
@@ -707,18 +737,32 @@ local function fillRaidCard(c, v, width)
     c.__cdlData = { v = v }
     c:SetWidth(width)
     UI():SetEdgeColor(c, EDGE[1], EDGE[2], EDGE[3], 0.6)
-    local file, l, r, t, b = artCoords(v.i, ART_W, CARD_H - 2, 0.5)
+    local list = RP():GetRaidInstances(v)
+    local two = #list > 1
+    local aw = two and floor(ART_W / 2) or ART_W
+    local file, l, r, t, b = artCoords(list[1] or v.i, aw, CARD_H - 2, two and 0.3 or 0.5)
     c.art:SetTexture(file)
     c.art:SetTexCoord(l, r, t, b)
-    local inst = RP():GetInstance(v.i)
-    c.inst:SetText(((inst and inst.name or "Raid") .. " · " .. (v.sz or 0)):upper())
+    c.art:SetWidth(aw)
+    c.art2:SetShown(two)
+    c.artLine:SetShown(two)
+    if two then
+        c.art2:SetWidth(ART_W - aw)
+        local f2, l2, r2, t2, b2 = artCoords(list[2], ART_W - aw, CARD_H - 2, 0.3)
+        c.art2:SetTexture(f2)
+        c.art2:SetTexCoord(l2, r2, t2, b2)
+    end
+    local inst = RP():GetInstance(list[1] or v.i)
+    c.inst:SetText((((two and instNames(v, true)) or (inst and inst.name) or "Raid") .. " · " .. (v.sz or 0)):upper())
     c.wd:SetText(date("%a", v.t):upper())
     c.dn:SetText(tonumber(date("%d", v.t)))
     c.tm:SetText(fmtTime(v.t))
     local past = v.t < Now() - 6 * 3600
     local dim = v.cancelled or past
-    c.art:SetDesaturated(dim and true or false)
-    c.art:SetAlpha(dim and 0.6 or 1)
+    for _, art in ipairs({ c.art, c.art2 }) do
+        art:SetDesaturated(dim and true or false)
+        art:SetAlpha(dim and 0.6 or 1)
+    end
     for _, fs in ipairs({ c.t1, c.wd, c.dn, c.meter }) do fs:SetAlpha(dim and 0.55 or 1) end
     c.t1:SetText(RP():GetRaidName(v))
     -- who leads, who it is for, when; and for who runs it, the requests waiting
@@ -2283,9 +2327,9 @@ local function refreshDetail(v)
     d.when:SetWidth((d.when.text:GetStringWidth() or 40) + 18)
     fitTitle(d.title, RP():GetRaidName(v) .. (v.cancelled and "  |cffff5555CANCELLED|r" or ""),
         width - 28 - 4 * 72 - 24 - d.when:GetWidth() - 12)
-    local inst = RP():GetInstance(v.i)
+    local names = instNames(v)
     d.sub:SetText(("%s · %s · %s%d-player"):format(date("%A ", v.t) .. tonumber(date("%d", v.t)) .. date(" %B", v.t),
-        fmtTime(v.t), (inst and inst.key ~= "other") and (inst.name .. " · ") or "", v.sz or 0))
+        fmtTime(v.t), names and (names .. " · ") or "", v.sz or 0))
     local who = {}
     if v.rl then who[#who + 1] = colored(v.rl) .. " leads" elseif v.by then who[#who + 1] = "by " .. shortName(v.by) end
     who[#who + 1] = teamNames(v)
@@ -3571,8 +3615,10 @@ function TV.fillRaidRow(r, v, team, organizer)
     -- the name: the raid's title, else shorter forms, so it never runs under the answer
     local room = TV.COL2_W - 36 - 7 - 42 - (r.lock:IsShown() and 17 or 0) - (r.status:GetStringWidth() or 90)
         - (icon and 16 or 0) - 10
+    local several = #RP():GetRaidInstances(v) > 1
     local inst = RP():GetInstance(v.i)
-    for _, text in ipairs({ RP():GetRaidName(v), inst and inst.name, TV.SHORT[v.i] }) do
+    for _, text in ipairs({ RP():GetRaidName(v), several and instNames(v, true) or (inst and inst.name),
+                            not several and TV.SHORT[v.i] or nil }) do
         if text then
             r.name:SetText(text)
             if (r.name:GetStringWidth() or 0) <= room then break end
@@ -5461,446 +5507,16 @@ function PlanUI:GetTeamTab() return state.teamTab == "comp" and "comp" or "group
 function PlanUI:GetCompSteps() return teamsView and teamsView.detail.steps end
 
 ---------------------------------------------------------------------------
--- New / Edit raid window
+-- New / Edit raid: UI/RaidSheet.lua (a sheet over the Raids tab; PlanUI:OpenEditor / GetEditor)
 ---------------------------------------------------------------------------
 
--- The date picker's limits: today (or the edited raid's own day, if earlier) .. EDITOR_DAYS ahead.
-local function pickerMin()
-    local lo = editor and editor.minT or Now()
-    local d = date("*t", math.min(lo, Now()))
-    return d.year, d.month, d.day
-end
-
-local function pickerMax()
-    local d = date("*t", Now() + EDITOR_DAYS * DAY)
-    return d.year, d.month, d.day
-end
-
--- A dot on days that already have a raid planned: "20:00 Karazhan" lines.
-local function pickerMark(y, m, d)
-    local from = time({ year = y, month = m, day = d, hour = 0, min = 0, sec = 0 })
-    local to = time({ year = y, month = m, day = d + 1, hour = 0, min = 0, sec = 0 }) - 1
-    local lines = {}
-    for _, v in ipairs(RP():GetRaids(from, to)) do
-        if not v.cancelled then lines[#lines + 1] = fmtTime(v.t) .. "  " .. raidTitle(v) end
-    end
-    return #lines > 0 and tconcat(lines, "\n") or nil
-end
-
-local function hourOptions()
-    local out = {}
-    for h = 0, 23 do out[#out + 1] = { value = h, text = ("%02d"):format(h) } end
-    return out
-end
-
-local function minuteOptions()
-    local out = {}
-    for _, m in ipairs({ 0, 15, 30, 45 }) do out[#out + 1] = { value = m, text = (":%02d"):format(m) } end
-    return out
-end
-
-local function instanceOptions()
-    local out = {}
-    for _, inst in ipairs(RP():GetInstances()) do out[#out + 1] = { value = inst.key, text = inst.name } end
-    return out
-end
-
--- Server time of the editor's day + hour + minute (local wall clock).
-local function editorTime()
-    local f = editor.f
-    return time({ year = f.y, month = f.m, day = f.d, hour = f.hour, min = f.min, sec = 0 })
-end
-
--- A team's lineups of the editor's raid size: { lineup, ... } (a GetTeam table's).
-function TV.sizeLineups(t)
-    local out = {}
-    for _, l in ipairs(t.lineups) do
-        if l.size == editor.f.sz then out[#out + 1] = l end
-    end
-    return out
-end
-
--- The players a team invites to the editor's raid through lineup l (in its groups); the whole roster without a
--- lineup of the raid's size, or when it has nobody in its groups yet (RaidPlan:GetRaidTeamPlayers). Returns the keys
--- and whether they are the roster.
-function TV.editorPlayers(t, l)
-    local out = {}
-    if l then
-        local n = ns.RaidComp:GroupCount(editor.f.sz)
-        for _, key in ipairs(t.members) do
-            local g = l.groups[key]
-            if type(g) == "number" and g >= 1 and g <= n then out[#out + 1] = key end
-        end
-    end
-    if #out == 0 then return t.members, true end
-    return out, false
-end
-
--- A Teams entry: "Main · Kara A (10)" (a lineup's players), "Main · roster (32)" (no lineup of the raid's size), or
--- "Main (24)" for a team whose one lineup it is.
-function TV.editorEntry(t, l)
-    local players, roster = TV.editorPlayers(t, l)
-    local what = (roster and "roster") or ((#t.lineups > 1) and RP():LineupName(t, l)) or nil
-    return ("%s%s (%d)"):format(t.name, what and (" · " .. what) or "", #players)
-end
-
--- The lineup a picked team gives the raid: the one chosen (f.tl), else its first of the raid's size.
-function TV.pickedLineup(t)
-    local list = TV.sizeLineups(t)
-    for _, l in ipairs(list) do
-        if l.id == editor.f.tl[t.id] then return l, #list end
-    end
-    return list[1], #list
-end
-
-local function teamSummary()
-    local n = 0
-    local names = {}
-    for _, t in ipairs(RP():GetTeams()) do
-        if editor.f.tm[t.id] then
-            n = n + 1
-            local l, count = TV.pickedLineup(t)
-            names[#names + 1] = t.name .. ((l and count > 1) and (" · " .. RP():LineupName(t, l)) or "")
-        end
-    end
-    if n == 0 then return "Everyone (no team)" end
-    return tconcat(names, ", ")
-end
-
--- The guild members to invite on top of the teams (the players a picked team invites are in already).
-local function inviteItems()
-    local g = ns.Guild
-    local inTeam = {}
-    for _, t in ipairs(RP():GetTeams()) do
-        if editor.f.tm[t.id] then
-            for _, key in ipairs(TV.editorPlayers(t, TV.pickedLineup(t))) do inTeam[key] = t.name end
-        end
-    end
-    local out, seen = {}, {}
-    for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
-        seen[key] = true
-        out[#out + 1] = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
-                          dim = not g:IsOnline(key), fixed = inTeam[key] }
-    end
-    for key in pairs(editor.f.inv) do
-        if not seen[key] then out[#out + 1] = { key = key, text = shortName(key), note = "not in the guild", dim = true } end
-    end
-    tsort(out, function(a, b) return a.text:lower() < b.text:lower() end)
-    return out
-end
-
-local function inviteList()
-    local list = {}
-    for key in pairs(editor.f.inv) do list[#list + 1] = key end
-    tsort(list)
-    return list
-end
-
-local function refreshInvites()
-    local list = inviteList()
-    tsort(list, nameLess)
-    local names = {}
-    for i, key in ipairs(list) do names[i] = shortName(key) end
-    editor.invInfo:SetText(#list == 0 and "Nobody outside the teams is invited."
-        or (#list .. " invited: " .. tconcat(names, ", ")))
-end
-
-local function editorFields()
-    local f = editor.f
-    local tm, tl = {}, {}
-    for _, t in ipairs(RP():GetTeams()) do
-        if f.tm[t.id] then
-            tm[#tm + 1] = t.id
-            -- (a team with more than one lineup of the raid's size names the one it gives)
-            local l, count = TV.pickedLineup(t)
-            if l and count > 1 then tl[t.id] = l.id end
-        end
-    end
-    return {
-        i = f.i, sz = f.sz, t = editorTime(), tm = tm, tl = tl, lk = f.lk and true or false, inv = inviteList(),
-        pv = (f.lk and f.pv) and true or false,
-        ml = f.low and 0 or MAX_LEVEL,
-        ti = ns.Util.Trim(editor.titleBox:GetText() or "") ~= "" and editor.titleBox:GetText() or false,
-        no = ns.Util.Trim(editor.noteBox:GetText() or "") ~= "" and editor.noteBox:GetText() or false,
-    }
-end
-
--- An edit sends only what changed: an override of one weekly raid that repeated every field would pin them, and
--- later "every week" edits would no longer reach it.
-local function changedFields(fields, v)
-    local out = {}
-    for _, f in ipairs({ "i", "sz", "t" }) do
-        if fields[f] ~= v[f] then out[f] = fields[f] end
-    end
-    for _, f in ipairs({ "ti", "no" }) do
-        if (fields[f] or nil) ~= v[f] then out[f] = fields[f] end
-    end
-    local a, b = tconcat(fields.tm, ","), tconcat(v.tm or {}, ",")
-    local sa, sb = {}, {}
-    for _, id in ipairs(fields.tm) do sa[#sa + 1] = id end
-    for _, id in ipairs(v.tm or {}) do sb[#sb + 1] = id end
-    tsort(sa)
-    tsort(sb)
-    if a ~= b and tconcat(sa, ",") ~= tconcat(sb, ",") then out.tm = fields.tm end
-    local function choice(tl)
-        local list = {}
-        for id, ln in pairs(tl or {}) do list[#list + 1] = id .. "=" .. ln end
-        tsort(list)
-        return tconcat(list, ",")
-    end
-    if choice(fields.tl) ~= choice(v.tl) then out.tl = fields.tl end
-    if fields.lk ~= (v.lk and true or false) then out.lk = fields.lk end
-    if fields.pv ~= (v.pv and true or false) then out.pv = fields.pv end
-    if fields.ml ~= (v.ml or 0) then out.ml = fields.ml end
-    local was = {}
-    for _, key in ipairs(v.inv or {}) do was[#was + 1] = key end
-    tsort(was)
-    if tconcat(fields.inv, ",") ~= tconcat(was, ",") then out.inv = fields.inv end
-    return out
-end
-
-local function editorSave(scope)
-    local fields = editorFields()
-    local ok, res
-    if fields.lk and #fields.tm == 0 and #fields.inv == 0 then
-        editor.err:SetText("A locked raid needs a team or invited players.")
-        return false
-    end
-    if editor.occ then
-        local v = RP():GetRaid(editor.occ)
-        if not v then
-            editor.err:SetText("This raid no longer exists.")
-            return false
-        end
-        fields = changedFields(fields, v)
-        if not next(fields) then
-            editor:Hide()
-            return true
-        end
-        ok, res = RP():EditRaid(editor.occ, fields, scope)
-    else
-        fields.weekly = editor.weeklyCB:GetChecked() and true or false
-        if not fields.ti then fields.ti = nil end
-        if not fields.no then fields.no = nil end
-        ok, res = RP():CreateRaid(fields)
-    end
-    if not ok then
-        editor.err:SetText(res or "Could not save the raid.")
-        return false
-    end
-    editor:Hide()
-    if not editor.occ and res then PlanUI:SelectRaid(res) end
-    return true
-end
-
+-- A form label of the windows below.
 local function row(parent, label, y)
     local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     fs:SetPoint("TOPLEFT", 12, y)
     fs:SetText(label)
     return fs
 end
-
-local function createEditor()
-    local w = UI():CreateWindow("DisasterZoneRaidEditor", "New raid", 400, 452)
-    editor = w
-    local c = w.content
-    w.f = { tm = {}, tl = {}, inv = {} }
-
-    row(c, "Raid", -14)
-    w.instDD = UI():CreateDropdown(c, 190, instanceOptions, function() return w.f.i end, function(v)
-        w.f.i = v
-        local inst = RP():GetInstance(v)
-        if inst then w.f.sz = inst.size end
-        if w.sizeDD.Refresh then w.sizeDD:Refresh() end
-    end)
-    w.instDD:SetPoint("TOPLEFT", 80, -8)
-    w.sizeDD = UI():CreateDropdown(c, 80, function()
-        return { { value = 10, text = "10-man" }, { value = 25, text = "25-man" } }
-    end, function() return w.f.sz end, function(v) w.f.sz = v end)
-    w.sizeDD:SetPoint("LEFT", w.instDD, "RIGHT", 8, 0)
-
-    row(c, "Title", -46)
-    w.titleBox = UI():CreateSleekEditBox(c)
-    w.titleBox:SetSize(200, 20)
-    w.titleBox:SetAutoFocus(false)
-    w.titleBox:SetMaxLetters(32)
-    w.titleBox:SetPoint("TOPLEFT", 86, -42)
-    local hint = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("LEFT", w.titleBox, "RIGHT", 8, 0)
-    hint:SetText("optional")
-
-    row(c, "Day", -78)
-    w.datePicker = UI():CreateDatePicker(c, {
-        get = function() return w.f.y, w.f.m, w.f.d end,
-        set = function(y, m, d) w.f.y, w.f.m, w.f.d = y, m, d end,
-        minDate = pickerMin,
-        maxDate = pickerMax,
-        mark = pickerMark,
-        width = 230,
-    })
-    w.datePicker:SetPoint("TOPLEFT", 84, -72)
-    row(c, "Time", -110)
-    w.hourDD = UI():CreateDropdown(c, 70, hourOptions, function() return w.f.hour end, function(v) w.f.hour = v end)
-    w.hourDD:SetPoint("TOPLEFT", 80, -104)
-    w.minDD = UI():CreateDropdown(c, 70, minuteOptions, function() return w.f.min end, function(v) w.f.min = v end)
-    w.minDD:SetPoint("LEFT", w.hourDD, "RIGHT", 4, 0)
-    local tz = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    tz:SetPoint("LEFT", w.minDD, "RIGHT", 8, 0)
-    tz:SetText("your clock")
-
-    -- (a team with several lineups of the raid's size: one entry per lineup, "Main · Kara A (10)"; picking one picks
-    -- the team with that lineup: its groups and comp are the raid's)
-    row(c, "Teams", -142)
-    w.teamDD = UI():CreateMultiDropdown(c, 270, function()
-        local out = {}
-        for _, t in ipairs(RP():GetTeams()) do
-            local list = TV.sizeLineups(t)
-            if #list > 1 then
-                for _, l in ipairs(list) do
-                    out[#out + 1] = { value = t.id .. ":" .. l.id, text = TV.editorEntry(t, l) }
-                end
-            else
-                out[#out + 1] = { value = t.id, text = TV.editorEntry(t, list[1]) }
-            end
-        end
-        if #out == 0 then out[1] = { value = "", text = "No teams yet (Teams view)", disabled = true } end
-        return out
-    end, function(value)
-        local id, ln = tostring(value):match("^([^:]+):?(.*)$")
-        if not w.f.tm[id] then return false end
-        if ln == "" then return true end
-        local t = RP():GetTeam(id)
-        local l = t and TV.pickedLineup(t)
-        return l ~= nil and l.id == ln
-    end, function(value, on)
-        local id, ln = tostring(value):match("^([^:]+):?(.*)$")
-        if id and id ~= "" then
-            w.f.tm[id] = on or nil
-            w.f.tl[id] = (on and ln ~= "") and ln or nil
-        end
-        if w.teamDD.Refresh then w.teamDD:Refresh() end
-    end, teamSummary)
-    w.teamDD:SetPoint("TOPLEFT", 80, -136)
-
-    -- players outside the teams who are invited too
-    row(c, "Invite", -174)
-    w.invPicker = UI():CreateSearchDropdown(c, 270, {
-        placeholder = "Players outside the teams...",
-        emptyText = "No matching guild members.",
-        getItems = inviteItems,
-        isChecked = function(key) return w.f.inv[key] and true or false end,
-        onToggle = function(key)
-            w.f.inv[key] = not w.f.inv[key] or nil
-            refreshInvites()
-        end,
-    })
-    w.invPicker.frame:SetPoint("TOPLEFT", 80, -168)
-    w.invInfo = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.invInfo:SetPoint("TOPLEFT", 86, -194)
-    w.invInfo:SetPoint("RIGHT", -12, 0)
-    w.invInfo:SetJustifyH("LEFT")
-    w.invInfo:SetWordWrap(false)
-    w.lockCB = UI():CreateCheckbox(c, "Locked: only the teams and the invited players sign up",
-        function() return w.f.lk end, function(on) w.f.lk = on end)
-    w.lockCB:SetPoint("TOPLEFT", 80, -208)
-    w.lockCB.tooltipText = "Left open, every guild member can sign up and the teams only say who is expected. "
-        .. "Locked, the sign-up buttons work only for the members of the picked teams and the players invited here; "
-        .. "an answer from anyone else is a request to join, for whoever runs the raid to approve or deny."
-    w.privCB = UI():CreateCheckbox(c, "Private: hidden from the rest, no requests",
-        function() return w.f.lk and w.f.pv end, function(on) w.f.pv = on end)
-    w.privCB:SetPoint("TOPLEFT", 80, -230)
-    w.privCB.tooltipText = "A locked raid is still listed for the whole guild, who can ask to join it. Private, "
-        .. "only its teams, the invited players and who runs raids see it."
-    w.lowCB = UI():CreateCheckbox(c, ("Allow characters below level %d"):format(MAX_LEVEL),
-        function() return w.f.low end, function(on) w.f.low = on end)
-    w.lowCB:SetPoint("TOPLEFT", 80, -252)
-    w.lowCB.tooltipText = ("Unticked, only level %d characters can sign up; the answer of a lower character is not "
-        .. "counted. Tick it for a raid that lower characters may join too."):format(MAX_LEVEL)
-
-    row(c, "Note", -290)
-    w.noteBox = UI():CreateSleekEditBox(c)
-    w.noteBox:SetSize(270, 20)
-    w.noteBox:SetAutoFocus(false)
-    w.noteBox:SetMaxLetters(120)
-    w.noteBox:SetPoint("TOPLEFT", 86, -286)
-
-    w.weeklyCB = UI():CreateCheckbox(c, "Repeat weekly (the next two weeks are always planned)", nil, nil)
-    w.weeklyCB:SetPoint("TOPLEFT", 80, -314)
-    w.weeklyInfo = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.weeklyInfo:SetPoint("TOPLEFT", 84, -320)
-    w.weeklyInfo:SetPoint("RIGHT", -12, 0)
-    w.weeklyInfo:SetJustifyH("LEFT")
-    w.weeklyInfo:SetText("A weekly raid: save the change for this week only, or for every week.")
-
-    w.err = c:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-    w.err:SetPoint("BOTTOMLEFT", 12, 40)
-    w.err:SetPoint("RIGHT", -12, 0)
-    w.err:SetJustifyH("LEFT")
-
-    w.saveBtn = UI():CreateButton(c, "Create raid", 110, 22, function() editorSave("one") end)
-    w.saveBtn:SetPoint("BOTTOMRIGHT", -10, 10)
-    w.saveAllBtn = UI():CreateButton(c, "Save every week", 120, 22, function() editorSave("series") end)
-    w.saveAllBtn:SetPoint("RIGHT", w.saveBtn, "LEFT", -6, 0)
-    w.cancelBtn = UI():CreateButton(c, "Close", 70, 22, function() w:Hide() end)
-    w.cancelBtn:SetPoint("BOTTOMLEFT", 10, 10)
-    w:Hide()
-    return w
-end
-
--- occId = nil: a new raid.
-function PlanUI:OpenEditor(occId)
-    if occId and RP():GetRaid(occId) and not RP():CanManageRaid(occId) then
-        Print("Only this raid's leader, the Guild Master and the raid leaders can change it.")
-        return
-    elseif not occId and not RP():CanOrganize() then
-        Print("Only the Guild Master and the raid leaders can plan raids.")
-        return
-    end
-    if not editor then createEditor() end
-    local v = occId and RP():GetRaid(occId)
-    editor.occ = v and v.id or nil
-    editor.err:SetText("")
-    local f = { tm = {}, tl = {}, inv = {}, lk = false, low = false }   -- (a new raid is for level 70 characters)
-    if v then
-        f.low = v.ml == nil
-        local d = date("*t", v.t)
-        f.i, f.sz, f.hour, f.min = v.i, v.sz, d.hour, d.min - d.min % 15
-        f.y, f.m, f.d = d.year, d.month, d.day
-        for _, id in ipairs(v.tm or {}) do f.tm[id] = true end
-        for id, ln in pairs(v.tl or {}) do f.tl[id] = ln end
-        for _, key in ipairs(v.inv or {}) do f.inv[key] = true end
-        f.lk = v.lk and true or false
-        f.pv = v.pv and true or false
-        editor.titleBox:SetText(v.ti or "")
-        editor.noteBox:SetText(v.no or "")
-    else
-        local d = date("*t", Now() + DAY)
-        f.i, f.sz, f.hour, f.min = "kara", 10, 20, 0
-        f.y, f.m, f.d = d.year, d.month, d.day
-        editor.titleBox:SetText("")
-        editor.noteBox:SetText("")
-    end
-    editor.minT = v and v.t or nil
-    editor.f = f
-    editor:SetWindowTitle(v and ("Edit raid: " .. raidTitle(v)) or "New raid")
-    editor.weeklyCB:SetShown(v == nil)
-    editor.weeklyCB:SetChecked(false)
-    -- every week: who may change the whole weekly raid (not a leader of this week only)
-    local series = (v and v.weekly and RP():CanManageSeries(v)) and true or false
-    editor.weeklyInfo:SetShown(series)
-    editor.saveBtn:SetText(v and (v.weekly and "This week only" or "Save") or "Create raid")
-    editor.saveAllBtn:SetShown(series)
-    for _, dd in ipairs({ editor.instDD, editor.sizeDD, editor.datePicker, editor.hourDD, editor.minDD, editor.teamDD,
-                          editor.lockCB, editor.lowCB }) do
-        if dd.Refresh then dd:Refresh() end
-    end
-    if editor.invPicker.Close then editor.invPicker:Close() end
-    refreshInvites()
-    editor:Show()
-    editor:Raise()
-end
-
-function PlanUI:GetEditor() return editor end
 
 ---------------------------------------------------------------------------
 -- Raid leader window (the GM and the raid leaders): who leads one raid. That leader runs it with the GM and the raid

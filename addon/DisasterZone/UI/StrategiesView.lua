@@ -1081,7 +1081,7 @@ function View:RefreshRaid(v)
         assign.list:SetData({})
         return
     end
-    local bosses = S():GetBosses(v.i)
+    local bosses = S():GetRaidBosses(v)
     local counts = S():CountByBoss()
     local rows = {}
     for _, b in ipairs(bosses) do

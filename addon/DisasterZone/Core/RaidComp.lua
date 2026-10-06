@@ -718,7 +718,20 @@ end
 
 function RaidComp:ShortRaidName(v)
     if type(v) ~= "table" then return nil end
+    -- (1.3.2: a raid of several instances, "Gruul + Mag")
+    if type(v.ix) == "table" and v.ix[1] and RAID_SHORT[v.i] then
+        local list = { v.i }
+        for _, key in ipairs(v.ix) do if key ~= v.i then list[#list + 1] = key end end
+        return self:ShortInstanceNames(list)
+    end
     return RAID_SHORT[v.i] or v.ti or "Raid"
+end
+
+-- Instance keys -> "Gruul + Mag" (an instance without a short name: "Other").
+function RaidComp:ShortInstanceNames(list)
+    local names = {}
+    for i, key in ipairs(type(list) == "table" and list or {}) do names[i] = RAID_SHORT[key] or "Other" end
+    return tconcat(names, " + ")
 end
 
 function RaidComp:LFLine(guild, open, when)

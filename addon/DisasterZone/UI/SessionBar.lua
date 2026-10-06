@@ -58,7 +58,7 @@ function SessionBar:GetText()
     local parts = { (rec and rec.zone) or "Raid" }
     parts[#parts + 1] = FormatDuration(GetServerTime() - (s.at or GetServerTime()))
     local kills = rec and #(rec.bosses or {}) or 0
-    local total = rec and RL:GetBossTotal(rec.instID)
+    local total = rec and RL:GetRecordBossTotal(rec)
     parts[#parts + 1] = total and ("%d/%d bosses"):format(kills, total) or (kills == 1 and "1 boss" or (kills .. " bosses"))
     if ns.GroupRules:IsLocked() then parts[#parts + 1] = "BiS locked" end
     return table.concat(parts, " · ")
@@ -303,7 +303,7 @@ function SessionBar:GetParts()
     local RL = ns.RaidLog
     local rec = RL and RL:GetRaid(s.id)
     local kills = rec and #(rec.bosses or {}) or 0
-    local total = rec and RL:GetBossTotal(rec.instID)
+    local total = rec and RL:GetRecordBossTotal(rec)
     return (rec and rec.zone) or "Raid", FormatDuration(GetServerTime() - (s.at or GetServerTime())),
         total and ("%d/%d bosses"):format(kills, total) or (kills == 1 and "1 boss" or (kills .. " bosses")),
         ns.GroupRules:IsLocked()

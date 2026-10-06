@@ -702,6 +702,23 @@ local function CleanTeam(r, now)
     return out
 end
 
+-- 1.3.2: the instances a raid holds after its first (i), in the night's order (ix): { key, ... }, each known, once.
+-- nil = none given, false = invalid.
+local function CleanInstanceList(ix)
+    if ix == nil then return nil end
+    if type(ix) ~= "table" then return false end
+    local out, seen = {}, {}
+    for n = 1, #INSTANCES do
+        local key = ix[n]
+        if key == nil then break end
+        if not INSTANCE_BY_KEY[key] or seen[key] then return false end
+        seen[key] = true
+        out[n] = key
+    end
+    if ix[#INSTANCES] ~= nil then return false end
+    return out
+end
+
 -- The raid fields shared by series and events. `partial` = an override (every field optional). A series' t is its
 -- first occurrence, which can be long ago (minT).
 local function CleanRaidFields(out, r, now, partial, minT)
@@ -717,6 +734,10 @@ local function CleanRaidFields(out, r, now, partial, minT)
         if not SIZES[r.sz] then return false end
         out.sz = r.sz
     end
+    -- 1.3.2: more instances the same night, after i (an override says {}: that week holds i alone)
+    local ix = CleanInstanceList(r.ix)
+    if ix == false then return false end
+    if ix and (#ix > 0 or partial) then out.ix = ix end
     local tm = CleanTeamIds(r.tm)
     if tm == false then return false end
     out.tm = tm
@@ -919,6 +940,8 @@ local function MergeRecord(root, kind, rec, via)
         -- nor without the raid's leader (1.3), or the lineups it uses (1.3.2)
         if rec.rev == cur.rev and cur.rl ~= nil and rec.rl == nil then return false end
         if kind ~= "T" and rec.rev == cur.rev and cur.tl ~= nil and rec.tl == nil then return false end
+        -- nor without the night's other instances (1.3.2)
+        if kind ~= "T" and rec.rev == cur.rev and cur.ix ~= nil and rec.ix == nil then return false end
         if Trusted(root, kind, cur) then
             if kind ~= "T" and not SameCrown(cur, rec) and not CanAssignLeader(rec.by) and not CanAssignLeader(via) then
                 -- named while I was away, or made up: a planner's copy tells
@@ -1050,7 +1073,7 @@ end
 -- Occurrences (the resolved view the UI reads)
 ---------------------------------------------------------------------------
 
-local RAID_FIELDS = { "t", "i", "sz", "tm", "tl", "ti", "no", "lk", "pv", "inv", "ml", "rl", "rlb" }
+local RAID_FIELDS = { "t", "i", "ix", "sz", "tm", "tl", "ti", "no", "lk", "pv", "inv", "ml", "rl", "rlb" }
 
 -- The view's leader: a leader named by the GM or a raid leader on the list, else none (rl, rlb = nil).
 local function ViewLeader(v)
@@ -1082,7 +1105,8 @@ end
 -- The view of a visible one-off event.
 local function ViewEvent(e)
     return ViewLeader({
-        id = e.id, t = e.t, i = e.i, sz = e.sz, tm = CopyList(e.tm) or {}, tl = CopyMap(e.tl), ti = e.ti, no = e.no,
+        id = e.id, t = e.t, i = e.i, ix = CopyList(e.ix), sz = e.sz, tm = CopyList(e.tm) or {}, tl = CopyMap(e.tl),
+        ti = e.ti, no = e.no,
         lk = e.lk and true or false, pv = e.pv and true or false, inv = CopyList(e.inv) or {}, ml = (e.ml or 0) > 0 and e.ml or nil,
         cancelled = e.x and true or false, grp = CopyMap(e.grp), gs = CopyMap(e.gs), by = e.by, rev = e.rev,
         gu = CopyGuests(e.gu), rj = CopyMap(e.rj), rm = CopyMap(e.rm), gx = CopyMap(e.gx), rl = e.rl, rlb = e.rlb,
@@ -1437,11 +1461,29 @@ function RaidPlan:GetInstance(key)
     return INSTANCE_BY_KEY[key]
 end
 
--- The display name of a raid view (its title, else the instance name).
+-- The instances a raid view holds, in the night's order (1.3.2): { key, ... } (its i, then ix; each once).
+function RaidPlan:GetRaidInstances(v)
+    local out, seen = {}, {}
+    if type(v) ~= "table" then return out end
+    local function add(key)
+        if INSTANCE_BY_KEY[key] and not seen[key] then
+            seen[key] = true
+            out[#out + 1] = key
+        end
+    end
+    add(v.i)
+    for _, key in ipairs(type(v.ix) == "table" and v.ix or {}) do add(key) end
+    return out
+end
+
+-- The display name of a raid view: its title, else its instance's name, else (several instances) their short names
+-- ("Gruul + Mag").
 function RaidPlan:GetRaidName(v)
     if type(v) ~= "table" then return "?" end
     if v.ti then return v.ti end
-    local inst = INSTANCE_BY_KEY[v.i]
+    local list = self:GetRaidInstances(v)
+    if #list > 1 then return ns.RaidComp:ShortInstanceNames(list) end
+    local inst = INSTANCE_BY_KEY[list[1]]
     return inst and inst.name or "?"
 end
 
@@ -3055,7 +3097,14 @@ local function ApplyFields(rec, f, partial)
     if f.i ~= nil or not partial then
         if not INSTANCE_BY_KEY[f.i] then return false, "Pick a raid." end
         rec.i = f.i
-        if f.sz == nil and not partial then rec.sz = INSTANCE_BY_KEY[f.i].size end
+        -- (the default size: the larger of the night's instances)
+        if f.sz == nil and not partial then
+            rec.sz = INSTANCE_BY_KEY[f.i].size
+            for _, key in ipairs(type(f.ix) == "table" and f.ix or {}) do
+                local inst = INSTANCE_BY_KEY[key]
+                if inst and inst.size > rec.sz then rec.sz = inst.size end
+            end
+        end
     end
     if f.sz ~= nil then
         if not SIZES[f.sz] then return false, "Raid size must be 10 or 25." end
@@ -3069,6 +3118,16 @@ local function ApplyFields(rec, f, partial)
         local tm = CleanTeamIds(f.tm)
         if tm == false then return false, "invalid team list" end
         rec.tm = tm
+    end
+    -- the night's other instances, in order (1.3.2); an override keeps {} (that week holds i alone)
+    if f.ix ~= nil then
+        local ix = CleanInstanceList(f.ix)
+        if ix == false then return false, "invalid raid list" end
+        local list = {}
+        for _, key in ipairs(ix) do
+            if key ~= (rec.i or f.i) then list[#list + 1] = key end
+        end
+        rec.ix = (#list > 0 or rec.sid) and list or nil
     end
     -- the lineup of each team (1.3.2); an override keeps {} (that week uses the teams' first lineups)
     if f.tl ~= nil then
@@ -3134,7 +3193,8 @@ local function ApplyFields(rec, f, partial)
     return true
 end
 
--- fields: { i = instance key, t = start (server time), sz = 10|25 (default: the instance's), tm = { teamId },
+-- fields: { i = instance key, ix = { instance key, ... } (1.3.2: the night's other instances, in order), t = start
+-- (server time), sz = 10|25 (default: the larger instance's), tm = { teamId },
 -- tl = { [teamId] = lineup id } (1.3.2: the lineup of a team the raid uses; default its first of the raid's size),
 -- lk = bool (locked: only its teams and extra invites sign up), inv = { key } (extra invites), ml = minimum
 -- character level (nil / 0 / false: every level), ti = title, no = note, rl = the raid's leader (named by the GM and

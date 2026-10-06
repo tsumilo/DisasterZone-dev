@@ -121,14 +121,17 @@ def organizer_creates_and_edits_raids_in_the_window():
     open_tab(w, bob)
     bob.click(bob.eval("return ns.RaidsUI:GetPanel().newRaidBtn"))
     w.tick(0.2)
-    assert shown(bob, "DisasterZoneRaidEditor")
     ed = "ns.RaidPlanUI:GetEditor()"
-    bob.eval("local e = %s; e.f.i = 'ssc'; e.f.sz = 25; local d = date('*t', GetServerTime() + 2 * 86400);"
+    assert shown(bob, ed)                                       # (a sheet over the Raids tab)
+    # the raid tiles: Karazhan comes picked; take it out, pick Serpentshrine (the size follows: 25)
+    bob.eval("ns.RaidPlanUI:ToggleEditorRaid('kara'); ns.RaidPlanUI:ToggleEditorRaid('ssc')")
+    assert bob.eval("return %s.f.sz" % ed) == 25
+    bob.eval("local e = %s; local d = date('*t', GetServerTime() + 2 * 86400);"
              " e.f.y, e.f.m, e.f.d = d.year, d.month, d.day; e.f.hour = 19; e.f.min = 30; e.f.tm[...] = true;"
              " e.noteBox:SetText('Vashj progress'); e.weeklyCB:SetChecked(true)" % ed, tid)
     bob.click(bob.eval("return %s.saveBtn" % ed))
     w.tick(2)
-    assert not shown(bob, "DisasterZoneRaidEditor")
+    assert not shown(bob, ed)
     rs = raids(rita)
     assert len(rs) == 2 and all(r["weekly"] and r["i"] == "ssc" and r["sz"] == 25 for r in rs), rs
     assert rs[0]["tm"] == [tid] and rs[0]["no"] == "Vashj progress", rs[0]
@@ -152,7 +155,7 @@ def organizer_creates_and_edits_raids_in_the_window():
              " e.f.y, e.f.m, e.f.d = d.year, d.month, d.day" % ed)
     bob.click(bob.eval("return %s.saveBtn" % ed))
     w.tick(0.2)
-    assert shown(bob, "DisasterZoneRaidEditor") and "past" in bob.eval("return %s.err:GetText()" % ed)
+    assert shown(bob, ed) and "past" in bob.eval("return %s.err:GetText()" % ed)
     # members can't open it
     n0 = len(rita.chat_frame)
     rita.eval("ns.RaidPlanUI:OpenEditor()")
@@ -320,8 +323,9 @@ def the_editor_date_picker_is_a_month_calendar():
     bob.eval("ns.RaidPlanUI:OpenEditor()")
     dp = "ns.RaidPlanUI:GetEditor().datePicker"
     tomorrow = bob.eval_py("local d = date('*t', GetServerTime() + 86400); return { d.year, d.month, d.day }")
-    label = bob.eval("return %s:GetText()" % dp)
-    assert label == bob.eval("local y, m, d = ...; return date('%A %d %B %Y', time({ year = y, month = m, day = d, hour = 12 }))",
+    # (the month tile beside the date strip: the picked day's month)
+    label = bob.eval("return %s.month:GetText()" % dp)
+    assert label == bob.eval("local y, m, d = ...; return date('%b', time({ year = y, month = m, day = d, hour = 12 })):upper()",
                              *tomorrow), label
     bob.click(bob.eval("return %s" % dp))
     assert bob.eval("return %s.popup:IsShown()" % dp) is True

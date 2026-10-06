@@ -166,6 +166,7 @@ UI\Council.lua
 UI\LootLog.lua
 UI\RaidGroups.lua
 UI\RaidPlanUI.lua
+UI\RaidSheet.lua
 UI\GuestBook.lua
 UI\RaidLeadersUI.lua
 UI\StrategyMap.lua

@@ -41,6 +41,17 @@ ns.CHANGELOG = {
               "Who could fill an open spot lists Unassigned and the waitlist first.",
               "Fixed: Add members on the Teams page opened its list behind the window.",
           } },
+          { heading = "Raids: New raid, redone; several raids in one", lines = {
+              "New raid opens over the Raids tab: raid tiles, a date strip, a live preview of the card.",
+              "Pick several raids for one night (Gruul + Mag): the order you click is the night's.",
+              "One sign-up, one set of groups and one comp for the whole night; mixed sizes allowed.",
+              "No size to pick: the raids you pick say it (the larger one wins).",
+              "When: a week of days (a dot where a raid is planned), the calendar for later, the time.",
+              "Who: team cards with how many each invites; invited players show as pills.",
+              "Sign-ups: Everyone, Teams + invited or Private, in one choice.",
+              "Strategies and Assignments list every boss of the night, in order.",
+              "The board's raid filter finds a raid of several under each of them.",
+          } },
       } },
     { version = "1.3.1", date = "6 October 2026", title = "Dungeons tab, ask to join locked raids",
       sections = {

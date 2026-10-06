@@ -2061,8 +2061,15 @@ end
 
 local function raidInst()
     local v = raidView()
-    if v and v.i then return v.i end
-    return instOfBoss(st.boss or (st.strat and st.strat.b))
+    local own = instOfBoss(st.boss or (st.strat and st.strat.b))
+    if v and v.i then
+        -- (a raid of several instances: the one of the open boss)
+        for _, key in ipairs(ns.RaidPlan:GetRaidInstances(v)) do
+            if key == own then return own end
+        end
+        return v.i
+    end
+    return own
 end
 
 -- A class circle inside text.
@@ -2737,7 +2744,11 @@ function Board:RaidsUsing(id)
     local now = GetServerTime and GetServerTime() or time()
     local out = {}
     for _, v in ipairs(RP:GetRaids(now - 4 * 3600, now + 14 * 86400)) do
-        if not v.cancelled and v.i == inst then
+        local holds = false
+        for _, key in ipairs(RP:GetRaidInstances(v)) do
+            if key == inst then holds = true end
+        end
+        if not v.cancelled and holds then
             local used = S():GetRaidStrategy(v.id, s.b)
             if used and used.id == id then out[#out + 1] = v end
         end

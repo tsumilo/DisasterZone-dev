@@ -145,10 +145,10 @@ def the_raid_window_and_the_sign_up_strip():
     old = create(bob, i="za", t=now(bob) + 3 * DAY)        # as made before the field existed
     w.tick(1)
     open_tab(w, bob)
-    # a new raid asks for level 70: the box is unticked
+    # a new raid asks for level 70: the switch "Level 70 only" is on
     bob.eval("ns.RaidPlanUI:OpenEditor()")
-    assert bob.eval("return %s.f.low" % ED) is False and bob.eval("return %s.lowCB:GetChecked()" % ED) is False
-    assert bob.find_text("Allow characters below level 70", True, True)
+    assert bob.eval("return %s.f.low" % ED) is False and bob.eval("return %s.levelSW:GetChecked()" % ED) is True
+    assert bob.find_text("Level 70 only", True, True)
     bob.click(bob.eval("return %s.saveBtn" % ED))
     w.tick(2)
     occ = bob.eval("return ns.RaidPlanUI:GetSelectedRaid()")
@@ -168,19 +168,19 @@ def the_raid_window_and_the_sign_up_strip():
     lee.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.5)
     assert lee.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is True
-    # editing shows the box; ticking it lets the low character in
+    # editing shows the switch; switching it off lets the low character in
     bob.eval("ns.RaidPlanUI:OpenEditor(...)", occ)
-    assert bob.eval("return %s.f.low" % ED) is False and bob.eval("return %s.lowCB:GetChecked()" % ED) is False
-    bob.click(bob.eval("return %s.lowCB" % ED))
+    assert bob.eval("return %s.f.low" % ED) is False and bob.eval("return %s.levelSW:GetChecked()" % ED) is True
+    bob.click(bob.eval("return %s.levelSW" % ED))
     assert bob.eval("return %s.f.low" % ED) is True
     bob.click(bob.eval("return %s.saveBtn" % ED))
     w.tick(2)
     assert raid(tiny, occ).get("ml") is None
     w.tick(1)
     assert tiny.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is True
-    # a raid from before the field: the box is ticked, and saving something else leaves it open to every level
+    # a raid from before the field: the switch is off, and saving something else leaves it open to every level
     bob.eval("ns.RaidPlanUI:OpenEditor(...)", old)
-    assert bob.eval("return %s.f.low" % ED) is True and bob.eval("return %s.lowCB:GetChecked()" % ED) is True
+    assert bob.eval("return %s.f.low" % ED) is True and bob.eval("return %s.levelSW:GetChecked()" % ED) is False
     bob.eval("%s.noteBox:SetText('bring flasks')" % ED)
     bob.click(bob.eval("return %s.saveBtn" % ED))
     w.tick(2)

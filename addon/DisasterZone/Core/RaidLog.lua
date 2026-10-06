@@ -413,6 +413,24 @@ end
 
 -- Loot Log entries of a raid (not voided, not dungeon loot), newest first: tagged with its id, or untagged ones
 -- made while it ran.
+-- How many bosses a record's night has: linked to a planned raid of several instances (1.3.2, e.g. Gruul + Mag), all
+-- of theirs; else those of the instance it was recorded in (instID: where I stand, for the live session's bar). nil =
+-- unknown.
+function RaidLog:GetRecordBossTotal(rec, instID)
+    local RP = ns.RaidPlan
+    local v = type(rec) == "table" and rec.pl and RP and RP.GetRaid and RP:GetRaid(rec.pl)
+    local keys = v and RP.GetRaidInstances and RP:GetRaidInstances(v) or {}
+    if #keys > 1 then
+        local n = 0
+        for _, key in ipairs(keys) do
+            local inst = RP:GetInstance(key)
+            n = n + (inst and inst.instID and self:GetBossTotal(inst.instID) or 0)
+        end
+        if n > 0 then return n end
+    end
+    return self:GetBossTotal(instID or (type(rec) == "table" and rec.instID))
+end
+
 function RaidLog:GetAwards(rec)
     local out = {}
     if type(rec) == "table" and rec.demoAwards then

@@ -155,6 +155,7 @@ def close_all(cl):
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
       if ns.Picker and ns.Picker.Close then pcall(ns.Picker.Close, ns.Picker) end
       if ns.DungeonsUI and ns.DungeonsUI.GetSheetState and ns.DungeonsUI:GetSheetState() then ns.DungeonsUI:CloseSheet() end
+      if ns.RaidPlanUI and ns.RaidPlanUI.CloseEditor then ns.RaidPlanUI:CloseEditor() end
       if ns.DungeonRuns and ns.Demo and ns.Demo:IsEnabled() then ns.DungeonRuns:Unlist(true) end
       if ns.MainFrame and ns.MainFrame.Close then ns.MainFrame:Close() end
       if ns.DropPanel and ns.DropPanel.Hide then ns.DropPanel:Hide() end
@@ -636,6 +637,11 @@ STATES = [
                                                   "ns.RaidsUI:Select(r.id)")),
     ("Raids - New raid", st_window("ns.RaidPlanUI:OpenEditor()")),
     ("Raids - Edit raid", st_window("ns.RaidPlanUI:OpenEditor(...)")),
+    # 1.3.2: one raid of two instances (Gruul, then Magtheridon), for the teams and invited players
+    ("Raids - New raid - Gruul + Mag", st_window("ns.RaidPlanUI:OpenEditor(); ns.RaidPlanUI:ToggleEditorRaid('kara'); "
+                                                "ns.RaidPlanUI:ToggleEditorRaid('gruul'); "
+                                                "ns.RaidPlanUI:ToggleEditorRaid('mag'); "
+                                                "ns.RaidPlanUI:SetEditorAccess('locked')")),
     ("Raids - Add players - members", st_window("ns.RaidPlanUI:OpenInvites(...)")),
     ("Raids - Add players - guest", st_window("ns.RaidPlanUI:OpenInvites(...); "
                                               "ns.RaidPlanUI:GetInviteWindow().mode = 'guest'; "

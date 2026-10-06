@@ -49,8 +49,14 @@ function RaidLink:Match(start, roster, instID, preferOcc)
     if not plan then return nil end
     local best, second
     for _, v in ipairs(plan:GetRaids(start - BEFORE, start + AFTER, true)) do
-        local inst = plan:GetInstance(v.i)
-        local wrongPlace = instID and inst and inst.instID and inst.instID ~= instID
+        -- (1.3.2: a raid of several instances matches in any of them; "Other" has no place)
+        local here, known = false, true
+        for _, key in ipairs(plan.GetRaidInstances and plan:GetRaidInstances(v) or { v.i }) do
+            local inst = plan:GetInstance(key)
+            if not (inst and inst.instID) then known = false
+            elseif inst.instID == instID then here = true end
+        end
+        local wrongPlace = instID and known and not here
         if not v.cancelled and not wrongPlace then
             local overlap = 0
             local seen = {}
@@ -61,7 +67,7 @@ function RaidLink:Match(start, roster, instID, preferOcc)
                 if roster[key] and not seen[key] then overlap = overlap + 1 end
             end
             local score = overlap * 10 - abs(start - v.t) / 600
-            if instID and inst and inst.instID == instID then score = score + 5 end
+            if instID and here then score = score + 5 end
             local c = { id = v.id, score = score, overlap = overlap, invited = preferOcc == v.id }
             if c.invited then c.score = c.score + 10000 end
             if not best or c.score > best.score then

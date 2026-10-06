@@ -1034,6 +1034,19 @@ function Strategy:GetBosses(instKey)
     return out
 end
 
+-- The bosses of a planned raid (a view): those of each of its instances, in the night's order (1.3.2: a raid can hold
+-- several, e.g. Gruul + Magtheridon). Same shape as GetBosses.
+function Strategy:GetRaidBosses(v)
+    local RP = ns.RaidPlan
+    local out = {}
+    local keys = (RP and RP.GetRaidInstances and type(v) == "table") and RP:GetRaidInstances(v) or {}
+    if #keys == 0 and type(v) == "table" then keys = { v.i } end
+    for _, key in ipairs(keys) do
+        for _, b in ipairs(self:GetBosses(key)) do out[#out + 1] = b end
+    end
+    return out
+end
+
 -- Every raid with its bosses (for the strategy library): { { key, name, bosses = { {ref, name} } } }.
 function Strategy:GetRaidTree()
     local out = {}

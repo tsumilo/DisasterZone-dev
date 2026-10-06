@@ -192,7 +192,7 @@ end
 
 local function killsText(rec)
     local kills = #(rec.bosses or {})
-    local total = RL():GetBossTotal(rec.instID)
+    local total = RL():GetRecordBossTotal(rec)
     return total and ("%d/%d bosses"):format(kills, total) or (kills == 1 and "1 boss" or (kills .. " bosses"))
 end
 
@@ -648,7 +648,7 @@ end
 local function fillTabs(p, rec)
     local nAtt = ns.Util.Count(rec.att or {})
     local kills = #(rec.bosses or {})
-    local total = RL():GetBossTotal(rec.instID)
+    local total = RL():GetRecordBossTotal(rec)
     p.tabAtt:SetLabel("Attendance  |cff8c8c8c" .. nAtt .. "|r")
     p.tabBoss:SetLabel("Bosses  |cff8c8c8c" .. (total and (kills .. "/" .. total) or kills) .. "|r")
     local items = seesItems()
@@ -1025,6 +1025,8 @@ end
 
 function RaidsUI:Refresh()
     if not panel or not panel:IsVisible() then return end
+    -- (the New / Edit raid sheet covers the tab: the page under it comes back when it closes)
+    if ns.RaidPlanUI and ns.RaidPlanUI.IsEditorOpen and ns.RaidPlanUI:IsEditorOpen() then return end
     updateToolbar(panel)
     local log = state.view == "log"
     panel.upcoming:SetShown(state.view == "upcoming")
