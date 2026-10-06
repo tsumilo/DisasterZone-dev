@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.1", date = "5 October 2026", title = "Dungeons tab, ask to join locked raids",
+    { version = "1.3.1", date = "6 October 2026", title = "Dungeons tab, ask to join locked raids",
       sections = {
           { heading = "Dungeons: the guild's own LFG", lines = {
               "New Dungeons tab: list a 5-man run or join one, all inside the guild.",
