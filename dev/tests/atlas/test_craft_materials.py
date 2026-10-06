@@ -211,6 +211,29 @@ def breaking_materials_down_follows_crafts_but_not_transmutes():
 
 
 @case
+def the_cooldown_cloths_are_items_that_break_down():
+    # AtlasLoot's table has { nil, ... } for Shadowcloth / Spellcloth / Primal Mooncloth and fills the created item in
+    # with "fix" lines after it: they are item rows (their own icons) with materials, and they break down
+    w, c = setup()
+    spellcloth, shadowcloth, mooncloth = 24271, 24272, 21845
+    for item, spell in ((spellcloth, 31373), (shadowcloth, 36686), (mooncloth, 26751)):
+        craft = c.eval_py("return ns.Atlas:GetCraft(...)", item)
+        assert craft and craft["spell"] == spell and craft["item"] == item, (item, craft)
+        assert c.eval("return ns.Atlas:GetLocations(...) ~= nil", item), item
+        assert c.eval("return ns.Atlas:GetLocations(...) == nil", -spell), spell
+    # Spellfire Bag: 6 Spellcloth, 4 Greater Planar Essence, 4 Netherweb Spider Silk; Spellcloth is an Imbued bolt,
+    # a Primal Mana and a Primal Fire
+    got = materials(c, 21858, 1, 1)
+    assert got == [[(BOLT, 6), (22457, 6), (21884, 6), (ESSENCE, 4), (SILK, 4)], 1, True], got
+    assert materials(c, 21858, 1, 9)[0][0] == (21877, 108)    # down to Netherweave Cloth
+    # a transmute listed as its spell (its page lists Primal Earth already) is not called an enchant
+    row = atlas_row(w, c, -28568)
+    assert strip_codes(c.eval("local r = ...; return r.sub:GetText()", row)) != "Enchant"
+    assert strip_codes(c.eval("local r = ...; return r.sub:GetText()", atlas_row(w, c, -MONGOOSE))) == "Enchant"
+    no_errors(w)
+
+
+@case
 def shift_click_breaks_down_right_click_goes_back_and_releasing_shift_starts_over():
     w, c = setup()
     row = atlas_row(w, c, BAG)

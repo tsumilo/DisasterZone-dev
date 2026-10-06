@@ -868,12 +868,12 @@ ns.Data.Atlas = {
           [1] = "Skill 375", [2] = "Skill 335", [3] = "Skill 375", [4] = "Skill 335",
       } },
       { key = "Misc", name = "Misc", items = {
-          -36686, -- Shadowcloth
-          -26751, -- Primal Mooncloth
+          24272, -- Shadowcloth
+          21845, -- Primal Mooncloth
           21844, -- Bolt of Soulcloth
           21842, -- Bolt of Imbued Netherweave
           21840, -- Bolt of Netherweave
-          -31373, -- Spellcloth
+          24271, -- Spellcloth
           24268, -- Netherweave Net
       }, x = {
           [1] = "Skill 350", [2] = "Skill 350", [3] = "Skill 345", [4] = "Skill 325", [5] = "Skill 300", [6] = "Skill 350",
@@ -7412,7 +7412,7 @@ ns.Data.AtlasCrafts = {
   [26747] = "21842,1,21840,3,22445,2",
   [26749] = "21843,1,21842,4,21881,2,22446,1",
   [26750] = "21844,1,21840,1,21882,8",
-  [26751] = "0,1,21842,1,21886,1,21885,1",
+  [26751] = "21845,1,21842,1,21886,1,21885,1",
   [26752] = "21846,1,24271,4,21884,10,21881,2",
   [26753] = "21847,1,24271,8,21884,12,21881,4",
   [26754] = "21848,1,24271,14,21884,16,21881,4",
@@ -7808,7 +7808,7 @@ ns.Data.AtlasCrafts = {
   [31112] = "24065,1,23437,1",
   [31113] = "24067,1,23437,1",
   [31149] = "24035,1,23438,1",
-  [31373] = "0,1,21842,1,22457,1,21884,1",
+  [31373] = "24271,1,21842,1,22457,1,21884,1",
   [31430] = "24273,1,14341,1,22457,5",
   [31431] = "24275,1,14341,1,21886,5",
   [31432] = "24274,1,14341,1,22457,10,23572,1",
@@ -8077,7 +8077,7 @@ ns.Data.AtlasCrafts = {
   [36669] = "30465,1,21840,10,21885,5,21886,5,21881,2",
   [36670] = "30463,1,21840,6,21887,4,21885,3,21886,3,21881,2",
   [36672] = "30464,1,21840,4,21887,4,21885,2,21886,2,21881,2",
-  [36686] = "0,1,21842,1,22456,1,21884,1",
+  [36686] = "24272,1,21842,1,22456,1,21884,1",
   [36954] = "30542,1,23784,1,21884,2,23826,2,23783,4,23786,1",
   [36955] = "30544,1,23784,1,22451,2,23787,2,23783,4,23786,1",
   [37818] = "30804,1,2841,2,20817,1,774,3,818,3,1210,2",
@@ -8562,7 +8562,6 @@ ns.Data.AtlasNames = {
   [-42974] = "Enchant Weapon - Executioner",
   [-42620] = "Enchant Weapon - Greater Agility",
   [-42613] = "Nexus Transformation",
-  [-36686] = "Shadowcloth",
   [-34010] = "Enchant Weapon - Major Healing",
   [-34009] = "Enchant Shield - Major Stamina",
   [-34008] = "Enchant Boots - Boar's Speed",
@@ -8582,7 +8581,6 @@ ns.Data.AtlasNames = {
   [-33992] = "Enchant Chest - Major Resilience",
   [-33991] = "Enchant Chest - Restore Mana Prime",
   [-33990] = "Enchant Chest - Major Spirit",
-  [-31373] = "Spellcloth",
   [-28568] = "Transmute: Primal Fire to Earth",
   [-28567] = "Transmute: Primal Earth to Water",
   [-28566] = "Transmute: Primal Air to Fire",
@@ -8621,7 +8619,6 @@ ns.Data.AtlasNames = {
   [-27906] = "Enchant Bracer - Major Defense",
   [-27905] = "Enchant Bracer - Stats",
   [-27899] = "Enchant Bracer - Brawn",
-  [-26751] = "Primal Mooncloth",
   [-25086] = "Enchant Cloak - Dodge",
   [-25084] = "Enchant Cloak - Subtlety",
   [-25083] = "Enchant Cloak - Stealth",

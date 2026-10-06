@@ -129,7 +129,13 @@ end
 
 -- "Shoulder  ·  Leather", "Two-Hand  ·  Mace", "Recipe", "Mount" ... (instant info: never waits for the server).
 local function TypeLine(id)
-    if id < 0 then return "Enchant" end
+    if id < 0 then
+        -- a craft listed as its spell: an enchant, or (when its page lists what it makes already, a transmute) the
+        -- type of what it makes
+        local craft = Atlas():GetCraft(id)
+        if not (craft and craft.item > 0) then return "Enchant" end
+        id = craft.item
+    end
     if not (C_Item and C_Item.GetItemInfoInstant) then return "" end
     local _, itemType, subType, equipLoc, _, classID, subclassID = C_Item.GetItemInfoInstant(id)
     local slotText = (equipLoc and equipLoc ~= "" and type(_G[equipLoc]) == "string") and _G[equipLoc] or nil

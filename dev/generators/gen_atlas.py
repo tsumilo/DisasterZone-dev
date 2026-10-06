@@ -414,17 +414,35 @@ def format_costs(raw, ctx, where):
 # --------------------------------------------------------------------------------------
 # Loaders
 # --------------------------------------------------------------------------------------
+def profession_created_fixes():
+    """spellID -> created item from AtlasLoot's `-- fix` lines after the BCC table (`PROFESSION[36686][1] = 24272`):
+    the cooldown cloths (Shadowcloth, Spellcloth, Primal Mooncloth) are `{ nil, ... }` in the table itself, and
+    AtlasLoot fills in what they make right after it on a TBC client. Only field 1 (the created item) is fixed there;
+    a fix of any other field stops the generator (it would not know what that field means here)."""
+    src = read(S.P_PROFESSION)
+    start = src.index("PROFESSION_DATA.BCC")
+    end = src.find("PROFESSION_DATA.WRATH", start)
+    fixes = {}
+    for sp, field, v in re.findall(r"PROFESSION\[(\d+)\]\[(\d+)\]\s*=\s*(\d+)", src[start:end if end > 0 else None]):
+        if field != "1":
+            raise SystemExit(f"Profession.lua fix line for field {field} of {sp}: not handled")
+        fixes[int(sp)] = int(v)
+    return fixes
+
+
 def load_professions_tbc():
     """spellID -> (createdItem or None, skill, version) as AtlasLoot sees it on a TBC client (CLASSIC, then BCC
-    overriding); the set of spells that exist only in the WRATH table; spellID -> the row's `-- comment` (the created
-    item's / spell's name, present on some rows; fallback names only)."""
+    overriding, then the BCC fix lines); the set of spells that exist only in the WRATH table; spellID -> the row's
+    `-- comment` (the created item's / spell's name, present on some rows; fallback names only)."""
     out, cmts = {}, {}
     _, comments = tokenize(read(S.P_PROFESSION))
+    fixes = profession_created_fixes()
     for ver in ("CLASSIC", "BCC"):
         t = version_table(S.P_PROFESSION, "PROFESSION_DATA", ver)
         for sp, v in t.hash.items():
             a = v.array
-            out[sp] = (int_val(a[0]) if a else None, int_val(a[2]) if len(a) > 2 else None, ver)
+            item = fixes[sp] if ver == "BCC" and sp in fixes else (int_val(a[0]) if a else None)
+            out[sp] = (item, int_val(a[2]) if len(a) > 2 else None, ver)
             c = (comments.get(v.line_start) or "").strip()
             if c:
                 cmts[sp] = c
@@ -435,13 +453,17 @@ def load_professions_tbc():
 
 def load_crafts_tbc(ctx):
     """spellID -> (createdItem or 0, numberMade, [(reagent, count), ...], skill, version, profession) for every craft AtlasLoot
-    knows on a TBC client (CLASSIC, then BCC overriding; rows are { created, prof, skill, low, high, {reagents},
-    {counts}, made? }). Rows without a reagent list or with lists of different lengths are skipped (reported)."""
+    knows on a TBC client (CLASSIC, then BCC overriding, then the BCC fix lines; rows are { created, prof, skill, low,
+    high, {reagents}, {counts}, made? }). Rows without a reagent list or with lists of different lengths are skipped
+    (reported)."""
     out = {}
+    fixes = profession_created_fixes()
     for ver in ("CLASSIC", "BCC"):
         t = version_table(S.P_PROFESSION, "PROFESSION_DATA", ver)
         for sp, v in t.hash.items():
             a = v.array
+            if ver == "BCC" and sp in fixes:
+                a = [fixes[sp]] + list(a[1:])
             if len(a) < 7 or not isinstance(a[5], LuaTable) or not isinstance(a[6], LuaTable):
                 ctx.skip("craft without a reagent list (Profession.lua)", f"{ver} {sp}")
                 continue

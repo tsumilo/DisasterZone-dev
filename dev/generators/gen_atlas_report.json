@@ -190,14 +190,14 @@
  },
  "recipes": 394,
  "name_sources": {
-  "Questie TBC item DB": 4889,
-  "spell: crafting row comment": 74,
+  "Questie TBC item DB": 4892,
+  "spell: crafting row comment": 71,
   "AtlasLoot row comment": 62
  },
  "ids_without_names": [],
  "crafts": 2383,
  "reagent_name_sources": {
-  "Questie TBC item DB": 513
+  "Questie TBC item DB": 510
  },
  "craft_for": {
   "3577": 3308,
@@ -215,23 +215,23 @@
  },
  "conversions": 21,
  "output": "C:\\Users\\emilo\\CDLoot-dev\\addon\\DisasterZone\\Data\\Atlas.lua",
- "bytes": 620880,
+ "bytes": 620801,
  "validation_errors": [],
  "validation_counts": {
   "pages": 527,
   "entries": 3856,
-  "items": 3782,
-  "spells": 74,
+  "items": 3785,
+  "spells": 71,
   "xt": 80,
   "set_pages": 166,
-  "names": 5543,
+  "names": 5540,
   "tree_unique_ids": 3471,
   "recipes": 394,
   "crafts": 2383,
   "conversions": 21
  },
  "addon_data_ids": 3748,
- "atlas_names": 5543,
+ "atlas_names": 5540,
  "counts": {
   "crafting": {
    "Alchemy": {
@@ -1576,8 +1576,8 @@
    }
   ],
   "file": {
-   "bytes": 620880,
-   "atlas_names": 5543
+   "bytes": 620801,
+   "atlas_names": 5540
   }
  }
 }
