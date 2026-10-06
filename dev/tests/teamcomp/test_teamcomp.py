@@ -3,11 +3,13 @@
 Covers: a team's comp (cp on the team record) saved, read and cleared, only by the Guild Master and the guild council
 (a member's write refused, a member's own record hidden); the comp reaching every client and a late login; an older
 client's copy without the comp at the same rev never replacing it (and a client holding such a copy taking the full
-one), digests agreeing after; the bundled presets (Standard 25, Kara 10) as agreed; "the team as it is" (seated
-first, by name, capped at the size) and copying another team's comp ("Start from" choices, for a draft too); matching
-members to slots by spec only (seated first, then by name; bench by column, unknown spec last; Destruction does not
-fill Affliction, Cat does not fill Bear) the same whatever the input order; the can-fill lists in the agreed order
-(bench, alts, the rest of the guild, other teams), with players of the class in another spec in the first two only,
+one), digests agreeing after; the bundled presets (Standard 25, Kara 10) as agreed; "the team as it is" (the players
+in its groups, by name, capped at the size) and copying another lineup's comp ("Start from" choices, for a draft too);
+matching members to slots by spec only (1.3.2: only players in a group; seated first, then by name; bench = in a
+group beyond the comp, unassigned = in no group, by column, unknown spec last; Destruction does not fill Affliction,
+Cat does not fill Bear) the same whatever the input order; the can-fill lists in the agreed order (unassigned,
+waitlist, in a group beyond the comp, alts, the rest of the guild, other teams), the class in another spec in the
+team's own lists only,
 each player once, sorted spec / online / name, and the spec index rebuilt after a change; a raid's open slots
 (Accepted and Tentative fill, guests too, Bench and Absent don't, a member who hasn't answered leaves the slot open,
 the first team with a comp of the raid's size, none for a cancelled raid) and who could fill them; the raid-buff
@@ -130,7 +132,7 @@ def inject_signups(cl, occ, entries):
 
 def same_rev_copy_without_comp(cl, tid):
     return cl.eval_py("local id = ...; local t = %s.T[id]; local copy = {}; for k, v in pairs(t) do copy[k] = v end; "
-                      "copy.cp = nil; return copy" % ROOT, tid)
+                      "copy.cp, copy.L = nil, nil; return copy" % ROOT, tid)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -201,14 +203,16 @@ def the_council_saves_reads_and_clears_a_comp():
 def an_older_clients_copy_without_the_comp_never_wins():
     w, c = world()
     bob, lee, rita, sam = c["Bob"], c["Lee"], c["Rita"], c["Sam"]
-    # a version whose copy without cp has the larger hash: the plain same-rev rule (larger hash wins) would take it.
-    # (The hash is Adler-32: the comp's own counts move it most, so they are what is varied.)
+    # a version whose copy without cp (and the lineups, L: a client before 1.3.1 drops both) has the larger hash: the
+    # plain same-rev rule (larger hash wins) would take it. (The hash is Adler-32; the comp and the name are varied:
+    # the comp sits in both cp and L, which the copy drops.)
     tid, h, cp0 = None, None, None
-    for i in range(80):
-        cp0 = {"MAGE": [1 + i % 9, i // 9 % 9], "PRIEST": [0, 1 + i // 81]}
-        tid = team(bob, "Main", ["Lee", "Rita"], tid, comp=cp0)
+    for i in range(160):
+        cp0 = {"MAGE": [1 + i % 9, i // 9 % 9], "PRIEST": [0, 1]}
+        tid = team(bob, "Main" + "abcdefghijklmnop"[:i % 17], ["Lee", "Rita"], tid, comp=cp0)
         h = bob.eval_py("local id = ...; local t = %s.T[id]; local copy = {}; for k, v in pairs(t) do copy[k] = v end; "
-                        "copy.cp = nil; return { full = ns.Util.Hash(t), without = ns.Util.Hash(copy) }" % ROOT, tid)
+                        "copy.cp, copy.L = nil, nil; return { full = ns.Util.Hash(t), without = ns.Util.Hash(copy) }"
+                        % ROOT, tid)
         if h["without"] > h["full"]:
             break
     assert h["without"] > h["full"], h
@@ -225,7 +229,7 @@ def an_older_clients_copy_without_the_comp_never_wins():
     assert comp_of(lee, tid) == cp0
     # Sam got that copy first (from an older client while the full one hadn't reached him): the full one replaces it
     sam.eval("local id = ...; local r = %s; local copy = {}; for k, v in pairs(r.T[id]) do copy[k] = v end; "
-             "copy.cp = nil; r.T[id] = copy" % ROOT, tid)
+             "copy.cp, copy.L = nil, nil; r.T[id] = copy" % ROOT, tid)
     assert comp_of(sam, tid) is None and get_team(sam, tid) is not None
     bob.eval("local id, to = ...; ns.Comm:Send({ t = 'RPG', T = %s.T[id] }, 'WHISPER', to, 'data')" % ROOT, tid, K("Sam"))
     w.tick(2)
@@ -294,28 +298,34 @@ def start_from_the_team_as_it_is_or_another_teams_comp():
     specs = {"Lee": 3, "Gina": 1, "Rita": 2, "Sam": 2, "Bob": 2, "Ash": 3, "Brie": 4, "Cole": 2, "Dane": 2, "Eve": 2,
              "Gus": 2, "Hoff": 1}                                 # Finn: no spec known
     members = list(specs) + ["Finn"]
-    ka = team(bob, "Kara A", members, size=10, specs=specs, groups={"Gus": 1, "Hoff": 2})
+    # in the groups: everyone but Rita (group 3: beyond a 10's two groups), Sam and Finn (unassigned)
+    groups = {n: 1 + i % 2 for i, n in enumerate(n for n in specs if n not in ("Rita", "Sam"))}
+    groups["Rita"] = 3
+    ka = team(bob, "Kara A", members, size=10, specs=specs, groups=groups)
     kb = team(bob, "Kara B", ["Sam"], size=10, comp={"MAGE": [0, 1]})
     main = team(bob, "Main", ["Lee"], comp=STD25)
     w.tick(2)
-    # 12 members with a spec, 10 slots: the seated ones first, then by name (Rita and Sam left out)
+    # the team as it is: a slot for each spec in the groups (the unassigned left out)
     own = {"ROGUE": [0, 1], "PRIEST": [1], "WARLOCK": [0, 0, 1], "MAGE": [0, 1], "DRUID": [0, 0, 0, 1],
            "SHAMAN": [0, 1], "HUNTER": [0, 1], "PALADIN": [1, 1], "WARRIOR": [0, 0, 1]}
     assert rp(rita, "CompFromTeam", ka) == own
     starts = rp(rita, "GetCompStarts", ka)
     assert [(s["key"], s["kind"], s["name"], s["size"]) for s in starts] == [
         ("kara10", "preset", "Kara 10", 10), ("team", "team", "The team as it is", 10),
-        ("copy:" + kb, "copy", "Kara B", 10)], starts
+        ("copy:" + kb + ":1", "copy", "Kara B", 10)], starts
     assert starts[0]["cp"] == KARA10 and starts[1]["cp"] == own and starts[2]["cp"] == {"MAGE": [0, 1]}
-    assert starts[2]["teamId"] == kb
-    # the Teams page's draft (a set of members, s, sz): a new team gets the same choices
-    draft = {"members": {K("Lee"): True, K("Finn"): True}, "s": {K("Lee"): 3}, "sz": 10}
+    assert starts[2]["teamId"] == kb and starts[2]["ln"] == "1"
+    # the Teams page's draft (a set of members, s, grp, sz): a new team gets the same choices
+    draft = {"members": {K("Lee"): True, K("Finn"): True}, "s": {K("Lee"): 3}, "grp": {K("Lee"): 1}, "sz": 10}
     starts = rp(rita, "GetCompStarts", draft)
-    assert [s["key"] for s in starts] == ["kara10", "team", "copy:" + kb]
+    assert [s["key"] for s in starts] == ["kara10", "team", "copy:" + kb + ":1"]
     assert starts[1]["cp"] == {"WARRIOR": [0, 0, 1]}
+    # nobody in the groups: no "as it is"
+    draft["grp"] = {}
+    assert [s["key"] for s in rp(rita, "GetCompStarts", draft)] == ["kara10", "copy:" + kb + ":1"]
     # a 25: its preset and the 25s' comps; nobody's spec known, so no "as it is"
-    assert [s["key"] for s in rp(rita, "GetCompStarts", {"members": {K("Finn"): True}, "sz": 25})] == \
-        ["std25", "copy:" + main]
+    assert [s["key"] for s in rp(rita, "GetCompStarts", {"members": {K("Finn"): True}, "grp": {K("Finn"): 1},
+                                                          "sz": 25})] == ["std25", "copy:" + main + ":1"]
     # copying another team's comp is a copy: changing that team's comp later changes nothing here
     assert team(bob, "Kara A", members, ka, comp=starts[2]["cp"]) == ka
     assert call(bob, "SetTeamComp", kb, {"MAGE": [0, 2]})["ok"] is True
@@ -353,22 +363,32 @@ def members_fill_their_own_spec_seated_first_and_the_rest_is_bench():
     assert rc(sam, "MatchComp", cp, list(reversed(members))) == m
     opens, n = rita.eval_py("local o, n = ns.RaidComp:OpenSlots(...); return o, n", cp, members)
     assert n == 2 and opens == m["open"]
-    # a saved team: classes from the roster, specs from the team; its draft gives the same
+    # a saved team: classes from the roster, specs from the team; only who is in a group fills a slot (Pally and Ned
+    # are unassigned: they never count); its draft gives the same
     specs = {"Lee": 3, "Pally": 1, "Zed": 1, "Gina": 1, "Hex": 3, "Fern": 2}
-    tid = team(bob, "Main", ["Lee", "Pally", "Zed", "Gina", "Hex", "Fern", "Ned"], specs=specs, groups={"Zed": 1},
+    groups = {"Lee": 1, "Zed": 1, "Gina": 2, "Hex": 2, "Fern": 2}
+    tid = team(bob, "Main", ["Lee", "Pally", "Zed", "Gina", "Hex", "Fern", "Ned"], specs=specs, groups=groups,
                comp={"WARRIOR": [0, 0, 1], "PALADIN": [2], "WARLOCK": [1], "DRUID": [0, 0, 1]})
     w.tick(2)
     m = rp(rita, "MatchTeam", tid)
     assert [(s["name"], s.get("key")) for s in m["slots"]] == [
-        ("Protection Warrior", K("Lee")), ("Feral Druid (Bear)", None), ("Holy Paladin", K("Zed")),
-        ("Holy Paladin", K("Gina")), ("Affliction Warlock", None)], m["slots"]
-    assert keys(m["bench"]) == [K("Pally"), K("Fern"), K("Hex"), K("Ned")]
-    assert m["bench"][0]["source"] == "team" and m["bench"][3].get("sp") is None
+        ("Protection Warrior", K("Lee")), ("Feral Druid (Bear)", None), ("Holy Paladin", K("Gina")),
+        ("Holy Paladin", K("Zed")), ("Affliction Warlock", None)], m["slots"]
+    assert keys(m["bench"]) == [K("Fern"), K("Hex")]              # in a group, beyond the comp
+    assert keys(m["unassigned"]) == [K("Pally"), K("Ned")]
+    assert m["unassigned"][0]["source"] == "team" and m["unassigned"][1].get("sp") is None
+    assert m["waitlist"] == []
     draft = {"id": tid, "members": {K(n): True for n in specs}, "s": {K(n): sp for n, sp in specs.items()},
-             "grp": {K("Zed"): 1}, "cp": {"WARRIOR": [0, 0, 1], "PALADIN": [2], "WARLOCK": [1], "DRUID": [0, 0, 1]}}
+             "grp": {K(n): g for n, g in groups.items()},
+             "cp": {"WARRIOR": [0, 0, 1], "PALADIN": [2], "WARLOCK": [1], "DRUID": [0, 0, 1]}}
     md = rp(rita, "MatchTeam", draft)
     assert [s.get("key") for s in md["slots"]] == [s.get("key") for s in m["slots"]]
-    assert keys(md["bench"]) == [K("Pally"), K("Fern"), K("Hex")]   # Ned is not in the draft
+    assert keys(md["bench"]) == [K("Fern"), K("Hex")] and keys(md["unassigned"]) == [K("Pally")]   # Ned isn't in it
+    # Pally into a group: three Holy Paladins in the groups for two slots, by name (Zed beyond the comp)
+    draft["grp"][K("Pally")] = 1
+    md = rp(rita, "MatchTeam", draft)
+    assert [s.get("key") for s in md["columns"]["healer"]] == [K("Gina"), K("Pally")]
+    assert keys(md["bench"]) == [K("Zed"), K("Fern"), K("Hex")] and md["unassigned"] == []
     opens = rita.eval_py("local o, n = ns.RaidPlan:GetTeamOpenSlots(...); return { o = o, n = n }", tid)
     assert opens["n"] == 2 and [o["name"] for o in opens["o"]] == ["Feral Druid (Bear)", "Affliction Warlock"]
     # without a comp: no match, nothing open
@@ -380,7 +400,7 @@ def members_fill_their_own_spec_seated_first_and_the_rest_is_bench():
 
 
 @case
-def can_fill_lists_bench_alts_guild_and_other_teams_in_order():
+def can_fill_lists_the_team_alts_guild_and_other_teams_in_order():
     names_ = NAMES + (("Hal", 3, "HUNTER"), ("Hunt", 3, "HUNTER"), ("Vic", 3, "HUNTER"))
     off = (("Bram", "HUNTER", 70), ("Quiver", "HUNTER", 70), ("Kenji", "HUNTER", 70), ("Orin", "HUNTER", 70),
            ("Tarrok", "HUNTER", 70), ("Lunaris", "HUNTER", 70), ("Sylwen", "HUNTER", 60), ("Banned", "HUNTER", 70),
@@ -394,6 +414,7 @@ def can_fill_lists_bench_alts_guild_and_other_teams_in_order():
     assert signup(c["Vic"], occ, "A", 1)["ok"] is True            # Beast Mastery
     main = team(bob, "Main", ["Lee", "Sam", "Rita", "Hal", "Bram", "Quiver"],
                 specs={"Lee": 3, "Sam": 2, "Rita": 2, "Hal": 1, "Bram": 1},
+                groups={"Lee": 1, "Sam": 1, "Rita": 1, "Quiver": 1},       # Hal and Bram: unassigned
                 comp={"WARRIOR": [0, 0, 1], "ROGUE": [0, 1], "PRIEST": [0, 1], "HUNTER": [0, 0, 1], "PALADIN": [1]})
     kb = team(bob, "Kara B", ["Kenji", "Orin", "Hunt", "Aegis"], size=10,
               specs={"Kenji": 3, "Orin": 2, "Hunt": 3, "Aegis": 1})
@@ -405,23 +426,27 @@ def can_fill_lists_bench_alts_guild_and_other_teams_in_order():
     inject_signups(gina, "zz1", {"Tarrok": ("A", "HUNTER", 3), "Lunaris": ("T", "HUNTER", 3),
                                  "Sylwen": ("A", "HUNTER", 3), "Banned": ("A", "HUNTER", 3), "Orin": ("A", "HUNTER", 3)})
     f = rp(gina, "CanFill", main, "HUNTER", 3)
-    assert [(e["key"], e["other"], e["online"], e.get("sp")) for e in f["bench"]] == [
-        (K("Hal"), True, True, 1), (K("Bram"), True, False, 1), (K("Quiver"), True, False, None)], f["bench"]
+    assert [(e["key"], e["other"], e["online"], e.get("sp")) for e in f["unassigned"]] == [
+        (K("Hal"), True, True, 1), (K("Bram"), True, False, 1)], f["unassigned"]
+    # in a group beyond the comp (no spec known): could switch
+    assert [(e["key"], e["other"], e.get("sp")) for e in f["extra"]] == [(K("Quiver"), True, None)], f["extra"]
+    assert f["waitlist"] == []
     assert [(e["key"], e["other"], e["of"], e.get("sp")) for e in f["alts"]] == [
         (K("Hunt"), False, K("Lee"), 3), (K("Vic"), True, K("Sam"), 1)], f["alts"]
     # level 60, blacklisted, on a team (Orin plays Marksmanship there): left out
     assert [(e["key"], e["other"]) for e in f["guild"]] == [(K("Lunaris"), False), (K("Tarrok"), False)], f["guild"]
     assert [(e["key"], e["team"], e["teamId"], e["other"]) for e in f["teams"]] == [(K("Kenji"), "Kara B", kb, False)]
-    listed = [e["key"] for g in ("bench", "alts", "guild", "teams") for e in f[g]]
+    listed = [e["key"] for g in ("unassigned", "waitlist", "extra", "alts", "guild", "teams") for e in f[g]]
     assert len(listed) == len(set(listed))                       # Hunt (alt and on Kara B) shows once
     # the same lists on another client (Bob reads the same data; online may differ, the order may not)
     inject_signups(bob, "zz1", {"Tarrok": ("A", "HUNTER", 3), "Lunaris": ("T", "HUNTER", 3),
                                 "Sylwen": ("A", "HUNTER", 3), "Banned": ("A", "HUNTER", 3), "Orin": ("A", "HUNTER", 3)})
     fb = rp(bob, "CanFill", main, "HUNTER", 3)
     assert {g: keys(fb[g]) for g in fb} == {g: keys(f[g]) for g in f}
-    # the Holy Paladin slot: Gina by her BiS list (on no team), Aegis by Kara B; no bench / alt of that class
+    # the Holy Paladin slot: Gina by her BiS list (on no team), Aegis by Kara B; nobody of that class on the team
     f = rp(gina, "CanFill", main, "PALADIN", 1)
-    assert f["bench"] == [] and f["alts"] == [] and keys(f["guild"]) == [K("Gina")] and keys(f["teams"]) == [K("Aegis")]
+    assert f["unassigned"] == [] and f["extra"] == [] and f["alts"] == []
+    assert keys(f["guild"]) == [K("Gina")] and keys(f["teams"]) == [K("Aegis")]
     assert f["guild"][0]["online"] is True
     idx = rp(gina, "GetSpecIndex")
     assert idx["byKey"][K("Gina")] == {"c": "PALADIN", "sp": 1, "src": "bis"}
@@ -430,15 +455,16 @@ def can_fill_lists_bench_alts_guild_and_other_teams_in_order():
     inject_signups(gina, "zz1", {"Newbie": ("A", "HUNTER", 3)})
     f = rp(gina, "CanFill", main, "HUNTER", 3)
     assert keys(f["guild"]) == [K("Lunaris"), K("Newbie"), K("Tarrok")], f["guild"]
-    # Quiver's answer as Survival: he takes the open slot, and the bench keeps the two Beast Masteries
+    # Quiver's answer as Survival: he takes the open slot; the two Beast Masteries stay unassigned
     inject_signups(gina, "zz1", {"Quiver": ("A", "HUNTER", 3)})
     assert rp(gina, "GetTeamOpenSlots", main) == [{"c": "PALADIN", "sp": 1, "role": "healer", "name": "Holy Paladin",
                                                     "n": 1}]
     f = rp(gina, "CanFill", main, "HUNTER", 3)
-    assert keys(f["bench"]) == [K("Hal"), K("Bram")]
+    assert keys(f["unassigned"]) == [K("Hal"), K("Bram")] and f["extra"] == []
     # bad specs, unknown teams: nothing
     for args in ((main, "BARD", 1), (main, "PALADIN", 4), (main, "PALADIN", 0), ("nope", "HUNTER", 3)):
-        assert rp(gina, "CanFill", *args) == {"bench": [], "alts": [], "guild": [], "teams": []}, args
+        assert rp(gina, "CanFill", *args) == {"unassigned": [], "waitlist": [], "extra": [], "alts": [], "guild": [],
+                                              "teams": []}, args
     w.assert_no_errors()
 
 
@@ -516,6 +542,7 @@ def the_buff_strip_has_three_states():
     w, c = world(offline=(("Pally", "PALADIN", 70), ("Brie", "DRUID", 70)))
     bob, rita = c["Bob"], c["Rita"]
     tid = team(bob, "Main", ["Gina", "Pally", "Lee", "Brie", "Sam"], specs={"Gina": 1, "Pally": 1, "Lee": 3, "Brie": 4},
+               groups={"Gina": 1, "Pally": 1, "Lee": 1, "Brie": 1, "Sam": 1},
                comp={"PALADIN": [2], "HUNTER": [0, 0, 1], "DRUID": [0, 0, 0, 1], "PRIEST": [0, 0, 1],
                      "WARRIOR": [0, 0, 1]})
     w.tick(2)
@@ -529,7 +556,7 @@ def the_buff_strip_has_three_states():
             "exposeweakness": "planned", "coe": "off", "misery": "planned", "impscorch": "off", "jow": "have"}
     assert {k: b["state"] for k, b in by.items()} == want
     assert by["blessings"]["providers"] == [K("Gina"), K("Pally")] and by["blessings"]["count"] == 2
-    assert by["motw"]["providers"] == [K("Brie")]                 # Sam (a rogue, bench) brings nothing here
+    assert by["motw"]["providers"] == [K("Brie")]                 # Sam (a rogue, beyond the comp) brings nothing
     assert names(by["exposeweakness"]["slots"]) == ["Survival Hunter"]
     assert names(by["fortitude"]["slots"]) == ["Shadow Priest"] and by["fortitude"]["providers"] == []
     assert [(x["c"], x.get("sp"), x["name"]) for x in by["bloodfrenzy"]["bringers"]] == [("WARRIOR", 1, "Arms Warrior")]
@@ -552,7 +579,7 @@ def the_lf_line_names_the_open_specs_and_the_next_raid():
     w, c = world()
     bob, rita = c["Bob"], c["Rita"]
     comp = {"PALADIN": [2], "DRUID": [0, 0, 0, 1], "HUNTER": [0, 0, 1], "WARRIOR": [0, 0, 1]}
-    tid = team(bob, "Main", ["Gina", "Lee"], specs={"Gina": 1, "Lee": 3}, comp=comp)
+    tid = team(bob, "Main", ["Gina", "Lee"], specs={"Gina": 1, "Lee": 3}, groups={"Gina": 1, "Lee": 1}, comp=comp)
     w.tick(2)
     # no raid yet
     assert rp(rita, "GetLFMessage", tid) == "<Casual Disaster> LF Holy Paladin, Restoration Druid, Survival Hunter · /w me"
@@ -568,7 +595,8 @@ def the_lf_line_names_the_open_specs_and_the_next_raid():
     assert later and rp(rita, "GetLFMessage", tid) == \
         "<Casual Disaster> LF Holy Paladin, Restoration Druid, Survival Hunter · SSC Sun 20:00 · /w me"
     # two open of a spec; a draft works too (the team's id finds the raid)
-    draft = {"id": tid, "members": {K("Lee"): True}, "s": {K("Lee"): 3}, "cp": {"PALADIN": [2], "WARRIOR": [0, 0, 1]}}
+    draft = {"id": tid, "members": {K("Lee"): True}, "s": {K("Lee"): 3}, "grp": {K("Lee"): 1},
+             "cp": {"PALADIN": [2], "WARRIOR": [0, 0, 1]}}
     assert rp(rita, "GetLFMessage", draft) == "<Casual Disaster> LF Holy Paladin ×2 · SSC Sun 20:00 · /w me"
     # nothing open: no line
     draft["cp"] = {"WARRIOR": [0, 0, 1]}

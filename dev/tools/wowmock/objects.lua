@@ -372,6 +372,11 @@ local function set_parent(self, st, parent)
   if parent then
     local ps = OBJ[parent]
     ps.children[#ps.children + 1] = self
+    -- (the client: a frame takes its new parent's strata and a level above it, unless they are fixed)
+    if st.is_frame then
+      if not st.fixed_strata then st.strata = ps.strata end
+      if not st.fixed_level then st.level = (ps.level or 0) + 1 end
+    end
   end
   local now = is_visible(self)
   if was and not now then hide_tree(self) elseif now and not was then show_tree(self) end
@@ -679,8 +684,10 @@ local Frame = define("Frame", "Region", {
   GetFrameLevel = function(self) return S(self).level or 0 end,
   SetFrameStrata = function(self, s) S(self).strata = s end,
   GetFrameStrata = function(self) return S(self).strata or "MEDIUM" end,
-  SetFixedFrameStrata = function() end,
-  SetFixedFrameLevel = function() end,
+  SetFixedFrameStrata = function(self, v) S(self).fixed_strata = v and true or nil end,
+  SetFixedFrameLevel = function(self, v) S(self).fixed_level = v and true or nil end,
+  HasFixedFrameStrata = function(self) return S(self).fixed_strata or false end,
+  HasFixedFrameLevel = function(self) return S(self).fixed_level or false end,
   SetToplevel = function(self, v) S(self).toplevel = v end,
   IsToplevel = function(self) return S(self).toplevel or false end,
   Raise = function() end,

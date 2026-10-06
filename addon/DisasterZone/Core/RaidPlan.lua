@@ -940,6 +940,8 @@ local function MergeRecord(root, kind, rec, via)
     if p and not Newer(p.rec, rec) then pending[kind .. ":" .. rec.id] = nil end
     -- a deleted raid takes its sign-ups with it (a deletion its writer may not make doesn't)
     if Trusted(root, kind, rec) and kind == "E" and rec.del then root.U[rec.id] = nil end
+    -- (a deleted team its waitlists)
+    if Trusted(root, kind, rec) and kind == "T" and rec.del then root.W[rec.id] = nil end
     return true
 end
 
@@ -2117,8 +2119,28 @@ function RaidPlan:GetSignupOrder(occId)
     return out, #list
 end
 
--- The set of invited members { [key] = true } (the union of the raid's visible teams, plus its extra invites), or
--- nil when the raid names no team and no invite (open to everyone).
+-- The players a raid (a view or an id) invites through one of its teams (1.3.2, user decision 2026-10-06): the roster
+-- members in the groups of the team's lineup for the raid (GetRaidLineup); the whole roster when the team has no
+-- lineup of the raid's size, or that lineup has nobody in its groups yet. Unassigned players and the waitlist are not
+-- invited through a lineup. Returns { key, ... } (sorted) and the lineup (nil: the roster), or nil (unknown team).
+function RaidPlan:GetRaidTeamPlayers(occId, teamId)
+    local v = AsView(occId)
+    local t = v and self:GetTeam(teamId)
+    if not t then return nil end
+    local l = self:GetRaidLineup(v, teamId)
+    if not l then return t.members, nil end
+    local n = ns.RaidComp:GroupCount(v.sz)
+    local out = {}
+    for _, key in ipairs(t.members) do
+        local g = l.groups[key]
+        if type(g) == "number" and g >= 1 and g <= n then out[#out + 1] = key end
+    end
+    if #out == 0 then return t.members, nil end
+    return out, l
+end
+
+-- The set of invited members { [key] = true } (the players of the raid's visible teams, GetRaidTeamPlayers, plus its
+-- extra invites), or nil when the raid names no team and no invite (open to everyone).
 function RaidPlan:GetInvited(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return nil end
@@ -2126,10 +2148,7 @@ function RaidPlan:GetInvited(occId)
     if #tm == 0 and #inv == 0 then return nil end
     local set = {}
     for _, id in ipairs(tm) do
-        local t = self:GetTeam(id)
-        if t then
-            for _, key in ipairs(t.members) do set[key] = true end
-        end
+        for _, key in ipairs(self:GetRaidTeamPlayers(v, id) or {}) do set[key] = true end
     end
     for _, key in ipairs(inv) do set[key] = true end
     return set
@@ -2629,9 +2648,10 @@ function RaidPlan:GetRaidOpenSlots(occId)
              filled = m.filled, openCount = m.openCount, open = m.open, slots = slots, match = m }
 end
 
--- Who could fill an open slot of a raid (its tooltip): { unanswered = the comp team's members of that spec who
--- haven't answered, guild = level-70 guild members of that spec (spec index) outside that team who haven't answered
--- or answered Bench (st = "B") }. Blacklisted and declined players are left out. Each: online first, then by key.
+-- Who could fill an open slot of a raid (its tooltip): { unanswered = the players the comp team invites to it
+-- (GetRaidTeamPlayers: its lineup's) of that spec who haven't answered, guild = level-70 guild members of that spec
+-- (spec index) outside them who haven't answered or answered Bench (st = "B") }. Blacklisted and declined players are
+-- left out. Each: online first, then by key.
 function RaidPlan:RaidCanFill(occId, c, sp)
     local out = { unanswered = {}, guild = {} }
     local v = AsView(occId)
@@ -2645,7 +2665,7 @@ function RaidPlan:RaidCanFill(occId, c, sp)
         return b == "blacklist" or b == "declined"
     end
     local mine = {}
-    for _, key in ipairs(t.members) do
+    for _, key in ipairs(self:GetRaidTeamPlayers(v, t.id) or {}) do
         mine[key] = true
         if not InSet(signups, key) and not blocked(key) then
             local msp, mc = self:GetMemberSpec(key, t)
@@ -2792,6 +2812,7 @@ local function Commit(root, kind, rec)
     root[kind][clean.id] = clean
     Trusted(root, kind, clean)
     if kind == "E" and clean.del then root.U[clean.id] = nil end
+    if kind == "T" and clean.del then root.W[clean.id] = nil end
     Broadcast(kind, clean)
     Changed()
     return true
@@ -2903,6 +2924,132 @@ function RaidPlan:DeleteTeam(id)
     return Commit(root, "T", { id = id, rev = NextRev(cur), by = Util.PlayerKey(), del = true })
 end
 
+---------------------------------------------------------------------------
+-- Lineups and waitlists (1.3.2, user decisions 2026-10-06): a team has one roster and any number of lineups (10 or
+-- 25 players, each with its own groups, specs, target comp and waitlist). In a lineup, a roster member in none of its
+-- groups is unassigned; the waitlist holds players who are not on the roster, waiting for a spot, first in line
+-- first. Neither counts for the comp. Waitlisted players are not invited to the team's raids (they are not on its
+-- roster). Each guild member puts themselves on a waitlist and takes themselves off; the GM and the guild council
+-- take anyone off and move them up or down; saving a roster that takes someone in takes them off the team's
+-- waitlists. The entries are root.W[team id][lineup id][player] (Lineup.CleanWait), sent live on GUILD (RTW) and
+-- relayed with their team (RPG w; the team's digest item covers them).
+---------------------------------------------------------------------------
+
+-- Writes waitlist entries as me: items = { { ln, k, ... }, ... }; fields(current entry|nil, item) -> { at, o, sp, x }.
+-- Stored, then sent on GUILD (RTW). Returns how many were stored.
+function Lineup.Write(root, tid, items, fields)
+    local me, now = Util.PlayerKey(), Now()
+    local out = {}
+    for _, it in ipairs(items) do
+        local cur = root.W[tid] and root.W[tid][it.ln] and root.W[tid][it.ln][it.k]
+        local f = fields(cur, it) or {}
+        local e = Lineup.CleanWait({ rev = NextRev(cur), by = me, at = f.at, o = f.o, sp = f.sp, x = f.x }, now)
+        if e and Lineup.MergeWait(root, tid, it.ln, it.k, e) then
+            out[#out + 1] = { tm = tid, ln = it.ln, k = it.k, e = e }
+        end
+    end
+    for i = 1, #out, MAX_RPS_ENTRIES do
+        local chunk = {}
+        for j = i, min(#out, i + MAX_RPS_ENTRIES - 1) do chunk[#chunk + 1] = out[j] end
+        Send({ t = "RTW", l = chunk }, "GUILD", nil, "ctrl")
+    end
+    if #out > 0 then Changed() end
+    return #out
+end
+
+-- A lineup's waitlist (any ResolveTeam form; a draft leaves out whom it takes onto its roster), first in line first:
+-- { { key, c, sp, source = "waitlist" (the spec they picked) | GetMemberSpec's, at = when they joined, by, n = their
+-- place }, ... }. Roster members, blacklisted players, entries taken off and entries written by someone who may not
+-- (neither the player nor the GM / guild council) are left out.
+function RaidPlan:GetWaitlist(team)
+    local out = {}
+    local t = self:ResolveTeam(team)
+    local root = Root(false)
+    local list = t and t.id and t.ln and root and root.W[t.id] and root.W[t.id][t.ln]
+    if not list then return out end
+    local onRoster = {}
+    for _, key in ipairs(t.members) do onRoster[key] = true end
+    for key, e in pairs(list) do
+        if not e.x and not onRoster[key] and (e.by == key or CanTeams(e.by)) and not self:IsBlacklisted(key) then
+            local sp, c, source = self:GetMemberSpec(key)
+            if e.sp and IsInt(e.sp, 1, SpecCount(c)) then sp, source = e.sp, "waitlist" end
+            out[#out + 1] = { key = key, c = c, sp = sp, source = source, at = e.at, by = e.by, ord = e.o or e.at }
+        end
+    end
+    tsort(out, function(a, b)
+        if a.ord ~= b.ord then return a.ord < b.ord end
+        return a.key < b.key
+    end)
+    for i, m in ipairs(out) do m.n = i end
+    return out
+end
+
+-- Puts me on a lineup's waitlist (ln nil: the team's first lineup): any guild member not on the team's roster, as
+-- the spec I'd play (a spec index of my class; nil: as my sign-ups / BiS list say). Joining again changes only the
+-- spec and keeps my place. Returns ok, err.
+function RaidPlan:JoinWaitlist(teamId, ln, sp)
+    local root = Root(true)
+    local t = root and self:GetTeam(teamId)
+    local l = t and self:FindLineup(t, ln)
+    if not l then return false, "unknown lineup" end
+    local me = Util.PlayerKey()
+    for _, key in ipairs(t.members) do
+        if key == me then return false, "You're on this team's roster already." end
+    end
+    if self:IsBlacklisted(me) then return false, "You're on the guild's raid blacklist." end
+    if sp ~= nil and not IsInt(sp, 1, SpecCount(MyClass())) then return false, "unknown spec" end
+    local cur = root.W[teamId] and root.W[teamId][l.id] and root.W[teamId][l.id][me]
+    local on = cur ~= nil and not cur.x
+    if not on and #self:GetWaitlist({ id = teamId, ln = l.id }) >= Lineup.MAX_WAIT then
+        return false, ("This waitlist is full (%d players)."):format(Lineup.MAX_WAIT)
+    end
+    local n = Lineup.Write(root, teamId, { { ln = l.id, k = me } }, function(c)
+        if on then return { at = c.at, o = c.o, sp = sp } end
+        return { at = Now(), sp = sp }
+    end)
+    if n == 0 then return false, "Could not join the waitlist." end
+    return true
+end
+
+-- Takes a player off a lineup's waitlist (ln nil: the first lineup): myself, or (the GM and the guild council)
+-- anyone. Returns ok, err.
+function RaidPlan:LeaveWaitlist(teamId, ln, key)
+    local root = Root(true)
+    local me = Util.PlayerKey()
+    key = key and WireKey(key) or me
+    if key ~= me and not CanTeams(me) then return false, REFUSED.teams end
+    if ln == nil then
+        local l = self:FindLineup(teamId)
+        ln = l and l.id
+    end
+    local cur = root and IsId(teamId) and type(ln) == "string" and root.W[teamId] and root.W[teamId][ln]
+        and root.W[teamId][ln][key]
+    if not cur or cur.x then return false, "not on the waitlist" end
+    Lineup.Write(root, teamId, { { ln = ln, k = key } }, function() return { x = true } end)
+    return true
+end
+
+-- Moves a player one place up (delta < 0) or down (delta > 0) on a lineup's waitlist: the GM and the guild council.
+-- They and the player they pass swap places. Returns ok, err.
+function RaidPlan:MoveWaitlist(teamId, ln, key, delta)
+    if not CanTeams(Util.PlayerKey()) then return false, REFUSED.teams end
+    local root = Root(true)
+    local list = root and self:GetWaitlist({ id = teamId, ln = ln }) or {}
+    local i
+    for j, m in ipairs(list) do
+        if m.key == key then i = j end
+    end
+    local step = (tonumber(delta) or 0) < 0 and -1 or 1
+    local a, b = i and list[i], i and list[i + step]
+    if not (a and b) then return false, "can't move there" end
+    local oa, ob = b.ord, a.ord
+    if oa == ob then oa = oa + step end
+    Lineup.Write(root, teamId, { { ln = ln, k = a.key, o = oa }, { ln = ln, k = b.key, o = ob } }, function(c, it)
+        return { at = c and c.at, sp = c and c.sp, o = it.o }
+    end)
+    return true
+end
+
 -- Copies the raid fields of `f` (UI input) onto rec; `partial` keeps missing ones. Returns ok, err.
 local function ApplyFields(rec, f, partial)
     if f.i ~= nil or not partial then
@@ -2922,6 +3069,12 @@ local function ApplyFields(rec, f, partial)
         local tm = CleanTeamIds(f.tm)
         if tm == false then return false, "invalid team list" end
         rec.tm = tm
+    end
+    -- the lineup of each team (1.3.2); an override keeps {} (that week uses the teams' first lineups)
+    if f.tl ~= nil then
+        local tl = Lineup.CleanChoice(f.tl)
+        if tl == false then return false, "invalid lineup choice" end
+        rec.tl = (next(tl) or rec.sid) and tl or nil
     end
     -- an override of a weekly raid keeps false / {} (that week differs from its series); other records drop them
     if f.lk ~= nil then
@@ -2982,6 +3135,7 @@ local function ApplyFields(rec, f, partial)
 end
 
 -- fields: { i = instance key, t = start (server time), sz = 10|25 (default: the instance's), tm = { teamId },
+-- tl = { [teamId] = lineup id } (1.3.2: the lineup of a team the raid uses; default its first of the raid's size),
 -- lk = bool (locked: only its teams and extra invites sign up), inv = { key } (extra invites), ml = minimum
 -- character level (nil / 0 / false: every level), ti = title, no = note, rl = the raid's leader (named by the GM and
 -- the raid leaders on the list only), weekly = bool }. Returns ok, occIdOrErr.
@@ -3492,6 +3646,27 @@ function RaidPlan:Prune(now)
         if (t and t < cutoff) or (not t and newest < now - TOMBSTONE_DAYS) or not next(u) then
             root.U[id] = nil
             changed = true
+        end
+    end
+    -- waitlists (1.3.2): of teams gone or deleted, of lineups the team doesn't have, entries taken off long ago
+    for tid, team in pairs(root.W) do
+        local t = root.T[tid]
+        if not t or t.del then
+            root.W[tid] = nil
+            changed = true
+        else
+            local has = {}
+            for _, l in ipairs(Lineup.Of(t)) do has[l.id] = true end
+            for ln, list in pairs(team) do
+                for key, e in pairs(list) do
+                    if not has[ln] or (e.x and e.rev < now - TOMBSTONE_DAYS) then
+                        list[key] = nil
+                        changed = true
+                    end
+                end
+                if not next(list) then team[ln] = nil end
+            end
+            if not next(team) then root.W[tid] = nil end
         end
     end
     -- trust marks of record versions that are gone

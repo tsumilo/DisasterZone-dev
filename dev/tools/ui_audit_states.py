@@ -890,6 +890,24 @@ def teams_seed(w, c):
     groups = {K(n): g for n, _, _, g in TEAMS_MAIN if g}
     res = k.eval_py(SAVE_TEAM, IDS["team"], "Main team (Thu + Sun nights)", main, 25, specs, groups)
     assert res["ok"] is True, res
+    # 1.3.2: its 25 named, a second lineup (Kara A, 10) of the same roster; three players on the 25's waitlist
+    res = k.eval_py("local id, g = ...; local t = ns.RaidPlan:GetTeam(id); local L = {}; for i, l in ipairs(t.lineups) do "
+                    "L[i] = { id = l.id, name = l.name, size = l.size, specs = l.specs, groups = l.groups, "
+                    "seats = l.seats, comp = l.comp } end; L[1].name = 'Thursday 25'; "
+                    "L[#L + 1] = { name = 'Kara A', size = 10, groups = g }; "
+                    "local ok, r = ns.RaidPlan:SaveTeam(id, t.name, t.members, { lineups = L }); return { ok = ok, r = r }",
+                    IDS["team"], {K("Victhar"): 1, K("Caelith"): 1, K("Moonwhisper"): 1, K("Shadowmelder"): 2,
+                                  K("Gina"): 2})
+    assert res["ok"] is True, res
+    w.tick(2)
+    res = c["Vaenyria"].eval_py("local ok, e = ns.RaidPlan:JoinWaitlist(..., '1', 2); return { ok = ok, e = e }",
+                                IDS["team"])
+    assert res["ok"] is True, res
+    w.tick(2)
+    # (two players without a client, as received earlier: on Gina's screen only)
+    c["Gina"].eval("local id, a, b = ...; local r = ns.db.raidplan[ns.Guild:GetGuildKey()]; local t = GetServerTime(); "
+                   "r.W[id]['1'][a] = { rev = t, by = a, at = t, sp = 3 }; r.W[id]['1'][b] = { rev = t, by = b, at = t }",
+                   IDS["team"], K("Dornak"), K("Elowen"))
     alt = [K(n) for n in ("Vaenyria", "Dornak", "Elowen", "Kaelyn", "Faelar", "Isolde", "Nyxa", "Brakka")]
     res = k.eval_py(SAVE_TEAM, None, "Alt team", alt, 25, {}, {})
     assert res["ok"] is True, res
@@ -1006,6 +1024,9 @@ STATES[_HOME:_HOME] = [
         "local r = ns.RaidPlanUI:GetCompSteps().rows[1]; r.minus:GetScript('OnClick')(r.minus, 'LeftButton')"))),
     ("Raids - Teams - comp empty", teams_view(view="comp")),
     ("Raids - Teams - comp (member)", teams_view("Lightbringer", comp=True, view="comp")),
+    # lineups and the waitlist (1.3.2): the second lineup open, the view of a player who isn't on the roster
+    ("Raids - Teams - lineup Kara A", teams_view(lua="ns.RaidPlanUI:SelectLineup(2)")),
+    ("Raids - Teams - waitlist (not on the roster)", teams_view("Vaenyria")),
     ("Raids - Upcoming - SSC sign-ups (comp)", teams_raid("signups")),
     ("Raids - Upcoming - SSC groups (comp)", teams_raid("groups")),
 ]

@@ -1,7 +1,8 @@
 """Raids > Teams, the makeover (dev/art/casc/teams_mockup sections 1-7), on the real addon.
 
-Covers: the team chips (only with two or more, my team opens first and has the gold dot), the team card (role counts,
+Covers: the team chips (only with two or more, my team opens first and has the gold dot), the team card (the roster,
 "You: Group n · spec" for members, who changed it, the raids that invite it with my answer / the team's acceptances),
+the lineup chips under it,
 the tool row (Undo / Save only while something changed, Auto-fill only with members), the unsaved-changes guard
 (another team, New team, another Raids view, the window closed: Save / Discard / Cancel), Cancel on a new team,
 the ... menu (Copy, Clear groups, Delete with what it changes for a locked raid), Add several (my party, a raid's
@@ -59,6 +60,13 @@ def chips(cl):
     return [tuple(r) for r in (rows.values() if isinstance(rows, dict) else rows)]
 
 
+def lineup_chips(cl):
+    """The lineup chips shown: [(name, chosen, mine)]."""
+    rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.lchips) do if c:IsShown() then out[#out + 1] = "
+                      "{ c.entry.name, c.kind == 'chosen', c.dot:IsShown() } end end; return out" % D) or []
+    return [tuple(r) for r in (rows.values() if isinstance(rows, dict) else rows)]
+
+
 def dirty_buttons(cl):
     return shown(cl, D + ".saveBtn"), shown(cl, D + ".revertBtn"), shown(cl, D + ".status")
 
@@ -81,7 +89,10 @@ def chips_card_and_my_team_first():
     open_teams(w, rita)
     assert rita.eval("return ns.RaidPlanUI:GetSelectedTeam()") == m
     assert chips(rita) == [("Main team", True, True), ("Alt team", False, False)], chips(rita)
-    assert text_of(rita, TV + ".card.title") == "Main team" and text_of(rita, TV + ".card.size") == "25-player"
+    assert text_of(rita, TV + ".card.title") == "Main team" and text_of(rita, TV + ".card.count") == "4 on the roster"
+    # its one lineup: a chip saying its size, chosen, my gold dot (I'm in its groups); no "+ Lineup" for members
+    assert lineup_chips(rita) == [("25-man", True, True)], lineup_chips(rita)
+    assert not shown(rita, D + ".ladd")
     assert text_of(rita, TV + ".card.you.fs") == "You: Group 5 · Holy"
     assert "changed by Bob" in text_of(rita, TV + ".card.changed")
     assert not shown(rita, D + ".tool") and not shown(rita, TV + ".nameBox") and not shown(rita, D + ".moreBtn")
@@ -96,14 +107,14 @@ def chips_card_and_my_team_first():
                        " for _, ch in ipairs(b.chips) do if ch.me:IsShown() then out[#out + 1] = ch.key end end end;"
                        " return out")
     assert list(lit.values() if isinstance(lit, dict) else lit) == [K("Rita")], lit
-    # an organizer: the field, the size toggle, the team's acceptances
+    # an organizer: the field, "+ Lineup", the team's acceptances
     open_teams(w, bob)
     bob.eval("ns.RaidPlanUI:SelectTeam(...)", m)
     w.tick(0.3)
-    assert shown(bob, TV + ".nameBox") and shown(bob, TV + ".size25") and shown(bob, D + ".moreBtn")
-    assert bob.eval("return %s.size25.kind" % TV) == "chosen"
+    assert shown(bob, TV + ".nameBox") and shown(bob, D + ".ladd") and shown(bob, D + ".moreBtn")
+    assert lineup_chips(bob) == [("25-man", True, False)], lineup_chips(bob)
     st = [strip_codes(bob.eval("return %s.card.right.rows[%d].status:GetText()" % (TV, i))) for i in (1, 2)]
-    assert st == ["2 of 4 accepted", "0 of 4 accepted"], st
+    assert st == ["2 of 2 accepted", "0 of 2 accepted"], st         # (the players in its groups: Rita, Lee)
     assert dirty_buttons(bob) == (False, False, False)              # nothing changed: no Undo / Save
     assert shown(bob, D + ".autoBtn")
     w.assert_no_errors()
@@ -250,6 +261,10 @@ def add_several_and_the_spec_from_the_role_icon():
     open_teams(w, bob)
     sd = TV + ".picker"
     bob.eval("%s:Open()" % sd)
+    # its list hangs on UIParent (drawn over the page) but keeps a strata above the window (HIGH): a new parent hands
+    # a frame its MEDIUM, and the list opened behind the window in game
+    assert bob.eval("return %s.panel:GetFrameStrata()" % sd) == "FULLSCREEN_DIALOG"
+    assert bob.eval("return %s.panel:IsShown()" % sd) is True
     items = bob.eval_py("local out = {}; for _, e in ipairs(%s:GetShown()) do out[#out + 1] = e.header or e.text end;"
                         " return out" % sd)
     items = list(items.values() if isinstance(items, dict) else items)

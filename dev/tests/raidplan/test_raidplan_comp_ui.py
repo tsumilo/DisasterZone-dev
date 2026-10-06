@@ -2,7 +2,8 @@
 
 Covers: the Groups | Comp tabs (organizers always, members once the team has a comp), the empty Comp card and Start
 from, the steppers (+ hidden at the team's size), Save / Undo of the comp with the team, a size change that the comp
-doesn't fit (offers the preset), the card's meter and Needs, the read-only Comp view (my row lit, the bench, no +),
+doesn't fit (offers the preset), the lineup row's meter and Needs (only players in a group count), the read-only Comp
+view (my row lit, no +),
 the strip's planned state, the open slots in a raid's Sign-ups (Add players with the spec ready) and the LF message.
 
 Run: luaenv\\Scripts\\python.exe tests\\raidplan\\test_raidplan_comp_ui.py [-k name]
@@ -77,7 +78,7 @@ def col_rows(cl, i):
 def organizers_draft_the_comp_and_save_it_with_the_team():
     w, c = world()
     bob = c["Bob"]
-    tid = save_team(bob, "Kara A", ["Lee", "Rita", "Sam", "Bob"])
+    tid = save_team(bob, "Kara A", ["Lee", "Rita", "Sam", "Bob"], groups={"Lee": 1, "Rita": 1, "Sam": 2, "Bob": 2})
     w.tick(1)
     open_teams(w, bob, tid, "comp")
     # tabs for organizers; no comp yet: the empty card with its starts, no tool row (nothing to save)
@@ -104,9 +105,9 @@ def organizers_draft_the_comp_and_save_it_with_the_team():
     assert bob.eval("return ns.RaidComp:GetCount(ns.RaidPlanUI:GetDraft().cp, 'DRUID', 4)") == 1
     assert text_of(bob, steps + ".foot") == "5 of 10 slots"
     assert col_rows(bob, 2) == [("Rita", False), ("Restoration Druid", True)], col_rows(bob, 2)
-    # the card follows the draft: a meter and Needs
-    assert shown(bob, TV + ".card.meter") and not shown(bob, TV + ".card.roles")
-    assert text_of(bob, TV + ".card.lN.btns[1].fs") == "Restoration Druid"
+    # the lineup row follows the draft: a meter and Needs
+    assert shown(bob, D + ".lmeter") and not shown(bob, D + ".lroles")
+    assert text_of(bob, D + ".lneeds.btns[1].fs") == "Restoration Druid"
     # Save: the comp goes with the team
     bob.click(bob.eval("return %s.saveBtn" % D))
     w.tick(1)
@@ -157,19 +158,19 @@ def members_see_the_meter_needs_and_a_read_only_comp():
     bob, rita = c["Bob"], c["Rita"]
     plain = save_team(bob, "Alt", ["Rita", "Lee"])
     tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, comp=preset(bob, "std25"),
-                    groups={"Rita": 1})
+                    groups={"Rita": 1, "Lee": 1})
     w.tick(2)
     open_teams(w, rita, tid)
-    # the card: a square per slot, Needs with the open specs (comp order); the tabs show
-    assert shown(rita, D + ".views") and shown(rita, TV + ".card.meter") and shown(rita, TV + ".card.lN")
-    n = rita.eval("local n = 0; for _, s in ipairs(%s.card.meter.sq) do if s.o:IsShown() then n = n + 1 end end; "
-                  "return n" % TV)
+    # the lineup row: a square per slot, Needs with the open specs (comp order); the tabs show
+    assert shown(rita, D + ".views") and shown(rita, D + ".lmeter") and shown(rita, D + ".lneeds")
+    n = rita.eval("local n = 0; for _, s in ipairs(%s.lmeter.sq) do if s.o:IsShown() then n = n + 1 end end; "
+                  "return n" % D)
     assert n == 25, n
-    needs = [text_of(rita, "%s.card.lN.btns[%d].fs" % (TV, i)) for i in (1, 2)]
+    needs = [text_of(rita, "%s.lneeds.btns[%d].fs" % (D, i)) for i in (1, 2)]
     assert needs == ["Protection Paladin", "Feral Druid (Bear)"], needs      # (Lee fills Protection Warrior)
     # hover: the slot, open, then who could fill it (nobody here plays Protection Paladin)
     install_helpers(rita)
-    btn = rita.eval("return %s.card.lN.btns[1]" % TV)
+    btn = rita.eval("return %s.lneeds.btns[1]" % D)
     rita.hover(btn)
     tip = [strip_codes(l).strip() for l, _ in tt_lines(rita)]
     rita.leave(btn)
@@ -195,17 +196,17 @@ def members_see_the_meter_needs_and_a_read_only_comp():
 def a_comp_saved_elsewhere_shows_at_once():
     w, c = world()
     bob, rita = c["Bob"], c["Rita"]
-    tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25)
+    tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, groups={"Lee": 1, "Rita": 1, "Sam": 2})
     w.tick(2)
     open_teams(w, rita, tid)
-    assert not shown(rita, D + ".views") and not shown(rita, TV + ".card.meter")
+    assert not shown(rita, D + ".views") and not shown(rita, D + ".lmeter")
     # the GM / council saves a comp: the member's view (nothing edited there) takes the new version
     res = bob.eval_py("local ok, r = ns.RaidPlan:SetTeamComp(..., ns.RaidComp:GetPreset('std25').cp); "
                       "return { ok = ok, r = r }", tid)
     assert res["ok"] is True, res
     w.tick(3)
-    assert shown(rita, D + ".views") and shown(rita, TV + ".card.meter")
-    assert text_of(rita, D + ".tabComp") == "Comp  4/25"
+    assert shown(rita, D + ".views") and shown(rita, D + ".lmeter")
+    assert text_of(rita, D + ".tabComp") == "Comp  3/25"                # (Bob is unassigned: he doesn't count)
     w.assert_no_errors()
 
 
@@ -234,7 +235,8 @@ def the_strip_shows_what_the_comp_plans():
 def a_raid_lists_the_open_slots_and_the_lf_message():
     w, c = world()
     bob, rita = c["Bob"], c["Rita"]
-    tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, comp=preset(bob, "std25"))
+    tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, comp=preset(bob, "std25"),
+                    groups={"Lee": 1, "Rita": 1, "Sam": 2, "Bob": 2})
     occ = create(bob, i="ssc", t=now(bob) + 2 * DAY, tm=[tid])
     w.tick(2)
     signup(rita, occ, "A", 2)

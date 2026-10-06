@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidGroups.lua", ...) then return end -- DisasterZone: UI/RaidGroups.lua
 -- The group grid (Addendum J §59-§60): a raid-wide buff strip, group boxes (2 for 10-man, 5 for 25-man) with the party
--- buffs each group has in its header, and a "Not in a group" pool. Members are chips (class circle, name, role icon;
+-- buffs each group has in its header, a "Not in a group" pool, and (opts.waitlist, the Teams page) a waitlist under it. Members are chips (class circle, name, role icon;
 -- the spec is in the tooltip). The boxes share the grid's width, three to a row. Organizers move them by dragging, or
 -- by clicking a chip and then a group (or another chip, to swap; or an empty slot, to take it); right-click opens the
 -- caller's menu. Each player keeps a seat (1-5) in their group, so the order is the organizer's. Used by the Teams
@@ -217,9 +217,9 @@ local function setChip(chip, m)
         chip.spec:Hide()
     end
     local rb = chip.roleBtn
-    rb:SetShown(editable and opts.onRoleClick ~= nil and m.c ~= nil)
+    rb:SetShown(editable and opts.onRoleClick ~= nil and m.c ~= nil and not m.noRole)
     rb.unknown:SetShown(role == nil)
-    chip.fs:SetText(UI():ColoredName(m.key, m.c))
+    chip.fs:SetText((m.prefix or "") .. UI():ColoredName(m.key, m.c))
     chip.fs:SetAlpha(m.dim and 0.55 or 1)
     chip.cls:SetAlpha(m.dim and 0.55 or 1)
     chip.picked:SetShown(chip.grid.picked == m.key)
@@ -311,8 +311,14 @@ Grid.__index = Grid
 --          isMe(key) -> bool (optional: my own chip is lit gold in a read-only grid),
 --          onRoleClick(key, button) (optional: editors click a chip's role icon, e.g. to pick the spec),
 --          poolEmpty() -> text (optional: the empty pool's line for editors),
+--          poolTip = { title, text } (optional: the pool's tooltip, on its empty space),
 --          buffStates(placed, members) -> the strip's entries (optional, RaidComp:BuffStates' shape: lit / planned /
---                   off; placed = the members in the shown groups) }
+--                   off; placed = the members in the shown groups),
+--          waitlist = (optional, row layout) a second pool under everything, in its own order: { label, tip = { title,
+--                   text }, getMembers() -> { member, ... } (shown in that order; prefix = text before the name,
+--                   noRole = no spec button), empty() -> text or nil (nil and nobody on it: hidden) }. Its players
+--                   are dragged (or picked) into a group or the pool like the others (onDrop); nothing is dropped
+--                   onto it. grid.wait is its frame (the caller may put a button in its header). }
 function GroupsUI:CreateGrid(parent, opts)
     local grid = setmetatable({ opts = opts, boxes = {}, picked = nil }, Grid)
     local f = CreateFrame("Frame", nil, parent)
@@ -446,6 +452,36 @@ function GroupsUI:CreateGrid(parent, opts)
         pool.list.frame:SetPoint("BOTTOMRIGHT", -2, 2)
         pool.list:SetEmptyText("")
     end
+    local function tipOn(frame, tip)
+        if not tip then return end
+        frame:SetScript("OnEnter", function(self)
+            if grid.dragging or grid.picked then return end
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(tip[1])
+            GameTooltip:AddLine(tip[2], 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        frame:SetScript("OnLeave", hideTooltip)
+    end
+    tipOn(pool, opts.poolTip)
+    -- (the Teams page) the waitlist: a pool of its own under everything, in its own order
+    if opts.waitlist and opts.layout == "row" then
+        local w = CreateFrame("Frame", nil, f)
+        grid.wait = w
+        flatPanel(w, 0.6)
+        w:EnableMouse(true)
+        w.label = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        w.label:SetTextColor(0.62, 0.62, 0.62)
+        w.label:SetPoint("TOPLEFT", 8, -7)
+        w.label:SetJustifyH("LEFT")
+        w.chips = {}
+        w.empty = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        w.empty:SetPoint("TOPLEFT", 8, -26)
+        w.empty:SetPoint("RIGHT", w, "RIGHT", -8, 0)
+        w.empty:SetJustifyH("LEFT")
+        tipOn(w, opts.waitlist.tip)
+        w:Hide()
+    end
     return grid
 end
 
@@ -473,7 +509,9 @@ function Grid:InitPoolRow(row, d)
     end
 end
 
+-- (m.later: after the others, e.g. the Teams page's players placed in another lineup)
 local function memberLess(a, b)
+    if (a.later and true or false) ~= (b.later and true or false) then return not a.later end
     local ra = Comp():RoleOf(a.c, a.sp) or "z"
     local rb = Comp():RoleOf(b.c, b.sp) or "z"
     local order = { tank = 1, healer = 2, melee = 3, ranged = 4, z = 5 }
@@ -483,10 +521,12 @@ end
 
 function Grid:Refresh()
     local members = self.opts.getMembers() or {}
+    local waiting = self.wait and self.opts.waitlist.getMembers() or {}
     if self.dragging then
-        local rest = {}
+        local rest, wrest = {}, {}
         for _, m in ipairs(members) do if m.key ~= self.dragging then rest[#rest + 1] = m end end
-        members = rest
+        for _, m in ipairs(waiting) do if m.key ~= self.dragging then wrest[#wrest + 1] = m end end
+        members, waiting = rest, wrest
     end
     local groups = self.opts.getGroups() or {}
     local seats = self.opts.getSeats and self.opts.getSeats() or {}
@@ -506,6 +546,7 @@ function Grid:Refresh()
     if self.picked then
         local found = false
         for _, m in ipairs(members) do if m.key == self.picked then found = true end end
+        for _, m in ipairs(waiting) do if m.key == self.picked then found = true end end
         if not found or not self.opts.isEditable() then self.picked = nil end
     end
 
@@ -595,7 +636,10 @@ function Grid:Refresh()
 
     tsort(pool, memberLess)
     self.pool.label:SetText((self.opts.poolLabel or "Not in a group") .. " (" .. #pool .. ")")
-    if row_ then return self:LayoutPoolRow(pool, n, bw, boxH) end
+    if row_ then
+        self:LayoutPoolRow(pool, n, bw, boxH)
+        return self:LayoutWaitRow(waiting)
+    end
     -- pool below the last row of boxes
     local rows = ceil(n / COLS)
     self.pool:ClearAllPoints()
@@ -616,6 +660,7 @@ function Grid:LayoutPoolRow(pool, n, bw, boxH)
     local beside = n < ROW_COLS
     local col0 = beside and n or 0
     local pc = ROW_COLS - col0
+    local boxesBottom = self.top + ceil(n / ROW_COLS) * (boxH + ROW_GAP) - ROW_GAP
     local top = self.top + (beside and 0 or (ceil(n / ROW_COLS) * (boxH + ROW_GAP)))
     local editable = self.opts.isEditable()
     local rows = max(1, ceil(#pool / pc))
@@ -647,7 +692,47 @@ function Grid:LayoutPoolRow(pool, n, bw, boxH)
     end
     p.empty:SetText(self.opts.poolEmpty and self.opts.poolEmpty() or "Drop a player here to take them out of the groups.")
     p.empty:SetShown(#pool == 0 and editable)
-    self.height = top + (show and h or 0)
+    self.height = max(boxesBottom, top + (show and h or 0))
+    self.frame:SetHeight(self.height)
+end
+
+-- The waitlist (opts.waitlist) under the groups and the pool, across the width, its players on the groups' columns
+-- in its order (row by row).
+function Grid:LayoutWaitRow(list)
+    local w = self.wait
+    if not w then return end
+    local wo = self.opts.waitlist
+    local empty = wo.empty and wo.empty() or nil
+    local show = #list > 0 or empty ~= nil
+    w:SetShown(show)
+    if not show then return end
+    local x = self.colX
+    local top = self.height + ROW_GAP
+    local h = 26 + (#list > 0 and (ceil(#list / ROW_COLS) * CHIP_H) or 14) + 8
+    w:ClearAllPoints()
+    w:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -top)
+    w:SetSize(x(ROW_COLS) - ROW_GAP, h)
+    w.label:SetText(wo.label .. " (" .. #list .. ")")
+    for i, m in ipairs(list) do
+        local chip = w.chips[i]
+        if not chip then
+            chip = createChip(w, self)
+            w.chips[i] = chip
+        end
+        local c, r = (i - 1) % ROW_COLS, floor((i - 1) / ROW_COLS)
+        chip:ClearAllPoints()
+        chip:SetPoint("TOPLEFT", w, "TOPLEFT", x(c) + 6, -26 - r * CHIP_H)
+        chip:SetSize(x(c + 1) - ROW_GAP - x(c) - 12, CHIP_H)
+        chip:Show()
+        setChip(chip, m)
+    end
+    for i = #list + 1, #w.chips do
+        w.chips[i]:Hide()
+        w.chips[i].member, w.chips[i].key = nil, nil
+    end
+    w.empty:SetText(empty or "")
+    w.empty:SetShown(#list == 0)
+    self.height = top + h
     self.frame:SetHeight(self.height)
 end
 
@@ -696,6 +781,9 @@ function Grid:OnChipClick(chip, button)
     if not self.opts.isEditable() then return end
     if self.picked == chip.key then
         self:Pick(nil)
+    elseif self.picked and self.wait and chip:GetParent() == self.wait then
+        -- (nothing is put onto the waitlist: a click there picks that player instead)
+        self:Pick(chip.key)
     elseif self.picked then
         self:Drop(self.picked, groupOfChip(chip), chip.key)
     else

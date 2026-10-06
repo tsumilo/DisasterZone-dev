@@ -82,7 +82,13 @@ local function teamNames(v, plain)
     local names = {}
     for _, id in ipairs(v.tm or {}) do
         local t = RP():GetTeam(id)
-        if t then names[#names + 1] = t.name end
+        if t then
+            -- (a team with more than one lineup of the raid's size: the one it uses)
+            local l = RP():GetRaidLineup(v, id)
+            local n = 0
+            for _, o in ipairs(t.lineups) do if o.size == v.sz then n = n + 1 end end
+            names[#names + 1] = t.name .. ((l and n > 1) and (" · " .. RP():LineupName(t, l)) or "")
+        end
     end
     local extra = #(v.inv or {})
     local locked = RP():IsLocked(v)
@@ -2451,6 +2457,7 @@ local TV = {                -- the Teams view's sizes and helpers (one local: th
     COL2_W = 358,
     NAME_MIN = 140, NAME_MAX = 250,
     MAX = 40,               -- members a team holds (RaidPlan's MAX_TEAM_MEMBERS)
+    MAX_LINEUPS = 10,       -- lineups a team holds (RaidPlan's Lineup.MAX)
     NEW_NAME = "New team",
     SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
               za = "ZA", swp = "Sunwell" },
@@ -2495,14 +2502,63 @@ function TV.myKey(members)
     return found
 end
 
--- Does the draft differ from team t (its name as typed, members, size, specs, groups, seats, comp)?
+-- Does the draft differ from team t (its name as typed, roster, and each lineup: id, name, size, specs, groups,
+-- seats, comp)?
 function TV.differs(dr, t)
     if not t then return true end
+    if dr == state.draft then TV.stash() end
     if t.name ~= ns.Util.Trim(teamsView.nameBox:GetText() or "") then return true end
     local set = {}
     for _, key in ipairs(t.members) do set[key] = true end
-    return not (TV.sameMap(dr.members, set) and dr.sz == t.size and TV.sameMap(dr.s, t.specs)
-        and TV.sameMap(dr.grp, t.groups) and TV.sameMap(dr.gs, t.seats) and ns.RaidComp:SameComp(dr.cp, t.comp))
+    if not TV.sameMap(dr.members, set) or #dr.lineups ~= #t.lineups then return true end
+    for i, l in ipairs(dr.lineups) do
+        local o = t.lineups[i]
+        if l.id ~= o.id or l.name ~= o.name or l.sz ~= o.size or not TV.sameMap(l.s, o.specs)
+            or not TV.sameMap(l.grp, o.groups) or not TV.sameMap(l.gs, o.seats)
+            or not ns.RaidComp:SameComp(l.cp, o.comp) then
+            return true
+        end
+    end
+    return false
+end
+
+-- The draft's open lineup is worked on in dr.sz / s / grp / gs / cp (what the grid, the comp and the older helpers
+-- read and replace): stash puts them back into dr.lineups[dr.li], useLineup(i) opens lineup i.
+function TV.stash()
+    local dr = state.draft
+    local l = dr and dr.lineups and dr.lineups[dr.li]
+    if l then l.sz, l.s, l.grp, l.gs, l.cp = dr.sz, dr.s, dr.grp, dr.gs, dr.cp end
+end
+
+function TV.useLineup(i, fresh)
+    local dr = state.draft
+    if not fresh then TV.stash() end
+    i = (dr.lineups[i] and i) or 1
+    local l = dr.lineups[i]
+    dr.li = i
+    dr.sz, dr.s, dr.grp, dr.gs, dr.cp, dr.ln = l.sz, l.s, l.grp, l.gs, l.cp, l.id
+    state.ln = l.id
+end
+
+-- A lineup's name as shown: its own, else "25-man" ("25-man 2" for the second unnamed 25).
+function TV.lineupName(dr, i)
+    local l = dr.lineups[i]
+    if not l then return "" end
+    if l.name then return l.name end
+    local n = 0
+    for j = 1, i do
+        local o = dr.lineups[j]
+        if not o.name and o.sz == l.sz then n = n + 1 end
+    end
+    return l.sz .. "-man" .. (n > 1 and (" " .. n) or "")
+end
+
+-- The draft's open lineup in the shape RaidPlan reads (ResolveTeam's draft form).
+function TV.ref(dr)
+    dr = dr or state.draft
+    if not dr then return nil end
+    return { id = dr.id, ln = dr.ln, lineupName = TV.lineupName(dr, dr.li), members = dr.members, s = dr.s, grp = dr.grp,
+             sz = dr.sz, cp = dr.cp }
 end
 
 -- Has the draft changed from the saved team? (A new team has: it isn't saved.)
@@ -2518,8 +2574,10 @@ function TV.unsaved()
     local dr = state.draft
     if not dr or not teamsView or not RP():CanManageTeams() then return false end
     if not dr.id then
+        TV.stash()
         local name = ns.Util.Trim(teamsView.nameBox:GetText() or "")
-        return next(dr.members) ~= nil or next(dr.cp or {}) ~= nil or (name ~= "" and name ~= TV.NEW_NAME)
+        return next(dr.members) ~= nil or next(dr.cp or {}) ~= nil or #dr.lineups > 1
+            or (name ~= "" and name ~= TV.NEW_NAME)
     end
     return TV.dirty()
 end
@@ -2550,33 +2608,86 @@ function TV.copyName(name)
     return name
 end
 
--- Opens team `id` as the draft (nil: an empty new team); `copy` (a team) makes a new draft with its members, specs,
--- groups and target comp.
+-- Opens team `id` as the draft (nil: an empty new team with one 25-player lineup); `copy` (a team) makes a new draft
+-- with its roster and lineups (their groups, specs and target comps, as new lineups). The lineup opened: state.ln's,
+-- else the first.
 function TV.load(id, copy)
     local t = copy or (id and RP():GetTeam(id))
     local members = {}
     if t then for _, key in ipairs(t.members) do members[key] = true end end
+    local lineups = {}
+    for i, l in ipairs(t and t.lineups or {}) do
+        lineups[i] = { id = not copy and l.id or nil, name = l.name, sz = l.size, s = copyMap(l.specs),
+                       grp = copyMap(l.groups), gs = copyMap(l.seats), cp = ns.RaidComp:CopyComp(l.comp) or {} }
+    end
+    if #lineups == 0 then lineups[1] = { sz = 25, s = {}, grp = {}, gs = {}, cp = {} } end
     state.draft = {
         id = (t and not copy) and t.id or nil,
         name = copy and TV.copyName(copy.name) or (t and t.name or TV.NEW_NAME),
-        members = members, sz = t and t.size or 25,
-        s = copyMap(t and t.specs), grp = copyMap(t and t.groups), gs = copyMap(t and t.seats),
-        cp = ns.RaidComp:CopyComp(t and t.comp) or {},
+        members = members, lineups = lineups,
         base = (t and not copy) and t or nil,     -- (the saved version it started from: a newer one replaces it)
     }
+    local li = 1
+    for i, l in ipairs(lineups) do
+        if l.id ~= nil and l.id == state.ln then li = i end
+    end
+    TV.useLineup(li, true)
     if teamsView then teamsView.nameBox:SetText(state.draft.name) end
 end
 
--- The draft's members for the grid: { key, c, sp, auto, source }.
+-- Roster members placed in another lineup of the open one's size: { [key] = that lineup's name }.
+function TV.elsewhere(dr)
+    local out = {}
+    for i, l in ipairs(dr.lineups) do
+        if i ~= dr.li and l.sz == dr.sz then
+            local n = ns.RaidComp:GroupCount(l.sz)
+            for key, g in pairs(l.grp or {}) do
+                if dr.members[key] and not out[key] and type(g) == "number" and g >= 1 and g <= n then
+                    out[key] = TV.lineupName(dr, i)
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- The roster for the grid: { key, c, sp, auto, source }. Unassigned members who are in another lineup of this size
+-- show greyed after the others (later), with that lineup named in their tooltip.
 function TV.members()
     local dr = state.draft
     local out = {}
     if not dr then return out end
+    local other = TV.elsewhere(dr)
     for key in pairs(dr.members) do
         local sp, c, source = RP():GetMemberSpec(key, { specs = dr.s })
-        out[#out + 1] = { key = key, c = c, sp = sp, auto = source ~= "team", source = source }
+        local m = { key = key, c = c, sp = sp, auto = source ~= "team", source = source }
+        if other[key] and not TV.inGroup(dr, key) then
+            m.dim, m.later, m.info = true, true, { "In " .. other[key] .. "'s groups." }
+        end
+        out[#out + 1] = m
     end
     return out
+end
+
+-- The open lineup's waitlist for the grid, first in line first (players the draft takes onto the roster left out).
+function TV.waitMembers()
+    local dr = state.draft
+    local out = {}
+    if not dr or not dr.id or not dr.ln then return out end
+    for _, w in ipairs(RP():GetWaitlist(TV.ref(dr))) do
+        out[#out + 1] = { key = w.key, c = w.c, sp = w.sp, auto = w.source ~= "waitlist", source = w.source,
+                          prefix = colorize("9e9e9e", w.n .. ". "), noRole = true, n = w.n, waiting = true,
+                          info = { ("Waitlist #%d, joined %s."):format(w.n, relDay(w.at)) } }
+    end
+    return out
+end
+
+-- Is the key on the open lineup's waitlist (and not taken onto the draft's roster)? Returns that entry.
+function TV.waiting(key)
+    for _, w in ipairs(TV.waitMembers()) do
+        if w.key == key then return w end
+    end
+    return nil
 end
 
 function TV.count(set)
@@ -2650,14 +2761,17 @@ function TV.inSet(set, key)
 end
 
 -- How many of the team accepted the raid.
+-- How many of the players the raid invites through the team (its lineup's, else the roster: GetRaidTeamPlayers)
+-- accepted it, and how many it invites that way.
 function TV.accepted(v, team)
     local set = {}
-    for _, key in ipairs(team.members) do set[key] = true end
+    local players = RP():GetRaidTeamPlayers(v, team.id) or team.members
+    for _, key in ipairs(players) do set[key] = true end
     local n = 0
     for key, s in pairs(RP():GetSignups(v.id)) do
         if s.st == "A" and not s.guest and TV.inSet(set, key) then n = n + 1 end
     end
-    return n
+    return n, #players
 end
 
 -- "Sun 12"
@@ -2774,10 +2888,42 @@ function TV.specMenu(root, key)
     end
 end
 
--- The right-click menu: spec, moves, benched, off the team.
+-- A waitlisted player's menu (organizers): their place (right away, for everyone), onto the roster (into a group or
+-- Unassigned: saved with the team), off the waitlist (right away).
+function TV.waitMenu(root, key)
+    local dr = state.draft
+    local w = dr and TV.waiting(key)
+    if not w then return end
+    local list = TV.waitMembers()
+    root:CreateTitle(shortName(key) .. " " .. colorize("9e9e9e", "#" .. w.n .. " on the waitlist"))
+    if w.n > 1 then root:CreateButton("Move up", function() RP():MoveWaitlist(dr.id, dr.ln, key, -1) end) end
+    if w.n < #list then root:CreateButton("Move down", function() RP():MoveWaitlist(dr.id, dr.ln, key, 1) end) end
+    if root.CreateDivider then root:CreateDivider() end
+    for g = 1, ns.RaidComp:GroupCount(dr.sz) do
+        root:CreateButton("Move to group " .. g, function()
+            PlanUI:MoveDraftMember(key, g)
+            PlanUI:RefreshTeams()
+        end)
+    end
+    root:CreateButton("Add to the roster (Unassigned)", function()
+        PlanUI:MoveDraftMember(key, nil)
+        PlanUI:RefreshTeams()
+    end)
+    if root.CreateDivider then root:CreateDivider() end
+    local b = root:CreateButton("|cffff8a8aTake off the waitlist|r", function() RP():LeaveWaitlist(dr.id, dr.ln, key) end)
+    if b and b.SetTooltip then
+        b:SetTooltip(function(tt)
+            tt:AddLine("Take off the waitlist")
+            tt:AddLine("Right away, for everyone: no Save needed. They can put themselves on it again.", 1, 1, 1, true)
+        end)
+    end
+end
+
+-- The right-click menu: spec, moves, unassign, off the team (a waitlisted player: TV.waitMenu).
 function TV.memberMenu(root, key)
     local dr = state.draft
     if not dr then return end
+    if not dr.members[key] then return TV.waitMenu(root, key) end
     local _, c = RP():GetMemberSpec(key, { specs = dr.s })
     root:CreateTitle(shortName(key))
     root:CreateRadio("Spec: automatic", function() return dr.s[key] == nil end, function() PlanUI:SetDraftSpec(key, nil) end)
@@ -2791,8 +2937,8 @@ function TV.memberMenu(root, key)
             PlanUI:RefreshTeams()
         end)
     end
-    if dr.grp[key] then
-        root:CreateButton("Bench", function()
+    if TV.inGroup(dr, key) then
+        root:CreateButton("Unassign", function()
             PlanUI:MoveDraftMember(key, nil)
             PlanUI:RefreshTeams()
         end)
@@ -2825,19 +2971,27 @@ function TV.deleteText(team)
     for i = 1, min(2, #raids) do names[i] = TV.day(raids[i].t) .. " " .. RP():GetRaidName(raids[i]) end
     local list = #raids == 1 and names[1] or #raids == 2 and (names[1] .. " and " .. names[2])
         or (names[1] .. ", " .. names[2] .. (" and %d more"):format(#raids - 2))
+    -- (the players those raids invite through it: each raid's lineup of the team, or its roster)
+    local through = {}
+    for _, v in ipairs(raids) do
+        for _, key in ipairs(RP():GetRaidTeamPlayers(v, team.id) or {}) do through[key] = true end
+    end
     lines[#lines + 1] = ("\n%s invite%s it: its %d players are no longer invited through it."):format(list,
-        #raids == 1 and "s" or "", #team.members)
+        #raids == 1 and "s" or "", TV.count(through))
     for _, v in ipairs(raids) do
         if v.lk then
             -- who is still in through the raid's other teams and its extra invites
             local keep = {}
             for _, id in ipairs(v.tm or {}) do
-                local o = id ~= team.id and RP():GetTeam(id)
-                for _, key in ipairs(o and o.members or {}) do keep[key] = true end
+                if id ~= team.id then
+                    for _, key in ipairs(RP():GetRaidTeamPlayers(v, id) or {}) do keep[key] = true end
+                end
             end
             for _, key in ipairs(v.inv or {}) do keep[key] = true end
             local lose, answers = {}, 0
-            for _, key in ipairs(team.members) do if not keep[key] then lose[key] = true end end
+            for _, key in ipairs(RP():GetRaidTeamPlayers(v, team.id) or {}) do
+                if not keep[key] then lose[key] = true end
+            end
             if next(lose) then
                 for key, s in pairs(RP():GetSignups(v.id)) do
                     if not s.guest and TV.inSet(lose, key) then answers = answers + 1 end
@@ -2856,7 +3010,12 @@ function PlanUI:ToggleDraftMember(key)
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
     if dr.members[key] then
-        dr.members[key], dr.s[key], dr.grp[key], dr.gs[key] = nil, nil, nil, nil
+        -- (off the roster: out of every lineup)
+        TV.stash()
+        dr.members[key] = nil
+        for _, l in ipairs(dr.lineups) do
+            l.s[key], l.grp[key], l.gs[key] = nil, nil, nil
+        end
     elseif TV.count(dr.members) >= TV.MAX then
         Print("A team holds at most %d members.", TV.MAX)
         return
@@ -2916,11 +3075,19 @@ function PlanUI:SetDraftSize(size)
     self:RefreshTeams()
 end
 
--- The grid's drop: move `key` to group g (nil = out of the groups); dropped onto `target` in a group = swap, onto
--- an empty `seat` = that seat.
+-- The grid's drop: move `key` to group g (nil = Unassigned); dropped onto `target` in a group = swap, onto an empty
+-- `seat` = that seat. A player from the waitlist joins the roster with it (Save takes them off the waitlist).
 function PlanUI:MoveDraftMember(key, g, target, seat, shown)
     local dr = state.draft
-    if not dr or not dr.members[key] or not RP():CanManageTeams() then return false end
+    if not dr or not RP():CanManageTeams() then return false end
+    if not dr.members[key] then
+        if not TV.waiting(key) then return false end
+        if TV.count(dr.members) >= TV.MAX then
+            Print("A team holds at most %d members.", TV.MAX)
+            return false
+        end
+        dr.members[key] = true
+    end
     return moveInLayout(dr.grp, dr.gs, function(k) return dr.members[k] end, key, g, target, seat, shown)
 end
 
@@ -2931,14 +3098,19 @@ function PlanUI:SwapDraftGroups(a, b)
     self:RequestRefresh()
 end
 
+-- Auto-fill: the open lineup's groups from the roster, leaving out who is in another lineup of its size.
 function PlanUI:AutoFillDraft()
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
-    dr.grp, dr.gs = ns.RaidComp:AutoFill(TV.members(), dr.sz), {}
+    local list = {}
+    for _, m in ipairs(TV.members()) do
+        if not m.later then list[#list + 1] = m end
+    end
+    dr.grp, dr.gs = ns.RaidComp:AutoFill(list, dr.sz), {}
     self:RefreshTeams()
 end
 
--- ... > Clear groups: everyone to Benched (Save keeps it).
+-- ... > Clear groups: everyone in the open lineup to Unassigned (Save keeps it).
 function PlanUI:ClearDraftGroups()
     local dr = state.draft
     if not dr or not RP():CanManageTeams() then return end
@@ -2959,7 +3131,7 @@ function PlanUI:NewTeam()
     end)
 end
 
--- ... > Copy: a new team with the team's members, specs and groups ("Kara A 2"), saved with Save.
+-- ... > Copy: a new team with the team's roster and lineups ("Kara A 2"), saved with Save.
 function PlanUI:CopyTeam(id)
     local team = id and RP():GetTeam(id)
     if not team or not RP():CanManageTeams() then return end
@@ -2977,16 +3149,158 @@ end
 function PlanUI:SaveTeam()
     local dr = state.draft
     if not dr then return false end
-    local ok, res = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members,
-        { size = dr.sz, specs = dr.s, groups = dr.grp, seats = dr.gs, comp = dr.cp or false })
+    TV.stash()
+    local lineups = {}
+    for i, l in ipairs(dr.lineups) do
+        lineups[i] = { id = l.id, name = l.name, size = l.sz, specs = l.s, groups = l.grp, seats = l.gs, comp = l.cp }
+    end
+    local ok, res = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members, { lineups = lineups })
     if not ok then
         Print(res or "Could not save the team.")
         return false
     end
     state.team, state.newTeam = res, nil
+    -- (the open lineup stays open: a new one got its id now)
+    local saved = RP():GetTeam(res)
+    local l = saved and saved.lineups[dr.li]
+    state.ln = l and l.id or nil
     TV.load(res)
     self:RefreshTeams()
     return true
+end
+
+---------------------------------------------------------------------------
+-- Teams view: lineups (1.3.2). A team has one roster and any number of 10- and 25-player lineups, each with its own
+-- groups, specs, target comp and waitlist; the chips under the card pick the one open. Adding, renaming, resizing,
+-- copying, reordering and deleting them are draft changes (Save / Undo), like the groups.
+---------------------------------------------------------------------------
+
+function PlanUI:SelectLineup(i)
+    local dr = state.draft
+    if not dr or not dr.lineups[i] then return end
+    TV.useLineup(i)
+    if teamsView then teamsView.detail.steps:Hide() end
+    self:RefreshTeams()
+end
+
+function PlanUI:GetLineupIndex() return state.draft and state.draft.li end
+
+-- A new lineup of `size` (10 or 25), opened.
+function PlanUI:AddLineup(size)
+    local dr = state.draft
+    if not dr or not RP():CanManageTeams() then return false end
+    if #dr.lineups >= TV.MAX_LINEUPS then
+        Print("A team has at most %d lineups.", TV.MAX_LINEUPS)
+        return false
+    end
+    TV.stash()
+    dr.lineups[#dr.lineups + 1] = { sz = size == 10 and 10 or 25, s = {}, grp = {}, gs = {}, cp = {} }
+    TV.useLineup(#dr.lineups, true)
+    self:RefreshTeams()
+    return true
+end
+
+-- name: text, or nil / "" for the default ("25-man").
+function PlanUI:RenameLineup(i, name)
+    local dr = state.draft
+    local l = dr and dr.lineups[i]
+    if not l or not RP():CanManageTeams() then return false end
+    name = ns.Util.Trim(tostring(name or ""))
+    if #name > 32 or name:find("[%c|]") then
+        Print("Lineup names are at most 32 characters.")
+        return false
+    end
+    l.name = name ~= "" and name or nil
+    self:RefreshTeams()
+    return true
+end
+
+-- Copy: a new lineup with the same size, groups, specs and comp, right after it.
+function PlanUI:CopyLineup(i)
+    local dr = state.draft
+    local l = dr and dr.lineups[i]
+    if not l or not RP():CanManageTeams() then return false end
+    if #dr.lineups >= TV.MAX_LINEUPS then
+        Print("A team has at most %d lineups.", TV.MAX_LINEUPS)
+        return false
+    end
+    TV.stash()
+    local c = { sz = l.sz, s = copyMap(l.s), grp = copyMap(l.grp), gs = copyMap(l.gs),
+                cp = ns.RaidComp:CopyComp(l.cp) or {}, name = TV.cut(TV.lineupName(dr, i), 30) .. " 2" }
+    table.insert(dr.lineups, i + 1, c)
+    TV.useLineup(i + 1, true)
+    self:RefreshTeams()
+    return true
+end
+
+-- To the front: raids that invite the team use its first lineup of their size unless they pick another.
+function PlanUI:MoveLineupFirst(i)
+    local dr = state.draft
+    if not dr or not dr.lineups[i] or i == 1 or not RP():CanManageTeams() then return false end
+    TV.stash()
+    local li = dr.li
+    table.insert(dr.lineups, 1, table.remove(dr.lineups, i))
+    TV.useLineup((li == i and 1) or (li < i and li + 1) or li, true)
+    self:RefreshTeams()
+    return true
+end
+
+-- Delete (a team keeps at least one); asks first when it holds groups, a comp or a waitlist.
+function PlanUI:DeleteLineup(i, sure)
+    local dr = state.draft
+    local l = dr and dr.lineups[i]
+    if not l or #dr.lineups < 2 or not RP():CanManageTeams() then return false end
+    TV.stash()
+    local waiting = (dr.id and l.id) and #RP():GetWaitlist({ id = dr.id, ln = l.id, members = dr.members }) or 0
+    if not sure and (next(l.grp) or next(l.cp) or waiting > 0) then
+        local parts = {}
+        if next(l.grp) then parts[#parts + 1] = "its groups" end
+        if next(l.cp) then parts[#parts + 1] = "its target comp" end
+        if waiting > 0 then parts[#parts + 1] = ("its waitlist (%d)"):format(waiting) end
+        StaticPopup_Show("DISASTERZONE_PLAN_CONFIRM", ("Delete the lineup %s, with %s?\n\nIt goes when you save the "
+            .. "team; Undo brings it back until then."):format(colorize("ffd100", TV.lineupName(dr, i)),
+            tconcat(parts, ", ")), nil, { fn = function() PlanUI:DeleteLineup(i, true) end })
+        return false
+    end
+    local li = dr.li
+    table.remove(dr.lineups, i)
+    TV.useLineup(min(#dr.lineups, li > i and li - 1 or li), true)
+    self:RefreshTeams()
+    return true
+end
+
+-- A lineup chip's menu (organizers): Rename, Size, Copy, To the front, Delete.
+function TV.lineupMenu(owner, i)
+    local dr = state.draft
+    if not dr or not dr.lineups[i] or not RP():CanManageTeams() then return end
+    if dr.li ~= i then PlanUI:SelectLineup(i) end
+    UI():ContextMenu(owner, function(root)
+        root:CreateTitle(TV.lineupName(dr, i))
+        root:CreateButton(UI():AtlasIconText(16, 14, { 0.9, 0.9, 0.9 }) .. "  Rename", function()
+            StaticPopup_Show("DISASTERZONE_LINEUP_NAME", nil, nil, { i = i, name = dr.lineups[i].name or "" })
+        end)
+        local sub = root:CreateButton("Size")
+        sub:CreateRadio("10-man", function() return dr.sz == 10 end, function() PlanUI:SetDraftSize(10) end)
+        sub:CreateRadio("25-man", function() return dr.sz == 25 end, function() PlanUI:SetDraftSize(25) end)
+        if #dr.lineups < TV.MAX_LINEUPS then
+            root:CreateButton(UI():AtlasIconText(17, 14, { 0.9, 0.9, 0.9 }) .. "  Copy", function() PlanUI:CopyLineup(i) end)
+        end
+        if i > 1 then
+            local b = root:CreateButton("To the front", function() PlanUI:MoveLineupFirst(i) end)
+            if b and b.SetTooltip then
+                b:SetTooltip(function(tt)
+                    tt:AddLine("To the front")
+                    tt:AddLine("Raids that invite the team use its first lineup of their size, unless they pick "
+                        .. "another.", 1, 1, 1, true)
+                end)
+            end
+        end
+        if #dr.lineups > 1 then
+            if root.CreateDivider then root:CreateDivider() end
+            root:CreateButton(UI():AtlasIconText(UI().ICON.trash, 14, { 1, 0.55, 0.55 }) .. "  |cffff8a8aDelete|r",
+                function() PlanUI:DeleteLineup(i) end)
+        end
+    end)
 end
 
 -- Undo (back to the saved team) or, for a new team, Cancel (the draft is dropped).
@@ -3051,11 +3365,15 @@ end
 ---------------------------------------------------------------------------
 
 -- A team chip: [gold dot (mine)] name [size]. The press offset of sleek buttons is left out (the text is laid out).
-function TV.newChip(parent)
-    local c = UI():CreateSleekButton(parent, "", 60, TV.CHIP_H, function(self)
+-- onPick(chip, button) (optional, the lineup chips): the click; else the chip opens its team. entry.tip = the lines
+-- of its tooltip (else "You're on this team." on mine).
+function TV.newChip(parent, onPick)
+    local c = UI():CreateSleekButton(parent, "", 60, TV.CHIP_H, function(self, button)
+        if onPick then return onPick(self, button) end
         local e = self.entry
         if e and not e.new then PlanUI:SelectTeam(e.id) end
     end)
+    if onPick then c:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
     c:SetScript("OnMouseDown", nil)
     c:SetScript("OnMouseUp", nil)
     c.dot = c:CreateTexture(nil, "ARTWORK")
@@ -3066,12 +3384,16 @@ function TV.newChip(parent)
     c.size = textOf(c, "GameFontHighlightSmall", 10)
     c.size:SetTextColor(0.62, 0.62, 0.62)
     c:HookScript("OnEnter", function(self)
-        if self.entry and self.entry.mine then
-            GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-            GameTooltip:AddLine(self.entry.name)
+        local e = self.entry
+        if not e or not (e.tip or e.mine) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine(e.name)
+        if e.tip then
+            for _, line in ipairs(e.tip) do GameTooltip:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, true) end
+        else
             GameTooltip:AddLine("You're on this team.", 1, 0.82, 0)
-            GameTooltip:Show()
         end
+        GameTooltip:Show()
     end)
     c:HookScript("OnLeave", hideTooltip)
     return c
@@ -3111,7 +3433,7 @@ function TV.layoutChips(teams)
         for _, tm in ipairs(teams) do
             local mine = TV.myKey(tm.members) ~= nil
             if mine == (pass == 1) then
-                list[#list + 1] = { id = tm.id, name = tm.name, size = tm.size, mine = mine }
+                list[#list + 1] = { id = tm.id, name = tm.name, mine = mine }
             end
         end
     end
@@ -3230,7 +3552,8 @@ function TV.fillRaidRow(r, v, team, organizer)
     -- the answer (members) / the team's acceptances (organizers)
     local icon
     if organizer then
-        r.status:SetText(colorize("ffffff", TV.accepted(v, team)) .. colorize("c4c4c4", (" of %d accepted"):format(#team.members)))
+        local n, of = TV.accepted(v, team)
+        r.status:SetText(colorize("ffffff", n) .. colorize("c4c4c4", (" of %d accepted"):format(of)))
     else
         local kind, block, canAnswer = myState(v)
         local look = TV.ANSWER[kind]
@@ -3258,8 +3581,8 @@ function TV.fillRaidRow(r, v, team, organizer)
     r:Show()
 end
 
--- The card's left column, stacked: line 1 (name, size), line 2 (players by role), line 3 (me, who changed it).
--- Rows that hold nothing fold away; the card grows if a row is added (a team's target comp adds one).
+-- The card's left column, stacked: line 1 (the name), line 2 (the roster), line 3 (me, who changed it). Rows that
+-- hold nothing fold away; the card grows if a row is added.
 function TV.layoutCard()
     local card = teamsView.card
     local y, last = 12, 0
@@ -3332,22 +3655,16 @@ function PlanUI:CreateTeams(parent)
 
     local colW = TV.COL2 - 12 - 12
     local l1, l2, l3 = CreateFrame("Frame", nil, card), CreateFrame("Frame", nil, card), CreateFrame("Frame", nil, card)
-    local lN = CreateFrame("Frame", nil, card)
     l1:SetSize(colW, 24)
     l1.gapBelow = 8
     l2:SetSize(colW, 16)
-    lN:SetSize(colW, 16)
-    lN:Hide()
     l3:SetSize(colW, 14)
-    card.l1, card.l2, card.l3, card.lN = l1, l2, l3, lN
-    card.rows = { l1, l2, lN, l3 }
+    card.l1, card.l2, card.l3 = l1, l2, l3
+    card.rows = { l1, l2, l3 }
 
-    -- line 1: the name (a field for organizers, growing with the name) and the size (a 10-man | 25-man toggle)
+    -- line 1: the name (a field for organizers, growing with the name; each lineup has its size)
     card.title = textOf(l1, "GameFontHighlightLarge", 16)
     card.title:SetPoint("LEFT", l1, "LEFT", 0, 0)
-    card.size = textOf(l1, "GameFontHighlightSmall", 11)
-    card.size:SetTextColor(0.62, 0.62, 0.62)
-    card.size:SetPoint("LEFT", card.title, "RIGHT", 8, -1)
     t.nameBox = UI():CreateSleekEditBox(l1, TV.NAME_MIN, 24, "GameFontHighlightLarge")
     t.nameBox:SetTextInsets(6, 24, 0, 0)
     t.nameBox:SetMaxLetters(32)
@@ -3375,17 +3692,40 @@ function PlanUI:CreateTeams(parent)
         self:SetTextInsets(6, 24, 0, 0)
         TV.fitName()
     end)
-    t.size10 = UI():CreateSleekButton(l1, "10-man", 56, 22, function() PlanUI:SetDraftSize(10) end)
-    t.size25 = UI():CreateSleekButton(l1, "25-man", 56, 22, function() PlanUI:SetDraftSize(25) end)
-    t.size10:SetPoint("LEFT", t.nameBox, "RIGHT", 8, 0)
-    t.size25:SetPoint("LEFT", t.size10, "RIGHT", -1, 0)
-    setSize(t.size10:GetFontString(), 11)
-    setSize(t.size25:GetFontString(), 11)
 
-    -- line 2: the players by role (their own element: a target comp turns them into meters) and how many
-    local roles = CreateFrame("Frame", nil, l2)
+    -- line 2: the roster
+    card.count = textOf(l2, "GameFontHighlightSmall", 11)
+    card.count:SetPoint("LEFT", l2, "LEFT", 0, 0)
+
+    -- under the card: the lineup chips (organizers: "+ Lineup" after them), on the right the open lineup's meter (a
+    -- target comp) or its players in groups by role; under them its Needs (the open slots)
+    local lrow = CreateFrame("Frame", nil, d)
+    lrow:SetSize(TV.W, TV.CHIP_H)
+    d.lrow = lrow
+    d.lchips = {}
+    d.lmore = UI():CreateSleekMenuButton(lrow, "", 52, function(root)
+        for _, e in ipairs(d.lmore.rest or {}) do
+            root:CreateButton((e.mine and colorize("ffd100", "• ") or "") .. e.name, function() PlanUI:SelectLineup(e.i) end)
+        end
+    end, TV.CHIP_H)
+    d.ladd = UI():CreateSleekMenuButton(lrow, "+ Lineup", 78, function(root)
+        root:CreateTitle("New lineup")
+        root:CreateButton("10-man", function() PlanUI:AddLineup(10) end)
+        root:CreateButton("25-man", function() PlanUI:AddLineup(25) end)
+    end, TV.CHIP_H)
+    tipButton(d.ladd, "New lineup", "Another 10- or 25-player setup of this roster (e.g. Kara A and Kara B), with its own "
+        .. "groups, specs, target comp and waitlist.")
+    d.lmeter = TV.createMeter(lrow)
+    d.lmeter:SetPoint("RIGHT", lrow, "RIGHT", 0, 0)
+    d.lmeter:Hide()
+    local lN = CreateFrame("Frame", nil, d)
+    lN:SetSize(TV.W, 16)
+    lN:Hide()
+    d.lneeds = lN
+    TV.createNeeds(lN)
+    local roles = CreateFrame("Frame", nil, lrow)
     roles:SetSize(150, 16)
-    roles:SetPoint("LEFT", l2, "LEFT", 0, 0)
+    roles:SetPoint("RIGHT", lrow, "RIGHT", 0, 0)
     roles.items = {}
     for i, role in ipairs({ "tank", "healer", "dps" }) do
         local it = { icon = roles:CreateTexture(nil, "ARTWORK"), fs = textOf(roles, "GameFontHighlight", 12) }
@@ -3406,13 +3746,15 @@ function PlanUI:CreateTeams(parent)
         end
         self:SetWidth(max(1, floor(x - 14 + 0.5)))
     end
-    card.roles = roles
-    card.count = textOf(l2, "GameFontHighlightSmall", 11)
-    -- with a target comp: a meter instead of the counts, and Needs (the open slots) under it
-    card.meter = TV.createMeter(l2)
-    card.meter:SetPoint("LEFT", l2, "LEFT", 0, 0)
-    card.meter:Hide()
-    TV.createNeeds(lN)
+    roles:EnableMouse(true)
+    roles:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine("In this lineup's groups")
+        GameTooltip:AddLine("Tanks, healers and damage. Unassigned and waitlisted players don't count.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    roles:SetScript("OnLeave", hideTooltip)
+    d.lroles = roles
 
     -- line 3: where I play in it (members on the team), who changed it last
     local you = CreateFrame("Button", nil, l3)
@@ -3488,11 +3830,18 @@ function PlanUI:CreateTeams(parent)
         end,
     })
     t.picker.frame:SetPoint("TOPLEFT", tool, "TOPLEFT", 0, 0)
-    -- (its list is a top-level frame like a menu, drawn over the page; the window's scale is taken on when it opens)
-    t.picker.panel:SetParent(UIParent)
+    -- (its list is a top-level frame like a menu, drawn over the page; the window's scale is taken on when it opens.
+    -- A new parent hands a frame its strata: UIParent's MEDIUM put the list behind the window (HIGH), so it seemed
+    -- not to open in game. Its own strata again, fixed.)
+    local pp = t.picker.panel
+    pp:SetParent(UIParent)
+    pp:SetFrameStrata("FULLSCREEN_DIALOG")
+    if pp.SetFixedFrameStrata then pp:SetFixedFrameStrata(true) end
     local pickerOpen = t.picker.Open
     function t.picker:Open(...)
         self.panel:SetScale((self.frame:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1))
+        self.panel:SetFrameStrata("FULLSCREEN_DIALOG")
+        self.panel:Raise()
         return pickerOpen(self, ...)
     end
     d.autoBtn = UI():CreateSleekButton(tool, "Auto-fill", 70, 22, function() PlanUI:AutoFillDraft() end)
@@ -3537,19 +3886,35 @@ function PlanUI:CreateTeams(parent)
         onMenu = TV.memberMenu,
         onRoleClick = function(key, btn) UI():ContextMenu(btn, function(root) TV.specMenu(root, key) end) end,
         isMe = TV.isMine,
-        -- (benched: on the team, in no group; they don't count for the comp, its slots or the raid buffs)
-        poolLabel = "Benched",
+        -- Unassigned: on the roster, in none of this lineup's groups; the waitlist: not on the roster, waiting for a
+        -- spot. Neither counts for the comp, its slots or the raid buffs.
+        poolLabel = "Unassigned",
+        poolTip = { "Unassigned", "On the roster, but in none of this lineup's groups: they don't count for its comp. "
+            .. "Drag them into a group." },
         poolEmpty = function()
             local dr = state.draft
             return (dr and not next(dr.members)) and "Add members with the search above: they land here, then drag "
-                .. "them into groups." or "Drop a player here to bench them."
+                .. "them into groups." or "Drop a player here to take them out of the groups."
         end,
+        waitlist = {
+            label = "Waitlist",
+            tip = { "Waitlist", "Not on the roster: players waiting for a spot in this lineup, first in line first. "
+                .. "Guild members put themselves on it; they aren't invited to the team's raids and don't count for "
+                .. "its comp." },
+            getMembers = TV.waitMembers,
+            empty = TV.waitEmpty,
+        },
         stripParent = d.buffs,
         stripRoom = function() return d.stripRoom end,
         buffStates = function(placed) return TV.groupStates(placed) end,
     })
     t.grid.frame:SetWidth(TV.W)
     d.scroll:SetScrollChild(t.grid.frame)
+    -- the waitlist's header: Join / Leave for a guild member who isn't on the roster
+    d.joinBtn = UI():CreateSleekButton(t.grid.wait, "Join the waitlist", 128, 20, function(self) TV.joinClick(self) end)
+    d.joinBtn:SetPoint("TOPRIGHT", t.grid.wait, "TOPRIGHT", -6, -4)
+    setSize(d.joinBtn:GetFontString(), 11)
+    d.joinBtn:Hide()
     -- the target comp: the Groups | Comp tabs, the Comp view
     TV.createComp(t, d)
 
@@ -3624,15 +3989,15 @@ function TV.moreMenu(owner)
             end
         end
         tip(root:CreateButton(UI():AtlasIconText(17, 14, { 0.9, 0.9, 0.9 }) .. "  Copy", function() PlanUI:CopyTeam(id) end),
-            "Copy", "A new team with the same members, specs and groups, e.g. Kara A into Kara B. It is saved when you "
+            "Copy", "A new team with the same roster and lineups (groups, specs, comps). It is saved when you "
             .. "click Save.")
         if next(dr.grp) then
             tip(root:CreateButton(UI():AtlasIconText(9, 14, { 0.9, 0.9, 0.9 }) .. "  Clear groups",
                 function() PlanUI:ClearDraftGroups() end),
-                "Clear groups", "Everyone to Benched. Save keeps it, Undo brings the groups back.")
+                "Clear groups", "Everyone in this lineup to Unassigned. Save keeps it, Undo brings the groups back.")
         end
         -- (only while the comp has open slots)
-        local lf = RP():GetLFMessage(dr)
+        local lf = RP():GetLFMessage(TV.ref(dr))
         if lf then
             tip(root:CreateButton(UI():AtlasIconText(19, 14, { 0.9, 0.9, 0.9 }) .. "  LF message",
                 function() TV.openChat(lf) end),
@@ -3658,75 +4023,56 @@ function TV.fillCard(dr, organizer)
     local t = teamsView
     local card = t.card
     local saved = dr.id and RP():GetTeam(dr.id) or nil
-    local list = TV.members()
     local n = TV.count(dr.members)
     -- line 1
     t.nameBox:SetShown(organizer)
-    t.size10:SetShown(organizer)
-    t.size25:SetShown(organizer)
     card.title:SetShown(not organizer)
-    card.size:SetShown(not organizer)
     if organizer then
         TV.fitName()
-        t.size10:SetKind(dr.sz == 10 and "chosen" or "secondary")
-        t.size25:SetKind(dr.sz == 25 and "chosen" or "secondary")
     else
         card.title:SetText(dr.name)
         setSize(card.title, 16)
         if (card.title:GetStringWidth() or 0) > TV.COL2 - 24 - 80 then setSize(card.title, 13) end
-        card.size:SetText(dr.sz .. "-player")
     end
-    -- line 2: the players by role, or with a target comp its meter; Needs under it (the open slots)
-    local m = TV.cur and TV.cur.match or nil
-    card.meter:SetShown(m ~= nil)
-    card.count:SetShown(m == nil)
-    card.lN:SetShown(m ~= nil and #m.open > 0)
-    if m then
-        TV.fillMeter(card.meter, m)
-        if #m.open > 0 then TV.fillNeeds(card.lN, m.open) end
-    end
-    -- (the roles count the members in a group: benched ones don't count)
-    local placed = {}
-    for _, mem in ipairs(list) do
-        if TV.inGroup(dr, mem.key) then placed[#placed + 1] = mem end
-    end
-    local benched = n - #placed
-    card.roles:SetShown(#placed > 0 and m == nil)
-    card.roles:Set(TV.roleCounts(placed))
-    card.count:ClearAllPoints()
-    if #placed > 0 then
-        card.count:SetPoint("LEFT", card.roles, "RIGHT", 14, 0)
-        card.count:SetText(grey("· " .. #placed .. " in groups" .. (benched > 0 and (" · " .. benched .. " benched") or "")))
-    elseif n > 0 then
-        card.count:SetPoint("LEFT", card.l2, "LEFT", 0, 0)
-        card.count:SetText(grey((n == 1 and "1 member" or (n .. " members")) .. " · all benched"))
-    else
-        card.count:SetPoint("LEFT", card.l2, "LEFT", 0, 0)
-        card.count:SetText(grey("No members yet"))
-    end
-    -- line 3: "You: Group 5 · Holy" (members on the team), who changed it last
+    -- line 2: the roster
+    card.count:SetText(grey(n == 0 and "No members yet" or n == 1 and "1 on the roster" or (n .. " on the roster")))
+    -- line 3: "You: Group 5 · Holy" (in the open lineup), "You: #2 on the waitlist", who changed it last
     local mine = not organizer and TV.myKey(dr.members) or nil
+    local waiting = not organizer and not mine and TV.waiting(ns.Util.PlayerKey()) or nil
     local you = card.you
-    you:SetShown(mine ~= nil)
+    you:SetShown(mine ~= nil or waiting ~= nil)
     you.tip = nil
+    local lineup = #dr.lineups > 1 and (TV.lineupName(dr, dr.li) .. " · ") or ""
     if mine then
-        local where = TV.inGroup(dr, mine) and ("Group " .. dr.grp[mine]) or "Benched"
+        local where = TV.inGroup(dr, mine) and ("Group " .. dr.grp[mine]) or "Unassigned"
         local sp, c, source = RP():GetMemberSpec(mine, { specs = dr.s })
         local label = sp and ns.RaidComp:SpecLabel(c, sp)
-        you.fs:SetText("You: " .. where .. (label and (" · " .. label) or ""))
-        you:SetWidth(floor(6 + 6 + (you.fs:GetStringWidth() or 100) + 0.5))
+        you.fs:SetText("You: " .. lineup .. where .. (label and (" · " .. label) or ""))
         if label then
-            you.tip = { "Your spec in this team: " .. label,
+            you.tip = { "Your spec in this lineup: " .. label,
                         source == "team" and "Set by the team's organizers."
                             or source == "bis" and "From your BiS list: signing up as another spec changes it."
                             or "From your last sign-up: signing up as another spec changes it." }
         end
+        if where == "Unassigned" then
+            you.tip = you.tip or { "Unassigned" }
+            you.tip[#you.tip + 1] = "On the roster, in none of this lineup's groups: you don't count for its comp yet."
+        end
+    elseif waiting then
+        you.fs:SetText("You: " .. lineup .. "#" .. waiting.n .. " on the waitlist")
+        you.tip = { "Waitlist", "You're waiting for a spot: not on the roster yet, so not invited to the team's raids." }
     end
-    local changed = saved and TV.changed(saved, mine ~= nil) or nil
+    you:SetWidth(floor(6 + 6 + (you.fs:GetStringWidth() or 100) + 0.5))
+    local changed = saved and TV.changed(saved, you:IsShown()) or nil
     card.changed:ClearAllPoints()
-    if mine then card.changed:SetPoint("LEFT", you.fs, "RIGHT", 6, 0) else card.changed:SetPoint("LEFT", card.l3, "LEFT", 0, 0) end
-    card.changed:SetText(changed and ((mine and grey("· ") or "") .. changed) or "")
-    card.l3:SetShown(mine ~= nil or changed ~= nil)
+    if you:IsShown() then card.changed:SetPoint("LEFT", you.fs, "RIGHT", 6, 0)
+    else card.changed:SetPoint("LEFT", card.l3, "LEFT", 0, 0) end
+    card.changed:SetText(changed and ((you:IsShown() and grey("· ") or "") .. changed) or "")
+    -- (beside my line only while it fits the column: the raids are on the right)
+    if you:IsShown() and you:GetWidth() + 6 + (card.changed:GetStringWidth() or 0) > TV.COL2 - 24 then
+        card.changed:SetText("")
+    end
+    card.l3:SetShown(you:IsShown() or changed ~= nil)
     TV.layoutCard()
 
     -- the right column
@@ -3806,6 +4152,7 @@ function PlanUI:RefreshTeams()
         end
     end
     local dr = (state.team or state.newTeam) and state.draft or nil
+    if dr then TV.stash() end
     -- the Raids toolbar's New team stands only next to teams: a team saved or deleted here (or synced in) updates it
     -- (asked once per change, so a toolbar that differs can't keep refreshing)
     local rp = ns.RaidsUI and ns.RaidsUI.GetPanel and ns.RaidsUI:GetPanel()
@@ -3845,12 +4192,25 @@ function PlanUI:RefreshTeams()
     d.tabComp:SetActive(tab == "comp")
     d.tabComp:SetLabel(m and ("Comp  " .. colorize("9e9e9e", m.filled .. "/" .. m.total)) or "Comp")
 
-    -- top to bottom: chips, card, the tabs, then Groups (tool row, the grid's bar, the grid) or Comp
+    -- top to bottom: chips, card, the lineups (and the open one's Needs), the tabs, then Groups (tool row, the grid's
+    -- bar, the grid) or Comp
     local y = TV.layoutChips(teams)
     TV.fillCard(dr, organizer)
     t.card:ClearAllPoints()
     t.card:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
     y = y + t.card:GetHeight() + GAP
+    TV.layoutLineups(dr, organizer, m)
+    d.lrow:ClearAllPoints()
+    d.lrow:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+    y = y + TV.CHIP_H + 6
+    d.lneeds:SetShown(m ~= nil and #m.open > 0)
+    if d.lneeds:IsShown() then
+        TV.fillNeeds(d.lneeds, m.open)
+        d.lneeds:ClearAllPoints()
+        d.lneeds:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
+        y = y + 16 + 6
+    end
+    y = y + GAP - 6
     if d.views:IsShown() then
         d.views:ClearAllPoints()
         d.views:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
@@ -3890,8 +4250,165 @@ function PlanUI:RefreshTeams()
     d.scroll:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
     d.scroll:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -PAD, 0)
     t.grid.frame:SetWidth(TV.W)
+    TV.fillJoin(dr)
     t.grid:Refresh()
     if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Refresh(true) end
+end
+
+-- The lineup chips under the card: "Kara A 10" (a default name says its size: "25-man"), the open one chosen, a gold
+-- dot on those I'm in a group of; organizers get "+ Lineup" after them. On the right, the open lineup's meter (m: its
+-- comp) or its players in groups by role. Chips that don't fit go into "+n" (the open one always keeps its chip). A
+-- click opens a lineup; on the open one (or a right-click) organizers get its menu (TV.lineupMenu).
+function TV.layoutLineups(dr, organizer, m)
+    local d = teamsView.detail
+    local row = d.lrow
+    local right = 0
+    d.lmeter:SetShown(m ~= nil)
+    if m then
+        TV.fillMeter(d.lmeter, m)
+        right = d.lmeter:GetWidth()
+    end
+    local placed = {}
+    for _, mem in ipairs(TV.members()) do
+        if TV.inGroup(dr, mem.key) then placed[#placed + 1] = mem end
+    end
+    d.lroles:SetShown(m == nil and #placed > 0)
+    if d.lroles:IsShown() then
+        d.lroles:Set(TV.roleCounts(placed))
+        right = d.lroles:GetWidth()
+    end
+    -- the chips
+    local me = TV.myKey(dr.members)
+    local list = {}
+    for i, l in ipairs(dr.lineups) do
+        local g = me and l.grp[me]
+        local mine = type(g) == "number" and g >= 1 and g <= ns.RaidComp:GroupCount(l.sz)
+        local tip = { { l.sz .. "-player lineup", 0.62, 0.62, 0.62 } }
+        if mine then tip[#tip + 1] = { "You're in its groups.", 1, 0.82, 0 } end
+        if l.id == nil and dr.id ~= nil then tip[#tip + 1] = { "New: saved with the team.", 1, 0.6, 0.2 } end
+        if organizer then
+            tip[#tip + 1] = { i == dr.li and "Click for Rename, Size, Copy or Delete." or "Click to open it; right-click "
+                .. "for Rename, Size, Copy or Delete.", 0.6, 0.6, 0.6 }
+        end
+        list[i] = { i = i, name = TV.lineupName(dr, i), size = l.name and l.sz or nil, mine = mine, tip = tip }
+    end
+    for _, c in ipairs(d.lchips) do c:Hide() end
+    d.lmore:Hide()
+    local widths, total = {}, 0
+    for i, e in ipairs(list) do
+        local c = d.lchips[i]
+        if not c then
+            c = TV.newChip(row, function(self, button)
+                local idx = self.entry and self.entry.i
+                if not idx then return end
+                if RP():CanManageTeams() and (button == "RightButton" or idx == state.draft.li) then
+                    TV.lineupMenu(self, idx)
+                elseif button ~= "RightButton" then
+                    PlanUI:SelectLineup(idx)
+                end
+            end)
+            d.lchips[i] = c
+        end
+        TV.fillChip(c, e, i == dr.li)
+        widths[i] = c:GetWidth()
+        total = total + widths[i] + (i > 1 and 6 or 0)
+    end
+    local addW = organizer and (6 + d.ladd:GetWidth()) or 0
+    local room = TV.W - addW - (right > 0 and (right + 16) or 0)
+    local shown, rest = {}, {}
+    if total <= room then
+        for i in ipairs(list) do shown[i] = true end
+    else
+        local limit, used = room - 52 - 6, widths[dr.li]
+        shown[dr.li] = true
+        for i in ipairs(list) do
+            if i ~= dr.li and used + 6 + widths[i] <= limit then
+                shown[i] = true
+                used = used + 6 + widths[i]
+            end
+        end
+        for i, e in ipairs(list) do if not shown[i] then rest[#rest + 1] = e end end
+    end
+    local x = 0
+    for i, c in ipairs(d.lchips) do
+        if shown[i] and list[i] then
+            c:ClearAllPoints()
+            c:SetPoint("LEFT", row, "LEFT", x, 0)
+            c:Show()
+            x = x + widths[i] + 6
+        end
+    end
+    if #rest > 0 then
+        d.lmore.rest = rest
+        d.lmore:SetText("+" .. #rest)
+        d.lmore:ClearAllPoints()
+        d.lmore:SetPoint("LEFT", row, "LEFT", x, 0)
+        d.lmore:Show()
+        x = x + 52 + 6
+    end
+    d.ladd:SetShown(organizer)
+    if organizer then
+        d.ladd:ClearAllPoints()
+        d.ladd:SetPoint("LEFT", row, "LEFT", x, 0)
+    end
+end
+
+-- The waitlist's empty line: organizers always see the waitlist (what it is for); players who aren't on the roster
+-- see it to join; roster members only once someone waits. nil = hidden while empty.
+function TV.waitEmpty()
+    local dr = state.draft
+    if not dr or not dr.id or not dr.ln then return nil end
+    if RP():CanManageTeams() then
+        return "Nobody is waiting. Guild members who aren't on the roster put themselves on this lineup's waitlist here."
+    end
+    if TV.myKey(dr.members) then return nil end
+    return "Nobody is waiting for a spot yet."
+end
+
+-- The waitlist's Join / Leave button: for me when I'm not on the roster (a saved lineup).
+function TV.fillJoin(dr)
+    local b = teamsView.detail.joinBtn
+    local me = ns.Util.PlayerKey()
+    local show = dr.id ~= nil and dr.ln ~= nil and not dr.members[me] and not (dr.base and TV.inMembers(dr.base, me))
+    b:SetShown(show)
+    if not show then return end
+    local on = TV.waiting(me) ~= nil
+    b.on = on
+    b:SetText(on and "Leave the waitlist" or "Join the waitlist")
+    b:SetKind(on and "secondary" or "primary")
+end
+
+function TV.inMembers(team, key)
+    for _, k in ipairs(team.members or {}) do
+        if k == key then return true end
+    end
+    return false
+end
+
+-- Join: pick the spec I'd play (my specs, or as my sign-ups say); Leave: right away.
+function TV.joinClick(btn)
+    local dr = state.draft
+    if not dr or not dr.id or not dr.ln then return end
+    local id, ln = dr.id, dr.ln
+    if btn.on then
+        local ok, err = RP():LeaveWaitlist(id, ln)
+        if not ok then Print(err or "Could not leave the waitlist.") end
+        return
+    end
+    local _, cls = UnitClass("player")
+    local function join(sp)
+        local ok, err = RP():JoinWaitlist(id, ln, sp)
+        if not ok then Print(err or "Could not join the waitlist.") end
+    end
+    UI():ContextMenu(btn, function(root)
+        root:CreateTitle("Join as")
+        for i, spec in ipairs(cls and ns.SPECS[cls] or {}) do
+            root:CreateButton(TV.specIconText(cls, i, 14) .. " " .. spec.label, function() join(i) end)
+        end
+        local asp, ac = RP():GetMemberSpec(ns.Util.PlayerKey())
+        local label = asp and ns.RaidComp:SpecLabel(ac, asp)
+        if label then root:CreateButton(colorize("9e9e9e", "As my sign-ups say (" .. label .. ")"), function() join(nil) end) end
+    end)
 end
 
 ---------------------------------------------------------------------------
@@ -3935,7 +4452,7 @@ end
 function TV.match(dr)
     dr = dr or state.draft
     if not TV.comp(dr) then return nil end
-    return RP():MatchTeam(dr)
+    return RP():MatchTeam(TV.ref(dr))
 end
 
 -- "a" / "an"
@@ -3945,7 +4462,7 @@ end
 
 -- The strip of the Comp view: lit = whose slot is filled, planned = the open slots, off = not in the comp.
 function TV.compStates(dr)
-    local out = RP():GetTeamBuffStates(dr)
+    local out = RP():GetTeamBuffStates(TV.ref(dr))
     for _, e in ipairs(out) do
         if e.state == "off" then
             local names = {}
@@ -3961,7 +4478,7 @@ end
 -- The strip of the Groups view: lit = who sits in the groups, planned = the comp's open slots.
 function TV.groupStates(placed)
     local dr = state.draft
-    local open = TV.comp(dr) and (RP():GetTeamOpenSlots(dr)) or {}
+    local open = TV.comp(dr) and (RP():GetTeamOpenSlots(TV.ref(dr))) or {}
     local out = ns.RaidComp:BuffStates(placed, open)
     for _, e in ipairs(out) do
         if e.state == "off" then e.offText = "Nobody in the groups brings it." end
@@ -3985,10 +4502,11 @@ function TV.canFillTooltip(owner, c, sp, anchor)
         end
     end
     GameTooltip:AddLine("Open" .. (#brings > 0 and (" · brings " .. tconcat(brings, ", ")) or ""), 0.62, 0.62, 0.62, true)
-    local cf = RP():CanFill(dr, c, sp)
+    local cf = RP():CanFill(TV.ref(dr), c, sp)
     local any = false
-    for _, grp in ipairs({ { "Benched", cf.bench }, { "In the groups, beyond the comp", cf.extra },
-                           { "Alts of the team", cf.alts }, { "In the guild", cf.guild }, { "In other teams", cf.teams } }) do
+    for _, grp in ipairs({ { "Unassigned", cf.unassigned }, { "Waitlist", cf.waitlist },
+                           { "In the groups, beyond the comp", cf.extra }, { "Alts of the team", cf.alts },
+                           { "In the guild", cf.guild }, { "In other teams", cf.teams } }) do
         local list = grp[2] or {}
         if #list > 0 then
             any = true
@@ -4000,6 +4518,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
                 if e.other then right[#right + 1] = e.sp and ns.RaidComp:SpecLabel(e.c, e.sp) or "spec unknown" end
                 if e.of then right[#right + 1] = TV.isMine(e.of) and "your alt" or (shortName(e.of) .. "'s alt") end
                 if e.team then right[#right + 1] = e.team end
+                if e.n then right[#right + 1] = "#" .. e.n .. " in line" end
                 GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), tconcat(right, " · "),
                     1, 1, 1, 0.62, 0.62, 0.62)
             end
@@ -4154,7 +4673,7 @@ function TV.newNeed(row)
 end
 
 function TV.fillNeeds(row, open)
-    local W = TV.COL2 - 24
+    local W = row:GetWidth() or TV.W
     local x = (row.label:GetStringWidth() or 40) + 10
     local shown = #open
     for i, o in ipairs(open) do
@@ -4238,7 +4757,7 @@ function TV.startMenu(root)
     local dr = state.draft
     if not dr then return end
     root:CreateTitle("Start from")
-    for _, s in ipairs(RP():GetCompStarts(dr)) do
+    for _, s in ipairs(RP():GetCompStarts(TV.ref(dr))) do
         root:CreateButton(TV.startName(s) .. "  " .. colorize("9e9e9e", TV.startSub(s)), function() TV.startFrom(s) end)
     end
     if TV.comp(dr) then
@@ -4340,8 +4859,8 @@ function TV.slotTooltip(self)
     GameTooltip:Show()
 end
 
--- A chip under the comp's columns (benched, or beyond the comp): class circle, name, spec icon (the Sign-ups' boxes
--- look).
+-- A chip under the comp's columns (chip.kind: "unassigned", "waitlist" or "beyond" the comp): class circle, name,
+-- spec icon (the Sign-ups' boxes look).
 function TV.newBenchChip(parent)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(CHIP_H)
@@ -4366,11 +4885,14 @@ function TV.newBenchChip(parent)
         GameTooltip:AddLine(colored(m.key, m.c) .. (TV.isMine(m.key) and " |cff9e9e9e(you)|r" or ""))
         local label = m.sp and ns.RaidComp:SlotName(m.c, m.sp)
         GameTooltip:AddLine(label or ((ns.RaidComp:ClassName(m.c) or "") .. " · spec unknown"), 1, 1, 1)
-        GameTooltip:AddLine(self.benched and "Benched: in no group, so not in the comp." or "In a group, beyond the comp.",
-            0.6, 0.6, 0.6)
+        local kind = self.kind
+        GameTooltip:AddLine(kind == "unassigned" and "Unassigned: on the roster, in none of this lineup's groups."
+            or kind == "waitlist" and ("Waitlist #%d: not on the roster yet."):format(m.n or 0)
+            or "In a group, beyond the comp.", 0.6, 0.6, 0.6, true)
         if RP():CanManageTeams() then
-            GameTooltip:AddLine(self.benched and "Click to put them in a group or change the spec."
-                or "Click to add a slot or change the spec.", 0.6, 0.6, 0.6)
+            GameTooltip:AddLine(kind == "unassigned" and "Click to put them in a group or change the spec."
+                or kind == "waitlist" and "Click to move them in line, onto the roster or off the waitlist."
+                or "Click to add a slot or change the spec.", 0.6, 0.6, 0.6, true)
         end
         GameTooltip:Show()
     end)
@@ -4379,16 +4901,19 @@ function TV.newBenchChip(parent)
     return b
 end
 
--- A chip under the columns clicked (organizers): benched, a group to put them in; beyond the comp, a slot for their
--- spec; both, the spec they play in this team.
+-- A chip under the columns clicked (organizers): unassigned, a group to put them in; beyond the comp, a slot for
+-- their spec; both, the spec they play in this lineup. A waitlisted player: TV.waitMenu.
 function TV.benchMenu(chip)
     local m, dr = chip.member, state.draft
     if not m or not dr or not RP():CanManageTeams() then return end
     local key = m.key
+    if chip.kind == "waitlist" then
+        return UI():ContextMenu(chip, function(root) TV.waitMenu(root, key) end)
+    end
     UI():ContextMenu(chip, function(root)
         local label = m.sp and ns.RaidComp:SlotName(m.c, m.sp)
         root:CreateTitle(shortName(key) .. (label and (" " .. colorize("9e9e9e", label)) or ""))
-        if chip.benched then
+        if chip.kind == "unassigned" then
             for g = 1, ns.RaidComp:GroupCount(dr.sz) do
                 root:CreateButton("Move to group " .. g, function()
                     PlanUI:MoveDraftMember(key, g)
@@ -4401,7 +4926,7 @@ function TV.benchMenu(chip)
                 PlanUI:RefreshTeams()
             end)
         end
-        local sub = root:CreateButton("Spec in this team")
+        local sub = root:CreateButton("Spec in this lineup")
         sub:CreateRadio("Automatic", function() return dr.s[key] == nil end, function() PlanUI:SetDraftSpec(key, nil) end)
         for i, spec in ipairs(m.c and ns.SPECS[m.c] or {}) do
             sub:CreateRadio(spec.label, function() return dr.s[key] == i end, function() PlanUI:SetDraftSpec(key, i) end)
@@ -4631,8 +5156,10 @@ function TV.createComp(t, d)
         p:Hide()
         return p
     end
-    d.benched = chipPanel("Benched", "On the team, in no group: they don't count for the comp. Drag them into a "
-        .. "group on the Groups tab to fill a slot.")
+    d.unassigned = chipPanel("Unassigned", "On the roster, in none of this lineup's groups: they don't count for the "
+        .. "comp. Put them in a group (Groups tab) to fill a slot.")
+    d.waiting = chipPanel("Waitlist", "Not on the roster: players waiting for a spot in this lineup, first in line "
+        .. "first. They don't count for the comp until they are taken onto the roster and into a group.")
     d.bench = chipPanel("Beyond the comp", "In a group, but no slot takes them: more players of a spec than its "
         .. "slots, or a spec the comp doesn't have.")
 
@@ -4690,7 +5217,7 @@ end
 -- The empty card's tiles: the preset, the team as it is, another team's comp (three at most, centred).
 function TV.fillCompEmpty(dr)
     local e = teamsView.detail.compEmpty
-    local starts = RP():GetCompStarts(dr)
+    local starts = RP():GetCompStarts(TV.ref(dr))
     local n = min(3, #starts)
     local x0 = floor((560 - (n * 164 + (n - 1) * 8)) / 2 + 0.5)
     for i, b in ipairs(e.tiles) do
@@ -4767,7 +5294,8 @@ function TV.fillCompView(m, organizer)
     for _, col in ipairs(d.cols) do col:SetHeight(colH) end
     -- under the columns, who no slot takes, as chips with their spec: benched, then beyond the comp
     local y = colH
-    local panels = { { d.benched, m.benched or {}, true }, { d.bench, m.bench or {}, false } }
+    local panels = { { d.unassigned, m.unassigned or {}, "unassigned" }, { d.waiting, TV.waitMembers(), "waitlist" },
+                     { d.bench, m.bench or {}, "beyond" } }
     -- (both panels' chips start at the same x, past the longer label)
     local labelW = 0
     for _, e in ipairs(panels) do
@@ -4787,16 +5315,17 @@ function TV.fillCompView(m, organizer)
     cc:SetHeight(y)
 end
 
--- One panel of chips under the columns (benched or beyond the comp) at y, its chips from x0; returns its height.
-function TV.fillChipPanel(p, list, benched, y, x0)
+-- One panel of chips under the columns (kind: unassigned, waitlist or beyond the comp) at y, its chips from x0;
+-- returns its height.
+function TV.fillChipPanel(p, list, kind, y, x0)
     local W = TV.W
     local cx, cy = x0, -8
     for j, mem in ipairs(list) do
         local chip = p.chips[j] or TV.newBenchChip(p)
         p.chips[j] = chip
-        chip.member, chip.benched = mem, benched
+        chip.member, chip.kind = mem, kind
         UI():ClassIcon(chip.icon, mem.c)
-        chip.fs:SetText(colored(mem.key, mem.c))
+        chip.fs:SetText((kind == "waitlist" and colorize("9e9e9e", mem.n .. ". ") or "") .. colored(mem.key, mem.c))
         local icon = ns.RaidComp:SpecIcon(mem.c, mem.sp)
         chip.spec:SetShown(icon ~= nil)
         if icon then chip.spec:SetTexture(icon) end
@@ -4982,23 +5511,69 @@ local function editorTime()
     return time({ year = f.y, month = f.m, day = f.d, hour = f.hour, min = f.min, sec = 0 })
 end
 
+-- A team's lineups of the editor's raid size: { lineup, ... } (a GetTeam table's).
+function TV.sizeLineups(t)
+    local out = {}
+    for _, l in ipairs(t.lineups) do
+        if l.size == editor.f.sz then out[#out + 1] = l end
+    end
+    return out
+end
+
+-- The players a team invites to the editor's raid through lineup l (in its groups); the whole roster without a
+-- lineup of the raid's size, or when it has nobody in its groups yet (RaidPlan:GetRaidTeamPlayers). Returns the keys
+-- and whether they are the roster.
+function TV.editorPlayers(t, l)
+    local out = {}
+    if l then
+        local n = ns.RaidComp:GroupCount(editor.f.sz)
+        for _, key in ipairs(t.members) do
+            local g = l.groups[key]
+            if type(g) == "number" and g >= 1 and g <= n then out[#out + 1] = key end
+        end
+    end
+    if #out == 0 then return t.members, true end
+    return out, false
+end
+
+-- A Teams entry: "Main · Kara A (10)" (a lineup's players), "Main · roster (32)" (no lineup of the raid's size), or
+-- "Main (24)" for a team whose one lineup it is.
+function TV.editorEntry(t, l)
+    local players, roster = TV.editorPlayers(t, l)
+    local what = (roster and "roster") or ((#t.lineups > 1) and RP():LineupName(t, l)) or nil
+    return ("%s%s (%d)"):format(t.name, what and (" · " .. what) or "", #players)
+end
+
+-- The lineup a picked team gives the raid: the one chosen (f.tl), else its first of the raid's size.
+function TV.pickedLineup(t)
+    local list = TV.sizeLineups(t)
+    for _, l in ipairs(list) do
+        if l.id == editor.f.tl[t.id] then return l, #list end
+    end
+    return list[1], #list
+end
+
 local function teamSummary()
     local n = 0
     local names = {}
     for _, t in ipairs(RP():GetTeams()) do
-        if editor.f.tm[t.id] then n = n + 1; names[#names + 1] = t.name end
+        if editor.f.tm[t.id] then
+            n = n + 1
+            local l, count = TV.pickedLineup(t)
+            names[#names + 1] = t.name .. ((l and count > 1) and (" · " .. RP():LineupName(t, l)) or "")
+        end
     end
     if n == 0 then return "Everyone (no team)" end
     return tconcat(names, ", ")
 end
 
--- The guild members to invite on top of the teams (members of a picked team are in already).
+-- The guild members to invite on top of the teams (the players a picked team invites are in already).
 local function inviteItems()
     local g = ns.Guild
     local inTeam = {}
     for _, t in ipairs(RP():GetTeams()) do
         if editor.f.tm[t.id] then
-            for _, key in ipairs(t.members) do inTeam[key] = t.name end
+            for _, key in ipairs(TV.editorPlayers(t, TV.pickedLineup(t))) do inTeam[key] = t.name end
         end
     end
     local out, seen = {}, {}
@@ -5032,12 +5607,17 @@ end
 
 local function editorFields()
     local f = editor.f
-    local tm = {}
+    local tm, tl = {}, {}
     for _, t in ipairs(RP():GetTeams()) do
-        if f.tm[t.id] then tm[#tm + 1] = t.id end
+        if f.tm[t.id] then
+            tm[#tm + 1] = t.id
+            -- (a team with more than one lineup of the raid's size names the one it gives)
+            local l, count = TV.pickedLineup(t)
+            if l and count > 1 then tl[t.id] = l.id end
+        end
     end
     return {
-        i = f.i, sz = f.sz, t = editorTime(), tm = tm, lk = f.lk and true or false, inv = inviteList(),
+        i = f.i, sz = f.sz, t = editorTime(), tm = tm, tl = tl, lk = f.lk and true or false, inv = inviteList(),
         pv = (f.lk and f.pv) and true or false,
         ml = f.low and 0 or MAX_LEVEL,
         ti = ns.Util.Trim(editor.titleBox:GetText() or "") ~= "" and editor.titleBox:GetText() or false,
@@ -5062,6 +5642,13 @@ local function changedFields(fields, v)
     tsort(sa)
     tsort(sb)
     if a ~= b and tconcat(sa, ",") ~= tconcat(sb, ",") then out.tm = fields.tm end
+    local function choice(tl)
+        local list = {}
+        for id, ln in pairs(tl or {}) do list[#list + 1] = id .. "=" .. ln end
+        tsort(list)
+        return tconcat(list, ",")
+    end
+    if choice(fields.tl) ~= choice(v.tl) then out.tl = fields.tl end
     if fields.lk ~= (v.lk and true or false) then out.lk = fields.lk end
     if fields.pv ~= (v.pv and true or false) then out.pv = fields.pv end
     if fields.ml ~= (v.ml or 0) then out.ml = fields.ml end
@@ -5117,7 +5704,7 @@ local function createEditor()
     local w = UI():CreateWindow("DisasterZoneRaidEditor", "New raid", 400, 452)
     editor = w
     local c = w.content
-    w.f = { tm = {}, inv = {} }
+    w.f = { tm = {}, tl = {}, inv = {} }
 
     row(c, "Raid", -14)
     w.instDD = UI():CreateDropdown(c, 190, instanceOptions, function() return w.f.i end, function(v)
@@ -5161,16 +5748,36 @@ local function createEditor()
     tz:SetPoint("LEFT", w.minDD, "RIGHT", 8, 0)
     tz:SetText("your clock")
 
+    -- (a team with several lineups of the raid's size: one entry per lineup, "Main · Kara A (10)"; picking one picks
+    -- the team with that lineup: its groups and comp are the raid's)
     row(c, "Teams", -142)
     w.teamDD = UI():CreateMultiDropdown(c, 270, function()
         local out = {}
         for _, t in ipairs(RP():GetTeams()) do
-            out[#out + 1] = { value = t.id, text = ("%s (%d)"):format(t.name, #t.members) }
+            local list = TV.sizeLineups(t)
+            if #list > 1 then
+                for _, l in ipairs(list) do
+                    out[#out + 1] = { value = t.id .. ":" .. l.id, text = TV.editorEntry(t, l) }
+                end
+            else
+                out[#out + 1] = { value = t.id, text = TV.editorEntry(t, list[1]) }
+            end
         end
         if #out == 0 then out[1] = { value = "", text = "No teams yet (Teams view)", disabled = true } end
         return out
-    end, function(id) return w.f.tm[id] and true or false end, function(id, on)
-        if id ~= "" then w.f.tm[id] = on or nil end
+    end, function(value)
+        local id, ln = tostring(value):match("^([^:]+):?(.*)$")
+        if not w.f.tm[id] then return false end
+        if ln == "" then return true end
+        local t = RP():GetTeam(id)
+        local l = t and TV.pickedLineup(t)
+        return l ~= nil and l.id == ln
+    end, function(value, on)
+        local id, ln = tostring(value):match("^([^:]+):?(.*)$")
+        if id and id ~= "" then
+            w.f.tm[id] = on or nil
+            w.f.tl[id] = (on and ln ~= "") and ln or nil
+        end
         if w.teamDD.Refresh then w.teamDD:Refresh() end
     end, teamSummary)
     w.teamDD:SetPoint("TOPLEFT", 80, -136)
@@ -5253,13 +5860,14 @@ function PlanUI:OpenEditor(occId)
     local v = occId and RP():GetRaid(occId)
     editor.occ = v and v.id or nil
     editor.err:SetText("")
-    local f = { tm = {}, inv = {}, lk = false, low = false }   -- (a new raid is for level 70 characters)
+    local f = { tm = {}, tl = {}, inv = {}, lk = false, low = false }   -- (a new raid is for level 70 characters)
     if v then
         f.low = v.ml == nil
         local d = date("*t", v.t)
         f.i, f.sz, f.hour, f.min = v.i, v.sz, d.hour, d.min - d.min % 15
         f.y, f.m, f.d = d.year, d.month, d.day
         for _, id in ipairs(v.tm or {}) do f.tm[id] = true end
+        for id, ln in pairs(v.tl or {}) do f.tl[id] = ln end
         for _, key in ipairs(v.inv or {}) do f.inv[key] = true end
         f.lk = v.lk and true or false
         f.pv = v.pv and true or false
@@ -5898,6 +6506,44 @@ function PlanUI:OnInit()
             button2 = CANCEL or "Cancel",
             OnAccept = function(_, data)
                 if type(data) == "table" and data.fn then data.fn() end
+            end,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+        -- Teams: a lineup's name (empty: its default, "25-man")
+        local function editBox(popup) return (popup.GetEditBox and popup:GetEditBox()) or popup.editBox end
+        local function rename(data, text)
+            if type(data) == "table" and data.i then PlanUI:RenameLineup(data.i, text) end
+        end
+        StaticPopupDialogs["DISASTERZONE_LINEUP_NAME"] = {
+            text = "Lineup name (empty: its size, e.g. \"25-man\"):",
+            button1 = SAVE or "Save",
+            button2 = CANCEL or "Cancel",
+            hasEditBox = 1,
+            maxLetters = 32,
+            OnShow = function(self, data)
+                local eb = editBox(self)
+                data = data or self.data
+                if eb then
+                    eb:SetText(type(data) == "table" and data.name or "")
+                    eb:SetFocus()
+                    eb:HighlightText()
+                end
+            end,
+            OnAccept = function(self, data)
+                local eb = editBox(self)
+                rename(data or self.data, eb and eb:GetText())
+            end,
+            EditBoxOnEnterPressed = function(eb)
+                local popup = eb:GetParent()
+                rename(popup and popup.data, eb:GetText())
+                if popup then popup:Hide() end
+            end,
+            EditBoxOnEscapePressed = function(eb)
+                local popup = eb:GetParent()
+                if popup then popup:Hide() end
             end,
             timeout = 0,
             whileDead = true,

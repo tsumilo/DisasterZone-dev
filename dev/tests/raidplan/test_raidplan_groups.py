@@ -271,7 +271,8 @@ def teams_grid_moves_swaps_buffs_and_saves():
     bob.click(chip, "RightButton")
     menu = [e["text"] for e in bob.last_menu()["children"] if e.get("text")]
     assert "Spec: Combat" in menu and "Move to group 1" in menu and "Remove from the team" in menu, menu
-    bob.menu_select("Take out of the groups")
+    assert "Unassign" in menu, menu
+    bob.menu_select("Unassign")
     w.tick(0.3)
     assert "Sam" not in short(grid_state(bob)["groups"][2])
     assert bob.find_text("not saved", True, True)
