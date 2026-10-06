@@ -210,7 +210,11 @@ def late_login_catches_up_from_a_member_after_the_organizer_left():
     assert signup(c["Rita"], occ, "A", 2)["ok"] is True
     w.tick(2)
     bob.logout()
-    w.tick(2)
+    # Every online member's own login HELLO (8-20 s after its login) goes out before Uma logs in. One still pending
+    # would reach Uma, she would answer it with her old digest, and that member would fill her in: a valid catch-up,
+    # but not the one this case is about (and then nobody answers her own HELLO).
+    w.tick(20)
+    assert {K(n) for n in ("Lee", "Rita", "Sam", "Vic")} <= {m["_sender"] for m in lr.msgs_of_type(w, "H")}
     mark = len(w.addon_log)
     uma.login()
     w.tick(40)
@@ -218,8 +222,17 @@ def late_login_catches_up_from_a_member_after_the_organizer_left():
     assert uma.eval_py("return ns.RaidPlan:GetTeam(...)", tid)["members"] == [K("Rita"), K("Uma")]
     assert set(signups(uma, occ)) == {K("Rita")}
     assert len(uma.eval_py("return ns.RaidPlan:GetUnanswered()")) == 1
+    # One answer per round: the first member to answer claims the round (RPK on the live prefix) and the others stay
+    # quiet. The only exception is a member whose own timer fired before that claim could reach it (two random
+    # delays within one network latency): it answers too, which is harmless because Uma syncs with the first answer
+    # only (one RPW). Which members collide depends on the random delays, so the claims are checked against the latency.
+    claims = [m for m in lr.msgs_of_type(w, "RPK", mark) if m["to"] == K("Uma")]
     rpd = [m for m in lr.msgs_of_type(w, "RPD", mark) if m["to"] == K("Uma")]
-    assert len(rpd) == 1, rpd                                  # the others saw the answer and stayed quiet
+    assert claims and len(rpd) == len(claims), (claims, rpd)
+    first = min(m["_time"] for m in claims)
+    assert all(m["_time"] < first + w.latency for m in claims), claims   # the others saw the answer and stayed quiet
+    rpw = [m for m in lr.msgs_of_type(w, "RPW", mark) if m["_sender"] == K("Uma")]
+    assert len(rpw) == 1, rpw
     h = [m for m in lr.msgs_of_type(w, "H", mark) if m["_sender"] == K("Uma")]
     assert h and isinstance(h[0]["pd"], str), h           # (a live sign-up may have reached Uma already)
     # everyone agrees afterwards

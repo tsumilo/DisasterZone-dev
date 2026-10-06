@@ -163,6 +163,10 @@ def ledger_view_and_awards_survive_a_late_guild_name():
     w.tick(5)
     assert B.eval("return ns.Guild:GetGuildKey()") is not None
     assert B.eval("return ns.Ledger:HasAward(...)", key("Dave"), RUBY_DRAPE), "view stayed cached empty"
+    # The addon learns the name at its first read after the 3 s. That read is the login HELLO's ledger digest if the
+    # HELLO's random delay falls in this window, else the check just above. The scope update that tags the early award
+    # runs one frame after that read (Guild defers GUILD_KEY_READY, the ledger its own UpdateScope), so allow that frame.
+    w.tick(0.05)
     assert B.eval("return #ns.Ledger:GetEntries()") == 2
     assert B.eval("return ns.db.ledger[...].g", e2["id"]) == B.eval("return ns.Guild:GetGuildKey()")
     w.tick(40)   # (sent to the peers seen since the login: A, or the digest sync after the login HELLO)

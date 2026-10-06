@@ -460,7 +460,11 @@ def council_recorders_fill_each_others_gaps_when_the_raid_ends():
         assert [b["enc"] for b in r["bosses"]] == [652, 653], r["bosses"]
         assert r["endedBy"] == K("Lee"), r
     assert bob.eval_py("return ns.RaidLog:GetDigest()") == gina.eval_py("return ns.RaidLog:GetDigest()")
-    assert lr.msgs_of_type(w, "RLD", mark) and lr.msgs_of_type(w, "RLG", mark)
+    assert lr.msgs_of_type(w, "RLD", mark)
+    # each recorder gave the other its record. A record often goes out in two AceComm parts (over 255 bytes), and how
+    # big it is depends on which recorder offered first (random delays), so the parts are joined before decoding.
+    rlg = lr.msgs_of_type(w, "RLG", mark, whole=True)
+    assert {m["_sender"] for m in rlg} == {K("Bob"), K("Gina")}, [(m["_sender"], m["_time"]) for m in rlg]
     # raiders never get records: only council members send or receive them
     targets = [e.get("target") for e in w.addon_log[mark:] if e["prefix"] == "CDLd"]
     assert targets and set(targets) <= {"Bob", "Gina"}, targets

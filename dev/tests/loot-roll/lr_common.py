@@ -389,17 +389,43 @@ def popups_log(client):
         return out""") or []
 
 
-def msgs_of_type(w, t, start=0):
+def _ace_part(text):
+    """(control, rest) of one AceComm wire text: control 1 = first part, 2 = next, 3 = last, 4 = an escaped single
+    message, None = a plain single message (rest = the whole text)."""
+    c = (text[0] if isinstance(text, bytes) else ord(text[0])) if text else None
+    return (c, text[1:]) if c in (1, 2, 3, 4) else (None, text)
+
+
+def msgs_of_type(w, t, start=0, whole=False):
     """Decode DisasterZone comm messages (prefix CDL*) of type t sent since addon_log index `start`, using a client's
-    own LibDeflate/LibSerialize (any loaded client works)."""
+    own LibDeflate/LibSerialize (any loaded client works). A message over 255 bytes leaves in AceComm parts, which
+    don't decode on their own and are skipped. whole=True joins the parts: the message counts at its last part's log
+    entry, and one whose first part went out before `start` is left out."""
     out = []
     dec = None
+    partial = {}
     for e in w.addon_log[start:]:
         if not e["prefix"].startswith("CDL"):
             continue
+        text = e["text"]
+        if whole:
+            ctl, rest = _ace_part(text)
+            k = (e["sender"], e["prefix"], e["chat_type"], e.get("target") or "")
+            if ctl == 1:
+                partial[k] = [rest]
+                continue
+            if ctl in (2, 3):
+                if k not in partial:
+                    continue
+                partial[k].append(rest)
+                if ctl == 2:
+                    continue
+                text = rest[:0].join(partial.pop(k))
+            elif ctl == 4:
+                text = rest
         if dec is None:
             dec = next(c for c in w.clients if c.runtime is not None and c.loaded)
-        m = decode_msg(dec, e["text"])
+        m = decode_msg(dec, text)
         if m and m.get("t") == t:
             m["_sender"] = e["sender"]
             m["_chat_type"] = e["chat_type"]
