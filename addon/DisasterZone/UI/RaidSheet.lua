@@ -7,8 +7,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidSheet.lua", ...) then retur
 --   When: a week of day cells (a dot on days with a raid), arrows a week back / on, a calendar button that drops the
 --     month calendar for later days; the time as a stepper (15 minutes a step, the mouse wheel too); Every week (new
 --     raids)
---   Who: a card per team (per lineup of the raid's size when it has several) with how many it invites, the search
---     for players outside the teams, and the players invited as pills (x takes one off)
+--   Who: what is picked as chips (a team's lineup in gold with how many it invites, invited players in their class
+--     colour; a click takes one off), then one search for teams and players: the teams picked for these raids lately
+--     first, every other team (a row per lineup of the raid's size, or its roster), then the guild. Two lines at most:
+--     chips that don't fit go into "+N more" (any number of teams keeps the sheet's layout)
 --   Sign-ups: Everyone | Teams + invited | Private; Level 70 only beside it
 --   Details: Title and Note side by side
 --   the preview (the card as the Upcoming board draws it, without the answer buttons), then who can sign up in one
@@ -27,6 +29,9 @@ local LABEL_W = 70
 local ROW_GAP = 12
 local DAY_W, DAY_H, DAY_GAP, DAYS = 40, 40, 3, 7
 local CARD_H, CARD_GAP = 24, 6
+local CHIP_H, CHIP_GAP, WHO_LINES = 22, 6, 2     -- the Who row: chips, then the search, on at most two lines
+local FIELD_MIN, FIELD_MAX = 180, 240
+local WHO_PANEL_W = 340                          -- the Who search's list
 local SHEET_BG = { 0.035, 0.035, 0.043, 0.985 }
 local CELL_BG = { 0.08, 0.08, 0.09, 0.95 }
 local EDGE = { 0.20, 0.20, 0.23, 1 }
@@ -35,7 +40,6 @@ local GOLD = { 0.91, 0.73, 0.14 }
 local EDITOR_DAYS = 60              -- the calendar reaches this far ahead
 local MAX_LEVEL = 70                -- a new raid asks for this level unless "Level 70 only" is switched off
 local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
-local CHECK_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local ACCESS = {
     { key = "open", text = "Everyone", tip = { "Everyone", "Every guild member can sign up; the teams only say who is "
@@ -240,14 +244,22 @@ function S.teamCards()
     return out
 end
 
--- A card clicked: picks the team (with that lineup) or takes it off.
+-- Whether a team card's value (team id or "team:lineup") is picked: the team, and that lineup of it.
+function S.teamPicked(value)
+    local id, ln = tostring(value):match("^([^:]+):?(.*)$")
+    if not id or id == "" or not sheet.f.tm[id] then return false end
+    if ln == "" then return true end
+    local t = RP():GetTeam(id)
+    local picked = t and S.pickedLineup(t)
+    return (picked and picked.id == ln) and true or false
+end
+
+-- A team picked or taken off (a team row in the Who search, a chip): with that lineup.
 function S.toggleTeam(value)
     local f = sheet.f
     local id, ln = tostring(value):match("^([^:]+):?(.*)$")
     if not id or id == "" then return end
-    local t = RP():GetTeam(id)
-    local picked = t and S.pickedLineup(t)
-    local on = f.tm[id] and (ln == "" or (picked and picked.id == ln))
+    local on = S.teamPicked(value)
     if on then
         f.tm[id], f.tl[id] = nil, nil
     else
@@ -288,8 +300,109 @@ function S.inviteList()
     return list
 end
 
--- Who can sign up, in one line, and how many players the teams and the invites take.
-function S.whoLine()
+-- The team cards (values) picked for these raids lately: planned raids with any of the night's instances, two weeks
+-- back to two weeks ahead, the nearest first; the lineup they used when it is one of this size. At most RECENT_MAX.
+local RECENT_MAX = 3
+function S.recentTeams(cards)
+    local f = sheet.f
+    local want = {}
+    for _, key in ipairs(f.list) do want[key] = true end
+    local now = Now()
+    local hits = {}
+    for _, v in ipairs(RP():GetRaids(now - 14 * 86400, now + 14 * 86400, true)) do
+        if not v.cancelled and v.id ~= sheet.occ and v.tm and #v.tm > 0 then
+            for _, key in ipairs(RP():GetRaidInstances(v)) do
+                if want[key] then
+                    hits[#hits + 1] = v
+                    break
+                end
+            end
+        end
+    end
+    tsort(hits, function(a, b)
+        local da, db = math.abs(a.t - now), math.abs(b.t - now)
+        if da ~= db then return da < db end
+        return a.id < b.id
+    end)
+    local out, seen = {}, {}
+    for _, v in ipairs(hits) do
+        for _, tid in ipairs(v.tm) do
+            local lid = v.tl and v.tl[tid]
+            local value
+            for _, c in ipairs(cards) do
+                if c.team.id == tid and (not value or (lid and c.lineup and c.lineup.id == lid)) then value = c.value end
+            end
+            if value and not seen[value] and #out < RECENT_MAX then
+                seen[value] = true
+                out[#out + 1] = value
+            end
+        end
+    end
+    return out
+end
+
+-- The team icon (art pack 4), as a search row's icon = { file, l, r, t, b }.
+function S.teamIcon()
+    if not ns:HasAssets(4) then return nil end
+    local c = UI():IconCoords(UI().ICON.team)
+    return { UI().ICON_ATLAS, c[1], c[2], c[3], c[4] }
+end
+
+function S.teamLabel(c) return c.name .. (c.what and (" · " .. c.what) or "") end
+
+function S.teamTip(c)
+    return c.roster and "No lineup of this size with players in its groups: the whole roster is invited."
+        or ("The %d players in this lineup's groups are invited; its groups and comp are the raid's."):format(c.n)
+end
+
+-- The Who search, one list: the teams picked for these raids lately, the other teams (a row per lineup of the raid's
+-- size, or the roster), then the guild's players (those a picked team brings already are ticked and fixed).
+function S.whoItems()
+    local f = sheet.f
+    local out = {}
+    local cards = S.teamCards()
+    local byValue = {}
+    for _, c in ipairs(cards) do byValue[c.value] = c end
+    local icon = S.teamIcon()
+    local function add(c)
+        local label = S.teamLabel(c)
+        out[#out + 1] = { key = "team:" .. c.value, team = true, value = c.value, text = label,
+                          search = "team " .. (c.what or ""), note = c.n == 1 and "1 player" or (c.n .. " players"),
+                          icon = icon, iconColor = GOLD, color = "ffeeeeee", tip = { label, S.teamTip(c) } }
+    end
+    local recent = S.recentTeams(cards)
+    local done = {}
+    if #recent > 0 then
+        local inst = #f.list == 1 and RP():GetInstance(f.list[1])
+        out[#out + 1] = { header = inst and inst.key ~= "other" and ("Recently on " .. inst.name)
+            or "Recently on these raids" }
+        for _, value in ipairs(recent) do
+            add(byValue[value])
+            done[value] = true
+        end
+    end
+    local rest = {}
+    for _, c in ipairs(cards) do
+        if not done[c.value] then rest[#rest + 1] = c end
+    end
+    if #rest > 0 then
+        out[#out + 1] = { header = #recent > 0 and "Other teams" or "Teams" }
+        for _, c in ipairs(rest) do add(c) end
+    end
+    local players = S.inviteItems()
+    if #players > 0 then
+        out[#out + 1] = { header = "Players" }
+        for _, e in ipairs(players) do
+            if e.fixed then e.fixedTip = ("In %s: invited with the team."):format(e.fixed) end
+            out[#out + 1] = e
+        end
+    end
+    return out
+end
+
+-- Who can sign up, in one line, and how many players the teams and the invites take. keep: name that many teams,
+-- then "and N more teams" (0: "9 teams"); nil names them all.
+function S.whoLine(keep)
     local f = sheet.f
     local set, names = {}, {}
     for _, c in ipairs(S.teamCards()) do
@@ -305,13 +418,22 @@ function S.whoLine()
     end
     local n = 0
     for _ in pairs(set) do n = n + 1 end
+    local nTeams = #names
+    if keep and nTeams > keep and nTeams > 1 then
+        if keep < 1 then
+            names = { nTeams .. " teams" }
+        else
+            for i = nTeams, keep + 1, -1 do names[i] = nil end
+            names[keep] = names[keep] .. (" and %d more %s"):format(nTeams - keep, nTeams - keep == 1 and "team" or "teams")
+        end
+    end
     local who = {}
     if #names > 0 then who[#who + 1] = tconcat(names, ", ") end
     if nInv > 0 then who[#who + 1] = nInv .. " invited" end
     local level = f.low and "" or (" Level %d only."):format(MAX_LEVEL)
     if f.access == "open" then
         return (#names > 0 and ("Everyone can sign up; %s %s expected."):format(tconcat(names, ", "),
-            #names == 1 and "is" or "are") or "Every guild member can sign up.") .. level, n
+            nTeams == 1 and "is" or "are") or "Every guild member can sign up.") .. level, n
     end
     if n == 0 then return colorize("ff9933", "Nobody can sign up yet: pick a team or invite players."), n end
     if f.access == "private" then
@@ -526,89 +648,108 @@ function S.newDay(parent)
     return c
 end
 
--- A team card: [check] name · lineup [count]; picked = gold edge and a check.
-function S.newCard(parent)
-    local c = flatCell(CreateFrame("Button", nil, parent))
-    c:SetHeight(CARD_H)
-    c.check = c:CreateTexture(nil, "ARTWORK")
-    c.check:SetTexture(CHECK_TEX)
-    c.check:SetDesaturated(true)
-    c.check:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
-    c.check:SetSize(12, 12)
-    c.check:SetPoint("LEFT", 8, 0)
-    c.name = text(c, "GameFontHighlight", 12)
-    c.what = text(c, "GameFontHighlight", 12)
-    c.what:SetTextColor(0.6, 0.6, 0.62)
-    c.badge = CreateFrame("Frame", nil, c)
-    c.badge:SetHeight(16)
-    UI():AddPillShape(c.badge, 16)
-    c.count = text(c.badge, "GameFontHighlightSmall", 10)
-    c.count:SetJustifyH("CENTER")
-    c.count:SetPoint("CENTER", 0, 0)
-    c:SetScript("OnClick", function(self) S.toggleTeam(self.entry.value) end)
-    tipOn(c, function(self)
-        local e = self.entry
-        if not e then return nil end
-        return { e.name .. (e.what and (" · " .. e.what) or ""), e.roster
-            and "No lineup of this size with players in its groups: the whole roster is invited."
-            or ("The %d players in this lineup's groups are invited; its groups and comp are the raid's."):format(e.n) }
+-- A chip on the Who row: what is picked. kind "team" = a team's lineup (gold, the team icon, how many it invites),
+-- "player" = an invited player (their class colour), both with an x (a click takes it off); "more" = "+3 more", the
+-- chips that don't fit in two lines (a click opens the search, where they are ticked).
+local CHIP_LOOK = {
+    team   = { fill = { 0.15, 0.12, 0.04, 1 }, edge = { 0.52, 0.42, 0.12, 1 }, hover = { GOLD[1], GOLD[2], GOLD[3], 1 } },
+    player = { fill = { 0.11, 0.11, 0.13, 1 }, edge = { 0.24, 0.24, 0.28, 1 }, hover = { 0.45, 0.45, 0.5, 1 } },
+    more   = { fill = { 0.09, 0.09, 0.10, 1 }, edge = { 0.24, 0.24, 0.28, 1 }, hover = { 0.45, 0.45, 0.5, 1 } },
+}
+
+function S.paintChip(c)
+    local look = CHIP_LOOK[c.kind] or CHIP_LOOK.player
+    c:SetPillColors(look.fill, c.hovered and look.hover or look.edge)
+    if c.hovered then c.x:SetTextColor(1, 0.45, 0.45) else c.x:SetTextColor(0.55, 0.55, 0.58) end
+end
+
+function S.chipTip(c)
+    if c.kind == "team" then
+        return { S.teamLabel(c.entry), S.teamTip(c.entry), grey("Click to take it off.") }
+    elseif c.kind == "player" then
+        return { ns.Util.ShortName(c.key), "Invited on top of the teams.", grey("Click to take them off.") }
+    end
+    local lines = { ("%d more"):format(#c.hidden) }
+    for _, name in ipairs(c.hidden) do lines[#lines + 1] = name end
+    lines[#lines + 1] = grey("Click to see them in the list.")
+    return lines
+end
+
+function S.newChip(parent)
+    local c = CreateFrame("Button", nil, parent)
+    c:SetHeight(CHIP_H)
+    UI():AddPillShape(c, CHIP_H)
+    c.icon = c:CreateTexture(nil, "ARTWORK")
+    c.icon:SetSize(14, 14)
+    c.icon:SetPoint("LEFT", 8, 0)
+    c.name = text(c, "GameFontHighlightSmall", 11)
+    c.count = text(c, "GameFontHighlightSmall", 10)
+    c.count:SetTextColor(0.80, 0.68, 0.38)
+    c.x = text(c, "GameFontHighlightSmall", 11)
+    c.x:SetText("x")
+    c.x:SetPoint("RIGHT", -9, 0)
+    c:SetScript("OnClick", function(self)
+        if self.kind == "team" then
+            S.toggleTeam(self.entry.value)
+        elseif self.kind == "player" then
+            sheet.f.inv[self.key] = nil
+            S.refresh()
+        elseif not sheet.invPicker:IsOpen() then
+            sheet.invPicker:Toggle()
+        end
+    end)
+    c:SetScript("OnEnter", function(self)
+        self.hovered = true
+        S.paintChip(self)
+        UI():SetTextTooltip(self, S.chipTip(self), "ANCHOR_TOP")
+    end)
+    c:SetScript("OnLeave", function(self)
+        self.hovered = false
+        S.paintChip(self)
+        hideTip()
     end)
     return c
 end
 
-function S.fillCard(c, e)
-    c.entry = e
-    c:Paint(e.chosen)
-    c.check:SetShown(e.chosen)
-    local x = e.chosen and 26 or 10
+-- Fills a chip (item = { kind, entry (a team card) | key (a player) | hidden (names) }) and sizes it to its text.
+function S.fillChip(c, item)
+    c.kind, c.entry, c.key, c.hidden = item.kind, item.entry, item.key, item.hidden
+    local x = 10
+    local icon = item.kind == "team" and S.teamIcon()
+    if icon then
+        c.icon:SetTexture(icon[1])
+        c.icon:SetTexCoord(icon[2], icon[3], icon[4], icon[5])
+        c.icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
+        c.icon:Show()
+        x = 8 + 14 + 5
+    else
+        c.icon:Hide()
+    end
     c.name:ClearAllPoints()
     c.name:SetPoint("LEFT", c, "LEFT", x, 0)
-    c.name:SetText(e.name)
-    x = x + (c.name:GetStringWidth() or 60)
-    c.what:ClearAllPoints()
-    c.what:SetPoint("LEFT", c.name, "RIGHT", 0, 0)
-    c.what:SetText(e.what and (" · " .. e.what) or "")
-    x = x + (e.what and (c.what:GetStringWidth() or 40) or 0)
-    c.count:SetText(e.n)
-    local bw = max(20, floor((c.count:GetStringWidth() or 8) + 12 + 0.5))
-    c.badge:SetWidth(bw)
-    c.badge:ClearAllPoints()
-    c.badge:SetPoint("LEFT", c, "LEFT", x + 8, 0)
-    if e.chosen then
-        c.badge:SetPillColors({ 0.29, 0.24, 0.07, 1 }, { 0.29, 0.24, 0.07, 1 })
-        c.count:SetTextColor(1, 0.88, 0.54)
+    if item.kind == "team" then
+        c.name:SetText(S.teamLabel(item.entry))
+        c.name:SetTextColor(1, 0.88, 0.54)
+    elseif item.kind == "player" then
+        local g = ns.Guild
+        c.name:SetText(UI():ColoredName(item.key, g and g.GetClass and g:GetClass(item.key)))
+        c.name:SetTextColor(1, 1, 1)
     else
-        c.badge:SetPillColors({ 0.15, 0.15, 0.17, 1 }, { 0.15, 0.15, 0.17, 1 })
-        c.count:SetTextColor(0.8, 0.8, 0.8)
+        c.name:SetText(("+%d more"):format(#item.hidden))
+        c.name:SetTextColor(0.75, 0.75, 0.78)
     end
-    c:SetWidth(floor(x + 8 + bw + 8 + 0.5))
-end
-
--- An invited player as a pill: the name in its class colour and an x that takes them off.
-function S.newPill(parent)
-    local p = CreateFrame("Button", nil, parent)
-    p:SetHeight(20)
-    UI():AddPillShape(p, 20)
-    p:SetPillColors({ 0.11, 0.11, 0.13, 1 }, { 0.22, 0.22, 0.26, 1 })
-    p.name = text(p, "GameFontHighlightSmall", 11)
-    p.name:SetPoint("LEFT", 10, 0)
-    p.x = text(p, "GameFontHighlightSmall", 11)
-    p.x:SetTextColor(0.55, 0.55, 0.58)
-    p.x:SetText("x")
-    p:SetScript("OnClick", function(self)
-        sheet.f.inv[self.key] = nil
-        S.refresh()
-    end)
-    p:SetScript("OnEnter", function(self)
-        self.x:SetTextColor(1, 0.45, 0.45)
-        UI():SetTextTooltip(self, { ns.Util.ShortName(self.key), "Invited on top of the teams. Click to take them off." },
-            "ANCHOR_TOP")
-    end)
-    p:SetScript("OnLeave", function(self)
-        self.x:SetTextColor(0.55, 0.55, 0.58)
-        hideTip()
-    end)
-    return p
+    x = x + (c.name:GetStringWidth() or 40)
+    c.count:SetShown(item.kind == "team")
+    if item.kind == "team" then
+        c.count:ClearAllPoints()
+        c.count:SetPoint("LEFT", c.name, "RIGHT", 6, 0)
+        c.count:SetText(item.entry.n)
+        x = x + 6 + (c.count:GetStringWidth() or 10)
+    end
+    c.x:SetShown(item.kind ~= "more")
+    if item.kind ~= "more" then x = x + 8 + (c.x:GetStringWidth() or 6) + 9 else x = x + 10 end
+    c:SetWidth(floor(x + 0.5))
+    S.paintChip(c)
 end
 
 function S.create()
@@ -756,24 +897,33 @@ function S.create()
     tipOn(sh.weeklyCB, { "Every week", "A weekly raid: the next two weeks are always planned, and each week can be "
         .. "changed or cancelled on its own." })
 
-    -- Who: the team cards, the search for players outside the teams, the invited players
-    sh.whoRow = rowFrame("Who", CARD_H)
-    sh.whoRow.label:SetPoint("TOPLEFT", 0, -6)
-    sh.cards = {}
-    sh.pills = {}
-    sh.invPicker = UI():CreateSearchDropdown(sh.whoRow, 170, {
-        placeholder = "Invite players",
-        emptyText = "No matching guild members.",
-        panelWidth = 260,
-        getItems = S.inviteItems,
-        isChecked = function(key) return sh.f.inv[key] and true or false end,
-        onToggle = function(key)
-            sh.f.inv[key] = not sh.f.inv[key] or nil
-            S.refresh()
+    -- Who: what is picked as chips (teams' lineups, then invited players), then one search for both
+    sh.whoRow = rowFrame("Who", CHIP_H)
+    sh.whoRow.label:SetPoint("TOPLEFT", 0, -5)
+    sh.chips = {}
+    sh.moreChip = S.newChip(sh.whoRow)
+    sh.invPicker = UI():CreateSearchDropdown(sh.whoRow, FIELD_MAX, {
+        placeholder = "Add a team or players",
+        emptyText = "No matching teams or guild members.",
+        panelWidth = WHO_PANEL_W,
+        maxRows = 12,
+        getItems = S.whoItems,
+        isChecked = function(key, e)
+            if e and e.team then return S.teamPicked(e.value) end
+            return sh.f.inv[key] and true or false
+        end,
+        onToggle = function(key, e)
+            if e and e.team then
+                S.toggleTeam(e.value)
+            else
+                sh.f.inv[key] = not sh.f.inv[key] or nil
+                S.refresh()
+            end
+            -- (a team brings its players: they are ticked and fixed now)
+            if e and e.team and sh.invPicker:IsOpen() then sh.invPicker:Refresh(true) end
         end,
     })
-    sh.invPicker.frame:SetHeight(CARD_H)
-    tipOn(sh.invPicker.frame, { "Invite players", "Players outside the teams who are invited too (guild members)." })
+    sh.invPicker.frame:SetHeight(CHIP_H)
 
     -- Sign-ups: one choice; Level 70 only beside it
     sh.accessRow = rowFrame("Sign-ups", CARD_H)
@@ -884,51 +1034,92 @@ function S.layoutWhen()
     sh.datePicker:Refresh()
 end
 
--- The Who row: the cards and the invite search, wrapping; the invited players under them. Returns its height.
+-- The Who row: the chips (the teams' lineups, then the invited players), then the search, which takes the rest of
+-- its line (FIELD_MIN .. FIELD_MAX). At most WHO_LINES lines: the chips that don't fit go into "+N more". Returns the
+-- row's height.
 function S.layoutWho(w)
     local sh = sheet
-    local list = S.teamCards()
-    for _, c in ipairs(sh.cards) do c:Hide() end
-    local x, y = 0, 0
-    local function place(f, fw)
-        if x > 0 and x + fw > w then x, y = 0, y + CARD_H + CARD_GAP end
-        f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", sh.whoRow, "TOPLEFT", LABEL_W + x, -y)
-        x = x + fw + CARD_GAP
+    local items = {}
+    for _, e in ipairs(S.teamCards()) do
+        if e.chosen then items[#items + 1] = { kind = "team", entry = e } end
     end
-    for i, e in ipairs(list) do
-        local c = sh.cards[i] or S.newCard(sh.whoRow)
-        sh.cards[i] = c
-        S.fillCard(c, e)
-        place(c, c:GetWidth())
-        c:Show()
+    for _, key in ipairs(S.inviteList()) do items[#items + 1] = { kind = "player", key = key } end
+    local widths = {}
+    for i, item in ipairs(items) do
+        local c = sh.chips[i] or S.newChip(sh.whoRow)
+        sh.chips[i] = c
+        S.fillChip(c, item)
+        widths[i] = c:GetWidth()
     end
-    place(sh.invPicker.frame, sh.invPicker.frame:GetWidth())
-    local h = y + CARD_H
-    -- the invited players
-    local inv = S.inviteList()
-    for _, p in ipairs(sh.pills) do p:Hide() end
-    if #inv > 0 then
-        local px, py = 0, h + 8
-        for i, key in ipairs(inv) do
-            local p = sh.pills[i] or S.newPill(sh.whoRow)
-            sh.pills[i] = p
-            p.key = key
-            local g = ns.Guild
-            p.name:SetText(UI():ColoredName(key, g and g.GetClass and g:GetClass(key)))
-            local pw = floor((p.name:GetStringWidth() or 60) + 10 + 8 + 8 + 10 + 0.5)
-            p:SetWidth(pw)
-            p.x:ClearAllPoints()
-            p.x:SetPoint("RIGHT", -9, 0)
-            if px > 0 and px + pw > w then px, py = 0, py + 20 + 5 end
-            p:ClearAllPoints()
-            p:SetPoint("TOPLEFT", sh.whoRow, "TOPLEFT", LABEL_W + px, -py)
-            p:Show()
-            px = px + pw + 5
+    for i = #items + 1, #sh.chips do sh.chips[i]:Hide() end
+    local function hiddenNames(k)
+        local out = {}
+        for i = k + 1, #items do
+            local it = items[i]
+            out[#out + 1] = it.kind == "team" and S.teamLabel(it.entry) or ns.Util.ShortName(it.key)
         end
-        h = py + 20
+        return out
     end
-    return h
+    -- k chips, "+N more" when some are left, the search: their places, or nil when that takes more than two lines
+    local function fit(k)
+        local x, line, pos = 0, 1, {}
+        local function put(fw)
+            if x > 0 and x + fw > w then x, line = 0, line + 1 end
+            if line > WHO_LINES then return false end
+            pos[#pos + 1] = { x = x, line = line, w = fw }
+            x = x + fw + CHIP_GAP
+            return true
+        end
+        for i = 1, k do
+            if not put(widths[i]) then return nil end
+        end
+        if k < #items then
+            S.fillChip(sh.moreChip, { kind = "more", hidden = hiddenNames(k) })
+            if not put(sh.moreChip:GetWidth()) then return nil end
+        end
+        if not put(FIELD_MIN) then return nil end
+        local last = pos[#pos]
+        last.w = min(FIELD_MAX, max(FIELD_MIN, w - last.x))
+        return pos, line
+    end
+    local pos, lines, k
+    for n = #items, 0, -1 do
+        pos, lines = fit(n)
+        if pos then
+            k = n
+            break
+        end
+    end
+    if not pos then                                  -- (a row too narrow for even the search: it goes alone)
+        k, lines = 0, 1
+        pos = { { x = 0, line = 1, w = w } }
+    end
+    local function at(f, p)
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", sh.whoRow, "TOPLEFT", LABEL_W + p.x, -(p.line - 1) * (CHIP_H + CHIP_GAP))
+    end
+    for i, c in ipairs(sh.chips) do
+        if i <= k then
+            at(c, pos[i])
+            c:Show()
+        elseif i <= #items then
+            c:Hide()
+        end
+    end
+    local n = k
+    if k < #items and #pos > k + 1 then
+        n = n + 1
+        at(sh.moreChip, pos[n])
+        sh.moreChip:Show()
+    else
+        sh.moreChip:Hide()
+    end
+    local field = pos[#pos]
+    sh.invPicker.frame:SetWidth(field.w)
+    at(sh.invPicker.frame, field)
+    -- its list drops from the field's left edge, or its right one when that would leave the sheet
+    sh.invPicker:SetPanelAlign(field.x + WHO_PANEL_W > w)
+    return lines * CHIP_H + (lines - 1) * CHIP_GAP
 end
 
 function S.refreshPreview()
@@ -958,10 +1149,13 @@ end
 
 function S.refreshFooter()
     local sh = sheet
-    local line = S.whoLine()
     sh.err:SetText(sh.errText or "")
     sh.err:SetShown(sh.errText ~= nil)
-    sh.who:SetText(line)
+    -- (many teams: as many named as fit the line)
+    for _, keep in ipairs({ false, 2, 1, 0 }) do
+        sh.who:SetText((S.whoLine(keep or nil)))
+        if (sh.who:GetStringWidth() or 0) <= (sh.who:GetWidth() or 0) then break end
+    end
     sh.who:SetShown(sh.errText == nil)
 end
 

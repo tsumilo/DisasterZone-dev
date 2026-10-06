@@ -160,6 +160,8 @@ def close_all(cl):
       if ns.MainFrame and ns.MainFrame.Close then ns.MainFrame:Close() end
       if ns.DropPanel and ns.DropPanel.Hide then ns.DropPanel:Hide() end
       if ns.RollFrame and ns.RollFrame.frame then ns.RollFrame.frame:Hide() end
+      if ns.UI and ns.UI.CloseMenus then ns.UI:CloseMenus() end
+      __MOCK.real_geometry = nil
       local rf = _G.DisasterZoneRollFrame; if rf and rf.Hide then rf:Hide() end
       if GameTooltip then GameTooltip:Hide() end""")
 
@@ -560,6 +562,15 @@ STATES = [
                                            "if c.key == key then c:GetScript('OnClick')(c) end end")),
     ("My BiS", opened("mybis")),
     ("My BiS - item picker", opened("mybis", "ns.Picker:Open(1, 1, 'main')")),
+    # the addon's own menu (UI/Menu.lua): More under its button, the Copy submenu open (real geometry: the menu is
+    # placed from where its button really is; close_all turns it off again)
+    ("My BiS - More menu", opened("mybis", "__MOCK.real_geometry = true; "
+                                           "local function find(f) if rawget(f, 'tipTitle') == 'More' and f:IsVisible() "
+                                           "then return f end for _, ch in ipairs({ f:GetChildren() }) do "
+                                           "local r = find(ch) if r then return r end end end "
+                                           "find(UIParent):Click(); local fr = ns.UI:GetMenuFrames(); "
+                                           "for _, r in ipairs(fr[1].rows) do if r.hasKids then "
+                                           "r:GetScript('OnEnter')(r) end end")),
     # the Import / Export window (UI/ImportExport.lua): a That's My BiS paste over Gina's seeded P1 list, an error,
     # and the export tab
     ("My BiS - Import", opened("mybis", "ns.ImportExport:Open('import'); ns.ImportExport:SetSource([==[" + TMB_SAMPLE
@@ -642,6 +653,15 @@ STATES = [
                                                 "ns.RaidPlanUI:ToggleEditorRaid('gruul'); "
                                                 "ns.RaidPlanUI:ToggleEditorRaid('mag'); "
                                                 "ns.RaidPlanUI:SetEditorAccess('locked')")),
+    # 1.3.2: nine teams and two players picked: the Who row stays two lines ("+N more"), its search open
+    ("Raids - New raid - many teams", st_window("local m = {}; for _, n in ipairs({ 'Victhar', 'Shadowmelder', "
+                                               "'Vaenyria' }) do m[#m + 1] = ns.Util.NormalizeName(n) end; "
+                                               "ns.RaidPlanUI:OpenEditor(); local ed = ns.RaidPlanUI:GetEditor(); "
+                                               "ed.f.inv[ns.Util.NormalizeName('Moonwhisper')] = true; "
+                                               "ed.f.inv[ns.Util.NormalizeName('Lightbringer')] = true; "
+                                               "for n = 1, 9 do local ok, id = ns.RaidPlan:SaveTeam(nil, "
+                                               "'Raid team ' .. n, m); if ok then ns.RaidPlanUI:PickEditorTeam(id) "
+                                               "end end; ed.invPicker:Open()")),
     ("Raids - Add players - members", st_window("ns.RaidPlanUI:OpenInvites(...)")),
     ("Raids - Add players - guest", st_window("ns.RaidPlanUI:OpenInvites(...); "
                                               "ns.RaidPlanUI:GetInviteWindow().mode = 'guest'; "

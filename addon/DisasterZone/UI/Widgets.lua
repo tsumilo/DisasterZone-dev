@@ -536,6 +536,55 @@ local SLEEK = {
 }
 SLEEK.active = SLEEK.chosen   -- the older name of "chosen"
 UI.SLEEK = SLEEK
+local LIT_EDGE = { 1, 0.82, 0, 0.75 }   -- a field being typed in / a dropdown while its list is open
+
+-- What drops from a dropdown (every menu, the calendar, the search lists): a near-black panel with a 1px edge, 4px
+-- under its dropdown, dropping in (UI:DropIn).
+UI.DROP_BG = { 0.06, 0.06, 0.07, 0.98 }
+UI.DROP_EDGE = { 0.34, 0.34, 0.38, 1 }
+UI.DROP_GAP = 4
+UI.DROP_FALL, UI.DROP_TIME = 6, 0.14     -- the drop-in: px it moves, seconds
+
+local dropping = {}
+local dropDriver = CreateFrame("Frame")
+
+local function DropEase(t)
+    if t >= 1 then return 1 end
+    t = 1 - t
+    return 1 - t * t * t
+end
+
+local function StepDrops(self, elapsed)
+    local busy = false
+    for f, d in pairs(dropping) do
+        d.t = d.t + (elapsed or 0)
+        local e = f:IsShown() and DropEase(math.min(1, d.t / UI.DROP_TIME)) or 1
+        f:SetAlpha(e)
+        d.place(d.dx * (1 - e), d.dy * (1 - e))
+        if e >= 1 then dropping[f] = nil else busy = true end
+    end
+    if not busy then self:SetScript("OnUpdate", nil) end
+end
+
+-- Drops frame f in: it fades up while it moves the last few px into place. place(dx, dy) anchors f where it
+-- belongs, moved by (dx, dy); it starts moved by (dx, dy) (default 0, UI.DROP_FALL: it falls from a little higher).
+-- A frame hidden on the way is put in place at once.
+function UI:DropIn(f, place, dx, dy)
+    local d = { t = 0, place = place, dx = dx or 0, dy = dy or UI.DROP_FALL }
+    dropping[f] = d
+    f:SetAlpha(0)
+    place(d.dx, d.dy)
+    dropDriver:SetScript("OnUpdate", StepDrops)
+end
+
+function UI:IsDropping(f) return dropping[f] ~= nil end
+
+-- The atlas chevron (it points down) on a texture, or pointing up (up = true: a dropdown while it is open).
+function UI:SetChevronUp(tex, up)
+    local c = UI:IconCoords(UI.ICON.chevron)
+    local l, r, t, b = c[1], c[2], c[3], c[4]
+    if up then tex:SetTexCoord(l, b, l, t, r, b, r, t) else tex:SetTexCoord(l, r, t, b) end
+end
 
 -- A 1px border of four textures around frame f: f.edges, recoloured by UI:SetEdgeColor(f, r, g, b, a).
 function UI:AddEdges(f, layer)
@@ -560,6 +609,7 @@ end
 -- A flat button. kind = "primary" | "secondary" (default) | "danger" | "chosen" ("active" is the same as "chosen");
 -- b:SetKind(kind) restyles it.
 -- b:SetTint(r, g, b) paints it in that colour instead (a chosen answer); b:SetTint(nil) goes back to its kind.
+-- b:SetLit(on): gold edges while the menu it opened is down (UI:ContextMenu sets it).
 function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
     local b = CreateFrame("Button", nil, parent)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
@@ -583,6 +633,7 @@ function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
             e = { tint[1], tint[2], tint[3], 0.9 }
             t = tint
         end
+        if self.lit and enabled and not tint then e = LIT_EDGE end
         self.bg:SetColorTexture(c[1], c[2], c[3], c[4])
         UI:SetEdgeColor(self, e[1], e[2], e[3], enabled and e[4] or e[4] * 0.4)
         if enabled then fs:SetTextColor(t[1], t[2], t[3]) else fs:SetTextColor(0.45, 0.45, 0.45) end
@@ -593,6 +644,10 @@ function UI:CreateSleekButton(parent, text, width, height, onClick, kind)
     end
     function b:SetTint(r, g, bl)
         self.tint = r and { r, g, bl } or nil
+        paint(self)
+    end
+    function b:SetLit(on)
+        self.lit = on and true or nil
         paint(self)
     end
     b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
@@ -648,9 +703,18 @@ function UI:CreateIconButton(parent, size, texture, coords, onClick)
             local ic = enabled and (self.hovered and 1 or 0.82) or 0.35
             self.icon:SetVertexColor(ic, ic, ic)
         end
+        -- its menu is down: gold edges and icon
+        if self.lit and enabled then
+            UI:SetEdgeColor(self, LIT_EDGE[1], LIT_EDGE[2], LIT_EDGE[3], LIT_EDGE[4])
+            self.icon:SetVertexColor(1, 0.82, 0)
+        end
     end
     function b:SetActive(on)
         self.active = on and true or false
+        paint(self)
+    end
+    function b:SetLit(on)
+        self.lit = on and true or nil
         paint(self)
     end
     b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
@@ -683,8 +747,8 @@ UI.ICON.bag, UI.ICON.bagAdd, UI.ICON.whisper = 40, 41, 42
 -- (the Group Finder, art pack 4: 43 an eye's lids, 44 its iris, drawn over the lids and moved while listed; check
 -- ns:HasAssets(4) first, else UI.ICON.eye)
 UI.ICON.finder, UI.ICON.finderIris, UI.ICON.eye = 43, 44, 15
--- (art pack 4 too: 45 a calendar, the New raid sheet's calendar button)
-UI.ICON.calendar = 45
+-- (art pack 4 too: 45 a calendar, the New raid sheet's calendar button; 46 a team, three people)
+UI.ICON.calendar, UI.ICON.team = 45, 46
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }
@@ -751,12 +815,14 @@ function UI:CreateRemoveButton(parent, title)
     return b
 end
 
--- A flat dropdown: a sleek button with a chevron that opens build(root) as a context menu. Same surface as
--- CreateMenuButton (SetDefaultText, Refresh).
+-- A flat dropdown: a sleek button with a chevron that drops build(root) as its menu (UI:ContextMenu, under the
+-- button: gold edges and the chevron turned up while it is down). Same surface as CreateMenuButton (SetDefaultText,
+-- Refresh).
 function UI:CreateSleekMenuButton(parent, text, width, build, height)
     local b = UI:CreateSleekButton(parent, "", width or 120, height or 22, function(self)
         UI:ContextMenu(self, build)
     end)
+    b.cdlDrop = true
     local fs = b:GetFontString()
     fs:SetFontObject("GameFontHighlightSmall")
     fs:ClearAllPoints()
@@ -776,6 +842,7 @@ function UI:CreateSleekMenuButton(parent, text, width, build, height)
     function b:SetDefaultText(t) self:SetText(t or "") end
     function b:Refresh() end
     function b:OpenMenu() UI:ContextMenu(self, build) end
+    function b:OnMenuShown(open) UI:SetChevronUp(self.chevron, open) end
     return b
 end
 
@@ -821,14 +888,21 @@ function UI:CreateLinkDropdown(parent, opts)
     b.chev:SetTexture(UI.ICON_ATLAS)
     b.chev:SetTexCoord(unpack(UI:IconCoords(UI.ICON.chevron)))
     b.chev:SetPoint("LEFT", b.fs, "RIGHT", 4, -1)
+    b.cdlDrop = true
     local function paint(self)
-        if self.hovered then
+        if self.hovered or self.lit then
             self.fs:SetTextColor(1, 1, 1)
             self.chev:SetVertexColor(1, 1, 1)
         else
             self.fs:SetTextColor(base[1], base[2], base[3])
             self.chev:SetVertexColor(1, 0.82, 0)
         end
+    end
+    -- while its menu is down: white, the chevron turned up
+    function b:SetLit(on)
+        self.lit = on and true or nil
+        UI:SetChevronUp(self.chev, on)
+        paint(self)
     end
     function b:SetLabel(text)
         self.fs:SetText(text or "")
@@ -1882,7 +1956,7 @@ function UI:CreateSearchBox(parent, width, onChanged, placeholder)
 end
 
 ---------------------------------------------------------------------------
--- Dropdowns & menus: flat buttons that open a MenuUtil context menu
+-- Dropdowns & menus: flat buttons that drop the addon's own menu (UI:ContextMenu, UI/Menu.lua)
 ---------------------------------------------------------------------------
 
 local NIL_VALUE = {}   -- stands in for option values that are nil (radio data can't be nil)
@@ -1942,13 +2016,7 @@ function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect
     return b
 end
 
-function UI:ContextMenu(owner, build)
-    if not (MenuUtil and MenuUtil.CreateContextMenu) then
-        if ns.Debug then ns:Debug("MenuUtil unavailable; context menu skipped") end
-        return nil
-    end
-    return MenuUtil.CreateContextMenu(owner, function(_, root) build(root) end)
-end
+-- (UI:ContextMenu, the menu itself, is UI/Menu.lua: the addon draws its own menus)
 
 -- DisasterZone extension: a dropdown-looking button whose menu holds actions (build(root) as in ContextMenu), in the
 -- flat style. The menu is built when it opens, so it always reflects the current state.
@@ -1968,7 +2036,10 @@ end
 --                 { key=, text= (plain name; searched), classFile=, note= (grey, right side),
 --                   dim= (offline look), fixed= (text; shown checked, cannot be toggled), search= (extra
 --                   searchable text), role= ("tank" | "healer" | anything else = damage: a role icon at the row's
---                   end; roleFaint= true draws it faint) } or a section header { header = "text" }, or an action
+--                   end; roleFaint= true draws it faint), icon= { file, l, r, t, b } (instead of the class icon),
+--                   iconColor= { r, g, b }, color= "ffrrggbb" (the name's colour instead of the class's), tip=
+--                   { title, lines... } (the tooltip instead of the player's), fixedTip= (the fixed row's tooltip
+--                   line) } or a section header { header = "text" }, or an action
 --                   row { key= (unique), text=, note= (right side), action = function(entry), tip= (tooltip text) }:
 --                   a gold "+" instead of the box, listed only while nothing is typed, run by a click.
 --   footerText  = function() -> the footer's right text (optional; default "n matches")
@@ -2074,17 +2145,28 @@ function UI:CreateSearchDropdown(parent, width, opts)
     hint:SetText(opts.placeholder or "Search...")
     eb.Instructions = hint
 
+    -- the list: the shared dropped panel (UI.DROP_*), dropping in as it opens
     local panel = CreateFrame("Frame", nil, holder)
     panel.bg = panel:CreateTexture(nil, "BACKGROUND")
     panel.bg:SetAllPoints()
-    panel.bg:SetColorTexture(0.06, 0.06, 0.07, 1)
+    panel.bg:SetColorTexture(UI.DROP_BG[1], UI.DROP_BG[2], UI.DROP_BG[3], UI.DROP_BG[4])
     UI:AddEdges(panel)
-    UI:SetEdgeColor(panel, 0.45, 0.45, 0.5, 1)
+    UI:SetEdgeColor(panel, UI.DROP_EDGE[1], UI.DROP_EDGE[2], UI.DROP_EDGE[3], UI.DROP_EDGE[4])
     panel:SetFrameStrata("FULLSCREEN_DIALOG")
     panel:SetToplevel(true)
     panel:SetClampedToScreen(true)
     panel:EnableMouse(true)
-    panel:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", 0, -2)
+    local function placePanel(dx, dy)
+        panel:ClearAllPoints()
+        if sd.alignRight then panel:SetPoint("TOPRIGHT", holder, "BOTTOMRIGHT", dx, -UI.DROP_GAP + dy)
+        else panel:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", dx, -UI.DROP_GAP + dy) end
+    end
+    -- the list hangs from the field's left edge, or (right = true: a field near the right side) its right one
+    function sd:SetPanelAlign(right)
+        self.alignRight = right and true or false
+        if not UI:IsDropping(panel) then placePanel(0, 0) end
+    end
+    placePanel(0, 0)
     panel:SetWidth(tonumber(opts.panelWidth) or width)
     panel:SetHeight(SD_PAD + rowHeight + 4 + SD_FOOTER_H + 6)
     panel:Hide()
@@ -2121,12 +2203,18 @@ function UI:CreateSearchDropdown(parent, width, opts)
             return
         end
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(UI:ColoredName(e.key, e.classFile))
-        if e.note and e.note ~= "" then GameTooltip:AddLine(e.note, 0.8, 0.8, 0.8) end
-        if e.dim then GameTooltip:AddLine("Offline", 0.6, 0.6, 0.6) end
+        if type(e.tip) == "table" then
+            for i, line in ipairs(e.tip) do
+                if i == 1 then GameTooltip:AddLine(line, 1, 0.82, 0) else GameTooltip:AddLine(line, 1, 1, 1, true) end
+            end
+        else
+            GameTooltip:AddLine(UI:ColoredName(e.key, e.classFile))
+            if e.note and e.note ~= "" then GameTooltip:AddLine(e.note, 0.8, 0.8, 0.8) end
+            if e.dim then GameTooltip:AddLine("Offline", 0.6, 0.6, 0.6) end
+        end
         if opts.onTooltip then opts.onTooltip(GameTooltip, e) end
         if e.fixed then
-            GameTooltip:AddLine(e.fixed .. ": always on the council", 0.6, 0.6, 0.6, true)
+            GameTooltip:AddLine(e.fixedTip or (e.fixed .. ": always on the council"), 0.6, 0.6, 0.6, true)
         else
             GameTooltip:AddLine(RowChecked(e) and "Click to remove" or "Click to add", 0.5, 0.5, 0.5)
         end
@@ -2241,13 +2329,22 @@ function UI:CreateSearchDropdown(parent, width, opts)
         row.check:SetDesaturated(e.fixed and true or false)
         row.box:SetAlpha(e.fixed and 0.5 or 1)
         row.boxIn:SetAlpha(e.fixed and 0.5 or 1)
-        UI:ClassIcon(row.icon, e.classFile)
+        row.icon:SetVertexColor(1, 1, 1)
+        if type(e.icon) == "table" then
+            row.icon:SetTexture(e.icon[1])
+            row.icon:SetTexCoord(e.icon[2] or 0, e.icon[3] or 1, e.icon[4] or 0, e.icon[5] or 1)
+            local c = e.iconColor
+            if c then row.icon:SetVertexColor(c[1], c[2], c[3]) end
+            row.icon:Show()
+        else
+            UI:ClassIcon(row.icon, e.classFile)
+        end
         row.icon:SetAlpha(e.dim and 0.5 or 1)
         local text = e.text or ShortName(e.key)
         if e.dim then
             row.name:SetText("|cff808080" .. text .. "|r")
         else
-            row.name:SetText("|c" .. ClassHex(e.classFile) .. text .. "|r")
+            row.name:SetText("|c" .. (e.color or ClassHex(e.classFile)) .. text .. "|r")
         end
         row.note:SetText(e.fixed or e.note or "")
         row.activeTex:SetShown(e == sd.matches[sd.active])
@@ -2362,7 +2459,10 @@ function UI:CreateSearchDropdown(parent, width, opts)
 
     function sd:Open()
         if not self.enabled or not holder:IsVisible() then return false end
-        if not panel:IsShown() then panel:Show() end
+        if not panel:IsShown() then
+            panel:Show()
+            UI:DropIn(panel, placePanel)
+        end
         self:Refresh()
         return true
     end
@@ -2447,6 +2547,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
         hint:SetShown(not hasText)
         clear:SetShown(hasText and sd.enabled)
         UI:SetEdgeColor(holder, unpack((eb:HasFocus() or panel:IsShown()) and SD_EDGE_FOCUS or SD_EDGE))
+        UI:SetChevronUp(arrow.icon, panel:IsShown())
     end
 
     -- Keyboard: typing filters, Enter toggles the highlighted match, Up/Down/Tab move, Escape closes.

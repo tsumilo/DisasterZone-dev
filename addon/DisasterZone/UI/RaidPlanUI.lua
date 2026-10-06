@@ -75,8 +75,9 @@ local function hexRGB(hex)
 end
 
 -- Who the raid is for: its teams, how many players are invited on top, and whether it is locked to them
--- (plain: without the "Locked" mark).
-local function teamNames(v, plain)
+-- (plain: without the "Locked" mark). keep (a one-line place): name that many teams, then "and N more teams" (0:
+-- "9 teams"); nil names them all.
+local function teamNames(v, plain, keep)
     local names = {}
     for _, id in ipairs(v.tm or {}) do
         local t = RP():GetTeam(id)
@@ -91,6 +92,15 @@ local function teamNames(v, plain)
     local extra = #(v.inv or {})
     local locked = RP():IsLocked(v)
     local text
+    if keep and #names > keep and #names > 1 then
+        local n = #names
+        if keep < 1 then
+            names = { n .. " teams" }
+        else
+            for i = n, keep + 1, -1 do names[i] = nil end
+            names[keep] = names[keep] .. (" and %d more %s"):format(n - keep, n - keep == 1 and "team" or "teams")
+        end
+    end
     if #names > 0 then
         text = tconcat(names, ", ") .. (extra > 0 and (" +" .. extra .. " invited") or "")
     elseif locked then
@@ -765,17 +775,24 @@ local function fillRaidCard(c, v, width)
     end
     for _, fs in ipairs({ c.t1, c.wd, c.dn, c.meter }) do fs:SetAlpha(dim and 0.55 or 1) end
     c.t1:SetText(RP():GetRaidName(v))
-    -- who leads, who it is for, when; and for who runs it, the requests waiting
-    local parts = {}
-    if v.rl then parts[#parts + 1] = colored(v.rl) .. grey(" leads")
-    elseif v.by then parts[#parts + 1] = "by " .. shortName(v.by) end
-    local teams = teamNames(v, true)
-    if teams ~= "Everyone" then parts[#parts + 1] = teams end
-    parts[#parts + 1] = v.cancelled and colorize("ff5555", "cancelled") or relDay(v.t)
-    if v.weekly then parts[#parts + 1] = "weekly" end
+    -- who leads, who it is for, when; and for who runs it, the requests waiting. Many teams: as many named as fit
     local nReq = (v.lk and RP():CanManageRaid(v)) and #RP():GetRequests(v.id) or 0
-    if nReq > 0 then parts[#parts + 1] = colorize("ffd100", nReq .. (nReq == 1 and " request" or " requests")) end
-    c.t2:SetText(tconcat(parts, " · "))
+    local function line(keep)
+        local parts = {}
+        if v.rl then parts[#parts + 1] = colored(v.rl) .. grey(" leads")
+        elseif v.by then parts[#parts + 1] = "by " .. shortName(v.by) end
+        local teams = teamNames(v, true, keep)
+        if teams ~= "Everyone" then parts[#parts + 1] = teams end
+        parts[#parts + 1] = v.cancelled and colorize("ff5555", "cancelled") or relDay(v.t)
+        if v.weekly then parts[#parts + 1] = "weekly" end
+        if nReq > 0 then parts[#parts + 1] = colorize("ffd100", nReq .. (nReq == 1 and " request" or " requests")) end
+        return tconcat(parts, " · ")
+    end
+    local lineW = width - ART_W - DATE_W - 4 - ANS_W
+    for _, keep in ipairs({ false, 2, 1, 0 }) do
+        c.t2:SetText(line(keep or nil))
+        if (c.t2:GetStringWidth() or 0) <= lineW then break end
+    end
     -- the accepted by role and how full it is (no targets: the raid has none), or that nobody answered yet
     local rc, tentative = roleCounts(v)
     local cnt = counts(v.id)
@@ -2332,7 +2349,7 @@ local function refreshDetail(v)
         fmtTime(v.t), names and (names .. " · ") or "", v.sz or 0))
     local who = {}
     if v.rl then who[#who + 1] = colored(v.rl) .. " leads" elseif v.by then who[#who + 1] = "by " .. shortName(v.by) end
-    who[#who + 1] = teamNames(v)
+    who[#who + 1] = teamNames(v, false, 2)
     if v.weekly then who[#who + 1] = "every week" end
     d.sub2:SetText(tconcat(who, " · "))
     refreshAnswer(d, v)
@@ -4989,11 +5006,13 @@ function TV.createSteps(d)
     p:SetClampedToScreen(true)
     p:EnableMouse(true)
     p:SetSize(252, 100)
+    -- (the panel every dropdown drops, UI.DROP_*)
+    local bg, edge = UI().DROP_BG, UI().DROP_EDGE
     p.bg = p:CreateTexture(nil, "BACKGROUND")
     p.bg:SetAllPoints()
-    p.bg:SetColorTexture(0.06, 0.06, 0.07, 1)
+    p.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
     UI():AddEdges(p, "BORDER")
-    UI():SetEdgeColor(p, 0.45, 0.45, 0.5, 1)
+    UI():SetEdgeColor(p, edge[1], edge[2], edge[3], edge[4])
     p.role = p:CreateTexture(nil, "ARTWORK")
     p.role:SetSize(14, 14)
     p.role:SetTexture(UI().ROLE_TEX)
@@ -5061,9 +5080,12 @@ function TV.openSteps(role, owner)
     end
     p.roleKey, p.owner, p.draft = role, owner, state.draft
     p:SetScale((owner:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1))
-    p:ClearAllPoints()
-    p:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", -10, -2)
     p:Show()
+    -- it drops in under its chip, like every menu
+    UI():DropIn(p, function(dx, dy)
+        p:ClearAllPoints()
+        p:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", -10 + dx, -UI().DROP_GAP + dy)
+    end)
     TV.fillSteps()
 end
 

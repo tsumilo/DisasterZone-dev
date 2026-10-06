@@ -124,6 +124,14 @@ end
 
 function M.addon_loaded(addonName)
   M.loaded_addons[addonName] = true
+  -- (DisasterZone draws its own menus, UI/Menu.lua: each one it opens is the last menu, like MenuUtil's)
+  local ui = M.ns and rawget(M.ns, "UI")
+  if type(ui) == "table" then
+    ui.menuObserver = function(root)
+      M.last_menu = root
+      M.menus[#M.menus + 1] = root
+    end
+  end
   M.fire("ADDON_LOADED", addonName)
 end
 
@@ -297,6 +305,11 @@ function M.menu_select(text, d)
   end
   walk(d)
   if not found then error("menu_select: no menu entry with text '" .. tostring(text) .. "'", 2) end
+  -- (an addon-drawn menu's entry: clicked the way its row does it, the menu answering as in game)
+  if found.cdlPick and (found.callback or found.setSelected) then
+    local ok, r = in_hw(safecall, "menu entry '" .. tostring(text) .. "'", found.cdlPick, found, "LeftButton")
+    return r
+  end
   if found.kind == "button" and found.callback then
     local ok, r = in_hw(safecall, "menu button '" .. tostring(text) .. "'", found.callback, found.data, { buttonName = "LeftButton", context = 2 }, nil)
     return r

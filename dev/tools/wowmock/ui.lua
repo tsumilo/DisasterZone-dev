@@ -269,7 +269,12 @@ T("BasicFrameTemplate BasicFrameTemplateWithInset", function(f, st, tname)
   child(f, "Texture", "TitleBg", "TitleBg", "BACKGROUND")
   child(f, "FontString", "TitleText", "TitleText", "OVERLAY")
   child(f, "Button", "CloseButton", "CloseButton", nil, "UIPanelCloseButton")
-  if tname == "BasicFrameTemplateWithInset" then child(f, "Frame", "Inset", "Inset", nil, "InsetFrameTemplate") end
+  if tname == "BasicFrameTemplateWithInset" then
+    -- (the template's anchors, as tools/ui_audit.py lays it out: renders with M.real_geometry resolve through it)
+    local inset = child(f, "Frame", "Inset", "Inset", nil, "InsetFrameTemplate")
+    inset:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -24)
+    inset:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, 2)
+  end
 end)
 T("PortraitFrameTemplate PortraitFrameFlatTemplate PortraitFrameTexturedBaseTemplate", function(f, st) panel_title(f, st, true, false, true) end)
 T("PortraitFrameTemplateNoCloseButton PortraitFrameFlatBaseTemplate", function(f, st) panel_title(f, st, false, false, true) end)

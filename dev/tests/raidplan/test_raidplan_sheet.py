@@ -50,11 +50,24 @@ def f(cl):
 
 
 def cards(cl):
-    """The team cards shown: [(value, "name · lineup count", picked)]."""
-    rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.cards) do if c:IsShown() then out[#out + 1] = "
-                      "{ c.entry.value, c.name:GetText() .. c.what:GetText() .. ' ' .. c.count:GetText(), "
-                      "c.check:IsShown() } end end; return out" % ED)
+    """The team rows of the Who search: [(value, "name · lineup count", picked = shown as a chip)]."""
+    rows = cl.eval_py("local sh = %s; local sd = sh.invPicker; sd:Refresh(); local on, out = {}, {}; "
+                      "for _, c in ipairs(sh.chips) do if c:IsShown() and c.kind == 'team' then on[c.entry.value] = true "
+                      "end end; for _, e in ipairs(sd.items) do if e.team then out[#out + 1] = { e.value, "
+                      "e.text .. ' ' .. e.note:match('%%d+'), on[e.value] or false } end end; return out" % ED)
     return [tuple(x) for x in lst(rows)]
+
+
+def who(cl):
+    """The Who row: its chips in order [(kind, text)], the search field's line and the row's height."""
+    return cl.eval_py("""local sh = %s; local out = { chips = {} }
+      local function line(f) local _, _, _, _, y = f:GetPoint(1); return math.floor(-y / 28 + 0.5) + 1 end
+      for _, c in ipairs(sh.chips) do
+        if c:IsShown() then out.chips[#out.chips + 1] = { c.kind, c.name:GetText(), line(c) } end
+      end
+      if sh.moreChip:IsShown() then out.chips[#out.chips + 1] = { 'more', sh.moreChip.name:GetText(), line(sh.moreChip) } end
+      out.field = line(sh.invPicker.frame); out.h = sh.whoRow:GetHeight()
+      return out""" % ED)
 
 
 def save_team(cl, name, members, lineups):
@@ -198,6 +211,73 @@ def sign_ups_and_team_chips():
     texts = [ch[1] for ch in cards(bob)]
     assert texts == ["Main · SSC 1"], texts
     bob.eval("ns.RaidPlanUI:CloseEditor()")
+    w.assert_no_errors()
+
+
+def pick_in_search(cl, key):
+    """Clicks a row of the Who search (opened) by its key ("team:<value>" or a player)."""
+    assert cl.eval("local key = ...; local sd = %s.invPicker; sd:Open(); for _, e in ipairs(sd:GetShown()) do "
+                   "if e.key == key then sd:ToggleEntry(e); return true end end; return false" % ED, key) is True, key
+
+
+@case
+def who_is_one_search_with_chips_on_two_lines_at_most():
+    w, c = world()
+    bob, rita = c["Bob"], c["Rita"]
+    ids = [save_team(bob, "Team %d" % n, ["Lee", "Rita", "Sam"], [
+        {"name": "Kara A", "size": 10, "groups": {"Lee": 1, "Rita": 1}},
+        {"name": "Kara B", "size": 10, "groups": {"Sam": 1}}]) for n in range(10)]
+    kb7 = bob.eval_py("return ns.RaidPlan:GetTeam(...).lineups[2].id", ids[7])
+    create(bob, i="kara", t=now(bob) + 3 * DAY, tm=[ids[7]], tl={ids[7]: kb7})
+    create(bob, i="gruul", t=now(bob) + 2 * DAY, tm=[ids[2]])
+    w.tick(2)
+    open_tab(w, bob)
+    bob.eval("ns.RaidPlanUI:OpenEditor()")
+    # nothing picked: the search alone, one line
+    st = who(bob)
+    assert lst(st["chips"]) == [] and st["field"] == 1 and st["h"] == 22, st
+    # the list: the team that raided Karazhan lately on top (its lineup), the other 19 lineups, then the players
+    shown = bob.eval_py("local sd = %s.invPicker; sd:Open(); local out = {}; for _, e in ipairs(sd:GetShown()) do "
+                        "out[#out + 1] = e.header or e.text end; return out" % ED)
+    shown = lst(shown)
+    assert shown[:3] == ["Recently on Karazhan", "Team 7 · Kara B", "Other teams"], shown[:4]
+    teams = shown[3:shown.index("Players")]
+    assert len(teams) == 19 and "Team 7 · Kara B" not in teams and "Team 2 · Kara A" in teams, teams
+    # typing filters teams and players alike
+    found = bob.eval_py("local sd = %s.invPicker; sd:SetText('team 3'); local out = {}; "
+                        "for _, e in ipairs(sd:GetShown()) do out[#out + 1] = e.header or e.text end; "
+                        "sd:SetText(''); return out" % ED)
+    assert lst(found) == ["Other teams", "Team 3 · Kara A", "Team 3 · Kara B"], found
+    # a team picked from the list: a gold chip; its players are ticked and fixed in the list now
+    pick_in_search(bob, "team:%s:%s" % (ids[7], kb7))
+    st = who(bob)
+    assert [tuple(x[:2]) for x in lst(st["chips"])] == [("team", "Team 7 · Kara B")], st
+    sam = bob.eval_py("local key = ...; for _, e in ipairs(%s.invPicker:GetShown()) do if e.key == key then "
+                      "return { e.fixed, e.fixedTip } end end" % ED, K("Sam"))
+    assert lst(sam) == ["Team 7", "In Team 7: invited with the team."], sam
+    # every team and two players: the row stays two lines, the rest goes into "+N more"
+    for n in range(10):
+        if n != 7:
+            lid = bob.eval_py("return ns.RaidPlan:GetTeam(...).lineups[1].id", ids[n])
+            pick_in_search(bob, "team:%s:%s" % (ids[n], lid))
+    for name in ("Gina", "Bob"):
+        pick_in_search(bob, K(name))
+    st = who(bob)
+    chips = [tuple(x) for x in lst(st["chips"])]
+    assert st["h"] == 22 + 6 + 22 and st["field"] <= 2 and all(ch[2] <= 2 for ch in chips), st
+    more = [ch for ch in chips if ch[0] == "more"]
+    assert len(more) == 1 and more[0][1] == "+%d more" % (12 - (len(chips) - 1)), chips
+    assert len(cards(bob)) == 20 and sum(1 for ch in cards(bob) if ch[2]) == len([x for x in chips if x[0] == "team"])
+    # a chip's click takes it off; the raid saves the nine teams left and both players
+    first = bob.eval("return %s.chips[1].entry.value" % ED)
+    bob.click(bob.eval("return %s.chips[1]" % ED))
+    assert lst(who(bob)["chips"])[0][1] != chips[0][1]
+    bob.eval("%s.invPicker:Close()" % ED)
+    bob.click(bob.eval("return %s.saveBtn" % ED))
+    w.tick(2)
+    v = raid(rita, bob.eval("return ns.RaidPlanUI:GetSelectedRaid()"))
+    tm = lst(v["tm"])
+    assert len(tm) == 9 and first.split(":")[0] not in tm and sorted(lst(v["inv"])) == sorted([K("Gina"), K("Bob")]), v
     w.assert_no_errors()
 
 

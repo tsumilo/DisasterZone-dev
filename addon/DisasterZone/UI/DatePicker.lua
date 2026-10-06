@@ -8,15 +8,12 @@ local addonName, ns = ...
 
 local UI = ns.UI
 
-local floor, min = math.floor, math.min
+local floor = math.floor
 
 local CELL_W, CELL_H = 30, 26
 local PAD = 10
 local HEAD_H, WEEK_H = 32, 16
-local DROP, DROP_T = 6, 0.14            -- the calendar drops in: px it falls, seconds
 local WEEKDAYS = { "MO", "TU", "WE", "TH", "FR", "SA", "SU" }
-local BG = { 0.06, 0.06, 0.07, 0.98 }
-local EDGE = { 0.26, 0.26, 0.29, 1 }
 local PICKED_BG = { 0.17, 0.14, 0.05, 0.95 }
 local GOLD = { 0.91, 0.73, 0.14 }
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
@@ -24,12 +21,6 @@ local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local function EventValid(event)
     if C_EventUtils and C_EventUtils.IsEventValid then return C_EventUtils.IsEventValid(event) and true or false end
     return true
-end
-
-local function EaseOut(t)
-    if t >= 1 then return 1 end
-    t = 1 - t
-    return 1 - t * t * t
 end
 
 -- Noon of a calendar day (noon keeps DST shifts from moving the day).
@@ -74,17 +65,18 @@ function UI:CreateDatePicker(parent, opts)
     p:EnableMouse(true)
     p.bg = p:CreateTexture(nil, "BACKGROUND")
     p.bg:SetAllPoints()
-    p.bg:SetColorTexture(BG[1], BG[2], BG[3], BG[4])
+    -- (the panel every dropdown drops: UI.DROP_*)
+    p.bg:SetColorTexture(UI.DROP_BG[1], UI.DROP_BG[2], UI.DROP_BG[3], UI.DROP_BG[4])
     UI:AddEdges(p, "BORDER")
-    UI:SetEdgeColor(p, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
+    UI:SetEdgeColor(p, UI.DROP_EDGE[1], UI.DROP_EDGE[2], UI.DROP_EDGE[3], UI.DROP_EDGE[4])
     p:Hide()
 
-    local function place(drop)
+    local function place(dx, dy)
         p:ClearAllPoints()
-        if opts.center then p:SetPoint("TOP", b, "BOTTOM", 0, -4 + drop)
-        else p:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -4 + drop) end
+        if opts.center then p:SetPoint("TOP", b, "BOTTOM", dx, -UI.DROP_GAP + dy)
+        else p:SetPoint("TOPLEFT", b, "BOTTOMLEFT", dx, -UI.DROP_GAP + dy) end
     end
-    place(0)
+    place(0, 0)
 
     -- the month between the two chevrons
     p.title = p:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -211,11 +203,9 @@ function UI:CreateDatePicker(parent, opts)
             local now = date("*t", GetServerTime())
             y, m = now.year, now.month
         end
-        -- it drops in: falls the last few px while it fades up
-        p.dropT = 0
-        p:SetAlpha(0)
-        place(DROP)
+        -- it drops in (UI:DropIn): falls the last few px while it fades up, like every menu
         p:Show()
+        UI:DropIn(p, place)
         self:ShowMonth(y, m)
         if self.OnCalendarShown then self:OnCalendarShown(true) end
     end
@@ -225,14 +215,6 @@ function UI:CreateDatePicker(parent, opts)
         p:Hide()
     end
 
-    p:SetScript("OnUpdate", function(self, elapsed)
-        if not self.dropT then return end
-        self.dropT = self.dropT + (elapsed or 0)
-        local e = EaseOut(min(1, self.dropT / DROP_T))
-        self:SetAlpha(e)
-        place(DROP * (1 - e))
-        if e >= 1 then self.dropT = nil end
-    end)
     b:SetScript("OnClick", function(self)
         if p:IsShown() then self:Close() else self:Open() end
     end)
@@ -241,9 +223,6 @@ function UI:CreateDatePicker(parent, opts)
     end)
     p:SetScript("OnHide", function(self)
         self:UnregisterEvent("GLOBAL_MOUSE_DOWN")
-        self.dropT = nil
-        self:SetAlpha(1)
-        place(0)
         if b.OnCalendarShown then b:OnCalendarShown(false) end
     end)
     p:SetScript("OnEvent", function(self, event)

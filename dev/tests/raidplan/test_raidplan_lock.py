@@ -145,9 +145,9 @@ def one_week_of_a_weekly_raid_differs():
 
 
 def lst_keys(cl):
-    """The invited players shown as pills in the raid sheet."""
-    v = cl.eval_py("local out = {}; for _, p in ipairs(ns.RaidPlanUI:GetEditor().pills) do if p:IsShown() then "
-                   "out[#out + 1] = p.key end end; return out")
+    """The invited players shown as chips in the raid sheet."""
+    v = cl.eval_py("local out = {}; for _, p in ipairs(ns.RaidPlanUI:GetEditor().chips) do if p:IsShown() and "
+                   "p.kind == 'player' then out[#out + 1] = p.key end end; return out")
     return list(v.values()) if isinstance(v, dict) else list(v or [])
 
 
@@ -173,7 +173,7 @@ def the_raid_window_and_the_sign_up_strip():
     assert "needs a team" in bob.eval("return %s.err:GetText()" % ED)
     # the invite picker: team members are in already, others are ticked
     bob.eval("%s.f.tm[...] = true" % ED, tid)
-    items = {e["key"]: e for e in bob.eval_py("local sd = %s.invPicker; sd:Open(); return sd:GetShown()" % ED)}
+    items = {e["key"]: e for e in bob.eval_py("local sd = %s.invPicker; sd:Open(); return sd:GetShown()" % ED) if "key" in e}
     assert items[K("Lee")].get("fixed") == "Kara A" and not items[K("Sam")].get("fixed"), items
     bob.eval("local key = ...; local sd = %s.invPicker; for _, e in ipairs(sd:GetShown()) do "
              "if e.key == key then sd:ToggleEntry(e) end end" % ED, K("Sam"))

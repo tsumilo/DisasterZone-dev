@@ -56,6 +56,13 @@ ns.CHANGELOG = {
           { heading = "Switches", lines = {
               "Every on / off switch now moves: the knob slides over and the green follows it.",
           } },
+          { heading = "Dropdowns and menus", lines = {
+              "Every dropdown and right-click menu has the calendar's look: dark, flat, gold accents.",
+              "They drop in: a quick fade as they slide into place; submenus slide out to the side.",
+              "A dropdown's list opens right under it, and the dropdown lights up gold while it's open.",
+              "Check boxes and choices look like the invite list's; titles are gold, lines are thin.",
+              "Click the dropdown again, click elsewhere or press Escape to close it.",
+          } },
       } },
     { version = "1.3.1", date = "6 October 2026", title = "Dungeons tab, ask to join locked raids",
       sections = {

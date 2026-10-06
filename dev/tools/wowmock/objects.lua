@@ -386,6 +386,17 @@ local function size_changed(self, st)
   if st.is_frame then call_script(self, "OnSizeChanged", st.w or 0, st.h or 0) end
 end
 
+-- M.real_geometry = true (opt-in, the renders): GetLeft / GetBottom / GetRight / GetTop / GetCenter / GetRect from the
+-- anchors (M.region_rect, in the region's own units); otherwise the permissive stubs (every region at 0, 0).
+local function real_rect(self)
+  if not M.real_geometry or not M.region_rect then return nil end
+  local ui = rawget(_G, "UIParent")
+  local l, b, w, h = M.region_rect(self, ui)
+  if not l then return nil end
+  local s = (self:GetEffectiveScale() or 1) / ((ui and ui:GetEffectiveScale()) or 1)
+  return l / s, b / s, w / s, h / s
+end
+
 local function eff_width(st)
   if st.w then return st.w end
   if st.all_points and st.parent then return eff_width(OBJ[st.parent]) end
@@ -486,14 +497,22 @@ local Region = define("Region", nil, {
   GetWidth = function(self) return eff_width(S(self)) end,
   GetHeight = function(self) return eff_height(S(self)) end,
   GetSize = function(self) local st = S(self); return eff_width(st), eff_height(st) end,
-  GetRect = function(self) local st = S(self); return 0, 0, eff_width(st), eff_height(st) end,
+  GetRect = function(self)
+    local l, b, w, h = real_rect(self)
+    if l then return l, b, w, h end
+    local st = S(self); return 0, 0, eff_width(st), eff_height(st)
+  end,
   GetScaledRect = function(self) local st = S(self); return 0, 0, eff_width(st), eff_height(st) end,
   GetBoundsRect = function(self) local st = S(self); return 0, 0, eff_width(st), eff_height(st) end,
-  GetLeft = function(self) S(self); return 0 end,
-  GetBottom = function(self) S(self); return 0 end,
-  GetRight = function(self) return eff_width(S(self)) end,
-  GetTop = function(self) return eff_height(S(self)) end,
-  GetCenter = function(self) local st = S(self); return eff_width(st) / 2, eff_height(st) / 2 end,
+  GetLeft = function(self) local l = real_rect(self); if l then return l end S(self); return 0 end,
+  GetBottom = function(self) local _, b = real_rect(self); if b then return b end S(self); return 0 end,
+  GetRight = function(self) local l, _, w = real_rect(self); if l then return l + w end return eff_width(S(self)) end,
+  GetTop = function(self) local _, b, _, h = real_rect(self); if b then return b + h end return eff_height(S(self)) end,
+  GetCenter = function(self)
+    local l, b, w, h = real_rect(self)
+    if l then return l + w / 2, b + h / 2 end
+    local st = S(self); return eff_width(st) / 2, eff_height(st) / 2
+  end,
   IsRectValid = function() return true end,
   IsAnchoringRestricted = function() return false end,
   SetAlpha = function(self, a) S(self).alpha = tonumber(a) or 1 end,

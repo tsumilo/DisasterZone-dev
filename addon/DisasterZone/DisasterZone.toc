@@ -149,6 +149,7 @@ Render3D\Standins\MagtheridonsLair_Magtheridon.lua
 
 # UI
 UI\Widgets.lua
+UI\Menu.lua
 UI\Share.lua
 UI\ShareWindow.lua
 UI\Tour.lua

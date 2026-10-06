@@ -435,12 +435,30 @@ def ic_calendar(d, k):
             d.rectangle(_pts(k, [(x, y), (x + 7, y + 7)]), fill=255)
 
 
+def _person(d, k, cx, head_top, r, shoulders_top, half_w, fill=255, grow=0):
+    # a head and a dome of shoulders, flat at the bottom (y 56); grow widens both (a gap cut around it)
+    d.ellipse(_pts(k, [(cx - r - grow, head_top - grow), (cx + r + grow, head_top + 2 * r + grow)]), fill=fill)
+    h = 56 - shoulders_top + grow
+    d.pieslice(_pts(k, [(cx - half_w - grow, shoulders_top - grow), (cx + half_w + grow, shoulders_top - grow + 2 * h)]),
+               180, 360, fill=fill)
+
+
+def ic_team(d, k):
+    # a team (the New raid sheet's team rows and chips): three people, the middle one in front
+    for cx in (13, 51):
+        _person(d, k, cx, 13, 7, 31, 12)
+    _person(d, k, 32, 7, 9, 28, 17, fill=0, grow=3)
+    _person(d, k, 32, 7, 9, 28, 17)
+    d.rectangle(_pts(k, [(0, 57), (64, 64)]), fill=0)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
               ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
-              ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris, ic_calendar]
+              ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris, ic_calendar,
+              ic_team]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 
