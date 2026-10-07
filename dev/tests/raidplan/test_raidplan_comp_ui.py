@@ -275,6 +275,9 @@ def the_groups_show_plates_ghost_seats_and_a_plate_can_be_dragged():
     dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
     assert dr["grp"][K("Lee")] == 3 and dr["gs"][K("Lee")] == 2, dr
     assert not bob.eval("return %s.marker:IsShown()" % GRID)
+    # a drag whose lifted card never came up (an error on the way, in game) can't keep a player out of the layout
+    bob.eval("local g = %s; g.dragging = ...; g.dragCard = nil; g:Refresh()" % GRID, K("Lee"))
+    assert plate_of(bob, K("Lee")) is not None and bob.eval("return %s.dragging" % GRID) is None
     w.assert_no_errors()
 
 

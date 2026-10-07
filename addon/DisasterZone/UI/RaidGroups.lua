@@ -827,6 +827,10 @@ end
 function Grid:Refresh()
     local members = self.opts.getMembers() or {}
     local waiting = self.wait and self.opts.waitlist.getMembers() or {}
+    -- (a drag whose card is no longer up has ended: the player comes back)
+    if self.dragging and not (self.dragCard and self.dragCard:IsShown()) then
+        self.dragging, self.dragFrom, self.dragCard = nil, nil, nil
+    end
     if self.dragging then
         local rest, wrest = {}, {}
         for _, m in ipairs(members) do if m.key ~= self.dragging then rest[#rest + 1] = m end end
@@ -1433,8 +1437,8 @@ end
 
 -- What the cursor is over while dragging: { g, box, chip (the seat or player lit), target (swap), seat, full } or
 -- { pool = true }, or nil.
-function Grid:DropTarget()
-    local key = self.dragging
+function Grid:DropTarget(key)
+    key = key or self.dragging
     for g, box in ipairs(self.boxes) do
         if box:IsShown() and box:IsMouseOver() then
             local t = { g = g, box = box }
@@ -1461,15 +1465,9 @@ function Grid:DropTarget()
     return nil
 end
 
-function Grid:BeginDrag(chip)
-    if not chip.key or not self.opts.isEditable() then return end
+-- The lifted card for chip: the plate look (quiet) or the chip look; returns the frame, ready but not shown.
+local function liftCard(grid, chip, quiet)
     local m = chip.member
-    self.dragging = chip.key
-    self.picked = nil
-    -- (the seat it leaves: lit faintly until the drop)
-    local from = groupOfChip(chip)
-    self.dragFrom = from and { g = from, s = chip.slot } or nil
-    local quiet = self.opts.quiet ~= nil
     local g = quiet and ensurePlateGhost() or ensureGhost()
     -- the same size and scale as the chip, held where it was grabbed
     g:SetScale(chip:GetEffectiveScale() / UIParent:GetEffectiveScale())
@@ -1477,8 +1475,7 @@ function Grid:BeginDrag(chip)
     local cx, cy = cursorIn(g)
     g.dx, g.dy = (chip:GetLeft() or cx) - cx, (chip:GetTop() or cy) - cy
     if quiet then
-        local p = playerPlate(m or { key = chip.key })
-        paintPlate(g, p)
+        paintPlate(g, playerPlate(m or { key = chip.key }))
         g.pBase:SetColorTexture(0.137, 0.137, 0.16, 1)
         UI():SetEdgeColor(g, 1, 0.82, 0, 0.9)
         g.tip:Hide()
@@ -1489,14 +1486,32 @@ function Grid:BeginDrag(chip)
         g.role:SetShown(role ~= nil)
         if role then UI():SetRoleIcon(g.role, role) end
     end
+    return g
+end
+
+-- A player picked up: the lifted card follows the cursor (its OnUpdate also ends the drag when the button is up,
+-- since the frame the drag began on may be hidden by then), the player leaves the layout until the drop. The drag
+-- only counts once the card is up: a failure on the way never leaves a player out of the layout.
+function Grid:BeginDrag(chip)
+    if not chip.key or not self.opts.isEditable() or self.dragging then return end
+    local key = chip.key
+    local quiet = self.opts.quiet ~= nil
+    local ok, g = pcall(liftCard, self, chip, quiet)
+    if not ok then
+        -- (said once in BugSack; the chip look still works)
+        local handler = geterrorhandler and geterrorhandler()
+        if handler then handler(g) end
+        if not quiet then return end
+        ok, g = pcall(liftCard, self, chip, false)
+        if not ok then return end
+    end
     local grid = self
     g:SetScript("OnUpdate", function(f)
-        -- (a drop outside every frame, or a hidden source, ends the drag here)
         if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then return grid:EndDrag() end
         local x, y = cursorIn(f)
         f:ClearAllPoints()
         f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + f.dx, y + f.dy)
-        local t = grid:DropTarget()
+        local t = grid:DropTarget(key)
         local sig = t and ((t.g or "p") .. ":" .. tostring(t.chip or t.box)) or ""
         if sig ~= grid.dropSig then
             grid.dropSig = sig
@@ -1507,17 +1522,21 @@ function Grid:BeginDrag(chip)
     g:ClearAllPoints()
     g:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + g.dx, y + g.dy)
     g:Show()
+    -- (the seat it leaves: lit faintly until the drop)
+    local from = groupOfChip(chip)
+    self.dragFrom = from and { g = from, s = chip.slot } or nil
+    self.dragging, self.dragCard, self.picked = key, g, nil
     if GameTooltip then GameTooltip:Hide() end
     self:Refresh()
 end
 
 -- The drop: onto a player (swap), an empty seat, a group (its first free seat), the pool; anywhere else puts the
--- player back.
+-- player back. The drag is over first, whatever happens next.
 function Grid:EndDrag()
     local key = self.dragging
     if not key then return end
-    local t = self:DropTarget()
-    self.dragging, self.dropSig, self.dragFrom = nil, nil, nil
+    local ok, t = pcall(self.DropTarget, self, key)
+    self.dragging, self.dropSig, self.dragFrom, self.dragCard = nil, nil, nil, nil
     for _, gf in ipairs({ ghost or false, plateGhost or false }) do
         if gf then
             gf:SetScript("OnUpdate", nil)
@@ -1525,6 +1544,7 @@ function Grid:EndDrag()
         end
     end
     if self.marker then self.marker:Hide() end
+    if not ok then t = nil end
     if t and t.g then
         self:Drop(key, t.g, t.target, t.seat)
     elseif t and t.pool then
