@@ -475,6 +475,24 @@ function Gems:Candidates(gd, phase, profs)
     end
     add(gd.sim, true)
     if #out == 0 then add(gd.gems, true) end
+    -- gems made only of the stats the sims' gems give (a yellow socket for a strength spec gets the strength / crit
+    -- topaz even when the sims' sets never needed one; a hit gem the weights love but the sims avoid stays out)
+    if #out > 0 then
+        local mix, minQ = {}, 9
+        for _, id in ipairs(out) do
+            for k in pairs(StatsOf("g", id)) do mix[k] = true end
+            minQ = math.min(minQ, self:Gem(id).quality)
+        end
+        local more = {}
+        for id, r in pairs(Data().Gems or {}) do
+            local st = StatsOf("g", id)
+            local inMix = next(st) ~= nil
+            for k in pairs(st) do if not mix[k] then inMix = false end end
+            if inMix and r[2] >= max(2, minQ) then more[#more + 1] = id end   -- (no cheaper gems than the sims')
+        end
+        tsort(more)
+        add(more, false)
+    end
     if #out == 0 or next(gd.w) == nil then
         local all = {}
         for id, r in pairs(Data().Gems or {}) do
@@ -500,45 +518,70 @@ local function MetaFor(self, gd, phase, profs)
     return nil
 end
 
--- The gems of an item: { [socket] = id }, and whether that set takes the bonus. used: unique gems already in the
--- set ({ [id] = true }; updated with the ones placed).
+-- The gems of an item: { [socket] = id }, and whether that set takes the bonus: the combination worth the most to
+-- the spec (gems + the bonus when it is on), every combination of the best few candidates per socket tried, a unique
+-- gem at most once. used: unique gems already in the set ({ [id] = true }; updated with the ones placed).
+local PER_SOCKET = 6
 function Gems:BestGems(itemID, gd, phase, profs, used)
     used = used or {}
     local sockets = self:Sockets(itemID)
     local cands = self:Candidates(gd, phase, profs)
     local w = gd.w
-    local function pick(fits, taken)
-        for _, id in ipairs(cands) do
+    local bonusScore = Score(StatsOf("b", tonumber(itemID) or 0), w)
+    -- each socket's options: the best fitting candidates and the best ones overall
+    local options = {}
+    for i, s in ipairs(sockets) do
+        local list = {}
+        if s == "M" then
+            list[1] = MetaFor(self, gd, phase, profs) or 0
+        else
+            local fit, any = 0, 0
+            for _, id in ipairs(cands) do
+                local f = self:Fits(id, s)
+                if f and fit < PER_SOCKET then
+                    fit = fit + 1
+                    list[#list + 1] = id
+                elseif not f and any < 3 then
+                    any = any + 1
+                    list[#list + 1] = id
+                end
+            end
+            if #list == 0 then list[1] = 0 end
+        end
+        options[i] = list
+    end
+    local best, bestScore = nil, -1
+    local cur, taken = {}, {}
+    local function walk(i, total)
+        if i > #sockets then
+            local score = total
+            if self:BonusActive(itemID, cur) then score = score + bonusScore end
+            if score > bestScore + 1e-9 then
+                bestScore = score
+                best = {}
+                for k = 1, #cur do best[k] = cur[k] end
+            end
+            return
+        end
+        for _, id in ipairs(options[i]) do
             local g = self:Gem(id)
-            if (not g.unique or not (used[id] or taken[id])) and fits(id) then return id end
-        end
-        return nil
-    end
-    local function fill(match)
-        local out, taken, total = {}, {}, 0
-        for i, s in ipairs(sockets) do
-            local id
-            if s == "M" then
-                id = MetaFor(self, gd, phase, profs)
-            else
-                id = pick(function(x) return not match or self:Fits(x, s) end, taken)
-            end
-            out[i] = id or 0
-            if id then
-                if self:Gem(id).unique then taken[id] = true end
-                if s ~= "M" then total = total + self:GemScore(id, w) end
+            local unique = g and g.unique
+            if not (unique and (used[id] or taken[id])) then
+                if unique then taken[id] = true end
+                cur[i] = id
+                walk(i + 1, total + ((g and sockets[i] ~= "M") and self:GemScore(id, w) or 0))
+                if unique then taken[id] = nil end
             end
         end
-        local bonus = self:BonusActive(itemID, out)
-        if bonus then total = total + Score(StatsOf("b", tonumber(itemID)), w) end
-        return out, total, taken, bonus
     end
-    local mGems, mScore, mTaken, mBonus = fill(true)
-    local aGems, aScore, aTaken, aBonus = fill(false)
-    local gems, taken, bonus = mGems, mTaken, mBonus
-    if aScore > mScore then gems, taken, bonus = aGems, aTaken, aBonus end
-    for id in pairs(taken) do used[id] = true end
-    return gems, bonus
+    walk(1, 0)
+    best = best or {}
+    for i = 1, #sockets do best[i] = best[i] or 0 end
+    for _, id in ipairs(best) do
+        local g = self:Gem(id)
+        if g and g.unique then used[id] = true end
+    end
+    return best, self:BonusActive(itemID, best)
 end
 
 -- For the editor: the choices for one socket, best first: { { id, best = bool, fits = bool } }. The best is what

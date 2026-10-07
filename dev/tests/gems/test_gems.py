@@ -187,7 +187,15 @@ def suggestions_and_filling_a_phase():
     # the sims' gems, ranked by the spec's weights (strength over a stamina / attack power gem)
     names = c.eval_py("local G = ns.Gems local o = {} for _, id in ipairs(G:Candidates(" + gd + ", 1, {})) do "
                       "o[#o + 1] = G:Gem(id).name end return o")
-    assert names[:3] == ["Bold Living Ruby", "Inscribed Noble Topaz", "Sovereign Nightseye"], names
+    assert names[:2] == ["Bold Living Ruby", "Inscribed Noble Topaz"] and "Sovereign Nightseye" in names, names
+    assert not any(n.startswith("Rigid") for n in names), names          # hit: the sims don't gem it
+    # Crystalforge Breastplate (red, yellow, yellow; +4 Strength) in P2: the unique Fire Opal goes in a yellow socket,
+    # every socket matches (the bonus is worth it): the best total by the weights
+    g = c.eval_py("local G = ns.Gems local gd = G:GuideData('PaladinRetribution', 2) "
+                  "local g, bonus = G:BestGems(30129, gd, 2, {}, {}) return { g, bonus }")
+    gems, bonus = gems_list(g[0]), g[1]
+    assert bonus is True and gems[1] == 30584 or gems[2] == 30584, gems
+    assert gems.count(30584) == 1, gems
     def sug(item, sid, phase=1, profs="{}", used="{}"):
         return c.eval_py("local e, g = ns.Gems:Suggest(..., select(2, ...), 'PaladinRetribution', select(3, ...), "
                          + profs + ", " + used + ") return { e, g }", item, sid, phase)
