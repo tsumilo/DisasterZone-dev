@@ -622,6 +622,10 @@ STATES = [
     # gems and enchants: the guide's on every P1 pick, then the gloves' blue socket and the cloak's enchant emptied
     # (an empty socket, a "+"), and the editor open on the gloves
     ("My BiS - gems", opened("mybis", GEMS_SEED)),
+    ("My BiS - gems tooltip", opened("mybis", GEMS_SEED + "local function find(f) if f.strip and f.sid == 3 then "
+                                    "return f end for _, ch in ipairs({ f:GetChildren() }) do local r = find(ch) "
+                                    "if r then return r end end end local t = find(UIParent); "
+                                    "t.strip:GetScript('OnEnter')(t.strip)")),
     ("My BiS - gem editor", opened("mybis", GEMS_SEED + "local function find(f) if f.strip and f.sid == 7 then "
                                    "return f end for _, ch in ipairs({ f:GetChildren() }) do local r = find(ch) "
                                    "if r then return r end end end local t = find(UIParent); "

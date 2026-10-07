@@ -189,7 +189,7 @@ local function CreateChoice(parent)
     r.chip = CreateChip(r, CHOICE_CHIP)
     r.chip:SetPoint("LEFT", r, "LEFT", 3, 0)
     r.tag = Text(r, "GameFontHighlightSmall", "RIGHT")
-    r.tag:SetPoint("RIGHT", r, "RIGHT", -4, 0)
+    r.tag:SetPoint("TOPRIGHT", r, "TOPRIGHT", -4, -3)     -- (on the name's line: the effect gets the whole width)
     r.name = Text(r, "GameFontHighlightSmall")
     r.name:SetPoint("TOPLEFT", r, "TOPLEFT", CHOICE_CHIP + 9, -3)
     r.effect = Text(r, "GameFontHighlightSmall")
@@ -308,7 +308,8 @@ local function Build()
         GemEditor:Refresh()
     end)
     f.suggest = U:CreateSleekButton(f, "Use suggested", 120, 22, function()
-        local enchant, gems = G():Suggest(state.itemID, state.sid, Guide(), state.phase, Profs())
+        local used = G():UsedUniques(View(), state.phase, state.itemID)
+        local enchant, gems = G():Suggest(state.itemID, state.sid, Guide(), state.phase, Profs(), used)
         ns.BiS:SetGemSetup(state.itemID, enchant, gems, state.list)
         GemEditor:Refresh()
     end, "primary")
@@ -364,12 +365,11 @@ local function Choices()
         seen[id] = true
         out[#out + 1] = { kind = kind, id = id, tag = tag, tagColor = tagColor }
     end
-    local guide = Guide()
-    local guideGems, guideEnchants = Gm:GuidePicks(guide, state.phase)
+    local gd = Gm:GuideData(Guide(), state.phase)
     local phaseCap = max(1, state.phase or 1)
     if state.target == "e" then
-        local first = guideEnchants[state.sid]
-        if first and not Gm:EnchantFitsItem(first, state.itemID) then first = nil end
+        local first = Gm:BestEnchant(state.itemID, state.sid, gd, Profs())
+        if first == 0 then first = nil end
         for _, id in ipairs(Gm:EnchantsFor(state.itemID, Profs(), first)) do
             local e = Gm:Enchant(id)
             if not search or e.name:lower():find(search, 1, true) or (e.text or ""):lower():find(search, 1, true) then
@@ -387,20 +387,36 @@ local function Choices()
     local function matches(g)
         return not search or g.name:lower():find(search, 1, true) or (g.text or ""):lower():find(search, 1, true)
     end
+    local function tag(id)
+        local g = Gm:Gem(id)
+        if not Gm:Fits(id, socket) then return "No bonus" end
+        if g.unique then return "Unique" end
+        if g.jc then return "Jewelcrafter" end
+        return nil
+    end
     if not search then
-        local _, picks = Gm:SocketChoices(guideGems, socket)
-        for _, c in ipairs(picks) do
-            add("gem", c.id, c.best and "Best" or (not c.fits and "No bonus" or nil), c.best and GOLD or DIM)
+        local used = Gm:UsedUniques(View(), state.phase, state.itemID)
+        for _, c in ipairs(Gm:SocketChoices(state.itemID, tonumber(state.target:sub(2)), gd, state.phase, Profs(), used)) do
+            if c.best then add("gem", c.id, "Best", GOLD) else add("gem", c.id, tag(c.id), DIM) end
         end
     end
+    -- the rest: every gem that fits (a search: every gem), the most worth to the spec first
+    local rest = {}
     for _, id in ipairs(Gm:AllGems()) do
         local g = Gm:Gem(id)
         local fitsKind = (socket == "M") == (g.color == "M")
         if (search and matches(g)) or (not search and fitsKind and Gm:Fits(id, socket) and g.phase <= phaseCap
             and g.quality >= 2) then
-            add("gem", id, (not Gm:Fits(id, socket)) and "No bonus" or nil, DIM)
+            rest[#rest + 1] = id
         end
     end
+    local w = gd.w
+    table.sort(rest, function(a, b)
+        local sa, sb = Gm:GemScore(a, w), Gm:GemScore(b, w)
+        if sa ~= sb then return sa > sb end
+        return a < b
+    end)
+    for _, id in ipairs(rest) do add("gem", id, tag(id), DIM) end
     return out
 end
 
@@ -434,9 +450,9 @@ function GemEditor:PaintChoices()
             row.tag:SetText(c.tag or "")
             row.tag:SetTextColor(tc[1], tc[2], tc[3])
             -- the name and effect get the row's width up to the tag
-            local textW = row:GetWidth() - (CHOICE_CHIP + 9) - (c.tag and ((row.tag:GetStringWidth() or 0) + 10) or 4)
-            row.name:SetWidth(textW)
-            row.effect:SetWidth(textW)
+            local fullW = row:GetWidth() - (CHOICE_CHIP + 9) - 4
+            row.name:SetWidth(fullW - (c.tag and ((row.tag:GetStringWidth() or 0) + 6) or 0))
+            row.effect:SetWidth(fullW)
             row.fill:SetColorTexture(1, 1, 1, row.current and 0.07 or 0)
             row:Show()
         else
@@ -562,9 +578,8 @@ function GemEditor:Refresh()
             PaintChip(er.chip, nil, { 0.42, 0.42, 0.46, 0.9 }, false, true)
             er.name:SetText("Enchant")
             er.name:SetTextColor(1, 1, 1)
-            local _, guideEnchants = Gm:GuidePicks(guide, state.phase)
-            local sug = Gm:Enchant(guideEnchants[state.sid])
-            if sug and Gm:EnchantFitsItem(sug.id, state.itemID) then
+            local sug = Gm:Enchant(Gm:BestEnchant(state.itemID, state.sid, Gm:GuideData(guide, state.phase), Profs()))
+            if sug then
                 er.effect:SetText(sug.short)
             else
                 er.effect:SetText("None")

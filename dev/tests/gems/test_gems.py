@@ -181,36 +181,49 @@ def lock_refuses_setup_edits():
 
 @r.case
 def suggestions_and_filling_a_phase():
-    w, c = solo()
-    assert c.eval("return ns.Gems:GuideFor(ns.BiS:GetListView())") == "PaladinHoly"
-    # Holy P1: Teardrop Living Ruby (red); no blue gem in the guide -> the ruby anyway (no bonus)
-    e, g = c.eval_py("local e, g = ns.Gems:Suggest(..., 7, 'PaladinHoly', 1, {}) return { e, g }", GLOVES)
-    assert e == MAJOR_HEALING and gems_list(g) == [RUBY, RUBY], (e, g)
-    best, choices = c.eval_py("local b, c = ns.Gems:SocketChoices({ 25897, 24029 }, 'B') return { b, c }")
-    assert best == RUBY and choices[0]["id"] == RUBY and choices[0]["fits"] is False, choices
-    # P3: the guide adds purple / orange gems: the blue socket takes Royal Shadowsong Amethyst, the meta socket a meta
-    e3, g3 = c.eval_py("local e, g = ns.Gems:Suggest(..., 7, 'PaladinHoly', 3, {}) return { e, g }", GLOVES)
-    assert gems_list(g3) == [32195, 32216], g3
-    best, _ = c.eval_py("local b, c = ns.Gems:SocketChoices(ns.Gems:GuidePicks('PaladinHoly', 3), 'M') return { b, c }")
-    assert best == INSIGHTFUL, best
+    w, c = solo(spec="Retribution")
+    assert c.eval("return ns.Gems:GuideFor(ns.BiS:GetListView())") == "PaladinRetribution"
+    gd = "ns.Gems:GuideData('PaladinRetribution', 1)"
+    # the sims' gems, ranked by the spec's weights (strength over a stamina / attack power gem)
+    names = c.eval_py("local G = ns.Gems local o = {} for _, id in ipairs(G:Candidates(" + gd + ", 1, {})) do "
+                      "o[#o + 1] = G:Gem(id).name end return o")
+    assert names[:3] == ["Bold Living Ruby", "Inscribed Noble Topaz", "Sovereign Nightseye"], names
+    def sug(item, sid, phase=1, profs="{}", used="{}"):
+        return c.eval_py("local e, g = ns.Gems:Suggest(..., select(2, ...), 'PaladinRetribution', select(3, ...), "
+                         + profs + ", " + used + ") return { e, g }", item, sid, phase)
+    # yellow sockets: the topaz (bonus); red + blue with a small crit bonus: two rubies are worth more
+    assert gems_list(sug(SHOULDERS, 3)[1]) == [24058, 24058]
+    assert gems_list(sug(GLOVES, 7)[1]) == [24027, 24027]
+    # meta socket: the sims' meta gem; enchants: the sims' per slot
+    helm = 29073
+    e, g = sug(helm, 1)
+    assert gems_list(g) == [24027, 32409] and e == 3003, (e, g)
+    assert sug(SHOULDERS, 3)[0] == 2986
+    # a unique gem goes in once: none of the suggestions repeat one, and one already used is skipped
+    uniq = c.eval("for id, r in pairs(ns.Data.Gems) do if r.u and r[1] == 'R' and r[3] <= 1 then return id end end")
+    got = c.eval_py("local used = {} local o = {} for i = 1, 3 do local _, g = ns.Gems:Suggest(..., 7, "
+                    "'PaladinRetribution', 1, {}, used) o[#o + 1] = g end return o", GLOVES)
+    flat = [x for g in got for x in gems_list(g)]
+    uniques = [x for x in flat if c.eval("return ns.Data.Gems[...].u", x)]
+    assert len(uniques) == len(set(uniques)), flat
+    assert uniq not in flat
     # ring enchants only for Enchanters
     ring = 28730
-    assert c.eval("return (ns.Gems:Suggest(..., 11, 'PaladinHoly', 3, {}))", ring) == 0
-    assert c.eval("return (ns.Gems:Suggest(..., 11, 'PaladinHoly', 3, { Enchanting = true }))", ring) == 2930
+    assert c.eval("return (ns.Gems:Suggest(..., 11, 'PaladinRetribution', 5, {}))", ring) == 0
+    assert c.eval("return (ns.Gems:Suggest(..., 11, 'PaladinRetribution', 5, { Enchanting = true }))", ring) == 2931
     # filling a phase: the empty ones only, then everything
     assert c.eval("return ns.BiS:SetSlot(1, 7, 'main', ...)", GLOVES) is True
     assert c.eval("return ns.BiS:SetSlot(1, 3, 'main', ...)", SHOULDERS) is True
     assert c.eval("return ns.BiS:SetSlot(1, 2, 'main', ...)", NECK) is True
     c.eval("ns.BiS:SetGemSetup(..., 0, { 0, select(2, ...) })", GLOVES, STAR)
-    n = c.eval("return ns.Gems:FillPhase(1)")
-    assert n == 2, n
+    assert c.eval("return ns.Gems:FillPhase(1)") == 2
     d = ge(data_of(c))
-    assert d[GLOVES] == "%d:%d:%d" % (MAJOR_HEALING, RUBY, STAR), d       # my blue gem stayed
-    assert d[SHOULDERS].endswith(":%d:%d" % (RUBY, RUBY)), d               # (the guide's P1 gems)
+    assert d[GLOVES] == "684:24027:%d" % STAR, d                # my blue gem stayed
+    assert d[SHOULDERS] == "2986:24058:24058", d
     assert NECK not in d
     assert c.eval("return ns.Gems:FillPhase(1)") == 0
     assert c.eval("return ns.Gems:FillPhase(1, nil, true)") == 1
-    assert ge(data_of(c))[GLOVES] == "%d:%d:%d" % (MAJOR_HEALING, RUBY, RUBY)
+    assert ge(data_of(c))[GLOVES] == "684:24027:24027"
     # no spec: no guide, nothing filled
     c.eval("ns.BiS:GetData().sp = ''")
     assert c.eval("return ns.Gems:FillPhase(1)") is None
@@ -381,7 +394,7 @@ def my_bis_strip_editor_and_centre():
     assert by[7][0] == 1 and by[3][0] == 1, by       # sockets + an enchant
     assert by[2][0] == 0, by                         # the neck takes neither
     # the centre counts them
-    assert c.eval("return ns.MyBiS:GetFinish()") == (True, "Gems 0 of 4  ·  Enchants 0 of 2")
+    assert c.eval("return ns.MyBiS:GetFinish()") == (True, "4 gems, 2 enchants to choose")
     # the gloves' strip opens the editor on the red socket
     c.eval("T_STRIP = __GT[7].strip")
     c.click("T_STRIP")
@@ -405,7 +418,7 @@ def my_bis_strip_editor_and_centre():
     settle(w, 0.3)
     e, g = setup_of(c, GLOVES)
     assert e == MAJOR_HEALING and gems_list(g) == [RUBY, RUBY], (e, g)
-    assert c.eval("return ns.MyBiS:GetFinish()") == (True, "Gems 2 of 4  ·  Enchants 1 of 2")
+    assert c.eval("return ns.MyBiS:GetFinish()") == (True, "2 gems, 1 enchant to choose")
     # the tile's tooltip shows the item with its gems
     link = c.eval("return __GT[7].mainLink")
     assert link == "item:%d:%d:%d:%d:::::70" % (GLOVES, MAJOR_HEALING, RUBY, RUBY), link
@@ -425,7 +438,7 @@ def my_bis_strip_editor_and_centre():
     # the Suggest menu fills the phase
     c.eval("ns.Gems:FillPhase(1)")
     settle(w, 0.3)
-    assert c.eval("return ns.MyBiS:GetFinish()") == (True, "Gems 4 of 4  ·  Enchants 2 of 2"), c.eval("return ns.MyBiS:GetFinish()")
+    assert c.eval("return ns.MyBiS:GetFinish()") == (False, ""), c.eval("return ns.MyBiS:GetFinish()")
     w.assert_no_errors()
 
 
@@ -478,6 +491,12 @@ def shopping_list_gets_the_crafts():
     assert n == 4 and other == 1, (n, other)
     assert c.eval("return ns.Shop:GetAmount(...)", RUBY) == 3
     assert c.eval("return ns.Shop:GetAmount(-33999)") == 1
+    # crafted picks I don't have yet go on it too (Spellstrike Hood, Tailoring)
+    assert c.eval("return ns.BiS:SetSlot(1, 1, 'main', 24266)") is True
+    assert c.eval("return ns.Shop:CanAdd(24266)") is True
+    needs = c.eval_py("return (ns.Gems:ShoppingNeeds(1))")
+    needs = {int(k): v for k, v in (needs.items() if isinstance(needs, dict) else enumerate(needs, 1)) if v}
+    assert needs.get(24266) == 1, needs
     w.assert_no_errors()
 
 

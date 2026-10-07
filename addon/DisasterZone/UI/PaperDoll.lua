@@ -8,7 +8,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/PaperDoll.lua", ...) then retur
 -- what is worn in that slot now on the other corner; the item's name (two lines when long), then one line: obtained,
 -- or where the item comes from (ctx.source, else the item database's text).
 -- Gems and enchants (ctx.gems): at the inner end of that line a strip of small chips, one per socket (the gem in a
--- socket-coloured edge, or the empty socket) with a green line under them while the socket bonus is on, then the
+-- socket-coloured edge, or the empty socket), then the
 -- enchant (green edge; a quiet "+" when it can take one and has none). Clicking the strip calls opts.onGemsClick.
 local addonName, ns = ...
 
@@ -324,50 +324,49 @@ local function SetChip(c, icon, edge, crop)
     c:Show()
 end
 
--- The strip's tooltip: each socket's gem (or that it is empty), the socket bonus, the enchant.
+-- The strip's tooltip, laid out like the game's own: the item as the title, then a line per gem and the enchant
+-- (icon and name on the left, what it gives on the right, soft), the socket bonus as a line of its own (dim until
+-- it is on). An empty socket or no enchant: a dim line; a meta gem that is not active: "inactive" after its name.
+local SOFT = { 0.62, 0.85, 0.62 }
+local DIMMED = { 0.47, 0.47, 0.5 }
+
+local function IconText(tex, text)
+    return tex and ("|T" .. tex .. ":13:13:0:0:64:64:5:59:5:59|t  " .. text) or text
+end
+
 local function GemTooltip(doll, tile, tt)
     local G = ns.Gems
     local st = tile.gemState
     if not (G and st) then return end
-    tt:AddLine(st.sockets > 0 and (st.enchantable and "Gems and enchant" or "Gems") or "Enchant", 1, 0.82, 0)
+    local name, _, quality = nil, nil, nil
+    if ns.ItemDB and ns.ItemDB.GetInfo then name, _, quality = ns.ItemDB:GetInfo(tile.mainID) end
+    tt:AddLine(name or SlotLabel(tile.sid), ns.UI:QualityColor(quality or 4))
     local sockets, bonus = G:Sockets(tile.mainID)
     for i, s in ipairs(sockets) do
         local g = G:Gem(st.gems[i])
-        local c = GemColor(s)
         if g then
-            tt:AddDoubleLine(g.name, g.text or "", c[1], c[2], c[3], 0.3, 0.9, 0.3)
-            if not G:Fits(g.id, s) then tt:AddLine("  in a " .. G.SOCKET_NAMES[s]:lower() .. " socket", 0.6, 0.6, 0.6) end
-            if g.color == "M" then
-                local active, words = G:MetaState(g.id, doll.metaCounts)
-                if words then
-                    if active then
-                        tt:AddLine("  Active: " .. words, 0.3, 0.9, 0.3, true)
-                    else
-                        tt:AddLine("  Inactive: needs " .. words, 0.9, 0.45, 0.35, true)
-                    end
-                end
+            local r, gg, b = ns.UI:QualityColor(g.quality)
+            local label = g.name
+            if g.color == "M" and not (G:MetaState(g.id, doll.metaCounts)) then
+                label = label .. "  |cffe6735ainactive|r"
             end
+            tt:AddDoubleLine(IconText(g.icon, label), g.text or "", r, gg, b, SOFT[1], SOFT[2], SOFT[3])
         else
-            tt:AddLine(G.SOCKET_NAMES[s] .. " socket - empty", 0.55, 0.55, 0.58)
+            tt:AddLine(IconText(G.EMPTY_SOCKET[s], "Empty " .. G.SOCKET_NAMES[s]:lower() .. " socket"),
+                DIMMED[1], DIMMED[2], DIMMED[3])
         end
     end
     if bonus then
-        if st.bonus then
-            tt:AddLine("Socket bonus: " .. bonus, 0.3, 0.9, 0.3)
-        else
-            tt:AddLine("Socket bonus: " .. bonus .. " (not active)", 0.55, 0.55, 0.58)
-        end
+        local c = st.bonus and SOFT or DIMMED
+        tt:AddDoubleLine("Socket bonus", bonus, DIMMED[1], DIMMED[2], DIMMED[3], c[1], c[2], c[3])
     end
     if st.enchantable then
         local e = G:Enchant(st.enchant)
         if e then
-            tt:AddDoubleLine(e.short, e.text or "", 0.3, 0.9, 0.3, 0.3, 0.9, 0.3)
+            tt:AddDoubleLine(IconText(e.icon, e.short), e.text or "", 0.12, 1, 0, SOFT[1], SOFT[2], SOFT[3])
         else
-            tt:AddLine("No enchant", 0.55, 0.55, 0.58)
+            tt:AddLine("No enchant", DIMMED[1], DIMMED[2], DIMMED[3])
         end
-    end
-    if not doll.readOnly and not doll.locked and doll.opts.onGemsClick then
-        tt:AddLine("Click to choose gems and enchant", 0.5, 0.5, 0.5)
     end
 end
 
@@ -376,9 +375,6 @@ local function CreateStrip(doll, tile)
     strip:SetFrameLevel(tile:GetFrameLevel() + 3)
     strip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     strip.chips = {}
-    strip.bonus = strip:CreateTexture(nil, "OVERLAY")
-    strip.bonus:SetHeight(1)
-    strip.bonus:SetColorTexture(0.3, 0.9, 0.3, 0.95)
     strip:SetScript("OnClick", function(_, mouseButton)
         if doll.readOnly or doll.locked then return end
         local cb = doll.opts.onGemsClick
@@ -439,7 +435,6 @@ local function PaintStrip(doll, tile, data, ctx)
             SetChip(c, G.EMPTY_SOCKET[s], { col[1] * 0.75, col[2] * 0.75, col[3] * 0.75, 0.9 }, false)
         end
     end
-    local socketsW = x > 0 and (x - CHIP_GAP) or 0
     if st.enchantable then
         if n > 0 then x = x + ENCHANT_GAP - CHIP_GAP end
         local c = chip()
@@ -452,12 +447,8 @@ local function PaintStrip(doll, tile, data, ctx)
         end
     end
     for i = n + 1, #strip.chips do strip.chips[i]:Hide() end
-    strip.bonus:ClearAllPoints()
-    strip.bonus:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, -(size + 2))
-    strip.bonus:SetWidth(math.max(1, socketsW))
-    strip.bonus:SetShown(st.bonus and socketsW > 0)
     local w = x - CHIP_GAP
-    strip:SetSize(w, size + 3)
+    strip:SetSize(w, size)
     strip:Show()
     return w
 end

@@ -1145,6 +1145,20 @@ local function BuildMoreMenu(root)
     end
     entry(UI.ICON.export, "Export", GOLD, "Your BiS list or the gear you wear, for WoWSims (wowsims.com/tbc) or "
         .. "Wowhead's gear planner.", function() openWindow("export") end)
+    -- the phase's gems and enchants on the Atlas shopping list (the crafts; what you wear already is left out)
+    if ns.Gems and ns.Shop then
+        local needs = ns.Gems:ShoppingNeeds(phase, ListArg())
+        local count = 0
+        for _, n in pairs(needs) do count = count + n end
+        local b = entry(UI.ICON.bagAdd, "Shopping", GOLD, ("Puts what %s still needs crafted on your shopping list in "
+            .. "the Atlas: crafted picks you don't have yet, and the gems and enchants you chose. It shows who in the "
+            .. "guild makes them."):format(which), function()
+            local n, other = ns.Gems:AddToShoppingList(phase, ListArg())
+            ns:Print("Added %d crafts to your shopping list (Atlas).%s", n,
+                other > 0 and (" %d gems or enchants come from drops, vendors or reputation."):format(other) or "")
+        end)
+        if count == 0 and b and b.SetEnabled then b:SetEnabled(false) end
+    end
     if locked then return end
     local copy = entry(ICON.copy, "Copy", GOLD, "Fill " .. which .. " from another phase, or from your other list.")
     if copy then BuildCopyMenu(copy) end
@@ -1444,7 +1458,6 @@ local function CreateCard(parent, w, h)
     fin.text:SetJustifyH("CENTER")
     fin.text:SetPoint("CENTER", fin, "CENTER", 0, 0)
     fin:SetScript("OnEnter", function(self) MyBiS:FinishTooltip(self) end)
-    fin:SetScript("OnMouseUp", function(self) MyBiS:OpenFinishMenu(self) end)
     fin:SetScript("OnLeave", function() GameTooltip:Hide() end)
     c.finish = fin
 
@@ -1805,16 +1818,12 @@ function MyBiS:UpdateFinish(phase, anyPick)
     local view = BiS:GetListView(ListArg())
     local gems, sockets, enchants, enchantable = G:Progress(view, phase, function(sid) return SlotDisabled(phase, sid) end)
     fin.phase = phase
+    -- only what is still to choose (nothing once every socket and enchant is chosen)
     local parts = {}
-    local function part(word, have, of)
-        if of == 0 then return end
-        local done = have >= of
-        parts[#parts + 1] = done and Green(("%s %d of %d"):format(word, have, of))
-            or ("|cff9e9e9e%s|r |cffffffff%d|r |cff9e9e9eof %d|r"):format(word, have, of)
-    end
-    part("Gems", gems, sockets)
-    part("Enchants", enchants, enchantable)
-    fin.text:SetText(table.concat(parts, "|cff9e9e9e  ·  |r"))
+    local g, e = sockets - gems, enchantable - enchants
+    if g > 0 then parts[#parts + 1] = g == 1 and "1 gem" or (g .. " gems") end
+    if e > 0 then parts[#parts + 1] = e == 1 and "1 enchant" or (e .. " enchants") end
+    fin.text:SetText(#parts > 0 and ("|cff8a8a8e" .. table.concat(parts, ", ") .. " to choose|r") or "")
     fin:SetShown(anyPick and #parts > 0)
 end
 
@@ -1824,30 +1833,6 @@ function MyBiS:GetFinish()
     if not fin then return nil end
     local text = (fin.text:GetText() or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
     return fin:IsShown(), text
-end
-
--- The gems line's menu: fill the empty ones from the guide, put what they take on the shopping list.
-function MyBiS:OpenFinishMenu(owner)
-    local G = ns.Gems
-    local phase = owner.phase or CurrentPhase()
-    local list = ListArg()
-    GameTooltip:Hide()
-    ns.UI:ContextMenu(owner, function(root)
-        root:CreateTitle("Gems and enchants - " .. PL(phase))
-        if not ListLocked() and G:GuideFor(ns.BiS:GetListView(list)) then
-            root:CreateButton("Fill empty from the guide", function() G:FillPhase(phase, list, false) end)
-        end
-        local needs = G:ShoppingNeeds(phase, list)
-        local count = 0
-        for _, n in pairs(needs) do count = count + n end
-        local b = root:CreateButton(count > 0 and ("Add to shopping list (%d)"):format(count) or "Add to shopping list",
-            function()
-                local n, other = G:AddToShoppingList(phase, list)
-                ns:Print("Added %d gems and enchants to your shopping list (Atlas).%s", n,
-                    other > 0 and (" %d more come from drops, vendors or reputation."):format(other) or "")
-            end)
-        if count == 0 and b and b.SetEnabled then b:SetEnabled(false) end
-    end)
 end
 
 -- What the phase's picks still lack (the line's tooltip).
@@ -1879,7 +1864,7 @@ function MyBiS:FinishTooltip(owner)
     if not any then
         GameTooltip:AddLine("Every pick has its gems and enchant.", 0.3, 0.9, 0.3)
     end
-    GameTooltip:AddLine("Click: fill from the guide, or put them on the shopping list", 0.5, 0.5, 0.5, true)
+    GameTooltip:AddLine("Suggest fills them; ... puts them on the shopping list.", 0.5, 0.5, 0.5, true)
     GameTooltip:Show()
 end
 

@@ -8,6 +8,8 @@ Sources:
   - Wowhead's TBC tooltips (nether.wowhead.com/tbc/tooltip/item/<id>) for what the database leaves out: the meta
     gems' requirements ("Requires at least 2 Blue Gems", "Requires more Red gems than Blue gems") and the effect text
     of gems without plain stats (cached in dev/generators/data/gems_wowhead.json).
+  - WoWSims' spec presets (ui/specs/<class>/<spec>/presets.ts, presets/ep/*.ep.json): the stat weights per phase
+    that rank gems; its gear sets (gear_sets/*.gear.json): the enchant per slot and the meta gem the sims use.
   - LoonBestInSlot's class guides (the same files as gen_bis_lists.py): LBIS:AddGem / LBIS:AddEnchant lines. A line
     registered for phase N counts from phase N on (LoonBestInSlot shows it while its phase setting is >= N); the
     latest phase's enchant for a slot wins, gems are listed newest phase first, then in the guide's order. Enchant
@@ -114,6 +116,12 @@ def stats_text(stats):
     if ALL_RES <= set(vals) and len({vals[i] for i in ALL_RES}) == 1:
         parts.append("+%g All Resistances" % vals[36])
         for i in ALL_RES:
+            vals.pop(i)
+    # the five base stats alike: "+6 All Stats" (Exceptional Stats, Prismatic gems)
+    BASE = (0, 1, 2, 3, 16)
+    if all(vals.get(i) for i in BASE) and len({vals[i] for i in BASE}) == 1:
+        parts.append("+%g All Stats" % vals[0])
+        for i in BASE:
             vals.pop(i)
     # TBC's attack power counts for ranged too: the database lists both; one is enough
     if vals.get(17) and vals.get(18) == vals.get(17):
@@ -223,6 +231,151 @@ def parse_guides(gems, enchant_by_name):
     return guides, problems
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# WoWSims per-spec data: stat weights (EP) per phase and the sims' gear sets (their enchants and meta gems)
+# ---------------------------------------------------------------------------------------------------------------
+SPEC_DIR = os.path.join(CACHE_DIR, "wowsims_specs")        # git-ignored download cache
+TREE_URL = "https://api.github.com/repos/wowsims/tbc-new/git/trees/master?recursive=1"
+RAW = "https://raw.githubusercontent.com/wowsims/tbc-new/master/"
+
+# guide -> (spec folder, a word the EP block's name must have, a word a gear set's path must not have)
+SPEC_SOURCES = {
+    "DruidBalance": ("druid/balance", None, None),
+    "DruidBear": ("druid/feralbear", None, "hydross"),
+    "DruidCat": ("druid/feralcat", None, None),
+    "DruidRestoration": ("druid/restoration", None, None),
+    "HunterBeastMastery": ("hunter/dps", "BM", "/sv/"),
+    "HunterMarksmanship": ("hunter/dps", "BM", "/sv/"),
+    "HunterSurvival": ("hunter/dps", "SV", "/bm/"),
+    "MageArcane": ("mage/dps", "Arcane", None),
+    "MageFire": ("mage/dps", "Arcane", None),
+    "MageFrost": ("mage/dps", "Arcane", None),
+    "PaladinHoly": ("paladin/holy", None, None),
+    "PaladinProtection": ("paladin/protection", None, None),
+    "PaladinRetribution": ("paladin/retribution", None, "bulwark"),
+    "PriestHoly": ("priest/healer", None, None),
+    "PriestShadow": ("priest/dps", None, None),
+    "RogueDps": ("rogue/dps", None, None),
+    "ShamanElemental": ("shaman/elemental", None, "simtest"),
+    "ShamanEnhancement": ("shaman/enhancement", None, "simtest"),
+    "ShamanRestoration": ("shaman/restoration", None, None),
+    "WarlockAffliction": ("warlock/dps", "Affli", "fire"),
+    "WarlockDemonology": ("warlock/dps", "Affli", "fire"),
+    "WarlockDestruction": ("warlock/dps", "Affli", None),
+    "WarriorArms": ("warrior/dps", "Arms", "_fury"),
+    "WarriorFury": ("warrior/dps", "Fury", "_arms"),
+    "WarriorProtection": ("warrior/protection", None, "hydross"),
+}
+GEAR_PHASE = [(r"pre_?raid|prebis", 0), (r"(?:^|[_/])p(?:hase_)?([1-5])", None), (r"(?:^|[_/])t4", 1),
+              (r"(?:^|[_/])t5", 2), (r"(?:^|[_/])t6", 3), (r"(?:^|[_/])za", 4), (r"(?:^|[_/])swp", 5)]
+
+
+def fetch_raw(url):
+    return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
+                                  timeout=60).read()
+
+
+def stat_index():
+    """'StatStrength' -> 0 ... from WoWSims' proto file (cached)."""
+    os.makedirs(SPEC_DIR, exist_ok=True)
+    path = os.path.join(SPEC_DIR, "common.proto")
+    if not os.path.isfile(path):
+        open(path, "wb").write(fetch_raw(RAW + "proto/common.proto"))
+    text = open(path, encoding="utf-8").read()
+    block = text[text.index("enum Stat {"):]
+    block = block[:block.index("}")]
+    return {m.group(1): int(m.group(2)) for m in re.finditer(r"(Stat\w+) = (\d+);", block)}
+
+
+def spec_files(folder):
+    """{ path under the spec folder: text } of its presets.ts, *.ep.json and *.gear.json (cached)."""
+    os.makedirs(SPEC_DIR, exist_ok=True)
+    index = os.path.join(SPEC_DIR, "tree.json")
+    if not os.path.isfile(index):
+        open(index, "wb").write(fetch_raw(TREE_URL))
+    tree = json.load(open(index, encoding="utf-8"))["tree"]
+    prefix = "ui/specs/%s/" % folder
+    out = {}
+    for e in tree:
+        p = e["path"]
+        if e["type"] != "blob" or not p.startswith(prefix):
+            continue
+        if not (p.endswith("presets.ts") or p.endswith(".ep.json") or p.endswith(".gear.json")):
+            continue
+        local = os.path.join(SPEC_DIR, p.replace("/", "__"))
+        if not os.path.isfile(local):
+            open(local, "wb").write(fetch_raw(RAW + p))
+        out[p[len(prefix):]] = open(local, encoding="utf-8").read()
+    return out
+
+
+def block_phases(name):
+    """The phases an EP block's name covers ("P2, P3, P4 & P5 - Fury" -> {2,3,4,5}); None = any phase."""
+    if re.search(r"pre-?raid", name, re.I):
+        return {0}
+    found = {int(d) for d in re.findall(r"(?:\bP|Phase )(\d)(?!\.\d)", name)}
+    if found:
+        found |= {int(d) for d in re.findall(r"(?:,|&)\s*P?(\d)\b", name)}
+    return found or None
+
+
+def spec_weights(guide, files, idx):
+    """{ phase 0..5: { stat index: weight } } for a guide."""
+    word = SPEC_SOURCES[guide][1]
+    blocks = []
+    for path, text in sorted(files.items()):
+        if path.endswith("presets.ts"):
+            for m in re.finditer(r"makePresetEpWeights\(\s*'([^']+)',\s*Stats\.fromMap\(\s*\{(.*?)\}", text, re.S):
+                w = {idx[k]: float(v) for k, v in re.findall(r"\[Stat\.(Stat\w+)\]:\s*([\d.]+)", m.group(2))}
+                blocks.append((m.group(1), w))
+        elif path.endswith(".ep.json"):
+            j = json.loads(text)
+            blocks.append((j.get("name", "Default"), {idx[k]: float(v) for k, v in j["stats"].items() if k in idx}))
+    if word:
+        blocks = [b for b in blocks if word.lower() in b[0].lower()] or blocks
+    out = {}
+    for p in PHASES:
+        exact = [w for n, w in blocks if block_phases(n) and p in block_phases(n)]
+        anyb = [w for n, w in blocks if block_phases(n) is None]
+        if exact:
+            out[p] = exact[0]
+        elif anyb:
+            out[p] = anyb[0]
+        else:
+            ranked = sorted(((abs(q - p) + (0.5 if q > p else 0), i) for i, (n, w) in enumerate(blocks)
+                             for q in (block_phases(n) or [])))
+            if ranked:
+                out[p] = blocks[ranked[0][1]][1]
+    return out
+
+
+def gear_phase(name):
+    low = name.lower()
+    for pat, ph in GEAR_PHASE:
+        m = re.search(pat, low)
+        if m:
+            return ph if ph is not None else int(m.group(1))
+    return None
+
+
+def spec_gear(guide, files):
+    """{ phase: [ items (17, in our slot order) ... ] } of the sims' gear sets for a guide."""
+    exclude = SPEC_SOURCES[guide][2]
+    out = {}
+    for path, text in sorted(files.items()):
+        if not path.endswith(".gear.json") or "blank" in path or (exclude and exclude in path.lower()):
+            continue
+        ph = gear_phase(path.split("gear_sets/")[-1])
+        if ph is None:
+            continue
+        out.setdefault(ph, []).append(json.loads(text).get("items", []))
+    return out
+
+
+def vec(stats):
+    return ",".join("%d:%g" % (i, v) for i, v in enumerate(stats or []) if v)
+
+
 def main():
     write = "--write" in sys.argv
     db = load_db()
@@ -274,7 +427,8 @@ def main():
         "local addonName, ns = ...",
         "ns.Data = ns.Data or {}",
         "",
-        "-- [itemID] = \"sockets|bonus\": socket letters in order (M meta, R red, Y yellow, B blue), the socket bonus text.",
+        "-- [itemID] = \"sockets|bonus|stats\": socket letters in order (M meta, R red, Y yellow, B blue), the bonus text",
+        "-- and its stats (\"stat:value,...\", WoWSims' Stat numbers; a gem's / enchant's st likewise).",
         "ns.Data.Sockets = {",
     ]
     n_items = 0
@@ -285,7 +439,8 @@ def main():
         letters = "".join(SOCKET.get(s, "") for s in socks)
         if not letters:
             continue
-        out.append("  [%d] = %s," % (it["id"], lua_str("%s|%s" % (letters, stats_text(it.get("socketBonus"))))))
+        out.append("  [%d] = %s," % (it["id"], lua_str("%s|%s|%s" % (letters, stats_text(it.get("socketBonus")),
+                                                                   vec(it.get("socketBonus"))))))
         n_items += 1
     out.append("}")
     out += [
@@ -309,6 +464,8 @@ def main():
             no_text.append(gid)
         fields = ["%s" % lua_str(color), str(g.get("quality", 2)), str(g.get("phase", 1)), lua_str(text),
                   lua_str(g["name"]), lua_str(g.get("icon", ""))]
+        if vec(g.get("stats")):
+            fields.append("st = %s" % lua_str(vec(g.get("stats"))))
         if g.get("requiredProfession") == 7:
             fields.append("jc = true")
         if g.get("unique"):
@@ -333,6 +490,8 @@ def main():
         craft = atlas_crafts.get(e["name"].lower(), 0)
         fields = [str(e.get("type", 0)), lua_str(e["name"]), lua_str(enchant_effect_text(e)),
                   lua_str(e.get("icon", "")), str(craft), str(e.get("itemId", 0))]
+        if vec(e.get("stats")):
+            fields.append("st = %s" % lua_str(vec(e.get("stats"))))
         if e.get("enchantType"):
             fields.append("et = %d" % e["enchantType"])
         if e.get("extraTypes"):
@@ -345,17 +504,49 @@ def main():
     guides, problems = parse_guides(gems, enchant_by_name)
     out += [
         "",
-        "-- [guide] = { [phase 0..5] = { gems = \"id,...\" (newest first, the guide's order), enchants = \"sid:effect,...\" } }",
+        "-- [guide] = { [phase 0..5] = { gems = \"id,...\" (LoonBestInSlot's, newest first), enchants = \"sid:effect,...\"",
+        "--   (the WoWSims gear sets' most used per slot, else LoonBestInSlot's), meta = the sets' meta gem, sim = the",
+        "--   other gems the sets use (most used first),",
+        "--   w = \"stat:weight,...\" (WoWSims' EP weights for the spec and phase: what a gem or bonus is worth) } }",
         "-- (guide keys as in BiSLists.lua; a guide line counts from its phase on, the latest enchant per slot wins)",
         "ns.Data.GemGuides = {",
     ]
-    for name in sorted(guides):
+    idx = stat_index()
+    from collections import Counter
+    for name in sorted(set(guides) | set(SPEC_SOURCES)):
+        files = spec_files(SPEC_SOURCES[name][0]) if name in SPEC_SOURCES else {}
+        weights = spec_weights(name, files, idx) if files else {}
+        gear = spec_gear(name, files) if files else {}
+        if not weights:
+            problems.append((name, 0, "no stat weights"))
         out.append("  %s = {" % name)
         for p in PHASES:
-            if p in guides[name]:
-                g, e = guides[name][p]
-                out.append('    [%d] = { gems = "%s", enchants = "%s" },' % (
-                    p, ",".join(str(x) for x in g), ",".join("%d:%d" % (s, e[s]) for s in sorted(e))))
+            g, e = guides.get(name, {}).get(p, ([], {}))
+            e = dict(e)
+            # the sims' gear sets of this phase (else the nearest earlier one): their most used enchant per slot
+            # (over the guide's) and meta gem
+            sets = next((gear[q] for q in range(p, -1, -1) if gear.get(q)), None) or gear.get(min(gear) if gear else -1, [])
+            ench, metas, used = {}, Counter(), Counter()
+            for items in sets:
+                for sid, it in enumerate(items[:17], 1):
+                    if it.get("enchant") in enchants:
+                        ench.setdefault(sid, Counter())[it["enchant"]] += 1
+                    for gid in it.get("gems") or []:
+                        if gid in gems and gems[gid]["color"] == 1:
+                            metas[gid] += 1
+                        elif gid in gems:
+                            used[gid] += 1
+            for sid, cnt in ench.items():
+                e[sid] = cnt.most_common(1)[0][0]
+            fields = ['gems = "%s"' % ",".join(str(x) for x in g),
+                      'enchants = "%s"' % ",".join("%d:%d" % (s, e[s]) for s in sorted(e))]
+            if metas:
+                fields.append("meta = %d" % metas.most_common(1)[0][0])
+            if used:
+                fields.append('sim = "%s"' % ",".join(str(gid) for gid, _ in used.most_common()))
+            if weights.get(p):
+                fields.append('w = "%s"' % ",".join("%d:%g" % (k, v) for k, v in sorted(weights[p].items())))
+            out.append("    [%d] = { %s }," % (p, ", ".join(fields)))
         out.append("  },")
     out.append("}")
     out.append("")

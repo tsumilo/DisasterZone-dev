@@ -595,7 +595,7 @@ def my_bis_more_menu_opens_the_window():
     c.click(more)
     # the top-level entries (Copy holds its own submenu)
     entries = [e[2] for e in menu_texts(c.last_menu()) if e[2] and e[0] == 0]
-    assert [strip_codes(t).strip() for t in entries] == ["Import", "Export", "Copy", "Clear P1"], entries
+    assert [strip_codes(t).strip() for t in entries] == ["Import", "Export", "Shopping", "Copy", "Clear P1"], entries
     # each entry starts with its atlas icon
     for text in entries:
         assert text.startswith("|T" + c.eval("return ns.UI.ICON_ATLAS")), text

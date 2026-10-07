@@ -27,3 +27,6 @@ dev/art/rooms/
 
 # WoWSims TBC item database downloaded by dev/generators/gen_gems.py
 dev/generators/data/wowsims_tbc_db.json
+
+# WoWSims spec presets / gear sets downloaded by gen_gems.py
+dev/generators/data/wowsims_specs/

@@ -110,7 +110,7 @@ function Gems:Sockets(itemID)
         local s = Data().Sockets and Data().Sockets[itemID]
         c = false
         if type(s) == "string" then
-            local letters, bonus = s:match("^(%u*)|(.*)$")
+            local letters, bonus = s:match("^(%u*)|([^|]*)")
             local list = {}
             for l in (letters or ""):gmatch("%u") do list[#list + 1] = l end
             c = { list = list, bonus = (bonus and bonus ~= "") and bonus or nil }
@@ -375,8 +375,13 @@ function Gems:Progress(view, phase, isDisabled, profs)
 end
 
 ---------------------------------------------------------------------------
--- Suggestions (the class guides)
+-- Suggestions: the WoWSims sims' gems for the spec and phase, ranked by its stat weights
 ---------------------------------------------------------------------------
+-- A socket gets the best (by the spec's weights) of the gems the sims' gear sets use, that fits it; when one gem that
+-- doesn't fit is worth more than the fitting ones and the bonus together, the item takes that one in every socket
+-- instead ("No bonus"). A unique gem goes in once per set at most, a Jewelcrafter-only gem only for a Jewelcrafter,
+-- and a gem only from its phase on. Without the sims' gems (a spec the data lacks): LoonBestInSlot's, then any gem.
+-- Enchants: the sims' choice per slot (else the guide's), else the best by the weights that fits the item.
 
 -- The guide of a list view (its class and spec label), or nil.
 function Gems:GuideFor(view)
@@ -385,71 +390,242 @@ function Gems:GuideFor(view)
     return Loon:GetGuide(view.cl, view.sp)
 end
 
--- The guide's suggested gems (ids, newest phase first) and enchants { [sid] = id } for a phase (0..5).
-function Gems:GuidePicks(guide, phase)
+-- "4:18,5:6" -> { [4] = 18, [5] = 6 }
+local function ParseStats(s)
+    local out = {}
+    for k, v in tostring(s or ""):gmatch("(%d+):([%d.]+)") do out[tonumber(k)] = tonumber(v) end
+    return out
+end
+
+local statCache = {}
+local function StatsOf(kind, id)
+    local key = kind .. id
+    local s = statCache[key]
+    if s == nil then
+        local r
+        if kind == "g" then r = Data().Gems and Data().Gems[id] elseif kind == "e" then r = Data().Enchants and Data().Enchants[id] end
+        if kind == "b" then
+            local raw = Data().Sockets and Data().Sockets[id]
+            s = ParseStats(type(raw) == "string" and raw:match("^%u*|[^|]*|(.*)$") or "")
+        else
+            s = ParseStats(type(r) == "table" and r.st or "")
+        end
+        statCache[key] = s
+    end
+    return s
+end
+
+local function Score(stats, w)
+    local n = 0
+    for k, v in pairs(stats) do n = n + v * (w[k] or 0) end
+    return n
+end
+
+-- The guide's suggestions for a phase (0..5; a phase without its own data takes the one before it):
+-- { gems = { loon ids }, enchants = { [sid] = id }, meta = id, sim = { ids }, w = { [stat] = weight } }.
+function Gems:GuideData(guide, phase)
     local g = guide and Data().GemGuides and Data().GemGuides[guide]
     local p
-    for q = tonumber(phase) or 1, 0, -1 do   -- (a phase without lines of its own has the phases' before it)
+    for q = tonumber(phase) or 1, 0, -1 do
         p = g and g[q]
         if p then break end
     end
-    local gems, enchants = {}, {}
-    if type(p) ~= "table" then return gems, enchants end
+    local out = { gems = {}, enchants = {}, sim = {}, w = ParseStats(p and p.w) }
+    if type(p) ~= "table" then return out end
     for id in tostring(p.gems or ""):gmatch("%d+") do
-        if self:Gem(tonumber(id)) then gems[#gems + 1] = tonumber(id) end
+        if self:Gem(tonumber(id)) then out.gems[#out.gems + 1] = tonumber(id) end
+    end
+    for id in tostring(p.sim or ""):gmatch("%d+") do
+        if self:Gem(tonumber(id)) then out.sim[#out.sim + 1] = tonumber(id) end
     end
     for sid, id in tostring(p.enchants or ""):gmatch("(%d+):(%d+)") do
-        if self:Enchant(tonumber(id)) then enchants[tonumber(sid)] = tonumber(id) end
+        if self:Enchant(tonumber(id)) then out.enchants[tonumber(sid)] = tonumber(id) end
     end
-    return gems, enchants
+    out.meta = self:Gem(p.meta) and p.meta or nil
+    return out
 end
 
--- For one socket: the guide's best gem (fits the socket; else the guide's top gem, which skips the bonus) and the
--- choices to offer { { id, fits = bool, best = bool } } (the guide's gems that fit, then its top one when it does
--- not).
-function Gems:SocketChoices(guidePicks, socket)
-    local best, top
-    local out = {}
-    for _, id in ipairs(guidePicks or {}) do
-        local g = self:Gem(id)
-        local meta = g.color == "M"
-        if (socket == "M") == meta then
-            if not top then top = id end
-            if self:Fits(id, socket) then
-                out[#out + 1] = { id = id, fits = true }
-                if not best then best = id end
+-- (older callers) the guide's gem ids and enchants.
+function Gems:GuidePicks(guide, phase)
+    local d = self:GuideData(guide, phase)
+    return d.gems, d.enchants
+end
+
+-- What a gem is worth to the spec (its stats by the weights).
+function Gems:GemScore(id, weights)
+    return Score(StatsOf("g", tonumber(id) or 0), weights or {})
+end
+
+-- A gem may be suggested: from its phase on, a Jewelcrafter-only one for a Jewelcrafter.
+local function Allowed(self, g, phase, profs)
+    return g and g.phase <= max(1, phase or 1) and (not g.jc or (profs and profs.Jewelcrafting))
+end
+
+-- The non-meta gems to suggest from, best first: the sims', else the guide's, else every gem of a usable quality.
+function Gems:Candidates(gd, phase, profs)
+    local out, seen = {}, {}
+    local function add(list, uniqueToo)
+        for _, id in ipairs(list) do
+            local g = self:Gem(id)
+            if not seen[id] and g and g.color ~= "M" and Allowed(self, g, phase, profs) and (uniqueToo or not g.unique) then
+                seen[id] = true
+                out[#out + 1] = id
             end
         end
     end
-    if top and not self:Fits(top, socket) then out[#out + 1] = { id = top, fits = false } end
-    best = best or top
-    for _, c in ipairs(out) do c.best = (c.id == best) or nil end
-    return best, out
+    add(gd.sim, true)
+    if #out == 0 then add(gd.gems, true) end
+    if #out == 0 or next(gd.w) == nil then
+        local all = {}
+        for id, r in pairs(Data().Gems or {}) do
+            if r[2] >= 2 then all[#all + 1] = id end
+        end
+        add(all, false)
+    end
+    local w = gd.w
+    tsort(out, function(a, b)
+        local sa, sb = self:GemScore(a, w), self:GemScore(b, w)
+        if sa ~= sb then return sa > sb end
+        return a < b
+    end)
+    return out
 end
 
--- The suggested setup of an item in a slot: enchant (0 = none fits) and gems { [socket] = id }.
-function Gems:Suggest(itemID, sid, guide, phase, profs)
+-- Best meta gem: the sims', else the guide's first, else none.
+local function MetaFor(self, gd, phase, profs)
+    for _, id in ipairs({ gd.meta, unpack(gd.gems) }) do
+        local g = self:Gem(id)
+        if g and g.color == "M" and Allowed(self, g, phase, profs) then return id end
+    end
+    return nil
+end
+
+-- The gems of an item: { [socket] = id }, and whether that set takes the bonus. used: unique gems already in the
+-- set ({ [id] = true }; updated with the ones placed).
+function Gems:BestGems(itemID, gd, phase, profs, used)
+    used = used or {}
+    local sockets = self:Sockets(itemID)
+    local cands = self:Candidates(gd, phase, profs)
+    local w = gd.w
+    local function pick(fits, taken)
+        for _, id in ipairs(cands) do
+            local g = self:Gem(id)
+            if (not g.unique or not (used[id] or taken[id])) and fits(id) then return id end
+        end
+        return nil
+    end
+    local function fill(match)
+        local out, taken, total = {}, {}, 0
+        for i, s in ipairs(sockets) do
+            local id
+            if s == "M" then
+                id = MetaFor(self, gd, phase, profs)
+            else
+                id = pick(function(x) return not match or self:Fits(x, s) end, taken)
+            end
+            out[i] = id or 0
+            if id then
+                if self:Gem(id).unique then taken[id] = true end
+                if s ~= "M" then total = total + self:GemScore(id, w) end
+            end
+        end
+        local bonus = self:BonusActive(itemID, out)
+        if bonus then total = total + Score(StatsOf("b", tonumber(itemID)), w) end
+        return out, total, taken, bonus
+    end
+    local mGems, mScore, mTaken, mBonus = fill(true)
+    local aGems, aScore, aTaken, aBonus = fill(false)
+    local gems, taken, bonus = mGems, mTaken, mBonus
+    if aScore > mScore then gems, taken, bonus = aGems, aTaken, aBonus end
+    for id in pairs(taken) do used[id] = true end
+    return gems, bonus
+end
+
+-- For the editor: the choices for one socket, best first: { { id, best = bool, fits = bool } }. The best is what
+-- BestGems puts there; the rest are the candidates that fit (a meta socket: the meta gems), then the best one that
+-- doesn't ("No bonus").
+function Gems:SocketChoices(itemID, index, gd, phase, profs, used)
+    local sockets = self:Sockets(itemID)
+    local s = sockets[index]
+    local out = {}
+    if not s then return out end
+    local best = (self:BestGems(itemID, gd, phase, profs, used or {}))[index]
+    local seen = {}
+    local function add(id, fits)
+        if id and id ~= 0 and not seen[id] then
+            seen[id] = true
+            out[#out + 1] = { id = id, fits = fits, best = (id == best) or nil }
+        end
+    end
+    add(best, self:Fits(best, s))
+    if s == "M" then
+        add(MetaFor(self, gd, phase, profs), true)
+        for _, id in ipairs(gd.gems) do
+            if self:Gem(id).color == "M" then add(id, true) end
+        end
+        return out
+    end
+    local cands = self:Candidates(gd, phase, profs)
+    local firstMiss
+    for _, id in ipairs(cands) do
+        if self:Fits(id, s) then add(id, true) elseif not firstMiss then firstMiss = id end
+    end
+    add(firstMiss, false)
+    return out
+end
+
+-- The enchant for an item in a slot: the sims' / guide's for the slot (or the other hand's), else the best by the
+-- weights that fits; 0 when none fits.
+function Gems:BestEnchant(itemID, sid, gd, profs)
     profs = profs or ProfessionSet()
-    local guideGems, guideEnchants = self:GuidePicks(guide, phase)
-    local gems = {}
-    for i, s in ipairs(self:Sockets(itemID)) do
-        gems[i] = (self:SocketChoices(guideGems, s)) or 0
+    local function ok(id)
+        local e = self:Enchant(id)
+        return e and self:EnchantFitsItem(id, itemID) and (not e.prof or profs[e.prof])
     end
-    local enchant = guideEnchants[sid] or 0
-    if enchant ~= 0 then
-        local e = self:Enchant(enchant)
-        if not self:EnchantFitsItem(enchant, itemID) or (e.prof and not profs[e.prof]) then enchant = 0 end
+    local id = gd.enchants[sid]
+    if id and ok(id) then return id end
+    if sid == SID_OFFHAND or sid == SID_MAINHAND then
+        local other = gd.enchants[sid == SID_OFFHAND and SID_MAINHAND or SID_OFFHAND]
+        if other and ok(other) then return other end
     end
-    if enchant == 0 and (sid == SID_OFFHAND or sid == SID_MAINHAND) then
-        -- the guide's other hand / weapon line (a two-hander's enchant is under Main Hand)
-        local other = guideEnchants[sid == SID_OFFHAND and SID_MAINHAND or SID_OFFHAND]
-        if other and self:EnchantFitsItem(other, itemID) then enchant = other end
+    local best, bestScore = 0, 0
+    if next(gd.w) ~= nil then
+        for eid in pairs(Data().Enchants or {}) do
+            if ok(eid) then
+                local sc = Score(StatsOf("e", eid), gd.w)
+                if sc > bestScore then best, bestScore = eid, sc end
+            end
+        end
     end
-    return enchant, gems
+    return best
 end
 
--- Fills the gems and enchants of a phase's picks of my own list from the guide: only sockets and enchants that are
--- still empty (overwrite: every pick's whole setup). Returns the number of items changed, false while locked, or
+-- The unique gems already placed on a phase's picks (except on `exceptItem`): { [id] = true }.
+function Gems:UsedUniques(view, phase, exceptItem)
+    local used = {}
+    for _, itemID in pairs(CountedPicks(view, phase)) do
+        if itemID ~= exceptItem then
+            local _, gems = self:GetSetup(view, itemID)
+            for _, id in pairs(gems) do
+                local g = self:Gem(id)
+                if g and g.unique then used[id] = true end
+            end
+        end
+    end
+    return used
+end
+
+-- The suggested setup of an item in a slot: enchant (0 = none fits) and gems { [socket] = id }. used: unique gems
+-- the rest of the set already has (updated).
+function Gems:Suggest(itemID, sid, guide, phase, profs, used)
+    profs = profs or ProfessionSet()
+    local gd = self:GuideData(guide, phase)
+    local gems = self:BestGems(itemID, gd, phase, profs, used or {})
+    return self:BestEnchant(itemID, sid, gd, profs), gems
+end
+
+-- Fills the gems and enchants of a phase's picks of my own list from the suggestions: only sockets and enchants that
+-- are still empty (overwrite: every pick's whole setup). Returns the number of items changed, false while locked, or
 -- nil when the list has no guide.
 function Gems:FillPhase(phase, list, overwrite)
     local BiS = ns.BiS
@@ -459,17 +635,25 @@ function Gems:FillPhase(phase, list, overwrite)
     if not guide then return nil end
     local profs = ProfessionSet()
     local isDisabled = function(sid) return BiS:IsSlotDisabled(phase, sid, list) end
+    local picks = CountedPicks(view, phase, isDisabled)
+    -- uniques: what is kept counts first
+    local used = {}
+    if not overwrite then used = self:UsedUniques(view, phase) end
     local setups = {}
-    for sid, itemID in pairs(CountedPicks(view, phase, isDisabled)) do
-        local sEnchant, sGems = self:Suggest(itemID, sid, guide, phase, profs)
-        local enchant, gems = self:GetSetup(view, itemID)
-        local new = { enchant = enchant, gems = {} }
-        for i = 1, #self:Sockets(itemID) do new.gems[i] = gems[i] or 0 end
-        if overwrite or enchant == 0 then new.enchant = sEnchant ~= 0 and sEnchant or enchant end
-        for i, g in pairs(sGems) do
-            if overwrite or (new.gems[i] or 0) == 0 then new.gems[i] = g end
+    for sid = 1, NUM_SLOTS do
+        local itemID = picks[sid]
+        if itemID and not setups[itemID] then
+            local enchant, gems = self:GetSetup(view, itemID)
+            local new = { enchant = enchant, gems = {} }
+            local n = #self:Sockets(itemID)
+            for i = 1, n do new.gems[i] = (not overwrite) and gems[i] or 0 end
+            local sEnchant, sGems = self:Suggest(itemID, sid, guide, phase, profs, used)
+            if overwrite or enchant == 0 then new.enchant = sEnchant ~= 0 and sEnchant or (overwrite and 0 or enchant) end
+            for i = 1, n do
+                if (new.gems[i] or 0) == 0 then new.gems[i] = sGems[i] or 0 end
+            end
+            setups[itemID] = new
         end
-        if not setups[itemID] then setups[itemID] = new end
     end
     return BiS:SetGemSetups(setups, list)
 end
@@ -504,10 +688,10 @@ function Gems:EnchantShopID(enchantID)
     return e.item
 end
 
--- What the phase's chosen gems and enchants still take, for the shopping list: { [id] = count } of crafts the
--- shopping list can hold (a gem's Jewelcrafting craft, -spell of an Enchanting craft, a crafted spellthread / kit),
--- leaving out what the item I wear already has (the same gem in that socket, the same enchant). Second result: how
--- many chosen ones no craft makes (drops, reputation glyphs).
+-- What the phase still takes, for the shopping list: { [id] = count } of crafts the shopping list can hold - the
+-- crafted picks I don't have yet, and the chosen gems (Jewelcrafting) and enchants (-spell of an Enchanting craft, a
+-- crafted spellthread / kit), leaving out what the item I wear already has (the same gem in that socket, the same
+-- enchant). Second result: how many chosen gems / enchants no craft makes (drops, reputation glyphs).
 function Gems:ShoppingNeeds(phase, list)
     local BiS, Shop, Exp = ns.BiS, ns.Shop, ns.BiSExport
     local out, other = {}, 0
@@ -525,6 +709,9 @@ function Gems:ShoppingNeeds(phase, list)
     end
     local isDisabled = function(sid) return BiS:IsSlotDisabled(phase, sid, list) end
     for _, itemID in pairs(CountedPicks(view, phase, isDisabled)) do
+        if Shop:CanAdd(itemID) and not (BiS.IsObtained and BiS:IsObtained(itemID)) then
+            out[itemID] = (out[itemID] or 0) + 1
+        end
         local enchant, gems = self:GetSetup(view, itemID)
         local w = wornById[itemID]
         for i, g in pairs(gems) do
