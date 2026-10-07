@@ -3575,6 +3575,13 @@ function Builder:CleanUp()
         colW = max(colW, w)
     end
     Changed(before)
+    -- (tidied: from the top-left, at the largest zoom step that shows all of it, clear of the overview)
+    for _, z in ipairs({ 1, 0.9, 0.8, 0.67, 0.5 }) do
+        if self:FitsAt(z) or z == 0.5 then
+            MoveView(0, 0, z)
+            break
+        end
+    end
 end
 
 function Builder:ZoomToFit()

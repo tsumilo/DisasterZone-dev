@@ -164,6 +164,7 @@ local function Acquire(kind, parent)
     for _, t in pairs(f.texs or {}) do t:Hide() end      -- sparse: icon, live value and warning sit at 30, 31, 50
     for _, fs in pairs(f.fonts or {}) do fs:Hide() end
     for _, t in pairs(f.tabFrames or {}) do t:Hide() end
+    for _, h in ipairs(f.hits or {}) do h:Hide() end
     f.pooled = nil
     f.kids = {}
     f.piece, f.slot, f.t = nil, nil, nil
@@ -995,6 +996,40 @@ function EP:Interact(ctx, f, p)
     end)
 end
 
+-- Where a piece takes the mouse: only where it is drawn. A frame takes clicks over its whole rectangle in the game,
+-- and a C piece's rectangle holds its hollow and the room right of its arms, a hat's the band right of its dome: there
+-- they would take the clicks meant for another script's pieces and blanks (in game 2026-10-07: an empty text blank
+-- that did nothing). So such a piece hands its mouse to child frames over its drawn parts (rects: { x, y, w, h } from
+-- its top-left, y down), at its own level, each passing the mouse on to the piece's own scripts.
+local HIT_EVENTS = { "OnMouseDown", "OnMouseUp", "OnEnter", "OnLeave" }
+function EP:HitParts(ctx, f, rects)
+    if ctx.opts.static then return end
+    f.hits = f.hits or {}
+    for i, r in ipairs(rects) do
+        local h = f.hits[i]
+        if not h then
+            h = CreateFrame("Frame", nil, f)
+            for _, ev in ipairs(HIT_EVENTS) do
+                h:SetScript(ev, function(self, ...)
+                    local piece = self:GetParent()
+                    local fn = piece and piece:GetScript(ev)
+                    if fn then fn(piece, ...) end
+                end)
+            end
+            f.hits[i] = h
+        end
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", f, "TOPLEFT", r[1], -r[2])
+        h:SetSize(max(1, r[3]), max(1, r[4]))
+        h:EnableMouse(true)
+        h:Show()
+        h.depth, h.rank, h.isBlank = f.depth, f.rank, false
+        ctx.all[#ctx.all + 1] = h
+    end
+    for i = #rects + 1, #f.hits do f.hits[i]:Hide() end
+    f:EnableMouse(false)
+end
+
 -- A problem's warning (and its tooltip), or the lock of a built-in script.
 function EP:Mark(ctx, f, p)
     local prob = ctx.opts.problems and ctx.opts.problems[p]
@@ -1182,6 +1217,16 @@ local function BuildBlock(ctx, parent, p, pd)
     k.done()
     EP:Interact(ctx, f, p)
     EP:Mark(ctx, f, p)
+    if f.headW then
+        -- a C piece: its header, its arm(s) with the else bar, its foot
+        local rects = { { 0, 0, f.headW, f.headH }, { 0, f.headH, EP.ARM, h - f.headH - EP.FOOT } }
+        if f.midY then rects[#rects + 1] = { 0, f.midY, EP.FOOT_W, EP.MID } end
+        rects[#rects + 1] = { 0, h - EP.FOOT, EP.FOOT_W, EP.FOOT }
+        EP:HitParts(ctx, f, rects)
+    elseif hat then
+        -- a hat: its dome and its body
+        EP:HitParts(ctx, f, { { 0, 0, 80, top }, { 0, top, w, h - top } })
+    end
     return f, w, h
 end
 

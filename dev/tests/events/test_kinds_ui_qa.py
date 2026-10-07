@@ -262,6 +262,133 @@ def the_place_card_in_the_builder_says_where_the_place_is_and_how_far():
 # ---------------------------------------------------------------------------------------------------------------
 
 @case
+def clean_up_shows_all_it_tidied():
+    w, c = measured()
+    c.eval("__MOCK.real_geometry = true")
+    open_example(c, "hide", "s3")
+    c.eval("ns.EventBuilder:ZoomTo(1, nil, nil, true); ns.EventBuilder:CleanUp()")
+    w.tick(0.5)
+    got = c.eval_py("local S = ns.EventBuilder:GetState(); return { S.view.z, S.view.x, S.view.y, ns.EventBuilder:FitsAt(S.view.z) }")
+    assert got[1] == 0 and got[2] == 0 and got[3] is True and got[0] < 1, got
+    c.eval("__MOCK.real_geometry = nil")
+    w.assert_no_errors()
+
+# The game gives a click to the top mouse-enabled frame (by level) whose rectangle holds the cursor. For each blank on
+# the canvas: the frame that would take a click at its middle (a blank, or a value piece dropped in it, which opens
+# the same picker), walking every shown mouse-enabled frame of the builder's window in screen units.
+HIT_TEST = r"""
+local S, ui = ns.EventBuilder:GetState()
+local win = ns.EventBuilder:GetWindow()
+local frames, order = {}, 0
+local function walk(f)
+  if not f:IsShown() then return end
+  order = order + 1
+  if f.IsMouseEnabled and f:IsMouseEnabled() then
+    local l, b, w, h = f:GetRect()
+    if l and w and w > 0 and h > 0 then
+      local s = f:GetEffectiveScale()
+      frames[#frames + 1] = { f = f, l = l * s, b = b * s, r = (l + w) * s, t = (b + h) * s, lvl = f:GetFrameLevel(), o = order }
+    end
+  end
+  for _, k in ipairs({ f:GetChildren() }) do walk(k) end
+end
+walk(win)
+local function top(x, y)
+  local best
+  for _, e in ipairs(frames) do
+    if x >= e.l and x <= e.r and y >= e.b and y <= e.t then
+      if not best or e.lvl > best.lvl then best = e end
+    end
+  end
+  return best
+end
+local function under(f, anc)
+  while f do if f == anc then return true end; f = f:GetParent() end
+  return false
+end
+local bad, n = {}, 0
+local cl, cb, cr, ct = ui.cv:GetLeft(), ui.cv:GetBottom(), ui.cv:GetRight(), ui.cv:GetTop()
+local cs = ui.cv:GetEffectiveScale()
+for s, sf in pairs(ui.scripts) do
+  for _, bl in ipairs(sf.blanks or {}) do
+    local f = bl.frame
+    local l, b, w, h = f:GetRect()
+    local es = f:GetEffectiveScale()
+    local x, y = (l + w / 2) * es, (b + h / 2) * es
+    -- (only what the canvas shows: a blank scrolled out of it can't be clicked)
+    if x > cl * cs + 2 and x < cr * cs - 2 and y > cb * cs + 2 and y < ct * cs - 2 then
+      n = n + 1
+      local e = top(x, y)
+      if not (e and under(e.f, f)) then
+        local who = e and (e.f.piece and e.f.piece.k or (e.f:GetParent() and e.f:GetParent().piece and ('part of ' .. e.f:GetParent().piece.k)) or tostring(e.f:GetName())) or 'nothing'
+        bad[#bad + 1] = s.id .. ' ' .. bl.piece.k .. '#' .. bl.slot .. ' -> ' .. who .. ' (' .. tostring(e and e.lvl) .. ' vs ' .. f:GetFrameLevel() .. ')'
+      end
+    end
+  end
+end
+return { n = n, bad = bad }
+"""
+
+
+@case
+def every_blank_on_the_canvas_takes_its_own_click():
+    w, c = measured()
+    c.eval("__MOCK.real_geometry = true")
+    total = 0
+    for key in EXAMPLES:
+        open_example(c, key)
+        stages = c.eval_py("local S = ns.EventBuilder:GetState(); local out = {}; for _, st in ipairs(S.def.stages) do "
+                           "out[#out + 1] = st.id end; out[#out + 1] = '*'; return out")
+        for sid in stages:
+            for z in (None, 0.67, 1.25):
+                c.eval("ns.EventBuilder:SelectStage(...)", sid)
+                if z:
+                    c.eval("ns.EventBuilder:ZoomTo(..., nil, nil, true)", z)
+                got = c.eval_py(HIT_TEST)
+                total += got["n"]
+                assert not got["bad"], (key, sid, z, got["bad"][:4])
+    assert total > 300, total
+    c.eval("__MOCK.real_geometry = nil")
+    w.assert_no_errors()
+
+
+@case
+def a_text_blank_in_the_room_right_of_another_scripts_if_takes_its_click():
+    w, c = measured()
+    c.eval("__MOCK.real_geometry = true")
+    open_example(c, "duel", "s3")
+    # a long script whose "if" has a wide header and a short inside (its rectangle holds empty room right of the
+    # inside), and a two-piece script whose text blank sits in that room
+    c.eval("""local S = ns.EventBuilder:GetState()
+        local B = ns.EventBlocks
+        local N = B.Build.N
+        local d = S.def
+        d.scripts[#d.scripts + 1] = { id = 'tqx', st = 's3', x = 20, y = 150, top = B:Stack(N('ev.start'),
+          N('lo.if', N('lo.gt', N('pl.howmany', N('pl.all')), 4), N('sg.next')), N('tm.wait', 5), N('tm.wait', 5),
+          N('tm.wait', 5), N('tm.wait', 5)) }
+        d.scripts[#d.scripts + 1] = { id = 'tq1', st = 's3', x = 150, y = 180, top = B:Stack(N('ev.start'),
+          N('ch.show', N('pl.tagged', 'entrants'))) }
+        ns.EventBuilder:Refresh()""")
+    where = c.eval_py("""local S, ui = ns.EventBuilder:GetState()
+        local out = {}
+        for s, f in pairs(ui.scripts) do
+          if s.id == 'tq1' then for _, bl in ipairs(f.blanks) do if bl.piece.k == 'ch.show' and bl.slot == 2 then
+            local x, y = ns.EventPieces:Abs(bl.frame); out = { s.x + x, s.y + y } end end end
+        end
+        return out""")
+    assert 175 < where[0] and where[0] + 36 < 326 and 220 < where[1] < 248, where      # (inside the "if"'s rectangle, off its parts)
+    got = c.eval_py(HIT_TEST)
+    assert got["n"] >= 3 and not got["bad"], got
+    # and a click there opens the typed picker
+    c.eval("""local S, ui = ns.EventBuilder:GetState()
+        for s, f in pairs(ui.scripts) do
+          if s.id == 'tq1' then for _, bl in ipairs(f.blanks) do if bl.piece.k == 'ch.show' and bl.slot == 2 then bl.frame:Click() end end end
+        end""")
+    assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.picker:IsShown() and ui.picker.field:IsShown()")
+    c.eval("__MOCK.real_geometry = nil")
+    w.assert_no_errors()
+
+@case
 def a_categorys_pieces_about_its_definitions_come_right_under_them():
     w, c = one()
     open_example(c, "hide", "s3", "pl")
@@ -544,6 +671,19 @@ def a_stage_too_big_for_100_opens_zoomed_out_once_and_keeps_the_zoom_picked():
 # ---------------------------------------------------------------------------------------------------------------
 # The board, tracker and prompts (UI/EventBoard.lua, UI/EventTracker.lua, UI/EventWidgets.lua)
 # ---------------------------------------------------------------------------------------------------------------
+
+@case
+def the_boards_prizes_never_say_most_twice():
+    w, c = board_client()
+    c.eval("""local d = ns.EventBlocks:Example('hide')
+        for id, s in pairs(d.scores) do if s.n == 'Finds' then s.n = 'Most finds' end end
+        QA.Big(d, 8, true)""")
+    hows = c.eval_py("""local rail = ns.EventBoard:GetWindow().kv.rail
+        local out = {}
+        for _, r in ipairs(rail.prizes) do if r:IsShown() then out[#out + 1] = r.how:GetText() end end
+        return out""")
+    assert "Most finds" in hows and "longest Hidden" in hows, hows
+    w.assert_no_errors()
 
 @case
 def an_ask_of_40_candidates_pages_them_by_nine_on_a_card_that_fits():
@@ -962,6 +1102,39 @@ def a_long_sign_up_list_shrinks_the_map_above_it():
 # ---------------------------------------------------------------------------------------------------------------
 # The Events tab (UI/EventsTab.lua)
 # ---------------------------------------------------------------------------------------------------------------
+
+@case
+def a_score_named_most_something_leads_without_a_second_most():
+    w, c = one()
+    import re
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_kinds_tab.py"), encoding="utf-8").read()
+    c.eval(re.search(r'PLAY = r"""(.*?)"""', src, re.S).group(1))
+    # the fishing derby with two scores on the board and no badges: the awards are each score's leader
+    c.eval("""local B = ns.EventBlocks
+        local orig = B.Example
+        B.Example = function(self, k)
+          local d = orig(self, k)
+          if k == 'fish' then
+            d.scores = { sc1 = { n = 'Most mushrooms', high = true, fmt = 'num', board = true },
+                         sc2 = { n = 'Hidden', high = true, fmt = 'time', board = true } }
+            d.badges = {}
+            for _, s in ipairs(d.scripts) do
+              ns.EventBlocks:Walk(s.top, function(p) if p.k == 'pt.badge' then p.a[1] = nil end end)
+            end
+          end
+          return d
+        end
+        T_K8 = {}
+        for i = 1, 8 do T_K8[i] = 'P' .. i .. '-Thunderstrike' end
+        T_OCC = T_PLAY('fish', T_K8)
+        B.Example = orig""")
+    c.eval("ns.MainFrame:Open('events'); ns.EventsUI:OpenEvent(T_OCC)")
+    w.tick(0.5)
+    texts = c.eval_py(SHOWN_TEXTS, "ost") + c.eval_py(SHOWN_TEXTS, "Hidden")
+    titles = [plain(t) for t in texts]
+    assert not any("most Most" in t or "Most Most" in t for t in titles), titles
+    assert any(t.startswith("Most mushrooms") for t in titles) and any(t.startswith("Longest Hidden") for t in titles), titles
+    w.assert_no_errors()
 
 SHOWN_TEXTS = r"""
 local out, needle = {}, ...

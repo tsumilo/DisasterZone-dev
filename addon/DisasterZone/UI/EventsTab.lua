@@ -646,6 +646,17 @@ function W.Way(sc)
     return way[sc.high == false and 2 or 1]
 end
 
+-- Who leads a score in words: "most Finds", "longest Hidden"; a score named so already keeps its own words ("Most
+-- mushrooms", not "most Most mushrooms").
+local SAID = { most = true, longest = true, fastest = true, fewest = true, least = true, highest = true, lowest = true,
+    best = true, shortest = true }
+function W.Leader(sc)
+    local name = type(sc) == "table" and sc.n or ""
+    local first = (tostring(name):match("^(%a+)") or ""):lower()
+    if SAID[first] then return name end
+    return W.Way(sc) .. " " .. name
+end
+
 -- A score's number in its look (a time m:ss, gold 1g 20s, a number). sc: a definition or a result's score table.
 function W.ScoreText(sc, n)
     if type(sc) ~= "table" then return tostring(n or "") end
@@ -888,7 +899,7 @@ function W.Rewards(def)
         for _, r in ipairs(list) do
             local sc = r.sid and B():Definition(def, "scores", r.sid)
             if sc and r.place == 1 then
-                r.label = W.Way(sc) .. " " .. (sc.n or "")
+                r.label = W.Leader(sc)
             elseif sc and r.place then
                 r.label = W.Ord(r.place) .. " by " .. (sc.n or "")
             end
@@ -3473,7 +3484,7 @@ function Pg.FillResults(v, r, o)
                     l2 = l2 .. ", tied with " .. EUI():Plain(tied[1]) .. (#tied > 1 and (" and " .. (#tied - 1) .. " more")
                         or "")
                 end
-                local title = W.Way(s) .. " " .. (s.n or "")
+                local title = W.Leader(s)
                 rows[#rows + 1] = { key = top.key, title = title:gsub("^%l", string.upper), l2 = l2 }
             end
         end

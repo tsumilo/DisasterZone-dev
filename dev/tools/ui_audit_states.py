@@ -1678,7 +1678,8 @@ STATES[_QA2:_QA2] = [
                                      "for i = 1, 8 do ns.EventBlocks:NewDefinition(d, 'tags', { n = ({ 'Hidden in the long grass', "
                                      "'Seekers of the far hills', 'Found behind the old mil', 'Out of the race for good', "
                                      "'Wardens of the green hil', 'Watchers of the dark woo', 'Keepers of the high towe', "
-                                     "'Runners of the long rive' })[i] }) end; ns.EventBuilder:Refresh()")),
+                                     "'Runners of the long rive' })[i] }) end; ns.EventBuilder:Refresh(); "
+                                     "ns.EventBuilder:CleanUp()")),       # (longer names, wider scripts: tidied)
     ("Events - builder long choices", evb("tmog", "s4", "as", "ns.EventBlocks:NewDefinition(ns.EventBuilder:GetState().def, "
                                       "'asks', { n = 'The theme of next week!!', q = 'Which theme next week?', kind = 'choice', "
                                       "choices = { 'Pirates of the Barrens and Booty Bay', 'The Undead of Stratholme and "
