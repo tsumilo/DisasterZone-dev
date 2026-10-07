@@ -28,7 +28,118 @@ local NAMES = {
     ["37675"] = "Chaos Blast", ["38441"] = "Cataclysmic Bolt", ["37730"] = "Tidal Wave", ["38575"] = "Toxic Spores",
     ["38253"] = "Poison Bolt", ["35383"] = "Flame Patch", ["34229"] = "Flame Quills", ["33076"] = "Prayer of Mending",
     ["25235"] = "Flash Heal", ["38112"] = "Magic Barrier", ["35181"] = "Dive Bomb",
+    -- what else kills me in the demo (ids checked on Wowhead, TBC)
+    ["38246"] = "Vile Sludge", ["37660"] = "Whirl", ["37676"] = "Insidious Whisper", ["38234"] = "Frost Shock",
+    ["38374"] = "Hurl Trident", ["38358"] = "Tidal Surge", ["37764"] = "Earthquake", ["38049"] = "Watery Grave",
+    ["38280"] = "Static Charge", ["38509"] = "Shock Blast", ["38145"] = "Forked Lightning", ["38310"] = "Multi-Shot",
+    ["34341"] = "Ember Blast", ["34121"] = "Flame Buffet",
 }
+
+-- What kills me per boss (encounter id): { spell key, source, weight }. Many causes on purpose, so the Deaths page
+-- shows how it copes with a long list.
+local KILLERS = {
+    [623] = { { "38235", "Hydross the Unstable", 1 }, { "38246", "Tainted Spawn of Hydross", 1 } },
+    [624] = { { "37433", "The Lurker Below", 1 }, { "37478", "The Lurker Below", 1 }, { "37660", "The Lurker Below", 1 } },
+    [625] = { { "37640", "Leotheras the Blind", 3 }, { "37675", "Leotheras the Blind", 1 }, { "37676", "Inner Demon", 1 } },
+    [626] = { { "38441", "Fathom-Lord Karathress", 1 }, { "38234", "Fathom-Guard Tidalvess", 1 },
+              { "38374", "Fathom-Guard Sharkkis", 1 }, { "38358", "Fathom-Guard Caribdis", 1 } },
+    [627] = { { "37730", "Morogrim Tidewalker", 1 }, { "37764", "Morogrim Tidewalker", 1 }, { "38049", "Morogrim Tidewalker", 1 },
+              { "0", "Tidewalker Lurker", 1 } },
+    [628] = { { "38575", "Lady Vashj", 2 }, { "38253", "Tainted Elemental", 1 }, { "38280", "Lady Vashj", 1 },
+              { "38509", "Lady Vashj", 1 }, { "38145", "Lady Vashj", 1 }, { "38310", "Lady Vashj", 1 }, { "0", "Coilfang Strider", 1 } },
+    [730] = { { "35383", "Al'ar", 1 }, { "34229", "Al'ar", 1 }, { "35181", "Al'ar", 1 }, { "34341", "Ember of Al'ar", 1 },
+              { "34121", "Al'ar", 1 } },
+}
+
+-- The extra deaths draw from their own generator, so the rest of the demo stays the same number for number.
+local dseed = 1
+local function DRand()
+    dseed = (dseed * 16807) % 2147483647
+    return dseed / 2147483647
+end
+
+local HP = 9200
+local HEALS = { { "33076", "Holyvee" }, { "25235", "Brightpaw" } }
+
+-- A boss's killer, by weight; nil when it has none.
+local function PickKiller(enc)
+    local list = KILLERS[enc]
+    if not list then return nil end
+    local sum = 0
+    for _, k in ipairs(list) do sum = sum + k[3] end
+    local r = DRand() * sum
+    for _, k in ipairs(list) do
+        r = r - k[3]
+        if r <= 0 then return k end
+    end
+    return list[#list]
+end
+
+-- The last 10 seconds before a death by killer k on boss b: the boss's usual hits, a heal or two, my casts, then
+-- the killer's hit(s); the amounts are fitted so I stay alive until the last line and that one kills.
+local function MakeDeath(b, k, at)
+    local ev = {}
+    local function add(t, kind, key, amount, who) ev[#ev + 1] = { floor(t * 10 + 0.5) / 10, kind, key, amount, who } end
+    local hits = b.hits or {}
+    local t = -9.6 + DRand() * 1.2
+    local hurt = false                                -- (no heals at full health: they would heal nothing)
+    while t < -2.5 do
+        local r = DRand()
+        if r < 0.3 or (r < 0.5 and not hurt) then
+            add(t, "c", DRand() < 0.8 and "27209" or "27222")
+        elseif r < 0.5 then
+            local h = HEALS[1 + floor(DRand() * #HEALS)]
+            add(t, "h", h[1], floor(900 + DRand() * 1400), h[2])
+        elseif k[1] == "0" or #hits == 0 then
+            add(t, "d", "0", floor(700 + DRand() * 900), k[2])
+            hurt = true
+        else
+            local h = hits[1 + floor(DRand() * #hits)]
+            add(t, "d", tostring(h[1]), floor(h[3] * (0.7 + DRand() * 0.6)), h[2])
+            hurt = true
+        end
+        t = t + 0.8 + DRand() * 1.4
+    end
+    local before = 0
+    for _, e in ipairs(ev) do if e[2] == "d" then before = before + 1 end end
+    -- (amounts fitted below; two killer hits when few hits came before, so no single hit is absurdly big)
+    if before < 3 or DRand() < 0.6 then add(-1.2 + DRand() * 0.8, "d", k[1], 0, k[2]) end
+    add(0, "d", k[1], 0, k[2])
+    -- fit: the hits before the killer's take me down to 25-45 % (with the heals in between); then the killer's
+    -- hits take the rest, the last one killing
+    local target = floor(HP * (0.25 + DRand() * 0.2))
+    local heal, weight, pre = 0, 0, 0
+    for _, e in ipairs(ev) do
+        if e[2] == "h" then
+            e[4] = min(e[4], floor(target * 0.6) - heal)
+            heal = heal + max(0, e[4])
+        elseif e[2] == "d" and e[4] > 0 then
+            weight, pre = weight + e[4], pre + 1
+        end
+    end
+    if pre == 0 then                                  -- (always at least one hit before the killer's)
+        table.insert(ev, 1, { -9.4, "d", k[1] == "0" and "0" or tostring((b.hits[1] or { 0 })[1]), 1000,
+            k[1] == "0" and k[2] or (b.hits[1] or { 0, k[2] })[2] })
+        weight = 1000
+    end
+    local need = HP + heal - target
+    local hp = HP
+    for i, e in ipairs(ev) do
+        if e[2] == "h" then
+            if e[4] <= 0 then e[2] = "c"; e[3] = "27209"; e[4] = nil else hp = min(HP, hp + e[4]) end
+        elseif e[2] == "d" then
+            if e[4] == 0 then
+                if i == #ev then e[4] = hp + floor(DRand() * 600)
+                else e[4] = max(1, floor(hp * (0.45 + DRand() * 0.25))) end
+            else
+                e[4] = max(1, min(floor(need * e[4] / weight), hp - 400, floor(2500 + DRand() * 1200)))
+            end
+            hp = hp - e[4]
+        end
+    end
+    return { t = at, by = k[1], events = ev }
+end
+
 
 -- Per boss: encounter id, kill time (s), the hits that land on me (spell id, source, average, per minute,
 -- avoidable) and the moments my damage drops (start, length in s), like Leotheras' whirlwinds.
@@ -192,15 +303,18 @@ local function NewPull(at, b, zone, iid, kill, dps, skill, opts)
     end
     for id, n in pairs(counts) do p.casts[id] = n end
     -- a death: the last 10 seconds before it
+    if opts.killer then
+        opts.death = MakeDeath(b, opts.killer, kill and floor(dur * (0.2 + DRand() * 0.7)) or max(30, dur - floor(DRand() * 25)))
+    end
     if opts.death then
         local d = opts.death
-        local hp = 9200
+        local hp = HP
         local ring = {}
         for _, e in ipairs(d.events) do
-            if e[2] == "d" then hp = max(0, hp - e[4]) elseif e[2] == "h" then hp = min(9200, hp + e[4]) end
+            if e[2] == "d" then hp = max(0, hp - e[4]) elseif e[2] == "h" then hp = min(HP, hp + e[4]) end
             ring[#ring + 1] = { e[1], e[2], e[3], e[4], hp, e[5], e[6] }
         end
-        p.deaths[1] = { t = d.t, by = d.by, ring = ring, hpMax = 9200 }
+        p.deaths[1] = { t = d.t, by = d.by, ring = ring, hpMax = HP }
         p.dead = d.t
         if not kill then p.dur = max(p.dur, d.t + 20) end
         local after = p.dur - d.t
@@ -239,11 +353,19 @@ local LEO_DEATH = {
 
 local function Build()
     seed = 20261007
+    dseed = 4242
     local pulls = {}
     local now = GetServerTime and GetServerTime() or 0
     local day = 86400
     local tonight = now - 2 * 3600
     local id = 0
+    -- extra pulls drawn from a seed of their own, so the pulls after them stay the same number for number
+    local function aside(fn)
+        local keep = seed
+        seed = 1 + floor(DRand() * 2147483000)
+        fn()
+        seed = keep
+    end
     local function add(p)
         id = id + 1
         p.id = id
@@ -257,17 +379,35 @@ local function Build()
         for i, b in ipairs(BOSSES) do
             if b.enc ~= 628 then
                 local opts = { ilvl = ilvl }
-                if b.enc == 625 and w == 4 then opts.death = LEO_DEATH end
+                if b.enc == 625 and w == 4 then
+                    opts.death = LEO_DEATH
+                elseif DRand() < 0.95 - skill * 0.75 then
+                    opts.killer = PickKiller(b.enc)
+                end
                 if b.enc == 625 and w >= 5 then
                     add(NewPull(t + i * 1500, b, "Serpentshrine Cavern", 548, false, 1000 + skill * 400, skill,
-                        { ilvl = ilvl, pct = 31 - w, wipeAt = 170 }))
+                        { ilvl = ilvl, pct = 31 - w, wipeAt = 170, killer = PickKiller(625) }))
                 end
                 add(NewPull(t + i * 1500 + 600, b, "Serpentshrine Cavern", 548, true,
                     Around(1020 + skill * 360, 0.03), skill, opts))
             end
         end
         if w == 3 then
-            add(NewPull(t + 2 * day, ALAR, "Tempest Keep", 550, true, 980, skill, { ilvl = ilvl }))
+            aside(function()                                        -- three wipes on Al'ar before the kill
+                for n = 1, 3 do
+                    add(NewPull(t + 2 * day + n * 700 - 2800, ALAR, "Tempest Keep", 550, false, 960, skill,
+                        { ilvl = ilvl, pct = 70 - n * 15, wipeAt = 150 + n * 30, killer = PickKiller(730) }))
+                end
+            end)
+            add(NewPull(t + 2 * day, ALAR, "Tempest Keep", 550, true, 980, skill, { ilvl = ilvl, killer = PickKiller(730) }))
+        end
+        if w <= 3 then
+            aside(function()                                        -- first tries on Lady Vashj, from week 3 on
+                for n = 1, 4 - w do
+                    add(NewPull(t + 9000 + n * 800, BOSSES[6], "Serpentshrine Cavern", 548, false, 1050 + skill * 300, skill,
+                        { ilvl = ilvl, pct = 92 - (4 - w) * 12 - n * 5, wipeAt = 140 + n * 40, killer = PickKiller(628) }))
+                end
+            end)
         end
     end
     -- tonight: everything down, then Lady Vashj wipes
@@ -282,9 +422,9 @@ local function Build()
     add(NewPull(tonight + 9000, vashj, "Serpentshrine Cavern", 548, false, 1180, skill,
         { ilvl = 125.4, pct = 64.2, wipeAt = 190, death = VASHJ_DEATH }))
     add(NewPull(tonight + 9900, vashj, "Serpentshrine Cavern", 548, false, 1230, skill,
-        { ilvl = 125.4, pct = 38.5, wipeAt = 310 }))
+        { ilvl = 125.4, pct = 38.5, wipeAt = 310, killer = KILLERS[628][4] }))     -- Shock Blast
     add(NewPull(tonight + 10800, vashj, "Serpentshrine Cavern", 548, false, 1260, skill,
-        { ilvl = 125.4, pct = 17.9, wipeAt = 420 }))
+        { ilvl = 125.4, pct = 17.9, wipeAt = 420, killer = KILLERS[628][3] }))     -- Static Charge
     return pulls
 end
 

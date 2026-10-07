@@ -970,6 +970,7 @@ STATES = [
     ("My Log: boss detail", opened("mylog", "ns.Demo:SetEnabled(true); ns.MyLogUI:Refresh(); ns.MyLogDetail:ShowBoss(ns.MyLogUI:GetBossRows()[3])")),
     ("My Log: boss tanking", opened("mylog", "ns.Demo:SetEnabled(true); ns.MyLogUI:Refresh(); ns.MyLogDetail:ShowBoss(ns.MyLogUI:GetBossRows()[6]); ns.MyLogUI:SetView('tanking')")),
     ("My Log: deaths", opened("mylog", "ns.Demo:SetEnabled(true); ns.MyLogUI:SetMode('deaths')")),
+    ("My Log: deaths of one cause", opened("mylog", "ns.Demo:SetEnabled(true); ns.MyLogUI:SetMode('deaths'); ns.MyLogDetail:PickCause('37640')")),
     ("My Log: timeline", opened("mylog", "ns.Demo:SetEnabled(true); ns.MyLogUI:Refresh(); ns.MyLogDetail:ShowBoss(ns.MyLogUI:GetBossRows()[3]); local b = ns.MyLogDetail:GetViews(); b.modeSeg.buttons[2]:Click()")),
     ("Demo - Council - roster", demo("ns.CouncilUI:SetView('roster')", "council")),
     ("Demo - Council - items", demo("ns.CouncilUI:ShowBoss('Karazhan:Prince')", "council")),

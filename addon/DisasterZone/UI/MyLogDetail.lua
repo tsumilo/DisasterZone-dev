@@ -6,8 +6,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyLogDetail.lua", ...) then ret
 --           bands, my idle gaps as red ticks on the baseline; hover it to read both pulls at that moment. Chips: active
 --           time, idle gaps, how fast I was back after the boss's mechanics. Then where my damage (healing, or the
 --           damage I took) came from: spell icon, a gold bar for this pull and a grey one for the other, the amount,
---           its share and its change. A line of uptimes along the bottom.
---   deaths: what kills me here (tiles, most deaths first, avoidable causes marked; a click picks one); a death's
+--           its share and its change. Uptimes in a column on the right.
+--   deaths: left, what kills me here (All deaths, then every cause, most deaths first, avoidable ones marked; it
+--           scrolls when there are many; a click picks one); right, the picked death's
 --           last 10 seconds as a health line with its hits and heals as dots and my casts as ticks; under it the same
 --           seconds as a story, line by line, with my health after each. Arrows step through the deaths.
 local addonName, ns = ...
@@ -656,41 +657,85 @@ function MyLogDetail:DeathGroups(instKey)
     return groups
 end
 
-local function NewCauseTile(parent)
+-- The cause rail: "All deaths" first, then every cause, most deaths first. A row: icon, name, the boss (and
+-- "avoidable"), the count. Picked: a red wash from the left and a red edge.
+local RAIL_W, RAIL_GAP, CAUSE_H = 250, 24, 46
+local ICON_ALL = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01"
+
+local function PickCause(key)
+    causeSel = key
+    deathSel = nil
+    ns.MyLogUI:Refresh()
+end
+function MyLogDetail:PickCause(key) PickCause(key) end
+
+local function InitCause(row, data)
     local k = K()
-    local t = CreateFrame("Button", nil, parent)
-    t:SetHeight(58)
-    t.bg = t:CreateTexture(nil, "BACKGROUND")
-    t.bg:SetAllPoints()
-    UI():AddEdges(t, "BORDER", true)
-    t.icon = k.Icon(t, 32)
-    t.icon:SetPoint("LEFT", t, "LEFT", 12, 0)
-    t.name = t:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    t.name:SetPoint("TOPLEFT", t, "TOPLEFT", 54, -12)
-    t.name:SetJustifyH("LEFT")
-    t.name:SetWordWrap(false)
-    t.av = k.Chip(t, 14)
-    t.av:SetPoint("LEFT", t.name, "RIGHT", 6, 0)
-    t.sub = t:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    t.sub:SetPoint("TOPLEFT", t.name, "BOTTOMLEFT", 0, -4)
-    t.sub:SetJustifyH("LEFT")
-    t.sub:SetWordWrap(false)
-    t.count = k.Text(t, "hero")
-    t.count:SetFont(k.NUM_FONT, 28, "")
-    t.count:SetPoint("RIGHT", t, "RIGHT", -14, 0)
-    t.count:SetJustifyH("RIGHT")
-    t:SetScript("OnClick", function(self)
-        if causeSel == (self.group and self.group.key) then causeSel = nil else causeSel = self.group and self.group.key end
-        deathSel = nil
-        ns.MyLogUI:Refresh()
-    end)
-    t:SetScript("OnEnter", function(self)
-        if not self.group then return end
-        UI():SetTextTooltip(self, { self.group.name, causeSel == self.group.key and "Click to show every death again."
-            or "Click to show only these deaths." })
-    end)
-    t:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return t
+    local C = k.C
+    if not row.name then
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetPoint("TOPLEFT", 0, -2)
+        row.bg:SetPoint("BOTTOMRIGHT", 0, 2)
+        row.edge = CreateFrame("Frame", nil, row)
+        row.edge:SetAllPoints(row.bg)
+        UI():AddEdges(row.edge, "BORDER", true)
+        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
+        row.hl:SetAllPoints(row.bg)
+        row.hl:SetColorTexture(1, 1, 1, 0.035)
+        row.icon = k.Icon(row, 28)
+        row.icon:SetPoint("LEFT", row, "LEFT", 9, 0)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 46, -8)
+        row.name:SetWidth(RAIL_W - 46 - 40)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
+        row.sub:SetWidth(RAIL_W - 46 - 40)
+        row.sub:SetJustifyH("LEFT")
+        row.sub:SetWordWrap(false)
+        row.count = k.Text(row, "num")
+        row.count:SetPoint("RIGHT", row, "RIGHT", -12, 0)
+        row.count:SetJustifyH("RIGHT")
+        row:SetScript("OnClick", function(self)
+            local d = self.__cdlData
+            if d then PickCause(d.key) end
+        end)
+        row:SetScript("OnEnter", function(self)
+            local d = self.__cdlData
+            if not d or d.all then return end
+            local g = d.group
+            local lines = { g.name, { strformat("Killed you %d time%s here, last on %s by %s.", g.count, g.count == 1 and "" or "s",
+                k.Day(g.last), g.boss or "?"), C.mute[1], C.mute[2], C.mute[3] } }
+            if g.avoidable then lines[#lines + 1] = { "Avoidable: you can stay out of this.", C.avoid[1], C.avoid[2], C.avoid[3] } end
+            UI():SetTextTooltip(self, lines)
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+    local picked = data.key == causeSel
+    if data.all then
+        row.icon:SetIcon(ICON_ALL)
+        row.name:SetText("All deaths")
+        row.sub:SetText(data.causes == 1 and "1 cause" or (data.causes .. " causes"))
+    else
+        local g = data.group
+        row.icon:SetSpell(g.key)
+        row.name:SetText(g.name)
+        row.sub:SetText(g.avoidable and (k.Paint("avoidable", C.avoid) .. k.Paint(" · " .. (g.boss or "?"), C.mute)) or (g.boss or "?"))
+    end
+    row.count:SetText(tostring(data.count))
+    -- (the same gradient path for both looks: a plain colour set after a gradient drew black in game)
+    local base = C.card
+    if picked then
+        k.Gradient(row.bg, { C.down[1] * 0.2 + base[1] * 0.8, C.down[2] * 0.2 + base[2] * 0.8, C.down[3] * 0.2 + base[3] * 0.8, 1 },
+            { base[1], base[2], base[3], 1 }, "HORIZONTAL")
+        UI():SetEdgeColor(row.edge, C.down[1], C.down[2], C.down[3], 0.55)
+    else
+        k.Gradient(row.bg, { base[1], base[2], base[3], 1 }, { base[1], base[2], base[3], 1 }, "HORIZONTAL")
+        UI():SetEdgeColor(row.edge, 1, 1, 1, 0.05)
+    end
+    local cc = picked and C.down or C.fg
+    row.count:SetTextColor(cc[1], cc[2], cc[3])
 end
 
 local function InitStory(row, data)
@@ -709,16 +754,16 @@ local function InitStory(row, data)
         row.icon:SetPoint("LEFT", row, "LEFT", 56, 0)
         row.what = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.what:SetPoint("LEFT", row, "LEFT", 80, 0)
-        row.what:SetPoint("RIGHT", row, "RIGHT", -190, 0)
+        row.what:SetPoint("RIGHT", row, "RIGHT", -164, 0)
         row.what:SetJustifyH("LEFT")
         row.what:SetWordWrap(false)
         row.amount = k.Text(row, "numS")
-        row.amount:SetPoint("RIGHT", row, "RIGHT", -110, 0)
+        row.amount:SetPoint("RIGHT", row, "RIGHT", -98, 0)
         row.amount:SetJustifyH("RIGHT")
         row.hpWell = row:CreateTexture(nil, "ARTWORK")
         row.hpWell:SetColorTexture(C.well[1], C.well[2], C.well[3], 1)
-        row.hpWell:SetSize(46, 5)
-        row.hpWell:SetPoint("RIGHT", row, "RIGHT", -52, 0)
+        row.hpWell:SetSize(40, 5)
+        row.hpWell:SetPoint("RIGHT", row, "RIGHT", -50, 0)
         row.hpBar = row:CreateTexture(nil, "ARTWORK", nil, 1)
         row.hpBar:SetHeight(5)
         row.hpBar:SetPoint("LEFT", row.hpWell, "LEFT")
@@ -738,7 +783,7 @@ local function InitStory(row, data)
     if kind == "d" then
         local tail = who and k.Paint("  from " .. who, C.mute) or ""
         if last then tail = k.Paint("  killing blow", C.mute) end
-        row.what:SetText(k.Paint(name, avoid and C.avoid or C.down) .. tail .. (avoid and k.Paint("   avoidable", C.avoid) or ""))
+        row.what:SetText(k.Paint(name, avoid and C.avoid or C.down) .. tail .. (avoid and k.Paint("  avoidable", C.avoid) or ""))
         row.amount:SetText(k.Paint("-" .. k.Num(amount), C.down))
     elseif kind == "h" then
         row.what:SetText(k.Paint(name, C.up) .. (who and k.Paint("  from " .. who, C.mute) or ""))
@@ -759,7 +804,7 @@ local function InitStory(row, data)
         row.hp:SetText(strformat("%.0f%%", pct * 100))
         local c = pct > 0.6 and C.up or (pct > 0.3 and C.gold or C.down)
         row.hpBar:SetColorTexture(c[1], c[2], c[3], 1)
-        row.hpBar:SetWidth(max(1, 46 * pct))
+        row.hpBar:SetWidth(max(1, 40 * pct))
         row.hpBar:Show()
         row.hpWell:Show()
     else
@@ -784,22 +829,38 @@ local function BuildDeathsView(body)
     local C = k.C
     local v = CreateFrame("Frame", nil, body)
     v:SetAllPoints(body)
-    v.causeLab = k.Label(v, "What kills you here")
-    v.causeLab:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 2, -38)
-    v.tiles = {}
-    for i = 1, 3 do v.tiles[i] = NewCauseTile(v) end
+    local X = PAD + RAIL_W + RAIL_GAP            -- the recap's left edge
+    -- left: what killed me, as a list that scrolls when there are many causes
+    v.causeLab = k.Heading(v, "What kills you here")
+    v.causeLab:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, -40)
+    v.causes = UI():CreateScrollList(v, CAUSE_H, InitCause)
+    v.causes.frame:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, -60)
+    v.causes.frame:SetWidth(RAIL_W + 20)
+    -- whole rows only (a cut row at the bottom looks broken; the list scrolls for the rest)
+    local function fitRail()
+        local h = v:GetHeight() or 0
+        if h <= 0 then h = 550 end
+        v.causes.frame:SetHeight(max(CAUSE_H, floor((h - 60 - 4) / CAUSE_H) * CAUSE_H))
+    end
+    fitRail()
+    v:HookScript("OnSizeChanged", fitRail)
     v.none = k.Text(v, "titleS")
     v.none:SetPoint("TOP", v, "TOP", 0, -140)
     v.none:SetJustifyH("CENTER")
     v.none:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
 
+    -- right: the picked death, its health line and the story of its last 10 seconds
     v.title = k.Text(v, "titleS")
-    v.title:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 2, -128)
+    v.title:SetPoint("TOPLEFT", v, "TOPLEFT", X, -38)
+    v.title:SetPoint("RIGHT", v, "RIGHT", -PAD - 110, 0)
     v.title:SetTextColor(C.fg[1], C.fg[2], C.fg[3])
     v.titleSub = v:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    v.titleSub:SetPoint("LEFT", v.title, "RIGHT", 8, -1)
+    v.titleSub:SetPoint("TOPLEFT", v.title, "BOTTOMLEFT", 0, -4)
+    v.titleSub:SetPoint("RIGHT", v, "RIGHT", -PAD, 0)
+    v.titleSub:SetJustifyH("LEFT")
+    v.titleSub:SetWordWrap(false)
     v.next = UI():CreateArrowButton(v, true, 22, 20, function() MyLogDetail:StepDeath(1) end)
-    v.next:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -126)
+    v.next:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -36)
     v.pos = k.Text(v, "numXS")
     v.pos:SetPoint("RIGHT", v.next, "LEFT", -8, 0)
     v.pos:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
@@ -807,14 +868,14 @@ local function BuildDeathsView(body)
     v.prev:SetPoint("RIGHT", v.pos, "LEFT", -8, 0)
 
     v.chartCard = k.Card(v, { 0.067, 0.078, 0.102, 1 }, 0.07)
-    v.chartCard:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, -152)
-    v.chartCard:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -152)
+    v.chartCard:SetPoint("TOPLEFT", v, "TOPLEFT", X, -82)
+    v.chartCard:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -82)
     v.chartCard:SetHeight(132)
     v.chart = k.Chart(v.chartCard)
     v.chart:SetPoint("TOPLEFT", v.chartCard, "TOPLEFT", 44, -6)
     v.chart:SetPoint("BOTTOMRIGHT", v.chartCard, "BOTTOMRIGHT", -16, 22)
     v.chart.inset = { l = 0, r = 0, t = 20, b = 6 }
-    v.chart.fallback = { 712, 104 }
+    v.chart.fallback = { 440, 104 }
     v.yTop = k.Label(v.chartCard, "100%")
     v.yTop:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
     v.yTop:SetPoint("TOPLEFT", v.chartCard, "TOPLEFT", 10, -24)
@@ -826,7 +887,7 @@ local function BuildDeathsView(body)
     end
 
     v.story = UI():CreateScrollList(v, STORY_H, InitStory)
-    v.story.frame:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, -292)
+    v.story.frame:SetPoint("TOPLEFT", v, "TOPLEFT", X, -224)
     v.story.frame:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -PAD + 20, 8)
     return v
 end
@@ -866,41 +927,16 @@ local function RefreshDeaths(state)
     local found = false
     for _, g in ipairs(groups) do if g.key == causeSel then found = true end end
     if not found then causeSel = nil end
-    -- cause tiles: the top three
-    local w = ((v:GetWidth() or 800) - 2 * PAD - 16) / 3
-    if w <= 0 then w = 252 end
-    for i, t in ipairs(v.tiles) do
-        local g = groups[i]
-        if g then
-            t.group = g
-            t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + (i - 1) * (w + 8), -54)
-            t:SetWidth(w)
-            t.icon:SetSpell(g.key)
-            t.name:SetText(g.name)
-            t.name:SetWidth(min(w - 140, (t.name:GetStringWidth() or 80) + 2))
-            t.av:Set(g.avoidable and "avoidable" or nil, "av")
-            t.sub:SetText(strformat("%s · %s", g.boss or "?", k.ShortDay(g.last)))
-            t.sub:SetWidth(w - 96)
-            t.count:SetText(tostring(g.count))
-            local picked = causeSel == g.key
-            local hot = picked or (not causeSel and i == 1)
-            if hot then
-                k.Gradient(t.bg, { C.down[1] * 0.18 + C.card[1] * 0.82, C.down[2] * 0.18 + C.card[2] * 0.82, C.down[3] * 0.18 + C.card[3] * 0.82, 1 },
-                    { C.card[1], C.card[2], C.card[3], 1 }, "HORIZONTAL")
-            else
-                t.bg:SetTexture(nil)
-                t.bg:SetColorTexture(C.card[1], C.card[2], C.card[3], 1)
-            end
-            if hot then UI():SetEdgeColor(t, C.down[1], C.down[2], C.down[3], picked and 0.65 or 0.35)
-            else UI():SetEdgeColor(t, 1, 1, 1, 0.07) end
-            local cc = hot and C.down or C.fg
-            t.count:SetTextColor(cc[1], cc[2], cc[3])
-            t:Show()
-        else
-            t:Hide()
-        end
+    -- the rail
+    local total = 0
+    for _, g in ipairs(groups) do total = total + g.count end
+    local rows = {}
+    if #groups > 0 then
+        rows[1] = { all = true, count = total, causes = #groups }
+        for _, g in ipairs(groups) do rows[#rows + 1] = { key = g.key, group = g, count = g.count } end
     end
+    v.causes:SetData(rows, v.causesFor ~= state.inst)
+    v.causesFor = state.inst
     local list = DeathList(groups)
     local inList = false
     for _, e in ipairs(list) do if deathSel and e.death == deathSel.death then inList = true end end
@@ -908,14 +944,16 @@ local function RefreshDeaths(state)
     local has = deathSel ~= nil
     v.none:SetShown(not has)
     v.none:SetText(has and "" or "No deaths in your stored pulls here. Keep it up.")
-    for _, f in ipairs({ v.title, v.titleSub, v.next, v.prev, v.pos, v.chartCard, v.story.frame, v.causeLab }) do f:SetShown(has) end
+    for _, f in ipairs({ v.title, v.titleSub, v.next, v.prev, v.pos, v.chartCard, v.story.frame, v.causeLab, v.causes.frame }) do
+        f:SetShown(has)
+    end
     if not has then return end
     local p, d = deathSel.pull, deathSel.death
     local pos = 1
     for i, e in ipairs(list) do if e.death == d then pos = i end end
     v.title:SetText(p.boss or "?")
     local phase = p.kill and "the kill" or strformat("a wipe at %.0f%%", p.pct or 0)
-    v.titleSub:SetText(strformat("· %s · %s · died at %s", k.Day(p.at), phase, k.Clock(d.t)))
+    v.titleSub:SetText(strformat("%s · %s · died at %s", k.Day(p.at), phase, k.Clock(d.t)))
     v.pos:SetText(strformat("%d of %d", pos, #list))
 
     -- the health line

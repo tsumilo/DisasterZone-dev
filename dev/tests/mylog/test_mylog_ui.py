@@ -293,17 +293,40 @@ def deaths_grouped_by_cause_with_recaps():
     groups = c.eval_py("""local out = {}
       for _, g in ipairs(ns.MyLogDetail:DeathGroups(548)) do out[#out + 1] = { g.name, g.count } end
       return out""")
-    assert groups == [["Toxic Spores", 1], ["Whirlwind", 1]], groups
-    sel = c.eval_py("local e = ns.MyLogDetail:GetSelectedDeath(); return { e.pull.boss, #e.death.ring }")
-    assert sel == ["Lady Vashj", 9], sel
+    # the demo dies to many things (so the list has to scroll): most deaths first
+    assert len(groups) == 19 and sum(n for _, n in groups) == 34, groups
+    assert groups[0] == ["Whirlwind", 4] and groups[1] == ["Toxic Spores", 3], groups
+    assert all(groups[i][1] >= groups[i + 1][1] for i in range(len(groups) - 1)), groups
+    # the rail: All deaths first (picked), then one row per cause
+    rail = c.eval_py("""local _, d = ns.MyLogDetail:GetViews(); local o = {}
+      for _, r in ipairs(d.causes.data) do o[#o + 1] = { r.all and 'all' or r.group.name, r.count } end
+      return o""")
+    assert rail[0] == ["all", 34] and len(rail) == 20 and rail[1] == ["Whirlwind", 4], rail
+    # newest death first: tonight's last Vashj wipe
+    sel = c.eval_py("local e = ns.MyLogDetail:GetSelectedDeath(); return { e.pull.boss, e.death.by }")
+    assert sel == ["Lady Vashj", "38280"], sel
+    c.eval("ns.MyLogDetail:StepDeath(1)")
+    c.eval("ns.MyLogDetail:StepDeath(1)")
+    sel = c.eval_py("local e = ns.MyLogDetail:GetSelectedDeath(); return { e.pull.boss, #e.death.ring, e.death.by }")
+    assert sel == ["Lady Vashj", 9, "38575"], sel
     # the health line: one fill series + a coloured segment per step, dots for hits and heals, ticks for casts
     used = c.eval_py("local _, d = ns.MyLogDetail:GetViews(); local u = d.chart.used; return { u.line or 0, u.dot or 0, u.tick or 0 }")
     assert used == [6, 12, 3], used       # 6 segments; a dark ring + a dot per hit or heal
-    # step to the other death, then pick a cause
-    c.eval("ns.MyLogDetail:StepDeath(1)")
-    assert c.eval("return ns.MyLogDetail:GetSelectedDeath().pull.boss") == "Leotheras the Blind"
-    c.click(c.eval("local _, d = ns.MyLogDetail:GetViews(); return d.tiles[1]"))
-    assert c.eval("return ns.MyLogDetail:GetSelectedDeath().pull.boss") == "Lady Vashj"
+    # every demo death ends at 0 and no hit before the last one kills
+    ok = c.eval_py("""local bad = {}
+      for _, p in ipairs(ns.MyLog:GetPulls()) do for _, d in ipairs(p.deaths or {}) do
+        for i, e in ipairs(d.ring) do
+          if i < #d.ring and e[5] <= 0 then bad[#bad + 1] = d.by end
+        end
+      end end
+      return bad""")
+    assert ok == [], ok
+    # pick a cause: only its deaths, then All again
+    c.eval("ns.MyLogDetail:PickCause('37640')")
+    sel = c.eval_py("local e = ns.MyLogDetail:GetSelectedDeath(); local _, d = ns.MyLogDetail:GetViews(); return { e.pull.boss, d.pos:GetText() }")
+    assert sel == ["Leotheras the Blind", "1 of 4"], sel
+    c.eval("ns.MyLogDetail:PickCause(nil)")
+    assert c.eval("local _, d = ns.MyLogDetail:GetViews(); return d.pos:GetText()") == "1 of 34"
 
 
 @case
