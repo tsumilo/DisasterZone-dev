@@ -426,4 +426,615 @@ function EUI:CatColors(cat)
     return c.f, c.f2, c.e
 end
 
+---------------------------------------------------------------------------
+-- Part 2's shared look: circles of any size, a zone's map with the event's places, chips, segments, the time
+-- left, medals. (The live board, the tracker and the builder's map sheet draw with these.)
+---------------------------------------------------------------------------
+
+EUI.ARROW = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\arrow"
+EUI.TEAL = { 0.337, 0.839, 0.941 }          -- a place (#56d6f0)
+EUI.TEAL_LT = { 0.612, 0.937, 1 }           -- its centre, a pointed place's yards (#9cefff)
+EUI.TEAL_DONE = { 0.247, 0.714, 0.812 }     -- a list item done (#3fb6cf)
+local cos, sin, pi, sqrt, ceil = math.cos, math.sin, math.pi, math.sqrt, math.ceil
+
+-- The numbers' narrow font (Arial Narrow, no outline: the mockups' clocks, scores and ranks).
+EUI.NARROW_FONT = "Fonts\ARIALN.TTF"
+function EUI:Narrow(fs, size)
+    fs:SetFont(EUI.NARROW_FONT, size or 13, "")
+    return fs
+end
+
+local function Disc(parent, layer, sub)
+    local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
+    t:SetTexture(EUI.MASK)
+    return t
+end
+
+-- The part of the segment p1-p2 inside the circle (cx, cy, R): x1, y1, x2, y2, or nil (all of it outside).
+local function ClipSegment(x1, y1, x2, y2, cx, cy, R)
+    local function inside(x, y) return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= R * R end
+    local a, b = inside(x1, y1), inside(x2, y2)
+    if a and b then return x1, y1, x2, y2 end
+    local dx, dy = x2 - x1, y2 - y1
+    local fx, fy = x1 - cx, y1 - cy
+    local A = dx * dx + dy * dy
+    local Bq = 2 * (fx * dx + fy * dy)
+    local Cq = fx * fx + fy * fy - R * R
+    local disc = Bq * Bq - 4 * A * Cq
+    if A == 0 or disc < 0 then return nil end
+    local s = sqrt(disc)
+    local t1, t2 = (-Bq - s) / (2 * A), (-Bq + s) / (2 * A)
+    local lo, hi = max(0, t1), min(1, t2)
+    if hi <= lo then return nil end
+    return x1 + dx * lo, y1 + dy * lo, x1 + dx * hi, y1 + dy * hi
+end
+EUI.ClipSegment = function(_, ...) return ClipSegment(...) end
+
+-- A circle of any size, centred on its frame: c:Set(r, opts) with opts = { stroke = {r, g, b, a}, width (1.6),
+-- shadow (a dark line under the stroke), fill = {r, g, b, a}, dot = {r, g, b, a}, dotSize, clip = { x, y, R }: only
+-- what lies within that circle (offsets from this circle's centre) is drawn, the minimap's round edge }. The outline
+-- is drawn with lines (thin at any size); a small circle uses the ring texture. The caller anchors c by its centre.
+function EUI:CreateCircle(parent)
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetSize(2, 2)
+    c.lines, c.shadows = {}, {}
+    c.fill = Disc(c, "ARTWORK", 0)
+    c.fill:SetPoint("CENTER")
+    c.ring = c:CreateTexture(nil, "ARTWORK", nil, 3)
+    c.ring:SetTexture(EUI.RING)
+    c.ring:SetPoint("CENTER")
+    c.ringShadow = c:CreateTexture(nil, "ARTWORK", nil, 1)
+    c.ringShadow:SetTexture(EUI.RING)
+    c.ringShadow:SetPoint("CENTER")
+    c.dot = Disc(c, "ARTWORK", 5)
+    c.dot:SetPoint("CENTER")
+    function c:Set(r, o)
+        o = o or {}
+        r = max(1, tonumber(r) or 1)
+        self.r = r
+        self:SetSize(max(2, 2 * r), max(2, 2 * r))
+        local st, w = o.stroke or EUI.TEAL, o.width or 1.6
+        local clip = o.clip
+        -- the fill (only when nothing of it would be cut off by the round clip)
+        local f = o.fill
+        local whole = not clip or (sqrt(clip[1] * clip[1] + clip[2] * clip[2]) + r <= clip[3])
+        if f and whole then
+            self.fill:SetSize(2 * r, 2 * r)
+            self.fill:SetVertexColor(f[1], f[2], f[3], f[4] or 0.2)
+            self.fill:Show()
+        else
+            self.fill:Hide()
+        end
+        local n = 0
+        if r <= 9 and whole then
+            -- small: the ring texture (its line is about a tenth of its size)
+            self.ring:SetSize(2 * r + 1, 2 * r + 1)
+            self.ring:SetVertexColor(st[1], st[2], st[3], st[4] or 1)
+            self.ring:Show()
+            if o.shadow then
+                self.ringShadow:SetSize(2 * r + 4, 2 * r + 4)
+                self.ringShadow:SetVertexColor(0, 0, 0, 0.5)
+                self.ringShadow:Show()
+            else
+                self.ringShadow:Hide()
+            end
+        else
+            self.ring:Hide()
+            self.ringShadow:Hide()
+            local segs = max(16, min(120, ceil(2 * pi * r / 6)))
+            for i = 1, segs do
+                local a1, a2 = (i - 1) / segs * 2 * pi, i / segs * 2 * pi
+                local x1, y1, x2, y2 = r * cos(a1), r * sin(a1), r * cos(a2), r * sin(a2)
+                if clip then x1, y1, x2, y2 = ClipSegment(x1, y1, x2, y2, clip[1], clip[2], clip[3]) end
+                if x1 then
+                    n = n + 1
+                    local l = self.lines[n]
+                    if not l then
+                        l = self:CreateLine(nil, "ARTWORK", nil, 3)
+                        self.lines[n] = l
+                        self.shadows[n] = self:CreateLine(nil, "ARTWORK", nil, 1)
+                    end
+                    l:SetStartPoint("CENTER", self, x1, y1)
+                    l:SetEndPoint("CENTER", self, x2, y2)
+                    l:SetThickness(w)
+                    l:SetColorTexture(st[1], st[2], st[3], st[4] or 1)
+                    l:Show()
+                    local s = self.shadows[n]
+                    if o.shadow then
+                        s:SetStartPoint("CENTER", self, x1, y1)
+                        s:SetEndPoint("CENTER", self, x2, y2)
+                        s:SetThickness(w + 2)
+                        s:SetColorTexture(0, 0, 0, 0.5)
+                        s:Show()
+                    else
+                        s:Hide()
+                    end
+                end
+            end
+        end
+        for i = n + 1, #self.lines do
+            self.lines[i]:Hide()
+            self.shadows[i]:Hide()
+        end
+        local d = o.dot
+        if d and whole then
+            local ds = o.dotSize or 4
+            self.dot:SetSize(ds, ds)
+            self.dot:SetVertexColor(d[1], d[2], d[3], d[4] or 1)
+            self.dot:Show()
+        else
+            self.dot:Hide()
+        end
+        self:Show()
+    end
+    return c
+end
+
+-- A zone's map from its art layer (C_Map's tiles), cropped to a view that holds the event's places, with their rings
+-- and names. m = EUI:CreateZoneMap(parent, w, h); m:SetMap(uiMapID) (false: no art there, a dark grid instead);
+-- m:Fit(points [, minSpan]) with points = { { x, y, yd } } (0..1 on the map, a radius in yards); m:P(x, y) -> px from
+-- the view's top left; m:Px(yards) -> px; m:Place(i, x, y, yd, name [, look]) shows place i as a ring, m:Done(n)
+-- hides the rings after n. look: "place" (teal), "hot" (gold), "dim".
+function EUI:CreateZoneMap(parent, w, h)
+    local m = CreateFrame("Frame", nil, parent)
+    m:SetSize(w, h)
+    if m.SetClipsChildren then m:SetClipsChildren(true) end
+    m.w, m.h = w, h
+    m.bg = m:CreateTexture(nil, "BACKGROUND", nil, -8)
+    m.bg:SetAllPoints()
+    m.bg:SetColorTexture(0.102, 0.082, 0.047, 1)
+    m.canvas = CreateFrame("Frame", nil, m)
+    m.canvas:SetAllPoints()
+    m.tiles, m.grid, m.rings, m.labels = {}, {}, {}, {}
+    -- the frame: a faint light edge inside, a dark vignette along the sides
+    m.top = CreateFrame("Frame", nil, m)
+    m.top:SetAllPoints()
+    m.top:SetFrameLevel(m.canvas:GetFrameLevel() + 6)
+    UI():AddEdges(m.top, "OVERLAY", true)
+    UI():SetEdgeColor(m.top, 1, 1, 1, 0.1)
+    m.vig = {}
+    for i, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+        local t = m.top:CreateTexture(nil, "ARTWORK")
+        t:SetTexture(EUI.WHITE)
+        if side == "TOP" or side == "BOTTOM" then
+            t:SetPoint(side .. "LEFT")
+            t:SetPoint(side .. "RIGHT")
+            t:SetHeight(26)
+            Gradient(t, "VERTICAL", 0, 0, 0, side == "TOP" and 0 or 0.32, side == "TOP" and 0.32 or 0)
+        else
+            t:SetPoint("TOP" .. side)
+            t:SetPoint("BOTTOM" .. side)
+            t:SetWidth(26)
+            Gradient(t, "HORIZONTAL", 0, 0, 0, side == "LEFT" and 0.32 or 0, side == "LEFT" and 0 or 0.32)
+        end
+        m.vig[i] = t
+    end
+    function m:SetSize2(nw, nh)
+        self.w, self.h = nw, nh
+        self:SetSize(nw, nh)
+    end
+    -- the zone's art and its size in yards (EventSensors' map -> world, as the run measures)
+    function m:SetMap(map)
+        map = tonumber(map)
+        self.map, self.L, self.files = map, nil, nil
+        self.ydW, self.ydH = nil, nil
+        if map and C_Map and C_Map.GetMapArtLayers and C_Map.GetMapArtLayerTextures then
+            local ok, layers = pcall(C_Map.GetMapArtLayers, map)
+            local L = ok and type(layers) == "table" and layers[1] or nil
+            if L and (L.layerWidth or 0) > 0 and (L.tileWidth or 0) > 0 then
+                local ok2, files = pcall(C_Map.GetMapArtLayerTextures, map, 1)
+                if ok2 and type(files) == "table" and #files > 0 then self.L, self.files = L, files end
+            end
+        end
+        local S = ns.EventSensors
+        if map and S and S.World then
+            local c0, x0, y0 = S.World(map, 0, 0)
+            local c1, x1, y1 = S.World(map, 1, 0)
+            local c2, x2, y2 = S.World(map, 0, 1)
+            if c0 and c1 and c2 then
+                self.ydW = sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2)
+                self.ydH = sqrt((x2 - x0) ^ 2 + (y2 - y0) ^ 2)
+                if self.ydW <= 0 or self.ydH <= 0 then self.ydW, self.ydH = nil, nil end
+            end
+        end
+        return self.L ~= nil
+    end
+    -- the art's size in pixels (the layer's, else the classic 1002 x 668)
+    function m:ArtSize()
+        local L = self.L
+        return (L and L.layerWidth) or 1002, (L and L.layerHeight) or 668
+    end
+    function m:SetView(x0, y0, spanX)
+        local LW, LH = self:ArtSize()
+        self.x0, self.y0, self.spanX = x0, y0, spanX
+        self.s = self.w / (spanX * LW)
+        self.spanY = self.h / self.s / LH
+        self:Draw()
+    end
+    function m:Fit(points, minSpan)
+        local LW, LH = self:ArtSize()
+        local x1, y1, x2, y2
+        for _, p in ipairs(points or {}) do
+            local rx = (self.ydW and p[3]) and p[3] / self.ydW or 0.01
+            local ry = (self.ydH and p[3]) and p[3] / self.ydH or 0.01
+            x1, x2 = min(x1 or 1, p[1] - rx), max(x2 or 0, p[1] + rx)
+            y1, y2 = min(y1 or 1, p[2] - ry), max(y2 or 0, p[2] + ry)
+        end
+        if not x1 then x1, y1, x2, y2 = 0.3, 0.3, 0.7, 0.7 end
+        local bw, bh = x2 - x1, y2 - y1
+        -- room around them (and under the lowest ring for its name)
+        local need = max(minSpan or 0.3, bw * 1.25 + 0.02, (bh * 1.2 + 0.04) * (self.w * LH) / (self.h * LW))
+        local span = min(1, need)
+        local spanY = self.h * span * LW / (self.w * LH)
+        local cx, cy = (x1 + x2) / 2, (y1 + y2) / 2 + spanY * 0.02
+        local x0 = min(max(cx - span / 2, 0), max(0, 1 - span))
+        local y0 = spanY < 1 and min(max(cy - spanY / 2, 0), 1 - spanY) or (cy - spanY / 2)
+        self:SetView(x0, y0, span)
+    end
+    function m:P(x, y)
+        local LW, LH = self:ArtSize()
+        return (x - self.x0) * LW * self.s, (y - self.y0) * LH * self.s
+    end
+    function m:Px(yd)
+        if not self.ydW then return nil end
+        local LW = self:ArtSize()
+        return yd / self.ydW * LW * self.s
+    end
+    function m:Draw()
+        for _, t in ipairs(self.tiles) do t:Hide() end
+        for _, t in ipairs(self.grid) do t:Hide() end
+        local L, files = self.L, self.files
+        if L and files then
+            local cols = ceil(L.layerWidth / L.tileWidth)
+            local rows = ceil(L.layerHeight / L.tileHeight)
+            local tw, th = L.tileWidth * self.s, L.tileHeight * self.s
+            local ox, oy = -self.x0 * L.layerWidth * self.s, -self.y0 * L.layerHeight * self.s
+            local n = 0
+            for r = 1, rows do
+                for c = 1, cols do
+                    local file = files[(r - 1) * cols + c]
+                    local x, y = ox + (c - 1) * tw, oy + (r - 1) * th
+                    -- (only the tiles the view shows)
+                    if file and x < self.w and y < self.h and x + tw > 0 and y + th > 0 then
+                        n = n + 1
+                        local t = self.tiles[n]
+                        if not t then
+                            t = self.canvas:CreateTexture(nil, "BACKGROUND", nil, -7)
+                            self.tiles[n] = t
+                        end
+                        t:ClearAllPoints()
+                        t:SetTexture(file)
+                        t:SetTexCoord(0, 1, 0, 1)
+                        t:SetSize(tw, th)
+                        t:SetPoint("TOPLEFT", self.canvas, "TOPLEFT", x, -y)
+                        t:SetVertexColor(0.52, 0.5, 0.47, 1)
+                        t:Show()
+                    end
+                end
+            end
+            self.bg:SetColorTexture(0.102, 0.082, 0.047, 1)
+        else
+            -- no art (an instance, a client without it): a dark grid
+            self.bg:SetColorTexture(0.075, 0.075, 0.086, 1)
+            local n, step = 0, 40
+            for x = step, self.w - 1, step do
+                n = n + 1
+                local t = self.grid[n] or self.canvas:CreateTexture(nil, "BACKGROUND", nil, -7)
+                self.grid[n] = t
+                t:ClearAllPoints()
+                t:SetColorTexture(1, 1, 1, 0.04)
+                t:SetPoint("TOPLEFT", self.canvas, "TOPLEFT", x, 0)
+                t:SetSize(1, self.h)
+                t:Show()
+            end
+            for y = step, self.h - 1, step do
+                n = n + 1
+                local t = self.grid[n] or self.canvas:CreateTexture(nil, "BACKGROUND", nil, -7)
+                self.grid[n] = t
+                t:ClearAllPoints()
+                t:SetColorTexture(1, 1, 1, 0.04)
+                t:SetPoint("TOPLEFT", self.canvas, "TOPLEFT", 0, -y)
+                t:SetSize(self.w, 1)
+                t:Show()
+            end
+        end
+    end
+    -- place i: its ring (its size in yards; a fixed small one when the map's yards aren't known) and its name under it
+    local LOOK = {
+        place = { stroke = EUI.TEAL, fill = { EUI.TEAL[1], EUI.TEAL[2], EUI.TEAL[3], 0.2 }, text = { 1, 1, 1 } },
+        hot = { stroke = { 1, 0.82, 0 }, fill = { 1, 0.82, 0, 0.12 }, text = { 1, 0.82, 0 } },
+        dim = { stroke = { 0.62, 0.62, 0.66 }, fill = { 1, 1, 1, 0.06 }, text = { 0.72, 0.72, 0.74 } },
+    }
+    function m:Place(i, x, y, yd, name, look)
+        local c = self.rings[i]
+        if not c then
+            c = EUI:CreateCircle(self.canvas)
+            c:SetFrameLevel(self.canvas:GetFrameLevel() + 2)
+            local fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetWordWrap(false)
+            local path, _, flags = fs:GetFont()
+            if path then fs:SetFont(path, 10.5, flags) end
+            fs:SetShadowOffset(1, -1)
+            fs:SetShadowColor(0, 0, 0, 1)
+            c.label = fs
+            self.rings[i] = c
+        end
+        local lk = LOOK[look or "place"] or LOOK.place
+        local px, py = self:P(x, y)
+        local r = max(6, self:Px(tonumber(yd) or 30) or 6)
+        c:ClearAllPoints()
+        c:SetPoint("CENTER", self.canvas, "TOPLEFT", px, -py)
+        c:Set(r, { stroke = lk.stroke, width = 1.6, shadow = true, fill = lk.fill, dot = EUI.TEAL_LT, dotSize = 4 })
+        c.label:SetText(name or "")
+        c.label:SetTextColor(lk.text[1], lk.text[2], lk.text[3])
+        c.label:ClearAllPoints()
+        c.label:SetPoint("CENTER", c, "CENTER", 0, -(r + 10))
+        c.label:SetShown(name ~= nil and name ~= "")
+        c.px, c.py = px, py
+        return c
+    end
+    function m:Done(n)
+        for i = n + 1, #self.rings do self.rings[i]:Hide() end
+    end
+    return m
+end
+
+-- A tag as a chip: a dot in its colour and its name. chip:Set(text, rgb [, kind]): kind "track" (the tracker's,
+-- 18 high), "you" (the board's header: a blue edge, 22 high).
+function EUI:CreateChip(parent, kind)
+    local h = kind == "you" and 22 or 18
+    local p = CreateFrame("Frame", nil, parent)
+    p:SetSize(40, h)
+    UI():AddPillShape(p, h)
+    p.kind = kind
+    if kind == "you" then
+        p:SetPillColors({ 0.055, 0.055, 0.066, 1 }, { 0.4, 0.72, 1, 0.75 })
+    else
+        p:SetPillColors({ 0.039, 0.039, 0.051, 0.7 }, { 1, 1, 1, 0.25 })
+    end
+    p.dot = Disc(p, "ARTWORK", 2)
+    p.dot:SetSize(8, 8)
+    p.dotEdge = Disc(p, "ARTWORK", 1)
+    p.dotEdge:SetSize(10, 10)
+    p.dotEdge:SetVertexColor(0, 0, 0, 1)
+    p.cls = p:CreateTexture(nil, "ARTWORK", nil, 2)
+    p.cls:SetSize(14, 14)
+    p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.fs:SetWordWrap(false)
+    local path, _, flags = p.fs:GetFont()
+    if path then p.fs:SetFont(path, 11, flags) end
+    p.fs:SetShadowOffset(1, -1)
+    p.fs:SetShadowColor(0, 0, 0, 1)
+    -- rgb: the dot's colour; or key: a player's class circle instead of the dot
+    function p:Set(text, rgb, key)
+        local x = (self.kind == "you") and 7 or 6
+        self.dot:ClearAllPoints()
+        self.dotEdge:ClearAllPoints()
+        self.cls:ClearAllPoints()
+        if key then
+            self.dot:Hide()
+            self.dotEdge:Hide()
+            EUI:SetClass(self.cls, key)
+            self.cls:SetPoint("LEFT", x, 0)
+            self.cls:Show()
+            x = x + 14 + 6
+        elseif rgb then
+            self.cls:Hide()
+            self.dot:SetPoint("LEFT", x + 1, 0)
+            self.dotEdge:SetPoint("CENTER", self.dot)
+            self.dot:SetVertexColor(rgb[1], rgb[2], rgb[3], 1)
+            self.dot:Show()
+            self.dotEdge:Show()
+            x = x + 8 + 6
+        else
+            self.dot:Hide()
+            self.dotEdge:Hide()
+            self.cls:Hide()
+            x = x + 3
+        end
+        self.fs:ClearAllPoints()
+        self.fs:SetPoint("LEFT", x - 1, 0)
+        self.fs:SetText(text or "")
+        if self.kind == "you" then self.fs:SetTextColor(0.84, 0.93, 1) else self.fs:SetTextColor(0.94, 0.94, 0.94) end
+        self:SetWidth(floor(x + EUI:TextWidth(self.fs) + ((self.kind == "you") and 10 or 8) + 0.5))
+    end
+    return p
+end
+
+-- A list walked in steps (a route): one segment a step, the done ones filled, the next one outlined.
+-- s:Set(n, done [, finished]); look "board" (the board's rows) | "track" (the tracker: brighter empties, a dark edge).
+function EUI:CreateSegments(parent, w, h, look)
+    local s = CreateFrame("Frame", nil, parent)
+    s:SetSize(w, h)
+    s.look = look or "board"
+    s.segs = {}
+    function s:Set(n, done, finished)
+        n = max(0, min(40, tonumber(n) or 0))
+        done = max(0, min(n, tonumber(done) or 0))
+        local gap = n > 16 and 1 or 2
+        local W = self:GetWidth()
+        local sw = n > 0 and (W - gap * (n - 1)) / n or 0
+        for i = 1, n do
+            local g = self.segs[i]
+            if not g then
+                g = { bg = self:CreateTexture(nil, "ARTWORK", nil, 1) }
+                g.edge = {}
+                for k = 1, 4 do g.edge[k] = self:CreateTexture(nil, "ARTWORK", nil, 2) end
+                g.shade = self:CreateTexture(nil, "ARTWORK", nil, 0)
+                self.segs[i] = g
+            end
+            local x = (i - 1) * (sw + gap)
+            g.bg:ClearAllPoints()
+            g.bg:SetPoint("TOPLEFT", self, "TOPLEFT", x, 0)
+            g.bg:SetSize(max(1, sw), self:GetHeight())
+            local state = (finished or i <= done) and "d" or (i == done + 1 and "n" or "e")
+            local T, D = EUI.TEAL, EUI.TEAL_DONE
+            if state == "d" then
+                local c = finished and T or D
+                g.bg:SetColorTexture(c[1], c[2], c[3], 1)
+            elseif state == "n" then
+                g.bg:SetColorTexture(T[1], T[2], T[3], self.look == "track" and 0.3 or 0.25)
+            else
+                g.bg:SetColorTexture(1, 1, 1, self.look == "track" and 0.18 or 0.1)
+            end
+            g.bg:Show()
+            -- the next one: a 1px outline; the tracker's empties: a dark edge to read on the world
+            for k, e in ipairs(g.edge) do
+                e:ClearAllPoints()
+                if state == "n" then
+                    e:SetColorTexture(T[1], T[2], T[3], 0.9)
+                    if k == 1 then e:SetPoint("TOPLEFT", g.bg); e:SetPoint("TOPRIGHT", g.bg); e:SetHeight(1)
+                    elseif k == 2 then e:SetPoint("BOTTOMLEFT", g.bg); e:SetPoint("BOTTOMRIGHT", g.bg); e:SetHeight(1)
+                    elseif k == 3 then e:SetPoint("TOPLEFT", g.bg); e:SetPoint("BOTTOMLEFT", g.bg); e:SetWidth(1)
+                    else e:SetPoint("TOPRIGHT", g.bg); e:SetPoint("BOTTOMRIGHT", g.bg); e:SetWidth(1) end
+                    e:Show()
+                else
+                    e:Hide()
+                end
+            end
+            if self.look == "track" then
+                g.shade:ClearAllPoints()
+                g.shade:SetPoint("TOPLEFT", g.bg, "TOPLEFT", -1, 1)
+                g.shade:SetPoint("BOTTOMRIGHT", g.bg, "BOTTOMRIGHT", 1, -1)
+                g.shade:SetColorTexture(0, 0, 0, 0.5)
+                g.shade:Show()
+            else
+                g.shade:Hide()
+            end
+        end
+        for i = n + 1, #self.segs do
+            local g = self.segs[i]
+            g.bg:Hide()
+            g.shade:Hide()
+            for _, e in ipairs(g.edge) do e:Hide() end
+        end
+    end
+    return s
+end
+
+-- "Time left": the big clock, "of 20 min", a gold bar, what ends when and what comes then. t:Set(left, total, l, r).
+function EUI:CreateTimeLeft(parent, w)
+    local t = CreateFrame("Frame", nil, parent)
+    t:SetSize(w, 79)
+    t.bg = t:CreateTexture(nil, "BACKGROUND")
+    t.bg:SetAllPoints()
+    t.bg:SetColorTexture(0.086, 0.086, 0.106, 0.96)
+    UI():AddEdges(t, "BORDER", true)
+    UI():SetEdgeColor(t, 0.34, 0.34, 0.38, 0.6)
+    local function text(size, r, g, b, font)
+        local fs = t:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
+        fs:SetWordWrap(false)
+        fs:SetJustifyH("LEFT")
+        local path, _, flags = fs:GetFont()
+        if path then fs:SetFont(path, size, flags) end
+        fs:SetTextColor(r, g, b)
+        fs:SetShadowOffset(1, -1)
+        fs:SetShadowColor(0, 0, 0, 1)
+        return fs
+    end
+    t.big = text(30, 1, 1, 1)
+    EUI:Narrow(t.big, 30)
+    t.big:SetPoint("TOPLEFT", 10, -9)
+    t.of = text(12, 0.62, 0.62, 0.62)
+    t.of:SetPoint("BOTTOMLEFT", t.big, "BOTTOMRIGHT", 6, 3)
+    t.track = t:CreateTexture(nil, "ARTWORK")
+    t.track:SetPoint("TOPLEFT", 10, -48)
+    t.track:SetPoint("TOPRIGHT", -10, -48)
+    t.track:SetHeight(3)
+    t.track:SetColorTexture(1, 1, 1, 0.1)
+    t.bar = t:CreateTexture(nil, "ARTWORK", nil, 1)
+    t.bar:SetPoint("TOPLEFT", t.track, "TOPLEFT")
+    t.bar:SetHeight(3)
+    t.bar:SetTexture(EUI.WHITE)
+    Gradient(t.bar, "HORIZONTAL", 1, 0.82, 0, 1, 1)
+    if t.bar.SetGradient and CreateColor then
+        t.bar:SetGradient("HORIZONTAL", CreateColor(0.72, 0.54, 0.06, 1), CreateColor(1, 0.82, 0, 1))
+    end
+    t.l = text(10.5, 0.62, 0.62, 0.62)
+    t.l:SetPoint("TOPLEFT", 10, -57)
+    t.r = text(10.5, 0.62, 0.62, 0.62)
+    t.r:SetJustifyH("RIGHT")
+    t.r:SetPoint("TOPRIGHT", -10, -57)
+    function t:Set(left, total, ltext, rtext)
+        left, total = max(0, tonumber(left) or 0), max(1, tonumber(total) or 1)
+        local sec = floor(left + 0.5)
+        if sec >= 3600 then
+            self.big:SetText(("%d:%02d:%02d"):format(floor(sec / 3600), floor(sec % 3600 / 60), sec % 60))
+        else
+            self.big:SetText(("%d:%02d"):format(floor(sec / 60), sec % 60))
+        end
+        local mins = floor(total / 60 + 0.5)
+        self.of:SetText(total >= 60 and ("of " .. (mins >= 120 and (floor(mins / 60 + 0.5) .. " h") or (mins .. " min")))
+            or ("of " .. floor(total) .. " s"))
+        local W = max(1, self:GetWidth() - 20)
+        self.bar:SetWidth(max(1, W * min(1, left / total)))
+        self.bar:SetShown(left > 0)
+        self.r:SetText(rtext or "")
+        local rw = (rtext and rtext ~= "") and (EUI:TextWidth(self.r) + 8) or 0
+        self.l:SetText(ltext or "")
+        -- (what doesn't fit goes: the right side's words first)
+        if EUI:TextWidth(self.l) + rw > W then
+            self.r:SetText("")
+        end
+    end
+    return t
+end
+
+-- A place medal: 1, 2, 3 on a gold, silver or bronze disc with a light on it. m:Set(n) (nil: hidden).
+local MEDAL = {
+    { { 0.84, 0.65, 0.08 }, { 1, 0.95, 0.69 }, { 0.16, 0.11, 0 } },
+    { { 0.66, 0.69, 0.74 }, { 1, 1, 1 }, { 0.11, 0.13, 0.15 } },
+    { { 0.72, 0.41, 0.18 }, { 1, 0.85, 0.72 }, { 0.16, 0.08, 0.02 } },
+}
+function EUI:CreateMedal(parent, size)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.base = Disc(f, "ARTWORK", 1)
+    f.base:SetAllPoints()
+    f.shade = Disc(f, "ARTWORK", 2)
+    f.shade:SetSize(size, size)
+    f.shade:SetPoint("CENTER", 1.5, -2)
+    f.light = Disc(f, "ARTWORK", 3)
+    f.light:SetSize(size * 0.55, size * 0.55)
+    f.light:SetPoint("CENTER", -size * 0.15, size * 0.18)
+    f.fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.fs:SetPoint("CENTER", 0, 0)
+    EUI:Narrow(f.fs, 13)
+    f.fs:SetShadowOffset(0, 0)
+    function f:Set(n)
+        local m = MEDAL[n]
+        if not m then self:Hide() return end
+        self.base:SetVertexColor(m[1][1], m[1][2], m[1][3], 1)
+        self.shade:SetVertexColor(m[3][1], m[3][2], m[3][3], 0.45)
+        self.light:SetVertexColor(m[2][1], m[2][2], m[2][3], 0.42)
+        self.fs:SetText(tostring(n))
+        self.fs:SetTextColor(m[3][1], m[3][2], m[3][3])
+        self:Show()
+    end
+    return f
+end
+
+-- An item's icon (a file id or path), or nil while the client doesn't have it.
+function EUI:ItemIcon(item)
+    item = tonumber(item)
+    if not item then return nil end
+    if C_Item and C_Item.GetItemIconByID then
+        local ok, icon = pcall(C_Item.GetItemIconByID, item)
+        if ok and icon then return icon end
+    end
+    if GetItemIcon then
+        local ok, icon = pcall(GetItemIcon, item)
+        if ok and icon then return icon end
+    end
+    return nil
+end
+
+-- "0:40 ago", "1 min ago", "3 h ago" for a time `sec` ago.
+function EUI:Ago(sec)
+    sec = max(0, floor(tonumber(sec) or 0))
+    if sec < 60 then return ("0:%02d ago"):format(sec) end
+    if sec < 3600 then return floor(sec / 60) .. " min ago" end
+    return floor(sec / 3600 + 0.5) .. " h ago"
+end
+
 function EUI:OnInit() end

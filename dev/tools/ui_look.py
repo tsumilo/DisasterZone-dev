@@ -105,10 +105,20 @@ end
 for _, o in ipairs(M.all_objects) do
   local st = OBJ[o]
   local kind = st and st.kind
+  if kind == "Line" and o.IsVisible and o:IsVisible() and M.line_points then
+    -- a line: its two ends (UIParent units), thickness and colour; drawn in its frame's order
+    local x1, y1, x2, y2 = M.line_points(o)
+    local par = st.parent and OBJ[st.parent]
+    if x1 and par then
+      out[#out + 1] = { seq = st.seq, a = effalpha(st), layer = st.layer, sub = st.sublayer, line = { x1, y1, x2, y2 },
+        thick = st.thickness or 1, lcolor = st.color, vc = st.vcolor, pseq = par.seq }
+    end
+  end
   if (kind == "Texture" or kind == "FontString" or kind == "EditBox") and o.IsVisible and o:IsVisible()
      and not skip[o] then
     local rec = { seq = st.seq, a = effalpha(st), layer = st.layer, sub = st.sublayer }
     if kind == "Texture" then
+      rec.rot = st.rotation
       local t = st.texture
       rec.tex = t ~= nil and tostring(t) or nil
       rec.atlas = st.atlas
@@ -317,6 +327,9 @@ def texture_image(r, w, h):
             im = ImageChops.multiply(im, gi)
     if r.get("tex") == "Color" and r.get("vc"):
         im = _tint(im, _rgba(r.get("vc")))
+    if r.get("rot"):
+        import math
+        im = im.rotate(math.degrees(float(r["rot"])), resample=Image.BICUBIC, expand=False)
     if r.get("mask"):
         m = load(r["mask"])
         if m is not None:
@@ -492,11 +505,29 @@ def render(regs, lay, findings, path, look, A, crop=None):
         if kind == "EditBox":
             layer = 3.5
         entries.append(((strata, level, layer, float(lk.get("sub") or 0), s), s))
+    # lines (Line regions): in their frame's strata and level
+    queued = {e[1] for e in entries}
+    for s, lk in look.items():
+        if not lk.get("line") or s in queued:
+            continue
+        fr = regs.get(int(lk.get("pseq") or 0))
+        if not fr or not fr.get("vis"):
+            continue
+        st = fr.get("strata") or "MEDIUM"
+        strata = STRATA.index(st) if st in STRATA else 2
+        level = float(fr.get("level") or 0)
+        layer = LAYERS.get(lk.get("layer") or "ARTWORK", 2)
+        entries.append(((strata, level, layer, float(lk.get("sub") or 0), s), s))
     entries.sort()
 
     for _, s in entries:
-        r = regs[s]
         lk = look[s]
+        if lk.get("line"):
+            pseq = int(lk.get("pseq") or 0)
+            clip = lay.clip(pseq) if pseq in regs else None
+            _draw_line(img, lk, (cl, ct), S, ibox(clip) if clip else None)
+            continue
+        r = regs[s]
         rc = lay.rect(s)
         clip = lay.clip(s)
         clip_px = ibox(clip) if clip else None
@@ -522,6 +553,42 @@ def render(regs, lay, findings, path, look, A, crop=None):
         dr.rectangle((x0 - 1, y0 - 1, x1 + 1, y1 + 1), outline=(255, 40, 40, 255), width=2)
         dr.text((x0, max(0, y0 - 14)), str(i), font=font(13), fill=(255, 80, 80))
     img.convert("RGB").save(path)
+
+
+def _draw_line(img, lk, origin, S, clip_px):
+    """A Line region: a bar `thick` wide between its two ends, anti-aliased (drawn 4x, scaled down)."""
+    import math
+    v = lk["line"]
+    x1, y1, x2, y2 = [float(t) for t in (v.values() if isinstance(v, dict) else v)]
+    cl, ct = origin
+    ax, ay, bx, by = (x1 - cl) * S, (ct - y1) * S, (x2 - cl) * S, (ct - y2) * S
+    th = max(0.5, float(lk.get("thick") or 1)) * S
+    col = _rgba(lk.get("lcolor"))
+    vc = _rgba(lk.get("vc"))
+    col = tuple(col[i] * vc[i] for i in range(4))
+    alpha = col[3] * float(1 if lk.get("a") is None else lk.get("a"))
+    if alpha <= 0.003:
+        return
+    dx, dy = bx - ax, by - ay
+    ln = math.hypot(dx, dy)
+    if ln < 0.01:
+        return
+    nx, ny = -dy / ln * th / 2, dx / ln * th / 2
+    poly = [(ax + nx, ay + ny), (bx + nx, by + ny), (bx - nx, by - ny), (ax - nx, ay - ny)]
+    x0 = int(math.floor(min(p[0] for p in poly))) - 1
+    y0 = int(math.floor(min(p[1] for p in poly))) - 1
+    x1_ = int(math.ceil(max(p[0] for p in poly))) + 1
+    y1_ = int(math.ceil(max(p[1] for p in poly))) + 1
+    w, h = x1_ - x0, y1_ - y0
+    if w <= 0 or h <= 0 or w > 6000 or h > 6000:
+        return
+    K = 4
+    big = Image.new("L", (w * K, h * K), 0)
+    ImageDraw.Draw(big).polygon([((px - x0) * K, (py - y0) * K) for px, py in poly], fill=int(255 * alpha))
+    mask = big.resize((w, h), Image.LANCZOS)
+    patch = Image.new("RGBA", (w, h), tuple(int(255 * c) for c in col[:3]) + (0,))
+    patch.putalpha(mask)
+    _paste(img, patch, x0, y0, clip_px)
 
 
 def _draw_text(img, r, lk, rc, clip_px, lay, A, box):

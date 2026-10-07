@@ -75,7 +75,7 @@ end
 -- that goes out (positions, who is inside which place, hot / cold, mounted / moving / ...).
 local STATE_TABLES = { "entrants", "signups", "ready", "off", "vars", "stats", "timers", "blocks", "moments", "awards",
     "asks", "everyAt", "tags", "scores", "lists", "qa", "buttons", "point", "shown", "plates", "tstart", "lead",
-    "pos", "inplace", "warm", "flags" }
+    "pos", "inplace", "warm", "flags", "lt", "last" }
 local HOST_ONLY = { "pos", "inplace", "warm", "flags" }
 
 -- opts: { id, host, out, practice, signups = { key ... } (sign-up order), entrants (no Sign-up block), now = fn,
@@ -127,6 +127,12 @@ function E:Restore(def, st, opts)
     for key, pid in pairs(st.point) do if type(pid) ~= "string" then st.point[key] = nil end end
     for timer in pairs(st.shown) do if type(timer) ~= "string" then st.shown[timer] = nil end end
     for key, p in pairs(st.pos) do if type(p) ~= "table" then st.pos[key] = nil end end
+    for lid, t in pairs(st.lt) do
+        if type(t) ~= "table" then st.lt[lid] = nil else
+            for key, times in pairs(t) do if type(times) ~= "table" then t[key] = nil end end
+        end
+    end
+    for key, l in pairs(st.last) do if type(l) ~= "table" then st.last[key] = nil end end
     for key, f in pairs(st.flags) do if type(f) ~= "table" then st.flags[key] = nil end end
     -- the scripts waiting for answers are gone, and with them their questions (they'd be on screens for good)
     for id in pairs(st.asks) do st.asks[id] = nil end
@@ -675,6 +681,12 @@ function Run:ListNext(lid, key)
     if i > #items then return end   -- at the end already
     i = i + 1
     t[key] = i
+    -- (when: seconds since the run began, for the board's splits and gaps; one a list item)
+    local lt = self.st.lt[lid]
+    if not lt then lt = {}; self.st.lt[lid] = lt end
+    local mine = lt[key] or {}
+    lt[key] = mine
+    mine[i - 1] = floor(self.now() - (self.st.t0 or self.now()) + 0.5)
     self:Log("list", strformat("%s: %d of %d", self:Name(key), min(i - 1, #items), #items))
     if i > #items then
         self:Fire("lo.lend", { player = key }, nil, nil, function(s) return s.top.a[1] == lid end)
@@ -916,6 +928,11 @@ function Run:Happen(key, what, data)
     if what == "emote" then
         ctx.emote = strupper(Clean(data.emote or "", 24))
         ctx.other = other
+    end
+    -- the board's "last catch": what an entrant last caught, looted or killed (at: seconds since the run began)
+    if what == "fish" or what == "loot" or what == "kill" then
+        self.st.last[key] = { w = what, i = tonumber(data.item), n = what == "kill" and ctx.creature
+            or (data.name and Clean(data.name, NAME_LEN)) or nil, at = floor(self.now() - (self.st.t0 or self.now()) + 0.5) }
     end
     self:Fire("ev.happen", ctx, nil, nil, function(s)
         return s.top.a[1] == what and FilterOK(h.filter, s.top.a[2], ctx, data)

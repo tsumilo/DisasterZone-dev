@@ -406,6 +406,12 @@ event's definitions plus "+ New ...".
   builder's practice, where I'm its host); three ask cards at most, two results (in the order the asks closed, a
   minute at most); cards stack in one column, or two side by side when they don't fit.
 - EVENT_SOUND: EventLive plays the sound; the UI adds nothing (no second play).
+- A state from another client is only read: `EventBoard.H.Clean(st)` (in `EventBoard:StateOf`, which the tracker
+  uses too) makes every part 2 field of the wrong shape read as empty, once a state change.
+- Tools: the mock's C_Map has the open world zones' art layers (the client's world map tiles by path, so a render
+  draws the real map); ui_look draws Line regions and texture rotation; ui_audit states "Events - board hide and
+  seek / race / fishing derby / sign-up with places", "Events - tracker hide and seek / race / fishing derby",
+  "Events - ask prompts / ask result / banner and yes or no"; tests in tests/events/test_kinds_board.py.
 
 **Settled by the Events tab build (UI/EventsTab.lua, 2026-10-07)**
 - `B:DescribeStage` (so `B:Describe`) rules also name what they are about, for the event page's chips (the texts and

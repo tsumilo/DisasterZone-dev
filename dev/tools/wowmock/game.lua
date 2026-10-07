@@ -980,6 +980,10 @@ function IsMounted() return M.mounted == true end
 function IsFlying() return M.flying == true end
 function IsSwimming() return M.swimming == true end
 function IsFalling() return M.falling == true end
+-- The open world zones' map art (the client's world map: 1002 x 668 in 4 x 3 tiles of 256), by their file names.
+M.outdoor_art = { [1944] = "Hellfire", [1945] = "Expansion01", [1946] = "Zangarmarsh", [1948] = "ShadowmoonValley",
+  [1949] = "BladesEdgeMountains", [1951] = "Nagrand", [1952] = "TerokkarForest", [1953] = "Netherstorm",
+  [1955] = "ShattrathCity" }
 -- A few instance floors with map art (Enum.UIMapType.Dungeon = 4), as the strategy boards read them: 3 floors of
 -- Black Temple in one map group, 1002 x 668 layers of 256px tiles (4 x 3 = 12 file ids each).
 M.dungeon_maps = {
@@ -1041,13 +1045,20 @@ C_Map = {
     return out
   end,
   GetMapArtLayers = function(id)
-    if not M.dungeon_maps[id] then return {} end
+    if not (M.dungeon_maps[id] or M.outdoor_art[id]) then return {} end
     return { { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256, minScale = 1, maxScale = 1,
                additionalZoomSteps = 0 } }
   end,
   GetMapArtLayerTextures = function(id, layer)
-    if not M.dungeon_maps[id] or layer ~= 1 then return {} end
+    if layer ~= 1 then return {} end
     local out = {}
+    local art = M.outdoor_art[id]
+    if art then
+      -- (the client's own world map tiles: tools that draw a view read them from the game's files)
+      for i = 1, 12 do out[i] = "Interface\\WorldMap\\" .. art .. "\\" .. art .. i end
+      return out
+    end
+    if not M.dungeon_maps[id] then return {} end
     for i = 1, 12 do out[i] = 200000 + id * 100 + i end
     return out
   end,
