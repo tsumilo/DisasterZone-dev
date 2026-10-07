@@ -30,7 +30,8 @@ local MAX_CHAT = 255
 local TOKEN = "%[DisasterZone: ([^%[%]|]-) #([^%s%[%]|]+)%]"
 
 local ICON = {
-    addon   = "Interface\\Icons\\INV_Misc_Bag_10_Blue",
+    addon   = ns:HasAssets(4) and "Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal"
+        or "Interface\\Icons\\INV_Misc_Bag_10_Blue",
     raid    = "Interface\\Icons\\INV_Misc_Head_Dragon_01",
     team    = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
     board   = "Interface\\Icons\\INV_Misc_Map_01",

@@ -8,6 +8,19 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.3.2", date = "6 October 2026", title = "Events you build; Dungeons in the Group Finder",
       sections = {
+          { heading = "A shorter header", lines = {
+              "The header has five tabs now: Home, Raids, Gear, Dungeons and Guild, the same for everyone.",
+              "Raids holds Raids and Council; Gear holds My BiS and Atlas; Guild holds Members, Events and Games.",
+              "Rest the mouse on Raids, Gear or Guild to see its pages; click it to go to the one you used last.",
+              "Every page is the same as before, only where you find it changed.",
+              "Smoother page switching: pages load in the background and fade in; Raids, Members and Home open faster.",
+          } },
+          { heading = "Minimap button", lines = {
+              "A new look: the DisasterZone seal instead of the blue bag, also in the AddOns list and on shared links.",
+              "Left-click it and your pinned sections fan out around it; click one to go straight there.",
+              "The + at the end of the arc picks your pins (up to 6); right-click a pin to move or unpin it.",
+              "Pins are shared by all your characters. Right-click the button to open the window as before.",
+          } },
           { heading = "Events", lines = {
               "A new tab, Events: the guild's own events, like duel cups, races, hunts and contests.",
               "It wears a small BETA tag for now: still being tested, so things may change or break.",
@@ -133,6 +146,9 @@ ns.CHANGELOG = {
               "Badges and marks in your bank count too; the bar reminds you to take them out first.",
               "Arena and honor sets show what the set costs, or what is left once you own pieces.",
               "Prices are your realm's own: every vendor you open teaches the addon its prices.",
+          } },
+          { heading = "Fixes", lines = {
+              "Item names no longer get stuck on \"Loading...\" until you switch views.",
           } },
       } },
     { version = "1.3.1", date = "6 October 2026", title = "Dungeons tab, ask to join locked raids",

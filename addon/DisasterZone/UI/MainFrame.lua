@@ -24,8 +24,8 @@ local NAV_BADGES = {
 local NAV_HIDDEN = {}
 
 -- Pages grouped under one text tab that opens a menu of them (the strip stays the same for every rank). A tab
--- sits at its own order among the pages'; clicking it shows the page used last in it (settings.navLast) and opens the
--- menu. Groups follow shared data: raid nights and their loot, items, the guild's people and pastimes.
+-- sits at its own order among the pages'; resting the mouse on it opens the menu, clicking it shows the page used
+-- last in it (settings.navLast). Groups follow shared data: raid nights and their loot, items, the guild's people and pastimes.
 local NAV_GROUPS = {
     { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council" } },
     { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "atlas" } },
@@ -133,6 +133,53 @@ end
 local groupByKey = {}
 for _, g in ipairs(NAV_GROUPS) do groupByKey[g.key] = g end
 
+-- A group's menu opens on hover (a short rest on the tab) and closes once the mouse has left both the tab and the
+-- menu for a moment; a click goes to the group's page used last (the menu stays).
+local HOVER_OPEN, HOVER_CLOSE = 0.15, 0.35
+local hoverSeq = 0
+local watch = CreateFrame("Frame")
+watch:Hide()
+
+local function MenuOf(owner)
+    local m = ns.UI:GetOpenMenu()
+    return m and m.owner == owner and m or nil
+end
+
+local function OverMenu()
+    local frames, depth = ns.UI:GetMenuFrames()
+    for i = 1, depth or 0 do
+        local f = frames and frames[i]
+        if f and f:IsShown() and f:IsMouseOver() then return true end
+    end
+    return false
+end
+
+watch:SetScript("OnUpdate", function(self, elapsed)
+    local m = self.owner and MenuOf(self.owner)
+    if not m then
+        self:Hide()
+        return
+    end
+    if self.owner:IsMouseOver() or OverMenu() then
+        self.away = 0
+    else
+        self.away = self.away + (elapsed or 0)
+        if self.away >= HOVER_CLOSE then
+            m:Close()
+            self:Hide()
+        end
+    end
+end)
+
+local function OpenGroupMenu(g, owner)
+    if not owner or MenuOf(owner) then return end
+    GroupMenu(g, owner)
+    if MenuOf(owner) then
+        watch.owner, watch.away = owner, 0
+        watch:Show()
+    end
+end
+
 local function OnNavSelect(navKey)
     local g = groupByKey[navKey]
     if not g then
@@ -141,7 +188,23 @@ local function OnNavSelect(navKey)
     end
     local page = GroupPage(g)
     if page then SelectPage(page) end
-    GroupMenu(g, tabs and tabs.byKey[navKey])
+    OpenGroupMenu(g, tabs and tabs.byKey[navKey])
+end
+
+local function HookGroupHover()
+    for _, g in ipairs(NAV_GROUPS) do
+        local tab = tabs.byKey[g.key]
+        if tab then
+            tab:HookScript("OnEnter", function(self)
+                hoverSeq = hoverSeq + 1
+                local seq = hoverSeq
+                C_Timer.After(HOVER_OPEN, function()
+                    if seq == hoverSeq and self:IsVisible() and self:IsMouseOver() then OpenGroupMenu(g, self) end
+                end)
+            end)
+            tab:HookScript("OnLeave", function() hoverSeq = hoverSeq + 1 end)
+        end
+    end
 end
 
 local function BuildTabs()
@@ -167,6 +230,7 @@ local function BuildTabs()
         return a.seq < b.seq
     end)
     tabs = ns.UI:CreateNavStrip(frame, defs, OnNavSelect)
+    HookGroupHover()
     local inset = frame.Inset
     tabs.frame:SetPoint("TOPLEFT", inset or frame, "TOPLEFT", inset and 3 or 6, inset and -3 or -26)
     tabs.frame:SetPoint("TOPRIGHT", inset or frame, "TOPRIGHT", inset and -3 or -6, inset and -3 or -26)
@@ -496,6 +560,18 @@ end
 -- After the window first opens, the other pages are built in the background, one per frame (never in combat), so
 -- a first visit to a page is a plain show.
 local prebuilding
+
+-- The heavier pages are also painted once in the background (shown and hidden again in the same frame, so nothing is
+-- drawn): their rows exist and their data is read before the first visit.
+local WARM = { raids = true, members = true, home = true, atlas = true }
+local function WarmPanel(def)
+    local panel = def.panel
+    if not (panel and WARM[def.key] and frame:IsShown() and def.key ~= currentKey and not panel:IsShown()) then return end
+    panel:Show()
+    if panel.OnPanelShown then xpcall(function() panel:OnPanelShown() end, geterrorhandler()) end
+    if def.key ~= currentKey then panel:Hide() end
+end
+
 local function PrebuildPages()
     if prebuilding then return end
     prebuilding = true
@@ -512,7 +588,10 @@ local function PrebuildPages()
         i = i + 1
         local def = queue[i]
         if not def then return end
-        if not def.panel and IsAvailable(def) then BuildPanel(def) end
+        if not def.panel and IsAvailable(def) then
+            BuildPanel(def)
+            WarmPanel(def)
+        end
         C_Timer.After(0.05, step)
     end
     C_Timer.After(0.3, step)
@@ -647,6 +726,15 @@ function MainFrame:GetShownPages()
     return out
 end
 
+-- A page's tab label (nil for an unknown key), and whether the window offers it now.
+function MainFrame:GetPageLabel(key)
+    return tabDefs[key] and tabDefs[key].label or nil
+end
+
+function MainFrame:IsPageShown(key)
+    return tabDefs[key] ~= nil and not NAV_HIDDEN[key] and IsAvailable(tabDefs[key])
+end
+
 function MainFrame:GetSelectedTab()
     return frame and frame:IsShown() and currentKey or nil
 end
@@ -671,7 +759,7 @@ local function LauncherTooltip(tt)
         tt:AddLine(ns.UI:SafeText(status), 1, 1, 1, true)
     end
     tt:AddLine(" ")
-    tt:AddLine("Left-click: open  ·  Right-click: settings", 0.6, 0.6, 0.6)
+    tt:AddLine("Left-click: your pinned sections  ·  Right-click: open", 0.6, 0.6, 0.6)
     tt:AddLine("Shift-click: boss drops", 0.6, 0.6, 0.6)
 end
 
@@ -683,17 +771,22 @@ local function SetupLauncher()
         type = "launcher",
         label = "DisasterZone",
         text = "DisasterZone",
-        icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue",
-        OnClick = function(_, button)
-            if button == "RightButton" then
-                MainFrame:Open("settings")
-            elseif IsShiftKeyDown() and ns.DropPanel and ns.DropPanel.ShowHistory then
+        icon = ns:HasAssets(4) and "Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal_mm"
+            or "Interface\\Icons\\INV_Misc_Bag_10_Blue",
+        OnClick = function(btn, button)
+            if IsShiftKeyDown() and ns.DropPanel and ns.DropPanel.ShowHistory then
                 ns.DropPanel:ShowHistory()   -- the drop panel (one Escape closes it with the loot window)
-            else
+            elseif button == "RightButton" or not ns.MinimapArc then
+                if ns.MinimapArc then ns.MinimapArc:Close(true) end
                 MainFrame:Toggle()
+            else
+                ns.MinimapArc:Toggle(btn)    -- the pinned sections fan out around the button
             end
         end,
-        OnTooltipShow = LauncherTooltip,
+        OnTooltipShow = function(tt)
+            if ns.MinimapArc and ns.MinimapArc:IsOpen() then return end   -- the arc's own labels say enough
+            LauncherTooltip(tt)
+        end,
     })
     local icon = LibStub("LibDBIcon-1.0", true)
     if not (obj and icon and ns.db and ns.db.settings) then return end

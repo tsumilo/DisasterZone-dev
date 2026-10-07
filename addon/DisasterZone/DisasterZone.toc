@@ -7,7 +7,7 @@
 ## SavedVariables: DisasterZoneDB, DisasterZonePatchDB
 ## LoadSavedVariablesFirst: 1
 ## OptionalDeps: CDLoot
-## IconTexture: Interface\Icons\INV_Misc_Bag_10_Blue
+## IconTexture: Interface\AddOns\DisasterZone\Media\Launcher\seal
 ## Category: Raid
 
 # Boot loader for in-game updates: must stay the first two files (Core\Boot.lua explains)
@@ -213,6 +213,7 @@ UI\Tour.lua
 Data\Tours\Strategy.lua
 UI\DatePicker.lua
 UI\MainFrame.lua
+UI\MinimapArc.lua
 UI\Dashboard.lua
 UI\PaperDoll.lua
 UI\MyBiS.lua
