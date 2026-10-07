@@ -432,6 +432,28 @@ event's definitions plus "+ New ...".
 - "Examples" (the Library's, and Upcoming's beside New event) opens the builder on `Events:CopyDef(B:Example(key))`: a
   new event of mine, kept only when the builder saves it.
 
+**Settled by the builder build (UI/EventBuilder.lua, UI/EventPieces.lua, 2026-10-07)**
+- Palette: each category's definitions first in the order they were made (the built-in Entrants last, Season points
+  first), "+ Add ..." (Places: a menu, Set from where I stand / Pick on the map), then "Pieces" (Logic: Lists,
+  Variables, Pieces; Messages: Messages, For the guild). A tag's row drags onto the canvas as "players with tag ...".
+  A piece wider than the column (184) is drawn in lines there (`EP:Draw(..., { wrap = w })`: breaks between words, a
+  line never starts with a lone blank nor ends on "an" / "of"); on the canvas always one line.
+- Blanks: an empty one says what it takes ("player", "tag", "place"); a tag or a place picked is its chip, and so is
+  "players with tag X"; a click on a value in a blank opens that blank's picker. A choice's second blank (`filter`) is
+  drawn only when it holds something ("kills [Hogger]"); empty, the choice says it ("kills a creature"); it's set from
+  the choice's menu (a submenu: any, one by name..., or the emotes). Places / where open a picker (the event's places,
+  the script's place values, players for where, Set from where I stand, Pick on the map); label / item / creature are
+  typed (label offers the event's buttons; an item shift-clicked goes in as its id).
+- Editors: a popover by its palette row (tags, scores, asks, lists; a working copy, Save = one undo step; the name is
+  unique per kind); places edit in the map sheet; a list of questions in the questions sheet (Done keeps it). Deleting
+  what pieces use asks first ("N pieces use it"); a place deleted leaves the lists of places, a tag an ask picked from
+  goes back to the entrants. Someone else's event: the editors open to read, every change says why not.
+- Start from: a new event's empty stage shows `B:Examples()` as cards; `Builder:UseExample(key)` loads one (undo goes
+  back), `Builder:OpenExample(key)` opens one as a new event (closed untouched, nothing is kept: for the Library's
+  Examples menu).
+- Practice: "Make something happen" lists the facts the event listens for first (the rest under "Something else");
+  leaves / enters a place a dummy is already out of / in says so instead of doing nothing.
+
 ## UI to mock up (sections 17+, replacing the first drafts where the pieces changed)
 
 - 17 the builder: the new categories, Players with its tags listed and "+ Add tag", the hide and seek example.

@@ -66,7 +66,8 @@ def closing_the_window_mid_drag_leaves_no_stray_piece():
     c.eval("MOUSE_DOWN = false")
     c.eval("local S = ns.EventBuilder:GetState(); ns.EventBuilder:Open(ns.Events:GetDef(S.def.id), { stage = 's1' })")
     assert c.eval_py(COUNT) == [0, 0], c.eval_py(COUNT)
-    assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.empty:IsShown()")
+    # (an empty new event offers its examples: "Start from an example", part 2)
+    assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.empty:IsShown() or (ui.start and ui.start:IsShown())")
     w.assert_no_errors()
 
 

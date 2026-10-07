@@ -42,6 +42,9 @@ local function Now() return (GetServerTime and GetServerTime()) or time() end
 local S = {}        -- the builder's state (Builder:GetState)
 local win            -- the window
 local ui = {}        -- its parts
+-- (filled in below: the definitions' palette rows and editors, the map sheet, the questions sheet, the place card)
+local Defs, MapSheet, QSheet = {}, {}, {}
+Builder.Defs, Builder.MapSheet, Builder.QSheet = Defs, MapSheet, QSheet   -- (the tests and the audit drive them)
 
 local function Sized(fs, size)
     local path, _, flags = fs:GetFont()
@@ -125,13 +128,30 @@ local function CanEdit()
     return true
 end
 
+-- The event's definitions (tags, scores ...) can be changed: my event, not in practice (inside a built-in smart block
+-- too: they're the event's, not the block's).
+local function CanEditDefs() return not S.readOnly and not S.practice and S.def ~= nil end
+
+-- Someone else's event: why nothing changes (said on the click, the control stays as it was).
+function Builder:SayReadOnly()
+    if S.practice then
+        ns:Print("%s", "end the practice first: it runs the event as it was.")
+    elseif S.inside and not S.readOnly then
+        ns:Print("%s", "these pieces are built in: Make my own copy to change them.")
+    else
+        ns:Print("this is %s's event: make a copy to change it.", EUI():Plain(Def() and Def().by))
+    end
+end
+
 local function NewId(prefix)
     S.idn = (S.idn or 0) + 1
     return (prefix or "s") .. string.format("%x", Now() % 1048576) .. S.idn
 end
 
+-- (the definitions too: a tag's colour or a place's size changes how the event runs)
 local function ContentHash(d)
-    return Util().Hash({ d.stages, d.scripts, d.blocks, d.badges, d.vars })
+    return Util().Hash({ d.stages, d.scripts, d.blocks, d.badges, d.vars, d.tags or false, d.scores or false,
+        d.places or false, d.lists or false, d.asks or false })
 end
 
 -- The notes on the canvas count as a change too (not for practice: ContentHash is what a practice run matches).
@@ -181,9 +201,20 @@ local function Swap(from, to)
     S.def = tremove(from)
     KeepPlace()
     Builder:ClosePicker()
+    Builder:CloseFloating()
     if ui.ask then ui.ask:Hide() end
     MarkDirty()
     Refresh()
+end
+
+-- The editors over the builder (a definition's popover, the map and questions sheets, a place's card, a confirm):
+-- they hold parts of the event, so they go when it's swapped, closed or practised.
+function Builder:CloseFloating()
+    if Defs.Close then Defs:Close() end
+    if QSheet.Close then QSheet:Close() end
+    if MapSheet.Close then MapSheet:Close() end
+    if Defs.HideCard then Defs:HideCard() end
+    if ui.confirm then ui.confirm:Hide() end
 end
 
 function Builder:Undo() Swap(S.undo, S.redo) end
@@ -327,6 +358,13 @@ local function CreateWindow()
         elseif key == "ESCAPE" and ui.picker and ui.picker:IsShown() then
             self:SetPropagateKeyboardInput(false)
             Builder:ClosePicker()
+        elseif key == "ESCAPE" and ((ui.confirm and ui.confirm:IsShown()) or (ui.msheet and ui.msheet:IsShown())
+            or (ui.qsheet and ui.qsheet:IsShown()) or (ui.dpop and ui.dpop:IsShown())) then
+            self:SetPropagateKeyboardInput(false)
+            if ui.confirm and ui.confirm:IsShown() then ui.confirm:Hide()
+            elseif ui.msheet and ui.msheet:IsShown() then MapSheet:Close()
+            elseif ui.qsheet and ui.qsheet:IsShown() then QSheet:Close()
+            else Defs:Close() end
         else
             self:SetPropagateKeyboardInput(true)
         end
@@ -336,6 +374,7 @@ local function CreateWindow()
         -- a drag still going: the piece goes back first (so the save below has it), its drawing goes
         Builder:CancelDrag()
         Builder:ClosePicker()
+        Builder:CloseFloating()
         -- (a name being typed belongs to this event: it must not come back over the next one)
         if ui.ask then ui.ask:Hide() end
         if S.practice then Builder:StopPractice() end
@@ -886,8 +925,6 @@ end
 -- The palette
 ---------------------------------------------------------------------------
 
-local CAT_LABEL = { ev = "Events", sg = "Stages", lo = "Logic", pl = "Players", pt = "Points", ch = "Chat", tm = "Timers",
-    wo = "World", sm = "Smart" }
 
 CreatePalette = function(body)
     local pal = CreateFrame("Frame", nil, body)
@@ -979,54 +1016,83 @@ CreatePalette = function(body)
     pal.trashFs:Hide()
 end
 
--- The pieces of the palette's view: { header, keys / pieces ... }.
+-- What the values "when" pieces give are (the palette's and the picker's words beside them).
 local CTX_DESC = {
     winner = "who won", loser = "who lost", player1 = "the match's first player", player2 = "its second player",
     both = "the two players", opponent = "the other one of the match", score = "like 2-1", game = "game number",
     match = "match number", round = "round number", finalist1 = "a finalist", finalist2 = "the other finalist",
     champion = "who won it all", runnerup = "who lost the final", third = "won the bronze", player = "who it's about",
-    each = "one player at a time", answer = "what the players said",
+    each = "one player at a time", answer = "what they answered", other = "the other one in it",
+    creature = "what was killed", item = "the item, or the list's item", count = "how many", emote = "the emote",
+    toucher = "who touched", touched = "who was touched", who = "who targeted", whom = "who was targeted",
+    place = "the place",
 }
 
+-- The pieces of the palette's view: { { title, list = { entry ... } } }. An entry: { key } (a piece of the catalogue),
+-- { piece, desc } (a value), { def = kind, e } (one of the event's definitions), { add = kind } (its "+ Add"),
+-- { button, fn, icon } (an action).
 local function PaletteGroups()
     local d = Def()
     local groups = {}
     local function group(title, list) if #list > 0 then groups[#groups + 1] = { title = title, list = list } end end
     local q = string.lower(S.search or "")
     if q ~= "" then
-        local found = {}
+        -- the event's definitions by name, then pieces by their words, then the values "when" pieces give
+        local defs, found = {}, {}
+        for _, kind in ipairs(B().DEF_ORDER) do
+            for _, e in ipairs(B():Defs(d, kind)) do
+                if string.lower(tostring(e.n or "")):find(q, 1, true) then defs[#defs + 1] = { def = kind, e = e } end
+            end
+        end
         for _, cat in ipairs(B().CATS) do
             for _, k in ipairs(B().PALETTE[cat.key] or {}) do
                 local t = string.lower((B().PIECES[k].text or ""):gsub("{%d}", ""))
                 if t:find(q, 1, true) then found[#found + 1] = { key = k } end
             end
         end
-        for name, c in pairs(B().CTX) do
-            if c.label:find(q, 1, true) then found[#found + 1] = { piece = { k = "ctx", a = { name } } } end
+        for _, name in ipairs(B().CTX_ORDER) do
+            local c = B().CTX[name]
+            if c and c.label:find(q, 1, true) then found[#found + 1] = { piece = { k = "ctx", a = { name } } } end
         end
-        group("Found", found)
+        group("In this event", defs)
+        group(#defs > 0 and "Pieces" or "Found", found)
         return groups
     end
     local cat = S.cat or "ev"
     if S.inside and cat == "sm" then
         local inner = {}
         for _, k in ipairs(B().INNER_PALETTE.bracket) do inner[#inner + 1] = { key = k } end
-        group("Bracket's own pieces", inner)
+        group("Its own pieces", inner)
+    end
+    -- the category's definitions first (Players: tags, Scores: scores ...), then its pieces
+    local kind = B().CAT_DEFS[cat]
+    if kind then
+        local rows = {}
+        for _, e in ipairs(Defs:Ordered(d, kind)) do rows[#rows + 1] = { def = kind, e = e } end
+        rows[#rows + 1] = { add = kind }
+        group(Defs.HEAD[kind], rows)
     end
     local main = {}
     for _, k in ipairs(B().PALETTE[cat] or {}) do main[#main + 1] = { key = k } end
+    if cat == "lo" then
+        local vars = {}
+        for _, v in ipairs(d.vars or {}) do vars[#vars + 1] = { piece = { k = "var", a = { v.n } } } end
+        vars[#vars + 1] = { button = "Make a variable", fn = function() Builder:NewVariable() end, plus = true }
+        group("Variables", vars)
+        group("Pieces", main)
+        return groups
+    end
     if cat == "ev" then
-        local base, smart = {}, {}
-        for _, it in ipairs(main) do base[#base + 1] = it end
+        local smart = {}
         for _, k in ipairs({ "bk.start", "bk.end", "bk.game", "bk.final", "bk.done", "su.join", "su.close" }) do
             smart[#smart + 1] = { key = k }
         end
-        group("Events", base)
+        group("Events", main)
         group("From smart blocks", smart)
         return groups
     end
     if cat == "pl" then
-        group("Players", main)
+        group("Pieces", main)
         local ctx = {}
         for _, name in ipairs(B().CTX_ORDER) do
             if name ~= "answer" then ctx[#ctx + 1] = { piece = { k = "ctx", a = { name } }, desc = CTX_DESC[name] } end
@@ -1034,25 +1100,26 @@ local function PaletteGroups()
         group("From \"when\" pieces", ctx)
         return groups
     end
-    if cat == "pt" then
-        group("Points", main)
-        local vars = {}
-        for _, v in ipairs(d.vars or {}) do vars[#vars + 1] = { piece = { k = "var", a = { v.n } } } end
-        vars[#vars + 1] = { button = "Make a variable", fn = function() Builder:NewVariable() end }
-        group("Variables", vars)
+    if cat == "ch" then
+        local own, guild = {}, {}
+        for _, it in ipairs(main) do
+            if it.key == "ch.guild" then guild[#guild + 1] = it else own[#own + 1] = it end
+        end
+        group("Messages", own)
+        group("For the guild", guild)
         return groups
     end
     if cat == "sm" then
         local blocks = {}
-        for _, kind in ipairs(B().SMART_ORDER) do
-            blocks[#blocks + 1] = { button = "Add a " .. B().SMART[kind].label, icon = B().SMART[kind].icon,
-                fn = function() Builder:AddBlock(kind) end }
+        for _, k in ipairs(B().SMART_ORDER) do
+            blocks[#blocks + 1] = { button = "Add " .. B().SMART[k].label, icon = B().SMART[k].icon,
+                fn = function() Builder:AddBlock(k) end }
         end
         group("Smart blocks", blocks)
         group("Their pieces", main)
         return groups
     end
-    group(CAT_LABEL[cat] or "", main)
+    group(kind and "Pieces" or ((B().CAT[cat] and B().CAT[cat].label) or ""), main)
     return groups
 end
 
@@ -1066,6 +1133,43 @@ local function FillBlocks(p)
         end
     end
     return p
+end
+
+local PAL_LIST_W = PAL_W - CAT_W - 22      -- the palette's column (a piece wider than this takes two lines there)
+
+-- A palette row's parts for a definition (made once per pooled row): swatch, name, its line, the pencil.
+local function DefRowParts(it)
+    if it.nm then return end
+    it.sel = it:CreateTexture(nil, "BACKGROUND", nil, 1)
+    it.sel:SetAllPoints()
+    it.sel:SetColorTexture(1, 0.82, 0, 0.10)
+    it.bar = it:CreateTexture(nil, "ARTWORK")
+    it.bar:SetColorTexture(1, 0.82, 0)
+    it.bar:SetPoint("TOPLEFT")
+    it.bar:SetPoint("BOTTOMLEFT")
+    it.bar:SetWidth(2)
+    it.hov = it:CreateTexture(nil, "HIGHLIGHT")
+    it.hov:SetAllPoints()
+    it.hov:SetColorTexture(1, 1, 1, 0.04)
+    it.sw = it:CreateTexture(nil, "ARTWORK", nil, 1)
+    it.sw2 = it:CreateTexture(nil, "ARTWORK", nil, 2)
+    it.sw3 = it:CreateTexture(nil, "ARTWORK", nil, 3)
+    it.nm = Text(it, "GameFontHighlight", 11.5)
+    it.sb = Text(it, "GameFontHighlightSmall", 10)
+    it.sb:SetTextColor(0.62, 0.62, 0.62)
+    it.pen = it:CreateTexture(nil, "ARTWORK")
+    it.pen:SetSize(11, 11)
+    it.pen:SetPoint("RIGHT", it, "RIGHT", -6, 0)
+    EUI():Glyph(it.pen, 16, 1, 1, 1, 0.55)
+    it.plus = it:CreateTexture(nil, "ARTWORK")
+    it.plus:SetSize(10, 10)
+    it.caret = it:CreateTexture(nil, "ARTWORK")
+    it.caret:SetSize(10, 10)
+end
+
+local function HideDefParts(it)
+    if not it.nm then return end
+    for _, k in ipairs({ "sel", "bar", "hov", "sw", "sw2", "sw3", "nm", "sb", "pen", "plus", "caret" }) do it[k]:Hide() end
 end
 
 function Builder:RenderPalette()
@@ -1086,24 +1190,27 @@ function Builder:RenderPalette()
     for _, h in ipairs(pal.heads) do h:Hide() end
     local y, n, nh = 2, 0, 0
     local d = Def()
-    for _, g in ipairs(PaletteGroups()) do
+    pal.rowOf, pal.rowY = {}, {}
+    for gi, g in ipairs(PaletteGroups()) do
         nh = nh + 1
         local h = pal.heads[nh]
         if not h then
             h = Text(child, "GameFontNormal", 11)
             pal.heads[nh] = h
         end
+        if gi > 1 then y = y + 6 end
         h:SetText(g.title)
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
         h:Show()
         y = y + 20
+        local lastWasHat
         for _, entry in ipairs(g.list) do
             n = n + 1
             local it = pal.items[n]
             if not it then
                 it = CreateFrame("Button", nil, child)
-                it:RegisterForClicks("LeftButtonUp")
+                it:RegisterForClicks("LeftButtonUp", "RightButtonUp")
                 it.fs = Text(it, "GameFontHighlight", 11)
                 it.desc = Text(it, "GameFontHighlightSmall", 10)
                 it.desc:SetTextColor(0.55, 0.55, 0.58)
@@ -1121,53 +1228,90 @@ function Builder:RenderPalette()
             it.fs:Hide()
             it.desc:Hide()
             it.ic:Hide()
+            HideDefParts(it)
             UI():SetEdgeColor(it, 0, 0, 0, 0)
             it.bg:SetColorTexture(0, 0, 0, 0)
+            it:SetScript("OnEnter", nil)
+            it:SetScript("OnLeave", nil)
+            it:SetScript("OnMouseDown", nil)
+            it:SetScript("OnClick", nil)
             local h = 26
-            if entry.button then
+            local gap = 6
+            if entry.def then
+                h = Defs:PaletteRow(it, entry.def, entry.e)
+                pal.rowOf[entry.def .. ":" .. tostring(entry.e.id)] = it
+                pal.rowY[entry.def .. ":" .. tostring(entry.e.id)] = { y = y, h = h }
+                gap = 2
+            elseif entry.add then
+                y = y + 2
+                h = Defs:AddRow(it, entry.add)
+                pal.rowOf["add:" .. entry.add] = it
+                pal.rowY["add:" .. entry.add] = { y = y, h = h }
+            elseif entry.button then
                 it.fs:SetText(entry.button)
                 it.fs:ClearAllPoints()
-                it.fs:SetPoint("LEFT", it, "LEFT", entry.icon and 30 or 10, 0)
-                it.fs:Show()
+                local x = 10
                 if entry.icon then
                     it.ic:SetTexture(entry.icon)
                     it.ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                     it.ic:Show()
+                    x = 30
+                elseif entry.plus then
+                    DefRowParts(it)
+                    HideDefParts(it)
+                    it.plus:ClearAllPoints()
+                    it.plus:SetPoint("LEFT", it, "LEFT", 9, 0)
+                    EUI():Glyph(it.plus, UI().ICON.plus or 39, 0.86, 0.86, 0.86)
+                    it.plus:Show()
+                    x = 25
                 end
+                it.fs:SetPoint("LEFT", it, "LEFT", x, 0)
+                it.fs:Show()
                 UI():SetEdgeColor(it, 0.34, 0.34, 0.38, 0.9)
                 it.bg:SetColorTexture(0.1, 0.1, 0.12, 0.92)
-                it:SetSize(PAL_W - CAT_W - 26, 26)
-                it:SetScript("OnClick", function(self) if CanEdit() and self.entry.fn then self.entry.fn() end end)
-                it:SetScript("OnMouseDown", nil)
+                it:SetSize(min(PAL_LIST_W, x + TextW(it.fs) + 12), 24)
+                h = 24
+                it:SetScript("OnClick", function(self, button)
+                    if button ~= "LeftButton" then return end
+                    if not CanEdit() then Builder:SayReadOnly() return end
+                    if self.entry.fn then self.entry.fn() end
+                end)
             else
                 local piece = entry.piece or FillBlocks(B():New(entry.key))
-                local draw = EP():Draw(it, piece, { def = d, static = true })
-                -- a piece wider than the palette is shown smaller (it drops onto the canvas at full size)
-                local avail = PAL_W - CAT_W - 22
-                local k = (draw.w or 0) > avail and avail / draw.w or 1
+                -- a piece wider than the column takes two lines (or more) here; it drops onto the canvas on one
+                local draw = EP():Draw(it, piece, { def = d, static = true, wrap = entry.desc and nil or PAL_LIST_W })
+                local k = (draw.w or 0) > PAL_LIST_W and PAL_LIST_W / draw.w or 1
                 draw:SetScale(k)
                 draw:SetPoint("TOPLEFT", it, "TOPLEFT", 0, 0)
                 it.draw = draw
-                h = floor((draw.h or 28) * k + 0.5) + (Shape(piece) == "hat" and 4 or 2)
-                local w = min(avail, max(30, (draw.w or 100) * k))
+                local hat = Shape(piece) == "hat"
+                -- (a hat's dome stands above the row before it: a little more room there)
+                if hat and not lastWasHat and n > 1 then y = y + 4 end
+                h = floor((draw.h or 28) * k + 0.5) + (hat and 4 or 2)
+                local w = min(PAL_LIST_W, max(30, (draw.w or 100) * k))
                 if entry.desc then
                     it.desc:SetText(entry.desc)
                     it.desc:ClearAllPoints()
-                    it.desc:SetPoint("LEFT", it, "LEFT", w + 6, (Shape(piece) == "hat") and -5 or 0)
+                    it.desc:SetPoint("LEFT", it, "LEFT", w + 6, (hat and -5) or 0)
                     it.desc:SetWidth(max(10, PAL_W - CAT_W - 26 - w - 6))
                     it.desc:Show()
                 end
-                it:SetSize(PAL_W - CAT_W - 22, h)
+                it:SetSize(PAL_LIST_W, h)
                 it.piece = piece
-                it:SetScript("OnClick", nil)
                 it:SetScript("OnMouseDown", function(self, button)
                     if button == "LeftButton" and CanEdit() then Builder:PressNew(self.piece, self) end
                 end)
+                it:SetScript("OnClick", function(self, button)
+                    if button == "LeftButton" and not CanEdit() then Builder:SayReadOnly() end
+                end)
+                it:SetScript("OnEnter", function(self) Builder:PieceTip(self.piece.k, self, true) end)
+                it:SetScript("OnLeave", function(self) Builder:PieceTip(nil, self, false) end)
+                lastWasHat = hat
             end
+            if not (entry.key or entry.piece) then lastWasHat = nil end
             it:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
-            y = y + h + 6
+            y = y + h + gap
         end
-        y = y + 4
     end
     -- a search that finds nothing says so (the list would be empty)
     if not pal.none then
@@ -1178,7 +1322,7 @@ function Builder:RenderPalette()
         pal.none:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -4)
     end
     if nh == 0 then
-        pal.none:SetText("No piece has those words. Try one word, like \"say\" or \"winner\".")
+        pal.none:SetText("No piece has those words. Try one word, like \"tell\" or \"winner\".")
         pal.none:Show()
         y = 40
     else
@@ -1186,6 +1330,7 @@ function Builder:RenderPalette()
     end
     child:SetHeight(max(10, y))
 end
+
 
 ---------------------------------------------------------------------------
 -- The canvas
@@ -1267,21 +1412,23 @@ CreateCanvas = function(body)
     rb.btn:SetPoint("RIGHT", rb, "RIGHT", -8, 0)
     rb:Hide()
     ui.ribbon = rb
-    -- the empty stage's words
+    -- the empty stage: a box where its first "when" piece goes (a faint one in it), and its words
     local em = CreateFrame("Frame", nil, cv)
-    em:SetSize(380, 170)
+    em:SetSize(292, 236)
     em:SetPoint("CENTER", cv, "CENTER", 0, 10)
+    em.bg = em:CreateTexture(nil, "BACKGROUND")
+    em.bg:SetAllPoints()
+    em.bg:SetColorTexture(1, 1, 1, 0.02)
+    EUI():Edge(em, 1, 1, 1, 0.14)
     em.t = Text(em, "GameFontHighlight", 14)
     em.t:SetJustifyH("CENTER")
-    em.t:SetPoint("TOP", em, "TOP", 0, -60)
+    em.t:SetPoint("TOP", em, "TOP", 0, -108)
     em.t2 = Text(em, "GameFontHighlightSmall", 11.5)
     em.t2:SetJustifyH("CENTER")
     em.t2:SetWordWrap(true)
-    em.t2:SetWidth(320)
+    em.t2:SetWidth(270)
     em.t2:SetPoint("TOP", em.t, "BOTTOM", 0, -6)
     em.t2:SetTextColor(0.62, 0.62, 0.62)
-    em.start = UI():CreateSleekButton(em, "Start from the Friday duel cup", 220, 24, function() Builder:UseStarter() end)
-    em.start:SetPoint("TOP", em.t2, "BOTTOM", 0, -12)
     em:Hide()
     ui.empty = em
     -- bottom right: the overview of the canvas and the zoom
@@ -1526,14 +1673,14 @@ local function ReleaseCanvas()
     for _, n in ipairs(ui.notes) do n:Hide() end
 end
 
-local OnPiece, OnBlank   -- (below)
+local OnPiece, OnBlank, OnHover   -- (below)
 local PlacePicker        -- (below) the picker under its blank, drawn again
 
 local function ScriptKey(s) return (S.inside and (S.inside .. "/") or "") .. s.id end
 
 local function DrawScriptFrame(s, problems)
-    local opts = { def = Def(), problems = problems, onPiece = OnPiece, onBlank = OnBlank,
-        locked = S.inside and not (Def().blocks[S.inside] and Def().blocks[S.inside].inner), static = false,
+    local opts = { def = Def(), problems = problems, onPiece = OnPiece, onBlank = OnBlank, onHover = OnHover,
+        onEnter = function(p, f, on) Builder:PieceTip(p and p.k, f, on) end, locked = S.inside and not (Def().blocks[S.inside] and Def().blocks[S.inside].inner), static = false,
         nameOf = L().DisplayName }
     if S.practice then
         local run = L():GetPractice()
@@ -1558,6 +1705,8 @@ local CreateCard, CreateNote
 
 function Builder:RenderCanvas()
     if not ui.content then return end
+    -- (a place's card belongs to a blank this drawing replaces)
+    if ui.pcard then ui.pcard:Hide() end
     ReleaseCanvas()
     ApplyView()
     local d = Def()
@@ -1614,15 +1763,24 @@ function Builder:RenderCanvas()
     else
         rb:Hide()
     end
-    -- an empty stage says what to do
+    -- an empty stage says what to do; a new event's offers the examples to start from
     local em = ui.empty
-    if #scripts == 0 and nBlocks == 0 and i == 0 and not S.practice then
+    local empty = #scripts == 0 and nBlocks == 0 and i == 0 and not S.practice
+    local blankEvent = #d.scripts == 0 and next(d.blocks) == nil and not S.inside
+    local startFrom = empty and blankEvent and CanEdit()
+    self:RenderStartFrom(startFrom)
+    if empty and not startFrom then
         local stName = B():StageName(d, S.stage)
         em.t:SetText("Nothing runs in " .. stName .. " yet")
         em.t2:SetText(S.stage == "*" and "Pieces here run in every stage: drag a \"when\" piece here."
             or ("Drag a \"when\" piece here. Pieces in this stage run while the event is in " .. stName .. "."))
-        local blankEvent = #d.scripts == 0 and next(d.blocks) == nil
-        em.start:SetShown(blankEvent and CanEdit())
+        if not em.ghost then
+            -- (a faint "when" piece where the first one goes)
+            em.ghost = EP():Draw(em, B():New("ev.start"), { static = true })
+            em.ghost:SetAlpha(0.42)
+        end
+        em.ghost:ClearAllPoints()
+        em.ghost:SetPoint("TOP", em, "TOP", 0, -46)
         em:Show()
     else
         em:Hide()
@@ -1756,7 +1914,8 @@ end
 ---------------------------------------------------------------------------
 
 -- Each setting's dropdown is as wide as its longest choice (no "...").
-local CARD_DD_W = { fmt = 168, seed = 168, closes = 196, bo = 60, fbo = 60, spots = 60, noshow = 84, atonce = 112 }
+local CARD_DD_W = { fmt = 168, seed = 168, closes = 196, bo = 52, fbo = 52, spots = 60, noshow = 84, atonce = 112,
+    win = 120 }
 
 CreateCard = function(bid)
     local card = CreateFrame("Frame", nil, ui.content)
@@ -1822,7 +1981,52 @@ CreateCard = function(bid)
         self.name:SetText(B():BlockLabel(d, id))
         self.open:SetShown(b.kind == "bracket")
         local y = 46
-        for i, o in ipairs(sm.settings) do
+        -- the rows: each setting (Matches: "Best of" with its final beside it, where its entrants come from, and a line
+        -- under "Won by" when the pieces decide)
+        local list = {}
+        for _, o in ipairs(sm.settings) do
+            if o.key ~= "fbo" then list[#list + 1] = o end
+            if b.kind == "bracket" and o.key == "seed" then list[#list + 1] = { key = "_entrants", label = "Entrants" } end
+        end
+        local function opt(key)
+            for _, x in ipairs(sm.settings) do if x.key == key then return x end end
+        end
+        local function dd(row, field, key, x)
+            local o = opt(key)
+            row[field] = row[field] or UI():CreateSleekMenuButton(row, "", 168, function(root)
+                local list2 = o.choices
+                if o.kind == "num" then
+                    list2 = {}
+                    for _, n in ipairs({ 4, 8, 12, 16, 20, 24, 32, 40 }) do list2[#list2 + 1] = n end
+                end
+                for _, c in ipairs(list2 or {}) do
+                    local v, label = c, nil
+                    if type(c) == "table" then v, label = c[1], c[2] end
+                    label = label or (o.kind == "dur" and B():DurationText(v)) or tostring(v)
+                    root:CreateRadio(label, function() return B():SmartSetting(Def().blocks[self.bid], key) == v end,
+                        function()
+                            if not CanEdit() then Builder:SayReadOnly() return end
+                            local before = Snapshot()
+                            Def().blocks[self.bid].set[key] = v
+                            Changed(before)
+                        end)
+                end
+            end, 21)
+            local v = B():SmartSetting(b, key)
+            local label
+            if o.kind == "choice" then
+                for _, c in ipairs(o.choices) do if c[1] == v then label = c[2] end end
+            elseif o.kind == "dur" then
+                label = B():DurationText(v)
+            end
+            row[field]:SetText(label or tostring(v))
+            row[field]:SetWidth(CARD_DD_W[key] or 92)
+            row[field]:ClearAllPoints()
+            row[field]:SetPoint("LEFT", row, "LEFT", x, 0)
+            row[field]:Show()
+            return row[field]
+        end
+        for i, o in ipairs(list) do
             local row = self.rows[i]
             if not row then
                 row = CreateFrame("Frame", nil, self)
@@ -1830,69 +2034,96 @@ CreateCard = function(bid)
                 row.lab = Text(row, "GameFontHighlightSmall", 11)
                 row.lab:SetTextColor(0.62, 0.62, 0.62)
                 row.lab:SetPoint("LEFT", row, "LEFT", 0, 0)
+                row.mid = Text(row, "GameFontHighlightSmall", 11)
+                row.mid:SetTextColor(0.62, 0.62, 0.62)
+                row.words = Text(row, "GameFontHighlightSmall", 11)
+                row.words:SetTextColor(0.85, 0.85, 0.85)
                 self.rows[i] = row
             end
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", self, "TOPLEFT", 10, -y)
             row:Show()
             row.lab:SetText(o.label)
-            if row.ctl then row.ctl:Hide() end
-            if o.kind == "bool" then
+            for _, k in ipairs({ "dd", "dd2", "sw", "pill" }) do if row[k] then row[k]:Hide() end end
+            row.mid:Hide()
+            row.words:Hide()
+            row.key = o.key
+            if o.key == "_entrants" then
+                -- (where the players come from: the sign-up's list, else the host's group)
+                local su = B():BlocksOf(d, "signup")[1]
+                if su then
+                    row.pill = row.pill or CreateFrame("Frame", nil, row)
+                    local pl = row.pill
+                    if not pl.fs then
+                        pl:SetHeight(19)
+                        UI():AddPillShape(pl, 19)
+                        local c = B().CAT.sm
+                        pl:SetPillColors({ c.f2[1], c.f2[2], c.f2[3], 1 }, { c.e[1], c.e[2], c.e[3], 0.85 })
+                        pl.ic = pl:CreateTexture(nil, "ARTWORK")
+                        pl.ic:SetSize(13, 13)
+                        pl.ic:SetPoint("LEFT", pl, "LEFT", 5, 0)
+                        pl.ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                        pl.fs = Text(pl, "GameFontHighlight", 11)
+                        pl.fs:SetPoint("LEFT", pl, "LEFT", 21, 0)
+                    end
+                    pl.ic:SetTexture(B().SMART.signup.icon)
+                    pl.fs:SetText(B():BlockLabel(d, su) .. " list")
+                    pl:SetWidth(21 + TextW(pl.fs) + 9)
+                    pl:ClearAllPoints()
+                    pl:SetPoint("LEFT", row, "LEFT", 70, 0)
+                    pl:Show()
+                else
+                    row.words:SetText("the host's group")
+                    row.words:ClearAllPoints()
+                    row.words:SetPoint("LEFT", row, "LEFT", 70, 0)
+                    row.words:Show()
+                end
+            elseif o.kind == "bool" then
                 row.sw = row.sw or UI():CreateSwitch(row, function() return B():SmartSetting(Def().blocks[self.bid], row.key) end,
                     function(on)
-                        if not CanEdit() then return end
+                        if not CanEdit() then Builder:SayReadOnly(); row.sw:Refresh() return end
                         local before = Snapshot()
                         Def().blocks[self.bid].set[row.key] = on and true or false
                         Changed(before)
                     end)
                 row.sw:ClearAllPoints()
                 row.sw:SetPoint("LEFT", row, "LEFT", 70, 0)
-                row.key = o.key
                 row.sw:Show()
                 if row.sw.Refresh then row.sw:Refresh() end
-                if row.dd then row.dd:Hide() end
-            else
-                row.key = o.key
-                row.dd = row.dd or UI():CreateSleekMenuButton(row, "", 168, function(root)
-                    local opt
-                    for _, x in ipairs(sm.settings) do if x.key == row.key then opt = x end end
-                    local list = opt.kind == "dur" and opt.choices or opt.choices
-                    if opt.kind == "num" then
-                        list = {}
-                        for _, n in ipairs({ 4, 8, 12, 16, 20, 24, 32, 40 }) do list[#list + 1] = n end
-                    end
-                    for _, c in ipairs(list or {}) do
-                        local v, label = c, nil
-                        if type(c) == "table" then v, label = c[1], c[2] end
-                        label = label or (opt.kind == "dur" and B():DurationText(v)) or tostring(v)
-                        root:CreateRadio(label, function() return B():SmartSetting(Def().blocks[self.bid], row.key) == v end,
-                            function()
-                                if not CanEdit() then return end
-                                local before = Snapshot()
-                                Def().blocks[self.bid].set[row.key] = v
-                                Changed(before)
-                            end)
-                    end
-                end, 21)
-                local v = B():SmartSetting(b, o.key)
-                local label
-                if o.kind == "choice" then
-                    for _, c in ipairs(o.choices) do if c[1] == v then label = c[2] end end
-                elseif o.kind == "dur" then
-                    label = B():DurationText(v)
-                else
-                    label = tostring(v)
+                if o.key == "bronze" then
+                    row.words:SetText("a match for third")
+                    row.words:ClearAllPoints()
+                    row.words:SetPoint("LEFT", row.sw, "RIGHT", 8, 0)
+                    row.words:Show()
                 end
-                row.dd:SetText(label or tostring(v))
-                row.dd:SetWidth(CARD_DD_W[o.key] or 92)
-                row.dd:ClearAllPoints()
-                row.dd:SetPoint("LEFT", row, "LEFT", 70, 0)
-                row.dd:Show()
-                if row.sw then row.sw:Hide() end
+            else
+                local first = dd(row, "dd", o.key, 70)
+                if o.key == "bo" and opt("fbo") then
+                    -- best of [3] final [5]
+                    row.mid:SetText("final")
+                    row.mid:ClearAllPoints()
+                    row.mid:SetPoint("LEFT", first, "RIGHT", 8, 0)
+                    row.mid:Show()
+                    dd(row, "dd2", "fbo", 70 + first:GetWidth() + 8 + TextW(row.mid) + 8)
+                end
             end
             y = y + 27
         end
-        for i = #sm.settings + 1, #self.rows do self.rows[i]:Hide() end
+        for i = #list + 1, #self.rows do self.rows[i]:Hide() end
+        -- won by the pieces: what that means
+        self.note = self.note or Text(self, "GameFontHighlightSmall", 10.5)
+        if b.kind == "bracket" and B():SmartSetting(b, "win") == "pieces" then
+            self.note:SetWordWrap(true)
+            self.note:SetWidth(318 - 80 - 12)
+            self.note:SetTextColor(0.62, 0.62, 0.62)
+            self.note:SetText("Duels don't count. A match ends when a piece says |cffffd100award the match to|r.")
+            self.note:ClearAllPoints()
+            self.note:SetPoint("TOPLEFT", self, "TOPLEFT", 80, -(y - 2))
+            self.note:Show()
+            y = y + max(14, floor((self.note:GetStringHeight() or 28) + 0.5)) + 4
+        else
+            self.note:Hide()
+        end
         -- what it gives: chips that drag their "when" piece onto the canvas
         y = y + 4
         self.foot:ClearAllPoints()
@@ -2024,9 +2255,20 @@ OnPiece = function(piece, frame, button, down)
         if not down then Builder:PieceMenu(frame, piece) end
         return
     end
-    if button ~= "LeftButton" or not down or not CanEdit() then return end
+    if button ~= "LeftButton" then return end
     local x, y = GetCursorPosition()
+    if not down then
+        -- a click (no drag) on a value sitting in a blank: that blank's picker (to change what's there)
+        local tap = S.tap
+        S.tap = nil
+        if tap and tap.piece == piece and not S.drag and abs(x - tap.x0) + abs(y - tap.y0) <= 5 then
+            Builder:TapValue(piece, frame)
+        end
+        return
+    end
+    if not CanEdit() then return end
     S.press = { piece = piece, frame = frame, x0 = x, y0 = y }
+    S.tap = IsValue(piece) and { piece = piece, x0 = x, y0 = y } or nil
 end
 
 -- Every frame on the canvas: a press that moves starts a drag; a drag follows the cursor; panning; moving cards.
@@ -2305,19 +2547,43 @@ end
 -- The picker (a click on a blank): what fits there, the WC3 way
 ---------------------------------------------------------------------------
 
+-- Blanks whose choice comes from a menu (the rest open the picker: values, places, typed words).
 local DROPDOWN = { channel = true, stat = true, stage = true, marker = true, dur = true, var = true, badge = true,
-    block = true, timer = true }
+    block = true, timer = true, tag = true, score = true, list = true, ask = true, what = true, how = true, sound = true,
+    state = true, since = true, emote = true }
+-- Typed in the picker's field (label, item, creature: words only, no values)
+local TYPED = { num = true, text = true, any = true, label = true, item = true, creature = true }
+local WORDS_ONLY = { label = true, item = true, creature = true }
 
--- The values a blank in this script may take: { { piece | literal, label, desc, section } }.
+-- The values a blank in this script may take: what its hat gives, and what the loops and asks inside it add.
 local function ScopeOf(script)
     local scope = B():Scope(script.top, Scripts())
     B():Walk(script.top, function(p)
-        local pd = B().PIECES[p.k]
-        for _, g in ipairs(pd and pd.gives or {}) do scope[g] = true end
+        for _, g in ipairs(B():Gives(p)) do scope[g] = true end
     end)
     return scope
 end
 
+-- Value pieces the picker offers, by the type they give: { section, keys }.
+local OFFER = {
+    { "EVENT", { "pl.host", "pl.all", "pl.rand", "pl.seed", "pl.top", "pc.near" } },
+    { "NUMBERS", { "lo.add", "lo.sub", "lo.rand", "pt.get", "pt.place", "pt.total", "tm.since", "tm.left", "pc.yards",
+        "pl.howmany", "lo.lcount", "lo.lpos", "as.count", "wo.items", "wo.gold" } },
+    { "WORDS", { "pc.sub", "pc.zone", "pc.warm", "lo.litem", "lo.lrand", "lo.lmine", "as.answer", "as.top" } },
+}
+local BOOLS = { "pl.online", "pl.ready", "pl.notready", "pl.is", "pl.in", "pl.has", "pc.in", "wo.is", "lo.set", "lo.gt",
+    "lo.lt", "lo.eq", "lo.match", "lo.and", "lo.or", "lo.not", "bk.still", "pl.below" }
+
+-- A place's one line: where it is and how big ("Halaa · 600 yd").
+local function PlaceLine(pl)
+    if type(pl) ~= "table" then return "" end
+    local where = (pl.sz and pl.sz ~= "" and pl.sz) or (pl.z and pl.z ~= "" and pl.z)
+    if not (tonumber(pl.map) and tonumber(pl.x)) then return where and (where .. " · the subzone") or "not set yet" end
+    return (where and (where .. " · ") or "") .. floor(tonumber(pl.r) or 30) .. " yd"
+end
+Defs.PlaceLine = PlaceLine
+
+-- The picker's rows for a blank of type t: { piece | chip = { kind, id } | action = { text, icon, fn }, desc, section }.
 local function Choices(script, piece, slot, t)
     local out = {}
     local d = Def()
@@ -2326,32 +2592,78 @@ local function Choices(script, piece, slot, t)
         if t == "any" or t == "text" or B():Fits(t, vt) then out[#out + 1] = { piece = p, desc = desc, section = section } end
     end
     local scope = ScopeOf(script)
+    if t == "place" or t == "where" then
+        for _, e in ipairs(Defs:Ordered(d, "places")) do
+            out[#out + 1] = { chip = { "place", e.id }, desc = PlaceLine(e), section = "THIS EVENT" }
+        end
+    end
     for _, name in ipairs(B().CTX_ORDER) do
         if scope[name] then add("THIS SCRIPT", { k = "ctx", a = { name } }, CTX_DESC[name]) end
     end
     if t == "bool" then
-        for _, k in ipairs({ "pl.online", "pl.ready", "pl.notready", "pl.is", "pl.in", "pl.below", "lo.set", "lo.gt", "lo.lt",
-            "lo.eq", "lo.and", "lo.or", "lo.not", "bk.still", "wo.zone" }) do
-            add("YES / NO", FillBlocks(B():New(k)))
-        end
+        for _, k in ipairs(BOOLS) do add("YES / NO", FillBlocks(B():New(k))) end
         return out
     end
-    for _, k in ipairs({ "pl.host", "pl.all", "pl.rand", "pl.seed", "pl.count", "pl.top" }) do
-        add("EVENT", B():New(k), (k == "pl.host" and "who runs it") or (k == "pl.all" and "everyone in it") or nil)
+    if t == "place" or t == "where" then
+        if t == "where" then
+            for _, k in ipairs({ "pl.host", "pl.rand", "pc.near" }) do add("PLAYERS", B():New(k)) end
+        end
+        local cur = piece.a[slot]
+        local here = type(cur) == "string" and B():Definition(d, "places", cur)
+        if here then
+            out[#out + 1] = { action = { "Change " .. here.n .. " on the map", 31, function() Builder:ClosePicker(); MapSheet:Open({ pid = cur }) end },
+                section = "NEW PLACE" }
+        end
+        out[#out + 1] = { action = { "Set from where I stand", 37, function() Builder:NewPlaceFor(piece, slot, "stand") end },
+            section = "NEW PLACE" }
+        out[#out + 1] = { action = { "Pick on the map", 31, function() Builder:NewPlaceFor(piece, slot, "map") end },
+            section = "NEW PLACE" }
+        return out
+    end
+    if t == "players" then
+        for _, e in ipairs(Defs:Ordered(d, "tags")) do add("TAGS", { k = "pl.tagged", a = { e.id } }) end
+    end
+    for _, sec in ipairs(OFFER) do
+        if sec[1] == "EVENT" or t ~= "player" and t ~= "players" then
+            for _, k in ipairs(sec[2]) do
+                add(sec[1], B():New(k), (k == "pl.host" and "who runs it") or (k == "pl.all" and "everyone in it") or nil)
+            end
+        end
     end
     for _, v in ipairs(d.vars or {}) do add("VARIABLES", { k = "var", a = { v.n } }) end
     for _, k in ipairs({ "bk.champ", "bk.second", "bk.third", "bk.fin1", "bk.fin2", "bk.left", "bk.round", "su.list", "su.count" }) do
         local p = FillBlocks(B():New(k))
         if p.a[1] then add("SMART BLOCKS", p) end
     end
-    if t == "num" or t == "any" or t == "text" then
-        for _, k in ipairs({ "lo.add", "lo.sub", "lo.rand", "pt.get", "tm.left" }) do add("NUMBERS", B():New(k)) end
-    end
     return out
 end
 
 local PICK_TITLE = { player = "Pick a player", players = "Pick players", num = "A number", text = "Text", any = "A value",
-    bool = "A yes / no" }
+    bool = "A yes / no", place = "Pick a place", where = "A place or a player", label = "A button", item = "An item",
+    creature = "A creature" }
+local PICK_FIELD = { num = "Type a number, Enter", label = "The button's name, Enter", item = "An item's name or id, Enter",
+    creature = "A creature's name, Enter" }
+local FILLER = { to = true, of = true, from = true, ["in"] = true, as = true, the = true, by = true, with = true, ["for"] = true,
+    ["and"] = true, is = true, into = true, on = true, at = true, an = true, a = true }
+
+-- 'for "leaves"': the word of the piece the blank is for (the one before it, or the piece's first).
+local function PickFor(piece, slot)
+    local pd = B().PIECES[piece.k]
+    if not pd then return "" end
+    local before
+    for _, tok in ipairs(EP().Tokens(pd.text)) do
+        if tok == slot then break end
+        if type(tok) == "string" then before = tok end
+    end
+    local w = before and before:match("(%S+)$")
+    if not w or FILLER[w] or w:find("'") then
+        w = nil
+        for word in (pd.text:gsub("{%d}", " ")):gmatch("%S+") do
+            if word ~= "when" and word ~= "every" and not FILLER[word] then w = word break end
+        end
+    end
+    return w and ("for \"" .. w:gsub("[:%p]+$", "") .. "\"") or ""
+end
 
 function Builder:ClosePicker()
     if ui.picker then ui.picker:Hide() end
@@ -2380,6 +2692,10 @@ local function CreatePicker()
     p.field:SetMaxLetters(MAX_TEXT)
     p.field:SetScript("OnEnterPressed", function(self) Builder:PickTyped(self:GetText()) end)
     p.field:SetScript("OnEscapePressed", function() Builder:ClosePicker() end)
+    p.field:SetScript("OnTextChanged", function(self, user)
+        -- (what's typed narrows the values below; a number hides them)
+        if user and S.pick and not WORDS_ONLY[S.pick.a.t] then Builder:FillPicker(self:GetText()) end
+    end)
     p.search = UI():CreateSearchBox(p, 228, function(text) Builder:FillPicker(text) end, "Search")
     p.search:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -30)
     p.rows = {}
@@ -2391,20 +2707,56 @@ local function CreatePicker()
     p.clear = UI():CreateSleekButton(p, "Empty it", 70, 20, function() Builder:PickClear() end)
     p:Hide()
     ui.picker = p
+    -- an item shift-clicked (a bag, a link in chat) while an item's blank is being typed goes in it
+    local function onLink(link)
+        local pk = S.pick
+        if type(link) == "string" and link:find("item:%d+") and pk and pk.a.t == "item" and p:IsShown()
+            and p.field:IsShown() and p.field:HasFocus() then
+            p.field:SetText(link)
+        end
+    end
+    if hooksecurefunc then
+        if ChatEdit_InsertLink then hooksecurefunc("ChatEdit_InsertLink", onLink) end
+        if ChatFrameUtil and ChatFrameUtil.InsertLink then hooksecurefunc(ChatFrameUtil, "InsertLink", onLink) end
+    end
     return p
 end
 
-OnBlank = function(piece, slot, blankFrame, button)
-    if not CanEdit() then return end
+-- The blank's type and catalogue entry (a filter blank: its choice's type).
+local function BlankArg(piece, slot)
     local pd = B().PIECES[piece.k]
     local a = pd and pd.args[slot] or { t = "any" }
+    local t = B():ArgType(piece, slot) or a.t
+    if t ~= a.t then
+        local c = {}
+        for k, v in pairs(a) do c[k] = v end
+        c.t, c.filter = t, true
+        a = c
+    end
+    return a
+end
+
+OnBlank = function(piece, slot, blankFrame, button)
+    if not CanEdit() then
+        if button == "LeftButton" then Builder:SayReadOnly() end
+        return
+    end
     local loc = Locate(piece)
     if not loc then return end
-    Builder:OpenPicker(loc.script, piece, slot, a, blankFrame)
+    Builder:OpenPicker(loc.script, piece, slot, BlankArg(piece, slot), blankFrame)
+end
+
+-- A value in a blank was clicked (not dragged): the picker of the blank it sits in, to change it.
+function Builder:TapValue(piece, frame)
+    if not CanEdit() then return end
+    local loc = Locate(piece)
+    if not loc or not loc.parent then return end
+    local slot = type(loc.field) == "number" and loc.field or (loc.field == "j" and loc.slot)
+    if not slot then return end
+    self:OpenPicker(loc.script, loc.parent, slot, BlankArg(loc.parent, slot), frame)
 end
 
 function Builder:OpenPicker(script, piece, slot, a, blankFrame)
-    local d = Def()
     local t = a.t
     if DROPDOWN[t] then
         UI():ContextMenu(blankFrame, function(root) self:DropdownChoices(root, piece, slot, a) end)
@@ -2413,9 +2765,9 @@ function Builder:OpenPicker(script, piece, slot, a, blankFrame)
     local p = ui.picker or CreatePicker()
     S.pick = { script = script, piece = piece, slot = slot, a = a }
     p.title:SetText(PICK_TITLE[t] or "A value")
-    p.sub:SetText("")
+    p.sub:SetText(PickFor(piece, slot))
     local cur = piece.a[slot]
-    local typed = t == "num" or t == "text" or t == "any"
+    local typed = TYPED[t]
     p.field:SetShown(typed)
     p.search:SetShown(not typed)
     if typed then
@@ -2425,9 +2777,9 @@ function Builder:OpenPicker(script, piece, slot, a, blankFrame)
             for _, x in ipairs(cur.j) do if type(x) == "string" then parts[#parts + 1] = x end end
             plain = table.concat(parts)
         end
+        p.field:SetMaxLetters(t == "label" and (B().LIMITS.label or 24) or MAX_TEXT)
         p.field:SetText(plain)
-        UI():SetEditPlaceholder(p.field, t == "num" and "Type a number, Enter" or "Type, then Enter")
-        p.field:SetFocus()
+        UI():SetEditPlaceholder(p.field, PICK_FIELD[t] or "Type, then Enter")
     else
         p.search:SetText("")
     end
@@ -2436,6 +2788,8 @@ function Builder:OpenPicker(script, piece, slot, a, blankFrame)
     p:SetPoint("TOPLEFT", blankFrame, "BOTTOMLEFT", -6, -6)
     p:Show()
     p:Raise()
+    -- (a hidden field takes no focus: once the picker shows)
+    if typed then p.field:SetFocus() end
     -- (drawn again with the blank lit: the picker goes under the blank's new frame)
     self:RenderCanvas()
 end
@@ -2448,7 +2802,11 @@ local function PickBlank()
     for _, bl in ipairs(f and f.blanks or {}) do
         if bl.piece == pk.piece and bl.slot == pk.slot then return bl.frame end
     end
-    return nil
+    -- (a value in the blank: its frame)
+    local v = pk and pk.piece.a[pk.slot]
+    if f and type(v) == "table" and v.k and f.at[v] then return f.at[v] end
+    -- (a blank not drawn, a choice's empty second one: the piece it belongs to)
+    return f and pk and f.at[pk.piece] or nil
 end
 
 -- The picker under its blank (over it when there is no room below), inside the screen at the sides. (Screen
@@ -2464,7 +2822,13 @@ PlacePicker = function()
         local us = UIParent:GetEffectiveScale()
         local sw, sh = (UIParent:GetWidth() or 0) * us, (UIParent:GetHeight() or 0) * us
         local ph, pw = (6 + p:GetHeight()) * ps, p:GetWidth() * ps
-        up = b * bs - ph < 0 and t * bs + ph <= sh
+        -- (inside the window when it can be: over the blank when there's no room under it, and room over it)
+        local ws = win and win:GetEffectiveScale() or us
+        local wb, wt = win and win:GetBottom(), win and win:GetTop()
+        local floorY = max(0, wb and wb * ws or 0)
+        local ceilY = min(sh, wt and wt * ws or sh)
+        local below, above = b * bs - floorY, ceilY - t * bs
+        up = below < ph and (above >= ph or above > below)
         local over = l * bs + dx * ps + pw - sw
         if over > 0 then dx = dx - over / ps end
         if l * bs + dx * ps < 0 then dx = -l * bs / ps end
@@ -2477,6 +2841,8 @@ PlacePicker = function()
     end
 end
 
+local PICK_ROWS = 9
+
 function Builder:FillPicker(query)
     local p = ui.picker
     local pk = S.pick
@@ -2488,15 +2854,35 @@ function Builder:FillPicker(query)
     end
     for _, h in ipairs(p.heads) do h:Hide() end
     local t = pk.a.t
-    local list = Choices(pk.script, pk.piece, pk.slot, t)
+    local d = Def()
+    local list
+    if t == "label" then
+        list = {}
+        for _, lab in ipairs(B():Labels(d)) do
+            list[#list + 1] = { action = { lab, nil, function() Builder:PickTyped(lab) end }, section = "THIS EVENT'S BUTTONS" }
+        end
+    elseif WORDS_ONLY[t] then
+        list = {}
+    else
+        list = Choices(pk.script, pk.piece, pk.slot, t)
+    end
     query = string.lower(query or "")
-    local y = (t == "num" or t == "text" or t == "any" or true) and 60 or 30
+    local y = 60
     local section, n, nh = nil, 0, 0
+    local cur = pk.piece.a[pk.slot]
     for _, c in ipairs(list) do
-        local label = c.piece.k == "ctx" and B().CTX[c.piece.a[1]].label or (c.piece.k == "var" and c.piece.a[1])
-            or (B().PIECES[c.piece.k].text:gsub("{%d}", ""))
-        if query == "" or string.lower(label):find(query, 1, true) then
-            if n >= 9 then break end
+        local label
+        if c.piece then
+            label = c.piece.k == "ctx" and B().CTX[c.piece.a[1]].label or (c.piece.k == "var" and c.piece.a[1])
+                or (c.piece.k == "pl.tagged" and B():DefinitionName(d, "tags", c.piece.a[1]))
+                or (B().PIECES[c.piece.k].text:gsub("{%d}", ""))
+        elseif c.chip then
+            label = B():DefinitionName(d, "places", c.chip[2])
+        else
+            label = c.action[1]
+        end
+        -- (the values up to PICK_ROWS: a search finds the rest; the new-place actions always)
+        if (query == "" or string.lower(label):find(query, 1, true)) and (n < PICK_ROWS or c.action) then
             if c.section ~= section then
                 section = c.section
                 nh = nh + 1
@@ -2518,10 +2904,17 @@ function Builder:FillPicker(query)
                 r.hl:SetAllPoints()
                 r.hl:SetColorTexture(1, 0.82, 0, 0.12)
                 r.hl:Hide()
+                r.on = r:CreateTexture(nil, "BACKGROUND", nil, 1)
+                r.on:SetAllPoints()
+                r.on:SetColorTexture(1, 0.82, 0, 0.10)
                 r.desc = Text(r, "GameFontHighlightSmall", 10.5)
                 r.desc:SetTextColor(0.62, 0.62, 0.62)
                 r.desc:SetJustifyH("RIGHT")
                 r.desc:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+                r.icon = r:CreateTexture(nil, "ARTWORK")
+                r.icon:SetSize(13, 13)
+                r.icon:SetPoint("LEFT", r, "LEFT", 8, 0)
+                r.label = Text(r, "GameFontHighlight", 11.5)
                 r:SetScript("OnEnter", function(self) self.hl:Show() end)
                 r:SetScript("OnLeave", function(self) self.hl:Hide() end)
                 p.rows[n] = r
@@ -2529,25 +2922,62 @@ function Builder:FillPicker(query)
             r:ClearAllPoints()
             r:SetPoint("TOPLEFT", p, "TOPLEFT", 6, -y)
             r:Show()
-            r.draw = EP():Draw(r, c.piece, { def = Def(), static = true })
-            r.draw:SetPoint("LEFT", r, "LEFT", 6, 0)
-            r.draw:SetScale(0.92)
+            r.icon:Hide()
+            r.label:Hide()
+            r.on:Hide()
+            r.choice, r.chip, r.fn = nil, nil, nil
             r.desc:SetText(c.desc or "")
-            r.choice = c.piece
-            r:SetScript("OnClick", function(self) Builder:PickPiece(self.choice) end)
+            if c.piece then
+                r.draw = EP():Draw(r, c.piece, { def = d, static = true })
+                r.draw:SetPoint("LEFT", r, "LEFT", 6, 0)
+                r.draw:SetScale(0.92)
+                r.choice = c.piece
+                r:SetScript("OnClick", function(self) Builder:PickPiece(self.choice) end)
+            elseif c.chip then
+                r.draw = EP():DrawChip(r, c.chip[1], c.chip[2], { def = d, static = true })
+                r.draw:SetPoint("LEFT", r, "LEFT", 6, 0)
+                r.on:SetShown(cur == c.chip[2])
+                r.chip = c.chip[2]
+                r:SetScript("OnClick", function(self) Builder:PickValue(self.chip) end)
+            else
+                local icon = c.action[2]
+                local x = 8
+                if icon then
+                    EUI():Glyph(r.icon, icon, 0.86, 0.86, 0.86)
+                    r.icon:Show()
+                    x = 28
+                end
+                r.label:ClearAllPoints()
+                r.label:SetPoint("LEFT", r, "LEFT", x, 0)
+                r.label:SetText(c.action[1])
+                r.label:SetTextColor(0.91, 0.91, 0.91)
+                r.label:Show()
+                r.on:SetShown(cur ~= nil and cur == c.action[1])
+                r.fn = c.action[3]
+                r:SetScript("OnClick", function(self) if self.fn then self.fn() end end)
+            end
             y = y + 26
         end
     end
     y = y + 6
     p.foot:ClearAllPoints()
     p.foot:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -y)
-    local hint = (t == "player" or t == "players") and "Or drag any round player piece into the blank."
-        or (t == "bool" and "Or drag a hexagon piece into the blank.") or "Or drag a round piece into the blank."
+    local hint
+    if t == "player" or t == "players" then hint = "Or drag any round player piece into the blank."
+    elseif t == "bool" then hint = "Or drag a hexagon piece into the blank."
+    elseif t == "place" then hint = pk.a.opt and "Empty: any place." or "Or drag a place value into the blank."
+    elseif t == "where" then hint = "A place, or a player to measure to."
+    elseif t == "label" then hint = "The button shows in the tracker with these words."
+    elseif t == "item" then hint = pk.a.filter and "Empty: any item. Shift-click an item to put it here." or
+        "Shift-click an item to put it here."
+    elseif t == "creature" then hint = "Empty: any creature. The name as the game shows it."
+    else hint = "Or drag a round piece into the blank." end
     p.foot:SetText(hint)
-    y = y + 18
+    y = y + max(18, floor((TextW(p.foot) / 228) + 1) * 14)
     if pk.piece.a[pk.slot] ~= nil then
         p.clear:ClearAllPoints()
         p.clear:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -(y + 2))
+        p.clear:SetText(pk.a.opt and "Any" or "Empty it")
         p.clear:Show()
         y = y + 26
     else
@@ -2575,12 +3005,24 @@ function Builder:PickPiece(choice)
     Changed(before)
 end
 
+-- A literal picked in the picker (a place's id).
+function Builder:PickValue(v)
+    local pk = S.pick
+    if not pk then return end
+    local before = Snapshot()
+    pk.piece.a[pk.slot] = v
+    ui.picker:Hide()
+    S.pick = nil
+    Changed(before)
+end
+
 function Builder:PickTyped(text)
     local pk = S.pick
     if not pk then return end
     local before = Snapshot()
     text = text or ""
-    if pk.a.t == "num" then
+    local t = pk.a.t
+    if t == "num" then
         local n = tonumber(text)
         if not n or n ~= n then
             ui.picker.sub:SetText("|cffff8a7aa number, like 3|r")
@@ -2592,6 +3034,22 @@ function Builder:PickTyped(text)
             return
         end
         pk.piece.a[pk.slot] = n
+    elseif WORDS_ONLY[t] then
+        -- an item link (shift-click) or its id is kept as the id; a button's name and a creature's as typed
+        local id = t == "item" and (tonumber(text:match("item:(%d+)")) or tonumber(text))
+        local clean = Clean((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1")),
+            t == "label" and (B().LIMITS.label or 24) or 40)
+        if id and id > 0 then
+            pk.piece.a[pk.slot] = floor(id)
+        elseif clean == "" then
+            if t == "label" or not pk.a.opt then
+                ui.picker.sub:SetText("|cffff8a7atype a name first|r")
+                return
+            end
+            pk.piece.a[pk.slot] = nil
+        else
+            pk.piece.a[pk.slot] = clean
+        end
     else
         text = Clean(text, MAX_TEXT)
         local cur = pk.piece.a[pk.slot]
@@ -2621,18 +3079,63 @@ function Builder:PickClear()
     Changed(before)
 end
 
--- A dropdown blank's choices.
+-- A colour dot in menu text (a tag's colour).
+local function DotText(c)
+    c = c or { 1, 1, 1 }
+    local function byte(v) return floor((v or 1) * 255 + 0.5) end
+    return ("|T%s:10:10:0:0:64:64:0:64:0:64:%d:%d:%d|t"):format(EUI().MASK, byte(c[1]), byte(c[2]), byte(c[3]))
+end
+Defs.DotText = DotText
+
+-- What a piece does when its words don't say all of it (its tooltip, on the canvas and in the palette).
+Defs.TIPS = {
+    ["ch.guild"] = { "Post in guild chat", "For the people who aren't in the event. Only the host's addon sends it: once "
+        .. "every 10 seconds at most, 20 times an event. Everything else shows in the addon." },
+    ["ch.show"] = { "Show", "A banner in the middle of their screen, in the event's look." },
+    ["ch.tell"] = { "Tell", "A line in their tracker and its feed." },
+    ["ch.moment"] = { "Add a moment", "A line in the board's feed and in the results." },
+    ["ch.sound"] = { "Play a sound", "On the named players' own clients." },
+    ["pl.touch"] = { "Touches", "A click on them up close (a /target macro doesn't count), a /point at them up close, or "
+        .. "an emote at them up close: pick which at its end. Empty players: anyone." },
+    ["pl.radar"] = { "Targets without clicking", "Their target became one of these without a click on them (a macro, a raid "
+        .. "frame, Tab): to say only clicks count." },
+    ["wo.plates"] = { "Hide friendly nameplates", "Back when the event ends, or when they leave it." },
+    ["pc.warm"] = { "Warmer or colder", "\"warmer\", \"colder\" or \"the same\", since this piece last asked about the two." },
+    ["pc.enter"] = { "Enters a place", "Places work in the open world, not in dungeons. Empty: any of the event's places." },
+    ["pc.leave"] = { "Leaves a place", "Places work in the open world, not in dungeons. Empty: any of the event's places." },
+    ["pc.point"] = { "Point", "The tracker's arrow shows them the way, until they're there or pointed elsewhere." },
+    ["ev.happen"] = { "When an entrant ...", "Pick what happens. Kills, loots and fish can name one creature or item; "
+        .. "empty means any." },
+    ["lo.match"] = { "Matches", "Capitals and spaces don't count. Answers: a question's from its list, or \"a / b / c\"." },
+    ["as.give"] = { "Give a button", "It shows in their tracker until it's taken back." },
+    ["tm.since"] = { "Seconds since", "This stage started, or a timer was started." },
+}
+
+function Builder:PieceTip(key, owner, on)
+    if not on then GameTooltip:Hide() return end
+    local t = key and Defs.TIPS[key]
+    if t and owner then Tip(owner, t[1], t[2]) end
+end
+
+-- A dropdown blank's choices (the event's definitions end with "+ New ...").
 function Builder:DropdownChoices(root, piece, slot, a)
     local d = Def()
-    local function set(v)
+    local function set(v, also)
         local before = Snapshot()
         piece.a[slot] = v
+        if also then also() end
         Changed(before)
     end
-    local function radio(label, v)
-        root:CreateRadio(label, function() return piece.a[slot] == v end, function() set(v) end)
+    local function radio(label, v, also)
+        return root:CreateRadio(label, function() return piece.a[slot] == v end, function() set(v, also) end)
     end
+    local plus = UI():AtlasIconText(UI().ICON.plus or 39, 12)
     local t = a.t
+    local fslot = (t == "what" or t == "how") and (function()
+        local pd = B().PIECES[piece.k]
+        for j, x in ipairs(pd and pd.args or {}) do if x.t == "filter" and x.of == slot then return j end end
+    end)()
+    local function clearFilter() if fslot then piece.a[fslot] = nil end end
     if t == "channel" then
         for _, c in ipairs(B().CHANNELS) do radio(c[2], c[1]) end
     elseif t == "marker" then
@@ -2652,20 +3155,94 @@ function Builder:DropdownChoices(root, piece, slot, a)
             radio(("|T%s:14|t %s"):format(e.b.i or "Interface\\Icons\\INV_Misc_QuestionMark", e.b.n), e.id)
         end
         root:CreateDivider()
-        root:CreateButton(UI():AtlasIconText(UI().ICON.plus or 39, 12) .. " New badge", function() Builder:NewBadge(piece, slot) end)
+        root:CreateButton(plus .. " New badge", function() Builder:NewBadge(piece, slot) end)
     elseif t == "var" then
         for _, v in ipairs(d.vars or {}) do radio(v.n, v.n) end
         root:CreateDivider()
-        root:CreateButton(UI():AtlasIconText(UI().ICON.plus or 39, 12) .. " Make a variable", function()
+        root:CreateButton(plus .. " Make a variable", function()
             Builder:NewVariable(piece, slot)
         end)
-    elseif t == "timer" then
+    elseif t == "timer" or t == "since" then
+        if t == "since" then radio("this stage started", "stage") end
         for _, n in ipairs(B():Timers(d)) do radio(n, n) end
         root:CreateDivider()
-        root:CreateButton(UI():AtlasIconText(UI().ICON.plus or 39, 12) .. " A new name", function()
+        root:CreateButton(plus .. " A new name", function()
             Builder:AskName("Timer name", "", function(name) set(name) end)
         end)
+    elseif t == "tag" or t == "score" or t == "list" or t == "ask" then
+        local kind = B().DEF_OF_TYPE[t]
+        for _, e in ipairs(Defs:Ordered(d, kind)) do
+            local label = e.n
+            if kind == "tags" then label = DotText(B():TagColor(e.c)) .. " " .. e.n end
+            radio(label, e.id)
+        end
+        root:CreateDivider()
+        root:CreateButton(plus .. " New " .. B().DEF_KINDS[kind].label, function()
+            Defs:Open(kind, nil, nil, { onSaved = function(id) set(id) end })
+        end)
+    elseif t == "what" then
+        -- a choice with a second blank ("kills a creature"): any one, or one by name
+        for _, h in ipairs(B().HAPPEN) do
+            if h.filter then
+                local sub = root:CreateButton(h.label)
+                sub:CreateRadio("any " .. (h.any or ""):gsub("^an? ", ""), function()
+                    return piece.a[slot] == h.key and (piece.a[fslot] == nil or piece.a[fslot] == "")
+                end, function() set(h.key, clearFilter) end)
+                if h.filter == "emote" then
+                    for _, e in ipairs(B().EMOTES) do
+                        sub:CreateRadio(e[2], function() return piece.a[slot] == h.key and piece.a[fslot] == e[1] end,
+                            function() set(h.key, function() piece.a[fslot] = e[1] end) end)
+                    end
+                else
+                    sub:CreateButton(h.filter == "item" and "One item by name..." or "One creature by name...", function()
+                        if piece.a[slot] ~= h.key then set(h.key, clearFilter) end
+                        Builder:OpenFilter(piece, fslot)
+                    end)
+                end
+            else
+                radio(h.label, h.key, clearFilter)
+            end
+        end
+    elseif t == "how" then
+        for _, h in ipairs(B().TOUCH) do
+            if h.filter == "emote" then
+                local sub = root:CreateButton(h.label)
+                sub:CreateRadio("any emote", function()
+                    return piece.a[slot] == h.key and (piece.a[fslot] == nil or piece.a[fslot] == "")
+                end, function() set(h.key, clearFilter) end)
+                for _, e in ipairs(B().EMOTES) do
+                    sub:CreateRadio(e[2], function() return piece.a[slot] == h.key and piece.a[fslot] == e[1] end,
+                        function() set(h.key, function() piece.a[fslot] = e[1] end) end)
+                end
+            else
+                radio(h.label, h.key, clearFilter)
+            end
+        end
+    elseif t == "emote" then
+        if a.opt then radio("any emote", nil) end
+        for _, e in ipairs(B().EMOTES) do radio(e[2], e[1]) end
+    elseif t == "sound" then
+        for _, s in ipairs(B().SOUNDS) do
+            root:CreateRadio(s[2], function() return piece.a[slot] == s[1] end, function()
+                set(s[1])
+                -- (a moment of it, here only)
+                local kit = SOUNDKIT and SOUNDKIT[s[3]] or s[4]
+                if PlaySound and kit then pcall(PlaySound, kit, "Master") end
+            end)
+        end
+    elseif t == "state" then
+        for _, s in ipairs(B().STATES) do radio(s[2], s[1]) end
     end
+end
+
+-- The typed second blank of a choice ("kills {Hogger}"): the picker on it, under its piece.
+function Builder:OpenFilter(piece, fslot)
+    if not (piece and fslot) then return end
+    local loc = Locate(piece)
+    if not loc then return end
+    local f = ui.scripts[loc.script]
+    local anchor = f and f.at[piece] or ui.cv
+    self:OpenPicker(loc.script, piece, fslot, BlankArg(piece, fslot), anchor)
 end
 
 ---------------------------------------------------------------------------
@@ -3023,15 +3600,161 @@ function Builder:CopyInner()
     Changed(before)
 end
 
-function Builder:UseStarter()
-    local before = Snapshot()
-    local st = B():Starter()
-    local d = Def()
-    for _, k in ipairs({ "stages", "scripts", "blocks", "vars", "badges", "notes" }) do d[k] = st[k] end
-    if d.name == "New event" then d.name = st.name end
-    d.icon, d.art = st.icon, st.art
+-- Loads an example (B:Examples' key) into the event: its stages, pieces, smart blocks and definitions (the name too
+-- while it is still "New event"). One step undo takes back.
+local function LoadExample(d, ex)
+    for _, k in ipairs({ "stages", "scripts", "blocks", "vars", "badges", "notes", "tags", "scores", "places", "lists", "asks" }) do
+        d[k] = ex[k]
+    end
+    d.stages = d.stages or { { id = "s1", name = "Main" } }
+    d.scripts, d.blocks, d.vars, d.badges, d.notes = d.scripts or {}, d.blocks or {}, d.vars or {}, d.badges or {}, d.notes or {}
+    if d.name == "New event" or (d.name or "") == "" then d.name = ex.name end
+    d.icon, d.art = ex.icon, ex.art
     S.stage = d.stages[1].id
+    S.views = {}
+end
+
+function Builder:UseExample(key)
+    if not CanEdit() then self:SayReadOnly() return end
+    local ex = B():Example(key)
+    if not ex then return end
+    local before = Snapshot()
+    LoadExample(Def(), ex)
+    Defs:Close()
     Changed(before)
+end
+
+-- A new event made from an example (the Library's Examples menu): as "Start from" makes it, but closing it untouched
+-- keeps nothing (like a new event). False: no such example.
+function Builder:OpenExample(key)
+    local ex = B():Example(key)
+    if not ex then return false end
+    if not self:Open(nil) then return false end
+    LoadExample(Def(), ex)
+    S.fresh = FullHash(Def())
+    Refresh()
+    return true
+end
+
+-- The Friday duel cup (part 1's "Start from the Friday duel cup").
+function Builder:UseStarter() self:UseExample("duel") end
+
+-- The examples' cards on a new event's empty stage ("Start from an example"): art, icon, name, what it's made of.
+function Builder:RenderStartFrom(show)
+    local sf = ui.start
+    if not show then
+        if sf then sf:Hide() end
+        return
+    end
+    if not sf then
+        sf = CreateFrame("Frame", nil, ui.cv)
+        sf:SetAllPoints(ui.cv)
+        sf:SetFrameLevel(ui.cv:GetFrameLevel() + 800)
+        sf.box = CreateFrame("Frame", nil, sf)
+        sf.box:SetPoint("TOPLEFT", sf, "TOPLEFT", 20, -20)
+        sf.box:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -20, 46)
+        sf.box.bg = sf.box:CreateTexture(nil, "BACKGROUND")
+        sf.box.bg:SetAllPoints()
+        sf.box.bg:SetColorTexture(1, 1, 1, 0.02)
+        EUI():Edge(sf.box, 1, 1, 1, 0.14)
+        sf.t = Text(sf, "GameFontHighlight", 15)
+        sf.t:SetJustifyH("CENTER")
+        sf.t:SetText("Start from an example")
+        sf.t2 = Text(sf, "GameFontHighlightSmall", 11.5)
+        sf.t2:SetJustifyH("CENTER")
+        sf.t2:SetWordWrap(true)
+        sf.t2:SetTextColor(0.62, 0.62, 0.62)
+        sf.cards = {}
+        ui.start = sf
+        -- (the examples' words and art, once: their events are made when one is picked)
+        Defs.examples = {}
+        for _, e in ipairs(B():Examples()) do
+            Defs.examples[#Defs.examples + 1] = { key = e.key, name = e.name, icon = e.icon, art = e.art, desc = e.desc }
+        end
+    end
+    local cw, ch = CanvasSize()
+    local side = 44
+    local gw = cw - 2 * side
+    local cols = 4
+    local cardW = floor((gw - (cols - 1) * 8) / cols)
+    sf.t2:SetWidth(gw)
+    sf.t2:SetText("Each one shows a few blocks at work. Change anything after, or drag a \"when\" piece here to start from nothing.")
+    -- every card as tall as the tallest one's words
+    local cardH = 104
+    for i, e in ipairs(Defs.examples) do
+        local c = sf.cards[i]
+        if not c then
+            c = CreateFrame("Button", nil, sf)
+            c.bg = c:CreateTexture(nil, "BACKGROUND")
+            c.bg:SetAllPoints()
+            c.bg:SetColorTexture(0.102, 0.102, 0.122, 1)
+            c.art = c:CreateTexture(nil, "BORDER")
+            c.art:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
+            c.art:SetPoint("TOPRIGHT", c, "TOPRIGHT", -1, -1)
+            c.art:SetHeight(44)
+            c.fade = c:CreateTexture(nil, "BORDER", nil, 1)
+            c.fade:SetPoint("BOTTOMLEFT", c.art, "BOTTOMLEFT")
+            c.fade:SetPoint("BOTTOMRIGHT", c.art, "BOTTOMRIGHT")
+            c.fade:SetHeight(33)
+            c.fade:SetTexture(WHITE)
+            EUI():Gradient(c.fade, "VERTICAL", 0.102, 0.102, 0.122, 1, 0)
+            c.iconE = c:CreateTexture(nil, "ARTWORK", nil, 1)
+            c.iconE:SetColorTexture(0, 0, 0, 1)
+            c.iconE:SetSize(30, 30)
+            c.iconE:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -25)
+            c.icon = c:CreateTexture(nil, "ARTWORK", nil, 2)
+            c.icon:SetSize(28, 28)
+            c.icon:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -26)
+            c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            c.n = Text(c, "GameFontHighlight", 12)
+            c.n:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -58)
+            c.a = Text(c, "GameFontHighlightSmall", 10)
+            c.a:SetTextColor(0.62, 0.62, 0.62)
+            c.a:SetWordWrap(true)
+            c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -2)
+            UI():AddEdges(c)
+            c:SetScript("OnEnter", function(self) UI():SetEdgeColor(self, 1, 0.82, 0, 0.6) end)
+            c:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, 0.34, 0.34, 0.38, 0.55) end)
+            c:SetScript("OnClick", function(self) Builder:UseExample(self.key) end)
+            sf.cards[i] = c
+        end
+        c.key = e.key
+        c:SetSize(cardW, cardH)
+        UI():SetEdgeColor(c, 0.34, 0.34, 0.38, 0.55)
+        EUI():SetArt(c.art, e.art, cardW - 2, 44, nil, nil, 0.6)
+        c.icon:SetTexture(e.icon)
+        -- a long name a little smaller, and on two lines if it must (never cut)
+        Sized(c.n, 12)
+        c.n:SetWordWrap(false)
+        c.n:SetWidth(cardW - 20)
+        c.n:SetText(e.name)
+        if TextW(c.n) > cardW - 20 then
+            Sized(c.n, 11)
+            if TextW(c.n) > cardW - 20 then c.n:SetWordWrap(true) end
+            c.n:SetText(e.name)
+        end
+        c.a:SetWidth(cardW - 20)
+        c.a:SetText(e.desc)
+        local nh = max(15, floor((c.n:GetStringHeight() or 15) + 0.5))
+        cardH = max(cardH, 58 + nh + 2 + floor((c.a:GetStringHeight() or 26) + 0.5) + 9)
+    end
+    local rows = math.ceil(#Defs.examples / cols)
+    local t2h = max(14, floor((sf.t2:GetStringHeight() or 14) + 0.5))
+    local total = 18 + 5 + t2h + 24 + rows * cardH + (rows - 1) * 8
+    local top = max(40, floor((ch - 46 - total) / 2))
+    sf.t:ClearAllPoints()
+    sf.t:SetPoint("TOP", sf, "TOPLEFT", cw / 2, -top)
+    sf.t2:ClearAllPoints()
+    sf.t2:SetPoint("TOP", sf.t, "BOTTOM", 0, -5)
+    local gy = top + 18 + 5 + t2h + 24
+    for i, c in ipairs(sf.cards) do
+        local col, row = (i - 1) % cols, floor((i - 1) / cols)
+        c:SetHeight(cardH)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", sf, "TOPLEFT", side + col * (cardW + 8), -(gy + row * (cardH + 8)))
+        c:SetShown(i <= #Defs.examples)
+    end
+    sf:Show()
 end
 
 ---------------------------------------------------------------------------
@@ -3268,6 +3991,7 @@ end
 
 function Builder:StartPractice(again)
     self:ClosePicker()
+    self:CloseFloating()
     local d = Def()
     if #B():Problems(d) > 0 then
         ns:Print("%s", "fix the pieces that need it first: a practice runs the event as it is.")
@@ -3326,8 +4050,53 @@ function Builder:GlowScript(f, at)
     end)
 end
 
-local LOG_CAT = { say = "ch", whisper = "ch", warning = "ch", moment = "ch", points = "pt", badge = "pt", var = "pt",
-    stage = "sg", block = "ev", script = "ev", ask = "pl", countdown = "tm", invite = "wo", mark = "wo" }
+local LOG_CAT = { say = "ch", whisper = "ch", warning = "ch", moment = "ch", show = "ch", tell = "ch", sound = "ch",
+    guild = "ch", points = "pt", badge = "pt", var = "lo", list = "lo", stage = "sg", block = "ev", script = "ev",
+    ask = "as", button = "as", tag = "pl", point = "pc", countdown = "tm", invite = "wo", mark = "wo", plates = "wo" }
+
+-- What "Make something happen" can make happen in a practice run: key, words, what it needs ({ field, word, kind }:
+-- a dummy, a typed name, an emote, a place, how, a button, an ask, an answer). Made once (EventBlocks' lists).
+local function Facts()
+    if Builder.facts then return Builder.facts end
+    local who = { "who", "who", "dummy" }
+    local out = { { key = "duel", label = "a duel ends", need = { { "w", "winner", "dummy" }, { "l", "loser", "dummy" } } } }
+    for _, h in ipairs(B().HAPPEN) do
+        local need = { who }
+        if h.key == "duel" or h.key == "lose" then need[2] = { "other", "against", "dummy" }
+        elseif h.key == "kill" then need[2] = { "name", "creature", "text", "any creature" }
+        elseif h.key == "loot" or h.key == "fish" then need[2] = { "item", "item", "text", "any item" }
+        elseif h.key == "emote" then need[2] = { "emote", "emote", "emote" }; need[3] = { "other", "at", "dummy" } end
+        out[#out + 1] = { key = "h:" .. h.key, label = h.label, what = h.key, need = need }
+    end
+    out[#out + 1] = { key = "enter", label = "enters a place", need = { who, { "place", "place", "place" } } }
+    out[#out + 1] = { key = "leave", label = "leaves a place", need = { who, { "place", "place", "place" } } }
+    out[#out + 1] = { key = "touch", label = "touches someone", need = { who, { "whom", "touches", "dummy" }, { "how", "by", "how" } } }
+    out[#out + 1] = { key = "radar", label = "targets someone without clicking", need = { who, { "whom", "targets", "dummy" } } }
+    out[#out + 1] = { key = "press", label = "presses a button", need = { who, { "label", "button", "label" } } }
+    out[#out + 1] = { key = "answer", label = "answers an ask", need = { who, { "ask", "ask", "ask" }, { "ans", "answer", "ans" } } }
+    Builder.facts = out
+    return out
+end
+
+local function FactOf(key)
+    for _, f in ipairs(Facts()) do if f.key == key then return f end end
+    return Facts()[1]
+end
+
+-- The facts the practised event listens for (its "when" pieces): those come first in the menu.
+local function UsedFacts(d)
+    local used = {}
+    if #B():BlocksOf(d, "bracket") > 0 then used.duel = true end
+    local HAT = { ["pc.enter"] = "enter", ["pc.leave"] = "leave", ["pl.touch"] = "touch", ["pl.radar"] = "radar",
+        ["as.press"] = "press", ["as.on"] = "answer", ["as.closed"] = "answer" }
+    B():EachScript(d, function(s)
+        local top = s.top
+        if type(top) ~= "table" then return end
+        if top.k == "ev.happen" and top.a then used["h:" .. tostring(top.a[1])] = true end
+        if HAT[top.k] then used[HAT[top.k]] = true end
+    end)
+    return used
+end
 
 CreatePractice = function(body)
     -- the dummies panel (in the palette's place)
@@ -3356,9 +4125,9 @@ CreatePractice = function(body)
         ln:SetHeight(1)
         ln:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -(y + 18))
         ln:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -10, -(y + 18))
-        return h, r
+        return h, r, ln
     end
-    dp.h1, dp.h1r = head("Playing now", 8)
+    dp.h1, dp.h1r, dp.h1ln = head("Playing now", 8)
     dp.matches = {}
     for i = 1, 4 do
         local m = CreateFrame("Frame", nil, dp)
@@ -3401,33 +4170,27 @@ CreatePractice = function(body)
     dp.h2ln:SetColorTexture(1, 1, 1, 0.08)
     dp.h2ln:SetHeight(1)
     S.happen = S.happen or { kind = "duel" }
-    dp.kind = UI():CreateSleekMenuButton(dp, "a duel ends", 108, function(root)
-        for _, k in ipairs({ { "duel", "a duel ends" }, { "off", "goes offline" }, { "on", "comes back" }, { "ready", "is ready" } }) do
-            root:CreateRadio(k[2], function() return S.happen.kind == k[1] end, function()
-                S.happen.kind = k[1]
-                Builder:RenderPractice()
-            end)
-        end
-    end, 21)
-    local function who(field, width)
-        return UI():CreateSleekMenuButton(dp, "", width, function(root)
-            local st = L():GetState("practice")
-            for _, k in ipairs(st and st.entrants or {}) do
-                root:CreateRadio(L().DisplayName(k), function() return S.happen[field] == k end, function()
-                    S.happen[field] = k
-                    Builder:RenderPractice()
-                end)
-            end
-        end, 21)
+    -- a WC3-style sentence: [what happens], then who, to whom, where ... and Do it
+    dp.kind = UI():CreateSleekMenuButton(dp, "", PAL_W - 20, function(root) Builder:FactMenu(root) end, 22)
+    dp.params = {}
+    for i = 1, 4 do
+        local r = {}
+        r.lab = Text(dp, "GameFontHighlightSmall", 11)
+        r.lab:SetTextColor(0.82, 0.82, 0.82)
+        r.dd = UI():CreateSleekMenuButton(dp, "", 128, function(root) Builder:ParamMenu(root, i) end, 21)
+        r.eb = UI():CreateSleekEditBox(dp, 128, 21, "GameFontHighlightSmall")
+        r.eb:SetMaxLetters(40)
+        r.eb:SetScript("OnTextChanged", function(self, user)
+            local p = dp.params[i]
+            if user and p.field then S.happen[p.field] = self:GetText() end
+        end)
+        r.eb:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+            Builder:Happen()
+        end)
+        r.eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        dp.params[i] = r
     end
-    dp.w = who("w", 84)
-    dp.l = who("l", 84)
-    dp.wlab = Text(dp, "GameFontHighlightSmall", 11)
-    dp.wlab:SetText("winner")
-    dp.wlab:SetTextColor(0.82, 0.82, 0.82)
-    dp.llab = Text(dp, "GameFontHighlightSmall", 11)
-    dp.llab:SetText("loser")
-    dp.llab:SetTextColor(0.82, 0.82, 0.82)
     dp.doit = UI():CreateSleekButton(dp, "Do it", 54, 21, function() Builder:Happen() end)
     dp.h3 = Text(dp, "GameFontNormal", 12)
     dp.h3:SetText("Dummies")
@@ -3446,7 +4209,7 @@ CreatePractice = function(body)
     lg:SetFrameLevel(body:GetFrameLevel() + 950)
     lg.bg = lg:CreateTexture(nil, "BACKGROUND")
     lg.bg:SetAllPoints()
-    lg.bg:SetColorTexture(0.039, 0.039, 0.051, 0.97)
+    lg.bg:SetColorTexture(0.039, 0.039, 0.051, 1)
     local top = Divider(lg)
     top:SetPoint("TOPLEFT")
     top:SetPoint("TOPRIGHT")
@@ -3481,22 +4244,265 @@ CreatePractice = function(body)
     ui.log = lg
 end
 
+-- The fact's menu: what the event listens for first, the rest after.
+function Builder:FactMenu(root)
+    local run = L():GetPractice()
+    local used = run and UsedFacts(run.def) or {}
+    local function pick(f)
+        root:CreateRadio(f.label, function() return S.happen.kind == f.key end, function()
+            S.happen.kind = f.key
+            Builder:RenderPractice()
+        end)
+    end
+    local rest = {}
+    for _, f in ipairs(Facts()) do
+        if used[f.key] then pick(f) else rest[#rest + 1] = f end
+    end
+    if #rest == #Facts() then
+        for _, f in ipairs(rest) do pick(f) end
+        return
+    end
+    root:CreateDivider()
+    local sub = root:CreateButton("Something else")
+    for _, f in ipairs(rest) do
+        sub:CreateRadio(f.label, function() return S.happen.kind == f.key end, function()
+            S.happen.kind = f.key
+            Builder:RenderPractice()
+        end)
+    end
+end
+
+-- A part of the fact's sentence: its choices (a dummy, an emote, a place, how, a button, an ask, an answer).
+function Builder:ParamMenu(root, i)
+    local p = ui.dp.params[i]
+    local field, kind = p.field, p.kind
+    if not field then return end
+    local h = S.happen
+    local run = L():GetPractice()
+    if not run then return end
+    local d = run.def
+    local function radio(label, v)
+        root:CreateRadio(label, function() return h[field] == v end, function()
+            h[field] = v
+            Builder:RenderPractice()
+        end)
+    end
+    if kind == "dummy" then
+        if field == "other" then radio("nobody", nil) end
+        for _, k in ipairs(run.st.entrants or {}) do radio(L().DisplayName(k), k) end
+        if root.SetScrollMode then root:SetScrollMode(20 * 16) end
+    elseif kind == "emote" then
+        for _, e in ipairs(B().EMOTES) do radio(e[2], e[1]) end
+    elseif kind == "place" then
+        for _, e in ipairs(Defs:Ordered(d, "places")) do radio(e.n, e.id) end
+    elseif kind == "how" then
+        for _, t in ipairs(B().TOUCH) do radio(t.label, t.key) end
+    elseif kind == "label" then
+        for _, lab in ipairs(B():Labels(d)) do radio(lab, lab) end
+    elseif kind == "ask" then
+        for _, e in ipairs(Defs:Ordered(d, "asks")) do radio(e.n, e.id) end
+    elseif kind == "ans" then
+        local a = h.ask and B():Definition(d, "asks", h.ask)
+        local ak = a and a.kind or "player"
+        if ak == "player" then
+            for _, k in ipairs(run.st.entrants or {}) do radio(L().DisplayName(k), k) end
+            if root.SetScrollMode then root:SetScrollMode(20 * 16) end
+        elseif ak == "choice" then
+            for _, c in ipairs(a.choices or {}) do radio(c, c) end
+        elseif ak == "yesno" then
+            radio("yes", true)
+            radio("no", false)
+        elseif ak == "number" then
+            for n = 1, 10 do radio(tostring(n), n) end
+        end
+    end
+end
+
+-- Does the fact the panel shows, to the dummies (EventLive's practice inputs; each guarded: the live layer says
+-- what it can).
 function Builder:Happen()
     S.happen = S.happen or { kind = "duel" }
     local h = S.happen
-    if h.kind == "duel" then
-        if not (h.w and h.l) or h.w == h.l then
-            ns:Print("%s", "pick a winner and a loser first.")
+    local f = FactOf(h.kind)
+    local Lv = L()
+    local run = Lv:GetPractice()
+    if not run then return end
+    local function call(name, ...)
+        if type(Lv[name]) ~= "function" then
+            ns:Print("practice can't do that yet (%s).", name)
+            return false
+        end
+        Lv[name](Lv, ...)
+        return true
+    end
+    for _, n in ipairs(f.need) do
+        local v = h[n[1]]
+        if n[3] ~= "text" and n[1] ~= "other" and v == nil then
+            ns:Print("pick the %s first.", n[2])
             return
         end
-        L():PracticeDuel(h.w, h.l)
-    elseif h.kind == "off" and h.w then
-        L():PracticeOffline(h.w, true)
-    elseif h.kind == "on" and h.w then
-        L():PracticeOffline(h.w, false)
-    elseif h.kind == "ready" and h.w then
-        L():PracticeReady(h.w)
     end
+    if f.key == "duel" then
+        if h.w == h.l then ns:Print("%s", "pick a winner and a loser: two dummies.") return end
+        Lv:PracticeDuel(h.w, h.l)
+    elseif f.what == "off" then
+        Lv:PracticeOffline(h.who, true)
+    elseif f.what == "on" then
+        Lv:PracticeOffline(h.who, false)
+    elseif f.what == "ready" then
+        Lv:PracticeReady(h.who)
+    elseif f.what then
+        local data = { other = h.other, count = 1 }
+        if f.what == "kill" then
+            local n = Clean(h.name or "", 40)
+            data.creature = n ~= "" and n or "Practice dummy"
+        elseif f.what == "loot" or f.what == "fish" then
+            local it = Clean(h.item or "", 40)
+            local id = tonumber(it:match("item:(%d+)")) or tonumber(it)
+            if id then data.item = id else data.name = it ~= "" and it or (f.what == "fish" and "Fish" or "Item") end
+        elseif f.what == "emote" then
+            data.emote = h.emote or "WAVE"
+        end
+        call("PracticeHappen", h.who, f.what, data)
+    elseif f.key == "enter" or f.key == "leave" then
+        -- (someone only leaves a place they're in, and enters one they're not in: the run takes the change)
+        local set = type(run.st.inplace) == "table" and run.st.inplace[h.place]
+        local inside = type(set) == "table" and set[h.who] and true or false
+        if inside == (f.key == "enter") then
+            ns:Print("%s is %s %s already.", EUI():Plain(h.who), inside and "in" or "out of",
+                B():DefinitionName(run.def, "places", h.place))
+            return
+        end
+        call("PracticePlace", h.who, h.place, f.key == "enter")
+    elseif f.key == "touch" then
+        if h.who == h.whom then ns:Print("%s", "a dummy can't touch itself: pick another.") return end
+        call("PracticeTouch", h.who, h.whom, h.how or "click", h.how == "emote" and (h.emote or "WAVE") or nil)
+    elseif f.key == "radar" then
+        if h.who == h.whom then ns:Print("%s", "pick another dummy to target.") return end
+        call("PracticeRadar", h.who, h.whom)
+    elseif f.key == "press" then
+        call("PracticePress", h.who, h.label)
+    elseif f.key == "answer" then
+        local v = h.ans
+        local a = B():Definition(run.def, "asks", h.ask)
+        if a and a.kind == "text" then v = Clean(h.answer or "", 120) end
+        if v == nil or v == "" then ns:Print("%s", "give the answer first.") return end
+        call("PracticeAnswer", h.who, h.ask, v)
+    end
+end
+
+-- The fact's sentence under its menu: a row a part (its word, its dropdown or field), Do it at the end. Returns y.
+local function RenderFact(dp, run, y)
+    local st = run.st
+    local h = S.happen
+    local f = FactOf(h.kind)
+    h.kind = f.key
+    dp.kind:SetText(f.label)
+    local d = run.def
+    -- defaults: the first dummies, the event's first place / button / ask
+    local e1, e2 = st.entrants[1], st.entrants[2]
+    h.w, h.l = h.w or e1, h.l or e2
+    h.who, h.whom = h.who or e1, h.whom or e2
+    if not (h.place and B():Definition(d, "places", h.place)) then
+        local pl = Defs:Ordered(d, "places")[1]
+        h.place = pl and pl.id
+    end
+    local labels = B():Labels(d)
+    local known = false
+    for _, lab in ipairs(labels) do if lab == h.label then known = true end end
+    if not known then h.label = labels[1] end
+    if not (h.ask and B():Definition(d, "asks", h.ask)) then
+        local a = Defs:Ordered(d, "asks")[1]
+        h.ask = a and a.id
+        h.ans = nil
+    end
+    h.how = h.how or "click"
+    h.emote = h.emote or "WAVE"
+    local need = f.need
+    -- touch by an emote: which one
+    if f.key == "touch" and h.how == "emote" then need = { need[1], need[2], need[3], { "emote", "emote", "emote" } } end
+    local ask = h.ask and B():Definition(d, "asks", h.ask)
+    local rows = {}
+    for i, r in ipairs(dp.params) do
+        local n = need[i]
+        if n and f.key == "answer" and n[1] == "ans" and ask and ask.kind == "text" then n = { "answer", "answer", "text", "type it" } end
+        r.lab:Hide()
+        r.dd:Hide()
+        r.eb:Hide()
+        r.field, r.kind = nil, nil
+        if n then
+            r.field, r.kind = n[1], n[3]
+            r.lab:SetText(n[2])
+            r.lab:Show()
+            local ctl
+            if n[3] == "text" then
+                ctl = r.eb
+                if not ctl:HasFocus() then ctl:SetText(h[n[1]] or "") end
+                UI():SetEditPlaceholder(ctl, n[4] or "")
+            else
+                ctl = r.dd
+                local v = h[n[1]]
+                local label
+                if n[3] == "dummy" then label = v and EUI():Plain(v) or "nobody"
+                elseif n[3] == "emote" then for _, e in ipairs(B().EMOTES) do if e[1] == v then label = e[2] end end
+                elseif n[3] == "place" then label = v and B():DefinitionName(d, "places", v) or "no places"
+                elseif n[3] == "how" then label = B().TOUCH_BY[v] and B().TOUCH_BY[v].label
+                elseif n[3] == "label" then label = v or "no buttons"
+                elseif n[3] == "ask" then label = v and B():DefinitionName(d, "asks", v) or "no asks"
+                elseif n[3] == "ans" then
+                    if v == nil then label = "pick one"
+                    elseif v == true then label = "yes" elseif v == false then label = "no"
+                    elseif type(v) == "string" and v:find("%-") then label = EUI():Plain(v)
+                    else label = tostring(v) end
+                end
+                ctl:SetText(label or tostring(v or ""))
+            end
+            ctl:Show()
+            rows[#rows + 1] = { lab = r.lab, ctl = ctl }
+        end
+    end
+    -- a short fact reads as a sentence ("[a duel ends] winner [Dummy 7]" / "loser [Dummy 2] [Do it]"); a long one
+    -- takes the whole width, its parts in rows under it
+    local right = PAL_W - 10
+    local kw = max(108, floor(TextW(dp.kind:GetFontString()) + 30 + 0.5))
+    dp.kind:ClearAllPoints()
+    dp.kind:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
+    dp.doit:ClearAllPoints()
+    if kw <= 140 then
+        dp.kind:SetWidth(kw)
+        local x, rowY = 10 + kw + 6, y
+        for i, it in ipairs(rows) do
+            local lw = TextW(it.lab)
+            if i > 1 or x + lw + 6 + 84 > right then x, rowY = 10, rowY + 28 end
+            it.lab:ClearAllPoints()
+            it.lab:SetPoint("LEFT", dp, "TOPLEFT", x, -(rowY + 11))
+            it.ctl:SetWidth(84)
+            it.ctl:ClearAllPoints()
+            it.ctl:SetPoint("TOPLEFT", dp, "TOPLEFT", x + lw + 6, -rowY)
+            x = x + lw + 6 + 84 + 6
+        end
+        if x + 54 > right then x, rowY = 10, rowY + 28 end
+        dp.doit:SetPoint("TOPLEFT", dp, "TOPLEFT", x, -rowY)
+        return rowY + 28 + 8
+    end
+    dp.kind:SetWidth(PAL_W - 20)
+    y = y + 28
+    for _, it in ipairs(rows) do
+        it.lab:ClearAllPoints()
+        it.lab:SetPoint("LEFT", dp, "TOPLEFT", 10, -(y + 10))
+        it.ctl:SetWidth(128)
+        it.ctl:ClearAllPoints()
+        it.ctl:SetPoint("TOPLEFT", dp, "TOPLEFT", 64, -y)
+        y = y + 26
+    end
+    -- Do it, on the last row's right
+    if #rows > 0 then
+        dp.doit:SetPoint("TOPLEFT", dp, "TOPLEFT", 64 + 128 + 6, -(y - 26))
+    else
+        dp.doit:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
+        y = y + 26
+    end
+    return y + 8
 end
 
 function Builder:RenderPractice()
@@ -3512,7 +4518,7 @@ function Builder:RenderPractice()
     if not on then return end
     local st = run.st
     local bk = run:MainBracket()
-    -- playing now
+    -- playing now (an event with Matches)
     local playing = {}
     if bk then
         for _, mid in ipairs(bk.rounds[bk.r] or {}) do
@@ -3520,8 +4526,11 @@ function Builder:RenderPractice()
             if m.st == "play" then playing[#playing + 1] = m end
         end
     end
+    dp.h1:SetShown(bk ~= nil)
+    dp.h1r:SetShown(bk ~= nil)
+    dp.h1ln:SetShown(bk ~= nil)
     dp.h1r:SetText(bk and EUI():StageSub(run.def, st) or "")
-    local y = 32
+    local y = bk and 32 or 8
     for i, box in ipairs(dp.matches) do
         local m = playing[i]
         if m and i <= 3 then
@@ -3544,9 +4553,15 @@ function Builder:RenderPractice()
             box:Hide()
         end
     end
-    if #playing == 0 then
+    if bk and #playing == 0 then
         dp.none:SetText(st.phase == "done" and "The event is over. Start again to run it once more."
             or "No match is being played: the event waits for its next step.")
+        dp.none:ClearAllPoints()
+        dp.none:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
+        dp.none:Show()
+        y = y + 34
+    elseif not bk and st.phase == "done" then
+        dp.none:SetText("The event is over. Start again to run it once more.")
         dp.none:ClearAllPoints()
         dp.none:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
         dp.none:Show()
@@ -3554,7 +4569,7 @@ function Builder:RenderPractice()
     else
         dp.none:Hide()
     end
-    y = y + 6
+    if bk then y = y + 6 end
     dp.h2:ClearAllPoints()
     dp.h2:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
     dp.h2ln:ClearAllPoints()
@@ -3562,39 +4577,8 @@ function Builder:RenderPractice()
     dp.h2ln:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -10, -(y + 18))
     y = y + 26
     S.happen = S.happen or { kind = "duel" }
-    local h = S.happen
-    local labels = { duel = "a duel ends", off = "goes offline", on = "comes back", ready = "is ready" }
-    dp.kind:SetText(labels[h.kind] or "a duel ends")
-    dp.kind:ClearAllPoints()
-    dp.kind:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
-    h.w = h.w or st.entrants[1]
-    h.l = h.l or st.entrants[2]
-    dp.w:SetText(h.w and EUI():Plain(h.w) or "")
-    dp.l:SetText(h.l and EUI():Plain(h.l) or "")
-    dp.wlab:ClearAllPoints()
-    dp.wlab:SetPoint("LEFT", dp.kind, "RIGHT", 6, 0)
-    dp.wlab:SetText(h.kind == "duel" and "winner" or "")
-    dp.w:ClearAllPoints()
-    if h.kind == "duel" then
-        dp.w:SetPoint("LEFT", dp.wlab, "RIGHT", 6, 0)
-        y = y + 28
-        dp.llab:ClearAllPoints()
-        dp.llab:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -(y + 4))
-        dp.llab:Show()
-        dp.l:ClearAllPoints()
-        dp.l:SetPoint("LEFT", dp.llab, "RIGHT", 6, 0)
-        dp.l:Show()
-        dp.doit:ClearAllPoints()
-        dp.doit:SetPoint("LEFT", dp.l, "RIGHT", 6, 0)
-    else
-        dp.w:SetPoint("LEFT", dp.kind, "RIGHT", 6, 0)
-        dp.llab:Hide()
-        dp.l:Hide()
-        dp.doit:ClearAllPoints()
-        dp.doit:SetPoint("LEFT", dp.w, "RIGHT", 6, 0)
-    end
-    y = y + 34
-    -- the dummies
+    y = RenderFact(dp, run, y)
+    -- the dummies (and the tags they have, as dots)
     dp.h3:ClearAllPoints()
     dp.h3:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
     dp.h3r:ClearAllPoints()
@@ -3605,6 +4589,7 @@ function Builder:RenderPractice()
     y = y + 26
     local room = dp:GetHeight() or 0
     if room < 50 then room = WIN_H - 31 - TOP_H end
+    local tagList = Defs:Ordered(run.def, "tags")
     for i, key in ipairs(st.entrants) do
         local b = dp.dummies[i]
         if not b then
@@ -3619,10 +4604,13 @@ function Builder:RenderPractice()
             b.off:SetTextColor(0.44, 0.44, 0.46)
             b.off:SetPoint("RIGHT", b, "RIGHT", -4, 0)
             b.off:SetText("offline")
+            b.dots = {}
             b:SetScript("OnClick", function(self)
                 local _, pp = L():GetPractice()
                 L():PracticeOffline(self.key, not (pp and pp.off[self.key]))
             end)
+            b:SetScript("OnEnter", function(self) if self.tagTip then Tip(self, EUI():Plain(self.key), self.tagTip) end end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
             dp.dummies[i] = b
         end
         b.key = key
@@ -3632,6 +4620,26 @@ function Builder:RenderPractice()
         b.c:SetAlpha(off and 0.5 or 1)
         b.fs:SetText(off and ("|cff6f6f74" .. EUI():Plain(key) .. "|r") or EUI():Name(key))
         b.off:SetShown(off and true or false)
+        -- its tags: a dot each after its name (their names in its tooltip)
+        local nd, names = 0, {}
+        for _, e in ipairs(tagList) do
+            local has = not e.builtin and type(st.tags) == "table" and type(st.tags[e.id]) == "table" and st.tags[e.id][key]
+            if has and nd < 3 and not off then
+                nd = nd + 1
+                local t = b.dots[nd] or b:CreateTexture(nil, "ARTWORK")
+                b.dots[nd] = t
+                t:SetTexture(EUI().MASK)
+                t:SetSize(7, 7)
+                local col = B():TagColor(e.c)
+                t:SetVertexColor(col[1], col[2], col[3])
+                t:ClearAllPoints()
+                t:SetPoint("LEFT", b.fs, "RIGHT", 4 + (nd - 1) * 9, 0)
+                t:Show()
+            end
+            if has then names[#names + 1] = e.n end
+        end
+        for k = nd + 1, #b.dots do b.dots[k]:Hide() end
+        b.tagTip = #names > 0 and table.concat(names, ", ") or nil
         b:ClearAllPoints()
         local col, row = (i - 1) % 2, floor((i - 1) / 2)
         if y + row * 22 + 22 < room then
@@ -3657,7 +4665,7 @@ function Builder:RenderPractice()
                 l.dot:SetVertexColor(c.f2[1], c.f2[2], c.f2[3])
             end
             local text = e.text or ""
-            if e.kind == "say" or e.kind == "whisper" or e.kind == "warning" then
+            if e.kind == "say" or e.kind == "whisper" or e.kind == "warning" or e.kind == "guild" then
                 text = text .. "  |cff7a7a80(not sent, practice)|r"
             end
             l.fs:SetText(text)
@@ -3666,6 +4674,2474 @@ function Builder:RenderPractice()
         else
             l:Hide()
         end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Definitions (tags, scores, places, lists, asks): their palette rows and their editors
+---------------------------------------------------------------------------
+
+Defs.HEAD = { tags = "Tags", scores = "Scores", places = "Places", lists = "Lists", asks = "Asks" }
+Defs.ADD = { tags = "Add tag", scores = "Add score", places = "Add place", lists = "Add list", asks = "Add ask" }
+Defs.CAT = { tags = "pl", scores = "pt", places = "pc", lists = "lo", asks = "as" }
+Defs.ASK_WORD = { player = "pick a player", choice = "a choice", text = "typed", yesno = "yes or no", number = "1 to 10" }
+Defs.SHOWN_WORD = { all = "everyone sees it", self = "only they see it", host = "only the host sees it" }
+Defs.ICON = { num = "INV_Misc_PunchCards_Yellow", time = "INV_Misc_PocketWatch_01", gold = "INV_Misc_Coin_02",
+    season = "INV_Misc_Coin_01", place = "INV_Misc_Map_01", question = "INV_Misc_Book_11", text = "INV_Misc_Note_02",
+    ask = "INV_Misc_Ticket_Darkmoon_01" }
+Defs.TEAL = { 0.34, 0.84, 0.94 }
+
+local function VGrad(t, top, bottom)
+    t:SetTexture(WHITE)
+    if t.SetGradient and CreateColor then
+        t:SetGradient("VERTICAL", CreateColor(bottom[1], bottom[2], bottom[3], bottom[4] or 1),
+            CreateColor(top[1], top[2], top[3], top[4] or 1))
+    else
+        t:SetVertexColor((top[1] + bottom[1]) / 2, (top[2] + bottom[2]) / 2, (top[3] + bottom[3]) / 2, top[4] or 1)
+    end
+end
+
+local function Plural(n, one, many) return n .. " " .. (n == 1 and one or many) end
+
+-- The window dimmed under a sheet (the map, the questions), and the clicks on it caught.
+function Defs.Dim(on)
+    local d = ui.dim
+    if not d then
+        if not on then return end
+        d = CreateFrame("Frame", nil, win)
+        d:SetFrameStrata("FULLSCREEN")
+        d:SetFrameLevel(2)
+        d:SetPoint("TOPLEFT", win.content or win, "TOPLEFT", 0, 0)
+        d:SetPoint("BOTTOMRIGHT", win.content or win, "BOTTOMRIGHT", 0, 0)
+        d:EnableMouse(true)
+        d:EnableMouseWheel(true)
+        d:SetScript("OnMouseWheel", function() end)
+        d.t = d:CreateTexture(nil, "BACKGROUND")
+        d.t:SetAllPoints()
+        d.t:SetColorTexture(0, 0, 0, 0.6)
+        ui.dim = d
+    end
+    d:SetShown(on or QSheet.cur ~= nil or MapSheet.cur ~= nil)
+end
+
+-- A definition's one line in the palette ("everyone sees it", "lower wins · a time", "Halaa · 600 yd").
+function Defs:Sub(kind, e)
+    if e.builtin then return kind == "tags" and "everyone in the event · built in" or "the season · built in" end
+    if kind == "tags" then return self.SHOWN_WORD[e.shown or "all"] or self.SHOWN_WORD.all end
+    if kind == "scores" then
+        local s = e.high == false and "lower wins" or "higher wins"
+        if e.fmt == "time" then s = s .. " · a time" elseif e.fmt == "gold" then s = s .. " · gold" end
+        return s
+    end
+    if kind == "places" then return PlaceLine(e) end
+    if kind == "lists" then
+        local n = type(e.items) == "table" and #e.items or 0
+        if n == 0 then return "empty" end
+        if e.kind == "place" then return Plural(n, "place", "places") .. ", in order" end
+        if e.kind == "question" then return Plural(n, "question", "questions") end
+        return Plural(n, "text", "texts")
+    end
+    if kind == "asks" then
+        local s = self.ASK_WORD[e.kind or "player"] or self.ASK_WORD.player
+        return e.secret and (s .. " · secret") or s
+    end
+    return ""
+end
+
+-- The palette's order: as they were made (tg1, tg2 ...); the built-in tag (Entrants) last, the built-in score (Season
+-- points, the one that counts for the season) first.
+function Defs:Ordered(d, kind)
+    local own = B():Defs(d, kind, true)
+    local function num(id) return tonumber(tostring(id):match("(%d+)$")) or 0 end
+    tsort(own, function(a, b)
+        local na, nb = num(a.id), num(b.id)
+        if na ~= nb then return na < nb end
+        return tostring(a.id) < tostring(b.id)
+    end)
+    local out = {}
+    local bi = {}
+    for _, e in ipairs(B():Defs(d, kind)) do if e.builtin then bi[#bi + 1] = e end end
+    if kind ~= "tags" then for _, e in ipairs(bi) do out[#out + 1] = e end end
+    for _, e in ipairs(own) do out[#out + 1] = e end
+    if kind == "tags" then for _, e in ipairs(bi) do out[#out + 1] = e end end
+    return out
+end
+
+function Defs:IconOf(kind, e)
+    local I = self.ICON
+    if kind == "scores" then return "Interface\\Icons\\" .. (e.builtin and I.season or I[e.fmt or "num"] or I.num) end
+    if kind == "lists" then return "Interface\\Icons\\" .. (I[e.kind or "text"] or I.text) end
+    return "Interface\\Icons\\" .. I.ask
+end
+
+-- A definition's swatch on a row's three textures: a tag's colour, a place's ring, else an icon. x: its middle.
+function Defs:Swatch(it, kind, e, x)
+    local a, b, c = it.sw, it.sw2, it.sw3
+    for _, t in ipairs({ a, b, c }) do
+        t:ClearAllPoints()
+        t:SetTexCoord(0, 1, 0, 1)
+        t:SetVertexColor(1, 1, 1, 1)
+        t:Hide()
+    end
+    x = x or 13
+    local function put(t, tex, size, r, g, bl, al)
+        t:SetTexture(tex)
+        t:SetSize(size, size)
+        t:SetPoint("CENTER", it, "LEFT", x, 0)
+        t:SetVertexColor(r or 1, g or 1, bl or 1, al or 1)
+        t:Show()
+    end
+    if kind == "tags" then
+        local col = B():TagColor(e.c)
+        put(a, EUI().MASK, 16, 0, 0, 0, 0.9)
+        put(b, EUI().MASK, 14, col[1], col[2], col[3], 1)
+    elseif kind == "places" then
+        local T = self.TEAL
+        put(a, EUI().MASK, 17, T[1], T[2], T[3], 0.13)
+        put(b, EUI().RING, 18, T[1], T[2], T[3], 0.95)
+        put(c, EUI().MASK, 4, 0.61, 0.94, 1, 1)
+    else
+        put(a, self:IconOf(kind, e), 18)
+        a:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
+end
+
+-- Is this definition's editor open (its row lit)?
+function Defs:IsOpen(kind, id)
+    local cur = self.cur
+    if cur and not cur.hold and cur.kind == kind and cur.id == id then return true end
+    local ms = MapSheet.cur
+    if kind == "places" and ms and ms.pid == id then return true end
+    local qs = QSheet.cur
+    return kind == "lists" and qs ~= nil and qs.lid == id
+end
+
+-- A definition's row in the palette: swatch, name, one line, the pencil while its editor is open. Returns its height.
+function Defs:PaletteRow(it, kind, e)
+    DefRowParts(it)
+    self:Swatch(it, kind, e)
+    local on = self:IsOpen(kind, e.id)
+    it.sel:SetShown(on)
+    it.bar:SetShown(on)
+    it.pen:SetShown(on and not e.builtin)
+    it.hov:Show()
+    local x = 30
+    local avail = PAL_LIST_W - x - (on and not e.builtin and 25 or 6)
+    -- (a long name or line takes two lines: nothing is cut)
+    it.nm:SetWordWrap(true)
+    it.nm:SetWidth(avail)
+    it.nm:SetText(e.n or "?")
+    it.sb:SetWordWrap(true)
+    it.sb:SetWidth(avail)
+    it.sb:SetText(self:Sub(kind, e))
+    local h1 = max(14, floor((it.nm:GetStringHeight() or 14) + 0.5))
+    local h2 = max(13, floor((it.sb:GetStringHeight() or 13) + 0.5))
+    local h = max(36, h1 + h2 + 10)
+    it:SetSize(PAL_LIST_W, h)
+    it.nm:ClearAllPoints()
+    it.nm:SetPoint("TOPLEFT", it, "TOPLEFT", x, -floor((h - h1 - h2) / 2))
+    it.sb:ClearAllPoints()
+    it.sb:SetPoint("TOPLEFT", it.nm, "BOTTOMLEFT", 0, 0)
+    it.nm:Show()
+    it.sb:Show()
+    it.kind, it.defId, it.builtin = kind, e.id, e.builtin
+    it:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then Defs:RowMenu(self, self.kind, self.defId) return end
+        Defs:RowClick(self.kind, self.defId, self)
+    end)
+    -- a tag dragged onto the canvas: "players with tag ..." (its chip)
+    if kind == "tags" then
+        it:SetScript("OnMouseDown", function(self, button)
+            if button == "LeftButton" and CanEdit() then Builder:PressNew({ k = "pl.tagged", a = { self.defId } }, self) end
+        end)
+    end
+    it:SetScript("OnEnter", function(self)
+        if self.builtin then
+            Tip(self, e.n, kind == "tags" and "Built in: everyone in the event has it. Drag it onto a players blank."
+                or "Built in: the season's points (ranked events only), held to the season's cap.")
+        end
+    end)
+    it:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return h
+end
+
+-- "+ Add tag" (Places: a menu, by standing there or on the map). Returns its height.
+function Defs:AddRow(it, kind)
+    DefRowParts(it)
+    HideDefParts(it)
+    it.plus:ClearAllPoints()
+    it.plus:SetPoint("LEFT", it, "LEFT", 9, 0)
+    EUI():Glyph(it.plus, UI().ICON.plus or 39, 0.86, 0.86, 0.86)
+    it.plus:Show()
+    it.fs:SetText(self.ADD[kind])
+    it.fs:ClearAllPoints()
+    it.fs:SetPoint("LEFT", it, "LEFT", 25, 0)
+    it.fs:Show()
+    local w = 25 + TextW(it.fs) + 10
+    if kind == "places" then
+        it.caret:ClearAllPoints()
+        it.caret:SetPoint("LEFT", it, "LEFT", w - 4, 0)
+        EUI():Glyph(it.caret, 14, 0.86, 0.86, 0.86)
+        it.caret:Show()
+        w = w + 12
+    end
+    UI():SetEdgeColor(it, 0.34, 0.34, 0.38, 0.9)
+    it.bg:SetColorTexture(0.1, 0.1, 0.12, 0.92)
+    it:SetSize(floor(w + 0.5), 24)
+    it.kind = kind
+    it:SetScript("OnClick", function(self, button)
+        if button ~= "LeftButton" then return end
+        if not CanEditDefs() then Builder:SayReadOnly() return end
+        if self.kind == "places" then Defs:AddPlaceMenu(self) else Defs:Open(self.kind, nil, self) end
+    end)
+    return 24
+end
+
+function Defs:AddPlaceMenu(owner, onSaved)
+    UI():ContextMenu(owner, function(root)
+        root:CreateButton(UI():AtlasIconText(37, 12) .. " Set from where I stand", function()
+            MapSheet:Open({ stand = true, onSaved = onSaved })
+        end)
+        root:CreateButton(UI():AtlasIconText(31, 12) .. " Pick on the map", function() MapSheet:Open({ onSaved = onSaved }) end)
+    end)
+end
+
+function Defs:RowClick(kind, id, row)
+    local e = B():Definition(Def(), kind, id)
+    if not e then return end
+    if e.builtin then
+        Tip(row, e.n, kind == "tags" and "Built in: everyone in the event has it. It can't be changed."
+            or "Built in: the season's points. It can't be changed.")
+        return
+    end
+    if kind == "places" then
+        MapSheet:Open({ pid = id })
+    elseif kind == "lists" and e.kind == "question" then
+        QSheet:Open(id)
+    else
+        self:Open(kind, id, row)
+    end
+end
+
+function Defs:RowMenu(owner, kind, id)
+    local e = B():Definition(Def(), kind, id)
+    if not e or e.builtin then return end
+    UI():ContextMenu(owner, function(root)
+        root:CreateTitle(e.n)
+        root:CreateButton(UI():AtlasIconText(16, 12) .. " Change it", function() Defs:RowClick(kind, id, owner) end)
+        root:CreateDivider()
+        root:CreateButton("|cffff8d80" .. UI():AtlasIconText(12, 12, { 1, 0.55, 0.5 }) .. " Delete|r", function()
+            Defs:Delete(kind, id)
+        end)
+    end)
+end
+
+-- Two of a kind with one name can't be told apart in a dropdown: why not, or nil.
+function Defs:NameTaken(kind, name, except)
+    local low = string.lower(name)
+    for _, e in ipairs(B():Defs(Def(), kind)) do
+        if e.id ~= except and string.lower(tostring(e.n or "")) == low then return "Name already used" end
+    end
+    return nil
+end
+
+-- Deletes a definition (asking first when pieces use it: they'll each say they need another). A place leaves the
+-- lists of places too; an ask that picked from a tag picks from the entrants.
+function Defs:Delete(kind, id, confirmed)
+    if not CanEditDefs() then Builder:SayReadOnly() return end
+    local d = Def()
+    local e = B():Definition(d, kind, id)
+    if not e or e.builtin then return end
+    local uses = B():DefinitionUses(d, kind, id)
+    if uses > 0 and not confirmed then
+        Builder:Confirm("Delete " .. e.n .. "?", Plural(uses, "piece uses", "pieces use") .. " it: "
+            .. (uses == 1 and "it" or "each") .. " will need another " .. B().DEF_KINDS[kind].label .. ".", "Delete",
+            function() Defs:Delete(kind, id, true) end)
+        return
+    end
+    local before = Snapshot()
+    B():RemoveDefinition(d, kind, id)
+    if kind == "places" then
+        for _, l in pairs(d.lists or {}) do
+            if type(l) == "table" and l.kind == "place" and type(l.items) == "table" then
+                for i = #l.items, 1, -1 do if l.items[i] == id then tremove(l.items, i) end end
+            end
+        end
+    elseif kind == "tags" then
+        for _, a in pairs(d.asks or {}) do
+            if type(a) == "table" and a.from == id then a.from = "entrants" end
+        end
+    end
+    if self.cur and self.cur.kind == kind and self.cur.id == id then self:Close(true) end
+    if kind == "places" and MapSheet.cur and MapSheet.cur.pid == id then MapSheet:Close(true) end
+    if kind == "lists" and QSheet.cur and QSheet.cur.lid == id then QSheet:Close(true) end
+    Changed(before)
+end
+
+-- A yes / no box over the window (a delete that pieces would feel): text, the danger button's word, fn on yes.
+function Builder:Confirm(title, text, okText, fn)
+    local f = ui.confirm
+    if not f then
+        f = CreateFrame("Frame", "DisasterZoneEventBuilderConfirm", win)
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        f:SetSize(300, 100)
+        f:EnableMouse(true)
+        f.bg = f:CreateTexture(nil, "BACKGROUND")
+        f.bg:SetAllPoints()
+        f.bg:SetColorTexture(0.075, 0.075, 0.09, 0.985)
+        EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
+        f.title = Text(f, "GameFontNormal", 13)
+        f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -12)
+        f.text = Text(f, "GameFontHighlightSmall", 11)
+        f.text:SetWordWrap(true)
+        f.text:SetWidth(276)
+        f.text:SetTextColor(0.82, 0.82, 0.84)
+        f.text:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -7)
+        f.ok = UI():CreateSleekButton(f, "Delete", 70, 22, function()
+            f:Hide()
+            if f.fn then f.fn() end
+        end, "danger")
+        f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 10)
+        f.cancel = UI():CreateSleekButton(f, "Cancel", 70, 22, function() f:Hide() end)
+        f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
+        ui.confirm = f
+    end
+    f.title:SetText(title)
+    f.text:SetText(text or "")
+    f.ok:SetText(okText or "Delete")
+    f.ok:SetWidth(TextW(f.ok:GetFontString()) + 26)
+    f.fn = fn
+    f:SetHeight(12 + 16 + 7 + max(14, floor((f.text:GetStringHeight() or 14) + 0.5)) + 14 + 22 + 10)
+    f:ClearAllPoints()
+    f:SetPoint("CENTER", win, "CENTER", 0, 60)
+    f:Show()
+    f:Raise()
+end
+
+---------------------------------------------------------------------------
+-- The editor: a popover next to its palette row (name first, the kind's fields, "N pieces use it", bin, Save)
+---------------------------------------------------------------------------
+
+local POP_W, POP_X = 272, 84          -- its width; where the controls start (12 + a 62 label + 10)
+local POP_CTL = POP_W - POP_X - 12    -- the controls' width
+local ASK_TIMES = { 15, 30, 45, 60, 120, 180, 300, 600 }
+local CAPS = { num = { 5, 10, 20, 50, 100, 1000 }, time = { 60, 300, 600, 1800, 3600 }, gold = { 10000, 100000, 1000000 } }
+
+-- A row of a form: its label (grey, left) and the space for its controls.
+local function FormRow(form, label, h)
+    local r = CreateFrame("Frame", nil, form)
+    r:SetSize(POP_W - 24, h or 24)
+    r.lab = Text(r, "GameFontHighlightSmall", 11)
+    r.lab:SetTextColor(0.62, 0.62, 0.62)
+    r.lab:SetPoint("LEFT", r, "TOPLEFT", 0, -12)
+    r.lab:SetText(label or "")
+    form.rows[#form.rows + 1] = r
+    return r
+end
+
+-- Buttons side by side, one chosen (Higher / Lower ...): seg:Set(value).
+local function Segmented(parent, choices, onPick)
+    local seg = CreateFrame("Frame", nil, parent)
+    seg:SetSize(10, 22)
+    seg.buttons = {}
+    local x = 0
+    for i, c in ipairs(choices) do
+        local b = UI():CreateSleekButton(seg, c[2], 40, 22, function()
+            if not CanEditDefs() then Builder:SayReadOnly() return end
+            onPick(c[1])
+        end)
+        Sized(b:GetFontString(), 11.5)
+        b:SetWidth(floor(TextW(b:GetFontString()) + 18 + 0.5))
+        b:SetPoint("LEFT", seg, "LEFT", x, 0)
+        x = x + b:GetWidth() - 1
+        b.value = c[1]
+        seg.buttons[i] = b
+    end
+    seg:SetWidth(x + 1)
+    function seg:Set(v)
+        for _, b in ipairs(self.buttons) do b:SetKind(b.value == v and "chosen" or "secondary") end
+    end
+    return seg
+end
+
+-- A switch with its words after it.
+local function SwitchWords(parent, onSet)
+    local sw = UI():CreateSwitch(parent, nil, function(on)
+        if not CanEditDefs() then Builder:SayReadOnly() return end
+        onSet(on)
+    end)
+    sw.words = Text(parent, "GameFontHighlightSmall", 11)
+    sw.words:SetTextColor(0.62, 0.62, 0.62)
+    sw.words:SetPoint("LEFT", sw, "RIGHT", 8, 0)
+    return sw
+end
+
+-- Chips with a cross each (an ask's choices, a question's answers, a list's texts) and a field to add one:
+-- box:Set(list) shows them, onChange(list) when one goes or comes. Wraps inside width; box.h its height.
+local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
+    local box = CreateFrame("Frame", nil, parent)
+    box:SetSize(width, 22)
+    box.chips = {}
+    box.list = {}
+    box.add = UI():CreateSleekEditBox(box, 70, 20, "GameFontHighlightSmall")
+    box.add:SetMaxLetters(maxLen)
+    UI():SetEditPlaceholder(box.add, addWord or "Add", "GameFontDisableSmall")
+    box.add:SetScript("OnEnterPressed", function(self)
+        local t = Clean(self:GetText(), maxLen)
+        if not CanEditDefs() then Builder:SayReadOnly() return end
+        if t ~= "" then
+            if #box.list >= maxN then
+                ns:Print("%d at most.", maxN)
+            else
+                box.list[#box.list + 1] = t
+                self:SetText("")
+                onChange(box.list)
+            end
+        end
+        self:SetFocus()
+    end)
+    box.add:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    function box:Set(list)
+        self.list = list or {}
+        for _, c in ipairs(self.chips) do c:Hide() end
+        local x, y = 0, 0
+        for i, s in ipairs(self.list) do
+            local c = self.chips[i]
+            if not c then
+                c = CreateFrame("Button", nil, self)
+                c:SetHeight(20)
+                UI():AddPillShape(c, 20)
+                c.fs = Text(c, "GameFontHighlightSmall", 11)
+                c.fs:SetPoint("LEFT", c, "LEFT", 8, 0)
+                c.x = Text(c, "GameFontHighlightSmall", 12)
+                c.x:SetText("\195\151")
+                c.x:SetTextColor(0.75, 0.75, 0.78)
+                c.x:SetPoint("RIGHT", c, "RIGHT", -7, 1)
+                c:SetScript("OnEnter", function(cc) cc.x:SetTextColor(1, 1, 1) end)
+                c:SetScript("OnLeave", function(cc) cc.x:SetTextColor(0.75, 0.75, 0.78) end)
+                c:SetScript("OnClick", function(cc)
+                    if not CanEditDefs() then Builder:SayReadOnly() return end
+                    tremove(box.list, cc.index)
+                    onChange(box.list)
+                end)
+                self.chips[i] = c
+            end
+            c.index = i
+            c:SetPillColors({ 0.11, 0.11, 0.13, 1 }, { 1, 1, 1, 0.22 })
+            c.fs:SetWordWrap(false)
+            c.fs:SetText(s)
+            local w = min(width, 8 + TextW(c.fs) + 6 + 9 + 7)
+            c:SetWidth(w)
+            if x > 0 and x + w > width then x, y = 0, y + 24 end
+            c:ClearAllPoints()
+            c:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y)
+            c:Show()
+            x = x + w + 4
+        end
+        local aw = 70
+        if x > 0 and x + aw > width then x, y = 0, y + 24 end
+        self.add:ClearAllPoints()
+        self.add:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y)
+        self.add:SetShown(#self.list < maxN)
+        self.h = y + 20
+        self:SetHeight(self.h)
+    end
+    return box
+end
+
+local function CreatePop()
+    local f = CreateFrame("Frame", "DisasterZoneEventDefEditor", win)
+    f:SetFrameStrata("DIALOG")
+    f:SetWidth(POP_W)
+    f:SetHeight(200)
+    f:EnableMouse(true)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    VGrad(f.bg, { 0.11, 0.11, 0.129, 1 }, { 0.078, 0.078, 0.094, 1 })
+    EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
+    -- the pointer at its row (a turned square, half of it out of the left side)
+    f.ptrE = f:CreateTexture(nil, "BORDER", nil, 1)
+    f.ptrE:SetTexture(WHITE)
+    f.ptrE:SetSize(12, 12)
+    f.ptrE:SetVertexColor(0.47, 0.47, 0.51, 0.75)
+    f.ptr = f:CreateTexture(nil, "BORDER", nil, 2)
+    f.ptr:SetTexture(WHITE)
+    f.ptr:SetSize(10, 10)
+    f.ptr:SetVertexColor(0.106, 0.106, 0.125, 1)
+    for _, t in ipairs({ f.ptr, f.ptrE }) do
+        if t.SetRotation then t:SetRotation(math.pi / 4) end
+    end
+    f.title = Text(f, "GameFontNormal", 13)
+    f.title:SetPoint("LEFT", f, "TOPLEFT", 12, -18)
+    f.kind = Text(f, "GameFontHighlightSmall", 10.5)
+    f.kind:SetTextColor(0.62, 0.62, 0.62)
+    f.kind:SetPoint("BOTTOMLEFT", f.title, "BOTTOMRIGHT", 8, 0)
+    f.x = CreateFrame("Button", nil, f)
+    f.x:SetSize(20, 20)
+    f.x:SetPoint("RIGHT", f, "TOPRIGHT", -8, -18)
+    f.x.fs = Text(f.x, "GameFontHighlight", 16)
+    f.x.fs:SetText("\195\151")
+    f.x.fs:SetPoint("CENTER", 0, 1)
+    f.x.fs:SetTextColor(0.66, 0.66, 0.68)
+    f.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1) end)
+    f.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(0.66, 0.66, 0.68) end)
+    f.x:SetScript("OnClick", function() Defs:Close() end)
+    f.hd = f:CreateTexture(nil, "BORDER")
+    f.hd:SetColorTexture(1, 1, 1, 0.07)
+    f.hd:SetHeight(1)
+    f.hd:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -36)
+    f.hd:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -36)
+    f.fd = f:CreateTexture(nil, "BORDER")
+    f.fd:SetColorTexture(1, 1, 1, 0.07)
+    f.fd:SetHeight(1)
+    f.fd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 40)
+    f.fd:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 40)
+    f.save = UI():CreateSleekButton(f, "Save", 52, 22, function() Defs:Save() end, "primary")
+    f.save:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 9)
+    f.bin = UI():CreateTipIconButton(f, 22, UI().ICON.trash, "Delete it", "Pieces that use it will each need another.",
+        function() if Defs.cur and Defs.cur.id then Defs:Delete(Defs.cur.kind, Defs.cur.id) end end)
+    f.bin:SetPoint("RIGHT", f.save, "LEFT", -6, 0)
+    f.foot = Text(f, "GameFontHighlightSmall", 10.5)
+    f.foot:SetTextColor(0.62, 0.62, 0.62)
+    f.foot:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 20)
+    f.err = Text(f, "GameFontHighlightSmall", 10.5)
+    f.err:SetTextColor(1, 0.54, 0.48)
+    f.err:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 20)
+    f.forms = {}
+    f:SetScript("OnHide", function() if Defs.cur and not Defs.cur.hold then Defs.cur = nil; Builder:RenderPalette() end end)
+    f:Hide()
+    ui.dpop = f
+    return f
+end
+
+-- The tag form: name, colour, who sees it, how it looks.
+local function TagForm(f)
+    local form = CreateFrame("Frame", nil, f)
+    form.rows = {}
+    local w = function() return Defs.cur.work end
+    local r = FormRow(form, "Name")
+    form.name = UI():CreateSleekEditBox(r, POP_CTL, 24)
+    form.name:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Colour")
+    form.sws = {}
+    for i, c in ipairs(B().TAG_COLORS) do
+        local b = CreateFrame("Button", nil, r)
+        b:SetSize(16, 16)
+        b:SetPoint("LEFT", r, "LEFT", POP_X - 12 + (i - 1) * 20, 0)
+        b.on = b:CreateTexture(nil, "BACKGROUND")
+        b.on:SetTexture(EUI().MASK)
+        b.on:SetSize(22, 22)
+        b.on:SetPoint("CENTER")
+        b.on:SetVertexColor(0.96, 0.93, 0.82)
+        b.edge = b:CreateTexture(nil, "BORDER")
+        b.edge:SetTexture(EUI().MASK)
+        b.edge:SetSize(18, 18)
+        b.edge:SetPoint("CENTER")
+        b.edge:SetVertexColor(0, 0, 0, 1)
+        b.fill = b:CreateTexture(nil, "ARTWORK")
+        b.fill:SetTexture(EUI().MASK)
+        b.fill:SetSize(16, 16)
+        b.fill:SetPoint("CENTER")
+        b.fill:SetVertexColor(c[3][1], c[3][2], c[3][3])
+        b.key = c[1]
+        b:SetScript("OnEnter", function(self) Tip(self, c[2]) end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        b:SetScript("OnClick", function(self)
+            if not CanEditDefs() then Builder:SayReadOnly() return end
+            w().c = self.key
+            form:Fill()
+        end)
+        form.sws[i] = b
+    end
+    r = FormRow(form, "Seen by")
+    form.shown = Segmented(r, B().TAG_SHOWN, function(v) w().shown = v; form:Fill() end)
+    form.shown:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Looks like")
+    form.chip = CreateFrame("Frame", nil, r)
+    form.chip:SetHeight(19)
+    UI():AddPillShape(form.chip, 19)
+    local pl = B().CAT.pl
+    form.chip:SetPillColors({ pl.f2[1], pl.f2[2], pl.f2[3], 1 }, { pl.e[1], pl.e[2], pl.e[3], 0.85 })
+    form.chip:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    form.chip.dotE = form.chip:CreateTexture(nil, "ARTWORK", nil, 1)
+    form.chip.dotE:SetTexture(EUI().MASK)
+    form.chip.dotE:SetSize(9, 9)
+    form.chip.dotE:SetPoint("LEFT", form.chip, "LEFT", 7, 0)
+    form.chip.dotE:SetVertexColor(0, 0, 0, 0.8)
+    form.chip.dot = form.chip:CreateTexture(nil, "ARTWORK", nil, 2)
+    form.chip.dot:SetTexture(EUI().MASK)
+    form.chip.dot:SetSize(7, 7)
+    form.chip.dot:SetPoint("LEFT", form.chip, "LEFT", 8, 0)
+    form.chip.fs = Text(form.chip, "GameFontHighlight", 11)
+    form.chip.fs:SetPoint("LEFT", form.chip, "LEFT", 20, 0)
+    form.where = Text(r, "GameFontHighlightSmall", 11)
+    form.where:SetTextColor(0.62, 0.62, 0.62)
+    form.where:SetText("board, tracker")
+    function form:Fill()
+        local x = w()
+        for _, b in ipairs(self.sws) do b.on:SetShown(b.key == (x.c or "blue")) end
+        self.shown:Set(x.shown or "all")
+        local col = B():TagColor(x.c)
+        self.chip.dot:SetVertexColor(col[1], col[2], col[3])
+        self.chip.fs:SetText(x.n ~= "" and x.n or "Tag")
+        self.chip:SetWidth(20 + TextW(self.chip.fs) + 9)
+        self.where:ClearAllPoints()
+        self.where:SetPoint("LEFT", self.chip, "RIGHT", 7, 0)
+    end
+    return form
+end
+
+-- The score form: name, which way wins, how it counts, on the board, a cap.
+local function ScoreForm(f)
+    local form = CreateFrame("Frame", nil, f)
+    form.rows = {}
+    local w = function() return Defs.cur.work end
+    local r = FormRow(form, "Name")
+    form.name = UI():CreateSleekEditBox(r, POP_CTL, 24)
+    form.name:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Wins")
+    form.high = Segmented(r, { { true, "Higher" }, { false, "Lower" } }, function(v) w().high = v; form:Fill() end)
+    form.high:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Counts")
+    form.fmt = Segmented(r, B().SCORE_FMT, function(v)
+        w().fmt = v
+        w().cap = nil       -- (a cap in seconds isn't one in gold)
+        form:Fill()
+    end)
+    form.fmt:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Board")
+    form.board = SwitchWords(r, function(on) w().board = on; form:Fill() end)
+    form.board:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Cap")
+    form.cap = UI():CreateSleekMenuButton(r, "", 110, function(root)
+        local x = w()
+        root:CreateRadio("No cap", function() return not tonumber(x.cap) end, function()
+            if not CanEditDefs() then Builder:SayReadOnly() return end
+            x.cap = nil; form:Fill()
+        end)
+        for _, n in ipairs(CAPS[x.fmt or "num"] or CAPS.num) do
+            root:CreateRadio(B():FormatScore({ scores = { _ = { fmt = x.fmt } } }, "_", n), function() return tonumber(x.cap) == n end,
+                function()
+                    if not CanEditDefs() then Builder:SayReadOnly() return end
+                    x.cap = n; form:Fill()
+                end)
+        end
+    end, 22)
+    form.cap:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    function form:Fill()
+        local x = w()
+        self.high:Set(x.high ~= false)
+        self.fmt:Set(x.fmt or "num")
+        self.board:SetChecked(x.board and true or false)
+        self.board.words:SetText(x.board and "and in the tracker" or "not shown")
+        local cap = tonumber(x.cap)
+        self.cap:SetText(cap and cap > 0 and B():FormatScore({ scores = { _ = { fmt = x.fmt } } }, "_", cap) or "No cap")
+    end
+    return form
+end
+
+-- The ask form: name, question, how it's answered, and what that needs (choices; who can be picked, votes, self),
+-- time, secret.
+local function AskForm(f)
+    local form = CreateFrame("Frame", nil, f)
+    form.rows = {}
+    local w = function() return Defs.cur.work end
+    local r = FormRow(form, "Name")
+    form.name = UI():CreateSleekEditBox(r, POP_CTL, 24)
+    form.name:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Question")
+    form.q = UI():CreateSleekEditBox(r, POP_CTL, 24)
+    form.q:SetMaxLetters(B().LIMITS.question or 120)
+    form.q:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    UI():SetEditPlaceholder(form.q, "Or the piece gives it")
+    form.q:SetScript("OnTextChanged", function(self, user) if user then w().q = self:GetText() end end)
+    -- the kinds as chips that wrap (A player, A choice, Typed, Yes or no, 1 to 10)
+    r = FormRow(form, "Answer", 50)
+    form.kindRow = r
+    form.kinds = {}
+    for i, k in ipairs(B().ASK_KINDS) do
+        local b = CreateFrame("Button", nil, r)
+        b:SetHeight(22)
+        UI():AddPillShape(b, 22)
+        b.fs = Text(b, "GameFontHighlightSmall", 11)
+        b.fs:SetPoint("CENTER")
+        b.fs:SetText(k[2])
+        b:SetWidth(TextW(b.fs) + 18)
+        b.key = k[1]
+        b:SetScript("OnClick", function(self)
+            if not CanEditDefs() then Builder:SayReadOnly() return end
+            w().kind = self.key
+            form:Fill()
+            Defs:Layout()
+        end)
+        form.kinds[i] = b
+    end
+    r = FormRow(form, "Choices", 22)
+    form.choiceRow = r
+    form.choices = ChipBox(r, POP_CTL, B().LIMITS.choices or 6, B().LIMITS.choice or 40, function(list)
+        w().choices = list
+        form:Fill()
+        Defs:Layout()
+    end)
+    form.choices:SetPoint("TOPLEFT", r, "TOPLEFT", POP_X - 12, -1)
+    r = FormRow(form, "From")
+    form.fromRow = r
+    form.from = UI():CreateSleekMenuButton(r, "", 150, function(root)
+        local x = w()
+        for _, e in ipairs(Defs:Ordered(Def(), "tags")) do
+            local id = e.builtin and "entrants" or e.id
+            root:CreateRadio(DotText(B():TagColor(e.c)) .. " " .. e.n, function() return (x.from or "entrants") == id end,
+                function()
+                    if not CanEditDefs() then Builder:SayReadOnly() return end
+                    x.from = id; form:Fill()
+                end)
+        end
+    end, 22)
+    form.from:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Votes")
+    form.votesRow = r
+    form.votes = UI():CreateSleekMenuButton(r, "", 80, function(root)
+        local x = w()
+        for n = 1, 3 do
+            root:CreateRadio(n .. " each", function() return (tonumber(x.votes) or 1) == n end, function()
+                if not CanEditDefs() then Builder:SayReadOnly() return end
+                x.votes = n; form:Fill()
+            end)
+        end
+    end, 22)
+    form.votes:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Self")
+    form.selfRow = r
+    form.self = SwitchWords(r, function(on) w().self = on; form:Fill() end)
+    form.self:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Time")
+    form.time = UI():CreateSleekMenuButton(r, "", 80, function(root)
+        local x = w()
+        for _, s in ipairs(ASK_TIMES) do
+            root:CreateRadio(B():DurationText(s), function() return (tonumber(x.time) or 60) == s end, function()
+                if not CanEditDefs() then Builder:SayReadOnly() return end
+                x.time = s; form:Fill()
+            end)
+        end
+    end, 22)
+    form.time:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Secret")
+    form.secret = SwitchWords(r, function(on) w().secret = on; form:Fill() end)
+    form.secret:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    function form:Fill()
+        local x = w()
+        local kind = x.kind or "player"
+        -- the kinds' chips, wrapping in the controls' width; the chosen one in the Ask colour
+        local cx, cy = 0, 0
+        for _, b in ipairs(self.kinds) do
+            local bw = b:GetWidth()
+            if cx > 0 and cx + bw > POP_CTL then cx, cy = 0, cy + 26 end
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", self.kindRow, "TOPLEFT", POP_X - 12 + cx, -cy - 1)
+            cx = cx + bw + 4
+            local on = b.key == kind
+            if on then
+                b:SetPillColors({ 0.66, 0.28, 0.42, 0.55 }, { 1, 0.67, 0.77, 0.9 })
+                b.fs:SetTextColor(1, 1, 1)
+            else
+                b:SetPillColors({ 0.055, 0.055, 0.067, 0.9 }, { 0.34, 0.34, 0.38, 0.9 })
+                b.fs:SetTextColor(0.82, 0.82, 0.82)
+            end
+        end
+        self.kindRow:SetHeight(cy + 24)
+        self.choiceRow:SetShown(kind == "choice")
+        if kind == "choice" then
+            self.choices:Set(x.choices or {})
+            self.choiceRow:SetHeight(max(24, self.choices.h + 2))
+        end
+        self.fromRow:SetShown(kind == "player")
+        self.votesRow:SetShown(kind == "player" or kind == "choice")
+        self.selfRow:SetShown(kind == "player")
+        local from = x.from or "entrants"
+        self.from:SetText(from == "entrants" and "Entrants" or B():DefinitionName(Def(), "tags", from))
+        self.votes:SetText((tonumber(x.votes) or 1) .. " each")
+        self.self:SetChecked(x.self and true or false)
+        self.self.words:SetText(x.self and "can pick themselves" or "can't pick themselves")
+        self.time:SetText(B():DurationText(tonumber(x.time) or 60))
+        self.secret:SetChecked(x.secret and true or false)
+        self.secret.words:SetText(x.secret and "hidden until it closes" or "shown as they come")
+    end
+    return form
+end
+
+-- The list form: name, what it holds, its items (places in order, dragged by their grip; texts; questions in a sheet).
+local LIST_ROWS = 10       -- items shown before the list scrolls
+local function ListForm(f)
+    local form = CreateFrame("Frame", nil, f)
+    form.rows = {}
+    local w = function() return Defs.cur.work end
+    local r = FormRow(form, "Name")
+    form.name = UI():CreateSleekEditBox(r, POP_CTL, 24)
+    form.name:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    r = FormRow(form, "Holds")
+    form.kind = Segmented(r, B().LIST_KINDS, function(v)
+        local x = w()
+        if (x.kind or "text") ~= v then
+            if type(x.items) == "table" and #x.items > 0 then
+                -- (texts aren't places: what it held goes; undo brings it back once saved, Close keeps it)
+                ns:Print("%s", "a list holds one kind: its items go when it holds another.")
+            end
+            x.kind, x.items = v, {}
+        end
+        form:Fill()
+        Defs:Layout()
+    end)
+    form.kind:SetPoint("LEFT", r, "LEFT", POP_X - 12, 0)
+    -- the items: a scroll list (places: grip, number, chip; texts: chips)
+    r = FormRow(form, "", 30)
+    form.itemsRow = r
+    r.lab:Hide()
+    form.scroll = UI():CreateScrollFrame(r)
+    form.scroll:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
+    form.scroll:SetSize(POP_W - 24 - 4, 30)
+    form.child = CreateFrame("Frame", nil, form.scroll)
+    form.child:SetSize(POP_W - 30, 10)
+    form.scroll:SetScrollChild(form.child)
+    form.items = {}
+    form.texts = ChipBox(r, POP_W - 24, B().LIMITS.items or 40, 120, function(list)
+        w().items = list
+        form:Fill()
+        Defs:Layout()
+    end, "Add a text")
+    form.texts:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
+    form.qline = Text(r, "GameFontHighlightSmall", 11)
+    form.qline:SetTextColor(0.82, 0.82, 0.82)
+    form.qline:SetPoint("LEFT", r, "LEFT", 0, 0)
+    form.qbtn = UI():CreateSleekButton(r, "Edit questions", 110, 22, function() Defs:EditQuestions() end)
+    form.qbtn:SetPoint("RIGHT", r, "RIGHT", 0, 0)
+    -- add a place (the event's, or a new one), or pick a new one on the map
+    r = FormRow(form, "", 24)
+    form.addRow = r
+    r.lab:Hide()
+    form.addPlace = UI():CreateSleekButton(r, "Add place", 92, 22, function(self)
+        if not CanEditDefs() then Builder:SayReadOnly() return end
+        Defs:ListAddMenu(self)
+    end)
+    form.addPlace:SetPoint("LEFT", r, "LEFT", 0, 0)
+    form.addPlace.plus = form.addPlace:CreateTexture(nil, "ARTWORK")
+    form.addPlace.plus:SetSize(10, 10)
+    EUI():Glyph(form.addPlace.plus, UI().ICON.plus or 39, 0.9, 0.9, 0.9)
+    form.addPlace.plus:SetPoint("LEFT", form.addPlace, "LEFT", 9, 0)
+    form.addPlace:GetFontString():ClearAllPoints()
+    form.addPlace:GetFontString():SetPoint("LEFT", form.addPlace.plus, "RIGHT", 6, 0)
+    form.addPlace:SetWidth(9 + 10 + 6 + TextW(form.addPlace:GetFontString()) + 10)
+    form.onMap = UI():CreateSleekButton(r, "Pick on the map", 120, 22, function()
+        if not CanEditDefs() then Builder:SayReadOnly() return end
+        Defs:ListNewPlace(false)
+    end)
+    form.onMap.icon = form.onMap:CreateTexture(nil, "ARTWORK")
+    form.onMap.icon:SetSize(11, 11)
+    EUI():Glyph(form.onMap.icon, 31, 0.9, 0.9, 0.9)
+    form.onMap.icon:SetPoint("LEFT", form.onMap, "LEFT", 9, 0)
+    form.onMap:GetFontString():ClearAllPoints()
+    form.onMap:GetFontString():SetPoint("LEFT", form.onMap.icon, "RIGHT", 6, 0)
+    form.onMap:SetWidth(9 + 11 + 6 + TextW(form.onMap:GetFontString()) + 10)
+    form.onMap:SetPoint("LEFT", form.addPlace, "RIGHT", 6, 0)
+    -- moving a place in the route: its grip dragged up or down
+    form:SetScript("OnUpdate", function(self)
+        local dr = self.drag
+        if not dr then return end
+        if not (IsMouseButtonDown and IsMouseButtonDown("LeftButton")) then
+            self.drag = nil
+            if self.line then self.line:Hide() end
+            if dr.to and dr.to ~= dr.from then
+                local items = w().items
+                local it = tremove(items, dr.from)
+                tinsert(items, dr.to > dr.from and dr.to - 1 or dr.to, it)
+                self:Fill()
+            end
+            return
+        end
+        local s = self.child:GetEffectiveScale()
+        local _, cy = GetCursorPosition()
+        local top = self.child:GetTop()
+        if not top then return end
+        local rel = top - cy / s
+        local n = #w().items
+        local to = max(1, min(n + 1, floor(rel / 24 + 0.5) + 1))
+        dr.to = to
+        self.line = self.line or self.child:CreateTexture(nil, "OVERLAY")
+        self.line:SetColorTexture(1, 0.82, 0, 0.9)
+        self.line:SetHeight(2)
+        self.line:ClearAllPoints()
+        self.line:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -((to - 1) * 24) + 1)
+        self.line:SetWidth(POP_W - 40)
+        self.line:Show()
+    end)
+    function form:Item(i)
+        local it = self.items[i]
+        if it then return it end
+        it = CreateFrame("Button", nil, self.child)
+        it:SetSize(POP_W - 32, 22)
+        it:RegisterForClicks("RightButtonUp")
+        it.grip = CreateFrame("Button", nil, it)
+        it.grip:SetSize(12, 22)
+        it.grip:SetPoint("LEFT", it, "LEFT", 0, 0)
+        it.grip.dots = {}
+        for d = 1, 6 do
+            local t = it.grip:CreateTexture(nil, "ARTWORK")
+            t:SetColorTexture(0.54, 0.54, 0.56, 0.9)
+            t:SetSize(2, 2)
+            t:SetPoint("TOPLEFT", it.grip, "TOPLEFT", 3 + ((d - 1) % 2) * 4, -6 - floor((d - 1) / 2) * 4)
+        end
+        it.grip:SetScript("OnEnter", function(g) Tip(g, "Drag to move it", "up or down the list.") end)
+        it.grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        it.grip:SetScript("OnMouseDown", function(g, button)
+            if button ~= "LeftButton" then return end
+            if not CanEditDefs() then Builder:SayReadOnly() return end
+            self.drag = { from = g:GetParent().index }
+        end)
+        it.disc = it:CreateTexture(nil, "ARTWORK")
+        it.disc:SetTexture(EUI().MASK)
+        it.disc:SetSize(16, 16)
+        it.disc:SetPoint("LEFT", it, "LEFT", 19, 0)
+        it.num = Text(it, "GameFontHighlightSmall", 9.5)
+        it.num:SetJustifyH("CENTER")
+        it.num:SetPoint("CENTER", it.disc, "CENTER", 0, 0)
+        it.num:SetShadowOffset(0, 0)
+        it.x = CreateFrame("Button", nil, it)
+        it.x:SetSize(16, 16)
+        it.x:SetPoint("RIGHT", it, "RIGHT", -2, 0)
+        it.x.fs = Text(it.x, "GameFontHighlightSmall", 12)
+        it.x.fs:SetText("\195\151")
+        it.x.fs:SetPoint("CENTER", 0, 1)
+        it.x.fs:SetTextColor(0.66, 0.66, 0.68)
+        it.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1); Tip(b, "Take it off the list") end)
+        it.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(0.66, 0.66, 0.68); GameTooltip:Hide() end)
+        it.x:SetScript("OnClick", function(b)
+            if not CanEditDefs() then Builder:SayReadOnly() return end
+            tremove(w().items, b:GetParent().index)
+            self:Fill()
+            Defs:Layout()
+        end)
+        it:SetScript("OnClick", function(row)
+            local items = w().items
+            local i0 = row.index
+            UI():ContextMenu(row, function(root)
+                if i0 > 1 then root:CreateButton("Move up", function() items[i0], items[i0 - 1] = items[i0 - 1], items[i0]; self:Fill() end) end
+                if i0 < #items then root:CreateButton("Move down", function() items[i0], items[i0 + 1] = items[i0 + 1], items[i0]; self:Fill() end) end
+                root:CreateButton("Take it off the list", function() tremove(items, i0); self:Fill(); Defs:Layout() end)
+            end)
+        end)
+        self.items[i] = it
+        return it
+    end
+    function form:Fill()
+        local x = w()
+        local kind = x.kind or "text"
+        x.items = type(x.items) == "table" and x.items or {}
+        self.kind:Set(kind)
+        for _, it in ipairs(self.items) do
+            if it.chip then EP():Release(it.chip); it.chip = nil end
+            it:Hide()
+        end
+        self.scroll:SetShown(kind == "place")
+        self.texts:SetShown(kind == "text")
+        self.qline:SetShown(kind == "question")
+        self.qbtn:SetShown(kind == "question")
+        self.addRow:SetShown(kind == "place")
+        local h = 24
+        if kind == "place" then
+            local n = #x.items
+            for i, pid in ipairs(x.items) do
+                local it = self:Item(i)
+                it.index = i
+                it:ClearAllPoints()
+                it:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -(i - 1) * 24)
+                it:Show()
+                -- the places in the order they're walked, the last one (the finish) in gold
+                local ends = n >= 2 and i == n
+                it.num:SetText(ends and "F" or i)
+                if ends then
+                    it.disc:SetVertexColor(1, 0.82, 0)
+                    it.num:SetTextColor(0.16, 0.11, 0)
+                else
+                    it.disc:SetVertexColor(Defs.TEAL[1], Defs.TEAL[2], Defs.TEAL[3])
+                    it.num:SetTextColor(0.01, 0.16, 0.2)
+                end
+                if B():Definition(Def(), "places", pid) then
+                    it.chip = EP():DrawChip(it, "place", pid, { def = Def(), static = true })
+                    it.chip:SetPoint("LEFT", it, "LEFT", 41, 0)
+                end
+            end
+            self.child:SetHeight(max(10, n * 24))
+            h = max(1, min(n, LIST_ROWS)) * 24
+            self.scroll:SetHeight(h)
+            if n == 0 then
+                self.qline:SetShown(true)
+                self.qline:SetWordWrap(false)
+                self.qline:SetWidth(POP_W - 24)
+                self.qline:SetText("No places yet: add the first one.")
+                h = 20
+            end
+        elseif kind == "text" then
+            self.texts:Set(x.items)
+            h = self.texts.h + 2
+        else
+            local n = #x.items
+            self.qline:SetWordWrap(true)
+            self.qline:SetWidth(POP_W - 24 - 120)
+            self.qline:SetText(n == 0 and "No questions yet." or (Plural(n, "question", "questions") .. ", their right answers and points"))
+            h = 30
+        end
+        self.itemsRow:SetHeight(h)
+    end
+    return form
+end
+
+local FORMS = { tags = TagForm, scores = ScoreForm, asks = AskForm, lists = ListForm }
+
+-- Opens kind's editor for id (nil: a new one, not in the event until Save), next to its palette row (row: that row,
+-- else the category's row is found: the palette shows that category). opts.onSaved(id) after Save.
+function Defs:Open(kind, id, row, opts)
+    if not FORMS[kind] then return end
+    local d = Def()
+    if id and not B():Definition(d, kind, id) then return end
+    Builder:ClosePicker()
+    QSheet:Close()
+    local f = ui.dpop or CreatePop()
+    -- the palette shows the category, the row is lit
+    if S.cat ~= self.CAT[kind] or (S.search or "") ~= "" then
+        S.cat = self.CAT[kind]
+        S.search = ""
+        if ui.search then ui.search:SetText("") end
+    end
+    local work
+    if id then
+        work = Copy(B():Definition(d, kind, id))
+    else
+        work = { n = "" }
+        if kind == "tags" then work.c, work.shown = "blue", "all"
+        elseif kind == "scores" then work.high, work.fmt, work.board = true, "num", true
+        elseif kind == "lists" then work.kind, work.items = "text", {}
+        elseif kind == "asks" then
+            work.kind, work.q, work.from, work.votes, work.self, work.time, work.secret = "player", "", "entrants", 1, false, 60, false
+        end
+    end
+    self.cur = { kind = kind, id = id, work = work, onSaved = opts and opts.onSaved }
+    for k, form in pairs(f.forms) do form:Hide() end
+    local form = f.forms[kind]
+    if not form then
+        form = FORMS[kind](f)
+        form:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -36)
+        form:SetWidth(POP_W)
+        f.forms[kind] = form
+        -- the name: the title follows it; Enter saves, Escape leaves it as it was
+        form.name:SetMaxLetters(MAX_NAME)
+        form.name:SetScript("OnTextChanged", function(self, user)
+            if not Defs.cur then return end
+            if user then Defs.cur.work.n = self:GetText() end
+            f.title:SetText(self:GetText() ~= "" and self:GetText() or ("New " .. B().DEF_KINDS[Defs.cur.kind].label))
+            f.err:SetText("")
+            if form.Fill and user and Defs.cur.kind == "tags" then form:Fill() end
+        end)
+        form.name:SetScript("OnEnterPressed", function() Defs:Save() end)
+        form.name:SetScript("OnEscapePressed", function() Defs:Close() end)
+    end
+    form:Show()
+    f.kind:SetText(B().DEF_KINDS[kind].label)
+    form.name:SetText(work.n or "")
+    f.title:SetText((work.n and work.n ~= "") and work.n or ("New " .. B().DEF_KINDS[kind].label))
+    form:Fill()
+    if kind == "asks" then form.q:SetText(work.q or "") end
+    f.err:SetText("")
+    local editable = CanEditDefs()
+    f.save:SetShown(editable)
+    f.bin:SetShown(editable and id ~= nil)
+    if not editable then
+        f.foot:SetText("By " .. EUI():Plain(d.by) .. ": make a copy to change it")
+    elseif id then
+        local n = B():DefinitionUses(d, kind, id)
+        f.foot:SetText(n == 0 and "No piece uses it yet" or (Plural(n, "piece uses", "pieces use") .. " it"))
+    else
+        f.foot:SetText("")
+    end
+    f:Show()
+    f:Raise()
+    Builder:RenderPalette()
+    self:Layout()
+    if editable and not id then form.name:SetFocus() end
+end
+
+-- The popover's height from its form, and its place next to the row (its pointer at the row's middle; inside the
+-- builder's body).
+function Defs:Layout()
+    local f = ui.dpop
+    local cur = self.cur
+    if not (f and cur) then return end
+    local form = f.forms[cur.kind]
+    local y = 10
+    for _, r in ipairs(form.rows) do
+        if r:IsShown() then
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", form, "TOPLEFT", 12, -y)
+            y = y + r:GetHeight() + 9
+        end
+    end
+    form:SetHeight(y + 3)
+    local h = 36 + y + 3 + 40
+    f:SetHeight(h)
+    -- the row it's for: where the palette drew it (its scroll list starts 38 below the palette's top)
+    local pal = ui.pal
+    local key = (cur.id and (cur.kind .. ":" .. tostring(cur.id))) or ("add:" .. cur.kind)
+    local ry = pal and pal.rowY and pal.rowY[key]
+    local palH = pal and pal:GetHeight() or 0
+    if palH < 100 then palH = WIN_H - 31 - TOP_H end
+    f:ClearAllPoints()
+    if not ry then
+        f:SetPoint("TOPLEFT", pal, "TOPRIGHT", 12, -8)
+        f.ptr:Hide()
+        f.ptrE:Hide()
+        return
+    end
+    local off = pal.scroll.GetVerticalScroll and pal.scroll:GetVerticalScroll() or 0
+    local mid = 38 + ry.y + ry.h / 2 - (tonumber(off) or 0)
+    -- its pointer 24 below its top, at the row; inside the builder's body
+    local top = max(6, min(mid - 24, palH - 6 - h))
+    local ay = mid - top
+    f:SetPoint("TOPLEFT", pal, "TOPRIGHT", 12, -top)
+    local showPtr = ay >= 12 and ay <= h - 12 and mid >= 38 and mid <= palH
+    f.ptr:SetShown(showPtr)
+    f.ptrE:SetShown(showPtr)
+    f.ptr:ClearAllPoints()
+    f.ptr:SetPoint("CENTER", f, "TOPLEFT", 0, -ay)
+    f.ptrE:ClearAllPoints()
+    f.ptrE:SetPoint("CENTER", f, "TOPLEFT", -1, -ay)
+end
+
+function Defs:Close(saved)
+    -- (hidden whether or not it shows: a frame hidden with its window would come back with it)
+    if self.cur then self.cur.hold = nil end
+    self.cur = nil
+    if ui.dpop then ui.dpop:Hide() end
+    if ui.pal and win and win:IsShown() then Builder:RenderPalette() end
+end
+
+function Defs:Err(text)
+    if ui.dpop then
+        ui.dpop.err:SetText(text)
+        ui.dpop.foot:SetText("")
+    end
+end
+
+-- Save: the editor's copy into the event (one step undo takes back).
+function Defs:Save()
+    local cur = self.cur
+    if not cur then return end
+    if not CanEditDefs() then Builder:SayReadOnly() return end
+    local w = cur.work
+    local name = Clean(w.n, MAX_NAME)
+    if name == "" then self:Err("Type a name first") return end
+    local taken = self:NameTaken(cur.kind, name, cur.id)
+    if taken then self:Err(taken) return end
+    w.n = name
+    if cur.kind == "asks" then
+        w.q = Clean(w.q, B().LIMITS.question or 120)
+        if w.kind ~= "choice" then w.choices = nil end
+    end
+    if cur.kind == "lists" then
+        local all, mine = 0, #(w.items or {})
+        for lid, l in pairs(Def().lists or {}) do
+            if lid ~= cur.id and type(l) == "table" and type(l.items) == "table" then all = all + #l.items end
+        end
+        local cap = B().LIMITS.allItems or 80
+        if all + mine > cap then
+            self:Err(("An event's lists hold %d items in all: %d left"):format(cap, max(0, cap - all)))
+            return
+        end
+    end
+    local d = Def()
+    local before = Snapshot()
+    local id = cur.id
+    if id then
+        d[cur.kind] = type(d[cur.kind]) == "table" and d[cur.kind] or {}
+        d[cur.kind][id] = Copy(w)
+    else
+        id = B():NewDefinition(d, cur.kind, w)
+        if not id then
+            self:Err(("An event has %d %ss at most"):format(cur.kind == "places" and B().LIMITS.places or B().LIMITS.defs,
+                B().DEF_KINDS[cur.kind].label))
+            return
+        end
+    end
+    local onSaved, kind, wasNew = cur.onSaved, cur.kind, cur.id == nil
+    self:Close(true)
+    Changed(before)
+    if onSaved then onSaved(id) end
+    -- a new list of questions: they're typed in their sheet
+    if kind == "lists" and wasNew and w.kind == "question" then QSheet:Open(id) end
+end
+
+-- The list editor's "Add place": one of the event's places, or a new one (from where I stand, or on the map).
+function Defs:ListAddMenu(owner)
+    local cur = self.cur
+    if not cur then return end
+    UI():ContextMenu(owner, function(root)
+        for _, e in ipairs(Defs:Ordered(Def(), "places")) do
+            root:CreateButton(e.n, function()
+                if #cur.work.items >= (B().LIMITS.items or 40) then ns:Print("a list holds %d items at most.", B().LIMITS.items or 40) return end
+                tinsert(cur.work.items, e.id)
+                ui.dpop.forms.lists:Fill()
+                Defs:Layout()
+            end)
+        end
+        if #B():Defs(Def(), "places") > 0 then root:CreateDivider() end
+        root:CreateButton(UI():AtlasIconText(37, 12) .. " Set from where I stand", function() Defs:ListNewPlace(true) end)
+        root:CreateButton(UI():AtlasIconText(31, 12) .. " Pick on the map", function() Defs:ListNewPlace(false) end)
+    end)
+end
+
+-- A new place for the list being edited: the map sheet (the editor waits behind it), then it's the list's last.
+function Defs:ListNewPlace(stand)
+    local cur = self.cur
+    if not cur then return end
+    cur.hold = true
+    ui.dpop:Hide()
+    MapSheet:Open({ stand = stand, onSaved = function(pid)
+        if Defs.cur == cur then tinsert(cur.work.items, pid) end
+    end, onClosed = function()
+        if Defs.cur == cur and ui.dpop then
+            cur.hold = nil
+            ui.dpop:Show()
+            ui.dpop.forms.lists:Fill()
+            Defs:Layout()
+            Builder:RenderPalette()
+        end
+    end })
+end
+
+-- A list of questions: its sheet (the list saved first when it's new).
+function Defs:EditQuestions()
+    local cur = self.cur
+    if not cur then return end
+    if not cur.id then
+        cur.work.kind = "question"
+        self:Save()
+        return
+    end
+    local id = cur.id
+    self:Close()
+    QSheet:Open(id)
+end
+
+---------------------------------------------------------------------------
+-- The questions of a list: a wide sheet (question, right answers as chips, points)
+---------------------------------------------------------------------------
+
+local QS_W = 988
+local QCOL = { n = 12, q = 40, a = 380, p = QS_W - 12 - 52 }     -- the columns' x
+
+function QSheet:Create()
+    local f = CreateFrame("Frame", "DisasterZoneEventQuestions", win)
+    f:SetFrameStrata("FULLSCREEN")
+    f:SetFrameLevel(20)
+    f:SetSize(QS_W, 460)
+    f:EnableMouse(true)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    VGrad(f.bg, { 0.11, 0.11, 0.129, 1 }, { 0.078, 0.078, 0.094, 1 })
+    EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
+    f.icon = f:CreateTexture(nil, "ARTWORK")
+    f.icon:SetSize(20, 20)
+    f.icon:SetPoint("LEFT", f, "TOPLEFT", 12, -20)
+    f.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    -- the list's name (it reads as the title; a click lets it be changed)
+    f.name = CreateFrame("EditBox", nil, f)
+    f.name:SetAutoFocus(false)
+    f.name:SetFontObject("GameFontNormal")
+    Sized(f.name, 14)
+    f.name:SetSize(200, 24)
+    f.name:SetPoint("LEFT", f.icon, "RIGHT", 9, 0)
+    f.name:SetMaxLetters(MAX_NAME)
+    f.name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    f.name:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    f.name:SetScript("OnTextChanged", function() QSheet:FitName() end)
+    f.probe = Text(f, "GameFontNormal", 14)
+    f.probe:Hide()
+    f.sub = Text(f, "GameFontHighlightSmall", 11)
+    f.sub:SetTextColor(0.62, 0.62, 0.62)
+    f.x = CreateFrame("Button", nil, f)
+    f.x:SetSize(20, 20)
+    f.x:SetPoint("RIGHT", f, "TOPRIGHT", -10, -20)
+    f.x.fs = Text(f.x, "GameFontHighlight", 17)
+    f.x.fs:SetText("\195\151")
+    f.x.fs:SetPoint("CENTER", 0, 1)
+    f.x.fs:SetTextColor(0.66, 0.66, 0.68)
+    f.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1); Tip(b, "Close", "Changes not kept: Done keeps them.") end)
+    f.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(0.66, 0.66, 0.68); GameTooltip:Hide() end)
+    f.x:SetScript("OnClick", function() QSheet:Close() end)
+    local function rule(y)
+        local t = f:CreateTexture(nil, "BORDER")
+        t:SetColorTexture(1, 1, 1, 0.07)
+        t:SetHeight(1)
+        t:SetPoint("TOPLEFT", f, "TOPLEFT", 1, y)
+        t:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, y)
+        return t
+    end
+    rule(-40)
+    -- the column heads
+    local function head(text, x, right)
+        local h = Text(f, "GameFontHighlightSmall", 10.5)
+        h:SetTextColor(0.62, 0.62, 0.62)
+        h:SetText(text)
+        if right then h:SetPoint("RIGHT", f, "TOPRIGHT", -12, -52) else h:SetPoint("LEFT", f, "TOPLEFT", x, -52) end
+        return h
+    end
+    head("Question", QCOL.q)
+    head("Right answers", QCOL.a)
+    head("Points", 0, true)
+    rule(-64)
+    f.scroll = UI():CreateScrollFrame(f)
+    f.scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -64)
+    f.scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -4, 46)
+    f.scroll:SetSize(QS_W - 4, 300)
+    f.child = CreateFrame("Frame", nil, f.scroll)
+    f.child:SetSize(QS_W - 6, 10)
+    f.scroll:SetScrollChild(f.child)
+    f.rows = {}
+    f.foot = rule(-1)
+    f.foot:ClearAllPoints()
+    f.foot:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 46)
+    f.foot:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 46)
+    f.note = Text(f, "GameFontHighlightSmall", 11)
+    f.note:SetTextColor(0.62, 0.62, 0.62)
+    f.note:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 23)
+    f.note:SetText("Answers count however they're spelled: capitals and spaces don't matter")
+    f.done = UI():CreateSleekButton(f, "Done", 64, 24, function() QSheet:Done() end, "primary")
+    f.done:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 11)
+    f.add = UI():CreateSleekButton(f, "Add question", 120, 24, function() QSheet:AddQuestion() end)
+    f.add.plus = f.add:CreateTexture(nil, "ARTWORK")
+    f.add.plus:SetSize(10, 10)
+    EUI():Glyph(f.add.plus, UI().ICON.plus or 39, 0.9, 0.9, 0.9)
+    f.add.plus:SetPoint("LEFT", f.add, "LEFT", 11, 0)
+    f.add:GetFontString():ClearAllPoints()
+    f.add:GetFontString():SetPoint("LEFT", f.add.plus, "RIGHT", 7, 0)
+    f.add:SetWidth(11 + 10 + 7 + TextW(f.add:GetFontString()) + 12)
+    f.add:SetPoint("RIGHT", f.done, "LEFT", -6, 0)
+    f.err = Text(f, "GameFontHighlightSmall", 11)
+    f.err:SetTextColor(1, 0.54, 0.48)
+    f.err:SetPoint("RIGHT", f.add, "LEFT", -12, 0)
+    f:SetScript("OnShow", function() Defs.Dim(true) end)
+    f:SetScript("OnHide", function()
+        QSheet.cur = nil
+        Defs.Dim(false)
+        if win and win:IsShown() then Builder:RenderPalette() end
+    end)
+    f:Hide()
+    ui.qsheet = f
+    return f
+end
+
+function QSheet:Open(lid)
+    local d = Def()
+    local l = B():Definition(d, "lists", lid)
+    if not l then return end
+    Builder:ClosePicker()
+    Defs:Close()
+    local f = ui.qsheet or self:Create()
+    local items = {}
+    for _, it in ipairs(type(l.items) == "table" and l.items or {}) do
+        if type(it) == "table" then items[#items + 1] = { q = it.q or "", a = Copy(it.a or {}), pts = tonumber(it.pts) or 1 } end
+    end
+    self.cur = { lid = lid, name = l.n, items = items }
+    f.icon:SetTexture(d.icon or "Interface\\Icons\\INV_Misc_Book_11")
+    f.name:SetText(l.n or "")
+    self:FitName()
+    f.err:SetText("")
+    f.add:SetShown(CanEditDefs())
+    f:ClearAllPoints()
+    f:SetPoint("TOP", win.content or win, "TOP", 0, -20)
+    f:Show()
+    f:Raise()
+    if #items == 0 and CanEditDefs() then self:AddQuestion() else self:Render() end
+    Builder:RenderPalette()
+end
+
+function QSheet:Close()
+    self.cur = nil
+    if ui.qsheet then ui.qsheet:Hide() end
+    Defs.Dim(false)
+end
+
+-- A question row: its number, the question, its answers as chips, its points. The one picked is edited in place.
+function QSheet:Row(i)
+    local f = ui.qsheet
+    local r = f.rows[i]
+    if r then return r end
+    r = CreateFrame("Button", nil, f.child)
+    r:SetSize(QS_W - 6, 30)
+    r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    r.sel = r:CreateTexture(nil, "BACKGROUND")
+    r.sel:SetAllPoints()
+    r.sel:SetColorTexture(1, 0.82, 0, 0.08)
+    r.bar = r:CreateTexture(nil, "ARTWORK")
+    r.bar:SetColorTexture(1, 0.82, 0)
+    r.bar:SetWidth(2)
+    r.bar:SetPoint("TOPLEFT")
+    r.bar:SetPoint("BOTTOMLEFT")
+    r.rule = r:CreateTexture(nil, "BORDER")
+    r.rule:SetColorTexture(1, 1, 1, 0.05)
+    r.rule:SetHeight(1)
+    r.rule:SetPoint("BOTTOMLEFT")
+    r.rule:SetPoint("BOTTOMRIGHT")
+    r.hov = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hov:SetAllPoints()
+    r.hov:SetColorTexture(1, 1, 1, 0.03)
+    r.n = Text(r, "GameFontHighlightSmall", 12)
+    r.n:SetJustifyH("RIGHT")
+    r.n:SetWidth(18)
+    r.q = Text(r, "GameFontHighlight", 11.5)
+    r.q:SetWordWrap(true)
+    r.q:SetWidth(QCOL.a - QCOL.q - 16)
+    r.qe = UI():CreateSleekEditBox(r, QCOL.a - QCOL.q - 14, 24)
+    r.qe:SetMaxLetters(B().LIMITS.question or 120)
+    r.qe:SetScript("OnTextChanged", function(self, user)
+        if user and QSheet.cur and QSheet.cur.items[r.index] then QSheet.cur.items[r.index].q = self:GetText() end
+    end)
+    r.qe:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    r.qe:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    r.chips = {}
+    r.p = Text(r, "GameFontHighlight", 13)
+    r.p:SetJustifyH("RIGHT")
+    r.p:SetTextColor(1, 0.88, 0.54)
+    r.pts = UI():CreateSleekMenuButton(r, "1", 46, function(root)
+        for n = 1, 5 do
+            root:CreateRadio(tostring(n), function() return (QSheet.cur.items[r.index].pts or 1) == n end, function()
+                QSheet.cur.items[r.index].pts = n
+                QSheet:Render()
+            end)
+        end
+    end, 22)
+    r.bin = UI():CreateTipIconButton(r, 20, UI().ICON.trash, "Delete the question", nil, function()
+        if not CanEditDefs() then Builder:SayReadOnly() return end
+        tremove(QSheet.cur.items, r.index)
+        QSheet.cur.sel = nil
+        QSheet:Render()
+    end)
+    r.box = ChipBox(r, QCOL.p - QCOL.a - 40, B().LIMITS.answers or 6, B().LIMITS.answer or 40, function(list)
+        QSheet.cur.items[r.index].a = list
+        QSheet:Render()
+    end)
+    r:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then
+            if not CanEditDefs() then return end
+            UI():ContextMenu(self, function(root)
+                root:CreateButton("|cffff8d80" .. UI():AtlasIconText(12, 12, { 1, 0.55, 0.5 }) .. " Delete the question|r", function()
+                    tremove(QSheet.cur.items, self.index)
+                    QSheet.cur.sel = nil
+                    QSheet:Render()
+                end)
+            end)
+            return
+        end
+        if not CanEditDefs() then Builder:SayReadOnly() return end
+        QSheet.cur.sel = self.index
+        QSheet:Render()
+        self.qe:SetFocus()
+    end)
+    f.rows[i] = r
+    return r
+end
+
+-- Read-only answer chips in a row (wrapping in their column).
+local function AnswerChips(r, list, width)
+    for _, c in ipairs(r.chips) do c:Hide() end
+    local x, y = 0, 0
+    for i, s in ipairs(list) do
+        local c = r.chips[i]
+        if not c then
+            c = CreateFrame("Frame", nil, r)
+            c:SetHeight(19)
+            UI():AddPillShape(c, 19)
+            c:SetPillColors({ 1, 1, 1, 0.04 }, { 1, 1, 1, 0.14 })
+            c.fs = Text(c, "GameFontHighlightSmall", 10.5)
+            c.fs:SetTextColor(0.85, 0.85, 0.85)
+            c.fs:SetPoint("LEFT", c, "LEFT", 8, 0)
+            r.chips[i] = c
+        end
+        c.fs:SetText(s)
+        local w = min(width, TextW(c.fs) + 16)
+        c:SetWidth(w)
+        if x > 0 and x + w > width then x, y = 0, y + 23 end
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", r, "TOPLEFT", QCOL.a + x, -(6 + y))
+        c:Show()
+        x = x + w + 4
+    end
+    return y + 19
+end
+
+function QSheet:Render()
+    local f, cur = ui.qsheet, self.cur
+    if not (f and cur) then return end
+    for _, r in ipairs(f.rows) do r:Hide() end
+    local y = 0
+    for i, it in ipairs(cur.items) do
+        local r = self:Row(i)
+        r.index = i
+        local on = cur.sel == i
+        r.sel:SetShown(on)
+        r.bar:SetShown(on)
+        r.n:SetText(i)
+        r.n:SetTextColor(on and 1 or 0.44, on and 0.82 or 0.44, on and 0 or 0.46)
+        r.q:SetShown(not on)
+        r.qe:SetShown(on)
+        r.p:SetShown(not on)
+        r.pts:SetShown(on)
+        r.bin:SetShown(on)
+        r.box:SetShown(on)
+        local h
+        if on then
+            if not r.qe:HasFocus() then r.qe:SetText(it.q or "") end
+            for _, c in ipairs(r.chips) do c:Hide() end
+            r.box:Set(it.a)
+            r.pts:SetText(tostring(it.pts or 1))
+            h = max(38, r.box.h + 16)
+        else
+            r.q:SetText(it.q ~= "" and it.q or "|cff8a8a90(no question yet)|r")
+            local qh = max(14, floor((r.q:GetStringHeight() or 14) + 0.5))
+            local ah = AnswerChips(r, it.a or {}, QCOL.p - QCOL.a - 12)
+            r.p:SetText(tostring(it.pts or 1))
+            h = max(30, qh + 16, ah + 11)
+        end
+        r:SetHeight(h)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", f.child, "TOPLEFT", 0, -y)
+        r:Show()
+        r.n:ClearAllPoints()
+        r.n:SetPoint("RIGHT", r, "LEFT", QCOL.n + 18, 0)
+        r.q:ClearAllPoints()
+        r.q:SetPoint("LEFT", r, "LEFT", QCOL.q, 0)
+        r.qe:ClearAllPoints()
+        r.qe:SetPoint("LEFT", r, "LEFT", QCOL.q - 4, 0)
+        r.box:ClearAllPoints()
+        r.box:SetPoint("LEFT", r, "LEFT", QCOL.a, 0)
+        r.p:ClearAllPoints()
+        r.p:SetPoint("RIGHT", r, "RIGHT", -12, 0)
+        r.pts:ClearAllPoints()
+        r.pts:SetPoint("RIGHT", r, "RIGHT", -12, 0)
+        r.bin:ClearAllPoints()
+        r.bin:SetPoint("RIGHT", r.pts, "LEFT", -6, 0)
+        y = y + h
+    end
+    f.child:SetHeight(max(10, y))
+    -- the sheet grows with its questions, up to the window's room (then it scrolls)
+    local room = ((win.content and win.content:GetHeight()) or (WIN_H - 31)) - 40
+    if room < 200 then room = WIN_H - 31 - 40 end
+    f:SetHeight(max(200, min(room, 64 + y + 46 + 8)))
+    local d = Def()
+    f.sub:SetText("a list of questions · " .. (d.name or ""))
+    f.sub:ClearAllPoints()
+    f.sub:SetPoint("LEFT", f.name, "RIGHT", 4, 0)
+    self:FitName()
+end
+
+-- The list's name as wide as its words (it reads as the title; the line after it follows).
+function QSheet:FitName()
+    local f = ui.qsheet
+    if not f then return end
+    f.probe:SetText(f.name:GetText() or "")
+    f.name:SetWidth(min(300, max(40, TextW(f.probe) + 8)))
+end
+
+function QSheet:AddQuestion()
+    local cur = self.cur
+    if not cur then return end
+    if not CanEditDefs() then Builder:SayReadOnly() return end
+    if #cur.items >= (B().LIMITS.items or 40) then
+        ui.qsheet.err:SetText(("A list holds %d at most"):format(B().LIMITS.items or 40))
+        return
+    end
+    cur.items[#cur.items + 1] = { q = "", a = {}, pts = 1 }
+    cur.sel = #cur.items
+    self:Render()
+    local r = ui.qsheet.rows[cur.sel]
+    if r then r.qe:SetFocus() end
+    -- (the new one in view)
+    local sc = ui.qsheet.scroll
+    if sc.SetVerticalScroll and sc.GetVerticalScrollRange then sc:SetVerticalScroll(sc:GetVerticalScrollRange() or 0) end
+end
+
+-- Done: the questions into the list (empty ones dropped), the name as typed; one undo step.
+function QSheet:Done()
+    local cur, f = self.cur, ui.qsheet
+    if not cur then return end
+    if not CanEditDefs() then self:Close() return end
+    local d = Def()
+    local l = B():Definition(d, "lists", cur.lid)
+    if not l then self:Close() return end
+    local name = Clean(f.name:GetText(), MAX_NAME)
+    if name == "" then f.err:SetText("Type the list's name first") return end
+    local taken = Defs:NameTaken("lists", name, cur.lid)
+    if taken then f.err:SetText(taken) return end
+    local items = {}
+    for _, it in ipairs(cur.items) do
+        local q = Clean(it.q, B().LIMITS.question or 120)
+        if q ~= "" then items[#items + 1] = { q = q, a = it.a or {}, pts = it.pts or 1 } end
+    end
+    local all = 0
+    for lid, x in pairs(d.lists or {}) do
+        if lid ~= cur.lid and type(x) == "table" and type(x.items) == "table" then all = all + #x.items end
+    end
+    local cap = B().LIMITS.allItems or 80
+    if all + #items > cap then
+        f.err:SetText(("An event's lists hold %d items in all: %d left"):format(cap, max(0, cap - all)))
+        return
+    end
+    local before = Snapshot()
+    l.n, l.kind, l.items = name, "question", items
+    self:Close()
+    Changed(before)
+end
+
+---------------------------------------------------------------------------
+-- Places on a map: a zone's art from the game (C_Map's tiles), places as rings at their size, me as an arrow
+---------------------------------------------------------------------------
+
+local GOLD3 = { 1, 0.82, 0 }
+local MS_W, MS_H = 848, 542            -- the map sheet
+local MAP_W, MAP_H = 576, 384          -- its map (a zone's 1002 x 668 art fits it at 1x)
+local ZOOMS_MAP = { 1, 1.5, 2, 3, 4, 6 }
+
+-- A map's art layer (its size and tiles), or nil where the game doesn't say.
+function MapSheet.Layer(map)
+    if not (C_Map and C_Map.GetMapArtLayers) or not tonumber(map) then return nil end
+    local ok, layers = pcall(C_Map.GetMapArtLayers, tonumber(map))
+    local L = ok and type(layers) == "table" and layers[1] or nil
+    if L and (L.layerWidth or 0) > 0 and (L.tileWidth or 0) > 0 and (L.tileHeight or 0) > 0 then return L end
+    return nil
+end
+
+
+-- A map's size in yards (its whole width), from where its corners are in the world; nil where unknown.
+local yardCache = {}
+function MapSheet.Yards(map)
+    map = tonumber(map)
+    if not map then return nil end
+    if yardCache[map] then return yardCache[map] end
+    local function world(x, y)
+        local Sn = ns.EventSensors
+        if Sn and Sn.World then return Sn.World(map, x, y) end
+        if not (C_Map and C_Map.GetWorldPosFromMapPos and CreateVector2D) then return nil end
+        local ok, cont, v = pcall(C_Map.GetWorldPosFromMapPos, map, CreateVector2D(x, y))
+        if not ok or not cont or type(v) ~= "table" or not v.GetXY then return nil end
+        local wx, wy = v:GetXY()
+        return cont, wx, wy
+    end
+    local c1, ax, ay = world(0, 0)
+    local c2, bx, by = world(1, 0)
+    if not (c1 and c2) or c1 ~= c2 then return nil end
+    local w = sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
+    if w <= 1 then return nil end
+    yardCache[map] = w
+    return w
+end
+
+function MapSheet.MapName(map)
+    if not (C_Map and C_Map.GetMapInfo and tonumber(map)) then return nil end
+    local ok, info = pcall(C_Map.GetMapInfo, tonumber(map))
+    return ok and type(info) == "table" and info.name or nil
+end
+
+-- Where I stand: { map, x, y, z, sz } or nil and why not (in an instance, or the game doesn't say).
+function MapSheet.Here()
+    local inside = IsInInstance and IsInInstance()
+    if inside then return nil, "Places work in the open world, not in dungeons or raids: step outside and try again." end
+    local pos
+    local Sn = ns.EventSensors
+    if Sn and Sn.MyPos then pos = Sn:MyPos() end
+    if not pos and C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition then
+        local map = C_Map.GetBestMapForUnit("player")
+        local v = map and C_Map.GetPlayerMapPosition(map, "player")
+        local x, y
+        if type(v) == "table" and v.GetXY then x, y = v:GetXY() end
+        if x and y then pos = { map = map, x = x, y = y } end
+    end
+    if not pos then return nil, "The game doesn't say where you are here: try again in the open world." end
+    -- (the zone as its map names it: the same words the map sheet's zones have)
+    local z = MapSheet.MapName(pos.map) or (GetZoneText and GetZoneText())
+    local sz = GetSubZoneText and GetSubZoneText()
+    pos.z = (z and z ~= "") and z or nil
+    pos.sz = (sz and sz ~= "" and sz ~= pos.z) and sz or nil
+    return pos
+end
+
+-- A map view: view:Set(map, cx, cy, zoom) draws the art around map point cx, cy (0..1); view:ToView(x, y) and
+-- view:FromView(px, py) turn map points into the view's pixels (y down) and back; rings and labels drawn over it
+-- between view:Begin() and view:Done().
+function MapSheet.NewView(parent, w, h)
+    -- (the events' shared zone map: the same art, rings and frame as the board's and the tracker's)
+    local v = EUI():CreateZoneMap(parent, w, h)
+    v.W, v.H = w, h
+    v.ov = CreateFrame("Frame", nil, v)
+    v.ov:SetAllPoints()
+    v.ov:SetFrameLevel(v.canvas:GetFrameLevel() + 4)
+    v.circles, v.lines, v.texs, v.fonts = {}, {}, {}, {}
+    v.msg = Text(v.ov, "GameFontHighlight", 12)
+    v.msg:SetWordWrap(true)
+    v.msg:SetWidth(w - 60)
+    v.msg:SetJustifyH("CENTER")
+    v.msg:SetPoint("CENTER")
+    v.msg:SetTextColor(0.85, 0.85, 0.85)
+    v.msg:Hide()
+    -- map point cx, cy (0..1) in the middle, zoom z (1: the whole zone)
+    function v:Set(map, cx, cy, z)
+        local art = self:SetMap(map)
+        self.layer = art and self.L or nil
+        local LW, LH = self:ArtSize()
+        self.lw, self.lh = LW, LH
+        self.z = z or 1
+        local base = max(1, (self.W * LH) / (self.H * LW))
+        local spanX = base / self.z
+        local spanY = self.H * spanX * LW / (self.W * LH)
+        local function fit(c, span)
+            if span >= 1 then return (1 - span) / 2 end
+            return max(0, min(1 - span, (c or 0.5) - span / 2))
+        end
+        self:SetView(fit(cx, spanX), fit(cy, spanY), spanX)
+        self.cx, self.cy = self.x0 + spanX / 2, self.y0 + spanY / 2
+        if not art then
+            self.msg:SetText(self.map and "The game doesn't draw this zone's map here: set the place from where you stand."
+                or "Pick a zone above, or set the place from where you stand.")
+            self.msg:Show()
+        else
+            self.msg:Hide()
+        end
+        return art
+    end
+    function v:ToView(x, y) return self:P(x, y) end
+    function v:FromView(px, py) return self.x0 + px / (self.lw * self.s), self.y0 + py / (self.lh * self.s) end
+    -- pixels a yard (a guess of 4000 a zone where the game doesn't say)
+    function v:PerYard() return self:Px(1) or (self.lw * self.s / 4000) end
+    -- the cursor in the view (y down), and whether it's on it
+    function v:Cursor()
+        local l, t = self:GetLeft(), self:GetTop()
+        if not l then return nil end
+        local s = self:GetEffectiveScale()
+        local x, y = GetCursorPosition()
+        local px, py = x / s - l, t - y / s
+        if px < 0 or py < 0 or px > self.W or py > self.H then return px, py, false end
+        return px, py, true
+    end
+    function v:Begin() self.nc, self.nl, self.nt, self.nf = 0, 0, 0, 0 end
+    function v:Line(x1, y1, x2, y2, c, a, thick, sub)
+        self.nl = self.nl + 1
+        local l = self.lines[self.nl]
+        if not l then
+            l = self.ov:CreateLine(nil, "ARTWORK")
+            self.lines[self.nl] = l
+        end
+        l:SetDrawLayer("ARTWORK", sub or 2)
+        l:SetThickness(thick)
+        l:SetColorTexture(c[1], c[2], c[3], a)
+        l:SetStartPoint("TOPLEFT", self.ov, x1, -y1)
+        l:SetEndPoint("TOPLEFT", self.ov, x2, -y2)
+        l:Show()
+        return l
+    end
+    function v:Tex(path, x, y, size, c, a, sub)
+        self.nt = self.nt + 1
+        local t = self.texs[self.nt]
+        if not t then
+            t = self.ov:CreateTexture(nil, "ARTWORK")
+            self.texs[self.nt] = t
+        end
+        t:SetDrawLayer("ARTWORK", sub or 1)
+        t:SetTexture(path)
+        t:SetTexCoord(0, 1, 0, 1)
+        if t.SetRotation then t:SetRotation(0) end
+        t:SetSize(size, size)
+        t:ClearAllPoints()
+        t:SetPoint("CENTER", self.ov, "TOPLEFT", x, -y)
+        t:SetVertexColor(c[1], c[2], c[3], a or 1)
+        t:Show()
+        return t
+    end
+    function v:Label(text, x, y, c, anchor)
+        self.nf = self.nf + 1
+        local fs = self.fonts[self.nf]
+        if not fs then
+            fs = Text(self.ov, "GameFontHighlightSmall", 10.5)
+            fs:SetShadowOffset(1, -1)
+            fs:SetShadowColor(0, 0, 0, 1)
+            self.fonts[self.nf] = fs
+        end
+        fs:SetText(text)
+        fs:SetTextColor(c[1], c[2], c[3])
+        fs:ClearAllPoints()
+        fs:SetPoint(anchor or "CENTER", self.ov, "TOPLEFT", x, -y)
+        fs:Show()
+        return fs
+    end
+    -- a ring of radius r (pixels) at x, y: a soft fill, a dark line under a coloured one (the shared circle)
+    function v:Ring(x, y, r, c, fillA, thick)
+        self.nc = self.nc + 1
+        local circ = self.circles[self.nc]
+        if not circ then
+            circ = EUI():CreateCircle(self.ov)
+            self.circles[self.nc] = circ
+        end
+        circ:ClearAllPoints()
+        circ:SetPoint("CENTER", self.ov, "TOPLEFT", x, -y)
+        circ:Set(r, { stroke = { c[1], c[2], c[3], 1 }, width = thick, shadow = true, fill = { c[1], c[2], c[3], fillA } })
+        return circ
+    end
+    function v:Done()
+        for i = self.nc + 1, #self.circles do self.circles[i]:Hide() end
+        for i = self.nl + 1, #self.lines do self.lines[i]:Hide() end
+        for i = self.nt + 1, #self.texs do self.texs[i]:Hide() end
+        for i = self.nf + 1, #self.fonts do self.fonts[i]:Hide() end
+    end
+    return v
+end
+
+-- My arrow on a view: where I stand, turned the way I face (only on the map I'm on, or its parent zone).
+function MapSheet.DrawMe(v)
+    if not (v.map and C_Map and C_Map.GetPlayerMapPosition) then return end
+    if IsInInstance and IsInInstance() then return end
+    local ok, pos = pcall(C_Map.GetPlayerMapPosition, v.map, "player")
+    if not ok or type(pos) ~= "table" or not pos.GetXY then return end
+    local x, y = pos:GetXY()
+    if not (x and y) or x < 0 or x > 1 or y < 0 or y > 1 then return end
+    local px, py = v:ToView(x, y)
+    local blue = { 0.4, 0.72, 1 }
+    v:Tex(EUI().MASK, px, py, 24, blue, 0.22, 4)
+    v:Tex(EUI().RING, px, py, 25, blue, 0.95, 5)
+    local arrow = v:Tex("Interface\\Minimap\\MinimapArrow", px, py, 20, { 1, 1, 1 }, 1, 6)
+    local face = ns.EventSensors and ns.EventSensors.Facing and ns.EventSensors.Facing()
+    if arrow.SetRotation and face then arrow:SetRotation(face) end
+    v:Label("You", px + 15, py + 1, blue, "LEFT")
+end
+
+-- The places of the event on a view (edit: the one being changed, in gold with its size handle; its own values).
+function MapSheet.DrawPlaces(v, edit)
+    local d = Def()
+    local per = v:PerYard()
+    local T = Defs.TEAL
+    for _, e in ipairs(B():Defs(d, "places")) do
+        if (not edit or e.id ~= edit.pid) and tonumber(e.map) == v.map and tonumber(e.x) and tonumber(e.y) then
+            local px, py = v:ToView(e.x, e.y)
+            local r = max(6, (tonumber(e.r) or 30) * per)
+            v:Ring(px, py, r, T, 0.2, 1.6)
+            v:Tex(EUI().MASK, px, py, 4, { 0.61, 0.94, 1 }, 1, 4)
+            v:Label(e.n, px, py + r + 10, { 1, 1, 1 })
+        end
+    end
+    if edit and tonumber(edit.map) == v.map and tonumber(edit.x) and tonumber(edit.y) then
+        local px, py = v:ToView(edit.x, edit.y)
+        local r = max(6, (tonumber(edit.r) or 30) * per)
+        v:Ring(px, py, r, GOLD3, 0.12, 2)
+        -- its middle (a cross) and its size handle on the right
+        v:Line(px - 6, py, px + 6, py, { 0, 0, 0 }, 1, 3.4, 4)
+        v:Line(px, py - 6, px, py + 6, { 0, 0, 0 }, 1, 3.4, 4)
+        v:Line(px - 6, py, px + 6, py, GOLD3, 1, 1.6, 5)
+        v:Line(px, py - 6, px, py + 6, GOLD3, 1, 1.6, 5)
+        v:Tex(EUI().MASK, px + r, py, 13, { 0, 0, 0 }, 1, 6)
+        v:Tex(EUI().MASK, px + r, py, 11, { 0.96, 0.93, 0.82 }, 1, 7)
+        if edit.n and edit.n ~= "" then v:Label(edit.n, px, py - r - 11, GOLD3) end
+        v.handle = { x = px + r, y = py, cx = px, cy = py }
+    else
+        v.handle = nil
+    end
+end
+
+-- The zones a place can be on: Outland's, Kalimdor's and the Eastern Kingdoms' (the game's list), with my zone.
+local ZONE_PARENTS = { { 1945, "Outland" }, { 1414, "Kalimdor" }, { 1415, "Eastern Kingdoms" } }
+local OUTLAND = { 1944, 1946, 1948, 1949, 1951, 1952, 1953, 1955 }
+function MapSheet.Zones()
+    if MapSheet.zones then return MapSheet.zones end
+    local out = {}
+    for _, p in ipairs(ZONE_PARENTS) do
+        local list = {}
+        if C_Map and C_Map.GetMapChildrenInfo then
+            local ok, kids = pcall(C_Map.GetMapChildrenInfo, p[1], Enum and Enum.UIMapType and Enum.UIMapType.Zone or 3, false)
+            for _, k in ipairs(ok and type(kids) == "table" and kids or {}) do
+                if k.mapID and k.name then list[#list + 1] = { id = k.mapID, name = k.name } end
+            end
+        end
+        if #list == 0 and p[1] == 1945 then
+            for _, id in ipairs(OUTLAND) do
+                local n = MapSheet.MapName(id)
+                if n then list[#list + 1] = { id = id, name = n } end
+            end
+        end
+        table.sort(list, function(a, b) return a.name < b.name end)
+        if #list > 0 then out[#out + 1] = { name = p[2], zones = list } end
+    end
+    MapSheet.zones = out
+    return out
+end
+
+-- The size slider: 10 to 2000 yards, finer at the small end.
+local R_MIN, R_MAX = 10, 2000
+local function SizeToPos(r) return sqrt(max(0, min(1, ((r or 30) - R_MIN) / (R_MAX - R_MIN)))) end
+local function PosToSize(p)
+    local r = R_MIN + (max(0, min(1, p)) ^ 2) * (R_MAX - R_MIN)
+    if r < 100 then return floor(r + 0.5) end
+    return floor(r / 5 + 0.5) * 5
+end
+
+function MapSheet:Create()
+    local f = CreateFrame("Frame", "DisasterZoneEventMapSheet", win)
+    f:SetFrameStrata("FULLSCREEN")
+    f:SetFrameLevel(20)
+    f:SetSize(MS_W, MS_H)
+    f:EnableMouse(true)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    VGrad(f.bg, { 0.11, 0.11, 0.129, 1 }, { 0.078, 0.078, 0.094, 1 })
+    EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
+    f.title = Text(f, "GameFontNormal", 14)
+    f.title:SetPoint("LEFT", f, "TOPLEFT", 12, -20)
+    f.x = CreateFrame("Button", nil, f)
+    f.x:SetSize(20, 20)
+    f.x:SetPoint("RIGHT", f, "TOPRIGHT", -10, -20)
+    f.x.fs = Text(f.x, "GameFontHighlight", 17)
+    f.x.fs:SetText("\195\151")
+    f.x.fs:SetPoint("CENTER", 0, 1)
+    f.x.fs:SetTextColor(0.66, 0.66, 0.68)
+    f.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1) end)
+    f.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(0.66, 0.66, 0.68) end)
+    f.x:SetScript("OnClick", function() MapSheet:Close() end)
+    local hd = f:CreateTexture(nil, "BORDER")
+    hd:SetColorTexture(1, 1, 1, 0.07)
+    hd:SetHeight(1)
+    hd:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -40)
+    hd:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -40)
+    -- the zone, and what the map does
+    f.zone = UI():CreateSleekMenuButton(f, "", 186, function(root) MapSheet:ZoneMenu(root) end, 24)
+    f.zone:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -52)
+    f.hint = Text(f, "GameFontHighlightSmall", 11)
+    f.hint:SetTextColor(0.62, 0.62, 0.62)
+    f.hint:SetPoint("LEFT", f.zone, "RIGHT", 12, 0)
+    f.hint:SetText("Click to move the place, drag its ring to size it")
+    -- the map
+    f.view = MapSheet.NewView(f, MAP_W, MAP_H)
+    f.view:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -86)
+    f.view:EnableMouse(true)
+    f.view:EnableMouseWheel(true)
+    f.view:SetScript("OnMouseDown", function(v, button) MapSheet:MouseDown(button) end)
+    f.view:SetScript("OnMouseUp", function(v, button) MapSheet:MouseUp(button) end)
+    f.view:SetScript("OnMouseWheel", function(v, delta) MapSheet:Zoom(delta > 0 and 1 or -1, true) end)
+    f.view:SetScript("OnUpdate", function() MapSheet:OnUpdate() end)
+    local zc = CreateFrame("Frame", nil, f.view.ov)
+    zc:SetSize(24, 48)
+    zc:SetPoint("BOTTOMRIGHT", f.view, "BOTTOMRIGHT", -8, 8)
+    zc.bg = zc:CreateTexture(nil, "BACKGROUND")
+    zc.bg:SetAllPoints()
+    zc.bg:SetColorTexture(0.055, 0.055, 0.067, 0.94)
+    EUI():Edge(zc, 0.34, 0.34, 0.38, 0.9)
+    local function zb(y, plus, fn, tip)
+        local b = CreateFrame("Button", nil, zc)
+        b:SetSize(24, 24)
+        b:SetPoint("TOPLEFT", zc, "TOPLEFT", 0, -y)
+        b.t = b:CreateTexture(nil, "ARTWORK")
+        b.t:SetPoint("CENTER")
+        if plus then
+            b.t:SetSize(11, 11)
+            EUI():Glyph(b.t, UI().ICON.plus or 39, 0.86, 0.86, 0.86)
+        else
+            b.t:SetTexture(WHITE)
+            b.t:SetSize(9, 2)
+            b.t:SetVertexColor(0.86, 0.86, 0.86)
+        end
+        local hl = b:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 1, 1, 0.06)
+        b:SetScript("OnClick", fn)
+        b:SetScript("OnEnter", function(self) Tip(self, tip) end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        return b
+    end
+    zc.plus = zb(0, true, function() MapSheet:Zoom(1) end, "Zoom in")
+    zc.minus = zb(24, false, function() MapSheet:Zoom(-1) end, "Zoom out")
+    local zl = zc:CreateTexture(nil, "BORDER")
+    zl:SetColorTexture(1, 1, 1, 0.08)
+    zl:SetHeight(1)
+    zl:SetPoint("LEFT", zc, "TOPLEFT", 1, -24)
+    zl:SetPoint("RIGHT", zc, "TOPRIGHT", -1, -24)
+    f.zc = zc
+    -- the side: name, size, where, set from where I stand
+    local sx = 12 + MAP_W + 48
+    local sw = MS_W - sx - 12
+    local function lab(text, y)
+        local l = Text(f, "GameFontHighlightSmall", 11)
+        l:SetTextColor(0.62, 0.62, 0.62)
+        l:SetPoint("TOPLEFT", f, "TOPLEFT", sx, -y)
+        l:SetText(text)
+        return l
+    end
+    lab("Name", 92)
+    f.name = UI():CreateSleekEditBox(f, sw, 26)
+    f.name:SetPoint("TOPLEFT", f, "TOPLEFT", sx, -108)
+    f.name:SetMaxLetters(MAX_NAME)
+    f.name:SetScript("OnTextChanged", function(self, user)
+        if user and MapSheet.cur then MapSheet.cur.n = self:GetText(); MapSheet:Draw() end
+        if f.err then f.err:SetText("") end
+    end)
+    f.name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    f.name:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    lab("Size", 146)
+    f.size = Text(f, "GameFontHighlight", 12)
+    f.size:SetPoint("TOPRIGHT", f, "TOPLEFT", sx + sw, -145)
+    f.slider = CreateFrame("Frame", nil, f)
+    f.slider:SetSize(sw, 16)
+    f.slider:SetPoint("TOPLEFT", f, "TOPLEFT", sx, -164)
+    f.slider:EnableMouse(true)
+    f.slider.track = f.slider:CreateTexture(nil, "BACKGROUND")
+    f.slider.track:SetColorTexture(1, 1, 1, 0.14)
+    f.slider.track:SetHeight(2)
+    f.slider.track:SetPoint("LEFT", f.slider, "LEFT", 0, 0)
+    f.slider.track:SetPoint("RIGHT", f.slider, "RIGHT", 0, 0)
+    f.slider.fill = f.slider:CreateTexture(nil, "ARTWORK")
+    f.slider.fill:SetColorTexture(1, 0.82, 0, 1)
+    f.slider.fill:SetHeight(2)
+    f.slider.fill:SetPoint("LEFT", f.slider, "LEFT", 0, 0)
+    f.slider.knobE = f.slider:CreateTexture(nil, "OVERLAY", nil, 1)
+    f.slider.knobE:SetTexture(EUI().MASK)
+    f.slider.knobE:SetSize(14, 14)
+    f.slider.knobE:SetVertexColor(0, 0, 0, 1)
+    f.slider.knob = f.slider:CreateTexture(nil, "OVERLAY", nil, 2)
+    f.slider.knob:SetTexture(EUI().MASK)
+    f.slider.knob:SetSize(12, 12)
+    f.slider.knob:SetVertexColor(0.96, 0.93, 0.82)
+    f.slider:SetScript("OnMouseDown", function(s, button)
+        if button == "LeftButton" then s.dragging = true end
+    end)
+    f.slider:SetScript("OnMouseUp", function(s) s.dragging = nil end)
+    f.slider:SetScript("OnUpdate", function(s)
+        if not s.dragging then return end
+        if not (IsMouseButtonDown and IsMouseButtonDown("LeftButton")) then s.dragging = nil return end
+        local l = s:GetLeft()
+        if not l then return end
+        local x = GetCursorPosition() / s:GetEffectiveScale()
+        MapSheet:SetSize(PosToSize((x - l) / s:GetWidth()))
+    end)
+    lab("Where", 176)
+    f.where = Text(f, "GameFontHighlight", 12)
+    f.where:SetWordWrap(true)
+    f.where:SetWidth(sw)
+    f.where:SetPoint("TOPLEFT", f, "TOPLEFT", sx, -192)
+    f.coords = Text(f, "GameFontHighlightSmall", 10.5)
+    f.coords:SetTextColor(0.62, 0.62, 0.62)
+    f.coords:SetPoint("TOPLEFT", f.where, "BOTTOMLEFT", 0, -2)
+    f.stand = UI():CreateSleekButton(f, "Set from where I stand", sw, 24, function() MapSheet:StandHere() end)
+    f.stand:SetPoint("TOPLEFT", f.coords, "BOTTOMLEFT", 0, -14)
+    f.stand.icon = f.stand:CreateTexture(nil, "ARTWORK")
+    f.stand.icon:SetSize(12, 12)
+    EUI():Glyph(f.stand.icon, 37, 0.9, 0.9, 0.9)
+    local sfs = f.stand:GetFontString()
+    sfs:ClearAllPoints()
+    sfs:SetPoint("CENTER", f.stand, "CENTER", 9, 0)
+    f.stand.icon:SetPoint("RIGHT", sfs, "LEFT", -7, 0)
+    f.err = Text(f, "GameFontHighlightSmall", 11)
+    f.err:SetTextColor(1, 0.54, 0.48)
+    f.err:SetWordWrap(true)
+    f.err:SetWidth(sw)
+    f.err:SetPoint("TOPLEFT", f.stand, "BOTTOMLEFT", 0, -10)
+    -- the foot
+    local fd = f:CreateTexture(nil, "BORDER")
+    fd:SetColorTexture(1, 1, 1, 0.07)
+    fd:SetHeight(1)
+    fd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 46)
+    fd:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 46)
+    f.pin = f:CreateTexture(nil, "ARTWORK")
+    f.pin:SetSize(12, 12)
+    EUI():Glyph(f.pin, 7, 0.62, 0.62, 0.62)
+    f.pin:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 23)
+    f.note = Text(f, "GameFontHighlightSmall", 11)
+    f.note:SetTextColor(0.62, 0.62, 0.62)
+    f.note:SetPoint("LEFT", f.pin, "RIGHT", 7, 0)
+    f.note:SetText("Places work in the open world, not in dungeons")
+    f.save = UI():CreateSleekButton(f, "Save place", 92, 24, function() MapSheet:Save() end, "primary")
+    f.save:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 11)
+    f.cancel = UI():CreateSleekButton(f, "Cancel", 74, 24, function() MapSheet:Close() end)
+    f.cancel:SetPoint("RIGHT", f.save, "LEFT", -6, 0)
+    f.bin = UI():CreateTipIconButton(f, 24, UI().ICON.trash, "Delete the place", "Pieces that use it will each need another.",
+        function() if MapSheet.cur and MapSheet.cur.pid then Defs:Delete("places", MapSheet.cur.pid) end end)
+    f.bin:SetPoint("RIGHT", f.cancel, "LEFT", -6, 0)
+    f:SetScript("OnShow", function() Defs.Dim(true) end)
+    f:SetScript("OnHide", function()
+        local cur = MapSheet.cur
+        MapSheet.cur = nil
+        Defs.Dim(false)
+        if cur and cur.onClosed then cur.onClosed() end
+        if win and win:IsShown() then Builder:RenderPalette() end
+    end)
+    f:Hide()
+    ui.msheet = f
+    return f
+end
+
+-- Opens the sheet: opts.pid (a place to change), opts.stand (a new one where I stand: refused in an instance),
+-- opts.onSaved(pid), opts.onClosed().
+function MapSheet:Open(opts)
+    opts = opts or {}
+    if not CanEditDefs() and not opts.pid then Builder:SayReadOnly() return end
+    local d = Def()
+    local cur
+    if opts.pid then
+        local pl = B():Definition(d, "places", opts.pid)
+        if not pl then return end
+        cur = Copy(pl)
+        cur.pid = opts.pid
+    else
+        cur = { r = 30 }
+        if opts.stand then
+            local here, why = MapSheet.Here()
+            if not here then
+                ns:Print("%s", why)
+                if opts.onClosed then opts.onClosed() end
+                return
+            end
+            cur.map, cur.x, cur.y, cur.z, cur.sz = here.map, here.x, here.y, here.z, here.sz
+            cur.n = here.sz or here.z or ""
+        end
+        if not cur.n or cur.n == "" then
+            local i = #B():Defs(d, "places", true) + 1
+            cur.n = "Place " .. i
+        end
+    end
+    -- a place with no spot yet starts on my zone (or the event's first place's)
+    if not tonumber(cur.map) then
+        local here = MapSheet.Here()
+        local first = B():Defs(d, "places", true)[1]
+        cur.view = (here and here.map) or (first and tonumber(first.map)) or 1951
+    end
+    cur.onSaved, cur.onClosed = opts.onSaved, opts.onClosed
+    Builder:ClosePicker()
+    if ui.dpop and ui.dpop:IsShown() then Defs:Close() end
+    QSheet:Close()
+    local f = ui.msheet or self:Create()
+    self.cur = cur
+    cur.vmap = tonumber(cur.map) or cur.view
+    cur.vz = 1
+    cur.vx, cur.vy = tonumber(cur.x) or 0.5, tonumber(cur.y) or 0.5
+    -- a place whose ring is small in its zone: closer in
+    local yd = MapSheet.Yards(cur.vmap)
+    if cur.x and yd then
+        local frac = (tonumber(cur.r) or 30) * 2 / yd
+        for _, z in ipairs(ZOOMS_MAP) do if frac * z < 0.35 then cur.vz = z end end
+        cur.vz = min(cur.vz, 3)
+    end
+    f.title:SetText("Pick on the map")
+    f.name:SetText(cur.n or "")
+    f.err:SetText("")
+    f.save:SetShown(CanEditDefs())
+    f.bin:SetShown(CanEditDefs() and cur.pid ~= nil)
+    f.stand:SetShown(CanEditDefs())
+    f:ClearAllPoints()
+    f:SetPoint("TOP", win.content or win, "TOP", 0, -40)
+    f:Show()
+    f:Raise()
+    self:Draw()
+    Builder:RenderPalette()
+end
+
+function MapSheet:Close(quiet)
+    local cur = self.cur
+    self.cur = nil
+    if ui.msheet then ui.msheet:Hide() end
+    Defs.Dim(false)
+    if cur and cur.onClosed then cur.onClosed() end
+end
+
+function MapSheet:Draw()
+    local f, cur = ui.msheet, self.cur
+    if not (f and cur) then return end
+    local v = f.view
+    v:Set(cur.vmap, cur.vx, cur.vy, cur.vz)
+    cur.vx, cur.vy = v.cx, v.cy
+    v:Begin()
+    MapSheet.DrawPlaces(v, cur)
+    MapSheet.DrawMe(v)
+    v:Done()
+    f.zc:SetShown(v.layer ~= nil)
+    local zname = MapSheet.MapName(cur.vmap) or (cur.vmap and ("Map " .. cur.vmap)) or "Pick a zone"
+    f.zone:SetText("|cff9e9ea4Zone|r  " .. zname)
+    f.size:SetText(floor(tonumber(cur.r) or 30) .. " yd")
+    local p = SizeToPos(tonumber(cur.r) or 30)
+    local sw = f.slider:GetWidth()
+    f.slider.fill:SetWidth(max(1, p * sw))
+    f.slider.knob:ClearAllPoints()
+    f.slider.knob:SetPoint("CENTER", f.slider, "LEFT", p * sw, 0)
+    f.slider.knobE:ClearAllPoints()
+    f.slider.knobE:SetPoint("CENTER", f.slider, "LEFT", p * sw, 0)
+    if tonumber(cur.x) and tonumber(cur.y) then
+        local where = {}
+        if cur.sz and cur.sz ~= "" then where[#where + 1] = cur.sz end
+        where[#where + 1] = cur.z or MapSheet.MapName(cur.map) or ""
+        f.where:SetText(table.concat(where, ", "))
+        f.coords:SetText(("%.1f, %.1f"):format(cur.x * 100, cur.y * 100))
+    elseif cur.sz or cur.z then
+        f.where:SetText((cur.sz and (cur.sz .. ", ") or "") .. (cur.z or ""))
+        f.coords:SetText("its subzone: click the map to set a spot")
+    else
+        f.where:SetText("Not set yet")
+        f.coords:SetText("click the map, or stand there")
+    end
+end
+
+function MapSheet:ZoneMenu(root)
+    local cur = self.cur
+    if not cur then return end
+    local function pick(id)
+        cur.vmap, cur.vz, cur.vx, cur.vy = id, 1, 0.5, 0.5
+        if tonumber(cur.map) == id and tonumber(cur.x) then cur.vx, cur.vy = cur.x, cur.y end
+        MapSheet:Draw()
+    end
+    local here = MapSheet.Here()
+    if here and here.map then
+        root:CreateRadio("Where I am: " .. (MapSheet.MapName(here.map) or here.z or "?"), function() return cur.vmap == here.map end,
+            function() pick(here.map) end)
+        root:CreateDivider()
+    end
+    for _, group in ipairs(MapSheet.Zones()) do
+        local sub = root:CreateButton(group.name)
+        for _, z in ipairs(group.zones) do
+            sub:CreateRadio(z.name, function() return cur.vmap == z.id end, function() pick(z.id) end)
+        end
+        if sub.SetScrollMode then sub:SetScrollMode(20 * 20) end
+    end
+end
+
+function MapSheet:Zoom(dir, atCursor)
+    local cur, v = self.cur, ui.msheet and ui.msheet.view
+    if not (cur and v and v.layer) then return end
+    local z = cur.vz
+    local nz = z
+    if dir > 0 then
+        for _, l in ipairs(ZOOMS_MAP) do if l > z + 0.01 then nz = l break end end
+    else
+        for i = #ZOOMS_MAP, 1, -1 do if ZOOMS_MAP[i] < z - 0.01 then nz = ZOOMS_MAP[i] break end end
+    end
+    if nz == z then return end
+    -- around the cursor (the wheel), else the place
+    local px, py, inside = v:Cursor()
+    if atCursor and inside then
+        local mx, my = v:FromView(px, py)
+        local k = z / nz
+        cur.vx, cur.vy = mx - (mx - v.cx) * k, my - (my - v.cy) * k
+    elseif tonumber(cur.x) and tonumber(cur.map) == cur.vmap then
+        cur.vx, cur.vy = cur.x, cur.y
+    end
+    cur.vz = nz
+    self:Draw()
+end
+
+function MapSheet:SetSize(r)
+    local cur = self.cur
+    if not cur then return end
+    if not CanEditDefs() then return end
+    cur.r = max(5, min(5000, floor(r + 0.5)))
+    self:Draw()
+end
+
+-- A press on the map: on the ring's handle it sizes the place; a click elsewhere moves the place there, a drag pans.
+function MapSheet:MouseDown(button)
+    local cur, v = self.cur, ui.msheet and ui.msheet.view
+    if button ~= "LeftButton" or not (cur and v) then return end
+    local px, py = v:Cursor()
+    if not px then return end
+    local h = v.handle
+    if h and CanEditDefs() and (px - h.x) ^ 2 + (py - h.y) ^ 2 <= 81 then
+        self.press = { size = true }
+        return
+    end
+    self.press = { x = px, y = py, vx = cur.vx, vy = cur.vy }
+end
+
+function MapSheet:OnUpdate()
+    local pr, cur, v = self.press, self.cur, ui.msheet and ui.msheet.view
+    if not (pr and cur and v) then return end
+    if not (IsMouseButtonDown and IsMouseButtonDown("LeftButton")) then return end
+    local px, py = v:Cursor()
+    if not px then return end
+    if pr.size then
+        local h = v.handle
+        if not h then return end
+        local dist = sqrt((px - h.cx) ^ 2 + (py - h.cy) ^ 2)
+        self:SetSize(dist / v:PerYard())
+        return
+    end
+    if pr.pan or abs(px - pr.x) + abs(py - pr.y) > 4 then
+        pr.pan = true
+        cur.vx = pr.vx - (px - pr.x) / (v.lw * v.s)
+        cur.vy = pr.vy - (py - pr.y) / (v.lh * v.s)
+        self:Draw()
+    end
+end
+
+function MapSheet:MouseUp(button)
+    local pr, cur, v = self.press, self.cur, ui.msheet and ui.msheet.view
+    self.press = nil
+    if button ~= "LeftButton" or not (pr and cur and v) or pr.size or pr.pan then return end
+    if not v.layer then return end
+    if not CanEditDefs() then Builder:SayReadOnly() return end
+    local px, py, inside = v:Cursor()
+    if not inside then return end
+    local x, y = v:FromView(px, py)
+    if x < 0 or x > 1 or y < 0 or y > 1 then return end
+    -- moved on the map: its zone is the map's, its subzone isn't known any more (the game says it only where I stand)
+    if tonumber(cur.map) ~= v.map then cur.sz = nil end
+    if not (tonumber(cur.x) and abs(x - cur.x) < 0.0005 and abs(y - cur.y) < 0.0005) then cur.sz = nil end
+    cur.map, cur.x, cur.y = v.map, floor(x * 10000 + 0.5) / 10000, floor(y * 10000 + 0.5) / 10000
+    cur.z = MapSheet.MapName(v.map) or cur.z
+    self:Draw()
+end
+
+function MapSheet:StandHere()
+    local cur = self.cur
+    if not cur then return end
+    if not CanEditDefs() then Builder:SayReadOnly() return end
+    local here, why = MapSheet.Here()
+    if not here then
+        ui.msheet.err:SetText(why)
+        return
+    end
+    cur.map, cur.x, cur.y, cur.z, cur.sz = here.map, here.x, here.y, here.z, here.sz
+    cur.vmap, cur.vx, cur.vy = here.map, here.x, here.y
+    if (cur.n or "") == "" or (cur.n or ""):find("^Place %d+$") then
+        cur.n = here.sz or here.z or cur.n
+        ui.msheet.name:SetText(cur.n or "")
+    end
+    ui.msheet.err:SetText("")
+    self:Draw()
+end
+
+-- Save place: its name (unique), where it is, its size; a new one joins the event.
+function MapSheet:Save()
+    local cur, f = self.cur, ui.msheet
+    if not cur then return end
+    if not CanEditDefs() then Builder:SayReadOnly() return end
+    local name = Clean(f.name:GetText(), MAX_NAME)
+    if name == "" then f.err:SetText("Type a name first") return end
+    local taken = Defs:NameTaken("places", name, cur.pid)
+    if taken then f.err:SetText(taken) return end
+    if not (tonumber(cur.map) and tonumber(cur.x)) and not cur.sz and not cur.z then
+        f.err:SetText("Click the map where it is, or set it from where you stand")
+        return
+    end
+    local d = Def()
+    local fields = { n = name, map = tonumber(cur.map), x = tonumber(cur.x), y = tonumber(cur.y),
+        r = max(5, min(5000, floor((tonumber(cur.r) or 30) + 0.5))), z = cur.z, sz = cur.sz }
+    local before = Snapshot()
+    local pid = cur.pid
+    if pid then
+        d.places[pid] = fields
+    else
+        pid = B():NewDefinition(d, "places", fields)
+        if not pid then
+            f.err:SetText(("An event has %d places at most"):format(B().LIMITS.places or 24))
+            return
+        end
+    end
+    local onSaved = cur.onSaved
+    self:Close()
+    Changed(before)
+    if onSaved then onSaved(pid) end
+end
+
+-- A new place for a blank: the sheet (by standing there, or on the map), then the blank holds it.
+function Builder:NewPlaceFor(piece, slot, how)
+    self:ClosePicker()
+    MapSheet:Open({ stand = how == "stand", onSaved = function(pid)
+        local before = Snapshot()
+        piece.a[slot] = pid
+        Changed(before)
+    end })
+end
+
+---------------------------------------------------------------------------
+-- A place's card (the mouse over a place in a blank): a small map with its ring, where it is, how many pieces use it
+---------------------------------------------------------------------------
+
+local CARD_W, CARD_MAP_H = 250, 118
+
+function Defs:ShowCard(pid, anchor)
+    local d = Def()
+    local pl = B():Definition(d, "places", pid)
+    if not (pl and anchor) then return end
+    local c = ui.pcard
+    if not c then
+        c = CreateFrame("Frame", "DisasterZoneEventPlaceCard", win)
+        c:SetFrameStrata("TOOLTIP")
+        c:SetWidth(CARD_W)
+        c.bg = c:CreateTexture(nil, "BACKGROUND")
+        c.bg:SetAllPoints()
+        c.bg:SetColorTexture(0.047, 0.047, 0.059, 0.98)
+        EUI():Edge(c, 0.47, 0.47, 0.51, 0.75)
+        c.view = MapSheet.NewView(c, CARD_W, CARD_MAP_H)
+        c.view:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
+        c.line = Text(c, "GameFontHighlightSmall", 11)
+        c.line:SetTextColor(0.62, 0.62, 0.62)
+        c.m = Text(c, "GameFontHighlightSmall", 11)
+        c.m:SetWordWrap(true)
+        c.m:SetWidth(CARD_W - 20)
+        c.m:SetTextColor(0.81, 0.81, 0.81)
+        ui.pcard = c
+    end
+    local v = c.view
+    local onMap = tonumber(pl.map) and tonumber(pl.x)
+    v:SetShown(onMap and MapSheet.Layer(pl.map) ~= nil)
+    local top = 0
+    if v:IsShown() then
+        -- close enough that the ring is most of the map's height
+        local yd = MapSheet.Yards(pl.map) or 4000
+        local z = 1
+        for _, zz in ipairs({ 1, 1.5, 2, 3, 4, 6, 8 }) do
+            local base = min(CARD_W / 1002, CARD_MAP_H / 668)
+            if (tonumber(pl.r) or 30) * 2 * (1002 * base * zz) / yd < CARD_MAP_H * 0.8 then z = zz end
+        end
+        v:Set(pl.map, pl.x, pl.y, z)
+        v:Begin()
+        local px, py = v:ToView(pl.x, pl.y)
+        local r = max(6, (tonumber(pl.r) or 30) * v:PerYard())
+        v:Ring(px, py, r, GOLD3, 0.12, 2)
+        v:Line(px - 6, py, px + 6, py, GOLD3, 1, 1.6, 5)
+        v:Line(px, py - 6, px, py + 6, GOLD3, 1, 1.6, 5)
+        v:Tex(EUI().MASK, px + r, py, 11, { 0.96, 0.93, 0.82 }, 1, 7)
+        v:Done()
+        top = CARD_MAP_H
+    end
+    if c.chip then EP():Release(c.chip) end
+    c.chip = EP():DrawChip(c, "place", pid, { def = d, static = true })
+    c.chip:ClearAllPoints()
+    c.chip:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -(top + 9))
+    local where = {}
+    if pl.sz and pl.sz ~= "" then where[#where + 1] = pl.sz end
+    if pl.z and pl.z ~= "" then where[#where + 1] = pl.z end
+    local wtext = table.concat(where, ", ")
+    c.line:SetText((wtext ~= "" and (wtext .. " · ") or "") .. (onMap and (floor(tonumber(pl.r) or 30) .. " yd") or "the subzone"))
+    c.line:ClearAllPoints()
+    c.line:SetPoint("LEFT", c.chip, "RIGHT", 8, 0)
+    local n = B():DefinitionUses(d, "places", pid)
+    c.m:SetText(Plural(n, "piece uses", "pieces use") .. " it. "
+        .. (CanEdit() and "Click to pick another, or to change it on the map." or ""))
+    c.m:ClearAllPoints()
+    c.m:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -(top + 9 + 19 + 6))
+    c:SetHeight(top + 9 + 19 + 6 + max(14, floor((c.m:GetStringHeight() or 14) + 0.5)) + 10)
+    c:ClearAllPoints()
+    c:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -6, -8)
+    c:Show()
+end
+
+function Defs:HideCard()
+    if ui.pcard then ui.pcard:Hide() end
+end
+
+-- The mouse over a blank: a place in it shows its card.
+OnHover = function(piece, slot, frame, on)
+    if not on then Defs:HideCard() return end
+    local v = piece and piece.a and piece.a[slot]
+    local t = B():ArgType(piece, slot)
+    if (t == "place" or t == "where") and type(v) == "string" and B():Definition(Def(), "places", v) then
+        Defs:ShowCard(v, frame)
     end
 end
 
@@ -3706,6 +7182,7 @@ function Builder:Open(def, opts)
     end
     if not win then CreateWindow() end
     self:CancelDrag()
+    self:CloseFloating()
     if S.practice then self:StopPractice() end
     self:ClosePicker()
     if ui.ask then ui.ask:Hide() end
@@ -3768,6 +7245,7 @@ function Builder:OnLibraryChanged()
     end
     -- nothing unsaved here: the newer version (undo can't go back past it: its steps were made on the old one)
     self:ClosePicker()
+    self:CloseFloating()
     if ui.ask then ui.ask:Hide() end
     S.def = Copy(saved)
     S.readOnly = not Ev():IsMine(saved)

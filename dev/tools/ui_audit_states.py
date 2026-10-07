@@ -161,6 +161,8 @@ def close_all(cl):
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
       if ns.EventBuilder and ns.EventBuilder.StopPractice then pcall(ns.EventBuilder.StopPractice, ns.EventBuilder) end
+      if ns.EventLive and ns.EventLive.StopPractice then pcall(ns.EventLive.StopPractice, ns.EventLive) end
+      if ns.EventTracker and ns.EventTracker.Hide then pcall(ns.EventTracker.Hide, ns.EventTracker) end
       for _, name in ipairs({ 'DisasterZoneEventBuilder', 'DisasterZoneEventPicker', 'DisasterZoneEventAskName' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
@@ -809,6 +811,47 @@ STATES = [
     ("Events - submit", demo("ns.EventsUI:Open('library'); ns.EventsUI:OpenSubmit('edemo3')", "events")),
     ("Events - badge designer", demo("ns.EventsUI:Open('library'); ns.EventsUI:OpenBadgeDesigner("
                                      "ns.Events:GetDef('edemo1'), 'champ', function() end)", "events")),
+    # part 2's kinds on the Events tab (dev/docs/EVENTS_KINDS.md): the hide and seek's page (tags, a play area, a Hint
+    # button, its Always row), the fishing derby's page, the derby's results (its Fish table, the podium from it), a
+    # hide and seek played to its end by the engine (two score tables, the tags at the end, its moments), the
+    # library's examples menu, the review of a changed hide and seek (its definitions in plain rows)
+    ("Events - hide and seek page", demo("ns.EventsUI:OpenEvent(ns.Events:Schedule('edemo3', GetServerTime() + 2 * "
+                                         "86400 + 3600, { where = 'Terrace of Light, Shattrath' }))", "events")),
+    ("Events - fishing derby page", demo("ns.EventsUI:OpenEvent('odemo4')", "events")),
+    ("Events - results score chase", demo("ns.EventsUI:OpenEvent('rdemo3')", "events")),
+    ("Events - results hide and seek", demo("""
+        local E, Ev = ns.EventEngine, ns.Events
+        local names, me = ns.Demo:GetMembers(), ns.Util.PlayerKey()
+        local at = GetServerTime() - 2 * 86400
+        local occ = Ev:Schedule('edemo3', at, { where = 'Terrace of Light, Shattrath', noJoin = true })
+        local clock, keys, nop = at, { me }, function() end
+        for i = 1, 7 do keys[#keys + 1] = names[i] end
+        local run = E:New(Ev:GetOcc(occ).def, { id = occ, host = me, signups = keys, now = function() return clock end,
+          out = { show = nop, tell = nop, guild = nop, sound = nop, plates = nop, log = nop } })
+        run:Start()
+        local function adv(n) for i = 1, n do clock = clock + 1; run:Tick() end end
+        adv(181)
+        local seeker, hiders = run:Tagged('tg2')[1], run:Tagged('tg1')
+        for i = 1, 5 do adv(90 + i * 37); run:Touch(seeker, hiders[i], 'click') end
+        adv(1300)
+        Ev:SaveResult(occ, run, { me })
+        ns.EventsUI:OpenEvent(occ)""", "events")),
+    ("Events - library examples menu", demo("ns.EventsUI:Open('library'); "
+                                            "ns.EventsUI:GetViewFrame('library').examples:Click()", "events")),
+    ("Events - review changed definitions", demo("""
+        local B, g = ns.EventBlocks, ns.Guild:GetGuildKey()
+        local s = B.Copy(ns.Events:GetDef('edemo3'))
+        s.tags.tg3.n, s.tags.tg3.c = 'Caught', 'grey'
+        s.tags.tg4 = { n = 'Ghosts', c = 'teal', shown = 'self' }
+        s.places.pc1.r = 400
+        s.scores.sc2 = nil
+        for _, sc in ipairs(s.scripts) do
+          B:Walk(sc.top, function(p) if p.k == 'tm.start' and p.a[2] == 'Seek' then p.a[1] = 900 end end)
+        end
+        ns.db.eventSnaps = ns.db.eventSnaps or {}
+        ns.db.eventSnaps[g] = ns.db.eventSnaps[g] or {}
+        ns.db.eventSnaps[g].edemo3 = s
+        ns.EventsUI:Open('review'); ns.EventsUI:SelectReview('edemo3')""", "events")),
     # the Share window (UI/ShareWindow.lua), dropped from the icon that opened it
     ("Share - raid", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                      "ns.ShareWindow:Open('raid:' .. (...), "
@@ -1298,3 +1341,178 @@ STATES[_HOME_EV:_HOME_EV] = [
     ("Events - builder zoomed out", ev_builder("ns.EventBuilder:SelectStage('*'); "
                                                "ns.EventBuilder:ZoomTo(0.67, nil, nil, true)")),
 ]
+
+# Events part 2 on screen (UI/EventBoard.lua, UI/EventTracker.lua; mockup shots 20-24): demo mode's boards (hide and
+# seek, a race, a fishing derby) and the tracker of the first; the ask prompts, a result, a banner and the yes / no
+# card from practice runs that ask Gina (their host) themselves.
+EV2_ASKS = """
+    local B = ns.EventBlocks
+    local N, C, J = B.Build.N, B.Build.C, B.Build.J
+    local d = B:Example('tmog')
+    d.asks.ak4 = { n = 'Answer', q = "Which boss drops the Ashes of Al'ar?", kind = 'text', from = 'entrants', time = 30 }
+    d.scripts = { d.scripts[1] }
+    local function S(id, top) d.scripts[#d.scripts + 1] = { id = id, st = 's2', x = 0, y = 0, top = top } end
+    S('x1', B:Stack(N('ev.start'), N('as.ask', N('pl.all'), 'ak3')))
+    S('x2', B:Stack(N('ev.start'), N('as.ask', N('pl.host'), 'ak4')))
+    S('x3', B:Stack(N('ev.start'), N('as.askq', N('pl.host'), 'ak2', J("Score Dummy 2's outfit, 1 to 10"))))
+    ns.EventLive:StartPractice(d, 6)"""
+EV2_ME_TOO = """
+    local run = ns.EventLive:GetPractice()
+    run.st.qa.ak3.who[ns.Util.PlayerKey()] = true
+    ns.EventTracker:Refresh()
+    local f
+    for _, x in ipairs(ns.EventTracker:GetFrames().asks) do if x.kind == 'player' then f = x end end
+    f.tiles[1]:Click(); f.tiles[3]:Click()"""
+EV2_SENT = EV2_ME_TOO + """
+    f.tiles[2]:Click(); f.send:Click()
+    for _, x in ipairs(ns.EventTracker:GetFrames().asks) do x:Hide() end"""
+EV2_YESNO = """
+    local B = ns.EventBlocks
+    local N, J = B.Build.N, B.Build.J
+    local d = B:Example('hide')
+    d.asks = { ak1 = { n = 'Round two', q = 'Same teams for round 2?', kind = 'yesno', from = 'entrants', time = 20 } }
+    local function S(id, top) d.scripts[#d.scripts + 1] = { id = id, st = 's2', x = 0, y = 0, top = top } end
+    S('y1', B:Stack(N('ev.start'), N('as.ask', N('pl.host'), 'ak1')))
+    S('y2', B:Stack(N('ev.start'), N('ch.show', N('pl.host'), J('Hide in the play area! The seekers come in 3 minutes.'))))
+    ns.EventLive:StartPractice(d, 6)"""
+
+
+def ev2_practice(start, after=None, wait=0.0):
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        g.eval(start)
+        w.tick(1.5)
+        if after:
+            g.eval(after)
+            w.tick(0.3 + wait)
+        return g
+    return fn
+
+
+_EV2 = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
+STATES[_EV2:_EV2] = [
+    ("Events - board hide and seek", demo("ns.EventBoard:OpenDemo('kdemo-hide')")),
+    ("Events - board race", demo("ns.EventBoard:OpenDemo('kdemo-race')")),
+    ("Events - board fishing derby", demo("ns.EventBoard:OpenDemo('kdemo-fish')")),
+    ("Events - tracker hide and seek", demo("ns.EventBoard:OpenDemo('kdemo-hide'); ns.EventBoard:Close(); "
+                                            "ns.EventTracker:Refresh()")),
+    ("Events - tracker race", demo("ns.EventBoard:OpenDemo('kdemo-race'); ns.EventBoard:Close(); "
+                                   "ns.EventTracker:Refresh()")),
+    ("Events - tracker fishing derby", demo("ns.EventBoard:OpenDemo('kdemo-fish'); ns.EventBoard:Close(); "
+                                            "ns.EventTracker:Refresh()")),
+    ("Events - board sign-up with places", ev2_practice("ns.EventLive:StartPractice(ns.EventBlocks:Example('redlight'), 8); "
+                                                        "ns.EventBoard:Open('practice')")),
+    ("Events - ask prompts", ev2_practice(EV2_ASKS, EV2_ME_TOO)),
+    ("Events - ask result", ev2_practice(EV2_ASKS, EV2_SENT, 9)),
+    ("Events - banner and yes or no", ev2_practice(EV2_YESNO)),
+]
+
+# Events part 2 in the builder (UI/EventBuilder.lua, UI/EventPieces.lua; mockup shots 17-19, 25): each category's
+# definitions in the palette, their editors, the questions sheet, places (the Add menu, the picker, the card, the map
+# sheet with Nagrand's art), the Matches card won by the pieces, "Start from an example", practice with the new facts.
+EVB_MAPART = r'''
+local ZN = { [1951] = "Nagrand", [1952] = "TerokkarForest", [1955] = "ShattrathCity" }
+local oL, oT = C_Map.GetMapArtLayers, C_Map.GetMapArtLayerTextures
+C_Map.GetMapArtLayers = function(id)
+  if ZN[id] then return { { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256, minScale = 1, maxScale = 1 } } end
+  return oL(id)
+end
+C_Map.GetMapArtLayerTextures = function(id, l)
+  if ZN[id] then local t = {}; for i = 1, 12 do t[i] = "Interface\\WorldMap\\" .. ZN[id] .. "\\" .. ZN[id] .. i end; return t end
+  return oT(id, l)
+end'''
+EVB_PLACES = """
+    local d = ns.EventBuilder:GetState().def
+    ns.EventBlocks:NewDefinition(d, 'places', { n = 'Meeting spot', map = 1951, x = 0.555, y = 0.37, r = 40, z = 'Nagrand', sz = 'Garadar' })
+    ns.EventBlocks:NewDefinition(d, 'places', { n = 'Halaa town', map = 1951, x = 0.42, y = 0.452, r = 90, z = 'Nagrand', sz = 'Halaa' })
+    ns.EventBuilder:Refresh()"""
+EVB_PICK = """
+    ns.EventBuilder:SelectStage('*')
+    local S, ui = ns.EventBuilder:GetState()
+    local s
+    for _, x in ipairs(S.def.scripts) do if x.st == '*' and x.top.k == 'pc.leave' then s = x end end
+    s.x, s.y, s.top.a[1] = 20, 20, nil
+    ns.EventBuilder:Refresh()
+    local bf
+    for _, bl in ipairs(ui.scripts[s].blanks) do if bl.piece == s.top and bl.slot == 1 then bf = bl.frame end end
+    bf:Click()"""
+EVB_CARD = """
+    local S, ui = ns.EventBuilder:GetState()
+    local s
+    for _, x in ipairs(S.def.scripts) do if x.id == 'h2' then s = x end end
+    for _, bl in ipairs(ui.scripts[s].blanks) do
+      if bl.piece.k == 'pc.point' and bl.slot == 2 then bl.frame:GetScript('OnEnter')(bl.frame) end
+    end"""
+EVB_PICKER = """
+    ns.EventBuilder:SelectStage('*')
+    local S, ui = ns.EventBuilder:GetState()
+    local s
+    for _, x in ipairs(S.def.scripts) do if x.id == 'c3' then s = x end end
+    s.top.n.a[1] = nil
+    ns.EventBuilder:Refresh()
+    for _, bl in ipairs(ui.scripts[s].blanks) do if bl.piece.k == 'ch.show' and bl.slot == 1 then bl.frame:Click() end end"""
+
+
+def evb(key, stage="s1", cat=None, lua=None, art=False, stand=False):
+    """The builder with an example (B:Examples' key; None: a new event) on a stage, the palette on cat, then lua (with
+    the renders' real geometry: the popovers place themselves by it)."""
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        if stand:
+            w.set_position("Gina", 1951, 0.345, 0.385, subzone="Halaa")
+        if art:
+            g.eval(EVB_MAPART)
+        g.eval("local key, stage, cat = ...; local d = ns.Events:NewDef(false); if key then local ex = "
+               "ns.EventBlocks:Example(key); for k, v in pairs(ex) do d[k] = v end; ns.Events:SaveDef(d) end; "
+               "ns.EventBuilder:Open(key and ns.Events:GetDef(d.id) or nil, { stage = stage }); local S = "
+               "ns.EventBuilder:GetState(); S.cat = cat or S.cat; ns.EventBuilder:Refresh()", key, stage, cat)
+        w.tick(0.3)
+        if lua:
+            g.eval("__MOCK.real_geometry = true")
+            g.eval(lua)
+            w.tick(0.5)
+        return g
+    return fn
+
+
+_EVB = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
+STATES[_EVB:_EVB] = [
+    ("Events - builder players", evb("hide", "s3", "pl")),
+    ("Events - builder tag editor", evb("hide", "s3", "pl", "ns.EventBuilder.Defs:Open('tags', 'tg3')")),
+    ("Events - builder score editor", evb("race", "s2", "pt", "ns.EventBuilder.Defs:Open('scores', 'sc1')")),
+    ("Events - builder ask editor", evb("tmog", "s4", "as", "ns.EventBuilder.Defs:Open('asks', 'ak3')")),
+    ("Events - builder ask choices", evb("tmog", "s4", "as", "ns.EventBlocks:NewDefinition(ns.EventBuilder:GetState().def, "
+                                     "'asks', { n = 'Theme', q = 'Which theme next week?', kind = 'choice', choices = "
+                                     "{ 'Pirates', 'Undead', 'Night elves', 'Holiday' }, votes = 2 }); "
+                                     "ns.EventBuilder:Refresh(); ns.EventBuilder.Defs:Open('asks', 'ak4')")),
+    ("Events - builder new ask", evb("tmog", "s4", "as", "local S, ui = ns.EventBuilder:GetState(); "
+                                 "ui.pal.rowOf['add:asks']:Click()")),
+    ("Events - builder list editor", evb("race", "s2", "lo", "ns.EventBuilder.Defs:Open('lists', 'ls1')")),
+    ("Events - builder questions", evb("quiz", "s2", "lo", "ns.EventBuilder.QSheet:Open('ls1'); "
+                                   "ns.EventBuilder.QSheet.cur.sel = 4; ns.EventBuilder.QSheet:Render()")),
+    ("Events - builder places", evb("hide", "s3", "pc", EVB_PLACES + "; local S, ui = ns.EventBuilder:GetState(); "
+                                "ns.EventBuilder.Defs:AddPlaceMenu(ui.pal.rowOf['add:places'])")),
+    ("Events - builder place picker", evb("hide", "s3", "pc", EVB_PLACES + EVB_PICK)),
+    ("Events - builder place card", evb("hide", "s2", "pc", EVB_CARD, art=True)),
+    ("Events - builder map sheet", evb("hide", "s3", "pc", EVB_PLACES + "; ns.EventBuilder.MapSheet:Open({ pid = 'pc1' })",
+                                   art=True, stand=True)),
+    ("Events - builder new place", evb(None, "s1", "pc", "ns.EventBuilder.MapSheet:Open({ stand = true })", art=True,
+                                   stand=True)),
+    ("Events - builder matches card", evb("duel", "s2", "sm", "local d = ns.EventBuilder:GetState().def; "
+                                      "d.blocks.b2.set.win = 'pieces'; d.blocks.b2.set.bo = 1; d.blocks.b2.set.fbo = 3; "
+                                      "d.blocks.b2.set.atonce = 4; ns.EventBuilder:Refresh()")),
+    ("Events - builder messages", evb("duel", "*", "ch")),
+    ("Events - builder start from", evb(None, "s1", "ev")),
+    ("Events - builder delete asks", evb("hide", "s3", "pl", "ns.EventBuilder.Defs:Delete('tags', 'tg1')")),
+    ("Events - builder practice facts", evb("hide", "s1", "pl", "ns.EventBuilder:StartPractice(); ns.EventLive:PracticeSkip(); "
+                                        "local S = ns.EventBuilder:GetState(); S.happen.kind = 'touch'; "
+                                        "ns.EventBuilder:Refresh()")),
+]
+# (part 1's picker state named a piece part 2 migrated away: the same view on the show's players blank)
+for _i, _st in enumerate(STATES):
+    if _st[0] == "Events - builder picker":
+        STATES[_i] = (_st[0], ev_builder(EVB_PICKER))
