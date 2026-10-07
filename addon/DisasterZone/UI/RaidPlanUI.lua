@@ -4802,6 +4802,90 @@ function TV.layoutSeg()
         w = w + d.tabComp:GetWidth()
     end
     d.seg:SetWidth(w + 2)
+    -- the thumb under the open tab (TV.animateTab slides it there instead while it runs)
+    local comp = d.tabComp:IsShown() and d.tabComp.active
+    local tx = comp and (2 + d.tabGroups:GetWidth()) or 2
+    local tw = comp and d.tabComp:GetWidth() or d.tabGroups:GetWidth()
+    d.seg.thumb.tx, d.seg.thumb.tw = tx, tw
+    if not TV.anim then TV.placeThumb(tx, tw) end
+end
+
+function TV.placeThumb(x, w)
+    local th = teamsView.detail.seg.thumb
+    th.x, th.w = x, w
+    th:ClearAllPoints()
+    th:SetPoint("LEFT", th:GetParent(), "LEFT", x, 0)
+    th:SetWidth(max(1, w))
+end
+
+-- Groups <-> Comp: the thumb slides to the new tab while the new view fades in and glides the last few px into
+-- place from the side of its tab (Comp from the right, Groups from the left), with the toolbar's strip and actions
+-- fading in with it. Eased out; a switch during the motion starts from where things are.
+TV.ANIM = { THUMB = 0.22, VIEW = 0.28, SHIFT = 14 }
+
+-- fx, fw = where the thumb was before the switch (the refresh has already put it under the new tab).
+function TV.animateTab(key, fx, fw)
+    local d = teamsView and teamsView.detail
+    if not (d and d:IsVisible()) then return end
+    local th = d.seg.thumb
+    local a = { t = 0, fx = fx or th.x, fw = fw or th.w, dir = key == "comp" and 1 or -1, fades = {}, shifts = {} }
+    local function fade(f)
+        if f and f:IsShown() then a.fades[#a.fades + 1] = f end
+    end
+    local function shift(f)
+        if not (f and f:IsShown()) then return end
+        local pts = {}
+        for i = 1, (f.GetNumPoints and f:GetNumPoints() or 0) do pts[i] = { f:GetPoint(i) } end
+        a.shifts[#a.shifts + 1] = { f = f, pts = pts }
+        fade(f)
+    end
+    if key == "comp" then
+        shift(d.compScroll)
+        shift(d.compEmpty)
+        fade(d.compStrip)
+    else
+        shift(d.scroll)
+        fade(d.buffs)
+    end
+    fade(d.tool)
+    -- (an earlier motion's frames end where they belong)
+    if TV.anim then TV.endAnim() end
+    TV.anim = a
+    TV.stepAnim(0)
+    TV.animDriver = TV.animDriver or CreateFrame("Frame")
+    TV.animDriver:SetScript("OnUpdate", function(_, elapsed) TV.stepAnim(elapsed) end)
+end
+
+function TV.stepAnim(elapsed)
+    local a = TV.anim
+    if not a then return end
+    a.t = a.t + (elapsed or 0)
+    local function ease(x) x = min(1, max(0, x)) return 1 - (1 - x) ^ 3 end
+    local th = teamsView.detail.seg.thumb
+    local e1 = ease(a.t / TV.ANIM.THUMB)
+    TV.placeThumb(a.fx + ((th.tx or a.fx) - a.fx) * e1, a.fw + ((th.tw or a.fw) - a.fw) * e1)
+    local e2 = ease(a.t / TV.ANIM.VIEW)
+    for _, f in ipairs(a.fades) do f:SetAlpha(e2) end
+    local dx = a.dir * TV.ANIM.SHIFT * (1 - e2)
+    for _, s in ipairs(a.shifts) do
+        s.f:ClearAllPoints()
+        for _, pt in ipairs(s.pts) do s.f:SetPoint(pt[1], pt[2], pt[3], (pt[4] or 0) + dx, pt[5] or 0) end
+    end
+    if a.t >= max(TV.ANIM.THUMB, TV.ANIM.VIEW) then TV.endAnim() end
+end
+
+function TV.endAnim()
+    local a = TV.anim
+    if not a then return end
+    TV.anim = nil
+    if TV.animDriver then TV.animDriver:SetScript("OnUpdate", nil) end
+    for _, f in ipairs(a.fades) do f:SetAlpha(1) end
+    for _, s in ipairs(a.shifts) do
+        s.f:ClearAllPoints()
+        for _, pt in ipairs(s.pts) do s.f:SetPoint(pt[1], pt[2], pt[3], pt[4] or 0, pt[5] or 0) end
+    end
+    local th = teamsView.detail.seg.thumb
+    if th.tx then TV.placeThumb(th.tx, th.tw) end
 end
 
 ---------------------------------------------------------------------------
@@ -4991,9 +5075,15 @@ function PlanUI:IsTeamBoard() return teamsView ~= nil and teamsView.board:IsShow
 ---------------------------------------------------------------------------
 
 function TV.setTab(key)
+    local prev = state.teamTab == "comp" and "comp" or "groups"
     state.teamTab = key == "comp" and "comp" or "groups"
     if teamsView then teamsView.detail.steps:Hide() end
+    -- (a motion still running ends first: the refresh lays the views out where they belong)
+    if TV.anim then TV.endAnim() end
+    local th = teamsView and teamsView.detail.seg.thumb
+    local fx, fw = th and th.x, th and th.w
     PlanUI:RefreshTeams()
+    if prev ~= state.teamTab then TV.animateTab(state.teamTab, fx, fw) end
 end
 
 -- A "+" or "-" drawn on a small sleek button.
@@ -5330,6 +5420,17 @@ function TV.createComp(t, d)
     UI():AddEdges(seg, "BORDER")
     UI():SetEdgeColor(seg, 1, 1, 1, 0.07)
     d.seg = seg
+    -- the lit part: one thumb under the tabs that slides to the open one (TV.layoutSeg, TV.animateTab)
+    local thumb = CreateFrame("Frame", nil, seg)
+    thumb:SetHeight(TV.TB_H - 4)
+    thumb:SetFrameLevel(seg:GetFrameLevel() + 1)
+    thumb.bg = thumb:CreateTexture(nil, "BACKGROUND")
+    thumb.bg:SetAllPoints()
+    thumb.bg:SetColorTexture(0.165, 0.165, 0.19, 1)
+    UI():AddEdges(thumb, "BORDER")
+    UI():SetEdgeColor(thumb, 1, 1, 1, 0.1)
+    thumb.x, thumb.w = 2, 60
+    seg.thumb = thumb
     local function tab(label, key)
         local b = CreateFrame("Button", nil, seg)
         b:SetHeight(TV.TB_H - 4)
@@ -5347,10 +5448,12 @@ function TV.createComp(t, d)
         b:SetFontString(fs)
         b.fs = fs
         b:SetScript("OnClick", function() TV.setTab(key) end)
+        b:SetFrameLevel(seg:GetFrameLevel() + 3)
+        b.bg:Hide()
+        for _, e in ipairs(b.edges or {}) do e:Hide() end
         function b:SetActive(on)
+            -- (the seg's thumb lights the open one: the tab only brightens its text)
             self.active = on and true or false
-            self.bg:SetShown(self.active)
-            for _, e in ipairs(self.edges or {}) do e:SetShown(self.active) end
             self.fs:SetTextColor(on and 1 or 0.62, on and 1 or 0.62, on and 1 or 0.62)
         end
         function b:SetLabel(text)

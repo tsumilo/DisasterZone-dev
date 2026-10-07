@@ -370,6 +370,31 @@ def a_group_title_dragged_onto_another_group_swaps_them():
 
 
 @case
+def switching_groups_and_comp_slides_the_thumb_and_fades_the_view_in():
+    w, c = world()
+    bob = c["Bob"]
+    tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, comp=preset(bob, "std25"),
+                    groups={"Lee": 1, "Rita": 1})
+    w.tick(1)
+    open_teams(w, bob, tid, "groups")
+    thumb = D + ".seg.thumb"
+    x0 = bob.eval("return %s.x" % thumb)
+    bob.click(bob.eval("return %s.tabComp" % D))
+    # right after the click: on its way (the view still faint, the thumb not yet under Comp)
+    assert bob.eval("return %s.compScroll:GetAlpha()" % D) < 0.5
+    assert bob.eval("local th = %s; return th.x < th.tx" % thumb) is True
+    w.tick(0.5)
+    assert bob.eval("return %s.compScroll:GetAlpha()" % D) == 1
+    assert bob.eval("local th = %s; return th.x == th.tx and th.x > ..." % thumb, x0) is True
+    # and back: the thumb returns, the groups fade in
+    bob.click(bob.eval("return %s.tabGroups" % D))
+    assert bob.eval("return %s.scroll:GetAlpha()" % D) < 0.5
+    w.tick(0.5)
+    assert bob.eval("return %s.scroll:GetAlpha()" % D) == 1 and bob.eval("return %s.x" % thumb) == x0
+    w.assert_no_errors()
+
+
+@case
 def a_raid_lists_the_open_slots_and_the_lf_message():
     w, c = world()
     bob, rita = c["Bob"], c["Rita"]
