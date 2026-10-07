@@ -270,13 +270,8 @@ local function Build()
     f.enchantRow = CreateRow(f)
     f.enchantRow.target = "e"
     f.bonus = Text(f, "GameFontHighlightSmall")
-    f.bonusHint = Text(f, "GameFontHighlightSmall")
-    f.bonusHint:SetWordWrap(true)
-    f.bonusHint:SetWidth(W - 2 * PAD - 4)
-    f.bonusHint:SetTextColor(DIM[1], DIM[2], DIM[3])
 
     -- the choices
-    f.choiceTitle = Text(f, "GameFontDisableSmall")
     f.search = U:CreateSearchBox(f, W - 2 * PAD, function(text)
         state.search = (text and text ~= "") and text:lower() or nil
         state.offset = 0
@@ -521,7 +516,6 @@ function GemEditor:Refresh()
 
     -- the socket bonus
     f.bonus:Hide()
-    f.bonusHint:Hide()
     if bonus then
         y = y - 2
         local active = Gm:BonusActive(state.itemID, gems)
@@ -534,46 +528,11 @@ function GemEditor:Refresh()
             f.bonus:SetTextColor(GREY[1], GREY[2], GREY[3])
         end
         f.bonus:Show()
-        y = y - 14
-        if not active then
-            local need = {}
-            for i, s in ipairs(sockets) do
-                if not ((gems[i] or 0) ~= 0 and Gm:Fits(gems[i], s)) then
-                    need[#need + 1] = Gm.SOCKET_NAMES[s]:lower()
-                end
-            end
-            f.bonusHint:ClearAllPoints()
-            f.bonusHint:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + 2, y)
-            if #need == 1 then
-                f.bonusHint:SetText("Needs a " .. need[1] .. " gem in the " .. need[1] .. " socket")
-            else
-                local last = table.remove(need)
-                f.bonusHint:SetText("Needs " .. table.concat(need, ", ") .. " and " .. last .. " gems in their sockets")
-            end
-            f.bonusHint:Show()
-            y = y - (f.bonusHint:GetStringHeight() or 12) - 2
-        end
-        y = y - 6
+        y = y - 20
     end
 
     -- the choices
     local guide = Guide()
-    local view = View()
-    local specName = view and view.sp ~= "" and view.sp or nil
-    local title
-    if state.search then
-        title = "SEARCH"
-    elseif state.target == "e" then
-        title = "ENCHANTS"
-    else
-        local s = sockets[tonumber(state.target:sub(2))] or "R"
-        title = (Gm.SOCKET_NAMES[s] or ""):upper() .. " SOCKET"
-    end
-    if guide and specName and not state.search then title = title .. "  ·  SUGGESTED FOR " .. specName:upper() end
-    f.choiceTitle:SetText(title)
-    f.choiceTitle:ClearAllPoints()
-    f.choiceTitle:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + 2, y)
-    y = y - 16
     f.search:ClearAllPoints()
     f.search:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
     y = y - 26
@@ -606,7 +565,7 @@ function GemEditor:Refresh()
             local _, guideEnchants = Gm:GuidePicks(guide, state.phase)
             local sug = Gm:Enchant(guideEnchants[state.sid])
             if sug and Gm:EnchantFitsItem(sug.id, state.itemID) then
-                er.effect:SetText("Suggested: " .. sug.short)
+                er.effect:SetText(sug.short)
             else
                 er.effect:SetText("None")
             end
