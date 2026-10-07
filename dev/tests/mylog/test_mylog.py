@@ -480,6 +480,99 @@ def slash_mylog():
 
 
 @case
+def boss_mechanics_are_marked_once_per_cast():
+    f = Fight()
+    f.start(enc=625, name="Leotheras the Blind")
+    f.tick(10)
+    leo = "Creature-0-4000-548-100-21215-0000AB7777"
+    # Whirlwind goes on Leotheras (an aura from the strategy board's list): one mark, even if it lands twice
+    f.ev("SPELL_AURA_APPLIED", leo, "Leotheras the Blind", BOSS_FLAGS, leo, "Leotheras the Blind", BOSS_FLAGS,
+         37640, "Whirlwind", 1, "BUFF")
+    f.ev("SPELL_AURA_APPLIED", leo, "Leotheras the Blind", BOSS_FLAGS, leo, "Leotheras the Blind", BOSS_FLAGS,
+         37640, "Whirlwind", 1, "BUFF")
+    # a spell that is not on the list is not a mark
+    f.ev("SPELL_CAST_SUCCESS", leo, "Leotheras the Blind", BOSS_FLAGS, "", "", 0, 12345, "Something", 1)
+    f.tick(50)
+    f.ev("SPELL_AURA_APPLIED", leo, "Leotheras the Blind", BOSS_FLAGS, leo, "Leotheras the Blind", BOSS_FLAGS,
+         37640, "Whirlwind", 1, "BUFF")
+    f.cl.eval("__MOCK.player_hp = 4000")
+    f.ev("UNIT_DIED", "", "", 0, f.me, "Lux", ME_FLAGS)
+    f.tick(2)
+    f.end(enc=625, name="Leotheras the Blind")
+    p = f.last()
+    marks = [(round(m[0]), m[1]) for m in p["mech"]]
+    assert marks == [(10, 37640), (60, 37640)], marks
+    assert p["names"]["37640"] == "Whirlwind"
+    assert p["deaths"][0]["hpMax"] == 100
+    assert f.cl.eval("return ns.MyLog:BossDisplayId('Leotheras the Blind')") == 20514
+
+
+@case
+def the_boss_side_of_the_fight_is_logged():
+    f = Fight()
+    f.start(enc=625, name="Leotheras the Blind")
+    leo = "Creature-0-4000-548-100-21215-0000AB7777"
+    shadow = "Creature-0-4000-548-100-21875-0000AB8888"
+    trash = "Creature-0-4000-548-100-99999-0000AB9999"
+    f.tick(5)
+    # any cast by an encounter creature, once per cast however many it hits
+    f.ev("SPELL_CAST_START", leo, "Leotheras the Blind", BOSS_FLAGS, "", "", 0, 37675, "Chaos Blast", 32)
+    f.ev("SPELL_CAST_SUCCESS", leo, "Leotheras the Blind", BOSS_FLAGS, "", "", 0, 37675, "Chaos Blast", 32)
+    # a creature outside the encounter: nothing
+    f.ev("SPELL_CAST_START", trash, "Coilfang Trash", BOSS_FLAGS, "", "", 0, 11111, "Frostbolt", 16)
+    f.tick(5)
+    # Whirlwind on Leotheras for 12 s: an aura entry with its length; my curse on him is not the boss's
+    f.ev("SPELL_AURA_APPLIED", leo, "Leotheras the Blind", BOSS_FLAGS, leo, "Leotheras the Blind", BOSS_FLAGS,
+         37640, "Whirlwind", 1, "BUFF")
+    f.mine("SPELL_AURA_APPLIED", leo, "Leotheras the Blind", 27228, "Curse of the Elements", 32, "DEBUFF")
+    f.tick(12)
+    f.ev("SPELL_AURA_REMOVED", leo, "Leotheras the Blind", BOSS_FLAGS, leo, "Leotheras the Blind", BOSS_FLAGS,
+         37640, "Whirlwind", 1, "BUFF")
+    # the demon form's shadow dies; a yell marks a phase
+    f.ev("SPELL_SUMMON", leo, "Leotheras the Blind", BOSS_FLAGS, shadow, "Shadow of Leotheras", BOSS_FLAGS,
+         37676, "Insidious Whisper", 32)
+    f.cl.fire("CHAT_MSG_MONSTER_YELL", "Be gone, trifling elf. I am in control now!", "Leotheras the Blind")
+    f.tick(3)
+    f.ev("UNIT_DIED", "", "", 0, shadow, "Shadow of Leotheras", BOSS_FLAGS)
+    f.tick(2)
+    f.end(enc=625, name="Leotheras the Blind")
+    bev = [(round(e[0]), e[1], e[2], e[3] if len(e) > 3 else None) for e in f.last()["bev"]]
+    assert bev == [(5, "c", 37675, None), (10, "a", 37640, 12), (22, "s", 37676, None),
+                   (22, "y", "Leotheras the Blind", "Be gone, trifling elf. I am in control now!"),
+                   (25, "d", 21875, None)], bev
+    assert f.last()["names"]["n21875"] == "Shadow of Leotheras"
+
+
+@case
+def my_casts_are_logged_in_order_with_their_length():
+    f = Fight()
+    f.start()
+    cl = f.cl
+    # a 2.5 s Shadow Bolt
+    cl.eval("local n = GetTime(); __MOCK.casting = { 'Shadow Bolt', n * 1000, (n + 2.5) * 1000, 27209 }")
+    cl.fire("UNIT_SPELLCAST_START", "player", "c1", 27209)
+    f.tick(2.5)
+    cl.eval("__MOCK.casting = nil")
+    f.mine("SPELL_CAST_SUCCESS", BOSS, "Hydross", 27209, "Shadow Bolt", 32)
+    cl.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "c1", 27209)
+    # an instant
+    f.tick(0.5)
+    f.mine("SPELL_CAST_SUCCESS", BOSS, "Hydross", 27216, "Corruption", 32)
+    # a 3 s channel (the log names it when it starts)
+    f.tick(1)
+    cl.eval("local n = GetTime(); __MOCK.channel = { 'Drain Life', n * 1000, (n + 5) * 1000, 27220 }")
+    cl.fire("UNIT_SPELLCAST_CHANNEL_START", "player", "c3", 27220)
+    f.mine("SPELL_CAST_SUCCESS", BOSS, "Hydross", 27220, "Drain Life", 32)
+    f.tick(3)
+    cl.eval("__MOCK.channel = nil")
+    cl.fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "c3", 27220)
+    f.tick(1)
+    f.end()
+    ct = [(round(e[0], 1), e[1], (round(e[2], 1) if len(e) > 2 and e[2] is not None else None)) for e in f.last()["ct"]]
+    assert ct == [(0.0, 27209, 2.5), (3.0, 27216, None), (4.0, 27220, 3.0)], ct
+
+
+@case
 def settings_section_switches_and_deletes():
     w, c = solo("Lux", class_file="WARLOCK", tick=3)
     install_helpers(c)

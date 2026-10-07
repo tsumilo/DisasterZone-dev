@@ -20,6 +20,9 @@ ns.CHANGELOG = {
               "Click a boss: the fight second by second against another kill, with your idle gaps in red.",
               "Under it, every ability (or what hit you) with its change, avoidable hits marked.",
               "Deaths: what killed you most, and the last 10 seconds of each death with your health.",
+              "The boss's side is logged too: its casts, its shields and phases, yells, adds dying.",
+              "Timeline (on a boss): every cast you made, lane by lane, under the boss's own lane.",
+              "Idle gaps show red across the lanes. Hover for what happened; scroll to zoom in.",
               "Demo mode fills My Log with made-up raid nights, so you can look around first.",
           } },
           { heading = "Teams, redesigned", lines = {

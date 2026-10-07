@@ -1,12 +1,15 @@
-if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyLogDetail.lua", ...) then return end -- DisasterZone: My Log boss detail and deaths.
--- Two views of the My Log page (UI/MyLogUI.lua), drawn in its body under the top bar:
---   boss:   one pull of a boss (the run's kill, or its best wipe) against another pull of that boss (my previous
---           kill by default; any pull that still has its detail can be picked): the view's number every 5 seconds
---           for both (the picked pull gold, the other grey) with my idle gaps marked red, four numbers with their
---           change, and a table of abilities (damage: mine and my pets'; healing: heals and shields; tanking: what
---           hit me, avoidable ones marked) with each one's change
---   deaths: every death in the instance's stored pulls, grouped by what killed me (most often first); a death shows
---           its last 10 seconds: hits, heals, my casts, with my health after each
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyLogDetail.lua", ...) then return end -- DisasterZone: My Log boss and death screens.
+-- Two screens of the My Log page (UI/MyLogUI.lua), drawn with UI/MyLogKit.lua under its breadcrumb:
+--   boss:   portrait and title; one pull (the night's kill, or its best wipe) against another pull of the boss (my
+--           previous kill by default, any pull that still has its detail can be picked). A big chart: the view's
+--           number every 5 seconds for both (gold with a soft fill, the other grey), the boss's mechanics as violet
+--           bands, my idle gaps as red ticks on the baseline; hover it to read both pulls at that moment. Chips: active
+--           time, idle gaps, how fast I was back after the boss's mechanics. Then where my damage (healing, or the
+--           damage I took) came from: spell icon, a gold bar for this pull and a grey one for the other, the amount,
+--           its share and its change. A line of uptimes along the bottom.
+--   deaths: what kills me here (tiles, most deaths first, avoidable causes marked; a click picks one); a death's
+--           last 10 seconds as a health line with its hits and heals as dots and my casts as ticks; under it the same
+--           seconds as a story, line by line, with my health after each. Arrows step through the deaths.
 local addonName, ns = ...
 
 local MyLogDetail = ns:NewModule("MyLogDetail")
@@ -14,37 +17,28 @@ local MyLogDetail = ns:NewModule("MyLogDetail")
 local floor, abs, max, min = math.floor, math.abs, math.max, math.min
 local strformat, strsub = string.format, string.sub
 
-local HEAD_Y = -66          -- the boss view's title row
-local CHART_Y, CHART_H = -96, 112
-local MINI_Y, MINI_H = -232, 50
-local TABLE_Y = -292
-local ROW_H = 22
-local DROW_H = 22
-local LEFT_W = 300
-local AVOID = { 1, 0.62, 0.25 }
+local PAD = 14
+local ROW_H = 38
+local STORY_H = 26
 
 local panel, bossView, deathsView
-local cur = { pull = nil, cmp = nil }        -- the pulls shown in the boss view
-local deathSel                                -- the death shown in the deaths view
+local cur = { pull = nil, cmp = nil }
+local deathSel, causeSel
 
 local function UI() return ns.UI end
 local function Log() return ns.MyLog end
-local function F() return ns.MyLogUI.F end
+local function K() return ns.MyLogKit end
+local function Views() return ns.MyLogUI.VIEW_BY_KEY end
 
 local function SpellName(p, key)
     local n = p and p.names and p.names[key]
     if n then return n end
-    local id = tonumber((tostring(key):gsub("^p", "")))
+    local id = tonumber((tostring(key):gsub("^[pm]", "")))
     if id and GetSpellInfo then
         local name = GetSpellInfo(id)
         if name then return name end
     end
     return tostring(key)
-end
-
-local function Clock(sec)
-    sec = floor((sec or 0) + 0.5)
-    return strformat("%d:%02d", floor(sec / 60), sec % 60)
 end
 
 local function BossKey(p) return p.enc or p.boss end
@@ -53,7 +47,6 @@ local function BossKey(p) return p.enc or p.boss end
 -- Picking the pulls
 ---------------------------------------------------------------------------
 
--- Pulls of the boss (newest first) that still have their detail.
 local function DetailPulls(boss)
     local out = {}
     local all = Log():GetPulls()
@@ -65,16 +58,13 @@ local function DetailPulls(boss)
 end
 
 local function PullLabel(p)
-    local f = F()
-    local what = p.kill and "kill" or strformat("wipe %.0f%%", p.pct or 0)
-    return strformat("%s · %s · %s", f.Day(p.at), what, Clock(p.dur))
+    local k = K()
+    return strformat("%s · %s %s", k.Day(p.at), p.kill and "kill" or strformat("wipe %.0f%%", p.pct or 0), k.Clock(p.dur))
 end
 
--- The pull compared with by default: the kill before it (same spec first), else the pull before it.
 local function DefaultCompare(p)
-    local list = DetailPulls(BossKey(p))
     local same, any, before
-    for _, q in ipairs(list) do
+    for _, q in ipairs(DetailPulls(BossKey(p))) do
         if q ~= p and (q.at or 0) < (p.at or 0) then
             if q.kill and q.spec == p.spec and not same then same = q end
             if q.kill and not any then any = q end
@@ -88,7 +78,6 @@ function MyLogDetail:ShowBoss(row)
     local state = ns.MyLogUI:GetState()
     local pull = row.kill
     if not pull then
-        -- no kill: the best wipe of the run
         local runs = Log():GetRuns(state.inst)
         local run = runs[state.run] or runs[1]
         for _, p in ipairs(run and run.pulls or {}) do
@@ -99,6 +88,7 @@ function MyLogDetail:ShowBoss(row)
     end
     cur.pull = pull
     cur.cmp = pull and DefaultCompare(pull) or nil
+    cur.mode = cur.mode or "list"
     ns.MyLogUI:SetMode("boss")
 end
 
@@ -107,123 +97,14 @@ function MyLogDetail:HideAll()
     if deathsView then deathsView:Hide() end
 end
 
----------------------------------------------------------------------------
--- Chart: per-second values in 5 s buckets, two pulls, idle gaps of the first
----------------------------------------------------------------------------
-
-local TL_FIELD = { damage = "d", healing = "h", tanking = "t" }
-
-local function Series(p, view)
-    local tl = p and p.tl and p.tl[TL_FIELD[view] or "d"]
-    if not tl then return {}, 0 end
-    local n = floor((p.dur or 0) / 5) + 1
-    local out, hi = {}, 0
-    for i = 1, n do
-        local v = (tl[i] or 0) / 5
-        out[i] = v
-        if v > hi then hi = v end
-    end
-    return out, hi
-end
-
-local function NewChart(parent)
-    local c = CreateFrame("Frame", nil, parent)
-    c.bg = c:CreateTexture(nil, "BACKGROUND")
-    c.bg:SetAllPoints()
-    c.bg:SetColorTexture(1, 1, 1, 0.03)
-    c.grid = {}
-    for i = 1, 3 do
-        local g = c:CreateTexture(nil, "BORDER")
-        g:SetColorTexture(1, 1, 1, 0.06)
-        g:SetHeight(1)
-        c.grid[i] = g
-    end
-    c.yTop = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    c.yTop:SetPoint("TOPLEFT", c, "TOPLEFT", 4, -3)
-    c.xEnd = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    c.xEnd:SetPoint("TOPRIGHT", c, "BOTTOMRIGHT", 0, -2)
-    c.xMid = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    c.xMid:SetPoint("TOP", c, "BOTTOM", 0, -2)
-    c.xStart = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    c.xStart:SetPoint("TOPLEFT", c, "BOTTOMLEFT", 0, -2)
-    c.xStart:SetText("0:00")
-    c.lines = { {}, {} }
-    c.bands = {}
-    function c:Line(set, i)
-        local l = self.lines[set][i]
-        if not l then
-            l = self:CreateLine(nil, set == 1 and "OVERLAY" or "ARTWORK")
-            l:SetThickness(set == 1 and 2 or 1.5)
-            self.lines[set][i] = l
-        end
-        return l
-    end
-    function c:Band(i)
-        local b = self.bands[i]
-        if not b then
-            b = self:CreateTexture(nil, "BORDER")
-            b:SetColorTexture(0.89, 0.42, 0.36, 0.16)
-            self.bands[i] = b
-        end
-        return b
-    end
-    function c:Draw(a, b, gaps, durMax)
-        local w, h = self:GetWidth() or 0, self:GetHeight() or 0
-        if w <= 0 then w = 760 end
-        if h <= 0 then h = CHART_H end
-        for set = 1, 2 do for _, l in ipairs(self.lines[set]) do l:Hide() end end
-        for _, band in ipairs(self.bands) do band:Hide() end
-        for i, g in ipairs(self.grid) do
-            g:ClearAllPoints()
-            g:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -h * i / 4)
-            g:SetPoint("TOPRIGHT", self, "TOPRIGHT", 0, -h * i / 4)
-        end
-        local hi = 1
-        for _, s in ipairs({ a, b }) do for _, v in ipairs(s) do if v > hi then hi = v end end end
-        hi = hi * 1.08
-        durMax = max(durMax or 5, 5)
-        local function x(t) return t / durMax * w end
-        local function y(v) return 2 + v / hi * (h - 6) end
-        for set, s in ipairs({ a, b }) do
-            local color = set == 1 and F().GOLD or F().GREY
-            for i = 2, #s do
-                local l = self:Line(set, i - 1)
-                l:SetColorTexture(color[1], color[2], color[3], set == 1 and 1 or 0.8)
-                l:SetStartPoint("BOTTOMLEFT", self, x((i - 2) * 5), y(s[i - 1]))
-                l:SetEndPoint("BOTTOMLEFT", self, x((i - 1) * 5), y(s[i]))
-                l:Show()
-            end
-        end
-        for i, gap in ipairs(gaps or {}) do
-            local band = self:Band(i)
-            band:ClearAllPoints()
-            band:SetPoint("TOPLEFT", self, "TOPLEFT", x(gap.at), 0)
-            band:SetSize(max(1, x(gap.len)), h)
-            band:Show()
-        end
-        self.yTop:SetText(F().Num(hi / 1.08) .. "/s")
-        self.xMid:SetText(Clock(durMax / 2))
-        self.xEnd:SetText(Clock(durMax))
-    end
-    return c
-end
+function MyLogDetail:GetCurrent() return cur.pull, cur.cmp end
+function MyLogDetail:GetSelectedDeath() return deathSel end
 
 ---------------------------------------------------------------------------
--- Ability rows
+-- Abilities
 ---------------------------------------------------------------------------
 
--- Columns: x, width, justify
-local AC = {
-    name = { 8, 236, "LEFT" }, casts = { 250, 44 }, hits = { 300, 44 }, amount = { 350, 78 }, share = { 434, 46 },
-    crit = { 486, 54 }, avg = { 546, 62 }, max = { 614, 62 }, change = { 682, 70 },
-}
-local HEAD = {
-    damage = { amount = "Damage", crit = "Crit", avg = "Average" },
-    healing = { amount = "Healing", crit = "Crit", avg = "Overheal" },
-    tanking = { amount = "Taken", crit = "Crit", avg = "Average" },
-}
-
--- Rows for a pull: { key, name, casts, hits, amount, share (0..1), crit (0..1), avg, max, avoidable, extra }
+-- Rows for a pull: { key, name, casts, hits, amount, share (0..1), crit (0..1), avg, max, avoidable, src, pet }
 local function AbilityRows(p, view)
     local out, total = {}, 0
     if not p or not p.dmg then return out, 0 end
@@ -231,25 +112,25 @@ local function AbilityRows(p, view)
         opts = opts or {}
         local id = tonumber((tostring(key):gsub("^p", "")))
         local r = {
-            key = key, name = SpellName(p, key) .. (opts.suffix or ""), hits = st.n or 0, amount = amount,
+            key = key, name = SpellName(p, key), hits = st.n or 0, amount = amount,
             crit = (st.n or 0) > 0 and (st.c or 0) / st.n or nil, max = st.mx,
             casts = (strsub(tostring(key), 1, 1) ~= "p" and id and p.casts and p.casts[id]) or nil,
-            avoidable = opts.avoidable, src = st.src,
+            avoidable = opts.avoidable, src = st.src, overheal = opts.overheal, shield = opts.shield,
+            pet = strsub(tostring(key), 1, 1) == "p",
         }
-        r.avg = opts.avg or ((st.n or 0) > 0 and amount / st.n or nil)
+        r.avg = (st.n or 0) > 0 and amount / st.n or nil
         out[#out + 1] = r
         total = total + amount
     end
     if view == "healing" then
         for key, st in pairs(p.heal) do
             local eff = st.a or 0
-            add(key, st, eff, { avg = (eff + (st.oh or 0)) > 0 and (st.oh or 0) / (eff + (st.oh or 0)) or 0 })
+            add(key, st, eff, { overheal = (eff + (st.oh or 0)) > 0 and (st.oh or 0) / (eff + (st.oh or 0)) or 0 })
         end
-        for key, st in pairs(p.shield) do add(key, st, st.a or 0, { suffix = " (shield)", avg = 0 }) end
+        for key, st in pairs(p.shield) do add(key, st, st.a or 0, { shield = true }) end
     elseif view == "tanking" then
         for key, st in pairs(p.taken) do
-            local amount = (st.a or 0) - (st.o or 0) + (st.ab or 0) + (st.mab or 0)
-            add(key, st, amount, { avoidable = Log():IsAvoidable(key) })
+            add(key, st, (st.a or 0) - (st.o or 0) + (st.ab or 0) + (st.mab or 0), { avoidable = Log():IsAvoidable(key) })
         end
     else
         for _, tbl in ipairs({ p.dmg, p.pet }) do
@@ -260,88 +141,190 @@ local function AbilityRows(p, view)
     for _, r in ipairs(out) do r.share = total > 0 and r.amount / total or 0 end
     return out, total
 end
+function MyLogDetail:AbilityRows(p, view) return AbilityRows(p, view) end
 
-local function Cell(row, col, font)
-    local fs = row:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
-    fs:SetPoint("LEFT", row, "LEFT", col[1], 0)
-    fs:SetWidth(col[2])
-    fs:SetJustifyH(col[3] or "RIGHT")
-    fs:SetWordWrap(false)
-    return fs
+local function AbilitySub(r, view)
+    local bits = {}
+    if view == "tanking" then
+        if r.src then bits[#bits + 1] = "from " .. r.src end
+        bits[#bits + 1] = strformat("%d hit%s", r.hits, r.hits == 1 and "" or "s")
+    else
+        if r.casts then bits[#bits + 1] = strformat("%d casts", r.casts) else bits[#bits + 1] = strformat("%d hits", r.hits) end
+        if r.crit and r.crit > 0 then bits[#bits + 1] = strformat("%.1f%% crit", r.crit * 100) end
+        if r.overheal and r.overheal > 0 then bits[#bits + 1] = strformat("%.0f%% overheal", r.overheal * 100) end
+        if r.shield then bits[#bits + 1] = "shield" end
+    end
+    return table.concat(bits, " · ")
 end
 
+local BAR_X, BAR_W = 228, 330
+
 local function InitAbility(row, data)
+    local k = K()
+    local C = k.C
     if not row.name then
-        row.bar = row:CreateTexture(nil, "BACKGROUND")
-        row.bar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
-        row.bar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 2)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetPoint("TOPLEFT", 0, -2)
+        row.bg:SetPoint("BOTTOMRIGHT", 0, 2)
         row.hl = row:CreateTexture(nil, "HIGHLIGHT")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(1, 1, 1, 0.05)
-        for k, col in pairs(AC) do row[k] = Cell(row, col, k == "name" and "GameFontHighlight" or nil) end
+        row.hl:SetAllPoints(row.bg)
+        row.hl:SetColorTexture(1, 1, 1, 0.035)
+        row.rank = k.Text(row, "numXS")
+        row.rank:SetPoint("LEFT", row, "LEFT", 6, 0)
+        row.rank:SetWidth(16)
+        row.rank:SetJustifyH("RIGHT")
+        row.rank:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
+        row.icon = k.Icon(row, 24)
+        row.icon:SetPoint("LEFT", row, "LEFT", 28, 0)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 60, -5)
+        row.name:SetWidth(160)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
+        row.sub:SetWidth(160)
+        row.sub:SetJustifyH("LEFT")
+        row.sub:SetWordWrap(false)
+        -- the track: a faint full-width groove, this pull's bar on it, the other pull's as a thin line under it
+        row.track = row:CreateTexture(nil, "ARTWORK")
+        row.track:SetPoint("LEFT", row, "LEFT", BAR_X, 2)
+        row.track:SetSize(BAR_W, 6)
+        row.track:SetColorTexture(1, 1, 1, 0.04)
+        row.barNow = row:CreateTexture(nil, "ARTWORK", nil, 2)
+        row.barNow:SetPoint("LEFT", row.track, "LEFT", 0, 0)
+        row.barNow:SetHeight(6)
+        row.barThen = row:CreateTexture(nil, "ARTWORK", nil, 2)
+        row.barThen:SetPoint("TOPLEFT", row.track, "BOTTOMLEFT", 0, -3)
+        row.barThen:SetHeight(2)
+        row.barThen:SetColorTexture(0.55, 0.57, 0.61, 0.55)
+        row.amount = k.Text(row, "numS")
+        row.amount:SetFont(k.NUM_FONT, 15, "")
+        row.amount:SetPoint("TOPRIGHT", row, "TOPRIGHT", -96, -5)
+        row.amount:SetJustifyH("RIGHT")
+        row.share = k.Text(row, "numXS")
+        row.share:SetPoint("TOPRIGHT", row.amount, "BOTTOMRIGHT", 0, -1)
+        row.share:SetJustifyH("RIGHT")
+        row.share:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
+        row.chip = k.Chip(row, 16)
+        row.chip:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+        row.av = k.Chip(row, 14)
         row:SetScript("OnEnter", function(self)
             local r = self.__cdlData and self.__cdlData.r
             if not r then return end
             local lines = { r.name }
             if r.src then lines[#lines + 1] = "From " .. r.src end
-            if r.avoidable then lines[#lines + 1] = { "Avoidable: you can stay out of this.", AVOID[1], AVOID[2], AVOID[3] } end
-            if r.before then
-                lines[#lines + 1] = strformat("%s in the pull compared with (was %s).", F().Num(r.amount), F().Num(r.before))
-            end
+            lines[#lines + 1] = strformat("%s in %d hit%s, biggest %s", k.Num(r.amount), r.hits, r.hits == 1 and "" or "s", k.Num(r.max))
+            if r.avoidable then lines[#lines + 1] = { "Avoidable: you can stay out of this.", C.avoid[1], C.avoid[2], C.avoid[3] } end
+            if r.before then lines[#lines + 1] = { strformat("%s in the pull compared with.", k.Num(r.before)), C.mute[1], C.mute[2], C.mute[3] } end
             UI():SetTextTooltip(self, lines)
         end)
         row:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
-    local r, view = data.r, data.view
-    local f = F()
-    local w = (row:GetWidth() or 760)
-    row.bar:SetWidth(max(1, w * (r.share or 0)))
-    local c = view == "healing" and f.UP or (view == "tanking" and f.DOWN or f.BLUE)
-    row.bar:SetColorTexture(c[1], c[2], c[3], 0.12)
-    local name = r.name
-    if r.avoidable then name = name .. "  " .. f.Hex(AVOID) .. "avoidable|r" end
-    row.name:SetText(name)
-    row.casts:SetText(r.casts and tostring(r.casts) or "")
-    row.hits:SetText(tostring(r.hits or 0))
-    row.amount:SetText(f.Num(r.amount))
-    row.share:SetText(strformat("%.1f%%", (r.share or 0) * 100))
-    row.crit:SetText(r.crit and r.crit > 0 and strformat("%.1f%%", r.crit * 100) or "")
-    if view == "healing" then
-        row.avg:SetText(r.avg and r.avg > 0 and strformat("%.0f%%", r.avg * 100) or "")
-    else
-        row.avg:SetText(r.avg and f.Num(r.avg) or "")
-    end
-    row.max:SetText(r.max and f.Num(r.max) or "")
+    local r, view, top = data.r, data.view, data.top
+    row.bg:SetColorTexture(C.card[1], C.card[2], C.card[3], data.odd and 1 or 0.55)
+    row.rank:SetText(data.rank)
+    row.icon:SetSpell(r.key)
+    row.name:SetText(r.name .. (r.pet and k.Paint("  pet", C.dim) or ""))
+    row.sub:SetText(AbilitySub(r, view))
+    local scale = top > 0 and BAR_W / top or 0
+    row.barNow:SetWidth(max(2, r.amount * scale))
+    local col = view == "healing" and C.up or (view == "tanking" and (r.avoidable and C.avoid or C.down) or C.gold)
+    k.Gradient(row.barNow, { col[1] * 0.45, col[2] * 0.45, col[3] * 0.45, 1 }, { col[1], col[2], col[3], 1 }, "HORIZONTAL")
     if r.before then
-        row.change:SetText(f.ChangeText(f.Change(r.amount, r.before), view ~= "tanking"))
-    elseif data.hasCmp then
-        row.change:SetText(f.Hex(f.GREY) .. "new|r")
+        row.barThen:SetWidth(max(2, r.before * scale))
+        row.barThen:Show()
     else
-        row.change:SetText("")
+        row.barThen:Hide()
+    end
+    row.amount:SetText(k.Num(r.amount))
+    row.share:SetText(strformat("%.1f%%", (r.share or 0) * 100))
+    if r.before then
+        local text, kind = k.ChangeChip(k.Change(r.amount, r.before), view ~= "tanking")
+        row.chip:Set(text, kind)
+    elseif data.hasCmp then
+        row.chip:Set("new", "mute")
+    else
+        row.chip:Set(nil)
+    end
+    if r.avoidable then
+        row.av:Set("avoidable", "av")
+        row.av:ClearAllPoints()
+        row.av:SetPoint("LEFT", row.name, "LEFT", min(160, (row.name:GetStringWidth() or 60)) + 6, 0)
+    else
+        row.av:Set(nil)
     end
 end
 
 ---------------------------------------------------------------------------
--- Boss view
+-- Boss screen
 ---------------------------------------------------------------------------
 
+local TL_FIELD = { damage = "d", healing = "h", tanking = "t" }
+
+-- Per-second values of a pull every 5 s (the last bucket divided by its real length, so a fight that ends 2 s into
+-- a bucket does not dip or spike at the end).
+local function Points(p, view)
+    local tl = p and p.tl and p.tl[TL_FIELD[view] or "d"]
+    local out = {}
+    if not tl then return out end
+    local dur = p.dur or 0
+    local n = floor(dur / 5) + 1
+    for i = 1, n do
+        local len = min(5, dur - (i - 1) * 5)
+        if len >= 1 then out[#out + 1] = { (i - 1) * 5 + len / 2, (tl[i] or 0) / len } end
+    end
+    return out
+end
+
+local function GapsOf(p)
+    local n, s = 0, 0
+    for _, g in ipairs(p and p.gaps or {}) do n = n + 1; s = s + (g.len or 0) end
+    return n, s
+end
+
+-- How fast I was back after the boss's mechanics: the average idle gap that starts within 6 s of one (0 when
+-- none), and the first mechanic's spell id. nil when the pull has no mechanics.
+local function Recovery(p)
+    if not p or not p.mech or #p.mech == 0 then return nil end
+    local total, n = 0, 0
+    for _, m in ipairs(p.mech) do
+        local best
+        for _, g in ipairs(p.gaps or {}) do
+            if g.at >= m[1] - 1 and g.at <= m[1] + 6 then best = max(best or 0, g.len) end
+        end
+        total, n = total + (best or 0), n + 1
+    end
+    return n > 0 and total / n or nil, p.mech[1][2]
+end
+
+local CHART_Y, CHART_H = -92, 170
+local STATS_Y = CHART_Y - CHART_H - 8
+local LIST_LAB_Y = STATS_Y - 46 - 12
+local LIST_Y = LIST_LAB_Y - 14
+
 local function BuildBossView(body)
+    local k = K()
+    local C = k.C
     local v = CreateFrame("Frame", nil, body)
     v:SetAllPoints(body)
-    local f = F()
-    v.back = UI():CreateSleekButton(v, "Back", 60, 22, function() ns.MyLogUI:SetMode("runs") end)
-    v.back:SetPoint("TOPLEFT", v, "TOPLEFT", f.PAD, HEAD_Y)
-    v.title = v:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    v.title:SetPoint("TOPLEFT", v, "TOPLEFT", f.PAD + 72, HEAD_Y - 3)
-    v.title:SetWidth(440)
-    v.title:SetJustifyH("LEFT")
-    v.title:SetWordWrap(false)
-    v.cmpDD = UI():CreateSleekDropdown(v, 230,
+    v.port = k.Portrait(v, 44)
+    v.port:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 3, -38)
+    v.title = k.Text(v, "title")
+    v.title:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 60, -42)
+    v.title:SetWidth(400)
+    v.title:SetTextColor(C.fg[1], C.fg[2], C.fg[3])
+    v.sub = v:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    v.sub:SetPoint("TOPLEFT", v.title, "BOTTOMLEFT", 0, -5)
+    v.sub:SetWidth(400)
+    v.sub:SetJustifyH("LEFT")
+    v.sub:SetWordWrap(false)
+    v.cmpDD = UI():CreateSleekDropdown(v, 200,
         function()
             local out = {}
             if not cur.pull then return out end
             for _, q in ipairs(DetailPulls(BossKey(cur.pull))) do
-                if q ~= cur.pull then out[#out + 1] = { value = q.id, text = "vs " .. PullLabel(q) } end
+                if q ~= cur.pull then out[#out + 1] = { value = q.id, text = PullLabel(q) } end
             end
             return out
         end,
@@ -350,118 +333,272 @@ local function BuildBossView(body)
             for _, q in ipairs(DetailPulls(BossKey(cur.pull))) do if q.id == id then cur.cmp = q end end
             ns.MyLogUI:Refresh()
         end)
-    v.cmpDD:SetDefaultText("Nothing to compare with")
-    v.cmpDD:SetPoint("TOPRIGHT", v, "TOPRIGHT", -f.PAD, HEAD_Y)
+    v.cmpDD:SetDefaultText("nothing to compare")
+    v.cmpDD:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -46)
+    v.cmpLab = v:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    v.cmpLab:SetPoint("RIGHT", v.cmpDD, "LEFT", -8, 0)
+    v.cmpLab:SetText("compare with")
 
-    v.chart = NewChart(v)
-    v.chart:SetPoint("TOPLEFT", v, "TOPLEFT", f.PAD, CHART_Y)
-    v.chart:SetPoint("TOPRIGHT", v, "TOPRIGHT", -f.PAD, CHART_Y)
-    v.chart:SetHeight(CHART_H)
-    v.legend = v:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    v.legend:SetPoint("TOPRIGHT", v.chart, "BOTTOMRIGHT", -40, -2)
-    v.legend:SetJustifyH("RIGHT")
-
-    v.tiles = {}
-    for i = 1, 4 do v.tiles[i] = f.NewTile(v) end
-    local function place()
-        local w = (v:GetWidth() or 780) - 2 * f.PAD
-        if w <= 0 then w = 760 end
-        local tw = (w - 3 * 8) / 4
-        for i, t in ipairs(v.tiles) do
-            t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", v, "TOPLEFT", f.PAD + (i - 1) * (tw + 8), MINI_Y)
-            t:SetWidth(tw)
+    v.chartCard = k.Card(v, { 0.059, 0.067, 0.086, 1 }, 0.06)
+    v.chartCard:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, CHART_Y)
+    v.chartCard:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, CHART_Y)
+    v.chartCard:SetHeight(CHART_H)
+    k.Gradient(v.chartCard.bg, { 0.051, 0.059, 0.075, 1 }, { 0.071, 0.082, 0.106, 1 })
+    v.legend = k.Legend(v.chartCard)
+    v.legend:SetPoint("TOPRIGHT", v.chartCard, "TOPRIGHT", -12, -8)
+    v.chart = k.Chart(v.chartCard)
+    v.chart:SetPoint("TOPLEFT", v.chartCard, "TOPLEFT", 48, -26)
+    v.chart:SetPoint("BOTTOMRIGHT", v.chartCard, "BOTTOMRIGHT", -14, 22)
+    v.chart.inset = { l = 0, r = 0, t = 14, b = 0 }
+    v.chart.fallback = { 710, 122 }
+    v.xLabs = {}
+    for i = 1, 4 do
+        local lab = k.Text(v.chartCard, "numXS")
+        lab:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
+        v.xLabs[i] = lab
+    end
+    -- the time labels at 0, 1/3, 2/3 and the end of the chart's width
+    function v.PlaceX()
+        local w = v.chart:GetWidth() or 0
+        if w <= 0 then w = 710 end
+        for i, lab in ipairs(v.xLabs) do
+            lab:ClearAllPoints()
+            lab:SetPoint(i == 4 and "TOPRIGHT" or (i == 1 and "TOPLEFT" or "TOP"), v.chart, "BOTTOMLEFT", w * (i - 1) / 3, -6)
         end
     end
-    place()
-    v:HookScript("OnSizeChanged", place)
+    v.chart:HookScript("OnSizeChanged", function() v.PlaceX() end)
 
-    local head = UI():CreateColumnHeader(v, 20)
-    head:SetPoint("TOPLEFT", v, "TOPLEFT", f.PAD, TABLE_Y)
-    head:SetPoint("TOPRIGHT", v, "TOPRIGHT", -f.PAD - 20, TABLE_Y)
-    v.heads = {}
-    v.heads.name = head:AddColumn("Ability", AC.name[1], AC.name[2]).label
-    v.heads.casts = head:AddColumn("Casts", AC.casts[1], AC.casts[2], { justify = "RIGHT" }).label
-    v.heads.hits = head:AddColumn("Hits", AC.hits[1], AC.hits[2], { justify = "RIGHT" }).label
-    v.heads.amount = head:AddColumn("Damage", AC.amount[1], AC.amount[2], { justify = "RIGHT" }).label
-    v.heads.share = head:AddColumn("%", AC.share[1], AC.share[2], { justify = "RIGHT" }).label
-    v.heads.crit = head:AddColumn("Crit", AC.crit[1], AC.crit[2], { justify = "RIGHT" }).label
-    v.heads.avg = head:AddColumn("Average", AC.avg[1], AC.avg[2], { justify = "RIGHT" }).label
-    v.heads.max = head:AddColumn("Biggest", AC.max[1], AC.max[2], { justify = "RIGHT" }).label
-    v.heads.change = head:AddColumn("Change", AC.change[1], AC.change[2], { justify = "RIGHT" }).label
+    v.stats = k.StatStrip(v, 4, 46)
+    v.stats:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, STATS_Y)
+    v.stats:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, STATS_Y)
 
+    v.listLab = k.Label(v, "")
+    v.listLab:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 2, LIST_LAB_Y)
+    v.listHint = k.Label(v, "")
+    v.listHint:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD - 176, LIST_LAB_Y)
+    v.listHint:SetJustifyH("RIGHT")
+    v.listHint:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
+    v.modeSeg = k.Segment(v, { { key = "list", label = "Breakdown" }, { key = "timeline", label = "Timeline" } },
+        function(key) cur.mode = key; ns.MyLogUI:Refresh() end, 78)
+    v.modeSeg:SetPoint("BOTTOMRIGHT", v, "TOPRIGHT", -PAD, LIST_LAB_Y - 12)
+    v.timeline = ns.MyLogTimeline:Create(v)
+    v.timeline:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, LIST_Y - 2)
+    v.timeline:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -PAD, 6)
+    v.timeline.fallback = { 772, 200 }
     v.list = UI():CreateScrollList(v, ROW_H, InitAbility)
-    v.list.frame:SetPoint("TOPLEFT", v, "TOPLEFT", f.PAD, TABLE_Y - 22)
-    v.list.frame:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -f.PAD, f.PAD)
+    v.list.frame:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, LIST_Y)
+    v.list.frame:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -PAD + 20, 46)
     v.list:SetEmptyText("The detail of this pull aged out: only the newest pulls of a boss keep it.")
+
+    -- uptimes: small cards with a bar each
+    v.upLab = k.Label(v, "Uptime")
+    v.upLab:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", PAD + 2, 22)
+    v.ups = {}
+    for i = 1, 3 do
+        local u = k.Card(v, C.card, 0.06)
+        u:SetSize(220, 30)
+        u:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", PAD + 64 + (i - 1) * 232, 8)
+        u.icon = k.Icon(u, 18)
+        u.icon:SetPoint("LEFT", u, "LEFT", 7, 0)
+        u.name = u:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        u.name:SetPoint("TOPLEFT", u, "TOPLEFT", 32, -5)
+        u.name:SetWidth(132)
+        u.name:SetJustifyH("LEFT")
+        u.name:SetWordWrap(false)
+        u.well = u:CreateTexture(nil, "ARTWORK")
+        u.well:SetColorTexture(1, 1, 1, 0.06)
+        u.well:SetSize(132, 3)
+        u.well:SetPoint("BOTTOMLEFT", u, "BOTTOMLEFT", 32, 7)
+        u.bar = u:CreateTexture(nil, "ARTWORK", nil, 1)
+        u.bar:SetHeight(3)
+        u.bar:SetPoint("LEFT", u.well, "LEFT")
+        u.val = k.Text(u, "numS")
+        u.val:SetPoint("RIGHT", u, "RIGHT", -9, 0)
+        u.val:SetJustifyH("RIGHT")
+        v.ups[i] = u
+    end
     return v
 end
 
-local function GapsTotal(p)
-    local n, s = 0, 0
-    for _, g in ipairs(p and p.gaps or {}) do n = n + 1; s = s + (g.len or 0) end
-    return n, s
+local function Uptimes(p)
+    local out = {}
+    for side, list in pairs(p.up or {}) do
+        for id, secs in pairs(list) do
+            out[#out + 1] = { id = id, pct = (p.dur or 0) > 0 and secs / p.dur or 0, secs = secs, out = side == "out" }
+        end
+    end
+    -- my debuffs first, then the buffs that were not up all fight (procs, cooldowns), then the rest
+    table.sort(out, function(a, b)
+        if a.out ~= b.out then return a.out end
+        local fa, fb = a.pct >= 0.99, b.pct >= 0.99
+        if fa ~= fb then return fb end
+        return a.secs > b.secs
+    end)
+    return out
 end
 
 local function RefreshBoss(state)
+    local k = K()
+    local C = k.C
     local v = bossView
-    local f = F()
     local p, q = cur.pull, cur.cmp
     local view = state.view or "damage"
-    if not p then
-        ns.MyLogUI:SetMode("runs")
-        return
-    end
+    local V = Views()[view]
+    if not p then ns.MyLogUI:SetMode("runs"); return end
+    ns.MyLogUI:Crumb(p.boss)
+    v.port:SetBoss(p.boss, not p.kill)
     v.title:SetText(p.boss or "?")
-    local bits = { p.kill and ("Kill in " .. Clock(p.dur)) or strformat("Wipe at %.1f%% after %s", p.pct or 0, Clock(p.dur)),
-        f.Day(p.at) }
+    local bits = { p.kill and ("Kill in " .. k.Clock(p.dur)) or strformat("Wipe at %.1f%% after %s", p.pct or 0, k.Clock(p.dur)),
+        k.Day(p.at) }
     if p.spec and p.spec ~= "" then bits[#bits + 1] = p.spec end
-    if p.ilvl then bits[#bits + 1] = strformat("item level %.1f", p.ilvl) end
-    panel.sub:SetText(table.concat(bits, "  ·  "))
+    if p.ilvl then bits[#bits + 1] = strformat("ilvl %.1f", p.ilvl) end
+    v.sub:SetText(table.concat(bits, "   ·   "))
     v.cmpDD:Refresh()
 
-    local a = Series(p, view)
-    local b = q and Series(q, view) or {}
-    v.chart:Draw(a, b, p.gaps, max(p.dur or 0, q and q.dur or 0))
-    v.legend:SetText(f.Hex(f.GOLD) .. "gold: " .. f.Day(p.at) .. "|r     "
-        .. (q and (f.Hex(f.GREY) .. "grey: " .. f.Day(q.at) .. "|r     ") or "")
-        .. f.Hex(f.DOWN) .. "red: idle 2 s or more|r")
+    -- chart
+    local a = Points(p, view)
+    local b = q and Points(q, view) or {}
+    local x1 = max(p.dur or 5, q and q.dur or 0, 5)
+    local hi = 1
+    for _, s in ipairs({ a, b }) do for _, pt in ipairs(s) do hi = max(hi, pt[2]) end end
+    local bands, marks = {}, {}
+    for _, e in ipairs(p.bev or {}) do
+        if e[2] == "a" then
+            bands[#bands + 1] = { e[1], e[1] + (e[4] or ((p.dur or 0) - e[1])), C.violet, SpellName(p, tostring(e[3])), alpha = 0.16 }
+        elseif e[2] == "y" then
+            marks[#marks + 1] = { e[1], C.gold }
+        end
+    end
+    if #bands == 0 then
+        for _, m in ipairs(p.mech or {}) do
+            bands[#bands + 1] = { m[1], m[1] + 5, C.violet, SpellName(p, tostring(m[2])), alpha = 0.16 }
+        end
+    end
+    local ticks = {}
+    for _, g in ipairs(p.gaps or {}) do ticks[#ticks + 1] = { g.at, C.down, g.at + g.len } end
+    local series = {}
+    if q then series[#series + 1] = { points = b, color = { 0.62, 0.65, 0.70 }, width = 1.2, alpha = 0.55, smooth = true } end
+    table.insert(series, 1, { points = a, color = C.gold, width = 1.8, fill = true, fillAlpha = 0.16, smooth = true, glow = true, endDot = true })
+    v.chart:SetData({
+        x0 = 0, x1 = x1, y1 = hi * 1.12, series = series, bands = bands, ticks = ticks, grid = true, marks = marks,
+        hover = function(x)
+            local lines = { { k.Clock(x), C.mute } }
+            local ya = k.YAt(a, x)
+            if ya and x <= (p.dur or 0) then lines[#lines + 1] = { strformat("%s %s   %s", k.Num(ya), V.metric, k.ShortDay(p.at)), C.gold } end
+            local yb = q and k.YAt(b, x)
+            if yb and x <= (q.dur or 0) then lines[#lines + 1] = { strformat("%s %s   %s", k.Num(yb), V.metric, k.ShortDay(q.at)), C.mute } end
+            local shown = 0
+            for _, e in ipairs(p.bev or {}) do
+                local hit = abs(e[1] - x) <= 3 or (e[2] == "a" and x >= e[1] and x <= e[1] + (e[4] or p.dur or 0))
+                if hit and shown < 3 then
+                    lines[#lines + 1] = { ns.MyLogTimeline:BossEventText(p, e), e[2] == "y" and C.gold or C.violet }
+                    shown = shown + 1
+                end
+            end
+            if shown == 0 then
+                for _, m in ipairs(p.mech or {}) do
+                    if x >= m[1] and x <= m[1] + 5 then lines[#lines + 1] = { SpellName(p, tostring(m[2])), C.violet } break end
+                end
+            end
+            for _, g in ipairs(p.gaps or {}) do
+                if x >= g.at and x <= g.at + g.len then lines[#lines + 1] = { strformat("idle %.1f s", g.len), C.down } break end
+            end
+            return lines
+        end,
+    })
+    local marks = { 0, x1 / 3, x1 * 2 / 3, x1 }
+    for i, lab in ipairs(v.xLabs) do lab:SetText(k.Clock(marks[i])) end
+    v.PlaceX()
+    local legend = { { C.gold, k.ShortDay(p.at) } }
+    if q then legend[#legend + 1] = { { 0.62, 0.65, 0.70 }, k.ShortDay(q.at) } end
+    if #bands > 0 then legend[#legend + 1] = { C.violet, "boss ability", "box" } end
+    if #marks > 0 then legend[#legend + 1] = { C.gold, "boss yell", "tick" } end
+    legend[#legend + 1] = { C.down, "idle 2 s+", "tick" }
+    v.legend:Set(legend)
 
+    -- the stats strip
     local ps, qs = p.s or {}, q and q.s or {}
-    local gn, gs = GapsTotal(p)
-    local qn = q and GapsTotal(q) or nil
-    local metric = f.VIEW_BY_KEY[view].metric
-    f.SetTile(v.tiles[1], metric, f.Num(Log():Metric(p, view)),
-        q and f.ChangeText(f.Change(Log():Metric(p, view), Log():Metric(q, view)), view ~= "tanking") or "",
-        { metric, "Over the whole fight, for this pull." })
-    f.SetTile(v.tiles[2], "Active time", f.Pct(ps.act), q and f.Points(ps.act, qs.act, true) or "",
-        { "Active time", "Casting, channeling, on the global cooldown or swinging, while alive." })
-    f.SetTile(v.tiles[3], "Idle gaps", strformat("%d · %.0fs", gn, gs), q and f.Count(gn, qn) or "",
-        { "Idle gaps", "Times you did nothing for 2 seconds or more (red on the chart). A boss that forces you off "
-            .. "(Whirlwind, phase changes) shows here too." })
-    f.SetTile(v.tiles[4], "Avoidable damage", f.Num(ps.av or 0), q and f.ChangeText(f.Change(ps.av, qs.av), false) or "",
-        { "Avoidable damage", "Damage from boss abilities you can stay out of." })
-    for k, label in pairs(HEAD[view] or HEAD.damage) do v.heads[k]:SetText(label) end
-    v.heads.casts:SetText(view == "tanking" and "" or "Casts")
-    v.heads.name:SetText(view == "tanking" and "What hit you" or "Ability")
+    local metricNow, metricThen = Log():Metric(p, view), q and Log():Metric(q, view)
+    local text, kind = k.ChangeChip(k.Change(metricNow, metricThen), view ~= "tanking")
+    v.stats:SetCell(1, V.metric, k.Num(metricNow), text or "", kind)
+    local actNote, actKind = "", "mute"
+    if ps.act and qs.act then
+        local d = (ps.act - qs.act) * 100
+        actNote, actKind = strformat("%+.1f pts", d), d >= 0 and "up" or "down"
+    end
+    v.stats:SetCell(2, "Active time", ps.act and strformat("%.1f%%", ps.act * 100) or "-", actNote, actKind)
+    local gn, gs = GapsOf(p)
+    local qn = q and GapsOf(q) or nil
+    v.stats:SetCell(3, "Idle gaps", strformat("%d  ·  %.0f s", gn, gs), qn and ("was " .. qn) or "",
+        qn and (gn <= qn and "up" or "down") or "mute")
+    local rec, mechId = Recovery(p)
+    local qrec = q and Recovery(q)
+    if rec and mechId then
+        v.stats:SetCell(4, "Back after " .. SpellName(p, tostring(mechId)), strformat("%.1f s", rec),
+            qrec and strformat("was %.1f", qrec) or "", qrec and (rec <= qrec and "up" or "down") or "mute")
+    else
+        v.stats:SetCell(4, "Avoidable damage", k.Num(ps.av or 0),
+            q and (select(1, k.ChangeChip(k.Change(ps.av, qs.av), false)) or "") or "",
+            q and (select(2, k.ChangeChip(k.Change(ps.av, qs.av), false)) or "mute") or "mute")
+    end
 
+    -- breakdown or timeline
+    local timeline = cur.mode == "timeline"
+    v.modeSeg:SetSelected(timeline and "timeline" or "list")
+    v.list.frame:SetShown(not timeline)
+    v.timeline:SetShown(timeline)
+    v.listHint:SetShown(not timeline)
+    for _, u in ipairs(v.ups) do u:SetShown(false) end
+    v.upLab:SetShown(false)
+    if timeline then
+        v.listLab:SetText(((p.ct and #p.ct > 0) and "Your casts and the boss, second by second" or "No cast timeline for this pull"):upper())
+        if v.timeline.pull ~= p then v.timeline:SetPull(p) else v.timeline:Draw() end
+        return
+    end
+    v.listLab:SetText((view == "healing" and "Where your healing came from" or (view == "tanking" and "What hit you"
+        or "Where your damage came from")):upper())
+    v.listHint:SetText(q and ("bar: this pull   line: " .. k.ShortDay(q.at)):upper() or "")
     local rows = AbilityRows(p, view)
     local before = {}
     if q then for _, r in ipairs(AbilityRows(q, view)) do before[r.key] = r.amount end end
-    local data = {}
+    local top = 0
     for _, r in ipairs(rows) do
         r.before = before[r.key]
-        data[#data + 1] = { r = r, view = view, hasCmp = q ~= nil }
+        top = max(top, r.amount, r.before or 0)
     end
+    local data = {}
+    for i, r in ipairs(rows) do data[#data + 1] = { r = r, view = view, hasCmp = q ~= nil, top = top, rank = i, odd = i % 2 == 1 } end
     v.list:SetData(data, true)
+
+    -- uptimes
+    local ups = Uptimes(p)
+    for i, u in ipairs(v.ups) do
+        local e = ups[i]
+        if e then
+            u.icon:SetSpell(tostring(e.id))
+            u.name:SetText(SpellName(p, tostring(e.id)))
+            local pct = min(1, e.pct)
+            local c = (e.out and (pct >= 0.9 and C.up or (pct >= 0.75 and C.gold or C.down))) or C.blue
+            if pct >= 0.995 or e.out or pct >= 0.5 then
+                u.val:SetText(strformat("%.0f%%", pct * 100))
+            else
+                u.val:SetText(strformat("%d s", floor(e.secs + 0.5)))
+            end
+            u.val:SetTextColor((e.out and c or C.fg)[1], (e.out and c or C.fg)[2], (e.out and c or C.fg)[3])
+            u.bar:SetWidth(max(1, 132 * pct))
+            u.bar:SetColorTexture(c[1], c[2], c[3], 0.9)
+            u:Show()
+        else
+            u:Hide()
+        end
+    end
+    v.upLab:SetShown(#ups > 0)
 end
 
 ---------------------------------------------------------------------------
--- Deaths view
+-- Deaths screen
 ---------------------------------------------------------------------------
 
--- Every death in the instance's pulls, grouped by what killed me: { { key, name, count, last, deaths = { {
--- pull, death } } } }, most deaths first.
 function MyLogDetail:DeathGroups(instKey)
     local groups, byKey = {}, {}
     for _, p in ipairs(Log():GetPulls()) do
@@ -470,12 +607,13 @@ function MyLogDetail:DeathGroups(instKey)
                 local key = d.by or "?"
                 local g = byKey[key]
                 if not g then
-                    g = { key = key, name = d.by and SpellName(p, d.by) or "Unknown", count = 0, last = 0, deaths = {} }
+                    g = { key = key, name = d.by and SpellName(p, d.by) or "Unknown", count = 0, last = 0, deaths = {},
+                          boss = p.boss, avoidable = d.by and Log():IsAvoidable(d.by) or false }
                     byKey[key] = g
                     groups[#groups + 1] = g
                 end
                 g.count = g.count + 1
-                g.last = max(g.last, p.at or 0)
+                if (p.at or 0) >= g.last then g.last = p.at or 0; g.boss = p.boss end
                 table.insert(g.deaths, 1, { pull = p, death = d })
             end
         end
@@ -487,159 +625,333 @@ function MyLogDetail:DeathGroups(instKey)
     return groups
 end
 
-local function InitDeathRow(row, data)
-    if not row.text then
-        row.sel = row:CreateTexture(nil, "BACKGROUND")
-        row.sel:SetAllPoints()
-        row.sel:SetColorTexture(1, 0.82, 0, 0.12)
-        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(1, 1, 1, 0.05)
-        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.text:SetPoint("LEFT", row, "LEFT", 6, 0)
-        row.text:SetPoint("RIGHT", row, "RIGHT", -60, 0)
-        row.text:SetJustifyH("LEFT")
-        row.text:SetWordWrap(false)
-        row.right = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.right:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-        row.right:SetJustifyH("RIGHT")
-        row:RegisterForClicks("LeftButtonUp")
-        row:SetScript("OnClick", function(self)
-            local d = self.__cdlData
-            if d and d.entry then
-                deathSel = d.entry
-                ns.MyLogUI:Refresh()
-            end
-        end)
-    end
-    local f = F()
-    if data.group then
-        local g = data.group
-        row.text:SetFontObject("GameFontNormal")
-        row.text:SetText(g.name)
-        row.right:SetText(strformat("%d death%s", g.count, g.count == 1 and "" or "s"))
-        row.sel:Hide()
-    else
-        local e = data.entry
-        row.text:SetFontObject("GameFontHighlightSmall")
-        row.text:SetText("   " .. (e.pull.boss or "?") .. "  " .. f.Hex(f.GREY) .. f.Day(e.pull.at) .. "|r")
-        row.right:SetText(Clock(e.death.t))
-        row.sel:SetShown(deathSel ~= nil and deathSel.death == e.death)
-    end
+local function NewCauseTile(parent)
+    local k = K()
+    local t = CreateFrame("Button", nil, parent)
+    t:SetHeight(58)
+    t.bg = t:CreateTexture(nil, "BACKGROUND")
+    t.bg:SetAllPoints()
+    UI():AddEdges(t, "BORDER", true)
+    t.icon = k.Icon(t, 32)
+    t.icon:SetPoint("LEFT", t, "LEFT", 12, 0)
+    t.name = t:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    t.name:SetPoint("TOPLEFT", t, "TOPLEFT", 54, -12)
+    t.name:SetJustifyH("LEFT")
+    t.name:SetWordWrap(false)
+    t.av = k.Chip(t, 14)
+    t.av:SetPoint("LEFT", t.name, "RIGHT", 6, 0)
+    t.sub = t:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    t.sub:SetPoint("TOPLEFT", t.name, "BOTTOMLEFT", 0, -4)
+    t.sub:SetJustifyH("LEFT")
+    t.sub:SetWordWrap(false)
+    t.count = k.Text(t, "hero")
+    t.count:SetFont(k.NUM_FONT, 28, "")
+    t.count:SetPoint("RIGHT", t, "RIGHT", -14, 0)
+    t.count:SetJustifyH("RIGHT")
+    t:SetScript("OnClick", function(self)
+        if causeSel == (self.group and self.group.key) then causeSel = nil else causeSel = self.group and self.group.key end
+        deathSel = nil
+        ns.MyLogUI:Refresh()
+    end)
+    t:SetScript("OnEnter", function(self)
+        if not self.group then return end
+        UI():SetTextTooltip(self, { self.group.name, causeSel == self.group.key and "Click to show every death again."
+            or "Click to show only these deaths." })
+    end)
+    t:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return t
 end
 
-local KIND = { d = "hit", h = "heal", c = "cast", m = "miss" }
-
-local function InitRecapRow(row, data)
+local function InitStory(row, data)
+    local k = K()
+    local C = k.C
     if not row.t then
-        row.t = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.t:SetPoint("LEFT", row, "LEFT", 6, 0)
-        row.t:SetWidth(48)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetPoint("TOPLEFT", 0, -1)
+        row.bg:SetPoint("BOTTOMRIGHT", 0, 1)
+        UI():AddEdges(row, "BORDER", true)
+        row.t = k.Text(row, "numXS")
+        row.t:SetPoint("LEFT", row, "LEFT", 8, 0)
+        row.t:SetWidth(40)
         row.t:SetJustifyH("RIGHT")
+        row.icon = k.Icon(row, 16)
+        row.icon:SetPoint("LEFT", row, "LEFT", 56, 0)
         row.what = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.what:SetPoint("LEFT", row, "LEFT", 64, 0)
-        row.what:SetPoint("RIGHT", row, "RIGHT", -150, 0)
+        row.what:SetPoint("LEFT", row, "LEFT", 80, 0)
+        row.what:SetPoint("RIGHT", row, "RIGHT", -190, 0)
         row.what:SetJustifyH("LEFT")
         row.what:SetWordWrap(false)
-        row.amount = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.amount:SetPoint("RIGHT", row, "RIGHT", -76, 0)
-        row.amount:SetWidth(70)
+        row.amount = k.Text(row, "numS")
+        row.amount:SetPoint("RIGHT", row, "RIGHT", -110, 0)
         row.amount:SetJustifyH("RIGHT")
-        row.hp = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.hp:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-        row.hp:SetWidth(64)
+        row.hpWell = row:CreateTexture(nil, "ARTWORK")
+        row.hpWell:SetColorTexture(C.well[1], C.well[2], C.well[3], 1)
+        row.hpWell:SetSize(46, 5)
+        row.hpWell:SetPoint("RIGHT", row, "RIGHT", -52, 0)
+        row.hpBar = row:CreateTexture(nil, "ARTWORK", nil, 1)
+        row.hpBar:SetHeight(5)
+        row.hpBar:SetPoint("LEFT", row.hpWell, "LEFT")
+        row.hp = k.Text(row, "numXS")
+        row.hp:SetPoint("RIGHT", row, "RIGHT", -10, 0)
         row.hp:SetJustifyH("RIGHT")
-        row.line = row:CreateTexture(nil, "BORDER")
-        row.line:SetColorTexture(1, 1, 1, 0.05)
-        row.line:SetHeight(1)
-        row.line:SetPoint("BOTTOMLEFT")
-        row.line:SetPoint("BOTTOMRIGHT")
     end
-    local f = F()
-    local e, p = data.e, data.pull
-    if data.head then
-        row.t:SetText(f.Hex(f.GREY) .. "time|r")
-        row.what:SetText(f.Hex(f.GREY) .. "what happened|r")
-        row.amount:SetText(f.Hex(f.GREY) .. "amount|r")
-        row.hp:SetText(f.Hex(f.GREY) .. "health|r")
-        return
-    end
+    local e, p, hpMax = data.e, data.pull, data.hpMax
     local kind, key, amount, hp, who, extra = e[2], e[3], e[4], e[5], e[6], e[7]
+    local last = data.last
+    local avoid = kind == "d" and Log():IsAvoidable(key)
+    local tc = last and C.down or C.mute
     row.t:SetText(strformat("%.1fs", e[1]))
+    row.t:SetTextColor(tc[1], tc[2], tc[3])
+    row.icon:SetSpell(key)
     local name = SpellName(p, key)
     if kind == "d" then
-        local tag = Log():IsAvoidable(key) and ("  " .. f.Hex(AVOID) .. "avoidable|r") or ""
-        row.what:SetText(f.Hex(f.DOWN) .. name .. "|r" .. (who and (f.Hex(f.GREY) .. "  from " .. who .. "|r") or "") .. tag)
-        row.amount:SetText(f.Hex(f.DOWN) .. "-" .. f.Num(amount) .. "|r")
+        local tail = who and k.Paint("  from " .. who, C.mute) or ""
+        if last then tail = k.Paint("  killing blow", C.mute) end
+        row.what:SetText(k.Paint(name, avoid and C.avoid or C.down) .. tail .. (avoid and k.Paint("   avoidable", C.avoid) or ""))
+        row.amount:SetText(k.Paint("-" .. k.Num(amount), C.down))
     elseif kind == "h" then
-        row.what:SetText(f.Hex(f.UP) .. name .. "|r" .. (who and (f.Hex(f.GREY) .. "  from " .. who .. "|r") or ""))
-        row.amount:SetText(f.Hex(f.UP) .. "+" .. f.Num(amount) .. "|r")
+        row.what:SetText(k.Paint(name, C.up) .. (who and k.Paint("  from " .. who, C.mute) or ""))
+        row.amount:SetText(k.Paint("+" .. k.Num(amount), C.up))
     elseif kind == "m" then
-        row.what:SetText(f.Hex(f.GREY) .. name .. " (" .. tostring(extra or "miss"):lower() .. ")|r")
-        row.amount:SetText(amount and (f.Hex(f.GREY) .. f.Num(amount) .. "|r") or "")
+        row.what:SetText(k.Paint(name .. " (" .. tostring(extra or "miss"):lower() .. ")", C.mute))
+        row.amount:SetText(amount and k.Paint(k.Num(amount), C.mute) or "")
     else
-        row.what:SetText("You cast " .. name)
+        row.what:SetText(k.Paint("You cast ", C.mute) .. name)
         row.amount:SetText("")
     end
-    row.hp:SetText(hp and f.Num(hp) or "")
-    if e[1] == 0 and kind == "d" then row.hp:SetText(f.Hex(f.DOWN) .. "dead|r") end
+    local pct = (hpMax and hpMax > 0 and hp) and max(0, min(1, hp / hpMax)) or nil
+    if last then
+        row.hp:SetText(k.Paint("dead", C.down))
+        row.hpBar:Hide()
+        row.hpWell:Hide()
+    elseif pct then
+        row.hp:SetText(strformat("%.0f%%", pct * 100))
+        local c = pct > 0.6 and C.up or (pct > 0.3 and C.gold or C.down)
+        row.hpBar:SetColorTexture(c[1], c[2], c[3], 1)
+        row.hpBar:SetWidth(max(1, 46 * pct))
+        row.hpBar:Show()
+        row.hpWell:Show()
+    else
+        row.hp:SetText(hp and k.Num(hp) or "")
+        row.hpBar:Hide()
+        row.hpWell:Hide()
+    end
+    if last then
+        row.bg:SetColorTexture(C.down[1], C.down[2], C.down[3], 0.10)
+        UI():SetEdgeColor(row, 0, 0, 0, 0)
+    elseif avoid then
+        row.bg:SetColorTexture(C.avoid[1], C.avoid[2], C.avoid[3], 0.06)
+        UI():SetEdgeColor(row, C.avoid[1], C.avoid[2], C.avoid[3], 0.45)
+    else
+        row.bg:SetColorTexture(C.card[1], C.card[2], C.card[3], data.odd and 1 or 0)
+        UI():SetEdgeColor(row, 0, 0, 0, 0)
+    end
 end
 
 local function BuildDeathsView(body)
+    local k = K()
+    local C = k.C
     local v = CreateFrame("Frame", nil, body)
     v:SetAllPoints(body)
-    local f = F()
-    local left = CreateFrame("Frame", nil, v)
-    left:SetPoint("TOPLEFT", v, "TOPLEFT", f.PAD, HEAD_Y)
-    left:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", f.PAD, f.PAD)
-    left:SetWidth(LEFT_W)
-    v.groups = UI():CreateScrollList(left, DROW_H, InitDeathRow)
-    v.groups.frame:SetAllPoints(left)
-    v.groups:SetEmptyText("No deaths in your stored pulls here. Keep it up.")
-    local right = CreateFrame("Frame", nil, v)
-    right:SetPoint("TOPLEFT", left, "TOPRIGHT", 14, 0)
-    right:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -f.PAD, f.PAD)
-    v.title = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    v.title:SetPoint("TOPLEFT", right, "TOPLEFT", 4, 0)
-    v.title:SetPoint("RIGHT", right, "RIGHT", -4, 0)
-    v.title:SetJustifyH("LEFT")
-    v.title:SetWordWrap(false)
-    v.recap = UI():CreateScrollList(right, DROW_H, InitRecapRow)
-    v.recap.frame:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -22)
-    v.recap.frame:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
+    v.causeLab = k.Label(v, "What kills you here")
+    v.causeLab:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 2, -38)
+    v.tiles = {}
+    for i = 1, 3 do v.tiles[i] = NewCauseTile(v) end
+    v.none = k.Text(v, "titleS")
+    v.none:SetPoint("TOP", v, "TOP", 0, -140)
+    v.none:SetJustifyH("CENTER")
+    v.none:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
+
+    v.title = k.Text(v, "titleS")
+    v.title:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 2, -128)
+    v.title:SetTextColor(C.fg[1], C.fg[2], C.fg[3])
+    v.titleSub = v:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    v.titleSub:SetPoint("LEFT", v.title, "RIGHT", 8, -1)
+    v.next = UI():CreateArrowButton(v, true, 22, 20, function() MyLogDetail:StepDeath(1) end)
+    v.next:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -126)
+    v.pos = k.Text(v, "numXS")
+    v.pos:SetPoint("RIGHT", v.next, "LEFT", -8, 0)
+    v.pos:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
+    v.prev = UI():CreateArrowButton(v, false, 22, 20, function() MyLogDetail:StepDeath(-1) end)
+    v.prev:SetPoint("RIGHT", v.pos, "LEFT", -8, 0)
+
+    v.chartCard = k.Card(v, { 0.067, 0.078, 0.102, 1 }, 0.07)
+    v.chartCard:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, -152)
+    v.chartCard:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -152)
+    v.chartCard:SetHeight(132)
+    v.chart = k.Chart(v.chartCard)
+    v.chart:SetPoint("TOPLEFT", v.chartCard, "TOPLEFT", 44, -6)
+    v.chart:SetPoint("BOTTOMRIGHT", v.chartCard, "BOTTOMRIGHT", -16, 22)
+    v.chart.inset = { l = 0, r = 0, t = 20, b = 6 }
+    v.chart.fallback = { 712, 104 }
+    v.yTop = k.Label(v.chartCard, "100%")
+    v.yTop:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
+    v.yTop:SetPoint("TOPLEFT", v.chartCard, "TOPLEFT", 10, -24)
+    v.xLabs = {}
+    for i, txt in ipairs({ "-10 s", "-5 s", "death" }) do
+        local lab = k.Label(v.chartCard, txt)
+        lab:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
+        v.xLabs[i] = lab
+    end
+
+    v.story = UI():CreateScrollList(v, STORY_H, InitStory)
+    v.story.frame:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, -292)
+    v.story.frame:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -PAD + 20, 8)
     return v
 end
 
-local function RefreshDeaths(state)
-    local v = deathsView
-    local f = F()
-    local groups = MyLogDetail:DeathGroups(state.inst)
-    local data, first, found = {}, nil, false
-    local total = 0
+-- The deaths shown (the picked cause's, or all), newest first.
+local function DeathList(groups)
+    local list = {}
     for _, g in ipairs(groups) do
-        data[#data + 1] = { group = g }
-        total = total + g.count
-        for _, e in ipairs(g.deaths) do
-            data[#data + 1] = { entry = e }
-            first = first or e
-            if deathSel and deathSel.death == e.death then found = true end
+        if not causeSel or g.key == causeSel then
+            for _, e in ipairs(g.deaths) do list[#list + 1] = e end
         end
     end
-    if not found then deathSel = first end
-    v.groups:SetData(data)
-    panel.sub:SetText(total == 0 and "No deaths stored for this raid."
-        or strformat("%d death%s in your stored pulls here, by what killed you", total, total == 1 and "" or "s"))
-    local rows = {}
-    if deathSel then
-        local p, d = deathSel.pull, deathSel.death
-        v.title:SetText(strformat("%s · %s · died at %s%s", p.boss or "?", f.Day(p.at), Clock(d.t),
-            p.kill and " (killed)" or ""))
-        rows[1] = { head = true }
-        for _, e in ipairs(d.ring or {}) do rows[#rows + 1] = { e = e, pull = p } end
-    else
-        v.title:SetText("")
+    table.sort(list, function(a, b)
+        if (a.pull.at or 0) ~= (b.pull.at or 0) then return (a.pull.at or 0) > (b.pull.at or 0) end
+        return a.death.t > b.death.t
+    end)
+    return list
+end
+
+function MyLogDetail:StepDeath(dir)
+    local state = ns.MyLogUI:GetState()
+    local list = DeathList(self:DeathGroups(state.inst))
+    if #list == 0 then return end
+    local at = 1
+    for i, e in ipairs(list) do if deathSel and e.death == deathSel.death then at = i end end
+    at = (at - 1 + dir) % #list + 1
+    deathSel = list[at]
+    ns.MyLogUI:Refresh()
+end
+
+local function RefreshDeaths(state)
+    local k = K()
+    local C = k.C
+    local v = deathsView
+    ns.MyLogUI:Crumb("Deaths")
+    local groups = MyLogDetail:DeathGroups(state.inst)
+    local found = false
+    for _, g in ipairs(groups) do if g.key == causeSel then found = true end end
+    if not found then causeSel = nil end
+    -- cause tiles: the top three
+    local w = ((v:GetWidth() or 800) - 2 * PAD - 16) / 3
+    if w <= 0 then w = 252 end
+    for i, t in ipairs(v.tiles) do
+        local g = groups[i]
+        if g then
+            t.group = g
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + (i - 1) * (w + 8), -54)
+            t:SetWidth(w)
+            t.icon:SetSpell(g.key)
+            t.name:SetText(g.name)
+            t.name:SetWidth(min(w - 140, (t.name:GetStringWidth() or 80) + 2))
+            t.av:Set(g.avoidable and "avoidable" or nil, "av")
+            t.sub:SetText(strformat("%s · %s", g.boss or "?", k.ShortDay(g.last)))
+            t.sub:SetWidth(w - 96)
+            t.count:SetText(tostring(g.count))
+            local picked = causeSel == g.key
+            local hot = picked or (not causeSel and i == 1)
+            if hot then
+                k.Gradient(t.bg, { C.down[1] * 0.18 + C.card[1] * 0.82, C.down[2] * 0.18 + C.card[2] * 0.82, C.down[3] * 0.18 + C.card[3] * 0.82, 1 },
+                    { C.card[1], C.card[2], C.card[3], 1 }, "HORIZONTAL")
+            else
+                t.bg:SetTexture(nil)
+                t.bg:SetColorTexture(C.card[1], C.card[2], C.card[3], 1)
+            end
+            if hot then UI():SetEdgeColor(t, C.down[1], C.down[2], C.down[3], picked and 0.65 or 0.35)
+            else UI():SetEdgeColor(t, 1, 1, 1, 0.07) end
+            local cc = hot and C.down or C.fg
+            t.count:SetTextColor(cc[1], cc[2], cc[3])
+            t:Show()
+        else
+            t:Hide()
+        end
     end
-    v.recap:SetData(rows, true)
+    local list = DeathList(groups)
+    local inList = false
+    for _, e in ipairs(list) do if deathSel and e.death == deathSel.death then inList = true end end
+    if not inList then deathSel = list[1] end
+    local has = deathSel ~= nil
+    v.none:SetShown(not has)
+    v.none:SetText(has and "" or "No deaths in your stored pulls here. Keep it up.")
+    for _, f in ipairs({ v.title, v.titleSub, v.next, v.prev, v.pos, v.chartCard, v.story.frame, v.causeLab }) do f:SetShown(has) end
+    if not has then return end
+    local p, d = deathSel.pull, deathSel.death
+    local pos = 1
+    for i, e in ipairs(list) do if e.death == d then pos = i end end
+    v.title:SetText(p.boss or "?")
+    local phase = p.kill and "the kill" or strformat("a wipe at %.0f%%", p.pct or 0)
+    v.titleSub:SetText(strformat("· %s · %s · died at %s", k.Day(p.at), phase, k.Clock(d.t)))
+    v.pos:SetText(strformat("%d of %d", pos, #list))
+
+    -- the health line
+    local ring = d.ring or {}
+    local hpMax = d.hpMax
+    if not hpMax or hpMax <= 0 then
+        hpMax = 1
+        for _, e in ipairs(ring) do hpMax = max(hpMax, e[5] or 0) end
+    end
+    local pts = {}
+    local first = ring[1]
+    if first then
+        local before = (first[5] or 0)
+        if first[2] == "d" then before = before + (first[4] or 0) elseif first[2] == "h" then before = before - (first[4] or 0) end
+        pts[1] = { -10, before / hpMax * 100 }
+    end
+    for _, e in ipairs(ring) do
+        if e[2] ~= "c" then pts[#pts + 1] = { e[1], (e[5] or 0) / hpMax * 100 } end
+    end
+    if #pts > 0 then pts[#pts][2] = 0 end
+    for _, pt in ipairs(pts) do pt[2] = max(0, min(100, pt[2])) end
+    local series = { { points = pts, color = C.up, width = 0.01, alpha = 0, fill = true, fillAlpha = 0.16 } }
+    for i = 2, #pts do
+        local hp = pts[i][2]
+        local c = hp > 60 and C.up or (hp > 30 and C.gold or C.down)
+        series[#series + 1] = { points = { pts[i - 1], pts[i] }, color = c, width = 2.5 }
+    end
+    local dots, ticks = {}, {}
+    for i, e in ipairs(ring) do
+        local kind = e[2]
+        local y = (e[5] or 0) / hpMax * 100
+        if i == #ring then y = 0 end
+        if kind == "d" then
+            local avoid = Log():IsAvoidable(e[3])
+            dots[#dots + 1] = { e[1], min(100, y), avoid and C.avoid or C.down, i == #ring and 12 or 9, "-" .. k.Num(e[4]) }
+        elseif kind == "h" then
+            dots[#dots + 1] = { e[1], min(100, y), C.up, 9, "+" .. k.Num(e[4]) }
+        elseif kind == "c" then
+            ticks[#ticks + 1] = { e[1], C.mute, nil, h = 7 }
+        end
+    end
+    v.chart:SetData({
+        x0 = -10, x1 = 0.3, y1 = 118, series = series, dots = dots, ticks = ticks,
+        hover = function(x)
+            local best, bd
+            for _, e in ipairs(ring) do
+                local dd = abs(e[1] - x)
+                if not bd or dd < bd then best, bd = e, dd end
+            end
+            if not best or bd > 0.8 then return nil end
+            local name = SpellName(p, best[3])
+            local line = best[2] == "c" and ("You cast " .. name) or name
+            return { { strformat("%.1f s", best[1]), C.mute }, { line, best[2] == "h" and C.up or (best[2] == "d" and C.down or C.fg) },
+                { strformat("health %s", k.Num(best[5])), C.mute } }
+        end,
+    })
+    v.xLabs[1]:ClearAllPoints()
+    v.xLabs[1]:SetPoint("TOPLEFT", v.chart, "BOTTOMLEFT", 0, -4)
+    v.xLabs[2]:ClearAllPoints()
+    v.xLabs[2]:SetPoint("TOP", v.chart, "BOTTOM", -8, -4)
+    v.xLabs[3]:ClearAllPoints()
+    v.xLabs[3]:SetPoint("TOPRIGHT", v.chart, "BOTTOMRIGHT", 0, -4)
+
+    -- the story
+    local rows = {}
+    for i, e in ipairs(ring) do rows[#rows + 1] = { e = e, pull = p, hpMax = hpMax, last = i == #ring, odd = i % 2 == 1 } end
+    v.story:SetData(rows, true)
 end
 
 ---------------------------------------------------------------------------
@@ -656,6 +968,4 @@ function MyLogDetail:Refresh(state)
     if state.mode == "boss" then RefreshBoss(state) else RefreshDeaths(state) end
 end
 
-function MyLogDetail:GetCurrent() return cur.pull, cur.cmp end
-function MyLogDetail:GetSelectedDeath() return deathSel end
-function MyLogDetail:AbilityRows(p, view) return AbilityRows(p, view) end
+function MyLogDetail:GetViews() return bossView, deathsView end

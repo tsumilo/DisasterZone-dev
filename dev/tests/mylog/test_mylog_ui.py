@@ -73,8 +73,7 @@ def open_page(w, c):
 def rows(c):
     return c.eval_py("""
       local out = {}
-      for _, d in ipairs(ns.MainFrame:GetPanel('mylog').list:GetData()) do
-        local r = d.row
+      for _, r in ipairs(ns.MyLogUI:GetBossRows()) do
         out[#out + 1] = { boss = r.boss, pulls = r.pulls, value = r.value, change = r.change, best = r.best,
                           spark = r.spark, same = r.sameSpec }
       end
@@ -141,16 +140,25 @@ def page_shows_the_newest_run_against_the_one_before():
     assert c.eval("return %s.body:IsShown()" % p) is True
     rs = rows(c)
     assert [r["boss"] for r in rs] == ["Hydross the Unstable", "The Lurker Below", "Lady Vashj"]
-    tiles = c.eval_py("local t = {}; for i, x in ipairs(%s.tiles) do t[i] = { x.label:GetText(), x.value:GetText(), "
-                      "x.delta:GetText() } end; return t" % p)
-    assert tiles[0][0] == "AVG DPS (KILLS)" and tiles[0][1] == "1,325", tiles
-    assert "+10.4%" in tiles[0][2], tiles          # 1325 vs 1200
-    assert tiles[3][1] == "2"
-    sub = c.eval("return %s.sub:GetText()" % p)
-    assert "Destruction" in sub and "item level 121.0 (+1.0)" in sub and "compared with" in sub, sub
-    # instance tabs
-    tabs = c.eval_py("local o = {}; for _, t in ipairs(%s.instTabs) do if t:IsShown() then o[#o + 1] = t:GetText() end end; return o" % p)
-    assert tabs == ["Serpentshrine Cavern", "Tempest Keep"], tabs
+    hero = c.eval_py("local h = %s.hero; return { h.num:GetText(), h.metric:GetText(), h.change:IsShown() and h.change.fs:GetText(), "
+                     "h.stats:GetText(), h.best:IsShown() }" % p)
+    assert hero[0] == "1,325" and hero[1] == "AVG DPS ON KILLS", hero
+    assert "+10.4%" in hero[2], hero              # 1325 vs 1200
+    assert "121.0" in hero[3] and "ilvl" in hero[3] and "2" in hero[3] and "death" in hero[3], hero
+    assert hero[4] is True                          # the best night here
+    crumb = c.eval_py("local o = {}; for _, b in ipairs(%s.crumb.parts) do if b:IsShown() then o[#o + 1] = b.fs:GetText() end end; return o" % p)
+    assert crumb == ["My Log", "Serpentshrine Cavern"], crumb
+    # a card per boss, the wipe-only boss as progress
+    cards = c.eval_py("local o = {}; for _, x in ipairs(%s.cards) do if x:IsShown() then o[#o + 1] = { x.name:GetText(), "
+                      "x.num:IsShown() and x.num:GetText() or false, x.prog:IsShown() } end end; return o" % p)
+    assert cards == [["Hydross the Unstable", "1,400", False], ["The Lurker Below", "1,250", False],
+                     ["Lady Vashj", False, True]], cards
+    # the nights strip: four SSC nights, the newest picked
+    bars = c.eval_py("local o = {}; for _, b in ipairs(%s.nights) do if b:IsShown() then o[#o + 1] = b.on and 1 or 0 end end; return o" % p)
+    assert bars == [0, 0, 0, 1], bars
+    assert c.eval("return %s.deathsBtn:GetText()" % p) == "Deaths"      # (the seed has no recaps)
+    # the trend chart drew lines and dots
+    assert c.eval("return (%s.hero.trend.used.line or 0)" % p) == 6       # 3 segments + their glow
 
 
 @case
@@ -159,12 +167,14 @@ def views_follow_the_role_until_picked():
     c.eval("for _, x in ipairs(ns.MyLog:GetPulls()) do x.role = 'healer'; x.spec = 'Holy' end")
     open_page(w, c)
     p = "ns.MainFrame:GetPanel('mylog')"
-    assert c.eval("return %s.valueHead:GetText()" % p) == "HPS"
-    assert c.eval("return %s.tiles[2].label:GetText()" % p) == "OVERHEALING"
+    assert c.eval("return %s.hero.metric:GetText()" % p) == "AVG HPS ON KILLS"
+    assert "overheal" in c.eval("return %s.hero.stats:GetText()" % p)
     c.eval("ns.MyLogUI:SetView('damage')")
-    assert c.eval("return %s.valueHead:GetText()" % p) == "DPS"
+    assert c.eval("return %s.hero.metric:GetText()" % p) == "AVG DPS ON KILLS"
     c.eval("ns.MyLogUI:SetView('tanking')")
-    assert c.eval("return %s.tiles[1].label:GetText()" % p) == "DAMAGE TAKEN/S"
+    assert c.eval("return %s.hero.metric:GetText()" % p) == "AVG DAMAGE TAKEN PER SECOND"
+    on = c.eval_py("local o = {}; for _, b in ipairs(%s.seg.buttons) do if b.on then o[#o + 1] = b.key end end; return o" % p)
+    assert on == ["tanking"], on
 
 
 @case
@@ -178,7 +188,7 @@ def run_picker_and_instances():
     c.eval("ns.MyLogUI:SelectInstance(550)")
     rs = rows(c)
     assert [r["boss"] for r in rs] == ["Al'ar"] and rs[0].get("change") is None
-    assert "first run here" in c.eval("return %s.tiles[1].delta:GetText()" % p)
+    assert c.eval("return %s.hero.change:IsShown()" % p) is False      # no night before to compare with
 
 
 @case
@@ -211,8 +221,8 @@ def demo_mode_shows_demo_pulls_and_leaves_my_log_alone():
     w, c = demo_client()
     assert c.eval("return %s.body:IsShown()" % P) is True
     assert c.eval("return %s.demoTag:IsShown()" % P) is True
-    tabs = c.eval_py("local o = {}; for _, t in ipairs(%s.instTabs) do if t:IsShown() then o[#o + 1] = t:GetText() end end; return o" % P)
-    assert tabs == ["Serpentshrine Cavern", "Tempest Keep"], tabs
+    names = c.eval_py("local o = {}; for _, e in ipairs(ns.MyLog:GetInstances()) do o[#o + 1] = e.name end; return o")
+    assert names == ["Serpentshrine Cavern", "Tempest Keep"], names
     names = [r["boss"] for r in rows(c)]
     assert names[0] == "Hydross the Unstable" and names[-1] == "Lady Vashj" and len(names) == 6, names
     assert all(r["value"] for r in rows(c)[:5])
@@ -236,7 +246,7 @@ def demo_runs_improve_week_by_week():
 @case
 def boss_detail_compares_two_kills():
     w, c = demo_client()
-    c.eval("ns.MyLogDetail:ShowBoss(%s.list:GetData()[3].row)" % P)        # Leotheras
+    c.eval("ns.MyLogDetail:ShowBoss(ns.MyLogUI:GetBossRows()[3])")        # Leotheras
     assert c.eval("return ns.MyLogUI:GetState().mode") == "boss"
     pull = c.eval_py("local p, q = ns.MyLogDetail:GetCurrent(); return { p.boss, p.kill, q and q.kill, q and q.at < p.at, p.spec == q.spec }")
     assert pull == ["Leotheras the Blind", True, True, True, True], pull
@@ -253,6 +263,13 @@ def boss_detail_compares_two_kills():
       for _, r in ipairs(ns.MyLogDetail:AbilityRows(p, 'tanking')) do out[r.name] = r.avoidable and true or false end
       return out""")
     assert tk == {"Whirlwind": True, "Chaos Blast": False}, tk
+    # the chart: two series drawn, the whirlwinds as bands, idle gaps as ticks
+    used = c.eval_py("local b = ns.MyLogDetail:GetViews(); local u = b.chart.used; return { u.line or 0, u.band or 0, u.tick or 0, u.fill or 0 }")
+    assert used[0] > 100 and used[1] == 3 and used[2] >= 3 and used[3] > 50, used
+    cells = c.eval_py("local b = ns.MyLogDetail:GetViews(); local o = {}; for _, x in ipairs(b.stats.cells) do o[#o + 1] = x.lab:GetText() end; return o")
+    assert cells == ["DPS", "ACTIVE TIME", "IDLE GAPS", "BACK AFTER WHIRLWIND"], cells
+    crumb = c.eval_py("local o = {}; for _, b in ipairs(%s.crumb.parts) do if b:IsShown() then o[#o + 1] = b.fs:GetText() end end; return o" % P)
+    assert crumb == ["My Log", "Serpentshrine Cavern", "Leotheras the Blind"], crumb
     c.eval("ns.MyLogUI:SetView('tanking')")
     assert c.eval("return ns.MyLogUI:GetState().mode") == "boss"
     # back
@@ -263,7 +280,7 @@ def boss_detail_compares_two_kills():
 @case
 def a_wipe_only_boss_opens_its_best_pull():
     w, c = demo_client()
-    c.eval("ns.MyLogDetail:ShowBoss(%s.list:GetData()[6].row)" % P)        # Lady Vashj, wipes only
+    c.eval("ns.MyLogDetail:ShowBoss(ns.MyLogUI:GetBossRows()[6])")        # Lady Vashj, wipes only
     pct = c.eval_py("local p, q = ns.MyLogDetail:GetCurrent(); return { p.kill, p.pct, q ~= nil }")
     assert pct == [False, 17.9, True], pct
 
@@ -278,6 +295,14 @@ def deaths_grouped_by_cause_with_recaps():
     assert groups == [["Toxic Spores", 1], ["Whirlwind", 1]], groups
     sel = c.eval_py("local e = ns.MyLogDetail:GetSelectedDeath(); return { e.pull.boss, #e.death.ring }")
     assert sel == ["Lady Vashj", 9], sel
+    # the health line: one fill series + a coloured segment per step, dots for hits and heals, ticks for casts
+    used = c.eval_py("local _, d = ns.MyLogDetail:GetViews(); local u = d.chart.used; return { u.line or 0, u.dot or 0, u.tick or 0 }")
+    assert used == [6, 12, 3], used       # 6 segments; a dark ring + a dot per hit or heal
+    # step to the other death, then pick a cause
+    c.eval("ns.MyLogDetail:StepDeath(1)")
+    assert c.eval("return ns.MyLogDetail:GetSelectedDeath().pull.boss") == "Leotheras the Blind"
+    c.click(c.eval("local _, d = ns.MyLogDetail:GetViews(); return d.tiles[1]"))
+    assert c.eval("return ns.MyLogDetail:GetSelectedDeath().pull.boss") == "Lady Vashj"
 
 
 @case
@@ -294,6 +319,32 @@ def recorder_counts_avoidable_damage():
     c.fire("ENCOUNTER_END", 628, "Lady Vashj", 4, 25, 0)
     s = c.eval_py("local p = ns.MyLog:GetPulls(); return p[#p].s")
     assert s["av"] == 3000 and s["t"] == 4200, s
+
+
+@case
+def timeline_lays_out_my_casts_and_the_boss():
+    w, c = demo_client()
+    c.eval("ns.MyLogDetail:ShowBoss(ns.MyLogUI:GetBossRows()[3])")        # Leotheras
+    # the chart shows the boss's whirlwinds (auras with their length) and its yells
+    used = c.eval_py("local b = ns.MyLogDetail:GetViews(); local u = b.chart.used; return { u.band or 0, u.mark or 0 }")
+    assert used == [3, 3], used
+    # switch to the timeline
+    c.click(c.eval("local b = ns.MyLogDetail:GetViews(); return b.modeSeg.buttons[2]"))
+    info = c.eval_py("""local b = ns.MyLogDetail:GetViews(); local t = b.timeline
+      local names = {}; for i, l in ipairs(t.lanes) do names[i] = l.name end
+      return { shown = t:IsShown(), list = b.list.frame:IsShown(), lanes = names, bars = t.used.bar or 0,
+               dots = t.used.dot or 0, gaps = t.used.barBORDER or 0 }""")
+    assert info["shown"] is True and info["list"] is False, info
+    assert info["lanes"][0] == "Shadow Bolt" and "Immolate" in info["lanes"] and "Corruption" in info["lanes"], info
+    assert info["bars"] > 100 and info["dots"] >= 3 and info["gaps"] >= 3, info
+    # zoom in around the middle, then back out
+    z = c.eval_py("local t = select(1, ns.MyLogDetail:GetViews()).timeline; t:Zoom(0.5, 0.5); return { t.z0, t.z1 }")
+    assert abs(z[0] - 0.25) < 1e-6 and abs(z[1] - 0.75) < 1e-6, z
+    text = c.eval("local t = select(1, ns.MyLogDetail:GetViews()).timeline; return ns.MyLogTimeline:BossEventText(t.pull, t.pull.bev[1])")
+    assert text, text
+    # the choice stays for the next boss
+    c.eval("ns.MyLogDetail:ShowBoss(ns.MyLogUI:GetBossRows()[1])")
+    assert c.eval("return select(1, ns.MyLogDetail:GetViews()).timeline:IsShown()") is True
 
 
 if __name__ == "__main__":

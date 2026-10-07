@@ -25,7 +25,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/MyLog.lua", ...) then return 
 --            dmg / pet / heal / shield / taken / [key] = stat, names [key] = name, avoid [missType] = n,
 --            healIn [healer] = n, casts / kicks / disp / gain [spellId] = n | { n, a, o }, up = { me = { [id] = s },
 --            out = { [id] = s } }, tgt [npcId] = { n = name, a = damage }, tl = { d, h, t, p } (5 s buckets),
---            gaps = { { at, len } }, dead (s into the fight), deaths = { { t, by, ring } } }
+--            gaps = { { at, len } }, dead (s into the fight), deaths = { { t, by, hpMax, ring } },
+--            mech = { { t, spellId } } (the boss's casts from the strategy board's ability list),
+--            bev = { { t, kind, id, extra } } the boss side: kind "c" a cast (spell id), "a" an aura on a boss creature
+--                  (extra = its length in s once it ends), "s" a summon, "d" a creature died (id = npc id, name in
+--                  names["n" .. id]), "y" a yell or emote (id = who, extra = the text),
+--            ct = { { t, spellId, len } } my casts in order (len: cast or channel time, nil for instants) }
 --   s = { d, h, oh, sh, t, act (0..1), dc (deaths), dps, hps, dtps }
 -- Detail is kept for the last DETAIL_KILLS kills and DETAIL_PULLS pulls of each boss; older pulls keep pull info and
 -- s. Pulls older than mylog.keepWeeks are dropped.
@@ -60,6 +65,17 @@ local ring, ringPos = {}, 0
 local auraOn = { me = {}, out = {} }     -- [spellId] = { since, count } while up
 local busyUntil, covered, lastCastStart, castCover, castGcd   -- active time (see Cover)
 local ticker
+local mechSet                    -- [spellId] = true: the boss's own casts worth marking on the chart (Start)
+local mechLast = {}              -- [spellId] = time of the last mark (one mark per cast, not per target)
+local MECH_MAX = 80
+-- Boss side of the fight (bev) and my cast timeline (ct)
+local bossNpcs                   -- [npcId] = true: the encounter's creatures (Data/BossPortraits), or nil
+local bossName                   -- the encounter's name (creatures by that name count when there is no data)
+local bevLast = {}               -- [kind .. spellId] = time of the last entry (one entry per cast, not per target)
+local bevOpen = {}               -- [dstGUID .. spellId] = the open aura entry (its length is set when it ends)
+local BEV_MAX, CT_MAX = 400, 1500
+local pendingCast                -- { start, spellId } from UNIT_SPELLCAST_START / CHANNEL_START
+local openChannel                -- the ct entry of the channel running now
 
 ---------------------------------------------------------------------------
 -- Settings and storage
@@ -146,6 +162,8 @@ end
 ---------------------------------------------------------------------------
 
 local function Now() return GetTime() end
+
+local function Round1(x) return floor(x * 10 + 0.5) / 10 end
 
 local function NpcId(guid)
     if type(guid) ~= "string" then return nil end
@@ -265,6 +283,7 @@ local function OnCastStart(_, unit)
     castGcd = GcdFor(spellId)
     stop = max(stop, now + castGcd)
     lastCastStart = now
+    pendingCast = { now, tonumber(spellId) }
     Cover(now, stop)
     castCover = stop
 end
@@ -279,12 +298,13 @@ local function OnCastDelayed(_, unit)
     end
 end
 
-local function OnChannelStart(_, unit)
+local function OnChannelStart(_, unit, ...)
     if unit ~= "player" or not cur then return end
     local now = Now()
-    local _, _, _, _, endMS = UnitChannelInfo("player")
+    local _, _, _, _, endMS, _, _, chanId = UnitChannelInfo("player")
     local stop = CastEnd(endMS) or (now + DEFAULT_GCD)
     castGcd = DEFAULT_GCD
+    pendingCast = { now, tonumber(chanId) or tonumber(select(2, ...)), true }
     lastCastStart = now
     Cover(now, stop)
     castCover = stop
@@ -293,7 +313,12 @@ end
 -- The cast or channel ended before its expected end: hand back the rest (the global cooldown it started stays).
 -- FAILED also fires for a refused second cast while the first goes on: only a player no longer casting is cut.
 local function OnCastCut(_, unit)
-    if unit ~= "player" or not cur or not castCover then return end
+    if unit ~= "player" or not cur then return end
+    if openChannel and not UnitChannelInfo("player") then
+        openChannel[3] = Round1(Now() - t0 - openChannel[1])
+        openChannel = nil
+    end
+    if not castCover then return end
     if UnitCastingInfo("player") or UnitChannelInfo("player") then return end
     local now = Now()
     local keep = max(now, (lastCastStart or now) + (castGcd or 0))
@@ -427,6 +452,19 @@ local function OnCombatLog()
     local mine = fromMe or (band and srcFlags and band(srcFlags, AFFIL_MINE) ~= 0 and srcGUID ~= myGUID
         and srcGUID ~= nil and strsub(srcGUID, 1, 7) ~= "Player-")
     local toMe = dstGUID == myGUID
+    if mechSet and (sub == "SPELL_CAST_START" or sub == "SPELL_CAST_SUCCESS" or sub == "SPELL_AURA_APPLIED")
+        and mechSet[a12]
+        and not fromMe and not mine then
+        local now = Now()
+        if (now - (mechLast[a12] or -99)) > 3 and #cur.mech < MECH_MAX then
+            mechLast[a12] = now
+            cur.mech[#cur.mech + 1] = { floor((now - t0) * 10 + 0.5) / 10, a12 }
+            Name(tostring(a12), a13)
+        end
+        MyLog:BossEvent(sub, srcGUID, srcName, dstGUID, dstName, a12, a13)
+        return
+    end
+    if not fromMe and not mine then MyLog:BossEvent(sub, srcGUID, srcName, dstGUID, dstName, a12, a13) end
     if not (fromMe or mine or toMe or sub == "SPELL_ABSORBED") then return end
     local now = Now()
     local isPet = mine and not fromMe
@@ -548,6 +586,19 @@ local function OnCombatLog()
             Name(tostring(id), a13)
             cur.casts[id] = (cur.casts[id] or 0) + 1
             PushRing(now, "c", tostring(id), nil, nil, nil)
+            if #cur.ct < CT_MAX then
+                local e
+                if pendingCast and pendingCast[2] == id and now - pendingCast[1] < 15 then
+                    e = { Round1(pendingCast[1] - t0), id }
+                    if pendingCast[3] then openChannel = e          -- a channel: its length comes at its end
+                    else e[3] = Round1(now - pendingCast[1]) end
+                    if e[3] and e[3] < 0.2 then e[3] = nil end
+                    pendingCast = nil
+                else
+                    e = { Round1(now - t0), id }
+                end
+                cur.ct[#cur.ct + 1] = e
+            end
         end
     elseif sub == "SPELL_AURA_APPLIED" or sub == "SPELL_AURA_REMOVED" then
         local id = tonumber(a12)
@@ -592,6 +643,72 @@ local function OnCombatLog()
     end
 end
 
+-- The boss side of the fight: casts by the encounter's creatures, auras on them (with their length), summons,
+-- deaths. Creatures count when their npc id is in the encounter's data, or (no data) when they carry its name.
+local function IsBossUnit(guid, name)
+    if type(guid) ~= "string" or strsub(guid, 1, 7) == "Player-" then return false end
+    local id = NpcId(guid)
+    if bossNpcs then return id ~= nil and bossNpcs[id] == true end
+    return name ~= nil and name == bossName
+end
+
+local function AddBev(kind, id, extra, dedupeKey)
+    if #cur.bev >= BEV_MAX then return nil end
+    local now = Now()
+    if dedupeKey then
+        if now - (bevLast[dedupeKey] or -99) < 2 then return nil end
+        bevLast[dedupeKey] = now
+    end
+    local e = { Round1(now - t0), kind, id, extra }
+    cur.bev[#cur.bev + 1] = e
+    return e
+end
+
+function MyLog:BossEvent(sub, srcGUID, srcName, dstGUID, dstName, spellId, spellName)
+    if not cur then return end
+    if sub == "SPELL_CAST_START" or sub == "SPELL_CAST_SUCCESS" then
+        if IsBossUnit(srcGUID, srcName) and spellId then
+            Name(tostring(spellId), spellName)
+            AddBev("c", spellId, nil, "c" .. tostring(spellId))
+        end
+    elseif sub == "SPELL_AURA_APPLIED" then
+        -- auras on a boss creature that the boss side put there (its own buffs, shields, banishes); not players'
+        -- debuffs on it
+        if spellId and IsBossUnit(dstGUID, dstName) and not (type(srcGUID) == "string" and strsub(srcGUID, 1, 7) == "Player-") then
+            local e = AddBev("a", spellId, nil, "a" .. tostring(spellId))
+            if e then
+                Name(tostring(spellId), spellName)
+                bevOpen[tostring(dstGUID) .. ":" .. tostring(spellId)] = e
+            end
+        end
+    elseif sub == "SPELL_AURA_REMOVED" then
+        local key = tostring(dstGUID) .. ":" .. tostring(spellId)
+        local e = bevOpen[key]
+        if e then
+            e[4] = Round1(Now() - t0 - e[1])
+            bevOpen[key] = nil
+        end
+    elseif sub == "SPELL_SUMMON" then
+        if IsBossUnit(srcGUID, srcName) and spellId then
+            Name(tostring(spellId), spellName)
+            AddBev("s", spellId, nil, "s" .. tostring(spellId))
+        end
+    elseif sub == "UNIT_DIED" then
+        if IsBossUnit(dstGUID, dstName) then
+            local id = NpcId(dstGUID) or 0
+            Name("n" .. id, dstName)
+            AddBev("d", id, nil, nil)
+        end
+    end
+end
+
+local function OnBossChat(_, text, sender)
+    if not cur or type(text) ~= "string" then return end
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "")
+    if #text > 120 then text = text:sub(1, 117) .. "..." end
+    AddBev("y", sender or "?", text, nil)
+end
+
 function MyLog:NoteDeath(now)
     if not cur then return end
     local t = now - t0
@@ -606,7 +723,8 @@ function MyLog:NoteDeath(now)
         end
     end
     if #cur.deaths < DEATHS_MAX then
-        cur.deaths[#cur.deaths + 1] = { t = floor(t * 10 + 0.5) / 10, by = by, ring = recap }
+        cur.deaths[#cur.deaths + 1] = { t = floor(t * 10 + 0.5) / 10, by = by, ring = recap,
+            hpMax = UnitHealthMax and UnitHealthMax("player") or nil }
     end
     if not cur.dead then
         -- alive time ends: the rest of the fight is not idle time
@@ -736,6 +854,9 @@ local function Listen(on)
     fn(ns, "UNIT_SPELLCAST_SUCCEEDED", OnCastSucceeded)
     fn(ns, "PLAYER_ALIVE", OnAlive)
     fn(ns, "PLAYER_UNGHOST", OnAlive)
+    fn(ns, "CHAT_MSG_MONSTER_YELL", OnBossChat)
+    fn(ns, "CHAT_MSG_RAID_BOSS_EMOTE", OnBossChat)
+    fn(ns, "CHAT_MSG_MONSTER_EMOTE", OnBossChat)
 end
 
 function MyLog:Start(encounterID, encounterName, difficultyID, groupSize)
@@ -752,8 +873,11 @@ function MyLog:Start(encounterID, encounterName, difficultyID, groupSize)
         cls = cls, spec = MySpec(cls), tal = TalentString(), ilvl = ItemLevel(), buffs = {},
         dmg = {}, pet = {}, heal = {}, shield = {}, taken = {}, names = {}, avoid = {}, healIn = {},
         casts = {}, kicks = {}, disp = {}, gain = {}, up = { me = {}, out = {} }, tgt = {},
-        tl = { d = {}, h = {}, t = {}, p = {} }, gaps = {}, deaths = {},
+        tl = { d = {}, h = {}, t = {}, p = {} }, gaps = {}, deaths = {}, mech = {}, bev = {}, ct = {},
     }
+    mechSet, mechLast = MyLog:MechanicsFor(encounterName), {}
+    bossNpcs, bossName, bevLast, bevOpen = MyLog:EncounterNpcs(encounterName), encounterName, {}, {}
+    pendingCast, openChannel = nil, nil
     cur.role = ns.GetSpecRole and ns.GetSpecRole(cls, cur.spec) or nil
     ring, ringPos = {}, 0
     auraOn = { me = {}, out = {} }
@@ -854,7 +978,48 @@ function MyLog:Stop(discard, kill, cut)
 end
 
 local DETAIL_FIELDS = { "dmg", "pet", "heal", "shield", "taken", "names", "avoid", "healIn", "casts", "kicks",
-    "disp", "gain", "up", "tgt", "tl", "gaps", "deaths" }
+    "disp", "gain", "up", "tgt", "tl", "gaps", "deaths", "mech", "bev", "ct" }
+
+-- [npcId] = true for every creature of an encounter (Data/BossPortraits), or nil when it has no data.
+function MyLog:EncounterNpcs(name)
+    local key = self:BossDataKey(name)
+    local list = key and ns.Data and ns.Data.BossPortraits and ns.Data.BossPortraits[key]
+    if not list then return nil end
+    local set, any = {}, false
+    for _, e in ipairs(list) do
+        if e.id then set[e.id] = true; any = true end
+    end
+    return any and set or nil
+end
+
+-- The strategy board's data key ("SerpentshrineCavern:Leotheras") of a boss by its name (Data/BossPortraits names
+-- every creature of each encounter), or nil.
+function MyLog:BossDataKey(name)
+    if type(name) ~= "string" then return nil end
+    for key, list in pairs(ns.Data and ns.Data.BossPortraits or {}) do
+        for _, e in ipairs(list) do
+            if e.n == name then return key, e end
+        end
+    end
+    return nil
+end
+
+-- The creature display id of a boss (for its portrait), or nil.
+function MyLog:BossDisplayId(name)
+    local _, e = self:BossDataKey(name)
+    return e and e.d or nil
+end
+
+-- [spellId] = true for a boss's casts and auras from Data/BossAbilities, or nil when it has none.
+function MyLog:MechanicsFor(name)
+    local key = self:BossDataKey(name)
+    local data = key and ns.Data and ns.Data.BossAbilities and ns.Data.BossAbilities[key]
+    if not data then return nil end
+    local set, any = {}, false
+    for _, c in ipairs(data.c or {}) do set[c.id] = true; any = true end
+    for _, id in ipairs(data.a or {}) do set[id] = true; any = true end   -- auras (Whirlwind, Toxic Spores...)
+    return any and set or nil
+end
 
 -- Drops pulls older than keepWeeks and the detail of pulls past the newest DETAIL_KILLS kills / DETAIL_PULLS pulls of
 -- their boss.
@@ -1010,7 +1175,7 @@ local function AverageOf(pulls, fn)
 end
 
 -- A run's numbers: { value (average over its kills), active, taken (DTPS), overheal (0..1), avoid (0..1), deaths,
--- avoidable (damage from AVOIDABLE abilities, every pull), ilvl, kills }
+-- avoidable (damage from AVOIDABLE abilities per kill, so nights with other bosses compare), ilvl, kills }
 function MyLog:RunNumbers(run, view)
     local kills = {}
     local deaths, swings, avoided, h, oh, av = 0, 0, 0, 0, 0, 0
@@ -1022,7 +1187,7 @@ function MyLog:RunNumbers(run, view)
                 oh = oh + (p.s.oh or 0)
             end
             deaths = deaths + (p.s.dc or 0)
-            av = av + (p.s.av or 0)
+            if p.kill then av = av + (p.s.av or 0) end
             swings = swings + (p.s.sw or 0)
             avoided = avoided + (p.s.avd or 0)
         end
@@ -1034,7 +1199,7 @@ function MyLog:RunNumbers(run, view)
         overheal = (h + oh) > 0 and oh / (h + oh) or nil,
         avoid = swings > 0 and avoided / swings or nil,
         deaths = deaths,
-        avoidable = av,
+        avoidable = #kills > 0 and av / #kills or nil,
         ilvl = AverageOf(run.pulls, function(p) return p.ilvl end),
         kills = #kills,
     }

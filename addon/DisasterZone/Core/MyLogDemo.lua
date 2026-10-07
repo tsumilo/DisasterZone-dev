@@ -27,7 +27,7 @@ local NAMES = {
     ["38235"] = "Water Tomb", ["37433"] = "Spout", ["37478"] = "Geyser", ["37640"] = "Whirlwind",
     ["37675"] = "Chaos Blast", ["38441"] = "Cataclysmic Bolt", ["37730"] = "Tidal Wave", ["38575"] = "Toxic Spores",
     ["38253"] = "Poison Bolt", ["35383"] = "Flame Patch", ["34229"] = "Flame Quills", ["33076"] = "Prayer of Mending",
-    ["25235"] = "Flash Heal",
+    ["25235"] = "Flash Heal", ["38112"] = "Magic Barrier", ["35181"] = "Dive Bomb",
 }
 
 -- Per boss: encounter id, kill time (s), the hits that land on me (spell id, source, average, per minute,
@@ -39,17 +39,19 @@ local BOSSES = {
       hits = { { 37433, "The Lurker Below", 3800, 0.15, true }, { 37478, "The Lurker Below", 1900, 0.5 } } },
     { enc = 625, boss = "Leotheras the Blind", dur = 300,
       hits = { { 37640, "Leotheras the Blind", 2400, 0.4, true }, { 37675, "Leotheras the Blind", 1400, 0.5 } },
-      dips = { { 60, 15 }, { 150, 15 }, { 240, 15 } } },
+      dips = { { 60, 15 }, { 150, 15 }, { 240, 15 } }, mech = 37640,
+      yell = "I am the master! Do you hear me? I am the master!", adds = { 21875, "Shadow of Leotheras", 90 } },
     { enc = 626, boss = "Fathom-Lord Karathress", dur = 260,
       hits = { { 38441, "Fathom-Lord Karathress", 5200, 0.12 } } },
     { enc = 627, boss = "Morogrim Tidewalker", dur = 280,
       hits = { { 37730, "Morogrim Tidewalker", 2600, 0.3 } } },
     { enc = 628, boss = "Lady Vashj", dur = 560,
       hits = { { 38575, "Lady Vashj", 2900, 0.35, true }, { 38253, "Tainted Elemental", 1200, 0.6 } },
-      dips = { { 150, 40 }, { 330, 40 } } },
+      dips = { { 150, 40 }, { 330, 40 } }, mech = 38112,
+      yell = "The time is now! Leave none standing!", adds = { 22009, "Tainted Elemental", 55 } },
 }
 local ALAR = { enc = 730, boss = "Al'ar", dur = 330, hits = { { 35383, "Al'ar", 1700, 0.5, true },
-    { 34229, "Al'ar", 2200, 0.2 } }, dips = { { 120, 20 } } }
+    { 34229, "Al'ar", 2200, 0.2 } }, dips = { { 120, 20 } }, mech = 35181 }
 
 local function NewPull(at, b, zone, iid, kill, dps, skill, opts)
     opts = opts or {}
@@ -60,7 +62,7 @@ local function NewPull(at, b, zone, iid, kill, dps, skill, opts)
         buffs = { 17628, 33263, 25898 }, pct = (not kill) and opts.pct or nil,
         dmg = {}, pet = {}, heal = {}, shield = {}, taken = {}, names = {}, avoid = {}, healIn = {},
         casts = {}, kicks = {}, disp = {}, gain = {}, up = { me = {}, out = {} }, tgt = {},
-        tl = { d = {}, h = {}, t = {}, p = {} }, gaps = {}, deaths = {},
+        tl = { d = {}, h = {}, t = {}, p = {} }, gaps = {}, deaths = {}, mech = {}, bev = {}, ct = {},
     }
     for k, v in pairs(NAMES) do p.names[k] = v end
     -- timeline: damage per 5 s, dips where the boss forces me off it, a slow start
@@ -129,11 +131,66 @@ local function NewPull(at, b, zone, iid, kill, dps, skill, opts)
     end
     for _, dip in ipairs(b.dips or {}) do
         local lost = dip[2] * (0.6 - skill * 0.4)
-        p.gaps[#p.gaps + 1] = { at = dip[1], len = floor(lost * 10) / 10 }
+        p.gaps[#p.gaps + 1] = { at = dip[1] + 1, len = floor(lost * 10) / 10 }
         idle = idle + lost
+        if b.mech and dip[1] < dur then p.mech[#p.mech + 1] = { dip[1], b.mech } end
     end
     table.sort(p.gaps, function(x, y) return x.at < y.at end)
     p.actSec = max(0, dur - idle - dur * (0.03 - skill * 0.02))
+    -- the boss side: its auras over the dips, yells, its casts, adds dying
+    for _, dip in ipairs(b.dips or {}) do
+        if dip[1] < dur then
+            if b.mech then p.bev[#p.bev + 1] = { dip[1], "a", b.mech, min(dip[2], dur - dip[1]) } end
+            if b.yell then p.bev[#p.bev + 1] = { dip[1], "y", b.boss, b.yell } end
+        end
+    end
+    for _, h in ipairs(b.hits) do
+        if not h[5] and h[2] == b.boss then
+            local every = max(8, 60 / h[4])
+            local t = every * (0.6 + Rand() * 0.4)
+            while t < dur - 3 do
+                p.bev[#p.bev + 1] = { floor(t * 10) / 10, "c", h[1] }
+                t = t + every * (0.85 + Rand() * 0.3)
+            end
+        end
+    end
+    if b.adds then
+        local npc, name, every = b.adds[1], b.adds[2], b.adds[3]
+        p.names["n" .. npc] = name
+        local t = every
+        while t < dur - 5 do
+            p.bev[#p.bev + 1] = { floor(t * 10) / 10, "d", npc }
+            t = t + every * (0.9 + Rand() * 0.2)
+        end
+    end
+    table.sort(p.bev, function(x, y) return x[1] < y[1] end)
+    -- my casts in order: Curse of the Elements first, dots kept up, Immolate, Life Tap, Shadow Bolt between;
+    -- nothing while idle
+    local function idleAt(t)
+        for _, g in ipairs(p.gaps) do if t >= g.at and t < g.at + g.len then return g.at + g.len end end
+        return nil
+    end
+    local t, nextCor, nextCoa, nextImm, nextTap = 0.3, 2, 4, 6, 20
+    p.ct[1] = { 0, 27228 }
+    local counts = { [27228] = 1 }
+    local sbLen = 2.5 - skill * 0.25
+    while t < dur - 1 and #p.ct < 400 do
+        local skip = idleAt(t)
+        if skip then
+            t = skip
+        else
+            local id, len
+            if t >= nextCor then id, nextCor = 27216, t + 18
+            elseif t >= nextCoa then id, nextCoa = 27218, t + 24
+            elseif t >= nextImm then id, len, nextImm = 27215, 1.9, t + 12 + Rand() * 4
+            elseif t >= nextTap then id, nextTap = 27222, t + 22 + Rand() * 8
+            else id, len = 27209, sbLen end
+            p.ct[#p.ct + 1] = { floor(t * 10 + 0.5) / 10, id, len }
+            counts[id] = (counts[id] or 0) + 1
+            t = t + max(len or 1.5, 1.5) + 0.05 + Rand() * (0.3 - skill * 0.2)
+        end
+    end
+    for id, n in pairs(counts) do p.casts[id] = n end
     -- a death: the last 10 seconds before it
     if opts.death then
         local d = opts.death
@@ -143,7 +200,7 @@ local function NewPull(at, b, zone, iid, kill, dps, skill, opts)
             if e[2] == "d" then hp = max(0, hp - e[4]) elseif e[2] == "h" then hp = min(9200, hp + e[4]) end
             ring[#ring + 1] = { e[1], e[2], e[3], e[4], hp, e[5], e[6] }
         end
-        p.deaths[1] = { t = d.t, by = d.by, ring = ring }
+        p.deaths[1] = { t = d.t, by = d.by, ring = ring, hpMax = 9200 }
         p.dead = d.t
         if not kill then p.dur = max(p.dur, d.t + 20) end
         local after = p.dur - d.t

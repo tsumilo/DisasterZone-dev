@@ -256,7 +256,9 @@ UI\RollFrame.lua
 UI\Tooltip.lua
 UI\Settings.lua
 UI\Changelog.lua
+UI\MyLogKit.lua
 UI\MyLogUI.lua
+UI\MyLogTimeline.lua
 UI\MyLogDetail.lua
 UI\PatchUI.lua
 
