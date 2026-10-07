@@ -275,6 +275,22 @@ def the_groups_show_plates_ghost_seats_and_a_plate_can_be_dragged():
     dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
     assert dr["grp"][K("Lee")] == 3 and dr["gs"][K("Lee")] == 2, dr
     assert not bob.eval("return %s.marker:IsShown()" % GRID)
+    # the last unassigned card (Bob): lifted, its frame stays up as the spot it left (in game only a shown frame hears
+    # that its drag ended), and the drop lands
+    last = bob.eval("local g = %s; local last; for _, ch in ipairs(g.pool.chips) do if ch:IsShown() and ch.key then "
+                    "last = ch end end; return last" % GRID)
+    assert bob.eval("return (...).key", last) == K("Bob")
+    bob.eval("_G.IsMouseButtonDown = function() return true end")
+    bob.eval("%s:BeginDrag(...)" % GRID, last)
+    assert bob.eval("local ch = ...; return ch:IsShown() and ch.key == nil and ch.holding == true", last) is True
+    bob.eval("local g = %s; g.boxes[4].IsMouseOver = function() return true end; "
+             "g.boxes[4].chips[1].IsMouseOver = function() return true end" % GRID)
+    bob.eval("local ch = ...; ch:GetScript('OnDragStop')(ch)", last)
+    bob.eval("_G.IsMouseButtonDown = function() return false end; local g = %s; g.boxes[4].IsMouseOver = nil; "
+             "g.boxes[4].chips[1].IsMouseOver = nil" % GRID)
+    w.tick(0.3)
+    dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
+    assert dr["grp"][K("Bob")] == 4 and dr["gs"][K("Bob")] == 1, dr
     # a drag whose lifted card never came up (an error on the way, in game) can't keep a player out of the layout
     bob.eval("local g = %s; g.dragging = ...; g.dragCard = nil; g:Refresh()" % GRID, K("Lee"))
     assert plate_of(bob, K("Lee")) is not None and bob.eval("return %s.dragging" % GRID) is None

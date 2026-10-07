@@ -394,8 +394,13 @@ local function createChip(parent, grid)
 end
 
 -- ghost (the quiet look, an empty seat): the comp's open slot that waits there; from = the seat a dragged player
--- left.
+-- left. The player being dragged keeps their chip, drawn as the empty spot they left: the game only tells the frame a
+-- drag began on that it ended while that frame (and its spec button) is still shown, so it is never hidden mid-drag.
 local function setChip(chip, m, ghost, from)
+    local holding = m ~= nil and chip.grid.dragging == m.key
+    if holding then m, ghost, from = nil, nil, true end
+    chip.holding = holding
+    chip.roleBtn:SetAlpha(holding and 0 or 1)
     chip.member = m
     chip.key = m and m.key or nil
     chip.ghost = not m and ghost or nil
@@ -418,20 +423,20 @@ local function setChip(chip, m, ghost, from)
         if not m then
             chip.cls:Hide()
             chip.spec:Hide()
-            chip.roleBtn:Hide()
+            if not holding then chip.roleBtn:Hide() end
             chip.picked:Hide()
             -- (a ghost's tooltip says who could fill it, for everyone)
-            chip:EnableMouse(chip.slot ~= nil and (editable or ghost ~= nil))
+            chip:EnableMouse(holding or (chip.slot ~= nil and (editable or ghost ~= nil)))
             return
         end
     end
     if not m then
         chip.cls:Hide()
         chip.spec:Hide()
-        chip.roleBtn:Hide()
+        if not holding then chip.roleBtn:Hide() end
         chip.fs:SetText("")
         chip.picked:Hide()
-        chip:EnableMouse(chip.slot ~= nil and editable)
+        chip:EnableMouse(holding or (chip.slot ~= nil and editable))
         return
     end
     chip:EnableMouse(true)
@@ -831,12 +836,7 @@ function Grid:Refresh()
     if self.dragging and not (self.dragCard and self.dragCard:IsShown()) then
         self.dragging, self.dragFrom, self.dragCard = nil, nil, nil
     end
-    if self.dragging then
-        local rest, wrest = {}, {}
-        for _, m in ipairs(members) do if m.key ~= self.dragging then rest[#rest + 1] = m end end
-        for _, m in ipairs(waiting) do if m.key ~= self.dragging then wrest[#wrest + 1] = m end end
-        members, waiting = rest, wrest
-    end
+    -- (the dragged player stays in the layout: setChip draws their chip as the spot they left)
     local groups = self.opts.getGroups() or {}
     local seats = self.opts.getSeats and self.opts.getSeats() or {}
     self.shown, self.air = {}, {}
