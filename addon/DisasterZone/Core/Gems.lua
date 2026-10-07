@@ -696,7 +696,8 @@ local function ItemScore(self, itemID, gems, w)
 end
 
 -- Makes the set's meta gem active: while the phase's gems miss its rule, the cheapest change of one free socket
--- (the least worth lost, socket bonus included, per missing gem it makes up) is made. setups = { [itemID] = { gems } }
+-- (the least worth lost, socket bonus included, per missing gem it makes up) is made; none when the rule can't be
+-- met. setups = { [itemID] = { gems } }
 -- (all counted picks), free = { [itemID] = { [socket] = true } } (the sockets being filled). The meta: the one in
 -- the set, else the spec's (it counts even when the head is disabled or has no meta socket yet).
 function Gems:MeetMetaRule(setups, free, gd, phase, profs)
@@ -721,6 +722,18 @@ function Gems:MeetMetaRule(setups, free, gd, phase, profs)
     local function uniqueTaken(id)
         for _, s in pairs(setups) do
             for _, x in pairs(s.gems) do if x == id then return true end end
+        end
+        return false
+    end
+    -- (half way is worth nothing: when the rule can't be met, every swap is undone)
+    local saved = {}
+    for itemID, s in pairs(setups) do
+        saved[itemID] = {}
+        for i, id in pairs(s.gems) do saved[itemID][i] = id end
+    end
+    local function undo()
+        for itemID, s in pairs(setups) do
+            for i in pairs(s.gems) do s.gems[i] = saved[itemID][i] end
         end
         return false
     end
@@ -757,10 +770,11 @@ function Gems:MeetMetaRule(setups, free, gd, phase, profs)
                 end
             end
         end
-        if not best then return false end
+        if not best then return undo() end
         setups[best.itemID].gems[best.i] = best.id
     end
-    return MetaShort(self, metaID, counts()) == 0
+    if MetaShort(self, metaID, counts()) == 0 then return true end
+    return undo()
 end
 
 -- Fills the gems and enchants of a phase's picks of my own list from the suggestions: only sockets and enchants that
