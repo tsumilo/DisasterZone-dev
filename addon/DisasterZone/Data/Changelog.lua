@@ -34,7 +34,7 @@ ns.CHANGELOG = {
               "Empty seats are real drop spots as big as a card; the dragged card follows the cursor.",
               "A label under the dragged card says where it lands, or who it swaps with.",
               "With a target comp, its open slots wait in the empty seats: the spec and who could fill it.",
-              "Each group's title shows the party buffs it gets; click it to swap the whole group.",
+              "Each group's title shows the party buffs it gets; drag it onto another group to swap them.",
               "Unassigned players are cards under the groups (Kara lineups: beside the two groups).",
               "The raid buffs sit next to Groups | Comp; unsaved changes are said on the banner.",
               "Comp: a band per role with the same cards, five a row, and a pip per slot.",

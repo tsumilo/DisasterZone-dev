@@ -156,7 +156,7 @@ local function paintPlate(b, p)
     b.pBot:SetShown(player)
     b.pBar:SetShown(player)
     b.pBar:SetColorTexture(r, g, bl, 0.9)
-    local icon = (player or kind == "ghost") and p.c and Comp():SpecIcon(p.c, p.sp) or nil
+    local icon = p.icon or ((player or kind == "ghost") and p.c and Comp():SpecIcon(p.c, p.sp)) or nil
     local showIcon = player or (kind == "ghost" and icon ~= nil)
     b.pIconBg:SetShown(showIcon)
     b.pIcon:SetShown(showIcon)
@@ -631,6 +631,7 @@ function GroupsUI:CreateGrid(parent, opts)
         local shl = swap:CreateTexture(nil, "HIGHLIGHT")
         shl:SetAllPoints()
         shl:SetColorTexture(1, 1, 1, 0)
+        swap.hl = shl
         swap:SetScript("OnClick", function() grid:OnSwapClick(g) end)
         swap:SetScript("OnEnter", function(self)
             if opts.quiet then
@@ -641,9 +642,9 @@ function GroupsUI:CreateGrid(parent, opts)
                     GameTooltip:AddLine(iconText(Comp():BuffIcon(e.buff), 14) .. " " .. e.buff.name, 0.85, 0.85, 0.85)
                 end
                 if grid.opts.isEditable() and grid.opts.onSwapGroups then
-                    GameTooltip:AddLine(grid.swapFrom == g and "Click again to cancel the swap."
-                        or grid.swapFrom and ("Click to swap group " .. grid.swapFrom .. " with this one.")
-                        or "Click, then another group's title: all their players trade places.", 0.6, 0.6, 0.6, true)
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine("Drag this title onto another group: all their players trade places.",
+                        0.6, 0.6, 0.6, true)
                 end
                 GameTooltip:Show()
                 return
@@ -671,9 +672,11 @@ function GroupsUI:CreateGrid(parent, opts)
         end)
         box.swap = swap
         if opts.quiet then
-            swap:SetScript("OnClick", function()
-                if grid.opts.isEditable() and grid.opts.onSwapGroups then grid:OnSwapClick(g) end
-            end)
+            -- (a group swaps by dragging its title onto another group, like a player's card)
+            swap:SetScript("OnClick", nil)
+            swap:RegisterForDrag("LeftButton")
+            swap:SetScript("OnDragStart", function(self) grid:BeginGroupDrag(g, self) end)
+            swap:SetScript("OnDragStop", function() GroupsUI:EndCardDrag() end)
         end
         box.chips = {}
         for s = 1, SLOTS do
@@ -939,8 +942,9 @@ function Grid:Refresh()
             box.swap:SetShown(self.opts.quiet ~= nil or (canSwap and (#list > 0 or self.swapFrom ~= nil)))
             if self.opts.quiet then
                 box.swap.fs:SetText("")
-                -- (the seats show how full it is: the line only says a swap is under way)
-                box.countFs:SetText(self.swapFrom == g and "|cff33ff33SWAPPING|r" or "")
+                -- (the seats show how full it is; a swap is a drag, nothing to say here)
+                box.countFs:SetText("")
+                box.swap.hl:SetColorTexture(1, 1, 1, canSwap and 0.05 or 0)
             elseif self.swapFrom == g then
                 box.swap.fs:SetText("|cff33ff33cancel|r")
             elseif self.swapFrom then
@@ -959,9 +963,9 @@ function Grid:Refresh()
             for i, b in ipairs(box.buffs) do
                 if present[i] and i <= room then setBuffIcon(b, present[i], true) else b:Hide() end
             end
-            if self.swapFrom == g then UI():SetEdgeColor(box, 0.2, 1, 0.2, 0.9)
+            if self.opts.quiet then UI():SetEdgeColor(box, 0, 0, 0, 0)
+            elseif self.swapFrom == g then UI():SetEdgeColor(box, 0.2, 1, 0.2, 0.9)
             elseif self.picked or self.swapFrom then UI():SetEdgeColor(box, 1, 0.82, 0, 0.75)
-            elseif self.opts.quiet then UI():SetEdgeColor(box, 0, 0, 0, 0)
             else UI():SetEdgeColor(box, 0.34, 0.34, 0.38, 0.5) end
         end
     end
@@ -1608,7 +1612,7 @@ function GroupsUI:StartCardDrag(src, plate, opts)
     local ok, g = pcall(function()
         local f = ensurePlateGhost()
         f:SetScale(src:GetEffectiveScale() / UIParent:GetEffectiveScale())
-        f:SetSize(src:GetWidth(), src:GetHeight())
+        f:SetSize(opts.w or src:GetWidth(), opts.h or src:GetHeight())
         local cx, cy = cursorIn(f)
         f.dx, f.dy = (src:GetLeft() or cx) - cx, (src:GetTop() or cy) - cy
         paintPlate(f, plate)
@@ -1660,6 +1664,36 @@ function GroupsUI:EndCardDrag()
     d.src:SetAlpha(1)
     if ok and t and t.ok and d.opts.drop then d.opts.drop(t) end
     if d.opts.finish then d.opts.finish() end
+    if GroupsUI.onCardDragEnd then GroupsUI.onCardDragEnd() end
+end
+
+-- (the quiet look) a group's title dragged onto another group: all their players trade places (opts.onSwapGroups).
+function Grid:BeginGroupDrag(g, title)
+    if not (self.opts.isEditable() and self.opts.onSwapGroups) then return end
+    local box = self.boxes[g]
+    local n, first = 0, nil
+    for _, ch in ipairs(box.chips) do
+        if ch.member then
+            n = n + 1
+            first = first or ch.member
+        end
+    end
+    local grid = self
+    GroupsUI:StartCardDrag(title, {
+        kind = "player", name = "Group " .. g, sub = n == 1 and "1 player" or (n .. " players"),
+        icon = first and Comp():SpecIcon(first.c, first.sp) or "Interface\\Icons\\INV_Misc_GroupNeedMore",
+    }, {
+        w = box:GetWidth(), h = PLATE_H,
+        target = function()
+            for o, b in ipairs(grid.boxes) do
+                if o ~= g and b:IsShown() and b:IsMouseOver() then
+                    return { frame = b, ok = true, g = o, label = "Swap with Group " .. o }
+                end
+            end
+            return nil
+        end,
+        drop = function(t) grid:SwapGroups(g, t.g) end,
+    })
 end
 
 function GroupsUI:IsCardDragging() return cardDrag ~= nil end

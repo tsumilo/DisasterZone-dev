@@ -351,6 +351,25 @@ def comp_slots_fill_by_dragging_and_a_slots_player_drags_out():
 
 
 @case
+def a_group_title_dragged_onto_another_group_swaps_them():
+    w, c = world()
+    bob = c["Bob"]
+    tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, groups={"Lee": 1, "Rita": 1, "Sam": 2})
+    w.tick(1)
+    open_teams(w, bob, tid, "groups")
+    title = bob.eval("return %s.boxes[1].swap" % GRID)
+    # a click does nothing now (no picked state, no outlines, no SWAPPING)
+    bob.click(title)
+    assert bob.eval("return %s.swapFrom" % GRID) is None
+    assert strip_codes(bob.eval("return %s.boxes[1].countFs:GetText()" % GRID) or "") == ""
+    label = comp_drag(bob, w, title, bob.eval("return %s.boxes[3]" % GRID))
+    assert label == "Swap with Group 3", label
+    dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
+    assert dr["grp"][K("Lee")] == 3 and dr["grp"][K("Rita")] == 3 and dr["grp"][K("Sam")] == 2, dr["grp"]
+    w.assert_no_errors()
+
+
+@case
 def a_raid_lists_the_open_slots_and_the_lf_message():
     w, c = world()
     bob, rita = c["Bob"], c["Rita"]

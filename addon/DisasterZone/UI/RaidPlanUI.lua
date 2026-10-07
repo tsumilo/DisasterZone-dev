@@ -5618,13 +5618,15 @@ function TV.compDragStart(src)
     ns.RaidGroupsUI:StartCardDrag(src, ns.RaidGroupsUI:PlayerPlate({ key = m.key, c = m.c, sp = m.sp }), {
         target = function() return TV.compTarget(drag) end,
         drop = function(t) TV.compDrop(drag, t) end,
-        finish = function()
-            if TV.deferred then
-                TV.deferred = nil
-                PlanUI:RefreshTeams()
-            end
-        end,
     })
+end
+
+-- (after any card drag, a Comp slot or a group's title: the refresh that waited for it)
+ns.RaidGroupsUI.onCardDragEnd = function()
+    if TV.deferred then
+        TV.deferred = nil
+        PlanUI:RefreshTeams()
+    end
 end
 
 -- Where an open slot would put the dragged player: beyond the comp, their own group; from Unassigned, the seat where
