@@ -248,6 +248,15 @@ local KNOWN_MESSAGES = {
     -- (occId, text) a banner for me / a tracker line for me (Live:MyFeed keeps them); (occId, soundKey) a sound for me
     -- (EventLive played it already)
     EVENT_SHOW = true, EVENT_TELL = true, EVENT_SOUND = true,
+    -- raids / strategies / guests / loot
+    RAIDINVITE_CHANGED = true, RAIDLOG_CHANGED = true, RAIDPLAN_CHANGED = true, PARTY_INVITE_FAILED = true,
+    STRATEGY_CHANGED = true, STRATEGY_DRAFTS_CHANGED = true, STRATEGY_LIVE = true,
+    GUESTBOOK_CHANGED = true, LOOT_HELD = true, CHANGELOG_READ = true,
+    -- Group Finder + dungeon run invites
+    GROUP_FINDER_UPDATED = true, GROUP_FINDER_PROMPT = true, GROUP_FINDER_LEFTOVER = true,
+    DUNGEON_RUN_INVITE = true, DUNGEON_RUN_INVITE_GONE = true,
+    -- Atlas costs / prices, Azeromon guild data
+    CURRENCY_CHANGED = true, PRICES_UPDATED = true, AZERO_GUILD_UPDATED = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)
