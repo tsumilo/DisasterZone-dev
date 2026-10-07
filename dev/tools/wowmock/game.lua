@@ -181,6 +181,74 @@ GetMoneyString = GetCoinTextureString
 GetCoinText = GetCoinTextureString
 function FormatLargeNumber(n) return tostring(n) end
 function BreakUpLargeNumbers(n) return tostring(n) end
+
+-- Currencies (C_CurrencyInfo, classic_anniversary CurrencyInfoDocumentation): Honor Points 1901 and Arena Points 1900
+-- (Constants.CurrencyConsts.CLASSIC_HONOR_CURRENCY_ID / CLASSIC_ARENA_POINTS_CURRENCY_ID). The honor icon is the
+-- faction's TargetingFrame UI-PVP texture (136998 Alliance / 137000 Horde, Blizzard's HONOR_POINT_TEXTURES); arena:
+-- Interface/PVPFrame/PVP-ArenaPoints-Icon (136729, from the client's CASC root).
+-- M.set_currency(id, n) sets an amount and fires CURRENCY_DISPLAY_UPDATE.
+M.currencies = {}
+M.CURRENCY_DEFS = {
+  [1901] = { name = "Honor Points", max = 75000 },
+  [1900] = { name = "Arena Points", icon = 136729, max = 5000 },
+}
+C_CurrencyInfo = {
+  GetCurrencyInfo = function(id)
+    id = tonumber(id)
+    local def = id and M.CURRENCY_DEFS[id]
+    if not def then return nil end
+    local icon = def.icon or ((UnitFactionGroup("player") == "Horde") and 137000 or 136998)
+    return { name = def.name, description = "", currencyID = id, isHeader = false, isHeaderExpanded = false,
+             currencyListDepth = 0, isTypeUnused = false, isShowInBackpack = false, quantity = M.currencies[id] or 0,
+             trackedQuantity = 0, iconFileID = icon, maxQuantity = def.max or 0, canEarnPerWeek = false,
+             quantityEarnedThisWeek = 0, isTradeable = false, quality = 1, maxWeeklyQuantity = 0, totalEarned = 0,
+             discovered = true, useTotalEarnedForMaxQty = false, isAccountWide = false, isAccountTransferable = false,
+             rechargingCycleDurationMS = 0, rechargingAmountPerCycle = 0 }
+  end,
+  GetCoinTextureString = function(copper) return GetCoinTextureString(copper) end,
+}
+Constants = Constants or {}
+Constants.CurrencyConsts = Constants.CurrencyConsts or {}
+Constants.CurrencyConsts.CLASSIC_HONOR_CURRENCY_ID = 1901
+Constants.CurrencyConsts.CLASSIC_ARENA_POINTS_CURRENCY_ID = 1900
+function M.set_currency(id, n)
+  M.currencies[tonumber(id)] = tonumber(n) or 0
+  M.fire("CURRENCY_DISPLAY_UPDATE")
+end
+
+-- The vendor window. M.open_merchant(items) opens one and fires MERCHANT_SHOW; an item: { id, price = copper,
+-- stack = 1, costs = { { texture, value, link, currencyName }, ... } } (GetMerchantItemCostItem's four returns: a
+-- currency such as Honor has a texture and a name and no item link). M.close_merchant() fires MERCHANT_CLOSED.
+M.merchant = nil
+function M.open_merchant(items)
+  M.merchant = items or {}
+  M.fire("MERCHANT_SHOW")
+end
+function M.close_merchant()
+  M.merchant = nil
+  M.fire("MERCHANT_CLOSED")
+end
+local function merchant_item(i)
+  return M.merchant and M.merchant[tonumber(i) or 0]
+end
+function GetMerchantNumItems() return M.merchant and #M.merchant or 0 end
+function GetMerchantItemID(i) local e = merchant_item(i); return e and e.id or nil end
+-- name, texture, price, stackCount, numAvailable, isPurchasable, isUsable, extendedCost, currencyID
+function GetMerchantItemInfo(i)
+  local e = merchant_item(i)
+  if not e then return nil end
+  return "Item " .. e.id, 134400, e.price or 0, e.stack or 1, -1, true, true, (e.costs ~= nil and #e.costs > 0), nil
+end
+function GetMerchantItemCostInfo(i)
+  local e = merchant_item(i)
+  return e and e.costs and #e.costs or 0
+end
+function GetMerchantItemCostItem(i, c)
+  local e = merchant_item(i)
+  local cost = e and e.costs and e.costs[tonumber(c) or 0]
+  if not cost then return nil end
+  return cost[1], cost[2], cost[3], cost[4]
+end
 function SecondsToTime(s)
   s = math.floor(tonumber(s) or 0)
   if s >= 3600 then return sformat("%d Hr %d Min", math.floor(s / 3600), math.floor(s % 3600 / 60)) end

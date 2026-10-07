@@ -116,6 +116,16 @@ ns.CHANGELOG = {
               "Pressing dips it, letting go flashes it; picking an option fades the choice across.",
               "Tabs: the gold underline grows out from the middle; pointing at a tab shows a faint one.",
           } },
+          { heading = "Atlas: costs and your currencies", lines = {
+              "Items a vendor sells show their cost with icons: Honor, Arena Points, Badges, marks.",
+              "A cost is red while you hold less than it asks, white once you can buy it.",
+              "A bar at the bottom shows your Honor, Arena Points, Badges and what the page pays with.",
+              "Point at an item: its currencies light up and the bar says how many you lack or keep.",
+              "The tooltip lists each part of the cost: what you have, how many more you need.",
+              "Badges and marks in your bank count too; the bar reminds you to take them out first.",
+              "Arena and honor sets show what the set costs, or what is left once you own pieces.",
+              "Prices are your realm's own: every vendor you open teaches the addon its prices.",
+          } },
       } },
     { version = "1.3.1", date = "6 October 2026", title = "Dungeons tab, ask to join locked raids",
       sections = {

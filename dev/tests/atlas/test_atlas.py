@@ -359,23 +359,16 @@ def recipes_show_what_they_make_and_costs_read_well():
     data = page_data(c)
     i = [d[0] for d in data].index(recipe)
     assert data[i + 1] == [made, recipe, "makes"], data[i:i + 2]
-    # a PvP vendor page: plain costs at the right, the whole cost in the tooltip
-    with_x = c.eval_py("""for _, p in ipairs(ns.Atlas:GetSource('pvp', 'Honor').pages) do
-        if p.x then return p.key end end""")
-    c.eval("ns.AtlasUI:Select('pvp', 'Honor', ...)", with_x)
-    xs = [r[2] for r in rows(c) if r[0] == "item" and r[2]]
-    assert xs and all(len(x) <= 16 for x in xs), xs[:5]
-    with_xt = c.eval_py("""for _, s in ipairs(ns.Atlas:GetCategory('pvp').sources) do
-        for _, p in ipairs(s.pages) do
-          if p.xt then for i, v in pairs(p.xt) do return { s.key, p.key, p.items[i], v } end end
-        end
-      end""")
-    if with_xt:
-        c.eval("ns.AtlasUI:Select('pvp', ...)", with_xt[0], with_xt[1])
-        w.tick(0.2)
-        row = c.eval("return T_atlas_itemrow(...)", with_xt[2])
-        c.hover(row)
-        assert any(("Cost: " + with_xt[3]) in l for l, _ in tt_lines(c)), tt_lines(c)[-3:]
+    # a PvP vendor page: the costs at the right with the currencies' icons, the whole cost in the tooltip
+    # (tests/atlas/test_atlas_costs.py covers the costs and the currency bar)
+    page, iid = c.eval_py("""for _, p in ipairs(ns.Atlas:GetSource('pvp', 'Honor').pages) do
+        for _, id in ipairs(p.items) do if ns.Data.AtlasCosts[id] then return { p.key, id } end end end""")
+    c.eval("ns.AtlasUI:Select('pvp', 'Honor', ...)", page)
+    w.tick(0.2)
+    row = c.eval("return T_atlas_itemrow(...)", iid)
+    assert "|T" in c.eval("local r = ...; return r.mark:GetText()", row)
+    c.hover(row)
+    assert ("Cost", "") in [(strip_codes(l), strip_codes(r)) for l, r in tt_lines(c)], tt_lines(c)[-4:]
     names = c.eval_py("local o = {} for _, s in ipairs(ns.Atlas:GetCategory('pvp').sources) do o[#o + 1] = s.name end return o")
     assert "Honor rewards" in names and "PvP mounts" in names, names
     no_errors(w)

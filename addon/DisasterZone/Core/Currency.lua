@@ -23,9 +23,11 @@ Currency.HONOR, Currency.ARENA, Currency.BADGE, Currency.MONEY = HONOR, ARENA, B
 -- always on the currency bar, in this order
 Currency.PINNED = { HONOR, ARENA, BADGE }
 
-local HONOR_TEXTURES = { [136998] = true, [137000] = true }   -- Alliance / Horde (Blizzard's HONOR_POINT_TEXTURES)
-local HONOR_COORDS = { 0, 40 / 64, 0, 40 / 64 }                -- the honor icons fill only that much of their file
-local ARENA_TEXTURE = "Interface\\PVPFrame\\PVP-ArenaPoints-Icon"
+-- Honor's icon: the faction's TargetingFrame UI-PVP texture (Blizzard's HONOR_POINT_TEXTURES, Alliance / Horde); the
+-- emblem fills only the top left 40 of its 64 pixels (the merchant window cuts it the same way)
+local HONOR_TEXTURES = { [136998] = true, [137000] = true }
+local HONOR_COORDS = { 0, 40 / 64, 0, 40 / 64 }
+local ARENA_TEXTURE = 136729                                   -- Interface\PVPFrame\PVP-ArenaPoints-Icon
 local GOLD_TEXTURE = "Interface\\MoneyFrame\\UI-GoldIcon"
 -- names before the client has the item cached (English: the game's own names replace them once it has)
 local FALLBACK_NAMES = {
@@ -119,7 +121,8 @@ local function FromAtlasLoot(id)
     if v ~= nil then return v or nil end
     local AL = _G.AtlasLoot
     local t = type(AL) == "table" and type(AL.dbGlobal) == "table" and AL.dbGlobal.VendorPrice
-    local raw = type(t) == "table" and t[id]
+    if type(t) ~= "table" then return nil end   -- not installed, or not loaded yet: ask again later
+    local raw = t[id]
     v = raw and Currency:FromAtlasLoot(raw)
     if v and not ValidCost(v) then v = nil end
     alCache[id] = v or false
@@ -187,12 +190,13 @@ local function FromSeason(id)
     local A = ns.Atlas
     local locs = A and A.GetLocations and A:GetLocations(id)
     if not locs then return nil end
-    local slot = ArmorSlot(id)
-    if not slot then return nil end
-    local idx = SeasonIndex()
+    local slot
     for _, loc in ipairs(locs) do
         if loc.cat and SEASON_CATS[loc.cat.key] and loc.src and SEASON_SOURCES[loc.src.key] and not loc.via then
-            local v = idx[loc.src.key] and idx[loc.src.key][slot]
+            slot = slot or ArmorSlot(id)
+            if not slot then return nil end
+            local slots = SeasonIndex()[loc.src.key]
+            local v = slots and slots[slot]
             if v then return v end
         end
     end
@@ -254,10 +258,8 @@ function Currency:Have(key)
     local cid = CurrencyID(key)
     if cid then
         local info = CurrencyInfo(cid)
-        local n = info and tonumber(info.quantity)
-        if not n and cid == 1901 and GetHonorCurrency then n = tonumber(GetHonorCurrency()) end
-        if not n and cid == 1900 and GetArenaCurrency then n = tonumber(GetArenaCurrency()) end
-        return n or 0, n or 0
+        local n = info and tonumber(info.quantity) or 0
+        return n, n
     end
     local item = ItemID(key)
     if item then
@@ -483,5 +485,4 @@ function Currency:OnInit()
     ns:RegisterEvent("CURRENCY_DISPLAY_UPDATE", HoldingsChanged)
     ns:RegisterEvent("PLAYER_MONEY", HoldingsChanged)
     ns:RegisterEvent("BAG_UPDATE_DELAYED", HoldingsChanged)
-    ns:RegisterEvent("HONOR_CURRENCY_UPDATE", HoldingsChanged)
 end

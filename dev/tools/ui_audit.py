@@ -89,6 +89,8 @@ def plain_text(s):
 
     def icon(m):
         spec = (m.group(1) or m.group(2) or "").split(":")
+        if spec[0] == "itemicon" and len(spec) > 1:   # --look's item icons: "itemicon:<id>", the id is no size
+            spec = ["itemicon"] + spec[2:]
         size = 0
         for part in spec[1:3]:
             try:
@@ -282,6 +284,7 @@ end
 local function plain(s)
   s = tostring(s or ""):gsub("||", "\2")
   s = s:gsub("|T([^|]*)|t", function(spec)
+    spec = spec:gsub("^itemicon:%%d+", "itemicon")   -- --look's item icons: the id is not the height
     local _, h = spec:match("^([^:]*):?(%%d*)")
     return "\1" .. (tonumber(h) or 0) .. "\1"
   end)

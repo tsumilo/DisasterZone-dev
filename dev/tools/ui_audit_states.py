@@ -572,6 +572,22 @@ SEED_PRE_RAID = ("local d = ns.BiS:GetData(); local spec = ns.BiS:GetSpec(); "
                  "if spec == '' then spec = ns.SPECS[d.cl][1].label end; "
                  "ns.BiS:ApplyTemplate(0, ns.Loon:GetTemplate(d.cl, spec, 0) or {}, true); ")
 
+# What the Atlas's currency bar shows: some honor, a little arena, badges in bags and bank, 4 AV marks
+ATLAS_PURSE = ("__MOCK.set_currency(1901, 14230); __MOCK.set_currency(1900, 1240); "
+               "__MOCK.give_item(29434, 46); __MOCK.give_item(20560, 4); "
+               "__MOCK.set_bags({ { -1, 1, 29434, 30 } }, true); ")
+
+
+def atlas_hover(select_lua, item_lua):
+    """The Atlas with ATLAS_PURSE, a page selected, then (after the refresh what I hold triggers) a row hovered."""
+    def fn(w, c):
+        g = opened("atlas", ATLAS_PURSE + select_lua)(w, c)
+        w.tick(0.6)
+        g.eval("ns.AtlasUI:HoverItem(" + item_lua + ")")
+        return g
+    return fn
+
+
 STATES = [
     ("Home", opened("home")),
     ("Home - calendar day", opened("home", "local v = ns.RaidPlan:GetRaid(select(4, ...)); "
@@ -622,6 +638,13 @@ STATES = [
                                           "ns.AtlasUI:HoverItem(28477)")),
     ("Atlas - badge vendor", opened("atlas", "ns.AtlasUI:Select('vendors', 'BadgeofJustice')")),
     ("Atlas - arena vendor", opened("atlas", "ns.AtlasUI:Select('pvp', 'ArenaS2')")),
+    # costs and the currency bar: some honor / arena points / badges held, a row hovered (its currencies lit)
+    ("Atlas - costs hover short", atlas_hover("ns.AtlasUI:Select('pvp', 'ArenaS3')",
+                                              "ns.Atlas:GetSource('pvp', 'ArenaS3').pages[1].items[1]")),
+    ("Atlas - costs hover enough", atlas_hover("ns.AtlasUI:Select('vendors', 'BadgeofJustice')",
+                                               "ns.Atlas:GetSource('vendors', 'BadgeofJustice').pages[1].items[1]")),
+    ("Atlas - costs marks", opened("atlas", ATLAS_PURSE + "ns.AtlasUI:Select('pvp', 'Mounts')")),
+    ("Atlas - set totals", opened("atlas", ATLAS_PURSE + "ns.AtlasUI:Select('sets', 'ArenaS3', 'Paladin')")),
     ("Atlas - shopping list", shop_view()),
     ("Atlas - shopping list crafter", shop_view("ns.AtlasShopUI:Select('Lightbringer-Thunderstrike')")),
     ("Atlas - shopping list empty", shop_view("ns.Shop:Clear()")),

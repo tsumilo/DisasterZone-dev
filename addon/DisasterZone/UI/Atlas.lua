@@ -312,7 +312,7 @@ local function AddCostLines(tt, parts, from)
         tt:AddDoubleLine(left, right, 1, 1, 1, 1, 1, 1)
     end
     if from == "season" then
-        tt:AddLine("What this season's other pieces for this slot cost.", 0.6, 0.6, 0.6, true)
+        tt:AddLine("The price of this season's other pieces for this slot.", 0.6, 0.6, 0.6, true)
     end
 end
 
@@ -361,6 +361,7 @@ local function BarShowCost(d)
     for _, c in ipairs(checks or {}) do byKey[c.key] = c end
     for _, chip in ipairs(curBar.chips) do
         local c = chip:IsShown() and byKey[chip.key]
+        chip.state = c and (c.short > 0 and "short" or "ok") or nil
         if not c then
             chip.bg:SetColorTexture(1, 1, 1, 0)
         elseif c.short > 0 then
@@ -415,6 +416,15 @@ local function LayoutBar()
         chip.key = key
         local tex, l, r, t, b = C:Icon(key)
         chip.icon:SetTexture(tex)
+        -- money says itself with its coins: no icon in front
+        local money = key == C.MONEY
+        chip.icon:SetShown(not money)
+        chip.amount:ClearAllPoints()
+        if money then
+            chip.amount:SetPoint("LEFT", chip, "LEFT", 6, 0)
+        else
+            chip.amount:SetPoint("LEFT", chip.icon, "RIGHT", 5, 0)
+        end
         if l then
             chip.icon:SetTexCoord(l, r, t, b)
         elseif key:match("^%d+$") then
@@ -431,7 +441,7 @@ local function LayoutBar()
             curBar.rule:Show()
             x = x + 8
         end
-        local w = 6 + CHIP_ICON + 5 + ceil(CodedWidth(text, "GameFontHighlightSmall", 11)) + 8
+        local w = 6 + (money and 0 or (CHIP_ICON + 5)) + ceil(CodedWidth(text, "GameFontHighlightSmall", 11)) + 8
         chip:ClearAllPoints()
         chip:SetPoint("LEFT", curBar, "LEFT", x, 0)
         chip:SetWidth(w)
@@ -469,31 +479,50 @@ local function ContextKeys(rows)
     return out
 end
 
--- A set page's note: what the pieces I don't own cost together ("Set 8,250 [A]" / "Still to buy 4,500 [A]"), only
--- when every piece has a price.
-local function SetTotalText(rows)
+-- What a set's pieces I don't own cost together: (full text, the amounts alone), e.g. ("Set 8,250 [A]", "8,250 [A]")
+-- or ("Still to buy 4,500 [A]", ...); nil unless every piece has a price and one is still to buy.
+local function SetTotal(items)
     local C = Cur()
-    if not C then return nil end
-    local sum, order, owned, missing = {}, {}, 0, false
-    for _, r in ipairs(rows) do
-        if r.type == "item" and not r.via and r.id > 0 then
-            local parts = CostOf(r.id)
-            if not parts then
-                missing = true
-            elseif ns.BiS and ns.BiS.IsObtained and ns.BiS:IsObtained(r.id) then
-                owned = owned + 1
-            else
-                for _, p in ipairs(parts) do
-                    if not sum[p.key] then order[#order + 1] = p.key end
-                    sum[p.key] = (sum[p.key] or 0) + p.n
-                end
+    if not C or #items == 0 then return nil end
+    local sum, order, owned = {}, {}, 0
+    for _, id in ipairs(items) do
+        local parts = CostOf(id)
+        if not parts then return nil end
+        if ns.BiS and ns.BiS.IsObtained and ns.BiS:IsObtained(id) then
+            owned = owned + 1
+        else
+            for _, p in ipairs(parts) do
+                if not sum[p.key] then order[#order + 1] = p.key end
+                sum[p.key] = (sum[p.key] or 0) + p.n
             end
         end
     end
-    if missing or #order == 0 then return nil end
+    if #order == 0 then return nil end
     local parts = {}
     for i, k in ipairs(order) do parts[i] = { key = k, n = sum[k] } end
-    return (owned > 0 and "Still to buy " or "Set ") .. C:CostText(parts, 12)
+    local amounts = C:CostText(parts, 12)
+    return "|cff9a9aa0" .. (owned > 0 and "Still to buy" or "Set") .. "|r  " .. amounts, amounts
+end
+
+-- A set page (one class's sets, a header per set): each header gets its set's total (row.cost / row.costShort);
+-- returns the page's total when it has no headers (one set: its note in the column's title row).
+local function SetTotals(rows)
+    local header, items, pageItems = nil, {}, {}
+    local function close()
+        if header then header.cost, header.costShort = SetTotal(items) end
+    end
+    for _, r in ipairs(rows) do
+        if r.type == "header" then
+            close()
+            header, items = r, {}
+        elseif r.type == "item" and not r.via and r.id > 0 then
+            items[#items + 1] = r.id
+            pageItems[#pageItems + 1] = r.id
+        end
+    end
+    close()
+    if header then return nil end
+    return (SetTotal(pageItems))
 end
 
 local function CreateCurrencyBar(parent)
@@ -877,6 +906,23 @@ local function Layout(d)
     if lay then return lay end
     lay = {}
     layCache[d] = lay
+    if d.type == "header" then
+        -- a set's header: its total at the right (the amounts alone when the words don't fit), the name on two
+        -- lines rather than cut
+        local avail = rowW.item - 2 * IN
+        local tw = TextWidth(d.text or "", "GameFontNormal", 12)
+        lay.cost = d.cost
+        local cw = d.cost and (ceil(CodedWidth(d.cost, "GameFontHighlightSmall", 10)) + 12) or 0
+        if cw > 0 and tw + cw > avail and d.costShort then
+            lay.cost = d.costShort
+            cw = ceil(CodedWidth(d.costShort, "GameFontHighlightSmall", 10)) + 12
+        end
+        lay.costW = cw
+        lay.headW = avail - cw
+        lay.headLines = tw > lay.headW and 2 or 1
+        lay.h = ROW_SECTION + (lay.headLines - 1) * 14
+        return lay
+    end
     if d.type ~= "item" then
         lay.h = d.type == "more" and ROW_MORE or ROW_SECTION
         return lay
@@ -1028,6 +1074,12 @@ local function SetupItemRow(row)
     -- section headers (a set per spec) and the "showing the first ..." note
     row.header = NewText(row, "GameFontNormal", 12)
     row.header:SetPoint("LEFT", row, "LEFT", IN, 0)
+    if row.header.SetMaxLines then row.header:SetMaxLines(2) end
+    -- a set header's total, at the right on the name's last line
+    row.headCost = NewText(row, "GameFontHighlightSmall", 10)
+    row.headCost:SetJustifyH("RIGHT")
+    row.headCost:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -IN, 8)
+    row.headCost:Hide()
 
     row.icon = UI:CreateItemButton(row, ICON)
     row.icon:EnableMouse(false)   -- the row handles hover and clicks
@@ -1125,13 +1177,17 @@ local function InitItemRow(row, d)
             row.header:SetWidth(rowW.item - 2 * IN)
         else
             SetFontSize(row.header, "GameFontNormal", 12)
-            row.header:SetWordWrap(false)
+            row.header:SetWordWrap((lay.headLines or 1) > 1)
             row.header:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", IN, 7)
-            row.header:SetWidth(rowW.item - 2 * IN)
+            row.header:SetWidth(lay.headW or (rowW.item - 2 * IN))
         end
         row.header:SetText(d.text or "")
+        row.headCost:SetShown(lay.cost ~= nil)
+        row.headCost:SetText(lay.cost or "")
+        row.headCost:SetWidth(max((lay.costW or 0) - 12, 1) + 2)
         return
     end
+    row.headCost:Hide()
     local id = d.id
     row.icon:SetSize(lay.icon, lay.icon)
     row.icon:ClearAllPoints()
@@ -1696,7 +1752,7 @@ function AtlasUI:RefreshItems(resetScroll)
             local note = {}
             if page.phase and page.phase ~= (src.phase or 1) then note[#note + 1] = "Phase " .. page.phase end
             if page.title and page.name then note[#note + 1] = page.name end
-            local total = src.kind == "sets" and SetTotalText(rows)
+            local total = src.kind == "sets" and SetTotals(rows)
             if total then note[#note + 1] = total end
             sub = table.concat(note, DOT)
             itemList:SetEmptyText(Filtered()
