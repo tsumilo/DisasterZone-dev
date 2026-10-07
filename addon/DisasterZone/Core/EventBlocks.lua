@@ -421,7 +421,8 @@ def("as.press", { cat = "as", shape = "hat", text = "when someone presses {1}", 
 def("ch.show", { cat = "ch", shape = "stack", text = "show {1} {2}", args = { { t = "players" }, { t = "text", d = "" } } })
 def("ch.tell", { cat = "ch", shape = "stack", text = "tell {1} {2}", args = { { t = "players" }, { t = "text", d = "" } } })
 def("ch.moment", { cat = "ch", shape = "stack", text = "add a moment: {1}", args = { { t = "text", d = "" } } })
-def("ch.sound", { cat = "ch", shape = "stack", text = "play {1} for {2}", args = { { t = "sound", d = "warning" }, { t = "players" } } })
+-- (no sound picked to begin with: "Raid warning" in its blank made it two lines in the palette)
+def("ch.sound", { cat = "ch", shape = "stack", text = "play {1} for {2}", args = { { t = "sound" }, { t = "players" } } })
 def("ch.guild", { cat = "ch", shape = "stack", text = "post in guild chat: {1}", args = { { t = "text", d = "" } } })
 
 -- Timers

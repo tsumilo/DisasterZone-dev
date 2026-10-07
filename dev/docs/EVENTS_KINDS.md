@@ -513,6 +513,8 @@ inside its place's radius (r, default 30), as the host's points do.
 - Two reports of one duel: the same second on the two clocks, or arriving within 3 s of each other here (two clients'
   server times can be seconds apart; no duel of a pair ends that soon after the last).
 - The derby knows Mr. Pinchy by his item id (27388), not his English name (another one on other clients).
+- "play {sound} for {players}" starts with no sound picked (its "Raid warning" made it two lines in the palette); an
+  empty one is a problem ("Needs a sound here") like any blank.
 - The host's messages to players (EVM, CDLf) go at the prefix's own pace, 8 at once and then 1 a second (they went 4 a
   second, which the server throttles past its burst of 10: in a 16-player trivia night the "Right!" lines came 15 s
   late, then minutes); whispers of the same line waiting for several players go as one GUILD message naming them
