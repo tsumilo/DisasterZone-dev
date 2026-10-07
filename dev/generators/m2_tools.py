@@ -118,3 +118,34 @@ def standing_vertices(data):
             pz += f * (m[8] * x + m[9] * y + m[10] * z + m[11])
         out.append((px, py, pz))
     return out, box
+
+
+def skin_ids(data):
+    """The skin files' IDs of a chunked (MD21) .m2 (its SFID chunk; the first is the full-detail skin), else []."""
+    out, i = [], 0
+    if data[:4] != b"MD21":
+        return out
+    while i + 8 <= len(data):
+        tag, size = data[i:i + 4], struct.unpack_from("<I", data, i + 4)[0]
+        if tag == b"SFID":
+            out = list(struct.unpack_from("<%dI" % (size // 4), data, i + 8))
+            break
+        i += 8 + size
+    return out
+
+
+def skin_triangles(skin):
+    """A .skin file's triangles as vertex numbers of the .m2 (its index list mapped through its vertex lookup)."""
+    if skin[:4] != b"SKIN":
+        raise ValueError("not a skin file")
+    nlook, olook, nidx, oidx = struct.unpack_from("<4I", skin, 4)
+    look = struct.unpack_from("<%dH" % nlook, skin, olook)
+    idx = struct.unpack_from("<%dH" % nidx, skin, oidx)
+    return [(look[idx[k]], look[idx[k + 1]], look[idx[k + 2]]) for k in range(0, nidx - 2, 3)]
+
+
+def standing_mesh(data, skin):
+    """-> (vertices in the Stand animation's first frame (standing_vertices), triangles (vertex numbers), header
+    box) from an .m2's bytes and its first skin's."""
+    vs, box = standing_vertices(data)
+    return vs, skin_triangles(skin), box

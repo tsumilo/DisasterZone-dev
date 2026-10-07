@@ -1633,7 +1633,20 @@ end
 -- before the stand-ins write theirs; off only to test), budget (stand-ins shown at most).
 -- gaps: the box mode's copies kept for the room triangles no stand-in covers (thin walls, pillars, railings, small
 -- steps: Render3D/Standins/Gaps.lua); off only to compare.
-M3.standins = { on = false, debug = false, all = false, flag = true, budget = 800, gaps = true }
+-- on: "auto" (each room's measured best mode, ns.RoomDepthModes: dev/tools/occlusion_check.py; box mode where none
+-- is known), true (stand-ins wherever a room has them) or false (box mode everywhere).
+M3.standins = { on = "auto", debug = false, all = false, flag = true, budget = 800, gaps = true }
+
+-- The depth mode a room uses now: "box", "standins" or "gaps".
+function M3.DepthMode(key)
+    local cfg = M3.standins
+    if cfg.on == "auto" then
+        local m = ns.RoomDepthModes and ns.RoomDepthModes[key]
+        return (m == "standins" or m == "gaps") and m or "box"
+    end
+    if not cfg.on then return "box" end
+    return cfg.gaps and "gaps" or "standins"
+end
 
 -- A room's gaps (ns.RoomStandinGaps, gen_standin_gaps.py) as a set of 1-based triangles, or nil (none, or made for
 -- another build of the room). Cached per room.
@@ -1666,8 +1679,8 @@ function M3:StandinsSlash(arg)
     end
     local what, val = strsplit(" ", strtrim(arg or ""), 2)
     what, val = (what or ""):lower(), (val or ""):lower()
-    if what == "on" or what == "off" then
-        cfg.on = what == "on"
+    if what == "on" or what == "off" or what == "auto" then
+        if what == "auto" then cfg.on = "auto" else cfg.on = what == "on" end
     elseif what == "debug" and (val == "" or val == "on" or val == "off" or val == "all") then
         if val == "" then cfg.debug = not cfg.debug else cfg.debug = val ~= "off" end
         cfg.all = cfg.debug and val == "all"
@@ -1678,7 +1691,7 @@ function M3:StandinsSlash(arg)
     elseif what == "budget" and tonumber(val) then
         cfg.budget = max(0, min(S.MAX_BUDGET or 4000, floor(tonumber(val))))
     elseif what ~= "" then
-        ns:Print("/dz 3d standins on | off | debug [on | off | all] | flag on | off | gaps on | off | budget <n> - the "
+        ns:Print("/dz 3d standins auto | on | off | debug [on | off | all] | flag on | off | gaps on | off | budget <n> - the "
             .. "stand-in depth mode (cubes behind the room's surfaces hide the models per pixel; gaps: copies where "
             .. "there are none; off: the box mode).")
         return
@@ -1686,7 +1699,8 @@ function M3:StandinsSlash(arg)
     local cv = _G.DisasterZoneStrategyBoard and _G.DisasterZoneStrategyBoard.canvas
     local v = cv and cv.v3
     if v and v.on then v:Draw() end
-    ns:Print("3D stand-ins: %s%s%s, budget %d, flag %s, gaps %s.", cfg.on and "on" or "off (box mode)",
+    ns:Print("3D stand-ins: %s%s%s, budget %d, flag %s, gaps %s.",
+        cfg.on == "auto" and "auto (each room's best)" or (cfg.on and "on" or "off (box mode)"),
         cfg.debug and ", debug" or "", cfg.all and " (all)" or "", cfg.budget, cfg.flag and "on" or "off",
         cfg.gaps and "on" or "off")
     local si = v and v.on and v.standins
@@ -2029,7 +2043,8 @@ end
 -- the box mode, said once. -> the view's stand-ins in use, or nil.
 function V:SyncStandins()
     local cfg, S = M3.standins, R3().Standins
-    local key = cfg.on and S and self.on and self.room and self.room.key or nil
+    local mode = self.room and M3.DepthMode(self.room.key) or "box"
+    local key = mode ~= "box" and S and self.on and self.room and self.room.key or nil
     local ctl = self.view.standinCtl or (key and S.For(self.view)) or nil
     local use, why = nil, nil
     if key and ctl then
@@ -2042,14 +2057,14 @@ function V:SyncStandins()
     if use then
         use:Configure(cfg)
         self.standinsNoted = nil
-    elseif key and self.standinsNoted ~= key then
+    elseif key and self.standinsNoted ~= key and cfg.on == true then
         self.standinsNoted = key
         ns:Print("No 3D stand-ins for this room (%s: %s): the box mode stays.", key, why or "no scene for them")
     elseif not key then
         self.standinsNoted = nil
     end
     self.standins = use
-    local gaps = use and cfg.gaps and M3.GapSet(key) or nil
+    local gaps = use and mode == "gaps" and M3.GapSet(key) or nil
     self.standinGaps = gaps
     local R = self.R
     if R and R.opts then

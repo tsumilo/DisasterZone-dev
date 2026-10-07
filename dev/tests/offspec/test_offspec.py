@@ -232,6 +232,65 @@ def personal_alerts_for_off_spec_items():
 
 
 @R.case
+def spec_pill_swap_lists():
+    r = setup()
+    C = r["Carol"]
+    C.eval("ns.MainFrame:Open('mybis')")
+    r.w.tick(0.5)
+    C.eval("ns.BiS:SetSlot(1, 15, 'main', ...)", MINDBLADE)
+    assert C.eval("return ns.BiS:SwapLists()") is False, "no off spec yet"
+    ms = C.eval("return ns.BiS:GetSpec()")
+    other = C.eval("for _, s in ipairs(ns.SPECS[ns.BiS:GetData().cl]) do if s.label ~= ns.BiS:GetSpec() then return s.label end end")
+    assert C.eval("return ns.BiS:SetSpec(..., 'os')", other) is True
+    assert C.eval("return ns.BiS:SwapLists()") is True
+    r.w.tick(0.4)
+    assert C.eval("return ns.BiS:GetSpec()") == other
+    assert C.eval("return ns.BiS:GetSpec('os')") == ms
+    assert C.eval("return (ns.BiS:GetSlot(1, 15, 'os'))") == MINDBLADE
+    assert C.eval("return (ns.BiS:GetSlot(1, 15))") is None
+    assert C.find_text(other)
+    r.w.assert_no_errors()
+
+
+@R.case
+def spec_tabs_keep_picks_with_their_spec():
+    r = setup()
+    C = r["Carol"]
+    C.eval("ns.MainFrame:Open('mybis')")
+    r.w.tick(0.5)
+    C.eval("ns.BiS:SetSlot(1, 15, 'main', ...)", MINDBLADE)
+    specs = C.eval("local t = {} for _, s in ipairs(ns.SPECS[ns.BiS:GetData().cl]) do t[#t + 1] = s.label end "
+                   "return table.concat(t, '|')").split("|")
+    ms = C.eval("return ns.BiS:GetSpec()")
+    others = [s for s in specs if s != ms]
+    C.eval("ns.BiS:SetSpec(..., 'os')", others[0])
+    C.eval("ns.MyBiS:Refresh()")
+    n = C.eval("return #ns.MyBiS:GetSpecTabs()")
+    assert n == len(specs), (n, specs)
+    # an unused spec as the main spec relabels the picks: asks first
+    C.eval("local want = ...; for _, t in ipairs(ns.MyBiS:GetSpecTabs()) do if t.spec == want then T_SPEC_TAB = t.btn end end", others[1])
+    C.click("T_SPEC_TAB", "RightButton")
+    r.w.tick(0.1)
+    C.menu_select("Make main spec")
+    r.w.tick(0.1)
+    assert C.eval("return ns.BiS:GetSpec()") == ms, "not before the popup is accepted"
+    C.accept_popup("DISASTERZONE_RELABEL_LIST")
+    r.w.tick(0.2)
+    assert C.eval("return ns.BiS:GetSpec()") == others[1]
+    assert C.eval("return (ns.BiS:GetSlot(1, 15))") == MINDBLADE
+    # the off spec as the main spec swaps the lists, picks and all, without asking
+    C.eval("local want = ...; for _, t in ipairs(ns.MyBiS:GetSpecTabs()) do if t.spec == want then T_SPEC_TAB = t.btn end end", others[0])
+    C.click("T_SPEC_TAB", "RightButton")
+    r.w.tick(0.1)
+    C.menu_select("Make main spec (swap the lists)")
+    r.w.tick(0.2)
+    assert C.eval("return ns.BiS:GetSpec()") == others[0]
+    assert C.eval("return ns.BiS:GetSpec('os')") == others[1]
+    assert C.eval("return (ns.BiS:GetSlot(1, 15, 'os'))") == MINDBLADE
+    r.w.assert_no_errors()
+
+
+@R.case
 def my_bis_switch_picker_and_remove():
     r = setup()
     C = r["Carol"]
@@ -241,7 +300,7 @@ def my_bis_switch_picker_and_remove():
     C.eval("ns.MyBiS:SetList('os')")
     r.w.tick(0.2)
     assert C.eval("return ns.MyBiS:GetList()") == "os"
-    assert C.find_text("Off spec"), "card title"
+    assert C.find_text("Off"), "the spec pill's tag"
     # the picker opened from the off-spec view writes the off-spec list
     C.eval("ns.Picker:Open(1, 15, 'main', nil, 'os')")
     assert "Off spec" in (C.eval("return DisasterZonePicker.TitleText and DisasterZonePicker.TitleText:GetText() or ''") or "")

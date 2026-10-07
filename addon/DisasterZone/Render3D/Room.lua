@@ -2993,6 +2993,11 @@ function Room.SetOpts(t)
     dirty = true
 end
 
+-- The camera BeginFrame measured last, as the copies use it (eye ex, ey, ez; forward Fx, Fy, Fz; right Rx, Ry; up
+-- Ux, Uy, Uz; the screen map cx, cy, exx, exy, eyx, eyy; W, H): read by dev/tools/occlusion_check.py. Not to be
+-- changed.
+function Room.CameraTable() return CAMT end
+
 -- A room point (arena coordinates) on the screen with the camera BeginFrame measured last: x, y in UI units from the
 -- scene's bottom-left corner, and the depth; nil when it lies behind the camera or nothing was measured yet.
 function Room.Project(x, y, z)

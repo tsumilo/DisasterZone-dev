@@ -7,9 +7,7 @@ mode's copies for these triangles only: exact where a stand-in exists, the copie
 
 A triangle sample point is covered when some stand-in's front face (a quad's face, a cube's face along its normal)
 lies behind it within MARGIN + TOL along that normal, the point inside the face's rectangle, and the triangle is drawn
-to the same side. A triangle is a gap when more than GAP_SHARE of its area is uncovered. Every see-through triangle
-(alpha-keyed or blended: fences, gratings, foliage, banners) is a gap too: no stand-in can copy its holes, the copies
-draw its texture holes and all.
+to the same side. A triangle is a gap when more than GAP_SHARE of its area is uncovered.
 
 Writes Render3D/Standins/Gaps.lua:
   ns.RoomStandinGaps[key] = { size = <room payload size>, tris = "a-b,c,..." }   (1-based triangle numbers of the
@@ -104,8 +102,9 @@ def gaps(key):
         cov[idx[ok]] = True
     unc = np.bincount(TI, weights=Wt * ~cov, minlength=room.ntris)
     gap = tris[unc[tris] > GAP_SHARE]
-    see = np.nonzero((room.blend != "D") & (room.area > 1e-9) & (room.QO != 0))[0]
-    gap = np.union1d(gap, see)
+    # (see-through triangles stay out: copying them as well made more boss pixels wrong - Attumen 2.0% -> 5.1%,
+    # Kil'jaeden 3.8% -> 7.1% in tools/occlusion_check.py, 2026-10-07)
+    see = np.zeros(0, np.int64)
     area = room.area[tris].sum()
     garea = room.area[np.intersect1d(gap, tris)].sum()
     print("%s: %d gaps (%d see-through) of %d opaque triangles (%.0f%% of the opaque area)" % (

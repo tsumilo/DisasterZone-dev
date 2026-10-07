@@ -261,6 +261,8 @@ def board(boss=TERON, pause=True):
     bob.eval(SPY)
     bob.eval(HELPERS)
     bob.eval(BRUTE)
+    # (no measured modes: "auto" is the box mode everywhere, as these cases were written for; auto has its own case)
+    bob.eval("__OC_MODES = ns.RoomDepthModes ns.RoomDepthModes = {}")
     bob.eval("ns.StrategyBoard:NewStrategy(...)", boss)
     w.tick(0.2)
     assert bob.eval("return T3.cv():Set3D(true, false)") is True
@@ -779,7 +781,7 @@ def every_rooms_data_loads_at_login_and_is_unpacked_only_when_first_used():
     w.tick(1)
     c.eval(SELECT)
     keys = sorted(f[:-4] for f in os.listdir(G.OUT_DIR)
-                  if f.endswith(".lua") and not f.startswith(".") and f != "Gaps.lua")
+                  if f.endswith(".lua") and not f.startswith(".") and f not in ("Gaps.lua", "Modes.lua"))
     r = c.eval_py(r"""
         local S = T_SEL.S
         local LD = LibStub('LibDeflate')
@@ -1135,7 +1137,7 @@ def debug_shows_the_cubes_over_the_room_and_the_flag_is_on_in_the_depth_layer_on
     assert any("3D stand-ins: on" in s for s in said) and any("BlackTemple_Teron: 29 stand-ins" in s for s in said), said
     n0 = len(bob.chat_frame)
     bob.slash("/dz 3d standins sideways")
-    assert any("/dz 3d standins on | off" in str(x) for x in bob.chat_frame[n0:])
+    assert any("/dz 3d standins auto | on | off" in str(x) for x in bob.chat_frame[n0:])
     bob.slash("/dz 3d standins off")
     no_errors(w)
 
@@ -1205,6 +1207,34 @@ def the_room_triangles_no_stand_in_covers_keep_the_box_modes_copies():
     assert stale == {"stale": True, "real": True}, stale
     bob.slash("/dz 3d standins gaps on")
     bob.slash("/dz 3d standins off")
+    no_errors(w)
+
+
+@case
+def auto_uses_each_rooms_measured_mode_and_on_off_force_one():
+    """Render3D/Standins/Modes.lua (dev/tools/occlusion_check.py --write): "auto" (the default) gives a room the mode
+    measured best for it - stand-ins alone, stand-ins with the gap copies, or the box mode - and the box mode to a room
+    not measured; on and off force stand-ins and the box mode whatever was measured."""
+    w, bob = board(MAG)
+    assert bob.eval("return ns.StrategyMap3D.standins.on") == "auto"
+    st = lambda: bob.eval_py("""local v = T3.v() v:Draw()
+        return { si = v.standins ~= nil, gaps = v.standinGaps ~= nil, copies = v.R.opts.copies ~= false }""")
+    assert st() == {"si": False, "gaps": False, "copies": True}                  # (not measured: box)
+    for mode, want in (("standins", {"si": True, "gaps": False, "copies": False}),
+                       ("gaps", {"si": True, "gaps": True, "copies": True}),
+                       ("box", {"si": False, "gaps": False, "copies": True})):
+        bob.eval("ns.RoomDepthModes = { MagtheridonsLair_Magtheridon = ... }", mode)
+        assert st() == want, (mode, st())
+    bob.eval("ns.RoomDepthModes = { MagtheridonsLair_Magtheridon = 'standins' }")
+    assert bob.slash("/dz 3d standins off")
+    assert st()["si"] is False
+    bob.eval("ns.RoomDepthModes = { MagtheridonsLair_Magtheridon = 'box' }")
+    assert bob.slash("/dz 3d standins on")
+    assert st()["si"] is True
+    assert bob.slash("/dz 3d standins auto")
+    assert st()["si"] is False
+    # the shipped modes file loaded with the addon
+    assert bob.eval("return type(__OC_MODES) == 'table' and next(__OC_MODES) ~= nil") is True
     no_errors(w)
 
 
