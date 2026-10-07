@@ -257,6 +257,8 @@ local KNOWN_MESSAGES = {
     DUNGEON_RUN_INVITE = true, DUNGEON_RUN_INVITE_GONE = true,
     -- Atlas costs / prices, Azeromon guild data
     CURRENCY_CHANGED = true, PRICES_UPDATED = true, AZERO_GUILD_UPDATED = true,
+    -- My Log: a pull started / ended (bool); the stored pulls changed (pull id | nil)
+    MYLOG_RECORDING = true, MYLOG_CHANGED = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)

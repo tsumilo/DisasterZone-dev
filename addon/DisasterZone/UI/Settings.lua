@@ -38,6 +38,7 @@ local SECTIONS = {
     { key = "rolls", label = "Rolls" },
     { key = "strategy", label = "Strategy boards" },
     { key = "tooltips", label = "Tooltips" },
+    { key = "mylog", label = "My Log" },
     { key = "window", label = "Window" },
     { key = "council", label = "Loot Council" },
     { key = "demo", label = "Demo mode" },
@@ -276,7 +277,7 @@ function SettingsUI:OnInit()
     local function changed() SettingsUI:RequestRefresh() end
     for _, msg in ipairs({ "SETTINGS_CHANGED", "CONFIG_UPDATED", "ROSTER_UPDATED", "PEERS_UPDATED",
                            "DEMO_TOGGLED", "SYNC_STATUS", "DUNGEON_MODE_CHANGED", "GROUP_UPDATED",
-                           "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED" }) do
+                           "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED", "MYLOG_CHANGED" }) do
         ns:On(msg, changed)
     end
 end
@@ -1114,6 +1115,7 @@ function SettingsUI:CreatePanel(parent)
     self:BuildRolls(self.sections.rolls)
     self:BuildStrategy(self.sections.strategy)
     self:BuildTooltips(self.sections.tooltips)
+    self:BuildMyLog(self.sections.mylog)
     self:BuildWindow(self.sections.window)
     self:BuildCouncil(self.sections.council)
     self:BuildDemo(self.sections.demo)
@@ -1338,6 +1340,57 @@ function SettingsUI:BuildWindow(sec)
             Set("minimap.hide", not shown)
             SetMinimapShown(shown)
         end)
+    self:EndSection(sec)
+end
+
+-- My Log (Core/MyLog.lua): the opt-in switch, heroics, how long pulls are kept, and Delete (click twice).
+function SettingsUI:BuildMyLog(sec)
+    sec.y = sec.y - 4
+    self:SwitchSetting(sec, "Record my raid performance",
+        "Your own damage, healing, casts and deaths in every boss pull. Saved on this PC only, never sent.",
+        "mylog.enabled", false,
+        "Nobody else can see that you use it or read your numbers, the loot council included. Turn it off and "
+            .. "recording stops at once. /dz mylog last prints your latest pull.")
+    self:SwitchSetting(sec, "Heroic dungeons too", "Also record heroic 5-man bosses.", "mylog.heroics", false)
+    local weeks = {}
+    for _, n in ipairs({ 4, 8, 12, 26, 52 }) do weeks[#weeks + 1] = { value = n, text = n .. " weeks" } end
+    self:DropdownSetting(sec, "Keep pulls for", "Older pulls are deleted. The newest kills keep every detail.",
+        "mylog.keepWeeks", 12, weeks)
+    local row = self:Row(sec, "Stored pulls", "")
+    local armed, del
+    local function disarm()
+        armed = nil
+        del:SetText("Delete all my logs")
+    end
+    del = ns.UI:CreateButton(row, "Delete all my logs", 150, 22, function()
+        if armed then
+            disarm()
+            if ns.MyLog then ns.MyLog:DeleteAll() end
+            return
+        end
+        local token = {}
+        armed = token
+        del:SetText("Click again to delete")
+        C_Timer.After(4, function() if armed == token then disarm() end end)
+    end)
+    del:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.hasDesc = true
+    PlaceText(row, 150)
+    self.refreshers[#self.refreshers + 1] = {
+        Refresh = function()
+            local n, chars = 0, 0
+            local db = DisasterZoneLogDB
+            if type(db) == "table" and type(db.chars) == "table" then
+                for _, c in pairs(db.chars) do
+                    chars = chars + 1
+                    n = n + #(c.pulls or {})
+                end
+            end
+            row.desc:SetText(n == 0 and "None yet."
+                or string.format("%d pull%s on %d character%s.", n, n == 1 and "" or "s", chars, chars == 1 and "" or "s"))
+            del:SetEnabled(n > 0 or armed ~= nil)
+        end,
+    }
     self:EndSection(sec)
 end
 

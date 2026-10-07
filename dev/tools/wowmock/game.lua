@@ -734,18 +734,49 @@ function UnitReaction() return 5 end
 function UnitIsPVP() return false end
 function UnitIsTapDenied() return false end
 function UnitOnTaxi() return false end
-function UnitHealth(unit) local m = unit_rec(unit); if not m then return 0 end; return m.npc and (m.hp or 100) or 100 end
+function UnitHealth(unit) local m = unit_rec(unit); if not m then return 0 end; if unit == "player" and M.player_hp then return M.player_hp end; return m.npc and (m.hp or 100) or 100 end
 function UnitHealthMax(unit) return unit_rec(unit) and 100 or 0 end
-function UnitPower(unit) return unit_rec(unit) and 100 or 0 end
-function UnitPowerMax(unit) return unit_rec(unit) and 100 or 0 end
+function UnitPower(unit)
+  if unit == "player" and M.player_power then return M.player_power[1] end
+  return unit_rec(unit) and 100 or 0
+end
+function UnitPowerMax(unit)
+  if unit == "player" and M.player_power then return M.player_power[2] end
+  return unit_rec(unit) and 100 or 0
+end
 function UnitPowerType() return 0, "MANA" end
 function UnitCreatureType() return nil end
 function UnitClassification() return "normal" end
-function UnitAura() return nil end
+-- Player auras / casts / power for My Log scenarios: __MOCK.player_auras = { { name, spellId }, ... },
+-- __MOCK.casting / __MOCK.channel = { name, startMS, endMS, spellId }, __MOCK.player_power = { cur, max }
+function UnitAura(unit, i, filter)
+  local list = unit == "player" and M.player_auras
+  local a = list and list[i]
+  if not a then return nil end
+  return a[1], 136243, 0, nil, 0, 0, "player", false, false, a[2]
+end
 function UnitBuff() return nil end
 function UnitDebuff() return nil end
-function UnitCastingInfo() return nil end
-function UnitChannelInfo() return nil end
+function UnitCastingInfo(unit)
+  local c = unit == "player" and M.casting
+  if not c then return nil end
+  return c[1], "", 136243, c[2], c[3], false, 1, false, c[4]
+end
+function UnitChannelInfo(unit)
+  local c = unit == "player" and M.channel
+  if not c then return nil end
+  return c[1], "", 136243, c[2], c[3], false, false, c[4]
+end
+-- (start, duration, enabled): the global cooldown unless __MOCK.spell_cd[id] = { start, duration }
+function GetSpellCooldown(id)
+  local cd = M.spell_cd and M.spell_cd[tonumber(id) or id]
+  if cd then return cd[1], cd[2], 1 end
+  return M.now, M.gcd or 1.5, 1
+end
+function UnitAttackSpeed() return M.swing_speed or 2.6, nil end
+function UnitRangedDamage() return M.ranged_speed or 3.0, 0, 0, 0, 0, 0 end
+function UnitIsFeignDeath(unit) return unit == "player" and M.feigning == true or false end
+function GetShapeshiftFormID() return M.form end
 function UnitStat() return 0, 0, 0, 0 end
 function UnitArmor() return 0, 0, 0, 0, 0 end
 function UnitAffectingCombat(unit)

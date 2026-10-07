@@ -6,6 +6,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.3.3", date = "", title = "My Log",
+      sections = {
+          { heading = "My Log (opt-in)", lines = {
+              "New in Settings > My Log: record your own play in every raid boss pull. Off until you turn it on.",
+              "Saved on your PC only. Nothing is sent; nobody else, the loot council included, can see it.",
+              "It records damage, healing, shields, damage taken, avoidance, casts, buffs and deaths.",
+              "Death recaps keep the last 10 seconds: every hit, heal and cast, with your health after each.",
+              "Heroic dungeon bosses too if you switch that on. /dz mylog last prints your latest pull.",
+          } },
+      } },
     { version = "1.3.2", date = "7 October 2026", title = "Events, the Group Finder, gems and enchants",
       sections = {
           { heading = "A shorter header", lines = {

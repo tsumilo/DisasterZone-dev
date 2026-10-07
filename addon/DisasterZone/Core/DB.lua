@@ -46,6 +46,7 @@ local DEFAULTS = {
         },
         atlas = { show = "all" },      -- Atlas tab: Show "all" | "class" | "spec" | "os" (off spec)
         raidlog = { keepDays = 365 },  -- Addendum I §49: whole raids older than this are dropped from the raid log
+        mylog = { enabled = false, heroics = false, keepWeeks = 12 },  -- My Log (Core/MyLog.lua): opt-in, off
         strategy = {             -- Addendum K encounter helpers (Core/StrategyLive.lua)
             autoMark = true,     -- as raid leader: put the plan's raid marks on the mobs
             reminder = true,     -- near a planned boss: my jobs (and the leader's overview)
