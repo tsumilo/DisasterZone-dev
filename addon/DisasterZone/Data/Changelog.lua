@@ -6,23 +6,23 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.2", date = "6 October 2026", title = "Events you build; Dungeons in the Group Finder",
+    { version = "1.3.2", date = "7 October 2026", title = "Events, the Group Finder, gems and enchants",
       sections = {
           { heading = "A shorter header", lines = {
-              "The header has five tabs now: Home, Raids, Gear, Dungeons and Guild, the same for everyone.",
-              "Raids holds Raids and Council; Gear holds My BiS and Atlas; Guild holds Members, Events and Games.",
-              "Rest the mouse on Raids, Gear or Guild to see its pages; click it to go to the one you used last.",
+              "The header has five tabs now: Home, Raids, Gear, Dungeons and Guild, for everyone.",
+              "Raids holds Raids and Council; Gear: My BiS and Atlas; Guild: Members, Events, Games.",
+              "Hover Raids, Gear or Guild to see its pages; click it for the one you used last.",
               "Every page is the same as before, only where you find it changed.",
               "Tooltips get the flat look of the dropdowns and fade in the same way.",
-              "Smoother page switching: pages load in the background and fade in; Raids, Members and Home open faster.",
+              "Smoother page switching: pages load in the background and fade in; faster to open.",
           } },
           { heading = "Minimap button", lines = {
-              "A new look: the DisasterZone seal instead of the blue bag, also in the AddOns list and on shared links.",
+              "A new look: the DisasterZone seal instead of the blue bag, also in the AddOns list.",
               "Left-click it and your pinned sections fan out around it; click one to go straight there.",
-              "The + at the end of the arc picks your pins (up to 6); right-click a pin to move or unpin it.",
-              "Pins are shared by all your characters. Right-click the button to open the window as before.",
-              "A new DisasterZone page in Options > AddOns: open any section from it, or right-click one to pin it.",
-              "Its banner shows your next raid's painting with drifting embers, a countdown, who's online and your BiS.",
+              "The + at the end of the arc picks your pins (up to 6); right-click a pin to move it.",
+              "Pins are shared by all your characters. Right-click the button to open the window.",
+              "A new DisasterZone page in Options > AddOns: open any section, or right-click to pin it.",
+              "Its banner: your next raid's painting with embers, a countdown, who's online, your BiS.",
           } },
           { heading = "Events", lines = {
               "A new tab, Events: the guild's own events, like duel cups, races, hunts and contests.",
@@ -137,7 +137,7 @@ ns.CHANGELOG = {
               "Tabs: the gold underline grows out from the middle; pointing at a tab shows a faint one.",
           } },
           { heading = "Text fields", lines = {
-              "A name too long for its field shows its start with \"...\" once you click away, not its tail.",
+              "A name too long for its field shows its start with \"...\" after you click away.",
               "Point at a cut-off name to read it in full.",
           } },
           { heading = "Atlas: costs and your currencies", lines = {
@@ -153,7 +153,7 @@ ns.CHANGELOG = {
           { heading = "My BiS: gems and enchants", lines = {
               "Every pick shows its sockets and enchant as small icons next to where it drops.",
               "Click them to choose: each socket in its colour, the socket bonus, and the enchant.",
-              "Suggestions use the gems and enchants WoWSims uses for your spec, ranked by its stat weights.",
+              "Suggestions use WoWSims' gems and enchants for your spec, ranked by its stat weights.",
               "A unique gem goes in once; a gem only skips the socket bonus when it's worth more.",
               "Suggest > Fill empty sockets and enchants does the whole phase; what you chose stays.",
               "Search in the gem list finds any other gem.",
