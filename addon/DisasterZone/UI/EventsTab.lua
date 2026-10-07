@@ -6361,27 +6361,9 @@ local VIEW_LABEL = { upcoming = "Upcoming", library = "Library", season = "Seaso
 local MAKE = { upcoming = Up.Create, library = Lib.Create, season = Sea.Create, review = Rv.Create, event = Pg.Create }
 local FILL = { upcoming = Up.Fill, library = Lib.Fill, season = Sea.Fill, review = Rv.Fill }
 
--- The Review tab's count of events waiting: an orange bubble inside the tab, after its word.
+-- The Review tab's count of events waiting: a small raised pill after its word (UI:SetTabCount).
 local function ReviewCount(t, n)
-    local fs = t:GetFontString()
-    if n > 0 then
-        t.cnt.fs:SetText(n)
-        local cw = max(15, ceil(SW(t.cnt.fs) + 9))
-        t.cnt:SetWidth(cw)
-        fs:ClearAllPoints()
-        fs:SetPoint("LEFT", 8, 1)
-        t.cnt:ClearAllPoints()
-        t.cnt:SetPoint("LEFT", fs, "RIGHT", 6, -1)
-        t.cnt:Show()
-        t:SetWidth(ceil(8 + SW(fs) + 6 + cw + 8))
-    else
-        fs:ClearAllPoints()
-        fs:SetPoint("CENTER", 0, 1)
-        t.cnt:Hide()
-        t:SetWidth(ceil(SW(fs) + 16))
-    end
-    -- (the underline follows the new width)
-    if t.cdlLook and t.cdlLook.painted and t.cdlLook.apply then t.cdlLook.apply(t, t.cdlLook.cur) end
+    UI():SetTabCount(t, n)
 end
 
 function EventsUI:CreatePanel(parent)
@@ -6398,15 +6380,7 @@ function EventsUI:CreatePanel(parent)
         prev = t
     end
     local rt = p.tabs.review
-    rt.cnt = CreateFrame("Frame", nil, rt)
-    rt.cnt:SetSize(15, 15)
-    UI():AddPillShape(rt.cnt, 15)
-    rt.cnt:SetPillColors({ 1, 0.55, 0.1, 1 }, { 1, 0.62, 0.2, 1 })
-    rt.cnt.fs = Text(rt.cnt, 11, { 0.16, 0.11, 0 }, true)
-    rt.cnt.fs:SetShadowColor(0, 0, 0, 0)
-    rt.cnt.fs:SetJustifyH("CENTER")
-    rt.cnt.fs:SetPoint("CENTER", 0, 0)
-    rt.cnt:Hide()
+    UI():SetTabCount(rt, 0)
     rt:HookScript("OnEnter", function(self)
         local n = #Ev():GetReviewQueue()
         Tip(self, { "Review", n > 0 and (n .. (n == 1 and " event waits" or " events wait") .. " for a decision: ranked "

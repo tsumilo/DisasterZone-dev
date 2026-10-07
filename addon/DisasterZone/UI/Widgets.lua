@@ -1481,6 +1481,48 @@ function UI:CreateUnderlineTab(parent, text, onClick, size)
     return b
 end
 
+-- A count on an underline tab (things waiting there): a small raised pill after the label, tinted like the nav
+-- strip's badges (dark fill, coloured edge and number); the underline stays under the label. n <= 0 or nil hides it.
+-- The pill is tab.cnt (tab.cnt.fs its number); the tab grows by its width and the label moves left to stay centred.
+local COUNT_H, COUNT_FONT, COUNT_GAP = 12, 8, 3
+function UI:SetTabCount(tab, n, color)
+    local c = color or { 1, 0.66, 0.24 }
+    local p = tab.cnt
+    if not p then
+        p = CreateFrame("Frame", nil, tab)
+        p:SetHeight(COUNT_H)
+        UI:AddPillShape(p, COUNT_H)
+        p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local path, _, flags = p.fs:GetFont()
+        p.fs:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", COUNT_FONT, flags or "")
+        p.fs:SetPoint("CENTER", 0.5, 0)
+        tab.cnt = p
+    end
+    local base = { 0.10, 0.10, 0.12 }
+    p:SetPillColors({ base[1] + (c[1] - base[1]) * 0.18, base[2] + (c[2] - base[2]) * 0.18,
+        base[3] + (c[3] - base[3]) * 0.18, 1 }, { c[1], c[2], c[3], 0.55 })
+    p.fs:SetTextColor(c[1], c[2], c[3])
+    local label = tab:GetFontString()
+    local extra = 0
+    if n and n > 0 then
+        p.fs:SetText(n > 99 and "99+" or tostring(n))
+        local w = math.max(COUNT_H, floor((p.fs:GetStringWidth() or 6) + 7 + 0.5))
+        p:SetWidth(w)
+        p:ClearAllPoints()
+        p:SetPoint("BOTTOMLEFT", label, "RIGHT", COUNT_GAP, -1)     -- (its middle near the letters' tops)
+        p:Show()
+        extra = w + COUNT_GAP
+    else
+        p:Hide()
+    end
+    tab.cdlExtraW = extra
+    label:ClearAllPoints()
+    label:SetPoint("CENTER", -extra / 2, 1)
+    tab.line:ClearAllPoints()
+    tab.line:SetPoint("BOTTOM", -extra / 2, 0)
+    tab:SetLabel(tab:GetText())                                     -- (width + underline follow)
+end
+
 -- A small status pill ("ENGAGED", "BIS LOCKED"): pill:Set(text, { r, g, b }).
 function UI:CreatePill(parent)
     local p = CreateFrame("Frame", nil, parent)
