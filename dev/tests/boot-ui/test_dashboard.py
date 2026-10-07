@@ -575,6 +575,39 @@ def a_crowded_day_ends_with_how_many_more():
 
 
 @case
+def nav_groups_pages_under_five_tabs():
+    w, c = solo("Rai", guild_rank=3, tick=3, council=["Bob"], members=[("Bob", "MAGE", 3)])
+    c.slash("/dz")
+    w.tick(0.5)
+    strip = c.eval_py("local o = {} for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t:IsShown() then "
+                      "o[#o + 1] = t.cdlKey end end return o")
+    assert strip == ["home", "grp:raids", "grp:gear", "dungeons", "grp:guild", "changelog", "settings"], strip
+    tab = "for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == ... then return t end end"
+    # a group's tab shows its first page and opens the menu of its pages
+    c.click(c.eval(tab, "grp:gear"))
+    w.tick(0.3)
+    assert selected(c) == "mybis", selected(c)
+    items = c.eval_py("local m = ns.UI:GetOpenMenu() local o = {} if m then for _, d in ipairs(m.root.children) do "
+                      "o[#o + 1] = d.text end end return o")
+    assert items == ["My BiS", "Atlas"], items
+    c.eval("ns.UI:CloseMenus()")
+    # it remembers the page used last in it
+    c.eval("ns.MainFrame:Open('atlas')")
+    c.click(c.eval(tab, "home"))
+    c.click(c.eval(tab, "grp:gear"))
+    w.tick(0.3)
+    assert selected(c) == "atlas", selected(c)
+    assert c.eval("for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == 'grp:gear' then "
+                  "return t.active end end") is True
+    c.eval("ns.UI:CloseMenus()")
+    # a page opened by key lights its group's tab
+    c.eval("ns.MainFrame:Open('games')")
+    assert c.eval("for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == 'grp:guild' then "
+                  "return t.active end end") is True
+    no_errors(w)
+
+
+@case
 def ticker_and_demo_mode_run_clean():
     w, c = solo("Rai", guild_rank=3, tick=3)
     c.slash("/dz demo on")

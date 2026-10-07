@@ -778,7 +778,8 @@ def every_rooms_data_loads_at_login_and_is_unpacked_only_when_first_used():
     c.load_addon()
     w.tick(1)
     c.eval(SELECT)
-    keys = sorted(f[:-4] for f in os.listdir(G.OUT_DIR) if f.endswith(".lua") and not f.startswith("."))
+    keys = sorted(f[:-4] for f in os.listdir(G.OUT_DIR)
+                  if f.endswith(".lua") and not f.startswith(".") and f != "Gaps.lua")
     r = c.eval_py(r"""
         local S = T_SEL.S
         local LD = LibStub('LibDeflate')
@@ -871,6 +872,8 @@ def on_the_board_the_mode_turns_on_and_off_and_the_box_mode_stays_as_it_was():
         local dx, dy, dz = T[1] - E[1], T[2] - E[2], T[3] - E[3]
         return { far = far, B = 3 * math.sqrt(dx * dx + dy * dy + dz * dz) }""")
     assert far["B"] > far["far"] + 5, far
+    # (gaps off: the made-up stand-ins aren't the shipped room's; the gap copies have a case of their own)
+    assert bob.slash("/dz 3d standins gaps off")
     assert bob.slash("/dz 3d standins on")
     tick(w, 0.2)
     st = bob.eval_py("return T3.v().standins:Stats()")
@@ -1143,6 +1146,7 @@ def walking_you_stay_in_the_second_scene_and_the_stand_ins_before_you_are_shown(
     bob.eval("T3.v():StartWalk()")
     tick(w, 0.5)
     g = bob.eval_py("return T3.groups(6)")
+    assert bob.slash("/dz 3d standins gaps off")
     assert bob.slash("/dz 3d standins on")
     tick(w, 0.2)
     r = bob.eval_py("""
@@ -1155,6 +1159,51 @@ def walking_you_stay_in_the_second_scene_and_the_stand_ins_before_you_are_shown(
     shown = set(bob.eval_py("return T3.shown()"))
     assert set(g["A"]) <= shown and not shown & set(g["C"] + g["D"] + g["E"] + g["F"]), (shown, g)
     bob.eval("T3.v():StopWalk()")
+    bob.slash("/dz 3d standins off")
+    bob.slash("/dz 3d standins gaps on")
+    no_errors(w)
+
+
+@case
+def the_room_triangles_no_stand_in_covers_keep_the_box_modes_copies():
+    """Render3D/Standins/Gaps.lua (gen_standin_gaps.py): with stand-ins on, the occluders and copies stay for the
+    room triangles no stand-in covers - Room.opts.copyOnly is the room's gap set and Room.copySkip leaves out exactly
+    the prims holding none of them; gaps off: no copies at all (stand-ins alone); gap data made for another build of
+    the room is ignored."""
+    w, bob = board(MAG)
+    assert bob.slash("/dz 3d standins on")
+    tick(w, 0.3)
+    r = bob.eval_py("""
+        local v = T3.v() local R = v.R
+        local set = v.standinGaps
+        local nGap, nSkip, nPrims, wrong = 0, 0, 0, 0
+        for _ in pairs(set or {}) do nGap = nGap + 1 end
+        local QT, skip = R.QT, R.copySkip or {}
+        for p, t in ipairs(QT) do
+          nPrims = nPrims + 1
+          local j = math.floor(t / 1048576)
+          local hit = set[t - j * 1048576] or (j > 0 and set[j]) or false
+          if (skip[p] == true) == hit then wrong = wrong + 1 end
+          if skip[p] then nSkip = nSkip + 1 end
+        end
+        return { si = v.standins ~= nil, gaps = set ~= nil, opt = v.R.opts.copies ~= false,
+                 only = v.R.opts.copyOnly == set, nGap = nGap, nSkip = nSkip, nPrims = nPrims, wrong = wrong,
+                 nOcc = v.nOcc }""")
+    assert r["si"] and r["gaps"] and r["opt"] and r["only"], r
+    assert r["nGap"] > 0 and 0 < r["nSkip"] < r["nPrims"] and r["wrong"] == 0 and r["nOcc"] > 0, r
+    assert bob.slash("/dz 3d standins gaps off")
+    off = bob.eval_py("""local v = T3.v() return { opt = v.R.opts.copies ~= false, only = v.R.opts.copyOnly == nil,
+        skip = v.R.copySkip == nil, copies = v.R.Stats().copies }""")
+    assert off == {"opt": False, "only": True, "skip": True, "copies": 0}, off
+    # stale gap data (another room build): no gap set, stand-ins alone
+    stale = bob.eval_py("""
+        local M3 = ns.StrategyMap3D
+        local g = ns.RoomStandinGaps.MagtheridonsLair_Magtheridon
+        ns.RoomStandinGaps.T_STALE = { size = g.size + 1, tris = g.tris }
+        ns.RoomFloors.T_STALE = { size = g.size }
+        return { stale = M3.GapSet('T_STALE') == nil, real = M3.GapSet('MagtheridonsLair_Magtheridon') ~= nil }""")
+    assert stale == {"stale": True, "real": True}, stale
+    bob.slash("/dz 3d standins gaps on")
     bob.slash("/dz 3d standins off")
     no_errors(w)
 

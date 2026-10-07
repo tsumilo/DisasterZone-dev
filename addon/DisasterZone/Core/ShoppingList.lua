@@ -6,7 +6,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/ShoppingList.lua", ...) then 
 -- picked up and none of my characters can make. The materials add up with what my bags and bank hold; with
 -- Auctionator installed, what the missing ones cost.
 -- An entry: { id = an item a craft makes, or -spellID of a craft that makes none (an enchant), n = how many, d = how
--- many steps its materials are broken down }. Saved in db.shopping[charKey] (created on the first add).
+-- many steps its materials are broken down, x = true: its materials are left out of the list's / false: a bind on
+-- pickup craft's are counted anyway (nil: the default, counted unless bind on pickup) }. Saved in db.shopping[charKey] (created on the first add).
 local addonName, ns = ...
 
 local Shop = ns:NewModule("Shop")
@@ -77,7 +78,11 @@ end
 function Shop:GetEntries()
     local out = {}
     for _, e in ipairs(List() or {}) do
-        if Valid(e) then out[#out + 1] = { id = e.id, n = Amount(e.n), d = Depth(e.d) } end
+        if Valid(e) then
+            local x = e.x   -- (only true / false mean something; "and e.x or nil" would turn false into nil)
+            if type(x) ~= "boolean" then x = nil end
+            out[#out + 1] = { id = e.id, n = Amount(e.n), d = Depth(e.d), x = x }
+        end
     end
     return out
 end
@@ -145,6 +150,22 @@ function Shop:SetDepth(id, depth)
     local e = Find(tonumber(id))
     if not e then return false end
     e.d = Depth(depth)
+    Changed()
+    return true
+end
+
+-- Do an entry's materials count (bop: it is in the bind on pickup group)? By default all but bind on pickup crafts.
+function Shop:IsCounted(e, bop)
+    if e.x ~= nil then return not e.x end
+    return not bop
+end
+
+-- Counts an entry's materials or leaves them out (only what differs from the default is saved).
+function Shop:SetCounted(id, on, bop)
+    local e = Find(tonumber(id))
+    if not e then return false end
+    on = on and true or false
+    if on == (not bop) then e.x = nil else e.x = not on end
     Changed()
     return true
 end
@@ -398,12 +419,12 @@ function Shop:GetCost(rows)
     return total, unpriced
 end
 
--- The entries of my list whose materials count: all but the crafts nobody can make for me (bind on pickup).
+-- The entries of my list whose materials count (Shop:IsCounted): of all groups, or of the given ones.
 function Shop:GetMaterialEntries(groups)
     local out = {}
     for _, g in ipairs(groups or self:GetGroups()) do
-        if g.kind ~= "bop" then
-            for _, e in ipairs(g.entries) do out[#out + 1] = e end
+        for _, e in ipairs(g.entries) do
+            if self:IsCounted(e, g.kind == "bop") then out[#out + 1] = e end
         end
     end
     return out

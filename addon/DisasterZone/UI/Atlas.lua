@@ -29,7 +29,7 @@ local TOP_Y, CTRL_H = 8, 22                       -- the search / filter row
 local COLS_Y = TOP_Y + CTRL_H + GAP               -- where the three columns start
 local LEFT_W, MID_W = 180, 182
 local RIGHT_W = 790 - 2 * PAD - LEFT_W - MID_W - 2 * GAP   -- 392: sizes before the first layout (fixed window)
-local BAR_H = 26                                  -- the currency bar along the bottom
+local BAR_H = 30                                  -- the currency bar along the bottom
 local BODY_H = 548 - COLS_Y - PAD - BAR_H - GAP   -- 466
 local SLOT_W = 148                                -- the slot filter; Show takes the rest of the item column
 local BANNER_H, ART_FW = 72, 0.5                  -- the source's banner; the share of the loading screen it shows
@@ -274,7 +274,8 @@ end
 -- Costs and the currency bar
 ---------------------------------------------------------------------------
 
-local CHIP_ICON, CHIP_GAP, MAX_CONTEXT = 14, 2, 4
+local CHIP_ICON, CHIP_GAP, MAX_CONTEXT = 16, 1, 4
+local CHIP_FONT = 12
 local RED_HEX, GREEN_HEX, YELLOW_HEX = "|cffff5a4f", "|cff4fd36b", "|cffffd100"
 local barKeys = {}       -- the bar's currencies after the pinned ones: what the list shown pays with
 local hoverRow           -- the item row whose cost the bar shows
@@ -334,24 +335,40 @@ end
 local function CreateChip(parent)
     local chip = CreateFrame("Button", nil, parent)
     chip:SetHeight(BAR_H - 6)
+    -- a cost lights the chip: a faint wash fading up and an underline in its colour
     chip.bg = chip:CreateTexture(nil, "BACKGROUND")
     chip.bg:SetAllPoints()
     chip.bg:SetColorTexture(1, 1, 1, 0)
+    chip.line = chip:CreateTexture(nil, "BORDER")
+    chip.line:SetPoint("BOTTOMLEFT", chip, "BOTTOMLEFT", 6, 0)
+    chip.line:SetPoint("BOTTOMRIGHT", chip, "BOTTOMRIGHT", -6, 0)
+    chip.line:SetHeight(2)
+    chip.line:Hide()
     local hl = chip:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.05)
+    Gradient(hl, 1, 1, 1, 0.06, 0)
+    -- the icon in a thin dark frame, like an item slot
+    chip.frame = chip:CreateTexture(nil, "BORDER")
+    chip.frame:SetSize(CHIP_ICON + 2, CHIP_ICON + 2)
+    chip.frame:SetPoint("LEFT", chip, "LEFT", 7, 0)
+    chip.frame:SetColorTexture(0, 0, 0, 0.7)
     chip.icon = chip:CreateTexture(nil, "ARTWORK")
     chip.icon:SetSize(CHIP_ICON, CHIP_ICON)
-    chip.icon:SetPoint("LEFT", chip, "LEFT", 6, 0)
-    chip.amount = NewText(chip, "GameFontHighlightSmall", 11)
-    chip.amount:SetPoint("LEFT", chip.icon, "RIGHT", 5, 0)
+    chip.icon:SetPoint("CENTER", chip.frame, "CENTER", 0, 0)
+    chip.amount = NewText(chip, "GameFontHighlightSmall", CHIP_FONT)
+    chip.amount:SetTextColor(0.93, 0.9, 0.82)
+    chip.amount:SetPoint("LEFT", chip.frame, "RIGHT", 6, 0)
+    -- a faint rule on the chip's right: the gap to the next one
+    chip.sep = chip:CreateTexture(nil, "ARTWORK")
+    chip.sep:SetSize(1, BAR_H - 14)
+    chip.sep:SetPoint("LEFT", chip, "RIGHT", 0, 0)
+    chip.sep:SetColorTexture(1, 1, 1, 0.07)
     chip:SetScript("OnEnter", ChipTooltip)
     chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return chip
 end
 
--- Lights the chips of a cost (red: I lack some, green: enough) and says on the bar's right what buying it leaves or
--- needs; nil clears it.
+-- Lights the chips of a cost (red: I lack some, green: enough); nil clears it. The tooltip says the amounts.
 local function BarShowCost(d)
     if not curBar then return end
     local C = Cur()
@@ -364,38 +381,15 @@ local function BarShowCost(d)
         chip.state = c and (c.short > 0 and "short" or "ok") or nil
         if not c then
             chip.bg:SetColorTexture(1, 1, 1, 0)
-        elseif c.short > 0 then
-            chip.bg:SetColorTexture(1, 0.35, 0.3, 0.18)
+            chip.line:Hide()
         else
-            chip.bg:SetColorTexture(0.3, 0.85, 0.4, 0.14)
+            local r, g, b = 0.3, 0.85, 0.4
+            if c.short > 0 then r, g, b = 1, 0.35, 0.3 end
+            Gradient(chip.bg, r, g, b, 0.16, 0)
+            chip.line:SetColorTexture(r, g, b, 0.85)
+            chip.line:Show()
         end
     end
-    local text = ""
-    if checks then
-        local short, left, bank = {}, {}, {}
-        for _, c in ipairs(checks) do
-            local amt = function(n) return C:AmountText(c.key, n, 12) .. (c.key == C.MONEY and "" or (" " .. C:IconMarkup(c.key, 12))) end
-            if c.short > 0 then
-                short[#short + 1] = amt(c.short)
-            else
-                left[#left + 1] = amt(c.have - c.n)
-                local _, bags = C:Have(c.key)
-                if bags < c.n then bank[#bank + 1] = amt(c.n - bags) end
-            end
-        end
-        if #short > 0 then
-            text = RED_HEX .. "Need|r " .. table.concat(short, "  ") .. RED_HEX .. " more|r"
-        elseif #bank > 0 then
-            text = GREEN_HEX .. "Affordable|r" .. DOT .. "take " .. table.concat(bank, "  ") .. " from your bank"
-        else
-            text = GREEN_HEX .. "Affordable|r" .. DOT .. table.concat(left, "  ") .. " left"
-        end
-        -- too long beside the chips: the verdict alone
-        if CodedWidth(text, "GameFontHighlightSmall", 11) > curBar.room then
-            text = #short > 0 and (RED_HEX .. "Not enough|r") or (GREEN_HEX .. "Affordable|r")
-        end
-    end
-    curBar.note:SetText(text)
 end
 
 -- The bar: Honor, Arena Points and Badges always, a rule, then what the list shown pays with (most used first).
@@ -408,7 +402,7 @@ local function LayoutBar()
     for _, k in ipairs(C.PINNED) do keys[#keys + 1] = k end
     local pinned = #keys
     for _, k in ipairs(barKeys) do keys[#keys + 1] = k end
-    local x = 4
+    local x = 2
     curBar.rule:Hide()
     for i, key in ipairs(keys) do
         local chip = curBar.chips[i] or CreateChip(curBar)
@@ -419,11 +413,12 @@ local function LayoutBar()
         -- money says itself with its coins: no icon in front
         local money = key == C.MONEY
         chip.icon:SetShown(not money)
+        chip.frame:SetShown(not money)
         chip.amount:ClearAllPoints()
         if money then
-            chip.amount:SetPoint("LEFT", chip, "LEFT", 6, 0)
+            chip.amount:SetPoint("LEFT", chip, "LEFT", 8, 0)
         else
-            chip.amount:SetPoint("LEFT", chip.icon, "RIGHT", 5, 0)
+            chip.amount:SetPoint("LEFT", chip.frame, "RIGHT", 6, 0)
         end
         if l then
             chip.icon:SetTexCoord(l, r, t, b)
@@ -433,15 +428,17 @@ local function LayoutBar()
             chip.icon:SetTexCoord(0, 1, 0, 1)
         end
         local have = C:Have(key)
-        local text = C:AmountText(key, have, 11)
+        local text = C:AmountText(key, have, CHIP_FONT)
         chip.amount:SetText(text)
         if i == pinned + 1 then
             curBar.rule:ClearAllPoints()
-            curBar.rule:SetPoint("LEFT", curBar, "LEFT", x + 3, 0)
+            curBar.rule:SetPoint("LEFT", curBar, "LEFT", x + 4, 0)
             curBar.rule:Show()
-            x = x + 8
+            x = x + 10
         end
-        local w = 6 + (money and 0 or (CHIP_ICON + 5)) + ceil(CodedWidth(text, "GameFontHighlightSmall", 11)) + 8
+        -- the rule between pinned and context currencies stands in for the chip's own
+        chip.sep:SetShown(i ~= pinned and i ~= #keys)
+        local w = (money and 8 or (7 + CHIP_ICON + 2 + 6)) + ceil(CodedWidth(text, "GameFontHighlightSmall", CHIP_FONT)) + 12
         chip:ClearAllPoints()
         chip:SetPoint("LEFT", curBar, "LEFT", x, 0)
         chip:SetWidth(w)
@@ -449,9 +446,6 @@ local function LayoutBar()
         x = x + w + CHIP_GAP
     end
     for i = #keys + 1, #curBar.chips do curBar.chips[i]:Hide() end
-    local width = curBar:GetWidth()
-    curBar.room = max(0, ((width and width > 0) and width or (790 - 2 * PAD)) - x - 2 * IN)
-    curBar.note:SetWidth(max(curBar.room, 1))
     BarShowCost(hoverRow and hoverRow:IsShown() and hoverRow.__cdlData or nil)
 end
 
@@ -526,22 +520,29 @@ local function SetTotals(rows)
 end
 
 local function CreateCurrencyBar(parent)
-    local UI = ns.UI
     local bar = CreateFrame("Frame", nil, parent)
     bar:SetHeight(BAR_H)
+    -- no box: a dark shade fading up into the panel under one hairline, gold in the middle and gone at the ends
     bar.bg = bar:CreateTexture(nil, "BACKGROUND")
     bar.bg:SetAllPoints()
-    bar.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
-    UI:AddEdges(bar, "BORDER")
-    UI:SetEdgeColor(bar, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
+    Gradient(bar.bg, CARD_BG[1] * 0.6, CARD_BG[2] * 0.6, CARD_BG[3] * 0.6, 0.85, 0.35)
+    local function hairline(l, r, a0, a1)
+        local t = bar:CreateTexture(nil, "BORDER")
+        t:SetHeight(1)
+        t:SetPoint("TOPLEFT", bar, l, 0, 0)
+        t:SetPoint("TOPRIGHT", bar, r, 0, 0)
+        t:SetColorTexture(1, 0.82, 0.35, (a0 + a1) / 2)
+        if t.SetGradient and CreateColor then
+            t:SetColorTexture(1, 1, 1, 1)
+            t:SetGradient("HORIZONTAL", CreateColor(1, 0.82, 0.35, a0), CreateColor(1, 0.82, 0.35, a1))
+        end
+    end
+    hairline("TOPLEFT", "TOP", 0, 0.35)
+    hairline("TOP", "TOPRIGHT", 0.35, 0)
     bar.rule = bar:CreateTexture(nil, "ARTWORK")
-    bar.rule:SetSize(1, BAR_H - 12)
-    bar.rule:SetColorTexture(1, 1, 1, 0.14)
-    bar.note = NewText(bar, "GameFontHighlightSmall", 11)
-    bar.note:SetJustifyH("RIGHT")
-    bar.note:SetPoint("RIGHT", bar, "RIGHT", -IN, 0)
+    bar.rule:SetSize(1, BAR_H - 10)
+    bar.rule:SetColorTexture(1, 0.82, 0.35, 0.3)
     bar.chips = {}
-    bar.room = 0
     return bar
 end
 

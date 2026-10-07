@@ -27,7 +27,7 @@ LUA = r"""
 function T_atlas() return ns.MainFrame:GetPanel("atlas") end
 function T_bar()
   local bar = T_atlas().currencyBar
-  local out = { note = bar.note:GetText() or "", chips = {}, rule = bar.rule:IsShown() and 1 or 0 }
+  local out = { chips = {}, rule = bar.rule:IsShown() and 1 or 0 }
   for _, ch in ipairs(bar.chips) do
     if ch:IsShown() then out.chips[#out.chips + 1] = { ch.key, ch.amount:GetText() or "", ch.state or "" } end
   end
@@ -90,7 +90,7 @@ def setup(**kw):
 
 def bar(c):
     b = c.eval_py("return T_bar()")
-    return {"note": strip_codes(b["note"]), "raw_note": b["note"], "rule": b["rule"],
+    return {"rule": b["rule"],
             "chips": [(ch[0], strip_codes(ch[1]), ch[2]) for ch in (b["chips"] or [])]}
 
 
@@ -182,16 +182,14 @@ def hovering_a_row_lights_its_currencies():
     c.hover(row)
     b = bar(c)
     assert ("c1901", str(amount - 25), "short") in b["chips"], b["chips"]
-    assert b["note"].startswith("Need 25") and b["note"].endswith("more"), b["note"]
     c.leave(row)
     b = bar(c)
-    assert all(s == "" for _, _, s in b["chips"]) and b["note"] == "", b
+    assert all(s == "" for _, _, s in b["chips"]), b
     c.eval("__MOCK.set_currency(1901, ...)", amount + 300)
     w.tick(0.6)
     c.hover(c.eval("return T_row(...)", iid))
     b = bar(c)
     assert ("c1901", str(amount + 300), "ok") in b["chips"], b["chips"]
-    assert b["note"].startswith("Affordable") and "300" in b["note"] and b["note"].endswith("left"), b["note"]
     no_errors(w)
 
 
@@ -208,7 +206,6 @@ def badges_in_the_bank_count_and_say_so():
     c.hover(c.eval("return T_row(...)", iid))
     lines = [(strip_codes(l), strip_codes(r)) for l, r in tt_lines(c)]
     assert any(r == "Some is in your bank" for _, r in lines), lines
-    assert "from your bank" in bar(c)["note"], bar(c)
     no_errors(w)
 
 

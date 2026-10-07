@@ -58,7 +58,7 @@ def tabs(cl):
       local out = {}
       local f = DisasterZoneMainFrame
       if not f or not f.Tabs then return out end
-      for _, t in ipairs(f.Tabs) do if t:IsShown() then out[#out + 1] = t.cdlKey end end
+      for _, k in ipairs(ns.MainFrame:GetShownPages()) do out[#out + 1] = k end
       return out""") or []
     cl.slash("/dz")
     return out

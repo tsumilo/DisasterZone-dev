@@ -149,11 +149,14 @@ EDGE_INSET = 0.01         # stand-ins keep this far inside the region's outline 
 GRID = 0.05               # the placement grid in the region's plane (coarser for very large regions)
 MAX_CELLS = 6_000_000     # cells per region grid at most
 MIN_SIZE = 0.7            # the smallest cube (proven in game at 0.7 yd and up: v1)
+FILL_MIN = 0.2            # the smallest cube of the fill pass (actor scale 0.2: far over MIN_SCALE): pillars, blocks,
+                          # beams and steps too thin for MIN_SIZE get cubes inside them (place_region)
+FILL_SHARE = 0.5          # a region still uncovered by more than this share after the normal placement is filled
 MAX_SIZE = 2.3            # the largest cube: cubes only fill what the quads leave, near edges and in corners
 SIZE_STEP = 0.8           # the size ladders: each step this much smaller
 MIN_GAIN = 0.6            # a stand-in must cover at least this share of new (uncovered) area
 PICKS = 20000             # candidates looked at per round of the greedy placement
-LEVELS = (0.3, 0.45, 0.7, 1.0, 1.5, 2.3)   # cube sizes the exposure probes are laid out for (behind the front)
+LEVELS = (0.2, 0.3, 0.45, 0.7, 1.0, 1.5, 2.3)   # cube sizes the exposure probes are laid out for (behind the front)
 PROBE_STEP = 0.2          # yd between exposure probe columns
 TOL_PX = 1.5              # px (the check's screen): a sliver of a stand-in seen past the room thinner than this
                           # is what the check's 1-pixel erosion forgives
@@ -734,7 +737,7 @@ def prepare_region(room, g, max_size=MAX_SIZE):
     if poly.is_empty:
         return False
     inner = poly.buffer(-EDGE_INSET, join_style=2)
-    smallest = min(QUAD_W * QUAD_H * MIN_SCALE ** 2, MIN_SIZE ** 2)
+    smallest = min(QUAD_W * QUAD_H * MIN_SCALE ** 2, FILL_MIN ** 2)
     if inner.is_empty or inner.area < smallest:
         return False
     shapely.prepare(inner)
@@ -1076,13 +1079,16 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None
                                try_at)
             out += got
             rejected += rej
-    if cubes:
-        for s in size_ladder(g.cap, MIN_SIZE):
+    # cubes: the ladder down to MIN_SIZE; then, where the region is still mostly uncovered (a pillar's side, a block,
+    # a beam: too thin for those), the fill ladder below it down to FILL_MIN - cubes inside the solid
+    def place_cubes(ladder, smallest):
+        nonlocal out, rejected
+        for s in ladder:
             k = int(math.floor(s / r + 1e-9))
             if k < 1 or k > min(cell_in.shape):
                 continue
             s_eff = k * r
-            if s_eff < MIN_SIZE - 1e-9:
+            if s_eff < smallest - 1e-9:
                 continue
             fit = box_sums(inside_sum, k) >= k * k - 0.5
             if not fit.any() or not _gains(covered, fit, k, k):
@@ -1101,14 +1107,17 @@ def place_region(room, g, ri, index, pr=None, stats=None, cubes=True, avoid=None
                 c = make_cube(g, u0, v0, s_eff)
                 # as v1: inside the outline exactly; every other face BACK_GAP away (in front: half that, the
                 # cube's front is MARGIN back); the region's own faces clear of the cube itself
-                ok = inner.contains(sbox(u0, v0, u0 + s_eff, v0 + s_eff)) and \
-                    index.box_clear(c.centre, fr.R, np.array([s_eff / 2 + BACK_GAP] * 2 + [s_eff / 2 + BACK_GAP / 2]),
-                                    skip=g.tris) and \
-                    index.box_clear(c.centre, fr.R, np.array([s_eff / 2 + BACK_GAP] * 2 + [s_eff / 2]))
+                ok = inner.contains(sbox(u0, v0, u0 + s_eff, v0 + s_eff)) and                     index.box_clear(c.centre, fr.R, np.array([s_eff / 2 + BACK_GAP] * 2 + [s_eff / 2 + BACK_GAP / 2]),
+                                    skip=g.tris) and                     index.box_clear(c.centre, fr.R, np.array([s_eff / 2 + BACK_GAP] * 2 + [s_eff / 2]))
                 return c if ok else None
             got, rej = _greedy(covered, fit, k, k, k, k, try_cube)
             out += got
             rejected += rej
+
+    if cubes:
+        place_cubes(size_ladder(g.cap, MIN_SIZE), MIN_SIZE)
+        if (~covered & cell_in).sum() > FILL_SHARE * max(1, int(cell_in.sum())) and FILL_MIN < MIN_SIZE:
+            place_cubes(size_ladder(MIN_SIZE * SIZE_STEP, FILL_MIN), FILL_MIN)
     if stats is not None:
         stats["rejected"] += rejected
     return out

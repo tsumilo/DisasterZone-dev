@@ -702,6 +702,7 @@ function EUI:CreateZoneMap(parent, w, h)
                             t = self.canvas:CreateTexture(nil, "BACKGROUND", nil, -7)
                             self.tiles[n] = t
                         end
+                        t:SetDrawLayer("BACKGROUND", -7)
                         t:ClearAllPoints()
                         t:SetTexture(file)
                         t:SetTexCoord(0, 1, 0, 1)
@@ -709,6 +710,47 @@ function EUI:CreateZoneMap(parent, w, h)
                         t:SetPoint("TOPLEFT", self.canvas, "TOPLEFT", x, -y)
                         t:SetVertexColor(0.52, 0.5, 0.47, 1)
                         t:Show()
+                    end
+                end
+            end
+            -- the explored parts on top (the player's own discovery, as the world map draws them)
+            local E = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
+            local ok, ex = false, nil
+            if E then ok, ex = pcall(E, self.map) end
+            for _, o in ipairs(ok and type(ex) == "table" and ex or {}) do
+                if not o.isShownByMouseOver and o.fileDataIDs then
+                    -- (counted from the size, as Blizzard does: the info's own counts aren't reliable here)
+                    local nw, nh = ceil(o.textureWidth / 256), ceil(o.textureHeight / 256)
+                    for j = 1, nh do
+                        for i = 1, nw do
+                            local file = o.fileDataIDs[(j - 1) * nw + i]
+                            -- 256 px pieces, the last in a row / column holds what's left
+                            local pw = (i < nw) and 256 or (o.textureWidth - 256 * (nw - 1))
+                            local ph = (j < nh) and 256 or (o.textureHeight - 256 * (nh - 1))
+                            local px = ox + (o.offsetX + 256 * (i - 1)) * self.s
+                            local py = oy + (o.offsetY + 256 * (j - 1)) * self.s
+                            if file and pw > 0 and ph > 0 and px < self.w and py < self.h
+                                and px + pw * self.s > 0 and py + ph * self.s > 0 then
+                                n = n + 1
+                                local t = self.tiles[n]
+                                if not t then
+                                    t = self.canvas:CreateTexture(nil, "BACKGROUND", nil, -6)
+                                    self.tiles[n] = t
+                                end
+                                t:SetDrawLayer("BACKGROUND", -6)
+                                t:ClearAllPoints()
+                                t:SetTexture(file)
+                                -- an edge piece's file is the next power of two up, not 256 (past 1 the edge smears)
+                                local fw, fh = 1, 1
+                                while fw < pw do fw = fw * 2 end
+                                while fh < ph do fh = fh * 2 end
+                                t:SetTexCoord(0, pw / fw, 0, ph / fh)
+                                t:SetSize(pw * self.s, ph * self.s)
+                                t:SetPoint("TOPLEFT", self.canvas, "TOPLEFT", px, -py)
+                                t:SetVertexColor(0.52, 0.5, 0.47, 1)
+                                t:Show()
+                            end
+                        end
                     end
                 end
             end

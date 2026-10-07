@@ -160,6 +160,7 @@ Render3D\Standins\BlackTemple_ShadeOfAkama.lua
 Render3D\Standins\BlackTemple_Shahraz.lua
 Render3D\Standins\BlackTemple_Supremus.lua
 Render3D\Standins\BlackTemple_Teron.lua
+Render3D\Standins\Gaps.lua
 Render3D\Standins\GruulsLair_Gruul.lua
 Render3D\Standins\GruulsLair_Maulgar.lua
 Render3D\Standins\HyjalSummit_Anetheron.lua

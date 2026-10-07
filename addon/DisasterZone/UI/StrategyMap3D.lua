@@ -1631,7 +1631,29 @@ end
 -- room, see-through), all (debug: every one facing the camera, not only those over a model), flag (the client's
 -- SetAllowOverlappedModels on the stand-in scene: on by default, it wipes depth other model frames left on the screen
 -- before the stand-ins write theirs; off only to test), budget (stand-ins shown at most).
-M3.standins = { on = false, debug = false, all = false, flag = true, budget = 800 }
+-- gaps: the box mode's copies kept for the room triangles no stand-in covers (thin walls, pillars, railings, small
+-- steps: Render3D/Standins/Gaps.lua); off only to compare.
+M3.standins = { on = false, debug = false, all = false, flag = true, budget = 800, gaps = true }
+
+-- A room's gaps (ns.RoomStandinGaps, gen_standin_gaps.py) as a set of 1-based triangles, or nil (none, or made for
+-- another build of the room). Cached per room.
+M3.gapSets = {}
+function M3.GapSet(key)
+    local got = M3.gapSets[key]
+    if got ~= nil then return got or nil end
+    local g = ns.RoomStandinGaps and ns.RoomStandinGaps[key]
+    local fl = ns.RoomFloors and ns.RoomFloors[key]
+    local set = false
+    if type(g) == "table" and type(g.tris) == "string" and fl and fl.size == g.size then
+        set = {}
+        for a, b in g.tris:gmatch("(%d+)%-?(%d*)") do
+            a = tonumber(a)
+            for i = a, tonumber(b) or a do set[i] = true end
+        end
+    end
+    M3.gapSets[key] = set
+    return set or nil
+end
 
 -- /dz 3d standins [on | off | debug [on | off | all] | flag on | off | budget N]: changes a setting, then says what
 -- the stand-ins do in the open view.
@@ -1651,18 +1673,22 @@ function M3:StandinsSlash(arg)
         cfg.all = cfg.debug and val == "all"
     elseif what == "flag" and (val == "on" or val == "off") then
         cfg.flag = val == "on"
+    elseif what == "gaps" and (val == "on" or val == "off") then
+        cfg.gaps = val == "on"
     elseif what == "budget" and tonumber(val) then
         cfg.budget = max(0, min(S.MAX_BUDGET or 4000, floor(tonumber(val))))
     elseif what ~= "" then
-        ns:Print("/dz 3d standins on | off | debug [on | off | all] | flag on | off | budget <n> - the stand-in depth "
-            .. "mode (cubes behind the room's surfaces hide the models per pixel; off: the box mode).")
+        ns:Print("/dz 3d standins on | off | debug [on | off | all] | flag on | off | gaps on | off | budget <n> - the "
+            .. "stand-in depth mode (cubes behind the room's surfaces hide the models per pixel; gaps: copies where "
+            .. "there are none; off: the box mode).")
         return
     end
     local cv = _G.DisasterZoneStrategyBoard and _G.DisasterZoneStrategyBoard.canvas
     local v = cv and cv.v3
     if v and v.on then v:Draw() end
-    ns:Print("3D stand-ins: %s%s%s, budget %d, flag %s.", cfg.on and "on" or "off (box mode)",
-        cfg.debug and ", debug" or "", cfg.all and " (all)" or "", cfg.budget, cfg.flag and "on" or "off")
+    ns:Print("3D stand-ins: %s%s%s, budget %d, flag %s, gaps %s.", cfg.on and "on" or "off (box mode)",
+        cfg.debug and ", debug" or "", cfg.all and " (all)" or "", cfg.budget, cfg.flag and "on" or "off",
+        cfg.gaps and "on" or "off")
     local si = v and v.on and v.standins
     if si then
         local st = si:Stats()
@@ -1997,9 +2023,10 @@ end
 -- The stand-in depth mode (/dz 3d standins, Render3D/Standins.lua), for testing in game; off by default, the box
 -- mode: occluder boxes and the copies hide the models where the room is in front of them. On, and when the room has
 -- stand-ins, cubes just behind the room's surfaces in a scene under the room do it per pixel (the client's shared
--- depth buffer): no occluders, no copies (the room's copies option off; set back with the box mode). Your walking
--- character stays in the second scene: same clips, so the same depth. A room without stand-ins keeps the box mode,
--- said once. -> the view's stand-ins in use, or nil.
+-- depth buffer). Where no stand-in covers a room triangle (its gaps: thin walls, pillars, railings) the box mode's
+-- occluders and copies stay, for those triangles only (Room.opts.copyOnly); a room without gap data gets no copies.
+-- Your walking character stays in the second scene: same clips, so the same depth. A room without stand-ins keeps
+-- the box mode, said once. -> the view's stand-ins in use, or nil.
 function V:SyncStandins()
     local cfg, S = M3.standins, R3().Standins
     local key = cfg.on and S and self.on and self.room and self.room.key or nil
@@ -2022,8 +2049,14 @@ function V:SyncStandins()
         self.standinsNoted = nil
     end
     self.standins = use
+    local gaps = use and cfg.gaps and M3.GapSet(key) or nil
+    self.standinGaps = gaps
     local R = self.R
-    if R and R.opts and (R.opts.copies ~= false) ~= (use == nil) then R.SetOpts({ copies = use == nil }) end
+    if R and R.opts then
+        local copies = use == nil or gaps ~= nil
+        if (R.opts.copies ~= false) ~= copies then R.SetOpts({ copies = copies }) end
+        if R.opts.copyOnly ~= gaps then R.SetOpts({ copyOnly = gaps or false }) end
+    end
     return use
 end
 
@@ -2045,12 +2078,13 @@ function V:Draw()
     local remote = self:RemoteMarks()
     self.measured = ok and R.BeginFrame(self.cam) or false
     if self.measured then
-        if not si then R.SetOccluders(occ, n) end
+        if not si or self.standinGaps then R.SetOccluders(occ, n) end
         R.DrawRoom()
         R.BeginLines()
         self:DrawLines(remote)
         R.EndLines()
-        -- (stand-ins: the copies stay off, so DrawCopies only hides any left over and stops the renderer's clock;
+        -- (stand-ins: the copies are made of the gaps only, or stay off - DrawCopies then only hides any left over
+        -- and stops the renderer's clock;
         -- the models' records then pick which stand-ins can matter, outside that clock: their time is not the
         -- room's, which lowers its detail when a redraw runs long)
         R.DrawCopies()

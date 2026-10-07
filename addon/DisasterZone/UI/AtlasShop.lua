@@ -27,6 +27,9 @@ local GREEN_HEX, GREY_HEX, OFF_HEX = "|cff4fd36b", "|cff8d8d93", "|cff8d8d93"
 local EMPTY_TEXT = "Nothing here yet. Hover a craft in the Atlas and click its bag."
 local BOP_TEXT = "Binds when picked up: only its crafter can wear it"
 local NOBODY_TEXT = "Nobody in the guild knows this craft yet"
+local NOBODY_SHORT = "No guild crafter yet"       -- (the row's second line; the tooltip says it in full)
+local LEFT_OUT_TEXT = "Not in materials"
+local HOVER_W = 130   -- what the hover buttons (eye, - n +, bin) take at a craft row's right
 
 local H              -- the Atlas's helpers: NewText, TextWidth, CreateHead, FillHead, NameText, HEAD_H
 local mid, right, midHead, groupList, head, list
@@ -171,6 +174,20 @@ local function SetHover(row, on)
     row.plusBtn:SetShown(item and on)
     row.num:SetShown(item and on)
     row.minusBtn:SetShown(item and on and d.e.n > 1)
+    row.eye:SetShown(on)
+    if on then
+        row.eye:ClearAllPoints()
+        if item then
+            row.eye:SetPoint("RIGHT", row.num, "LEFT", -(BTN + 6), 0)
+        else
+            row.eye:SetPoint("RIGHT", row.bin, "LEFT", -6, 0)
+        end
+        local counted = d.counted
+        row.eye.icon:SetAlpha(counted and 1 or 0.35)
+        row.eye.tipTitle = counted and "Leave out of materials" or "Count its materials"
+        row.eye.tipText = counted and "Its materials stop counting in the list below."
+            or "Its materials count in the list below again."
+    end
 end
 
 local function Step(row, delta)
@@ -290,8 +307,12 @@ local function SetupRow(row)
     row.num:SetPoint("RIGHT", row.plusBtn, "LEFT", 0, 0)
     row.minusBtn = U:CreateSleekButton(row, "-", BTN, BTN, function() Step(row, -1) end)
     row.minusBtn:SetPoint("RIGHT", row.num, "LEFT", 0, 0)
+    row.eye = U:CreateTipIconButton(row, 18, U.ICON.eye, "Leave out of materials", nil, function()
+        local d = row.__cdlData
+        if d and d.type == "item" then Shop():SetCounted(d.e.id, not d.counted, d.g.kind == "bop") end
+    end)
     -- the buttons keep the row hovered
-    for _, b in ipairs({ row.bin, row.plusBtn, row.minusBtn, row.step }) do
+    for _, b in ipairs({ row.bin, row.plusBtn, row.minusBtn, row.eye, row.step }) do
         b:HookScript("OnEnter", function() SetHover(row, true) end)
         b:HookScript("OnLeave", function() if not row:IsMouseOver() then SetHover(row, false) end end)
     end
@@ -354,24 +375,26 @@ local function InitItem(row, d)
         row.icon.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
     end
     local bop = d.g.kind == "bop"
-    row.icon:SetAlpha(bop and 0.5 or 1)
+    local off = not d.counted
+    row.icon:SetAlpha((bop or off) and 0.5 or 1)
     local x = IN + ICON + 9
     row.name:Show()
     row.name:ClearAllPoints()
     row.name:SetPoint("TOPLEFT", row, "TOPLEFT", x, -4)
     row.name:SetWidth(w - x - IN - 70)
     row.name:SetText(H.NameText(e.id))
-    row.name:SetAlpha(bop and 0.55 or 1)
+    row.name:SetAlpha((bop or off) and 0.55 or 1)
     -- the second line: who makes it (Everything), how far its materials are broken down
     local who = ""
     if bop then
         who = BOP_TEXT
     elseif d.g.kind == "nobody" then
-        who = NOBODY_TEXT
+        who = NOBODY_SHORT
     elseif d.showWho then
         who = d.g.kind == "you" and "You" or UI():ColoredName(d.g.key)
     end
-    local step = not bop and d.maxDepth > 0
+    if off and not bop then who = who .. (who ~= "" and "  ·  " or "") .. LEFT_OUT_TEXT end
+    local step = d.counted and d.maxDepth > 0
     if who == "" and not step then
         -- nothing under the name (a crafter's own view): the name in the middle, level with the amount
         row.name:ClearAllPoints()
@@ -381,12 +404,18 @@ local function InitItem(row, d)
     row.sub:ClearAllPoints()
     row.sub:SetPoint("TOPLEFT", row, "TOPLEFT", x, -19)
     row.sub:SetText(who .. ((who ~= "" and step) and "  ·  " or ""))
-    row.sub:SetWidth(max(1, H.CodedWidth(row.sub:GetText(), "GameFontDisableSmall", 10)))
+    row.sub:SetWordWrap(false)
     row.step:SetShown(step)
+    local room = w - x - HOVER_W
+    if step then
+        row.step:SetLabel(StepText(e.d))
+        room = room - (row.step:GetWidth() or 0)
+    end
+    -- (a long line ends in "..." before the step dropdown and the buttons on the right)
+    row.sub:SetWidth(max(1, min(room, H.CodedWidth(row.sub:GetText(), "GameFontDisableSmall", 10))))
     if step then
         row.step:ClearAllPoints()
         row.step:SetPoint("LEFT", row.sub, who ~= "" and "RIGHT" or "LEFT", 0, 0)
-        row.step:SetLabel(StepText(e.d))
     end
     row.amt:SetText("×" .. e.n)
     row.num:SetText(tostring(e.n))
@@ -396,7 +425,7 @@ end
 
 local function InitMat(row, d)
     local m = d.m
-    Hide(row.amt, row.num, row.plusBtn, row.minusBtn, row.bin, row.step, row.title, row.barBg, row.barFill, row.rule)
+    Hide(row.amt, row.num, row.plusBtn, row.minusBtn, row.bin, row.eye, row.step, row.title, row.barBg, row.barFill, row.rule)
     row.hover:Hide()
     row.icon:Show()
     row.icon:SetSize(MAT_ICON, MAT_ICON)
@@ -418,6 +447,7 @@ local function InitMat(row, d)
         row.sub:ClearAllPoints()
         row.sub:SetPoint("TOPLEFT", row, "TOPLEFT", x, -19)
         row.sub:SetWidth(ShopUI.rowW - x - IN - 70)
+        row.sub:SetWordWrap(false)
         row.sub:SetText(d.profIcon .. (d.profName and (d.profName .. "  ·  ") or "") .. d.people)
     else
         row.name:SetPoint("LEFT", row, "LEFT", x, 0)
@@ -432,7 +462,7 @@ local function InitMat(row, d)
 end
 
 local function InitSect(row, d)
-    Hide(row.icon, row.name, row.sub, row.step, row.amt, row.num, row.plusBtn, row.minusBtn, row.bin, row.rule)
+    Hide(row.icon, row.name, row.sub, row.step, row.amt, row.num, row.plusBtn, row.minusBtn, row.bin, row.eye, row.rule)
     row.hover:Hide()
     row.title:Show()
     row.title:ClearAllPoints()
@@ -455,7 +485,7 @@ local function InitSect(row, d)
 end
 
 local function InitCost(row, d)
-    Hide(row.icon, row.sub, row.step, row.amt, row.num, row.plusBtn, row.minusBtn, row.bin, row.title, row.barBg,
+    Hide(row.icon, row.sub, row.step, row.amt, row.num, row.plusBtn, row.minusBtn, row.bin, row.eye, row.title, row.barBg,
         row.barFill)
     row.hover:Hide()
     row.rule:Show()
@@ -606,10 +636,10 @@ function ShopUI:Refresh(resetScroll)
     for _, g in ipairs(sel and { sel } or groups) do
         for _, e in ipairs(g.entries) do
             rows[#rows + 1] = { type = "item", e = e, g = g, showWho = sel == nil,
-                                maxDepth = g.kind ~= "bop" and S:GetMaxDepth(e.id) or 0 }
+                                counted = S:IsCounted(e, g.kind == "bop"), maxDepth = S:GetMaxDepth(e.id) }
         end
     end
-    local matEntries = sel and (sel.kind ~= "bop" and sel.entries or {}) or S:GetMaterialEntries(groups)
+    local matEntries = S:GetMaterialEntries(sel and { sel } or groups)
     if #matEntries > 0 then
         local mats = S:GetMaterials(matEntries)
         local done = 0

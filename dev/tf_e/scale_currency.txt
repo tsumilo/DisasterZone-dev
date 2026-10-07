@@ -4,3 +4,8 @@
     fresh install joins 59 members: 432 wire msgs / 48.7 KB, 4031 deliveries [PFR/W=136 (254p, 39.1 KB), PFB/G=60 (60p, 5.3 KB), PFW/W=117 (117p, 4.4 KB), PFI/G=1 (1p, 0.0 KB)]; busiest senders [('Rdrcd', 119), ('Rdraa', 7), ('Rdran', 7)]
       summaries after 92.0 s, every recipe list after 250.0 more s; 60 summaries sent for 59 members (1.0x); throttled 0
 PASS professions_at_guild_size (682.47s)
+    raid leaders list reached the officers 0.5 s after the GM saved it (quiet guild)
+    54 stale members log in over 60 s (6 up to date online): 1354 wire msgs / 133.7 KB, 25725 deliveries [SBG/W=162 (486p, 82.8 KB), SBD/G=93 (93p, 15.2 KB), RPD/G=98 (98p, 12.0 KB), RPG/W=54 (54p, 4.7 KB), S/W=216 (216p, 4.2 KB), H/G=54 (54p, 4.0 KB), RPK/G=98 (98p, 3.3 KB), SBK/G=93 (93p, 3.2 KB), SBW/W=54 (54p, 2.0 KB), RPW/W=54 (54p, 1.5 KB), PFI/G=54 (54p, 0.7 KB)]; busiest senders [('Officera', 158), ('Gina', 155), ('Officerc', 146)]
+      parts by sender kind: [(('RPD', 'council'), 36), (('RPD', 'member'), 62), (('RPG', 'council'), 34), (('RPG', 'member'), 20), (('SBD', 'council'), 35), (('SBD', 'member'), 58), (('SBG', 'council'), 204), (('SBG', 'member'), 282)]
+      everyone has the new strategy and raid 32 s after the last login; last message 74 s after it; digests broadcast: {'SBD': 93, 'RPD': 98} for 54 stale logins; throttled 611; 726 s wall
+PASS stale_strategy_login_wave (725.94s)

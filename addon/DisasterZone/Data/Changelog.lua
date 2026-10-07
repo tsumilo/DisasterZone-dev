@@ -120,6 +120,10 @@ ns.CHANGELOG = {
               "Pressing dips it, letting go flashes it; picking an option fades the choice across.",
               "Tabs: the gold underline grows out from the middle; pointing at a tab shows a faint one.",
           } },
+          { heading = "Text fields", lines = {
+              "A name too long for its field shows its start with \"...\" once you click away, not its tail.",
+              "Point at a cut-off name to read it in full.",
+          } },
           { heading = "Atlas: costs and your currencies", lines = {
               "Items a vendor sells show their cost with icons: Honor, Arena Points, Badges, marks.",
               "A cost is red while you hold less than it asks, white once you can buy it.",

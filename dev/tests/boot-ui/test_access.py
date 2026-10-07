@@ -13,12 +13,10 @@ TABS_LUA = """
 local out = {}
 local f = DisasterZoneMainFrame
 if not f or not f.Tabs then return out end
-for _, t in ipairs(f.Tabs) do
-  if t:IsShown() then out[#out + 1] = t.cdlKey end
-end
+for _, k in ipairs(ns.MainFrame:GetShownPages()) do out[#out + 1] = k end
 return out"""
 
-# The navigation strip: text tabs, then the Games, Changelog and Settings icons.
+# The pages the window offers (a tab or a line in a group's menu), in the pages' order.
 ALL_TABS = ["home", "mybis", "atlas", "council", "raids", "dungeons", "events", "members", "games", "changelog", "settings"]
 # Addendum J: every guild member has the Raids tab (Upcoming / Teams); its Raid log view stays council only.
 PERSONAL_TABS = ["home", "mybis", "atlas", "raids", "dungeons", "events", "members", "games", "changelog", "settings"]

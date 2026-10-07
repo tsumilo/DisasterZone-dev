@@ -9,10 +9,9 @@ local FRAME_NAME = "DisasterZoneMainFrame"
 local NAV_H = 28                          -- the navigation strip; every page keeps an 800x580 window's space
 local WIDTH, HEIGHT = 800, 580 + NAV_H
 
--- Pages shown as an icon at the right of the strip (in the pages' order: Games, Changelog, Settings), and pages
+-- Pages shown as an icon at the right of the strip (in the pages' order: Changelog, Settings), and pages
 -- without a tab (none at the moment).
 local NAV_ICONS = {
-    games     = { icon = 21, tip = { "Games", "Bingo and the other games to play with the guild." } },
     changelog = { icon = 25, tip = { "What's new", "The changes of every DisasterZone release." } },
     settings  = { icon = 13, tip = { "Settings" } },
 }
@@ -23,6 +22,29 @@ local NAV_BADGES = {
                    .. "to the next, and a few things may not work yet." } },
 }
 local NAV_HIDDEN = {}
+
+-- Pages grouped under one text tab that opens a menu of them (the strip stays the same for every rank). A tab
+-- sits at its own order among the pages'; clicking it shows the page used last in it (settings.navLast) and opens the
+-- menu. Groups follow shared data: raid nights and their loot, items, the guild's people and pastimes.
+local NAV_GROUPS = {
+    { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council" } },
+    { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "atlas" } },
+    { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "events", "games" } },
+}
+-- A line under each page in a group's menu (its tooltip).
+local NAV_PAGE_TIPS = {
+    raids   = "Raid nights, teams, strategies, guests and the raid log.",
+    council = "Loot decisions: the roster, items, the loot log and the council.",
+    mybis   = "Your BiS lists and what you still need.",
+    atlas   = "Every raid and dungeon's drops, sets and costs.",
+    members = "The guild's members, professions and recipes.",
+    events  = "Guild events and cups (beta).",
+    games   = "Bingo and the other games to play with the guild.",
+}
+local GROUP_OF = {}       -- page key -> group
+for _, g in ipairs(NAV_GROUPS) do
+    for _, key in ipairs(g.pages) do GROUP_OF[key] = g end
+end
 
 -- Pages that became a view of another tab: their old key opens that view (a saved "tab used last", callers that
 -- still say the old key). Returns true when it handled the open.
@@ -68,18 +90,83 @@ end
 
 local ShowPanel   -- forward
 
+-- The strip's key for a page: its group's, or its own.
+local function NavKey(pageKey)
+    local g = GROUP_OF[pageKey]
+    return g and g.key or pageKey
+end
+
+-- The page a group's tab opens: the one used last in it while still there, else its first available page.
+local function GroupPage(g)
+    local settings = ns.db and ns.db.settings
+    local last = settings and type(settings.navLast) == "table" and settings.navLast[g.key]
+    if last and tabDefs[last] and IsAvailable(tabDefs[last]) then return last end
+    for _, key in ipairs(g.pages) do
+        if tabDefs[key] and IsAvailable(tabDefs[key]) then return key end
+    end
+end
+
+-- Shows a page and lights its tab (its group's tab for a grouped page).
+local function SelectPage(key)
+    if not tabs then return end
+    local nav = NavKey(key)
+    tabs.selected = nav
+    for k, tab in pairs(tabs.byKey) do tab:SetActive(k == nav) end
+    ShowPanel(key)
+end
+
+local function GroupMenu(g, owner)
+    ns.UI:ContextMenu(owner, function(root)
+        for _, key in ipairs(g.pages) do
+            local def = tabDefs[key]
+            if def and IsAvailable(def) then
+                local label = def.label
+                if NAV_BADGES[key] then label = label .. "  |cffbb8cff" .. NAV_BADGES[key].text .. "|r" end
+                local item = root:CreateRadio(label, function() return currentKey == key end,
+                    function() SelectPage(key) end)
+                if NAV_PAGE_TIPS[key] then item:SetTitleAndTextTooltip(def.label, NAV_PAGE_TIPS[key]) end
+            end
+        end
+    end)
+end
+
+local groupByKey = {}
+for _, g in ipairs(NAV_GROUPS) do groupByKey[g.key] = g end
+
+local function OnNavSelect(navKey)
+    local g = groupByKey[navKey]
+    if not g then
+        ShowPanel(navKey)
+        return
+    end
+    local page = GroupPage(g)
+    if page then SelectPage(page) end
+    GroupMenu(g, tabs and tabs.byKey[navKey])
+end
+
 local function BuildTabs()
     if not frame then return end
     if tabs then tabs.frame:Hide() end
-    local defs = {}
+    local defs, placed = {}, {}
     for _, def in ipairs(tabList) do
-        if not NAV_HIDDEN[def.key] then
+        local g = GROUP_OF[def.key]
+        if g then
+            if not placed[g.key] then
+                placed[g.key] = true
+                defs[#defs + 1] = { key = g.key, label = g.label, menu = true, order = g.order }
+            end
+        elseif not NAV_HIDDEN[def.key] then
             local icon = NAV_ICONS[def.key]
             defs[#defs + 1] = { key = def.key, label = def.label, icon = icon and icon.icon, tip = icon and icon.tip,
-                badge = NAV_BADGES[def.key] }
+                badge = NAV_BADGES[def.key], order = def.order }
         end
     end
-    tabs = ns.UI:CreateNavStrip(frame, defs, function(key) ShowPanel(key) end)
+    for i, d in ipairs(defs) do d.seq = i end
+    table.sort(defs, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return a.seq < b.seq
+    end)
+    tabs = ns.UI:CreateNavStrip(frame, defs, OnNavSelect)
     local inset = frame.Inset
     tabs.frame:SetPoint("TOPLEFT", inset or frame, "TOPLEFT", inset and 3 or 6, inset and -3 or -26)
     tabs.frame:SetPoint("TOPRIGHT", inset or frame, "TOPRIGHT", inset and -3 or -6, inset and -3 or -26)
@@ -113,7 +200,7 @@ function MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn)
     if frame then
         BuildTabs()
         self:RefreshTabs()
-        if currentKey and tabs then tabs:Select(currentKey) end
+        if currentKey and tabs then SelectPage(currentKey) end
     end
 end
 
@@ -334,28 +421,114 @@ end
 -- Panels
 ---------------------------------------------------------------------------
 
+-- Page timings (/dz perf): ms to build each page the first time, and its last / slowest show (OnPanelShown).
+local timings = {}      -- key -> { build, show, maxShow, shows }
+local clock = debugprofilestop or function() return 0 end
+
+local function Timing(key)
+    local t = timings[key]
+    if not t then t = { shows = 0, show = 0, maxShow = 0 } timings[key] = t end
+    return t
+end
+
+-- Builds a page's panel (hidden while it is not the current page).
+local function BuildPanel(def)
+    if def.panel or not def.createFn or not frame then return def.panel end
+    local t0 = clock()
+    local content = frame.content
+    local ok, panel = xpcall(function() return def.createFn(content) end, geterrorhandler())
+    if ok and panel then
+        def.panel = panel
+        panel:ClearAllPoints()
+        panel:SetAllPoints(frame.content)
+        if def.key ~= currentKey then panel:Hide() end
+    end
+    Timing(def.key).build = clock() - t0
+    return def.panel
+end
+
+-- The page comes in over a few frames (alpha 0 -> 1), so the swap never pops.
+local FADE_IN = 0.12
+local function FadeIn(panel)
+    panel:SetAlpha(0)
+    local fader = panel.dzFader
+    if not fader then
+        fader = CreateFrame("Frame", nil, panel)
+        panel.dzFader = fader
+    end
+    fader.t = 0
+    fader:SetScript("OnUpdate", function(self, elapsed)
+        self.t = self.t + (elapsed or 0)
+        local p = clamp01(self.t / FADE_IN)
+        panel:SetAlpha(easeOut(p))
+        if p >= 1 then self:SetScript("OnUpdate", nil) end
+    end)
+end
+
 ShowPanel = function(key)
     local def = tabDefs[key]
     if not def or not frame then return end
+    local switching = currentKey ~= key
     currentKey = key
+    local g = GROUP_OF[key]
+    local settings = ns.db and ns.db.settings
+    if g and settings then
+        if type(settings.navLast) ~= "table" then settings.navLast = {} end
+        settings.navLast[g.key] = key
+    end
     for k, other in pairs(tabDefs) do
         if k ~= key and other.panel then other.panel:Hide() end
     end
-    if not def.panel and def.createFn then
-        local content = frame.content
-        local ok, panel = xpcall(function() return def.createFn(content) end, geterrorhandler())
-        if ok and panel then
-            def.panel = panel
-            panel:ClearAllPoints()
-            panel:SetAllPoints(frame.content)
-        end
-    end
-    local panel = def.panel
+    local panel = BuildPanel(def)
     if panel then
+        if switching and frame:IsShown() then FadeIn(panel) else panel:SetAlpha(1) end
+        local t0 = clock()
         panel:Show()
         if panel.OnPanelShown then
             xpcall(function() panel:OnPanelShown() end, geterrorhandler())
         end
+        local t, ms = Timing(key), clock() - t0
+        t.show, t.shows = ms, t.shows + 1
+        if ms > t.maxShow then t.maxShow = ms end
+    end
+end
+
+-- After the window first opens, the other pages are built in the background, one per frame (never in combat), so
+-- a first visit to a page is a plain show.
+local prebuilding
+local function PrebuildPages()
+    if prebuilding then return end
+    prebuilding = true
+    local queue = {}
+    for _, def in ipairs(tabList) do
+        if not def.panel and def.createFn then queue[#queue + 1] = def end
+    end
+    local i = 0
+    local function step()
+        if InCombatLockdown and InCombatLockdown() then
+            C_Timer.After(2, step)
+            return
+        end
+        i = i + 1
+        local def = queue[i]
+        if not def then return end
+        if not def.panel and IsAvailable(def) then BuildPanel(def) end
+        C_Timer.After(0.05, step)
+    end
+    C_Timer.After(0.3, step)
+end
+
+function MainFrame:PrintTimings()
+    local keys = {}
+    for k in pairs(timings) do keys[#keys + 1] = k end
+    table.sort(keys, function(a, b)
+        return (timings[a].build or 0) + timings[a].maxShow > (timings[b].build or 0) + timings[b].maxShow
+    end)
+    ns:Print("Page timings (ms): build / last show / slowest show (shows)")
+    for _, k in ipairs(keys) do
+        local t = timings[k]
+        ns:Print(string.format("  %-10s %6s / %5.1f / %5.1f  (%d)", k,
+            t.build and string.format("%.1f", t.build) or "-", t.show, t.maxShow, t.shows))
     end
 end
 
@@ -408,12 +581,16 @@ end
 
 function MainFrame:RefreshTabs()
     if not frame or not tabs then return end
+    -- a group's tab shows while any of its pages does
+    local shown = {}
     for _, def in ipairs(tabList) do
-        tabs:SetTabShown(def.key, IsAvailable(def))
+        local nav = NavKey(def.key)
+        shown[nav] = shown[nav] or IsAvailable(def)
     end
+    for nav, on in pairs(shown) do tabs:SetTabShown(nav, on) end
     if currentKey and not IsAvailable(tabDefs[currentKey]) and frame:IsShown() then
         local fallback = FirstAvailableKey()
-        if fallback then tabs:Select(fallback) end
+        if fallback then SelectPage(fallback) end
     end
 end
 
@@ -438,8 +615,9 @@ function MainFrame:Open(key)
     frame:Show()
     frame:Raise()
     if key and tabs then
-        tabs:Select(key)
+        SelectPage(key)
     end
+    PrebuildPages()
 end
 
 function MainFrame:Toggle()
@@ -458,6 +636,15 @@ end
 function MainFrame:GetPanel(key)
     local def = tabDefs[key]
     return def and def.panel or nil
+end
+
+-- The pages the window offers now (a tab of their own or a line in a group's menu), in the pages' order.
+function MainFrame:GetShownPages()
+    local out = {}
+    for _, def in ipairs(tabList) do
+        if not NAV_HIDDEN[def.key] and IsAvailable(def) then out[#out + 1] = def.key end
+    end
+    return out
 end
 
 function MainFrame:GetSelectedTab()
@@ -543,3 +730,4 @@ ns:RegisterSlash("council", function() MainFrame:Open("council") end, "open the 
 ns:RegisterSlash("log", function() MainFrame:Open("loot") end, "open the Loot Log")
 ns:RegisterSlash("settings", function() MainFrame:Open("settings") end, "open the settings")
 ns:RegisterSlash("config", function() MainFrame:Open("settings") end, "open the settings")
+ns:RegisterSlash("perf", function() MainFrame:PrintTimings() end, "page build / show times")

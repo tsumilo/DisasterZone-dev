@@ -236,6 +236,8 @@ local function PreparePrims(mesh)
     local pair = (mesh.version == 2 and Room.opts.quads ~= false) and mesh.pair or nil
     nNodes = floor(#nodes / 8)
     local np, solo = 0, {}
+    local QT = {}                                    -- prim -> its triangles (i, and its quad mate * 2^20)
+    Room.QT, Room.copySkip = QT, nil
     for k = 1, nNodes do
         local o = k * 8 - 8
         local na, nb, nc = nodes[o + 1], nodes[o + 2], nodes[o + 3]
@@ -264,6 +266,7 @@ local function PreparePrims(mesh)
                 end
                 np = np + 1
                 QA[np], QB[np], QN[np], QTEX[np] = a, b, k, t[i * 4]
+                QT[np] = (d ~= 0) and (i + j * 1048576) or i
                 if d ~= 0 then
                     QC[np], QD[np] = d, c
                     QL[np] = (v[a * 6] + v[b * 6] + v[c * 6] + v[d * 6]) / 4
@@ -280,6 +283,24 @@ local function PreparePrims(mesh)
         LP[k] = np
     end
     nPrims = np
+    Room.CopySkip()
+end
+
+-- Room.opts.copyOnly (a set of 1-based room triangles, or nil: all): the copies are made of the prims holding one of
+-- them only (stand-in mode: the triangles no stand-in covers, Render3D/Standins/Gaps.lua). -> Room.copySkip, prim ->
+-- true for the others.
+function Room.CopySkip()
+    local only, QT = Room.opts.copyOnly, Room.QT
+    local skip = nil
+    if only and QT then
+        skip = {}
+        for p = 1, nPrims do
+            local v = QT[p]
+            local j = floor(v / 1048576)
+            if not (only[v - j * 1048576] or (j > 0 and only[j])) then skip[p] = true end
+        end
+    end
+    Room.copySkip = skip
 end
 
 -- Pool key of every prim: texture file * 4 + blend code (opaque WMO materials draw with blending off; with
@@ -2293,11 +2314,12 @@ local function InstallCopies()
         local a, b, e, k, zt = OPA[X], OPB[X], OPE[X], OPK[X], OZT[X]
         local bx0, by0, bx1, by1 = OX0[X], OY0[X], OX1[X], OY1[X]
         local P, B2, B3, B4 = Buf(1), Buf(2), Buf(3), Buf(0)
+        local skip = Room.copySkip
         for ii = 1, n do
             local i = list[ii]
             local q = i * 12 - 12
             local p, key, cn = LR[q + 1], LR[q + 2], LR[q + 3]
-            if live[key] then
+            if live[key] and not (skip and skip[p]) then
                 local c1, c2, c3, c4 = LR[q + 4], LR[q + 5], LR[q + 6], LR[q + 7]
                 local f1 = (a * WX[c1] + b * WY[c1] + e) / PD[c1] + k < 0
                 local f2 = (a * WX[c2] + b * WY[c2] + e) / PD[c2] + k < 0
@@ -2954,8 +2976,13 @@ end
 function Room.SetOpts(t)
     if type(t) ~= "table" then return end
     local opts = Room.opts
-    local was, quads = opts.opaque ~= false, opts.quads ~= false
+    local was, quads, only = opts.opaque ~= false, opts.quads ~= false, opts.copyOnly
     for k, v in pairs(t) do opts[k] = v end
+    if t.copyOnly == false then opts.copyOnly = nil end
+    if opts.copyOnly ~= only then
+        Room.CopySkip()
+        if Room.HideCopies then Room.HideCopies() end        -- (every slot copies again)
+    end
     if (opts.quads ~= false) ~= quads and curMesh then
         Room.Clear()                                     -- the prims change: prepare the room again
         meshOk = Prepare(curMesh) or false

@@ -1301,7 +1301,82 @@ function UI:CreateSleekEditBox(parent, width, height, fontObject)
     eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     paint(eb)
+    UI:AttachRestLabel(eb)
     return eb
+end
+
+-- A one-line field at rest reads as a label: the start of its text, cut with "..." when it does not fit (the full
+-- text in a tooltip). The box's own text is hidden until it has the focus, and losing the focus scrolls it back to
+-- the start, so a long name never shows its tail once you are done typing (2026-10-07). It survives a caller's
+-- SetScript on the focus / text events and a later SetTextColor / SetFont / SetFontObject.
+local REST_EVENTS = { OnTextChanged = true, OnEditFocusGained = true, OnEditFocusLost = true }
+
+local function RestRefresh(eb)
+    local lbl = eb.cdlRest
+    if not lbl then return end
+    local c = eb.cdlRestColor
+    local focus = eb:HasFocus()
+    if not focus then
+        local font, size, flags = eb:GetFont()
+        if font then lbl:SetFont(font, size, flags or "") end
+        local l, r = eb:GetTextInsets()
+        lbl:ClearAllPoints()
+        lbl:SetPoint("LEFT", eb, "LEFT", l or 0, 0)
+        lbl:SetPoint("RIGHT", eb, "RIGHT", -(r or 0), 0)
+        lbl:SetTextColor(c[1], c[2], c[3], c[4])
+        lbl:SetText(eb:GetText() or "")
+    end
+    lbl:SetShown(not focus)
+    eb.cdlRestSetColor(eb, c[1], c[2], c[3], focus and c[4] or 0)
+end
+
+local function RestFocusLost(eb)
+    eb:SetCursorPosition(0)
+    RestRefresh(eb)
+end
+
+function UI:AttachRestLabel(eb)
+    if eb.cdlRest or (eb.IsMultiLine and eb:IsMultiLine()) or (eb.IsPassword and eb:IsPassword()) then return end
+    local lbl = eb:CreateFontString(nil, "ARTWORK")
+    lbl:SetFontObject(eb:GetFontObject() or "GameFontHighlight")
+    lbl:SetJustifyH("LEFT")
+    lbl:SetWordWrap(false)
+    eb.cdlRest = lbl
+    local r, g, b, a = eb:GetTextColor()
+    eb.cdlRestColor = { r or 1, g or 1, b or 1, a or 1 }
+    eb.cdlRestSetColor = eb.SetTextColor
+    eb.SetTextColor = function(self, cr, cg, cb, ca)
+        self.cdlRestColor = { cr, cg, cb, ca or 1 }
+        RestRefresh(self)
+    end
+    for _, m in ipairs({ "SetFont", "SetFontObject" }) do
+        local orig = eb[m]
+        eb[m] = function(self, ...)
+            local ok = orig(self, ...)
+            RestRefresh(self)
+            return ok
+        end
+    end
+    local function hook(self, name)
+        if name == "OnEditFocusLost" then self:HookScript(name, RestFocusLost) else self:HookScript(name, RestRefresh) end
+    end
+    for name in pairs(REST_EVENTS) do hook(eb, name) end
+    local setScript = eb.SetScript
+    eb.SetScript = function(self, name, fn, ...)
+        setScript(self, name, fn, ...)
+        if REST_EVENTS[name] then hook(self, name) end
+    end
+    eb:HookScript("OnEnter", function(self)
+        if self:HasFocus() or not (lbl.IsTruncated and lbl:IsTruncated()) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(self:GetText() or "", 1, 1, 1, 1, true)
+        GameTooltip:Show()
+        self.cdlRestTip = true
+    end)
+    eb:HookScript("OnLeave", function(self)
+        if self.cdlRestTip then self.cdlRestTip = nil; GameTooltip:Hide() end
+    end)
+    RestRefresh(eb)
 end
 
 -- A grey hint inside an edit box while it is empty ("Note for the organizers..."). It hooks OnTextChanged, and a
@@ -2990,7 +3065,8 @@ end
 -- The main window's navigation: a flat strip of text tabs on the left and icon tabs on the right (Games,
 -- Settings), with a hairline under it. defs = { { key =, label =, icon = UI.ICON_ATLAS index, tip = { title,
 -- text } } } in order; a def with icon becomes an icon tab. A text tab's badge = { text =, color = { r, g, b },
--- tip = { title, text } } puts a small raised pill after its label ("BETA") and the tip on the tab. Pages can be
+-- tip = { title, text } } puts a small raised pill after its label ("BETA") and the tip on the tab; def.menu = true
+-- adds a chevron (the tab opens a menu: the caller's onSelect opens it with the tab as owner). Pages can be
 -- selected without a tab (obj:Select(key) works for any key). parent.Tabs lists the tab buttons (b.cdlKey).
 ---------------------------------------------------------------------------
 
@@ -3035,6 +3111,34 @@ local function AddNavBadge(tab, badge)
         tab:HookScript("OnLeave", function() GameTooltip:Hide() end)
     end
     return p
+end
+
+-- A text tab that opens a menu of pages (def.menu): a small chevron after its label, pointing up while the menu is
+-- open, coloured with the label; the menu hangs under the tab (cdlDrop).
+local NAV_CHEV, NAV_CHEV_GAP = 10, 3
+
+local function AddNavChevron(tab)
+    local c = tab:CreateTexture(nil, "OVERLAY")
+    c:SetSize(NAV_CHEV, NAV_CHEV)
+    c:SetTexture(UI.ICON_ATLAS)
+    UI:SetChevronUp(c, false)
+    c:SetVertexColor(0.62, 0.62, 0.62)
+    local extra = NAV_CHEV + NAV_CHEV_GAP - 2
+    tab.cdlExtraW = (tab.cdlExtraW or 0) + extra
+    local label = tab:GetFontString()
+    label:ClearAllPoints()
+    label:SetPoint("CENTER", -tab.cdlExtraW / 2, 1)
+    c:SetPoint("LEFT", label, "RIGHT", NAV_CHEV_GAP, -1)
+    tab:SetWidth(tab:GetWidth() + extra)
+    tab.line:SetPoint("BOTTOM", -tab.cdlExtraW / 2, 0)
+    local paint = tab.cdlTab
+    function tab:cdlTab(r, g, b)
+        paint(self, r, g, b)
+        c:SetVertexColor(r, g, b)
+    end
+    function tab:OnMenuShown(on) UI:SetChevronUp(c, on) end
+    tab.cdlDrop = true
+    tab.chevron = c
 end
 
 local function CreateNavIcon(parent, def, onClick)
@@ -3099,6 +3203,7 @@ function UI:CreateNavStrip(parent, defs, onSelect)
         else
             tab = UI:CreateUnderlineTab(strip, def.label or def.key, click, "nav")
             if def.badge then AddNavBadge(tab, def.badge) end
+            if def.menu then AddNavChevron(tab) end
         end
         tab.cdlKey = def.key
         tab.cdlShown = true
