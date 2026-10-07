@@ -371,7 +371,18 @@ local function Root(create)
     return r
 end
 
+-- GetSignups is asked many times per page refresh (each raid card, my answer, the counts): its answer is kept for the
+-- rest of the frame, until the data changes (dataVer: any raid plan change, a sign-up merged, the roster, the linked
+-- characters, the blacklist or the settings).
+local dataVer = 0
+local function Touch() dataVer = dataVer + 1 end
+for _, msg in ipairs({ "ROSTER_UPDATED", "ACCOUNTS_UPDATED", "CONFIG_UPDATED", "RAID_BLACKLIST_CHANGED",
+                       "GUILD_KEY_READY", "DEMO_TOGGLED" }) do
+    ns:On(msg, Touch)
+end
+
 local function Changed()
+    Touch()
     ns:Fire("RAIDPLAN_CHANGED")
 end
 
@@ -997,6 +1008,7 @@ local function MergeSignup(root, occId, key, s)
         return false
     end
     occ[key] = s
+    Touch()
     return true
 end
 
@@ -2028,7 +2040,26 @@ end
 -- raid with a minimum level only the characters at that level. Blacklisted players, declined members and answers
 -- the organizers removed are left out. A player's characters count once: the newest answer among them. Guests are
 -- included as accepted ({ st = "A", guest = true, c, sp, at }).
+local signupMemo, memoAt, memoVer = {}, nil, nil
+
 function RaidPlan:GetSignups(occId)
+    local now = GetTime()
+    if memoAt ~= now or memoVer ~= dataVer then
+        wipe(signupMemo)
+        memoAt, memoVer = now, dataVer
+    end
+    local kept = type(occId) == "string" and signupMemo[occId]
+    if not kept then
+        kept = self:ReadSignups(occId)
+        if type(occId) == "string" then signupMemo[occId] = kept end
+    end
+    local out = {}
+    for key, s in pairs(kept) do out[key] = CopyMap(s) end
+    return out
+end
+
+-- GetSignups without the memo.
+function RaidPlan:ReadSignups(occId)
     local out = {}
     local root = Root(false)
     if not root or type(occId) ~= "string" then return out end
@@ -2036,9 +2067,13 @@ function RaidPlan:GetSignups(occId)
     local u = root.U[occId]
     local raw = {}
     if type(u) == "table" then
+        -- (the lock set and the blacklist once, not per answer)
+        local only = LockSet(v)
+        local bl = BlacklistRec(false)
+        local listed = bl and next(bl.l) ~= nil
         for key, s in pairs(u) do
-            if not LockedOut(v, key) and LevelOk(v, key) and not Removed(v, key, s) and not InSet(v and v.rj, key)
-                and not self:IsBlacklisted(key) then
+            if not (only ~= nil and InSet(only, key) == nil) and LevelOk(v, key) and not Removed(v, key, s)
+                and not InSet(v and v.rj, key) and not (listed and self:IsBlacklisted(key)) then
                 raw[key] = s
             end
         end

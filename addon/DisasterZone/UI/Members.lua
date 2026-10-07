@@ -1747,8 +1747,14 @@ function MembersUI:CreatePanel(parent)
 
     createCard(p)
 
-    p:SetScript("OnShow", function() MembersUI:Refresh() end)
-    function p:OnPanelShown() MembersUI:Refresh() end
+    -- (a page switch shows the panel, then calls OnPanelShown: one refresh per frame is enough)
+    p:SetScript("OnShow", function(self)
+        self.shownAt = GetTime()
+        MembersUI:Refresh()
+    end)
+    function p:OnPanelShown()
+        if self.shownAt ~= GetTime() then MembersUI:Refresh() end
+    end
     C_Timer.After(0, function() MembersUI:Refresh() end)
     return p
 end
@@ -1871,7 +1877,7 @@ function MembersUI:OnInit()
     end
     local function refresh() MembersUI:RequestRefresh() end
     for _, msg in ipairs({ "PROFESSIONS_UPDATED", "ROSTER_UPDATED", "DEMO_TOGGLED", "OFFICER_NOTES_UPDATED",
-                           "PEERS_UPDATED" }) do
+                           "PEERS_UPDATED", "ITEMINFO_READY" }) do
         ns:On(msg, refresh)
     end
     ns:RegisterSlash("members", function() ns.MainFrame:Open("members") end,

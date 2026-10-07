@@ -1096,17 +1096,68 @@ end
 ---------------------------------------------------------------------------
 
 local pending = {}    -- [itemID] = true while a load request is outstanding
+local requestedAt = {} -- [itemID] = GetTime() of the outstanding request (watchdog)
 local failedAt = {}   -- [itemID] = GetTime() of a failed load (not retried for a while)
 local RETRY_FAILED_AFTER = 60
+local WATCHDOG_EVERY = 1     -- seconds between sweeps while anything is pending
+local REREQUEST_AFTER = 3    -- a request with no answer by then is sent again
+
+local function FireItemInfoReady()
+    ns:Fire("ITEMINFO_READY")
+end
+
+local function QueueReady()
+    if not ns.Util.IsDebouncePending("iteminfo") then
+        ns.Util.Debounce("iteminfo", 0.25, FireItemInfoReady)
+    end
+end
+
+-- GET_ITEM_INFO_RECEIVED is not reliable: it can be skipped when the item was already in flight
+-- (requested by a tooltip or another addon), or arrive before GetItemInfo can read it. Either way the
+-- item stayed "pending" forever and the UI showed "Loading..." until some other refresh. The watchdog
+-- polls pending items: cached ones fire ITEMINFO_READY, silent ones are requested again.
+local watchdogRunning = false
+local Watchdog
+Watchdog = function()
+    local api = C_Item and C_Item.GetItemInfo
+    local now = GetTime and GetTime() or 0
+    local any, ready = false, false
+    for id in pairs(pending) do
+        if api and api(id) then
+            pending[id], requestedAt[id] = nil, nil
+            ready = true
+        else
+            any = true
+            if now - (requestedAt[id] or 0) >= REREQUEST_AFTER then
+                requestedAt[id] = now
+                if C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(id) end
+            end
+        end
+    end
+    if ready then QueueReady() end
+    if any and C_Timer and C_Timer.After then
+        C_Timer.After(WATCHDOG_EVERY, Watchdog)
+    else
+        watchdogRunning = false
+    end
+end
+
+local function StartWatchdog()
+    if watchdogRunning or not (C_Timer and C_Timer.After) then return end
+    watchdogRunning = true
+    C_Timer.After(WATCHDOG_EVERY, Watchdog)
+end
 
 local function RequestLoad(itemID)
     if pending[itemID] then return end
     local failed = failedAt[itemID]
     if failed and GetTime and (GetTime() - failed) < RETRY_FAILED_AFTER then return end
     pending[itemID] = true
+    requestedAt[itemID] = GetTime and GetTime() or 0
     if C_Item and C_Item.RequestLoadItemDataByID then
         C_Item.RequestLoadItemDataByID(itemID)
     end
+    StartWatchdog()
 end
 
 -- name, link, quality, icon when cached; otherwise nil (and a load is requested).
@@ -1164,23 +1215,21 @@ function ItemDB:Prefetch(ids)
     end
 end
 
-local function FireItemInfoReady()
-    ns:Fire("ITEMINFO_READY")
-end
-
 ns:RegisterEvent("GET_ITEM_INFO_RECEIVED", function(_, itemID, success)
     itemID = tonumber(itemID)
     if not itemID or not pending[itemID] then return end
-    pending[itemID] = nil
     if success == false then
         -- Unknown / invalid item: don't re-request on every UI refresh (that would loop).
+        pending[itemID], requestedAt[itemID] = nil, nil
         failedAt[itemID] = GetTime and GetTime() or 0
         return
     end
+    -- Only clear once the info is actually readable; otherwise the watchdog keeps it alive.
+    local api = C_Item and C_Item.GetItemInfo
+    if api and not api(itemID) then return end
+    pending[itemID], requestedAt[itemID] = nil, nil
     -- Throttle rather than restart: fire at most every 0.25s while a burst keeps arriving.
-    if not ns.Util.IsDebouncePending("iteminfo") then
-        ns.Util.Debounce("iteminfo", 0.25, FireItemInfoReady)
-    end
+    QueueReady()
 end)
 
 ---------------------------------------------------------------------------

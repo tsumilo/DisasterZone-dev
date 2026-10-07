@@ -583,13 +583,27 @@ def nav_groups_pages_under_five_tabs():
                       "o[#o + 1] = t.cdlKey end end return o")
     assert strip == ["home", "grp:raids", "grp:gear", "dungeons", "grp:guild", "changelog", "settings"], strip
     tab = "for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == ... then return t end end"
-    # a group's tab shows its first page and opens the menu of its pages
-    c.click(c.eval(tab, "grp:gear"))
+    menu = ("local m = ns.UI:GetOpenMenu() local o = {} if m then for _, d in ipairs(m.root.children) do "
+            "o[#o + 1] = d.text end end return o")
+    gear = c.eval(tab, "grp:gear")
+    # resting the mouse on a group's tab opens the menu of its pages without changing the page
+    c.eval("local t = ... t.IsMouseOver = function() return true end", gear)
+    c.hover(gear)
+    w.tick(0.3)
+    assert selected(c) == "home", selected(c)
+    assert c.eval_py(menu) == ["My BiS", "Atlas"], c.eval_py(menu)
+    # leaving the tab (and the menu) closes it after a moment
+    c.eval("local t = ... t.IsMouseOver = nil", gear)
+    c.leave(gear)
+    w.tick(0.6)
+    assert c.eval_py(menu) == [], c.eval_py(menu)
+    # a click goes to the group's first page
+    c.eval("local t = ... t.IsMouseOver = function() return true end", gear)
+    c.click(gear)
     w.tick(0.3)
     assert selected(c) == "mybis", selected(c)
-    items = c.eval_py("local m = ns.UI:GetOpenMenu() local o = {} if m then for _, d in ipairs(m.root.children) do "
-                      "o[#o + 1] = d.text end end return o")
-    assert items == ["My BiS", "Atlas"], items
+    assert c.eval_py(menu) == ["My BiS", "Atlas"], c.eval_py(menu)
+    c.eval("local t = ... t.IsMouseOver = nil", gear)
     c.eval("ns.UI:CloseMenus()")
     # it remembers the page used last in it
     c.eval("ns.MainFrame:Open('atlas')")

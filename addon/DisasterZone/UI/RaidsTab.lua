@@ -979,8 +979,14 @@ function RaidsUI:CreatePanel(parent)
     createLogRaids(p)
     createLogPlayers(p)
 
-    p:SetScript("OnShow", function() RaidsUI:Refresh() end)
-    function p:OnPanelShown() RaidsUI:Refresh() end
+    -- (a page switch shows the panel, then calls OnPanelShown: one refresh per frame is enough)
+    p:SetScript("OnShow", function(self)
+        self.shownAt = GetTime()
+        RaidsUI:Refresh()
+    end)
+    function p:OnPanelShown()
+        if self.shownAt ~= GetTime() then RaidsUI:Refresh() end
+    end
     C_Timer.After(0, function() RaidsUI:Refresh() end)
     return p
 end
