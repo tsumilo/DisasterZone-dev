@@ -86,6 +86,9 @@ local function IconIndex(key)
     return i
 end
 
+-- A page's atlas icon index (UI.ICON_ATLAS), for other views that show the pages.
+function Arc:GetPageIcon(key) return IconIndex(key) end
+
 local function SetIcon(tex, i)
     local c = UI():IconCoords(i)
     tex:SetTexture(UI().ICON_ATLAS)

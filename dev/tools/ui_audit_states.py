@@ -588,7 +588,19 @@ def atlas_hover(select_lua, item_lua):
     return fn
 
 
+def st_blizzard_options(w, c):
+    """DisasterZone's panel in Blizzard's Options > AddOns (UI/Settings.lua), at the canvas size the game gives it."""
+    g = c["Gina"]
+    demo_off(w, c)
+    close_all(g)
+    g.eval("local f = DisasterZoneBlizzardOptions; f:SetParent(UIParent); f:ClearAllPoints(); "
+           "f:SetPoint('CENTER'); f:SetSize(860, 640); f:Hide(); f:Show()")
+    w.tick(0.8)
+    return g
+
+
 STATES = [
+    ("Blizzard options panel", st_blizzard_options),
     ("Home", opened("home")),
     ("Home - calendar day", opened("home", "local v = ns.RaidPlan:GetRaid(select(4, ...)); "
                                            "local key = tonumber(date('%Y%m%d', v.t)); "

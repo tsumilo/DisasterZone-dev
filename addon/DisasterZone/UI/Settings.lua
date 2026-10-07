@@ -296,29 +296,342 @@ local function OpenFromBlizzard()
     if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("settings") end
 end
 
+-- The panel in Blizzard's Options > AddOns: a hero band (the seal in a soft glow, the name, the version, the guild),
+-- the two ways in (open, settings), a card for every page of the window (click = open it there, right-click = pin it
+-- to the minimap arc) and a footer with the sync status and the slash commands. Built the first time it is shown, so
+-- every page has registered by then; the cards are laid out again on every show (the panel's width can change).
+local GOLD, CREAM = { 0.84, 0.69, 0.36 }, { 0.96, 0.9, 0.72 }
+local DISC = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\disc"
+local RING = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\ring"
+local CARD_W, CARD_H, GAP = 196, 58, 10
+-- One short line per card (the window's own page tips are too long for a card).
+local CARD_TIPS = {
+    home = "This week's raids and the calendar.", raids = "Raid nights, teams and strategies.",
+    council = "Loot decisions and the loot log.", mybis = "Your BiS lists and what's missing.",
+    atlas = "Every drop, set and cost.", members = "Members, professions, recipes.",
+    dungeons = "Find a group for a dungeon.", events = "Guild events and cups (beta).",
+    games = "Bingo and other guild games.", changelog = "What's new in every release.",
+    settings = "Alerts, the minimap and more.",
+}
+
+local function Fill(tex, r, g, b, a) tex:SetColorTexture(r, g, b, a) return tex end
+
+-- A 1px frame around f (r, g, b, a); returns the four edges so a caller can recolour them.
+local function Edge(f, r, g, b, a)
+    local e = {}
+    for i, pts in ipairs({ { "TOPLEFT", "TOPRIGHT" }, { "BOTTOMLEFT", "BOTTOMRIGHT" },
+                           { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+        local t = f:CreateTexture(nil, "BORDER")
+        t:SetPoint(pts[1])
+        t:SetPoint(pts[2])
+        if i <= 2 then t:SetHeight(1) else t:SetWidth(1) end
+        e[i] = Fill(t, r, g, b, a)
+    end
+    function e:Color(r2, g2, b2, a2) for _, t in ipairs(self) do t:SetColorTexture(r2, g2, b2, a2) end end
+    return e
+end
+
+local function HeroFont(size)
+    local name = "DisasterZoneHeroFont" .. size
+    local font = _G[name] or CreateFont(name)
+    local path = GameFontNormal:GetFont()
+    font:SetFont(path, size, "")
+    return font
+end
+
+local function NewCard(parent, key)
+    local UI, Arc = ns.UI, ns.MinimapArc
+    local c = CreateFrame("Button", nil, parent)
+    c:SetSize(CARD_W, CARD_H)
+    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    c.key = key
+    c.bg = Fill(c:CreateTexture(nil, "BACKGROUND"), 0.06, 0.07, 0.09, 0.82)
+    c.bg:SetAllPoints()
+    c.glow = Fill(c:CreateTexture(nil, "BACKGROUND", nil, 1), GOLD[1], GOLD[2], GOLD[3], 0)
+    c.glow:SetAllPoints()
+    c.edge = Edge(c, 1, 1, 1, 0.07)
+    c.bar = Fill(c:CreateTexture(nil, "ARTWORK"), GOLD[1], GOLD[2], GOLD[3], 1)
+    c.bar:SetPoint("TOPLEFT")
+    c.bar:SetPoint("BOTTOMLEFT")
+    c.bar:SetWidth(2)
+    c.disc = c:CreateTexture(nil, "ARTWORK")
+    c.disc:SetTexture(DISC)
+    c.disc:SetSize(34, 34)
+    c.disc:SetPoint("LEFT", 12, 0)
+    c.disc:SetVertexColor(0.13, 0.11, 0.18)
+    c.ring = c:CreateTexture(nil, "ARTWORK", nil, 1)
+    c.ring:SetTexture(RING)
+    c.ring:SetAllPoints(c.disc)
+    c.icon = c:CreateTexture(nil, "OVERLAY")
+    c.icon:SetSize(18, 18)
+    c.icon:SetPoint("CENTER", c.disc)
+    local i = Arc and Arc.GetPageIcon and Arc:GetPageIcon(key) or UI.ICON.more
+    local tc = UI:IconCoords(i)
+    c.icon:SetTexture(UI.ICON_ATLAS)
+    c.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
+    c.title = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    c.title:SetPoint("TOPLEFT", c.disc, "TOPRIGHT", 10, -1)
+    c.title:SetText(ns.MainFrame:GetPageLabel(key) or key)
+    c.tip = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    c.tip:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -3)
+    c.tip:SetPoint("RIGHT", c, "RIGHT", -10, 0)
+    c.tip:SetJustifyH("LEFT")
+    c.tip:SetJustifyV("TOP")
+    c.tip:SetHeight(26)
+    c.tip:SetText(CARD_TIPS[key] or ns.MainFrame:GetPageTip(key) or "")
+    c.pin = c:CreateTexture(nil, "OVERLAY")         -- on the minimap arc
+    c.pin:SetTexture(DISC)
+    c.pin:SetSize(6, 6)
+    c.pin:SetPoint("TOPRIGHT", -7, -7)
+    c.pin:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
+    c.h = 0
+    c:SetScript("OnEnter", function(self)
+        self.over = true
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(ns.MainFrame:GetPageLabel(self.key) or self.key, 1, 1, 1)
+        GameTooltip:AddLine("Click: open it", 0.7, 0.7, 0.7)
+        if Arc then
+            GameTooltip:AddLine(Arc:IsPinned(self.key) and "Right-click: unpin from the minimap"
+                or "Right-click: pin to the minimap", 0.7, 0.7, 0.7)
+        end
+        GameTooltip:Show()
+    end)
+    c:SetScript("OnLeave", function(self) self.over = false GameTooltip:Hide() end)
+    c:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then
+            if Arc then Arc:SetPinned(self.key, not Arc:IsPinned(self.key)) end
+            if self:GetScript("OnEnter") and self.over then self:GetScript("OnEnter")(self) end
+            return
+        end
+        local sp = _G.SettingsPanel
+        if sp and sp:IsShown() then
+            if _G.HideUIPanel then _G.HideUIPanel(sp) else sp:Hide() end
+        end
+        ns.MainFrame:Open(self.key)
+    end)
+    -- hover eases in and out: the card lifts, the gold bar and ring light up
+    c:SetScript("OnUpdate", function(self, elapsed)
+        local goal = self.over and 1 or 0
+        if math.abs(self.h - goal) < 0.01 and self.settled then return end
+        self.h = self.h + (goal - self.h) * math.min(1, elapsed * 12)
+        self.settled = math.abs(self.h - goal) < 0.01
+        local h = self.h
+        self.glow:SetAlpha(0.07 * h)
+        self.edge:Color(GOLD[1], GOLD[2], GOLD[3], 0.07 + 0.38 * h)
+        self.bar:SetAlpha(0.25 + 0.75 * h)
+        local l = 0.45 + 0.55 * h
+        self.ring:SetVertexColor(GOLD[1] * l, GOLD[2] * l, GOLD[3] * l)
+        self.icon:SetVertexColor(CREAM[1], CREAM[2], CREAM[3], 0.75 + 0.25 * h)
+        self.pin:SetShown(Arc and Arc:IsPinned(self.key) or false)
+    end)
+    return c
+end
+
+local function BuildBlizzardPanel(canvas)
+    local UI = ns.UI
+    local p = {}
+
+    -- the hero band
+    local hero = CreateFrame("Frame", nil, canvas)
+    hero:SetPoint("TOPLEFT", 12, -12)
+    hero:SetPoint("TOPRIGHT", -12, -12)
+    hero:SetHeight(150)
+    Fill(hero:CreateTexture(nil, "BACKGROUND"), 0.05, 0.04, 0.08, 0.9):SetAllPoints()
+    local wash = hero:CreateTexture(nil, "BACKGROUND", nil, 1)   -- purple light from the seal's side
+    wash:SetPoint("TOPLEFT")
+    wash:SetPoint("BOTTOMLEFT")
+    wash:SetWidth(360)
+    wash:SetColorTexture(1, 1, 1, 1)
+    if not (CreateColor and pcall(wash.SetGradient, wash, "HORIZONTAL", CreateColor(0.23, 0.15, 0.33, 0.55),
+            CreateColor(0.05, 0.04, 0.08, 0))) then
+        wash:SetColorTexture(0.23, 0.15, 0.33, 0.25)
+    end
+    Edge(hero, GOLD[1], GOLD[2], GOLD[3], 0.18)
+    local line = Fill(hero:CreateTexture(nil, "ARTWORK"), GOLD[1], GOLD[2], GOLD[3], 0.85)
+    line:SetPoint("BOTTOMLEFT", 0, 0)
+    line:SetPoint("BOTTOMRIGHT", 0, 0)
+    line:SetHeight(2)
+
+    -- a large faint seal, cut by the band's right edge
+    hero:SetClipsChildren(true)
+    local mark = hero:CreateTexture(nil, "BACKGROUND", nil, 2)
+    mark:SetSize(300, 300)
+    mark:SetPoint("CENTER", hero, "RIGHT", -70, -10)
+    if ns:HasAssets(4) then
+        mark:SetTexture("Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal")
+        mark:SetDesaturated(true)
+        mark:SetVertexColor(0.55, 0.45, 0.7)
+        mark:SetAlpha(0.07)
+    else
+        mark:Hide()
+    end
+
+    local halo = hero:CreateTexture(nil, "ARTWORK")
+    halo:SetTexture(DISC)
+    halo:SetSize(150, 150)
+    halo:SetPoint("LEFT", 6, 0)
+    halo:SetVertexColor(0.45, 0.3, 0.65)
+    local orbit = hero:CreateTexture(nil, "ARTWORK", nil, 1)
+    orbit:SetTexture(RING)
+    orbit:SetSize(124, 124)
+    orbit:SetPoint("CENTER", halo)
+    orbit:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.35)
+    local seal = hero:CreateTexture(nil, "OVERLAY")
+    seal:SetSize(104, 104)
+    seal:SetPoint("CENTER", halo)
+    if ns:HasAssets(4) then
+        seal:SetTexture("Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal")
+    else
+        seal:SetTexture("Interface\\Icons\\INV_Misc_Bag_10_Blue")
+        seal:SetSize(72, 72)
+    end
+
+    local title = hero:CreateFontString(nil, "OVERLAY")
+    title:SetFontObject(HeroFont(30))
+    title:SetPoint("TOPLEFT", halo, "TOPRIGHT", 8, -30)
+    title:SetText("|cffff8000Disaster|r|cfff5e6b8Zone|r")
+
+    local ver = CreateFrame("Frame", nil, hero)
+    ver.text = ver:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    ver.text:SetPoint("CENTER")
+    ver.text:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    local applied = ns.Boot and ns.Boot.applied and (ns.Boot.applied.files or 0) > 0
+    ver.text:SetText("v" .. tostring(ns.version or "?") .. (applied and ("  ·  update on " .. tostring(ns.diskVersion)) or ""))
+    ver:SetSize(ver.text:GetStringWidth() + 16, 18)
+    ver:SetPoint("LEFT", title, "RIGHT", 12, 0)
+    Fill(ver:CreateTexture(nil, "BACKGROUND"), GOLD[1], GOLD[2], GOLD[3], 0.12):SetAllPoints()
+    Edge(ver, GOLD[1], GOLD[2], GOLD[3], 0.4)
+
+    p.guild = hero:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    p.guild:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -6)
+    p.guild:SetTextColor(0.8, 0.78, 0.86)
+
+    local open = UI:CreateButton(hero, "Open DisasterZone", 150, 26, function()
+        local sp = _G.SettingsPanel
+        if sp and sp:IsShown() then
+            if _G.HideUIPanel then _G.HideUIPanel(sp) else sp:Hide() end
+        end
+        ns.MainFrame:Open()
+    end)
+    if open.SetKind then open:SetKind("primary") end
+    open:SetPoint("TOPLEFT", p.guild, "BOTTOMLEFT", -1, -14)
+    local settings = UI:CreateButton(hero, "Settings", 100, 26, OpenFromBlizzard)
+    settings:SetPoint("LEFT", open, "RIGHT", 8, 0)
+
+    -- the seal breathes: the glow swells and fades, the gold orbit widens and narrows with it
+    local t = 0
+    hero:SetScript("OnUpdate", function(_, elapsed)
+        t = t + elapsed
+        local b = math.sin(t * 1.4)
+        halo:SetAlpha(0.32 + 0.12 * b)
+        orbit:SetSize(124 + 6 * b, 124 + 6 * b)
+        orbit:SetAlpha(0.7 + 0.3 * b)
+    end)
+
+    -- the cards
+    local head = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    head:SetPoint("TOPLEFT", hero, "BOTTOMLEFT", 2, -18)
+    head:SetText("Jump to")
+    head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    local sub = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    sub:SetPoint("LEFT", head, "RIGHT", 10, 0)
+    sub:SetText("Right-click a card to pin it to the minimap button")
+    local rule = Fill(canvas:CreateTexture(nil, "ARTWORK"), 1, 1, 1, 0.08)
+    rule:SetPoint("LEFT", sub, "RIGHT", 10, 0)
+    rule:SetPoint("RIGHT", hero, "RIGHT", 0, 0)
+    rule:SetHeight(1)
+    p.grid = CreateFrame("Frame", nil, canvas)
+    p.grid:SetPoint("TOPLEFT", head, "BOTTOMLEFT", -2, -10)
+    p.grid:SetPoint("RIGHT", hero, "RIGHT")
+    p.grid:SetHeight(1)
+    p.cards = {}
+
+    -- the footer
+    local foot = CreateFrame("Frame", nil, canvas)
+    foot:SetPoint("BOTTOMLEFT", 12, 12)
+    foot:SetPoint("BOTTOMRIGHT", -12, 12)
+    foot:SetHeight(34)
+    Fill(foot:CreateTexture(nil, "BACKGROUND"), 0.05, 0.06, 0.08, 0.8):SetAllPoints()
+    Edge(foot, 1, 1, 1, 0.06)
+    local dot = foot:CreateTexture(nil, "ARTWORK")
+    dot:SetTexture(DISC)
+    dot:SetSize(7, 7)
+    dot:SetPoint("LEFT", 12, 0)
+    dot:SetVertexColor(0.5, 0.82, 0.5)
+    p.status = foot:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.status:SetPoint("LEFT", dot, "RIGHT", 8, 0)
+    p.status:SetJustifyH("LEFT")
+    local last
+    for i, cmd in ipairs({ "/dz help", "/dz settings", "/dz" }) do
+        local chip = CreateFrame("Frame", nil, foot)
+        chip.text = chip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        chip.text:SetPoint("CENTER")
+        chip.text:SetText(cmd)
+        chip.text:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
+        chip:SetSize(chip.text:GetStringWidth() + 14, 20)
+        Fill(chip:CreateTexture(nil, "BACKGROUND"), 1, 1, 1, 0.05):SetAllPoints()
+        Edge(chip, 1, 1, 1, 0.1)
+        if last then chip:SetPoint("RIGHT", last, "LEFT", -6, 0) else chip:SetPoint("RIGHT", -8, 0) end
+        last = chip
+    end
+    p.status:SetPoint("RIGHT", last, "LEFT", -12, 0)
+    p.status:SetWordWrap(false)
+    return p
+end
+
+local function RefreshBlizzardPanel(canvas, p)
+    local guild = IsInGuild() and GetGuildInfo("player")
+    local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
+    p.guild:SetText(guild and ("<" .. guild .. ">  ·  " .. (council and "Loot Council" or "Raider"))
+        or "Your guild's raids, loot and pastimes in one place")
+    local status = ns.Sync and ns.Sync.GetStatusText and ns.Sync:GetStatusText()
+    p.status:SetText(((status and status ~= "" and ns.UI:SafeText(status)) or "Ready"))
+
+    local keys = ns.MainFrame:GetShownPages()
+    local gw = p.grid:GetWidth() or 0
+    if gw < CARD_W then gw = math.max((canvas:GetWidth() or 0) - 24, 3 * CARD_W + 2 * GAP) end
+    local cols = math.max(1, math.floor((gw + GAP) / (CARD_W + GAP)))
+    local w = (gw - (cols - 1) * GAP) / cols
+    for _, c in pairs(p.cards) do c:Hide() end
+    for i, key in ipairs(keys) do
+        local c = p.cards[key] or NewCard(p.grid, key)
+        p.cards[key] = c
+        local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+        c:SetWidth(w)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", p.grid, "TOPLEFT", col * (w + GAP), -row * (CARD_H + GAP))
+        c.settled = false
+        c:SetAlpha(0)
+        c.fade = (i - 1) * 0.03                     -- the cards appear one after another
+        c:Show()
+    end
+    -- the fade-in, run from the canvas so cards keep their own OnUpdate for hover
+    local t = 0
+    canvas:SetScript("OnUpdate", function(_, elapsed)
+        t = t + elapsed
+        local busy = false
+        for _, c in pairs(p.cards) do
+            if c:IsShown() and c.fade then
+                local a = math.min(1, math.max(0, (t - c.fade) / 0.25))
+                c:SetAlpha(a)
+                if a >= 1 then c.fade = nil else busy = true end
+            end
+        end
+        if not busy then canvas:SetScript("OnUpdate", nil) end
+    end)
+end
+
 function SettingsUI:RegisterBlizzardCategory()
     local S = _G.Settings
     if self.category or not (S and S.RegisterCanvasLayoutCategory and S.RegisterAddOnCategory) then return end
     local canvas = CreateFrame("Frame", "DisasterZoneBlizzardOptions")
-
-    local title = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", canvas, "TOPLEFT", 16, -16)
-    title:SetText("|cffff8000Disaster|rZone")
-    local ver = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    ver:SetPoint("BOTTOMLEFT", title, "BOTTOMRIGHT", 8, 1)
-    ver:SetText("v" .. tostring(ns.version or "?")
-        .. ((ns.Boot and ns.Boot.applied and (ns.Boot.applied.files or 0) > 0)
-            and (" (in-game update on " .. tostring(ns.diskVersion) .. ")") or ""))
-
-    local desc = canvas:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
-    desc:SetWidth(560)
-    desc:SetJustifyH("LEFT")
-    desc:SetText("BiS lists, the Loot Council overview and boss-drop alerts for <Casual Disaster>.\n"
-        .. "All options live in the DisasterZone window. Slash commands: /dz, /dz settings, /dz help.")
-
-    local btn = ns.UI and ns.UI.CreateButton and ns.UI:CreateButton(canvas, "Open DisasterZone settings", 200, 26, OpenFromBlizzard)
-    if btn then btn:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -16) end
+    local panel
+    canvas:SetScript("OnShow", function(f)
+        if not (ns.UI and ns.MainFrame) then return end
+        panel = panel or BuildBlizzardPanel(f)
+        -- the canvas gets its size in the same frame it shows: lay the cards out once it has one
+        C_Timer.After(0, function() if f:IsShown() then RefreshBlizzardPanel(f, panel) end end)
+    end)
 
     local cat = S.RegisterCanvasLayoutCategory(canvas, "DisasterZone")
     S.RegisterAddOnCategory(cat)

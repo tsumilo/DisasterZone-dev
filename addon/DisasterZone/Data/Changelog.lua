@@ -20,6 +20,7 @@ ns.CHANGELOG = {
               "Left-click it and your pinned sections fan out around it; click one to go straight there.",
               "The + at the end of the arc picks your pins (up to 6); right-click a pin to move or unpin it.",
               "Pins are shared by all your characters. Right-click the button to open the window as before.",
+              "A new DisasterZone page in Options > AddOns: open any section from it, or right-click one to pin it.",
           } },
           { heading = "Events", lines = {
               "A new tab, Events: the guild's own events, like duel cups, races, hunts and contests.",

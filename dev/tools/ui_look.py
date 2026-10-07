@@ -550,6 +550,8 @@ def render(regs, lay, findings, path, look, A, crop=None):
     dr = ImageDraw.Draw(img, "RGBA")
     for i, f in enumerate(findings, 1):
         x0, y0, x1, y1 = box(f["rect"])
+        x0, x1 = min(x0, x1), max(x0, x1)
+        y0, y1 = min(y0, y1), max(y0, y1)
         dr.rectangle((x0 - 1, y0 - 1, x1 + 1, y1 + 1), outline=(255, 40, 40, 255), width=2)
         dr.text((x0, max(0, y0 - 14)), str(i), font=font(13), fill=(255, 80, 80))
     img.convert("RGB").save(path)

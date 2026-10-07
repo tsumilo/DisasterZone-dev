@@ -731,6 +731,11 @@ function MainFrame:GetPageLabel(key)
     return tabDefs[key] and tabDefs[key].label or nil
 end
 
+-- A page's one-line description (its line in a group's menu), nil for a page without one.
+function MainFrame:GetPageTip(key)
+    return NAV_PAGE_TIPS[key]
+end
+
 function MainFrame:IsPageShown(key)
     return tabDefs[key] ~= nil and not NAV_HIDDEN[key] and IsAvailable(tabDefs[key])
 end
