@@ -2118,9 +2118,12 @@ function T:FillResult(f, occ, st, def, aid, q)
     tally = ok and tally or {}
     local total, people = 0, 0
     for _, t in ipairs(tally) do total = total + t.n end
-    for _ in pairs(q.ans or {}) do people = people + 1 end
+    -- (answers lost in a takeover are in ans but count for nothing: q.lost, the engine's rule)
+    local lost = type(q.lost) == "table" and q.lost or {}
+    for k in pairs(q.ans or {}) do if not lost[k] then people = people + 1 end end
     local me = Me()
-    local mine = q.ans and q.ans[me]
+    local mine
+    if q.ans and not lost[me] then mine = q.ans[me] end
     -- (an open secret ask's answers travel as true; a closed one's are real: yes is true too)
     if mine == true and kind ~= "yesno" then mine = nil end
     f.kick:SetText(Upper(ad.n or "Ask") .. " · CLOSED")
