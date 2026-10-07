@@ -80,6 +80,7 @@ Core\Loot.lua
 Core\Roll.lua
 Core\Loon.lua
 Core\Atlas.lua
+Core\Currency.lua
 Core\ShoppingList.lua
 Core\Codec.lua
 Core\BiSImport.lua

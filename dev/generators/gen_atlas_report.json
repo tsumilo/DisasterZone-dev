@@ -214,18 +214,50 @@
   "234288": 1213709
  },
  "conversions": 21,
+ "learned_price_files": {
+  "1143594219#1\\SavedVariables\\AtlasLootClassic.lua": 422
+ },
+ "costs": 728,
+ "cost_sources": {
+  "AtlasLoot table row": 251,
+  "AtlasLoot vendor scan (realm)": 364,
+  "AtlasLoot VendorPrice.lua": 85,
+  "Sunmote upgrade": 28
+ },
+ "cost_keys": {
+  "29434": 200,
+  "c1901": 155,
+  "c1900": 114,
+  "g": 113,
+  "34664": 28,
+  "20560": 22,
+  "26044": 19,
+  "26045": 17,
+  "28558": 17,
+  "37829": 16,
+  "24245": 14,
+  "20559": 14,
+  "20558": 14,
+  "24579": 12,
+  "29024": 11,
+  "32569": 11,
+  "29735": 8,
+  "29736": 8,
+  "32572": 8
+ },
+ "costs_dropped_unknown_key": [],
  "output": "C:\\Users\\emilo\\CDLoot-dev\\addon\\DisasterZone\\Data\\Atlas.lua",
- "bytes": 620801,
+ "bytes": 643550,
  "validation_errors": [],
  "validation_counts": {
   "pages": 527,
   "entries": 3856,
   "items": 3785,
   "spells": 71,
-  "xt": 80,
   "set_pages": 166,
   "names": 5540,
   "tree_unique_ids": 3471,
+  "costs": 728,
   "recipes": 394,
   "crafts": 2383,
   "conversions": 21
@@ -1068,255 +1100,65 @@
    "pvp/ArenaS4PvP#10"
   ]
  },
- "x_without_cost_by_category": {
+ "rows_without_table_price_by_category": {
   "pvp": 510,
   "vendors": 28,
   "collections": 152,
   "events": 117
  },
- "x_too_long_truncated": [],
- "xt_sample": [
-  {
-   "where": "pvp/Honor/InsigniaA",
-   "id": 25829,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/Honor/InsigniaH",
-   "id": 24551,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/Reputation/InsigniaA",
-   "id": 25829,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/Reputation/InsigniaH",
-   "id": 24551,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsA",
-   "id": 19030,
-   "x": "50 AV Marks",
-   "xt": "50 Alterac Valley Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsA",
-   "id": 29467,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsA",
-   "id": 29465,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsA",
-   "id": 29468,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsA",
-   "id": 29471,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsA",
-   "id": 35906,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsH",
-   "id": 19029,
-   "x": "50 AV Marks",
-   "xt": "50 Alterac Valley Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsH",
-   "id": 29469,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsH",
-   "id": 29466,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsH",
-   "id": 29472,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsH",
-   "id": 29470,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/Mounts/MountsH",
-   "id": 34129,
-   "x": "30 AV Marks",
-   "xt": "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks"
-  },
-  {
-   "where": "pvp/ArenaS1/InsigniaA",
-   "id": 25829,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/ArenaS1/InsigniaH",
-   "id": 24551,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/ArenaS2/InsigniaA",
-   "id": 25829,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/ArenaS2/InsigniaH",
-   "id": 24551,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/ArenaS3/InsigniaA",
-   "id": 25829,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/ArenaS3/InsigniaH",
-   "id": 24551,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/ArenaS4/InsigniaA",
-   "id": 25829,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/ArenaS4/InsigniaH",
-   "id": 24551,
-   "x": "22950 Honor",
-   "xt": "22950 Honor and 10 Eye of the Storm Marks"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 28915,
-   "x": "70 Halaa BT",
-   "xt": "70 Halaa Battle Tokens and 15 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27679,
-   "x": "100 Halaa BT",
-   "xt": "100 Halaa Battle Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27649,
-   "x": "40 Halaa BT",
-   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27648,
-   "x": "40 Halaa BT",
-   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27650,
-   "x": "40 Halaa BT",
-   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27647,
-   "x": "40 Halaa BT",
-   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27652,
-   "x": "40 Halaa BT",
-   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27654,
-   "x": "40 Halaa BT",
-   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27653,
-   "x": "40 Halaa BT",
-   "xt": "40 Halaa Battle Tokens and 2 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 29228,
-   "x": "100 Halaa BT",
-   "xt": "100 Halaa Battle Tokens and 20 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27680,
-   "x": "8 Halaa RT",
-   "xt": "8 Halaa Research Tokens"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27638,
-   "x": "20 Halaa BT",
-   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27645,
-   "x": "20 Halaa BT",
-   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27637,
-   "x": "20 Halaa BT",
-   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27646,
-   "x": "20 Halaa BT",
-   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
-  },
-  {
-   "where": "pvp/Nagrand/Vendor",
-   "id": 27643,
-   "x": "20 Halaa BT",
-   "xt": "20 Halaa Battle Tokens and 1 Halaa Research Token"
-  }
- ],
+ "rows_without_cost_pvp_vendors_sets": {
+  "pvp/Honor": 20,
+  "pvp/Mounts": 8,
+  "pvp/ArenaS1": 101,
+  "pvp/ArenaS2": 40,
+  "pvp/ArenaS3": 41,
+  "pvp/ArenaS4": 105,
+  "pvp/Hellfire": 8,
+  "pvp/Nagrand": 14,
+  "pvp/Terokkar": 1,
+  "pvp/Zangarmarsh": 2,
+  "sets/Tier4": 85,
+  "sets/Tier5": 85,
+  "sets/Tier6": 136,
+  "sets/ArenaS1": 65,
+  "sets/ArenaS2": 65,
+  "sets/ArenaS3": 65,
+  "sets/ArenaS4": 85,
+  "sets/Honor": 145,
+  "sets/RepPvP": 60
+ },
+ "costs_sample": {
+  "19029": "20560:50",
+  "25737": "g:112000",
+  "27648": "26045:40,26044:2",
+  "27929": "24579:15",
+  "28298": "c1901:15870",
+  "28556": "28558:8",
+  "28878": "29735:2",
+  "28947": "c1901:3965",
+  "29142": "g:196936",
+  "29266": "29434:33",
+  "29386": "29434:25",
+  "30350": "c1901:8000",
+  "31392": "g:192000",
+  "31949": "g:4000",
+  "32023": "c1900:620",
+  "32087": "29434:50",
+  "32648": "32572:4,32569:100",
+  "32961": "c1900:370",
+  "33291": "29434:60",
+  "33514": "29434:60",
+  "33557": "29434:35",
+  "33689": "c1900:930",
+  "33743": "c1900:2610",
+  "33863": "37829:200",
+  "33950": "c1900:830",
+  "34173": "g:144000",
+  "34403": "34664:1",
+  "34895": "29434:150",
+  "34927": "29434:100",
+  "34952": "29434:45"
+ },
  "spot_checks": {
   "enchanting_first_page": {
    "page": "Weapon - Enhancements",
@@ -1576,7 +1418,7 @@
    }
   ],
   "file": {
-   "bytes": 620801,
+   "bytes": 643550,
    "atlas_names": 5540
   }
  }

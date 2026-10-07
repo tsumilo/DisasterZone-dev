@@ -12,6 +12,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Atlas.lua", ...) then return 
 --   AtlasLootClassic_DungeonsAndRaids/data-tbc.lua  T4_SET / T5_SET / T6_SET (item set ids per class)
 --   AtlasLootClassic/Data/ItemSet.lua          set id -> item ids + set name (BCC, CLASSIC fallback)
 --   AtlasLootClassic/Data/VendorPrice.lua      badge / honor / mark / token / money costs
+--   WTF/Account/*/SavedVariables/AtlasLootClassic.lua  AtlasLoot's vendor scans on the author's PC: the prices the
+--                                              realm's vendors asked (first choice for AtlasCosts)
 --   Questie/Database/TBC/tbcItemDB.lua         English item names (fallback: the AtlasLoot row comment)
 --   DisasterZone Data/Items.lua, Dungeons.lua, Sources.lua  item ids the Atlas tab also lists (names; the raid /
 --                                              dungeon boss lists for recipes; Upgrades for the Sunmote page)
@@ -35,14 +37,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Atlas.lua", ...) then return 
 --          Reputation / world PvP 1; arena Season 1/2/3/4 = 1/2/3/5), the P1 Badge of Justice table 1;
 --          Tier 4/5/6 = 1/2/3; every Sets source has one. No phase = not known (crafting, most factions, ...).
 --   x = { [itemIndex] = "short text" } shown at the row's right (at most 16 characters): "Skill 375" (crafting,
---       Profession.lua required skill); "1 Sunmote" (Sunmote page: the upgrade needs the base Sunwell drop plus one
---       Sunmote, ns.Data.Upgrades); otherwise the MAIN cost (the first part of the row's AtlasLoot price, else
---       VendorPrice.lua) in plain words: "8000 Honor", "40 Badges", "15 Marks", "30 AV Marks", "90g". One page uses
---       one unit form per currency. None on reputation or Sets pages.
---   xt = { [itemIndex] = "full cost" } for the tooltip ("Cost: <xt>"), only where x has a cost that says less: more
---       than one currency, or an abbreviated unit. Every currency spelled out: "22950 Honor and 10 Eye of the Storm
---       Marks", "15 Marks of Honor Hold", "40 Halaa Battle Tokens and 2 Halaa Research Tokens".
+--       Profession.lua required skill). Prices are not here: ns.Data.AtlasCosts, per item.
 --   PvP: the arena / honor / reputation SET sub-tables live under Sets; every other PvP sub-table stays under PvP.
+-- ns.Data.AtlasCosts = { [itemID] = "key:amount,key:amount" } what an item costs at its vendor (Core/Currency.lua):
+--   key "c<currencyID>" = a currency (c1901 Honor, c1900 Arena Points), "g" = money in copper, a number = an item
+--   that pays (29434 Badge of Justice, 20560 Alterac Valley Mark, 34664 Sunmote ...). First choice: the realm's own
+--   prices from AtlasLoot's vendor scans (PvP prices change with the arena seasons), then the AtlasLoot row's price,
+--   then VendorPrice.lua; a Sunmote upgrade costs one Sunmote (plus its base drop, the row under it).
 -- ns.Data.AtlasNames = { [id] = "English name" } for every id the Atlas tab can list: the ids above (items positive,
 --   craft spells negative) plus every item id of Data/Items.lua (raid loot, tokens + pieces, upgrades, arena token
 --   exchanges), Data/Dungeons.lua and Data/Sources.lua, plus every AtlasRecipes value.
@@ -2625,11 +2626,6 @@ ns.Data.Atlas = {
           30351, -- Medallion of the Alliance
           30348, -- Medallion of the Alliance
           30350, -- Medallion of the Alliance
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "InsigniaH", name = "Insignia", side = "Horde", items = {
           24551, -- Talisman of the Horde
@@ -2643,11 +2639,6 @@ ns.Data.Atlas = {
           30345, -- Medallion of the Horde
           30343, -- Medallion of the Horde
           30344, -- Medallion of the Horde
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "Gems", name = "Gems", items = {
           28118, -- Runed Ornate Ruby
@@ -2656,8 +2647,6 @@ ns.Data.Atlas = {
           28120, -- Gleaming Ornate Dawnstone
           28123, -- Potent Ornate Topaz
           28363, -- Inscribed Ornate Topaz
-      }, x = {
-          [1] = "8500 Honor", [2] = "8500 Honor", [3] = "8500 Honor", [4] = "8500 Honor", [5] = "8500 Honor", [6] = "8500 Honor",
       } },
     }},
     { key = "Reputation", name = "PvP reputation rewards", phase = 1, pages = {
@@ -2673,11 +2662,6 @@ ns.Data.Atlas = {
           30351, -- Medallion of the Alliance
           30348, -- Medallion of the Alliance
           30350, -- Medallion of the Alliance
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "InsigniaH", name = "Insignia", side = "Horde", items = {
           24551, -- Talisman of the Horde
@@ -2691,11 +2675,6 @@ ns.Data.Atlas = {
           30345, -- Medallion of the Horde
           30343, -- Medallion of the Horde
           30344, -- Medallion of the Horde
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "Gems", name = "Gems", items = {
           28118, -- Runed Ornate Ruby
@@ -2704,8 +2683,6 @@ ns.Data.Atlas = {
           28120, -- Gleaming Ornate Dawnstone
           28123, -- Potent Ornate Topaz
           28363, -- Inscribed Ornate Topaz
-      }, x = {
-          [1] = "8500 Honor", [2] = "8500 Honor", [3] = "8500 Honor", [4] = "8500 Honor", [5] = "8500 Honor", [6] = "8500 Honor",
       } },
     }},
     { key = "Mounts", name = "PvP mounts", pages = {
@@ -2720,15 +2697,6 @@ ns.Data.Atlas = {
           34092, -- Merciless Nether Drake
           37676, -- Vengeful Nether Drake
           43516, -- Brutal Nether Drake
-      }, x = {
-          [1] = "50 AV Marks", [2] = "30 AV Marks", [3] = "30 AV Marks", [4] = "30 AV Marks", [5] = "30 AV Marks", [6] = "30 AV Marks",
-      }, xt = {
-          [1] = "50 Alterac Valley Marks",
-          [2] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
-          [3] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
-          [4] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
-          [5] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
-          [6] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
       } },
       { key = "MountsH", name = "Mounts", side = "Horde", items = {
           19029, -- Horn of the Frostwolf Howler
@@ -2741,15 +2709,6 @@ ns.Data.Atlas = {
           34092, -- Merciless Nether Drake
           37676, -- Vengeful Nether Drake
           43516, -- Brutal Nether Drake
-      }, x = {
-          [1] = "50 AV Marks", [2] = "30 AV Marks", [3] = "30 AV Marks", [4] = "30 AV Marks", [5] = "30 AV Marks", [6] = "30 AV Marks",
-      }, xt = {
-          [1] = "50 Alterac Valley Marks",
-          [2] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
-          [3] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
-          [4] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
-          [5] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
-          [6] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
       } },
     }},
     { key = "ArenaS1", name = "Arena Season 1", phase = 1, pages = {
@@ -2923,11 +2882,6 @@ ns.Data.Atlas = {
           30351, -- Medallion of the Alliance
           30348, -- Medallion of the Alliance
           30350, -- Medallion of the Alliance
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "InsigniaH", name = "Insignia", side = "Horde", items = {
           24551, -- Talisman of the Horde
@@ -2941,11 +2895,6 @@ ns.Data.Atlas = {
           30345, -- Medallion of the Horde
           30343, -- Medallion of the Horde
           30344, -- Medallion of the Horde
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "Gems", name = "Gems", items = {
           28118, -- Runed Ornate Ruby
@@ -2954,8 +2903,6 @@ ns.Data.Atlas = {
           28120, -- Gleaming Ornate Dawnstone
           28123, -- Potent Ornate Topaz
           28363, -- Inscribed Ornate Topaz
-      }, x = {
-          [1] = "8500 Honor", [2] = "8500 Honor", [3] = "8500 Honor", [4] = "8500 Honor", [5] = "8500 Honor", [6] = "8500 Honor",
       } },
       { key = "GladiatorMount", name = "Gladiator Mount", items = {
           30609, -- Swift Nether Drake
@@ -3084,11 +3031,6 @@ ns.Data.Atlas = {
           30351, -- Medallion of the Alliance
           30348, -- Medallion of the Alliance
           30350, -- Medallion of the Alliance
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "InsigniaH", name = "Insignia", side = "Horde", items = {
           24551, -- Talisman of the Horde
@@ -3102,11 +3044,6 @@ ns.Data.Atlas = {
           30345, -- Medallion of the Horde
           30343, -- Medallion of the Horde
           30344, -- Medallion of the Horde
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "Gems", name = "Gems", items = {
           28118, -- Runed Ornate Ruby
@@ -3115,8 +3052,6 @@ ns.Data.Atlas = {
           28120, -- Gleaming Ornate Dawnstone
           28123, -- Potent Ornate Topaz
           28363, -- Inscribed Ornate Topaz
-      }, x = {
-          [1] = "8500 Honor", [2] = "8500 Honor", [3] = "8500 Honor", [4] = "8500 Honor", [5] = "8500 Honor", [6] = "8500 Honor",
       } },
       { key = "GladiatorMount", name = "Gladiator Mount", items = {
           34092, -- Merciless Nether Drake
@@ -3266,11 +3201,6 @@ ns.Data.Atlas = {
           30351, -- Medallion of the Alliance
           30348, -- Medallion of the Alliance
           30350, -- Medallion of the Alliance
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "InsigniaH", name = "Insignia", side = "Horde", items = {
           24551, -- Talisman of the Horde
@@ -3284,11 +3214,6 @@ ns.Data.Atlas = {
           30345, -- Medallion of the Horde
           30343, -- Medallion of the Horde
           30344, -- Medallion of the Horde
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "Gems", name = "Gems", items = {
           28118, -- Runed Ornate Ruby
@@ -3297,8 +3222,6 @@ ns.Data.Atlas = {
           28120, -- Gleaming Ornate Dawnstone
           28123, -- Potent Ornate Topaz
           28363, -- Inscribed Ornate Topaz
-      }, x = {
-          [1] = "8500 Honor", [2] = "8500 Honor", [3] = "8500 Honor", [4] = "8500 Honor", [5] = "8500 Honor", [6] = "8500 Honor",
       } },
       { key = "GladiatorMount", name = "Gladiator Mount", items = {
           37676, -- Vengeful Nether Drake
@@ -3443,11 +3366,6 @@ ns.Data.Atlas = {
           30351, -- Medallion of the Alliance
           30348, -- Medallion of the Alliance
           30350, -- Medallion of the Alliance
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "InsigniaH", name = "Insignia", side = "Horde", items = {
           24551, -- Talisman of the Horde
@@ -3461,11 +3379,6 @@ ns.Data.Atlas = {
           30345, -- Medallion of the Horde
           30343, -- Medallion of the Horde
           30344, -- Medallion of the Horde
-      }, x = {
-          [1] = "22950 Honor", [2] = "40000 Honor", [3] = "8000 Honor", [4] = "8000 Honor", [5] = "8000 Honor", [6] = "8000 Honor",
-          [7] = "8000 Honor", [8] = "8000 Honor", [9] = "8000 Honor", [10] = "8000 Honor", [11] = "8000 Honor",
-      }, xt = {
-          [1] = "22950 Honor and 10 Eye of the Storm Marks",
       } },
       { key = "Gems", name = "Gems", items = {
           28118, -- Runed Ornate Ruby
@@ -3474,8 +3387,6 @@ ns.Data.Atlas = {
           28120, -- Gleaming Ornate Dawnstone
           28123, -- Potent Ornate Topaz
           28363, -- Inscribed Ornate Topaz
-      }, x = {
-          [1] = "8500 Honor", [2] = "8500 Honor", [3] = "8500 Honor", [4] = "8500 Honor", [5] = "8500 Honor", [6] = "8500 Honor",
       } },
       { key = "GladiatorMount", name = "Gladiator Mount", items = {
           43516, -- Brutal Nether Drake
@@ -3522,32 +3433,6 @@ ns.Data.Atlas = {
           33783, -- Design: Steady Talasite
           32071, -- Recipe: Elixir of Ironskin
           26044, -- Halaa Research Token
-      }, x = {
-          [1] = "70 Halaa BT", [2] = "100 Halaa BT", [3] = "40 Halaa BT", [4] = "40 Halaa BT", [5] = "40 Halaa BT", [6] = "40 Halaa BT",
-          [7] = "40 Halaa BT", [8] = "40 Halaa BT", [9] = "40 Halaa BT", [10] = "12g", [12] = "100 Halaa BT", [13] = "8 Halaa RT",
-          [14] = "20 Halaa BT", [15] = "20 Halaa BT", [16] = "20 Halaa BT", [17] = "20 Halaa BT", [18] = "20 Halaa BT", [19] = "20 Halaa BT",
-          [20] = "20 Halaa BT", [21] = "4 Halaa RT", [22] = "2 Halaa RT",
-      }, xt = {
-          [1] = "70 Halaa Battle Tokens and 15 Halaa Research Tokens",
-          [2] = "100 Halaa Battle Tokens",
-          [3] = "40 Halaa Battle Tokens and 2 Halaa Research Tokens",
-          [4] = "40 Halaa Battle Tokens and 2 Halaa Research Tokens",
-          [5] = "40 Halaa Battle Tokens and 2 Halaa Research Tokens",
-          [6] = "40 Halaa Battle Tokens and 2 Halaa Research Tokens",
-          [7] = "40 Halaa Battle Tokens and 2 Halaa Research Tokens",
-          [8] = "40 Halaa Battle Tokens and 2 Halaa Research Tokens",
-          [9] = "40 Halaa Battle Tokens and 2 Halaa Research Tokens",
-          [12] = "100 Halaa Battle Tokens and 20 Halaa Research Tokens",
-          [13] = "8 Halaa Research Tokens",
-          [14] = "20 Halaa Battle Tokens and 1 Halaa Research Token",
-          [15] = "20 Halaa Battle Tokens and 1 Halaa Research Token",
-          [16] = "20 Halaa Battle Tokens and 1 Halaa Research Token",
-          [17] = "20 Halaa Battle Tokens and 1 Halaa Research Token",
-          [18] = "20 Halaa Battle Tokens and 1 Halaa Research Token",
-          [19] = "20 Halaa Battle Tokens and 1 Halaa Research Token",
-          [20] = "20 Halaa Battle Tokens and 1 Halaa Research Token",
-          [21] = "4 Halaa Research Tokens",
-          [22] = "2 Halaa Research Tokens",
       } },
       { key = "NagrandA", name = "Nagrand", side = "Alliance", items = {
           30611, -- Halaani Razorshaft
@@ -3586,10 +3471,6 @@ ns.Data.Atlas = {
           28758, -- Exorcist's Mail Helm
           28559, -- Exorcist's Plate Helm
           32948, -- Auchenai Mana Potion
-      }, x = {
-          [1] = "50 Spirit Shards", [2] = "8 Spirit Shards", [3] = "18 Spirit Shards", [4] = "18 Spirit Shards", [5] = "18 Spirit Shards", [6] = "18 Spirit Shards",
-          [7] = "18 Spirit Shards", [8] = "18 Spirit Shards", [9] = "2 Spirit Shards", [11] = "50 Spirit Shards", [12] = "8 Spirit Shards", [13] = "18 Spirit Shards",
-          [14] = "18 Spirit Shards", [15] = "18 Spirit Shards", [16] = "18 Spirit Shards", [17] = "18 Spirit Shards", [18] = "2 Spirit Shards",
       } },
     }},
     { key = "Zangarmarsh", name = "Zangarmarsh", phase = 1, pages = {
@@ -3604,19 +3485,6 @@ ns.Data.Atlas = {
           27922, -- Mark of Defiance
           27920, -- Mark of Conquest
           27927, -- Mark of Vindication
-      }, x = {
-          [1] = "15 Marks", [2] = "15 Marks", [3] = "15 Marks", [4] = "15 Marks", [5] = "15 Marks", [6] = "15 Marks",
-          [8] = "30 Marks", [9] = "30 Marks", [10] = "30 Marks",
-      }, xt = {
-          [1] = "15 Marks of Honor Hold",
-          [2] = "15 Marks of Honor Hold",
-          [3] = "15 Marks of Honor Hold",
-          [4] = "15 Marks of Honor Hold",
-          [5] = "15 Marks of Honor Hold",
-          [6] = "15 Marks of Honor Hold",
-          [8] = "30 Marks of Honor Hold",
-          [9] = "30 Marks of Honor Hold",
-          [10] = "30 Marks of Honor Hold",
       } },
       { key = "ZangarmarshH", name = "Zangarmarsh", side = "Horde", items = {
           27990, -- Idol of Savagery
@@ -3629,19 +3497,6 @@ ns.Data.Atlas = {
           27922, -- Mark of Defiance
           27920, -- Mark of Conquest
           27927, -- Mark of Vindication
-      }, x = {
-          [1] = "5 Marks", [2] = "15 Marks", [3] = "15 Marks", [4] = "15 Marks", [5] = "15 Marks", [6] = "15 Marks",
-          [8] = "30 Marks", [9] = "30 Marks", [10] = "30 Marks",
-      }, xt = {
-          [1] = "5 Marks of Thrallmar",
-          [2] = "15 Marks of Thrallmar",
-          [3] = "15 Marks of Thrallmar",
-          [4] = "15 Marks of Thrallmar",
-          [5] = "15 Marks of Thrallmar",
-          [6] = "15 Marks of Thrallmar",
-          [8] = "30 Marks of Thrallmar",
-          [9] = "30 Marks of Thrallmar",
-          [10] = "30 Marks of Thrallmar",
       } },
     }},
   }},
@@ -3654,8 +3509,6 @@ ns.Data.Atlas = {
           30764, -- Infernoweave Gloves
           30761, -- Infernoweave Leggings
           30763, -- Infernoweave Boots
-      }, x = {
-          [1] = "50 Badges", [2] = "50 Badges", [3] = "30 Badges", [4] = "20 Badges", [5] = "30 Badges", [6] = "20 Badges",
       } },
       { key = "ArmorLeather", name = "Armor - Leather", items = {
           32087, -- Mask of the Deceiver
@@ -3664,8 +3517,6 @@ ns.Data.Atlas = {
           30780, -- Inferno Hardened Gloves
           30778, -- Inferno Hardened Leggings
           30779, -- Inferno Hardened Boots
-      }, x = {
-          [1] = "50 Badges", [2] = "50 Badges", [3] = "30 Badges", [4] = "20 Badges", [5] = "30 Badges", [6] = "20 Badges",
       } },
       { key = "ArmorMail", name = "Armor - Mail", items = {
           32085, -- Warpstalker Helm
@@ -3674,8 +3525,6 @@ ns.Data.Atlas = {
           30774, -- Inferno Forged Gloves
           30770, -- Inferno Forged Boots
           30772, -- Inferno Forged Leggings
-      }, x = {
-          [1] = "50 Badges", [2] = "50 Badges", [3] = "30 Badges", [4] = "20 Badges", [5] = "20 Badges", [6] = "30 Badges",
       } },
       { key = "ArmorPlate", name = "Armor - Plate", items = {
           32083, -- Faceguard of Determination
@@ -3684,8 +3533,6 @@ ns.Data.Atlas = {
           30767, -- Inferno Tempered Gauntlets
           30766, -- Inferno Tempered Leggings
           30768, -- Inferno Tempered Boots
-      }, x = {
-          [1] = "50 Badges", [2] = "50 Badges", [3] = "30 Badges", [4] = "20 Badges", [5] = "30 Badges", [6] = "20 Badges",
       } },
       { key = "OffHand", name = "Off Hand", items = {
           29266, -- Azure-Shield of Coldarra
@@ -3698,48 +3545,35 @@ ns.Data.Atlas = {
           29273, -- Khadgar's Knapsack
           29274, -- Tears of Heaven
           29275, -- Searing Sunblade
-      }, x = {
-          [1] = "33 Badges", [2] = "33 Badges", [3] = "33 Badges", [4] = "25 Badges", [5] = "25 Badges", [6] = "25 Badges",
-          [7] = "25 Badges", [8] = "25 Badges", [9] = "25 Badges", [10] = "50 Badges",
       } },
       { key = "Neck", name = "Neck", items = {
           29368, -- Manasurge Pendant
           29374, -- Necklace of Eternal Hope
           29381, -- Choker of Vile Intent
           29386, -- Necklace of the Juggernaut
-      }, x = {
-          [1] = "25 Badges", [2] = "25 Badges", [3] = "25 Badges", [4] = "25 Badges",
       } },
       { key = "Cloak", name = "Cloak", items = {
           29369, -- Shawl of Shifting Probabilities
           29375, -- Bishop's Cloak
           29382, -- Blood Knight War Cloak
           29385, -- Farstrider Defender's Cloak
-      }, x = {
-          [1] = "25 Badges", [2] = "25 Badges", [3] = "25 Badges", [4] = "25 Badges",
       } },
       { key = "Finger", name = "Finger", items = {
           29367, -- Ring of Cryptic Dreams
           29373, -- Band of Halos
           29379, -- Ring of Arathi Warlords
           29384, -- Ring of Unyielding Force
-      }, x = {
-          [1] = "25 Badges", [2] = "25 Badges", [3] = "25 Badges", [4] = "25 Badges",
       } },
       { key = "Trinket", name = "Trinket", items = {
           29370, -- Icon of the Silver Crescent
           29376, -- Essence of the Martyr
           29383, -- Bloodlust Brooch
           29387, -- Gnomeregan Auto-Blocker 600
-      }, x = {
-          [1] = "41 Badges", [2] = "41 Badges", [3] = "41 Badges", [4] = "41 Badges",
       } },
       { key = "Relic", name = "Relic", items = {
           29388, -- Libram of Repentance
           29389, -- Totem of the Pulsing Earth
           29390, -- Everbloom Idol
-      }, x = {
-          [1] = "15 Badges", [2] = "15 Badges", [3] = "15 Badges",
       } },
     }},
     { key = "BadgeofJustice4", name = "Badge of Justice (P4)", phase = 4, pages = {
@@ -3751,9 +3585,6 @@ ns.Data.Atlas = {
           33589, -- Wristguards of Tranquil Thought
           33587, -- Light-Blessed Bonds
           33585, -- Achromic Trousers of the Naaru
-      }, x = {
-          [1] = "35 Badges", [2] = "60 Badges", [3] = "60 Badges", [4] = "75 Badges", [5] = "35 Badges", [6] = "60 Badges",
-          [7] = "75 Badges",
       } },
       { key = "ArmorLeather", name = "Armor - Leather", items = {
           33972, -- Mask of Primal Power
@@ -3774,10 +3605,6 @@ ns.Data.Atlas = {
           33539, -- Trickster's Stickyfingers
           33538, -- Shallow-grave Trousers
           33222, -- Nyn'jah's Tabi Boots
-      }, x = {
-          [1] = "75 Badges", [2] = "60 Badges", [3] = "75 Badges", [4] = "35 Badges", [5] = "60 Badges", [6] = "60 Badges",
-          [7] = "60 Badges", [8] = "60 Badges", [9] = "35 Badges", [10] = "75 Badges", [11] = "75 Badges", [12] = "35 Badges",
-          [13] = "60 Badges", [14] = "60 Badges", [15] = "35 Badges", [16] = "60 Badges", [17] = "75 Badges", [18] = "60 Badges",
       } },
       { key = "ArmorMail", name = "Armor - Mail", items = {
           33970, -- Pauldrons of the Furious Elements
@@ -3795,10 +3622,6 @@ ns.Data.Atlas = {
           33386, -- Man'kin'do's Belt
           33530, -- Natural Life Leggings
           33324, -- Treads of the Life Path
-      }, x = {
-          [1] = "60 Badges", [2] = "75 Badges", [3] = "35 Badges", [4] = "60 Badges", [5] = "60 Badges", [6] = "60 Badges",
-          [7] = "35 Badges", [8] = "60 Badges", [9] = "60 Badges", [10] = "75 Badges", [11] = "35 Badges", [12] = "60 Badges",
-          [13] = "60 Badges", [14] = "75 Badges", [15] = "60 Badges",
       } },
       { key = "ArmorPlate", name = "Armor - Plate", items = {
           33810, -- Amani Mask of Death
@@ -3818,21 +3641,13 @@ ns.Data.Atlas = {
           33524, -- Girdle of the Protector
           33515, -- Unwavering Legguards
           33523, -- Sabatons of the Righteous Defender
-      }, x = {
-          [1] = "75 Badges", [2] = "60 Badges", [3] = "35 Badges", [4] = "60 Badges", [5] = "60 Badges", [6] = "75 Badges",
-          [7] = "35 Badges", [8] = "60 Badges", [9] = "75 Badges", [10] = "60 Badges", [11] = "75 Badges", [12] = "35 Badges",
-          [13] = "60 Badges", [14] = "60 Badges", [15] = "60 Badges", [16] = "75 Badges", [17] = "60 Badges",
       } },
       { key = "OffHand", name = "Off Hand", items = {
           33334, -- Fetish of the Primal Gods
           33325, -- Voodoo Shaker
-      }, x = {
-          [1] = "35 Badges", [2] = "35 Badges",
       } },
       { key = "Neck", name = "Neck", items = {
           33296, -- Brooch of Deftness
-      }, x = {
-          [1] = "35 Badges",
       } },
       { key = "Back", name = "Back", items = {
           33593, -- Slikk's Cloak of Placation
@@ -3841,8 +3656,6 @@ ns.Data.Atlas = {
           35324, -- Cloak of Swift Reprieve
           33484, -- Dory's Embrace
           33333, -- Kharmaa's Shroud of Hope
-      }, x = {
-          [1] = "35 Badges", [2] = "60 Badges", [3] = "60 Badges", [4] = "60 Badges", [5] = "60 Badges", [6] = "60 Badges",
       } },
       { key = "Trinket", name = "Trinket", items = {
           35326, -- Battlemaster's Alacrity
@@ -3851,8 +3664,6 @@ ns.Data.Atlas = {
           34163, -- Battlemaster's Cruelty
           33832, -- Battlemaster's Determination
           34050, -- Battlemaster's Perseverance
-      }, x = {
-          [1] = "75 Badges", [2] = "75 Badges", [3] = "75 Badges", [4] = "75 Badges", [5] = "75 Badges", [6] = "75 Badges",
       } },
       { key = "Relic", name = "Relic", items = {
           33510, -- Idol of the Unseen Moon
@@ -3864,14 +3675,9 @@ ns.Data.Atlas = {
           33506, -- Skycall Totem
           33507, -- Stonebreaker's Totem
           33505, -- Totem of Living Water
-      }, x = {
-          [1] = "20 Badges", [2] = "20 Badges", [3] = "20 Badges", [4] = "20 Badges", [5] = "20 Badges", [6] = "20 Badges",
-          [7] = "20 Badges", [8] = "20 Badges", [9] = "20 Badges",
       } },
       { key = "Wand", name = "Wand", items = {
           33192, -- Carved Witch Doctor's Stick
-      }, x = {
-          [1] = "25 Badges",
       } },
     }},
     { key = "BadgeofJusticeP5", name = "Badge of Justice (P5)", phase = 5, pages = {
@@ -3885,9 +3691,6 @@ ns.Data.Atlas = {
           34938, -- Enslaved Doomguard Soulgrips
           34936, -- Tormented Demonsoul Robes
           34937, -- Corrupted Soulcloth Pantaloons
-      }, x = {
-          [1] = "75 Badges", [2] = "100 Badges", [3] = "100 Badges", [4] = "75 Badges", [5] = "100 Badges", [6] = "100 Badges",
-          [7] = "75 Badges", [8] = "100 Badges", [9] = "100 Badges",
       } },
       { key = "ArmorLeather", name = "Armor - Leather", items = {
           34911, -- Handwraps of the Aggressor
@@ -3902,9 +3705,6 @@ ns.Data.Atlas = {
           34904, -- Barbed Gloves of the Sage
           34903, -- Embrace of Starlight
           34905, -- Crystalwind Leggings
-      }, x = {
-          [1] = "75 Badges", [2] = "100 Badges", [3] = "100 Badges", [4] = "75 Badges", [5] = "100 Badges", [6] = "100 Badges",
-          [7] = "75 Badges", [8] = "100 Badges", [9] = "100 Badges", [10] = "75 Badges", [11] = "100 Badges", [12] = "100 Badges",
       } },
       { key = "ArmorMail", name = "Armor - Mail", items = {
           34932, -- Clutch of the Soothing Breeze
@@ -3916,9 +3716,6 @@ ns.Data.Atlas = {
           34935, -- Aftershock Waistguard
           34934, -- Rushing Storm Kilt
           34933, -- Hauberk of Whirling Fury
-      }, x = {
-          [1] = "75 Badges", [2] = "100 Badges", [3] = "100 Badges", [4] = "75 Badges", [5] = "100 Badges", [6] = "100 Badges",
-          [7] = "75 Badges", [8] = "100 Badges", [9] = "100 Badges",
       } },
       { key = "ArmorPlate", name = "Armor - Plate", items = {
           34947, -- Blue's Greaves of the Righteous Guardian
@@ -3933,9 +3730,6 @@ ns.Data.Atlas = {
           34944, -- Girdle of Seething Rage
           34942, -- Breastplate of Ire
           34943, -- Legplates of Unending Fury
-      }, x = {
-          [1] = "75 Badges", [2] = "100 Badges", [3] = "100 Badges", [4] = "75 Badges", [5] = "100 Badges", [6] = "100 Badges",
-          [7] = "75 Badges", [8] = "100 Badges", [9] = "100 Badges", [10] = "75 Badges", [11] = "100 Badges", [12] = "100 Badges",
       } },
       { key = "Weapon", name = "Weapon", items = {
           34894, -- Blade of Serration
@@ -3949,17 +3743,12 @@ ns.Data.Atlas = {
           34898, -- Staff of the Forest Lord
           34895, -- Scryer's Blade of Focus
           34896, -- Gavel of Naaru Blessings
-      }, x = {
-          [1] = "105 Badges", [2] = "45 Badges", [3] = "45 Badges", [4] = "45 Badges", [5] = "105 Badges", [6] = "45 Badges",
-          [7] = "150 Badges", [8] = "150 Badges", [9] = "150 Badges", [10] = "150 Badges", [11] = "150 Badges",
       } },
       { key = "Finger", name = "Finger", items = {
           34887, -- Angelista's Revenge
           34890, -- Anveena's Touch
           34889, -- Fused Nethergon Band
           34888, -- Ring of the Stalwart Protector
-      }, x = {
-          [1] = "60 Badges", [2] = "60 Badges", [3] = "60 Badges", [4] = "60 Badges",
       } },
       { key = "Gem", name = "Gem", items = {
           32228, -- Empyrean Sapphire
@@ -3968,8 +3757,6 @@ ns.Data.Atlas = {
           32230, -- Shadowsong Amethyst
           32227, -- Crimson Spinel
           32229, -- Lionseye
-      }, x = {
-          [1] = "15 Badges", [2] = "15 Badges", [3] = "15 Badges", [4] = "15 Badges", [5] = "15 Badges", [6] = "15 Badges",
       } },
     }},
     { key = "Sunmote", name = "Sunmote", phase = 5, pages = {
@@ -3979,8 +3766,6 @@ ns.Data.Atlas = {
           34399, -- Robes of Ghostly Hatred
           34406, -- Gloves of Tyri's Power
           34386, -- Pantaloons of Growing Strife
-      }, x = {
-          [1] = "1 Sunmote", [2] = "1 Sunmote", [3] = "1 Sunmote", [4] = "1 Sunmote", [5] = "1 Sunmote",
       } },
       { key = "ArmorLeather", name = "Armor - Leather", items = {
           34403, -- Cover of Ursoc the Mighty
@@ -3993,9 +3778,6 @@ ns.Data.Atlas = {
           34392, -- Demontooth Shoulderpads
           34408, -- Gloves of the Forest Drifter
           34385, -- Leggings of the Immortal Beast
-      }, x = {
-          [1] = "1 Sunmote", [2] = "1 Sunmote", [3] = "1 Sunmote", [4] = "1 Sunmote", [5] = "1 Sunmote", [6] = "1 Sunmote",
-          [7] = "1 Sunmote", [8] = "1 Sunmote", [9] = "1 Sunmote", [10] = "1 Sunmote",
       } },
       { key = "ArmorMail", name = "Armor - Mail", items = {
           34402, -- Shroud of Chieftain Ner'zhul
@@ -4003,8 +3785,6 @@ ns.Data.Atlas = {
           34390, -- Erupting Epaulets
           34409, -- Gauntlets of the Ancient Frostwolf
           34383, -- Kilt of Spiritual Reconstruction
-      }, x = {
-          [1] = "1 Sunmote", [2] = "1 Sunmote", [3] = "1 Sunmote", [4] = "1 Sunmote", [5] = "1 Sunmote",
       } },
       { key = "ArmorPlate", name = "Armor - Plate", items = {
           34401, -- Helm of Uther's Resolve
@@ -4015,9 +3795,6 @@ ns.Data.Atlas = {
           34388, -- Pauldrons of Berserking
           34394, -- Breastplate of Agony's Aversion
           34381, -- Felstrength Legplates
-      }, x = {
-          [1] = "1 Sunmote", [2] = "1 Sunmote", [3] = "1 Sunmote", [4] = "1 Sunmote", [5] = "1 Sunmote", [6] = "1 Sunmote",
-          [7] = "1 Sunmote", [8] = "1 Sunmote",
       } },
     }},
   }},
@@ -4096,10 +3873,6 @@ ns.Data.Atlas = {
           34092, -- Merciless Nether Drake
           37676, -- Vengeful Nether Drake
           43516, -- Brutal Nether Drake
-      }, x = {
-          [1] = "30 AV Marks",
-      }, xt = {
-          [1] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
       } },
       { key = "PvPH", name = "PvP", side = "Horde", items = {
           34129, -- Swift Warstrider
@@ -4109,10 +3882,6 @@ ns.Data.Atlas = {
           34092, -- Merciless Nether Drake
           37676, -- Vengeful Nether Drake
           43516, -- Brutal Nether Drake
-      }, x = {
-          [1] = "30 AV Marks",
-      }, xt = {
-          [1] = "30 Alterac Valley Marks, 30 Arathi Basin Marks and 30 Warsong Gulch Marks",
       } },
       { key = "Drops", name = "Drops", items = {
           32768, -- Reins of the Raven Lord
@@ -4141,10 +3910,6 @@ ns.Data.Atlas = {
           32860, -- Reins of the Purple Netherwing Drake
           32861, -- Reins of the Veridian Netherwing Drake
           32862, -- Reins of the Violet Netherwing Drake
-      }, x = {
-          [1] = "90g", [2] = "90g", [3] = "90g", [4] = "90g", [5] = "63g", [6] = "63g",
-          [7] = "63g", [8] = "63g", [9] = "1600g", [10] = "200g", [11] = "200g", [12] = "200g",
-          [13] = "200g", [14] = "200g",
       } },
       { key = "ReputationH", name = "Reputation", side = "Horde", items = {
           29102, -- Reins of the Cobalt War Talbuk
@@ -4168,10 +3933,6 @@ ns.Data.Atlas = {
           32860, -- Reins of the Purple Netherwing Drake
           32861, -- Reins of the Veridian Netherwing Drake
           32862, -- Reins of the Violet Netherwing Drake
-      }, x = {
-          [1] = "95g", [2] = "95g", [3] = "95g", [4] = "95g", [5] = "66g 50s", [6] = "66g 50s",
-          [7] = "66g 50s", [8] = "66g 50s", [9] = "63g", [10] = "1600g", [11] = "200g", [12] = "200g",
-          [13] = "200g", [14] = "200g", [15] = "200g",
       } },
       { key = "Crafting", name = "Crafting", items = {
           34061, -- Turbo-Charged Flying Machine Control
@@ -4208,8 +3969,6 @@ ns.Data.Atlas = {
           29956, -- Red Dragonhawk Hatchling
           29953, -- Golden Dragonhawk Hatchling
           29958, -- Blue Dragonhawk Hatchling
-      }, x = {
-          [1] = "30 Glowcaps", [2] = "40g",
       } },
       { key = "WorldEvents", name = "World Events", items = {
           34425, -- Clockwork Rocket Bot
@@ -4219,8 +3978,6 @@ ns.Data.Atlas = {
           32617, -- Sleepy Willy
           32622, -- Elekk Training Collar
           32616, -- Egbert's Egg
-      }, x = {
-          [3] = "50s",
       } },
       { key = "Fishing", name = "Fishing", items = {
           35350, -- Chuck's Bucket
@@ -4261,8 +4018,6 @@ ns.Data.Atlas = {
           35221, -- Tabard of the Shattered Sun
           23999, -- Honor Hold Tabard
           31774, -- Kurenai Tabard
-      }, x = {
-          [3] = "80s", [7] = "10 Apexis Shards", [9] = "1g", [10] = "10 Glowcaps", [13] = "90s",
       } },
       { key = "FactionsH", name = "Factions", side = "Horde", items = {
           24004, -- Thrallmar Tabard
@@ -4278,8 +4033,6 @@ ns.Data.Atlas = {
           35221, -- Tabard of the Shattered Sun
           31773, -- Mag'har Tabard
           31774, -- Kurenai Tabard
-      }, x = {
-          [3] = "80s", [7] = "10 Apexis Shards", [9] = "1g", [10] = "10 Glowcaps", [12] = "95s", [13] = "90s",
       } },
       { key = "UnobtainableTabards", name = "Unobtainable Tabards", items = {
           36941, -- Competitor's Tabard
@@ -4386,27 +4139,6 @@ ns.Data.Atlas = {
           39477, -- Fresh Dwarven Brewfest Hops
           39476, -- Fresh Goblin Brewfest Hops
           37816, -- Preserved Brewfest Hops
-      }, x = {
-          [1] = "50 Tokens", [2] = "50 Tokens", [3] = "50 Tokens", [4] = "50 Tokens", [5] = "200 Tokens", [6] = "200 Tokens",
-          [7] = "100 Tokens", [8] = "100 Tokens", [9] = "100 Tokens", [10] = "100 Tokens", [15] = "50s", [16] = "600 Tokens",
-          [18] = "100 Tokens", [19] = "2 Tokens", [20] = "5 Tokens", [21] = "5 Tokens", [22] = "20 Tokens",
-      }, xt = {
-          [1] = "50 Brewfest Prize Tokens",
-          [2] = "50 Brewfest Prize Tokens",
-          [3] = "50 Brewfest Prize Tokens",
-          [4] = "50 Brewfest Prize Tokens",
-          [5] = "200 Brewfest Prize Tokens",
-          [6] = "200 Brewfest Prize Tokens",
-          [7] = "100 Brewfest Prize Tokens",
-          [8] = "100 Brewfest Prize Tokens",
-          [9] = "100 Brewfest Prize Tokens",
-          [10] = "100 Brewfest Prize Tokens",
-          [16] = "600 Brewfest Prize Tokens",
-          [18] = "100 Brewfest Prize Tokens",
-          [19] = "2 Brewfest Prize Tokens",
-          [20] = "5 Brewfest Prize Tokens",
-          [21] = "5 Brewfest Prize Tokens",
-          [22] = "20 Brewfest Prize Tokens",
       } },
       { key = "Food", name = "Food", items = {
           33043, -- The Essential Brewfest Pretzel
@@ -8551,6 +8283,738 @@ ns.Data.AtlasConversions = {
   [28585] = true, -- Primal Life from Primal Earth
   [42613] = true, -- Small Prismatic Shard from Nexus Crystal
   [42615] = true, -- Small Prismatic Shard from Large Prismatic Shard
+}
+
+-- What an item costs at its vendor: "key:amount,..." (c<currencyID>, g = copper, <itemID>).
+ns.Data.AtlasCosts = {
+  [19029] = "20560:50", -- Horn of the Frostwolf Howler
+  [19030] = "20560:50", -- Stormpike Battle Charger
+  [22906] = "24245:30", -- Recipe: Shrouding Potion
+  [22916] = "24245:25", -- Recipe: Transmute Primal Earth to Water
+  [22917] = "g:76000", -- Recipe: Transmute Primal Fire to Earth
+  [22918] = "g:64000", -- Recipe: Transmute Primal Water to Air
+  [22922] = "g:80000", -- Recipe: Major Nature Protection Potion
+  [23572] = "29434:10", -- Primal Nether
+  [23618] = "g:48000", -- Plans: Adamantite Sharpening Stone
+  [23814] = "g:48000", -- Schematic: Green Smoke Flare
+  [24183] = "g:96000", -- Design: Nightseye Panther
+  [24208] = "g:120000", -- Design: Mystic Dawnstone
+  [24417] = "g:1600", -- Scout's Arrow
+  [24429] = "g:6400", -- Expedition Flare
+  [24520] = "24579:5", -- Honor Hold Favor
+  [24539] = "24245:2", -- Marsh Lichen
+  [24550] = "c1901:15870", -- Gladiator's Greatsword
+  [24551] = "c1901:22950,29024:10", -- Talisman of the Horde
+  [24557] = "c1901:15870", -- Gladiator's War Staff
+  [25526] = "g:48000", -- Plans: Greater Rune of Warding
+  [25548] = "24245:1", -- Tallstalk Mushroom
+  [25550] = "24245:1", -- Redcap Toadstool
+  [25735] = "g:128000", -- Pattern: Heavy Clefthoof Vest
+  [25736] = "g:112000", -- Pattern: Heavy Clefthoof Leggings
+  [25737] = "g:112000", -- Pattern: Heavy Clefthoof Boots
+  [25741] = "g:114000", -- Pattern: Netherfury Belt
+  [25742] = "g:114000", -- Pattern: Netherfury Leggings
+  [25743] = "g:114000", -- Pattern: Netherfury Boots
+  [25827] = "24245:25", -- Muck-Covered Drape
+  [25828] = "24245:15", -- Petrified Lichen Guard
+  [25829] = "c1901:9520", -- Talisman of the Alliance
+  [25830] = "c1900:620", -- Gladiator's Leather Helm
+  [25831] = "c1900:620", -- Gladiator's Leather Tunic
+  [25832] = "c1900:495", -- Gladiator's Leather Spaulders
+  [25833] = "c1900:620", -- Gladiator's Leather Legguards
+  [25834] = "c1900:370", -- Gladiator's Leather Gloves
+  [25835] = "g:358386", -- Explorer's Walking Stick
+  [25836] = "g:359704", -- Preserver's Cudgel
+  [25838] = "g:181153", -- Warden's Hauberk
+  [25869] = "g:64000", -- Recipe: Transmute Earthstorm Diamond
+  [27637] = "26045:20,26044:1", -- Shadowstalker's Sash
+  [27638] = "26045:20,26044:1", -- Hierophant's Sash
+  [27639] = "26045:20,26044:1", -- Slayer's Waistguard
+  [27643] = "26045:20,26044:1", -- Stormbreaker's Girdle
+  [27644] = "26045:20,26044:1", -- Avenger's Waistguard
+  [27645] = "26045:20,26044:1", -- Dreamstalker Sash
+  [27646] = "26045:20,26044:1", -- Marksman's Belt
+  [27647] = "26045:40,26044:2", -- Marksman's Legguards
+  [27648] = "26045:40,26044:2", -- Dreamstalker Leggings
+  [27649] = "26045:40,26044:2", -- Hierophant's Leggings
+  [27650] = "26045:40,26044:2", -- Shadowstalker's Leggings
+  [27652] = "26045:40,26044:2", -- Stormbreaker's Leggings
+  [27653] = "26045:40,26044:2", -- Slayer's Leggings
+  [27654] = "26045:40,26044:2", -- Avenger's Legplates
+  [27679] = "26045:100", -- Sublime Mystic Dawnstone
+  [27680] = "26044:8", -- Halaani Bag
+  [27689] = "24245:2", -- Recipe: Sporeling Snack
+  [27702] = "c1901:8570", -- Gladiator's Lamellar Chestpiece
+  [27703] = "c1901:5235", -- Gladiator's Lamellar Gauntlets
+  [27704] = "c1901:8570", -- Gladiator's Lamellar Helm
+  [27705] = "c1901:8570", -- Gladiator's Lamellar Legguards
+  [27706] = "c1901:9335", -- Gladiator's Lamellar Shoulders
+  [27833] = "24579:15", -- Band of the Victor
+  [27834] = "24579:15", -- Circlet of the Victor
+  [27879] = "c1901:8570", -- Gladiator's Scaled Chestpiece
+  [27880] = "c1901:5235", -- Gladiator's Scaled Gauntlets
+  [27881] = "c1901:8570", -- Gladiator's Scaled Helm
+  [27882] = "c1901:8570", -- Gladiator's Scaled Legguards
+  [27883] = "c1901:9335", -- Gladiator's Scaled Shoulders
+  [27920] = "24579:30", -- Mark of Conquest
+  [27922] = "24579:30", -- Mark of Defiance
+  [27927] = "24579:30", -- Mark of Vindication
+  [27929] = "24579:15", -- Terminal Edge
+  [27930] = "24579:15", -- Splintermark
+  [27939] = "24579:15", -- Incendic Rod
+  [27983] = "24579:15", -- Libram of Zeal
+  [27984] = "24579:15", -- Totem of Impact
+  [27990] = "24579:15", -- Idol of Savagery
+  [28118] = "c1901:2855", -- Runed Ornate Ruby
+  [28119] = "c1901:2855", -- Smooth Ornate Dawnstone
+  [28120] = "c1901:2855", -- Gleaming Ornate Dawnstone
+  [28123] = "c1901:3525", -- Potent Ornate Topaz
+  [28234] = "c1901:8000", -- Medallion of the Alliance
+  [28235] = "c1901:8000", -- Medallion of the Alliance
+  [28236] = "c1901:1660", -- Medallion of the Alliance
+  [28237] = "c1901:8000", -- Medallion of the Alliance
+  [28238] = "c1901:8000", -- Medallion of the Alliance
+  [28239] = "c1901:8000", -- Medallion of the Horde
+  [28240] = "c1901:8000", -- Medallion of the Horde
+  [28241] = "c1901:8000", -- Medallion of the Horde
+  [28242] = "c1901:8000", -- Medallion of the Horde
+  [28243] = "c1901:8000", -- Medallion of the Horde
+  [28271] = "g:64000", -- Formula: Enchant Gloves - Spell Strike
+  [28294] = "c1901:15870", -- Gladiator's Heavy Crossbow
+  [28295] = "c1901:11805", -- Gladiator's Slicer
+  [28297] = "c1901:14760", -- Gladiator's Spellblade
+  [28298] = "c1901:15870", -- Gladiator's Decapitator
+  [28299] = "c1901:15870", -- Gladiator's Bonegrinder
+  [28300] = "c1901:15870", -- Gladiator's Painsaw
+  [28302] = "c1901:7470", -- Gladiator's Bonecracker
+  [28305] = "c1901:11805", -- Gladiator's Pummeler
+  [28307] = "c1901:7470", -- Gladiator's Quickblade
+  [28308] = "c1901:11805", -- Gladiator's Cleaver
+  [28309] = "c1901:7470", -- Gladiator's Hacker
+  [28310] = "c1901:7470", -- Gladiator's Shiv
+  [28312] = "c1901:11805", -- Gladiator's Shanker
+  [28313] = "c1901:11805", -- Gladiator's Right Ripper
+  [28314] = "c1901:7470", -- Gladiator's Left Ripper
+  [28319] = "c1901:4890", -- Gladiator's War Edge
+  [28320] = "c1901:4890", -- Gladiator's Touch of Defeat
+  [28346] = "c1901:7470", -- Gladiator's Endgame
+  [28356] = "c1901:4890", -- Gladiator's Libram of Justice
+  [28358] = "c1901:12450", -- Gladiator's Shield Wall
+  [28362] = "c1901:2855", -- Bold Ornate Ruby
+  [28363] = "c1901:3525", -- Inscribed Ornate Topaz
+  [28377] = "c1901:2445", -- Sergeant's Heavy Cloak
+  [28378] = "c1901:2445", -- Sergeant's Heavy Cape
+  [28476] = "c1901:15870", -- Gladiator's Maul
+  [28553] = "28558:50", -- Band of the Exorcist
+  [28555] = "28558:50", -- Seal of the Exorcist
+  [28556] = "28558:8", -- Swift Windfire Diamond
+  [28557] = "28558:8", -- Swift Starfire Diamond
+  [28559] = "28558:18", -- Exorcist's Plate Helm
+  [28560] = "28558:18", -- Exorcist's Lamellar Helm
+  [28561] = "28558:18", -- Exorcist's Leather Helm
+  [28574] = "28558:18", -- Exorcist's Dragonhide Helm
+  [28575] = "28558:18", -- Exorcist's Wyrmhide Helm
+  [28576] = "28558:18", -- Exorcist's Chain Helm
+  [28577] = "28558:18", -- Exorcist's Linked Helm
+  [28632] = "g:48000", -- Plans: Adamantite Weightstone
+  [28679] = "c1901:4285", -- Grand Marshal's Lamellar Chestpiece
+  [28680] = "c1901:2615", -- Grand Marshal's Lamellar Gauntlets
+  [28681] = "c1901:4165", -- Grand Marshal's Lamellar Helm
+  [28683] = "c1901:2615", -- Grand Marshal's Lamellar Shoulders
+  [28709] = "c1901:4285", -- Grand Marshal's Scaled Chestpiece
+  [28710] = "c1901:2615", -- Grand Marshal's Scaled Gauntlets
+  [28711] = "c1901:4165", -- Grand Marshal's Scaled Helm
+  [28712] = "c1901:4165", -- Grand Marshal's Scaled Legguards
+  [28713] = "c1901:2615", -- Grand Marshal's Scaled Shoulders
+  [28724] = "c1901:4165", -- Grand Marshal's Lamellar Legguards
+  [28758] = "28558:18", -- Exorcist's Mail Helm
+  [28759] = "28558:18", -- Exorcist's Dreadweave Hood
+  [28760] = "28558:18", -- Exorcist's Silk Hood
+  [28761] = "28558:18", -- Exorcist's Scaled Helm
+  [28878] = "29735:2", -- Inscription of Faith
+  [28881] = "29735:2", -- Inscription of Discipline
+  [28882] = "29735:2", -- Inscription of Warding
+  [28885] = "29735:2", -- Inscription of Vengeance
+  [28886] = "29735:8", -- Greater Inscription of Discipline
+  [28887] = "29735:8", -- Greater Inscription of Faith
+  [28888] = "29735:8", -- Greater Inscription of Vengeance
+  [28889] = "29735:8", -- Greater Inscription of Warding
+  [28903] = "29736:2", -- Inscription of the Orb
+  [28904] = "29736:2", -- Inscription of the Oracle
+  [28907] = "29736:2", -- Inscription of the Blade
+  [28908] = "29736:2", -- Inscription of the Knight
+  [28909] = "29736:8", -- Greater Inscription of the Orb
+  [28910] = "29736:8", -- Greater Inscription of the Blade
+  [28911] = "29736:8", -- Greater Inscription of the Knight
+  [28912] = "29736:8", -- Greater Inscription of the Oracle
+  [28915] = "26045:70,26044:15", -- Reins of the Dark Riding Talbuk
+  [28940] = "c1901:3965", -- Grand Marshal's Barricade
+  [28941] = "c1901:3965", -- Grand Marshal's Battletome
+  [28942] = "c1901:7935", -- Grand Marshal's Bonegrinder
+  [28943] = "c1901:7935", -- Grand Marshal's Warblade
+  [28944] = "c1901:3965", -- Grand Marshal's Cleaver
+  [28945] = "c1901:7935", -- Grand Marshal's Decapitator
+  [28946] = "c1901:3965", -- Grand Marshal's Hacker
+  [28947] = "c1901:3965", -- Grand Marshal's Left Ripper
+  [28948] = "c1901:7935", -- Grand Marshal's Maul
+  [28949] = "c1901:7935", -- Grand Marshal's Painsaw
+  [28950] = "c1901:3965", -- Grand Marshal's Bonecracker
+  [28951] = "c1901:3965", -- Grand Marshal's Pummeler
+  [28952] = "c1901:3965", -- Grand Marshal's Quickblade
+  [28953] = "c1901:3965", -- Grand Marshal's Right Ripper
+  [28954] = "c1901:3965", -- Grand Marshal's Shanker
+  [28955] = "c1901:3965", -- Grand Marshal's Shiv
+  [28956] = "c1901:3965", -- Grand Marshal's Slicer
+  [28957] = "c1901:3965", -- Grand Marshal's Spellblade
+  [28959] = "c1901:7935", -- Grand Marshal's War Staff
+  [28960] = "c1901:7935", -- Grand Marshal's Heavy Crossbow
+  [29102] = "g:950000", -- Reins of the Cobalt War Talbuk
+  [29103] = "g:950000", -- Reins of the White War Talbuk
+  [29104] = "g:950000", -- Reins of the Silver War Talbuk
+  [29105] = "g:950000", -- Reins of the Tan War Talbuk
+  [29135] = "g:196078", -- Earthcaller's Headdress
+  [29136] = "g:207130", -- Far Seer's Helm
+  [29137] = "g:496240", -- Hellscream's Will
+  [29138] = "g:524391", -- Arechron's Gift
+  [29139] = "g:120013", -- Ceremonial Cover
+  [29140] = "g:130313", -- Cloak of the Ancient Spirits
+  [29141] = "g:218003", -- Tempest Leggings
+  [29142] = "g:196936", -- Kurenai Kilt
+  [29143] = "g:100000", -- Clefthoof Hide Quiver
+  [29144] = "g:100000", -- Worg Hide Quiver
+  [29145] = "g:167154", -- Band of Ancestral Spirits
+  [29146] = "g:175951", -- Band of Elemental Spirits
+  [29147] = "g:158775", -- Talbuk Hide Spaulders
+  [29148] = "g:150969", -- Blackened Leather Spaulders
+  [29149] = "24245:20", -- Sporeling's Firestick
+  [29150] = "24245:45", -- Hardened Stone Shard
+  [29170] = "g:632090", -- Windcaller's Orb
+  [29171] = "g:2125454", -- Earthwarden
+  [29172] = "g:632090", -- Ashyen's Gift
+  [29173] = "g:140762", -- Strength of the Untamed
+  [29174] = "g:101897", -- Watcher's Cowl
+  [29192] = "g:800000", -- Glyph of Ferocity
+  [29194] = "g:800000", -- Glyph of Nature Warding
+  [29217] = "g:108000", -- Pattern: Netherfury Belt
+  [29218] = "g:108000", -- Pattern: Netherfury Boots
+  [29219] = "g:108000", -- Pattern: Netherfury Leggings
+  [29227] = "g:900000", -- Reins of the Cobalt War Talbuk
+  [29228] = "26045:100,26044:20", -- Reins of the Dark War Talbuk
+  [29229] = "g:900000", -- Reins of the Silver War Talbuk
+  [29230] = "g:900000", -- Reins of the Tan War Talbuk
+  [29231] = "g:900000", -- Reins of the White War Talbuk
+  [29266] = "29434:33", -- Azure-Shield of Coldarra
+  [29267] = "29434:33", -- Light-Bearer's Faith Shield
+  [29268] = "29434:33", -- Mazthoril Honor Shield
+  [29269] = "29434:25", -- Sapphiron's Wing Bone
+  [29270] = "29434:25", -- Flametongue Seal
+  [29271] = "29434:25", -- Talisman of Kalecgos
+  [29272] = "29434:25", -- Orb of the Soul-Eater
+  [29273] = "29434:25", -- Khadgar's Knapsack
+  [29274] = "29434:25", -- Tears of Heaven
+  [29275] = "29434:50", -- Searing Sunblade
+  [29367] = "29434:25", -- Ring of Cryptic Dreams
+  [29368] = "29434:25", -- Manasurge Pendant
+  [29369] = "29434:25", -- Shawl of Shifting Probabilities
+  [29370] = "29434:41", -- Icon of the Silver Crescent
+  [29373] = "29434:25", -- Band of Halos
+  [29374] = "29434:25", -- Necklace of Eternal Hope
+  [29375] = "29434:25", -- Bishop's Cloak
+  [29376] = "29434:41", -- Essence of the Martyr
+  [29379] = "29434:25", -- Ring of Arathi Warlords
+  [29381] = "29434:25", -- Choker of Vile Intent
+  [29382] = "29434:25", -- Blood Knight War Cloak
+  [29383] = "29434:41", -- Bloodlust Brooch
+  [29384] = "29434:25", -- Ring of Unyielding Force
+  [29385] = "29434:25", -- Farstrider Defender's Cloak
+  [29386] = "29434:25", -- Necklace of the Juggernaut
+  [29387] = "29434:41", -- Gnomeregan Auto-Blocker 600
+  [29388] = "29434:15", -- Libram of Repentance
+  [29389] = "29434:15", -- Totem of the Pulsing Earth
+  [29390] = "29434:15", -- Everbloom Idol
+  [29465] = "20560:30,20559:30,20558:30", -- Black Battlestrider
+  [29466] = "20560:30,20559:30,20558:30", -- Black War Kodo
+  [29467] = "20560:30,20559:30,20558:30", -- Black War Ram
+  [29468] = "20560:30,20559:30,20558:30", -- Black War Steed Bridle
+  [29469] = "20560:30,20559:30,20558:30", -- Horn of the Black War Wolf
+  [29470] = "20560:30,20559:30,20558:30", -- Red Skeletal Warhorse
+  [29471] = "20560:30,20559:30,20558:30", -- Reins of the Black War Tiger
+  [29472] = "20560:30,20559:30,20558:30", -- Whistle of the Black War Raptor
+  [29664] = "g:47500", -- Pattern: Reinforced Mining Bag
+  [29720] = "g:48000", -- Pattern: Clefthide Leg Armor
+  [29721] = "g:96000", -- Pattern: Nethercleft Leg Armor
+  [30156] = "24245:1", -- Recipe: Clam Bar
+  [30183] = "29434:15", -- Nether Vortex
+  [30343] = "c1901:8000", -- Medallion of the Horde
+  [30344] = "c1901:8000", -- Medallion of the Horde
+  [30345] = "c1901:8000", -- Medallion of the Horde
+  [30346] = "c1901:8000", -- Medallion of the Horde
+  [30348] = "c1901:8000", -- Medallion of the Alliance
+  [30349] = "c1901:8000", -- Medallion of the Alliance
+  [30350] = "c1901:8000", -- Medallion of the Alliance
+  [30351] = "c1901:8000", -- Medallion of the Alliance
+  [30443] = "g:72000", -- Recipe: Transmute Primal Fire to Earth
+  [30444] = "g:45000", -- Pattern: Reinforced Mining Bag
+  [30623] = "g:80000", -- Reservoir Key
+  [30761] = "29434:30", -- Infernoweave Leggings
+  [30762] = "29434:30", -- Infernoweave Robe
+  [30763] = "29434:20", -- Infernoweave Boots
+  [30764] = "29434:20", -- Infernoweave Gloves
+  [30766] = "29434:30", -- Inferno Tempered Leggings
+  [30767] = "29434:20", -- Inferno Tempered Gauntlets
+  [30768] = "29434:20", -- Inferno Tempered Boots
+  [30769] = "29434:30", -- Inferno Tempered Chestguard
+  [30770] = "29434:20", -- Inferno Forged Boots
+  [30772] = "29434:30", -- Inferno Forged Leggings
+  [30773] = "29434:30", -- Inferno Forged Hauberk
+  [30774] = "29434:20", -- Inferno Forged Gloves
+  [30776] = "29434:30", -- Inferno Hardened Chestguard
+  [30778] = "29434:30", -- Inferno Hardened Leggings
+  [30779] = "29434:20", -- Inferno Hardened Boots
+  [30780] = "29434:20", -- Inferno Hardened Gloves
+  [31356] = "g:32000", -- Recipe: Flask of Distilled Wisdom
+  [31390] = "g:192000", -- Plans: Wildguard Breastplate
+  [31391] = "g:192000", -- Plans: Wildguard Leggings
+  [31392] = "g:192000", -- Plans: Wildguard Helm
+  [31402] = "g:96000", -- Design: The Natural Ward
+  [31613] = "c1901:8570", -- Gladiator's Ornamented Chestguard
+  [31614] = "c1901:5235", -- Gladiator's Ornamented Gloves
+  [31616] = "c1901:8570", -- Gladiator's Ornamented Headcover
+  [31618] = "c1901:8570", -- Gladiator's Ornamented Legplates
+  [31619] = "c1901:9335", -- Gladiator's Ornamented Spaulders
+  [31630] = "c1901:4285", -- Grand Marshal's Ornamented Chestplate
+  [31631] = "c1901:2615", -- Grand Marshal's Ornamented Gloves
+  [31632] = "c1901:4165", -- Grand Marshal's Ornamented Headguard
+  [31633] = "c1901:4165", -- Grand Marshal's Ornamented Leggings
+  [31634] = "c1901:2615", -- Grand Marshal's Ornamented Spaulders
+  [31773] = "g:9500", -- Mag'har Tabard
+  [31774] = "g:9000", -- Kurenai Tabard
+  [31775] = "24245:10", -- Sporeggar Tabard
+  [31804] = "g:8000", -- Cenarion Expedition Tabard
+  [31829] = "g:665000", -- Reins of the Cobalt Riding Talbuk
+  [31830] = "g:630000", -- Reins of the Cobalt Riding Talbuk
+  [31831] = "g:665000", -- Reins of the Silver Riding Talbuk
+  [31832] = "g:630000", -- Reins of the Silver Riding Talbuk
+  [31833] = "g:665000", -- Reins of the Tan Riding Talbuk
+  [31834] = "g:630000", -- Reins of the Tan Riding Talbuk
+  [31835] = "g:665000", -- Reins of the White Riding Talbuk
+  [31836] = "g:630000", -- Reins of the White Riding Talbuk
+  [31949] = "g:4000", -- Warden's Arrow
+  [31958] = "c1900:370", -- Merciless Gladiator's Bonecracker
+  [31959] = "c1900:1245", -- Merciless Gladiator's Bonegrinder
+  [31965] = "c1900:870", -- Merciless Gladiator's Cleaver
+  [31966] = "c1900:1245", -- Merciless Gladiator's Decapitator
+  [31978] = "c1900:370", -- Merciless Gladiator's Endgame
+  [31984] = "c1900:1245", -- Merciless Gladiator's Greatsword
+  [31985] = "c1900:370", -- Merciless Gladiator's Hacker
+  [31986] = "c1900:1245", -- Merciless Gladiator's Crossbow of the Phoenix
+  [31992] = "c1900:620", -- Merciless Gladiator's Lamellar Chestpiece
+  [31993] = "c1900:370", -- Merciless Gladiator's Lamellar Gauntlets
+  [31995] = "c1900:620", -- Merciless Gladiator's Lamellar Legguards
+  [31996] = "c1900:495", -- Merciless Gladiator's Lamellar Shoulders
+  [31997] = "c1900:620", -- Merciless Gladiator's Lamellar Helm
+  [31998] = "c1900:930", -- Merciless Gladiator's Leather Gloves
+  [31999] = "c1900:1550", -- Merciless Gladiator's Leather Helm
+  [32000] = "c1900:1550", -- Merciless Gladiator's Leather Legguards
+  [32001] = "c1900:1245", -- Merciless Gladiator's Leather Spaulders
+  [32002] = "c1900:1550", -- Merciless Gladiator's Leather Tunic
+  [32003] = "c1900:370", -- Merciless Gladiator's Left Ripper
+  [32014] = "c1900:1245", -- Merciless Gladiator's Maul
+  [32020] = "c1900:620", -- Merciless Gladiator's Ornamented Chestguard
+  [32021] = "c1900:370", -- Merciless Gladiator's Ornamented Gloves
+  [32022] = "c1900:620", -- Merciless Gladiator's Ornamented Headcover
+  [32023] = "c1900:620", -- Merciless Gladiator's Ornamented Legplates
+  [32024] = "c1900:495", -- Merciless Gladiator's Ornamented Spaulders
+  [32025] = "c1900:1245", -- Merciless Gladiator's Painsaw
+  [32026] = "c1900:870", -- Merciless Gladiator's Pummeler
+  [32027] = "c1900:370", -- Merciless Gladiator's Quickblade
+  [32028] = "c1900:870", -- Merciless Gladiator's Right Ripper
+  [32039] = "c1900:620", -- Merciless Gladiator's Scaled Chestpiece
+  [32040] = "c1900:370", -- Merciless Gladiator's Scaled Gauntlets
+  [32041] = "c1900:620", -- Merciless Gladiator's Scaled Helm
+  [32042] = "c1900:620", -- Merciless Gladiator's Scaled Legguards
+  [32043] = "c1900:495", -- Merciless Gladiator's Scaled Shoulders
+  [32044] = "c1900:870", -- Merciless Gladiator's Shanker
+  [32045] = "c1900:620", -- Merciless Gladiator's Shield Wall
+  [32046] = "c1900:370", -- Merciless Gladiator's Shiv
+  [32052] = "c1900:870", -- Merciless Gladiator's Slicer
+  [32053] = "c1900:1030", -- Merciless Gladiator's Spellblade
+  [32054] = "c1900:330", -- Merciless Gladiator's War Edge
+  [32055] = "c1900:1245", -- Merciless Gladiator's War Staff
+  [32070] = "g:32000", -- Recipe: Earthen Elixir
+  [32071] = "26044:2", -- Recipe: Elixir of Ironskin
+  [32083] = "29434:50", -- Faceguard of Determination
+  [32084] = "29434:50", -- Helmet of the Steadfast Champion
+  [32085] = "29434:50", -- Warpstalker Helm
+  [32086] = "29434:50", -- Storm Master's Helmet
+  [32087] = "29434:50", -- Mask of the Deceiver
+  [32088] = "29434:50", -- Cowl of Beastly Rage
+  [32089] = "29434:50", -- Mana-Binders Cowl
+  [32090] = "29434:50", -- Cowl of Naaru Blessings
+  [32227] = "29434:15", -- Crimson Spinel
+  [32228] = "29434:15", -- Empyrean Sapphire
+  [32229] = "29434:15", -- Lionseye
+  [32230] = "29434:15", -- Shadowsong Amethyst
+  [32231] = "29434:15", -- Pyrestone
+  [32233] = "g:5000", -- Wolpertinger's Tankard
+  [32249] = "29434:15", -- Seaspray Emerald
+  [32314] = "g:2000000", -- Green Riding Nether Ray
+  [32316] = "g:2000000", -- Purple Riding Nether Ray
+  [32317] = "g:2000000", -- Red Riding Nether Ray
+  [32318] = "g:2000000", -- Silver Riding Nether Ray
+  [32319] = "g:2000000", -- Blue Riding Nether Ray
+  [32445] = "g:10000", -- Skyguard Tabard
+  [32450] = "c1901:14760", -- Gladiator's Gavel
+  [32451] = "c1901:14760", -- Gladiator's Salvation
+  [32452] = "c1901:7470", -- Gladiator's Reprieve
+  [32538] = "g:137691", -- Skywitch's Drape
+  [32539] = "g:138166", -- Skyguard's Drape
+  [32645] = "32572:4,32569:100", -- Crystalline Crossbow
+  [32647] = "32572:4,32569:100", -- Shard-bound Bracers
+  [32648] = "32572:4,32569:100", -- Vortex Walking Boots
+  [32650] = "32572:1,32569:50", -- Cerulean Crystal Rod
+  [32651] = "32572:4,32569:100", -- Crystal Orb of Enlightenment
+  [32652] = "32572:1,32569:50", -- Ogri'la Aegis
+  [32653] = "32572:1,32569:50", -- Apexis Cloak
+  [32654] = "32572:1,32569:50", -- Crystalforged Trinket
+  [32721] = "g:4500", -- Skyguard Rations
+  [32722] = "g:4000", -- Enriched Terocone Juice
+  [32770] = "g:41230", -- Skyguard Silver Cross
+  [32771] = "g:41230", -- Airman's Ribbon of Gallantry
+  [32783] = "32569:3", -- Blue Ogre Brew
+  [32784] = "32569:2", -- Red Ogre Brew
+  [32789] = "c1901:7405", -- Veteran's Lamellar Greaves
+  [32793] = "c1901:7405", -- Veteran's Plate Greaves
+  [32794] = "c1901:7405", -- Veteran's Scaled Greaves
+  [32801] = "c1901:7405", -- Veteran's Lamellar Belt
+  [32805] = "c1901:7405", -- Veteran's Plate Belt
+  [32806] = "c1901:7405", -- Veteran's Scaled Belt
+  [32813] = "c1901:4890", -- Veteran's Lamellar Bracers
+  [32818] = "c1901:4890", -- Veteran's Plate Bracers
+  [32819] = "c1901:4890", -- Veteran's Scaled Bracers
+  [32828] = "32569:10", -- Ogri'la Tabard
+  [32947] = "28558:2", -- Auchenai Healing Potion
+  [32948] = "28558:2", -- Auchenai Mana Potion
+  [32961] = "c1900:370", -- Merciless Gladiator's Reprieve
+  [32962] = "c1900:330", -- Merciless Gladiator's Touch of Defeat
+  [32963] = "c1900:1030", -- Merciless Gladiator's Gavel
+  [32964] = "c1900:1030", -- Merciless Gladiator's Salvation
+  [32988] = "c1901:7405", -- Veteran's Ornamented Belt
+  [32989] = "c1901:4890", -- Veteran's Ornamented Bracers
+  [32990] = "c1901:7405", -- Veteran's Ornamented Greaves
+  [33006] = "c1900:3110", -- Vengeful Gladiator's Heavy Crossbow
+  [33047] = "37829:100", -- Belbi's Eyesight Enhancing Romance Goggles
+  [33056] = "c1901:6345", -- Veteran's Band of Dominance
+  [33057] = "c1901:6345", -- Veteran's Band of Triumph
+  [33064] = "c1901:6345", -- Veteran's Band of Salvation
+  [33065] = "c1901:6345", -- Veteran's Pendant of Dominance
+  [33066] = "c1901:6345", -- Veteran's Pendant of Triumph
+  [33067] = "c1901:6345", -- Veteran's Pendant of Conquest
+  [33068] = "c1901:6345", -- Veteran's Pendant of Salvation
+  [33077] = "c1900:330", -- Merciless Gladiator's Libram of Justice
+  [33149] = "g:80000", -- Formula: Enchant Cloak - Stealth
+  [33192] = "29434:25", -- Carved Witch Doctor's Stick
+  [33207] = "29434:60", -- Implacable Guardian Sabatons
+  [33222] = "29434:60", -- Nyn'jah's Tabi Boots
+  [33279] = "29434:60", -- Iron-tusk Girdle
+  [33280] = "29434:60", -- War-Feathered Loop
+  [33287] = "29434:60", -- Gnarled Ironwood Pauldrons
+  [33291] = "29434:60", -- Voodoo-woven Belt
+  [33296] = "29434:35", -- Brooch of Deftness
+  [33304] = "29434:60", -- Cloak of Subjugated Power
+  [33309] = "c1900:620", -- Merciless Gladiator's Redoubt
+  [33313] = "c1900:620", -- Merciless Gladiator's Barrier
+  [33324] = "29434:60", -- Treads of the Life Path
+  [33325] = "29434:35", -- Voodoo Shaker
+  [33331] = "29434:60", -- Chain of Unleashed Rage
+  [33333] = "29434:60", -- Kharmaa's Shroud of Hope
+  [33334] = "29434:35", -- Fetish of the Primal Gods
+  [33386] = "29434:60", -- Man'kin'do's Belt
+  [33484] = "29434:60", -- Dory's Embrace
+  [33501] = "29434:75", -- Bloodthirster's Wargreaves
+  [33502] = "29434:20", -- Libram of Mending
+  [33503] = "29434:20", -- Libram of Divine Judgement
+  [33504] = "29434:20", -- Libram of Divine Purpose
+  [33505] = "29434:20", -- Totem of Living Water
+  [33506] = "29434:20", -- Skycall Totem
+  [33507] = "29434:20", -- Stonebreaker's Totem
+  [33508] = "29434:20", -- Idol of Budding Life
+  [33509] = "29434:20", -- Idol of Terror
+  [33510] = "29434:20", -- Idol of the Unseen Moon
+  [33512] = "29434:60", -- Furious Deathgrips
+  [33513] = "29434:35", -- Eternium Rage-shackles
+  [33514] = "29434:60", -- Pauldrons of Gruesome Fate
+  [33515] = "29434:75", -- Unwavering Legguards
+  [33516] = "29434:35", -- Bracers of the Ancient Phalanx
+  [33517] = "29434:60", -- Bonefist Gauntlets
+  [33518] = "29434:75", -- High Justicar's Legplates
+  [33519] = "29434:60", -- Handguards of the Templar
+  [33520] = "29434:35", -- Vambraces of the Naaru
+  [33522] = "29434:75", -- Chestguard of the Stoic Guardian
+  [33523] = "29434:60", -- Sabatons of the Righteous Defender
+  [33524] = "29434:60", -- Girdle of the Protector
+  [33527] = "29434:75", -- Shifting Camouflage Pants
+  [33528] = "29434:60", -- Gauntlets of Sniping
+  [33529] = "29434:35", -- Steadying Bracers
+  [33530] = "29434:75", -- Natural Life Leggings
+  [33531] = "29434:60", -- Polished Waterscale Gloves
+  [33532] = "29434:35", -- Gleaming Earthen Bracers
+  [33534] = "29434:60", -- Grips of Nature's Wrath
+  [33535] = "29434:35", -- Earthquake Bracers
+  [33536] = "29434:60", -- Stormwrap
+  [33537] = "29434:60", -- Treads of Booming Thunder
+  [33538] = "29434:75", -- Shallow-grave Trousers
+  [33539] = "29434:60", -- Trickster's Stickyfingers
+  [33540] = "29434:35", -- Master Assassin Wristwraps
+  [33552] = "29434:75", -- Pants of Splendid Recovery
+  [33557] = "29434:35", -- Gargon's Bracers of Peaceful Slumber
+  [33559] = "29434:60", -- Starfire Waistband
+  [33566] = "29434:75", -- Blessed Elunite Coverings
+  [33577] = "29434:60", -- Moon-walkers
+  [33578] = "29434:35", -- Armwraps of the Kaldorei Protector
+  [33579] = "29434:75", -- Vestments of Hibernation
+  [33580] = "29434:35", -- Band of the Swift Paw
+  [33582] = "29434:60", -- Footwraps of Wild Encroachment
+  [33583] = "29434:60", -- Waistguard of the Great Beast
+  [33584] = "29434:75", -- Pantaloons of Arcane Annihilation
+  [33585] = "29434:75", -- Achromic Trousers of the Naaru
+  [33586] = "29434:60", -- Studious Wraps
+  [33587] = "29434:60", -- Light-Blessed Bonds
+  [33588] = "29434:35", -- Runed Spell-cuffs
+  [33589] = "29434:35", -- Wristguards of Tranquil Thought
+  [33593] = "29434:35", -- Slikk's Cloak of Placation
+  [33661] = "c1900:1550", -- Vengeful Gladiator's Barrier
+  [33662] = "c1900:930", -- Vengeful Gladiator's Bonecracker
+  [33663] = "c1900:3110", -- Vengeful Gladiator's Bonegrinder
+  [33669] = "c1900:2175", -- Vengeful Gladiator's Cleaver
+  [33670] = "c1900:3110", -- Vengeful Gladiator's Decapitator
+  [33681] = "c1900:930", -- Vengeful Gladiator's Endgame
+  [33687] = "c1900:2610", -- Vengeful Gladiator's Gavel
+  [33688] = "c1900:3110", -- Vengeful Gladiator's Greatsword
+  [33689] = "c1900:930", -- Vengeful Gladiator's Hacker
+  [33695] = "c1900:1550", -- Vengeful Gladiator's Lamellar Chestpiece
+  [33696] = "c1900:930", -- Vengeful Gladiator's Lamellar Gauntlets
+  [33697] = "c1900:1550", -- Vengeful Gladiator's Lamellar Helm
+  [33698] = "c1900:1550", -- Vengeful Gladiator's Lamellar Legguards
+  [33699] = "c1900:1245", -- Vengeful Gladiator's Lamellar Shoulders
+  [33700] = "c1900:930", -- Vengeful Gladiator's Leather Gloves
+  [33701] = "c1900:1550", -- Vengeful Gladiator's Leather Helm
+  [33702] = "c1900:1550", -- Vengeful Gladiator's Leather Legguards
+  [33703] = "c1900:1245", -- Vengeful Gladiator's Leather Spaulders
+  [33704] = "c1900:1550", -- Vengeful Gladiator's Leather Tunic
+  [33705] = "c1900:930", -- Vengeful Gladiator's Left Ripper
+  [33716] = "c1900:3110", -- Vengeful Gladiator's Staff
+  [33722] = "c1900:1550", -- Vengeful Gladiator's Ornamented Chestguard
+  [33723] = "c1900:930", -- Vengeful Gladiator's Ornamented Gloves
+  [33724] = "c1900:1550", -- Vengeful Gladiator's Ornamented Headcover
+  [33725] = "c1900:1550", -- Vengeful Gladiator's Ornamented Legplates
+  [33726] = "c1900:1245", -- Vengeful Gladiator's Ornamented Spaulders
+  [33727] = "c1900:3110", -- Vengeful Gladiator's Painsaw
+  [33733] = "c1900:2175", -- Vengeful Gladiator's Pummeler
+  [33734] = "c1900:930", -- Vengeful Gladiator's Quickblade
+  [33735] = "c1900:1550", -- Vengeful Gladiator's Redoubt
+  [33736] = "c1900:930", -- Vengeful Gladiator's Reprieve
+  [33737] = "c1900:2175", -- Vengeful Gladiator's Right Ripper
+  [33743] = "c1900:2610", -- Vengeful Gladiator's Salvation
+  [33749] = "c1900:1550", -- Vengeful Gladiator's Scaled Chestpiece
+  [33750] = "c1900:930", -- Vengeful Gladiator's Scaled Gauntlets
+  [33751] = "c1900:1550", -- Vengeful Gladiator's Scaled Helm
+  [33752] = "c1900:1550", -- Vengeful Gladiator's Scaled Legguards
+  [33753] = "c1900:1245", -- Vengeful Gladiator's Scaled Shoulders
+  [33754] = "c1900:2175", -- Vengeful Gladiator's Shanker
+  [33755] = "c1900:1550", -- Vengeful Gladiator's Shield Wall
+  [33756] = "c1900:930", -- Vengeful Gladiator's Shiv
+  [33762] = "c1900:2175", -- Vengeful Gladiator's Slicer
+  [33763] = "c1900:2610", -- Vengeful Gladiator's Spellblade
+  [33764] = "c1900:830", -- Vengeful Gladiator's Touch of Defeat
+  [33765] = "c1900:830", -- Vengeful Gladiator's War Edge
+  [33766] = "c1900:3110", -- Vengeful Gladiator's War Staff
+  [33783] = "26044:4", -- Design: Steady Talasite
+  [33801] = "c1900:930", -- Vengeful Gladiator's Mutilator
+  [33810] = "29434:75", -- Amani Mask of Death
+  [33811] = "c1901:14815,20559:10", -- Vindicator's Plate Belt
+  [33812] = "c1901:14815,29024:20", -- Vindicator's Plate Greaves
+  [33813] = "c1901:9785,20558:10", -- Vindicator's Plate Bracers
+  [33832] = "29434:75", -- Battlemaster's Determination
+  [33842] = "c1900:830", -- Vengeful Gladiator's Libram of Justice
+  [33853] = "c1901:12695,20560:5", -- Vindicator's Band of Dominance
+  [33862] = "37829:200", -- Brewfest Regalia
+  [33863] = "37829:200", -- Brewfest Dress
+  [33864] = "37829:50", -- Brown Brewfest Hat
+  [33868] = "37829:100", -- Brewfest Boots
+  [33888] = "c1901:14815,20559:10", -- Vindicator's Lamellar Belt
+  [33889] = "c1901:9785,20558:10", -- Vindicator's Lamellar Bracers
+  [33890] = "c1901:14815,29024:20", -- Vindicator's Lamellar Greaves
+  [33903] = "c1901:14815,20559:10", -- Vindicator's Ornamented Belt
+  [33904] = "c1901:9785,20558:10", -- Vindicator's Ornamented Bracers
+  [33905] = "c1901:14815,29024:20", -- Vindicator's Ornamented Greaves
+  [33909] = "c1901:14815,20559:10", -- Vindicator's Scaled Belt
+  [33910] = "c1901:9785,20558:10", -- Vindicator's Scaled Bracers
+  [33911] = "c1901:14815,29024:20", -- Vindicator's Scaled Greaves
+  [33918] = "c1901:12695,20560:5", -- Vindicator's Band of Salvation
+  [33919] = "c1901:12695,20560:5", -- Vindicator's Band of Triumph
+  [33920] = "c1901:12695,29024:5", -- Vindicator's Pendant of Conquest
+  [33921] = "c1901:12695,29024:5", -- Vindicator's Pendant of Dominance
+  [33922] = "c1901:12695,29024:5", -- Vindicator's Pendant of Salvation
+  [33923] = "c1901:12695,29024:5", -- Vindicator's Pendant of Triumph
+  [33927] = "37829:100", -- Brewfest Pony Keg
+  [33936] = "c1901:4890", -- Gladiator's Libram of Fortitude
+  [33937] = "c1900:330", -- Merciless Gladiator's Libram of Fortitude
+  [33938] = "c1900:830", -- Vengeful Gladiator's Libram of Fortitude
+  [33948] = "c1901:4890", -- Gladiator's Libram of Vengeance
+  [33949] = "c1900:330", -- Merciless Gladiator's Libram of Vengeance
+  [33950] = "c1900:830", -- Vengeful Gladiator's Libram of Vengeance
+  [33965] = "29434:75", -- Hauberk of the Furious Elements
+  [33966] = "37829:100", -- Brewfest Slippers
+  [33967] = "37829:50", -- Green Brewfest Hat
+  [33968] = "37829:50", -- Blue Brewfest Hat
+  [33969] = "37829:50", -- Purple Brewfest Hat
+  [33970] = "29434:60", -- Pauldrons of the Furious Elements
+  [33972] = "29434:75", -- Mask of Primal Power
+  [33973] = "29434:60", -- Pauldrons of Tribal Fury
+  [33974] = "29434:60", -- Grasp of the Moonkin
+  [33999] = "g:16000000", -- Cenarion War Hippogryph
+  [34008] = "37829:100", -- Blix's Eyesight Enhancing Romance Goggles
+  [34015] = "c1900:930", -- Vengeful Gladiator's Chopper
+  [34016] = "c1900:930", -- Vengeful Gladiator's Left Render
+  [34028] = "37829:600", -- "Honorary Brewer" Hand Stamp
+  [34033] = "c1900:930", -- Vengeful Gladiator's Grimoire
+  [34049] = "29434:75", -- Battlemaster's Audacity
+  [34050] = "29434:75", -- Battlemaster's Perseverance
+  [34059] = "c1900:830", -- Vengeful Gladiator's Baton of Light
+  [34066] = "c1900:830", -- Vengeful Gladiator's Piercing Touch
+  [34129] = "20560:30,20559:30,20558:30", -- Swift Warstrider
+  [34162] = "29434:75", -- Battlemaster's Depravity
+  [34163] = "29434:75", -- Battlemaster's Cruelty
+  [34172] = "g:152000", -- Pattern: Drums of Speed
+  [34173] = "g:144000", -- Pattern: Drums of Speed
+  [34174] = "g:152000", -- Pattern: Drums of Restoration
+  [34175] = "g:144000", -- Pattern: Drums of Restoration
+  [34381] = "34664:1", -- Felstrength Legplates
+  [34382] = "34664:1", -- Judicator's Legguards
+  [34383] = "34664:1", -- Kilt of Spiritual Reconstruction
+  [34384] = "34664:1", -- Breeches of Natural Splendor
+  [34385] = "34664:1", -- Leggings of the Immortal Beast
+  [34386] = "34664:1", -- Pantaloons of Growing Strife
+  [34388] = "34664:1", -- Pauldrons of Berserking
+  [34389] = "34664:1", -- Spaulders of the Thalassian Defender
+  [34390] = "34664:1", -- Erupting Epaulets
+  [34391] = "34664:1", -- Spaulders of Devastation
+  [34392] = "34664:1", -- Demontooth Shoulderpads
+  [34393] = "34664:1", -- Shoulderpads of Knowledge's Pursuit
+  [34394] = "34664:1", -- Breastplate of Agony's Aversion
+  [34395] = "34664:1", -- Noble Judicator's Chestguard
+  [34396] = "34664:1", -- Garments of Crashing Shores
+  [34397] = "34664:1", -- Bladed Chaos Tunic
+  [34398] = "34664:1", -- Utopian Tunic of Elune
+  [34399] = "34664:1", -- Robes of Ghostly Hatred
+  [34400] = "34664:1", -- Crown of Dath'Remar
+  [34401] = "34664:1", -- Helm of Uther's Resolve
+  [34402] = "34664:1", -- Shroud of Chieftain Ner'zhul
+  [34403] = "34664:1", -- Cover of Ursoc the Mighty
+  [34404] = "34664:1", -- Mask of the Fury Hunter
+  [34405] = "34664:1", -- Helm of Arcane Purity
+  [34406] = "34664:1", -- Gloves of Tyri's Power
+  [34407] = "34664:1", -- Tranquil Moonlight Wraps
+  [34408] = "34664:1", -- Gloves of the Forest Drifter
+  [34409] = "34664:1", -- Gauntlets of the Ancient Frostwolf
+  [34478] = "24245:30", -- Tiny Sporebat
+  [34529] = "c1900:3110", -- Vengeful Gladiator's Longbow
+  [34530] = "c1900:3110", -- Vengeful Gladiator's Rifle
+  [34540] = "c1900:3110", -- Vengeful Gladiator's Battle Staff
+  [34576] = "c1901:30000,20560:20", -- Battlemaster's Cruelty
+  [34577] = "c1901:30000,20560:20", -- Battlemaster's Depravity
+  [34578] = "c1901:30000,20560:20", -- Battlemaster's Determination
+  [34579] = "c1901:30000,20560:20", -- Battlemaster's Audacity
+  [34580] = "c1901:30000,20560:20", -- Battlemaster's Perseverance
+  [34887] = "29434:60", -- Angelista's Revenge
+  [34888] = "29434:60", -- Ring of the Stalwart Protector
+  [34889] = "29434:60", -- Fused Nethergon Band
+  [34890] = "29434:60", -- Anveena's Touch
+  [34891] = "29434:150", -- The Blade of Harbingers
+  [34892] = "29434:150", -- Crossbow of Relentless Strikes
+  [34893] = "29434:105", -- Vanir's Right Fist of Brutality
+  [34894] = "29434:105", -- Blade of Serration
+  [34895] = "29434:150", -- Scryer's Blade of Focus
+  [34896] = "29434:150", -- Gavel of Naaru Blessings
+  [34898] = "29434:150", -- Staff of the Forest Lord
+  [34900] = "29434:100", -- Shroud of Nature's Harmony
+  [34901] = "29434:100", -- Grovewalker's Leggings
+  [34902] = "29434:75", -- Oakleaf-Spun Handguards
+  [34903] = "29434:100", -- Embrace of Starlight
+  [34904] = "29434:75", -- Barbed Gloves of the Sage
+  [34905] = "29434:100", -- Crystalwind Leggings
+  [34906] = "29434:100", -- Embrace of Everlasting Prowess
+  [34910] = "29434:100", -- Tameless Breeches
+  [34911] = "29434:75", -- Handwraps of the Aggressor
+  [34912] = "29434:100", -- Scaled Drakeskin Chestguard
+  [34914] = "29434:100", -- Leggings of the Pursuit
+  [34916] = "29434:75", -- Gauntlets of Rapidity
+  [34917] = "29434:100", -- Shroud of the Lore`nial
+  [34918] = "29434:100", -- Legwraps of Sweltering Flame
+  [34919] = "29434:75", -- Boots of Incantations
+  [34921] = "29434:100", -- Ecclesiastical Cuirass
+  [34922] = "29434:100", -- Greaves of Pacification
+  [34923] = "29434:75", -- Waistguard of Reparation
+  [34924] = "29434:100", -- Gown of Spiritual Wonder
+  [34925] = "29434:100", -- Adorned Supernal Legwraps
+  [34926] = "29434:75", -- Slippers of Dutiful Mending
+  [34927] = "29434:100", -- Tunic of the Dark Hour
+  [34928] = "29434:100", -- Trousers of the Scryers' Retainer
+  [34929] = "29434:75", -- Belt of the Silent Path
+  [34930] = "29434:100", -- Wave of Life Chestguard
+  [34931] = "29434:100", -- Runed Scales of Antiquity
+  [34932] = "29434:75", -- Clutch of the Soothing Breeze
+  [34933] = "29434:100", -- Hauberk of Whirling Fury
+  [34934] = "29434:100", -- Rushing Storm Kilt
+  [34935] = "29434:75", -- Aftershock Waistguard
+  [34936] = "29434:100", -- Tormented Demonsoul Robes
+  [34937] = "29434:100", -- Corrupted Soulcloth Pantaloons
+  [34938] = "29434:75", -- Enslaved Doomguard Soulgrips
+  [34939] = "29434:100", -- Chestplate of Stoicism
+  [34940] = "29434:100", -- Sunguard Legplates
+  [34941] = "29434:75", -- Girdle of the Fearless
+  [34942] = "29434:100", -- Breastplate of Ire
+  [34943] = "29434:100", -- Legplates of Unending Fury
+  [34944] = "29434:75", -- Girdle of Seething Rage
+  [34945] = "29434:100", -- Shattrath Protectorate's Breastplate
+  [34946] = "29434:100", -- Inscribed Legplates of the Aldor
+  [34947] = "29434:75", -- Blue's Greaves of the Righteous Guardian
+  [34949] = "29434:45", -- Swift Blade of Uncertainty
+  [34950] = "29434:45", -- Vanir's Left Fist of Savagery
+  [34951] = "29434:45", -- Vanir's Left Fist of Brutality
+  [34952] = "29434:45", -- The Mutilator
+  [35317] = "c1901:12695,29024:5", -- Vindicator's Pendant of Reprieve
+  [35319] = "c1901:12695,29024:5", -- Vindicator's Pendant of Subjugation
+  [35320] = "c1901:12695,20560:5", -- Vindicator's Band of Subjugation
+  [35321] = "29434:60", -- Cloak of Arcane Alacrity
+  [35324] = "29434:60", -- Cloak of Swift Reprieve
+  [35326] = "29434:75", -- Battlemaster's Alacrity
+  [35327] = "c1901:30000,20560:20", -- Battlemaster's Alacrity
+  [35329] = "g:104726", -- Dreadweave Hood
+  [35336] = "g:127597", -- Mooncloth Shoulderpads
+  [35342] = "g:173807", -- Satin Robe
+  [35347] = "g:164580", -- Evoker's Silk Trousers
+  [35358] = "g:202894", -- Dragonhide Legguards
+  [35365] = "g:201430", -- Kodohide Robe
+  [35367] = "g:146143", -- Opportunist's Leather Helm
+  [35374] = "g:149973", -- Wyrmhide Spaulders
+  [35379] = "g:226822", -- Stalker's Chain Leggings
+  [35385] = "g:184540", -- Seer's Linked Spaulders
+  [35387] = "g:123397", -- Seer's Mail Gauntlets
+  [35394] = "g:259883", -- Seer's Ringmail Legguards
+  [35403] = "g:127598", -- Crusader's Ornamented Gloves
+  [35408] = "g:145302", -- Savage Plate Gauntlets
+  [35415] = "g:272224", -- Crusader's Scaled Legguards
+  [35906] = "20560:30,20559:30,20558:30", -- Reins of the Black War Elekk
+  [37750] = "37829:2", -- Fresh Brewfest Hops
+  [37816] = "37829:20", -- Preserved Brewfest Hops
+  [37864] = "c1901:40000", -- Medallion of the Alliance
+  [37865] = "c1901:40000", -- Medallion of the Horde
+  [38229] = "24245:25", -- Pattern: Mycah's Botanical Bag
+  [38628] = "g:400000", -- Nether Ray Fry
+  [39476] = "37829:5", -- Fresh Goblin Brewfest Hops
+  [39477] = "37829:5", -- Fresh Dwarven Brewfest Hops
 }
 
 -- English names for every id the browser can list: items (positive) and craft spells (negative).

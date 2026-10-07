@@ -22,6 +22,11 @@ Reads (read-only) from the installed WoW AddOns folder:
   * AtlasLootClassic_DungeonsAndRaids/data-tbc.lua -> only the local T4_SET / T5_SET / T6_SET tables (item set ids)
   * AtlasLootClassic/Data/ItemSet.lua              -> ITEM_SET_DATA_RAW.BCC (+ CLASSIC fallback): set id -> item ids, name
   * AtlasLootClassic/Data/VendorPrice.lua          -> VENDOR_PRICES_RAW.BCC: badge / honor / mark / money costs
+  * ../../WTF/Account/*/SavedVariables/AtlasLootClassic.lua -> AtlasLoot's own vendor scans on this PC
+                                                      (AtlasLootClassicDB.global.VendorPrice): what the realm's vendors
+                                                      asked when a character opened them; first choice for a cost
+                                                      (PvP prices change with the arena seasons, AtlasLoot's tables and
+                                                      Wowhead don't follow them)
   * Questie/Database/TBC/tbcItemDB.lua             -> English item names
   * DisasterZone/Data/Items.lua, Dungeons.lua, Sources.lua -> every item id the addon already ships (names; the
                                                       raid / dungeon boss lists also for recipes; Upgrades for the
@@ -60,7 +65,8 @@ P_ADDON_DATA = [os.path.join(ADDON_DIR, "Data", f) for f in ("Items.lua", "Dunge
 
 FIRST_LINE = ('if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Atlas.lua", ...) then return end '
               '-- DisasterZone Atlas browser data (TBC Anniversary, Interface 20506)')
-MAX_X = 16              # max length of a row's extra text
+MAX_X = 16              # max length of a row's extra text (a craft's "Skill 375")
+P_WTF_ACCOUNTS = os.path.normpath(os.path.join(S.ADDONS, "..", "..", "WTF", "Account"))
 MAX_SET_PAGE_NAME = 19  # Sets page names ("Shaman (Elemental)") stay below 20 characters
 
 # --------------------------------------------------------------------------------------
@@ -134,35 +140,19 @@ ROLE_NAMES = {"Heal": "Heal", "Shadow": "Shadow", "Owl": "Balance", "Feral": "Fe
 CLASS_ROLE_NAMES = {("Paladin", "DD"): "Ret"}
 RECIPE_PREFIX_RX = re.compile(r"^(Recipe|Pattern|Plans|Formula|Design|Schematic|Manual|Technique|Book): ")
 
-# Cost currencies (AtlasLoot price keys): (x unit candidates, most readable first; full singular; full plural).
-# x = the main (first) cost with the first unit that fits MAX_X for every row of the page; xt = the full cost spelled
-# out, only when the cost has more parts than the main one or the x unit is an abbreviation (not in CLEAR_UNITS).
-CURRENCIES = {
-    "honor": (["Honor"], "Honor", "Honor"),
-    "honorA": (["Honor"], "Honor", "Honor"),
-    "honorH": (["Honor"], "Honor", "Honor"),
-    "arena": (["Arena Points", "Arena"], "Arena Point", "Arena Points"),
-    "pvpEye": (["EotS Marks", "EotS"], "Eye of the Storm Mark", "Eye of the Storm Marks"),
-    "pvpAlterac": (["AV Marks", "AV"], "Alterac Valley Mark", "Alterac Valley Marks"),
-    "pvpArathi": (["AB Marks", "AB"], "Arathi Basin Mark", "Arathi Basin Marks"),
-    "pvpWarsong": (["WSG Marks", "WSG"], "Warsong Gulch Mark", "Warsong Gulch Marks"),
-    "HalaaBT": (["Battle Tokens", "Halaa BT"], "Halaa Battle Token", "Halaa Battle Tokens"),
-    "HalaaRT": (["Research Tokens", "Halaa RT"], "Halaa Research Token", "Halaa Research Tokens"),
-    "MarkOfHonorHold": (["Marks"], "Mark of Honor Hold", "Marks of Honor Hold"),
-    "MarkOfThrallmar": (["Marks"], "Mark of Thrallmar", "Marks of Thrallmar"),
-    "SpiritShard": (["Spirit Shards", "Shards"], "Spirit Shard", "Spirit Shards"),
-    "BoJ": (["Badges"], "Badge of Justice", "Badges of Justice"),
-    "Brewfest": (["Brewfest Tokens", "Tokens"], "Brewfest Prize Token", "Brewfest Prize Tokens"),
-    "glowcap": (["Glowcaps"], "Glowcap", "Glowcaps"),
-    "ApexisC": (["Apexis Crystals", "Crystals"], "Apexis Crystal", "Apexis Crystals"),
-    "ApexisS": (["Apexis Shards", "Shards"], "Apexis Shard", "Apexis Shards"),
-    "holydust": (["Holy Dust"], "Holy Dust", "Holy Dust"),
-    "arcanerune": (["Arcane Runes"], "Arcane Rune", "Arcane Runes"),
-    "sunmote": (["Sunmotes", "Sunmote"], "Sunmote", "Sunmotes"),
+# AtlasLoot price keys -> the addon's cost keys (Core/Currency.lua): "c<currencyID>" a currency (C_CurrencyInfo: Honor
+# 1901, Arena Points 1900 on the Classic clients), "g" money in copper, "<itemID>" an item that pays (Badge of Justice,
+# marks, tokens). The item ids are AtlasLoot's own (VendorPrice.lua PRICE_INFO_LIST). A price with a key not listed
+# here is left out whole (a cost with a part missing would say "you can afford it" wrongly).
+COST_KEYS = {
+    "money": "g", "honor": "c1901", "honorA": "c1901", "honorH": "c1901", "arena": "c1900",
+    "BoJ": "29434", "pvpAlterac": "20560", "pvpWarsong": "20558", "pvpArathi": "20559", "pvpEye": "29024",
+    "HalaaRT": "26044", "HalaaBT": "26045", "MarkOfThrallmar": "24581", "MarkOfHonorHold": "24579",
+    "SpiritShard": "28558", "holydust": "29735", "arcanerune": "29736", "glowcap": "24245", "ApexisC": "32572",
+    "ApexisS": "32569", "Brewfest": "37829", "sunmote": "34664", "burningblossom": "23247", "ancestrycoin": "21100",
+    "NecroticRune": "22484",
 }
-# x units that need no spelled-out tooltip on their own
-CLEAR_UNITS = {"Honor", "Arena Points", "Arena", "Badges", "Spirit Shards", "Glowcaps", "Holy Dust", "Arcane Runes",
-               "Sunmotes", "Sunmote", "Apexis Crystals", "Apexis Shards", "Brewfest Tokens"}
+COST_RX = re.compile(r"^(g|c\d+|\d+):\d+(,(g|c\d+|\d+):\d+)*$")
 
 
 # --------------------------------------------------------------------------------------
@@ -178,7 +168,7 @@ class Ctx:
         self.comment_names = {}                # itemID -> name from an AtlasLoot row comment
         self.spell_names = {}                  # spellID -> name from a crafting row comment
         self.x_unpriced = Counter()            # category -> rows without a derivable cost
-        self.x_long = []                       # prices that needed the shortest fallback
+        self.row_prices = {}                   # itemID -> OrderedDict price of its AtlasLoot row (PRICE_EXTRA)
 
     def skip(self, reason, where):
         self.skipped[reason].append(where)
@@ -320,12 +310,14 @@ def build_pages(sub_name, base_key, dl, row_fn, used, ctx, where, phase=None):
                     continue
                 seen.add(eid)
                 items.append(eid)
-                if xt:
+                # a text ("Skill 375") stays on the page; a price goes to the item's cost (AtlasCosts)
+                if isinstance(xt, str):
                     x[len(items)] = xt
+                elif xt and isinstance(eid, int) and eid > 0:
+                    ctx.row_prices.setdefault(eid, xt)
         if not items:
             ctx.skip("empty page dropped", f"{where} [{dname}]")
             continue
-        x, xtf = format_costs(x, ctx, f"{where} [{dname}]")
         page = OrderedDict(key=uniq_key(key, used), name=name)
         if phase:
             page["phase"] = phase
@@ -334,8 +326,6 @@ def build_pages(sub_name, base_key, dl, row_fn, used, ctx, where, phase=None):
         page["items"] = items
         if x:
             page["x"] = x
-        if xtf:
-            page["xt"] = xtf
         pages.append(page)
     return pages
 
@@ -358,57 +348,45 @@ def finish_source(key, name, pages, phase=None, side=None, factionID=None):
 # --------------------------------------------------------------------------------------
 # Prices
 # --------------------------------------------------------------------------------------
-def money_text(c, words=False):
-    """Copper -> "66g 50s" (x) or "66 gold 50 silver" (xt)."""
-    parts = [(c // 10000, "gold", "g"), ((c // 100) % 100, "silver", "s"), (c % 100, "copper", "c")]
-    parts = [(n, w, a) for n, w, a in parts if n] or [(0, "copper", "c")]
-    parts = parts[:2]  # gold + silver (or silver + copper): enough for a price
-    return " ".join(f"{n} {w}" if words else f"{n}{a}" for n, w, a in parts)
-
-
-def cost_full(price):
-    """OrderedDict price -> "22950 Honor and 10 Eye of the Storm Marks" (every currency spelled out)."""
+def cost_string(price):
+    """OrderedDict / dict price with AtlasLoot keys -> the addon's cost string ("c1901:22950,29024:10"), or None when a
+    part has a key COST_KEYS doesn't know (or the price is empty / not positive)."""
     parts = []
     for k, v in price.items():
-        if k == "money":
-            parts.append(money_text(v, words=True))
-        else:
-            _, sg, pl = CURRENCIES.get(k, ([k], k, k))
-            parts.append(f"{v} {sg if v == 1 else pl}")
-    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+        key = COST_KEYS.get(k)
+        if key is None or not isinstance(v, int) or v <= 0:
+            return None
+        parts.append(f"{key}:{v}")
+    return ",".join(parts) or None
 
 
-def format_costs(raw, ctx, where):
-    """{index: str | OrderedDict price} of one page -> (x, xt).  A str (crafting "Skill 375", "1 Sunmote") is kept
-    as is.  A price: x = the main (first) cost in plain words with the first unit candidate that fits MAX_X for every
-    row of the page that has that currency first (so a page reads alike); xt = the full cost when it says more."""
-    x, xt = OrderedDict(), OrderedDict()
-    longest = defaultdict(int)  # main currency -> longest amount text on this page
-    for v in raw.values():
-        if isinstance(v, dict) and v:
-            k, amt = next(iter(v.items()))
-            longest[k] = max(longest[k], len(money_text(amt) if k == "money" else str(amt)))
-    unit = {}
-    for k, n in longest.items():
-        if k == "money":
+def load_learned_prices(ctx):
+    """AtlasLoot's vendor scans on this PC: {itemID: OrderedDict price}. Every account's AtlasLootClassic.lua saved
+    variables, the newest file last (it wins). Missing files are fine (a PC without AtlasLoot: none)."""
+    import glob
+    files = sorted(glob.glob(os.path.join(P_WTF_ACCOUNTS, "*", "SavedVariables", "AtlasLootClassic.lua")),
+                   key=os.path.getmtime)
+    out, per_file = {}, OrderedDict()
+    for path in files:
+        lua = lua51.LuaRuntime(unpack_returned_tuples=True)
+        try:
+            lua.execute(read(path))
+        except Exception as e:  # a broken saved-variables file: skip it, say so
+            ctx.report["notes"].append(f"learned prices: {path} not readable ({e})")
             continue
-        cands = CURRENCIES.get(k, ([k], k, k))[0]
-        unit[k] = next((u for u in cands if n + 1 + len(u) <= MAX_X), cands[-1])
-    for i, v in raw.items():
-        if isinstance(v, str):
-            x[i] = v
-            continue
-        if not v:
-            continue
-        k, amt = next(iter(v.items()))
-        main = money_text(amt) if k == "money" else f"{amt} {unit[k]}"
-        if len(main) > MAX_X:
-            ctx.x_long.append({"where": where, "price": dict(v), "text": main})
-            main = main[:MAX_X]
-        x[i] = main
-        if len(v) > 1 or (k != "money" and unit[k] not in CLEAR_UNITS):
-            xt[i] = cost_full(v)
-    return x, xt
+        db = lua.globals().AtlasLootClassicDB
+        vp = db and db["global"] and db["global"]["VendorPrice"]
+        n = 0
+        if vp:
+            for k, v in vp.items():
+                if isinstance(k, int) and isinstance(v, str):
+                    price = parse_price(v)
+                    if price:
+                        out[k] = price
+                        n += 1
+        per_file[os.path.relpath(path, P_WTF_ACCOUNTS)] = n
+    ctx.report["learned_price_files"] = per_file
+    return out
 
 
 # --------------------------------------------------------------------------------------
@@ -920,6 +898,8 @@ HEADER = """\
 --   AtlasLootClassic_DungeonsAndRaids/data-tbc.lua  T4_SET / T5_SET / T6_SET (item set ids per class)
 --   AtlasLootClassic/Data/ItemSet.lua          set id -> item ids + set name (BCC, CLASSIC fallback)
 --   AtlasLootClassic/Data/VendorPrice.lua      badge / honor / mark / token / money costs
+--   WTF/Account/*/SavedVariables/AtlasLootClassic.lua  AtlasLoot's vendor scans on the author's PC: the prices the
+--                                              realm's vendors asked (first choice for AtlasCosts)
 --   Questie/Database/TBC/tbcItemDB.lua         English item names (fallback: the AtlasLoot row comment)
 --   DisasterZone Data/Items.lua, Dungeons.lua, Sources.lua  item ids the Atlas tab also lists (names; the raid /
 --                                              dungeon boss lists for recipes; Upgrades for the Sunmote page)
@@ -943,14 +923,13 @@ HEADER = """\
 --          Reputation / world PvP 1; arena Season 1/2/3/4 = 1/2/3/5), the P1 Badge of Justice table 1;
 --          Tier 4/5/6 = 1/2/3; every Sets source has one. No phase = not known (crafting, most factions, ...).
 --   x = { [itemIndex] = "short text" } shown at the row's right (at most 16 characters): "Skill 375" (crafting,
---       Profession.lua required skill); "1 Sunmote" (Sunmote page: the upgrade needs the base Sunwell drop plus one
---       Sunmote, ns.Data.Upgrades); otherwise the MAIN cost (the first part of the row's AtlasLoot price, else
---       VendorPrice.lua) in plain words: "8000 Honor", "40 Badges", "15 Marks", "30 AV Marks", "90g". One page uses
---       one unit form per currency. None on reputation or Sets pages.
---   xt = { [itemIndex] = "full cost" } for the tooltip ("Cost: <xt>"), only where x has a cost that says less: more
---       than one currency, or an abbreviated unit. Every currency spelled out: "22950 Honor and 10 Eye of the Storm
---       Marks", "15 Marks of Honor Hold", "40 Halaa Battle Tokens and 2 Halaa Research Tokens".
+--       Profession.lua required skill). Prices are not here: ns.Data.AtlasCosts, per item.
 --   PvP: the arena / honor / reputation SET sub-tables live under Sets; every other PvP sub-table stays under PvP.
+-- ns.Data.AtlasCosts = { [itemID] = "key:amount,key:amount" } what an item costs at its vendor (Core/Currency.lua):
+--   key "c<currencyID>" = a currency (c1901 Honor, c1900 Arena Points), "g" = money in copper, a number = an item
+--   that pays (29434 Badge of Justice, 20560 Alterac Valley Mark, 34664 Sunmote ...). First choice: the realm's own
+--   prices from AtlasLoot's vendor scans (PvP prices change with the arena seasons), then the AtlasLoot row's price,
+--   then VendorPrice.lua; a Sunmote upgrade costs one Sunmote (plus its base drop, the row under it).
 -- ns.Data.AtlasNames = { [id] = "English name" } for every id the Atlas tab can list: the ids above (items positive,
 --   craft spells negative) plus every item id of Data/Items.lua (raid loot, tokens + pieces, upgrades, arena token
 --   exchanges), Data/Dungeons.lua and Data/Sources.lua, plus every AtlasRecipes value.
@@ -975,7 +954,7 @@ def lua_item_line(e, names, indent):
     return f"{indent}{e}," + (f" -- {cmt(nm)}" if nm else "")
 
 
-def write_lua(path, tree, names, recipes, crafts, craft_for, conv):
+def write_lua(path, tree, names, recipes, crafts, craft_for, conv, costs):
     L = [FIRST_LINE, HEADER.rstrip("\n"), "local _, ns = ...", "ns.Data = ns.Data or {}", "",
          "-- Browse tree beyond raids / dungeons. categories -> sources -> pages -> items.", "ns.Data.Atlas = {"]
     for cat in tree:
@@ -1000,12 +979,11 @@ def write_lua(path, tree, names, recipes, crafts, craft_for, conv):
                 L.append("      { " + ", ".join(f) + ", items = {")
                 for e in pg["items"]:
                     L.append(lua_item_line(e, names, "          "))
-                for fld, per_line in (("x", 6), ("xt", 1)):
-                    if pg.get(fld):
-                        xs = [f"[{i}] = {lua_str(t)}" for i, t in pg[fld].items()]
-                        L.append(f"      }}, {fld} = {{")
-                        for k in range(0, len(xs), per_line):
-                            L.append("          " + ", ".join(xs[k:k + per_line]) + ",")
+                if pg.get("x"):
+                    xs = [f"[{i}] = {lua_str(t)}" for i, t in pg["x"].items()]
+                    L.append("      }, x = {")
+                    for k in range(0, len(xs), 6):
+                        L.append("          " + ", ".join(xs[k:k + 6]) + ",")
                 L.append("      } },")
             L.append("    }},")
         L.append("  }},")
@@ -1037,6 +1015,12 @@ def write_lua(path, tree, names, recipes, crafts, craft_for, conv):
     L.append("ns.Data.AtlasConversions = {")
     for sp in sorted(conv):
         L.append(f"  [{sp}] = true, -- {cmt(names.get(crafts[sp][0], '?'))} from {cmt(names.get(crafts[sp][2][0][0], '?'))}")
+    L.append("}")
+    L.append("")
+    L.append("-- What an item costs at its vendor: \"key:amount,...\" (c<currencyID>, g = copper, <itemID>).")
+    L.append("ns.Data.AtlasCosts = {")
+    for i in sorted(costs):
+        L.append(f"  [{i}] = \"{costs[i]}\", -- {cmt(names.get(i, '?'))}")
     L.append("}")
     L.append("")
     L.append("-- English names for every id the browser can list: items (positive) and craft spells (negative).")
@@ -1149,12 +1133,7 @@ def validate_lua(path, expect_cats):  # noqa: C901
                         elif isinstance(items[k - 1], str):
                             errs.append(f"{w2}: x on a header [{k}]")
                 if pg.xt is not None:
-                    for k, t in pg.xt.items():
-                        counts["xt"] += 1
-                        if not isinstance(k, int) or not isinstance(t, str) or not t:
-                            errs.append(f"{w2}: bad xt [{k!r}] = {t!r}")
-                        elif pg.x is None or pg.x[k] is None:
-                            errs.append(f"{w2}: xt [{k}] without x at that index")
+                    errs.append(f"{w2}: xt (prices are AtlasCosts now)")
     if cat_keys != expect_cats:
         errs.append(f"category keys {cat_keys} != {expect_cats}")
     missing = sorted(i for i in tree_ids if N[i] is None)
@@ -1167,6 +1146,16 @@ def validate_lua(path, expect_cats):  # noqa: C901
             break
     counts["names"] = n_names
     counts["tree_unique_ids"] = len(tree_ids)
+    CO = ns.Data.AtlasCosts
+    if CO is None:
+        errs.append("ns.Data.AtlasCosts missing")
+    else:
+        for k, v in CO.items():
+            counts["costs"] += 1
+            if not (isinstance(k, int) and k > 0) or N[k] is None:
+                errs.append(f"AtlasCosts key {k!r} is not a named item id")
+            if not (isinstance(v, str) and COST_RX.match(v)):
+                errs.append(f"AtlasCosts[{k!r}] = {v!r}: not key:amount,...")
     R = ns.Data.AtlasRecipes
     if R is None:
         errs.append("ns.Data.AtlasRecipes missing")
@@ -1234,20 +1223,19 @@ def main():
     collections, _ = build_item_tables(ctx, S.P_COLLECTIONS, COLLECTIONS, "collections", PRICES)
     events, _ = build_item_tables(ctx, S.P_COLLECTIONS, EVENTS, "events", PRICES)
     sets = build_sets(ctx, SETS_DB, pvp_set_subs, set_phase)
-    # Sunmote page: every upgraded item costs its base Sunwell drop + one Sunmote (ns.Data.Upgrades base -> upgraded)
+    # Sunmote page: every upgraded item costs its base Sunwell drop + one Sunmote (ns.Data.Upgrades base -> upgraded);
+    # the Sunmote is its cost (AtlasCosts), the base drop shows as the indented row under it
     upgraded = set(UPGRADES.values())
+    sunmote_costs = {}
     for src in vendors:
         if src["key"] != VENDORS["BCCSunmote"][0]:
             continue
         for pg in src["pages"]:
-            x = pg.setdefault("x", OrderedDict())
-            for k, e in enumerate(pg["items"], 1):
+            for e in pg["items"]:
                 if e in upgraded:
-                    x[k] = "1 Sunmote"
+                    sunmote_costs[e] = OrderedDict(sunmote=1)
                 else:
                     rep.setdefault("sunmote_not_an_upgrade", []).append({"page": pg["key"], "id": e})
-            if not x:
-                del pg["x"]
     by_cat = {"crafting": crafting, "reputation": reputation, "pvp": pvp, "vendors": vendors,
               "collections": collections, "events": events, "sets": sets}
     tree = [OrderedDict(key=k, name=n, sources=by_cat[k]) for k, n in CATEGORIES if by_cat[k]]
@@ -1333,17 +1321,16 @@ def main():
                     old = pg["items"]
                     keep = [e for e in old if not (isinstance(e, int) and e in bad)]
                     if len(keep) != len(old):
-                        # remap x / xt
-                        for fld in ("x", "xt"):
-                            if pg.get(fld):
-                                nx, j = OrderedDict(), 0
-                                for k, e in enumerate(old, 1):
-                                    if isinstance(e, int) and e in bad:
-                                        continue
-                                    j += 1
-                                    if k in pg[fld]:
-                                        nx[j] = pg[fld][k]
-                                pg[fld] = nx
+                        # remap x
+                        if pg.get("x"):
+                            nx, j = OrderedDict(), 0
+                            for k, e in enumerate(old, 1):
+                                if isinstance(e, int) and e in bad:
+                                    continue
+                                j += 1
+                                if k in pg["x"]:
+                                    nx[j] = pg["x"][k]
+                            pg["x"] = nx
                         pg["items"] = keep
                         for e in old:
                             if isinstance(e, int) and e in bad:
@@ -1374,7 +1361,29 @@ def main():
     rep["craft_for"] = {str(k): v for k, v in craft_for.items()}
 
     rep["conversions"] = len(conv)
-    size = write_lua(args.out, tree, names, recipes, crafts, craft_for, conv)
+
+    # ---- costs: what each item the Atlas can list costs at its vendor. The realm's own prices first (AtlasLoot's
+    # vendor scans on this PC), then the AtlasLoot row's price, then VendorPrice.lua, then the Sunmote rule.
+    learned = load_learned_prices(ctx)
+    costs, cost_src, cost_keys, dropped = OrderedDict(), Counter(), Counter(), []
+    for i in sorted(k for k in names if k > 0):
+        for how, table in (("AtlasLoot vendor scan (realm)", learned), ("AtlasLoot table row", ctx.row_prices),
+                           ("AtlasLoot VendorPrice.lua", PRICES), ("Sunmote upgrade", sunmote_costs)):
+            if i in table and table[i]:
+                cs = cost_string(table[i])
+                if cs:
+                    costs[i] = cs
+                    cost_src[how] += 1
+                    for part in cs.split(","):
+                        cost_keys[part.split(":")[0]] += 1
+                else:
+                    dropped.append({"id": i, "from": how, "price": dict(table[i])})
+                break
+    rep["costs"] = len(costs)
+    rep["cost_sources"] = dict(cost_src)
+    rep["cost_keys"] = dict(cost_keys.most_common())
+    rep["costs_dropped_unknown_key"] = dropped
+    size = write_lua(args.out, tree, names, recipes, crafts, craft_for, conv, costs)
     errs, counts, lua, ns = validate_lua(args.out, [c["key"] for c in tree])
 
     # ---- report
@@ -1394,10 +1403,16 @@ def main():
     rep["counts"] = summary
     rep["skipped_counts"] = {k: len(v) for k, v in sorted(ctx.skipped.items())}
     rep["skipped"] = {k: v[:60] for k, v in sorted(ctx.skipped.items())}
-    rep["x_without_cost_by_category"] = dict(ctx.x_unpriced)
-    rep["x_too_long_truncated"] = ctx.x_long
-    rep["xt_sample"] = [{"where": f"{c_['key']}/{s_['key']}/{p_['key']}", "id": p_["items"][i - 1], "x": p_["x"][i], "xt": t}
-                        for c_ in tree for s_ in c_["sources"] for p_ in s_["pages"] for i, t in (p_.get("xt") or {}).items()][:40]
+    rep["rows_without_table_price_by_category"] = dict(ctx.x_unpriced)
+    unpriced = Counter()
+    for c_ in tree:
+        for s_ in c_["sources"]:
+            for p_ in s_["pages"]:
+                for e in p_["items"]:
+                    if isinstance(e, int) and e > 0 and e not in costs and c_["key"] in ("pvp", "vendors", "sets"):
+                        unpriced[f"{c_['key']}/{s_['key']}"] += 1
+    rep["rows_without_cost_pvp_vendors_sets"] = dict(unpriced)
+    rep["costs_sample"] = {str(i): costs[i] for i in list(costs)[::max(1, len(costs) // 30)][:30]}
 
     def page_of(cat_key, src_key, pg_idx=0, pg_key=None):
         for c in tree:

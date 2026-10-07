@@ -9,7 +9,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Atlas.lua", ...) then return en
 -- Items: hover = tooltip and a + button that adds the item to my BiS list (phase, best / alt, the slot for rings /
 -- trinkets / one-handers, "and later phases"); right-click = the same choices plus try on and link; shift-click =
 -- link, ctrl-click = dressing room. Marks: on my list (best / alt / off spec, with the phases), owned, and for the
--- Loot Council how many members want it.
+-- Loot Council how many members want it. An item a vendor sells shows its cost with the currencies' icons, each
+-- amount red while I hold less (the vendor window's rule); a set page says what the pieces I don't own cost.
+-- The currency bar along the bottom: Honor, Arena Points and Badges of Justice always, then what the list shown pays
+-- with; hovering an item lights its currencies there with how many I lack or keep (model: Core/Currency.lua).
 -- One spacing grid: PAD at the page's sides, GAP between the columns, IN inside rows and cards. The item list's scroll
 -- bar sits in the page's right margin, the sources' over their right padding, the pages' takes room while they scroll.
 -- Model: Core/Atlas.lua (ns.Atlas).
@@ -26,7 +29,8 @@ local TOP_Y, CTRL_H = 8, 22                       -- the search / filter row
 local COLS_Y = TOP_Y + CTRL_H + GAP               -- where the three columns start
 local LEFT_W, MID_W = 180, 182
 local RIGHT_W = 790 - 2 * PAD - LEFT_W - MID_W - 2 * GAP   -- 392: sizes before the first layout (fixed window)
-local BODY_H = 548 - COLS_Y - PAD                 -- 500
+local BAR_H = 26                                  -- the currency bar along the bottom
+local BODY_H = 548 - COLS_Y - PAD - BAR_H - GAP   -- 466
 local SLOT_W = 148                                -- the slot filter; Show takes the rest of the item column
 local BANNER_H, ART_FW = 72, 0.5                  -- the source's banner; the share of the loading screen it shows
 local HEAD_H = 26                                 -- a column's title row (one line; taller when its note goes under)
@@ -57,7 +61,7 @@ local ARMOR_KIND = { [6] = "Shield", [7] = "Libram", [8] = "Idol", [9] = "Totem"
 local STANDINGS = { "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted" }
 
 local panel, searchBox, showDD, slotDD, srcList, pageList, itemList
-local banner, midHead, itemHead, diffNormal, diffHeroic
+local banner, midHead, itemHead, diffNormal, diffHeroic, curBar
 local state = {
     cat = nil, src = nil, page = nil, heroic = false,
     expanded = nil,      -- the category folded open in the left column
@@ -264,6 +268,252 @@ local function Gradient(tex, r, g, b, bottom, top)
     else
         tex:SetColorTexture(r, g, b, (bottom + top) / 2)
     end
+end
+
+---------------------------------------------------------------------------
+-- Costs and the currency bar
+---------------------------------------------------------------------------
+
+local CHIP_ICON, CHIP_GAP, MAX_CONTEXT = 14, 2, 4
+local RED_HEX, GREEN_HEX, YELLOW_HEX = "|cffff5a4f", "|cff4fd36b", "|cffffd100"
+local barKeys = {}       -- the bar's currencies after the pinned ones: what the list shown pays with
+local hoverRow           -- the item row whose cost the bar shows
+
+local function Cur() return ns.Currency end
+
+-- An item's cost: parts ({ { key, n }, ... }), where it comes from; nil when no vendor price is known.
+local function CostOf(id)
+    local C = Cur()
+    if not (C and type(id) == "number" and id > 0) then return nil end
+    return C:GetCost(id)
+end
+
+-- "1,875 Arena Points" / "12g 50s" (an amount with the currency's name; money says itself).
+local function AmountName(C, key, n)
+    if key == C.MONEY then return C:AmountText(key, n, 12) end
+    return C:AmountText(key, n, 12) .. " " .. C:Name(key)
+end
+
+-- The tooltip's cost block: each currency with what I lack, or what I have.
+local function AddCostLines(tt, parts, from)
+    local C = Cur()
+    tt:AddLine(" ")
+    tt:AddLine("Cost", 1, 0.82, 0)
+    for _, c in ipairs((C:Check(parts))) do
+        local left = (c.key == C.MONEY and "" or (C:IconMarkup(c.key, 14) .. " ")) .. AmountName(C, c.key, c.n)
+        local right
+        if c.short > 0 then
+            right = RED_HEX .. C:AmountText(c.key, c.short, 12) .. " more needed|r"
+        else
+            local _, bags = C:Have(c.key)
+            right = bags < c.n and (YELLOW_HEX .. "Some is in your bank|r")
+                or (GREEN_HEX .. "You have " .. C:AmountText(c.key, c.have, 12) .. "|r")
+        end
+        tt:AddDoubleLine(left, right, 1, 1, 1, 1, 1, 1)
+    end
+    if from == "season" then
+        tt:AddLine("What this season's other pieces for this slot cost.", 0.6, 0.6, 0.6, true)
+    end
+end
+
+local function ChipTooltip(chip)
+    local C, key = Cur(), chip.key
+    if not (C and key) then return end
+    GameTooltip:SetOwner(chip, "ANCHOR_TOP")
+    GameTooltip:AddLine((key == C.MONEY and "" or (C:IconMarkup(key, 14) .. " ")) .. C:Name(key), 1, 0.82, 0)
+    local total, bags = C:Have(key)
+    GameTooltip:AddDoubleLine("You have", C:AmountText(key, total, 12), 0.8, 0.8, 0.8, 1, 1, 1)
+    if total > bags then
+        GameTooltip:AddDoubleLine("Of that in your bank", C:AmountText(key, total - bags, 12), 0.8, 0.8, 0.8, 1, 1, 1)
+    end
+    local most = C:Max(key)
+    if most then GameTooltip:AddDoubleLine("The most you can hold", C:Number(most), 0.8, 0.8, 0.8, 1, 1, 1) end
+    GameTooltip:Show()
+end
+
+local function CreateChip(parent)
+    local chip = CreateFrame("Button", nil, parent)
+    chip:SetHeight(BAR_H - 6)
+    chip.bg = chip:CreateTexture(nil, "BACKGROUND")
+    chip.bg:SetAllPoints()
+    chip.bg:SetColorTexture(1, 1, 1, 0)
+    local hl = chip:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 1, 0.05)
+    chip.icon = chip:CreateTexture(nil, "ARTWORK")
+    chip.icon:SetSize(CHIP_ICON, CHIP_ICON)
+    chip.icon:SetPoint("LEFT", chip, "LEFT", 6, 0)
+    chip.amount = NewText(chip, "GameFontHighlightSmall", 11)
+    chip.amount:SetPoint("LEFT", chip.icon, "RIGHT", 5, 0)
+    chip:SetScript("OnEnter", ChipTooltip)
+    chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return chip
+end
+
+-- Lights the chips of a cost (red: I lack some, green: enough) and says on the bar's right what buying it leaves or
+-- needs; nil clears it.
+local function BarShowCost(d)
+    if not curBar then return end
+    local C = Cur()
+    local parts = C and d and d.type == "item" and CostOf(d.id)
+    local checks = parts and C:Check(parts)
+    local byKey = {}
+    for _, c in ipairs(checks or {}) do byKey[c.key] = c end
+    for _, chip in ipairs(curBar.chips) do
+        local c = chip:IsShown() and byKey[chip.key]
+        if not c then
+            chip.bg:SetColorTexture(1, 1, 1, 0)
+        elseif c.short > 0 then
+            chip.bg:SetColorTexture(1, 0.35, 0.3, 0.18)
+        else
+            chip.bg:SetColorTexture(0.3, 0.85, 0.4, 0.14)
+        end
+    end
+    local text = ""
+    if checks then
+        local short, left, bank = {}, {}, {}
+        for _, c in ipairs(checks) do
+            local amt = function(n) return C:AmountText(c.key, n, 12) .. (c.key == C.MONEY and "" or (" " .. C:IconMarkup(c.key, 12))) end
+            if c.short > 0 then
+                short[#short + 1] = amt(c.short)
+            else
+                left[#left + 1] = amt(c.have - c.n)
+                local _, bags = C:Have(c.key)
+                if bags < c.n then bank[#bank + 1] = amt(c.n - bags) end
+            end
+        end
+        if #short > 0 then
+            text = RED_HEX .. "Need|r " .. table.concat(short, "  ") .. RED_HEX .. " more|r"
+        elseif #bank > 0 then
+            text = GREEN_HEX .. "Affordable|r" .. DOT .. "take " .. table.concat(bank, "  ") .. " from your bank"
+        else
+            text = GREEN_HEX .. "Affordable|r" .. DOT .. table.concat(left, "  ") .. " left"
+        end
+        -- too long beside the chips: the verdict alone
+        if CodedWidth(text, "GameFontHighlightSmall", 11) > curBar.room then
+            text = #short > 0 and (RED_HEX .. "Not enough|r") or (GREEN_HEX .. "Affordable|r")
+        end
+    end
+    curBar.note:SetText(text)
+end
+
+-- The bar: Honor, Arena Points and Badges always, a rule, then what the list shown pays with (most used first).
+local function LayoutBar()
+    if not curBar then return end
+    local C = Cur()
+    curBar:SetShown(C ~= nil)
+    if not C then return end
+    local keys = {}
+    for _, k in ipairs(C.PINNED) do keys[#keys + 1] = k end
+    local pinned = #keys
+    for _, k in ipairs(barKeys) do keys[#keys + 1] = k end
+    local x = 4
+    curBar.rule:Hide()
+    for i, key in ipairs(keys) do
+        local chip = curBar.chips[i] or CreateChip(curBar)
+        curBar.chips[i] = chip
+        chip.key = key
+        local tex, l, r, t, b = C:Icon(key)
+        chip.icon:SetTexture(tex)
+        if l then
+            chip.icon:SetTexCoord(l, r, t, b)
+        elseif key:match("^%d+$") then
+            chip.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)   -- an item's icon: without its border
+        else
+            chip.icon:SetTexCoord(0, 1, 0, 1)
+        end
+        local have = C:Have(key)
+        local text = C:AmountText(key, have, 11)
+        chip.amount:SetText(text)
+        if i == pinned + 1 then
+            curBar.rule:ClearAllPoints()
+            curBar.rule:SetPoint("LEFT", curBar, "LEFT", x + 3, 0)
+            curBar.rule:Show()
+            x = x + 8
+        end
+        local w = 6 + CHIP_ICON + 5 + ceil(CodedWidth(text, "GameFontHighlightSmall", 11)) + 8
+        chip:ClearAllPoints()
+        chip:SetPoint("LEFT", curBar, "LEFT", x, 0)
+        chip:SetWidth(w)
+        chip:Show()
+        x = x + w + CHIP_GAP
+    end
+    for i = #keys + 1, #curBar.chips do curBar.chips[i]:Hide() end
+    local width = curBar:GetWidth()
+    curBar.room = max(0, ((width and width > 0) and width or (790 - 2 * PAD)) - x - 2 * IN)
+    curBar.note:SetWidth(max(curBar.room, 1))
+    BarShowCost(hoverRow and hoverRow:IsShown() and hoverRow.__cdlData or nil)
+end
+
+-- What the rows pay with besides the pinned currencies, most used first (at most MAX_CONTEXT).
+local function ContextKeys(rows)
+    local C = Cur()
+    if not C then return {} end
+    local pinned, count, order = {}, {}, {}
+    for _, k in ipairs(C.PINNED) do pinned[k] = true end
+    for _, r in ipairs(rows) do
+        local parts = r.type == "item" and CostOf(r.id)
+        for _, p in ipairs(parts or {}) do
+            if not pinned[p.key] then
+                if not count[p.key] then order[#order + 1] = p.key end
+                count[p.key] = (count[p.key] or 0) + 1
+            end
+        end
+    end
+    table.sort(order, function(a, b)
+        if count[a] ~= count[b] then return count[a] > count[b] end
+        return a < b
+    end)
+    local out = {}
+    for i = 1, math.min(#order, MAX_CONTEXT) do out[i] = order[i] end
+    return out
+end
+
+-- A set page's note: what the pieces I don't own cost together ("Set 8,250 [A]" / "Still to buy 4,500 [A]"), only
+-- when every piece has a price.
+local function SetTotalText(rows)
+    local C = Cur()
+    if not C then return nil end
+    local sum, order, owned, missing = {}, {}, 0, false
+    for _, r in ipairs(rows) do
+        if r.type == "item" and not r.via and r.id > 0 then
+            local parts = CostOf(r.id)
+            if not parts then
+                missing = true
+            elseif ns.BiS and ns.BiS.IsObtained and ns.BiS:IsObtained(r.id) then
+                owned = owned + 1
+            else
+                for _, p in ipairs(parts) do
+                    if not sum[p.key] then order[#order + 1] = p.key end
+                    sum[p.key] = (sum[p.key] or 0) + p.n
+                end
+            end
+        end
+    end
+    if missing or #order == 0 then return nil end
+    local parts = {}
+    for i, k in ipairs(order) do parts[i] = { key = k, n = sum[k] } end
+    return (owned > 0 and "Still to buy " or "Set ") .. C:CostText(parts, 12)
+end
+
+local function CreateCurrencyBar(parent)
+    local UI = ns.UI
+    local bar = CreateFrame("Frame", nil, parent)
+    bar:SetHeight(BAR_H)
+    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
+    bar.bg:SetAllPoints()
+    bar.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
+    UI:AddEdges(bar, "BORDER")
+    UI:SetEdgeColor(bar, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
+    bar.rule = bar:CreateTexture(nil, "ARTWORK")
+    bar.rule:SetSize(1, BAR_H - 12)
+    bar.rule:SetColorTexture(1, 1, 1, 0.14)
+    bar.note = NewText(bar, "GameFontHighlightSmall", 11)
+    bar.note:SetJustifyH("RIGHT")
+    bar.note:SetPoint("RIGHT", bar, "RIGHT", -IN, 0)
+    bar.chips = {}
+    bar.room = 0
+    return bar
 end
 
 ---------------------------------------------------------------------------
@@ -574,11 +824,17 @@ local function ShopMark(id)
     return ns.UI:AtlasIconText(ns.UI.ICON.bag, 10, { 0.85, 0.85, 0.85 }) .. " |cffd8d8d8" .. n .. "|r"
 end
 
--- The right of an item row, at most two lines: the cost / skill, my marks, the council's "N want", my shopping list.
+-- The right of an item row, at most two lines: the cost (icons, red while I hold less) / skill, my marks, the
+-- council's "N want", my shopping list.
 local function RightLines(d)
     local id = d.id
     local lines = {}
-    if d.x then lines[#lines + 1] = "|cffe0e0e0" .. d.x .. "|r" end
+    local parts = CostOf(id)
+    if parts then
+        lines[#lines + 1] = Cur():CostText(parts, 12)
+    elseif d.x then
+        lines[#lines + 1] = "|cffe0e0e0" .. d.x .. "|r"
+    end
     local mine = MarksText(id)
     local bag = ShopMark(id)
     if bag ~= "" then mine = mine ~= "" and (mine .. "  " .. bag) or bag end
@@ -662,9 +918,12 @@ local function RowTooltip(row)
             tt:AddLine(" ")
             tt:AddLine(viaText, 0.7, 0.7, 0.7, true)
         end
-        if d.xt or d.x then
+        local parts, from = CostOf(id)
+        if parts then
+            AddCostLines(tt, parts, from)
+        elseif d.x then
             tt:AddLine(" ")
-            tt:AddLine((d.x and d.x:find("^Skill") and "" or "Cost: ") .. (d.xt or d.x), 1, 0.82, 0, true)
+            tt:AddLine(d.x, 1, 0.82, 0, true)
         end
         if d.loc then
             tt:AddLine(" ")
@@ -727,6 +986,14 @@ local function SetRowHover(row, on)
     local lay = row.lay
     local item = lay and lay.textX ~= nil
     row.hover:SetShown(on and item or false)
+    -- the currency bar shows the hovered item's cost (a row being drawn while another is hovered leaves it)
+    if on and item then
+        hoverRow = row
+        BarShowCost(row.__cdlData)
+    elseif hoverRow == row then
+        hoverRow = nil
+        BarShowCost(nil)
+    end
     local plus = on and item and lay.canAdd or false
     local shop = on and item and lay.canShop or false
     row.plus:SetShown(plus)
@@ -1201,7 +1468,7 @@ local function FillHead(h, width, title, note)
     h.count:SetText(note)
     h.count:SetShown(note ~= "")
     local inner = width - 2 * IN
-    local nw = note ~= "" and TextWidth(note, "GameFontDisableSmall", 10) or 0
+    local nw = note ~= "" and CodedWidth(note, "GameFontDisableSmall", 10) or 0
     local tw = TextWidth(title, "GameFontNormal", 14)
     local one = tw + (nw > 0 and (nw + 12) or 0) <= inner
     h.title:ClearAllPoints()
@@ -1315,7 +1582,7 @@ end
 -- Item rows of a list of entries: headers kept only when an item follows them. Under an item, indented rows of what
 -- it turns into or comes from (they work like any item): a token's pieces for my class (filtered like the page), a
 -- Sunwell drop's Sunmote upgrade, a Sunmote item's base drop, what a recipe makes.
-local function EntryRows(entries, x, setPage, xt)
+local function EntryRows(entries, x, setPage)
     local rows, pendingHeader, count = {}, nil, 0
     local A = Atlas()
     for i, e in ipairs(entries) do
@@ -1326,8 +1593,7 @@ local function EntryRows(entries, x, setPage, xt)
                 rows[#rows + 1] = pendingHeader
                 pendingHeader = nil
             end
-            local item = { type = "item", id = e, x = type(x) == "table" and x[i] or nil,
-                           xt = type(xt) == "table" and xt[i] or nil, setPage = setPage }
+            local item = { type = "item", id = e, x = type(x) == "table" and x[i] or nil, setPage = setPage }
             rows[#rows + 1] = item
             count = count + 1
             if e > 0 then
@@ -1381,6 +1647,8 @@ function AtlasUI:RefreshItems(resetScroll)
         itemHead:Hide()
         itemList.frame:Hide()
         ns.AtlasShopUI:Refresh(resetScroll)
+        barKeys = {}
+        LayoutBar()
         return
     end
     itemList.frame:Show()
@@ -1421,14 +1689,15 @@ function AtlasUI:RefreshItems(resetScroll)
         if page then
             local heroic = state.heroic and page.heroicItems ~= nil
             local plain = not state.heroic or not page.heroicItems
-            rows, count = EntryRows(A:GetPageEntries(page, heroic), plain and page.x or nil, src.kind == "sets",
-                plain and page.xt or nil)
+            rows, count = EntryRows(A:GetPageEntries(page, heroic), plain and page.x or nil, src.kind == "sets")
             -- the page's name (Normal / Heroic shows beside the pages); a note only for what isn't visible: a set
-            -- page's own name under its set title, a page of a later phase than its source
+            -- page's own name under its set title, a page of a later phase than its source, what the set costs
             title = page.title or page.name or ""
             local note = {}
             if page.phase and page.phase ~= (src.phase or 1) then note[#note + 1] = "Phase " .. page.phase end
             if page.title and page.name then note[#note + 1] = page.name end
+            local total = src.kind == "sets" and SetTotalText(rows)
+            if total then note[#note + 1] = total end
             sub = table.concat(note, DOT)
             itemList:SetEmptyText(Filtered()
                 and "Nothing here passes the filters. Try Show: All items, or Any slot."
@@ -1444,6 +1713,8 @@ function AtlasUI:RefreshItems(resetScroll)
     itemList.frame:SetPoint("BOTTOMRIGHT", panel.right, "BOTTOMRIGHT", 0, 0)
     itemList:SetData(rows, resetScroll)
     Prefetch(rows)
+    barKeys = ContextKeys(rows)
+    LayoutBar()
 end
 
 function AtlasUI:Refresh()
@@ -1636,11 +1907,16 @@ function AtlasUI:CreatePanel(parent)
         fs:SetPoint("RIGHT", showDD, "RIGHT", -20, 0)
     end
 
-    -- the columns
+    -- the columns, the currency bar under them
     local body = CreateFrame("Frame", nil, panel)
     body:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, -COLS_Y)
-    body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, PAD)
+    body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, PAD + BAR_H + GAP)
     panel.body = body
+
+    curBar = CreateCurrencyBar(panel)
+    curBar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PAD, PAD)
+    curBar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, PAD)
+    panel.currencyBar = curBar
 
     local left = CreateFrame("Frame", nil, body)
     left:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
@@ -1816,3 +2092,11 @@ ns:On("SHOP_UPDATED", function()
     if srcList then srcList:Refresh() end
     RequestItems()
 end)
+-- what I hold changed (honor, arena points, badges, marks, money): the bar and the red / white costs
+ns:On("CURRENCY_CHANGED", function()
+    if not panel then return end
+    if panel:IsVisible() then LayoutBar() end
+    RequestItems()
+end)
+-- a vendor told me new prices
+ns:On("PRICES_UPDATED", RequestItems)
