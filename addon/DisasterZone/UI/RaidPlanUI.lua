@@ -4185,7 +4185,7 @@ end
 -- The toolbar's right end, right to left: Save and Undo (while something changed), then the view's own actions:
 -- Groups: Auto-fill and Add members; Comp: Start from and the raid buffs. "Changed, not saved" sits after the switch.
 -- The raid buffs sit after the switch (d.buffs on Groups, d.compStrip on Comp); d.stripRoom = the width left them.
--- While something is unsaved the search field narrows (200 down to 120) so all 14 buffs still fit at 14 px.
+-- While something is unsaved the search field narrows (200 down to 120) so every raid buff still fits at 14 px.
 function TV.layoutTool(kind)
     local t, d = teamsView, teamsView.detail
     local tool = d.tool
@@ -4212,7 +4212,7 @@ function TV.layoutTool(kind)
         if shown and d.autoBtn:IsShown() then place(d.autoBtn, 12) end
         if shown and t.picker.frame:IsShown() then
             local w = 200
-            if d.saveBtn:IsShown() then w = max(120, min(200, TV.W - left - used - 8 - 12 - 14 * 16)) end
+            if d.saveBtn:IsShown() then w = max(120, min(200, TV.W - left - used - 8 - 12 - #ns.RaidComp:BuffStates({}, {}) * 16)) end
             t.picker.frame:SetWidth(w)
             place(t.picker.frame, 8, w)
         end

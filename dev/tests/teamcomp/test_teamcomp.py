@@ -547,11 +547,11 @@ def the_buff_strip_has_three_states():
                      "WARRIOR": [0, 0, 1]})
     w.tick(2)
     st = rp(rita, "GetTeamBuffStates", tid)
-    assert [b["key"] for b in st] == ["blessings", "fortitude", "divinespirit", "motw", "arcaneint", "sunder",
+    assert [b["key"] for b in st] == ["heroism", "blessings", "fortitude", "divinespirit", "motw", "arcaneint", "sunder",
                                       "bloodfrenzy", "faeriefire", "huntersmark", "exposeweakness", "coe", "misery",
                                       "impscorch", "jow"]
     by = {b["key"]: b for b in st}
-    want = {"blessings": "have", "fortitude": "planned", "divinespirit": "off", "motw": "have", "arcaneint": "off",
+    want = {"heroism": "off", "blessings": "have", "fortitude": "planned", "divinespirit": "off", "motw": "have", "arcaneint": "off",
             "sunder": "have", "bloodfrenzy": "off", "faeriefire": "have", "huntersmark": "planned",
             "exposeweakness": "planned", "coe": "off", "misery": "planned", "impscorch": "off", "jow": "have"}
     assert {k: b["state"] for k, b in by.items()} == want

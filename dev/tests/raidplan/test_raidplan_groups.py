@@ -114,7 +114,7 @@ def shaman_air_totem_follows_the_group():
     assert air(("E1", "SHAMAN", 2), ("E2", "SHAMAN", 2), ("Rog", "ROGUE", 1), ("War", "WARRIOR", 2)) == ["windfury"]
     # the raid-wide strip is not touched; other party buffs carry no note
     assert bob.eval("return ns.RaidComp:AirTotem({ { key = 'x', c = 'MAGE', sp = 1 } })") is None
-    assert melee["heroism"] == "", melee
+    assert melee["battleshout"] == "", melee
     w.assert_no_errors()
 
 
@@ -238,7 +238,8 @@ def teams_grid_moves_swaps_buffs_and_saves():
     assert short(st["groups"][1]) == ["Ena", "Holly", "Lee", "Sam", "Tank"], st
     assert "sunder" in st["strip"] and "fortitude" not in st["strip"] and "motw" not in st["strip"], st["strip"]
     assert "arcaneint" not in st["strip"], st["strip"]            # no mage on the team
-    assert {"heroism", "windfury", "unleashedrage", "battleshout", "paladinaura"} <= set(st["buffs"][1]), st["buffs"]
+    assert {"windfury", "unleashedrage", "battleshout", "paladinaura"} <= set(st["buffs"][1]), st["buffs"]
+    assert "heroism" not in st["buffs"][1] and "heroism" in st["strip"], st     # raid-wide on the Anniversary realms
     assert "moonkin" not in st["buffs"][1]
     assert "wrathofair" not in st["buffs"][1], st["buffs"]     # a melee group: its shaman's air totem is Windfury
     install_helpers(bob)

@@ -34,8 +34,6 @@ local SPEC_ICONS = {
 -- p = { class, spec label | nil (any spec) }. scope "party" = only the caster's group; "raid" = everyone.
 local BUFFS = {
     -- Party-wide (these decide the group layout)
-    { key = "heroism", name = "Bloodlust / Heroism", icon = "Spell_Nature_BloodLust", iconA = "Ability_Shaman_Heroism",
-      scope = "party", p = { { "SHAMAN" } } },
     { key = "windfury", name = "Windfury Totem", icon = "Spell_Nature_Windfury", scope = "party", p = { { "SHAMAN" } },
       air = true, tip = "Melee haste. One air totem per shaman (Windfury or Wrath of Air)." },
     { key = "wrathofair", name = "Wrath of Air Totem", icon = "Spell_Nature_SlowingTotem", scope = "party",
@@ -64,6 +62,9 @@ local BUFFS = {
     { key = "paladinaura", name = "Paladin aura", icon = "Spell_Holy_DevotionAura", scope = "party",
       p = { { "PALADIN" } }, tip = "Devotion, Concentration or a resistance aura." },
     -- Raid-wide buffs
+    -- (raid-wide on the TBC Anniversary realms, unlike TBC's party-only 2.4 tooltip: the user plays it, 2026-10-08)
+    { key = "heroism", name = "Bloodlust / Heroism", icon = "Spell_Nature_BloodLust", iconA = "Ability_Shaman_Heroism",
+      scope = "raid", p = { { "SHAMAN" } } },
     { key = "blessings", name = "Paladin blessings", icon = "Spell_Magic_GreaterBlessingofKings", scope = "raid",
       p = { { "PALADIN" } }, count = true, tip = "One Greater Blessing per paladin (Kings, Might, Wisdom, Salvation...)." },
     { key = "fortitude", name = "Power Word: Fortitude", icon = "Spell_Holy_WordFortitude", scope = "raid",
