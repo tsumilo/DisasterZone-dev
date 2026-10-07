@@ -15,7 +15,7 @@ local ipairs, pairs, type, tonumber, tostring = ipairs, pairs, type, tonumber, t
 
 local MARK = "|cffff8000DisasterZone|r"       -- every DisasterZone line starts with this; also the dedupe marker
 -- Texture escapes instead of star / check glyphs: the default WoW fonts do not contain them.
-local STAR = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:0|t"
+local STAR = "|TInterface\\AddOns\\DisasterZone\\Media\\Icons\\bis:0|t"
 local CHECK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t"
 local GREY = 0.55
 local CACHE_TTL = 2

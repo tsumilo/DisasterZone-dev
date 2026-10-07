@@ -508,4 +508,28 @@ def shopping_list_gets_the_crafts():
     w.assert_no_errors()
 
 
+@r.case
+def filling_a_phase_keeps_the_meta_gem_active():
+    w, c = solo(spec="Retribution")
+    for ph in (1, 2, 3):
+        res = c.eval_py("""local ph = ...
+            ns.BiS:ApplyTemplate(ph, ns.Loon:GetTemplate('PALADIN', 'Retribution', ph), true)
+            ns.Gems:FillPhase(ph, nil, true)
+            local G, view = ns.Gems, ns.BiS:GetListView()
+            local counts, meta, uniques, dup = G:ColorCounts(view, ph), nil, {}, false
+            for _, id in pairs(G:CountedPicks(view, ph)) do
+              local _, g = G:GetSetup(view, id)
+              for _, x in pairs(g) do
+                local gem = G:Gem(x)
+                if gem and gem.color == 'M' then meta = x end
+                if gem and gem.unique then if uniques[x] then dup = true end uniques[x] = true end
+              end
+            end
+            return { meta or 0, (G:MetaState(meta or 0, counts)), counts.B, dup }""", ph)
+        meta, active, blue, dup = res
+        assert meta == 32409 and active is True and blue >= 2 and not dup, (ph, res)
+    # the cheapest way: P1's two blue gems go where they keep a socket bonus
+    w.assert_no_errors()
+
+
 r.run()

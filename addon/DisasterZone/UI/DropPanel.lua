@@ -60,8 +60,8 @@ local ANNOUNCE_COOLDOWN = 2
 local AWARD_WINDOW = 120      -- ledger entries up to this long before the drop still count as its awards
 
 -- Texture escapes instead of star / check glyphs: the default WoW fonts do not contain them.
-local STAR = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:0|t"
-local STAR_SMALL = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:10:10|t"
+local STAR = "|TInterface\\AddOns\\DisasterZone\\Media\\Icons\\bis:0|t"
+local STAR_SMALL = "|TInterface\\AddOns\\DisasterZone\\Media\\Icons\\bis:10:10|t"
 
 local FALLBACK_COLORS = {
     main     = { 0.98, 0.78, 0.22 },

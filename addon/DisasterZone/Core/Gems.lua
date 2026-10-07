@@ -667,6 +667,102 @@ function Gems:Suggest(itemID, sid, guide, phase, profs, used)
     return self:BestEnchant(itemID, sid, gd, profs), gems
 end
 
+-- How far colour counts fall short of a meta gem's rule (0 = active): the missing gems summed over its rules.
+local function MetaShort(self, metaID, counts)
+    local g = self:Gem(metaID)
+    if not (g and g.req) then return 0 end
+    local short = 0
+    for rule in g.req:gmatch("[^,]+") do
+        local n, c = rule:match("^(%d+)(%u)$")
+        if n then
+            short = short + max(0, tonumber(n) - (counts[c] or 0))
+        else
+            local a, b = rule:match("^(%u)>(%u)$")
+            if a then short = short + max(0, (counts[b] or 0) - (counts[a] or 0) + 1) end
+        end
+    end
+    return short
+end
+
+-- An item's gems worth to the spec: the gems (not the meta) and the socket bonus when it is on.
+local function ItemScore(self, itemID, gems, w)
+    local sockets = self:Sockets(itemID)
+    local n = 0
+    for i, s in ipairs(sockets) do
+        if s ~= "M" and (gems[i] or 0) ~= 0 then n = n + self:GemScore(gems[i], w) end
+    end
+    if self:BonusActive(itemID, gems) then n = n + Score(StatsOf("b", itemID), w) end
+    return n
+end
+
+-- Makes the set's meta gem active: while the phase's gems miss its rule, the cheapest change of one free socket
+-- (the least worth lost, socket bonus included, per missing gem it makes up) is made. setups = { [itemID] = { gems } }
+-- (all counted picks), free = { [itemID] = { [socket] = true } } (the sockets being filled). The meta: the one in
+-- the set, else the spec's (it counts even when the head is disabled or has no meta socket yet).
+function Gems:MeetMetaRule(setups, free, gd, phase, profs)
+    local w = gd.w
+    local metaID
+    for itemID, s in pairs(setups) do
+        for _, id in pairs(s.gems) do
+            local g = self:Gem(id)
+            if g and g.color == "M" then metaID = id end
+        end
+    end
+    metaID = metaID or gd.meta
+    if not metaID then return end
+    local cands = self:Candidates(gd, phase, profs)
+    local function counts()
+        local c = { R = 0, Y = 0, B = 0 }
+        for _, s in pairs(setups) do
+            for _, id in pairs(s.gems) do CountGem(c, self:Gem(id)) end
+        end
+        return c
+    end
+    local function uniqueTaken(id)
+        for _, s in pairs(setups) do
+            for _, x in pairs(s.gems) do if x == id then return true end end
+        end
+        return false
+    end
+    for _ = 1, 24 do
+        local c = counts()
+        local short = MetaShort(self, metaID, c)
+        if short == 0 then return true end
+        local best
+        for itemID, s in pairs(setups) do
+            local sockets = self:Sockets(itemID)
+            local before = ItemScore(self, itemID, s.gems, w)
+            for i in pairs(free[itemID] or {}) do
+                if sockets[i] ~= "M" then
+                    local old = s.gems[i] or 0
+                    local oldG = self:Gem(old)
+                    for _, id in ipairs(cands) do
+                        local g = self:Gem(id)
+                        if id ~= old and not (g.unique and uniqueTaken(id)) then
+                            s.gems[i] = id
+                            local nc = { R = c.R, Y = c.Y, B = c.B }
+                            local as = oldG and COUNTS_AS[oldG.color]
+                            if as and oldG.color ~= "M" then for k in pairs(as) do nc[k] = nc[k] - 1 end end
+                            CountGem(nc, g)
+                            local gain = short - MetaShort(self, metaID, nc)
+                            if gain > 0 then
+                                local cost = (before - ItemScore(self, itemID, s.gems, w)) / gain
+                                if not best or cost < best.cost - 1e-9 then
+                                    best = { cost = cost, itemID = itemID, i = i, id = id }
+                                end
+                            end
+                            s.gems[i] = old
+                        end
+                    end
+                end
+            end
+        end
+        if not best then return false end
+        setups[best.itemID].gems[best.i] = best.id
+    end
+    return MetaShort(self, metaID, counts()) == 0
+end
+
 -- Fills the gems and enchants of a phase's picks of my own list from the suggestions: only sockets and enchants that
 -- are still empty (overwrite: every pick's whole setup). Returns the number of items changed, false while locked, or
 -- nil when the list has no guide.
@@ -682,7 +778,7 @@ function Gems:FillPhase(phase, list, overwrite)
     -- uniques: what is kept counts first
     local used = {}
     if not overwrite then used = self:UsedUniques(view, phase) end
-    local setups = {}
+    local setups, free = {}, {}
     for sid = 1, NUM_SLOTS do
         local itemID = picks[sid]
         if itemID and not setups[itemID] then
@@ -692,12 +788,18 @@ function Gems:FillPhase(phase, list, overwrite)
             for i = 1, n do new.gems[i] = (not overwrite) and gems[i] or 0 end
             local sEnchant, sGems = self:Suggest(itemID, sid, guide, phase, profs, used)
             if overwrite or enchant == 0 then new.enchant = sEnchant ~= 0 and sEnchant or (overwrite and 0 or enchant) end
+            free[itemID] = {}
             for i = 1, n do
-                if (new.gems[i] or 0) == 0 then new.gems[i] = sGems[i] or 0 end
+                if (new.gems[i] or 0) == 0 then
+                    new.gems[i] = sGems[i] or 0
+                    free[itemID][i] = true
+                end
             end
             setups[itemID] = new
         end
     end
+    -- then the set as a whole: enough gems of each colour for the meta gem
+    self:MeetMetaRule(setups, free, self:GuideData(guide, phase), phase, profs)
     return BiS:SetGemSetups(setups, list)
 end
 

@@ -32,7 +32,7 @@ local TOAST_FOR = 25
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local ROLE_TEX = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
 local HEROIC_TEX = "Interface\\LFGFrame\\UI-LFG-ICON-HEROIC"
-local STAR_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"
+local STAR_TEX = "Interface\\AddOns\\DisasterZone\\Media\\Icons\\bis"
 local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local STAR = "|T" .. STAR_TEX .. ":11:11:0:0|t"
 local ROLE_TOKEN = { tank = "TANK", healer = "HEALER", dps = "DAMAGER" }

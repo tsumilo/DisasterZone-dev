@@ -21,7 +21,7 @@ local DEFAULT_TEX = {
     border     = "Interface\\Common\\WhiteIconFrame",
     hilight    = "Interface\\Buttons\\ButtonHilight-Square",
     rowHilight = "Interface\\QuestFrame\\UI-QuestTitleHighlight",
-    star       = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1",
+    star       = "Interface\\AddOns\\DisasterZone\\Media\\Icons\\bis",
     classIcons = "Interface\\TargetingFrame\\UI-Classes-Circles",
 }
 local QUESTION_MARK_ICON = 134400
@@ -105,7 +105,7 @@ UI.GetItemLink = function(_, itemID) return GetLink(itemID) end
 local GLYPHS = {
     ["\226\156\147"] = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t",          -- check mark
     ["\226\156\148"] = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t",          -- heavy check mark
-    ["\226\152\133"] = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:0|t", -- black star
+    ["\226\152\133"] = "|TInterface\\AddOns\\DisasterZone\\Media\\Icons\\bis:0|t", -- black star
     ["\226\128\166"] = "...",                                                    -- ellipsis
 }
 function UI:SafeText(text)
