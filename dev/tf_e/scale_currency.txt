@@ -1,0 +1,6 @@
+    first scan (60 members x 2 professions over 120 s): 364 wire msgs / 49.0 KB, 21840 deliveries [PFR/G=138 (258p, 39.7 KB), PFB/G=106 (106p, 9.2 KB)]; busiest senders [('Rdraa', 8), ('Rdran', 8), ('Rdrbr', 8)]
+      everyone has every recipe list 0 s after the last scan; server-throttled sends 0; worst client (members known, lists missing) = (60, 0); 418 s wall
+    relog wave in sync (60 logins / 5 s): 120 wire msgs / 19.7 KB, 7200 deliveries [PFI/G=60 (120p, 19.7 KB)]; busiest senders [('Gina', 2), ('Rdrbs', 2), ('Rdraf', 2)]; last message 95 s after; throttled 87
+    fresh install joins 59 members: 432 wire msgs / 48.7 KB, 4031 deliveries [PFR/W=136 (254p, 39.1 KB), PFB/G=60 (60p, 5.3 KB), PFW/W=117 (117p, 4.4 KB), PFI/G=1 (1p, 0.0 KB)]; busiest senders [('Rdrcd', 119), ('Rdraa', 7), ('Rdran', 7)]
+      summaries after 92.0 s, every recipe list after 250.0 more s; 60 summaries sent for 59 members (1.0x); throttled 0
+PASS professions_at_guild_size (682.47s)
