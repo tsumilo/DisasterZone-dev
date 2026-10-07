@@ -1121,8 +1121,11 @@ function A.Copy(d)
     if copy then A.Builder(copy) end
 end
 
--- The builder on one of the examples (B:Examples), as my own new event (not saved until the builder saves it).
+-- The builder on one of the examples (B:Examples), as my own new event (not saved until the builder saves it): the
+-- same way the builder's own "Start from" loads one (closed untouched, nothing is kept).
 function A.FromExample(key)
+    local EB = ns.EventBuilder
+    if EB and EB.OpenExample then return EB:OpenExample(key) and true or false end
     local ex = B():Example(key)
     local d = ex and Ev():CopyDef(ex)
     if not d then return false end
