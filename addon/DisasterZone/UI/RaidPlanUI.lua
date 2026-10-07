@@ -2518,6 +2518,8 @@ local TV = {                -- the Teams view's sizes and helpers (one local: th
     CHIP_H = 22, CARD_H = 104, TOOL_H = 22, BAR_H = 26,
     LT_H = 34, LT_MIN = 150,  -- the lineup tabs on the banner's foot: height, a tab's least width
     TB_H = 26,
+    -- the Comp view's bands: the gutter (role, count, pips), five tiles a row after it
+    GUT = 104, GUT_W = 96, TILES = 5, TILE_H = 30, TILE_GAP = 4, TILE_GAPX = 6, BAND_GAP = 12,
     LEFT_W = 450,           -- the banner's left side (the name and the line under it); the next raid has the rest              -- the toolbar: Groups | Comp on the left, the view's actions on the right
     BANNER_H = 92,          -- a team on the board
     QUIET = { 0.105, 0.105, 0.12, 0.9 },   -- the panels of the groups and comp columns (no frames)
@@ -3748,23 +3750,16 @@ function PlanUI:CreateTeams(parent)
         },
         stripParent = d.buffs,
         quiet = true,
+        getGhosts = function(byGroup, n) return TV.ghosts(byGroup, n) end,
+        ghostTooltip = function(seat, slot) TV.canFillTooltip(seat, slot.c, slot.sp) end,
         stripRoom = function() return d.stripRoom end,
         buffStates = function(placed) return TV.groupStates(placed) end,
     })
     t.grid.frame:SetWidth(TV.W)
     d.scroll:SetScrollChild(t.grid.frame)
-    -- under the bench: the raid buffs of who sits in the groups, behind a small label (placed after each Refresh)
-    local bar = CreateFrame("Frame", nil, t.grid.frame)
-    bar:SetSize(TV.W, TV.BAR_H)
-    d.bar = bar
-    bar.label = textOf(bar, "GameFontNormalSmall", 10)
-    bar.label:SetTextColor(0.62, 0.62, 0.62)
-    bar.label:SetPoint("LEFT", bar, "LEFT", 12, 0)
-    bar.label:SetText("RAID BUFFS")
-    d.buffs:SetParent(bar)
-    d.buffs:ClearAllPoints()
-    d.buffs:SetPoint("LEFT", bar, "LEFT", 12 + 66, 0)
-    d.buffs:SetSize(1, 22)
+    -- the raid buffs of who sits in the groups: in the toolbar, after Groups | Comp (anchored by TV.layoutTool)
+    d.buffs:SetParent(d.views)
+    d.buffs:SetSize(1, 20)
     -- the waitlist's header: Join / Leave for a guild member who isn't on the roster
     d.joinBtn = UI():CreateSleekButton(t.grid.wait, "Join the waitlist", 128, 20, function(self) TV.joinClick(self) end)
     d.joinBtn:SetPoint("TOPRIGHT", t.grid.wait, "TOPRIGHT", -6, -4)
@@ -3953,6 +3948,8 @@ function TV.fillCard(dr, organizer)
     you:ClearAllPoints()
     you:SetPoint("LEFT", card.count, "RIGHT", 10, 0)
     local changed = saved and TV.changed(saved, true) or nil
+    -- (an organizer's unsaved edits: said here, in orange, instead of who changed it last)
+    if organizer and TV.dirty() then changed = colorize("ff9933", dr.id and "changed, not saved" or "new team, not saved") end
     card.changed:ClearAllPoints()
     if you:IsShown() then card.changed:SetPoint("LEFT", you.fs, "RIGHT", 8, 0)
     else card.changed:SetPoint("LEFT", card.count, "RIGHT", 8, 0) end
@@ -4057,7 +4054,8 @@ function PlanUI:RefreshTeamButtons()
     -- (only while something changed: nothing greyed out)
     d.saveBtn:SetShown(dirty)
     d.revertBtn:SetShown(dirty)
-    d.status:SetShown(dirty)
+    -- (the banner's line says it: TV.fillCard)
+    d.status:SetShown(false)
     d.revertBtn:SetText(new and "Cancel" or "Undo")
     d.revertBtn:SetWidth(new and 64 or 56)
     d.status:SetText(new and "New team, not saved" or "Changed, not saved")
@@ -4170,23 +4168,20 @@ function PlanUI:RefreshTeams()
     d.autoBtn:SetShown(organizer and next(dr.members) ~= nil)
     self:RefreshTeamButtons()
     TV.layoutTool("groups")
-    d.stripRoom = TV.W - 12 - 66 - 12
     d.scroll:ClearAllPoints()
     d.scroll:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
     d.scroll:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -PAD, 0)
     t.grid.frame:SetWidth(TV.W)
     TV.fillJoin(dr)
     t.grid:Refresh()
-    -- the raid buffs under the bench
-    local h = t.grid:GetContentHeight()
-    d.bar:ClearAllPoints()
-    d.bar:SetPoint("TOPLEFT", t.grid.frame, "TOPLEFT", 0, -(h + 6))
-    t.grid.frame:SetHeight(h + 6 + TV.BAR_H)
+    t.grid.frame:SetHeight(t.grid:GetContentHeight() + 6)
     if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Refresh(true) end
 end
 
 -- The toolbar's right end, right to left: Save and Undo (while something changed), then the view's own actions:
 -- Groups: Auto-fill and Add members; Comp: Start from and the raid buffs. "Changed, not saved" sits after the switch.
+-- The raid buffs sit after the switch (d.buffs on Groups, d.compStrip on Comp); d.stripRoom = the width left them.
+-- While something is unsaved the search field narrows (200 down to 120) so all 14 buffs still fit at 14 px.
 function TV.layoutTool(kind)
     local t, d = teamsView, teamsView.detail
     local tool = d.tool
@@ -4195,23 +4190,37 @@ function TV.layoutTool(kind)
     d.status:ClearAllPoints()
     d.status:SetPoint("LEFT", d.seg, "RIGHT", 14, 0)
     local anchor
-    local function place(f, gap)
+    local used = 0
+    local function place(f, gap, w)
         f:ClearAllPoints()
         if anchor then f:SetPoint("RIGHT", anchor, "LEFT", -gap, 0)
         else f:SetPoint("RIGHT", tool, "RIGHT", 0, 0) end
         anchor = f
+        used = used + (anchor and gap or 0) + (w or f:GetWidth() or 0)
     end
-    if d.saveBtn:IsShown() then
-        place(d.saveBtn)
+    local shown = tool:IsShown()
+    if shown and d.saveBtn:IsShown() then
+        place(d.saveBtn, 0)
         place(d.revertBtn, 4)
     end
+    local left = d.seg:GetWidth() + 16
     if kind == "groups" then
-        if d.autoBtn:IsShown() then place(d.autoBtn, 12) end
-        if t.picker.frame:IsShown() then place(t.picker.frame, 8) end
-    else
-        if d.startBtn:IsShown() then place(d.startBtn, 12) end
-        if d.compStrip:IsShown() then place(d.compStrip, 12) end
+        if shown and d.autoBtn:IsShown() then place(d.autoBtn, 12) end
+        if shown and t.picker.frame:IsShown() then
+            local w = 200
+            if d.saveBtn:IsShown() then w = max(120, min(200, TV.W - left - used - 8 - 12 - 14 * 16)) end
+            t.picker.frame:SetWidth(w)
+            place(t.picker.frame, 8, w)
+        end
+    elseif shown and d.startBtn:IsShown() then
+        place(d.startBtn, 12)
     end
+    d.stripRoom = TV.W - left - used - (used > 0 and 12 or 0)
+    local strip = kind == "groups" and d.buffs or d.compStrip
+    strip:ClearAllPoints()
+    strip:SetPoint("LEFT", d.seg, "RIGHT", 16, 0)
+    -- (both sit in the same place: only the open view's)
+    d.buffs:SetShown(kind == "groups")
 end
 
 -- The waitlist's empty line: organizers always see the waitlist (what it is for); players who aren't on the roster
@@ -4343,6 +4352,44 @@ function TV.groupStates(placed)
         if e.state == "off" then e.offText = "Nobody in the groups brings it." end
     end
     return out
+end
+
+-- How many could fill an open slot of class c, spec sp: the players of that spec among the unassigned, the waitlist,
+-- those beyond the comp, the alts and the guild (RaidPlan:CanFill; not other teams' players). Kept per refresh.
+function TV.canFillCount(dr, c, sp)
+    if not (dr and c and sp) then return nil end
+    TV.cur = TV.cur or {}
+    local cache = TV.cur.cf or {}
+    TV.cur.cf = cache
+    local k = c .. ":" .. sp
+    if cache[k] == nil then
+        local cf = RP():CanFill(TV.ref(dr), c, sp)
+        local count = 0
+        for _, grp in ipairs({ cf.unassigned, cf.waitlist, cf.extra, cf.alts, cf.guild }) do
+            for _, e in ipairs(grp or {}) do
+                if not e.other then count = count + 1 end
+            end
+        end
+        cache[k] = count
+    end
+    return cache[k]
+end
+
+-- The comp's open slots as ghosts in the groups' free seats (RaidComp:PlaceOpen, for the grid's opts.getGhosts), each
+-- with how many could fill it (TV.canFillCount). nil without a comp.
+function TV.ghosts(byGroup, n)
+    local dr = state.draft
+    if not (dr and TV.comp(dr)) then return nil end
+    local m = TV.cur and TV.cur.match or TV.match(dr)
+    if not (m and m.open and #m.open > 0) then return nil end
+    local list = {}
+    for _, o in ipairs(m.open) do
+        local count = TV.canFillCount(dr, o.c, o.sp)
+        for _ = 1, o.n or 1 do
+            list[#list + 1] = { c = o.c, sp = o.sp, name = o.name, role = o.role, canFill = count }
+        end
+    end
+    return ns.RaidComp:PlaceOpen(byGroup, list, n)
 end
 
 -- Who could fill an open slot of the team (the Needs line, the Comp view): benched members, members in a group beyond
@@ -5000,36 +5047,17 @@ end
 -- inside, the spec's name in gold).
 function TV.newSlotRow(col)
     local b = CreateFrame("Button", nil, col)
-    b:SetHeight(COL_ROW_H)
+    b:SetHeight(TV.TILE_H)
     b:RegisterForClicks("LeftButtonUp")
+    ns.RaidGroupsUI:DecoratePlate(b)
+    b.fs = b.pName
+    -- (my own slot, for a member: kept for the shared checks; the plate's gold rim shows it)
     b.me = b:CreateTexture(nil, "BACKGROUND")
     b.me:SetAllPoints()
-    b.me:SetColorTexture(1, 0.82, 0, 0.12)
-    b.meBar = b:CreateTexture(nil, "BORDER")
-    b.meBar:SetPoint("TOPLEFT", b, "TOPLEFT", -4, -2)
-    b.meBar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", -4, 2)
-    b.meBar:SetWidth(2)
-    b.meBar:SetColorTexture(1, 0.82, 0, 1)
+    b.me:SetColorTexture(1, 0.82, 0, 0)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.06)
-    b.ring = b:CreateTexture(nil, "ARTWORK", nil, -2)
-    b.ring:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-    b.ring:SetVertexColor(1, 0.82, 0)
-    b.ring:SetSize(15, 15)
-    b.ring:SetPoint("CENTER", b, "LEFT", 8, 0)
-    b.ringIn = b:CreateTexture(nil, "ARTWORK", nil, -1)
-    b.ringIn:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-    b.ringIn:SetVertexColor(TV.QUIET[1], TV.QUIET[2], TV.QUIET[3])
-    b.ringIn:SetSize(12, 12)
-    b.ringIn:SetPoint("CENTER", b.ring, "CENTER", 0, 0)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.fs = textOf(b, "GameFontHighlight", 12)
-    b.fs:SetPoint("LEFT", b, "LEFT", 22, 0)
-    b.spec = b:CreateTexture(nil, "ARTWORK")
-    b.spec:SetSize(14, 14)
-    b.spec:SetPoint("RIGHT", -1, 0)
-    b.spec:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b.hl:SetColorTexture(1, 1, 1, 0.045)
     b:SetScript("OnEnter", TV.slotTooltip)
     b:SetScript("OnLeave", hideTooltip)
     b:SetScript("OnClick", function(self)
@@ -5038,35 +5066,18 @@ function TV.newSlotRow(col)
     return b
 end
 
+-- A slot: taken, the player's plate (my own with a gold rim); open, its ghost (the spec greyed, how many could fill).
 function TV.fillSlotRow(b, slot, organizer, mine)
     b.slot, b.role = slot, slot.role
     local m = slot.member
-    local open = m == nil
-    -- open: a ring in the class colour and the spec in grey (a gap, not an alarm); taken: the spec's icon, the name
-    b.ring:SetShown(open)
-    b.ringIn:SetShown(open)
-    if open then
-        local r, g, bl = UI():ClassColor(slot.c)
-        b.ring:SetVertexColor(r, g, bl, 0.55)
+    local G = ns.RaidGroupsUI
+    if m then
+        G:PaintPlate(b, G:PlayerPlate({ key = m.key, c = m.c, sp = m.sp }, mine and "me" or nil))
+    else
+        G:PaintPlate(b, G:GhostPlate({ c = slot.c, sp = slot.sp, name = slot.name,
+                                       canFill = TV.canFillCount(state.draft, slot.c, slot.sp) }))
     end
-    local icon = ns.RaidComp:SpecIcon(slot.c, slot.sp)
-    b.icon:ClearAllPoints()
-    b.icon:SetSize(15, 15)
-    b.icon:SetPoint("LEFT", b, "LEFT", 1, 0)
-    b.icon:SetShown(not open)
-    if not open then
-        if icon then
-            b.icon:SetTexture(icon)
-            b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        else
-            UI():ClassIcon(b.icon, m.c)
-        end
-        b.icon:SetAlpha(1)
-    end
-    b.fs:SetText(open and colorize("808080", slot.name) or colored(m.key, m.c))
-    b.spec:Hide()
     b.me:SetShown(mine == true)
-    b.meBar:SetShown(mine == true)
     b:Show()
 end
 
@@ -5096,21 +5107,13 @@ end
 -- spec icon (the Sign-ups' boxes look).
 function TV.newBenchChip(parent)
     local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(CHIP_H)
+    b:SetHeight(TV.TILE_H)
     b:RegisterForClicks("LeftButtonUp")
-    panel(b, CARD_BG, { 0.34, 0.34, 0.38, 0.6 })
+    ns.RaidGroupsUI:DecoratePlate(b)
+    b.fs = b.pName
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.06)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(16, 16)
-    b.icon:SetPoint("LEFT", 3, 0)
-    b.fs = textOf(b, "GameFontHighlight", 12)
-    b.fs:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
-    b.spec = b:CreateTexture(nil, "ARTWORK")
-    b.spec:SetSize(14, 14)
-    b.spec:SetPoint("RIGHT", -5, 0)
-    b.spec:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b.hl:SetColorTexture(1, 1, 1, 0.045)
     b:SetScript("OnEnter", function(self)
         local m = self.member
         if not m then return end
@@ -5134,8 +5137,6 @@ function TV.newBenchChip(parent)
     return b
 end
 
--- A chip under the columns clicked (organizers): unassigned, a group to put them in; beyond the comp, a slot for
--- their spec; both, the spec they play in this lineup. A waitlisted player: TV.waitMenu.
 function TV.benchMenu(chip)
     local m, dr = chip.member, state.draft
     if not m or not dr or not RP():CanManageTeams() then return end
@@ -5371,49 +5372,54 @@ function TV.createComp(t, d)
     cc:SetSize(TV.W, 10)
     d.compScroll:SetScrollChild(cc)
     d.compContent = cc
+    -- a band per role: the gutter on the left (role, count, a pip per slot), the slots as tiles five a row
     d.cols = {}
     for i, role in ipairs(ns.RaidComp.COLUMNS) do
         local col = CreateFrame("Frame", nil, cc)
-        panel(col, TV.QUIET, { 0, 0, 0, 0 })
         col.roleKey = role
         col.role = col:CreateTexture(nil, "ARTWORK")
         UI():SetRoleIcon(col.role, TV.ROLE_ICON[role])
-        col.role:SetSize(16, 16)
-        col.role:SetPoint("TOPLEFT", 9, -6)
+        col.role:SetSize(15, 15)
+        col.role:SetPoint("LEFT", col, "TOPLEFT", 0, -8)
         col.title = textOf(col, "GameFontHighlight", 12)
         col.title:SetPoint("LEFT", col.role, "RIGHT", 6, 0)
         col.title:SetText(TV.ROLE_LABEL[role])
-        col.add = UI():CreateSleekButton(col, "", 18, 18, function(self) TV.openSteps(role, self) end)
-        col.add:SetPoint("TOPRIGHT", col, "TOPRIGHT", -8, -5)
+        col.count = textOf(col, "GameFontHighlight", 11)
+        col.count:SetJustifyH("RIGHT")
+        col.count:SetPoint("RIGHT", col, "TOPLEFT", TV.GUT_W, -8)
+        -- (organizers, while the comp has room: + opens the steppers, after the pips)
+        col.add = UI():CreateSleekButton(col, "", 16, 16, function(self) TV.openSteps(role, self) end)
+        col.add:SetPoint("TOPRIGHT", col, "TOPLEFT", TV.GUT_W, -19)
         TV.glyph(col.add, true)
         tipButton(col.add, TV.ROLE_LABEL[role], "How many of each spec the comp wants.")
-        col.count = textOf(col, "GameFontHighlight", 12)
-        col.count:SetJustifyH("RIGHT")
+        -- (between the bands: a faint rule)
         col.rule = col:CreateTexture(nil, "BORDER")
-        col.rule:SetColorTexture(1, 1, 1, 0.07)
+        col.rule:SetColorTexture(1, 1, 1, 0.055)
         col.rule:SetHeight(1)
-        col.rule:SetPoint("TOPLEFT", 8, -COL_HEAD_H)
-        col.rule:SetPoint("TOPRIGHT", -8, -COL_HEAD_H)
-        -- (the rule fills with the slots taken: gold, green once full)
-        col.ruleFill = col:CreateTexture(nil, "ARTWORK")
-        col.ruleFill:SetHeight(1)
-        col.ruleFill:SetPoint("TOPLEFT", col.rule, "TOPLEFT", 0, 0)
-        col.none = textOf(col, "GameFontDisableSmall", 10)
-        col.none:SetPoint("TOPLEFT", 10, -COL_HEAD_H - 8)
+        col.rule:SetPoint("BOTTOMLEFT", col, "TOPLEFT", 0, 6)
+        col.rule:SetPoint("BOTTOMRIGHT", col, "TOPRIGHT", 0, 6)
+        col.pips = {}
+        col.pipsH = 0
+        col.none = textOf(col, "GameFontDisableSmall", 11)
+        col.none:SetPoint("LEFT", col, "TOPLEFT", TV.GUT + 2, -8)
         col.none:SetText("No slots")
         col.rows = {}
         d.cols[i] = col
     end
-    -- under the columns: who fills no slot, benched (in no group) and beyond the comp (in a group, no slot)
+    -- under the bands: who fills no slot, unassigned (in no group) and beyond the comp (in a group, no slot)
     local function chipPanel(label, tip)
         local p = CreateFrame("Frame", nil, cc)
-        panel(p, TV.QUIET, { 0, 0, 0, 0 })
         p.title = label
         p.label = CreateFrame("Button", nil, p)
-        p.label:SetHeight(CHIP_H)
-        p.label:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -8)
+        p.label:SetHeight(30)
+        p.label:SetPoint("TOPLEFT", p, "TOPLEFT", 0, 0)
+        -- (in the gutter: a long label takes two lines)
         p.label.fs = textOf(p.label, "GameFontHighlight", 12)
-        p.label.fs:SetPoint("LEFT", 0, 0)
+        p.label.fs:SetTextColor(0.66, 0.66, 0.68)
+        p.label.fs:SetPoint("TOPLEFT", 0, -1)
+        p.label.fs:SetWidth(TV.GUT_W)
+        p.label.fs:SetJustifyH("LEFT")
+        p.label.fs:SetWordWrap(true)
         p.label:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:AddLine(label)
@@ -5421,6 +5427,11 @@ function TV.createComp(t, d)
             GameTooltip:Show()
         end)
         p.label:SetScript("OnLeave", hideTooltip)
+        p.rule = p:CreateTexture(nil, "BORDER")
+        p.rule:SetColorTexture(1, 1, 1, 0.055)
+        p.rule:SetHeight(1)
+        p.rule:SetPoint("BOTTOMLEFT", p, "TOPLEFT", 0, 6)
+        p.rule:SetPoint("BOTTOMRIGHT", p, "TOPRIGHT", 0, 6)
         p.chips = {}
         p:Hide()
         return p
@@ -5513,28 +5524,25 @@ function TV.fillCompEmpty(dr)
     e:SetHeight(floor(60 + (e.title:GetStringHeight() or 20) + 10 + bodyH + 18 + 14 + 8 + 46 + 24 + 0.5))
 end
 
--- The columns (a slot per row, in comp order) and the bench under them.
+-- The bands (a tile per slot, in comp order, five a row) and the players no slot takes under them.
 function TV.fillCompView(m, organizer)
     local d = teamsView.detail
     local dr = state.draft
     local cc = d.compContent
     local W = TV.W
-    local colW = floor((W - 3 * GAP) / 4)
     local full = ns.RaidComp:CompSize(dr.cp) >= dr.sz
-    local depth = 0
+    local y = 0
     for i, col in ipairs(d.cols) do
         local role = col.roleKey
         local slots = m.columns[role] or {}
-        col:ClearAllPoints()
-        col:SetPoint("TOPLEFT", cc, "TOPLEFT", (i - 1) * (colW + GAP), 0)
-        col:SetWidth(i == #d.cols and (W - 3 * (colW + GAP)) or colW)
         local filled = 0
         for j, slot in ipairs(slots) do
             local r = col.rows[j] or TV.newSlotRow(col)
             col.rows[j] = r
+            local c, row = (j - 1) % TV.TILES, floor((j - 1) / TV.TILES)
             r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", col, "TOPLEFT", 9, -COL_HEAD_H - 4 - (j - 1) * COL_ROW_H)
-            r:SetPoint("TOPRIGHT", col, "TOPRIGHT", -9, -COL_HEAD_H - 4 - (j - 1) * COL_ROW_H)
+            r:SetPoint("TOPLEFT", col, "TOPLEFT", TV.tileX(c), -row * (TV.TILE_H + TV.TILE_GAP))
+            r:SetSize(TV.tileW(c), TV.TILE_H)
             local mine = not organizer and slot.member ~= nil and TV.isMine(slot.member.key)
             TV.fillSlotRow(r, slot, organizer, mine)
             if slot.member then filled = filled + 1 end
@@ -5545,14 +5553,6 @@ function TV.fillCompView(m, organizer)
         end
         col.none:SetShown(#slots == 0)
         col.add:SetShown(organizer and not full)
-        col.count:ClearAllPoints()
-        if col.add:IsShown() then col.count:SetPoint("RIGHT", col.add, "LEFT", -8, 0)
-        else col.count:SetPoint("RIGHT", col, "TOPRIGHT", -10, -14) end
-        local share = #slots > 0 and filled / #slots or 0
-        col.ruleFill:SetShown(share > 0)
-        col.ruleFill:SetWidth(max(1, floor((colW - 16) * share + 0.5)))
-        if filled == #slots then col.ruleFill:SetColorTexture(0.56, 0.89, 0.62, 0.9)
-        else col.ruleFill:SetColorTexture(1, 0.82, 0, 0.9) end
         if #slots == 0 then
             col.count:SetText("")
         elseif filled == #slots then
@@ -5560,60 +5560,85 @@ function TV.fillCompView(m, organizer)
         else
             col.count:SetText(filled .. colorize("9e9e9e", "/" .. #slots))
         end
-        depth = max(depth, #slots)
+        TV.fillPips(col, slots, col.add:IsShown() and (TV.GUT_W - 22) or TV.GUT_W)
+        local rows = ceil(#slots / TV.TILES)
+        local h = max(rows * (TV.TILE_H + TV.TILE_GAP) - TV.TILE_GAP, 22 + max(col.pipsH, col.add:IsShown() and 16 or 0))
+        col:ClearAllPoints()
+        col:SetPoint("TOPLEFT", cc, "TOPLEFT", 0, -y)
+        col:SetSize(W, h)
+        col.rule:SetShown(i > 1)
+        y = y + h + TV.BAND_GAP
     end
-    local colH = COL_HEAD_H + 4 + max(1, depth) * COL_ROW_H + 8
-    for _, col in ipairs(d.cols) do col:SetHeight(colH) end
-    -- under the columns, who no slot takes, as chips with their spec: benched, then beyond the comp
-    local y = colH
-    -- (the waitlist is on the Groups tab's bench)
-    local panels = { { d.unassigned, m.unassigned or {}, "unassigned" }, { d.bench, m.bench or {}, "beyond" } }
-    -- (both panels' chips start at the same x, past the longer label)
-    local labelW = 0
-    for _, e in ipairs(panels) do
+    -- under the bands, who no slot takes: unassigned, then beyond the comp (the waitlist is on the Groups tab)
+    for _, e in ipairs({ { d.unassigned, m.unassigned or {}, "unassigned" }, { d.bench, m.bench or {}, "beyond" } }) do
         local p, list = e[1], e[2]
-        p.label.fs:SetText(p.title .. colorize("9e9e9e", " (" .. #list .. ")"))
-        p.label:SetWidth(floor((p.label.fs:GetStringWidth() or 60) + 0.5))
-        if #list > 0 then labelW = max(labelW, p.label:GetWidth()) end
-    end
-    for _, e in ipairs(panels) do
-        local p, list = e[1], e[2]
+        p.label.fs:SetText(p.title .. "  " .. colorize("8c8c8c", #list))
+        p.label:SetWidth(TV.GUT_W)
         p:SetShown(#list > 0)
         if #list > 0 then
-            y = y + GAP + TV.fillChipPanel(p, list, e[3], y + GAP, 12 + labelW + 14)
+            y = y + TV.fillChipPanel(p, list, e[3], y) + TV.BAND_GAP
         end
     end
     cc:SetWidth(W)
-    cc:SetHeight(y)
+    cc:SetHeight(max(1, y - TV.BAND_GAP))
 end
 
--- One panel of chips under the columns (kind: unassigned, waitlist or beyond the comp) at y, its chips from x0;
--- returns its height.
-function TV.fillChipPanel(p, list, kind, y, x0)
-    local W = TV.W
-    local cx, cy = x0, -8
+-- The gutter's pips: a square per slot in its class colour, hollow while open, wrapping at width w.
+function TV.fillPips(col, slots, w)
+    local per = max(1, floor((w + 2) / 8))
+    for j, slot in ipairs(slots) do
+        local pip = col.pips[j]
+        if not pip then
+            pip = CreateFrame("Frame", nil, col)
+            pip:SetSize(6, 6)
+            pip.edge = pip:CreateTexture(nil, "ARTWORK", nil, 1)
+            pip.edge:SetAllPoints()
+            pip.hole = pip:CreateTexture(nil, "ARTWORK", nil, 2)
+            pip.hole:SetPoint("TOPLEFT", 1, -1)
+            pip.hole:SetPoint("BOTTOMRIGHT", -1, 1)
+            pip.hole:SetColorTexture(0.055, 0.055, 0.065, 1)
+            col.pips[j] = pip
+        end
+        local r, g, b = UI():ClassColor(slot.c)
+        pip.edge:SetColorTexture(r, g, b, slot.member and 1 or 0.6)
+        pip.hole:SetShown(slot.member == nil)
+        pip:ClearAllPoints()
+        pip:SetPoint("TOPLEFT", col, "TOPLEFT", ((j - 1) % per) * 8, -22 - floor((j - 1) / per) * 8)
+        pip:Show()
+    end
+    for j = #slots + 1, #col.pips do col.pips[j]:Hide() end
+    col.pipsH = #slots > 0 and (ceil(#slots / per) * 8 - 2) or 0
+end
+
+-- A tile's x and width in the bands (column c of TV.TILES, after the gutter).
+function TV.tileX(c)
+    return TV.GUT + floor(c * (TV.W - TV.GUT + TV.TILE_GAPX) / TV.TILES + 0.5)
+end
+
+function TV.tileW(c)
+    return TV.tileX(c + 1) - TV.TILE_GAPX - TV.tileX(c)
+end
+
+-- One band of players under the slots (kind: unassigned or beyond the comp) at y: the label in the gutter, the
+-- players as tiles; returns its height.
+function TV.fillChipPanel(p, list, kind, y)
     for j, mem in ipairs(list) do
         local chip = p.chips[j] or TV.newBenchChip(p)
         p.chips[j] = chip
         chip.member, chip.kind = mem, kind
-        UI():ClassIcon(chip.icon, mem.c)
-        chip.fs:SetText((kind == "waitlist" and colorize("9e9e9e", mem.n .. ". ") or "") .. colored(mem.key, mem.c))
-        local icon = ns.RaidComp:SpecIcon(mem.c, mem.sp)
-        chip.spec:SetShown(icon ~= nil)
-        if icon then chip.spec:SetTexture(icon) end
-        local w = floor(3 + 16 + 6 + (chip.fs:GetStringWidth() or 60) + (icon and (8 + 14 + 5) or 9) + 0.5)
-        chip:SetWidth(w)
-        if cx + w > W - 12 and cx > x0 then cx, cy = x0, cy - (CHIP_H + CHIP_GAP) end
+        local c, row = (j - 1) % TV.TILES, floor((j - 1) / TV.TILES)
         chip:ClearAllPoints()
-        chip:SetPoint("TOPLEFT", p, "TOPLEFT", cx, cy)
+        chip:SetPoint("TOPLEFT", p, "TOPLEFT", TV.tileX(c), -row * (TV.TILE_H + TV.TILE_GAP))
+        chip:SetSize(TV.tileW(c), TV.TILE_H)
+        ns.RaidGroupsUI:PaintPlate(chip, ns.RaidGroupsUI:PlayerPlate({ key = mem.key, c = mem.c, sp = mem.sp,
+            prefix = kind == "waitlist" and ((mem.n or "?") .. ". ") or nil }))
         chip:Show()
-        cx = cx + w + CHIP_GAP
     end
     for j = #list + 1, #p.chips do p.chips[j]:Hide() end
-    local h = -cy + CHIP_H + 8
+    local h = max(24, ceil(#list / TV.TILES) * (TV.TILE_H + TV.TILE_GAP) - TV.TILE_GAP)
     p:ClearAllPoints()
     p:SetPoint("TOPLEFT", teamsView.detail.compContent, "TOPLEFT", 0, -y)
-    p:SetSize(W, h)
+    p:SetSize(TV.W, h)
     return h
 end
 
@@ -5628,14 +5653,11 @@ function TV.layoutComp(y, organizer, dr, m)
     d.startBtn:SetShown(organizer and m ~= nil)
     d.compStrip:SetShown(m ~= nil)
     if m then
-        -- the raid buffs the comp brings, in the toolbar: as large as the room left there allows (20 down to 14)
-        local room = TV.W - d.seg:GetWidth() - 24
-        if d.startBtn:IsShown() then room = room - d.startBtn:GetWidth() - 12 end
-        if d.saveBtn:IsShown() then
-            room = room - d.saveBtn:GetWidth() - 4 - d.revertBtn:GetWidth() - 12 - (d.status:GetStringWidth() or 110) - 14
-        end
+        -- the raid buffs the comp brings, after the switch: as large as the room left there allows (18 down to 14)
+        TV.layoutTool("comp")
+        local room = d.stripRoom or 300
         local states = TV.states or {}
-        local size = 20
+        local size = 18
         while size > 14 and #states * (size + 2) > room do size = size - 2 end
         local n = 0
         for i, b in ipairs(d.compStrip.icons) do

@@ -69,7 +69,8 @@ def menu_pick(cl, word):
 def col_rows(cl, i):
     """Column i of the Comp view: [(name, open)] of the shown rows."""
     rows = cl.eval_py("local out = {}; for _, r in ipairs(%s.cols[%d].rows) do if r:IsShown() then out[#out + 1] = "
-                      "{ r.fs:GetText(), r.slot.member == nil } end end; return out" % (D, i)) or []
+                      "{ r.slot.member and r.fs:GetText() or r.slot.name, r.slot.member == nil } end end; return out"
+                      % (D, i)) or []
     rows = rows.values() if isinstance(rows, dict) else rows
     return [(strip_codes(t), bool(o)) for t, o in rows]
 
@@ -230,6 +231,50 @@ def the_strip_shows_what_the_comp_plans():
     g = bob.eval_py("local out = {}; for _, b in ipairs(ns.RaidPlanUI:GetTeamGrid().strip) do if b:IsShown() then "
                     "out[b.entry.key] = b.entry.state end end; return out")
     assert g["sunder"] == "have" and g["arcaneint"] == "planned", g    # Bob (Fire Mage) sits in no group
+    w.assert_no_errors()
+
+
+GRID = "ns.RaidPlanUI:GetTeamGrid()"
+
+
+def plate_of(cl, key):
+    return cl.eval("local g = %s; for _, box in ipairs(g.boxes) do for _, ch in ipairs(box.chips) do "
+                   "if box:IsShown() and ch.key == ... then return ch end end end" % GRID, key)
+
+
+@case
+def the_groups_show_plates_ghost_seats_and_a_plate_can_be_dragged():
+    w, c = world()
+    bob = c["Bob"]
+    tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, comp=preset(bob, "std25"),
+                    groups={"Lee": 1, "Rita": 1, "Sam": 2})
+    w.tick(1)
+    open_teams(w, bob, tid, "groups")
+    # plates: the spec under the name, no class circle or role icon of the old chip
+    lee = plate_of(bob, K("Lee"))
+    assert lee is not None
+    assert text_of(bob, GRID + ".boxes[1].chips[1].pSub") != ""
+    assert bob.eval("local ch = ...; return ch.cls:IsShown() or ch.spec:IsShown()", lee) is False
+    # the comp's open slots wait in the free seats (25 - 3 placed = 22 ghosts at most, every free seat here)
+    ghosts = bob.eval("local n = 0; for _, box in ipairs(%s.boxes) do if box:IsShown() then for _, ch in "
+                      "ipairs(box.chips) do if ch.ghost then n = n + 1 end end end end; return n" % GRID)
+    assert ghosts == 22, ghosts
+    # drag Lee onto group 3's second seat: lifted plate, the seat lit, the label says where
+    bob.eval("_G.IsMouseButtonDown = function() return true end")
+    bob.eval("%s:BeginDrag(...)" % GRID, lee)
+    assert plate_of(bob, K("Lee")) is None
+    bob.eval("local g = %s; g.boxes[3].IsMouseOver = function() return true end; "
+             "g.boxes[3].chips[2].IsMouseOver = function() return true end" % GRID)
+    w.tick(0.2)
+    assert bob.eval("local m = %s.marker; return m ~= nil and m:IsShown()" % GRID) is True
+    assert "Group 3, seat 2" in text_of(bob, "ns.RaidGroupsUI.__plateGhost.tip.fs")
+    bob.eval("_G.IsMouseButtonDown = function() return false end")
+    w.tick(0.2)
+    bob.eval("local g = %s; g.boxes[3].IsMouseOver = nil; g.boxes[3].chips[2].IsMouseOver = nil" % GRID)
+    w.tick(0.3)
+    dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
+    assert dr["grp"][K("Lee")] == 3 and dr["gs"][K("Lee")] == 2, dr
+    assert not bob.eval("return %s.marker:IsShown()" % GRID)
     w.assert_no_errors()
 
 

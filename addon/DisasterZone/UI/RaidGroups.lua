@@ -1,7 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidGroups.lua", ...) then return end -- DisasterZone: UI/RaidGroups.lua
 -- The group grid (Addendum J §59-§60): a raid-wide buff strip, group boxes (2 for 10-man, 5 for 25-man) with the party
--- buffs each group has in its header, a "Not in a group" pool, and (opts.waitlist, the Teams page) a waitlist under it. Members are chips (class circle, name, role icon;
--- the spec is in the tooltip). The boxes share the grid's width, three to a row. Organizers move them by dragging, or
+-- buffs each group has in its header, a "Not in a group" pool, and (opts.waitlist, the Teams page) a waitlist under it.
+-- Members are chips (class circle, name, role icon; the spec is in the tooltip), or in the quiet look (opts.quiet, the
+-- Teams page) plates with the spec under the name, empty seats being wells. The boxes share the grid's width, three to a row. Organizers move them by dragging, or
 -- by clicking a chip and then a group (or another chip, to swap; or an empty slot, to take it); right-click opens the
 -- caller's menu. Each player keeps a seat (1-5) in their group, so the order is the organizer's. Used by the Teams
 -- view (a team's layout) and by a raid's Groups tab.
@@ -24,11 +25,14 @@ local ROW_COLS, ROW_GAP = 5, 8
 local FOOTER_H = 24
 local ROW_BOX_H = HEADER_H + SLOTS * CHIP_H + FOOTER_H + 4
 local BUFF_ROW = 18                      -- a party buff icon and its gap
--- the quiet look (opts.quiet, the Teams page): no frames, no swap link, no party buffs footer (they're in the group
--- title's tooltip), empty seats a faint line, and one bench strip of chips under the groups
+-- the quiet look (opts.quiet, the Teams page): no frames or swap link; the group's title (its swap button) and the
+-- party buffs it gets on one line, then five seats: players as plates, empty seats as wells (the comp's open slots
+-- waiting in them as ghosts, opts.getGhosts); the unassigned players and the waitlist as plates on the groups'
+-- columns under them (10-man: the unassigned beside the two groups)
 local QUIET_BG = { 0.105, 0.105, 0.12, 0.9 }
-local QUIET_BOX_H = HEADER_H + SLOTS * CHIP_H + 6
-local BENCH_ROW = 22
+local PLATE_H, PLATE_GAP = 34, 4
+local QUIET_HEAD = 24
+local QUIET_BOX_H = QUIET_HEAD + SLOTS * PLATE_H + (SLOTS - 1) * PLATE_GAP
 
 local ghost          -- the frame following the cursor while dragging
 
@@ -49,6 +53,173 @@ local function iconText(path, size)
 end
 
 local function hideTooltip() GameTooltip:Hide() end
+
+---------------------------------------------------------------------------
+-- Plates (the quiet look, and the Teams page's Comp view): a player is a plate like a raid frame (a class tint from
+-- the left, a 2px class edge, the spec icon, the name over the spec); an empty seat is a well as big as a plate,
+-- sunk into the page; an open comp slot waits in a well as a ghost (its spec icon greyed, the spec, the class and
+-- how many could fill it). The look of the Teams v4 mockup (dev/art/casc/teams_mockup/build_v4.py).
+---------------------------------------------------------------------------
+
+local PLATE_BASE = { 0.106, 0.106, 0.125 }
+local WELL_BASE = { 0.051, 0.051, 0.063 }
+local gradA = CreateColor and CreateColor(0, 0, 0, 0)
+local gradB = CreateColor and CreateColor(0, 0, 0, 0)
+
+local function gradient(tex, orient, r, g, b, a1, a2)
+    if gradA and tex.SetGradient then
+        tex:SetColorTexture(1, 1, 1, 1)
+        gradA:SetRGBA(r, g, b, a1)
+        gradB:SetRGBA(r, g, b, a2)
+        tex:SetGradient(orient, gradA, gradB)
+    else
+        tex:SetColorTexture(r, g, b, (a1 + a2) / 2)
+    end
+end
+
+local function fontOf(fs, size)
+    local path, _, flags = fs:GetFont()
+    if path then fs:SetFont(path, size, flags) end
+end
+
+-- Adds the plate's textures to a frame (a Button the caller sized); GroupsUI:PaintPlate fills them.
+local function decoratePlate(b)
+    b.pBase = b:CreateTexture(nil, "BACKGROUND", nil, -2)
+    b.pBase:SetAllPoints()
+    b.pTint = b:CreateTexture(nil, "BACKGROUND", nil, -1)
+    b.pTint:SetAllPoints()
+    -- (a well: an inner shadow under its top edge)
+    b.pShade = b:CreateTexture(nil, "BACKGROUND", nil, 0)
+    b.pShade:SetPoint("TOPLEFT", 0, 0)
+    b.pShade:SetPoint("TOPRIGHT", 0, 0)
+    b.pShade:SetHeight(4)
+    -- (a plate: a light line along the top, a dark one along the bottom)
+    b.pTop = b:CreateTexture(nil, "BORDER")
+    b.pTop:SetPoint("TOPLEFT", 0, 0)
+    b.pTop:SetPoint("TOPRIGHT", 0, 0)
+    b.pTop:SetHeight(1)
+    b.pTop:SetColorTexture(1, 1, 1, 0.06)
+    b.pBot = b:CreateTexture(nil, "BORDER")
+    b.pBot:SetPoint("BOTTOMLEFT", 0, 0)
+    b.pBot:SetPoint("BOTTOMRIGHT", 0, 0)
+    b.pBot:SetHeight(1)
+    b.pBot:SetColorTexture(0, 0, 0, 0.5)
+    b.pBar = b:CreateTexture(nil, "BORDER", nil, 1)
+    b.pBar:SetPoint("TOPLEFT", 0, 0)
+    b.pBar:SetPoint("BOTTOMLEFT", 0, 0)
+    b.pBar:SetWidth(2)
+    b.pIconBg = b:CreateTexture(nil, "ARTWORK", nil, -1)
+    b.pIconBg:SetSize(24, 24)
+    b.pIconBg:SetPoint("LEFT", b, "LEFT", 6, 0)
+    b.pIconBg:SetColorTexture(0, 0, 0, 1)
+    b.pIcon = b:CreateTexture(nil, "ARTWORK")
+    b.pIcon:SetSize(22, 22)
+    b.pIcon:SetPoint("CENTER", b.pIconBg, "CENTER", 0, 0)
+    b.pName = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    fontOf(b.pName, 12)
+    b.pName:SetPoint("BOTTOMLEFT", b.pIconBg, "RIGHT", 7, 0)
+    b.pName:SetPoint("RIGHT", b, "RIGHT", -6, 0)
+    b.pName:SetJustifyH("LEFT")
+    b.pName:SetWordWrap(false)
+    b.pSub = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fontOf(b.pSub, 10)
+    b.pSub:SetPoint("TOPLEFT", b.pIconBg, "RIGHT", 7, -2)
+    b.pSub:SetPoint("RIGHT", b, "RIGHT", -6, 0)
+    b.pSub:SetJustifyH("LEFT")
+    b.pSub:SetWordWrap(false)
+    b.pPlus = b:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    fontOf(b.pPlus, 15)
+    b.pPlus:SetPoint("CENTER", 0, 0)
+    b.pPlus:SetTextColor(0.26, 0.26, 0.29)
+    b.pPlus:SetText("+")
+    b.pPlus:Hide()
+    UI():AddEdges(b, "OVERLAY")
+    b.pLit = b:CreateTexture(nil, "ARTWORK", nil, 2)
+    b.pLit:SetAllPoints()
+    b.pLit:Hide()
+end
+
+-- p = { kind = "player" | "ghost" | "empty", c, sp, name (text, colours included), sub (text), auto (a guessed spec:
+-- the spec line fainter), dim, edge = "me" | "picked" | "from" | nil, plus (an empty seat for organizers), hint (the
+-- ghost's "· n can fill") }.
+local function paintPlate(b, p)
+    local kind = p.kind or "empty"
+    local player = kind == "player"
+    local r, g, bl = UI():ClassColor(p.c)
+    local base = player and PLATE_BASE or WELL_BASE
+    b.pBase:SetColorTexture(base[1], base[2], base[3], 1)
+    b.pTint:SetShown(player)
+    if player then gradient(b.pTint, "HORIZONTAL", r, g, bl, 0.20, 0.02) end
+    b.pShade:SetShown(not player)
+    if not player then gradient(b.pShade, "VERTICAL", 0, 0, 0, 0, 0.85) end
+    b.pTop:SetShown(player)
+    b.pBot:SetShown(player)
+    b.pBar:SetShown(player)
+    b.pBar:SetColorTexture(r, g, bl, 0.9)
+    local icon = (player or kind == "ghost") and p.c and Comp():SpecIcon(p.c, p.sp) or nil
+    local showIcon = player or (kind == "ghost" and icon ~= nil)
+    b.pIconBg:SetShown(showIcon)
+    b.pIcon:SetShown(showIcon)
+    if showIcon then
+        if icon then
+            b.pIcon:SetTexture(icon)
+            b.pIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        else
+            UI():ClassIcon(b.pIcon, p.c)
+        end
+        local ghost = kind == "ghost"
+        if b.pIcon.SetDesaturated then b.pIcon:SetDesaturated(ghost) end
+        b.pIcon:SetAlpha(ghost and 0.32 or (p.dim and 0.55 or 1))
+        b.pIconBg:SetAlpha(ghost and 0.6 or 1)
+    end
+    b.pName:SetText(p.name or "")
+    b.pSub:SetText(p.sub or "")
+    -- (a narrow tile, e.g. the Comp view's: a ghost's line too long for it drops the class, the spec takes its colour)
+    local room = (b:GetWidth() or 0) - 43
+    local short = p.subShort and room > 0 and (b.pSub:GetStringWidth() or 0) > room
+    if short then b.pSub:SetText(p.subShort) end
+    b.pName:SetAlpha(p.dim and 0.55 or 1)
+    if player then b.pSub:SetTextColor(p.auto and 0.42 or 0.56, p.auto and 0.42 or 0.56, p.auto and 0.45 or 0.6)
+    else b.pSub:SetTextColor(0.37, 0.37, 0.39) end
+    if kind == "ghost" and short then b.pName:SetTextColor(r * 0.6, g * 0.6, bl * 0.6)
+    elseif kind == "ghost" then b.pName:SetTextColor(0.49, 0.49, 0.51)
+    else b.pName:SetTextColor(1, 1, 1) end
+    b.pPlus:SetShown(kind == "empty" and p.plus == true)
+    -- the rim: mine / picked / where a dragged player came from; a ghost's in its class colour; a well's faint
+    b.pLit:SetShown(p.edge == "picked")
+    b.pLit:SetColorTexture(1, 0.82, 0, 0.12)
+    if p.edge == "me" then UI():SetEdgeColor(b, 1, 0.82, 0, 0.75)
+    elseif p.edge == "picked" then UI():SetEdgeColor(b, 1, 0.82, 0, 0.9)
+    elseif p.edge == "from" then UI():SetEdgeColor(b, 1, 0.82, 0, 0.3)
+    elseif kind == "ghost" then UI():SetEdgeColor(b, r, g, bl, 0.16)
+    elseif kind == "empty" then UI():SetEdgeColor(b, 1, 1, 1, 0.035)
+    else UI():SetEdgeColor(b, 0, 0, 0, 0) end
+end
+
+-- A player's plate fields from a member { key, c, sp, auto, dim, prefix }.
+local function playerPlate(m, edge)
+    local label = Comp():SpecLabel(m.c, m.sp)
+    return { kind = "player", c = m.c, sp = m.sp, name = (m.prefix or "") .. UI():ColoredName(m.key, m.c),
+             sub = label or "Spec unknown", auto = m.auto or label == nil, dim = m.dim, edge = edge }
+end
+
+-- An open slot's ghost fields from a slot { c, sp, canFill = n | nil }.
+local function ghostPlate(s, edge)
+    local cls = Comp():ClassName(s.c) or ""
+    -- (the class name in its colour, faded)
+    local r, g, b = UI():ClassColor(s.c)
+    local faded = ("ff%02x%02x%02x"):format(floor(r * 255 * 0.6 + 0.5), floor(g * 255 * 0.6 + 0.5), floor(b * 255 * 0.6 + 0.5))
+    local sub = "|c" .. faded .. cls .. "|r"
+    local fill = s.canFill ~= nil and (s.canFill > 0 and ("|cff7e9c84" .. s.canFill .. " can fill|r") or "none yet") or nil
+    if fill then sub = sub .. " · " .. fill end
+    return { kind = "ghost", c = s.c, sp = s.sp, name = Comp():SpecLabel(s.c, s.sp) or tostring(s.name or "?"),
+             sub = sub, subShort = fill, edge = edge }
+end
+
+function GroupsUI:DecoratePlate(b) decoratePlate(b) end
+function GroupsUI:PaintPlate(b, p) paintPlate(b, p) end
+function GroupsUI:PlayerPlate(m, edge) return playerPlate(m, edge) end
+function GroupsUI:GhostPlate(s, edge) return ghostPlate(s, edge) end
 
 ---------------------------------------------------------------------------
 -- Chips
@@ -187,10 +358,33 @@ local function createChip(parent, grid)
     rb:SetScript("OnDragStop", function() chip.grid:EndDrag(chip) end)
     rb:Hide()
     chip.roleBtn = rb
+    if grid.opts.quiet then
+        -- a plate: the spec icon is the spec button; the old chip's parts stay (hidden) for the shared code
+        decoratePlate(chip)
+        chip.cls:SetAlpha(0)
+        chip.spec:SetAlpha(0)
+        chip.fs:Hide()
+        chip.fs = chip.pName
+        chip.seat = chip.pShade
+        chip.picked:SetAlpha(0)
+        chip.me:SetAlpha(0)
+        chip.meBar:SetAlpha(0)
+        hl:ClearAllPoints()
+        hl:SetPoint("TOPLEFT", 0, 0)
+        hl:SetPoint("BOTTOMRIGHT", 0, 0)
+        hl:SetColorTexture(1, 1, 1, 0.045)
+        rb:ClearAllPoints()
+        rb:SetSize(26, 26)
+        rb:SetPoint("CENTER", chip.pIconBg, "CENTER", 0, 0)
+        rb.unknown:SetAlpha(0)
+    end
     chip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     chip:RegisterForDrag("LeftButton")
     chip:SetScript("OnEnter", function(self)
-        if self.key then chipTooltip(self) else emptyTooltip(self) end
+        local o = self.grid.opts
+        if self.key then chipTooltip(self)
+        elseif self.ghost and o.ghostTooltip and not self.grid.picked then o.ghostTooltip(self, self.ghost)
+        else emptyTooltip(self) end
     end)
     chip:SetScript("OnLeave", hideTooltip)
     chip:SetScript("OnClick", function(self, button) self.grid:OnChipClick(self, button) end)
@@ -199,15 +393,38 @@ local function createChip(parent, grid)
     return chip
 end
 
-local function setChip(chip, m)
+-- ghost (the quiet look, an empty seat): the comp's open slot that waits there; from = the seat a dragged player
+-- left.
+local function setChip(chip, m, ghost, from)
     chip.member = m
     chip.key = m and m.key or nil
+    chip.ghost = not m and ghost or nil
     local opts = chip.grid.opts
     local editable = opts.isEditable()
     chip.seat:SetShown(m == nil and chip.slot ~= nil and (editable or opts.quiet ~= nil))
     local mine = m ~= nil and not editable and opts.isMe ~= nil and opts.isMe(m.key) and true or false
     chip.me:SetShown(mine)
     chip.meBar:SetShown(mine)
+    if opts.quiet then
+        local picked = m ~= nil and chip.grid.picked == m.key
+        if m then
+            paintPlate(chip, playerPlate(m, picked and "picked" or mine and "me" or nil))
+        elseif ghost then
+            paintPlate(chip, ghostPlate(ghost, from and "from" or nil))
+        else
+            paintPlate(chip, { kind = "empty", plus = editable and chip.slot ~= nil, edge = from and "from" or nil })
+        end
+        chip.seat:SetShown(m == nil)
+        if not m then
+            chip.cls:Hide()
+            chip.spec:Hide()
+            chip.roleBtn:Hide()
+            chip.picked:Hide()
+            -- (a ghost's tooltip says who could fill it, for everyone)
+            chip:EnableMouse(chip.slot ~= nil and (editable or ghost ~= nil))
+            return
+        end
+    end
     if not m then
         chip.cls:Hide()
         chip.spec:Hide()
@@ -235,6 +452,11 @@ local function setChip(chip, m)
     chip.fs:SetAlpha(m.dim and 0.55 or 1)
     chip.cls:SetAlpha(m.dim and 0.55 or 1)
     chip.picked:SetShown(chip.grid.picked == m.key)
+    if opts.quiet then
+        -- (a plate shows the spec icon itself: the chip's class circle and role icon stay hidden)
+        chip.cls:Hide()
+        chip.spec:Hide()
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -277,7 +499,7 @@ local function createBuffIcon(parent, size)
     b.tex:SetAllPoints()
     b.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-    b.count:SetPoint("BOTTOMRIGHT", 2, -1)
+    b.count:SetPoint("BOTTOMRIGHT", 0, 1)
     -- planned (a target comp's open slot would bring it): a gold outline
     UI():AddEdges(b, "OVERLAY")
     UI():SetEdgeColor(b, 1, 0.82, 0, 0.9)
@@ -330,7 +552,11 @@ Grid.__index = Grid
 --                   text }, getMembers() -> { member, ... } (shown in that order; prefix = text before the name,
 --                   noRole = no spec button), empty() -> text or nil (nil and nobody on it: hidden) }. Its players
 --                   are dragged (or picked) into a group or the pool like the others (onDrop); nothing is dropped
---                   onto it. grid.wait is its frame (the caller may put a button in its header). }
+--                   onto it. grid.wait is its frame (the caller may put a button in its header).
+--          quiet = true (optional: the Teams page's plates and wells, see QUIET_BOX_H),
+--          getGhosts(byGroup, n) -> { [g] = { slot, ... } } (optional, quiet: the open slots that wait in each
+--                   group's free seats, in seat order; slot = { c, sp, name, canFill }),
+--          ghostTooltip(seat, slot) (optional, quiet: hovering a ghost) }
 function GroupsUI:CreateGrid(parent, opts)
     local grid = setmetatable({ opts = opts, boxes = {}, picked = nil }, Grid)
     local f = CreateFrame("Frame", nil, parent)
@@ -365,13 +591,14 @@ function GroupsUI:CreateGrid(parent, opts)
         box.title:SetPoint("TOPLEFT", 8, -7)
         box.title:SetText("Group " .. g)
         if opts.quiet then
-            box.bg:SetColorTexture(QUIET_BG[1], QUIET_BG[2], QUIET_BG[3], QUIET_BG[4])
+            -- (no panel: the plates and wells make the column; the title on the header line, flush left)
+            box.bg:SetColorTexture(0, 0, 0, 0)
             UI():SetEdgeColor(box, 0, 0, 0, 0)
             box.title:SetFontObject("GameFontNormalSmall")
-            box.title:SetTextColor(0.69, 0.69, 0.69)
+            box.title:SetTextColor(0.66, 0.66, 0.68)
             box.title:SetText("GROUP " .. g)
             box.title:ClearAllPoints()
-            box.title:SetPoint("TOPLEFT", 9, -9)
+            box.title:SetPoint("LEFT", box, "TOPLEFT", 1, -10)
         end
         box.countFs = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         box.countFs:SetPoint("TOPRIGHT", -8, -8)
@@ -387,10 +614,12 @@ function GroupsUI:CreateGrid(parent, opts)
         if opts.quiet then
             -- (the group's header is the swap button; its tooltip lists the party buffs)
             swap:ClearAllPoints()
-            swap:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
-            swap:SetPoint("BOTTOMRIGHT", box, "TOPRIGHT", -4, -HEADER_H + 4)
+            swap:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
+            swap:SetPoint("BOTTOMRIGHT", box, "TOPRIGHT", 0, -20)
             box.title:SetParent(swap)
             box.countFs:SetParent(swap)
+            box.countFs:ClearAllPoints()
+            box.countFs:SetPoint("LEFT", box.title, "RIGHT", 8, 0)
         end
         swap.fs = swap:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         swap.fs:SetPoint("CENTER")
@@ -445,16 +674,27 @@ function GroupsUI:CreateGrid(parent, opts)
         for s = 1, SLOTS do
             local chip = createChip(box, grid)
             chip.slot = s
-            chip:SetPoint("TOPLEFT", 6, -HEADER_H - 1 - (s - 1) * CHIP_H)
-            chip:SetPoint("RIGHT", box, "RIGHT", -6, 0)
-            chip:SetHeight(CHIP_H)
+            if opts.quiet then
+                chip:SetPoint("TOPLEFT", 0, -QUIET_HEAD - (s - 1) * (PLATE_H + PLATE_GAP))
+                chip:SetPoint("RIGHT", box, "RIGHT", 0, 0)
+                chip:SetHeight(PLATE_H)
+            else
+                chip:SetPoint("TOPLEFT", 6, -HEADER_H - 1 - (s - 1) * CHIP_H)
+                chip:SetPoint("RIGHT", box, "RIGHT", -6, 0)
+                chip:SetHeight(CHIP_H)
+            end
             box.chips[s] = chip
         end
         box.buffs = {}
         -- what the party gets from its own members: right to left before the count, or (row layout) in the footer
         for i = 1, 9 do
             local b = createBuffIcon(box, opts.layout == "row" and 16 or 14)
-            if opts.layout == "row" then
+            if opts.quiet then
+                -- (the header line's right end, right to left)
+                b:SetSize(14, 14)
+                if i == 1 then b:SetPoint("RIGHT", box, "TOPRIGHT", 0, -10)
+                else b:SetPoint("RIGHT", box.buffs[i - 1], "LEFT", -2, 0) end
+            elseif opts.layout == "row" then
                 b:SetPoint("BOTTOMLEFT", 8 + (i - 1) * BUFF_ROW, 6)
             elseif i == 1 then
                 b:SetPoint("RIGHT", box.countFs, "LEFT", -6, 0)
@@ -462,11 +702,9 @@ function GroupsUI:CreateGrid(parent, opts)
                 b:SetPoint("RIGHT", box.buffs[i - 1], "LEFT", -2, 0)
             end
             b.missingText = "Not in this group."
+            -- (above the header's swap button, so each icon keeps its own tooltip)
+            if opts.quiet then b:SetFrameLevel(box:GetFrameLevel() + 4) end
             b:Hide()
-            if opts.quiet then
-                b:SetAlpha(0)
-                b:EnableMouse(false)
-            end
             box.buffs[i] = b
         end
         if opts.layout == "row" and not opts.quiet then
@@ -629,8 +867,8 @@ function Grid:Refresh()
     else
         cov = Comp():Coverage(members, "raid")
     end
-    -- (on the caller's row: as large as the room left there allows, 20 down to 14)
-    local size = 20
+    -- (on the caller's row: as large as the room left there allows, 20 (quiet: 18) down to 14)
+    local size = self.opts.quiet and 18 or 20
     local room = self.opts.stripRoom and self.opts.stripRoom()
     if room then
         while size > 14 and #cov * (size + 2) > room do size = size - 2 end
@@ -643,7 +881,14 @@ function Grid:Refresh()
 
     local row_ = self.opts.layout == "row"
     local cols, gap, boxH = row_ and ROW_COLS or COLS, row_ and ROW_GAP or GAP, row_ and ROW_BOX_H or BOX_H
-    if self.opts.quiet then boxH = QUIET_BOX_H end
+    local quiet = self.opts.quiet ~= nil
+    if quiet then boxH = QUIET_BOX_H end
+    -- (the quiet look) the comp's open slots, as ghosts in the free seats: worked out from the groups as they are,
+    -- and kept while a player is dragged (the seat they left stays theirs until the drop)
+    if quiet and not self.dragging then
+        self.ghosts = self.opts.getGhosts and self.opts.getGhosts(byGroup, n) or nil
+    end
+    local ghosts = quiet and self.ghosts or nil
     local fw = self.frame:GetWidth() or 0
     local bw = floor((fw - (cols - 1) * gap) / cols)
     if fw < 100 then bw = BOX_W end
@@ -674,14 +919,24 @@ function Grid:Refresh()
                 if not bySeat[s] and rest[r] then bySeat[s], r = rest[r], r + 1 end
                 if bySeat[s] then self.shown[bySeat[s].key] = s end
             end
-            for s, chip in ipairs(box.chips) do setChip(chip, bySeat[s]) end
+            local gl, gi = ghosts and ghosts[g] or nil, 0
+            local from = self.dragging and self.dragFrom
+            for s, chip in ipairs(box.chips) do
+                local gh
+                if not bySeat[s] and gl then
+                    gi = gi + 1
+                    gh = gl[gi]
+                end
+                setChip(chip, bySeat[s], gh, from and from.g == g and from.s == s)
+            end
             box.countFs:SetText(#list .. "/" .. SLOTS)
             -- (a group without players has nothing to swap; while a swap is picked every group takes it)
             local canSwap = self.opts.isEditable() and self.opts.onSwapGroups ~= nil
             box.swap:SetShown(self.opts.quiet ~= nil or (canSwap and (#list > 0 or self.swapFrom ~= nil)))
             if self.opts.quiet then
                 box.swap.fs:SetText("")
-                box.countFs:SetText((self.swapFrom == g and "|cff33ff33swapping|r  " or "") .. #list .. "/" .. SLOTS)
+                -- (the seats show how full it is: the line only says a swap is under way)
+                box.countFs:SetText(self.swapFrom == g and "|cff33ff33SWAPPING|r" or "")
             elseif self.swapFrom == g then
                 box.swap.fs:SetText("|cff33ff33cancel|r")
             elseif self.swapFrom then
@@ -696,7 +951,7 @@ function Grid:Refresh()
             end
             box.present = present
             -- (the footer holds as many as its width does; the tooltip of each names who brings it)
-            local room = row_ and floor((bw - 16 + 2) / BUFF_ROW) or #box.buffs
+            local room = quiet and floor((bw - 64) / 16) or row_ and floor((bw - 16 + 2) / BUFF_ROW) or #box.buffs
             for i, b in ipairs(box.buffs) do
                 if present[i] and i <= room then setBuffIcon(b, present[i], true) else b:Hide() end
             end
@@ -813,95 +1068,146 @@ function Grid:LayoutWaitRow(list)
     self.frame:SetHeight(self.height)
 end
 
--- The quiet look's bench: under the groups, one strip with a chip per player outside them (as wide as each name),
--- wrapping to more rows; the waitlist a second strip under it while anyone is on it (or opts.waitlist.empty() says
--- something). Each strip: a small caps label, then the chips; an empty bench says what it's for.
-local function flowChips(self, host, list, x0, width)
-    local x, y = x0, -6
+-- The quiet look's bench: the unassigned players as plates on the groups' columns under them (a 10-man lineup: in the
+-- free columns beside its two groups, on a faint panel), a small caps header over them and "Drag into a group" on
+-- its right; the waitlist the same way under everything while anyone is on it (or opts.waitlist.empty() says
+-- something). Nobody there: a well across the width that says what it is for.
+local function benchWell(host)
+    if host.drop then return host.drop end
+    local d = CreateFrame("Frame", nil, host)
+    decoratePlate(d)
+    paintPlate(d, { kind = "empty" })
+    d.fs = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    fontOf(d.fs, 11)
+    d.fs:SetPoint("LEFT", d, "LEFT", 12, 0)
+    d.fs:SetPoint("RIGHT", d, "RIGHT", -12, 0)
+    d.fs:SetJustifyH("CENTER")
+    d.fs:SetWordWrap(false)
+    d:EnableMouse(false)
+    host.drop = d
+    return d
+end
+
+-- host's plates: `list` on `cols` columns, column c at colX(c) and colW(c) wide, from y0 down; returns their height.
+local function platesOn(self, host, list, cols, colX, colW, y0)
     for i, m in ipairs(list) do
         local chip = host.chips[i]
         if not chip then
             chip = createChip(host, self)
             host.chips[i] = chip
         end
+        local c, r = (i - 1) % cols, floor((i - 1) / cols)
         chip:ClearAllPoints()
-        chip:SetSize(240, CHIP_H)
-        setChip(chip, m)
-        local fs = chip.fs
-        local tw = (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 60
-        local w = floor(2 + 16 + 6 + tw + 6 + 13 + 5 + 0.5)
-        if x + w > width - 8 and x > x0 then x, y = x0, y - BENCH_ROW end
-        chip:SetSize(w, CHIP_H)
-        chip:SetPoint("TOPLEFT", host, "TOPLEFT", x, y - 1)
+        chip:SetPoint("TOPLEFT", host, "TOPLEFT", colX(c), -(y0 + r * (PLATE_H + PLATE_GAP)))
+        chip:SetSize(colW(c), PLATE_H)
         chip:Show()
-        x = x + w + 12
+        setChip(chip, m)
     end
     for i = #list + 1, #host.chips do
         host.chips[i]:Hide()
         host.chips[i].member, host.chips[i].key = nil, nil
     end
-    return -y + BENCH_ROW + 4
+    local rows = ceil(#list / cols)
+    return rows > 0 and (rows * (PLATE_H + PLATE_GAP) - PLATE_GAP) or 0
+end
+
+-- One bench block (the unassigned or the waitlist) at (x, y), w wide: its header, then its plates or the well with
+-- `emptyText`; pad = the inset (a panel beside the groups) or 0. Returns its height.
+local function benchBlock(self, host, list, label, hint, emptyText, x, y, w, cols, pad, y0)
+    host.label:SetFontObject("GameFontNormalSmall")
+    host.label:SetTextColor(0.66, 0.66, 0.68)
+    host.label:SetText(label .. "  |cff8c8c8c" .. #list .. "|r")
+    host.label:ClearAllPoints()
+    host.label:SetPoint("LEFT", host, "TOPLEFT", pad + 1, -(pad + 9))
+    local iw = w - 2 * pad
+    local cw = (iw - (cols - 1) * ROW_GAP) / cols
+    local colX = self.colX
+    local function cx(c)
+        if pad == 0 and colX then return colX(c) end
+        return pad + floor(c * (cw + ROW_GAP) + 0.5)
+    end
+    local function cwOf(c)
+        if pad == 0 and colX then return colX(c + 1) - ROW_GAP - colX(c) end
+        return cx(c + 1) - ROW_GAP - cx(c)
+    end
+    local hgt = platesOn(self, host, list, cols, cx, cwOf, pad + y0)
+    local d = benchWell(host)
+    d:SetShown(#list == 0 and emptyText ~= nil)
+    if #list == 0 and emptyText then
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", host, "TOPLEFT", pad, -(pad + y0))
+        d:SetSize(iw, PLATE_H)
+        d.fs:SetText(emptyText)
+        hgt = PLATE_H
+    end
+    host.empty:ClearAllPoints()
+    host.empty:SetPoint("RIGHT", host, "TOPRIGHT", -pad - 1, -(pad + 9))
+    host.empty:SetJustifyH("RIGHT")
+    host.empty:SetText(hint or "")
+    host.empty:SetShown(hint ~= nil and #list > 0)
+    host:ClearAllPoints()
+    host:SetPoint("TOPLEFT", self.frame, "TOPLEFT", x, -y)
+    local h = pad + y0 + hgt + pad
+    host:SetSize(w, h)
+    return h
 end
 
 function Grid:LayoutBench(pool, waiting, n, boxH)
     local fw = self.frame:GetWidth() or 0
     if fw < 100 then fw = ROW_COLS * (BOX_W + ROW_GAP) - ROW_GAP end
-    local top = self.top + ceil(n / ROW_COLS) * (boxH + ROW_GAP) + 4
     local editable = self.opts.isEditable()
-    local x0 = 12 + 66
+    local x = self.colX
     local p = self.pool
-    p.label:SetFontObject("GameFontNormalSmall")
-    p.label:SetTextColor(0.62, 0.62, 0.62)
-    p.label:SetText("BENCH")
-    p.label:ClearAllPoints()
-    p.label:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -12)
+    local beside = n < ROW_COLS
+    local boxesBottom = self.top + ceil(n / ROW_COLS) * (boxH + ROW_GAP) - ROW_GAP
+    local label = (self.opts.poolLabel or "Not in a group"):upper()
+    local emptyText = self.opts.poolEmpty and self.opts.poolEmpty() or "Drop a player here to take them out of the groups."
     local show = #pool > 0 or editable
     p:SetShown(show)
-    local h = 0
-    if show then
-        h = max(34, flowChips(self, p, pool, x0, fw - (editable and 130 or 0)))
-        p:ClearAllPoints()
-        p:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -top)
-        p:SetSize(fw, h)
-        p.empty:ClearAllPoints()
-        p.empty:SetPoint("RIGHT", p, "TOPRIGHT", -12, -17)
-        p.empty:SetJustifyH("RIGHT")
-        if #pool == 0 then
-            p.empty:SetText(self.opts.poolEmpty and self.opts.poolEmpty() or "Drop a player here to take them out of the groups.")
-        else
-            p.empty:SetText(editable and "Drag into a group" or "")
-        end
-        p.empty:SetShown(editable or #pool == 0)
+    -- (beside the groups: a faint panel; under them: no panel, the plates line up with the groups)
+    if beside then
+        p.bg:SetColorTexture(1, 1, 1, 0.02)
+        UI():SetEdgeColor(p, 1, 1, 1, 0.035)
+    else
+        p.bg:SetColorTexture(0, 0, 0, 0)
+        UI():SetEdgeColor(p, 0, 0, 0, 0)
     end
-    self.height = top + h
+    self.height = boxesBottom
+    if show then
+        if beside then
+            local px = x(n)
+            local h = benchBlock(self, p, pool, label, editable and "Drag into a group" or nil,
+                editable and emptyText or nil, px, self.top, x(ROW_COLS) - ROW_GAP - px, ROW_COLS - n, 8, 18)
+            if h < boxH then
+                p:SetHeight(boxH)
+                h = boxH
+            end
+            self.height = max(boxesBottom, self.top + h)
+        else
+            local top = boxesBottom + 16
+            local h = benchBlock(self, p, pool, label, editable and "Drag into a group" or nil,
+                editable and emptyText or nil, 0, top, fw, ROW_COLS, 0, 20)
+            self.height = top + h
+        end
+    end
     local w = self.wait
     if w then
         local wo = self.opts.waitlist
         local empty = wo.empty and wo.empty() or nil
         local wshow = #waiting > 0 or empty ~= nil
         w:SetShown(wshow)
+        w.bg:SetColorTexture(0, 0, 0, 0)
+        UI():SetEdgeColor(w, 0, 0, 0, 0)
         if not wshow then
             for _, chip in ipairs(w.chips) do
                 chip:Hide()
                 chip.member, chip.key = nil, nil
             end
-        end
-        if wshow then
-            w.label:SetFontObject("GameFontNormalSmall")
-            w.label:SetTextColor(0.62, 0.62, 0.62)
-            w.label:SetText("WAITLIST")
-            w.label:ClearAllPoints()
-            w.label:SetPoint("TOPLEFT", w, "TOPLEFT", 12, -12)
-            local wh = max(34, flowChips(self, w, waiting, x0, fw))
-            w:ClearAllPoints()
-            w:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -(self.height + 6))
-            w:SetSize(fw, wh)
-            w.empty:ClearAllPoints()
-            w.empty:SetPoint("LEFT", w, "TOPLEFT", x0, -17)
-            w.empty:SetPoint("RIGHT", w, "RIGHT", -150, 0)
-            w.empty:SetText(empty or "")
-            w.empty:SetShown(#waiting == 0)
-            self.height = self.height + 6 + wh
+        else
+            local top = self.height + 16
+            -- (a taller header: the caller's Join / Leave button sits on its right)
+            local h = benchBlock(self, w, waiting, (wo.label or "Waitlist"):upper(), nil, empty, 0, top, fw, ROW_COLS, 0, 26)
+            self.height = top + h
         end
     end
     self.frame:SetHeight(self.height)
@@ -1028,6 +1334,67 @@ local function ensureGhost()
     return ghost
 end
 
+-- (the quiet look) the lifted plate: the player's plate, a gold rim and a deep shadow, with a small label under it that
+-- says where it would land
+local plateGhost
+local function ensurePlateGhost()
+    if plateGhost then return plateGhost end
+    local g = CreateFrame("Frame", nil, UIParent)
+    g:SetSize(140, PLATE_H)
+    g:SetFrameStrata("TOOLTIP")
+    -- (the shadow: two soft layers under the plate, offset down)
+    g.sh1 = g:CreateTexture(nil, "BACKGROUND", nil, -7)
+    g.sh1:SetPoint("TOPLEFT", -4, -2)
+    g.sh1:SetPoint("BOTTOMRIGHT", 5, -10)
+    g.sh1:SetColorTexture(0, 0, 0, 0.35)
+    g.sh2 = g:CreateTexture(nil, "BACKGROUND", nil, -6)
+    g.sh2:SetPoint("TOPLEFT", -1, 0)
+    g.sh2:SetPoint("BOTTOMRIGHT", 2, -4)
+    g.sh2:SetColorTexture(0, 0, 0, 0.45)
+    decoratePlate(g)
+    g.tip = CreateFrame("Frame", nil, g)
+    g.tip:SetPoint("TOPLEFT", g, "BOTTOMLEFT", 8, -6)
+    g.tip:SetSize(10, 18)
+    g.tip.bg = g.tip:CreateTexture(nil, "BACKGROUND")
+    g.tip.bg:SetAllPoints()
+    g.tip.bg:SetColorTexture(0.03, 0.03, 0.04, 0.94)
+    UI():AddEdges(g.tip, "BORDER")
+    UI():SetEdgeColor(g.tip, 1, 1, 1, 0.12)
+    g.tip.fs = g.tip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fontOf(g.tip.fs, 11)
+    g.tip.fs:SetPoint("TOPLEFT", 8, -5)
+    g.tip.fs:SetJustifyH("LEFT")
+    g.tip.fs:SetSpacing(2)
+    g.tip:Hide()
+    g:Hide()
+    plateGhost = g
+    GroupsUI.__plateGhost = g          -- (for the tests)
+    return g
+end
+
+-- The lifted plate's label: where a drop at `t` lands (nil: hidden).
+local function plateGhostTip(grid, t)
+    local g = plateGhost
+    if not g then return end
+    local text
+    if t and t.full then
+        text = "|cffff6060Group " .. t.g .. " is full|r"
+    elseif t and t.target then
+        text = "Swap with " .. UI():ColoredName(t.target, t.chip and t.chip.member and t.chip.member.c)
+    elseif t and t.g then
+        text = "Group " .. t.g .. ", seat " .. tostring(t.seat or "?")
+        local gh = t.chip and t.chip.ghost
+        if gh then text = text .. "\n|cff9e9e9eplanned: " .. tostring(Comp():SlotName(gh.c, gh.sp) or gh.name or "?") .. "|r" end
+    elseif t and t.pool then
+        text = "Out of the groups"
+    end
+    g.tip:SetShown(text ~= nil)
+    if text then
+        g.tip.fs:SetText(text)
+        g.tip:SetSize(floor((g.tip.fs:GetStringWidth() or 100) + 16 + 0.5), floor((g.tip.fs:GetStringHeight() or 12) + 10 + 0.5))
+    end
+end
+
 local function cursorIn(frame)
     local x, y = GetCursorPosition()
     local s = frame:GetEffectiveScale()
@@ -1045,6 +1412,7 @@ function Grid:ShowDropMarker(t)
         m:EnableMouse(false)
         self.marker = m
     end
+    if self.opts.quiet then plateGhostTip(self, t) end
     local over = t and (t.chip or t.box or (t.pool and self.pool))
     if not over then
         m:Hide()
@@ -1057,7 +1425,7 @@ function Grid:ShowDropMarker(t)
         m.fill:SetColorTexture(1, 0.25, 0.25, 0.06)
         UI():SetEdgeColor(m, 1, 0.3, 0.3, 0.8)
     else
-        m.fill:SetColorTexture(1, 0.82, 0, t.chip and 0.14 or 0.05)
+        m.fill:SetColorTexture(1, 0.82, 0, t.chip and (self.opts.quiet and 0.1 or 0.14) or 0.05)
         UI():SetEdgeColor(m, 1, 0.82, 0, 0.85)
     end
     m:Show()
@@ -1098,17 +1466,29 @@ function Grid:BeginDrag(chip)
     local m = chip.member
     self.dragging = chip.key
     self.picked = nil
-    local g = ensureGhost()
+    -- (the seat it leaves: lit faintly until the drop)
+    local from = groupOfChip(chip)
+    self.dragFrom = from and { g = from, s = chip.slot } or nil
+    local quiet = self.opts.quiet ~= nil
+    local g = quiet and ensurePlateGhost() or ensureGhost()
     -- the same size and scale as the chip, held where it was grabbed
     g:SetScale(chip:GetEffectiveScale() / UIParent:GetEffectiveScale())
     g:SetSize(chip:GetWidth(), chip:GetHeight())
     local cx, cy = cursorIn(g)
     g.dx, g.dy = (chip:GetLeft() or cx) - cx, (chip:GetTop() or cy) - cy
-    UI():ClassIcon(g.cls, m and m.c)
-    g.fs:SetText(UI():ColoredName(chip.key, m and m.c))
-    local role = m and Comp():RoleOf(m.c, m.sp)
-    g.role:SetShown(role ~= nil)
-    if role then UI():SetRoleIcon(g.role, role) end
+    if quiet then
+        local p = playerPlate(m or { key = chip.key })
+        paintPlate(g, p)
+        g.pBase:SetColorTexture(0.137, 0.137, 0.16, 1)
+        UI():SetEdgeColor(g, 1, 0.82, 0, 0.9)
+        g.tip:Hide()
+    else
+        UI():ClassIcon(g.cls, m and m.c)
+        g.fs:SetText(UI():ColoredName(chip.key, m and m.c))
+        local role = m and Comp():RoleOf(m.c, m.sp)
+        g.role:SetShown(role ~= nil)
+        if role then UI():SetRoleIcon(g.role, role) end
+    end
     local grid = self
     g:SetScript("OnUpdate", function(f)
         -- (a drop outside every frame, or a hidden source, ends the drag here)
@@ -1137,10 +1517,12 @@ function Grid:EndDrag()
     local key = self.dragging
     if not key then return end
     local t = self:DropTarget()
-    self.dragging, self.dropSig = nil, nil
-    if ghost then
-        ghost:SetScript("OnUpdate", nil)
-        ghost:Hide()
+    self.dragging, self.dropSig, self.dragFrom = nil, nil, nil
+    for _, gf in ipairs({ ghost or false, plateGhost or false }) do
+        if gf then
+            gf:SetScript("OnUpdate", nil)
+            gf:Hide()
+        end
     end
     if self.marker then self.marker:Hide() end
     if t and t.g then

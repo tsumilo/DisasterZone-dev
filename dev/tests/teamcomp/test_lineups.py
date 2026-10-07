@@ -471,8 +471,8 @@ def the_teams_page_lineups_and_waitlist():
     wchips = bob.eval_py("local out = {}; for _, ch in ipairs(%s.wait.chips) do if ch:IsShown() then "
                          "out[#out + 1] = ch.key end end; return out" % grid)
     assert lst(wchips) == [K("Rita")], wchips
-    assert strip_codes(bob.eval("return %s.wait.label:GetText()" % grid)) == "WAITLIST"
-    assert strip_codes(bob.eval("return %s.pool.label:GetText()" % grid)) == "BENCH" and bob.eval(
+    assert strip_codes(bob.eval("return %s.wait.label:GetText()" % grid)).startswith("WAITLIST")
+    assert strip_codes(bob.eval("return %s.pool.label:GetText()" % grid)).startswith("UNASSIGNED") and bob.eval(
         "local n = 0; for _, c in ipairs(%s.pool.chips) do if c:IsShown() then n = n + 1 end end; return n" % grid) == 1   # Lee (in SSC)
     bob.eval("%s:Drop(..., 2)" % grid, K("Rita"))
     w.tick(0.3)

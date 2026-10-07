@@ -77,7 +77,9 @@ def lineup_chips(cl):
 
 
 def dirty_buttons(cl):
-    return shown(cl, D + ".saveBtn"), shown(cl, D + ".revertBtn"), shown(cl, D + ".status")
+    # (the banner's line says "changed, not saved" since the raid buffs took the toolbar's room)
+    said = "not saved" in strip_codes(cl.eval("return %s.card.changed:GetText()" % TV) or "")
+    return shown(cl, D + ".saveBtn"), shown(cl, D + ".revertBtn"), said
 
 
 @case

@@ -278,6 +278,51 @@ function RaidComp:AutoFill(members, size)
     return grp
 end
 
+-- Where a comp's open slots would sit (the Teams page shows them as ghosts in the free seats): each open slot goes to
+-- the group with room that already has the most of its role (players and slots placed before it), the least full
+-- on a tie; a shaman's slot first looks for a group without a shaman. Shamans' slots go first, then the rest in comp
+-- order. byGroup = { [g] = { member, ... } } (members { c, sp }), open = { { c, sp, ... }, ... } (one per slot),
+-- n = the group count. Returns { [g] = { slot, ... } } (slots that find no room are left out).
+function RaidComp:PlaceOpen(byGroup, open, n)
+    local out, count, roles, shaman = {}, {}, {}, {}
+    for g = 1, n do
+        out[g], count[g], roles[g] = {}, 0, {}
+        for _, m in ipairs(byGroup[g] or {}) do
+            count[g] = count[g] + 1
+            local role = RaidComp:RoleOf(m.c, m.sp)
+            if role then roles[g][role] = (roles[g][role] or 0) + 1 end
+            if m.c == "SHAMAN" then shaman[g] = true end
+        end
+    end
+    local list = {}
+    for i, s in ipairs(open or {}) do list[#list + 1] = { s = s, i = i } end
+    tsort(list, function(a, b)
+        local sa, sb = a.s.c == "SHAMAN", b.s.c == "SHAMAN"
+        if sa ~= sb then return sa end
+        return a.i < b.i
+    end)
+    for _, e in ipairs(list) do
+        local s = e.s
+        local role = RaidComp:RoleOf(s.c, s.sp)
+        local pick, best
+        for g = 1, n do
+            if count[g] < GROUP_SIZE then
+                local score = (role and roles[g][role] or 0) * 10 - count[g]
+                if s.c == "SHAMAN" and not shaman[g] then score = score + 100 end
+                if not best or score > best then pick, best = g, score end
+            end
+        end
+        if pick then
+            local l = out[pick]
+            l[#l + 1] = s
+            count[pick] = count[pick] + 1
+            if role then roles[pick][role] = (roles[pick][role] or 0) + 1 end
+            if s.c == "SHAMAN" then shaman[pick] = true end
+        end
+    end
+    return out
+end
+
 function RaidComp:GroupCount(size)
     return size == 10 and 2 or 5
 end
