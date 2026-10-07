@@ -157,7 +157,7 @@ local function AbilitySub(r, view)
     return table.concat(bits, " · ")
 end
 
-local BAR_X, BAR_W = 228, 330
+local BAR_X, BAR_W = 230, 150
 
 local function InitAbility(row, data)
     local k = K()
@@ -174,16 +174,16 @@ local function InitAbility(row, data)
         row.rank:SetWidth(16)
         row.rank:SetJustifyH("RIGHT")
         row.rank:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
-        row.icon = k.Icon(row, 24)
-        row.icon:SetPoint("LEFT", row, "LEFT", 28, 0)
+        row.icon = k.Icon(row, 28)
+        row.icon:SetPoint("LEFT", row, "LEFT", 26, 0)
         row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 60, -5)
-        row.name:SetWidth(160)
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 64, -5)
+        row.name:SetWidth(158)
         row.name:SetJustifyH("LEFT")
         row.name:SetWordWrap(false)
         row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
-        row.sub:SetWidth(160)
+        row.sub:SetWidth(158)
         row.sub:SetJustifyH("LEFT")
         row.sub:SetWordWrap(false)
         -- the track: a faint full-width groove, this pull's bar on it, the other pull's as a thin line under it
@@ -199,15 +199,15 @@ local function InitAbility(row, data)
         row.barThen:SetHeight(2)
         row.barThen:SetColorTexture(0.55, 0.57, 0.61, 0.55)
         row.amount = k.Text(row, "numS")
-        row.amount:SetFont(k.NUM_FONT, 15, "")
-        row.amount:SetPoint("TOPRIGHT", row, "TOPRIGHT", -96, -5)
+        row.amount:SetFont(k.NUM_FONT, 14, "")
+        row.amount:SetPoint("TOPRIGHT", row, "TOPRIGHT", -78, -5)
         row.amount:SetJustifyH("RIGHT")
         row.share = k.Text(row, "numXS")
         row.share:SetPoint("TOPRIGHT", row.amount, "BOTTOMRIGHT", 0, -1)
         row.share:SetJustifyH("RIGHT")
         row.share:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
         row.chip = k.Chip(row, 16)
-        row.chip:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+        row.chip:SetPoint("RIGHT", row, "RIGHT", -8, 0)
         row.av = k.Chip(row, 14)
         row:SetScript("OnEnter", function(self)
             local r = self.__cdlData and self.__cdlData.r
@@ -250,7 +250,7 @@ local function InitAbility(row, data)
     if r.avoidable then
         row.av:Set("avoidable", "av")
         row.av:ClearAllPoints()
-        row.av:SetPoint("LEFT", row.name, "LEFT", min(160, (row.name:GetStringWidth() or 60)) + 6, 0)
+        row.av:SetPoint("LEFT", row.name, "LEFT", min(158, (row.name:GetStringWidth() or 60)) + 6, 0)
     else
         row.av:Set(nil)
     end
@@ -310,9 +310,14 @@ local function Recovery(p)
 end
 
 local CHART_Y, CHART_H = -92, 170
-local STATS_Y = CHART_Y - CHART_H - 8
-local LIST_LAB_Y = STATS_Y - 46 - 12
-local LIST_Y = LIST_LAB_Y - 14
+local STATS_Y, STATS_H = CHART_Y - CHART_H - 8, 50
+local LIST_LAB_Y = STATS_Y - STATS_H - 12          -- the row of tabs (Breakdown / Cast timeline) and the Uptime heading
+local LIST_Y = LIST_LAB_Y - 30
+-- the uptime column right of the abilities (the list's scroll bar sits in the gap)
+local UP_W, COL_GAP, UP_ROW_H = 214, 24, 34
+local ICON_ACTIVE = "Interface\\Icons\\INV_Misc_PocketWatch_01"
+local ICON_IDLE = "Interface\\Icons\\Spell_Nature_Sleep"
+local ICON_AVOID = "Interface\\Icons\\Spell_Fire_Fire"
 
 local function BuildBossView(body)
     local k = K()
@@ -379,63 +384,64 @@ local function BuildBossView(body)
     end
     v.chart:HookScript("OnSizeChanged", function() v.PlaceX() end)
 
-    v.stats = k.StatStrip(v, 4, 46)
+    v.stats = k.StatStrip(v, 4, STATS_H)
     v.stats:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, STATS_Y)
     v.stats:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, STATS_Y)
 
-    v.listLab = k.Label(v, "")
-    v.listLab:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 2, LIST_LAB_Y)
-    v.listHint = k.Label(v, "")
-    v.listHint:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD - 176, LIST_LAB_Y)
-    v.listHint:SetJustifyH("RIGHT")
-    v.listHint:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
-    v.modeSeg = k.Segment(v, { { key = "list", label = "Breakdown" }, { key = "timeline", label = "Timeline" } },
-        function(key) cur.mode = key; ns.MyLogUI:Refresh() end, 78)
-    v.modeSeg:SetPoint("BOTTOMRIGHT", v, "TOPRIGHT", -PAD, LIST_LAB_Y - 12)
+    -- the section's own tabs; the first one names what the list shows ("Damage by ability", ...)
+    v.modeSeg = k.Tabs(v, { { key = "list", label = "Damage by ability" }, { key = "timeline", label = "Cast timeline" } },
+        function(key) cur.mode = key; ns.MyLogUI:Refresh() end)
+    v.modeSeg:SetPoint("TOPLEFT", v, "TOPLEFT", PAD - 8, LIST_LAB_Y)
     v.timeline = ns.MyLogTimeline:Create(v)
-    v.timeline:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, LIST_Y - 2)
+    v.timeline:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, LIST_Y)
     v.timeline:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -PAD, 6)
     v.timeline.fallback = { 772, 200 }
     v.list = UI():CreateScrollList(v, ROW_H, InitAbility)
     v.list.frame:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, LIST_Y)
-    v.list.frame:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD + 20, LIST_Y)
-    -- whole rows only: a half row peeking out over the uptime cards looks broken
+    v.list.frame:SetPoint("TOPRIGHT", v, "TOPRIGHT", -(PAD + UP_W + COL_GAP) + 20, LIST_Y)
+    -- whole rows only: a half row peeking out at the bottom looks broken
     local function fitList()
         local h = v:GetHeight() or 0
         if h <= 0 then h = 550 end          -- (the page's height in the 800 x 580 window, before layout)
-        local avail = h + LIST_Y - 48
+        local avail = h + LIST_Y - 8
         v.list.frame:SetHeight(max(ROW_H, floor(avail / ROW_H) * ROW_H))
+        v.upFit = max(1, floor(avail / UP_ROW_H))
     end
     fitList()
     v.FitList = fitList
     v:HookScript("OnSizeChanged", fitList)
     v.list:SetEmptyText("The detail of this pull aged out: only the newest pulls of a boss keep it.")
 
-    -- uptimes: small cards with a bar each
-    v.upLab = k.Label(v, "Uptime")
-    v.upLab:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", PAD + 2, 22)
+    -- uptimes: a column of icon, name, time and a thin bar (like My BiS's "still to get" list)
+    v.upLab = k.Heading(v, "Uptime")
+    v.upLab:SetPoint("LEFT", v, "TOPRIGHT", -(PAD + UP_W), LIST_LAB_Y - 11)
     v.ups = {}
-    for i = 1, 3 do
-        local u = k.Card(v, C.card, 0.06)
-        u:SetSize(220, 30)
-        u:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", PAD + 64 + (i - 1) * 232, 8)
-        u.icon = k.Icon(u, 18)
-        u.icon:SetPoint("LEFT", u, "LEFT", 7, 0)
+    for i = 1, 10 do
+        local u = CreateFrame("Frame", nil, v)
+        u:SetSize(UP_W, UP_ROW_H)
+        u:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, LIST_Y - (i - 1) * UP_ROW_H)
+        u.icon = k.Icon(u, 24)
+        u.icon:SetPoint("LEFT", u, "LEFT", 0, 0)
         u.name = u:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        u.name:SetPoint("TOPLEFT", u, "TOPLEFT", 32, -5)
-        u.name:SetWidth(132)
+        u.name:SetPoint("TOPLEFT", u, "TOPLEFT", 34, -6)
+        u.name:SetWidth(UP_W - 34 - 44)
         u.name:SetJustifyH("LEFT")
         u.name:SetWordWrap(false)
+        u.val = k.Text(u, "numS")
+        u.val:SetPoint("TOPRIGHT", u, "TOPRIGHT", 0, -5)
+        u.val:SetJustifyH("RIGHT")
         u.well = u:CreateTexture(nil, "ARTWORK")
         u.well:SetColorTexture(1, 1, 1, 0.06)
-        u.well:SetSize(132, 3)
-        u.well:SetPoint("BOTTOMLEFT", u, "BOTTOMLEFT", 32, 7)
+        u.well:SetHeight(3)
+        u.well:SetPoint("BOTTOMLEFT", u, "BOTTOMLEFT", 34, 7)
+        u.well:SetPoint("BOTTOMRIGHT", u, "BOTTOMRIGHT", 0, 7)
         u.bar = u:CreateTexture(nil, "ARTWORK", nil, 1)
         u.bar:SetHeight(3)
         u.bar:SetPoint("LEFT", u.well, "LEFT")
-        u.val = k.Text(u, "numS")
-        u.val:SetPoint("RIGHT", u, "RIGHT", -9, 0)
-        u.val:SetJustifyH("RIGHT")
+        u:SetScript("OnEnter", function(self)
+            if self.tip then UI():SetTextTooltip(self, self.tip) end
+        end)
+        u:SetScript("OnLeave", function() GameTooltip:Hide() end)
         v.ups[i] = u
     end
     return v
@@ -543,46 +549,43 @@ local function RefreshBoss(state)
     local ps, qs = p.s or {}, q and q.s or {}
     local metricNow, metricThen = Log():Metric(p, view), q and Log():Metric(q, view)
     local text, kind = k.ChangeChip(k.Change(metricNow, metricThen), view ~= "tanking")
-    v.stats:SetCell(1, V.metric, k.Num(metricNow), text or "", kind)
+    local rows = AbilityRows(p, view)
+    v.stats:SetCell(1, V.metric, k.Num(metricNow), text or "", kind, rows[1] and rows[1].key)
     local actNote, actKind = "", "mute"
     if ps.act and qs.act then
         local d = (ps.act - qs.act) * 100
         actNote, actKind = strformat("%+.1f pts", d), d >= 0 and "up" or "down"
     end
-    v.stats:SetCell(2, "Active time", ps.act and strformat("%.1f%%", ps.act * 100) or "-", actNote, actKind)
+    v.stats:SetCell(2, "Active time", ps.act and strformat("%.1f%%", ps.act * 100) or "-", actNote, actKind, ICON_ACTIVE)
     local gn, gs = GapsOf(p)
     local qn = q and GapsOf(q) or nil
-    v.stats:SetCell(3, strformat("Idle gaps · %.0f s", gs), tostring(gn), qn and ("was " .. qn) or "",
-        qn and (gn <= qn and "up" or "down") or "mute")
+    v.stats:SetCell(3, gn > 0 and strformat("Idle gaps, %.0f s in all", gs) or "Idle gaps", tostring(gn),
+        qn and ("was " .. qn) or "", qn and (gn <= qn and "up" or "down") or "mute", ICON_IDLE)
     local rec, mechId = Recovery(p)
     local qrec = q and Recovery(q)
     if rec and mechId then
         v.stats:SetCell(4, "Back after " .. SpellName(p, tostring(mechId)), strformat("%.1f s", rec),
-            qrec and strformat("was %.1f", qrec) or "", qrec and (rec <= qrec and "up" or "down") or "mute")
+            qrec and strformat("was %.1f", qrec) or "", qrec and (rec <= qrec and "up" or "down") or "mute", tostring(mechId))
     else
         v.stats:SetCell(4, "Avoidable damage", k.Num(ps.av or 0),
             q and (select(1, k.ChangeChip(k.Change(ps.av, qs.av), false)) or "") or "",
-            q and (select(2, k.ChangeChip(k.Change(ps.av, qs.av), false)) or "mute") or "mute")
+            q and (select(2, k.ChangeChip(k.Change(ps.av, qs.av), false)) or "mute") or "mute", ICON_AVOID)
     end
 
     -- breakdown or timeline
     v.FitList()
     local timeline = cur.mode == "timeline"
+    v.modeSeg:SetLabel("list", view == "healing" and "Healing by ability" or (view == "tanking" and "What hit you"
+        or "Damage by ability"))
     v.modeSeg:SetSelected(timeline and "timeline" or "list")
     v.list.frame:SetShown(not timeline)
     v.timeline:SetShown(timeline)
-    v.listHint:SetShown(not timeline)
     for _, u in ipairs(v.ups) do u:SetShown(false) end
     v.upLab:SetShown(false)
     if timeline then
-        v.listLab:SetText(((p.ct and #p.ct > 0) and "Your casts and the boss, second by second" or "No cast timeline for this pull"):upper())
         if v.timeline.pull ~= p then v.timeline:SetPull(p) else v.timeline:Draw() end
         return
     end
-    v.listLab:SetText((view == "healing" and "Where your healing came from" or (view == "tanking" and "What hit you"
-        or "Where your damage came from")):upper())
-    v.listHint:SetText(q and ("bar: this pull   line: " .. k.ShortDay(q.at)):upper() or "")
-    local rows = AbilityRows(p, view)
     local before = {}
     if q then for _, r in ipairs(AbilityRows(q, view)) do before[r.key] = r.amount end end
     local top = 0
@@ -596,11 +599,13 @@ local function RefreshBoss(state)
 
     -- uptimes
     local ups = Uptimes(p)
+    local barW = UP_W - 34
     for i, u in ipairs(v.ups) do
-        local e = ups[i]
+        local e = i <= (v.upFit or #v.ups) and ups[i]
         if e then
+            local name = SpellName(p, tostring(e.id))
             u.icon:SetSpell(tostring(e.id))
-            u.name:SetText(SpellName(p, tostring(e.id)))
+            u.name:SetText(name)
             local pct = min(1, e.pct)
             local c = (e.out and (pct >= 0.9 and C.up or (pct >= 0.75 and C.gold or C.down))) or C.blue
             if pct >= 0.995 or e.out or pct >= 0.5 then
@@ -609,8 +614,10 @@ local function RefreshBoss(state)
                 u.val:SetText(strformat("%d s", floor(e.secs + 0.5)))
             end
             u.val:SetTextColor((e.out and c or C.fg)[1], (e.out and c or C.fg)[2], (e.out and c or C.fg)[3])
-            u.bar:SetWidth(max(1, 132 * pct))
+            u.bar:SetWidth(max(1, barW * pct))
             u.bar:SetColorTexture(c[1], c[2], c[3], 0.9)
+            u.tip = { name, { strformat("%s on %s: %d s of %s (%.0f%%)", e.out and "Your debuff" or "Buff",
+                e.out and "the boss" or "you", floor(e.secs + 0.5), k.Clock(p.dur or 0), pct * 100), C.mute[1], C.mute[2], C.mute[3] } }
             u:Show()
         else
             u:Hide()

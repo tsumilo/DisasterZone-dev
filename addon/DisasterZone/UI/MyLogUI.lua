@@ -132,7 +132,7 @@ local function BuildHero(parent)
 
     h.trend = k.Chart(h)
     h.trend:SetPoint("TOPRIGHT", h, "TOPRIGHT", -14, -14)
-    h.trend:SetSize(350, 104)
+    h.trend:SetSize(320, 104)
     h.trend.inset = { l = 6, r = 10, t = 14, b = 6 }
     h.trendFrom = k.Label(h, "")
     h.trendFrom:SetPoint("TOPLEFT", h.trend, "BOTTOMLEFT", 2, -3)
@@ -149,7 +149,7 @@ local function SetCell(c, label, value, change, higherIsBetter, fmt)
     local C = k.C
     if not label then c:Hide() return end
     c:Show()
-    c.lab:SetText(label:upper())
+    c.lab:SetText(label)
     c.val:SetText(value)
     if change and abs(change) >= 0.05 then
         local good = (change > 0) == higherIsBetter
@@ -172,9 +172,9 @@ local function FillHero(run, prevRun, runs)
     local L = Log()
     local now = L:RunNumbers(run, view)
     local before = prevRun and L:RunNumbers(prevRun, view) or {}
-    h.when:SetText(((state.run == 1 and "Latest night" or "Raid night") .. " · " .. k.Day(run.at)):upper())
+    h.when:SetText((state.run == 1 and "Latest night" or "Raid night") .. " · " .. k.Day(run.at))
     h.num:SetText(k.Num(now.value))
-    h.metric:SetText(VIEW_BY_KEY[view].long:upper())
+    h.metric:SetText((VIEW_BY_KEY[view].long:gsub("^%l", string.upper)))
     local text, kind = k.ChangeChip(k.Change(now.value, before.value), view ~= "tanking", prevRun and " vs last night" or "")
     h.change:Set(text, kind)
     -- best night of this instance (same view)
@@ -238,8 +238,8 @@ local function FillHero(run, prevRun, runs)
                 { strformat("%d kill%s", r.kills, r.kills == 1 and "" or "s"), C.mute } }
         end,
     })
-    h.trendFrom:SetText(#pts > 1 and k.ShortDay(labels[1].at):upper() or "")
-    h.trendTo:SetText(k.ShortDay(run.at):upper())
+    h.trendFrom:SetText(#pts > 1 and k.ShortDay(labels[1].at) or "")
+    h.trendTo:SetText(k.ShortDay(run.at))
 end
 
 ---------------------------------------------------------------------------
@@ -601,7 +601,7 @@ function MyLogUI:Refresh()
     self:Crumb()
     FillHero(run, prevRun, runs)
     lastRows = L:BossRows(run, state.view)
-    p.cardsLabel:SetText(((state.run == 1 and "Bosses this night" or "Bosses that night")):upper())
+    p.cardsLabel:SetText(state.run == 1 and "Bosses this night" or "Bosses that night")
     LayoutCards(lastRows)
     FillNights(runs)
 end
@@ -684,7 +684,7 @@ function MyLogUI:CreatePanel(parent)
     p.hero:SetPoint("TOPLEFT", rv, "TOPLEFT", PAD, HERO_Y)
     p.hero:SetPoint("TOPRIGHT", rv, "TOPRIGHT", -PAD, HERO_Y)
 
-    p.cardsLabel = k.Label(rv, "")
+    p.cardsLabel = k.Heading(rv, "")
     p.cardsLabel:SetPoint("TOPLEFT", rv, "TOPLEFT", PAD + 2, CARDS_LABEL_Y)
     p.cardsHint = k.Label(rv, "vs your last kill · last 8 kills")
     p.cardsHint:SetTextColor(C.dim[1], C.dim[2], C.dim[3])

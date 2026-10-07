@@ -14,8 +14,9 @@ local strformat = string.format
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 Kit.TITLE_FONT = "Fonts\\MORPHEUS.TTF"
-Kit.NUM_FONT = "Fonts\\ARIALN.TTF"
 Kit.TEXT_FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+-- numbers in Friz too, like My BiS: Arial Narrow (and labels in capitals) read as a generic web dashboard in game
+Kit.NUM_FONT = Kit.TEXT_FONT
 
 -- Colours (r, g, b)
 Kit.C = {
@@ -33,10 +34,10 @@ function Kit.Paint(text, c) return Kit.Hex(c) .. tostring(text) .. "|r" end
 -- Text
 ---------------------------------------------------------------------------
 
--- kind: "hero" (big number), "num" (card number), "numS", "numXS", "title", "titleS", "lab" (small caps label)
+-- kind: "hero" (big number), "num" (card number), "numS", "numXS", "title", "titleS", "lab" (small grey caption)
 local FONTS = {
-    hero = { Kit.NUM_FONT, 40 }, num = { Kit.NUM_FONT, 19 }, numS = { Kit.NUM_FONT, 14 }, numXS = { Kit.NUM_FONT, 12 },
-    title = { Kit.TEXT_FONT, 19 }, titleS = { Kit.TEXT_FONT, 14 }, lab = { Kit.NUM_FONT, 11 },
+    hero = { Kit.NUM_FONT, 34 }, num = { Kit.NUM_FONT, 17 }, numS = { Kit.NUM_FONT, 13 }, numXS = { Kit.NUM_FONT, 11 },
+    title = { Kit.TEXT_FONT, 19 }, titleS = { Kit.TEXT_FONT, 14 }, lab = { Kit.TEXT_FONT, 11 },
 }
 function Kit.Text(parent, kind, layer)
     local fs = parent:CreateFontString(nil, layer or "OVERLAY", "GameFontHighlight")
@@ -48,10 +49,20 @@ function Kit.Text(parent, kind, layer)
     return fs
 end
 
--- A label in capitals (the mockup's small caps).
+-- A small grey caption, written as given (no capitals).
 function Kit.Label(parent, text)
     local fs = Kit.Text(parent, "lab")
-    fs:SetText((text or ""):upper())
+    fs:SetText(text or "")
+    return fs
+end
+
+-- A section heading: Friz, light, the size of the page's tabs.
+function Kit.Heading(parent, text)
+    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    fs:SetTextColor(C.fg[1], C.fg[2], C.fg[3])
+    fs:SetText(text or "")
     return fs
 end
 
@@ -189,6 +200,42 @@ function Kit.Segment(parent, items, onPick, w)
 end
 
 ---------------------------------------------------------------------------
+-- Underline tabs (the addon's second-row tabs): items = { { key, label } }, onPick(key).
+-- tabs:SetSelected(key), tabs:SetLabel(key, text); tabs.buttons[i]
+---------------------------------------------------------------------------
+
+function Kit.Tabs(parent, items, onPick)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(10, 22)
+    f.buttons = {}
+    local function place()
+        local x = 0
+        for _, b in ipairs(f.buttons) do
+            b:ClearAllPoints()
+            b:SetPoint("LEFT", f, "LEFT", x, 0)
+            x = x + (b:GetWidth() or 60) + 4
+        end
+        f:SetWidth(max(10, x - 4))
+    end
+    for i, it in ipairs(items) do
+        local b = ns.UI:CreateUnderlineTab(f, it.label, function(self) onPick(self.key) end, "page")
+        b.key = it.key
+        f.buttons[i] = b
+    end
+    place()
+    function f:SetSelected(key)
+        for _, b in ipairs(self.buttons) do b:SetActive(b.key == key) end
+    end
+    function f:SetLabel(key, text)
+        for _, b in ipairs(self.buttons) do
+            if b.key == key and b:GetText() ~= text then b:SetLabel(text) end
+        end
+        place()
+    end
+    return f
+end
+
+---------------------------------------------------------------------------
 -- Breadcrumb: crumb:Set({ { text, onClick | nil }, ... }); the last part is white, the others grey links.
 ---------------------------------------------------------------------------
 
@@ -302,6 +349,7 @@ function Kit.Icon(parent, size)
         end
         self.tex:SetTexture(tex or 134400)                 -- the question mark
     end
+    function f:SetIcon(tex) self.tex:SetTexture(tex or 134400) end
     return f
 end
 
@@ -800,50 +848,51 @@ function Kit.Legend(parent)
 end
 
 ---------------------------------------------------------------------------
--- Stat strip: a card split into n cells, each a small label, a value and a note (the change):
--- st:SetCell(i, label, value, note, noteKind) noteKind = "up" | "down" | "mute"
+-- Stat tiles: n cards in a row (the look of My BiS's item cards), each an icon, a value with its change beside it
+-- and a grey caption under it:
+-- st:SetCell(i, label, value, note, noteKind, icon) noteKind = "up" | "down" | "mute"; icon = texture or spell key
 ---------------------------------------------------------------------------
 
+local TILE_GAP = 8
+
 function Kit.StatStrip(parent, n, h)
-    local f = Kit.Card(parent, C.card, 0.07)
-    f:SetHeight(h or 46)
+    local f = CreateFrame("Frame", nil, parent)
+    h = h or 52
+    f:SetHeight(h)
     f.cells = {}
     for i = 1, n do
-        local cell = CreateFrame("Frame", nil, f)
-        cell.lab = Kit.Label(cell, "")
-        cell.lab:SetPoint("TOPLEFT", cell, "TOPLEFT", 14, -8)
-        cell.val = Kit.Text(cell, "numS")
-        cell.val:SetFont(Kit.NUM_FONT, 17, "")
-        cell.val:SetPoint("TOPLEFT", cell, "TOPLEFT", 14, -21)
+        local cell = Kit.Card(f, C.card, 0.05)
+        cell.icon = Kit.Icon(cell, h - 22)
+        cell.icon:SetPoint("LEFT", cell, "LEFT", 9, 0)
+        cell.val = Kit.Text(cell, "num")
+        cell.val:SetPoint("TOPLEFT", cell, "TOPLEFT", h - 6, -10)
         cell.note = Kit.Text(cell, "numXS")
-        cell.note:SetPoint("LEFT", cell.val, "RIGHT", 8, -1)
-        if i > 1 then
-            cell.div = f:CreateTexture(nil, "BORDER")
-            cell.div:SetColorTexture(1, 1, 1, 0.06)
-            cell.div:SetWidth(1)
-            cell.div:SetPoint("TOP", cell, "TOPLEFT", 0, -8)
-            cell.div:SetPoint("BOTTOM", cell, "BOTTOMLEFT", 0, 8)
-        end
+        cell.note:SetPoint("BOTTOMLEFT", cell.val, "BOTTOMRIGHT", 7, 1)
+        cell.lab = Kit.Label(cell, "")
+        cell.lab:SetPoint("TOPLEFT", cell.val, "BOTTOMLEFT", 0, -4)
         f.cells[i] = cell
     end
     local function place()
         local w = f:GetWidth() or 0
-        if w <= 0 then w = 772 end
+        if w <= 0 then w = 760 end          -- (the page's inner width, before layout)
+        local cw = (w - (n - 1) * TILE_GAP) / n
         for i, cell in ipairs(f.cells) do
             cell:ClearAllPoints()
-            cell:SetPoint("TOPLEFT", f, "TOPLEFT", (i - 1) * w / n, 0)
-            cell:SetSize(w / n, f:GetHeight() or 46)
+            cell:SetPoint("TOPLEFT", f, "TOPLEFT", (i - 1) * (cw + TILE_GAP), 0)
+            cell:SetSize(cw, h)
+            cell.lab:SetWidth(cw - h - 2)
         end
     end
     place()
     f:HookScript("OnSizeChanged", place)
-    function f:SetCell(i, label, value, note, kind)
+    function f:SetCell(i, label, value, note, kind, icon)
         local cell = self.cells[i]
-        cell.lab:SetText((label or ""):upper())
+        cell.lab:SetText(label or "")
         cell.val:SetText(value or "")
         local c = kind == "up" and C.up or (kind == "down" and C.down or C.mute)
         cell.note:SetText(note or "")
         cell.note:SetTextColor(c[1], c[2], c[3])
+        if type(icon) == "string" and icon:find("\\", 1, true) then cell.icon:SetIcon(icon) else cell.icon:SetSpell(icon) end
         cell:SetShown(label ~= nil)
     end
     return f

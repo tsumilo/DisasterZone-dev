@@ -143,9 +143,9 @@ def page_shows_the_newest_run_against_the_one_before():
     hero = c.eval_py("local h = %s.hero; return { h.num:GetText(), h.metric:GetText(), h.change:IsShown() and h.change.fs:GetText(), "
                      "(function() local o = {}; for _, x in ipairs(h.cells) do o[#o + 1] = x.lab:GetText() .. '=' .. x.val:GetText() .. ' ' .. x.delta:GetText() end; return table.concat(o, '|') end)(), "
                      "h.best:IsShown() }" % p)
-    assert hero[0] == "1,325" and hero[1] == "AVG DPS ON KILLS", hero
+    assert hero[0] == "1,325" and hero[1] == "Avg DPS on kills", hero
     assert "+10.4%" in hero[2], hero              # 1325 vs 1200
-    assert "ITEM LEVEL=121.0 +1" in hero[3] and "DEATHS=2 +2" in hero[3] and "ACTIVE=90.0%" in hero[3], hero
+    assert "Item level=121.0 +1" in hero[3] and "Deaths=2 +2" in hero[3] and "Active=90.0%" in hero[3], hero
     assert hero[4] is True                          # the best night here
     crumb = c.eval_py("local o = {}; for _, b in ipairs(%s.crumb.parts) do if b:IsShown() then o[#o + 1] = b.fs:GetText() end end; return o" % p)
     assert crumb == ["My Log", "Serpentshrine Cavern"], crumb
@@ -168,12 +168,12 @@ def views_follow_the_role_until_picked():
     c.eval("for _, x in ipairs(ns.MyLog:GetPulls()) do x.role = 'healer'; x.spec = 'Holy' end")
     open_page(w, c)
     p = "ns.MainFrame:GetPanel('mylog')"
-    assert c.eval("return %s.hero.metric:GetText()" % p) == "AVG HPS ON KILLS"
-    assert c.eval("return %s.hero.cells[1].lab:GetText()" % p) == "OVERHEAL"
+    assert c.eval("return %s.hero.metric:GetText()" % p) == "Avg HPS on kills"
+    assert c.eval("return %s.hero.cells[1].lab:GetText()" % p) == "Overheal"
     c.eval("ns.MyLogUI:SetView('damage')")
-    assert c.eval("return %s.hero.metric:GetText()" % p) == "AVG DPS ON KILLS"
+    assert c.eval("return %s.hero.metric:GetText()" % p) == "Avg DPS on kills"
     c.eval("ns.MyLogUI:SetView('tanking')")
-    assert c.eval("return %s.hero.metric:GetText()" % p) == "AVG DAMAGE TAKEN PER SECOND"
+    assert c.eval("return %s.hero.metric:GetText()" % p) == "Avg damage taken per second"
     on = c.eval_py("local o = {}; for _, b in ipairs(%s.seg.buttons) do if b.on then o[#o + 1] = b.key end end; return o" % p)
     assert on == ["tanking"], on
 
@@ -268,7 +268,7 @@ def boss_detail_compares_two_kills():
     used = c.eval_py("local b = ns.MyLogDetail:GetViews(); local u = b.chart.used; return { u.line or 0, u.band or 0, u.tick or 0, u.fill or 0 }")
     assert used[0] > 100 and used[1] == 3 and used[2] >= 3 and used[3] > 50, used
     cells = c.eval_py("local b = ns.MyLogDetail:GetViews(); local o = {}; for _, x in ipairs(b.stats.cells) do o[#o + 1] = x.lab:GetText() end; return o")
-    assert cells[0] == "DPS" and cells[1] == "ACTIVE TIME" and cells[2].startswith("IDLE GAPS") and cells[3] == "BACK AFTER WHIRLWIND", cells
+    assert cells[0] == "DPS" and cells[1] == "Active time" and cells[2].startswith("Idle gaps") and cells[3] == "Back after Whirlwind", cells
     crumb = c.eval_py("local o = {}; for _, b in ipairs(%s.crumb.parts) do if b:IsShown() then o[#o + 1] = b.fs:GetText() end end; return o" % P)
     assert crumb == ["My Log", "Serpentshrine Cavern", "Leotheras the Blind"], crumb
     c.eval("ns.MyLogUI:SetView('tanking')")
